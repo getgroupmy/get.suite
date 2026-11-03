@@ -74,7 +74,7 @@ function policyConf() {
 const splitTargets = (s) => s.split(',').map((t) => t.trim().toLowerCase()).filter(Boolean);
 
 export function buildMailConfig() {
-  const domains = q('SELECT name, org_id FROM domains ORDER BY name').all();
+  const domains = q('SELECT name, org_id, catchall FROM domains ORDER BY name').all();
   const users = q('SELECT id, org_id, username, name, mail_hash, mail_quota_mb, disabled, is_admin FROM users ORDER BY username').all();
   const aliases = q('SELECT org_id, address, targets FROM aliases ORDER BY address').all();
   const userByAddress = new Map(users.map((u) => [u.username.toLowerCase(), u]));
@@ -94,7 +94,10 @@ export function buildMailConfig() {
     'postfix/domains': lines(domains.map((d) => `${d.name} OK`)),
     // Disabled accounts keep receiving mail but cannot sign in (see nologin below).
     'postfix/mailboxes': lines(users.map((u) => `${u.username} OK`)),
-    'postfix/aliases': lines([...aliasMap].map(([addr, targets]) => `${addr} ${targets.join(',')}`)),
+    'postfix/aliases': lines([
+      ...[...aliasMap].map(([addr, targets]) => `${addr} ${targets.join(',')}`),
+      ...catchAllLines(domains, users, aliasMap),
+    ]),
     // Who may send as which address: yourself, plus any alias you are a member of.
     'postfix/senders': lines([
       ...users.map((u) => `${u.username} ${u.username}`),
@@ -130,6 +133,22 @@ export function buildMailConfig() {
     if (k?.dkim_private) files[`dkim/${d.name}.${DKIM_SELECTOR}.key`] = k.dkim_private;
   }
   return files;
+}
+
+/**
+ * Catch-all: "@domain target". Postfix tries "user@domain" before "@domain" in this table, but
+ * real mailboxes live in a different table, so each one gets an identity entry first; otherwise
+ * the catch-all would take their mail too.
+ */
+function catchAllLines(domains, users, aliasMap) {
+  const out = [];
+  for (const d of domains.filter((x) => x.catchall)) {
+    for (const u of users) {
+      if (u.username.endsWith(`@${d.name}`) && !aliasMap.has(u.username)) out.push(`${u.username} ${u.username}`);
+    }
+    out.push(`@${d.name} ${d.catchall}`);
+  }
+  return out;
 }
 
 /** Write the tables atomically; remove DKIM keys of domains that no longer exist. */

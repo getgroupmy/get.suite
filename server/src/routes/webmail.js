@@ -278,14 +278,13 @@ export default function webmailRoutes() {
       html: p.html || null, text: p.text || '', textAsHtml: p.textAsHtml || '',
       flagged: flags.has('\\Flagged'),
       spam: /yes/i.test(String(p.headers.get('x-spam') || '')),
-      attachments: p.attachments.map((a, i) => ({ index: i, filename: a.filename || `attachment-${i + 1}`, contentType: a.contentType, size: a.size, related: !!a.related }))
-        .filter((a) => !a.related),
+      attachments: attachmentList(p),
     });
   });
 
   r.get('/messages/:uid/attachments/:index', async (req, res) => {
     const { parsed } = await loadMessage(req.user, String(req.query.folder || 'INBOX'), Number(req.params.uid), false);
-    const a = parsed.attachments[Number(req.params.index)];
+    const a = parsed.attachments.filter((x) => !x.related)[Number(req.params.index)];
     if (!a) throw notFound('Attachment not found');
     // Always download (never render attacker-supplied content on our origin).
     res.setHeader('Content-Type', 'application/octet-stream');
@@ -340,6 +339,11 @@ export default function webmailRoutes() {
       attachments: (Array.isArray(b.attachments) ? b.attachments : []).map(String).slice(0, 50),
       inReplyTo: b.inReplyTo ? String(b.inReplyTo) : null, references: [].concat(b.references || []).map(String).slice(-20),
       replyTo: b.replyTo?.folder && b.replyTo?.uid ? { folder: String(b.replyTo.folder), uid: Number(b.replyTo.uid) } : null,
+      forwardOf: b.forwardOf?.folder && b.forwardOf?.uid ? {
+        folder: String(b.forwardOf.folder), uid: Number(b.forwardOf.uid),
+        attachments: (Array.isArray(b.forwardOf.attachments) ? b.forwardOf.attachments : []).map(Number).slice(0, 50),
+        files: (Array.isArray(b.forwardOf.files) ? b.forwardOf.files : []).slice(0, 50).map((x) => ({ index: Number(x.index), filename: String(x.filename || '').slice(0, 255), size: Number(x.size) || 0 })),
+      } : null,
     };
     // Half-typed addresses are fine in a draft: keep exactly what was typed in our own header.
     const lenient = (v) => addressparser(v, { flatten: true }).filter((a) => EMAIL_RE.test(a.address || '')).map((a) => ({ name: a.name || '', address: a.address }));
@@ -377,6 +381,7 @@ export default function webmailRoutes() {
       attachments: files,
       inReplyTo: meta?.inReplyTo || p.inReplyTo || null, references: meta?.references || [].concat(p.references || []),
       replyTo: meta?.replyTo || null,
+      forwardOf: meta?.forwardOf || null,
     });
   });
 
@@ -413,6 +418,19 @@ export default function webmailRoutes() {
       if (!f || f.kind !== 'file' || !roleFor(f.id, req.user.id)) throw bad('An attachment is not available');
       total += f.size;
       attachments.push({ filename: f.name, contentType: f.mime || 'application/octet-stream', path: path.join(FILES_DIR, f.storage) });
+    }
+    // Forwarding: attachments chosen from the original message are attached straight from the mailbox.
+    if (b.forwardOf?.folder && b.forwardOf?.uid && Array.isArray(b.forwardOf.attachments) && b.forwardOf.attachments.length) {
+      let original;
+      try { original = (await loadMessage(req.user, String(b.forwardOf.folder), Number(b.forwardOf.uid), false)).parsed; }
+      catch { throw bad('The original message is no longer there, so its attachments can’t be included'); }
+      const listed = original.attachments.filter((a) => !a.related);
+      for (const i of new Set(b.forwardOf.attachments.map(Number))) {
+        const a = listed[i];
+        if (!a) throw bad('An attachment of the original message is missing');
+        total += a.size;
+        attachments.push({ filename: a.filename || `attachment-${i + 1}`, content: a.content, contentType: a.contentType || 'application/octet-stream' });
+      }
     }
     // Inline images: <img src="/api/files/<id>/raw"> (pictures inserted from Drive or pasted) are
     // embedded in the message as cid: parts, so recipients see them without access to this server.
@@ -468,6 +486,12 @@ function chunk(value, size = 800) {
   const out = [];
   for (let i = 0; i * size < value.length; i++) out.push(`${String(i).padStart(3, '0')}:${value.slice(i * size, (i + 1) * size)}`);
   return out.length ? out : ['000:'];
+}
+
+/** Attachments a reader sees (pictures embedded in the HTML are not listed). Indexes are used for download and forwarding. */
+function attachmentList(p) {
+  return p.attachments.filter((a) => !a.related)
+    .map((a, i) => ({ index: i, filename: a.filename || `attachment-${i + 1}`, contentType: a.contentType, size: a.size }));
 }
 
 function signatureOf(userId, address) {

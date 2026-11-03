@@ -94,6 +94,7 @@ export default function userRoutes() {
     if (u.is_super) throw bad('The platform owner account cannot be deleted');
     const blobs = tx(() => {
       const list = blobsOwnedBy('?', u.id);
+      q('UPDATE domains SET catchall = NULL WHERE catchall = (SELECT username FROM users WHERE id = ?)').run(u.id);
       q('DELETE FROM users WHERE id = ?').run(u.id);
       return list;
     });

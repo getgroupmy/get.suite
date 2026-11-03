@@ -400,6 +400,58 @@ test('inline images: Drive pictures are embedded as cid parts; others refused', 
   assert.equal((await gina('POST', '/api/mail/send', { to: 'olivia@acme.com', subject: 'x', text: 'x', html: `<img src="/api/files/${pic.id}/raw">` })).status, 400, 'someone else\'s file');
 });
 
+test('catch-all: unknown addresses go to the chosen mailbox; real mailboxes are untouched', async () => {
+  const catcher = client();
+  await olivia('POST', '/api/users', { local: 'catch', domain: 'acme.com', name: 'Catch All', password: 'password123' });
+  await catcher('POST', '/api/auth/login', { username: 'catch@acme.com', password: 'password123' });
+  assert.equal((await olivia('PATCH', '/api/mail-admin/domains/acme.com', { catchall: 'gina@globex.com' })).status, 400, 'must be in this company');
+  assert.equal((await gina('PATCH', '/api/mail-admin/domains/acme.com', { catchall: 'gina@globex.com' })).status, 404, 'not her domain');
+  const before = await gina('POST', '/api/mail/send', { to: 'nobody-here@acme.com', subject: 'x', text: 'x' });
+  assert.equal(before.status, 400, 'unknown address rejected while there is no catch-all');
+
+  const on = await olivia('PATCH', '/api/mail-admin/domains/acme.com', { catchall: 'catch@acme.com' });
+  assert.equal(on.body.catchall, 'catch@acme.com');
+  assert.equal((await olivia('GET', '/api/mail-admin/domains')).body[0].catchall, 'catch@acme.com');
+  await eventually(() => { try { return /^@acme\.com catch@acme\.com$/m.test(fs.readFileSync('/run/nw/postfix/aliases', 'utf8')); } catch { return false; } }, 15000);
+  const t = fs.readFileSync('/run/nw/postfix/aliases', 'utf8');
+  assert.match(t, /^olivia@acme\.com olivia@acme\.com$/m, 'real mailboxes keep their mail');
+
+  assert.equal((await gina('POST', '/api/mail/send', { to: 'quotes@acme.com', subject: 'Quote request via catch-all', text: 'x' })).status, 200);
+  assert.equal((await gina('POST', '/api/mail/send', { to: 'olivia@acme.com', subject: 'For Olivia only', text: 'x' })).status, 200);
+  await eventually(async () => (await inbox(catcher)).some((m) => m.subject === 'Quote request via catch-all'), 20000);
+  await eventually(async () => (await inbox(olivia)).some((m) => m.subject === 'For Olivia only'));
+  assert.ok(!(await inbox(catcher)).some((m) => m.subject === 'For Olivia only'), 'catch-all does not take real mailboxes’ mail');
+
+  await olivia('PATCH', '/api/mail-admin/domains/acme.com', { catchall: null });
+  await eventually(() => !/^@acme\.com /m.test(fs.readFileSync('/run/nw/postfix/aliases', 'utf8')), 15000);
+  await sleep(1500); // Postfix reload
+  assert.equal((await gina('POST', '/api/mail/send', { to: 'nobody-again@acme.com', subject: 'x', text: 'x' })).status, 400, 'off again');
+});
+
+test('forwarding includes the attachments you keep; forward drafts remember them', async () => {
+  const a = (await olivia('POST', '/api/files/upload?name=contract.txt', 'CONTRACT BODY', { raw: true })).body;
+  const b = (await olivia('POST', '/api/files/upload?name=prices.csv', 'a,b\n1,2\n', { raw: true })).body;
+  await olivia('POST', '/api/mail/send', { to: 'gina@globex.com', subject: 'Two files', text: 'see attached', attachments: [a.id, b.id] });
+  const orig = await eventually(async () => (await inbox(gina)).find((m) => m.subject === 'Two files'));
+  const full = (await gina('GET', `/api/mail/messages/${orig.uid}?folder=INBOX`)).body;
+  assert.deepEqual(full.attachments.map((x) => x.filename), ['contract.txt', 'prices.csv']);
+
+  const draft = await gina('POST', '/api/mail/drafts', { to: 'olivia@acme.com', subject: 'Fwd: Two files', text: 'fyi',
+    forwardOf: { folder: 'INBOX', uid: orig.uid, attachments: [1], files: [full.attachments[1]] } });
+  const d = (await gina('GET', `/api/mail/drafts/${draft.body.uid}`)).body;
+  assert.deepEqual(d.forwardOf.attachments, [1]);
+  assert.equal(d.forwardOf.files[0].filename, 'prices.csv');
+
+  const r = await gina('POST', '/api/mail/send', { to: 'olivia@acme.com', subject: 'Fwd: Two files', text: 'fyi',
+    forwardOf: { folder: 'INBOX', uid: orig.uid, attachments: [1] }, draftUid: draft.body.uid });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  const fwd = await eventually(async () => (await inbox(olivia)).find((m) => m.subject === 'Fwd: Two files'));
+  const ff = (await olivia('GET', `/api/mail/messages/${fwd.uid}?folder=INBOX`)).body;
+  assert.deepEqual(ff.attachments.map((x) => x.filename), ['prices.csv'], 'only the kept attachment');
+  assert.equal((await olivia('GET', `/api/mail/messages/${fwd.uid}/attachments/0?folder=INBOX`)).body.toString(), 'a,b\n1,2\n');
+  assert.equal((await gina('POST', '/api/mail/send', { to: 'olivia@acme.com', subject: 'x', text: 'x', forwardOf: { folder: 'INBOX', uid: 999999, attachments: [0] } })).status, 400, 'original gone');
+});
+
 // ---- sign-in protection against the real Dovecot + Postfix ----
 function rawImapLogin(user, pass, localAddress) {
   return new Promise((resolve) => {

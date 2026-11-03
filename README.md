@@ -106,6 +106,10 @@ Your business fixed IP is what makes this work. Do these once:
 - **Mailboxes:** every user automatically has one at their sign-in address, with its standard folders: Inbox, Drafts, Sent, Archive, Junk and Trash.
 - **Aliases** (Admin → Email): one address delivers to several people or forwards outside, e.g. `sales@` → three people. Members can also send as the alias.
 - **postmaster@ and abuse@** go to the company's admins automatically, as email standards require.
+- **Catch-all** (Admin → Email, per domain): mail to any address on the domain that doesn't exist (typos, old addresses, `anything@`) goes to one mailbox you choose.
+  - Real mailboxes and aliases keep their own mail.
+  - The catch-all must be a mailbox in the same company, so the server can't be used to relay a domain's junk elsewhere.
+  - Catch-alls attract extra spam; turn it off to return such mail to the sender again.
 - **Mailbox size limits** (Admin → Users → ⋮ → Mailbox size). When a mailbox is full, new mail bounces to the sender.
 - **Spam:** Rspamd scores incoming mail, rejects obvious spam and files likely spam in Junk.
 - **Suspended users:** disabling a user blocks sign-in everywhere, but their mail keeps arriving.
@@ -134,7 +138,8 @@ Your business fixed IP is what makes this work. Do these once:
   - When the message is sent they're embedded in the email itself, so recipients see them without access to your server and without "show images" prompts.
   - The plain-text version shows `[image: name]` in their place.
   - Pictures count towards the 25 MB message limit.
-  - Replies and forwards quote the original's text, so pictures from the original aren't carried over.
+  - Replies and forwards quote the original's text, so pictures embedded in the original aren't carried over.
+- **Forwarding with attachments:** forwarding a message brings its attachments along as chips you can remove one by one. They're attached straight from the original message when you send, so nothing is downloaded and re-uploaded. Forward drafts remember them too. If the original has been deleted by the time you send, you're told the attachments can't be included.
 - **Vacation reply** (Mail → Vacation reply): an automatic answer with an optional first and last day. It's built on the mail server's standard Sieve "vacation" feature:
   - Each sender gets at most one reply per day.
   - Mailing lists, newsletters, spam and other automatic messages never get one.
@@ -151,7 +156,7 @@ Your business fixed IP is what makes this work. Do these once:
   Users sign in with their email address and Workspace password.
 - **Accounts that predate email** get a working mailbox password the next time the user signs in to Workspace. Webmail works right away.
 
-**Not built yet:** catch-all addresses, resizing pictures inside the editor, and carrying the original's pictures into forwards.
+**Not built yet:** resizing pictures inside the editor, carrying pictures embedded in the original into forwards, and forwarding a message as an attachment (.eml).
 
 ## Sign-in protection
 
@@ -222,7 +227,7 @@ cd server && MAIL_IT_CONFIG_DIR=/etc/nw npm run test:mail
 
 ## Roadmap
 
-- **Mail, next steps:** catch-all addresses, forwarding with the original's pictures and attachments, and a "new mail" notification pushed live instead of checked every 30 seconds.
+- **Mail, next steps:** forward as attachment, resizing pictures, and a "new mail" notification pushed live instead of checked every 30 seconds.
 - **Real-time co-editing:** live cursors and character-level merging (Yjs) in Docs and Sheets.
 - **Phone sync:** CalDAV and CardDAV, so calendars and contacts sync with the phone's built-in apps; WebDAV for Drive.
 - **Renaming a user's address** (moving them to another domain of the same company), **two-factor authentication**, file version history, public share links, Slides, cell formatting in Sheets, and week and day calendar views.

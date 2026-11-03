@@ -79,7 +79,22 @@ export default function mailAdminRoutes() {
 
   r.get('/domains', (req, res) => {
     const orgId = targetOrg(req);
-    res.json(q('SELECT name FROM domains WHERE org_id = ? ORDER BY created_at').all(orgId).map((d) => ({ name: d.name, records: recordsFor(d.name) })));
+    res.json(q('SELECT name, catchall FROM domains WHERE org_id = ? ORDER BY created_at').all(orgId)
+      .map((d) => ({ name: d.name, catchall: d.catchall || null, records: recordsFor(d.name) })));
+  });
+
+  // Catch-all: one mailbox of this company receives mail for any unknown address on the domain.
+  r.patch('/domains/:name', (req, res) => {
+    const orgId = targetOrg(req);
+    const name = validDomain(req.params.name);
+    if (!q('SELECT 1 FROM domains WHERE name = ? AND org_id = ?').get(name, orgId)) throw notFound('Domain not found');
+    let target = req.body.catchall ? String(req.body.catchall).trim().toLowerCase() : null;
+    if (target && !q('SELECT 1 FROM users WHERE username = ? AND org_id = ?').get(target, orgId)) {
+      throw bad('The catch-all must be a mailbox in this company');
+    }
+    q('UPDATE domains SET catchall = ? WHERE name = ?').run(target, name);
+    scheduleMailConfig();
+    res.json({ name, catchall: target });
   });
 
   r.get('/domains/:name/check', async (req, res) => {

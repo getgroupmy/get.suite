@@ -45,7 +45,19 @@ function Domains({ qs }) {
   const [domains, setDomains] = useState(null);
   const [checks, setChecks] = useState({});
   const toast = useToast();
-  useEffect(() => { setDomains(null); setChecks({}); get(`/mail-admin/domains${qs}`).then(setDomains); }, [qs]);
+  const [mailboxes, setMailboxes] = useState([]);
+  useEffect(() => {
+    setDomains(null); setChecks({});
+    get(`/mail-admin/domains${qs}`).then(setDomains);
+    get(`/users${qs}`).then((u) => setMailboxes(u.map((x) => x.username))).catch(() => {});
+  }, [qs]);
+  async function setCatchAll(name, catchall) {
+    try {
+      const r = await patch(`/mail-admin/domains/${encodeURIComponent(name)}${qs}`, { catchall: catchall || null });
+      setDomains((list) => list.map((d) => (d.name === name ? { ...d, catchall: r.catchall } : d)));
+      toast(r.catchall ? `Mail to unknown addresses @${name} now goes to ${r.catchall}` : `Catch-all for ${name} turned off`);
+    } catch (e) { toast(e.message, 'error'); }
+  }
   async function check(name) {
     setChecks((c) => ({ ...c, [name]: 'loading' }));
     try { const r = await get(`/mail-admin/domains/${encodeURIComponent(name)}/check${qs}`); setChecks((c) => ({ ...c, [name]: r })); }
@@ -62,6 +74,15 @@ function Domains({ qs }) {
           <h2 className="grow">{d.name}</h2>
           {c && c !== 'loading' && <span className={c.ok ? 'pill' : 'pill ext'}>{c.ok ? 'All records OK' : 'Needs attention'}</span>}
           <button className="btn small" onClick={() => check(d.name)} disabled={c === 'loading'}>{c === 'loading' ? 'Checking…' : 'Check DNS'}</button>
+        </div>
+        <div className="row wrap catchall">
+          <label className="field" style={{ flex: '0 1 360px' }}><span>Catch-all: mail to addresses that don't exist @{d.name} goes to</span>
+            <select value={d.catchall || ''} onChange={(e) => setCatchAll(d.name, e.target.value)} aria-label={`Catch-all for ${d.name}`}>
+              <option value="">Nobody (return it to the sender)</option>
+              {mailboxes.map((m) => <option key={m} value={m}>{m}</option>)}
+            </select>
+          </label>
+          <p className="muted small" style={{ margin: 0, flex: '1 1 240px' }}>Handy for typos and old addresses, but catch-alls attract extra spam. Real mailboxes and aliases are not affected.</p>
         </div>
         <p className="muted small" style={{ margin: 0 }}>Add these records at the company that hosts DNS for {d.name}. Changes can take up to an hour to show.</p>
         <div className="dns-table" role="table" aria-label={`DNS records for ${d.name}`}>

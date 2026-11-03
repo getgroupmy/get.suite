@@ -284,6 +284,7 @@ function Reader({ folder, uid, special, onClose, onChanged, act, onCompose, onFi
         {others.length > 0 && <button className="btn" onClick={() => onCompose({ to: list(replyTo), cc: list(others), subject: reSubject('Re:'), html: quoted(), ...thread })}><Icon name="replyall" size={18} /> Reply all</button>}
         <button className="btn" onClick={() => onCompose({
           from: replyFrom,
+          ...(m.attachments.length > 0 && { forwardOf: { folder, uid, attachments: m.attachments.map((a) => a.index), files: m.attachments } }),
           subject: reSubject('Fwd:'),
           html: `<p></p><p>---------- Forwarded message ----------<br>From: ${escapeHtml(list([m.from]))}<br>Date: ${escapeHtml(new Date(m.date).toLocaleString())}<br>Subject: ${escapeHtml(m.subject)}<br>To: ${escapeHtml(list(m.to))}</p>${textToHtml(m.text)}`,
         })}><Icon name="forward" size={18} /> Forward</button>
@@ -325,6 +326,8 @@ function Compose({ initial, signatures = [], onClose, onSent, onDraftsChanged })
   });
   const [showCc, setShowCc] = useState(!!(initial.cc || initial.bcc));
   const [files, setFiles] = useState(initial.files || []);
+  // Attachments carried over from a forwarded message (attached by the server from the original).
+  const [fwd, setFwd] = useState(initial.forwardOf || null);
   const [draftState, setDraftState] = useState(initial.draftUid ? 'saved' : '');
 
   // ---- autosave to the Drafts folder: debounced, one save at a time, each replacing the previous copy ----
@@ -334,19 +337,19 @@ function Compose({ initial, signatures = [], onClose, onSent, onDraftsChanged })
   const dirty = useRef(false);
   const closed = useRef(false);
   const latest = useRef({ f, files });
-  latest.current = { f, files };
+  latest.current = { f, files, fwd };
 
   const saveDraft = useCallback(() => {
     clearTimeout(timer.current);
     if (!dirty.current || closed.current) return chain.current;
     dirty.current = false;
-    const { f: cur, files: att } = latest.current;
+    const { f: cur, files: att, fwd: fw } = latest.current;
     const empty = !cur.to.trim() && !cur.cc.trim() && !cur.bcc.trim() && !cur.subject.trim() && !cur.text.trim() && !att.length;
     if (empty && !draftUid.current) return chain.current;
     chain.current = chain.current.then(async () => {
       setDraftState('saving');
       try {
-        const r = await post('/mail/drafts', { ...cur, attachments: att.map((x) => x.id), uid: draftUid.current });
+        const r = await post('/mail/drafts', { ...cur, attachments: att.map((x) => x.id), uid: draftUid.current, forwardOf: fw });
         draftUid.current = r.uid;
         setDraftState('saved');
       } catch { dirty.current = true; setDraftState('error'); }
@@ -361,7 +364,7 @@ function Compose({ initial, signatures = [], onClose, onSent, onDraftsChanged })
     dirty.current = true;
     clearTimeout(timer.current);
     timer.current = setTimeout(saveDraft, 2000);
-  }, [f, files, saveDraft]);
+  }, [f, files, fwd, saveDraft]);
   useEffect(() => () => clearTimeout(timer.current), []);
 
   async function closeKeep() {
@@ -393,7 +396,7 @@ function Compose({ initial, signatures = [], onClose, onSent, onDraftsChanged })
     clearTimeout(timer.current);
     await chain.current;            // let an in-flight save finish so the right draft gets removed
     try {
-      const r = await post('/mail/send', { ...f, html: f.text.trim() ? emailHtml(f.html) : '', attachments: files.map((x) => x.id), draftUid: draftUid.current });
+      const r = await post('/mail/send', { ...f, html: f.text.trim() ? emailHtml(f.html) : '', attachments: files.map((x) => x.id), draftUid: draftUid.current, forwardOf: fwd });
       toast(`Sent to ${r.recipients} recipient${r.recipients === 1 ? '' : 's'}`);
       onSent();
     } catch (err) { toast(err.message, 'error'); setBusy(false); closed.current = false; dirty.current = true; }
@@ -431,6 +434,15 @@ function Compose({ initial, signatures = [], onClose, onSent, onDraftsChanged })
         <label className="compose-line"><span>Subject</span><input aria-label="Subject" value={f.subject} onChange={set('subject')} /></label>
         <RichBody initialHtml={initial.html || textToHtml(initial.text || '')} autoFocus={!!initial.to} onReady={(ed) => { editorRef.current = ed; }}
           onChange={(html, text, initialReport) => { if (initialReport) skipNext.current = true; setF((cur) => ({ ...cur, html, text })); }} />
+        {fwd?.attachments?.length > 0 && (
+          <ul className="att-list" aria-label="Forwarded attachments">
+            {(fwd.files || []).filter((x) => fwd.attachments.includes(x.index)).map((x) => (
+              <li key={`fwd-${x.index}`} className="att"><Icon name="attach" size={18} /><span className="ellipsis">{x.filename}</span><span className="muted small">{formatBytes(x.size)}</span>
+                <button type="button" className="icon-btn" aria-label={`Remove ${x.filename}`}
+                  onClick={() => setFwd({ ...fwd, attachments: fwd.attachments.filter((i) => i !== x.index) })}><Icon name="close" size={16} /></button></li>
+            ))}
+          </ul>
+        )}
         {(files.length > 0 || uploading > 0) && (
           <ul className="att-list">
             {files.map((x) => (
