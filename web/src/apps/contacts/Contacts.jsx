@@ -45,14 +45,14 @@ export default function Contacts() {
       </div>
       {tab === 'mine' && contacts?.length === 0 ? <Empty icon="person" title="No contacts yet">Add people you work with outside your NAS users.</Empty> : (
         <table className="files">
-          <thead><tr><th>Name</th><th className="hide-sm">Email</th><th className="hide-sm">Phone</th><th className="hide-sm">{tab === 'mine' ? 'Company' : 'Username'}</th><th aria-label="Actions" /></tr></thead>
+          <thead><tr><th>Name</th><th className="hide-sm">Email</th><th className="hide-sm">Phone</th><th className="hide-sm">Company</th><th aria-label="Actions" /></tr></thead>
           <tbody>
             {list.map((c) => (
               <tr key={c.id}>
                 <td className="name"><Avatar name={c.name} size={28} /><span>{c.name}</span></td>
-                <td className="hide-sm">{c.email ? <a href={`mailto:${c.email}`}>{c.email}</a> : <span className="muted">—</span>}</td>
+                <td className="hide-sm">{(c.email || c.username) ? <a href={`mailto:${c.email || c.username}`}>{c.email || c.username}</a> : <span className="muted">—</span>}</td>
                 <td className="hide-sm">{c.phone ? <a href={`tel:${c.phone}`}>{c.phone}</a> : <span className="muted">—</span>}</td>
-                <td className="hide-sm muted">{tab === 'mine' ? c.company || '—' : `@${c.username}`}</td>
+                <td className="hide-sm muted">{tab === 'mine' ? c.company || '—' : user.org_name}</td>
                 <td className="actions">
                   {tab === 'mine' ? <>
                     <button className="icon-btn" aria-label={`Edit ${c.name}`} onClick={() => setEditing(c)}><Icon name="edit" size={18} /></button>

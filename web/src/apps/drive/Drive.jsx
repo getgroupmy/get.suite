@@ -239,15 +239,33 @@ export function ShareDialog({ file, onClose }) {
   const { user } = useAuth();
   const [people, setPeople] = useState([]);
   const [shares, setShares] = useState(null);
-  const [pick, setPick] = useState('');
+  const [address, setAddress] = useState('');
   const [role, setRole] = useState('viewer');
+  const [error, setError] = useState('');
 
   useEffect(() => {
     get('/users/directory').then(setPeople);
     get(`/files/${file.id}/shares`).then(setShares);
   }, [file.id]);
 
-  const candidates = people.filter((p) => p.id !== user.id && p.id !== file.owner_id && !shares?.some((s) => s.user_id === p.id));
+  const taken = (id) => id === user.id || id === file.owner_id || shares?.some((s) => s.user_id === id);
+  const suggestions = people.filter((p) => !taken(p.id));
+
+  // Colleagues come from the directory; anyone else is looked up by exact address.
+  async function add(e) {
+    e.preventDefault();
+    setError('');
+    const a = address.trim().toLowerCase();
+    if (!a) return;
+    try {
+      const colleague = people.find((p) => p.username === a);
+      const person = colleague ? { ...colleague, org_name: user.org_name, external: false }
+        : { ...(await get(`/users/lookup?email=${encodeURIComponent(a)}`)), external: true };
+      if (taken(person.id)) return setError('That person already has access');
+      setShares([...shares, { user_id: person.id, name: person.name, username: person.username, org_name: person.org_name, external: person.external, role }]);
+      setAddress('');
+    } catch (err) { setError(err.message); }
+  }
 
   async function save() {
     try {
@@ -257,27 +275,30 @@ export function ShareDialog({ file, onClose }) {
     } catch (e) { toast(e.message, 'error'); }
   }
 
+  const external = shares?.filter((s) => s.external).length || 0;
+
   return (
     <Modal title={`Share “${file.name}”`} onClose={onClose} footer={<><button className="btn" onClick={onClose}>Cancel</button><button className="btn primary" onClick={save} disabled={!shares}>Save</button></>}>
-      <div className="row">
-        <select value={pick} onChange={(e) => setPick(e.target.value)} aria-label="Person" className="grow">
-          <option value="">Add a person…</option>
-          {candidates.map((p) => <option key={p.id} value={p.id}>{p.name} (@{p.username})</option>)}
-        </select>
+      <form className="row" onSubmit={add}>
+        <input className="grow" list="share-people" type="email" value={address} placeholder="Add people by email address"
+          aria-label="Email address" autoFocus onChange={(e) => { setAddress(e.target.value); setError(''); }} />
+        <datalist id="share-people">
+          {suggestions.map((p) => <option key={p.id} value={p.username}>{p.name}</option>)}
+        </datalist>
         <select value={role} onChange={(e) => setRole(e.target.value)} aria-label="Access">
           <option value="viewer">Viewer</option><option value="editor">Editor</option>
         </select>
-        <button className="btn" disabled={!pick} onClick={() => {
-          const p = people.find((x) => x.id === pick);
-          setShares([...shares, { user_id: p.id, name: p.name, username: p.username, role }]);
-          setPick('');
-        }}>Add</button>
-      </div>
+        <button className="btn" disabled={!address.trim()}>Add</button>
+      </form>
+      {error && <p className="error small" role="alert">{error}</p>}
+      {!user.allow_external && <p className="muted small">Your company only allows sharing with colleagues.</p>}
       <ul className="share-list">
         <li><Avatar name={file.owner_name} size={28} /><span className="grow">{file.owner_name}</span><span className="muted">Owner</span></li>
         {shares?.map((s) => (
           <li key={s.user_id}>
-            <Avatar name={s.name} size={28} /><span className="grow">{s.name} <span className="muted">@{s.username}</span></span>
+            <Avatar name={s.name} size={28} />
+            <span className="grow ellipsis">{s.name} <span className="muted small">{s.username}</span>
+              {s.external && <span className="pill ext">External · {s.org_name}</span>}</span>
             <select value={s.role} aria-label={`Access for ${s.name}`} onChange={(e) => setShares(shares.map((x) => (x.user_id === s.user_id ? { ...x, role: e.target.value } : x)))}>
               <option value="viewer">Viewer</option><option value="editor">Editor</option>
             </select>
@@ -285,6 +306,7 @@ export function ShareDialog({ file, onClose }) {
           </li>
         ))}
       </ul>
+      {external > 0 && <p className="muted small">{external === 1 ? '1 person' : `${external} people`} outside {user.org_name} can open this.</p>}
       {file.kind === 'folder' && <p className="muted small">People get the same access to everything inside this folder.</p>}
     </Modal>
   );

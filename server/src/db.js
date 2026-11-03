@@ -1,4 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -13,13 +14,29 @@ PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
 PRAGMA busy_timeout = 5000;
 
+-- A tenant: one company with its own users, admins, domains and chat.
+CREATE TABLE IF NOT EXISTS orgs (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  allow_external INTEGER NOT NULL DEFAULT 1,  -- may share/DM with other companies
+  quota_mb INTEGER NOT NULL DEFAULT 0,        -- 0 = unlimited
+  created_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS domains (
+  name TEXT PRIMARY KEY COLLATE NOCASE,
+  org_id TEXT NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
+  created_at INTEGER NOT NULL
+);
+-- username is the sign-in address: local@domain (domain belongs to the user's org).
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
+  org_id TEXT REFERENCES orgs(id) ON DELETE CASCADE,
   username TEXT NOT NULL UNIQUE COLLATE NOCASE,
   name TEXT NOT NULL,
   email TEXT,
   password_hash TEXT NOT NULL,
-  is_admin INTEGER NOT NULL DEFAULT 0,
+  is_admin INTEGER NOT NULL DEFAULT 0,        -- admin of their org
+  is_super INTEGER NOT NULL DEFAULT 0,        -- platform owner: manages all orgs
   disabled INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL
 );
@@ -73,6 +90,7 @@ CREATE TABLE IF NOT EXISTS contacts (
 );
 CREATE TABLE IF NOT EXISTS channels (
   id TEXT PRIMARY KEY,
+  org_id TEXT REFERENCES orgs(id) ON DELETE CASCADE,  -- NULL for direct messages
   name TEXT NOT NULL,
   dm_key TEXT UNIQUE,
   created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
@@ -105,4 +123,29 @@ export function tx(fn) {
   db.exec('BEGIN IMMEDIATE');
   try { const r = fn(); db.exec('COMMIT'); return r; }
   catch (e) { db.exec('ROLLBACK'); throw e; }
+}
+
+// ---------- migrations from v0.1 (single-company) ----------
+const hasColumn = (table, col) => db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === col);
+if (!hasColumn('users', 'org_id')) db.exec('ALTER TABLE users ADD COLUMN org_id TEXT REFERENCES orgs(id) ON DELETE CASCADE');
+if (!hasColumn('users', 'is_super')) db.exec('ALTER TABLE users ADD COLUMN is_super INTEGER NOT NULL DEFAULT 0');
+if (!hasColumn('channels', 'org_id')) db.exec('ALTER TABLE channels ADD COLUMN org_id TEXT REFERENCES orgs(id) ON DELETE CASCADE');
+db.exec('CREATE INDEX IF NOT EXISTS users_org ON users(org_id)');
+
+// Move users who predate companies into a default company with a placeholder domain.
+if (db.prepare('SELECT 1 FROM users WHERE org_id IS NULL').get()) {
+  tx(() => {
+    const orgId = crypto.randomUUID();
+    const domain = 'workspace.local';
+    db.prepare('INSERT INTO orgs (id, name, created_at) VALUES (?, ?, ?)').run(orgId, 'My company', Date.now());
+    db.prepare('INSERT OR IGNORE INTO domains (name, org_id, created_at) VALUES (?, ?, ?)').run(domain, orgId, Date.now());
+    for (const u of db.prepare('SELECT id, username FROM users WHERE org_id IS NULL').all()) {
+      const address = u.username.includes('@') ? u.username : `${u.username}@${domain}`;
+      db.prepare('UPDATE users SET org_id = ?, username = ? WHERE id = ?').run(orgId, address, u.id);
+    }
+    // The first admin becomes the platform owner.
+    const first = db.prepare('SELECT id FROM users WHERE is_admin = 1 ORDER BY created_at LIMIT 1').get();
+    if (first && !db.prepare('SELECT 1 FROM users WHERE is_super = 1').get()) db.prepare('UPDATE users SET is_super = 1 WHERE id = ?').run(first.id);
+    db.prepare("UPDATE channels SET org_id = ? WHERE org_id IS NULL AND dm_key IS NULL").run(orgId);
+  });
 }

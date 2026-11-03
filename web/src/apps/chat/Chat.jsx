@@ -72,7 +72,7 @@ export default function Chat() {
 
   const publicChannels = channels.filter((c) => !c.dm_key);
   const dms = channels.filter((c) => c.dm_key);
-  const title = current ? (current.dm_key ? current.dm_name || 'Notes to self' : `# ${current.name}`) : '';
+  const title = current ? (current.dm_key ? (current.dm_name || 'Notes to self') + (current.dm_org ? ` (${current.dm_org})` : '') : `# ${current.name}`) : '';
 
   return (
     <div className="chat">
@@ -86,12 +86,15 @@ export default function Chat() {
         <div className="subnav-title">Direct messages</div>
         {dms.map((c) => (
           <button key={c.id} className={`subnav-item ${c.id === channelId ? 'active' : ''}`} onClick={() => navigate(`/chat/${c.id}`)}>
-            <Avatar name={c.dm_name || user.name} size={20} /><span className="grow ellipsis">{c.dm_name || 'Notes to self'}</span>{unread[c.id] > 0 && <span className="badge">{unread[c.id]}</span>}
+            <Avatar name={c.dm_name || user.name} size={20} /><span className="grow ellipsis">{c.dm_name || 'Notes to self'}{c.dm_org && <span className="muted small"> · {c.dm_org}</span>}</span>{unread[c.id] > 0 && <span className="badge">{unread[c.id]}</span>}
           </button>
         ))}
-        <select className="dm-pick" value="" aria-label="Start a direct message" onChange={(e) => e.target.value && openDm(e.target.value)}>
+        <select className="dm-pick" value="" aria-label="Start a direct message" onChange={(e) => {
+          if (e.target.value === '__email__') setDialog('email'); else if (e.target.value) openDm(e.target.value);
+        }}>
           <option value="">+ Message someone…</option>
           {people.filter((p) => p.id !== user.id).map((p) => <option key={p.id} value={p.id}>{p.name}{online.includes(p.id) ? ' ●' : ''}</option>)}
+          {user.allow_external && <option value="__email__">Someone at another company…</option>}
         </select>
       </aside>
       <section className="chat-main">
@@ -127,7 +130,9 @@ export default function Chat() {
           </form>
         </>}
       </section>
-      {dialog && <PromptModal title="New channel" label="Channel name" confirm="Create" onClose={() => setDialog(false)}
+      {dialog === 'email' && <PromptModal title="Message someone at another company" label="Their email address" confirm="Start chat" onClose={() => setDialog(false)}
+        onSubmit={async (email) => { const p = await get(`/users/lookup?email=${encodeURIComponent(email)}`); await openDm(p.id); }} />}
+      {dialog === true && <PromptModal title="New channel" label="Channel name" confirm="Create" onClose={() => setDialog(false)}
         onSubmit={async (name) => { const c = await post('/chat/channels', { name }); await loadChannels(); navigate(`/chat/${c.id}`); }} />}
     </div>
   );

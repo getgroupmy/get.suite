@@ -388,3 +388,10 @@ button:focus-visible, a:focus-visible, [tabindex]:focus-visible { outline: 2px s
   .paper { box-shadow: none; padding: 0; max-width: none; }
   body { background: #fff; }
 }
+
+/* ---------- companies ---------- */
+.address-input { display: flex; align-items: center; gap: 6px; }
+.address-input input { flex: 1; min-width: 0; }
+.address-input > .muted { white-space: nowrap; max-width: 55%; overflow: hidden; text-overflow: ellipsis; }
+.pill.ext { background: var(--warn-bg); color: var(--text); margin-left: 6px; font-weight: 500; }
+.brand-mark.small-mark { display: inline-grid; width: 28px; height: 28px; font-size: 13px; border-radius: 8px; vertical-align: middle; margin-right: 14px; }

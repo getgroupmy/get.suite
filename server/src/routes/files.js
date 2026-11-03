@@ -7,10 +7,13 @@ import { q, tx, FILES_DIR, TMP_DIR } from '../db.js';
 import { uid, now, str, bad, forbidden, notFound, HttpError, mimeFor, isInlineSafe } from '../util.js';
 import { roleFor, atLeast, audienceFor, subtreeIds } from '../access.js';
 import { sendTo } from '../hub.js';
+import { canReach, checkQuota } from '../tenancy.js';
 
 const COLS = `f.id, f.owner_id, f.parent_id, f.name, f.kind, f.mime, f.size, f.version, f.trashed,
               f.created_at, f.updated_at, u.name AS owner_name, ub.name AS updated_by_name`;
 const FROM = `FROM files f JOIN users u ON u.id = f.owner_id LEFT JOIN users ub ON ub.id = f.updated_by`;
+// Owner is in my company, or both companies currently allow external collaboration.
+const REACHABLE = `(u.org_id = ? OR (SELECT MIN(allow_external) FROM orgs WHERE id IN (u.org_id, ?)) = 1)`;
 const ORDER = `ORDER BY (f.kind = 'folder') DESC, f.name COLLATE NOCASE`;
 
 const EMPTY = {
@@ -84,6 +87,7 @@ export default function fileRoutes({ maxUploadBytes }) {
   // List: ?view=mine|shared|recent|trash|search & parent= & q=
   r.get('/', (req, res) => {
     const me = req.user.id;
+    const org = req.user.org_id;
     const view = req.query.view || 'mine';
     let rows;
     if (view === 'mine') {
@@ -99,12 +103,12 @@ export default function fileRoutes({ maxUploadBytes }) {
       }
     } else if (view === 'shared') {
       rows = q(`SELECT ${COLS}, s.role ${FROM} JOIN shares s ON s.file_id = f.id
-                WHERE s.user_id = ? AND f.trashed = 0 ${ORDER}`).all(me);
+                WHERE s.user_id = ? AND f.trashed = 0 AND ${REACHABLE} ${ORDER}`).all(me, org, org);
     } else if (view === 'recent') {
       rows = q(`SELECT ${COLS}, CASE WHEN f.owner_id = ? THEN 'owner' ELSE s.role END AS role ${FROM}
                 LEFT JOIN shares s ON s.file_id = f.id AND s.user_id = ?
-                WHERE (f.owner_id = ? OR s.user_id IS NOT NULL) AND f.kind != 'folder' AND f.trashed = 0
-                ORDER BY f.updated_at DESC LIMIT 50`).all(me, me, me);
+                WHERE (f.owner_id = ? OR s.user_id IS NOT NULL) AND f.kind != 'folder' AND f.trashed = 0 AND ${REACHABLE}
+                ORDER BY f.updated_at DESC LIMIT 50`).all(me, me, me, org, org);
     } else if (view === 'trash') {
       rows = q(`SELECT ${COLS} ${FROM} WHERE f.owner_id = ? AND f.trashed = 1 ORDER BY f.updated_at DESC`)
         .all(me).map((f) => publicFile(f, 'owner'));
@@ -112,8 +116,8 @@ export default function fileRoutes({ maxUploadBytes }) {
       const term = `%${String(req.query.q || '').replace(/[%_\\]/g, (c) => '\\' + c)}%`;
       rows = q(`SELECT ${COLS}, CASE WHEN f.owner_id = ? THEN 'owner' ELSE s.role END AS role ${FROM}
                 LEFT JOIN shares s ON s.file_id = f.id AND s.user_id = ?
-                WHERE (f.owner_id = ? OR s.user_id IS NOT NULL) AND f.trashed = 0 AND f.name LIKE ? ESCAPE '\\'
-                ${ORDER} LIMIT 200`).all(me, me, me, term);
+                WHERE (f.owner_id = ? OR s.user_id IS NOT NULL) AND f.trashed = 0 AND f.name LIKE ? ESCAPE '\\' AND ${REACHABLE}
+                ${ORDER} LIMIT 200`).all(me, me, me, term, org, org);
     } else throw bad('Unknown view');
     res.json(rows);
   });
@@ -149,6 +153,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     const name = cleanName(String(req.query.name || ''));
     const declared = Number(req.headers['content-length'] || 0);
     if (declared > maxUploadBytes) throw new HttpError(413, 'File is too large');
+    checkQuota(req.user.org_id, declared);
     const storage = uid();
     const tmp = path.join(TMP_DIR, storage);
     let size = 0;
@@ -161,6 +166,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     });
     try {
       await pipeline(req, limiter, fs.createWriteStream(tmp));
+      checkQuota(req.user.org_id, size); // Content-Length can be absent (chunked uploads)
       fs.renameSync(tmp, path.join(FILES_DIR, storage));
     } catch (e) {
       fs.rm(tmp, { force: true }, () => {});
@@ -262,8 +268,9 @@ export default function fileRoutes({ maxUploadBytes }) {
 
   r.get('/:id/shares', (req, res) => {
     const f = loadFile(req.params.id, req.user);
-    res.json(q(`SELECT s.user_id, s.role, u.name, u.username FROM shares s JOIN users u ON u.id = s.user_id
-                WHERE s.file_id = ? ORDER BY u.name`).all(f.id));
+    res.json(q(`SELECT s.user_id, s.role, u.name, u.username, o.name AS org_name, (u.org_id != ?) AS external
+                FROM shares s JOIN users u ON u.id = s.user_id JOIN orgs o ON o.id = u.org_id
+                WHERE s.file_id = ? ORDER BY u.name`).all(req.user.org_id, f.id).map((s) => ({ ...s, external: !!s.external })));
   });
 
   // Replace the share list: [{ user_id, role }]
@@ -277,7 +284,7 @@ export default function fileRoutes({ maxUploadBytes }) {
       for (const s of list) {
         if (!['viewer', 'editor'].includes(s.role)) throw bad('role must be viewer or editor');
         if (s.user_id === f.owner_id) continue;
-        if (!q('SELECT 1 FROM users WHERE id = ?').get(s.user_id)) throw bad('Unknown user');
+        if (!canReach(req.user, s.user_id)) throw bad('You cannot share with that person (external sharing may be turned off)');
         q('INSERT INTO shares (file_id, user_id, role) VALUES (?, ?, ?)').run(f.id, s.user_id, s.role);
       }
     });

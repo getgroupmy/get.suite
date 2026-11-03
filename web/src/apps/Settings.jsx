@@ -6,13 +6,13 @@ import { useToast } from '../components/ui.jsx';
 export default function Settings() {
   const { user, setUser } = useAuth();
   const toast = useToast();
-  const [profile, setProfile] = useState({ name: user.name, email: user.email || '' });
+  const [name, setName] = useState(user.name);
   const [pw, setPw] = useState({ currentPassword: '', newPassword: '', confirm: '' });
   const [error, setError] = useState('');
 
   async function saveProfile(e) {
     e.preventDefault();
-    try { setUser((await patch('/auth/me', profile)).user); toast('Profile saved'); }
+    try { setUser((await patch('/auth/me', { name })).user); toast('Profile saved'); }
     catch (err) { toast(err.message, 'error'); }
   }
   async function savePassword(e) {
@@ -31,9 +31,9 @@ export default function Settings() {
       <h1>Settings</h1>
       <form className="card stack" onSubmit={saveProfile}>
         <h2>Profile</h2>
-        <label className="field"><span>Username</span><input value={user.username} disabled /></label>
-        <label className="field"><span>Full name</span><input value={profile.name} onChange={(e) => setProfile({ ...profile, name: e.target.value })} required /></label>
-        <label className="field"><span>Email</span><input type="email" value={profile.email} onChange={(e) => setProfile({ ...profile, email: e.target.value })} /></label>
+        <label className="field"><span>Email address</span><input value={user.username} disabled /></label>
+        <label className="field"><span>Company</span><input value={user.org_name} disabled /></label>
+        <label className="field"><span>Full name</span><input value={name} onChange={(e) => setName(e.target.value)} required /></label>
         <div className="row end"><button className="btn primary">Save profile</button></div>
       </form>
       <form className="card stack" onSubmit={savePassword}>

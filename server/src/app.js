@@ -8,7 +8,10 @@ import userRoutes from './routes/users.js';
 import fileRoutes from './routes/files.js';
 import calendarRoutes from './routes/calendar.js';
 import contactRoutes from './routes/contacts.js';
-import chatRoutes, { ensureGeneralChannel } from './routes/chat.js';
+import chatRoutes from './routes/chat.js';
+import orgRoutes from './routes/orgs.js';
+import { q } from './db.js';
+import { ensureGeneralChannel } from './tenancy.js';
 
 export function createApp({
   publicDir = process.env.PUBLIC_DIR,
@@ -16,7 +19,7 @@ export function createApp({
   trustProxy = process.env.TRUST_PROXY ?? 'loopback, linklocal, uniquelocal',
   maxUploadBytes = Number(process.env.MAX_UPLOAD_MB || 4096) * 1024 * 1024,
 } = {}) {
-  ensureGeneralChannel();
+  for (const { id } of q('SELECT id FROM orgs').all()) ensureGeneralChannel(id);
   const app = express();
   app.disable('x-powered-by');
   app.set('trust proxy', trustProxy);
@@ -43,6 +46,7 @@ export function createApp({
 
   app.use('/api/auth', authRoutes({ secureCookies }));
   app.use('/api/users', requireAuth, userRoutes());
+  app.use('/api/orgs', requireAuth, orgRoutes());
   app.use('/api/files', requireAuth, fileRoutes({ maxUploadBytes }));
   app.use('/api/events', requireAuth, calendarRoutes());
   app.use('/api/contacts', requireAuth, contactRoutes());

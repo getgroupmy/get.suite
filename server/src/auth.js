@@ -37,15 +37,21 @@ export function destroySession(token) {
 
 export function userFromToken(token) {
   if (!token) return null;
-  const row = q(`SELECT u.id, u.username, u.name, u.email, u.is_admin, u.disabled, s.expires_at
-                 FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = ?`).get(token);
+  const row = q(`SELECT u.id, u.username, u.name, u.is_admin, u.is_super, u.disabled, u.org_id,
+                        o.name AS org_name, o.allow_external, s.expires_at
+                 FROM sessions s JOIN users u ON u.id = s.user_id JOIN orgs o ON o.id = u.org_id
+                 WHERE s.token = ?`).get(token);
   if (!row) return null;
   if (row.expires_at < now() || row.disabled) { destroySession(token); return null; }
   // Sliding expiry: refresh when less than half the lifetime remains.
   if (row.expires_at - now() < (SESSION_DAYS / 2) * 864e5) {
     q('UPDATE sessions SET expires_at = ? WHERE token = ?').run(now() + SESSION_DAYS * 864e5, token);
   }
-  return { id: row.id, username: row.username, name: row.name, email: row.email, is_admin: !!row.is_admin };
+  return {
+    id: row.id, username: row.username, email: row.username, name: row.name,
+    is_admin: !!row.is_admin || !!row.is_super, is_super: !!row.is_super,
+    org_id: row.org_id, org_name: row.org_name, allow_external: !!row.allow_external,
+  };
 }
 
 export function tokenFromReq(req) {
@@ -83,9 +89,15 @@ export function loginRateLimit(req, res, next) {
 }
 export function clearLoginAttempts(ip) { attempts.delete(ip); }
 
-export function newUserRow({ username, name, email, password, is_admin }) {
+export function requireSuper(req, res, next) {
+  if (!req.user?.is_super) return next(new HttpError(403, 'Platform owner only'));
+  next();
+}
+
+export function newUserRow({ orgId, username, name, password, is_admin, is_super }) {
   const id = uid();
-  q(`INSERT INTO users (id, username, name, email, password_hash, is_admin, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`).run(id, username, name, email ?? null, hashPassword(password), is_admin ? 1 : 0, now());
+  q(`INSERT INTO users (id, org_id, username, name, email, password_hash, is_admin, is_super, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(id, orgId, username, name, username, hashPassword(password), is_admin ? 1 : 0, is_super ? 1 : 0, now());
   return id;
 }

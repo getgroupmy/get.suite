@@ -72,7 +72,7 @@ function Shell() {
       <header className="topbar">
         <button className="icon-btn mobile-only" aria-label="Menu" onClick={() => setNavOpen((o) => !o)}><Icon name="menu" /></button>
         <a className="brand" href="/drive" onClick={(e) => { e.preventDefault(); navigate('/drive'); }}>
-          <span className="brand-mark">W</span><span className="brand-text">Workspace</span>
+          <span className="brand-mark">{user.org_name.slice(0, 1).toUpperCase()}</span><span className="brand-text">{user.org_name}</span>
         </a>
         <form className="search" role="search" onSubmit={(e) => {
           e.preventDefault();
@@ -83,7 +83,7 @@ function Shell() {
           <input name="q" placeholder="Search in Drive" aria-label="Search in Drive" />
         </form>
         <Menu align="right" trigger={(p) => <button className="avatar-btn" aria-label="Account" {...p}><Avatar name={user.name} /></button>} items={[
-          { label: `${user.name} (@${user.username})`, icon: 'person', onClick: () => navigate('/settings') },
+          { label: `${user.name} · ${user.username}`, icon: 'person', onClick: () => navigate('/settings') },
           { label: 'Settings', icon: 'settings', onClick: () => navigate('/settings') },
           user.is_admin && { label: 'Admin console', icon: 'shield', onClick: () => navigate('/admin') },
           '-',

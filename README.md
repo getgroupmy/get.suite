@@ -1,6 +1,6 @@
 # NAS Workspace
 
-A self-hosted, Google Workspace-style office suite built to run on a Synology DS224+ (or any Docker host).
+A self-hosted, Google Workspace-style office suite built to run on a Synology DS224+ (or any Docker host). One server hosts **several separate companies**, each with its own domains, users and admins.
 
 | App | What it does |
 |---|---|
@@ -10,7 +10,20 @@ A self-hosted, Google Workspace-style office suite built to run on a Synology DS
 | **Calendar** | Month view, all-day and timed events, colours, upcoming list |
 | **Contacts** | Personal address book, plus a directory of everyone on the NAS |
 | **Chat** | Channels and direct messages, delivered live over WebSockets |
-| **Admin** | Create, disable, reset or delete users; per-user storage use |
+| **Admin** | Create, disable, reset or delete users; per-user storage use; company settings; all companies (platform owner) |
+
+## Companies (multi-tenant)
+
+| Role | Can do |
+|---|---|
+| **Platform owner** (the account created on first run) | Add and delete companies, assign domains, set storage quotas, manage any company's users |
+| **Company admin** | Manage their own company's users (addresses on their company's domains only), rename the company, switch external collaboration on or off |
+| **User** | Use the apps; sees only their own company's directory and chat channels |
+
+- **Sign-in:** everyone signs in with their email address, e.g. `anna@company.com`. The domain must belong to their company, and the same address will become their mailbox in the mail phase.
+- **Isolation:** companies can't see each other's directory, channels, users or files.
+- **Working across companies:** a user can share a file or folder, or start a direct message, with someone at another company by typing their **exact email address**. This works only while **both** companies allow external collaboration. If either admin switches it off, outside access ends immediately; switching it back on restores it. Shares show an "External · Company" badge.
+- **Quotas:** set per company by the platform owner (0 = unlimited).
 
 When two people edit the same doc or sheet, changes are pushed live. If both edit at once, the second person sees a conflict banner ("load theirs" or "keep mine") instead of silently losing work.
 
@@ -43,13 +56,13 @@ Requires DSM 7.2+ and **Container Manager** (from Package Center).
    - Name: `workspace`
    - Path: `/volume1/docker/workspace/app`
    - Choose "Use existing docker-compose.yml", then click Next and Done. The first build takes a few minutes.
-5. **Create the admin account.** Open `http://NAS-IP:8080`. The first visit asks you to create the administrator. Then add everyone else under **Admin**.
+5. **Create the workspace.** Open `http://NAS-IP:8080`. The first visit asks for your company name, its domain and your account, and that account becomes the **platform owner**. Then use **Admin → All companies** to add other companies (each gets its own first admin), and **Admin → Users** to add people.
 
 Using 2 GB RAM: the app runs fine, and the 512 MB `mem_limit` is generous. Adding a RAM stick only matters if you run other heavy containers.
 
 ## Publish it securely on your fixed IP
 
-1. **DNS:** at your domain registrar, add an A record, e.g. `workspace.example.com → <your fixed IP>`.
+1. **DNS:** at your domain registrar, add an A record, e.g. `workspace.example.com → <your fixed IP>`. One hostname serves every company. If you like, each company can also get its own name (e.g. `office.company.com`), added as an extra reverse-proxy entry and certificate pointing at the same port 8080.
 2. **Router:** forward TCP **443** and **80** to the NAS. Port 80 is needed only for Let's Encrypt renewals. Do **not** forward 8080 or the DSM ports (5000/5001).
 3. **Certificate:** Control Panel → Security → Certificate → Add → *Get a certificate from Let's Encrypt* for `workspace.example.com`.
 4. **Reverse proxy:** Control Panel → Login Portal → Advanced → Reverse Proxy → Create:
@@ -66,14 +79,16 @@ Cookies switch to `Secure` automatically once traffic arrives over HTTPS through
 All data is in `docker/workspace/data`:
 
 - `files/`: uploaded files
-- `workspace.db`: users, docs, sheets, calendar, contacts and chat
+- `workspace.db`: companies, users, docs, sheets, calendar, contacts and chat
 - `backups/`: a consistent database snapshot written daily (the last 7 are kept)
 
 Point **Hyper Backup** at `docker/workspace/data`, ideally to an off-site target. To restore, stop the project, copy the files back (replace `workspace.db` with a snapshot from `backups/` if needed) and start it again.
 
 ## Updating
 
-Replace the files in `docker/workspace/app` with the new version. Then in Container Manager, go to Project → workspace → **Action → Build**. Your data folder is untouched.
+Upgrading from v0.1 (before companies existed) is automatic. Existing users are moved into a company called "My company" with addresses like `alice@workspace.local`, and the first admin becomes the platform owner. Afterwards, add your real domain under Admin → All companies → Domains. Changing existing users' addresses isn't built in yet; it's on the roadmap.
+
+To update, replace the files in `docker/workspace/app` with the new version. Then in Container Manager, go to Project → workspace → **Action → Build**. Your data folder is untouched.
 
 ## Configuration (environment variables)
 
@@ -96,7 +111,7 @@ cd web && npm test                             # formula engine tests
 
 ## Roadmap
 
-- **Mail:** a webmail app in this UI, backed by a hardened Postfix and Dovecot container. Your business fixed IP makes this viable. You need port 25 open both ways, a **PTR (reverse-DNS) record** set by your ISP, and SPF, DKIM and DMARC DNS records.
+- **Mail (next):** multi-domain mailboxes for every user (`name@company-domain`), aliases and per-mailbox quotas, managed from the same admin screens, plus a webmail app in this UI, backed by a hardened Postfix and Dovecot container. Your business fixed IP makes this viable. You need port 25 open both ways, a **PTR (reverse-DNS) record** set by your ISP, and SPF, DKIM and DMARC DNS records.
 - **Real-time co-editing:** live cursors and character-level merging (Yjs) in Docs and Sheets.
 - **Phone sync:** CalDAV and CardDAV, so calendars and contacts sync with the phone's built-in apps; WebDAV for Drive.
-- **Two-factor authentication**, file version history, public share links, Slides, cell formatting in Sheets, and week and day calendar views.
+- **Renaming a user's address** (moving them to another domain of the same company), **two-factor authentication**, file version history, public share links, Slides, cell formatting in Sheets, and week and day calendar views.
