@@ -47,6 +47,28 @@ export function setMailPassword(userId, password) {
   scheduleMailConfig();
 }
 
+// ---------- sign-in protection ----------
+export const AUTH_POLICY_URL = process.env.AUTH_POLICY_URL || `http://workspace:${process.env.AUTH_POLICY_PORT || 8081}/`;
+function policyConf() {
+  let secret = getSetting('auth_policy_secret');
+  if (!secret) { secret = crypto.randomBytes(24).toString('base64url'); setSetting('auth_policy_secret', secret); }
+  let nonce = getSetting('auth_policy_nonce');
+  if (!nonce) { nonce = crypto.randomBytes(16).toString('hex'); setSetting('auth_policy_nonce', nonce); }
+  return [
+    `auth_policy_server_url = ${AUTH_POLICY_URL}`,
+    `auth_policy_server_api_header = X-Policy-Key: ${secret}`,
+    `auth_policy_hash_nonce = ${nonce}`,
+    'auth_policy_hash_truncate = 16',
+    'auth_policy_request_attributes = login=%{requested_username} pwhash=%{hashed_password} remote=%{rip} protocol=%s',
+    'auth_policy_check_before_auth = yes',
+    'auth_policy_check_after_auth = yes',
+    'auth_policy_report_after_auth = yes',
+    'auth_policy_reject_on_fail = no',
+    'auth_policy_server_timeout_msecs = 2000',
+    '',
+  ].join('\n');
+}
+
 // ---------- table generation ----------
 const splitTargets = (s) => s.split(',').map((t) => t.trim().toLowerCase()).filter(Boolean);
 
@@ -87,6 +109,8 @@ export function buildMailConfig() {
       return `${u.username}:${pass}::::::${extra.join(' ')}`;
     })),
     'dovecot/masters': (webmailSecret(), `webmail:${getSetting('webmail_secret_hash')}\n`),
+    // Sign-in protection: Dovecot (IMAP and Postfix SMTP AUTH) asks the app before/after each sign-in.
+    'dovecot/policy.conf': policyConf(),
   };
   for (const d of domains) {
     const k = ensureDkim(d.name);

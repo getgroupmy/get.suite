@@ -12,6 +12,7 @@ import chatRoutes from './routes/chat.js';
 import orgRoutes from './routes/orgs.js';
 import mailAdminRoutes from './routes/mailAdmin.js';
 import webmailRoutes from './routes/webmail.js';
+import securityRoutes from './routes/security.js';
 import { writeMailConfig, mailEnabled } from './mail/config.js';
 import { q } from './db.js';
 import { ensureGeneralChannel } from './tenancy.js';
@@ -53,6 +54,7 @@ export function createApp({
   app.use('/api/orgs', requireAuth, orgRoutes());
   app.use('/api/mail-admin', requireAuth, mailAdminRoutes());
   app.use('/api/mail', requireAuth, webmailRoutes());
+  app.use('/api/security', requireAuth, securityRoutes());
   app.use('/api/files', requireAuth, fileRoutes({ maxUploadBytes }));
   app.use('/api/events', requireAuth, calendarRoutes());
   app.use('/api/contacts', requireAuth, contactRoutes());

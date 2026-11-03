@@ -13,19 +13,29 @@ process.env.DATA_DIR = dir;
 process.env.MAIL_CONFIG_DIR = process.env.MAIL_IT_CONFIG_DIR || '/etc/nw';
 process.env.MAIL_IMAP_HOST = process.env.MAIL_IT_IMAP_HOST || '127.0.0.1';
 process.env.MAIL_HOSTNAME = 'mail.acme.com';
+// Sign-in protection: Dovecot calls our policy service; loopback 127.0.0.1 (webmail) stays exempt,
+// while 127.0.0.6+ stand in for attackers on the internet.
+process.env.AUTH_POLICY_PORT = '18081';
+process.env.AUTH_POLICY_URL = 'http://127.0.0.1:18081/';
+process.env.AUTH_NEVER_BAN = '127.0.0.1/32,::1';
+process.env.AUTH_SOFT_NETS = ''; // treat 127.0.0.6+ like internet addresses
 for (const sub of ['postfix', 'dovecot', 'dkim']) fs.rmSync(path.join(process.env.MAIL_CONFIG_DIR, sub), { recursive: true, force: true });
 
 const { createApp } = await import('../src/app.js');
 const { setResolver } = await import('../src/routes/mailAdmin.js');
 const { closeAll } = await import('../src/mail/imap.js');
+const { startPolicyServer } = await import('../src/security/policyServer.js');
+const tls = await import('node:tls');
+const nodemailer = (await import('nodemailer')).default;
 
-let server, base;
+let server, base, policy;
 before(async () => {
+  policy = startPolicyServer();
   server = http.createServer(createApp());
   await new Promise((r) => server.listen(0, r));
   base = `http://127.0.0.1:${server.address().port}`;
 });
-after(() => { closeAll(); server.close(); fs.rmSync(dir, { recursive: true, force: true }); });
+after(() => { closeAll(); server.close(); policy.close(); fs.rmSync(dir, { recursive: true, force: true }); });
 
 function client() {
   let cookie = '';
@@ -202,4 +212,59 @@ test('alias admin is per company', async () => {
   assert.equal((await gina('POST', '/api/mail-admin/aliases', { local: 'info', domain: 'acme.com', targets: 'gina@globex.com' })).status, 400);
   assert.equal((await gina('POST', '/api/mail-admin/aliases', { local: 'info', domain: 'globex.com', targets: 'gina@globex.com, partner@example.org' })).status, 201);
   assert.equal((await bob('GET', '/api/mail-admin/aliases')).status, 401, 'bob is disabled');
+});
+
+// ---- sign-in protection against the real Dovecot + Postfix ----
+function rawImapLogin(user, pass, localAddress) {
+  return new Promise((resolve) => {
+    const sock = tls.connect({ host: process.env.MAIL_IMAP_HOST, port: 993, localAddress, rejectUnauthorized: false });
+    let buf = '', sent = false;
+    sock.on('data', (d) => {
+      buf += d;
+      if (!sent && buf.includes('* OK')) { sent = true; sock.write(`a1 LOGIN "${user}" "${pass}"\r\n`); }
+      const m = buf.match(/a1 (OK|NO|BAD)([^\r\n]*)/);
+      if (m) { sock.end(); resolve(`${m[1]}${m[2]}`); }
+    });
+    sock.on('error', (e) => resolve(`ERR ${e.message}`));
+  });
+}
+async function smtpLogin(user, pass, localAddress) {
+  const t = nodemailer.createTransport({ host: process.env.MAIL_IMAP_HOST, port: 465, secure: true, localAddress, tls: { rejectUnauthorized: false }, auth: { user, pass } });
+  try { await t.verify(); return 'OK'; } catch (e) { return `FAIL ${e.response || e.message}`; }
+}
+
+test('password guessing over IMAP blocks the address for IMAP and SMTP, others unaffected', async () => {
+  await eventually(() => fs.readFileSync('/run/nw/dovecot/policy.conf', 'utf8').includes('18081'), 15000).catch(() => {});
+  const attacker = '127.0.0.6';
+  const guesses = await Promise.all(Array.from({ length: 10 }, (_, i) => rawImapLogin('olivia@acme.com', `guess-${i}`, attacker)));
+  assert.ok(guesses.every((g) => g.startsWith('NO')), guesses.join(' | '));
+  const blocked = await rawImapLogin('olivia@acme.com', 'password123', attacker);
+  assert.match(blocked, /^NO .*Too many failed sign-ins/, 'right password is refused from a blocked address');
+  // Refused either by our policy ("Too many failed sign-ins") or, right after a burst of failures,
+  // by Dovecot's own slow-down making Postfix give up ("Temporary authentication failure").
+  const smtp = await smtpLogin('olivia@acme.com', 'password123', attacker);
+  assert.match(smtp, /^FAIL .*(Too many failed sign-ins|Temporary authentication failure)/, 'blocked for SMTP too');
+  assert.match(await rawImapLogin('olivia@acme.com', 'password123', '127.0.0.7'), /^OK/, 'other addresses still sign in');
+  assert.equal((await olivia('GET', '/api/mail/folders')).status, 200, 'webmail keeps working');
+
+  const sec = (await olivia('GET', '/api/security')).body;
+  assert.equal(sec.bans[0].ip, attacker);
+  assert.match(sec.bans[0].reason, /10 failed sign-ins .*imap/);
+  assert.equal((await gina('GET', '/api/security')).status, 403, 'platform owner only');
+
+  assert.equal((await olivia('DELETE', `/api/security/bans/${attacker}`)).status, 200);
+  assert.match(await rawImapLogin('olivia@acme.com', 'password123', attacker), /^OK/, 'unblocked');
+});
+
+test('password guessing over SMTP submission is caught too', async () => {
+  const attacker = '127.0.0.8';
+  const tries = await Promise.all(Array.from({ length: 10 }, (_, i) => smtpLogin(`user${i}@acme.com`, `pw${i}`, attacker)));
+  assert.ok(tries.every((t) => t.startsWith('FAIL')));
+  assert.match(await rawImapLogin('olivia@acme.com', 'password123', attacker), /Too many failed sign-ins/);
+});
+
+test('a phone retrying an old password is not blocked', async () => {
+  const office = '127.0.0.9';
+  for (let i = 0; i < 12; i++) assert.match(await rawImapLogin('olivia@acme.com', 'old-password', office), /^NO/);
+  assert.match(await rawImapLogin('olivia@acme.com', 'password123', office), /^OK/);
 });

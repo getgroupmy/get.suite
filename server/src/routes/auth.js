@@ -3,8 +3,9 @@ import { q, tx } from '../db.js';
 import { str, bad, HttpError } from '../util.js';
 import {
   verifyPassword, createSession, destroySession, setSessionCookie, clearSessionCookie, tokenFromReq,
-  requireAuth, loginRateLimit, clearLoginAttempts, validatePassword, hashPassword, userFromToken,
+  requireAuth, validatePassword, hashPassword, userFromToken,
 } from '../auth.js';
+import * as guard from '../security/guard.js';
 import { createOrg } from '../tenancy.js';
 import { setMailPassword } from '../mail/config.js';
 
@@ -32,12 +33,17 @@ export default function authRoutes({ secureCookies }) {
   });
 
   // Sign in with the full email address.
-  r.post('/login', loginRateLimit, (req, res) => {
+  r.post('/login', async (req, res) => {
     const username = String(req.body.username || '').trim().toLowerCase();
     const password = String(req.body.password || '');
+    const verdict = guard.check(req.ip, username);
+    if (verdict.action === 'reject') throw new HttpError(429, 'Too many failed sign-ins from your network. Try again later.');
+    if (verdict.action === 'delay') await new Promise((r) => setTimeout(r, verdict.seconds * 1000));
     const row = q('SELECT id, password_hash, mail_hash, disabled FROM users WHERE username = ?').get(username);
-    if (!row || row.disabled || !verifyPassword(password, row.password_hash)) throw new HttpError(401, 'Wrong email address or password');
-    clearLoginAttempts(req.ip);
+    if (!row || row.disabled || !verifyPassword(password, row.password_hash)) {
+      guard.recordFailure({ ip: req.ip, login: username, fp: guard.passwordFingerprint(password), service: 'web' });
+      throw new HttpError(401, 'Wrong email address or password');
+    }
     // Accounts created before email existed get their mailbox password on next sign-in.
     if (!row.mail_hash) setMailPassword(row.id, password);
     res.json({ user: startSession(req, res, row.id) });

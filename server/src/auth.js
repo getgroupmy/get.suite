@@ -79,17 +79,6 @@ export function requireAdmin(req, res, next) {
   next();
 }
 
-/** Simple in-memory limiter for login attempts, keyed by IP. */
-const attempts = new Map();
-export function loginRateLimit(req, res, next) {
-  const key = req.ip;
-  const t = now();
-  const a = attempts.get(key);
-  if (!a || a.reset < t) attempts.set(key, { count: 1, reset: t + 15 * 60e3 });
-  else if (++a.count > 10) return next(new HttpError(429, 'Too many login attempts. Try again in 15 minutes.'));
-  next();
-}
-export function clearLoginAttempts(ip) { attempts.delete(ip); }
 
 export function requireSuper(req, res, next) {
   if (!req.user?.is_super) return next(new HttpError(403, 'Platform owner only'));
