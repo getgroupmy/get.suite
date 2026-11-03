@@ -329,6 +329,52 @@ test('filter rules: move + mark read, star + forward, delete, chained rules, fol
   await eventually(() => !fs.existsSync(path.join(process.env.MAIL_CONFIG_DIR, 'sieve/olivia@acme.com.sieve')), 3000);
 });
 
+// ---- folders: rename / delete ----
+test('folders: rename with subfolders updates filters; delete moves mail to Trash and switches filters off', async () => {
+  assert.equal((await olivia('POST', '/api/mail/folders', { name: 'Clients/Acme' })).status, 201);
+  await olivia('PUT', '/api/mail/rules', { rules: [{ name: 'Acme', conditions: [{ field: 'subject', op: 'contains', value: 'acme-order' }], actions: { moveTo: 'Clients/Acme' } }] });
+  await olivia('POST', '/api/mail/send', { to: 'olivia@acme.com', subject: 'Note to self', text: 'file me' });
+  const note = await eventually(async () => (await inbox(olivia)).find((m) => m.subject === 'Note to self'));
+  await olivia('POST', '/api/mail/messages/move', { folder: 'INBOX', uids: [note.uid], to: 'Clients/Acme' });
+
+  // Phones only show subscribed folders.
+  const phone = await imapLogin('olivia@acme.com', 'password123');
+  assert.ok((await phone.list()).find((b) => b.path === 'Clients/Acme')?.subscribed, 'new folder is subscribed');
+
+  assert.equal((await olivia('PATCH', '/api/mail/folders', { path: 'INBOX', newPath: 'Old' })).status, 400, 'Inbox is protected');
+  assert.equal((await olivia('PATCH', '/api/mail/folders', { path: 'Sent', newPath: 'Old' })).status, 400, 'Sent is protected');
+  assert.equal((await olivia('DELETE', '/api/mail/folders?path=Trash')).status, 400, 'Trash is protected');
+  assert.equal((await olivia('PATCH', '/api/mail/folders', { path: 'Clients', newPath: 'Clients/Inner' })).status, 400, 'not into itself');
+  assert.equal((await olivia('PATCH', '/api/mail/folders', { path: 'Clients', newPath: 'Archive' })).status, 400, 'name taken');
+
+  const ren = await olivia('PATCH', '/api/mail/folders', { path: 'Clients', newPath: 'Customers' });
+  assert.equal(ren.status, 200, JSON.stringify(ren.body));
+  assert.equal(ren.body.updatedFilters, 1);
+  const paths = (await olivia('GET', '/api/mail/folders')).body.map((f) => f.path);
+  assert.ok(paths.includes('Customers/Acme') && !paths.some((p) => p.startsWith('Clients')), paths.join(','));
+  assert.deepEqual((await olivia('GET', '/api/mail/messages?folder=Customers%2FAcme')).body.messages.map((m) => m.subject), ['Note to self']);
+  assert.equal((await olivia('GET', '/api/mail/rules')).body[0].actions.moveTo, 'Customers/Acme');
+  assert.ok((await phone.list()).find((b) => b.path === 'Customers/Acme')?.subscribed, 'renamed folder stays subscribed');
+  await phone.logout();
+
+  const del = await olivia('DELETE', '/api/mail/folders?path=Customers');
+  assert.equal(del.status, 200, JSON.stringify(del.body));
+  assert.equal(del.body.movedToTrash, 1);
+  assert.equal(del.body.disabledFilters, 1);
+  assert.ok(!(await olivia('GET', '/api/mail/folders')).body.some((f) => f.path.startsWith('Customers')));
+  assert.ok((await olivia('GET', '/api/mail/messages?folder=Trash')).body.messages.some((m) => m.subject === 'Note to self'), 'mail kept in Trash');
+  assert.equal((await olivia('GET', '/api/mail/rules')).body[0].enabled, false);
+  await olivia('PUT', '/api/mail/rules', { rules: [] });
+});
+
+test('signature: defaults, save, length limit', async () => {
+  assert.deepEqual((await olivia('GET', '/api/mail/signature')).body, { html: '', on_new: true, on_reply: true });
+  const sig = await olivia('PUT', '/api/mail/signature', { html: '<p><strong>Olivia Owner</strong></p><p>Acme Trading</p>', on_new: true, on_reply: false });
+  assert.deepEqual(sig.body, { html: '<p><strong>Olivia Owner</strong></p><p>Acme Trading</p>', on_new: true, on_reply: false });
+  assert.equal((await olivia('PUT', '/api/mail/signature', { html: 'x'.repeat(20001) })).status, 400);
+  assert.equal((await gina('GET', '/api/mail/signature')).body.html, '', 'per user');
+});
+
 // ---- sign-in protection against the real Dovecot + Postfix ----
 function rawImapLogin(user, pass, localAddress) {
   return new Promise((resolve) => {

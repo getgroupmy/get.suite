@@ -20,9 +20,12 @@ export function docToText(doc) {
   const block = (node, prefix = '') => {
     switch (node.type) {
       case 'paragraph':
-      case 'heading':
-        out.push(prefix + inline(node.content).replace(/\n/g, `\n${prefix}`));
+      case 'heading': {
+        const line = inline(node.content);
+        // The standard signature separator is "-- " (with a trailing space, which the editor trims).
+        out.push(prefix + (line.trim() === '--' ? '-- ' : line.replace(/\n/g, `\n${prefix}`)));
         break;
+      }
       case 'blockquote':
         (node.content || []).forEach((c) => block(c, `${prefix}> `));
         break;
@@ -44,7 +47,7 @@ export function docToText(doc) {
     }
   };
   (doc?.content || []).forEach((n) => block(n));
-  return out.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd();
+  return out.join('\n').replace(/\n{3,}/g, '\n\n').replace(/\n+$/, '');
 }
 
 /** Wrap the editor's HTML so mail apps render it consistently. */

@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { get, post, put, del, uploadFile, formatBytes, formatDate } from '../../api.js';
+import { api, get, post, put, del, uploadFile, formatBytes, formatDate } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
-import { Avatar, Empty, Modal, PromptModal, useToast } from '../../components/ui.jsx';
+import { Avatar, ConfirmModal, Empty, Menu, Modal, PromptModal, useToast } from '../../components/ui.jsx';
 import { useAuth } from '../../App.jsx';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
@@ -36,6 +36,19 @@ export default function Mail() {
   const [vacationOpen, setVacationOpen] = useState(false);
   const [filters, setFilters] = useState(null); // null | { startWith?: rule }
   const [newFolder, setNewFolder] = useState(false);
+  const [folderDialog, setFolderDialog] = useState(null);
+  const [signature, setSignature] = useState(null);
+  const [signatureOpen, setSignatureOpen] = useState(false);
+  useEffect(() => { get('/mail/signature').then(setSignature).catch(() => {}); }, []);
+
+  /** Add the signature to a new message, or above the quote in a reply/forward (never to resumed drafts). */
+  const withSignature = (init, kind) => {
+    const sig = signature?.html;
+    if (!sig || (kind === 'new' ? !signature.on_new : !signature.on_reply)) return init;
+    const block = `<p></p><p>-- </p>${sig}`;
+    if (kind === 'new') return { ...init, html: `${block}` };
+    return { ...init, html: (init.html || '').replace(/^<p><\/p>/, `<p></p>${block}`) };
+  };
   useEffect(() => { get('/mail/vacation').then(setVacation).catch(() => {}); }, []);
 
   const loadFolders = useCallback(() => get('/mail/folders').then(setFolders).catch((e) => setError(e.message)), []);
@@ -81,19 +94,31 @@ export default function Mail() {
   return (
     <div className={`mail ${openUid ? 'reading' : ''}`}>
       <aside className="subnav">
-        <button className="btn new-btn" onClick={() => setCompose({})}><Icon name="edit" /> Compose</button>
-        {folders.map((f) => (
-          <button key={f.path} className={`subnav-item ${f.path === folder && !q ? 'active' : ''}`} onClick={() => { setSearch({}); go(f.path); }}>
-            <Icon name={FOLDER_ICON[f.specialUse] || 'folder'} /><span className="grow ellipsis">{f.name}</span>
-            {f.unseen > 0 && f.specialUse !== '\\Trash' && f.specialUse !== '\\Sent' && <span className="count">{f.unseen}</span>}
-            {f.specialUse === '\\Drafts' && f.messages > 0 && <span className="count muted">{f.messages}</span>}
-          </button>
-        ))}
+        <button className="btn new-btn" onClick={() => setCompose(withSignature({}, 'new'))}><Icon name="edit" /> Compose</button>
+        {folders.map((f) => {
+          const own = !f.specialUse && f.path.toUpperCase() !== 'INBOX';
+          return (
+            <div key={f.path} className="folder-row">
+              <button className={`subnav-item ${f.path === folder && !q ? 'active' : ''}`} onClick={() => { setSearch({}); go(f.path); }}>
+                <Icon name={FOLDER_ICON[f.specialUse] || 'folder'} /><span className="grow ellipsis">{f.name}</span>
+                {f.unseen > 0 && f.specialUse !== '\\Trash' && f.specialUse !== '\\Sent' && <span className="count">{f.unseen}</span>}
+                {f.specialUse === '\\Drafts' && f.messages > 0 && <span className="count muted">{f.messages}</span>}
+              </button>
+              {own && (
+                <Menu align="left" trigger={(p) => <button className="icon-btn folder-menu" aria-label={`Options for ${f.name}`} {...p}><Icon name="more" size={18} /></button>} items={[
+                  { label: 'Rename', icon: 'edit', onClick: () => setFolderDialog({ type: 'rename', folder: f }) },
+                  { label: 'Delete', icon: 'trash', danger: true, onClick: () => setFolderDialog({ type: 'delete', folder: f }) },
+                ]} />
+              )}
+            </div>
+          );
+        })}
         <button className="subnav-item new-folder" onClick={() => setNewFolder(true)}><Icon name="plus" /><span className="grow">New folder</span></button>
         <button className="subnav-item vacation-link" onClick={() => setVacationOpen(true)}>
           <Icon name="clock" /><span className="grow">Vacation reply</span>{vacation?.enabled && <span className="pill">{vacation.active ? 'On' : 'Scheduled'}</span>}
         </button>
         <button className="subnav-item" onClick={() => setFilters({})}><Icon name="settings" /><span className="grow">Filters</span></button>
+        <button className="subnav-item" onClick={() => setSignatureOpen(true)}><Icon name="edit" /><span className="grow">Signature</span></button>
       </aside>
 
       <section className="mail-list">
@@ -154,7 +179,7 @@ export default function Mail() {
       <section className="mail-reader">
         {openUid ? (
           <Reader key={`${folder}:${openUid}`} folder={folder} uid={openUid} special={special}
-            onClose={() => go(folder)} onChanged={refresh} act={act} onCompose={setCompose}
+            onClose={() => go(folder)} onChanged={refresh} act={act} onCompose={(init) => setCompose(withSignature(init, 'reply'))}
             onFilter={(from) => setFilters({ startWith: { name: `From ${from}`, enabled: true, match: 'all', conditions: [{ field: 'from', op: 'contains', value: from }], actions: { stop: true } } })} />
         ) : <Empty icon="mail" title="No message selected" />}
       </section>
@@ -163,6 +188,29 @@ export default function Mail() {
       {filters && <FiltersDialog folders={folders} onFoldersChanged={loadFolders} startWith={filters.startWith} onClose={() => { setFilters(null); loadFolders(); }} />}
       {newFolder && <PromptModal title="New folder" label="Folder name (use / for subfolders, e.g. Clients/Acme)" confirm="Create" onClose={() => setNewFolder(false)}
         onSubmit={async (name) => { const r = await post('/mail/folders', { name }); toast(`Folder ${r.path} created`); loadFolders(); }} />}
+      {signatureOpen && <SignatureDialog initial={signature} onClose={() => setSignatureOpen(false)} onSaved={(sg) => { setSignature(sg); setSignatureOpen(false); }} />}
+      {folderDialog?.type === 'rename' && (
+        <PromptModal title={`Rename “${folderDialog.folder.name}”`} label="New name (use / for subfolders)" initial={folderDialog.folder.path} confirm="Rename"
+          onClose={() => setFolderDialog(null)}
+          onSubmit={async (newPath) => {
+            const r = await api('PATCH', '/mail/folders', { path: folderDialog.folder.path, newPath });
+            toast(`Renamed to ${r.path}${r.updatedFilters ? ` · ${r.updatedFilters} filter${r.updatedFilters === 1 ? '' : 's'} updated` : ''}`);
+            if (folder === folderDialog.folder.path || folder.startsWith(`${folderDialog.folder.path}/`)) go(r.path + folder.slice(folderDialog.folder.path.length));
+            loadFolders();
+          }} />
+      )}
+      {folderDialog?.type === 'delete' && (
+        <ConfirmModal title={`Delete “${folderDialog.folder.name}”?`} confirm="Delete folder"
+          message={`${folderDialog.folder.messages ? `Its ${folderDialog.folder.messages} message${folderDialog.folder.messages === 1 ? '' : 's'} will be moved to Trash. ` : ''}Subfolders are deleted too, and their messages also go to Trash. Filters that file mail here will be switched off.`}
+          onClose={() => setFolderDialog(null)}
+          onConfirm={async () => {
+            const r = await api('DELETE', `/mail/folders?path=${enc(folderDialog.folder.path)}`);
+            toast(['Folder deleted', r.movedToTrash && `${r.movedToTrash} message${r.movedToTrash === 1 ? '' : 's'} moved to Trash`,
+              r.disabledFilters && `${r.disabledFilters} filter${r.disabledFilters === 1 ? '' : 's'} switched off`].filter(Boolean).join(' · '));
+            if (folder === folderDialog.folder.path || folder.startsWith(`${folderDialog.folder.path}/`)) go('INBOX');
+            loadFolders();
+          }} />
+      )}
       {vacationOpen && <VacationDialog onClose={() => setVacationOpen(false)} onSaved={(v) => { setVacation(v); setVacationOpen(false); }} />}
     </div>
   );
@@ -447,15 +495,15 @@ function VacationDialog({ onClose, onSaved }) {
 }
 
 /** Rich-text message body: bold, italic, underline, strike, lists, quotes, links. */
-function RichBody({ initialHtml, onChange, autoFocus }) {
+function RichBody({ initialHtml, onChange, autoFocus, label = 'Message', placeholder = 'Write your message…' }) {
   const [, force] = useState(0);
   const editor = useEditor({
     extensions: [
       StarterKit.configure({ heading: false, codeBlock: false, horizontalRule: false, link: { openOnClick: false, autolink: true, defaultProtocol: 'https' } }),
-      Placeholder.configure({ placeholder: 'Write your message…' }),
+      Placeholder.configure({ placeholder }),
     ],
     content: initialHtml,
-    editorProps: { attributes: { class: 'tiptap', 'aria-label': 'Message', role: 'textbox', 'aria-multiline': 'true' } },
+    editorProps: { attributes: { class: 'tiptap', 'aria-label': label, role: 'textbox', 'aria-multiline': 'true' } },
     onUpdate: ({ editor: ed }) => {
       const doc = ed.getJSON();
       onChange(isEmptyDoc(doc) ? '' : ed.getHTML(), docToText(doc));
@@ -498,5 +546,27 @@ function RichBody({ initialHtml, onChange, autoFocus }) {
       </div>
       <EditorContent editor={editor} />
     </div>
+  );
+}
+
+function SignatureDialog({ initial, onClose, onSaved }) {
+  const toast = useToast();
+  const [html, setHtml] = useState(initial?.html || '');
+  const [onNew, setOnNew] = useState(initial?.on_new !== false);
+  const [onReply, setOnReply] = useState(initial?.on_reply !== false);
+  return (
+    <Modal wide title="Signature" onClose={onClose}>
+      <form className="stack" onSubmit={async (e) => {
+        e.preventDefault();
+        try { const r = await put('/mail/signature', { html, on_new: onNew, on_reply: onReply }); toast('Signature saved'); onSaved(r); }
+        catch (err) { toast(err.message, 'error'); }
+      }}>
+        <RichBody initialHtml={initial?.html || ''} label="Signature" placeholder="Your name, title, company, phone…" onChange={(h) => setHtml(h)} />
+        <label className="check"><input type="checkbox" checked={onNew} onChange={(e) => setOnNew(e.target.checked)} /> Add to new messages</label>
+        <label className="check"><input type="checkbox" checked={onReply} onChange={(e) => setOnReply(e.target.checked)} /> Add to replies and forwards (above the quoted message)</label>
+        <p className="muted small" style={{ margin: 0 }}>The signature is added when you start writing, so you can still edit or remove it in a particular message.</p>
+        <div className="row end"><button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn primary">Save</button></div>
+      </form>
+    </Modal>
   );
 }

@@ -10,7 +10,7 @@ A self-hosted, Google Workspace-style office suite built to run on a Synology DS
 | **Calendar** | Month view, all-day and timed events, colours, upcoming list |
 | **Contacts** | Personal address book, plus a directory of everyone on the NAS |
 | **Chat** | Channels and direct messages, delivered live over WebSockets |
-| **Mail** | A mailbox for every user on their company's domains: webmail (read, reply, forward, attachments from your computer or Drive, archive, spam, search, stars), rich-text writing (bold, lists, links, quotes), drafts that save automatically, vacation auto-replies, filter rules, folders, send as aliases you belong to, and IMAP/SMTP for phones and Outlook |
+| **Mail** | A mailbox for every user on their company's domains: webmail (read, reply, forward, attachments from your computer or Drive, archive, spam, search, stars), rich-text writing (bold, lists, links, quotes), drafts that save automatically, vacation auto-replies, filter rules, signatures, folders, send as aliases you belong to, and IMAP/SMTP for phones and Outlook |
 | **Admin** | Create, disable, reset or delete users; per-user storage use; company settings; all companies (platform owner) |
 
 ## Companies (multi-tenant)
@@ -119,7 +119,14 @@ Your business fixed IP is what makes this work. Do these once:
   - A matching filter stops later ones unless you untick "Don't apply later filters".
   - Mail a filter files away still gets your vacation reply; mail it deletes doesn't.
   - Forwarded copies keep the original sender. Some receiving servers treat forwarded mail from outside domains with suspicion (SPF), so forwarding works best within your own companies.
-- **Folders:** create folders and subfolders from the Mail sidebar (**New folder**).
+- **Folders:** create folders and subfolders from the Mail sidebar (**New folder**). Each of your own folders has a ⋮ menu with **Rename** and **Delete**.
+  - The built-in folders (Inbox, Drafts, Sent, Archive, Junk, Trash) can't be renamed or deleted.
+  - Renaming moves subfolders with it and updates any filter that files mail there.
+  - Deleting moves the folder's messages, and its subfolders' messages, to **Trash** first, so nothing is lost by accident. Filters that filed mail there are switched off rather than silently recreating the folder.
+  - New and renamed folders are subscribed automatically, including folders a filter creates, so phones and Outlook show them.
+- **Signature** (Mail → Signature): one formatted signature per user, added below a standard `-- ` separator.
+  - It's added to new messages, and optionally to replies and forwards, placed above the quoted message.
+  - It's inserted when you start writing, so you can still edit it in a particular message, and a reopened draft never gets a second copy.
 - **Vacation reply** (Mail → Vacation reply): an automatic answer with an optional first and last day. It's built on the mail server's standard Sieve "vacation" feature:
   - Each sender gets at most one reply per day.
   - Mailing lists, newsletters, spam and other automatic messages never get one.
@@ -136,7 +143,7 @@ Your business fixed IP is what makes this work. Do these once:
   Users sign in with their email address and Workspace password.
 - **Accounts that predate email** get a working mailbox password the next time the user signs in to Workspace. Webmail works right away.
 
-**Not built yet:** catch-all addresses, renaming or deleting folders from webmail (phones and Outlook can), inline images in messages you write, and an email signature.
+**Not built yet:** catch-all addresses, inline images in messages you write, and a different signature for each alias.
 
 ## Sign-in protection
 
@@ -207,7 +214,7 @@ cd server && MAIL_IT_CONFIG_DIR=/etc/nw npm run test:mail
 
 ## Roadmap
 
-- **Mail, next steps:** signatures, folder rename/delete, and a "new mail" notification pushed live instead of checked every 30 seconds.
+- **Mail, next steps:** per-alias signatures, inline images, and a "new mail" notification pushed live instead of checked every 30 seconds.
 - **Real-time co-editing:** live cursors and character-level merging (Yjs) in Docs and Sheets.
 - **Phone sync:** CalDAV and CardDAV, so calendars and contacts sync with the phone's built-in apps; WebDAV for Drive.
 - **Renaming a user's address** (moving them to another domain of the same company), **two-factor authentication**, file version history, public share links, Slides, cell formatting in Sheets, and week and day calendar views.

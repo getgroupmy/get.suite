@@ -159,6 +159,13 @@ CREATE TABLE IF NOT EXISTS mail_rules (
   rules TEXT NOT NULL,                -- JSON: ordered list, see mail/sieve.js
   updated_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS mail_signatures (
+  user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  html TEXT NOT NULL DEFAULT '',
+  on_new INTEGER NOT NULL DEFAULT 1,
+  on_reply INTEGER NOT NULL DEFAULT 1,
+  updated_at INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL

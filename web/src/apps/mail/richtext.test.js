@@ -26,3 +26,8 @@ test('text to HTML escapes and keeps empty lines', () => {
 test('email wrapper styles quotes', () => {
   assert.match(emailHtml('<blockquote><p>x</p></blockquote>'), /<blockquote style="margin/);
 });
+
+test('signature separator keeps its trailing space', () => {
+  const doc = { type: 'doc', content: [p(t('Thanks')), p(t('--')), p(t('Olivia'))] };
+  assert.equal(docToText(doc), 'Thanks\n-- \nOlivia');
+});

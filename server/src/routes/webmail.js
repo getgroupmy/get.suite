@@ -97,13 +97,109 @@ export default function webmailRoutes() {
     res.json(rules);
   });
 
+  // ---- folders: create, rename, delete (built-in folders are protected) ----
+  const cleanFolderName = (v) => {
+    const name = str(v, { required: true, name: 'Folder name', max: 100 }).replace(/\/+/g, '/').replace(/^\/|\/$/g, '');
+    if (!name || /[\x00-\x1f*%]/.test(name) || name.toUpperCase() === 'INBOX') throw bad('That folder name is not allowed');
+    return name;
+  };
+  const isProtected = (b) => b.path.toUpperCase() === 'INBOX' || !!b.specialUse;
+  const inTree = (p, root) => p === root || p.startsWith(`${root}/`);
+
   r.post('/folders', async (req, res) => {
-    const name = str(req.body.name, { required: true, name: 'Folder name', max: 100 }).replace(/\/+/g, '/').replace(/^\/|\/$/g, '');
-    if (!name || /[\x00-\x1f*%]/.test(name)) throw bad('That folder name is not allowed');
+    const name = cleanFolderName(req.body.name);
     const exists = (await withClient(req.user, (c) => c.list())).some((b) => b.path.toLowerCase() === name.toLowerCase());
     if (exists) throw bad('A folder with that name already exists');
-    await withClient(req.user, (c) => c.mailboxCreate(name));
+    await withClient(req.user, async (c) => { await c.mailboxCreate(name); await c.mailboxSubscribe(name).catch(() => {}); });
     res.status(201).json({ path: name });
+  });
+
+  // Rename (subfolders move with it); filters that file mail there are updated.
+  r.patch('/folders', async (req, res) => {
+    const from = String(req.body.path || '');
+    const to = cleanFolderName(req.body.newPath);
+    const boxes = await withClient(req.user, (c) => c.list());
+    const box = boxes.find((b) => b.path === from);
+    if (!box) throw notFound('Folder not found');
+    if (isProtected(box)) throw bad('Built-in folders cannot be renamed');
+    if (to === from) return res.json({ path: to, updatedFilters: 0 });
+    if (inTree(to, from)) throw bad('A folder cannot be moved inside itself');
+    if (boxes.some((b) => b.path.toLowerCase() === to.toLowerCase())) throw bad('A folder with that name already exists');
+    await withClient(req.user, async (c) => {
+      // Leave the folder first: renaming the selected mailbox would confuse the pooled connection.
+      (await c.getMailboxLock('INBOX')).release();
+      await c.mailboxRename(from, to);
+      const renamed = (await c.list()).filter((b) => inTree(b.path, to));
+      for (const b of renamed) await c.mailboxSubscribe(b.path).catch(() => {});
+    });
+    const updatedFilters = updateRules(req.user.id, (rule) => {
+      const m = rule.actions.moveTo;
+      if (!m || !inTree(m, from)) return false;
+      rule.actions.moveTo = to + m.slice(from.length);
+      return true;
+    });
+    res.json({ path: to, updatedFilters });
+  });
+
+  // Delete: messages (including subfolders') go to Trash first; filters that filed mail there are switched off.
+  r.delete('/folders', async (req, res) => {
+    const target = String(req.query.path || '');
+    const boxes = await withClient(req.user, (c) => c.list());
+    const box = boxes.find((b) => b.path === target);
+    if (!box) throw notFound('Folder not found');
+    if (isProtected(box)) throw bad('Built-in folders cannot be deleted');
+    const trash = boxes.find((b) => b.specialUse === '\\Trash')?.path;
+    const victims = boxes.filter((b) => inTree(b.path, target)).sort((a, b) => b.path.length - a.path.length);
+    let moved = 0, deleted = 0;
+    for (const v of victims) {
+      // A parent that only exists as part of a path ("Clients" of "Clients/Acme") holds no mail
+      // and disappears by itself once its subfolders are gone.
+      const placeholder = v.flags?.has('\\Noselect') || v.flags?.has('\\NonExistent');
+      if (placeholder) continue;
+      if (trash) {
+        moved += await withFolder(req.user, v.path, async (c) => {
+          const n = c.mailbox.exists;
+          if (n) await c.messageMove('1:*', trash);
+          return n;
+        });
+      }
+      await withClient(req.user, async (c) => {
+        (await c.getMailboxLock('INBOX')).release();
+        await c.mailboxUnsubscribe(v.path).catch(() => {});
+        await c.mailboxDelete(v.path);
+      });
+      deleted++;
+    }
+    const disabledFilters = updateRules(req.user.id, (rule) => {
+      if (!rule.enabled || !rule.actions.moveTo || !inTree(rule.actions.moveTo, target)) return false;
+      rule.enabled = false;
+      return true;
+    });
+    res.json({ ok: true, movedToTrash: moved, deletedFolders: deleted, disabledFilters });
+  });
+
+  /** Apply fn to each of a user's rules; save and rebuild the Sieve script if any changed. */
+  function updateRules(userId, fn) {
+    const row = q('SELECT rules FROM mail_rules WHERE user_id = ?').get(userId);
+    if (!row) return 0;
+    const rules = JSON.parse(row.rules);
+    const changed = rules.filter((rule) => fn(rule)).length;
+    if (changed) {
+      q('UPDATE mail_rules SET rules = ?, updated_at = ? WHERE user_id = ?').run(JSON.stringify(rules), Date.now(), userId);
+      scheduleMailConfig();
+    }
+    return changed;
+  }
+
+  // ---- signature ----
+  r.get('/signature', (req, res) => res.json(signatureOf(req.user.id)));
+  r.put('/signature', (req, res) => {
+    const html = typeof req.body.html === 'string' ? req.body.html : '';
+    if (html.length > 20000) throw bad('The signature is too long');
+    q(`INSERT INTO mail_signatures (user_id, html, on_new, on_reply, updated_at) VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(user_id) DO UPDATE SET html = excluded.html, on_new = excluded.on_new, on_reply = excluded.on_reply, updated_at = excluded.updated_at`)
+      .run(req.user.id, html, req.body.on_new === false ? 0 : 1, req.body.on_reply === false ? 0 : 1, Date.now());
+    res.json(signatureOf(req.user.id));
   });
 
   r.get('/folders', async (req, res) => {
@@ -351,6 +447,11 @@ function chunk(value, size = 800) {
   const out = [];
   for (let i = 0; i * size < value.length; i++) out.push(`${String(i).padStart(3, '0')}:${value.slice(i * size, (i + 1) * size)}`);
   return out.length ? out : ['000:'];
+}
+
+function signatureOf(userId) {
+  const sg = q('SELECT html, on_new, on_reply FROM mail_signatures WHERE user_id = ?').get(userId);
+  return sg ? { html: sg.html, on_new: !!sg.on_new, on_reply: !!sg.on_reply } : { html: '', on_new: true, on_reply: true };
 }
 
 function vacationOf(userId) {

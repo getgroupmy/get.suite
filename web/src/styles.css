@@ -487,3 +487,9 @@ a.att:hover { background: var(--hover); }
 .rule-box legend select { padding: 2px 6px; }
 .rule-cond select { flex: none; }
 .new-folder { margin-top: 4px; color: var(--muted); }
+.folder-row { display: flex; align-items: center; position: relative; }
+.folder-row > .subnav-item { flex: 1; min-width: 0; }
+.folder-row .menu-wrap { position: absolute; right: 4px; }
+.folder-menu { width: 30px; height: 30px; opacity: 0; }
+.folder-row:hover .folder-menu, .folder-menu:focus-visible, .folder-menu[aria-expanded="true"] { opacity: 1; }
+@media (hover: none) { .folder-menu { opacity: 1; } }
