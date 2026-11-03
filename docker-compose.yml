@@ -1,0 +1,18 @@
+# Synology Container Manager → Project → Create, with this folder as the project path (see README).
+services:
+  workspace:
+    build: .
+    image: nas-workspace:latest
+    container_name: nas-workspace
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      # All data (database + uploaded files) lives here. Back this folder up.
+      - /volume1/docker/workspace/data:/data
+    # Must own the data folder above. On DSM, SSH in and run `id` to see your uid/gid.
+    user: "1026:100"
+    environment:
+      TZ: UTC                        # your time zone, e.g. Europe/London
+      MAX_UPLOAD_MB: "4096"          # largest single upload
+    mem_limit: 512m

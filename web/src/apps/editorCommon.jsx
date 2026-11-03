@@ -1,0 +1,104 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { get, put } from '../api.js';
+import Icon from '../components/Icon.jsx';
+import { Menu, useToast } from '../components/ui.jsx';
+
+/**
+ * Debounced autosave with optimistic concurrency.
+ * status: 'saved' | 'unsaved' | 'saving' | 'error' | 'conflict'
+ */
+export function useAutosave(id, delay = 800) {
+  const [status, setStatus] = useState('saved');
+  const [conflict, setConflict] = useState(null);
+  const r = useRef({ version: 0, dirty: false, timer: null, getContent: null, inflight: null, blocked: false });
+
+  const api = useMemo(() => {
+    const st = r.current;
+
+    async function flush() {
+      clearTimeout(st.timer);
+      if (!st.dirty || st.blocked || !st.getContent) return;
+      if (st.inflight) { await st.inflight; return flush(); }
+      st.dirty = false;
+      setStatus('saving');
+      st.inflight = put(`/files/${id}/content`, { version: st.version, content: st.getContent() })
+        .then(({ version }) => { st.version = version; setStatus(st.dirty ? 'unsaved' : 'saved'); })
+        .catch((e) => {
+          st.dirty = true;
+          if (e.status === 409) { st.blocked = true; setConflict('Someone else'); setStatus('conflict'); }
+          else { setStatus('error'); st.timer = setTimeout(flush, 5000); }
+        })
+        .finally(() => { st.inflight = null; });
+      await st.inflight;
+    }
+
+    return {
+      setVersion: (v) => { st.version = v; },
+      changed(getContent) {
+        st.getContent = getContent;
+        st.dirty = true;
+        if (st.blocked) return;
+        setStatus('unsaved');
+        clearTimeout(st.timer);
+        st.timer = setTimeout(flush, delay);
+      },
+      isDirty: () => st.dirty || !!st.inflight,
+      markConflict(name) { st.blocked = true; clearTimeout(st.timer); setConflict(name); setStatus('conflict'); },
+      resolve() { st.blocked = false; st.dirty = false; setConflict(null); setStatus('saved'); },
+      async forceSave(content) {
+        const { file } = await get(`/files/${id}/content`);
+        st.version = file.version;
+        st.blocked = false;
+        st.dirty = true;
+        st.getContent = () => content;
+        setConflict(null);
+        await flush();
+      },
+      flush,
+    };
+  }, [id, delay]);
+
+  // Save on leave; warn if the save can't happen.
+  useEffect(() => {
+    const st = r.current;
+    const onBefore = (e) => { if (st.dirty || st.inflight) { api.flush(); e.preventDefault(); e.returnValue = ''; } };
+    window.addEventListener('beforeunload', onBefore);
+    return () => { window.removeEventListener('beforeunload', onBefore); api.flush(); };
+  }, [api]);
+
+  return useMemo(() => ({ ...api, status, conflict }), [api, status, conflict]);
+}
+
+const STATUS = { saved: 'All changes saved', unsaved: 'Unsaved changes', saving: 'Saving…', error: 'Save failed, retrying…', conflict: 'Edit conflict' };
+
+export function EditorHeader({ icon, file, status, onRename, onShare, menu }) {
+  const navigate = useNavigate();
+  const toast = useToast();
+  const [name, setName] = useState('');
+  useEffect(() => { if (file) setName(file.name); }, [file]);
+  const canEdit = file && file.role !== 'viewer';
+
+  async function commit() {
+    const n = name.trim();
+    if (!n || n === file.name) return setName(file.name);
+    try { await onRename(n); } catch (e) { toast(e.message, 'error'); setName(file.name); }
+  }
+
+  return (
+    <header className="editor-head">
+      <button className="icon-btn" aria-label="Back to Drive" onClick={() => navigate(file?.parent_id ? `/drive/folder/${file.parent_id}` : '/drive')}>
+        <Icon name="back" />
+      </button>
+      <Icon name={icon} size={28} className={`ft ft-${icon}`} />
+      <div className="editor-title">
+        <input value={name} aria-label="File name" disabled={!canEdit} onChange={(e) => setName(e.target.value)}
+          onBlur={commit} onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') { setName(file.name); e.currentTarget.blur(); } }} />
+        <span className={`save-status ${status}`}>{file ? STATUS[status] : ''}</span>
+      </div>
+      <div className="grow" />
+      {menu && <Menu trigger={(p) => <button className="icon-btn" aria-label="More" {...p}><Icon name="more" /></button>} items={menu} />}
+      {file?.role === 'owner' && <button className="btn primary" onClick={onShare}><Icon name="share" size={18} /> Share</button>}
+    </header>
+  );
+}
