@@ -191,15 +191,19 @@ export default function webmailRoutes() {
     return changed;
   }
 
-  // ---- signature ----
-  r.get('/signature', (req, res) => res.json(signatureOf(req.user.id)));
-  r.put('/signature', (req, res) => {
+  // ---- signatures: one per sending address ----
+  r.get('/signatures', (req, res) => {
+    res.json(identities(req.user).map((i) => ({ address: i.address, ...signatureOf(req.user.id, i.address) })));
+  });
+  r.put('/signatures/:address', (req, res) => {
+    const address = String(req.params.address).toLowerCase();
+    if (!identities(req.user).some((i) => i.address === address)) throw bad('You cannot send from that address');
     const html = typeof req.body.html === 'string' ? req.body.html : '';
     if (html.length > 20000) throw bad('The signature is too long');
-    q(`INSERT INTO mail_signatures (user_id, html, on_new, on_reply, updated_at) VALUES (?, ?, ?, ?, ?)
-       ON CONFLICT(user_id) DO UPDATE SET html = excluded.html, on_new = excluded.on_new, on_reply = excluded.on_reply, updated_at = excluded.updated_at`)
-      .run(req.user.id, html, req.body.on_new === false ? 0 : 1, req.body.on_reply === false ? 0 : 1, Date.now());
-    res.json(signatureOf(req.user.id));
+    q(`INSERT INTO identity_signatures (user_id, address, html, on_new, on_reply, updated_at) VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(user_id, address) DO UPDATE SET html = excluded.html, on_new = excluded.on_new, on_reply = excluded.on_reply, updated_at = excluded.updated_at`)
+      .run(req.user.id, address, html, req.body.on_new === false ? 0 : 1, req.body.on_reply === false ? 0 : 1, Date.now());
+    res.json({ address, ...signatureOf(req.user.id, address) });
   });
 
   r.get('/folders', async (req, res) => {
@@ -410,14 +414,31 @@ export default function webmailRoutes() {
       total += f.size;
       attachments.push({ filename: f.name, contentType: f.mime || 'application/octet-stream', path: path.join(FILES_DIR, f.storage) });
     }
-    if (total > MAX_SEND_BYTES) throw bad('Attachments are larger than 25 MB in total');
+    // Inline images: <img src="/api/files/<id>/raw"> (pictures inserted from Drive or pasted) are
+    // embedded in the message as cid: parts, so recipients see them without access to this server.
+    let html = typeof b.html === 'string' && b.html ? b.html : null;
+    if (html) {
+      const embedded = new Map();
+      html = html.replace(/(<img\b[^>]*?\bsrc=")\/api\/files\/([0-9a-f-]{36})\/raw(?:\?[^"]*)?(")/gi, (m, pre, id, post) => {
+        if (!embedded.has(id)) {
+          const f = q("SELECT id, name, mime, size, storage, kind FROM files WHERE id = ?").get(id);
+          if (!f || f.kind !== 'file' || !roleFor(f.id, req.user.id)) throw bad('A picture in the message is not available');
+          if (!/^image\/(png|jpeg|gif|webp)$/.test(f.mime || '')) throw bad(`“${f.name}” is not a picture that can be shown in email`);
+          total += f.size;
+          embedded.set(id, { filename: f.name, contentType: f.mime, path: path.join(FILES_DIR, f.storage), cid: `img-${id}@workspace`, contentDisposition: 'inline' });
+        }
+        return `${pre}cid:img-${id}@workspace${post}`;
+      });
+      attachments.push(...embedded.values());
+    }
+    if (total > MAX_SEND_BYTES) throw bad('Attachments and pictures are larger than 25 MB in total');
 
     const mail = {
       from: { name: from.name, address: from.address },
       to, cc, bcc,
       subject: str(b.subject, { max: 998, name: 'Subject' }) || '',
       text: typeof b.text === 'string' ? b.text : '',
-      ...(typeof b.html === 'string' && b.html && { html: b.html }),
+      ...(html && { html }),
       ...(b.inReplyTo && { inReplyTo: String(b.inReplyTo), references: [].concat(b.references || [], b.inReplyTo).map(String).slice(-20) }),
       attachments,
     };
@@ -449,8 +470,8 @@ function chunk(value, size = 800) {
   return out.length ? out : ['000:'];
 }
 
-function signatureOf(userId) {
-  const sg = q('SELECT html, on_new, on_reply FROM mail_signatures WHERE user_id = ?').get(userId);
+function signatureOf(userId, address) {
+  const sg = q('SELECT html, on_new, on_reply FROM identity_signatures WHERE user_id = ? AND address = ?').get(userId, address);
   return sg ? { html: sg.html, on_new: !!sg.on_new, on_reply: !!sg.on_reply } : { html: '', on_new: true, on_reply: true };
 }
 

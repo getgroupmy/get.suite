@@ -493,3 +493,7 @@ a.att:hover { background: var(--hover); }
 .folder-menu { width: 30px; height: 30px; opacity: 0; }
 .folder-row:hover .folder-menu, .folder-menu:focus-visible, .folder-menu[aria-expanded="true"] { opacity: 1; }
 @media (hover: none) { .folder-menu { opacity: 1; } }
+.compose-editor .tiptap img { max-width: 100%; height: auto; border-radius: 4px; display: block; margin: 6px 0; }
+.compose-editor .tiptap img.ProseMirror-selectednode { outline: 2px solid var(--accent); }
+.compose-editor .tiptap .signature { color: var(--muted); }
+.compose-editor .tiptap .signature strong { color: var(--text); }

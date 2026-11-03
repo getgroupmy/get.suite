@@ -4,7 +4,9 @@ import { api, get, post, put, del, uploadFile, formatBytes, formatDate } from '.
 import Icon from '../../components/Icon.jsx';
 import { Avatar, ConfirmModal, Empty, Menu, Modal, PromptModal, useToast } from '../../components/ui.jsx';
 import { useAuth } from '../../App.jsx';
-import { useEditor, EditorContent } from '@tiptap/react';
+import { useEditor, EditorContent, Node as TiptapNode, mergeAttributes } from '@tiptap/react';
+import Image from '@tiptap/extension-image';
+import { useMailStatus } from '../../mailStatus.js';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
 import { textToHtml, docToText, emailHtml, isEmptyDoc } from './richtext.js';
@@ -37,17 +39,19 @@ export default function Mail() {
   const [filters, setFilters] = useState(null); // null | { startWith?: rule }
   const [newFolder, setNewFolder] = useState(false);
   const [folderDialog, setFolderDialog] = useState(null);
-  const [signature, setSignature] = useState(null);
+  const [signatures, setSignatures] = useState([]);
   const [signatureOpen, setSignatureOpen] = useState(false);
-  useEffect(() => { get('/mail/signature').then(setSignature).catch(() => {}); }, []);
+  const { user } = useAuth();
+  useEffect(() => { get('/mail/signatures').then(setSignatures).catch(() => {}); }, []);
 
-  /** Add the signature to a new message, or above the quote in a reply/forward (never to resumed drafts). */
+  /** Add the From address's signature to a new message, or above the quote in a reply/forward (never to resumed drafts). */
   const withSignature = (init, kind) => {
-    const sig = signature?.html;
-    if (!sig || (kind === 'new' ? !signature.on_new : !signature.on_reply)) return init;
-    const block = `<p></p><p>-- </p>${sig}`;
-    if (kind === 'new') return { ...init, html: `${block}` };
-    return { ...init, html: (init.html || '').replace(/^<p><\/p>/, `<p></p>${block}`) };
+    const from = init.from || user.username;
+    const block = signatureBlock(signatures, from, kind);
+    const out = { ...init, from, kind };
+    if (!block) return out;
+    if (kind === 'new') return { ...out, html: `<p></p>${block}` };
+    return { ...out, html: (init.html || '').replace(/^<p><\/p>/, `<p></p>${block}`) };
   };
   useEffect(() => { get('/mail/vacation').then(setVacation).catch(() => {}); }, []);
 
@@ -184,11 +188,11 @@ export default function Mail() {
         ) : <Empty icon="mail" title="No message selected" />}
       </section>
 
-      {compose && <Compose initial={compose} onClose={() => setCompose(null)} onSent={() => { setCompose(null); refresh(); }} onDraftsChanged={refresh} />}
+      {compose && <Compose initial={compose} signatures={signatures} onClose={() => setCompose(null)} onSent={() => { setCompose(null); refresh(); }} onDraftsChanged={refresh} />}
       {filters && <FiltersDialog folders={folders} onFoldersChanged={loadFolders} startWith={filters.startWith} onClose={() => { setFilters(null); loadFolders(); }} />}
       {newFolder && <PromptModal title="New folder" label="Folder name (use / for subfolders, e.g. Clients/Acme)" confirm="Create" onClose={() => setNewFolder(false)}
         onSubmit={async (name) => { const r = await post('/mail/folders', { name }); toast(`Folder ${r.path} created`); loadFolders(); }} />}
-      {signatureOpen && <SignatureDialog initial={signature} onClose={() => setSignatureOpen(false)} onSaved={(sg) => { setSignature(sg); setSignatureOpen(false); }} />}
+      {signatureOpen && <SignatureDialog signatures={signatures} onClose={() => setSignatureOpen(false)} onSaved={(list) => setSignatures(list)} />}
       {folderDialog?.type === 'rename' && (
         <PromptModal title={`Rename “${folderDialog.folder.name}”`} label="New name (use / for subfolders)" initial={folderDialog.folder.path} confirm="Rename"
           onClose={() => setFolderDialog(null)}
@@ -217,6 +221,7 @@ export default function Mail() {
 }
 
 function Reader({ folder, uid, special, onClose, onChanged, act, onCompose, onFilter }) {
+  const mailStatus = useMailStatus();
   const toast = useToast();
   const { user } = useAuth();
   const [m, setM] = useState(null);
@@ -230,9 +235,12 @@ function Reader({ folder, uid, special, onClose, onChanged, act, onCompose, onFi
   // Quotes are built from the original's plain text, so hostile HTML never reaches the editor.
   const quoted = () => `<p></p><p>On ${escapeHtml(new Date(m.date).toLocaleString())}, ${escapeHtml(who(m.from))} wrote:</p><blockquote>${textToHtml(m.text)}</blockquote>`;
   const reSubject = (p) => (m.subject.toLowerCase().startsWith(p.toLowerCase()) ? m.subject : `${p} ${m.subject}`);
-  const thread = { inReplyTo: m.messageId, references: m.references, replyTo: { folder, uid } };
+  // Reply from the address the message was sent to (e.g. sales@), if it is one of yours.
+  const mine = (mailStatus?.identities || []).map((i) => i.address);
+  const replyFrom = [...m.to, ...m.cc].map((a) => a.address).find((a) => mine.includes(a)) || user.username;
+  const thread = { inReplyTo: m.messageId, references: m.references, replyTo: { folder, uid }, from: replyFrom };
   const replyTo = m.replyTo.length ? m.replyTo : m.from ? [m.from] : [];
-  const others = [...m.to, ...m.cc].filter((a) => a.address !== user.username && !replyTo.some((r) => r.address === a.address));
+  const others = [...m.to, ...m.cc].filter((a) => !mine.includes(a.address) && a.address !== user.username && !replyTo.some((r) => r.address === a.address));
   const done = async (p, b, msg) => { if (await act(p, { uids: [uid], ...b }, msg)) onClose(); };
 
   return (
@@ -275,6 +283,7 @@ function Reader({ folder, uid, special, onClose, onChanged, act, onCompose, onFi
         <button className="btn" onClick={() => onCompose({ to: list(replyTo), subject: reSubject('Re:'), html: quoted(), ...thread })}><Icon name="reply" size={18} /> Reply</button>
         {others.length > 0 && <button className="btn" onClick={() => onCompose({ to: list(replyTo), cc: list(others), subject: reSubject('Re:'), html: quoted(), ...thread })}><Icon name="replyall" size={18} /> Reply all</button>}
         <button className="btn" onClick={() => onCompose({
+          from: replyFrom,
           subject: reSubject('Fwd:'),
           html: `<p></p><p>---------- Forwarded message ----------<br>From: ${escapeHtml(list([m.from]))}<br>Date: ${escapeHtml(new Date(m.date).toLocaleString())}<br>Subject: ${escapeHtml(m.subject)}<br>To: ${escapeHtml(list(m.to))}</p>${textToHtml(m.text)}`,
         })}><Icon name="forward" size={18} /> Forward</button>
@@ -304,7 +313,8 @@ function HtmlBody({ html, images, onShowImages }) {
 
 const FIELDS = ['from', 'to', 'cc', 'bcc', 'subject', 'text', 'html', 'inReplyTo', 'references', 'replyTo'];
 
-function Compose({ initial, onClose, onSent, onDraftsChanged }) {
+function Compose({ initial, signatures = [], onClose, onSent, onDraftsChanged }) {
+  const editorRef = useRef(null);
   const toast = useToast();
   const { user } = useAuth();
   const [identities, setIdentities] = useState([{ address: user.username }]);
@@ -404,7 +414,12 @@ function Compose({ initial, onClose, onSent, onDraftsChanged }) {
       <form className="compose stack" onSubmit={send}>
         {identities.length > 1 && (
           <label className="compose-line"><span>From</span>
-            <select aria-label="From" value={f.from} onChange={set('from')}>{identities.map((i) => <option key={i.address} value={i.address}>{i.address}</option>)}</select>
+            <select aria-label="From" value={f.from} onChange={(e) => {
+              const from = e.target.value;
+              const kind = initial.kind || ((f.html || '').includes('<blockquote') ? 'reply' : 'new'); // resumed drafts
+              if (editorRef.current) swapSignature(editorRef.current, signatureBlock(signatures, from, kind));
+              setF((cur) => ({ ...cur, from }));
+            }}>{identities.map((i) => <option key={i.address} value={i.address}>{i.address}</option>)}</select>
           </label>
         )}
         <label className="compose-line"><span>To</span><input aria-label="To" autoFocus={!initial.to} type="text" inputMode="email" value={f.to} onChange={set('to')} placeholder="name@company.com, …" />
@@ -414,7 +429,7 @@ function Compose({ initial, onClose, onSent, onDraftsChanged }) {
           <label className="compose-line"><span>Bcc</span><input aria-label="Bcc" type="text" inputMode="email" value={f.bcc} onChange={set('bcc')} /></label>
         </>}
         <label className="compose-line"><span>Subject</span><input aria-label="Subject" value={f.subject} onChange={set('subject')} /></label>
-        <RichBody initialHtml={initial.html || textToHtml(initial.text || '')} autoFocus={!!initial.to}
+        <RichBody initialHtml={initial.html || textToHtml(initial.text || '')} autoFocus={!!initial.to} onReady={(ed) => { editorRef.current = ed; }}
           onChange={(html, text, initialReport) => { if (initialReport) skipNext.current = true; setF((cur) => ({ ...cur, html, text })); }} />
         {(files.length > 0 || uploading > 0) && (
           <ul className="att-list">
@@ -430,7 +445,7 @@ function Compose({ initial, onClose, onSent, onDraftsChanged }) {
           <button className="btn primary" disabled={busy || uploading > 0 || !f.to.trim() || total > 25 * 1024 * 1024}><Icon name="send" size={18} /> {busy ? 'Sending…' : 'Send'}</button>
           <button type="button" className="icon-btn" aria-label="Attach from computer" title="Attach from computer" onClick={() => fileInput.current.click()}><Icon name="attach" /></button>
           <button type="button" className="icon-btn" aria-label="Attach from Drive" title="Attach from Drive" onClick={() => setPicking(true)}><Icon name="folder" /></button>
-          <input ref={fileInput} type="file" multiple hidden onChange={(e) => { upload([...e.target.files]); e.target.value = ''; }} />
+          <input ref={fileInput} type="file" multiple hidden aria-label="Attachment files" onChange={(e) => { upload([...e.target.files]); e.target.value = ''; }} />
           <div className="grow" />
           <span className={`muted small draft-state ${draftState}`} aria-live="polite">
             {draftState === 'saving' ? 'Saving…' : draftState === 'saved' ? 'Draft saved' : draftState === 'error' ? 'Couldn’t save draft' : ''}
@@ -495,15 +510,57 @@ function VacationDialog({ onClose, onSaved }) {
 }
 
 /** Rich-text message body: bold, italic, underline, strike, lists, quotes, links. */
-function RichBody({ initialHtml, onChange, autoFocus, label = 'Message', placeholder = 'Write your message…' }) {
+function RichBody({ initialHtml, onChange, onReady, autoFocus, label = 'Message', placeholder = 'Write your message…' }) {
   const [, force] = useState(0);
+  const toast = useToast();
+  const fileInput = useRef();
+  const [uploading, setUploading] = useState(0);
+  const edRef = useRef(null);
+
+  // Pictures are uploaded to Drive, shown from there while writing, and embedded in the email when sent.
+  async function insertImages(files, pos) {
+    const images = [...files].filter((f) => /^image\/(png|jpeg|gif|webp)$/.test(f.type));
+    if (!images.length) return false;
+    for (const file of images) {
+      if (file.size > 10 * 1024 * 1024) { toast(`${file.name} is larger than 10 MB`, 'error'); continue; }
+      setUploading((n) => n + 1);
+      try {
+        const rec = await uploadFile(file, null);
+        // Insert the picture followed by an empty line, and leave the cursor there, so typing or
+        // pasting next doesn't replace the picture (an inserted image is otherwise left selected).
+        const content = [{ type: 'image', attrs: { src: `/api/files/${rec.id}/raw`, alt: rec.name } }, { type: 'paragraph' }];
+        const chain = edRef.current.chain().focus();
+        (pos != null ? chain.insertContentAt(pos, content) : chain.insertContent(content)).run();
+      } catch (e) { toast(e.message, 'error'); }
+      finally { setUploading((n) => n - 1); }
+    }
+    return true;
+  }
+
   const editor = useEditor({
     extensions: [
       StarterKit.configure({ heading: false, codeBlock: false, horizontalRule: false, link: { openOnClick: false, autolink: true, defaultProtocol: 'https' } }),
       Placeholder.configure({ placeholder }),
+      Image.configure({ inline: false, allowBase64: false }),
+      SignatureBlock,
     ],
     content: initialHtml,
-    editorProps: { attributes: { class: 'tiptap', 'aria-label': label, role: 'textbox', 'aria-multiline': 'true' } },
+    editorProps: {
+      attributes: { class: 'tiptap', 'aria-label': label, role: 'textbox', 'aria-multiline': 'true' },
+      handlePaste: (view, event) => {
+        const files = event.clipboardData?.files;
+        if (files?.length && [...files].some((f) => f.type.startsWith('image/'))) { event.preventDefault(); insertImages(files); return true; }
+        return false;
+      },
+      handleDrop: (view, event) => {
+        const files = event.dataTransfer?.files;
+        if (!files?.length || ![...files].some((f) => f.type.startsWith('image/'))) return false;
+        event.preventDefault();
+        const pos = view.posAtCoords({ left: event.clientX, top: event.clientY })?.pos;
+        insertImages(files, pos);
+        return true;
+      },
+    },
     onUpdate: ({ editor: ed }) => {
       const doc = ed.getJSON();
       onChange(isEmptyDoc(doc) ? '' : ed.getHTML(), docToText(doc));
@@ -513,6 +570,8 @@ function RichBody({ initialHtml, onChange, autoFocus, label = 'Message', placeho
   });
   useEffect(() => {
     if (!editor) return;
+    edRef.current = editor;
+    onReady?.(editor);
     // Report the starting content (e.g. a quoted reply) so drafts and sending see it.
     const doc = editor.getJSON();
     onChange(isEmptyDoc(doc) ? '' : editor.getHTML(), docToText(doc), true);
@@ -542,31 +601,85 @@ function RichBody({ initialHtml, onChange, autoFocus, label = 'Message', placeho
           const url = window.prompt('Link address (https://…)');
           if (url && /^(https?:\/\/|mailto:)/i.test(url.trim())) c().extendMarkRange('link').setLink({ href: url.trim() }).run();
         }} />
+        <B label="🖼" title="Insert picture" onClick={() => fileInput.current.click()} />
         <B label="Tx" title="Clear formatting" onClick={() => c().unsetAllMarks().clearNodes().run()} />
+        {uploading > 0 && <span className="muted small">Uploading picture…</span>}
+        <input ref={fileInput} type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden aria-label="Picture file"
+          onChange={(e) => { insertImages(e.target.files); e.target.value = ''; }} />
       </div>
       <EditorContent editor={editor} />
     </div>
   );
 }
 
-function SignatureDialog({ initial, onClose, onSaved }) {
+function SignatureDialog({ signatures, onClose, onSaved }) {
   const toast = useToast();
-  const [html, setHtml] = useState(initial?.html || '');
-  const [onNew, setOnNew] = useState(initial?.on_new !== false);
-  const [onReply, setOnReply] = useState(initial?.on_reply !== false);
+  const [address, setAddress] = useState(signatures[0]?.address);
+  const current = signatures.find((x) => x.address === address) || { html: '', on_new: true, on_reply: true };
+  const [html, setHtml] = useState(current.html);
+  const [onNew, setOnNew] = useState(current.on_new);
+  const [onReply, setOnReply] = useState(current.on_reply);
+  const pick = (a) => {
+    const sg = signatures.find((x) => x.address === a);
+    setAddress(a); setHtml(sg.html); setOnNew(sg.on_new); setOnReply(sg.on_reply);
+  };
   return (
-    <Modal wide title="Signature" onClose={onClose}>
+    <Modal wide title="Signatures" onClose={onClose}>
       <form className="stack" onSubmit={async (e) => {
         e.preventDefault();
-        try { const r = await put('/mail/signature', { html, on_new: onNew, on_reply: onReply }); toast('Signature saved'); onSaved(r); }
-        catch (err) { toast(err.message, 'error'); }
+        try {
+          const r = await put(`/mail/signatures/${encodeURIComponent(address)}`, { html, on_new: onNew, on_reply: onReply });
+          toast(`Signature for ${address} saved`);
+          onSaved(signatures.map((x) => (x.address === address ? r : x)));
+        } catch (err) { toast(err.message, 'error'); }
       }}>
-        <RichBody initialHtml={initial?.html || ''} label="Signature" placeholder="Your name, title, company, phone…" onChange={(h) => setHtml(h)} />
+        {signatures.length > 1 && (
+          <div className="tabs" role="tablist" aria-label="Sending address">
+            {signatures.map((x) => (
+              <button type="button" key={x.address} role="tab" aria-selected={x.address === address} className={x.address === address ? 'on' : ''} onClick={() => pick(x.address)}>{x.address}</button>
+            ))}
+          </div>
+        )}
+        <RichBody key={address} initialHtml={current.html} label="Signature" placeholder="Your name, title, company, phone…" onChange={(h) => setHtml(h)} />
         <label className="check"><input type="checkbox" checked={onNew} onChange={(e) => setOnNew(e.target.checked)} /> Add to new messages</label>
         <label className="check"><input type="checkbox" checked={onReply} onChange={(e) => setOnReply(e.target.checked)} /> Add to replies and forwards (above the quoted message)</label>
-        <p className="muted small" style={{ margin: 0 }}>The signature is added when you start writing, so you can still edit or remove it in a particular message.</p>
-        <div className="row end"><button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn primary">Save</button></div>
+        <p className="muted small" style={{ margin: 0 }}>Each address you can send from has its own signature. Changing “From” while writing switches the signature.</p>
+        <div className="row end"><button type="button" className="btn" onClick={onClose}>Close</button><button className="btn primary">Save</button></div>
       </form>
     </Modal>
   );
+}
+
+/** The signature lives in its own block so switching "From" can find and replace it. */
+const SignatureBlock = TiptapNode.create({
+  name: 'signature',
+  group: 'block',
+  content: 'block+',
+  defining: true,
+  parseHTML() { return [{ tag: 'div[data-signature]' }]; },
+  renderHTML({ HTMLAttributes }) { return ['div', mergeAttributes(HTMLAttributes, { 'data-signature': '', class: 'signature' }), 0]; },
+});
+
+function signatureBlock(signatures, address, kind) {
+  const sg = signatures.find((x) => x.address === address);
+  if (!sg?.html || (kind === 'new' ? !sg.on_new : !sg.on_reply)) return '';
+  return `<div data-signature=""><p>-- </p>${sg.html}</div>`;
+}
+
+/** Replace the signature block (or add one: at the end of a new message, below the first line of a reply). */
+function swapSignature(editor, html) {
+  let found = null;
+  editor.state.doc.descendants((node, pos) => {
+    if (found) return false;
+    if (node.type.name === 'signature') { found = { from: pos, to: pos + node.nodeSize }; return false; }
+    return true;
+  });
+  if (found) {
+    if (html) editor.chain().insertContentAt(found, html).run();
+    else editor.chain().deleteRange(found).run();
+  } else if (html) {
+    const first = editor.state.doc.firstChild;
+    const isReply = editor.getHTML().includes('<blockquote');
+    editor.chain().insertContentAt(isReply && first ? first.nodeSize : editor.state.doc.content.size, html).run();
+  }
 }

@@ -39,6 +39,9 @@ export function docToText(doc) {
       case 'codeBlock':
         out.push(...inline(node.content).split('\n').map((l) => prefix + l));
         break;
+      case 'image':
+        out.push(`${prefix}[image${node.attrs?.alt ? `: ${node.attrs.alt}` : ''}]`);
+        break;
       case 'horizontalRule':
         out.push(`${prefix}----`);
         break;
@@ -53,7 +56,8 @@ export function docToText(doc) {
 /** Wrap the editor's HTML so mail apps render it consistently. */
 export function emailHtml(bodyHtml) {
   return `<div style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; line-height: 1.5; color: #1f1f1f">${bodyHtml
-    .replace(/<blockquote>/g, '<blockquote style="margin:0 0 0 .8ex; border-left:2px solid #ccc; padding-left:1ex; color:#555">')}</div>`;
+    .replace(/<blockquote>/g, '<blockquote style="margin:0 0 0 .8ex; border-left:2px solid #ccc; padding-left:1ex; color:#555">')
+    .replace(/<img /g, '<img style="max-width:100%; height:auto" ')}</div>`;
 }
 
 export const isEmptyDoc = (doc) => !docToText(doc).trim();

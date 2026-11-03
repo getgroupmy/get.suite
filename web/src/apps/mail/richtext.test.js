@@ -31,3 +31,9 @@ test('signature separator keeps its trailing space', () => {
   const doc = { type: 'doc', content: [p(t('Thanks')), p(t('--')), p(t('Olivia'))] };
   assert.equal(docToText(doc), 'Thanks\n-- \nOlivia');
 });
+
+test('pictures appear as [image: name] in the plain-text part; emails get responsive images', () => {
+  const doc = { type: 'doc', content: [p(t('Logo:')), { type: 'image', attrs: { src: '/api/files/x/raw', alt: 'logo.png' } }] };
+  assert.equal(docToText(doc), 'Logo:\n[image: logo.png]');
+  assert.match(emailHtml('<img src="cid:x">'), /<img style="max-width:100%; height:auto" src=/);
+});

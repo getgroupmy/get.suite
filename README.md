@@ -124,9 +124,17 @@ Your business fixed IP is what makes this work. Do these once:
   - Renaming moves subfolders with it and updates any filter that files mail there.
   - Deleting moves the folder's messages, and its subfolders' messages, to **Trash** first, so nothing is lost by accident. Filters that filed mail there are switched off rather than silently recreating the folder.
   - New and renamed folders are subscribed automatically, including folders a filter creates, so phones and Outlook show them.
-- **Signature** (Mail → Signature): one formatted signature per user, added below a standard `-- ` separator.
-  - It's added to new messages, and optionally to replies and forwards, placed above the quoted message.
+- **Signatures** (Mail → Signature): a formatted signature for **each address you can send from**, your own and every alias you belong to (e.g. `sales@`), added below a standard `-- ` separator.
+  - Each one can be added to new messages, and to replies and forwards, where it sits above the quoted message.
+  - Changing **From** while writing swaps in that address's signature.
+  - Replies and forwards default to sending from the address the message was sent to, so a reply to mail for `sales@` goes out from `sales@` with the sales signature.
   - It's inserted when you start writing, so you can still edit it in a particular message, and a reopened draft never gets a second copy.
+- **Pictures in messages:** insert them with the 🖼 button, paste a screenshot, or drag an image file into the message (PNG, JPEG, GIF or WebP, up to 10 MB each). Signatures can contain pictures too, such as a logo.
+  - Pictures are saved to your Drive.
+  - When the message is sent they're embedded in the email itself, so recipients see them without access to your server and without "show images" prompts.
+  - The plain-text version shows `[image: name]` in their place.
+  - Pictures count towards the 25 MB message limit.
+  - Replies and forwards quote the original's text, so pictures from the original aren't carried over.
 - **Vacation reply** (Mail → Vacation reply): an automatic answer with an optional first and last day. It's built on the mail server's standard Sieve "vacation" feature:
   - Each sender gets at most one reply per day.
   - Mailing lists, newsletters, spam and other automatic messages never get one.
@@ -143,7 +151,7 @@ Your business fixed IP is what makes this work. Do these once:
   Users sign in with their email address and Workspace password.
 - **Accounts that predate email** get a working mailbox password the next time the user signs in to Workspace. Webmail works right away.
 
-**Not built yet:** catch-all addresses, inline images in messages you write, and a different signature for each alias.
+**Not built yet:** catch-all addresses, resizing pictures inside the editor, and carrying the original's pictures into forwards.
 
 ## Sign-in protection
 
@@ -214,7 +222,7 @@ cd server && MAIL_IT_CONFIG_DIR=/etc/nw npm run test:mail
 
 ## Roadmap
 
-- **Mail, next steps:** per-alias signatures, inline images, and a "new mail" notification pushed live instead of checked every 30 seconds.
+- **Mail, next steps:** catch-all addresses, forwarding with the original's pictures and attachments, and a "new mail" notification pushed live instead of checked every 30 seconds.
 - **Real-time co-editing:** live cursors and character-level merging (Yjs) in Docs and Sheets.
 - **Phone sync:** CalDAV and CardDAV, so calendars and contacts sync with the phone's built-in apps; WebDAV for Drive.
 - **Renaming a user's address** (moving them to another domain of the same company), **two-factor authentication**, file version history, public share links, Slides, cell formatting in Sheets, and week and day calendar views.

@@ -367,12 +367,37 @@ test('folders: rename with subfolders updates filters; delete moves mail to Tras
   await olivia('PUT', '/api/mail/rules', { rules: [] });
 });
 
-test('signature: defaults, save, length limit', async () => {
-  assert.deepEqual((await olivia('GET', '/api/mail/signature')).body, { html: '', on_new: true, on_reply: true });
-  const sig = await olivia('PUT', '/api/mail/signature', { html: '<p><strong>Olivia Owner</strong></p><p>Acme Trading</p>', on_new: true, on_reply: false });
-  assert.deepEqual(sig.body, { html: '<p><strong>Olivia Owner</strong></p><p>Acme Trading</p>', on_new: true, on_reply: false });
-  assert.equal((await olivia('PUT', '/api/mail/signature', { html: 'x'.repeat(20001) })).status, 400);
-  assert.equal((await gina('GET', '/api/mail/signature')).body.html, '', 'per user');
+test('signatures: one per sending address, only for your own identities', async () => {
+  // Olivia belongs to the sales@ alias, so she has two sending addresses.
+  const mine = (await olivia('GET', '/api/mail/signatures')).body;
+  assert.deepEqual(mine.map((x) => x.address), ['olivia@acme.com', 'sales@acme.com']);
+  assert.ok(mine.every((x) => x.html === '' && x.on_new && x.on_reply));
+  await olivia('PUT', '/api/mail/signatures/olivia@acme.com', { html: '<p><strong>Olivia Owner</strong></p>', on_reply: false });
+  await olivia('PUT', '/api/mail/signatures/SALES@acme.com', { html: '<p>Acme Sales Team</p>' });
+  const after = Object.fromEntries((await olivia('GET', '/api/mail/signatures')).body.map((x) => [x.address, x]));
+  assert.equal(after['olivia@acme.com'].html, '<p><strong>Olivia Owner</strong></p>');
+  assert.equal(after['olivia@acme.com'].on_reply, false);
+  assert.equal(after['sales@acme.com'].html, '<p>Acme Sales Team</p>');
+  assert.equal((await gina('PUT', '/api/mail/signatures/sales@acme.com', { html: 'x' })).status, 400, 'not her alias');
+  assert.equal((await olivia('PUT', '/api/mail/signatures/olivia@acme.com', { html: 'x'.repeat(20001) })).status, 400);
+});
+
+test('inline images: Drive pictures are embedded as cid parts; others refused', async () => {
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  const pic = (await olivia('POST', '/api/files/upload?name=logo.png', png, { raw: true })).body;
+  const doc = (await olivia('POST', '/api/files/upload?name=notes.txt', 'text', { raw: true })).body;
+  const html = `<p>Our logo:</p><p><img src="/api/files/${pic.id}/raw" alt="logo.png"></p><p>again <img src="/api/files/${pic.id}/raw"></p>`;
+  const r = await olivia('POST', '/api/mail/send', { to: 'gina@globex.com', subject: 'Logo inline', text: 'Our logo: [image: logo.png]', html });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  const m = await eventually(async () => (await inbox(gina)).find((x) => x.subject === 'Logo inline'));
+  const full = (await gina('GET', `/api/mail/messages/${m.uid}?folder=INBOX`)).body;
+  // mailparser turns cid: references into data: URIs for display; the picture is not a separate attachment.
+  assert.equal((full.html.match(/src="data:image\/png;base64,/g) || []).length, 2, 'both references point at the embedded picture');
+  assert.ok(!full.html.includes('/api/files/'), 'no links back to this server');
+  assert.deepEqual(full.attachments, [], 'embedded once, shown inline, not listed as an attachment');
+
+  assert.equal((await olivia('POST', '/api/mail/send', { to: 'gina@globex.com', subject: 'x', text: 'x', html: `<img src="/api/files/${doc.id}/raw">` })).status, 400, 'not an image');
+  assert.equal((await gina('POST', '/api/mail/send', { to: 'olivia@acme.com', subject: 'x', text: 'x', html: `<img src="/api/files/${pic.id}/raw">` })).status, 400, 'someone else\'s file');
 });
 
 // ---- sign-in protection against the real Dovecot + Postfix ----

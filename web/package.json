@@ -9,6 +9,7 @@
     "test": "node --test src/**/*.test.js"
   },
   "dependencies": {
+    "@tiptap/extension-image": "^3.32.2",
     "@tiptap/extension-placeholder": "^3.32.2",
     "@tiptap/extension-text-align": "^3.32.2",
     "@tiptap/pm": "^3.32.2",

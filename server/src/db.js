@@ -166,6 +166,16 @@ CREATE TABLE IF NOT EXISTS mail_signatures (
   on_reply INTEGER NOT NULL DEFAULT 1,
   updated_at INTEGER NOT NULL
 );
+-- One signature per sending address (own address and each alias the user belongs to).
+CREATE TABLE IF NOT EXISTS identity_signatures (
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  address TEXT NOT NULL COLLATE NOCASE,
+  html TEXT NOT NULL DEFAULT '',
+  on_new INTEGER NOT NULL DEFAULT 1,
+  on_reply INTEGER NOT NULL DEFAULT 1,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (user_id, address)
+);
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -189,3 +199,9 @@ if (db.prepare('SELECT 1 FROM users WHERE org_id IS NULL').get()) {
     db.prepare("UPDATE channels SET org_id = ? WHERE org_id IS NULL AND dm_key IS NULL").run(orgId);
   });
 }
+
+// v0.7 signatures (one per user) become the signature of the user's own address.
+db.exec(`INSERT OR IGNORE INTO identity_signatures (user_id, address, html, on_new, on_reply, updated_at)
+         SELECT s.user_id, u.username, s.html, s.on_new, s.on_reply, s.updated_at
+         FROM mail_signatures s JOIN users u ON u.id = s.user_id`);
+db.exec('DELETE FROM mail_signatures');
