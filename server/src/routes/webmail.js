@@ -9,6 +9,7 @@ import { str, bad, notFound, HttpError } from '../util.js';
 import { roleFor } from '../access.js';
 import { mailEnabled, scheduleMailConfig } from '../mail/config.js';
 import { withClient, withFolder, smtpFor } from '../mail/imap.js';
+import { normalizeRules } from '../mail/sieve.js';
 
 const PAGE = 50;
 const MAX_SEND_BYTES = 25 * 1024 * 1024;
@@ -81,11 +82,36 @@ export default function webmailRoutes() {
     res.json(vacationOf(req.user.id));
   });
 
+  // ---- filter rules (run by the mail server at delivery, see mail/sieve.js) ----
+  r.get('/rules', (req, res) => {
+    const row = q('SELECT rules FROM mail_rules WHERE user_id = ?').get(req.user.id);
+    res.json(row ? JSON.parse(row.rules) : []);
+  });
+
+  r.put('/rules', (req, res) => {
+    const rules = normalizeRules(req.body.rules);
+    q(`INSERT INTO mail_rules (user_id, rules, updated_at) VALUES (?, ?, ?)
+       ON CONFLICT(user_id) DO UPDATE SET rules = excluded.rules, updated_at = excluded.updated_at`)
+      .run(req.user.id, JSON.stringify(rules), Date.now());
+    scheduleMailConfig();
+    res.json(rules);
+  });
+
+  r.post('/folders', async (req, res) => {
+    const name = str(req.body.name, { required: true, name: 'Folder name', max: 100 }).replace(/\/+/g, '/').replace(/^\/|\/$/g, '');
+    if (!name || /[\x00-\x1f*%]/.test(name)) throw bad('That folder name is not allowed');
+    const exists = (await withClient(req.user, (c) => c.list())).some((b) => b.path.toLowerCase() === name.toLowerCase());
+    if (exists) throw bad('A folder with that name already exists');
+    await withClient(req.user, (c) => c.mailboxCreate(name));
+    res.status(201).json({ path: name });
+  });
+
   r.get('/folders', async (req, res) => {
     const boxes = await withClient(req.user, (c) => c.list({ statusQuery: { messages: true, unseen: true } }));
     const rank = (b) => (b.specialUse ? ORDER.indexOf(b.specialUse) : b.path === 'INBOX' ? 0 : 99);
     res.json(boxes.filter((b) => !b.flags?.has('\\Noselect'))
-      .map((b) => ({ path: b.path, name: b.path === 'INBOX' ? 'Inbox' : b.name, specialUse: b.path === 'INBOX' ? '\\Inbox' : b.specialUse || null,
+      // Nested folders show their full path ("Partners / Globex") so it's clear where they live.
+      .map((b) => ({ path: b.path, name: b.path === 'INBOX' ? 'Inbox' : b.path.split(b.delimiter || '/').join(' / '), specialUse: b.path === 'INBOX' ? '\\Inbox' : b.specialUse || null,
         messages: b.status?.messages ?? 0, unseen: b.status?.unseen ?? 0 }))
       .sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name)));
   });
@@ -222,6 +248,7 @@ export default function webmailRoutes() {
       to: lenient(meta.to), cc: lenient(meta.cc),
       subject: String(b.subject || '').slice(0, 998),
       text: typeof b.text === 'string' ? b.text : '',
+      ...(typeof b.html === 'string' && b.html && { html: b.html.slice(0, 2_000_000) }),
       ...(meta.inReplyTo && { inReplyTo: meta.inReplyTo, references: meta.references }),
       headers: { 'X-Workspace-Draft': chunk(Buffer.from(JSON.stringify(meta)).toString('base64')) },
     }).compile().build();
@@ -246,7 +273,7 @@ export default function webmailRoutes() {
       uid: Number(req.params.uid),
       from: meta?.from || addrList(p.from)[0]?.address || req.user.username,
       to: meta?.to ?? fmt(p.to), cc: meta?.cc ?? fmt(p.cc), bcc: meta?.bcc ?? fmt(p.bcc),
-      subject: p.subject || '', text: p.text || '',
+      subject: p.subject || '', text: p.text || '', html: p.html || null,
       attachments: files,
       inReplyTo: meta?.inReplyTo || p.inReplyTo || null, references: meta?.references || [].concat(p.references || []),
       replyTo: meta?.replyTo || null,

@@ -10,7 +10,7 @@ A self-hosted, Google Workspace-style office suite built to run on a Synology DS
 | **Calendar** | Month view, all-day and timed events, colours, upcoming list |
 | **Contacts** | Personal address book, plus a directory of everyone on the NAS |
 | **Chat** | Channels and direct messages, delivered live over WebSockets |
-| **Mail** | A mailbox for every user on their company's domains: webmail (read, reply, forward, attachments from your computer or Drive, archive, spam, search, stars), drafts that save automatically, vacation auto-replies, send as aliases you belong to, and IMAP/SMTP for phones and Outlook |
+| **Mail** | A mailbox for every user on their company's domains: webmail (read, reply, forward, attachments from your computer or Drive, archive, spam, search, stars), rich-text writing (bold, lists, links, quotes), drafts that save automatically, vacation auto-replies, filter rules, folders, send as aliases you belong to, and IMAP/SMTP for phones and Outlook |
 | **Admin** | Create, disable, reset or delete users; per-user storage use; company settings; all companies (platform owner) |
 
 ## Companies (multi-tenant)
@@ -112,6 +112,14 @@ Your business fixed IP is what makes this work. Do these once:
 - **Drafts:** compose saves to the Drafts folder 2 seconds after you stop typing. Closing the window keeps the draft, the bin icon discards it, and clicking a draft in Drafts resumes it.
   - Drafts live on the mail server, so phones and Outlook see them.
   - Attachments in a draft are kept as links to Drive files. They're restored when the draft is reopened in webmail, but phones don't see them until the message is sent.
+- **Rich-text writing:** bold, italic, underline, strike, bulleted and numbered lists, quotes and links. Every message is sent with a formatted version and a readable plain-text version (quotes marked with `>`, lists with `-` / `1.`), so any mail app can show it. Replies quote the original as a quoted block. Quotes are built from the original's plain text, so formatting tricks in a received email can't carry into yours.
+- **Filters** (Mail → Filters, or **Filter messages like this** on any message): rules run by the mail server as mail arrives, so they apply to phones too. They run in order, and can be reordered and switched on or off.
+  - Conditions: From, To or Cc, or Subject *contains*, *doesn't contain* or *is exactly* a value, matching all or any of them.
+  - Actions: move to a folder (created if needed, e.g. `Clients/Acme`), mark as read, star, forward a copy, or delete.
+  - A matching filter stops later ones unless you untick "Don't apply later filters".
+  - Mail a filter files away still gets your vacation reply; mail it deletes doesn't.
+  - Forwarded copies keep the original sender. Some receiving servers treat forwarded mail from outside domains with suspicion (SPF), so forwarding works best within your own companies.
+- **Folders:** create folders and subfolders from the Mail sidebar (**New folder**).
 - **Vacation reply** (Mail → Vacation reply): an automatic answer with an optional first and last day. It's built on the mail server's standard Sieve "vacation" feature:
   - Each sender gets at most one reply per day.
   - Mailing lists, newsletters, spam and other automatic messages never get one.
@@ -128,7 +136,7 @@ Your business fixed IP is what makes this work. Do these once:
   Users sign in with their email address and Workspace password.
 - **Accounts that predate email** get a working mailbox password the next time the user signs in to Workspace. Webmail works right away.
 
-**Not built yet:** rich-text (HTML) composing (messages are sent as plain text), per-user filter rules, and catch-all addresses.
+**Not built yet:** catch-all addresses, renaming or deleting folders from webmail (phones and Outlook can), inline images in messages you write, and an email signature.
 
 ## Sign-in protection
 
@@ -199,7 +207,7 @@ cd server && MAIL_IT_CONFIG_DIR=/etc/nw npm run test:mail
 
 ## Roadmap
 
-- **Mail, next steps:** rich-text composing, filter rules, and a "new mail" notification pushed live instead of checked every 30 seconds.
+- **Mail, next steps:** signatures, folder rename/delete, and a "new mail" notification pushed live instead of checked every 30 seconds.
 - **Real-time co-editing:** live cursors and character-level merging (Yjs) in Docs and Sheets.
 - **Phone sync:** CalDAV and CardDAV, so calendars and contacts sync with the phone's built-in apps; WebDAV for Drive.
 - **Renaming a user's address** (moving them to another domain of the same company), **two-factor authentication**, file version history, public share links, Slides, cell formatting in Sheets, and week and day calendar views.

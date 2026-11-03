@@ -2,11 +2,17 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { get, post, put, del, uploadFile, formatBytes, formatDate } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
-import { Avatar, Empty, Modal, useToast } from '../../components/ui.jsx';
+import { Avatar, Empty, Modal, PromptModal, useToast } from '../../components/ui.jsx';
 import { useAuth } from '../../App.jsx';
+import { useEditor, EditorContent } from '@tiptap/react';
+import StarterKit from '@tiptap/starter-kit';
+import Placeholder from '@tiptap/extension-placeholder';
+import { textToHtml, docToText, emailHtml, isEmptyDoc } from './richtext.js';
+import { FiltersDialog } from './Filters.jsx';
 
 const FOLDER_ICON = { '\\Inbox': 'inbox', '\\Drafts': 'doc', '\\Sent': 'send', '\\Archive': 'archive', '\\Junk': 'report', '\\Trash': 'trash' };
 const enc = encodeURIComponent;
+const escapeHtml = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const fmtDay = (d) => new Date(`${d}T12:00:00`).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
 const who = (a) => (a ? a.name || a.address : '');
 const list = (arr) => (arr || []).map((a) => (a.name ? `${a.name} <${a.address}>` : a.address)).join(', ');
@@ -28,6 +34,8 @@ export default function Mail() {
   const [checked, setChecked] = useState(new Set());
   const [vacation, setVacation] = useState(null);
   const [vacationOpen, setVacationOpen] = useState(false);
+  const [filters, setFilters] = useState(null); // null | { startWith?: rule }
+  const [newFolder, setNewFolder] = useState(false);
   useEffect(() => { get('/mail/vacation').then(setVacation).catch(() => {}); }, []);
 
   const loadFolders = useCallback(() => get('/mail/folders').then(setFolders).catch((e) => setError(e.message)), []);
@@ -81,9 +89,11 @@ export default function Mail() {
             {f.specialUse === '\\Drafts' && f.messages > 0 && <span className="count muted">{f.messages}</span>}
           </button>
         ))}
+        <button className="subnav-item new-folder" onClick={() => setNewFolder(true)}><Icon name="plus" /><span className="grow">New folder</span></button>
         <button className="subnav-item vacation-link" onClick={() => setVacationOpen(true)}>
           <Icon name="clock" /><span className="grow">Vacation reply</span>{vacation?.enabled && <span className="pill">{vacation.active ? 'On' : 'Scheduled'}</span>}
         </button>
+        <button className="subnav-item" onClick={() => setFilters({})}><Icon name="settings" /><span className="grow">Filters</span></button>
       </aside>
 
       <section className="mail-list">
@@ -144,17 +154,21 @@ export default function Mail() {
       <section className="mail-reader">
         {openUid ? (
           <Reader key={`${folder}:${openUid}`} folder={folder} uid={openUid} special={special}
-            onClose={() => go(folder)} onChanged={refresh} act={act} onCompose={setCompose} />
+            onClose={() => go(folder)} onChanged={refresh} act={act} onCompose={setCompose}
+            onFilter={(from) => setFilters({ startWith: { name: `From ${from}`, enabled: true, match: 'all', conditions: [{ field: 'from', op: 'contains', value: from }], actions: { stop: true } } })} />
         ) : <Empty icon="mail" title="No message selected" />}
       </section>
 
       {compose && <Compose initial={compose} onClose={() => setCompose(null)} onSent={() => { setCompose(null); refresh(); }} onDraftsChanged={refresh} />}
+      {filters && <FiltersDialog folders={folders} onFoldersChanged={loadFolders} startWith={filters.startWith} onClose={() => { setFilters(null); loadFolders(); }} />}
+      {newFolder && <PromptModal title="New folder" label="Folder name (use / for subfolders, e.g. Clients/Acme)" confirm="Create" onClose={() => setNewFolder(false)}
+        onSubmit={async (name) => { const r = await post('/mail/folders', { name }); toast(`Folder ${r.path} created`); loadFolders(); }} />}
       {vacationOpen && <VacationDialog onClose={() => setVacationOpen(false)} onSaved={(v) => { setVacation(v); setVacationOpen(false); }} />}
     </div>
   );
 }
 
-function Reader({ folder, uid, special, onClose, onChanged, act, onCompose }) {
+function Reader({ folder, uid, special, onClose, onChanged, act, onCompose, onFilter }) {
   const toast = useToast();
   const { user } = useAuth();
   const [m, setM] = useState(null);
@@ -165,7 +179,8 @@ function Reader({ folder, uid, special, onClose, onChanged, act, onCompose }) {
   }, [folder, uid]);
   if (!m) return <p className="muted mail-note">Loading…</p>;
 
-  const quoted = () => `\n\nOn ${new Date(m.date).toLocaleString()}, ${who(m.from)} wrote:\n${(m.text || '').split('\n').map((l) => `> ${l}`).join('\n')}`;
+  // Quotes are built from the original's plain text, so hostile HTML never reaches the editor.
+  const quoted = () => `<p></p><p>On ${escapeHtml(new Date(m.date).toLocaleString())}, ${escapeHtml(who(m.from))} wrote:</p><blockquote>${textToHtml(m.text)}</blockquote>`;
   const reSubject = (p) => (m.subject.toLowerCase().startsWith(p.toLowerCase()) ? m.subject : `${p} ${m.subject}`);
   const thread = { inReplyTo: m.messageId, references: m.references, replyTo: { folder, uid } };
   const replyTo = m.replyTo.length ? m.replyTo : m.from ? [m.from] : [];
@@ -186,6 +201,7 @@ function Reader({ folder, uid, special, onClose, onChanged, act, onCompose }) {
           onClick={async () => { if (await act('flags', { uids: [uid], flagged: !m.flagged })) setM({ ...m, flagged: !m.flagged }); }}>
           <span aria-hidden="true" style={{ fontSize: 20 }}>{m.flagged ? '★' : '☆'}</span>
         </button>
+        {m.from?.address && <button className="btn small" onClick={() => onFilter(m.from.address)}>Filter messages like this</button>}
       </div>
       <h1 className="reader-subject">{m.subject || '(no subject)'}</h1>
       {m.spam && <div className="banner warn">This message was marked as likely spam. Be careful with links and attachments.</div>}
@@ -208,11 +224,11 @@ function Reader({ folder, uid, special, onClose, onChanged, act, onCompose }) {
         </ul>
       )}
       <div className="row wrap reader-reply">
-        <button className="btn" onClick={() => onCompose({ to: list(replyTo), subject: reSubject('Re:'), text: quoted(), ...thread })}><Icon name="reply" size={18} /> Reply</button>
-        {others.length > 0 && <button className="btn" onClick={() => onCompose({ to: list(replyTo), cc: list(others), subject: reSubject('Re:'), text: quoted(), ...thread })}><Icon name="replyall" size={18} /> Reply all</button>}
+        <button className="btn" onClick={() => onCompose({ to: list(replyTo), subject: reSubject('Re:'), html: quoted(), ...thread })}><Icon name="reply" size={18} /> Reply</button>
+        {others.length > 0 && <button className="btn" onClick={() => onCompose({ to: list(replyTo), cc: list(others), subject: reSubject('Re:'), html: quoted(), ...thread })}><Icon name="replyall" size={18} /> Reply all</button>}
         <button className="btn" onClick={() => onCompose({
           subject: reSubject('Fwd:'),
-          text: `\n\n---------- Forwarded message ----------\nFrom: ${list([m.from])}\nDate: ${new Date(m.date).toLocaleString()}\nSubject: ${m.subject}\nTo: ${list(m.to)}\n\n${m.text || ''}`,
+          html: `<p></p><p>---------- Forwarded message ----------<br>From: ${escapeHtml(list([m.from]))}<br>Date: ${escapeHtml(new Date(m.date).toLocaleString())}<br>Subject: ${escapeHtml(m.subject)}<br>To: ${escapeHtml(list(m.to))}</p>${textToHtml(m.text)}`,
         })}><Icon name="forward" size={18} /> Forward</button>
       </div>
     </article>
@@ -238,14 +254,14 @@ function HtmlBody({ html, images, onShowImages }) {
   );
 }
 
-const FIELDS = ['from', 'to', 'cc', 'bcc', 'subject', 'text', 'inReplyTo', 'references', 'replyTo'];
+const FIELDS = ['from', 'to', 'cc', 'bcc', 'subject', 'text', 'html', 'inReplyTo', 'references', 'replyTo'];
 
 function Compose({ initial, onClose, onSent, onDraftsChanged }) {
   const toast = useToast();
   const { user } = useAuth();
   const [identities, setIdentities] = useState([{ address: user.username }]);
   const [f, setF] = useState(() => {
-    const base = { from: user.username, to: '', cc: '', bcc: '', subject: '', text: '' };
+    const base = { from: user.username, to: '', cc: '', bcc: '', subject: '', text: '', html: '' };
     for (const k of FIELDS) if (initial[k] !== undefined && initial[k] !== null) base[k] = initial[k];
     return base;
   });
@@ -281,8 +297,9 @@ function Compose({ initial, onClose, onSent, onDraftsChanged }) {
   }, []);
 
   const first = useRef(true);
+  const skipNext = useRef(false); // the editor reporting its starting content is not an edit
   useEffect(() => {
-    if (first.current) { first.current = false; return; }
+    if (first.current || skipNext.current) { first.current = false; skipNext.current = false; return; }
     dirty.current = true;
     clearTimeout(timer.current);
     timer.current = setTimeout(saveDraft, 2000);
@@ -318,7 +335,7 @@ function Compose({ initial, onClose, onSent, onDraftsChanged }) {
     clearTimeout(timer.current);
     await chain.current;            // let an in-flight save finish so the right draft gets removed
     try {
-      const r = await post('/mail/send', { ...f, attachments: files.map((x) => x.id), draftUid: draftUid.current });
+      const r = await post('/mail/send', { ...f, html: f.text.trim() ? emailHtml(f.html) : '', attachments: files.map((x) => x.id), draftUid: draftUid.current });
       toast(`Sent to ${r.recipients} recipient${r.recipients === 1 ? '' : 's'}`);
       onSent();
     } catch (err) { toast(err.message, 'error'); setBusy(false); closed.current = false; dirty.current = true; }
@@ -349,8 +366,8 @@ function Compose({ initial, onClose, onSent, onDraftsChanged }) {
           <label className="compose-line"><span>Bcc</span><input aria-label="Bcc" type="text" inputMode="email" value={f.bcc} onChange={set('bcc')} /></label>
         </>}
         <label className="compose-line"><span>Subject</span><input aria-label="Subject" value={f.subject} onChange={set('subject')} /></label>
-        <textarea className="compose-body" aria-label="Message" rows={14} value={f.text} onChange={set('text')} autoFocus={!!initial.to}
-          ref={(el) => { if (el && initial.to && !el.dataset.placed) { el.dataset.placed = '1'; el.setSelectionRange(0, 0); el.scrollTop = 0; } }} />
+        <RichBody initialHtml={initial.html || textToHtml(initial.text || '')} autoFocus={!!initial.to}
+          onChange={(html, text, initialReport) => { if (initialReport) skipNext.current = true; setF((cur) => ({ ...cur, html, text })); }} />
         {(files.length > 0 || uploading > 0) && (
           <ul className="att-list">
             {files.map((x) => (
@@ -426,5 +443,60 @@ function VacationDialog({ onClose, onSaved }) {
         <div className="row end"><button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn primary">Save</button></div>
       </form>
     </Modal>
+  );
+}
+
+/** Rich-text message body: bold, italic, underline, strike, lists, quotes, links. */
+function RichBody({ initialHtml, onChange, autoFocus }) {
+  const [, force] = useState(0);
+  const editor = useEditor({
+    extensions: [
+      StarterKit.configure({ heading: false, codeBlock: false, horizontalRule: false, link: { openOnClick: false, autolink: true, defaultProtocol: 'https' } }),
+      Placeholder.configure({ placeholder: 'Write your message…' }),
+    ],
+    content: initialHtml,
+    editorProps: { attributes: { class: 'tiptap', 'aria-label': 'Message', role: 'textbox', 'aria-multiline': 'true' } },
+    onUpdate: ({ editor: ed }) => {
+      const doc = ed.getJSON();
+      onChange(isEmptyDoc(doc) ? '' : ed.getHTML(), docToText(doc));
+    },
+    onSelectionUpdate: () => force((n) => n + 1),
+    onTransaction: () => force((n) => n + 1),
+  });
+  useEffect(() => {
+    if (!editor) return;
+    // Report the starting content (e.g. a quoted reply) so drafts and sending see it.
+    const doc = editor.getJSON();
+    onChange(isEmptyDoc(doc) ? '' : editor.getHTML(), docToText(doc), true);
+    if (autoFocus) editor.commands.focus('start');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor]);
+  if (!editor) return null;
+  const c = () => editor.chain().focus();
+  const B = ({ label, title, active, onClick }) => (
+    <button type="button" className={`tb ${active ? 'on' : ''}`} title={title} aria-label={title} aria-pressed={!!active}
+      onMouseDown={(e) => e.preventDefault()} onClick={onClick}>{label}</button>
+  );
+  return (
+    <div className="compose-editor">
+      <div className="toolbar compose-toolbar" role="toolbar" aria-label="Formatting">
+        <B label={<b>B</b>} title="Bold" active={editor.isActive('bold')} onClick={() => c().toggleBold().run()} />
+        <B label={<i>I</i>} title="Italic" active={editor.isActive('italic')} onClick={() => c().toggleItalic().run()} />
+        <B label={<u>U</u>} title="Underline" active={editor.isActive('underline')} onClick={() => c().toggleUnderline().run()} />
+        <B label={<s>S</s>} title="Strikethrough" active={editor.isActive('strike')} onClick={() => c().toggleStrike().run()} />
+        <span className="sep" />
+        <B label="•" title="Bulleted list" active={editor.isActive('bulletList')} onClick={() => c().toggleBulletList().run()} />
+        <B label="1." title="Numbered list" active={editor.isActive('orderedList')} onClick={() => c().toggleOrderedList().run()} />
+        <B label="❝" title="Quote" active={editor.isActive('blockquote')} onClick={() => c().toggleBlockquote().run()} />
+        <span className="sep" />
+        <B label="🔗" title="Link" active={editor.isActive('link')} onClick={() => {
+          if (editor.isActive('link')) return c().unsetLink().run();
+          const url = window.prompt('Link address (https://…)');
+          if (url && /^(https?:\/\/|mailto:)/i.test(url.trim())) c().extendMarkRange('link').setLink({ href: url.trim() }).run();
+        }} />
+        <B label="Tx" title="Clear formatting" onClick={() => c().unsetAllMarks().clearNodes().run()} />
+      </div>
+      <EditorContent editor={editor} />
+    </div>
   );
 }

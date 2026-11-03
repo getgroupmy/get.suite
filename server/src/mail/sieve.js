@@ -1,0 +1,101 @@
+// Per-user Sieve script: filter rules first, then the vacation auto-reply.
+// Runs inside Dovecot at delivery time, so rules also apply to mail read on phones.
+import { HttpError } from '../util.js';
+
+/** Sieve string literal: escape backslash and double quote (newlines are allowed). */
+export const sieveString = (v) => `"${String(v).replace(/\r\n?/g, '\n').replace(/[\\"]/g, (c) => `\\${c}`)}"`;
+
+const FIELDS = { from: ['from'], to: ['to', 'cc'], subject: ['subject'] };
+const OPS = ['contains', 'not_contains', 'is'];
+const EMAIL_RE = /^[^\s@"\\]+@[^\s@"\\]+\.[^\s@"\\]+$/;
+const bad = (m) => new HttpError(400, m);
+
+/** Validate and normalise the rules a user submits (an ordered array). */
+export function normalizeRules(input) {
+  if (!Array.isArray(input)) throw bad('rules must be a list');
+  if (input.length > 100) throw bad('At most 100 filter rules');
+  return input.map((r, i) => {
+    const label = `Rule ${i + 1}`;
+    const name = String(r.name || '').trim().slice(0, 100) || label;
+    const match = r.match === 'any' ? 'any' : 'all';
+    const conditions = (Array.isArray(r.conditions) ? r.conditions : []).slice(0, 10).map((c) => {
+      if (!FIELDS[c.field]) throw bad(`${name}: unknown field`);
+      if (!OPS.includes(c.op)) throw bad(`${name}: unknown comparison`);
+      const value = String(c.value ?? '').trim();
+      if (!value) throw bad(`${name}: a condition is empty`);
+      if (value.length > 200) throw bad(`${name}: a condition is too long`);
+      return { field: c.field, op: c.op, value };
+    });
+    if (!conditions.length) throw bad(`${name}: add at least one condition`);
+    const a = r.actions || {};
+    const actions = {
+      moveTo: a.moveTo ? cleanFolder(a.moveTo, name) : null,
+      markRead: !!a.markRead,
+      star: !!a.star,
+      forwardTo: a.forwardTo ? String(a.forwardTo).trim().toLowerCase() : null,
+      delete: !!a.delete,
+      stop: a.stop !== false,
+    };
+    if (actions.forwardTo && !EMAIL_RE.test(actions.forwardTo)) throw bad(`${name}: “${actions.forwardTo}” is not a valid email address`);
+    if (actions.delete && actions.moveTo) throw bad(`${name}: choose either “move to” or “delete”`);
+    if (!actions.moveTo && !actions.markRead && !actions.star && !actions.forwardTo && !actions.delete) throw bad(`${name}: choose at least one action`);
+    return { name, enabled: r.enabled !== false, match, conditions, actions };
+  });
+}
+
+function cleanFolder(v, name) {
+  const f = String(v).trim().replace(/\/+/g, '/').replace(/^\/|\/$/g, '');
+  if (!f || f.length > 100 || /[\x00-\x1f*%]/.test(f)) throw bad(`${name}: invalid folder name`);
+  if (f.toUpperCase() === 'INBOX') return 'INBOX';
+  return f;
+}
+
+function conditionSieve(c) {
+  const headers = FIELDS[c.field];
+  const h = headers.length === 1 ? sieveString(headers[0]) : `[${headers.map(sieveString).join(', ')}]`;
+  // "is exactly" on From/To compares the address itself ("Pest <pest@acme.com>" is pest@acme.com).
+  const test = c.op === 'is' && c.field !== 'subject'
+    ? `address :all :is ${h} ${sieveString(c.value)}`
+    : `header ${c.op === 'is' ? ':is' : ':contains'} ${h} ${sieveString(c.value)}`;
+  return c.op === 'not_contains' ? `not ${test}` : test;
+}
+
+function rulesSieve(rules) {
+  const out = [];
+  for (const r of rules.filter((x) => x.enabled)) {
+    const conds = r.conditions.map(conditionSieve);
+    const combined = conds.length === 1 ? conds[0] : `${r.match === 'any' ? 'anyof' : 'allof'}(${conds.join(', ')})`;
+    const body = [];
+    if (r.actions.markRead) body.push('addflag "\\\\Seen";');
+    if (r.actions.star) body.push('addflag "\\\\Flagged";');
+    if (r.actions.forwardTo) body.push(`redirect :copy ${sieveString(r.actions.forwardTo)};`);
+    if (r.actions.delete) body.push('discard;', 'set "deleted" "1";');
+    else if (r.actions.moveTo) body.push(r.actions.moveTo === 'INBOX' ? 'keep;' : `fileinto :create ${sieveString(r.actions.moveTo)};`);
+    if (r.actions.stop || r.actions.delete) body.push('set "done" "1";');
+    out.push(`# ${r.name.replace(/[\r\n]/g, ' ')}\nif allof(string :is "\${done}" "", ${combined}) {\n  ${body.join('\n  ')}\n}`);
+  }
+  return out.join('\n');
+}
+
+function vacationSieveBlock({ subject, body, start_date, end_date, name, username, addresses }) {
+  const conds = ['string :is "${deleted}" ""'];
+  if (start_date) conds.push(`currentdate :value "ge" "date" ${sieveString(start_date)}`);
+  if (end_date) conds.push(`currentdate :value "le" "date" ${sieveString(end_date)}`);
+  const action = `vacation :days 1 :subject ${sieveString(subject || 'Out of office')} :from ${sieveString(`${name} <${username}>`)}`
+    + ` :addresses [${addresses.map(sieveString).join(', ')}] ${sieveString(body)};`;
+  return `# Vacation auto-reply (not sent for mail a rule deleted)\nif allof(${conds.join(', ')}) {\n  ${action}\n}`;
+}
+
+/** The whole script for one user, or null when there is nothing to run. */
+export function userSieve({ username, rules = [], vacation = null }) {
+  const active = rules.filter((r) => r.enabled);
+  if (!active.length && !vacation) return null;
+  const req = ['variables', 'fileinto', 'mailbox', 'imap4flags', 'copy'];
+  if (vacation) req.push('vacation', 'date', 'relational');
+  return [
+    `# Generated by Workspace for ${username}. Edit filters and vacation replies in Mail.`,
+    `require [${req.map(sieveString).join(', ')}];`,
+    rulesSieve(active),
+    vacation ? vacationSieveBlock({ ...vacation, username }) : '',
+  ].filter(Boolean).join('\n') + '\n';
+}

@@ -154,6 +154,11 @@ CREATE TABLE IF NOT EXISTS vacations (
   end_date TEXT,
   updated_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS mail_rules (
+  user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  rules TEXT NOT NULL,                -- JSON: ordered list, see mail/sieve.js
+  updated_at INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL

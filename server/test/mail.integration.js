@@ -282,6 +282,53 @@ test('drafts: save, update in place, reopen with Bcc and attachments, send remov
   assert.equal((await drafts()).length, 0);
 });
 
+// ---- filter rules (Sieve) ----
+test('filter rules: move + mark read, star + forward, delete, chained rules, folders', async () => {
+  const bad = await olivia('PUT', '/api/mail/rules', { rules: [{ conditions: [], actions: { star: true } }] });
+  assert.equal(bad.status, 400);
+  const saved = await olivia('PUT', '/api/mail/rules', { rules: [
+    { name: 'Newsletters', conditions: [{ field: 'from', op: 'contains', value: 'news@' }], actions: { moveTo: 'Newsletters', markRead: true } },
+    { name: 'Invoices', conditions: [{ field: 'subject', op: 'contains', value: 'invoice' }], actions: { star: true, forwardTo: 'gina@globex.com', stop: false } },
+    { name: 'Block pest', conditions: [{ field: 'from', op: 'is', value: 'pest@acme.com' }], actions: { delete: true } },
+    { name: 'Finance', conditions: [{ field: 'subject', op: 'contains', value: 'invoice' }], actions: { moveTo: 'Finance/2026' } },
+    { name: 'Disabled', enabled: false, conditions: [{ field: 'subject', op: 'contains', value: 'hello' }], actions: { delete: true } },
+  ] });
+  assert.equal(saved.status, 200, JSON.stringify(saved.body));
+  assert.equal((await olivia('GET', '/api/mail/rules')).body.length, 5);
+  await eventually(() => { try { return /Finance\/2026/.test(fs.readFileSync('/run/nw/sieve/olivia@acme.com.sieve', 'utf8')); } catch { return false; } }, 15000);
+
+  const t = nodemailer.createTransport({ host: process.env.MAIL_IMAP_HOST, port: 25, secure: false, ignoreTLS: true, name: 'test.acme.com' });
+  const send = (from, subject) => t.sendMail({ from, to: 'olivia@acme.com', subject, text: 'x' });
+  await send('Acme News <news@acme.com>', 'Weekly digest');
+  await send('Supplier <supplier@acme.com>', 'Your invoice #42');
+  await send('Pest Control <pest@acme.com>', 'Buy now');
+  await send('Friend <friend@acme.com>', 'hello there');
+
+  const folders = await eventually(async () => {
+    const f = (await olivia('GET', '/api/mail/folders')).body;
+    return f.some((x) => x.path === 'Newsletters') && f.some((x) => x.path === 'Finance/2026') && f;
+  });
+  assert.ok(folders);
+  const list = async (folder) => (await olivia('GET', `/api/mail/messages?folder=${encodeURIComponent(folder)}`)).body.messages;
+  const news = await eventually(async () => (await list('Newsletters')).find((m) => m.subject === 'Weekly digest'));
+  assert.equal(news.seen, true, 'marked read');
+  const invoice = await eventually(async () => (await list('Finance/2026')).find((m) => m.subject === 'Your invoice #42'));
+  assert.equal(invoice.flagged, true, 'starred by the first rule, filed by a later one');
+  await eventually(async () => (await inbox(olivia)).some((m) => m.subject === 'hello there'));
+  const inboxSubjects = (await inbox(olivia)).map((m) => m.subject);
+  assert.ok(!inboxSubjects.includes('Weekly digest') && !inboxSubjects.includes('Your invoice #42'));
+  assert.ok(!inboxSubjects.includes('Buy now'), 'deleted by rule');
+  for (const f of folders) assert.ok(!(await list(f.path)).some((m) => m.subject === 'Buy now'), `not in ${f.path}`);
+  await eventually(async () => (await inbox(gina)).some((m) => m.subject === 'Your invoice #42'), 20000);
+
+  assert.equal((await olivia('POST', '/api/mail/folders', { name: 'Projects/Alpha' })).status, 201);
+  assert.equal((await olivia('POST', '/api/mail/folders', { name: 'projects/alpha' })).status, 400, 'duplicate');
+  assert.ok((await olivia('GET', '/api/mail/folders')).body.some((f) => f.path === 'Projects/Alpha'));
+
+  await olivia('PUT', '/api/mail/rules', { rules: [] });
+  await eventually(() => !fs.existsSync(path.join(process.env.MAIL_CONFIG_DIR, 'sieve/olivia@acme.com.sieve')), 3000);
+});
+
 // ---- sign-in protection against the real Dovecot + Postfix ----
 function rawImapLogin(user, pass, localAddress) {
   return new Promise((resolve) => {
