@@ -139,6 +139,15 @@ Your business fixed IP is what makes this work. Do these once:
   - The plain-text version shows `[image: name]` in their place.
   - Pictures count towards the 25 MB message limit.
   - Replies and forwards quote the original's text, so pictures embedded in the original aren't carried over.
+- **New-mail notifications:** while Workspace is open in any tab, new mail in your Inbox shows up within a second or two.
+  - A pop-up names the sender and subject.
+  - The **Mail** icon shows the unread count, and the browser tab title starts with it, e.g. `(3) Workspace`.
+  - The open inbox updates by itself.
+  - Turn on **Desktop alerts** in the Mail sidebar to get an operating-system notification while Workspace is in a background tab. Clicking it opens the message.
+  - Reading mail on a phone or in another tab updates the count too.
+  - Behind the scenes, the app keeps one IMAP IDLE connection on the Inbox for each person who has Workspace open, the same push mechanism phones use, and closes it a minute after their last tab closes. Nothing is polled, and watching never marks mail as read.
+  - Mail that a filter files into another folder doesn't trigger a notification.
+- **Forward as attachment:** sends the original email whole, as an `.eml` file with its formatting, pictures, attachments and technical headers (including DKIM) intact. Use it to report a suspicious message to IT, or to pass one on exactly as received.
 - **Forwarding with attachments:** forwarding a message brings its attachments along as chips you can remove one by one. They're attached straight from the original message when you send, so nothing is downloaded and re-uploaded. Forward drafts remember them too. If the original has been deleted by the time you send, you're told the attachments can't be included.
 - **Vacation reply** (Mail → Vacation reply): an automatic answer with an optional first and last day. It's built on the mail server's standard Sieve "vacation" feature:
   - Each sender gets at most one reply per day.
@@ -156,7 +165,7 @@ Your business fixed IP is what makes this work. Do these once:
   Users sign in with their email address and Workspace password.
 - **Accounts that predate email** get a working mailbox password the next time the user signs in to Workspace. Webmail works right away.
 
-**Not built yet:** resizing pictures inside the editor, carrying pictures embedded in the original into forwards, and forwarding a message as an attachment (.eml).
+**Not built yet:** resizing pictures inside the editor, carrying pictures embedded in the original into a normal forward (use **Forward as attachment** to keep everything), and notifications for folders other than the Inbox.
 
 ## Sign-in protection
 
@@ -227,7 +236,7 @@ cd server && MAIL_IT_CONFIG_DIR=/etc/nw npm run test:mail
 
 ## Roadmap
 
-- **Mail, next steps:** forward as attachment, resizing pictures, and a "new mail" notification pushed live instead of checked every 30 seconds.
+- **Mail, next steps:** resizing pictures, and notifications for other folders pushed live instead of checked every 30 seconds.
 - **Real-time co-editing:** live cursors and character-level merging (Yjs) in Docs and Sheets.
 - **Phone sync:** CalDAV and CardDAV, so calendars and contacts sync with the phone's built-in apps; WebDAV for Drive.
 - **Renaming a user's address** (moving them to another domain of the same company), **two-factor authentication**, file version history, public share links, Slides, cell formatting in Sheets, and week and day calendar views.

@@ -3,6 +3,10 @@ import { userFromToken, tokenFromReq } from './auth.js';
 
 /** Live push channel: userId -> Set<WebSocket>. */
 const clients = new Map();
+const presence = new Set();
+/** Called with (userId, true) when a user's first live connection opens, (userId, false) when the last closes. */
+export function onPresence(fn) { presence.add(fn); return () => presence.delete(fn); }
+const announce = (userId, online) => { for (const fn of presence) { try { fn(userId, online); } catch (e) { console.error(e); } } };
 
 export function attachHub(server) {
   const wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 });
@@ -12,11 +16,16 @@ export function attachHub(server) {
     if (!user) { socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n'); return socket.destroy(); }
     wss.handleUpgrade(req, socket, head, (ws) => {
       let set = clients.get(user.id);
+      const first = !set;
       if (!set) clients.set(user.id, (set = new Set()));
       set.add(ws);
+      if (first) announce(user.id, true);
       ws.isAlive = true;
       ws.on('pong', () => { ws.isAlive = true; });
-      ws.on('close', () => { set.delete(ws); if (!set.size) clients.delete(user.id); });
+      ws.on('close', () => {
+        set.delete(ws);
+        if (!set.size && clients.get(user.id) === set) { clients.delete(user.id); announce(user.id, false); }
+      });
       ws.on('message', () => {}); // client -> server traffic goes through the REST API
     });
   });

@@ -58,6 +58,12 @@ export default function webmailRoutes() {
 
   r.use((req, res, next) => (mailEnabled() ? next() : next(new HttpError(503, 'Email is not set up on this server'))));
 
+  // Unread count in the Inbox (for the badge on the Mail icon and the tab title).
+  r.get('/unread', async (req, res) => {
+    const unseen = await withFolder(req.user, 'INBOX', async (c) => ((await c.search({ seen: false }, { uid: true })) || []).length);
+    res.json({ unseen });
+  });
+
   // ---- vacation auto-reply ----
   r.get('/vacation', (req, res) => res.json(vacationOf(req.user.id)));
 
@@ -342,6 +348,8 @@ export default function webmailRoutes() {
       forwardOf: b.forwardOf?.folder && b.forwardOf?.uid ? {
         folder: String(b.forwardOf.folder), uid: Number(b.forwardOf.uid),
         attachments: (Array.isArray(b.forwardOf.attachments) ? b.forwardOf.attachments : []).map(Number).slice(0, 50),
+        asEml: !!b.forwardOf.asEml,
+        eml: b.forwardOf.eml ? { filename: String(b.forwardOf.eml.filename || '').slice(0, 255), size: Number(b.forwardOf.eml.size) || 0 } : null,
         files: (Array.isArray(b.forwardOf.files) ? b.forwardOf.files : []).slice(0, 50).map((x) => ({ index: Number(x.index), filename: String(x.filename || '').slice(0, 255), size: Number(x.size) || 0 })),
       } : null,
     };
@@ -418,6 +426,17 @@ export default function webmailRoutes() {
       if (!f || f.kind !== 'file' || !roleFor(f.id, req.user.id)) throw bad('An attachment is not available');
       total += f.size;
       attachments.push({ filename: f.name, contentType: f.mime || 'application/octet-stream', path: path.join(FILES_DIR, f.storage) });
+    }
+    // Forward as attachment: the original message, exactly as received, attached as an .eml file.
+    if (b.forwardOf?.folder && b.forwardOf?.uid && b.forwardOf.asEml) {
+      const source = await withFolder(req.user, String(b.forwardOf.folder), async (c) => (await c.fetchOne(String(Number(b.forwardOf.uid)), { source: true, envelope: true }, { uid: true })) || null)
+        .catch(() => null);
+      if (!source?.source) throw bad('The original message is no longer there, so it can’t be attached');
+      total += source.source.length;
+      const name = (source.envelope?.subject || 'message').replace(/[\\/:*?"<>|\r\n]+/g, ' ').trim().slice(0, 80) || 'message';
+      // Explicitly an attachment: Nodemailer marks message/rfc822 "inline" by default, which makes
+      // mail apps unpack it into the body instead of showing an .eml file.
+      attachments.push({ filename: `${name}.eml`, content: source.source, contentType: 'message/rfc822', contentDisposition: 'attachment' });
     }
     // Forwarding: attachments chosen from the original message are attached straight from the mailbox.
     if (b.forwardOf?.folder && b.forwardOf?.uid && Array.isArray(b.forwardOf.attachments) && b.forwardOf.attachments.length) {

@@ -11,6 +11,7 @@ const SMTP = { host: process.env.MAIL_SMTP_HOST || IMAP.host, port: Number(proce
 // certificate is issued for its public name, so verification is off by default.
 const TLS = { rejectUnauthorized: process.env.MAIL_TLS_VERIFY === 'true' };
 const IDLE_MS = 5 * 60e3;
+export const IMAP_SETTINGS = { ...IMAP, secure: true, tls: TLS };
 
 const pool = new Map(); // userId -> { client, lastUsed, ready }
 

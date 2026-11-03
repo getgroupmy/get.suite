@@ -1,9 +1,10 @@
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, NavLink, useNavigate } from 'react-router-dom';
 import { get, post, startLive, stopLive } from './api.js';
 import { useMailStatus } from './mailStatus.js';
+import { useMailNotifications } from './mailNotify.js';
 import Icon from './components/Icon.jsx';
-import { Avatar, Menu, ToastProvider } from './components/ui.jsx';
+import { Avatar, Menu, ToastProvider, useToast } from './components/ui.jsx';
 import Login from './apps/Login.jsx';
 import Drive from './apps/drive/Drive.jsx';
 import DocEditor from './apps/docs/DocEditor.jsx';
@@ -70,6 +71,9 @@ function Shell() {
   const navigate = useNavigate();
   const [navOpen, setNavOpen] = useState(false);
   const mail = useMailStatus();
+  const toast = useToast();
+  const openMessage = useCallback((folder, uid) => navigate(`/mail/${encodeURIComponent(folder)}/${uid}`), [navigate]);
+  const unread = useMailNotifications(!!mail?.enabled, { toast, openMessage });
 
   return (
     <div className={`shell ${navOpen ? 'nav-open' : ''}`}>
@@ -96,7 +100,10 @@ function Shell() {
       </header>
       <nav className="appnav" onClick={() => setNavOpen(false)}>
         {APPS.filter((a) => !a.mail || mail?.enabled).map((a) => (
-          <NavLink key={a.to} to={a.to} className="appnav-item"><Icon name={a.icon} /><span>{a.label}</span></NavLink>
+          <NavLink key={a.to} to={a.to} className="appnav-item">
+            <span className="appnav-icon"><Icon name={a.icon} />{a.mail && unread > 0 && <span className="nav-badge" aria-label={`${unread} unread`}>{unread > 99 ? '99+' : unread}</span>}</span>
+            <span>{a.label}</span>
+          </NavLink>
         ))}
         {user.is_admin && <NavLink to="/admin" className="appnav-item"><Icon name="shield" /><span>Admin</span></NavLink>}
       </nav>

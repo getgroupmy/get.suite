@@ -16,6 +16,7 @@ process.env.MAIL_HOSTNAME = 'mail.acme.com';
 // Sign-in protection: Dovecot calls our policy service; loopback 127.0.0.1 (webmail) stays exempt,
 // while 127.0.0.6+ stand in for attackers on the internet.
 process.env.AUTH_POLICY_PORT = '18081';
+process.env.MAIL_NOTIFY_LINGER_MS = '500';
 process.env.AUTH_POLICY_URL = 'http://127.0.0.1:18081/';
 process.env.AUTH_NEVER_BAN = '127.0.0.1/32,::1';
 process.env.AUTH_SOFT_NETS = ''; // treat 127.0.0.6+ like internet addresses
@@ -25,6 +26,9 @@ const { createApp } = await import('../src/app.js');
 const { setResolver } = await import('../src/routes/mailAdmin.js');
 const { closeAll } = await import('../src/mail/imap.js');
 const { startPolicyServer } = await import('../src/security/policyServer.js');
+const { attachHub } = await import('../src/hub.js');
+const notify = await import('../src/mail/notify.js');
+const { default: WS } = await import('ws');
 const tls = await import('node:tls');
 const nodemailer = (await import('nodemailer')).default;
 
@@ -32,14 +36,16 @@ let server, base, policy;
 before(async () => {
   policy = startPolicyServer();
   server = http.createServer(createApp());
+  attachHub(server);
+  notify.startMailNotifications();
   await new Promise((r) => server.listen(0, r));
   base = `http://127.0.0.1:${server.address().port}`;
 });
-after(() => { closeAll(); server.close(); policy.close(); fs.rmSync(dir, { recursive: true, force: true }); });
+after(() => { notify.stopAll(); closeAll(); server.close(); policy.close(); fs.rmSync(dir, { recursive: true, force: true }); });
 
 function client() {
   let cookie = '';
-  return async (method, url, body, { raw } = {}) => {
+  const call = async (method, url, body, { raw } = {}) => {
     const res = await fetch(base + url, {
       method,
       headers: { 'x-requested-with': 'nas-workspace', ...(cookie && { cookie }), ...(body !== undefined && !raw && { 'content-type': 'application/json' }) },
@@ -50,6 +56,8 @@ function client() {
     const type = res.headers.get('content-type') || '';
     return { status: res.status, headers: res.headers, body: type.includes('json') ? await res.json() : Buffer.from(await res.arrayBuffer()) };
   };
+  call.cookie = () => cookie;
+  return call;
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function eventually(fn, ms = 20000) {
@@ -450,6 +458,51 @@ test('forwarding includes the attachments you keep; forward drafts remember them
   assert.deepEqual(ff.attachments.map((x) => x.filename), ['prices.csv'], 'only the kept attachment');
   assert.equal((await olivia('GET', `/api/mail/messages/${fwd.uid}/attachments/0?folder=INBOX`)).body.toString(), 'a,b\n1,2\n');
   assert.equal((await gina('POST', '/api/mail/send', { to: 'olivia@acme.com', subject: 'x', text: 'x', forwardOf: { folder: 'INBOX', uid: 999999, attachments: [0] } })).status, 400, 'original gone');
+});
+
+test('forward as attachment: the original arrives whole as an .eml file', async () => {
+  const orig = await eventually(async () => (await inbox(gina)).find((m) => m.subject === 'Two files'));
+  const draft = await gina('POST', '/api/mail/drafts', { to: 'olivia@acme.com', subject: 'Fwd: Two files (as attachment)', text: 'fyi',
+    forwardOf: { folder: 'INBOX', uid: orig.uid, asEml: true, attachments: [], eml: { filename: 'Two files.eml', size: 1234 } } });
+  const d = (await gina('GET', `/api/mail/drafts/${draft.body.uid}`)).body;
+  assert.equal(d.forwardOf.asEml, true);
+  assert.equal(d.forwardOf.eml.filename, 'Two files.eml');
+  const r = await gina('POST', '/api/mail/send', { to: 'olivia@acme.com', subject: 'Fwd: Two files (as attachment)', text: 'fyi',
+    forwardOf: { folder: 'INBOX', uid: orig.uid, asEml: true }, draftUid: draft.body.uid });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  const m = await eventually(async () => (await inbox(olivia)).find((x) => x.subject === 'Fwd: Two files (as attachment)'));
+  const full = (await olivia('GET', `/api/mail/messages/${m.uid}?folder=INBOX`)).body;
+  const eml = full.attachments.find((a) => a.filename === 'Two files.eml');
+  assert.ok(eml, JSON.stringify(full.attachments));
+  assert.equal(eml.contentType, 'message/rfc822');
+  const raw = (await olivia('GET', `/api/mail/messages/${m.uid}/attachments/${eml.index}?folder=INBOX`)).body.toString();
+  assert.match(raw, /^Subject: Two files$/m, 'the original headers are intact');
+  assert.match(raw, /contract\.txt/, 'with its own attachments inside');
+  assert.match(raw, /DKIM-Signature:/, 'including the original signature, for investigations');
+});
+
+test('new mail is pushed to open Workspace tabs within seconds (IMAP IDLE)', async () => {
+  const ws = new WS(`${base.replace('http', 'ws')}/ws`, { headers: { cookie: olivia.cookie() } });
+  const events = [];
+  ws.on('message', (d) => events.push(JSON.parse(d)));
+  await new Promise((resolve, reject) => { ws.on('open', resolve); ws.on('error', reject); });
+  try {
+  await eventually(() => events.some((e) => e.type === 'mail-unread'), 15000); // watcher connected
+  assert.equal(notify.watchingCount(), 1);
+
+  const t0 = Date.now();
+  await gina('POST', '/api/mail/send', { to: 'olivia@acme.com', subject: 'Ping via IDLE', text: 'x' });
+  const ev = await eventually(() => events.find((e) => e.type === 'mail-new' && e.subject === 'Ping via IDLE'), 15000);
+  assert.equal(ev.from.address, 'gina@globex.com');
+  assert.equal(ev.from.name, 'Gina Globex');
+  assert.ok(Date.now() - t0 < 10000, `took ${Date.now() - t0} ms`);
+  const unread = await eventually(() => events.filter((e) => e.type === 'mail-unread').at(-1)?.unseen >= 1 && events.filter((e) => e.type === 'mail-unread').at(-1));
+  assert.equal((await olivia('GET', '/api/mail/unread')).body.unseen, unread.unseen);
+  assert.ok(!events.some((e) => e.type === 'mail-new' && e.subject === 'Ping via IDLE' && e !== ev), 'one notification per message');
+  assert.equal((await inbox(olivia)).find((m) => m.subject === 'Ping via IDLE').seen, false, 'watching never marks mail as read');
+
+  } finally { ws.close(); }
+  await eventually(() => notify.watchingCount() === 0, 5000); // closed shortly after the last tab goes away
 });
 
 // ---- sign-in protection against the real Dovecot + Postfix ----

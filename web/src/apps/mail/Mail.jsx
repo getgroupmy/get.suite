@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { api, get, post, put, del, uploadFile, formatBytes, formatDate } from '../../api.js';
+import { api, get, post, put, del, onLive, uploadFile, formatBytes, formatDate } from '../../api.js';
+import { desktopSupported, desktopOn, enableDesktop, disableDesktop } from '../../mailNotify.js';
 import Icon from '../../components/Icon.jsx';
 import { Avatar, ConfirmModal, Empty, Menu, Modal, PromptModal, useToast } from '../../components/ui.jsx';
 import { useAuth } from '../../App.jsx';
@@ -61,6 +62,13 @@ export default function Mail() {
 
   useEffect(() => { setData(null); setChecked(new Set()); loadList(); }, [loadList]);
   useEffect(() => { loadFolders(); }, [loadFolders]);
+  // New mail arrives: refresh straight away instead of waiting for the next 30-second check.
+  useEffect(() => onLive((m) => { if (m.type === 'mail-new' || m.type === 'mail-unread') { loadFolders(); if (folder === 'INBOX') loadList(); } }), [loadFolders, loadList, folder]);
+  useEffect(() => {
+    const inboxUnseen = folders.find((f) => f.path === 'INBOX')?.unseen;
+    if (inboxUnseen !== undefined) window.dispatchEvent(new CustomEvent('nw:unread', { detail: inboxUnseen }));
+  }, [folders]);
+  const [desktop, setDesktop] = useState(desktopOn());
   // Poll for new mail; retry quickly while the mailbox is unavailable (e.g. just created).
   const failing = !!error && !data;
   useEffect(() => {
@@ -123,6 +131,14 @@ export default function Mail() {
         </button>
         <button className="subnav-item" onClick={() => setFilters({})}><Icon name="settings" /><span className="grow">Filters</span></button>
         <button className="subnav-item" onClick={() => setSignatureOpen(true)}><Icon name="edit" /><span className="grow">Signature</span></button>
+        {desktopSupported() && (
+          <button className="subnav-item" aria-pressed={desktop} onClick={async () => {
+            if (desktop) { disableDesktop(); setDesktop(false); toast('Desktop notifications off'); return; }
+            const ok = await enableDesktop();
+            setDesktop(ok);
+            toast(ok ? 'Desktop notifications on: you’ll be alerted to new mail while Workspace is open in a background tab' : 'Notifications are blocked in your browser settings for this site', ok ? 'info' : 'error');
+          }}><Icon name="mail" /><span className="grow">Desktop alerts</span><span className={`pill ${desktop ? '' : 'off'}`}>{desktop ? 'On' : 'Off'}</span></button>
+        )}
       </aside>
 
       <section className="mail-list">
@@ -283,6 +299,10 @@ function Reader({ folder, uid, special, onClose, onChanged, act, onCompose, onFi
         <button className="btn" onClick={() => onCompose({ to: list(replyTo), subject: reSubject('Re:'), html: quoted(), ...thread })}><Icon name="reply" size={18} /> Reply</button>
         {others.length > 0 && <button className="btn" onClick={() => onCompose({ to: list(replyTo), cc: list(others), subject: reSubject('Re:'), html: quoted(), ...thread })}><Icon name="replyall" size={18} /> Reply all</button>}
         <button className="btn" onClick={() => onCompose({
+          from: replyFrom, subject: reSubject('Fwd:'), html: '<p></p>',
+          forwardOf: { folder, uid, asEml: true, attachments: [], eml: { filename: `${(m.subject || 'message').replace(/[\\/:*?"<>|]+/g, ' ').trim().slice(0, 80) || 'message'}.eml` } },
+        })}><Icon name="attach" size={18} /> Forward as attachment</button>
+        <button className="btn" onClick={() => onCompose({
           from: replyFrom,
           ...(m.attachments.length > 0 && { forwardOf: { folder, uid, attachments: m.attachments.map((a) => a.index), files: m.attachments } }),
           subject: reSubject('Fwd:'),
@@ -434,6 +454,12 @@ function Compose({ initial, signatures = [], onClose, onSent, onDraftsChanged })
         <label className="compose-line"><span>Subject</span><input aria-label="Subject" value={f.subject} onChange={set('subject')} /></label>
         <RichBody initialHtml={initial.html || textToHtml(initial.text || '')} autoFocus={!!initial.to} onReady={(ed) => { editorRef.current = ed; }}
           onChange={(html, text, initialReport) => { if (initialReport) skipNext.current = true; setF((cur) => ({ ...cur, html, text })); }} />
+        {fwd?.asEml && (
+          <ul className="att-list" aria-label="Forwarded message">
+            <li className="att"><Icon name="mail" size={18} /><span className="ellipsis">{fwd.eml?.filename || 'message.eml'}</span><span className="muted small">original message</span>
+              <button type="button" className="icon-btn" aria-label="Remove the attached message" onClick={() => setFwd({ ...fwd, asEml: false })}><Icon name="close" size={16} /></button></li>
+          </ul>
+        )}
         {fwd?.attachments?.length > 0 && (
           <ul className="att-list" aria-label="Forwarded attachments">
             {(fwd.files || []).filter((x) => fwd.attachments.includes(x.index)).map((x) => (

@@ -497,3 +497,6 @@ a.att:hover { background: var(--hover); }
 .compose-editor .tiptap img.ProseMirror-selectednode { outline: 2px solid var(--accent); }
 .compose-editor .tiptap .signature { color: var(--muted); }
 .compose-editor .tiptap .signature strong { color: var(--text); }
+.appnav-icon { position: relative; display: inline-flex; }
+.nav-badge { position: absolute; top: -2px; right: 6px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: #d93025; color: #fff; font-size: 11px; font-weight: 700; line-height: 18px; text-align: center; }
+.pill.off { background: var(--surface-2); color: var(--muted); }

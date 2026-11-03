@@ -5,6 +5,7 @@ import { db, q, DATA_DIR } from './db.js';
 import { scheduleBackups } from './backup.js';
 import { mailEnabled } from './mail/config.js';
 import { startPolicyServer } from './security/policyServer.js';
+import { startMailNotifications } from './mail/notify.js';
 import { purge as purgeAuthLog } from './security/guard.js';
 
 const port = Number(process.env.PORT || 8080);
@@ -17,7 +18,7 @@ attachHub(server);
 setInterval(() => q('DELETE FROM sessions WHERE expires_at < ?').run(Date.now()), 3600e3).unref();
 scheduleBackups();
 setInterval(() => purgeAuthLog(), 3600e3).unref();
-if (mailEnabled()) startPolicyServer();
+if (mailEnabled()) { startPolicyServer(); startMailNotifications(); }
 
 server.listen(port, () => console.log(`NAS Workspace listening on :${port} (data: ${DATA_DIR})`));
 
