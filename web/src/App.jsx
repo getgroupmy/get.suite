@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, NavLink, useNavigate } from 'react-router-dom';
 import { get, post, startLive, stopLive } from './api.js';
+import { useMailStatus } from './mailStatus.js';
 import Icon from './components/Icon.jsx';
 import { Avatar, Menu, ToastProvider } from './components/ui.jsx';
 import Login from './apps/Login.jsx';
@@ -11,6 +12,7 @@ import Calendar from './apps/calendar/Calendar.jsx';
 import Contacts from './apps/contacts/Contacts.jsx';
 import Chat from './apps/chat/Chat.jsx';
 import Admin from './apps/admin/Admin.jsx';
+import Mail from './apps/mail/Mail.jsx';
 import Settings from './apps/Settings.jsx';
 
 const AuthCtx = createContext(null);
@@ -56,6 +58,7 @@ export default function App() {
 }
 
 const APPS = [
+  { to: '/mail', icon: 'mail', label: 'Mail', mail: true },
   { to: '/drive', icon: 'folder', label: 'Drive' },
   { to: '/calendar', icon: 'calendar', label: 'Calendar' },
   { to: '/contacts', icon: 'person', label: 'Contacts' },
@@ -66,6 +69,7 @@ function Shell() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [navOpen, setNavOpen] = useState(false);
+  const mail = useMailStatus();
 
   return (
     <div className={`shell ${navOpen ? 'nav-open' : ''}`}>
@@ -91,7 +95,7 @@ function Shell() {
         ]} />
       </header>
       <nav className="appnav" onClick={() => setNavOpen(false)}>
-        {APPS.map((a) => (
+        {APPS.filter((a) => !a.mail || mail?.enabled).map((a) => (
           <NavLink key={a.to} to={a.to} className="appnav-item"><Icon name={a.icon} /><span>{a.label}</span></NavLink>
         ))}
         {user.is_admin && <NavLink to="/admin" className="appnav-item"><Icon name="shield" /><span>Admin</span></NavLink>}
@@ -100,6 +104,7 @@ function Shell() {
         <Routes>
           <Route path="/" element={<Navigate to="/drive" replace />} />
           <Route path="/drive/*" element={<Drive />} />
+          <Route path="/mail/:folder?/:uid?" element={<Mail />} />
           <Route path="/calendar" element={<Calendar />} />
           <Route path="/contacts" element={<Contacts />} />
           <Route path="/chat/:channelId?" element={<Chat />} />

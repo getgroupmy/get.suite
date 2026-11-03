@@ -6,6 +6,7 @@ import {
   requireAuth, loginRateLimit, clearLoginAttempts, validatePassword, hashPassword, userFromToken,
 } from '../auth.js';
 import { createOrg } from '../tenancy.js';
+import { setMailPassword } from '../mail/config.js';
 
 export default function authRoutes({ secureCookies }) {
   const r = Router();
@@ -34,9 +35,11 @@ export default function authRoutes({ secureCookies }) {
   r.post('/login', loginRateLimit, (req, res) => {
     const username = String(req.body.username || '').trim().toLowerCase();
     const password = String(req.body.password || '');
-    const row = q('SELECT id, password_hash, disabled FROM users WHERE username = ?').get(username);
+    const row = q('SELECT id, password_hash, mail_hash, disabled FROM users WHERE username = ?').get(username);
     if (!row || row.disabled || !verifyPassword(password, row.password_hash)) throw new HttpError(401, 'Wrong email address or password');
     clearLoginAttempts(req.ip);
+    // Accounts created before email existed get their mailbox password on next sign-in.
+    if (!row.mail_hash) setMailPassword(row.id, password);
     res.json({ user: startSession(req, res, row.id) });
   });
 
@@ -57,6 +60,7 @@ export default function authRoutes({ secureCookies }) {
       if (!verifyPassword(String(currentPassword || ''), row.password_hash)) throw bad('Current password is wrong');
       validatePassword(newPassword);
       q('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(newPassword), req.user.id);
+      setMailPassword(req.user.id, newPassword);
       // Sign out every other session for this user.
       q('DELETE FROM sessions WHERE user_id = ? AND token != ?').run(req.user.id, tokenFromReq(req));
     }

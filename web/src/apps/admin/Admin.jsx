@@ -3,12 +3,15 @@ import { get, post, patch, del, formatBytes } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
 import { Avatar, ConfirmModal, Menu, Modal, useToast } from '../../components/ui.jsx';
 import { useAuth } from '../../App.jsx';
+import EmailAdmin from './EmailAdmin.jsx';
+import { useMailStatus } from '../../mailStatus.js';
 
 export default function Admin() {
   const { user } = useAuth();
   const [tab, setTab] = useState('users');
   const [orgId, setOrgId] = useState(user.org_id); // which company the Users tab shows
-  const tabs = [['users', 'Users'], ['company', 'Company settings'], ...(user.is_super ? [['companies', 'All companies']] : [])];
+  const mail = useMailStatus();
+  const tabs = [['users', 'Users'], ...(mail?.enabled ? [['email', 'Email']] : []), ['company', 'Company settings'], ...(user.is_super ? [['companies', 'All companies']] : [])];
 
   return (
     <div className="page">
@@ -19,6 +22,7 @@ export default function Admin() {
         ))}
       </div>
       {tab === 'users' && <Users orgId={orgId} setOrgId={setOrgId} />}
+      {tab === 'email' && <EmailAdmin orgId={orgId} orgPicker={user.is_super ? <OrgPicker orgId={orgId} setOrgId={setOrgId} /> : null} />}
       {tab === 'company' && <CompanySettings />}
       {tab === 'companies' && <Companies onManageUsers={(id) => { setOrgId(id); setTab('users'); }} />}
     </div>
@@ -46,16 +50,12 @@ function Users({ orgId, setOrgId }) {
 
   return <>
     <div className="row wrap">
-      {me.is_super && orgs.length > 1 && (
-        <select value={orgId} onChange={(e) => setOrgId(e.target.value)} aria-label="Company">
-          {orgs.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
-        </select>
-      )}
+      {me.is_super && <OrgPicker orgId={orgId} setOrgId={setOrgId} />}
       <div className="grow" />
       <button className="btn primary" onClick={() => setDialog({ type: 'new' })}><Icon name="plus" size={18} /> Add user</button>
     </div>
     <table className="files">
-      <thead><tr><th>Name</th><th className="hide-sm">Email address</th><th className="hide-sm">Role</th><th className="hide-sm">Storage</th><th aria-label="Actions" /></tr></thead>
+      <thead><tr><th>Name</th><th className="hide-sm">Email address</th><th className="hide-sm">Role</th><th className="hide-sm">Storage</th><th className="hide-sm">Mailbox size</th><th aria-label="Actions" /></tr></thead>
       <tbody>
         {users?.map((u) => (
           <tr key={u.id} className={u.disabled ? 'dim' : ''}>
@@ -63,10 +63,12 @@ function Users({ orgId, setOrgId }) {
             <td className="hide-sm muted">{u.username}</td>
             <td className="hide-sm">{u.is_super ? <span className="pill">Platform owner</span> : u.is_admin ? <span className="pill">Admin</span> : 'User'}</td>
             <td className="hide-sm muted">{formatBytes(u.storage_used)}</td>
+            <td className="hide-sm muted">{u.mail_quota_mb ? formatBytes(u.mail_quota_mb * 1048576) : 'Unlimited'}</td>
             <td className="actions">
               {!(u.is_super && !me.is_super) && (
                 <Menu trigger={(p) => <button className="icon-btn" aria-label={`Actions for ${u.name}`} {...p}><Icon name="more" /></button>} items={[
                   { label: 'Reset password', icon: 'edit', onClick: () => setDialog({ type: 'password', user: u }) },
+                  { label: 'Mailbox size', icon: 'mail', onClick: () => setDialog({ type: 'quota', user: u }) },
                   u.id !== me.id && !u.is_super && { label: u.is_admin ? 'Remove admin' : 'Make admin', icon: 'shield', onClick: act(() => patch(`/users/${u.id}`, { is_admin: !u.is_admin }), 'Role updated') },
                   u.id !== me.id && !u.is_super && { label: u.disabled ? 'Enable account' : 'Disable account', icon: 'logout', onClick: act(() => patch(`/users/${u.id}`, { disabled: !u.disabled }), u.disabled ? 'Account enabled' : 'Account disabled') },
                   u.id !== me.id && !u.is_super && '-',
@@ -80,6 +82,7 @@ function Users({ orgId, setOrgId }) {
     </table>
     {dialog?.type === 'new' && <NewUser orgId={orgId} domains={domains} onClose={() => setDialog(null)} onSaved={(addr) => { setDialog(null); toast(`${addr} created`); load(); }} />}
     {dialog?.type === 'password' && <ResetPassword user={dialog.user} onClose={() => setDialog(null)} />}
+    {dialog?.type === 'quota' && <MailboxSize user={dialog.user} onClose={() => setDialog(null)} onSaved={() => { setDialog(null); toast('Mailbox size updated'); load(); }} />}
     {dialog?.type === 'delete' && (
       <ConfirmModal title={`Delete ${dialog.user.name}?`} confirm="Delete user"
         message={`This permanently deletes ${dialog.user.username}, their files (${formatBytes(dialog.user.storage_used)}), calendar, contacts and messages. Consider disabling the account instead.`}
@@ -296,6 +299,36 @@ function Domains({ org, onClose }) {
         <button className="btn" disabled={!name.trim()}>Add domain</button>
       </form>
       <p className="muted small">A domain can only be removed when no user has an address on it.</p>
+    </Modal>
+  );
+}
+
+function OrgPicker({ orgId, setOrgId }) {
+  const [orgs, setOrgs] = useState([]);
+  useEffect(() => { get('/orgs').then(setOrgs).catch(() => {}); }, []);
+  if (orgs.length < 2) return null;
+  return (
+    <select value={orgId} onChange={(e) => setOrgId(e.target.value)} aria-label="Company" style={{ alignSelf: 'flex-start' }}>
+      {orgs.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+    </select>
+  );
+}
+
+function MailboxSize({ user, onClose, onSaved }) {
+  const [mb, setMb] = useState(user.mail_quota_mb || 0);
+  const [error, setError] = useState('');
+  return (
+    <Modal title={`Mailbox size for ${user.name}`} onClose={onClose}>
+      <form className="stack" onSubmit={async (e) => {
+        e.preventDefault();
+        try { await patch(`/users/${user.id}`, { mail_quota_mb: Number(mb) || 0 }); onSaved(); } catch (err) { setError(err.message); }
+      }}>
+        <label className="field"><span>Maximum mailbox size in MB (0 = unlimited)</span>
+          <input type="number" min="0" step="1" autoFocus value={mb} onChange={(e) => setMb(e.target.value)} /></label>
+        <p className="muted small" style={{ margin: 0 }}>When a mailbox is full, new mail to it bounces back to the sender.</p>
+        {error && <p className="error">{error}</p>}
+        <div className="row end"><button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn primary">Save</button></div>
+      </form>
     </Modal>
   );
 }

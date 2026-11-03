@@ -6,11 +6,17 @@
   "scripts": {
     "start": "node --no-warnings=ExperimentalWarning src/index.js",
     "dev": "node --watch --no-warnings=ExperimentalWarning src/index.js",
-    "test": "node --no-warnings=ExperimentalWarning --test test/*.test.js"
+    "test": "node --no-warnings=ExperimentalWarning --test test/*.test.js",
+    "test:mail": "node --no-warnings=ExperimentalWarning --test --test-concurrency=1 test/mail.integration.js"
   },
-  "engines": { "node": ">=22.13" },
+  "engines": {
+    "node": ">=22.13"
+  },
   "dependencies": {
     "express": "^5.1.0",
+    "imapflow": "^2.10.0",
+    "mailparser": "^3.14.1",
+    "nodemailer": "^10.3.1",
     "ws": "^8.18.0"
   }
 }

@@ -3,6 +3,7 @@ import { q, tx } from '../db.js';
 import { str, int, bad, notFound } from '../util.js';
 import { requireAdmin, requireSuper } from '../auth.js';
 import { createOrg, addDomain, orgStorageUsed, blobsOwnedBy, removeBlobs } from '../tenancy.js';
+import { scheduleMailConfig } from '../mail/config.js';
 
 const domainsOf = (orgId) => q('SELECT name FROM domains WHERE org_id = ? ORDER BY created_at').all(orgId).map((d) => d.name);
 
@@ -63,6 +64,7 @@ export default function orgRoutes() {
   r.post('/:id/domains', (req, res) => {
     loadOrg(req.params.id);
     addDomain(req.params.id, req.body.name);
+    scheduleMailConfig();
     res.status(201).json(describe(loadOrg(req.params.id)));
   });
 
@@ -73,7 +75,9 @@ export default function orgRoutes() {
     if (domainsOf(org.id).length === 1) throw bad('A company needs at least one domain');
     const inUse = q("SELECT COUNT(*) AS n FROM users WHERE org_id = ? AND username LIKE '%@' || ?").get(org.id, name).n;
     if (inUse) throw bad(`${inUse} user(s) still have an address on ${name}`);
+    if (q("SELECT COUNT(*) AS n FROM aliases WHERE org_id = ? AND address LIKE '%@' || ?").get(org.id, name).n) throw bad(`Aliases still use ${name}`);
     q('DELETE FROM domains WHERE name = ?').run(name);
+    scheduleMailConfig();
     res.json(describe(org));
   });
 
@@ -87,6 +91,7 @@ export default function orgRoutes() {
       return list;
     });
     removeBlobs(blobs);
+    scheduleMailConfig();
     res.json({ ok: true });
   });
 

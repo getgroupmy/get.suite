@@ -1,6 +1,8 @@
 import crypto from 'node:crypto';
 import { q } from './db.js';
 import { uid, now, parseCookies, HttpError } from './util.js';
+import { dovecotHash } from './mail/crypt.js';
+import { scheduleMailConfig } from './mail/config.js';
 
 const SESSION_DAYS = 30;
 export const COOKIE = 'nw_sid';
@@ -96,8 +98,9 @@ export function requireSuper(req, res, next) {
 
 export function newUserRow({ orgId, username, name, password, is_admin, is_super }) {
   const id = uid();
-  q(`INSERT INTO users (id, org_id, username, name, email, password_hash, is_admin, is_super, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-    .run(id, orgId, username, name, username, hashPassword(password), is_admin ? 1 : 0, is_super ? 1 : 0, now());
+  q(`INSERT INTO users (id, org_id, username, name, email, password_hash, mail_hash, is_admin, is_super, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(id, orgId, username, name, username, hashPassword(password), dovecotHash(password), is_admin ? 1 : 0, is_super ? 1 : 0, now());
+  scheduleMailConfig();
   return id;
 }

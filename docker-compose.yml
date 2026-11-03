@@ -1,4 +1,9 @@
 # Synology Container Manager → Project → Create, with this folder as the project path (see README).
+#
+# Change these two values, then build:
+x-mail-hostname: &mail_hostname mail.example.com   # the one hostname all your domains' MX records point to
+x-timezone: &timezone UTC                          # e.g. Europe/London
+
 services:
   workspace:
     build: .
@@ -8,11 +13,40 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      # All data (database + uploaded files) lives here. Back this folder up.
+      # Database + uploaded files. Back this folder up.
       - /volume1/docker/workspace/data:/data
-    # Must own the data folder above. On DSM, SSH in and run `id` to see your uid/gid.
+      # Mail accounts, aliases and DKIM keys, written by the app for the mail container.
+      - /volume1/docker/workspace/mail-config:/mail-config
+    # Must own the folders above. On DSM, SSH in and run `id` to see your uid/gid.
     user: "1026:100"
     environment:
-      TZ: UTC                        # your time zone, e.g. Europe/London
-      MAX_UPLOAD_MB: "4096"          # largest single upload
+      TZ: *timezone
+      MAX_UPLOAD_MB: "4096"
+      MAIL_CONFIG_DIR: /mail-config
+      MAIL_HOSTNAME: *mail_hostname
+      MAIL_IMAP_HOST: mail
+    depends_on:
+      - mail
+    mem_limit: 512m
+
+  mail:
+    build: ./mail
+    image: nas-workspace-mail:latest
+    container_name: nas-workspace-mail
+    hostname: *mail_hostname
+    restart: unless-stopped
+    ports:
+      - "25:25"     # receiving mail from the internet
+      - "465:465"   # sending from phones / Outlook (SSL)
+      - "587:587"   # sending from phones / Outlook (STARTTLS)
+      - "993:993"   # reading mail from phones / Outlook (IMAP over SSL)
+    volumes:
+      - /volume1/docker/workspace/mail-config:/etc/nw:ro
+      # Mailboxes. Back this folder up too.
+      - /volume1/docker/workspace/mailboxes:/var/vmail
+      # Recommended: DSM's Let's Encrypt certificate for the mail hostname (see README → Email).
+      # - /usr/syno/etc/certificate/_archive/REPLACE_ME:/etc/nw-tls:ro
+    environment:
+      TZ: *timezone
+      MAIL_HOSTNAME: *mail_hostname
     mem_limit: 512m

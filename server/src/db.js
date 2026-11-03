@@ -132,6 +132,25 @@ if (!hasColumn('users', 'is_super')) db.exec('ALTER TABLE users ADD COLUMN is_su
 if (!hasColumn('channels', 'org_id')) db.exec('ALTER TABLE channels ADD COLUMN org_id TEXT REFERENCES orgs(id) ON DELETE CASCADE');
 db.exec('CREATE INDEX IF NOT EXISTS users_org ON users(org_id)');
 
+// ---------- email (v0.3) ----------
+if (!hasColumn('users', 'mail_hash')) db.exec('ALTER TABLE users ADD COLUMN mail_hash TEXT');            // Dovecot SHA512-CRYPT
+if (!hasColumn('users', 'mail_quota_mb')) db.exec('ALTER TABLE users ADD COLUMN mail_quota_mb INTEGER NOT NULL DEFAULT 0');
+if (!hasColumn('domains', 'dkim_private')) db.exec('ALTER TABLE domains ADD COLUMN dkim_private TEXT');
+if (!hasColumn('domains', 'dkim_public')) db.exec('ALTER TABLE domains ADD COLUMN dkim_public TEXT');   // base64 SPKI for the DNS record
+db.exec(`
+CREATE TABLE IF NOT EXISTS aliases (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
+  address TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  targets TEXT NOT NULL,              -- comma-separated addresses (internal or external)
+  created_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+`);
+
 // Move users who predate companies into a default company with a placeholder domain.
 if (db.prepare('SELECT 1 FROM users WHERE org_id IS NULL').get()) {
   tx(() => {

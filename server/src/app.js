@@ -10,6 +10,9 @@ import calendarRoutes from './routes/calendar.js';
 import contactRoutes from './routes/contacts.js';
 import chatRoutes from './routes/chat.js';
 import orgRoutes from './routes/orgs.js';
+import mailAdminRoutes from './routes/mailAdmin.js';
+import webmailRoutes from './routes/webmail.js';
+import { writeMailConfig, mailEnabled } from './mail/config.js';
 import { q } from './db.js';
 import { ensureGeneralChannel } from './tenancy.js';
 
@@ -20,6 +23,7 @@ export function createApp({
   maxUploadBytes = Number(process.env.MAX_UPLOAD_MB || 4096) * 1024 * 1024,
 } = {}) {
   for (const { id } of q('SELECT id FROM orgs').all()) ensureGeneralChannel(id);
+  if (mailEnabled()) writeMailConfig();
   const app = express();
   app.disable('x-powered-by');
   app.set('trust proxy', trustProxy);
@@ -47,6 +51,8 @@ export function createApp({
   app.use('/api/auth', authRoutes({ secureCookies }));
   app.use('/api/users', requireAuth, userRoutes());
   app.use('/api/orgs', requireAuth, orgRoutes());
+  app.use('/api/mail-admin', requireAuth, mailAdminRoutes());
+  app.use('/api/mail', requireAuth, webmailRoutes());
   app.use('/api/files', requireAuth, fileRoutes({ maxUploadBytes }));
   app.use('/api/events', requireAuth, calendarRoutes());
   app.use('/api/contacts', requireAuth, contactRoutes());
