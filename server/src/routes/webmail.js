@@ -7,8 +7,8 @@ import addressparser from 'nodemailer/lib/addressparser/index.js';
 import { q, FILES_DIR } from '../db.js';
 import { str, bad, notFound, HttpError } from '../util.js';
 import { roleFor } from '../access.js';
-import { mailEnabled } from '../mail/config.js';
-import { imapFor, withFolder, smtpFor } from '../mail/imap.js';
+import { mailEnabled, scheduleMailConfig } from '../mail/config.js';
+import { withClient, withFolder, smtpFor } from '../mail/imap.js';
 
 const PAGE = 50;
 const MAX_SEND_BYTES = 25 * 1024 * 1024;
@@ -35,6 +35,8 @@ function parseRecipients(value, label) {
   return list;
 }
 
+const specialOf = (user, use) => withClient(user, (c) => specialFolder(c, use));
+
 async function specialFolder(client, use) {
   const boxes = await client.list();
   return boxes.find((b) => b.specialUse === use)?.path || null;
@@ -49,13 +51,38 @@ function uidList(v) {
 export default function webmailRoutes() {
   const r = Router();
 
-  r.get('/status', (req, res) => res.json({ enabled: mailEnabled(), address: req.user.username, identities: identities(req.user) }));
+  r.get('/status', (req, res) => res.json({
+    enabled: mailEnabled(), address: req.user.username, identities: identities(req.user), vacation: vacationOf(req.user.id),
+  }));
 
   r.use((req, res, next) => (mailEnabled() ? next() : next(new HttpError(503, 'Email is not set up on this server'))));
 
+  // ---- vacation auto-reply ----
+  r.get('/vacation', (req, res) => res.json(vacationOf(req.user.id)));
+
+  r.put('/vacation', (req, res) => {
+    const b = req.body;
+    const date = (v, label) => {
+      if (v === undefined || v === null || v === '') return null;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(v) || Number.isNaN(Date.parse(`${v}T00:00:00Z`))) throw bad(`${label} must be a date`);
+      return v;
+    };
+    const start = date(b.start_date, 'First day');
+    const end = date(b.end_date, 'Last day');
+    if (start && end && end < start) throw bad('The last day is before the first day');
+    const subject = str(b.subject, { max: 200, name: 'Subject' }) || 'Out of office';
+    const body = typeof b.body === 'string' ? b.body.slice(0, 5000) : '';
+    if (b.enabled && !body.trim()) throw bad('Write the message people should receive');
+    q(`INSERT INTO vacations (user_id, enabled, subject, body, start_date, end_date, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(user_id) DO UPDATE SET enabled = excluded.enabled, subject = excluded.subject, body = excluded.body,
+         start_date = excluded.start_date, end_date = excluded.end_date, updated_at = excluded.updated_at`)
+      .run(req.user.id, b.enabled ? 1 : 0, subject, body, start, end, Date.now());
+    scheduleMailConfig();
+    res.json(vacationOf(req.user.id));
+  });
+
   r.get('/folders', async (req, res) => {
-    const client = await imapFor(req.user);
-    const boxes = await client.list({ statusQuery: { messages: true, unseen: true } });
+    const boxes = await withClient(req.user, (c) => c.list({ statusQuery: { messages: true, unseen: true } }));
     const rank = (b) => (b.specialUse ? ORDER.indexOf(b.specialUse) : b.path === 'INBOX' ? 0 : 99);
     res.json(boxes.filter((b) => !b.flags?.has('\\Noselect'))
       .map((b) => ({ path: b.path, name: b.path === 'INBOX' ? 'Inbox' : b.name, specialUse: b.path === 'INBOX' ? '\\Inbox' : b.specialUse || null,
@@ -157,9 +184,8 @@ export default function webmailRoutes() {
   r.post('/messages/move', async (req, res) => {
     const folder = String(req.body.folder || 'INBOX');
     const uids = uidList(req.body.uids).join(',');
-    const client = await imapFor(req.user);
     const special = { inbox: 'INBOX', archive: '\\Archive', junk: '\\Junk', trash: '\\Trash' }[req.body.to];
-    const target = special === 'INBOX' ? 'INBOX' : special ? await specialFolder(client, special) : str(req.body.to, { required: true, name: 'to' });
+    const target = special === 'INBOX' ? 'INBOX' : special ? await specialOf(req.user, special) : str(req.body.to, { required: true, name: 'to' });
     if (!target) throw bad('Target folder not found');
     if (target === folder) return res.json({ ok: true });
     await withFolder(req.user, folder, (c) => c.messageMove(uids, target, { uid: true }));
@@ -170,13 +196,76 @@ export default function webmailRoutes() {
   r.post('/messages/delete', async (req, res) => {
     const folder = String(req.body.folder || 'INBOX');
     const uids = uidList(req.body.uids).join(',');
-    const client = await imapFor(req.user);
-    const trash = await specialFolder(client, '\\Trash');
-    const junk = await specialFolder(client, '\\Junk');
+    const trash = await specialOf(req.user, '\\Trash');
+    const junk = await specialOf(req.user, '\\Junk');
     if (!trash || folder === trash || folder === junk) await withFolder(req.user, folder, (c) => c.messageDelete(uids, { uid: true }));
     else await withFolder(req.user, folder, (c) => c.messageMove(uids, trash, { uid: true }));
     res.json({ ok: true });
   });
+
+  // ---- drafts (stored in the IMAP Drafts folder, so phones and Outlook see them too) ----
+  r.post('/drafts', async (req, res) => {
+    const b = req.body;
+    const folder = await specialOf(req.user, '\\Drafts');
+    if (!folder) throw bad('No Drafts folder');
+    const from = identities(req.user).find((i) => i.address === String(b.from || '').toLowerCase()) || identities(req.user)[0];
+    const meta = {
+      from: from.address, to: String(b.to || ''), cc: String(b.cc || ''), bcc: String(b.bcc || ''),
+      attachments: (Array.isArray(b.attachments) ? b.attachments : []).map(String).slice(0, 50),
+      inReplyTo: b.inReplyTo ? String(b.inReplyTo) : null, references: [].concat(b.references || []).map(String).slice(-20),
+      replyTo: b.replyTo?.folder && b.replyTo?.uid ? { folder: String(b.replyTo.folder), uid: Number(b.replyTo.uid) } : null,
+    };
+    // Half-typed addresses are fine in a draft: keep exactly what was typed in our own header.
+    const lenient = (v) => addressparser(v, { flatten: true }).filter((a) => EMAIL_RE.test(a.address || '')).map((a) => ({ name: a.name || '', address: a.address }));
+    const raw = await new MailComposer({
+      from: { name: from.name, address: from.address },
+      to: lenient(meta.to), cc: lenient(meta.cc),
+      subject: String(b.subject || '').slice(0, 998),
+      text: typeof b.text === 'string' ? b.text : '',
+      ...(meta.inReplyTo && { inReplyTo: meta.inReplyTo, references: meta.references }),
+      headers: { 'X-Workspace-Draft': chunk(Buffer.from(JSON.stringify(meta)).toString('base64')) },
+    }).compile().build();
+    const appended = await withClient(req.user, (c) => c.append(folder, raw, ['\\Draft', '\\Seen']));
+    if (b.uid) await deleteDraft(req.user, folder, Number(b.uid));
+    res.json({ uid: appended?.uid ?? null, savedAt: Date.now() });
+  });
+
+  r.get('/drafts/:uid', async (req, res) => {
+    const folder = await specialOf(req.user, '\\Drafts');
+    const { parsed: p } = await loadMessage(req.user, folder, Number(req.params.uid), false);
+    let meta = null;
+    try {
+      const h = p.headers.get('x-workspace-draft');
+      const joined = [].concat(h || []).map(String).sort().map((x) => x.replace(/^\d+:/, '')).join('');
+      if (joined) meta = JSON.parse(Buffer.from(joined, 'base64').toString('utf8'));
+    } catch { meta = null; }
+    const fmt = (list) => addrList(list).map((a) => (a.name ? `${a.name} <${a.address}>` : a.address)).join(', ');
+    const files = (meta?.attachments || []).map((id) => q("SELECT id, name, size, kind FROM files WHERE id = ?").get(id))
+      .filter((f) => f && f.kind === 'file' && roleFor(f.id, req.user.id));
+    res.json({
+      uid: Number(req.params.uid),
+      from: meta?.from || addrList(p.from)[0]?.address || req.user.username,
+      to: meta?.to ?? fmt(p.to), cc: meta?.cc ?? fmt(p.cc), bcc: meta?.bcc ?? fmt(p.bcc),
+      subject: p.subject || '', text: p.text || '',
+      attachments: files,
+      inReplyTo: meta?.inReplyTo || p.inReplyTo || null, references: meta?.references || [].concat(p.references || []),
+      replyTo: meta?.replyTo || null,
+    });
+  });
+
+  r.delete('/drafts/:uid', async (req, res) => {
+    const folder = await specialOf(req.user, '\\Drafts');
+    await deleteDraft(req.user, folder, Number(req.params.uid));
+    res.json({ ok: true });
+  });
+
+  async function deleteDraft(user, folder, uid) {
+    if (!folder || !Number.isInteger(uid) || uid < 1) return;
+    await withFolder(user, folder, async (c) => {
+      const m = await c.fetchOne(String(uid), { flags: true }, { uid: true });
+      if (m && m.flags.has('\\Draft')) await c.messageDelete(String(uid), { uid: true });
+    });
+  }
 
   r.post('/send', async (req, res) => {
     const b = req.body;
@@ -218,9 +307,9 @@ export default function webmailRoutes() {
     }
 
     // Keep a copy in Sent, and mark the original as answered.
-    const client = await imapFor(req.user);
-    const sent = await specialFolder(client, '\\Sent');
-    if (sent) await client.append(sent, raw, ['\\Seen']).catch(() => {});
+    const sent = await specialOf(req.user, '\\Sent').catch(() => null);
+    if (sent) await withClient(req.user, (c) => c.append(sent, raw, ['\\Seen'])).catch(() => {});
+    if (b.draftUid) await deleteDraft(req.user, await specialOf(req.user, '\\Drafts').catch(() => null), Number(b.draftUid)).catch(() => {});
     if (b.replyTo?.folder && b.replyTo?.uid) {
       await withFolder(req.user, String(b.replyTo.folder), (c) => c.messageFlagsAdd(String(Number(b.replyTo.uid)), ['\\Answered'], { uid: true })).catch(() => {});
     }
@@ -228,6 +317,23 @@ export default function webmailRoutes() {
   });
 
   return r;
+}
+
+/** Split a long header value into numbered pieces (RFC 5322 lines must stay under 998 characters). */
+function chunk(value, size = 800) {
+  const out = [];
+  for (let i = 0; i * size < value.length; i++) out.push(`${String(i).padStart(3, '0')}:${value.slice(i * size, (i + 1) * size)}`);
+  return out.length ? out : ['000:'];
+}
+
+function vacationOf(userId) {
+  const v = q('SELECT enabled, subject, body, start_date, end_date FROM vacations WHERE user_id = ?').get(userId);
+  const today = new Date().toISOString().slice(0, 10);
+  const out = v ? { ...v, enabled: !!v.enabled } : { enabled: false, subject: 'Out of office', body: '', start_date: null, end_date: null };
+  // "active" = replying right now; "scheduled" = on, but the first day is still ahead.
+  out.active = out.enabled && (!out.end_date || out.end_date >= today) && (!out.start_date || out.start_date <= today);
+  out.scheduled = out.enabled && !!out.start_date && out.start_date > today;
+  return out;
 }
 
 function hasAttachment(node) {

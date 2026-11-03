@@ -19,9 +19,15 @@ INTERVAL=${SYNC_INTERVAL:-5}
 log() { echo "[mail] $*"; }
 
 fingerprint() {
-  # Either folder may not exist yet; that must not stop the script (set -e / pipefail).
-  { find "$SRC" "$TLS_SRC" -type f -printf '%p %s %T@\n' 2>/dev/null || true; } | sort | md5sum | cut -d' ' -f1
+  # Paths may not exist yet; that must not stop the script (set -e / pipefail).
+  { find "$@" -type f -printf '%p %s %T@\n' 2>/dev/null || true; } | sort | md5sum | cut -d' ' -f1
 }
+# Change groups, so each change reloads only what needs it. Reloading Dovecot drops every
+# open IMAP connection (phones, webmail), so it is reserved for its own settings and TLS.
+fp_all()     { fingerprint "$SRC" "$TLS_SRC"; }
+fp_postfix() { fingerprint "$SRC/postfix" "$TLS_SRC"; }
+fp_dovecot() { fingerprint "$SRC/dovecot/policy.conf" "$TLS_SRC"; }
+fp_rspamd()  { fingerprint "$SRC/dkim"; }
 
 sync_tls() {
   mkdir -p "$TLS_LIVE"
@@ -41,14 +47,16 @@ sync_tls() {
 sync_config() {
   local tmp="$LIVE.new"
   rm -rf "$tmp"
-  mkdir -p "$tmp/postfix" "$tmp/dovecot" "$tmp/dkim"
+  mkdir -p "$tmp/postfix" "$tmp/dovecot" "$tmp/dkim" "$tmp/sieve"
   [[ -d $SRC ]] && cp -r "$SRC/." "$tmp/" 2>/dev/null || true
   # Every table must exist even before the app has written anything.
   for f in postfix/domains postfix/mailboxes postfix/aliases postfix/senders dovecot/passwd dovecot/masters; do
     touch "$tmp/$f"
   done
   chown -R root:root "$tmp"
-  chmod 755 "$tmp" "$tmp/postfix" "$tmp/dovecot" "$tmp/dkim"
+  chmod 755 "$tmp" "$tmp/postfix" "$tmp/dovecot" "$tmp/dkim" "$tmp/sieve"
+  # Sieve scripts are read during delivery, which runs as the vmail user.
+  find "$tmp/sieve" -type f -exec chmod 644 {} +
   chmod 644 "$tmp"/postfix/*
   chown root:dovecot "$tmp"/dovecot/*
   chmod 640 "$tmp"/dovecot/*
@@ -62,10 +70,15 @@ sync_config() {
   rm -rf "$LIVE.old"
 }
 
-reload_all() {
-  postfix reload >/dev/null 2>&1 || true
-  doveadm reload >/dev/null 2>&1 || true
-  pkill -HUP -x rspamd 2>/dev/null || true
+# Account files (dovecot/passwd, masters) are re-read by Dovecot automatically when they change,
+# and Sieve scripts are read at delivery time, so those need no reload at all.
+reload_changed() {
+  local p d r
+  p=$(fp_postfix); d=$(fp_dovecot); r=$(fp_rspamd)
+  if [[ $p != "$last_postfix" ]]; then postfix reload >/dev/null 2>&1 || true; log "Reloaded Postfix"; fi
+  if [[ $d != "$last_dovecot" ]]; then doveadm reload >/dev/null 2>&1 || true; log "Reloaded Dovecot"; fi
+  if [[ $r != "$last_rspamd" ]]; then pkill -HUP -x rspamd 2>/dev/null || true; log "Reloaded Rspamd"; fi
+  last_postfix=$p; last_dovecot=$d; last_rspamd=$r
 }
 
 stop_all() {
@@ -80,13 +93,14 @@ trap stop_all TERM INT
 log "Starting mail server for $HOSTNAME_FQDN"
 postconf -e "myhostname = $HOSTNAME_FQDN"
 echo "$HOSTNAME_FQDN" > /etc/mailname
+echo "hostname = $HOSTNAME_FQDN" > /etc/dovecot/hostname.conf   # used in auto-reply Message-IDs
 mkdir -p /var/vmail /run/dovecot /run/rspamd /var/lib/rspamd
 chown vmail:vmail /var/vmail
 chown _rspamd:_rspamd /run/rspamd /var/lib/rspamd
 
 sync_tls
 sync_config
-last=$(fingerprint)
+last=$(fp_all); last_postfix=$(fp_postfix); last_dovecot=$(fp_dovecot); last_rspamd=$(fp_rspamd)
 
 rspamd -f -u _rspamd -g _rspamd &
 dovecot
@@ -100,12 +114,11 @@ log "Ready: SMTP 25, submission 587/465, IMAPS 993"
 while true; do
   sleep "$INTERVAL" &
   wait $! || true
-  now=$(fingerprint)
+  now=$(fp_all)
   if [[ $now != "$last" ]]; then
-    log "Configuration changed; reloading"
     sync_tls
     sync_config
-    reload_all
+    reload_changed
     last=$now
   fi
   postfix status >/dev/null 2>&1 || { log "postfix died"; exit 1; }

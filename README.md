@@ -10,7 +10,7 @@ A self-hosted, Google Workspace-style office suite built to run on a Synology DS
 | **Calendar** | Month view, all-day and timed events, colours, upcoming list |
 | **Contacts** | Personal address book, plus a directory of everyone on the NAS |
 | **Chat** | Channels and direct messages, delivered live over WebSockets |
-| **Mail** | A mailbox for every user on their company's domains: webmail (read, reply, forward, attachments from your computer or Drive, archive, spam, search, stars), send as aliases you belong to, and IMAP/SMTP for phones and Outlook |
+| **Mail** | A mailbox for every user on their company's domains: webmail (read, reply, forward, attachments from your computer or Drive, archive, spam, search, stars), drafts that save automatically, vacation auto-replies, send as aliases you belong to, and IMAP/SMTP for phones and Outlook |
 | **Admin** | Create, disable, reset or delete users; per-user storage use; company settings; all companies (platform owner) |
 
 ## Companies (multi-tenant)
@@ -109,6 +109,15 @@ Your business fixed IP is what makes this work. Do these once:
 - **Mailbox size limits** (Admin → Users → ⋮ → Mailbox size). When a mailbox is full, new mail bounces to the sender.
 - **Spam:** Rspamd scores incoming mail, rejects obvious spam and files likely spam in Junk.
 - **Suspended users:** disabling a user blocks sign-in everywhere, but their mail keeps arriving.
+- **Drafts:** compose saves to the Drafts folder 2 seconds after you stop typing. Closing the window keeps the draft, the bin icon discards it, and clicking a draft in Drafts resumes it.
+  - Drafts live on the mail server, so phones and Outlook see them.
+  - Attachments in a draft are kept as links to Drive files. They're restored when the draft is reopened in webmail, but phones don't see them until the message is sent.
+- **Vacation reply** (Mail → Vacation reply): an automatic answer with an optional first and last day. It's built on the mail server's standard Sieve "vacation" feature:
+  - Each sender gets at most one reply per day.
+  - Mailing lists, newsletters, spam and other automatic messages never get one.
+  - It also answers mail sent to aliases the user belongs to.
+  - Dates use the mail container's `TZ` time zone.
+  - The Mail screen shows a banner, with a Turn off button, while it's on.
 - **Phones and Outlook:**
 
   | | Server | Port | Security |
@@ -119,7 +128,7 @@ Your business fixed IP is what makes this work. Do these once:
   Users sign in with their email address and Workspace password.
 - **Accounts that predate email** get a working mailbox password the next time the user signs in to Workspace. Webmail works right away.
 
-**Not built yet:** drafts that auto-save, rich-text (HTML) composing (messages are sent as plain text), vacation auto-replies, per-user filter rules, and catch-all addresses.
+**Not built yet:** rich-text (HTML) composing (messages are sent as plain text), per-user filter rules, and catch-all addresses.
 
 ## Sign-in protection
 
@@ -190,7 +199,7 @@ cd server && MAIL_IT_CONFIG_DIR=/etc/nw npm run test:mail
 
 ## Roadmap
 
-- **Mail, next steps:** auto-saving drafts, rich-text composing, vacation replies, filter rules, and a "new mail" notification pushed live instead of checked every 30 seconds.
+- **Mail, next steps:** rich-text composing, filter rules, and a "new mail" notification pushed live instead of checked every 30 seconds.
 - **Real-time co-editing:** live cursors and character-level merging (Yjs) in Docs and Sheets.
 - **Phone sync:** CalDAV and CardDAV, so calendars and contacts sync with the phone's built-in apps; WebDAV for Drive.
 - **Renaming a user's address** (moving them to another domain of the same company), **two-factor authentication**, file version history, public share links, Slides, cell formatting in Sheets, and week and day calendar views.

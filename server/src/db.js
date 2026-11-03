@@ -145,6 +145,15 @@ CREATE TABLE IF NOT EXISTS aliases (
   targets TEXT NOT NULL,              -- comma-separated addresses (internal or external)
   created_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS vacations (
+  user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  enabled INTEGER NOT NULL DEFAULT 0,
+  subject TEXT NOT NULL DEFAULT '',
+  body TEXT NOT NULL DEFAULT '',
+  start_date TEXT,                    -- YYYY-MM-DD, inclusive (mail server time zone)
+  end_date TEXT,
+  updated_at INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL

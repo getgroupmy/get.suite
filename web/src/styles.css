@@ -467,3 +467,7 @@ a.att:hover { background: var(--hover); }
 }
 .dns-row.simple { grid-template-columns: 56px 1fr; }
 @media (max-width: 700px) { .dns-row.simple .dns-value { grid-column: 2; grid-row: 1; } }
+.mail-vacation { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 12px; background: var(--warn-bg); font-size: 13px; }
+.mail-vacation > span { margin-right: auto; }
+.vacation-link { margin-top: 12px; }
+.draft-state.error { color: var(--danger); }

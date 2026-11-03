@@ -5,7 +5,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       postfix dovecot-imapd dovecot-lmtpd dovecot-sieve rspamd \
-      ca-certificates openssl procps \
+      ca-certificates openssl procps tzdata \
  && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd -g 5000 vmail \

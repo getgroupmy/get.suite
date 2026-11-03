@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { get, post, uploadFile, formatBytes, formatDate } from '../../api.js';
+import { get, post, put, del, uploadFile, formatBytes, formatDate } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
 import { Avatar, Empty, Modal, useToast } from '../../components/ui.jsx';
 import { useAuth } from '../../App.jsx';
 
 const FOLDER_ICON = { '\\Inbox': 'inbox', '\\Drafts': 'doc', '\\Sent': 'send', '\\Archive': 'archive', '\\Junk': 'report', '\\Trash': 'trash' };
 const enc = encodeURIComponent;
+const fmtDay = (d) => new Date(`${d}T12:00:00`).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
 const who = (a) => (a ? a.name || a.address : '');
 const list = (arr) => (arr || []).map((a) => (a.name ? `${a.name} <${a.address}>` : a.address)).join(', ');
 
@@ -25,6 +26,9 @@ export default function Mail() {
   const [error, setError] = useState('');
   const [compose, setCompose] = useState(null);
   const [checked, setChecked] = useState(new Set());
+  const [vacation, setVacation] = useState(null);
+  const [vacationOpen, setVacationOpen] = useState(false);
+  useEffect(() => { get('/mail/vacation').then(setVacation).catch(() => {}); }, []);
 
   const loadFolders = useCallback(() => get('/mail/folders').then(setFolders).catch((e) => setError(e.message)), []);
   const loadList = useCallback(() => get(`/mail/messages?folder=${enc(folder)}&page=${page}${q ? `&q=${enc(q)}` : ''}`)
@@ -58,6 +62,13 @@ export default function Mail() {
     );
   }
 
+  async function openDraft(uid) {
+    try {
+      const d = await get(`/mail/drafts/${uid}`);
+      setCompose({ ...d, draftUid: d.uid, files: d.attachments });
+    } catch (e) { toast(e.message, 'error'); }
+  }
+
   const sel = [...checked];
   return (
     <div className={`mail ${openUid ? 'reading' : ''}`}>
@@ -67,8 +78,12 @@ export default function Mail() {
           <button key={f.path} className={`subnav-item ${f.path === folder && !q ? 'active' : ''}`} onClick={() => { setSearch({}); go(f.path); }}>
             <Icon name={FOLDER_ICON[f.specialUse] || 'folder'} /><span className="grow ellipsis">{f.name}</span>
             {f.unseen > 0 && f.specialUse !== '\\Trash' && f.specialUse !== '\\Sent' && <span className="count">{f.unseen}</span>}
+            {f.specialUse === '\\Drafts' && f.messages > 0 && <span className="count muted">{f.messages}</span>}
           </button>
         ))}
+        <button className="subnav-item vacation-link" onClick={() => setVacationOpen(true)}>
+          <Icon name="clock" /><span className="grow">Vacation reply</span>{vacation?.enabled && <span className="pill">{vacation.active ? 'On' : 'Scheduled'}</span>}
+        </button>
       </aside>
 
       <section className="mail-list">
@@ -79,6 +94,17 @@ export default function Mail() {
           </form>
           <button className="icon-btn" aria-label="Refresh" onClick={refresh}><Icon name="restore" size={20} /></button>
         </div>
+        {vacation?.enabled && (vacation.active || vacation.scheduled) && (
+          <div className="mail-vacation">
+            <span>{vacation.active
+              ? `Your vacation reply is on${vacation.end_date ? ` until ${fmtDay(vacation.end_date)}` : ''}.`
+              : `Your vacation reply starts on ${fmtDay(vacation.start_date)}.`}</span>
+            <button className="btn small" onClick={() => setVacationOpen(true)}>Edit</button>
+            <button className="btn small" onClick={async () => {
+              try { setVacation(await put('/mail/vacation', { ...vacation, enabled: false })); toast('Vacation reply turned off'); } catch (e) { toast(e.message, 'error'); }
+            }}>Turn off</button>
+          </div>
+        )}
         {sel.length > 0 && (
           <div className="mail-bulk">
             <span>{sel.length} selected</span>
@@ -97,7 +123,7 @@ export default function Mail() {
               <li key={m.uid} className={`${m.seen ? '' : 'unread'} ${m.uid === openUid ? 'open' : ''}`}>
                 <input type="checkbox" aria-label={`Select ${m.subject || '(no subject)'}`} checked={checked.has(m.uid)}
                   onChange={(e) => { const n = new Set(checked); e.target.checked ? n.add(m.uid) : n.delete(m.uid); setChecked(n); }} />
-                <button className="msg-row" onClick={() => go(folder, m.uid)}>
+                <button className="msg-row" onClick={() => (special === '\\Drafts' ? openDraft(m.uid) : go(folder, m.uid))}>
                   <span className="msg-from ellipsis">{special === '\\Sent' || special === '\\Drafts' ? `To: ${m.to.map(who).join(', ')}` : who(m.from)}</span>
                   <span className="msg-date">{m.flagged && <span className="star" aria-label="Starred">★</span>}{m.attachment && <Icon name="attach" size={14} />} {m.date ? formatDate(m.date) : ''}</span>
                   <span className="msg-subject ellipsis">{m.answered && '↩ '}{m.subject || '(no subject)'}</span>
@@ -122,7 +148,8 @@ export default function Mail() {
         ) : <Empty icon="mail" title="No message selected" />}
       </section>
 
-      {compose && <Compose initial={compose} onClose={() => setCompose(null)} onSent={() => { setCompose(null); refresh(); }} />}
+      {compose && <Compose initial={compose} onClose={() => setCompose(null)} onSent={() => { setCompose(null); refresh(); }} onDraftsChanged={refresh} />}
+      {vacationOpen && <VacationDialog onClose={() => setVacationOpen(false)} onSaved={(v) => { setVacation(v); setVacationOpen(false); }} />}
     </div>
   );
 }
@@ -211,13 +238,71 @@ function HtmlBody({ html, images, onShowImages }) {
   );
 }
 
-function Compose({ initial, onClose, onSent }) {
+const FIELDS = ['from', 'to', 'cc', 'bcc', 'subject', 'text', 'inReplyTo', 'references', 'replyTo'];
+
+function Compose({ initial, onClose, onSent, onDraftsChanged }) {
   const toast = useToast();
   const { user } = useAuth();
   const [identities, setIdentities] = useState([{ address: user.username }]);
-  const [f, setF] = useState({ from: user.username, to: '', cc: '', bcc: '', subject: '', text: '', ...initial });
+  const [f, setF] = useState(() => {
+    const base = { from: user.username, to: '', cc: '', bcc: '', subject: '', text: '' };
+    for (const k of FIELDS) if (initial[k] !== undefined && initial[k] !== null) base[k] = initial[k];
+    return base;
+  });
   const [showCc, setShowCc] = useState(!!(initial.cc || initial.bcc));
-  const [files, setFiles] = useState([]);
+  const [files, setFiles] = useState(initial.files || []);
+  const [draftState, setDraftState] = useState(initial.draftUid ? 'saved' : '');
+
+  // ---- autosave to the Drafts folder: debounced, one save at a time, each replacing the previous copy ----
+  const draftUid = useRef(initial.draftUid || null);
+  const chain = useRef(Promise.resolve());
+  const timer = useRef(null);
+  const dirty = useRef(false);
+  const closed = useRef(false);
+  const latest = useRef({ f, files });
+  latest.current = { f, files };
+
+  const saveDraft = useCallback(() => {
+    clearTimeout(timer.current);
+    if (!dirty.current || closed.current) return chain.current;
+    dirty.current = false;
+    const { f: cur, files: att } = latest.current;
+    const empty = !cur.to.trim() && !cur.cc.trim() && !cur.bcc.trim() && !cur.subject.trim() && !cur.text.trim() && !att.length;
+    if (empty && !draftUid.current) return chain.current;
+    chain.current = chain.current.then(async () => {
+      setDraftState('saving');
+      try {
+        const r = await post('/mail/drafts', { ...cur, attachments: att.map((x) => x.id), uid: draftUid.current });
+        draftUid.current = r.uid;
+        setDraftState('saved');
+      } catch { dirty.current = true; setDraftState('error'); }
+    });
+    return chain.current;
+  }, []);
+
+  const first = useRef(true);
+  useEffect(() => {
+    if (first.current) { first.current = false; return; }
+    dirty.current = true;
+    clearTimeout(timer.current);
+    timer.current = setTimeout(saveDraft, 2000);
+  }, [f, files, saveDraft]);
+  useEffect(() => () => clearTimeout(timer.current), []);
+
+  async function closeKeep() {
+    if (busy) return;
+    await saveDraft();
+    closed.current = true;
+    if (draftUid.current) { toast('Draft saved'); onDraftsChanged?.(); }
+    onClose();
+  }
+  async function discard() {
+    closed.current = true;
+    clearTimeout(timer.current);
+    await chain.current;
+    if (draftUid.current) { await del(`/mail/drafts/${draftUid.current}`).catch(() => {}); onDraftsChanged?.(); toast('Draft discarded'); }
+    onClose();
+  }
   const [picking, setPicking] = useState(false);
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(0);
@@ -229,11 +314,14 @@ function Compose({ initial, onClose, onSent }) {
   async function send(e) {
     e.preventDefault();
     setBusy(true);
+    closed.current = true;          // no more autosaves
+    clearTimeout(timer.current);
+    await chain.current;            // let an in-flight save finish so the right draft gets removed
     try {
-      const r = await post('/mail/send', { ...f, attachments: files.map((x) => x.id) });
+      const r = await post('/mail/send', { ...f, attachments: files.map((x) => x.id), draftUid: draftUid.current });
       toast(`Sent to ${r.recipients} recipient${r.recipients === 1 ? '' : 's'}`);
       onSent();
-    } catch (err) { toast(err.message, 'error'); setBusy(false); }
+    } catch (err) { toast(err.message, 'error'); setBusy(false); closed.current = false; dirty.current = true; }
   }
 
   async function upload(list) {
@@ -247,7 +335,7 @@ function Compose({ initial, onClose, onSent }) {
 
   const total = files.reduce((s, x) => s + x.size, 0);
   return (
-    <Modal wide title={initial.subject ? initial.subject : 'New message'} onClose={() => !busy && onClose()}>
+    <Modal wide title={initial.draftUid ? 'Draft' : initial.subject ? initial.subject : 'New message'} onClose={closeKeep}>
       <form className="compose stack" onSubmit={send}>
         {identities.length > 1 && (
           <label className="compose-line"><span>From</span>
@@ -279,9 +367,12 @@ function Compose({ initial, onClose, onSent }) {
           <button type="button" className="icon-btn" aria-label="Attach from Drive" title="Attach from Drive" onClick={() => setPicking(true)}><Icon name="folder" /></button>
           <input ref={fileInput} type="file" multiple hidden onChange={(e) => { upload([...e.target.files]); e.target.value = ''; }} />
           <div className="grow" />
-          <button type="button" className="icon-btn" aria-label="Discard" title="Discard" onClick={onClose}><Icon name="trash" /></button>
+          <span className={`muted small draft-state ${draftState}`} aria-live="polite">
+            {draftState === 'saving' ? 'Saving…' : draftState === 'saved' ? 'Draft saved' : draftState === 'error' ? 'Couldn’t save draft' : ''}
+          </span>
+          <button type="button" className="icon-btn" aria-label="Discard draft" title="Discard draft" onClick={discard}><Icon name="trash" /></button>
         </div>
-        <p className="muted small" style={{ margin: 0 }}>Files you attach from your computer are also saved to your Drive.</p>
+        <p className="muted small" style={{ margin: 0 }}>Drafts save automatically. Files you attach from your computer are also saved to your Drive.</p>
       </form>
       {picking && <DrivePicker onClose={() => setPicking(false)} onPick={(file) => { if (!files.some((x) => x.id === file.id)) setFiles([...files, file]); setPicking(false); }} />}
     </Modal>
@@ -304,6 +395,36 @@ function DrivePicker({ onClose, onPick }) {
         {items?.length === 0 && <li className="muted">No files found. (Docs and Sheets can't be attached yet; download them first.)</li>}
         {items?.map((x) => <li key={x.id}><button onClick={() => onPick(x)}><Icon name="file" />{x.name}<span className="muted small">{formatBytes(x.size)}</span></button></li>)}
       </ul>
+    </Modal>
+  );
+}
+
+function VacationDialog({ onClose, onSaved }) {
+  const toast = useToast();
+  const [v, setV] = useState(null);
+  const [error, setError] = useState('');
+  useEffect(() => { get('/mail/vacation').then((x) => setV({ ...x, start_date: x.start_date || '', end_date: x.end_date || '' })); }, []);
+  if (!v) return null;
+  const set = (k) => (e) => setV({ ...v, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value });
+  return (
+    <Modal title="Vacation reply" onClose={onClose}>
+      <form className="stack" onSubmit={async (e) => {
+        e.preventDefault();
+        try { const r = await put('/mail/vacation', v); toast(r.enabled ? 'Vacation reply saved' : 'Vacation reply off'); onSaved(r); }
+        catch (err) { setError(err.message); }
+      }}>
+        <label className="check"><input type="checkbox" checked={v.enabled} onChange={set('enabled')} /> Send an automatic reply while I'm away</label>
+        <div className="row wrap">
+          <label className="field"><span>First day (optional)</span><input type="date" value={v.start_date} onChange={set('start_date')} /></label>
+          <label className="field"><span>Last day (optional)</span><input type="date" value={v.end_date} min={v.start_date || undefined} onChange={set('end_date')} /></label>
+        </div>
+        <label className="field"><span>Subject</span><input value={v.subject} onChange={set('subject')} maxLength={200} /></label>
+        <label className="field"><span>Message</span><textarea rows={6} value={v.body} onChange={set('body')} required={v.enabled}
+          placeholder="I'm out of the office until Monday and will reply when I'm back." /></label>
+        <p className="muted small" style={{ margin: 0 }}>Each person gets this reply at most once a day. Mailing lists, newsletters, spam and other automatic messages never get one.</p>
+        {error && <p className="error">{error}</p>}
+        <div className="row end"><button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn primary">Save</button></div>
+      </form>
     </Modal>
   );
 }

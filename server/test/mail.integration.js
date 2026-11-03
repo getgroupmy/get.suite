@@ -214,6 +214,74 @@ test('alias admin is per company', async () => {
   assert.equal((await bob('GET', '/api/mail-admin/aliases')).status, 401, 'bob is disabled');
 });
 
+// ---- vacation auto-replies (Sieve) ----
+test('vacation: validation, one reply per sender, scheduling, turning off', async () => {
+  assert.equal((await gina('PUT', '/api/mail/vacation', { enabled: true, body: '' })).status, 400, 'needs a message');
+  assert.equal((await gina('PUT', '/api/mail/vacation', { enabled: true, body: 'x', start_date: '2026-12-10', end_date: '2026-12-01' })).status, 400);
+  const on = await gina('PUT', '/api/mail/vacation', { enabled: true, subject: 'Away "this week"', body: 'I am at the trade fair.\nBack Monday.' });
+  assert.equal(on.status, 200);
+  assert.equal(on.body.active, true);
+  assert.equal((await gina('GET', '/api/mail/status')).body.vacation.active, true);
+  const script = path.join(process.env.MAIL_CONFIG_DIR, 'sieve/gina@globex.com.sieve');
+  // Includes the aliases Gina receives (info@ from the alias test, postmaster@/abuse@ as admin).
+  const expected = /:addresses \["gina@globex\.com", "info@globex\.com", "postmaster@globex\.com", "abuse@globex\.com"\]/;
+  await eventually(() => { try { return expected.test(fs.readFileSync('/run/nw/sieve/gina@globex.com.sieve', 'utf8')); } catch { return false; } }, 15000);
+
+  await olivia('POST', '/api/mail/send', { to: 'gina@globex.com', subject: 'Meeting next week?', text: 'hi' });
+  await olivia('POST', '/api/mail/send', { to: 'gina@globex.com', subject: 'Following up', text: 'hi again' });
+  const replies = await eventually(async () => {
+    const r = (await inbox(olivia)).filter((m) => m.subject === 'Away "this week"');
+    return r.length && r;
+  });
+  const full = (await olivia('GET', `/api/mail/messages/${replies[0].uid}?folder=INBOX`)).body;
+  assert.equal(full.from.address, 'gina@globex.com');
+  assert.match(full.text, /trade fair\.\nBack Monday\./);
+  await sleep(3000);
+  assert.equal((await inbox(olivia)).filter((m) => m.subject === 'Away "this week"').length, 1, 'only one reply per sender per day');
+
+  const later = await gina('PUT', '/api/mail/vacation', { enabled: true, subject: 'Away', body: 'Later', start_date: '2099-01-01', end_date: '2099-01-10' });
+  assert.equal(later.body.active, false);
+  assert.equal(later.body.scheduled, true);
+  await eventually(() => /currentdate :value "ge" "date" "2099-01-01"/.test(fs.readFileSync(script, 'utf8')), 3000);
+
+  const past = await gina('PUT', '/api/mail/vacation', { enabled: true, subject: 'Away', body: 'Old', start_date: '2020-01-01', end_date: '2020-01-02' });
+  assert.equal(past.body.active, false);
+  await eventually(() => !fs.existsSync(script), 3000); // expired: no script at all
+
+  await gina('PUT', '/api/mail/vacation', { enabled: false, subject: 'Away', body: 'Old' });
+  assert.equal((await gina('GET', '/api/mail/vacation')).body.enabled, false);
+});
+
+// ---- drafts ----
+test('drafts: save, update in place, reopen with Bcc and attachments, send removes the draft', async () => {
+  const file = (await olivia('POST', '/api/files/upload?name=terms.txt', 'payment in 30 days', { raw: true })).body;
+  const first = await olivia('POST', '/api/mail/drafts', { to: 'gina@globex.com, half-typed@', bcc: 'boss@acme.com', subject: 'Contract', text: 'Draft v1', attachments: [file.id] });
+  assert.equal(first.status, 200, JSON.stringify(first.body));
+  const drafts = async () => (await olivia('GET', '/api/mail/messages?folder=Drafts')).body.messages;
+  assert.equal((await drafts()).length, 1);
+
+  const second = await olivia('POST', '/api/mail/drafts', { uid: first.body.uid, to: 'gina@globex.com, half-typed@', bcc: 'boss@acme.com', subject: 'Contract v2', text: 'Draft v2', attachments: [file.id] });
+  const list = await drafts();
+  assert.equal(list.length, 1, 'the previous copy is replaced');
+  assert.equal(list[0].subject, 'Contract v2');
+  assert.equal(list[0].uid, second.body.uid);
+
+  const d = (await olivia('GET', `/api/mail/drafts/${second.body.uid}`)).body;
+  assert.equal(d.to, 'gina@globex.com, half-typed@', 'kept exactly as typed');
+  assert.equal(d.bcc, 'boss@acme.com');
+  assert.equal(d.text.trim(), 'Draft v2');
+  assert.deepEqual(d.attachments.map((a) => a.name), ['terms.txt']);
+
+  const sent = await olivia('POST', '/api/mail/send', { to: 'gina@globex.com', subject: 'Contract v2', text: 'Final', attachments: [file.id], draftUid: second.body.uid });
+  assert.equal(sent.status, 200);
+  assert.equal((await drafts()).length, 0, 'sending removes the draft');
+  await eventually(async () => (await inbox(gina)).some((m) => m.subject === 'Contract v2'));
+
+  const third = await olivia('POST', '/api/mail/drafts', { to: '', subject: '', text: 'just a note' });
+  assert.equal((await olivia('DELETE', `/api/mail/drafts/${third.body.uid}`)).status, 200);
+  assert.equal((await drafts()).length, 0);
+});
+
 // ---- sign-in protection against the real Dovecot + Postfix ----
 function rawImapLogin(user, pass, localAddress) {
   return new Promise((resolve) => {

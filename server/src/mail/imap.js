@@ -49,17 +49,51 @@ export async function imapFor(user) {
   return client;
 }
 
-/** Run fn with the folder selected and exclusively locked on this user's connection. */
-export async function withFolder(user, folder, fn) {
+const OP_TIMEOUT_MS = Number(process.env.MAIL_OP_TIMEOUT_MS || 45000);
+
+function drop(user, client) {
+  if (pool.get(user.id)?.client === client) pool.delete(user.id);
+  try { client.close(); } catch {}
+}
+
+/**
+ * Run fn(client) on this user's pooled connection with a time limit. If the connection
+ * died underneath us (e.g. the mail server restarted), reconnect and try once more.
+ */
+export async function withClient(user, fn, { retry = true } = {}) {
   const client = await imapFor(user);
-  let lock;
-  const wasSelected = client.mailbox && client.mailbox.path === folder;
-  try { lock = await client.getMailboxLock(folder); }
-  catch (e) { throw e.responseStatus === 'NO' ? new HttpError(404, 'Folder not found') : unavailable(e); }
-  // A pooled connection keeps the folder selected; the server only reports new
-  // messages in reply to a command, so ask before reading the message count.
-  if (wasSelected) await client.noop().catch(() => {});
-  try { return await fn(client); } finally { lock.release(); }
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(Object.assign(new HttpError(504, 'The mail server took too long to answer. Try again.'), { timedOut: true })), OP_TIMEOUT_MS);
+  });
+  try {
+    return await Promise.race([fn(client), timeout]);
+  } catch (e) {
+    if (e.timedOut) { drop(user, client); throw e; }
+    if (retry && !client.usable && !(e instanceof HttpError)) {
+      drop(user, client);
+      return withClient(user, fn, { retry: false });
+    }
+    throw e instanceof HttpError ? e : unavailable(e);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Run fn with the folder selected and exclusively locked on this user's connection. */
+export function withFolder(user, folder, fn) {
+  return withClient(user, async (client) => {
+    let lock;
+    const wasSelected = client.mailbox && client.mailbox.path === folder;
+    try { lock = await client.getMailboxLock(folder); }
+    catch (e) { throw e.responseStatus === 'NO' ? new HttpError(404, 'Folder not found') : e; }
+    try {
+      // A pooled connection keeps the folder selected; the server only reports new
+      // messages in reply to a command, so ask before reading the message count.
+      if (wasSelected) await client.noop();
+      return await fn(client);
+    } finally { lock.release(); }
+  });
 }
 
 export function closeAll() {
