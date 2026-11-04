@@ -134,7 +134,11 @@ Your business fixed IP is what makes this work. Do these once:
   - Replies and forwards default to sending from the address the message was sent to, so a reply to mail for `sales@` goes out from `sales@` with the sales signature.
   - It's inserted when you start writing, so you can still edit it in a particular message, and a reopened draft never gets a second copy.
 - **Pictures in messages:** insert them with the 🖼 button, paste a screenshot, or drag an image file into the message (PNG, JPEG, GIF or WebP, up to 10 MB each). Signatures can contain pictures too, such as a logo.
-  - **Size:** click a picture and choose **Small, Medium, Large or Full width** (25/50/75/100% of the message width) in the toolbar. The size is kept in drafts and shows the same in recipients' mail apps. Pictures never get wider than a phone screen.
+  - **Size:** click a picture, then either drag the handle on its bottom-right corner (any width from 10% to 100% of the message, with a live percentage), or choose **Small, Medium, Large or Full width** (25/50/75/100%) in the toolbar.
+    - Dragging snaps to those four sizes when you're within 2%.
+    - Keyboard: Tab to the handle and use the arrow keys (5% steps, Shift for 1%), Home for the smallest and End for full width.
+    - The size is kept in drafts and shows the same in recipients' mail apps.
+    - Pictures without a chosen size show at their natural size, and no picture ever gets wider than a phone screen.
   - Pictures are saved to your Drive.
   - When the message is sent they're embedded in the email itself, so recipients see them without access to your server and without "show images" prompts.
   - The plain-text version shows `[image: name]` in their place.
@@ -169,7 +173,7 @@ Your business fixed IP is what makes this work. Do these once:
   Users sign in with their email address and Workspace password.
 - **Accounts that predate email** get a working mailbox password the next time the user signs in to Workspace. Webmail works right away.
 
-**Not built yet:** free-form (drag) picture resizing, and carrying pictures embedded in the original into a normal forward (use **Forward as attachment** to keep everything).
+**Not built yet:** cropping or rotating pictures, and carrying pictures embedded in the original into a normal forward (use **Forward as attachment** to keep everything).
 
 ## Sign-in protection
 
@@ -240,7 +244,7 @@ cd server && MAIL_IT_CONFIG_DIR=/etc/nw npm run test:mail
 
 ## Roadmap
 
-- **Mail, next steps:** drag-to-resize pictures, and following the built-in Archive folder pushed live instead of checked every 30 seconds.
+- **Mail, next steps:** cropping pictures, and following the built-in Archive folder pushed live instead of checked every 30 seconds.
 - **Real-time co-editing:** live cursors and character-level merging (Yjs) in Docs and Sheets.
 - **Phone sync:** CalDAV and CardDAV, so calendars and contacts sync with the phone's built-in apps; WebDAV for Drive.
 - **Renaming a user's address** (moving them to another domain of the same company), **two-factor authentication**, file version history, public share links, Slides, cell formatting in Sheets, and week and day calendar views.

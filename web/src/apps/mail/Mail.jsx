@@ -751,6 +751,15 @@ function swapSignature(editor, html) {
 
 /** Picture sizes as a share of the message width; stored on the picture so mail apps show the same size. */
 const IMAGE_SIZES = [[25, 'Small'], [50, 'Medium'], [75, 'Large'], [100, 'Full width']];
+const MIN_WIDTH = 10;
+const SNAP = [25, 50, 75, 100];
+const clampWidth = (v) => Math.max(MIN_WIDTH, Math.min(100, Math.round(v)));
+
+/**
+ * Pictures with a size as a share of the message width (10-100%), stored on the picture so mail
+ * apps show the same size. In the editor a selected picture gets a corner handle: drag it (snaps
+ * to 25/50/75/100% when close), or focus it and use the arrow keys (Shift for 1% steps).
+ */
 const ResizableImage = Image.extend({
   addAttributes() {
     return {
@@ -759,7 +768,7 @@ const ResizableImage = Image.extend({
         default: null,
         parseHTML: (el) => {
           const v = Number(el.getAttribute('data-width') || String(el.style?.width || '').replace('%', ''));
-          return [25, 50, 75].includes(v) ? v : null;
+          return Number.isFinite(v) && v >= MIN_WIDTH && v < 100 ? Math.round(v) : null;
         },
         // The width attribute plus inline style work across Gmail, Outlook and phone mail apps;
         // max-width keeps pictures inside narrow screens.
@@ -767,6 +776,110 @@ const ResizableImage = Image.extend({
           ? { 'data-width': attrs.width, width: `${attrs.width}%`, style: `width:${attrs.width}%; max-width:100%; height:auto` }
           : { style: 'max-width:100%; height:auto' }),
       },
+    };
+  },
+
+  addNodeView() {
+    return ({ node, getPos, editor }) => {
+      let current = node;
+      const dom = document.createElement('div');
+      dom.className = 'img-wrap';
+      const img = document.createElement('img');
+      const handle = document.createElement('span');
+      handle.className = 'img-handle';
+      handle.tabIndex = 0;
+      handle.setAttribute('role', 'slider');
+      handle.setAttribute('aria-label', 'Picture width');
+      handle.setAttribute('aria-valuemin', String(MIN_WIDTH));
+      handle.setAttribute('aria-valuemax', '100');
+      const label = document.createElement('span');
+      label.className = 'img-size-label';
+      dom.append(img, handle, label);
+
+      // pct = null: no size chosen, so the picture shows at its natural size (never wider than the message).
+      const show = (pct) => {
+        dom.style.width = pct ? `${pct}%` : '';
+        dom.classList.toggle('natural', !pct);
+        const now = pct || shownPct();
+        handle.setAttribute('aria-valuenow', String(now));
+        handle.setAttribute('aria-valuetext', `${now}% of the message width`);
+        label.textContent = `${now}%`;
+      };
+      const shownPct = () => {
+        const full = contentWidth();
+        return full > 0 ? clampWidth((dom.getBoundingClientRect().width / full) * 100) : 100;
+      };
+      const render = (n) => {
+        img.src = n.attrs.src;
+        img.alt = n.attrs.alt || '';
+        if (n.attrs.width) dom.setAttribute('data-width', String(n.attrs.width)); else dom.removeAttribute('data-width');
+        show(n.attrs.width || null);
+      };
+      img.addEventListener('load', () => { if (!current.attrs.width) show(null); }); // natural size known now
+      const commit = (pct) => {
+        const pos = typeof getPos === 'function' ? getPos() : null;
+        if (pos == null) return;
+        const width = pct >= 100 ? null : pct;
+        if ((current.attrs.width || null) === width) return show(width);
+        editor.view.dispatch(editor.view.state.tr.setNodeMarkup(pos, undefined, { ...current.attrs, width }));
+      };
+      const contentWidth = () => {
+        const el = editor.view.dom;
+        const cs = getComputedStyle(el);
+        return el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+      };
+
+      handle.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        handle.setPointerCapture(e.pointerId);
+        dom.classList.add('resizing');
+        const startX = e.clientX;
+        const startW = dom.getBoundingClientRect().width;
+        const full = contentWidth();
+        let pct = current.attrs.width || shownPct();
+        const move = (ev) => {
+          pct = clampWidth(((startW + ev.clientX - startX) / full) * 100);
+          const near = SNAP.find((s) => Math.abs(s - pct) <= 2);
+          if (near) pct = near;
+          show(pct);
+        };
+        const up = () => {
+          handle.removeEventListener('pointermove', move);
+          handle.removeEventListener('pointerup', up);
+          handle.removeEventListener('pointercancel', up);
+          dom.classList.remove('resizing');
+          commit(pct);
+        };
+        handle.addEventListener('pointermove', move);
+        handle.addEventListener('pointerup', up);
+        handle.addEventListener('pointercancel', up);
+      });
+      handle.addEventListener('keydown', (e) => {
+        const step = e.shiftKey ? 1 : 5;
+        const now = current.attrs.width || shownPct();
+        const next = { ArrowLeft: now - step, ArrowDown: now - step, ArrowRight: now + step, ArrowUp: now + step, Home: MIN_WIDTH, End: 100 }[e.key];
+        if (next === undefined) return;
+        e.preventDefault();
+        e.stopPropagation();
+        commit(clampWidth(next));
+      });
+
+      render(node);
+      return {
+        dom,
+        update(n) {
+          if (n.type !== current.type) return false;
+          current = n;
+          render(n);
+          return true;
+        },
+        selectNode() { dom.classList.add('ProseMirror-selectednode'); },
+        deselectNode() { dom.classList.remove('ProseMirror-selectednode'); },
+        // Let the handle have its own mouse/keyboard events instead of the editor.
+        stopEvent: (e) => e.target === handle,
+        ignoreMutation: () => true,
+      };
     };
   },
 });
