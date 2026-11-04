@@ -9,6 +9,7 @@ import { Avatar, ConfirmModal, Empty, Menu, Modal, PromptModal, useToast } from 
 import { useAuth } from '../../App.jsx';
 import { useEditor, EditorContent, Node as TiptapNode, mergeAttributes } from '@tiptap/react';
 import Image from '@tiptap/extension-image';
+import TextAlign from '@tiptap/extension-text-align';
 import { Table, TableRow, TableHeader, TableCell } from '@tiptap/extension-table';
 import { TextStyle, Color, BackgroundColor, FontSize, FontFamily } from '@tiptap/extension-text-style';
 import { useMailStatus } from '../../mailStatus.js';
@@ -619,6 +620,8 @@ function RichBody({ initialHtml, onChange, onReady, autoFocus, label = 'Message'
       // Highlights are a background colour on the text (inline style), which every mail app shows.
       // Fonts are kept from quoted mail (the server only lets common mail fonts through).
       TextStyle, Color, BackgroundColor, FontSize, FontFamily,
+      // Left / centre / right for paragraphs (Ctrl+Shift+L / E / R). Left is the normal alignment.
+      TextAlign.configure({ types: ['paragraph'], alignments: ['left', 'center', 'right'] }),
       SignatureBlock,
     ],
     content: initialHtml,
@@ -710,6 +713,12 @@ function RichBody({ initialHtml, onChange, onReady, autoFocus, label = 'Message'
           icon={(shown) => <span className="color-a hl"><span className="hl-pen" aria-hidden="true">🖍</span><span className="color-bar" style={{ background: shown || 'transparent' }} /></span>}
           onPick={(color) => (color ? c().setBackgroundColor(color).run() : c().unsetBackgroundColor().run())} />
         <span className="sep" />
+        {[['left', 'Align left'], ['center', 'Centre'], ['right', 'Align right']].map(([al, title]) => (
+          <B key={al} label={<AlignIcon to={al} />} title={title}
+            active={al === 'left' ? !editor.isActive({ textAlign: 'center' }) && !editor.isActive({ textAlign: 'right' }) : editor.isActive({ textAlign: al })}
+            onClick={() => (al === 'left' ? c().unsetTextAlign() : c().setTextAlign(al)).run()} />
+        ))}
+        <span className="sep" />
         <B label="•" title="Bulleted list" active={editor.isActive('bulletList')} onClick={() => c().toggleBulletList().run()} />
         <B label="1." title="Numbered list" active={editor.isActive('orderedList')} onClick={() => c().toggleOrderedList().run()} />
         <B label="❝" title="Quote" active={editor.isActive('blockquote')} onClick={() => c().toggleBlockquote().run()} />
@@ -789,6 +798,16 @@ const FONTS = [
 ];
 const fontKey = (v) => String(v || '').replace(/['"\s]/g, '').toLowerCase();
 const fontName = (v) => (!v ? 'Sans Serif' : FONTS.find(([, stack]) => stack && fontKey(stack) === fontKey(v))?.[0] || 'Other font');
+
+/** Lines icon for the alignment buttons. */
+function AlignIcon({ to }) {
+  const x = (w) => (to === 'left' ? 2 : to === 'right' ? 16 - w : (18 - w) / 2);
+  return (
+    <svg width="16" height="16" viewBox="0 0 18 16" aria-hidden="true" fill="currentColor">
+      {[14, 9, 14, 9].map((w, i) => <rect key={i} x={x(w)} y={2 + i * 3.5} width={w} height="1.8" rx=".9" />)}
+    </svg>
+  );
+}
 
 // Font sizes (as in most mail apps). "Normal" means no size of its own.
 const FONT_SIZES = [['Small', '12px'], ['Normal', null], ['Large', '18px'], ['Huge', '24px']];

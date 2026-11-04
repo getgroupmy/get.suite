@@ -70,7 +70,9 @@ function emailTables(html) {
     .replace(/<(td|th)\b([^>]*)>([\s\S]*?)<\/\1>/g, (m, tag, attrs, inner) => {
       const spans = [...attrs.matchAll(/\b(colspan|rowspan)="(\d+)"/g)].filter(([, , v]) => v !== '1').map(([, k, v]) => ` ${k}="${v}"`).join('');
       const style = tag === 'th' ? `${CELL_STYLE}; background:#f3f3f3; font-weight:bold` : CELL_STYLE;
-      return `<${tag}${spans} style="${style}">${inner.replace(/<p>/g, '<p style="margin:0">')}</${tag}>`;
+      // Paragraphs in cells sit close together; one with its own style (e.g. centred) keeps it.
+      const tight = inner.replace(/<p( style="([^"]*)")?>/g, (m, has, st) => `<p style="margin:0${st ? `; ${st}` : ''}">`);
+      return `<${tag}${spans} style="${style}">${tight}</${tag}>`;
     });
 }
 

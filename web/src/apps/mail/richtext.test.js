@@ -55,3 +55,9 @@ test('tables: rows as "a | b" lines in plain text, inline cell styles in the ema
   assert.match(html, /<th style="border:1px solid #ccc[^"]*font-weight:bold"><p style="margin:0">Item<\/p><\/th>/);
   assert.match(html, /<td colspan="2" style="border:1px solid #ccc[^"]*"><p style="margin:0">Total<\/p><p style="margin:0">incl\. VAT<\/p><\/td>/);
 });
+
+test('aligned paragraphs keep their alignment, also inside table cells', () => {
+  const html = emailHtml('<p style="text-align: center">Title</p><table><tbody><tr><td><p style="text-align: right">€200</p><p>note</p></td></tr></tbody></table>');
+  assert.match(html, /<p style="text-align: center">Title<\/p>/);
+  assert.match(html, /<td style="[^"]*"><p style="margin:0; text-align: right">€200<\/p><p style="margin:0">note<\/p><\/td>/);
+});

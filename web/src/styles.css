@@ -219,7 +219,7 @@ button:focus-visible, a:focus-visible, [tabindex]:focus-visible { outline: 2px s
 .menu-item .icon { color: var(--muted); }
 .menu-item.danger, .menu-item.danger .icon { color: var(--danger); }
 .modal-backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, .4); display: grid; place-items: center; z-index: 100; padding: 16px; }
-.modal { background: var(--surface); border-radius: 16px; width: 100%; max-width: 480px; max-height: calc(100vh - 32px); display: flex; flex-direction: column; box-shadow: var(--shadow); }
+.modal { background: var(--surface); border-radius: 16px; width: 100%; min-width: 0; /* fit narrow phones even with wide content */ max-width: 480px; max-height: calc(100vh - 32px); display: flex; flex-direction: column; box-shadow: var(--shadow); }
 .modal-wide { max-width: 960px; }
 .modal-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 12px 8px 24px; gap: 8px; }
 .modal-head h2 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
