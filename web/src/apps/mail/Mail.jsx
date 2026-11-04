@@ -10,6 +10,7 @@ import { useAuth } from '../../App.jsx';
 import { useEditor, EditorContent, Node as TiptapNode, mergeAttributes } from '@tiptap/react';
 import Image from '@tiptap/extension-image';
 import { Table, TableRow, TableHeader, TableCell } from '@tiptap/extension-table';
+import { TextStyle, Color } from '@tiptap/extension-text-style';
 import { useMailStatus } from '../../mailStatus.js';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
@@ -614,6 +615,8 @@ function RichBody({ initialHtml, onChange, onReady, autoFocus, label = 'Message'
       ResizableImage.configure({ inline: false, allowBase64: false }),
       // Tables quoted from replies and forwards (or pasted). Column sizes follow the content.
       Table.configure({ resizable: false }), TableRow, TableHeader, TableCell,
+      // Text colours quoted from replies and forwards (or pasted). Clear formatting removes them.
+      TextStyle, Color,
       SignatureBlock,
     ],
     content: initialHtml,

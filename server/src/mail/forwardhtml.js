@@ -1,6 +1,6 @@
 // Turn a received email's HTML into a safe body for a reply quote or forward: the text with basic
-// formatting (paragraphs, line breaks, bold/italic/underline/strike, lists, quotes, links), data
-// tables, and the pictures embedded in it. Tables used only for page layout (as newsletters do) are
+// formatting (paragraphs, line breaks, bold/italic/underline/strike, lists, quotes, links), text
+// colours, data tables, and the pictures embedded in it. Tables used only for page layout (as newsletters do) are
 // flattened into paragraphs. Everything else — scripts, styles, forms, tracking pixels and pictures
 // loaded from the internet — is dropped. The result only ever contains the handful of tags the
 // message editor knows, so nothing from the original can run or phone home.
@@ -13,6 +13,46 @@ const MARKS = { b: 'strong', strong: 'strong', i: 'em', em: 'em', cite: 'em', u:
 const HEADINGS = new Set(['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'th']);
 const MAX_OUT = 1_000_000;
 const MAX_ROWS = 200, MAX_COLS = 20;
+
+// ---- text colours ----
+const NAMED = {
+  black: '000000', white: 'ffffff', red: 'ff0000', green: '008000', blue: '0000ff', navy: '000080', maroon: '800000',
+  purple: '800080', teal: '008080', olive: '808000', gray: '808080', grey: '808080', silver: 'c0c0c0', orange: 'ffa500',
+  yellow: 'ffff00', lime: '00ff00', aqua: '00ffff', cyan: '00ffff', fuchsia: 'ff00ff', magenta: 'ff00ff', brown: 'a52a2a',
+  darkred: '8b0000', darkgreen: '006400', darkblue: '00008b', darkorange: 'ff8c00', crimson: 'dc143c', royalblue: '4169e1',
+  steelblue: '4682b4', dimgray: '696969', dimgrey: '696969', darkgray: 'a9a9a9', darkgrey: 'a9a9a9', indigo: '4b0082',
+};
+/** A CSS colour as six hex digits, or null. Only plain values: hex, rgb()/rgba(), common names. */
+export function parseColor(value) {
+  const v = String(value || '').trim().toLowerCase().replace(/\s*!important$/, '');
+  let m;
+  if ((m = v.match(/^#([0-9a-f]{3,4})$/))) return m[1].slice(0, 3).split('').map((c) => c + c).join('');
+  if ((m = v.match(/^#([0-9a-f]{6})([0-9a-f]{2})?$/))) return m[1];
+  if ((m = v.match(/^rgba?\(\s*([\d.]+%?)\s*[,\s]\s*([\d.]+%?)\s*[,\s]\s*([\d.]+%?)\s*(?:[,/]\s*[\d.]+%?\s*)?\)$/))) {
+    const ch = m.slice(1, 4).map((x) => Math.round(Math.min(255, Math.max(0, x.endsWith('%') ? parseFloat(x) * 2.55 : parseFloat(x)))));
+    return ch.some((x) => !Number.isFinite(x)) ? null : ch.map((x) => x.toString(16).padStart(2, '0')).join('');
+  }
+  return NAMED[v] || null;
+}
+const luminance = (hex) => {
+  const [r, g, b] = [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+};
+/**
+ * The text colour an element sets: a hex colour, 'default' (it sets one, but it's near-black, the
+ * normal text colour, or too light to read on a white page), or undefined (it doesn't set one).
+ */
+function colorOf(tag, a) {
+  const decl = [...String(a.style || '').matchAll(/(?:^|;)\s*color\s*:\s*([^;]+)/gi)].pop()?.[1];
+  const raw = decl ?? (tag === 'font' ? a.color : undefined);
+  if (raw === undefined) return undefined;
+  const hex = parseColor(raw);
+  if (!hex) return /^\s*(inherit|initial|unset|currentcolor)\s*$/i.test(raw) ? undefined : 'default';
+  const L = luminance(hex);
+  return L < 0.02 || 1.05 / (L + 0.05) < 1.8 ? 'default' : `#${hex}`;
+}
+const withColor = (marks, c) => (c === undefined ? marks : [...marks.filter((m) => !m.color), { color: c }]);
+const colorsOnly = (marks) => marks.filter((m) => m.color);
 
 const isTag = (n, ...names) => n?.type === 'tag' && names.includes(n.name);
 const hasTable = (n) => (n.children || []).some((c) => c.type === 'tag' && (c.name === 'table' || hasTable(c)));
@@ -56,7 +96,7 @@ export function forwardHtml(html, pictureUrl) {
   let pictures = 0;
 
   // A "flow" is the content of the body, a list item or a quote: paragraphs, pictures, lists, quotes.
-  function flow(nodes) {
+  function flow(nodes, inherited = []) {
     const out = [];
     let para = ''; // the paragraph being built (inline HTML)
     const flush = () => {
@@ -71,8 +111,9 @@ export function forwardHtml(html, pictureUrl) {
         else t = esc(t.replace(/[\s ]+/g, (w) => (w.includes(' ') ? ' ' : ' ')));
         if (!t) return;
         if (!para || /<br>$/.test(para)) t = t.replace(/^ /, '');
-        let wrapped = t;
-        for (const m of [...marks].reverse()) wrapped = m.open + wrapped + m.close;
+        const color = marks.find((m) => m.color)?.color;
+        let wrapped = color && color !== 'default' ? `<span style="color: ${color}">${t}</span>` : t;
+        for (const m of [...marks].reverse()) if (!m.color) wrapped = m.open + wrapped + m.close;
         para += wrapped;
         return;
       }
@@ -81,6 +122,7 @@ export function forwardHtml(html, pictureUrl) {
       if (SKIP.has(tag)) return;
       const a = node.attribs || {};
       if (tag === 'br') { para += '<br>'; return; }
+      marks = withColor(marks, colorOf(tag, a)); // colours apply to everything inside, until overridden
       if (tag === 'img') {
         const src = String(a.src || '').trim();
         const url = /^cid:/i.test(src) ? pictureUrl(src.slice(4).replace(/^<|>$/g, '')) : null;
@@ -95,12 +137,12 @@ export function forwardHtml(html, pictureUrl) {
         const items = (node.children || []).filter((c) => c.type === 'tag' && c.name === 'li');
         if (!items.length) { kids(node, marks, pre); return; }
         flush();
-        out.push(`<${tag}>${items.map((li) => `<li>${flow(li.children || []) || '<p></p>'}</li>`).join('')}</${tag}>`);
+        out.push(`<${tag}>${items.map((li) => `<li>${flow(li.children || [], withColor(colorsOnly(marks), colorOf('li', li.attribs || {}))) || '<p></p>'}</li>`).join('')}</${tag}>`);
         return;
       }
       if (tag === 'blockquote') {
         flush();
-        const body = flow(node.children || []);
+        const body = flow(node.children || [], colorsOnly(marks));
         if (body) out.push(`<blockquote>${body}</blockquote>`);
         return;
       }
@@ -111,7 +153,8 @@ export function forwardHtml(html, pictureUrl) {
           const t = c.name === 'th' ? 'th' : 'td';
           const a2 = c.attribs || {};
           const spans = `${span(a2.colspan) > 1 ? ` colspan="${span(a2.colspan)}"` : ''}${span(a2.rowspan) > 1 ? ` rowspan="${Math.min(MAX_ROWS, span(a2.rowspan))}"` : ''}`;
-          return `<${t}${spans}>${flow(c.children || []) || '<p></p>'}</${t}>`;
+          const inCell = withColor(withColor(colorsOnly(marks), colorOf('tr', r.attribs || {})), colorOf(t, a2));
+          return `<${t}${spans}>${flow(c.children || [], inCell) || '<p></p>'}</${t}>`;
         }).join('')).filter(Boolean);
         out.push(`<table><tbody>${rows.map((r) => `<tr>${r}</tr>`).join('')}</tbody></table>`);
         return;
@@ -131,7 +174,7 @@ export function forwardHtml(html, pictureUrl) {
     }
     const kids = (node, marks, pre) => { for (const c of node.children || []) inline(c, marks, pre); };
 
-    for (const n of nodes) inline(n, [], false);
+    for (const n of nodes) inline(n, inherited, false);
     flush();
     return out.join('');
   }

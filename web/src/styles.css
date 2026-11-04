@@ -560,3 +560,9 @@ a.att:hover { background: var(--hover); }
 .table-picker-grid button.on { background: var(--accent-soft); border-color: var(--accent); }
 .table-picker-grid button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .table-picker-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 8px; font-size: 13px; white-space: nowrap; }
+
+/* Coloured text in the message editor: in dark mode, flip its lightness (keeping the hue) so dark
+   colours stay readable. Only on screen; the email is sent with the original colours. */
+@media (prefers-color-scheme: dark) {
+  .compose-editor .tiptap span[style*="color"] { filter: invert(1) hue-rotate(180deg); }
+}

@@ -525,6 +525,14 @@ test('quotes keep data tables and flatten layout tables', async () => {
   assert.match(q, /<p>Thanks for shopping with us<\/p>/);
 });
 
+test('quotes keep readable text colours, safely', async () => {
+  const html = '<p>Status: <span style="color:#cc0000">late</span> <span style="color:expression(alert(1))">odd</span></p><p style="color:#fff">hidden</p>';
+  assert.equal((await gina('POST', '/api/mail/send', { to: 'olivia@acme.com', subject: 'Colour quote', text: 'Status', html })).status, 200);
+  const m = await eventually(async () => (await inbox(olivia)).find((x) => x.subject === 'Colour quote'));
+  const q = (await olivia('GET', `/api/mail/messages/${m.uid}/quote?folder=INBOX`)).body.html;
+  assert.equal(q, '<p>Status: <span style="color: #cc0000">late</span> odd</p><p>hidden</p>');
+});
+
 test('forward as attachment: the original arrives whole as an .eml file', async () => {
   const orig = await eventually(async () => (await inbox(gina)).find((m) => m.subject === 'Two files'));
   const draft = await gina('POST', '/api/mail/drafts', { to: 'olivia@acme.com', subject: 'Fwd: Two files (as attachment)', text: 'fyi',
