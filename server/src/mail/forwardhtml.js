@@ -1,6 +1,6 @@
 // Turn a received email's HTML into a safe body for a reply quote or forward: the text with basic
 // formatting (paragraphs, line breaks, bold/italic/underline/strike, lists, quotes, links), text
-// colours, highlights, data tables, and the pictures embedded in it. Tables used only for page layout (as newsletters do) are
+// colours, highlights, fonts and font sizes, data tables, and the pictures embedded in it. Tables used only for page layout (as newsletters do) are
 // flattened into paragraphs. Everything else — scripts, styles, forms, tracking pixels and pictures
 // loaded from the internet — is dropped. The result only ever contains the handful of tags the
 // message editor knows, so nothing from the original can run or phone home.
@@ -66,10 +66,63 @@ function highlightOf(tag, a) {
   const L = luminance(hex);
   return L < 0.45 || L > 0.93 ? 'none' : `#${hex}`; // dark text must stay readable; near-white is no highlight
 }
-const withHighlight = (marks, h) => (h === undefined ? marks : [...marks.filter((m) => !m.bg), { bg: h }]);
+
+// ---- font sizes: mapped onto the editor's Small / Normal / Large / Huge ----
+const SIZE_WORDS = { 'xx-small': 9, 'x-small': 10, small: 13, medium: 16, large: 18, 'x-large': 24, 'xx-large': 32, 'xxx-large': 48 };
+const FONT_TAG_SIZES = { 1: 10, 2: 13, 3: 16, 4: 18, 5: 24, 6: 32, 7: 48 };
+const HEADING_SIZES = { h1: '24px', h2: '18px' };
+/** A size in px from a CSS value (px, pt, em/rem/% of 16px, keywords), or null. */
+export function sizePx(value) {
+  const v = String(value || '').trim().toLowerCase().replace(/\s*!important$/, '');
+  if (SIZE_WORDS[v]) return SIZE_WORDS[v];
+  const m = v.match(/^([\d.]+)\s*(px|pt|em|rem|%)?$/);
+  if (!m) return null;
+  const n = parseFloat(m[1]);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return { pt: n * 4 / 3, em: n * 16, rem: n * 16, '%': n * 0.16 }[m[2]] ?? n;
+}
+const bucket = (px) => (px < 12.5 ? '12px' : px <= 16.5 ? 'default' : px <= 20.5 ? '18px' : '24px');
+function sizeOf(tag, a) {
+  const decl = [...String(a.style || '').matchAll(/(?:^|;)\s*font-size\s*:\s*([^;]+)/gi)].pop()?.[1];
+  if (decl !== undefined) { const px = sizePx(decl); return px ? bucket(px) : undefined; }
+  if (tag === 'font' && /^\s*[1-7]\s*$/.test(a.size || '')) return bucket(FONT_TAG_SIZES[a.size.trim()]);
+  return HEADING_SIZES[tag];
+}
+
+// ---- fonts: common mail fonts, written out as fixed, safe font lists ----
+const STACKS = {
+  georgia: "Georgia, serif", 'times new roman': "'Times New Roman', Times, serif", times: "'Times New Roman', Times, serif",
+  serif: "'Times New Roman', Times, serif", garamond: "Garamond, Georgia, serif", palatino: "'Palatino Linotype', Palatino, serif",
+  'palatino linotype': "'Palatino Linotype', Palatino, serif", 'book antiqua': "'Palatino Linotype', Palatino, serif", cambria: "Cambria, Georgia, serif",
+  'courier new': "'Courier New', Courier, monospace", courier: "'Courier New', Courier, monospace", monospace: "'Courier New', Courier, monospace",
+  consolas: "Consolas, 'Courier New', monospace", menlo: "Consolas, 'Courier New', monospace", monaco: "Consolas, 'Courier New', monospace",
+  'lucida console': "Consolas, 'Courier New', monospace", verdana: "Verdana, sans-serif", tahoma: "Tahoma, sans-serif",
+  'trebuchet ms': "'Trebuchet MS', sans-serif", calibri: "Calibri, Arial, sans-serif", 'comic sans ms': "'Comic Sans MS', cursive",
+  'century gothic': "'Century Gothic', sans-serif", 'lucida sans': "'Lucida Sans', sans-serif",
+};
+// The usual sans-serif fonts are the normal mail font: no font of their own (like near-black text).
+const PLAIN = new Set(['arial', 'helvetica', 'helvetica neue', 'sans-serif', 'system-ui', '-apple-system', 'blinkmacsystemfont', 'segoe ui', 'roboto', 'open sans', 'inter']);
+/** The font a family list asks for: a safe font list, 'default', or null (nothing recognised). */
+export function fontStack(value) {
+  for (const name of String(value || '').split(',').map((f) => f.trim().replace(/^['"]|['"]$/g, '').toLowerCase())) {
+    if (PLAIN.has(name)) return 'default';
+    if (STACKS[name]) return STACKS[name];
+  }
+  return null;
+}
+function fontOf(tag, a) {
+  const raw = [...String(a.style || '').matchAll(/(?:^|;)\s*font-family\s*:\s*([^;]+)/gi)].pop()?.[1] ?? (tag === 'font' ? a.face : undefined);
+  if (raw === undefined) return undefined;
+  return fontStack(raw) ?? undefined; // unknown fonts: keep what applies around them
+}
 
 const withColor = (marks, c) => (c === undefined ? marks : [...marks.filter((m) => !m.color), { color: c }]);
-const colorsOnly = (marks) => marks.filter((m) => m.color);
+const withMark = (key, marks, v) => (v === undefined ? marks : [...marks.filter((m) => !(key in m)), { [key]: v }]);
+/** Colour, highlight, size and font an element sets, applied to what's inside it. */
+const styled = (marks, tag, a) => withMark('font', withMark('size', withMark('bg', withColor(marks, colorOf(tag, a)), highlightOf(tag, a)), sizeOf(tag, a)), fontOf(tag, a));
+/** What carries on into list items, quotes and table cells (highlights are only for inline text). */
+const inheritable = (marks) => marks.filter((m) => m.color || m.size || m.font);
+
 
 const isTag = (n, ...names) => n?.type === 'tag' && names.includes(n.name);
 const hasTable = (n) => (n.children || []).some((c) => c.type === 'tag' && (c.name === 'table' || hasTable(c)));
@@ -130,9 +183,12 @@ export function forwardHtml(html, pictureUrl) {
         if (!para || /<br>$/.test(para)) t = t.replace(/^ /, '');
         const color = marks.find((m) => m.color)?.color;
         const bg = marks.find((m) => m.bg)?.bg;
-        const style = [color && color !== 'default' && `color: ${color}`, bg && bg !== 'none' && `background-color: ${bg}`].filter(Boolean).join('; ');
+        const size = marks.find((m) => m.size)?.size;
+        const font = marks.find((m) => m.font)?.font;
+        const style = [color && color !== 'default' && `color: ${color}`, bg && bg !== 'none' && `background-color: ${bg}`,
+          size && size !== 'default' && `font-size: ${size}`, font && font !== 'default' && `font-family: ${font}`].filter(Boolean).join('; ');
         let wrapped = style ? `<span style="${style}">${t}</span>` : t;
-        for (const m of [...marks].reverse()) if (!m.color && !m.bg) wrapped = m.open + wrapped + m.close;
+        for (const m of [...marks].reverse()) if (m.open) wrapped = m.open + wrapped + m.close;
         para += wrapped;
         return;
       }
@@ -141,7 +197,7 @@ export function forwardHtml(html, pictureUrl) {
       if (SKIP.has(tag)) return;
       const a = node.attribs || {};
       if (tag === 'br') { para += '<br>'; return; }
-      marks = withHighlight(withColor(marks, colorOf(tag, a)), highlightOf(tag, a)); // apply to everything inside, until overridden
+      marks = styled(marks, tag, a); // colour, highlight, size and font apply to everything inside, until overridden
       if (tag === 'img') {
         const src = String(a.src || '').trim();
         const url = /^cid:/i.test(src) ? pictureUrl(src.slice(4).replace(/^<|>$/g, '')) : null;
@@ -156,12 +212,12 @@ export function forwardHtml(html, pictureUrl) {
         const items = (node.children || []).filter((c) => c.type === 'tag' && c.name === 'li');
         if (!items.length) { kids(node, marks, pre); return; }
         flush();
-        out.push(`<${tag}>${items.map((li) => `<li>${flow(li.children || [], withColor(colorsOnly(marks), colorOf('li', li.attribs || {}))) || '<p></p>'}</li>`).join('')}</${tag}>`);
+        out.push(`<${tag}>${items.map((li) => `<li>${flow(li.children || [], styled(inheritable(marks), 'li', li.attribs || {})) || '<p></p>'}</li>`).join('')}</${tag}>`);
         return;
       }
       if (tag === 'blockquote') {
         flush();
-        const body = flow(node.children || [], colorsOnly(marks));
+        const body = flow(node.children || [], inheritable(marks));
         if (body) out.push(`<blockquote>${body}</blockquote>`);
         return;
       }
@@ -172,7 +228,7 @@ export function forwardHtml(html, pictureUrl) {
           const t = c.name === 'th' ? 'th' : 'td';
           const a2 = c.attribs || {};
           const spans = `${span(a2.colspan) > 1 ? ` colspan="${span(a2.colspan)}"` : ''}${span(a2.rowspan) > 1 ? ` rowspan="${Math.min(MAX_ROWS, span(a2.rowspan))}"` : ''}`;
-          const inCell = withColor(withColor(colorsOnly(marks), colorOf('tr', r.attribs || {})), colorOf(t, a2));
+          const inCell = styled(styled(inheritable(marks), 'tr', r.attribs || {}), t, a2);
           return `<${t}${spans}>${flow(c.children || [], inCell) || '<p></p>'}</${t}>`;
         }).join('')).filter(Boolean);
         out.push(`<table><tbody>${rows.map((r) => `<tr>${r}</tr>`).join('')}</tbody></table>`);

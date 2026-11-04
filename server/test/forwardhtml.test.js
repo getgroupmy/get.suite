@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { forwardHtml, parseColor } from '../src/mail/forwardhtml.js';
+import { forwardHtml, parseColor, sizePx, fontStack } from '../src/mail/forwardhtml.js';
 
 const url = (cid) => (cid === 'logo@x' ? '/pic/0' : cid === 'chart@x' ? '/pic/1' : null);
 
@@ -38,7 +38,7 @@ test('headings and preformatted text become readable paragraphs', () => {
   const { html } = forwardHtml(`<h2>Invoice</h2><table><tr><td>Item</td><td>Price</td></tr><tr><td>Desk</td><td>€200</td></tr></table>
     <pre>line 1
 line 2</pre>`, url);
-  assert.match(html, /<p><strong>Invoice<\/strong><\/p>/);
+  assert.match(html, /<p><strong><span style="font-size: 18px">Invoice<\/span><\/strong><\/p>/, 'an h2 is bold and Large');
   assert.match(html, /<table><tbody><tr><td><p>Item<\/p><\/td><td><p>Price<\/p><\/td><\/tr>/, 'a two-column table stays a table');
   assert.match(html, /<p>line 1<br>line 2<\/p>/);
 });
@@ -106,4 +106,40 @@ test('highlights on text are kept; page and cell backgrounds are not', () => {
   assert.match(html, /<p>yellow block<\/p>/);
   assert.match(html, /<td><p>cell<\/p><\/td>/);
   assert.doesNotMatch(html, /url\(/);
+});
+
+test('font sizes are read in any unit and mapped to Small / Normal / Large / Huge', () => {
+  assert.equal(sizePx('12px'), 12);
+  assert.equal(sizePx('9pt'), 12);
+  assert.equal(sizePx('1.5em'), 24);
+  assert.equal(sizePx('125%'), 20);
+  assert.equal(sizePx('x-large'), 24);
+  for (const bad of ['calc(1em + 2px)', 'var(--s)', '-3px', 'smaller', '']) assert.equal(sizePx(bad), null, bad);
+  const { html } = forwardHtml(`
+    <p style="font-size:9px">fine print</p><p style="font-size:13px">normal text</p>
+    <p><span style="font-size:14pt">bigger</span> <font size="6">huge</font> <span style="font-size:60px">banner</span></p>
+    <h1>Title</h1><div style="font-size:20px"><ul><li>listed</li></ul></div>`, url);
+  assert.match(html, /<p><span style="font-size: 12px">fine print<\/span><\/p><p>normal text<\/p>/);
+  assert.match(html, /<span style="font-size: 18px">bigger<\/span> <span style="font-size: 24px">huge<\/span> <span style="font-size: 24px">banner<\/span>/, '14pt is about 19px: Large');
+  assert.match(html, /<strong><span style="font-size: 24px">Title<\/span><\/strong>/);
+  assert.match(html, /<li><p><span style="font-size: 18px">listed<\/span><\/p><\/li>/, 'sizes carry into lists');
+});
+
+test('fonts: common mail fonts kept as safe font lists; the usual sans-serif is the normal font', () => {
+  assert.equal(fontStack('Georgia, serif'), 'Georgia, serif');
+  assert.equal(fontStack('"Times New Roman", Times'), "'Times New Roman', Times, serif");
+  assert.equal(fontStack("'BrandSans', Verdana, sans-serif"), 'Verdana, sans-serif', 'unknown web fonts fall back to the next known one');
+  assert.equal(fontStack('Arial, Helvetica, sans-serif'), 'default');
+  assert.equal(fontStack('-apple-system, BlinkMacSystemFont, "Segoe UI"'), 'default');
+  assert.equal(fontStack('Wingdings'), null);
+  const { html } = forwardHtml(`
+    <p style="font-family: Georgia, 'Times New Roman', serif">Dear team,</p>
+    <p><font face="Courier New">code here</font> and <span style="font-family: Arial">plain</span></p>
+    <div style="font-family: Calibri, sans-serif; font-size: 11pt"><p>Outlook text</p></div>
+    <p><span style='font-family: x"><script>alert(1)</script>; color: red'>sneaky</span></p>`, url);
+  assert.match(html, /<p><span style="font-family: Georgia, serif">Dear team,<\/span><\/p>/);
+  assert.match(html, /<span style="font-family: 'Courier New', Courier, monospace">code here<\/span> and plain/);
+  assert.match(html, /<p><span style="font-family: Calibri, Arial, sans-serif">Outlook text<\/span><\/p>/, "Outlook's 11pt is normal size");
+  assert.match(html, /<span style="color: #ff0000">sneaky<\/span>/, 'an unknown font is dropped, the rest kept');
+  assert.doesNotMatch(html, /script|font-family: x/);
 });

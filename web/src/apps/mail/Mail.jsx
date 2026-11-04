@@ -10,7 +10,7 @@ import { useAuth } from '../../App.jsx';
 import { useEditor, EditorContent, Node as TiptapNode, mergeAttributes } from '@tiptap/react';
 import Image from '@tiptap/extension-image';
 import { Table, TableRow, TableHeader, TableCell } from '@tiptap/extension-table';
-import { TextStyle, Color, BackgroundColor, FontSize } from '@tiptap/extension-text-style';
+import { TextStyle, Color, BackgroundColor, FontSize, FontFamily } from '@tiptap/extension-text-style';
 import { useMailStatus } from '../../mailStatus.js';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
@@ -617,7 +617,8 @@ function RichBody({ initialHtml, onChange, onReady, autoFocus, label = 'Message'
       Table.configure({ resizable: false }), TableRow, TableHeader, TableCell,
       // Text colours quoted from replies and forwards (or pasted). Clear formatting removes them.
       // Highlights are a background colour on the text (inline style), which every mail app shows.
-      TextStyle, Color, BackgroundColor, FontSize,
+      // Fonts are kept from quoted mail (the server only lets common mail fonts through).
+      TextStyle, Color, BackgroundColor, FontSize, FontFamily,
       SignatureBlock,
     ],
     content: initialHtml,
