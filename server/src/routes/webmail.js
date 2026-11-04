@@ -11,6 +11,7 @@ import { mailEnabled, scheduleMailConfig } from '../mail/config.js';
 import { withClient, withFolder, smtpFor } from '../mail/imap.js';
 import { normalizeRules } from '../mail/sieve.js';
 import { followedFolders, setFollowed, MAX_FOLLOWED } from '../mail/notify.js';
+import { forwardHtml } from '../mail/forwardhtml.js';
 
 const PAGE = 50;
 const MAX_SEND_BYTES = 25 * 1024 * 1024;
@@ -286,12 +287,12 @@ export default function webmailRoutes() {
     res.json(out);
   });
 
-  async function loadMessage(user, folder, uid, markSeen) {
+  async function loadMessage(user, folder, uid, markSeen, parseOptions = {}) {
     return withFolder(user, folder, async (client) => {
       const msg = await client.fetchOne(String(uid), { source: true, flags: true }, { uid: true });
       if (!msg) throw notFound('Message not found');
       if (markSeen && !msg.flags.has('\\Seen')) await client.messageFlagsAdd(String(uid), ['\\Seen'], { uid: true });
-      return { parsed: await simpleParser(msg.source), flags: msg.flags };
+      return { parsed: await simpleParser(msg.source, parseOptions), flags: msg.flags };
     });
   }
 
@@ -308,6 +309,35 @@ export default function webmailRoutes() {
       spam: /yes/i.test(String(p.headers.get('x-spam') || '')),
       attachments: attachmentList(p),
     });
+  });
+
+  // Body for a normal forward: the original's text with basic formatting and the pictures embedded
+  // in it, cleaned on the server (see forwardhtml.js). null for plain-text mail.
+  r.get('/messages/:uid/forward', async (req, res) => {
+    const folder = String(req.query.folder || 'INBOX');
+    const uid = Number(req.params.uid);
+    const { parsed: p } = await loadMessage(req.user, folder, uid, false, { keepCidLinks: true });
+    if (!p.html) return res.json({ html: null, pictures: 0 });
+    const byCid = new Map(p.attachments.map((a, i) => [String(a.contentId || '').replace(/^<|>$/g, '').toLowerCase(), { a, i }]));
+    const out = forwardHtml(p.html, (cid) => {
+      const hit = byCid.get(String(cid).toLowerCase());
+      if (!hit || !PICTURE_TYPES.test(hit.a.contentType || '')) return null;
+      return forwardPictureUrl(folder, uid, hit.i);
+    });
+    res.json(out);
+  });
+
+  // A picture embedded in a received message, shown while writing a forward of it. Only the
+  // picture types mail apps display (never SVG), with nothing else allowed to load.
+  r.get('/messages/:uid/pictures/:n', async (req, res) => {
+    const { parsed } = await loadMessage(req.user, String(req.query.folder || 'INBOX'), Number(req.params.uid), false);
+    const a = parsed.attachments[Number(req.params.n)];
+    if (!a || !PICTURE_TYPES.test(a.contentType || '')) throw notFound('Picture not found');
+    res.setHeader('Content-Type', a.contentType.toLowerCase());
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Security-Policy', "default-src 'none'");
+    res.setHeader('Cache-Control', 'private, max-age=3600');
+    res.end(a.content);
   });
 
   r.get('/messages/:uid/attachments/:index', async (req, res) => {
@@ -489,6 +519,27 @@ export default function webmailRoutes() {
         return `${pre}cid:img-${id}@workspace${post}`;
       });
       attachments.push(...embedded.values());
+      // Pictures carried over from a forwarded message are embedded straight from the original.
+      const originals = new Map();
+      const pics = new Map();
+      for (const [, , uid, n, folder] of html.matchAll(FORWARD_PICTURE_RE)) {
+        const key = `${uid}/${n}/${folder}`;
+        if (pics.has(key)) continue;
+        const f = decodeURIComponent(folder);
+        if (!originals.has(`${f}/${uid}`)) {
+          const msg = await loadMessage(req.user, f, Number(uid), false).catch(() => null);
+          if (!msg) throw bad('The original message is no longer there, so its pictures can’t be included');
+          originals.set(`${f}/${uid}`, msg.parsed);
+        }
+        const a = originals.get(`${f}/${uid}`).attachments[Number(n)];
+        if (!a || !PICTURE_TYPES.test(a.contentType || '')) throw bad('A picture from the original message is missing');
+        total += a.size;
+        pics.set(key, { filename: a.filename || `picture-${Number(n) + 1}`, contentType: a.contentType, content: a.content, cid: `fwd-${uid}-${n}-${pics.size}@workspace`, contentDisposition: 'inline' });
+      }
+      if (pics.size) {
+        html = html.replace(FORWARD_PICTURE_RE, (m, pre, uid, n, folder) => `${pre}cid:${pics.get(`${uid}/${n}/${folder}`).cid}"`);
+        attachments.push(...pics.values());
+      }
     }
     if (total > MAX_SEND_BYTES) throw bad('Attachments and pictures are larger than 25 MB in total');
 
@@ -521,6 +572,10 @@ export default function webmailRoutes() {
 
   return r;
 }
+
+const PICTURE_TYPES = /^image\/(png|jpeg|gif|webp)$/i;
+const forwardPictureUrl = (folder, uid, n) => `/api/mail/messages/${uid}/pictures/${n}?folder=${encodeURIComponent(folder)}`;
+const FORWARD_PICTURE_RE = /(<img\b[^>]*?\bsrc=")\/api\/mail\/messages\/(\d+)\/pictures\/(\d+)\?folder=([^"&]+)"/gi;
 
 /** Split a long header value into numbered pieces (RFC 5322 lines must stay under 998 characters). */
 function chunk(value, size = 800) {

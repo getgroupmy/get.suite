@@ -150,7 +150,7 @@ Your business fixed IP is what makes this work. Do these once:
   - When the message is sent they're embedded in the email itself, so recipients see them without access to your server and without "show images" prompts.
   - The plain-text version shows `[image: name]` in their place.
   - Pictures count towards the 25 MB message limit.
-  - Replies and forwards quote the original's text, so pictures embedded in the original aren't carried over.
+  - Replies quote the original's text only. Forwards carry its pictures too (see below).
 - **New-mail notifications:** while Workspace is open in any tab, new mail in your Inbox shows up within a second or two.
   - A pop-up names the sender and subject.
   - The **Mail** icon shows the unread count, and the browser tab title starts with it, e.g. `(3) Workspace`.
@@ -165,6 +165,12 @@ Your business fixed IP is what makes this work. Do these once:
     - **The Archive can be followed too** (its ⋮ menu has just this option), which suits filters that file receipts or newsletters straight into it. Sent, Drafts, Junk and Trash can't be followed.
   - Only newly delivered mail triggers an alert. Mail you move yourself (archiving unread mail, "Not spam", a phone tidying folders) keeps its original arrival time, so it counts towards the unread badge but doesn't alert. A message is announced once, even if it lands in the Inbox and is then archived straight away.
 - **Forward as attachment:** sends the original email whole, as an `.eml` file with its formatting, pictures, attachments and technical headers (including DKIM) intact. Use it to report a suspicious message to IT, or to pass one on exactly as received.
+- **Forwarding with pictures:** a normal **Forward** keeps the original's basic formatting (paragraphs, bold, italic, lists, quotes, links) and the pictures embedded in it, in place.
+  - The server cleans the original first. Scripts, styles, forms and pictures loaded from the internet (including tracking pixels) are left out, so nothing in a forwarded email can run or report back to its sender.
+  - While you write, the pictures are shown straight from the original message, so they don't take up space in your Drive. When you send, they're embedded in your email like pictures you insert yourself.
+  - You can resize, crop or rotate them like your own pictures. A cropped or rotated picture is saved to your Drive.
+  - Plain-text emails are quoted as text, as before. Replies still quote text only.
+  - If the original is deleted before you send, you're told its pictures can't be included.
 - **Forwarding with attachments:** forwarding a message brings its attachments along as chips you can remove one by one. They're attached straight from the original message when you send, so nothing is downloaded and re-uploaded. Forward drafts remember them too. If the original has been deleted by the time you send, you're told the attachments can't be included.
 - **Vacation reply** (Mail → Vacation reply): an automatic answer with an optional first and last day. It's built on the mail server's standard Sieve "vacation" feature:
   - Each sender gets at most one reply per day.
@@ -182,7 +188,7 @@ Your business fixed IP is what makes this work. Do these once:
   Users sign in with their email address and Workspace password.
 - **Accounts that predate email** get a working mailbox password the next time the user signs in to Workspace. Webmail works right away.
 
-**Not built yet:** carrying pictures embedded in the original into a normal forward (use **Forward as attachment** to keep everything).
+**Not built yet:** keeping the original's exact layout (tables, colours, fonts) in a normal forward (use **Forward as attachment** to keep everything), and pictures in reply quotes.
 
 ## Sign-in protection
 
@@ -253,7 +259,7 @@ cd server && MAIL_IT_CONFIG_DIR=/etc/nw npm run test:mail
 
 ## Roadmap
 
-- **Mail, next steps:** carrying pictures embedded in the original into a normal forward.
+- **Mail, next steps:** pictures in reply quotes, and keeping more of the original's layout (tables) in forwards.
 - **Real-time co-editing:** live cursors and character-level merging (Yjs) in Docs and Sheets.
 - **Phone sync:** CalDAV and CardDAV, so calendars and contacts sync with the phone's built-in apps; WebDAV for Drive.
 - **Renaming a user's address** (moving them to another domain of the same company), **two-factor authentication**, file version history, public share links, Slides, cell formatting in Sheets, and week and day calendar views.

@@ -272,7 +272,7 @@ function Reader({ folder, uid, special, onClose, onChanged, act, onCompose, onFi
   }, [folder, uid]);
   if (!m) return <p className="muted mail-note">Loading…</p>;
 
-  // Quotes are built from the original's plain text, so hostile HTML never reaches the editor.
+  // Reply quotes are built from the original's plain text, so hostile HTML never reaches the editor.
   const quoted = () => `<p></p><p>On ${escapeHtml(new Date(m.date).toLocaleString())}, ${escapeHtml(who(m.from))} wrote:</p><blockquote>${textToHtml(m.text)}</blockquote>`;
   const reSubject = (p) => (m.subject.toLowerCase().startsWith(p.toLowerCase()) ? m.subject : `${p} ${m.subject}`);
   // Reply from the address the message was sent to (e.g. sales@), if it is one of yours.
@@ -326,12 +326,18 @@ function Reader({ folder, uid, special, onClose, onChanged, act, onCompose, onFi
           from: replyFrom, subject: reSubject('Fwd:'), html: '<p></p>',
           forwardOf: { folder, uid, asEml: true, attachments: [], eml: { filename: `${(m.subject || 'message').replace(/[\\/:*?"<>|]+/g, ' ').trim().slice(0, 80) || 'message'}.eml` } },
         })}><Icon name="attach" size={18} /> Forward as attachment</button>
-        <button className="btn" onClick={() => onCompose({
-          from: replyFrom,
-          ...(m.attachments.length > 0 && { forwardOf: { folder, uid, attachments: m.attachments.map((a) => a.index), files: m.attachments } }),
-          subject: reSubject('Fwd:'),
-          html: `<p></p><p>---------- Forwarded message ----------<br>From: ${escapeHtml(list([m.from]))}<br>Date: ${escapeHtml(new Date(m.date).toLocaleString())}<br>Subject: ${escapeHtml(m.subject)}<br>To: ${escapeHtml(list(m.to))}</p>${textToHtml(m.text)}`,
-        })}><Icon name="forward" size={18} /> Forward</button>
+        <button className="btn" onClick={async () => {
+          // HTML mail keeps its basic formatting and embedded pictures (cleaned by the server);
+          // plain-text mail, or if that fails, is quoted as text.
+          let body = null;
+          if (m.html) body = await get(`/mail/messages/${uid}/forward?folder=${enc(folder)}`).then((r) => r.html).catch(() => null);
+          onCompose({
+            from: replyFrom,
+            ...(m.attachments.length > 0 && { forwardOf: { folder, uid, attachments: m.attachments.map((a) => a.index), files: m.attachments } }),
+            subject: reSubject('Fwd:'),
+            html: `<p></p><p>---------- Forwarded message ----------<br>From: ${escapeHtml(list([m.from]))}<br>Date: ${escapeHtml(new Date(m.date).toLocaleString())}<br>Subject: ${escapeHtml(m.subject)}<br>To: ${escapeHtml(list(m.to))}</p>${body || textToHtml(m.text)}`,
+          });
+        }}><Icon name="forward" size={18} /> Forward</button>
       </div>
     </article>
   );
@@ -713,7 +719,8 @@ function RichBody({ initialHtml, onChange, onReady, autoFocus, label = 'Message'
   );
 }
 
-const editablePicture = (src) => /^\/api\/files\/[^/]+\/raw$/.test(src || '');
+// Pictures inserted from Drive, or carried over from a forwarded message.
+const editablePicture = (src) => /^\/api\/files\/[^/]+\/raw$|^\/api\/mail\/messages\/\d+\/pictures\/\d+\?folder=[^&]+$/.test(src || '');
 const HANDLES = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
 const ASPECT_NAMES = { free: 'Free', square: 'Square', '4:3': '4:3', '16:9': '16:9' };
 
@@ -1019,7 +1026,11 @@ const ResizableImage = Image.extend({
         editor.view.dispatch(editor.view.state.tr.setNodeMarkup(pos, undefined, { ...current.attrs, width }));
       };
       const contentWidth = () => {
-        const el = editor.view.dom;
+        // While the editor is still being set up (a draft or forward that opens with a picture),
+        // there is nothing to measure yet; the picture's load event measures again.
+        let el;
+        try { el = editor.view.dom; } catch { return 0; }
+        if (!el?.isConnected) return 0;
         const cs = getComputedStyle(el);
         return el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
       };

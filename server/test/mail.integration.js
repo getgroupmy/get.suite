@@ -461,6 +461,50 @@ test('forwarding includes the attachments you keep; forward drafts remember them
   assert.equal((await gina('POST', '/api/mail/send', { to: 'olivia@acme.com', subject: 'x', text: 'x', forwardOf: { folder: 'INBOX', uid: 999999, attachments: [0] } })).status, 400, 'original gone');
 });
 
+test('normal forwards carry the pictures embedded in the original, cleaned of anything unsafe', async () => {
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAYAAAD0In+KAAAAEUlEQVR42mP8z8DwnwEIGAEAHwQC/2t8ZpEAAAAASUVORK5CYII=', 'base64');
+  const pic = (await gina('POST', '/api/files/upload?name=chart.png', png, { raw: true })).body;
+  const html = `<p>Sales are <b>up</b>:</p><p><img src="/api/files/${pic.id}/raw" alt="chart.png"></p>`
+    + '<script>alert(1)</script><p onclick="x()">Tracked <img src="https://tracker.example/p.gif"> <a href="javascript:alert(1)">here</a></p>';
+  assert.equal((await gina('POST', '/api/mail/send', { to: 'olivia@acme.com', subject: 'Q3 chart', text: 'Sales are up', html })).status, 200);
+  const orig = await eventually(async () => (await inbox(olivia)).find((m) => m.subject === 'Q3 chart'));
+
+  const body = (await olivia('GET', `/api/mail/messages/${orig.uid}/forward?folder=INBOX`)).body;
+  assert.equal(body.pictures, 1);
+  const src = body.html.match(/<img src="([^"]+)"/)[1];
+  assert.match(src, new RegExp(`^/api/mail/messages/${orig.uid}/pictures/\\d+\\?folder=INBOX$`));
+  assert.match(body.html, /<p>Sales are <strong>up<\/strong>:<\/p>/);
+  assert.doesNotMatch(body.html, /script|onclick|tracker|javascript:/);
+  const shown = await olivia('GET', src);
+  assert.equal(shown.headers.get('content-type'), 'image/png');
+  assert.equal(shown.headers.get('x-content-type-options'), 'nosniff');
+  assert.ok(Buffer.compare(shown.body, png) === 0, 'the original picture, byte for byte');
+  assert.equal((await olivia('GET', src.replace(/pictures\/\d+/, 'pictures/99'))).status, 404, 'no such picture');
+
+  // Saved as a draft, then sent: the recipient gets the picture embedded, with no link to this server.
+  const fwdHtml = `<p>FYI</p><p>---------- Forwarded message ----------</p>${body.html}`;
+  const draft = await olivia('POST', '/api/mail/drafts', { to: 'gina@globex.com', subject: 'Fwd: Q3 chart', text: 'FYI', html: fwdHtml });
+  assert.match((await olivia('GET', `/api/mail/drafts/${draft.body.uid}`)).body.html, /\/pictures\//, 'drafts keep the picture');
+  const r = await olivia('POST', '/api/mail/send', { to: 'gina@globex.com', subject: 'Fwd: Q3 chart', text: 'FYI', html: fwdHtml, draftUid: draft.body.uid });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  const got = await eventually(async () => (await inbox(gina)).find((m) => m.subject === 'Fwd: Q3 chart'));
+  const full = (await gina('GET', `/api/mail/messages/${got.uid}?folder=INBOX`)).body;
+  const data = full.html.match(/src="data:image\/png;base64,([^"]+)"/);
+  assert.ok(data, 'picture embedded in the forward');
+  assert.ok(Buffer.compare(Buffer.from(data[1], 'base64'), png) === 0);
+  assert.ok(!full.html.includes('/api/'), 'no links back to this server');
+  assert.deepEqual(full.attachments, [], 'shown inline, not listed as an attachment');
+
+  // Plain-text mail has no HTML body to carry over; a deleted original can't be forwarded from.
+  await gina('POST', '/api/mail/send', { to: 'olivia@acme.com', subject: 'Plain one', text: 'just text' });
+  const plain = await eventually(async () => (await inbox(olivia)).find((m) => m.subject === 'Plain one'));
+  assert.equal((await olivia('GET', `/api/mail/messages/${plain.uid}/forward?folder=INBOX`)).body.html, null);
+  await olivia('POST', '/api/mail/messages/delete', { folder: 'INBOX', uids: [orig.uid] });
+  const gone = await olivia('POST', '/api/mail/send', { to: 'gina@globex.com', subject: 'x', text: 'x', html: fwdHtml });
+  assert.equal(gone.status, 400);
+  assert.match(gone.body.error, /original message is no longer there/);
+});
+
 test('forward as attachment: the original arrives whole as an .eml file', async () => {
   const orig = await eventually(async () => (await inbox(gina)).find((m) => m.subject === 'Two files'));
   const draft = await gina('POST', '/api/mail/drafts', { to: 'olivia@acme.com', subject: 'Fwd: Two files (as attachment)', text: 'fyi',
