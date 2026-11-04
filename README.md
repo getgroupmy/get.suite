@@ -117,6 +117,9 @@ Your business fixed IP is what makes this work. Do these once:
   - Drafts live on the mail server, so phones and Outlook see them.
   - Attachments in a draft are kept as links to Drive files. They're restored when the draft is reopened in webmail, but phones don't see them until the message is sent.
 - **Rich-text writing:** bold, italic, underline, strike, bulleted and numbered lists, quotes, links and tables. Every message is sent with a formatted version and a readable plain-text version (quotes marked with `>`, lists with `-` / `1.`), so any mail app can show it. Replies quote the original as a quoted block. Quotes are built from the original's plain text, so formatting tricks in a received email can't carry into yours.
+- **Text colour:** the **A** button (its bar shows the colour at the cursor) colours the selected text, or what you type next.
+  - Choose from 10 colours that read well on white and in mail apps' dark modes. **Automatic** goes back to the normal text colour.
+  - Keyboard: Enter opens the palette, the arrow keys move, Enter picks, and Escape closes it without closing the message.
 - **Tables:** the ▦ button inserts a table. Pick the size from the grid (up to 8 × 8) by hovering and clicking, or with the arrow keys and Enter. **Header row** (on by default) makes the first row bold.
   - Type in a cell, and use Tab / Shift+Tab to move between cells.
   - Inside a table, the toolbar offers **+ Row / − Row / + Column / − Column / Delete table**. Tables can't be put inside other tables.
@@ -272,7 +275,7 @@ cd server && MAIL_IT_CONFIG_DIR=/etc/nw npm run test:mail
 
 ## Roadmap
 
-- **Mail, next steps:** a text colour button, so you can colour your own text too.
+- **Mail, next steps:** highlight (background) colour, and a custom colour choice beyond the palette.
 - **Real-time co-editing:** live cursors and character-level merging (Yjs) in Docs and Sheets.
 - **Phone sync:** CalDAV and CardDAV, so calendars and contacts sync with the phone's built-in apps; WebDAV for Drive.
 - **Renaming a user's address** (moving them to another domain of the same company), **two-factor authentication**, file version history, public share links, Slides, cell formatting in Sheets, and week and day calendar views.

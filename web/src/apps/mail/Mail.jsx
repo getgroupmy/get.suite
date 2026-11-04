@@ -690,6 +690,8 @@ function RichBody({ initialHtml, onChange, onReady, autoFocus, label = 'Message'
         <B label={<i>I</i>} title="Italic" active={editor.isActive('italic')} onClick={() => c().toggleItalic().run()} />
         <B label={<u>U</u>} title="Underline" active={editor.isActive('underline')} onClick={() => c().toggleUnderline().run()} />
         <B label={<s>S</s>} title="Strikethrough" active={editor.isActive('strike')} onClick={() => c().toggleStrike().run()} />
+        <ColorPicker current={editor.getAttributes('textStyle').color || null}
+          onPick={(color) => (color ? c().setColor(color).run() : c().unsetColor().run())} />
         <span className="sep" />
         <B label="•" title="Bulleted list" active={editor.isActive('bulletList')} onClick={() => c().toggleBulletList().run()} />
         <B label="1." title="Numbered list" active={editor.isActive('orderedList')} onClick={() => c().toggleOrderedList().run()} />
@@ -737,6 +739,84 @@ function RichBody({ initialHtml, onChange, onReady, autoFocus, label = 'Message'
 }
 
 // Pictures inserted from Drive, or carried over from a forwarded message.
+/** Escape anywhere in a toolbar popup (its button included) closes just the popup and returns to its button. */
+const escCloses = (open, setOpen, wrap) => (e) => {
+  if (!open || e.key !== 'Escape') return;
+  e.preventDefault();
+  e.stopPropagation(); // not the message window
+  setOpen(false);
+  wrap.current?.querySelector('button')?.focus();
+};
+
+// Text colours that read well on a white page (and in mail apps' dark modes).
+const TEXT_COLORS = [
+  ['#c5221f', 'Red'], ['#e37400', 'Orange'], ['#188038', 'Green'], ['#00796b', 'Teal'], ['#1a73e8', 'Blue'],
+  ['#174ea6', 'Dark blue'], ['#8430ce', 'Purple'], ['#d01884', 'Pink'], ['#795548', 'Brown'], ['#5f6368', 'Grey'],
+];
+const sameColor = (a, b) => {
+  const hex = (v) => {
+    const m = String(v || '').match(/^rgb\((\d+),\s*(\d+),\s*(\d+)\)$/);
+    return m ? `#${m.slice(1).map((x) => Number(x).toString(16).padStart(2, '0')).join('')}` : String(v || '').toLowerCase();
+  };
+  return !!a && hex(a) === hex(b);
+};
+
+/**
+ * Text colour: the "A" shows the colour at the cursor; the palette sets it on the selection (or on
+ * what you type next). "Automatic" goes back to the normal text colour. Arrow keys move, Enter picks.
+ */
+function ColorPicker({ current, onPick }) {
+  const [open, setOpen] = useState(false);
+  const wrap = useRef();
+  const list = useRef();
+  const options = [[null, 'Automatic'], ...TEXT_COLORS];
+  useEffect(() => {
+    if (!open) return;
+    const away = (e) => { if (!wrap.current?.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', away);
+    const i = Math.max(0, options.findIndex(([v]) => (v ? sameColor(current, v) : !current)));
+    // After the key press that opened it has finished, or its Enter would also "click" the swatch.
+    const t = setTimeout(() => list.current?.querySelectorAll('button')[i]?.focus(), 0);
+    return () => { clearTimeout(t); document.removeEventListener('mousedown', away); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+  const pick = (v) => { setOpen(false); onPick(v); };
+  const onKey = (e) => {
+    escCloses(open, setOpen, wrap)(e);
+    if (!open || e.defaultPrevented) return;
+    const buttons = [...(list.current?.querySelectorAll('button') || [])];
+    let i = buttons.indexOf(document.activeElement);
+    if (i < 0) i = Math.max(0, options.findIndex(([v]) => (v ? sameColor(current, v) : !current))); // still on the A button
+    const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1, Home: -99, End: 99 }[e.key];
+    if (step === undefined) return;
+    e.preventDefault();
+    buttons[Math.max(0, Math.min(buttons.length - 1, i + step))].focus();
+  };
+  const shown = current || 'currentColor';
+  return (
+    <span className="color-picker" ref={wrap} onKeyDown={onKey}>
+      <button type="button" className={`tb ${open ? 'on' : ''}`} title="Text colour" aria-label="Text colour" aria-haspopup="dialog" aria-expanded={open}
+        onMouseDown={(e) => e.preventDefault()} onClick={() => setOpen((o) => !o)}>
+        <span className="color-a">A<span className="color-bar" style={{ background: shown }} /></span>
+      </button>
+      {open && (
+        <div className="color-pop" role="dialog" aria-label="Text colour">
+          <div className="color-list" ref={list} role="listbox" aria-label="Colours">
+            {options.map(([v, name]) => {
+              const on = v ? sameColor(current, v) : !current;
+              return (
+                <button type="button" key={name} role="option" aria-selected={on} aria-label={name} title={name}
+                  className={`swatch ${v ? '' : 'auto'} ${on ? 'on' : ''}`} style={v ? { background: v } : undefined}
+                  onMouseDown={(e) => e.preventDefault()} onClick={() => pick(v)}>{v ? '' : 'A'}</button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </span>
+  );
+}
+
 const PICK_MAX = 8;
 
 /**
@@ -753,15 +833,17 @@ function TablePicker({ onPick, disabled }) {
     if (!open) return;
     const away = (e) => { if (!wrap.current?.contains(e.target)) setOpen(false); };
     document.addEventListener('mousedown', away);
-    grid.current?.querySelector('[tabindex="0"]')?.focus();
-    return () => document.removeEventListener('mousedown', away);
+    // After the key press that opened it has finished, or its Enter would also pick a size.
+    const t = setTimeout(() => grid.current?.querySelector('[tabindex="0"]')?.focus(), 0);
+    return () => { clearTimeout(t); document.removeEventListener('mousedown', away); };
   }, [open]);
   // Close first, then insert, so the cursor lands in the new table's first cell.
   const pick = (r, c) => { setOpen(false); requestAnimationFrame(() => onPick(r, c, header)); };
   const onKey = (e) => {
+    escCloses(open, setOpen, wrap)(e);
+    if (!open || e.defaultPrevented) return;
     const [r, c] = at;
     const next = { ArrowRight: [r, c + 1], ArrowLeft: [r, c - 1], ArrowDown: [r + 1, c], ArrowUp: [r - 1, c] }[e.key];
-    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setOpen(false); return; }
     // Enter/Space insert the highlighted size (not whichever cell the browser would click).
     if ((e.key === 'Enter' || e.key === ' ') && e.target.closest?.('[role="grid"]')) { e.preventDefault(); pick(r, c); return; }
     if (!next) return;
@@ -771,11 +853,11 @@ function TablePicker({ onPick, disabled }) {
     grid.current?.querySelector(`[data-cell="${n[0]}-${n[1]}"]`)?.focus(); // every cell is already rendered
   };
   return (
-    <span className="table-picker" ref={wrap}>
+    <span className="table-picker" ref={wrap} onKeyDown={onKey}>
       <button type="button" className={`tb ${open ? 'on' : ''}`} title={disabled ? 'Insert table (not inside another table)' : 'Insert table'} aria-label="Insert table"
         aria-haspopup="dialog" aria-expanded={open} disabled={disabled} onMouseDown={(e) => e.preventDefault()} onClick={() => setOpen((o) => !o)}>▦</button>
       {open && (
-        <div className="table-picker-pop" role="dialog" aria-label="Table size" onKeyDown={onKey}>
+        <div className="table-picker-pop" role="dialog" aria-label="Table size">
           <div className="table-picker-grid" ref={grid} role="grid" aria-label="Choose rows and columns">
             {Array.from({ length: PICK_MAX }, (_, i) => (
               <div role="row" key={i}>
