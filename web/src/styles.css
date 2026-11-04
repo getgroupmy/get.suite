@@ -586,3 +586,9 @@ a.att:hover { background: var(--hover); }
 .color-custom input[type="text"] { width: 84px; height: 28px; padding: 0 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); font: 13px ui-monospace, monospace; }
 .color-sample { margin-top: 8px; padding: 6px 8px; border-radius: 6px; background: #fff; color: #1f1f1f; font-size: 13px; max-width: 190px; }
 .color-warn { margin-top: 4px; color: #b3261e; font-size: 12px; }
+
+/* Font size menu in the message toolbar */
+.tb-select { height: 30px; padding: 0 6px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--text); font: inherit; font-size: 13px; cursor: pointer; }
+.tb-select:hover { background: var(--hover); }
+.tb-select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.tb-select option { background: var(--surface); color: var(--text); }

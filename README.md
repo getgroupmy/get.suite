@@ -117,6 +117,7 @@ Your business fixed IP is what makes this work. Do these once:
   - Drafts live on the mail server, so phones and Outlook see them.
   - Attachments in a draft are kept as links to Drive files. They're restored when the draft is reopened in webmail, but phones don't see them until the message is sent.
 - **Rich-text writing:** bold, italic, underline, strike, bulleted and numbered lists, quotes, links and tables. Every message is sent with a formatted version and a readable plain-text version (quotes marked with `>`, lists with `-` / `1.`), so any mail app can show it. Replies quote the original as a quoted block. Quotes are built from the original's plain text, so formatting tricks in a received email can't carry into yours.
+- **Font size:** the menu at the start of the toolbar sets **Small, Normal, Large or Huge** (12 / default / 18 / 24 px) for the selected text, or for what you type next. It shows the size where the cursor is. **Normal** and **Clear formatting** remove it. Sizes are sent as part of the text, so common mail apps show them.
 - **Text colour:** the **A** button (its bar shows the colour at the cursor) colours the selected text, or what you type next.
   - Choose from 10 colours that read well on white and in mail apps' dark modes. **Automatic** goes back to the normal text colour.
   - Keyboard: Enter opens the palette, the arrow keys move, Enter picks, and Escape closes it without closing the message.
@@ -283,7 +284,7 @@ cd server && MAIL_IT_CONFIG_DIR=/etc/nw npm run test:mail
 
 ## Roadmap
 
-- **Mail, next steps:** font size, and keeping fonts in replies and forwards.
+- **Mail, next steps:** keeping fonts and font sizes in replies and forwards.
 - **Real-time co-editing:** live cursors and character-level merging (Yjs) in Docs and Sheets.
 - **Phone sync:** CalDAV and CardDAV, so calendars and contacts sync with the phone's built-in apps; WebDAV for Drive.
 - **Renaming a user's address** (moving them to another domain of the same company), **two-factor authentication**, file version history, public share links, Slides, cell formatting in Sheets, and week and day calendar views.

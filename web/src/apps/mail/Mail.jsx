@@ -10,7 +10,7 @@ import { useAuth } from '../../App.jsx';
 import { useEditor, EditorContent, Node as TiptapNode, mergeAttributes } from '@tiptap/react';
 import Image from '@tiptap/extension-image';
 import { Table, TableRow, TableHeader, TableCell } from '@tiptap/extension-table';
-import { TextStyle, Color, BackgroundColor } from '@tiptap/extension-text-style';
+import { TextStyle, Color, BackgroundColor, FontSize } from '@tiptap/extension-text-style';
 import { useMailStatus } from '../../mailStatus.js';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
@@ -617,7 +617,7 @@ function RichBody({ initialHtml, onChange, onReady, autoFocus, label = 'Message'
       Table.configure({ resizable: false }), TableRow, TableHeader, TableCell,
       // Text colours quoted from replies and forwards (or pasted). Clear formatting removes them.
       // Highlights are a background colour on the text (inline style), which every mail app shows.
-      TextStyle, Color, BackgroundColor,
+      TextStyle, Color, BackgroundColor, FontSize,
       SignatureBlock,
     ],
     content: initialHtml,
@@ -687,6 +687,12 @@ function RichBody({ initialHtml, onChange, onReady, autoFocus, label = 'Message'
   return (
     <div className="compose-editor">
       <div className="toolbar compose-toolbar" role="toolbar" aria-label="Formatting">
+        <select className="tb-select" aria-label="Font size" title="Font size" value={sizeName(editor.getAttributes('textStyle').fontSize)}
+          onChange={(e) => { const px = FONT_SIZES.find(([n]) => n === e.target.value)?.[1]; (px ? c().setFontSize(px) : c().unsetFontSize()).run(); }}>
+          {FONT_SIZES.map(([n]) => <option key={n} value={n}>{n}</option>)}
+          {sizeName(editor.getAttributes('textStyle').fontSize) === 'Other' && <option value="Other" disabled>Other size</option>}
+        </select>
+        <span className="sep" />
         <B label={<b>B</b>} title="Bold" active={editor.isActive('bold')} onClick={() => c().toggleBold().run()} />
         <B label={<i>I</i>} title="Italic" active={editor.isActive('italic')} onClick={() => c().toggleItalic().run()} />
         <B label={<u>U</u>} title="Underline" active={editor.isActive('underline')} onClick={() => c().toggleUnderline().run()} />
@@ -768,6 +774,10 @@ const TEXT_COLORS = [
   ['#c5221f', 'Red'], ['#e37400', 'Orange'], ['#188038', 'Green'], ['#00796b', 'Teal'], ['#1a73e8', 'Blue'],
   ['#174ea6', 'Dark blue'], ['#8430ce', 'Purple'], ['#d01884', 'Pink'], ['#795548', 'Brown'], ['#5f6368', 'Grey'],
 ];
+// Font sizes (as in most mail apps). "Normal" means no size of its own.
+const FONT_SIZES = [['Small', '12px'], ['Normal', null], ['Large', '18px'], ['Huge', '24px']];
+const sizeName = (v) => (!v ? 'Normal' : FONT_SIZES.find(([, px]) => px === String(v).replace(/\s/g, ''))?.[0] || 'Other');
+
 // Highlights: light enough that text stays readable on them (and on a white page).
 const HIGHLIGHTS = [
   ['#fef08a', 'Yellow'], ['#bbf7d0', 'Green'], ['#bfdbfe', 'Blue'], ['#fbcfe8', 'Pink'],
