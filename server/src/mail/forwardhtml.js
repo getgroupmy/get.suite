@@ -1,6 +1,6 @@
 // Turn a received email's HTML into a safe body for a reply quote or forward: the text with basic
 // formatting (paragraphs, line breaks, bold/italic/underline/strike, lists, quotes, links), text
-// colours, data tables, and the pictures embedded in it. Tables used only for page layout (as newsletters do) are
+// colours, highlights, data tables, and the pictures embedded in it. Tables used only for page layout (as newsletters do) are
 // flattened into paragraphs. Everything else — scripts, styles, forms, tracking pixels and pictures
 // loaded from the internet — is dropped. The result only ever contains the handful of tags the
 // message editor knows, so nothing from the original can run or phone home.
@@ -51,6 +51,23 @@ function colorOf(tag, a) {
   const L = luminance(hex);
   return L < 0.02 || 1.05 / (L + 0.05) < 1.8 ? 'default' : `#${hex}`;
 }
+// Highlights: a light background on inline text (or <mark>). Backgrounds on paragraphs, cells and
+// whole pages are newsletter styling, not highlighting, so they are left out.
+const INLINE = new Set(['span', 'mark', 'font', 'b', 'strong', 'i', 'em', 'u', 's', 'strike', 'del', 'ins', 'a', 'code', 'small', 'big', 'sub', 'sup', 'cite', 'abbr', 'q']);
+function highlightOf(tag, a) {
+  if (!INLINE.has(tag)) return undefined;
+  const style = String(a.style || '');
+  const raw = [...style.matchAll(/(?:^|;)\s*background-color\s*:\s*([^;]+)/gi)].pop()?.[1]
+    ?? [...style.matchAll(/(?:^|;)\s*background\s*:\s*([^;]+)/gi)].pop()?.[1];
+  if (raw === undefined) return tag === 'mark' ? '#fef08a' : undefined;
+  if (/^\s*(inherit|initial|unset)\s*$/i.test(raw)) return undefined;
+  const hex = parseColor(raw); // a background with pictures or gradients isn't a plain colour: no highlight
+  if (!hex) return 'none';
+  const L = luminance(hex);
+  return L < 0.45 || L > 0.93 ? 'none' : `#${hex}`; // dark text must stay readable; near-white is no highlight
+}
+const withHighlight = (marks, h) => (h === undefined ? marks : [...marks.filter((m) => !m.bg), { bg: h }]);
+
 const withColor = (marks, c) => (c === undefined ? marks : [...marks.filter((m) => !m.color), { color: c }]);
 const colorsOnly = (marks) => marks.filter((m) => m.color);
 
@@ -112,8 +129,10 @@ export function forwardHtml(html, pictureUrl) {
         if (!t) return;
         if (!para || /<br>$/.test(para)) t = t.replace(/^ /, '');
         const color = marks.find((m) => m.color)?.color;
-        let wrapped = color && color !== 'default' ? `<span style="color: ${color}">${t}</span>` : t;
-        for (const m of [...marks].reverse()) if (!m.color) wrapped = m.open + wrapped + m.close;
+        const bg = marks.find((m) => m.bg)?.bg;
+        const style = [color && color !== 'default' && `color: ${color}`, bg && bg !== 'none' && `background-color: ${bg}`].filter(Boolean).join('; ');
+        let wrapped = style ? `<span style="${style}">${t}</span>` : t;
+        for (const m of [...marks].reverse()) if (!m.color && !m.bg) wrapped = m.open + wrapped + m.close;
         para += wrapped;
         return;
       }
@@ -122,7 +141,7 @@ export function forwardHtml(html, pictureUrl) {
       if (SKIP.has(tag)) return;
       const a = node.attribs || {};
       if (tag === 'br') { para += '<br>'; return; }
-      marks = withColor(marks, colorOf(tag, a)); // colours apply to everything inside, until overridden
+      marks = withHighlight(withColor(marks, colorOf(tag, a)), highlightOf(tag, a)); // apply to everything inside, until overridden
       if (tag === 'img') {
         const src = String(a.src || '').trim();
         const url = /^cid:/i.test(src) ? pictureUrl(src.slice(4).replace(/^<|>$/g, '')) : null;

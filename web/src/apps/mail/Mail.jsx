@@ -10,7 +10,7 @@ import { useAuth } from '../../App.jsx';
 import { useEditor, EditorContent, Node as TiptapNode, mergeAttributes } from '@tiptap/react';
 import Image from '@tiptap/extension-image';
 import { Table, TableRow, TableHeader, TableCell } from '@tiptap/extension-table';
-import { TextStyle, Color } from '@tiptap/extension-text-style';
+import { TextStyle, Color, BackgroundColor } from '@tiptap/extension-text-style';
 import { useMailStatus } from '../../mailStatus.js';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
@@ -616,7 +616,8 @@ function RichBody({ initialHtml, onChange, onReady, autoFocus, label = 'Message'
       // Tables quoted from replies and forwards (or pasted). Column sizes follow the content.
       Table.configure({ resizable: false }), TableRow, TableHeader, TableCell,
       // Text colours quoted from replies and forwards (or pasted). Clear formatting removes them.
-      TextStyle, Color,
+      // Highlights are a background colour on the text (inline style), which every mail app shows.
+      TextStyle, Color, BackgroundColor,
       SignatureBlock,
     ],
     content: initialHtml,
@@ -690,8 +691,12 @@ function RichBody({ initialHtml, onChange, onReady, autoFocus, label = 'Message'
         <B label={<i>I</i>} title="Italic" active={editor.isActive('italic')} onClick={() => c().toggleItalic().run()} />
         <B label={<u>U</u>} title="Underline" active={editor.isActive('underline')} onClick={() => c().toggleUnderline().run()} />
         <B label={<s>S</s>} title="Strikethrough" active={editor.isActive('strike')} onClick={() => c().toggleStrike().run()} />
-        <ColorPicker current={editor.getAttributes('textStyle').color || null}
+        <ColorPicker label="Text colour" options={TEXT_COLORS} none="Automatic" current={editor.getAttributes('textStyle').color || null}
+          icon={(shown) => <span className="color-a">A<span className="color-bar" style={{ background: shown || 'currentColor' }} /></span>}
           onPick={(color) => (color ? c().setColor(color).run() : c().unsetColor().run())} />
+        <ColorPicker label="Highlight colour" options={HIGHLIGHTS} none="None" current={editor.getAttributes('textStyle').backgroundColor || null}
+          icon={(shown) => <span className="color-a hl"><span className="hl-pen" aria-hidden="true">🖍</span><span className="color-bar" style={{ background: shown || 'transparent' }} /></span>}
+          onPick={(color) => (color ? c().setBackgroundColor(color).run() : c().unsetBackgroundColor().run())} />
         <span className="sep" />
         <B label="•" title="Bulleted list" active={editor.isActive('bulletList')} onClick={() => c().toggleBulletList().run()} />
         <B label="1." title="Numbered list" active={editor.isActive('orderedList')} onClick={() => c().toggleOrderedList().run()} />
@@ -763,6 +768,11 @@ const TEXT_COLORS = [
   ['#c5221f', 'Red'], ['#e37400', 'Orange'], ['#188038', 'Green'], ['#00796b', 'Teal'], ['#1a73e8', 'Blue'],
   ['#174ea6', 'Dark blue'], ['#8430ce', 'Purple'], ['#d01884', 'Pink'], ['#795548', 'Brown'], ['#5f6368', 'Grey'],
 ];
+// Highlights: light enough that text stays readable on them (and on a white page).
+const HIGHLIGHTS = [
+  ['#fef08a', 'Yellow'], ['#bbf7d0', 'Green'], ['#bfdbfe', 'Blue'], ['#fbcfe8', 'Pink'],
+  ['#fed7aa', 'Orange'], ['#e9d5ff', 'Purple'], ['#e5e7eb', 'Grey'],
+];
 const sameColor = (a, b) => {
   const hex = (v) => {
     const m = String(v || '').match(/^rgb\((\d+),\s*(\d+),\s*(\d+)\)$/);
@@ -772,14 +782,15 @@ const sameColor = (a, b) => {
 };
 
 /**
- * Text colour: the "A" shows the colour at the cursor; the palette sets it on the selection (or on
- * what you type next). "Automatic" goes back to the normal text colour. Arrow keys move, Enter picks.
+ * Text or highlight colour: the button shows the colour at the cursor; the palette sets it on the
+ * selection (or on what you type next). The first choice ("Automatic" / "None") removes it.
+ * Arrow keys move, Enter picks, Escape closes.
  */
-function ColorPicker({ current, onPick }) {
+function ColorPicker({ label, options: colors, none, icon, current, onPick }) {
   const [open, setOpen] = useState(false);
   const wrap = useRef();
   const list = useRef();
-  const options = [[null, 'Automatic'], ...TEXT_COLORS];
+  const options = [[null, none], ...colors];
   useEffect(() => {
     if (!open) return;
     const away = (e) => { if (!wrap.current?.contains(e.target)) setOpen(false); };
@@ -801,22 +812,21 @@ function ColorPicker({ current, onPick }) {
     e.preventDefault();
     buttons[Math.max(0, Math.min(buttons.length - 1, i + step))].focus();
   };
-  const shown = current || 'currentColor';
   return (
     <span className="color-picker" ref={wrap} onKeyDown={onKey}>
-      <button type="button" className={`tb ${open ? 'on' : ''}`} title="Text colour" aria-label="Text colour" aria-haspopup="dialog" aria-expanded={open}
+      <button type="button" className={`tb ${open ? 'on' : ''}`} title={label} aria-label={label} aria-haspopup="dialog" aria-expanded={open}
         onMouseDown={(e) => e.preventDefault()} onClick={() => setOpen((o) => !o)} onKeyDown={keyOpens(open, setOpen)}>
-        <span className="color-a">A<span className="color-bar" style={{ background: shown }} /></span>
+        {icon(current)}
       </button>
       {open && (
-        <div className="color-pop" role="dialog" aria-label="Text colour">
+        <div className="color-pop" role="dialog" aria-label={label}>
           <div className="color-list" ref={list} role="listbox" aria-label="Colours">
             {options.map(([v, name]) => {
               const on = v ? sameColor(current, v) : !current;
               return (
                 <button type="button" key={name} role="option" aria-selected={on} aria-label={name} title={name}
                   className={`swatch ${v ? '' : 'auto'} ${on ? 'on' : ''}`} style={v ? { background: v } : undefined}
-                  onMouseDown={(e) => e.preventDefault()} onClick={() => pick(v)}>{v ? '' : 'A'}</button>
+                  onMouseDown={(e) => e.preventDefault()} onClick={() => pick(v)} />
               );
             })}
           </div>

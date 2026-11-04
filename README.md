@@ -120,6 +120,10 @@ Your business fixed IP is what makes this work. Do these once:
 - **Text colour:** the **A** button (its bar shows the colour at the cursor) colours the selected text, or what you type next.
   - Choose from 10 colours that read well on white and in mail apps' dark modes. **Automatic** goes back to the normal text colour.
   - Keyboard: Enter opens the palette, the arrow keys move, Enter picks, and Escape closes it without closing the message.
+- **Highlight colour:** the 🖍 button next to it highlights the selected text, like a highlighter pen.
+  - Choose from 7 light colours (yellow, green, blue, pink, orange, purple, grey), so the text on them stays readable. **None** removes the highlight.
+  - Highlights are sent as a background colour on the text, which Gmail, Outlook and phone mail apps all show. In dark mode the editor keeps dark text on the highlight.
+  - Same keyboard use as the text colour button.
 - **Tables:** the ▦ button inserts a table. Pick the size from the grid (up to 8 × 8) by hovering and clicking, or with the arrow keys and Enter. **Header row** (on by default) makes the first row bold.
   - Type in a cell, and use Tab / Shift+Tab to move between cells.
   - Inside a table, the toolbar offers **+ Row / − Row / + Column / − Column / Delete table**. Tables can't be put inside other tables.
@@ -171,14 +175,15 @@ Your business fixed IP is what makes this work. Do these once:
     - **The Archive can be followed too** (its ⋮ menu has just this option), which suits filters that file receipts or newsletters straight into it. Sent, Drafts, Junk and Trash can't be followed.
   - Only newly delivered mail triggers an alert. Mail you move yourself (archiving unread mail, "Not spam", a phone tidying folders) keeps its original arrival time, so it counts towards the unread badge but doesn't alert. A message is announced once, even if it lands in the Inbox and is then archived straight away.
 - **Forward as attachment:** sends the original email whole, as an `.eml` file with its formatting, pictures, attachments and technical headers (including DKIM) intact. Use it to report a suspicious message to IT, or to pass one on exactly as received.
-- **Pictures, tables and colours in replies and forwards:** **Reply**, **Reply all** and a normal **Forward** keep the original's basic formatting (paragraphs, bold, italic, lists, quotes, links), its text colours, its tables, and the pictures embedded in it, in place. In a reply they sit inside the quote.
+- **Pictures, tables and colours in replies and forwards:** **Reply**, **Reply all** and a normal **Forward** keep the original's basic formatting (paragraphs, bold, italic, lists, quotes, links), its text colours and highlights, its tables, and the pictures embedded in it, in place. In a reply they sit inside the quote.
   - The server cleans the original first. Scripts, styles, forms and pictures loaded from the internet (including tracking pixels) are left out, so nothing in a forwarded email can run or report back to its sender.
   - While you write, the pictures are shown straight from the original message, so they don't take up space in your Drive. When you send, they're embedded in your email like pictures you insert yourself.
   - You can resize, crop or rotate them like your own pictures. A cropped or rotated picture is saved to your Drive.
   - **Text colours** are kept, such as red for "late" or green for "on track", including colour set on a whole paragraph, list or table cell.
     - Text too light to read on a white page (for example white text from a dark newsletter) is shown in the normal colour instead. Near-black counts as normal text.
     - Only plain colour values are accepted; anything else in the original's styles is dropped.
-    - **Clear formatting** (Tx) removes colours from the selected text.
+    - **Highlights** in the original (a light background on words, or `<mark>`) are kept too. Backgrounds on whole paragraphs, table cells or the page (newsletter styling) and dark backgrounds are left out.
+    - **Clear formatting** (Tx) removes colours and highlights from the selected text.
     - In dark mode the editor shows coloured text lighter so it stays readable. The email is sent with the original colours.
   - **Tables:** data tables (an order, an invoice, a schedule) are kept with their header row and merged cells.
     - Newsletters often use tables only to lay out the page. Those are recognised (tables inside tables, single-column tables, or ones marked as layout) and turned into ordinary paragraphs, so a quote doesn't become a grid of boxes.
@@ -204,7 +209,7 @@ Your business fixed IP is what makes this work. Do these once:
   Users sign in with their email address and Workspace password.
 - **Accounts that predate email** get a working mailbox password the next time the user signs in to Workspace. Webmail works right away.
 
-**Not built yet:** keeping the original's exact look (fonts, background colours, page layout) in a normal forward (use **Forward as attachment** to keep everything).
+**Not built yet:** keeping the original's exact look (fonts, block and page backgrounds, page layout) in a normal forward (use **Forward as attachment** to keep everything).
 
 ## Sign-in protection
 
@@ -275,7 +280,7 @@ cd server && MAIL_IT_CONFIG_DIR=/etc/nw npm run test:mail
 
 ## Roadmap
 
-- **Mail, next steps:** highlight (background) colour, and a custom colour choice beyond the palette.
+- **Mail, next steps:** a custom colour choice beyond the palettes, and font size.
 - **Real-time co-editing:** live cursors and character-level merging (Yjs) in Docs and Sheets.
 - **Phone sync:** CalDAV and CardDAV, so calendars and contacts sync with the phone's built-in apps; WebDAV for Drive.
 - **Renaming a user's address** (moving them to another domain of the same company), **two-factor authentication**, file version history, public share links, Slides, cell formatting in Sheets, and week and day calendar views.

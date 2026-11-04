@@ -92,3 +92,18 @@ test('text colours are kept, inherited, and overridden; unreadable ones dropped'
   assert.match(html, /<td><p><span style="color: #008080">teal<\/span><\/p><\/td><td><p><span style="color: #ffa500">orange<\/span><\/p><\/td>/);
   assert.doesNotMatch(html, /url\(|var\(|background/);
 });
+
+test('highlights on text are kept; page and cell backgrounds are not', () => {
+  const { html } = forwardHtml(`
+    <p>Please <span style="background-color:#ffff00">check this</span> and <mark>this</mark>.</p>
+    <p><span style="background:#bfdbfe; color:#c5221f">both</span> <span style="background:url(https://t.example/bg.png)">picture</span></p>
+    <p><span style="background-color:#000; color:#fff">dark</span> <span style="background-color:#fff">white</span></p>
+    <div style="background-color:#fef08a"><p>yellow block</p></div>
+    <table><tr><td style="background:#bbf7d0">cell</td><td>x</td></tr></table>`, url);
+  assert.match(html, /Please <span style="background-color: #ffff00">check this<\/span> and <span style="background-color: #fef08a">this<\/span>\./);
+  assert.match(html, /<span style="color: #c5221f; background-color: #bfdbfe">both<\/span> picture/);
+  assert.match(html, /<p>dark white<\/p>/, 'dark backgrounds (and the white text on them) and white ones are dropped');
+  assert.match(html, /<p>yellow block<\/p>/);
+  assert.match(html, /<td><p>cell<\/p><\/td>/);
+  assert.doesNotMatch(html, /url\(/);
+});
