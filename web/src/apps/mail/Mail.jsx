@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { closeHistory } from '@tiptap/pm/history';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, get, post, put, del, onLive, uploadFile, formatBytes, formatDate } from '../../api.js';
 import { desktopSupported, desktopOn, enableDesktop, disableDesktop } from '../../mailNotify.js';
@@ -12,6 +14,7 @@ import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
 import { textToHtml, docToText, emailHtml, isEmptyDoc } from './richtext.js';
 import { FiltersDialog } from './Filters.jsx';
+import { ASPECTS, FULL, fitAspect, moveRect, resizeRect, toPixels, rotatedSize, outputType, editedName } from './cropmath.js';
 
 const FOLDER_ICON = { '\\Inbox': 'inbox', '\\Drafts': 'doc', '\\Sent': 'send', '\\Archive': 'archive', '\\Junk': 'report', '\\Trash': 'trash' };
 const enc = encodeURIComponent;
@@ -572,6 +575,7 @@ function RichBody({ initialHtml, onChange, onReady, autoFocus, label = 'Message'
   const fileInput = useRef();
   const [uploading, setUploading] = useState(0);
   const edRef = useRef(null);
+  const [editing, setEditing] = useState(null); // { pos, src, alt } of the picture open in the editor
 
   // Pictures are uploaded to Drive, shown from there while writing, and embedded in the email when sent.
   async function insertImages(files, pos) {
@@ -632,8 +636,32 @@ function RichBody({ initialHtml, onChange, onReady, autoFocus, label = 'Message'
     const doc = editor.getJSON();
     onChange(isEmptyDoc(doc) ? '' : editor.getHTML(), docToText(doc), true);
     if (autoFocus) editor.commands.focus('start');
+    // Double-clicking a picture opens the crop / rotate editor.
+    const onEdit = () => openEditor(editor);
+    editor.on('editPicture', onEdit);
+    return () => editor.off('editPicture', onEdit);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editor]);
+
+  function openEditor(ed) {
+    const sel = ed.state.selection;
+    const node = sel.node;
+    if (node?.type.name !== 'image') return;
+    if (!editablePicture(node.attrs.src)) return toast('Only pictures you inserted can be edited', 'error');
+    setEditing({ pos: sel.from, src: node.attrs.src, alt: node.attrs.alt });
+  }
+  // Swap in the edited picture, keeping its size. Ctrl+Z puts the original back.
+  function applyEdit({ src, alt }) {
+    const ed = edRef.current;
+    const { pos } = editing;
+    const node = ed.state.doc.nodeAt(pos);
+    setEditing(null);
+    if (node?.type.name !== 'image' || node.attrs.src !== editing.src) return toast('The picture was moved; edit it again', 'error');
+    // Its own undo step, even right after another change to the picture.
+    ed.view.dispatch(closeHistory(ed.state.tr.setNodeMarkup(pos, undefined, { ...node.attrs, src, alt })));
+    ed.commands.setNodeSelection(pos);
+    ed.commands.focus();
+  }
   if (!editor) return null;
   const c = () => editor.chain().focus();
   const B = ({ label, title, active, onClick }) => (
@@ -665,6 +693,9 @@ function RichBody({ initialHtml, onChange, onReady, autoFocus, label = 'Message'
               <B key={w} label={name} title={`${name} picture (${w}% of the message width)`} active={(editor.getAttributes('image').width || 100) === w}
                 onClick={() => c().updateAttributes('image', { width: w === 100 ? null : w }).run()} />
             ))}
+            {editablePicture(editor.getAttributes('image').src) && (
+              <B label="✂ Crop / rotate" title="Crop or rotate picture" onClick={() => openEditor(editor)} />
+            )}
           </span>
         )}
         <B label="Tx" title="Clear formatting" onClick={() => c().unsetAllMarks().clearNodes().run()} />
@@ -673,8 +704,162 @@ function RichBody({ initialHtml, onChange, onReady, autoFocus, label = 'Message'
           onChange={(e) => { insertImages(e.target.files); e.target.value = ''; }} />
       </div>
       <EditorContent editor={editor} />
+      {/* Outside the Compose form, so the editor's buttons never submit (send) the message. */}
+      {editing && createPortal(<ImageEditor src={editing.src} alt={editing.alt} onClose={() => { setEditing(null); editor.commands.focus(); }} onDone={applyEdit} />, document.body)}
     </div>
   );
+}
+
+const editablePicture = (src) => /^\/api\/files\/[^/]+\/raw$/.test(src || '');
+const HANDLES = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
+const ASPECT_NAMES = { free: 'Free', square: 'Square', '4:3': '4:3', '16:9': '16:9' };
+
+/**
+ * Crop and rotate a picture. Works on the real pixels: the result is saved to Drive as
+ * "name (edited).jpg/png" and replaces the picture in the message.
+ */
+function ImageEditor({ src, alt, onClose, onDone }) {
+  const toast = useToast();
+  const [source, setSource] = useState(null); // { img, mime }
+  const [error, setError] = useState('');
+  const [rot, setRot] = useState(0);
+  const [aspect, setAspect] = useState('free');
+  const [rect, setRect] = useState(FULL);
+  const [busy, setBusy] = useState(false);
+  const canvasRef = useRef();
+  const stageRef = useRef();
+
+  useEffect(() => {
+    let url = null, gone = false;
+    (async () => {
+      try {
+        const res = await fetch(src, { credentials: 'same-origin' });
+        if (!res.ok) throw new Error('Could not load the picture');
+        const blob = await res.blob();
+        url = URL.createObjectURL(blob);
+        const img = new window.Image();
+        img.src = url;
+        await img.decode();
+        if (!gone) setSource({ img, mime: blob.type });
+      } catch (e) { if (!gone) setError(e.message || 'Could not load the picture'); }
+    })();
+    return () => { gone = true; if (url) URL.revokeObjectURL(url); };
+  }, [src]);
+
+  const size = source ? rotatedSize(source.img.naturalWidth, source.img.naturalHeight, rot) : { w: 1, h: 1 };
+
+  // Draw the rotated picture at full resolution; the preview is the same canvas scaled down by CSS.
+  useEffect(() => {
+    const cv = canvasRef.current;
+    if (!source || !cv) return;
+    drawRotated(cv, source.img, rot);
+  }, [source, rot]);
+
+  const rotate = (by) => {
+    const next = (rot + by + 360) % 360;
+    setRot(next);
+    const s = rotatedSize(source.img.naturalWidth, source.img.naturalHeight, next);
+    setRect(fitAspect(ASPECTS[aspect], s.w, s.h));
+  };
+  const chooseAspect = (a) => { setAspect(a); setRect(fitAspect(ASPECTS[a], size.w, size.h)); };
+
+  // Drag the frame to move it, or a handle to resize it. Movements are converted to fractions of the preview.
+  const startDrag = (e, handle) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const box = stageRef.current.getBoundingClientRect();
+    const start = { x: e.clientX, y: e.clientY, r: rect };
+    const el = e.currentTarget;
+    el.setPointerCapture?.(e.pointerId);
+    const move = (ev) => {
+      const dx = (ev.clientX - start.x) / box.width, dy = (ev.clientY - start.y) / box.height;
+      setRect(handle ? resizeRect(start.r, handle, dx, dy, ASPECTS[aspect], size.w, size.h) : moveRect(start.r, dx, dy));
+    };
+    const up = () => { el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', up); el.removeEventListener('pointercancel', up); };
+    el.addEventListener('pointermove', move);
+    el.addEventListener('pointerup', up);
+    el.addEventListener('pointercancel', up);
+  };
+  // Arrows move the frame; Shift+arrows resize it from the bottom-right corner.
+  const onKey = (e) => {
+    const d = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
+    if (!d) return;
+    e.preventDefault();
+    const [dx, dy] = d.map((v) => v * 0.01);
+    setRect((r) => (e.shiftKey ? resizeRect(r, 'se', dx, dy, ASPECTS[aspect], size.w, size.h) : moveRect(r, dx, dy)));
+  };
+
+  const changed = rot !== 0 || rect.x > 1e-6 || rect.y > 1e-6 || rect.w < 1 - 1e-6 || rect.h < 1 - 1e-6;
+  const pixels = source ? toPixels(rect, size.w, size.h) : null;
+
+  async function apply() {
+    if (!changed) return onClose();
+    setBusy(true);
+    try {
+      const full = document.createElement('canvas');
+      drawRotated(full, source.img, rot);
+      const out = document.createElement('canvas');
+      out.width = pixels.sw;
+      out.height = pixels.sh;
+      const ctx = out.getContext('2d');
+      const kind = outputType(source.mime);
+      if (kind.type === 'image/jpeg') { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, out.width, out.height); } // JPEG has no transparency
+      ctx.drawImage(full, pixels.sx, pixels.sy, pixels.sw, pixels.sh, 0, 0, pixels.sw, pixels.sh);
+      const blob = await new Promise((res, rej) => out.toBlob((b) => (b ? res(b) : rej(new Error('Could not save the picture'))), kind.type, kind.quality));
+      const rec = await uploadFile(new File([blob], editedName(alt, kind.ext), { type: kind.type }), null);
+      onDone({ src: `/api/files/${rec.id}/raw`, alt: rec.name });
+    } catch (e) { toast(e.message, 'error'); setBusy(false); }
+  }
+
+  const pct = (v) => `${v * 100}%`;
+  return (
+    <Modal title="Crop and rotate picture" wide onClose={busy ? () => {} : onClose} footer={<>
+      {pixels && <span className="muted small crop-size" aria-live="polite">{pixels.sw} × {pixels.sh} px</span>}
+      <button type="button" className="btn" onClick={onClose} disabled={busy}>Cancel</button>
+      <button type="button" className="btn primary" onClick={apply} disabled={!source || busy}>{busy ? 'Saving…' : 'Apply'}</button>
+    </>}>
+      {error ? <p className="error">{error}</p> : !source ? <p className="muted">Loading picture…</p> : (
+        <>
+          <div className="toolbar crop-tools" role="toolbar" aria-label="Picture tools">
+            <button type="button" className="btn" onClick={() => rotate(-90)} aria-label="Rotate left">⟲ Rotate left</button>
+            <button type="button" className="btn" onClick={() => rotate(90)} aria-label="Rotate right">⟳ Rotate right</button>
+            <span className="sep" />
+            <span role="group" aria-label="Crop shape" className="crop-aspects">
+              {Object.keys(ASPECTS).map((a) => (
+                <button type="button" key={a} className={`btn ${aspect === a ? 'on' : ''}`} aria-pressed={aspect === a} onClick={() => chooseAspect(a)}>{ASPECT_NAMES[a]}</button>
+              ))}
+            </span>
+            <button type="button" className="btn" onClick={() => setRect(fitAspect(ASPECTS[aspect], size.w, size.h))}>Reset crop</button>
+          </div>
+          <div className="crop-area">
+            <div className="crop-stage" ref={stageRef}>
+              <canvas ref={canvasRef} aria-label="Picture preview" role="img" />
+              <div className="crop-frame" tabIndex={0} role="group" aria-label="Crop area. Use the arrow keys to move it, Shift and the arrow keys to resize it."
+                style={{ left: pct(rect.x), top: pct(rect.y), width: pct(rect.w), height: pct(rect.h) }}
+                onPointerDown={(e) => startDrag(e, null)} onKeyDown={onKey}>
+                {HANDLES.map((h) => <span key={h} className={`crop-handle ${h}`} data-handle={h} onPointerDown={(e) => startDrag(e, h)} />)}
+              </div>
+            </div>
+          </div>
+          <p className="muted small">Drag the frame or its edges. Applying saves a new copy to your Drive; the original stays as it was, and Ctrl+Z in the message puts it back.</p>
+        </>
+      )}
+    </Modal>
+  );
+}
+
+/** Draw img into canvas cv rotated by deg (multiple of 90), resizing the canvas to fit. */
+function drawRotated(cv, img, deg) {
+  const W = img.naturalWidth, H = img.naturalHeight;
+  const s = rotatedSize(W, H, deg);
+  cv.width = s.w;
+  cv.height = s.h;
+  const ctx = cv.getContext('2d');
+  ctx.save();
+  ctx.translate(s.w / 2, s.h / 2);
+  ctx.rotate((deg * Math.PI) / 180);
+  ctx.drawImage(img, -W / 2, -H / 2);
+  ctx.restore();
 }
 
 function SignatureDialog({ signatures, onClose, onSaved }) {
@@ -816,6 +1001,13 @@ const ResizableImage = Image.extend({
         show(n.attrs.width || null);
       };
       img.addEventListener('load', () => { if (!current.attrs.width) show(null); }); // natural size known now
+      img.addEventListener('dblclick', (e) => {
+        const pos = typeof getPos === 'function' ? getPos() : null;
+        if (pos == null) return;
+        e.preventDefault();
+        editor.commands.setNodeSelection(pos);
+        editor.emit('editPicture');
+      });
       const commit = (pct) => {
         const pos = typeof getPos === 'function' ? getPos() : null;
         if (pos == null) return;

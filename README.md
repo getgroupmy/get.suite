@@ -139,6 +139,13 @@ Your business fixed IP is what makes this work. Do these once:
     - Keyboard: Tab to the handle and use the arrow keys (5% steps, Shift for 1%), Home for the smallest and End for full width.
     - The size is kept in drafts and shows the same in recipients' mail apps.
     - Pictures without a chosen size show at their natural size, and no picture ever gets wider than a phone screen.
+  - **Crop and rotate:** double-click a picture, or click it and choose **✂ Crop / rotate** in the toolbar.
+    - **Rotate left / Rotate right** turn it in 90° steps.
+    - Drag the crop frame to move it, or its corners and edges to resize it. Choose **Free, Square, 4:3 or 16:9** for the shape; **Reset crop** starts over.
+    - Keyboard: Tab to the frame, then use the arrow keys to move it and Shift with the arrow keys to resize it.
+    - The new size in pixels shows as you go. **Apply** saves the result to your Drive as "name (edited)" and swaps it into the message at the same size. The original file is left untouched, and Ctrl+Z puts it back.
+    - JPEG and WebP photos come out as JPEG, everything else as PNG. An animated GIF becomes a still picture.
+    - Only pictures you inserted yourself can be edited, not ones quoted from another email.
   - Pictures are saved to your Drive.
   - When the message is sent they're embedded in the email itself, so recipients see them without access to your server and without "show images" prompts.
   - The plain-text version shows `[image: name]` in their place.
@@ -173,7 +180,7 @@ Your business fixed IP is what makes this work. Do these once:
   Users sign in with their email address and Workspace password.
 - **Accounts that predate email** get a working mailbox password the next time the user signs in to Workspace. Webmail works right away.
 
-**Not built yet:** cropping or rotating pictures, and carrying pictures embedded in the original into a normal forward (use **Forward as attachment** to keep everything).
+**Not built yet:** carrying pictures embedded in the original into a normal forward (use **Forward as attachment** to keep everything).
 
 ## Sign-in protection
 
@@ -244,7 +251,7 @@ cd server && MAIL_IT_CONFIG_DIR=/etc/nw npm run test:mail
 
 ## Roadmap
 
-- **Mail, next steps:** cropping pictures, and following the built-in Archive folder pushed live instead of checked every 30 seconds.
+- **Mail, next steps:** following the built-in Archive folder pushed live instead of checked every 30 seconds.
 - **Real-time co-editing:** live cursors and character-level merging (Yjs) in Docs and Sheets.
 - **Phone sync:** CalDAV and CardDAV, so calendars and contacts sync with the phone's built-in apps; WebDAV for Drive.
 - **Renaming a user's address** (moving them to another domain of the same company), **two-factor authentication**, file version history, public share links, Slides, cell formatting in Sheets, and week and day calendar views.
