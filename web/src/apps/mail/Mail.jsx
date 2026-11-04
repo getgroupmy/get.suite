@@ -693,6 +693,11 @@ function RichBody({ initialHtml, onChange, onReady, autoFocus, label = 'Message'
           {FONT_SIZES.map(([n]) => <option key={n} value={n}>{n}</option>)}
           {sizeName(editor.getAttributes('textStyle').fontSize) === 'Other' && <option value="Other" disabled>Other size</option>}
         </select>
+        <select className="tb-select" aria-label="Font" title="Font" value={fontName(editor.getAttributes('textStyle').fontFamily)}
+          onChange={(e) => { const stack = FONTS.find(([n]) => n === e.target.value)?.[1]; (stack ? c().setFontFamily(stack) : c().unsetFontFamily()).run(); }}>
+          {FONTS.map(([n, stack]) => <option key={n} value={n} style={stack ? { fontFamily: stack } : undefined}>{n}</option>)}
+          {fontName(editor.getAttributes('textStyle').fontFamily) === 'Other font' && <option value="Other font" disabled>Other font</option>}
+        </select>
         <span className="sep" />
         <B label={<b>B</b>} title="Bold" active={editor.isActive('bold')} onClick={() => c().toggleBold().run()} />
         <B label={<i>I</i>} title="Italic" active={editor.isActive('italic')} onClick={() => c().toggleItalic().run()} />
@@ -775,6 +780,16 @@ const TEXT_COLORS = [
   ['#c5221f', 'Red'], ['#e37400', 'Orange'], ['#188038', 'Green'], ['#00796b', 'Teal'], ['#1a73e8', 'Blue'],
   ['#174ea6', 'Dark blue'], ['#8430ce', 'Purple'], ['#d01884', 'Pink'], ['#795548', 'Brown'], ['#5f6368', 'Grey'],
 ];
+// Fonts: the same font lists the server keeps when quoting mail, so quoted fonts show by name.
+// Each lists fallbacks for computers that don't have the font.
+const FONTS = [
+  ['Sans Serif', null], ['Georgia', 'Georgia, serif'], ['Times New Roman', "'Times New Roman', Times, serif"], ['Garamond', 'Garamond, Georgia, serif'],
+  ['Courier New', "'Courier New', Courier, monospace"], ['Verdana', 'Verdana, sans-serif'], ['Tahoma', 'Tahoma, sans-serif'],
+  ['Trebuchet MS', "'Trebuchet MS', sans-serif"], ['Calibri', 'Calibri, Arial, sans-serif'], ['Comic Sans MS', "'Comic Sans MS', cursive"],
+];
+const fontKey = (v) => String(v || '').replace(/['"\s]/g, '').toLowerCase();
+const fontName = (v) => (!v ? 'Sans Serif' : FONTS.find(([, stack]) => stack && fontKey(stack) === fontKey(v))?.[0] || 'Other font');
+
 // Font sizes (as in most mail apps). "Normal" means no size of its own.
 const FONT_SIZES = [['Small', '12px'], ['Normal', null], ['Large', '18px'], ['Huge', '24px']];
 const sizeName = (v) => (!v ? 'Normal' : FONT_SIZES.find(([, px]) => px === String(v).replace(/\s/g, ''))?.[0] || 'Other');
