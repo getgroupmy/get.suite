@@ -311,9 +311,9 @@ export default function webmailRoutes() {
     });
   });
 
-  // Body for a normal forward: the original's text with basic formatting and the pictures embedded
-  // in it, cleaned on the server (see forwardhtml.js). null for plain-text mail.
-  r.get('/messages/:uid/forward', async (req, res) => {
+  // The original's body for quoting in a reply or forward: its text with basic formatting and the
+  // pictures embedded in it, cleaned on the server (see forwardhtml.js). null for plain-text mail.
+  r.get('/messages/:uid/quote', async (req, res) => {
     const folder = String(req.query.folder || 'INBOX');
     const uid = Number(req.params.uid);
     const { parsed: p } = await loadMessage(req.user, folder, uid, false, { keepCidLinks: true });
@@ -327,7 +327,7 @@ export default function webmailRoutes() {
     res.json(out);
   });
 
-  // A picture embedded in a received message, shown while writing a forward of it. Only the
+  // A picture embedded in a received message, shown while writing a reply or forward. Only the
   // picture types mail apps display (never SVG), with nothing else allowed to load.
   r.get('/messages/:uid/pictures/:n', async (req, res) => {
     const { parsed } = await loadMessage(req.user, String(req.query.folder || 'INBOX'), Number(req.params.uid), false);
@@ -519,7 +519,7 @@ export default function webmailRoutes() {
         return `${pre}cid:img-${id}@workspace${post}`;
       });
       attachments.push(...embedded.values());
-      // Pictures carried over from a forwarded message are embedded straight from the original.
+      // Pictures quoted from a message you reply to or forward are embedded straight from the original.
       const originals = new Map();
       const pics = new Map();
       for (const [, , uid, n, folder] of html.matchAll(FORWARD_PICTURE_RE)) {

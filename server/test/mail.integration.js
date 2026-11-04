@@ -461,7 +461,7 @@ test('forwarding includes the attachments you keep; forward drafts remember them
   assert.equal((await gina('POST', '/api/mail/send', { to: 'olivia@acme.com', subject: 'x', text: 'x', forwardOf: { folder: 'INBOX', uid: 999999, attachments: [0] } })).status, 400, 'original gone');
 });
 
-test('normal forwards carry the pictures embedded in the original, cleaned of anything unsafe', async () => {
+test('replies and forwards carry the pictures embedded in the original, cleaned of anything unsafe', async () => {
   const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAYAAAD0In+KAAAAEUlEQVR42mP8z8DwnwEIGAEAHwQC/2t8ZpEAAAAASUVORK5CYII=', 'base64');
   const pic = (await gina('POST', '/api/files/upload?name=chart.png', png, { raw: true })).body;
   const html = `<p>Sales are <b>up</b>:</p><p><img src="/api/files/${pic.id}/raw" alt="chart.png"></p>`
@@ -469,7 +469,7 @@ test('normal forwards carry the pictures embedded in the original, cleaned of an
   assert.equal((await gina('POST', '/api/mail/send', { to: 'olivia@acme.com', subject: 'Q3 chart', text: 'Sales are up', html })).status, 200);
   const orig = await eventually(async () => (await inbox(olivia)).find((m) => m.subject === 'Q3 chart'));
 
-  const body = (await olivia('GET', `/api/mail/messages/${orig.uid}/forward?folder=INBOX`)).body;
+  const body = (await olivia('GET', `/api/mail/messages/${orig.uid}/quote?folder=INBOX`)).body;
   assert.equal(body.pictures, 1);
   const src = body.html.match(/<img src="([^"]+)"/)[1];
   assert.match(src, new RegExp(`^/api/mail/messages/${orig.uid}/pictures/\\d+\\?folder=INBOX$`));
@@ -495,10 +495,19 @@ test('normal forwards carry the pictures embedded in the original, cleaned of an
   assert.ok(!full.html.includes('/api/'), 'no links back to this server');
   assert.deepEqual(full.attachments, [], 'shown inline, not listed as an attachment');
 
+  // Replying quotes the picture too, and marks the original as answered.
+  const quote = `<p>Great news!</p><p>On Monday, Gina Globex wrote:</p><blockquote>${body.html}</blockquote>`;
+  const rr = await olivia('POST', '/api/mail/send', { to: 'gina@globex.com', subject: 'Re: Q3 chart', text: 'Great news!', html: quote, replyTo: { folder: 'INBOX', uid: orig.uid } });
+  assert.equal(rr.status, 200, JSON.stringify(rr.body));
+  const re = await eventually(async () => (await inbox(gina)).find((m) => m.subject === 'Re: Q3 chart'));
+  const reFull = (await gina('GET', `/api/mail/messages/${re.uid}?folder=INBOX`)).body;
+  assert.match(reFull.html, /<blockquote>[\s\S]*src="data:image\/png;base64,[\s\S]*<\/blockquote>/, 'picture inside the quote');
+  assert.ok(!reFull.html.includes('/api/'));
+
   // Plain-text mail has no HTML body to carry over; a deleted original can't be forwarded from.
   await gina('POST', '/api/mail/send', { to: 'olivia@acme.com', subject: 'Plain one', text: 'just text' });
   const plain = await eventually(async () => (await inbox(olivia)).find((m) => m.subject === 'Plain one'));
-  assert.equal((await olivia('GET', `/api/mail/messages/${plain.uid}/forward?folder=INBOX`)).body.html, null);
+  assert.equal((await olivia('GET', `/api/mail/messages/${plain.uid}/quote?folder=INBOX`)).body.html, null);
   await olivia('POST', '/api/mail/messages/delete', { folder: 'INBOX', uids: [orig.uid] });
   const gone = await olivia('POST', '/api/mail/send', { to: 'gina@globex.com', subject: 'x', text: 'x', html: fwdHtml });
   assert.equal(gone.status, 400);

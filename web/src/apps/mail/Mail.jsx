@@ -272,8 +272,11 @@ function Reader({ folder, uid, special, onClose, onChanged, act, onCompose, onFi
   }, [folder, uid]);
   if (!m) return <p className="muted mail-note">Loading…</p>;
 
-  // Reply quotes are built from the original's plain text, so hostile HTML never reaches the editor.
-  const quoted = () => `<p></p><p>On ${escapeHtml(new Date(m.date).toLocaleString())}, ${escapeHtml(who(m.from))} wrote:</p><blockquote>${textToHtml(m.text)}</blockquote>`;
+  // The original's body for a reply or forward. HTML mail keeps its basic formatting and embedded
+  // pictures, cleaned by the server so hostile HTML never reaches the editor; plain-text mail (or if
+  // that fails) is quoted as text.
+  const originalBody = async () => (m.html && await get(`/mail/messages/${uid}/quote?folder=${enc(folder)}`).then((r) => r.html).catch(() => null)) || textToHtml(m.text);
+  const quoted = async () => `<p></p><p>On ${escapeHtml(new Date(m.date).toLocaleString())}, ${escapeHtml(who(m.from))} wrote:</p><blockquote>${await originalBody()}</blockquote>`;
   const reSubject = (p) => (m.subject.toLowerCase().startsWith(p.toLowerCase()) ? m.subject : `${p} ${m.subject}`);
   // Reply from the address the message was sent to (e.g. sales@), if it is one of yours.
   const mine = (mailStatus?.identities || []).map((i) => i.address);
@@ -320,22 +323,19 @@ function Reader({ folder, uid, special, onClose, onChanged, act, onCompose, onFi
         </ul>
       )}
       <div className="row wrap reader-reply">
-        <button className="btn" onClick={() => onCompose({ to: list(replyTo), subject: reSubject('Re:'), html: quoted(), ...thread })}><Icon name="reply" size={18} /> Reply</button>
-        {others.length > 0 && <button className="btn" onClick={() => onCompose({ to: list(replyTo), cc: list(others), subject: reSubject('Re:'), html: quoted(), ...thread })}><Icon name="replyall" size={18} /> Reply all</button>}
+        <button className="btn" onClick={async () => onCompose({ to: list(replyTo), subject: reSubject('Re:'), html: await quoted(), ...thread })}><Icon name="reply" size={18} /> Reply</button>
+        {others.length > 0 && <button className="btn" onClick={async () => onCompose({ to: list(replyTo), cc: list(others), subject: reSubject('Re:'), html: await quoted(), ...thread })}><Icon name="replyall" size={18} /> Reply all</button>}
         <button className="btn" onClick={() => onCompose({
           from: replyFrom, subject: reSubject('Fwd:'), html: '<p></p>',
           forwardOf: { folder, uid, asEml: true, attachments: [], eml: { filename: `${(m.subject || 'message').replace(/[\\/:*?"<>|]+/g, ' ').trim().slice(0, 80) || 'message'}.eml` } },
         })}><Icon name="attach" size={18} /> Forward as attachment</button>
         <button className="btn" onClick={async () => {
-          // HTML mail keeps its basic formatting and embedded pictures (cleaned by the server);
-          // plain-text mail, or if that fails, is quoted as text.
-          let body = null;
-          if (m.html) body = await get(`/mail/messages/${uid}/forward?folder=${enc(folder)}`).then((r) => r.html).catch(() => null);
+          const body = await originalBody();
           onCompose({
             from: replyFrom,
             ...(m.attachments.length > 0 && { forwardOf: { folder, uid, attachments: m.attachments.map((a) => a.index), files: m.attachments } }),
             subject: reSubject('Fwd:'),
-            html: `<p></p><p>---------- Forwarded message ----------<br>From: ${escapeHtml(list([m.from]))}<br>Date: ${escapeHtml(new Date(m.date).toLocaleString())}<br>Subject: ${escapeHtml(m.subject)}<br>To: ${escapeHtml(list(m.to))}</p>${body || textToHtml(m.text)}`,
+            html: `<p></p><p>---------- Forwarded message ----------<br>From: ${escapeHtml(list([m.from]))}<br>Date: ${escapeHtml(new Date(m.date).toLocaleString())}<br>Subject: ${escapeHtml(m.subject)}<br>To: ${escapeHtml(list(m.to))}</p>${body}`,
           });
         }}><Icon name="forward" size={18} /> Forward</button>
       </div>
