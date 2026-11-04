@@ -117,6 +117,9 @@ Your business fixed IP is what makes this work. Do these once:
   - Drafts live on the mail server, so phones and Outlook see them.
   - Attachments in a draft are kept as links to Drive files. They're restored when the draft is reopened in webmail, but phones don't see them until the message is sent.
 - **Rich-text writing:** bold, italic, underline, strike, bulleted and numbered lists, quotes, links and tables. Every message is sent with a formatted version and a readable plain-text version (quotes marked with `>`, lists with `-` / `1.`), so any mail app can show it. Replies quote the original as a quoted block. Quotes are built from the original's plain text, so formatting tricks in a received email can't carry into yours.
+- **Tables:** the ▦ button inserts a table. Pick the size from the grid (up to 8 × 8) by hovering and clicking, or with the arrow keys and Enter. **Header row** (on by default) makes the first row bold.
+  - Type in a cell, and use Tab / Shift+Tab to move between cells.
+  - Inside a table, the toolbar offers **+ Row / − Row / + Column / − Column / Delete table**. Tables can't be put inside other tables.
 - **Filters** (Mail → Filters, or **Filter messages like this** on any message): rules run by the mail server as mail arrives, so they apply to phones too. They run in order, and can be reordered and switched on or off.
   - Conditions: From, To or Cc, or Subject *contains*, *doesn't contain* or *is exactly* a value, matching all or any of them.
   - Actions: move to a folder (created if needed, e.g. `Clients/Acme`), mark as read, star, forward a copy, or delete.
@@ -193,7 +196,7 @@ Your business fixed IP is what makes this work. Do these once:
   Users sign in with their email address and Workspace password.
 - **Accounts that predate email** get a working mailbox password the next time the user signs in to Workspace. Webmail works right away.
 
-**Not built yet:** keeping the original's exact look (colours, fonts, page layout) in a normal forward (use **Forward as attachment** to keep everything), and inserting a new table from the toolbar.
+**Not built yet:** keeping the original's exact look (colours, fonts, page layout) in a normal forward (use **Forward as attachment** to keep everything).
 
 ## Sign-in protection
 
@@ -264,7 +267,7 @@ cd server && MAIL_IT_CONFIG_DIR=/etc/nw npm run test:mail
 
 ## Roadmap
 
-- **Mail, next steps:** an **Insert table** button, and keeping text colours in replies and forwards.
+- **Mail, next steps:** keeping text colours in replies and forwards.
 - **Real-time co-editing:** live cursors and character-level merging (Yjs) in Docs and Sheets.
 - **Phone sync:** CalDAV and CardDAV, so calendars and contacts sync with the phone's built-in apps; WebDAV for Drive.
 - **Renaming a user's address** (moving them to another domain of the same company), **two-factor authentication**, file version history, public share links, Slides, cell formatting in Sheets, and week and day calendar views.

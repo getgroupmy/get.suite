@@ -698,6 +698,7 @@ function RichBody({ initialHtml, onChange, onReady, autoFocus, label = 'Message'
           if (url && /^(https?:\/\/|mailto:)/i.test(url.trim())) c().extendMarkRange('link').setLink({ href: url.trim() }).run();
         }} />
         <B label="🖼" title="Insert picture" onClick={() => fileInput.current.click()} />
+        <TablePicker disabled={editor.isActive('table')} onPick={(rows, cols, withHeaderRow) => c().insertTable({ rows, cols, withHeaderRow }).run()} />
         {editor.isActive('image') && (
           <span className="img-sizes" role="group" aria-label="Picture size">
             <span className="sep" />
@@ -733,6 +734,69 @@ function RichBody({ initialHtml, onChange, onReady, autoFocus, label = 'Message'
 }
 
 // Pictures inserted from Drive, or carried over from a forwarded message.
+const PICK_MAX = 8;
+
+/**
+ * "Insert table": a grid to choose the size (hover, or arrow keys and Enter), with a header row
+ * option. Not offered inside a table, so tables aren't nested.
+ */
+function TablePicker({ onPick, disabled }) {
+  const [open, setOpen] = useState(false);
+  const [at, setAt] = useState([2, 3]); // [rows, cols] highlighted
+  const [header, setHeader] = useState(true);
+  const wrap = useRef();
+  const grid = useRef();
+  useEffect(() => {
+    if (!open) return;
+    const away = (e) => { if (!wrap.current?.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', away);
+    grid.current?.querySelector('[tabindex="0"]')?.focus();
+    return () => document.removeEventListener('mousedown', away);
+  }, [open]);
+  // Close first, then insert, so the cursor lands in the new table's first cell.
+  const pick = (r, c) => { setOpen(false); requestAnimationFrame(() => onPick(r, c, header)); };
+  const onKey = (e) => {
+    const [r, c] = at;
+    const next = { ArrowRight: [r, c + 1], ArrowLeft: [r, c - 1], ArrowDown: [r + 1, c], ArrowUp: [r - 1, c] }[e.key];
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setOpen(false); return; }
+    // Enter/Space insert the highlighted size (not whichever cell the browser would click).
+    if ((e.key === 'Enter' || e.key === ' ') && e.target.closest?.('[role="grid"]')) { e.preventDefault(); pick(r, c); return; }
+    if (!next) return;
+    e.preventDefault();
+    const n = next.map((v) => Math.max(1, Math.min(PICK_MAX, v)));
+    setAt(n);
+    grid.current?.querySelector(`[data-cell="${n[0]}-${n[1]}"]`)?.focus(); // every cell is already rendered
+  };
+  return (
+    <span className="table-picker" ref={wrap}>
+      <button type="button" className={`tb ${open ? 'on' : ''}`} title={disabled ? 'Insert table (not inside another table)' : 'Insert table'} aria-label="Insert table"
+        aria-haspopup="dialog" aria-expanded={open} disabled={disabled} onMouseDown={(e) => e.preventDefault()} onClick={() => setOpen((o) => !o)}>▦</button>
+      {open && (
+        <div className="table-picker-pop" role="dialog" aria-label="Table size" onKeyDown={onKey}>
+          <div className="table-picker-grid" ref={grid} role="grid" aria-label="Choose rows and columns">
+            {Array.from({ length: PICK_MAX }, (_, i) => (
+              <div role="row" key={i}>
+                {Array.from({ length: PICK_MAX }, (_, j) => {
+                  const r = i + 1, c = j + 1;
+                  return (
+                    <button type="button" role="gridcell" key={j} data-cell={`${r}-${c}`} tabIndex={r === at[0] && c === at[1] ? 0 : -1}
+                      className={r <= at[0] && c <= at[1] ? 'on' : ''} aria-label={`${r} by ${c} table`}
+                      onMouseDown={(e) => e.preventDefault()} onMouseEnter={(e) => e.currentTarget.focus()} onFocus={() => setAt([r, c])} onClick={() => pick(r, c)} />
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+          <div className="table-picker-foot">
+            <span aria-live="polite">{at[0]} × {at[1]}</span>
+            <label className="check"><input type="checkbox" checked={header} onChange={(e) => setHeader(e.target.checked)} /> Header row</label>
+          </div>
+        </div>
+      )}
+    </span>
+  );
+}
+
 const editablePicture = (src) => /^\/api\/files\/[^/]+\/raw$|^\/api\/mail\/messages\/\d+\/pictures\/\d+\?folder=[^&]+$/.test(src || '');
 const HANDLES = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
 const ASPECT_NAMES = { free: 'Free', square: 'Square', '4:3': '4:3', '16:9': '16:9' };

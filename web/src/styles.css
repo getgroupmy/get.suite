@@ -549,3 +549,14 @@ a.att:hover { background: var(--hover); }
 .compose-editor .tiptap th { background: var(--surface-2); font-weight: 600; }
 .compose-editor .tiptap td p, .compose-editor .tiptap th p { margin: 0; }
 .compose-editor .tiptap .selectedCell::after { content: ''; position: absolute; inset: 0; background: var(--accent-soft); opacity: .5; pointer-events: none; }
+
+/* Insert table: size picker */
+.table-picker { position: relative; display: inline-flex; }
+.table-picker .tb:disabled { opacity: .4; cursor: default; }
+.table-picker-pop { position: absolute; top: calc(100% + 6px); left: 0; z-index: 20; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); padding: 10px; }
+.table-picker-grid { display: grid; gap: 3px; }
+.table-picker-grid > div { display: flex; gap: 3px; }
+.table-picker-grid button { width: 18px; height: 18px; padding: 0; border: 1px solid var(--border); border-radius: 3px; background: var(--surface); cursor: pointer; }
+.table-picker-grid button.on { background: var(--accent-soft); border-color: var(--accent); }
+.table-picker-grid button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.table-picker-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 8px; font-size: 13px; white-space: nowrap; }
