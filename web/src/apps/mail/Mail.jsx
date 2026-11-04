@@ -126,19 +126,22 @@ export default function Mail() {
         <button className="btn new-btn" onClick={() => setCompose(withSignature({}, 'new'))}><Icon name="edit" /> Compose</button>
         {folders.map((f) => {
           const own = !f.specialUse && f.path.toUpperCase() !== 'INBOX';
+          const followable = own || f.specialUse === '\\Archive'; // built-in Archive: notifications only, no rename/delete
           return (
             <div key={f.path} className="folder-row">
               <button className={`subnav-item ${f.path === folder && !q ? 'active' : ''}`} onClick={() => { setSearch({}); go(f.path); }}>
                 <Icon name={FOLDER_ICON[f.specialUse] || 'folder'} /><span className="grow ellipsis">{f.name}</span>
-                {own && followed.includes(f.path) && <Icon name="bell" size={14} className="followed" title="New-mail notifications on" />}
+                {followable && followed.includes(f.path) && <Icon name="bell" size={14} className="followed" title="New-mail notifications on" />}
                 {f.unseen > 0 && f.specialUse !== '\\Trash' && f.specialUse !== '\\Sent' && <span className="count">{f.unseen}</span>}
                 {f.specialUse === '\\Drafts' && f.messages > 0 && <span className="count muted">{f.messages}</span>}
               </button>
-              {own && (
+              {followable && (
                 <Menu align="left" trigger={(p) => <button className="icon-btn folder-menu" aria-label={`Options for ${f.name}`} {...p}><Icon name="more" size={18} /></button>} items={[
                   { label: followed.includes(f.path) ? 'Stop notifications' : 'Notify me about new mail', icon: 'bell', onClick: () => toggleFollow(f) },
-                  { label: 'Rename', icon: 'edit', onClick: () => setFolderDialog({ type: 'rename', folder: f }) },
-                  { label: 'Delete', icon: 'trash', danger: true, onClick: () => setFolderDialog({ type: 'delete', folder: f }) },
+                  ...(own ? [
+                    { label: 'Rename', icon: 'edit', onClick: () => setFolderDialog({ type: 'rename', folder: f }) },
+                    { label: 'Delete', icon: 'trash', danger: true, onClick: () => setFolderDialog({ type: 'delete', folder: f }) },
+                  ] : []),
                 ]} />
               )}
             </div>

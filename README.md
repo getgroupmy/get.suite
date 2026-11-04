@@ -162,6 +162,8 @@ Your business fixed IP is what makes this work. Do these once:
     - Followed folders show a bell, alerts say which folder ("New mail in Suppliers from …"), and the badge counts unread mail across the Inbox and every followed folder.
     - You can follow up to 10 folders besides the Inbox, which is always followed. Each one uses its own watching connection.
     - Renaming a followed folder keeps it followed; deleting it unfollows it.
+    - **The Archive can be followed too** (its ⋮ menu has just this option), which suits filters that file receipts or newsletters straight into it. Sent, Drafts, Junk and Trash can't be followed.
+  - Only newly delivered mail triggers an alert. Mail you move yourself (archiving unread mail, "Not spam", a phone tidying folders) keeps its original arrival time, so it counts towards the unread badge but doesn't alert. A message is announced once, even if it lands in the Inbox and is then archived straight away.
 - **Forward as attachment:** sends the original email whole, as an `.eml` file with its formatting, pictures, attachments and technical headers (including DKIM) intact. Use it to report a suspicious message to IT, or to pass one on exactly as received.
 - **Forwarding with attachments:** forwarding a message brings its attachments along as chips you can remove one by one. They're attached straight from the original message when you send, so nothing is downloaded and re-uploaded. Forward drafts remember them too. If the original has been deleted by the time you send, you're told the attachments can't be included.
 - **Vacation reply** (Mail → Vacation reply): an automatic answer with an optional first and last day. It's built on the mail server's standard Sieve "vacation" feature:
@@ -251,7 +253,7 @@ cd server && MAIL_IT_CONFIG_DIR=/etc/nw npm run test:mail
 
 ## Roadmap
 
-- **Mail, next steps:** following the built-in Archive folder pushed live instead of checked every 30 seconds.
+- **Mail, next steps:** carrying pictures embedded in the original into a normal forward.
 - **Real-time co-editing:** live cursors and character-level merging (Yjs) in Docs and Sheets.
 - **Phone sync:** CalDAV and CardDAV, so calendars and contacts sync with the phone's built-in apps; WebDAV for Drive.
 - **Renaming a user's address** (moving them to another domain of the same company), **two-factor authentication**, file version history, public share links, Slides, cell formatting in Sheets, and week and day calendar views.

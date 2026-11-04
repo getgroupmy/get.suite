@@ -69,7 +69,7 @@ export default function webmailRoutes() {
     res.json({ unseen: Object.values(byFolder).reduce((a, b) => a + b, 0), byFolder });
   });
 
-  // Folders you get new-mail notifications for (the Inbox always; up to 10 more of your own).
+  // Folders you get new-mail notifications for (the Inbox always; up to 10 more of your own, or the Archive).
   r.get('/notify-folders', (req, res) => res.json({ folders: followedFolders(req.user.id) }));
   r.put('/notify-folders', async (req, res) => {
     const wanted = (Array.isArray(req.body.folders) ? req.body.folders : []).map(String).filter((f) => f.toUpperCase() !== 'INBOX');
@@ -78,7 +78,8 @@ export default function webmailRoutes() {
     for (const f of wanted) {
       const b = boxes.find((x) => x.path === f);
       if (!b) throw bad(`There is no folder called “${f}”`);
-      if (b.specialUse) throw bad(`${b.name} can't be followed`);
+      // The Archive can be followed (filters can file mail there); Sent, Drafts, Junk and Trash can't.
+      if (b.specialUse && b.specialUse !== '\\Archive') throw bad(`${b.name} can't be followed`);
     }
     res.json({ folders: setFollowed(req.user.id, wanted) });
   });

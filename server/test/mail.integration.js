@@ -17,6 +17,7 @@ process.env.MAIL_HOSTNAME = 'mail.acme.com';
 // while 127.0.0.6+ stand in for attackers on the internet.
 process.env.AUTH_POLICY_PORT = '18081';
 process.env.MAIL_NOTIFY_LINGER_MS = '500';
+process.env.MAIL_NOTIFY_FRESH_MS = '8000'; // mail older than this that is moved into a followed folder isn't "new"
 process.env.AUTH_POLICY_URL = 'http://127.0.0.1:18081/';
 process.env.AUTH_NEVER_BAN = '127.0.0.1/32,::1';
 process.env.AUTH_SOFT_NETS = ''; // treat 127.0.0.6+ like internet addresses
@@ -496,7 +497,8 @@ test('new mail is pushed to open Workspace tabs within seconds (IMAP IDLE)', asy
   assert.equal(ev.from.address, 'gina@globex.com');
   assert.equal(ev.from.name, 'Gina Globex');
   assert.ok(Date.now() - t0 < 10000, `took ${Date.now() - t0} ms`);
-  const unread = await eventually(() => events.filter((e) => e.type === 'mail-unread').at(-1)?.unseen >= 1 && events.filter((e) => e.type === 'mail-unread').at(-1));
+  // The count pushed after the alert (not the one from when the watcher connected).
+  const unread = await eventually(() => events.slice(events.indexOf(ev)).find((e) => e.type === 'mail-unread'));
   assert.equal((await olivia('GET', '/api/mail/unread')).body.unseen, unread.unseen);
   assert.ok(!events.some((e) => e.type === 'mail-new' && e.subject === 'Ping via IDLE' && e !== ev), 'one notification per message');
   assert.equal((await inbox(olivia)).find((m) => m.subject === 'Ping via IDLE').seen, false, 'watching never marks mail as read');
@@ -545,6 +547,54 @@ test('notifications for followed folders: filed mail alerts with the folder; fol
     await eventually(() => notify.watchedFolders(meId).length === 1, 5000);
   } finally { ws.close(); }
   await olivia('PUT', '/api/mail/rules', { rules: [] });
+  await eventually(() => notify.watchingCount() === 0, 5000);
+});
+
+test('following the Archive: filed mail alerts live; mail you archive yourself does not', async () => {
+  assert.equal((await olivia('PUT', '/api/mail/notify-folders', { folders: ['Sent'] })).status, 400, 'Sent still cannot be followed');
+  assert.equal((await olivia('PUT', '/api/mail/notify-folders', { folders: ['Junk'] })).status, 400);
+  assert.deepEqual((await olivia('PUT', '/api/mail/notify-folders', { folders: ['Archive'] })).body.folders, ['INBOX', 'Archive']);
+  await olivia('PUT', '/api/mail/rules', { rules: [{ name: 'Receipts', conditions: [{ field: 'subject', op: 'contains', value: '[receipt]' }], actions: { moveTo: 'Archive' } }] });
+  await eventually(() => { try { return /"Archive"/.test(fs.readFileSync('/run/nw/sieve/olivia@acme.com.sieve', 'utf8')); } catch { return false; } }, 15000);
+  // An unread message that arrived a while ago, to archive by hand later.
+  await gina('POST', '/api/mail/send', { to: 'olivia@acme.com', subject: 'Old unread news', text: 'x' });
+  const old = await eventually(async () => (await inbox(olivia)).find((m) => m.subject === 'Old unread news'));
+  const oldAt = Date.now();
+
+  const ws = new WS(`${base.replace('http', 'ws')}/ws`, { headers: { cookie: olivia.cookie() } });
+  const events = [];
+  ws.on('message', (d) => events.push(JSON.parse(d)));
+  await new Promise((resolve, reject) => { ws.on('open', resolve); ws.on('error', reject); });
+  const archived = () => events.filter((e) => e.type === 'mail-unread').at(-1)?.byFolder?.Archive ?? -1;
+  try {
+    await eventually(() => archived() >= 0 && events.some((e) => e.type === 'mail-unread' && 'INBOX' in e.byFolder), 15000);
+
+    // Filed straight into the Archive by a filter: announced right away, with the folder.
+    await gina('POST', '/api/mail/send', { to: 'olivia@acme.com', subject: 'Your order [receipt]', text: 'x' });
+    const ev = await eventually(() => events.find((e) => e.type === 'mail-new' && e.subject === 'Your order [receipt]'), 15000);
+    assert.equal(ev.folder, 'Archive');
+
+    // New mail in the Inbox, archived unread at once: announced once (from the Inbox), not again.
+    await gina('POST', '/api/mail/send', { to: 'olivia@acme.com', subject: 'Quick one', text: 'x' });
+    await eventually(() => events.find((e) => e.type === 'mail-new' && e.subject === 'Quick one' && e.folder === 'INBOX'), 15000);
+    const quick = (await inbox(olivia)).find((m) => m.subject === 'Quick one');
+    let before = archived();
+    await olivia('POST', '/api/mail/messages/move', { folder: 'INBOX', uids: [quick.uid], to: 'archive' });
+    await eventually(() => archived() === before + 1, 10000); // the Archive watcher saw it arrive
+
+    // Older unread mail archived by hand: counted, but no "new mail" alert.
+    await new Promise((r) => setTimeout(r, Math.max(0, 8500 - (Date.now() - oldAt))));
+    before = archived();
+    await olivia('POST', '/api/mail/messages/move', { folder: 'INBOX', uids: [old.uid], to: 'archive' });
+    await eventually(() => archived() === before + 1, 10000);
+    await new Promise((r) => setTimeout(r, 500));
+    const alerts = events.filter((e) => e.type === 'mail-new');
+    assert.equal(alerts.filter((e) => e.subject === 'Quick one').length, 1, 'archived new mail is not announced twice');
+    assert.ok(!alerts.some((e) => e.subject === 'Old unread news'), 'mail you archive yourself is not "new mail"');
+    assert.equal((await olivia('GET', '/api/mail/unread')).body.byFolder.Archive, archived(), 'the badge counts the Archive too');
+  } finally { ws.close(); }
+  await olivia('PUT', '/api/mail/rules', { rules: [] });
+  await olivia('PUT', '/api/mail/notify-folders', { folders: [] });
   await eventually(() => notify.watchingCount() === 0, 5000);
 });
 

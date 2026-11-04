@@ -8,8 +8,11 @@ import { webmailSecret, mailEnabled } from './config.js';
 import { IMAP_SETTINGS } from './imap.js';
 
 const LINGER_MS = Number(process.env.MAIL_NOTIFY_LINGER_MS || 60e3); // keep watching briefly after the last tab closes
+// Only mail that was delivered this recently is announced. Moving a message (archiving it, "not
+// spam", a phone tidying up) keeps its original arrival time, so it doesn't count as new mail.
+const FRESH_MS = Number(process.env.MAIL_NOTIFY_FRESH_MS || 10 * 60e3);
 export const MAX_FOLLOWED = 10;
-const watchers = new Map(); // userId -> { stopTimer, stopped, folders: Map(path -> conn), counts: Map(path -> unseen) }
+const watchers = new Map(); // userId -> { stopTimer, stopped, folders: Map(path -> conn), counts: Map(path -> unseen), announced: Map(messageId -> time) }
 
 q(`CREATE TABLE IF NOT EXISTS notify_folders (
   user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
@@ -36,6 +39,23 @@ export function setFollowed(userId, folders) {
 // SEARCH, not STATUS: for the folder that is open on a connection STATUS may report stale numbers.
 async function unseenCount(client) {
   return ((await client.search({ seen: false }, { uid: true })) || []).length;
+}
+
+/**
+ * Whether a message that just appeared in a folder should be announced: unread, delivered within
+ * FRESH_MS, and not announced already from another folder (e.g. it arrived in the Inbox and was
+ * archived straight away). Remembers it, so it is only ever announced once.
+ */
+export function isNewMail(w, m, now = Date.now()) {
+  for (const [id, t] of w.announced) if (now - t > FRESH_MS) w.announced.delete(id); // forget old ones
+  if (m.flags?.has('\\Seen')) return false;
+  const at = m.internalDate ? new Date(m.internalDate).getTime() : now;
+  if (!(now - at < FRESH_MS)) return false;
+  const id = m.envelope?.messageId;
+  if (!id) return true;
+  if (w.announced.has(id)) return false;
+  w.announced.set(id, now);
+  return true;
 }
 
 function pushUnread(userId, w) {
@@ -71,8 +91,8 @@ async function connectFolder(userId, w, path, conn) {
     if (count <= prevCount) return;
     try {
       const fresh = [];
-      for await (const m of client.fetch(`${Math.max(prevCount + 1, count - 4)}:${count}`, { uid: true, envelope: true, flags: true })) {
-        if (!m.flags.has('\\Seen')) fresh.push(m);
+      for await (const m of client.fetch(`${Math.max(prevCount + 1, count - 4)}:${count}`, { uid: true, envelope: true, flags: true, internalDate: true })) {
+        if (isNewMail(w, m)) fresh.push(m);
       }
       for (const m of fresh) {
         const from = m.envelope?.from?.[0];
@@ -132,7 +152,7 @@ function reconcile(userId, w) {
 export function watch(userId) {
   let w = watchers.get(userId);
   if (w) { clearTimeout(w.stopTimer); w.stopTimer = null; return; }
-  w = { stopTimer: null, stopped: false, folders: new Map(), counts: new Map() };
+  w = { stopTimer: null, stopped: false, folders: new Map(), counts: new Map(), announced: new Map() };
   watchers.set(userId, w);
   reconcile(userId, w);
 }
