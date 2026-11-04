@@ -691,10 +691,10 @@ function RichBody({ initialHtml, onChange, onReady, autoFocus, label = 'Message'
         <B label={<i>I</i>} title="Italic" active={editor.isActive('italic')} onClick={() => c().toggleItalic().run()} />
         <B label={<u>U</u>} title="Underline" active={editor.isActive('underline')} onClick={() => c().toggleUnderline().run()} />
         <B label={<s>S</s>} title="Strikethrough" active={editor.isActive('strike')} onClick={() => c().toggleStrike().run()} />
-        <ColorPicker label="Text colour" options={TEXT_COLORS} none="Automatic" current={editor.getAttributes('textStyle').color || null}
+        <ColorPicker label="Text colour" kind="text" options={TEXT_COLORS} none="Automatic" current={editor.getAttributes('textStyle').color || null}
           icon={(shown) => <span className="color-a">A<span className="color-bar" style={{ background: shown || 'currentColor' }} /></span>}
           onPick={(color) => (color ? c().setColor(color).run() : c().unsetColor().run())} />
-        <ColorPicker label="Highlight colour" options={HIGHLIGHTS} none="None" current={editor.getAttributes('textStyle').backgroundColor || null}
+        <ColorPicker label="Highlight colour" kind="highlight" options={HIGHLIGHTS} none="None" current={editor.getAttributes('textStyle').backgroundColor || null}
           icon={(shown) => <span className="color-a hl"><span className="hl-pen" aria-hidden="true">🖍</span><span className="color-bar" style={{ background: shown || 'transparent' }} /></span>}
           onPick={(color) => (color ? c().setBackgroundColor(color).run() : c().unsetBackgroundColor().run())} />
         <span className="sep" />
@@ -773,40 +773,71 @@ const HIGHLIGHTS = [
   ['#fef08a', 'Yellow'], ['#bbf7d0', 'Green'], ['#bfdbfe', 'Blue'], ['#fbcfe8', 'Pink'],
   ['#fed7aa', 'Orange'], ['#e9d5ff', 'Purple'], ['#e5e7eb', 'Grey'],
 ];
-const sameColor = (a, b) => {
-  const hex = (v) => {
-    const m = String(v || '').match(/^rgb\((\d+),\s*(\d+),\s*(\d+)\)$/);
-    return m ? `#${m.slice(1).map((x) => Number(x).toString(16).padStart(2, '0')).join('')}` : String(v || '').toLowerCase();
-  };
-  return !!a && hex(a) === hex(b);
+const toHex = (v) => {
+  const m = String(v || '').match(/^rgb\((\d+),\s*(\d+),\s*(\d+)\)$/);
+  return m ? `#${m.slice(1).map((x) => Number(x).toString(16).padStart(2, '0')).join('')}` : String(v || '').toLowerCase();
 };
+/** "#abc", "abc", "#aabbcc" -> "#aabbcc"; anything else -> null. */
+const normHex = (v) => {
+  const m = String(v || '').trim().match(/^#?([0-9a-f]{3}|[0-9a-f]{6})$/i);
+  if (!m) return null;
+  const h = m[1].toLowerCase();
+  return `#${h.length === 3 ? h.split('').map((c) => c + c).join('') : h}`;
+};
+const lum = (hex) => {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+};
+const contrast = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+// Custom colours you used recently, per palette, in this browser.
+const recentKey = (kind) => `nw.recentColors.${kind}`;
+const loadRecent = (kind) => { try { return (JSON.parse(localStorage.getItem(recentKey(kind))) || []).map(normHex).filter(Boolean).slice(0, 6); } catch { return []; } };
+const saveRecent = (kind, hex, palette) => {
+  if (palette.some(([v]) => v === hex)) return;
+  try { localStorage.setItem(recentKey(kind), JSON.stringify([hex, ...loadRecent(kind).filter((h) => h !== hex)].slice(0, 6))); } catch { /* private window */ }
+};
+
+const sameColor = (a, b) => !!a && toHex(a) === toHex(b);
 
 /**
  * Text or highlight colour: the button shows the colour at the cursor; the palette sets it on the
  * selection (or on what you type next). The first choice ("Automatic" / "None") removes it.
  * Arrow keys move, Enter picks, Escape closes.
  */
-function ColorPicker({ label, options: colors, none, icon, current, onPick }) {
+function ColorPicker({ label, kind, options: colors, none, icon, current, onPick }) {
   const [open, setOpen] = useState(false);
+  const [recent, setRecent] = useState(() => loadRecent(kind));
+  const [custom, setCustom] = useState('');
   const wrap = useRef();
   const list = useRef();
-  const options = [[null, none], ...colors];
+  const options = [[null, none], ...colors, ...recent.filter((h) => !colors.some(([v]) => v === h)).map((h) => [h, `Custom ${h}`])];
+  const chosen = normHex(custom);
+  // Readability: text on a white page, or dark text on the highlight.
+  const warning = chosen && (kind === 'text'
+    ? (contrast(chosen, '#ffffff') < 3 ? 'Light colours are hard to read on a white page.' : '')
+    : (contrast('#1f1f1f', chosen) < 4.5 ? 'Dark highlights make the text on them hard to read.' : ''));
   useEffect(() => {
     if (!open) return;
     const away = (e) => { if (!wrap.current?.contains(e.target)) setOpen(false); };
     document.addEventListener('mousedown', away);
     const i = Math.max(0, options.findIndex(([v]) => (v ? sameColor(current, v) : !current)));
     list.current?.querySelectorAll('button')[i]?.focus();
+    setRecent(loadRecent(kind));
+    setCustom(current ? toHex(current) : '');
     return () => document.removeEventListener('mousedown', away);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
   const pick = (v) => { setOpen(false); onPick(v); };
+  const applyCustom = () => { if (!chosen) return; saveRecent(kind, chosen, colors); pick(chosen); };
   const onKey = (e) => {
     escCloses(open, setOpen, wrap)(e);
     if (!open || e.defaultPrevented) return;
     const buttons = [...(list.current?.querySelectorAll('button') || [])];
     let i = buttons.indexOf(document.activeElement);
-    if (i < 0) i = Math.max(0, options.findIndex(([v]) => (v ? sameColor(current, v) : !current))); // still on the A button
+    if (i < 0) {
+      if (document.activeElement !== wrap.current?.querySelector('button')) return; // typing in the custom colour box
+      i = Math.max(0, options.findIndex(([v]) => (v ? sameColor(current, v) : !current))); // still on the toolbar button
+    }
     const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1, Home: -99, End: 99 }[e.key];
     if (step === undefined) return;
     e.preventDefault();
@@ -830,6 +861,22 @@ function ColorPicker({ label, options: colors, none, icon, current, onPick }) {
               );
             })}
           </div>
+          <div className="color-custom" role="group" aria-label="Custom colour">
+            <input type="color" aria-label="Choose a custom colour" value={chosen || (kind === 'text' ? '#1f1f1f' : '#fef08a')}
+              onChange={(e) => setCustom(e.target.value)} />
+            <input type="text" aria-label="Colour code" placeholder="#1a73e8" maxLength={7} spellCheck={false} value={custom}
+              onChange={(e) => setCustom(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); applyCustom(); } }} />
+            <button type="button" className="btn small" disabled={!chosen} onClick={applyCustom}>Apply</button>
+          </div>
+          {custom && (
+            <div className="color-sample" aria-live="polite">
+              {chosen
+                ? <span style={kind === 'text' ? { color: chosen } : { background: chosen, color: '#1f1f1f' }}>Sample text</span>
+                : <span className="muted">Enter a colour code like #1a73e8</span>}
+              {warning && <div className="color-warn">{warning}</div>}
+            </div>
+          )}
         </div>
       )}
     </span>

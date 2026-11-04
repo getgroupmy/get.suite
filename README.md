@@ -120,6 +120,9 @@ Your business fixed IP is what makes this work. Do these once:
 - **Text colour:** the **A** button (its bar shows the colour at the cursor) colours the selected text, or what you type next.
   - Choose from 10 colours that read well on white and in mail apps' dark modes. **Automatic** goes back to the normal text colour.
   - Keyboard: Enter opens the palette, the arrow keys move, Enter picks, and Escape closes it without closing the message.
+- **Custom colours:** both palettes end with a custom choice. Use the colour well to open your system's colour chooser, or type a code such as `#0b8043`, then **Apply** (or press Enter).
+  - A sample shows the result. You're warned, but not stopped, if a text colour would be hard to read on white or a highlight is too dark for the text on it.
+  - Your last six custom colours appear in the palette, remembered in that browser.
 - **Highlight colour:** the 🖍 button next to it highlights the selected text, like a highlighter pen.
   - Choose from 7 light colours (yellow, green, blue, pink, orange, purple, grey), so the text on them stays readable. **None** removes the highlight.
   - Highlights are sent as a background colour on the text, which Gmail, Outlook and phone mail apps all show. In dark mode the editor keeps dark text on the highlight.
@@ -280,7 +283,7 @@ cd server && MAIL_IT_CONFIG_DIR=/etc/nw npm run test:mail
 
 ## Roadmap
 
-- **Mail, next steps:** a custom colour choice beyond the palettes, and font size.
+- **Mail, next steps:** font size, and keeping fonts in replies and forwards.
 - **Real-time co-editing:** live cursors and character-level merging (Yjs) in Docs and Sheets.
 - **Phone sync:** CalDAV and CardDAV, so calendars and contacts sync with the phone's built-in apps; WebDAV for Drive.
 - **Renaming a user's address** (moving them to another domain of the same company), **two-factor authentication**, file version history, public share links, Slides, cell formatting in Sheets, and week and day calendar views.
