@@ -63,11 +63,25 @@ export default function Mail() {
   useEffect(() => { setData(null); setChecked(new Set()); loadList(); }, [loadList]);
   useEffect(() => { loadFolders(); }, [loadFolders]);
   // New mail arrives: refresh straight away instead of waiting for the next 30-second check.
-  useEffect(() => onLive((m) => { if (m.type === 'mail-new' || m.type === 'mail-unread') { loadFolders(); if (folder === 'INBOX') loadList(); } }), [loadFolders, loadList, folder]);
+  useEffect(() => onLive((m) => {
+    if (m.type === 'mail-new' || m.type === 'mail-unread') { loadFolders(); if (m.type === 'mail-unread' || m.folder === folder) loadList(); }
+  }), [loadFolders, loadList, folder]);
+  // Folders with new-mail notifications (Inbox always). The badge counts unread mail across them.
+  const [followed, setFollowed] = useState(['INBOX']);
+  useEffect(() => { get('/mail/notify-folders').then((r) => setFollowed(r.folders)).catch(() => {}); }, []);
   useEffect(() => {
-    const inboxUnseen = folders.find((f) => f.path === 'INBOX')?.unseen;
-    if (inboxUnseen !== undefined) window.dispatchEvent(new CustomEvent('nw:unread', { detail: inboxUnseen }));
-  }, [folders]);
+    if (!folders.length) return;
+    const unseen = folders.filter((f) => followed.includes(f.path)).reduce((n, f) => n + (f.unseen || 0), 0);
+    window.dispatchEvent(new CustomEvent('nw:unread', { detail: unseen }));
+  }, [folders, followed]);
+  async function toggleFollow(f) {
+    const next = followed.includes(f.path) ? followed.filter((x) => x !== f.path) : [...followed, f.path];
+    try {
+      const r = await put('/mail/notify-folders', { folders: next });
+      setFollowed(r.folders);
+      toast(r.folders.includes(f.path) ? `You'll be notified about new mail in ${f.name}` : `No more notifications for ${f.name}`);
+    } catch (e) { toast(e.message, 'error'); }
+  }
   const [desktop, setDesktop] = useState(desktopOn());
   // Poll for new mail; retry quickly while the mailbox is unavailable (e.g. just created).
   const failing = !!error && !data;
@@ -113,11 +127,13 @@ export default function Mail() {
             <div key={f.path} className="folder-row">
               <button className={`subnav-item ${f.path === folder && !q ? 'active' : ''}`} onClick={() => { setSearch({}); go(f.path); }}>
                 <Icon name={FOLDER_ICON[f.specialUse] || 'folder'} /><span className="grow ellipsis">{f.name}</span>
+                {own && followed.includes(f.path) && <Icon name="bell" size={14} className="followed" title="New-mail notifications on" />}
                 {f.unseen > 0 && f.specialUse !== '\\Trash' && f.specialUse !== '\\Sent' && <span className="count">{f.unseen}</span>}
                 {f.specialUse === '\\Drafts' && f.messages > 0 && <span className="count muted">{f.messages}</span>}
               </button>
               {own && (
                 <Menu align="left" trigger={(p) => <button className="icon-btn folder-menu" aria-label={`Options for ${f.name}`} {...p}><Icon name="more" size={18} /></button>} items={[
+                  { label: followed.includes(f.path) ? 'Stop notifications' : 'Notify me about new mail', icon: 'bell', onClick: () => toggleFollow(f) },
                   { label: 'Rename', icon: 'edit', onClick: () => setFolderDialog({ type: 'rename', folder: f }) },
                   { label: 'Delete', icon: 'trash', danger: true, onClick: () => setFolderDialog({ type: 'delete', folder: f }) },
                 ]} />
@@ -214,6 +230,7 @@ export default function Mail() {
           onClose={() => setFolderDialog(null)}
           onSubmit={async (newPath) => {
             const r = await api('PATCH', '/mail/folders', { path: folderDialog.folder.path, newPath });
+            get('/mail/notify-folders').then((x) => setFollowed(x.folders)).catch(() => {});
             toast(`Renamed to ${r.path}${r.updatedFilters ? ` · ${r.updatedFilters} filter${r.updatedFilters === 1 ? '' : 's'} updated` : ''}`);
             if (folder === folderDialog.folder.path || folder.startsWith(`${folderDialog.folder.path}/`)) go(r.path + folder.slice(folderDialog.folder.path.length));
             loadFolders();
@@ -225,6 +242,7 @@ export default function Mail() {
           onClose={() => setFolderDialog(null)}
           onConfirm={async () => {
             const r = await api('DELETE', `/mail/folders?path=${enc(folderDialog.folder.path)}`);
+            get('/mail/notify-folders').then((x) => setFollowed(x.folders)).catch(() => {});
             toast(['Folder deleted', r.movedToTrash && `${r.movedToTrash} message${r.movedToTrash === 1 ? '' : 's'} moved to Trash`,
               r.disabledFilters && `${r.disabledFilters} filter${r.disabledFilters === 1 ? '' : 's'} switched off`].filter(Boolean).join(' · '));
             if (folder === folderDialog.folder.path || folder.startsWith(`${folderDialog.folder.path}/`)) go('INBOX');
@@ -579,7 +597,7 @@ function RichBody({ initialHtml, onChange, onReady, autoFocus, label = 'Message'
     extensions: [
       StarterKit.configure({ heading: false, codeBlock: false, horizontalRule: false, link: { openOnClick: false, autolink: true, defaultProtocol: 'https' } }),
       Placeholder.configure({ placeholder }),
-      Image.configure({ inline: false, allowBase64: false }),
+      ResizableImage.configure({ inline: false, allowBase64: false }),
       SignatureBlock,
     ],
     content: initialHtml,
@@ -640,6 +658,15 @@ function RichBody({ initialHtml, onChange, onReady, autoFocus, label = 'Message'
           if (url && /^(https?:\/\/|mailto:)/i.test(url.trim())) c().extendMarkRange('link').setLink({ href: url.trim() }).run();
         }} />
         <B label="🖼" title="Insert picture" onClick={() => fileInput.current.click()} />
+        {editor.isActive('image') && (
+          <span className="img-sizes" role="group" aria-label="Picture size">
+            <span className="sep" />
+            {IMAGE_SIZES.map(([w, name]) => (
+              <B key={w} label={name} title={`${name} picture (${w}% of the message width)`} active={(editor.getAttributes('image').width || 100) === w}
+                onClick={() => c().updateAttributes('image', { width: w === 100 ? null : w }).run()} />
+            ))}
+          </span>
+        )}
         <B label="Tx" title="Clear formatting" onClick={() => c().unsetAllMarks().clearNodes().run()} />
         {uploading > 0 && <span className="muted small">Uploading picture…</span>}
         <input ref={fileInput} type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden aria-label="Picture file"
@@ -721,3 +748,25 @@ function swapSignature(editor, html) {
     editor.chain().insertContentAt(isReply && first ? first.nodeSize : editor.state.doc.content.size, html).run();
   }
 }
+
+/** Picture sizes as a share of the message width; stored on the picture so mail apps show the same size. */
+const IMAGE_SIZES = [[25, 'Small'], [50, 'Medium'], [75, 'Large'], [100, 'Full width']];
+const ResizableImage = Image.extend({
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      width: {
+        default: null,
+        parseHTML: (el) => {
+          const v = Number(el.getAttribute('data-width') || String(el.style?.width || '').replace('%', ''));
+          return [25, 50, 75].includes(v) ? v : null;
+        },
+        // The width attribute plus inline style work across Gmail, Outlook and phone mail apps;
+        // max-width keeps pictures inside narrow screens.
+        renderHTML: (attrs) => (attrs.width
+          ? { 'data-width': attrs.width, width: `${attrs.width}%`, style: `width:${attrs.width}%; max-width:100%; height:auto` }
+          : { style: 'max-width:100%; height:auto' }),
+      },
+    };
+  },
+});

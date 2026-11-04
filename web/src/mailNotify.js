@@ -36,10 +36,11 @@ export function useMailNotifications(enabled, { toast, openMessage }) {
       if (m.type === 'mail-unread') setUnread(m.unseen);
       if (m.type === 'mail-new') {
         const who = m.from?.name || m.from?.address || 'someone';
-        toast(`New mail from ${who}: ${m.subject || '(no subject)'}`);
+        const where = m.folder && m.folder !== 'INBOX' ? ` in ${m.folder.split('/').join(' / ')}` : '';
+        toast(`New mail${where} from ${who}: ${m.subject || '(no subject)'}`);
         if (desktopOn() && document.hidden) {
           try {
-            const n = new Notification(who, { body: m.subject || '(no subject)', tag: `mail-${m.uid}`, icon: '/favicon.svg' });
+            const n = new Notification(where ? `${who}${where}` : who, { body: m.subject || '(no subject)', tag: `mail-${m.folder}-${m.uid}`, icon: '/favicon.svg' });
             n.onclick = () => { window.focus(); openMessage(m.folder, m.uid); n.close(); };
           } catch { /* some browsers only allow notifications from a service worker */ }
         }

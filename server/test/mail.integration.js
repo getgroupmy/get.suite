@@ -487,7 +487,7 @@ test('new mail is pushed to open Workspace tabs within seconds (IMAP IDLE)', asy
   ws.on('message', (d) => events.push(JSON.parse(d)));
   await new Promise((resolve, reject) => { ws.on('open', resolve); ws.on('error', reject); });
   try {
-  await eventually(() => events.some((e) => e.type === 'mail-unread'), 15000); // watcher connected
+  await eventually(() => events.some((e) => e.type === 'mail-unread' && 'INBOX' in (e.byFolder || {})), 15000); // watcher connected
   assert.equal(notify.watchingCount(), 1);
 
   const t0 = Date.now();
@@ -503,6 +503,78 @@ test('new mail is pushed to open Workspace tabs within seconds (IMAP IDLE)', asy
 
   } finally { ws.close(); }
   await eventually(() => notify.watchingCount() === 0, 5000); // closed shortly after the last tab goes away
+});
+
+test('notifications for followed folders: filed mail alerts with the folder; follows survive rename, end on delete', async () => {
+  assert.deepEqual((await olivia('GET', '/api/mail/notify-folders')).body.folders, ['INBOX']);
+  await olivia('POST', '/api/mail/folders', { name: 'Clients/Acme' });
+  assert.equal((await olivia('PUT', '/api/mail/notify-folders', { folders: ['Sent'] })).status, 400, 'built-in folders cannot be followed');
+  assert.equal((await olivia('PUT', '/api/mail/notify-folders', { folders: ['Nope'] })).status, 400, 'must exist');
+  assert.deepEqual((await olivia('PUT', '/api/mail/notify-folders', { folders: ['Clients/Acme'] })).body.folders, ['INBOX', 'Clients/Acme']);
+  await olivia('PUT', '/api/mail/rules', { rules: [{ name: 'Acme', conditions: [{ field: 'subject', op: 'contains', value: '[acme]' }], actions: { moveTo: 'Clients/Acme' } }] });
+  await eventually(() => { try { return /Clients\/Acme/.test(fs.readFileSync('/run/nw/sieve/olivia@acme.com.sieve', 'utf8')); } catch { return false; } }, 15000);
+
+  const ws = new WS(`${base.replace('http', 'ws')}/ws`, { headers: { cookie: olivia.cookie() } });
+  const events = [];
+  ws.on('message', (d) => events.push(JSON.parse(d)));
+  await new Promise((resolve, reject) => { ws.on('open', resolve); ws.on('error', reject); });
+  try {
+    await eventually(() => events.some((e) => e.type === 'mail-unread' && 'Clients/Acme' in (e.byFolder || {})), 15000);
+    const meId = (await olivia('GET', '/api/auth/me')).body.user.id;
+    assert.deepEqual(notify.watchedFolders(meId).sort(), ['Clients/Acme', 'INBOX']);
+
+    await gina('POST', '/api/mail/send', { to: 'olivia@acme.com', subject: 'Order 55 [acme]', text: 'x' });
+    const ev = await eventually(() => events.find((e) => e.type === 'mail-new' && e.subject === 'Order 55 [acme]'), 15000);
+    assert.equal(ev.folder, 'Clients/Acme', 'filed by a filter, announced with its folder');
+    const last = await eventually(() => { const u = events.filter((e) => e.type === 'mail-unread').at(-1); return u?.byFolder?.['Clients/Acme'] >= 1 && u; });
+    const api = (await olivia('GET', '/api/mail/unread')).body;
+    assert.equal(api.unseen, last.unseen);
+    assert.equal(api.byFolder['Clients/Acme'], last.byFolder['Clients/Acme']);
+
+    // Unfollowing stops the extra watcher straight away, while online.
+    await olivia('PUT', '/api/mail/notify-folders', { folders: [] });
+    await eventually(() => notify.watchedFolders(meId).length === 1, 5000);
+    await olivia('PUT', '/api/mail/notify-folders', { folders: ['Clients/Acme'] });
+
+    const ren = await olivia('PATCH', '/api/mail/folders', { path: 'Clients', newPath: 'Customers' });
+    assert.equal(ren.status, 200);
+    assert.deepEqual((await olivia('GET', '/api/mail/notify-folders')).body.folders, ['INBOX', 'Customers/Acme'], 'follow survives rename');
+    await eventually(() => notify.watchedFolders(meId).includes('Customers/Acme'), 5000);
+    await olivia('DELETE', '/api/mail/folders?path=Customers');
+    assert.deepEqual((await olivia('GET', '/api/mail/notify-folders')).body.folders, ['INBOX'], 'unfollowed on delete');
+    await eventually(() => notify.watchedFolders(meId).length === 1, 5000);
+  } finally { ws.close(); }
+  await olivia('PUT', '/api/mail/rules', { rules: [] });
+  await eventually(() => notify.watchingCount() === 0, 5000);
+});
+
+test('picture sizes survive sending', async () => {
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  const pic = (await olivia('POST', '/api/files/upload?name=half.png', png, { raw: true })).body;
+  const html = `<p><img src="/api/files/${pic.id}/raw" alt="half.png" data-width="50" width="50%" style="width:50%; max-width:100%; height:auto"></p>`;
+  assert.equal((await olivia('POST', '/api/mail/send', { to: 'gina@globex.com', subject: 'Half-size picture', text: '[image: half.png]', html })).status, 200);
+  const m = await eventually(async () => (await inbox(gina)).find((x) => x.subject === 'Half-size picture'));
+  const full = (await gina('GET', `/api/mail/messages/${m.uid}?folder=INBOX`)).body;
+  assert.match(full.html, /<img[^>]*src="data:image\/png;base64,[^"]+"[^>]*width="50%"[^>]*style="width:50%; max-width:100%; height:auto"/);
+});
+
+test('a brand-new account that opens Workspace right away still gets notifications', async () => {
+  const newbie = client();
+  await olivia('POST', '/api/users', { local: 'newbie', domain: 'acme.com', name: 'New Starter', password: 'password123' });
+  await newbie('POST', '/api/auth/login', { username: 'newbie@acme.com', password: 'password123' });
+  // Connect immediately: the mail server has not loaded the new mailbox yet, so the first
+  // watcher sign-in is refused and must be retried rather than given up.
+  const ws = new WS(`${base.replace('http', 'ws')}/ws`, { headers: { cookie: newbie.cookie() } });
+  const events = [];
+  ws.on('message', (d) => events.push(JSON.parse(d)));
+  await new Promise((resolve, reject) => { ws.on('open', resolve); ws.on('error', reject); });
+  try {
+    await eventually(() => events.some((e) => e.type === 'mail-unread' && 'INBOX' in (e.byFolder || {})), 30000); // watcher got in on a retry
+    // Postfix accepts mail for the new address once it has reloaded its tables (a second or two).
+    await eventually(async () => (await gina('POST', '/api/mail/send', { to: 'newbie@acme.com', subject: 'Welcome aboard', text: 'x' })).status === 200, 15000);
+    await eventually(() => events.some((e) => e.type === 'mail-new' && e.subject === 'Welcome aboard'), 15000);
+  } finally { ws.close(); }
+  await eventually(() => notify.watchingCount() === 0, 5000);
 });
 
 // ---- sign-in protection against the real Dovecot + Postfix ----

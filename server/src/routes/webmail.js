@@ -10,6 +10,7 @@ import { roleFor } from '../access.js';
 import { mailEnabled, scheduleMailConfig } from '../mail/config.js';
 import { withClient, withFolder, smtpFor } from '../mail/imap.js';
 import { normalizeRules } from '../mail/sieve.js';
+import { followedFolders, setFollowed, MAX_FOLLOWED } from '../mail/notify.js';
 
 const PAGE = 50;
 const MAX_SEND_BYTES = 25 * 1024 * 1024;
@@ -58,10 +59,28 @@ export default function webmailRoutes() {
 
   r.use((req, res, next) => (mailEnabled() ? next() : next(new HttpError(503, 'Email is not set up on this server'))));
 
-  // Unread count in the Inbox (for the badge on the Mail icon and the tab title).
+  // Unread mail across the folders you get notifications for (badge on the Mail icon, tab title).
   r.get('/unread', async (req, res) => {
-    const unseen = await withFolder(req.user, 'INBOX', async (c) => ((await c.search({ seen: false }, { uid: true })) || []).length);
-    res.json({ unseen });
+    const byFolder = {};
+    for (const f of followedFolders(req.user.id)) {
+      try { byFolder[f] = await withFolder(req.user, f, async (c) => ((await c.search({ seen: false }, { uid: true })) || []).length); }
+      catch (e) { if (e.status !== 404) throw e; } // a followed folder that no longer exists
+    }
+    res.json({ unseen: Object.values(byFolder).reduce((a, b) => a + b, 0), byFolder });
+  });
+
+  // Folders you get new-mail notifications for (the Inbox always; up to 10 more of your own).
+  r.get('/notify-folders', (req, res) => res.json({ folders: followedFolders(req.user.id) }));
+  r.put('/notify-folders', async (req, res) => {
+    const wanted = (Array.isArray(req.body.folders) ? req.body.folders : []).map(String).filter((f) => f.toUpperCase() !== 'INBOX');
+    if (wanted.length > MAX_FOLLOWED) throw bad(`You can follow up to ${MAX_FOLLOWED} folders besides the Inbox`);
+    const boxes = await withClient(req.user, (c) => c.list());
+    for (const f of wanted) {
+      const b = boxes.find((x) => x.path === f);
+      if (!b) throw bad(`There is no folder called “${f}”`);
+      if (b.specialUse) throw bad(`${b.name} can't be followed`);
+    }
+    res.json({ folders: setFollowed(req.user.id, wanted) });
   });
 
   // ---- vacation auto-reply ----
@@ -138,6 +157,7 @@ export default function webmailRoutes() {
       const renamed = (await c.list()).filter((b) => inTree(b.path, to));
       for (const b of renamed) await c.mailboxSubscribe(b.path).catch(() => {});
     });
+    setFollowed(req.user.id, followedFolders(req.user.id).map((f) => (inTree(f, from) ? to + f.slice(from.length) : f)));
     const updatedFilters = updateRules(req.user.id, (rule) => {
       const m = rule.actions.moveTo;
       if (!m || !inTree(m, from)) return false;
@@ -176,6 +196,7 @@ export default function webmailRoutes() {
       });
       deleted++;
     }
+    setFollowed(req.user.id, followedFolders(req.user.id).filter((f) => !inTree(f, target)));
     const disabledFilters = updateRules(req.user.id, (rule) => {
       if (!rule.enabled || !rule.actions.moveTo || !inTree(rule.actions.moveTo, target)) return false;
       rule.enabled = false;

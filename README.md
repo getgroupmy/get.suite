@@ -134,6 +134,7 @@ Your business fixed IP is what makes this work. Do these once:
   - Replies and forwards default to sending from the address the message was sent to, so a reply to mail for `sales@` goes out from `sales@` with the sales signature.
   - It's inserted when you start writing, so you can still edit it in a particular message, and a reopened draft never gets a second copy.
 - **Pictures in messages:** insert them with the 🖼 button, paste a screenshot, or drag an image file into the message (PNG, JPEG, GIF or WebP, up to 10 MB each). Signatures can contain pictures too, such as a logo.
+  - **Size:** click a picture and choose **Small, Medium, Large or Full width** (25/50/75/100% of the message width) in the toolbar. The size is kept in drafts and shows the same in recipients' mail apps. Pictures never get wider than a phone screen.
   - Pictures are saved to your Drive.
   - When the message is sent they're embedded in the email itself, so recipients see them without access to your server and without "show images" prompts.
   - The plain-text version shows `[image: name]` in their place.
@@ -146,7 +147,10 @@ Your business fixed IP is what makes this work. Do these once:
   - Turn on **Desktop alerts** in the Mail sidebar to get an operating-system notification while Workspace is in a background tab. Clicking it opens the message.
   - Reading mail on a phone or in another tab updates the count too.
   - Behind the scenes, the app keeps one IMAP IDLE connection on the Inbox for each person who has Workspace open, the same push mechanism phones use, and closes it a minute after their last tab closes. Nothing is polled, and watching never marks mail as read.
-  - Mail that a filter files into another folder doesn't trigger a notification.
+  - **Other folders:** choose **Notify me about new mail** in a folder's ⋮ menu, which is useful for folders a filter fills, such as `Clients/Acme`.
+    - Followed folders show a bell, alerts say which folder ("New mail in Suppliers from …"), and the badge counts unread mail across the Inbox and every followed folder.
+    - You can follow up to 10 folders besides the Inbox, which is always followed. Each one uses its own watching connection.
+    - Renaming a followed folder keeps it followed; deleting it unfollows it.
 - **Forward as attachment:** sends the original email whole, as an `.eml` file with its formatting, pictures, attachments and technical headers (including DKIM) intact. Use it to report a suspicious message to IT, or to pass one on exactly as received.
 - **Forwarding with attachments:** forwarding a message brings its attachments along as chips you can remove one by one. They're attached straight from the original message when you send, so nothing is downloaded and re-uploaded. Forward drafts remember them too. If the original has been deleted by the time you send, you're told the attachments can't be included.
 - **Vacation reply** (Mail → Vacation reply): an automatic answer with an optional first and last day. It's built on the mail server's standard Sieve "vacation" feature:
@@ -165,7 +169,7 @@ Your business fixed IP is what makes this work. Do these once:
   Users sign in with their email address and Workspace password.
 - **Accounts that predate email** get a working mailbox password the next time the user signs in to Workspace. Webmail works right away.
 
-**Not built yet:** resizing pictures inside the editor, carrying pictures embedded in the original into a normal forward (use **Forward as attachment** to keep everything), and notifications for folders other than the Inbox.
+**Not built yet:** free-form (drag) picture resizing, and carrying pictures embedded in the original into a normal forward (use **Forward as attachment** to keep everything).
 
 ## Sign-in protection
 
@@ -236,7 +240,7 @@ cd server && MAIL_IT_CONFIG_DIR=/etc/nw npm run test:mail
 
 ## Roadmap
 
-- **Mail, next steps:** resizing pictures, and notifications for other folders pushed live instead of checked every 30 seconds.
+- **Mail, next steps:** drag-to-resize pictures, and following the built-in Archive folder pushed live instead of checked every 30 seconds.
 - **Real-time co-editing:** live cursors and character-level merging (Yjs) in Docs and Sheets.
 - **Phone sync:** CalDAV and CardDAV, so calendars and contacts sync with the phone's built-in apps; WebDAV for Drive.
 - **Renaming a user's address** (moving them to another domain of the same company), **two-factor authentication**, file version history, public share links, Slides, cell formatting in Sheets, and week and day calendar views.
