@@ -740,6 +740,16 @@ function RichBody({ initialHtml, onChange, onReady, autoFocus, label = 'Message'
 
 // Pictures inserted from Drive, or carried over from a forwarded message.
 /** Escape anywhere in a toolbar popup (its button included) closes just the popup and returns to its button. */
+/**
+ * Enter, Space or Down on a toolbar popup's button opens it. The key is handled here (default
+ * cancelled), so the same key press can't also activate the item that receives focus.
+ */
+const keyOpens = (open, setOpen) => (e) => {
+  if (open || !['Enter', ' ', 'ArrowDown'].includes(e.key)) return;
+  e.preventDefault();
+  setOpen(true);
+};
+
 const escCloses = (open, setOpen, wrap) => (e) => {
   if (!open || e.key !== 'Escape') return;
   e.preventDefault();
@@ -775,9 +785,8 @@ function ColorPicker({ current, onPick }) {
     const away = (e) => { if (!wrap.current?.contains(e.target)) setOpen(false); };
     document.addEventListener('mousedown', away);
     const i = Math.max(0, options.findIndex(([v]) => (v ? sameColor(current, v) : !current)));
-    // After the key press that opened it has finished, or its Enter would also "click" the swatch.
-    const t = setTimeout(() => list.current?.querySelectorAll('button')[i]?.focus(), 0);
-    return () => { clearTimeout(t); document.removeEventListener('mousedown', away); };
+    list.current?.querySelectorAll('button')[i]?.focus();
+    return () => document.removeEventListener('mousedown', away);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
   const pick = (v) => { setOpen(false); onPick(v); };
@@ -796,7 +805,7 @@ function ColorPicker({ current, onPick }) {
   return (
     <span className="color-picker" ref={wrap} onKeyDown={onKey}>
       <button type="button" className={`tb ${open ? 'on' : ''}`} title="Text colour" aria-label="Text colour" aria-haspopup="dialog" aria-expanded={open}
-        onMouseDown={(e) => e.preventDefault()} onClick={() => setOpen((o) => !o)}>
+        onMouseDown={(e) => e.preventDefault()} onClick={() => setOpen((o) => !o)} onKeyDown={keyOpens(open, setOpen)}>
         <span className="color-a">A<span className="color-bar" style={{ background: shown }} /></span>
       </button>
       {open && (
@@ -833,9 +842,8 @@ function TablePicker({ onPick, disabled }) {
     if (!open) return;
     const away = (e) => { if (!wrap.current?.contains(e.target)) setOpen(false); };
     document.addEventListener('mousedown', away);
-    // After the key press that opened it has finished, or its Enter would also pick a size.
-    const t = setTimeout(() => grid.current?.querySelector('[tabindex="0"]')?.focus(), 0);
-    return () => { clearTimeout(t); document.removeEventListener('mousedown', away); };
+    grid.current?.querySelector('[tabindex="0"]')?.focus();
+    return () => document.removeEventListener('mousedown', away);
   }, [open]);
   // Close first, then insert, so the cursor lands in the new table's first cell.
   const pick = (r, c) => { setOpen(false); requestAnimationFrame(() => onPick(r, c, header)); };
@@ -855,7 +863,7 @@ function TablePicker({ onPick, disabled }) {
   return (
     <span className="table-picker" ref={wrap} onKeyDown={onKey}>
       <button type="button" className={`tb ${open ? 'on' : ''}`} title={disabled ? 'Insert table (not inside another table)' : 'Insert table'} aria-label="Insert table"
-        aria-haspopup="dialog" aria-expanded={open} disabled={disabled} onMouseDown={(e) => e.preventDefault()} onClick={() => setOpen((o) => !o)}>▦</button>
+        aria-haspopup="dialog" aria-expanded={open} disabled={disabled} onMouseDown={(e) => e.preventDefault()} onClick={() => setOpen((o) => !o)} onKeyDown={keyOpens(open, setOpen)}>▦</button>
       {open && (
         <div className="table-picker-pop" role="dialog" aria-label="Table size">
           <div className="table-picker-grid" ref={grid} role="grid" aria-label="Choose rows and columns">
