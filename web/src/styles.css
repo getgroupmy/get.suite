@@ -541,3 +541,11 @@ a.att:hover { background: var(--hover); }
 .crop-handle.e { right: -8px; top: calc(50% - 7px); cursor: ew-resize; }
 .crop-handle.w { left: -8px; top: calc(50% - 7px); cursor: ew-resize; }
 .crop-size { margin-right: auto; align-self: center; }
+
+/* Tables in the message editor (quoted from replies and forwards, or pasted) */
+.compose-editor .tiptap .tableWrapper { overflow-x: auto; margin: 8px 0; }
+.compose-editor .tiptap table { border-collapse: collapse; table-layout: auto; }
+.compose-editor .tiptap td, .compose-editor .tiptap th { border: 1px solid var(--border); padding: 4px 8px; vertical-align: top; text-align: left; min-width: 3em; position: relative; }
+.compose-editor .tiptap th { background: var(--surface-2); font-weight: 600; }
+.compose-editor .tiptap td p, .compose-editor .tiptap th p { margin: 0; }
+.compose-editor .tiptap .selectedCell::after { content: ''; position: absolute; inset: 0; background: var(--accent-soft); opacity: .5; pointer-events: none; }

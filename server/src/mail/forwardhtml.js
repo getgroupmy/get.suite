@@ -1,6 +1,7 @@
-// Turn a received email's HTML into a safe body for a normal forward: the text with basic
-// formatting (paragraphs, line breaks, bold/italic/underline/strike, lists, quotes, links) and the
-// pictures embedded in it. Everything else — scripts, styles, forms, tracking pixels and pictures
+// Turn a received email's HTML into a safe body for a reply quote or forward: the text with basic
+// formatting (paragraphs, line breaks, bold/italic/underline/strike, lists, quotes, links), data
+// tables, and the pictures embedded in it. Tables used only for page layout (as newsletters do) are
+// flattened into paragraphs. Everything else — scripts, styles, forms, tracking pixels and pictures
 // loaded from the internet — is dropped. The result only ever contains the handful of tags the
 // message editor knows, so nothing from the original can run or phone home.
 import { parseDocument } from 'htmlparser2';
@@ -11,6 +12,33 @@ const BLOCK = new Set(['p', 'div', 'section', 'article', 'header', 'footer', 'ma
 const MARKS = { b: 'strong', strong: 'strong', i: 'em', em: 'em', cite: 'em', u: 'u', ins: 'u', s: 's', strike: 's', del: 's' };
 const HEADINGS = new Set(['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'th']);
 const MAX_OUT = 1_000_000;
+const MAX_ROWS = 200, MAX_COLS = 20;
+
+const isTag = (n, ...names) => n?.type === 'tag' && names.includes(n.name);
+const hasTable = (n) => (n.children || []).some((c) => c.type === 'tag' && (c.name === 'table' || hasTable(c)));
+/** The rows of a table, looking through thead/tbody/tfoot (not into nested tables). */
+function rowsOf(table) {
+  const rows = [];
+  for (const c of table.children || []) {
+    if (isTag(c, 'tr')) rows.push(c);
+    else if (isTag(c, 'thead', 'tbody', 'tfoot')) rows.push(...(c.children || []).filter((r) => isTag(r, 'tr')));
+  }
+  return rows;
+}
+const cellsOf = (row) => (row.children || []).filter((c) => isTag(c, 'td', 'th'));
+const span = (v) => Math.min(MAX_COLS, Math.max(1, parseInt(v, 10) || 1));
+/**
+ * A table that holds data (an invoice, a schedule) rather than laying out the page: not marked as
+ * presentation, no tables inside it, and at least two columns somewhere.
+ */
+function isDataTable(table) {
+  if (/presentation|none/i.test(table.attribs?.role || '')) return false;
+  if (hasTable(table)) return false;
+  const rows = rowsOf(table);
+  if (!rows.length || rows.length > MAX_ROWS) return false;
+  const widths = rows.map((r) => cellsOf(r).reduce((n, c) => n + span(c.attribs?.colspan), 0));
+  return Math.max(...widths) >= 2 && Math.max(...widths) <= MAX_COLS;
+}
 
 const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const safeHref = (h) => {
@@ -77,6 +105,17 @@ export function forwardHtml(html, pictureUrl) {
         return;
       }
       if (tag === 'hr') { flush(); return; }
+      if (tag === 'table' && isDataTable(node)) {
+        flush();
+        const rows = rowsOf(node).map((r) => cellsOf(r).map((c) => {
+          const t = c.name === 'th' ? 'th' : 'td';
+          const a2 = c.attribs || {};
+          const spans = `${span(a2.colspan) > 1 ? ` colspan="${span(a2.colspan)}"` : ''}${span(a2.rowspan) > 1 ? ` rowspan="${Math.min(MAX_ROWS, span(a2.rowspan))}"` : ''}`;
+          return `<${t}${spans}>${flow(c.children || []) || '<p></p>'}</${t}>`;
+        }).join('')).filter(Boolean);
+        out.push(`<table><tbody>${rows.map((r) => `<tr>${r}</tr>`).join('')}</tbody></table>`);
+        return;
+      }
       let next = marks;
       if (MARKS[tag]) next = [...marks, { open: `<${MARKS[tag]}>`, close: `</${MARKS[tag]}>` }];
       if (HEADINGS.has(tag)) next = [...next, { open: '<strong>', close: '</strong>' }];

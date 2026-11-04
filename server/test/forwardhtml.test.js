@@ -34,11 +34,31 @@ test('drops anything that could run, track or mislead', () => {
   assert.match(html, /&lt;script&gt; stays text/);
 });
 
-test('tables, headings and preformatted text become readable paragraphs', () => {
+test('headings and preformatted text become readable paragraphs', () => {
   const { html } = forwardHtml(`<h2>Invoice</h2><table><tr><td>Item</td><td>Price</td></tr><tr><td>Desk</td><td>€200</td></tr></table>
     <pre>line 1
 line 2</pre>`, url);
   assert.match(html, /<p><strong>Invoice<\/strong><\/p>/);
-  assert.match(html, /<p>Item Price<\/p><p>Desk €200<\/p>/);
+  assert.match(html, /<table><tbody><tr><td><p>Item<\/p><\/td><td><p>Price<\/p><\/td><\/tr>/, 'a two-column table stays a table');
   assert.match(html, /<p>line 1<br>line 2<\/p>/);
+});
+
+test('data tables are kept, with header cells and spans; layout tables are flattened', () => {
+  const { html } = forwardHtml(`<p>Your order:</p>
+    <table border="1" style="width:600px" onclick="x()"><thead><tr><th>Item</th><th>Qty</th><th>Price</th></tr></thead>
+    <tbody><tr><td>Desk</td><td>1</td><td><b>€200</b></td></tr><tr><td colspan="2">Total</td><td>€200</td></tr></tbody></table>`, url);
+  assert.equal(html, '<p>Your order:</p><table><tbody>'
+    + '<tr><th><p>Item</p></th><th><p>Qty</p></th><th><p>Price</p></th></tr>'
+    + '<tr><td><p>Desk</p></td><td><p>1</p></td><td><p><strong>€200</strong></p></td></tr>'
+    + '<tr><td colspan="2"><p>Total</p></td><td><p>€200</p></td></tr></tbody></table>');
+
+  // A newsletter: an outer layout table holding a one-column table and a table with a picture.
+  const news = forwardHtml(`<table role="presentation"><tr><td>
+      <table><tr><td>Big news</td></tr><tr><td>We moved.</td></tr></table>
+      <table><tr><td><img src="cid:logo@x"></td><td>Visit us</td></tr></table>
+    </td></tr></table>`, url).html;
+  assert.equal(news.match(/<table>/g)?.length, 1, 'only the two-column table is kept');
+  assert.match(news, /<p>Big news<\/p><p>We moved\.<\/p>/);
+  assert.match(news, /<table><tbody><tr><td><img src="\/pic\/0" alt=""><\/td><td><p>Visit us<\/p><\/td><\/tr><\/tbody><\/table>/);
+  assert.doesNotMatch(news, /role=|onclick|style=/);
 });

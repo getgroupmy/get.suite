@@ -514,6 +514,17 @@ test('replies and forwards carry the pictures embedded in the original, cleaned 
   assert.match(gone.body.error, /original message is no longer there/);
 });
 
+test('quotes keep data tables and flatten layout tables', async () => {
+  const html = '<p>Your order:</p><table border="1"><tr><th>Item</th><th>Price</th></tr><tr><td>Desk</td><td>€200</td></tr></table>'
+    + '<table role="presentation"><tr><td>Thanks for shopping with us</td></tr></table>';
+  assert.equal((await gina('POST', '/api/mail/send', { to: 'olivia@acme.com', subject: 'Order table', text: 'Your order', html })).status, 200);
+  const m = await eventually(async () => (await inbox(olivia)).find((x) => x.subject === 'Order table'));
+  const q = (await olivia('GET', `/api/mail/messages/${m.uid}/quote?folder=INBOX`)).body.html;
+  assert.match(q, /<table><tbody><tr><th><p>Item<\/p><\/th><th><p>Price<\/p><\/th><\/tr><tr><td><p>Desk<\/p><\/td><td><p>€200<\/p><\/td><\/tr><\/tbody><\/table>/);
+  assert.equal(q.match(/<table>/g).length, 1, 'the layout table is flattened');
+  assert.match(q, /<p>Thanks for shopping with us<\/p>/);
+});
+
 test('forward as attachment: the original arrives whole as an .eml file', async () => {
   const orig = await eventually(async () => (await inbox(gina)).find((m) => m.subject === 'Two files'));
   const draft = await gina('POST', '/api/mail/drafts', { to: 'olivia@acme.com', subject: 'Fwd: Two files (as attachment)', text: 'fyi',

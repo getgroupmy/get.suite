@@ -107,7 +107,8 @@ dovecot
 postfix start-fg &   # foreground mode keeps Postfix logs on the container console
 
 running() { postfix status >/dev/null 2>&1 && pgrep -x dovecot >/dev/null && pgrep -x rspamd >/dev/null; }
-for _ in $(seq 1 30); do running && break; sleep 1; done
+# A cold start can take a while on a small NAS (Rspamd compiles its rules first), so wait up to 2 minutes.
+for _ in $(seq 1 120); do running && break; sleep 1; done
 running || { log "Services failed to start"; exit 1; }
 log "Ready: SMTP 25, submission 587/465, IMAPS 993"
 

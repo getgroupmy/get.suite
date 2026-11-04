@@ -9,6 +9,7 @@ import { Avatar, ConfirmModal, Empty, Menu, Modal, PromptModal, useToast } from 
 import { useAuth } from '../../App.jsx';
 import { useEditor, EditorContent, Node as TiptapNode, mergeAttributes } from '@tiptap/react';
 import Image from '@tiptap/extension-image';
+import { Table, TableRow, TableHeader, TableCell } from '@tiptap/extension-table';
 import { useMailStatus } from '../../mailStatus.js';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
@@ -611,6 +612,8 @@ function RichBody({ initialHtml, onChange, onReady, autoFocus, label = 'Message'
       StarterKit.configure({ heading: false, codeBlock: false, horizontalRule: false, link: { openOnClick: false, autolink: true, defaultProtocol: 'https' } }),
       Placeholder.configure({ placeholder }),
       ResizableImage.configure({ inline: false, allowBase64: false }),
+      // Tables quoted from replies and forwards (or pasted). Column sizes follow the content.
+      Table.configure({ resizable: false }), TableRow, TableHeader, TableCell,
       SignatureBlock,
     ],
     content: initialHtml,
@@ -705,6 +708,16 @@ function RichBody({ initialHtml, onChange, onReady, autoFocus, label = 'Message'
             {editablePicture(editor.getAttributes('image').src) && (
               <B label="✂ Crop / rotate" title="Crop or rotate picture" onClick={() => openEditor(editor)} />
             )}
+          </span>
+        )}
+        {editor.isActive('table') && (
+          <span className="img-sizes" role="group" aria-label="Table">
+            <span className="sep" />
+            <B label="+ Row" title="Add a row below" onClick={() => c().addRowAfter().run()} />
+            <B label="− Row" title="Delete this row" onClick={() => c().deleteRow().run()} />
+            <B label="+ Column" title="Add a column to the right" onClick={() => c().addColumnAfter().run()} />
+            <B label="− Column" title="Delete this column" onClick={() => c().deleteColumn().run()} />
+            <B label="Delete table" title="Delete table" onClick={() => c().deleteTable().run()} />
           </span>
         )}
         <B label="Tx" title="Clear formatting" onClick={() => c().unsetAllMarks().clearNodes().run()} />

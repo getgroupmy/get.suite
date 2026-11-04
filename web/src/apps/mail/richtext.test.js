@@ -37,3 +37,21 @@ test('pictures appear as [image: name] in the plain-text part', () => {
   assert.equal(docToText(doc), 'Logo:\n[image: logo.png]');
   assert.equal(emailHtml('<img src="cid:x" style="width:50%">').includes('<img src="cid:x" style="width:50%">'), true, 'picture markup is left alone');
 });
+
+test('tables: rows as "a | b" lines in plain text, inline cell styles in the email', () => {
+  const p = (t) => ({ type: 'paragraph', content: [{ type: 'text', text: t }] });
+  const cell = (type, t, attrs = {}) => ({ type, attrs, content: [p(t)] });
+  const doc = { type: 'doc', content: [p('Order:'), { type: 'table', content: [
+    { type: 'tableRow', content: [cell('tableHeader', 'Item'), cell('tableHeader', 'Price')] },
+    { type: 'tableRow', content: [cell('tableCell', 'Desk'), cell('tableCell', '€200')] },
+  ] }] };
+  assert.equal(docToText(doc), 'Order:\nItem | Price\nDesk | €200');
+
+  const html = emailHtml('<table style="min-width: 50px"><colgroup><col style="min-width: 25px"></colgroup><tbody>'
+    + '<tr><th colspan="1" rowspan="1"><p>Item</p></th><th colspan="1" rowspan="1"><p>Price</p></th></tr>'
+    + '<tr><td colspan="2" rowspan="1" style="x"><p>Total</p><p>incl. VAT</p></td></tr></tbody></table>');
+  assert.doesNotMatch(html, /colgroup|min-width|rowspan="1"|style="x"/);
+  assert.match(html, /<table style="border-collapse:collapse[^"]*">/);
+  assert.match(html, /<th style="border:1px solid #ccc[^"]*font-weight:bold"><p style="margin:0">Item<\/p><\/th>/);
+  assert.match(html, /<td colspan="2" style="border:1px solid #ccc[^"]*"><p style="margin:0">Total<\/p><p style="margin:0">incl\. VAT<\/p><\/td>/);
+});

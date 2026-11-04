@@ -116,7 +116,7 @@ Your business fixed IP is what makes this work. Do these once:
 - **Drafts:** compose saves to the Drafts folder 2 seconds after you stop typing. Closing the window keeps the draft, the bin icon discards it, and clicking a draft in Drafts resumes it.
   - Drafts live on the mail server, so phones and Outlook see them.
   - Attachments in a draft are kept as links to Drive files. They're restored when the draft is reopened in webmail, but phones don't see them until the message is sent.
-- **Rich-text writing:** bold, italic, underline, strike, bulleted and numbered lists, quotes and links. Every message is sent with a formatted version and a readable plain-text version (quotes marked with `>`, lists with `-` / `1.`), so any mail app can show it. Replies quote the original as a quoted block. Quotes are built from the original's plain text, so formatting tricks in a received email can't carry into yours.
+- **Rich-text writing:** bold, italic, underline, strike, bulleted and numbered lists, quotes, links and tables. Every message is sent with a formatted version and a readable plain-text version (quotes marked with `>`, lists with `-` / `1.`), so any mail app can show it. Replies quote the original as a quoted block. Quotes are built from the original's plain text, so formatting tricks in a received email can't carry into yours.
 - **Filters** (Mail → Filters, or **Filter messages like this** on any message): rules run by the mail server as mail arrives, so they apply to phones too. They run in order, and can be reordered and switched on or off.
   - Conditions: From, To or Cc, or Subject *contains*, *doesn't contain* or *is exactly* a value, matching all or any of them.
   - Actions: move to a folder (created if needed, e.g. `Clients/Acme`), mark as read, star, forward a copy, or delete.
@@ -165,10 +165,14 @@ Your business fixed IP is what makes this work. Do these once:
     - **The Archive can be followed too** (its ⋮ menu has just this option), which suits filters that file receipts or newsletters straight into it. Sent, Drafts, Junk and Trash can't be followed.
   - Only newly delivered mail triggers an alert. Mail you move yourself (archiving unread mail, "Not spam", a phone tidying folders) keeps its original arrival time, so it counts towards the unread badge but doesn't alert. A message is announced once, even if it lands in the Inbox and is then archived straight away.
 - **Forward as attachment:** sends the original email whole, as an `.eml` file with its formatting, pictures, attachments and technical headers (including DKIM) intact. Use it to report a suspicious message to IT, or to pass one on exactly as received.
-- **Pictures in replies and forwards:** **Reply**, **Reply all** and a normal **Forward** keep the original's basic formatting (paragraphs, bold, italic, lists, quotes, links) and the pictures embedded in it, in place. In a reply they sit inside the quote.
+- **Pictures and tables in replies and forwards:** **Reply**, **Reply all** and a normal **Forward** keep the original's basic formatting (paragraphs, bold, italic, lists, quotes, links), its tables, and the pictures embedded in it, in place. In a reply they sit inside the quote.
   - The server cleans the original first. Scripts, styles, forms and pictures loaded from the internet (including tracking pixels) are left out, so nothing in a forwarded email can run or report back to its sender.
   - While you write, the pictures are shown straight from the original message, so they don't take up space in your Drive. When you send, they're embedded in your email like pictures you insert yourself.
   - You can resize, crop or rotate them like your own pictures. A cropped or rotated picture is saved to your Drive.
+  - **Tables:** data tables (an order, an invoice, a schedule) are kept with their header row and merged cells.
+    - Newsletters often use tables only to lay out the page. Those are recognised (tables inside tables, single-column tables, or ones marked as layout) and turned into ordinary paragraphs, so a quote doesn't become a grid of boxes.
+    - Click inside a table to get **+ Row / − Row / + Column / − Column / Delete table** in the toolbar, to trim what you pass on. Tables you paste into a message work the same way.
+    - Sent tables have simple borders that show the same in Gmail, Outlook and phone mail apps. The plain-text version shows each row as `cell | cell`.
   - Plain-text emails are quoted as text, as before.
   - Pictures count towards the 25 MB limit. When replying to a picture-heavy newsletter, delete the quoted pictures you don't need.
   - If the original is deleted before you send, you're told its pictures can't be included.
@@ -189,7 +193,7 @@ Your business fixed IP is what makes this work. Do these once:
   Users sign in with their email address and Workspace password.
 - **Accounts that predate email** get a working mailbox password the next time the user signs in to Workspace. Webmail works right away.
 
-**Not built yet:** keeping the original's exact layout (tables, colours, fonts) in a normal forward (use **Forward as attachment** to keep everything).
+**Not built yet:** keeping the original's exact look (colours, fonts, page layout) in a normal forward (use **Forward as attachment** to keep everything), and inserting a new table from the toolbar.
 
 ## Sign-in protection
 
@@ -260,7 +264,7 @@ cd server && MAIL_IT_CONFIG_DIR=/etc/nw npm run test:mail
 
 ## Roadmap
 
-- **Mail, next steps:** keeping more of the original's layout (tables) in replies and forwards.
+- **Mail, next steps:** an **Insert table** button, and keeping text colours in replies and forwards.
 - **Real-time co-editing:** live cursors and character-level merging (Yjs) in Docs and Sheets.
 - **Phone sync:** CalDAV and CardDAV, so calendars and contacts sync with the phone's built-in apps; WebDAV for Drive.
 - **Renaming a user's address** (moving them to another domain of the same company), **two-factor authentication**, file version history, public share links, Slides, cell formatting in Sheets, and week and day calendar views.

@@ -45,6 +45,13 @@ export function docToText(doc) {
       case 'horizontalRule':
         out.push(`${prefix}----`);
         break;
+      case 'table':
+        // One line per row, cells separated by " | ".
+        (node.content || []).forEach((row) => {
+          const cells = (row.content || []).map((cell) => docToText({ content: cell.content || [] }).replace(/\s*\n\s*/g, ' ').trim());
+          out.push(prefix + cells.join(' | '));
+        });
+        break;
       default:
         (node.content || []).forEach((c) => block(c, prefix));
     }
@@ -53,9 +60,23 @@ export function docToText(doc) {
   return out.join('\n').replace(/\n{3,}/g, '\n\n').replace(/\n+$/, '');
 }
 
+const CELL_STYLE = 'border:1px solid #ccc; padding:4px 8px; vertical-align:top; text-align:left';
+
+/** Inline styles for a table: mail apps ignore style sheets, so borders and spacing go on each cell. */
+function emailTables(html) {
+  return html
+    .replace(/<colgroup>[\s\S]*?<\/colgroup>/g, '') // the editor's column sizing hints
+    .replace(/<table\b[^>]*>/g, '<table style="border-collapse:collapse; margin:8px 0; max-width:100%">')
+    .replace(/<(td|th)\b([^>]*)>([\s\S]*?)<\/\1>/g, (m, tag, attrs, inner) => {
+      const spans = [...attrs.matchAll(/\b(colspan|rowspan)="(\d+)"/g)].filter(([, , v]) => v !== '1').map(([, k, v]) => ` ${k}="${v}"`).join('');
+      const style = tag === 'th' ? `${CELL_STYLE}; background:#f3f3f3; font-weight:bold` : CELL_STYLE;
+      return `<${tag}${spans} style="${style}">${inner.replace(/<p>/g, '<p style="margin:0">')}</${tag}>`;
+    });
+}
+
 /** Wrap the editor's HTML so mail apps render it consistently. */
 export function emailHtml(bodyHtml) {
-  return `<div style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; line-height: 1.5; color: #1f1f1f">${bodyHtml
+  return `<div style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; line-height: 1.5; color: #1f1f1f">${emailTables(bodyHtml)
     .replace(/<blockquote>/g, '<blockquote style="margin:0 0 0 .8ex; border-left:2px solid #ccc; padding-left:1ex; color:#555">')}</div>`;
   // (Pictures carry their own size and max-width style from the editor.)
 }
