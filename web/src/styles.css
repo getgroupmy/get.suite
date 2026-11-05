@@ -763,7 +763,9 @@ button.tg-day:hover .tg-num { background: var(--hover); }
 .slide-list .thumb { padding: 0; border: 2px solid transparent; border-radius: 6px; background: none; cursor: pointer; display: block; width: 100%; }
 .slide-list li.on .thumb { border-color: var(--accent); }
 .slide-list .thumb .slide { box-shadow: 0 0 0 1px var(--border); border-radius: 3px; }
-.slide-list .thumb-menu { position: absolute; right: 2px; top: 2px; width: 26px; height: 26px; background: var(--surface); opacity: 0; }
+.slide-list li > .menu-wrap { position: absolute; right: 4px; top: 4px; }
+.slide-list .thumb-menu { width: 26px; height: 26px; background: var(--surface); opacity: 0; box-shadow: 0 0 0 1px var(--border); }
+.slide-list li.on .thumb-menu { opacity: .9; }
 .slide-list li:hover .thumb-menu, .slide-list .thumb-menu:focus-visible, .slide-list .thumb-menu[aria-expanded="true"] { opacity: 1; }
 .slide-stage { flex: 1; min-width: 0; overflow: auto; padding: 24px; display: flex; flex-direction: column; align-items: center; outline: none; }
 .slide-stage > .slide { width: min(100%, calc((100vh - 220px) * 16 / 9)); box-shadow: var(--shadow); }

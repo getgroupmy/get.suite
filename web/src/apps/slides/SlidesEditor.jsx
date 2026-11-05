@@ -293,7 +293,10 @@ function SlideView({ slide, theme, deckId, editable, selected, editing, onSelect
                 onBlur={() => onEdit(null)} />
             : <div className={`slide-text ${!it.text ? 'slide-placeholder' : ''}`} style={style}>{it.text || (editable ? PLACEHOLDER[it.role] || 'Click to add text' : '')}</div>;
         } else if (it.type === 'image') {
-          inner = <img src={`/api/files/${deckId}/pictures/${it.fileId}`} alt={it.name || ''} draggable={false} />;
+          // Through the deck (works for everyone who can open it, once saved); just after inserting,
+          // before the save, the person who added it opens the picture file directly.
+          inner = <img src={`/api/files/${deckId}/pictures/${it.fileId}`} alt={it.name || ''} draggable={false}
+            onError={(e) => { const direct = `/api/files/${it.fileId}/raw`; if (!e.currentTarget.src.endsWith(direct)) e.currentTarget.src = direct; }} />;
         } else if (it.type === 'shape') {
           inner = <div className={`slide-shape ${it.shape}`} style={{ background: colorOf(it.fill, theme, theme.accent) }} />;
         }
