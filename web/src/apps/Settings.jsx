@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import QRCode from 'qrcode';
-import { get, patch, post } from '../api.js';
+import { api, get, patch, post } from '../api.js';
 import { useAuth } from '../App.jsx';
 import { useToast } from '../components/ui.jsx';
 
@@ -46,6 +46,7 @@ export default function Settings() {
         <div className="row end"><button className="btn primary">Change password</button></div>
       </form>
       <TwoStep />
+      <MailApps />
     </div>
   );
 }
@@ -147,6 +148,65 @@ function TwoStep() {
       </> : <>
         <p><strong>Off.</strong> Add a second step to signing in: after your password, a code from an app on your phone. Someone who learns your password still can't get in.</p>
         <div className="row end"><button type="button" className="btn primary" onClick={() => setStep('on')}>Turn on</button></div>
+      </>}
+    </section>
+  );
+}
+
+/**
+ * Mail apps (phones, Outlook): the settings to enter, and an optional mail-app password that
+ * replaces the account password for them.
+ */
+function MailApps() {
+  const toast = useToast();
+  const { user } = useAuth();
+  const [st, setSt] = useState(null);
+  const [step, setStep] = useState(null); // null | 'create' | 'remove' | 'show'
+  const [password, setPassword] = useState('');
+  const [made, setMade] = useState('');
+  const [error, setError] = useState('');
+  useEffect(() => { get('/auth/mail-app').then(setSt).catch(() => {}); }, []);
+  if (!st?.enabled) return null;
+  const reset = () => { setStep(null); setPassword(''); setError(''); };
+  const run = (fn) => async (e) => { e.preventDefault(); setError(''); try { await fn(); } catch (err) { setError(err.message); } };
+  const create = run(async () => { const r = await post('/auth/mail-app', { password }); setSt(r); setMade(r.password); setPassword(''); setStep('show'); });
+  const remove = run(async () => { setSt(await api('DELETE', '/auth/mail-app', { password })); reset(); toast('Mail apps use your account password again'); });
+  const host = st.hostname || window.location.hostname;
+  return (
+    <section className="card stack" aria-labelledby="mailapps-h">
+      <h2 id="mailapps-h">Mail apps (phones, Outlook)</h2>
+      <dl className="settings-list">
+        <dt>Incoming (IMAP)</dt><dd><code>{host}</code>, port <code>993</code>, SSL/TLS</dd>
+        <dt>Outgoing (SMTP)</dt><dd><code>{host}</code>, port <code>465</code> SSL/TLS (or <code>587</code> STARTTLS)</dd>
+        <dt>User name</dt><dd><code>{user.username}</code></dd>
+        <dt>Password</dt><dd>{st.appPassword ? 'your mail-app password (your account password no longer works in mail apps)' : 'your account password'}</dd>
+      </dl>
+      {step === 'show' ? <>
+        <p><strong>Your mail-app password:</strong> enter it in your mail apps instead of your account password. It's shown only once.</p>
+        <div className="secret-key" aria-label="Mail-app password">{made}</div>
+        <p className="muted small">Type it exactly as shown, dashes included (or use Copy). Mail apps signed in with your account password will ask for this one within a few seconds.</p>
+        <div className="row end">
+          <button type="button" className="btn" onClick={() => navigator.clipboard?.writeText(made).then(() => toast('Copied'))}>Copy</button>
+          <button type="button" className="btn primary" onClick={() => { setMade(''); reset(); }}>Done</button>
+        </div>
+      </> : step ? (
+        <form className="stack" onSubmit={step === 'create' ? create : remove}>
+          <p>{step === 'create'
+            ? (st.appPassword ? 'A new mail-app password replaces the current one; mail apps using the old one will ask for the new one.' : 'Mail apps will then need the mail-app password; your account password stops working in them.')
+            : 'Mail apps will use your account password again.'}</p>
+          <label className="field"><span>Your account password</span><input type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required autoFocus /></label>
+          {error && <p className="error" role="alert">{error}</p>}
+          <div className="row end"><button type="button" className="btn" onClick={reset}>Cancel</button>
+            <button className={`btn ${step === 'remove' ? 'danger' : 'primary'}`}>{step === 'create' ? 'Create mail-app password' : 'Remove it'}</button></div>
+        </form>
+      ) : <>
+        <p className="muted small">{st.appPassword
+          ? `A mail-app password is in use (created ${new Date(st.appPassword.created).toLocaleDateString()}). If a phone is lost, make a new one or remove it.`
+          : 'For extra safety, give mail apps their own password: then someone who learns your account password can\'t read your mail from a mail app, and a lost phone never had your account password.'}</p>
+        <div className="row end">
+          {st.appPassword && <button type="button" className="btn" onClick={() => setStep('remove')}>Remove</button>}
+          <button type="button" className="btn primary" onClick={() => setStep('create')}>{st.appPassword ? 'New mail-app password' : 'Create mail-app password'}</button>
+        </div>
       </>}
     </section>
   );

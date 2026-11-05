@@ -252,8 +252,19 @@ Everyone can add a second step to signing in on the web: after the password, a 6
 - **Recovery codes running low?** Settings shows how many are left and warns at 3. **New recovery codes** replaces them all.
 - **Lost phone:** sign in with a recovery code. Without one, ask an admin: Admin → Users → ⋮ → **Reset two-step verification**. That signs the person out everywhere so they can sign in with their password and set it up again. The user list shows who has **2-step** on.
 - **Turning it off** needs your password and a current code (or a recovery code).
-- **Mail apps:** phones and Outlook reading mail over IMAP/SMTP still sign in with just the password. Sign-in protection blocks anyone guessing it. Separate app passwords for mail apps are on the roadmap.
+- **Mail apps:** phones and Outlook reading mail over IMAP/SMTP can't ask for a code. Give them a **mail-app password** (below), so your account password alone can't open your mail from a mail app.
 - The keys are stored in the database, so they're included in its backups. Protect the backups like the server itself.
+
+## Mail apps (phones, Outlook)
+
+Settings → **Mail apps** shows what to enter in a phone or Outlook: the server name, ports (IMAP 993, SMTP 465 or 587) and user name (your email address).
+
+- **Mail-app password (optional):** **Create mail-app password** gives mail apps their own password, for example `wisn-fyun-ngpb-btim`.
+  - It's shown once. Type it exactly, dashes included, or use Copy.
+  - From then on mail apps accept only it; your account password stops working in them, within a few seconds. Webmail is unaffected.
+  - Someone who learns your account password then can't read your mail from a mail app. A lost phone never had your account password: make a new mail-app password (the old one stops working) or **Remove** it to go back to the account password.
+  - Recommended together with two-step verification.
+- When an admin resets someone's password (for example after a break-in), their mail-app password is removed too, so only the new password works anywhere.
 
 ## Sign-in protection
 
@@ -328,5 +339,5 @@ cd server && MAIL_IT_CONFIG_DIR=/etc/nw npm run test:mail
 - **Calendar, next steps:** dragging events to move or resize them, repeating events, and inviting colleagues to events.
 - **Real-time co-editing:** live cursors and character-level merging (Yjs) in Docs and Sheets.
 - **Phone sync:** CalDAV and CardDAV, so calendars and contacts sync with the phone's built-in apps; WebDAV for Drive.
-- **App passwords** for mail apps when two-step verification is on, and an admin option to require two-step verification for a whole company.
+- **Security, next steps:** an admin option to require two-step verification for a whole company, and a list of signed-in devices with "sign out" per device.
 - **Renaming a user's address** (moving them to another domain of the same company), file version history, public share links, Slides, and cell formatting in Sheets.

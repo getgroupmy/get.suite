@@ -189,6 +189,27 @@ test('phones and Outlook sign in with the account password; resets and disabling
   assert.equal((await gina('POST', '/api/mail/send', { to: 'bob@acme.com', subject: 'While away', text: 'x' })).status, 200);
 });
 
+test('a mail-app password replaces the account password for mail apps (not for webmail)', async () => {
+  const before = await imapLogin('gina@globex.com', 'password123');
+  await before.logout();
+  assert.equal((await gina('POST', '/api/auth/mail-app', { password: 'wrong' })).status, 400, 'needs the account password');
+  const made = await gina('POST', '/api/auth/mail-app', { password: 'password123' });
+  assert.equal(made.status, 200, JSON.stringify(made.body));
+  assert.match(made.body.password, /^[a-z]{4}-[a-z]{4}-[a-z]{4}-[a-z]{4}$/);
+  assert.ok(made.body.appPassword.created);
+  const app = made.body.password; // exactly as shown, with the dashes
+  // Within a few seconds the mail server only accepts the app password.
+  await eventually(async () => { try { await imapLogin('gina@globex.com', 'password123'); return false; } catch { return true; } });
+  const phone = await imapLogin('gina@globex.com', app);
+  await phone.logout();
+  assert.equal((await gina('GET', '/api/mail/folders')).status, 200, 'webmail is unaffected');
+  assert.equal((await gina('GET', '/api/auth/mail-app')).body.appPassword !== null, true);
+  // Removing it brings the account password back for mail apps.
+  assert.equal((await gina('DELETE', '/api/auth/mail-app', { password: 'password123' })).status, 200);
+  await eventually(async () => { const c = await imapLogin('gina@globex.com', 'password123'); await c.logout(); return true; });
+  await assert.rejects(imapLogin('gina@globex.com', app));
+});
+
 test('postmaster@ reaches the company admin', async () => {
   assert.equal((await olivia('POST', '/api/mail/send', { to: 'postmaster@globex.com', subject: 'DMARC report', text: 'x' })).status, 200);
   await eventually(async () => (await inbox(gina)).some((m) => m.subject === 'DMARC report'));

@@ -7,7 +7,8 @@ import {
 } from '../auth.js';
 import * as guard from '../security/guard.js';
 import { createOrg } from '../tenancy.js';
-import { setMailPassword } from '../mail/config.js';
+import { setMailPassword, setMailAppPassword, mailEnabled, MAIL_HOSTNAME } from '../mail/config.js';
+import crypto from 'node:crypto';
 import * as twoFactor from '../twofactor.js';
 import { otpauthUrl } from '../totp.js';
 
@@ -129,6 +130,27 @@ export default function authRoutes({ secureCookies }) {
     }
     twoFactor.disable(req.user.id);
     res.json(twoFactor.status(req.user.id));
+  });
+
+  // ---- mail-app password (phones, Outlook): replaces the account password for IMAP/SMTP ----
+  const mailApp = (userId) => {
+    const row = q('SELECT mail_app_created FROM users WHERE id = ?').get(userId);
+    return { enabled: mailEnabled(), hostname: MAIL_HOSTNAME, appPassword: row?.mail_app_created ? { created: row.mail_app_created } : null };
+  };
+  r.get('/mail-app', requireAuth, (req, res) => res.json(mailApp(req.user.id)));
+  r.post('/mail-app', requireAuth, (req, res) => {
+    if (!mailEnabled()) throw bad('Email is not set up on this server');
+    needPassword(req);
+    // 16 letters in 4 groups: easy to type on a phone, ~75 bits of randomness.
+    const letters = 'abcdefghijkmnopqrstuvwxyz';
+    const pw = Array.from(crypto.randomBytes(16), (b) => letters[b % letters.length]).join('').match(/.{4}/g).join('-');
+    setMailAppPassword(req.user.id, pw); // exactly as shown, dashes included
+    res.json({ password: pw, ...mailApp(req.user.id) });
+  });
+  r.delete('/mail-app', requireAuth, (req, res) => {
+    needPassword(req);
+    setMailAppPassword(req.user.id, null);
+    res.json(mailApp(req.user.id));
   });
 
   return r;

@@ -78,6 +78,8 @@ export default function userRoutes() {
       validatePassword(password);
       q('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(password), u.id);
       setMailPassword(u.id, password);
+      // A reset (e.g. after a break-in) also removes the mail-app password, so only the new password works anywhere.
+      q('UPDATE users SET mail_app_hash = NULL, mail_app_created = NULL WHERE id = ?').run(u.id);
       q('DELETE FROM sessions WHERE user_id = ?').run(u.id);
     }
     // Lost phone: turn off their two-step verification so they can sign in with the password and set

@@ -138,6 +138,9 @@ if (!hasColumn('users', 'mail_quota_mb')) db.exec('ALTER TABLE users ADD COLUMN 
 if (!hasColumn('domains', 'dkim_private')) db.exec('ALTER TABLE domains ADD COLUMN dkim_private TEXT');
 if (!hasColumn('domains', 'catchall')) db.exec('ALTER TABLE domains ADD COLUMN catchall TEXT');   // mailbox for unknown addresses
 if (!hasColumn('domains', 'dkim_public')) db.exec('ALTER TABLE domains ADD COLUMN dkim_public TEXT');   // base64 SPKI for the DNS record
+// Mail-app password: when set, mail apps (IMAP/SMTP) must use it instead of the account password.
+if (!hasColumn('users', 'mail_app_hash')) db.exec('ALTER TABLE users ADD COLUMN mail_app_hash TEXT');
+if (!hasColumn('users', 'mail_app_created')) db.exec('ALTER TABLE users ADD COLUMN mail_app_created INTEGER');
 db.exec(`
 CREATE TABLE IF NOT EXISTS aliases (
   id TEXT PRIMARY KEY,

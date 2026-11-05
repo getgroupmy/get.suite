@@ -648,3 +648,7 @@ button.tg-day:hover .tg-num { background: var(--hover); }
 .tg-now { position: absolute; left: 0; right: 0; height: 2px; background: #d93025; z-index: 3; pointer-events: none; }
 .tg-now::before { content: ''; position: absolute; left: -5px; top: -4px; width: 10px; height: 10px; border-radius: 50%; background: #d93025; }
 @media (max-width: 700px) { .tg-num { font-size: 15px; width: 28px; height: 28px; } .seg button { padding: 6px 10px; } .cal-head { flex-wrap: wrap; } }
+.settings-list { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0; font-size: 14px; }
+.settings-list dt { color: var(--muted); }
+.settings-list dd { margin: 0; overflow-wrap: anywhere; }
+@media (max-width: 520px) { .settings-list { grid-template-columns: 1fr; } .settings-list dd { margin-bottom: 6px; } }

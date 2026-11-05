@@ -43,6 +43,12 @@ export function ensureDkim(domain) {
 
 // ---------- password hashes ----------
 /** Keep the mailbox password in step with the account password (we only see it in plain text at these moments). */
+/** Mail-app password: replaces the account password for mail apps (null = back to the account password). */
+export function setMailAppPassword(userId, password) {
+  q('UPDATE users SET mail_app_hash = ?, mail_app_created = ? WHERE id = ?').run(password ? dovecotHash(password) : null, password ? Date.now() : null, userId);
+  scheduleMailConfig();
+}
+
 export function setMailPassword(userId, password) {
   q('UPDATE users SET mail_hash = ? WHERE id = ?').run(dovecotHash(password), userId);
   scheduleMailConfig();
@@ -75,7 +81,7 @@ const splitTargets = (s) => s.split(',').map((t) => t.trim().toLowerCase()).filt
 
 export function buildMailConfig() {
   const domains = q('SELECT name, org_id, catchall FROM domains ORDER BY name').all();
-  const users = q('SELECT id, org_id, username, name, mail_hash, mail_quota_mb, disabled, is_admin FROM users ORDER BY username').all();
+  const users = q('SELECT id, org_id, username, name, mail_hash, mail_app_hash, mail_quota_mb, disabled, is_admin FROM users ORDER BY username').all();
   const aliases = q('SELECT org_id, address, targets FROM aliases ORDER BY address').all();
   const userByAddress = new Map(users.map((u) => [u.username.toLowerCase(), u]));
   const aliasMap = new Map(aliases.map((a) => [a.address.toLowerCase(), splitTargets(a.targets)]));
@@ -106,7 +112,8 @@ export function buildMailConfig() {
     ]),
     'dovecot/passwd': lines(users.map((u) => {
       // "*" can never match: users who haven't signed in since email was enabled have no hash yet.
-      const pass = u.mail_hash || '{SHA512-CRYPT}*';
+      // With a mail-app password, that is the only password mail apps accept.
+      const pass = u.mail_app_hash || u.mail_hash || '{SHA512-CRYPT}*';
       const extra = [];
       if (u.disabled) extra.push('nologin=y', 'reason=Account_disabled');
       if (u.mail_quota_mb > 0) extra.push(`userdb_quota_rule=*:storage=${u.mail_quota_mb}M`);
