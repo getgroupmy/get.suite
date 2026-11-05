@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { NavLink, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { get, post, patch, del, put, uploadFile, onLive, formatBytes, formatDate } from '../../api.js';
+import { get, post, patch, del, put, uploadFile, uploadVersion, onLive, formatBytes, formatDate } from '../../api.js';
 import Icon, { fileIcon } from '../../components/Icon.jsx';
 import { Menu, Modal, PromptModal, ConfirmModal, Empty, useToast, Avatar } from '../../components/ui.jsx';
 import { useAuth } from '../../App.jsx';
@@ -85,6 +85,24 @@ export default function Drive() {
     load();
   }
 
+  // Upload new version: pick a file, it replaces the contents (the old ones stay in the history).
+  const versionInput = useRef();
+  const versionFor = useRef(null);
+  async function uploadNewVersion(file) {
+    const target = versionFor.current;
+    if (!file || !target) return;
+    const item = { id: Math.random(), name: `${target.name} (new version)`, progress: 0 };
+    setUploads((u) => [...u, item]);
+    try {
+      await uploadVersion(file, target.id, (p) => setUploads((u) => u.map((x) => (x.id === item.id ? { ...x, progress: p } : x))));
+      setUploads((u) => u.map((x) => (x.id === item.id ? { ...x, progress: 1, done: true } : x)));
+      toast(`New version of ${target.name} uploaded`);
+    } catch (e) {
+      setUploads((u) => u.map((x) => (x.id === item.id ? { ...x, error: e.message } : x)));
+    }
+    load();
+  }
+
   async function create(kind) {
     try {
       const f = await post('/files/new', { kind, parent_id: parentId });
@@ -115,6 +133,9 @@ export default function Drive() {
       f.role === 'owner' && { label: 'Share', icon: 'share', onClick: () => setDialog({ type: 'share', file: f }) },
       canEdit && { label: 'Rename', icon: 'edit', onClick: () => setDialog({ type: 'rename', file: f }) },
       canEdit && { label: 'Move to…', icon: 'move', onClick: () => setDialog({ type: 'move', file: f }) },
+      f.kind !== 'folder' && '-',
+      f.kind === 'file' && canEdit && { label: 'Upload new version', icon: 'upload', onClick: () => { versionFor.current = f; versionInput.current.click(); } },
+      f.kind !== 'folder' && { label: 'Version history', icon: 'clock', onClick: () => setDialog({ type: 'versions', file: f }) },
       canEdit && '-',
       canEdit && { label: 'Move to trash', icon: 'trash', danger: true, onClick: act(() => patch(`/files/${f.id}`, { trashed: true }), 'Moved to trash') },
     ];
@@ -230,6 +251,8 @@ export default function Drive() {
       {dialog?.type === 'share' && <ShareDialog file={dialog.file} onClose={() => setDialog(null)} />}
       {dialog?.type === 'move' && <MoveDialog file={dialog.file} onClose={() => setDialog(null)} onMoved={load} />}
       {dialog?.type === 'preview' && <Preview file={dialog.file} onClose={() => setDialog(null)} />}
+      {dialog?.type === 'versions' && <VersionsDialog file={dialog.file} onClose={() => setDialog(null)} onChanged={load} />}
+      <input ref={versionInput} type="file" hidden aria-hidden="true" tabIndex={-1} onChange={(e) => { uploadNewVersion(e.target.files[0]); e.target.value = ''; }} />
     </div>
   );
 }
@@ -426,6 +449,64 @@ function Preview({ file, onClose }) {
     <Modal wide title={file.name} onClose={onClose} footer={<a className="btn primary" href={`${src}?download`}><Icon name="download" size={18} /> Download</a>}>
       <div className="preview">{body}</div>
       <p className="muted small">{formatBytes(file.size)} · modified {formatDate(file.updated_at)}</p>
+    </Modal>
+  );
+}
+
+/** Earlier versions of a file: download or look at them, bring one back, or delete it. */
+function VersionsDialog({ file, onClose, onChanged }) {
+  const toast = useToast();
+  const [list, setList] = useState(null);
+  const [current, setCurrent] = useState(file);
+  const [confirm, setConfirm] = useState(null);
+  const canEdit = file.role === 'owner' || file.role === 'editor';
+  const load = useCallback(() => {
+    get(`/files/${file.id}/versions`).then(setList).catch((e) => toast(e.message, 'error'));
+    get(`/files/${file.id}`).then(setCurrent).catch(() => {});
+  }, [file.id, toast]);
+  useEffect(load, [load]);
+  const when = (ms) => new Date(ms).toLocaleString([], { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+
+  async function restore(v) {
+    try { await post(`/files/${file.id}/versions/${v.id}/restore`); toast(`Restored the version from ${when(v.saved_at)}`); load(); onChanged?.(); }
+    catch (e) { toast(e.message, 'error'); }
+    setConfirm(null);
+  }
+  async function remove(v) {
+    try { await del(`/files/${file.id}/versions/${v.id}`); toast('Version deleted'); load(); onChanged?.(); }
+    catch (e) { toast(e.message, 'error'); }
+    setConfirm(null);
+  }
+
+  if (confirm) {
+    const v = confirm.version;
+    return confirm.kind === 'restore'
+      ? <ConfirmModal title="Restore this version?" danger={false} confirm="Restore" onClose={() => setConfirm(null)} onConfirm={() => restore(v)}
+          message={`${file.name} goes back to how it was on ${when(v.saved_at)}. What's there now is kept in the history, so you can switch back.`} />
+      : <ConfirmModal title="Delete this version?" confirm="Delete" onClose={() => setConfirm(null)} onConfirm={() => remove(v)}
+          message={`The version from ${when(v.saved_at)} is deleted for good${v.size ? `, freeing ${formatBytes(v.size)}` : ''}.`} />;
+  }
+  const binary = file.kind === 'file';
+  return (
+    <Modal title={`Version history: ${file.name}`} onClose={onClose} footer={<button className="btn" onClick={onClose}>Close</button>}>
+      <p className="muted small">{binary ? 'Each time someone uploads a new version, the previous one is kept here.'
+        : 'A version is kept from each editing session (when someone else starts editing, or after a 10-minute pause).'} The most recent 50 are kept, and they count towards your company's storage.</p>
+      <ul className="version-list" aria-label="Versions">
+        <li className="current">
+          <div className="grow"><strong>Current version</strong><span className="muted small">{when(current.updated_at)}{current.updated_by_name ? ` · ${current.updated_by_name}` : ''}{binary ? ` · ${formatBytes(current.size)}` : ''}</span></div>
+        </li>
+        {list === null && <li className="muted">Loading…</li>}
+        {list?.length === 0 && <li className="muted small">No earlier versions yet.</li>}
+        {list?.map((v) => (
+          <li key={v.id}>
+            <div className="grow"><strong>{when(v.saved_at)}</strong>
+              <span className="muted small">{v.saved_by_name || 'Someone'}{binary ? ` · ${formatBytes(v.size)}` : ''}{v.name !== current.name ? ` · named “${v.name}”` : ''}</span></div>
+            {binary && <a className="icon-btn" href={`/api/files/${file.id}/versions/${v.id}/raw?download`} aria-label={`Download the version from ${when(v.saved_at)}`} title="Download"><Icon name="download" size={18} /></a>}
+            {canEdit && <button type="button" className="btn small" onClick={() => setConfirm({ kind: 'restore', version: v })} aria-label={`Restore the version from ${when(v.saved_at)}`}>Restore</button>}
+            {file.role === 'owner' && <button type="button" className="icon-btn" onClick={() => setConfirm({ kind: 'delete', version: v })} aria-label={`Delete the version from ${when(v.saved_at)}`} title="Delete"><Icon name="trash" size={18} /></button>}
+          </li>
+        ))}
+      </ul>
     </Modal>
   );
 }

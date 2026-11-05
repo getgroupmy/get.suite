@@ -169,6 +169,20 @@ db.exec(`CREATE TABLE IF NOT EXISTS share_links (
   last_opened INTEGER
 )`);
 db.exec('CREATE INDEX IF NOT EXISTS share_links_file ON share_links(file_id)');
+// Earlier versions of files: replaced uploads, and Docs/Sheets as they were before each editing session.
+db.exec(`CREATE TABLE IF NOT EXISTS file_versions (
+  id TEXT PRIMARY KEY,
+  file_id TEXT NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+  version INTEGER NOT NULL,     -- the file's version number then
+  name TEXT NOT NULL,           -- its name then
+  saved_at INTEGER NOT NULL,    -- when that version was made
+  saved_by TEXT,                -- who made it
+  size INTEGER NOT NULL,
+  mime TEXT,
+  storage TEXT,                 -- uploaded files: the stored bytes
+  content TEXT                  -- Docs and Sheets: the JSON content
+)`);
+db.exec('CREATE INDEX IF NOT EXISTS file_versions_file ON file_versions(file_id, saved_at)');
 // Signed-in devices: when, from what browser/address, and last activity of each session.
 if (!hasColumn('sessions', 'created_at')) db.exec('ALTER TABLE sessions ADD COLUMN created_at INTEGER');
 if (!hasColumn('sessions', 'last_seen')) db.exec('ALTER TABLE sessions ADD COLUMN last_seen INTEGER');

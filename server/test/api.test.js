@@ -536,3 +536,64 @@ test('public share links: no account needed; expiry, password, folders, revoking
   assert.equal((await sharer('DELETE', `/api/links/${link.id}`)).status, 200);
   assert.equal((await pub('GET', `/api/public/links/${link.token}`)).status, 404);
 });
+
+test('version history: new uploads, editing sessions, restore, delete, quota', async () => {
+  const me = client(), other = client();
+  for (const [c, local] of [[me, 'verna'], [other, 'otto']]) {
+    assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name: `${local} v`, password: 'password123' })).status, 201);
+    await login(c, `${local}@acme.com`);
+  }
+  const otherId = (await other('GET', '/api/auth/me')).body.user.id;
+  const up = (await me('POST', '/api/files/upload?name=price-list.txt', 'v1 prices', { raw: true })).body;
+  const v2 = await me('POST', `/api/files/${up.id}/versions`, 'v2 prices, updated', { raw: true });
+  assert.equal(v2.status, 200, JSON.stringify(v2.body));
+  assert.equal(v2.body.version, 2);
+  assert.equal((await me('GET', `/api/files/${up.id}/raw`)).body, 'v2 prices, updated');
+  let list = (await me('GET', `/api/files/${up.id}/versions`)).body;
+  assert.deepEqual(list.map((v) => [v.version, v.size, v.saved_by_name]), [[1, 9, 'verna v']]);
+  assert.equal((await me('GET', `/api/files/${up.id}/versions/${list[0].id}/raw`)).body, 'v1 prices');
+
+  // Viewers see the history but can't change it.
+  await me('PUT', `/api/files/${up.id}/shares`, { shares: [{ user_id: otherId, role: 'viewer' }] });
+  assert.equal((await other('GET', `/api/files/${up.id}/versions`)).body.length, 1);
+  assert.equal((await other('POST', `/api/files/${up.id}/versions/${list[0].id}/restore`)).status, 403);
+  assert.equal((await other('POST', `/api/files/${up.id}/versions`, 'x', { raw: true })).status, 403);
+
+  // Restoring keeps what was there as a version too.
+  const restored = (await me('POST', `/api/files/${up.id}/versions/${list[0].id}/restore`)).body;
+  assert.equal(restored.version, 3);
+  assert.equal((await me('GET', `/api/files/${up.id}/raw`)).body, 'v1 prices');
+  list = (await me('GET', `/api/files/${up.id}/versions`)).body;
+  assert.deepEqual(list.map((v) => v.version), [2, 1]);
+  assert.equal((await me('DELETE', `/api/files/${up.id}/versions/${list[1].id}`)).status, 200);
+  assert.equal((await me('GET', `/api/files/${up.id}/versions`)).body.length, 1);
+  assert.equal((await me('POST', `/api/files/${up.id}/versions/nope/restore`)).status, 404);
+
+  // Docs: saves in one sitting are one version; another editor, or a pause, starts a new one.
+  const doc = (await me('POST', '/api/files/new', { kind: 'doc', name: 'Proposal' })).body;
+  const save = async (c, version, text) => (await c('PUT', `/api/files/${doc.id}/content`, { version, content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text }] }] } })).body.version;
+  let v = await save(me, 1, 'Draft');
+  v = await save(me, v, 'Draft two');
+  v = await save(me, v, 'Draft three');
+  assert.equal((await me('GET', `/api/files/${doc.id}/versions`)).body.length, 0, 'one sitting');
+  await me('PUT', `/api/files/${doc.id}/shares`, { shares: [{ user_id: otherId, role: 'editor' }] });
+  v = await save(other, v, 'Otto edits');
+  list = (await me('GET', `/api/files/${doc.id}/versions`)).body;
+  assert.equal(list.length, 1);
+  assert.equal(list[0].saved_by_name, 'verna v');
+  const old = (await me('GET', `/api/files/${doc.id}/versions/${list[0].id}/content`)).body.content;
+  assert.equal(old.content[0].content[0].text, 'Draft three');
+  const { q } = await import('../src/db.js');
+  q('UPDATE files SET updated_at = updated_at - 11 * 60000 WHERE id = ?').run(doc.id);
+  v = await save(other, v, 'Otto, later');
+  assert.equal((await me('GET', `/api/files/${doc.id}/versions`)).body.length, 2, 'after a pause');
+  await me('POST', `/api/files/${doc.id}/versions/${list[0].id}/restore`);
+  assert.equal((await me('GET', `/api/files/${doc.id}/content`)).body.content.content[0].content[0].text, 'Draft three');
+
+  // Earlier versions count towards the company's storage.
+  const { orgStorageUsed } = await import('../src/tenancy.js');
+  const org = (await me('GET', '/api/auth/me')).body.user.org_id;
+  const before = orgStorageUsed(org);
+  await me('POST', `/api/files/${up.id}/versions`, 'x'.repeat(1000), { raw: true });
+  assert.equal(orgStorageUsed(org) - before, 1000, 'the new bytes plus the kept old ones (already counted)');
+});

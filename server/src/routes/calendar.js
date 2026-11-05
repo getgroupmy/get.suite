@@ -192,11 +192,11 @@ function whenText(e, tz) {
 /** Email the guests (best effort: a failed email never fails the change). */
 function notify(organizer, e, recipients, kind, tz) {
   if (!mailEnabled() || !recipients.length) return;
-  const subject = `${kind === 'cancel' ? 'Cancelled' : 'Invitation'}: ${e.title}`;
+  const subject = `${{ cancel: 'Cancelled', update: 'Updated' }[kind] || 'Invitation'}: ${e.title}`;
   const lines = kind === 'cancel'
     ? [`${organizer.name} cancelled this event:`, '', e.title, whenText(e, tz)]
-    : [`${organizer.name} invited you to:`, '', e.title, whenText(e, tz), ...(e.location ? [`Where: ${e.location}`] : []), ...(e.description ? ['', e.description] : []),
-      '', 'Open Calendar in Workspace to answer Yes, Maybe or No.'];
+    : [`${organizer.name} ${kind === 'update' ? 'changed this event' : 'invited you to'}:`, '', e.title, whenText(e, tz), ...(e.location ? [`Where: ${e.location}`] : []), ...(e.description ? ['', e.description] : []),
+      '', kind === 'update' ? 'Your Workspace calendar already shows the change.' : 'Open Calendar in Workspace to answer Yes, Maybe or No.'];
   smtpFor(organizer).sendMail({
     from: { name: organizer.name, address: organizer.username },
     to: recipients.map((g) => ({ name: g.name, address: g.username || g.email })),
@@ -265,10 +265,12 @@ export default function calendarRoutes() {
         tz, changed ? 1 : 0, e.id);
     const saved = outEvent(q('SELECT * FROM events WHERE id = ?').get(e.id));
     let removed = [];
+    let added = [];
     let outside = { added: [], kept: outsideOf(e.id), removed: [] };
     if (guests) {
       const change = setGuests(e.id, guests.inside);
       removed = change.removed;
+      added = change.added;
       outside = setOutside(e.id, guests.outside);
       notify(req.user, saved, change.added, 'invite', req.body.tz);
       notify(req.user, saved, removed.map((id) => q('SELECT username, name FROM users WHERE id = ?').get(id)).filter(Boolean), 'cancel', req.body.tz);
@@ -277,6 +279,8 @@ export default function calendarRoutes() {
     const opts = { base: baseUrl(req), tz };
     notifyOutside(req.user, saved, outside.added, 'invite', opts);
     if (changed) notifyOutside(req.user, saved, outside.kept, 'update', opts);
+    // Colleagues see the change in their calendar at once; an email tells them it happened.
+    if (changed) notify(req.user, saved, guestsOf(e.id).filter((g) => !added.some((a) => a.id === g.id)).map((g) => ({ username: g.email, name: g.name })), 'update', tz);
     notifyOutside(req.user, saved, outside.removed, 'cancel', opts);
     touch([req.user.id, ...guestsOf(e.id).map((g) => g.id), ...removed]);
     res.json({ ...saved, role: 'organizer', guests: allGuests(e.id) });

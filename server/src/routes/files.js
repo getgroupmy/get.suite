@@ -76,9 +76,52 @@ function insertFile({ owner, parentId, name, kind, mime = null, size = 0, storag
 
 function permanentlyDelete(fileId) {
   const ids = subtreeIds(fileId);
-  const stored = ids.map((id) => q('SELECT storage FROM files WHERE id = ?').get(id)?.storage).filter(Boolean);
+  const stored = ids.flatMap((id) => [q('SELECT storage FROM files WHERE id = ?').get(id)?.storage,
+    ...q('SELECT storage FROM file_versions WHERE file_id = ?').all(id).map((v) => v.storage)]).filter(Boolean);
   q('DELETE FROM files WHERE id = ?').run(fileId);
   for (const s of stored) fs.rm(path.join(FILES_DIR, s), { force: true }, () => {});
+}
+
+// ---- version history ----
+const KEEP_VERSIONS = Number(process.env.KEEP_VERSIONS || 50);
+const SESSION_MS = 10 * 60e3; // Docs/Sheets: a pause this long (or another editor) starts a new version
+
+/** Keep the file as it is now as an earlier version (and drop the oldest beyond the limit). */
+function snapshot(fileId) {
+  const f = q('SELECT * FROM files WHERE id = ?').get(fileId);
+  q(`INSERT INTO file_versions (id, file_id, version, name, saved_at, saved_by, size, mime, storage, content) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(uid(), f.id, f.version, f.name, f.updated_at, f.updated_by || f.owner_id, f.size, f.mime, f.storage, f.content);
+  const old = q('SELECT id, storage FROM file_versions WHERE file_id = ? ORDER BY saved_at DESC, version DESC LIMIT -1 OFFSET ?').all(f.id, KEEP_VERSIONS);
+  for (const v of old) {
+    q('DELETE FROM file_versions WHERE id = ?').run(v.id);
+    if (v.storage) fs.rm(path.join(FILES_DIR, v.storage), { force: true }, () => {});
+  }
+}
+
+/** Stream an upload into storage, within the size limit and the company's quota. */
+async function receiveUpload(req, orgId, maxUploadBytes) {
+  const declared = Number(req.headers['content-length'] || 0);
+  if (declared > maxUploadBytes) throw new HttpError(413, 'File is too large');
+  checkQuota(orgId, declared);
+  const storage = uid();
+  const tmp = path.join(TMP_DIR, storage);
+  let size = 0;
+  const limiter = new Transform({
+    transform(chunk, enc, cb) {
+      size += chunk.length;
+      if (size > maxUploadBytes) return cb(new HttpError(413, 'File is too large'));
+      cb(null, chunk);
+    },
+  });
+  try {
+    await pipeline(req, limiter, fs.createWriteStream(tmp));
+    checkQuota(orgId, size); // Content-Length can be absent (chunked uploads)
+    fs.renameSync(tmp, path.join(FILES_DIR, storage));
+  } catch (e) {
+    fs.rm(tmp, { force: true }, () => {});
+    throw e instanceof HttpError ? e : new HttpError(400, 'Upload interrupted');
+  }
+  return { storage, size };
 }
 
 export default function fileRoutes({ maxUploadBytes }) {
@@ -151,27 +194,7 @@ export default function fileRoutes({ maxUploadBytes }) {
   r.post('/upload', async (req, res) => {
     const parentId = resolveParent(req.query.parent, req.user);
     const name = cleanName(String(req.query.name || ''));
-    const declared = Number(req.headers['content-length'] || 0);
-    if (declared > maxUploadBytes) throw new HttpError(413, 'File is too large');
-    checkQuota(req.user.org_id, declared);
-    const storage = uid();
-    const tmp = path.join(TMP_DIR, storage);
-    let size = 0;
-    const limiter = new Transform({
-      transform(chunk, enc, cb) {
-        size += chunk.length;
-        if (size > maxUploadBytes) return cb(new HttpError(413, 'File is too large'));
-        cb(null, chunk);
-      },
-    });
-    try {
-      await pipeline(req, limiter, fs.createWriteStream(tmp));
-      checkQuota(req.user.org_id, size); // Content-Length can be absent (chunked uploads)
-      fs.renameSync(tmp, path.join(FILES_DIR, storage));
-    } catch (e) {
-      fs.rm(tmp, { force: true }, () => {});
-      throw e instanceof HttpError ? e : new HttpError(400, 'Upload interrupted');
-    }
+    const { storage, size } = await receiveUpload(req, req.user.org_id, maxUploadBytes);
     const id = insertFile({ owner: req.user.id, parentId, name, kind: 'file', mime: mimeFor(name), size, storage });
     if (parentId) notify(parentId, { type: 'files-changed', parent_id: parentId });
     res.status(201).json(publicFile(loadFile(id, req.user)));
@@ -223,6 +246,11 @@ export default function fileRoutes({ maxUploadBytes }) {
     const f = loadFile(req.params.id, req.user, 'editor');
     if (f.kind !== 'doc' && f.kind !== 'sheet') throw bad('No editable content');
     const json = JSON.stringify(req.body.content ?? null);
+    // One earlier version per editing session: when someone else edited last, or after a pause.
+    const cur = q('SELECT version, updated_at, updated_by, owner_id FROM files WHERE id = ?').get(f.id);
+    const newSession = cur.version === Number(req.body.version) && cur.version > 1
+      && ((cur.updated_by || cur.owner_id) !== req.user.id || now() - cur.updated_at > SESSION_MS);
+    if (newSession) snapshot(f.id);
     const result = q(`UPDATE files SET content = ?, size = ?, version = version + 1, updated_at = ?, updated_by = ?
                       WHERE id = ? AND version = ?`)
       .run(json, Buffer.byteLength(json), now(), req.user.id, f.id, Number(req.body.version));
@@ -263,6 +291,82 @@ export default function fileRoutes({ maxUploadBytes }) {
     const audience = audienceFor(f.id);
     tx(() => permanentlyDelete(f.id));
     sendTo(audience, { type: 'files-changed', parent_id: f.parent_id });
+    res.json({ ok: true });
+  });
+
+  // ---- version history ----
+  const versionOf = (f, vid) => {
+    const v = q('SELECT * FROM file_versions WHERE id = ? AND file_id = ?').get(vid, f.id);
+    if (!v) throw notFound('That version is no longer there');
+    return v;
+  };
+  r.get('/:id/versions', (req, res) => {
+    const f = loadFile(req.params.id, req.user);
+    res.json(q(`SELECT v.id, v.version, v.name, v.saved_at, v.size, u.name AS saved_by_name FROM file_versions v LEFT JOIN users u ON u.id = v.saved_by
+                WHERE v.file_id = ? ORDER BY v.saved_at DESC, v.version DESC`).all(f.id));
+  });
+
+  // Replace an uploaded file with new bytes; the old ones become an earlier version.
+  r.post('/:id/versions', async (req, res) => {
+    const f = loadFile(req.params.id, req.user, 'editor');
+    if (f.kind !== 'file') throw bad('Only uploaded files take a new version this way');
+    const owner = q('SELECT org_id FROM users WHERE id = ?').get(f.owner_id);
+    const { storage, size } = await receiveUpload(req, owner.org_id, maxUploadBytes);
+    const name = req.query.name ? cleanName(String(req.query.name)) : f.name;
+    tx(() => {
+      snapshot(f.id);
+      q('UPDATE files SET storage = ?, size = ?, mime = ?, name = ?, version = version + 1, updated_at = ?, updated_by = ? WHERE id = ?')
+        .run(storage, size, mimeFor(name), name === f.name ? f.name : uniqueName(f.parent_id, f.owner_id, name), now(), req.user.id, f.id);
+    });
+    notify(f.id, { type: 'files-changed', parent_id: f.parent_id });
+    res.json(publicFile(loadFile(f.id, req.user)));
+  });
+
+  r.get('/:id/versions/:vid/raw', (req, res) => {
+    const f = loadFile(req.params.id, req.user);
+    const v = versionOf(f, req.params.vid);
+    if (!v.storage) throw bad('Not a binary file');
+    const inline = req.query.download === undefined && isInlineSafe(v.mime);
+    res.setHeader('Content-Type', inline ? v.mime : 'application/octet-stream');
+    if (v.mime !== 'application/pdf') res.setHeader('Content-Security-Policy', "default-src 'none'; img-src 'self'; media-src 'self'; style-src 'unsafe-inline'");
+    res.setHeader('Content-Disposition', `${inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(v.name)}`);
+    res.sendFile(path.join(FILES_DIR, v.storage), { headers: { 'Cache-Control': 'private, max-age=0' } });
+  });
+  r.get('/:id/versions/:vid/content', (req, res) => {
+    const f = loadFile(req.params.id, req.user);
+    const v = versionOf(f, req.params.vid);
+    if (v.content === null) throw bad('No editable content');
+    res.json({ content: JSON.parse(v.content), saved_at: v.saved_at, name: v.name });
+  });
+
+  // Bring back an earlier version; what's there now is kept as a version too, so nothing is lost.
+  r.post('/:id/versions/:vid/restore', (req, res) => {
+    const f = loadFile(req.params.id, req.user, 'editor');
+    const v = versionOf(f, req.params.vid);
+    let storage = null;
+    if (v.storage) {
+      const owner = q('SELECT org_id FROM users WHERE id = ?').get(f.owner_id);
+      checkQuota(owner.org_id, v.size);
+      storage = uid();
+      fs.copyFileSync(path.join(FILES_DIR, v.storage), path.join(FILES_DIR, storage));
+    }
+    tx(() => {
+      snapshot(f.id);
+      q('UPDATE files SET storage = COALESCE(?, storage), content = COALESCE(?, content), size = ?, mime = COALESCE(?, mime), version = version + 1, updated_at = ?, updated_by = ? WHERE id = ?')
+        .run(storage, v.content, v.size, v.mime, now(), req.user.id, f.id);
+    });
+    const after = loadFile(f.id, req.user);
+    // Open editors (yours included) load the restored content.
+    notify(f.id, { type: 'content-changed', id: f.id, version: after.version, by: null, by_name: req.user.name });
+    notify(f.id, { type: 'files-changed', parent_id: f.parent_id });
+    res.json(publicFile(after));
+  });
+
+  r.delete('/:id/versions/:vid', (req, res) => {
+    const f = loadFile(req.params.id, req.user, 'owner');
+    const v = versionOf(f, req.params.vid);
+    q('DELETE FROM file_versions WHERE id = ?').run(v.id);
+    if (v.storage) fs.rm(path.join(FILES_DIR, v.storage), { force: true }, () => {});
     res.json({ ok: true });
   });
 

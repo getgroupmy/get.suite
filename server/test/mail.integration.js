@@ -29,6 +29,7 @@ const { closeAll } = await import('../src/mail/imap.js');
 const { startPolicyServer } = await import('../src/security/policyServer.js');
 const { attachHub } = await import('../src/hub.js');
 const notify = await import('../src/mail/notify.js');
+const rsvp = await import('../src/mail/rsvp.js');
 const { default: WS } = await import('ws');
 const tls = await import('node:tls');
 const nodemailer = (await import('nodemailer')).default;
@@ -446,7 +447,8 @@ test('catch-all: unknown addresses go to the chosen mailbox; real mailboxes are 
   const t = fs.readFileSync('/run/nw/postfix/aliases', 'utf8');
   assert.match(t, /^olivia@acme\.com olivia@acme\.com$/m, 'real mailboxes keep their mail');
 
-  assert.equal((await gina('POST', '/api/mail/send', { to: 'quotes@acme.com', subject: 'Quote request via catch-all', text: 'x' })).status, 200);
+  // The mail server picks up the new address table within a few seconds.
+  await eventually(async () => (await gina('POST', '/api/mail/send', { to: 'quotes@acme.com', subject: 'Quote request via catch-all', text: 'x' })).status === 200, 20000);
   assert.equal((await gina('POST', '/api/mail/send', { to: 'olivia@acme.com', subject: 'For Olivia only', text: 'x' })).status, 200);
   await eventually(async () => (await inbox(catcher)).some((m) => m.subject === 'Quote request via catch-all'), 20000);
   await eventually(async () => (await inbox(olivia)).some((m) => m.subject === 'For Olivia only'));
@@ -827,9 +829,34 @@ test('people outside the server get calendar invitations, updates and cancellati
     await planner('PATCH', `/api/events/${ev.body.id}`, { start: t + 36e5, end: t + 72e5, tz: 'Europe/London' });
     const second = (await eventually(() => bounces(2), 60000)).find((m) => m.includes('Updated invitation'));
     assert.ok(second && /SEQUENCE:1/.test(second) && /DTSTART:20261203T110000Z/.test(second), 'update');
+    // Colleagues get an "Updated:" email too.
+    await eventually(async () => (await inbox(olivia)).some((m) => m.subject === 'Updated: Kick-off, phase 2'), 30000);
     await planner('PATCH', `/api/events/${ev.body.id}`, { title: 'Kick-off (room only)', guests: ['olivia@acme.com'] });
     const third = (await eventually(() => bounces(3), 60000)).find((m) => /Subject: Cancelled: /.test(m));
     assert.ok(third && /METHOD:CANCEL/.test(third), 'cancellation');
     assert.equal((await pub('GET', `/api/public/invites/${token}`)).status, 404, 'the link ends with the invitation');
   } finally { await imap.logout().catch(() => {}); }
+});
+
+test('answers from the guest\'s own mail app (Outlook Accept, Gmail Yes) are read from the organizer\'s inbox', async () => {
+  const planner = client();
+  await planner('POST', '/api/auth/login', { username: 'planner@acme.com', password: 'password123' });
+  const t = Date.UTC(2027, 0, 12, 15);
+  const ev = (await planner('POST', '/api/events', { title: 'Review', start: t, end: t + 36e5, guests: ['erin@clients-test.example', 'finn@clients-test.example'], tz: 'Europe/London' })).body;
+  // What Outlook sends back, through the internet's front door (port 25, no sign-in).
+  const mx = nodemailer.createTransport({ host: process.env.MAIL_IMAP_HOST, port: 25, secure: false, ignoreTLS: true, name: 'mx.clients-test.example' });
+  const reply = (who, partstat, from = who) => mx.sendMail({
+    // (The envelope sender is local: this sandbox can't look up outside domains, which Postfix requires.)
+    from, to: 'planner@acme.com', envelope: { from: 'relay@acme.com', to: 'planner@acme.com' }, subject: `${partstat === 'DECLINED' ? 'Declined' : 'Accepted'}: Review`, text: 'Reply',
+    icalEvent: { method: 'REPLY', content: ['BEGIN:VCALENDAR', 'VERSION:2.0', 'METHOD:REPLY', 'BEGIN:VEVENT', `UID:${ev.id}@mail.acme.com`,
+      `ATTENDEE;PARTSTAT=${partstat}:mailto:${who}`, 'END:VEVENT', 'END:VCALENDAR'].join('\r\n') },
+  });
+  await reply('erin@clients-test.example', 'DECLINED');
+  await reply('finn@clients-test.example', 'ACCEPTED', 'mallory@elsewhere-test.example'); // not from Finn: ignored
+  await eventually(async () => (await inbox(planner)).filter((m) => /: Review$/.test(m.subject)).length >= 2, 30000);
+  assert.equal(await rsvp.checkReplies(), 1);
+  const guests = (await planner('GET', `/api/events?from=${t - 864e5}&to=${t + 864e5}`)).body.find((e) => e.id === ev.id).guests;
+  assert.deepEqual(guests.map((g) => [g.email, g.status]), [['erin@clients-test.example', 'no'], ['finn@clients-test.example', 'needs']]);
+  assert.equal(await rsvp.checkReplies(), 0, 'each reply is read once');
+  assert.ok((await inbox(planner)).some((m) => m.subject === 'Declined: Review'), 'the email stays in the inbox');
 });

@@ -27,10 +27,17 @@ export const del = (url) => api('DELETE', url);
 
 /** Upload one file with progress. Resolves to the created file record. */
 export function uploadFile(file, parentId, onProgress) {
+  const qs = new URLSearchParams({ name: file.name, ...(parentId && { parent: parentId }) });
+  return uploadTo(`/api/files/upload?${qs}`, file, onProgress);
+}
+
+/** Replace an uploaded file with a new version (the old one is kept in its history). */
+export const uploadVersion = (file, fileId, onProgress) => uploadTo(`/api/files/${fileId}/versions?${new URLSearchParams({ name: file.name })}`, file, onProgress);
+
+function uploadTo(url, file, onProgress) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    const qs = new URLSearchParams({ name: file.name, ...(parentId && { parent: parentId }) });
-    xhr.open('POST', `/api/files/upload?${qs}`);
+    xhr.open('POST', url);
     xhr.setRequestHeader('x-requested-with', 'nas-workspace');
     xhr.setRequestHeader('content-type', 'application/octet-stream');
     xhr.upload.onprogress = (e) => e.lengthComputable && onProgress?.(e.loaded / e.total);

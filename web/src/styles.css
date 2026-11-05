@@ -731,3 +731,10 @@ button.tg-day:hover .tg-num { background: var(--hover); }
 .invite-facts dd { margin: 0; overflow-wrap: anywhere; }
 .invite-facts .pre { white-space: pre-wrap; }
 .guest-chips li.outside { box-shadow: inset 0 0 0 1px var(--muted); background: var(--surface); }
+
+/* ---- version history ---- */
+.version-list { list-style: none; padding: 0; margin: 8px 0; display: flex; flex-direction: column; max-height: 50vh; overflow-y: auto; }
+.version-list li { display: flex; align-items: center; gap: 8px; padding: 8px 4px; border-top: 1px solid var(--border); }
+.version-list li:first-child { border-top: 0; }
+.version-list li .grow { display: flex; flex-direction: column; min-width: 0; }
+.version-list li.current strong { color: var(--accent-text); }

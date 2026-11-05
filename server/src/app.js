@@ -48,7 +48,7 @@ export function createApp({
     next();
   });
 
-  app.use('/api', (req, res, next) => (req.path === '/files/upload' ? next() : express.json({ limit: '25mb' })(req, res, next)));
+  app.use('/api', (req, res, next) => (req.path === '/files/upload' || /^\/files\/[^/]+\/versions$/.test(req.path) ? next() : express.json({ limit: '25mb' })(req, res, next)));
 
   app.use('/api/auth', authRoutes({ secureCookies }));
   app.use('/api/public/invites', publicInviteRoutes());

@@ -60,3 +60,15 @@ test('folding at 75 octets keeps characters whole', () => {
   assert.equal(unfold(out).trim(), long);
   assert.equal(escapeText('a,b;c\\d\ne'), 'a\\,b\\;c\\\\d\\ne');
 });
+
+import { parseReply } from '../src/mail/rsvp.js';
+test('reading replies from Outlook and Gmail', () => {
+  const outlook = ['BEGIN:VCALENDAR', 'METHOD:REPLY', 'BEGIN:VEVENT', 'UID:ev1@mail.acme.com',
+    'ATTENDEE;PARTSTAT=ACCEPTED;CN=Dana Client:mailto:Dana@Clients-Test.example', 'END:VEVENT', 'END:VCALENDAR'].join('\r\n');
+  assert.deepEqual(parseReply(outlook), { uid: 'ev1@mail.acme.com', answers: [{ email: 'dana@clients-test.example', status: 'yes' }] });
+  // Gmail folds long lines; tentative and declined.
+  const gmail = 'BEGIN:VCALENDAR\r\nMETHOD:REPLY\r\nBEGIN:VEVENT\r\nUID:ev2@mail.acme.com\r\nATTENDEE;CUTYPE=INDIVIDUAL;ROLE=REQ-PARTICIPANT;PARTSTAT=TENTATIVE;CN=x@gmai\r\n l.com;X-NUM-GUESTS=0:mailto:x@gmail.com\r\nEND:VEVENT\r\nEND:VCALENDAR';
+  assert.deepEqual(parseReply(gmail).answers, [{ email: 'x@gmail.com', status: 'maybe' }]);
+  assert.equal(parseReply(outlook.replace('METHOD:REPLY', 'METHOD:REQUEST')), null, 'only replies');
+  assert.equal(parseReply(outlook.replace('ACCEPTED', 'DELEGATED')), null);
+});

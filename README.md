@@ -4,7 +4,7 @@ A self-hosted, Google Workspace-style office suite built to run on a Synology DS
 
 | App | What it does |
 |---|---|
-| **Drive** | Folders, uploads up to 4 GB each (drag and drop), previews (images, PDF, video, audio, text), rename, move, trash and restore, search, sharing with people as viewer or editor (folder shares apply to everything inside), and share links for people without an account |
+| **Drive** | Folders, uploads up to 4 GB each (drag and drop), previews (images, PDF, video, audio, text), rename, move, trash and restore, search, sharing with people as viewer or editor (folder shares apply to everything inside), share links for people without an account, and version history |
 | **Docs** | Rich-text documents (headings, lists, links, quotes, code, alignment) with autosave, print/PDF and HTML export |
 | **Sheets** | Spreadsheets with formulas (`SUM AVERAGE MIN MAX MEDIAN COUNT COUNTA COUNTIF SUMIF IF IFERROR AND OR NOT ROUND ABS SQRT POWER MOD INT CONCAT LEN UPPER LOWER TRIM LEFT RIGHT TODAY NOW`), multiple sheets, copy/paste with reference shifting, and CSV import/export |
 | **Calendar** | Month, week and day views (timed events placed by the hour, side by side when they overlap, with a current-time line), all-day and timed events, repeating events, inviting colleagues and people outside by email (Yes / Maybe / No), colours, upcoming list |
@@ -85,6 +85,16 @@ On 2 GB of RAM, both containers fit with room to spare. Adding a RAM stick only 
 
 Cookies switch to `Secure` automatically once traffic arrives over HTTPS through the proxy.
 
+## Version history (Drive)
+
+Drive keeps earlier versions of files, so a wrong edit or an overwritten upload can be undone.
+
+- **Uploaded files:** in a file's ⋮ menu, **Upload new version** replaces its contents (and takes the new file's name). Links, shares and its place in Drive stay the same, and the previous contents are kept.
+- **Documents and spreadsheets** keep a version from each editing session: when someone else starts editing, or after a 10-minute pause.
+- **Version history** (in the ⋮ menu) lists the versions with when and who. You can download earlier uploads, and **Restore** any version. What's there now is kept as a version too, so you can switch back. Open editors load the restored content straight away.
+- Viewers can see and download versions. Editors can also upload new versions and restore. Owners can delete versions they no longer need.
+- The most recent 50 versions of each file are kept (`KEEP_VERSIONS` changes this). They count towards the company's storage quota, and are deleted with the file.
+
 ## Share links (Drive)
 
 Send a file or a whole folder to someone who has no account, such as a client. In Drive, open **Share** on a file or folder; under **Link sharing**, pick how long the link lasts (1, 7 or 30 days, or no expiry), optionally add a password, and press **Create link**. The link is copied straight away and looks like `https://workspace.example.com/s/…`.
@@ -109,14 +119,14 @@ Send a file or a whole folder to someone who has no account, such as a client. I
   - Repeating events show ↻.
 - **Inviting colleagues:** add people under **Guests** (type an address; suggestions come from your company directory). You can invite anyone you can work with: your own company, and other companies when both allow collaboration.
   - Guests see the event in their calendar, outlined until they answer, and answer **Yes / Maybe / No**. For a repeating event, the answer covers the whole series.
-  - When email is set up, they also get an invitation email from you (with the time in your time zone), and a cancellation if you delete the event or remove them.
+  - When email is set up, they also get an invitation email from you (with the time in your time zone), an "Updated:" email when you change the time, place or details, and a cancellation if you delete the event or remove them.
   - You see each answer in the event, for example "3 guests: 2 yes, 1 not answered". Calendars that are open update straight away.
   - Only the organiser can change or delete the event. A guest who says No still sees it, faded.
 - **Inviting people outside Workspace** (clients, suppliers): type their email address under **Guests**; they show as "by email". This needs email to be set up.
   - They get an invitation email with a calendar file, so Outlook, Gmail, Apple Mail and phones show it as an invitation they can add to their own calendar. Repeating events keep their time across clock changes.
   - The email has a personal link to a simple page (no account needed) where they answer **Yes / Maybe / No**, see the time in their own time zone, and can download the event again. Their answer shows in your calendar straight away.
   - If you change the time, place or details, they get an updated invitation that replaces the old one in their calendar. Removing them or deleting the event sends a cancellation, and their link stops working.
-  - Answering with their own mail app's buttons (Outlook's *Accept*, Gmail's *Yes*) sends you a reply email, but doesn't update the answer in Workspace yet. The link in the email does.
+  - They can also answer with their own mail app's buttons (Outlook's *Accept*, Gmail's *Yes*). That reply arrives in your inbox as usual, and Workspace reads the answer from it within a couple of minutes. Only a reply from the guest's own address counts.
   - An address on one of this server's own domains must belong to someone here, so a typo can't email a stranger.
 
 ## Email
@@ -356,6 +366,7 @@ To update, replace the files in `docker/workspace/app` with the new version. The
 | `PORT` | `8080` | HTTP port inside the container |
 | `DATA_DIR` | `/data` | Where the database and files live |
 | `MAX_UPLOAD_MB` | `4096` | Largest single upload |
+| `KEEP_VERSIONS` | 50 | Earlier versions kept per file in Drive |
 | `SECURE_COOKIES` | auto | Force `true` or `false`; auto means Secure when the request is HTTPS |
 | `PUBLIC_URL` | the address the browser used | The web address people outside use (e.g. `https://workspace.example.com`), for links in invitation emails |
 | `TRUST_PROXY` | `loopback, linklocal, uniquelocal` | Which proxies' `X-Forwarded-*` headers to trust |
@@ -386,7 +397,6 @@ cd server && MAIL_IT_CONFIG_DIR=/etc/nw npm run test:mail
 
 ## Roadmap
 
-- **Calendar, next steps:** reading Accept/Decline replies from Outlook and Gmail automatically, and updates by email to colleagues when an event changes.
 - **Real-time co-editing:** live cursors and character-level merging (Yjs) in Docs and Sheets.
 - **Phone sync:** CalDAV and CardDAV, so calendars and contacts sync with the phone's built-in apps; WebDAV for Drive.
-- **Renaming a user's address** (moving them to another domain of the same company), file version history, Slides, and cell formatting in Sheets.
+- **Renaming a user's address** (moving them to another domain of the same company), Slides, and cell formatting in Sheets.

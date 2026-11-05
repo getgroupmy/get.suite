@@ -77,7 +77,9 @@ export function orgMemberIds(orgId) {
 }
 
 export function orgStorageUsed(orgId) {
-  return q('SELECT COALESCE(SUM(f.size), 0) AS n FROM files f JOIN users u ON u.id = f.owner_id WHERE u.org_id = ?').get(orgId).n;
+  // Earlier versions count too.
+  return q('SELECT COALESCE(SUM(f.size), 0) AS n FROM files f JOIN users u ON u.id = f.owner_id WHERE u.org_id = ?').get(orgId).n
+    + q('SELECT COALESCE(SUM(v.size), 0) AS n FROM file_versions v JOIN files f ON f.id = v.file_id JOIN users u ON u.id = f.owner_id WHERE u.org_id = ?').get(orgId).n;
 }
 
 /** Throw 413 if adding `bytes` would exceed the company's quota. */
@@ -97,7 +99,8 @@ export function blobsOwnedBy(userIdsSql, ...params) {
   return q(`WITH RECURSIVE t(id) AS (
               SELECT id FROM files WHERE owner_id IN (${userIdsSql})
               UNION SELECT f.id FROM files f JOIN t ON f.parent_id = t.id)
-            SELECT storage FROM files WHERE id IN (SELECT id FROM t) AND storage IS NOT NULL`).all(...params).map((r) => r.storage);
+            SELECT storage FROM files WHERE id IN (SELECT id FROM t) AND storage IS NOT NULL
+            UNION ALL SELECT storage FROM file_versions WHERE file_id IN (SELECT id FROM t) AND storage IS NOT NULL`).all(...params).map((r) => r.storage);
 }
 
 export function removeBlobs(list) {
