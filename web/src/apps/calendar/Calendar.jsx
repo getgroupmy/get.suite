@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { get, post, patch, del } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
 import { Modal, useToast } from '../../components/ui.jsx';
-import { DAY, VIEWS, startOfDay, visibleDays, shift, title, onDay, layoutDay } from './calmath.js';
+import { DAY, VIEWS, startOfDay, visibleDays, shift, title, onDay, layoutDay, expandAll, occurrenceIndex, describeRule } from './calmath.js';
 
 const COLORS = ['#1a73e8', '#0b8043', '#d50000', '#f4511e', '#8e24aa', '#616161'];
 const HOUR_PX = 48; // height of one hour in the week/day grid
@@ -28,9 +28,10 @@ export default function Calendar() {
   const load = useCallback(() => {
     const from = days[0].getTime();
     const to = days[days.length - 1].getTime() + DAY;
-    get(`/events?from=${from}&to=${to}`).then(setEvents).catch((e) => toast(e.message, 'error'));
+    // Repeating events come back once; each occurrence is worked out here, in local time.
+    get(`/events?from=${from}&to=${to}`).then((list) => setEvents(expandAll(list, from, to))).catch((e) => toast(e.message, 'error'));
     const now = Date.now();
-    get(`/events?from=${now}&to=${now + 30 * DAY}`).then(setUpcoming).catch(() => {});
+    get(`/events?from=${now}&to=${now + 30 * DAY}`).then((list) => setUpcoming(expandAll(list, now, now + 30 * DAY))).catch(() => {});
   }, [days, toast]);
   useEffect(load, [load]);
 
@@ -65,7 +66,7 @@ export default function Calendar() {
         <h3 className="subnav-title">Upcoming</h3>
         {upcoming.length === 0 && <p className="muted small">Nothing scheduled</p>}
         {upcoming.map((e) => (
-          <button key={e.id} className="upcoming" onClick={() => setEditing(e)}>
+          <button key={e.key || e.id} className="upcoming" onClick={() => setEditing(e)}>
             <span className="dot" style={{ background: e.color || COLORS[0] }} />
             <span>
               <strong>{e.title}</strong>
@@ -95,8 +96,8 @@ export default function Calendar() {
                   onClick={(e) => e.target === e.currentTarget && newEvent(d)}>
                   <button type="button" className="daynum" aria-label={`Open ${d.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}`} onClick={() => openDay(d)}>{d.getDate()}</button>
                   {list.slice(0, 3).map((ev) => (
-                    <button key={ev.id} className={`chip ${ev.all_day ? 'allday' : ''}`} style={{ '--c': ev.color || COLORS[0] }} onClick={() => setEditing(ev)}>
-                      {!ev.all_day && <span className="t">{fmtTime(ev.start)}</span>} {ev.title}
+                    <button key={ev.key || ev.id} className={`chip ${ev.all_day ? 'allday' : ''}`} style={{ '--c': ev.color || COLORS[0] }} onClick={() => setEditing(ev)}>
+                      {!ev.all_day && <span className="t">{fmtTime(ev.start)}</span>} {ev.title}{ev.rrule && <span className="rep" aria-label="(repeats)" title="Repeats"> ↻</span>}
                     </button>
                   ))}
                   {list.length > 3 && <button type="button" className="more small muted link-btn" onClick={() => openDay(d)}>+{list.length - 3} more</button>}
@@ -145,7 +146,7 @@ function TimeGrid({ days, events, today, onOpen, onNew, onDay: openDay }) {
         {days.map((d) => (
           <div key={d.getTime()} className="tg-allday-cell">
             {onDay(events, d).filter((ev) => ev.all_day).map((ev) => (
-              <button key={ev.id} className="chip allday" style={{ '--c': ev.color || COLORS[0] }} onClick={() => onOpen(ev)}>{ev.title}</button>
+              <button key={ev.key || ev.id} className="chip allday" style={{ '--c': ev.color || COLORS[0] }} onClick={() => onOpen(ev)}>{ev.title}{ev.rrule && <span aria-label="(repeats)"> ↻</span>}</button>
             ))}
           </div>
         ))}
@@ -165,10 +166,10 @@ function TimeGrid({ days, events, today, onOpen, onNew, onDay: openDay }) {
                 onNew(d, Math.min(23 * 60 + 30, Math.floor(y / HOUR_PX * 2) * 30)); // the half hour clicked
               }}>
               {layoutDay(events, d).map(({ ev, top, height, col, cols: n }) => (
-                <button key={ev.id} className="tg-event" title={`${ev.title} · ${fmtTime(ev.start)} – ${fmtTime(ev.end)}`}
+                <button key={ev.key || ev.id} className="tg-event" title={`${ev.title} · ${fmtTime(ev.start)} – ${fmtTime(ev.end)}${ev.rrule ? ' · repeats' : ''}`}
                   style={{ '--c': ev.color || COLORS[0], top: (top / 60) * HOUR_PX, height: (height / 60) * HOUR_PX - 2, left: `calc(${(col / n) * 100}% + 2px)`, width: `calc(${100 / n}% - 4px)` }}
                   onClick={() => onOpen(ev)}>
-                  <strong>{ev.title}</strong>
+                  <strong>{ev.title}{ev.rrule && <span aria-label="(repeats)"> ↻</span>}</strong>
                   {height >= 40 && <span>{fmtTime(ev.start)} – {fmtTime(ev.end)}</span>}
                   {height >= 60 && ev.location && <span>{ev.location}</span>}
                 </button>
@@ -184,29 +185,98 @@ function TimeGrid({ days, events, today, onOpen, onNew, onDay: openDay }) {
   );
 }
 
+const WEEKDAY_LETTERS = Array.from({ length: 7 }, (_, d) => new Date(2026, 10, 1 + d)); // a Sunday-first week
+const ruleFromForm = (r, start) => {
+  if (r.freq === 'none') return null;
+  const out = { freq: r.freq };
+  if (Number(r.interval) > 1) out.interval = Number(r.interval);
+  if (r.freq === 'weekly') out.byday = r.byday.length ? r.byday : [new Date(start).getDay()];
+  if (r.ends === 'on' && r.until) out.until = fromInputs(r.until, '23:59') + 59999;
+  if (r.ends === 'after') out.count = Math.max(1, Math.min(999, Number(r.count) || 1));
+  return out;
+};
+
 function EventDialog({ event, onClose, onSaved }) {
   const toast = useToast();
+  const recurring = !!(event.id && event.rrule);
   const [f, setF] = useState({
     title: event.title, location: event.location || '', description: event.description || '', color: event.color || COLORS[0],
     all_day: !!event.all_day,
     startDate: toDateInput(event.start), startTime: toTimeInput(event.start),
     endDate: toDateInput(event.end), endTime: toTimeInput(event.end),
   });
+  const r0 = event.rrule;
+  const [rep, setRep] = useState({
+    freq: r0?.freq || 'none', interval: r0?.interval || 1, byday: r0?.byday || [new Date(event.start).getDay()],
+    ends: r0?.until !== undefined ? 'on' : r0?.count ? 'after' : 'never',
+    until: r0?.until !== undefined ? toDateInput(r0.until) : toDateInput(event.start + 30 * DAY), count: r0?.count || 10,
+  });
+  const [scopeFor, setScopeFor] = useState(null); // 'save' | 'delete': asking which occurrences
+  const [scope, setScope] = useState('this');
   const [error, setError] = useState('');
   const set = (k) => (e) => setF({ ...f, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value });
+  const setR = (k) => (e) => setRep({ ...rep, [k]: e.target.value });
 
-  async function submit(e) {
-    e.preventDefault();
+  const read = () => {
     const start = f.all_day ? fromInputs(f.startDate) : fromInputs(f.startDate, f.startTime);
     const end = f.all_day ? fromInputs(f.endDate) + DAY - 1 : fromInputs(f.endDate, f.endTime);
+    return { start, end, body: { title: f.title, location: f.location, description: f.description, color: f.color, all_day: f.all_day, start, end, rrule: ruleFromForm(rep, start) } };
+  };
+
+  async function save(which) {
+    const { start, end, body } = read();
     if (end < start) return setError('The event ends before it starts');
-    const body = { title: f.title, location: f.location, description: f.description, color: f.color, all_day: f.all_day, start, end };
-    try {
-      if (event.id) await patch(`/events/${event.id}`, body); else await post('/events', body);
-      onSaved();
-    } catch (err) { setError(err.message); }
+    if (!event.id) { await post('/events', body); return onSaved(); }
+    if (!recurring || which === 'all' || (which === 'following' && event.occurrence === event.seriesStart)) {
+      if (!recurring) { await patch(`/events/${event.id}`, body); return onSaved(); }
+      // The whole series moves by as much as this occurrence was moved.
+      const delta = start - event.occurrence;
+      await patch(`/events/${event.id}`, { ...body, start: event.seriesStart + delta, end: event.seriesStart + delta + (end - start) });
+      return onSaved();
+    }
+    if (which === 'this') {
+      // Skip this date in the series and put a one-off event in its place.
+      await patch(`/events/${event.id}`, { exdates: [...(event.exdates || []), event.occurrence] });
+      await post('/events', { ...body, rrule: null });
+      return onSaved();
+    }
+    // This and following: end the series the day before, and start a new one here.
+    const old = event.rrule;
+    let rule = body.rrule;
+    if (rule?.count && old.count && rule.count === old.count) rule = { ...rule, count: Math.max(1, old.count - occurrenceIndex(event, event.occurrence)) };
+    await patch(`/events/${event.id}`, { rrule: { ...Object.fromEntries(Object.entries(old).filter(([k]) => k !== 'count')), until: event.occurrence - 1 } });
+    await post('/events', { ...body, rrule: rule });
+    onSaved();
+  }
+  async function remove(which) {
+    if (!recurring || which === 'all' || (which === 'following' && event.occurrence === event.seriesStart)) await del(`/events/${event.id}`);
+    else if (which === 'this') await patch(`/events/${event.id}`, { exdates: [...(event.exdates || []), event.occurrence] });
+    else await patch(`/events/${event.id}`, { rrule: { ...Object.fromEntries(Object.entries(event.rrule).filter(([k]) => k !== 'count')), until: event.occurrence - 1 } });
+    onSaved();
+  }
+  const run = (fn) => async (...a) => { setError(''); try { await fn(...a); } catch (err) { setError(err.message); toast(err.message, 'error'); } };
+  const submit = (e) => { e.preventDefault(); if (recurring) setScopeFor('save'); else run(save)(); };
+
+  if (scopeFor) {
+    return (
+      <Modal title={scopeFor === 'save' ? 'Change repeating event' : 'Delete repeating event'} onClose={() => setScopeFor(null)}>
+        <form className="stack" onSubmit={(e) => { e.preventDefault(); run(scopeFor === 'save' ? save : remove)(scope); }}>
+          <div className="stack" role="radiogroup" aria-label="Which events">
+            {[['this', 'This event'], ['following', 'This and following events'], ['all', 'All events']].map(([v, label]) => (
+              <label key={v} className="check"><input type="radio" name="scope" checked={scope === v} onChange={() => setScope(v)} /> {label}</label>
+            ))}
+          </div>
+          {error && <p className="error">{error}</p>}
+          <div className="row end">
+            <button type="button" className="btn" onClick={() => setScopeFor(null)}>Cancel</button>
+            <button className={`btn ${scopeFor === 'delete' ? 'danger' : 'primary'}`}>{scopeFor === 'save' ? 'Save' : 'Delete'}</button>
+          </div>
+        </form>
+      </Modal>
+    );
   }
 
+  const ruleNow = ruleFromForm(rep, read().start);
   return (
     <Modal title={event.id ? 'Edit event' : 'New event'} onClose={onClose}>
       <form className="stack" onSubmit={submit}>
@@ -220,6 +290,36 @@ function EventDialog({ event, onClose, onSaved }) {
           <label className="field"><span>Ends</span><input type="date" required value={f.endDate} onChange={set('endDate')} /></label>
           {!f.all_day && <label className="field"><span>&nbsp;</span><input type="time" required value={f.endTime} onChange={set('endTime')} aria-label="End time" /></label>}
         </div>
+        <div className="repeat-box stack">
+          <div className="row wrap">
+            <label className="field"><span>Repeat</span>
+              <select value={rep.freq} onChange={setR('freq')} aria-label="Repeat">
+                <option value="none">Does not repeat</option><option value="daily">Daily</option><option value="weekly">Weekly</option>
+                <option value="monthly">Monthly (same date)</option><option value="yearly">Yearly</option>
+              </select></label>
+            {rep.freq !== 'none' && <label className="field"><span>Every</span>
+              <input type="number" min="1" max="99" value={rep.interval} onChange={setR('interval')} aria-label="Repeat every" style={{ width: 80 }} /></label>}
+          </div>
+          {rep.freq === 'weekly' && (
+            <div className="weekdays" role="group" aria-label="On these days">
+              {WEEKDAY_LETTERS.map((d, i) => {
+                const on = rep.byday.includes(i);
+                return <button key={i} type="button" className={`wd ${on ? 'on' : ''}`} aria-pressed={on} aria-label={d.toLocaleDateString([], { weekday: 'long' })}
+                  onClick={() => setRep({ ...rep, byday: on ? rep.byday.filter((x) => x !== i) : [...rep.byday, i].sort() })}>{d.toLocaleDateString([], { weekday: 'narrow' })}</button>;
+              })}
+            </div>
+          )}
+          {rep.freq !== 'none' && (
+            <div className="row wrap" role="radiogroup" aria-label="Ends">
+              <label className="check"><input type="radio" name="ends" checked={rep.ends === 'never'} onChange={() => setRep({ ...rep, ends: 'never' })} /> Never ends</label>
+              <label className="check"><input type="radio" name="ends" checked={rep.ends === 'on'} onChange={() => setRep({ ...rep, ends: 'on' })} /> Until
+                <input type="date" value={rep.until} onChange={setR('until')} aria-label="Repeat until" disabled={rep.ends !== 'on'} /></label>
+              <label className="check"><input type="radio" name="ends" checked={rep.ends === 'after'} onChange={() => setRep({ ...rep, ends: 'after' })} /> After
+                <input type="number" min="1" max="999" value={rep.count} onChange={setR('count')} aria-label="Number of times" disabled={rep.ends !== 'after'} style={{ width: 70 }} /> times</label>
+            </div>
+          )}
+          {rep.freq !== 'none' && <p className="muted small" aria-live="polite" style={{ margin: 0 }}>{describeRule(ruleNow, read().start)}</p>}
+        </div>
         <label className="field"><span>Location</span><input value={f.location} onChange={set('location')} /></label>
         <label className="field"><span>Description</span><textarea rows={3} value={f.description} onChange={set('description')} /></label>
         <div className="colors" role="radiogroup" aria-label="Color">
@@ -229,9 +329,7 @@ function EventDialog({ event, onClose, onSaved }) {
         </div>
         {error && <p className="error">{error}</p>}
         <div className="row">
-          {event.id && <button type="button" className="btn danger" onClick={async () => {
-            try { await del(`/events/${event.id}`); onSaved(); } catch (err) { toast(err.message, 'error'); }
-          }}>Delete</button>}
+          {event.id && <button type="button" className="btn danger" onClick={() => (recurring ? setScopeFor('delete') : run(remove)())}>Delete</button>}
           <div className="grow" />
           <button type="button" className="btn" onClick={onClose}>Cancel</button>
           <button className="btn primary">Save</button>

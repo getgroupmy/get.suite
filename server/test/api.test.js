@@ -389,3 +389,35 @@ test('a company can require two-step verification', async () => {
   assert.match(off.body.error, /requires two-step verification/);
   assert.equal((await ivy('GET', '/api/orgs/current')).body.without_2fa, 0);
 });
+
+test('repeating events: rules are checked, and series that started earlier are returned', async () => {
+  const cal = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'cal', domain: 'acme.com', name: 'Cal Endar', password: 'password123' })).status, 201);
+  await login(cal, 'cal@acme.com');
+  const day = 864e5, jan1 = Date.UTC(2026, 0, 1, 9);
+  const weekly = await cal('POST', '/api/events', { title: 'Weekly sync', start: jan1, end: jan1 + 36e5, rrule: { freq: 'weekly', byday: [4, 1, 4] } });
+  assert.equal(weekly.status, 201, JSON.stringify(weekly.body));
+  assert.deepEqual(weekly.body.rrule, { freq: 'weekly', byday: [1, 4] }, 'weekdays sorted, duplicates dropped');
+  assert.deepEqual(weekly.body.exdates, []);
+  assert.equal('repeat_until' in weekly.body, false);
+  const ended = await cal('POST', '/api/events', { title: 'Old daily', start: jan1, end: jan1 + 36e5, rrule: { freq: 'daily', until: jan1 + 10 * day } });
+  await cal('POST', '/api/events', { title: 'One-off', start: jan1, end: jan1 + 36e5 });
+  await cal('POST', '/api/events', { title: 'Five times', start: jan1, end: jan1 + 36e5, rrule: { freq: 'monthly', interval: 2, count: 5 } });
+
+  // A range in June: the weekly and the counted series come back (to be expanded), the ended one and the one-off don't.
+  const june = (await cal('GET', `/api/events?from=${Date.UTC(2026, 5, 1)}&to=${Date.UTC(2026, 6, 1)}`)).body.map((e) => e.title).sort();
+  assert.deepEqual(june, ['Five times', 'Weekly sync']);
+
+  // Skipping one occurrence, and ending the series.
+  const p = await cal('PATCH', `/api/events/${weekly.body.id}`, { exdates: [jan1 + 7 * day], rrule: { freq: 'weekly', byday: [4], until: Date.UTC(2026, 2, 1) } });
+  assert.equal(p.status, 200, JSON.stringify(p.body));
+  assert.deepEqual(p.body.exdates, [jan1 + 7 * day]);
+  assert.equal((await cal('GET', `/api/events?from=${Date.UTC(2026, 5, 1)}&to=${Date.UTC(2026, 6, 1)}`)).body.length, 1, 'ended in March');
+  assert.equal((await cal('PATCH', `/api/events/${weekly.body.id}`, { rrule: null })).body.rrule, null, 'no longer repeats');
+
+  for (const bad of [{ freq: 'hourly' }, { freq: 'daily', interval: 0 }, { freq: 'daily', byday: [1] }, { freq: 'weekly', byday: [] },
+    { freq: 'weekly', byday: [7] }, { freq: 'daily', count: 0 }, { freq: 'daily', count: 3, until: jan1 + day }, { freq: 'daily', until: jan1 - day }]) {
+    assert.equal((await cal('POST', '/api/events', { title: 'x', start: jan1, end: jan1 + 1, rrule: bad })).status, 400, JSON.stringify(bad));
+  }
+  assert.equal(ended.status, 201);
+});

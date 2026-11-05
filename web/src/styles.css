@@ -660,3 +660,9 @@ button.tg-day:hover .tg-num { background: var(--hover); }
 .auth-card.wide { max-width: 520px; }
 .auth-card .card { border: 0; padding: 0; box-shadow: none; background: none; }
 .auth-card .card { text-align: left; } .auth-card .card > h2 { display: none; }
+.repeat-box { padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; gap: 10px; }
+.repeat-box .check input[type="date"], .repeat-box .check input[type="number"] { margin-left: 6px; }
+.weekdays { display: flex; gap: 6px; }
+.weekdays .wd { width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--border); background: var(--surface); color: var(--text); font: inherit; font-size: 13px; cursor: pointer; }
+.weekdays .wd.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.chip .rep { opacity: .7; }

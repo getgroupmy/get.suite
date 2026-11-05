@@ -64,3 +64,50 @@ test('onDay counts zero-length events on their own day', () => {
   assert.equal(onDay([at], d(2026, 11, 5)).length, 1);
   assert.equal(onDay([at], d(2026, 11, 4)).length, 0);
 });
+
+import { occurrenceStarts, expand, expandAll, occurrenceIndex, describeRule } from './calmath.js';
+const times = (ev, to) => occurrenceStarts(ev, to.getTime()).map((t) => { const x = new Date(t); return `${x.getMonth() + 1}/${x.getDate()} ${x.getHours()}:${String(x.getMinutes()).padStart(2, '0')}`; });
+
+test('daily, weekly on weekdays, monthly, yearly', () => {
+  const s = d(2026, 11, 2, 9, 30); // Monday
+  const one = (rrule, to) => times({ start: s.getTime(), end: s.getTime() + 36e5, rrule }, to);
+  assert.deepEqual(one({ freq: 'daily', interval: 2 }, d(2026, 11, 9)), ['11/2 9:30', '11/4 9:30', '11/6 9:30', '11/8 9:30']);
+  assert.deepEqual(one({ freq: 'weekly', byday: [1, 2, 3, 4, 5] }, d(2026, 11, 10)), ['11/2 9:30', '11/3 9:30', '11/4 9:30', '11/5 9:30', '11/6 9:30', '11/9 9:30']);
+  assert.deepEqual(one({ freq: 'weekly', byday: [0, 4], interval: 2 }, d(2026, 11, 30)), ['11/5 9:30', '11/15 9:30', '11/19 9:30', '11/29 9:30'], 'Sunday before the start is skipped');
+  assert.deepEqual(one({ freq: 'daily', count: 3 }, d(2027, 1, 1)), ['11/2 9:30', '11/3 9:30', '11/4 9:30']);
+  assert.deepEqual(one({ freq: 'daily', until: d(2026, 11, 4, 23, 59).getTime() }, d(2027, 1, 1)), ['11/2 9:30', '11/3 9:30', '11/4 9:30']);
+  const jan31 = d(2026, 1, 31, 8);
+  assert.deepEqual(times({ start: jan31.getTime(), end: jan31.getTime(), rrule: { freq: 'monthly' } }, d(2026, 6, 1)), ['1/31 8:00', '3/31 8:00', '5/31 8:00'], 'months without a 31st are skipped');
+  const leap = d(2024, 2, 29, 8);
+  assert.deepEqual(occurrenceStarts({ start: leap.getTime(), end: leap.getTime(), rrule: { freq: 'yearly' } }, d(2032, 3, 1).getTime()).map((t) => new Date(t).getFullYear()), [2024, 2028, 2032]);
+});
+
+test('wall-clock time is kept across clock changes', () => {
+  // Whatever the time zone running the test, each occurrence is at 9:00 local time.
+  const s = d(2026, 3, 1, 9);
+  const starts = occurrenceStarts({ start: s.getTime(), end: s.getTime() + 36e5, rrule: { freq: 'weekly' } }, d(2026, 12, 1).getTime());
+  assert.ok(starts.length > 30);
+  assert.ok(starts.every((t) => new Date(t).getHours() === 9 && new Date(t).getDay() === s.getDay()));
+});
+
+test('expanding: copies with their own times, skipped dates, multi-day and all-day events', () => {
+  const s = d(2026, 11, 2, 22), e = d(2026, 11, 3, 1); // 22:00 to 01:00 next day
+  const ev = { id: 'x', title: 'Night', start: s.getTime(), end: e.getTime(), rrule: { freq: 'daily' }, exdates: [d(2026, 11, 3, 22).getTime()] };
+  const list = expand(ev, d(2026, 11, 3).getTime(), d(2026, 11, 6).getTime());
+  assert.deepEqual(list.map((o) => [new Date(o.start).getDate(), new Date(o.end).getDate(), new Date(o.end).getHours()]), [[2, 3, 1], [4, 5, 1], [5, 6, 1]], 'the 3rd is skipped; the 2nd reaches into the range');
+  assert.equal(list[0].key, `x@${s.getTime()}`);
+  const allDay = { id: 'a', start: d(2026, 3, 27).getTime(), end: d(2026, 3, 27, 23, 59, 59).getTime() + 999, all_day: 1, rrule: { freq: 'daily' } };
+  assert.ok(expand(allDay, d(2026, 3, 27).getTime(), d(2026, 4, 3).getTime()).every((o) => new Date(o.start).getHours() === 0 && new Date(o.end).getHours() === 23), 'all-day stays midnight to midnight');
+  assert.deepEqual(expandAll([ev, { id: 'y', start: d(2026, 11, 4, 8).getTime(), end: d(2026, 11, 4, 9).getTime() }], d(2026, 11, 4).getTime(), d(2026, 11, 5).getTime()).map((o) => o.id), ['y', 'x']);
+});
+
+test('occurrence index and rule descriptions', () => {
+  const s = d(2026, 11, 2, 9);
+  const ev = { start: s.getTime(), end: s.getTime(), rrule: { freq: 'daily', count: 10 } };
+  assert.equal(occurrenceIndex(ev, d(2026, 11, 5, 9).getTime()), 3);
+  assert.equal(describeRule(null), 'Does not repeat');
+  assert.equal(describeRule({ freq: 'weekly', byday: [1, 2, 3, 4, 5] }, s, 'en-US'), 'Weekly on weekdays');
+  assert.equal(describeRule({ freq: 'weekly', byday: [1, 4], interval: 2 }, s, 'en-US'), 'Every 2 weeks on Mon, Thu');
+  assert.equal(describeRule({ freq: 'monthly', count: 5 }, s, 'en-US'), 'Monthly, 5 times');
+  assert.equal(describeRule({ freq: 'yearly', until: d(2030, 1, 1).getTime() }, s, 'en-US'), 'Yearly, until Jan 1, 2030');
+});

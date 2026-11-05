@@ -68,3 +68,96 @@ export function layoutDay(events, dayStart, { minMinutes = 20 } = {}) {
   close();
   return items;
 }
+
+// ---- repeating events ----
+const MAX_STEPS = 20000; // safety cap when walking a long series
+
+/** Calendar days from a to b (local dates), ignoring the time of day and clock changes. */
+const daysBetween = (a, b) => Math.round((startOfDay(b) - startOfDay(a)) / DAY);
+
+/**
+ * The occurrence starts of a repeating event that begin before `to` (all of them from the first,
+ * since "after N times" counts from the start), in local wall-clock time: a 9:00 weekly meeting
+ * stays at 9:00 across clock changes. Skipped dates (exdates) are left out but still counted.
+ */
+export function occurrenceStarts(ev, to) {
+  const r = ev.rrule;
+  if (!r) return [ev.start];
+  const first = new Date(ev.start);
+  const [h, mi, s, ms] = [first.getHours(), first.getMinutes(), first.getSeconds(), first.getMilliseconds()];
+  const at = (y, m, d) => new Date(y, m, d, h, mi, s, ms);
+  const every = r.interval || 1;
+  const out = [];
+  let n = 0;
+  const take = (t) => {
+    if (r.until !== undefined && t > r.until) return false;
+    if (r.count !== undefined && n >= r.count) return false;
+    if (t >= to) return false;
+    n++;
+    out.push(t);
+    return true;
+  };
+  for (let i = 0; i < MAX_STEPS; i++) {
+    if (r.freq === 'daily') {
+      if (!take(at(first.getFullYear(), first.getMonth(), first.getDate() + i * every).getTime())) break;
+    } else if (r.freq === 'weekly') {
+      const days = r.byday?.length ? r.byday : [first.getDay()];
+      const week = startOfWeek(first);
+      let stop = false;
+      for (const wd of days) {
+        const t = at(week.getFullYear(), week.getMonth(), week.getDate() + i * 7 * every + wd).getTime();
+        if (t < ev.start) continue; // days earlier in the first week
+        if (!take(t)) { stop = true; break; }
+      }
+      if (stop) break;
+    } else {
+      // Monthly / yearly on the same date; months without that date (31st, 29 Feb) are skipped.
+      const months = r.freq === 'monthly' ? i * every : i * 12 * every;
+      const d = at(first.getFullYear(), first.getMonth() + months, first.getDate());
+      const t = d.getTime();
+      if (t >= to || (r.until !== undefined && t > r.until)) break;
+      if (d.getDate() !== first.getDate()) continue;
+      if (!take(t)) break;
+    }
+  }
+  return out;
+}
+
+/** The event's occurrences that touch [from, to), each a copy with its own start and end. */
+export function expand(ev, from, to) {
+  if (!ev.rrule) return ev.start < to && ev.end >= from ? [ev] : [];
+  const first = new Date(ev.start), last = new Date(ev.end);
+  const spanDays = daysBetween(first, last);
+  const skip = new Set(ev.exdates || []);
+  const out = [];
+  for (const start of occurrenceStarts(ev, to)) {
+    if (skip.has(start)) continue;
+    const s = new Date(start);
+    const end = new Date(s.getFullYear(), s.getMonth(), s.getDate() + spanDays, last.getHours(), last.getMinutes(), last.getSeconds(), last.getMilliseconds()).getTime();
+    if (end < from) continue;
+    out.push({ ...ev, start, end, occurrence: start, seriesStart: ev.start, seriesEnd: ev.end, key: `${ev.id}@${start}` });
+  }
+  return out;
+}
+
+/** All events touching [from, to), repeating ones expanded. */
+export const expandAll = (events, from, to) => events.flatMap((ev) => expand(ev, from, to)).sort((a, b) => a.start - b.start);
+
+/** How many occurrences come before this one (for "this and following" on a counted series). */
+export const occurrenceIndex = (ev, occurrence) => occurrenceStarts(ev, occurrence).length;
+
+/** A short description of a rule: "Weekly on Mon, Thu", "Every 2 months", "Daily, 5 times". */
+export function describeRule(r, start, locale) {
+  if (!r) return 'Does not repeat';
+  const n = r.interval || 1;
+  const unit = { daily: ['Daily', 'days'], weekly: ['Weekly', 'weeks'], monthly: ['Monthly', 'months'], yearly: ['Yearly', 'years'] }[r.freq];
+  let text = n === 1 ? unit[0] : `Every ${n} ${unit[1]}`;
+  if (r.freq === 'weekly') {
+    const days = r.byday?.length ? r.byday : [new Date(start).getDay()];
+    const names = days.map((d) => new Date(2026, 10, 1 + d).toLocaleDateString(locale, { weekday: 'short' }));
+    text += ` on ${days.join() === '1,2,3,4,5' ? 'weekdays' : names.join(', ')}`;
+  }
+  if (r.count) text += `, ${r.count} times`;
+  if (r.until !== undefined) text += `, until ${new Date(r.until).toLocaleDateString(locale, { day: 'numeric', month: 'short', year: 'numeric' })}`;
+  return text;
+}

@@ -141,6 +141,10 @@ if (!hasColumn('domains', 'dkim_public')) db.exec('ALTER TABLE domains ADD COLUM
 // Mail-app password: when set, mail apps (IMAP/SMTP) must use it instead of the account password.
 if (!hasColumn('users', 'mail_app_hash')) db.exec('ALTER TABLE users ADD COLUMN mail_app_hash TEXT');
 if (!hasColumn('users', 'mail_app_created')) db.exec('ALTER TABLE users ADD COLUMN mail_app_created INTEGER');
+// Repeating events: the rule (JSON), skipped occurrences, and when the series ends (for queries).
+if (!hasColumn('events', 'rrule')) db.exec('ALTER TABLE events ADD COLUMN rrule TEXT');
+if (!hasColumn('events', 'exdates')) db.exec("ALTER TABLE events ADD COLUMN exdates TEXT NOT NULL DEFAULT '[]'");
+if (!hasColumn('events', 'repeat_until')) db.exec('ALTER TABLE events ADD COLUMN repeat_until INTEGER');
 // Company setting: everyone must use two-step verification for web sign-in.
 if (!hasColumn('orgs', 'require_2fa')) db.exec('ALTER TABLE orgs ADD COLUMN require_2fa INTEGER NOT NULL DEFAULT 0');
 db.exec(`CREATE TABLE IF NOT EXISTS two_factor (
