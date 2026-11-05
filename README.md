@@ -7,6 +7,7 @@ A self-hosted, Google Workspace-style office suite built to run on a Synology DS
 | **Drive** | Folders, uploads up to 4 GB each (drag and drop), previews (images, PDF, video, audio, text), rename, move, trash and restore, search, sharing with people as viewer or editor (folder shares apply to everything inside), share links for people without an account, and version history |
 | **Docs** | Rich-text documents (headings, lists, links, quotes, code, alignment) with autosave, print/PDF and HTML export |
 | **Sheets** | Spreadsheets with formulas (`SUM AVERAGE MIN MAX MEDIAN COUNT COUNTA COUNTIF SUMIF IF IFERROR AND OR NOT ROUND ABS SQRT POWER MOD INT CONCAT LEN UPPER LOWER TRIM LEFT RIGHT TODAY NOW`), cell formatting (bold, italic, underline, text and fill colour, alignment, number, currency and percent formats), multiple sheets, copy/paste with reference shifting, and CSV import/export |
+| **Slides** | Presentations: slide layouts, text boxes, pictures and shapes you drag and resize, text size, bold, italic and colour, four themes, full-screen presenting, and printing or saving as PDF |
 | **Calendar** | Month, week and day views (timed events placed by the hour, side by side when they overlap, with a current-time line), all-day and timed events, repeating events, inviting colleagues and people outside by email (Yes / Maybe / No), colours, upcoming list |
 | **Contacts** | Personal address book, plus a directory of everyone on the NAS |
 | **Chat** | Channels and direct messages, delivered live over WebSockets, with an emoji picker |
@@ -86,6 +87,19 @@ On 2 GB of RAM, both containers fit with room to spare. Adding a RAM stick only 
 6. **Firewall (recommended):** Control Panel → Security → Firewall. Allow 80 and 443 from everywhere, and allow DSM ports only from your LAN.
 
 Cookies switch to `Secure` automatically once traffic arrives over HTTPS through the proxy.
+
+## Slides
+
+In Drive, **New → Presentation**. Presentations are shared, versioned and saved automatically like documents.
+
+- **Slides:** **+ Slide** adds one after the current slide with a layout (title and text, title slide, section header, two columns, blank). Each slide's ⋮ menu duplicates, moves or deletes it.
+- **On a slide:** add a **Text box**, a **Picture** (from your computer; it's saved in Drive next to the presentation) or a **Shape**.
+  - Drag to move, and drag the handles to resize. Pictures keep their shape; hold Shift to stretch them.
+  - Double-click text to type. Arrow keys nudge the selected item (Shift for bigger steps), and Delete removes it.
+  - The toolbar sets text size, bold, italic, colour and alignment, shape colour, the slide's background, and front/back order. The ⋮ menu picks one of four themes.
+- **Present** opens full screen. The arrow keys, space or a click move between slides, and Esc ends.
+- **Print or save as PDF** (⋮ menu) prints one slide per landscape page. Choose "Save as PDF" in the print dialog.
+- People you share a presentation with see its pictures, even ones that aren't shared with them separately. Viewers can present but not edit.
 
 ## Version history (Drive)
 
@@ -401,4 +415,3 @@ cd server && MAIL_IT_CONFIG_DIR=/etc/nw npm run test:mail
 
 - **Real-time co-editing:** live cursors and character-level merging (Yjs) in Docs and Sheets.
 - **Phone sync:** CalDAV and CardDAV, so calendars and contacts sync with the phone's built-in apps; WebDAV for Drive.
-- **Slides.**

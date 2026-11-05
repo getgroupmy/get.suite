@@ -19,7 +19,12 @@ const ORDER = `ORDER BY (f.kind = 'folder') DESC, f.name COLLATE NOCASE`;
 const EMPTY = {
   doc: () => JSON.stringify({ type: 'doc', content: [{ type: 'paragraph' }] }),
   sheet: () => JSON.stringify({ sheets: [{ name: 'Sheet1', cells: {}, colWidths: {} }] }),
+  slides: () => JSON.stringify({ theme: 'light', slides: [{ id: uid(), items: [
+    { id: uid(), type: 'text', role: 'title', x: 8, y: 30, w: 84, h: 20, text: '', size: 44, bold: true, align: 'center' },
+    { id: uid(), type: 'text', role: 'subtitle', x: 15, y: 54, w: 70, h: 12, text: '', size: 24, align: 'center' },
+  ] }] }),
 };
+const EDITABLE = ['doc', 'sheet', 'slides'];
 
 function cleanName(name) {
   const n = str(name, { required: true, name: 'Name', max: 255 });
@@ -181,9 +186,9 @@ export default function fileRoutes({ maxUploadBytes }) {
 
   r.post('/new', (req, res) => {
     const kind = req.body.kind;
-    if (!EMPTY[kind]) throw bad('kind must be doc or sheet');
+    if (!EMPTY[kind]) throw bad('kind must be doc, sheet or slides');
     const parentId = resolveParent(req.body.parent_id, req.user);
-    const name = cleanName(req.body.name || (kind === 'doc' ? 'Untitled document' : 'Untitled spreadsheet'));
+    const name = cleanName(req.body.name || { doc: 'Untitled document', sheet: 'Untitled spreadsheet', slides: 'Untitled presentation' }[kind]);
     const content = req.body.content !== undefined ? JSON.stringify(req.body.content) : EMPTY[kind]();
     const id = insertFile({ owner: req.user.id, parentId, name, kind, content, size: Buffer.byteLength(content) });
     if (parentId) notify(parentId, { type: 'files-changed', parent_id: parentId });
@@ -236,7 +241,7 @@ export default function fileRoutes({ maxUploadBytes }) {
 
   r.get('/:id/content', (req, res) => {
     const f = loadFile(req.params.id, req.user);
-    if (f.kind !== 'doc' && f.kind !== 'sheet') throw bad('No editable content');
+    if (!EDITABLE.includes(f.kind)) throw bad('No editable content');
     const { content } = q('SELECT content FROM files WHERE id = ?').get(f.id);
     res.json({ file: publicFile(f), content: JSON.parse(content) });
   });
@@ -244,7 +249,7 @@ export default function fileRoutes({ maxUploadBytes }) {
   // Save with optimistic concurrency: client sends the version it edited.
   r.put('/:id/content', (req, res) => {
     const f = loadFile(req.params.id, req.user, 'editor');
-    if (f.kind !== 'doc' && f.kind !== 'sheet') throw bad('No editable content');
+    if (!EDITABLE.includes(f.kind)) throw bad('No editable content');
     const json = JSON.stringify(req.body.content ?? null);
     // One earlier version per editing session: when someone else edited last, or after a pause.
     const cur = q('SELECT version, updated_at, updated_by, owner_id FROM files WHERE id = ?').get(f.id);
@@ -292,6 +297,21 @@ export default function fileRoutes({ maxUploadBytes }) {
     tx(() => permanentlyDelete(f.id));
     sendTo(audience, { type: 'files-changed', parent_id: f.parent_id });
     res.json({ ok: true });
+  });
+
+  // Pictures in a presentation: anyone who can open the deck sees them, even if the picture file
+  // itself isn't shared with them. Only pictures the deck uses, owned by someone who can edit it.
+  r.get('/:id/pictures/:pic', (req, res) => {
+    const deck = loadFile(req.params.id, req.user);
+    if (deck.kind !== 'slides') throw notFound();
+    const pic = String(req.params.pic);
+    const { content } = q('SELECT content FROM files WHERE id = ?').get(deck.id);
+    const used = JSON.parse(content || '{}').slides?.some((sl) => sl.items?.some((it) => it.type === 'image' && it.fileId === pic));
+    const f = used && q('SELECT * FROM files WHERE id = ? AND kind = ? AND trashed = 0').get(pic, 'file');
+    if (!f || !/^image\/(png|jpeg|gif|webp|avif|bmp)$/.test(f.mime || '') || !atLeast(roleFor(deck.id, f.owner_id), 'editor')) throw notFound('Picture not found');
+    res.setHeader('Content-Type', f.mime);
+    res.setHeader('Content-Security-Policy', "default-src 'none'");
+    res.sendFile(path.join(FILES_DIR, f.storage), { headers: { 'Cache-Control': 'private, max-age=3600' } });
   });
 
   // ---- version history ----

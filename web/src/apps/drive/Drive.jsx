@@ -19,6 +19,7 @@ export function openPath(f) {
   if (f.kind === 'folder') return `/drive/folder/${f.id}`;
   if (f.kind === 'doc') return `/docs/${f.id}`;
   if (f.kind === 'sheet') return `/sheets/${f.id}`;
+  if (f.kind === 'slides') return `/slides/${f.id}`;
   return null;
 }
 
@@ -153,6 +154,7 @@ export default function Drive() {
           '-',
           { label: 'Document', icon: 'doc', onClick: () => create('doc') },
           { label: 'Spreadsheet', icon: 'sheet', onClick: () => create('sheet') },
+          { label: 'Presentation', icon: 'slides', onClick: () => create('slides') },
         ]} />
         <input ref={fileInput} type="file" multiple hidden onChange={(e) => { startUploads(e.target.files); e.target.value = ''; }} />
         <NavLink end to="/drive" className={() => `subnav-item ${route.view === 'mine' ? 'active' : ''}`}><Icon name="folder" />My Drive</NavLink>

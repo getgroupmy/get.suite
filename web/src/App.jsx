@@ -12,6 +12,7 @@ import { TwoStep } from './apps/Settings.jsx';
 import Drive from './apps/drive/Drive.jsx';
 import DocEditor from './apps/docs/DocEditor.jsx';
 import SheetEditor from './apps/sheets/SheetEditor.jsx';
+import SlidesEditor from './apps/slides/SlidesEditor.jsx';
 import Calendar from './apps/calendar/Calendar.jsx';
 import Contacts from './apps/contacts/Contacts.jsx';
 import Chat from './apps/chat/Chat.jsx';
@@ -61,6 +62,7 @@ function Workspace() {
             <Routes>
               <Route path="/docs/:id" element={<DocEditor />} />
               <Route path="/sheets/:id" element={<SheetEditor />} />
+              <Route path="/slides/:id" element={<SlidesEditor />} />
               <Route path="*" element={<Shell />} />
             </Routes>
           </BrowserRouter>

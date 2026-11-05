@@ -634,3 +634,32 @@ test('renaming an address: account and data stay, the old address can stay as an
   const again = (await owner('POST', '/api/users', { local: 'temp', domain: 'acme.com', name: 'Temp 2', password: 'password123' })).body.id;
   assert.match(q('SELECT mail_home FROM users WHERE id = ?').get(again).mail_home, /^\/var\/vmail\/acme\.com\/temp\./);
 });
+
+test('presentations: created with a title slide, saved like documents', async () => {
+  const deck = await owner('POST', '/api/files/new', { kind: 'slides' });
+  assert.equal(deck.status, 201);
+  assert.equal(deck.body.name, 'Untitled presentation');
+  const c = (await owner('GET', `/api/files/${deck.body.id}/content`)).body;
+  assert.equal(c.content.slides.length, 1);
+  assert.deepEqual(c.content.slides[0].items.map((i) => i.role), ['title', 'subtitle']);
+  const next = { ...c.content, slides: [...c.content.slides, { id: 'two', items: [] }] };
+  assert.equal((await owner('PUT', `/api/files/${deck.body.id}/content`, { version: c.file.version, content: next })).status, 200);
+  assert.equal((await owner('GET', `/api/files/${deck.body.id}/content`)).body.content.slides.length, 2);
+
+  // Pictures: viewers of the deck see the ones it uses, nothing else.
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  const pic = (await owner('POST', '/api/files/upload?name=logo.png', png, { raw: true })).body;
+  const secret = (await owner('POST', '/api/files/upload?name=secret.png', png, { raw: true })).body;
+  const viewer = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'deckview', domain: 'acme.com', name: 'Deck Viewer', password: 'password123' })).status, 201);
+  const vid = (await login(viewer, 'deckview@acme.com')).id;
+  await owner('PUT', `/api/files/${deck.body.id}/shares`, { shares: [{ user_id: vid, role: 'viewer' }] });
+  const cur = (await owner('GET', `/api/files/${deck.body.id}/content`)).body;
+  const withPic = { ...cur.content, slides: [{ ...cur.content.slides[0], items: [...cur.content.slides[0].items, { id: 'p', type: 'image', fileId: pic.id, x: 0, y: 0, w: 10, h: 10 }] }, ...cur.content.slides.slice(1)] };
+  await owner('PUT', `/api/files/${deck.body.id}/content`, { version: cur.file.version, content: withPic });
+  const shown = await viewer('GET', `/api/files/${deck.body.id}/pictures/${pic.id}`);
+  assert.equal(shown.status, 200);
+  assert.equal(shown.headers.get('content-type'), 'image/png');
+  assert.equal((await viewer('GET', `/api/files/${pic.id}/raw`)).status, 404, 'the picture file itself is not shared');
+  assert.equal((await viewer('GET', `/api/files/${deck.body.id}/pictures/${secret.id}`)).status, 404, 'only pictures the deck uses');
+});

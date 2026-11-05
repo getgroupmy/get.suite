@@ -50,7 +50,7 @@ CREATE TABLE IF NOT EXISTS files (
   owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   parent_id TEXT REFERENCES files(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
-  kind TEXT NOT NULL CHECK (kind IN ('folder','file','doc','sheet')),
+  kind TEXT NOT NULL CHECK (kind IN ('folder','file','doc','sheet','slides')),
   mime TEXT,
   size INTEGER NOT NULL DEFAULT 0,
   storage TEXT,
@@ -126,6 +126,30 @@ export function tx(fn) {
 }
 
 // ---------- migrations from v0.1 (single-company) ----------
+// Presentations: databases from before Slides only allow the older kinds of file. SQLite can't change
+// a CHECK constraint in place, so the table is rebuilt (same columns and rows, same id references).
+if (!/'slides'/.test(db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'files'").get().sql)) {
+  const cols = 'id, owner_id, parent_id, name, kind, mime, size, storage, content, version, trashed, created_at, updated_at, updated_by';
+  db.exec('PRAGMA foreign_keys = OFF');
+  try {
+    db.exec(`BEGIN;
+      CREATE TABLE files_new (
+        id TEXT PRIMARY KEY,
+        owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        parent_id TEXT REFERENCES files(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        kind TEXT NOT NULL CHECK (kind IN ('folder','file','doc','sheet','slides')),
+        mime TEXT, size INTEGER NOT NULL DEFAULT 0, storage TEXT, content TEXT,
+        version INTEGER NOT NULL DEFAULT 1, trashed INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, updated_by TEXT);
+      INSERT INTO files_new (${cols}) SELECT ${cols} FROM files;
+      DROP TABLE files;
+      ALTER TABLE files_new RENAME TO files;
+      CREATE INDEX IF NOT EXISTS files_parent ON files(parent_id);
+      CREATE INDEX IF NOT EXISTS files_owner ON files(owner_id);
+      COMMIT;`);
+  } catch (e) { try { db.exec('ROLLBACK'); } catch {} throw e; } finally { db.exec('PRAGMA foreign_keys = ON'); }
+}
 const hasColumn = (table, col) => db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === col);
 if (!hasColumn('users', 'org_id')) db.exec('ALTER TABLE users ADD COLUMN org_id TEXT REFERENCES orgs(id) ON DELETE CASCADE');
 if (!hasColumn('users', 'is_super')) db.exec('ALTER TABLE users ADD COLUMN is_super INTEGER NOT NULL DEFAULT 0');
