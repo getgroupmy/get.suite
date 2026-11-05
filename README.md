@@ -119,6 +119,7 @@ Your business fixed IP is what makes this work. Do these once:
 - **Rich-text writing:** bold, italic, underline, strike, bulleted and numbered lists, quotes, links and tables. Every message is sent with a formatted version and a readable plain-text version (quotes marked with `>`, lists with `-` / `1.`), so any mail app can show it. Replies quote the original as a quoted block. Quotes are built from the original's plain text, so formatting tricks in a received email can't carry into yours.
 - **Alignment:** the **left / centre / right** buttons align the paragraph the cursor is in (or every selected paragraph). Keyboard: Ctrl+Shift+L / E / R. Mail apps show the alignment as sent.
   - **Pictures:** click a picture, then use the same buttons to put it on the left, in the centre or on the right. Drafts keep it, and the email is built so Outlook on Windows shows it the same way.
+- **Indent:** **Increase / Decrease indent** (or Ctrl+] / Ctrl+[) move the paragraph in 40 px steps, up to 8. In a list they nest or un-nest the item instead. Tab is left free for moving out of the message with the keyboard. The plain-text version indents with spaces.
 - **Font:** the menu next to the size menu sets the font for the selected text, or for what you type next: Georgia, Times New Roman, Garamond, Courier New, Verdana, Tahoma, Trebuchet MS, Calibri or Comic Sans MS. **Sans Serif** is the normal font.
   - Each font is sent with fallbacks, for example Calibri, then Arial, so recipients without that font still see something close.
   - The menu shows the font where the cursor is, including fonts quoted from a reply or forward. **Sans Serif** and **Clear formatting** remove it.
@@ -184,7 +185,7 @@ Your business fixed IP is what makes this work. Do these once:
     - **The Archive can be followed too** (its ⋮ menu has just this option), which suits filters that file receipts or newsletters straight into it. Sent, Drafts, Junk and Trash can't be followed.
   - Only newly delivered mail triggers an alert. Mail you move yourself (archiving unread mail, "Not spam", a phone tidying folders) keeps its original arrival time, so it counts towards the unread badge but doesn't alert. A message is announced once, even if it lands in the Inbox and is then archived straight away.
 - **Forward as attachment:** sends the original email whole, as an `.eml` file with its formatting, pictures, attachments and technical headers (including DKIM) intact. Use it to report a suspicious message to IT, or to pass one on exactly as received.
-- **Pictures, tables and colours in replies and forwards:** **Reply**, **Reply all** and a normal **Forward** keep the original's basic formatting (paragraphs, bold, italic, lists, quotes, links), its text colours and highlights, its fonts and font sizes, its alignment, its tables, and the pictures embedded in it, in place. In a reply they sit inside the quote.
+- **Pictures, tables and colours in replies and forwards:** **Reply**, **Reply all** and a normal **Forward** keep the original's basic formatting (paragraphs, bold, italic, lists, quotes, links), its text colours and highlights, its fonts and font sizes, its alignment and indents, its tables, and the pictures embedded in it, in place. In a reply they sit inside the quote.
   - The server cleans the original first. Scripts, styles, forms and pictures loaded from the internet (including tracking pixels) are left out, so nothing in a forwarded email can run or report back to its sender.
   - While you write, the pictures are shown straight from the original message, so they don't take up space in your Drive. When you send, they're embedded in your email like pictures you insert yourself.
   - You can resize, crop or rotate them like your own pictures. A cropped or rotated picture is saved to your Drive.
@@ -193,6 +194,7 @@ Your business fixed IP is what makes this work. Do these once:
     - Only plain colour values are accepted; anything else in the original's styles is dropped.
     - **Highlights** in the original (a light background on words, or `<mark>`) are kept too. Backgrounds on whole paragraphs, table cells or the page (newsletter styling) and dark backgrounds are left out.
     - **Clear formatting** (Tx) removes colours and highlights from the selected text.
+  - **Indents** are kept, in the same 40 px steps, for example Outlook's half-inch indents. Gmail's indents (a borderless quote) arrive as indents, not as an extra quote.
   - **Alignment** is kept: centred and right-aligned paragraphs, headings and table cells, and centred pictures, stay where they were. Justified text becomes normal left-aligned text. The Left / Centre / Right buttons show and change it.
   - **Fonts and font sizes** are kept too:
     - Sizes are matched to the size menu's **Small / Normal / Large / Huge**, whatever unit the original used, so a newsletter's tiny print or giant banner stays readable. Headings become Large or Huge.
@@ -294,7 +296,7 @@ cd server && MAIL_IT_CONFIG_DIR=/etc/nw npm run test:mail
 
 ## Roadmap
 
-- **Mail, next steps:** indenting paragraphs (increase / decrease indent).
+- **Mail, next steps:** a more compact formatting toolbar (grouping the less-used buttons), now that it wraps onto a second row on narrower windows.
 - **Real-time co-editing:** live cursors and character-level merging (Yjs) in Docs and Sheets.
 - **Phone sync:** CalDAV and CardDAV, so calendars and contacts sync with the phone's built-in apps; WebDAV for Drive.
 - **Renaming a user's address** (moving them to another domain of the same company), **two-factor authentication**, file version history, public share links, Slides, cell formatting in Sheets, and week and day calendar views.

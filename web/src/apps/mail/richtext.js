@@ -22,8 +22,9 @@ export function docToText(doc) {
       case 'paragraph':
       case 'heading': {
         const line = inline(node.content);
+        const ind = '    '.repeat(Math.max(0, Math.min(8, node.attrs?.indent || 0))); // indented paragraphs: 4 spaces a step
         // The standard signature separator is "-- " (with a trailing space, which the editor trims).
-        out.push(prefix + (line.trim() === '--' ? '-- ' : line.replace(/\n/g, `\n${prefix}`)));
+        out.push(prefix + ind + (line.trim() === '--' ? '-- ' : line.replace(/\n/g, `\n${prefix}${ind}`)));
         break;
       }
       case 'blockquote':

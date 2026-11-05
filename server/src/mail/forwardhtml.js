@@ -1,6 +1,6 @@
 // Turn a received email's HTML into a safe body for a reply quote or forward: the text with basic
 // formatting (paragraphs, line breaks, bold/italic/underline/strike, lists, quotes, links), text
-// colours, highlights, fonts and font sizes, alignment, data tables, and the pictures embedded in it. Tables used only for page layout (as newsletters do) are
+// colours, highlights, fonts and font sizes, alignment, indents, data tables, and the pictures embedded in it. Tables used only for page layout (as newsletters do) are
 // flattened into paragraphs. Everything else — scripts, styles, forms, tracking pixels and pictures
 // loaded from the internet — is dropped. The result only ever contains the handful of tags the
 // message editor knows, so nothing from the original can run or phone home.
@@ -133,7 +133,21 @@ function alignOf(tag, a) {
 const centredByMargins = (a) => /(?:^|;)\s*margin\s*:\s*(?:[^;]*\s)?auto\b/i.test(a.style || '')
   || (/margin-left\s*:\s*auto/i.test(a.style || '') && /margin-right\s*:\s*auto/i.test(a.style || ''));
 
-const styled = (marks, tag, a) => withMark('align', withMark('font', withMark('size', withMark('bg', withColor(marks, colorOf(tag, a)), highlightOf(tag, a)), sizeOf(tag, a)), fontOf(tag, a)), alignOf(tag, a));
+// ---- indents: a left margin/padding on a paragraph or block, in 40px steps (as the editor's) ----
+const INDENTABLE = new Set(['p', 'div', 'section', 'article', 'center', 'address', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'pre', 'dd']);
+const LENGTH_PX = { px: 1, pt: 4 / 3, em: 16, rem: 16, in: 96, cm: 37.8, mm: 3.78 };
+/** Indent steps a block sets (0..8), or undefined. Gmail-style indents are handled at <blockquote>. */
+function indentOf(tag, a) {
+  if (!INDENTABLE.has(tag)) return undefined;
+  const style = String(a.style || '');
+  const raw = [...style.matchAll(/(?:^|;)\s*(?:margin|padding)-left\s*:\s*([^;]+)/gi)].map((m) => m[1]);
+  if (!raw.length) return undefined;
+  const px = raw.reduce((sum, v) => { const m = v.trim().match(/^([\d.]+)\s*(px|pt|em|rem|in|cm|mm)$/i); return sum + (m ? parseFloat(m[1]) * LENGTH_PX[m[2].toLowerCase()] : 0); }, 0);
+  return Math.max(0, Math.min(8, Math.round(px / 40)));
+}
+const indentNow = (marks) => marks.find((m) => 'indent' in m)?.indent || 0;
+
+const styled = (marks, tag, a) => withMark('indent', withMark('align', withMark('font', withMark('size', withMark('bg', withColor(marks, colorOf(tag, a)), highlightOf(tag, a)), sizeOf(tag, a)), fontOf(tag, a)), alignOf(tag, a)), indentOf(tag, a));
 /** What carries on into list items, quotes and table cells (highlights are only for inline text). */
 const inheritable = (marks) => marks.filter((m) => m.color || m.size || m.font || m.align);
 
@@ -183,12 +197,15 @@ export function forwardHtml(html, pictureUrl) {
   function flow(nodes, inherited = []) {
     const out = [];
     let para = ''; // the paragraph being built (inline HTML)
-    let paraAlign = null; // its alignment: that of the block its first text came from
+    let paraAlign = null; // its alignment and indent: those of the block its first text came from
+    let paraIndent = 0;
     const flush = () => {
-      const st = paraAlign === 'center' || paraAlign === 'right' ? ` style="text-align: ${paraAlign}"` : '';
-      if (para.replace(/<br>/g, '').trim()) out.push(`<p${st}>${para.replace(/^(\s|<br>)+|(\s|<br>)+$/g, '')}</p>`);
+      const st = [(paraAlign === 'center' || paraAlign === 'right') && `text-align: ${paraAlign}`, paraIndent && `margin-left: ${paraIndent * 40}px`].filter(Boolean).join('; ');
+      const attrs = `${paraIndent ? ` data-indent="${paraIndent}"` : ''}${st ? ` style="${st}"` : ''}`;
+      if (para.replace(/<br>/g, '').trim()) out.push(`<p${attrs}>${para.replace(/^(\s|<br>)+|(\s|<br>)+$/g, '')}</p>`);
       para = '';
       paraAlign = null;
+      paraIndent = 0;
     };
     const alignNow = (marks) => marks.find((m) => m.align)?.align;
 
@@ -199,7 +216,7 @@ export function forwardHtml(html, pictureUrl) {
         else t = esc(t.replace(/[\s ]+/g, (w) => (w.includes(' ') ? ' ' : ' ')));
         if (!t) return;
         if (!para || /<br>$/.test(para)) t = t.replace(/^ /, '');
-        if (!para.trim()) paraAlign = alignNow(marks) || null;
+        if (!para.trim()) { paraAlign = alignNow(marks) || null; paraIndent = indentNow(marks); }
         const color = marks.find((m) => m.color)?.color;
         const bg = marks.find((m) => m.bg)?.bg;
         const size = marks.find((m) => m.size)?.size;
@@ -233,6 +250,13 @@ export function forwardHtml(html, pictureUrl) {
         if (!items.length) { kids(node, marks, pre); return; }
         flush();
         out.push(`<${tag}>${items.map((li) => `<li>${flow(li.children || [], styled(inheritable(marks), 'li', li.attribs || {})) || '<p></p>'}</li>`).join('')}</${tag}>`);
+        return;
+      }
+      // Gmail indents with a borderless <blockquote>: that's an indent step, not a quote.
+      if (tag === 'blockquote' && /(?:^|;)\s*border\s*:\s*(?:none|0)\b/i.test(a.style || '')) {
+        flush();
+        kids(node, withMark('indent', marks, Math.min(8, indentNow(marks) + 1)), pre);
+        flush();
         return;
       }
       if (tag === 'blockquote') {

@@ -68,3 +68,12 @@ test('centred and right-aligned pictures are also wrapped in an aligned block (f
   assert.match(html, /<div align="right" style="text-align:right"><img src="cid:b" data-align="right"><\/div>/);
   assert.match(html, /<\/div><img src="cid:c"><\/div>$/, 'left pictures unchanged');
 });
+
+test('indented paragraphs are indented with spaces in the plain-text part', () => {
+  const doc = { type: 'doc', content: [
+    { type: 'paragraph', content: [t('Steps:')] },
+    { type: 'paragraph', attrs: { indent: 1 }, content: [t('first'), { type: 'hardBreak' }, t('more')] },
+    { type: 'paragraph', attrs: { indent: 2 }, content: [t('detail')] },
+  ] };
+  assert.equal(docToText(doc), 'Steps:\n    first\n    more\n        detail');
+});

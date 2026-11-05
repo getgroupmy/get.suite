@@ -160,3 +160,20 @@ test('alignment: centred and right-aligned text and pictures are kept; left and 
   assert.match(html, /<img src="\/pic\/0" alt="" data-align="center"><img src="\/pic\/1" alt="" data-align="center">/);
   assert.match(html, /<p>inline: no effect<\/p>/);
 });
+
+test('indents: left margins become 40px steps; Gmail-style indents too, but not real quotes', () => {
+  const { html } = forwardHtml(`
+    <p class="MsoNormal" style="margin-left:.5in">Outlook indent</p>
+    <div style="padding-left: 80px"><p>two steps</p></div>
+    <blockquote style="margin:0 0 0 40px;border:none;padding:0px"><div>Gmail indent</div>
+      <blockquote style="margin:0 0 0 40px;border:none;padding:0px"><div>deeper</div></blockquote></blockquote>
+    <blockquote class="gmail_quote" style="margin:0 0 0 .8ex;border-left:1px solid #ccc;padding-left:1ex">a real quote</blockquote>
+    <p style="margin-left: 40px; text-align: center">both</p>
+    <p style="margin-left: -20px">negative</p><p style="margin-left: calc(10px + 2em)">odd</p>`, url);
+  assert.match(html, /<p data-indent="1" style="margin-left: 40px">Outlook indent<\/p>/);
+  assert.match(html, /<p data-indent="2" style="margin-left: 80px">two steps<\/p>/);
+  assert.match(html, /<p data-indent="1" style="margin-left: 40px">Gmail indent<\/p><p data-indent="2" style="margin-left: 80px">deeper<\/p>/);
+  assert.match(html, /<blockquote><p>a real quote<\/p><\/blockquote>/);
+  assert.match(html, /<p data-indent="1" style="text-align: center; margin-left: 40px">both<\/p>/);
+  assert.match(html, /<p>negative<\/p><p>odd<\/p>/);
+});

@@ -7,7 +7,7 @@ import { desktopSupported, desktopOn, enableDesktop, disableDesktop } from '../.
 import Icon from '../../components/Icon.jsx';
 import { Avatar, ConfirmModal, Empty, Menu, Modal, PromptModal, useToast } from '../../components/ui.jsx';
 import { useAuth } from '../../App.jsx';
-import { useEditor, EditorContent, Node as TiptapNode, mergeAttributes } from '@tiptap/react';
+import { useEditor, EditorContent, Node as TiptapNode, Extension, mergeAttributes } from '@tiptap/react';
 import Image from '@tiptap/extension-image';
 import TextAlign from '@tiptap/extension-text-align';
 import { Table, TableRow, TableHeader, TableCell } from '@tiptap/extension-table';
@@ -622,6 +622,7 @@ function RichBody({ initialHtml, onChange, onReady, autoFocus, label = 'Message'
       TextStyle, Color, BackgroundColor, FontSize, FontFamily,
       // Left / centre / right for paragraphs (Ctrl+Shift+L / E / R). Left is the normal alignment.
       TextAlign.configure({ types: ['paragraph'], alignments: ['left', 'center', 'right'] }),
+      Indent,
       SignatureBlock,
     ],
     content: initialHtml,
@@ -722,6 +723,8 @@ function RichBody({ initialHtml, onChange, onReady, autoFocus, label = 'Message'
               onClick={() => (pic ? c().updateAttributes('image', { align: al === 'left' ? null : al }) : al === 'left' ? c().unsetTextAlign() : c().setTextAlign(al)).run()} />
           );
         })}
+        <B label={<IndentIcon out />} title="Decrease indent (Ctrl+[)" onClick={() => c().outdent().run()} />
+        <B label={<IndentIcon />} title="Increase indent (Ctrl+])" onClick={() => c().indent().run()} />
         <span className="sep" />
         <B label="•" title="Bulleted list" active={editor.isActive('bulletList')} onClick={() => c().toggleBulletList().run()} />
         <B label="1." title="Numbered list" active={editor.isActive('orderedList')} onClick={() => c().toggleOrderedList().run()} />
@@ -802,6 +805,64 @@ const FONTS = [
 ];
 const fontKey = (v) => String(v || '').replace(/['"\s]/g, '').toLowerCase();
 const fontName = (v) => (!v ? 'Sans Serif' : FONTS.find(([, stack]) => stack && fontKey(stack) === fontKey(v))?.[0] || 'Other font');
+
+const MAX_INDENT = 8, INDENT_PX = 40;
+const clampIndent = (n) => Math.max(0, Math.min(MAX_INDENT, Math.round(n) || 0));
+
+/**
+ * Paragraph indent, 40px a step (up to 8), sent as a left margin that mail apps show.
+ * In a list the same commands nest / un-nest the item. Ctrl+] / Ctrl+[ (Tab stays free for
+ * moving out of the message with the keyboard).
+ */
+const Indent = Extension.create({
+  name: 'indent',
+  addGlobalAttributes() {
+    return [{
+      types: ['paragraph'],
+      attributes: {
+        indent: {
+          default: 0,
+          parseHTML: (el) => {
+            const d = Number(el.getAttribute('data-indent'));
+            if (d) return clampIndent(d);
+            const m = /^([\d.]+)px$/.exec(el.style.marginLeft || '');
+            return m ? clampIndent(parseFloat(m[1]) / INDENT_PX) : 0;
+          },
+          renderHTML: (attrs) => (attrs.indent ? { 'data-indent': attrs.indent, style: `margin-left: ${attrs.indent * INDENT_PX}px` } : {}),
+        },
+      },
+    }];
+  },
+  addCommands() {
+    const change = (delta) => () => ({ state, tr, dispatch, commands, editor }) => {
+      if (editor.isActive('listItem')) return delta > 0 ? commands.sinkListItem('listItem') : commands.liftListItem('listItem');
+      let changed = false;
+      state.doc.nodesBetween(state.selection.from, state.selection.to, (node, pos) => {
+        if (node.type.name !== 'paragraph') return true;
+        const next = clampIndent((node.attrs.indent || 0) + delta);
+        if (next !== (node.attrs.indent || 0)) {
+          changed = true;
+          if (dispatch) tr.setNodeMarkup(pos, undefined, { ...node.attrs, indent: next });
+        }
+        return false;
+      });
+      return changed;
+    };
+    return { indent: change(1), outdent: change(-1) };
+  },
+  addKeyboardShortcuts() {
+    return { 'Mod-]': () => this.editor.commands.indent(), 'Mod-[': () => this.editor.commands.outdent() };
+  },
+});
+
+function IndentIcon({ out }) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 18 16" aria-hidden="true" fill="currentColor">
+      {[0, 1, 2, 3].map((i) => <rect key={i} x={i === 0 || i === 3 ? 2 : 8} y={2 + i * 3.5} width={i === 0 || i === 3 ? 14 : 8} height="1.8" rx=".9" />)}
+      <path d={out ? 'M5.5 6.2 2.5 8.6l3 2.4z' : 'M2.5 6.2l3 2.4-3 2.4z'} />
+    </svg>
+  );
+}
 
 /** Lines icon for the alignment buttons. */
 function AlignIcon({ to }) {
