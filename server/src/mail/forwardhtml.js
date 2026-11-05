@@ -1,6 +1,6 @@
 // Turn a received email's HTML into a safe body for a reply quote or forward: the text with basic
 // formatting (paragraphs, line breaks, bold/italic/underline/strike, lists, quotes, links), text
-// colours, highlights, fonts and font sizes, data tables, and the pictures embedded in it. Tables used only for page layout (as newsletters do) are
+// colours, highlights, fonts and font sizes, alignment, data tables, and the pictures embedded in it. Tables used only for page layout (as newsletters do) are
 // flattened into paragraphs. Everything else — scripts, styles, forms, tracking pixels and pictures
 // loaded from the internet — is dropped. The result only ever contains the handful of tags the
 // message editor knows, so nothing from the original can run or phone home.
@@ -119,9 +119,23 @@ function fontOf(tag, a) {
 const withColor = (marks, c) => (c === undefined ? marks : [...marks.filter((m) => !m.color), { color: c }]);
 const withMark = (key, marks, v) => (v === undefined ? marks : [...marks.filter((m) => !(key in m)), { [key]: v }]);
 /** Colour, highlight, size and font an element sets, applied to what's inside it. */
-const styled = (marks, tag, a) => withMark('font', withMark('size', withMark('bg', withColor(marks, colorOf(tag, a)), highlightOf(tag, a)), sizeOf(tag, a)), fontOf(tag, a));
+// ---- alignment: centre / right on paragraphs, headings, cells (and <center>); left is normal ----
+const ALIGNABLE = new Set(['p', 'div', 'section', 'article', 'header', 'footer', 'main', 'aside', 'center', 'address', 'figure', 'figcaption',
+  'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'td', 'th', 'li', 'blockquote', 'pre', 'dd', 'dt']);
+function alignOf(tag, a) {
+  if (tag === 'center') return 'center';
+  if (!ALIGNABLE.has(tag)) return undefined; // (text-align on inline elements does nothing; <table align> only places the table)
+  const raw = ([...String(a.style || '').matchAll(/(?:^|;)\s*text-align\s*:\s*([^;]+)/gi)].pop()?.[1] ?? a.align ?? '').trim().toLowerCase().replace(/\s*!important$/, '');
+  if (!raw) return undefined;
+  return raw === 'center' || raw === 'middle' ? 'center' : raw === 'right' || raw === 'end' ? 'right' : 'left'; // left, start, justify
+}
+/** A picture centred by its own margins (display:block; margin: 0 auto). */
+const centredByMargins = (a) => /(?:^|;)\s*margin\s*:\s*(?:[^;]*\s)?auto\b/i.test(a.style || '')
+  || (/margin-left\s*:\s*auto/i.test(a.style || '') && /margin-right\s*:\s*auto/i.test(a.style || ''));
+
+const styled = (marks, tag, a) => withMark('align', withMark('font', withMark('size', withMark('bg', withColor(marks, colorOf(tag, a)), highlightOf(tag, a)), sizeOf(tag, a)), fontOf(tag, a)), alignOf(tag, a));
 /** What carries on into list items, quotes and table cells (highlights are only for inline text). */
-const inheritable = (marks) => marks.filter((m) => m.color || m.size || m.font);
+const inheritable = (marks) => marks.filter((m) => m.color || m.size || m.font || m.align);
 
 
 const isTag = (n, ...names) => n?.type === 'tag' && names.includes(n.name);
@@ -169,10 +183,14 @@ export function forwardHtml(html, pictureUrl) {
   function flow(nodes, inherited = []) {
     const out = [];
     let para = ''; // the paragraph being built (inline HTML)
+    let paraAlign = null; // its alignment: that of the block its first text came from
     const flush = () => {
-      if (para.replace(/<br>/g, '').trim()) out.push(`<p>${para.replace(/^(\s|<br>)+|(\s|<br>)+$/g, '')}</p>`);
+      const st = paraAlign === 'center' || paraAlign === 'right' ? ` style="text-align: ${paraAlign}"` : '';
+      if (para.replace(/<br>/g, '').trim()) out.push(`<p${st}>${para.replace(/^(\s|<br>)+|(\s|<br>)+$/g, '')}</p>`);
       para = '';
+      paraAlign = null;
     };
+    const alignNow = (marks) => marks.find((m) => m.align)?.align;
 
     function inline(node, marks, pre) {
       if (node.type === 'text') {
@@ -181,6 +199,7 @@ export function forwardHtml(html, pictureUrl) {
         else t = esc(t.replace(/[\s ]+/g, (w) => (w.includes(' ') ? ' ' : ' ')));
         if (!t) return;
         if (!para || /<br>$/.test(para)) t = t.replace(/^ /, '');
+        if (!para.trim()) paraAlign = alignNow(marks) || null;
         const color = marks.find((m) => m.color)?.color;
         const bg = marks.find((m) => m.bg)?.bg;
         const size = marks.find((m) => m.size)?.size;
@@ -204,7 +223,8 @@ export function forwardHtml(html, pictureUrl) {
         if (!url) return; // remote and data: pictures are left out
         flush();
         const alt = String(a.alt || '').slice(0, 200);
-        out.push(`<img src="${esc(url)}" alt="${esc(alt)}">`);
+        const al = centredByMargins(a) ? 'center' : alignNow(marks);
+        out.push(`<img src="${esc(url)}" alt="${esc(alt)}"${al === 'center' || al === 'right' ? ` data-align="${al}"` : ''}>`);
         pictures++;
         return;
       }

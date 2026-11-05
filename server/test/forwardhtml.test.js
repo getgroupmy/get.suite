@@ -143,3 +143,20 @@ test('fonts: common mail fonts kept as safe font lists; the usual sans-serif is 
   assert.match(html, /<span style="color: #ff0000">sneaky<\/span>/, 'an unknown font is dropped, the rest kept');
   assert.doesNotMatch(html, /script|font-family: x/);
 });
+
+test('alignment: centred and right-aligned text and pictures are kept; left and justify are normal', () => {
+  const { html } = forwardHtml(`
+    <p style="text-align:center">Centred</p><p align="right">Right</p><p style="text-align: justify">Justified</p>
+    <div style="text-align:center"><p>inherited</p><ul><li>in a list</li></ul></div>
+    <center>old centre tag</center>
+    <table align="center"><tr><td>the table is centred, not its text</td><td align="right">€200</td></tr></table>
+    <p align="center"><img src="cid:logo@x"></p>
+    <img src="cid:chart@x" style="display:block; margin:0 auto">
+    <span style="text-align:center">inline: no effect</span>`, url);
+  assert.match(html, /<p style="text-align: center">Centred<\/p><p style="text-align: right">Right<\/p><p>Justified<\/p>/);
+  assert.match(html, /<p style="text-align: center">inherited<\/p><ul><li><p style="text-align: center">in a list<\/p><\/li><\/ul>/);
+  assert.match(html, /<p style="text-align: center">old centre tag<\/p>/);
+  assert.match(html, /<td><p>the table is centred, not its text<\/p><\/td><td><p style="text-align: right">€200<\/p><\/td>/);
+  assert.match(html, /<img src="\/pic\/0" alt="" data-align="center"><img src="\/pic\/1" alt="" data-align="center">/);
+  assert.match(html, /<p>inline: no effect<\/p>/);
+});
