@@ -6,7 +6,7 @@ A self-hosted, Google Workspace-style office suite built to run on a Synology DS
 |---|---|
 | **Drive** | Folders, uploads up to 4 GB each (drag and drop), previews (images, PDF, video, audio, text), rename, move, trash and restore, search, sharing with people as viewer or editor (folder shares apply to everything inside), share links for people without an account, and version history |
 | **Docs** | Rich-text documents (headings, lists, links, quotes, code, alignment) with autosave, print/PDF and HTML export |
-| **Sheets** | Spreadsheets with formulas (`SUM AVERAGE MIN MAX MEDIAN COUNT COUNTA COUNTIF SUMIF IF IFERROR AND OR NOT ROUND ABS SQRT POWER MOD INT CONCAT LEN UPPER LOWER TRIM LEFT RIGHT TODAY NOW`), multiple sheets, copy/paste with reference shifting, and CSV import/export |
+| **Sheets** | Spreadsheets with formulas (`SUM AVERAGE MIN MAX MEDIAN COUNT COUNTA COUNTIF SUMIF IF IFERROR AND OR NOT ROUND ABS SQRT POWER MOD INT CONCAT LEN UPPER LOWER TRIM LEFT RIGHT TODAY NOW`), cell formatting (bold, italic, underline, text and fill colour, alignment, number, currency and percent formats), multiple sheets, copy/paste with reference shifting, and CSV import/export |
 | **Calendar** | Month, week and day views (timed events placed by the hour, side by side when they overlap, with a current-time line), all-day and timed events, repeating events, inviting colleagues and people outside by email (Yes / Maybe / No), colours, upcoming list |
 | **Contacts** | Personal address book, plus a directory of everyone on the NAS |
 | **Chat** | Channels and direct messages, delivered live over WebSockets, with an emoji picker |
@@ -399,4 +399,4 @@ cd server && MAIL_IT_CONFIG_DIR=/etc/nw npm run test:mail
 
 - **Real-time co-editing:** live cursors and character-level merging (Yjs) in Docs and Sheets.
 - **Phone sync:** CalDAV and CardDAV, so calendars and contacts sync with the phone's built-in apps; WebDAV for Drive.
-- **Renaming a user's address** (moving them to another domain of the same company), Slides, and cell formatting in Sheets.
+- **Renaming a user's address** (moving them to another domain of the same company), and Slides.

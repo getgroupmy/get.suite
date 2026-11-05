@@ -7,6 +7,10 @@ import Icon from '../../components/Icon.jsx';
 import { ShareDialog } from '../drive/Drive.jsx';
 import { useAutosave, EditorHeader } from '../editorCommon.jsx';
 import { createEvaluator, display, colName, cellKey, parseRef, shiftFormula } from './formula.js';
+import { NUMBER_FORMATS, CURRENCIES, decimals, formatNumber, cellStyle, mergeFormat } from './cellformat.js';
+
+const TEXT_COLORS = [['', 'Automatic'], ['#c5221f', 'Red'], ['#e37400', 'Orange'], ['#188038', 'Green'], ['#1a73e8', 'Blue'], ['#8430ce', 'Purple'], ['#5f6368', 'Grey']];
+const FILLS = [['', 'None'], ['#fce8e6', 'Light red'], ['#fef7e0', 'Light yellow'], ['#e6f4ea', 'Light green'], ['#e8f0fe', 'Light blue'], ['#f3e8fd', 'Light purple'], ['#f1f3f4', 'Light grey']];
 
 const MIN_ROWS = 100;
 const MIN_COLS = 26;
@@ -63,6 +67,7 @@ export default function SheetEditor() {
 
   const sheet = data?.sheets[Math.min(active, (data?.sheets.length || 1) - 1)];
   const cells = sheet?.cells || {};
+  const formats = sheet?.formats || {};
   const evaluate = useMemo(() => createEvaluator(cells), [cells]);
   const { rows, cols } = useMemo(() => sheetSize(cells), [cells]);
 
@@ -80,6 +85,23 @@ export default function SheetEditor() {
       const nextCells = { ...s.cells };
       for (const [k, v] of Object.entries(updates)) { if (v === '' || v == null) delete nextCells[k]; else nextCells[k] = v; }
       return { ...s, cells: nextCells };
+    });
+    commitData({ ...cur, sheets });
+  }
+
+  /** Apply a format change to every selected cell. */
+  function writeFormats(change) {
+    if (readOnly) return;
+    const cur = dataRef.current;
+    const sheets = cur.sheets.map((s, i) => {
+      if (i !== active) return s;
+      const f = { ...(s.formats || {}) };
+      for (let r = range.r1; r <= range.r2; r++) for (let c = range.c1; c <= range.c2; c++) {
+        const k = cellKey(c, r);
+        const m = mergeFormat(f[k], change);
+        if (m) f[k] = m; else delete f[k];
+      }
+      return { ...s, formats: f };
     });
     commitData({ ...cur, sheets });
   }
@@ -128,6 +150,10 @@ export default function SheetEditor() {
       const u = {};
       for (let r = range.r1; r <= range.r2; r++) for (let c = range.c1; c <= range.c2; c++) u[cellKey(c, r)] = '';
       writeCells(u);
+    } else if (mod && !e.shiftKey && ['b', 'i', 'u'].includes(k.toLowerCase())) {
+      e.preventDefault();
+      const key = k.toLowerCase();
+      writeFormats({ [key]: !formats[cellKey(sel.c, sel.r)]?.[key] });
     } else if (mod && k.toLowerCase() === 'a') { e.preventDefault(); setAnchor({ c: 0, r: 0 }); setSel({ c: cols - 1, r: rows - 1 }); }
     else if (!mod && !e.altKey && k.length === 1) { e.preventDefault(); startEdit(k); }
   }
@@ -136,19 +162,22 @@ export default function SheetEditor() {
     if (editing) return;
     e.preventDefault();
     const raws = [];
+    const fmts = [];
     const lines = [];
     for (let r = range.r1; r <= range.r2; r++) {
-      const rawRow = [], vals = [];
+      const rawRow = [], vals = [], fmtRow = [];
       for (let c = range.c1; c <= range.c2; c++) {
         const k = cellKey(c, r);
         rawRow.push(cells[k] ?? '');
-        vals.push(display(evaluate(k)));
+        fmtRow.push(formats[k] || null);
+        vals.push(formatNumber(evaluate(k), formats[k]) ?? display(evaluate(k)));
       }
       raws.push(rawRow);
+      fmts.push(fmtRow);
       lines.push(vals.join('\t'));
     }
     const text = lines.join('\n');
-    clip.current = { text, raws, origin: { c: range.c1, r: range.r1 } };
+    clip.current = { text, raws, fmts, origin: { c: range.c1, r: range.r1 } };
     e.clipboardData.setData('text/plain', text);
   }
 
@@ -166,10 +195,19 @@ export default function SheetEditor() {
     const text = e.clipboardData.getData('text/plain').replace(/\r/g, '').replace(/\n$/, '');
     const u = {};
     if (clip.current && clip.current.text === text) {
-      const { raws, origin } = clip.current;
+      const { raws, fmts, origin } = clip.current;
       raws.forEach((row, ri) => row.forEach((raw, ci) => {
         u[cellKey(sel.c + ci, sel.r + ri)] = shiftFormula(raw, sel.c - origin.c, sel.r - origin.r);
       }));
+      // Formats come along when copying inside Sheets.
+      const cur = dataRef.current;
+      const sheets = cur.sheets.map((s, i) => {
+        if (i !== active) return s;
+        const f = { ...(s.formats || {}) };
+        fmts.forEach((row, ri) => row.forEach((fm, ci) => { const k = cellKey(sel.c + ci, sel.r + ri); if (fm) f[k] = fm; else delete f[k]; }));
+        return { ...s, formats: f };
+      });
+      dataRef.current = { ...cur, sheets };
     } else {
       text.split('\n').forEach((line, ri) => line.split('\t').forEach((v, ci) => { u[cellKey(sel.c + ci, sel.r + ri)] = v; }));
     }
@@ -235,6 +273,7 @@ export default function SheetEditor() {
         </div>
       )}
       {readOnly && <div className="banner">View only. Ask {file.owner_name} for edit access.</div>}
+      {!readOnly && <FormatBar fmt={formats[selKey] || {}} onChange={(change) => { writeFormats(change); gridRef.current?.focus(); }} />}
       <div className="formula-bar">
         <span className="cell-name">{anchor ? `${cellKey(range.c1, range.r1)}:${cellKey(range.c2, range.r2)}` : selKey}</span>
         <span className="fx">fx</span>
@@ -279,8 +318,9 @@ export default function SheetEditor() {
                   const raw = cells[k];
                   const v = raw === undefined ? null : evaluate(k);
                   const isErr = v && typeof v === 'object';
+                  const fmt = formats[k];
                   return (
-                    <td key={k} data-k={k}
+                    <td key={k} data-k={k} style={cellStyle(fmt)}
                       className={`${isSel ? 'sel' : ''} ${inRange(c, r) && anchor ? 'range' : ''} ${typeof v === 'number' ? 'num' : ''} ${isErr ? 'err' : ''}`}
                       onMouseDown={(e) => {
                         if (editing) commitEdit(0, 0);
@@ -289,7 +329,7 @@ export default function SheetEditor() {
                       }}
                       onMouseEnter={(e) => { if (e.buttons === 1 && !editing) { if (!anchor) setAnchor(sel); setSel({ c, r }); } }}
                       onDoubleClick={() => startEdit()}>
-                      {display(v)}
+                      {formatNumber(v, fmt) ?? display(v)}
                     </td>
                   );
                 })}
@@ -363,4 +403,55 @@ export function parseCsv(text) {
   }
   if (field || row.length) { row.push(field); rows.push(row); }
   return rows;
+}
+
+/** Formatting for the selected cells: bold, italic, underline, colours, alignment, number format. */
+function FormatBar({ fmt, onChange }) {
+  const keep = (e) => e.preventDefault(); // buttons don't take focus from the grid
+  const Toggle = ({ k, label, title, children }) => (
+    <button type="button" className={`tb ${fmt[k] ? 'on' : ''}`} aria-pressed={!!fmt[k]} aria-label={label} title={title} onMouseDown={keep} onClick={() => onChange({ [k]: !fmt[k] })}>{children}</button>
+  );
+  const align = fmt.align || 'auto';
+  return (
+    <div className="sheet-toolbar" role="toolbar" aria-label="Cell formatting">
+      <Toggle k="b" label="Bold" title="Bold (Ctrl+B)"><b>B</b></Toggle>
+      <Toggle k="i" label="Italic" title="Italic (Ctrl+I)"><i>I</i></Toggle>
+      <Toggle k="u" label="Underline" title="Underline (Ctrl+U)"><u>U</u></Toggle>
+      <span className="sep" />
+      <label className="tb-color" title="Text colour"><span className="color-a" aria-hidden="true">A<span className="color-bar" style={{ background: fmt.color || 'currentColor' }} /></span>
+        <select aria-label="Text colour" value={fmt.color || ''} onChange={(e) => onChange({ color: e.target.value })}>
+          {TEXT_COLORS.map(([v, n]) => <option key={n} value={v}>{n}</option>)}
+        </select></label>
+      <label className="tb-color" title="Fill colour"><span className="fill-swatch" aria-hidden="true" style={{ background: fmt.fill || 'transparent' }} />
+        <select aria-label="Fill colour" value={fmt.fill || ''} onChange={(e) => onChange({ fill: e.target.value })}>
+          {FILLS.map(([v, n]) => <option key={n} value={v}>{n}</option>)}
+        </select></label>
+      <span className="sep" />
+      {[['left', 'Align left', '⯇'], ['center', 'Centre', '≡'], ['right', 'Align right', '⯈']].map(([a, label]) => (
+        <button key={a} type="button" className={`tb ${align === a ? 'on' : ''}`} aria-pressed={align === a} aria-label={label} title={label} onMouseDown={keep}
+          onClick={() => onChange({ align: align === a ? null : a })}><AlignGlyph to={a} /></button>
+      ))}
+      <span className="sep" />
+      <select className="tb-select" aria-label="Number format" title="Number format" value={fmt.num || ''} onChange={(e) => onChange({ num: e.target.value, dp: null })}>
+        {NUMBER_FORMATS.map(([v, n]) => <option key={v} value={v}>{n}</option>)}
+      </select>
+      {fmt.num === 'currency' && (
+        <select className="tb-select" aria-label="Currency" value={fmt.cur || 'MYR'} onChange={(e) => onChange({ cur: e.target.value, dp: null })}>
+          {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
+        </select>
+      )}
+      {fmt.num && <>
+        <button type="button" className="tb" aria-label="Fewer decimals" title="Fewer decimals" onMouseDown={keep} onClick={() => onChange({ dp: Math.max(0, decimals(fmt) - 1) })}>.0←</button>
+        <button type="button" className="tb" aria-label="More decimals" title="More decimals" onMouseDown={keep} onClick={() => onChange({ dp: Math.min(10, decimals(fmt) + 1) })}>.00→</button>
+      </>}
+      <span className="sep" />
+      <button type="button" className="tb" aria-label="Clear formatting" title="Clear formatting" onMouseDown={keep}
+        onClick={() => onChange({ b: null, i: null, u: null, color: null, fill: null, align: null, num: null })}>Tx</button>
+    </div>
+  );
+}
+
+function AlignGlyph({ to }) {
+  const lines = to === 'center' ? [[4, 16], [7, 10], [4, 16], [7, 10]] : to === 'right' ? [[4, 16], [10, 10], [4, 16], [10, 10]] : [[4, 16], [4, 10], [4, 16], [4, 10]];
+  return <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">{lines.map(([x, w], i) => <rect key={i} x={x} y={5 + i * 4} width={w} height="2" rx="1" fill="currentColor" />)}</svg>;
 }
