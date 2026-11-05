@@ -27,10 +27,23 @@ export function validatePassword(pw) {
   if (pw.length > 200) throw new HttpError(400, 'Password is too long');
 }
 
-export function createSession(userId) {
+export function createSession(userId, { userAgent = '', ip = '' } = {}) {
   const token = crypto.randomBytes(32).toString('base64url');
-  q('INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)').run(token, userId, now() + SESSION_DAYS * 864e5);
+  q('INSERT INTO sessions (token, user_id, expires_at, created_at, last_seen, user_agent, ip) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .run(token, userId, now() + SESSION_DAYS * 864e5, now(), now(), String(userAgent).slice(0, 400), String(ip).slice(0, 64));
   return token;
+}
+
+/** A session's public handle (the token itself is a secret and never leaves the cookie). */
+export const sessionId = (token) => crypto.createHash('sha256').update(String(token)).digest('hex').slice(0, 20);
+
+/** "Chrome on Windows", "Safari on iPhone", ... from a User-Agent header. */
+export function describeDevice(ua = '') {
+  const browser = /Edg\//.test(ua) ? 'Edge' : /OPR\/|Opera/.test(ua) ? 'Opera' : /Firefox\//.test(ua) ? 'Firefox'
+    : /Chrome\/|CriOS\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : /curl|node|fetch/i.test(ua) ? 'Program' : 'Browser';
+  const os = /iPhone/.test(ua) ? 'iPhone' : /iPad/.test(ua) ? 'iPad' : /Android/.test(ua) ? 'Android' : /CrOS/.test(ua) ? 'ChromeOS'
+    : /Windows/.test(ua) ? 'Windows' : /Mac OS X|Macintosh/.test(ua) ? 'Mac' : /Linux/.test(ua) ? 'Linux' : '';
+  return os ? `${browser} on ${os}` : browser;
 }
 
 export function destroySession(token) {
@@ -40,11 +53,13 @@ export function destroySession(token) {
 export function userFromToken(token) {
   if (!token) return null;
   const row = q(`SELECT u.id, u.username, u.name, u.is_admin, u.is_super, u.disabled, u.org_id,
-                        o.name AS org_name, o.allow_external, s.expires_at
+                        o.name AS org_name, o.allow_external, s.expires_at, s.last_seen
                  FROM sessions s JOIN users u ON u.id = s.user_id JOIN orgs o ON o.id = u.org_id
                  WHERE s.token = ?`).get(token);
   if (!row) return null;
   if (row.expires_at < now() || row.disabled) { destroySession(token); return null; }
+  // Last activity, for the signed-in devices list (written at most every 5 minutes).
+  if (!row.last_seen || now() - row.last_seen > 5 * 60e3) q('UPDATE sessions SET last_seen = ? WHERE token = ?').run(now(), token);
   // Sliding expiry: refresh when less than half the lifetime remains.
   if (row.expires_at - now() < (SESSION_DAYS / 2) * 864e5) {
     q('UPDATE sessions SET expires_at = ? WHERE token = ?').run(now() + SESSION_DAYS * 864e5, token);

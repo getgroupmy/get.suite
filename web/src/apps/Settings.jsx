@@ -47,6 +47,7 @@ export default function Settings() {
       </form>
       <TwoStep />
       <MailApps />
+      <Devices />
     </div>
   );
 }
@@ -208,6 +209,48 @@ function MailApps() {
           <button type="button" className="btn primary" onClick={() => setStep('create')}>{st.appPassword ? 'New mail-app password' : 'Create mail-app password'}</button>
         </div>
       </>}
+    </section>
+  );
+}
+
+const ago = (ms) => {
+  const m = Math.round((Date.now() - ms) / 60e3);
+  if (m < 5) return 'Active now';
+  if (m < 60) return `${m} minutes ago`;
+  if (m < 48 * 60) return `${Math.round(m / 60)} hours ago`;
+  return new Date(ms).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' });
+};
+
+/** Where you're signed in on the web, with sign-out per device. */
+function Devices() {
+  const toast = useToast();
+  const [list, setList] = useState(null);
+  const load = () => get('/auth/sessions').then(setList).catch(() => {});
+  useEffect(() => { load(); }, []);
+  if (!list) return null;
+  const others = list.filter((d) => !d.current);
+  const signOut = async (d) => {
+    try { await api('DELETE', `/auth/sessions/${d.id}`); toast(`Signed out ${d.device}`); load(); } catch (e) { toast(e.message, 'error'); }
+  };
+  const signOutOthers = async () => {
+    try { const r = await post('/auth/sessions/sign-out-others'); toast(`Signed out ${r.signedOut} other device${r.signedOut === 1 ? '' : 's'}`); load(); } catch (e) { toast(e.message, 'error'); }
+  };
+  return (
+    <section className="card stack" aria-labelledby="devices-h">
+      <h2 id="devices-h">Signed-in devices</h2>
+      <p className="muted small">Browsers where you're signed in to Workspace. Don't recognise one? Sign it out and change your password. (Mail apps aren't listed; see Mail apps above.)</p>
+      <ul className="device-list" aria-label="Signed-in devices">
+        {[...list].sort((a, b) => b.current - a.current).map((d) => (
+          <li key={d.id}>
+            <span className="grow">
+              <span className="device-name"><strong>{d.device}</strong>{d.current && <span className="pill ok">This device</span>}</span>
+              <span className="muted small">{d.current ? 'Active now' : ago(d.last_seen || d.created_at)}{d.ip ? ` · ${d.ip}` : ''}{d.created_at ? ` · signed in ${new Date(d.created_at).toLocaleDateString([], { day: 'numeric', month: 'short' })}` : ''}</span>
+            </span>
+            {!d.current && <button type="button" className="btn small" onClick={() => signOut(d)} aria-label={`Sign out ${d.device}`}>Sign out</button>}
+          </li>
+        ))}
+      </ul>
+      {others.length > 0 && <div className="row end"><button type="button" className="btn" onClick={signOutOthers}>Sign out all other devices</button></div>}
     </section>
   );
 }

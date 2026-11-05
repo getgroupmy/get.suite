@@ -315,3 +315,40 @@ test('two-step verification: setup, sign-in with a code or a recovery code, admi
   const again = (await anna('POST', '/api/auth/2fa/setup', { password: 'password123' }));
   assert.equal(again.status, 401, 'old session was ended by the reset');
 });
+
+test('signed-in devices: listed per session, sign out one or all others', async () => {
+  const created = await owner('POST', '/api/users', { local: 'dev', domain: 'acme.com', name: 'Dev Ices', password: 'password123' });
+  assert.equal(created.status, 201);
+  const laptop = client(), phone = client(), tablet = client();
+  const ua = (s) => ({ headers: { 'user-agent': s } });
+  for (const [c, agent] of [[laptop, 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36'],
+    [phone, 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1'],
+    [tablet, 'Mozilla/5.0 (X11; Linux x86_64; rv:131.0) Gecko/20100101 Firefox/131.0']]) {
+    assert.equal((await c('POST', '/api/auth/login', { username: 'dev@acme.com', password: 'password123' }, ua(agent))).status, 200);
+  }
+  const list = (await laptop('GET', '/api/auth/sessions')).body;
+  assert.equal(list.length, 3);
+  assert.deepEqual(list.map((s) => s.device).sort(), ['Chrome on Windows', 'Firefox on Linux', 'Safari on iPhone']);
+  assert.equal(list.filter((s) => s.current).length, 1);
+  assert.equal(list.find((s) => s.current).device, 'Chrome on Windows');
+  assert.ok(list.every((s) => s.ip && s.created_at && s.last_seen && /^[0-9a-f]{20}$/.test(s.id)));
+  assert.ok(list.every((s) => !('token' in s)), 'no tokens in the list');
+  const { q: dbq } = await import('../src/db.js');
+  const tokens = dbq("SELECT token FROM sessions WHERE user_id = (SELECT id FROM users WHERE username = 'dev@acme.com')").all().map((r) => r.token);
+  assert.ok(tokens.length === 3 && tokens.every((t) => !JSON.stringify(list).includes(t)), 'session tokens never appear');
+
+  // Sign out the phone from the laptop.
+  const phoneId = list.find((s) => s.device === 'Safari on iPhone').id;
+  assert.equal((await laptop('DELETE', `/api/auth/sessions/${phoneId}`)).status, 200);
+  assert.equal((await phone('GET', '/api/auth/me')).status, 401);
+  assert.equal((await laptop('DELETE', `/api/auth/sessions/${phoneId}`)).status, 404);
+  // Someone else's session can't be touched.
+  const ownerList = (await owner('GET', '/api/auth/sessions')).body;
+  assert.equal((await laptop('DELETE', `/api/auth/sessions/${ownerList[0].id}`)).status, 404);
+  assert.equal((await owner('GET', '/api/auth/me')).status, 200);
+  // Everywhere else.
+  assert.deepEqual((await laptop('POST', '/api/auth/sessions/sign-out-others')).body, { signedOut: 1 });
+  assert.equal((await tablet('GET', '/api/auth/me')).status, 401);
+  assert.equal((await laptop('GET', '/api/auth/me')).status, 200);
+  assert.equal((await laptop('GET', '/api/auth/sessions')).body.length, 1);
+});

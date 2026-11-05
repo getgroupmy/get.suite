@@ -141,6 +141,11 @@ if (!hasColumn('domains', 'dkim_public')) db.exec('ALTER TABLE domains ADD COLUM
 // Mail-app password: when set, mail apps (IMAP/SMTP) must use it instead of the account password.
 if (!hasColumn('users', 'mail_app_hash')) db.exec('ALTER TABLE users ADD COLUMN mail_app_hash TEXT');
 if (!hasColumn('users', 'mail_app_created')) db.exec('ALTER TABLE users ADD COLUMN mail_app_created INTEGER');
+// Signed-in devices: when, from what browser/address, and last activity of each session.
+if (!hasColumn('sessions', 'created_at')) db.exec('ALTER TABLE sessions ADD COLUMN created_at INTEGER');
+if (!hasColumn('sessions', 'last_seen')) db.exec('ALTER TABLE sessions ADD COLUMN last_seen INTEGER');
+if (!hasColumn('sessions', 'user_agent')) db.exec('ALTER TABLE sessions ADD COLUMN user_agent TEXT');
+if (!hasColumn('sessions', 'ip')) db.exec('ALTER TABLE sessions ADD COLUMN ip TEXT');
 db.exec(`
 CREATE TABLE IF NOT EXISTS aliases (
   id TEXT PRIMARY KEY,

@@ -3,7 +3,7 @@ import { q, tx } from '../db.js';
 import { str, bad, HttpError } from '../util.js';
 import {
   verifyPassword, createSession, destroySession, setSessionCookie, clearSessionCookie, tokenFromReq,
-  requireAuth, validatePassword, hashPassword, userFromToken,
+  requireAuth, validatePassword, hashPassword, userFromToken, sessionId, describeDevice,
 } from '../auth.js';
 import * as guard from '../security/guard.js';
 import { createOrg } from '../tenancy.js';
@@ -15,7 +15,7 @@ import { otpauthUrl } from '../totp.js';
 export default function authRoutes({ secureCookies }) {
   const r = Router();
   const startSession = (req, res, userId) => {
-    const token = createSession(userId);
+    const token = createSession(userId, { userAgent: req.headers['user-agent'] || '', ip: req.ip });
     setSessionCookie(res, token, secureCookies === true || (secureCookies === 'auto' && req.secure));
     return userFromToken(token);
   };
@@ -130,6 +130,29 @@ export default function authRoutes({ secureCookies }) {
     }
     twoFactor.disable(req.user.id);
     res.json(twoFactor.status(req.user.id));
+  });
+
+  // ---- signed-in devices (web sessions) ----
+  r.get('/sessions', requireAuth, (req, res) => {
+    const mine = tokenFromReq(req);
+    const rows = q('SELECT token, created_at, last_seen, user_agent, ip FROM sessions WHERE user_id = ? AND expires_at > ? ORDER BY last_seen DESC').all(req.user.id, Date.now());
+    res.json(rows.map((s) => ({
+      id: sessionId(s.token), current: s.token === mine, device: describeDevice(s.user_agent || ''),
+      ip: s.ip || null, created_at: s.created_at, last_seen: s.last_seen,
+    })));
+  });
+  // Sign out one device (your own sessions only), or every device except this one.
+  r.delete('/sessions/:id', requireAuth, (req, res) => {
+    const rows = q('SELECT token FROM sessions WHERE user_id = ?').all(req.user.id);
+    const hit = rows.find((s) => sessionId(s.token) === req.params.id);
+    if (!hit) throw new HttpError(404, 'That device is already signed out');
+    destroySession(hit.token);
+    if (hit.token === tokenFromReq(req)) clearSessionCookie(res);
+    res.json({ ok: true });
+  });
+  r.post('/sessions/sign-out-others', requireAuth, (req, res) => {
+    const n = q('DELETE FROM sessions WHERE user_id = ? AND token != ?').run(req.user.id, tokenFromReq(req)).changes;
+    res.json({ signedOut: n });
   });
 
   // ---- mail-app password (phones, Outlook): replaces the account password for IMAP/SMTP ----

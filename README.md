@@ -255,6 +255,16 @@ Everyone can add a second step to signing in on the web: after the password, a 6
 - **Mail apps:** phones and Outlook reading mail over IMAP/SMTP can't ask for a code. Give them a **mail-app password** (below), so your account password alone can't open your mail from a mail app.
 - The keys are stored in the database, so they're included in its backups. Protect the backups like the server itself.
 
+## Signed-in devices
+
+Settings → **Signed-in devices** lists every browser where you're signed in: what it is ("Chrome on Windows", "Safari on iPhone"), when it was last active, its network address, and when it signed in. The one you're using is marked **This device**.
+
+- **Sign out** ends one device's session; it's signed out at its next click.
+- **Sign out all other devices** ends every session except this one.
+- If you don't recognise a device, sign it out and change your password. Changing your password, or turning on two-step verification, also signs out all other devices.
+- Mail apps aren't listed (they don't keep a web session). Use a mail-app password to control those.
+- Sessions from before this version show as "Browser" without details until they next sign in.
+
 ## Mail apps (phones, Outlook)
 
 Settings → **Mail apps** shows what to enter in a phone or Outlook: the server name, ports (IMAP 993, SMTP 465 or 587) and user name (your email address).
@@ -339,5 +349,5 @@ cd server && MAIL_IT_CONFIG_DIR=/etc/nw npm run test:mail
 - **Calendar, next steps:** dragging events to move or resize them, repeating events, and inviting colleagues to events.
 - **Real-time co-editing:** live cursors and character-level merging (Yjs) in Docs and Sheets.
 - **Phone sync:** CalDAV and CardDAV, so calendars and contacts sync with the phone's built-in apps; WebDAV for Drive.
-- **Security, next steps:** an admin option to require two-step verification for a whole company, and a list of signed-in devices with "sign out" per device.
+- **Security, next steps:** an admin option to require two-step verification for a whole company.
 - **Renaming a user's address** (moving them to another domain of the same company), file version history, public share links, Slides, and cell formatting in Sheets.
