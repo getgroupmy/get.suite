@@ -120,6 +120,7 @@ Your business fixed IP is what makes this work. Do these once:
 - **Alignment:** the alignment button's **Left / Centre / Right** align the paragraph the cursor is in (or every selected paragraph). Keyboard: Ctrl+Shift+L / E / R. Mail apps show the alignment as sent.
   - **Pictures:** click a picture, then use the same alignment button to put it on the left, in the centre or on the right. Drafts keep it, and the email is built so Outlook on Windows shows it the same way.
 - **Toolbar:** one compact row in a normal window (it wraps on phones). From left to right:
+  - **Undo / Redo** (also Ctrl+Z / Ctrl+Y). Each is greyed out when there's nothing to undo or redo.
   - Font and size, **B I U**, text and highlight colour.
   - An **alignment** button that shows the current alignment and opens Left / Centre / Right.
   - Lists, link, picture and table.
@@ -303,7 +304,7 @@ cd server && MAIL_IT_CONFIG_DIR=/etc/nw npm run test:mail
 
 ## Roadmap
 
-- **Mail, next steps:** undo / redo buttons in the toolbar (Ctrl+Z / Ctrl+Y already work).
+- **Mail, next steps:** a link dialog (edit and remove links, open them to check) instead of the browser's address prompt.
 - **Real-time co-editing:** live cursors and character-level merging (Yjs) in Docs and Sheets.
 - **Phone sync:** CalDAV and CardDAV, so calendars and contacts sync with the phone's built-in apps; WebDAV for Drive.
 - **Renaming a user's address** (moving them to another domain of the same company), **two-factor authentication**, file version history, public share links, Slides, cell formatting in Sheets, and week and day calendar views.

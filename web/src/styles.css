@@ -604,3 +604,4 @@ a.att:hover { background: var(--hover); }
 .tb-menu-item.on { background: var(--accent-soft); color: var(--accent-text); }
 .tb-menu-icon { display: inline-flex; width: 18px; justify-content: center; }
 .tb-menu-pop.end { left: auto; right: 0; }
+.tb:disabled { opacity: .4; cursor: default; background: none; }

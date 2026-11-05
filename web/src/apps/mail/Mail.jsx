@@ -688,13 +688,16 @@ function RichBody({ initialHtml, onChange, onReady, autoFocus, label = 'Message'
   // Popups give focus back to the message straight away when something is picked (the editor's own
   // focus() waits for the next frame, and a key pressed in between would be lost).
   const refocus = () => { try { editor.view.focus(); } catch { /* not mounted */ } };
-  const B = ({ label, title, active, onClick }) => (
-    <button type="button" className={`tb ${active ? 'on' : ''}`} title={title} aria-label={title} aria-pressed={!!active}
-      onMouseDown={(e) => e.preventDefault()} onClick={onClick}>{label}</button>
+  const B = ({ label, title, active, onClick, disabled, toggle = true }) => (
+    <button type="button" className={`tb ${active ? 'on' : ''}`} title={title} aria-label={title} aria-pressed={toggle ? !!active : undefined}
+      disabled={disabled} onMouseDown={(e) => e.preventDefault()} onClick={onClick}>{label}</button>
   );
   return (
     <div className="compose-editor">
       <div className="toolbar compose-toolbar" role="toolbar" aria-label="Formatting">
+        <B label={<UndoIcon />} title="Undo (Ctrl+Z)" toggle={false} disabled={!editor.can().undo()} onClick={() => c().undo().run()} />
+        <B label={<UndoIcon redo />} title="Redo (Ctrl+Y)" toggle={false} disabled={!editor.can().redo()} onClick={() => c().redo().run()} />
+        <span className="sep" />
         <select className="tb-select" aria-label="Font" title="Font" value={fontName(editor.getAttributes('textStyle').fontFamily)}
           onChange={(e) => { const stack = FONTS.find(([n]) => n === e.target.value)?.[1]; (stack ? c().setFontFamily(stack) : c().unsetFontFamily()).run(); }}>
           {FONTS.map(([n, stack]) => <option key={n} value={n} style={stack ? { fontFamily: stack } : undefined}>{n}</option>)}
@@ -928,6 +931,15 @@ function MenuButton({ label, icon, items, end, refocus }) {
         </div>
       )}
     </span>
+  );
+}
+
+function UndoIcon({ redo }) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"
+      style={redo ? { transform: 'scaleX(-1)' } : undefined}>
+      <path d="M5.5 4 2.5 7l3 3" /><path d="M2.8 7H10a3.5 3.5 0 0 1 0 7H7.5" />
+    </svg>
   );
 }
 
