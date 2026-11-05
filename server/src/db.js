@@ -141,6 +141,16 @@ if (!hasColumn('domains', 'dkim_public')) db.exec('ALTER TABLE domains ADD COLUM
 // Mail-app password: when set, mail apps (IMAP/SMTP) must use it instead of the account password.
 if (!hasColumn('users', 'mail_app_hash')) db.exec('ALTER TABLE users ADD COLUMN mail_app_hash TEXT');
 if (!hasColumn('users', 'mail_app_created')) db.exec('ALTER TABLE users ADD COLUMN mail_app_created INTEGER');
+// Company setting: everyone must use two-step verification for web sign-in.
+if (!hasColumn('orgs', 'require_2fa')) db.exec('ALTER TABLE orgs ADD COLUMN require_2fa INTEGER NOT NULL DEFAULT 0');
+db.exec(`CREATE TABLE IF NOT EXISTS two_factor (
+  user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  secret TEXT NOT NULL,                  -- base32 key shared with the authenticator app
+  enabled INTEGER NOT NULL DEFAULT 0,    -- 0 while being set up (not yet confirmed with a code)
+  last_step INTEGER NOT NULL DEFAULT -1, -- last 30-second step used, so a code works once
+  recovery TEXT NOT NULL DEFAULT '[]',   -- JSON list of sha256 hashes of unused recovery codes
+  enabled_at INTEGER
+)`);
 // Signed-in devices: when, from what browser/address, and last activity of each session.
 if (!hasColumn('sessions', 'created_at')) db.exec('ALTER TABLE sessions ADD COLUMN created_at INTEGER');
 if (!hasColumn('sessions', 'last_seen')) db.exec('ALTER TABLE sessions ADD COLUMN last_seen INTEGER');

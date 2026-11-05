@@ -6,6 +6,7 @@ import { useMailNotifications } from './mailNotify.js';
 import Icon from './components/Icon.jsx';
 import { Avatar, Menu, ToastProvider, useToast } from './components/ui.jsx';
 import Login from './apps/Login.jsx';
+import { TwoStep } from './apps/Settings.jsx';
 import Drive from './apps/drive/Drive.jsx';
 import DocEditor from './apps/docs/DocEditor.jsx';
 import SheetEditor from './apps/sheets/SheetEditor.jsx';
@@ -44,7 +45,7 @@ export default function App() {
   return (
     <AuthCtx.Provider value={auth}>
       <ToastProvider>
-        {!state.user ? <Login needsSetup={state.needsSetup} /> : (
+        {!state.user ? <Login needsSetup={state.needsSetup} /> : state.user.needs_two_factor ? <RequiredTwoStep /> : (
           <BrowserRouter>
             <Routes>
               <Route path="/docs/:id" element={<DocEditor />} />
@@ -55,6 +56,22 @@ export default function App() {
         )}
       </ToastProvider>
     </AuthCtx.Provider>
+  );
+}
+
+/** The company requires two-step verification: set it up before anything else. */
+function RequiredTwoStep() {
+  const { user, setUser, logout } = useAuth();
+  return (
+    <div className="auth-page">
+      <div className="auth-card stack wide">
+        <div className="brand big"><span className="brand-mark">W</span><span className="brand-text">Workspace</span></div>
+        <h1>Set up two-step verification</h1>
+        <p className="muted">{user.org_name} requires two-step verification for everyone. Set it up now to continue: you'll need your phone with an authenticator app.</p>
+        <TwoStep onEnabled={async () => setUser((await get('/auth/me')).user)} />
+        <button type="button" className="link-btn" onClick={logout}>Sign out</button>
+      </div>
+    </div>
   );
 }
 

@@ -56,7 +56,7 @@ export default function Settings() {
  * Two-step verification: turn on (password -> scan QR -> confirm a code -> save recovery codes),
  * new recovery codes, turn off (password + a code).
  */
-function TwoStep() {
+export function TwoStep({ onEnabled }) {
   const toast = useToast();
   const [st, setSt] = useState(null); // { enabled, recoveryLeft }
   const [step, setStep] = useState(null); // null | 'on' | 'scan' | 'codes' | 'newcodes' | 'off'
@@ -109,7 +109,7 @@ function TwoStep() {
         <div className="row end">
           <button type="button" className="btn" onClick={() => navigator.clipboard?.writeText(codes.join('\n')).then(() => toast('Copied'))}>Copy</button>
           <button type="button" className="btn" onClick={download}>Download</button>
-          <button type="button" className="btn primary" onClick={() => { setCodes(null); reset(); }}>I've saved them</button>
+          <button type="button" className="btn primary" onClick={() => { setCodes(null); reset(); onEnabled?.(); }}>I've saved them</button>
         </div>
       </> : step === 'scan' ? (
         <form className="stack" onSubmit={confirm}>

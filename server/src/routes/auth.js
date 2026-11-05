@@ -124,6 +124,7 @@ export default function authRoutes({ secureCookies }) {
     res.json({ recoveryCodes: codes, ...twoFactor.status(req.user.id) });
   });
   r.post('/2fa/disable', requireAuth, (req, res) => {
+    if (q('SELECT require_2fa FROM orgs WHERE id = ?').get(req.user.org_id)?.require_2fa) throw bad('Your company requires two-step verification, so it can\'t be turned off');
     needPassword(req);
     if (twoFactor.isEnabled(req.user.id) && !twoFactor.verifySecondStep(req.user.id, req.body.code)) {
       throw bad('Enter a current code from your app (or a recovery code) to turn it off');

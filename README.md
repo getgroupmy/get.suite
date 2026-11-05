@@ -252,6 +252,11 @@ Everyone can add a second step to signing in on the web: after the password, a 6
 - **Recovery codes running low?** Settings shows how many are left and warns at 3. **New recovery codes** replaces them all.
 - **Lost phone:** sign in with a recovery code. Without one, ask an admin: Admin → Users → ⋮ → **Reset two-step verification**. That signs the person out everywhere so they can sign in with their password and set it up again. The user list shows who has **2-step** on.
 - **Turning it off** needs your password and a current code (or a recovery code).
+- **Requiring it for a company:** Admin → Company settings → **Require two-step verification for everyone in this company**.
+  - You need it on your own account first, so the setting can't lock you out.
+  - Anyone without it can still sign in with their password, but sees only a setup page until they've set it up. The server refuses everything else for them, including live updates.
+  - While it's required, nobody in the company can turn their own off. An admin reset (lost phone) still works; that person then sets it up again at their next sign-in.
+  - The settings page shows how many people still have to set it up.
 - **Mail apps:** phones and Outlook reading mail over IMAP/SMTP can't ask for a code. Give them a **mail-app password** (below), so your account password alone can't open your mail from a mail app.
 - The keys are stored in the database, so they're included in its backups. Protect the backups like the server itself.
 
@@ -349,5 +354,4 @@ cd server && MAIL_IT_CONFIG_DIR=/etc/nw npm run test:mail
 - **Calendar, next steps:** dragging events to move or resize them, repeating events, and inviting colleagues to events.
 - **Real-time co-editing:** live cursors and character-level merging (Yjs) in Docs and Sheets.
 - **Phone sync:** CalDAV and CardDAV, so calendars and contacts sync with the phone's built-in apps; WebDAV for Drive.
-- **Security, next steps:** an admin option to require two-step verification for a whole company.
 - **Renaming a user's address** (moving them to another domain of the same company), file version history, public share links, Slides, and cell formatting in Sheets.

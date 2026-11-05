@@ -657,3 +657,6 @@ button.tg-day:hover .tg-num { background: var(--hover); }
 .device-list li:last-child { border-bottom: 0; }
 .device-list li > .grow { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .device-name { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.auth-card.wide { max-width: 520px; }
+.auth-card .card { border: 0; padding: 0; box-shadow: none; background: none; }
+.auth-card .card { text-align: left; } .auth-card .card > h2 { display: none; }

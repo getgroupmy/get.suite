@@ -53,7 +53,8 @@ export function destroySession(token) {
 export function userFromToken(token) {
   if (!token) return null;
   const row = q(`SELECT u.id, u.username, u.name, u.is_admin, u.is_super, u.disabled, u.org_id,
-                        o.name AS org_name, o.allow_external, s.expires_at, s.last_seen
+                        o.name AS org_name, o.allow_external, o.require_2fa, s.expires_at, s.last_seen,
+                        (SELECT enabled FROM two_factor t WHERE t.user_id = u.id) AS tf_enabled
                  FROM sessions s JOIN users u ON u.id = s.user_id JOIN orgs o ON o.id = u.org_id
                  WHERE s.token = ?`).get(token);
   if (!row) return null;
@@ -68,6 +69,8 @@ export function userFromToken(token) {
     id: row.id, username: row.username, email: row.username, name: row.name,
     is_admin: !!row.is_admin || !!row.is_super, is_super: !!row.is_super,
     org_id: row.org_id, org_name: row.org_name, allow_external: !!row.allow_external,
+    // The company requires two-step verification and this person hasn't set it up yet.
+    needs_two_factor: !!row.require_2fa && !row.tf_enabled,
   };
 }
 
@@ -85,6 +88,10 @@ export function clearSessionCookie(res) {
 export function requireAuth(req, res, next) {
   const user = userFromToken(tokenFromReq(req));
   if (!user) return next(new HttpError(401, 'Not signed in'));
+  // Until required two-step verification is set up, only the account's own endpoints work.
+  if (user.needs_two_factor && !req.originalUrl.startsWith('/api/auth/')) {
+    return next(new HttpError(403, 'Your company requires two-step verification. Set it up to continue.'));
+  }
   req.user = user;
   next();
 }

@@ -6,14 +6,7 @@ import { q } from './db.js';
 import { now, bad } from './util.js';
 import { newSecret, verifyCode, newRecoveryCodes, hashRecovery } from './totp.js';
 
-q(`CREATE TABLE IF NOT EXISTS two_factor (
-  user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-  secret TEXT NOT NULL,              -- base32 key shared with the authenticator app
-  enabled INTEGER NOT NULL DEFAULT 0, -- 0 while being set up (not yet confirmed with a code)
-  last_step INTEGER NOT NULL DEFAULT -1, -- last 30-second step used, so a code works once
-  recovery TEXT NOT NULL DEFAULT '[]',   -- JSON list of sha256 hashes of unused recovery codes
-  enabled_at INTEGER
-)`).run();
+// (Table two_factor is created in db.js.)
 
 const row = (userId) => q('SELECT * FROM two_factor WHERE user_id = ?').get(userId);
 

@@ -182,6 +182,19 @@ function CompanySettings() {
         <p className="muted small" style={{ margin: 0 }}>Turning this off immediately removes outside access to your files and pauses external direct messages. Turning it back on restores them.</p>
       </div>
       <div className="card stack">
+        <h2>Sign-in security</h2>
+        <label className="check">
+          <input type="checkbox" checked={org.require_2fa} onChange={(e) => save({ require_2fa: e.target.checked }, e.target.checked ? 'Two-step verification is now required' : 'Two-step verification is now optional')} />
+          Require two-step verification for everyone in this company
+        </label>
+        <p className="muted small" style={{ margin: 0 }}>
+          People without it are asked to set it up at their next click, and can't use anything else until they have. It can't be turned off while required.
+          You need it on your own account first. {org.require_2fa && org.without_2fa > 0
+            ? `${org.without_2fa} ${org.without_2fa === 1 ? 'person still has' : 'people still have'} to set it up.`
+            : org.require_2fa ? 'Everyone has set it up.' : ''}
+        </p>
+      </div>
+      <div className="card stack">
         <h2>Domains and storage</h2>
         <div>{org.domains.map((d) => <span key={d} className="pill" style={{ marginRight: 6 }}>{d}</span>)}</div>
         <p className="muted small" style={{ margin: 0 }}>

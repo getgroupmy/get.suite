@@ -352,3 +352,40 @@ test('signed-in devices: listed per session, sign out one or all others', async 
   assert.equal((await laptop('GET', '/api/auth/me')).status, 200);
   assert.equal((await laptop('GET', '/api/auth/sessions')).body.length, 1);
 });
+
+test('a company can require two-step verification', async () => {
+  const { codeAt, stepAt } = await import('../src/totp.js');
+  // A separate company, so the rest of the tests aren't affected.
+  const made = await owner('POST', '/api/orgs', { name: 'Initech', domain: 'initech.com', admin_name: 'Ivy Admin', admin_local: 'ivy', admin_password: 'password123' });
+  assert.equal(made.status, 201, JSON.stringify(made.body));
+  const ivy = client(), pete = client();
+  await login(ivy, 'ivy@initech.com');
+  assert.equal((await ivy('POST', '/api/users', { local: 'pete', domain: 'initech.com', name: 'Pete', password: 'password123' })).status, 201);
+  await login(pete, 'pete@initech.com');
+
+  // The admin must have it first, or they'd be locked out of the setting.
+  const tooEarly = await ivy('PATCH', '/api/orgs/current', { require_2fa: true });
+  assert.equal(tooEarly.status, 400);
+  assert.match(tooEarly.body.error, /your own account first/);
+  const s = (await ivy('POST', '/api/auth/2fa/setup', { password: 'password123' })).body;
+  assert.equal((await ivy('POST', '/api/auth/2fa/confirm', { code: codeAt(s.secret, stepAt()) })).status, 200);
+  const on = await ivy('PATCH', '/api/orgs/current', { require_2fa: true });
+  assert.equal(on.status, 200);
+  assert.equal(on.body.require_2fa, true);
+  assert.equal(on.body.without_2fa, 1, 'Pete still has to set it up');
+
+  // Pete is signed in but can only reach his own account settings until he sets it up.
+  assert.equal((await pete('GET', '/api/auth/me')).body.user.needs_two_factor, true);
+  const blocked = await pete('GET', '/api/files');
+  assert.equal(blocked.status, 403);
+  assert.match(blocked.body.error, /requires two-step verification/);
+  const ps = (await pete('POST', '/api/auth/2fa/setup', { password: 'password123' })).body;
+  assert.equal((await pete('POST', '/api/auth/2fa/confirm', { code: codeAt(ps.secret, stepAt()) })).status, 200);
+  assert.equal((await pete('GET', '/api/auth/me')).body.user.needs_two_factor, false);
+  assert.equal((await pete('GET', '/api/files')).status, 200);
+  // ... and can't turn it off while it's required.
+  const off = await pete('POST', '/api/auth/2fa/disable', { password: 'password123', code: codeAt(ps.secret, stepAt() + 1) });
+  assert.equal(off.status, 400);
+  assert.match(off.body.error, /requires two-step verification/);
+  assert.equal((await ivy('GET', '/api/orgs/current')).body.without_2fa, 0);
+});

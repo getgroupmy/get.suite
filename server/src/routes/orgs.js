@@ -11,15 +11,25 @@ function describe(org) {
   return {
     ...org,
     allow_external: !!org.allow_external,
+    require_2fa: !!org.require_2fa,
+    // People who still have to set up two-step verification (when it's required).
+    without_2fa: q(`SELECT COUNT(*) AS n FROM users u WHERE u.org_id = ? AND u.disabled = 0
+                    AND NOT EXISTS (SELECT 1 FROM two_factor t WHERE t.user_id = u.id AND t.enabled = 1)`).get(org.id).n,
     domains: domainsOf(org.id),
     users: q('SELECT COUNT(*) AS n FROM users WHERE org_id = ?').get(org.id).n,
     storage_used: orgStorageUsed(org.id),
   };
 }
 
-function updateOrg(orgId, body, { asSuper }) {
+function updateOrg(orgId, body, { asSuper, user }) {
   if (body.name !== undefined) q('UPDATE orgs SET name = ? WHERE id = ?').run(str(body.name, { required: true, name: 'Company name', max: 100 }), orgId);
   if (body.allow_external !== undefined) q('UPDATE orgs SET allow_external = ? WHERE id = ?').run(body.allow_external ? 1 : 0, orgId);
+  if (body.require_2fa !== undefined) {
+    // Requiring it without having it yourself would lock you out of these settings at once.
+    const own = q('SELECT 1 FROM two_factor WHERE user_id = ? AND enabled = 1').get(user.id);
+    if (body.require_2fa && user.org_id === orgId && !own) throw bad('Turn on two-step verification for your own account first (Settings), then require it for everyone');
+    q('UPDATE orgs SET require_2fa = ? WHERE id = ?').run(body.require_2fa ? 1 : 0, orgId);
+  }
   if (body.quota_mb !== undefined) {
     if (!asSuper) throw bad('Only the platform owner can change storage quotas');
     const mb = int(body.quota_mb, 'quota_mb');
@@ -36,7 +46,7 @@ export default function orgRoutes() {
     res.json(describe(q('SELECT * FROM orgs WHERE id = ?').get(req.user.org_id)));
   });
   r.patch('/current', requireAdmin, (req, res) => {
-    updateOrg(req.user.org_id, req.body, { asSuper: req.user.is_super });
+    updateOrg(req.user.org_id, req.body, { asSuper: req.user.is_super, user: req.user });
     res.json(describe(q('SELECT * FROM orgs WHERE id = ?').get(req.user.org_id)));
   });
 
@@ -57,7 +67,7 @@ export default function orgRoutes() {
 
   r.patch('/:id', (req, res) => {
     loadOrg(req.params.id);
-    updateOrg(req.params.id, req.body, { asSuper: true });
+    updateOrg(req.params.id, req.body, { asSuper: true, user: req.user });
     res.json(describe(loadOrg(req.params.id)));
   });
 

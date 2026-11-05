@@ -13,7 +13,7 @@ export function attachHub(server) {
   server.on('upgrade', (req, socket, head) => {
     if (!req.url.startsWith('/ws')) return socket.destroy();
     const user = userFromToken(tokenFromReq(req));
-    if (!user) { socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n'); return socket.destroy(); }
+    if (!user || user.needs_two_factor) { socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n'); return socket.destroy(); }
     wss.handleUpgrade(req, socket, head, (ws) => {
       let set = clients.get(user.id);
       const first = !set;
