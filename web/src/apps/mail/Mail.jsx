@@ -685,6 +685,9 @@ function RichBody({ initialHtml, onChange, onReady, autoFocus, label = 'Message'
   }
   if (!editor) return null;
   const c = () => editor.chain().focus();
+  // Popups give focus back to the message straight away when something is picked (the editor's own
+  // focus() waits for the next frame, and a key pressed in between would be lost).
+  const refocus = () => { try { editor.view.focus(); } catch { /* not mounted */ } };
   const B = ({ label, title, active, onClick }) => (
     <button type="button" className={`tb ${active ? 'on' : ''}`} title={title} aria-label={title} aria-pressed={!!active}
       onMouseDown={(e) => e.preventDefault()} onClick={onClick}>{label}</button>
@@ -692,43 +695,42 @@ function RichBody({ initialHtml, onChange, onReady, autoFocus, label = 'Message'
   return (
     <div className="compose-editor">
       <div className="toolbar compose-toolbar" role="toolbar" aria-label="Formatting">
-        <select className="tb-select" aria-label="Font size" title="Font size" value={sizeName(editor.getAttributes('textStyle').fontSize)}
-          onChange={(e) => { const px = FONT_SIZES.find(([n]) => n === e.target.value)?.[1]; (px ? c().setFontSize(px) : c().unsetFontSize()).run(); }}>
-          {FONT_SIZES.map(([n]) => <option key={n} value={n}>{n}</option>)}
-          {sizeName(editor.getAttributes('textStyle').fontSize) === 'Other' && <option value="Other" disabled>Other size</option>}
-        </select>
         <select className="tb-select" aria-label="Font" title="Font" value={fontName(editor.getAttributes('textStyle').fontFamily)}
           onChange={(e) => { const stack = FONTS.find(([n]) => n === e.target.value)?.[1]; (stack ? c().setFontFamily(stack) : c().unsetFontFamily()).run(); }}>
           {FONTS.map(([n, stack]) => <option key={n} value={n} style={stack ? { fontFamily: stack } : undefined}>{n}</option>)}
           {fontName(editor.getAttributes('textStyle').fontFamily) === 'Other font' && <option value="Other font" disabled>Other font</option>}
         </select>
+        <select className="tb-select" aria-label="Font size" title="Font size" value={sizeName(editor.getAttributes('textStyle').fontSize)}
+          onChange={(e) => { const px = FONT_SIZES.find(([n]) => n === e.target.value)?.[1]; (px ? c().setFontSize(px) : c().unsetFontSize()).run(); }}>
+          {FONT_SIZES.map(([n]) => <option key={n} value={n}>{n}</option>)}
+          {sizeName(editor.getAttributes('textStyle').fontSize) === 'Other' && <option value="Other" disabled>Other size</option>}
+        </select>
         <span className="sep" />
         <B label={<b>B</b>} title="Bold" active={editor.isActive('bold')} onClick={() => c().toggleBold().run()} />
         <B label={<i>I</i>} title="Italic" active={editor.isActive('italic')} onClick={() => c().toggleItalic().run()} />
         <B label={<u>U</u>} title="Underline" active={editor.isActive('underline')} onClick={() => c().toggleUnderline().run()} />
-        <B label={<s>S</s>} title="Strikethrough" active={editor.isActive('strike')} onClick={() => c().toggleStrike().run()} />
-        <ColorPicker label="Text colour" kind="text" options={TEXT_COLORS} none="Automatic" current={editor.getAttributes('textStyle').color || null}
+        <ColorPicker refocus={refocus} label="Text colour" kind="text" options={TEXT_COLORS} none="Automatic" current={editor.getAttributes('textStyle').color || null}
           icon={(shown) => <span className="color-a">A<span className="color-bar" style={{ background: shown || 'currentColor' }} /></span>}
           onPick={(color) => (color ? c().setColor(color).run() : c().unsetColor().run())} />
-        <ColorPicker label="Highlight colour" kind="highlight" options={HIGHLIGHTS} none="None" current={editor.getAttributes('textStyle').backgroundColor || null}
+        <ColorPicker refocus={refocus} label="Highlight colour" kind="highlight" options={HIGHLIGHTS} none="None" current={editor.getAttributes('textStyle').backgroundColor || null}
           icon={(shown) => <span className="color-a hl"><span className="hl-pen" aria-hidden="true">🖍</span><span className="color-bar" style={{ background: shown || 'transparent' }} /></span>}
           onPick={(color) => (color ? c().setBackgroundColor(color).run() : c().unsetBackgroundColor().run())} />
         <span className="sep" />
-        {[['left', 'Align left'], ['center', 'Centre'], ['right', 'Align right']].map(([al, title]) => {
-          // With a picture selected, the buttons align the picture; otherwise the paragraph.
+        {(() => {
+          // One button for alignment, showing the current one. With a picture selected it aligns the
+          // picture; otherwise the paragraph.
           const pic = editor.isActive('image');
           const now = pic ? editor.getAttributes('image').align || 'left' : editor.isActive({ textAlign: 'center' }) ? 'center' : editor.isActive({ textAlign: 'right' }) ? 'right' : 'left';
+          const names = { left: 'Align left', center: 'Centre', right: 'Align right' };
           return (
-            <B key={al} label={<AlignIcon to={al} />} title={pic ? `${title} (picture)` : title} active={now === al}
-              onClick={() => (pic ? c().updateAttributes('image', { align: al === 'left' ? null : al }) : al === 'left' ? c().unsetTextAlign() : c().setTextAlign(al)).run()} />
+            <MenuButton refocus={refocus} label={pic ? 'Picture alignment' : 'Alignment'} icon={<AlignIcon to={now} />} items={['left', 'center', 'right'].map((al) => ({
+              label: pic ? `${names[al]} (picture)` : names[al], icon: <AlignIcon to={al} />, checked: now === al, radio: true,
+              onSelect: () => (pic ? c().updateAttributes('image', { align: al === 'left' ? null : al }) : al === 'left' ? c().unsetTextAlign() : c().setTextAlign(al)).run(),
+            }))} />
           );
-        })}
-        <B label={<IndentIcon out />} title="Decrease indent (Ctrl+[)" onClick={() => c().outdent().run()} />
-        <B label={<IndentIcon />} title="Increase indent (Ctrl+])" onClick={() => c().indent().run()} />
-        <span className="sep" />
+        })()}
         <B label="•" title="Bulleted list" active={editor.isActive('bulletList')} onClick={() => c().toggleBulletList().run()} />
         <B label="1." title="Numbered list" active={editor.isActive('orderedList')} onClick={() => c().toggleOrderedList().run()} />
-        <B label="❝" title="Quote" active={editor.isActive('blockquote')} onClick={() => c().toggleBlockquote().run()} />
         <span className="sep" />
         <B label="🔗" title="Link" active={editor.isActive('link')} onClick={() => {
           if (editor.isActive('link')) return c().unsetLink().run();
@@ -736,7 +738,14 @@ function RichBody({ initialHtml, onChange, onReady, autoFocus, label = 'Message'
           if (url && /^(https?:\/\/|mailto:)/i.test(url.trim())) c().extendMarkRange('link').setLink({ href: url.trim() }).run();
         }} />
         <B label="🖼" title="Insert picture" onClick={() => fileInput.current.click()} />
-        <TablePicker disabled={editor.isActive('table')} onPick={(rows, cols, withHeaderRow) => c().insertTable({ rows, cols, withHeaderRow }).run()} />
+        <TablePicker refocus={refocus} disabled={editor.isActive('table')} onPick={(rows, cols, withHeaderRow) => c().insertTable({ rows, cols, withHeaderRow }).run()} />
+        <MenuButton refocus={refocus} end label="More formatting" icon={<span aria-hidden="true">⋮</span>} items={[
+          { label: 'Strikethrough', icon: <s>S</s>, checked: editor.isActive('strike'), onSelect: () => c().toggleStrike().run() },
+          { label: 'Quote', icon: '❝', checked: editor.isActive('blockquote'), onSelect: () => c().toggleBlockquote().run() },
+          { label: 'Decrease indent (Ctrl+[)', icon: <IndentIcon out />, onSelect: () => c().outdent().run() },
+          { label: 'Increase indent (Ctrl+])', icon: <IndentIcon />, onSelect: () => c().indent().run() },
+          { label: 'Clear formatting', icon: 'Tx', onSelect: () => c().unsetAllMarks().clearNodes().run() },
+        ]} />
         {editor.isActive('image') && (
           <span className="img-sizes" role="group" aria-label="Picture size">
             <span className="sep" />
@@ -759,7 +768,6 @@ function RichBody({ initialHtml, onChange, onReady, autoFocus, label = 'Message'
             <B label="Delete table" title="Delete table" onClick={() => c().deleteTable().run()} />
           </span>
         )}
-        <B label="Tx" title="Clear formatting" onClick={() => c().unsetAllMarks().clearNodes().run()} />
         {uploading > 0 && <span className="muted small">Uploading picture…</span>}
         <input ref={fileInput} type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden aria-label="Picture file"
           onChange={(e) => { insertImages(e.target.files); e.target.value = ''; }} />
@@ -773,6 +781,16 @@ function RichBody({ initialHtml, onChange, onReady, autoFocus, label = 'Message'
 
 // Pictures inserted from Drive, or carried over from a forwarded message.
 /** Escape anywhere in a toolbar popup (its button included) closes just the popup and returns to its button. */
+/** Shift a just-opened popup sideways so it stays on screen (toolbars wrap on phones). */
+function keepOnScreen(el) {
+  if (!el) return;
+  el.style.transform = '';
+  const r = el.getBoundingClientRect();
+  const room = document.documentElement.clientWidth - 8;
+  const dx = r.right > room ? room - r.right : r.left < 8 ? 8 - r.left : 0;
+  if (dx) el.style.transform = `translateX(${Math.round(dx)}px)`;
+}
+
 /**
  * Enter, Space or Down on a toolbar popup's button opens it. The key is handled here (default
  * cancelled), so the same key press can't also activate the item that receives focus.
@@ -864,6 +882,55 @@ function IndentIcon({ out }) {
   );
 }
 
+/**
+ * A toolbar button with a small menu (alignment, more formatting). Enter / Space / Down open it,
+ * the arrow keys move, Enter picks, Escape closes it and returns to the button. Choices that can
+ * be on or off show as checked.
+ */
+function MenuButton({ label, icon, items, end, refocus }) {
+  const [open, setOpen] = useState(false);
+  const wrap = useRef();
+  const menu = useRef();
+  useEffect(() => {
+    if (!open) return;
+    const away = (e) => { if (!wrap.current?.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', away);
+    keepOnScreen(menu.current);
+    const list = [...(menu.current?.querySelectorAll('[role^="menuitem"]') || [])];
+    (list.find((el) => el.getAttribute('aria-checked') === 'true' && el.getAttribute('role') === 'menuitemradio') || list[0])?.focus();
+    return () => document.removeEventListener('mousedown', away);
+  }, [open]);
+  const onKey = (e) => {
+    escCloses(open, setOpen, wrap)(e);
+    if (!open || e.defaultPrevented) return;
+    const list = [...(menu.current?.querySelectorAll('[role^="menuitem"]') || [])];
+    const i = list.indexOf(document.activeElement);
+    const step = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1, Home: -99, End: 99 }[e.key];
+    if (step === undefined) return;
+    e.preventDefault();
+    list[Math.max(0, Math.min(list.length - 1, (i < 0 ? (step > 0 ? -1 : list.length) : i) + step))]?.focus();
+  };
+  return (
+    <span className="tb-menu" ref={wrap} onKeyDown={onKey}>
+      <button type="button" className={`tb ${open ? 'on' : ''}`} title={label} aria-label={label} aria-haspopup="menu" aria-expanded={open}
+        onMouseDown={(e) => e.preventDefault()} onClick={() => setOpen((o) => !o)} onKeyDown={keyOpens(open, setOpen)}>
+        {icon}<span className="tb-caret" aria-hidden="true">▾</span>
+      </button>
+      {open && (
+        <div className={`tb-menu-pop ${end ? 'end' : ''}`} role="menu" aria-label={label} ref={menu}>
+          {items.map((it) => (
+            <button type="button" key={it.label} role={it.radio ? 'menuitemradio' : it.checked !== undefined ? 'menuitemcheckbox' : 'menuitem'}
+              aria-checked={it.checked !== undefined ? !!it.checked : undefined} aria-label={it.label} className={`tb-menu-item ${it.checked ? 'on' : ''}`}
+              onMouseDown={(e) => e.preventDefault()} onClick={() => { setOpen(false); refocus?.(); it.onSelect(); }}>
+              <span className="tb-menu-icon" aria-hidden="true">{it.icon}</span>{it.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </span>
+  );
+}
+
 /** Lines icon for the alignment buttons. */
 function AlignIcon({ to }) {
   const x = (w) => (to === 'left' ? 2 : to === 'right' ? 16 - w : (18 - w) / 2);
@@ -914,7 +981,7 @@ const sameColor = (a, b) => !!a && toHex(a) === toHex(b);
  * selection (or on what you type next). The first choice ("Automatic" / "None") removes it.
  * Arrow keys move, Enter picks, Escape closes.
  */
-function ColorPicker({ label, kind, options: colors, none, icon, current, onPick }) {
+function ColorPicker({ label, kind, options: colors, none, icon, current, onPick, refocus }) {
   const [open, setOpen] = useState(false);
   const [recent, setRecent] = useState(() => loadRecent(kind));
   const [custom, setCustom] = useState('');
@@ -931,13 +998,14 @@ function ColorPicker({ label, kind, options: colors, none, icon, current, onPick
     const away = (e) => { if (!wrap.current?.contains(e.target)) setOpen(false); };
     document.addEventListener('mousedown', away);
     const i = Math.max(0, options.findIndex(([v]) => (v ? sameColor(current, v) : !current)));
+    keepOnScreen(list.current?.closest('.color-pop'));
     list.current?.querySelectorAll('button')[i]?.focus();
     setRecent(loadRecent(kind));
     setCustom(current ? toHex(current) : '');
     return () => document.removeEventListener('mousedown', away);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
-  const pick = (v) => { setOpen(false); onPick(v); };
+  const pick = (v) => { setOpen(false); refocus?.(); onPick(v); };
   const applyCustom = () => { if (!chosen) return; saveRecent(kind, chosen, colors); pick(chosen); };
   const onKey = (e) => {
     escCloses(open, setOpen, wrap)(e);
@@ -999,7 +1067,7 @@ const PICK_MAX = 8;
  * "Insert table": a grid to choose the size (hover, or arrow keys and Enter), with a header row
  * option. Not offered inside a table, so tables aren't nested.
  */
-function TablePicker({ onPick, disabled }) {
+function TablePicker({ onPick, disabled, refocus }) {
   const [open, setOpen] = useState(false);
   const [at, setAt] = useState([2, 3]); // [rows, cols] highlighted
   const [header, setHeader] = useState(true);
@@ -1009,11 +1077,12 @@ function TablePicker({ onPick, disabled }) {
     if (!open) return;
     const away = (e) => { if (!wrap.current?.contains(e.target)) setOpen(false); };
     document.addEventListener('mousedown', away);
+    keepOnScreen(grid.current?.closest('.table-picker-pop'));
     grid.current?.querySelector('[tabindex="0"]')?.focus();
     return () => document.removeEventListener('mousedown', away);
   }, [open]);
   // Close first, then insert, so the cursor lands in the new table's first cell.
-  const pick = (r, c) => { setOpen(false); requestAnimationFrame(() => onPick(r, c, header)); };
+  const pick = (r, c) => { setOpen(false); refocus?.(); requestAnimationFrame(() => onPick(r, c, header)); };
   const onKey = (e) => {
     escCloses(open, setOpen, wrap)(e);
     if (!open || e.defaultPrevented) return;

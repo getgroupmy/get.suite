@@ -117,9 +117,16 @@ Your business fixed IP is what makes this work. Do these once:
   - Drafts live on the mail server, so phones and Outlook see them.
   - Attachments in a draft are kept as links to Drive files. They're restored when the draft is reopened in webmail, but phones don't see them until the message is sent.
 - **Rich-text writing:** bold, italic, underline, strike, bulleted and numbered lists, quotes, links and tables. Every message is sent with a formatted version and a readable plain-text version (quotes marked with `>`, lists with `-` / `1.`), so any mail app can show it. Replies quote the original as a quoted block. Quotes are built from the original's plain text, so formatting tricks in a received email can't carry into yours.
-- **Alignment:** the **left / centre / right** buttons align the paragraph the cursor is in (or every selected paragraph). Keyboard: Ctrl+Shift+L / E / R. Mail apps show the alignment as sent.
-  - **Pictures:** click a picture, then use the same buttons to put it on the left, in the centre or on the right. Drafts keep it, and the email is built so Outlook on Windows shows it the same way.
-- **Indent:** **Increase / Decrease indent** (or Ctrl+] / Ctrl+[) move the paragraph in 40 px steps, up to 8. In a list they nest or un-nest the item instead. Tab is left free for moving out of the message with the keyboard. The plain-text version indents with spaces.
+- **Alignment:** the alignment button's **Left / Centre / Right** align the paragraph the cursor is in (or every selected paragraph). Keyboard: Ctrl+Shift+L / E / R. Mail apps show the alignment as sent.
+  - **Pictures:** click a picture, then use the same alignment button to put it on the left, in the centre or on the right. Drafts keep it, and the email is built so Outlook on Windows shows it the same way.
+- **Toolbar:** one compact row in a normal window (it wraps on phones). From left to right:
+  - Font and size, **B I U**, text and highlight colour.
+  - An **alignment** button that shows the current alignment and opens Left / Centre / Right.
+  - Lists, link, picture and table.
+  - **⋮ More formatting**, which holds Strikethrough, Quote, Decrease / Increase indent and Clear formatting.
+  - The menus work from the keyboard: Enter or ↓ opens, the arrow keys move, Enter picks, and Escape closes the menu (not the message). Choices that can be on or off show as checked.
+  - Picture and table tools appear only while a picture or table is selected.
+- **Indent:** **Increase / Decrease indent** in the ⋮ menu (or Ctrl+] / Ctrl+[) move the paragraph in 40 px steps, up to 8. In a list they nest or un-nest the item instead. Tab is left free for moving out of the message with the keyboard. The plain-text version indents with spaces.
 - **Font:** the menu next to the size menu sets the font for the selected text, or for what you type next: Georgia, Times New Roman, Garamond, Courier New, Verdana, Tahoma, Trebuchet MS, Calibri or Comic Sans MS. **Sans Serif** is the normal font.
   - Each font is sent with fallbacks, for example Calibri, then Arial, so recipients without that font still see something close.
   - The menu shows the font where the cursor is, including fonts quoted from a reply or forward. **Sans Serif** and **Clear formatting** remove it.
@@ -193,7 +200,7 @@ Your business fixed IP is what makes this work. Do these once:
     - Text too light to read on a white page (for example white text from a dark newsletter) is shown in the normal colour instead. Near-black counts as normal text.
     - Only plain colour values are accepted; anything else in the original's styles is dropped.
     - **Highlights** in the original (a light background on words, or `<mark>`) are kept too. Backgrounds on whole paragraphs, table cells or the page (newsletter styling) and dark backgrounds are left out.
-    - **Clear formatting** (Tx) removes colours and highlights from the selected text.
+    - **Clear formatting** (in the ⋮ menu) removes colours and highlights from the selected text.
   - **Indents** are kept, in the same 40 px steps, for example Outlook's half-inch indents. Gmail's indents (a borderless quote) arrive as indents, not as an extra quote.
   - **Alignment** is kept: centred and right-aligned paragraphs, headings and table cells, and centred pictures, stay where they were. Justified text becomes normal left-aligned text. The Left / Centre / Right buttons show and change it.
   - **Fonts and font sizes** are kept too:
@@ -296,7 +303,7 @@ cd server && MAIL_IT_CONFIG_DIR=/etc/nw npm run test:mail
 
 ## Roadmap
 
-- **Mail, next steps:** a more compact formatting toolbar (grouping the less-used buttons), now that it wraps onto a second row on narrower windows.
+- **Mail, next steps:** undo / redo buttons in the toolbar (Ctrl+Z / Ctrl+Y already work).
 - **Real-time co-editing:** live cursors and character-level merging (Yjs) in Docs and Sheets.
 - **Phone sync:** CalDAV and CardDAV, so calendars and contacts sync with the phone's built-in apps; WebDAV for Drive.
 - **Renaming a user's address** (moving them to another domain of the same company), **two-factor authentication**, file version history, public share links, Slides, cell formatting in Sheets, and week and day calendar views.
