@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { get, post, del, onLive } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
+import EmojiPicker from '../../components/EmojiPicker.jsx';
 import { Avatar, Empty, PromptModal, useToast } from '../../components/ui.jsx';
 import { useAuth } from '../../App.jsx';
 
@@ -15,6 +16,22 @@ export default function Chat() {
   const [people, setPeople] = useState([]);
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState('');
+  const box = useRef();
+  // Put the emoji where the cursor was in the message box.
+  const insertEmoji = (ch) => {
+    const t = box.current;
+    const from = t?.selectionStart ?? text.length, to = t?.selectionEnd ?? text.length;
+    setText((v) => v.slice(0, from) + ch + v.slice(to));
+    caret.current = from + ch.length;
+  };
+  // Back in the message box, just after the emoji, as soon as it's on screen.
+  const caret = useRef(null);
+  useLayoutEffect(() => {
+    if (caret.current === null || !box.current) return;
+    box.current.focus();
+    box.current.setSelectionRange(caret.current, caret.current);
+    caret.current = null;
+  }, [text]);
   const [unread, setUnread] = useState({});
   const [dialog, setDialog] = useState(false);
   const scroller = useRef();
@@ -124,7 +141,8 @@ export default function Chat() {
             })}
           </div>
           <form className="composer" onSubmit={send}>
-            <textarea rows={1} value={text} placeholder={`Message ${title}`} aria-label="Message" onChange={(e) => setText(e.target.value)}
+            <EmojiPicker up className="icon-btn" onPick={insertEmoji} />
+            <textarea ref={box} rows={1} value={text} placeholder={`Message ${title}`} aria-label="Message" onChange={(e) => setText(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) send(e); }} />
             <button className="icon-btn send" aria-label="Send" disabled={!text.trim()}><Icon name="send" /></button>
           </form>

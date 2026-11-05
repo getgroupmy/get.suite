@@ -706,3 +706,19 @@ button.tg-day:hover .tg-num { background: var(--hover); }
 .tg-event.dragging { cursor: grabbing; }
 .tg-resize { position: absolute; left: 0; right: 0; bottom: 0; height: 6px; cursor: ns-resize; }
 .tg-event.movable:hover .tg-resize::after { content: ""; position: absolute; left: 50%; bottom: 1px; width: 16px; margin-left: -8px; height: 2px; border-radius: 1px; background: currentColor; opacity: .5; }
+
+/* ---- emoji picker ---- */
+.emoji-picker { position: relative; display: inline-flex; }
+.emoji-pop { position: absolute; top: calc(100% + 6px); left: 0; z-index: 30; width: 316px; max-width: calc(100vw - 16px); background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+.emoji-pop.up { top: auto; bottom: calc(100% + 6px); }
+.emoji-search { width: 100%; padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); font: inherit; font-size: 14px; }
+.emoji-tabs { display: flex; gap: 2px; justify-content: space-between; }
+.emoji-tabs button { flex: 1; border: 0; background: none; border-radius: 6px; padding: 4px 0; font-size: 18px; cursor: pointer; line-height: 1; border-bottom: 2px solid transparent; }
+.emoji-tabs button.on { border-bottom-color: var(--accent); background: var(--surface-2); }
+.emoji-head { padding: 0 2px; }
+.emoji-grid { height: 232px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+.emoji-grid > div { display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px; }
+.emoji-grid button { aspect-ratio: 1; border: 0; background: none; border-radius: 6px; font-size: 22px; line-height: 1; padding: 0; cursor: pointer; font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif; }
+.emoji-grid button:hover, .emoji-grid button:focus-visible { background: var(--surface-2); outline: none; }
+.emoji-grid button:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
+.composer .emoji-picker { align-self: flex-end; margin-left: -8px; }

@@ -9,7 +9,7 @@ A self-hosted, Google Workspace-style office suite built to run on a Synology DS
 | **Sheets** | Spreadsheets with formulas (`SUM AVERAGE MIN MAX MEDIAN COUNT COUNTA COUNTIF SUMIF IF IFERROR AND OR NOT ROUND ABS SQRT POWER MOD INT CONCAT LEN UPPER LOWER TRIM LEFT RIGHT TODAY NOW`), multiple sheets, copy/paste with reference shifting, and CSV import/export |
 | **Calendar** | Month, week and day views (timed events placed by the hour, side by side when they overlap, with a current-time line), all-day and timed events, repeating events, inviting colleagues (Yes / Maybe / No), colours, upcoming list |
 | **Contacts** | Personal address book, plus a directory of everyone on the NAS |
-| **Chat** | Channels and direct messages, delivered live over WebSockets |
+| **Chat** | Channels and direct messages, delivered live over WebSockets, with an emoji picker |
 | **Mail** | A mailbox for every user on their company's domains: webmail (read, reply, forward, attachments from your computer or Drive, archive, spam, search, stars), rich-text writing (bold, lists, links, quotes), drafts that save automatically, vacation auto-replies, filter rules, signatures, folders, send as aliases you belong to, and IMAP/SMTP for phones and Outlook |
 | **Admin** | Create, disable, reset or delete users; per-user storage use; company settings; all companies (platform owner) |
 
@@ -151,10 +151,11 @@ Your business fixed IP is what makes this work. Do these once:
   - **Undo / Redo** (also Ctrl+Z / Ctrl+Y). Each is greyed out when there's nothing to undo or redo.
   - Font and size, **B I U**, text and highlight colour.
   - An **alignment** button that shows the current alignment and opens Left / Centre / Right.
-  - Lists, link, picture and table.
+  - Lists, link, picture, **emoji** and table.
   - **⋮ More formatting**, which holds Strikethrough, Quote, Decrease / Increase indent and Clear formatting.
   - The menus work from the keyboard: Enter or ↓ opens, the arrow keys move, Enter picks, and Escape closes the menu (not the message). Choices that can be on or off show as checked.
   - Picture and table tools appear only while a picture or table is selected.
+- **Emoji:** 🙂 opens the emoji picker (also in Chat, next to the message box). Type to search by name ("thumbs", "party", "thanks"), or browse the groups. The ones you use most recently come first, remembered in each browser. From the keyboard: type, then Enter picks the first match, or ↓ and the arrow keys move through them. Escape closes the picker, not the message.
 - **Links:** 🔗 or **Ctrl+K** opens the link dialog: the text to show, and a web address or an email address.
   - "example.com" becomes `https://example.com`, and an email address becomes a link that starts a message.
   - Other kinds of address (such as `javascript:`) are refused.
@@ -378,7 +379,6 @@ cd server && MAIL_IT_CONFIG_DIR=/etc/nw npm run test:mail
 
 ## Roadmap
 
-- **Mail, next steps:** emoji picker in the toolbar.
 - **Calendar, next steps:** invitations to people outside the server (calendar files that Outlook and phones understand).
 - **Real-time co-editing:** live cursors and character-level merging (Yjs) in Docs and Sheets.
 - **Phone sync:** CalDAV and CardDAV, so calendars and contacts sync with the phone's built-in apps; WebDAV for Drive.

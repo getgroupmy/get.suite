@@ -5,6 +5,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, get, post, put, del, onLive, uploadFile, formatBytes, formatDate } from '../../api.js';
 import { desktopSupported, desktopOn, enableDesktop, disableDesktop } from '../../mailNotify.js';
 import Icon from '../../components/Icon.jsx';
+import EmojiPicker from '../../components/EmojiPicker.jsx';
 import { Avatar, ConfirmModal, Empty, Menu, Modal, PromptModal, useToast } from '../../components/ui.jsx';
 import { useAuth } from '../../App.jsx';
 import { useEditor, EditorContent, Node as TiptapNode, Extension, mergeAttributes } from '@tiptap/react';
@@ -770,6 +771,7 @@ function RichBody({ initialHtml, onChange, onReady, autoFocus, label = 'Message'
         <span className="sep" />
         <B label="🔗" title={editor.isActive('link') ? 'Edit link (Ctrl+K)' : 'Insert link (Ctrl+K)'} active={editor.isActive('link')} onClick={() => linkOpen.current()} />
         <B label="🖼" title="Insert picture" onClick={() => fileInput.current.click()} />
+        <EmojiPicker keepFocus beforePick={refocus} onPick={(ch) => c().insertContent(ch).run()} />
         <TablePicker refocus={refocus} disabled={editor.isActive('table')} onPick={(rows, cols, withHeaderRow) => c().insertTable({ rows, cols, withHeaderRow }).run()} />
         <MenuButton refocus={refocus} end label="More formatting" icon={<span aria-hidden="true">⋮</span>} items={[
           { label: 'Strikethrough', icon: <s>S</s>, checked: editor.isActive('strike'), onSelect: () => c().toggleStrike().run() },
