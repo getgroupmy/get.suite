@@ -13,6 +13,7 @@ import orgRoutes from './routes/orgs.js';
 import mailAdminRoutes from './routes/mailAdmin.js';
 import webmailRoutes from './routes/webmail.js';
 import securityRoutes from './routes/security.js';
+import { linkRoutes, publicLinkRoutes } from './routes/links.js';
 import { writeMailConfig, mailEnabled } from './mail/config.js';
 import { q } from './db.js';
 import { ensureGeneralChannel } from './tenancy.js';
@@ -50,16 +51,20 @@ export function createApp({
   app.use('/api', (req, res, next) => (req.path === '/files/upload' ? next() : express.json({ limit: '25mb' })(req, res, next)));
 
   app.use('/api/auth', authRoutes({ secureCookies }));
+  app.use('/api/public', publicLinkRoutes());
   app.use('/api/users', requireAuth, userRoutes());
   app.use('/api/orgs', requireAuth, orgRoutes());
   app.use('/api/mail-admin', requireAuth, mailAdminRoutes());
   app.use('/api/mail', requireAuth, webmailRoutes());
   app.use('/api/security', requireAuth, securityRoutes());
   app.use('/api/files', requireAuth, fileRoutes({ maxUploadBytes }));
+  app.use('/api/links', requireAuth, linkRoutes());
   app.use('/api/events', requireAuth, calendarRoutes());
   app.use('/api/contacts', requireAuth, contactRoutes());
   app.use('/api/chat', requireAuth, chatRoutes());
   app.use('/api', (req, res, next) => next(new HttpError(404, 'Not found')));
+  // Share-link pages: keep them out of search engines.
+  app.use('/s/', (req, res, next) => { res.setHeader('X-Robots-Tag', 'noindex, nofollow'); next(); });
 
   // Web app (built React bundle) with SPA fallback.
   if (publicDir && fs.existsSync(publicDir)) {

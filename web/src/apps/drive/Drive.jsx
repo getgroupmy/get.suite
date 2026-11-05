@@ -308,7 +308,78 @@ export function ShareDialog({ file, onClose }) {
       </ul>
       {external > 0 && <p className="muted small">{external === 1 ? '1 person' : `${external} people`} outside {user.org_name} can open this.</p>}
       {file.kind === 'folder' && <p className="muted small">People get the same access to everything inside this folder.</p>}
+      {(file.kind === 'file' || file.kind === 'folder') && <LinkSharing file={file} />}
     </Modal>
+  );
+}
+
+const EXPIRY = [['', 'Never expires'], ['1', 'Expires in 1 day'], ['7', 'Expires in 7 days'], ['30', 'Expires in 30 days']];
+export const linkUrl = (token) => `${window.location.origin}/s/${token}`;
+
+/** Links for people without an account: create (expiry, password), copy, remove. Changes apply at once. */
+function LinkSharing({ file }) {
+  const toast = useToast();
+  const { user } = useAuth();
+  const [links, setLinks] = useState(null);
+  const [days, setDays] = useState('7');
+  const [password, setPassword] = useState('');
+  const [usePassword, setUsePassword] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => { if (user.allow_links) get(`/links?file=${file.id}`).then(setLinks).catch(() => setLinks([])); }, [file.id, user.allow_links]);
+
+  if (!user.allow_links) return <section className="link-share"><h3>Link sharing</h3><p className="muted small">Your company has turned off links for people without an account.</p></section>;
+
+  async function create() {
+    setBusy(true);
+    try {
+      const l = await post('/links', { file_id: file.id, expires_at: days ? Date.now() + Number(days) * 864e5 : null, ...(usePassword && { password }) });
+      setLinks([...links, l]);
+      setPassword(''); setUsePassword(false);
+      await copy(l, 'Link created and copied');
+    } catch (e) { toast(e.message, 'error'); }
+    setBusy(false);
+  }
+  async function copy(l, message = 'Link copied') {
+    try { await navigator.clipboard.writeText(linkUrl(l.token)); toast(message); }
+    catch { toast('Select the link and copy it', 'error'); }
+  }
+  async function remove(l) {
+    try { await del(`/links/${l.id}`); setLinks(links.filter((x) => x.id !== l.id)); toast('Link removed: it no longer works'); }
+    catch (e) { toast(e.message, 'error'); }
+  }
+
+  const what = file.kind === 'folder' ? 'this folder and everything in it' : 'this file';
+  return (
+    <section className="link-share" aria-label="Link sharing">
+      <h3>Link sharing</h3>
+      <p className="muted small">Anyone with a link can view and download {what}, without an account.</p>
+      <ul className="share-list">
+        {links?.map((l) => (
+          <li key={l.id} className={l.expired ? 'expired' : ''}>
+            <Icon name="link" size={20} />
+            <div className="grow" style={{ minWidth: 0 }}>
+              <input className="link-url" readOnly value={linkUrl(l.token)} aria-label="Share link" onFocus={(e) => e.target.select()} />
+              <span className="muted small">
+                {[l.expired ? 'Expired' : l.expires_at ? `Until ${formatDate(l.expires_at)}` : 'No expiry',
+                  l.has_password && 'Password', l.opens ? `Opened ${l.opens === 1 ? 'once' : `${l.opens} times`}` : 'Not opened yet'].filter(Boolean).join(' · ')}
+              </span>
+            </div>
+            {!l.expired && <button type="button" className="icon-btn" aria-label="Copy link" title="Copy link" onClick={() => copy(l)}><Icon name="copy" size={18} /></button>}
+            <button type="button" className="icon-btn" aria-label="Remove link" title="Remove link" onClick={() => remove(l)}><Icon name="close" size={18} /></button>
+          </li>
+        ))}
+      </ul>
+      <div className="row wrap">
+        <select value={days} onChange={(e) => setDays(e.target.value)} aria-label="Link expiry">
+          {EXPIRY.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+        </select>
+        <label className="check"><input type="checkbox" checked={usePassword} onChange={(e) => setUsePassword(e.target.checked)} /> Password</label>
+        {usePassword && <input type="text" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="At least 6 characters" aria-label="Link password" autoComplete="off" />}
+        <button type="button" className="btn" onClick={create} disabled={!links || busy || (usePassword && password.length < 6)}><Icon name="link" size={18} /> Create link</button>
+      </div>
+      {usePassword && <p className="muted small">Send the password separately from the link, for example by phone.</p>}
+    </section>
   );
 }
 

@@ -676,3 +676,26 @@ button.tg-day:hover .tg-num { background: var(--hover); }
 .guest-chips { list-style: none; margin: 4px 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
 .guest-chips li { display: inline-flex; align-items: center; gap: 2px; background: var(--surface-2); border-radius: 14px; padding: 2px 4px 2px 10px; font-size: 13px; }
 .guest-chips .icon-btn { width: 22px; height: 22px; font-size: 14px; }
+
+/* ---- share links ---- */
+.link-share { border-top: 1px solid var(--border); margin-top: 16px; padding-top: 12px; }
+.link-share h3 { margin: 0 0 4px; font-size: 15px; }
+.link-share li.expired { opacity: .6; }
+.link-url { width: 100%; border: 0; background: none; padding: 0; font: inherit; font-size: 13px; color: var(--text); text-overflow: ellipsis; }
+.link-url:focus { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+.link-page { min-height: 100%; display: flex; flex-direction: column; background: var(--bg); }
+.link-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 12px 16px; border-bottom: 1px solid var(--border); background: var(--surface); }
+.link-main { width: 100%; max-width: 960px; margin: 0 auto; padding: 24px 16px; flex: 1; }
+.link-main h1 { font-size: 20px; margin: 0; }
+.link-foot { text-align: center; padding: 0 16px 16px; }
+.link-msg, .link-unlock { max-width: 400px; margin: 48px auto; text-align: center; align-items: center; display: flex; flex-direction: column; gap: 12px; }
+.link-unlock .field { width: 100%; text-align: left; }
+.link-file-head { align-items: center; flex-wrap: wrap; }
+.link-file-head .grow { min-width: 0; }
+.link-file .preview { background: var(--surface); border-radius: 12px; padding: 12px; }
+.link-items { list-style: none; padding: 0; margin: 0; background: var(--surface); border-radius: 12px; border: 1px solid var(--border); }
+.link-items li { display: flex; align-items: center; gap: 12px; padding: 8px 12px; min-height: 48px; border-top: 1px solid var(--border); }
+.link-items li:first-child { border-top: 0; }
+.link-items .link-btn { text-align: left; }
+.link-items .link-btn, .link-folder .crumbs .link-btn { font-size: 15px; text-decoration: none; color: var(--text); }
+.link-folder .crumbs .link-btn { color: var(--accent-text); font-size: 20px; }

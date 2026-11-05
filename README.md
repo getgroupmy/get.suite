@@ -4,7 +4,7 @@ A self-hosted, Google Workspace-style office suite built to run on a Synology DS
 
 | App | What it does |
 |---|---|
-| **Drive** | Folders, uploads up to 4 GB each (drag and drop), previews (images, PDF, video, audio, text), rename, move, trash and restore, search, and sharing with people as viewer or editor (folder shares apply to everything inside) |
+| **Drive** | Folders, uploads up to 4 GB each (drag and drop), previews (images, PDF, video, audio, text), rename, move, trash and restore, search, sharing with people as viewer or editor (folder shares apply to everything inside), and share links for people without an account |
 | **Docs** | Rich-text documents (headings, lists, links, quotes, code, alignment) with autosave, print/PDF and HTML export |
 | **Sheets** | Spreadsheets with formulas (`SUM AVERAGE MIN MAX MEDIAN COUNT COUNTA COUNTIF SUMIF IF IFERROR AND OR NOT ROUND ABS SQRT POWER MOD INT CONCAT LEN UPPER LOWER TRIM LEFT RIGHT TODAY NOW`), multiple sheets, copy/paste with reference shifting, and CSV import/export |
 | **Calendar** | Month, week and day views (timed events placed by the hour, side by side when they overlap, with a current-time line), all-day and timed events, repeating events, inviting colleagues (Yes / Maybe / No), colours, upcoming list |
@@ -84,6 +84,17 @@ On 2 GB of RAM, both containers fit with room to spare. Adding a RAM stick only 
 6. **Firewall (recommended):** Control Panel → Security → Firewall. Allow 80 and 443 from everywhere, and allow DSM ports only from your LAN.
 
 Cookies switch to `Secure` automatically once traffic arrives over HTTPS through the proxy.
+
+## Share links (Drive)
+
+Send a file or a whole folder to someone who has no account, such as a client. In Drive, open **Share** on a file or folder; under **Link sharing**, pick how long the link lasts (1, 7 or 30 days, or no expiry), optionally add a password, and press **Create link**. The link is copied straight away and looks like `https://workspace.example.com/s/…`.
+
+- **What they see:** a simple page with the name, who shared it and from which company, a preview (pictures, PDF, video, audio, text) and a **Download** button. A folder link lists what's inside; they can open sub-folders and view or download any file. Docs and Sheets inside a folder aren't included yet.
+- **Password:** they type it once per browser tab. Wrong passwords count towards sign-in protection, so guessing gets the address blocked. Send the password separately, for example by phone.
+- **Keeping track:** the Share dialog lists each link with its expiry, whether it has a password, and how often it was opened. **Remove** stops a link at once.
+- **Links stop working by themselves** when they expire, when the file or folder goes to the trash (or is deleted), or when the owner's account is disabled. A file moved out of a shared folder is no longer reachable through that folder's link.
+- **Company switch:** Admin → Company settings → *Links for people without an account*. Turning it off immediately stops every link in the company; turning it back on restores the ones that haven't expired.
+- Only the owner of a file can create or remove its links. Link pages aren't indexed by search engines.
 
 ## Calendar
 
@@ -370,4 +381,4 @@ cd server && MAIL_IT_CONFIG_DIR=/etc/nw npm run test:mail
 - **Calendar, next steps:** dragging events to move or resize them, and invitations to people outside the server (calendar files that Outlook and phones understand).
 - **Real-time co-editing:** live cursors and character-level merging (Yjs) in Docs and Sheets.
 - **Phone sync:** CalDAV and CardDAV, so calendars and contacts sync with the phone's built-in apps; WebDAV for Drive.
-- **Renaming a user's address** (moving them to another domain of the same company), file version history, public share links, Slides, and cell formatting in Sheets.
+- **Renaming a user's address** (moving them to another domain of the same company), file version history, Slides, and cell formatting in Sheets.

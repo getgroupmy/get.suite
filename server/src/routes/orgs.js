@@ -11,6 +11,7 @@ function describe(org) {
   return {
     ...org,
     allow_external: !!org.allow_external,
+    allow_links: !!org.allow_links,
     require_2fa: !!org.require_2fa,
     // People who still have to set up two-step verification (when it's required).
     without_2fa: q(`SELECT COUNT(*) AS n FROM users u WHERE u.org_id = ? AND u.disabled = 0
@@ -24,6 +25,7 @@ function describe(org) {
 function updateOrg(orgId, body, { asSuper, user }) {
   if (body.name !== undefined) q('UPDATE orgs SET name = ? WHERE id = ?').run(str(body.name, { required: true, name: 'Company name', max: 100 }), orgId);
   if (body.allow_external !== undefined) q('UPDATE orgs SET allow_external = ? WHERE id = ?').run(body.allow_external ? 1 : 0, orgId);
+  if (body.allow_links !== undefined) q('UPDATE orgs SET allow_links = ? WHERE id = ?').run(body.allow_links ? 1 : 0, orgId);
   if (body.require_2fa !== undefined) {
     // Requiring it without having it yourself would lock you out of these settings at once.
     const own = q('SELECT 1 FROM two_factor WHERE user_id = ? AND enabled = 1').get(user.id);

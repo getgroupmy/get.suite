@@ -155,6 +155,20 @@ db.exec(`CREATE TABLE IF NOT EXISTS two_factor (
   recovery TEXT NOT NULL DEFAULT '[]',   -- JSON list of sha256 hashes of unused recovery codes
   enabled_at INTEGER
 )`);
+// Public share links: anyone with the link can open a file or folder, without an account.
+if (!hasColumn('orgs', 'allow_links')) db.exec('ALTER TABLE orgs ADD COLUMN allow_links INTEGER NOT NULL DEFAULT 1');
+db.exec(`CREATE TABLE IF NOT EXISTS share_links (
+  id TEXT PRIMARY KEY,
+  token TEXT NOT NULL UNIQUE,            -- the secret part of the link
+  file_id TEXT NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+  created_by TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER,                    -- null: never
+  password_hash TEXT,                    -- null: no password
+  opens INTEGER NOT NULL DEFAULT 0,
+  last_opened INTEGER
+)`);
+db.exec('CREATE INDEX IF NOT EXISTS share_links_file ON share_links(file_id)');
 // Signed-in devices: when, from what browser/address, and last activity of each session.
 if (!hasColumn('sessions', 'created_at')) db.exec('ALTER TABLE sessions ADD COLUMN created_at INTEGER');
 if (!hasColumn('sessions', 'last_seen')) db.exec('ALTER TABLE sessions ADD COLUMN last_seen INTEGER');

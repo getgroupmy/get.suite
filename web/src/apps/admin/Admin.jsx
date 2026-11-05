@@ -161,7 +161,7 @@ function CompanySettings() {
     try {
       const o = await patch('/orgs/current', body);
       setOrg(o);
-      setUser({ ...user, org_name: o.name, allow_external: o.allow_external });
+      setUser({ ...user, org_name: o.name, allow_external: o.allow_external, allow_links: o.allow_links });
       toast(msg);
     } catch (e) { setOrg(before); toast(e.message, 'error'); }
   }
@@ -180,6 +180,14 @@ function CompanySettings() {
           Allow people to share files and chat with other companies on this server
         </label>
         <p className="muted small" style={{ margin: 0 }}>Turning this off immediately removes outside access to your files and pauses external direct messages. Turning it back on restores them.</p>
+      </div>
+      <div className="card stack">
+        <h2>Links for people without an account</h2>
+        <label className="check">
+          <input type="checkbox" checked={org.allow_links} onChange={(e) => save({ allow_links: e.target.checked }, e.target.checked ? 'Share links are on' : 'Share links are off')} />
+          Allow people to share files and folders by link with anyone, such as clients
+        </label>
+        <p className="muted small" style={{ margin: 0 }}>Turning this off immediately stops every existing link from working. Turning it back on restores the links that haven't expired.</p>
       </div>
       <div className="card stack">
         <h2>Sign-in security</h2>

@@ -6,6 +6,7 @@ import { useMailNotifications } from './mailNotify.js';
 import Icon from './components/Icon.jsx';
 import { Avatar, Menu, ToastProvider, useToast } from './components/ui.jsx';
 import Login from './apps/Login.jsx';
+import PublicLink from './apps/PublicLink.jsx';
 import { TwoStep } from './apps/Settings.jsx';
 import Drive from './apps/drive/Drive.jsx';
 import DocEditor from './apps/docs/DocEditor.jsx';
@@ -21,6 +22,12 @@ const AuthCtx = createContext(null);
 export const useAuth = () => useContext(AuthCtx);
 
 export default function App() {
+  // Share links work without an account, signed in or not.
+  const link = window.location.pathname.match(/^\/s\/([A-Za-z0-9_-]+)\/?$/);
+  return link ? <PublicLink token={link[1]} /> : <Workspace />;
+}
+
+function Workspace() {
   const [state, setState] = useState({ loading: true, user: null, needsSetup: false });
 
   useEffect(() => {

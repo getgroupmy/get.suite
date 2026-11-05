@@ -462,3 +462,77 @@ test('calendar invitations: guests see the event, answer it, and only the organi
   assert.equal((await guest('GET', `/api/events?from=${t - 864e5}&to=${t + 864e5}`)).body.length, 0);
   assert.equal((await guest('POST', `/api/events/${ev.body.id}/rsvp`, { status: 'no' })).status, 404);
 });
+
+test('public share links: no account needed; expiry, password, folders, revoking, company switch', async () => {
+  const pub = client(); // nobody signed in
+  const sharer = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'linker', domain: 'acme.com', name: 'Link Er', password: 'password123' })).status, 201);
+  await login(sharer, 'linker@acme.com');
+  const file = (await sharer('POST', '/api/files/upload?name=quote.pdf', '%PDF-1.4 hi', { raw: true })).body;
+  const doc = (await sharer('POST', '/api/files/new', { kind: 'doc', name: 'Plan' })).body;
+  assert.equal((await sharer('POST', '/api/links', { file_id: doc.id })).status, 400, 'docs cannot have links (yet)');
+  assert.equal((await owner('POST', '/api/links', { file_id: file.id })).status, 404, 'only people with access, and only the owner');
+
+  const link = (await sharer('POST', '/api/links', { file_id: file.id })).body;
+  assert.match(link.token, /^[A-Za-z0-9_-]{24}$/);
+  const info = (await pub('GET', `/api/public/links/${link.token}`)).body;
+  assert.deepEqual([info.name, info.kind, info.locked, info.owner_name, info.org_name], ['quote.pdf', 'file', false, 'Link Er', 'Acme']);
+  const raw = await pub('GET', `/api/public/links/${link.token}/raw`);
+  assert.equal(raw.body, '%PDF-1.4 hi');
+  assert.equal(raw.headers.get('x-robots-tag'), 'noindex, nofollow');
+  assert.match((await pub('GET', `/api/public/links/${link.token}/raw?download`)).headers.get('content-disposition'), /^attachment/);
+  assert.equal((await pub('GET', `/api/public/links/nope${link.token}`)).status, 404);
+  assert.equal((await sharer('GET', `/api/links?file=${file.id}`)).body[0].opens, 1);
+
+  // Password: locked until typed; wrong ones are refused; the key opens the file.
+  const locked = (await sharer('POST', '/api/links', { file_id: file.id, password: 'sesame123', expires_at: Date.now() + 864e5 })).body;
+  assert.equal(locked.has_password, true);
+  assert.equal((await sharer('POST', '/api/links', { file_id: file.id, password: 'abc' })).status, 400);
+  assert.equal((await sharer('POST', '/api/links', { file_id: file.id, expires_at: Date.now() - 1 })).status, 400);
+  const li = (await pub('GET', `/api/public/links/${locked.token}`)).body;
+  assert.equal(li.locked, true);
+  assert.equal(li.size, undefined, 'nothing about the file before the password');
+  assert.equal((await pub('GET', `/api/public/links/${locked.token}/raw`)).status, 401);
+  assert.equal((await pub('POST', `/api/public/links/${locked.token}/unlock`, { password: 'wrong-one' })).status, 401);
+  const { key } = (await pub('POST', `/api/public/links/${locked.token}/unlock`, { password: 'sesame123' })).body;
+  assert.equal((await pub('GET', `/api/public/links/${locked.token}`, undefined, { headers: { 'x-link-key': key } })).body.locked, false);
+  assert.equal((await pub('GET', `/api/public/links/${locked.token}/raw?key=${key}`)).body, '%PDF-1.4 hi');
+  assert.equal((await pub('GET', `/api/public/links/${link.token}/raw?key=${key}`)).status, 200, 'no password: key not needed');
+
+  // Expired links say so.
+  const { q } = await import('../src/db.js');
+  q('UPDATE share_links SET expires_at = ? WHERE id = ?').run(Date.now() - 1000, locked.id);
+  assert.equal((await pub('GET', `/api/public/links/${locked.token}`)).status, 410);
+  assert.equal((await sharer('GET', `/api/links?file=${file.id}`)).body.find((l) => l.id === locked.id).expired, true);
+
+  // Folders: browse inside, open files inside, nothing outside or in the trash.
+  const folder = (await sharer('POST', '/api/files/folder', { name: 'Deliverables' })).body;
+  const sub = (await sharer('POST', '/api/files/folder', { name: 'Drafts', parent_id: folder.id })).body;
+  const inside = (await sharer('POST', `/api/files/upload?parent=${sub.id}&name=a.txt`, 'inside', { raw: true })).body;
+  const binned = (await sharer('POST', `/api/files/upload?parent=${folder.id}&name=old.txt`, 'old', { raw: true })).body;
+  await sharer('POST', '/api/files/new', { kind: 'doc', name: 'Notes', parent_id: folder.id });
+  await sharer('PATCH', `/api/files/${binned.id}`, { trashed: true });
+  const fl = (await sharer('POST', '/api/links', { file_id: folder.id })).body;
+  const top = (await pub('GET', `/api/public/links/${fl.token}`)).body;
+  assert.deepEqual(top.items.map((i) => i.name), ['Drafts'], 'trashed files and docs are left out');
+  const down = (await pub('GET', `/api/public/links/${fl.token}?folder=${sub.id}`)).body;
+  assert.deepEqual(down.path.map((p) => p.name), ['Deliverables', 'Drafts']);
+  assert.deepEqual(down.items.map((i) => i.name), ['a.txt']);
+  assert.equal((await pub('GET', `/api/public/links/${fl.token}/raw?item=${inside.id}`)).body, 'inside');
+  assert.equal((await pub('GET', `/api/public/links/${fl.token}/raw?item=${binned.id}`)).status, 404);
+  assert.equal((await pub('GET', `/api/public/links/${fl.token}/raw?item=${file.id}`)).status, 404, 'files outside the folder');
+  assert.equal((await pub('GET', `/api/public/links/${fl.token}?folder=${doc.id}`)).status, 404);
+  assert.equal((await pub('GET', `/api/public/links/${link.token}/raw?item=${inside.id}`)).status, 404, 'a file link opens only that file');
+
+  // The company can switch links off (and back on); trashing or revoking ends a link.
+  assert.equal((await owner('PATCH', '/api/orgs/current', { allow_links: false })).body.allow_links, false);
+  assert.equal((await pub('GET', `/api/public/links/${link.token}`)).status, 404);
+  assert.equal((await sharer('POST', '/api/links', { file_id: file.id })).status, 403);
+  await owner('PATCH', '/api/orgs/current', { allow_links: true });
+  assert.equal((await pub('GET', `/api/public/links/${link.token}`)).status, 200);
+  await sharer('PATCH', `/api/files/${folder.id}`, { trashed: true });
+  assert.equal((await pub('GET', `/api/public/links/${fl.token}/raw?item=${inside.id}`)).status, 404);
+  assert.equal((await owner('DELETE', `/api/links/${link.id}`)).status, 404, 'only the owner revokes');
+  assert.equal((await sharer('DELETE', `/api/links/${link.id}`)).status, 200);
+  assert.equal((await pub('GET', `/api/public/links/${link.token}`)).status, 404);
+});
