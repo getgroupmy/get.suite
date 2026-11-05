@@ -72,7 +72,8 @@ export default function SlidesEditor() {
   const slide = deck?.slides[slideIndex];
   const item = slide?.items.find((it) => it.id === selected) || null;
   const theme = THEMES[deck?.theme] || THEMES.light;
-  const goTo = (i) => { setCurrent(Math.max(0, Math.min(deck.slides.length - 1, i))); setSelected(null); setEditing(null); };
+  // The latest deck (a slide may have just been added or removed in this same click).
+  const goTo = (i) => { setCurrent(Math.max(0, Math.min(deckRef.current.slides.length - 1, i))); setSelected(null); setEditing(null); };
 
   // Keyboard on the canvas: Delete removes, arrows nudge (Shift: further), Escape deselects.
   function onCanvasKey(e) {
