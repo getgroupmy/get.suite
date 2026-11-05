@@ -7,6 +7,7 @@ import Icon from './components/Icon.jsx';
 import { Avatar, Menu, ToastProvider, useToast } from './components/ui.jsx';
 import Login from './apps/Login.jsx';
 import PublicLink from './apps/PublicLink.jsx';
+import InviteAnswer from './apps/calendar/InviteAnswer.jsx';
 import { TwoStep } from './apps/Settings.jsx';
 import Drive from './apps/drive/Drive.jsx';
 import DocEditor from './apps/docs/DocEditor.jsx';
@@ -24,7 +25,10 @@ export const useAuth = () => useContext(AuthCtx);
 export default function App() {
   // Share links work without an account, signed in or not.
   const link = window.location.pathname.match(/^\/s\/([A-Za-z0-9_-]+)\/?$/);
-  return link ? <PublicLink token={link[1]} /> : <Workspace />;
+  if (link) return <PublicLink token={link[1]} />;
+  // Answering a calendar invitation from outside (no account).
+  const invite = window.location.pathname.match(/^\/i\/([A-Za-z0-9_-]+)\/?$/);
+  return invite ? <InviteAnswer token={invite[1]} /> : <Workspace />;
 }
 
 function Workspace() {

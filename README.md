@@ -7,7 +7,7 @@ A self-hosted, Google Workspace-style office suite built to run on a Synology DS
 | **Drive** | Folders, uploads up to 4 GB each (drag and drop), previews (images, PDF, video, audio, text), rename, move, trash and restore, search, sharing with people as viewer or editor (folder shares apply to everything inside), and share links for people without an account |
 | **Docs** | Rich-text documents (headings, lists, links, quotes, code, alignment) with autosave, print/PDF and HTML export |
 | **Sheets** | Spreadsheets with formulas (`SUM AVERAGE MIN MAX MEDIAN COUNT COUNTA COUNTIF SUMIF IF IFERROR AND OR NOT ROUND ABS SQRT POWER MOD INT CONCAT LEN UPPER LOWER TRIM LEFT RIGHT TODAY NOW`), multiple sheets, copy/paste with reference shifting, and CSV import/export |
-| **Calendar** | Month, week and day views (timed events placed by the hour, side by side when they overlap, with a current-time line), all-day and timed events, repeating events, inviting colleagues (Yes / Maybe / No), colours, upcoming list |
+| **Calendar** | Month, week and day views (timed events placed by the hour, side by side when they overlap, with a current-time line), all-day and timed events, repeating events, inviting colleagues and people outside by email (Yes / Maybe / No), colours, upcoming list |
 | **Contacts** | Personal address book, plus a directory of everyone on the NAS |
 | **Chat** | Channels and direct messages, delivered live over WebSockets, with an emoji picker |
 | **Mail** | A mailbox for every user on their company's domains: webmail (read, reply, forward, attachments from your computer or Drive, archive, spam, search, stars), rich-text writing (bold, lists, links, quotes), drafts that save automatically, vacation auto-replies, filter rules, signatures, folders, send as aliases you belong to, and IMAP/SMTP for phones and Outlook |
@@ -112,6 +112,12 @@ Send a file or a whole folder to someone who has no account, such as a client. I
   - When email is set up, they also get an invitation email from you (with the time in your time zone), and a cancellation if you delete the event or remove them.
   - You see each answer in the event, for example "3 guests: 2 yes, 1 not answered". Calendars that are open update straight away.
   - Only the organiser can change or delete the event. A guest who says No still sees it, faded.
+- **Inviting people outside Workspace** (clients, suppliers): type their email address under **Guests**; they show as "by email". This needs email to be set up.
+  - They get an invitation email with a calendar file, so Outlook, Gmail, Apple Mail and phones show it as an invitation they can add to their own calendar. Repeating events keep their time across clock changes.
+  - The email has a personal link to a simple page (no account needed) where they answer **Yes / Maybe / No**, see the time in their own time zone, and can download the event again. Their answer shows in your calendar straight away.
+  - If you change the time, place or details, they get an updated invitation that replaces the old one in their calendar. Removing them or deleting the event sends a cancellation, and their link stops working.
+  - Answering with their own mail app's buttons (Outlook's *Accept*, Gmail's *Yes*) sends you a reply email, but doesn't update the answer in Workspace yet. The link in the email does.
+  - An address on one of this server's own domains must belong to someone here, so a typo can't email a stranger.
 
 ## Email
 
@@ -351,6 +357,7 @@ To update, replace the files in `docker/workspace/app` with the new version. The
 | `DATA_DIR` | `/data` | Where the database and files live |
 | `MAX_UPLOAD_MB` | `4096` | Largest single upload |
 | `SECURE_COOKIES` | auto | Force `true` or `false`; auto means Secure when the request is HTTPS |
+| `PUBLIC_URL` | the address the browser used | The web address people outside use (e.g. `https://workspace.example.com`), for links in invitation emails |
 | `TRUST_PROXY` | `loopback, linklocal, uniquelocal` | Which proxies' `X-Forwarded-*` headers to trust |
 | `MAIL_CONFIG_DIR` | unset (mail off) | Folder shared with the mail container; setting it turns email on |
 | `MAIL_HOSTNAME` | unset | Public name of the mail server (MX target, certificate name) |
@@ -379,7 +386,7 @@ cd server && MAIL_IT_CONFIG_DIR=/etc/nw npm run test:mail
 
 ## Roadmap
 
-- **Calendar, next steps:** invitations to people outside the server (calendar files that Outlook and phones understand).
+- **Calendar, next steps:** reading Accept/Decline replies from Outlook and Gmail automatically, and updates by email to colleagues when an event changes.
 - **Real-time co-editing:** live cursors and character-level merging (Yjs) in Docs and Sheets.
 - **Phone sync:** CalDAV and CardDAV, so calendars and contacts sync with the phone's built-in apps; WebDAV for Drive.
 - **Renaming a user's address** (moving them to another domain of the same company), file version history, Slides, and cell formatting in Sheets.

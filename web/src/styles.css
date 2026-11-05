@@ -722,3 +722,12 @@ button.tg-day:hover .tg-num { background: var(--hover); }
 .emoji-grid button:hover, .emoji-grid button:focus-visible { background: var(--surface-2); outline: none; }
 .emoji-grid button:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
 .composer .emoji-picker { align-self: flex-end; margin-left: -8px; }
+
+/* ---- invitation answer page ---- */
+.invite-card { max-width: 560px; margin: 24px auto; background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 24px; }
+.invite-card h1 { font-size: 22px; margin: 0; }
+.invite-facts { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0; }
+.invite-facts dt { color: var(--muted); font-size: 13px; padding-top: 2px; }
+.invite-facts dd { margin: 0; overflow-wrap: anywhere; }
+.invite-facts .pre { white-space: pre-wrap; }
+.guest-chips li.outside { box-shadow: inset 0 0 0 1px var(--muted); background: var(--surface); }

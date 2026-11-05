@@ -774,3 +774,62 @@ test('a phone retrying an old password is not blocked', async () => {
   for (let i = 0; i < 12; i++) assert.match(await rawImapLogin('olivia@acme.com', 'old-password', office), /^NO/);
   assert.match(await rawImapLogin('olivia@acme.com', 'password123', office), /^OK/);
 });
+
+test('people outside the server get calendar invitations, updates and cancellations, and answer on a page', async () => {
+  const planner = client(), pub = client();
+  assert.equal((await olivia('POST', '/api/users', { local: 'planner', domain: 'acme.com', name: 'Pat Planner', password: 'password123' })).status, 201);
+  await eventually(async () => (await planner('POST', '/api/auth/login', { username: 'planner@acme.com', password: 'password123' })).status === 200);
+  // A brand-new account: wait until the mail server knows it (it can send, and its mailbox opens).
+  await eventually(async () => (await planner('POST', '/api/mail/send', { to: 'planner@acme.com', subject: 'ready', text: 'x' })).status === 200, 60000);
+  await eventually(async () => (await inbox(planner)).some((m) => m.subject === 'ready'), 60000);
+  const outsider = 'client@clients-test.example';
+  const t = Date.UTC(2026, 11, 3, 10);
+  assert.equal((await planner('POST', '/api/events', { title: 'x', start: t, end: t + 36e5, guests: ['nobody@acme.com'] })).status, 400, 'a typo on our own domain');
+  const ev = await planner('POST', '/api/events', { title: 'Kick-off, phase 2', location: 'Room 4', start: t, end: t + 36e5, guests: [outsider, 'olivia@acme.com'], tz: 'Europe/London' });
+  assert.equal(ev.status, 201, JSON.stringify(ev.body));
+  assert.deepEqual(ev.body.guests.map((g) => [g.email, g.status, !!g.external]), [['olivia@acme.com', 'needs', false], [outsider, 'needs', true]]);
+  const { q } = await import('../src/db.js');
+  const token = q('SELECT token FROM event_outside_guests WHERE email = ?').get(outsider).token;
+
+  // The answer page.
+  const page = (await pub('GET', `/api/public/invites/${token}`)).body;
+  assert.equal(page.title, 'Kick-off, phase 2');
+  assert.match(page.when, /Thursday,? 3 December 2026, 10:00 – 11:00 \(Europe\/London\)/);
+  assert.deepEqual(page.organizer, { name: 'Pat Planner', email: 'planner@acme.com' });
+  assert.equal((await pub('POST', `/api/public/invites/${token}/answer`, { status: 'perhaps' })).status, 400);
+  assert.equal((await pub('POST', `/api/public/invites/${token}/answer`, { status: 'yes' })).body.status, 'yes');
+  const mine = (await planner('GET', `/api/events?from=${t - 864e5}&to=${t + 864e5}`)).body[0];
+  assert.equal(mine.guests.find((g) => g.email === outsider).status, 'yes');
+  const file = await pub('GET', `/api/public/invites/${token}/ics`);
+  assert.match(String(file.body).replace(/\r\n /g, ""), /METHOD:PUBLISH[\s\S]*PARTSTAT=ACCEPTED/);
+  assert.equal((await pub('GET', `/api/public/invites/nope${token}`)).status, 404);
+
+  // The emails. There's no internet here, so each one bounces back to the organizer with the
+  // original attached; that's where we read them.
+  const imap = await imapLogin('planner@acme.com', 'password123');
+  const bounces = async (n) => {
+    const lock = await imap.getMailboxLock('INBOX');
+    try {
+      const out = [];
+      for await (const m of imap.fetch('1:*', { source: true })) out.push(m.source.toString().replace(/=\r?\n/g, '').replace(/\r\n /g, ''));
+      const returned = out.filter((m) => m.includes('BEGIN:VCALENDAR'));
+      return returned.length >= n ? returned : null;
+    } catch { return null; } finally { lock.release(); }
+  };
+  try {
+    const [first] = await eventually(() => bounces(1), 60000);
+    assert.match(first, /Subject: Invitation: Kick-off, phase 2/);
+    assert.match(first, /METHOD:REQUEST/);
+    assert.match(first, /SUMMARY:Kick-off\\, phase 2/);
+    assert.ok(first.includes(`/i/${token}`), 'the personal answer link');
+
+    // Moving it sends an update (a higher SEQUENCE); taking them off sends a cancellation.
+    await planner('PATCH', `/api/events/${ev.body.id}`, { start: t + 36e5, end: t + 72e5, tz: 'Europe/London' });
+    const second = (await eventually(() => bounces(2), 60000)).find((m) => m.includes('Updated invitation'));
+    assert.ok(second && /SEQUENCE:1/.test(second) && /DTSTART:20261203T110000Z/.test(second), 'update');
+    await planner('PATCH', `/api/events/${ev.body.id}`, { title: 'Kick-off (room only)', guests: ['olivia@acme.com'] });
+    const third = (await eventually(() => bounces(3), 60000)).find((m) => /Subject: Cancelled: /.test(m));
+    assert.ok(third && /METHOD:CANCEL/.test(third), 'cancellation');
+    assert.equal((await pub('GET', `/api/public/invites/${token}`)).status, 404, 'the link ends with the invitation');
+  } finally { await imap.logout().catch(() => {}); }
+});

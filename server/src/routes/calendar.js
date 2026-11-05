@@ -1,10 +1,12 @@
 import { Router } from 'express';
 import { q, tx } from '../db.js';
-import { uid, str, int, bad, notFound } from '../util.js';
+import { uid, str, int, bad, notFound, HttpError } from '../util.js';
 import { canReach } from '../tenancy.js';
 import { sendTo } from '../hub.js';
-import { mailEnabled } from '../mail/config.js';
+import crypto from 'node:crypto';
+import { mailEnabled, MAIL_HOSTNAME } from '../mail/config.js';
 import { smtpFor } from '../mail/imap.js';
+import { buildIcs, zoneOrUtc } from '../ics.js';
 
 q(`CREATE TABLE IF NOT EXISTS event_guests (
   event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
@@ -13,6 +15,18 @@ q(`CREATE TABLE IF NOT EXISTS event_guests (
   PRIMARY KEY (event_id, user_id)
 )`).run();
 q('CREATE INDEX IF NOT EXISTS event_guests_user ON event_guests(user_id)').run();
+// Guests outside the server: invited by email with a calendar file, answering on a web page.
+q(`CREATE TABLE IF NOT EXISTS event_outside_guests (
+  event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+  email TEXT NOT NULL COLLATE NOCASE,
+  status TEXT NOT NULL DEFAULT 'needs',   -- needs | yes | maybe | no
+  token TEXT NOT NULL UNIQUE,             -- the secret in their answer link
+  answered_at INTEGER,
+  PRIMARY KEY (event_id, email)
+)`).run();
+const hasColumn = (t, c) => q(`PRAGMA table_info(${t})`).all().some((x) => x.name === c);
+if (!hasColumn('events', 'sequence')) q('ALTER TABLE events ADD COLUMN sequence INTEGER NOT NULL DEFAULT 0').run(); // bumped when details change
+if (!hasColumn('events', 'tz')) q('ALTER TABLE events ADD COLUMN tz TEXT').run(); // the organizer's time zone, for calendar files
 const ANSWERS = ['yes', 'maybe', 'no'];
 const MAX_GUESTS = 50;
 
@@ -76,16 +90,29 @@ const repeatUntil = (e) => (e.rrule ? (e.rrule.until !== undefined ? e.rrule.unt
 const guestsOf = (eventId) => q(`SELECT u.id, u.username AS email, u.name, g.status FROM event_guests g JOIN users u ON u.id = g.user_id
                                   WHERE g.event_id = ? ORDER BY u.name`).all(eventId);
 
-/** Guests from a list of addresses: people the organizer can reach (not themselves). */
+const EMAIL_RE = /^[^\s@<>"(),;:\\]+@[a-z0-9.-]+\.[a-z]{2,}$/i;
+const ourDomain = (email) => !!q('SELECT 1 FROM domains WHERE name = ?').get(email.split('@')[1]);
+
+/**
+ * Guests from a list of addresses (not the organizer): people on this server the organizer can
+ * work with, and, when email is on, anyone else by email address. An address on one of this
+ * server's own domains must belong to someone (a typo there shouldn't email a stranger).
+ */
 function readGuests(user, list) {
   if (!Array.isArray(list)) throw bad('Guests must be a list of email addresses');
-  const emails = [...new Set(list.map((x) => String(x).trim().toLowerCase()).filter(Boolean))];
+  const emails = [...new Set(list.map((x) => String(x).trim().toLowerCase()).filter(Boolean))].filter((e) => e !== user.username);
   if (emails.length > MAX_GUESTS) throw bad(`At most ${MAX_GUESTS} guests`);
-  return emails.filter((e) => e !== user.username).map((email) => {
+  const inside = [], outside = [];
+  for (const email of emails) {
     const u = q('SELECT id, username, name FROM users WHERE username = ? AND disabled = 0').get(email);
-    if (!u || !canReach(user, u.id)) throw bad(`${email} can't be invited: there's no one with that address you can work with`);
-    return u;
-  });
+    if (u && canReach(user, u.id)) { inside.push(u); continue; }
+    if (u || ourDomain(email) || !EMAIL_RE.test(email) || email.length > 254) {
+      throw bad(`${email} can't be invited: there's no one with that address you can work with`);
+    }
+    if (!mailEnabled()) throw bad(`${email} can't be invited: email is turned off on this server, so people outside it can't get invitations`);
+    outside.push(email);
+  }
+  return { inside, outside };
 }
 
 /** Set the guest list, keeping the answers of people who stay invited. Returns who was added and removed. */
@@ -97,6 +124,58 @@ function setGuests(eventId, guests) {
     for (const g of guests) q('INSERT INTO event_guests (event_id, user_id, status) VALUES (?, ?, ?)').run(eventId, g.id, before.get(g.id) || 'needs');
   });
   return { added: guests.filter((g) => !before.has(g.id)), removed: [...before.keys()].filter((id) => !want.has(id)) };
+}
+
+const outsideOf = (eventId) => q('SELECT email, status, token FROM event_outside_guests WHERE event_id = ? ORDER BY email').all(eventId);
+/** The guest list shown in the calendar: colleagues, then people outside (marked external). */
+const allGuests = (eventId) => [...guestsOf(eventId).map(({ id, ...g }) => g), ...outsideOf(eventId).map(({ token, ...g }) => ({ ...g, name: null, external: true }))];
+
+/** Set the outside guests, keeping answers and links. Returns the added, kept and removed rows. */
+function setOutside(eventId, emails) {
+  const before = new Map(outsideOf(eventId).map((g) => [g.email, g]));
+  const want = new Set(emails);
+  tx(() => {
+    for (const [email] of before) if (!want.has(email)) q('DELETE FROM event_outside_guests WHERE event_id = ? AND email = ?').run(eventId, email);
+    for (const email of emails) if (!before.has(email)) q('INSERT INTO event_outside_guests (event_id, email, token) VALUES (?, ?, ?)').run(eventId, email, crypto.randomBytes(18).toString('base64url'));
+  });
+  const after = outsideOf(eventId);
+  return { added: after.filter((g) => !before.has(g.email)), kept: after.filter((g) => before.has(g.email)), removed: [...before.values()].filter((g) => !want.has(g.email)) };
+}
+
+/** Did anything a guest's calendar shows change? */
+const DETAILS = ['title', 'description', 'location', 'start', 'end', 'all_day'];
+const detailsChanged = (a, b) => DETAILS.some((k) => (a[k] ?? null) !== (b[k] ?? null))
+  || JSON.stringify(a.rrule ?? null) !== JSON.stringify(b.rrule ?? null) || JSON.stringify(a.exdates || []) !== JSON.stringify(b.exdates || []);
+
+const icsUid = (e) => `${e.id}@${MAIL_HOSTNAME || 'workspace'}`;
+const baseUrl = (req) => (process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '');
+
+/**
+ * Email people outside the server: an invitation, an update or a cancellation, each with the
+ * calendar file their mail app understands and a personal link to answer (best effort).
+ */
+function notifyOutside(organizer, e, recipients, kind, { base, tz }) {
+  if (!mailEnabled() || !recipients.length) return;
+  const zone = zoneOrUtc(tz || e.tz);
+  const everyone = [...guestsOf(e.id).map((g) => ({ email: g.email, name: g.name, status: g.status })), ...outsideOf(e.id).map((g) => ({ email: g.email, status: g.status }))];
+  for (const g of recipients) {
+    const method = kind === 'cancel' ? 'CANCEL' : 'REQUEST';
+    const ics = buildIcs(e, { method, uid: icsUid(e), sequence: e.sequence || 0, tz: zone, organizer: { name: organizer.name, email: organizer.username },
+      attendees: kind === 'cancel' ? [{ email: g.email, status: g.status }] : everyone });
+    const subject = `${{ invite: 'Invitation', update: 'Updated invitation', cancel: 'Cancelled' }[kind]}: ${e.title}`;
+    const link = `${base}/i/${g.token}`;
+    const lines = kind === 'cancel'
+      ? [`${organizer.name} cancelled this event:`, '', e.title, whenText(e, zone)]
+      : [`${organizer.name} ${kind === 'update' ? 'changed this event' : 'invited you to'}:`, '', e.title, whenText(e, zone),
+        ...(e.location ? [`Where: ${e.location}`] : []), ...(e.description ? ['', e.description] : []),
+        '', `Answer Yes, Maybe or No: ${link}`, '', 'The attached invitation can be added to Outlook, Gmail or your phone\'s calendar.'];
+    smtpFor(organizer).sendMail({
+      from: { name: organizer.name, address: organizer.username },
+      to: g.email,
+      subject, text: lines.join('\n'),
+      icalEvent: { method, filename: kind === 'cancel' ? 'cancel.ics' : 'invite.ics', content: ics },
+    }).catch((err) => console.error('[calendar] outside invitation failed:', err.message));
+  }
 }
 
 /** When an event happens, written in the organizer's time zone (the browser tells us which). */
@@ -146,7 +225,7 @@ export default function calendarRoutes() {
     res.json(rows.map((row) => {
       const mine = row.owner_id === req.user.id;
       const { my_status, organizer_name, organizer_email, ...ev } = row;
-      return { ...outEvent(ev), role: mine ? 'organizer' : 'guest', guests: guestsOf(row.id).map(({ id, ...g }) => g),
+      return { ...outEvent(ev), role: mine ? 'organizer' : 'guest', guests: allGuests(row.id),
         ...(mine ? {} : { my_status, organizer: { name: organizer_name, email: organizer_email } }) };
     }));
   });
@@ -156,40 +235,60 @@ export default function calendarRoutes() {
     // Check the guests before saving anything, so a refused invitation leaves no event behind.
     const guests = req.body.guests !== undefined ? readGuests(req.user, req.body.guests) : null;
     const id = uid();
-    q(`INSERT INTO events (id, owner_id, title, description, location, start, end, all_day, color, rrule, exdates, repeat_until)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    const tz = req.body.tz ? zoneOrUtc(req.body.tz) : null;
+    q(`INSERT INTO events (id, owner_id, title, description, location, start, end, all_day, color, rrule, exdates, repeat_until, tz)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(id, req.user.id, e.title, e.description ?? null, e.location ?? null, e.start, e.end, e.all_day ?? 0, e.color ?? null,
-        e.rrule ? JSON.stringify(e.rrule) : null, JSON.stringify(e.exdates || []), repeatUntil(e));
+        e.rrule ? JSON.stringify(e.rrule) : null, JSON.stringify(e.exdates || []), repeatUntil(e), tz);
     if (guests) {
-      const { added } = setGuests(id, guests);
-      notify(req.user, e, added, 'invite', req.body.tz);
+      const { added } = setGuests(id, guests.inside);
+      const outside = setOutside(id, guests.outside);
+      const saved = outEvent(q('SELECT * FROM events WHERE id = ?').get(id));
+      notify(req.user, saved, added, 'invite', req.body.tz);
+      notifyOutside(req.user, saved, outside.added, 'invite', { base: baseUrl(req), tz });
       touch(added.map((g) => g.id));
     }
-    res.status(201).json({ ...outEvent(q('SELECT * FROM events WHERE id = ?').get(id)), role: 'organizer', guests: guestsOf(id).map(({ id: _, ...g }) => g) });
+    res.status(201).json({ ...outEvent(q('SELECT * FROM events WHERE id = ?').get(id)), role: 'organizer', guests: allGuests(id) });
   });
 
   r.patch('/:id', (req, res) => {
     const existing = q('SELECT * FROM events WHERE id = ? AND owner_id = ?').get(req.params.id, req.user.id);
     if (!existing) throw notFound();
-    const e = readEvent(req.body, outEvent(existing));
+    const before = outEvent(existing);
+    const e = readEvent(req.body, before);
     const guests = req.body.guests !== undefined ? readGuests(req.user, req.body.guests) : null; // before changing anything
-    q(`UPDATE events SET title = ?, description = ?, location = ?, start = ?, end = ?, all_day = ?, color = ?, rrule = ?, exdates = ?, repeat_until = ? WHERE id = ?`)
-      .run(e.title, e.description, e.location, e.start, e.end, e.all_day, e.color, e.rrule ? JSON.stringify(e.rrule) : null, JSON.stringify(e.exdates || []), repeatUntil(e), e.id);
+    const tz = req.body.tz ? zoneOrUtc(req.body.tz) : existing.tz;
+    const changed = detailsChanged(before, e);
+    q(`UPDATE events SET title = ?, description = ?, location = ?, start = ?, end = ?, all_day = ?, color = ?, rrule = ?, exdates = ?, repeat_until = ?,
+       tz = ?, sequence = sequence + ? WHERE id = ?`)
+      .run(e.title, e.description, e.location, e.start, e.end, e.all_day, e.color, e.rrule ? JSON.stringify(e.rrule) : null, JSON.stringify(e.exdates || []), repeatUntil(e),
+        tz, changed ? 1 : 0, e.id);
+    const saved = outEvent(q('SELECT * FROM events WHERE id = ?').get(e.id));
     let removed = [];
+    let outside = { added: [], kept: outsideOf(e.id), removed: [] };
     if (guests) {
-      const change = setGuests(e.id, guests);
+      const change = setGuests(e.id, guests.inside);
       removed = change.removed;
-      notify(req.user, e, change.added, 'invite', req.body.tz);
-      notify(req.user, e, removed.map((id) => q('SELECT username, name FROM users WHERE id = ?').get(id)).filter(Boolean), 'cancel', req.body.tz);
+      outside = setOutside(e.id, guests.outside);
+      notify(req.user, saved, change.added, 'invite', req.body.tz);
+      notify(req.user, saved, removed.map((id) => q('SELECT username, name FROM users WHERE id = ?').get(id)).filter(Boolean), 'cancel', req.body.tz);
     }
+    // People outside only see what we email them: new guests are invited, the others get the update.
+    const opts = { base: baseUrl(req), tz };
+    notifyOutside(req.user, saved, outside.added, 'invite', opts);
+    if (changed) notifyOutside(req.user, saved, outside.kept, 'update', opts);
+    notifyOutside(req.user, saved, outside.removed, 'cancel', opts);
     touch([req.user.id, ...guestsOf(e.id).map((g) => g.id), ...removed]);
-    res.json({ ...outEvent(q('SELECT * FROM events WHERE id = ?').get(e.id)), role: 'organizer', guests: guestsOf(e.id).map(({ id, ...g }) => g) });
+    res.json({ ...saved, role: 'organizer', guests: allGuests(e.id) });
   });
 
   r.delete('/:id', (req, res) => {
     const ev = q('SELECT * FROM events WHERE id = ? AND owner_id = ?').get(req.params.id, req.user.id);
     if (!ev) throw notFound();
     const guests = guestsOf(ev.id);
+    const outside = outsideOf(ev.id);
+    const gone = { ...outEvent(ev), sequence: ev.sequence + 1 };
+    notifyOutside(req.user, gone, outside, 'cancel', { base: baseUrl(req), tz: req.query.tz || ev.tz }); // before the guest list goes
     q('DELETE FROM events WHERE id = ?').run(ev.id);
     notify(req.user, outEvent(ev), guests.map((g) => ({ username: g.email, name: g.name })), 'cancel', req.query.tz);
     touch([req.user.id, ...guests.map((g) => g.id)]);
@@ -207,5 +306,45 @@ export default function calendarRoutes() {
     res.json({ ok: true, status });
   });
 
+  return r;
+}
+
+/** No account needed: people outside the server answer their invitation. Mounted at /api/public/invites. */
+export function publicInviteRoutes() {
+  const r = Router();
+  r.use((req, res, next) => { res.setHeader('X-Robots-Tag', 'noindex, nofollow'); res.setHeader('Cache-Control', 'private, no-store'); next(); });
+  const find = (token) => {
+    const g = q(`SELECT g.email, g.status, g.token, e.*, o.name AS organizer_name, o.username AS organizer_email, o.disabled AS organizer_disabled
+                 FROM event_outside_guests g JOIN events e ON e.id = g.event_id JOIN users o ON o.id = e.owner_id WHERE g.token = ?`).get(String(token || ''));
+    if (!g || g.organizer_disabled) throw new HttpError(404, 'This invitation is no longer valid. The event may have been cancelled, or you were taken off the guest list.');
+    return g;
+  };
+  const shown = (g) => ({
+    title: g.title, start: g.start, end: g.end, all_day: !!g.all_day, location: g.location, description: g.description,
+    rrule: g.rrule ? JSON.parse(g.rrule) : null, when: whenText(outEvent(g), g.tz), email: g.email, status: g.status,
+    organizer: { name: g.organizer_name, email: g.organizer_email },
+  });
+
+  r.get('/:token', (req, res) => res.json(shown(find(req.params.token))));
+
+  r.post('/:token/answer', (req, res) => {
+    const g = find(req.params.token);
+    const status = String(req.body.status || '');
+    if (!ANSWERS.includes(status)) throw bad('Answer yes, maybe or no');
+    q('UPDATE event_outside_guests SET status = ?, answered_at = ? WHERE token = ?').run(status, Date.now(), g.token);
+    touch([g.owner_id]);
+    res.json(shown({ ...g, status }));
+  });
+
+  // "Add to my calendar" for apps that didn't pick up the emailed invitation.
+  r.get('/:token/ics', (req, res) => {
+    const g = find(req.params.token);
+    const e = outEvent(g);
+    const ics = buildIcs(e, { method: 'PUBLISH', uid: icsUid(e), sequence: g.sequence || 0, tz: g.tz,
+      organizer: { name: g.organizer_name, email: g.organizer_email }, attendees: [{ email: g.email, status: g.status }] });
+    res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${String(g.title).replace(/[^\w .-]+/g, '').trim().slice(0, 60) || 'event'}.ics"`);
+    res.send(ics);
+  });
   return r;
 }

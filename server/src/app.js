@@ -6,7 +6,7 @@ import { HttpError } from './util.js';
 import authRoutes from './routes/auth.js';
 import userRoutes from './routes/users.js';
 import fileRoutes from './routes/files.js';
-import calendarRoutes from './routes/calendar.js';
+import calendarRoutes, { publicInviteRoutes } from './routes/calendar.js';
 import contactRoutes from './routes/contacts.js';
 import chatRoutes from './routes/chat.js';
 import orgRoutes from './routes/orgs.js';
@@ -51,6 +51,7 @@ export function createApp({
   app.use('/api', (req, res, next) => (req.path === '/files/upload' ? next() : express.json({ limit: '25mb' })(req, res, next)));
 
   app.use('/api/auth', authRoutes({ secureCookies }));
+  app.use('/api/public/invites', publicInviteRoutes());
   app.use('/api/public', publicLinkRoutes());
   app.use('/api/users', requireAuth, userRoutes());
   app.use('/api/orgs', requireAuth, orgRoutes());
@@ -64,7 +65,7 @@ export function createApp({
   app.use('/api/chat', requireAuth, chatRoutes());
   app.use('/api', (req, res, next) => next(new HttpError(404, 'Not found')));
   // Share-link pages: keep them out of search engines.
-  app.use('/s/', (req, res, next) => { res.setHeader('X-Robots-Tag', 'noindex, nofollow'); next(); });
+  app.use(['/s/', '/i/'], (req, res, next) => { res.setHeader('X-Robots-Tag', 'noindex, nofollow'); next(); });
 
   // Web app (built React bundle) with SPA fallback.
   if (publicDir && fs.existsSync(publicDir)) {

@@ -258,7 +258,7 @@ function GuestList({ guests }) {
     <div className="stack" style={{ gap: 4 }}>
       <span className="muted small">{guests.length} guest{guests.length === 1 ? '' : 's'}: {counts.map(([s, n]) => `${n} ${ANSWER_LABELS[s].toLowerCase()}`).join(', ')}</span>
       <ul className="guest-list" aria-label="Guests">
-        {guests.map((g) => <li key={g.email}><span className={`rsvp ${g.status}`} aria-hidden="true" />{g.name} <span className="muted small">{g.email} · {ANSWER_LABELS[g.status]}</span></li>)}
+        {guests.map((g) => <li key={g.email}><span className={`rsvp ${g.status}`} aria-hidden="true" />{g.name || g.email} <span className="muted small">{g.name ? `${g.email} · ` : ''}{g.external ? 'by email · ' : ''}{ANSWER_LABELS[g.status]}</span></li>)}
       </ul>
     </div>
   );
@@ -385,7 +385,10 @@ function EventDialog({ event, onClose, onSaved }) {
             <ul className="guest-chips" aria-label="Invited guests">
               {guests.map((g) => {
                 const known = (event.guests || []).find((x) => x.email === g);
-                return <li key={g}>{directory.find((d) => d.username === g)?.name || g}{known && <span className="muted small"> · {ANSWER_LABELS[known.status]}</span>}
+                const outside = known ? known.external : !directory.some((d) => d.username === g);
+                return <li key={g} className={outside ? 'outside' : ''}>{directory.find((d) => d.username === g)?.name || known?.name || g}
+                  {outside && <span className="muted small" title="Invited by email: they answer on a web page"> · by email</span>}
+                  {known && <span className="muted small"> · {ANSWER_LABELS[known.status]}</span>}
                   <button type="button" className="icon-btn" aria-label={`Remove ${g}`} onClick={() => setGuests(guests.filter((x) => x !== g))}>×</button></li>;
               })}
             </ul>
@@ -394,7 +397,9 @@ function EventDialog({ event, onClose, onSaved }) {
             onChange={(e) => { const v = e.target.value; if (/[,;\s]$/.test(v) || directory.some((d) => d.username === v.trim().toLowerCase())) addGuests(v); else setGuestInput(v); }}
             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); if (guestInput.trim()) addGuests(guestInput); } }} /* Enter adds a guest, never saves */ />
           <datalist id="guest-directory">{directory.map((d) => <option key={d.id} value={d.username}>{d.name}</option>)}</datalist>
-          {guests.length > 0 && <span className="muted small">They'll see it in their calendar{event.id ? '' : ' and get an email'} and can answer Yes, Maybe or No.</span>}
+          {guests.length > 0 && <span className="muted small">They'll see it in their calendar{event.id ? '' : ' and get an email'} and can answer Yes, Maybe or No.
+            {guests.some((g) => { const k = (event.guests || []).find((x) => x.email === g); return k ? k.external : !directory.some((d) => d.username === g); })
+              && ' People outside Workspace get an email invitation for their own calendar (Outlook, Gmail, phone) and a link to answer; they also get changes and cancellations.'}</span>}
         </div>
         <label className="field"><span>Location</span><input value={f.location} onChange={set('location')} /></label>
         <label className="field"><span>Description</span><textarea rows={3} value={f.description} onChange={set('description')} /></label>
