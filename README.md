@@ -240,6 +240,21 @@ Your business fixed IP is what makes this work. Do these once:
 
 **Not built yet:** keeping the original's exact look (block and page backgrounds, page layout, sizes other than the four in the menu) in a normal forward (use **Forward as attachment** to keep everything).
 
+## Two-step verification
+
+Everyone can add a second step to signing in on the web: after the password, a 6-digit code from an authenticator app on their phone (Google Authenticator, Microsoft Authenticator, 1Password, …). Someone who learns a password then still can't get in.
+
+- **Turning it on:** Settings → Two-step verification → **Turn on**. Confirm your password, scan the QR code (or type the key), and enter the code the app shows.
+  - You then get **10 recovery codes**. Each signs you in once without your phone. Save them (Copy / Download), because they're shown only once.
+  - Other devices that were signed in are signed out.
+- **Signing in:** after the password, enter the code (or **Use a recovery code**). Each code works once, and a phone clock up to 30 seconds off is fine.
+  - A sign-in allows 5 wrong codes. Wrong codes also count towards sign-in protection below, so guessing gets the sender blocked.
+- **Recovery codes running low?** Settings shows how many are left and warns at 3. **New recovery codes** replaces them all.
+- **Lost phone:** sign in with a recovery code. Without one, ask an admin: Admin → Users → ⋮ → **Reset two-step verification**. That signs the person out everywhere so they can sign in with their password and set it up again. The user list shows who has **2-step** on.
+- **Turning it off** needs your password and a current code (or a recovery code).
+- **Mail apps:** phones and Outlook reading mail over IMAP/SMTP still sign in with just the password. Sign-in protection blocks anyone guessing it. Separate app passwords for mail apps are on the roadmap.
+- The keys are stored in the database, so they're included in its backups. Protect the backups like the server itself.
+
 ## Sign-in protection
 
 Once ports 465, 587 and 993 are open, bots will start guessing passwords within hours. The same protection guards the Workspace sign-in page and the mail apps:
@@ -312,4 +327,5 @@ cd server && MAIL_IT_CONFIG_DIR=/etc/nw npm run test:mail
 - **Mail, next steps:** emoji picker in the toolbar.
 - **Real-time co-editing:** live cursors and character-level merging (Yjs) in Docs and Sheets.
 - **Phone sync:** CalDAV and CardDAV, so calendars and contacts sync with the phone's built-in apps; WebDAV for Drive.
-- **Renaming a user's address** (moving them to another domain of the same company), **two-factor authentication**, file version history, public share links, Slides, cell formatting in Sheets, and week and day calendar views.
+- **App passwords** for mail apps when two-step verification is on, and an admin option to require two-step verification for a whole company.
+- **Renaming a user's address** (moving them to another domain of the same company), file version history, public share links, Slides, cell formatting in Sheets, and week and day calendar views.

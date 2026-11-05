@@ -252,3 +252,66 @@ test('deleting a company removes its users and files', async () => {
   await new Promise((r) => setTimeout(r, 100));
   assert.equal(fs.readdirSync(path.join(dir, 'files')).length, files - 1, "Globex's upload was removed from disk");
 });
+
+test('two-step verification: setup, sign-in with a code or a recovery code, admin reset', async () => {
+  const { codeAt, stepAt } = await import('../src/totp.js');
+  const anna = client();
+  const created = await owner('POST', '/api/users', { local: 'anna', domain: 'acme.com', name: 'Anna Two', password: 'password123' });
+  assert.equal(created.status, 201, JSON.stringify(created.body));
+  await login(anna, 'anna@acme.com');
+  assert.deepEqual((await anna('GET', '/api/auth/2fa')).body, { enabled: false });
+
+  assert.equal((await anna('POST', '/api/auth/2fa/setup', { password: 'wrong' })).status, 400, 'needs the password');
+  const setup = (await anna('POST', '/api/auth/2fa/setup', { password: 'password123' })).body;
+  assert.match(setup.secret, /^[A-Z2-7]{32}$/);
+  assert.match(setup.otpauth, /^otpauth:\/\/totp\/Acme%3Aanna%40acme\.com\?secret=/);
+  assert.equal((await anna('POST', '/api/auth/2fa/confirm', { code: '000000' })).status, 400, 'wrong first code');
+  const on = (await anna('POST', '/api/auth/2fa/confirm', { code: codeAt(setup.secret, stepAt()) })).body;
+  assert.equal(on.enabled, true);
+  assert.equal(on.recoveryCodes.length, 10);
+  assert.equal(on.recoveryLeft, 10);
+
+  // Signing in now takes two steps; the password alone gives no session.
+  const fresh = client();
+  const step1 = await fresh('POST', '/api/auth/login', { username: 'anna@acme.com', password: 'password123' });
+  assert.equal(step1.body.twoFactor, true);
+  assert.equal(step1.body.user, undefined);
+  assert.equal((await fresh('GET', '/api/auth/me')).status, 401, 'no session after the password alone');
+  assert.equal((await fresh('POST', '/api/auth/login/code', { ticket: step1.body.ticket, code: '123456' })).status, 401);
+  // The code that confirmed setup was used up; the next step's code works (allowed one step of drift).
+  const ok = await fresh('POST', '/api/auth/login/code', { ticket: step1.body.ticket, code: codeAt(setup.secret, stepAt() + 1) });
+  assert.equal(ok.status, 200, JSON.stringify(ok.body));
+  assert.equal(ok.body.user.username, 'anna@acme.com');
+  assert.equal((await fresh('GET', '/api/auth/me')).status, 200);
+  assert.equal((await fresh('POST', '/api/auth/login/code', { ticket: step1.body.ticket, code: codeAt(setup.secret, stepAt()) })).status, 401, 'a ticket works once');
+
+  // A recovery code works once.
+  const viaRecovery = client();
+  const t2 = (await viaRecovery('POST', '/api/auth/login', { username: 'anna@acme.com', password: 'password123' })).body.ticket;
+  const r2 = await viaRecovery('POST', '/api/auth/login/code', { ticket: t2, code: on.recoveryCodes[0].toUpperCase() });
+  assert.equal(r2.status, 200);
+  assert.equal(r2.body.recoveryLeft, 9);
+  const t3 = (await client()('POST', '/api/auth/login', { username: 'anna@acme.com', password: 'password123' })).body.ticket;
+  assert.equal((await client()('POST', '/api/auth/login/code', { ticket: t3, code: on.recoveryCodes[0] })).status, 401, 'used up');
+
+  // Five wrong codes end the attempt.
+  const guesser = client();
+  const t4 = (await guesser('POST', '/api/auth/login', { username: 'anna@acme.com', password: 'password123' })).body.ticket;
+  for (let i = 0; i < 4; i++) assert.equal((await guesser('POST', '/api/auth/login/code', { ticket: t4, code: '00000' + i })).status, 401);
+  const fifth = await guesser('POST', '/api/auth/login/code', { ticket: t4, code: '000009' });
+  assert.match(fifth.body.error, /Too many wrong codes/);
+  assert.equal((await guesser('POST', '/api/auth/login/code', { ticket: t4, code: codeAt(setup.secret, stepAt()) })).status, 401);
+
+  // The admin sees it, and can reset it for a lost phone; the user then signs in with the password only.
+  const list = (await owner('GET', '/api/users')).body;
+  assert.equal(list.find((u) => u.username === 'anna@acme.com').two_factor, 1);
+  assert.equal((await anna('PATCH', `/api/users/${created.body.id}`, { reset_two_factor: true })).status, 403, 'admins only');
+  assert.equal((await owner('PATCH', `/api/users/${created.body.id}`, { reset_two_factor: true })).status, 200);
+  assert.equal((await fresh('GET', '/api/auth/me')).status, 401, 'sessions ended');
+  const after = await client()('POST', '/api/auth/login', { username: 'anna@acme.com', password: 'password123' });
+  assert.equal(after.body.user.username, 'anna@acme.com');
+
+  // Turning it off yourself needs the password and a current code.
+  const again = (await anna('POST', '/api/auth/2fa/setup', { password: 'password123' }));
+  assert.equal(again.status, 401, 'old session was ended by the reset');
+});

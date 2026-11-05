@@ -1,5 +1,6 @@
-import { useState } from 'react';
-import { patch } from '../api.js';
+import { useEffect, useState } from 'react';
+import QRCode from 'qrcode';
+import { get, patch, post } from '../api.js';
 import { useAuth } from '../App.jsx';
 import { useToast } from '../components/ui.jsx';
 
@@ -44,6 +45,109 @@ export default function Settings() {
         {error && <p className="error">{error}</p>}
         <div className="row end"><button className="btn primary">Change password</button></div>
       </form>
+      <TwoStep />
     </div>
+  );
+}
+
+/**
+ * Two-step verification: turn on (password -> scan QR -> confirm a code -> save recovery codes),
+ * new recovery codes, turn off (password + a code).
+ */
+function TwoStep() {
+  const toast = useToast();
+  const [st, setSt] = useState(null); // { enabled, recoveryLeft }
+  const [step, setStep] = useState(null); // null | 'on' | 'scan' | 'codes' | 'newcodes' | 'off'
+  const [password, setPassword] = useState('');
+  const [code, setCode] = useState('');
+  const [setup, setSetup] = useState(null); // { secret, qr }
+  const [codes, setCodes] = useState(null);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { get('/auth/2fa').then(setSt).catch(() => {}); }, []);
+  const reset = () => { setStep(null); setPassword(''); setCode(''); setError(''); setSetup(null); };
+  const run = (fn) => async (e) => {
+    e.preventDefault();
+    setError(''); setBusy(true);
+    try { await fn(); } catch (err) { setError(err.message); } finally { setBusy(false); }
+  };
+
+  const begin = run(async () => {
+    const r = await post('/auth/2fa/setup', { password });
+    setSetup({ secret: r.secret, qr: await QRCode.toDataURL(r.otpauth, { margin: 1, width: 360 }) });
+    setPassword(''); setStep('scan');
+  });
+  const confirm = run(async () => {
+    const r = await post('/auth/2fa/confirm', { code });
+    setSt(r); setCodes(r.recoveryCodes); setStep('codes'); setCode('');
+    toast('Two-step verification is on. Other devices were signed out.');
+  });
+  const regenerate = run(async () => {
+    const r = await post('/auth/2fa/recovery-codes', { password });
+    setSt(r); setCodes(r.recoveryCodes); setPassword(''); setStep('codes');
+  });
+  const turnOff = run(async () => {
+    setSt(await post('/auth/2fa/disable', { password, code }));
+    reset(); toast('Two-step verification is off');
+  });
+  const download = () => {
+    const blob = new Blob([`Workspace recovery codes\nEach code can be used once to sign in without your phone.\n\n${codes.join('\n')}\n`], { type: 'text/plain' });
+    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: 'workspace-recovery-codes.txt' });
+    a.click(); URL.revokeObjectURL(a.href);
+  };
+
+  if (!st) return null;
+  const pwField = <label className="field"><span>Your password</span><input type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required autoFocus /></label>;
+  return (
+    <section className="card stack" aria-labelledby="twostep-h">
+      <h2 id="twostep-h">Two-step verification</h2>
+      {step === 'codes' ? <>
+        <p><strong>Save these recovery codes.</strong> If you lose your phone, each one signs you in once instead of a code from the app. They won't be shown again.</p>
+        <ul className="recovery-codes" aria-label="Recovery codes">{codes.map((c) => <li key={c}>{c}</li>)}</ul>
+        <div className="row end">
+          <button type="button" className="btn" onClick={() => navigator.clipboard?.writeText(codes.join('\n')).then(() => toast('Copied'))}>Copy</button>
+          <button type="button" className="btn" onClick={download}>Download</button>
+          <button type="button" className="btn primary" onClick={() => { setCodes(null); reset(); }}>I've saved them</button>
+        </div>
+      </> : step === 'scan' ? (
+        <form className="stack" onSubmit={confirm}>
+          <p>1. In an authenticator app (Google Authenticator, Microsoft Authenticator, 1Password, …), add an account by scanning this code:</p>
+          <img className="qr" src={setup.qr} alt="QR code for your authenticator app" />
+          <p className="muted small">Can't scan? Enter this key in the app instead (time-based):</p>
+          <div className="secret-key" aria-label="Setup key">{setup.secret.match(/.{1,4}/g).join(' ')}</div>
+          <label className="field"><span>2. Enter the 6-digit code the app shows</span>
+            <input value={code} onChange={(e) => setCode(e.target.value)} inputMode="numeric" autoComplete="one-time-code" maxLength={7} required placeholder="123456" /></label>
+          {error && <p className="error" role="alert">{error}</p>}
+          <div className="row end"><button type="button" className="btn" onClick={reset}>Cancel</button><button className="btn primary" disabled={busy}>Turn on</button></div>
+        </form>
+      ) : step === 'on' || step === 'newcodes' ? (
+        <form className="stack" onSubmit={step === 'on' ? begin : regenerate}>
+          <p>{step === 'on' ? 'Confirm your password to start.' : 'New codes replace all your old recovery codes.'}</p>
+          {pwField}
+          {error && <p className="error" role="alert">{error}</p>}
+          <div className="row end"><button type="button" className="btn" onClick={reset}>Cancel</button><button className="btn primary" disabled={busy}>Continue</button></div>
+        </form>
+      ) : step === 'off' ? (
+        <form className="stack" onSubmit={turnOff}>
+          <p>Your account will be protected by your password only.</p>
+          {pwField}
+          <label className="field"><span>Code from your app (or a recovery code)</span>
+            <input value={code} onChange={(e) => setCode(e.target.value)} autoComplete="one-time-code" required /></label>
+          {error && <p className="error" role="alert">{error}</p>}
+          <div className="row end"><button type="button" className="btn" onClick={reset}>Cancel</button><button className="btn danger" disabled={busy}>Turn off</button></div>
+        </form>
+      ) : st.enabled ? <>
+        <p><strong>On.</strong> Signing in on the web asks for a code from your phone after your password. {st.recoveryLeft} of 10 recovery codes left.</p>
+        {st.recoveryLeft <= 3 && <div className="banner warn">You're running out of recovery codes. Make new ones so you can still get in if you lose your phone.</div>}
+        <p className="muted small">Mail apps on phones and Outlook (IMAP/SMTP) still use just your password; sign-in protection blocks anyone guessing it.</p>
+        <div className="row end">
+          <button type="button" className="btn" onClick={() => setStep('newcodes')}>New recovery codes</button>
+          <button type="button" className="btn danger" onClick={() => setStep('off')}>Turn off</button>
+        </div>
+      </> : <>
+        <p><strong>Off.</strong> Add a second step to signing in: after your password, a code from an app on your phone. Someone who learns your password still can't get in.</p>
+        <div className="row end"><button type="button" className="btn primary" onClick={() => setStep('on')}>Turn on</button></div>
+      </>}
+    </section>
   );
 }

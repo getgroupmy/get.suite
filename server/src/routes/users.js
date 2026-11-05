@@ -1,3 +1,4 @@
+import { disable as disableTwoFactor } from '../twofactor.js';
 import { Router } from 'express';
 import { q, tx } from '../db.js';
 import { str, bad, notFound, forbidden } from '../util.js';
@@ -44,7 +45,8 @@ export default function userRoutes() {
   r.get('/', (req, res) => {
     const orgId = targetOrg(req);
     res.json(q(`SELECT u.id, u.username, u.name, u.is_admin, u.is_super, u.disabled, u.created_at, u.mail_quota_mb,
-                  (SELECT COALESCE(SUM(size), 0) FROM files f WHERE f.owner_id = u.id) AS storage_used
+                  (SELECT COALESCE(SUM(size), 0) FROM files f WHERE f.owner_id = u.id) AS storage_used,
+                  (SELECT COUNT(*) FROM two_factor t WHERE t.user_id = u.id AND t.enabled = 1) AS two_factor
                 FROM users u WHERE u.org_id = ? ORDER BY u.name`).all(orgId));
   });
 
@@ -60,7 +62,7 @@ export default function userRoutes() {
   r.patch('/:id', (req, res) => {
     const u = loadManagedUser(req);
     const self = u.id === req.user.id;
-    const { name, is_admin, disabled, password, mail_quota_mb } = req.body;
+    const { name, is_admin, disabled, password, mail_quota_mb, reset_two_factor } = req.body;
     if (u.is_super && !req.user.is_super) throw forbidden('Only the platform owner can change this account');
     if (name !== undefined) q('UPDATE users SET name = ? WHERE id = ?').run(str(name, { required: true, name: 'Name', max: 100 }), u.id);
     if (is_admin !== undefined) {
@@ -76,6 +78,13 @@ export default function userRoutes() {
       validatePassword(password);
       q('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(password), u.id);
       setMailPassword(u.id, password);
+      q('DELETE FROM sessions WHERE user_id = ?').run(u.id);
+    }
+    // Lost phone: turn off their two-step verification so they can sign in with the password and set
+    // it up again. Their sessions end, so the change is noticed.
+    if (reset_two_factor) {
+      if (self) throw bad('Turn off your own two-step verification in Settings');
+      disableTwoFactor(u.id);
       q('DELETE FROM sessions WHERE user_id = ?').run(u.id);
     }
     if (mail_quota_mb !== undefined) {
