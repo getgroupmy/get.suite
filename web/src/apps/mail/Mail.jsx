@@ -713,11 +713,15 @@ function RichBody({ initialHtml, onChange, onReady, autoFocus, label = 'Message'
           icon={(shown) => <span className="color-a hl"><span className="hl-pen" aria-hidden="true">🖍</span><span className="color-bar" style={{ background: shown || 'transparent' }} /></span>}
           onPick={(color) => (color ? c().setBackgroundColor(color).run() : c().unsetBackgroundColor().run())} />
         <span className="sep" />
-        {[['left', 'Align left'], ['center', 'Centre'], ['right', 'Align right']].map(([al, title]) => (
-          <B key={al} label={<AlignIcon to={al} />} title={title}
-            active={al === 'left' ? !editor.isActive({ textAlign: 'center' }) && !editor.isActive({ textAlign: 'right' }) : editor.isActive({ textAlign: al })}
-            onClick={() => (al === 'left' ? c().unsetTextAlign() : c().setTextAlign(al)).run()} />
-        ))}
+        {[['left', 'Align left'], ['center', 'Centre'], ['right', 'Align right']].map(([al, title]) => {
+          // With a picture selected, the buttons align the picture; otherwise the paragraph.
+          const pic = editor.isActive('image');
+          const now = pic ? editor.getAttributes('image').align || 'left' : editor.isActive({ textAlign: 'center' }) ? 'center' : editor.isActive({ textAlign: 'right' }) ? 'right' : 'left';
+          return (
+            <B key={al} label={<AlignIcon to={al} />} title={pic ? `${title} (picture)` : title} active={now === al}
+              onClick={() => (pic ? c().updateAttributes('image', { align: al === 'left' ? null : al }) : al === 'left' ? c().unsetTextAlign() : c().setTextAlign(al)).run()} />
+          );
+        })}
         <span className="sep" />
         <B label="•" title="Bulleted list" active={editor.isActive('bulletList')} onClick={() => c().toggleBulletList().run()} />
         <B label="1." title="Numbered list" active={editor.isActive('orderedList')} onClick={() => c().toggleOrderedList().run()} />
@@ -1243,6 +1247,14 @@ const ResizableImage = Image.extend({
           ? { 'data-width': attrs.width, width: `${attrs.width}%`, style: `width:${attrs.width}%; max-width:100%; height:auto` }
           : { style: 'max-width:100%; height:auto' }),
       },
+      // Centred or right-aligned picture (left is normal). Margins in the message; the email also
+      // wraps it in an aligned block for Outlook (see emailHtml).
+      align: {
+        default: null,
+        parseHTML: (el) => (['center', 'right'].includes(el.getAttribute('data-align')) ? el.getAttribute('data-align') : null),
+        renderHTML: (attrs) => (attrs.align === 'center' ? { 'data-align': 'center', style: 'display:block; margin-left:auto; margin-right:auto' }
+          : attrs.align === 'right' ? { 'data-align': 'right', style: 'display:block; margin-left:auto' } : {}),
+      },
     };
   },
 
@@ -1280,6 +1292,7 @@ const ResizableImage = Image.extend({
         img.src = n.attrs.src;
         img.alt = n.attrs.alt || '';
         if (n.attrs.width) dom.setAttribute('data-width', String(n.attrs.width)); else dom.removeAttribute('data-width');
+        if (n.attrs.align) dom.setAttribute('data-align', n.attrs.align); else dom.removeAttribute('data-align');
         show(n.attrs.width || null);
       };
       img.addEventListener('load', () => { if (!current.attrs.width) show(null); }); // natural size known now

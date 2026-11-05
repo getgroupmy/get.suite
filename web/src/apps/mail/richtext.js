@@ -76,9 +76,17 @@ function emailTables(html) {
     });
 }
 
+/**
+ * Centred / right-aligned pictures: their margins work in most mail apps, but Outlook on Windows
+ * ignores them, so the picture also goes in a block aligned the same way.
+ */
+function emailPictures(html) {
+  return html.replace(/<img\b[^>]*\bdata-align="(center|right)"[^>]*>/g, (img, al) => `<div align="${al}" style="text-align:${al}">${img}</div>`);
+}
+
 /** Wrap the editor's HTML so mail apps render it consistently. */
 export function emailHtml(bodyHtml) {
-  return `<div style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; line-height: 1.5; color: #1f1f1f">${emailTables(bodyHtml)
+  return `<div style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; line-height: 1.5; color: #1f1f1f">${emailPictures(emailTables(bodyHtml))
     .replace(/<blockquote>/g, '<blockquote style="margin:0 0 0 .8ex; border-left:2px solid #ccc; padding-left:1ex; color:#555">')}</div>`;
   // (Pictures carry their own size and max-width style from the editor.)
 }

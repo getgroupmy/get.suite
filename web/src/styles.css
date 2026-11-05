@@ -508,6 +508,8 @@ a.att:hover { background: var(--hover); }
 .compose-editor .tiptap .img-wrap { position: relative; display: block; max-width: 100%; margin: 6px 0; line-height: 0; }
 .compose-editor .tiptap .img-wrap img { width: 100%; max-width: 100%; height: auto; margin: 0; border-radius: 4px; }
 .compose-editor .tiptap .img-wrap.natural { width: fit-content; }
+.compose-editor .tiptap .img-wrap[data-align="center"] { margin-left: auto; margin-right: auto; }
+.compose-editor .tiptap .img-wrap[data-align="right"] { margin-left: auto; margin-right: 0; }
 .compose-editor .tiptap .img-wrap.natural img { width: auto; }
 .compose-editor .tiptap .img-wrap.ProseMirror-selectednode img { outline: 2px solid var(--accent); }
 .img-handle { position: absolute; right: -7px; bottom: -7px; width: 14px; height: 14px; border-radius: 3px; background: var(--accent); border: 2px solid var(--surface);

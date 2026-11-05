@@ -61,3 +61,10 @@ test('aligned paragraphs keep their alignment, also inside table cells', () => {
   assert.match(html, /<p style="text-align: center">Title<\/p>/);
   assert.match(html, /<td style="[^"]*"><p style="margin:0; text-align: right">€200<\/p><p style="margin:0">note<\/p><\/td>/);
 });
+
+test('centred and right-aligned pictures are also wrapped in an aligned block (for Outlook)', () => {
+  const html = emailHtml('<img src="cid:a" data-align="center" style="width:50%; display:block; margin-left:auto; margin-right:auto"><img src="cid:b" data-align="right"><img src="cid:c">');
+  assert.match(html, /<div align="center" style="text-align:center"><img src="cid:a" data-align="center"[^>]*><\/div>/);
+  assert.match(html, /<div align="right" style="text-align:right"><img src="cid:b" data-align="right"><\/div>/);
+  assert.match(html, /<\/div><img src="cid:c"><\/div>$/, 'left pictures unchanged');
+});
