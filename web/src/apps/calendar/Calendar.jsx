@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { get, post, patch, del } from '../../api.js';
+import { get, post, patch, del, onLive } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
 import { Modal, useToast } from '../../components/ui.jsx';
 import { DAY, VIEWS, startOfDay, visibleDays, shift, title, onDay, layoutDay, expandAll, occurrenceIndex, describeRule } from './calmath.js';
@@ -34,6 +34,8 @@ export default function Calendar() {
     get(`/events?from=${now}&to=${now + 30 * DAY}`).then((list) => setUpcoming(expandAll(list, now, now + 30 * DAY))).catch(() => {});
   }, [days, toast]);
   useEffect(load, [load]);
+  // Someone changed an event you organise or are invited to.
+  useEffect(() => onLive((m) => { if (m.type === 'events-changed') load(); }), [load]);
 
   const today = startOfDay(new Date()).getTime();
   const upcoming = upcomingList.filter((e) => e.end >= Date.now()).slice(0, 8);
@@ -96,7 +98,7 @@ export default function Calendar() {
                   onClick={(e) => e.target === e.currentTarget && newEvent(d)}>
                   <button type="button" className="daynum" aria-label={`Open ${d.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}`} onClick={() => openDay(d)}>{d.getDate()}</button>
                   {list.slice(0, 3).map((ev) => (
-                    <button key={ev.key || ev.id} className={`chip ${ev.all_day ? 'allday' : ''}`} style={{ '--c': ev.color || COLORS[0] }} onClick={() => setEditing(ev)}>
+                    <button key={ev.key || ev.id} className={`chip ${ev.all_day ? 'allday' : ''} ${inviteClass(ev)}`} style={{ '--c': ev.color || COLORS[0] }} onClick={() => setEditing(ev)}>
                       {!ev.all_day && <span className="t">{fmtTime(ev.start)}</span>} {ev.title}{ev.rrule && <span className="rep" aria-label="(repeats)" title="Repeats"> ↻</span>}
                     </button>
                   ))}
@@ -109,7 +111,9 @@ export default function Calendar() {
           <TimeGrid days={days} events={events} today={today} onOpen={setEditing} onNew={newEvent} onDay={view === 'week' ? openDay : null} />
         )}
       </section>
-      {editing && <EventDialog event={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />}
+      {editing && (editing.role === 'guest'
+        ? <InvitationDialog event={editing} onClose={() => setEditing(null)} onAnswered={() => { setEditing(null); load(); }} />
+        : <EventDialog event={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />)}
     </div>
   );
 }
@@ -146,7 +150,7 @@ function TimeGrid({ days, events, today, onOpen, onNew, onDay: openDay }) {
         {days.map((d) => (
           <div key={d.getTime()} className="tg-allday-cell">
             {onDay(events, d).filter((ev) => ev.all_day).map((ev) => (
-              <button key={ev.key || ev.id} className="chip allday" style={{ '--c': ev.color || COLORS[0] }} onClick={() => onOpen(ev)}>{ev.title}{ev.rrule && <span aria-label="(repeats)"> ↻</span>}</button>
+              <button key={ev.key || ev.id} className={`chip allday ${inviteClass(ev)}`} style={{ '--c': ev.color || COLORS[0] }} onClick={() => onOpen(ev)}>{ev.title}{ev.rrule && <span aria-label="(repeats)"> ↻</span>}</button>
             ))}
           </div>
         ))}
@@ -166,7 +170,7 @@ function TimeGrid({ days, events, today, onOpen, onNew, onDay: openDay }) {
                 onNew(d, Math.min(23 * 60 + 30, Math.floor(y / HOUR_PX * 2) * 30)); // the half hour clicked
               }}>
               {layoutDay(events, d).map(({ ev, top, height, col, cols: n }) => (
-                <button key={ev.key || ev.id} className="tg-event" title={`${ev.title} · ${fmtTime(ev.start)} – ${fmtTime(ev.end)}${ev.rrule ? ' · repeats' : ''}`}
+                <button key={ev.key || ev.id} className={`tg-event ${inviteClass(ev)}`} title={`${ev.title} · ${fmtTime(ev.start)} – ${fmtTime(ev.end)}${ev.rrule ? ' · repeats' : ''}`}
                   style={{ '--c': ev.color || COLORS[0], top: (top / 60) * HOUR_PX, height: (height / 60) * HOUR_PX - 2, left: `calc(${(col / n) * 100}% + 2px)`, width: `calc(${100 / n}% - 4px)` }}
                   onClick={() => onOpen(ev)}>
                   <strong>{ev.title}{ev.rrule && <span aria-label="(repeats)"> ↻</span>}</strong>
@@ -181,6 +185,55 @@ function TimeGrid({ days, events, today, onOpen, onNew, onDay: openDay }) {
           ))}
         </div>
       </div>
+    </div>
+  );
+}
+
+// Invitations you haven't answered look tentative; declined ones are faded.
+const inviteClass = (ev) => (ev.role !== 'guest' ? '' : ev.my_status === 'no' ? 'declined' : ev.my_status === 'yes' ? '' : 'tentative');
+const ANSWER_LABELS = { yes: 'Yes', maybe: 'Maybe', no: 'No', needs: 'Not answered' };
+const TZ = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { return 'UTC'; } })();
+const whenLabel = (ev) => {
+  const d = new Date(ev.start).toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  return ev.all_day ? `${d}, all day` : `${d}, ${fmtTime(ev.start)} – ${fmtTime(ev.end)}`;
+};
+
+/** An event you're invited to: details, who's coming, and your answer. */
+function InvitationDialog({ event, onClose, onAnswered }) {
+  const toast = useToast();
+  const answer = async (status) => {
+    try { await post(`/events/${event.id}/rsvp`, { status }); toast(`Answered ${ANSWER_LABELS[status]}`); onAnswered(); } catch (e) { toast(e.message, 'error'); }
+  };
+  return (
+    <Modal title={event.title} onClose={onClose}>
+      <div className="stack">
+        <p style={{ margin: 0 }}>{whenLabel(event)}{event.rrule && <><br /><span className="muted small">{describeRule(event.rrule, event.seriesStart ?? event.start)}</span></>}</p>
+        {event.location && <p style={{ margin: 0 }}><span className="muted">Where:</span> {event.location}</p>}
+        {event.description && <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{event.description}</p>}
+        <p style={{ margin: 0 }}><span className="muted">Organizer:</span> {event.organizer?.name} <span className="muted small">{event.organizer?.email}</span></p>
+        <GuestList guests={event.guests} />
+        <div className="stack" style={{ gap: 6 }}>
+          <span className="muted small">Going?{event.rrule ? ' (for the whole series)' : ''}</span>
+          <div className="row" role="group" aria-label="Your answer">
+            {['yes', 'maybe', 'no'].map((s) => (
+              <button key={s} type="button" className={`btn ${event.my_status === s ? 'primary' : ''}`} aria-pressed={event.my_status === s} onClick={() => answer(s)}>{ANSWER_LABELS[s]}</button>
+            ))}
+          </div>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function GuestList({ guests }) {
+  if (!guests?.length) return null;
+  const counts = ['yes', 'maybe', 'no', 'needs'].map((s) => [s, guests.filter((g) => g.status === s).length]).filter(([, n]) => n);
+  return (
+    <div className="stack" style={{ gap: 4 }}>
+      <span className="muted small">{guests.length} guest{guests.length === 1 ? '' : 's'}: {counts.map(([s, n]) => `${n} ${ANSWER_LABELS[s].toLowerCase()}`).join(', ')}</span>
+      <ul className="guest-list" aria-label="Guests">
+        {guests.map((g) => <li key={g.email}><span className={`rsvp ${g.status}`} aria-hidden="true" />{g.name} <span className="muted small">{g.email} · {ANSWER_LABELS[g.status]}</span></li>)}
+      </ul>
     </div>
   );
 }
@@ -211,6 +264,15 @@ function EventDialog({ event, onClose, onSaved }) {
     ends: r0?.until !== undefined ? 'on' : r0?.count ? 'after' : 'never',
     until: r0?.until !== undefined ? toDateInput(r0.until) : toDateInput(event.start + 30 * DAY), count: r0?.count || 10,
   });
+  const [guests, setGuests] = useState((event.guests || []).map((g) => g.email));
+  const [guestInput, setGuestInput] = useState('');
+  const [directory, setDirectory] = useState([]);
+  useEffect(() => { get('/users/directory').then(setDirectory).catch(() => {}); }, []);
+  const addGuests = (text) => {
+    const found = String(text).split(/[\s,;]+/).map((x) => x.trim().toLowerCase()).filter((x) => x.includes('@'));
+    if (found.length) setGuests((g) => [...new Set([...g, ...found])]);
+    setGuestInput('');
+  };
   const [scopeFor, setScopeFor] = useState(null); // 'save' | 'delete': asking which occurrences
   const [scope, setScope] = useState('this');
   const [error, setError] = useState('');
@@ -220,7 +282,8 @@ function EventDialog({ event, onClose, onSaved }) {
   const read = () => {
     const start = f.all_day ? fromInputs(f.startDate) : fromInputs(f.startDate, f.startTime);
     const end = f.all_day ? fromInputs(f.endDate) + DAY - 1 : fromInputs(f.endDate, f.endTime);
-    return { start, end, body: { title: f.title, location: f.location, description: f.description, color: f.color, all_day: f.all_day, start, end, rrule: ruleFromForm(rep, start) } };
+    const all = guestInput.trim() ? [...new Set([...guests, ...guestInput.split(/[\s,;]+/).map((x) => x.trim().toLowerCase()).filter((x) => x.includes('@'))])] : guests;
+    return { start, end, body: { title: f.title, location: f.location, description: f.description, color: f.color, all_day: f.all_day, start, end, rrule: ruleFromForm(rep, start), guests: all, tz: TZ } };
   };
 
   async function save(which) {
@@ -249,7 +312,7 @@ function EventDialog({ event, onClose, onSaved }) {
     onSaved();
   }
   async function remove(which) {
-    if (!recurring || which === 'all' || (which === 'following' && event.occurrence === event.seriesStart)) await del(`/events/${event.id}`);
+    if (!recurring || which === 'all' || (which === 'following' && event.occurrence === event.seriesStart)) await del(`/events/${event.id}?tz=${encodeURIComponent(TZ)}`);
     else if (which === 'this') await patch(`/events/${event.id}`, { exdates: [...(event.exdates || []), event.occurrence] });
     else await patch(`/events/${event.id}`, { rrule: { ...Object.fromEntries(Object.entries(event.rrule).filter(([k]) => k !== 'count')), until: event.occurrence - 1 } });
     onSaved();
@@ -319,6 +382,27 @@ function EventDialog({ event, onClose, onSaved }) {
             </div>
           )}
           {rep.freq !== 'none' && <p className="muted small" aria-live="polite" style={{ margin: 0 }}>{describeRule(ruleNow, read().start)}</p>}
+        </div>
+        <div className="field">
+          <label htmlFor="guest-input"><span>Guests</span></label>
+          {event.guests?.length > 0 && (
+            <span className="muted small" aria-live="polite">{event.guests.length} guest{event.guests.length === 1 ? '' : 's'}: {
+              ['yes', 'maybe', 'no', 'needs'].map((k) => [k, event.guests.filter((g) => g.status === k).length]).filter(([, n]) => n).map(([k, n]) => `${n} ${ANSWER_LABELS[k].toLowerCase()}`).join(', ')}</span>
+          )}
+          {guests.length > 0 && (
+            <ul className="guest-chips" aria-label="Invited guests">
+              {guests.map((g) => {
+                const known = (event.guests || []).find((x) => x.email === g);
+                return <li key={g}>{directory.find((d) => d.username === g)?.name || g}{known && <span className="muted small"> · {ANSWER_LABELS[known.status]}</span>}
+                  <button type="button" className="icon-btn" aria-label={`Remove ${g}`} onClick={() => setGuests(guests.filter((x) => x !== g))}>×</button></li>;
+              })}
+            </ul>
+          )}
+          <input id="guest-input" list="guest-directory" value={guestInput} placeholder="Add people by email address" autoComplete="off"
+            onChange={(e) => { const v = e.target.value; if (/[,;\s]$/.test(v) || directory.some((d) => d.username === v.trim().toLowerCase())) addGuests(v); else setGuestInput(v); }}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); if (guestInput.trim()) addGuests(guestInput); } }} /* Enter adds a guest, never saves */ />
+          <datalist id="guest-directory">{directory.map((d) => <option key={d.id} value={d.username}>{d.name}</option>)}</datalist>
+          {guests.length > 0 && <span className="muted small">They'll see it in their calendar{event.id ? '' : ' and get an email'} and can answer Yes, Maybe or No.</span>}
         </div>
         <label className="field"><span>Location</span><input value={f.location} onChange={set('location')} /></label>
         <label className="field"><span>Description</span><textarea rows={3} value={f.description} onChange={set('description')} /></label>

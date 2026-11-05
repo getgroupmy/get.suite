@@ -421,3 +421,44 @@ test('repeating events: rules are checked, and series that started earlier are r
   }
   assert.equal(ended.status, 201);
 });
+
+test('calendar invitations: guests see the event, answer it, and only the organizer can change it', async () => {
+  const org = client(), guest = client();
+  for (const [c, local] of [[org, 'meet'], [guest, 'gues']]) {
+    assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name: `${local} person`, password: 'password123' })).status, 201);
+    await login(c, `${local}@acme.com`);
+  }
+  const t = Date.UTC(2026, 10, 10, 14);
+  const bad = await org('POST', '/api/events', { title: 'x', start: t, end: t + 36e5, guests: ['nobody@nowhere.example'] });
+  assert.equal(bad.status, 400);
+  assert.match(bad.body.error, /can't be invited/);
+  // Someone at another company without collaboration can't be invited.
+  assert.equal((await org('POST', '/api/events', { title: 'x', start: t, end: t + 36e5, guests: ['gina@globex.com'] })).status, 400);
+
+  const ev = await org('POST', '/api/events', { title: 'Planning', start: t, end: t + 36e5, guests: ['GUES@acme.com', 'meet@acme.com'], tz: 'Europe/London' });
+  assert.equal(ev.status, 201, JSON.stringify(ev.body));
+  assert.deepEqual(ev.body.guests.map((g) => [g.email, g.status]), [['gues@acme.com', 'needs']], 'the organizer is not their own guest');
+
+  const seen = (await guest('GET', `/api/events?from=${t - 864e5}&to=${t + 864e5}`)).body;
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].role, 'guest');
+  assert.equal(seen[0].my_status, 'needs');
+  assert.deepEqual(seen[0].organizer, { name: 'meet person', email: 'meet@acme.com' });
+  assert.equal((await guest('PATCH', `/api/events/${ev.body.id}`, { title: 'Mine now' })).status, 404, 'guests cannot edit');
+  assert.equal((await guest('DELETE', `/api/events/${ev.body.id}`)).status, 404);
+  assert.equal((await guest('POST', `/api/events/${ev.body.id}/rsvp`, { status: 'perhaps' })).status, 400);
+  assert.equal((await guest('POST', `/api/events/${ev.body.id}/rsvp`, { status: 'yes' })).status, 200);
+  assert.equal((await bob('POST', `/api/events/${ev.body.id}/rsvp`, { status: 'yes' })).status, 401, 'bob is disabled; and he is not invited anyway');
+  const mineAll = (await org('GET', `/api/events?from=${t - 864e5}&to=${t + 864e5}`)).body;
+  assert.equal(mineAll.length, 1, 'refused invitations left no events behind');
+  const mine = mineAll[0];
+  assert.equal(mine.role, 'organizer');
+  assert.deepEqual(mine.guests.map((g) => g.status), ['yes']);
+
+  // Editing keeps answers; removing a guest takes the event out of their calendar.
+  await org('PATCH', `/api/events/${ev.body.id}`, { title: 'Planning (room 2)', guests: ['gues@acme.com'] });
+  assert.equal((await guest('GET', `/api/events?from=${t - 864e5}&to=${t + 864e5}`)).body[0].my_status, 'yes');
+  await org('PATCH', `/api/events/${ev.body.id}`, { guests: [] });
+  assert.equal((await guest('GET', `/api/events?from=${t - 864e5}&to=${t + 864e5}`)).body.length, 0);
+  assert.equal((await guest('POST', `/api/events/${ev.body.id}/rsvp`, { status: 'no' })).status, 404);
+});

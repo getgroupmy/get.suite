@@ -7,7 +7,7 @@ A self-hosted, Google Workspace-style office suite built to run on a Synology DS
 | **Drive** | Folders, uploads up to 4 GB each (drag and drop), previews (images, PDF, video, audio, text), rename, move, trash and restore, search, and sharing with people as viewer or editor (folder shares apply to everything inside) |
 | **Docs** | Rich-text documents (headings, lists, links, quotes, code, alignment) with autosave, print/PDF and HTML export |
 | **Sheets** | Spreadsheets with formulas (`SUM AVERAGE MIN MAX MEDIAN COUNT COUNTA COUNTIF SUMIF IF IFERROR AND OR NOT ROUND ABS SQRT POWER MOD INT CONCAT LEN UPPER LOWER TRIM LEFT RIGHT TODAY NOW`), multiple sheets, copy/paste with reference shifting, and CSV import/export |
-| **Calendar** | Month, week and day views (timed events placed by the hour, side by side when they overlap, with a current-time line), all-day and timed events, repeating events, colours, upcoming list |
+| **Calendar** | Month, week and day views (timed events placed by the hour, side by side when they overlap, with a current-time line), all-day and timed events, repeating events, inviting colleagues (Yes / Maybe / No), colours, upcoming list |
 | **Contacts** | Personal address book, plus a directory of everyone on the NAS |
 | **Chat** | Channels and direct messages, delivered live over WebSockets |
 | **Mail** | A mailbox for every user on their company's domains: webmail (read, reply, forward, attachments from your computer or Drive, archive, spam, search, stars), rich-text writing (bold, lists, links, quotes), drafts that save automatically, vacation auto-replies, filter rules, signatures, folders, send as aliases you belong to, and IMAP/SMTP for phones and Outlook |
@@ -95,6 +95,11 @@ Cookies switch to `Secure` automatically once traffic arrives over HTTPS through
   - A monthly event on the 31st skips months without a 31st, and a yearly event on 29 February appears only in leap years.
   - Changing or deleting one occurrence asks **This event / This and following events / All events**.
   - Repeating events show ↻.
+- **Inviting colleagues:** add people under **Guests** (type an address; suggestions come from your company directory). You can invite anyone you can work with: your own company, and other companies when both allow collaboration.
+  - Guests see the event in their calendar, outlined until they answer, and answer **Yes / Maybe / No**. For a repeating event, the answer covers the whole series.
+  - When email is set up, they also get an invitation email from you (with the time in your time zone), and a cancellation if you delete the event or remove them.
+  - You see each answer in the event, for example "3 guests: 2 yes, 1 not answered". Calendars that are open update straight away.
+  - Only the organiser can change or delete the event. A guest who says No still sees it, faded.
 
 ## Email
 
@@ -362,7 +367,7 @@ cd server && MAIL_IT_CONFIG_DIR=/etc/nw npm run test:mail
 ## Roadmap
 
 - **Mail, next steps:** emoji picker in the toolbar.
-- **Calendar, next steps:** inviting colleagues to events, and dragging events to move or resize them.
+- **Calendar, next steps:** dragging events to move or resize them, and invitations to people outside the server (calendar files that Outlook and phones understand).
 - **Real-time co-editing:** live cursors and character-level merging (Yjs) in Docs and Sheets.
 - **Phone sync:** CalDAV and CardDAV, so calendars and contacts sync with the phone's built-in apps; WebDAV for Drive.
 - **Renaming a user's address** (moving them to another domain of the same company), file version history, public share links, Slides, and cell formatting in Sheets.

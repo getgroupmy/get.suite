@@ -666,3 +666,13 @@ button.tg-day:hover .tg-num { background: var(--hover); }
 .weekdays .wd { width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--border); background: var(--surface); color: var(--text); font: inherit; font-size: 13px; cursor: pointer; }
 .weekdays .wd.on { background: var(--accent); border-color: var(--accent); color: #fff; }
 .chip .rep { opacity: .7; }
+/* Calendar invitations */
+.chip.tentative, .tg-event.tentative { outline: 1px dashed var(--c); outline-offset: -1px; background: transparent; }
+.chip.allday.tentative { color: var(--text); }
+.chip.declined, .tg-event.declined { opacity: .5; text-decoration: line-through; }
+.guest-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.rsvp { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; background: var(--muted); }
+.rsvp.yes { background: #188038; } .rsvp.no { background: #c5221f; } .rsvp.maybe { background: #e37400; }
+.guest-chips { list-style: none; margin: 4px 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.guest-chips li { display: inline-flex; align-items: center; gap: 2px; background: var(--surface-2); border-radius: 14px; padding: 2px 4px 2px 10px; font-size: 13px; }
+.guest-chips .icon-btn { width: 22px; height: 22px; font-size: 14px; }
