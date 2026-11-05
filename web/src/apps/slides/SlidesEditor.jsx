@@ -91,6 +91,20 @@ export default function SlidesEditor() {
     else if (e.key === 'Enter' && item.type === 'text') { e.preventDefault(); setEditing(item.id); }
   }
 
+  // The keys work wherever focus is (after a toolbar button too), except while typing in a field.
+  const keyRef = useRef(null);
+  keyRef.current = onCanvasKey;
+  useEffect(() => {
+    const onKey = (e) => {
+      const t = e.target;
+      if (presenting !== null || document.querySelector('.modal-backdrop') || t.closest?.('input, textarea, select, [contenteditable="true"], [role="menu"]')) return;
+      if ((e.key === 'Enter' || e.key === ' ') && t.closest?.('button, a')) return; // pressing a button
+      keyRef.current?.(e);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [presenting]);
+
   function insert(it) {
     const full = { id: newId(), ...it };
     change((d) => addItem(d, slideIndex, full));
@@ -204,7 +218,7 @@ export default function SlidesEditor() {
             </li>
           ))}
         </ol>
-        <div className="slide-stage" tabIndex={-1} onKeyDown={onCanvasKey} onPointerDown={(e) => { if (e.target === e.currentTarget) { setSelected(null); setEditing(null); } }}>
+        <div className="slide-stage" tabIndex={-1} onPointerDown={(e) => { if (e.target === e.currentTarget) { setSelected(null); setEditing(null); } }}>
           <SlideView slide={slide} theme={theme} deckId={id} editable={!readOnly} selected={selected} editing={editing}
             onSelect={(itemId) => { setSelected(itemId); if (itemId !== editing) setEditing(null); }}
             onEdit={setEditing}
@@ -277,7 +291,7 @@ function SlideView({ slide, theme, deckId, editable, selected, editing, onSelect
                 onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); e.currentTarget.blur(); } }}
                 onChange={(e) => onChange(it.id, { text: e.target.value })} /* saved as you type */
                 onBlur={() => onEdit(null)} />
-            : <div className={`slide-text ${!it.text ? 'empty' : ''}`} style={style}>{it.text || (editable ? PLACEHOLDER[it.role] || 'Click to add text' : '')}</div>;
+            : <div className={`slide-text ${!it.text ? 'slide-placeholder' : ''}`} style={style}>{it.text || (editable ? PLACEHOLDER[it.role] || 'Click to add text' : '')}</div>;
         } else if (it.type === 'image') {
           inner = <img src={`/api/files/${deckId}/pictures/${it.fileId}`} alt={it.name || ''} draggable={false} />;
         } else if (it.type === 'shape') {
