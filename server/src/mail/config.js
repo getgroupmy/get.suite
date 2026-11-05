@@ -81,7 +81,7 @@ const splitTargets = (s) => s.split(',').map((t) => t.trim().toLowerCase()).filt
 
 export function buildMailConfig() {
   const domains = q('SELECT name, org_id, catchall FROM domains ORDER BY name').all();
-  const users = q('SELECT id, org_id, username, name, mail_hash, mail_app_hash, mail_quota_mb, disabled, is_admin FROM users ORDER BY username').all();
+  const users = q('SELECT id, org_id, username, name, mail_hash, mail_app_hash, mail_quota_mb, mail_home, disabled, is_admin FROM users ORDER BY username').all();
   const aliases = q('SELECT org_id, address, targets FROM aliases ORDER BY address').all();
   const userByAddress = new Map(users.map((u) => [u.username.toLowerCase(), u]));
   const aliasMap = new Map(aliases.map((a) => [a.address.toLowerCase(), splitTargets(a.targets)]));
@@ -117,7 +117,9 @@ export function buildMailConfig() {
       const extra = [];
       if (u.disabled) extra.push('nologin=y', 'reason=Account_disabled');
       if (u.mail_quota_mb > 0) extra.push(`userdb_quota_rule=*:storage=${u.mail_quota_mb}M`);
-      return `${u.username}:${pass}::::::${extra.join(' ')}`;
+      // Someone renamed (or given a fresh folder) keeps their mail in their own folder.
+      if (u.mail_home) extra.push(`userdb_mail=maildir:${u.mail_home}/Maildir`);
+      return `${u.username}:${pass}::::${u.mail_home || ''}::${extra.join(' ')}`; // user:pass:uid:gid:gecos:home:shell:extra
     })),
     'dovecot/masters': (webmailSecret(), `webmail:${getSetting('webmail_secret_hash')}\n`),
     // Sign-in protection: Dovecot (IMAP and Postfix SMTP AUTH) asks the app before/after each sign-in.

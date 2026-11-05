@@ -27,6 +27,19 @@ export function validAddress(local, domain, orgId) {
   return address;
 }
 
+/** The folder that holds someone's mail on the mail server. */
+export const defaultMailHome = (address) => { const [local, domain] = address.split('@'); return `/var/vmail/${domain}/${local}`; };
+export const mailHomeOf = (u) => u.mail_home || defaultMailHome(u.username);
+
+/** A mail folder for a new address: the usual one, unless someone's mail is (or was) kept there. */
+export function freshMailHome(address, id) {
+  const usual = defaultMailHome(address);
+  const taken = q('SELECT 1 FROM retired_mail_homes WHERE path = ?').get(usual) || q('SELECT 1 FROM users WHERE mail_home = ?').get(usual);
+  return taken ? `${usual}.${id.slice(0, 8)}` : null;
+}
+/** Remember that a mail folder belonged to someone, so it's never given to anyone else. */
+export const retireMailHome = (u) => q('INSERT OR IGNORE INTO retired_mail_homes (path, retired_at) VALUES (?, ?)').run(mailHomeOf(u), Date.now());
+
 export function addDomain(orgId, name) {
   const d = validDomain(name);
   if (q('SELECT 1 FROM domains WHERE name = ?').get(d)) throw bad(`${d} is already in use`);

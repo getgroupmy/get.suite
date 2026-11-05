@@ -3,7 +3,9 @@ import { Router } from 'express';
 import { q, tx } from '../db.js';
 import { str, bad, notFound, forbidden } from '../util.js';
 import { requireAdmin, validatePassword, hashPassword, newUserRow } from '../auth.js';
-import { validAddress, canReach, blobsOwnedBy, removeBlobs } from '../tenancy.js';
+import { validAddress, canReach, blobsOwnedBy, removeBlobs, mailHomeOf, retireMailHome } from '../tenancy.js';
+import { uid } from '../util.js';
+import { forgetConnection } from '../mail/imap.js';
 import { setMailPassword, scheduleMailConfig } from '../mail/config.js';
 
 /** Which company an admin request acts on: their own, or any (platform owner, via ?org_id=). */
@@ -18,9 +20,32 @@ function targetOrg(req) {
 }
 
 function loadManagedUser(req) {
-  const u = q('SELECT id, org_id, is_super FROM users WHERE id = ?').get(req.params.id);
+  const u = q('SELECT id, org_id, is_super, username, mail_home FROM users WHERE id = ?').get(req.params.id);
   if (!u || (u.org_id !== req.user.org_id && !req.user.is_super)) throw notFound();
   return u;
+}
+
+/**
+ * Give someone a new address. Their mailbox, files, calendar and chats stay theirs (all linked by
+ * account, not address); aliases, catch-alls and signatures follow the new address. The old address
+ * can stay as an alias, so mail sent to it still arrives (and they can still send as it).
+ */
+function renameAddress(u, address, keepOld) {
+  const old = u.username;
+  tx(() => {
+    q('UPDATE users SET username = ?, email = ?, mail_home = ? WHERE id = ?').run(address, address, mailHomeOf(u), u.id);
+    for (const a of q('SELECT id, targets FROM aliases WHERE org_id = ?').all(u.org_id)) {
+      const targets = a.targets.split(',').map((t) => t.trim());
+      if (targets.some((t) => t.toLowerCase() === old)) {
+        q('UPDATE aliases SET targets = ? WHERE id = ?').run([...new Set(targets.map((t) => (t.toLowerCase() === old ? address : t)))].join(', '), a.id);
+      }
+    }
+    q('UPDATE domains SET catchall = ? WHERE catchall = ?').run(address, old);
+    q('UPDATE identity_signatures SET address = ? WHERE user_id = ? AND address = ?').run(address, u.id, old);
+    if (keepOld) q('INSERT INTO aliases (id, org_id, address, targets, created_at) VALUES (?, ?, ?, ?, ?)').run(uid(), u.org_id, old, address, Date.now());
+  });
+  forgetConnection(u.id); // webmail reconnects under the new address
+  u.username = address;
 }
 
 export default function userRoutes() {
@@ -64,6 +89,12 @@ export default function userRoutes() {
     const self = u.id === req.user.id;
     const { name, is_admin, disabled, password, mail_quota_mb, reset_two_factor } = req.body;
     if (u.is_super && !req.user.is_super) throw forbidden('Only the platform owner can change this account');
+    // A new address (another name, or another of the company's domains). Mail stays where it is.
+    if (req.body.local !== undefined || req.body.domain !== undefined) {
+      const [oldLocal, oldDomain] = u.username.split('@');
+      const local = String(req.body.local ?? oldLocal).trim().toLowerCase(), domain = String(req.body.domain ?? oldDomain).trim().toLowerCase();
+      if (`${local}@${domain}` !== u.username) renameAddress(u, validAddress(local, domain, u.org_id), req.body.keep_old_address !== false);
+    }
     if (name !== undefined) q('UPDATE users SET name = ? WHERE id = ?').run(str(name, { required: true, name: 'Name', max: 100 }), u.id);
     if (is_admin !== undefined) {
       if (self && !is_admin) throw bad('You cannot remove your own admin rights');
@@ -106,6 +137,8 @@ export default function userRoutes() {
     const blobs = tx(() => {
       const list = blobsOwnedBy('?', u.id);
       q('UPDATE domains SET catchall = NULL WHERE catchall = (SELECT username FROM users WHERE id = ?)').run(u.id);
+      // Their mail stays on the mail server; whoever gets this address next starts with an empty mailbox.
+      retireMailHome(q('SELECT username, mail_home FROM users WHERE id = ?').get(u.id));
       q('DELETE FROM users WHERE id = ?').run(u.id);
       return list;
     });

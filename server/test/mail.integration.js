@@ -860,3 +860,43 @@ test('answers from the guest\'s own mail app (Outlook Accept, Gmail Yes) are rea
   assert.equal(await rsvp.checkReplies(), 0, 'each reply is read once');
   assert.ok((await inbox(planner)).some((m) => m.subject === 'Declined: Review'), 'the email stays in the inbox');
 });
+
+test('renaming an address keeps the mailbox; mail to old and new address arrives; a reused address starts empty', async () => {
+  const kim = client();
+  const id = (await olivia('POST', '/api/users', { local: 'kim', domain: 'acme.com', name: 'Kim Park', password: 'password123' })).body.id;
+  await eventually(async () => (await kim('POST', '/api/auth/login', { username: 'kim@acme.com', password: 'password123' })).status === 200);
+  await eventually(async () => (await olivia('POST', '/api/mail/send', { to: 'kim@acme.com', subject: 'Before the rename', text: 'x' })).status === 200, 60000);
+  await eventually(async () => (await inbox(kim)).some((m) => m.subject === 'Before the rename'), 60000);
+
+  assert.equal((await olivia('PATCH', `/api/users/${id}`, { local: 'kim.park' })).status, 200);
+  // The mail server picks up the new name within a few seconds.
+  await eventually(async () => (await olivia('POST', '/api/mail/send', { to: 'kim.park@acme.com', subject: 'To the new address', text: 'x' })).status === 200, 60000);
+  await olivia('POST', '/api/mail/send', { to: 'kim@acme.com', subject: 'To the old address', text: 'x' });
+  const subjects = await eventually(async () => {
+    const s = (await inbox(kim)).map((m) => m.subject);
+    return ['Before the rename', 'To the new address', 'To the old address'].every((x) => s.includes(x)) ? s : null;
+  }, 60000);
+  assert.ok(subjects.includes('Before the rename'), 'old mail is still there');
+  const imap = await eventually(() => imapLogin('kim.park@acme.com', 'password123'), 30000);
+  const status = await imap.status('INBOX', { messages: true });
+  assert.ok(status.messages >= 3);
+  await imap.logout();
+  // Kim can still send as the old address (it's an alias of theirs now).
+  assert.equal((await kim('POST', '/api/mail/send', { from: 'kim@acme.com', to: 'olivia@acme.com', subject: 'From my old address', text: 'x' })).status, 200);
+
+  // Free the old address and give it to someone new: they must not see Kim's mail.
+  const alias = (await olivia('GET', '/api/mail-admin/aliases')).body.find((a) => a.address === 'kim@acme.com');
+  assert.equal((await olivia('DELETE', `/api/mail-admin/aliases/${alias.id}`)).status, 200);
+  const kim2 = client();
+  assert.equal((await olivia('POST', '/api/users', { local: 'kim', domain: 'acme.com', name: 'Kim Two', password: 'password123' })).status, 201);
+  await eventually(async () => (await kim2('POST', '/api/auth/login', { username: 'kim@acme.com', password: 'password123' })).status === 200);
+  // Wait until the mail server's tables say kim@ is a mailbox again (no longer the alias).
+  const table = (f) => { try { return fs.readFileSync(`/run/nw/${f}`, 'utf8'); } catch { return ''; } };
+  await eventually(() => /^kim@acme\.com OK$/m.test(table('postfix/mailboxes')) && !/^kim@acme\.com /m.test(table('postfix/aliases'))
+    && /^kim@acme\.com:.*:\/var\/vmail\/acme\.com\/kim\.[0-9a-f]{8}:/m.test(table('dovecot/passwd')), 30000);
+  await sleep(4000); // the mail container rebuilds its lookup tables every 2 seconds
+  await eventually(async () => (await olivia('POST', '/api/mail/send', { to: 'kim@acme.com', subject: 'Welcome, new Kim', text: 'x' })).status === 200, 60000);
+  const mine = await eventually(async () => { const s = (await inbox(kim2)).map((m) => m.subject); return s.includes('Welcome, new Kim') ? s : null; }, 60000);
+  assert.deepEqual(mine, ['Welcome, new Kim'], 'an empty mailbox of their own');
+  assert.ok(!(await inbox(kim)).some((m) => m.subject === 'Welcome, new Kim'), 'not delivered to Kim Park');
+});

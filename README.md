@@ -23,6 +23,8 @@ A self-hosted, Google Workspace-style office suite built to run on a Synology DS
 
 - **Sign-in:** everyone signs in with their email address, e.g. `anna@company.com`. The domain must belong to their company, and the same address will become their mailbox in the mail phase.
 - **Isolation:** companies can't see each other's directory, channels, users or files.
+- **Changing someone's address:** Admin → Users → ⋮ → **Change email address**, to another name or another of the company's domains (for example after a marriage or a rebrand). Their mailbox, files, calendar and chats stay as they are. Aliases they're in follow the new address, and the old address can stay as an alias, so mail sent to it still arrives and they can still send as it. They sign in with the new address from then on, also in mail apps (update the account there).
+- **Reused addresses start empty:** when someone is deleted or renamed, their mailbox stays on the server under its old folder, and a new person who later gets that address gets a fresh, empty mailbox. (This applies to deletions from this version on.)
 - **Working across companies:** a user can share a file or folder, or start a direct message, with someone at another company by typing their **exact email address**. This works only while **both** companies allow external collaboration. If either admin switches it off, outside access ends immediately; switching it back on restores it. Shares show an "External · Company" badge.
 - **Quotas:** set per company by the platform owner (0 = unlimited).
 
@@ -399,4 +401,4 @@ cd server && MAIL_IT_CONFIG_DIR=/etc/nw npm run test:mail
 
 - **Real-time co-editing:** live cursors and character-level merging (Yjs) in Docs and Sheets.
 - **Phone sync:** CalDAV and CardDAV, so calendars and contacts sync with the phone's built-in apps; WebDAV for Drive.
-- **Renaming a user's address** (moving them to another domain of the same company), and Slides.
+- **Slides.**

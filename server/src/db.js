@@ -169,6 +169,11 @@ db.exec(`CREATE TABLE IF NOT EXISTS share_links (
   last_opened INTEGER
 )`);
 db.exec('CREATE INDEX IF NOT EXISTS share_links_file ON share_links(file_id)');
+// Where each mailbox lives on the mail server. Null: the usual /var/vmail/<domain>/<name>. A renamed
+// person keeps their mailbox where it was; a mailbox left by someone deleted or renamed is never
+// handed to a new person who later gets that address.
+if (!hasColumn('users', 'mail_home')) db.exec('ALTER TABLE users ADD COLUMN mail_home TEXT');
+db.exec('CREATE TABLE IF NOT EXISTS retired_mail_homes (path TEXT PRIMARY KEY, retired_at INTEGER NOT NULL)');
 // Earlier versions of files: replaced uploads, and Docs/Sheets as they were before each editing session.
 db.exec(`CREATE TABLE IF NOT EXISTS file_versions (
   id TEXT PRIMARY KEY,

@@ -71,6 +71,7 @@ function Users({ orgId, setOrgId }) {
               {!(u.is_super && !me.is_super) && (
                 <Menu trigger={(p) => <button className="icon-btn" aria-label={`Actions for ${u.name}`} {...p}><Icon name="more" /></button>} items={[
                   { label: 'Reset password', icon: 'edit', onClick: () => setDialog({ type: 'password', user: u }) },
+                  { label: 'Change email address', icon: 'mail', onClick: () => setDialog({ type: 'address', user: u }) },
                   { label: 'Mailbox size', icon: 'mail', onClick: () => setDialog({ type: 'quota', user: u }) },
                   u.two_factor && u.id !== me.id && { label: 'Reset two-step verification', icon: 'shield', onClick: () => setDialog({ type: 'reset2fa', user: u }) },
                   u.id !== me.id && !u.is_super && { label: u.is_admin ? 'Remove admin' : 'Make admin', icon: 'shield', onClick: act(() => patch(`/users/${u.id}`, { is_admin: !u.is_admin }), 'Role updated') },
@@ -86,6 +87,7 @@ function Users({ orgId, setOrgId }) {
     </table>
     {dialog?.type === 'new' && <NewUser orgId={orgId} domains={domains} onClose={() => setDialog(null)} onSaved={(addr) => { setDialog(null); toast(`${addr} created`); load(); }} />}
     {dialog?.type === 'password' && <ResetPassword user={dialog.user} onClose={() => setDialog(null)} />}
+    {dialog?.type === 'address' && <ChangeAddress user={dialog.user} domains={domains} onClose={() => setDialog(null)} onSaved={(addr) => { setDialog(null); toast(`Address changed to ${addr}`); load(); }} />}
     {dialog?.type === 'quota' && <MailboxSize user={dialog.user} onClose={() => setDialog(null)} onSaved={() => { setDialog(null); toast('Mailbox size updated'); load(); }} />}
     {dialog?.type === 'reset2fa' && (
       <ConfirmModal title={`Reset two-step verification for ${dialog.user.name}?`} confirm="Reset" danger={false}
@@ -122,6 +124,35 @@ function NewUser({ orgId, domains, onClose, onSaved }) {
         <label className="check"><input type="checkbox" checked={f.is_admin} onChange={set('is_admin')} /> Company administrator</label>
         {error && <p className="error">{error}</p>}
         <div className="row end"><button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn primary">Create user</button></div>
+      </form>
+    </Modal>
+  );
+}
+
+/** A new address for someone: their mailbox, files and everything else stay theirs. */
+function ChangeAddress({ user, domains, onClose, onSaved }) {
+  const [local0, domain0] = user.username.split('@');
+  const [f, setF] = useState({ local: local0, domain: domain0, keep_old_address: true });
+  const [error, setError] = useState('');
+  const next = `${f.local.trim().toLowerCase()}@${f.domain}`;
+  return (
+    <Modal title={`Change ${user.name}'s email address`} onClose={onClose}>
+      <form className="stack" onSubmit={async (e) => {
+        e.preventDefault();
+        try { await patch(`/users/${user.id}`, f); onSaved(next); } catch (err) { setError(err.message); }
+      }}>
+        <p className="muted small">Now: {user.username}</p>
+        <label className="field"><span>New email address</span>
+          <span className="address-input">
+            <input autoFocus required autoCapitalize="none" spellCheck={false} value={f.local} onChange={(e) => setF({ ...f, local: e.target.value })} aria-label="New address before @" />
+            <span className="muted">@</span>
+            <select value={f.domain} onChange={(e) => setF({ ...f, domain: e.target.value })} aria-label="New domain">{domains.map((d) => <option key={d}>{d}</option>)}</select>
+          </span>
+        </label>
+        <label className="check"><input type="checkbox" checked={f.keep_old_address} onChange={(e) => setF({ ...f, keep_old_address: e.target.checked })} /> Keep {user.username} as an alias, so mail sent to it still arrives</label>
+        <p className="muted small">Their mailbox, files, calendar and chats stay as they are. From now on they sign in with the new address, also on phones and in Outlook (update the account there). Aliases they're in now point to the new address.</p>
+        {error && <p className="error" role="alert">{error}</p>}
+        <div className="row end"><button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn primary" disabled={next === user.username}>Change address</button></div>
       </form>
     </Modal>
   );

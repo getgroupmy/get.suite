@@ -597,3 +597,40 @@ test('version history: new uploads, editing sessions, restore, delete, quota', a
   await me('POST', `/api/files/${up.id}/versions`, 'x'.repeat(1000), { raw: true });
   assert.equal(orgStorageUsed(org) - before, 1000, 'the new bytes plus the kept old ones (already counted)');
 });
+
+test('renaming an address: account and data stay, the old address can stay as an alias, mail folders are never reused', async () => {
+  const sam = client();
+  const id = (await owner('POST', '/api/users', { local: 'sam', domain: 'acme.com', name: 'Sam Lee', password: 'password123' })).body.id;
+  await login(sam, 'sam@acme.com');
+  const f = (await sam('POST', '/api/files/folder', { name: 'Sam stuff' })).body;
+  const { q } = await import('../src/db.js');
+  q("INSERT INTO aliases (id, org_id, address, targets, created_at) VALUES ('al1', (SELECT org_id FROM users WHERE id = ?), 'team@acme.com', 'sam@acme.com, owner@acme.com', 0)").run(id);
+
+  assert.equal((await owner('PATCH', `/api/users/${id}`, { local: 'Sam.Lee' })).status, 200);
+  const u = { ...q('SELECT username, mail_home FROM users WHERE id = ?').get(id) };
+  assert.deepEqual(u, { username: 'sam.lee@acme.com', mail_home: '/var/vmail/acme.com/sam' }, 'the mailbox stays where it was');
+  assert.equal(q("SELECT targets FROM aliases WHERE address = 'team@acme.com'").get().targets, 'sam.lee@acme.com, owner@acme.com');
+  assert.equal(q("SELECT targets FROM aliases WHERE address = 'sam@acme.com'").get().targets, 'sam.lee@acme.com', 'old address kept as an alias');
+  assert.equal((await sam('GET', '/api/auth/me')).body.user.email, 'sam.lee@acme.com', 'still signed in');
+  assert.ok((await sam('GET', '/api/files')).body.some((x) => x.id === f.id), 'files stay');
+  assert.equal((await client()('POST', '/api/auth/login', { username: 'sam@acme.com', password: 'password123' })).status, 401);
+  await login(client(), 'sam.lee@acme.com');
+
+  // Taken addresses and other companies' domains are refused.
+  assert.equal((await owner('PATCH', `/api/users/${id}`, { local: 'team' })).status, 400);
+  assert.equal((await owner('PATCH', `/api/users/${id}`, { domain: 'globex.com' })).status, 400);
+
+  // Without keeping the old address, it's free again; whoever gets it gets a new, empty mailbox.
+  assert.equal((await owner('PATCH', `/api/users/${id}`, { local: 'slee', keep_old_address: false })).status, 200);
+  assert.equal(q("SELECT 1 FROM aliases WHERE address = 'sam.lee@acme.com'").get(), undefined);
+  assert.equal(q('SELECT mail_home FROM users WHERE id = ?').get(id).mail_home, '/var/vmail/acme.com/sam', 'still the original mailbox');
+  q("DELETE FROM aliases WHERE address = 'sam@acme.com'").run();
+  const newSam = (await owner('POST', '/api/users', { local: 'sam', domain: 'acme.com', name: 'Another Sam', password: 'password123' })).body.id;
+  assert.match(q('SELECT mail_home FROM users WHERE id = ?').get(newSam).mail_home, /^\/var\/vmail\/acme\.com\/sam\.[0-9a-f]{8}$/, 'a fresh folder, not Sam Lee\'s');
+  // Deleting someone retires their folder too.
+  const tmp = (await owner('POST', '/api/users', { local: 'temp', domain: 'acme.com', name: 'Temp', password: 'password123' })).body.id;
+  assert.equal(q('SELECT mail_home FROM users WHERE id = ?').get(tmp).mail_home, null, 'the usual folder');
+  await owner('DELETE', `/api/users/${tmp}`);
+  const again = (await owner('POST', '/api/users', { local: 'temp', domain: 'acme.com', name: 'Temp 2', password: 'password123' })).body.id;
+  assert.match(q('SELECT mail_home FROM users WHERE id = ?').get(again).mail_home, /^\/var\/vmail\/acme\.com\/temp\./);
+});

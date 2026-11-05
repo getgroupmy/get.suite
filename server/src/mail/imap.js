@@ -97,6 +97,14 @@ export function withFolder(user, folder, fn) {
   });
 }
 
+/** Drop someone's pooled connection (e.g. after their address changed); the next request reconnects. */
+export function forgetConnection(userId) {
+  const entry = pool.get(userId);
+  if (!entry) return;
+  pool.delete(userId);
+  try { entry.client.close(); } catch {}
+}
+
 export function closeAll() {
   for (const { client } of pool.values()) client.logout().catch(() => {});
   pool.clear();
