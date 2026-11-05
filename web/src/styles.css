@@ -699,3 +699,10 @@ button.tg-day:hover .tg-num { background: var(--hover); }
 .link-items .link-btn { text-align: left; }
 .link-items .link-btn, .link-folder .crumbs .link-btn { font-size: 15px; text-decoration: none; color: var(--text); }
 .link-folder .crumbs .link-btn { color: var(--accent-text); font-size: 20px; }
+
+/* ---- dragging calendar events ---- */
+.chip, .tg-event { user-select: none; -webkit-user-select: none; }
+.chip.dragging, .tg-event.dragging { opacity: .85; box-shadow: 0 4px 12px rgba(0, 0, 0, .25); z-index: 5; }
+.tg-event.dragging { cursor: grabbing; }
+.tg-resize { position: absolute; left: 0; right: 0; bottom: 0; height: 6px; cursor: ns-resize; }
+.tg-event.movable:hover .tg-resize::after { content: ""; position: absolute; left: 50%; bottom: 1px; width: 16px; margin-left: -8px; height: 2px; border-radius: 1px; background: currentColor; opacity: .5; }

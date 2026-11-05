@@ -111,3 +111,25 @@ test('occurrence index and rule descriptions', () => {
   assert.equal(describeRule({ freq: 'monthly', count: 5 }, s, 'en-US'), 'Monthly, 5 times');
   assert.equal(describeRule({ freq: 'yearly', until: d(2030, 1, 1).getTime() }, s, 'en-US'), 'Yearly, until Jan 1, 2030');
 });
+
+import { moveTimes, resizeEnd, shiftWeekdays, snapMinutes } from './calmath.js';
+
+test('dragging: moving keeps the length, resizing keeps a minimum, weekly days follow the move', () => {
+  const e = ev('m', d(2026, 11, 5, 9), d(2026, 11, 5, 10, 30));
+  const at = ({ start, end }) => [new Date(start).getDate(), new Date(start).getHours(), new Date(start).getMinutes(), new Date(end).getDate(), new Date(end).getHours(), new Date(end).getMinutes()];
+  assert.deepEqual(at(moveTimes(e, 1, 45)), [6, 9, 45, 6, 11, 15]);
+  assert.deepEqual(at(moveTimes(e, -2, 0)), [3, 9, 0, 3, 10, 30]);
+  assert.deepEqual(at(moveTimes(e, 0, 15 * 60)), [6, 0, 0, 6, 1, 30], 'past midnight into the next day');
+  const allDay = { start: d(2026, 3, 27).getTime(), end: d(2026, 3, 27, 23, 59).getTime(), all_day: 1 };
+  const moved = moveTimes(allDay, 3, 0);
+  assert.deepEqual([new Date(moved.start).getHours(), new Date(moved.end).getHours(), new Date(moved.end).getDate()], [0, 23, 30], 'all-day stays midnight to midnight across clock changes');
+  assert.deepEqual(at(resizeEnd(e, 30)), [5, 9, 0, 5, 11, 0]);
+  assert.deepEqual(at(resizeEnd(e, -200)), [5, 9, 0, 5, 9, 15], 'never shorter than 15 minutes');
+  assert.deepEqual(shiftWeekdays({ freq: 'weekly', byday: [1, 3, 6] }, 1).byday, [0, 2, 4]);
+  assert.deepEqual(shiftWeekdays({ freq: 'weekly', byday: [1] }, -8).byday, [0]);
+  const daily = { freq: 'daily' };
+  assert.equal(shiftWeekdays(daily, 2), daily);
+  assert.equal(snapMinutes(24, 48), 30);
+  assert.equal(snapMinutes(-7, 48), -15);
+  assert.equal(snapMinutes(5, 48), 0);
+});

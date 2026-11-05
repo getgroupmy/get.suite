@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { get, post, patch, del, onLive } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
 import { Modal, useToast } from '../../components/ui.jsx';
-import { DAY, VIEWS, startOfDay, visibleDays, shift, title, onDay, layoutDay, expandAll, occurrenceIndex, describeRule } from './calmath.js';
+import { DAY, VIEWS, startOfDay, visibleDays, shift, title, onDay, layoutDay, expandAll, occurrenceIndex, describeRule, daysBetween, moveTimes, resizeEnd, shiftWeekdays, snapMinutes } from './calmath.js';
 
 const COLORS = ['#1a73e8', '#0b8043', '#d50000', '#f4511e', '#8e24aa', '#616161'];
 const HOUR_PX = 48; // height of one hour in the week/day grid
@@ -50,6 +50,25 @@ export default function Calendar() {
   }
   const openDay = (d) => { setAnchor(startOfDay(d)); setView('day'); };
 
+  // Dragging: drop moves the event at once (repeating ones ask which occurrences first).
+  const [pendingMove, setPendingMove] = useState(null); // { ev, start, end }
+  async function commitMove(ev, start, end, which) {
+    const keyOf = (e) => e.key || e.id;
+    if (!ev.rrule) setEvents((list) => list.map((e) => (keyOf(e) === keyOf(ev) ? { ...e, start, end } : e)));
+    try {
+      const dayDelta = daysBetween(new Date(ev.start), new Date(start));
+      const rule = shiftWeekdays(ev.rrule, dayDelta);
+      await applyEdit(ev, { start, end, ...(rule !== ev.rrule && { rrule: rule }) }, which);
+      toast(start === ev.start ? `Now ends at ${fmtTime(end)}` : `Moved to ${new Date(start).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}${ev.all_day ? '' : `, ${fmtTime(start)}`}`);
+    } catch (e) { toast(e.message, 'error'); }
+    load();
+  }
+  const drag = useEventDrag((ev, start, end) => (ev.rrule ? setPendingMove({ ev, start, end }) : commitMove(ev, start, end)));
+  const moving = drag.drag || pendingMove;
+  const shown = useMemo(() => (moving
+    ? events.map((e) => ((e.key || e.id) === (moving.ev.key || moving.ev.id) ? { ...e, start: moving.start, end: moving.end, dragging: true } : e))
+    : events), [events, moving]);
+
   // Arrow keys move between periods in the week and day views (when nothing else has focus).
   useEffect(() => {
     const onKey = (e) => {
@@ -92,13 +111,14 @@ export default function Calendar() {
           <div className="month">
             {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => <div key={d} className="dow">{d}</div>)}
             {days.map((d) => {
-              const list = onDay(events, d).sort((a, b) => b.all_day - a.all_day || a.start - b.start);
+              const list = onDay(shown, d).sort((a, b) => b.all_day - a.all_day || a.start - b.start);
               return (
-                <div key={d.toISOString()} className={`day ${d.getMonth() !== anchor.getMonth() ? 'other' : ''} ${d.getTime() === today ? 'today' : ''}`}
-                  onClick={(e) => e.target === e.currentTarget && newEvent(d)}>
+                <div key={d.toISOString()} data-day={d.getTime()} className={`day ${d.getMonth() !== anchor.getMonth() ? 'other' : ''} ${d.getTime() === today ? 'today' : ''}`}
+                  onClick={drag.click((e) => e.target === e.currentTarget && newEvent(d))}>
                   <button type="button" className="daynum" aria-label={`Open ${d.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}`} onClick={() => openDay(d)}>{d.getDate()}</button>
                   {list.slice(0, 3).map((ev) => (
-                    <button key={ev.key || ev.id} className={`chip ${ev.all_day ? 'allday' : ''} ${inviteClass(ev)}`} style={{ '--c': ev.color || COLORS[0] }} onClick={() => setEditing(ev)}>
+                    <button key={ev.key || ev.id} className={`chip ${ev.all_day ? 'allday' : ''} ${inviteClass(ev)} ${ev.dragging ? 'dragging' : ''}`} style={{ '--c': ev.color || COLORS[0] }}
+                      onPointerDown={drag.dayHandler(ev, d)} onClick={drag.click(() => setEditing(ev))}>
                       {!ev.all_day && <span className="t">{fmtTime(ev.start)}</span>} {ev.title}{ev.rrule && <span className="rep" aria-label="(repeats)" title="Repeats"> ↻</span>}
                     </button>
                   ))}
@@ -108,18 +128,22 @@ export default function Calendar() {
             })}
           </div>
         ) : (
-          <TimeGrid days={days} events={events} today={today} onOpen={setEditing} onNew={newEvent} onDay={view === 'week' ? openDay : null} />
+          <TimeGrid days={days} events={shown} today={today} onOpen={setEditing} onNew={newEvent} onDay={view === 'week' ? openDay : null} drag={drag} />
         )}
       </section>
       {editing && (editing.role === 'guest'
         ? <InvitationDialog event={editing} onClose={() => setEditing(null)} onAnswered={() => { setEditing(null); load(); }} />
         : <EventDialog event={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />)}
+      {pendingMove && (
+        <ScopeDialog title="Move repeating event" confirm="Move" onClose={() => setPendingMove(null)}
+          onConfirm={async (which) => { const m = pendingMove; setPendingMove(null); await commitMove(m.ev, m.start, m.end, which); }} />
+      )}
     </div>
   );
 }
 
 /** Week / day view: an all-day row, then hours with timed events placed by their real times. */
-function TimeGrid({ days, events, today, onOpen, onNew, onDay: openDay }) {
+function TimeGrid({ days, events, today, onOpen, onNew, onDay: openDay, drag }) {
   const scroller = useRef();
   const [now, setNow] = useState(Date.now());
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 60e3); return () => clearInterval(t); }, []);
@@ -148,9 +172,10 @@ function TimeGrid({ days, events, today, onOpen, onNew, onDay: openDay }) {
       <div className="tg-allday" style={cols}>
         <div className="tg-gutter small muted">all day</div>
         {days.map((d) => (
-          <div key={d.getTime()} className="tg-allday-cell">
+          <div key={d.getTime()} className="tg-allday-cell" data-day={d.getTime()}>
             {onDay(events, d).filter((ev) => ev.all_day).map((ev) => (
-              <button key={ev.key || ev.id} className={`chip allday ${inviteClass(ev)}`} style={{ '--c': ev.color || COLORS[0] }} onClick={() => onOpen(ev)}>{ev.title}{ev.rrule && <span aria-label="(repeats)"> ↻</span>}</button>
+              <button key={ev.key || ev.id} className={`chip allday ${inviteClass(ev)} ${ev.dragging ? 'dragging' : ''}`} style={{ '--c': ev.color || COLORS[0] }}
+                onPointerDown={drag.dayHandler(ev, d)} onClick={drag.click(() => onOpen(ev))}>{ev.title}{ev.rrule && <span aria-label="(repeats)"> ↻</span>}</button>
             ))}
           </div>
         ))}
@@ -163,19 +188,20 @@ function TimeGrid({ days, events, today, onOpen, onNew, onDay: openDay }) {
             ))}
           </div>
           {days.map((d) => (
-            <div key={d.getTime()} className={`tg-col ${d.getTime() === today ? 'today' : ''}`} aria-label={dayLabel(d)} role="group"
-              onClick={(e) => {
+            <div key={d.getTime()} data-day={d.getTime()} className={`tg-col ${d.getTime() === today ? 'today' : ''}`} aria-label={dayLabel(d)} role="group"
+              onClick={drag.click((e) => {
                 if (e.target !== e.currentTarget) return;
                 const y = e.clientY - e.currentTarget.getBoundingClientRect().top;
                 onNew(d, Math.min(23 * 60 + 30, Math.floor(y / HOUR_PX * 2) * 30)); // the half hour clicked
-              }}>
+              })}>
               {layoutDay(events, d).map(({ ev, top, height, col, cols: n }) => (
-                <button key={ev.key || ev.id} className={`tg-event ${inviteClass(ev)}`} title={`${ev.title} · ${fmtTime(ev.start)} – ${fmtTime(ev.end)}${ev.rrule ? ' · repeats' : ''}`}
+                <button key={ev.key || ev.id} className={`tg-event ${inviteClass(ev)} ${ev.dragging ? 'dragging' : ''} ${ev.role !== 'guest' ? 'movable' : ''}`} title={`${ev.title} · ${fmtTime(ev.start)} – ${fmtTime(ev.end)}${ev.rrule ? ' · repeats' : ''}`}
                   style={{ '--c': ev.color || COLORS[0], top: (top / 60) * HOUR_PX, height: (height / 60) * HOUR_PX - 2, left: `calc(${(col / n) * 100}% + 2px)`, width: `calc(${100 / n}% - 4px)` }}
-                  onClick={() => onOpen(ev)}>
+                  onPointerDown={drag.timeHandler(ev, d, 'move')} onClick={drag.click(() => onOpen(ev))}>
                   <strong>{ev.title}{ev.rrule && <span aria-label="(repeats)"> ↻</span>}</strong>
                   {height >= 40 && <span>{fmtTime(ev.start)} – {fmtTime(ev.end)}</span>}
                   {height >= 60 && ev.location && <span>{ev.location}</span>}
+                  {ev.role !== 'guest' && ev.end <= d.getTime() + DAY && <span className="tg-resize" aria-hidden="true" onPointerDown={drag.timeHandler(ev, d, 'resize')} />}
                 </button>
               ))}
               {d.getTime() === today && now >= today && now < today + DAY && (
@@ -274,7 +300,6 @@ function EventDialog({ event, onClose, onSaved }) {
     setGuestInput('');
   };
   const [scopeFor, setScopeFor] = useState(null); // 'save' | 'delete': asking which occurrences
-  const [scope, setScope] = useState('this');
   const [error, setError] = useState('');
   const set = (k) => (e) => setF({ ...f, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value });
   const setR = (k) => (e) => setRep({ ...rep, [k]: e.target.value });
@@ -289,26 +314,7 @@ function EventDialog({ event, onClose, onSaved }) {
   async function save(which) {
     const { start, end, body } = read();
     if (end < start) return setError('The event ends before it starts');
-    if (!event.id) { await post('/events', body); return onSaved(); }
-    if (!recurring || which === 'all' || (which === 'following' && event.occurrence === event.seriesStart)) {
-      if (!recurring) { await patch(`/events/${event.id}`, body); return onSaved(); }
-      // The whole series moves by as much as this occurrence was moved.
-      const delta = start - event.occurrence;
-      await patch(`/events/${event.id}`, { ...body, start: event.seriesStart + delta, end: event.seriesStart + delta + (end - start) });
-      return onSaved();
-    }
-    if (which === 'this') {
-      // Skip this date in the series and put a one-off event in its place.
-      await patch(`/events/${event.id}`, { exdates: [...(event.exdates || []), event.occurrence] });
-      await post('/events', { ...body, rrule: null });
-      return onSaved();
-    }
-    // This and following: end the series the day before, and start a new one here.
-    const old = event.rrule;
-    let rule = body.rrule;
-    if (rule?.count && old.count && rule.count === old.count) rule = { ...rule, count: Math.max(1, old.count - occurrenceIndex(event, event.occurrence)) };
-    await patch(`/events/${event.id}`, { rrule: { ...Object.fromEntries(Object.entries(old).filter(([k]) => k !== 'count')), until: event.occurrence - 1 } });
-    await post('/events', { ...body, rrule: rule });
+    await applyEdit(event, body, which);
     onSaved();
   }
   async function remove(which) {
@@ -321,22 +327,8 @@ function EventDialog({ event, onClose, onSaved }) {
   const submit = (e) => { e.preventDefault(); if (recurring) setScopeFor('save'); else run(save)(); };
 
   if (scopeFor) {
-    return (
-      <Modal title={scopeFor === 'save' ? 'Change repeating event' : 'Delete repeating event'} onClose={() => setScopeFor(null)}>
-        <form className="stack" onSubmit={(e) => { e.preventDefault(); run(scopeFor === 'save' ? save : remove)(scope); }}>
-          <div className="stack" role="radiogroup" aria-label="Which events">
-            {[['this', 'This event'], ['following', 'This and following events'], ['all', 'All events']].map(([v, label]) => (
-              <label key={v} className="check"><input type="radio" name="scope" checked={scope === v} onChange={() => setScope(v)} /> {label}</label>
-            ))}
-          </div>
-          {error && <p className="error">{error}</p>}
-          <div className="row end">
-            <button type="button" className="btn" onClick={() => setScopeFor(null)}>Cancel</button>
-            <button className={`btn ${scopeFor === 'delete' ? 'danger' : 'primary'}`}>{scopeFor === 'save' ? 'Save' : 'Delete'}</button>
-          </div>
-        </form>
-      </Modal>
-    );
+    return <ScopeDialog title={scopeFor === 'save' ? 'Change repeating event' : 'Delete repeating event'} confirm={scopeFor === 'save' ? 'Save' : 'Delete'}
+      danger={scopeFor === 'delete'} onClose={() => setScopeFor(null)} onConfirm={(which) => run(scopeFor === 'save' ? save : remove)(which)} error={error} />;
   }
 
   const ruleNow = ruleFromForm(rep, read().start);
@@ -421,4 +413,114 @@ function EventDialog({ event, onClose, onSaved }) {
       </form>
     </Modal>
   );
+}
+
+/** Which occurrences of a repeating event a change applies to. */
+function ScopeDialog({ title, confirm, danger, onConfirm, onClose, error }) {
+  const [scope, setScope] = useState('this');
+  return (
+    <Modal title={title} onClose={onClose}>
+      <form className="stack" onSubmit={(e) => { e.preventDefault(); onConfirm(scope); }}>
+        <div className="stack" role="radiogroup" aria-label="Which events">
+          {[['this', 'This event'], ['following', 'This and following events'], ['all', 'All events']].map(([v, label]) => (
+            <label key={v} className="check"><input type="radio" name="scope" checked={scope === v} onChange={() => setScope(v)} /> {label}</label>
+          ))}
+        </div>
+        {error && <p className="error">{error}</p>}
+        <div className="row end">
+          <button type="button" className="btn" onClick={onClose}>Cancel</button>
+          <button className={`btn ${danger ? 'danger' : 'primary'}`}>{confirm}</button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+/**
+ * Save a change to an event. For a repeating one, `which` says what changes: 'this' (skip the date
+ * and add a one-off copy), 'following' (end the series and start a new one), or 'all' (the series
+ * moves by as much as this occurrence moved).
+ */
+async function applyEdit(event, body, which) {
+  const { start, end } = body;
+  if (!event.id) return post('/events', body);
+  if (!event.rrule) return patch(`/events/${event.id}`, body);
+  if (which === 'all' || (which === 'following' && event.occurrence === event.seriesStart)) {
+    const delta = start - event.occurrence;
+    return patch(`/events/${event.id}`, { ...body, start: event.seriesStart + delta, end: event.seriesStart + delta + (end - start) });
+  }
+  // Everything the new event copies from the series (the dialog sends all of it; a drag only the times).
+  const copy = { title: event.title, location: event.location || '', description: event.description || '', color: event.color, all_day: !!event.all_day,
+    guests: (event.guests || []).map((g) => g.email), tz: TZ, rrule: event.rrule, ...body };
+  if (which === 'this') {
+    await patch(`/events/${event.id}`, { exdates: [...(event.exdates || []), event.occurrence] });
+    return post('/events', { ...copy, rrule: null });
+  }
+  const old = event.rrule;
+  let rule = copy.rrule;
+  if (rule?.count && old.count && rule.count === old.count) rule = { ...rule, count: Math.max(1, old.count - occurrenceIndex(event, event.occurrence)) };
+  await patch(`/events/${event.id}`, { rrule: { ...Object.fromEntries(Object.entries(old).filter(([k]) => k !== 'count')), until: event.occurrence - 1 } });
+  return post('/events', { ...copy, rrule: rule });
+}
+
+/**
+ * Mouse dragging of events (touch keeps scrolling). `dayHandler` moves by whole days (month view,
+ * all-day row); `timeHandler` moves by days and 15-minute steps, or changes the end ('resize').
+ * Escape cancels. A drag never counts as a click.
+ */
+function useEventDrag(onDrop) {
+  const [drag, setDrag] = useState(null); // { ev, start, end }
+  const dragged = useRef(false);
+  const begin = (e, ev, compute) => {
+    if (e.button !== 0 || e.pointerType === 'touch') return;
+    // Someone else's event doesn't move, but the gesture still isn't a click on the grid below.
+    const locked = ev.role === 'guest';
+    e.stopPropagation();
+    const x0 = e.clientX, y0 = e.clientY;
+    let cur = null;
+    dragged.current = false;
+    const move = (m) => {
+      if (!dragged.current && Math.hypot(m.clientX - x0, m.clientY - y0) < 5) return;
+      dragged.current = true;
+      m.preventDefault();
+      const next = locked ? null : compute(m);
+      if (next) { cur = next; setDrag({ ev, ...next }); }
+    };
+    const stop = (drop) => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('keydown', esc, true);
+      setDrag(null);
+      if (drop && cur && (cur.start !== ev.start || cur.end !== ev.end)) onDrop(ev, cur.start, cur.end);
+      setTimeout(() => { dragged.current = false; }); // after the click that follows
+    };
+    const up = () => stop(true);
+    const esc = (k) => { if (k.key === 'Escape' && dragged.current) { k.preventDefault(); k.stopPropagation(); stop(false); } };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('keydown', esc, true);
+  };
+  const dayAt = (m) => Number(document.elementFromPoint(m.clientX, m.clientY)?.closest('[data-day]')?.dataset.day) || null;
+  return {
+    drag,
+    click: (fn) => (e) => { if (dragged.current) { e.preventDefault(); return; } fn(e); },
+    dayHandler: (ev, day) => (e) => begin(e, ev, (m) => {
+      const target = dayAt(m);
+      return target === null ? null : moveTimes(ev, daysBetween(day, new Date(target)), 0);
+    }),
+    timeHandler: (ev, day, mode) => (e) => {
+      const col = e.currentTarget.closest('.tg-col');
+      const top0 = col.getBoundingClientRect().top, y0 = e.clientY - top0;
+      const cols = [...col.parentElement.querySelectorAll('.tg-col')];
+      begin(e, ev, (m) => {
+        const rects = cols.map((c) => c.getBoundingClientRect());
+        const minutes = snapMinutes(m.clientY - rects[0].top - y0, HOUR_PX);
+        if (mode === 'resize') return resizeEnd(ev, minutes);
+        // The column under the pointer (or the nearest one at the edges).
+        let i = rects.findIndex((r) => m.clientX >= r.left && m.clientX < r.right);
+        if (i < 0) i = m.clientX < rects[0].left ? 0 : rects.length - 1;
+        return moveTimes(ev, daysBetween(day, new Date(Number(cols[i].dataset.day))), minutes);
+      });
+    },
+  };
 }

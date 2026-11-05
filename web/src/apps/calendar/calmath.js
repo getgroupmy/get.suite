@@ -73,7 +73,7 @@ export function layoutDay(events, dayStart, { minMinutes = 20 } = {}) {
 const MAX_STEPS = 20000; // safety cap when walking a long series
 
 /** Calendar days from a to b (local dates), ignoring the time of day and clock changes. */
-const daysBetween = (a, b) => Math.round((startOfDay(b) - startOfDay(a)) / DAY);
+export const daysBetween = (a, b) => Math.round((startOfDay(b) - startOfDay(a)) / DAY);
 
 /**
  * The occurrence starts of a repeating event that begin before `to` (all of them from the first,
@@ -161,3 +161,31 @@ export function describeRule(r, start, locale) {
   if (r.until !== undefined) text += `, until ${new Date(r.until).toLocaleDateString(locale, { day: 'numeric', month: 'short', year: 'numeric' })}`;
   return text;
 }
+
+// ---- dragging events ----
+/** An event moved by whole calendar days and minutes, keeping its length (wall-clock, DST-safe for whole days). */
+export function moveTimes(ev, dayDelta, minDelta) {
+  const s = new Date(ev.start), e = new Date(ev.end);
+  const start = new Date(s.getFullYear(), s.getMonth(), s.getDate() + dayDelta, s.getHours(), s.getMinutes() + minDelta, s.getSeconds(), s.getMilliseconds()).getTime();
+  // Whole-day moves keep the end's time of day; time moves keep the length.
+  const end = minDelta === 0
+    ? new Date(e.getFullYear(), e.getMonth(), e.getDate() + dayDelta, e.getHours(), e.getMinutes(), e.getSeconds(), e.getMilliseconds()).getTime()
+    : start + (ev.end - ev.start);
+  return { start, end };
+}
+
+/** A new end time, at least `minMinutes` after the start. */
+export function resizeEnd(ev, minDelta, minMinutes = 15) {
+  const e = new Date(ev.end);
+  const end = new Date(e.getFullYear(), e.getMonth(), e.getDate(), e.getHours(), e.getMinutes() + minDelta, e.getSeconds(), e.getMilliseconds()).getTime();
+  return { start: ev.start, end: Math.max(end, ev.start + minMinutes * 6e4) };
+}
+
+/** A weekly rule's weekdays after the series moves by `dayDelta` days (Mon/Wed moved a day later: Tue/Thu). */
+export function shiftWeekdays(rule, dayDelta) {
+  if (!rule || rule.freq !== 'weekly' || !rule.byday?.length || dayDelta % 7 === 0) return rule;
+  return { ...rule, byday: [...new Set(rule.byday.map((d) => (((d + dayDelta) % 7) + 7) % 7))].sort() };
+}
+
+/** Minutes for a vertical drag of `px` pixels, snapped to `step` minutes. */
+export const snapMinutes = (px, hourPx, step = 15) => Math.round((px / hourPx) * 60 / step) * step;
