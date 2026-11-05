@@ -93,3 +93,18 @@ export function emailHtml(bodyHtml) {
 }
 
 export const isEmptyDoc = (doc) => !docToText(doc).trim();
+
+/** "example.com" -> https://example.com/, "x@y.com" -> mailto:...; anything else (javascript:, ftp:, ...) -> null. */
+export function linkHref(kind, value) {
+  const v = String(value || '').trim();
+  if (!v) return null;
+  if (kind === 'email') {
+    const a = v.replace(/^mailto:/i, '');
+    return /^[^\s@<>"]+@[^\s@<>"]+\.[^\s@<>"]+$/.test(a) ? `mailto:${a}` : null;
+  }
+  if (/^[a-z][a-z0-9+.-]*:/i.test(v) && !/^https?:\/\//i.test(v)) return null; // only web addresses
+  try {
+    const u = new URL(/^https?:\/\//i.test(v) ? v : `https://${v}`);
+    return /^https?:$/.test(u.protocol) && u.hostname.includes('.') ? u.href : null;
+  } catch { return null; }
+}

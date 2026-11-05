@@ -127,6 +127,11 @@ Your business fixed IP is what makes this work. Do these once:
   - **⋮ More formatting**, which holds Strikethrough, Quote, Decrease / Increase indent and Clear formatting.
   - The menus work from the keyboard: Enter or ↓ opens, the arrow keys move, Enter picks, and Escape closes the menu (not the message). Choices that can be on or off show as checked.
   - Picture and table tools appear only while a picture or table is selected.
+- **Links:** 🔗 or **Ctrl+K** opens the link dialog: the text to show, and a web address or an email address.
+  - "example.com" becomes `https://example.com`, and an email address becomes a link that starts a message.
+  - Other kinds of address (such as `javascript:`) are refused.
+  - **Test this link** opens the address in a new tab.
+  - With the cursor in a link, the same button edits it, or **Remove link** takes the link off and keeps the text.
 - **Indent:** **Increase / Decrease indent** in the ⋮ menu (or Ctrl+] / Ctrl+[) move the paragraph in 40 px steps, up to 8. In a list they nest or un-nest the item instead. Tab is left free for moving out of the message with the keyboard. The plain-text version indents with spaces.
 - **Font:** the menu next to the size menu sets the font for the selected text, or for what you type next: Georgia, Times New Roman, Garamond, Courier New, Verdana, Tahoma, Trebuchet MS, Calibri or Comic Sans MS. **Sans Serif** is the normal font.
   - Each font is sent with fallbacks, for example Calibri, then Arial, so recipients without that font still see something close.
@@ -304,7 +309,7 @@ cd server && MAIL_IT_CONFIG_DIR=/etc/nw npm run test:mail
 
 ## Roadmap
 
-- **Mail, next steps:** a link dialog (edit and remove links, open them to check) instead of the browser's address prompt.
+- **Mail, next steps:** emoji picker in the toolbar.
 - **Real-time co-editing:** live cursors and character-level merging (Yjs) in Docs and Sheets.
 - **Phone sync:** CalDAV and CardDAV, so calendars and contacts sync with the phone's built-in apps; WebDAV for Drive.
 - **Renaming a user's address** (moving them to another domain of the same company), **two-factor authentication**, file version history, public share links, Slides, cell formatting in Sheets, and week and day calendar views.

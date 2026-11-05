@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { docToText, textToHtml, emailHtml } from './richtext.js';
+import { docToText, textToHtml, emailHtml, linkHref } from './richtext.js';
 
 const t = (text, marks) => ({ type: 'text', text, ...(marks && { marks }) });
 const p = (...content) => ({ type: 'paragraph', content });
@@ -76,4 +76,15 @@ test('indented paragraphs are indented with spaces in the plain-text part', () =
     { type: 'paragraph', attrs: { indent: 2 }, content: [t('detail')] },
   ] };
   assert.equal(docToText(doc), 'Steps:\n    first\n    more\n        detail');
+});
+
+test('link addresses: web addresses get https, email gets mailto, anything else is refused', () => {
+  assert.equal(linkHref('web', 'example.com'), 'https://example.com/');
+  assert.equal(linkHref('web', ' https://example.com/a?b=1 '), 'https://example.com/a?b=1');
+  assert.equal(linkHref('web', 'http://intranet.acme.com'), 'http://intranet.acme.com/');
+  assert.equal(linkHref('email', 'sales@acme.com'), 'mailto:sales@acme.com');
+  assert.equal(linkHref('email', 'mailto:sales@acme.com'), 'mailto:sales@acme.com');
+  for (const [k, v] of [['web', 'javascript:alert(1)'], ['web', 'ftp://x.com'], ['web', 'data:text/html,x'], ['web', 'not a url'], ['web', 'localhost'], ['web', ''], ['email', 'nobody'], ['email', 'a@b']]) {
+    assert.equal(linkHref(k, v), null, `${k} ${v}`);
+  }
 });

@@ -15,7 +15,7 @@ import { TextStyle, Color, BackgroundColor, FontSize, FontFamily } from '@tiptap
 import { useMailStatus } from '../../mailStatus.js';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
-import { textToHtml, docToText, emailHtml, isEmptyDoc } from './richtext.js';
+import { textToHtml, docToText, emailHtml, isEmptyDoc, linkHref } from './richtext.js';
 import { FiltersDialog } from './Filters.jsx';
 import { ASPECTS, FULL, fitAspect, moveRect, resizeRect, toPixels, rotatedSize, outputType, editedName } from './cropmath.js';
 
@@ -444,6 +444,9 @@ function Compose({ initial, signatures = [], onClose, onSent, onDraftsChanged })
 
   async function send(e) {
     e.preventDefault();
+    // Only this form's own submit sends. Dialogs opened from the message (e.g. the link dialog) are
+    // rendered elsewhere in the page, but React still passes their events up to here.
+    if (e.target !== e.currentTarget) return;
     setBusy(true);
     closed.current = true;          // no more autosaves
     clearTimeout(timer.current);
@@ -561,6 +564,7 @@ function VacationDialog({ onClose, onSaved }) {
     <Modal title="Vacation reply" onClose={onClose}>
       <form className="stack" onSubmit={async (e) => {
         e.preventDefault();
+        if (e.target !== e.currentTarget) return; // a dialog opened from inside (see Compose's send)
         try { const r = await put('/mail/vacation', v); toast(r.enabled ? 'Vacation reply saved' : 'Vacation reply off'); onSaved(r); }
         catch (err) { setError(err.message); }
       }}>
@@ -588,6 +592,8 @@ function RichBody({ initialHtml, onChange, onReady, autoFocus, label = 'Message'
   const [uploading, setUploading] = useState(0);
   const edRef = useRef(null);
   const [editing, setEditing] = useState(null); // { pos, src, alt } of the picture open in the editor
+  const [linking, setLinking] = useState(null); // { from, to, text, href } for the link dialog
+  const linkOpen = useRef(() => {});
 
   // Pictures are uploaded to Drive, shown from there while writing, and embedded in the email when sent.
   async function insertImages(files, pos) {
@@ -628,6 +634,10 @@ function RichBody({ initialHtml, onChange, onReady, autoFocus, label = 'Message'
     content: initialHtml,
     editorProps: {
       attributes: { class: 'tiptap', 'aria-label': label, role: 'textbox', 'aria-multiline': 'true' },
+      handleKeyDown: (view, event) => {
+        if ((event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey && event.key.toLowerCase() === 'k') { event.preventDefault(); linkOpen.current(); return true; }
+        return false;
+      },
       handlePaste: (view, event) => {
         const files = event.clipboardData?.files;
         if (files?.length && [...files].some((f) => f.type.startsWith('image/'))) { event.preventDefault(); insertImages(files); return true; }
@@ -685,6 +695,29 @@ function RichBody({ initialHtml, onChange, onReady, autoFocus, label = 'Message'
   }
   if (!editor) return null;
   const c = () => editor.chain().focus();
+  // Link dialog: for the link the cursor is in (whole link), or for the selected text.
+  linkOpen.current = () => {
+    if (editor.isActive('link')) editor.chain().extendMarkRange('link').run();
+    const { from, to } = editor.state.selection;
+    setLinking({ from, to, text: editor.state.doc.textBetween(from, to, ' '), href: editor.getAttributes('link').href || '' });
+  };
+  const applyLink = ({ text, href }) => {
+    const { from, to, text: old } = linking;
+    setLinking(null);
+    const ch = editor.chain().focus().setTextSelection({ from, to });
+    if (text && text !== old) {
+      // New or changed text: put it in with the link (keeping the formatting where the text starts).
+      const marks = editor.state.doc.resolve(from).marks().filter((m) => m.type.name !== 'link').map((m) => m.toJSON());
+      ch.insertContentAt({ from, to }, { type: 'text', text, marks: [...marks, { type: 'link', attrs: { href } }] }).run();
+    } else {
+      ch.extendMarkRange('link').setLink({ href }).run();
+    }
+  };
+  const removeLink = () => {
+    const { from, to } = linking;
+    setLinking(null);
+    editor.chain().focus().setTextSelection({ from, to }).extendMarkRange('link').unsetLink().run();
+  };
   // Popups give focus back to the message straight away when something is picked (the editor's own
   // focus() waits for the next frame, and a key pressed in between would be lost).
   const refocus = () => { try { editor.view.focus(); } catch { /* not mounted */ } };
@@ -735,11 +768,7 @@ function RichBody({ initialHtml, onChange, onReady, autoFocus, label = 'Message'
         <B label="•" title="Bulleted list" active={editor.isActive('bulletList')} onClick={() => c().toggleBulletList().run()} />
         <B label="1." title="Numbered list" active={editor.isActive('orderedList')} onClick={() => c().toggleOrderedList().run()} />
         <span className="sep" />
-        <B label="🔗" title="Link" active={editor.isActive('link')} onClick={() => {
-          if (editor.isActive('link')) return c().unsetLink().run();
-          const url = window.prompt('Link address (https://…)');
-          if (url && /^(https?:\/\/|mailto:)/i.test(url.trim())) c().extendMarkRange('link').setLink({ href: url.trim() }).run();
-        }} />
+        <B label="🔗" title={editor.isActive('link') ? 'Edit link (Ctrl+K)' : 'Insert link (Ctrl+K)'} active={editor.isActive('link')} onClick={() => linkOpen.current()} />
         <B label="🖼" title="Insert picture" onClick={() => fileInput.current.click()} />
         <TablePicker refocus={refocus} disabled={editor.isActive('table')} onPick={(rows, cols, withHeaderRow) => c().insertTable({ rows, cols, withHeaderRow }).run()} />
         <MenuButton refocus={refocus} end label="More formatting" icon={<span aria-hidden="true">⋮</span>} items={[
@@ -777,6 +806,8 @@ function RichBody({ initialHtml, onChange, onReady, autoFocus, label = 'Message'
       </div>
       <EditorContent editor={editor} />
       {/* Outside the Compose form, so the editor's buttons never submit (send) the message. */}
+      {linking && createPortal(<LinkDialog initial={linking} onApply={applyLink} onRemove={linking.href ? removeLink : null}
+        onClose={() => { setLinking(null); editor.commands.focus(); }} />, document.body)}
       {editing && createPortal(<ImageEditor src={editing.src} alt={editing.alt} onClose={() => { setEditing(null); editor.commands.focus(); }} onDone={applyEdit} />, document.body)}
     </div>
   );
@@ -1138,6 +1169,41 @@ function TablePicker({ onPick, disabled, refocus }) {
   );
 }
 
+/** Insert or change a link: the text shown, and a web or email address. */
+function LinkDialog({ initial, onApply, onRemove, onClose }) {
+  const startEmail = /^mailto:/i.test(initial.href);
+  const [text, setText] = useState(initial.text);
+  const [kind, setKind] = useState(startEmail ? 'email' : 'web');
+  const [address, setAddress] = useState(startEmail ? initial.href.replace(/^mailto:/i, '') : initial.href);
+  const href = linkHref(kind, address);
+  const bad = address.trim() && !href;
+  // stopPropagation: this dialog is opened from inside the message form, which must not see the submit.
+  const submit = (e) => { e.preventDefault(); e.stopPropagation(); if (href) onApply({ text: text.trim() ? text : (initial.text || address.trim()), href }); };
+  return (
+    <Modal title={initial.href ? 'Edit link' : 'Insert link'} onClose={onClose} footer={<>
+      {onRemove && <button type="button" className="btn danger" style={{ marginRight: 'auto' }} onClick={onRemove}>Remove link</button>}
+      <button type="button" className="btn" onClick={onClose}>Cancel</button>
+      <button type="submit" form="link-form" className="btn primary" disabled={!href}>{initial.href ? 'Save' : 'Insert'}</button>
+    </>}>
+      <form id="link-form" className="stack" onSubmit={submit}>
+        <label className="field"><span>Text to display</span>
+          <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Leave empty to show the address" autoFocus={!initial.text} /></label>
+        <div className="row" role="radiogroup" aria-label="Link to">
+          <label className="check"><input type="radio" name="link-kind" checked={kind === 'web'} onChange={() => setKind('web')} /> Web address</label>
+          <label className="check"><input type="radio" name="link-kind" checked={kind === 'email'} onChange={() => setKind('email')} /> Email address</label>
+        </div>
+        <label className="field"><span>{kind === 'web' ? 'Web address' : 'Email address'}</span>
+          <input value={address} onChange={(e) => setAddress(e.target.value)} autoFocus={!!initial.text} inputMode={kind === 'email' ? 'email' : 'url'}
+            placeholder={kind === 'web' ? 'example.com/page' : 'name@company.com'} aria-invalid={bad || undefined} aria-describedby="link-help" spellCheck={false} /></label>
+        <p id="link-help" className={`small ${bad ? 'error' : 'muted'}`} aria-live="polite">
+          {bad ? (kind === 'web' ? 'Enter a web address, like example.com or https://example.com/page.' : 'Enter an email address, like name@company.com.')
+            : href && kind === 'web' ? <a href={href} target="_blank" rel="noopener noreferrer">Test this link</a> : '\u00a0'}
+        </p>
+      </form>
+    </Modal>
+  );
+}
+
 const editablePicture = (src) => /^\/api\/files\/[^/]+\/raw$|^\/api\/mail\/messages\/\d+\/pictures\/\d+\?folder=[^&]+$/.test(src || '');
 const HANDLES = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
 const ASPECT_NAMES = { free: 'Free', square: 'Square', '4:3': '4:3', '16:9': '16:9' };
@@ -1305,6 +1371,7 @@ function SignatureDialog({ signatures, onClose, onSaved }) {
     <Modal wide title="Signatures" onClose={onClose}>
       <form className="stack" onSubmit={async (e) => {
         e.preventDefault();
+        if (e.target !== e.currentTarget) return; // a dialog opened from inside (see Compose's send)
         try {
           const r = await put(`/mail/signatures/${encodeURIComponent(address)}`, { html, on_new: onNew, on_reply: onReply });
           toast(`Signature for ${address} saved`);
