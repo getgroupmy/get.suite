@@ -85,6 +85,7 @@ test('events: a phone creates, lists, reads, changes and deletes; the web calend
   assert.match(mg.text, /SUMMARY:Supplier call/);
   assert.match(mg.text, /UID:7F2A-IPHONE-1/, 'the phone\'s UID is kept');
   assert.match(mg.text, /gone\.ics<\/d:href><d:status>HTTP\/1.1 404/);
+  await new Promise((r) => setTimeout(r, 1100)); // a second later the file (and ETag) must be the same
   const get = await dav('GET', `${cal}7F2A-IPHONE-1.ics`);
   assert.equal(get.headers.get('etag'), etag);
   assert.match(get.text, /^BEGIN:VCALENDAR/);

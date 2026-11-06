@@ -86,7 +86,10 @@ const contactsOf = (userId) => q('SELECT * FROM contacts WHERE owner_id = ? ORDE
 const eventName = (e) => e.dav_name || `${e.id}.ics`;
 const contactName = (c) => c.dav_name || `${c.id}.vcf`;
 const outEvent = (e) => ({ ...e, rrule: e.rrule ? JSON.parse(e.rrule) : null, exdates: JSON.parse(e.exdates || '[]') });
-const icsOf = (e) => buildIcs(outEvent(e), { method: null, uid: e.ical_uid || `${e.id}@${host()}`, sequence: e.sequence || 0, tz: e.tz });
+// DTSTAMP is fixed so the same event always gives the same file (and ETag); a changing timestamp
+// would make every phone think the event changed elsewhere.
+const STAMP = Date.UTC(2000, 0, 1);
+const icsOf = (e) => buildIcs(outEvent(e), { method: null, uid: e.ical_uid || `${e.id}@${host()}`, sequence: e.sequence || 0, tz: e.tz, now: STAMP });
 const vcfOf = (c) => buildVcard(c);
 const ctag = (bodies) => `"${crypto.createHash('sha1').update(bodies.join('\u0000')).digest('hex').slice(0, 24)}"`;
 const repeatUntil = (e) => (e.rrule ? (e.rrule.until !== undefined ? e.rrule.until + (e.end - e.start) : null) : null);
