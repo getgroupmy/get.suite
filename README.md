@@ -132,6 +132,16 @@ Your Workspace calendar and contacts sync with the phone's own Calendar and Cont
   - Reminders set on the phone stay on the phone.
 - **Synology reverse proxy:** nothing to add. The same HTTPS entry serves `/dav/` and the `/.well-known/caldav` and `/.well-known/carddav` addresses that apps look for.
 
+## Word, Excel and PowerPoint files
+
+- **Opening:** for a `.docx`, `.xlsx` or `.pptx` file in Drive, pick **Open as document / spreadsheet / presentation** (⋮ menu, or the button in its preview). Workspace makes an editable Docs, Sheets or Slides copy next to it, and the original stays as it is.
+- **Downloading:** **Download as Word / Excel / PowerPoint** is in each editor's ⋮ menu.
+- **What carries over:**
+  - **Word:** headings, paragraphs, bold, italic, underline, strike, links, bulleted and numbered lists, quotes and code. Tables come in as rows of text, and pictures as a "[picture]" note, since Docs doesn't have tables or pictures yet. Paragraph alignment isn't read from Word files yet.
+  - **Excel:** every sheet, values and formulas, bold, italic and underline, text and fill colour, alignment, number, currency and percent formats with their decimals, and column widths. Excel functions Sheets doesn't know show an error in Sheets, but are kept and written back as they were.
+  - **PowerPoint:** every slide, text boxes at their places (size, bold, italic, colour, alignment), rectangles, rounded rectangles and ellipses, pictures (saved in a "… pictures" folder beside the presentation), and slide backgrounds. Animations, charts and SmartArt don't carry over.
+- Files up to 50 MB can be converted.
+
 ## Drive as a network drive
 
 Drive can also appear on a computer as an ordinary drive (WebDAV), so files open and save straight from Finder, File Explorer or any app's Open and Save dialogs. The address is `https://workspace.example.com/dav/files/`. Settings shows it for each person.
@@ -465,7 +475,6 @@ cd server && MAIL_IT_CONFIG_DIR=/etc/nw npm run test:mail
 
 Everything planned so far is built. Candidates for next:
 
-- **Office files:** open Word, Excel and PowerPoint files from Drive as Docs, Sheets and Slides (and download them back in those formats).
 - **Comments** in Docs and Sheets, with @mentions that notify by chat or email.
 - **Charts** in Sheets.
 - **Outlook's own time-zone names** in calendar files from Windows (iPhone, Android and Gmail use the standard names, which already work).

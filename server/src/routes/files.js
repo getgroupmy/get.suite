@@ -9,6 +9,19 @@ import { roleFor, atLeast, audienceFor, subtreeIds } from '../access.js';
 import { sendTo } from '../hub.js';
 import { canReach, checkQuota } from '../tenancy.js';
 import { resetRoom, CO_EDITED } from '../collab.js';
+import { docFromWord, wordFromDoc } from '../office/word.js';
+import { sheetFromExcel, excelFromSheet } from '../office/excel.js';
+import { deckFromPowerPoint, powerPointFromDeck } from '../office/powerpoint.js';
+
+// Office files that open as Docs, Sheets and Slides (and download back in the same format).
+const OFFICE = {
+  docx: { kind: 'doc', mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' },
+  xlsx: { kind: 'sheet', mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' },
+  pptx: { kind: 'slides', mime: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' },
+};
+const EXPORT_AS = { doc: 'docx', sheet: 'xlsx', slides: 'pptx' };
+const MAX_CONVERT = 50 * 1024 * 1024;
+const officeType = (name) => OFFICE[(/\.([a-z]+)$/i.exec(name || '') || [])[1]?.toLowerCase()] ? (/\.([a-z]+)$/i.exec(name)[1].toLowerCase()) : null;
 
 const COLS = `f.id, f.owner_id, f.parent_id, f.name, f.kind, f.mime, f.size, f.version, f.trashed,
               f.created_at, f.updated_at, u.name AS owner_name, ub.name AS updated_by_name`;
@@ -320,6 +333,60 @@ export default function fileRoutes({ maxUploadBytes }) {
     res.setHeader('Content-Type', f.mime);
     res.setHeader('Content-Security-Policy', "default-src 'none'");
     res.sendFile(path.join(FILES_DIR, f.storage), { headers: { 'Cache-Control': 'private, max-age=3600' } });
+  });
+
+  // Open a Word, Excel or PowerPoint file as a Docs, Sheets or Slides copy, next to it if you can
+  // add files there (otherwise in your Drive). The original stays as it is.
+  r.post('/:id/open-as', async (req, res) => {
+    const f = loadFile(req.params.id, req.user);
+    const type = f.kind === 'file' && officeType(f.name);
+    if (!type) throw bad('Only Word (.docx), Excel (.xlsx) and PowerPoint (.pptx) files can be opened this way');
+    if (f.size > MAX_CONVERT) throw bad('This file is too large to convert (50 MB at most)');
+    const parentId = f.parent_id && atLeast(roleFor(f.parent_id, req.user.id), 'editor') ? f.parent_id : null;
+    const buf = fs.readFileSync(path.join(FILES_DIR, f.storage));
+    const name = f.name.replace(/\.[a-z]+$/i, '');
+    let content;
+    try {
+      if (type === 'docx') content = (await docFromWord(buf)).doc;
+      else if (type === 'xlsx') content = await sheetFromExcel(buf);
+      else {
+        let folder = null;
+        content = await deckFromPowerPoint(buf, { savePicture: async (pname, data, mime) => {
+          // The presentation's pictures go in a folder of their own beside it.
+          folder ??= insertFile({ owner: req.user.id, parentId, name: `${name} pictures`, kind: 'folder' });
+          checkQuota(req.user.org_id, data.length);
+          const storage = uid();
+          fs.writeFileSync(path.join(FILES_DIR, storage), data);
+          return insertFile({ owner: req.user.id, parentId: folder, name: pname, kind: 'file', mime, size: data.length, storage });
+        } });
+      }
+    } catch (e) { throw bad(`This file couldn't be read as ${type === 'docx' ? 'a Word document' : type === 'xlsx' ? 'an Excel workbook' : 'a PowerPoint presentation'}`); }
+    const json = JSON.stringify(content);
+    const id = insertFile({ owner: req.user.id, parentId, name, kind: OFFICE[type].kind, content: json, size: Buffer.byteLength(json) });
+    if (parentId) notify(parentId, { type: 'files-changed', parent_id: parentId });
+    res.status(201).json(publicFile(loadFile(id, req.user)));
+  });
+
+  // Download a document, spreadsheet or presentation as Word, Excel or PowerPoint.
+  r.get('/:id/export', async (req, res) => {
+    const f = loadFile(req.params.id, req.user);
+    const type = EXPORT_AS[f.kind];
+    if (!type) throw bad('Only documents, spreadsheets and presentations can be downloaded this way');
+    const content = JSON.parse(q('SELECT content FROM files WHERE id = ?').get(f.id).content || '{}');
+    let buf;
+    if (type === 'docx') buf = await wordFromDoc(content, f.name);
+    else if (type === 'xlsx') buf = await excelFromSheet(content);
+    else {
+      buf = await powerPointFromDeck(content, { title: f.name, pictureData: async (fileId) => {
+        // The same rule as showing pictures in the deck: only pictures owned by someone who can edit it.
+        const pic = q("SELECT * FROM files WHERE id = ? AND kind = 'file' AND trashed = 0").get(fileId);
+        if (!pic || !/^image\//.test(pic.mime || '') || !atLeast(roleFor(f.id, pic.owner_id), 'editor')) return null;
+        return { data: fs.readFileSync(path.join(FILES_DIR, pic.storage)), mime: pic.mime };
+      } });
+    }
+    res.setHeader('Content-Type', OFFICE[type].mime);
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(`${f.name}.${type}`)}`);
+    res.send(buf);
   });
 
   // ---- version history ----

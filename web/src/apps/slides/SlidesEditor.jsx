@@ -158,6 +158,7 @@ export default function SlidesEditor() {
         menu={[
           { label: 'Present', icon: 'slides', onClick: () => setPresenting(slideIndex) },
           { label: 'Print or save as PDF', icon: 'print', onClick: () => window.print() },
+          { label: 'Download as PowerPoint (.pptx)', icon: 'download', onClick: () => { window.location.href = `/api/files/${id}/export`; } },
           ...(!readOnly ? ['-', ...Object.entries(THEMES).map(([k, t]) => ({ label: `Theme: ${t.name}${deck.theme === k ? ' ✓' : ''}`, onClick: () => change((d) => ({ ...d, theme: k })) }))] : []),
         ]}
       />

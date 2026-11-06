@@ -1,0 +1,130 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { Document, Packer, Paragraph, TextRun, HeadingLevel, ExternalHyperlink, AlignmentType, Table, TableRow, TableCell } from 'docx';
+import { docFromWord, wordFromDoc } from '../src/office/word.js';
+
+const text = (n) => (n.content || []).map((c) => c.text ?? text(c)).join('');
+const find = (doc, type) => doc.content.filter((n) => n.type === type);
+
+test('Word: a real .docx opens as a document with headings, formatting, lists and links', async () => {
+  const file = new Document({ numbering: { config: [{ reference: 'n', levels: [{ level: 0, format: 'decimal', text: '%1.' }] }] }, sections: [{ children: [
+    new Paragraph({ text: 'Quarterly report', heading: HeadingLevel.HEADING_1 }),
+    new Paragraph({ children: [new TextRun('Sales were '), new TextRun({ text: 'strong', bold: true }), new TextRun(' and '), new TextRun({ text: 'steady', italics: true }), new TextRun('.')] }),
+    new Paragraph({ text: 'Centred note', alignment: AlignmentType.CENTER }),
+    new Paragraph({ text: 'First point', bullet: { level: 0 } }),
+    new Paragraph({ text: 'Second point', bullet: { level: 0 } }),
+    new Paragraph({ children: [new TextRun('See '), new ExternalHyperlink({ link: 'https://example.com/q4', children: [new TextRun({ text: 'the figures', style: 'Hyperlink' })] })] }),
+    new Table({ rows: [new TableRow({ children: [new TableCell({ children: [new Paragraph('Region')] }), new TableCell({ children: [new Paragraph('Total')] })] }), new TableRow({ children: [new TableCell({ children: [new Paragraph('North')] }), new TableCell({ children: [new Paragraph('120')] })] })] }),
+  ] }] });
+  const { doc } = await docFromWord(await Packer.toBuffer(file));
+  assert.equal(find(doc, 'heading')[0].attrs.level, 1);
+  assert.equal(text(find(doc, 'heading')[0]), 'Quarterly report');
+  const p = find(doc, 'paragraph')[0];
+  assert.equal(text(p), 'Sales were strong and steady.');
+  assert.deepEqual(p.content.filter((c) => c.marks).map((c) => [c.text, c.marks[0].type]), [['strong', 'bold'], ['steady', 'italic']]);
+  assert.deepEqual(find(doc, 'bulletList')[0].content.map(text), ['First point', 'Second point']);
+  const link = doc.content.flatMap((n) => n.content || []).find((c) => c.marks?.some((m) => m.type === 'link'));
+  assert.equal(link.marks.find((m) => m.type === 'link').attrs.href, 'https://example.com/q4');
+  assert.ok(doc.content.some((n) => text(n) === 'North | 120'), 'tables come through as rows of text');
+});
+
+test('Word: a document saved as .docx opens again the same', async () => {
+  const doc = { type: 'doc', content: [
+    { type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: 'Plan' }] },
+    { type: 'paragraph', attrs: { textAlign: 'center' }, content: [{ type: 'text', text: 'Hello ' }, { type: 'text', text: 'world', marks: [{ type: 'bold' }, { type: 'underline' }] }] },
+    { type: 'orderedList', content: [{ type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'One' }] }] }, { type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Two' }] }] }] },
+    { type: 'paragraph', content: [{ type: 'text', text: 'link', marks: [{ type: 'link', attrs: { href: 'https://example.com' } }] }] },
+  ] };
+  const buf = await wordFromDoc(doc, 'Plan');
+  assert.equal(buf.subarray(0, 2).toString(), 'PK', 'a zip, as .docx files are');
+  const { doc: back } = await docFromWord(buf);
+  assert.equal(text(find(back, 'heading')[0]), 'Plan');
+  const bold = find(back, 'paragraph')[0].content.find((c) => c.text === 'world');
+  assert.deepEqual(bold.marks.map((m) => m.type).sort(), ['bold', 'underline']);
+  assert.deepEqual(find(back, 'orderedList')[0].content.map(text), ['One', 'Two']);
+  assert.ok(JSON.stringify(back).includes('https://example.com'));
+});
+
+import ExcelJS from 'exceljs';
+import { sheetFromExcel, excelFromSheet, numFromExcel } from '../src/office/excel.js';
+
+test('Excel: a real .xlsx opens with values, formulas, formats and every sheet', async () => {
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('Q4 Sales');
+  ws.getCell('A1').value = 'Item'; ws.getCell('A1').font = { bold: true }; ws.getCell('A1').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF7E0' } };
+  ws.getCell('B1').value = 'Price';
+  ws.getCell('A2').value = 'Bolts'; ws.getCell('B2').value = 1234.5; ws.getCell('B2').numFmt = '"RM"#,##0.00';
+  ws.getCell('A3').value = 'Nuts'; ws.getCell('B3').value = 20;
+  ws.getCell('B4').value = { formula: 'SUM(B2:B3)', result: 1254.5 };
+  ws.getCell('C2').value = 0.125; ws.getCell('C2').numFmt = '0.0%'; ws.getCell('C2').alignment = { horizontal: 'center' };
+  ws.getColumn('A').width = 20;
+  wb.addWorksheet('Notes').getCell('A1').value = 'Second sheet';
+  const s = await sheetFromExcel(Buffer.from(await wb.xlsx.writeBuffer()));
+  assert.deepEqual(s.sheets.map((x) => x.name), ['Q4 Sales', 'Notes']);
+  const q = s.sheets[0];
+  assert.deepEqual([q.cells.A2, q.cells.B2, q.cells.B4, q.cells.C2], ['Bolts', '1234.5', '=SUM(B2:B3)', '0.125']);
+  assert.deepEqual(q.formats.A1, { b: 1, fill: '#fef7e0' });
+  assert.deepEqual(q.formats.B2, { num: 'currency', cur: 'MYR', dp: 2 });
+  assert.deepEqual(q.formats.C2, { align: 'center', num: 'percent', dp: 1 });
+  assert.equal(q.colWidths.A, 145);
+  assert.equal(s.sheets[1].cells.A1, 'Second sheet');
+});
+
+test('Excel: a spreadsheet saved as .xlsx opens again the same', async () => {
+  const data = { sheets: [{ name: 'Budget', cells: { A1: 'Cost', B1: '100', B2: '=B1*2', C1: 'TRUE' }, colWidths: { A: 145 }, formats: { A1: { b: 1, color: '#c5221f' }, B1: { num: 'currency', cur: 'USD', dp: 2 }, B2: { num: 'percent', dp: 0 } } }] };
+  const back = await sheetFromExcel(await excelFromSheet(data));
+  const b = back.sheets[0];
+  assert.deepEqual([b.name, b.cells.A1, b.cells.B1, b.cells.B2, b.cells.C1], ['Budget', 'Cost', '100', '=B1*2', 'TRUE']);
+  assert.deepEqual(b.formats.A1, { b: 1, color: '#c5221f' });
+  assert.deepEqual(b.formats.B1, { num: 'currency', cur: 'USD', dp: 2 });
+  assert.deepEqual(b.formats.B2, { num: 'percent', dp: 0 });
+  assert.equal(b.colWidths.A, 145);
+  assert.deepEqual(numFromExcel('$#,##0'), { num: 'currency', cur: 'USD', dp: 0 });
+});
+
+import PptxGenJS from 'pptxgenjs';
+import { deckFromPowerPoint, powerPointFromDeck } from '../src/office/powerpoint.js';
+
+const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+
+test('PowerPoint: a real .pptx opens with its slides, boxes, text, shapes, pictures and backgrounds', async () => {
+  const p = new PptxGenJS(); p.layout = 'LAYOUT_WIDE';
+  const s1 = p.addSlide(); s1.background = { color: 'FEF7E0' };
+  s1.addText('Series A', { x: 1, y: 2, w: 11.333, h: 1.5, fontSize: 44, bold: true, align: 'center', color: '1A73E8' });
+  s1.addText('Acme Trading, 2027', { x: 2, y: 4, w: 9.333, h: 1, fontSize: 24, italic: true });
+  const s2 = p.addSlide();
+  s2.addShape(p.ShapeType.ellipse, { x: 0.5, y: 0.5, w: 2, h: 2, fill: { color: 'D93025' } });
+  s2.addImage({ data: `data:image/png;base64,${PNG.toString('base64')}`, x: 6.6665, y: 3.75, w: 3.333, h: 1.875 });
+  s2.addText(['Revenue up 12%', 'New office opened'].join('\n'), { x: 0.5, y: 3, w: 6, h: 3, fontSize: 20 });
+  const saved = [];
+  const deck = await deckFromPowerPoint(await p.write({ outputType: 'nodebuffer' }), { savePicture: async (name, data, mime) => { saved.push({ name, mime, size: data.length }); return 'pic1'; } });
+  assert.equal(deck.slides.length, 2);
+  const [title, sub] = deck.slides[0].items;
+  const r = (v) => Math.round(v);
+  assert.deepEqual([title.text, title.bold, title.align, title.color, r(title.x), r(title.y), r(title.w)], ['Series A', true, 'center', '#1a73e8', 8, 27, 85]);
+  assert.equal(title.size, 46, '44 pt on a 13.33 in slide');
+  assert.deepEqual([sub.text, sub.italic], ['Acme Trading, 2027', true]);
+  assert.equal(deck.slides[0].bg, '#fef7e0');
+  const items2 = deck.slides[1].items;
+  assert.deepEqual(items2.find((i) => i.type === 'shape'), { ...items2.find((i) => i.type === 'shape'), shape: 'ellipse', fill: '#d93025' });
+  const pic = items2.find((i) => i.type === 'image');
+  assert.deepEqual([pic.fileId, r(pic.x), r(pic.y), r(pic.w), r(pic.h)], ['pic1', 50, 50, 25, 25]);
+  assert.equal(saved[0].mime, 'image/png');
+  assert.equal(items2.find((i) => i.type === 'text').text, 'Revenue up 12%\nNew office opened');
+});
+
+test('PowerPoint: a presentation saved as .pptx opens again the same', async () => {
+  const deck = { theme: 'ocean', slides: [
+    { id: 'a', items: [{ id: 't', type: 'text', text: 'Hello', x: 10, y: 20, w: 50, h: 15, size: 44, bold: true, align: 'center' }, { id: 's', type: 'shape', shape: 'round', fill: 'accent', x: 60, y: 60, w: 20, h: 20 }] },
+    { id: 'b', bg: '#ffffff', items: [{ id: 'p', type: 'image', fileId: 'f1', x: 25, y: 25, w: 50, h: 50 }] },
+  ] };
+  const buf = await powerPointFromDeck(deck, { pictureData: async () => ({ data: PNG, mime: 'image/png' }) });
+  const back = await deckFromPowerPoint(buf, { savePicture: async () => 'new-pic' });
+  assert.equal(back.slides.length, 2);
+  const t = back.slides[0].items.find((i) => i.type === 'text');
+  assert.deepEqual([t.text, t.bold, t.align, Math.round(t.x), Math.round(t.y), t.size], ['Hello', true, 'center', 10, 20, 44]);
+  assert.equal(t.color, '#ffffff', 'theme text colour written out');
+  assert.equal(back.slides[0].bg, '#0b57d0', 'theme background written out');
+  assert.deepEqual(back.slides[0].items.find((i) => i.type === 'shape').shape, 'round');
+  assert.equal(back.slides[1].items[0].fileId, 'new-pic');
+});

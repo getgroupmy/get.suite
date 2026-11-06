@@ -663,3 +663,40 @@ test('presentations: created with a title slide, saved like documents', async ()
   assert.equal((await viewer('GET', `/api/files/${pic.id}/raw`)).status, 404, 'the picture file itself is not shared');
   assert.equal((await viewer('GET', `/api/files/${deck.body.id}/pictures/${secret.id}`)).status, 404, 'only pictures the deck uses');
 });
+
+test('Office files: open Word, Excel and PowerPoint as Docs, Sheets and Slides, and download them back', async () => {
+  const { Document, Packer, Paragraph, HeadingLevel } = await import('docx');
+  const ExcelJS = (await import('exceljs')).default;
+  const PptxGenJS = (await import('pptxgenjs')).default;
+  const folder = (await owner('POST', '/api/files/folder', { name: 'From the client' })).body;
+  const up = async (name, buf) => (await owner('POST', `/api/files/upload?parent=${folder.id}&name=${encodeURIComponent(name)}`, buf, { raw: true })).body;
+
+  const docx = await Packer.toBuffer(new Document({ sections: [{ children: [new Paragraph({ text: 'Contract', heading: HeadingLevel.HEADING_1 }), new Paragraph('Terms apply.')] }] }));
+  const wordFile = await up('Contract v2.docx', docx);
+  const doc = await owner('POST', `/api/files/${wordFile.id}/open-as`);
+  assert.equal(doc.status, 201, JSON.stringify(doc.body));
+  assert.deepEqual([doc.body.kind, doc.body.name, doc.body.parent_id], ['doc', 'Contract v2', folder.id], 'a copy next to the original');
+  assert.match(JSON.stringify((await owner('GET', `/api/files/${doc.body.id}/content`)).body.content), /Contract.*Terms apply\./);
+
+  const wb = new ExcelJS.Workbook(); wb.addWorksheet('Prices').getCell('A1').value = 42;
+  const sheet = (await owner('POST', `/api/files/${(await up('Prices.xlsx', Buffer.from(await wb.xlsx.writeBuffer()))).id}/open-as`)).body;
+  assert.equal(sheet.kind, 'sheet');
+  assert.equal((await owner('GET', `/api/files/${sheet.id}/content`)).body.content.sheets[0].cells.A1, '42');
+
+  const p = new PptxGenJS(); p.layout = 'LAYOUT_WIDE';
+  p.addSlide().addImage({ data: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', x: 1, y: 1, w: 2, h: 2 });
+  const deck = (await owner('POST', `/api/files/${(await up('Pitch.pptx', await p.write({ outputType: 'nodebuffer' }))).id}/open-as`)).body;
+  assert.equal(deck.kind, 'slides');
+  const picId = (await owner('GET', `/api/files/${deck.id}/content`)).body.content.slides[0].items[0].fileId;
+  assert.equal((await owner('GET', `/api/files/${deck.id}/pictures/${picId}`)).status, 200, 'its pictures show in the deck');
+  assert.ok((await owner('GET', `/api/files?parent=${folder.id}`)).body.some((f) => f.name === 'Pitch pictures' && f.kind === 'folder'));
+
+  // Downloading as Office files.
+  for (const [f, ext, type] of [[doc.body, 'docx', 'wordprocessingml'], [sheet, 'xlsx', 'spreadsheetml'], [deck, 'pptx', 'presentationml']]) {
+    const res = await owner('GET', `/api/files/${f.id}/export`);
+    assert.equal(res.status, 200, ext);
+    assert.match(res.headers.get('content-type'), new RegExp(type));
+    assert.match(res.headers.get('content-disposition'), new RegExp(`\\.${ext}$`));
+  }
+  assert.equal((await owner('POST', `/api/files/${folder.id}/open-as`)).status, 400, 'folders and other files can\'t');
+});

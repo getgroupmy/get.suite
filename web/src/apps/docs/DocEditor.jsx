@@ -112,6 +112,7 @@ function SharedDoc({ file, setFile }) {
         menu={[
           { label: 'Print / Save as PDF', icon: 'print', onClick: () => window.print() },
           { label: 'Download as HTML', icon: 'download', onClick: exportHtml },
+          { label: 'Download as Word (.docx)', icon: 'download', onClick: () => { window.location.href = `/api/files/${file.id}/export`; } },
         ]}
       />
       {!readOnly && <Toolbar editor={editor} />}

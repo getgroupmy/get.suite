@@ -285,6 +285,7 @@ export default function SheetEditor() {
           </div>
         )}
         menu={[
+          { label: 'Download as Excel (.xlsx)', icon: 'download', onClick: () => { window.location.href = `/api/files/${id}/export`; } },
           { label: 'Download sheet as CSV', icon: 'download', onClick: exportCsv },
           !readOnly && { label: 'Import CSV as new sheet', icon: 'upload', onClick: importCsv },
         ]}

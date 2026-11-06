@@ -104,6 +104,12 @@ export default function Drive() {
     load();
   }
 
+  // A Word, Excel or PowerPoint file: make an editable Docs, Sheets or Slides copy and open it.
+  async function openAs(f) {
+    toast(`Opening ${f.name}…`);
+    try { navigate(openPath(await post(`/files/${f.id}/open-as`))); } catch (e) { toast(e.message, 'error'); }
+  }
+
   async function create(kind) {
     try {
       const f = await post('/files/new', { kind, parent_id: parentId });
@@ -129,6 +135,7 @@ export default function Drive() {
     ];
     return [
       { label: 'Open', icon: fileIcon(f), onClick: () => open(f) },
+      officeAs(f) && { label: `Open as ${officeAs(f).what}`, icon: officeAs(f).icon, onClick: () => openAs(f) },
       f.kind === 'file' && { label: 'Download', icon: 'download', onClick: () => { location.href = `/api/files/${f.id}/raw?download`; } },
       '-',
       f.role === 'owner' && { label: 'Share', icon: 'share', onClick: () => setDialog({ type: 'share', file: f }) },
@@ -252,7 +259,7 @@ export default function Drive() {
       )}
       {dialog?.type === 'share' && <ShareDialog file={dialog.file} onClose={() => setDialog(null)} />}
       {dialog?.type === 'move' && <MoveDialog file={dialog.file} onClose={() => setDialog(null)} onMoved={load} />}
-      {dialog?.type === 'preview' && <Preview file={dialog.file} onClose={() => setDialog(null)} />}
+      {dialog?.type === 'preview' && <Preview file={dialog.file} onClose={() => setDialog(null)} onOpenAs={() => { setDialog(null); openAs(dialog.file); }} />}
       {dialog?.type === 'versions' && <VersionsDialog file={dialog.file} onClose={() => setDialog(null)} onChanged={load} />}
       <input ref={versionInput} type="file" hidden aria-hidden="true" tabIndex={-1} onChange={(e) => { uploadNewVersion(e.target.files[0]); e.target.value = ''; }} />
     </div>
@@ -438,7 +445,14 @@ function MoveDialog({ file, onClose, onMoved }) {
   );
 }
 
-function Preview({ file, onClose }) {
+/** Office files that can open as Docs, Sheets or Slides. */
+export function officeAs(f) {
+  if (f.kind !== 'file') return null;
+  const ext = (/\.([a-z]+)$/i.exec(f.name) || [])[1]?.toLowerCase();
+  return { docx: { what: 'document', icon: 'doc' }, xlsx: { what: 'spreadsheet', icon: 'sheet' }, pptx: { what: 'presentation', icon: 'slides' } }[ext] || null;
+}
+
+function Preview({ file, onClose, onOpenAs }) {
   const src = `/api/files/${file.id}/raw`;
   const m = file.mime || '';
   let body;
@@ -446,9 +460,13 @@ function Preview({ file, onClose }) {
   else if (/^video\/(mp4|webm)$/.test(m)) body = <video src={src} controls className="preview-media" />;
   else if (m.startsWith('audio/')) body = <audio src={src} controls />;
   else if (m === 'application/pdf' || m.startsWith('text/')) body = <iframe src={src} title={file.name} className="preview-frame" />;
+  else if (officeAs(file)) body = <Empty icon={officeAs(file).icon} title={`Open it as a ${officeAs(file).what}`}>Workspace makes an editable copy next to it; the original stays as it is.</Empty>;
   else body = <Empty icon="file" title="No preview available">Download the file to open it on your device.</Empty>;
   return (
-    <Modal wide title={file.name} onClose={onClose} footer={<a className="btn primary" href={`${src}?download`}><Icon name="download" size={18} /> Download</a>}>
+    <Modal wide title={file.name} onClose={onClose} footer={<>
+      {officeAs(file) && <button type="button" className="btn primary" onClick={onOpenAs}><Icon name={officeAs(file).icon} size={18} /> Open as {officeAs(file).what}</button>}
+      <a className={`btn ${officeAs(file) ? '' : 'primary'}`} href={`${src}?download`}><Icon name="download" size={18} /> Download</a>
+    </>}>
       <div className="preview">{body}</div>
       <p className="muted small">{formatBytes(file.size)} · modified {formatDate(file.updated_at)}</p>
     </Modal>
