@@ -71,3 +71,71 @@ test('display', () => {
   assert.equal(display(true), 'TRUE');
   assert.equal(display({ error: '#REF!' }), '#REF!');
 });
+
+test('lookups: VLOOKUP, HLOOKUP, INDEX and MATCH', () => {
+  const cells = { A1: 'Name', B1: 'Score', A2: 'bob', B2: '7', A3: 'Amy', B3: '10', A4: 'cat', B4: '3', E1: '10', F1: '20', G1: '30', E2: 'low', F2: 'mid', G2: 'high' };
+  const v = (f) => createEvaluator({ ...cells, Z1: f })('Z1');
+  assert.equal(v('=VLOOKUP("amy",A2:B4,2,FALSE)'), 10);
+  assert.deepEqual(v('=VLOOKUP("zed",A2:B4,2,FALSE)'), { error: '#N/A' });
+  assert.deepEqual(v('=VLOOKUP("bob",A2:B4,3,FALSE)'), { error: '#REF!' });
+  assert.equal(v('=HLOOKUP(25,E1:G2,2)'), 'mid'); // approximate: the last value not over 25
+  assert.equal(v('=HLOOKUP(5,E1:G2,2,TRUE)').error, '#N/A');
+  assert.equal(v('=INDEX(A2:B4,3,2)'), 3);
+  assert.equal(v('=INDEX(E2:G2,2)'), 'mid'); // one row: the number picks the column
+  assert.equal(v('=INDEX(A2:B4,MATCH("c*",A2:A4,0),2)'), 3);
+  assert.equal(v('=MATCH(20,E1:G1)'), 2);
+  assert.equal(v('=MATCH(25,E1:G1,1)'), 2);
+  assert.equal(v('=IFNA(MATCH("zed",A2:A4,0),"none")'), 'none');
+});
+
+test('conditions over ranges', () => {
+  const cells = { A1: 'east', A2: 'west', A3: 'east', A4: 'north', B1: '10', B2: '20', B3: '30', B4: '' };
+  const v = (f) => createEvaluator({ ...cells, Z1: f })('Z1');
+  assert.equal(v('=SUMIFS(B1:B4,A1:A4,"east",B1:B4,">15")'), 30);
+  assert.equal(v('=COUNTIFS(A1:A4,"*st",B1:B4,"<25")'), 2);
+  assert.equal(v('=AVERAGEIF(A1:A4,"east",B1:B4)'), 20);
+  assert.equal(v('=AVERAGEIFS(B1:B4,A1:A4,"<>west")'), 20);
+  assert.equal(v('=MAXIFS(B1:B4,A1:A4,"east")'), 30);
+  assert.equal(v('=MINIFS(B1:B4,A1:A4,"east")'), 10);
+  assert.equal(v('=COUNTIF(A1:A4,"?ast")'), 2);
+  assert.equal(v('=COUNTIF(A1:A4,"~*")'), 0);
+  assert.equal(v('=COUNTBLANK(B1:B4)'), 1);
+  assert.equal(v('=PRODUCT(B1:B3)'), 6000);
+  assert.equal(v('=LARGE(B1:B4,2)'), 20);
+  assert.equal(v('=SMALL(B1:B4,1)'), 10);
+  assert.deepEqual(v('=SUMIFS(B1:B4,A1:A3,"east")'), { error: '#VALUE!' }); // ranges of different sizes
+});
+
+test('numbers, text and dates', () => {
+  const v = (f) => createEvaluator({ Z1: f })('Z1');
+  assert.equal(v('=ROUNDUP(2.1,0)'), 3);
+  assert.equal(v('=ROUNDDOWN(-2.9,0)'), -2);
+  assert.equal(v('=ROUNDUP(1.005,2)'), 1.01);
+  assert.equal(v('=CEILING(7,5)'), 10);
+  assert.equal(v('=FLOOR(7,5)'), 5);
+  assert.equal(v('=MID("spreadsheet",7,5)'), 'sheet');
+  assert.equal(v('=SUBSTITUTE("a-b-c","-","+")'), 'a+b+c');
+  assert.equal(v('=SUBSTITUTE("a-b-c","-","+",2)'), 'a-b+c');
+  assert.equal(v('=FIND("b","abcb",3)'), 4);
+  assert.deepEqual(v('=FIND("B","abc")'), { error: '#VALUE!' }); // case matters for FIND
+  assert.equal(v('=SEARCH("B?","abcb")'), 2);
+  assert.equal(v('=VALUE("1,234.5")'), 1234.5);
+  assert.equal(v('=PROPER("hello wORLD")'), 'Hello World');
+  assert.equal(v('=REPT("ab",3)'), 'ababab');
+  assert.equal(v('=EXACT("a","A")'), false);
+  assert.equal(v('=TEXTJOIN(", ",TRUE,"a","","b")'), 'a, b');
+  assert.equal(v('=ISNUMBER(3)&ISTEXT("x")&ISBLANK(A9)'), 'TRUETRUETRUE');
+  assert.equal(v('=ISERROR(1/0)'), true);
+  assert.equal(v('=IFS(1>2,"a",2>1,"b")'), 'b');
+  assert.equal(v('=SWITCH("b","a",1,"b",2,0)'), 2);
+  assert.equal(v('=SWITCH("z","a",1,0)'), 0);
+  assert.equal(v('=DATE(2026,2,30)'), '2026-03-02');
+  assert.equal(v('=YEAR("2026-11-06")*100+MONTH("2026-11-06")'), 202611);
+  assert.equal(v('=DAY(46000)'), 9); // a spreadsheet serial number: 9 December 2025
+  assert.equal(v('=WEEKDAY("2026-11-06")'), 6); // Friday
+  assert.equal(v('=WEEKDAY("2026-11-06",2)'), 5);
+  assert.equal(v('=DAYS("2026-12-25","2026-11-06")'), 49);
+  assert.equal(v('=EDATE("2026-01-31",1)'), '2026-02-28');
+  assert.equal(v('=EOMONTH("2026-02-10",0)'), '2026-02-28');
+  assert.deepEqual(v('=NA()'), { error: '#N/A' });
+});

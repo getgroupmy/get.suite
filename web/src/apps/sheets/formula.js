@@ -130,10 +130,26 @@ const toBool = (v) => (typeof v === 'string' ? v.toUpperCase() === 'TRUE' || (v 
 const flat = (args) => args.flat(Infinity);
 const nums = (args) => flat(args).filter((v) => typeof v === 'number');
 
+/** Text with * (anything) and ? (one character) as a whole-text, any-case pattern; ~ escapes them. */
+function wildcard(text) {
+  let src = '';
+  const t = String(text);
+  for (let i = 0; i < t.length; i++) {
+    const ch = t[i];
+    if (ch === '~' && i + 1 < t.length && '*?~'.includes(t[i + 1])) { src += `\\${t[++i]}`; continue; }
+    if (ch === '*') src += '[\\s\\S]*';
+    else if (ch === '?') src += '[\\s\\S]';
+    else src += ch.replace(/[.*+?^${}()|[\]\\/-]/g, '\\$&');
+  }
+  return new RegExp(`^${src}$`, 'i');
+}
+const hasWildcard = (t) => typeof t === 'string' && /(^|[^~])[*?]/.test(t);
+
 function criteria(c) {
   const m = /^(<=|>=|<>|<|>|=)?(.*)$/.exec(toStr(c));
   const op = m[1] || '=';
   const rhs = m[2] !== '' && !Number.isNaN(Number(m[2])) ? Number(m[2]) : m[2].toLowerCase();
+  if ((op === '=' || op === '<>') && hasWildcard(m[2])) { const re = wildcard(m[2]); return (v) => re.test(toStr(v)) === (op === '='); }
   return (v) => {
     const lhs = typeof rhs === 'number' ? (typeof v === 'number' ? v : Number.NaN) : toStr(v).toLowerCase();
     switch (op) {
@@ -146,6 +162,48 @@ function criteria(c) {
     }
   };
 }
+
+// ---- helpers for lookups, conditions and dates
+const shapeOf = (a) => (Array.isArray(a) ? { rows: a.rows ?? a.length, cols: a.cols ?? 1, at: (r, c) => a[r * (a.cols ?? 1) + c] } : { rows: 1, cols: 1, at: () => a });
+const same = (a, b) => (typeof a === 'string' && typeof b === 'string' ? a.toLowerCase() === b.toLowerCase() : a === b);
+const before = (a, b) => (typeof a === 'number' && typeof b === 'number' ? a < b : typeof a === 'string' && typeof b === 'string' ? a.toLowerCase() < b.toLowerCase() : typeof a === 'number');
+/** MATCH's search: 0 exact (wildcards allowed), 1 the last value ≤ x in ascending order, -1 the last ≥ x in descending order. Index or -1. */
+function findIn(list, x, type) {
+  if (type === 0) {
+    const re = hasWildcard(x) ? wildcard(x) : null;
+    return list.findIndex((v) => (re ? typeof v === 'string' && re.test(v) : same(v, x)));
+  }
+  let found = -1;
+  for (let i = 0; i < list.length; i++) {
+    const v = list[i];
+    if (v === null || v === '') continue;
+    if (same(v, x)) return i;
+    if (type > 0 ? before(v, x) : before(x, v)) found = i; else break;
+  }
+  return found;
+}
+const notFound = () => err('#N/A');
+const scalarOf = (v) => (Array.isArray(v) ? (v.length === 1 ? v[0] : err("#VALUE!")) : v);
+/** Pairs of (range, criterion) from the rest of the arguments, all tested together. */
+function multi(pairs, other) {
+  if (!pairs.length || pairs.length % 2) err('#VALUE!');
+  const tests = [];
+  for (let i = 0; i < pairs.length; i += 2) tests.push([flat([pairs[i]]), criteria(pairs[i + 1])]);
+  const n = tests[0][0].length;
+  if (tests.some(([r]) => r.length !== n) || (other && flat([other]).length !== n)) err('#VALUE!'); // all the same size
+  return (i) => tests.every(([r, t]) => t(r[i]));
+}
+const DAY_MS = 864e5;
+const EXCEL_EPOCH = Date.UTC(1899, 11, 30);
+/** A date from "2026-11-06" (as TODAY and DATE give) or a spreadsheet serial number, as UTC ms. */
+function toDate(v) {
+  if (typeof v === 'number') return EXCEL_EPOCH + Math.floor(v) * DAY_MS;
+  const m = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(toStr(v).trim());
+  if (!m) err('#VALUE!');
+  return Date.UTC(+m[1], +m[2] - 1, +m[3]);
+}
+const dateText = (ms) => new Date(ms).toISOString().slice(0, 10);
+const roundTo = (v, d, how) => { const f = 10 ** toNum(d ?? 0); const x = toNum(v) * f; return how(Math.abs(x) + 1e-9 * (how === Math.floor ? 1 : -1)) * Math.sign(x) / f; };
 
 const FUNCS = {
   SUM: (a) => nums(a).reduce((s, n) => s + n, 0),
@@ -183,10 +241,93 @@ const FUNCS = {
   OR: (a) => flat(a).some(toBool),
   NOT: ([v]) => !toBool(v),
   TODAY: () => new Date().toISOString().slice(0, 10),
+  // lookups
+  MATCH: ([x, range, type]) => { const t = type === undefined ? 1 : Math.sign(toNum(type)); const i = findIn(flat([range]), scalarOf(x), t); return i < 0 ? notFound() : i + 1; },
+  INDEX: ([range, row, col]) => {
+    const s = shapeOf(range);
+    let r = toNum(row ?? 1), c = col === undefined ? 1 : toNum(col);
+    if (col === undefined && s.rows === 1) { c = r; r = 1; } // one row: the number picks the column
+    if (r < 1 || c < 1 || r > s.rows || c > s.cols) err('#REF!');
+    return s.at(r - 1, c - 1);
+  },
+  VLOOKUP: ([x, range, col, approx]) => {
+    const s = shapeOf(range), c = toNum(col);
+    if (c < 1) err('#VALUE!');
+    if (c > s.cols) err('#REF!');
+    const keys = Array.from({ length: s.rows }, (_, r) => s.at(r, 0));
+    const i = findIn(keys, scalarOf(x), approx === undefined || toBool(approx) ? 1 : 0);
+    return i < 0 ? notFound() : s.at(i, c - 1);
+  },
+  HLOOKUP: ([x, range, row, approx]) => {
+    const s = shapeOf(range), r = toNum(row);
+    if (r < 1) err('#VALUE!');
+    if (r > s.rows) err('#REF!');
+    const keys = Array.from({ length: s.cols }, (_, c) => s.at(0, c));
+    const i = findIn(keys, scalarOf(x), approx === undefined || toBool(approx) ? 1 : 0);
+    return i < 0 ? notFound() : s.at(r - 1, i);
+  },
+  // conditions over ranges
+  COUNTIFS: (a) => { const ok = multi(a); return flat([a[0]]).filter((_, i) => ok(i)).length; },
+  SUMIFS: ([sum, ...a]) => { const ok = multi(a, sum); const s = flat([sum]); return s.reduce((acc, v, i) => (ok(i) && typeof v === 'number' ? acc + v : acc), 0); },
+  AVERAGEIF: ([range, c, avg]) => { const r = flat([range]); const s = avg ? flat([avg]) : r; const t = criteria(c); const n = s.filter((v, i) => t(r[i]) && typeof v === 'number'); if (!n.length) err('#DIV/0!'); return n.reduce((x, y) => x + y, 0) / n.length; },
+  AVERAGEIFS: ([avg, ...a]) => { const ok = multi(a, avg); const n = flat([avg]).filter((v, i) => ok(i) && typeof v === 'number'); if (!n.length) err('#DIV/0!'); return n.reduce((x, y) => x + y, 0) / n.length; },
+  MAXIFS: ([range, ...a]) => { const ok = multi(a, range); const n = flat([range]).filter((v, i) => ok(i) && typeof v === 'number'); return n.length ? Math.max(...n) : 0; },
+  MINIFS: ([range, ...a]) => { const ok = multi(a, range); const n = flat([range]).filter((v, i) => ok(i) && typeof v === 'number'); return n.length ? Math.min(...n) : 0; },
+  COUNTBLANK: (a) => flat(a).filter((v) => v === null || v === '').length,
+  PRODUCT: (a) => nums(a).reduce((s, n) => s * n, 1),
+  LARGE: ([range, k]) => { const n = nums([range]).sort((x, y) => y - x); const i = toNum(k) - 1; if (i < 0 || i >= n.length) err('#NUM!'); return n[i]; },
+  SMALL: ([range, k]) => { const n = nums([range]).sort((x, y) => x - y); const i = toNum(k) - 1; if (i < 0 || i >= n.length) err('#NUM!'); return n[i]; },
+  // numbers
+  ROUNDUP: ([v, d]) => roundTo(v, d, Math.ceil),
+  ROUNDDOWN: ([v, d]) => roundTo(v, d, Math.floor),
+  CEILING: ([v, sig]) => { const g = toNum(sig ?? 1); if (!g) return 0; return Math.ceil(toNum(v) / g - 1e-12) * g; },
+  FLOOR: ([v, sig]) => { const g = toNum(sig ?? 1); if (!g) err('#DIV/0!'); return Math.floor(toNum(v) / g + 1e-12) * g; },
+  SIGN: ([v]) => Math.sign(toNum(v)),
+  PI: () => Math.PI,
+  // text
+  MID: ([v, start, n]) => { const st = toNum(start); if (st < 1 || toNum(n) < 0) err('#VALUE!'); return toStr(v).slice(st - 1, st - 1 + toNum(n)); },
+  SUBSTITUTE: ([v, from, to, nth]) => {
+    const t = toStr(v), f = toStr(from), r = toStr(to);
+    if (!f) return t;
+    if (nth === undefined) return t.split(f).join(r);
+    let i = -1;
+    for (let k = 0; k < toNum(nth); k++) { i = t.indexOf(f, i + 1); if (i < 0) return t; }
+    return t.slice(0, i) + r + t.slice(i + f.length);
+  },
+  FIND: ([what, within, start]) => { const i = toStr(within).indexOf(toStr(what), toNum(start ?? 1) - 1); if (i < 0) err('#VALUE!'); return i + 1; },
+  SEARCH: ([what, within, start]) => {
+    const t = toStr(within), st = toNum(start ?? 1) - 1, w = toStr(what);
+    const re = new RegExp(wildcard(w).source.slice(1, -1), 'i'); // the same pattern, anywhere
+    const m = re.exec(t.slice(st));
+    if (!m) err('#VALUE!');
+    return st + m.index + 1;
+  },
+  VALUE: ([v]) => { if (typeof v === 'number') return v; const n = Number(toStr(v).trim().replace(/,/g, '')); if (toStr(v).trim() === '' || Number.isNaN(n)) err('#VALUE!'); return n; },
+  PROPER: ([v]) => toStr(v).toLowerCase().replace(/(^|[^\p{L}])(\p{L})/gu, (m, a, b) => a + b.toUpperCase()),
+  REPT: ([v, n]) => { const k = toNum(n); if (k < 0) err('#VALUE!'); return toStr(v).repeat(Math.min(k, 10000)); },
+  EXACT: ([a, b]) => toStr(a) === toStr(b),
+  TEXTJOIN: ([sep, skipEmpty, ...a]) => flat(a).map(toStr).filter((x) => !toBool(skipEmpty) || x !== '').join(toStr(sep)),
+  ISBLANK: ([v]) => v === null || v === undefined || v === '',
+  ISNUMBER: ([v]) => typeof v === 'number',
+  ISTEXT: ([v]) => typeof v === 'string' && v !== '',
+  NA: () => err('#N/A'),
+  // dates (as YYYY-MM-DD text, like TODAY)
+  DATE: ([y, m, d]) => dateText(Date.UTC(toNum(y), toNum(m) - 1, toNum(d))),
+  YEAR: ([v]) => new Date(toDate(v)).getUTCFullYear(),
+  MONTH: ([v]) => new Date(toDate(v)).getUTCMonth() + 1,
+  DAY: ([v]) => new Date(toDate(v)).getUTCDate(),
+  WEEKDAY: ([v, type]) => { const d = new Date(toDate(v)).getUTCDay(); const t = toNum(type ?? 1); return t === 2 ? ((d + 6) % 7) + 1 : t === 3 ? (d + 6) % 7 : d + 1; },
+  DAYS: ([end, start]) => Math.round((toDate(end) - toDate(start)) / DAY_MS),
+  EDATE: ([start, months]) => { const d = new Date(toDate(start)); const t = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + toNum(months), 1)); const last = new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth() + 1, 0)).getUTCDate(); return dateText(Date.UTC(t.getUTCFullYear(), t.getUTCMonth(), Math.min(d.getUTCDate(), last))); },
+  EOMONTH: ([start, months]) => { const d = new Date(toDate(start)); return dateText(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + toNum(months) + 1, 0)); },
   NOW: () => new Date().toISOString().slice(0, 16).replace('T', ' '),
 };
 // Lazily evaluated (short-circuit) functions receive thunks.
 const LAZY = {
+  IFS: (a) => { for (let i = 0; i + 1 < a.length; i += 2) if (toBool(a[i]())) return a[i + 1](); return err('#N/A'); },
+  SWITCH: ([x, ...a]) => { const v = x(); for (let i = 0; i + 1 < a.length; i += 2) if (same(v, a[i]())) return a[i + 1](); return a.length % 2 ? a[a.length - 1]() : err('#N/A'); },
+  IFNA: ([v, fallback]) => { try { return v(); } catch (e) { if (e instanceof FormulaError && e.code === '#N/A') return fallback ? fallback() : ''; throw e; } },
+  ISERROR: ([v]) => { try { v(); return false; } catch (e) { if (e instanceof FormulaError) return true; throw e; } },
   IF: ([cond, a, b]) => (toBool(cond()) ? (a ? a() : true) : (b ? b() : false)),
   IFERROR: ([v, fallback]) => { try { return v(); } catch (e) { if (e instanceof FormulaError) return fallback ? fallback() : ''; throw e; } },
 };
@@ -247,6 +388,8 @@ export function createEvaluator(cells) {
     for (let r = Math.min(a.r, b.r); r <= Math.max(a.r, b.r); r++) {
       for (let c = Math.min(a.c, b.c); c <= Math.max(a.c, b.c); c++) out.push(valueOf(cellKey(c, r)));
     }
+    out.rows = Math.abs(a.r - b.r) + 1; // its shape, for INDEX, VLOOKUP and the like
+    out.cols = Math.abs(a.c - b.c) + 1;
     return out;
   }
 
