@@ -463,3 +463,9 @@ cd server && MAIL_IT_CONFIG_DIR=/etc/nw npm run test:mail
 
 ## Roadmap
 
+Everything planned so far is built. Candidates for next:
+
+- **Office files:** open Word, Excel and PowerPoint files from Drive as Docs, Sheets and Slides (and download them back in those formats).
+- **Comments** in Docs and Sheets, with @mentions that notify by chat or email.
+- **Charts** in Sheets.
+- **Outlook's own time-zone names** in calendar files from Windows (iPhone, Android and Gmail use the standard names, which already work).
