@@ -562,7 +562,7 @@ function Compose({ initial, signatures = [], onClose, onSent, onDraftsChanged })
         <div className="row">
           <div className="split-btn">
             <button className="btn primary" disabled={busy || uploading > 0 || !f.to.trim() || total > 25 * 1024 * 1024}><Icon name="send" size={18} /> {busy ? 'Sending…' : 'Send'}</button>
-            <Menu align="left" trigger={(p) => <button type="button" className="btn primary split-more" aria-label="Schedule send" title="Schedule send" disabled={busy || uploading > 0 || !f.to.trim() || total > 25 * 1024 * 1024} {...p}><Icon name="clock" size={16} /></button>}
+            <Menu align="left" trigger={(p) => <button type="button" className="btn primary split-more" aria-label="Schedule for later" title="Schedule for later" disabled={busy || uploading > 0 || !f.to.trim() || total > 25 * 1024 * 1024} {...p}><Icon name="clock" size={16} /></button>}
               items={[...laterChoices().map(([label, at]) => ({ label: `${label} · ${whenText(at)}`, onClick: () => sendLater(at) })), '-', { label: 'Pick date and time…', icon: 'calendar', onClick: () => setScheduling(true) }]} />
           </div>
           <button type="button" className="icon-btn" aria-label="Attach from computer" title="Attach from computer" onClick={() => fileInput.current.click()}><Icon name="attach" /></button>
