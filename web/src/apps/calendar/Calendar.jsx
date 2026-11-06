@@ -41,6 +41,7 @@ export default function Calendar() {
   const [events, setEvents] = useState([]);
   const [editing, setEditing] = useState(null);
   const [showTasks, setShowTasksState] = useState(savedTasks);
+  const [bookingOpen, setBookingOpen] = useState(false);
   const [tasks, setTasks] = useState([]);
   const setShowTasks = (on) => { setShowTasksState(on); try { localStorage.setItem('nw.calTasks', on ? '1' : '0'); } catch { /* private window */ } };
   const setView = (v) => { setViewState(v); try { localStorage.setItem('nw.calView', v); } catch { /* private window */ } };
@@ -121,6 +122,7 @@ export default function Calendar() {
     <div className="calendar">
       <aside className="subnav">
         <button className="btn new-btn" onClick={() => newEvent()}><Icon name="plus" /> Create</button>
+        <button type="button" className="subnav-item" onClick={() => setBookingOpen(true)}><Icon name="link" /><span className="grow">Booking pages</span></button>
         <label className="check cal-show-tasks"><input type="checkbox" checked={showTasks} onChange={(e) => setShowTasks(e.target.checked)} /> Show tasks with due dates</label>
         <h3 className="subnav-title">Upcoming</h3>
         {upcoming.length === 0 && <p className="muted small">Nothing scheduled</p>}
@@ -169,6 +171,7 @@ export default function Calendar() {
           <TimeGrid days={days} events={shown} today={today} onOpen={setEditing} onNew={newEvent} onDay={view === 'week' ? openDay : null} drag={drag} onTaskDone={taskDone} />
         )}
       </section>
+      {bookingOpen && <BookingPagesDialog onClose={() => setBookingOpen(false)} />}
       {editing && (editing.role === 'guest'
         ? <InvitationDialog event={editing} onClose={() => setEditing(null)} onAnswered={() => { setEditing(null); load(); }} />
         : <EventDialog event={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />)}
@@ -614,4 +617,85 @@ function useEventDrag(onDrop) {
       });
     },
   };
+}
+
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const LENGTHS = [15, 20, 30, 45, 60, 90, 120];
+const hhmm = (min) => `${pad(Math.floor(min / 60))}:${pad(min % 60)}`;
+const fromHhmm = (v) => { const [h, m] = String(v).split(':').map(Number); return h * 60 + (m || 0); };
+
+/** Your booking pages: links people use to book a free time with you. */
+function BookingPagesDialog({ onClose }) {
+  const toast = useToast();
+  const [pages, setPages] = useState(null);
+  const [editing, setEditing] = useState(null);
+  const load = () => get('/bookings').then(setPages).catch((e) => toast(e.message, 'error'));
+  useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const fresh = () => ({ title: 'Meeting', description: '', duration: 30, days: [1, 2, 3, 4, 5], from_min: 540, to_min: 1020, notice_hours: 4, days_ahead: 30, enabled: true });
+  async function save(p) {
+    try {
+      const body = { ...p, tz: TZ };
+      if (p.id) await patch(`/bookings/${p.id}`, body); else await post('/bookings', body);
+      toast(p.id ? 'Booking page saved' : 'Booking page made: copy its link to share it');
+      setEditing(null); load();
+    } catch (e) { toast(e.message, 'error'); }
+  }
+  const copy = async (p) => { try { await navigator.clipboard.writeText(p.url); toast('Link copied'); } catch { toast(p.url); } };
+  return (
+    <Modal wide title="Booking pages" onClose={onClose}>
+      {editing ? <BookingForm page={editing} onSave={save} onCancel={() => setEditing(null)} /> : (
+        <div className="stack">
+          <p className="muted small" style={{ margin: 0 }}>Share a link, and people (with or without an account) can book a free time in the hours you choose. Your events count as busy. Each booking goes on your calendar, and they get an invitation by email.</p>
+          {pages?.length === 0 && <p className="muted">No booking pages yet.</p>}
+          <ul className="rule-list">
+            {(pages || []).map((p) => (
+              <li key={p.id}>
+                <span className="grow"><strong>{p.title}</strong> <span className="muted small">· {p.duration} min · {p.days.map((d) => WEEKDAYS[d]).join(', ')} {hhmm(p.from_min)}–{hhmm(p.to_min)}{p.bookings ? ` · ${p.bookings} booked` : ''}{p.enabled ? '' : ' · off'}</span></span>
+                <button type="button" className="btn small" onClick={() => copy(p)}>Copy link</button>
+                <a className="btn small" href={p.url} target="_blank" rel="noreferrer">Open</a>
+                <button type="button" className="icon-btn" aria-label={`Change ${p.title}`} onClick={() => setEditing(p)}><Icon name="edit" size={16} /></button>
+                <button type="button" className="icon-btn" aria-label={`Delete ${p.title}`} onClick={async () => { await del(`/bookings/${p.id}`); load(); }}><Icon name="trash" size={16} /></button>
+              </li>
+            ))}
+          </ul>
+          <div className="row"><button type="button" className="btn primary" onClick={() => setEditing(fresh())}><Icon name="plus" size={16} /> New booking page</button></div>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+function BookingForm({ page, onSave, onCancel }) {
+  const [p, setP] = useState(page);
+  const set = (k, v) => setP({ ...p, [k]: v });
+  const ok = p.title.trim() && p.days.length && p.to_min - p.from_min >= p.duration;
+  return (
+    <form className="stack" onSubmit={(e) => { e.preventDefault(); if (ok) onSave(p); }}>
+      <label className="field"><span>Title</span><input value={p.title} maxLength={100} onChange={(e) => set('title', e.target.value)} /></label>
+      <label className="field"><span>Description (optional)</span><input value={p.description || ''} maxLength={1000} onChange={(e) => set('description', e.target.value)} placeholder="A short call to get to know each other" /></label>
+      <div className="row wrap" style={{ gap: 12 }}>
+        <label className="field"><span>Length</span><select value={p.duration} onChange={(e) => set('duration', Number(e.target.value))}>{LENGTHS.map((m) => <option key={m} value={m}>{m < 60 ? `${m} minutes` : `${m / 60} hour${m > 60 ? 's' : ''}`}</option>)}</select></label>
+        <label className="field"><span>From</span><input type="time" value={hhmm(p.from_min)} onChange={(e) => set('from_min', fromHhmm(e.target.value))} /></label>
+        <label className="field"><span>To</span><input type="time" value={hhmm(p.to_min === 1440 ? 1439 : p.to_min)} onChange={(e) => set('to_min', fromHhmm(e.target.value))} /></label>
+      </div>
+      <fieldset className="booking-weekdays"><legend className="muted small">Days</legend>
+        {WEEKDAYS.map((d, i) => (
+          <label key={d} className="check"><input type="checkbox" checked={p.days.includes(i)} onChange={(e) => set('days', e.target.checked ? [...p.days, i].sort() : p.days.filter((x) => x !== i))} /> {d}</label>
+        ))}
+      </fieldset>
+      <div className="row wrap" style={{ gap: 12 }}>
+        <label className="field"><span>At least this much notice</span><select value={p.notice_hours} onChange={(e) => set('notice_hours', Number(e.target.value))}>
+          {[[0, 'None'], [1, '1 hour'], [4, '4 hours'], [12, '12 hours'], [24, '1 day'], [48, '2 days'], [168, '1 week']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
+        <label className="field"><span>Up to this far ahead</span><select value={p.days_ahead} onChange={(e) => set('days_ahead', Number(e.target.value))}>
+          {[[7, '1 week'], [14, '2 weeks'], [30, '30 days'], [60, '60 days'], [90, '90 days']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
+      </div>
+      <label className="check"><input type="checkbox" checked={p.enabled} onChange={(e) => set('enabled', e.target.checked)} /> Taking bookings</label>
+      <p className="muted small" style={{ margin: 0 }}>Hours are in your time zone ({TZ}). Visitors see the times in theirs.</p>
+      {!ok && <p className="error small" style={{ margin: 0 }}>Pick at least one day, with hours long enough for one booking.</p>}
+      <div className="row end">
+        <button type="button" className="btn" onClick={onCancel}>Cancel</button>
+        <button className="btn primary" disabled={!ok}>{page.id ? 'Save' : 'Create'}</button>
+      </div>
+    </form>
+  );
 }

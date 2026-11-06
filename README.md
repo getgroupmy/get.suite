@@ -282,6 +282,7 @@ Send a file or a whole folder to someone who has no account, such as a client. I
   - They can also answer with their own mail app's buttons (Outlook's *Accept*, Gmail's *Yes*). That reply arrives in your inbox as usual, and Workspace reads the answer from it within a couple of minutes. Only a reply from the guest's own address counts.
   - An address on one of this server's own domains must belong to someone here, so a typo can't email a stranger.
 
+- **Booking pages:** **Booking pages** in the Calendar sidebar makes a link people can use to book time with you, with or without an account (customers, candidates, suppliers). Choose the length, the days and hours, how much notice you need and how far ahead people can book. Visitors see only the free times, in their own time zone: your events (repeating ones too) and invitations you haven't declined count as busy, all-day events don't. A booking goes on your calendar with the visitor as a guest and their note in the details; they get an invitation by email, and you get a notice. Turn a page off or delete it to stop bookings; Workspace's address must be reachable from the internet for outside visitors (set `PUBLIC_URL`).
 ## Email
 
 Your business fixed IP is what makes this work. Do these once:

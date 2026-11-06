@@ -7,6 +7,7 @@ import authRoutes from './routes/auth.js';
 import userRoutes from './routes/users.js';
 import fileRoutes from './routes/files.js';
 import calendarRoutes, { publicInviteRoutes } from './routes/calendar.js';
+import bookingRoutes, { publicBookingRoutes } from './routes/booking.js';
 import contactRoutes from './routes/contacts.js';
 import taskRoutes from './routes/tasks.js';
 import chatRoutes from './routes/chat.js';
@@ -64,6 +65,7 @@ export function createApp({
 
   app.use('/api/auth', authRoutes({ secureCookies }));
   app.use('/api/public/invites', publicInviteRoutes());
+  app.use('/api/public/book', publicBookingRoutes());
   app.use('/api/public', publicLinkRoutes());
   app.use('/api/users', requireAuth, userRoutes());
   app.use('/api/orgs', requireAuth, orgRoutes());
@@ -75,6 +77,7 @@ export function createApp({
   app.use('/api/links', requireAuth, linkRoutes());
   app.use('/api/comments', requireAuth, commentRoutes());
   app.use('/api/events', requireAuth, calendarRoutes());
+  app.use('/api/bookings', requireAuth, bookingRoutes());
   app.use('/api/contacts', requireAuth, contactRoutes());
   app.use('/api/chat', requireAuth, chatRoutes());
   app.use('/api/tasks', requireAuth, taskRoutes());

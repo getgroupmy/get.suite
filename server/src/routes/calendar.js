@@ -84,7 +84,7 @@ function readEvent(body, existing = {}) {
   return e;
 }
 
-const outEvent = (row) => ({ ...row, rrule: row.rrule ? JSON.parse(row.rrule) : null, exdates: JSON.parse(row.exdates || '[]'), repeat_until: undefined });
+export const outEvent = (row) => ({ ...row, rrule: row.rrule ? JSON.parse(row.rrule) : null, exdates: JSON.parse(row.exdates || '[]'), repeat_until: undefined });
 // When a series ends, for the range query: its last possible end (null = never, or "after N times").
 const repeatUntil = (e) => (e.rrule ? (e.rrule.until !== undefined ? e.rrule.until + (e.end - e.start) : null) : null);
 
@@ -132,7 +132,7 @@ const outsideOf = (eventId) => q('SELECT email, status, token FROM event_outside
 const allGuests = (eventId) => [...guestsOf(eventId).map(({ id, ...g }) => g), ...outsideOf(eventId).map(({ token, ...g }) => ({ ...g, name: null, external: true }))];
 
 /** Set the outside guests, keeping answers and links. Returns the added, kept and removed rows. */
-function setOutside(eventId, emails) {
+export function setOutside(eventId, emails) {
   const before = new Map(outsideOf(eventId).map((g) => [g.email, g]));
   const want = new Set(emails);
   tx(() => {
@@ -149,13 +149,13 @@ const detailsChanged = (a, b) => DETAILS.some((k) => (a[k] ?? null) !== (b[k] ??
   || JSON.stringify(a.rrule ?? null) !== JSON.stringify(b.rrule ?? null) || JSON.stringify(a.exdates || []) !== JSON.stringify(b.exdates || []);
 
 const icsUid = (e) => `${e.id}@${MAIL_HOSTNAME || 'workspace'}`;
-const baseUrl = (req) => (process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '');
+export const baseUrl = (req) => (process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '');
 
 /**
  * Email people outside the server: an invitation, an update or a cancellation, each with the
  * calendar file their mail app understands and a personal link to answer (best effort).
  */
-function notifyOutside(organizer, e, recipients, kind, { base, tz }) {
+export function notifyOutside(organizer, e, recipients, kind, { base, tz }) {
   if (!mailEnabled() || !recipients.length) return;
   const zone = zoneOrUtc(tz || e.tz);
   const everyone = [...guestsOf(e.id).map((g) => ({ email: g.email, name: g.name, status: g.status })), ...outsideOf(e.id).map((g) => ({ email: g.email, status: g.status }))];
@@ -206,7 +206,7 @@ function notify(organizer, e, recipients, kind, tz) {
 }
 
 /** Tell everyone involved to refresh (organizer's other tabs, and guests). */
-const touch = (ids) => sendTo([...new Set(ids)], { type: 'events-changed' });
+export const touch = (ids) => sendTo([...new Set(ids)], { type: 'events-changed' });
 
 export default function calendarRoutes() {
   const r = Router();

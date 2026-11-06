@@ -10,6 +10,7 @@ import { Avatar, Menu, ToastProvider, useToast } from './components/ui.jsx';
 import Login from './apps/Login.jsx';
 import PublicLink from './apps/PublicLink.jsx';
 import InviteAnswer from './apps/calendar/InviteAnswer.jsx';
+import BookingPage from './apps/calendar/BookingPage.jsx';
 import { TwoStep } from './apps/Settings.jsx';
 import Drive from './apps/drive/Drive.jsx';
 import DocEditor from './apps/docs/DocEditor.jsx';
@@ -34,6 +35,9 @@ export default function App() {
   if (link) return <PublicLink token={link[1]} />;
   // Answering a calendar invitation from outside (no account).
   const invite = window.location.pathname.match(/^\/i\/([A-Za-z0-9_-]+)\/?$/);
+  // Booking time from a booking link (no account needed).
+  const booking = window.location.pathname.match(/^\/b\/([A-Za-z0-9_-]+)\/?$/);
+  if (booking) return <BookingPage token={booking[1]} />;
   return invite ? <InviteAnswer token={invite[1]} /> : <Workspace />;
 }
 
@@ -115,6 +119,12 @@ function Shell() {
   const openCalendar = useCallback(() => navigate('/calendar'), [navigate]);
   useEventReminders(true, { toast, openCalendar });
   useTaskReminders({ toast, navigate });
+  // Someone booked time with you through a booking page.
+  useEffect(() => onLive((m) => {
+    if (m.type !== 'booking-made') return;
+    const when = new Date(m.start).toLocaleString([], { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
+    toast(`${m.by} booked “${m.page}” for ${when}`, 'info', { action: { label: 'Calendar', onClick: () => navigate('/calendar') } });
+  }), [toast, navigate]);
   const chatUnread = useChatUnread();
 
   return (

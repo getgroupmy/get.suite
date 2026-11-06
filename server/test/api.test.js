@@ -1126,3 +1126,42 @@ test('search filters: kind of file, whose it is, and when it changed', async () 
   assert.equal((await owner('GET', `/api/files?view=search&q=${tag}&type=nope`)).status, 400);
   void d; void s; void folder;
 });
+
+test('booking pages: free times around busy ones; booking puts it on the calendar; taken times refused', async () => {
+  const a = client(), outsider = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'booker', domain: 'acme.com', name: 'Bea Booker', password: 'password123' })).status, 201);
+  await login(a, 'booker@acme.com');
+  assert.equal((await a('POST', '/api/bookings', { title: 'Chat', duration: 7 })).status, 400);
+  const page = (await a('POST', '/api/bookings', { title: 'Intro call', duration: 30, days: [0, 1, 2, 3, 4, 5, 6], from_min: 0, to_min: 1440, tz: 'UTC', notice_hours: 0, days_ahead: 2 })).body;
+  assert.match(page.url, /\/b\/[\w-]+$/);
+  const token = page.url.split('/b/')[1];
+  const pub = (await outsider('GET', `/api/public/book/${token}`)).body;
+  assert.equal(pub.title, 'Intro call');
+  assert.equal(pub.owner.name, 'Bea Booker');
+  const all = pub.days.flatMap((d) => d.slots);
+  assert.ok(all.length > 40);
+  // A busy event takes its times away.
+  const busyAt = all[5];
+  await a('POST', '/api/events', { title: 'Dentist', start: busyAt, end: busyAt + 36e5 });
+  const after = (await outsider('GET', `/api/public/book/${token}`)).body.days.flatMap((d) => d.slots);
+  assert.ok(!after.includes(busyAt) && !after.includes(busyAt + 18e5), 'busy times are not offered');
+  // Book one.
+  const slot = after[0];
+  assert.equal((await outsider('POST', `/api/public/book/${token}`, { start: slot, name: 'Oscar Out', email: 'not-an-email' })).status, 400);
+  const b = await outsider('POST', `/api/public/book/${token}`, { start: slot, name: 'Oscar Out', email: 'oscar@example.org', note: 'About the quote' });
+  assert.equal(b.status, 201, JSON.stringify(b.body));
+  const ev = (await a('GET', `/api/events?from=${slot - 1}&to=${slot + 36e5}`)).body.find((e) => e.title === 'Intro call: Oscar Out');
+  assert.ok(ev, 'on the calendar');
+  assert.equal(ev.end - ev.start, 30 * 6e4);
+  assert.match(ev.description, /oscar@example.org/);
+  assert.match(ev.description, /About the quote/);
+  assert.deepEqual(ev.guests.map((g) => [g.email, g.status]), [['oscar@example.org', 'yes']]);
+  assert.equal((await outsider('POST', `/api/public/book/${token}`, { start: slot, name: 'Second', email: 'two@example.org' })).status, 409, 'now taken');
+  assert.equal((await a('GET', '/api/bookings')).body[0].bookings, 1);
+  // Turned off, or someone else's: not available / not changeable.
+  assert.equal((await owner('PATCH', `/api/bookings/${page.id}`, { enabled: false })).status, 404);
+  await a('PATCH', `/api/bookings/${page.id}`, { enabled: false });
+  assert.equal((await outsider('GET', `/api/public/book/${token}`)).status, 404);
+  await a('DELETE', `/api/bookings/${page.id}`);
+  assert.deepEqual((await a('GET', '/api/bookings')).body, []);
+});

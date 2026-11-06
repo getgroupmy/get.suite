@@ -1171,3 +1171,12 @@ button.rule-sample.on { outline: 2px solid var(--accent); outline-offset: 1px; }
 .theme-opt.system .theme-sample span { background: #f6f8fc; }
 .theme-opt.system .theme-sample span + span { background: #24262a; }
 @media (max-width: 520px) { .theme-pick { grid-template-columns: 1fr; } }
+
+/* Booking pages */
+.booking-days { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; }
+.booking-days button { flex: none; display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 84px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text); font: inherit; cursor: pointer; }
+.booking-days button.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-text); font-weight: 600; }
+.booking-slots { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }
+.booking-weekdays { display: flex; flex-wrap: wrap; gap: 4px 14px; border: 0; padding: 0; margin: 0; }
+.booking-weekdays legend { width: 100%; margin-bottom: 4px; }
+.invite-card.booking { max-width: 640px; }
