@@ -31,6 +31,20 @@ q(`CREATE TABLE IF NOT EXISTS scheduled_mail (
   error TEXT
 )`).run();
 
+// Labels: your own coloured tags for messages, kept on the mail server as IMAP keywords (so mail
+// apps that show keywords, such as Thunderbird's tags, see them). Names and colours are kept here.
+q(`CREATE TABLE IF NOT EXISTS mail_labels (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  color TEXT NOT NULL,
+  keyword TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+)`).run();
+const MAX_LABELS = 100;
+const LABEL_COLORS = ['#1a73e8', '#0b8043', '#d50000', '#f4511e', '#f6bf26', '#8e24aa', '#039be5', '#616161'];
+const labelsOf = (userId) => q('SELECT id, name, color, keyword FROM mail_labels WHERE user_id = ? ORDER BY name COLLATE NOCASE').all(userId);
+
 // Snoozed mail waits in a "Snoozed" IMAP folder (so phones see where it went) and comes back to
 // the Inbox, unread, when it's due. The message is found again by its Message-ID, or its UID.
 export const SNOOZED = 'Snoozed';
@@ -354,6 +368,60 @@ export default function webmailRoutes() {
     return changed;
   }
 
+  // ---- labels ----
+  r.get('/labels', (req, res) => res.json({ labels: labelsOf(req.user.id).map(({ keyword, ...l }) => l), colors: LABEL_COLORS }));
+
+  const labelBody = (b, current = {}) => {
+    const name = str(b.name ?? current.name, { required: true, name: 'Label name', max: 40 });
+    const color = b.color ?? current.color ?? LABEL_COLORS[0];
+    if (!/^#[0-9a-f]{6}$/i.test(color)) throw bad('Pick a colour');
+    return { name, color };
+  };
+  r.post('/labels', (req, res) => {
+    const { name, color } = labelBody(req.body || {});
+    if (labelsOf(req.user.id).length >= MAX_LABELS) throw bad('Too many labels');
+    if (labelsOf(req.user.id).some((l) => l.name.toLowerCase() === name.toLowerCase())) throw bad('You already have a label with that name');
+    const id = newId();
+    q('INSERT INTO mail_labels (id, user_id, name, color, keyword, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(id, req.user.id, name, color, `nwl_${id.replace(/[^a-z0-9]/gi, '').slice(0, 12)}`, now());
+    res.status(201).json({ id, name, color });
+  });
+  r.patch('/labels/:id', (req, res) => {
+    const l = q('SELECT * FROM mail_labels WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
+    if (!l) throw notFound('Label not found');
+    const { name, color } = labelBody(req.body || {}, l);
+    if (labelsOf(req.user.id).some((x) => x.id !== l.id && x.name.toLowerCase() === name.toLowerCase())) throw bad('You already have a label with that name');
+    q('UPDATE mail_labels SET name = ?, color = ? WHERE id = ?').run(name, color, l.id);
+    res.json({ id: l.id, name, color });
+  });
+  // Deleting a label takes it off every message, in every folder.
+  r.delete('/labels/:id', async (req, res) => {
+    const l = q('SELECT * FROM mail_labels WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
+    if (!l) throw notFound('Label not found');
+    const boxes = await withClient(req.user, (c) => c.list());
+    let n = 0;
+    for (const b of boxes.filter((x) => !x.flags?.has('\\Noselect'))) {
+      await withFolder(req.user, b.path, async (c) => {
+        const uids = (await c.search({ keyword: l.keyword }, { uid: true })) || [];
+        if (uids.length) { await c.messageFlagsRemove(uids.join(','), [l.keyword], { uid: true }); n += uids.length; }
+      }).catch(() => {});
+    }
+    q('DELETE FROM mail_labels WHERE id = ?').run(l.id);
+    res.json({ ok: true, messages: n });
+  });
+  // Put labels on messages, or take them off: { folder, uids, add: [labelId], remove: [labelId] }.
+  r.post('/messages/labels', async (req, res) => {
+    const folder = String(req.body.folder || 'INBOX');
+    const uids = uidList(req.body.uids).join(',');
+    const mine = new Map(labelsOf(req.user.id).map((l) => [l.id, l.keyword]));
+    const kw = (list) => (Array.isArray(list) ? list : []).map((id) => { if (!mine.has(id)) throw bad('Unknown label'); return mine.get(id); });
+    const add = kw(req.body.add), remove = kw(req.body.remove);
+    await withFolder(req.user, folder, async (c) => {
+      if (add.length) await c.messageFlagsAdd(uids, add, { uid: true });
+      if (remove.length) await c.messageFlagsRemove(uids, remove, { uid: true });
+    });
+    res.json({ ok: true });
+  });
+
   // ---- signatures: one per sending address ----
   r.get('/signatures', (req, res) => {
     res.json(identities(req.user).map((i) => ({ address: i.address, ...signatureOf(req.user.id, i.address) })));
@@ -383,11 +451,16 @@ export default function webmailRoutes() {
     const folder = String(req.query.folder || 'INBOX');
     const page = Math.max(1, Number(req.query.page) || 1);
     const term = String(req.query.q || '').trim();
+    const labels = labelsOf(req.user.id);
+    const byKeyword = new Map(labels.map((l) => [l.keyword.toLowerCase(), l.id]));
+    const only = req.query.label ? labels.find((l) => l.id === req.query.label) : null;
+    if (req.query.label && !only) throw notFound('Label not found');
     const out = await withFolder(req.user, folder, async (client) => {
       const total = client.mailbox.exists;
       let range, uidMode = false, count = total;
-      if (term) {
-        const uids = (await client.search({ or: [{ subject: term }, { from: term }, { to: term }, { body: term }] }, { uid: true })) || [];
+      if (term || only) {
+        const words = term ? { or: [{ subject: term }, { from: term }, { to: term }, { body: term }] } : {};
+        const uids = (await client.search(only ? { ...words, keyword: only.keyword } : words, { uid: true })) || [];
         uids.sort((a, b) => b - a);
         count = uids.length;
         const slice = uids.slice((page - 1) * PAGE, page * PAGE);
@@ -411,6 +484,7 @@ export default function webmailRoutes() {
           seen: m.flags.has('\\Seen'),
           flagged: m.flags.has('\\Flagged'),
           answered: m.flags.has('\\Answered'),
+          labels: [...m.flags].map((f) => byKeyword.get(String(f).toLowerCase())).filter(Boolean),
           attachment: hasAttachment(m.bodyStructure),
           size: m.size,
         });
@@ -444,6 +518,7 @@ export default function webmailRoutes() {
       messageId: p.messageId || null, references: [].concat(p.references || []),
       html: p.html || null, text: p.text || '', textAsHtml: p.textAsHtml || '',
       flagged: flags.has('\\Flagged'),
+      labels: (() => { const kw = new Map(labelsOf(req.user.id).map((l) => [l.keyword.toLowerCase(), l.id])); return [...flags].map((f) => kw.get(String(f).toLowerCase())).filter(Boolean); })(),
       spam: /yes/i.test(String(p.headers.get('x-spam') || '')),
       attachments: attachmentList(p),
     });

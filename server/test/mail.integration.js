@@ -377,6 +377,40 @@ test('snooze: off to Snoozed, back to the Inbox unread when due; snooze again; u
   assert.equal(q('SELECT COUNT(*) AS n FROM snoozed_mail').get().n, 0, 'nothing left waiting');
 });
 
+test('labels: made, put on and taken off messages, listed, filtered, kept as IMAP keywords, deleted from every folder', async () => {
+  const mk = await olivia('POST', '/api/mail/labels', { name: 'Clients', color: '#0b8043' });
+  assert.equal(mk.status, 201);
+  const urgent = (await olivia('POST', '/api/mail/labels', { name: 'Urgent', color: '#d50000' })).body;
+  assert.equal((await olivia('POST', '/api/mail/labels', { name: 'clients' })).status, 400, 'names are unique');
+  assert.equal((await olivia('POST', '/api/mail/labels', { name: 'Bad', color: 'red' })).status, 400);
+  assert.deepEqual((await olivia('GET', '/api/mail/labels')).body.labels.map((l) => l.name), ['Clients', 'Urgent']);
+  for (const subject of ['Label me', 'Label me too']) assert.ok([200, 201].includes((await gina('POST', '/api/mail/send', { to: 'olivia@acme.com', subject, text: 'x' })).status));
+  const find = async (subject, extra = '') => (await olivia('GET', `/api/mail/messages?folder=INBOX${extra}`)).body.messages.find((m) => m.subject === subject);
+  const a = await eventually(() => find('Label me')), b = await eventually(() => find('Label me too'));
+  await olivia('POST', '/api/mail/messages/labels', { folder: 'INBOX', uids: [a.uid, b.uid], add: [mk.body.id] });
+  await olivia('POST', '/api/mail/messages/labels', { folder: 'INBOX', uids: [a.uid], add: [urgent.id] });
+  assert.deepEqual((await find('Label me')).labels.sort(), [mk.body.id, urgent.id].sort());
+  assert.deepEqual((await olivia('GET', `/api/mail/messages/${a.uid}?folder=INBOX`)).body.labels.sort(), [mk.body.id, urgent.id].sort());
+  const only = (await olivia('GET', `/api/mail/messages?folder=INBOX&label=${urgent.id}`)).body.messages.map((m) => m.subject);
+  assert.deepEqual(only, ['Label me'], 'only the messages with that label');
+  // Mail apps see the keyword.
+  const imap = await imapLogin('olivia@acme.com', 'password123');
+  await imap.mailboxOpen('INBOX');
+  const msg = await imap.fetchOne(String(a.uid), { flags: true }, { uid: true });
+  await imap.logout();
+  assert.ok([...msg.flags].some((f) => /^nwl_/i.test(f)), `keywords: ${[...msg.flags].join(' ')}`);
+  // Take one off; rename; delete (from every folder).
+  await olivia('POST', '/api/mail/messages/labels', { folder: 'INBOX', uids: [a.uid], remove: [urgent.id] });
+  assert.deepEqual((await find('Label me')).labels, [mk.body.id]);
+  assert.equal((await olivia('PATCH', `/api/mail/labels/${mk.body.id}`, { name: 'Customers' })).body.name, 'Customers');
+  await olivia('POST', '/api/mail/messages/move', { folder: 'INBOX', uids: [b.uid], to: 'archive' });
+  const del = await olivia('DELETE', `/api/mail/labels/${mk.body.id}`);
+  assert.equal(del.body.messages, 2, 'taken off in the Inbox and the Archive');
+  assert.deepEqual((await find('Label me')).labels, []);
+  assert.equal((await olivia('POST', '/api/mail/messages/labels', { folder: 'INBOX', uids: [a.uid], add: [mk.body.id] })).status, 400, 'gone');
+  assert.equal((await gina('POST', '/api/mail/messages/labels', { folder: 'INBOX', uids: [1], add: [urgent.id] })).status, 400, "not someone else's");
+});
+
 // ---- filter rules (Sieve) ----
 test('filter rules: move + mark read, star + forward, delete, chained rules, folders', async () => {
   const bad = await olivia('PUT', '/api/mail/rules', { rules: [{ conditions: [], actions: { star: true } }] });

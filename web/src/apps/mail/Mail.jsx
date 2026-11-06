@@ -37,7 +37,13 @@ export default function Mail() {
   const folder = params.folder ? decodeURIComponent(params.folder) : 'INBOX';
   const openUid = params.uid ? Number(params.uid) : null;
   const q = search.get('q') || '';
+  const labelId = search.get('label') || '';
   const page = Number(search.get('page') || 1);
+  const [labels, setLabels] = useState([]);
+  const [labelColors, setLabelColors] = useState([]);
+  const [labelDialog, setLabelDialog] = useState(null); // {} new | label being changed
+  const loadLabels = useCallback(() => get('/mail/labels').then((r) => { setLabels(r.labels); setLabelColors(r.colors); }).catch(() => {}), []);
+  useEffect(() => { loadLabels(); }, [loadLabels]);
 
   const [folders, setFolders] = useState([]);
   const [data, setData] = useState(null);
@@ -73,8 +79,8 @@ export default function Mail() {
   useEffect(() => { get('/mail/vacation').then(setVacation).catch(() => {}); }, []);
 
   const loadFolders = useCallback(() => get('/mail/folders').then(setFolders).catch((e) => setError(e.message)), []);
-  const loadList = useCallback(() => get(`/mail/messages?folder=${enc(folder)}&page=${page}${q ? `&q=${enc(q)}` : ''}`)
-    .then((d) => { setData(d); setError(''); }).catch((e) => setError(e.message)), [folder, page, q]);
+  const loadList = useCallback(() => get(`/mail/messages?folder=${enc(folder)}&page=${page}${q ? `&q=${enc(q)}` : ''}${labelId ? `&label=${enc(labelId)}` : ''}`)
+    .then((d) => { setData(d); setError(''); }).catch((e) => setError(e.message)), [folder, page, q, labelId]);
 
   useEffect(() => { setData(null); setChecked(new Set()); loadList(); }, [loadList]);
   useEffect(() => { loadFolders(); }, [loadFolders]);
@@ -111,7 +117,10 @@ export default function Mail() {
   const refresh = () => { loadFolders(); loadList(); };
   refreshRef.current = refresh;
   const [snoozing, setSnoozing] = useState(null); // uids waiting for a picked time
-  const go = (f, uid) => navigate(`/mail/${enc(f)}${uid ? `/${uid}` : ''}${q ? `?q=${enc(q)}` : ''}`);
+  const go = (f, uid) => {
+    const keep = new URLSearchParams({ ...(q && { q }), ...(labelId && f === folder && { label: labelId }) }).toString();
+    navigate(`/mail/${enc(f)}${uid ? `/${uid}` : ''}${keep ? `?${keep}` : ''}`);
+  };
 
   async function act(path, body, msg) {
     try { await post(`/mail/messages/${path}`, { folder, ...body }); if (msg) toast(msg); setChecked(new Set()); refresh(); return true; }
@@ -144,7 +153,7 @@ export default function Mail() {
           const followable = own || f.specialUse === '\\Archive'; // built-in Archive: notifications only, no rename/delete
           return (
             <div key={f.path} className="folder-row">
-              <button className={`subnav-item ${f.path === folder && !q ? 'active' : ''}`} onClick={() => { setSearch({}); go(f.path); }}>
+              <button className={`subnav-item ${f.path === folder && !q && !labelId ? 'active' : ''}`} onClick={() => { setSearch({}); go(f.path); }}>
                 <Icon name={FOLDER_ICON[f.specialUse] || (f.path === SNOOZED ? 'clock' : 'folder')} /><span className="grow ellipsis">{f.name}</span>
                 {followable && followed.includes(f.path) && <Icon name="bell" size={14} className="followed" title="New-mail notifications on" />}
                 {f.unseen > 0 && f.specialUse !== '\\Trash' && f.specialUse !== '\\Sent' && <span className="count">{f.unseen}</span>}
@@ -167,6 +176,18 @@ export default function Mail() {
             <span className={`count ${scheduled.some((m) => m.status === 'failed') ? 'error' : 'muted'}`}>{scheduled.length}</span></button>
         )}
         <button className="subnav-item new-folder" onClick={() => setNewFolder(true)}><Icon name="plus" /><span className="grow">New folder</span></button>
+        <div className="subnav-title row">Labels<div className="grow" /><button type="button" className="icon-btn" aria-label="New label" onClick={() => setLabelDialog({})}><Icon name="plus" size={18} /></button></div>
+        {labels.map((l) => (
+          <div key={l.id} className="folder-row">
+            <button className={`subnav-item ${labelId === l.id ? 'active' : ''}`} onClick={() => setSearch({ label: l.id })}>
+              <span className="label-dot" style={{ background: l.color }} /><span className="grow ellipsis">{l.name}</span>
+            </button>
+            <Menu align="left" trigger={(p) => <button className="icon-btn folder-menu" aria-label={`Options for label ${l.name}`} {...p}><Icon name="more" size={18} /></button>} items={[
+              { label: 'Edit label', icon: 'edit', onClick: () => setLabelDialog(l) },
+              { label: 'Delete label', icon: 'trash', danger: true, onClick: () => setLabelDialog({ ...l, deleting: true }) },
+            ]} />
+          </div>
+        ))}
         <button className="subnav-item vacation-link" onClick={() => setVacationOpen(true)}>
           <Icon name="clock" /><span className="grow">Vacation reply</span>{vacation?.enabled && <span className="pill">{vacation.active ? 'On' : 'Scheduled'}</span>}
         </button>
@@ -207,11 +228,17 @@ export default function Mail() {
             <button className="btn small" onClick={() => act('flags', { uids: sel, seen: true })}>Mark read</button>
             <button className="btn small" onClick={() => act('flags', { uids: sel, seen: false })}>Mark unread</button>
             {special !== '\\Archive' && <button className="btn small" onClick={() => act('move', { uids: sel, to: 'archive' }, 'Archived')}>Archive</button>}
+            {labels.length > 0 && (() => {
+              const has = (id) => data?.messages.filter((m) => checked.has(m.uid)).every((m) => (m.labels || []).includes(id));
+              return <Menu align="left" trigger={(p) => <button type="button" className="btn small" {...p}>Label</button>}
+                items={labels.map((l) => ({ label: `${has(l.id) ? '✓ ' : ''}${l.name}`, onClick: () => act('labels', { uids: sel, [has(l.id) ? 'remove' : 'add']: [l.id] }, has(l.id) ? `Took off ${l.name}` : `Labelled ${l.name}`) }))} />;
+            })()}
             <SnoozeMenu small onPick={(at) => act('snooze', { uids: sel, until: at }, `Snoozed until ${whenText(at)}`)} onCustom={() => setSnoozing(sel)} />
             {folder === SNOOZED && <button className="btn small" onClick={() => act('unsnooze', { uids: sel }, 'Back in the Inbox')}>Unsnooze</button>}
             <button className="btn small danger" onClick={() => act('delete', { uids: sel }, special === '\\Trash' ? 'Deleted forever' : 'Moved to Trash')}>Delete</button>
           </div>
         )}
+        {labelId && <p className="muted small mail-note">Labelled <LabelChip label={labels.find((l) => l.id === labelId)} /> in {current?.name} · <button className="link" onClick={() => setSearch({})}>show all</button></p>}
         {q && <p className="muted small mail-note">Results for “{q}” in {current?.name} · <button className="link" onClick={() => setSearch({})}>clear</button></p>}
         {!data ? <p className="muted mail-note">Loading…</p> : data.messages.length === 0 ? (
           <Empty icon={q ? 'search' : 'inbox'} title={q ? 'No messages found' : `${current?.name || 'Folder'} is empty`} />
@@ -224,7 +251,7 @@ export default function Mail() {
                 <button className="msg-row" onClick={() => (special === '\\Drafts' ? openDraft(m.uid) : go(folder, m.uid))}>
                   <span className="msg-from ellipsis">{special === '\\Sent' || special === '\\Drafts' ? `To: ${m.to.map(who).join(', ')}` : who(m.from)}</span>
                   <span className="msg-date">{m.flagged && <span className="star" aria-label="Starred">★</span>}{m.attachment && <Icon name="attach" size={14} />} {m.snoozedUntil ? <span className="snoozed-until" title={`Comes back ${whenText(m.snoozedUntil)}`}><Icon name="clock" size={14} /> {formatDate(m.snoozedUntil)}</span> : m.date ? formatDate(m.date) : ''}</span>
-                  <span className="msg-subject ellipsis">{m.answered && '↩ '}{m.subject || '(no subject)'}</span>
+                  <span className="msg-subject ellipsis">{(m.labels || []).map((id) => labels.find((l) => l.id === id)).filter(Boolean).map((l) => <LabelChip key={l.id} label={l} />)}{m.answered && '↩ '}{m.subject || '(no subject)'}</span>
                 </button>
               </li>
             ))}
@@ -241,13 +268,19 @@ export default function Mail() {
 
       <section className="mail-reader">
         {openUid ? (
-          <Reader key={`${folder}:${openUid}`} folder={folder} uid={openUid} special={special} onSnoozeCustom={(uids) => setSnoozing(uids)}
+          <Reader key={`${folder}:${openUid}`} folder={folder} uid={openUid} special={special} onSnoozeCustom={(uids) => setSnoozing(uids)} labels={labels} onNewLabel={() => setLabelDialog({})}
             onClose={() => go(folder)} onChanged={refresh} act={act} onCompose={(init) => setCompose(withSignature(init, 'reply'))}
             onFilter={(from) => setFilters({ startWith: { name: `From ${from}`, enabled: true, match: 'all', conditions: [{ field: 'from', op: 'contains', value: from }], actions: { stop: true } } })} />
         ) : <Empty icon="mail" title="No message selected" />}
       </section>
 
       {compose && <Compose initial={compose} signatures={signatures} onClose={() => setCompose(null)} onSent={() => { setCompose(null); refresh(); }} onDraftsChanged={refresh} />}
+      {labelDialog && !labelDialog.deleting && <LabelDialog label={labelDialog} colors={labelColors} onClose={() => setLabelDialog(null)}
+        onSaved={() => { setLabelDialog(null); loadLabels(); }} />}
+      {labelDialog?.deleting && (
+        <ConfirmModal title={`Delete label “${labelDialog.name}”?`} confirm="Delete label" message="It comes off every message that has it. The messages themselves stay."
+          onClose={() => setLabelDialog(null)} onConfirm={async () => { await del(`/mail/labels/${labelDialog.id}`); if (labelId === labelDialog.id) setSearch({}); setLabelDialog(null); loadLabels(); refresh(); }} />
+      )}
       {snoozing && <ScheduleDialog title="Snooze until" confirm="Snooze" withinYear note={(at) => `It comes back to your Inbox ${whenText(at)}.`}
         onClose={() => setSnoozing(null)} onPick={async (at) => { const uids = snoozing; setSnoozing(null); if (await act('snooze', { uids, until: at }, `Snoozed until ${whenText(at)}`) && uids.includes(openUid)) go(folder); }} />}
       {scheduledOpen && <ScheduledDialog list={scheduled} onClose={() => setScheduledOpen(false)} onChanged={() => { loadScheduled(); refresh(); }} />}
@@ -284,7 +317,7 @@ export default function Mail() {
   );
 }
 
-function Reader({ folder, uid, special, onClose, onChanged, act, onCompose, onFilter, onSnoozeCustom }) {
+function Reader({ folder, uid, special, onClose, onChanged, act, onCompose, onFilter, onSnoozeCustom, labels = [], onNewLabel }) {
   const mailStatus = useMailStatus();
   const toast = useToast();
   const { user } = useAuth();
@@ -320,6 +353,14 @@ function Reader({ folder, uid, special, onClose, onChanged, act, onCompose, onFi
           : <button className="icon-btn" aria-label="Report spam" title="Report spam" onClick={() => done('move', { to: 'junk' }, 'Moved to Junk')}><Icon name="report" /></button>}
         <button className="icon-btn" aria-label="Delete" title="Delete" onClick={() => done('delete', {}, special === '\\Trash' ? 'Deleted forever' : 'Moved to Trash')}><Icon name="trash" /></button>
         <button className="icon-btn" aria-label="Mark unread" title="Mark unread" onClick={() => done('flags', { seen: false })}><Icon name="markunread" /></button>
+        <Menu align="left" trigger={(p) => <button type="button" className="icon-btn" aria-label="Labels" title="Labels" {...p}><LabelGlyph /></button>} items={[
+          ...labels.map((l) => {
+            const on = (m.labels || []).includes(l.id);
+            return { label: `${on ? '✓ ' : ''}${l.name}`, onClick: async () => { if (await act('labels', { uids: [uid], [on ? 'remove' : 'add']: [l.id] })) setM({ ...m, labels: on ? m.labels.filter((x) => x !== l.id) : [...(m.labels || []), l.id] }); } };
+          }),
+          ...(labels.length ? ['-'] : []),
+          { label: 'New label…', icon: 'plus', onClick: onNewLabel },
+        ]} />
         <SnoozeMenu onPick={(at) => done('snooze', { until: at }, `Snoozed until ${whenText(at)}`)} onCustom={() => onSnoozeCustom([uid])} />
         {folder === SNOOZED && <button className="btn small" onClick={() => done('unsnooze', {}, 'Back in the Inbox')}>Unsnooze</button>}
         <button className={`icon-btn ${m.flagged ? 'starred' : ''}`} aria-label={m.flagged ? 'Unstar' : 'Star'} aria-pressed={m.flagged} title="Star"
@@ -329,6 +370,13 @@ function Reader({ folder, uid, special, onClose, onChanged, act, onCompose, onFi
         {m.from?.address && <button className="btn small" onClick={() => onFilter(m.from.address)}>Filter messages like this</button>}
       </div>
       <h1 className="reader-subject">{m.subject || '(no subject)'}</h1>
+      {(m.labels || []).length > 0 && (
+        <div className="reader-labels">
+          {m.labels.map((id) => labels.find((l) => l.id === id)).filter(Boolean).map((l) => (
+            <LabelChip key={l.id} label={l} onRemove={async () => { if (await act('labels', { uids: [uid], remove: [l.id] })) setM({ ...m, labels: m.labels.filter((x) => x !== l.id) }); }} />
+          ))}
+        </div>
+      )}
       {m.spam && <div className="banner warn">This message was marked as likely spam. Be careful with links and attachments.</div>}
       <div className="reader-head">
         <Avatar name={who(m.from)} size={40} />
@@ -1664,6 +1712,45 @@ export function laterChoices(now = new Date()) {
   const toMonday = ((8 - now.getDay()) % 7) || 7;
   if (toMonday > 1) out.push(['Monday morning', at(toMonday, 8)]);
   return out;
+}
+
+/** A label's coloured chip, with a × to take it off when `onRemove` is given. */
+function LabelChip({ label, onRemove }) {
+  if (!label) return null;
+  return (
+    <span className="label-chip" style={{ '--c': label.color }}>
+      {label.name}
+      {onRemove && <button type="button" aria-label={`Take off ${label.name}`} onClick={onRemove}>×</button>}
+    </span>
+  );
+}
+
+function LabelGlyph() {
+  return <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M17.6 5.8A2 2 0 0 0 16 5H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h11a2 2 0 0 0 1.6-.8L22 12l-4.4-6.2zM16 17H5V7h11l3.5 5L16 17z" /></svg>;
+}
+
+/** Make a label, or change one's name and colour. */
+function LabelDialog({ label, colors, onClose, onSaved }) {
+  const toast = useToast();
+  const [name, setName] = useState(label.name || '');
+  const [color, setColor] = useState(label.color || colors[0] || '#1a73e8');
+  async function save(e) {
+    e.preventDefault();
+    try { if (label.id) await api('PATCH', `/mail/labels/${label.id}`, { name, color }); else await post('/mail/labels', { name, color }); toast(label.id ? 'Label changed' : `Label “${name.trim()}” made`); onSaved(); }
+    catch (err) { toast(err.message, 'error'); }
+  }
+  return (
+    <Modal title={label.id ? 'Edit label' : 'New label'} onClose={onClose}
+      footer={<><button type="button" className="btn" onClick={onClose}>Cancel</button><button type="submit" form="label-form" className="btn primary" disabled={!name.trim()}>{label.id ? 'Save' : 'Create'}</button></>}>
+      <form id="label-form" className="stack" onSubmit={save}>
+        <label className="field"><span>Name</span><input autoFocus value={name} maxLength={40} onChange={(e) => setName(e.target.value)} /></label>
+        <div className="label-colors" role="radiogroup" aria-label="Colour">
+          {colors.map((c) => <button key={c} type="button" role="radio" aria-checked={color === c} aria-label={c} className={color === c ? 'on' : ''} style={{ background: c }} onClick={() => setColor(c)} />)}
+        </div>
+        {name.trim() && <div><LabelChip label={{ name: name.trim(), color }} /></div>}
+      </form>
+    </Modal>
+  );
 }
 
 /** When snoozed mail can come back: later today (if there's time), tomorrow, the weekend, next week. */
