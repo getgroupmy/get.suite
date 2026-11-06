@@ -167,7 +167,7 @@ function MailApps() {
   const [made, setMade] = useState('');
   const [error, setError] = useState('');
   useEffect(() => { get('/auth/mail-app').then(setSt).catch(() => {}); }, []);
-  if (!st?.enabled) return null;
+  if (!st) return null;
   const reset = () => { setStep(null); setPassword(''); setError(''); };
   const run = (fn) => async (e) => { e.preventDefault(); setError(''); try { await fn(); } catch (err) { setError(err.message); } };
   const create = run(async () => { const r = await post('/auth/mail-app', { password }); setSt(r); setMade(r.password); setPassword(''); setStep('show'); });
@@ -175,13 +175,16 @@ function MailApps() {
   const host = st.hostname || window.location.hostname;
   return (
     <section className="card stack" aria-labelledby="mailapps-h">
-      <h2 id="mailapps-h">Mail apps (phones, Outlook)</h2>
+      <h2 id="mailapps-h">{st.enabled ? 'Mail, calendar and contacts on your phone' : 'Calendar and contacts on your phone'}</h2>
       <dl className="settings-list">
-        <dt>Incoming (IMAP)</dt><dd><code>{host}</code>, port <code>993</code>, SSL/TLS</dd>
-        <dt>Outgoing (SMTP)</dt><dd><code>{host}</code>, port <code>465</code> SSL/TLS (or <code>587</code> STARTTLS)</dd>
+        {st.enabled && <><dt>Incoming mail (IMAP)</dt><dd><code>{host}</code>, port <code>993</code>, SSL/TLS</dd>
+        <dt>Outgoing mail (SMTP)</dt><dd><code>{host}</code>, port <code>465</code> SSL/TLS (or <code>587</code> STARTTLS)</dd></>}
+        <dt>Calendar (CalDAV) and contacts (CardDAV)</dt><dd>Server <code>{window.location.host}</code> (if an app asks for a full address: <code>{`${window.location.origin}/dav/`}</code>)</dd>
         <dt>User name</dt><dd><code>{user.username}</code></dd>
-        <dt>Password</dt><dd>{st.appPassword ? 'your mail-app password (your account password no longer works in mail apps)' : 'your account password'}</dd>
+        <dt>Password</dt><dd>{st.appPassword ? 'your mail-app password (your account password no longer works in apps)'
+          : st.twoFactor ? 'create a mail-app password below: with two-step verification on, your account password doesn\'t work in apps' : 'your account password'}</dd>
       </dl>
+      <p className="muted small">iPhone and iPad: Settings → Calendar → Accounts → Add Account → Other → Add CalDAV Account (and Contacts → Add CardDAV Account). Android: the free DAVx⁵ app, "Login with URL and user name".</p>
       {step === 'show' ? <>
         <p><strong>Your mail-app password:</strong> enter it in your mail apps instead of your account password. It's shown only once.</p>
         <div className="secret-key" aria-label="Mail-app password">{made}</div>

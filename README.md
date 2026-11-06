@@ -101,6 +101,24 @@ In Drive, **New → Presentation**. Presentations are shared, versioned and save
 - **Print or save as PDF** (⋮ menu) prints one slide per landscape page. Choose "Save as PDF" in the print dialog.
 - People you share a presentation with see its pictures, even ones that aren't shared with them separately. Viewers can present but not edit.
 
+## Calendar and contacts on your phone
+
+Your Workspace calendar and contacts sync with the phone's own Calendar and Contacts apps, both ways, using the standard CalDAV and CardDAV. Settings → *Calendar and contacts on your phone* shows the details for each person.
+
+- **iPhone and iPad:** Settings → Calendar → Accounts → Add Account → Other → **Add CalDAV Account**. Enter the server (`workspace.example.com`), your email address and password. For contacts, do the same under Contacts → **Add CardDAV Account**.
+- **Android:** install the free **DAVx⁵** app → *Login with URL and user name*, with `https://workspace.example.com/`. Calendars and contacts then appear in the phone's apps.
+- **Thunderbird, macOS Calendar and Contacts** work the same way. The address `https://workspace.example.com/dav/` is the one to use if an app asks for the full address.
+- **Password:** your account password. With two-step verification on, use a **mail-app password** instead (Settings), so a phone never gets around the second step. Wrong passwords count towards sign-in protection.
+- **What syncs:**
+  - Your events, including repeating ones (daily, weekly on chosen days, monthly on a date, yearly; an end date or a number of times; skipped dates). Changes on either side show up on the other.
+  - Your contacts. Addresses, birthdays and extra numbers added on a phone are kept, even though the web only shows one email and one phone number.
+- **Not yet:**
+  - Invitations from colleagues stay in the web calendar only.
+  - A change to a single occurrence of a repeating event made on the phone isn't kept.
+  - Repeats that Workspace can't show (such as "second Monday of the month") arrive as a one-off on the first date.
+  - Reminders set on the phone stay on the phone.
+- **Synology reverse proxy:** nothing to add. The same HTTPS entry serves `/dav/` and the `/.well-known/caldav` and `/.well-known/carddav` addresses that apps look for.
+
 ## Version history (Drive)
 
 Drive keeps earlier versions of files, so a wrong edit or an overwritten upload can be undone.
@@ -414,4 +432,4 @@ cd server && MAIL_IT_CONFIG_DIR=/etc/nw npm run test:mail
 ## Roadmap
 
 - **Real-time co-editing:** live cursors and character-level merging (Yjs) in Docs and Sheets.
-- **Phone sync:** CalDAV and CardDAV, so calendars and contacts sync with the phone's built-in apps; WebDAV for Drive.
+- **Phone sync, next steps:** invitations and single changed occurrences over CalDAV; WebDAV for Drive.

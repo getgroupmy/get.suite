@@ -110,7 +110,7 @@ export function buildIcs(e, { method = 'REQUEST', uid, sequence = 0, organizer, 
   const zone = zoneOrUtc(tz);
   const repeats = !!e.rrule && !e.all_day && zone !== 'UTC';
   const start = firstStart(e, zone), end = start + (e.end - e.start);
-  const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//NAS Workspace//Calendar//EN', 'CALSCALE:GREGORIAN', `METHOD:${method}`];
+  const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//NAS Workspace//Calendar//EN', 'CALSCALE:GREGORIAN', ...(method ? [`METHOD:${method}`] : [])];
   if (repeats) {
     const last = e.rrule.until ?? start + 10 * 365 * 864e5;
     lines.push(...vtimezone(zone, start, Math.max(last, start) + 864e5));
@@ -139,4 +139,108 @@ export function buildIcs(e, { method = 'REQUEST', uid, sequence = 0, organizer, 
   }
   lines.push(`STATUS:${method === 'CANCEL' ? 'CANCELLED' : 'CONFIRMED'}`, 'TRANSP:OPAQUE', 'END:VEVENT', 'END:VCALENDAR');
   return fold(lines);
+}
+
+// ---- reading calendar files (from phones and calendar apps, over CalDAV) ----
+
+/** Unfold and split into { name, params, value } lines. */
+export function contentLines(text) {
+  return String(text || '').replace(/\r?\n[ \t]/g, '').split(/\r?\n/).filter(Boolean).map((line) => {
+    // NAME;P=V;P="V:x":value  (a colon inside a quoted parameter isn't the separator)
+    let i = 0, q = false;
+    for (; i < line.length; i++) { const c = line[i]; if (c === '"') q = !q; else if (c === ':' && !q) break; }
+    const head = line.slice(0, i), value = line.slice(i + 1);
+    const [name, ...ps] = head.split(';');
+    const params = Object.fromEntries(ps.map((p) => { const k = p.indexOf('='); return [p.slice(0, k).toUpperCase(), p.slice(k + 1).replace(/^"|"$/g, '')]; }));
+    return { name: name.toUpperCase(), params, value };
+  });
+}
+export const unescapeText = (s) => String(s || '').replace(/\\([\\;,nN])/g, (_, c) => (c === 'n' || c === 'N' ? '\n' : c));
+
+/** Wall-clock time in a zone to UTC milliseconds (correct around clock changes). */
+export function zonedToUtc(y, mo, d, h = 0, mi = 0, s = 0, zone = 'UTC') {
+  const guess = Date.UTC(y, mo - 1, d, h, mi, s);
+  let t = guess - offsetAt(guess, zone) * 6e4;
+  t = guess - offsetAt(t, zone) * 6e4;
+  return t;
+}
+
+/** A DATE or DATE-TIME value: { ms, date (all day) }. Floating times use `fallbackZone`. */
+export function parseWhen({ value, params }, fallbackZone = 'UTC') {
+  const m = /^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})(Z)?)?$/.exec(String(value).trim());
+  if (!m) return null;
+  const [, y, mo, d, h, mi, s, z] = m;
+  if (h === undefined || params.VALUE === 'DATE') return { ms: zonedToUtc(+y, +mo, +d, 0, 0, 0, fallbackZone), date: true, ymd: [+y, +mo, +d] };
+  if (z) return { ms: Date.UTC(+y, +mo - 1, +d, +h, +mi, +s), date: false };
+  return { ms: zonedToUtc(+y, +mo, +d, +h, +mi, +s, zoneOrUtc(params.TZID || fallbackZone)), date: false };
+}
+
+/**
+ * The event in a calendar file, as Workspace stores it, or { error }. Repeat rules Workspace can't
+ * show (e.g. "the second Monday of each month") come through as a one-off on the first date.
+ */
+export function parseIcsEvent(text, { tz = 'UTC' } = {}) {
+  const all = contentLines(text);
+  // Only the main event; changed single occurrences (RECURRENCE-ID) aren't kept yet.
+  const blocks = [];
+  let cur = null, depth = 0;
+  for (const l of all) {
+    if (l.name === 'BEGIN' && l.value.toUpperCase() === 'VEVENT') { cur = []; depth = 0; continue; }
+    if (cur && l.name === 'BEGIN') depth++;
+    if (cur && l.name === 'END' && l.value.toUpperCase() === 'VEVENT' && depth === 0) { blocks.push(cur); cur = null; continue; }
+    if (cur && l.name === 'END') { depth--; continue; }
+    if (cur && depth === 0) cur.push(l);
+  }
+  const ev = blocks.find((b) => !b.some((l) => l.name === 'RECURRENCE-ID'));
+  if (!ev) return { error: 'No event in this calendar file' };
+  const get = (n) => ev.find((l) => l.name === n);
+  const zoneOf = (l) => zoneOrUtc(l?.params.TZID || tz);
+  const startL = get('DTSTART');
+  const start = startL && parseWhen(startL, tz);
+  if (!start) return { error: 'The event has no valid start' };
+  let end;
+  const endL = get('DTEND'), durL = get('DURATION');
+  if (endL) end = parseWhen(endL, tz);
+  else if (durL) {
+    const m = /^([+-])?P(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/.exec(durL.value.trim());
+    const ms = m ? ((+m[2] || 0) * 7 * 864e5 + (+m[3] || 0) * 864e5 + (+m[4] || 0) * 36e5 + (+m[5] || 0) * 6e4 + (+m[6] || 0) * 1e3) : 0;
+    end = { ms: start.ms + ms, date: start.date };
+  }
+  const allDay = start.date;
+  let endMs;
+  if (allDay) {
+    // DTEND is the day after the last day (exclusive); Workspace keeps the last moment of the last day.
+    const lastDayStart = end ? end.ms : start.ms + 864e5;
+    endMs = Math.max(start.ms + 864e5, lastDayStart) - 1;
+  } else endMs = Math.max(start.ms, end ? end.ms : start.ms);
+  const out = {
+    uid: get('UID')?.value.trim() || null,
+    title: unescapeText(get('SUMMARY')?.value || '').trim().slice(0, 200) || 'Untitled event',
+    location: unescapeText(get('LOCATION')?.value || '').slice(0, 300) || null,
+    description: unescapeText(get('DESCRIPTION')?.value || '').slice(0, 5000) || null,
+    start: start.ms, end: endMs, all_day: allDay ? 1 : 0, tz: allDay ? tz : zoneOf(startL), rrule: null, exdates: [],
+  };
+  const rr = get('RRULE');
+  if (rr) {
+    const p = Object.fromEntries(rr.value.split(';').map((x) => x.split('=')).map(([k, v]) => [k.toUpperCase(), v]));
+    const freq = { DAILY: 'daily', WEEKLY: 'weekly', MONTHLY: 'monthly', YEARLY: 'yearly' }[p.FREQ];
+    const days = p.BYDAY ? p.BYDAY.split(',') : [];
+    const plainDays = days.every((d) => /^(SU|MO|TU|WE|TH|FR|SA)$/.test(d));
+    const startDay = new Date(start.ms + offsetAt(start.ms, out.tz) * 6e4).getUTCDate();
+    const supported = freq && plainDays && (!days.length || freq === 'weekly') && !p.BYSETPOS && !p.BYYEARDAY && !p.BYWEEKNO && !p.BYHOUR
+      && (!p.BYMONTHDAY || (freq !== 'daily' && freq !== 'weekly' && p.BYMONTHDAY.split(',').length === 1 && +p.BYMONTHDAY === startDay))
+      && (!p.BYMONTH || freq === 'yearly');
+    if (supported) {
+      const rule = { freq };
+      if (+p.INTERVAL > 1) rule.interval = Math.min(99, +p.INTERVAL);
+      if (days.length) rule.byday = [...new Set(days.map((d) => ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'].indexOf(d)))].sort();
+      if (p.COUNT) rule.count = Math.max(1, Math.min(999, +p.COUNT));
+      else if (p.UNTIL) { const u = parseWhen({ value: p.UNTIL, params: {} }, out.tz); if (u) rule.until = u.date ? u.ms + 864e5 - 1 : u.ms; }
+      out.rrule = rule;
+      for (const l of ev.filter((x) => x.name === 'EXDATE')) {
+        for (const v of l.value.split(',')) { const w = parseWhen({ value: v, params: l.params }, out.tz); if (w) out.exdates.push(w.ms); }
+      }
+    }
+  }
+  return out;
 }

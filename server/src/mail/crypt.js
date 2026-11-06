@@ -64,3 +64,12 @@ export function sha512crypt(password, salt = crypto.randomBytes(12).toString('ba
 export function dovecotHash(password, rounds = 20000) {
   return `{SHA512-CRYPT}${sha512crypt(password, undefined, rounds)}`;
 }
+
+/** Check a password against a Dovecot {SHA512-CRYPT} value (constant time). */
+export function verifyDovecotHash(password, stored) {
+  const m = /^\{SHA512-CRYPT\}\$6\$(?:rounds=(\d+)\$)?([^$]{0,16})\$([./0-9A-Za-z]+)$/.exec(String(stored || ''));
+  if (!m) return false;
+  const again = sha512crypt(password, m[2], m[1] ? Number(m[1]) : 5000);
+  const a = Buffer.from(`{SHA512-CRYPT}${again}`), b = Buffer.from(String(stored));
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}

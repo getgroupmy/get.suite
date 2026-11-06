@@ -193,6 +193,13 @@ db.exec(`CREATE TABLE IF NOT EXISTS share_links (
   last_opened INTEGER
 )`);
 db.exec('CREATE INDEX IF NOT EXISTS share_links_file ON share_links(file_id)');
+// Phone sync (CalDAV/CardDAV): the file name and UID a phone gave an event or contact, and the parts
+// of a contact card Workspace doesn't show (addresses, birthdays, more numbers), kept as they came.
+if (!hasColumn('events', 'dav_name')) db.exec('ALTER TABLE events ADD COLUMN dav_name TEXT');
+if (!hasColumn('events', 'ical_uid')) db.exec('ALTER TABLE events ADD COLUMN ical_uid TEXT');
+if (!hasColumn('contacts', 'dav_name')) db.exec('ALTER TABLE contacts ADD COLUMN dav_name TEXT');
+if (!hasColumn('contacts', 'vcard_uid')) db.exec('ALTER TABLE contacts ADD COLUMN vcard_uid TEXT');
+if (!hasColumn('contacts', 'vcard_extra')) db.exec('ALTER TABLE contacts ADD COLUMN vcard_extra TEXT');
 // Where each mailbox lives on the mail server. Null: the usual /var/vmail/<domain>/<name>. A renamed
 // person keeps their mailbox where it was; a mailbox left by someone deleted or renamed is never
 // handed to a new person who later gets that address.

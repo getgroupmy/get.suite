@@ -159,11 +159,11 @@ export default function authRoutes({ secureCookies }) {
   // ---- mail-app password (phones, Outlook): replaces the account password for IMAP/SMTP ----
   const mailApp = (userId) => {
     const row = q('SELECT mail_app_created FROM users WHERE id = ?').get(userId);
-    return { enabled: mailEnabled(), hostname: MAIL_HOSTNAME, appPassword: row?.mail_app_created ? { created: row.mail_app_created } : null };
+    return { enabled: mailEnabled(), hostname: MAIL_HOSTNAME, twoFactor: twoFactor.isEnabled(userId), appPassword: row?.mail_app_created ? { created: row.mail_app_created } : null };
   };
   r.get('/mail-app', requireAuth, (req, res) => res.json(mailApp(req.user.id)));
   r.post('/mail-app', requireAuth, (req, res) => {
-    if (!mailEnabled()) throw bad('Email is not set up on this server');
+    // Also for calendar and contacts sync (CalDAV/CardDAV), so it works with email turned off too.
     needPassword(req);
     // 16 letters in 4 groups: easy to type on a phone, ~75 bits of randomness.
     const letters = 'abcdefghijkmnopqrstuvwxyz';

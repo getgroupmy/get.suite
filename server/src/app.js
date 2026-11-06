@@ -14,6 +14,7 @@ import mailAdminRoutes from './routes/mailAdmin.js';
 import webmailRoutes from './routes/webmail.js';
 import securityRoutes from './routes/security.js';
 import { linkRoutes, publicLinkRoutes } from './routes/links.js';
+import davRoutes from './dav.js';
 import { writeMailConfig, mailEnabled } from './mail/config.js';
 import { q } from './db.js';
 import { ensureGeneralChannel } from './tenancy.js';
@@ -38,6 +39,12 @@ export function createApp({
   });
 
   app.get('/api/health', (req, res) => res.json({ ok: true }));
+
+  // Phone sync (CalDAV/CardDAV). Apps look for these well-known addresses first.
+  for (const w of ['/.well-known/caldav', '/.well-known/carddav']) app.all(w, (req, res) => res.redirect(301, '/dav/'));
+  app.use('/dav', davRoutes());
+  // Apps given only the server name ask the root first.
+  app.use((req, res, next) => (req.path === '/' && (req.method === 'PROPFIND' || req.method === 'REPORT') ? res.redirect(301, '/dav/') : next()));
 
   // CSRF defence: state-changing API calls must carry a custom header,
   // which browsers never attach to cross-site form posts.
