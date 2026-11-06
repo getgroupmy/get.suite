@@ -504,6 +504,7 @@ Each entry shows who did it, what it was done to, the details and the IP address
 - **Unread:** Chat in the app bar and each conversation show how many messages you haven't read; opening the conversation clears them, on your other devices too.
 - **Reactions:** hover over a message and pick 👍, ❤️, 😂 or any emoji; click a reaction to add yours or take it back. Hover over it to see who reacted.
 - **Editing:** hover over your own message and choose the pencil to change it (Enter saves, Esc cancels). Changed messages say "(edited)".
+- **Threads:** hover over a message and choose **Reply in thread** to answer it beside the conversation, so side discussions don't bury everything else. The message shows how many replies it has, who replied and when the last came; click that to open the thread. Replies in a thread only count as unread for people in it (who started it or replied). Deleting a message deletes its thread.
 - **Pictures and files:** the paper clip attaches files (or drop or paste them into the message box). They're saved in a "Chat files" folder in your Drive, and everyone in the conversation can open them from the message, even without access to the folder. Pictures show in the conversation.
 
 ## Keyboard shortcuts

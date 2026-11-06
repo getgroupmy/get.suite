@@ -33,6 +33,7 @@ export default function Chat() {
     caret.current = null;
   }, [text]);
   const [unread, setUnread] = useState({});
+  const [threadId, setThreadId] = useState(null); // the message whose thread is open beside the conversation
   const [dialog, setDialog] = useState(false);
   const scroller = useRef();
   const stick = useRef(true);
@@ -62,12 +63,17 @@ export default function Chat() {
     setMessages([]);
     stick.current = true;
     setUnread((u) => ({ ...u, [channelId]: 0 }));
-    setEditingId(null); setFiles([]);
+    setEditingId(null); setFiles([]); setThreadId(null);
     get(`/chat/channels/${channelId}/messages`).then((list) => { setMessages(list); markRead(channelId); }).catch((e) => toast(e.message, 'error'));
   }, [channelId, toast]);
 
   useEffect(() => onLive((m) => {
-    if (m.type === 'message') {
+    if (m.type === 'message' && m.message.parent_id) {
+      // A reply: its thread shows it, and its message's count comes as an update. Unread counts for
+      // threads you're in come from the server.
+      if (m.message.channel_id !== channelId && m.message.user_id !== user.id) loadChannels();
+      else if (m.message.user_id !== user.id) markRead(channelId);
+    } else if (m.type === 'message') {
       if (m.message.channel_id === channelId) { setMessages((list) => (list.some((x) => x.id === m.message.id) ? list : [...list, m.message])); if (m.message.user_id !== user.id) markRead(channelId); }
       else if (m.message.user_id !== user.id) setUnread((u) => ({ ...u, [m.message.channel_id]: (u[m.message.channel_id] || 0) + 1 }));
     } else if (m.type === 'message-updated') {
@@ -76,6 +82,7 @@ export default function Chat() {
       setUnread((u) => ({ ...u, [m.channel_id]: 0 }));
     } else if (m.type === 'message-deleted') {
       setMessages((list) => list.filter((x) => x.id !== m.id));
+      setThreadId((t) => (t === m.id ? null : t));
     } else if (m.type === 'channels-changed' || m.type === 'live-connected') {
       loadChannels();
     }
@@ -169,43 +176,9 @@ export default function Chat() {
               return (
                 <div key={m.id}>
                   {newDay && <div className="day-sep"><span>{new Date(m.created_at).toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}</span></div>}
-                  <div className={`msg ${grouped && !newDay ? 'grouped' : ''}`}>
-                    {grouped && !newDay ? <span className="msg-gutter" /> : <Avatar name={m.user_name || 'Deleted user'} size={36} />}
-                    <div className="msg-body">
-                      {(!grouped || newDay) && <div className="msg-meta"><strong>{m.user_name || 'Deleted user'}</strong> <span className="muted small">{new Date(m.created_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span></div>}
-                      {editingId === m.id ? (
-                        <form className="msg-edit" onSubmit={(e) => { e.preventDefault(); saveEdit(m); }}>
-                          <textarea autoFocus aria-label="Change the message" value={editText} rows={Math.min(6, editText.split('\n').length)} onChange={(e) => setEditText(e.target.value)}
-                            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveEdit(m); } else if (e.key === 'Escape') { e.preventDefault(); setEditingId(null); } }} />
-                          <span className="muted small">Enter to save · Esc to cancel</span>
-                        </form>
-                      ) : m.body && <div className="msg-text"><Linked text={m.body} />{m.edited_at && <span className="muted small edited" title={`Edited ${new Date(m.edited_at).toLocaleString()}`}> (edited)</span>}</div>}
-                      {m.files?.length > 0 && (
-                        <div className="msg-files">
-                          {m.files.map((f) => (/^image\/(png|jpeg|gif|webp)$/.test(f.mime)
-                            ? <a key={f.id} href={`/api/chat/messages/${m.id}/files/${f.id}`} target="_blank" rel="noreferrer" className="msg-pic"><img src={`/api/chat/messages/${m.id}/files/${f.id}`} alt={f.name} loading="lazy" /></a>
-                            : <a key={f.id} className="msg-file" href={`/api/chat/messages/${m.id}/files/${f.id}?download`}><Icon name="attach" size={16} /> {f.name} <span className="muted small">{formatBytes(f.size)}</span></a>))}
-                        </div>
-                      )}
-                      {m.reactions?.length > 0 && (
-                        <div className="reactions">
-                          {m.reactions.map((r) => {
-                            const mine = r.users.some((u) => u.id === user.id);
-                            return <button key={r.emoji} type="button" className={`reaction ${mine ? 'mine' : ''}`} aria-pressed={mine} title={r.users.map((u) => u.name).join(', ')}
-                              aria-label={`${r.emoji} ${r.users.length}: ${r.users.map((u) => u.name).join(', ')}`} onClick={() => react(m, r.emoji)}>{r.emoji} {r.users.length}</button>;
-                          })}
-                        </div>
-                      )}
-                    </div>
-                    <div className="msg-actions">
-                      {['👍', '❤️', '😂'].map((e) => <button key={e} type="button" className="icon-btn" aria-label={`React with ${e}`} onClick={() => react(m, e)}>{e}</button>)}
-                      <EmojiPicker className="icon-btn" label="Add a reaction" onPick={(e) => react(m, e)} />
-                      {m.user_id === user.id && <button type="button" className="icon-btn" aria-label="Edit message" onClick={() => { setEditingId(m.id); setEditText(m.body); }}><Icon name="edit" size={16} /></button>}
-                      {(m.user_id === user.id || user.is_admin) && (
-                        <button className="icon-btn" aria-label="Delete message" onClick={() => del(`/chat/messages/${m.id}`).catch((e) => toast(e.message, 'error'))}><Icon name="trash" size={16} /></button>
-                      )}
-                    </div>
-                  </div>
+                  <Message m={m} grouped={grouped && !newDay} user={user} editing={editingId === m.id} editText={editText} setEditText={setEditText}
+                    onStartEdit={() => { setEditingId(m.id); setEditText(m.body); }} onSaveEdit={() => saveEdit(m)} onCancelEdit={() => setEditingId(null)}
+                    onReact={(e) => react(m, e)} onThread={() => setThreadId(m.id)} onDelete={() => del(`/chat/messages/${m.id}`).catch((e) => toast(e.message, 'error'))} />
                 </div>
               );
             })}
@@ -227,6 +200,7 @@ export default function Chat() {
           </form>
         </>}
       </section>
+      {current && threadId && <Thread key={threadId} id={threadId} channelId={channelId} user={user} onClose={() => setThreadId(null)} />}
       {dialog === 'email' && <PromptModal title="Message someone at another company" label="Their email address" confirm="Start chat" onClose={() => setDialog(false)}
         onSubmit={async (email) => { const p = await get(`/users/lookup?email=${encodeURIComponent(email)}`); await openDm(p.id); }} />}
       {dialog === true && <PromptModal title="New channel" label="Channel name" confirm="Create" onClose={() => setDialog(false)}
@@ -234,6 +208,131 @@ export default function Chat() {
     </div>
   );
 }
+
+/** A thread beside the conversation: the message, its replies (live), and a box to reply. */
+function Thread({ id, channelId, user, onClose }) {
+  const toast = useToast();
+  const [parent, setParent] = useState(null);
+  const [replies, setReplies] = useState([]);
+  const [text, setText] = useState('');
+  const [editingId, setEditingId] = useState(null);
+  const [editText, setEditText] = useState('');
+  const end = useRef();
+  const box = useRef();
+  useEffect(() => {
+    get(`/chat/messages/${id}/replies`).then((t) => { setParent(t.message); setReplies(t.replies); }).catch((e) => { toast(e.message, 'error'); onClose(); });
+    box.current?.focus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
+  useEffect(() => onLive((m) => {
+    if (m.type === 'message' && m.message.parent_id === id) setReplies((list) => (list.some((x) => x.id === m.message.id) ? list : [...list, m.message]));
+    else if (m.type === 'message-updated') {
+      if (m.message.id === id) setParent(m.message);
+      else setReplies((list) => list.map((x) => (x.id === m.message.id ? m.message : x)));
+    } else if (m.type === 'message-deleted' && m.parent_id === id) setReplies((list) => list.filter((x) => x.id !== m.id));
+  }), [id]);
+  useLayoutEffect(() => { end.current?.scrollIntoView?.({ block: 'end' }); }, [replies.length]);
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape' && !e.defaultPrevented && !document.querySelector('.modal-backdrop')) onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const replace = (msg) => { if (msg.id === id) setParent(msg); else setReplies((list) => list.map((x) => (x.id === msg.id ? msg : x))); };
+  const react = (m, emoji) => post(`/chat/messages/${m.id}/reactions`, { emoji }).then(replace).catch((err) => toast(err.message, 'error'));
+  async function saveEdit(m) {
+    const body = editText.trim();
+    if (body === m.body) { setEditingId(null); return; }
+    try { replace(await patch(`/chat/messages/${m.id}`, { body })); setEditingId(null); } catch (err) { toast(err.message, 'error'); }
+  }
+  async function send(e) {
+    e.preventDefault();
+    const body = text.trim();
+    if (!body) return;
+    setText('');
+    try { const msg = await post(`/chat/channels/${channelId}/messages`, { body, parent_id: id }); setReplies((list) => (list.some((x) => x.id === msg.id) ? list : [...list, msg])); }
+    catch (err) { toast(err.message, 'error'); setText(body); }
+  }
+  const item = (m, grouped) => (
+    <Message key={m.id} m={m} grouped={grouped} user={user} editing={editingId === m.id} editText={editText} setEditText={setEditText}
+      onStartEdit={() => { setEditingId(m.id); setEditText(m.body); }} onSaveEdit={() => saveEdit(m)} onCancelEdit={() => setEditingId(null)}
+      onReact={(e) => react(m, e)} onDelete={() => del(`/chat/messages/${m.id}`).then(() => { if (m.id === id) onClose(); }).catch((err) => toast(err.message, 'error'))} />
+  );
+  return (
+    <aside className="thread-panel" aria-label="Thread">
+      <div className="row thread-head"><h2 className="grow">Thread</h2><button type="button" className="icon-btn" aria-label="Close thread" onClick={onClose}><Icon name="close" /></button></div>
+      <div className="thread-body">
+        {parent && item(parent, false)}
+        {parent && <div className="thread-count muted small">{replies.length ? `${replies.length} ${replies.length === 1 ? 'reply' : 'replies'}` : 'No replies yet'}</div>}
+        {replies.map((m, i) => item(m, i > 0 && replies[i - 1].user_id === m.user_id && m.created_at - replies[i - 1].created_at < 5 * 60e3))}
+        <div ref={end} />
+      </div>
+      <form className="composer" onSubmit={send}>
+        <EmojiPicker up className="icon-btn" onPick={(ch) => setText((v) => v + ch)} />
+        <textarea ref={box} rows={1} value={text} placeholder="Reply…" aria-label="Reply" onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) send(e); }} />
+        <button className="icon-btn send" aria-label="Send reply" disabled={!text.trim()}><Icon name="send" /></button>
+      </form>
+    </aside>
+  );
+}
+
+/** One message: text (or the box to change it), files, reactions, its thread, and hover actions. */
+function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit, onSaveEdit, onCancelEdit, onReact, onThread, onDelete }) {
+  return (
+    <div className={`msg ${grouped ? 'grouped' : ''}`}>
+      {grouped ? <span className="msg-gutter" /> : <Avatar name={m.user_name || 'Deleted user'} size={36} />}
+      <div className="msg-body">
+        {!grouped && <div className="msg-meta"><strong>{m.user_name || 'Deleted user'}</strong> <span className="muted small">{new Date(m.created_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span></div>}
+        {editing ? (
+          <form className="msg-edit" onSubmit={(e) => { e.preventDefault(); onSaveEdit(); }}>
+            <textarea autoFocus aria-label="Change the message" value={editText} rows={Math.min(6, editText.split('\n').length)} onChange={(e) => setEditText(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSaveEdit(); } else if (e.key === 'Escape') { e.preventDefault(); onCancelEdit(); } }} />
+            <span className="muted small">Enter to save · Esc to cancel</span>
+          </form>
+        ) : m.body && <div className="msg-text"><Linked text={m.body} />{m.edited_at && <span className="muted small edited" title={`Edited ${new Date(m.edited_at).toLocaleString()}`}> (edited)</span>}</div>}
+        {m.files?.length > 0 && (
+          <div className="msg-files">
+            {m.files.map((f) => (/^image\/(png|jpeg|gif|webp)$/.test(f.mime)
+              ? <a key={f.id} href={`/api/chat/messages/${m.id}/files/${f.id}`} target="_blank" rel="noreferrer" className="msg-pic"><img src={`/api/chat/messages/${m.id}/files/${f.id}`} alt={f.name} loading="lazy" /></a>
+              : <a key={f.id} className="msg-file" href={`/api/chat/messages/${m.id}/files/${f.id}?download`}><Icon name="attach" size={16} /> {f.name} <span className="muted small">{formatBytes(f.size)}</span></a>))}
+          </div>
+        )}
+        {m.reactions?.length > 0 && (
+          <div className="reactions">
+            {m.reactions.map((r) => {
+              const mine = r.users.some((u) => u.id === user.id);
+              return <button key={r.emoji} type="button" className={`reaction ${mine ? 'mine' : ''}`} aria-pressed={mine} title={r.users.map((u) => u.name).join(', ')}
+                aria-label={`${r.emoji} ${r.users.length}: ${r.users.map((u) => u.name).join(', ')}`} onClick={() => onReact(r.emoji)}>{r.emoji} {r.users.length}</button>;
+            })}
+          </div>
+        )}
+        {onThread && m.reply_count > 0 && (
+          <button type="button" className="thread-summary" onClick={onThread}>
+            <span className="thread-faces">{(m.repliers || []).map((n) => <Avatar key={n} name={n} size={20} />)}</span>
+            <strong>{m.reply_count} {m.reply_count === 1 ? 'reply' : 'replies'}</strong>
+            <span className="muted small">Last reply {timeOrDay(m.last_reply_at)}</span>
+          </button>
+        )}
+      </div>
+      <div className="msg-actions">
+        {['👍', '❤️', '😂'].map((e) => <button key={e} type="button" className="icon-btn" aria-label={`React with ${e}`} onClick={() => onReact(e)}>{e}</button>)}
+        <EmojiPicker className="icon-btn" label="Add a reaction" onPick={(e) => onReact(e)} />
+        {onThread && <button type="button" className="icon-btn" aria-label="Reply in thread" title="Reply in thread" onClick={onThread}><Icon name="reply" size={16} /></button>}
+        {m.user_id === user.id && <button type="button" className="icon-btn" aria-label="Edit message" onClick={onStartEdit}><Icon name="edit" size={16} /></button>}
+        {(m.user_id === user.id || user.is_admin) && (
+          <button className="icon-btn" aria-label="Delete message" onClick={onDelete}><Icon name="trash" size={16} /></button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const timeOrDay = (ms) => {
+  const d = new Date(ms);
+  const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  return d.toDateString() === new Date().toDateString() ? `at ${time}` : `${d.toLocaleDateString([], { month: 'short', day: 'numeric' })} at ${time}`;
+};
 
 /** Message text with web addresses and links into the workspace (such as /docs/…) clickable. */
 const LINK_RE = /(https?:\/\/[^\s<>"]+[^\s<>".,;:!?)\]'"]|(?<![\w/])\/(?:docs|sheets|slides|drive|calendar|mail|chat)\/[\w-]+(?:\?[\w=&%-]+)?)/g;

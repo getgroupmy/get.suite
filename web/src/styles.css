@@ -1045,3 +1045,17 @@ button.rule-sample.on { outline: 2px solid var(--accent); outline-offset: 1px; }
 @media (max-width: 900px) { .doc-outline { position: absolute; left: 0; top: 0; bottom: 0; z-index: 30; box-shadow: var(--shadow); } }
 @media print { .doc-outline { display: none !important; } }
 .snoozed-until { color: var(--accent-text); display: inline-flex; align-items: center; gap: 3px; }
+
+/* Chat threads */
+.thread-summary { display: inline-flex; align-items: center; gap: 8px; margin-top: 4px; padding: 3px 10px 3px 4px; border: 1px solid transparent; border-radius: 8px; background: none; font: inherit; font-size: 13px; color: var(--accent-text); cursor: pointer; }
+.thread-summary:hover { border-color: var(--border); background: var(--surface); }
+.thread-faces { display: inline-flex; }
+.thread-faces > * + * { margin-left: -6px; }
+.thread-panel { width: 380px; flex: none; display: flex; flex-direction: column; min-height: 0; background: var(--surface); border-radius: var(--radius) var(--radius) 0 0; margin: 0 16px 0 -8px; border-left: 1px solid var(--border); }
+.thread-head { padding: 12px 12px 8px 20px; border-bottom: 1px solid var(--border); }
+.thread-head h2 { margin: 0; font-size: 16px; }
+.thread-body { flex: 1; overflow-y: auto; padding: 8px 0; }
+.thread-count { padding: 6px 20px; border-bottom: 1px solid var(--border); margin-bottom: 6px; }
+@media (max-width: 900px) {
+  .thread-panel { position: fixed; inset: 56px 0 0 0; width: auto; margin: 0; z-index: 40; border-radius: 0; }
+}

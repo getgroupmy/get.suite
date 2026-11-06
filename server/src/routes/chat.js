@@ -44,7 +44,12 @@ function dmOpen(c, user) {
   return membersOf(c).every((id) => id === user.id || canReach(user, id));
 }
 
-const MSG = `SELECT m.id, m.channel_id, m.user_id, m.body, m.created_at, m.edited_at, m.files, u.name AS user_name
+// Each message with its thread: how many replies, when the last came, and who replied (first few).
+const MSG = `SELECT m.id, m.channel_id, m.user_id, m.body, m.created_at, m.edited_at, m.files, m.parent_id, u.name AS user_name,
+               (SELECT COUNT(*) FROM messages t WHERE t.parent_id = m.id) AS reply_count,
+               (SELECT MAX(t.created_at) FROM messages t WHERE t.parent_id = m.id) AS last_reply_at,
+               (SELECT json_group_array(name) FROM (SELECT DISTINCT tu.name FROM messages t JOIN users tu ON tu.id = t.user_id
+                 WHERE t.parent_id = m.id ORDER BY t.created_at LIMIT 3)) AS repliers
              FROM messages m LEFT JOIN users u ON u.id = m.user_id`;
 
 /** Messages as the app shows them: attached files and reactions ({ emoji, users: [{ id, name }] }) included. */
@@ -60,7 +65,7 @@ function shape(rows) {
       if (!e) byEmoji.push(e = { emoji: r.emoji, users: [] });
       e.users.push({ id: r.user_id, name: r.name || 'Someone' });
     }
-    return { ...m, files: m.files ? JSON.parse(m.files) : [], reactions: byEmoji };
+    return { ...m, files: m.files ? JSON.parse(m.files) : [], reactions: byEmoji, repliers: m.repliers ? JSON.parse(m.repliers) : [] };
   });
 }
 const one = (id) => shape([q(`${MSG} WHERE m.id = ?`).get(id)].filter(Boolean))[0];
@@ -103,11 +108,13 @@ export default function chatRoutes() {
                       (SELECT o.name FROM channel_members cm JOIN users u ON u.id = cm.user_id JOIN orgs o ON o.id = u.org_id
                         WHERE cm.channel_id = c.id AND cm.user_id != ? AND u.org_id != ? LIMIT 1) AS dm_org,
                       (SELECT COUNT(*) FROM messages m WHERE m.channel_id = c.id AND (m.user_id IS NULL OR m.user_id != ?)
-                        AND m.created_at > COALESCE((SELECT read_at FROM channel_reads r WHERE r.channel_id = c.id AND r.user_id = ?), 0)) AS unread
+                        AND m.created_at > COALESCE((SELECT read_at FROM channel_reads r WHERE r.channel_id = c.id AND r.user_id = ?), 0)
+                        -- replies count only for people in that thread (who started it or replied)
+                        AND (m.parent_id IS NULL OR EXISTS (SELECT 1 FROM messages t WHERE (t.id = m.parent_id OR t.parent_id = m.parent_id) AND t.user_id = ?))) AS unread
                     FROM channels c
                     WHERE (c.dm_key IS NULL AND c.org_id = ?)
                        OR EXISTS (SELECT 1 FROM channel_members cm WHERE cm.channel_id = c.id AND cm.user_id = ?)
-                    ORDER BY c.dm_key IS NOT NULL, c.name`).all(me, me, req.user.org_id, me, me, req.user.org_id, me);
+                    ORDER BY c.dm_key IS NOT NULL, c.name`).all(me, me, req.user.org_id, me, me, me, req.user.org_id, me);
     res.json({ channels: rows, online: onlineUserIds() });
   });
 
@@ -142,8 +149,16 @@ export default function chatRoutes() {
   r.get('/channels/:id/messages', (req, res) => {
     const c = loadChannel(req.params.id, req.user);
     const before = Number(req.query.before) || 8.64e15;
-    const rows = q(`${MSG} WHERE m.channel_id = ? AND m.created_at < ? ORDER BY m.created_at DESC LIMIT 100`).all(c.id, before);
+    const rows = q(`${MSG} WHERE m.channel_id = ? AND m.parent_id IS NULL AND m.created_at < ? ORDER BY m.created_at DESC LIMIT 100`).all(c.id, before);
     res.json(shape(rows.reverse()));
+  });
+
+  // A thread: the message and its replies, oldest first.
+  r.get('/messages/:id/replies', (req, res) => {
+    const m = q('SELECT * FROM messages WHERE id = ?').get(req.params.id);
+    if (!m || m.parent_id) throw notFound('Message not found');
+    loadChannel(m.channel_id, req.user);
+    res.json({ message: one(m.id), replies: shape(q(`${MSG} WHERE m.parent_id = ? ORDER BY m.created_at LIMIT 1000`).all(m.id)) });
   });
 
   r.post('/channels/:id/messages', (req, res) => {
@@ -158,11 +173,19 @@ export default function chatRoutes() {
       return { id: f.id, name: f.name, mime: f.mime || 'application/octet-stream', size: f.size };
     });
     const body = str(req.body.body, { required: !files.length, name: 'Message', max: 8000 }) || '';
+    // A reply goes in the thread of a message in this conversation (threads don't nest).
+    let parent = null;
+    if (req.body.parent_id) {
+      parent = q('SELECT id, parent_id, channel_id FROM messages WHERE id = ?').get(String(req.body.parent_id));
+      if (!parent || parent.channel_id !== c.id) throw bad('That message is gone');
+      if (parent.parent_id) parent = { id: parent.parent_id };
+    }
     const id = uid();
-    q('INSERT INTO messages (id, channel_id, user_id, body, created_at, files) VALUES (?, ?, ?, ?, ?, ?)').run(id, c.id, req.user.id, body, now(), files.length ? JSON.stringify(files) : null);
+    q('INSERT INTO messages (id, channel_id, user_id, body, created_at, files, parent_id) VALUES (?, ?, ?, ?, ?, ?, ?)').run(id, c.id, req.user.id, body, now(), files.length ? JSON.stringify(files) : null, parent?.id ?? null);
     q('INSERT INTO channel_reads (channel_id, user_id, read_at) VALUES (?, ?, ?) ON CONFLICT(channel_id, user_id) DO UPDATE SET read_at = excluded.read_at').run(c.id, req.user.id, now());
     const msg = one(id);
     sendTo(audience(c), { type: 'message', message: msg });
+    if (parent) sendTo(audience(c), { type: 'message-updated', message: one(parent.id) }); // its reply count
     res.status(201).json(msg);
   });
 
@@ -232,8 +255,9 @@ export default function chatRoutes() {
     const c = loadChannel(m.channel_id, req.user);
     const moderator = req.user.is_admin && !c.dm_key; // company admins moderate their own channels
     if (m.user_id !== req.user.id && !moderator) throw notFound();
-    q('DELETE FROM messages WHERE id = ?').run(m.id);
-    sendTo(audience(c), { type: 'message-deleted', id: m.id, channel_id: m.channel_id });
+    q('DELETE FROM messages WHERE id = ? OR parent_id = ?').run(m.id, m.id); // a thread goes with its message
+    sendTo(audience(c), { type: 'message-deleted', id: m.id, channel_id: m.channel_id, parent_id: m.parent_id });
+    if (m.parent_id) { const p = one(m.parent_id); if (p) sendTo(audience(c), { type: 'message-updated', message: p }); }
     res.json({ ok: true });
   });
 

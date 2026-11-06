@@ -980,3 +980,43 @@ test('activity log: sign-ins, account changes and sharing, for each company\'s a
   assert.ok(!theirs.some((e) => e.target === 'auditee@acme.com'), "Globex doesn't see Acme's activity");
   assert.ok((await g('GET', `/api/audit?org_id=${(await owner('GET', '/api/orgs/current')).body.id}`)).body.entries.every((e) => e.target !== 'auditee@acme.com'), 'and cannot ask for it');
 });
+
+test('chat threads: replies beside a message, counted on it; unread only for people in the thread', async () => {
+  const a = client(), b = client(), c = client();
+  for (const [local, name] of [['thra', 'Thread Ann'], ['thrb', 'Thread Ben'], ['thrc', 'Thread Cat']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'thra@acme.com'); await login(b, 'thrb@acme.com'); await login(c, 'thrc@acme.com');
+  const ch = (await a('POST', '/api/chat/channels', { name: 'threads-test' })).body.id;
+  const unread = async (who) => (await who('GET', '/api/chat/channels')).body.channels.find((x) => x.id === ch).unread;
+  const top = (await a('POST', `/api/chat/channels/${ch}/messages`, { body: 'Lunch on Friday?' })).body;
+  for (const who of [b, c]) await who('POST', `/api/chat/channels/${ch}/read`);
+  const r1 = await b('POST', `/api/chat/channels/${ch}/messages`, { body: 'Yes!', parent_id: top.id });
+  assert.equal(r1.status, 201);
+  assert.equal(r1.body.parent_id, top.id);
+  // A reply to a reply goes in the same thread.
+  const r2 = (await a('POST', `/api/chat/channels/${ch}/messages`, { body: 'Great, 12:30', parent_id: r1.body.id })).body;
+  assert.equal(r2.parent_id, top.id, "threads don't nest");
+  const list = (await c('GET', `/api/chat/channels/${ch}/messages`)).body;
+  assert.deepEqual(list.map((m) => m.body), ['Lunch on Friday?'], 'replies are not in the conversation itself');
+  assert.equal(list[0].reply_count, 2);
+  assert.equal(list[0].last_reply_at, r2.created_at);
+  assert.deepEqual(list[0].repliers, ['Thread Ben', 'Thread Ann']);
+  const t = (await c('GET', `/api/chat/messages/${top.id}/replies`)).body;
+  assert.equal(t.message.body, 'Lunch on Friday?');
+  assert.deepEqual(t.replies.map((m) => [m.user_name, m.body]), [['Thread Ben', 'Yes!'], ['Thread Ann', 'Great, 12:30']]);
+  assert.equal(await unread(c), 0, "Cat isn't in the thread, so its replies aren't unread for her");
+  assert.equal(await unread(b), 1, "Ben replied, so Ann's reply is unread for him");
+  // Another conversation's message can't be replied to here; outsiders can't read the thread.
+  const other = (await a('POST', '/api/chat/channels', { name: 'threads-other' })).body.id;
+  assert.equal((await a('POST', `/api/chat/channels/${other}/messages`, { body: 'x', parent_id: top.id })).status, 400);
+  const g = client();
+  const made = await owner('POST', '/api/orgs', { name: 'Thread Co', domain: 'threadco.com', admin_name: 'Tia', admin_local: 'tia', admin_password: 'password123' });
+  assert.equal(made.status, 201);
+  await login(g, 'tia@threadco.com');
+  assert.equal((await g('GET', `/api/chat/messages/${top.id}/replies`)).status, 404);
+  // Deleting a reply updates the count; deleting the message takes its thread with it.
+  await a('DELETE', `/api/chat/messages/${r2.id}`);
+  assert.equal((await c('GET', `/api/chat/channels/${ch}/messages`)).body[0].reply_count, 1);
+  await a('DELETE', `/api/chat/messages/${top.id}`);
+  assert.equal((await c('GET', `/api/chat/messages/${top.id}/replies`)).status, 404);
+  assert.equal(await unread(b), 0);
+});
