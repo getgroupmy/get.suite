@@ -12,8 +12,9 @@ import { Table, TableRow, TableHeader, TableCell } from '@tiptap/extension-table
 import { TextStyle, Color, BackgroundColor } from '@tiptap/extension-text-style';
 import {
   Document, Packer, Paragraph, TextRun, HeadingLevel, ExternalHyperlink, AlignmentType, LevelFormat, BorderStyle,
-  Table as WordTable, TableRow as WordRow, TableCell as WordCell, WidthType, ShadingType, ImageRun,
+  Table as WordTable, TableRow as WordRow, TableCell as WordCell, WidthType, ShadingType, ImageRun, Header, Footer, PageNumber, PageOrientation,
 } from 'docx';
+import { pageMm, MARGINS } from '../pagesetup.js';
 
 // A picture is a Drive file, by id (as in web/src/apps/docs/DocEditor.jsx). Here it is read from
 // the <img src="pic:ID"> that opening a Word file makes.
@@ -77,6 +78,23 @@ function runs(nodes = [], extra = {}) {
   return out;
 }
 
+/** Word's page size, margins, header and footer (page number included) from the document's page setup. */
+function sectionSetup(setup) {
+  if (!setup) return {};
+  const twip = (mm) => Math.round((mm / 25.4) * 1440);
+  const [w, h] = pageMm({ ...setup, orientation: 'portrait' }); // the library turns it for landscape
+  const m = twip(MARGINS[setup.margin] || MARGINS.normal);
+  const line = (text, withNumber) => new Paragraph({ alignment: AlignmentType.CENTER, children: [
+    ...(text ? [new TextRun({ text, color: '666666', size: 18 })] : []),
+    ...(withNumber ? [new TextRun({ text: text ? '   ' : '', size: 18 }), new TextRun({ children: [PageNumber.CURRENT], color: '666666', size: 18 })] : []),
+  ] });
+  return {
+    properties: { page: { size: { width: twip(w), height: twip(h), orientation: setup.orientation === 'landscape' ? PageOrientation.LANDSCAPE : PageOrientation.PORTRAIT }, margin: { top: m, bottom: m, left: m, right: m } } },
+    ...(setup.header && { headers: { default: new Header({ children: [line(setup.header, false)] }) } }),
+    ...((setup.footer || setup.numbers) && { footers: { default: new Footer({ children: [line(setup.footer, setup.numbers)] }) } }),
+  };
+}
+
 const PAGE_PX = 624; // the width between the margins of an A4/Letter page, at 96 to the inch
 const IMAGE_TYPES = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/bmp': 'bmp' };
 
@@ -84,7 +102,7 @@ const IMAGE_TYPES = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif
  * A Docs document as a Word file (Buffer). `pictureData(fileId)` gives a picture's { data, mime }
  * (or null to leave it out).
  */
-export async function wordFromDoc(doc, title = 'Document', { pictureData } = {}) {
+export async function wordFromDoc(doc, title = 'Document', { pictureData, page } = {}) {
   // Pictures first (reading them is asynchronous), then the document in one pass.
   const pictures = new Map();
   const collect = (n) => { if (n?.type === 'image' && n.attrs?.fileId) pictures.set(n.attrs.fileId, null); for (const c of n?.content || []) collect(c); };
@@ -151,7 +169,7 @@ export async function wordFromDoc(doc, title = 'Document', { pictureData } = {})
   const file = new Document({
     title,
     numbering: { config: [{ reference: 'numbers', levels: [0, 1, 2, 3].map((level) => ({ level, format: LevelFormat.DECIMAL, text: `%${level + 1}.`, alignment: AlignmentType.START, style: { paragraph: { indent: { left: 720 * (level + 1), hanging: 360 } } } })) }] },
-    sections: [{ children: paras.length ? paras : [new Paragraph('')] }],
+    sections: [{ ...sectionSetup(page), children: paras.length ? paras : [new Paragraph('')] }],
   });
   return Packer.toBuffer(file);
 }

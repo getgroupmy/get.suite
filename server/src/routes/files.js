@@ -6,6 +6,7 @@ import { pipeline } from 'node:stream/promises';
 import { Transform } from 'node:stream';
 import { q, tx, FILES_DIR, TMP_DIR } from '../db.js';
 import { contentMatches, indexSoon } from '../search.js';
+import { readSetup } from '../pagesetup.js';
 import JSZip from 'jszip';
 import { uid, now, str, bad, forbidden, notFound, HttpError, mimeFor, isInlineSafe } from '../util.js';
 import { roleFor, atLeast, audienceFor, subtreeIds } from '../access.js';
@@ -26,7 +27,7 @@ const EXPORT_AS = { doc: 'docx', sheet: 'xlsx', slides: 'pptx' };
 const MAX_CONVERT = 50 * 1024 * 1024;
 const officeType = (name) => OFFICE[(/\.([a-z]+)$/i.exec(name || '') || [])[1]?.toLowerCase()] ? (/\.([a-z]+)$/i.exec(name)[1].toLowerCase()) : null;
 
-const COLS = `f.id, f.owner_id, f.parent_id, f.name, f.kind, f.mime, f.size, f.version, f.trashed,
+const COLS = `f.id, f.owner_id, f.parent_id, f.name, f.kind, f.mime, f.size, f.version, f.trashed, f.page_setup,
               f.created_at, f.updated_at, u.name AS owner_name, ub.name AS updated_by_name`;
 const FROM = `FROM files f JOIN users u ON u.id = f.owner_id LEFT JOIN users ub ON ub.id = f.updated_by`;
 // Owner is in my company, or both companies currently allow external collaboration.
@@ -42,6 +43,7 @@ const EMPTY = {
   ] }] }),
 };
 const EDITABLE = ['doc', 'sheet', 'slides'];
+const setupOf = (f) => { if (!f.page_setup || typeof f.page_setup === 'object') return f.page_setup || null; try { return JSON.parse(f.page_setup); } catch { return null; } };
 
 function cleanName(name) {
   const n = str(name, { required: true, name: 'Name', max: 255 });
@@ -60,8 +62,8 @@ function loadFile(id, user, needed = 'viewer') {
 }
 
 function publicFile(f, role) {
-  const { storage, ...rest } = f;
-  return { ...rest, role: role ?? f.role };
+  const { storage, page_setup: setup, ...rest } = f;
+  return { ...rest, ...(f.kind === 'doc' && { page_setup: setupOf({ page_setup: setup }) }), role: role ?? f.role };
 }
 
 function notify(fileId, payload) {
@@ -293,7 +295,7 @@ export default function fileRoutes({ maxUploadBytes }) {
           if (!pic || !/^image\//.test(pic.mime || '') || !atLeast(roleFor(f.id, pic.owner_id), 'editor')) return null;
           return { data: fs.readFileSync(path.join(FILES_DIR, pic.storage)), mime: pic.mime };
         };
-        const buf = f.kind === 'doc' ? await wordFromDoc(content, f.name, { pictureData }) : f.kind === 'sheet' ? await excelFromSheet(content) : await powerPointFromDeck(content, { title: f.name, pictureData });
+        const buf = f.kind === 'doc' ? await wordFromDoc(content, f.name, { pictureData, page: setupOf(f) }) : f.kind === 'sheet' ? await excelFromSheet(content) : await powerPointFromDeck(content, { title: f.name, pictureData });
         zip.file(e.path, buf);
       }
     }
@@ -431,7 +433,11 @@ export default function fileRoutes({ maxUploadBytes }) {
   r.patch('/:id', (req, res) => {
     const f = loadFile(req.params.id, req.user, 'editor');
     const { name, parent_id, trashed } = req.body;
+    // Page setup (documents): checked before anything changes.
+    const setup = req.body.page_setup !== undefined && f.kind === 'doc' ? readSetup(req.body.page_setup) : undefined;
+    if (req.body.page_setup !== undefined && f.kind !== 'doc') throw bad('Only documents have a page setup');
     tx(() => {
+      if (setup !== undefined) q('UPDATE files SET page_setup = ? WHERE id = ?').run(setup ? JSON.stringify(setup) : null, f.id);
       if (name !== undefined) {
         const n = cleanName(name);
         if (n !== f.name) q('UPDATE files SET name = ?, updated_at = ? WHERE id = ?').run(uniqueName(f.parent_id, f.owner_id, n), now(), f.id);
@@ -448,6 +454,7 @@ export default function fileRoutes({ maxUploadBytes }) {
       if (trashed !== undefined) q('UPDATE files SET trashed = ?, updated_at = ? WHERE id = ?').run(trashed ? 1 : 0, now(), f.id);
     });
     notify(f.id, { type: 'files-changed', parent_id: f.parent_id });
+    if (setup !== undefined) notify(f.id, { type: 'page-setup', id: f.id, page_setup: setup });
     res.json(publicFile(loadFile(f.id, req.user)));
   });
 
@@ -521,7 +528,7 @@ export default function fileRoutes({ maxUploadBytes }) {
       return { data: fs.readFileSync(path.join(FILES_DIR, pic.storage)), mime: pic.mime };
     };
     let buf;
-    if (type === 'docx') buf = await wordFromDoc(content, f.name, { pictureData });
+    if (type === 'docx') buf = await wordFromDoc(content, f.name, { pictureData, page: setupOf(f) });
     else if (type === 'xlsx') buf = await excelFromSheet(content);
     else buf = await powerPointFromDeck(content, { title: f.name, pictureData });
     res.setHeader('Content-Type', OFFICE[type].mime);

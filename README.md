@@ -111,6 +111,7 @@ Everyone who can edit a document, spreadsheet or presentation can work in it at 
 
 - **Ctrl+F** finds text in the document: every match is highlighted, and Enter (Shift+Enter) goes to the next (previous) one. *Match case* and *Whole words* narrow it down. **Ctrl+H** (or *Replace…*) replaces the current match or all of them; replaced text keeps its formatting, and each replace is one step for Undo. Only the person searching sees the highlights; replacements reach everyone as they're made. Viewers can find but not replace.
 - **Word count** (⋮ menu) gives the words and characters in the document.
+- **Page setup** (⋮ menu): paper size (A4, Letter, Legal, A5), portrait or landscape, margins, a header and a footer, and page numbers. The paper on screen takes the size; printing (or saving as PDF) and the Word download use all of it. Everyone editing the document sees the same setup. Printing is always on white paper, whichever theme you use.
 - **Outline:** the list button next to Comments opens the document's headings down the left, indented by level. Click one to go there; the heading you're in is marked, and headings anyone adds show up as they type. It stays open on that computer until you close it.
 
 ## Comments and @mentions (Docs, Sheets)

@@ -1165,3 +1165,16 @@ test('booking pages: free times around busy ones; booking puts it on the calenda
   await a('DELETE', `/api/bookings/${page.id}`);
   assert.deepEqual((await a('GET', '/api/bookings')).body, []);
 });
+
+test('page setup: kept with a document, checked, and only for documents', async () => {
+  const d = (await owner('POST', '/api/files/new', { kind: 'doc', name: 'Letterhead' })).body;
+  assert.equal(d.page_setup, null);
+  const set = await owner('PATCH', `/api/files/${d.id}`, { page_setup: { size: 'letter', orientation: 'landscape', margin: 'wide', header: 'Acme\nTrading', numbers: true } });
+  assert.deepEqual(set.body.page_setup, { size: 'letter', orientation: 'landscape', margin: 'wide', header: 'Acme Trading', footer: '', numbers: true });
+  assert.deepEqual((await owner('GET', `/api/files/${d.id}`)).body.page_setup.size, 'letter');
+  assert.equal((await owner('PATCH', `/api/files/${d.id}`, { page_setup: { size: 'a3' } })).status, 400);
+  assert.equal((await owner('PATCH', `/api/files/${d.id}`, { page_setup: { header: 'x'.repeat(201) } })).status, 400);
+  const s = (await owner('POST', '/api/files/new', { kind: 'sheet', name: 'Not a doc' })).body;
+  assert.equal((await owner('PATCH', `/api/files/${s.id}`, { page_setup: {} })).status, 400);
+  assert.equal((await owner('PATCH', `/api/files/${d.id}`, { page_setup: null })).body.page_setup, null, 'back to the default');
+});

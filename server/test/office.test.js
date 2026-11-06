@@ -201,3 +201,21 @@ test('Excel: a list taken from cells on the sheet, and split ranges', async () =
     { range: 'A4:A4', type: 'list', values: ['Low', 'High'], strict: true },
   ]);
 });
+
+test('Word: the page setup goes into the .docx (size, orientation, margins, header, footer, page numbers)', async () => {
+  const JSZip = (await import('jszip')).default;
+  const doc = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Hello' }] }] };
+  const buf = await wordFromDoc(doc, 'Setup', { page: { size: 'a4', orientation: 'landscape', margin: 'narrow', header: 'Acme Trading', footer: 'Confidential', numbers: true } });
+  const zip = await JSZip.loadAsync(buf);
+  const xml = await zip.file('word/document.xml').async('string');
+  assert.match(xml, /<w:pgSz w:w="16838" w:h="11906" w:orient="landscape"/);
+  assert.match(xml, /<w:pgMar w:top="720" w:right="720" w:bottom="720" w:left="720"/);
+  const files = Object.keys(zip.files);
+  const header = await zip.file(files.find((f) => /word\/header\d*\.xml/.test(f))).async('string');
+  const footer = await zip.file(files.find((f) => /word\/footer\d*\.xml/.test(f))).async('string');
+  assert.match(header, /Acme Trading/);
+  assert.match(footer, /Confidential/);
+  assert.match(footer, /PAGE/);
+  const plain = await wordFromDoc(doc, 'Plain');
+  assert.ok(!Object.keys((await JSZip.loadAsync(plain)).files).some((f) => /header|footer/.test(f)), 'no setup: no header or footer');
+});

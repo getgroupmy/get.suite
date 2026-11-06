@@ -11,9 +11,10 @@ import Collaboration from '@tiptap/extension-collaboration';
 import CollaborationCaret from '@tiptap/extension-collaboration-caret';
 import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
-import { get, patch, uploadFile } from '../../api.js';
+import { get, patch, uploadFile, onLive } from '../../api.js';
 import { useAuth } from '../../App.jsx';
-import { useToast, Avatar, Menu } from '../../components/ui.jsx';
+import { useToast, Avatar, Menu, Modal } from '../../components/ui.jsx';
+import { PAPER, MARGINS, DEFAULT_SETUP, paperStyle, printCss } from './pagesetup.js';
 import { ShareDialog } from '../drive/Drive.jsx';
 import { EditorHeader } from '../editorCommon.jsx';
 import { CommentsPanel, useComments } from '../comments.jsx';
@@ -200,6 +201,9 @@ function SharedDoc({ file, setFile }) {
   const [active, setActive] = useState(params.get('comment'));
   const [pending, setPending] = useState(null);
   const [finding, setFinding] = useState(null); // { replace, n }
+  const [pageSetupOpen, setPageSetupOpen] = useState(false);
+  // Someone changed the page setup: the paper follows.
+  useEffect(() => onLive((m) => { if (m.type === 'page-setup' && m.id === file.id) setFile((f) => ({ ...f, page_setup: m.page_setup })); }), [file.id]);
   const [outline, setOutlineState] = useState(() => { try { return localStorage.getItem('nw-doc-outline') === '1'; } catch { return false; } });
   const setOutline = (on) => { setOutlineState(on); try { localStorage.setItem('nw-doc-outline', on ? '1' : '0'); } catch { /* private window */ } };
   useEffect(() => {
@@ -276,6 +280,7 @@ function SharedDoc({ file, setFile }) {
         </>}
         menu={[
           { label: 'Find and replace', icon: 'search', onClick: () => setFinding({ replace: !readOnly }) },
+          ...(!readOnly ? [{ label: 'Page setup', icon: 'print', onClick: () => setPageSetupOpen(true) }] : []),
           { label: 'Word count', icon: 'doc', onClick: () => { const c = countWords(editor.state.doc); toast(`${c.words.toLocaleString()} ${c.words === 1 ? 'word' : 'words'}, ${c.characters.toLocaleString()} characters (without spaces)`); } },
           '-',
           { label: 'Print / Save as PDF', icon: 'print', onClick: () => window.print() },
@@ -285,19 +290,26 @@ function SharedDoc({ file, setFile }) {
       />
       {!readOnly && <Toolbar editor={editor} onComment={startComment} onPictures={(files) => addPicturesRef.current(files)} />}
       <style>{highlight}</style>
+      <style>{printCss(file.page_setup)}</style>
       {status === 'offline' && <div className="banner warn">You're offline. Keep typing: your changes are kept here and sync when the connection is back.</div>}
       {readOnly && <div className="banner">View only. Ask {file.owner_name} for edit access.</div>}
       {finding && <FindBar key={finding.n} editor={editor} replacing={finding.replace} canEdit={!readOnly} onClose={() => { editor.view.focus(); setFinding(null); }} />} {/* focus back first, so it doesn't go with the bar */}
       <div className="doc-body">
         {outline && <Outline editor={editor} onClose={() => setOutline(false)} />}
         <div className="doc-scroll" onClick={(e) => e.target === e.currentTarget && editor.commands.focus('end')}>
-          <div className="paper"><EditorContent editor={editor} /></div>
+          <div className="paper" style={file.page_setup ? paperStyle(file.page_setup) : undefined}>
+            {file.page_setup?.header && <div className="paper-header" aria-hidden="true">{file.page_setup.header}</div>}
+            <EditorContent editor={editor} />
+            {(file.page_setup?.footer || file.page_setup?.numbers) && <div className="paper-footer" aria-hidden="true">{[file.page_setup.footer, file.page_setup.numbers && 'Page 1'].filter(Boolean).join('   ')}</div>}
+          </div>
         </div>
         {panel && <CommentsPanel fileId={file.id} threads={threads} canEdit={!readOnly} active={active} setActive={setActive} pending={pending}
           onShow={showThread} labelOf={(t) => `“${(t.anchor?.quote || '').slice(0, 60)}”`} onDeleted={(t) => removeMark(t.id)}
           onClose={() => { if (pending) pending.onCancel(); setPanel(false); }} />}
       </div>
       {sharing && <ShareDialog file={file} onClose={() => setSharing(false)} />}
+      {pageSetupOpen && <PageSetupDialog setup={file.page_setup} onClose={() => { setPageSetupOpen(false); editor.view.focus(); }}
+        onSave={async (next) => { try { setFile(await patch(`/files/${file.id}`, { page_setup: next })); setPageSetupOpen(false); toast('Page setup saved'); } catch (e) { toast(e.message, 'error'); } }} />}
     </div>
   );
 }
@@ -397,4 +409,28 @@ function Toolbar({ editor, onComment, onPictures }) {
 
 function TableGlyph() {
   return <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M3 4h18v16H3V4zm2 2v3h6V6H5zm8 0v3h6V6h-6zm-8 5v3h6v-3H5zm8 0v3h6v-3h-6zm-8 5v2h6v-2H5zm8 0v2h6v-2h-6z" /></svg>;
+}
+
+/** Paper size, orientation, margins, and a header and footer for printing and Word. */
+function PageSetupDialog({ setup, onClose, onSave }) {
+  const [s, setS] = useState({ ...DEFAULT_SETUP, ...(setup || {}) });
+  const set = (k) => (e) => setS({ ...s, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value });
+  return (
+    <Modal title="Page setup" onClose={onClose}
+      footer={<><button type="button" className="btn" onClick={() => onSave(null)}>Reset</button><span className="grow" /><button type="button" className="btn" onClick={onClose}>Cancel</button><button type="button" className="btn primary" onClick={() => onSave(s)}>Save</button></>}>
+      <div className="stack">
+        <div className="row wrap" style={{ gap: 12 }}>
+          <label className="field"><span>Paper size</span><select value={s.size} onChange={set('size')}>{Object.entries(PAPER).map(([k, [w, h, name]]) => <option key={k} value={k}>{name} ({w} × {h} mm)</option>)}</select></label>
+          <label className="field"><span>Margins</span><select value={s.margin} onChange={set('margin')}>{Object.entries(MARGINS).map(([k, [, name]]) => <option key={k} value={k}>{name}</option>)}</select></label>
+        </div>
+        <div className="seg" role="radiogroup" aria-label="Orientation">
+          {[['portrait', 'Portrait'], ['landscape', 'Landscape']].map(([k, l]) => <button key={k} type="button" role="radio" aria-checked={s.orientation === k} className={s.orientation === k ? 'on' : ''} onClick={() => setS({ ...s, orientation: k })}>{l}</button>)}
+        </div>
+        <label className="field"><span>Header (top of every page)</span><input value={s.header} maxLength={200} onChange={set('header')} placeholder="e.g. Acme Trading · Quarterly report" /></label>
+        <label className="field"><span>Footer (bottom of every page)</span><input value={s.footer} maxLength={200} onChange={set('footer')} placeholder="e.g. Confidential" /></label>
+        <label className="check"><input type="checkbox" checked={s.numbers} onChange={set('numbers')} /> Page numbers in the footer</label>
+        <p className="muted small" style={{ margin: 0 }}>Used when printing or saving as PDF, and in the Word download. Everyone editing sees the same.</p>
+      </div>
+    </Modal>
+  );
 }
