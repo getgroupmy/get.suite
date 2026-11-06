@@ -3,9 +3,9 @@
 // (web/src/apps/collabsync.test.js checks).
 import * as Y from 'yjs';
 
-// ---- spreadsheets: a list of sheets, each with cells, column widths and formats as maps, so two
+// ---- spreadsheets: a list of sheets, each with cells, column widths, formats and charts as maps, so two
 // people changing different cells at once both keep their change (the same cell: the later wins).
-const SHEET_MAPS = ['cells', 'colWidths', 'formats'];
+const SHEET_MAPS = ['cells', 'colWidths', 'formats', 'charts']; // charts: id → { type, range, title, x, y, w, h }
 
 /** Make a Y.Map for one sheet from its JSON. */
 function sheetMap(sheet) {
@@ -29,7 +29,7 @@ export function jsonFromSheetDoc(doc) {
   return { sheets: doc.getArray('sheets').toArray().map((m) => {
     const s = { name: m.get('name') };
     for (const k of SHEET_MAPS) { const inner = m.get(k); s[k] = inner ? inner.toJSON() : {}; }
-    if (!Object.keys(s.formats).length) delete s.formats;
+    for (const k of ['formats', 'charts']) if (!Object.keys(s[k]).length) delete s[k];
     return s;
   }) };
 }

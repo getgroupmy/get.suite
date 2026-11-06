@@ -108,6 +108,14 @@ Everyone who can edit a document, spreadsheet or presentation can work in it at 
 - **Replies, resolve:** anyone who can edit the file can reply, and resolve a thread when it's done (a new reply reopens it). Tick **Show resolved** to see them again. Comments update live for everyone with the file open.
 - **Who can do what:** viewers read comments; editors add, reply and resolve; a comment can be deleted by its author or by the file's owner (deleting the first comment removes the thread).
 
+## Charts (Sheets)
+
+- **Insert:** select cells (or just click one inside your table) and press **Chart**. The first row and column are used as names when they hold text. Choose **Column**, **Bar**, **Line** or **Pie**, give it a title, and check the preview.
+- **On the sheet:** drag a chart by its title to move it, and drag its bottom-right corner to resize it. Double-click it (or use its ⋮ menu) to change it; the menu also deletes it.
+- **Reading it:** hover to see the exact numbers, and use **Show data** for the table behind the chart. Charts follow the cells, so they change as the numbers do.
+- **Together:** charts are shared live like the cells; viewers see them but can't change them. A pie shows the first series and puts its smallest slices together as "Other" past six. Up to eight series are drawn.
+- Charts aren't included when you download the spreadsheet as Excel (.xlsx); the numbers are.
+
 ## Slides
 
 In Drive, **New → Presentation**. Presentations are shared, versioned and saved automatically like documents.
@@ -482,5 +490,4 @@ cd server && MAIL_IT_CONFIG_DIR=/etc/nw npm run test:mail
 
 Everything planned so far is built. Candidates for next:
 
-- **Charts** in Sheets.
 - **Outlook's own time-zone names** in calendar files from Windows (iPhone, Android and Gmail use the standard names, which already work).

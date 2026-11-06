@@ -10,6 +10,8 @@ import Icon from '../../components/Icon.jsx';
 import { ShareDialog } from '../drive/Drive.jsx';
 import { EditorHeader } from '../editorCommon.jsx';
 import { CommentsPanel, useComments } from '../comments.jsx';
+import { ChartCard, ChartDialog } from './SheetCharts.jsx';
+import { dataRegion, rangeText } from './charts.js';
 
 const SEL_COLORS = ['#1a73e8', '#d93025', '#188038', '#e37400', '#8430ce', '#00796b', '#c2185b', '#5f6368'];
 const colorFor = (id) => SEL_COLORS[[...String(id)].reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) >>> 0, 7) % SEL_COLORS.length];
@@ -89,6 +91,7 @@ export default function SheetEditor() {
   const sheet = data?.sheets[Math.min(active, (data?.sheets.length || 1) - 1)];
   const cells = sheet?.cells || {};
   const formats = sheet?.formats || {};
+  const charts = sheet?.charts || {};
   const evaluate = useMemo(() => createEvaluator(cells), [cells]);
   const { rows, cols } = useMemo(() => sheetSize(cells), [cells]);
 
@@ -126,6 +129,30 @@ export default function SheetEditor() {
       return { ...s, formats: f };
     });
     commitData({ ...cur, sheets });
+  }
+
+  /** Add, change (chart) or remove (id, null) a chart on this sheet. */
+  function writeChart(id, chart) {
+    if (readOnly) return;
+    const cur = dataRef.current;
+    const sheets = cur.sheets.map((s, i) => {
+      if (i !== active) return s;
+      const c = { ...(s.charts || {}) };
+      if (chart) c[id] = chart; else delete c[id];
+      return { ...s, charts: c };
+    });
+    commitData({ ...cur, sheets });
+  }
+
+  /** A new chart of the selected cells (or, with one cell selected, the data around it), placed to their right. */
+  function newChart() {
+    const g = anchor ? range : dataRegion(sel, (c, r) => cells[cellKey(c, r)] !== undefined && cells[cellKey(c, r)] !== '');
+    const wrap = gridRef.current;
+    const td = wrap?.querySelector(`[data-k="${cellKey(Math.min(g.c2 + 1, cols - 1), g.r1)}"]`);
+    let x = 160, y = 40;
+    if (td && wrap) { const a = td.getBoundingClientRect(), b = wrap.getBoundingClientRect(); x = a.left - b.left + wrap.scrollLeft + 12; y = a.top - b.top + wrap.scrollTop; }
+    const cid = (crypto.randomUUID?.() || `${Date.now()}${Math.random()}`).replace(/[^\w]/g, '').slice(0, 20);
+    setDialog({ type: 'chart', chart: { id: null, newId: cid, type: 'column', range: rangeText(g), title: '', x: Math.round(x), y: Math.round(y), w: 480, h: 300 } });
   }
 
   const range = anchor ? {
@@ -325,7 +352,7 @@ export default function SheetEditor() {
       />
       {status === 'offline' && <div className="banner warn">You're offline. Keep editing: your changes are kept here and sync when the connection is back.</div>}
       {readOnly && <div className="banner">View only. Ask {file.owner_name} for edit access.</div>}
-      {!readOnly && <FormatBar fmt={formats[selKey] || {}} onChange={(change) => { writeFormats(change); gridRef.current?.focus(); }} onComment={startComment} />}
+      {!readOnly && <FormatBar fmt={formats[selKey] || {}} onChange={(change) => { writeFormats(change); gridRef.current?.focus(); }} onComment={startComment} onChart={newChart} />}
       <div className="formula-bar">
         <span className="cell-name">{anchor ? `${cellKey(range.c1, range.r1)}:${cellKey(range.c2, range.r2)}` : selKey}</span>
         <span className="fx">fx</span>
@@ -393,6 +420,14 @@ export default function SheetEditor() {
             ))}
           </tbody>
         </table>
+        <div className="chart-layer">
+          {Object.entries(charts).map(([cid, ch]) => (
+            <ChartCard key={cid} chart={ch} value={evaluate} canEdit={!readOnly}
+              onChange={(next) => writeChart(cid, next)}
+              onEdit={() => setDialog({ type: 'chart', chart: { ...ch, id: cid } })}
+              onDelete={() => writeChart(cid, null)} />
+          ))}
+        </div>
       </div>
       {panel && <CommentsPanel fileId={file.id} threads={threads} canEdit={!readOnly} active={thread} setActive={setThread} pending={pending}
         onShow={goToCell} labelOf={where} onClose={() => { setPending(null); setPanel(false); }} />}
@@ -417,6 +452,10 @@ export default function SheetEditor() {
           </div>
         ))}
       </div>
+      {dialog?.type === 'chart' && (
+        <ChartDialog initial={dialog.chart} value={evaluate} onClose={() => { setDialog(null); gridRef.current?.focus(); }}
+          onSave={({ id: cid, newId, ...ch }) => writeChart(cid || newId, ch)} />
+      )}
       {dialog?.type === 'share' && <ShareDialog file={file} onClose={() => setDialog(null)} />}
       {dialog?.type === 'rename-sheet' && (
         <PromptModal title="Rename sheet" label="Sheet name" initial={data.sheets[dialog.index].name} onClose={() => setDialog(null)}
@@ -465,7 +504,7 @@ export function parseCsv(text) {
 }
 
 /** Formatting for the selected cells: bold, italic, underline, colours, alignment, number format. */
-function FormatBar({ fmt, onChange, onComment }) {
+function FormatBar({ fmt, onChange, onComment, onChart }) {
   const keep = (e) => e.preventDefault(); // buttons don't take focus from the grid
   const Toggle = ({ k, label, title, children }) => (
     <button type="button" className={`tb ${fmt[k] ? 'on' : ''}`} aria-pressed={!!fmt[k]} aria-label={label} title={title} onMouseDown={keep} onClick={() => onChange({ [k]: !fmt[k] })}>{children}</button>
@@ -507,6 +546,7 @@ function FormatBar({ fmt, onChange, onComment }) {
       <button type="button" className="tb" aria-label="Clear formatting" title="Clear formatting" onMouseDown={keep}
         onClick={() => onChange({ b: null, i: null, u: null, color: null, fill: null, align: null, num: null })}>Tx</button>
       <span className="sep" />
+      <button type="button" className="tb labelled" aria-label="Insert chart" title="Chart of the selected cells" onMouseDown={keep} onClick={onChart}><Icon name="chart" size={18} /> Chart</button>
       <button type="button" className="tb labelled" aria-label="Add comment" title="Comment on this cell (Ctrl+Alt+M)" onMouseDown={keep} onClick={onComment}><Icon name="chat" size={18} /> Comment</button>
     </div>
   );
