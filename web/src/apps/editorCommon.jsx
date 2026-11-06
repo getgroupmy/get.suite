@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { get, put } from '../api.js';
 import Icon from '../components/Icon.jsx';
 import { Menu, useToast } from '../components/ui.jsx';
