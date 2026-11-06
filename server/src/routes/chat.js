@@ -96,6 +96,17 @@ export function sendDirect(from, toUserId, body) {
   return true;
 }
 
+/** "@someone@example.com" in a message: a notice to each person mentioned who is in the conversation. */
+const MENTION_RE = /@([\w.+-]+@[\w.-]+\.[a-z]{2,})/gi;
+function notifyMentions(c, from, msg) {
+  const names = [...new Set([...String(msg.body).matchAll(MENTION_RE)].map((m) => m[1].toLowerCase()))].slice(0, 50);
+  if (!names.length) return;
+  const inIt = new Set(audience(c));
+  const ids = q(`SELECT id FROM users WHERE LOWER(username) IN (SELECT value FROM json_each(?)) AND disabled = 0`).all(JSON.stringify(names))
+    .map((u) => u.id).filter((id) => id !== from.id && inIt.has(id));
+  if (ids.length) sendTo(ids, { type: 'chat-mention', channel_id: c.id, message_id: msg.id, parent_id: msg.parent_id, from: from.name || from.username, text: String(msg.body).slice(0, 140) });
+}
+
 export default function chatRoutes() {
   const r = Router();
 
@@ -110,11 +121,14 @@ export default function chatRoutes() {
                       (SELECT COUNT(*) FROM messages m WHERE m.channel_id = c.id AND (m.user_id IS NULL OR m.user_id != ?)
                         AND m.created_at > COALESCE((SELECT read_at FROM channel_reads r WHERE r.channel_id = c.id AND r.user_id = ?), 0)
                         -- replies count only for people in that thread (who started it or replied)
-                        AND (m.parent_id IS NULL OR EXISTS (SELECT 1 FROM messages t WHERE (t.id = m.parent_id OR t.parent_id = m.parent_id) AND t.user_id = ?))) AS unread
+                        AND (m.parent_id IS NULL OR EXISTS (SELECT 1 FROM messages t WHERE (t.id = m.parent_id OR t.parent_id = m.parent_id) AND t.user_id = ?))) AS unread,
+                      (SELECT COUNT(*) FROM messages m WHERE m.channel_id = c.id AND (m.user_id IS NULL OR m.user_id != ?)
+                        AND m.created_at > COALESCE((SELECT read_at FROM channel_reads r WHERE r.channel_id = c.id AND r.user_id = ?), 0)
+                        AND INSTR(LOWER(m.body), LOWER(?)) > 0) AS mentions
                     FROM channels c
                     WHERE (c.dm_key IS NULL AND c.org_id = ?)
                        OR EXISTS (SELECT 1 FROM channel_members cm WHERE cm.channel_id = c.id AND cm.user_id = ?)
-                    ORDER BY c.dm_key IS NOT NULL, c.name`).all(me, me, req.user.org_id, me, me, me, req.user.org_id, me);
+                    ORDER BY c.dm_key IS NOT NULL, c.name`).all(me, me, req.user.org_id, me, me, me, me, me, `@${req.user.username}`, req.user.org_id, me);
     res.json({ channels: rows, online: onlineUserIds() });
   });
 
@@ -185,6 +199,7 @@ export default function chatRoutes() {
     q('INSERT INTO channel_reads (channel_id, user_id, read_at) VALUES (?, ?, ?) ON CONFLICT(channel_id, user_id) DO UPDATE SET read_at = excluded.read_at').run(c.id, req.user.id, now());
     const msg = one(id);
     sendTo(audience(c), { type: 'message', message: msg });
+    notifyMentions(c, req.user, msg);
     if (parent) sendTo(audience(c), { type: 'message-updated', message: one(parent.id) }); // its reply count
     res.status(201).json(msg);
   });

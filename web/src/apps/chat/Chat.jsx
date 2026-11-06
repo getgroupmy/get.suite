@@ -5,6 +5,7 @@ import Icon from '../../components/Icon.jsx';
 import EmojiPicker from '../../components/EmojiPicker.jsx';
 import { Avatar, Empty, PromptModal, useToast } from '../../components/ui.jsx';
 import { useAuth } from '../../App.jsx';
+import { useMentions, MENTION_RE } from '../../components/mentions.jsx';
 
 export default function Chat() {
   const { channelId } = useParams();
@@ -33,6 +34,8 @@ export default function Chat() {
     caret.current = null;
   }, [text]);
   const [unread, setUnread] = useState({});
+  const [mentioned, setMentioned] = useState({}); // conversations where someone @mentioned you since you read them
+  const mention = useMentions(box, text, setText);
   const [threadId, setThreadId] = useState(null); // the message whose thread is open beside the conversation
   const [dialog, setDialog] = useState(false);
   const scroller = useRef();
@@ -41,6 +44,7 @@ export default function Chat() {
   const loadChannels = () => get('/chat/channels').then(({ channels, online }) => {
     setChannels(channels); setOnline(online);
     setUnread(Object.fromEntries(channels.map((c) => [c.id, c.id === channelIdRef.current ? 0 : c.unread || 0])));
+    setMentioned(Object.fromEntries(channels.map((c) => [c.id, c.id !== channelIdRef.current && c.mentions > 0])));
   });
   const channelIdRef = useRef(channelId);
   channelIdRef.current = channelId;
@@ -63,6 +67,7 @@ export default function Chat() {
     setMessages([]);
     stick.current = true;
     setUnread((u) => ({ ...u, [channelId]: 0 }));
+    setMentioned((x) => ({ ...x, [channelId]: false }));
     setEditingId(null); setFiles([]); setThreadId(null);
     get(`/chat/channels/${channelId}/messages`).then((list) => { setMessages(list); markRead(channelId); }).catch((e) => toast(e.message, 'error'));
   }, [channelId, toast]);
@@ -78,15 +83,23 @@ export default function Chat() {
       else if (m.message.user_id !== user.id) setUnread((u) => ({ ...u, [m.message.channel_id]: (u[m.message.channel_id] || 0) + 1 }));
     } else if (m.type === 'message-updated') {
       setMessages((list) => list.map((x) => (x.id === m.message.id ? m.message : x)));
+    } else if (m.type === 'chat-mention') {
+      // Thread replies aren't in the conversation itself, so they need a notice unless that thread is open.
+      const seen = m.channel_id === channelId && !document.hidden && (!m.parent_id || m.parent_id === threadId);
+      if (!seen) {
+        if (m.channel_id !== channelId) setMentioned((x) => ({ ...x, [m.channel_id]: true }));
+        toast(`${m.from} mentioned you: ${m.text}`, 'info', { action: { label: 'Open', onClick: () => { navigate(`/chat/${m.channel_id}`); if (m.parent_id) setTimeout(() => setThreadId(m.parent_id), 0); } } });
+      }
     } else if (m.type === 'chat-read') {
       setUnread((u) => ({ ...u, [m.channel_id]: 0 }));
+      setMentioned((x) => ({ ...x, [m.channel_id]: false }));
     } else if (m.type === 'message-deleted') {
       setMessages((list) => list.filter((x) => x.id !== m.id));
       setThreadId((t) => (t === m.id ? null : t));
     } else if (m.type === 'channels-changed' || m.type === 'live-connected') {
       loadChannels();
     }
-  }), [channelId]);
+  }), [channelId, threadId]);
 
   useLayoutEffect(() => {
     const el = scroller.current;
@@ -147,13 +160,13 @@ export default function Chat() {
         <div className="subnav-title row">Channels<div className="grow" /><button className="icon-btn" aria-label="New channel" onClick={() => setDialog(true)}><Icon name="plus" size={18} /></button></div>
         {publicChannels.map((c) => (
           <button key={c.id} className={`subnav-item ${c.id === channelId ? 'active' : ''}`} onClick={() => navigate(`/chat/${c.id}`)}>
-            <span className="hash">#</span><span className="grow ellipsis">{c.name}</span>{unread[c.id] > 0 && <span className="badge">{unread[c.id]}</span>}
+            <span className="hash">#</span><span className="grow ellipsis">{c.name}</span>{mentioned[c.id] && <span className="badge at" aria-label="You were mentioned">@</span>}{unread[c.id] > 0 && <span className="badge">{unread[c.id]}</span>}
           </button>
         ))}
         <div className="subnav-title">Direct messages</div>
         {dms.map((c) => (
           <button key={c.id} className={`subnav-item ${c.id === channelId ? 'active' : ''}`} onClick={() => navigate(`/chat/${c.id}`)}>
-            <Avatar name={c.dm_name || user.name} size={20} /><span className="grow ellipsis">{c.dm_name || 'Notes to self'}{c.dm_org && <span className="muted small"> · {c.dm_org}</span>}</span>{unread[c.id] > 0 && <span className="badge">{unread[c.id]}</span>}
+            <Avatar name={c.dm_name || user.name} size={20} /><span className="grow ellipsis">{c.dm_name || 'Notes to self'}{c.dm_org && <span className="muted small"> · {c.dm_org}</span>}</span>{mentioned[c.id] && <span className="badge at" aria-label="You were mentioned">@</span>}{unread[c.id] > 0 && <span className="badge">{unread[c.id]}</span>}
           </button>
         ))}
         <select className="dm-pick" value="" aria-label="Start a direct message" onChange={(e) => {
@@ -193,9 +206,10 @@ export default function Chat() {
             <EmojiPicker up className="icon-btn" onPick={insertEmoji} />
             <button type="button" className="icon-btn" aria-label="Attach files" title="Attach files (or drop or paste them here)" onClick={() => fileInput.current.click()}><Icon name="attach" /></button>
             <input ref={fileInput} type="file" multiple hidden aria-label="Files to attach" onChange={(e) => { attach([...e.target.files]); e.target.value = ''; }} />
-            <textarea ref={box} rows={1} value={text} placeholder={`Message ${title}`} aria-label="Message" onChange={(e) => setText(e.target.value)}
+            <textarea ref={box} rows={1} value={text} placeholder={`Message ${title}`} aria-label="Message" onChange={(e) => { setText(e.target.value); mention.track(e.target.value, e.target.selectionStart); }}
               onPaste={(e) => { const pasted = [...(e.clipboardData?.files || [])]; if (pasted.length) { e.preventDefault(); attach(pasted); } }}
-              onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) send(e); }} />
+              onKeyDown={(e) => { if (mention.keyDown(e)) return; if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) send(e); }} />
+            {mention.list}
             <button className="icon-btn send" aria-label="Send" disabled={(!text.trim() && !files.length) || uploading > 0}><Icon name="send" /></button>
           </form>
         </>}
@@ -219,6 +233,7 @@ function Thread({ id, channelId, user, onClose }) {
   const [editText, setEditText] = useState('');
   const end = useRef();
   const box = useRef();
+  const mention = useMentions(box, text, setText);
   useEffect(() => {
     get(`/chat/messages/${id}/replies`).then((t) => { setParent(t.message); setReplies(t.replies); }).catch((e) => { toast(e.message, 'error'); onClose(); });
     box.current?.focus();
@@ -269,8 +284,9 @@ function Thread({ id, channelId, user, onClose }) {
       </div>
       <form className="composer" onSubmit={send}>
         <EmojiPicker up className="icon-btn" onPick={(ch) => setText((v) => v + ch)} />
-        <textarea ref={box} rows={1} value={text} placeholder="Reply…" aria-label="Reply" onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) send(e); }} />
+        <textarea ref={box} rows={1} value={text} placeholder="Reply…" aria-label="Reply" onChange={(e) => { setText(e.target.value); mention.track(e.target.value, e.target.selectionStart); }}
+          onKeyDown={(e) => { if (mention.keyDown(e)) return; if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) send(e); }} />
+        {mention.list}
         <button className="icon-btn send" aria-label="Send reply" disabled={!text.trim()}><Icon name="send" /></button>
       </form>
     </aside>
@@ -290,7 +306,7 @@ function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit
               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSaveEdit(); } else if (e.key === 'Escape') { e.preventDefault(); onCancelEdit(); } }} />
             <span className="muted small">Enter to save · Esc to cancel</span>
           </form>
-        ) : m.body && <div className="msg-text"><Linked text={m.body} />{m.edited_at && <span className="muted small edited" title={`Edited ${new Date(m.edited_at).toLocaleString()}`}> (edited)</span>}</div>}
+        ) : m.body && <div className="msg-text"><Linked text={m.body} me={user.username} />{m.edited_at && <span className="muted small edited" title={`Edited ${new Date(m.edited_at).toLocaleString()}`}> (edited)</span>}</div>}
         {m.files?.length > 0 && (
           <div className="msg-files">
             {m.files.map((f) => (/^image\/(png|jpeg|gif|webp)$/.test(f.mime)
@@ -336,9 +352,11 @@ const timeOrDay = (ms) => {
 
 /** Message text with web addresses and links into the workspace (such as /docs/…) clickable. */
 const LINK_RE = /(https?:\/\/[^\s<>"]+[^\s<>".,;:!?)\]'"]|(?<![\w/])\/(?:docs|sheets|slides|drive|calendar|mail|chat)\/[\w-]+(?:\?[\w=&%-]+)?)/g;
-export function Linked({ text }) {
-  return String(text).split(LINK_RE).map((part, i) => {
-    if (i % 2 === 0) return part;
-    return part.startsWith('/') ? <Link key={i} to={part}>{part}</Link> : <a key={i} href={part} target="_blank" rel="noopener noreferrer">{part}</a>;
-  });
+export function Linked({ text, me }) {
+  return String(text).split(MENTION_RE).map((chunk, j) => (j % 2
+    ? <span key={`m${j}`} className={`mention${me && chunk.slice(1).toLowerCase() === me.toLowerCase() ? ' me' : ''}`}>{chunk}</span>
+    : chunk.split(LINK_RE).map((part, i) => {
+      if (i % 2 === 0) return part;
+      return part.startsWith('/') ? <Link key={`${j}-${i}`} to={part}>{part}</Link> : <a key={`${j}-${i}`} href={part} target="_blank" rel="noopener noreferrer">{part}</a>;
+    })));
 }

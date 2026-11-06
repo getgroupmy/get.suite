@@ -1,9 +1,10 @@
 // The comments panel shared by Docs and Sheets: threads (each anchored to text or a cell), replies,
 // resolving, deleting, and a comment box where typing "@" suggests colleagues to mention.
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { get, post, patch, del, onLive, formatDate } from '../api.js';
 import { Avatar, useToast } from '../components/ui.jsx';
 import Icon from '../components/Icon.jsx';
+import { useMentions } from '../components/mentions.jsx';
 
 /** Comments of a file, kept up to date live. */
 export function useComments(fileId) {
@@ -17,51 +18,17 @@ export function useComments(fileId) {
 
 /** A text box for a comment; "@" plus a few letters suggests people to mention. */
 function MentionBox({ value, onChange, onSubmit, placeholder, autoFocus, label }) {
-  const [people, setPeople] = useState([]);
-  const [at, setAt] = useState(null); // the "@word" being typed: { start, query }
-  const [pick, setPick] = useState(0);
   const ref = useRef();
-  const caretTo = useRef(null); // where the caret goes once a picked name is in the box
-  useLayoutEffect(() => { if (caretTo.current != null && ref.current) { ref.current.setSelectionRange(caretTo.current, caretTo.current); caretTo.current = null; } }, [value]);
-  useEffect(() => { get('/users/directory').then(setPeople).catch(() => {}); }, []);
-  const matches = at ? people.filter((p) => `${p.name} ${p.username}`.toLowerCase().includes(at.query.toLowerCase())).slice(0, 6) : [];
-  const track = (text, caret) => {
-    const m = /(^|\s)@([\w.+-]*)$/.exec(text.slice(0, caret));
-    setAt(m ? { start: caret - m[2].length - 1, query: m[2] } : null);
-    setPick(0);
-  };
-  const choose = (p) => {
-    const caret = ref.current.selectionStart;
-    const next = `${value.slice(0, at.start)}@${p.username} ${value.slice(caret)}`;
-    caretTo.current = at.start + p.username.length + 2;
-    onChange(next);
-    setAt(null);
-    ref.current.focus();
-  };
+  const mention = useMentions(ref, value, onChange);
   return (
     <div className="mention-box">
       <textarea ref={ref} rows={2} value={value} placeholder={placeholder} aria-label={label} autoFocus={autoFocus}
-        onChange={(e) => { onChange(e.target.value); track(e.target.value, e.target.selectionStart); }}
+        onChange={(e) => { onChange(e.target.value); mention.track(e.target.value, e.target.selectionStart); }}
         onKeyDown={(e) => {
-          if (matches.length && ['ArrowDown', 'ArrowUp', 'Enter', 'Tab', 'Escape'].includes(e.key)) {
-            e.preventDefault(); e.stopPropagation();
-            if (e.key === 'ArrowDown') setPick((i) => (i + 1) % matches.length);
-            else if (e.key === 'ArrowUp') setPick((i) => (i - 1 + matches.length) % matches.length);
-            else if (e.key === 'Escape') setAt(null);
-            else choose(matches[pick]);
-            return;
-          }
+          if (mention.keyDown(e)) return;
           if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); onSubmit(); }
         }} />
-      {matches.length > 0 && (
-        <ul className="mention-list" role="listbox" aria-label="People to mention">
-          {matches.map((p, i) => (
-            <li key={p.id} role="option" aria-selected={i === pick} className={i === pick ? 'on' : ''} onMouseDown={(e) => { e.preventDefault(); choose(p); }}>
-              <Avatar name={p.name} size={20} /> {p.name} <span className="muted small">{p.username}</span>
-            </li>
-          ))}
-        </ul>
-      )}
+      {mention.list}
     </div>
   );
 }

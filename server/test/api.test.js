@@ -1020,3 +1020,18 @@ test('chat threads: replies beside a message, counted on it; unread only for peo
   assert.equal((await c('GET', `/api/chat/messages/${top.id}/replies`)).status, 404);
   assert.equal(await unread(b), 0);
 });
+
+test('chat mentions: counted per conversation until read', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['menta', 'Ment Ann'], ['mentb', 'Ment Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'menta@acme.com'); await login(b, 'mentb@acme.com');
+  const ch = (await a('POST', '/api/chat/channels', { name: 'mentions-test' })).body.id;
+  const of = async (who) => (await who('GET', '/api/chat/channels')).body.channels.find((x) => x.id === ch);
+  await a('POST', `/api/chat/channels/${ch}/messages`, { body: 'Hi all' });
+  await a('POST', `/api/chat/channels/${ch}/messages`, { body: '@MentB@acme.com can you check the numbers?' });
+  await a('POST', `/api/chat/channels/${ch}/messages`, { body: 'and @menta@acme.com too' });
+  assert.deepEqual([(await of(b)).unread, (await of(b)).mentions], [3, 1], 'mentions match whatever the case');
+  assert.equal((await of(a)).mentions, 0, 'mentioning yourself does not count');
+  await b('POST', `/api/chat/channels/${ch}/read`);
+  assert.equal((await of(b)).mentions, 0);
+});

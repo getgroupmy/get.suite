@@ -1059,3 +1059,7 @@ button.rule-sample.on { outline: 2px solid var(--accent); outline-offset: 1px; }
 @media (max-width: 900px) {
   .thread-panel { position: fixed; inset: 56px 0 0 0; width: auto; margin: 0; z-index: 40; border-radius: 0; }
 }
+.composer { position: relative; }
+.composer .mention-list { top: auto; bottom: 100%; margin: 0 0 6px; left: 12px; right: auto; min-width: 280px; }
+.mention.me { background: var(--warn-bg); color: var(--text); font-weight: 600; }
+.badge.at { background: var(--accent); }
