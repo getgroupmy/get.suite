@@ -997,3 +997,22 @@ kbd { display: inline-block; min-width: 1.4em; padding: 1px 5px; border: 1px sol
 .address-list { position: absolute; top: 100%; left: 0; right: 0; z-index: 70; list-style: none; margin: 2px 0 0; padding: 4px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow); max-width: 480px; }
 .address-list li { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; cursor: pointer; }
 .address-list li.on, .address-list li:hover { background: var(--accent-soft); }
+
+/* ---------- chat: reactions, editing, files ---------- */
+.msg-actions { position: absolute; right: 12px; top: -14px; display: none; gap: 2px; padding: 2px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow); z-index: 2; }
+.msg-actions .icon-btn { width: 30px; height: 30px; font-size: 16px; }
+.msg:hover .msg-actions, .msg-actions:focus-within { display: flex; }
+@media (hover: none) { .msg-actions { position: static; display: flex; box-shadow: none; border: 0; background: none; } }
+.reactions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.reaction { border: 1px solid var(--border); background: var(--surface-2); border-radius: 12px; padding: 1px 8px; font: inherit; font-size: 13px; cursor: pointer; }
+.reaction.mine { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-text); }
+.msg-edit { display: flex; flex-direction: column; gap: 4px; }
+.msg-edit textarea { width: 100%; font: inherit; resize: vertical; }
+.edited { font-size: 12px; }
+.msg-files { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.msg-pic img { display: block; max-width: min(320px, 100%); max-height: 240px; border-radius: 8px; border: 1px solid var(--border); }
+.msg-file { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; color: var(--text); text-decoration: none; }
+.msg-file:hover { background: var(--surface-2); }
+.pending-files { list-style: none; display: flex; flex-wrap: wrap; gap: 6px; margin: 0 16px; padding: 6px 0 0; }
+.pending-files li { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px 2px 10px; border: 1px solid var(--border); border-radius: 14px; font-size: 13px; }
+.pending-files .icon-btn { width: 22px; height: 22px; }

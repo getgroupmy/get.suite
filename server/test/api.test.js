@@ -866,3 +866,44 @@ test('contacts: import vCard and CSV files (duplicates skipped), export, and add
   assert.deepEqual(await sug(''), []);
   assert.deepEqual((await sug('globex')).length, 0, 'only names and addresses are matched');
 });
+
+test('chat: unread counts, editing, reactions and attached files', async () => {
+  const a = client(), b = client(), x = client();
+  for (const [local, name] of [['chata', 'Chat Ann'], ['chatb', 'Chat Ben'], ['chatx', 'Chat Xavi']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  const aid = (await login(a, 'chata@acme.com')).id;
+  const bid = (await login(b, 'chatb@acme.com')).id;
+  await login(x, 'chatx@acme.com');
+  const dm = (await a('POST', '/api/chat/dm', { user_id: bid })).body.id;
+  const unread = async (who) => (await who('GET', '/api/chat/channels')).body.channels.find((c) => c.id === dm)?.unread;
+  const m1 = (await a('POST', `/api/chat/channels/${dm}/messages`, { body: 'Hello Ben' })).body;
+  await a('POST', `/api/chat/channels/${dm}/messages`, { body: 'Are you there?' });
+  assert.equal(await unread(b), 2);
+  assert.equal(await unread(a), 0, 'your own messages are read');
+  await b('POST', `/api/chat/channels/${dm}/read`);
+  assert.equal(await unread(b), 0);
+
+  const edited = await a('PATCH', `/api/chat/messages/${m1.id}`, { body: 'Hello Ben!' });
+  assert.equal(edited.body.body, 'Hello Ben!');
+  assert.ok(edited.body.edited_at);
+  assert.equal((await b('PATCH', `/api/chat/messages/${m1.id}`, { body: 'hijack' })).status, 404, 'only your own');
+
+  const r1 = (await b('POST', `/api/chat/messages/${m1.id}/reactions`, { emoji: '👍' })).body;
+  assert.deepEqual(r1.reactions, [{ emoji: '👍', users: [{ id: bid, name: 'Chat Ben' }] }]);
+  await a('POST', `/api/chat/messages/${m1.id}/reactions`, { emoji: '👍' });
+  const r2 = (await b('POST', `/api/chat/messages/${m1.id}/reactions`, { emoji: '👍' })).body;
+  assert.deepEqual(r2.reactions, [{ emoji: '👍', users: [{ id: aid, name: 'Chat Ann' }] }], 'a second time takes it back');
+  assert.equal((await x('POST', `/api/chat/messages/${m1.id}/reactions`, { emoji: '👍' })).status, 404, 'not for people outside the conversation');
+
+  const folder = (await a('POST', '/api/chat/files-folder')).body.id;
+  assert.equal((await a('POST', '/api/chat/files-folder')).body.id, folder, 'the same folder each time');
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  const pic = (await a('POST', `/api/files/upload?name=photo.png&parent=${folder}`, png, { raw: true })).body;
+  const withFile = (await a('POST', `/api/chat/channels/${dm}/messages`, { body: '', files: [pic.id] })).body;
+  assert.deepEqual(withFile.files.map((f) => [f.name, f.mime]), [['photo.png', 'image/png']]);
+  const got = await b('GET', `/api/chat/messages/${withFile.id}/files/${pic.id}`);
+  assert.equal(got.status, 200, 'the other person can open it');
+  assert.match(got.headers.get('content-disposition'), /^inline/);
+  assert.equal((await x('GET', `/api/chat/messages/${withFile.id}/files/${pic.id}`)).status, 404);
+  assert.equal((await b('POST', `/api/chat/channels/${dm}/messages`, { body: 'x', files: [pic.id] })).status, 400, 'only files you can open yourself');
+  assert.equal((await a('POST', `/api/chat/channels/${dm}/messages`, { body: '' })).status, 400, 'a message needs text or a file');
+});

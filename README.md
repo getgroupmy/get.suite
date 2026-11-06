@@ -10,7 +10,7 @@ A self-hosted, Google Workspace-style office suite built to run on a Synology DS
 | **Slides** | Presentations: slide layouts, text boxes, pictures and shapes you drag and resize, text size, bold, italic and colour, four themes, live co-editing, full-screen presenting, and printing or saving as PDF |
 | **Calendar** | Month, week and day views (timed events placed by the hour, side by side when they overlap, with a current-time line), all-day and timed events, repeating events, inviting colleagues and people outside by email (Yes / Maybe / No), colours, upcoming list |
 | **Contacts** | Personal address book (import and export vCard and CSV, synced with phones), plus a directory of everyone on the NAS; addresses suggested while writing mail |
-| **Chat** | Channels and direct messages, delivered live over WebSockets, with an emoji picker |
+| **Chat** | Channels and direct messages, delivered live over WebSockets: unread counts, reactions, editing your messages, pictures and files, and an emoji picker |
 | **Mail** | A mailbox for every user on their company's domains: webmail (read, reply, forward, attachments from your computer or Drive, archive, spam, search, stars), rich-text writing (bold, lists, links, quotes), drafts that save automatically, vacation auto-replies, filter rules, signatures, folders, send as aliases you belong to, and IMAP/SMTP for phones and Outlook |
 | **Admin** | Create, disable, reset or delete users; per-user storage use; company settings; all companies (platform owner) |
 
@@ -472,6 +472,13 @@ Once ports 465, 587 and 993 are open, bots will start guessing passwords within 
 **How it works:** Dovecot asks the app before and after every IMAP and SMTP sign-in (its "auth policy" feature) on an internal port (8081) that isn't published, using a shared secret. Postfix checks SMTP passwords through Dovecot, so both are covered. If the app is down, mail sign-ins carry on unprotected rather than locking everyone out.
 
 **One thing to check after going live:** the protection needs to see real internet addresses. With normal Docker port publishing, which Container Manager uses, it does. If Admin → Security shows a warning that every failure comes from a private address, your network setup is hiding the real addresses.
+
+## Chat
+
+- **Unread:** Chat in the app bar and each conversation show how many messages you haven't read; opening the conversation clears them, on your other devices too.
+- **Reactions:** hover over a message and pick 👍, ❤️, 😂 or any emoji; click a reaction to add yours or take it back. Hover over it to see who reacted.
+- **Editing:** hover over your own message and choose the pencil to change it (Enter saves, Esc cancels). Changed messages say "(edited)".
+- **Pictures and files:** the paper clip attaches files (or drop or paste them into the message box). They're saved in a "Chat files" folder in your Drive, and everyone in the conversation can open them from the message, even without access to the folder. Pictures show in the conversation.
 
 ## Keyboard shortcuts
 

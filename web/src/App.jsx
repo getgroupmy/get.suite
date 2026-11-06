@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, NavLink, useNavigate } from 'react-router';
-import { get, post, startLive, stopLive } from './api.js';
+import { get, post, startLive, stopLive, onLive } from './api.js';
 import { useMailStatus } from './mailStatus.js';
 import { useMailNotifications } from './mailNotify.js';
 import { useEventReminders } from './eventReminders.js';
@@ -111,6 +111,7 @@ function Shell() {
   const unread = useMailNotifications(!!mail?.enabled, { toast, openMessage });
   const openCalendar = useCallback(() => navigate('/calendar'), [navigate]);
   useEventReminders(true, { toast, openCalendar });
+  const chatUnread = useChatUnread();
 
   return (
     <div className={`shell ${navOpen ? 'nav-open' : ''}`}>
@@ -138,7 +139,7 @@ function Shell() {
       <nav className="appnav" onClick={() => setNavOpen(false)}>
         {APPS.filter((a) => !a.mail || mail?.enabled).map((a) => (
           <NavLink key={a.to} to={a.to} className="appnav-item">
-            <span className="appnav-icon"><Icon name={a.icon} />{a.mail && unread > 0 && <span className="nav-badge" aria-label={`${unread} unread`}>{unread > 99 ? '99+' : unread}</span>}</span>
+            <span className="appnav-icon"><Icon name={a.icon} />{a.mail && unread > 0 && <span className="nav-badge" aria-label={`${unread} unread`}>{unread > 99 ? '99+' : unread}</span>}{a.to === '/chat' && chatUnread > 0 && <span className="nav-badge" aria-label={`${chatUnread} unread`}>{chatUnread > 99 ? '99+' : chatUnread}</span>}</span>
             <span>{a.label}</span>
           </NavLink>
         ))}
@@ -159,4 +160,17 @@ function Shell() {
       </main>
     </div>
   );
+}
+
+/** Unread chat messages in all your conversations, for the badge on Chat. */
+function useChatUnread() {
+  const [n, setN] = useState(0);
+  useEffect(() => {
+    let t = null;
+    const load = () => { clearTimeout(t); t = setTimeout(() => get('/chat/channels').then((r) => setN(r.channels.reduce((sum, c) => sum + (c.unread || 0), 0))).catch(() => {}), 400); };
+    load();
+    const off = onLive((m) => { if (['message', 'chat-read', 'message-deleted', 'channels-changed', 'live-connected'].includes(m.type)) load(); });
+    return () => { off(); clearTimeout(t); };
+  }, []);
+  return n;
 }

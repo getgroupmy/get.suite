@@ -151,6 +151,8 @@ if (!/'slides'/.test(db.prepare("SELECT sql FROM sqlite_master WHERE type = 'tab
   } catch (e) { try { db.exec('ROLLBACK'); } catch {} throw e; } finally { db.exec('PRAGMA foreign_keys = ON'); }
 }
 const hasColumn = (table, col) => db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === col);
+if (!hasColumn('messages', 'edited_at')) db.exec('ALTER TABLE messages ADD COLUMN edited_at INTEGER');
+if (!hasColumn('messages', 'files')) db.exec('ALTER TABLE messages ADD COLUMN files TEXT'); // JSON [{ id, name, mime, size }]
 if (!hasColumn('users', 'org_id')) db.exec('ALTER TABLE users ADD COLUMN org_id TEXT REFERENCES orgs(id) ON DELETE CASCADE');
 if (!hasColumn('users', 'is_super')) db.exec('ALTER TABLE users ADD COLUMN is_super INTEGER NOT NULL DEFAULT 0');
 if (!hasColumn('channels', 'org_id')) db.exec('ALTER TABLE channels ADD COLUMN org_id TEXT REFERENCES orgs(id) ON DELETE CASCADE');

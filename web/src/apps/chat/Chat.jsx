@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
-import { get, post, del, onLive } from '../../api.js';
+import { get, post, patch, del, onLive, uploadFile, formatBytes } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
 import EmojiPicker from '../../components/EmojiPicker.jsx';
 import { Avatar, Empty, PromptModal, useToast } from '../../components/ui.jsx';
@@ -37,7 +37,19 @@ export default function Chat() {
   const scroller = useRef();
   const stick = useRef(true);
 
-  const loadChannels = () => get('/chat/channels').then(({ channels, online }) => { setChannels(channels); setOnline(online); });
+  const loadChannels = () => get('/chat/channels').then(({ channels, online }) => {
+    setChannels(channels); setOnline(online);
+    setUnread(Object.fromEntries(channels.map((c) => [c.id, c.id === channelIdRef.current ? 0 : c.unread || 0])));
+  });
+  const channelIdRef = useRef(channelId);
+  channelIdRef.current = channelId;
+  // Reading a conversation marks it read (also for your other tabs and devices).
+  const markRead = (id) => { if (id && !document.hidden) post(`/chat/channels/${id}/read`).catch(() => {}); };
+  useEffect(() => {
+    const back = () => markRead(channelIdRef.current);
+    document.addEventListener('visibilitychange', back);
+    return () => document.removeEventListener('visibilitychange', back);
+  }, []);
   useEffect(() => { loadChannels(); get('/users/directory').then(setPeople); }, []);
 
   const current = channels.find((c) => c.id === channelId);
@@ -50,13 +62,18 @@ export default function Chat() {
     setMessages([]);
     stick.current = true;
     setUnread((u) => ({ ...u, [channelId]: 0 }));
-    get(`/chat/channels/${channelId}/messages`).then(setMessages).catch((e) => toast(e.message, 'error'));
+    setEditingId(null); setFiles([]);
+    get(`/chat/channels/${channelId}/messages`).then((list) => { setMessages(list); markRead(channelId); }).catch((e) => toast(e.message, 'error'));
   }, [channelId, toast]);
 
   useEffect(() => onLive((m) => {
     if (m.type === 'message') {
-      if (m.message.channel_id === channelId) setMessages((list) => (list.some((x) => x.id === m.message.id) ? list : [...list, m.message]));
-      else setUnread((u) => ({ ...u, [m.message.channel_id]: (u[m.message.channel_id] || 0) + 1 }));
+      if (m.message.channel_id === channelId) { setMessages((list) => (list.some((x) => x.id === m.message.id) ? list : [...list, m.message])); if (m.message.user_id !== user.id) markRead(channelId); }
+      else if (m.message.user_id !== user.id) setUnread((u) => ({ ...u, [m.message.channel_id]: (u[m.message.channel_id] || 0) + 1 }));
+    } else if (m.type === 'message-updated') {
+      setMessages((list) => list.map((x) => (x.id === m.message.id ? m.message : x)));
+    } else if (m.type === 'chat-read') {
+      setUnread((u) => ({ ...u, [m.channel_id]: 0 }));
     } else if (m.type === 'message-deleted') {
       setMessages((list) => list.filter((x) => x.id !== m.id));
     } else if (m.type === 'channels-changed' || m.type === 'live-connected') {
@@ -69,17 +86,43 @@ export default function Chat() {
     if (el && stick.current) el.scrollTop = el.scrollHeight;
   }, [messages]);
 
+  // Files to send with the next message: uploaded to your "Chat files" folder in Drive.
+  const [files, setFiles] = useState([]);
+  const [uploading, setUploading] = useState(0);
+  const fileInput = useRef();
+  async function attach(list) {
+    let folder;
+    try { folder = (await post('/chat/files-folder')).id; } catch (e) { toast(e.message, 'error'); return; }
+    for (const f of list) {
+      setUploading((n) => n + 1);
+      try { const up = await uploadFile(f, folder); setFiles((x) => [...x, up]); } catch (e) { toast(e.message, 'error'); } finally { setUploading((n) => n - 1); }
+    }
+    box.current?.focus();
+  }
+
   async function send(e) {
     e.preventDefault();
     const body = text.trim();
-    if (!body) return;
-    setText('');
+    if ((!body && !files.length) || uploading) return;
+    const sending = files;
+    setText(''); setFiles([]);
     stick.current = true;
     try {
-      const msg = await post(`/chat/channels/${channelId}/messages`, { body });
+      const msg = await post(`/chat/channels/${channelId}/messages`, { body, files: sending.map((f) => f.id) });
       setMessages((list) => (list.some((x) => x.id === msg.id) ? list : [...list, msg]));
-    } catch (err) { toast(err.message, 'error'); setText(body); }
+    } catch (err) { toast(err.message, 'error'); setText(body); setFiles(sending); }
   }
+
+  const [editingId, setEditingId] = useState(null);
+  const [editText, setEditText] = useState('');
+  async function saveEdit(m) {
+    const body = editText.trim();
+    if (body === m.body) { setEditingId(null); return; }
+    try { const msg = await patch(`/chat/messages/${m.id}`, { body }); setMessages((list) => list.map((x) => (x.id === msg.id ? msg : x))); setEditingId(null); }
+    catch (err) { toast(err.message, 'error'); }
+  }
+  const react = (m, emoji) => post(`/chat/messages/${m.id}/reactions`, { emoji })
+    .then((msg) => setMessages((list) => list.map((x) => (x.id === msg.id ? msg : x)))).catch((err) => toast(err.message, 'error'));
 
   async function openDm(personId) {
     const { id } = await post('/chat/dm', { user_id: personId });
@@ -130,21 +173,57 @@ export default function Chat() {
                     {grouped && !newDay ? <span className="msg-gutter" /> : <Avatar name={m.user_name || 'Deleted user'} size={36} />}
                     <div className="msg-body">
                       {(!grouped || newDay) && <div className="msg-meta"><strong>{m.user_name || 'Deleted user'}</strong> <span className="muted small">{new Date(m.created_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span></div>}
-                      <div className="msg-text"><Linked text={m.body} /></div>
+                      {editingId === m.id ? (
+                        <form className="msg-edit" onSubmit={(e) => { e.preventDefault(); saveEdit(m); }}>
+                          <textarea autoFocus aria-label="Change the message" value={editText} rows={Math.min(6, editText.split('\n').length)} onChange={(e) => setEditText(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveEdit(m); } else if (e.key === 'Escape') { e.preventDefault(); setEditingId(null); } }} />
+                          <span className="muted small">Enter to save · Esc to cancel</span>
+                        </form>
+                      ) : m.body && <div className="msg-text"><Linked text={m.body} />{m.edited_at && <span className="muted small edited" title={`Edited ${new Date(m.edited_at).toLocaleString()}`}> (edited)</span>}</div>}
+                      {m.files?.length > 0 && (
+                        <div className="msg-files">
+                          {m.files.map((f) => (/^image\/(png|jpeg|gif|webp)$/.test(f.mime)
+                            ? <a key={f.id} href={`/api/chat/messages/${m.id}/files/${f.id}`} target="_blank" rel="noreferrer" className="msg-pic"><img src={`/api/chat/messages/${m.id}/files/${f.id}`} alt={f.name} loading="lazy" /></a>
+                            : <a key={f.id} className="msg-file" href={`/api/chat/messages/${m.id}/files/${f.id}?download`}><Icon name="attach" size={16} /> {f.name} <span className="muted small">{formatBytes(f.size)}</span></a>))}
+                        </div>
+                      )}
+                      {m.reactions?.length > 0 && (
+                        <div className="reactions">
+                          {m.reactions.map((r) => {
+                            const mine = r.users.some((u) => u.id === user.id);
+                            return <button key={r.emoji} type="button" className={`reaction ${mine ? 'mine' : ''}`} aria-pressed={mine} title={r.users.map((u) => u.name).join(', ')}
+                              aria-label={`${r.emoji} ${r.users.length}: ${r.users.map((u) => u.name).join(', ')}`} onClick={() => react(m, r.emoji)}>{r.emoji} {r.users.length}</button>;
+                          })}
+                        </div>
+                      )}
                     </div>
-                    {(m.user_id === user.id || user.is_admin) && (
-                      <button className="icon-btn msg-del" aria-label="Delete message" onClick={() => del(`/chat/messages/${m.id}`).catch((e) => toast(e.message, 'error'))}><Icon name="trash" size={16} /></button>
-                    )}
+                    <div className="msg-actions">
+                      {['👍', '❤️', '😂'].map((e) => <button key={e} type="button" className="icon-btn" aria-label={`React with ${e}`} onClick={() => react(m, e)}>{e}</button>)}
+                      <EmojiPicker className="icon-btn" label="Add a reaction" onPick={(e) => react(m, e)} />
+                      {m.user_id === user.id && <button type="button" className="icon-btn" aria-label="Edit message" onClick={() => { setEditingId(m.id); setEditText(m.body); }}><Icon name="edit" size={16} /></button>}
+                      {(m.user_id === user.id || user.is_admin) && (
+                        <button className="icon-btn" aria-label="Delete message" onClick={() => del(`/chat/messages/${m.id}`).catch((e) => toast(e.message, 'error'))}><Icon name="trash" size={16} /></button>
+                      )}
+                    </div>
                   </div>
                 </div>
               );
             })}
           </div>
-          <form className="composer" onSubmit={send}>
+          {(files.length > 0 || uploading > 0) && (
+            <ul className="pending-files" aria-label="Files to send">
+              {files.map((f) => <li key={f.id}><Icon name="attach" size={14} /> {f.name} <button type="button" className="icon-btn" aria-label={`Remove ${f.name}`} onClick={() => setFiles((x) => x.filter((y) => y.id !== f.id))}><Icon name="close" size={14} /></button></li>)}
+              {uploading > 0 && <li className="muted">Uploading {uploading}…</li>}
+            </ul>
+          )}
+          <form className="composer" onSubmit={send} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { if (e.dataTransfer.files.length) { e.preventDefault(); attach([...e.dataTransfer.files]); } }}>
             <EmojiPicker up className="icon-btn" onPick={insertEmoji} />
+            <button type="button" className="icon-btn" aria-label="Attach files" title="Attach files (or drop or paste them here)" onClick={() => fileInput.current.click()}><Icon name="attach" /></button>
+            <input ref={fileInput} type="file" multiple hidden aria-label="Files to attach" onChange={(e) => { attach([...e.target.files]); e.target.value = ''; }} />
             <textarea ref={box} rows={1} value={text} placeholder={`Message ${title}`} aria-label="Message" onChange={(e) => setText(e.target.value)}
+              onPaste={(e) => { const pasted = [...(e.clipboardData?.files || [])]; if (pasted.length) { e.preventDefault(); attach(pasted); } }}
               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) send(e); }} />
-            <button className="icon-btn send" aria-label="Send" disabled={!text.trim()}><Icon name="send" /></button>
+            <button className="icon-btn send" aria-label="Send" disabled={(!text.trim() && !files.length) || uploading > 0}><Icon name="send" /></button>
           </form>
         </>}
       </section>
