@@ -459,7 +459,7 @@ async function applyEdit(event, body, which) {
     guests: (event.guests || []).map((g) => g.email), tz: TZ, rrule: event.rrule, ...body };
   if (which === 'this') {
     await patch(`/events/${event.id}`, { exdates: [...(event.exdates || []), event.occurrence] });
-    return post('/events', { ...copy, rrule: null });
+    return post('/events', { ...copy, rrule: null, recurrence_of: { id: event.id, occurrence: event.occurrence } }); // phones see it as part of the series
   }
   const old = event.rrule;
   let rule = copy.rrule;
@@ -500,7 +500,16 @@ function useEventDrag(onDrop) {
       setTimeout(() => { dragged.current = false; }); // after the click that follows
     };
     const up = () => stop(true);
-    const esc = (k) => { if (k.key === 'Escape' && dragged.current) { k.preventDefault(); k.stopPropagation(); stop(false); } };
+    // Esc cancels; the mouse is still down, so its release (and the click after it) must not count either.
+    const esc = (k) => {
+      if (k.key !== 'Escape' || !dragged.current) return;
+      k.preventDefault(); k.stopPropagation();
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('keydown', esc, true);
+      setDrag(null);
+      window.addEventListener('pointerup', () => setTimeout(() => { dragged.current = false; }), { once: true });
+    };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
     window.addEventListener('keydown', esc, true);

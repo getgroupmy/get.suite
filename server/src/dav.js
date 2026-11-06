@@ -18,7 +18,7 @@ import { verifyPassword } from './auth.js';
 import { verifyDovecotHash } from './mail/crypt.js';
 import * as guard from './security/guard.js';
 import * as twoFactor from './twofactor.js';
-import { buildIcs, parseIcsEvent, zoneOrUtc } from './ics.js';
+import { buildIcs, parseIcsEvent, zoneOrUtc, contentLines } from './ics.js';
 import { buildVcard, parseVcard } from './vcard.js';
 import { MAIL_HOSTNAME } from './mail/config.js';
 import { sendTo } from './hub.js';
@@ -81,7 +81,11 @@ const hrefsIn = (body) => [...String(body || '').matchAll(/<(?:\w+:)?href>([^<]+
 
 // ---- what's stored ----
 const host = () => MAIL_HOSTNAME || 'workspace';
-const eventsOf = (userId) => q('SELECT * FROM events WHERE owner_id = ? ORDER BY start').all(userId);
+// Your events (changed single occurrences travel inside their series), and invitations you haven't declined.
+const eventsOf = (userId) => q(`SELECT e.*, NULL AS my_status FROM events e WHERE e.owner_id = ?
+    AND (e.recur_parent IS NULL OR NOT EXISTS (SELECT 1 FROM events p WHERE p.id = e.recur_parent AND p.rrule IS NOT NULL))
+  UNION ALL SELECT e.*, g.status AS my_status FROM events e JOIN event_guests g ON g.event_id = e.id WHERE g.user_id = ? AND g.status != 'no'
+  ORDER BY start`).all(userId, userId);
 const contactsOf = (userId) => q('SELECT * FROM contacts WHERE owner_id = ? ORDER BY name').all(userId);
 const eventName = (e) => e.dav_name || `${e.id}.ics`;
 const contactName = (c) => c.dav_name || `${c.id}.vcf`;
@@ -89,11 +93,43 @@ const outEvent = (e) => ({ ...e, rrule: e.rrule ? JSON.parse(e.rrule) : null, ex
 // DTSTAMP is fixed so the same event always gives the same file (and ETag); a changing timestamp
 // would make every phone think the event changed elsewhere.
 const STAMP = Date.UTC(2000, 0, 1);
-const icsOf = (e) => buildIcs(outEvent(e), { method: null, uid: e.ical_uid || `${e.id}@${host()}`, sequence: e.sequence || 0, tz: e.tz, now: STAMP });
+function icsOf(e) {
+  const overrides = e.rrule ? q('SELECT * FROM events WHERE recur_parent = ? ORDER BY recur_id').all(e.id).map((o) => ({ ...o, recurrenceId: o.recur_id })) : [];
+  // An invitation shows who organises it and who's coming, so the phone offers Accept / Decline.
+  const invite = e.my_status !== null && e.my_status !== undefined;
+  const organizer = invite ? q('SELECT name, username AS email FROM users WHERE id = ?').get(e.owner_id) : null;
+  const attendees = invite ? q('SELECT u.name, u.username AS email, g.status FROM event_guests g JOIN users u ON u.id = g.user_id WHERE g.event_id = ? ORDER BY u.username').all(e.id) : [];
+  return buildIcs(outEvent(e), { method: null, uid: e.ical_uid || `${e.id}@${host()}`, sequence: e.sequence || 0, tz: e.tz, now: STAMP, overrides, organizer, attendees });
+}
+const PARTSTAT = { ACCEPTED: 'yes', TENTATIVE: 'maybe', DECLINED: 'no' };
 const vcfOf = (c) => buildVcard(c);
 const ctag = (bodies) => `"${crypto.createHash('sha1').update(bodies.join('\u0000')).digest('hex').slice(0, 24)}"`;
 const repeatUntil = (e) => (e.rrule ? (e.rrule.until !== undefined ? e.rrule.until + (e.end - e.start) : null) : null);
-const touch = (userId) => sendTo([userId], { type: 'events-changed' });
+const touch = (ids) => sendTo([].concat(ids), { type: 'events-changed' });
+
+/**
+ * Occurrences changed on their own in a phone's copy: each becomes (or updates) a one-off event
+ * linked to the series, which skips that date; a cancelled one is just skipped; one no longer in
+ * the copy is back to normal.
+ */
+function syncOverrides(seriesId, e, userId) {
+  const series = q('SELECT * FROM events WHERE id = ?').get(seriesId);
+  const ex = new Set(JSON.parse(series.exdates || '[]'));
+  const existing = new Map(q('SELECT * FROM events WHERE recur_parent = ?').all(seriesId).map((o) => [o.recur_id, o]));
+  const keep = new Set();
+  for (const o of e.rrule ? e.overrides || [] : []) {
+    ex.add(o.recurrenceId);
+    const cur = existing.get(o.recurrenceId);
+    if (o.cancelled) { if (cur) q('DELETE FROM events WHERE id = ?').run(cur.id); continue; }
+    keep.add(o.recurrenceId);
+    const vals = [o.title, o.description, o.location, o.start, o.end, o.all_day, series.tz];
+    if (cur) q('UPDATE events SET title = ?, description = ?, location = ?, start = ?, end = ?, all_day = ?, tz = ?, sequence = sequence + 1 WHERE id = ?').run(...vals, cur.id);
+    else q(`INSERT INTO events (title, description, location, start, end, all_day, tz, id, owner_id, color, exdates, recur_parent, recur_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?)`)
+      .run(...vals, uid(), userId, series.color, seriesId, o.recurrenceId);
+  }
+  for (const [rid, cur] of existing) if (!keep.has(rid)) { q('DELETE FROM events WHERE id = ?').run(cur.id); if (!(e.overrides || []).some((o) => o.recurrenceId === rid)) ex.delete(rid); }
+  q('UPDATE events SET exdates = ? WHERE id = ?').run(JSON.stringify([...ex].sort((a, b) => a - b)), seriesId);
+}
 
 export default function davRoutes() {
   const r = Router();
@@ -154,7 +190,8 @@ export default function davRoutes() {
     if (area === 'addressbooks' && coll === 'default' && parts.length === 4) return { kind: 'contact', name: item };
     return { kind: 'none' };
   }
-  const findEvent = (userId, name) => q('SELECT * FROM events WHERE owner_id = ? AND (dav_name = ? OR (dav_name IS NULL AND id || \'.ics\' = ?))').get(userId, name, name);
+  const findEvent = (userId, name) => q('SELECT *, NULL AS my_status FROM events WHERE owner_id = ? AND (dav_name = ? OR (dav_name IS NULL AND id || \'.ics\' = ?))').get(userId, name, name)
+    || q(`SELECT e.*, g.status AS my_status FROM events e JOIN event_guests g ON g.event_id = e.id WHERE g.user_id = ? AND e.id || '.ics' = ?`).get(userId, name);
   const findContact = (userId, name) => q('SELECT * FROM contacts WHERE owner_id = ? AND (dav_name = ? OR (dav_name IS NULL AND id || \'.vcf\' = ?))').get(userId, name, name);
 
   r.use((req, res, next) => {
@@ -234,10 +271,22 @@ export default function davRoutes() {
         if (ifMatch === '*' && !row) return res.status(412).end();
         if (ifNone === '*' && row) return res.status(412).end();
 
+        const invite = isEvent && row && row.my_status !== null && row.my_status !== undefined;
         if (m === 'DELETE') {
           if (!row) return res.status(404).end();
+          // Removing an invitation from the phone declines it; it stays the organiser's event.
+          if (invite) { q("UPDATE event_guests SET status = 'no' WHERE event_id = ? AND user_id = ?").run(row.id, me); touch([me, row.owner_id]); return res.status(204).end(); }
           q(`DELETE FROM ${isEvent ? 'events' : 'contacts'} WHERE id = ?`).run(row.id);
-          if (isEvent) touch(me);
+          if (isEvent) { q('DELETE FROM events WHERE recur_parent = ? AND owner_id = ?').run(row.id, me); touch(me); }
+          return res.status(204).end();
+        }
+        if (invite) {
+          // A guest's copy: only their answer (Accept / Maybe / Decline) is kept.
+          const mine = contentLines(req.body).find((l) => l.name === 'ATTENDEE' && l.value.toLowerCase() === `mailto:${req.davUser.username}`);
+          const status = PARTSTAT[(mine?.params.PARTSTAT || '').toUpperCase()];
+          if (status) { q('UPDATE event_guests SET status = ? WHERE event_id = ? AND user_id = ?').run(status, row.id, me); touch([me, row.owner_id]); }
+          const saved = findEvent(me, at.name);
+          if (saved) res.setHeader('ETag', etagOf(icsOf(saved)));
           return res.status(204).end();
         }
 
@@ -250,8 +299,9 @@ export default function davRoutes() {
           if (row) q('UPDATE events SET title = ?, description = ?, location = ?, start = ?, end = ?, all_day = ?, rrule = ?, exdates = ?, repeat_until = ?, tz = ?, sequence = sequence + 1 WHERE id = ?').run(...vals, id);
           else q(`INSERT INTO events (title, description, location, start, end, all_day, rrule, exdates, repeat_until, tz, id, owner_id, dav_name, ical_uid, color)
                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`).run(...vals, id, me, at.name, e.uid);
+          syncOverrides(id, e, me);
           touch(me);
-          const saved = q('SELECT * FROM events WHERE id = ?').get(id);
+          const saved = q('SELECT *, NULL AS my_status FROM events WHERE id = ?').get(id);
           res.setHeader('ETag', etagOf(icsOf(saved)));
           return res.status(row ? 204 : 201).end();
         }

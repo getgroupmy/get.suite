@@ -106,7 +106,7 @@ function firstStart(e, zone) {
  * The calendar file for an event. `method` is 'REQUEST' (invite or update), 'CANCEL', or
  * 'PUBLISH' (a plain "add to calendar" file). `attendees`: [{ email, name, status }].
  */
-export function buildIcs(e, { method = 'REQUEST', uid, sequence = 0, organizer, attendees = [], tz, now = Date.now() }) {
+export function buildIcs(e, { method = 'REQUEST', uid, sequence = 0, organizer, attendees = [], tz, now = Date.now(), overrides = [] }) {
   const zone = zoneOrUtc(tz);
   const repeats = !!e.rrule && !e.all_day && zone !== 'UTC';
   const start = firstStart(e, zone), end = start + (e.end - e.start);
@@ -137,7 +137,17 @@ export function buildIcs(e, { method = 'REQUEST', uid, sequence = 0, organizer, 
   for (const a of attendees) {
     lines.push(`ATTENDEE;CN=${param(a.name || a.email)};ROLE=REQ-PARTICIPANT;PARTSTAT=${PARTSTAT[a.status] || 'NEEDS-ACTION'};RSVP=TRUE:mailto:${a.email}`);
   }
-  lines.push(`STATUS:${method === 'CANCEL' ? 'CANCELLED' : 'CONFIRMED'}`, 'TRANSP:OPAQUE', 'END:VEVENT', 'END:VCALENDAR');
+  lines.push(`STATUS:${method === 'CANCEL' ? 'CANCELLED' : 'CONFIRMED'}`, 'TRANSP:OPAQUE', 'END:VEVENT');
+  // Single occurrences changed on their own: the same UID, with the original start as RECURRENCE-ID.
+  for (const o of e.rrule ? overrides : []) {
+    lines.push('BEGIN:VEVENT', `UID:${uid}`, `DTSTAMP:${utcStamp(now)}`, `SEQUENCE:${o.sequence || 0}`,
+      e.all_day ? `RECURRENCE-ID;VALUE=DATE:${dateStamp(o.recurrenceId, zone)}` : repeats ? `RECURRENCE-ID;TZID=${zone}:${localStamp(o.recurrenceId, zone)}` : `RECURRENCE-ID:${utcStamp(o.recurrenceId)}`,
+      o.all_day ? `DTSTART;VALUE=DATE:${dateStamp(o.start, zone)}` : when('DTSTART', o.start),
+      o.all_day ? `DTEND;VALUE=DATE:${dateStamp(o.end, zone, 1)}` : when('DTEND', o.end),
+      `SUMMARY:${escapeText(o.title)}`, ...(o.location ? [`LOCATION:${escapeText(o.location)}`] : []), ...(o.description ? [`DESCRIPTION:${escapeText(o.description)}`] : []),
+      'STATUS:CONFIRMED', 'TRANSP:OPAQUE', 'END:VEVENT');
+  }
+  lines.push('END:VCALENDAR');
   return fold(lines);
 }
 
@@ -241,6 +251,19 @@ export function parseIcsEvent(text, { tz = 'UTC' } = {}) {
         for (const v of l.value.split(',')) { const w = parseWhen({ value: v, params: l.params }, out.tz); if (w) out.exdates.push(w.ms); }
       }
     }
+  }
+  // Occurrences changed on their own (or cancelled) in the same file.
+  out.overrides = [];
+  for (const raw of String(text || '').replace(/\r?\n[ \t]/g, '').match(/BEGIN:VEVENT[\s\S]*?END:VEVENT/gi) || []) {
+    const ridLine = contentLines(raw).find((l) => l.name === 'RECURRENCE-ID');
+    if (!ridLine) continue;
+    const rid = parseWhen(ridLine, out.tz);
+    if (!rid) continue;
+    const cancelled = /\nSTATUS:CANCELLED/i.test(raw);
+    const body = raw.split(/\r?\n/).filter((l) => !/^(RECURRENCE-ID|RRULE|EXDATE)[;:]/i.test(l)).join('\r\n');
+    const o = parseIcsEvent(`BEGIN:VCALENDAR\r\n${body}\r\nEND:VCALENDAR`, { tz: out.tz });
+    if (o.error) continue;
+    out.overrides.push({ recurrenceId: rid.ms, cancelled, title: o.title, location: o.location, description: o.description, start: o.start, end: o.end, all_day: o.all_day });
   }
   return out;
 }

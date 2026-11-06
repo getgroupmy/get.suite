@@ -197,6 +197,10 @@ db.exec('CREATE INDEX IF NOT EXISTS share_links_file ON share_links(file_id)');
 // of a contact card Workspace doesn't show (addresses, birthdays, more numbers), kept as they came.
 if (!hasColumn('events', 'dav_name')) db.exec('ALTER TABLE events ADD COLUMN dav_name TEXT');
 if (!hasColumn('events', 'ical_uid')) db.exec('ALTER TABLE events ADD COLUMN ical_uid TEXT');
+// One occurrence of a repeating event changed on its own: a one-off event linked to its series,
+// standing in for the occurrence that started at recur_id (which the series skips).
+if (!hasColumn('events', 'recur_parent')) db.exec('ALTER TABLE events ADD COLUMN recur_parent TEXT');
+if (!hasColumn('events', 'recur_id')) db.exec('ALTER TABLE events ADD COLUMN recur_id INTEGER');
 if (!hasColumn('contacts', 'dav_name')) db.exec('ALTER TABLE contacts ADD COLUMN dav_name TEXT');
 if (!hasColumn('contacts', 'vcard_uid')) db.exec('ALTER TABLE contacts ADD COLUMN vcard_uid TEXT');
 if (!hasColumn('contacts', 'vcard_extra')) db.exec('ALTER TABLE contacts ADD COLUMN vcard_extra TEXT');

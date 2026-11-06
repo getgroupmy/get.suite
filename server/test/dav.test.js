@@ -141,3 +141,52 @@ test('two-step verification: the account password stops working here; the mail-a
   assert.equal((await dav('PROPFIND', '/dav/', { depth: 0, auth: basic('pat@acme.com', 'abcd-efgh-ijkl-mnop') })).status, 207);
   q('DELETE FROM two_factor WHERE user_id = ?').run(me.id);
 });
+
+test('repeating events: one occurrence changed on the web or the phone shows on both', async () => {
+  const cal = `/dav/calendars/${me.id}/default/`;
+  const t = Date.UTC(2026, 11, 7, 9); // Monday 9:00 UTC
+  const series = (await api('POST', '/api/events', { title: 'Standup', start: t, end: t + 18e5, rrule: { freq: 'weekly' }, tz: 'UTC' })).body;
+  // On the web: move the second one ("this event"), the way the calendar does it.
+  const second = t + 7 * 864e5;
+  await api('PATCH', `/api/events/${series.id}`, { exdates: [second] });
+  await api('POST', '/api/events', { title: 'Standup (moved)', start: second + 36e5, end: second + 36e5 + 18e5, tz: 'UTC', recurrence_of: { id: series.id, occurrence: second } });
+  const ics = (await dav('GET', `${cal}${series.id}.ics`)).text;
+  assert.match(ics, /RECURRENCE-ID:20261214T090000Z/);
+  assert.match(ics, /SUMMARY:Standup \(moved\)/);
+  const list = await dav('PROPFIND', cal, { depth: 1, body: '<d:propfind xmlns:d="DAV:"><d:prop><d:getetag/></d:prop></d:propfind>' });
+  assert.equal((list.text.match(/Standup|\.ics/g) || []).filter((x) => x === '.ics').length, (await api('GET', `/api/events?from=0&to=${8.64e15}`)).body.filter((e) => !e.recur_parent).length, 'the changed occurrence travels inside its series');
+
+  // On the phone: change the third one, cancel the fourth, and keep the web's change.
+  const third = second + 7 * 864e5, fourth = third + 7 * 864e5;
+  const phone = ics.replace('END:VCALENDAR', [
+    'BEGIN:VEVENT', `UID:${series.id}@workspace`, 'RECURRENCE-ID:20261221T090000Z', 'DTSTART:20261221T130000Z', 'DTEND:20261221T133000Z', 'SUMMARY:Standup (afternoon)', 'END:VEVENT',
+    'BEGIN:VEVENT', `UID:${series.id}@workspace`, 'RECURRENCE-ID:20261228T090000Z', 'DTSTART:20261228T090000Z', 'DTEND:20261228T093000Z', 'STATUS:CANCELLED', 'SUMMARY:Standup', 'END:VEVENT',
+    'END:VCALENDAR'].join('\r\n'));
+  assert.equal((await dav('PUT', `${cal}${series.id}.ics`, { body: phone })).status, 204);
+  const web = (await api('GET', `/api/events?from=${t - 864e5}&to=${t + 60 * 864e5}`)).body;
+  const master = web.find((e) => e.id === series.id);
+  assert.deepEqual(master.exdates.sort(), [second, third, fourth].sort());
+  const children = web.filter((e) => e.recur_parent === series.id).map((e) => [e.title, e.recur_id]).sort();
+  assert.deepEqual(children, [['Standup (afternoon)', third], ['Standup (moved)', second]]);
+  // Deleting the series removes its changed occurrences too.
+  await dav('DELETE', `${cal}${series.id}.ics`);
+  assert.equal((await api('GET', `/api/events?from=${t - 864e5}&to=${t + 60 * 864e5}`)).body.filter((e) => e.title.startsWith('Standup')).length, 0);
+});
+
+test('invitations: they appear on the guest\'s phone, and Accept or delete there answers', async () => {
+  const kimAuth = basic('kim@acme.com', 'password123');
+  const t = Date.UTC(2026, 11, 9, 10);
+  const ev = (await api('POST', '/api/events', { title: 'Budget review', start: t, end: t + 36e5, guests: ['kim@acme.com'], tz: 'UTC' })).body;
+  const kcal = `/dav/calendars/${other.id}/default/`;
+  const ics = (await dav('GET', `${kcal}${ev.id}.ics`, { auth: kimAuth })).text;
+  assert.match(ics, /ORGANIZER;CN="Pat Phone":mailto:pat@acme\.com/);
+  assert.match(ics.replace(/\r\n /g, ''), /ATTENDEE;CN="Kim";ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:kim@acme\.com/);
+  const accepted = ics.replace(/\r\n /g, '').replace('PARTSTAT=NEEDS-ACTION', 'PARTSTAT=ACCEPTED').replace('SUMMARY:Budget review', 'SUMMARY:Renamed by Kim');
+  assert.equal((await dav('PUT', `${kcal}${ev.id}.ics`, { auth: kimAuth, body: accepted })).status, 204);
+  const mine = (await api('GET', `/api/events?from=${t - 864e5}&to=${t + 864e5}`)).body.find((e) => e.id === ev.id);
+  assert.equal(mine.guests[0].status, 'yes');
+  assert.equal(mine.title, 'Budget review', 'a guest can only answer, not change the event');
+  assert.equal((await dav('DELETE', `${kcal}${ev.id}.ics`, { auth: kimAuth })).status, 204);
+  assert.equal((await api('GET', `/api/events?from=${t - 864e5}&to=${t + 864e5}`)).body.find((e) => e.id === ev.id).guests[0].status, 'no', 'deleting it declines');
+  assert.ok(!(await dav('PROPFIND', kcal, { auth: kimAuth, depth: 1 })).text.includes(ev.id), 'and it leaves the phone');
+});

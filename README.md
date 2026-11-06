@@ -125,9 +125,9 @@ Your Workspace calendar and contacts sync with the phone's own Calendar and Cont
 - **What syncs:**
   - Your events, including repeating ones (daily, weekly on chosen days, monthly on a date, yearly; an end date or a number of times; skipped dates). Changes on either side show up on the other.
   - Your contacts. Addresses, birthdays and extra numbers added on a phone are kept, even though the web only shows one email and one phone number.
+  - **Invitations** from colleagues appear on your phone with the organiser and guests. Accept, Maybe or Decline there is your answer in Workspace, and deleting one declines it. You can't change someone else's event from the phone.
+  - **One occurrence of a repeating event** changed on its own (on the phone, or with "This event" on the web) shows on both as part of the series. Cancelling one on the phone skips that date.
 - **Not yet:**
-  - Invitations from colleagues stay in the web calendar only.
-  - A change to a single occurrence of a repeating event made on the phone isn't kept.
   - Repeats that Workspace can't show (such as "second Monday of the month") arrive as a one-off on the first date.
   - Reminders set on the phone stay on the phone.
 - **Synology reverse proxy:** nothing to add. The same HTTPS entry serves `/dav/` and the `/.well-known/caldav` and `/.well-known/carddav` addresses that apps look for.
@@ -463,4 +463,3 @@ cd server && MAIL_IT_CONFIG_DIR=/etc/nw npm run test:mail
 
 ## Roadmap
 
-- **Phone sync, next steps:** invitations and single changed occurrences over CalDAV.

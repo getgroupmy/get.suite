@@ -236,10 +236,13 @@ export default function calendarRoutes() {
     const guests = req.body.guests !== undefined ? readGuests(req.user, req.body.guests) : null;
     const id = uid();
     const tz = req.body.tz ? zoneOrUtc(req.body.tz) : null;
-    q(`INSERT INTO events (id, owner_id, title, description, location, start, end, all_day, color, rrule, exdates, repeat_until, tz)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    // "This event" of a repeating one: remember which series and occurrence it replaces (phones show it as part of the series).
+    const of = req.body.recurrence_of;
+    const parent = of && !e.rrule ? q('SELECT id FROM events WHERE id = ? AND owner_id = ? AND rrule IS NOT NULL').get(String(of.id || ''), req.user.id) : null;
+    q(`INSERT INTO events (id, owner_id, title, description, location, start, end, all_day, color, rrule, exdates, repeat_until, tz, recur_parent, recur_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(id, req.user.id, e.title, e.description ?? null, e.location ?? null, e.start, e.end, e.all_day ?? 0, e.color ?? null,
-        e.rrule ? JSON.stringify(e.rrule) : null, JSON.stringify(e.exdates || []), repeatUntil(e), tz);
+        e.rrule ? JSON.stringify(e.rrule) : null, JSON.stringify(e.exdates || []), repeatUntil(e), tz, parent?.id ?? null, parent ? int(of.occurrence, 'occurrence') : null);
     if (guests) {
       const { added } = setGuests(id, guests.inside);
       const outside = setOutside(id, guests.outside);
@@ -294,6 +297,7 @@ export default function calendarRoutes() {
     const gone = { ...outEvent(ev), sequence: ev.sequence + 1 };
     notifyOutside(req.user, gone, outside, 'cancel', { base: baseUrl(req), tz: req.query.tz || ev.tz }); // before the guest list goes
     q('DELETE FROM events WHERE id = ?').run(ev.id);
+    q('DELETE FROM events WHERE recur_parent = ? AND owner_id = ?').run(ev.id, req.user.id); // its changed occurrences go with the series
     notify(req.user, outEvent(ev), guests.map((g) => ({ username: g.email, name: g.name })), 'cancel', req.query.tz);
     touch([req.user.id, ...guests.map((g) => g.id)]);
     res.json({ ok: true });
