@@ -111,3 +111,66 @@ export function applySheetJson(doc, next) {
     });
   });
 }
+
+// ---- presentations: slide order, and each slide's boxes by id, so different boxes (or slides)
+// changed at once both stay; the same box keeps the later change.
+function slideMap(slide) {
+  const m = new Y.Map();
+  if (slide.bg) m.set('bg', slide.bg);
+  const order = new Y.Array();
+  order.push((slide.items || []).map((it) => it.id));
+  m.set('order', order);
+  const items = new Y.Map();
+  for (const it of slide.items || []) items.set(it.id, it);
+  m.set('items', items);
+  return m;
+}
+
+export function deckDocFromJson(json) {
+  const doc = new Y.Doc();
+  doc.transact(() => {
+    doc.getMap('deck').set('theme', json?.theme || 'light');
+    const slides = json?.slides?.length ? json.slides : [{ id: 's1', items: [] }];
+    doc.getArray('order').push(slides.map((s) => s.id));
+    const all = doc.getMap('slides');
+    for (const s of slides) all.set(s.id, slideMap(s));
+  });
+  return doc;
+}
+
+export function jsonFromDeckDoc(doc) {
+  const all = doc.getMap('slides');
+  return {
+    theme: doc.getMap('deck').get('theme') || 'light',
+    slides: doc.getArray('order').toArray().filter((id) => all.has(id)).map((id) => {
+      const m = all.get(id);
+      const items = m.get('items');
+      const s = { id, items: m.get('order').toArray().filter((iid) => items.has(iid)).map((iid) => items.get(iid)) };
+      if (m.get('bg')) s.bg = m.get('bg');
+      return s;
+    }),
+  };
+}
+
+/** Bring the shared presentation in line with `next` with the smallest changes. */
+export function applyDeckJson(doc, next) {
+  const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  const setOrder = (arr, ids) => { if (!same(arr.toArray(), ids)) { arr.delete(0, arr.length); arr.push(ids); } };
+  doc.transact(() => {
+    const deck = doc.getMap('deck');
+    if (deck.get('theme') !== next.theme) deck.set('theme', next.theme);
+    const all = doc.getMap('slides');
+    const want = next.slides || [];
+    for (const id of [...all.keys()]) if (!want.some((s) => s.id === id)) all.delete(id);
+    for (const s of want) {
+      if (!all.has(s.id)) { all.set(s.id, slideMap(s)); continue; }
+      const m = all.get(s.id);
+      if ((m.get('bg') || null) !== (s.bg || null)) { if (s.bg) m.set('bg', s.bg); else m.delete('bg'); }
+      const items = m.get('items');
+      for (const iid of [...items.keys()]) if (!s.items.some((it) => it.id === iid)) items.delete(iid);
+      for (const it of s.items) if (!same(items.get(it.id), it)) items.set(it.id, it);
+      setOrder(m.get('order'), s.items.map((it) => it.id));
+    }
+    setOrder(doc.getArray('order'), want.map((s) => s.id));
+  });
+}

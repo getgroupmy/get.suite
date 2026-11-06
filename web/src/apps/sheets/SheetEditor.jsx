@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { get, patch } from '../../api.js';
 import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
-import { jsonFromSheetDoc, applySheetJson } from './sheetsync.js';
+import { jsonFromSheetDoc, applySheetJson } from '../collabsync.js';
 import { useAuth } from '../../App.jsx';
 import { useToast, PromptModal, ConfirmModal, Menu, Avatar } from '../../components/ui.jsx';
 import Icon from '../../components/Icon.jsx';

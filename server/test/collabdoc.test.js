@@ -52,3 +52,25 @@ test('spreadsheets: stored form round-trips; different cells changed at once bot
   assert.equal(merged.sheets[0].formats, undefined);
   assert.equal(merged.sheets.length, 3);
 });
+
+import { deckDocFromJson, jsonFromDeckDoc, applyDeckJson } from '../src/collabdoc.js';
+test('presentations: round-trip; different boxes and slides changed at once both stay', () => {
+  const t = (id, text, x = 10) => ({ id, type: 'text', text, x, y: 10, w: 50, h: 10, size: 24 });
+  const json = { theme: 'ocean', slides: [{ id: 'a', items: [t('t1', 'Title'), t('t2', 'Sub')] }, { id: 'b', bg: '#ffffff', items: [] }] };
+  const a = deckDocFromJson(json);
+  assert.deepEqual(jsonFromDeckDoc(a), json);
+  const b = new Y.Doc();
+  Y.applyUpdate(b, Y.encodeStateAsUpdate(a));
+  // A edits the title box; B moves the subtitle and adds a slide.
+  const ja = jsonFromDeckDoc(a); ja.slides[0].items[0] = { ...ja.slides[0].items[0], text: 'Q4 review' };
+  applyDeckJson(a, ja);
+  const jb = jsonFromDeckDoc(b); jb.slides[0].items[1] = { ...jb.slides[0].items[1], x: 40 }; jb.slides.push({ id: 'c', items: [t('t3', 'New')] });
+  applyDeckJson(b, jb);
+  Y.applyUpdate(a, Y.encodeStateAsUpdate(b));
+  Y.applyUpdate(b, Y.encodeStateAsUpdate(a));
+  const m = jsonFromDeckDoc(a);
+  assert.deepEqual(m, jsonFromDeckDoc(b));
+  assert.equal(m.slides[0].items[0].text, 'Q4 review');
+  assert.equal(m.slides[0].items[1].x, 40);
+  assert.deepEqual(m.slides.map((s) => s.id), ['a', 'b', 'c']);
+});

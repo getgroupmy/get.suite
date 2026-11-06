@@ -12,7 +12,7 @@ import * as encoding from 'lib0/encoding';
 import * as decoding from 'lib0/decoding';
 import { q } from './db.js';
 import { roleFor, atLeast, audienceFor } from './access.js';
-import { docFromJson, jsonFromDoc, sheetDocFromJson, jsonFromSheetDoc } from './collabdoc.js';
+import { docFromJson, jsonFromDoc, sheetDocFromJson, jsonFromSheetDoc, deckDocFromJson, jsonFromDeckDoc } from './collabdoc.js';
 import { snapshotIfNewSession } from './routes/files.js';
 import { sendTo } from './hub.js';
 
@@ -27,6 +27,7 @@ if (!q('PRAGMA table_info(files)').all().some((c) => c.name === 'ydoc')) q('ALTE
 const KINDS = {
   doc: { fromJson: (j) => docFromJson(j, FIELD), toJson: (d) => jsonFromDoc(d, FIELD) },
   sheet: { fromJson: sheetDocFromJson, toJson: jsonFromSheetDoc },
+  slides: { fromJson: deckDocFromJson, toJson: jsonFromDeckDoc },
 };
 export const CO_EDITED = Object.keys(KINDS);
 

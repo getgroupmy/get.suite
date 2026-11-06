@@ -1,11 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { sheetDocFromJson, jsonFromSheetDoc, applySheetJson } from './sheetsync.js';
+import { sheetDocFromJson, jsonFromSheetDoc, applySheetJson } from './collabsync.js';
 
 test('the browser\'s copy matches the server\'s', () => {
-  const server = fs.readFileSync(new URL('../../../../server/src/collabdoc.js', import.meta.url), 'utf8');
-  const mine = fs.readFileSync(new URL('./sheetsync.js', import.meta.url), 'utf8');
+  const server = fs.readFileSync(new URL('../../../server/src/collabdoc.js', import.meta.url), 'utf8');
+  const mine = fs.readFileSync(new URL('./collabsync.js', import.meta.url), 'utf8');
   assert.equal(mine.slice(mine.indexOf('// ---- spreadsheets:')), server.slice(server.indexOf('// ---- spreadsheets:')));
 });
 

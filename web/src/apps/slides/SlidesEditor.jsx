@@ -1,13 +1,16 @@
 // Presentations: a slide list, a 16:9 canvas with text boxes, pictures and shapes you can move and
-// resize, a full-screen presenter, and printing (Save as PDF). Saved like Docs and Sheets.
+// resize, a full-screen presenter, and printing (Save as PDF). Edited together live, like Docs and Sheets.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { get, patch, onLive, uploadFile } from '../../api.js';
+import { get, patch, uploadFile } from '../../api.js';
+import * as Y from 'yjs';
+import { WebsocketProvider } from 'y-websocket';
+import { jsonFromDeckDoc, applyDeckJson } from '../collabsync.js';
 import { useAuth } from '../../App.jsx';
-import { useToast, Menu, ConfirmModal } from '../../components/ui.jsx';
+import { useToast, Menu, ConfirmModal, Avatar } from '../../components/ui.jsx';
 import Icon from '../../components/Icon.jsx';
 import { ShareDialog } from '../drive/Drive.jsx';
-import { useAutosave, EditorHeader } from '../editorCommon.jsx';
+import { EditorHeader } from '../editorCommon.jsx';
 import {
   THEMES, LAYOUTS, newId, clampBox, moveBox, resizeBox, addSlide, duplicateSlide, removeSlide, moveSlide,
   updateItem, addItem, removeItem, restack, pictureBox,
@@ -18,6 +21,8 @@ const TEXT_COLORS = [['', 'Theme text'], ['accent', 'Theme accent'], ['#202124',
 const FILLS = [['accent', 'Theme accent'], ['#e8f0fe', 'Light blue'], ['#e6f4ea', 'Light green'], ['#fef7e0', 'Light yellow'], ['#fce8e6', 'Light red'], ['#1a73e8', 'Blue'], ['#188038', 'Green'], ['#c5221f', 'Red'], ['#202124', 'Black'], ['#ffffff', 'White']];
 const BACKGROUNDS = [['', 'Theme background'], ['#ffffff', 'White'], ['#f1f3f4', 'Light grey'], ['#e8f0fe', 'Light blue'], ['#fef7e0', 'Light yellow'], ['#202124', 'Black'], ['#0b57d0', 'Blue']];
 const HANDLES = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
+const PEOPLE_COLORS = ['#1a73e8', '#d93025', '#188038', '#e37400', '#8430ce', '#00796b', '#c2185b', '#5f6368'];
+const colorFor = (id) => PEOPLE_COLORS[[...String(id)].reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) >>> 0, 7) % PEOPLE_COLORS.length];
 const PLACEHOLDER = { title: 'Click to add title', subtitle: 'Click to add subtitle', body: 'Click to add text' };
 
 export default function SlidesEditor() {
@@ -34,38 +39,42 @@ export default function SlidesEditor() {
   const [dialog, setDialog] = useState(null);
   const deckRef = useRef(null);
   const pictureInput = useRef();
-  const save = useAutosave(id);
   const readOnly = file?.role === 'viewer';
+  const [status, setStatus] = useState('connecting');
+  const [others, setOthers] = useState([]);
+  const [{ ydoc, provider }, setLink] = useState({});
 
-  const load = useCallback(async () => {
-    const { file, content } = await get(`/files/${id}/content`);
-    setFile(file);
-    save.setVersion(file.version);
-    deckRef.current = content;
-    setDeck(content);
-    document.title = `${file.name} · Slides`;
-  }, [id, save]);
-
+  // The presentation is shared live (Yjs): slides and boxes merge one by one.
   useEffect(() => {
-    load().catch((e) => { toast(e.message, 'error'); navigate('/drive'); });
-    return () => { document.title = 'Workspace'; };
+    let alive = true;
+    get(`/files/${id}`).then((f) => {
+      if (!alive) return;
+      setFile(f);
+      document.title = `${f.name} · Slides`;
+      const ydoc = new Y.Doc();
+      const url = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws/collab`;
+      const provider = new WebsocketProvider(url, f.id, ydoc, { maxBackoffTime: 5000 });
+      provider.awareness.setLocalStateField('user', { id: user.id, name: user.name, color: colorFor(user.id) });
+      const show = () => { const next = jsonFromDeckDoc(ydoc); deckRef.current = next; setDeck(next); };
+      ydoc.on('update', show);
+      provider.on('sync', (synced) => { if (synced) { show(); setStatus('saved'); } });
+      provider.on('status', ({ status: st }) => setStatus(st === 'connected' ? (provider.synced ? 'saved' : 'connecting') : st === 'disconnected' ? 'offline' : 'connecting'));
+      provider.on('connection-close', (e) => { if (e?.code === 4000) window.location.reload(); }); // a version was restored
+      provider.awareness.on('change', () => setOthers([...provider.awareness.getStates().entries()]
+        .filter(([cid, st]) => cid !== ydoc.clientID && st.user).map(([cid, st]) => ({ cid, ...st.user, sel: st.sel }))));
+      setLink({ ydoc, provider });
+    }).catch((e) => { toast(e.message, 'error'); navigate('/drive'); });
+    return () => { alive = false; document.title = 'Workspace'; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
-
-  // Someone else saved (or a version was restored): load it unless we have unsaved changes.
-  useEffect(() => onLive(async (m) => {
-    if (m.type !== 'content-changed' || m.id !== id || m.by === user.id) return;
-    if (save.isDirty() || editing) { save.markConflict(m.by_name); return; }
-    await load();
-    toast(`${m.by_name} updated this presentation`);
-  }), [id, user.id, save, editing, load, toast]);
+  useEffect(() => () => { provider?.destroy(); ydoc?.destroy(); }, [provider, ydoc]);
 
   const commit = useCallback((next) => {
-    if (readOnly) return;
+    if (readOnly || !ydoc) return;
     deckRef.current = next;
     setDeck(next);
-    save.changed(() => deckRef.current);
-  }, [readOnly, save]);
+    applyDeckJson(ydoc, next); // only the boxes and slides that changed go to the others
+  }, [readOnly, ydoc]);
   const change = (fn) => commit(fn(deckRef.current));
 
   const slideIndex = deck ? Math.min(current, deck.slides.length - 1) : 0;
@@ -124,7 +133,12 @@ export default function SlidesEditor() {
     } catch (e) { toast(e.message, 'error'); }
   }
 
+  // Tell the others which slide and box are selected.
+  useEffect(() => { provider?.awareness.setLocalStateField('sel', slide ? { slide: slide.id, item: selected } : null); }, [provider, slide?.id, selected]);
+
   if (!deck) return <div className="editor-page"><EditorHeader icon="slides" file={null} status="saved" /></div>;
+  const people = [...new Map(others.map((p) => [p.id, p])).values()].filter((p) => p.id !== user.id);
+  const peers = new Map(others.filter((p) => p.id !== user.id && p.sel?.slide === slide.id && p.sel.item).map((p) => [p.sel.item, p]));
 
   const setItem = (c) => item && change((d) => updateItem(d, slideIndex, item.id, c));
   const slideAction = (fn) => () => change(fn);
@@ -132,22 +146,22 @@ export default function SlidesEditor() {
   return (
     <div className="editor-page slides-page">
       <EditorHeader
-        icon="slides" file={file} status={save.status}
+        icon="slides" file={file} status={status}
         onRename={async (name) => setFile(await patch(`/files/${id}`, { name }))}
         onShare={() => setDialog('share')}
+        extra={people.length > 0 && (
+          <div className="coeditors" aria-label={`Also here: ${people.map((p) => p.name).join(', ')}`}>
+            {people.slice(0, 4).map((p) => <span key={p.id} className="coeditor" style={{ '--c': p.color }} title={`${p.name} is here`}><Avatar name={p.name} size={28} /></span>)}
+            {people.length > 4 && <span className="muted small">+{people.length - 4}</span>}
+          </div>
+        )}
         menu={[
           { label: 'Present', icon: 'slides', onClick: () => setPresenting(slideIndex) },
           { label: 'Print or save as PDF', icon: 'print', onClick: () => window.print() },
           ...(!readOnly ? ['-', ...Object.entries(THEMES).map(([k, t]) => ({ label: `Theme: ${t.name}${deck.theme === k ? ' ✓' : ''}`, onClick: () => change((d) => ({ ...d, theme: k })) }))] : []),
         ]}
       />
-      {save.conflict && (
-        <div className="banner warn">
-          {save.conflict} changed this presentation while you were editing.
-          <button className="btn small" onClick={async () => { save.resolve(); await load(); }}>Load their version</button>
-          <button className="btn small" onClick={() => save.forceSave(deckRef.current)}>Keep mine</button>
-        </div>
-      )}
+      {status === 'offline' && <div className="banner warn">You're offline. Keep editing: your changes are kept here and sync when the connection is back.</div>}
       {readOnly && <div className="banner">View only. Ask {file.owner_name} for edit access.</div>}
       {!readOnly && (
         <div className="slides-toolbar" role="toolbar" aria-label="Slide tools">
@@ -219,7 +233,7 @@ export default function SlidesEditor() {
           ))}
         </ol>
         <div className="slide-stage" tabIndex={-1} onPointerDown={(e) => { if (e.target === e.currentTarget) { setSelected(null); setEditing(null); } }}>
-          <SlideView slide={slide} theme={theme} deckId={id} editable={!readOnly} selected={selected} editing={editing}
+          <SlideView slide={slide} theme={theme} deckId={id} editable={!readOnly} selected={selected} editing={editing} peers={peers}
             onSelect={(itemId) => { setSelected(itemId); if (itemId !== editing) setEditing(null); }}
             onEdit={setEditing}
             onChange={(itemId, c) => change((d) => updateItem(d, slideIndex, itemId, c))} />
@@ -246,7 +260,7 @@ const colorOf = (v, theme, fallback) => (v === 'accent' ? theme.accent : v || fa
  * One slide. Sizes are in percent of the slide, text in 1/1000 of its width, so the same slide
  * draws the same in a thumbnail, the editor, full screen and on paper.
  */
-function SlideView({ slide, theme, deckId, editable, selected, editing, onSelect, onEdit, onChange }) {
+function SlideView({ slide, theme, deckId, editable, selected, editing, onSelect, onEdit, onChange, peers }) {
   const ref = useRef();
   const [live, setLive] = useState(null); // { id, box } while dragging
 
@@ -301,7 +315,9 @@ function SlideView({ slide, theme, deckId, editable, selected, editing, onSelect
           inner = <div className={`slide-shape ${it.shape}`} style={{ background: colorOf(it.fill, theme, theme.accent) }} />;
         }
         return (
-          <div key={it.id} className={`slide-item ${it.type} ${isSel ? 'sel' : ''}`} style={pos} data-item={it.id}
+          <div key={it.id} className={`slide-item ${it.type} ${isSel ? 'sel' : ''}`} data-item={it.id}
+            style={peers?.has(it.id) ? { ...pos, boxShadow: `0 0 0 ${isSel ? 4 : 2}px ${peers.get(it.id).color}` } : pos}
+            title={peers?.has(it.id) ? `${peers.get(it.id).name} is here` : undefined}
             aria-label={editable ? `${it.type === 'text' ? (it.text ? `Text: ${it.text.slice(0, 40)}` : PLACEHOLDER[it.role] || 'Text box') : it.type === 'image' ? 'Picture' : 'Shape'}` : undefined}
             onPointerDown={editable ? (e) => startDrag(e, it) : undefined}
             onDoubleClick={editable && it.type === 'text' ? () => onEdit(it.id) : undefined}>
