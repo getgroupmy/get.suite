@@ -10,6 +10,7 @@ import { startRsvpWatcher } from './mail/rsvp.js';
 import { saveAll as saveOpenDocuments } from './collab.js';
 import { purge as purgeAuthLog } from './security/guard.js';
 import { startIndexer } from './search.js';
+import { startScheduledSending } from './routes/webmail.js';
 
 const port = Number(process.env.PORT || 8080);
 const app = createApp();
@@ -24,6 +25,7 @@ setInterval(() => purgeAuthLog(), 3600e3).unref();
 if (mailEnabled()) { startPolicyServer(); startMailNotifications(); startRsvpWatcher(); }
 
 startIndexer(); // search inside files: indexes what changed, in the background
+startScheduledSending(); // mail scheduled for later
 server.listen(port, () => console.log(`NAS Workspace listening on :${port} (data: ${DATA_DIR})`));
 
 for (const sig of ['SIGINT', 'SIGTERM']) {

@@ -49,6 +49,12 @@ export default function Mail() {
   const [folderDialog, setFolderDialog] = useState(null);
   const [signatures, setSignatures] = useState([]);
   const [signatureOpen, setSignatureOpen] = useState(false);
+  const [scheduled, setScheduled] = useState([]);
+  const [scheduledOpen, setScheduledOpen] = useState(false);
+  const loadScheduled = useCallback(() => get('/mail/scheduled').then(setScheduled).catch(() => {}), []);
+  useEffect(() => { loadScheduled(); return onLive((m) => { if (m.type === 'mail-scheduled') { loadScheduled(); loadFolders(); } }); },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [loadScheduled]);
   const { user } = useAuth();
   useEffect(() => { get('/mail/signatures').then(setSignatures).catch(() => {}); }, []);
 
@@ -151,6 +157,10 @@ export default function Mail() {
             </div>
           );
         })}
+        {scheduled.length > 0 && (
+          <button className="subnav-item" onClick={() => setScheduledOpen(true)}><Icon name="clock" /><span className="grow">Scheduled</span>
+            <span className={`count ${scheduled.some((m) => m.status === 'failed') ? 'error' : 'muted'}`}>{scheduled.length}</span></button>
+        )}
         <button className="subnav-item new-folder" onClick={() => setNewFolder(true)}><Icon name="plus" /><span className="grow">New folder</span></button>
         <button className="subnav-item vacation-link" onClick={() => setVacationOpen(true)}>
           <Icon name="clock" /><span className="grow">Vacation reply</span>{vacation?.enabled && <span className="pill">{vacation.active ? 'On' : 'Scheduled'}</span>}
@@ -231,6 +241,7 @@ export default function Mail() {
       </section>
 
       {compose && <Compose initial={compose} signatures={signatures} onClose={() => setCompose(null)} onSent={() => { setCompose(null); refresh(); }} onDraftsChanged={refresh} />}
+      {scheduledOpen && <ScheduledDialog list={scheduled} onClose={() => setScheduledOpen(false)} onChanged={() => { loadScheduled(); refresh(); }} />}
       {filters && <FiltersDialog folders={folders} onFoldersChanged={loadFolders} startWith={filters.startWith} onClose={() => { setFilters(null); loadFolders(); }} />}
       {newFolder && <PromptModal title="New folder" label="Folder name (use / for subfolders, e.g. Clients/Acme)" confirm="Create" onClose={() => setNewFolder(false)}
         onSubmit={async (name) => { const r = await post('/mail/folders', { name }); toast(`Folder ${r.path} created`); loadFolders(); }} />}
@@ -443,20 +454,50 @@ function Compose({ initial, signatures = [], onClose, onSent, onDraftsChanged })
 
   useEffect(() => { get('/mail/status').then((s) => setIdentities(s.identities)).catch(() => {}); }, []);
 
+  // Undo send: the window steps aside for a few seconds before the message really goes.
+  const [waiting, setWaiting] = useState(false);
+  const pendingSend = useRef(null); // the send to do when the wait is over (or the page is left)
+  useEffect(() => () => { pendingSend.current?.(); }, []); // leaving now sends straight away
+  const [scheduling, setScheduling] = useState(false);
+  const payload = () => ({ ...f, html: f.text.trim() ? emailHtml(f.html) : '', attachments: files.map((x) => x.id), draftUid: draftUid.current, forwardOf: fwd });
+  const stopAutosave = async () => {
+    closed.current = true;          // no more autosaves
+    clearTimeout(timer.current);
+    await chain.current;            // let an in-flight save finish so the right draft gets removed
+  };
+  const reopen = () => { setWaiting(false); setBusy(false); closed.current = false; dirty.current = true; };
+
   async function send(e) {
     e.preventDefault();
     // Only this form's own submit sends. Dialogs opened from the message (e.g. the link dialog) are
     // rendered elsewhere in the page, but React still passes their events up to here.
     if (e.target !== e.currentTarget) return;
     setBusy(true);
-    closed.current = true;          // no more autosaves
-    clearTimeout(timer.current);
-    await chain.current;            // let an in-flight save finish so the right draft gets removed
+    await stopAutosave();
+    const body = payload();
+    const go = async () => {
+      pendingSend.current = null;
+      try {
+        const r = await post('/mail/send', body);
+        toast(`Sent to ${r.recipients} recipient${r.recipients === 1 ? '' : 's'}`);
+        onSent();
+      } catch (err) { toast(err.message, 'error'); reopen(); }
+    };
+    pendingSend.current = go;
+    setWaiting(true);
+    const t = setTimeout(go, UNDO_SECONDS * 1000);
+    toast('Sending…', 'info', { duration: UNDO_SECONDS * 1000, action: { label: 'Undo', onClick: () => { clearTimeout(t); pendingSend.current = null; reopen(); } } });
+  }
+
+  /** Send at a chosen time: the server keeps it and sends it then. */
+  async function sendLater(at) {
+    setBusy(true);
+    await stopAutosave();
     try {
-      const r = await post('/mail/send', { ...f, html: f.text.trim() ? emailHtml(f.html) : '', attachments: files.map((x) => x.id), draftUid: draftUid.current, forwardOf: fwd });
-      toast(`Sent to ${r.recipients} recipient${r.recipients === 1 ? '' : 's'}`);
+      const r = await post('/mail/send', { ...payload(), sendAt: at });
+      toast(`Will be sent ${whenText(at)}`, 'info', { action: { label: 'Undo', onClick: () => del(`/mail/scheduled/${r.scheduled.id}`).then(() => { toast('Not sent: it’s back in Drafts'); onDraftsChanged?.(); }).catch((err) => toast(err.message, 'error')) } });
       onSent();
-    } catch (err) { toast(err.message, 'error'); setBusy(false); closed.current = false; dirty.current = true; }
+    } catch (err) { toast(err.message, 'error'); reopen(); }
   }
 
   async function upload(list) {
@@ -470,7 +511,8 @@ function Compose({ initial, signatures = [], onClose, onSent, onDraftsChanged })
 
   const total = files.reduce((s, x) => s + x.size, 0);
   return (
-    <Modal wide title={initial.draftUid ? 'Draft' : initial.subject ? initial.subject : 'New message'} onClose={closeKeep}>
+    <div hidden={waiting}>
+    <Modal wide title={initial.draftUid ? 'Draft' : initial.subject ? initial.subject : 'New message'} onClose={waiting ? () => {} : closeKeep}>
       <form className="compose stack" onSubmit={send}>
         {identities.length > 1 && (
           <label className="compose-line"><span>From</span>
@@ -517,7 +559,11 @@ function Compose({ initial, signatures = [], onClose, onSent, onDraftsChanged })
         )}
         {total > 25 * 1024 * 1024 && <p className="error small">Attachments are over 25 MB. Share a Drive link instead.</p>}
         <div className="row">
-          <button className="btn primary" disabled={busy || uploading > 0 || !f.to.trim() || total > 25 * 1024 * 1024}><Icon name="send" size={18} /> {busy ? 'Sending…' : 'Send'}</button>
+          <div className="split-btn">
+            <button className="btn primary" disabled={busy || uploading > 0 || !f.to.trim() || total > 25 * 1024 * 1024}><Icon name="send" size={18} /> {busy ? 'Sending…' : 'Send'}</button>
+            <Menu align="left" trigger={(p) => <button type="button" className="btn primary split-more" aria-label="Schedule send" title="Schedule send" disabled={busy || uploading > 0 || !f.to.trim() || total > 25 * 1024 * 1024} {...p}><Icon name="clock" size={16} /></button>}
+              items={[...laterChoices().map(([label, at]) => ({ label: `${label} · ${whenText(at)}`, onClick: () => sendLater(at) })), '-', { label: 'Pick date and time…', icon: 'calendar', onClick: () => setScheduling(true) }]} />
+          </div>
           <button type="button" className="icon-btn" aria-label="Attach from computer" title="Attach from computer" onClick={() => fileInput.current.click()}><Icon name="attach" /></button>
           <button type="button" className="icon-btn" aria-label="Attach from Drive" title="Attach from Drive" onClick={() => setPicking(true)}><Icon name="folder" /></button>
           <input ref={fileInput} type="file" multiple hidden aria-label="Attachment files" onChange={(e) => { upload([...e.target.files]); e.target.value = ''; }} />
@@ -531,6 +577,8 @@ function Compose({ initial, signatures = [], onClose, onSent, onDraftsChanged })
       </form>
       {picking && <DrivePicker onClose={() => setPicking(false)} onPick={(file) => { if (!files.some((x) => x.id === file.id)) setFiles([...files, file]); setPicking(false); }} />}
     </Modal>
+    {scheduling && <ScheduleDialog onClose={() => setScheduling(false)} onPick={(at) => { setScheduling(false); sendLater(at); }} />}
+    </div>
   );
 }
 
@@ -1585,3 +1633,68 @@ const ResizableImage = Image.extend({
     };
   },
 });
+
+const UNDO_SECONDS = 5;
+
+/** "tomorrow at 8:00 AM", "Monday 10 Nov at 8:00 AM". */
+export function whenText(at, now = Date.now()) {
+  const d = new Date(at), today = new Date(now);
+  const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const days = Math.round((new Date(d.getFullYear(), d.getMonth(), d.getDate()) - new Date(today.getFullYear(), today.getMonth(), today.getDate())) / 864e5);
+  if (days === 0) return `today at ${time}`;
+  if (days === 1) return `tomorrow at ${time}`;
+  return `${d.toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'short' })} at ${time}`;
+}
+
+/** The usual "send later" times: tomorrow morning and afternoon, and Monday morning. */
+export function laterChoices(now = new Date()) {
+  const at = (days, h) => new Date(now.getFullYear(), now.getMonth(), now.getDate() + days, h, 0).getTime();
+  const out = [['Tomorrow morning', at(1, 8)], ['Tomorrow afternoon', at(1, 13)]];
+  const toMonday = ((8 - now.getDay()) % 7) || 7;
+  if (toMonday > 1) out.push(['Monday morning', at(toMonday, 8)]);
+  return out;
+}
+
+function ScheduleDialog({ onClose, onPick }) {
+  const pad = (n) => String(n).padStart(2, '0');
+  const t = new Date(Date.now() + 36e5);
+  const [date, setDate] = useState(`${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())}`);
+  const [time, setTime] = useState(`${pad(t.getHours())}:00`);
+  const at = new Date(`${date}T${time || '00:00'}`).getTime();
+  const ok = Number.isFinite(at) && at > Date.now() + 60e3;
+  return (
+    <Modal title="Schedule send" onClose={onClose}
+      footer={<><button type="button" className="btn" onClick={onClose}>Cancel</button><button type="button" className="btn primary" disabled={!ok} onClick={() => onPick(at)}>Schedule send</button></>}>
+      <div className="row" style={{ gap: 12 }}>
+        <label className="field"><span>Date</span><input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></label>
+        <label className="field"><span>Time</span><input type="time" value={time} onChange={(e) => setTime(e.target.value)} /></label>
+      </div>
+      <p className="muted small">{ok ? `It will be sent ${whenText(at)}, even if Workspace isn’t open then.` : 'Choose a time in the future.'}</p>
+    </Modal>
+  );
+}
+
+/** Messages waiting to be sent, with Send now and Don't send (back to Drafts). */
+function ScheduledDialog({ list, onClose, onChanged }) {
+  const toast = useToast();
+  const act = (fn, done) => async () => { try { await fn(); toast(done); onChanged(); } catch (e) { toast(e.message, 'error'); onChanged(); } };
+  return (
+    <Modal wide title="Scheduled" onClose={onClose}>
+      {!list.length ? <p className="muted">Nothing is waiting to be sent.</p> : (
+        <ul className="scheduled-list">
+          {list.map((m) => (
+            <li key={m.id}>
+              <div className="grow">
+                <strong>{m.subject || '(no subject)'}</strong>
+                <span className="muted small"> to {m.recipients.join(', ')}</span>
+                <div className={`small ${m.status === 'failed' ? 'error' : 'muted'}`}>{m.status === 'failed' ? `Not sent: ${m.error}` : `Sends ${whenText(m.send_at)}`}</div>
+              </div>
+              <button type="button" className="btn small" onClick={act(() => post(`/mail/scheduled/${m.id}/send`), 'Sent')}>Send now</button>
+              <button type="button" className="btn small" onClick={act(() => del(`/mail/scheduled/${m.id}`), 'Not sent: it’s back in Drafts')}>Don’t send</button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Modal>
+  );
+}

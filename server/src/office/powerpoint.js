@@ -90,7 +90,12 @@ export async function deckFromPowerPoint(buffer, { savePicture }) {
       });
     }
     const bg = colorIn(deep(xml, P, 'bg')[0]);
-    slides.push({ id: id(), items, ...(bg && { bg }) });
+    // Speaker notes: the body text of the slide's notes page.
+    const notesFile = [...rels.values()].find((t) => t.includes('notesSlides/'));
+    const notesXml = notesFile && parseXml(await zip.file(notesFile)?.async('string') || '');
+    const body = notesXml && deep(notesXml, P, 'sp').find((sp) => attr(deep(sp, P, 'ph')[0], 'type') === 'body');
+    const notes = body ? deep(body, A, 'p').map((para) => deep(para, A, 't').map((t) => t.text).join('')).join('\n').replace(/\r\n?/g, '\n').trim().slice(0, 20000) : '';
+    slides.push({ id: id(), items, ...(bg && { bg }), ...(notes && { notes }) });
   }
   return { theme: 'light', slides: slides.length ? slides : [{ id: id(), items: [] }] };
 }
@@ -109,6 +114,7 @@ export async function powerPointFromDeck(deck, { pictureData, title = 'Presentat
   for (const s of deck.slides || []) {
     const slide = pptx.addSlide();
     slide.background = { color: color(s.bg, theme.bg) };
+    if (s.notes) slide.addNotes(s.notes);
     for (const it of s.items || []) {
       const pos = { x: (it.x / 100) * Win, y: (it.y / 100) * Hin, w: (it.w / 100) * Win, h: (it.h / 100) * Hin };
       if (it.type === 'text') {

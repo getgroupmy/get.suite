@@ -949,3 +949,44 @@ td.name .match mark { background: var(--accent-soft); color: var(--accent-text);
 .field.reminders .row { gap: 4px; }
 .field.reminders select { min-width: 200px; }
 .field.reminders .link-btn { align-self: flex-start; font-size: 14px; text-decoration: none; }
+
+/* ---------- mail: undo send, scheduled send ---------- */
+.toast { display: flex; align-items: center; gap: 16px; }
+.toast-action { margin-left: auto; border: 0; background: none; color: #8ab4f8; font: inherit; font-weight: 600; cursor: pointer; padding: 2px 4px; border-radius: 4px; }
+.toast-action:hover, .toast-action:focus-visible { background: rgba(255,255,255,.12); }
+.split-btn { display: inline-flex; }
+.split-btn > .btn.primary:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.split-btn .split-more { border-top-left-radius: 0; border-bottom-left-radius: 0; padding: 0 10px; border-left: 1px solid rgba(255,255,255,.35); height: 100%; }
+.scheduled-list { list-style: none; margin: 0; padding: 0; }
+.scheduled-list li { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.subnav .count.error { background: var(--danger); color: #fff; }
+
+/* ---------- Slides: speaker notes and presenter view ---------- */
+.slide-notes { display: flex; flex-direction: column; gap: 4px; width: min(100%, 960px); margin: 8px auto 0; }
+.slide-notes textarea { width: 100%; resize: vertical; font: inherit; font-size: 14px; }
+.slide-notes.read p { margin: 0; white-space: pre-wrap; }
+.presenter-notes { position: absolute; left: 0; right: 0; bottom: 56px; max-height: 30vh; overflow: auto; padding: 14px 24px; background: rgba(0,0,0,.8); color: #fff; font-size: 20px; line-height: 1.4; white-space: pre-wrap; }
+.presenter-view { position: fixed; inset: 0; display: flex; flex-direction: column; gap: 12px; padding: 16px; background: #1f1f1f; color: #f1f3f4; }
+.presenter-view.ended { align-items: center; justify-content: center; }
+.presenter-view .muted { color: #9aa0a6; }
+.presenter-view header, .presenter-view footer { gap: 16px; align-items: center; }
+.presenter-view footer { justify-content: center; }
+.pv-timer { font-size: 28px; font-variant-numeric: tabular-nums; font-weight: 600; }
+.pv-main { flex: 1; display: grid; grid-template-columns: 2fr 1fr; gap: 16px; min-height: 0; }
+.pv-current, .pv-next { display: flex; flex-direction: column; gap: 6px; min-height: 0; }
+.pv-current .slide { width: min(100%, calc((100vh - 150px) * 16 / 9)); }
+.pv-next .slide { width: 100%; }
+.pv-side { display: flex; flex-direction: column; gap: 16px; min-height: 0; }
+.pv-notes { flex: 1; overflow: auto; background: #2d2e30; border-radius: 8px; padding: 14px 16px; font-size: 20px; line-height: 1.45; white-space: pre-wrap; }
+.pv-end { aspect-ratio: 16 / 9; display: grid; place-items: center; border: 1px dashed #5f6368; border-radius: 8px; }
+@media (max-width: 760px) { .pv-main { grid-template-columns: 1fr; } }
+
+/* ---------- keyboard shortcuts list ---------- */
+.shortcuts { columns: 2 340px; column-gap: 32px; }
+.shortcuts section { break-inside: avoid; margin-bottom: 18px; }
+.shortcuts h3 { font-size: 14px; margin: 0 0 6px; }
+.shortcuts dl { margin: 0; }
+.shortcuts .row { justify-content: space-between; gap: 12px; padding: 4px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+.shortcuts dt { white-space: nowrap; }
+.shortcuts dd { margin: 0; text-align: right; color: var(--muted); }
+kbd { display: inline-block; min-width: 1.4em; padding: 1px 5px; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 4px; background: var(--surface-2); font-family: inherit; font-size: 12px; line-height: 1.4; text-align: center; }

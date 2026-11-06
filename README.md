@@ -149,7 +149,9 @@ In Drive, **New → Presentation**. Presentations are shared, versioned and save
   - Drag to move, and drag the handles to resize. Pictures keep their shape; hold Shift to stretch them.
   - Double-click text to type. Arrow keys nudge the selected item (Shift for bigger steps), and Delete removes it.
   - The toolbar sets text size, bold, italic, colour and alignment, shape colour, the slide's background, and front/back order. The ⋮ menu picks one of four themes.
-- **Present** opens full screen. The arrow keys, space or a click move between slides, and Esc ends.
+- **Speaker notes:** type them in the box under each slide. They're shared and saved with the presentation, carried to and from PowerPoint, and never shown to the audience.
+- **Present** opens full screen. The arrow keys, space or a click move between slides, and Esc ends. **N** shows or hides your notes at the bottom (handy with a single screen).
+- **Presenter view** also opens a second window for you, the speaker, to keep on your own screen: the current slide, the next one, your notes, a timer and the time. Moving through the slides in either window moves both.
 - **Print or save as PDF** (⋮ menu) prints one slide per landscape page. Choose "Save as PDF" in the print dialog.
 - People you share a presentation with see its pictures, even ones that aren't shared with them separately. Viewers can present but not edit.
 
@@ -178,7 +180,7 @@ Your Workspace calendar and contacts sync with the phone's own Calendar and Cont
 - **What carries over:**
   - **Word:** headings, paragraphs, bold, italic, underline, strike, links, bulleted and numbered lists, quotes, code, tables and pictures (saved in a "… pictures" folder beside the document). Downloading also writes text colours and highlights, and each picture's size and alignment. Paragraph alignment and text colours aren't read from Word files yet.
   - **Excel:** every sheet, values and formulas, bold, italic and underline, text and fill colour, alignment, number, currency and percent formats with their decimals, column widths, and frozen rows and columns. Excel functions Sheets doesn't know show an error in Sheets, but are kept and written back as they were.
-  - **PowerPoint:** every slide, text boxes at their places (size, bold, italic, colour, alignment), rectangles, rounded rectangles and ellipses, pictures (saved in a "… pictures" folder beside the presentation), and slide backgrounds. Animations, charts and SmartArt don't carry over.
+  - **PowerPoint:** every slide, text boxes at their places (size, bold, italic, colour, alignment), rectangles, rounded rectangles and ellipses, pictures (saved in a "… pictures" folder beside the presentation), slide backgrounds and speaker notes. Animations, charts and SmartArt don't carry over.
 - Files up to 50 MB can be converted.
 
 ## Searching Drive
@@ -282,6 +284,8 @@ Your business fixed IP is what makes this work. Do these once:
 - **Drafts:** compose saves to the Drafts folder 2 seconds after you stop typing. Closing the window keeps the draft, the bin icon discards it, and clicking a draft in Drafts resumes it.
   - Drafts live on the mail server, so phones and Outlook see them.
   - Attachments in a draft are kept as links to Drive files. They're restored when the draft is reopened in webmail, but phones don't see them until the message is sent.
+- **Undo send:** after **Send**, the message waits five seconds with an **Undo** button, in case you spot a mistake; Undo brings the message back as it was. (Leaving the page in those seconds sends it straight away.)
+- **Schedule send:** the clock button next to Send sends it later: tomorrow morning or afternoon, Monday morning, or a date and time you pick. The server sends it then, even if nobody has Workspace open, with the time it was sent as its date. Waiting messages are listed under **Scheduled** in the folder list, with **Send now** and **Don't send** (which puts it back in Drafts to change). The message is put together when you schedule it, so attachments are as they were then. If sending fails three times it stays in the list with the reason.
 - **Rich-text writing:** bold, italic, underline, strike, bulleted and numbered lists, quotes, links and tables. Every message is sent with a formatted version and a readable plain-text version (quotes marked with `>`, lists with `-` / `1.`), so any mail app can show it. Replies quote the original as a quoted block. Quotes are built from the original's plain text, so formatting tricks in a received email can't carry into yours.
 - **Alignment:** the alignment button's **Left / Centre / Right** align the paragraph the cursor is in (or every selected paragraph). Keyboard: Ctrl+Shift+L / E / R. Mail apps show the alignment as sent.
   - **Pictures:** click a picture, then use the same alignment button to put it on the left, in the centre or on the right. Drafts keep it, and the email is built so Outlook on Windows shows it the same way.
@@ -462,6 +466,10 @@ Once ports 465, 587 and 993 are open, bots will start guessing passwords within 
 **How it works:** Dovecot asks the app before and after every IMAP and SMTP sign-in (its "auth policy" feature) on an internal port (8081) that isn't published, using a shared secret. Postfix checks SMTP passwords through Dovecot, so both are covered. If the app is down, mail sign-ins carry on unprotected rather than locking everyone out.
 
 **One thing to check after going live:** the protection needs to see real internet addresses. With normal Docker port publishing, which Container Manager uses, it does. If Admin → Security shows a warning that every failure comes from a private address, your network setup is hiding the real addresses.
+
+## Keyboard shortcuts
+
+Press **Ctrl+/** (**⌘/** on a Mac), or **?** outside a text field, for the list of keyboard shortcuts, with the ones for the app you're in first.
 
 ## Backups
 

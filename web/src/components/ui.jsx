@@ -164,16 +164,24 @@ const ToastCtx = createContext(() => {});
 export const useToast = () => useContext(ToastCtx);
 export function ToastProvider({ children }) {
   const [toasts, setToasts] = useState([]);
-  const push = useCallback((text, kind = 'info') => {
+  // toast(text, kind, { action: { label, onClick }, duration }): an action shows as a button in it.
+  const push = useCallback((text, kind = 'info', opts = {}) => {
     const id = Math.random();
-    setToasts((t) => [...t, { id, text, kind }]);
-    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 4000);
+    const close = () => setToasts((t) => t.filter((x) => x.id !== id));
+    setToasts((t) => [...t, { id, text, kind, action: opts.action, close }]);
+    setTimeout(close, opts.duration || (opts.action ? 8000 : 4000));
+    return close;
   }, []);
   return (
     <ToastCtx.Provider value={push}>
       {children}
       <div className="toasts" role="status" aria-live="polite">
-        {toasts.map((t) => <div key={t.id} className={`toast ${t.kind}`}>{t.text}</div>)}
+        {toasts.map((t) => (
+          <div key={t.id} className={`toast ${t.kind}`}>
+            {t.text}
+            {t.action && <button type="button" className="toast-action" onClick={() => { t.close(); t.action.onClick(); }}>{t.action.label}</button>}
+          </div>
+        ))}
       </div>
     </ToastCtx.Provider>
   );

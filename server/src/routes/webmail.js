@@ -4,8 +4,9 @@ import path from 'node:path';
 import { simpleParser } from 'mailparser';
 import MailComposer from 'nodemailer/lib/mail-composer/index.js';
 import addressparser from 'nodemailer/lib/addressparser/index.js';
-import { q, FILES_DIR } from '../db.js';
-import { str, bad, notFound, HttpError } from '../util.js';
+import { q, FILES_DIR, DATA_DIR } from '../db.js';
+import { sendTo } from '../hub.js';
+import { str, bad, notFound, HttpError, uid as newId, now } from '../util.js';
 import { roleFor } from '../access.js';
 import { mailEnabled, scheduleMailConfig } from '../mail/config.js';
 import { withClient, withFolder, smtpFor } from '../mail/imap.js';
@@ -14,6 +15,74 @@ import { followedFolders, setFollowed, MAX_FOLLOWED } from '../mail/notify.js';
 import { forwardHtml } from '../mail/forwardhtml.js';
 
 const PAGE = 50;
+const OUTBOX = path.join(DATA_DIR, 'outbox');
+const MAX_SCHEDULED = 100;
+q(`CREATE TABLE IF NOT EXISTS scheduled_mail (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  send_at INTEGER NOT NULL,
+  envelope TEXT NOT NULL,           -- JSON { from, to: [addresses] }
+  subject TEXT,
+  recipients TEXT,                  -- JSON: names or addresses, for the list
+  reply_to TEXT,                    -- JSON { folder, uid } of the message answered
+  created_at INTEGER NOT NULL,
+  status TEXT NOT NULL,             -- scheduled | failed
+  tries INTEGER NOT NULL DEFAULT 0,
+  error TEXT
+)`).run();
+
+/** Hand a built message to the mail server, keep a copy in Sent, and mark the message answered. */
+async function deliver(user, raw, envelope, { replyTo } = {}) {
+  try {
+    await smtpFor(user).sendMail({ envelope, raw });
+  } catch (e) {
+    throw new HttpError(e.responseCode && e.responseCode < 500 ? 503 : 400, `Sending failed: ${e.response || e.message}`);
+  }
+  const sent = await specialOf(user, '\\Sent').catch(() => null);
+  if (sent) await withClient(user, (c) => c.append(sent, raw, ['\\Seen'])).catch(() => {});
+  if (replyTo?.folder && replyTo?.uid) {
+    await withFolder(user, String(replyTo.folder), (c) => c.messageFlagsAdd(String(Number(replyTo.uid)), ['\\Answered'], { uid: true })).catch(() => {});
+  }
+}
+
+/** The message's Date header set to now (it was built when it was scheduled). */
+export function redate(raw, date = new Date()) {
+  const text = raw.toString('latin1');
+  const end = text.search(/\r?\n\r?\n/);
+  const head = end < 0 ? text : text.slice(0, end);
+  const stamp = date.toUTCString().replace('GMT', '+0000');
+  const next = /^Date:.*$/im.test(head) ? head.replace(/^Date:.*(\r?\n[ \t].*)*$/im, `Date: ${stamp}`) : `Date: ${stamp}\r\n${head}`;
+  return Buffer.concat([Buffer.from(next, 'latin1'), raw.subarray(Buffer.byteLength(head, 'latin1'))]);
+}
+
+let sending = false;
+/** Send the scheduled messages that are due (tried three times, a few minutes apart, before giving up). */
+export async function sendDue() {
+  if (sending) return 0;
+  sending = true;
+  let n = 0;
+  try {
+    const due = q("SELECT * FROM scheduled_mail WHERE status = 'scheduled' AND send_at <= ? ORDER BY send_at LIMIT 20").all(Date.now());
+    for (const row of due) {
+      const user = q('SELECT * FROM users WHERE id = ? AND disabled = 0').get(row.user_id);
+      const file = path.join(OUTBOX, `${row.id}.eml`);
+      if (!user || !fs.existsSync(file)) { q("UPDATE scheduled_mail SET status = 'failed', error = ? WHERE id = ?").run(user ? 'The message was lost' : 'The account is disabled', row.id); continue; }
+      try {
+        await deliver(user, redate(fs.readFileSync(file)), JSON.parse(row.envelope), { replyTo: row.reply_to ? JSON.parse(row.reply_to) : null });
+        q('DELETE FROM scheduled_mail WHERE id = ?').run(row.id);
+        fs.rm(file, { force: true }, () => {});
+        n++;
+      } catch (e) {
+        const tries = row.tries + 1;
+        if (tries >= 3) q("UPDATE scheduled_mail SET status = 'failed', tries = ?, error = ? WHERE id = ?").run(tries, e.message, row.id);
+        else q('UPDATE scheduled_mail SET tries = ?, send_at = ?, error = ? WHERE id = ?').run(tries, Date.now() + tries * 5 * 6e4, e.message, row.id);
+      }
+      sendTo([row.user_id], { type: 'mail-scheduled' });
+    }
+  } finally { sending = false; }
+  return n;
+}
+export function startScheduledSending() { setInterval(() => { sendDue().catch((e) => console.error('[mail] scheduled sending:', e.message)); }, 20e3).unref(); }
 const MAX_SEND_BYTES = 25 * 1024 * 1024;
 const ORDER = ['\\Inbox', '\\Drafts', '\\Sent', '\\Archive', '\\Junk', '\\Trash'];
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -459,7 +528,8 @@ export default function webmailRoutes() {
     });
   }
 
-  r.post('/send', async (req, res) => {
+  /** Check and build a message from what the compose window sends: { raw, envelope, all, subject }. */
+  async function buildMessage(req) {
     const b = req.body;
     const to = parseRecipients(b.to, 'To');
     const cc = parseRecipients(b.cc, 'Cc');
@@ -554,20 +624,61 @@ export default function webmailRoutes() {
     };
     const raw = await new MailComposer(mail).compile().build();
     const envelope = { from: from.address, to: all.map((a) => a.address) };
-    try {
-      await smtpFor(req.user).sendMail({ envelope, raw });
-    } catch (e) {
-      throw new HttpError(e.responseCode && e.responseCode < 500 ? 503 : 400, `Sending failed: ${e.response || e.message}`);
-    }
+    return { raw, envelope, all, subject: mail.subject, to: [...to, ...cc].map((a) => a.name || a.address) };
+  }
 
-    // Keep a copy in Sent, and mark the original as answered.
-    const sent = await specialOf(req.user, '\\Sent').catch(() => null);
-    if (sent) await withClient(req.user, (c) => c.append(sent, raw, ['\\Seen'])).catch(() => {});
-    if (b.draftUid) await deleteDraft(req.user, await specialOf(req.user, '\\Drafts').catch(() => null), Number(b.draftUid)).catch(() => {});
-    if (b.replyTo?.folder && b.replyTo?.uid) {
-      await withFolder(req.user, String(b.replyTo.folder), (c) => c.messageFlagsAdd(String(Number(b.replyTo.uid)), ['\\Answered'], { uid: true })).catch(() => {});
+  r.post('/send', async (req, res) => {
+    const b = req.body;
+    // Later: the message is built now (attachments as they are now) and sent when it's due.
+    if (b.sendAt !== undefined && b.sendAt !== null) {
+      const at = Number(b.sendAt);
+      if (!Number.isFinite(at) || at < Date.now() + 30e3) throw bad('Choose a time in the future');
+      if (at > Date.now() + 366 * 864e5) throw bad('Messages can be scheduled up to a year ahead');
+      if (q("SELECT COUNT(*) AS n FROM scheduled_mail WHERE user_id = ? AND status != 'sent'").get(req.user.id).n >= MAX_SCHEDULED) throw bad(`At most ${MAX_SCHEDULED} messages can wait to be sent`);
+      const m = await buildMessage(req);
+      const id = newId();
+      fs.mkdirSync(OUTBOX, { recursive: true });
+      fs.writeFileSync(path.join(OUTBOX, `${id}.eml`), m.raw);
+      q(`INSERT INTO scheduled_mail (id, user_id, send_at, envelope, subject, recipients, reply_to, created_at, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'scheduled')`).run(id, req.user.id, at, JSON.stringify(m.envelope), m.subject, JSON.stringify(m.to),
+        b.replyTo?.folder && b.replyTo?.uid ? JSON.stringify({ folder: String(b.replyTo.folder), uid: Number(b.replyTo.uid) }) : null, now());
+      if (b.draftUid) await deleteDraft(req.user, await specialOf(req.user, '\\Drafts').catch(() => null), Number(b.draftUid)).catch(() => {});
+      sendTo([req.user.id], { type: 'mail-scheduled' });
+      return res.status(201).json({ ok: true, scheduled: { id, send_at: at } });
     }
-    res.json({ ok: true, recipients: all.length });
+    const m = await buildMessage(req);
+    await deliver(req.user, m.raw, m.envelope, { replyTo: b.replyTo });
+    if (b.draftUid) await deleteDraft(req.user, await specialOf(req.user, '\\Drafts').catch(() => null), Number(b.draftUid)).catch(() => {});
+    res.json({ ok: true, recipients: m.all.length });
+  });
+
+  // Messages waiting to be sent.
+  r.get('/scheduled', (req, res) => {
+    res.json(q("SELECT id, send_at, subject, recipients, status, error FROM scheduled_mail WHERE user_id = ? ORDER BY send_at").all(req.user.id)
+      .map((s) => ({ ...s, recipients: JSON.parse(s.recipients || '[]') })));
+  });
+  // Send it now instead (a failed one is tried again).
+  r.post('/scheduled/:id/send', async (req, res) => {
+    const row = q('SELECT id FROM scheduled_mail WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
+    if (!row) throw notFound('That message is no longer waiting (it may have been sent)');
+    q("UPDATE scheduled_mail SET send_at = ?, status = 'scheduled', tries = 0, error = NULL WHERE id = ?").run(Date.now() - 1, row.id);
+    await sendDue();
+    const left = q('SELECT status, error FROM scheduled_mail WHERE id = ?').get(row.id);
+    if (left?.status === 'failed' || left?.error) throw new HttpError(503, left.error || 'Sending failed');
+    res.json({ ok: true });
+  });
+  // Don't send it after all: it goes back to Drafts, to change or send another time.
+  r.delete('/scheduled/:id', async (req, res) => {
+    const row = q('SELECT * FROM scheduled_mail WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
+    if (!row) throw notFound('That message is no longer waiting (it may have been sent)');
+    q('DELETE FROM scheduled_mail WHERE id = ?').run(row.id); // first, so the sender can't pick it up meanwhile
+    const file = path.join(OUTBOX, `${row.id}.eml`);
+    const drafts = await specialOf(req.user, '\\Drafts').catch(() => null);
+    let back = false;
+    if (drafts && fs.existsSync(file)) back = await withClient(req.user, (c) => c.append(drafts, fs.readFileSync(file), ['\\Draft', '\\Seen'])).then(() => true).catch(() => false);
+    fs.rm(file, { force: true }, () => {});
+    sendTo([req.user.id], { type: 'mail-scheduled' });
+    res.json({ ok: true, draft: back });
   });
 
   return r;

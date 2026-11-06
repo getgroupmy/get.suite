@@ -216,9 +216,11 @@ export default function SlidesEditor() {
           )}
           <div className="grow" />
           <button type="button" className="btn small primary" onClick={() => setPresenting(slideIndex)}><Icon name="slides" size={16} /> Present</button>
+          <button type="button" className="btn small" title="Present, with your notes, the next slide and a timer in a second window" onClick={() => { openPresenterView(id, slideIndex); setPresenting(slideIndex); }}>Presenter view</button>
         </div>
       )}
-      {readOnly && <div className="slides-toolbar"><div className="grow" /><button type="button" className="btn small primary" onClick={() => setPresenting(slideIndex)}><Icon name="slides" size={16} /> Present</button></div>}
+      {readOnly && <div className="slides-toolbar"><div className="grow" /><button type="button" className="btn small primary" onClick={() => setPresenting(slideIndex)}><Icon name="slides" size={16} /> Present</button>
+          <button type="button" className="btn small" title="Present, with your notes, the next slide and a timer in a second window" onClick={() => { openPresenterView(id, slideIndex); setPresenting(slideIndex); }}>Presenter view</button></div>}
 
       <div className="slides-body">
         <ol className="slide-list" aria-label="Slides">
@@ -246,6 +248,12 @@ export default function SlidesEditor() {
             onEdit={setEditing}
             onChange={(itemId, c) => change((d) => updateItem(d, slideIndex, itemId, c))} />
           <p className="muted small slide-count">Slide {slideIndex + 1} of {deck.slides.length}</p>
+          {readOnly ? (slide.notes && <div className="slide-notes read"><span className="muted small">Speaker notes</span><p>{slide.notes}</p></div>) : (
+            <label className="slide-notes"><span className="muted small">Speaker notes</span>
+              <textarea rows={3} value={slide.notes || ''} placeholder="Notes for this slide: only you see them while presenting" maxLength={20000}
+                onChange={(e) => { const notes = e.target.value; change((d) => ({ ...d, slides: d.slides.map((x, i) => (i === slideIndex ? { ...x, notes: notes || undefined } : x)) })); }} />
+            </label>
+          )}
         </div>
       </div>
 
@@ -268,7 +276,7 @@ const colorOf = (v, theme, fallback) => (v === 'accent' ? theme.accent : v || fa
  * One slide. Sizes are in percent of the slide, text in 1/1000 of its width, so the same slide
  * draws the same in a thumbnail, the editor, full screen and on paper.
  */
-function SlideView({ slide, theme, deckId, editable, selected, editing, onSelect, onEdit, onChange, peers }) {
+export function SlideView({ slide, theme, deckId, editable, selected, editing, onSelect, onEdit, onChange, peers }) {
   const ref = useRef();
   const [live, setLive] = useState(null); // { id, box } while dragging
 
@@ -339,10 +347,33 @@ function SlideView({ slide, theme, deckId, editable, selected, editing, onSelect
 }
 
 /** Full screen: arrows, space, Page Up/Down or a click move; Escape ends. */
+/** The speaker's window: opened beside the presentation, kept in step over a BroadcastChannel. */
+function openPresenterView(deckId, i) {
+  window.open(`/slides/${deckId}/presenter?slide=${i}`, `presenter-${deckId}`, 'popup,width=1100,height=720');
+}
+
 function Presenter({ deck, theme, deckId, start, onClose }) {
   const [i, setI] = useState(start);
+  const [notes, setNotes] = useState(false);
   const ref = useRef();
   const last = deck.slides.length - 1;
+  // The presenter window (if open) follows this one, and can move it.
+  const channel = useRef(null);
+  useEffect(() => {
+    if (typeof BroadcastChannel === 'undefined') return undefined;
+    const ch = new BroadcastChannel(`nw-present-${deckId}`);
+    channel.current = ch;
+    ch.onmessage = (e) => {
+      const m = e.data || {};
+      if (m.type === 'hello') ch.postMessage({ type: 'deck', deck, theme: deck.theme, i: iRef.current });
+      if (m.type === 'go' && Number.isInteger(m.i)) setI(Math.max(0, Math.min(last, m.i)));
+    };
+    ch.postMessage({ type: 'deck', deck, theme: deck.theme, i: iRef.current });
+    return () => { ch.postMessage({ type: 'end' }); ch.close(); channel.current = null; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deckId]);
+  useEffect(() => { channel.current?.postMessage({ type: 'at', i }); }, [i]);
+  useEffect(() => { channel.current?.postMessage({ type: 'deck', deck, theme: deck.theme, i: iRef.current }); }, [deck]);
   useEffect(() => {
     const el = ref.current;
     el.focus();
@@ -360,10 +391,12 @@ function Presenter({ deck, theme, deckId, start, onClose }) {
     else if (e.key === 'Home') setI(0);
     else if (e.key === 'End') setI(last);
     else if (e.key === 'Escape') { e.preventDefault(); onClose(i); }
+    else if (e.key === 'n' || e.key === 'N') setNotes((v) => !v); // notes on this screen, for a single display
   };
   return (
     <div ref={ref} className="presenter" tabIndex={-1} role="dialog" aria-label="Presenting" onKeyDown={onKey} onClick={() => setI((x) => Math.min(last, x + 1))}>
       <div className="presenter-slide"><SlideView slide={deck.slides[i]} theme={theme} deckId={deckId} /></div>
+      {notes && <div className="presenter-notes" onClick={(e) => e.stopPropagation()}>{deck.slides[i]?.notes || <span className="muted">No notes for this slide</span>}</div>}
       <div className="presenter-bar" onClick={(e) => e.stopPropagation()}>
         <button type="button" aria-label="Previous slide" disabled={i === 0} onClick={() => setI(i - 1)}>‹</button>
         <span aria-live="polite">{i + 1} / {deck.slides.length}</span>

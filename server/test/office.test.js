@@ -145,7 +145,7 @@ test('PowerPoint: a real .pptx opens with its slides, boxes, text, shapes, pictu
 
 test('PowerPoint: a presentation saved as .pptx opens again the same', async () => {
   const deck = { theme: 'ocean', slides: [
-    { id: 'a', items: [{ id: 't', type: 'text', text: 'Hello', x: 10, y: 20, w: 50, h: 15, size: 44, bold: true, align: 'center' }, { id: 's', type: 'shape', shape: 'round', fill: 'accent', x: 60, y: 60, w: 20, h: 20 }] },
+    { id: 'a', notes: 'Welcome everyone.\nMention the Q3 numbers.', items: [{ id: 't', type: 'text', text: 'Hello', x: 10, y: 20, w: 50, h: 15, size: 44, bold: true, align: 'center' }, { id: 's', type: 'shape', shape: 'round', fill: 'accent', x: 60, y: 60, w: 20, h: 20 }] },
     { id: 'b', bg: '#ffffff', items: [{ id: 'p', type: 'image', fileId: 'f1', x: 25, y: 25, w: 50, h: 50 }] },
   ] };
   const buf = await powerPointFromDeck(deck, { pictureData: async () => ({ data: PNG, mime: 'image/png' }) });
@@ -157,4 +157,6 @@ test('PowerPoint: a presentation saved as .pptx opens again the same', async () 
   assert.equal(back.slides[0].bg, '#0b57d0', 'theme background written out');
   assert.deepEqual(back.slides[0].items.find((i) => i.type === 'shape').shape, 'round');
   assert.equal(back.slides[1].items[0].fileId, 'new-pic');
+  assert.equal(back.slides[0].notes, 'Welcome everyone.\nMention the Q3 numbers.', 'speaker notes');
+  assert.equal(back.slides[1].notes, undefined);
 });

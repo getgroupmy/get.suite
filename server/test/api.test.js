@@ -821,3 +821,12 @@ test('calendar reminders are each person\'s own', async () => {
   await login(stranger, 'stranger@acme.com');
   assert.equal((await stranger('PUT', `/api/events/${made.body.id}/reminders`, { reminders: [5] })).status, 404);
 });
+
+test('scheduled mail gets the time it is actually sent as its date', async () => {
+  const { redate } = await import('../src/routes/webmail.js');
+  const raw = Buffer.from('From: a@acme.com\r\nDate: Mon, 01 Jan 2024 00:00:00 +0000\r\nSubject: Hi\r\n\r\nDate: in the body stays\r\n');
+  const out = redate(raw, new Date(Date.UTC(2026, 10, 9, 8, 0))).toString();
+  assert.match(out, /^From: a@acme.com\r\nDate: Mon, 09 Nov 2026 08:00:00 \+0000\r\nSubject: Hi/);
+  assert.match(out, /\r\n\r\nDate: in the body stays/);
+  assert.match(redate(Buffer.from('Subject: x\r\n\r\nbody')).toString(), /^Date: .+\r\nSubject: x\r\n\r\nbody$/, 'added when missing');
+});

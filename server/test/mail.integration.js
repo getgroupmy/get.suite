@@ -313,6 +313,33 @@ test('drafts: save, update in place, reopen with Bcc and attachments, send remov
   assert.equal((await drafts()).length, 0);
 });
 
+test('scheduled send: waits, then goes out dated when sent; cancelling puts it back in Drafts', async () => {
+  const { sendDue } = await import('../src/routes/webmail.js');
+  const { q } = await import('../src/db.js');
+  const at = Date.now() + 2 * 36e5;
+  const s = await olivia('POST', '/api/mail/send', { to: 'gina@globex.com', subject: 'Scheduled hello', text: 'Sent later', sendAt: at });
+  assert.equal(s.status, 201, JSON.stringify(s.body));
+  assert.deepEqual((await olivia('GET', '/api/mail/scheduled')).body.map((m) => [m.subject, m.status]), [['Scheduled hello', 'scheduled']]);
+  await sendDue();
+  assert.equal((await inbox(gina)).some((m) => m.subject === 'Scheduled hello'), false, 'not before its time');
+  q('UPDATE scheduled_mail SET send_at = ? WHERE id = ?').run(Date.now() - 1000, s.body.scheduled.id); // its time has come
+  const madeAt = Date.now();
+  assert.equal(await sendDue(), 1);
+  const got = await eventually(async () => (await inbox(gina)).find((m) => m.subject === 'Scheduled hello'));
+  assert.ok(new Date(got.date).getTime() >= madeAt - 2000, 'dated when it was sent, not when it was scheduled');
+  assert.deepEqual((await olivia('GET', '/api/mail/scheduled')).body, []);
+  await eventually(async () => (await olivia('GET', '/api/mail/messages?folder=Sent')).body.messages.some((m) => m.subject === 'Scheduled hello'));
+
+  const later = await olivia('POST', '/api/mail/send', { to: 'gina@globex.com', subject: 'Changed my mind', text: 'Not yet', sendAt: at });
+  const back = await olivia('DELETE', `/api/mail/scheduled/${later.body.scheduled.id}`);
+  assert.deepEqual(back.body, { ok: true, draft: true });
+  const drafts = (await olivia('GET', '/api/mail/messages?folder=Drafts')).body.messages;
+  const d = drafts.find((m) => m.subject === 'Changed my mind');
+  assert.ok(d, 'back in Drafts');
+  assert.equal((await olivia('GET', `/api/mail/drafts/${d.uid}`)).body.text.trim(), 'Not yet');
+  await olivia('DELETE', `/api/mail/drafts/${d.uid}`);
+});
+
 // ---- filter rules (Sieve) ----
 test('filter rules: move + mark read, star + forward, delete, chained rules, folders', async () => {
   const bad = await olivia('PUT', '/api/mail/rules', { rules: [{ conditions: [], actions: { star: true } }] });

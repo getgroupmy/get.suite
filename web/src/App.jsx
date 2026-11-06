@@ -14,6 +14,8 @@ import Drive from './apps/drive/Drive.jsx';
 import DocEditor from './apps/docs/DocEditor.jsx';
 import SheetEditor from './apps/sheets/SheetEditor.jsx';
 import SlidesEditor from './apps/slides/SlidesEditor.jsx';
+import PresenterView from './apps/slides/PresenterView.jsx';
+import { ShortcutsHelp } from './components/Shortcuts.jsx';
 import Calendar from './apps/calendar/Calendar.jsx';
 import Contacts from './apps/contacts/Contacts.jsx';
 import Chat from './apps/chat/Chat.jsx';
@@ -60,9 +62,11 @@ function Workspace() {
       <ToastProvider>
         {!state.user ? <Login needsSetup={state.needsSetup} /> : state.user.needs_two_factor ? <RequiredTwoStep /> : (
           <BrowserRouter>
+            <ShortcutsHelp />
             <Routes>
               <Route path="/docs/:id" element={<DocEditor />} />
               <Route path="/sheets/:id" element={<SheetEditor />} />
+              <Route path="/slides/:id/presenter" element={<PresenterView />} />
               <Route path="/slides/:id" element={<SlidesEditor />} />
               <Route path="*" element={<Shell />} />
             </Routes>
