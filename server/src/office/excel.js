@@ -3,6 +3,7 @@
 import ExcelJS from 'exceljs';
 
 const colName = (i) => { let s = ''; for (let n = i + 1; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + ((n - 1) % 26)) + s; return s; };
+const colIndex = (s) => [...s].reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0) - 1;
 const hex = (argb) => (argb && /^[0-9A-F]{8}$/i.test(argb) ? `#${argb.slice(2).toLowerCase()}` : null);
 const argb = (h) => `FF${h.replace('#', '').toUpperCase()}`;
 const CURRENCY_SIGNS = [['RM', 'MYR'], ['$', 'USD'], ['€', 'EUR'], ['£', 'GBP'], ['S$', 'SGD'], ['¥', 'JPY'], ['₹', 'INR']];
@@ -84,7 +85,8 @@ export async function sheetFromExcel(buffer) {
       }
     }
     rules.sort((a, b) => a._p - b._p).forEach((r) => delete r._p);
-    sheets.push({ name: ws.name.slice(0, 30), cells, colWidths, ...(rules.length && { rules }), ...(Object.keys(formats).length && { formats }), ...(frozen && (frozen.rows || frozen.cols) && { frozen }) });
+    const validations = validationsFromExcel(ws.dataValidations?.model || {}, cells);
+    sheets.push({ name: ws.name.slice(0, 30), cells, colWidths, ...(rules.length && { rules }), ...(validations.length && { validations }), ...(Object.keys(formats).length && { formats }), ...(frozen && (frozen.rows || frozen.cols) && { frozen }) });
   });
   return { sheets: sheets.length ? sheets : [{ name: 'Sheet1', cells: {}, colWidths: {} }] };
 }
@@ -121,9 +123,55 @@ export async function excelFromSheet(data) {
         ...((r.color || r.bold) && { font: { ...(r.color && { color: { argb: argb(r.color) } }), ...(r.bold && { bold: true }) } }),
       } }] });
     });
+    // Dropdowns as Excel list validations; tick boxes as a TRUE/FALSE list (Excel has no tick box to write).
+    for (const v of s.validations || []) {
+      const values = v.type === 'checkbox' ? ['TRUE', 'FALSE'] : (v.values || []).filter((x) => !/[,"]/.test(x));
+      const list = values.join(',');
+      if (!values.length || list.length > 255) continue; // Excel's limit for a written-out list
+      ws.dataValidations.add(v.range, { type: 'list', allowBlank: true, formulae: [`"${list}"`], ...((v.strict || v.type === 'checkbox') && { showErrorMessage: true, errorStyle: 'stop' }) });
+    }
   }
   if (!wb.worksheets.length) wb.addWorksheet('Sheet1');
   return Buffer.from(await wb.xlsx.writeBuffer());
+}
+
+// ---- data validation from Excel: list validations become dropdowns (a TRUE/FALSE list, a tick box).
+// Excel gives them cell by cell; cells with the same list in a column are joined back into ranges.
+export function validationsFromExcel(model, cells) {
+  const byKind = new Map();
+  for (const [addr, x] of Object.entries(model)) {
+    const p = /^([A-Z]+)(\d+)$/.exec(String(addr).toUpperCase());
+    if (!p || x?.type !== 'list' || !x.formulae?.[0]) continue;
+    const f = String(x.formulae[0]).trim();
+    let values;
+    if (/^".*"$/.test(f)) values = f.slice(1, -1).split(',').map((t) => t.trim()).filter(Boolean);
+    else {
+      // A range of cells on this sheet holding the choices, like $D$1:$D$5.
+      const m = /^\$?([A-Z]+)\$?(\d+):\$?([A-Z]+)\$?(\d+)$/i.exec(f);
+      if (!m) continue;
+      values = [];
+      for (let c = colIndex(m[1].toUpperCase()); c <= colIndex(m[3].toUpperCase()); c++) for (let r = Number(m[2]); r <= Math.min(Number(m[4]), Number(m[2]) + 500); r++) {
+        const raw = cells[`${colName(c)}${r}`];
+        if (raw !== undefined && raw !== '' && !String(raw).startsWith('=')) values.push(String(raw).trim());
+      }
+    }
+    values = [...new Set(values)].slice(0, 200);
+    if (!values.length) continue;
+    const checkbox = values.length === 2 && values.every((v) => /^(TRUE|FALSE)$/i.test(v)) && new Set(values.map((v) => v.toUpperCase())).size === 2;
+    const def = checkbox ? { type: 'checkbox' } : { type: 'list', values, strict: !!x.showErrorMessage && x.errorStyle !== 'information' && x.errorStyle !== 'warning' };
+    const key = `${p[1]}|${JSON.stringify(def)}`;
+    if (!byKind.has(key)) byKind.set(key, { col: p[1], def, rows: [] });
+    byKind.get(key).rows.push(Number(p[2]));
+  }
+  const out = [];
+  for (const { col, def, rows } of byKind.values()) {
+    rows.sort((a, b) => a - b);
+    let start = rows[0], prev = rows[0];
+    const flush = () => out.push({ id: `v${out.length + 1}`, range: `${col}${start}:${col}${prev}`, ...def });
+    for (const r of rows.slice(1)) { if (r === prev + 1) prev = r; else { flush(); start = prev = r; } }
+    flush();
+  }
+  return out.slice(0, 500);
 }
 
 // ---- conditional formatting, both ways

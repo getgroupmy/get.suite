@@ -13,6 +13,7 @@ function sheetMap(sheet) {
   m.set('name', sheet.name || 'Sheet');
   if (sheet.frozen) m.set('frozen', sheet.frozen); // { rows, cols } kept in view while scrolling
   if (sheet.rules?.length) m.set('rules', sheet.rules); // conditional formatting
+  if (sheet.validations?.length) m.set('validations', sheet.validations); // dropdowns and tick boxes
   for (const k of SHEET_MAPS) {
     const inner = new Y.Map();
     for (const [key, v] of Object.entries(sheet[k] || {})) inner.set(key, v);
@@ -32,6 +33,7 @@ export function jsonFromSheetDoc(doc) {
     const s = { name: m.get('name') };
     if (m.get('frozen')) s.frozen = m.get('frozen');
     if (m.get('rules')?.length) s.rules = m.get('rules');
+    if (m.get('validations')?.length) s.validations = m.get('validations');
     for (const k of SHEET_MAPS) { const inner = m.get(k); s[k] = inner ? inner.toJSON() : {}; }
     for (const k of ['formats', 'charts']) if (!Object.keys(s[k]).length) delete s[k];
     return s;
@@ -54,6 +56,7 @@ export function applySheetJson(doc, next) {
       if (m.get('name') !== sheet.name) m.set('name', sheet.name);
       if (!same(m.get('frozen') || null, sheet.frozen || null)) { if (sheet.frozen) m.set('frozen', sheet.frozen); else m.delete('frozen'); }
       if (!same(m.get('rules') || [], sheet.rules || [])) { if (sheet.rules?.length) m.set('rules', sheet.rules); else m.delete('rules'); }
+      if (!same(m.get('validations') || [], sheet.validations || [])) { if (sheet.validations?.length) m.set('validations', sheet.validations); else m.delete('validations'); }
       for (const k of SHEET_MAPS) {
         let inner = m.get(k);
         if (!inner) { inner = new Y.Map(); m.set(k, inner); }

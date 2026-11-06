@@ -64,3 +64,11 @@ test('conditional formatting ranges follow rows and columns', () => {
   assert.deepEqual(applyStructure(sheet, ins('row', 4)).rules.map((r) => r.range), ['B2:B11', 'C2:C3']);
   assert.deepEqual(applyStructure(sheet, del('col', 2)).rules.map((r) => r.range), ['B2:B10'], 'a rule whose cells are all deleted goes');
 });
+
+test('dropdowns and tick boxes follow inserted and deleted rows', () => {
+  const sheet = { cells: {}, validations: [{ id: 'v', range: 'B2:B5', type: 'list', values: ['a'] }, { id: 'w', range: 'C3:C3', type: 'checkbox' }] };
+  const ins = applyStructure(sheet, { axis: 'row', at: 0, count: 2 });
+  assert.deepEqual(ins.validations.map((v) => v.range), ['B4:B7', 'C5:C5']);
+  const delRow = applyStructure(sheet, { axis: 'row', at: 2, count: -1 });
+  assert.deepEqual(delRow.validations.map((v) => v.range), ['B2:B4'], 'the one on the deleted row goes');
+});

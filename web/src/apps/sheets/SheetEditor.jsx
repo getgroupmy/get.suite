@@ -11,10 +11,12 @@ import { ShareDialog } from '../drive/Drive.jsx';
 import { EditorHeader } from '../editorCommon.jsx';
 import { CommentsPanel, useComments } from '../comments.jsx';
 import { ChartCard, ChartDialog } from './SheetCharts.jsx';
-import { dataRegion, rangeText } from './charts.js';
+import { dataRegion, rangeText, parseRange } from './charts.js';
 import { applyStructure, adjustKey, sortRange, looksLikeHeader } from './structure.js';
 import { SortDialog } from './SheetSort.jsx';
 import { RulesDialog } from './SheetRules.jsx';
+import { ValidationDialog, ChoicePicker } from './SheetValidation.jsx';
+import { validationAt, checkEntry, isTicked } from './validation.js';
 import { ruleStyle } from './condformat.js';
 import { useUndo, undoKey } from '../useUndo.js';
 
@@ -104,6 +106,8 @@ export default function SheetEditor() {
   const charts = sheet?.charts || {};
   const colWidths = sheet?.colWidths || {};
   const rules = sheet?.rules || [];
+  const validations = sheet?.validations || [];
+  const [picker, setPicker] = useState(null); // { key }: the choices of a dropdown cell are open
   const frozen = { rows: sheet?.frozen?.rows || 0, cols: sheet?.frozen?.cols || 0 };
   const [resizing, setResizing] = useState(null); // { c, w } while a column edge is dragged
   const widthOf = (c) => (resizing?.c === c ? resizing.w : colWidths[colName(c)] ?? DEFAULT_W);
@@ -269,14 +273,32 @@ export default function SheetEditor() {
     setDraft(initial ?? cells[cellKey(sel.c, sel.r)] ?? '');
   }
 
-  function commitEdit(dc = 0, dr = 0) {
-    writeCells({ [cellKey(sel.c, sel.r)]: draft });
+  /** Save what was typed. A value a strict dropdown doesn't allow: kept for fixing (keep) or dropped. */
+  function commitEdit(dc = 0, dr = 0, keep = false) {
+    const key = cellKey(sel.c, sel.r);
+    const check = checkEntry(validationAt(validations, key), draft);
+    if (check.error) { toast(check.error, 'error'); if (!keep) cancelEdit(); return; }
+    writeCells({ [key]: check.value });
     setEditing(null);
     move(dc, dr);
     gridRef.current?.focus();
   }
 
   function cancelEdit() { setEditing(null); gridRef.current?.focus(); }
+  const toggleTick = (key) => writeCells({ [key]: isTicked(evaluate(key)) ? 'FALSE' : 'TRUE' });
+  /** The different values already in a range (for a new dropdown's choices). */
+  const existingValues = (text) => {
+    const g = parseRange(text);
+    if (!g) return [];
+    const out = new Set();
+    for (let r = g.r1; r <= Math.min(g.r2, g.r1 + 5000); r++) for (let c = g.c1; c <= g.c2; c++) {
+      const raw = cells[cellKey(c, r)];
+      if (raw === undefined || raw === '' || String(raw).startsWith('=')) continue;
+      out.add(String(raw).trim());
+      if (out.size >= 200) return [...out];
+    }
+    return [...out];
+  };
 
   function onGridKey(e) {
     if (editing) return;
@@ -284,11 +306,13 @@ export default function SheetEditor() {
     const mod = e.ctrlKey || e.metaKey;
     const u = undoKey(e);
     if (u) { e.preventDefault(); if (!readOnly) history[u](); return; }
+    if (e.altKey && k === 'ArrowDown' && validationAt(validations, cellKey(sel.c, sel.r))?.type === 'list') { e.preventDefault(); if (!readOnly) setPicker({ key: cellKey(sel.c, sel.r) }); return; }
     if (k === 'ArrowUp') { e.preventDefault(); move(0, -1, e.shiftKey); }
     else if (k === 'ArrowDown') { e.preventDefault(); move(0, 1, e.shiftKey); }
     else if (k === 'ArrowLeft') { e.preventDefault(); move(-1, 0, e.shiftKey); }
     else if (k === 'ArrowRight') { e.preventDefault(); move(1, 0, e.shiftKey); }
     else if (k === 'Tab') { e.preventDefault(); move(e.shiftKey ? -1 : 1, 0); }
+    else if (k === ' ' && !mod && validationAt(validations, cellKey(sel.c, sel.r))?.type === 'checkbox') { e.preventDefault(); if (!readOnly) toggleTick(cellKey(sel.c, sel.r)); }
     else if (k === 'Enter' || k === 'F2') { e.preventDefault(); startEdit(); }
     else if (k === 'Delete' || k === 'Backspace') {
       e.preventDefault();
@@ -493,7 +517,7 @@ export default function SheetEditor() {
       />
       {status === 'offline' && <div className="banner warn">You're offline. Keep editing: your changes are kept here and sync when the connection is back.</div>}
       {readOnly && <div className="banner">View only. Ask {file.owner_name} for edit access.</div>}
-      {!readOnly && <FormatBar fmt={formats[selKey] || {}} onChange={(change) => { writeFormats(change); gridRef.current?.focus(); }} onComment={startComment} onChart={newChart} onSort={() => setDialog({ type: 'sort' })} onRules={() => setDialog({ type: 'rules' })} history={history} />}
+      {!readOnly && <FormatBar fmt={formats[selKey] || {}} onChange={(change) => { writeFormats(change); gridRef.current?.focus(); }} onComment={startComment} onChart={newChart} onSort={() => setDialog({ type: 'sort' })} onRules={() => setDialog({ type: 'rules' })} onValidation={() => setDialog({ type: 'validation' })} history={history} />}
       <div className="formula-bar">
         <span className="cell-name">{anchor ? `${cellKey(range.c1, range.r1)}:${cellKey(range.c2, range.r2)}` : selKey}</span>
         <span className="fx">fx</span>
@@ -503,7 +527,7 @@ export default function SheetEditor() {
           onFocus={() => !editing && startEdit(undefined, 'bar')}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') { e.preventDefault(); commitEdit(0, 1); }
+            if (e.key === 'Enter') { e.preventDefault(); commitEdit(0, 1, true); }
             if (e.key === 'Escape') cancelEdit();
           }}
           onBlur={() => editing === 'bar' && commitEdit(0, 0)}
@@ -539,8 +563,8 @@ export default function SheetEditor() {
                       <td key={k} data-k={k} className={`sel editing ${frozenClass(c, r)}`} style={{ maxWidth: widthOf(c), ...stickyStyle(c, r) }}>
                         <input autoFocus value={draft} aria-label={`Edit ${k}`} onChange={(e) => setDraft(e.target.value)}
                           onKeyDown={(e) => {
-                            if (e.key === 'Enter') { e.preventDefault(); commitEdit(0, e.shiftKey ? -1 : 1); }
-                            else if (e.key === 'Tab') { e.preventDefault(); commitEdit(e.shiftKey ? -1 : 1, 0); }
+                            if (e.key === 'Enter') { e.preventDefault(); commitEdit(0, e.shiftKey ? -1 : 1, true); }
+                            else if (e.key === 'Tab') { e.preventDefault(); commitEdit(e.shiftKey ? -1 : 1, 0, true); }
                             else if (e.key === 'Escape') cancelEdit();
                           }}
                           onBlur={() => editing === 'cell' && commitEdit(0, 0)} />
@@ -551,10 +575,11 @@ export default function SheetEditor() {
                   const v = raw === undefined ? null : evaluate(k);
                   const isErr = v && typeof v === 'object';
                   const fmt = formats[k];
+                  const vd = validations.length ? validationAt(validations, k) : null;
                   return (
                     <td key={k} data-k={k} style={{ maxWidth: widthOf(c), ...stickyStyle(c, r), ...cellStyle(fmt), ...(rules.length && ruleStyle(rules, k, v)), ...(theirs.has(k) && { boxShadow: `${isSel ? 'inset 0 0 0 2px var(--accent), ' : ''}inset 0 0 0 ${isSel ? 4 : 2}px ${theirs.get(k).color}` }) }}
                       title={theirs.has(k) ? `${theirs.get(k).name} is here` : commented.has(k) ? 'Has comments' : undefined}
-                      className={`${frozenClass(c, r)} ${commented.has(k) ? 'commented' : ''} ${isSel ? 'sel' : ''} ${inRange(c, r) && anchor ? 'range' : ''} ${typeof v === 'number' ? 'num' : ''} ${isErr ? 'err' : ''}`}
+                      className={`${frozenClass(c, r)} ${vd ? `has-${vd.type}` : ''} ${commented.has(k) ? 'commented' : ''} ${isSel ? 'sel' : ''} ${inRange(c, r) && anchor ? 'range' : ''} ${typeof v === 'number' ? 'num' : ''} ${isErr ? 'err' : ''}`}
                       onContextMenu={(e) => { if (!inRange(c, r)) { setAnchor(null); setSel({ c, r }); } openMenu(e, 'cell'); }}
                       onMouseDown={(e) => {
                         if (e.button !== 0 && inRange(c, r)) return; // a right-click keeps the selection
@@ -565,7 +590,13 @@ export default function SheetEditor() {
                       onMouseEnter={(e) => { if (e.buttons === 1 && !editing) { if (!anchor) setAnchor(sel); setSel({ c, r }); } }}
                       onClick={() => { if (commented.has(k)) { setThread(commented.get(k)); setPanel(true); } }}
                       onDoubleClick={() => startEdit()}>
-                      {formatNumber(v, fmt) ?? display(v)}
+                      {vd?.type === 'checkbox'
+                        ? <input type="checkbox" className="cell-check" tabIndex={-1} checked={isTicked(v)} disabled={readOnly} aria-label={`Tick ${k}`} onChange={() => toggleTick(k)} onDoubleClick={(e) => e.stopPropagation()} />
+                        : formatNumber(v, fmt) ?? display(v)}
+                      {vd?.type === 'list' && !readOnly && (
+                        <button type="button" className="cell-drop" tabIndex={-1} aria-label={`Choices for ${k}`}
+                          onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); if (editing) commitEdit(0, 0); setAnchor(null); setSel({ c, r }); setPicker({ key: k }); }}>▾</button>
+                      )}
                       {commented.has(k) && <span className="cell-comment" aria-hidden="true" />}
                     </td>
                   );
@@ -611,6 +642,18 @@ export default function SheetEditor() {
         <RulesDialog rules={rules} defaultRange={anchor ? rangeText(range) : rangeText(dataRegion(sel, (c, r) => cells[cellKey(c, r)] !== undefined && cells[cellKey(c, r)] !== ''))}
           onChange={(next) => writeSheet(() => ({ rules: next.length ? next : null }))} onClose={() => { setDialog(null); gridRef.current?.focus(); }} />
       )}
+      {dialog?.type === 'validation' && (
+        <ValidationDialog validations={validations} existing={existingValues}
+          defaultRange={anchor ? rangeText(range) : rangeText({ c1: sel.c, c2: sel.c, r1: sel.r, r2: sel.r })}
+          onChange={(next) => writeSheet(() => ({ validations: next.length ? next : null }))} onClose={() => { setDialog(null); gridRef.current?.focus(); }} />
+      )}
+      {picker && (() => {
+        const vd = validationAt(validations, picker.key);
+        const td = gridRef.current?.querySelector(`[data-k="${picker.key}"]`);
+        if (!vd || vd.type !== 'list' || !td) return null;
+        const done = () => { setPicker(null); gridRef.current?.focus(); };
+        return <ChoicePicker anchor={td} values={vd.values || []} current={cells[picker.key] ?? ''} onClose={done} onPick={(x) => { writeCells({ [picker.key]: x }); done(); }} />;
+      })()}
       {dialog?.type === 'sort' && (() => { const g = sortTarget(); return (
         <SortDialog initial={{ range: g, by: sel.c }} header={looksLikeHeader(g, evaluate)} value={evaluate} onSort={sortBy} onClose={() => { setDialog(null); gridRef.current?.focus(); }} />
       ); })()}
@@ -666,7 +709,7 @@ export function parseCsv(text) {
 }
 
 /** Formatting for the selected cells: bold, italic, underline, colours, alignment, number format. */
-function FormatBar({ fmt, onChange, onComment, onChart, onSort, onRules, history }) {
+function FormatBar({ fmt, onChange, onComment, onChart, onSort, onRules, onValidation, history }) {
   const keep = (e) => e.preventDefault(); // buttons don't take focus from the grid
   const Toggle = ({ k, label, title, children }) => (
     <button type="button" className={`tb ${fmt[k] ? 'on' : ''}`} aria-pressed={!!fmt[k]} aria-label={label} title={title} onMouseDown={keep} onClick={() => onChange({ [k]: !fmt[k] })}>{children}</button>
@@ -712,6 +755,7 @@ function FormatBar({ fmt, onChange, onComment, onChart, onSort, onRules, history
         onClick={() => onChange({ b: null, i: null, u: null, color: null, fill: null, align: null, num: null })}>Tx</button>
       <span className="sep" />
       <button type="button" className="tb labelled" aria-label="Conditional formatting" title="Colour cells by their value" onMouseDown={keep} onClick={onRules}><RulesGlyph /> Rules</button>
+      <button type="button" className="tb labelled" aria-label="Dropdowns and tick boxes" title="Dropdown lists and tick boxes in cells" onMouseDown={keep} onClick={onValidation}>▾ Dropdown</button>
       <button type="button" className="tb labelled" aria-label="Sort range" title="Sort rows by a column" onMouseDown={keep} onClick={onSort}><SortGlyph /> Sort</button>
       <button type="button" className="tb labelled" aria-label="Insert chart" title="Chart of the selected cells" onMouseDown={keep} onClick={onChart}><Icon name="chart" size={18} /> Chart</button>
       <button type="button" className="tb labelled" aria-label="Add comment" title="Comment on this cell (Ctrl+Alt+M)" onMouseDown={keep} onClick={onComment}><Icon name="chat" size={18} /> Comment</button>

@@ -177,3 +177,27 @@ test('PowerPoint: a presentation saved as .pptx opens again the same', async () 
   assert.equal(back.slides[0].notes, 'Welcome everyone.\nMention the Q3 numbers.', 'speaker notes');
   assert.equal(back.slides[1].notes, undefined);
 });
+
+test('Excel: dropdowns and tick boxes go to Excel and come back', async () => {
+  const data = { sheets: [{ name: 'Tracker', cells: { A1: 'Status', B1: 'Done?', A2: 'Open', B2: 'TRUE', D1: 'Low', D2: 'High' }, validations: [
+    { id: 'a', range: 'A2:A20', type: 'list', values: ['Open', 'In progress', 'Done'], strict: true },
+    { id: 'b', range: 'B2:B20', type: 'checkbox' },
+    { id: 'c', range: 'C2:C5', type: 'list', values: ['x', 'y'], strict: false },
+  ] }] };
+  const back = (await sheetFromExcel(await excelFromSheet(data))).sheets[0];
+  assert.deepEqual(back.validations.map(({ id, ...v }) => v), [
+    { range: 'A2:A20', type: 'list', values: ['Open', 'In progress', 'Done'], strict: true },
+    { range: 'B2:B20', type: 'checkbox' },
+    { range: 'C2:C5', type: 'list', values: ['x', 'y'], strict: false },
+  ]);
+});
+
+test('Excel: a list taken from cells on the sheet, and split ranges', async () => {
+  const { validationsFromExcel } = await import('../src/office/excel.js');
+  const list = { type: 'list', formulae: ['$D$1:$D$3'], showErrorMessage: true };
+  const got = validationsFromExcel({ A1: list, A2: list, A4: list, B1: { type: 'whole', formulae: ['1'] } }, { D1: 'Low', D2: 'High', D3: 'Low' });
+  assert.deepEqual(got.map(({ id, ...v }) => v), [
+    { range: 'A1:A2', type: 'list', values: ['Low', 'High'], strict: true },
+    { range: 'A4:A4', type: 'list', values: ['Low', 'High'], strict: true },
+  ]);
+});

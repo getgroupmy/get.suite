@@ -1,5 +1,5 @@
 // Changing a sheet's structure: inserting and deleting rows or columns (formulas, formats, widths,
-// chart ranges and commented cells follow), and sorting rows. Pure functions on the sheet's JSON.
+// chart ranges, rules, dropdowns and commented cells follow), and sorting rows. Pure functions on the sheet's JSON.
 import { colName, colIndex, cellKey, parseRef, shiftFormula } from './formula.js';
 
 /**
@@ -82,7 +82,8 @@ export function applyStructure(sheet, change) {
   }
   for (const [id, ch] of Object.entries(sheet.charts || {})) { const range = adjustRange(ch.range, change); if (range) charts[id] = { ...ch, range }; }
   const rules = (sheet.rules || []).map((r) => ({ ...r, range: adjustRange(r.range, change) })).filter((r) => r.range);
-  return { ...sheet, cells, colWidths, ...(sheet.formats && { formats }), ...(sheet.charts && { charts }), ...(sheet.rules && { rules }) };
+  const validations = (sheet.validations || []).map((v) => ({ ...v, range: adjustRange(v.range, change) })).filter((v) => v.range);
+  return { ...sheet, cells, colWidths, ...(sheet.formats && { formats }), ...(sheet.charts && { charts }), ...(sheet.rules && { rules }), ...(sheet.validations && { validations }) };
 }
 
 /** Does the top row of a range look like headings: all text, over at least one column of numbers? */

@@ -133,6 +133,13 @@ Everyone who can edit a document, spreadsheet or presentation can work in it at 
 - **Freeze:** right-click a row number → *Freeze the first row* (or *Freeze rows 1–3* with three rows selected) to keep headings in view while scrolling; the same for columns from a column letter. *Unfreeze* puts them back. A darker line shows where the frozen part ends.
 - Widths and frozen rows and columns are shared with everyone editing, kept per sheet, and carried to and from Excel.
 
+## Dropdowns and tick boxes (Sheets)
+
+- **Dropdown** in the toolbar turns the selected cells into a list of choices. It starts from the values already in those cells; add or change them one per line. The cells show an arrow: click it, or press **Alt+↓**, then pick with the mouse or the arrow keys and Enter.
+- **Only allow these choices** refuses anything else typed into the cells (with a note saying what's allowed); typing a choice in the wrong case is corrected. Turn it off to suggest values without enforcing them.
+- **Tick box** shows a box in each cell: click it or press Space. Ticked is TRUE, so formulas such as `=COUNTIF(C2:C20, TRUE)` count them.
+- They move with inserted and deleted rows and columns, are shared live, and are kept when downloading as Excel (tick boxes become a TRUE/FALSE list there). Dropdowns in an uploaded Excel file, including lists taken from cells on the sheet, come in as dropdowns.
+
 ## Conditional formatting (Sheets)
 
 - **Rules** in the toolbar colours cells by their value: greater or less than, between, equal or not equal to, text that contains, doesn't contain or starts with something, empty or not, or an error. Pick a colour (and bold) and the cells it applies to; the selection is filled in for you.
