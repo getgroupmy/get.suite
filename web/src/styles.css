@@ -915,3 +915,8 @@ textarea.slide-text.editing { resize: none; border: 0; padding: 0; margin: 0; ba
 .paper .tiptap .selectedCell::after { content: ''; position: absolute; inset: 0; background: var(--accent-soft); opacity: .5; pointer-events: none; }
 .paper .tiptap .tableWrapper { overflow-x: auto; }
 @media print { .paper .tiptap td, .paper .tiptap th { border-color: #999; } }
+
+/* ---------- search inside files ---------- */
+.files td.name > .name-text { display: inline-flex; flex-direction: column; vertical-align: middle; max-width: calc(100% - 40px); overflow: hidden; text-overflow: ellipsis; }
+td.name .match { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 12px; }
+td.name .match mark { background: var(--accent-soft); color: var(--accent-text); border-radius: 3px; padding: 0 2px; }

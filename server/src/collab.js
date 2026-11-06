@@ -6,6 +6,7 @@
 // else (version history, search, export) keeps working on the stored JSON.
 import { WebSocketServer } from 'ws';
 import * as Y from 'yjs';
+import { indexSoon } from './search.js';
 import * as syncProtocol from 'y-protocols/sync';
 import * as awarenessProtocol from 'y-protocols/awareness';
 import * as encoding from 'lib0/encoding';
@@ -53,6 +54,7 @@ function save(room) {
   snapshotIfNewSession(room.fileId, by);
   q('UPDATE files SET content = ?, size = ?, ydoc = ?, version = version + 1, updated_at = ?, updated_by = ? WHERE id = ?')
     .run(json, Buffer.byteLength(json), Buffer.from(Y.encodeStateAsUpdate(room.doc)), Date.now(), by, room.fileId);
+  indexSoon();
   const version = q('SELECT version FROM files WHERE id = ?').get(room.fileId)?.version;
   // Drive lists refresh; open editors are already up to date.
   sendTo(audienceFor(room.fileId), { type: 'content-changed', id: room.fileId, version, by, collab: true });

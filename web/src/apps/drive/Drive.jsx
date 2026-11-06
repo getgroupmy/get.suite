@@ -211,7 +211,7 @@ export default function Drive() {
                 <tr key={f.id} className={selected === f.id ? 'selected' : ''} tabIndex={0}
                   onClick={() => setSelected(f.id)} onDoubleClick={() => route.view !== 'trash' && open(f)}
                   onKeyDown={(e) => e.key === 'Enter' && route.view !== 'trash' && open(f)}>
-                  <td className="name"><Icon name={fileIcon(f)} className={`ft ft-${fileIcon(f)}`} /><span>{f.name}</span></td>
+                  <td className="name"><Icon name={fileIcon(f)} className={`ft ft-${fileIcon(f)}`} /><span className="name-text">{f.name}{f.match && <MatchText text={f.match} />}</span></td>
                   <td className="hide-sm muted">{f.owner_id === user.id ? 'me' : f.owner_name}</td>
                   <td className="hide-sm muted">{formatDate(f.updated_at)}</td>
                   <td className="hide-sm muted">{f.kind === 'folder' ? '—' : formatBytes(f.size)}</td>
@@ -528,5 +528,15 @@ function VersionsDialog({ file, onClose, onChanged }) {
         ))}
       </ul>
     </Modal>
+  );
+}
+
+/** Where a search matched inside a file: the server marks the matching words with \u0001 … \u0002. */
+function MatchText({ text }) {
+  const parts = String(text).split(/(\u0001[^\u0002]*\u0002)/);
+  return (
+    <span className="match small muted">
+      {parts.map((p, i) => (p.startsWith('\u0001') ? <mark key={i}>{p.slice(1, -1)}</mark> : p))}
+    </span>
   );
 }

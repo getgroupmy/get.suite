@@ -171,6 +171,12 @@ Your Workspace calendar and contacts sync with the phone's own Calendar and Cont
   - **PowerPoint:** every slide, text boxes at their places (size, bold, italic, colour, alignment), rectangles, rounded rectangles and ellipses, pictures (saved in a "… pictures" folder beside the presentation), and slide backgrounds. Animations, charts and SmartArt don't carry over.
 - Files up to 50 MB can be converted.
 
+## Searching Drive
+
+- The search box at the top finds files by **name** and by the **words inside** them: documents, spreadsheets (cell text and sheet names), presentations, and uploaded text, Word, Excel and PowerPoint files. Each match shows the sentence it was found in, with the words marked.
+- Words can be typed in any order, the start of a word is enough (`penan` finds *Penang*), and accents don't matter (`cafe` finds *café*). Name matches come first.
+- Only files you can open are found, and files in the bin aren't. Changes are searchable within a few seconds, however they were made (in the editor, by upload, or over the network drive). PDFs and pictures are found by name only.
+
 ## Drive as a network drive
 
 Drive can also appear on a computer as an ordinary drive (WebDAV), so files open and save straight from Finder, File Explorer or any app's Open and Save dialogs. The address is `https://workspace.example.com/dav/files/`. Settings shows it for each person.

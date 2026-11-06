@@ -4,6 +4,7 @@ import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { Transform } from 'node:stream';
 import { q, tx, FILES_DIR, TMP_DIR } from '../db.js';
+import { contentMatches, indexSoon } from '../search.js';
 import { uid, now, str, bad, forbidden, notFound, HttpError, mimeFor, isInlineSafe } from '../util.js';
 import { roleFor, atLeast, audienceFor, subtreeIds } from '../access.js';
 import { sendTo } from '../hub.js';
@@ -162,6 +163,8 @@ export function picturesIn(kind, content) {
 
 export default function fileRoutes({ maxUploadBytes }) {
   const r = Router();
+  // After any change, the search index catches up within a couple of seconds.
+  r.use((req, res, next) => { if (req.method !== 'GET') res.on('finish', () => { if (res.statusCode < 300) indexSoon(); }); next(); });
 
   // List: ?view=mine|shared|recent|trash|search & parent= & q=
   r.get('/', (req, res) => {
@@ -192,11 +195,20 @@ export default function fileRoutes({ maxUploadBytes }) {
       rows = q(`SELECT ${COLS} ${FROM} WHERE f.owner_id = ? AND f.trashed = 1 ORDER BY f.updated_at DESC`)
         .all(me).map((f) => publicFile(f, 'owner'));
     } else if (view === 'search') {
+      // By name, or by the words inside (documents, spreadsheets, presentations, text and Office files).
       const term = `%${String(req.query.q || '').replace(/[%_\\]/g, (c) => '\\' + c)}%`;
+      const inside = contentMatches(req.query.q);
+      const ids = JSON.stringify([...inside.keys()]);
       rows = q(`SELECT ${COLS}, CASE WHEN f.owner_id = ? THEN 'owner' ELSE s.role END AS role ${FROM}
                 LEFT JOIN shares s ON s.file_id = f.id AND s.user_id = ?
-                WHERE (f.owner_id = ? OR s.user_id IS NOT NULL) AND f.trashed = 0 AND f.name LIKE ? ESCAPE '\\' AND ${REACHABLE}
-                ${ORDER} LIMIT 200`).all(me, me, me, term, org, org);
+                WHERE (f.owner_id = ? OR s.user_id IS NOT NULL) AND f.trashed = 0
+                  AND (f.name LIKE ? ESCAPE '\\' OR f.id IN (SELECT value FROM json_each(?))) AND ${REACHABLE}
+                ${ORDER} LIMIT 200`).all(me, me, me, term, ids, org, org);
+      // Name matches first, then the best content matches; each content match says where it matched.
+      const rank = new Map([...inside.keys()].map((id, i) => [id, i]));
+      const byName = (f) => f.name.toLowerCase().includes(String(req.query.q || '').toLowerCase());
+      rows = rows.map((f) => (inside.has(f.id) && !byName(f) ? { ...f, match: inside.get(f.id) } : f))
+        .sort((a, b) => (byName(b) - byName(a)) || ((rank.get(a.id) ?? 0) - (rank.get(b.id) ?? 0)));
     } else throw bad('Unknown view');
     res.json(rows);
   });

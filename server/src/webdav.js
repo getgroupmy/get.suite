@@ -17,6 +17,7 @@ import { uid, now, HttpError, mimeFor } from './util.js';
 import { roleFor, atLeast, audienceFor, subtreeIds } from './access.js';
 import { authenticate } from './dav.js';
 import { insertFile, receiveUpload, snapshot } from './routes/files.js';
+import { indexSoon } from './search.js';
 import { checkQuota, orgStorageUsed, orgSettings } from './tenancy.js';
 import { sendTo } from './hub.js';
 import { parseXml, elements, is, key, innerXml, element } from './davxml.js';
@@ -143,6 +144,7 @@ const changed = (fileIds) => { for (const id of fileIds) sendTo(audienceFor(id),
 
 export default function webdavRoutes({ maxUploadBytes }) {
   const r = Router();
+  r.use((req, res, next) => { if (/^(PUT|MOVE|COPY|DELETE)$/.test(req.method)) res.on('finish', () => { if (res.statusCode < 300) indexSoon(); }); next(); }); // search catches up
   r.use(async (req, res, next) => {
     try {
       res.setHeader('DAV', '1, 2');

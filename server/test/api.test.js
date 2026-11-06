@@ -765,3 +765,39 @@ test('comments: threads on text or cells, replies, resolving, mentions by chat, 
   assert.equal((await owner('DELETE', `/api/comments/${doc.id}/thread-one-1`)).status, 200);
   assert.equal((await owner('GET', `/api/comments/${doc.id}`)).body.length, 0);
 });
+
+test('search finds files by the words inside them, and only files you can open', async () => {
+  const { indexPending } = await import('../src/search.js');
+  const { Document, Packer, Paragraph } = await import('docx');
+  const doc = (await owner('POST', '/api/files/new', { kind: 'doc', name: 'Minutes', content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'We agreed the Penang warehouse lease.' }] }] } })).body;
+  const sheet = (await owner('POST', '/api/files/new', { kind: 'sheet', name: 'Stock', content: { sheets: [{ name: 'Sheet1', cells: { A1: 'Zanzibar cloves', B1: '=SUM(1,2)' } }] } })).body;
+  await owner('POST', '/api/files/upload?name=notes.txt', Buffer.from('Remember the café déjà vu meeting'), { raw: true });
+  const word = await Packer.toBuffer(new Document({ sections: [{ children: [new Paragraph('Quarterly kumquat forecast')] }] }));
+  await owner('POST', '/api/files/upload?name=forecast.docx', word, { raw: true });
+  while (await indexPending()) { /* until everything is indexed */ }
+  const find = async (who, words) => (await who('GET', `/api/files?view=search&q=${encodeURIComponent(words)}`)).body;
+  const hit = (await find(owner, 'penang lease'))[0];
+  assert.equal(hit.id, doc.id);
+  assert.match(hit.match, /\u0001Penang\u0002 warehouse \u0001lease\u0002/, 'with where it matched');
+  assert.equal((await find(owner, 'zanzib'))[0].id, sheet.id, 'the start of a word is enough');
+  assert.equal((await find(owner, 'SUM')).filter((f) => f.id === sheet.id).length, 0, 'formulas are not searched');
+  assert.equal((await find(owner, 'cafe deja'))[0].name, 'notes.txt', 'accents do not matter');
+  assert.equal((await find(owner, 'kumquat'))[0].name, 'forecast.docx');
+  assert.equal((await find(owner, 'minutes'))[0].id, doc.id, 'names still match');
+  assert.equal((await find(owner, 'minutes'))[0].match, undefined);
+  // Someone else finds nothing until it's shared with them; edits are picked up.
+  const other = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'searcher', domain: 'acme.com', name: 'Sam Searcher', password: 'password123' })).status, 201);
+  const sid = (await login(other, 'searcher@acme.com')).id;
+  assert.equal((await find(other, 'penang')).length, 0);
+  await owner('PUT', `/api/files/${doc.id}/shares`, { shares: [{ user_id: sid, role: 'viewer' }] });
+  assert.equal((await find(other, 'penang')).length, 1);
+  const cur = (await owner('GET', `/api/files/${doc.id}/content`)).body;
+  await owner('PUT', `/api/files/${doc.id}/content`, { version: cur.file.version, content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Moved to Ipoh instead.' }] }] } });
+  while (await indexPending()) { /* again */ }
+  assert.equal((await find(owner, 'penang')).length, 0);
+  assert.equal((await find(owner, 'ipoh'))[0].id, doc.id);
+  await owner('PATCH', `/api/files/${doc.id}`, { trashed: true });
+  assert.equal((await find(owner, 'ipoh')).length, 0, 'not from the bin');
+  assert.deepEqual(await find(owner, '"*)('), [], 'odd input is harmless');
+});
