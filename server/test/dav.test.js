@@ -190,3 +190,16 @@ test('invitations: they appear on the guest\'s phone, and Accept or delete there
   assert.equal((await api('GET', `/api/events?from=${t - 864e5}&to=${t + 864e5}`)).body.find((e) => e.id === ev.id).guests[0].status, 'no', 'deleting it declines');
   assert.ok(!(await dav('PROPFIND', kcal, { auth: kimAuth, depth: 1 })).text.includes(ev.id), 'and it leaves the phone');
 });
+
+test('Outlook on Windows: a repeating event in a Windows time zone keeps its local time', async () => {
+  const cal = `/dav/calendars/${me.id}/default/`;
+  const tz = 'BEGIN:VTIMEZONE\r\nTZID:Pacific Standard Time\r\nBEGIN:STANDARD\r\nDTSTART:16011104T020000\r\nRRULE:FREQ=YEARLY;BYDAY=1SU;BYMONTH=11\r\nTZOFFSETFROM:-0700\r\nTZOFFSETTO:-0800\r\nEND:STANDARD\r\nBEGIN:DAYLIGHT\r\nDTSTART:16010311T020000\r\nRRULE:FREQ=YEARLY;BYDAY=2SU;BYMONTH=3\r\nTZOFFSETFROM:-0800\r\nTZOFFSETTO:-0700\r\nEND:DAYLIGHT\r\nEND:VTIMEZONE\r\n';
+  const body = `BEGIN:VCALENDAR\r\nPRODID:-//Microsoft Corporation//Outlook 16.0 MIMEDIR//EN\r\nVERSION:2.0\r\n${tz}BEGIN:VEVENT\r\nUID:OUTLOOK-TZ-1\r\nSUMMARY:Standup\r\nDTSTART;TZID="Pacific Standard Time":20261026T090000\r\nDTEND;TZID="Pacific Standard Time":20261026T091500\r\nRRULE:FREQ=WEEKLY;BYDAY=MO\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n`;
+  assert.equal((await dav('PUT', `${cal}OUTLOOK-TZ-1.ics`, { body, headers: { 'content-type': 'text/calendar' } })).status, 201);
+  const row = q("SELECT start, tz FROM events WHERE ical_uid = 'OUTLOOK-TZ-1'").get();
+  assert.equal(new Date(row.start).toISOString(), '2026-10-26T16:00:00.000Z'); // 9:00 at -07:00
+  assert.equal(row.tz, 'America/Los_Angeles');
+  const back = await dav('GET', `${cal}OUTLOOK-TZ-1.ics`);
+  assert.match(back.text, /DTSTART;TZID=America\/Los_Angeles:20261026T090000/); // phones get it as 9:00 Los Angeles time
+  assert.match(back.text, /TZID:America\/Los_Angeles/);
+});

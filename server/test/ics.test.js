@@ -72,3 +72,53 @@ test('reading replies from Outlook and Gmail', () => {
   assert.equal(parseReply(outlook.replace('METHOD:REPLY', 'METHOD:REQUEST')), null, 'only replies');
   assert.equal(parseReply(outlook.replace('ACCEPTED', 'DELEGATED')), null);
 });
+
+// ---- time zones as Outlook (Windows) and others name them
+import { parseIcsEvent, ianaFor, resolveZone } from '../src/ics.js';
+const cal = (tzBlock, ev) => `BEGIN:VCALENDAR\r\nVERSION:2.0\r\n${tzBlock}BEGIN:VEVENT\r\nUID:x1\r\nSUMMARY:Call\r\n${ev}END:VEVENT\r\nEND:VCALENDAR\r\n`;
+const WEU = 'BEGIN:VTIMEZONE\r\nTZID:W. Europe Standard Time\r\nBEGIN:STANDARD\r\nDTSTART:16010101T030000\r\nTZOFFSETFROM:+0200\r\nTZOFFSETTO:+0100\r\nRRULE:FREQ=YEARLY;BYDAY=-1SU;BYMONTH=10\r\nEND:STANDARD\r\nBEGIN:DAYLIGHT\r\nDTSTART:16010101T020000\r\nTZOFFSETFROM:+0100\r\nTZOFFSETTO:+0200\r\nRRULE:FREQ=YEARLY;BYDAY=-1SU;BYMONTH=3\r\nEND:DAYLIGHT\r\nEND:VTIMEZONE\r\n';
+
+test('Windows zone names from Outlook map to IANA zones', () => {
+  assert.equal(ianaFor('W. Europe Standard Time'), 'Europe/Berlin');
+  assert.equal(ianaFor('"Singapore Standard Time"'), 'Asia/Singapore');
+  assert.equal(ianaFor('eastern standard time'), 'America/New_York');
+  assert.equal(ianaFor('/mozilla.org/20050126_1/America/New_York'), 'America/New_York');
+  assert.equal(ianaFor('Asia/Kuala_Lumpur'), 'Asia/Kuala_Lumpur');
+  assert.equal(ianaFor('Customized Time Zone'), null);
+  const e = parseIcsEvent(cal(WEU, 'DTSTART;TZID=W. Europe Standard Time:20260115T090000\r\nDTEND;TZID=W. Europe Standard Time:20260115T100000\r\nRRULE:FREQ=WEEKLY;BYDAY=TH\r\n'), { tz: 'Asia/Kuala_Lumpur' });
+  assert.equal(new Date(e.start).toISOString(), '2026-01-15T08:00:00.000Z');
+  assert.equal(e.tz, 'Europe/Berlin');
+  assert.deepEqual(e.rrule, { freq: 'weekly', byday: [4] });
+});
+
+test("a zone Workspace doesn't know by name is read from the file's VTIMEZONE", () => {
+  const custom = WEU.replace('TZID:W. Europe Standard Time', 'TZID:Customized Time Zone');
+  const summer = parseIcsEvent(cal(custom, 'DTSTART;TZID="Customized Time Zone":20260715T090000\r\nDTEND;TZID="Customized Time Zone":20260715T093000\r\n'), { tz: 'UTC' });
+  assert.equal(new Date(summer.start).toISOString(), '2026-07-15T07:00:00.000Z'); // +02:00 in summer
+  assert.equal(new Date(summer.end).toISOString(), '2026-07-15T07:30:00.000Z');
+  assert.equal(offsetAt(Date.UTC(2026, 6, 1), summer.tz), 120); // kept under a zone with the same clock changes
+  assert.equal(offsetAt(Date.UTC(2026, 0, 1), summer.tz), 60);
+  // the day of the change: 29 March 2026, 02:00 local → 03:00
+  const z = resolveZone('Customized Time Zone', { 'Customized Time Zone': [] }, 'UTC');
+  assert.equal(z, 'UTC'); // an empty definition falls back
+  const kl = 'BEGIN:VTIMEZONE\r\nTZID:(UTC+08:00) Kuala Lumpur\\, Singapore\r\nBEGIN:STANDARD\r\nDTSTART:16010101T000000\r\nTZOFFSETFROM:+0800\r\nTZOFFSETTO:+0800\r\nEND:STANDARD\r\nEND:VTIMEZONE\r\n';
+  const e = parseIcsEvent(cal(kl, 'DTSTART;TZID="(UTC+08:00) Kuala Lumpur, Singapore":20261201T100000\r\nDTEND;TZID="(UTC+08:00) Kuala Lumpur, Singapore":20261201T110000\r\n'), { tz: 'Asia/Kuala_Lumpur' });
+  assert.equal(new Date(e.start).toISOString(), '2026-12-01T02:00:00.000Z');
+  assert.equal(e.tz, 'Asia/Kuala_Lumpur'); // the person's own zone, as it keeps the same clock
+});
+
+test('US daylight-saving rules from a VTIMEZONE, either side of the change', () => {
+  const us = 'BEGIN:VTIMEZONE\r\nTZID:My Eastern\r\nBEGIN:STANDARD\r\nDTSTART:16011104T020000\r\nRRULE:FREQ=YEARLY;BYDAY=1SU;BYMONTH=11\r\nTZOFFSETFROM:-0400\r\nTZOFFSETTO:-0500\r\nEND:STANDARD\r\nBEGIN:DAYLIGHT\r\nDTSTART:16010311T020000\r\nRRULE:FREQ=YEARLY;BYDAY=2SU;BYMONTH=3\r\nTZOFFSETFROM:-0500\r\nTZOFFSETTO:-0400\r\nEND:DAYLIGHT\r\nEND:VTIMEZONE\r\n';
+  const at = (local) => new Date(parseIcsEvent(cal(us, `DTSTART;TZID=My Eastern:${local}\r\n`), { tz: 'UTC' }).start).toISOString();
+  assert.equal(at('20260307T120000'), '2026-03-07T17:00:00.000Z'); // the day before: -05:00
+  assert.equal(at('20260308T120000'), '2026-03-08T16:00:00.000Z'); // 8 March 2026 is the 2nd Sunday: -04:00
+  assert.equal(at('20261101T120000'), '2026-11-01T17:00:00.000Z'); // 1 November: back to -05:00
+  const e = parseIcsEvent(cal(us, 'DTSTART;TZID=My Eastern:20260601T090000\r\n'), { tz: 'America/New_York' });
+  assert.equal(e.tz, 'America/New_York');
+});
+
+test('an unknown zone with no definition uses the person\'s own', () => {
+  const e = parseIcsEvent(cal('', 'DTSTART;TZID=Somewhere Else:20260601T090000\r\n'), { tz: 'Asia/Tokyo' });
+  assert.equal(new Date(e.start).toISOString(), '2026-06-01T00:00:00.000Z');
+  assert.equal(e.tz, 'Asia/Tokyo');
+});

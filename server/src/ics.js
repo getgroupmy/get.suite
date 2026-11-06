@@ -5,6 +5,8 @@
 // with a VTIMEZONE (its clock changes listed one by one), so a 9:00 weekly meeting stays at 9:00
 // for everyone in that zone across clock changes. All-day events use plain dates.
 
+import { WINDOWS_ZONES } from './windowszones.js';
+
 const pad = (n, w = 2) => String(n).padStart(w, '0');
 const DAYS = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
 
@@ -13,15 +15,28 @@ export function zoneOrUtc(tz) {
   try { return new Intl.DateTimeFormat('en-US', { timeZone: tz || 'UTC' }).resolvedOptions().timeZone; } catch { return 'UTC'; }
 }
 
-/** Wall-clock parts of `ms` in a zone. */
+const formatters = new Map();
+const formatter = (zone) => {
+  let f = formatters.get(zone);
+  if (!f) {
+    f = new Intl.DateTimeFormat('en-US', { timeZone: zone, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', weekday: 'short' });
+    formatters.set(zone, f);
+  }
+  return f;
+};
+
+/** Wall-clock parts of `ms` in a zone (an IANA name, or a zone read from a file's VTIMEZONE). */
 function parts(ms, zone) {
-  const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
-    timeZone: zone, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', weekday: 'short',
-  }).formatToParts(new Date(ms)).map((x) => [x.type, x.value]));
+  if (typeof zone === 'object') {
+    const d = new Date(ms + zone.offsetAt(ms) * 6e4);
+    return { y: d.getUTCFullYear(), mo: d.getUTCMonth() + 1, d: d.getUTCDate(), h: d.getUTCHours(), mi: d.getUTCMinutes(), s: d.getUTCSeconds(), wd: d.getUTCDay() };
+  }
+  const p = Object.fromEntries(formatter(zone).formatToParts(new Date(ms)).map((x) => [x.type, x.value]));
   return { y: +p.year, mo: +p.month, d: +p.day, h: +p.hour % 24, mi: +p.minute, s: +p.second, wd: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(p.weekday) };
 }
 /** Offset from UTC in minutes at `ms` in a zone. */
 export function offsetAt(ms, zone) {
+  if (typeof zone === 'object') return zone.offsetAt(ms);
   const p = parts(ms, zone);
   return Math.round((Date.UTC(p.y, p.mo - 1, p.d, p.h, p.mi, p.s) - Math.floor(ms / 1000) * 1000) / 6e4);
 }
@@ -176,21 +191,161 @@ export function zonedToUtc(y, mo, d, h = 0, mi = 0, s = 0, zone = 'UTC') {
 }
 
 /** A DATE or DATE-TIME value: { ms, date (all day) }. Floating times use `fallbackZone`. */
-export function parseWhen({ value, params }, fallbackZone = 'UTC') {
+export function parseWhen({ value, params }, fallbackZone = 'UTC', zones = null) {
   const m = /^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})(Z)?)?$/.exec(String(value).trim());
   if (!m) return null;
   const [, y, mo, d, h, mi, s, z] = m;
   if (h === undefined || params.VALUE === 'DATE') return { ms: zonedToUtc(+y, +mo, +d, 0, 0, 0, fallbackZone), date: true, ymd: [+y, +mo, +d] };
   if (z) return { ms: Date.UTC(+y, +mo - 1, +d, +h, +mi, +s), date: false };
-  return { ms: zonedToUtc(+y, +mo, +d, +h, +mi, +s, zoneOrUtc(params.TZID || fallbackZone)), date: false };
+  const zone = params.TZID ? (zones ? zones(params.TZID) : resolveZone(params.TZID, {}, fallbackZone)) : fallbackZone;
+  return { ms: zonedToUtc(+y, +mo, +d, +h, +mi, +s, zone), date: false };
+}
+
+// ---- time zones named in calendar files: IANA names, Windows names (Outlook), and anything else
+// through the file's own VTIMEZONE (its rules for when the clocks change).
+
+const isIana = (tz) => { try { formatter(tz); return true; } catch { return false; } };
+const WINDOWS_LOWER = Object.fromEntries(Object.entries(WINDOWS_ZONES).map(([k, v]) => [k.toLowerCase(), v]));
+
+/** The IANA zone a TZID names, if it names one: "Europe/Berlin", "W. Europe Standard Time", "/mozilla.org/…/Europe/Berlin". */
+export function ianaFor(tzid) {
+  const t = String(tzid || '').trim().replace(/^"|"$/g, '');
+  if (!t) return null;
+  if (isIana(t) && !/^[+-]?\d/.test(t)) return t;
+  const w = WINDOWS_LOWER[t.toLowerCase()];
+  if (w) return w;
+  const segs = t.split('/').filter(Boolean); // a prefixed name, e.g. /mozilla.org/20050126_1/America/New_York
+  for (let i = 1; i < segs.length; i++) { const tail = segs.slice(i).join('/'); if (tail.includes('/') && isIana(tail)) return tail; }
+  return null;
+}
+
+const DAY_NAMES = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
+/** Days of month `mo` (1-12) in year `y` matching an RRULE's BYDAY and BYMONTHDAY. */
+function ruleDays(y, mo, byday, bymonthday) {
+  const last = new Date(Date.UTC(y, mo, 0)).getUTCDate();
+  let days = Array.from({ length: last }, (_, i) => i + 1);
+  if (bymonthday) { const want = bymonthday.split(',').map(Number).map((n) => (n < 0 ? last + 1 + n : n)); days = days.filter((d) => want.includes(d)); }
+  if (byday) {
+    const picked = new Set();
+    for (const part of byday.split(',')) {
+      const m = /^([+-]?\d{1,2})?(SU|MO|TU|WE|TH|FR|SA)$/.exec(part.trim().toUpperCase());
+      if (!m) continue;
+      const wd = DAY_NAMES.indexOf(m[2]);
+      const hits = days.filter((d) => new Date(Date.UTC(y, mo - 1, d)).getUTCDay() === wd);
+      if (!m[1]) hits.forEach((d) => picked.add(d));
+      else { const n = +m[1]; const d = n > 0 ? hits[n - 1] : hits[hits.length + n]; if (d) picked.add(d); }
+    }
+    days = days.filter((d) => picked.has(d));
+  }
+  return days;
+}
+
+/** A zone from a VTIMEZONE's observances: { offsetAt(utcMs) } in minutes east of UTC. */
+function zoneFromDefinition(lines) {
+  const obs = [];
+  let cur = null;
+  for (const l of lines) {
+    const v = l.value.trim();
+    if (l.name === 'BEGIN' && /^(STANDARD|DAYLIGHT)$/i.test(v)) { cur = { rdates: [] }; continue; }
+    if (l.name === 'END' && /^(STANDARD|DAYLIGHT)$/i.test(v)) { if (cur && cur.start && Number.isFinite(cur.to)) obs.push(cur); cur = null; continue; }
+    if (!cur) continue;
+    const off = (x) => { const m = /^([+-])(\d{2})(\d{2})(\d{2})?$/.exec(x); return m ? (m[1] === '-' ? -1 : 1) * (+m[2] * 60 + +m[3]) : NaN; };
+    const local = (x) => { const m = /^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2}))?/.exec(x); return m && [+m[1], +m[2], +m[3], +(m[4] || 0), +(m[5] || 0), +(m[6] || 0)]; };
+    if (l.name === 'DTSTART') cur.start = local(v);
+    else if (l.name === 'TZOFFSETFROM') cur.from = off(v);
+    else if (l.name === 'TZOFFSETTO') cur.to = off(v);
+    else if (l.name === 'RRULE') cur.rule = Object.fromEntries(v.split(';').map((x) => x.split('=')).map(([k, val]) => [k.toUpperCase(), val]));
+    else if (l.name === 'RDATE') for (const x of v.split(',')) { const d = local(x); if (d) cur.rdates.push(d); }
+  }
+  if (!obs.length) return null;
+  for (const o of obs) if (!Number.isFinite(o.from)) o.from = o.to;
+  const utcOf = (d, o) => Date.UTC(d[0], d[1] - 1, d[2], d[3], d[4], d[5]) - o.from * 6e4; // onsets are in the time before the change
+  const onsetsIn = (y) => {
+    const out = [];
+    for (const o of obs) {
+      const first = utcOf(o.start, o);
+      if (y === o.start[0]) out.push([first, o.to]);
+      for (const d of o.rdates) if (d[0] === y) out.push([utcOf(d, o), o.to]);
+      const r = o.rule;
+      if (!r || (r.FREQ || '').toUpperCase() !== 'YEARLY' || y < o.start[0]) continue;
+      const until = r.UNTIL ? parseWhen({ value: r.UNTIL, params: {} }, 'UTC')?.ms : Infinity;
+      if (r.COUNT && y >= o.start[0] + Number(r.COUNT)) continue;
+      const months = r.BYMONTH ? r.BYMONTH.split(',').map(Number) : [o.start[1]];
+      for (const mo of months) {
+        const days = r.BYDAY || r.BYMONTHDAY ? ruleDays(y, mo, r.BYDAY, r.BYMONTHDAY) : [o.start[2]];
+        for (const day of days) { const t = utcOf([y, mo, day, o.start[3], o.start[4], o.start[5]], o); if (t >= first && t <= until) out.push([t, o.to]); }
+      }
+    }
+    return out;
+  };
+  const cache = new Map();
+  const yearOnsets = (y) => { if (!cache.has(y)) cache.set(y, onsetsIn(y)); return cache.get(y); };
+  const earliest = obs.reduce((a, o) => (utcOf(o.start, o) < utcOf(a.start, a) ? o : a));
+  return {
+    offsetAt(ms) {
+      const y = new Date(ms).getUTCFullYear();
+      let best = null;
+      for (let yy = y - 1; yy <= y + 1 && yy >= 1; yy++) for (const [t, to] of yearOnsets(yy)) if (t <= ms && (!best || t > best[0])) best = [t, to];
+      if (!best) { // before this year's first change: the last change of an earlier year (rules that skip years, or old DTSTARTs)
+        for (let yy = y - 2; yy >= y - 30 && !best; yy--) for (const [t, to] of yearOnsets(yy)) if (t <= ms && (!best || t > best[0])) best = [t, to];
+      }
+      return best ? best[1] : earliest.from;
+    },
+  };
+}
+
+/** The IANA zone that keeps the same clock as `zone` through the year around `at` (preferring `prefer`). */
+function matchingIana(zone, at, prefer) {
+  const samples = Array.from({ length: 26 }, (_, i) => at - 182 * 864e5 + i * 14 * 864e5);
+  const same = (tz) => samples.every((t) => offsetAt(t, tz) === zone.offsetAt(t));
+  if (prefer && isIana(prefer) && same(prefer)) return prefer;
+  for (const tz of Intl.supportedValuesOf('timeZone')) if (same(tz)) return tz;
+  return null;
+}
+
+/** Turns a TZID into a zone, given the file's VTIMEZONE definitions (TZID → content lines). */
+export function resolveZone(tzid, defs = {}, fallback = 'UTC') {
+  const iana = ianaFor(tzid);
+  if (iana) return iana;
+  const key = String(tzid || '').trim().replace(/^"|"$/g, '');
+  const def = defs[key];
+  return (def && zoneFromDefinition(def)) || zoneOrUtc(fallback);
+}
+
+/** Every VTIMEZONE in a file, by TZID. */
+function zoneDefinitions(lines) {
+  const defs = {};
+  let cur = null, id = null;
+  for (const l of lines) {
+    if (l.name === 'BEGIN' && /^VTIMEZONE$/i.test(l.value.trim())) { cur = []; id = null; continue; }
+    if (cur && l.name === 'END' && /^VTIMEZONE$/i.test(l.value.trim())) { if (id) defs[id] = cur; cur = null; continue; }
+    if (!cur) continue;
+    if (l.name === 'TZID' && id === null) id = l.value.trim().replace(/^"|"$/g, '');
+    else cur.push(l);
+  }
+  return defs;
+}
+
+/** For one file: TZID → zone (cached), and the IANA name to keep with the event. */
+function zoneResolver(lines, fallback) {
+  const defs = zoneDefinitions(lines);
+  const cache = new Map();
+  const zones = (tzid) => { if (!cache.has(tzid)) cache.set(tzid, resolveZone(tzid, defs, fallback)); return cache.get(tzid); };
+  const ianaOf = (tzid, at) => {
+    if (!tzid) return zoneOrUtc(fallback);
+    const z = zones(tzid);
+    return typeof z === 'string' ? z : matchingIana(z, at, fallback) || zoneOrUtc(fallback);
+  };
+  return { zones, ianaOf };
 }
 
 /**
  * The event in a calendar file, as Workspace stores it, or { error }. Repeat rules Workspace can't
  * show (e.g. "the second Monday of each month") come through as a one-off on the first date.
  */
-export function parseIcsEvent(text, { tz = 'UTC' } = {}) {
+export function parseIcsEvent(text, { tz = 'UTC', resolver } = {}) {
   const all = contentLines(text);
+  const { zones, ianaOf } = resolver || zoneResolver(all, tz);
   // Only the main event; changed single occurrences (RECURRENCE-ID) aren't kept yet.
   const blocks = [];
   let cur = null, depth = 0;
@@ -204,13 +359,12 @@ export function parseIcsEvent(text, { tz = 'UTC' } = {}) {
   const ev = blocks.find((b) => !b.some((l) => l.name === 'RECURRENCE-ID'));
   if (!ev) return { error: 'No event in this calendar file' };
   const get = (n) => ev.find((l) => l.name === n);
-  const zoneOf = (l) => zoneOrUtc(l?.params.TZID || tz);
   const startL = get('DTSTART');
-  const start = startL && parseWhen(startL, tz);
+  const start = startL && parseWhen(startL, tz, zones);
   if (!start) return { error: 'The event has no valid start' };
   let end;
   const endL = get('DTEND'), durL = get('DURATION');
-  if (endL) end = parseWhen(endL, tz);
+  if (endL) end = parseWhen(endL, tz, zones);
   else if (durL) {
     const m = /^([+-])?P(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/.exec(durL.value.trim());
     const ms = m ? ((+m[2] || 0) * 7 * 864e5 + (+m[3] || 0) * 864e5 + (+m[4] || 0) * 36e5 + (+m[5] || 0) * 6e4 + (+m[6] || 0) * 1e3) : 0;
@@ -228,7 +382,7 @@ export function parseIcsEvent(text, { tz = 'UTC' } = {}) {
     title: unescapeText(get('SUMMARY')?.value || '').trim().slice(0, 200) || 'Untitled event',
     location: unescapeText(get('LOCATION')?.value || '').slice(0, 300) || null,
     description: unescapeText(get('DESCRIPTION')?.value || '').slice(0, 5000) || null,
-    start: start.ms, end: endMs, all_day: allDay ? 1 : 0, tz: allDay ? tz : zoneOf(startL), rrule: null, exdates: [],
+    start: start.ms, end: endMs, all_day: allDay ? 1 : 0, tz: allDay ? tz : ianaOf(startL.params.TZID, start.ms), rrule: null, exdates: [],
   };
   const rr = get('RRULE');
   if (rr) {
@@ -248,7 +402,7 @@ export function parseIcsEvent(text, { tz = 'UTC' } = {}) {
       else if (p.UNTIL) { const u = parseWhen({ value: p.UNTIL, params: {} }, out.tz); if (u) rule.until = u.date ? u.ms + 864e5 - 1 : u.ms; }
       out.rrule = rule;
       for (const l of ev.filter((x) => x.name === 'EXDATE')) {
-        for (const v of l.value.split(',')) { const w = parseWhen({ value: v, params: l.params }, out.tz); if (w) out.exdates.push(w.ms); }
+        for (const v of l.value.split(',')) { const w = parseWhen({ value: v, params: l.params }, out.tz, zones); if (w) out.exdates.push(w.ms); }
       }
     }
   }
@@ -257,11 +411,11 @@ export function parseIcsEvent(text, { tz = 'UTC' } = {}) {
   for (const raw of String(text || '').replace(/\r?\n[ \t]/g, '').match(/BEGIN:VEVENT[\s\S]*?END:VEVENT/gi) || []) {
     const ridLine = contentLines(raw).find((l) => l.name === 'RECURRENCE-ID');
     if (!ridLine) continue;
-    const rid = parseWhen(ridLine, out.tz);
+    const rid = parseWhen(ridLine, out.tz, zones);
     if (!rid) continue;
     const cancelled = /\nSTATUS:CANCELLED/i.test(raw);
     const body = raw.split(/\r?\n/).filter((l) => !/^(RECURRENCE-ID|RRULE|EXDATE)[;:]/i.test(l)).join('\r\n');
-    const o = parseIcsEvent(`BEGIN:VCALENDAR\r\n${body}\r\nEND:VCALENDAR`, { tz: out.tz });
+    const o = parseIcsEvent(`BEGIN:VCALENDAR\r\n${body}\r\nEND:VCALENDAR`, { tz: out.tz, resolver: { zones, ianaOf } });
     if (o.error) continue;
     out.overrides.push({ recurrenceId: rid.ms, cancelled, title: o.title, location: o.location, description: o.description, start: o.start, end: o.end, all_day: o.all_day });
   }

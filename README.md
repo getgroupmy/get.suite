@@ -142,6 +142,7 @@ Your Workspace calendar and contacts sync with the phone's own Calendar and Cont
   - Your contacts. Addresses, birthdays and extra numbers added on a phone are kept, even though the web only shows one email and one phone number.
   - **Invitations** from colleagues appear on your phone with the organiser and guests. Accept, Maybe or Decline there is your answer in Workspace, and deleting one declines it. You can't change someone else's event from the phone.
   - **One occurrence of a repeating event** changed on its own (on the phone, or with "This event" on the web) shows on both as part of the series. Cancelling one on the phone skips that date.
+  - **Time zones** come across however the app names them: standard names (`Europe/Berlin`), Outlook's Windows names (`W. Europe Standard Time`), or a zone the app describes itself (Outlook's "Customized Time Zone"), so a 9:00 meeting stays at 9:00.
 - **Not yet:**
   - Repeats that Workspace can't show (such as "second Monday of the month") arrive as a one-off on the first date.
   - Reminders set on the phone stay on the phone.
@@ -490,4 +491,4 @@ cd server && MAIL_IT_CONFIG_DIR=/etc/nw npm run test:mail
 
 Everything planned so far is built. Candidates for next:
 
-- **Outlook's own time-zone names** in calendar files from Windows (iPhone, Android and Gmail use the standard names, which already work).
+- **Repeating events across time zones:** the web calendar works out repeats in the viewer's time zone, so for someone in another zone a weekly meeting can move by an hour around a clock change.
