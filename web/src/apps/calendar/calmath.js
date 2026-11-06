@@ -72,6 +72,51 @@ export function layoutDay(events, dayStart, { minMinutes = 20 } = {}) {
 // ---- repeating events ----
 const MAX_STEPS = 20000; // safety cap when walking a long series
 
+// Wall-clock time in a named time zone, so a repeating event is worked out in its own zone: a 9:00
+// meeting in Berlin stays at 9:00 Berlin time for someone looking at it from Kuala Lumpur.
+let zoneHere = null;
+const localZone = () => (zoneHere ??= Intl.DateTimeFormat().resolvedOptions().timeZone);
+const fmts = new Map();
+function zoneFormat(tz) {
+  if (!fmts.has(tz)) {
+    let f = null;
+    try { f = new Intl.DateTimeFormat('en-US', { timeZone: tz, hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric' }); } catch { /* unknown zone */ }
+    fmts.set(tz, f);
+  }
+  return fmts.get(tz);
+}
+/** The zone a repeating event is worked out in: its own (timed events), else this browser's. */
+const zoneOf = (ev) => (!ev.all_day && ev.tz && zoneFormat(ev.tz) ? ev.tz : localZone());
+/** { y, m (0-11), d, h, mi, s, ms, wd } of `t` in zone `tz`. */
+export function wallClock(t, tz) {
+  if (tz === localZone()) { const d = new Date(t); return { y: d.getFullYear(), m: d.getMonth(), d: d.getDate(), h: d.getHours(), mi: d.getMinutes(), s: d.getSeconds(), ms: d.getMilliseconds(), wd: d.getDay() }; }
+  const p = Object.fromEntries(zoneFormat(tz).formatToParts(new Date(t)).map((x) => [x.type, x.value]));
+  const w = { y: +p.year, m: +p.month - 1, d: +p.day, h: +p.hour % 24, mi: +p.minute, s: +p.second, ms: ((t % 1000) + 1000) % 1000 };
+  w.wd = new Date(Date.UTC(w.y, w.m, w.d)).getUTCDay();
+  return w;
+}
+// Offsets only change on the quarter hour, so they are kept per zone and quarter hour.
+const offsets = new Map();
+function offsetMin(t, tz) {
+  const key = `${tz}|${Math.floor(t / 9e5)}`;
+  let o = offsets.get(key);
+  if (o === undefined) {
+    const w = wallClock(t, tz);
+    o = Math.round((Date.UTC(w.y, w.m, w.d, w.h, w.mi, w.s, w.ms) - t) / 6e4);
+    if (offsets.size > 200000) offsets.clear();
+    offsets.set(key, o);
+  }
+  return o;
+}
+/** The moment a wall-clock time happens in zone `tz` (months and days may overflow, as with Date). */
+export function fromWallClock(y, m, d, h, mi, s, ms, tz) {
+  if (tz === localZone()) return new Date(y, m, d, h, mi, s, ms).getTime();
+  const guess = Date.UTC(y, m, d, h, mi, s, ms);
+  let t = guess - offsetMin(guess, tz) * 6e4;
+  t = guess - offsetMin(t, tz) * 6e4;
+  return t;
+}
+
 /** Calendar days from a to b (local dates), ignoring the time of day and clock changes. */
 export const daysBetween = (a, b) => Math.round((startOfDay(b) - startOfDay(a)) / DAY);
 
@@ -83,9 +128,17 @@ export const daysBetween = (a, b) => Math.round((startOfDay(b) - startOfDay(a)) 
 export function occurrenceStarts(ev, to) {
   const r = ev.rrule;
   if (!r) return [ev.start];
-  const first = new Date(ev.start);
-  const [h, mi, s, ms] = [first.getHours(), first.getMinutes(), first.getSeconds(), first.getMilliseconds()];
-  const at = (y, m, d) => new Date(y, m, d, h, mi, s, ms);
+  const tz = zoneOf(ev);
+  const w0 = wallClock(ev.start, tz);
+  // A date (in the event's zone) at the event's time of day; getFullYear/getMonth/getDate/getDay
+  // of the returned object are that date, getTime() the real moment.
+  const at = (y, m, d) => {
+    const day = new Date(Date.UTC(y, m, d));
+    const t = fromWallClock(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate(), w0.h, w0.mi, w0.s, w0.ms, tz);
+    return { getTime: () => t, getFullYear: () => day.getUTCFullYear(), getMonth: () => day.getUTCMonth(), getDate: () => day.getUTCDate(), getDay: () => day.getUTCDay() };
+  };
+  const first = at(w0.y, w0.m, w0.d);
+  const startOfWeek = (d) => at(d.getFullYear(), d.getMonth(), d.getDate() - d.getDay());
   const every = r.interval || 1;
   const out = [];
   let n = 0;
@@ -126,14 +179,16 @@ export function occurrenceStarts(ev, to) {
 /** The event's occurrences that touch [from, to), each a copy with its own start and end. */
 export function expand(ev, from, to) {
   if (!ev.rrule) return ev.start < to && ev.end >= from ? [ev] : [];
-  const first = new Date(ev.start), last = new Date(ev.end);
-  const spanDays = daysBetween(first, last);
+  const tz = zoneOf(ev);
+  const a = wallClock(ev.start, tz), b = wallClock(ev.end, tz);
+  const spanDays = Math.round((Date.UTC(b.y, b.m, b.d) - Date.UTC(a.y, a.m, a.d)) / DAY);
   const skip = new Set(ev.exdates || []);
   const out = [];
+  const longest = ev.end - ev.start + 2 * DAY; // an occurrence can't last longer than this (clock changes included)
   for (const start of occurrenceStarts(ev, to)) {
-    if (skip.has(start)) continue;
-    const s = new Date(start);
-    const end = new Date(s.getFullYear(), s.getMonth(), s.getDate() + spanDays, last.getHours(), last.getMinutes(), last.getSeconds(), last.getMilliseconds()).getTime();
+    if (skip.has(start) || start + longest < from) continue;
+    const s = wallClock(start, tz);
+    const end = fromWallClock(s.y, s.m, s.d + spanDays, b.h, b.mi, b.s, b.ms, tz);
     if (end < from) continue;
     out.push({ ...ev, start, end, occurrence: start, seriesStart: ev.start, seriesEnd: ev.end, key: `${ev.id}@${start}` });
   }

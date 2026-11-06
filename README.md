@@ -205,7 +205,7 @@ Send a file or a whole folder to someone who has no account, such as a client. I
   - Click an empty half hour to create an event there, or a date to open that day. The arrow keys move between periods.
 - **Dragging with the mouse:** drag an event to another time or day (in 15-minute steps in week and day views; to another day in the month view and the all-day row), or drag its bottom edge to change when it ends. Esc cancels a drag. For a repeating event you choose "This event", "This and following events" or "All events"; a weekly series on set weekdays moves its weekdays along with it. Invitations from other people can't be dragged. On phones and tablets, open the event and change the times instead.
 - **Repeating events:** in an event, choose **Repeat**: daily, weekly (pick the weekdays), monthly on the same date, or yearly; every 1, 2, 3… of those. It ends never, on a date, or after a number of times. A line such as "Every 2 weeks on Mon, Thu" confirms the choice.
-  - Dates are worked out in your own time zone, so a 9:00 meeting stays at 9:00 when the clocks change.
+  - Dates are worked out in the event's own time zone, so a 9:00 meeting stays at 9:00 when the clocks change, also for colleagues looking at it from another time zone.
   - A monthly event on the 31st skips months without a 31st, and a yearly event on 29 February appears only in leap years.
   - Changing or deleting one occurrence asks **This event / This and following events / All events**.
   - Repeating events show ↻.
@@ -489,6 +489,4 @@ cd server && MAIL_IT_CONFIG_DIR=/etc/nw npm run test:mail
 
 ## Roadmap
 
-Everything planned so far is built. Candidates for next:
-
-- **Repeating events across time zones:** the web calendar works out repeats in the viewer's time zone, so for someone in another zone a weekly meeting can move by an hour around a clock change.
+Everything planned so far is built.

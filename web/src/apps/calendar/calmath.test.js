@@ -133,3 +133,20 @@ test('dragging: moving keeps the length, resizing keeps a minimum, weekly days f
   assert.equal(snapMinutes(-7, 48), -15);
   assert.equal(snapMinutes(5, 48), 0);
 });
+
+test('repeats are worked out in the event\'s own time zone, wherever you look from', () => {
+  // Weekly on Thursday 9:00 in Berlin; the clocks go back there on 25 October 2026.
+  const ev = { id: 'b', start: Date.UTC(2026, 9, 15, 7), end: Date.UTC(2026, 9, 15, 8), tz: 'Europe/Berlin', rrule: { freq: 'weekly' } };
+  const got = expand(ev, Date.UTC(2026, 9, 1), Date.UTC(2026, 10, 6)).map((o) => [new Date(o.start).toISOString(), new Date(o.end).toISOString()]);
+  assert.deepEqual(got, [
+    ['2026-10-15T07:00:00.000Z', '2026-10-15T08:00:00.000Z'],
+    ['2026-10-22T07:00:00.000Z', '2026-10-22T08:00:00.000Z'],
+    ['2026-10-29T08:00:00.000Z', '2026-10-29T09:00:00.000Z'], // still 9:00 in Berlin
+    ['2026-11-05T08:00:00.000Z', '2026-11-05T09:00:00.000Z'],
+  ]);
+  // Monday 0:30 in Kuala Lumpur is Sunday in UTC: the weekday is the event zone's.
+  const kl = { id: 'k', start: Date.UTC(2026, 10, 1, 16, 30), end: Date.UTC(2026, 10, 1, 17), tz: 'Asia/Kuala_Lumpur', rrule: { freq: 'weekly', byday: [1, 3] } };
+  assert.deepEqual(occurrenceStarts(kl, Date.UTC(2026, 10, 9)).map((t) => new Date(t).toISOString()), ['2026-11-01T16:30:00.000Z', '2026-11-03T16:30:00.000Z', '2026-11-08T16:30:00.000Z']);
+  // An unknown zone falls back to this computer's.
+  assert.equal(expand({ ...ev, tz: 'Nowhere/Land' }, Date.UTC(2026, 9, 1), Date.UTC(2026, 9, 20)).length, 1);
+});
