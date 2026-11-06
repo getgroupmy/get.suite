@@ -830,3 +830,39 @@ test('scheduled mail gets the time it is actually sent as its date', async () =>
   assert.match(out, /\r\n\r\nDate: in the body stays/);
   assert.match(redate(Buffer.from('Subject: x\r\n\r\nbody')).toString(), /^Date: .+\r\nSubject: x\r\n\r\nbody$/, 'added when missing');
 });
+
+test('contacts: import vCard and CSV files (duplicates skipped), export, and address suggestions', async () => {
+  const c = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'impo', domain: 'acme.com', name: 'Ivy Importer', password: 'password123' })).status, 201);
+  await login(c, 'impo@acme.com');
+  const up = (text) => c('POST', '/api/contacts/import', text, { raw: true, headers: { 'content-type': 'text/plain' } });
+  const google = 'Name,Given Name,Family Name,E-mail 1 - Type,E-mail 1 - Value,Phone 1 - Value,Organization 1 - Name,Notes\r\n'
+    + '"Tan, Mei Ling",Mei Ling,Tan,* Work,meiling@example.com ::: mei@home.example,+60 12-345 6789,Globex,"Met at ""Expo""\nKL"\r\n'
+    + ',Raj,Kumar,,RAJ@example.com,,,\r\n';
+  assert.deepEqual((await up(google)).body, { added: 2, skipped: 0 });
+  const outlook = 'First Name;Last Name;E-mail Address;Mobile Phone;Company\nRaj;Kumar;raj@example.com;;\nSiti;Aminah;siti@example.com;+60 3-1111 2222;Acme\n';
+  assert.deepEqual((await up(outlook)).body, { added: 1, skipped: 1 }, 'Raj is already there (same address)');
+  const vcf = 'BEGIN:VCARD\r\nVERSION:3.0\r\nUID:card-1\r\nFN:Lee Wong\r\nEMAIL;TYPE=INTERNET:lee@example.com\r\nBDAY:1990-04-01\r\nEND:VCARD\r\nBEGIN:VCARD\r\nVERSION:3.0\r\nFN:Mei Ling Tan\r\nEMAIL:meiling@example.com\r\nEND:VCARD\r\n';
+  assert.deepEqual((await up(vcf)).body, { added: 1, skipped: 1 });
+  assert.equal((await up('just some text')).status, 400);
+  const list = (await c('GET', '/api/contacts')).body;
+  const mei = list.find((x) => x.email === 'meiling@example.com');
+  assert.deepEqual([mei.name, mei.phone, mei.company, mei.notes], ['Tan, Mei Ling', '+60 12-345 6789', 'Globex', 'Met at "Expo"\nKL']);
+  assert.equal(list.find((x) => x.email === 'raj@example.com').name, 'Raj Kumar');
+  assert.match(list.find((x) => x.email === 'lee@example.com').vcard_extra, /BDAY:1990-04-01/, 'the rest of the card is kept');
+
+  const csv = await c('GET', '/api/contacts/export?format=csv');
+  assert.match(csv.headers.get('content-disposition'), /contacts\.csv/);
+  const text = csv.body;
+  assert.match(text, /^\uFEFF?Name,E-mail Address,Phone,Company,Notes\r\n/); // (the reader drops the byte-order mark)
+  assert.match(text, /"Tan, Mei Ling",meiling@example.com,\+60 12-345 6789,Globex,"Met at ""Expo""\nKL"/);
+  const back = (await c('GET', '/api/contacts/export?format=vcf')).body;
+  assert.equal((back.match(/BEGIN:VCARD/g) || []).length, 4);
+
+  const sug = async (q) => (await c('GET', `/api/contacts/suggest?q=${encodeURIComponent(q)}`)).body;
+  assert.deepEqual((await sug('mei')).map((s) => [s.email, s.kind]), [['meiling@example.com', 'contact']]);
+  const colleague = await sug('owner');
+  assert.ok(colleague.some((s) => s.email === 'owner@acme.com' && s.kind === 'colleague'), 'colleagues too');
+  assert.deepEqual(await sug(''), []);
+  assert.deepEqual((await sug('globex')).length, 0, 'only names and addresses are matched');
+});

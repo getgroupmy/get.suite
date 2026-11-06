@@ -990,3 +990,10 @@ td.name .match mark { background: var(--accent-soft); color: var(--accent-text);
 .shortcuts dt { white-space: nowrap; }
 .shortcuts dd { margin: 0; text-align: right; color: var(--muted); }
 kbd { display: inline-block; min-width: 1.4em; padding: 1px 5px; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 4px; background: var(--surface-2); font-family: inherit; font-size: 12px; line-height: 1.4; text-align: center; }
+
+/* ---------- address suggestions (Mail) ---------- */
+.compose-line > .address-input { width: auto; flex: 1; position: relative; color: inherit; font-size: inherit; display: flex; }
+.address-input > input { flex: 1; }
+.address-list { position: absolute; top: 100%; left: 0; right: 0; z-index: 70; list-style: none; margin: 2px 0 0; padding: 4px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow); max-width: 480px; }
+.address-list li { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; cursor: pointer; }
+.address-list li.on, .address-list li:hover { background: var(--accent-soft); }

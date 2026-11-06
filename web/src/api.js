@@ -24,6 +24,13 @@ export const post = (url, body = {}) => api('POST', url, body);
 export const patch = (url, body) => api('PATCH', url, body);
 export const put = (url, body) => api('PUT', url, body);
 export const del = (url) => api('DELETE', url);
+/** Send a text file's contents (e.g. a .vcf or .csv) as the body. */
+export async function postText(url, text) {
+  const res = await fetch(`/api${url}`, { method: 'POST', credentials: 'same-origin', headers: { ...HEADERS, 'content-type': 'text/plain; charset=utf-8' }, body: text });
+  const data = (res.headers.get('content-type') || '').includes('json') ? await res.json() : null;
+  if (!res.ok) throw new ApiError(res.status, data?.error || `Request failed (${res.status})`, data);
+  return data;
+}
 
 /** Upload one file with progress. Resolves to the created file record. */
 export function uploadFile(file, parentId, onProgress) {

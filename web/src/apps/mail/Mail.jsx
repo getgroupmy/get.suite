@@ -6,6 +6,7 @@ import { api, get, post, put, del, onLive, uploadFile, formatBytes, formatDate }
 import { desktopSupported, desktopOn, enableDesktop, disableDesktop } from '../../mailNotify.js';
 import Icon from '../../components/Icon.jsx';
 import EmojiPicker from '../../components/EmojiPicker.jsx';
+import AddressInput from '../../components/AddressInput.jsx';
 import { Avatar, ConfirmModal, Empty, Menu, Modal, PromptModal, useToast } from '../../components/ui.jsx';
 import { useAuth } from '../../App.jsx';
 import { useEditor, EditorContent, Node as TiptapNode, Extension, mergeAttributes } from '@tiptap/react';
@@ -524,11 +525,11 @@ function Compose({ initial, signatures = [], onClose, onSent, onDraftsChanged })
             }}>{identities.map((i) => <option key={i.address} value={i.address}>{i.address}</option>)}</select>
           </label>
         )}
-        <label className="compose-line"><span>To</span><input aria-label="To" autoFocus={!initial.to} type="text" inputMode="email" value={f.to} onChange={set('to')} placeholder="name@company.com, …" />
+        <label className="compose-line"><span>To</span><AddressInput label="To" autoFocus={!initial.to} type="text" inputMode="email" value={f.to} onChange={(v) => setF((x) => ({ ...x, to: v }))} placeholder="name@company.com, …" />
           {!showCc && <button type="button" className="link" onClick={() => setShowCc(true)}>Cc/Bcc</button>}</label>
         {showCc && <>
-          <label className="compose-line"><span>Cc</span><input aria-label="Cc" type="text" inputMode="email" value={f.cc} onChange={set('cc')} /></label>
-          <label className="compose-line"><span>Bcc</span><input aria-label="Bcc" type="text" inputMode="email" value={f.bcc} onChange={set('bcc')} /></label>
+          <label className="compose-line"><span>Cc</span><AddressInput label="Cc" type="text" inputMode="email" value={f.cc} onChange={(v) => setF((x) => ({ ...x, cc: v }))} /></label>
+          <label className="compose-line"><span>Bcc</span><AddressInput label="Bcc" type="text" inputMode="email" value={f.bcc} onChange={(v) => setF((x) => ({ ...x, bcc: v }))} /></label>
         </>}
         <label className="compose-line"><span>Subject</span><input aria-label="Subject" value={f.subject} onChange={set('subject')} /></label>
         <RichBody initialHtml={initial.html || textToHtml(initial.text || '')} autoFocus={!!initial.to} onReady={(ed) => { editorRef.current = ed; }}

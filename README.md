@@ -9,7 +9,7 @@ A self-hosted, Google Workspace-style office suite built to run on a Synology DS
 | **Sheets** | Spreadsheets with formulas (lookups `VLOOKUP HLOOKUP INDEX MATCH`; conditions `IF IFS SWITCH IFERROR IFNA COUNTIF(S) SUMIF(S) AVERAGEIF(S) MAXIFS MINIFS`, with `*` and `?` wildcards; `SUM AVERAGE MIN MAX MEDIAN COUNT COUNTA COUNTBLANK PRODUCT LARGE SMALL ROUND ROUNDUP ROUNDDOWN CEILING FLOOR ABS SIGN SQRT POWER MOD INT PI`; text `CONCAT TEXTJOIN LEN UPPER LOWER PROPER TRIM LEFT RIGHT MID FIND SEARCH SUBSTITUTE REPT EXACT VALUE`; dates `TODAY NOW DATE YEAR MONTH DAY WEEKDAY DAYS EDATE EOMONTH`; `AND OR NOT ISBLANK ISNUMBER ISTEXT ISERROR NA`), charts, sorting, inserting and deleting rows and columns, undo, cell formatting (bold, italic, underline, text and fill colour, alignment, number, currency and percent formats), live co-editing with everyone's selected cell shown, multiple sheets, copy/paste with reference shifting, and CSV import/export |
 | **Slides** | Presentations: slide layouts, text boxes, pictures and shapes you drag and resize, text size, bold, italic and colour, four themes, live co-editing, full-screen presenting, and printing or saving as PDF |
 | **Calendar** | Month, week and day views (timed events placed by the hour, side by side when they overlap, with a current-time line), all-day and timed events, repeating events, inviting colleagues and people outside by email (Yes / Maybe / No), colours, upcoming list |
-| **Contacts** | Personal address book, plus a directory of everyone on the NAS |
+| **Contacts** | Personal address book (import and export vCard and CSV, synced with phones), plus a directory of everyone on the NAS; addresses suggested while writing mail |
 | **Chat** | Channels and direct messages, delivered live over WebSockets, with an emoji picker |
 | **Mail** | A mailbox for every user on their company's domains: webmail (read, reply, forward, attachments from your computer or Drive, archive, spam, search, stars), rich-text writing (bold, lists, links, quotes), drafts that save automatically, vacation auto-replies, filter rules, signatures, folders, send as aliases you belong to, and IMAP/SMTP for phones and Outlook |
 | **Admin** | Create, disable, reset or delete users; per-user storage use; company settings; all companies (platform owner) |
@@ -154,6 +154,12 @@ In Drive, **New → Presentation**. Presentations are shared, versioned and save
 - **Presenter view** also opens a second window for you, the speaker, to keep on your own screen: the current slide, the next one, your notes, a timer and the time. Moving through the slides in either window moves both.
 - **Print or save as PDF** (⋮ menu) prints one slide per landscape page. Choose "Save as PDF" in the print dialog.
 - People you share a presentation with see its pictures, even ones that aren't shared with them separately. Viewers can present but not edit.
+
+## Contacts
+
+- **Import:** **Import** takes a vCard file (.vcf, with one or many contacts) exported from a phone, iCloud, Outlook or Gmail, or a CSV export from Gmail or Outlook (or any sheet with a Name or Email column). People who are already in your contacts (the same email address) are skipped, so importing the same file twice is harmless. Birthdays, addresses and other details on a vCard are kept for your phone.
+- **Export:** **Export** downloads all your contacts as vCards (for phones, Outlook and Apple) or as CSV (for Gmail and spreadsheets).
+- **In Mail:** start typing a name or address in To, Cc or Bcc and pick from your contacts and colleagues (Up/Down, then Enter or Tab).
 
 ## Calendar and contacts on your phone
 

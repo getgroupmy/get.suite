@@ -1,6 +1,9 @@
 import { Router } from 'express';
 import { q } from '../db.js';
-import { uid, now, str, notFound } from '../util.js';
+import express from 'express';
+import { uid, now, str, notFound, bad } from '../util.js';
+import { contactsFromFile, contactsToCsv, contactsToVcf, MAX_IMPORT } from '../contactfiles.js';
+import { canReach } from '../tenancy.js';
 
 const FIELDS = { name: 200, email: 200, phone: 50, company: 200, notes: 5000 };
 
@@ -18,6 +21,65 @@ export default function contactRoutes() {
 
   r.get('/', (req, res) => {
     res.json(q('SELECT * FROM contacts WHERE owner_id = ? ORDER BY name COLLATE NOCASE').all(req.user.id));
+  });
+
+  // Suggestions while typing an address in Mail: your contacts and your colleagues.
+  r.get('/suggest', (req, res) => {
+    const term = String(req.query.q || '').trim().toLowerCase();
+    if (!term) return res.json([]);
+    const like = `%${term.replace(/[%_\\]/g, (c) => `\\${c}`)}%`;
+    const starts = `${term.replace(/[%_\\]/g, (c) => `\\${c}`)}%`;
+    const mine = q(`SELECT name, email FROM contacts WHERE owner_id = ? AND email IS NOT NULL AND email != ''
+                    AND (LOWER(name) LIKE ? ESCAPE '\\' OR LOWER(email) LIKE ? ESCAPE '\\')
+                    ORDER BY (LOWER(name) LIKE ? ESCAPE '\\' OR LOWER(email) LIKE ? ESCAPE '\\') DESC, name COLLATE NOCASE LIMIT 8`).all(req.user.id, like, like, starts, starts);
+    const people = q(`SELECT id, name, username AS email FROM users WHERE org_id = ? AND disabled = 0 AND id != ?
+                      AND (LOWER(name) LIKE ? ESCAPE '\\' OR username LIKE ? ESCAPE '\\') ORDER BY name COLLATE NOCASE LIMIT 8`).all(req.user.org_id, req.user.id, like, like);
+    const seen = new Set();
+    const out = [];
+    for (const [list, kind] of [[people, 'colleague'], [mine, 'contact']]) {
+      for (const p of list) {
+        const email = p.email.toLowerCase();
+        if (seen.has(email) || (kind === 'colleague' && !canReach(req.user, p.id))) continue;
+        seen.add(email);
+        out.push({ name: p.name || '', email, kind });
+      }
+    }
+    res.json(out.slice(0, 8));
+  });
+
+  // Import a .vcf (one or many cards) or a CSV export (Gmail, Outlook, or Name/Email columns).
+  r.post('/import', express.text({ type: () => true, limit: '20mb' }), (req, res) => {
+    const found = contactsFromFile(req.body);
+    if (found.error) throw bad(found.error);
+    if (found.contacts.length > MAX_IMPORT) throw bad(`At most ${MAX_IMPORT} contacts can be imported at once`);
+    const have = q('SELECT LOWER(email) AS email, vcard_uid, LOWER(name) AS name, phone FROM contacts WHERE owner_id = ?').all(req.user.id);
+    const emails = new Set(have.map((c) => c.email).filter(Boolean));
+    const uids = new Set(have.map((c) => c.vcard_uid).filter(Boolean));
+    const namePhone = new Set(have.map((c) => `${c.name}|${c.phone || ''}`));
+    let added = 0, skipped = 0;
+    const t = now();
+    for (const c of found.contacts) {
+      const email = c.email ? c.email.toLowerCase() : null;
+      const key = `${String(c.name).toLowerCase()}|${c.phone || ''}`;
+      if ((email && emails.has(email)) || (c.uid && uids.has(c.uid)) || (!email && namePhone.has(key))) { skipped++; continue; } // already there
+      q(`INSERT INTO contacts (id, owner_id, name, email, phone, company, notes, created_at, vcard_uid, vcard_extra) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(uid(), req.user.id, String(c.name).slice(0, 200), email, c.phone ? String(c.phone).slice(0, 50) : null, c.company ? String(c.company).slice(0, 200) : null,
+          c.notes ? String(c.notes).slice(0, 5000) : null, t, c.uid || null, c.vcard_extra || null);
+      if (email) emails.add(email);
+      if (c.uid) uids.add(c.uid);
+      namePhone.add(key);
+      added++;
+    }
+    res.json({ added, skipped });
+  });
+
+  // Download all your contacts, as vCards (phones, Outlook, Apple) or CSV (Gmail, spreadsheets).
+  r.get('/export', (req, res) => {
+    const list = q('SELECT * FROM contacts WHERE owner_id = ? ORDER BY name COLLATE NOCASE').all(req.user.id);
+    const csv = req.query.format === 'csv';
+    res.setHeader('Content-Type', csv ? 'text/csv; charset=utf-8' : 'text/vcard; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="contacts.${csv ? 'csv' : 'vcf'}"`);
+    res.send(csv ? contactsToCsv(list) : contactsToVcf(list));
   });
 
   r.post('/', (req, res) => {

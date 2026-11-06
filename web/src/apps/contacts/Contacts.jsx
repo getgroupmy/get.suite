@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
-import { get, post, patch, del } from '../../api.js';
+import { get, post, patch, del, postText } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
-import { Avatar, ConfirmModal, Empty, Modal, useToast } from '../../components/ui.jsx';
+import { Avatar, ConfirmModal, Empty, Menu, Modal, useToast } from '../../components/ui.jsx';
 import { useAuth } from '../../App.jsx';
 
 const FIELDS = [['name', 'Name'], ['email', 'Email'], ['phone', 'Phone'], ['company', 'Company']];
@@ -19,6 +19,17 @@ export default function Contacts() {
   const [deleting, setDeleting] = useState(null);
 
   const load = () => get('/contacts').then(setContacts).catch((e) => toast(e.message, 'error'));
+  // Import a .vcf or .csv from a phone, Gmail or Outlook; people already here are skipped.
+  const importInput = useRef();
+  const importFile = async (file) => {
+    if (!file) return;
+    try {
+      const r = await postText('/contacts/import', await file.text());
+      toast(`${r.added} contact${r.added === 1 ? '' : 's'} imported${r.skipped ? `, ${r.skipped} already here` : ''}`);
+      setTab('mine');
+      load();
+    } catch (e) { toast(e.message, 'error'); }
+  };
   useEffect(() => { load(); get('/users/directory').then(setDirectory); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const match = (c) => !filter || Object.values(c).some((v) => typeof v === 'string' && v.toLowerCase().includes(filter.toLowerCase()));
@@ -34,6 +45,12 @@ export default function Contacts() {
       <div className="page-head">
         <h1>Contacts</h1>
         <div className="grow" />
+        <button className="btn" onClick={() => importInput.current.click()}><Icon name="upload" size={18} /> Import</button>
+        <input ref={importInput} type="file" accept=".vcf,.vcard,.csv,text/vcard,text/csv" hidden aria-label="Contacts file to import" onChange={(e) => { importFile(e.target.files[0]); e.target.value = ''; }} />
+        <Menu trigger={(p) => <button className="btn" {...p}><Icon name="download" size={18} /> Export</button>} items={[
+          { label: 'vCard (.vcf): phones, Outlook, Apple', icon: 'download', onClick: () => { window.location.href = '/api/contacts/export?format=vcf'; } },
+          { label: 'CSV: Gmail, spreadsheets', icon: 'download', onClick: () => { window.location.href = '/api/contacts/export?format=csv'; } },
+        ]} />
         <button className="btn primary" onClick={() => setEditing({})}><Icon name="plus" size={18} /> New contact</button>
       </div>
       <div className="row wrap">
