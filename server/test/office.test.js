@@ -25,7 +25,8 @@ test('Word: a real .docx opens as a document with headings, formatting, lists an
   assert.deepEqual(find(doc, 'bulletList')[0].content.map(text), ['First point', 'Second point']);
   const link = doc.content.flatMap((n) => n.content || []).find((c) => c.marks?.some((m) => m.type === 'link'));
   assert.equal(link.marks.find((m) => m.type === 'link').attrs.href, 'https://example.com/q4');
-  assert.ok(doc.content.some((n) => text(n) === 'North | 120'), 'tables come through as rows of text');
+  const table = find(doc, 'table')[0];
+  assert.deepEqual(table.content.map((row) => row.content.map(text)), [['Region', 'Total'], ['North', '120']], 'tables come through as tables');
 });
 
 test('Word: a document saved as .docx opens again the same', async () => {
@@ -43,6 +44,34 @@ test('Word: a document saved as .docx opens again the same', async () => {
   assert.deepEqual(bold.marks.map((m) => m.type).sort(), ['bold', 'underline']);
   assert.deepEqual(find(back, 'orderedList')[0].content.map(text), ['One', 'Two']);
   assert.ok(JSON.stringify(back).includes('https://example.com'));
+});
+
+import JSZip from 'jszip';
+const WIDE_PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAEAAAAAgCAIAAAAt/+nTAAAAKElEQVR42u3OMQEAAAgDoNm/tKbwgQJ0Uhk1NBQQEBAQEBAQEBAQEBAQ1gWjYCbJAAAAAElFTkSuQmCC', 'base64'); // 64 × 32
+
+test('Word: tables, pictures and text colours go out to .docx and come back', async () => {
+  const cell = (type, t) => ({ type, content: [{ type: 'paragraph', content: [{ type: 'text', text: t }] }] });
+  const doc = { type: 'doc', content: [
+    { type: 'paragraph', content: [{ type: 'text', text: 'red', marks: [{ type: 'textStyle', attrs: { color: '#c5221f' } }] }, { type: 'text', text: ' marked', marks: [{ type: 'textStyle', attrs: { backgroundColor: '#fde293' } }] }] },
+    { type: 'table', content: [{ type: 'tableRow', content: [cell('tableHeader', 'Item'), cell('tableHeader', 'Cost')] }, { type: 'tableRow', content: [cell('tableCell', 'Paper'), cell('tableCell', '12')] }] },
+    { type: 'image', attrs: { fileId: 'pic1', alt: 'Chart', width: '50%', align: 'center' } },
+    { type: 'image', attrs: { fileId: 'gone', alt: '' } },
+  ] };
+  const asked = [];
+  const buf = await wordFromDoc(doc, 'Costs', { pictureData: async (id) => { asked.push(id); return id === 'pic1' ? { data: WIDE_PNG, mime: 'image/png' } : null; } });
+  assert.deepEqual(asked.sort(), ['gone', 'pic1']);
+  const xml = await (await JSZip.loadAsync(buf)).file('word/document.xml').async('string');
+  assert.match(xml, /<w:color w:val="C5221F"\/>/);
+  assert.match(xml, /w:fill="FDE293"/);
+  assert.match(xml, /<w:tblHeader\/>/);
+  assert.match(xml, /<wp:extent cx="\d+" cy="\d+"\/>/);
+  const saved = [];
+  const { doc: back } = await docFromWord(buf, { savePicture: async (name, data, mime) => { saved.push([name, mime, data.length]); return `new${saved.length}`; } });
+  assert.deepEqual(find(back, 'table')[0].content.map((row) => row.content.map(text)), [['Item', 'Cost'], ['Paper', '12']]);
+  assert.deepEqual(saved, [['Picture 1.png', 'image/png', WIDE_PNG.length]]);
+  const img = JSON.stringify(back).match(/"type":"image","attrs":\{[^}]*\}/)[0];
+  assert.match(img, /"fileId":"new1"/);
+  assert.ok(JSON.stringify(back).includes('[picture]'), 'a picture that could not be read leaves a note');
 });
 
 import ExcelJS from 'exceljs';

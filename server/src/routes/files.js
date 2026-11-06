@@ -149,6 +149,17 @@ export async function receiveUpload(req, orgId, maxUploadBytes) {
   return { storage, size };
 }
 
+/** The Drive files a presentation or document shows as pictures (their ids). */
+export function picturesIn(kind, content) {
+  const ids = new Set();
+  if (kind === 'slides') for (const sl of content.slides || []) for (const it of sl.items || []) { if (it.type === 'image' && it.fileId) ids.add(it.fileId); }
+  if (kind === 'doc') {
+    const walk = (n) => { if (n?.type === 'image' && n.attrs?.fileId) ids.add(n.attrs.fileId); for (const c of n?.content || []) walk(c); };
+    walk(content);
+  }
+  return ids;
+}
+
 export default function fileRoutes({ maxUploadBytes }) {
   const r = Router();
 
@@ -324,10 +335,12 @@ export default function fileRoutes({ maxUploadBytes }) {
   // itself isn't shared with them. Only pictures the deck uses, owned by someone who can edit it.
   r.get('/:id/pictures/:pic', (req, res) => {
     const deck = loadFile(req.params.id, req.user);
-    if (deck.kind !== 'slides') throw notFound();
+    if (deck.kind !== 'slides' && deck.kind !== 'doc') throw notFound();
     const pic = String(req.params.pic);
     const { content } = q('SELECT content FROM files WHERE id = ?').get(deck.id);
-    const used = JSON.parse(content || '{}').slides?.some((sl) => sl.items?.some((it) => it.type === 'image' && it.fileId === pic));
+    const used = picturesIn(deck.kind, JSON.parse(content || '{}')).has(pic)
+      // Just put in and not saved yet: the person who added it can see their own picture.
+      || q("SELECT 1 FROM files WHERE id = ? AND owner_id = ?").get(pic, req.user.id);
     const f = used && q('SELECT * FROM files WHERE id = ? AND kind = ? AND trashed = 0').get(pic, 'file');
     if (!f || !/^image\/(png|jpeg|gif|webp|avif|bmp)$/.test(f.mime || '') || !atLeast(roleFor(deck.id, f.owner_id), 'editor')) throw notFound('Picture not found');
     res.setHeader('Content-Type', f.mime);
@@ -346,20 +359,19 @@ export default function fileRoutes({ maxUploadBytes }) {
     const buf = fs.readFileSync(path.join(FILES_DIR, f.storage));
     const name = f.name.replace(/\.[a-z]+$/i, '');
     let content;
+    let folder = null;
+    // The document's or presentation's pictures go in a folder of their own beside it.
+    const savePicture = async (pname, data, mime) => {
+      folder ??= insertFile({ owner: req.user.id, parentId, name: `${name} pictures`, kind: 'folder' });
+      checkQuota(req.user.org_id, data.length);
+      const storage = uid();
+      fs.writeFileSync(path.join(FILES_DIR, storage), data);
+      return insertFile({ owner: req.user.id, parentId: folder, name: pname, kind: 'file', mime, size: data.length, storage });
+    };
     try {
-      if (type === 'docx') content = (await docFromWord(buf)).doc;
+      if (type === 'docx') content = (await docFromWord(buf, { savePicture })).doc;
       else if (type === 'xlsx') content = await sheetFromExcel(buf);
-      else {
-        let folder = null;
-        content = await deckFromPowerPoint(buf, { savePicture: async (pname, data, mime) => {
-          // The presentation's pictures go in a folder of their own beside it.
-          folder ??= insertFile({ owner: req.user.id, parentId, name: `${name} pictures`, kind: 'folder' });
-          checkQuota(req.user.org_id, data.length);
-          const storage = uid();
-          fs.writeFileSync(path.join(FILES_DIR, storage), data);
-          return insertFile({ owner: req.user.id, parentId: folder, name: pname, kind: 'file', mime, size: data.length, storage });
-        } });
-      }
+      else content = await deckFromPowerPoint(buf, { savePicture });
     } catch (e) { throw bad(`This file couldn't be read as ${type === 'docx' ? 'a Word document' : type === 'xlsx' ? 'an Excel workbook' : 'a PowerPoint presentation'}`); }
     const json = JSON.stringify(content);
     const id = insertFile({ owner: req.user.id, parentId, name, kind: OFFICE[type].kind, content: json, size: Buffer.byteLength(json) });
@@ -373,17 +385,16 @@ export default function fileRoutes({ maxUploadBytes }) {
     const type = EXPORT_AS[f.kind];
     if (!type) throw bad('Only documents, spreadsheets and presentations can be downloaded this way');
     const content = JSON.parse(q('SELECT content FROM files WHERE id = ?').get(f.id).content || '{}');
+    // The same rule as showing pictures in the file: only pictures owned by someone who can edit it.
+    const pictureData = async (fileId) => {
+      const pic = q("SELECT * FROM files WHERE id = ? AND kind = 'file' AND trashed = 0").get(fileId);
+      if (!pic || !/^image\//.test(pic.mime || '') || !atLeast(roleFor(f.id, pic.owner_id), 'editor')) return null;
+      return { data: fs.readFileSync(path.join(FILES_DIR, pic.storage)), mime: pic.mime };
+    };
     let buf;
-    if (type === 'docx') buf = await wordFromDoc(content, f.name);
+    if (type === 'docx') buf = await wordFromDoc(content, f.name, { pictureData });
     else if (type === 'xlsx') buf = await excelFromSheet(content);
-    else {
-      buf = await powerPointFromDeck(content, { title: f.name, pictureData: async (fileId) => {
-        // The same rule as showing pictures in the deck: only pictures owned by someone who can edit it.
-        const pic = q("SELECT * FROM files WHERE id = ? AND kind = 'file' AND trashed = 0").get(fileId);
-        if (!pic || !/^image\//.test(pic.mime || '') || !atLeast(roleFor(f.id, pic.owner_id), 'editor')) return null;
-        return { data: fs.readFileSync(path.join(FILES_DIR, pic.storage)), mime: pic.mime };
-      } });
-    }
+    else buf = await powerPointFromDeck(content, { title: f.name, pictureData });
     res.setHeader('Content-Type', OFFICE[type].mime);
     res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(`${f.name}.${type}`)}`);
     res.send(buf);

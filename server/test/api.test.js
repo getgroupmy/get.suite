@@ -664,6 +664,26 @@ test('presentations: created with a title slide, saved like documents', async ()
   assert.equal((await viewer('GET', `/api/files/${deck.body.id}/pictures/${secret.id}`)).status, 404, 'only pictures the deck uses');
 });
 
+test('documents: pictures show for everyone who can open the document', async () => {
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  const pic = (await owner('POST', '/api/files/upload?name=photo.png', png, { raw: true })).body;
+  const other = (await owner('POST', '/api/files/upload?name=other.png', png, { raw: true })).body;
+  const doc = (await owner('POST', '/api/files/new', { kind: 'doc', name: 'With a picture' })).body;
+  const viewer = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'docview', domain: 'acme.com', name: 'Doc Viewer', password: 'password123' })).status, 201);
+  const vid = (await login(viewer, 'docview@acme.com')).id;
+  await owner('PUT', `/api/files/${doc.id}/shares`, { shares: [{ user_id: vid, role: 'viewer' }] });
+  const at = `/api/files/${doc.id}/pictures/${pic.id}`;
+  assert.equal((await owner('GET', at)).status, 200, 'the person who put it in sees it straight away');
+  assert.equal((await viewer('GET', at)).status, 404, 'others once the document uses it');
+  const cur = (await owner('GET', `/api/files/${doc.id}/content`)).body;
+  const content = { type: 'doc', content: [{ type: 'table', content: [{ type: 'tableRow', content: [{ type: 'tableCell', content: [{ type: 'image', attrs: { fileId: pic.id } }] }] }] }] };
+  assert.equal((await owner('PUT', `/api/files/${doc.id}/content`, { version: cur.file.version, content })).status, 200);
+  assert.equal((await viewer('GET', at)).status, 200, 'a picture inside a table counts too');
+  assert.equal((await viewer('GET', `/api/files/${doc.id}/pictures/${other.id}`)).status, 404, 'only pictures the document uses');
+  assert.equal((await viewer('GET', `/api/files/${pic.id}/raw`)).status, 404, 'the picture file itself is not shared');
+});
+
 test('Office files: open Word, Excel and PowerPoint as Docs, Sheets and Slides, and download them back', async () => {
   const { Document, Packer, Paragraph, HeadingLevel } = await import('docx');
   const ExcelJS = (await import('exceljs')).default;

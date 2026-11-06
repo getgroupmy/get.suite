@@ -1,16 +1,19 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 import { useEditor, EditorContent, Mark } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import TextAlign from '@tiptap/extension-text-align';
 import Placeholder from '@tiptap/extension-placeholder';
+import Image from '@tiptap/extension-image';
+import { Table, TableRow, TableHeader, TableCell } from '@tiptap/extension-table';
+import { TextStyle, Color, BackgroundColor } from '@tiptap/extension-text-style';
 import Collaboration from '@tiptap/extension-collaboration';
 import CollaborationCaret from '@tiptap/extension-collaboration-caret';
 import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
-import { get, patch } from '../../api.js';
+import { get, patch, uploadFile } from '../../api.js';
 import { useAuth } from '../../App.jsx';
-import { useToast, Avatar } from '../../components/ui.jsx';
+import { useToast, Avatar, Menu } from '../../components/ui.jsx';
 import { ShareDialog } from '../drive/Drive.jsx';
 import { EditorHeader } from '../editorCommon.jsx';
 import { CommentsPanel, useComments } from '../comments.jsx';
@@ -27,6 +30,33 @@ const CommentMark = Mark.create({
   addStorage: () => ({ start: null }), // set by the editor page: starts a comment on the selection
   addKeyboardShortcuts() { return { 'Mod-Alt-m': () => { this.storage.start?.(); return true; } }; },
 });
+
+/**
+ * A picture in the document: a Drive file, by id, shown through the document's own address so
+ * that everyone who can open the document sees it. Size (share of the page width) and alignment.
+ */
+const DocImage = Image.extend({
+  addOptions() { return { ...this.parent?.(), docId: null }; },
+  addAttributes: () => ({
+    fileId: { default: null, parseHTML: (el) => el.getAttribute('data-file'), renderHTML: () => ({}) },
+    alt: { default: '' },
+    width: { default: null, parseHTML: (el) => el.getAttribute('data-width'), renderHTML: () => ({}) },
+    align: { default: null, parseHTML: (el) => el.getAttribute('data-align'), renderHTML: () => ({}) },
+  }),
+  parseHTML: () => [{ tag: 'img[data-file]' }],
+  renderHTML({ node }) {
+    const { fileId, alt, width, align } = node.attrs;
+    return ['img', {
+      src: `/api/files/${this.options.docId}/pictures/${fileId}`, alt, 'data-file': fileId, draggable: 'true',
+      ...(width && { 'data-width': width }), ...(align && { 'data-align': align }),
+      style: `${width ? `width:${width};` : ''}${align === 'center' ? 'margin-left:auto;margin-right:auto;' : align === 'right' ? 'margin-left:auto;margin-right:0;' : ''}`,
+    }];
+  },
+});
+export const PICTURE_SIZES = [['25%', 'Small'], ['50%', 'Medium'], ['75%', 'Large'], ['', 'Full width']];
+const TEXT_COLORS = [['', 'Automatic'], ['#c5221f', 'Red'], ['#e37400', 'Orange'], ['#188038', 'Green'], ['#1a73e8', 'Blue'], ['#8430ce', 'Purple'], ['#5f6368', 'Grey']];
+const HIGHLIGHTS = [['', 'None'], ['#fde293', 'Yellow'], ['#ceead6', 'Green'], ['#d2e3fc', 'Blue'], ['#fad2cf', 'Red'], ['#e9d2fd', 'Purple']];
+const PICTURE_TYPES = /^image\/(png|jpeg|gif|webp|avif|bmp)$/;
 
 /** Where in the document a comment's text is: [{ from, to }]. */
 function rangesOf(editor, id) {
@@ -63,6 +93,7 @@ export default function DocEditor() {
 
 function SharedDoc({ file, setFile }) {
   const { user } = useAuth();
+  const toast = useToast();
   const [sharing, setSharing] = useState(false);
   const [status, setStatus] = useState('connecting');
   const [others, setOthers] = useState([]);
@@ -92,6 +123,7 @@ function SharedDoc({ file, setFile }) {
     return () => { provider.off('status', onStatus); provider.off('sync', onSync); provider.off('connection-close', onClose); provider.awareness.off('change', people); };
   }, [provider, ydoc]);
 
+  const addPicturesRef = useRef(null); // set below, once the editor is there
   const editor = useEditor({
     extensions: [
       StarterKit.configure({ link: { openOnClick: false, autolink: true }, undoRedo: false }), // undo is per person, from Collaboration
@@ -100,9 +132,43 @@ function SharedDoc({ file, setFile }) {
       Collaboration.configure({ document: ydoc }),
       CollaborationCaret.configure({ provider, user: { name: user.name, color: colorFor(user.id), id: user.id } }),
       CommentMark,
+      DocImage.configure({ docId: file.id }),
+      Table.configure({ resizable: false }), TableRow, TableHeader, TableCell,
+      TextStyle, Color, BackgroundColor,
     ],
     editable: !readOnly,
+    editorProps: {
+      // Pictures pasted or dropped in go to Drive and into the document.
+      handlePaste: (view, event) => {
+        const files = [...(event.clipboardData?.files || [])].filter((f) => PICTURE_TYPES.test(f.type));
+        if (!files.length) return false;
+        event.preventDefault();
+        addPicturesRef.current?.(files);
+        return true;
+      },
+      handleDrop: (view, event) => {
+        const files = [...(event.dataTransfer?.files || [])].filter((f) => PICTURE_TYPES.test(f.type));
+        if (!files.length) return false;
+        event.preventDefault();
+        const at = view.posAtCoords({ left: event.clientX, top: event.clientY })?.pos;
+        addPicturesRef.current?.(files, at);
+        return true;
+      },
+    },
   }, [ydoc]);
+
+  // Pictures: uploaded next to the document (or to your Drive), then put in at the cursor.
+  addPicturesRef.current = async (files, at) => {
+    for (const f of files) {
+      if (!PICTURE_TYPES.test(f.type)) { toast('Choose a picture (PNG, JPEG, GIF or WebP)', 'error'); continue; }
+      try {
+        let up;
+        try { up = await uploadFile(f, file.parent_id || null); } catch { up = await uploadFile(f, null); }
+        const node = { type: 'image', attrs: { fileId: up.id, alt: f.name.replace(/\.[a-z0-9]+$/i, '') } };
+        if (at !== undefined) { editor.chain().focus().insertContentAt(at, node).run(); at = undefined; } else editor.chain().focus().insertContent(node).run();
+      } catch (e) { toast(e.message, 'error'); }
+    }
+  };
 
   useEffect(() => {
     if (!editor || readOnly) return;
@@ -190,7 +256,7 @@ function SharedDoc({ file, setFile }) {
           { label: 'Download as Word (.docx)', icon: 'download', onClick: () => { window.location.href = `/api/files/${file.id}/export`; } },
         ]}
       />
-      {!readOnly && <Toolbar editor={editor} onComment={startComment} />}
+      {!readOnly && <Toolbar editor={editor} onComment={startComment} onPictures={(files) => addPicturesRef.current(files)} />}
       <style>{highlight}</style>
       {status === 'offline' && <div className="banner warn">You're offline. Keep typing: your changes are kept here and sync when the connection is back.</div>}
       {readOnly && <div className="banner">View only. Ask {file.owner_name} for edit access.</div>}
@@ -209,7 +275,8 @@ function SharedDoc({ file, setFile }) {
 
 const escapeHtml = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-function Toolbar({ editor, onComment }) {
+function Toolbar({ editor, onComment, onPictures }) {
+  const pictureInput = useRef();
   const [, force] = useState(0);
   useEffect(() => {
     const f = () => force((n) => n + 1);
@@ -260,8 +327,45 @@ function Toolbar({ editor, onComment }) {
       <B label="―" title="Horizontal line" onClick={() => c().setHorizontalRule().run()} />
       <B label="Tx" title="Clear formatting" onClick={() => c().unsetAllMarks().clearNodes().run()} />
       <span className="sep" />
+      <label className="tb-color" title="Text colour"><span className="color-a" aria-hidden="true">A<span className="color-bar" style={{ background: editor.getAttributes('textStyle').color || 'currentColor' }} /></span>
+        <select aria-label="Text colour" value={editor.getAttributes('textStyle').color || ''} onChange={(e) => (e.target.value ? c().setColor(e.target.value).run() : c().unsetColor().run())}>
+          {TEXT_COLORS.map(([v, n]) => <option key={n} value={v}>{n}</option>)}
+        </select></label>
+      <label className="tb-color" title="Highlight"><span className="fill-swatch" aria-hidden="true" style={{ background: editor.getAttributes('textStyle').backgroundColor || 'transparent' }} />
+        <select aria-label="Highlight" value={editor.getAttributes('textStyle').backgroundColor || ''} onChange={(e) => (e.target.value ? c().setBackgroundColor(e.target.value).run() : c().unsetBackgroundColor().run())}>
+          {HIGHLIGHTS.map(([v, n]) => <option key={n} value={v}>{n}</option>)}
+        </select></label>
+      <span className="sep" />
+      <button type="button" className="tb labelled" title="Insert a picture (or paste or drop one in)" aria-label="Insert picture" onMouseDown={(e) => e.preventDefault()} onClick={() => pictureInput.current.click()}><Icon name="image" size={18} /> Picture</button>
+      <input ref={pictureInput} type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden onChange={(e) => { onPictures([...e.target.files]); e.target.value = ''; }} />
+      {editor.isActive('image') && <>
+        <select className="tb-select" aria-label="Picture size" value={editor.getAttributes('image').width || ''} onChange={(e) => c().updateAttributes('image', { width: e.target.value || null }).run()}>
+          {PICTURE_SIZES.map(([v, n]) => <option key={n} value={v}>{n}</option>)}
+        </select>
+        {[['left', 'Picture on the left', '⯇'], ['center', 'Picture in the centre', '≡'], ['right', 'Picture on the right', '⯈']].map(([a, t, g]) => (
+          <B key={a} label={g} title={t} active={(editor.getAttributes('image').align || 'left') === a} onClick={() => c().updateAttributes('image', { align: a === 'left' ? null : a }).run()} />
+        ))}
+      </>}
+      <Menu align="left" trigger={(p) => <button type="button" className="tb labelled" title="Table" aria-label="Table" onMouseDown={(e) => e.preventDefault()} {...p}><TableGlyph /> Table</button>} items={[
+        { label: 'Insert table (3 × 3)', onClick: () => c().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run(), disabled: editor.isActive('table') },
+        '-',
+        { label: 'Add row above', onClick: () => c().addRowBefore().run(), disabled: !editor.can().addRowBefore() },
+        { label: 'Add row below', onClick: () => c().addRowAfter().run(), disabled: !editor.can().addRowAfter() },
+        { label: 'Add column left', onClick: () => c().addColumnBefore().run(), disabled: !editor.can().addColumnBefore() },
+        { label: 'Add column right', onClick: () => c().addColumnAfter().run(), disabled: !editor.can().addColumnAfter() },
+        { label: 'Heading row on or off', onClick: () => c().toggleHeaderRow().run(), disabled: !editor.can().toggleHeaderRow() },
+        '-',
+        { label: 'Delete row', icon: 'trash', danger: true, onClick: () => c().deleteRow().run(), disabled: !editor.can().deleteRow() },
+        { label: 'Delete column', icon: 'trash', danger: true, onClick: () => c().deleteColumn().run(), disabled: !editor.can().deleteColumn() },
+        { label: 'Delete table', icon: 'trash', danger: true, onClick: () => c().deleteTable().run(), disabled: !editor.can().deleteTable() },
+      ]} />
+      <span className="sep" />
       <button type="button" className="tb labelled" title="Comment on the selected text (Ctrl+Alt+M)" aria-label="Add comment" disabled={editor.state.selection.empty}
         onMouseDown={(e) => e.preventDefault()} onClick={onComment}><Icon name="chat" size={18} /> Comment</button>
     </div>
   );
+}
+
+function TableGlyph() {
+  return <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M3 4h18v16H3V4zm2 2v3h6V6H5zm8 0v3h6V6h-6zm-8 5v3h6v-3H5zm8 0v3h6v-3h-6zm-8 5v2h6v-2H5zm8 0v2h6v-2h-6z" /></svg>;
 }

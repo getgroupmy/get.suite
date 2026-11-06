@@ -5,7 +5,7 @@ A self-hosted, Google Workspace-style office suite built to run on a Synology DS
 | App | What it does |
 |---|---|
 | **Drive** | Folders, uploads up to 4 GB each (drag and drop), previews (images, PDF, video, audio, text), rename, move, trash and restore, search, sharing with people as viewer or editor (folder shares apply to everything inside), share links for people without an account, version history, and access as a network drive (WebDAV) from Mac, Windows and other apps |
-| **Docs** | Rich-text documents (headings, lists, links, quotes, code, alignment), edited together live with everyone's cursors shown, print/PDF and HTML export |
+| **Docs** | Rich-text documents (headings, lists, links, quotes, code, alignment, text colour and highlight, tables, pictures), edited together live with everyone's cursors shown, print/PDF and HTML export |
 | **Sheets** | Spreadsheets with formulas (lookups `VLOOKUP HLOOKUP INDEX MATCH`; conditions `IF IFS SWITCH IFERROR IFNA COUNTIF(S) SUMIF(S) AVERAGEIF(S) MAXIFS MINIFS`, with `*` and `?` wildcards; `SUM AVERAGE MIN MAX MEDIAN COUNT COUNTA COUNTBLANK PRODUCT LARGE SMALL ROUND ROUNDUP ROUNDDOWN CEILING FLOOR ABS SIGN SQRT POWER MOD INT PI`; text `CONCAT TEXTJOIN LEN UPPER LOWER PROPER TRIM LEFT RIGHT MID FIND SEARCH SUBSTITUTE REPT EXACT VALUE`; dates `TODAY NOW DATE YEAR MONTH DAY WEEKDAY DAYS EDATE EOMONTH`; `AND OR NOT ISBLANK ISNUMBER ISTEXT ISERROR NA`), charts, sorting, inserting and deleting rows and columns, undo, cell formatting (bold, italic, underline, text and fill colour, alignment, number, currency and percent formats), live co-editing with everyone's selected cell shown, multiple sheets, copy/paste with reference shifting, and CSV import/export |
 | **Slides** | Presentations: slide layouts, text boxes, pictures and shapes you drag and resize, text size, bold, italic and colour, four themes, live co-editing, full-screen presenting, and printing or saving as PDF |
 | **Calendar** | Month, week and day views (timed events placed by the hour, side by side when they overlap, with a current-time line), all-day and timed events, repeating events, inviting colleagues and people outside by email (Yes / Maybe / No), colours, upcoming list |
@@ -101,6 +101,12 @@ Everyone who can edit a document, spreadsheet or presentation can work in it at 
 - **Sheets** works the same way, cell by cell: two people changing different cells at once both keep their change, and the same cell keeps the later change. Each person's selected cell is outlined in their colour. Formats, column widths and new sheets are shared too.
 - **Slides** too: slides and the boxes on them merge one by one, so two people working on different boxes (or slides) both keep their changes; the same box keeps the later change. Each person's selected box is outlined in their colour.
 
+## Tables and pictures (Docs)
+
+- **Tables:** **Table** → *Insert table*, then Tab to move from cell to cell. The same menu adds and deletes rows and columns, turns the heading row on or off, and deletes the table.
+- **Pictures:** **Picture** to choose one, or paste or drop it into the document. It's saved in Drive next to the document (or in your Drive), and everyone who can open the document sees it, even without access to the picture file itself. Click a picture to make it smaller (a quarter, half or three quarters of the page width) or put it in the centre or on the right.
+- **Colour:** the **A** and highlight buttons colour the selected text or mark it with a highlight.
+
 ## Comments and @mentions (Docs, Sheets)
 
 - **Comment:** in Docs, select some text and press **Comment** in the toolbar (or Ctrl+Alt+M); in Sheets, select a cell and do the same. The text is highlighted (cells get a small orange corner) and the comment opens in a panel on the right. The highlight moves with the text as people edit.
@@ -160,7 +166,7 @@ Your Workspace calendar and contacts sync with the phone's own Calendar and Cont
 - **Opening:** for a `.docx`, `.xlsx` or `.pptx` file in Drive, pick **Open as document / spreadsheet / presentation** (⋮ menu, or the button in its preview). Workspace makes an editable Docs, Sheets or Slides copy next to it, and the original stays as it is.
 - **Downloading:** **Download as Word / Excel / PowerPoint** is in each editor's ⋮ menu.
 - **What carries over:**
-  - **Word:** headings, paragraphs, bold, italic, underline, strike, links, bulleted and numbered lists, quotes and code. Tables come in as rows of text, and pictures as a "[picture]" note, since Docs doesn't have tables or pictures yet. Paragraph alignment isn't read from Word files yet.
+  - **Word:** headings, paragraphs, bold, italic, underline, strike, links, bulleted and numbered lists, quotes, code, tables and pictures (saved in a "… pictures" folder beside the document). Downloading also writes text colours and highlights, and each picture's size and alignment. Paragraph alignment and text colours aren't read from Word files yet.
   - **Excel:** every sheet, values and formulas, bold, italic and underline, text and fill colour, alignment, number, currency and percent formats with their decimals, and column widths. Excel functions Sheets doesn't know show an error in Sheets, but are kept and written back as they were.
   - **PowerPoint:** every slide, text boxes at their places (size, bold, italic, colour, alignment), rectangles, rounded rectangles and ellipses, pictures (saved in a "… pictures" folder beside the presentation), and slide backgrounds. Animations, charts and SmartArt don't carry over.
 - Files up to 50 MB can be converted.

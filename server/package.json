@@ -14,7 +14,10 @@
   },
   "dependencies": {
     "@tiptap/core": "^3.32.2",
+    "@tiptap/extension-image": "^3.32.2",
+    "@tiptap/extension-table": "^3.32.2",
     "@tiptap/extension-text-align": "^3.32.2",
+    "@tiptap/extension-text-style": "^3.32.2",
     "@tiptap/html": "^3.32.2",
     "@tiptap/pm": "^3.32.2",
     "@tiptap/starter-kit": "^3.32.2",
@@ -22,6 +25,7 @@
     "exceljs": "^4.4.0",
     "express": "^5.1.0",
     "htmlparser2": "^10.1.0",
+    "image-size": "^2.0.4",
     "imapflow": "^2.10.0",
     "jszip": "^3.10.2",
     "lib0": "^0.2.119",
