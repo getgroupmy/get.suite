@@ -21,7 +21,7 @@ after(() => { server.close(); fs.rmSync(dir, { recursive: true, force: true }); 
 
 function client() {
   let cookie = '';
-  return async function call(method, url, body, { raw, headers = {} } = {}) {
+  return async function call(method, url, body, { raw, headers = {}, binary } = {}) {
     const res = await fetch(base + url, {
       method,
       headers: {
@@ -35,7 +35,7 @@ function client() {
     const sc = res.headers.get('set-cookie');
     if (sc) cookie = sc.split(';')[0];
     const type = res.headers.get('content-type') || '';
-    return { status: res.status, headers: res.headers, body: type.includes('json') ? await res.json() : await res.text() };
+    return { status: res.status, headers: res.headers, body: binary ? Buffer.from(await res.arrayBuffer()) : type.includes('json') ? await res.json() : await res.text() };
   };
 }
 const login = async (c, username, password = 'password123') => {
@@ -906,4 +906,39 @@ test('chat: unread counts, editing, reactions and attached files', async () => {
   assert.equal((await x('GET', `/api/chat/messages/${withFile.id}/files/${pic.id}`)).status, 404);
   assert.equal((await b('POST', `/api/chat/channels/${dm}/messages`, { body: 'x', files: [pic.id] })).status, 400, 'only files you can open yourself');
   assert.equal((await a('POST', `/api/chat/channels/${dm}/messages`, { body: '' })).status, 400, 'a message needs text or a file');
+});
+
+test('drive: stars, copies, and downloading several files as a zip', async () => {
+  const JSZip = (await import('jszip')).default;
+  const folder = (await owner('POST', '/api/files/folder', { name: 'Quarter' })).body;
+  const txt = (await owner('POST', `/api/files/upload?name=notes.txt&parent=${folder.id}`, 'hello zip', { raw: true })).body;
+  const sub = (await owner('POST', '/api/files/folder', { name: 'Inner', parent_id: folder.id })).body;
+  await owner('POST', `/api/files/upload?name=deep.txt&parent=${sub.id}`, 'deep', { raw: true });
+  const doc = (await owner('POST', '/api/files/new', { kind: 'doc', name: 'Zip plan', content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'In the zip' }] }] } })).body;
+
+  assert.deepEqual((await owner('PUT', `/api/files/${doc.id}/star`, { starred: true })).body, { starred: true });
+  const starred = (await owner('GET', '/api/files?view=starred')).body;
+  assert.deepEqual(starred.map((f) => [f.name, f.starred]), [['Zip plan', true]]);
+  assert.equal((await owner('GET', '/api/files?view=mine')).body.find((f) => f.id === doc.id).starred, true, 'shown in other lists too');
+  const someone = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'zipper', domain: 'acme.com', name: 'Zed Zipper', password: 'password123' })).status, 201);
+  await login(someone, 'zipper@acme.com');
+  assert.equal((await someone('PUT', `/api/files/${doc.id}/star`, { starred: true })).status, 404, 'only files you can open');
+
+  const copy = (await owner('POST', `/api/files/${txt.id}/copy`)).body;
+  assert.equal(copy.name, 'Copy of notes.txt');
+  assert.equal(copy.parent_id, folder.id, 'next to the original');
+  assert.equal((await owner('GET', `/api/files/${copy.id}/raw`)).body, 'hello zip');
+  const docCopy = (await owner('POST', `/api/files/${doc.id}/copy`)).body;
+  assert.equal(JSON.stringify((await owner('GET', `/api/files/${docCopy.id}/content`)).body.content).includes('In the zip'), true);
+
+  const z = await owner('GET', `/api/files/zip?ids=${folder.id},${doc.id}`, undefined, { binary: true });
+  assert.equal(z.status, 200);
+  assert.match(z.headers.get('content-disposition'), /Workspace%20files\.zip/);
+  const zip = await JSZip.loadAsync(z.body);
+  const names = Object.keys(zip.files).filter((n) => !n.endsWith('/')).sort();
+  assert.deepEqual(names, ['Quarter/Copy of notes.txt', 'Quarter/Inner/deep.txt', 'Quarter/notes.txt', 'Zip plan.docx']);
+  assert.equal(await zip.file('Quarter/Inner/deep.txt').async('string'), 'deep');
+  assert.equal((await zip.file('Zip plan.docx').async('nodebuffer')).subarray(0, 2).toString(), 'PK');
+  assert.equal((await someone('GET', `/api/files/zip?ids=${folder.id}`)).status, 404, "not someone else's files");
 });

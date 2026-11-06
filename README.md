@@ -195,6 +195,14 @@ Your Workspace calendar and contacts sync with the phone's own Calendar and Cont
   - **PowerPoint:** every slide, text boxes at their places (size, bold, italic, colour, alignment), rectangles, rounded rectangles and ellipses, pictures (saved in a "… pictures" folder beside the presentation), slide backgrounds and speaker notes. Animations, charts and SmartArt don't carry over.
 - Files up to 50 MB can be converted.
 
+## Working with files (Drive)
+
+- **Stars:** ⋮ → *Add star* on anything you want to find again; **Starred** in the sidebar lists them. Stars are your own.
+- **Several at once:** tick files and folders (or Ctrl/Shift-click a row, or Space on it) and use the bar above the list to download, star, move or trash them together. The box in the header ticks everything.
+- **Drag to move:** drag files onto a folder in the list, or onto a folder in the path at the top, to move them there. Dragging one of several ticked files moves them all.
+- **Make a copy** (⋮ menu) of a file, document, spreadsheet or presentation; it goes next to the original.
+- **Download as .zip:** a folder's ⋮ menu, or **Download** with several ticked, gives one .zip with the folders inside it. Documents, spreadsheets and presentations go in as Word, Excel and PowerPoint files. Up to 2 GB at a time.
+
 ## Searching Drive
 
 - The search box at the top finds files by **name** and by the **words inside** them: documents, spreadsheets (cell text and sheet names), presentations, and uploaded text, Word, Excel and PowerPoint files. Each match shows the sentence it was found in, with the words marked.

@@ -5,6 +5,7 @@ import { pipeline } from 'node:stream/promises';
 import { Transform } from 'node:stream';
 import { q, tx, FILES_DIR, TMP_DIR } from '../db.js';
 import { contentMatches, indexSoon } from '../search.js';
+import JSZip from 'jszip';
 import { uid, now, str, bad, forbidden, notFound, HttpError, mimeFor, isInlineSafe } from '../util.js';
 import { roleFor, atLeast, audienceFor, subtreeIds } from '../access.js';
 import { sendTo } from '../hub.js';
@@ -161,6 +162,14 @@ export function picturesIn(kind, content) {
   return ids;
 }
 
+q(`CREATE TABLE IF NOT EXISTS file_stars (
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  file_id TEXT NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (user_id, file_id)
+)`).run();
+const MAX_ZIP_BYTES = 2 * 1024 ** 3, MAX_ZIP_FILES = 20000;
+
 export default function fileRoutes({ maxUploadBytes }) {
   const r = Router();
   // After any change, the search index catches up within a couple of seconds.
@@ -191,6 +200,11 @@ export default function fileRoutes({ maxUploadBytes }) {
                 LEFT JOIN shares s ON s.file_id = f.id AND s.user_id = ?
                 WHERE (f.owner_id = ? OR s.user_id IS NOT NULL) AND f.kind != 'folder' AND f.trashed = 0 AND ${REACHABLE}
                 ORDER BY f.updated_at DESC LIMIT 50`).all(me, me, me, org, org);
+    } else if (view === 'starred') {
+      rows = q(`SELECT ${COLS}, CASE WHEN f.owner_id = ? THEN 'owner' ELSE NULL END AS role ${FROM}
+                JOIN file_stars st ON st.file_id = f.id AND st.user_id = ?
+                WHERE f.trashed = 0 ${ORDER}`).all(me, me)
+        .map((f) => ({ ...f, role: roleFor(f.id, me) })).filter((f) => f.role); // only what you can still open
     } else if (view === 'trash') {
       rows = q(`SELECT ${COLS} ${FROM} WHERE f.owner_id = ? AND f.trashed = 1 ORDER BY f.updated_at DESC`)
         .all(me).map((f) => publicFile(f, 'owner'));
@@ -210,7 +224,59 @@ export default function fileRoutes({ maxUploadBytes }) {
       rows = rows.map((f) => (inside.has(f.id) && !byName(f) ? { ...f, match: inside.get(f.id) } : f))
         .sort((a, b) => (byName(b) - byName(a)) || ((rank.get(a.id) ?? 0) - (rank.get(b.id) ?? 0)));
     } else throw bad('Unknown view');
-    res.json(rows);
+    // Your stars on what's listed.
+    const starred = new Set(q('SELECT file_id FROM file_stars WHERE user_id = ? AND file_id IN (SELECT value FROM json_each(?))').all(me, JSON.stringify(rows.map((f) => f.id))).map((x) => x.file_id));
+    res.json(rows.map((f) => (starred.has(f.id) ? { ...f, starred: true } : f)));
+  });
+
+  // Download several files and folders as one .zip; documents, spreadsheets and presentations as
+  // Word, Excel and PowerPoint files. Only what you can open, and not what's in the bin.
+  r.get('/zip', async (req, res) => {
+    const ids = String(req.query.ids || '').split(',').filter(Boolean).slice(0, 500);
+    if (!ids.length) throw bad('Choose files to download');
+    const entries = [];
+    let total = 0;
+    const used = new Set();
+    const unique = (p) => { let n = p, i = 1; while (used.has(n.toLowerCase())) { const dot = p.lastIndexOf('.'); n = dot > p.lastIndexOf('/') ? `${p.slice(0, dot)} (${i})${p.slice(dot)}` : `${p} (${i})`; i++; } used.add(n.toLowerCase()); return n; };
+    const safe = (name) => String(name).replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').trim() || 'untitled';
+    const add = (f, dir) => {
+      if (entries.length >= MAX_ZIP_FILES) throw bad('Too many files for one download');
+      if (f.kind === 'folder') {
+        const here = unique(`${dir}${safe(f.name)}`);
+        entries.push({ folder: true, path: `${here}/` });
+        for (const c of q("SELECT id, name, kind, size, storage, content, mime FROM files WHERE parent_id = ? AND trashed = 0 ORDER BY name").all(f.id)) add(c, `${here}/`);
+        return;
+      }
+      if (f.kind === 'file') { total += f.size || 0; if (total > MAX_ZIP_BYTES) throw bad('More than 2 GB: download fewer files at a time'); }
+      const ext = { doc: '.docx', sheet: '.xlsx', slides: '.pptx' }[f.kind] || '';
+      entries.push({ f, path: unique(`${dir}${safe(f.name)}${ext && !f.name.toLowerCase().endsWith(ext) ? ext : ''}`) });
+    };
+    for (const id of ids) {
+      const f = loadFile(id, req.user);
+      if (f.trashed) continue;
+      add(q('SELECT id, name, kind, size, storage, content, mime FROM files WHERE id = ?').get(f.id), '');
+    }
+    const zip = new JSZip();
+    for (const e of entries) {
+      if (e.folder) { zip.folder(e.path); continue; }
+      const { f } = e;
+      if (f.kind === 'file') zip.file(e.path, fs.createReadStream(path.join(FILES_DIR, f.storage)), { binary: true });
+      else {
+        const content = JSON.parse(f.content || '{}');
+        const pictureData = async (fileId) => {
+          const pic = q("SELECT * FROM files WHERE id = ? AND kind = 'file' AND trashed = 0").get(fileId);
+          if (!pic || !/^image\//.test(pic.mime || '') || !atLeast(roleFor(f.id, pic.owner_id), 'editor')) return null;
+          return { data: fs.readFileSync(path.join(FILES_DIR, pic.storage)), mime: pic.mime };
+        };
+        const buf = f.kind === 'doc' ? await wordFromDoc(content, f.name, { pictureData }) : f.kind === 'sheet' ? await excelFromSheet(content) : await powerPointFromDeck(content, { title: f.name, pictureData });
+        zip.file(e.path, buf);
+      }
+    }
+    const one = ids.length === 1 ? q('SELECT name FROM files WHERE id = ?').get(ids[0])?.name : null;
+    const name = `${one ? safe(one) : 'Workspace files'}.zip`;
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(name)}`);
+    zip.generateNodeStream({ type: 'nodebuffer', streamFiles: true, compression: 'STORE' }).on('error', (err) => res.destroy(err)).pipe(res);
   });
 
   r.get('/usage', (req, res) => {
@@ -259,6 +325,30 @@ export default function fileRoutes({ maxUploadBytes }) {
   });
 
   // Breadcrumb path from the top-most folder this user can see.
+  // Star a file or folder (for you only), or take the star away.
+  r.put('/:id/star', (req, res) => {
+    const f = loadFile(req.params.id, req.user);
+    if (req.body?.starred) q('INSERT OR IGNORE INTO file_stars (user_id, file_id, created_at) VALUES (?, ?, ?)').run(req.user.id, f.id, now());
+    else q('DELETE FROM file_stars WHERE user_id = ? AND file_id = ?').run(req.user.id, f.id);
+    res.json({ starred: !!req.body?.starred });
+  });
+
+  // Make a copy of a file, document, spreadsheet or presentation, next to it if you can add files
+  // there (otherwise in your Drive).
+  r.post('/:id/copy', (req, res) => {
+    const f = loadFile(req.params.id, req.user);
+    if (f.kind === 'folder') throw bad('Folders can’t be copied yet; copy the files in it');
+    const row = q('SELECT * FROM files WHERE id = ?').get(f.id);
+    const parentId = req.body?.parent_id !== undefined ? resolveParent(req.body.parent_id, req.user)
+      : row.parent_id && atLeast(roleFor(row.parent_id, req.user.id) || '', 'editor') ? row.parent_id : null;
+    checkQuota(req.user.org_id, row.size || 0);
+    let storage = null;
+    if (row.storage) { storage = uid(); fs.copyFileSync(path.join(FILES_DIR, row.storage), path.join(FILES_DIR, storage)); }
+    const id = insertFile({ owner: req.user.id, parentId, name: `Copy of ${row.name}`, kind: row.kind, mime: row.mime, size: row.size, storage, content: row.content });
+    if (parentId) notify(parentId, { type: 'files-changed', parent_id: parentId });
+    res.status(201).json(publicFile(loadFile(id, req.user)));
+  });
+
   r.get('/:id/path', (req, res) => {
     const out = [];
     let cur = loadFile(req.params.id, req.user);

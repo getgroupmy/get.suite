@@ -10,7 +10,7 @@ function useDriveRoute() {
   const [params] = useSearchParams();
   const parts = pathname.replace(/^\/drive\/?/, '').split('/');
   if (parts[0] === 'folder' && parts[1]) return { view: 'mine', folderId: parts[1] };
-  if (['shared', 'recent', 'trash'].includes(parts[0])) return { view: parts[0] };
+  if (['shared', 'recent', 'starred', 'trash'].includes(parts[0])) return { view: parts[0] };
   if (parts[0] === 'search') return { view: 'search', q: params.get('q') || '' };
   return { view: 'mine', folderId: null };
 }
@@ -23,7 +23,8 @@ export function openPath(f) {
   return null;
 }
 
-const TITLES = { shared: 'Shared with me', recent: 'Recent', trash: 'Trash' };
+const TITLES = { shared: 'Shared with me', recent: 'Recent', starred: 'Starred', trash: 'Trash' };
+const DRAG_TYPE = 'application/x-workspace-files';
 
 export default function Drive() {
   const route = useDriveRoute();
@@ -63,7 +64,34 @@ export default function Drive() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
 
-  useEffect(() => { setFiles(null); setSelected(null); load(); }, [load]);
+  useEffect(() => { setFiles(null); setSelected(null); setChecked(new Set()); load(); }, [load]);
+  // Several files at once: tick them, then use the bar above the list.
+  const [checked, setChecked] = useState(new Set());
+  const toggleCheck = (id) => setChecked((c) => { const n = new Set(c); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const picked = (files || []).filter((f) => checked.has(f.id));
+  const zip = (ids) => { location.href = `/api/files/zip?ids=${ids.join(',')}`; };
+  async function bulk(fn, msg) {
+    const list = picked;
+    let ok = 0;
+    for (const f of list) { try { await fn(f); ok++; } catch (e) { toast(`${f.name}: ${e.message}`, 'error'); } }
+    if (ok && msg) toast(msg(ok));
+    setChecked(new Set());
+    load();
+  }
+  // Drag files onto a folder (in the list or the path above it) to move them there.
+  const [dropOn, setDropOn] = useState(null);
+  async function moveInto(ids, folderId) {
+    let ok = 0;
+    for (const id of ids) { if (id === folderId) continue; try { await patch(`/files/${id}`, { parent_id: folderId }); ok++; } catch (e) { toast(e.message, 'error'); } }
+    if (ok) toast(`Moved ${ok} item${ok === 1 ? '' : 's'}`);
+    setChecked(new Set());
+    load();
+  }
+  const dropTarget = (folderId) => ({
+    onDragOver: (e) => { if (e.dataTransfer.types.includes(DRAG_TYPE)) { e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = 'move'; setDropOn(folderId ?? 'root'); } },
+    onDragLeave: () => setDropOn(null),
+    onDrop: (e) => { const raw = e.dataTransfer.getData(DRAG_TYPE); if (!raw) return; e.preventDefault(); e.stopPropagation(); setDropOn(null); moveInto(JSON.parse(raw), folderId ?? null); },
+  });
   useEffect(() => onLive((m) => {
     if (m.type === 'files-changed' || m.type === 'content-changed' || m.type === 'live-connected') load();
   }), [load]);
@@ -137,10 +165,13 @@ export default function Drive() {
       { label: 'Open', icon: fileIcon(f), onClick: () => open(f) },
       officeAs(f) && { label: `Open as ${officeAs(f).what}`, icon: officeAs(f).icon, onClick: () => openAs(f) },
       f.kind === 'file' && { label: 'Download', icon: 'download', onClick: () => { location.href = `/api/files/${f.id}/raw?download`; } },
+      f.kind === 'folder' && { label: 'Download as .zip', icon: 'download', onClick: () => zip([f.id]) },
+      { label: f.starred ? 'Remove star' : 'Add star', icon: f.starred ? 'star' : 'staroutline', onClick: act(() => put(`/files/${f.id}/star`, { starred: !f.starred }), f.starred ? 'Star removed' : 'Starred') },
       '-',
       f.role === 'owner' && { label: 'Share', icon: 'share', onClick: () => setDialog({ type: 'share', file: f }) },
       canEdit && { label: 'Rename', icon: 'edit', onClick: () => setDialog({ type: 'rename', file: f }) },
-      canEdit && { label: 'Move to…', icon: 'move', onClick: () => setDialog({ type: 'move', file: f }) },
+      canEdit && { label: 'Move to…', icon: 'move', onClick: () => setDialog({ type: 'move', files: [f] }) },
+      f.kind !== 'folder' && { label: 'Make a copy', icon: 'copy', onClick: act(() => post(`/files/${f.id}/copy`), 'Copy made') },
       f.kind !== 'folder' && '-',
       f.kind === 'file' && canEdit && { label: 'Upload new version', icon: 'upload', onClick: () => { versionFor.current = f; versionInput.current.click(); } },
       f.kind !== 'folder' && { label: 'Version history', icon: 'clock', onClick: () => setDialog({ type: 'versions', file: f }) },
@@ -167,6 +198,7 @@ export default function Drive() {
         <NavLink end to="/drive" className={() => `subnav-item ${route.view === 'mine' ? 'active' : ''}`}><Icon name="folder" />My Drive</NavLink>
         <NavLink to="/drive/shared" className="subnav-item"><Icon name="people" />Shared with me</NavLink>
         <NavLink to="/drive/recent" className="subnav-item"><Icon name="clock" />Recent</NavLink>
+        <NavLink to="/drive/starred" className="subnav-item"><Icon name="staroutline" />Starred</NavLink>
         <NavLink to="/drive/trash" className="subnav-item"><Icon name="trash" />Trash</NavLink>
         {usage && (
           <div className="usage">
@@ -185,10 +217,10 @@ export default function Drive() {
         <div className="drive-head">
           {title ? <h1>{title}</h1> : (
             <nav className="crumbs" aria-label="Folder path">
-              <button className="crumb" onClick={() => navigate('/drive')}>My Drive</button>
+              <button className={`crumb ${dropOn === 'root' ? 'drop-on' : ''}`} onClick={() => navigate('/drive')} {...dropTarget(null)}>My Drive</button>
               {crumbs.map((c) => (
                 <span key={c.id} className="crumb-wrap"><Icon name="right" size={18} />
-                  <button className="crumb" onClick={() => navigate(`/drive/folder/${c.id}`)}>{c.name}</button></span>
+                  <button className={`crumb ${dropOn === c.id ? 'drop-on' : ''}`} onClick={() => navigate(`/drive/folder/${c.id}`)} {...dropTarget(c.id)}>{c.name}</button></span>
               ))}
             </nav>
           )}
@@ -196,6 +228,23 @@ export default function Drive() {
             <button className="btn" onClick={() => setDialog({ type: 'empty-trash' })}>Empty trash</button>
           )}
         </div>
+        {picked.length > 0 && (
+          <div className="select-bar" role="toolbar" aria-label="Selected files">
+            <strong>{picked.length} selected</strong>
+            {route.view === 'trash' ? <>
+              <button className="btn small" onClick={() => bulk((f) => patch(`/files/${f.id}`, { trashed: false }), (n) => `Restored ${n}`)}><Icon name="restore" size={16} /> Restore</button>
+            </> : <>
+              <button className="btn small" onClick={() => zip(picked.map((f) => f.id))}><Icon name="download" size={16} /> Download</button>
+              <button className="btn small" onClick={() => bulk((f) => put(`/files/${f.id}/star`, { starred: true }), (n) => `Starred ${n}`)}><Icon name="star" size={16} /> Star</button>
+              {picked.every((f) => f.role === 'owner' || f.role === 'editor') && <>
+                <button className="btn small" onClick={() => setDialog({ type: 'move', files: picked })}><Icon name="move" size={16} /> Move</button>
+                <button className="btn small danger" onClick={() => bulk((f) => patch(`/files/${f.id}`, { trashed: true }), (n) => `Moved ${n} to trash`)}><Icon name="trash" size={16} /> Trash</button>
+              </>}
+            </>}
+            <div className="grow" />
+            <button className="btn small" onClick={() => setChecked(new Set())}>Clear</button>
+          </div>
+        )}
         {folder && folder.owner_id !== user.id && <p className="muted small">Owned by {folder.owner_name} · you can {folder.role === 'viewer' ? 'view' : 'edit'}</p>}
 
         {files === null ? <p className="muted">Loading…</p> : files.length === 0 ? (
@@ -205,13 +254,19 @@ export default function Drive() {
                 : <Empty icon="upload" title="Drop files here">or use the New button to create a folder, document or spreadsheet</Empty>
         ) : (
           <table className="files">
-            <thead><tr><th>Name</th><th className="hide-sm">Owner</th><th className="hide-sm">Modified</th><th className="hide-sm">Size</th><th aria-label="Actions" /></tr></thead>
+            <thead><tr><th className="check-col"><input type="checkbox" aria-label="Select all" checked={files.length > 0 && picked.length === files.length}
+              ref={(el) => { if (el) el.indeterminate = picked.length > 0 && picked.length < files.length; }}
+              onChange={(e) => setChecked(e.target.checked ? new Set(files.map((f) => f.id)) : new Set())} /></th><th>Name</th><th className="hide-sm">Owner</th><th className="hide-sm">Modified</th><th className="hide-sm">Size</th><th aria-label="Actions" /></tr></thead>
             <tbody>
               {files.map((f) => (
-                <tr key={f.id} className={selected === f.id ? 'selected' : ''} tabIndex={0}
-                  onClick={() => setSelected(f.id)} onDoubleClick={() => route.view !== 'trash' && open(f)}
-                  onKeyDown={(e) => e.key === 'Enter' && route.view !== 'trash' && open(f)}>
-                  <td className="name"><Icon name={fileIcon(f)} className={`ft ft-${fileIcon(f)}`} /><span className="name-text">{f.name}{f.match && <MatchText text={f.match} />}</span></td>
+                <tr key={f.id} className={`${selected === f.id || checked.has(f.id) ? 'selected' : ''} ${dropOn === f.id ? 'drop-on' : ''}`} tabIndex={0}
+                  draggable={route.view !== 'trash' && (f.role === 'owner' || f.role === 'editor')}
+                  onDragStart={(e) => { const ids = checked.has(f.id) ? [...checked] : [f.id]; e.dataTransfer.setData(DRAG_TYPE, JSON.stringify(ids)); e.dataTransfer.effectAllowed = 'move'; }}
+                  {...(f.kind === 'folder' && route.view !== 'trash' && f.role !== 'viewer' ? dropTarget(f.id) : {})}
+                  onClick={(e) => { if (e.shiftKey || e.metaKey || e.ctrlKey) toggleCheck(f.id); else setSelected(f.id); }} onDoubleClick={() => route.view !== 'trash' && open(f)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && route.view !== 'trash') open(f); if (e.key === ' ' && e.target === e.currentTarget) { e.preventDefault(); toggleCheck(f.id); } }}>
+                  <td className="check-col" onClick={(e) => e.stopPropagation()}><input type="checkbox" aria-label={`Select ${f.name}`} checked={checked.has(f.id)} onChange={() => toggleCheck(f.id)} /></td>
+                  <td className="name"><Icon name={fileIcon(f)} className={`ft ft-${fileIcon(f)}`} /><span className="name-text">{f.name}{f.match && <MatchText text={f.match} />}</span>{f.starred && <Icon name="star" size={14} className="star-mark" title="Starred" />}</td>
                   <td className="hide-sm muted">{f.owner_id === user.id ? 'me' : f.owner_name}</td>
                   <td className="hide-sm muted">{formatDate(f.updated_at)}</td>
                   <td className="hide-sm muted">{f.kind === 'folder' ? '—' : formatBytes(f.size)}</td>
@@ -258,7 +313,7 @@ export default function Drive() {
           onClose={() => setDialog(null)} onConfirm={async () => { await post('/files/empty-trash'); load(); }} />
       )}
       {dialog?.type === 'share' && <ShareDialog file={dialog.file} onClose={() => setDialog(null)} />}
-      {dialog?.type === 'move' && <MoveDialog file={dialog.file} onClose={() => setDialog(null)} onMoved={load} />}
+      {dialog?.type === 'move' && <MoveDialog files={dialog.files} onClose={() => setDialog(null)} onMoved={() => { setChecked(new Set()); load(); }} />}
       {dialog?.type === 'preview' && <Preview file={dialog.file} onClose={() => setDialog(null)} onOpenAs={() => { setDialog(null); openAs(dialog.file); }} />}
       {dialog?.type === 'versions' && <VersionsDialog file={dialog.file} onClose={() => setDialog(null)} onChanged={load} />}
       <input ref={versionInput} type="file" hidden aria-hidden="true" tabIndex={-1} onChange={(e) => { uploadNewVersion(e.target.files[0]); e.target.value = ''; }} />
@@ -415,24 +470,27 @@ function LinkSharing({ file }) {
   );
 }
 
-function MoveDialog({ file, onClose, onMoved }) {
+function MoveDialog({ files, onClose, onMoved }) {
   const toast = useToast();
   const [cur, setCur] = useState(null); // null = My Drive root
   const [path, setPath] = useState([]);
   const [folders, setFolders] = useState([]);
 
   useEffect(() => {
-    get(`/files?view=mine${cur ? `&parent=${cur}` : ''}`).then((l) => setFolders(l.filter((f) => f.kind === 'folder' && f.id !== file.id)));
+    get(`/files?view=mine${cur ? `&parent=${cur}` : ''}`).then((l) => setFolders(l.filter((f) => f.kind === 'folder' && !files.some((x) => x.id === f.id))));
     if (cur) get(`/files/${cur}/path`).then(setPath); else setPath([]);
-  }, [cur, file.id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cur]);
 
   async function move() {
-    try { await patch(`/files/${file.id}`, { parent_id: cur }); toast('Moved'); onMoved(); onClose(); }
-    catch (e) { toast(e.message, 'error'); }
+    let ok = 0;
+    for (const f of files) { try { await patch(`/files/${f.id}`, { parent_id: cur }); ok++; } catch (e) { toast(`${f.name}: ${e.message}`, 'error'); } }
+    if (ok) toast(ok === 1 ? 'Moved' : `Moved ${ok} items`);
+    onMoved(); onClose();
   }
 
   return (
-    <Modal title={`Move “${file.name}”`} onClose={onClose} footer={<><button className="btn" onClick={onClose}>Cancel</button><button className="btn primary" onClick={move}>Move here</button></>}>
+    <Modal title={files.length === 1 ? `Move “${files[0].name}”` : `Move ${files.length} items`} onClose={onClose} footer={<><button className="btn" onClick={onClose}>Cancel</button><button className="btn primary" onClick={move}>Move here</button></>}>
       <nav className="crumbs small">
         <button className="crumb" onClick={() => setCur(null)}>My Drive</button>
         {path.map((c) => <span key={c.id} className="crumb-wrap"><Icon name="right" size={16} /><button className="crumb" onClick={() => setCur(c.id)}>{c.name}</button></span>)}
