@@ -28,6 +28,32 @@ function dmOpen(c, user) {
 const MSG = `SELECT m.id, m.channel_id, m.user_id, m.body, m.created_at, u.name AS user_name
              FROM messages m LEFT JOIN users u ON u.id = m.user_id`;
 
+/**
+ * Send a direct message from one person to another (opening their conversation if needed), as if
+ * typed in Chat. Used for notices such as comment mentions. Returns false if they can't be reached.
+ */
+export function sendDirect(from, toUserId, body) {
+  const other = q('SELECT id FROM users WHERE id = ? AND disabled = 0').get(toUserId);
+  if (!other || other.id === from.id || !canReach(from, other.id)) return false;
+  const ids = [from.id, other.id].sort();
+  const key = ids.join(':');
+  let c = q('SELECT * FROM channels WHERE dm_key = ?').get(key);
+  if (!c) {
+    const id = uid();
+    tx(() => {
+      q('INSERT INTO channels (id, name, dm_key, created_by, created_at) VALUES (?, ?, ?, ?, ?)').run(id, 'dm', key, from.id, now());
+      for (const u of ids) q('INSERT INTO channel_members (channel_id, user_id) VALUES (?, ?)').run(id, u);
+    });
+    c = q('SELECT * FROM channels WHERE id = ?').get(id);
+    sendTo(new Set(ids), { type: 'channels-changed' });
+  }
+  if (!dmOpen(c, from)) return false;
+  const mid = uid();
+  q('INSERT INTO messages (id, channel_id, user_id, body, created_at) VALUES (?, ?, ?, ?, ?)').run(mid, c.id, from.id, String(body).slice(0, 8000), now());
+  sendTo(audience(c), { type: 'message', message: q(`${MSG} WHERE m.id = ?`).get(mid) });
+  return true;
+}
+
 export default function chatRoutes() {
   const r = Router();
 

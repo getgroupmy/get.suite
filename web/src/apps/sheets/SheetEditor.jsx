@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router';
+import { useNavigate, useParams, useSearchParams } from 'react-router';
 import { get, patch } from '../../api.js';
 import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
@@ -9,6 +9,7 @@ import { useToast, PromptModal, ConfirmModal, Menu, Avatar } from '../../compone
 import Icon from '../../components/Icon.jsx';
 import { ShareDialog } from '../drive/Drive.jsx';
 import { EditorHeader } from '../editorCommon.jsx';
+import { CommentsPanel, useComments } from '../comments.jsx';
 
 const SEL_COLORS = ['#1a73e8', '#d93025', '#188038', '#e37400', '#8430ce', '#00796b', '#c2185b', '#5f6368'];
 const colorFor = (id) => SEL_COLORS[[...String(id)].reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) >>> 0, 7) % SEL_COLORS.length];
@@ -49,6 +50,12 @@ export default function SheetEditor() {
   const [status, setStatus] = useState('connecting');
   const [others, setOthers] = useState([]);
   const readOnly = file?.role === 'viewer';
+  // Comments on cells.
+  const [params] = useSearchParams();
+  const { threads } = useComments(file?.id);
+  const [panel, setPanel] = useState(!!params.get('comment'));
+  const [thread, setThread] = useState(params.get('comment'));
+  const [pending, setPending] = useState(null);
 
   // The spreadsheet is shared live (Yjs): everyone's changes arrive cell by cell.
   const [{ ydoc, provider }, setLink] = useState({});
@@ -170,6 +177,7 @@ export default function SheetEditor() {
       const key = k.toLowerCase();
       writeFormats({ [key]: !formats[cellKey(sel.c, sel.r)]?.[key] });
     } else if (mod && k.toLowerCase() === 'a') { e.preventDefault(); setAnchor({ c: 0, r: 0 }); setSel({ c: cols - 1, r: rows - 1 }); }
+    else if (mod && e.altKey && e.code === 'KeyM') { e.preventDefault(); startComment(); }
     else if (!mod && !e.altKey && k.length === 1) { e.preventDefault(); startEdit(k); }
   }
 
@@ -271,6 +279,26 @@ export default function SheetEditor() {
   // Other people's selected cells on this sheet: outlined in their colour.
   const theirs = new Map(others.filter((p) => p.id !== user.id && p.sel?.sheet === active).map((p) => [p.sel.k, p]));
   const selValue = evaluate(selKey);
+  const openThreads = threads.filter((t) => !t.resolved);
+  const sheetName = (i) => data.sheets[i]?.name || `Sheet${i + 1}`;
+  // Cells on this sheet with open comments: the newest thread of each.
+  const commented = new Map(openThreads.filter((t) => (t.anchor?.sheet || 0) === active).map((t) => [t.anchor.cell, t.id]));
+  const goToCell = (t) => {
+    const p = parseRef(t.anchor?.cell || '');
+    if (!p) return;
+    const s = t.anchor.sheet || 0;
+    if (s !== active && s < data.sheets.length) setActive(s);
+    setAnchor(null);
+    setSel({ c: p.c, r: p.r });
+    requestAnimationFrame(() => gridRef.current?.querySelector(`[data-k="${t.anchor.cell}"]`)?.scrollIntoView({ block: 'nearest', inline: 'nearest' }));
+  };
+  const startComment = () => {
+    if (readOnly) return;
+    setPanel(true);
+    setPending({ anchor: { sheet: active, cell: selKey }, label: data.sheets.length > 1 ? `${sheetName(active)} ${selKey}` : selKey,
+      onCreated: () => setPending(null), onCancel: () => setPending(null) });
+  };
+  const where = (t) => (data.sheets.length > 1 ? `${sheetName(t.anchor?.sheet || 0)} ${t.anchor?.cell}` : t.anchor?.cell || '');
 
   return (
     <div className="editor-page sheet-page">
@@ -278,12 +306,17 @@ export default function SheetEditor() {
         icon="sheet" file={file} status={status}
         onRename={async (name) => setFile(await patch(`/files/${id}`, { name }))}
         onShare={() => setDialog({ type: 'share' })}
-        extra={people.length > 0 && (
+        extra={<>
+          <button type="button" className={`btn small ${panel ? 'primary' : ''}`} aria-pressed={panel} onClick={() => { if (panel && pending) setPending(null); setPanel(!panel); }} title="Comments">
+            <Icon name="chat" size={16} /> {openThreads.length || ''}<span className="sr-only">Comments</span>
+          </button>
+          {people.length > 0 && (
           <div className="coeditors" aria-label={`Also here: ${people.map((p) => p.name).join(', ')}`}>
             {people.slice(0, 4).map((p) => <span key={p.id} className="coeditor" style={{ '--c': p.color }} title={`${p.name} is here`}><Avatar name={p.name} size={28} /></span>)}
             {people.length > 4 && <span className="muted small">+{people.length - 4}</span>}
           </div>
-        )}
+          )}
+        </>}
         menu={[
           { label: 'Download as Excel (.xlsx)', icon: 'download', onClick: () => { window.location.href = `/api/files/${id}/export`; } },
           { label: 'Download sheet as CSV', icon: 'download', onClick: exportCsv },
@@ -292,7 +325,7 @@ export default function SheetEditor() {
       />
       {status === 'offline' && <div className="banner warn">You're offline. Keep editing: your changes are kept here and sync when the connection is back.</div>}
       {readOnly && <div className="banner">View only. Ask {file.owner_name} for edit access.</div>}
-      {!readOnly && <FormatBar fmt={formats[selKey] || {}} onChange={(change) => { writeFormats(change); gridRef.current?.focus(); }} />}
+      {!readOnly && <FormatBar fmt={formats[selKey] || {}} onChange={(change) => { writeFormats(change); gridRef.current?.focus(); }} onComment={startComment} />}
       <div className="formula-bar">
         <span className="cell-name">{anchor ? `${cellKey(range.c1, range.r1)}:${cellKey(range.c2, range.r2)}` : selKey}</span>
         <span className="fx">fx</span>
@@ -309,6 +342,7 @@ export default function SheetEditor() {
         />
         {selValue && typeof selValue === 'object' && selValue.error && <span className="error small">{describeError(selValue.error)}</span>}
       </div>
+      <div className="sheet-body">
       <div className="grid-wrap" ref={gridRef} tabIndex={0} onKeyDown={onGridKey} onCopy={onCopy} onCut={onCut} onPaste={onPaste}>
         <table className="grid" role="grid" aria-label={sheet.name}>
           <thead>
@@ -340,16 +374,18 @@ export default function SheetEditor() {
                   const fmt = formats[k];
                   return (
                     <td key={k} data-k={k} style={theirs.has(k) ? { ...cellStyle(fmt), boxShadow: `${isSel ? 'inset 0 0 0 2px var(--accent), ' : ''}inset 0 0 0 ${isSel ? 4 : 2}px ${theirs.get(k).color}` } : cellStyle(fmt)}
-                      title={theirs.has(k) ? `${theirs.get(k).name} is here` : undefined}
-                      className={`${isSel ? 'sel' : ''} ${inRange(c, r) && anchor ? 'range' : ''} ${typeof v === 'number' ? 'num' : ''} ${isErr ? 'err' : ''}`}
+                      title={theirs.has(k) ? `${theirs.get(k).name} is here` : commented.has(k) ? 'Has comments' : undefined}
+                      className={`${commented.has(k) ? 'commented' : ''} ${isSel ? 'sel' : ''} ${inRange(c, r) && anchor ? 'range' : ''} ${typeof v === 'number' ? 'num' : ''} ${isErr ? 'err' : ''}`}
                       onMouseDown={(e) => {
                         if (editing) commitEdit(0, 0);
                         if (e.shiftKey) { if (!anchor) setAnchor(sel); } else setAnchor(null);
                         setSel({ c, r });
                       }}
                       onMouseEnter={(e) => { if (e.buttons === 1 && !editing) { if (!anchor) setAnchor(sel); setSel({ c, r }); } }}
+                      onClick={() => { if (commented.has(k)) { setThread(commented.get(k)); setPanel(true); } }}
                       onDoubleClick={() => startEdit()}>
                       {formatNumber(v, fmt) ?? display(v)}
+                      {commented.has(k) && <span className="cell-comment" aria-hidden="true" />}
                     </td>
                   );
                 })}
@@ -357,6 +393,9 @@ export default function SheetEditor() {
             ))}
           </tbody>
         </table>
+      </div>
+      {panel && <CommentsPanel fileId={file.id} threads={threads} canEdit={!readOnly} active={thread} setActive={setThread} pending={pending}
+        onShow={goToCell} labelOf={where} onClose={() => { setPending(null); setPanel(false); }} />}
       </div>
       <div className="sheet-tabs">
         {!readOnly && (
@@ -426,7 +465,7 @@ export function parseCsv(text) {
 }
 
 /** Formatting for the selected cells: bold, italic, underline, colours, alignment, number format. */
-function FormatBar({ fmt, onChange }) {
+function FormatBar({ fmt, onChange, onComment }) {
   const keep = (e) => e.preventDefault(); // buttons don't take focus from the grid
   const Toggle = ({ k, label, title, children }) => (
     <button type="button" className={`tb ${fmt[k] ? 'on' : ''}`} aria-pressed={!!fmt[k]} aria-label={label} title={title} onMouseDown={keep} onClick={() => onChange({ [k]: !fmt[k] })}>{children}</button>
@@ -467,6 +506,8 @@ function FormatBar({ fmt, onChange }) {
       <span className="sep" />
       <button type="button" className="tb" aria-label="Clear formatting" title="Clear formatting" onMouseDown={keep}
         onClick={() => onChange({ b: null, i: null, u: null, color: null, fill: null, align: null, num: null })}>Tx</button>
+      <span className="sep" />
+      <button type="button" className="tb labelled" aria-label="Add comment" title="Comment on this cell (Ctrl+Alt+M)" onMouseDown={keep} onClick={onComment}><Icon name="chat" size={18} /> Comment</button>
     </div>
   );
 }

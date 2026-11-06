@@ -385,7 +385,9 @@ button:focus-visible, a:focus-visible, [tabindex]:focus-visible { outline: 2px s
 }
 
 @media print {
-  .editor-head, .toolbar, .banner { display: none !important; }
+  .editor-head, .toolbar, .banner, .comments-panel { display: none !important; }
+  .doc-body { display: block; }
+  .comment-mark { background: none !important; }
   .editor-page, .doc-scroll { display: block; height: auto; overflow: visible; background: none; padding: 0; }
   .paper { box-shadow: none; padding: 0; max-width: none; }
   body { background: #fff; }
@@ -816,3 +818,35 @@ textarea.slide-text.editing { resize: none; border: 0; padding: 0; margin: 0; ba
 .collaboration-carets__caret { border-left: 1px solid; border-right: 1px solid; margin-left: -1px; margin-right: -1px; pointer-events: none; position: relative; word-break: normal; }
 .collaboration-carets__label { position: absolute; top: -1.4em; left: -1px; font-size: 12px; font-style: normal; font-weight: 600; line-height: normal; padding: 1px 4px; border-radius: 3px 3px 3px 0; color: #fff; white-space: nowrap; user-select: none; pointer-events: none; }
 .collaboration-carets__selection { background: color-mix(in srgb, currentColor 18%, transparent); }
+
+/* ---------- comments ---------- */
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.doc-body, .sheet-body { flex: 1; display: flex; min-height: 0; }
+.doc-body > .doc-scroll, .sheet-body > .grid-wrap { min-width: 0; }
+.comments-panel { width: 320px; flex: none; overflow: auto; border-left: 1px solid var(--border); background: var(--surface); padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+.comments-head h2 { font-size: 16px; margin: 0; }
+.comments-head .check { display: flex; align-items: center; gap: 4px; }
+.comment-new { padding: 10px; border: 1px solid var(--accent); border-radius: 8px; gap: 8px; }
+.comment-threads { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.comment-thread { border: 1px solid var(--border); border-radius: 8px; padding: 10px; cursor: pointer; background: var(--surface); }
+.comment-thread.active { border-color: var(--accent); box-shadow: var(--shadow); cursor: default; }
+.comment-thread.resolved { opacity: .7; }
+.comment-where { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; margin-bottom: 6px; text-decoration: none; }
+.comment + .comment { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+.comment-meta { gap: 8px; }
+.comment-meta .icon-btn { width: 28px; height: 28px; }
+.comment-body { margin: 6px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; }
+.mention { color: var(--accent-text); background: var(--accent-soft); border-radius: 4px; padding: 0 2px; }
+.comment-reply { margin-top: 10px; gap: 8px; }
+.mention-box { position: relative; }
+.mention-box textarea { width: 100%; resize: vertical; font: inherit; }
+.mention-list { position: absolute; left: 0; right: 0; top: 100%; z-index: 20; list-style: none; margin: 2px 0 0; padding: 4px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow); }
+.mention-list li { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-radius: 6px; cursor: pointer; }
+.mention-list li.on, .mention-list li:hover { background: var(--accent-soft); }
+.grid td.commented { position: relative; }
+.cell-comment { position: absolute; top: 0; right: 0; width: 0; height: 0; border-top: 7px solid #f9ab00; border-left: 7px solid transparent; pointer-events: none; }
+@media (max-width: 900px) {
+  .doc-body, .sheet-body { position: relative; }
+  .comments-panel { position: absolute; right: 0; top: 0; bottom: 0; z-index: 30; width: min(320px, 100%); box-shadow: var(--shadow); }
+}
+.tb.labelled { display: inline-flex; align-items: center; gap: 4px; }

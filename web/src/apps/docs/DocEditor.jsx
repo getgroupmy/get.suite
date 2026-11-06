@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams } from 'react-router';
-import { useEditor, EditorContent } from '@tiptap/react';
+import { useNavigate, useParams, useSearchParams } from 'react-router';
+import { useEditor, EditorContent, Mark } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import TextAlign from '@tiptap/extension-text-align';
 import Placeholder from '@tiptap/extension-placeholder';
@@ -13,6 +13,32 @@ import { useAuth } from '../../App.jsx';
 import { useToast, Avatar } from '../../components/ui.jsx';
 import { ShareDialog } from '../drive/Drive.jsx';
 import { EditorHeader } from '../editorCommon.jsx';
+import { CommentsPanel, useComments } from '../comments.jsx';
+import Icon from '../../components/Icon.jsx';
+
+/** Marks the text a comment is about (several comments may overlap); it travels with the text. */
+const CommentMark = Mark.create({
+  name: 'comment',
+  inclusive: false,
+  excludes: '',
+  addAttributes: () => ({ id: { default: null, parseHTML: (el) => el.getAttribute('data-comment'), renderHTML: (a) => ({ 'data-comment': a.id }) } }),
+  parseHTML: () => [{ tag: 'span[data-comment]' }],
+  renderHTML: ({ HTMLAttributes }) => ['span', { ...HTMLAttributes, class: 'comment-mark' }, 0],
+  addStorage: () => ({ start: null }), // set by the editor page: starts a comment on the selection
+  addKeyboardShortcuts() { return { 'Mod-Alt-m': () => { this.storage.start?.(); return true; } }; },
+});
+
+/** Where in the document a comment's text is: [{ from, to }]. */
+function rangesOf(editor, id) {
+  const out = [];
+  editor.state.doc.descendants((node, pos) => {
+    if (node.isText && node.marks.some((m) => m.type.name === 'comment' && m.attrs.id === id)) {
+      const last = out[out.length - 1];
+      if (last && last.to === pos) last.to = pos + node.nodeSize; else out.push({ from: pos, to: pos + node.nodeSize });
+    }
+  });
+  return out;
+}
 
 const CARET_COLORS = ['#1a73e8', '#d93025', '#188038', '#e37400', '#8430ce', '#00796b', '#c2185b', '#5f6368'];
 const colorFor = (id) => CARET_COLORS[[...String(id)].reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) >>> 0, 7) % CARET_COLORS.length];
@@ -73,6 +99,7 @@ function SharedDoc({ file, setFile }) {
       Placeholder.configure({ placeholder: 'Start typing…' }),
       Collaboration.configure({ document: ydoc }),
       CollaborationCaret.configure({ provider, user: { name: user.name, color: colorFor(user.id), id: user.id } }),
+      CommentMark,
     ],
     editable: !readOnly,
   }, [ydoc]);
@@ -93,6 +120,49 @@ function SharedDoc({ file, setFile }) {
     URL.revokeObjectURL(a.href);
   }
 
+  // ---- comments ----
+  const [params] = useSearchParams();
+  const { threads } = useComments(file.id);
+  const [panel, setPanel] = useState(!!params.get('comment'));
+  const [active, setActive] = useState(params.get('comment'));
+  const [pending, setPending] = useState(null);
+  const startComment = () => {
+    editor.view.domObserver?.flush?.(); // take in a selection just made with the keyboard
+    const { from, to, empty } = editor.state.selection;
+    if (empty || readOnly) return;
+    const id = (crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`).replace(/[^\w-]/g, '');
+    const quote = editor.state.doc.textBetween(from, to, ' ').slice(0, 200);
+    editor.chain().setMark('comment', { id }).run(); // highlight it while the comment is written
+    setPanel(true);
+    setPending({ id, anchor: { quote }, label: `“${quote.length > 60 ? `${quote.slice(0, 60)}…` : quote}”`,
+      onCreated: () => setPending(null),
+      onCancel: () => { removeMark(id); setPending(null); } });
+  };
+  if (editor) editor.storage.comment.start = startComment; // Ctrl+Alt+M
+  const removeMark = (id) => { const tr = editor.state.tr; for (const r of rangesOf(editor, id)) tr.removeMark(r.from, r.to, editor.schema.marks.comment.create({ id })); editor.view.dispatch(tr); };
+  const showThread = (t) => {
+    const [r] = rangesOf(editor, t.id);
+    if (!r) return;
+    editor.commands.setTextSelection(r);
+    editor.view.dom.querySelector(`[data-comment="${t.id}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  };
+  // Clicking commented text opens its thread.
+  useEffect(() => {
+    if (!editor) return;
+    const onClick = (e) => { const id = e.target.closest?.('[data-comment]')?.getAttribute('data-comment'); if (id && threads.some((t) => t.id === id)) { setActive(id); setPanel(true); } };
+    const dom = editor.view.dom;
+    dom.addEventListener('click', onClick);
+    return () => dom.removeEventListener('click', onClick);
+  }, [editor, threads]);
+  // Opened from a mention: jump to that comment once the document is here.
+  useEffect(() => { if (editor && status === 'saved' && params.get('comment')) { const t = threads.find((x) => x.id === params.get('comment')); if (t) showThread(t); } },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [editor, status, threads.length]);
+  const open = threads.filter((t) => !t.resolved);
+  // Highlight open comments, the selected one more strongly.
+  const lit = [...open.map((t) => t.id), ...(pending ? [pending.id] : [])];
+  const highlight = `${lit.map((id) => `.paper [data-comment="${id}"]`).join(',') || '.none'}{background:rgba(251,188,4,.28);border-bottom:2px solid rgba(251,188,4,.9);cursor:pointer}${active ? `.paper [data-comment="${active}"]{background:rgba(251,188,4,.55)}` : ''}`;
+
   if (!editor) return null;
   // The same person in two tabs shows once.
   const people = [...new Map(others.map((p) => [p.id, p])).values()].filter((p) => p.id !== user.id);
@@ -103,23 +173,34 @@ function SharedDoc({ file, setFile }) {
         icon="doc" file={file} status={status}
         onRename={async (name) => setFile(await patch(`/files/${file.id}`, { name }))}
         onShare={() => setSharing(true)}
-        extra={people.length > 0 && (
+        extra={<>
+          <button type="button" className={`btn small ${panel ? 'primary' : ''}`} aria-pressed={panel} onClick={() => setPanel(!panel)} title="Comments">
+            <Icon name="chat" size={16} /> {open.length || ''}<span className="sr-only">Comments</span>
+          </button>
+          {people.length > 0 && (
           <div className="coeditors" aria-label={`Also here: ${people.map((p) => p.name).join(', ')}`}>
             {people.slice(0, 4).map((p) => <span key={p.id} className="coeditor" style={{ '--c': p.color }} title={`${p.name} is here`}><Avatar name={p.name} size={28} /></span>)}
             {people.length > 4 && <span className="muted small">+{people.length - 4}</span>}
           </div>
-        )}
+          )}
+        </>}
         menu={[
           { label: 'Print / Save as PDF', icon: 'print', onClick: () => window.print() },
           { label: 'Download as HTML', icon: 'download', onClick: exportHtml },
           { label: 'Download as Word (.docx)', icon: 'download', onClick: () => { window.location.href = `/api/files/${file.id}/export`; } },
         ]}
       />
-      {!readOnly && <Toolbar editor={editor} />}
+      {!readOnly && <Toolbar editor={editor} onComment={startComment} />}
+      <style>{highlight}</style>
       {status === 'offline' && <div className="banner warn">You're offline. Keep typing: your changes are kept here and sync when the connection is back.</div>}
       {readOnly && <div className="banner">View only. Ask {file.owner_name} for edit access.</div>}
-      <div className="doc-scroll" onClick={(e) => e.target === e.currentTarget && editor.commands.focus('end')}>
-        <div className="paper"><EditorContent editor={editor} /></div>
+      <div className="doc-body">
+        <div className="doc-scroll" onClick={(e) => e.target === e.currentTarget && editor.commands.focus('end')}>
+          <div className="paper"><EditorContent editor={editor} /></div>
+        </div>
+        {panel && <CommentsPanel fileId={file.id} threads={threads} canEdit={!readOnly} active={active} setActive={setActive} pending={pending}
+          onShow={showThread} labelOf={(t) => `“${(t.anchor?.quote || '').slice(0, 60)}”`} onDeleted={(t) => removeMark(t.id)}
+          onClose={() => { if (pending) pending.onCancel(); setPanel(false); }} />}
       </div>
       {sharing && <ShareDialog file={file} onClose={() => setSharing(false)} />}
     </div>
@@ -128,7 +209,7 @@ function SharedDoc({ file, setFile }) {
 
 const escapeHtml = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-function Toolbar({ editor }) {
+function Toolbar({ editor, onComment }) {
   const [, force] = useState(0);
   useEffect(() => {
     const f = () => force((n) => n + 1);
@@ -178,6 +259,9 @@ function Toolbar({ editor }) {
       <B label="{ }" title="Code block" active={editor.isActive('codeBlock')} onClick={() => c().toggleCodeBlock().run()} />
       <B label="―" title="Horizontal line" onClick={() => c().setHorizontalRule().run()} />
       <B label="Tx" title="Clear formatting" onClick={() => c().unsetAllMarks().clearNodes().run()} />
+      <span className="sep" />
+      <button type="button" className="tb labelled" title="Comment on the selected text (Ctrl+Alt+M)" aria-label="Add comment" disabled={editor.state.selection.empty}
+        onMouseDown={(e) => e.preventDefault()} onClick={onComment}><Icon name="chat" size={18} /> Comment</button>
     </div>
   );
 }

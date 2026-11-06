@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router';
+import { Link, useNavigate, useParams } from 'react-router';
 import { get, post, del, onLive } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
 import EmojiPicker from '../../components/EmojiPicker.jsx';
@@ -130,7 +130,7 @@ export default function Chat() {
                     {grouped && !newDay ? <span className="msg-gutter" /> : <Avatar name={m.user_name || 'Deleted user'} size={36} />}
                     <div className="msg-body">
                       {(!grouped || newDay) && <div className="msg-meta"><strong>{m.user_name || 'Deleted user'}</strong> <span className="muted small">{new Date(m.created_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span></div>}
-                      <div className="msg-text">{m.body}</div>
+                      <div className="msg-text"><Linked text={m.body} /></div>
                     </div>
                     {(m.user_id === user.id || user.is_admin) && (
                       <button className="icon-btn msg-del" aria-label="Delete message" onClick={() => del(`/chat/messages/${m.id}`).catch((e) => toast(e.message, 'error'))}><Icon name="trash" size={16} /></button>
@@ -154,4 +154,13 @@ export default function Chat() {
         onSubmit={async (name) => { const c = await post('/chat/channels', { name }); await loadChannels(); navigate(`/chat/${c.id}`); }} />}
     </div>
   );
+}
+
+/** Message text with web addresses and links into the workspace (such as /docs/…) clickable. */
+const LINK_RE = /(https?:\/\/[^\s<>"]+[^\s<>".,;:!?)\]'"]|(?<![\w/])\/(?:docs|sheets|slides|drive|calendar|mail|chat)\/[\w-]+(?:\?[\w=&%-]+)?)/g;
+export function Linked({ text }) {
+  return String(text).split(LINK_RE).map((part, i) => {
+    if (i % 2 === 0) return part;
+    return part.startsWith('/') ? <Link key={i} to={part}>{part}</Link> : <a key={i} href={part} target="_blank" rel="noopener noreferrer">{part}</a>;
+  });
 }

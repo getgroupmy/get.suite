@@ -700,3 +700,44 @@ test('Office files: open Word, Excel and PowerPoint as Docs, Sheets and Slides, 
   }
   assert.equal((await owner('POST', `/api/files/${folder.id}/open-as`)).status, 400, 'folders and other files can\'t');
 });
+
+test('comments: threads on text or cells, replies, resolving, mentions by chat, who may do what', async () => {
+  const cami = client(), vera = client(), out = client();
+  for (const [c, local] of [[cami, 'cami'], [vera, 'vera'], [out, 'oscar']]) {
+    assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name: `${local} c`, password: 'password123' })).status, 201);
+    await login(c, `${local}@acme.com`);
+  }
+  const ids = Object.fromEntries((await owner('GET', '/api/users/directory')).body.map((u) => [u.username, u.id]));
+  const doc = (await owner('POST', '/api/files/new', { kind: 'doc', name: 'Proposal' })).body;
+  await owner('PUT', `/api/files/${doc.id}/shares`, { shares: [{ user_id: ids['cami@acme.com'], role: 'editor' }, { user_id: ids['vera@acme.com'], role: 'viewer' }] });
+
+  const made = await owner('POST', `/api/comments/${doc.id}`, { body: 'Can @cami@acme.com check this? @oscar@acme.com too', anchor: { quote: 'the price' }, id: 'thread-one-1' });
+  assert.equal(made.status, 201);
+  assert.equal(made.body.comment.id, 'thread-one-1', 'the editor picks the id (it marks the text with it)');
+  assert.deepEqual(made.body.notified, ['cami@acme.com']);
+  assert.deepEqual(made.body.noAccess, ['oscar@acme.com'], 'Oscar can\'t open the file, so he isn\'t told about it');
+  // Cami got a chat message with a link to the comment.
+  const dms = (await cami('GET', '/api/chat/channels')).body.channels.filter((c) => c.dm_key);
+  const msgs = (await cami('GET', `/api/chat/channels/${dms[0].id}/messages`)).body;
+  assert.match(msgs.at(-1).body, /Mentioned you in a comment on “Proposal”[\s\S]*\/docs\/.+\?comment=thread-one-1/);
+
+  assert.equal((await cami('POST', `/api/comments/${doc.id}`, { body: 'Looks fine', thread_id: 'thread-one-1' })).status, 201);
+  assert.equal((await vera('GET', `/api/comments/${doc.id}`)).body.length, 2, 'viewers read');
+  assert.equal((await vera('POST', `/api/comments/${doc.id}`, { body: 'x', anchor: { quote: 'y' } })).status, 403, 'but do not write');
+  assert.equal((await out('GET', `/api/comments/${doc.id}`)).status, 404);
+  assert.equal((await cami('PATCH', `/api/comments/${doc.id}/thread-one-1`, { body: 'changed' })).status, 403, 'only the author edits');
+  assert.equal((await cami('PATCH', `/api/comments/${doc.id}/thread-one-1`, { resolved: true })).body.resolved, true);
+  await owner('POST', `/api/comments/${doc.id}`, { body: 'One more thing', thread_id: 'thread-one-1' });
+  assert.equal((await owner('GET', `/api/comments/${doc.id}`)).body[0].resolved, false, 'a reply reopens the thread');
+
+  // Sheets: on a cell.
+  const sheet = (await owner('POST', '/api/files/new', { kind: 'sheet', name: 'Budget' })).body;
+  assert.equal((await owner('POST', `/api/comments/${sheet.id}`, { body: 'Source?', anchor: { sheet: 0, cell: 'b2' } })).body.comment.anchor.cell, 'B2');
+  assert.equal((await owner('POST', `/api/comments/${sheet.id}`, { body: 'x', anchor: { cell: 'nope' } })).status, 400);
+
+  // Deleting: the author or the owner; the first comment takes its replies with it.
+  const reply = (await owner('GET', `/api/comments/${doc.id}`)).body.find((c) => c.author_email === 'cami@acme.com');
+  assert.equal((await cami('DELETE', `/api/comments/${doc.id}/${reply.id}`)).status, 200);
+  assert.equal((await owner('DELETE', `/api/comments/${doc.id}/thread-one-1`)).status, 200);
+  assert.equal((await owner('GET', `/api/comments/${doc.id}`)).body.length, 0);
+});

@@ -101,6 +101,13 @@ Everyone who can edit a document, spreadsheet or presentation can work in it at 
 - **Sheets** works the same way, cell by cell: two people changing different cells at once both keep their change, and the same cell keeps the later change. Each person's selected cell is outlined in their colour. Formats, column widths and new sheets are shared too.
 - **Slides** too: slides and the boxes on them merge one by one, so two people working on different boxes (or slides) both keep their changes; the same box keeps the later change. Each person's selected box is outlined in their colour.
 
+## Comments and @mentions (Docs, Sheets)
+
+- **Comment:** in Docs, select some text and press **Comment** in the toolbar (or Ctrl+Alt+M); in Sheets, select a cell and do the same. The text is highlighted (cells get a small orange corner) and the comment opens in a panel on the right. The highlight moves with the text as people edit.
+- **@mention:** type `@` and a few letters of a colleague's name to pick them from a list. They get a chat message with the comment and a link that opens the document at that comment. If the file isn't shared with them, you're told, so you can share it first.
+- **Replies, resolve:** anyone who can edit the file can reply, and resolve a thread when it's done (a new reply reopens it). Tick **Show resolved** to see them again. Comments update live for everyone with the file open.
+- **Who can do what:** viewers read comments; editors add, reply and resolve; a comment can be deleted by its author or by the file's owner (deleting the first comment removes the thread).
+
 ## Slides
 
 In Drive, **New → Presentation**. Presentations are shared, versioned and saved automatically like documents.
@@ -475,6 +482,5 @@ cd server && MAIL_IT_CONFIG_DIR=/etc/nw npm run test:mail
 
 Everything planned so far is built. Candidates for next:
 
-- **Comments** in Docs and Sheets, with @mentions that notify by chat or email.
 - **Charts** in Sheets.
 - **Outlook's own time-zone names** in calendar files from Windows (iPhone, Android and Gmail use the standard names, which already work).
