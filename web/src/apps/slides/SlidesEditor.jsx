@@ -11,6 +11,7 @@ import { useToast, Menu, ConfirmModal, Avatar } from '../../components/ui.jsx';
 import Icon from '../../components/Icon.jsx';
 import { ShareDialog } from '../drive/Drive.jsx';
 import { EditorHeader } from '../editorCommon.jsx';
+import { useUndo, undoKey } from '../useUndo.js';
 import {
   THEMES, LAYOUTS, newId, clampBox, moveBox, resizeBox, addSlide, duplicateSlide, removeSlide, moveSlide,
   updateItem, addItem, removeItem, restack, pictureBox,
@@ -68,6 +69,7 @@ export default function SlidesEditor() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
   useEffect(() => () => { provider?.destroy(); ydoc?.destroy(); }, [provider, ydoc]);
+  const history = useUndo(ydoc, (d) => [d.getMap('deck'), d.getArray('order'), d.getMap('slides')]);
 
   const commit = useCallback((next) => {
     if (readOnly || !ydoc) return;
@@ -87,6 +89,8 @@ export default function SlidesEditor() {
   // Keyboard on the canvas: Delete removes, arrows nudge (Shift: further), Escape deselects.
   function onCanvasKey(e) {
     if (editing || readOnly) return;
+    const u = undoKey(e);
+    if (u) { e.preventDefault(); history[u](); return; }
     if (!item) {
       if (e.key === 'PageDown' || e.key === 'ArrowDown') { e.preventDefault(); goTo(slideIndex + 1); }
       if (e.key === 'PageUp' || e.key === 'ArrowUp') { e.preventDefault(); goTo(slideIndex - 1); }
@@ -166,6 +170,9 @@ export default function SlidesEditor() {
       {readOnly && <div className="banner">View only. Ask {file.owner_name} for edit access.</div>}
       {!readOnly && (
         <div className="slides-toolbar" role="toolbar" aria-label="Slide tools">
+          <button type="button" className="tb" aria-label="Undo" title="Undo (Ctrl+Z)" disabled={!history.canUndo} onClick={history.undo}>↶</button>
+          <button type="button" className="tb" aria-label="Redo" title="Redo (Ctrl+Y)" disabled={!history.canRedo} onClick={history.redo}>↷</button>
+          <span className="sep" />
           <Menu align="left" trigger={(p) => <button type="button" className="tb" {...p} aria-label="New slide" title="New slide"><Icon name="plus" size={18} /> Slide</button>}
             items={LAYOUTS.map(([k, label]) => ({ label, onClick: () => { change((d) => addSlide(d, slideIndex, k)); goTo(slideIndex + 1); } }))} />
           <span className="sep" />

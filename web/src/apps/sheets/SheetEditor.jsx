@@ -14,6 +14,7 @@ import { ChartCard, ChartDialog } from './SheetCharts.jsx';
 import { dataRegion, rangeText } from './charts.js';
 import { applyStructure, adjustKey, sortRange, looksLikeHeader } from './structure.js';
 import { SortDialog } from './SheetSort.jsx';
+import { useUndo, undoKey } from '../useUndo.js';
 
 const SEL_COLORS = ['#1a73e8', '#d93025', '#188038', '#e37400', '#8430ce', '#00796b', '#c2185b', '#5f6368'];
 const colorFor = (id) => SEL_COLORS[[...String(id)].reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) >>> 0, 7) % SEL_COLORS.length];
@@ -88,6 +89,7 @@ export default function SheetEditor() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
   useEffect(() => () => { provider?.destroy(); ydoc?.destroy(); }, [provider, ydoc]);
+  const history = useUndo(ydoc, (d) => d.getArray('sheets'));
 
   // Tell the others which cell is selected.
   useEffect(() => { provider?.awareness.setLocalStateField('sel', { sheet: active, k: cellKey(sel.c, sel.r) }); }, [provider, active, sel]);
@@ -221,6 +223,8 @@ export default function SheetEditor() {
     if (editing) return;
     const k = e.key;
     const mod = e.ctrlKey || e.metaKey;
+    const u = undoKey(e);
+    if (u) { e.preventDefault(); if (!readOnly) history[u](); return; }
     if (k === 'ArrowUp') { e.preventDefault(); move(0, -1, e.shiftKey); }
     else if (k === 'ArrowDown') { e.preventDefault(); move(0, 1, e.shiftKey); }
     else if (k === 'ArrowLeft') { e.preventDefault(); move(-1, 0, e.shiftKey); }
@@ -417,7 +421,7 @@ export default function SheetEditor() {
       />
       {status === 'offline' && <div className="banner warn">You're offline. Keep editing: your changes are kept here and sync when the connection is back.</div>}
       {readOnly && <div className="banner">View only. Ask {file.owner_name} for edit access.</div>}
-      {!readOnly && <FormatBar fmt={formats[selKey] || {}} onChange={(change) => { writeFormats(change); gridRef.current?.focus(); }} onComment={startComment} onChart={newChart} onSort={() => setDialog({ type: 'sort' })} />}
+      {!readOnly && <FormatBar fmt={formats[selKey] || {}} onChange={(change) => { writeFormats(change); gridRef.current?.focus(); }} onComment={startComment} onChart={newChart} onSort={() => setDialog({ type: 'sort' })} history={history} />}
       <div className="formula-bar">
         <span className="cell-name">{anchor ? `${cellKey(range.c1, range.r1)}:${cellKey(range.c2, range.r2)}` : selKey}</span>
         <span className="fx">fx</span>
@@ -579,7 +583,7 @@ export function parseCsv(text) {
 }
 
 /** Formatting for the selected cells: bold, italic, underline, colours, alignment, number format. */
-function FormatBar({ fmt, onChange, onComment, onChart, onSort }) {
+function FormatBar({ fmt, onChange, onComment, onChart, onSort, history }) {
   const keep = (e) => e.preventDefault(); // buttons don't take focus from the grid
   const Toggle = ({ k, label, title, children }) => (
     <button type="button" className={`tb ${fmt[k] ? 'on' : ''}`} aria-pressed={!!fmt[k]} aria-label={label} title={title} onMouseDown={keep} onClick={() => onChange({ [k]: !fmt[k] })}>{children}</button>
@@ -587,6 +591,9 @@ function FormatBar({ fmt, onChange, onComment, onChart, onSort }) {
   const align = fmt.align || 'auto';
   return (
     <div className="sheet-toolbar" role="toolbar" aria-label="Cell formatting">
+      <button type="button" className="tb" aria-label="Undo" title="Undo (Ctrl+Z)" disabled={!history.canUndo} onMouseDown={keep} onClick={history.undo}>↶</button>
+      <button type="button" className="tb" aria-label="Redo" title="Redo (Ctrl+Y)" disabled={!history.canRedo} onMouseDown={keep} onClick={history.redo}>↷</button>
+      <span className="sep" />
       <Toggle k="b" label="Bold" title="Bold (Ctrl+B)"><b>B</b></Toggle>
       <Toggle k="i" label="Italic" title="Italic (Ctrl+I)"><i>I</i></Toggle>
       <Toggle k="u" label="Underline" title="Underline (Ctrl+U)"><u>U</u></Toggle>

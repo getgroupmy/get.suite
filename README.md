@@ -94,7 +94,7 @@ Everyone who can edit a document, spreadsheet or presentation can work in it at 
 
 - **Live:** what others type shows up as they type, and simultaneous changes merge character by character (Yjs), so nobody's work is overwritten. Each person's cursor shows in their colour, with their name, and the people who have the document open are shown at the top.
 - **Saving:** there's no Save button and no "someone else changed this" conflict. The server saves a couple of seconds after each change, and when the last person closes the document.
-- **Undo** (Ctrl+Z) takes back only your own changes, not your colleagues'.
+- **Undo** (Ctrl+Z, or the ↶ button; redo with Ctrl+Y or Ctrl+Shift+Z) takes back only your own changes, not your colleagues', in documents, spreadsheets and presentations alike.
 - **Offline:** keep typing. Your changes are kept in the browser and merged in when the connection is back, even after the server restarts.
 - **Viewers** see changes live but can't type.
 - **Version history** keeps a version each time a different person starts editing, or after a 10-minute pause. Restoring a version reloads it for everyone who has the document open.
