@@ -39,7 +39,7 @@ function readAnchor(kind, a) {
   if (kind === 'doc') return { quote: str(a.quote ?? '', { max: 500 }) };
   const cell = String(a.cell || '').toUpperCase();
   if (!/^[A-Z]{1,3}[1-9][0-9]{0,6}$/.test(cell)) throw bad('Comment on a cell like B2');
-  return { sheet: Number.isInteger(a.sheet) && a.sheet >= 0 ? a.sheet : 0, cell };
+  return { sheet: Number.isInteger(a.sheet) && a.sheet >= 0 ? a.sheet : 0, cell, ...(a.gone && { gone: true }) }; // gone: its cell was deleted
 }
 const shown = (c) => ({ ...c, anchor: c.anchor ? JSON.parse(c.anchor) : null, resolved: !!c.resolved });
 const listOf = (fileId) => q(`SELECT c.*, u.name AS author_name, u.username AS author_email, r.name AS resolved_by_name
@@ -92,6 +92,10 @@ export default function commentRoutes() {
     if (req.body.body !== undefined) {
       if (c.author_id !== req.user.id) throw forbidden('Only the author can change a comment');
       q('UPDATE file_comments SET body = ?, edited_at = ? WHERE id = ?').run(str(req.body.body, { required: true, name: 'Comment', max: 4000 }), now(), c.id);
+    }
+    if (req.body.anchor !== undefined) { // the commented cell moved (rows or columns inserted or deleted)
+      if (c.thread_id) throw bad('Move the thread, not a reply');
+      q('UPDATE file_comments SET anchor = ? WHERE id = ?').run(JSON.stringify(readAnchor(f.kind, req.body.anchor)), c.id);
     }
     if (req.body.resolved !== undefined) {
       if (c.thread_id) throw bad('Resolve the thread, not a reply');

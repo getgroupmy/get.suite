@@ -107,6 +107,41 @@ export function Menu({ trigger, items, align = 'right' }) {
   );
 }
 
+/** A menu at a point (right-click). Arrow keys move between items; Escape or a click elsewhere closes it. */
+export function ContextMenu({ x, y, items, onClose, label = 'Actions' }) {
+  const ref = useRef();
+  const [pos, setPos] = useState({ left: x, top: y });
+  useEffect(() => {
+    const el = ref.current;
+    const r = el.getBoundingClientRect(); // keep it on screen
+    setPos({ left: Math.max(4, Math.min(x, window.innerWidth - r.width - 4)), top: Math.max(4, Math.min(y, window.innerHeight - r.height - 4)) });
+    el.querySelector('[role=menuitem]:not(:disabled)')?.focus();
+    const close = (e) => !el.contains(e.target) && onClose();
+    const key = (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); onClose(); return; }
+      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+      e.preventDefault();
+      const all = [...el.querySelectorAll('[role=menuitem]:not(:disabled)')];
+      const i = all.indexOf(document.activeElement);
+      all[(i + (e.key === 'ArrowDown' ? 1 : -1) + all.length) % all.length]?.focus();
+    };
+    document.addEventListener('mousedown', close);
+    document.addEventListener('keydown', key, true);
+    window.addEventListener('blur', onClose);
+    return () => { document.removeEventListener('mousedown', close); document.removeEventListener('keydown', key, true); window.removeEventListener('blur', onClose); };
+  }, [x, y, onClose]);
+  return (
+    <div ref={ref} className="menu context-menu" role="menu" aria-label={label} style={pos} onContextMenu={(e) => e.preventDefault()}>
+      {items.filter(Boolean).map((it, i) => it === '-' ? <hr key={i} /> : (
+        <button key={i} type="button" role="menuitem" className={`menu-item ${it.danger ? 'danger' : ''}`} disabled={it.disabled}
+          onClick={() => { onClose(); it.onClick(); }}>
+          {it.icon && <Icon name={it.icon} size={18} />}<span>{it.label}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function Avatar({ name = '?', size = 32 }) {
   const initials = name.split(/\s+/).filter(Boolean).slice(0, 2).map((s) => s[0]).join('').toUpperCase() || '?';
   let h = 0;

@@ -30,6 +30,8 @@ function tokenize(src) {
   TOKEN_RE.lastIndex = 0;
   while (TOKEN_RE.lastIndex < src.length) {
     if (/^\s*$/.test(src.slice(TOKEN_RE.lastIndex))) break;
+    const refErr = /^\s*#REF!/i.exec(src.slice(TOKEN_RE.lastIndex)); // a reference to cells that were deleted
+    if (refErr) { out.push({ t: 'referr' }); TOKEN_RE.lastIndex += refErr[0].length; continue; }
     const m = TOKEN_RE.exec(src);
     if (!m) err('#ERROR!');
     if (m[1] !== undefined) out.push({ t: 'num', v: Number(m[1]) });
@@ -88,6 +90,7 @@ function parse(src) {
     const tk = toks[i++];
     if (!tk) err('#ERROR!');
     if (tk.t === 'num') return { k: 'num', v: tk.v };
+    if (tk.t === 'referr') return { k: 'referr' };
     if (tk.t === 'str') return { k: 'str', v: tk.v };
     if (tk.t === 'ref') {
       if (tk.v.includes(':')) { const [a, b] = tk.v.split(':'); return { k: 'range', a: parseRef(a), b: parseRef(b) }; }
@@ -250,6 +253,7 @@ export function createEvaluator(cells) {
   function evaluate(n) {
     switch (n.k) {
       case 'num': case 'str': case 'bool': return n.v;
+      case 'referr': return err('#REF!');
       case 'ref': if (!n.ref) err('#REF!'); return valueOf(cellKey(n.ref.c, n.ref.r));
       case 'range': return range(n.a, n.b);
       case 'neg': return -toNum(evaluate(n.e));

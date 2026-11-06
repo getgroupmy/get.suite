@@ -732,7 +732,11 @@ test('comments: threads on text or cells, replies, resolving, mentions by chat, 
 
   // Sheets: on a cell.
   const sheet = (await owner('POST', '/api/files/new', { kind: 'sheet', name: 'Budget' })).body;
-  assert.equal((await owner('POST', `/api/comments/${sheet.id}`, { body: 'Source?', anchor: { sheet: 0, cell: 'b2' } })).body.comment.anchor.cell, 'B2');
+  const onCell = (await owner('POST', `/api/comments/${sheet.id}`, { body: 'Source?', anchor: { sheet: 0, cell: 'b2' } })).body.comment;
+  assert.equal(onCell.anchor.cell, 'B2');
+  // A row inserted above: the thread moves with its cell; a deleted cell marks it gone.
+  assert.equal((await owner('PATCH', `/api/comments/${sheet.id}/${onCell.id}`, { anchor: { sheet: 0, cell: 'B3' } })).body.anchor.cell, 'B3');
+  assert.deepEqual((await owner('PATCH', `/api/comments/${sheet.id}/${onCell.id}`, { anchor: { sheet: 0, cell: 'B3', gone: true } })).body.anchor, { sheet: 0, cell: 'B3', gone: true });
   assert.equal((await owner('POST', `/api/comments/${sheet.id}`, { body: 'x', anchor: { cell: 'nope' } })).status, 400);
 
   // Deleting: the author or the owner; the first comment takes its replies with it.

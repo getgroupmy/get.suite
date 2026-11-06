@@ -5,13 +5,15 @@ import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
 import { jsonFromSheetDoc, applySheetJson } from '../collabsync.js';
 import { useAuth } from '../../App.jsx';
-import { useToast, PromptModal, ConfirmModal, Menu, Avatar } from '../../components/ui.jsx';
+import { useToast, PromptModal, ConfirmModal, Menu, Avatar, ContextMenu } from '../../components/ui.jsx';
 import Icon from '../../components/Icon.jsx';
 import { ShareDialog } from '../drive/Drive.jsx';
 import { EditorHeader } from '../editorCommon.jsx';
 import { CommentsPanel, useComments } from '../comments.jsx';
 import { ChartCard, ChartDialog } from './SheetCharts.jsx';
 import { dataRegion, rangeText } from './charts.js';
+import { applyStructure, adjustKey, sortRange, looksLikeHeader } from './structure.js';
+import { SortDialog } from './SheetSort.jsx';
 
 const SEL_COLORS = ['#1a73e8', '#d93025', '#188038', '#e37400', '#8430ce', '#00796b', '#c2185b', '#5f6368'];
 const colorFor = (id) => SEL_COLORS[[...String(id)].reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) >>> 0, 7) % SEL_COLORS.length];
@@ -58,6 +60,8 @@ export default function SheetEditor() {
   const [panel, setPanel] = useState(!!params.get('comment'));
   const [thread, setThread] = useState(params.get('comment'));
   const [pending, setPending] = useState(null);
+  const [ctx, setCtx] = useState(null); // right-click menu: { x, y, kind: 'row' | 'col' | 'cell' }
+  const closeCtx = useCallback(() => setCtx(null), []);
 
   // The spreadsheet is shared live (Yjs): everyone's changes arrive cell by cell.
   const [{ ydoc, provider }, setLink] = useState({});
@@ -154,6 +158,35 @@ export default function SheetEditor() {
     const cid = (crypto.randomUUID?.() || `${Date.now()}${Math.random()}`).replace(/[^\w]/g, '').slice(0, 20);
     setDialog({ type: 'chart', chart: { id: null, newId: cid, type: 'column', range: rangeText(g), title: '', x: Math.round(x), y: Math.round(y), w: 480, h: 300 } });
   }
+
+  /** Insert or delete rows or columns on this sheet ({ axis, at, count }; count < 0 deletes). */
+  function changeStructure(change) {
+    if (readOnly) return;
+    const cur = dataRef.current;
+    commitData({ ...cur, sheets: cur.sheets.map((s, i) => (i === active ? applyStructure(s, change) : s)) });
+    // Comments move with their cell; a deleted cell's thread is marked as such.
+    for (const t of threads) {
+      if ((t.anchor?.sheet || 0) !== active || !t.anchor?.cell || t.anchor.gone) continue;
+      const k = adjustKey(t.anchor.cell, change);
+      if (k !== t.anchor.cell) patch(`/comments/${file.id}/${t.id}`, { anchor: k ? { ...t.anchor, cell: k } : { ...t.anchor, gone: true } }).catch(() => {});
+    }
+    setAnchor(null);
+    if (change.count < 0) setSel((s) => ({ c: change.axis === 'col' ? Math.min(s.c, change.at) : s.c, r: change.axis === 'row' ? Math.min(s.r, change.at) : s.r }));
+    gridRef.current?.focus();
+  }
+
+  /** Sort rows of a range by one column. */
+  function sortBy({ range: g, by, desc, header }) {
+    if (readOnly) return;
+    const cur = dataRef.current;
+    const sheets = cur.sheets.map((s, i) => (i === active ? { ...s, ...sortRange(s, g, by, { desc, header, value: evaluate }) } : s));
+    commitData({ ...cur, sheets });
+    toast(`Sorted rows ${g.r1 + (header ? 2 : 1)}–${g.r2 + 1} by column ${colName(by)}`);
+    gridRef.current?.focus();
+  }
+  /** The cells a sort applies to: the selection, or with one cell selected, the table around it. */
+  const sortTarget = () => (anchor ? range : dataRegion(sel, (c, r) => cells[cellKey(c, r)] !== undefined && cells[cellKey(c, r)] !== ''));
+  const quickSort = (desc) => { const g = sortTarget(); sortBy({ range: g, by: sel.c, desc, header: looksLikeHeader(g, evaluate) }); };
 
   const range = anchor ? {
     c1: Math.min(anchor.c, sel.c), c2: Math.max(anchor.c, sel.c), r1: Math.min(anchor.r, sel.r), r2: Math.max(anchor.r, sel.r),
@@ -309,10 +342,10 @@ export default function SheetEditor() {
   const openThreads = threads.filter((t) => !t.resolved);
   const sheetName = (i) => data.sheets[i]?.name || `Sheet${i + 1}`;
   // Cells on this sheet with open comments: the newest thread of each.
-  const commented = new Map(openThreads.filter((t) => (t.anchor?.sheet || 0) === active).map((t) => [t.anchor.cell, t.id]));
+  const commented = new Map(openThreads.filter((t) => (t.anchor?.sheet || 0) === active && !t.anchor?.gone).map((t) => [t.anchor.cell, t.id]));
   const goToCell = (t) => {
     const p = parseRef(t.anchor?.cell || '');
-    if (!p) return;
+    if (!p || t.anchor.gone) return;
     const s = t.anchor.sheet || 0;
     if (s !== active && s < data.sheets.length) setActive(s);
     setAnchor(null);
@@ -325,7 +358,39 @@ export default function SheetEditor() {
     setPending({ anchor: { sheet: active, cell: selKey }, label: data.sheets.length > 1 ? `${sheetName(active)} ${selKey}` : selKey,
       onCreated: () => setPending(null), onCancel: () => setPending(null) });
   };
-  const where = (t) => (data.sheets.length > 1 ? `${sheetName(t.anchor?.sheet || 0)} ${t.anchor?.cell}` : t.anchor?.cell || '');
+  // Right-click menus: rows, columns, sorting.
+  const nr = range.r2 - range.r1 + 1, nc = range.c2 - range.c1 + 1;
+  const rowItems = [
+    { label: `Insert ${nr > 1 ? `${nr} rows` : '1 row'} above`, icon: 'plus', onClick: () => changeStructure({ axis: 'row', at: range.r1, count: nr }) },
+    { label: `Insert ${nr > 1 ? `${nr} rows` : '1 row'} below`, icon: 'plus', onClick: () => changeStructure({ axis: 'row', at: range.r2 + 1, count: nr }) },
+    { label: nr > 1 ? `Delete rows ${range.r1 + 1}–${range.r2 + 1}` : `Delete row ${range.r1 + 1}`, icon: 'trash', danger: true, onClick: () => changeStructure({ axis: 'row', at: range.r1, count: -nr }) },
+  ];
+  const colItems = [
+    { label: `Insert ${nc > 1 ? `${nc} columns` : '1 column'} left`, icon: 'plus', onClick: () => changeStructure({ axis: 'col', at: range.c1, count: nc }) },
+    { label: `Insert ${nc > 1 ? `${nc} columns` : '1 column'} right`, icon: 'plus', onClick: () => changeStructure({ axis: 'col', at: range.c2 + 1, count: nc }) },
+    { label: nc > 1 ? `Delete columns ${colName(range.c1)}–${colName(range.c2)}` : `Delete column ${colName(range.c1)}`, icon: 'trash', danger: true, onClick: () => changeStructure({ axis: 'col', at: range.c1, count: -nc }) },
+  ];
+  const sortItems = [
+    { label: `Sort A → Z by column ${colName(sel.c)}`, onClick: () => quickSort(false) },
+    { label: `Sort Z → A by column ${colName(sel.c)}`, onClick: () => quickSort(true) },
+    { label: 'Sort range…', onClick: () => setDialog({ type: 'sort' }) },
+  ];
+  const ctxItems = ctx?.kind === 'row' ? rowItems : ctx?.kind === 'col' ? [...colItems, '-', ...sortItems] : [...rowItems, '-', ...colItems, '-', ...sortItems];
+  /** Open the menu at the mouse, or (keyboard: the menu key, Shift+F10) at the selected cell. */
+  const openMenu = (e, kind) => {
+    if (readOnly) return;
+    e.preventDefault();
+    let { clientX: x, clientY: y } = e;
+    if (!x && !y) { const td = gridRef.current?.querySelector(`[data-k="${cellKey(sel.c, sel.r)}"]`)?.getBoundingClientRect(); x = td ? td.left + 20 : 200; y = td ? td.bottom : 200; }
+    setCtx({ x, y, kind });
+  };
+  const isWholeRows = anchor && range.c1 === 0 && range.c2 === cols - 1;
+  const isWholeCols = anchor && range.r1 === 0 && range.r2 === rows - 1;
+  /** Clicking a row or column heading selects it (Shift extends). A right-click inside the selection keeps it. */
+  const pickRow = (r, e) => { if (editing) commitEdit(0, 0); if (e.shiftKey && anchor) setSel({ c: 0, r }); else { setAnchor({ c: cols - 1, r }); setSel({ c: 0, r }); } gridRef.current?.focus(); };
+  const pickCol = (c, e) => { if (editing) commitEdit(0, 0); if (e.shiftKey && anchor) setSel({ c, r: 0 }); else { setAnchor({ c, r: rows - 1 }); setSel({ c, r: 0 }); } gridRef.current?.focus(); };
+
+  const where = (t) => `${data.sheets.length > 1 ? `${sheetName(t.anchor?.sheet || 0)} ` : ''}${t.anchor?.cell || ''}${t.anchor?.gone ? ' (deleted)' : ''}`;
 
   return (
     <div className="editor-page sheet-page">
@@ -352,7 +417,7 @@ export default function SheetEditor() {
       />
       {status === 'offline' && <div className="banner warn">You're offline. Keep editing: your changes are kept here and sync when the connection is back.</div>}
       {readOnly && <div className="banner">View only. Ask {file.owner_name} for edit access.</div>}
-      {!readOnly && <FormatBar fmt={formats[selKey] || {}} onChange={(change) => { writeFormats(change); gridRef.current?.focus(); }} onComment={startComment} onChart={newChart} />}
+      {!readOnly && <FormatBar fmt={formats[selKey] || {}} onChange={(change) => { writeFormats(change); gridRef.current?.focus(); }} onComment={startComment} onChart={newChart} onSort={() => setDialog({ type: 'sort' })} />}
       <div className="formula-bar">
         <span className="cell-name">{anchor ? `${cellKey(range.c1, range.r1)}:${cellKey(range.c2, range.r2)}` : selKey}</span>
         <span className="fx">fx</span>
@@ -370,15 +435,19 @@ export default function SheetEditor() {
         {selValue && typeof selValue === 'object' && selValue.error && <span className="error small">{describeError(selValue.error)}</span>}
       </div>
       <div className="sheet-body">
-      <div className="grid-wrap" ref={gridRef} tabIndex={0} onKeyDown={onGridKey} onCopy={onCopy} onCut={onCut} onPaste={onPaste}>
+      <div className="grid-wrap" ref={gridRef} onContextMenu={(e) => { if (e.target === e.currentTarget) openMenu(e, 'cell'); }} tabIndex={0} onKeyDown={onGridKey} onCopy={onCopy} onCut={onCut} onPaste={onPaste}>
         <table className="grid" role="grid" aria-label={sheet.name}>
           <thead>
-            <tr><th className="corner" />{Array.from({ length: cols }, (_, c) => <th key={c} className={c >= range.c1 && c <= range.c2 ? 'hl' : ''}>{colName(c)}</th>)}</tr>
+            <tr><th className="corner" />{Array.from({ length: cols }, (_, c) => (
+              <th key={c} className={c >= range.c1 && c <= range.c2 ? 'hl' : ''} onMouseDown={(e) => { if (e.button === 0) pickCol(c, e); }}
+                onContextMenu={(e) => { if (!(isWholeCols && c >= range.c1 && c <= range.c2)) pickCol(c, { shiftKey: false }); openMenu(e, 'col'); }}>{colName(c)}</th>
+            ))}</tr>
           </thead>
           <tbody>
             {Array.from({ length: rows }, (_, r) => (
               <tr key={r}>
-                <th className={r >= range.r1 && r <= range.r2 ? 'hl' : ''}>{r + 1}</th>
+                <th className={r >= range.r1 && r <= range.r2 ? 'hl' : ''} onMouseDown={(e) => { if (e.button === 0) pickRow(r, e); }}
+                  onContextMenu={(e) => { if (!(isWholeRows && r >= range.r1 && r <= range.r2)) pickRow(r, { shiftKey: false }); openMenu(e, 'row'); }}>{r + 1}</th>
                 {Array.from({ length: cols }, (_, c) => {
                   const k = cellKey(c, r);
                   const isSel = c === sel.c && r === sel.r;
@@ -403,7 +472,9 @@ export default function SheetEditor() {
                     <td key={k} data-k={k} style={theirs.has(k) ? { ...cellStyle(fmt), boxShadow: `${isSel ? 'inset 0 0 0 2px var(--accent), ' : ''}inset 0 0 0 ${isSel ? 4 : 2}px ${theirs.get(k).color}` } : cellStyle(fmt)}
                       title={theirs.has(k) ? `${theirs.get(k).name} is here` : commented.has(k) ? 'Has comments' : undefined}
                       className={`${commented.has(k) ? 'commented' : ''} ${isSel ? 'sel' : ''} ${inRange(c, r) && anchor ? 'range' : ''} ${typeof v === 'number' ? 'num' : ''} ${isErr ? 'err' : ''}`}
+                      onContextMenu={(e) => { if (!inRange(c, r)) { setAnchor(null); setSel({ c, r }); } openMenu(e, 'cell'); }}
                       onMouseDown={(e) => {
+                        if (e.button !== 0 && inRange(c, r)) return; // a right-click keeps the selection
                         if (editing) commitEdit(0, 0);
                         if (e.shiftKey) { if (!anchor) setAnchor(sel); } else setAnchor(null);
                         setSel({ c, r });
@@ -452,6 +523,10 @@ export default function SheetEditor() {
           </div>
         ))}
       </div>
+      {ctx && <ContextMenu x={ctx.x} y={ctx.y} items={ctxItems} label={ctx.kind === 'row' ? 'Row actions' : ctx.kind === 'col' ? 'Column actions' : 'Cell actions'} onClose={closeCtx} />}
+      {dialog?.type === 'sort' && (() => { const g = sortTarget(); return (
+        <SortDialog initial={{ range: g, by: sel.c }} header={looksLikeHeader(g, evaluate)} value={evaluate} onSort={sortBy} onClose={() => { setDialog(null); gridRef.current?.focus(); }} />
+      ); })()}
       {dialog?.type === 'chart' && (
         <ChartDialog initial={dialog.chart} value={evaluate} onClose={() => { setDialog(null); gridRef.current?.focus(); }}
           onSave={({ id: cid, newId, ...ch }) => writeChart(cid || newId, ch)} />
@@ -504,7 +579,7 @@ export function parseCsv(text) {
 }
 
 /** Formatting for the selected cells: bold, italic, underline, colours, alignment, number format. */
-function FormatBar({ fmt, onChange, onComment, onChart }) {
+function FormatBar({ fmt, onChange, onComment, onChart, onSort }) {
   const keep = (e) => e.preventDefault(); // buttons don't take focus from the grid
   const Toggle = ({ k, label, title, children }) => (
     <button type="button" className={`tb ${fmt[k] ? 'on' : ''}`} aria-pressed={!!fmt[k]} aria-label={label} title={title} onMouseDown={keep} onClick={() => onChange({ [k]: !fmt[k] })}>{children}</button>
@@ -546,6 +621,7 @@ function FormatBar({ fmt, onChange, onComment, onChart }) {
       <button type="button" className="tb" aria-label="Clear formatting" title="Clear formatting" onMouseDown={keep}
         onClick={() => onChange({ b: null, i: null, u: null, color: null, fill: null, align: null, num: null })}>Tx</button>
       <span className="sep" />
+      <button type="button" className="tb labelled" aria-label="Sort range" title="Sort rows by a column" onMouseDown={keep} onClick={onSort}><SortGlyph /> Sort</button>
       <button type="button" className="tb labelled" aria-label="Insert chart" title="Chart of the selected cells" onMouseDown={keep} onClick={onChart}><Icon name="chart" size={18} /> Chart</button>
       <button type="button" className="tb labelled" aria-label="Add comment" title="Comment on this cell (Ctrl+Alt+M)" onMouseDown={keep} onClick={onComment}><Icon name="chat" size={18} /> Comment</button>
     </div>
@@ -555,4 +631,8 @@ function FormatBar({ fmt, onChange, onComment, onChart }) {
 function AlignGlyph({ to }) {
   const lines = to === 'center' ? [[4, 16], [7, 10], [4, 16], [7, 10]] : to === 'right' ? [[4, 16], [10, 10], [4, 16], [10, 10]] : [[4, 16], [4, 10], [4, 16], [4, 10]];
   return <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">{lines.map(([x, w], i) => <rect key={i} x={x} y={5 + i * 4} width={w} height="2" rx="1" fill="currentColor" />)}</svg>;
+}
+
+function SortGlyph() {
+  return <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M3 18h6v-2H3v2zM3 6v2h18V6H3zm0 7h12v-2H3v2z" /></svg>;
 }

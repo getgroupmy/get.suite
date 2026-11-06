@@ -108,6 +108,13 @@ Everyone who can edit a document, spreadsheet or presentation can work in it at 
 - **Replies, resolve:** anyone who can edit the file can reply, and resolve a thread when it's done (a new reply reopens it). Tick **Show resolved** to see them again. Comments update live for everyone with the file open.
 - **Who can do what:** viewers read comments; editors add, reply and resolve; a comment can be deleted by its author or by the file's owner (deleting the first comment removes the thread).
 
+## Rows, columns and sorting (Sheets)
+
+- **Select** a whole row or column by clicking its number or letter; Shift-click to select several.
+- **Insert or delete:** right-click a row number, a column letter or a cell (or press Shift+F10 or the menu key) and choose *Insert 1 row above*, *Delete column B*, and so on. With several rows or columns selected, that many are inserted or deleted.
+- **Everything follows:** formulas point to the same cells after they move, and ranges grow or shrink (`=SUM(B2:B10)` becomes `=SUM(B2:B11)` with a row inserted inside it). A formula that used a deleted cell shows `#REF!`. Formats, column widths, charts and comments move with their cells; a comment whose cell is deleted is marked *(deleted)*.
+- **Sort:** right-click a cell and choose *Sort A → Z* or *Z → A* to sort the table around it by that column, or press **Sort** for a range, column and order of your choice. A heading row is spotted and kept at the top. Numbers come before text, and empty cells go last. Formulas move with their row.
+
 ## Charts (Sheets)
 
 - **Insert:** select cells (or just click one inside your table) and press **Chart**. The first row and column are used as names when they hold text. Choose **Column**, **Bar**, **Line** or **Pie**, give it a title, and check the preview.
