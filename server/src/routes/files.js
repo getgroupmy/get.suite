@@ -60,7 +60,7 @@ function resolveParent(parentId, user) {
   return p.id;
 }
 
-function uniqueName(parentId, ownerId, name) {
+export function uniqueName(parentId, ownerId, name) {
   const exists = (n) => parentId
     ? q('SELECT 1 FROM files WHERE parent_id = ? AND name = ? AND trashed = 0').get(parentId, n)
     : q('SELECT 1 FROM files WHERE parent_id IS NULL AND owner_id = ? AND name = ? AND trashed = 0').get(ownerId, n);
@@ -71,7 +71,7 @@ function uniqueName(parentId, ownerId, name) {
   return `${base} (${Date.now()})${ext}`;
 }
 
-function insertFile({ owner, parentId, name, kind, mime = null, size = 0, storage = null, content = null }) {
+export function insertFile({ owner, parentId, name, kind, mime = null, size = 0, storage = null, content = null }) {
   const id = uid();
   const t = now();
   q(`INSERT INTO files (id, owner_id, parent_id, name, kind, mime, size, storage, content, created_at, updated_at, updated_by)
@@ -111,7 +111,7 @@ export function snapshot(fileId) {
 }
 
 /** Stream an upload into storage, within the size limit and the company's quota. */
-async function receiveUpload(req, orgId, maxUploadBytes) {
+export async function receiveUpload(req, orgId, maxUploadBytes) {
   const declared = Number(req.headers['content-length'] || 0);
   if (declared > maxUploadBytes) throw new HttpError(413, 'File is too large');
   checkQuota(orgId, declared);

@@ -4,7 +4,7 @@ A self-hosted, Google Workspace-style office suite built to run on a Synology DS
 
 | App | What it does |
 |---|---|
-| **Drive** | Folders, uploads up to 4 GB each (drag and drop), previews (images, PDF, video, audio, text), rename, move, trash and restore, search, sharing with people as viewer or editor (folder shares apply to everything inside), share links for people without an account, and version history |
+| **Drive** | Folders, uploads up to 4 GB each (drag and drop), previews (images, PDF, video, audio, text), rename, move, trash and restore, search, sharing with people as viewer or editor (folder shares apply to everything inside), share links for people without an account, version history, and access as a network drive (WebDAV) from Mac, Windows and other apps |
 | **Docs** | Rich-text documents (headings, lists, links, quotes, code, alignment), edited together live with everyone's cursors shown, print/PDF and HTML export |
 | **Sheets** | Spreadsheets with formulas (`SUM AVERAGE MIN MAX MEDIAN COUNT COUNTA COUNTIF SUMIF IF IFERROR AND OR NOT ROUND ABS SQRT POWER MOD INT CONCAT LEN UPPER LOWER TRIM LEFT RIGHT TODAY NOW`), cell formatting (bold, italic, underline, text and fill colour, alignment, number, currency and percent formats), live co-editing with everyone's selected cell shown, multiple sheets, copy/paste with reference shifting, and CSV import/export |
 | **Slides** | Presentations: slide layouts, text boxes, pictures and shapes you drag and resize, text size, bold, italic and colour, four themes, live co-editing, full-screen presenting, and printing or saving as PDF |
@@ -131,6 +131,25 @@ Your Workspace calendar and contacts sync with the phone's own Calendar and Cont
   - Repeats that Workspace can't show (such as "second Monday of the month") arrive as a one-off on the first date.
   - Reminders set on the phone stay on the phone.
 - **Synology reverse proxy:** nothing to add. The same HTTPS entry serves `/dav/` and the `/.well-known/caldav` and `/.well-known/carddav` addresses that apps look for.
+
+## Drive as a network drive
+
+Drive can also appear on a computer as an ordinary drive (WebDAV), so files open and save straight from Finder, File Explorer or any app's Open and Save dialogs. The address is `https://workspace.example.com/dav/files/`. Settings shows it for each person.
+
+- **Mac:** Finder → Go → **Connect to Server…** → enter the address → sign in.
+- **Windows:** File Explorer → This PC → **Map network drive** → *Connect to a website that you can use to store your documents and pictures*. Then enter the address.
+- **Linux, phones and other apps:** any WebDAV client (for example the Files app with a WebDAV app, rclone or Cyberduck).
+- **What you see:** *My Drive* at the top, plus a **Shared with me** folder. Documents, spreadsheets and presentations stay in the browser, so they aren't listed.
+- **Sign-in:** the same as for calendar sync: your email address and password, or your mail-app password with two-step verification.
+- **Safe by design:**
+  - Saving over a file keeps the previous one in its version history.
+  - Deleting moves to Drive's trash.
+  - Viewers can only open files.
+  - Quotas and the upload size limit apply.
+  - A file that someone has open (locked) can't be overwritten or deleted by anyone else meanwhile.
+  - Mac and Windows clutter (`.DS_Store`, `._…`, `Thumbs.db`) isn't stored.
+- **Checked** with *litmus*, the standard WebDAV test suite: all 104 tests pass (basic operations, copy and move, properties, locks).
+- **Windows note:** Windows connects to WebDAV only over HTTPS, which is how the Synology setup above serves it.
 
 ## Version history (Drive)
 
@@ -444,4 +463,4 @@ cd server && MAIL_IT_CONFIG_DIR=/etc/nw npm run test:mail
 
 ## Roadmap
 
-- **Phone sync, next steps:** invitations and single changed occurrences over CalDAV; WebDAV for Drive.
+- **Phone sync, next steps:** invitations and single changed occurrences over CalDAV.

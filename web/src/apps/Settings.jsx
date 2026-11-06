@@ -180,11 +180,13 @@ function MailApps() {
         {st.enabled && <><dt>Incoming mail (IMAP)</dt><dd><code>{host}</code>, port <code>993</code>, SSL/TLS</dd>
         <dt>Outgoing mail (SMTP)</dt><dd><code>{host}</code>, port <code>465</code> SSL/TLS (or <code>587</code> STARTTLS)</dd></>}
         <dt>Calendar (CalDAV) and contacts (CardDAV)</dt><dd>Server <code>{window.location.host}</code> (if an app asks for a full address: <code>{`${window.location.origin}/dav/`}</code>)</dd>
+        <dt>Drive as a network drive (WebDAV)</dt><dd><code>{`${window.location.origin}/dav/files/`}</code></dd>
         <dt>User name</dt><dd><code>{user.username}</code></dd>
         <dt>Password</dt><dd>{st.appPassword ? 'your mail-app password (your account password no longer works in apps)'
           : st.twoFactor ? 'create a mail-app password below: with two-step verification on, your account password doesn\'t work in apps' : 'your account password'}</dd>
       </dl>
       <p className="muted small">iPhone and iPad: Settings → Calendar → Accounts → Add Account → Other → Add CalDAV Account (and Contacts → Add CardDAV Account). Android: the free DAVx⁵ app, "Login with URL and user name".</p>
+      <p className="muted small">Drive on a computer: on a Mac, Finder → Go → Connect to Server, and enter the Drive address. On Windows, File Explorer → This PC → Map network drive → "Connect to a website…", and enter the Drive address. Files you save there are in Drive straight away; saving over one keeps the old version.</p>
       {step === 'show' ? <>
         <p><strong>Your mail-app password:</strong> enter it in your mail apps instead of your account password. It's shown only once.</p>
         <div className="secret-key" aria-label="Mail-app password">{made}</div>

@@ -29,7 +29,7 @@ const etagOf = (body) => `"${crypto.createHash('sha1').update(body).digest('hex'
 const MAX_BODY = '4mb';
 
 // ---- signing in ----
-function authenticate(req) {
+export function authenticate(req) {
   const m = /^Basic\s+(.+)$/i.exec(req.get('authorization') || '');
   if (!m) return null;
   const decoded = Buffer.from(m[1], 'base64').toString('utf8');

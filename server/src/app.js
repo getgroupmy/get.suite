@@ -15,6 +15,7 @@ import webmailRoutes from './routes/webmail.js';
 import securityRoutes from './routes/security.js';
 import { linkRoutes, publicLinkRoutes } from './routes/links.js';
 import davRoutes from './dav.js';
+import webdavRoutes from './webdav.js';
 import { writeMailConfig, mailEnabled } from './mail/config.js';
 import { q } from './db.js';
 import { ensureGeneralChannel } from './tenancy.js';
@@ -42,6 +43,7 @@ export function createApp({
 
   // Phone sync (CalDAV/CardDAV). Apps look for these well-known addresses first.
   for (const w of ['/.well-known/caldav', '/.well-known/carddav']) app.all(w, (req, res) => res.redirect(301, '/dav/'));
+  app.use('/dav/files', webdavRoutes({ maxUploadBytes })); // Drive as a network drive
   app.use('/dav', davRoutes());
   // Apps given only the server name ask the root first.
   app.use((req, res, next) => (req.path === '/' && (req.method === 'PROPFIND' || req.method === 'REPORT') ? res.redirect(301, '/dav/') : next()));
