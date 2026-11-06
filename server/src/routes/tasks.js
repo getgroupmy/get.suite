@@ -53,6 +53,13 @@ const TASK = `SELECT t.*, u.name AS assignee_name, c.name AS created_by_name, l.
               FROM tasks t LEFT JOIN users u ON u.id = t.assignee_id LEFT JOIN users c ON c.id = t.created_by JOIN task_lists l ON l.id = t.list_id`;
 const shape = (t) => ({ ...t, done: !!t.done_at });
 
+/** Tell someone a task was given to them (by someone else). */
+function notifyAssigned(task, by) {
+  if (!task.assignee_id || task.assignee_id === by.id || task.done) return;
+  sendTo([task.assignee_id], { type: 'task-assigned', at: Date.now(), from: by.name || by.username,
+    task: { id: task.id, title: task.title, list_id: task.list_id, list_name: task.list_name, due: task.due } });
+}
+
 function dueOf(v) {
   if (v === null || v === '' || v === undefined) return null;
   if (typeof v !== 'string' || !DATE_RE.test(v) || Number.isNaN(Date.parse(v))) throw bad('Due date must be YYYY-MM-DD');
@@ -157,7 +164,9 @@ export default function taskRoutes() {
     q('INSERT INTO tasks (id, list_id, title, notes, due, assignee_id, position, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
       .run(id, list.id, str(req.body.title, { required: true, name: 'Task', max: 500 }), str(req.body.notes, { max: 10000 }), dueOf(req.body.due), assigneeOf(req.body.assignee_id, list), position, req.user.id, t, t);
     changed(list);
-    res.status(201).json(shape(q(`${TASK} WHERE t.id = ?`).get(id)));
+    const made = shape(q(`${TASK} WHERE t.id = ?`).get(id));
+    notifyAssigned(made, req.user);
+    res.status(201).json(made);
   });
 
   r.patch('/tasks/:id', (req, res) => {
@@ -184,7 +193,9 @@ export default function taskRoutes() {
     if (keys.length) q(`UPDATE tasks SET ${keys.map((k) => `${k} = ?`).join(', ')}, updated_at = ? WHERE id = ?`).run(...keys.map((k) => set[k]), now(), task.id);
     changed(list);
     if (target !== list) changed(target);
-    res.json(shape(q(`${TASK} WHERE t.id = ?`).get(task.id)));
+    const next = shape(q(`${TASK} WHERE t.id = ?`).get(task.id));
+    if (set.assignee_id && set.assignee_id !== task.assignee_id) notifyAssigned(next, req.user);
+    res.json(next);
   });
 
   r.delete('/tasks/:id', (req, res) => {

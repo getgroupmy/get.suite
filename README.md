@@ -513,6 +513,7 @@ Each entry shows who did it, what it was done to, the details and the IP address
 - **Ticking off:** the box marks a task done (with **Undo**); done tasks move to **Completed** at the bottom, and **⋮ → Delete completed tasks** clears them.
 - **Details:** click a task for notes, a due date (shown as Today, Tomorrow or the date; overdue in red), who it's for, and which list it's on. Changes save as you make them.
 - **Sharing:** **Share** on a list lets colleagues see it, add and tick off tasks, and be given tasks. Everyone sees changes as they happen. **Assigned to me** gathers the tasks given to you on any list, soonest due first. Leaving a list (or being taken off it) leaves the tasks you were given with nobody.
+- **Reminders:** each morning (from 9:00, or when you first open Workspace after that) a note lists what's due today and overdue, with a button to the tasks. When someone gives you a task you get a note straight away. Both show once, in one tab, and as desktop notifications too when those are on.
 - **On the calendar:** open tasks with a due date (given to you, or to nobody on your own lists) show in Calendar as all-day items. Tick the box to complete one there, or click it to open it in Tasks. **Show tasks with due dates** in the Calendar sidebar hides them.
 
 ## Chat

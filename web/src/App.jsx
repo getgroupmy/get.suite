@@ -4,6 +4,7 @@ import { get, post, startLive, stopLive, onLive } from './api.js';
 import { useMailStatus } from './mailStatus.js';
 import { useMailNotifications } from './mailNotify.js';
 import { useEventReminders } from './eventReminders.js';
+import { useTaskReminders } from './taskReminders.js';
 import Icon from './components/Icon.jsx';
 import { Avatar, Menu, ToastProvider, useToast } from './components/ui.jsx';
 import Login from './apps/Login.jsx';
@@ -113,6 +114,7 @@ function Shell() {
   const unread = useMailNotifications(!!mail?.enabled, { toast, openMessage });
   const openCalendar = useCallback(() => navigate('/calendar'), [navigate]);
   useEventReminders(true, { toast, openCalendar });
+  useTaskReminders({ toast, navigate });
   const chatUnread = useChatUnread();
 
   return (

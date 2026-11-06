@@ -36,7 +36,7 @@ export function startsIn(ev, now = Date.now()) {
  * Only one tab shows each reminder. Tabs fire at the same moment, so a lock decides (the first
  * tab holds it for a while); what was shown is also remembered for tabs that open later.
  */
-function claim(key) {
+export function claim(key) {
   if (!navigator.locks) return Promise.resolve(remembers(key));
   return new Promise((decide) => {
     navigator.locks.request(`nw-reminder:${key}`, { ifAvailable: true }, async (lock) => {
