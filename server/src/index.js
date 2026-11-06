@@ -7,6 +7,7 @@ import { mailEnabled } from './mail/config.js';
 import { startPolicyServer } from './security/policyServer.js';
 import { startMailNotifications } from './mail/notify.js';
 import { startRsvpWatcher } from './mail/rsvp.js';
+import { saveAll as saveOpenDocuments } from './collab.js';
 import { purge as purgeAuthLog } from './security/guard.js';
 
 const port = Number(process.env.PORT || 8080);
@@ -25,6 +26,7 @@ server.listen(port, () => console.log(`NAS Workspace listening on :${port} (data
 
 for (const sig of ['SIGINT', 'SIGTERM']) {
   process.on(sig, () => {
+    try { saveOpenDocuments(); } catch (e) { console.error(e); } // documents being co-edited right now
     server.close();
     db.close();
     process.exit(0);

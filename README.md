@@ -5,7 +5,7 @@ A self-hosted, Google Workspace-style office suite built to run on a Synology DS
 | App | What it does |
 |---|---|
 | **Drive** | Folders, uploads up to 4 GB each (drag and drop), previews (images, PDF, video, audio, text), rename, move, trash and restore, search, sharing with people as viewer or editor (folder shares apply to everything inside), share links for people without an account, and version history |
-| **Docs** | Rich-text documents (headings, lists, links, quotes, code, alignment) with autosave, print/PDF and HTML export |
+| **Docs** | Rich-text documents (headings, lists, links, quotes, code, alignment), edited together live with everyone's cursors shown, print/PDF and HTML export |
 | **Sheets** | Spreadsheets with formulas (`SUM AVERAGE MIN MAX MEDIAN COUNT COUNTA COUNTIF SUMIF IF IFERROR AND OR NOT ROUND ABS SQRT POWER MOD INT CONCAT LEN UPPER LOWER TRIM LEFT RIGHT TODAY NOW`), cell formatting (bold, italic, underline, text and fill colour, alignment, number, currency and percent formats), multiple sheets, copy/paste with reference shifting, and CSV import/export |
 | **Slides** | Presentations: slide layouts, text boxes, pictures and shapes you drag and resize, text size, bold, italic and colour, four themes, full-screen presenting, and printing or saving as PDF |
 | **Calendar** | Month, week and day views (timed events placed by the hour, side by side when they overlap, with a current-time line), all-day and timed events, repeating events, inviting colleagues and people outside by email (Yes / Maybe / No), colours, upcoming list |
@@ -87,6 +87,18 @@ On 2 GB of RAM, both containers fit with room to spare. Adding a RAM stick only 
 6. **Firewall (recommended):** Control Panel → Security → Firewall. Allow 80 and 443 from everywhere, and allow DSM ports only from your LAN.
 
 Cookies switch to `Secure` automatically once traffic arrives over HTTPS through the proxy.
+
+## Editing documents together
+
+Everyone who can edit a document can type in it at the same time, like in Google Docs.
+
+- **Live:** what others type shows up as they type, and simultaneous changes merge character by character (Yjs), so nobody's work is overwritten. Each person's cursor shows in their colour, with their name, and the people who have the document open are shown at the top.
+- **Saving:** there's no Save button and no "someone else changed this" conflict. The server saves a couple of seconds after each change, and when the last person closes the document.
+- **Undo** (Ctrl+Z) takes back only your own changes, not your colleagues'.
+- **Offline:** keep typing. Your changes are kept in the browser and merged in when the connection is back, even after the server restarts.
+- **Viewers** see changes live but can't type.
+- **Version history** keeps a version each time a different person starts editing, or after a 10-minute pause. Restoring a version reloads it for everyone who has the document open.
+- **Sheets and Slides** don't co-edit live yet. If two people change the same spreadsheet or presentation at once, the second one is asked which version to keep.
 
 ## Slides
 
@@ -431,5 +443,5 @@ cd server && MAIL_IT_CONFIG_DIR=/etc/nw npm run test:mail
 
 ## Roadmap
 
-- **Real-time co-editing:** live cursors and character-level merging (Yjs) in Docs and Sheets.
+- **Live co-editing in Sheets and Slides** (Docs already has it).
 - **Phone sync, next steps:** invitations and single changed occurrences over CalDAV; WebDAV for Drive.

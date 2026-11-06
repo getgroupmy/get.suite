@@ -70,9 +70,9 @@ export function useAutosave(id, delay = 800) {
   return useMemo(() => ({ ...api, status, conflict }), [api, status, conflict]);
 }
 
-const STATUS = { saved: 'All changes saved', unsaved: 'Unsaved changes', saving: 'Saving…', error: 'Save failed, retrying…', conflict: 'Edit conflict' };
+const STATUS = { saved: 'All changes saved', unsaved: 'Unsaved changes', saving: 'Saving…', error: 'Save failed, retrying…', conflict: 'Edit conflict', connecting: 'Connecting…', offline: 'Offline' };
 
-export function EditorHeader({ icon, file, status, onRename, onShare, menu }) {
+export function EditorHeader({ icon, file, status, onRename, onShare, menu, extra }) {
   const navigate = useNavigate();
   const toast = useToast();
   const [name, setName] = useState('');
@@ -97,6 +97,7 @@ export function EditorHeader({ icon, file, status, onRename, onShare, menu }) {
         <span className={`save-status ${status}`}>{file ? STATUS[status] : ''}</span>
       </div>
       <div className="grow" />
+      {extra}
       {menu && <Menu trigger={(p) => <button className="icon-btn" aria-label="More" {...p}><Icon name="more" /></button>} items={menu} />}
       {file?.role === 'owner' && <button className="btn primary" onClick={onShare}><Icon name="share" size={18} /> Share</button>}
     </header>

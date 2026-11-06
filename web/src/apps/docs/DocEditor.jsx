@@ -1,80 +1,88 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import TextAlign from '@tiptap/extension-text-align';
 import Placeholder from '@tiptap/extension-placeholder';
-import { get, patch, onLive } from '../../api.js';
+import Collaboration from '@tiptap/extension-collaboration';
+import CollaborationCaret from '@tiptap/extension-collaboration-caret';
+import * as Y from 'yjs';
+import { WebsocketProvider } from 'y-websocket';
+import { get, patch } from '../../api.js';
 import { useAuth } from '../../App.jsx';
-import { useToast } from '../../components/ui.jsx';
+import { useToast, Avatar } from '../../components/ui.jsx';
 import { ShareDialog } from '../drive/Drive.jsx';
-import { useAutosave, EditorHeader } from '../editorCommon.jsx';
+import { EditorHeader } from '../editorCommon.jsx';
 
+const CARET_COLORS = ['#1a73e8', '#d93025', '#188038', '#e37400', '#8430ce', '#00796b', '#c2185b', '#5f6368'];
+const colorFor = (id) => CARET_COLORS[[...String(id)].reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) >>> 0, 7) % CARET_COLORS.length];
+
+/**
+ * A document everyone with access edits together: changes go to the others as you type and merge
+ * (Yjs), with each person's cursor shown. The server keeps and saves the shared document.
+ */
 export default function DocEditor() {
   const { id } = useParams();
   const navigate = useNavigate();
   const toast = useToast();
-  const { user } = useAuth();
   const [file, setFile] = useState(null);
+  useEffect(() => {
+    get(`/files/${id}`).then((f) => { setFile(f); document.title = `${f.name} · Docs`; }).catch((e) => { toast(e.message, 'error'); navigate('/drive'); });
+    return () => { document.title = 'Workspace'; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
+  if (!file) return <div className="editor-page"><EditorHeader icon="doc" file={null} status="saved" /></div>;
+  return <SharedDoc key={id} file={file} setFile={setFile} />;
+}
+
+function SharedDoc({ file, setFile }) {
+  const { user } = useAuth();
   const [sharing, setSharing] = useState(false);
-  const readOnly = file && file.role === 'viewer';
+  const [status, setStatus] = useState('connecting');
+  const [others, setOthers] = useState([]);
+  const readOnly = file.role === 'viewer';
+
+  // One shared document per open editor; the provider keeps it in step with the server.
+  const { ydoc, provider } = useMemo(() => {
+    const ydoc = new Y.Doc();
+    const url = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws/collab`;
+    const provider = new WebsocketProvider(url, file.id, ydoc, { maxBackoffTime: 5000 });
+    return { ydoc, provider };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [file.id]);
+  useEffect(() => () => { provider.destroy(); ydoc.destroy(); }, [provider, ydoc]);
+
+  useEffect(() => {
+    const onStatus = ({ status: s }) => setStatus(s === 'connected' ? (provider.synced ? 'saved' : 'connecting') : s === 'disconnected' ? 'offline' : 'connecting');
+    const onSync = (synced) => { if (synced) setStatus('saved'); };
+    // Restoring a version: everyone starts again from the restored document.
+    const onClose = (e) => { if (e?.code === 4000) window.location.reload(); };
+    provider.on('status', onStatus);
+    provider.on('sync', onSync);
+    provider.on('connection-close', onClose);
+    const people = () => setOthers([...provider.awareness.getStates().entries()]
+      .filter(([cid, s]) => cid !== ydoc.clientID && s.user).map(([cid, s]) => ({ cid, ...s.user })));
+    provider.awareness.on('change', people);
+    return () => { provider.off('status', onStatus); provider.off('sync', onSync); provider.off('connection-close', onClose); provider.awareness.off('change', people); };
+  }, [provider, ydoc]);
 
   const editor = useEditor({
     extensions: [
-      StarterKit.configure({ link: { openOnClick: false, autolink: true } }),
+      StarterKit.configure({ link: { openOnClick: false, autolink: true }, undoRedo: false }), // undo is per person, from Collaboration
       TextAlign.configure({ types: ['heading', 'paragraph'] }),
       Placeholder.configure({ placeholder: 'Start typing…' }),
+      Collaboration.configure({ document: ydoc }),
+      CollaborationCaret.configure({ provider, user: { name: user.name, color: colorFor(user.id), id: user.id } }),
     ],
-    editable: false,
-    onUpdate: ({ editor }) => {
-      // Ignore no-op updates (e.g. plugins normalising the doc on load).
-      if (!editor.isEditable || JSON.stringify(editor.getJSON()) === baseline.current) return;
-      baseline.current = null;
-      saver.current?.changed(() => editor.getJSON());
-    },
-  });
-  const baseline = useRef(null);
-  const setBaseline = () => { baseline.current = JSON.stringify(editor.getJSON()); };
-
-  const save = useAutosave(id);
-  const saver = useRef(save);
-  saver.current = save;
+    editable: !readOnly,
+  }, [ydoc]);
 
   useEffect(() => {
-    if (!editor) return;
-    get(`/files/${id}/content`).then(({ file, content }) => {
-      setFile(file);
-      document.title = `${file.name} · Docs`;
-      save.setVersion(file.version);
-      editor.commands.setContent(content, { emitUpdate: false });
-      setBaseline();
-      editor.setEditable(file.role !== 'viewer');
-      if (file.role !== 'viewer') editor.commands.focus('start');
-    }).catch((e) => { toast(e.message, 'error'); navigate('/drive'); });
-    return () => { document.title = 'Workspace'; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, editor]);
-
-  // Someone else saved: pull their version if we have no unsaved edits.
-  useEffect(() => onLive(async (m) => {
-    if (m.type !== 'content-changed' || m.id !== id || m.by === user.id) return;
-    if (save.isDirty()) { save.markConflict(m.by_name); return; }
-    const { file, content } = await get(`/files/${id}/content`);
-    save.setVersion(file.version);
-    const sel = editor.state.selection;
-    editor.commands.setContent(content, { emitUpdate: false });
-    setBaseline();
-    try { editor.commands.setTextSelection({ from: Math.min(sel.from, editor.state.doc.content.size), to: Math.min(sel.to, editor.state.doc.content.size) }); } catch {}
-    toast(`${m.by_name} updated this document`);
-  }), [id, editor, user.id, save, toast]);
-
-  async function reloadTheirs() {
-    const { file, content } = await get(`/files/${id}/content`);
-    save.setVersion(file.version);
-    save.resolve();
-    editor.commands.setContent(content, { emitUpdate: false });
-    setBaseline();
-  }
+    if (!editor || readOnly) return;
+    const focusOnce = (synced) => { if (synced) { editor.commands.focus('start'); provider.off('sync', focusOnce); } };
+    if (provider.synced) focusOnce(true); else provider.on('sync', focusOnce);
+    return () => provider.off('sync', focusOnce);
+  }, [editor, provider, readOnly]);
 
   function exportHtml() {
     const html = `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(file.name)}</title></head><body>${editor.getHTML()}</body></html>`;
@@ -86,26 +94,28 @@ export default function DocEditor() {
   }
 
   if (!editor) return null;
+  // The same person in two tabs shows once.
+  const people = [...new Map(others.map((p) => [p.id, p])).values()].filter((p) => p.id !== user.id);
 
   return (
     <div className="editor-page doc-page">
       <EditorHeader
-        icon="doc" file={file} status={save.status}
-        onRename={async (name) => setFile(await patch(`/files/${id}`, { name }))}
+        icon="doc" file={file} status={status}
+        onRename={async (name) => setFile(await patch(`/files/${file.id}`, { name }))}
         onShare={() => setSharing(true)}
+        extra={people.length > 0 && (
+          <div className="coeditors" aria-label={`Also here: ${people.map((p) => p.name).join(', ')}`}>
+            {people.slice(0, 4).map((p) => <span key={p.id} className="coeditor" style={{ '--c': p.color }} title={`${p.name} is here`}><Avatar name={p.name} size={28} /></span>)}
+            {people.length > 4 && <span className="muted small">+{people.length - 4}</span>}
+          </div>
+        )}
         menu={[
           { label: 'Print / Save as PDF', icon: 'print', onClick: () => window.print() },
           { label: 'Download as HTML', icon: 'download', onClick: exportHtml },
         ]}
       />
       {!readOnly && <Toolbar editor={editor} />}
-      {save.conflict && (
-        <div className="banner warn">
-          {save.conflict} changed this document while you were editing.
-          <button className="btn small" onClick={reloadTheirs}>Load their version</button>
-          <button className="btn small" onClick={() => save.forceSave(editor.getJSON())}>Keep mine</button>
-        </div>
-      )}
+      {status === 'offline' && <div className="banner warn">You're offline. Keep typing: your changes are kept here and sync when the connection is back.</div>}
       {readOnly && <div className="banner">View only. Ask {file.owner_name} for edit access.</div>}
       <div className="doc-scroll" onClick={(e) => e.target === e.currentTarget && editor.commands.focus('end')}>
         <div className="paper"><EditorContent editor={editor} /></div>

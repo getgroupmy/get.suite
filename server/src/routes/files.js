@@ -8,6 +8,7 @@ import { uid, now, str, bad, forbidden, notFound, HttpError, mimeFor, isInlineSa
 import { roleFor, atLeast, audienceFor, subtreeIds } from '../access.js';
 import { sendTo } from '../hub.js';
 import { canReach, checkQuota } from '../tenancy.js';
+import { resetRoom } from '../collab.js';
 
 const COLS = `f.id, f.owner_id, f.parent_id, f.name, f.kind, f.mime, f.size, f.version, f.trashed,
               f.created_at, f.updated_at, u.name AS owner_name, ub.name AS updated_by_name`;
@@ -91,8 +92,14 @@ function permanentlyDelete(fileId) {
 const KEEP_VERSIONS = Number(process.env.KEEP_VERSIONS || 50);
 const SESSION_MS = 10 * 60e3; // Docs/Sheets: a pause this long (or another editor) starts a new version
 
+/** Keep a version when someone else edited last, or after a pause (one per editing session). */
+export function snapshotIfNewSession(fileId, userId) {
+  const cur = q('SELECT version, updated_at, updated_by, owner_id FROM files WHERE id = ?').get(fileId);
+  if (cur && cur.version > 1 && ((cur.updated_by || cur.owner_id) !== userId || now() - cur.updated_at > SESSION_MS)) snapshot(fileId);
+}
+
 /** Keep the file as it is now as an earlier version (and drop the oldest beyond the limit). */
-function snapshot(fileId) {
+export function snapshot(fileId) {
   const f = q('SELECT * FROM files WHERE id = ?').get(fileId);
   q(`INSERT INTO file_versions (id, file_id, version, name, saved_at, saved_by, size, mime, storage, content) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
     .run(uid(), f.id, f.version, f.name, f.updated_at, f.updated_by || f.owner_id, f.size, f.mime, f.storage, f.content);
@@ -264,6 +271,7 @@ export default function fileRoutes({ maxUploadBytes }) {
       return res.status(409).json({ error: 'Someone else changed this file', version: cur.version, content: JSON.parse(cur.content) });
     }
     const version = f.version + 1;
+    if (f.kind === 'doc') resetRoom(f.id); // anyone co-editing reloads this version
     notify(f.id, { type: 'content-changed', id: f.id, version, by: req.user.id, by_name: req.user.name });
     res.json({ version });
   });
@@ -375,6 +383,7 @@ export default function fileRoutes({ maxUploadBytes }) {
       q('UPDATE files SET storage = COALESCE(?, storage), content = COALESCE(?, content), size = ?, mime = COALESCE(?, mime), version = version + 1, updated_at = ?, updated_by = ? WHERE id = ?')
         .run(storage, v.content, v.size, v.mime, now(), req.user.id, f.id);
     });
+    if (f.kind === 'doc') resetRoom(f.id);
     const after = loadFile(f.id, req.user);
     // Open editors (yours included) load the restored content.
     notify(f.id, { type: 'content-changed', id: f.id, version: after.version, by: null, by_name: req.user.name });

@@ -9,6 +9,8 @@
     "test": "node --test 'src/**/*.test.js'"
   },
   "dependencies": {
+    "@tiptap/extension-collaboration": "^3.32.2",
+    "@tiptap/extension-collaboration-caret": "^3.32.2",
     "@tiptap/extension-image": "^3.32.2",
     "@tiptap/extension-placeholder": "^3.32.2",
     "@tiptap/extension-table": "^3.32.2",
@@ -17,10 +19,13 @@
     "@tiptap/pm": "^3.32.2",
     "@tiptap/react": "^3.32.2",
     "@tiptap/starter-kit": "^3.32.2",
+    "@tiptap/y-tiptap": "^3.2.0",
     "qrcode": "^1.5.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-router-dom": "^6.30.6"
+    "react-router-dom": "^6.30.6",
+    "y-websocket": "^2.1.0",
+    "yjs": "^13.6.33"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.7.0",
