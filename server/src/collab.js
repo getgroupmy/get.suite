@@ -12,7 +12,7 @@ import * as encoding from 'lib0/encoding';
 import * as decoding from 'lib0/decoding';
 import { q } from './db.js';
 import { roleFor, atLeast, audienceFor } from './access.js';
-import { docFromJson, jsonFromDoc } from './collabdoc.js';
+import { docFromJson, jsonFromDoc, sheetDocFromJson, jsonFromSheetDoc } from './collabdoc.js';
 import { snapshotIfNewSession } from './routes/files.js';
 import { sendTo } from './hub.js';
 
@@ -23,24 +23,31 @@ const rooms = new Map(); // fileId -> room
 
 if (!q('PRAGMA table_info(files)').all().some((c) => c.name === 'ydoc')) q('ALTER TABLE files ADD COLUMN ydoc BLOB').run();
 
-function loadDoc(fileId) {
+// Documents are a TipTap fragment; spreadsheets a list of sheets with cell maps.
+const KINDS = {
+  doc: { fromJson: (j) => docFromJson(j, FIELD), toJson: (d) => jsonFromDoc(d, FIELD) },
+  sheet: { fromJson: sheetDocFromJson, toJson: jsonFromSheetDoc },
+};
+export const CO_EDITED = Object.keys(KINDS);
+
+function loadDoc(fileId, kind) {
+  const k = KINDS[kind];
   const f = q('SELECT content, ydoc FROM files WHERE id = ?').get(fileId);
   if (f.ydoc) {
     const doc = new Y.Doc();
     Y.applyUpdate(doc, new Uint8Array(f.ydoc));
     // A JSON change made outside co-editing (restoring a version, an old client) wins: rebuild.
-    if (JSON.stringify(jsonFromDoc(doc, FIELD)) === JSON.stringify(normalize(JSON.parse(f.content)))) return doc;
+    // (Stored JSON and the shared form agree on everything but how empty values are written.)
+    if (JSON.stringify(k.toJson(doc)) === JSON.stringify(k.toJson(k.fromJson(JSON.parse(f.content))))) return doc;
   }
-  return docFromJson(JSON.parse(f.content || '{}'), FIELD);
+  return k.fromJson(JSON.parse(f.content || '{}'));
 }
-// Stored JSON and the shared form agree on everything but how empty attributes are written.
-const normalize = (json) => jsonFromDoc(docFromJson(json, FIELD), FIELD);
 
 function save(room) {
   if (!room.dirty) return;
   room.dirty = false;
   clearTimeout(room.timer);
-  const json = JSON.stringify(jsonFromDoc(room.doc, FIELD));
+  const json = JSON.stringify(KINDS[room.kind].toJson(room.doc));
   const by = room.lastEditor;
   snapshotIfNewSession(room.fileId, by);
   q('UPDATE files SET content = ?, size = ?, ydoc = ?, version = version + 1, updated_at = ?, updated_by = ? WHERE id = ?')
@@ -50,11 +57,11 @@ function save(room) {
   sendTo(audienceFor(room.fileId), { type: 'content-changed', id: room.fileId, version, by, collab: true });
 }
 
-function getRoom(fileId) {
+function getRoom(fileId, kind) {
   let room = rooms.get(fileId);
   if (room) return room;
-  const doc = loadDoc(fileId);
-  room = { fileId, doc, awareness: new awarenessProtocol.Awareness(doc), conns: new Map(), dirty: false, timer: null, lastEditor: null };
+  const doc = loadDoc(fileId, kind);
+  room = { fileId, kind, doc, awareness: new awarenessProtocol.Awareness(doc), conns: new Map(), dirty: false, timer: null, lastEditor: null };
   room.awareness.setLocalState(null); // the server isn't a participant
   doc.on('update', (update, origin) => {
     const enc = encoding.createEncoder();
@@ -121,9 +128,9 @@ export function handleCollabUpgrade(req, socket, head, user) {
   const fileId = decodeURIComponent((req.url.split('?')[0].split('/')[3] || ''));
   const f = fileId && q('SELECT id, kind, trashed FROM files WHERE id = ?').get(fileId);
   const role = f && roleFor(f.id, user.id);
-  if (!f || f.kind !== 'doc' || f.trashed || !role) { socket.write('HTTP/1.1 404 Not Found\r\n\r\n'); return socket.destroy(); }
+  if (!f || !KINDS[f.kind] || f.trashed || !role) { socket.write('HTTP/1.1 404 Not Found\r\n\r\n'); return socket.destroy(); }
   wss.handleUpgrade(req, socket, head, (ws) => {
-    const room = getRoom(f.id);
+    const room = getRoom(f.id, f.kind);
     room.conns.set(ws, { userId: user.id, canEdit: atLeast(role, 'editor'), clients: new Set() });
     ws.binaryType = 'arraybuffer';
     ws.on('message', (data) => {

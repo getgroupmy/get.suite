@@ -8,7 +8,7 @@ import { uid, now, str, bad, forbidden, notFound, HttpError, mimeFor, isInlineSa
 import { roleFor, atLeast, audienceFor, subtreeIds } from '../access.js';
 import { sendTo } from '../hub.js';
 import { canReach, checkQuota } from '../tenancy.js';
-import { resetRoom } from '../collab.js';
+import { resetRoom, CO_EDITED } from '../collab.js';
 
 const COLS = `f.id, f.owner_id, f.parent_id, f.name, f.kind, f.mime, f.size, f.version, f.trashed,
               f.created_at, f.updated_at, u.name AS owner_name, ub.name AS updated_by_name`;
@@ -271,7 +271,7 @@ export default function fileRoutes({ maxUploadBytes }) {
       return res.status(409).json({ error: 'Someone else changed this file', version: cur.version, content: JSON.parse(cur.content) });
     }
     const version = f.version + 1;
-    if (f.kind === 'doc') resetRoom(f.id); // anyone co-editing reloads this version
+    if (CO_EDITED.includes(f.kind)) resetRoom(f.id); // anyone co-editing reloads this version
     notify(f.id, { type: 'content-changed', id: f.id, version, by: req.user.id, by_name: req.user.name });
     res.json({ version });
   });
@@ -383,7 +383,7 @@ export default function fileRoutes({ maxUploadBytes }) {
       q('UPDATE files SET storage = COALESCE(?, storage), content = COALESCE(?, content), size = ?, mime = COALESCE(?, mime), version = version + 1, updated_at = ?, updated_by = ? WHERE id = ?')
         .run(storage, v.content, v.size, v.mime, now(), req.user.id, f.id);
     });
-    if (f.kind === 'doc') resetRoom(f.id);
+    if (CO_EDITED.includes(f.kind)) resetRoom(f.id);
     const after = loadFile(f.id, req.user);
     // Open editors (yours included) load the restored content.
     notify(f.id, { type: 'content-changed', id: f.id, version: after.version, by: null, by_name: req.user.name });

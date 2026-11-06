@@ -1,11 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { get, patch, onLive } from '../../api.js';
+import { get, patch } from '../../api.js';
+import * as Y from 'yjs';
+import { WebsocketProvider } from 'y-websocket';
+import { jsonFromSheetDoc, applySheetJson } from './sheetsync.js';
 import { useAuth } from '../../App.jsx';
-import { useToast, PromptModal, ConfirmModal, Menu } from '../../components/ui.jsx';
+import { useToast, PromptModal, ConfirmModal, Menu, Avatar } from '../../components/ui.jsx';
 import Icon from '../../components/Icon.jsx';
 import { ShareDialog } from '../drive/Drive.jsx';
-import { useAutosave, EditorHeader } from '../editorCommon.jsx';
+import { EditorHeader } from '../editorCommon.jsx';
+
+const SEL_COLORS = ['#1a73e8', '#d93025', '#188038', '#e37400', '#8430ce', '#00796b', '#c2185b', '#5f6368'];
+const colorFor = (id) => SEL_COLORS[[...String(id)].reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) >>> 0, 7) % SEL_COLORS.length];
 import { createEvaluator, display, colName, cellKey, parseRef, shiftFormula } from './formula.js';
 import { NUMBER_FORMATS, CURRENCIES, decimals, formatNumber, cellStyle, mergeFormat } from './cellformat.js';
 
@@ -40,30 +46,38 @@ export default function SheetEditor() {
   const dataRef = useRef(null);
   const gridRef = useRef();
   const clip = useRef(null);
-  const save = useAutosave(id);
+  const [status, setStatus] = useState('connecting');
+  const [others, setOthers] = useState([]);
   const readOnly = file?.role === 'viewer';
 
-  const load = useCallback(async () => {
-    const { file, content } = await get(`/files/${id}/content`);
-    setFile(file);
-    save.setVersion(file.version);
-    dataRef.current = content;
-    setData(content);
-    document.title = `${file.name} · Sheets`;
-  }, [id, save]);
-
+  // The spreadsheet is shared live (Yjs): everyone's changes arrive cell by cell.
+  const [{ ydoc, provider }, setLink] = useState({});
   useEffect(() => {
-    load().catch((e) => { toast(e.message, 'error'); navigate('/drive'); });
-    return () => { document.title = 'Workspace'; };
+    let alive = true;
+    get(`/files/${id}`).then((f) => {
+      if (!alive) return;
+      setFile(f);
+      document.title = `${f.name} · Sheets`;
+      const ydoc = new Y.Doc();
+      const url = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws/collab`;
+      const provider = new WebsocketProvider(url, f.id, ydoc, { maxBackoffTime: 5000 });
+      provider.awareness.setLocalStateField('user', { id: user.id, name: user.name, color: colorFor(user.id) });
+      const show = () => { const next = jsonFromSheetDoc(ydoc); dataRef.current = next; setData(next); };
+      ydoc.on('update', show);
+      provider.on('sync', (synced) => { if (synced) { show(); setStatus('saved'); } });
+      provider.on('status', ({ status: st }) => setStatus(st === 'connected' ? (provider.synced ? 'saved' : 'connecting') : st === 'disconnected' ? 'offline' : 'connecting'));
+      provider.on('connection-close', (e) => { if (e?.code === 4000) window.location.reload(); }); // a version was restored
+      provider.awareness.on('change', () => setOthers([...provider.awareness.getStates().entries()]
+        .filter(([cid, st]) => cid !== ydoc.clientID && st.user).map(([cid, st]) => ({ cid, ...st.user, sel: st.sel }))));
+      setLink({ ydoc, provider });
+    }).catch((e) => { toast(e.message, 'error'); navigate('/drive'); });
+    return () => { alive = false; document.title = 'Workspace'; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+  useEffect(() => () => { provider?.destroy(); ydoc?.destroy(); }, [provider, ydoc]);
 
-  useEffect(() => onLive(async (m) => {
-    if (m.type !== 'content-changed' || m.id !== id || m.by === user.id) return;
-    if (save.isDirty() || editing) { save.markConflict(m.by_name); return; }
-    await load();
-    toast(`${m.by_name} updated this spreadsheet`);
-  }), [id, user.id, save, editing, load, toast]);
+  // Tell the others which cell is selected.
+  useEffect(() => { provider?.awareness.setLocalStateField('sel', { sheet: active, k: cellKey(sel.c, sel.r) }); }, [provider, active, sel]);
 
   const sheet = data?.sheets[Math.min(active, (data?.sheets.length || 1) - 1)];
   const cells = sheet?.cells || {};
@@ -72,9 +86,10 @@ export default function SheetEditor() {
   const { rows, cols } = useMemo(() => sheetSize(cells), [cells]);
 
   function commitData(next) {
+    if (readOnly || !ydoc) return;
     dataRef.current = next;
     setData(next);
-    save.changed(() => dataRef.current);
+    applySheetJson(ydoc, next); // only the cells that changed go to the others
   }
 
   function writeCells(updates) {
@@ -252,26 +267,29 @@ export default function SheetEditor() {
   if (!data) return <div className="editor-page"><EditorHeader icon="sheet" file={null} status="saved" /></div>;
 
   const selKey = cellKey(sel.c, sel.r);
+  const people = [...new Map(others.map((p) => [p.id, p])).values()].filter((p) => p.id !== user.id);
+  // Other people's selected cells on this sheet: outlined in their colour.
+  const theirs = new Map(others.filter((p) => p.id !== user.id && p.sel?.sheet === active).map((p) => [p.sel.k, p]));
   const selValue = evaluate(selKey);
 
   return (
     <div className="editor-page sheet-page">
       <EditorHeader
-        icon="sheet" file={file} status={save.status}
+        icon="sheet" file={file} status={status}
         onRename={async (name) => setFile(await patch(`/files/${id}`, { name }))}
         onShare={() => setDialog({ type: 'share' })}
+        extra={people.length > 0 && (
+          <div className="coeditors" aria-label={`Also here: ${people.map((p) => p.name).join(', ')}`}>
+            {people.slice(0, 4).map((p) => <span key={p.id} className="coeditor" style={{ '--c': p.color }} title={`${p.name} is here`}><Avatar name={p.name} size={28} /></span>)}
+            {people.length > 4 && <span className="muted small">+{people.length - 4}</span>}
+          </div>
+        )}
         menu={[
           { label: 'Download sheet as CSV', icon: 'download', onClick: exportCsv },
           !readOnly && { label: 'Import CSV as new sheet', icon: 'upload', onClick: importCsv },
         ]}
       />
-      {save.conflict && (
-        <div className="banner warn">
-          {save.conflict} changed this spreadsheet while you were editing.
-          <button className="btn small" onClick={async () => { save.resolve(); await load(); }}>Load their version</button>
-          <button className="btn small" onClick={() => save.forceSave(dataRef.current)}>Keep mine</button>
-        </div>
-      )}
+      {status === 'offline' && <div className="banner warn">You're offline. Keep editing: your changes are kept here and sync when the connection is back.</div>}
       {readOnly && <div className="banner">View only. Ask {file.owner_name} for edit access.</div>}
       {!readOnly && <FormatBar fmt={formats[selKey] || {}} onChange={(change) => { writeFormats(change); gridRef.current?.focus(); }} />}
       <div className="formula-bar">
@@ -320,7 +338,8 @@ export default function SheetEditor() {
                   const isErr = v && typeof v === 'object';
                   const fmt = formats[k];
                   return (
-                    <td key={k} data-k={k} style={cellStyle(fmt)}
+                    <td key={k} data-k={k} style={theirs.has(k) ? { ...cellStyle(fmt), boxShadow: `${isSel ? 'inset 0 0 0 2px var(--accent), ' : ''}inset 0 0 0 ${isSel ? 4 : 2}px ${theirs.get(k).color}` } : cellStyle(fmt)}
+                      title={theirs.has(k) ? `${theirs.get(k).name} is here` : undefined}
                       className={`${isSel ? 'sel' : ''} ${inRange(c, r) && anchor ? 'range' : ''} ${typeof v === 'number' ? 'num' : ''} ${isErr ? 'err' : ''}`}
                       onMouseDown={(e) => {
                         if (editing) commitEdit(0, 0);
