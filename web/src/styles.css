@@ -299,7 +299,7 @@ button:focus-visible, a:focus-visible, [tabindex]:focus-visible { outline: 2px s
 .grid tbody th { left: 0; width: 48px; min-width: 48px; }
 .grid th.corner { left: 0; z-index: 5; width: 48px; min-width: 48px; }
 .grid th.hl { background: var(--accent-soft); color: var(--accent-text); }
-.grid td { height: 24px; max-width: 100px; padding: 0 6px; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.grid td { height: 24px; padding: 0 6px; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .grid td.num { text-align: right; }
 .grid td.err { color: var(--danger); text-align: center; }
 .grid td.range { background: color-mix(in srgb, var(--accent-soft) 60%, transparent); }
@@ -931,3 +931,15 @@ td.name .match mark { background: var(--accent-soft); color: var(--accent-text);
 .paper .find-match.current { background: #f9ab00; color: #1f1f1f; }
 @media (prefers-color-scheme: dark) { .paper .find-match { background: #7a5c0080; } .paper .find-match.current { background: #f9ab00; color: #1f1f1f; } }
 @media print { .find-bar { display: none; } .paper .find-match, .paper .find-match.current { background: none; color: inherit; } }
+
+/* ---------- Sheets: column widths and frozen rows/columns ---------- */
+.grid thead th { position: sticky; }
+.grid thead th .col-resize { position: absolute; top: 0; right: -4px; width: 8px; height: 100%; cursor: col-resize; z-index: 1; touch-action: none; }
+.grid thead th .col-resize:hover, .grid thead th .col-resize:active { background: var(--accent); opacity: .5; }
+.grid td.frozen-r, .grid td.frozen-c { position: sticky; z-index: 2; background-color: var(--surface); }
+.grid td.frozen-r.frozen-c { z-index: 3; }
+.grid thead th.frozen-c { z-index: 6; }
+.grid tbody th.frozen-r { z-index: 6; }
+.grid td.freeze-edge-b, .grid tbody th.freeze-edge-b { border-bottom: 2px solid var(--muted); }
+.grid td.freeze-edge-r, .grid thead th.freeze-edge-r { border-right: 2px solid var(--muted); }
+.grid td.frozen-r.range, .grid td.frozen-c.range { background-color: color-mix(in srgb, var(--accent-soft) 60%, var(--surface)); }

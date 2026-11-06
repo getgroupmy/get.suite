@@ -100,7 +100,7 @@ test('Excel: a real .xlsx opens with values, formulas, formats and every sheet',
 });
 
 test('Excel: a spreadsheet saved as .xlsx opens again the same', async () => {
-  const data = { sheets: [{ name: 'Budget', cells: { A1: 'Cost', B1: '100', B2: '=B1*2', C1: 'TRUE' }, colWidths: { A: 145 }, formats: { A1: { b: 1, color: '#c5221f' }, B1: { num: 'currency', cur: 'USD', dp: 2 }, B2: { num: 'percent', dp: 0 } } }] };
+  const data = { sheets: [{ name: 'Budget', frozen: { rows: 1, cols: 2 }, cells: { A1: 'Cost', B1: '100', B2: '=B1*2', C1: 'TRUE' }, colWidths: { A: 145 }, formats: { A1: { b: 1, color: '#c5221f' }, B1: { num: 'currency', cur: 'USD', dp: 2 }, B2: { num: 'percent', dp: 0 } } }] };
   const back = await sheetFromExcel(await excelFromSheet(data));
   const b = back.sheets[0];
   assert.deepEqual([b.name, b.cells.A1, b.cells.B1, b.cells.B2, b.cells.C1], ['Budget', 'Cost', '100', '=B1*2', 'TRUE']);
@@ -108,6 +108,7 @@ test('Excel: a spreadsheet saved as .xlsx opens again the same', async () => {
   assert.deepEqual(b.formats.B1, { num: 'currency', cur: 'USD', dp: 2 });
   assert.deepEqual(b.formats.B2, { num: 'percent', dp: 0 });
   assert.equal(b.colWidths.A, 145);
+  assert.deepEqual(b.frozen, { rows: 1, cols: 2 }, 'frozen rows and columns');
   assert.deepEqual(numFromExcel('$#,##0'), { num: 'currency', cur: 'USD', dp: 0 });
 });
 

@@ -69,7 +69,10 @@ export async function sheetFromExcel(buffer) {
       });
     });
     ws.columns?.forEach((col, i) => { if (col?.width && Math.abs(col.width - 8.43) > 0.5) colWidths[colName(i)] = Math.round(col.width * 7 + 5); });
-    sheets.push({ name: ws.name.slice(0, 30), cells, colWidths, ...(Object.keys(formats).length && { formats }) });
+    // Frozen panes: the rows above and the columns left of the split stay in view.
+    const view = (ws.views || []).find((v) => v.state === 'frozen');
+    const frozen = view && { rows: Math.min(50, Math.max(0, view.ySplit || 0)), cols: Math.min(26, Math.max(0, view.xSplit || 0)) };
+    sheets.push({ name: ws.name.slice(0, 30), cells, colWidths, ...(Object.keys(formats).length && { formats }), ...(frozen && (frozen.rows || frozen.cols) && { frozen }) });
   });
   return { sheets: sheets.length ? sheets : [{ name: 'Sheet1', cells: {}, colWidths: {} }] };
 }
@@ -97,6 +100,7 @@ export async function excelFromSheet(data) {
       if (nf) cell.numFmt = nf;
     }
     for (const [col, px] of Object.entries(s.colWidths || {})) ws.getColumn(col).width = Math.max(2, Math.round((px - 5) / 7));
+    if (s.frozen?.rows || s.frozen?.cols) ws.views = [{ state: 'frozen', xSplit: s.frozen.cols || 0, ySplit: s.frozen.rows || 0 }];
   }
   if (!wb.worksheets.length) wb.addWorksheet('Sheet1');
   return Buffer.from(await wb.xlsx.writeBuffer());

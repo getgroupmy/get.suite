@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 import { get, patch } from '../../api.js';
 import * as Y from 'yjs';
@@ -25,6 +25,8 @@ const TEXT_COLORS = [['', 'Automatic'], ['#c5221f', 'Red'], ['#e37400', 'Orange'
 const FILLS = [['', 'None'], ['#fce8e6', 'Light red'], ['#fef7e0', 'Light yellow'], ['#e6f4ea', 'Light green'], ['#e8f0fe', 'Light blue'], ['#f3e8fd', 'Light purple'], ['#f1f3f4', 'Light grey']];
 
 const MIN_ROWS = 100;
+const DEFAULT_W = 100; // column width in pixels when none is set
+const MIN_W = 30, MAX_W = 800;
 const MIN_COLS = 26;
 
 function sheetSize(cells) {
@@ -98,6 +100,21 @@ export default function SheetEditor() {
   const cells = sheet?.cells || {};
   const formats = sheet?.formats || {};
   const charts = sheet?.charts || {};
+  const colWidths = sheet?.colWidths || {};
+  const frozen = { rows: sheet?.frozen?.rows || 0, cols: sheet?.frozen?.cols || 0 };
+  const [resizing, setResizing] = useState(null); // { c, w } while a column edge is dragged
+  const widthOf = (c) => (resizing?.c === c ? resizing.w : colWidths[colName(c)] ?? DEFAULT_W);
+  // Frozen rows and columns stay put while scrolling: their offsets, measured from the grid.
+  const [stick, setStick] = useState({ top: [], left: [] });
+  useLayoutEffect(() => {
+    const grid = gridRef.current;
+    if (!grid || (!frozen.rows && !frozen.cols)) { if (stick.top.length || stick.left.length) setStick({ top: [], left: [] }); return; }
+    const heads = grid.querySelectorAll('thead th');
+    const trs = grid.querySelectorAll('tbody tr');
+    const top = Array.from({ length: frozen.rows }, (_, r) => trs[r]?.offsetTop ?? 0);
+    const left = Array.from({ length: frozen.cols }, (_, c) => heads[c + 1]?.offsetLeft ?? 0);
+    if (top.join() !== stick.top.join() || left.join() !== stick.left.join()) setStick({ top, left });
+  });
   const evaluate = useMemo(() => createEvaluator(cells), [cells]);
   const { rows, cols } = useMemo(() => sheetSize(cells), [cells]);
 
@@ -136,6 +153,45 @@ export default function SheetEditor() {
     });
     commitData({ ...cur, sheets });
   }
+
+  /** Change this sheet's own settings (column widths, frozen panes): fn(sheet) → changes. */
+  function writeSheet(fn) {
+    if (readOnly) return;
+    const cur = dataRef.current;
+    commitData({ ...cur, sheets: cur.sheets.map((s, i) => (i === active ? { ...s, ...fn(s) } : s)) });
+  }
+  const setWidth = (c, w) => writeSheet((s) => ({ colWidths: { ...(s.colWidths || {}), [colName(c)]: Math.round(Math.max(MIN_W, Math.min(MAX_W, w))) } }));
+  const setFrozen = (rowsN, colsN) => writeSheet((s) => {
+    const f = { rows: rowsN ?? (s.frozen?.rows || 0), cols: colsN ?? (s.frozen?.cols || 0) };
+    return { frozen: f.rows || f.cols ? f : null };
+  });
+  /** Drag a column heading's right edge to resize it; double-click to fit its contents. */
+  const startResize = (c) => (e) => {
+    if (readOnly || e.button !== 0) return;
+    e.preventDefault(); e.stopPropagation();
+    const x0 = e.clientX, w0 = widthOf(c);
+    const move = (ev) => setResizing({ c, w: Math.max(MIN_W, Math.min(MAX_W, w0 + ev.clientX - x0)) });
+    const up = (ev) => {
+      window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up);
+      setResizing(null);
+      if (Math.abs(ev.clientX - x0) > 1) setWidth(c, w0 + ev.clientX - x0);
+    };
+    window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
+  };
+  const fitColumn = (c) => {
+    const ctx = document.createElement('canvas').getContext('2d');
+    ctx.font = `13px ${getComputedStyle(gridRef.current || document.body).fontFamily}`;
+    let w = ctx.measureText(colName(c)).width;
+    for (const [k, raw] of Object.entries(cells)) {
+      const p = parseRef(k);
+      if (!p || p.c !== c || raw === '') continue;
+      const v = evaluate(k);
+      const f = formats[k];
+      ctx.font = `${f?.b ? 'bold ' : ''}${f?.i ? 'italic ' : ''}13px ${getComputedStyle(gridRef.current || document.body).fontFamily}`;
+      w = Math.max(w, ctx.measureText(String(formatNumber(v, f) ?? display(v))).width);
+    }
+    setWidth(c, w + 18);
+  };
 
   /** Add, change (chart) or remove (id, null) a chart on this sheet. */
   function writeChart(id, chart) {
@@ -379,6 +435,17 @@ export default function SheetEditor() {
     { label: `Sort Z → A by column ${colName(sel.c)}`, onClick: () => quickSort(true) },
     { label: 'Sort range…', onClick: () => setDialog({ type: 'sort' }) },
   ];
+  const freezeRows = [
+    { label: range.r2 === 0 ? 'Freeze the first row' : `Freeze rows 1–${range.r2 + 1}`, onClick: () => setFrozen(Math.min(range.r2 + 1, 50), null), disabled: frozen.rows === range.r2 + 1 },
+    frozen.rows > 0 && { label: 'Unfreeze rows', onClick: () => setFrozen(0, null) },
+  ];
+  const freezeCols = [
+    { label: range.c2 === 0 ? 'Freeze the first column' : `Freeze columns A–${colName(range.c2)}`, onClick: () => setFrozen(null, Math.min(range.c2 + 1, 26)), disabled: frozen.cols === range.c2 + 1 },
+    frozen.cols > 0 && { label: 'Unfreeze columns', onClick: () => setFrozen(null, 0) },
+    { label: `Fit column ${colName(range.c1)} to its contents`, onClick: () => fitColumn(range.c1) },
+  ];
+  rowItems.push('-', ...freezeRows);
+  colItems.push('-', ...freezeCols);
   const ctxItems = ctx?.kind === 'row' ? rowItems : ctx?.kind === 'col' ? [...colItems, '-', ...sortItems] : [...rowItems, '-', ...colItems, '-', ...sortItems];
   /** Open the menu at the mouse, or (keyboard: the menu key, Shift+F10) at the selected cell. */
   const openMenu = (e, kind) => {
@@ -388,6 +455,8 @@ export default function SheetEditor() {
     if (!x && !y) { const td = gridRef.current?.querySelector(`[data-k="${cellKey(sel.c, sel.r)}"]`)?.getBoundingClientRect(); x = td ? td.left + 20 : 200; y = td ? td.bottom : 200; }
     setCtx({ x, y, kind });
   };
+  const frozenClass = (c, r) => `${r < frozen.rows ? 'frozen-r' : ''} ${c < frozen.cols ? 'frozen-c' : ''} ${r === frozen.rows - 1 ? 'freeze-edge-b' : ''} ${c === frozen.cols - 1 ? 'freeze-edge-r' : ''}`;
+  const stickyStyle = (c, r) => (r < frozen.rows || c < frozen.cols ? { ...(r < frozen.rows && { top: stick.top[r] }), ...(c < frozen.cols && { left: stick.left[c] }) } : null);
   const isWholeRows = anchor && range.c1 === 0 && range.c2 === cols - 1;
   const isWholeCols = anchor && range.r1 === 0 && range.r2 === rows - 1;
   /** Clicking a row or column heading selects it (Shift extends). A right-click inside the selection keeps it. */
@@ -443,21 +512,28 @@ export default function SheetEditor() {
         <table className="grid" role="grid" aria-label={sheet.name}>
           <thead>
             <tr><th className="corner" />{Array.from({ length: cols }, (_, c) => (
-              <th key={c} className={c >= range.c1 && c <= range.c2 ? 'hl' : ''} onMouseDown={(e) => { if (e.button === 0) pickCol(c, e); }}
-                onContextMenu={(e) => { if (!(isWholeCols && c >= range.c1 && c <= range.c2)) pickCol(c, { shiftKey: false }); openMenu(e, 'col'); }}>{colName(c)}</th>
+              <th key={c} className={`${c >= range.c1 && c <= range.c2 ? 'hl' : ''} ${c < frozen.cols ? 'frozen-c' : ''} ${c === frozen.cols - 1 ? 'freeze-edge-r' : ''}`}
+                style={{ width: widthOf(c), minWidth: widthOf(c), maxWidth: widthOf(c), ...(c < frozen.cols && { left: stick.left[c] }) }}
+                onMouseDown={(e) => { if (e.button === 0) pickCol(c, e); }}
+                onContextMenu={(e) => { if (!(isWholeCols && c >= range.c1 && c <= range.c2)) pickCol(c, { shiftKey: false }); openMenu(e, 'col'); }}>
+                {colName(c)}
+                {!readOnly && <span className="col-resize" role="separator" aria-orientation="vertical" aria-label={`Resize column ${colName(c)}`} title="Drag to resize, double-click to fit"
+                  onPointerDown={startResize(c)} onMouseDown={(e) => e.stopPropagation()} onDoubleClick={(e) => { e.stopPropagation(); fitColumn(c); }} />}
+              </th>
             ))}</tr>
           </thead>
           <tbody>
             {Array.from({ length: rows }, (_, r) => (
               <tr key={r}>
-                <th className={r >= range.r1 && r <= range.r2 ? 'hl' : ''} onMouseDown={(e) => { if (e.button === 0) pickRow(r, e); }}
+                <th className={`${r >= range.r1 && r <= range.r2 ? 'hl' : ''} ${r < frozen.rows ? 'frozen-r' : ''} ${r === frozen.rows - 1 ? 'freeze-edge-b' : ''}`}
+                  style={r < frozen.rows ? { top: stick.top[r] } : undefined} onMouseDown={(e) => { if (e.button === 0) pickRow(r, e); }}
                   onContextMenu={(e) => { if (!(isWholeRows && r >= range.r1 && r <= range.r2)) pickRow(r, { shiftKey: false }); openMenu(e, 'row'); }}>{r + 1}</th>
                 {Array.from({ length: cols }, (_, c) => {
                   const k = cellKey(c, r);
                   const isSel = c === sel.c && r === sel.r;
                   if (isSel && editing === 'cell') {
                     return (
-                      <td key={k} data-k={k} className="sel editing">
+                      <td key={k} data-k={k} className={`sel editing ${frozenClass(c, r)}`} style={{ maxWidth: widthOf(c), ...stickyStyle(c, r) }}>
                         <input autoFocus value={draft} aria-label={`Edit ${k}`} onChange={(e) => setDraft(e.target.value)}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter') { e.preventDefault(); commitEdit(0, e.shiftKey ? -1 : 1); }
@@ -473,9 +549,9 @@ export default function SheetEditor() {
                   const isErr = v && typeof v === 'object';
                   const fmt = formats[k];
                   return (
-                    <td key={k} data-k={k} style={theirs.has(k) ? { ...cellStyle(fmt), boxShadow: `${isSel ? 'inset 0 0 0 2px var(--accent), ' : ''}inset 0 0 0 ${isSel ? 4 : 2}px ${theirs.get(k).color}` } : cellStyle(fmt)}
+                    <td key={k} data-k={k} style={{ maxWidth: widthOf(c), ...stickyStyle(c, r), ...cellStyle(fmt), ...(theirs.has(k) && { boxShadow: `${isSel ? 'inset 0 0 0 2px var(--accent), ' : ''}inset 0 0 0 ${isSel ? 4 : 2}px ${theirs.get(k).color}` }) }}
                       title={theirs.has(k) ? `${theirs.get(k).name} is here` : commented.has(k) ? 'Has comments' : undefined}
-                      className={`${commented.has(k) ? 'commented' : ''} ${isSel ? 'sel' : ''} ${inRange(c, r) && anchor ? 'range' : ''} ${typeof v === 'number' ? 'num' : ''} ${isErr ? 'err' : ''}`}
+                      className={`${frozenClass(c, r)} ${commented.has(k) ? 'commented' : ''} ${isSel ? 'sel' : ''} ${inRange(c, r) && anchor ? 'range' : ''} ${typeof v === 'number' ? 'num' : ''} ${isErr ? 'err' : ''}`}
                       onContextMenu={(e) => { if (!inRange(c, r)) { setAnchor(null); setSel({ c, r }); } openMenu(e, 'cell'); }}
                       onMouseDown={(e) => {
                         if (e.button !== 0 && inRange(c, r)) return; // a right-click keeps the selection

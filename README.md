@@ -126,6 +126,12 @@ Everyone who can edit a document, spreadsheet or presentation can work in it at 
 - **Everything follows:** formulas point to the same cells after they move, and ranges grow or shrink (`=SUM(B2:B10)` becomes `=SUM(B2:B11)` with a row inserted inside it). A formula that used a deleted cell shows `#REF!`. Formats, column widths, charts and comments move with their cells; a comment whose cell is deleted is marked *(deleted)*.
 - **Sort:** right-click a cell and choose *Sort A → Z* or *Z → A* to sort the table around it by that column, or press **Sort** for a range, column and order of your choice. A heading row is spotted and kept at the top. Numbers come before text, and empty cells go last. Formulas move with their row.
 
+## Column widths and frozen rows (Sheets)
+
+- **Width:** drag the right edge of a column letter to make the column wider or narrower; double-click the edge (or right-click the letter → *Fit column to its contents*) to fit what's in it.
+- **Freeze:** right-click a row number → *Freeze the first row* (or *Freeze rows 1–3* with three rows selected) to keep headings in view while scrolling; the same for columns from a column letter. *Unfreeze* puts them back. A darker line shows where the frozen part ends.
+- Widths and frozen rows and columns are shared with everyone editing, kept per sheet, and carried to and from Excel.
+
 ## Charts (Sheets)
 
 - **Insert:** select cells (or just click one inside your table) and press **Chart**. The first row and column are used as names when they hold text. Choose **Column**, **Bar**, **Line** or **Pie**, give it a title, and check the preview.
@@ -172,7 +178,7 @@ Your Workspace calendar and contacts sync with the phone's own Calendar and Cont
 - **Downloading:** **Download as Word / Excel / PowerPoint** is in each editor's ⋮ menu.
 - **What carries over:**
   - **Word:** headings, paragraphs, bold, italic, underline, strike, links, bulleted and numbered lists, quotes, code, tables and pictures (saved in a "… pictures" folder beside the document). Downloading also writes text colours and highlights, and each picture's size and alignment. Paragraph alignment and text colours aren't read from Word files yet.
-  - **Excel:** every sheet, values and formulas, bold, italic and underline, text and fill colour, alignment, number, currency and percent formats with their decimals, and column widths. Excel functions Sheets doesn't know show an error in Sheets, but are kept and written back as they were.
+  - **Excel:** every sheet, values and formulas, bold, italic and underline, text and fill colour, alignment, number, currency and percent formats with their decimals, column widths, and frozen rows and columns. Excel functions Sheets doesn't know show an error in Sheets, but are kept and written back as they were.
   - **PowerPoint:** every slide, text boxes at their places (size, bold, italic, colour, alignment), rectangles, rounded rectangles and ellipses, pictures (saved in a "… pictures" folder beside the presentation), and slide backgrounds. Animations, charts and SmartArt don't carry over.
 - Files up to 50 MB can be converted.
 

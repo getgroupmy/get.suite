@@ -11,6 +11,7 @@ const SHEET_MAPS = ['cells', 'colWidths', 'formats', 'charts']; // charts: id â†
 function sheetMap(sheet) {
   const m = new Y.Map();
   m.set('name', sheet.name || 'Sheet');
+  if (sheet.frozen) m.set('frozen', sheet.frozen); // { rows, cols } kept in view while scrolling
   for (const k of SHEET_MAPS) {
     const inner = new Y.Map();
     for (const [key, v] of Object.entries(sheet[k] || {})) inner.set(key, v);
@@ -28,6 +29,7 @@ export function sheetDocFromJson(json) {
 export function jsonFromSheetDoc(doc) {
   return { sheets: doc.getArray('sheets').toArray().map((m) => {
     const s = { name: m.get('name') };
+    if (m.get('frozen')) s.frozen = m.get('frozen');
     for (const k of SHEET_MAPS) { const inner = m.get(k); s[k] = inner ? inner.toJSON() : {}; }
     for (const k of ['formats', 'charts']) if (!Object.keys(s[k]).length) delete s[k];
     return s;
@@ -48,6 +50,7 @@ export function applySheetJson(doc, next) {
       if (i >= arr.length) { arr.push([sheetMap(sheet)]); return; }
       const m = arr.get(i);
       if (m.get('name') !== sheet.name) m.set('name', sheet.name);
+      if (!same(m.get('frozen') || null, sheet.frozen || null)) { if (sheet.frozen) m.set('frozen', sheet.frozen); else m.delete('frozen'); }
       for (const k of SHEET_MAPS) {
         let inner = m.get(k);
         if (!inner) { inner = new Y.Map(); m.set(k, inner); }
