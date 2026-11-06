@@ -122,3 +122,21 @@ test('an unknown zone with no definition uses the person\'s own', () => {
   assert.equal(new Date(e.start).toISOString(), '2026-06-01T00:00:00.000Z');
   assert.equal(e.tz, 'Asia/Tokyo');
 });
+
+import { beforeStart, alarmsIn } from '../src/ics.js';
+test('reminders as VALARMs, both ways', () => {
+  assert.deepEqual([0, 10, 60, 90, 1440, 10080].map(beforeStart), ['PT0S', '-PT10M', '-PT1H', '-PT90M', '-P1D', '-P1W']);
+  const ev = (trigger) => `BEGIN:VEVENT\r\nBEGIN:VALARM\r\nACTION:DISPLAY\r\nTRIGGER${trigger}\r\nEND:VALARM\r\nEND:VEVENT`;
+  const start = Date.UTC(2026, 10, 10, 9);
+  assert.deepEqual(alarmsIn(ev(':-PT15M'), start), [15]);
+  assert.deepEqual(alarmsIn(ev(';RELATED=START:-P1DT2H'), start), [1560]);
+  assert.deepEqual(alarmsIn(ev(':PT0S'), start), [0]);
+  assert.deepEqual(alarmsIn(ev(':PT5M'), start), [], 'after the start: not a reminder Workspace keeps');
+  assert.deepEqual(alarmsIn(ev(';RELATED=END:-PT5M'), start), []);
+  assert.deepEqual(alarmsIn(ev(';VALUE=DATE-TIME:20261110T083000Z'), start), [30]);
+  const two = `BEGIN:VEVENT\r\n${['-PT10M', '-PT10M', '-PT1H'].map((t) => `BEGIN:VALARM\r\nTRIGGER:${t}\r\nEND:VALARM`).join('\r\n')}\r\nEND:VEVENT`;
+  assert.deepEqual(alarmsIn(two, start), [10, 60]);
+  const ics = buildIcs({ title: 'Call', start, end: start + 36e5 }, { method: null, uid: 'u1', alarms: [10, 1440] });
+  assert.match(ics, /BEGIN:VALARM\r\nACTION:DISPLAY\r\nDESCRIPTION:Call\r\nTRIGGER:-PT10M\r\nEND:VALARM/);
+  assert.match(ics, /TRIGGER:-P1D/);
+});

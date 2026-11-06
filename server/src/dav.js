@@ -19,6 +19,7 @@ import { verifyDovecotHash } from './mail/crypt.js';
 import * as guard from './security/guard.js';
 import * as twoFactor from './twofactor.js';
 import { buildIcs, parseIcsEvent, zoneOrUtc, contentLines } from './ics.js';
+import { remindersOf, setReminders } from './reminders.js';
 import { buildVcard, parseVcard } from './vcard.js';
 import { MAIL_HOSTNAME } from './mail/config.js';
 import { sendTo } from './hub.js';
@@ -82,10 +83,10 @@ const hrefsIn = (body) => [...String(body || '').matchAll(/<(?:\w+:)?href>([^<]+
 // ---- what's stored ----
 const host = () => MAIL_HOSTNAME || 'workspace';
 // Your events (changed single occurrences travel inside their series), and invitations you haven't declined.
-const eventsOf = (userId) => q(`SELECT e.*, NULL AS my_status FROM events e WHERE e.owner_id = ?
+const eventsOf = (userId) => q(`SELECT e.*, NULL AS my_status, ? AS for_user FROM events e WHERE e.owner_id = ?
     AND (e.recur_parent IS NULL OR NOT EXISTS (SELECT 1 FROM events p WHERE p.id = e.recur_parent AND p.rrule IS NOT NULL))
-  UNION ALL SELECT e.*, g.status AS my_status FROM events e JOIN event_guests g ON g.event_id = e.id WHERE g.user_id = ? AND g.status != 'no'
-  ORDER BY start`).all(userId, userId);
+  UNION ALL SELECT e.*, g.status AS my_status, ? AS for_user FROM events e JOIN event_guests g ON g.event_id = e.id WHERE g.user_id = ? AND g.status != 'no'
+  ORDER BY start`).all(userId, userId, userId, userId);
 const contactsOf = (userId) => q('SELECT * FROM contacts WHERE owner_id = ? ORDER BY name').all(userId);
 const eventName = (e) => e.dav_name || `${e.id}.ics`;
 const contactName = (c) => c.dav_name || `${c.id}.vcf`;
@@ -99,7 +100,8 @@ function icsOf(e) {
   const invite = e.my_status !== null && e.my_status !== undefined;
   const organizer = invite ? q('SELECT name, username AS email FROM users WHERE id = ?').get(e.owner_id) : null;
   const attendees = invite ? q('SELECT u.name, u.username AS email, g.status FROM event_guests g JOIN users u ON u.id = g.user_id WHERE g.event_id = ? ORDER BY u.username').all(e.id) : [];
-  return buildIcs(outEvent(e), { method: null, uid: e.ical_uid || `${e.id}@${host()}`, sequence: e.sequence || 0, tz: e.tz, now: STAMP, overrides, organizer, attendees });
+  const alarms = e.for_user ? remindersOf(e.id, e.for_user) : []; // the reminders of the person syncing
+  return buildIcs(outEvent(e), { method: null, uid: e.ical_uid || `${e.id}@${host()}`, sequence: e.sequence || 0, tz: e.tz, now: STAMP, overrides, organizer, attendees, alarms });
 }
 const PARTSTAT = { ACCEPTED: 'yes', TENTATIVE: 'maybe', DECLINED: 'no' };
 const vcfOf = (c) => buildVcard(c);
@@ -190,8 +192,8 @@ export default function davRoutes() {
     if (area === 'addressbooks' && coll === 'default' && parts.length === 4) return { kind: 'contact', name: item };
     return { kind: 'none' };
   }
-  const findEvent = (userId, name) => q('SELECT *, NULL AS my_status FROM events WHERE owner_id = ? AND (dav_name = ? OR (dav_name IS NULL AND id || \'.ics\' = ?))').get(userId, name, name)
-    || q(`SELECT e.*, g.status AS my_status FROM events e JOIN event_guests g ON g.event_id = e.id WHERE g.user_id = ? AND e.id || '.ics' = ?`).get(userId, name);
+  const findEvent = (userId, name) => q('SELECT *, NULL AS my_status, ? AS for_user FROM events WHERE owner_id = ? AND (dav_name = ? OR (dav_name IS NULL AND id || \'.ics\' = ?))').get(userId, userId, name, name)
+    || q(`SELECT e.*, g.status AS my_status, ? AS for_user FROM events e JOIN event_guests g ON g.event_id = e.id WHERE g.user_id = ? AND e.id || '.ics' = ?`).get(userId, userId, name);
   const findContact = (userId, name) => q('SELECT * FROM contacts WHERE owner_id = ? AND (dav_name = ? OR (dav_name IS NULL AND id || \'.vcf\' = ?))').get(userId, name, name);
 
   r.use((req, res, next) => {
@@ -285,6 +287,8 @@ export default function davRoutes() {
           const mine = contentLines(req.body).find((l) => l.name === 'ATTENDEE' && l.value.toLowerCase() === `mailto:${req.davUser.username}`);
           const status = PARTSTAT[(mine?.params.PARTSTAT || '').toUpperCase()];
           if (status) { q('UPDATE event_guests SET status = ? WHERE event_id = ? AND user_id = ?').run(status, row.id, me); touch([me, row.owner_id]); }
+          const theirs = parseIcsEvent(req.body, { tz: row.tz || 'UTC' }); // a guest's own reminders
+          if (!theirs.error) { setReminders(row.id, me, theirs.reminders); touch([me]); }
           const saved = findEvent(me, at.name);
           if (saved) res.setHeader('ETag', etagOf(icsOf(saved)));
           return res.status(204).end();
@@ -300,8 +304,9 @@ export default function davRoutes() {
           else q(`INSERT INTO events (title, description, location, start, end, all_day, rrule, exdates, repeat_until, tz, id, owner_id, dav_name, ical_uid, color)
                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`).run(...vals, id, me, at.name, e.uid);
           syncOverrides(id, e, me);
+          setReminders(id, me, e.reminders);
           touch(me);
-          const saved = q('SELECT *, NULL AS my_status FROM events WHERE id = ?').get(id);
+          const saved = q('SELECT *, NULL AS my_status, ? AS for_user FROM events WHERE id = ?').get(me, id);
           res.setHeader('ETag', etagOf(icsOf(saved)));
           return res.status(row ? 204 : 201).end();
         }

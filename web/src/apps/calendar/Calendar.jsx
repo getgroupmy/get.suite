@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { get, post, patch, del, onLive } from '../../api.js';
+import { get, post, put, patch, del, onLive } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
 import { Modal, useToast } from '../../components/ui.jsx';
 import { DAY, VIEWS, startOfDay, visibleDays, shift, title, onDay, layoutDay, expandAll, occurrenceIndex, describeRule, daysBetween, moveTimes, resizeEnd, shiftWeekdays, snapMinutes } from './calmath.js';
@@ -215,6 +215,36 @@ function TimeGrid({ days, events, today, onOpen, onNew, onDay: openDay, drag }) 
   );
 }
 
+// ---- reminders: each person's own, in minutes before the start ----
+const REMINDER_CHOICES = [[0, 'At the start'], [5, '5 minutes before'], [10, '10 minutes before'], [15, '15 minutes before'], [30, '30 minutes before'],
+  [60, '1 hour before'], [120, '2 hours before'], [1440, '1 day before'], [2880, '2 days before'], [10080, '1 week before']];
+export const reminderLabel = (m) => REMINDER_CHOICES.find(([v]) => v === m)?.[1]
+  || (m % 1440 === 0 ? `${m / 1440} days before` : m % 60 === 0 ? `${m / 60} hours before` : `${m} minutes before`);
+
+/** The reminders of one event: a choice per reminder, and a button to add another (up to five). */
+function RemindersField({ value, onChange }) {
+  const set = (i, m) => onChange([...new Set(value.map((x, j) => (j === i ? m : x)))].sort((a, b) => a - b));
+  return (
+    <div className="field reminders" role="group" aria-label="Reminders">
+      <span>Reminders</span>
+      {value.map((m, i) => (
+        <div key={m} className="row">
+          <select aria-label={`Reminder ${i + 1}`} value={m} onChange={(e) => set(i, Number(e.target.value))}>
+            {[...REMINDER_CHOICES.map(([v]) => v), ...(REMINDER_CHOICES.some(([v]) => v === m) ? [] : [m])].sort((a, b) => a - b)
+              .map((v) => <option key={v} value={v} disabled={v !== m && value.includes(v)}>{reminderLabel(v)}</option>)}
+          </select>
+          <button type="button" className="icon-btn" aria-label={`Remove reminder ${reminderLabel(m)}`} onClick={() => onChange(value.filter((x) => x !== m))}><Icon name="close" size={16} /></button>
+        </div>
+      ))}
+      {value.length < 5 && (
+        <button type="button" className="link-btn" onClick={() => { const next = REMINDER_CHOICES.map(([v]) => v).find((v) => !value.includes(v) && v >= 10) ?? 0; onChange([...value, next].sort((a, b) => a - b)); }}>
+          {value.length ? 'Add another reminder' : 'Add a reminder'}
+        </button>
+      )}
+    </div>
+  );
+}
+
 // Invitations you haven't answered look tentative; declined ones are faded.
 const inviteClass = (ev) => (ev.role !== 'guest' ? '' : ev.my_status === 'no' ? 'declined' : ev.my_status === 'yes' ? '' : 'tentative');
 const ANSWER_LABELS = { yes: 'Yes', maybe: 'Maybe', no: 'No', needs: 'Not answered' };
@@ -227,6 +257,11 @@ const whenLabel = (ev) => {
 /** An event you're invited to: details, who's coming, and your answer. */
 function InvitationDialog({ event, onClose, onAnswered }) {
   const toast = useToast();
+  const [reminders, setReminders] = useState(event.reminders || []);
+  const saveReminders = async (list) => {
+    setReminders(list);
+    try { await put(`/events/${event.id}/reminders`, { reminders: list }); } catch (e) { toast(e.message, 'error'); }
+  };
   const answer = async (status) => {
     try { await post(`/events/${event.id}/rsvp`, { status }); toast(`Answered ${ANSWER_LABELS[status]}`); onAnswered(); } catch (e) { toast(e.message, 'error'); }
   };
@@ -238,6 +273,7 @@ function InvitationDialog({ event, onClose, onAnswered }) {
         {event.description && <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{event.description}</p>}
         <p style={{ margin: 0 }}><span className="muted">Organizer:</span> {event.organizer?.name} <span className="muted small">{event.organizer?.email}</span></p>
         <GuestList guests={event.guests} />
+        <RemindersField value={reminders} onChange={saveReminders} />
         <div className="stack" style={{ gap: 6 }}>
           <span className="muted small">Going?{event.rrule ? ' (for the whole series)' : ''}</span>
           <div className="row" role="group" aria-label="Your answer">
@@ -291,6 +327,8 @@ function EventDialog({ event, onClose, onSaved }) {
     until: r0?.until !== undefined ? toDateInput(r0.until) : toDateInput(event.start + 30 * DAY), count: r0?.count || 10,
   });
   const [guests, setGuests] = useState((event.guests || []).map((g) => g.email));
+  // New timed events remind you 10 minutes before, as in other calendars.
+  const [reminders, setReminders] = useState(event.reminders ?? (event.id || event.all_day ? [] : [10]));
   const [guestInput, setGuestInput] = useState('');
   const [directory, setDirectory] = useState([]);
   useEffect(() => { get('/users/directory').then(setDirectory).catch(() => {}); }, []);
@@ -308,7 +346,7 @@ function EventDialog({ event, onClose, onSaved }) {
     const start = f.all_day ? fromInputs(f.startDate) : fromInputs(f.startDate, f.startTime);
     const end = f.all_day ? fromInputs(f.endDate) + DAY - 1 : fromInputs(f.endDate, f.endTime);
     const all = guestInput.trim() ? [...new Set([...guests, ...guestInput.split(/[\s,;]+/).map((x) => x.trim().toLowerCase()).filter((x) => x.includes('@'))])] : guests;
-    return { start, end, body: { title: f.title, location: f.location, description: f.description, color: f.color, all_day: f.all_day, start, end, rrule: ruleFromForm(rep, start), guests: all, tz: TZ } };
+    return { start, end, body: { title: f.title, location: f.location, description: f.description, color: f.color, all_day: f.all_day, start, end, rrule: ruleFromForm(rep, start), guests: all, reminders, tz: TZ } };
   };
 
   async function save(which) {
@@ -401,6 +439,7 @@ function EventDialog({ event, onClose, onSaved }) {
             {guests.some((g) => { const k = (event.guests || []).find((x) => x.email === g); return k ? k.external : !directory.some((d) => d.username === g); })
               && ' People outside Workspace get an email invitation for their own calendar (Outlook, Gmail, phone) and a link to answer; they also get changes and cancellations.'}</span>}
         </div>
+        <RemindersField value={reminders} onChange={setReminders} />
         <label className="field"><span>Location</span><input value={f.location} onChange={set('location')} /></label>
         <label className="field"><span>Description</span><textarea rows={3} value={f.description} onChange={set('description')} /></label>
         <div className="colors" role="radiogroup" aria-label="Color">

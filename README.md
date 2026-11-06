@@ -162,14 +162,13 @@ Your Workspace calendar and contacts sync with the phone's own Calendar and Cont
 - **Thunderbird, macOS Calendar and Contacts** work the same way. The address `https://workspace.example.com/dav/` is the one to use if an app asks for the full address.
 - **Password:** your account password. With two-step verification on, use a **mail-app password** instead (Settings), so a phone never gets around the second step. Wrong passwords count towards sign-in protection.
 - **What syncs:**
-  - Your events, including repeating ones (daily, weekly on chosen days, monthly on a date, yearly; an end date or a number of times; skipped dates). Changes on either side show up on the other.
+  - Your events with your reminders, including repeating ones (daily, weekly on chosen days, monthly on a date, yearly; an end date or a number of times; skipped dates). Changes on either side show up on the other.
   - Your contacts. Addresses, birthdays and extra numbers added on a phone are kept, even though the web only shows one email and one phone number.
   - **Invitations** from colleagues appear on your phone with the organiser and guests. Accept, Maybe or Decline there is your answer in Workspace, and deleting one declines it. You can't change someone else's event from the phone.
   - **One occurrence of a repeating event** changed on its own (on the phone, or with "This event" on the web) shows on both as part of the series. Cancelling one on the phone skips that date.
   - **Time zones** come across however the app names them: standard names (`Europe/Berlin`), Outlook's Windows names (`W. Europe Standard Time`), or a zone the app describes itself (Outlook's "Customized Time Zone"), so a 9:00 meeting stays at 9:00.
 - **Not yet:**
   - Repeats that Workspace can't show (such as "second Monday of the month") arrive as a one-off on the first date.
-  - Reminders set on the phone stay on the phone.
 - **Synology reverse proxy:** nothing to add. The same HTTPS entry serves `/dav/` and the `/.well-known/caldav` and `/.well-known/carddav` addresses that apps look for.
 
 ## Word, Excel and PowerPoint files
@@ -234,6 +233,7 @@ Send a file or a whole folder to someone who has no account, such as a client. I
   - In week and day views, events sit at their times, overlapping ones side by side, with a red line for the current time.
   - Click an empty half hour to create an event there, or a date to open that day. The arrow keys move between periods.
 - **Dragging with the mouse:** drag an event to another time or day (in 15-minute steps in week and day views; to another day in the month view and the all-day row), or drag its bottom edge to change when it ends. Esc cancels a drag. For a repeating event you choose "This event", "This and following events" or "All events"; a weekly series on set weekdays moves its weekdays along with it. Invitations from other people can't be dragged. On phones and tablets, open the event and change the times instead.
+- **Reminders:** each event can remind you (at the start, or minutes, hours, days or a week before; up to five). New events remind you 10 minutes before. While Workspace is open in a browser, a reminder pops up at the bottom of the page, and as a desktop notification when the tab is in the background and notifications are on (Settings). It shows once, even with several tabs open. Reminders are your own: a guest sets theirs in the invitation, and the organiser's don't apply to them. Phones and calendar apps that sync over CalDAV get them too, and reminders set on the phone show on the web.
 - **Repeating events:** in an event, choose **Repeat**: daily, weekly (pick the weekdays), monthly on the same date, or yearly; every 1, 2, 3… of those. It ends never, on a date, or after a number of times. A line such as "Every 2 weeks on Mon, Thu" confirms the choice.
   - Dates are worked out in the event's own time zone, so a 9:00 meeting stays at 9:00 when the clocks change, also for colleagues looking at it from another time zone.
   - A monthly event on the 31st skips months without a 31st, and a yearly event on 29 February appears only in leap years.

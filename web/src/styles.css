@@ -943,3 +943,9 @@ td.name .match mark { background: var(--accent-soft); color: var(--accent-text);
 .grid td.freeze-edge-b, .grid tbody th.freeze-edge-b { border-bottom: 2px solid var(--muted); }
 .grid td.freeze-edge-r, .grid thead th.freeze-edge-r { border-right: 2px solid var(--muted); }
 .grid td.frozen-r.range, .grid td.frozen-c.range { background-color: color-mix(in srgb, var(--accent-soft) 60%, var(--surface)); }
+
+/* ---------- calendar reminders ---------- */
+.field.reminders { gap: 6px; }
+.field.reminders .row { gap: 4px; }
+.field.reminders select { min-width: 200px; }
+.field.reminders .link-btn { align-self: flex-start; font-size: 14px; text-decoration: none; }

@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate, NavLink, useNavigate } from 're
 import { get, post, startLive, stopLive } from './api.js';
 import { useMailStatus } from './mailStatus.js';
 import { useMailNotifications } from './mailNotify.js';
+import { useEventReminders } from './eventReminders.js';
 import Icon from './components/Icon.jsx';
 import { Avatar, Menu, ToastProvider, useToast } from './components/ui.jsx';
 import Login from './apps/Login.jsx';
@@ -104,6 +105,8 @@ function Shell() {
   const toast = useToast();
   const openMessage = useCallback((folder, uid) => navigate(`/mail/${encodeURIComponent(folder)}/${uid}`), [navigate]);
   const unread = useMailNotifications(!!mail?.enabled, { toast, openMessage });
+  const openCalendar = useCallback(() => navigate('/calendar'), [navigate]);
+  useEventReminders(true, { toast, openCalendar });
 
   return (
     <div className={`shell ${navOpen ? 'nav-open' : ''}`}>

@@ -7,6 +7,7 @@ import crypto from 'node:crypto';
 import { mailEnabled, MAIL_HOSTNAME } from '../mail/config.js';
 import { smtpFor } from '../mail/imap.js';
 import { buildIcs, zoneOrUtc } from '../ics.js';
+import { remindersFor, remindersOf, setReminders } from '../reminders.js';
 
 q(`CREATE TABLE IF NOT EXISTS event_guests (
   event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
@@ -222,10 +223,11 @@ export default function calendarRoutes() {
                     WHERE (e.owner_id = ? OR g.user_id IS NOT NULL) AND e.start < ?
                     AND (e.end >= ? OR (e.rrule IS NOT NULL AND (e.repeat_until IS NULL OR e.repeat_until >= ?))) ORDER BY e.start`)
       .all(req.user.id, req.user.id, to, from, from);
+    const reminders = remindersFor(req.user.id, rows.map((row) => row.id));
     res.json(rows.map((row) => {
       const mine = row.owner_id === req.user.id;
       const { my_status, organizer_name, organizer_email, ...ev } = row;
-      return { ...outEvent(ev), role: mine ? 'organizer' : 'guest', guests: allGuests(row.id),
+      return { ...outEvent(ev), role: mine ? 'organizer' : 'guest', guests: allGuests(row.id), reminders: reminders.get(row.id) || [],
         ...(mine ? {} : { my_status, organizer: { name: organizer_name, email: organizer_email } }) };
     }));
   });
@@ -243,6 +245,7 @@ export default function calendarRoutes() {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(id, req.user.id, e.title, e.description ?? null, e.location ?? null, e.start, e.end, e.all_day ?? 0, e.color ?? null,
         e.rrule ? JSON.stringify(e.rrule) : null, JSON.stringify(e.exdates || []), repeatUntil(e), tz, parent?.id ?? null, parent ? int(of.occurrence, 'occurrence') : null);
+    const reminders = setReminders(id, req.user.id, req.body.reminders);
     if (guests) {
       const { added } = setGuests(id, guests.inside);
       const outside = setOutside(id, guests.outside);
@@ -251,7 +254,8 @@ export default function calendarRoutes() {
       notifyOutside(req.user, saved, outside.added, 'invite', { base: baseUrl(req), tz });
       touch(added.map((g) => g.id));
     }
-    res.status(201).json({ ...outEvent(q('SELECT * FROM events WHERE id = ?').get(id)), role: 'organizer', guests: allGuests(id) });
+    touch([req.user.id]); // your other tabs (and their reminders) see it too
+    res.status(201).json({ ...outEvent(q('SELECT * FROM events WHERE id = ?').get(id)), role: 'organizer', guests: allGuests(id), reminders });
   });
 
   r.patch('/:id', (req, res) => {
@@ -267,6 +271,7 @@ export default function calendarRoutes() {
       .run(e.title, e.description, e.location, e.start, e.end, e.all_day, e.color, e.rrule ? JSON.stringify(e.rrule) : null, JSON.stringify(e.exdates || []), repeatUntil(e),
         tz, changed ? 1 : 0, e.id);
     const saved = outEvent(q('SELECT * FROM events WHERE id = ?').get(e.id));
+    if (req.body.reminders !== undefined) setReminders(e.id, req.user.id, req.body.reminders);
     let removed = [];
     let added = [];
     let outside = { added: [], kept: outsideOf(e.id), removed: [] };
@@ -286,7 +291,17 @@ export default function calendarRoutes() {
     if (changed) notify(req.user, saved, guestsOf(e.id).filter((g) => !added.some((a) => a.id === g.id)).map((g) => ({ username: g.email, name: g.name })), 'update', tz);
     notifyOutside(req.user, saved, outside.removed, 'cancel', opts);
     touch([req.user.id, ...guestsOf(e.id).map((g) => g.id), ...removed]);
-    res.json({ ...saved, role: 'organizer', guests: allGuests(e.id) });
+    res.json({ ...saved, role: 'organizer', guests: allGuests(e.id), reminders: remindersOf(e.id, req.user.id) });
+  });
+
+  // Your own reminders of an event you organise or are invited to.
+  r.put('/:id/reminders', (req, res) => {
+    const ev = q(`SELECT e.id, e.owner_id FROM events e LEFT JOIN event_guests g ON g.event_id = e.id AND g.user_id = ?
+                  WHERE e.id = ? AND (e.owner_id = ? OR g.user_id IS NOT NULL)`).get(req.user.id, req.params.id, req.user.id);
+    if (!ev) throw notFound();
+    const reminders = setReminders(ev.id, req.user.id, req.body.reminders);
+    touch([req.user.id]);
+    res.json({ reminders });
   });
 
   r.delete('/:id', (req, res) => {

@@ -121,7 +121,7 @@ function firstStart(e, zone) {
  * The calendar file for an event. `method` is 'REQUEST' (invite or update), 'CANCEL', or
  * 'PUBLISH' (a plain "add to calendar" file). `attendees`: [{ email, name, status }].
  */
-export function buildIcs(e, { method = 'REQUEST', uid, sequence = 0, organizer, attendees = [], tz, now = Date.now(), overrides = [] }) {
+export function buildIcs(e, { method = 'REQUEST', uid, sequence = 0, organizer, attendees = [], tz, now = Date.now(), overrides = [], alarms = [] }) {
   const zone = zoneOrUtc(tz);
   const repeats = !!e.rrule && !e.all_day && zone !== 'UTC';
   const start = firstStart(e, zone), end = start + (e.end - e.start);
@@ -152,7 +152,10 @@ export function buildIcs(e, { method = 'REQUEST', uid, sequence = 0, organizer, 
   for (const a of attendees) {
     lines.push(`ATTENDEE;CN=${param(a.name || a.email)};ROLE=REQ-PARTICIPANT;PARTSTAT=${PARTSTAT[a.status] || 'NEEDS-ACTION'};RSVP=TRUE:mailto:${a.email}`);
   }
-  lines.push(`STATUS:${method === 'CANCEL' ? 'CANCELLED' : 'CONFIRMED'}`, 'TRANSP:OPAQUE', 'END:VEVENT');
+  lines.push(`STATUS:${method === 'CANCEL' ? 'CANCELLED' : 'CONFIRMED'}`, 'TRANSP:OPAQUE');
+  // Reminders, so the phone reminds too.
+  for (const m of alarms) lines.push('BEGIN:VALARM', 'ACTION:DISPLAY', `DESCRIPTION:${escapeText(e.title)}`, `TRIGGER:${beforeStart(m)}`, 'END:VALARM');
+  lines.push('END:VEVENT');
   // Single occurrences changed on their own: the same UID, with the original start as RECURRENCE-ID.
   for (const o of e.rrule ? overrides : []) {
     lines.push('BEGIN:VEVENT', `UID:${uid}`, `DTSTAMP:${utcStamp(now)}`, `SEQUENCE:${o.sequence || 0}`,
@@ -164,6 +167,32 @@ export function buildIcs(e, { method = 'REQUEST', uid, sequence = 0, organizer, 
   }
   lines.push('END:VCALENDAR');
   return fold(lines);
+}
+
+/** Minutes before the start as an iCalendar duration: 10 → -PT10M, 60 → -PT1H, 1440 → -P1D, 0 → PT0S. */
+export function beforeStart(m) {
+  if (!m) return 'PT0S';
+  if (m % 10080 === 0) return `-P${m / 10080}W`;
+  if (m % 1440 === 0) return `-P${m / 1440}D`;
+  if (m % 60 === 0) return `-PT${m / 60}H`;
+  return `-PT${m}M`;
+}
+
+/** The reminders (minutes before the start) in an event's VALARMs. Reminders after the start or from its end are left out. */
+export function alarmsIn(eventText, startMs) {
+  const out = [];
+  for (const [, body] of String(eventText).matchAll(/BEGIN:VALARM([\s\S]*?)END:VALARM/gi)) {
+    const t = contentLines(body).find((l) => l.name === 'TRIGGER');
+    if (!t || (t.params.RELATED || '').toUpperCase() === 'END') continue;
+    let minutes = null;
+    if ((t.params.VALUE || '').toUpperCase() === 'DATE-TIME') { const w = parseWhen(t, 'UTC'); if (w && startMs !== undefined) minutes = Math.round((startMs - w.ms) / 6e4); }
+    else {
+      const m = /^([+-])?P(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/.exec(t.value.trim());
+      if (m) { const total = (+m[2] || 0) * 10080 + (+m[3] || 0) * 1440 + (+m[4] || 0) * 60 + (+m[5] || 0) + Math.round((+m[6] || 0) / 60); minutes = m[1] === '-' ? total : total === 0 ? 0 : -total; }
+    }
+    if (minutes !== null && minutes >= 0) out.push(minutes);
+  }
+  return [...new Set(out)].sort((a, b) => a - b);
 }
 
 // ---- reading calendar files (from phones and calendar apps, over CalDAV) ----
@@ -406,6 +435,10 @@ export function parseIcsEvent(text, { tz = 'UTC', resolver } = {}) {
       }
     }
   }
+  // Reminders set on the phone: the main event's VALARMs.
+  const unfolded = String(text || '').replace(/\r?\n[ \t]/g, '');
+  const mainRaw = (unfolded.match(/BEGIN:VEVENT[\s\S]*?END:VEVENT/gi) || []).find((b) => !/\nRECURRENCE-ID[;:]/i.test(b));
+  out.reminders = mainRaw ? alarmsIn(mainRaw, start.ms) : [];
   // Occurrences changed on their own (or cancelled) in the same file.
   out.overrides = [];
   for (const raw of String(text || '').replace(/\r?\n[ \t]/g, '').match(/BEGIN:VEVENT[\s\S]*?END:VEVENT/gi) || []) {

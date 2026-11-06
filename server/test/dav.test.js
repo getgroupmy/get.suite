@@ -203,3 +203,20 @@ test('Outlook on Windows: a repeating event in a Windows time zone keeps its loc
   assert.match(back.text, /DTSTART;TZID=America\/Los_Angeles:20261026T090000/); // phones get it as 9:00 Los Angeles time
   assert.match(back.text, /TZID:America\/Los_Angeles/);
 });
+
+test('reminders: set on the phone they show on the web, and the other way round', async () => {
+  const cal = `/dav/calendars/${me.id}/default/`;
+  const body = (alarm) => `BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Apple Inc.//iOS 18.0//EN\r\nBEGIN:VEVENT\r\nUID:REMIND-1\r\nSUMMARY:Dentist\r\nDTSTART:20261120T013000Z\r\nDTEND:20261120T023000Z\r\n${alarm}END:VEVENT\r\nEND:VCALENDAR\r\n`;
+  const put = await dav('PUT', `${cal}REMIND-1.ics`, { body: body('BEGIN:VALARM\r\nACTION:DISPLAY\r\nTRIGGER:-PT15M\r\nEND:VALARM\r\nBEGIN:VALARM\r\nACTION:AUDIO\r\nTRIGGER:-P1D\r\nEND:VALARM\r\n'), headers: { 'content-type': 'text/calendar' } });
+  assert.equal(put.status, 201);
+  const ev = () => api('GET', `/api/events?from=${Date.UTC(2026, 10, 19)}&to=${Date.UTC(2026, 10, 21)}`).then((r) => r.body.find((e) => e.ical_uid === 'REMIND-1'));
+  assert.deepEqual((await ev()).reminders, [15, 1440]);
+  const etag = put.headers.get('etag');
+  assert.deepEqual((await api('PUT', `/api/events/${(await ev()).id}/reminders`, { reminders: [30] })).body, { reminders: [30] });
+  const back = await dav('GET', `${cal}REMIND-1.ics`);
+  assert.match(back.text, /TRIGGER:-PT30M/);
+  assert.doesNotMatch(back.text, /TRIGGER:-PT15M/);
+  assert.notEqual(back.headers.get('etag'), etag, 'the phone sees it changed');
+  await dav('PUT', `${cal}REMIND-1.ics`, { body: body(''), headers: { 'content-type': 'text/calendar' } });
+  assert.deepEqual((await ev()).reminders, [], 'removed on the phone');
+});

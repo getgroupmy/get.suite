@@ -801,3 +801,23 @@ test('search finds files by the words inside them, and only files you can open',
   assert.equal((await find(owner, 'ipoh')).length, 0, 'not from the bin');
   assert.deepEqual(await find(owner, '"*)('), [], 'odd input is harmless');
 });
+
+test('calendar reminders are each person\'s own', async () => {
+  const start = Date.UTC(2026, 11, 1, 9), end = start + 36e5;
+  const guest = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'remy', domain: 'acme.com', name: 'Remy Reminder', password: 'password123' })).status, 201);
+  await login(guest, 'remy@acme.com');
+  const made = await owner('POST', '/api/events', { title: 'Board meeting', start, end, reminders: [10, 1440, 10, -5, 99999999], guests: ['remy@acme.com'] });
+  assert.equal(made.status, 201);
+  assert.deepEqual(made.body.reminders, [10, 1440], 'cleaned: whole minutes, at most four weeks, once each');
+  const mine = async (who) => (await who('GET', `/api/events?from=${start - 864e5}&to=${end + 864e5}`)).body.find((e) => e.id === made.body.id).reminders;
+  assert.deepEqual(await mine(guest), [], "the organiser's reminders aren't the guest's");
+  assert.deepEqual((await guest('PUT', `/api/events/${made.body.id}/reminders`, { reminders: [60] })).body.reminders, [60]);
+  assert.deepEqual(await mine(guest), [60]);
+  assert.deepEqual(await mine(owner), [10, 1440]);
+  assert.deepEqual((await owner('PATCH', `/api/events/${made.body.id}`, { reminders: [] })).body.reminders, []);
+  const stranger = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'stranger', domain: 'acme.com', name: 'Stan Stranger', password: 'password123' })).status, 201);
+  await login(stranger, 'stranger@acme.com');
+  assert.equal((await stranger('PUT', `/api/events/${made.body.id}/reminders`, { reminders: [5] })).status, 404);
+});
