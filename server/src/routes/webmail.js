@@ -31,6 +31,66 @@ q(`CREATE TABLE IF NOT EXISTS scheduled_mail (
   error TEXT
 )`).run();
 
+// Snoozed mail waits in a "Snoozed" IMAP folder (so phones see where it went) and comes back to
+// the Inbox, unread, when it's due. The message is found again by its Message-ID, or its UID.
+export const SNOOZED = 'Snoozed';
+const MAX_SNOOZE_MS = 366 * 864e5;
+q(`CREATE TABLE IF NOT EXISTS snoozed_mail (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  uid INTEGER NOT NULL,             -- in the Snoozed folder
+  message_id TEXT,
+  subject TEXT,
+  until INTEGER NOT NULL,
+  created_at INTEGER NOT NULL
+)`).run();
+q('CREATE INDEX IF NOT EXISTS snoozed_mail_due ON snoozed_mail(until)').run();
+
+/** Move snoozed messages (rows of snoozed_mail, one user's) back to the Inbox, unread. */
+async function wake(user, rows) {
+  await withFolder(user, SNOOZED, async (c) => {
+    for (const row of rows) {
+      let uids = row.message_id ? (await c.search({ header: { 'message-id': row.message_id } }, { uid: true })) || [] : [];
+      if (!uids.length) uids = ((await c.search({ uid: String(row.uid) }, { uid: true })) || []);
+      if (uids.length) {
+        await c.messageFlagsRemove(uids.join(','), ['\\Seen'], { uid: true });
+        await c.messageMove(uids.join(','), 'INBOX', { uid: true });
+      }
+      q('DELETE FROM snoozed_mail WHERE id = ?').run(row.id);
+    }
+  }).catch((e) => {
+    if (e.status !== 404) throw e;
+    q(`DELETE FROM snoozed_mail WHERE id IN (${rows.map(() => '?').join(',')})`).run(...rows.map((r) => r.id)); // the folder is gone
+  });
+  sendTo([user.id], { type: 'mail-snoozed' });
+}
+
+/** Messages taken out of Snoozed by hand don't come back. */
+function forgetSnoozes(user, folder, uids) {
+  if (folder !== SNOOZED) return;
+  const list = String(uids).split(',').map(Number);
+  q(`DELETE FROM snoozed_mail WHERE user_id = ? AND uid IN (${list.map(() => '?').join(',')})`).run(user.id, ...list);
+}
+
+let waking = false;
+/** Bring back the snoozed messages that are due. */
+export async function wakeDue() {
+  if (waking) return 0;
+  waking = true;
+  let n = 0;
+  try {
+    const due = q('SELECT * FROM snoozed_mail WHERE until <= ? ORDER BY until LIMIT 200').all(Date.now());
+    const byUser = new Map();
+    for (const row of due) byUser.set(row.user_id, [...(byUser.get(row.user_id) || []), row]);
+    for (const [userId, rows] of byUser) {
+      const user = q('SELECT * FROM users WHERE id = ? AND disabled = 0').get(userId);
+      if (!user) continue; // a disabled account's snoozes wait until it's back
+      try { await wake(user, rows); n += rows.length; } catch (e) { console.error('[mail] snooze:', e.message); }
+    }
+  } finally { waking = false; }
+  return n;
+}
+
 /** Hand a built message to the mail server, keep a copy in Sent, and mark the message answered. */
 async function deliver(user, raw, envelope, { replyTo } = {}) {
   try {
@@ -82,7 +142,12 @@ export async function sendDue() {
   } finally { sending = false; }
   return n;
 }
-export function startScheduledSending() { setInterval(() => { sendDue().catch((e) => console.error('[mail] scheduled sending:', e.message)); }, 20e3).unref(); }
+export function startScheduledSending() {
+  setInterval(() => {
+    sendDue().catch((e) => console.error('[mail] scheduled sending:', e.message));
+    wakeDue().catch((e) => console.error('[mail] snooze:', e.message));
+  }, 20e3).unref();
+}
 const MAX_SEND_BYTES = 25 * 1024 * 1024;
 const ORDER = ['\\Inbox', '\\Drafts', '\\Sent', '\\Archive', '\\Junk', '\\Trash'];
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -351,6 +416,10 @@ export default function webmailRoutes() {
         });
       }
       messages.sort((a, b) => b.uid - a.uid);
+      if (folder === SNOOZED) {
+        const until = new Map(q('SELECT uid, until FROM snoozed_mail WHERE user_id = ?').all(req.user.id).map((x) => [x.uid, x.until]));
+        for (const m of messages) m.snoozedUntil = until.get(m.uid) ?? null;
+      }
       return { total: count, page, pageSize: PAGE, messages };
     });
     res.json(out);
@@ -441,6 +510,43 @@ export default function webmailRoutes() {
     if (!target) throw bad('Target folder not found');
     if (target === folder) return res.json({ ok: true });
     await withFolder(req.user, folder, (c) => c.messageMove(uids, target, { uid: true }));
+    forgetSnoozes(req.user, folder, uids);
+    res.json({ ok: true });
+  });
+
+  // Snooze until a time: into the Snoozed folder (made if needed), back to the Inbox when due.
+  // Snoozing what's already snoozed changes when it comes back.
+  r.post('/messages/snooze', async (req, res) => {
+    const folder = String(req.body.folder || 'INBOX');
+    const uids = uidList(req.body.uids);
+    const until = Number(req.body.until);
+    if (!Number.isFinite(until) || until < Date.now() + 30e3) throw bad('Choose a time in the future');
+    if (until > Date.now() + MAX_SNOOZE_MS) throw bad('Snooze for at most a year');
+    if (folder === SNOOZED) {
+      for (const u of uids) q('UPDATE snoozed_mail SET until = ? WHERE user_id = ? AND uid = ?').run(until, req.user.id, u);
+      return res.json({ ok: true, snoozed: uids.length });
+    }
+    await withClient(req.user, async (c) => { if (!(await c.list()).some((b) => b.path === SNOOZED)) await c.mailboxCreate(SNOOZED).catch(() => {}); });
+    const moved = await withFolder(req.user, folder, async (c) => {
+      const info = new Map();
+      for await (const m of c.fetch(uids.join(','), { uid: true, envelope: true }, { uid: true })) info.set(m.uid, m.envelope || {});
+      const result = await c.messageMove(uids.join(','), SNOOZED, { uid: true });
+      return [...info].map(([uid, env]) => ({ uid: result?.uidMap?.get(uid), env })).filter((x) => x.uid);
+    });
+    for (const m of moved) {
+      q('INSERT INTO snoozed_mail (id, user_id, uid, message_id, subject, until, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+        .run(newId(), req.user.id, m.uid, m.env.messageId || null, m.env.subject || '', until, now());
+    }
+    res.json({ ok: true, snoozed: moved.length });
+  });
+
+  // Unsnooze: back to the Inbox now.
+  r.post('/messages/unsnooze', async (req, res) => {
+    const uids = uidList(req.body.uids);
+    const rows = q(`SELECT * FROM snoozed_mail WHERE user_id = ? AND uid IN (${uids.map(() => '?').join(',')})`).all(req.user.id, ...uids);
+    // Messages put in Snoozed some other way have no row: move them back too.
+    const loose = uids.filter((u) => !rows.some((r) => r.uid === u)).map((u) => ({ id: `loose-${u}`, uid: u, message_id: null }));
+    await wake(req.user, [...rows, ...loose]);
     res.json({ ok: true });
   });
 
@@ -452,6 +558,7 @@ export default function webmailRoutes() {
     const junk = await specialOf(req.user, '\\Junk');
     if (!trash || folder === trash || folder === junk) await withFolder(req.user, folder, (c) => c.messageDelete(uids, { uid: true }));
     else await withFolder(req.user, folder, (c) => c.messageMove(uids, trash, { uid: true }));
+    forgetSnoozes(req.user, folder, uids);
     res.json({ ok: true });
   });
 

@@ -340,6 +340,43 @@ test('scheduled send: waits, then goes out dated when sent; cancelling puts it b
   await olivia('DELETE', `/api/mail/drafts/${d.uid}`);
 });
 
+test('snooze: off to Snoozed, back to the Inbox unread when due; snooze again; unsnooze; moved out by hand stays out', async () => {
+  const { wakeDue } = await import('../src/routes/webmail.js');
+  const { q } = await import('../src/db.js');
+  for (const subject of ['Snooze me', 'Snooze me too', 'Snooze me three']) {
+    assert.ok([200, 201].includes((await gina('POST', '/api/mail/send', { to: 'olivia@acme.com', subject, text: 'later' })).status));
+  }
+  const find = async (folder, subject) => (await olivia('GET', `/api/mail/messages?folder=${folder}`)).body.messages?.find((m) => m.subject === subject);
+  const [a, b, c] = await Promise.all(['Snooze me', 'Snooze me too', 'Snooze me three'].map((s) => eventually(() => find('INBOX', s))));
+  await olivia('POST', '/api/mail/messages/flags', { folder: 'INBOX', uids: [a.uid], seen: true });
+  assert.equal((await olivia('POST', '/api/mail/messages/snooze', { folder: 'INBOX', uids: [a.uid], until: Date.now() - 1 })).status, 400, 'not in the past');
+  const until = Date.now() + 36e5;
+  const r = await olivia('POST', '/api/mail/messages/snooze', { folder: 'INBOX', uids: [a.uid, b.uid, c.uid], until });
+  assert.deepEqual(r.body, { ok: true, snoozed: 3 });
+  assert.equal(await find('INBOX', 'Snooze me'), undefined, 'gone from the Inbox');
+  const sa = await find('Snoozed', 'Snooze me');
+  assert.equal(sa.snoozedUntil, until);
+  assert.ok((await olivia('GET', '/api/mail/folders')).body.some((f) => f.path === 'Snoozed'));
+  // Snooze one for longer; take one out by hand (it stays where it's put).
+  const sb = await find('Snoozed', 'Snooze me too'), sc = await find('Snoozed', 'Snooze me three');
+  await olivia('POST', '/api/mail/messages/snooze', { folder: 'Snoozed', uids: [sb.uid], until: until + 864e5 });
+  assert.equal((await find('Snoozed', 'Snooze me too')).snoozedUntil, until + 864e5);
+  await olivia('POST', '/api/mail/messages/move', { folder: 'Snoozed', uids: [sc.uid], to: 'archive' });
+  assert.equal(await wakeDue(), 0, 'nothing due yet');
+  q('UPDATE snoozed_mail SET until = ? WHERE until <= ?').run(Date.now() - 1000, until + 1000); // a's time has come
+  assert.equal(await wakeDue(), 1);
+  const back = await find('INBOX', 'Snooze me');
+  assert.ok(back, 'back in the Inbox');
+  assert.equal(back.seen, false, 'and unread');
+  assert.ok(back.uid > c.uid, 'on top');
+  assert.ok(await find('Snoozed', 'Snooze me too'), 'the other one still waits');
+  assert.ok(await find('Archive', 'Snooze me three'), 'the one moved out stays in the Archive');
+  // Unsnooze now.
+  assert.deepEqual((await olivia('POST', '/api/mail/messages/unsnooze', { uids: [sb.uid] })).body, { ok: true });
+  assert.ok(await find('INBOX', 'Snooze me too'));
+  assert.equal(q('SELECT COUNT(*) AS n FROM snoozed_mail').get().n, 0, 'nothing left waiting');
+});
+
 // ---- filter rules (Sieve) ----
 test('filter rules: move + mark read, star + forward, delete, chained rules, folders', async () => {
   const bad = await olivia('PUT', '/api/mail/rules', { rules: [{ conditions: [], actions: { star: true } }] });

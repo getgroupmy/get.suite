@@ -23,6 +23,7 @@ import { ASPECTS, FULL, fitAspect, moveRect, resizeRect, toPixels, rotatedSize, 
 
 const FOLDER_ICON = { '\\Inbox': 'inbox', '\\Drafts': 'doc', '\\Sent': 'send', '\\Archive': 'archive', '\\Junk': 'report', '\\Trash': 'trash' };
 const enc = encodeURIComponent;
+const SNOOZED = 'Snoozed';
 const escapeHtml = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const fmtDay = (d) => new Date(`${d}T12:00:00`).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
 const who = (a) => (a ? a.name || a.address : '');
@@ -51,9 +52,10 @@ export default function Mail() {
   const [signatures, setSignatures] = useState([]);
   const [signatureOpen, setSignatureOpen] = useState(false);
   const [scheduled, setScheduled] = useState([]);
+  const refreshRef = useRef(null);
   const [scheduledOpen, setScheduledOpen] = useState(false);
   const loadScheduled = useCallback(() => get('/mail/scheduled').then(setScheduled).catch(() => {}), []);
-  useEffect(() => { loadScheduled(); return onLive((m) => { if (m.type === 'mail-scheduled') { loadScheduled(); loadFolders(); } }); },
+  useEffect(() => { loadScheduled(); return onLive((m) => { if (m.type === 'mail-scheduled') { loadScheduled(); loadFolders(); } if (m.type === 'mail-snoozed') refreshRef.current?.(); }); },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [loadScheduled]);
   const { user } = useAuth();
@@ -107,6 +109,8 @@ export default function Mail() {
   const current = folders.find((f) => f.path === folder);
   const special = current?.specialUse;
   const refresh = () => { loadFolders(); loadList(); };
+  refreshRef.current = refresh;
+  const [snoozing, setSnoozing] = useState(null); // uids waiting for a picked time
   const go = (f, uid) => navigate(`/mail/${enc(f)}${uid ? `/${uid}` : ''}${q ? `?q=${enc(q)}` : ''}`);
 
   async function act(path, body, msg) {
@@ -141,7 +145,7 @@ export default function Mail() {
           return (
             <div key={f.path} className="folder-row">
               <button className={`subnav-item ${f.path === folder && !q ? 'active' : ''}`} onClick={() => { setSearch({}); go(f.path); }}>
-                <Icon name={FOLDER_ICON[f.specialUse] || 'folder'} /><span className="grow ellipsis">{f.name}</span>
+                <Icon name={FOLDER_ICON[f.specialUse] || (f.path === SNOOZED ? 'clock' : 'folder')} /><span className="grow ellipsis">{f.name}</span>
                 {followable && followed.includes(f.path) && <Icon name="bell" size={14} className="followed" title="New-mail notifications on" />}
                 {f.unseen > 0 && f.specialUse !== '\\Trash' && f.specialUse !== '\\Sent' && <span className="count">{f.unseen}</span>}
                 {f.specialUse === '\\Drafts' && f.messages > 0 && <span className="count muted">{f.messages}</span>}
@@ -203,6 +207,8 @@ export default function Mail() {
             <button className="btn small" onClick={() => act('flags', { uids: sel, seen: true })}>Mark read</button>
             <button className="btn small" onClick={() => act('flags', { uids: sel, seen: false })}>Mark unread</button>
             {special !== '\\Archive' && <button className="btn small" onClick={() => act('move', { uids: sel, to: 'archive' }, 'Archived')}>Archive</button>}
+            <SnoozeMenu small onPick={(at) => act('snooze', { uids: sel, until: at }, `Snoozed until ${whenText(at)}`)} onCustom={() => setSnoozing(sel)} />
+            {folder === SNOOZED && <button className="btn small" onClick={() => act('unsnooze', { uids: sel }, 'Back in the Inbox')}>Unsnooze</button>}
             <button className="btn small danger" onClick={() => act('delete', { uids: sel }, special === '\\Trash' ? 'Deleted forever' : 'Moved to Trash')}>Delete</button>
           </div>
         )}
@@ -217,7 +223,7 @@ export default function Mail() {
                   onChange={(e) => { const n = new Set(checked); e.target.checked ? n.add(m.uid) : n.delete(m.uid); setChecked(n); }} />
                 <button className="msg-row" onClick={() => (special === '\\Drafts' ? openDraft(m.uid) : go(folder, m.uid))}>
                   <span className="msg-from ellipsis">{special === '\\Sent' || special === '\\Drafts' ? `To: ${m.to.map(who).join(', ')}` : who(m.from)}</span>
-                  <span className="msg-date">{m.flagged && <span className="star" aria-label="Starred">★</span>}{m.attachment && <Icon name="attach" size={14} />} {m.date ? formatDate(m.date) : ''}</span>
+                  <span className="msg-date">{m.flagged && <span className="star" aria-label="Starred">★</span>}{m.attachment && <Icon name="attach" size={14} />} {m.snoozedUntil ? <span className="snoozed-until" title={`Comes back ${whenText(m.snoozedUntil)}`}><Icon name="clock" size={14} /> {formatDate(m.snoozedUntil)}</span> : m.date ? formatDate(m.date) : ''}</span>
                   <span className="msg-subject ellipsis">{m.answered && '↩ '}{m.subject || '(no subject)'}</span>
                 </button>
               </li>
@@ -235,13 +241,15 @@ export default function Mail() {
 
       <section className="mail-reader">
         {openUid ? (
-          <Reader key={`${folder}:${openUid}`} folder={folder} uid={openUid} special={special}
+          <Reader key={`${folder}:${openUid}`} folder={folder} uid={openUid} special={special} onSnoozeCustom={(uids) => setSnoozing(uids)}
             onClose={() => go(folder)} onChanged={refresh} act={act} onCompose={(init) => setCompose(withSignature(init, 'reply'))}
             onFilter={(from) => setFilters({ startWith: { name: `From ${from}`, enabled: true, match: 'all', conditions: [{ field: 'from', op: 'contains', value: from }], actions: { stop: true } } })} />
         ) : <Empty icon="mail" title="No message selected" />}
       </section>
 
       {compose && <Compose initial={compose} signatures={signatures} onClose={() => setCompose(null)} onSent={() => { setCompose(null); refresh(); }} onDraftsChanged={refresh} />}
+      {snoozing && <ScheduleDialog title="Snooze until" confirm="Snooze" withinYear note={(at) => `It comes back to your Inbox ${whenText(at)}.`}
+        onClose={() => setSnoozing(null)} onPick={async (at) => { const uids = snoozing; setSnoozing(null); if (await act('snooze', { uids, until: at }, `Snoozed until ${whenText(at)}`) && uids.includes(openUid)) go(folder); }} />}
       {scheduledOpen && <ScheduledDialog list={scheduled} onClose={() => setScheduledOpen(false)} onChanged={() => { loadScheduled(); refresh(); }} />}
       {filters && <FiltersDialog folders={folders} onFoldersChanged={loadFolders} startWith={filters.startWith} onClose={() => { setFilters(null); loadFolders(); }} />}
       {newFolder && <PromptModal title="New folder" label="Folder name (use / for subfolders, e.g. Clients/Acme)" confirm="Create" onClose={() => setNewFolder(false)}
@@ -276,7 +284,7 @@ export default function Mail() {
   );
 }
 
-function Reader({ folder, uid, special, onClose, onChanged, act, onCompose, onFilter }) {
+function Reader({ folder, uid, special, onClose, onChanged, act, onCompose, onFilter, onSnoozeCustom }) {
   const mailStatus = useMailStatus();
   const toast = useToast();
   const { user } = useAuth();
@@ -312,6 +320,8 @@ function Reader({ folder, uid, special, onClose, onChanged, act, onCompose, onFi
           : <button className="icon-btn" aria-label="Report spam" title="Report spam" onClick={() => done('move', { to: 'junk' }, 'Moved to Junk')}><Icon name="report" /></button>}
         <button className="icon-btn" aria-label="Delete" title="Delete" onClick={() => done('delete', {}, special === '\\Trash' ? 'Deleted forever' : 'Moved to Trash')}><Icon name="trash" /></button>
         <button className="icon-btn" aria-label="Mark unread" title="Mark unread" onClick={() => done('flags', { seen: false })}><Icon name="markunread" /></button>
+        <SnoozeMenu onPick={(at) => done('snooze', { until: at }, `Snoozed until ${whenText(at)}`)} onCustom={() => onSnoozeCustom([uid])} />
+        {folder === SNOOZED && <button className="btn small" onClick={() => done('unsnooze', {}, 'Back in the Inbox')}>Unsnooze</button>}
         <button className={`icon-btn ${m.flagged ? 'starred' : ''}`} aria-label={m.flagged ? 'Unstar' : 'Star'} aria-pressed={m.flagged} title="Star"
           onClick={async () => { if (await act('flags', { uids: [uid], flagged: !m.flagged })) setM({ ...m, flagged: !m.flagged }); }}>
           <span aria-hidden="true" style={{ fontSize: 20 }}>{m.flagged ? '★' : '☆'}</span>
@@ -1656,21 +1666,44 @@ export function laterChoices(now = new Date()) {
   return out;
 }
 
-function ScheduleDialog({ onClose, onPick }) {
+/** When snoozed mail can come back: later today (if there's time), tomorrow, the weekend, next week. */
+export function snoozeChoices(now = new Date()) {
+  const at = (days, h) => new Date(now.getFullYear(), now.getMonth(), now.getDate() + days, h, 0).getTime();
+  const out = [];
+  const later = new Date(now.getTime() + 3 * 36e5); later.setMinutes(0, 0, 0);
+  if (later.getDate() === now.getDate() && later.getHours() <= 20) out.push(['Later today', later.getTime()]);
+  out.push(['Tomorrow', at(1, 8)]);
+  const day = now.getDay();
+  if (day >= 1 && day <= 4) out.push(['This weekend', at(6 - day, 8)]);
+  out.push(['Next week', at(((8 - day) % 7) || 7, 8)]);
+  return out;
+}
+
+function SnoozeMenu({ onPick, onCustom, small }) {
+  return (
+    <Menu align="left" trigger={(p) => (small
+      ? <button type="button" className="btn small" {...p}>Snooze</button>
+      : <button type="button" className="icon-btn" aria-label="Snooze" title="Snooze" {...p}><Icon name="clock" /></button>)}
+      items={[...snoozeChoices().map(([label, at]) => ({ label: `${label} · ${whenText(at)}`, onClick: () => onPick(at) })), '-', { label: 'Pick date and time…', icon: 'calendar', onClick: onCustom }]} />
+  );
+}
+
+function ScheduleDialog({ onClose, onPick, title = 'Schedule send', confirm = 'Schedule send', note = (at) => `It will be sent ${whenText(at)}, even if Workspace isn’t open then.`, withinYear = false }) {
   const pad = (n) => String(n).padStart(2, '0');
   const t = new Date(Date.now() + 36e5);
   const [date, setDate] = useState(`${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())}`);
   const [time, setTime] = useState(`${pad(t.getHours())}:00`);
   const at = new Date(`${date}T${time || '00:00'}`).getTime();
-  const ok = Number.isFinite(at) && at > Date.now() + 60e3;
+  const tooFar = withinYear && at > Date.now() + 365 * 864e5;
+  const ok = Number.isFinite(at) && at > Date.now() + 60e3 && !tooFar;
   return (
-    <Modal title="Schedule send" onClose={onClose}
-      footer={<><button type="button" className="btn" onClick={onClose}>Cancel</button><button type="button" className="btn primary" disabled={!ok} onClick={() => onPick(at)}>Schedule send</button></>}>
+    <Modal title={title} onClose={onClose}
+      footer={<><button type="button" className="btn" onClick={onClose}>Cancel</button><button type="button" className="btn primary" disabled={!ok} onClick={() => onPick(at)}>{confirm}</button></>}>
       <div className="row" style={{ gap: 12 }}>
         <label className="field"><span>Date</span><input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></label>
         <label className="field"><span>Time</span><input type="time" value={time} onChange={(e) => setTime(e.target.value)} /></label>
       </div>
-      <p className="muted small">{ok ? `It will be sent ${whenText(at)}, even if Workspace isn’t open then.` : 'Choose a time in the future.'}</p>
+      <p className="muted small">{ok ? note(at) : tooFar ? 'Choose a time within a year.' : 'Choose a time in the future.'}</p>
     </Modal>
   );
 }
