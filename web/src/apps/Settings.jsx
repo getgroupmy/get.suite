@@ -3,6 +3,7 @@ import QRCode from 'qrcode';
 import { api, get, patch, post } from '../api.js';
 import { useAuth } from '../App.jsx';
 import { useToast } from '../components/ui.jsx';
+import { getTheme, setTheme } from '../theme.js';
 
 export default function Settings() {
   const { user, setUser } = useAuth();
@@ -37,6 +38,7 @@ export default function Settings() {
         <label className="field"><span>Full name</span><input value={name} onChange={(e) => setName(e.target.value)} required /></label>
         <div className="row end"><button className="btn primary">Save profile</button></div>
       </form>
+      <Appearance />
       <form className="card stack" onSubmit={savePassword}>
         <h2>Change password</h2>
         <label className="field"><span>Current password</span><input type="password" autoComplete="current-password" value={pw.currentPassword} onChange={(e) => setPw({ ...pw, currentPassword: e.target.value })} required /></label>
@@ -158,6 +160,25 @@ export function TwoStep({ onEnabled }) {
  * Mail apps (phones, Outlook): the settings to enter, and an optional mail-app password that
  * replaces the account password for them.
  */
+function Appearance() {
+  const [theme, set] = useState(getTheme);
+  const pick = (t) => { setTheme(t); set(t); };
+  return (
+    <section className="card stack" aria-labelledby="appearance-h">
+      <h2 id="appearance-h">Appearance</h2>
+      <div className="theme-pick" role="radiogroup" aria-label="Theme">
+        {[['system', 'System', 'Follows your computer or phone'], ['light', 'Light', 'Always light'], ['dark', 'Dark', 'Always dark']].map(([k, label, hint]) => (
+          <button key={k} type="button" role="radio" aria-checked={theme === k} className={`theme-opt ${k} ${theme === k ? 'on' : ''}`} onClick={() => pick(k)}>
+            <span className="theme-sample" aria-hidden="true"><span /><span /></span>
+            <strong>{label}</strong><span className="muted small">{hint}</span>
+          </button>
+        ))}
+      </div>
+      <p className="muted small" style={{ margin: 0 }}>Kept on this device, so a phone and a computer can differ.</p>
+    </section>
+  );
+}
+
 function MailApps() {
   const toast = useToast();
   const { user } = useAuth();

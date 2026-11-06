@@ -29,8 +29,30 @@
   --series-ink-1: #fff; --series-ink-2: #1f1f1f; --series-ink-3: #1f1f1f; --series-ink-4: #1f1f1f;
   --series-ink-5: #1f1f1f; --series-ink-6: #fff; --series-ink-7: #fff; --series-ink-8: #1f1f1f; /* text on each colour */
 }
-@media (prefers-color-scheme: dark) {
-  :root {
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+    --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500;
+    --series-5: #d55181; --series-6: #008300; --series-7: #9085e9; --series-8: #e66767;
+    --series-ink-1: #1f1f1f; --series-ink-2: #1f1f1f; --series-ink-3: #1f1f1f; --series-ink-4: #1f1f1f;
+    --series-ink-5: #1f1f1f; --series-ink-6: #fff; --series-ink-7: #1f1f1f; --series-ink-8: #1f1f1f;
+    --bg: #1b1c1f;
+    --surface: #24262a;
+    --surface-2: #2d3036;
+    --hover: #33373e;
+    --border: #3c4048;
+    --text: #e8eaed;
+    --muted: #9aa0a6;
+    --accent: #8ab4f8;
+    --accent-soft: #2f3f5c;
+    --accent-text: #a8c7fa;
+    --danger: #f28b82;
+    --warn-bg: #4a3f1c;
+    --ok: #81c995;
+    --ft-folder: #9aa0a6;
+    --shadow: 0 1px 3px rgba(0, 0, 0, .5), 0 4px 12px rgba(0, 0, 0, .4);
+    color-scheme: dark;
+  } }
+/* the same, when Dark is chosen in Settings */
+:root[data-theme="dark"] {
     --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500;
     --series-5: #d55181; --series-6: #008300; --series-7: #9085e9; --series-8: #e66767;
     --series-ink-1: #1f1f1f; --series-ink-2: #1f1f1f; --series-ink-3: #1f1f1f; --series-ink-4: #1f1f1f;
@@ -52,7 +74,6 @@
     --shadow: 0 1px 3px rgba(0, 0, 0, .5), 0 4px 12px rgba(0, 0, 0, .4);
     color-scheme: dark;
   }
-}
 
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; margin: 0; }
@@ -98,7 +119,9 @@ button:focus-visible, a:focus-visible, [tabindex]:focus-visible { outline: 2px s
 .btn:hover:not(:disabled) { background: var(--hover); }
 .btn:disabled { opacity: .5; cursor: default; }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-@media (prefers-color-scheme: dark) { .btn.primary { color: #062e6f; } }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .btn.primary { color: #062e6f; } }
+/* the same, when Dark is chosen in Settings */
+:root[data-theme="dark"] .btn.primary { color: #062e6f; }
 .btn.primary:hover:not(:disabled) { filter: brightness(1.08); background: var(--accent); }
 .btn.danger { color: var(--danger); }
 .btn.block { width: 100%; }
@@ -580,11 +603,9 @@ a.att:hover { background: var(--hover); }
 
 /* Coloured text in the message editor: in dark mode, flip its lightness (keeping the hue) so dark
    colours stay readable. Only on screen; the email is sent with the original colours. */
-@media (prefers-color-scheme: dark) {
-  .compose-editor .tiptap span[style*="color"]:not([style*="background-color"]) { filter: invert(1) hue-rotate(180deg); }
-  /* Highlighted text keeps dark text on its light highlight, like a highlighter pen on paper. */
-  .compose-editor .tiptap span[style*="background-color"] { color: #1f1f1f; }
-}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .compose-editor .tiptap span[style*="color"]:not([style*="background-color"]) { filter: invert(1) hue-rotate(180deg); }/* Highlighted text keeps dark text on its light highlight, like a highlighter pen on paper. */:root:not([data-theme="light"]) .compose-editor .tiptap span[style*="background-color"] { color: #1f1f1f; } }
+/* the same, when Dark is chosen in Settings */
+:root[data-theme="dark"] .compose-editor .tiptap span[style*="color"]:not([style*="background-color"]) { filter: invert(1) hue-rotate(180deg); }:root[data-theme="dark"] .compose-editor .tiptap span[style*="background-color"] { color: #1f1f1f; }
 
 /* Text colour button and palette */
 .color-picker { position: relative; display: inline-flex; }
@@ -931,7 +952,9 @@ td.name .match mark { background: var(--accent-soft); color: var(--accent-text);
 .find-bar .check { display: inline-flex; align-items: center; gap: 4px; }
 .paper .find-match { background: #fde29380; border-radius: 2px; }
 .paper .find-match.current { background: #f9ab00; color: #1f1f1f; }
-@media (prefers-color-scheme: dark) { .paper .find-match { background: #7a5c0080; } .paper .find-match.current { background: #f9ab00; color: #1f1f1f; } }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .paper .find-match { background: #7a5c0080; }:root:not([data-theme="light"]) .paper .find-match.current { background: #f9ab00; color: #1f1f1f; } }
+/* the same, when Dark is chosen in Settings */
+:root[data-theme="dark"] .paper .find-match { background: #7a5c0080; }:root[data-theme="dark"] .paper .find-match.current { background: #f9ab00; color: #1f1f1f; }
 @media print { .find-bar { display: none; } .paper .find-match, .paper .find-match.current { background: none; color: inherit; } }
 
 /* ---------- Sheets: column widths and frozen rows/columns ---------- */
@@ -1134,3 +1157,17 @@ button.rule-sample.on { outline: 2px solid var(--accent); outline-offset: 1px; }
 .label-colors { display: flex; gap: 8px; flex-wrap: wrap; }
 .label-colors button { width: 28px; height: 28px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; }
 .label-colors button.on { border-color: var(--text); box-shadow: inset 0 0 0 2px var(--surface); }
+
+/* Settings: theme choice */
+.theme-pick { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.theme-opt { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 10px; border: 2px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.theme-opt.on { border-color: var(--accent); }
+.theme-sample { display: flex; width: 100%; height: 44px; border-radius: 6px; overflow: hidden; margin-bottom: 6px; border: 1px solid var(--border); }
+.theme-sample span { flex: 1; }
+.theme-opt.light .theme-sample span { background: #f6f8fc; }
+.theme-opt.light .theme-sample span + span { background: #fff; }
+.theme-opt.dark .theme-sample span { background: #1b1c1f; }
+.theme-opt.dark .theme-sample span + span { background: #24262a; }
+.theme-opt.system .theme-sample span { background: #f6f8fc; }
+.theme-opt.system .theme-sample span + span { background: #24262a; }
+@media (max-width: 520px) { .theme-pick { grid-template-columns: 1fr; } }
