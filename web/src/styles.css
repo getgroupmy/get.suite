@@ -1035,3 +1035,12 @@ button.rule-sample.on { outline: 2px solid var(--accent); outline-offset: 1px; }
 .files .star-mark { color: #f9ab00; margin-left: 6px; vertical-align: middle; }
 .files tr.drop-on td, .crumb.drop-on { background: var(--accent-soft); box-shadow: inset 0 0 0 2px var(--accent); }
 .files tr[draggable="true"] { cursor: default; }
+
+/* Docs outline */
+.doc-outline { width: 240px; flex: none; overflow: auto; border-right: 1px solid var(--border); background: var(--surface); padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+.doc-outline ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; }
+.doc-outline li button { display: block; width: 100%; text-align: left; border: 0; background: none; font: inherit; font-size: 13px; color: var(--text); padding: 5px 8px; border-radius: 6px; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-left: 3px solid transparent; }
+.doc-outline li button:hover { background: var(--hover); }
+.doc-outline li button.on { color: var(--accent-text); background: var(--accent-soft); border-left-color: var(--accent); font-weight: 600; }
+@media (max-width: 900px) { .doc-outline { position: absolute; left: 0; top: 0; bottom: 0; z-index: 30; box-shadow: var(--shadow); } }
+@media print { .doc-outline { display: none !important; } }

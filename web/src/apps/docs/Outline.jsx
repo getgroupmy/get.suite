@@ -1,0 +1,43 @@
+// The outline beside a document: its headings, indented by level. Clicking one goes there; the one
+// the cursor is under is marked. It follows changes as they're made, by you or anyone else.
+import { useEffect, useState } from 'react';
+import { TextSelection } from '@tiptap/pm/state';
+import { headingsOf, currentHeading } from './outline.js';
+
+export function Outline({ editor, onClose }) {
+  const [, force] = useState(0);
+  useEffect(() => {
+    const again = () => force((n) => n + 1);
+    editor.on('update', again);
+    editor.on('selectionUpdate', again);
+    return () => { editor.off('update', again); editor.off('selectionUpdate', again); };
+  }, [editor]);
+  const headings = headingsOf(editor.state.doc);
+  const here = currentHeading(headings, editor.state.selection.from);
+  const top = Math.min(...headings.map((h) => h.level));
+  const go = (h) => {
+    const { view } = editor;
+    const at = Math.min(h.pos + 1 + editor.state.doc.nodeAt(h.pos).content.size, editor.state.doc.content.size);
+    view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, at)));
+    view.focus();
+    // After focusing (which keeps the cursor in view), put the heading at the top.
+    const el = view.nodeDOM(h.pos);
+    if (el?.scrollIntoView) requestAnimationFrame(() => el.scrollIntoView({ block: 'start' }));
+  };
+  return (
+    <nav className="doc-outline" aria-label="Outline">
+      <div className="row"><strong className="grow">Outline</strong><button type="button" className="icon-btn" style={{ width: 28, height: 28 }} aria-label="Close outline" onClick={onClose}>×</button></div>
+      {headings.length === 0
+        ? <p className="muted small">Headings you add to the document appear here.</p>
+        : (
+          <ul>
+            {headings.map((h, i) => (
+              <li key={`${h.pos}`} style={{ paddingLeft: (h.level - top) * 14 }}>
+                <button type="button" className={i === here ? "on" : undefined} aria-current={i === here ? 'location' : undefined} onClick={() => go(h)} title={h.text}>{h.text}</button>
+              </li>
+            ))}
+          </ul>
+        )}
+    </nav>
+  );
+}

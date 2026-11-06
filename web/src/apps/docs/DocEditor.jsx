@@ -20,6 +20,7 @@ import { CommentsPanel, useComments } from '../comments.jsx';
 import Icon from '../../components/Icon.jsx';
 import { FindReplace, countWords } from './findReplace.js';
 import { FindBar } from './FindBar.jsx';
+import { Outline } from './Outline.jsx';
 
 /** Marks the text a comment is about (several comments may overlap); it travels with the text. */
 const CommentMark = Mark.create({
@@ -141,6 +142,9 @@ function SharedDoc({ file, setFile }) {
     ],
     editable: !readOnly,
     editorProps: {
+      // A key pressed right after a click (Enter, Backspace…) acts where the click put the cursor,
+      // even if the browser hasn't told the editor about the new selection yet.
+      handleKeyDown: (view) => { view.domObserver?.flush?.(); return false; },
       // Pictures pasted or dropped in go to Drive and into the document.
       handlePaste: (view, event) => {
         const files = [...(event.clipboardData?.files || [])].filter((f) => PICTURE_TYPES.test(f.type));
@@ -196,6 +200,8 @@ function SharedDoc({ file, setFile }) {
   const [active, setActive] = useState(params.get('comment'));
   const [pending, setPending] = useState(null);
   const [finding, setFinding] = useState(null); // { replace, n }
+  const [outline, setOutlineState] = useState(() => { try { return localStorage.getItem('nw-doc-outline') === '1'; } catch { return false; } });
+  const setOutline = (on) => { setOutlineState(on); try { localStorage.setItem('nw-doc-outline', on ? '1' : '0'); } catch { /* private window */ } };
   useEffect(() => {
     const onKey = (e) => {
       const k = e.key.toLowerCase();
@@ -255,6 +261,9 @@ function SharedDoc({ file, setFile }) {
         onRename={async (name) => setFile(await patch(`/files/${file.id}`, { name }))}
         onShare={() => setSharing(true)}
         extra={<>
+          <button type="button" className={`btn small ${outline ? 'primary' : ''}`} aria-pressed={outline} onClick={() => setOutline(!outline)} title="Outline">
+            <Icon name="menu" size={16} /><span className="sr-only">Outline</span>
+          </button>
           <button type="button" className={`btn small ${panel ? 'primary' : ''}`} aria-pressed={panel} onClick={() => setPanel(!panel)} title="Comments">
             <Icon name="chat" size={16} /> {open.length || ''}<span className="sr-only">Comments</span>
           </button>
@@ -280,6 +289,7 @@ function SharedDoc({ file, setFile }) {
       {readOnly && <div className="banner">View only. Ask {file.owner_name} for edit access.</div>}
       {finding && <FindBar key={finding.n} editor={editor} replacing={finding.replace} canEdit={!readOnly} onClose={() => { editor.view.focus(); setFinding(null); }} />} {/* focus back first, so it doesn't go with the bar */}
       <div className="doc-body">
+        {outline && <Outline editor={editor} onClose={() => setOutline(false)} />}
         <div className="doc-scroll" onClick={(e) => e.target === e.currentTarget && editor.commands.focus('end')}>
           <div className="paper"><EditorContent editor={editor} /></div>
         </div>
