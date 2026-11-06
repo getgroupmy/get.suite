@@ -18,6 +18,7 @@ import PresenterView from './apps/slides/PresenterView.jsx';
 import { ShortcutsHelp } from './components/Shortcuts.jsx';
 import Calendar from './apps/calendar/Calendar.jsx';
 import Contacts from './apps/contacts/Contacts.jsx';
+import Tasks from './apps/tasks/Tasks.jsx';
 import Chat from './apps/chat/Chat.jsx';
 import Admin from './apps/admin/Admin.jsx';
 import Mail from './apps/mail/Mail.jsx';
@@ -98,6 +99,7 @@ const APPS = [
   { to: '/drive', icon: 'folder', label: 'Drive' },
   { to: '/calendar', icon: 'calendar', label: 'Calendar' },
   { to: '/contacts', icon: 'person', label: 'Contacts' },
+  { to: '/tasks', icon: 'check', label: 'Tasks' },
   { to: '/chat', icon: 'chat', label: 'Chat' },
 ];
 
@@ -153,6 +155,7 @@ function Shell() {
           <Route path="/calendar" element={<Calendar />} />
           <Route path="/contacts" element={<Contacts />} />
           <Route path="/chat/:channelId?" element={<Chat />} />
+          <Route path="/tasks/:listId?" element={<Tasks />} />
           <Route path="/settings" element={<Settings />} />
           {user.is_admin && <Route path="/admin" element={<Admin />} />}
           <Route path="*" element={<Navigate to="/drive" replace />} />

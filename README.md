@@ -499,6 +499,13 @@ Once ports 465, 587 and 993 are open, bots will start guessing passwords within 
 
 Each entry shows who did it, what it was done to, the details and the IP address. Filter by kind, search for a person, file or address, or pick dates. **Download CSV** saves what's shown, for a spreadsheet or your records. Admins see only their own company; the platform owner can pick any company. Entries are kept for a year (set `AUDIT_DAYS` to change this).
 
+## Tasks
+
+- **Lists:** everyone starts with **My tasks**; **+** next to Lists makes more. Type in **Add a task** and press Enter: new tasks go on top. Drag tasks to put them in order.
+- **Ticking off:** the box marks a task done (with **Undo**); done tasks move to **Completed** at the bottom, and **⋮ → Delete completed tasks** clears them.
+- **Details:** click a task for notes, a due date (shown as Today, Tomorrow or the date; overdue in red), who it's for, and which list it's on. Changes save as you make them.
+- **Sharing:** **Share** on a list lets colleagues see it, add and tick off tasks, and be given tasks. Everyone sees changes as they happen. **Assigned to me** gathers the tasks given to you on any list, soonest due first. Leaving a list (or being taken off it) leaves the tasks you were given with nobody.
+
 ## Chat
 
 - **Unread:** Chat in the app bar and each conversation show how many messages you haven't read; opening the conversation clears them, on your other devices too.

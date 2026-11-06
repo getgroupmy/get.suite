@@ -8,6 +8,7 @@ import userRoutes from './routes/users.js';
 import fileRoutes from './routes/files.js';
 import calendarRoutes, { publicInviteRoutes } from './routes/calendar.js';
 import contactRoutes from './routes/contacts.js';
+import taskRoutes from './routes/tasks.js';
 import chatRoutes from './routes/chat.js';
 import orgRoutes from './routes/orgs.js';
 import mailAdminRoutes from './routes/mailAdmin.js';
@@ -76,6 +77,7 @@ export function createApp({
   app.use('/api/events', requireAuth, calendarRoutes());
   app.use('/api/contacts', requireAuth, contactRoutes());
   app.use('/api/chat', requireAuth, chatRoutes());
+  app.use('/api/tasks', requireAuth, taskRoutes());
   app.use('/api', (req, res, next) => next(new HttpError(404, 'Not found')));
   // Share-link pages: keep them out of search engines.
   app.use(['/s/', '/i/'], (req, res, next) => { res.setHeader('X-Robots-Tag', 'noindex, nofollow'); next(); });

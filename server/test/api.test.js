@@ -1035,3 +1035,58 @@ test('chat mentions: counted per conversation until read', async () => {
   await b('POST', `/api/chat/channels/${ch}/read`);
   assert.equal((await of(b)).mentions, 0);
 });
+
+test('tasks: lists, ordering, due dates, done, sharing and assigning', async () => {
+  const a = client(), b = client(), c = client();
+  for (const [local, name] of [['taska', 'Task Ann'], ['taskb', 'Task Ben'], ['taskc', 'Task Cat']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'taska@acme.com');
+  const bid = (await login(b, 'taskb@acme.com')).id;
+  const cid = (await login(c, 'taskc@acme.com')).id;
+  const first = (await a('GET', '/api/tasks/lists')).body;
+  assert.deepEqual(first.lists.map((l) => [l.name, l.mine, l.open]), [['My tasks', true, 0]], 'everyone starts with a list');
+  assert.equal((await a('GET', '/api/tasks/lists')).body.lists.length, 1, 'only one');
+  const list = (await a('POST', '/api/tasks/lists', { name: 'Launch' })).body.id;
+  const add = async (title, extra = {}) => (await a('POST', `/api/tasks/lists/${list}/tasks`, { title, ...extra })).body;
+  const t1 = await add('Write press release');
+  const t2 = await add('Book venue', { due: '2026-12-01' });
+  const t3 = await add('Order cake', { at: 'end' });
+  const titles = async (who = a) => (await who('GET', `/api/tasks/lists/${list}/tasks`)).body.map((t) => `${t.title}${t.done ? ' ✓' : ''}`);
+  assert.deepEqual(await titles(), ['Book venue', 'Write press release', 'Order cake'], 'new on top, or at the end');
+  assert.equal((await a('POST', `/api/tasks/lists/${list}/tasks`, { title: 'x', due: '1 Dec' })).status, 400);
+  // Drag: between two others.
+  await a('PATCH', `/api/tasks/tasks/${t3.id}`, { position: (t2.position + t1.position) / 2 });
+  assert.deepEqual(await titles(), ['Book venue', 'Order cake', 'Write press release']);
+  // Done goes to the bottom; undone comes back on top.
+  await a('PATCH', `/api/tasks/tasks/${t2.id}`, { done: true });
+  assert.deepEqual(await titles(), ['Order cake', 'Write press release', 'Book venue ✓']);
+  assert.equal((await a('GET', '/api/tasks/lists')).body.lists.find((l) => l.id === list).open, 2);
+  await a('PATCH', `/api/tasks/tasks/${t2.id}`, { done: false });
+  assert.deepEqual(await titles(), ['Book venue', 'Order cake', 'Write press release']);
+  // Not shared yet: Ben can't see it, or be given a task on it.
+  assert.equal((await b('GET', `/api/tasks/lists/${list}/tasks`)).status, 404);
+  assert.equal((await a('PATCH', `/api/tasks/tasks/${t1.id}`, { assignee_id: bid })).status, 400);
+  // Shared with Ben: he sees it, can change it and be given tasks.
+  assert.equal((await b('PUT', `/api/tasks/lists/${list}/members`, { user_ids: [cid] })).status, 404, "only the owner shares");
+  await a('PUT', `/api/tasks/lists/${list}/members`, { user_ids: [bid] });
+  const forBen = (await b('GET', '/api/tasks/lists')).body.lists.find((l) => l.id === list);
+  assert.deepEqual([forBen.mine, forBen.owner_name], [false, 'Task Ann']);
+  const given = (await a('PATCH', `/api/tasks/tasks/${t1.id}`, { assignee_id: bid, notes: 'Draft by Friday' })).body;
+  assert.deepEqual([given.assignee_name, given.notes], ['Task Ben', 'Draft by Friday']);
+  await a('PATCH', `/api/tasks/tasks/${t2.id}`, { assignee_id: bid });
+  assert.deepEqual((await b('GET', '/api/tasks/assigned')).body.map((t) => [t.title, t.list_name]), [['Book venue', 'Launch'], ['Write press release', 'Launch']], 'with a date first');
+  assert.equal((await b('GET', '/api/tasks/lists')).body.assigned, 2);
+  await b('PATCH', `/api/tasks/tasks/${t1.id}`, { done: true });
+  assert.ok((await titles()).includes('Write press release ✓'), 'Ben ticked it off');
+  // Clear completed; Ben leaves: his tasks are nobody's.
+  assert.equal((await a('DELETE', `/api/tasks/lists/${list}/done`)).body.deleted, 1);
+  await b('DELETE', `/api/tasks/lists/${list}`);
+  assert.equal((await b('GET', `/api/tasks/lists/${list}/tasks`)).status, 404);
+  assert.equal((await a('GET', `/api/tasks/lists/${list}/tasks`)).body.find((t) => t.id === t2.id).assignee_id, null);
+  // Move a task to another list; delete a list with its tasks.
+  const mine = first.lists[0].id;
+  await a('PATCH', `/api/tasks/tasks/${t3.id}`, { list_id: mine });
+  assert.deepEqual((await a('GET', `/api/tasks/lists/${mine}/tasks`)).body.map((t) => t.title), ['Order cake']);
+  assert.equal((await c('PATCH', `/api/tasks/tasks/${t3.id}`, { title: 'hijack' })).status, 404);
+  await a('DELETE', `/api/tasks/lists/${list}`);
+  assert.equal((await a('GET', `/api/tasks/lists/${list}/tasks`)).status, 404);
+});
