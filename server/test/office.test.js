@@ -100,7 +100,15 @@ test('Excel: a real .xlsx opens with values, formulas, formats and every sheet',
 });
 
 test('Excel: a spreadsheet saved as .xlsx opens again the same', async () => {
-  const data = { sheets: [{ name: 'Budget', frozen: { rows: 1, cols: 2 }, cells: { A1: 'Cost', B1: '100', B2: '=B1*2', C1: 'TRUE' }, colWidths: { A: 145 }, formats: { A1: { b: 1, color: '#c5221f' }, B1: { num: 'currency', cur: 'USD', dp: 2 }, B2: { num: 'percent', dp: 0 } } }] };
+  const data = { sheets: [{ name: 'Budget', frozen: { rows: 1, cols: 2 }, rules: [
+    { id: 'a', range: 'B1:B9', when: 'gt', value: '100', fill: '#fce8e6', color: '#c5221f', bold: true },
+    { id: 'b', range: 'A1:A9', when: 'contains', value: 'late', fill: '#fef7e0' },
+    { id: 'c', range: 'C1:C9', when: 'between', value: '1', value2: '5', fill: '#e6f4ea' },
+    { id: 'd', range: 'D1:D9', when: 'eq', value: 'Done', fill: '#e8f0fe' },
+    { id: 'e', range: 'E1:E9', when: 'empty', fill: '#f1f3f4' },
+    { id: 'f', range: 'F1:F9', when: 'notContains', value: 'say "ok"', fill: '#f3e8fd' },
+    { id: 'g', range: 'G1:G9', when: 'starts', value: 'INV', fill: '#e6f4ea' },
+  ], cells: { A1: 'Cost', B1: '100', B2: '=B1*2', C1: 'TRUE' }, colWidths: { A: 145 }, formats: { A1: { b: 1, color: '#c5221f' }, B1: { num: 'currency', cur: 'USD', dp: 2 }, B2: { num: 'percent', dp: 0 } } }] };
   const back = await sheetFromExcel(await excelFromSheet(data));
   const b = back.sheets[0];
   assert.deepEqual([b.name, b.cells.A1, b.cells.B1, b.cells.B2, b.cells.C1], ['Budget', 'Cost', '100', '=B1*2', 'TRUE']);
@@ -109,6 +117,15 @@ test('Excel: a spreadsheet saved as .xlsx opens again the same', async () => {
   assert.deepEqual(b.formats.B2, { num: 'percent', dp: 0 });
   assert.equal(b.colWidths.A, 145);
   assert.deepEqual(b.frozen, { rows: 1, cols: 2 }, 'frozen rows and columns');
+  assert.deepEqual(b.rules?.map(({ id, ...r }) => r), [
+    { range: 'B1:B9', when: 'gt', value: '100', fill: '#fce8e6', color: '#c5221f', bold: true },
+    { range: 'A1:A9', when: 'contains', value: 'late', fill: '#fef7e0' },
+    { range: 'C1:C9', when: 'between', value: '1', value2: '5', fill: '#e6f4ea' },
+    { range: 'D1:D9', when: 'eq', value: 'Done', fill: '#e8f0fe' },
+    { range: 'E1:E9', when: 'empty', fill: '#f1f3f4' },
+    { range: 'F1:F9', when: 'notContains', value: 'say "ok"', fill: '#f3e8fd' },
+    { range: 'G1:G9', when: 'starts', value: 'INV', fill: '#e6f4ea' },
+  ], 'conditional formatting');
   assert.deepEqual(numFromExcel('$#,##0'), { num: 'currency', cur: 'USD', dp: 0 });
 });
 

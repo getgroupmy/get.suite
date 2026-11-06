@@ -81,7 +81,8 @@ export function applyStructure(sheet, change) {
     if (n !== null) colWidths[colName(n)] = v;
   }
   for (const [id, ch] of Object.entries(sheet.charts || {})) { const range = adjustRange(ch.range, change); if (range) charts[id] = { ...ch, range }; }
-  return { ...sheet, cells, colWidths, ...(sheet.formats && { formats }), ...(sheet.charts && { charts }) };
+  const rules = (sheet.rules || []).map((r) => ({ ...r, range: adjustRange(r.range, change) })).filter((r) => r.range);
+  return { ...sheet, cells, colWidths, ...(sheet.formats && { formats }), ...(sheet.charts && { charts }), ...(sheet.rules && { rules }) };
 }
 
 /** Does the top row of a range look like headings: all text, over at least one column of numbers? */

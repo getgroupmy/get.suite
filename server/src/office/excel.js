@@ -72,7 +72,19 @@ export async function sheetFromExcel(buffer) {
     // Frozen panes: the rows above and the columns left of the split stay in view.
     const view = (ws.views || []).find((v) => v.state === 'frozen');
     const frozen = view && { rows: Math.min(50, Math.max(0, view.ySplit || 0)), cols: Math.min(26, Math.max(0, view.xSplit || 0)) };
-    sheets.push({ name: ws.name.slice(0, 30), cells, colWidths, ...(Object.keys(formats).length && { formats }), ...(frozen && (frozen.rows || frozen.cols) && { frozen }) });
+    const rules = [];
+    for (const cf of ws.conditionalFormattings || []) {
+      for (const xr of cf.rules || []) {
+        const r = ruleFromExcel(xr);
+        if (!r || !/^[A-Z]+\d+(:[A-Z]+\d+)?$/i.test(String(cf.ref || '').split(' ')[0])) continue;
+        const range = String(cf.ref).split(' ')[0].toUpperCase();
+        const fill = xr.style?.fill?.bgColor?.argb || xr.style?.fill?.fgColor?.argb;
+        const color = xr.style?.font?.color?.argb;
+        rules.push({ id: `x${rules.length + 1}`, range: range.includes(':') ? range : `${range}:${range}`, ...r, ...(fill && { fill: hex(fill) }), ...(color && { color: hex(color) }), ...(xr.style?.font?.bold && { bold: true }), _p: xr.priority ?? 99 });
+      }
+    }
+    rules.sort((a, b) => a._p - b._p).forEach((r) => delete r._p);
+    sheets.push({ name: ws.name.slice(0, 30), cells, colWidths, ...(rules.length && { rules }), ...(Object.keys(formats).length && { formats }), ...(frozen && (frozen.rows || frozen.cols) && { frozen }) });
   });
   return { sheets: sheets.length ? sheets : [{ name: 'Sheet1', cells: {}, colWidths: {} }] };
 }
@@ -101,7 +113,56 @@ export async function excelFromSheet(data) {
     }
     for (const [col, px] of Object.entries(s.colWidths || {})) ws.getColumn(col).width = Math.max(2, Math.round((px - 5) / 7));
     if (s.frozen?.rows || s.frozen?.cols) ws.views = [{ state: 'frozen', xSplit: s.frozen.cols || 0, ySplit: s.frozen.rows || 0 }];
+    // Conditional formatting, in the order Sheets tries the rules (Excel's priority).
+    (s.rules || []).forEach((r, i) => {
+      const rule = ruleToExcel(r);
+      if (rule) ws.addConditionalFormatting({ ref: r.range, rules: [{ ...rule, priority: i + 1, style: {
+        ...(r.fill && { fill: { type: 'pattern', pattern: 'solid', bgColor: { argb: argb(r.fill) } } }),
+        ...((r.color || r.bold) && { font: { ...(r.color && { color: { argb: argb(r.color) } }), ...(r.bold && { bold: true }) } }),
+      } }] });
+    });
   }
   if (!wb.worksheets.length) wb.addWorksheet('Sheet1');
   return Buffer.from(await wb.xlsx.writeBuffer());
+}
+
+// ---- conditional formatting, both ways
+const OPS = { gt: 'greaterThan', gte: 'greaterThanOrEqual', lt: 'lessThan', lte: 'lessThanOrEqual', between: 'between', eq: 'equal', ne: 'notEqual' };
+const formula = (v) => (v !== '' && v !== null && v !== undefined && !Number.isNaN(Number(v)) ? String(Number(v)) : `"${String(v ?? '').replace(/"/g, '""')}"`);
+// Text rules are written as formula rules ("expression"), which Excel reads natively and which
+// keep their text (the library loses it for its text rule types).
+const quoted = (t) => `"${String(t ?? '').replace(/"/g, '""')}"`;
+function ruleToExcel(r) {
+  if (OPS[r.when]) return { type: 'cellIs', operator: OPS[r.when], formulae: r.when === 'between' ? [formula(r.value), formula(r.value2)] : [formula(r.value)] };
+  const cell = String(r.range).split(':')[0].replace(/\$/g, '');
+  const f = {
+    contains: `NOT(ISERROR(SEARCH(${quoted(r.value)},${cell})))`,
+    notContains: `ISERROR(SEARCH(${quoted(r.value)},${cell}))`,
+    starts: `LEFT(${cell},LEN(${quoted(r.value)}))=${quoted(r.value)}`,
+    empty: `LEN(TRIM(${cell}))=0`,
+    notEmpty: `LEN(TRIM(${cell}))>0`,
+    error: `ISERROR(${cell})`,
+  }[r.when];
+  return f ? { type: 'expression', formulae: [f] } : null;
+}
+const unformula = (f) => { const t = String(f ?? '').trim(); return /^".*"$/.test(t) ? t.slice(1, -1).replace(/""/g, '"') : t; };
+/** A rule Sheets can show, from Excel's: value comparisons, and the usual text, blank and error tests. */
+function ruleFromExcel(x) {
+  if (x.type === 'cellIs') {
+    const when = Object.keys(OPS).find((k) => OPS[k] === x.operator);
+    if (!when) return null;
+    return { when, value: unformula(x.formulae?.[0]), ...(when === 'between' && { value2: unformula(x.formulae?.[1]) }) };
+  }
+  const f = String(x.formulae?.[0] || '').trim().replace(/\$(?=[A-Z0-9])/g, '');
+  const str = '"((?:[^"]|"")*)"';
+  const un = (t) => t.replace(/""/g, '"');
+  let m;
+  if ((m = new RegExp(`^NOT\\(ISERROR\\(SEARCH\\(${str},[A-Z]+\\d+\\)\\)\\)$`, 'i').exec(f))) return { when: 'contains', value: un(m[1]) };
+  if ((m = new RegExp(`^ISERROR\\(SEARCH\\(${str},[A-Z]+\\d+\\)\\)$`, 'i').exec(f))) return { when: 'notContains', value: un(m[1]) };
+  if ((m = new RegExp(`^LEFT\\([A-Z]+\\d+,LEN\\(${str}\\)\\)=${str}$`, 'i').exec(f))) return { when: 'starts', value: un(m[1]) };
+  if (/^LEN\(TRIM\([A-Z]+\d+\)\)=0$/i.test(f)) return { when: 'empty' };
+  if (/^LEN\(TRIM\([A-Z]+\d+\)\)>0$/i.test(f)) return { when: 'notEmpty' };
+  if (/^ISERROR\([A-Z]+\d+\)$/i.test(f)) return { when: 'error' };
+  if (x.type === 'containsText' && x.text !== undefined) return { when: { notContains: 'notContains', beginsWith: 'starts' }[x.operator] || 'contains', value: String(x.text) };
+  return null;
 }

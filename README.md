@@ -132,6 +132,12 @@ Everyone who can edit a document, spreadsheet or presentation can work in it at 
 - **Freeze:** right-click a row number → *Freeze the first row* (or *Freeze rows 1–3* with three rows selected) to keep headings in view while scrolling; the same for columns from a column letter. *Unfreeze* puts them back. A darker line shows where the frozen part ends.
 - Widths and frozen rows and columns are shared with everyone editing, kept per sheet, and carried to and from Excel.
 
+## Conditional formatting (Sheets)
+
+- **Rules** in the toolbar colours cells by their value: greater or less than, between, equal or not equal to, text that contains, doesn't contain or starts with something, empty or not, or an error. Pick a colour (and bold) and the cells it applies to; the selection is filled in for you.
+- A sheet can have several rules. They're tried from the top, and the first that fits a cell colours it; the arrows change the order.
+- The colours follow the values as they change, for everyone editing. Rules move with their cells when rows or columns are inserted or deleted, and carry to and from Excel.
+
 ## Charts (Sheets)
 
 - **Insert:** select cells (or just click one inside your table) and press **Chart**. The first row and column are used as names when they hold text. Choose **Column**, **Bar**, **Line** or **Pie**, give it a title, and check the preview.
@@ -185,7 +191,7 @@ Your Workspace calendar and contacts sync with the phone's own Calendar and Cont
 - **Downloading:** **Download as Word / Excel / PowerPoint** is in each editor's ⋮ menu.
 - **What carries over:**
   - **Word:** headings, paragraphs, bold, italic, underline, strike, links, bulleted and numbered lists, quotes, code, tables and pictures (saved in a "… pictures" folder beside the document). Downloading also writes text colours and highlights, and each picture's size and alignment. Paragraph alignment and text colours aren't read from Word files yet.
-  - **Excel:** every sheet, values and formulas, bold, italic and underline, text and fill colour, alignment, number, currency and percent formats with their decimals, column widths, and frozen rows and columns. Excel functions Sheets doesn't know show an error in Sheets, but are kept and written back as they were.
+  - **Excel:** every sheet, values and formulas, bold, italic and underline, text and fill colour, alignment, number, currency and percent formats with their decimals, column widths, frozen rows and columns, and conditional formatting. Excel functions Sheets doesn't know show an error in Sheets, but are kept and written back as they were.
   - **PowerPoint:** every slide, text boxes at their places (size, bold, italic, colour, alignment), rectangles, rounded rectangles and ellipses, pictures (saved in a "… pictures" folder beside the presentation), slide backgrounds and speaker notes. Animations, charts and SmartArt don't carry over.
 - Files up to 50 MB can be converted.
 

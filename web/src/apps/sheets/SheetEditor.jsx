@@ -14,6 +14,8 @@ import { ChartCard, ChartDialog } from './SheetCharts.jsx';
 import { dataRegion, rangeText } from './charts.js';
 import { applyStructure, adjustKey, sortRange, looksLikeHeader } from './structure.js';
 import { SortDialog } from './SheetSort.jsx';
+import { RulesDialog } from './SheetRules.jsx';
+import { ruleStyle } from './condformat.js';
 import { useUndo, undoKey } from '../useUndo.js';
 
 const SEL_COLORS = ['#1a73e8', '#d93025', '#188038', '#e37400', '#8430ce', '#00796b', '#c2185b', '#5f6368'];
@@ -101,6 +103,7 @@ export default function SheetEditor() {
   const formats = sheet?.formats || {};
   const charts = sheet?.charts || {};
   const colWidths = sheet?.colWidths || {};
+  const rules = sheet?.rules || [];
   const frozen = { rows: sheet?.frozen?.rows || 0, cols: sheet?.frozen?.cols || 0 };
   const [resizing, setResizing] = useState(null); // { c, w } while a column edge is dragged
   const widthOf = (c) => (resizing?.c === c ? resizing.w : colWidths[colName(c)] ?? DEFAULT_W);
@@ -490,7 +493,7 @@ export default function SheetEditor() {
       />
       {status === 'offline' && <div className="banner warn">You're offline. Keep editing: your changes are kept here and sync when the connection is back.</div>}
       {readOnly && <div className="banner">View only. Ask {file.owner_name} for edit access.</div>}
-      {!readOnly && <FormatBar fmt={formats[selKey] || {}} onChange={(change) => { writeFormats(change); gridRef.current?.focus(); }} onComment={startComment} onChart={newChart} onSort={() => setDialog({ type: 'sort' })} history={history} />}
+      {!readOnly && <FormatBar fmt={formats[selKey] || {}} onChange={(change) => { writeFormats(change); gridRef.current?.focus(); }} onComment={startComment} onChart={newChart} onSort={() => setDialog({ type: 'sort' })} onRules={() => setDialog({ type: 'rules' })} history={history} />}
       <div className="formula-bar">
         <span className="cell-name">{anchor ? `${cellKey(range.c1, range.r1)}:${cellKey(range.c2, range.r2)}` : selKey}</span>
         <span className="fx">fx</span>
@@ -549,7 +552,7 @@ export default function SheetEditor() {
                   const isErr = v && typeof v === 'object';
                   const fmt = formats[k];
                   return (
-                    <td key={k} data-k={k} style={{ maxWidth: widthOf(c), ...stickyStyle(c, r), ...cellStyle(fmt), ...(theirs.has(k) && { boxShadow: `${isSel ? 'inset 0 0 0 2px var(--accent), ' : ''}inset 0 0 0 ${isSel ? 4 : 2}px ${theirs.get(k).color}` }) }}
+                    <td key={k} data-k={k} style={{ maxWidth: widthOf(c), ...stickyStyle(c, r), ...cellStyle(fmt), ...(rules.length && ruleStyle(rules, k, v)), ...(theirs.has(k) && { boxShadow: `${isSel ? 'inset 0 0 0 2px var(--accent), ' : ''}inset 0 0 0 ${isSel ? 4 : 2}px ${theirs.get(k).color}` }) }}
                       title={theirs.has(k) ? `${theirs.get(k).name} is here` : commented.has(k) ? 'Has comments' : undefined}
                       className={`${frozenClass(c, r)} ${commented.has(k) ? 'commented' : ''} ${isSel ? 'sel' : ''} ${inRange(c, r) && anchor ? 'range' : ''} ${typeof v === 'number' ? 'num' : ''} ${isErr ? 'err' : ''}`}
                       onContextMenu={(e) => { if (!inRange(c, r)) { setAnchor(null); setSel({ c, r }); } openMenu(e, 'cell'); }}
@@ -604,6 +607,10 @@ export default function SheetEditor() {
         ))}
       </div>
       {ctx && <ContextMenu x={ctx.x} y={ctx.y} items={ctxItems} label={ctx.kind === 'row' ? 'Row actions' : ctx.kind === 'col' ? 'Column actions' : 'Cell actions'} onClose={closeCtx} />}
+      {dialog?.type === 'rules' && (
+        <RulesDialog rules={rules} defaultRange={anchor ? rangeText(range) : rangeText(dataRegion(sel, (c, r) => cells[cellKey(c, r)] !== undefined && cells[cellKey(c, r)] !== ''))}
+          onChange={(next) => writeSheet(() => ({ rules: next.length ? next : null }))} onClose={() => { setDialog(null); gridRef.current?.focus(); }} />
+      )}
       {dialog?.type === 'sort' && (() => { const g = sortTarget(); return (
         <SortDialog initial={{ range: g, by: sel.c }} header={looksLikeHeader(g, evaluate)} value={evaluate} onSort={sortBy} onClose={() => { setDialog(null); gridRef.current?.focus(); }} />
       ); })()}
@@ -659,7 +666,7 @@ export function parseCsv(text) {
 }
 
 /** Formatting for the selected cells: bold, italic, underline, colours, alignment, number format. */
-function FormatBar({ fmt, onChange, onComment, onChart, onSort, history }) {
+function FormatBar({ fmt, onChange, onComment, onChart, onSort, onRules, history }) {
   const keep = (e) => e.preventDefault(); // buttons don't take focus from the grid
   const Toggle = ({ k, label, title, children }) => (
     <button type="button" className={`tb ${fmt[k] ? 'on' : ''}`} aria-pressed={!!fmt[k]} aria-label={label} title={title} onMouseDown={keep} onClick={() => onChange({ [k]: !fmt[k] })}>{children}</button>
@@ -704,6 +711,7 @@ function FormatBar({ fmt, onChange, onComment, onChart, onSort, history }) {
       <button type="button" className="tb" aria-label="Clear formatting" title="Clear formatting" onMouseDown={keep}
         onClick={() => onChange({ b: null, i: null, u: null, color: null, fill: null, align: null, num: null })}>Tx</button>
       <span className="sep" />
+      <button type="button" className="tb labelled" aria-label="Conditional formatting" title="Colour cells by their value" onMouseDown={keep} onClick={onRules}><RulesGlyph /> Rules</button>
       <button type="button" className="tb labelled" aria-label="Sort range" title="Sort rows by a column" onMouseDown={keep} onClick={onSort}><SortGlyph /> Sort</button>
       <button type="button" className="tb labelled" aria-label="Insert chart" title="Chart of the selected cells" onMouseDown={keep} onClick={onChart}><Icon name="chart" size={18} /> Chart</button>
       <button type="button" className="tb labelled" aria-label="Add comment" title="Comment on this cell (Ctrl+Alt+M)" onMouseDown={keep} onClick={onComment}><Icon name="chat" size={18} /> Comment</button>
@@ -718,4 +726,8 @@ function AlignGlyph({ to }) {
 
 function SortGlyph() {
   return <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M3 18h6v-2H3v2zM3 6v2h18V6H3zm0 7h12v-2H3v2z" /></svg>;
+}
+
+function RulesGlyph() {
+  return <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M4 4h7v7H4V4zm9 0h7v7h-7V4zM4 13h7v7H4v-7zm9 0h7v7h-7v-7z" opacity=".35" /><path fill="currentColor" d="M13 13h7v7h-7z" /></svg>;
 }

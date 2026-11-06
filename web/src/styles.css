@@ -1016,3 +1016,11 @@ kbd { display: inline-block; min-width: 1.4em; padding: 1px 5px; border: 1px sol
 .pending-files { list-style: none; display: flex; flex-wrap: wrap; gap: 6px; margin: 0 16px; padding: 6px 0 0; }
 .pending-files li { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px 2px 10px; border: 1px solid var(--border); border-radius: 14px; font-size: 13px; }
 .pending-files .icon-btn { width: 22px; height: 22px; }
+
+/* ---------- Sheets: conditional formatting ---------- */
+.rule-list { list-style: none; margin: 0; padding: 0; }
+.rule-list li { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--border); }
+.rule-sample { display: inline-grid; place-items: center; min-width: 48px; height: 28px; padding: 0 8px; border-radius: 4px; border: 1px solid var(--border); font: inherit; font-size: 13px; cursor: default; }
+button.rule-sample { cursor: pointer; }
+button.rule-sample.on { outline: 2px solid var(--accent); outline-offset: 1px; }
+.rule-styles { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; border: 0; padding: 0; margin: 0; }

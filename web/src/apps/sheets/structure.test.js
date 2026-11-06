@@ -58,3 +58,9 @@ test('sorting rows by a column, numbers then text, empty cells last; formulas mo
   assert.deepEqual([down.cells.A2, down.cells.A3, down.cells.A4, down.cells.A5], ['dan', 'cat', 'bob', 'Amy']);
   assert.equal(looksLikeHeader({ c1: 0, r1: 1, c2: 1, r2: 4 }, ev), false);
 });
+
+test('conditional formatting ranges follow rows and columns', () => {
+  const sheet = { cells: {}, rules: [{ id: 'r1', range: 'B2:B10', when: 'gt', value: '1' }, { id: 'r2', range: 'C2:C3', when: 'empty' }] };
+  assert.deepEqual(applyStructure(sheet, ins('row', 4)).rules.map((r) => r.range), ['B2:B11', 'C2:C3']);
+  assert.deepEqual(applyStructure(sheet, del('col', 2)).rules.map((r) => r.range), ['B2:B10'], 'a rule whose cells are all deleted goes');
+});
