@@ -11,7 +11,7 @@ function useDriveRoute() {
   const parts = pathname.replace(/^\/drive\/?/, '').split('/');
   if (parts[0] === 'folder' && parts[1]) return { view: 'mine', folderId: parts[1] };
   if (['shared', 'recent', 'starred', 'trash'].includes(parts[0])) return { view: parts[0] };
-  if (parts[0] === 'search') return { view: 'search', q: params.get('q') || '' };
+  if (parts[0] === 'search') return { view: 'search', q: params.get('q') || '', filters: Object.fromEntries(FILTERS.map(([k]) => [k, params.get(k) || ''])) };
   return { view: 'mine', folderId: null };
 }
 
@@ -22,6 +22,13 @@ export function openPath(f) {
   if (f.kind === 'slides') return `/slides/${f.id}`;
   return null;
 }
+
+/** Search filters: [param, label, [[value, name]...]]. */
+const FILTERS = [
+  ['type', 'Type', [['', 'Any type'], ['doc', 'Documents'], ['sheet', 'Spreadsheets'], ['slides', 'Presentations'], ['pdf', 'PDFs'], ['image', 'Pictures'], ['video', 'Videos'], ['audio', 'Audio'], ['archive', 'Archives (.zip)'], ['folder', 'Folders']]],
+  ['owner', 'Owner', [['', 'Anyone'], ['me', 'Owned by me'], ['others', 'Not owned by me']]],
+  ['modified', 'Modified', [['', 'Any time'], ['1', 'Today'], ['7', 'Last 7 days'], ['30', 'Last 30 days'], ['365', 'Last year']]],
+];
 
 const TITLES = { shared: 'Shared with me', recent: 'Recent', starred: 'Starred', trash: 'Trash' };
 const DRAG_TYPE = 'application/x-workspace-files';
@@ -41,13 +48,14 @@ export default function Drive() {
   const [selected, setSelected] = useState(null);
   const fileInput = useRef();
 
-  const key = `${route.view}:${route.folderId || ''}:${route.q || ''}`;
+  const filterQuery = route.filters ? FILTERS.filter(([k]) => route.filters[k]).map(([k]) => `&${k}=${encodeURIComponent(route.filters[k])}`).join('') : '';
+  const key = `${route.view}:${route.folderId || ''}:${route.q || ''}:${filterQuery}`;
 
   const load = useCallback(async () => {
     try {
       let url = `/files?view=${route.view}`;
       if (route.folderId) url += `&parent=${route.folderId}`;
-      if (route.view === 'search') url += `&q=${encodeURIComponent(route.q)}`;
+      if (route.view === 'search') url += `&q=${encodeURIComponent(route.q)}${filterQuery}`;
       const [list, path, f] = await Promise.all([
         get(url),
         route.folderId ? get(`/files/${route.folderId}/path`) : [],
@@ -180,7 +188,12 @@ export default function Drive() {
     ];
   }
 
-  const title = route.view === 'search' ? `Search results for “${route.q}”` : TITLES[route.view];
+  const title = route.view === 'search' ? (route.q ? `Search results for “${route.q}”` : 'Search') : TITLES[route.view];
+  const setFilter = (k, v) => {
+    const p = new URLSearchParams({ q: route.q });
+    for (const [f] of FILTERS) { const val = f === k ? v : route.filters[f]; if (val) p.set(f, val); }
+    navigate(`/drive/search?${p}`, { replace: true });
+  };
 
   return (
     <div className="drive">
@@ -228,6 +241,16 @@ export default function Drive() {
             <button className="btn" onClick={() => setDialog({ type: 'empty-trash' })}>Empty trash</button>
           )}
         </div>
+        {route.view === 'search' && (
+          <div className="search-filters" role="group" aria-label="Filters">
+            {FILTERS.map(([k, label, options]) => (
+              <select key={k} aria-label={label} className={route.filters[k] ? 'on' : ''} value={route.filters[k]} onChange={(e) => setFilter(k, e.target.value)}>
+                {options.map(([v, name]) => <option key={v} value={v}>{name}</option>)}
+              </select>
+            ))}
+            {FILTERS.some(([k]) => route.filters[k]) && <button type="button" className="link-btn small" onClick={() => navigate(`/drive/search?q=${encodeURIComponent(route.q)}`, { replace: true })}>Clear filters</button>}
+          </div>
+        )}
         {picked.length > 0 && (
           <div className="select-bar" role="toolbar" aria-label="Selected files">
             <strong>{picked.length} selected</strong>

@@ -171,12 +171,25 @@ q(`CREATE TABLE IF NOT EXISTS file_stars (
 )`).run();
 const MAX_ZIP_BYTES = 2 * 1024 ** 3, MAX_ZIP_FILES = 20000;
 
+/** The kinds of file search can be narrowed to: Workspace files and the usual uploads of the same kind. */
+const SEARCH_TYPES = {
+  folder: "f.kind = 'folder'",
+  doc: "f.kind = 'doc' OR (f.kind = 'file' AND (f.name LIKE '%.docx' OR f.name LIKE '%.doc' OR f.name LIKE '%.odt' OR f.name LIKE '%.rtf' OR f.name LIKE '%.txt' OR f.name LIKE '%.md'))",
+  sheet: "f.kind = 'sheet' OR (f.kind = 'file' AND (f.name LIKE '%.xlsx' OR f.name LIKE '%.xls' OR f.name LIKE '%.ods' OR f.name LIKE '%.csv'))",
+  slides: "f.kind = 'slides' OR (f.kind = 'file' AND (f.name LIKE '%.pptx' OR f.name LIKE '%.ppt' OR f.name LIKE '%.odp'))",
+  pdf: "f.kind = 'file' AND (f.mime = 'application/pdf' OR f.name LIKE '%.pdf')",
+  image: "f.kind = 'file' AND f.mime LIKE 'image/%'",
+  video: "f.kind = 'file' AND f.mime LIKE 'video/%'",
+  audio: "f.kind = 'file' AND f.mime LIKE 'audio/%'",
+  archive: "f.kind = 'file' AND (f.name LIKE '%.zip' OR f.name LIKE '%.7z' OR f.name LIKE '%.rar' OR f.name LIKE '%.tar' OR f.name LIKE '%.gz')",
+};
+
 export default function fileRoutes({ maxUploadBytes }) {
   const r = Router();
   // After any change, the search index catches up within a couple of seconds.
   r.use((req, res, next) => { if (req.method !== 'GET') res.on('finish', () => { if (res.statusCode < 300) indexSoon(); }); next(); });
 
-  // List: ?view=mine|shared|recent|trash|search & parent= & q=
+  // List: ?view=mine|shared|recent|trash|search & parent= & q= (search: & type= & owner=me|others & modified=days)
   r.get('/', (req, res) => {
     const me = req.user.id;
     const org = req.user.org_id;
@@ -214,11 +227,22 @@ export default function fileRoutes({ maxUploadBytes }) {
       const term = `%${String(req.query.q || '').replace(/[%_\\]/g, (c) => '\\' + c)}%`;
       const inside = contentMatches(req.query.q);
       const ids = JSON.stringify([...inside.keys()]);
+      // Filters: the kind of file, whose it is, and when it last changed.
+      const extra = [], args = [];
+      const type = SEARCH_TYPES[req.query.type];
+      if (req.query.type && !type) throw bad('Unknown file type');
+      if (type) extra.push(type);
+      if (req.query.owner === 'me') { extra.push('f.owner_id = ?'); args.push(me); }
+      else if (req.query.owner === 'others') { extra.push('f.owner_id != ?'); args.push(me); }
+      const days = Number(req.query.modified);
+      if (req.query.modified && !(days > 0)) throw bad('Bad date filter');
+      if (days > 0) { extra.push('f.updated_at >= ?'); args.push(Date.now() - days * 864e5); }
       rows = q(`SELECT ${COLS}, CASE WHEN f.owner_id = ? THEN 'owner' ELSE s.role END AS role ${FROM}
                 LEFT JOIN shares s ON s.file_id = f.id AND s.user_id = ?
                 WHERE (f.owner_id = ? OR s.user_id IS NOT NULL) AND f.trashed = 0
                   AND (f.name LIKE ? ESCAPE '\\' OR f.id IN (SELECT value FROM json_each(?))) AND ${REACHABLE}
-                ${ORDER} LIMIT 200`).all(me, me, me, term, ids, org, org);
+                  ${extra.map((x) => `AND (${x})`).join(' ')}
+                ${ORDER} LIMIT 200`).all(me, me, me, term, ids, org, org, ...args);
       // Name matches first, then the best content matches; each content match says where it matched.
       const rank = new Map([...inside.keys()].map((id, i) => [id, i]));
       const byName = (f) => f.name.toLowerCase().includes(String(req.query.q || '').toLowerCase());

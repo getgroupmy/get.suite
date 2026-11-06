@@ -1097,3 +1097,32 @@ test('tasks: lists, ordering, due dates, done, sharing and assigning', async () 
   await a('DELETE', `/api/tasks/lists/${list}`);
   assert.equal((await a('GET', `/api/tasks/lists/${list}/tasks`)).status, 404);
 });
+
+test('search filters: kind of file, whose it is, and when it changed', async () => {
+  const { q } = await import('../src/db.js');
+  const tag = `flt${Date.now() % 100000}`;
+  const mk = async (who, name, extra = {}) => (await who('POST', '/api/files/new', { kind: 'doc', name, ...extra })).body;
+  const d = await mk(owner, `${tag} notes`);
+  const s = await mk(owner, `${tag} budget`, { kind: 'sheet' });
+  const folder = (await owner('POST', '/api/files/folder', { name: `${tag} folder` })).body;
+  const pdf = (await owner('POST', `/api/files/upload?name=${tag}-report.pdf`, Buffer.from('%PDF-1.4'), { raw: true, headers: { 'content-type': 'application/pdf' } })).body;
+  const old = await mk(owner, `${tag} old plan`);
+  q('UPDATE files SET updated_at = ? WHERE id = ?').run(Date.now() - 40 * 864e5, old.id);
+  // A colleague shares one of theirs with the owner.
+  const pal = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'filterpal', domain: 'acme.com', name: 'Filter Pal', password: 'password123' })).status, 201);
+  await login(pal, 'filterpal@acme.com');
+  const bobs = await mk(pal, `${tag} from bob`);
+  await pal('PUT', `/api/files/${bobs.id}/shares`, { shares: [{ user_id: (await owner('GET', '/api/auth/me')).body.user.id, role: 'viewer' }] });
+  const find = async (params) => (await owner('GET', `/api/files?view=search&q=${tag}&${params}`)).body.map((f) => f.name).sort();
+  assert.deepEqual(await find('type=doc'), [`${tag} from bob`, `${tag} notes`, `${tag} old plan`]);
+  assert.deepEqual(await find('type=sheet'), [`${tag} budget`]);
+  assert.deepEqual(await find('type=folder'), [`${tag} folder`]);
+  assert.deepEqual(await find('type=pdf'), [`${tag}-report.pdf`]);
+  assert.deepEqual(await find('owner=others'), [`${tag} from bob`]);
+  assert.deepEqual(await find('type=doc&owner=me&modified=30'), [`${tag} notes`]);
+  assert.equal((await find('modified=30')).includes(`${tag} old plan`), false);
+  assert.equal((await owner('GET', '/api/files?view=search&q=&type=pdf')).body.some((f) => f.id === pdf.id), true, 'filters work without words');
+  assert.equal((await owner('GET', `/api/files?view=search&q=${tag}&type=nope`)).status, 400);
+  void d; void s; void folder;
+});

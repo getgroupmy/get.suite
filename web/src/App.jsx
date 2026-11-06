@@ -125,7 +125,7 @@ function Shell() {
         <form className="search" role="search" onSubmit={(e) => {
           e.preventDefault();
           const q = new FormData(e.currentTarget).get('q').trim();
-          if (q) navigate(`/drive/search?q=${encodeURIComponent(q)}`);
+          navigate(`/drive/search?q=${encodeURIComponent(q)}`); // empty: everything, to narrow with the filters
         }}>
           <Icon name="search" />
           <input name="q" placeholder="Search in Drive" aria-label="Search in Drive" />
