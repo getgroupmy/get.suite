@@ -18,6 +18,8 @@ import { ShareDialog } from '../drive/Drive.jsx';
 import { EditorHeader } from '../editorCommon.jsx';
 import { CommentsPanel, useComments } from '../comments.jsx';
 import Icon from '../../components/Icon.jsx';
+import { FindReplace, countWords } from './findReplace.js';
+import { FindBar } from './FindBar.jsx';
 
 /** Marks the text a comment is about (several comments may overlap); it travels with the text. */
 const CommentMark = Mark.create({
@@ -133,6 +135,7 @@ function SharedDoc({ file, setFile }) {
       CollaborationCaret.configure({ provider, user: { name: user.name, color: colorFor(user.id), id: user.id } }),
       CommentMark,
       DocImage.configure({ docId: file.id }),
+      FindReplace,
       Table.configure({ resizable: false }), TableRow, TableHeader, TableCell,
       TextStyle, Color, BackgroundColor,
     ],
@@ -192,6 +195,18 @@ function SharedDoc({ file, setFile }) {
   const [panel, setPanel] = useState(!!params.get('comment'));
   const [active, setActive] = useState(params.get('comment'));
   const [pending, setPending] = useState(null);
+  const [finding, setFinding] = useState(null); // { replace, n }
+  useEffect(() => {
+    const onKey = (e) => {
+      const k = e.key.toLowerCase();
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || (k !== 'f' && k !== 'h')) return;
+      if (document.querySelector('.modal-backdrop')) return;
+      e.preventDefault();
+      setFinding((f) => ({ replace: k === 'h' || !!f?.replace, n: (f?.n || 0) + 1 }));
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
   const startComment = () => {
     editor.view.domObserver?.flush?.(); // take in a selection just made with the keyboard
     const { from, to, empty } = editor.state.selection;
@@ -251,6 +266,9 @@ function SharedDoc({ file, setFile }) {
           )}
         </>}
         menu={[
+          { label: 'Find and replace', icon: 'search', onClick: () => setFinding({ replace: !readOnly }) },
+          { label: 'Word count', icon: 'doc', onClick: () => { const c = countWords(editor.state.doc); toast(`${c.words.toLocaleString()} ${c.words === 1 ? 'word' : 'words'}, ${c.characters.toLocaleString()} characters (without spaces)`); } },
+          '-',
           { label: 'Print / Save as PDF', icon: 'print', onClick: () => window.print() },
           { label: 'Download as HTML', icon: 'download', onClick: exportHtml },
           { label: 'Download as Word (.docx)', icon: 'download', onClick: () => { window.location.href = `/api/files/${file.id}/export`; } },
@@ -260,6 +278,7 @@ function SharedDoc({ file, setFile }) {
       <style>{highlight}</style>
       {status === 'offline' && <div className="banner warn">You're offline. Keep typing: your changes are kept here and sync when the connection is back.</div>}
       {readOnly && <div className="banner">View only. Ask {file.owner_name} for edit access.</div>}
+      {finding && <FindBar key={finding.n} editor={editor} replacing={finding.replace} canEdit={!readOnly} onClose={() => { editor.view.focus(); setFinding(null); }} />} {/* focus back first, so it doesn't go with the bar */}
       <div className="doc-body">
         <div className="doc-scroll" onClick={(e) => e.target === e.currentTarget && editor.commands.focus('end')}>
           <div className="paper"><EditorContent editor={editor} /></div>

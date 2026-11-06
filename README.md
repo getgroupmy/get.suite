@@ -107,6 +107,11 @@ Everyone who can edit a document, spreadsheet or presentation can work in it at 
 - **Pictures:** **Picture** to choose one, or paste or drop it into the document. It's saved in Drive next to the document (or in your Drive), and everyone who can open the document sees it, even without access to the picture file itself. Click a picture to make it smaller (a quarter, half or three quarters of the page width) or put it in the centre or on the right.
 - **Colour:** the **A** and highlight buttons colour the selected text or mark it with a highlight.
 
+## Find and replace, word count (Docs)
+
+- **Ctrl+F** finds text in the document: every match is highlighted, and Enter (Shift+Enter) goes to the next (previous) one. *Match case* and *Whole words* narrow it down. **Ctrl+H** (or *Replace…*) replaces the current match or all of them; replaced text keeps its formatting, and each replace is one step for Undo. Only the person searching sees the highlights; replacements reach everyone as they're made. Viewers can find but not replace.
+- **Word count** (⋮ menu) gives the words and characters in the document.
+
 ## Comments and @mentions (Docs, Sheets)
 
 - **Comment:** in Docs, select some text and press **Comment** in the toolbar (or Ctrl+Alt+M); in Sheets, select a cell and do the same. The text is highlighted (cells get a small orange corner) and the comment opens in a panel on the right. The highlight moves with the text as people edit.
