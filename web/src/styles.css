@@ -1098,3 +1098,9 @@ button.rule-sample.on { outline: 2px solid var(--accent); outline-offset: 1px; }
 .share-pick { list-style: none; margin: 8px 0 0; padding: 0; max-height: 320px; overflow: auto; }
 .share-pick li label { padding: 6px 4px; gap: 8px; cursor: pointer; }
 @media (max-width: 900px) { .task-details { position: fixed; inset: 56px 0 0 0; width: auto; margin: 0; z-index: 40; border-radius: 0; } }
+.task-chip { display: flex; align-items: center; gap: 2px; padding: 0 4px 0 2px; --c: var(--muted); background: var(--surface-2) !important; color: var(--text) !important; border: 1px dashed var(--border); }
+.task-chip button { border: 0; background: none; font: inherit; color: inherit; padding: 0 2px; cursor: pointer; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.task-chip .task-tick { flex: none; font-size: 14px; line-height: 1; }
+.task-chip .task-tick:hover { color: var(--accent-text); }
+.task-chip .task-open { flex: 1; text-align: left; }
+.cal-show-tasks { padding: 10px 12px 0; font-size: 13px; }

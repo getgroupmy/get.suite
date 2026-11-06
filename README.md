@@ -505,6 +505,7 @@ Each entry shows who did it, what it was done to, the details and the IP address
 - **Ticking off:** the box marks a task done (with **Undo**); done tasks move to **Completed** at the bottom, and **⋮ → Delete completed tasks** clears them.
 - **Details:** click a task for notes, a due date (shown as Today, Tomorrow or the date; overdue in red), who it's for, and which list it's on. Changes save as you make them.
 - **Sharing:** **Share** on a list lets colleagues see it, add and tick off tasks, and be given tasks. Everyone sees changes as they happen. **Assigned to me** gathers the tasks given to you on any list, soonest due first. Leaving a list (or being taken off it) leaves the tasks you were given with nobody.
+- **On the calendar:** open tasks with a due date (given to you, or to nobody on your own lists) show in Calendar as all-day items. Tick the box to complete one there, or click it to open it in Tasks. **Show tasks with due dates** in the Calendar sidebar hides them.
 
 ## Chat
 

@@ -1075,6 +1075,13 @@ test('tasks: lists, ordering, due dates, done, sharing and assigning', async () 
   await a('PATCH', `/api/tasks/tasks/${t2.id}`, { assignee_id: bid });
   assert.deepEqual((await b('GET', '/api/tasks/assigned')).body.map((t) => [t.title, t.list_name]), [['Book venue', 'Launch'], ['Write press release', 'Launch']], 'with a date first');
   assert.equal((await b('GET', '/api/tasks/lists')).body.assigned, 2);
+  // The calendar: Ben's tasks with dates; Ann sees unassigned ones on her lists, not Ben's.
+  await a('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Send invites', due: '2026-12-03' });
+  const due = async (who, from = '2026-12-01', to = '2026-12-31') => (await who('GET', `/api/tasks/due?from=${from}&to=${to}`)).body.map((t) => t.title);
+  assert.deepEqual(await due(b), ['Book venue']);
+  assert.deepEqual(await due(a), ['Send invites']);
+  assert.deepEqual(await due(a, '2026-12-04', '2026-12-31'), []);
+  assert.equal((await a('GET', '/api/tasks/due?from=x&to=y')).status, 400);
   await b('PATCH', `/api/tasks/tasks/${t1.id}`, { done: true });
   assert.ok((await titles()).includes('Write press release ✓'), 'Ben ticked it off');
   // Clear completed; Ben leaves: his tasks are nobody's.

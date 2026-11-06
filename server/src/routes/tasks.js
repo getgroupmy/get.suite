@@ -136,6 +136,17 @@ export default function taskRoutes() {
     res.json(q(`${TASK} WHERE t.assignee_id = ? AND t.done_at IS NULL ORDER BY t.due IS NULL, t.due, t.position`).all(req.user.id).map(shape));
   });
 
+  // For the calendar: open tasks due between two dates (YYYY-MM-DD, both included) that are yours:
+  // given to you, or given to nobody on a list of your own.
+  r.get('/due', (req, res) => {
+    const from = dueOf(String(req.query.from || '')), to = dueOf(String(req.query.to || ''));
+    if (!from || !to) throw bad('from and to are required');
+    const me = req.user.id;
+    res.json(q(`${TASK} WHERE t.done_at IS NULL AND t.due >= ? AND t.due <= ?
+                AND (t.assignee_id = ? OR (t.assignee_id IS NULL AND l.owner_id = ?))
+                ORDER BY t.due, t.position LIMIT 500`).all(from, to, me, me).map(shape));
+  });
+
   r.post('/lists/:id/tasks', (req, res) => {
     const list = loadList(req.params.id, req.user);
     if (q('SELECT COUNT(*) AS n FROM tasks WHERE list_id = ?').get(list.id).n >= MAX_TASKS) throw bad('This list is full');

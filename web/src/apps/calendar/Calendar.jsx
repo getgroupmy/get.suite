@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router';
 import { get, post, put, patch, del, onLive } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
 import { Modal, useToast } from '../../components/ui.jsx';
@@ -12,6 +13,25 @@ const toTimeInput = (ms) => { const d = new Date(ms); return `${pad(d.getHours()
 const fromInputs = (date, time = '00:00') => new Date(`${date}T${time}`).getTime();
 const fmtTime = (ms) => new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 const VIEW_NAMES = { month: 'Month', week: 'Week', day: 'Day' };
+const savedTasks = () => { try { return localStorage.getItem('nw.calTasks') !== '0'; } catch { return true; } };
+/** Open tasks with a due date, as all-day items (they can't be dragged; ticking one off completes it). */
+const taskItems = (tasks) => tasks.map((t) => {
+  const [y, m, d] = t.due.split('-').map(Number);
+  const start = new Date(y, m - 1, d).getTime();
+  return { key: `task:${t.id}`, task: t, title: t.title, start, end: start + DAY - 1, all_day: 1 };
+});
+
+/** A task on the calendar: the box ticks it off, the title opens it in Tasks. */
+function TaskChip({ ev, onDone }) {
+  const navigate = useNavigate();
+  return (
+    <div className="chip allday task-chip" title={`Task on ${ev.task.list_name}${ev.task.assignee_name ? ` · for ${ev.task.assignee_name}` : ''}`}>
+      <button type="button" className="task-tick" aria-label={`Mark done: ${ev.title}`} onClick={(e) => { e.stopPropagation(); onDone(ev.task); }}>☐</button>
+      <button type="button" className="task-open" onClick={(e) => { e.stopPropagation(); navigate(`/tasks/${ev.task.list_id}?task=${ev.task.id}`); }}>{ev.title}</button>
+    </div>
+  );
+}
+
 const savedView = () => { try { return VIEWS.includes(localStorage.getItem('nw.calView')) ? localStorage.getItem('nw.calView') : 'month'; } catch { return 'month'; } };
 
 export default function Calendar() {
@@ -20,6 +40,9 @@ export default function Calendar() {
   const [anchor, setAnchor] = useState(() => startOfDay(new Date()));
   const [events, setEvents] = useState([]);
   const [editing, setEditing] = useState(null);
+  const [showTasks, setShowTasksState] = useState(savedTasks);
+  const [tasks, setTasks] = useState([]);
+  const setShowTasks = (on) => { setShowTasksState(on); try { localStorage.setItem('nw.calTasks', on ? '1' : '0'); } catch { /* private window */ } };
   const setView = (v) => { setViewState(v); try { localStorage.setItem('nw.calView', v); } catch { /* private window */ } };
 
   const days = useMemo(() => visibleDays(view, anchor), [view, anchor]);
@@ -36,6 +59,20 @@ export default function Calendar() {
   useEffect(load, [load]);
   // Someone changed an event you organise or are invited to.
   useEffect(() => onLive((m) => { if (m.type === 'events-changed') load(); }), [load]);
+  const loadTasks = useCallback(() => {
+    if (!showTasks) { setTasks([]); return; }
+    const last = new Date(days[days.length - 1]);
+    get(`/tasks/due?from=${toDateInput(days[0].getTime())}&to=${toDateInput(last.getTime())}`).then(setTasks).catch(() => setTasks([]));
+  }, [days, showTasks]);
+  useEffect(loadTasks, [loadTasks]);
+  useEffect(() => onLive((m) => { if (m.type === 'tasks-changed') loadTasks(); }), [loadTasks]);
+  const taskDone = async (t) => {
+    setTasks((list) => list.filter((x) => x.id !== t.id));
+    try {
+      await patch(`/tasks/tasks/${t.id}`, { done: true });
+      toast(`“${t.title}” done`, 'info', { action: { label: 'Undo', onClick: async () => { await patch(`/tasks/tasks/${t.id}`, { done: false }); loadTasks(); } } });
+    } catch (e) { toast(e.message, 'error'); loadTasks(); }
+  };
 
   const today = startOfDay(new Date()).getTime();
   const upcoming = upcomingList.filter((e) => e.end >= Date.now()).slice(0, 8);
@@ -65,9 +102,9 @@ export default function Calendar() {
   }
   const drag = useEventDrag((ev, start, end) => (ev.rrule ? setPendingMove({ ev, start, end }) : commitMove(ev, start, end)));
   const moving = drag.drag || pendingMove;
-  const shown = useMemo(() => (moving
+  const shown = useMemo(() => [...(moving
     ? events.map((e) => ((e.key || e.id) === (moving.ev.key || moving.ev.id) ? { ...e, start: moving.start, end: moving.end, dragging: true } : e))
-    : events), [events, moving]);
+    : events), ...taskItems(tasks)], [events, moving, tasks]);
 
   // Arrow keys move between periods in the week and day views (when nothing else has focus).
   useEffect(() => {
@@ -84,6 +121,7 @@ export default function Calendar() {
     <div className="calendar">
       <aside className="subnav">
         <button className="btn new-btn" onClick={() => newEvent()}><Icon name="plus" /> Create</button>
+        <label className="check cal-show-tasks"><input type="checkbox" checked={showTasks} onChange={(e) => setShowTasks(e.target.checked)} /> Show tasks with due dates</label>
         <h3 className="subnav-title">Upcoming</h3>
         {upcoming.length === 0 && <p className="muted small">Nothing scheduled</p>}
         {upcoming.map((e) => (
@@ -116,19 +154,19 @@ export default function Calendar() {
                 <div key={d.toISOString()} data-day={d.getTime()} className={`day ${d.getMonth() !== anchor.getMonth() ? 'other' : ''} ${d.getTime() === today ? 'today' : ''}`}
                   onClick={drag.click((e) => e.target === e.currentTarget && newEvent(d))}>
                   <button type="button" className="daynum" aria-label={`Open ${d.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}`} onClick={() => openDay(d)}>{d.getDate()}</button>
-                  {list.slice(0, 3).map((ev) => (
+                  {list.slice(0, 3).map((ev) => (ev.task ? <TaskChip key={ev.key} ev={ev} onDone={taskDone} /> : (
                     <button key={ev.key || ev.id} className={`chip ${ev.all_day ? 'allday' : ''} ${inviteClass(ev)} ${ev.dragging ? 'dragging' : ''}`} style={{ '--c': ev.color || COLORS[0] }}
                       onPointerDown={drag.dayHandler(ev, d)} onClick={drag.click(() => setEditing(ev))}>
                       {!ev.all_day && <span className="t">{fmtTime(ev.start)}</span>} {ev.title}{ev.rrule && <span className="rep" aria-label="(repeats)" title="Repeats"> ↻</span>}
                     </button>
-                  ))}
+                  )))}
                   {list.length > 3 && <button type="button" className="more small muted link-btn" onClick={() => openDay(d)}>+{list.length - 3} more</button>}
                 </div>
               );
             })}
           </div>
         ) : (
-          <TimeGrid days={days} events={shown} today={today} onOpen={setEditing} onNew={newEvent} onDay={view === 'week' ? openDay : null} drag={drag} />
+          <TimeGrid days={days} events={shown} today={today} onOpen={setEditing} onNew={newEvent} onDay={view === 'week' ? openDay : null} drag={drag} onTaskDone={taskDone} />
         )}
       </section>
       {editing && (editing.role === 'guest'
@@ -143,7 +181,7 @@ export default function Calendar() {
 }
 
 /** Week / day view: an all-day row, then hours with timed events placed by their real times. */
-function TimeGrid({ days, events, today, onOpen, onNew, onDay: openDay, drag }) {
+function TimeGrid({ days, events, today, onOpen, onNew, onDay: openDay, drag, onTaskDone }) {
   const scroller = useRef();
   const [now, setNow] = useState(Date.now());
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 60e3); return () => clearInterval(t); }, []);
@@ -173,10 +211,10 @@ function TimeGrid({ days, events, today, onOpen, onNew, onDay: openDay, drag }) 
         <div className="tg-gutter small muted">all day</div>
         {days.map((d) => (
           <div key={d.getTime()} className="tg-allday-cell" data-day={d.getTime()}>
-            {onDay(events, d).filter((ev) => ev.all_day).map((ev) => (
+            {onDay(events, d).filter((ev) => ev.all_day).map((ev) => (ev.task ? <TaskChip key={ev.key} ev={ev} onDone={onTaskDone} /> : (
               <button key={ev.key || ev.id} className={`chip allday ${inviteClass(ev)} ${ev.dragging ? 'dragging' : ''}`} style={{ '--c': ev.color || COLORS[0] }}
                 onPointerDown={drag.dayHandler(ev, d)} onClick={drag.click(() => onOpen(ev))}>{ev.title}{ev.rrule && <span aria-label="(repeats)"> ↻</span>}</button>
-            ))}
+            )))}
           </div>
         ))}
       </div>
