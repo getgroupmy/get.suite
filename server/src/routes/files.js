@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { audit } from '../audit.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
@@ -317,6 +318,7 @@ export default function fileRoutes({ maxUploadBytes }) {
   r.post('/empty-trash', (req, res) => {
     const ids = q('SELECT id FROM files WHERE owner_id = ? AND trashed = 1').all(req.user.id);
     tx(() => { for (const { id } of ids) permanentlyDelete(id); });
+    if (ids.length) audit(req, 'trash.empty', { details: { items: ids.length } });
     res.json({ deleted: ids.length });
   });
 
@@ -324,7 +326,6 @@ export default function fileRoutes({ maxUploadBytes }) {
     res.json(publicFile(loadFile(req.params.id, req.user)));
   });
 
-  // Breadcrumb path from the top-most folder this user can see.
   // Star a file or folder (for you only), or take the star away.
   r.put('/:id/star', (req, res) => {
     const f = loadFile(req.params.id, req.user);
@@ -349,6 +350,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     res.status(201).json(publicFile(loadFile(id, req.user)));
   });
 
+  // Breadcrumb path from the top-most folder this user can see.
   r.get('/:id/path', (req, res) => {
     const out = [];
     let cur = loadFile(req.params.id, req.user);
@@ -429,6 +431,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     const f = loadFile(req.params.id, req.user, 'owner');
     const audience = audienceFor(f.id);
     tx(() => permanentlyDelete(f.id));
+    audit(req, 'file.delete', { target: f.name });
     sendTo(audience, { type: 'files-changed', parent_id: f.parent_id });
     res.json({ ok: true });
   });
@@ -602,6 +605,8 @@ export default function fileRoutes({ maxUploadBytes }) {
       }
     });
     sendTo(new Set([...before, ...audienceFor(f.id)]), { type: 'files-changed', parent_id: f.parent_id });
+    const nameOf = (id) => q('SELECT username FROM users WHERE id = ?').get(id)?.username || id;
+    audit(req, 'file.share', { target: f.name, details: { with: list.map((x) => `${nameOf(x.user_id)} (${x.role})`) } });
     res.json({ ok: true });
   });
 

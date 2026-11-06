@@ -3,6 +3,7 @@
 // the file is trashed or deleted, the owner is disabled or loses the file, or the company turns
 // links off.
 import { Router } from 'express';
+import { audit } from '../audit.js';
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { q, FILES_DIR } from '../db.js';
@@ -71,6 +72,7 @@ export function linkRoutes() {
       created_at: now(), expires_at: expires, password_hash: password ? hashPassword(password) : null, opens: 0, last_opened: null };
     q(`INSERT INTO share_links (id, token, file_id, created_by, created_at, expires_at, password_hash)
        VALUES (?, ?, ?, ?, ?, ?, ?)`).run(link.id, link.token, link.file_id, link.created_by, link.created_at, link.expires_at, link.password_hash);
+    audit(req, 'link.create', { target: f.name, details: { password: !!password, expires: expires } });
     res.json(describeLink(link));
   });
 
@@ -79,6 +81,7 @@ export function linkRoutes() {
     if (!l) throw notFound('Link not found');
     ownFile(l.file_id, req.user);
     q('DELETE FROM share_links WHERE id = ?').run(l.id);
+    audit(req, 'link.delete', { target: q('SELECT name FROM files WHERE id = ?').get(l.file_id)?.name });
     res.json({ ok: true });
   });
 

@@ -942,3 +942,41 @@ test('drive: stars, copies, and downloading several files as a zip', async () =>
   assert.equal((await zip.file('Zip plan.docx').async('nodebuffer')).subarray(0, 2).toString(), 'PK');
   assert.equal((await someone('GET', `/api/files/zip?ids=${folder.id}`)).status, 404, "not someone else's files");
 });
+
+test('activity log: sign-ins, account changes and sharing, for each company\'s admins only', async () => {
+  const p = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'auditee', domain: 'acme.com', name: 'Audi Tee', password: 'password123' })).status, 201);
+  assert.equal((await p('POST', '/api/auth/login', { username: 'auditee@acme.com', password: 'wrong-one' })).status, 401);
+  const pid = (await login(p, 'auditee@acme.com')).id;
+  await owner('PATCH', `/api/users/${pid}`, { is_admin: false, name: 'Audi Tee Jr' });
+  const f = (await owner('POST', '/api/files/folder', { name: 'Audited folder' })).body;
+  await owner('PUT', `/api/files/${f.id}/shares`, { shares: [{ user_id: pid, role: 'viewer' }] });
+  const log = (await owner('GET', '/api/audit')).body;
+  const seen = log.entries.map((e) => `${e.action} ${e.target}`);
+  for (const want of ['user.create auditee@acme.com', 'sign-in.failed auditee@acme.com', 'sign-in auditee@acme.com', 'user.update auditee@acme.com', 'file.share Audited folder']) {
+    assert.ok(seen.includes(want), `${want} in ${seen.slice(0, 12).join(' | ')}`);
+  }
+  const share = log.entries.find((e) => e.action === 'file.share' && e.target === 'Audited folder');
+  assert.deepEqual(share.details, { with: ['auditee@acme.com (viewer)'] });
+  assert.equal(share.actor_name, 'Olivia Owner');
+  assert.equal(share.label, 'Changed sharing');
+  assert.equal(log.entries.find((e) => e.action === 'sign-in.failed').actor_id, null);
+  // Filters and export.
+  const only = (await owner('GET', '/api/audit?action=sign-in')).body.entries;
+  assert.ok(only.length && only.every((e) => e.action.startsWith('sign-in')));
+  assert.ok((await owner('GET', '/api/audit?q=audited')).body.entries.every((e) => /audited/i.test(e.target || '')));
+  const csv = await owner('GET', '/api/audit/export?action=file');
+  assert.match(csv.body, /^﻿?Time \(UTC\),Who,What,Target,Details,IP address\r\n/);
+  assert.match(csv.body, /Changed sharing,Audited folder/);
+  // Not for people who aren't admins, nor for another company's admin.
+  assert.equal((await p('GET', '/api/audit')).status, 403);
+  const ni = await owner('POST', '/api/orgs', { name: 'Audit Co', domain: 'auditco.com', admin_name: 'Ian I', admin_local: 'ian', admin_password: 'password123' });
+  assert.equal(ni.status, 201, JSON.stringify(ni.body));
+  const g = client();
+  await login(g, 'ian@auditco.com');
+  const gr = await g('GET', '/api/audit');
+  assert.equal(gr.status, 200, JSON.stringify(gr.body));
+  const theirs = gr.body.entries;
+  assert.ok(!theirs.some((e) => e.target === 'auditee@acme.com'), "Globex doesn't see Acme's activity");
+  assert.ok((await g('GET', `/api/audit?org_id=${(await owner('GET', '/api/orgs/current')).body.id}`)).body.entries.every((e) => e.target !== 'auditee@acme.com'), 'and cannot ask for it');
+});

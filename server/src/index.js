@@ -11,6 +11,7 @@ import { saveAll as saveOpenDocuments } from './collab.js';
 import { purge as purgeAuthLog } from './security/guard.js';
 import { startIndexer } from './search.js';
 import { startScheduledSending } from './routes/webmail.js';
+import { purgeAudit } from './audit.js';
 
 const port = Number(process.env.PORT || 8080);
 const app = createApp();
@@ -22,6 +23,7 @@ attachHub(server);
 setInterval(() => q('DELETE FROM sessions WHERE expires_at < ?').run(Date.now()), 3600e3).unref();
 scheduleBackups();
 setInterval(() => purgeAuthLog(), 3600e3).unref();
+setInterval(() => purgeAudit(), 6 * 3600e3).unref(); // activity older than AUDIT_DAYS
 if (mailEnabled()) { startPolicyServer(); startMailNotifications(); startRsvpWatcher(); }
 
 startIndexer(); // search inside files: indexes what changed, in the background

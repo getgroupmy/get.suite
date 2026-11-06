@@ -17,6 +17,7 @@ import { linkRoutes, publicLinkRoutes } from './routes/links.js';
 import davRoutes from './dav.js';
 import webdavRoutes from './webdav.js';
 import commentRoutes from './routes/comments.js';
+import auditRoutes from './routes/audit.js';
 import { writeMailConfig, mailEnabled } from './mail/config.js';
 import { q } from './db.js';
 import { ensureGeneralChannel } from './tenancy.js';
@@ -68,6 +69,7 @@ export function createApp({
   app.use('/api/mail-admin', requireAuth, mailAdminRoutes());
   app.use('/api/mail', requireAuth, webmailRoutes());
   app.use('/api/security', requireAuth, securityRoutes());
+  app.use('/api/audit', requireAuth, auditRoutes());
   app.use('/api/files', requireAuth, fileRoutes({ maxUploadBytes }));
   app.use('/api/links', requireAuth, linkRoutes());
   app.use('/api/comments', requireAuth, commentRoutes());

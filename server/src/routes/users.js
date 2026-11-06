@@ -1,4 +1,5 @@
 import { disable as disableTwoFactor } from '../twofactor.js';
+import { audit } from '../audit.js';
 import { Router } from 'express';
 import { q, tx } from '../db.js';
 import { str, bad, notFound, forbidden } from '../util.js';
@@ -81,6 +82,7 @@ export default function userRoutes() {
     const name = str(req.body.name, { required: true, name: 'Name', max: 100 });
     validatePassword(req.body.password);
     const id = newUserRow({ orgId, username, name, password: req.body.password, is_admin: !!req.body.is_admin });
+    audit(req, 'user.create', { org: orgId, target: username, details: { admin: !!req.body.is_admin } });
     res.status(201).json({ id, username });
   });
 
@@ -126,6 +128,9 @@ export default function userRoutes() {
       q('UPDATE users SET mail_quota_mb = ? WHERE id = ?').run(mb, u.id);
     }
     scheduleMailConfig();
+    const changed = Object.fromEntries(Object.entries({ name, is_admin, disabled, mail_quota_mb, reset_two_factor, password: password !== undefined ? 'reset' : undefined,
+      address: req.body.local !== undefined || req.body.domain !== undefined ? q('SELECT username FROM users WHERE id = ?').get(u.id)?.username : undefined }).filter(([, v]) => v !== undefined));
+    if (Object.keys(changed).length) audit(req, 'user.update', { org: u.org_id, target: u.username, details: changed });
     res.json({ ok: true });
   });
 
@@ -144,6 +149,7 @@ export default function userRoutes() {
     });
     removeBlobs(blobs);
     scheduleMailConfig();
+    audit(req, 'user.delete', { org: u.org_id, target: u.username });
     res.json({ ok: true });
   });
 

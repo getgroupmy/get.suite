@@ -11,6 +11,7 @@ import { setMailPassword, setMailAppPassword, mailEnabled, MAIL_HOSTNAME } from 
 import crypto from 'node:crypto';
 import * as twoFactor from '../twofactor.js';
 import { otpauthUrl } from '../totp.js';
+import { audit } from '../audit.js';
 
 export default function authRoutes({ secureCookies }) {
   const r = Router();
@@ -45,13 +46,16 @@ export default function authRoutes({ secureCookies }) {
     const row = q('SELECT id, password_hash, mail_hash, disabled FROM users WHERE username = ?').get(username);
     if (!row || row.disabled || !verifyPassword(password, row.password_hash)) {
       guard.recordFailure({ ip: req.ip, login: username, fp: guard.passwordFingerprint(password), service: 'web' });
+      if (row) audit(req, 'sign-in.failed', { actor: null, org: q('SELECT org_id FROM users WHERE id = ?').get(row.id)?.org_id ?? null, target: username, details: { reason: row.disabled ? 'disabled' : 'password' } });
       throw new HttpError(401, 'Wrong email address or password');
     }
     // Accounts created before email existed get their mailbox password on next sign-in.
     if (!row.mail_hash) setMailPassword(row.id, password);
     // Two-step verification: the password was right; now ask for the code (no session yet).
     if (twoFactor.isEnabled(row.id)) return res.json({ twoFactor: true, ticket: twoFactor.newTicket(row.id) });
-    res.json({ user: startSession(req, res, row.id) });
+    const u = startSession(req, res, row.id);
+    audit(req, 'sign-in', { actor: u, target: u.username });
+    res.json({ user: u });
   });
 
   // Second step: a code from the authenticator app, or a recovery code.
@@ -67,16 +71,21 @@ export default function authRoutes({ secureCookies }) {
     if (!how) {
       // Wrong codes count like wrong passwords (blocking guessing), and a sign-in gets 5 tries.
       guard.recordFailure({ ip: req.ip, login: user.username, fp: guard.passwordFingerprint(`2fa:${req.body.code}`), service: 'web-2fa' });
+      audit(req, 'sign-in.failed', { actor: null, org: q('SELECT org_id FROM users WHERE id = ?').get(user.id)?.org_id ?? null, target: user.username, details: { reason: 'code' } });
       if (++t.tries >= 5) { twoFactor.endTicket(req.body.ticket); throw new HttpError(401, 'Too many wrong codes. Sign in again.'); }
       throw new HttpError(401, 'That code is not right. Check the time on your phone, or use a recovery code.');
     }
     twoFactor.endTicket(req.body.ticket);
     const left = how === 'recovery' ? twoFactor.status(user.id).recoveryLeft : undefined;
-    res.json({ user: startSession(req, res, user.id), ...(how === 'recovery' && { recoveryLeft: left }) });
+    const u = startSession(req, res, user.id);
+    audit(req, 'sign-in', { actor: u, target: u.username, details: { twoStep: how } });
+    res.json({ user: u, ...(how === 'recovery' && { recoveryLeft: left }) });
   });
 
   r.post('/logout', (req, res) => {
     const t = tokenFromReq(req);
+    const u = t && userFromToken(t);
+    if (u) audit(req, 'sign-out', { actor: u, target: u.username });
     if (t) destroySession(t);
     clearSessionCookie(res);
     res.json({ ok: true });
@@ -95,6 +104,7 @@ export default function authRoutes({ secureCookies }) {
       setMailPassword(req.user.id, newPassword);
       // Sign out every other session for this user.
       q('DELETE FROM sessions WHERE user_id = ? AND token != ?').run(req.user.id, tokenFromReq(req));
+      audit(req, 'password.change', { target: req.user.username });
     }
     res.json({ user: userFromToken(tokenFromReq(req)) });
   });
@@ -115,6 +125,7 @@ export default function authRoutes({ secureCookies }) {
     if (!codes) throw bad('That code is not right. Enter the 6-digit code your app shows now.');
     // Other devices signed in with just the password are signed out.
     q('DELETE FROM sessions WHERE user_id = ? AND token != ?').run(req.user.id, tokenFromReq(req));
+    audit(req, '2fa.on', { target: req.user.username });
     res.json({ recoveryCodes: codes, ...twoFactor.status(req.user.id) });
   });
   r.post('/2fa/recovery-codes', requireAuth, (req, res) => {
@@ -130,6 +141,7 @@ export default function authRoutes({ secureCookies }) {
       throw bad('Enter a current code from your app (or a recovery code) to turn it off');
     }
     twoFactor.disable(req.user.id);
+    audit(req, '2fa.off', { target: req.user.username });
     res.json(twoFactor.status(req.user.id));
   });
 
@@ -148,11 +160,13 @@ export default function authRoutes({ secureCookies }) {
     const hit = rows.find((s) => sessionId(s.token) === req.params.id);
     if (!hit) throw new HttpError(404, 'That device is already signed out');
     destroySession(hit.token);
+    audit(req, 'session.revoke', { target: req.user.username });
     if (hit.token === tokenFromReq(req)) clearSessionCookie(res);
     res.json({ ok: true });
   });
   r.post('/sessions/sign-out-others', requireAuth, (req, res) => {
     const n = q('DELETE FROM sessions WHERE user_id = ? AND token != ?').run(req.user.id, tokenFromReq(req)).changes;
+    if (n) audit(req, 'session.revoke', { target: req.user.username, details: { devices: n } });
     res.json({ signedOut: n });
   });
 
@@ -169,11 +183,13 @@ export default function authRoutes({ secureCookies }) {
     const letters = 'abcdefghijkmnopqrstuvwxyz';
     const pw = Array.from(crypto.randomBytes(16), (b) => letters[b % letters.length]).join('').match(/.{4}/g).join('-');
     setMailAppPassword(req.user.id, pw); // exactly as shown, dashes included
+    audit(req, 'mail-app.create', { target: req.user.username });
     res.json({ password: pw, ...mailApp(req.user.id) });
   });
   r.delete('/mail-app', requireAuth, (req, res) => {
     needPassword(req);
     setMailAppPassword(req.user.id, null);
+    audit(req, 'mail-app.remove', { target: req.user.username });
     res.json(mailApp(req.user.id));
   });
 

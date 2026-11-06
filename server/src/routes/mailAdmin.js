@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { audit } from '../audit.js';
 import dns from 'node:dns';
 import { q } from '../db.js';
 import { uid, now, str, bad, notFound, forbidden } from '../util.js';
@@ -94,6 +95,7 @@ export default function mailAdminRoutes() {
     }
     q('UPDATE domains SET catchall = ? WHERE name = ?').run(target, name);
     scheduleMailConfig();
+    audit(req, 'domain.update', { org: orgId, target: name, details: { catchall: target } });
     res.json({ name, catchall: target });
   });
 
@@ -140,6 +142,7 @@ export default function mailAdminRoutes() {
     const id = uid();
     q('INSERT INTO aliases (id, org_id, address, targets, created_at) VALUES (?, ?, ?, ?, ?)').run(id, orgId, address, targets.join(','), now());
     scheduleMailConfig();
+    audit(req, 'alias.create', { org: orgId, target: address, details: { targets } });
     res.status(201).json({ id, address, targets });
   });
 
@@ -155,6 +158,7 @@ export default function mailAdminRoutes() {
     if (targets.includes(a.address)) throw bad('An alias cannot forward to itself');
     q('UPDATE aliases SET targets = ? WHERE id = ?').run(targets.join(','), a.id);
     scheduleMailConfig();
+    audit(req, 'alias.update', { org: a.org_id, target: a.address, details: { targets } });
     res.json({ id: a.id, address: a.address, targets });
   });
 
@@ -162,6 +166,7 @@ export default function mailAdminRoutes() {
     const a = loadAlias(req);
     q('DELETE FROM aliases WHERE id = ?').run(a.id);
     scheduleMailConfig();
+    audit(req, 'alias.delete', { org: a.org_id, target: a.address });
     res.json({ ok: true });
   });
 

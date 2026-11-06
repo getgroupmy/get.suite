@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { audit } from '../audit.js';
 import { q, tx } from '../db.js';
 import { str, int, bad, notFound } from '../util.js';
 import { requireAdmin, requireSuper } from '../auth.js';
@@ -49,6 +50,7 @@ export default function orgRoutes() {
   });
   r.patch('/current', requireAdmin, (req, res) => {
     updateOrg(req.user.org_id, req.body, { asSuper: req.user.is_super, user: req.user });
+    audit(req, 'company.update', { org: req.user.org_id, details: Object.fromEntries(Object.entries(req.body || {}).filter(([k]) => !/password/i.test(k))) });
     res.json(describe(q('SELECT * FROM orgs WHERE id = ?').get(req.user.org_id)));
   });
 
@@ -70,6 +72,7 @@ export default function orgRoutes() {
   r.patch('/:id', (req, res) => {
     loadOrg(req.params.id);
     updateOrg(req.params.id, req.body, { asSuper: true, user: req.user });
+    audit(req, 'company.update', { org: req.params.id, details: Object.fromEntries(Object.entries(req.body || {}).filter(([k]) => !/password/i.test(k))) });
     res.json(describe(loadOrg(req.params.id)));
   });
 

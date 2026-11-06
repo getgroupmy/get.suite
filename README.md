@@ -487,6 +487,16 @@ Once ports 465, 587 and 993 are open, bots will start guessing passwords within 
 
 **One thing to check after going live:** the protection needs to see real internet addresses. With normal Docker port publishing, which Container Manager uses, it does. If Admin → Security shows a warning that every failure comes from a private address, your network setup is hiding the real addresses.
 
+## Activity log
+
+**Admin → Activity** shows each company's admins what happened in their company, newest first:
+
+- **Sign-ins:** successful and failed sign-ins, sign-outs, devices signed out, password changes, two-step verification turned on or off, and mail-app passwords.
+- **People and settings:** people added, changed or deleted, company settings, mail domains and aliases.
+- **Files:** sharing changes, public links made or removed, files deleted forever, and the trash being emptied.
+
+Each entry shows who did it, what it was done to, the details and the IP address. Filter by kind, search for a person, file or address, or pick dates. **Download CSV** saves what's shown, for a spreadsheet or your records. Admins see only their own company; the platform owner can pick any company. Entries are kept for a year (set `AUDIT_DAYS` to change this).
+
 ## Chat
 
 - **Unread:** Chat in the app bar and each conversation show how many messages you haven't read; opening the conversation clears them, on your other devices too.
@@ -524,6 +534,7 @@ To update, replace the files in `docker/workspace/app` with the new version. The
 | `DATA_DIR` | `/data` | Where the database and files live |
 | `MAX_UPLOAD_MB` | `4096` | Largest single upload |
 | `KEEP_VERSIONS` | 50 | Earlier versions kept per file in Drive |
+| `AUDIT_DAYS` | 365 | Days the admin activity log is kept (at least 7) |
 | `SECURE_COOKIES` | auto | Force `true` or `false`; auto means Secure when the request is HTTPS |
 | `PUBLIC_URL` | the address the browser used | The web address people outside use (e.g. `https://workspace.example.com`), for links in invitation emails |
 | `TRUST_PROXY` | `loopback, linklocal, uniquelocal` | Which proxies' `X-Forwarded-*` headers to trust |
