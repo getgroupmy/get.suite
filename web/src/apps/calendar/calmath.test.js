@@ -150,3 +150,23 @@ test('repeats are worked out in the event\'s own time zone, wherever you look fr
   // An unknown zone falls back to this computer's.
   assert.equal(expand({ ...ev, tz: 'Nowhere/Land' }, Date.UTC(2026, 9, 1), Date.UTC(2026, 9, 20)).length, 1);
 });
+
+import { scheduleOf, visibleDays as vd2, shift as sh2, SCHEDULE_DAYS } from './calmath.js';
+test('schedule: four weeks from the day; only days with something; all-day first, then by time', () => {
+  const start = new Date(2026, 10, 7, 15, 0);
+  const days = vd2('schedule', start);
+  assert.equal(days.length, SCHEDULE_DAYS);
+  assert.equal(days[0].getTime(), new Date(2026, 10, 7).getTime());
+  assert.equal(sh2('schedule', start, 1).getDate(), 5, '28 days on: 5 December');
+  const at = (d, h) => new Date(2026, 10, d, h).getTime();
+  const evs = [
+    { title: 'Late', start: at(9, 15), end: at(9, 16) },
+    { title: 'Early', start: at(9, 9), end: at(9, 10) },
+    { title: 'Holiday', all_day: 1, start: at(9, 0), end: at(10, 0) - 1 },
+    { title: 'Out of range', start: at(5, 9), end: at(5, 10) },
+  ];
+  const s = scheduleOf(evs, days);
+  assert.equal(s.length, 1);
+  assert.equal(s[0].day.getDate(), 9);
+  assert.deepEqual(s[0].items.map((e) => e.title), ['Holiday', 'Early', 'Late']);
+});

@@ -1482,3 +1482,15 @@ img.avatar.photo { object-fit: cover; border-radius: 50%; display: inline-block;
 .conversation-list button:hover { background: var(--surface-2); }
 .conversation-list li.unread strong { font-weight: 800; }
 .msg-reminder { color: var(--accent-text, var(--accent)); }
+/* Calendar: schedule view */
+.schedule { list-style: none; margin: 0; padding: 0 4px; display: grid; gap: 2px; overflow: auto; }
+.schedule-day { display: grid; grid-template-columns: 96px 1fr; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.schedule-date { display: flex; gap: 8px; align-items: baseline; border: 0; background: none; color: var(--text); font: inherit; cursor: pointer; padding: 0; text-align: left; }
+.schedule-date .num { font-size: 22px; font-weight: 500; width: 36px; height: 36px; display: inline-grid; place-items: center; border-radius: 50%; }
+.schedule-day.today .schedule-date .num { background: var(--accent); color: #fff; }
+.schedule-items { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.schedule-item { display: flex; gap: 12px; align-items: center; width: 100%; border: 0; background: none; color: var(--text); font: inherit; text-align: left; padding: 6px 8px; border-radius: 8px; cursor: pointer; }
+.schedule-item:hover { background: var(--surface-2); }
+.schedule-item .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--c); flex: none; }
+.schedule-item .when { width: 150px; flex: none; color: var(--muted); font-size: 14px; }
+.schedule-item.declined .what { text-decoration: line-through; opacity: .6; }

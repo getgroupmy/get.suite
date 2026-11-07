@@ -4,8 +4,8 @@ import { useAuth } from '../../App.jsx';
 import { get, post, put, patch, del, onLive } from '../../api.js';
 import { localToday } from '../tasks/taskmath.js';
 import Icon from '../../components/Icon.jsx';
-import { Modal, useToast } from '../../components/ui.jsx';
-import { DAY, VIEWS, startOfDay, visibleDays, shift, title, onDay, layoutDay, expandAll, occurrenceIndex, describeRule, daysBetween, moveTimes, resizeEnd, shiftWeekdays, snapMinutes } from './calmath.js';
+import { Modal, useToast, Empty } from '../../components/ui.jsx';
+import { scheduleOf, DAY, VIEWS, startOfDay, visibleDays, shift, title, onDay, layoutDay, expandAll, occurrenceIndex, describeRule, daysBetween, moveTimes, resizeEnd, shiftWeekdays, snapMinutes } from './calmath.js';
 
 const OTHER_COLOURS = ['#e37400', '#8e24aa', '#0b8043', '#d93025', '#00796b', '#3949ab'];
 const COLORS = ['#1a73e8', '#0b8043', '#d50000', '#f4511e', '#8e24aa', '#616161'];
@@ -15,7 +15,7 @@ const toDateInput = (ms) => { const d = new Date(ms); return `${d.getFullYear()}
 const toTimeInput = (ms) => { const d = new Date(ms); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
 const fromInputs = (date, time = '00:00') => new Date(`${date}T${time}`).getTime();
 const fmtTime = (ms) => new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-const VIEW_NAMES = { month: 'Month', week: 'Week', day: 'Day' };
+const VIEW_NAMES = { month: 'Month', week: 'Week', day: 'Day', schedule: 'Schedule' };
 const savedTasks = () => { try { return localStorage.getItem('nw.calTasks') !== '0'; } catch { return true; } };
 /** Open tasks with a due date, as all-day items (they can't be dragged; ticking one off completes it). */
 const taskItems = (tasks) => tasks.map((t) => {
@@ -265,6 +265,8 @@ export default function Calendar() {
               );
             })}
           </div>
+        ) : view === 'schedule' ? (
+          <Schedule days={days} events={shown} today={today} onOpen={setEditing} onTaskDone={taskDone} onDay={openDay} />
         ) : (
           <TimeGrid days={days} events={shown} busy={busy} today={today} onOpen={setEditing} onNew={newEvent} onDay={view === 'week' ? openDay : null} drag={drag} onTaskDone={taskDone} />
         )}
@@ -283,6 +285,37 @@ export default function Calendar() {
 }
 
 /** Week / day view: an all-day row, then hours with timed events placed by their real times. */
+/** Four weeks as a list: each day with something on it, its events, tasks and birthdays in order. */
+function Schedule({ days, events, today, onOpen, onTaskDone, onDay: openDay }) {
+  const list = scheduleOf(events, days);
+  if (!list.length) return <Empty icon="calendar" title="Nothing scheduled">Nothing in these four weeks. The arrows move to the next four.</Empty>;
+  return (
+    <ol className="schedule" aria-label="Schedule">
+      {list.map(({ day, items }) => (
+        <li key={day.getTime()} className={`schedule-day ${day.getTime() === today ? 'today' : ''}`}>
+          <button type="button" className="schedule-date" onClick={() => openDay(day)} aria-label={`Open ${day.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}`}>
+            <span className="num">{day.getDate()}</span>
+            <span className="muted small">{day.toLocaleDateString([], { weekday: 'short' })}, {day.toLocaleDateString([], { month: 'short' })}</span>
+          </button>
+          <ul className="schedule-items">
+            {items.map((ev) => (
+              <li key={ev.key || `${ev.id}:${ev.start}`}>
+                {ev.task ? <TaskChip ev={ev} onDone={onTaskDone} /> : ev.birthday ? <BirthdayChip ev={ev} /> : (
+                  <button type="button" className={`schedule-item ${inviteClass(ev)}`} style={{ '--c': ev.color || COLORS[0] }} onClick={() => onOpen(ev)}>
+                    <span className="dot" aria-hidden="true" />
+                    <span className="when">{ev.all_day ? 'All day' : `${fmtTime(ev.start)} – ${fmtTime(ev.end)}`}</span>
+                    <span className="what">{ev.title}{ev.rrule && <span className="rep" aria-label="(repeats)" title="Repeats"> ↻</span>}{ev.location && <span className="muted small"> · {ev.location}</span>}</span>
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
 function TimeGrid({ days, events, busy = [], today, onOpen, onNew, onDay: openDay, drag, onTaskDone }) {
   const scroller = useRef();
   const [now, setNow] = useState(Date.now());
