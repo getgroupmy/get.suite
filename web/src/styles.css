@@ -1440,3 +1440,6 @@ button.rule-sample.on { outline: 2px solid var(--accent); outline-offset: 1px; }
 .scheduled-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
 .scheduled-list li { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; display: grid; gap: 6px; }
 .scheduled-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+/* Admin: importing users */
+.import-table { max-height: 320px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
+.import-table tr.bad td { background: color-mix(in srgb, var(--danger, #d93025) 6%, transparent); }

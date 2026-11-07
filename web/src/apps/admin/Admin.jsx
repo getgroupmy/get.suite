@@ -58,6 +58,7 @@ function Users({ orgId, setOrgId }) {
     <div className="row wrap">
       {me.is_super && <OrgPicker orgId={orgId} setOrgId={setOrgId} />}
       <div className="grow" />
+      <button className="btn" onClick={() => setDialog({ type: 'import' })}><Icon name="upload" size={18} /> Import from CSV</button>
       <button className="btn primary" onClick={() => setDialog({ type: 'new' })}><Icon name="plus" size={18} /> Add user</button>
     </div>
     <table className="files">
@@ -89,6 +90,7 @@ function Users({ orgId, setOrgId }) {
         ))}
       </tbody>
     </table>
+    {dialog?.type === 'import' && <ImportUsers orgId={orgId} domains={domains} onClose={() => setDialog(null)} onDone={load} />}
     {dialog?.type === 'new' && <NewUser orgId={orgId} domains={domains} onClose={() => setDialog(null)} onSaved={(addr) => { setDialog(null); toast(`${addr} created`); load(); }} />}
     {dialog?.type === 'password' && <ResetPassword user={dialog.user} onClose={() => setDialog(null)} />}
     {dialog?.type === 'address' && <ChangeAddress user={dialog.user} domains={domains} onClose={() => setDialog(null)} onSaved={(addr) => { setDialog(null); toast(`Address changed to ${addr}`); load(); }} />}
@@ -104,6 +106,80 @@ function Users({ orgId, setOrgId }) {
         onClose={() => setDialog(null)} onConfirm={async () => { await del(`/users/${dialog.user.id}`); toast('User deleted'); load(); }} />
     )}
   </>;
+}
+
+/** Many people from a CSV: pick the file, check it, create the good rows, then hand out the passwords. */
+function ImportUsers({ orgId, domains, onClose, onDone }) {
+  const toast = useToast();
+  const [csv, setCsv] = useState('');
+  const [fileName, setFileName] = useState('');
+  const [domain, setDomain] = useState(domains[0] || '');
+  const [rows, setRows] = useState(null); // the check
+  const [done, setDone] = useState(null); // the results
+  const [error, setError] = useState('');
+  const fileInput = useRef();
+  const call = (dry) => post('/users/import', { csv, domain, org_id: orgId, dry_run: dry });
+  const check = async () => { setError(''); try { setRows((await call(true)).rows); } catch (e) { setError(e.message); } };
+  const create = async () => {
+    try { const r = await call(false); setDone(r); onDone(); toast(`${r.created} user${r.created === 1 ? '' : 's'} created`); } catch (e) { setError(e.message); }
+  };
+  const good = rows?.filter((r) => !r.error) || [];
+  const download = () => {
+    const q = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const lines = [['Name', 'Email', 'Password'], ...done.rows.filter((r) => r.created).map((r) => [r.name, r.email, r.password || '(the one in your file)'])];
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([lines.map((l) => l.map(q).join(',')).join('\r\n')], { type: 'text/csv' }));
+    a.download = 'new-users.csv';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+  return (
+    <Modal wide title="Import users" onClose={onClose} footer={<button type="button" className="btn" onClick={onClose}>{done ? 'Done' : 'Cancel'}</button>}>
+      {done ? (
+        <div className="stack">
+          <p style={{ margin: 0 }}><strong>{done.created}</strong> created. Passwords made up for people who had none are shown only now: download them or copy them to pass on.</p>
+          <ImportTable rows={done.rows} result />
+          <div className="row"><button type="button" className="btn primary" onClick={download}><Icon name="download" size={18} /> Download sign-in details (CSV)</button></div>
+        </div>
+      ) : (
+        <div className="stack">
+          <p className="muted small" style={{ margin: 0 }}>A CSV file with one person per row. The first row names the columns: <strong>Name</strong> (or First name and Last name), <strong>Email</strong> (a full address, or just the part before @), and optionally <strong>Password</strong> (at least 8 characters; one is made up if it's empty) and <strong>Admin</strong> (yes). Up to 500 people.</p>
+          <div className="row wrap">
+            <button type="button" className="btn" onClick={() => fileInput.current.click()}><Icon name="upload" size={18} /> Choose file</button>
+            <span className="muted small">{fileName || 'No file chosen'}</span>
+            <input ref={fileInput} type="file" accept=".csv,text/csv" hidden aria-label="CSV file of users" onChange={async (e) => { const f = e.target.files[0]; e.target.value = ''; if (!f) return; setFileName(f.name); setCsv(await f.text()); setRows(null); }} />
+            <label className="field" style={{ marginLeft: 'auto' }}><span>Domain for addresses without one</span>
+              <select value={domain} onChange={(e) => { setDomain(e.target.value); setRows(null); }} aria-label="Domain">{domains.map((d) => <option key={d}>{d}</option>)}</select></label>
+          </div>
+          {error && <p className="error">{error}</p>}
+          {rows && <ImportTable rows={rows} />}
+          <div className="row end">
+            {!rows ? <button type="button" className="btn primary" disabled={!csv} onClick={check}>Check</button>
+              : <button type="button" className="btn primary" disabled={!good.length} onClick={create}>Create {good.length} user{good.length === 1 ? '' : 's'}</button>}
+          </div>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+function ImportTable({ rows, result = false }) {
+  return (
+    <div className="import-table">
+      <table className="files">
+        <thead><tr><th>Row</th><th>Name</th><th>Email</th><th>{result ? 'Password' : 'Admin'}</th><th>{result ? 'Result' : 'Check'}</th></tr></thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.line} className={r.error ? 'bad' : ''}>
+              <td className="muted">{r.line}</td><td>{r.name || <span className="muted">—</span>}</td><td>{r.email || <span className="muted">—</span>}</td>
+              <td>{result ? (r.password ? <code>{r.password}</code> : r.created ? <span className="muted">from the file</span> : '') : r.admin ? 'Yes' : ''}</td>
+              <td>{r.error ? <span className="error">{r.error}</span> : result ? 'Created' : 'OK'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
 }
 
 function NewUser({ orgId, domains, onClose, onSaved }) {

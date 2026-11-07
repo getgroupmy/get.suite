@@ -1592,6 +1592,38 @@ test('chat: scheduled messages wait, can be changed or cancelled, send at their 
   assert.equal((await a('POST', `/api/chat/scheduled/${s4.id}/send`, {})).status, 400, 'still can’t');
 });
 
+test('admin: import people from a CSV — checked first, good rows created, passwords made up when missing', async () => {
+  const csv = 'First name,Last name,Email,Password,Admin\n'
+    + 'Imp,One,imp1,,\n'
+    + 'Imp,Two,imp2@acme.com,secretpass1,yes\n'
+    + 'Imp,Three,imp3@other.example,,\n'
+    + 'Imp,Four,imp1,,\n'
+    + ',,imp5,,\n'
+    + 'Imp,Six,imp6,short,\n';
+  const dry = await owner('POST', '/api/users/import', { csv, domain: 'acme.com', dry_run: true });
+  assert.equal(dry.status, 200);
+  assert.deepEqual(dry.body.rows.map((r) => [r.line, r.email, r.error || 'ok']), [
+    [2, 'imp1@acme.com', 'ok'], [3, 'imp2@acme.com', 'ok'], [4, 'imp3@other.example', 'other.example is not a domain of this company'],
+    [5, 'imp1@acme.com', 'imp1@acme.com is in the file twice'], [6, 'imp5@acme.com', 'No name'], [7, 'imp6@acme.com', 'The password must be at least 8 characters']]);
+  assert.equal(dry.body.rows[1].admin, true);
+  assert.equal(JSON.stringify(dry.body).includes('secretpass1'), false, 'passwords not sent back');
+  assert.equal((await owner('GET', '/api/users')).body.some((u) => u.username === 'imp1@acme.com'), false, 'a dry run creates nobody');
+  const done = (await owner('POST', '/api/users/import', { csv, domain: 'acme.com' })).body;
+  assert.equal(done.created, 2);
+  const made = done.rows.find((r) => r.email === 'imp1@acme.com');
+  assert.match(made.password, /^[a-z2-9]{4}-[a-z2-9]{4}-[a-z2-9]{4}$/);
+  assert.equal(done.rows.find((r) => r.email === 'imp2@acme.com').password, undefined, 'their own password isn’t shown');
+  const c = client();
+  assert.equal((await c('POST', '/api/auth/login', { username: 'imp1@acme.com', password: made.password })).status, 200);
+  const two = client();
+  assert.equal((await two('POST', '/api/auth/login', { username: 'imp2@acme.com', password: 'secretpass1' })).status, 200);
+  assert.equal(!!(await two('GET', '/api/auth/me')).body.user.is_admin, true);
+  // Again: now they're taken.
+  assert.match((await owner('POST', '/api/users/import', { csv: 'Name,Email\nX Y,imp1', domain: 'acme.com', dry_run: true })).body.rows[0].error, /already taken/);
+  assert.equal((await owner('POST', '/api/users/import', { csv: 'Who,Where\na,b', domain: 'acme.com' })).status, 400, 'columns named');
+  assert.equal((await c('POST', '/api/users/import', { csv, domain: 'acme.com' })).status, 403, 'admins only');
+});
+
 test('chat polls: ask, vote (one or several), change your vote, close; checked options', async () => {
   const a = client(), b = client(), c = client();
   for (const [local, name] of [['polla', 'Poll Ann'], ['pollb', 'Poll Ben'], ['pollc', 'Poll Cat']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);

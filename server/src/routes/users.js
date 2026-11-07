@@ -6,6 +6,7 @@ import { str, bad, notFound, forbidden } from '../util.js';
 import { requireAdmin, validatePassword, hashPassword, newUserRow } from '../auth.js';
 import { validAddress, canReach, blobsOwnedBy, removeBlobs, mailHomeOf, retireMailHome } from '../tenancy.js';
 import { uid } from '../util.js';
+import { planImport, readablePassword } from '../userimport.js';
 import { sendTo } from '../hub.js';
 
 /** A status as shown, or null once it has cleared. */
@@ -116,6 +117,28 @@ export default function userRoutes() {
     const id = newUserRow({ orgId, username, name, password: req.body.password, is_admin: !!req.body.is_admin });
     audit(req, 'user.create', { org: orgId, target: username, details: { admin: !!req.body.is_admin } });
     res.status(201).json({ id, username });
+  });
+
+  // Many people from a CSV: { csv, domain, dry_run }. A dry run only checks; otherwise the good rows
+  // are created (all or nothing per row) and the results list each row, with made-up passwords.
+  r.post('/import', (req, res) => {
+    const orgId = targetOrg(req);
+    let plan;
+    try { plan = planImport(String(req.body.csv || ''), { orgId, domain: String(req.body.domain || '').trim().toLowerCase() || null }); }
+    catch (e) { throw bad(e.message); }
+    if (req.body.dry_run) return res.json({ rows: plan.map(({ password, ...p }) => ({ ...p, has_password: !!password })) });
+    const rows = [];
+    for (const p of plan) {
+      if (p.error) { rows.push({ line: p.line, name: p.name, email: p.email, error: p.error }); continue; }
+      const made = !p.password;
+      const password = p.password || readablePassword();
+      try {
+        newUserRow({ orgId, username: p.email, name: p.name, password, is_admin: p.admin });
+        audit(req, 'user.create', { org: orgId, target: p.email, details: { admin: p.admin, imported: true } });
+        rows.push({ line: p.line, name: p.name, email: p.email, admin: p.admin, created: true, ...(made && { password }) });
+      } catch (e) { rows.push({ line: p.line, name: p.name, email: p.email, error: e.message }); }
+    }
+    res.json({ rows, created: rows.filter((x) => x.created).length });
   });
 
   r.patch('/:id', (req, res) => {
