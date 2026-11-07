@@ -184,7 +184,7 @@ export function publicLinkRoutes({ maxUploadBytes = 4096 * 1024 * 1024 } = {}) {
     const name = cleanName(String(req.query.name || ''));
     const from = String(req.query.from || '').trim().replace(/[\u0000-\u001f]/g, '').slice(0, 100);
     const { storage, size } = await receiveUpload(req, l.org_id, maxUploadBytes);
-    const id = insertFile({ owner: l.created_by, parentId: l.file_id, name, kind: 'file', mime: mimeFor(name), size, storage });
+    const id = insertFile({ owner: l.created_by, parentId: l.file_id, name, kind: 'file', mime: mimeFor(name), size, storage, activity: { by: null, action: 'request', details: { from: from || null } } });
     q('UPDATE files SET description = ? WHERE id = ?').run(`Sent${from ? ` by ${from}` : ''} through a file request`, id);
     const saved = q('SELECT name FROM files WHERE id = ?').get(id).name;
     bell([l.created_by], { kind: 'share', title: `${from || 'Someone'} sent “${saved}”`, body: `Into ${l.name} through a file request`, link: `/drive/folder/${l.file_id}`, actor: from || null });

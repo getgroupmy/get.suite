@@ -232,6 +232,8 @@ Your Workspace calendar and contacts sync with the phone's own Calendar and Cont
 
 **Details** in a file's or folder's ⋮ menu shows what it is, its size, owner, when it was made and last changed (and by whom), and who has access. Anyone who can edit it can add a **description** there, which search also finds, and give a folder a **colour**, shown on its icon in the list.
 
+**Activity** in the same window lists what happened to it, newest first, for anyone who can open it: who created, uploaded or copied it, edited it (one line per person per hour of editing, including from Docs, Sheets, Slides and the network drive), renamed it, moved it, shared or stopped sharing it, put it in the trash or restored it, or brought back an earlier version. The latest 200 entries are kept for each file.
+
 ## Searching Drive
 
 - The search box at the top finds files by **name** and by the **words inside** them: documents, spreadsheets (cell text and sheet names), presentations, and uploaded text, Word, Excel and PowerPoint files. Each match shows the sentence it was found in, with the words marked.

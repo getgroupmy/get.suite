@@ -1,3 +1,4 @@
+import { recordActivity, activityOf } from '../fileactivity.js';
 import { notify as bell } from '../notifications.js';
 import { Router } from 'express';
 import { audit } from '../audit.js';
@@ -92,12 +93,14 @@ export function uniqueName(parentId, ownerId, name) {
   return `${base} (${Date.now()})${ext}`;
 }
 
-export function insertFile({ owner, parentId, name, kind, mime = null, size = 0, storage = null, content = null }) {
+export function insertFile({ owner, parentId, name, kind, mime = null, size = 0, storage = null, content = null, activity = null }) {
   const id = uid();
   const t = now();
   q(`INSERT INTO files (id, owner_id, parent_id, name, kind, mime, size, storage, content, created_at, updated_at, updated_by)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
     .run(id, owner, parentId, uniqueName(parentId, owner, name), kind, mime, size, storage, content, t, t, owner);
+  // Who made it (and how): activity = { by, action, details } when it isn't simply the owner creating it.
+  recordActivity(id, activity && 'by' in activity ? activity.by : owner, activity?.action || (kind === 'file' ? 'upload' : 'create'), activity?.details || null, t);
   return id;
 }
 
@@ -387,7 +390,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     checkQuota(req.user.org_id, row.size || 0);
     let storage = null;
     if (row.storage) { storage = uid(); fs.copyFileSync(path.join(FILES_DIR, row.storage), path.join(FILES_DIR, storage)); }
-    const id = insertFile({ owner: req.user.id, parentId, name: `Copy of ${row.name}`, kind: row.kind, mime: row.mime, size: row.size, storage, content: row.content });
+    const id = insertFile({ owner: req.user.id, parentId, name: `Copy of ${row.name}`, kind: row.kind, mime: row.mime, size: row.size, storage, content: row.content, activity: { action: 'copy', details: { from: row.name } } });
     if (parentId) notify(parentId, { type: 'files-changed', parent_id: parentId });
     res.status(201).json(publicFile(loadFile(id, req.user)));
   });
@@ -441,6 +444,7 @@ export default function fileRoutes({ maxUploadBytes }) {
       return res.status(409).json({ error: 'Someone else changed this file', version: cur.version, content: JSON.parse(cur.content) });
     }
     const version = f.version + 1;
+    recordActivity(f.id, req.user.id, 'edit');
     if (CO_EDITED.includes(f.kind)) resetRoom(f.id); // anyone co-editing reloads this version
     notify(f.id, { type: 'content-changed', id: f.id, version, by: req.user.id, by_name: req.user.name });
     res.json({ version });
@@ -461,7 +465,11 @@ export default function fileRoutes({ maxUploadBytes }) {
       if (setup !== undefined) q('UPDATE files SET page_setup = ? WHERE id = ?').run(setup ? JSON.stringify(setup) : null, f.id);
       if (name !== undefined) {
         const n = cleanName(name);
-        if (n !== f.name) q('UPDATE files SET name = ?, updated_at = ? WHERE id = ?').run(uniqueName(f.parent_id, f.owner_id, n), now(), f.id);
+        if (n !== f.name) {
+          const to = uniqueName(f.parent_id, f.owner_id, n);
+          q('UPDATE files SET name = ?, updated_at = ? WHERE id = ?').run(to, now(), f.id);
+          recordActivity(f.id, req.user.id, 'rename', { from: f.name, to });
+        }
       }
       if (parent_id !== undefined && parent_id !== f.parent_id) {
         if (parent_id === null) {
@@ -471,8 +479,12 @@ export default function fileRoutes({ maxUploadBytes }) {
           if (subtreeIds(f.id).includes(parent_id)) throw bad('Cannot move a folder into itself');
         }
         q('UPDATE files SET parent_id = ? WHERE id = ?').run(parent_id, f.id);
+        recordActivity(f.id, req.user.id, 'move', { to: parent_id ? q('SELECT name FROM files WHERE id = ?').get(parent_id)?.name : null });
       }
-      if (trashed !== undefined) q('UPDATE files SET trashed = ?, trashed_at = ?, updated_at = ? WHERE id = ?').run(trashed ? 1 : 0, trashed ? now() : null, now(), f.id);
+      if (trashed !== undefined && !!trashed !== !!f.trashed) {
+        q('UPDATE files SET trashed = ?, trashed_at = ?, updated_at = ? WHERE id = ?').run(trashed ? 1 : 0, trashed ? now() : null, now(), f.id);
+        recordActivity(f.id, req.user.id, trashed ? 'trash' : 'restore');
+      }
     });
     notify(f.id, { type: 'files-changed', parent_id: f.parent_id });
     if (setup !== undefined) notify(f.id, { type: 'page-setup', id: f.id, page_setup: setup });
@@ -638,6 +650,7 @@ export default function fileRoutes({ maxUploadBytes }) {
         .run(storage, v.content, v.size, v.mime, now(), req.user.id, f.id);
     });
     if (CO_EDITED.includes(f.kind)) resetRoom(f.id);
+    recordActivity(f.id, req.user.id, 'version', { saved_at: v.saved_at, label: v.label || null });
     const after = loadFile(f.id, req.user);
     // Open editors (yours included) load the restored content.
     notify(f.id, { type: 'content-changed', id: f.id, version: after.version, by: null, by_name: req.user.name });
@@ -651,6 +664,12 @@ export default function fileRoutes({ maxUploadBytes }) {
     q('DELETE FROM file_versions WHERE id = ?').run(v.id);
     if (v.storage) fs.rm(path.join(FILES_DIR, v.storage), { force: true }, () => {});
     res.json({ ok: true });
+  });
+
+  // What happened to it, newest first (anyone who can open it sees this).
+  r.get('/:id/activity', (req, res) => {
+    const f = loadFile(req.params.id, req.user);
+    res.json(activityOf(f.id));
   });
 
   r.get('/:id/shares', (req, res) => {
@@ -680,6 +699,9 @@ export default function fileRoutes({ maxUploadBytes }) {
     const nameOf = (id) => q('SELECT username FROM users WHERE id = ?').get(id)?.username || id;
     audit(req, 'file.share', { target: f.name, details: { with: list.map((x) => `${nameOf(x.user_id)} (${x.role})`) } });
     const added = list.filter((x) => !had.has(x.user_id) && x.user_id !== f.owner_id && x.user_id !== req.user.id);
+    const gone = [...had].filter((id) => !list.some((x) => x.user_id === id));
+    const who = (id) => q('SELECT name FROM users WHERE id = ?').get(id)?.name || 'someone';
+    if (added.length || gone.length) recordActivity(f.id, req.user.id, 'share', { added: added.map((x) => `${who(x.user_id)} (${x.role === 'editor' ? 'can edit' : 'can view'})`), removed: gone.map(who) });
     for (const x of added) bell([x.user_id], { kind: 'share', title: `${req.user.name || req.user.username} shared “${f.name}” with you`, body: x.role === 'editor' ? 'You can edit' : 'You can view', link: openLink(f), actor: req.user.name });
     res.json({ ok: true });
   });

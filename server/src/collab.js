@@ -1,3 +1,4 @@
+import { recordActivity } from './fileactivity.js';
 // Live co-editing for Docs: several people type in the same document at once and see each other's
 // cursors. Each open document is a "room" holding the shared Yjs document; browsers connect over
 // a WebSocket at /ws/collab/<file id> and speak the standard y-websocket protocol (sync and
@@ -54,6 +55,7 @@ function save(room) {
   snapshotIfNewSession(room.fileId, by);
   q('UPDATE files SET content = ?, size = ?, ydoc = ?, version = version + 1, updated_at = ?, updated_by = ? WHERE id = ?')
     .run(json, Buffer.byteLength(json), Buffer.from(Y.encodeStateAsUpdate(room.doc)), Date.now(), by, room.fileId);
+  if (by) recordActivity(room.fileId, by, 'edit');
   indexSoon();
   const version = q('SELECT version FROM files WHERE id = ?').get(room.fileId)?.version;
   // Drive lists refresh; open editors are already up to date.

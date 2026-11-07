@@ -1489,6 +1489,41 @@ test('chat pins: anyone in the conversation pins and unpins; replies cannot be; 
   assert.equal((await a('POST', `/api/chat/messages/${m2.id}/pin`, { pinned: false })).status, 400);
 });
 
+test('drive activity: who made, edited, renamed, moved, shared, trashed and restored a file', async () => {
+  const a = client(), b = client(), c = client();
+  for (const [local, name] of [['acta', 'Act Ann'], ['actb', 'Act Ben'], ['actc', 'Act Cat']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'acta@acme.com');
+  const bid = (await login(b, 'actb@acme.com')).id;
+  await login(c, 'actc@acme.com');
+  const doc = (await a('POST', '/api/files/new', { kind: 'doc', name: 'Plan' })).body;
+  const folder = (await a('POST', '/api/files/folder', { name: 'Projects' })).body;
+  const v1 = (await a('PUT', `/api/files/${doc.id}/content`, { version: doc.version, content: { type: 'doc', content: [] } })).body.version;
+  await a('PUT', `/api/files/${doc.id}/content`, { version: v1, content: { type: 'doc', content: [{ type: 'paragraph' }] } }); // same person, same hour: one entry
+  await a('PATCH', `/api/files/${doc.id}`, { name: 'Plan 2027' });
+  await a('PATCH', `/api/files/${doc.id}`, { parent_id: folder.id });
+  await a('PUT', `/api/files/${doc.id}/shares`, { shares: [{ user_id: bid, role: 'editor' }] });
+  const cur = (await b('GET', `/api/files/${doc.id}`)).body;
+  await b('PUT', `/api/files/${doc.id}/content`, { version: cur.version, content: { type: 'doc', content: [] } });
+  await a('PATCH', `/api/files/${doc.id}`, { trashed: true });
+  await a('PATCH', `/api/files/${doc.id}`, { trashed: true }); // already there: nothing new
+  await a('PATCH', `/api/files/${doc.id}`, { trashed: false });
+  const list = (await b('GET', `/api/files/${doc.id}/activity`)).body;
+  assert.deepEqual(list.map((x) => `${x.user_name}:${x.action}`).reverse(),
+    ['Act Ann:create', 'Act Ann:edit', 'Act Ann:rename', 'Act Ann:move', 'Act Ann:share', 'Act Ben:edit', 'Act Ann:trash', 'Act Ann:restore']);
+  const find = (action) => list.find((x) => x.action === action).details;
+  assert.deepEqual(find('rename'), { from: 'Plan', to: 'Plan 2027' });
+  assert.deepEqual(find('move'), { to: 'Projects' });
+  assert.deepEqual(find('share'), { added: ['Act Ben (can edit)'], removed: [] });
+  assert.ok(list.every((x) => x.at > 0));
+  assert.equal((await c('GET', `/api/files/${doc.id}/activity`)).status, 404, 'not shared with them');
+  // A copy and an upload say so.
+  const copy = (await b('POST', `/api/files/${doc.id}/copy`, {})).body;
+  assert.deepEqual((await b('GET', `/api/files/${copy.id}/activity`)).body.map((x) => [x.action, x.details]), [['copy', { from: 'Plan 2027' }]]);
+  // Unsharing is noted too.
+  await a('PUT', `/api/files/${doc.id}/shares`, { shares: [] });
+  assert.deepEqual((await a('GET', `/api/files/${doc.id}/activity`)).body[0].details, { added: [], removed: ['Act Ben'] });
+});
+
 test('chat polls: ask, vote (one or several), change your vote, close; checked options', async () => {
   const a = client(), b = client(), c = client();
   for (const [local, name] of [['polla', 'Poll Ann'], ['pollb', 'Poll Ben'], ['pollc', 'Poll Cat']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);

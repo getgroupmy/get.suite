@@ -594,6 +594,7 @@ function DetailsDialog({ file, onClose, onChanged }) {
           <textarea rows={3} maxLength={2000} value={desc} disabled={!canEdit} placeholder={canEdit ? 'What it is, for whom… (search finds it)' : ''} onChange={(e) => setDesc(e.target.value)}
             onBlur={() => { if (desc.trim() !== (f.description || '')) save({ description: desc }, 'Description saved'); }} />
         </label>
+        <Activity fileId={f.id} />
         {f.kind === 'folder' && canEdit && (
           <div className="stack" style={{ gap: 6 }}>
             <span className="muted small">Folder colour</span>
@@ -604,6 +605,46 @@ function DetailsDialog({ file, onClose, onChanged }) {
         )}
       </div>
     </Modal>
+  );
+}
+
+/** One line of a file's activity, e.g. "Kim Park renamed it from Plan to Plan 2027". */
+function activityText(a) {
+  const who = a.user_name || (a.action === 'request' ? a.details?.from || 'Someone' : 'Someone');
+  const d = a.details || {};
+  switch (a.action) {
+    case 'create': return `${who} created it`;
+    case 'upload': return `${who} uploaded it`;
+    case 'request': return `${who} sent it through a file request`;
+    case 'copy': return `${who} made it as a copy of ${d.from}`;
+    case 'edit': return `${who} edited it`;
+    case 'rename': return `${who} renamed it from ${d.from} to ${d.to}`;
+    case 'move': return d.to ? `${who} moved it to ${d.to}` : `${who} moved it to My Drive`;
+    case 'trash': return `${who} moved it to the trash`;
+    case 'restore': return `${who} restored it from the trash`;
+    case 'version': return `${who} brought back ${d.label ? `the version “${d.label}”` : `the version from ${new Date(d.saved_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}`}`;
+    case 'share': return [d.added?.length && `${who} shared it with ${d.added.join(', ')}`, d.removed?.length && `${d.added?.length ? 'and' : who} stopped sharing it with ${d.removed.join(', ')}`].filter(Boolean).join(' ') || `${who} changed who has it`;
+    default: return `${who}: ${a.action}`;
+  }
+}
+
+/** What happened to a file, newest first (a few, then all). */
+function Activity({ fileId }) {
+  const [list, setList] = useState(null);
+  const [all, setAll] = useState(false);
+  useEffect(() => { get(`/files/${fileId}/activity`).then(setList).catch(() => setList([])); }, [fileId]);
+  if (!list?.length) return null;
+  const shown = all ? list : list.slice(0, 5);
+  return (
+    <div className="stack" style={{ gap: 4 }}>
+      <span className="muted small">Activity</span>
+      <ul className="file-activity" aria-label="Activity">
+        {shown.map((a, i) => (
+          <li key={i}><span>{activityText(a)}</span> <span className="muted small" title={new Date(a.at).toLocaleString()}>{new Date(a.at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</span></li>
+        ))}
+      </ul>
+      {list.length > 5 && <button type="button" className="link-btn small" style={{ alignSelf: 'start' }} onClick={() => setAll(!all)}>{all ? 'Show less' : `Show all ${list.length}`}</button>}
+    </div>
   );
 }
 

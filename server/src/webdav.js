@@ -1,3 +1,4 @@
+import { recordActivity } from './fileactivity.js';
 // Drive as a network drive (WebDAV), for Finder (macOS: Go → Connect to Server), File Explorer
 // (Windows: Map network drive), Linux file managers and phone file apps. Mounted at /dav/files.
 //
@@ -297,6 +298,7 @@ export default function webdavRoutes({ maxUploadBytes }) {
             if (node.row.size > 0) snapshot(node.row.id);
             q('UPDATE files SET storage = ?, size = ?, mime = ?, version = version + 1, updated_at = ?, updated_by = ? WHERE id = ?')
               .run(storage, size, mimeFor(node.row.name), now(), user.id, node.row.id);
+            recordActivity(node.row.id, user.id, 'edit');
           });
           if (node.row.size === 0 && node.row.storage) fs.rm(path.join(FILES_DIR, node.row.storage), { force: true }, () => {});
           changed([node.row.id]);
@@ -333,6 +335,7 @@ export default function webdavRoutes({ maxUploadBytes }) {
         if (!guard([keyHere], true)) return;
         // To the trash, like deleting in Drive: it can be restored there.
         q('UPDATE files SET trashed = 1, trashed_at = ?, updated_at = ? WHERE id = ?').run(now(), now(), node.row.id);
+        recordActivity(node.row.id, user.id, 'trash');
         L.dropWithin(keyHere);
         changed([node.row.id]);
         return res.status(204).end();
@@ -365,6 +368,8 @@ export default function webdavRoutes({ maxUploadBytes }) {
           tx(() => {
             if (target.type === 'item') q('UPDATE files SET trashed = 1, trashed_at = ?, updated_at = ? WHERE id = ?').run(now(), now(), target.row.id);
             q('UPDATE files SET name = ?, parent_id = ?, updated_at = ? WHERE id = ?').run(newName, place.parentId, now(), node.row.id);
+            if (newName !== node.row.name) recordActivity(node.row.id, user.id, 'rename', { from: node.row.name, to: newName });
+            if (place.parentId !== node.row.parent_id) recordActivity(node.row.id, user.id, 'move', { to: place.parentId ? q('SELECT name FROM files WHERE id = ?').get(place.parentId)?.name : null });
           });
           L.dropWithin(keyHere);
           changed([node.row.id]);
