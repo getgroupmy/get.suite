@@ -1,6 +1,7 @@
 // New-mail notifications: unread badge, tab title, in-app toast and (opt-in) desktop notifications.
 // The server pushes { type: 'mail-new' } and { type: 'mail-unread' } over the live WebSocket.
 import { useEffect, useState } from 'react';
+import { isPaused } from './pause.js';
 import { get, onLive } from './api.js';
 
 const PREF = 'nw:desktop-notifications';
@@ -34,7 +35,7 @@ export function useMailNotifications(enabled, { toast, openMessage }) {
     const off = onLive((m) => {
       if (m.type === 'live-connected') load();
       if (m.type === 'mail-unread') setUnread(m.unseen);
-      if (m.type === 'mail-new') {
+      if (m.type === 'mail-new' && !isPaused()) {
         const who = m.from?.name || m.from?.address || 'someone';
         const where = m.folder && m.folder !== 'INBOX' ? ` in ${m.folder.split('/').join(' / ')}` : '';
         toast(`New mail${where} from ${who}: ${m.subject || '(no subject)'}`);

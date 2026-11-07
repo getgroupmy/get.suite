@@ -24,6 +24,8 @@ import PresenterView from './apps/slides/PresenterView.jsx';
 import { ShortcutsHelp } from './components/Shortcuts.jsx';
 import { StatusDialog, useMyStatus } from './components/StatusDialog.jsx';
 import { statusLine } from './components/status.js';
+import { usePause, pauseUntil, pauseChoices } from './pause.js';
+import { whenText } from './components/schedule.jsx';
 import Calendar from './apps/calendar/Calendar.jsx';
 import Contacts from './apps/contacts/Contacts.jsx';
 import Tasks from './apps/tasks/Tasks.jsx';
@@ -135,6 +137,10 @@ function Shell() {
   }), [toast, navigate]);
   const chatUnread = useChatUnread();
   const [myStatus, setMyStatus] = useMyStatus(user.id);
+  const paused = usePause(user.id);
+  const setPause = async (at) => {
+    try { await pauseUntil(at); toast(at ? `Notifications paused until ${whenText(at)}` : 'Notifications are back on'); } catch (e) { toast(e.message, 'error'); }
+  };
   const [statusOpen, setStatusOpen] = useState(false);
 
   return (
@@ -152,10 +158,13 @@ function Shell() {
           <Icon name="search" />
           <input name="q" placeholder="Search in Drive" aria-label="Search in Drive" />
         </form>
+        {paused && <button type="button" className="icon-btn paused-mark" aria-label={`Notifications paused until ${whenText(paused)}. Resume`} title={`Notifications paused until ${whenText(paused)} (click to resume)`} onClick={() => setPause(null)}>🔕</button>}
         <Bell />
         <Menu align="right" trigger={(p) => <button className="avatar-btn" aria-label="Account" title={myStatus ? statusLine(myStatus) : undefined} {...p}><Avatar name={user.name} userId={user.id} />{myStatus?.emoji && <span className="avatar-status" aria-hidden="true">{myStatus.emoji}</span>}</button>} items={[
           { label: `${user.name} · ${user.username}`, icon: 'person', onClick: () => navigate('/settings') },
           { label: myStatus ? `Status: ${statusLine(myStatus)}` : 'Set a status', icon: 'chat', onClick: () => setStatusOpen(true) },
+          ...(paused ? [{ label: `Resume notifications (paused until ${whenText(paused)})`, icon: 'bell', onClick: () => setPause(null) }]
+            : pauseChoices().map(([label, at]) => ({ label: `Pause notifications: ${label.toLowerCase()}`, icon: 'bell', onClick: () => setPause(at) }))),
           { label: 'Settings', icon: 'settings', onClick: () => navigate('/settings') },
           user.is_admin && { label: 'Admin console', icon: 'shield', onClick: () => navigate('/admin') },
           '-',

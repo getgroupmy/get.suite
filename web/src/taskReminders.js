@@ -6,6 +6,7 @@ import { get, onLive } from './api.js';
 import { desktopOn } from './mailNotify.js';
 import { claim } from './eventReminders.js';
 import { dueAt } from './apps/tasks/taskmath.js';
+import { isPaused } from './pause.js';
 
 export const MORNING_HOUR = 9;
 const pad = (n) => String(n).padStart(2, '0');
@@ -48,7 +49,7 @@ export function useTaskReminders({ toast, navigate }) {
       let tasks;
       try { tasks = await get(`/tasks/due?from=2000-01-01&to=${today}`); } catch { return; }
       const note = morningSummary(tasks);
-      if (stopped || !note || !(await claim(`tasks:${today}`)) || stopped) return;
+      if (stopped || !note || isPaused() || !(await claim(`tasks:${today}`)) || stopped) return;
       // Given to you: they're all under Assigned to me; otherwise the list your own due task is on.
       const due = tasks.filter((t) => t.due <= today);
       const open = () => navigate(due.some((t) => t.assignee_id) ? '/tasks/assigned' : `/tasks/${due[0].list_id}`);
@@ -74,7 +75,7 @@ export function useTaskReminders({ toast, navigate }) {
       timed.forEach(clearTimeout);
       timed = comingTimed(tasks).map(({ task: t, at }) => setTimeout(() => {
         claim(`task-due:${t.id}:${t.due}T${t.due_time}`).then((mine) => {
-          if (!mine || stopped) return;
+          if (!mine || stopped || isPaused()) return;
           const open = () => navigate(`/tasks/${t.list_id}?task=${t.id}`);
           const text = `“${t.title}” is due now (${t.due_time})`;
           toast(text, 'info', { action: { label: 'Open', onClick: open }, duration: 15000 });
@@ -91,7 +92,7 @@ export function useTaskReminders({ toast, navigate }) {
       if (m.type !== 'task-assigned' || !m.task) return;
       const open = () => navigate(`/tasks/${m.task.list_id}?task=${m.task.id}`);
       claim(`task-assigned:${m.task.id}:${m.at}`).then((mine) => {
-        if (!mine || stopped) return;
+        if (!mine || stopped || isPaused()) return;
         const text = `${m.from} gave you “${m.task.title}”${m.task.list_name ? ` on ${m.task.list_name}` : ''}`;
         toast(text, 'info', { action: { label: 'Open', onClick: open } });
         desktop('New task', text, open, `task-${m.task.id}`);

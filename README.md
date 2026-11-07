@@ -608,6 +608,8 @@ Each entry shows who did it, what it was done to, the details and the IP address
 
 The bell at the top right collects what needs you: being **@mentioned** in Chat or in a comment, a **task** given to you, a calendar **invitation** (or its cancellation), a file or folder **shared** with you, and someone **booking** time with you. New ones appear at once, with a count on the bell. Click one to go there (it's then marked read), or **Mark all read**. The latest 200 are kept.
 
+
+**Pause notifications** (account menu, top right: for 30 minutes, 1 or 2 hours, or until 9:00 tomorrow) stops the pop-up notes and desktop notifications for new mail, mentions, event reminders and tasks until then. Everything still arrives in the bell and the apps. 🔕 by the bell shows it's on (click to resume), and colleagues see 🔕 by your name in Chat.
 ## Branding
 
 In **Admin → Company settings → Branding**, a company's admins can upload a **logo** (PNG, JPEG or WebP, up to 1 MB; SVG isn't accepted, as it can carry scripts) and pick a **colour**. Everyone in the company then sees the logo in the top bar and the colour on buttons, highlights and links. The sign-in page shows the logo and colour when Workspace is opened at an address on one of the company's domains, such as `workspace.acme.com` (set up the address in DNS and your reverse proxy); other addresses show the plain Workspace sign-in.

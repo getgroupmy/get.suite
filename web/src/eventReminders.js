@@ -1,6 +1,7 @@
 // Calendar reminders while Workspace is open: a toast, and a desktop notification when those are on
 // and the tab is in the background. Each reminder is shown once, even with several tabs open.
 import { useEffect } from 'react';
+import { isPaused } from './pause.js';
 import { get, onLive } from './api.js';
 import { expandAll } from './apps/calendar/calmath.js';
 import { desktopOn } from './mailNotify.js';
@@ -66,7 +67,7 @@ export function useEventReminders(enabled, { toast, openCalendar }) {
     let timers = [];
     let stopped = false;
     const fire = async ({ key, ev }) => {
-      if (stopped || !(await claim(key)) || stopped) return;
+      if (stopped || isPaused() || !(await claim(key)) || stopped) return;
       const when = startsIn(ev);
       toast(`${ev.title} ${when === 'now' ? 'is starting now' : `starts ${when}`}${ev.location ? ` · ${ev.location}` : ''}`);
       if (desktopOn() && document.hidden) {

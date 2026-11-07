@@ -2384,3 +2384,19 @@ test('transfer ownership: give a folder to a colleague; give a leaving person’
   assert.equal(parent.name, 'Files from Give Cat');
   assert.equal((await owner('DELETE', `/api/users/${aid}?transfer_to=${aid}`)).status, 400);
 });
+
+test('pause notifications: until a time; colleagues see it; stopping early', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['pza', 'Pause Ann'], ['pzb', 'Pause Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  const aid = (await login(a, 'pza@acme.com')).id;
+  await login(b, 'pzb@acme.com');
+  assert.equal((await a('GET', '/api/users/me/pause')).body.paused_until, null);
+  assert.equal((await a('PUT', '/api/users/me/pause', { until: Date.now() - 1000 })).status, 400);
+  assert.equal((await a('PUT', '/api/users/me/pause', { until: Date.now() + 40 * 864e5 })).status, 400, 'up to a month');
+  const until = Date.now() + 36e5;
+  assert.equal((await a('PUT', '/api/users/me/pause', { until })).body.paused_until, until);
+  assert.equal((await a('GET', '/api/users/me/pause')).body.paused_until, until);
+  assert.equal((await b('GET', '/api/users/directory')).body.find((u) => u.id === aid).paused_until, until);
+  await a('PUT', '/api/users/me/pause', { until: null });
+  assert.equal((await b('GET', '/api/users/directory')).body.find((u) => u.id === aid).paused_until, null);
+});

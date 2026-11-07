@@ -79,8 +79,9 @@ export default function userRoutes() {
 
   // Everyone: your own company's directory (for sharing, chat, contacts).
   r.get('/directory', (req, res) => {
-    res.json(q('SELECT id, username, name, status_emoji, status_text, status_until FROM users WHERE org_id = ? AND disabled = 0 ORDER BY name')
-      .all(req.user.org_id).map(({ status_emoji, status_text, status_until, ...u }) => ({ ...u, status: statusOf({ status_emoji, status_text, status_until }) })));
+    const now = Date.now();
+    res.json(q('SELECT id, username, name, status_emoji, status_text, status_until, paused_until FROM users WHERE org_id = ? AND disabled = 0 ORDER BY name')
+      .all(req.user.org_id).map(({ status_emoji, status_text, status_until, paused_until, ...u }) => ({ ...u, status: statusOf({ status_emoji, status_text, status_until }), paused_until: paused_until > now ? paused_until : null })));
   });
 
   // Photos: who has one (your company), yours to set or remove, and each one's picture.
@@ -125,6 +126,20 @@ export default function userRoutes() {
   });
 
   // Your status: what colleagues see next to your name, until it clears by itself.
+  // Pause notifications ("do not disturb") until a time, or stop pausing (until: null).
+  r.get('/me/pause', (req, res) => {
+    const until = q('SELECT paused_until FROM users WHERE id = ?').get(req.user.id).paused_until;
+    res.json({ paused_until: until > Date.now() ? until : null });
+  });
+  r.put('/me/pause', (req, res) => {
+    let until = req.body.until == null ? null : Number(req.body.until);
+    if (until !== null && (!Number.isFinite(until) || until <= Date.now())) throw bad('Pick a time in the future');
+    if (until !== null && until > Date.now() + 31 * 864e5) throw bad('Notifications can be paused for up to a month');
+    q('UPDATE users SET paused_until = ? WHERE id = ?').run(until, req.user.id);
+    statusChanged(req.user); // colleagues see 🔕; your other tabs pause too
+    res.json({ paused_until: until });
+  });
+
   r.get('/me/status', (req, res) => {
     res.json({ status: statusOf(q('SELECT status_emoji, status_text, status_until FROM users WHERE id = ?').get(req.user.id)) });
   });

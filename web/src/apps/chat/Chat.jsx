@@ -11,6 +11,7 @@ import { whenText, laterChoices, ScheduleDialog } from '../../components/schedul
 import { useAuth } from '../../App.jsx';
 import { useMentions, MENTION_RE } from '../../components/mentions.jsx';
 import { addToTasksWithToast, titleFromText } from '../tasks/addtask.js';
+import { isPaused } from '../../pause.js';
 
 export default function Chat() {
   const { channelId } = useParams();
@@ -70,6 +71,7 @@ export default function Chat() {
   useEffect(() => { loadChannels(); get('/users/directory').then(setPeople); }, []);
   useEffect(() => onLive((m) => { if (m.type === 'status-changed') get('/users/directory').then(setPeople).catch(() => {}); }), []);
   const statusFor = (userId) => people.find((p) => p.id === userId)?.status || null;
+  const pausedFor = (userId) => { const u = people.find((p) => p.id === userId)?.paused_until; return u && u > Date.now() ? u : null; };
 
   const current = channels.find((c) => c.id === channelId);
   useEffect(() => {
@@ -131,7 +133,7 @@ export default function Chat() {
       const seen = m.channel_id === channelId && !document.hidden && (!m.parent_id || m.parent_id === threadId);
       if (!seen) {
         if (m.channel_id !== channelId) setMentioned((x) => ({ ...x, [m.channel_id]: true }));
-        toast(`${m.from} mentioned you: ${m.text}`, 'info', { action: { label: 'Open', onClick: () => { navigate(`/chat/${m.channel_id}`); if (m.parent_id) setTimeout(() => setThreadId(m.parent_id), 0); } } });
+        if (!isPaused()) toast(`${m.from} mentioned you: ${m.text}`, 'info', { action: { label: 'Open', onClick: () => { navigate(`/chat/${m.channel_id}`); if (m.parent_id) setTimeout(() => setThreadId(m.parent_id), 0); } } });
       }
     } else if (m.type === 'chat-read') {
       setUnread((u) => ({ ...u, [m.channel_id]: 0 }));
@@ -243,7 +245,7 @@ export default function Chat() {
         <div className="subnav-title">Direct messages</div>
         {dms.map((c) => (
           <button key={c.id} className={`subnav-item ${c.id === channelId ? 'active' : ''} ${c.muted ? 'muted' : ''}`} onClick={() => navigate(`/chat/${c.id}`)}>
-            <Avatar name={c.dm_name || user.name} size={20} userId={c.dm_user_id || user.id} /><span className="grow ellipsis">{c.dm_name || 'Notes to self'}{c.dm_org && <span className="muted small"> · {c.dm_org}</span>}{statusFor(c.dm_user_id) && <span className="dm-status" title={statusLine(statusFor(c.dm_user_id))}> {statusFor(c.dm_user_id).emoji || '💬'}</span>}</span>{c.muted && <span className="muted-mark" aria-label="Muted" title="Muted">🔕</span>}{mentioned[c.id] && <span className="badge at" aria-label="You were mentioned">@</span>}{unread[c.id] > 0 && <span className={`badge ${c.muted ? 'quiet' : ''}`}>{unread[c.id]}</span>}
+            <Avatar name={c.dm_name || user.name} size={20} userId={c.dm_user_id || user.id} /><span className="grow ellipsis">{c.dm_name || 'Notes to self'}{c.dm_org && <span className="muted small"> · {c.dm_org}</span>}{statusFor(c.dm_user_id) && <span className="dm-status" title={statusLine(statusFor(c.dm_user_id))}> {statusFor(c.dm_user_id).emoji || '💬'}</span>}{pausedFor(c.dm_user_id) && <span className="dm-status" aria-label="Notifications paused" title={`Notifications paused until ${whenText(pausedFor(c.dm_user_id))}`}> 🔕</span>}</span>{c.muted && <span className="muted-mark" aria-label="Muted" title="Muted">🔕</span>}{mentioned[c.id] && <span className="badge at" aria-label="You were mentioned">@</span>}{unread[c.id] > 0 && <span className={`badge ${c.muted ? 'quiet' : ''}`}>{unread[c.id]}</span>}
           </button>
         ))}
         <select className="dm-pick" value="" aria-label="Start a direct message" onChange={(e) => {

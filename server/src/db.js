@@ -226,7 +226,8 @@ if (!hasColumn('contacts', 'birthday')) db.exec('ALTER TABLE contacts ADD COLUMN
 // person keeps their mailbox where it was; a mailbox left by someone deleted or renamed is never
 // handed to a new person who later gets that address.
 // Your status for colleagues ("🌴 On leave"), cleared by itself at status_until (ms; null: kept).
-for (const [col, type] of [['status_emoji', 'TEXT'], ['status_text', 'TEXT'], ['status_until', 'INTEGER']]) if (!hasColumn('users', col)) db.exec(`ALTER TABLE users ADD COLUMN ${col} ${type}`);
+// Notifications paused ("do not disturb") until paused_until (ms).
+for (const [col, type] of [['status_emoji', 'TEXT'], ['status_text', 'TEXT'], ['status_until', 'INTEGER'], ['paused_until', 'INTEGER']]) if (!hasColumn('users', col)) db.exec(`ALTER TABLE users ADD COLUMN ${col} ${type}`);
 if (!hasColumn('users', 'mail_home')) db.exec('ALTER TABLE users ADD COLUMN mail_home TEXT');
 db.exec('CREATE TABLE IF NOT EXISTS retired_mail_homes (path TEXT PRIMARY KEY, retired_at INTEGER NOT NULL)');
 // Earlier versions of files: replaced uploads, and Docs/Sheets as they were before each editing session.
