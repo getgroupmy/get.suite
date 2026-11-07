@@ -121,13 +121,14 @@ Everyone who can edit a document, spreadsheet or presentation can work in it at 
 - **Page setup** (⋮ menu): paper size (A4, Letter, Legal, A5), portrait or landscape, margins, a header and a footer, and page numbers. The paper on screen takes the size; printing (or saving as PDF) and the Word download use all of it. Everyone editing the document sees the same setup. Printing is always on white paper, whichever theme you use.
 - **Outline:** the list button next to Comments opens the document's headings down the left, indented by level. Click one to go there; the heading you're in is marked, and headings anyone adds show up as they type. It stays open on that computer until you close it.
 
-## Comments and @mentions (Docs, Sheets)
+## Comments and @mentions (Docs, Sheets, Slides)
 
 - **Comment:** in Docs, select some text and press **Comment** in the toolbar (or Ctrl+Alt+M); in Sheets, select a cell and do the same. The text is highlighted (cells get a small orange corner) and the comment opens in a panel on the right. The highlight moves with the text as people edit.
 - **@mention:** type `@` and a few letters of a colleague's name to pick them from a list. They get a chat message with the comment and a link that opens the document at that comment. If the file isn't shared with them, you're told, so you can share it first.
 - **Replies, resolve:** anyone who can edit the file can reply, and resolve a thread when it's done (a new reply reopens it). Tick **Show resolved** to see them again. Comments update live for everyone with the file open.
 - **Who can do what:** viewers read comments; editors add, reply and resolve; a comment can be deleted by its author or by the file's owner (deleting the first comment removes the thread).
 
+- **In Slides:** **Comment on this slide** comments on the slide you're on (a 💬 shows on its thumbnail). The comment stays with its slide when slides are moved, and clicking where a comment is takes you to its slide. **💬 Comments** opens the list, with replies, resolving and @mentions as in Docs and Sheets.
 ## Printing (Sheets)
 
 - **Print or save as PDF** (⋮ menu) prints the sheet, or just the selected cells (chosen for you when several are selected), on A4 or Letter, portrait or landscape, with or without gridlines. Values print as they're shown (formatted numbers, dates and formula results), with bold, colours, fills, alignment, borders, merged cells and column widths. Hidden and filtered-out rows and columns are left out. Choose "Save as PDF" in the print dialog for a PDF.

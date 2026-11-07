@@ -1,5 +1,5 @@
-// Comments on documents and spreadsheets: threads anchored to text (Docs: a mark in the document
-// with the comment's id, so it moves with the text while people co-edit) or to a cell (Sheets),
+// Comments on documents, spreadsheets and presentations: threads anchored to text (Docs: a mark in the document
+// with the comment's id, so it moves with the text while people co-edit), to a cell (Sheets) or to a slide (Slides),
 // replies, resolving, and @mentions that notify by direct message. Anyone who can open the file
 // reads them; editors write them. Mounted at /api/comments.
 import { notify } from '../notifications.js';
@@ -25,7 +25,8 @@ q(`CREATE TABLE IF NOT EXISTS file_comments (
 )`).run();
 q('CREATE INDEX IF NOT EXISTS file_comments_file ON file_comments(file_id, created_at)').run();
 
-const KINDS = ['doc', 'sheet'];
+const KINDS = ['doc', 'sheet', 'slides'];
+const APP = { doc: 'docs', sheet: 'sheets', slides: 'slides' };
 const MENTION_RE = /@([a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,})/gi;
 
 function loadFile(id, user, needed = 'viewer') {
@@ -38,6 +39,11 @@ function loadFile(id, user, needed = 'viewer') {
 function readAnchor(kind, a) {
   if (!a || typeof a !== 'object') return null;
   if (kind === 'doc') return { quote: str(a.quote ?? '', { max: 500 }) };
+  if (kind === 'slides') { // the slide's own id, so the comment stays with it when slides move
+    const slide = String(a.slide || '');
+    if (!/^[\w-]{1,64}$/.test(slide)) throw bad('Comment on a slide');
+    return { slide, ...(a.gone && { gone: true }) };
+  }
   const cell = String(a.cell || '').toUpperCase();
   if (!/^[A-Z]{1,3}[1-9][0-9]{0,6}$/.test(cell)) throw bad('Comment on a cell like B2');
   return { sheet: Number.isInteger(a.sheet) && a.sheet >= 0 ? a.sheet : 0, cell, ...(a.gone && { gone: true }) }; // gone: its cell was deleted
@@ -55,7 +61,7 @@ function mention(user, file, body, commentId) {
     const u = q('SELECT id, name, username FROM users WHERE username = ? AND disabled = 0').get(email.toLowerCase());
     if (!u || u.id === user.id || notified.includes(u.username) || noAccess.includes(email.toLowerCase())) continue;
     if (!canReach(user, u.id) || !roleFor(file.id, u.id)) { noAccess.push(u.username); continue; }
-    const where = file.kind === 'doc' ? 'docs' : 'sheets';
+    const where = APP[file.kind];
     const ok = sendDirect(user, u.id, `Mentioned you in a comment on “${file.name}”:\n${body}\n\nOpen: /${where}/${file.id}?comment=${commentId}`);
     if (ok) notified.push(u.username);
     notify([u.id], { kind: 'comment', title: `${user.name || user.username} mentioned you in a comment on “${file.name}”`, body, link: `/${where}/${file.id}?comment=${commentId}`, actor: user.name });

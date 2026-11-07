@@ -1,7 +1,8 @@
 // Presentations: a slide list, a 16:9 canvas with text boxes, pictures and shapes you can move and
 // resize, a full-screen presenter, and printing (Save as PDF). Edited together live, like Docs and Sheets.
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router';
+import { useNavigate, useParams, useSearchParams } from 'react-router';
+import { CommentsPanel, useComments } from '../comments.jsx';
 import { get, patch, uploadFile } from '../../api.js';
 import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
@@ -39,6 +40,12 @@ export default function SlidesEditor() {
   const [editing, setEditing] = useState(null);   // item id whose text is being typed
   const [presenting, setPresenting] = useState(null); // slide index, or null
   const [dialog, setDialog] = useState(null);
+  // Comments, each on a slide (by its id, so it follows the slide when slides move).
+  const [params] = useSearchParams();
+  const { threads } = useComments(file?.id);
+  const [panel, setPanel] = useState(!!params.get('comment'));
+  const [thread, setThread] = useState(params.get('comment'));
+  const [pending, setPending] = useState(null);
   const deckRef = useRef(null);
   const pictureInput = useRef();
   const readOnly = file?.role === 'viewer';
@@ -85,7 +92,22 @@ export default function SlidesEditor() {
   const item = slide?.items.find((it) => it.id === selected) || null;
   const theme = THEMES[deck?.theme] || THEMES.light;
   // The latest deck (a slide may have just been added or removed in this same click).
+  const slideNumberOf = (slideId) => (deck ? deck.slides.findIndex((x) => x.id === slideId) : -1);
+  const slideLabel = (t) => { const n = slideNumberOf(t.anchor?.slide); return n < 0 ? 'A deleted slide' : `Slide ${n + 1}`; };
+  const commentsOn = (slideId) => threads.filter((t) => !t.resolved && t.anchor?.slide === slideId).length;
+  const openThreads = threads.filter((t) => !t.resolved).length;
+  const showThread = (t) => { const n = slideNumberOf(t.anchor?.slide); if (n >= 0) goTo(n); };
+  const commentOnSlide = () => {
+    setPanel(true);
+    setPending({ anchor: { slide: deck.slides[slideIndex].id }, label: `slide ${slideIndex + 1}`, onCreated: () => setPending(null), onCancel: () => setPending(null) });
+  };
   const goTo = (i) => { setCurrent(Math.max(0, Math.min(deckRef.current.slides.length - 1, i))); setSelected(null); setEditing(null); };
+  // Opened from a mention (?comment=…): go to that comment's slide once it's known.
+  const jumped = useRef(false);
+  useEffect(() => {
+    const t = !jumped.current && thread && deck && threads.find((x) => x.id === thread);
+    if (t) { jumped.current = true; showThread(t); }
+  }); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Keyboard on the canvas: Delete removes, arrows nudge (Shift: further), Escape deselects.
   function onCanvasKey(e) {
@@ -235,18 +257,21 @@ export default function SlidesEditor() {
             </select>
           )}
           <div className="grow" />
+          <button type="button" className={`btn small ${panel ? 'primary' : ''}`} aria-pressed={panel} title="Comments" onClick={() => { if (panel && pending) setPending(null); setPanel(!panel); }}>💬 Comments{openThreads ? ` (${openThreads})` : ''}</button>
+          <button type="button" className="btn small" onClick={commentOnSlide}>Comment on this slide</button>
           <button type="button" className="btn small primary" onClick={() => setPresenting(slideIndex)}><Icon name="slides" size={16} /> Present</button>
           <button type="button" className="btn small" title="Present, with your notes, the next slide and a timer in a second window" onClick={() => { openPresenterView(id, slideIndex); setPresenting(slideIndex); }}>Presenter view</button>
         </div>
       )}
-      {readOnly && <div className="slides-toolbar"><div className="grow" /><button type="button" className="btn small primary" onClick={() => setPresenting(slideIndex)}><Icon name="slides" size={16} /> Present</button>
+      {readOnly && <div className="slides-toolbar"><div className="grow" /><button type="button" className={`btn small ${panel ? 'primary' : ''}`} aria-pressed={panel} title="Comments" onClick={() => { if (panel && pending) setPending(null); setPanel(!panel); }}>💬 Comments{openThreads ? ` (${openThreads})` : ''}</button>
+          <button type="button" className="btn small primary" onClick={() => setPresenting(slideIndex)}><Icon name="slides" size={16} /> Present</button>
           <button type="button" className="btn small" title="Present, with your notes, the next slide and a timer in a second window" onClick={() => { openPresenterView(id, slideIndex); setPresenting(slideIndex); }}>Presenter view</button></div>}
 
       <div className="slides-body">
         <ol className="slide-list" aria-label="Slides">
           {deck.slides.map((s, i) => (
             <li key={s.id} className={`${i === slideIndex ? 'on' : ''} ${s.skip ? 'skipped' : ''}`}>
-              <span className="num" aria-hidden="true">{i + 1}{s.transition && <span className="thumb-mark" title={`Transition: ${s.transition}`}>✦</span>}{s.skip && <span className="thumb-mark" title="Skipped when presenting">⊘</span>}</span>
+              <span className="num" aria-hidden="true">{i + 1}{commentsOn(s.id) > 0 && <span className="thumb-mark" title={`${commentsOn(s.id)} open comment${commentsOn(s.id) === 1 ? '' : 's'}`}>💬</span>}{s.transition && <span className="thumb-mark" title={`Transition: ${s.transition}`}>✦</span>}{s.skip && <span className="thumb-mark" title="Skipped when presenting">⊘</span>}</span>
               <button type="button" className="thumb" aria-label={`Slide ${i + 1}`} aria-current={i === slideIndex ? 'true' : undefined} onClick={() => goTo(i)}>
                 <SlideView slide={s} theme={theme} deckId={id} />
               </button>
@@ -278,6 +303,8 @@ export default function SlidesEditor() {
             </label>
           )}
         </div>
+        {panel && <CommentsPanel fileId={file.id} threads={threads} canEdit={!readOnly} active={thread} setActive={setThread} pending={pending}
+          onShow={showThread} labelOf={slideLabel} onClose={() => { setPending(null); setPanel(false); }} />}
       </div>
 
       <div className="print-deck" aria-hidden="true">

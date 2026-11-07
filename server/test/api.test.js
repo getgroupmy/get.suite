@@ -2569,3 +2569,24 @@ test('tasks: each person sorts a list their own way', async () => {
   await a('PUT', `/api/tasks/lists/${list}/sort`, { sort: 'mine' });
   assert.equal(await sortOf(a), 'mine');
 });
+
+test('comments on presentations: anchored to a slide; mentions link to the presentation', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['cma', 'Slide Ann'], ['cmb', 'Slide Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'cma@acme.com');
+  const bid = (await login(b, 'cmb@acme.com')).id;
+  const deck = (await a('POST', '/api/files/new', { kind: 'slides', name: 'Pitch' })).body;
+  await a('PUT', `/api/files/${deck.id}/shares`, { shares: [{ user_id: bid, role: 'editor' }] });
+  const c = await a('POST', `/api/comments/${deck.id}`, { body: 'Shorter title here, @cmb@acme.com?', anchor: { slide: 's_1' } });
+  assert.equal(c.status, 201, JSON.stringify(c.body));
+  assert.deepEqual(c.body.comment.anchor, { slide: 's_1' });
+  assert.deepEqual(c.body.notified, ['cmb@acme.com']);
+  assert.equal((await a('POST', `/api/comments/${deck.id}`, { body: 'x', anchor: { slide: 'bad id!' } })).status, 400);
+  const list = (await b('GET', `/api/comments/${deck.id}`)).body;
+  assert.equal(list.length, 1);
+  const reply = await b('POST', `/api/comments/${deck.id}`, { body: 'Done', thread_id: c.body.comment.id });
+  assert.equal(reply.status, 201);
+  const dms = (await b('GET', '/api/chat/channels')).body.channels.filter((x) => x.dm_key);
+  const msgs = (await b('GET', `/api/chat/channels/${dms[0].id}/messages`)).body;
+  assert.ok(msgs.some((m) => m.body.includes(`/slides/${deck.id}?comment=`)), 'the mention links to the slide');
+});
