@@ -5,7 +5,7 @@ import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
 import { jsonFromSheetDoc, applySheetJson } from '../collabsync.js';
 import { useAuth } from '../../App.jsx';
-import { useToast, PromptModal, ConfirmModal, Menu, Avatar, ContextMenu } from '../../components/ui.jsx';
+import { useToast, PromptModal, ConfirmModal, Menu, Avatar, ContextMenu, Modal } from '../../components/ui.jsx';
 import Icon from '../../components/Icon.jsx';
 import { ShareDialog } from '../drive/Drive.jsx';
 import { EditorHeader } from '../editorCommon.jsx';
@@ -25,6 +25,8 @@ import { FilterMenu } from './SheetFilter.jsx';
 import { SheetPreview } from './SheetPreview.jsx';
 import { VersionHistory } from '../VersionHistory.jsx';
 import { ruleStyle } from './condformat.js';
+import { sheetPrintHtml, usedArea } from './sheetprint.js';
+import { printHtml } from '../mail/mailprint.js';
 import { useUndo, undoKey } from '../useUndo.js';
 import { useFormulaAssist } from './FormulaAssist.jsx';
 import { box, mergeLayout, mergeAt, addMerge, removeMerges, growToMerges, stepWithMerges } from './merge.js';
@@ -643,6 +645,7 @@ export default function SheetEditor() {
         menu={[
           { label: 'Find and replace', icon: 'search', onClick: () => setFinding({ replace: !readOnly, n: 1 }) },
           { label: 'Version history', icon: 'clock', onClick: () => setDialog({ type: 'history' }) },
+          { label: 'Print or save as PDF', icon: 'print', onClick: () => setDialog({ type: 'print' }) },
           { label: 'Download as Excel (.xlsx)', icon: 'download', onClick: () => { window.location.href = `/api/files/${id}/export`; } },
           { label: 'Download sheet as CSV', icon: 'download', onClick: exportCsv },
           !readOnly && { label: 'Import CSV as new sheet', icon: 'upload', onClick: importCsv },
@@ -819,6 +822,18 @@ export default function SheetEditor() {
         const done = () => { setPicker(null); gridRef.current?.focus(); };
         return <ChoicePicker anchor={td} values={vd.values || []} current={cells[picker.key] ?? ''} onClose={done} onPick={(x) => { writeCells({ [picker.key]: x }); done(); }} />;
       })()}
+      {dialog?.type === 'print' && (
+        <PrintDialog hasSelection={range.c1 !== range.c2 || range.r1 !== range.r2} onClose={() => setDialog(null)} onPrint={(o) => {
+          const area = o.what === 'selection' ? range : usedArea(Object.keys(cells).filter((k) => cells[k] !== '' && cells[k] != null));
+          if (!area) { toast('There is nothing on this sheet to print'); return; }
+          setDialog(null);
+          printHtml(sheetPrintHtml({
+            title: `${file.name} - ${sheet.name}`, area, text: shown,
+            style: (k) => ({ ...cellStyle(formats[k]), ...(rules.length && ruleStyle(rules, k, evaluate(k))) }),
+            layout, hiddenRows: hidden, hiddenCols, width: widthOf, gridlines: o.gridlines, landscape: o.landscape, paper: o.paper,
+          }));
+        }} />
+      )}
       {dialog?.type === 'sort' && (() => { const g = sortTarget(); return (
         <SortDialog initial={{ range: g, by: sel.c }} header={looksLikeHeader(g, evaluate)} value={evaluate} onSort={sortBy} onClose={() => { setDialog(null); gridRef.current?.focus(); }} />
       ); })()}
@@ -972,5 +987,27 @@ function UnhideButton({ run, axis, onShow }) {
   return (
     <button type="button" className={`unhide-btn ${axis} ${run.side}`} tabIndex={-1} disabled={!onShow} aria-label={`Show hidden ${what}`} title={`Show hidden ${what}`}
       onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); onShow?.(run.a, run.b); }}>{axis === 'row' ? '⋯' : '⋮'}</button>
+  );
+}
+
+/** What to print, and how. */
+function PrintDialog({ hasSelection, onClose, onPrint }) {
+  const [o, setO] = useState({ what: hasSelection ? 'selection' : 'sheet', gridlines: true, landscape: false, paper: 'A4' });
+  return (
+    <Modal title="Print or save as PDF" onClose={onClose}>
+      <form className="stack" onSubmit={(e) => { e.preventDefault(); onPrint(o); }}>
+        <div className="row wrap" role="radiogroup" aria-label="What to print">
+          <label className="check"><input type="radio" name="what" checked={o.what === 'sheet'} onChange={() => setO({ ...o, what: 'sheet' })} /> This sheet</label>
+          <label className="check"><input type="radio" name="what" checked={o.what === 'selection'} disabled={!hasSelection} onChange={() => setO({ ...o, what: 'selection' })} /> Selected cells</label>
+        </div>
+        <div className="row wrap">
+          <label className="field"><span>Paper</span><select value={o.paper} onChange={(e) => setO({ ...o, paper: e.target.value })}><option>A4</option><option>Letter</option></select></label>
+          <label className="field"><span>Orientation</span><select value={o.landscape ? 'landscape' : 'portrait'} onChange={(e) => setO({ ...o, landscape: e.target.value === 'landscape' })}><option value="portrait">Portrait</option><option value="landscape">Landscape</option></select></label>
+        </div>
+        <label className="check"><input type="checkbox" checked={o.gridlines} onChange={(e) => setO({ ...o, gridlines: e.target.checked })} /> Gridlines</label>
+        <p className="muted small" style={{ margin: 0 }}>Hidden and filtered-out rows and columns are left out. Choose “Save as PDF” in the print dialog for a PDF.</p>
+        <div className="row end"><button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn primary">Print</button></div>
+      </form>
+    </Modal>
   );
 }

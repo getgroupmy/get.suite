@@ -20,13 +20,16 @@ table.head{border-collapse:collapse;margin-bottom:12px}table.head th{text-align:
 }
 
 /** Print it: a hidden frame (no scripts) holds the page; the browser's print dialog opens. */
-export function printMessage(m, opts) {
+export function printMessage(m, opts) { return printHtml(printDocument(m, opts)); }
+
+/** Print a page of HTML from a hidden frame that can't run scripts. */
+export function printHtml(html) {
   const frame = document.createElement('iframe');
   frame.setAttribute('sandbox', 'allow-modals allow-same-origin');
   frame.setAttribute('aria-hidden', 'true');
   frame.className = 'print-frame';
   frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
-  frame.srcdoc = printDocument(m, opts);
+  frame.srcdoc = html;
   frame.onload = () => {
     try { frame.contentWindow.focus(); frame.contentWindow.print(); } catch { /* the page stays; nothing to clean */ }
     setTimeout(() => frame.remove(), 60e3);

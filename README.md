@@ -126,6 +126,10 @@ Everyone who can edit a document, spreadsheet or presentation can work in it at 
 - **Replies, resolve:** anyone who can edit the file can reply, and resolve a thread when it's done (a new reply reopens it). Tick **Show resolved** to see them again. Comments update live for everyone with the file open.
 - **Who can do what:** viewers read comments; editors add, reply and resolve; a comment can be deleted by its author or by the file's owner (deleting the first comment removes the thread).
 
+## Printing (Sheets)
+
+- **Print or save as PDF** (⋮ menu) prints the sheet, or just the selected cells (chosen for you when several are selected), on A4 or Letter, portrait or landscape, with or without gridlines. Values print as they're shown (formatted numbers, dates and formula results), with bold, colours, fills, alignment, borders, merged cells and column widths. Hidden and filtered-out rows and columns are left out. Choose "Save as PDF" in the print dialog for a PDF.
+
 ## Rows, columns and sorting (Sheets)
 
 - **Select** a whole row or column by clicking its number or letter; Shift-click to select several.
