@@ -647,6 +647,7 @@ Each entry shows who did it, what it was done to, the details and the IP address
 
 - **Take a note…** at the top, or ✓ for a checklist (Enter adds the next item; Backspace on an empty one removes it). Clicking outside or **Close** keeps it; an empty note isn't kept.
 - On a card: 📌 **pin** it to the top, 🎨 give it a colour, **archive** it (with **Undo**), tick checklist items off right there (ticked ones are counted underneath), and **⋮ → Labels…** (then pick a label on the left to see just those), **Make a copy** or **Delete**. Click a card to edit it; it saves as you go, and can switch between text and a checklist.
+- **Reminders:** 🔔 on a card sets one (later today, tomorrow morning, next Monday, or **Pick a day and time…**). It shows on the card (× takes it off), **Reminders** on the left lists the notes that have one, soonest first, and when it's time a notification (and a desktop one, if those are on) reaches you and everyone the note is shared with, listing what's still unticked on a checklist. You can turn note reminders off in the bell's settings.
 - **Search notes** finds words in titles, text, checklist items and labels. **Archive** on the left has the archived ones.
 - **Share** (the person icon) gives colleagues in your company the note: they see it among their notes and can change it, and everyone sees changes as they're made. Only the owner can delete it or change who has it; the others can take it off their own list.
 

@@ -28,6 +28,7 @@ q(`CREATE TABLE IF NOT EXISTS note_shares (
   PRIMARY KEY (note_id, user_id)
 )`).run();
 q('CREATE INDEX IF NOT EXISTS notes_owner ON notes(owner_id)').run();
+if (!q('PRAGMA table_info(notes)').all().some((c) => c.name === 'remind_at')) q('ALTER TABLE notes ADD COLUMN remind_at INTEGER').run(); // a reminder, for everyone on the note
 
 export const COLORS = ['#faafa8', '#f39f76', '#fff8b8', '#e2f6d3', '#b4ddd3', '#d4e4ed', '#aeccdc', '#d3bfdb', '#f6e2dd', '#e9e3d4', '#efeff1'];
 const MAX_NOTES = 2000, MAX_ITEMS = 200, MAX_LABELS = 10;
@@ -51,7 +52,7 @@ const team = (n) => [n.owner_id, ...q('SELECT user_id FROM note_shares WHERE not
 function shape(n, me) {
   return {
     id: n.id, title: n.title, body: n.body, items: n.items ? JSON.parse(n.items) : null, color: n.color, pinned: !!n.pinned, archived: !!n.archived,
-    labels: JSON.parse(n.labels || '[]'), position: n.position, created_at: n.created_at, updated_at: n.updated_at, mine: n.owner_id === me,
+    labels: JSON.parse(n.labels || '[]'), remind_at: n.remind_at ?? null, position: n.position, created_at: n.created_at, updated_at: n.updated_at, mine: n.owner_id === me,
     owner: q('SELECT id, name, username FROM users WHERE id = ?').get(n.owner_id),
     shared: q(`SELECT u.id, u.name, u.username FROM note_shares s JOIN users u ON u.id = s.user_id WHERE s.note_id = ? ORDER BY u.name`).all(n.id),
   };
@@ -62,6 +63,19 @@ function load(id, user) {
   return n;
 }
 const tell = (n) => sendTo(team(n), { type: 'notes-changed' });
+
+/** Send the reminders that are due (to everyone on each note), then clear them. */
+export function remindNotesDue(at = now()) {
+  const due = q('SELECT * FROM notes WHERE remind_at IS NOT NULL AND remind_at <= ? ORDER BY remind_at LIMIT 100').all(at);
+  for (const n of due) {
+    q('UPDATE notes SET remind_at = NULL WHERE id = ?').run(n.id);
+    const items = n.items ? JSON.parse(n.items).filter((i) => !i.done).map((i) => `☐ ${i.text}`).join('\n') : '';
+    bell(team(n), { kind: 'note', title: `Reminder: ${n.title || (n.body || '').split('\n')[0].slice(0, 80) || 'a note'}`, body: (n.title ? n.body || items : items).slice(0, 200) || null, link: '/notes', actor: null });
+    tell(n);
+  }
+  return due.length;
+}
+export function startNotesScheduler() { setInterval(() => { try { remindNotesDue(); } catch (e) { console.error('[notes] reminders:', e.message); } }, 15e3).unref(); }
 
 export default function noteRoutes() {
   const r = Router();
@@ -78,6 +92,8 @@ export default function noteRoutes() {
         return words.every((w) => text.includes(w));
       });
     }
+    if (req.query.reminders === '1') rows = q(`SELECT n.* FROM notes n WHERE (n.owner_id = ? OR n.id IN (SELECT note_id FROM note_shares WHERE user_id = ?)) AND n.remind_at IS NOT NULL
+                                                ORDER BY n.remind_at`).all(req.user.id, req.user.id);
     if (req.query.label) rows = rows.filter((n) => JSON.parse(n.labels).includes(String(req.query.label)));
     res.json(rows.map((n) => shape(n, req.user.id)));
   });
@@ -120,6 +136,14 @@ export default function noteRoutes() {
     if (b.archived !== undefined) { set.archived = b.archived ? 1 : 0; if (b.archived) set.pinned = 0; }
     if (b.labels !== undefined) set.labels = JSON.stringify(cleanLabels(b.labels));
     if (b.position !== undefined) { if (!Number.isFinite(Number(b.position))) throw bad('Bad position'); set.position = Number(b.position); }
+    if (b.remind_at !== undefined) {
+      if (b.remind_at === null || b.remind_at === '') set.remind_at = null;
+      else {
+        const t = Number(b.remind_at);
+        if (!Number.isFinite(t) || t < now() - 60e3) throw bad('Pick a time in the future for the reminder');
+        set.remind_at = Math.round(t);
+      }
+    }
     const keys = Object.keys(set);
     if (keys.length) q(`UPDATE notes SET ${keys.map((k) => `${k} = ?`).join(', ')}, updated_at = ?, updated_by = ? WHERE id = ?`).run(...keys.map((k) => set[k]), now(), req.user.id, n.id);
     const after = q('SELECT * FROM notes WHERE id = ?').get(n.id);

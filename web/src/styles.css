@@ -1702,3 +1702,6 @@ button.usage:hover .muted { color: var(--text); }
 .note-chip { font-size: 12px; background: rgba(0,0,0,.08); border-radius: 10px; padding: 1px 8px; }
 .note-label-icon { width: 24px; text-align: center; }
 @media (max-width: 700px) { .notes-app { flex-direction: column; } .notes-app .subnav { display: flex; flex-direction: row; overflow-x: auto; width: auto; flex: none; padding: 4px 8px; } .notes-app .subnav-item { flex: none; width: auto; } .notes-main { margin-right: 0; padding: 12px; } .notes-grid { columns: 2 150px; column-gap: 10px; } }
+.note-chip.remind { display: inline-flex; align-items: center; gap: 4px; }
+.note-chip.remind.past { text-decoration: line-through; opacity: .7; }
+.chip-x { border: 0; background: none; cursor: pointer; padding: 0 2px; font-size: 14px; color: inherit; line-height: 1; }

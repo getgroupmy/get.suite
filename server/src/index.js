@@ -12,6 +12,7 @@ import { purge as purgeAuthLog } from './security/guard.js';
 import { startIndexer } from './search.js';
 import { startScheduledSending } from './routes/webmail.js';
 import { startChatScheduler } from './routes/chat.js';
+import { startNotesScheduler } from './routes/notes.js';
 import { purgeAudit } from './audit.js';
 import { emptyOldTrash } from './routes/files.js';
 
@@ -33,6 +34,7 @@ if (mailEnabled()) { startPolicyServer(); startMailNotifications(); startRsvpWat
 startIndexer(); // search inside files: indexes what changed, in the background
 startScheduledSending(); // mail scheduled for later
 startChatScheduler(); // chat messages scheduled for later
+startNotesScheduler(); // note reminders
 server.listen(port, () => console.log(`NAS Workspace listening on :${port} (data: ${DATA_DIR})`));
 
 for (const sig of ['SIGINT', 'SIGTERM']) {

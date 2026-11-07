@@ -3172,3 +3172,26 @@ test('notes: write, check off, pin, label, archive, search and share', async () 
   assert.equal((await a('GET', '/api/notes')).body.some((n) => n.id === n2.id), true, 'still there for the owner');
   assert.equal((await a('DELETE', `/api/notes/${n2.id}`)).body.deleted, true);
 });
+
+test('notes: reminders reach everyone on the note, then clear', async () => {
+  const { remindNotesDue } = await import('../src/routes/notes.js');
+  const a = client(); const b = client();
+  const bid = (await owner('POST', '/api/users', { local: 'nrb', domain: 'acme.com', name: 'Rem B', password: 'password123' })).body.id;
+  assert.equal((await owner('POST', '/api/users', { local: 'nra', domain: 'acme.com', name: 'Rem A', password: 'password123' })).status, 201);
+  await login(a, 'nra@acme.com'); await login(b, 'nrb@acme.com');
+  const n = (await a('POST', '/api/notes', { title: 'Renew parking permit', items: [{ text: 'Find form' }, { text: 'Pay', done: true }] })).body;
+  assert.equal((await a('PATCH', `/api/notes/${n.id}`, { remind_at: Date.now() - 3600e3 })).status, 400, 'in the past');
+  const at = Date.now() + 60e3;
+  assert.equal((await a('PATCH', `/api/notes/${n.id}`, { remind_at: at })).body.remind_at, at);
+  await a('PUT', `/api/notes/${n.id}/shares`, { user_ids: [bid] });
+  assert.deepEqual((await b('GET', '/api/notes?reminders=1')).body.map((x) => x.id), [n.id], 'Reminders view');
+  assert.equal(remindNotesDue(at - 1000), 0, 'not yet');
+  assert.equal(remindNotesDue(at + 1000), 1);
+  for (const c of [a, b]) {
+    const bell = (await c('GET', '/api/notifications')).body.items.find((x) => x.kind === 'note');
+    assert.equal(bell.title, 'Reminder: Renew parking permit');
+    assert.equal(bell.body, '☐ Find form', 'what is still to do');
+  }
+  assert.equal((await a('GET', '/api/notes')).body.find((x) => x.id === n.id).remind_at, null, 'cleared once sent');
+  assert.equal(remindNotesDue(at + 5000), 0, 'only once');
+});

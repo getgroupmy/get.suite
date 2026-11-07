@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { get, post, patch, put, del, onLive } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
 import { Avatar, Empty, Menu, Modal, PromptModal, ConfirmModal, useToast } from '../../components/ui.jsx';
+import { quickTimes, reminderText } from './remind.js';
 
 export const COLORS = [['', 'Default'], ['#faafa8', 'Coral'], ['#f39f76', 'Peach'], ['#fff8b8', 'Sand'], ['#e2f6d3', 'Mint'], ['#b4ddd3', 'Sage'],
   ['#d4e4ed', 'Fog'], ['#aeccdc', 'Storm'], ['#d3bfdb', 'Dusk'], ['#f6e2dd', 'Blossom'], ['#e9e3d4', 'Clay'], ['#efeff1', 'Chalk']];
@@ -13,14 +14,15 @@ export default function Notes() {
   const toast = useToast();
   const [notes, setNotes] = useState(null);
   const [labels, setLabels] = useState([]);
-  const [where, setWhere] = useState({ archived: false, label: null });
+  const [where, setWhere] = useState({ archived: false, label: null, reminders: false });
+  const [picking, setPicking] = useState(null); // a note whose reminder time is being picked
   const [search, setSearch] = useState('');
   const [editing, setEditing] = useState(null); // note id
   const [sharing, setSharing] = useState(null);
   const [labelling, setLabelling] = useState(null);
   const [deleting, setDeleting] = useState(null);
   const load = useCallback(() => {
-    const qs = new URLSearchParams({ ...(where.archived && { archived: '1' }), ...(where.label && { label: where.label }), ...(search.trim() && { q: search.trim() }) });
+    const qs = new URLSearchParams({ ...(where.archived && { archived: '1' }), ...(where.reminders && { reminders: '1' }), ...(where.label && { label: where.label }), ...(search.trim() && { q: search.trim() }) });
     get(`/notes?${qs}`).then(setNotes).catch((e) => toast(e.message, 'error'));
     get('/notes/labels').then(setLabels).catch(() => {});
   }, [where, search, toast]);
@@ -42,21 +44,23 @@ export default function Notes() {
   const others = (notes || []).filter((n) => !n.pinned);
   const current = notes?.find((n) => n.id === editing);
   const card = (n) => <NoteCard key={n.id} note={n} onOpen={() => setEditing(n.id)} onChange={(c) => change(n, c)} onArchive={() => archive(n, !n.archived)}
-    onLabel={() => setLabelling(n)} onShare={() => setSharing(n)} onCopy={() => copy(n)} onDelete={() => setDeleting(n)} />;
+    onLabel={() => setLabelling(n)} onShare={() => setSharing(n)} onCopy={() => copy(n)} onDelete={() => setDeleting(n)}
+    onRemind={(t) => { if (t === 'pick') setPicking(n); else { change(n, { remind_at: t }); if (t) toast(`Reminder set for ${reminderText(t)}`); } }} />;
   return (
     <div className="notes-app">
       <aside className="subnav">
-        <button type="button" className={`subnav-item ${!where.archived && !where.label ? 'active' : ''}`} onClick={() => setWhere({ archived: false, label: null })}><Icon name="note" /><span className="grow">Notes</span></button>
+        <button type="button" className={`subnav-item ${!where.archived && !where.label && !where.reminders ? 'active' : ''}`} onClick={() => setWhere({ archived: false, label: null, reminders: false })}><Icon name="note" /><span className="grow">Notes</span></button>
+        <button type="button" className={`subnav-item ${where.reminders ? 'active' : ''}`} onClick={() => setWhere({ archived: false, label: null, reminders: true })}><Icon name="bell" /><span className="grow">Reminders</span></button>
         {labels.map((l) => (
-          <button key={l} type="button" className={`subnav-item ${where.label === l ? 'active' : ''}`} onClick={() => setWhere({ archived: false, label: l })}><span className="note-label-icon" aria-hidden="true">🏷</span><span className="grow ellipsis">{l}</span></button>
+          <button key={l} type="button" className={`subnav-item ${where.label === l ? 'active' : ''}`} onClick={() => setWhere({ archived: false, label: l, reminders: false })}><span className="note-label-icon" aria-hidden="true">🏷</span><span className="grow ellipsis">{l}</span></button>
         ))}
-        <button type="button" className={`subnav-item ${where.archived ? 'active' : ''}`} onClick={() => setWhere({ archived: true, label: null })}><Icon name="archive" /><span className="grow">Archive</span></button>
+        <button type="button" className={`subnav-item ${where.archived ? 'active' : ''}`} onClick={() => setWhere({ archived: true, label: null, reminders: false })}><Icon name="archive" /><span className="grow">Archive</span></button>
       </aside>
       <section className="notes-main">
         <div className="notes-search"><Icon name="search" size={18} /><input type="search" aria-label="Search notes" placeholder="Search notes" value={search} onChange={(e) => setSearch(e.target.value)} /></div>
-        {!where.archived && <Composer label={where.label} onMade={load} />}
+        {!where.archived && !where.reminders && <Composer label={where.label} onMade={load} />}
         {notes === null ? null : !notes.length ? (
-          <Empty icon={where.archived ? 'archive' : 'note'} title={search ? 'No matching notes' : where.archived ? 'Nothing archived' : where.label ? `No notes labelled “${where.label}”` : 'Notes you add appear here'} />
+          <Empty icon={where.archived ? 'archive' : 'note'} title={search ? 'No matching notes' : where.reminders ? 'No reminders set' : where.archived ? 'Nothing archived' : where.label ? `No notes labelled “${where.label}”` : 'Notes you add appear here'} />
         ) : <>
           {pinned.length > 0 && <><h2 className="notes-heading">Pinned</h2><div className="notes-grid" aria-label="Pinned notes">{pinned.map(card)}</div></>}
           {others.length > 0 && <>{pinned.length > 0 && <h2 className="notes-heading">Others</h2>}<div className="notes-grid" aria-label={where.archived ? 'Archived notes' : 'Notes'}>{others.map(card)}</div></>}
@@ -65,6 +69,7 @@ export default function Notes() {
       {current && <NoteEditor key={current.id} note={current} onClose={() => { setEditing(null); load(); }} />}
       {sharing && <ShareNote note={sharing} onClose={() => { setSharing(null); load(); }} />}
       {labelling && <LabelNote note={labelling} all={labels} onSave={async (ls) => { await change(labelling, { labels: ls }); setLabelling(null); }} onClose={() => setLabelling(null)} />}
+      {picking && <PickTime note={picking} onClose={() => setPicking(null)} onPick={(t) => { change(picking, { remind_at: t }); toast(`Reminder set for ${reminderText(t)}`); setPicking(null); }} />}
       {deleting && <ConfirmModal title={deleting.mine ? 'Delete this note?' : 'Remove this note?'} confirm={deleting.mine ? 'Delete' : 'Remove'}
         message={deleting.mine ? (deleting.shared.length ? 'It goes for everyone it’s shared with too.' : 'This can’t be undone.') : 'It stays for its owner and the others it’s shared with.'}
         onClose={() => setDeleting(null)} onConfirm={async () => { await del(`/notes/${deleting.id}`); setDeleting(null); load(); }} />}
@@ -146,7 +151,21 @@ function ColorPicker({ value, onChange }) {
   );
 }
 
-function NoteCard({ note: n, onOpen, onChange, onArchive, onLabel, onShare, onCopy, onDelete }) {
+/** Pick a day and time for a reminder. */
+function PickTime({ note, onPick, onClose }) {
+  const pad = (x) => String(x).padStart(2, '0');
+  const start = new Date(note.remind_at || quickTimes()[0][1]);
+  const [v, setV] = useState(`${start.getFullYear()}-${pad(start.getMonth() + 1)}-${pad(start.getDate())}T${pad(start.getHours())}:${pad(start.getMinutes())}`);
+  const t = new Date(v).getTime();
+  return (
+    <Modal title="Remind me" onClose={onClose} footer={<><button type="button" className="btn" onClick={onClose}>Cancel</button><button type="button" className="btn primary" disabled={!(t > Date.now())} onClick={() => onPick(t)}>Save</button></>}>
+      <label className="field"><span>Day and time</span><input type="datetime-local" value={v} onChange={(e) => setV(e.target.value)} /></label>
+      <p className="muted small">{note.shared.length ? 'Everyone the note is shared with gets the reminder too.' : 'You get a notification then.'}</p>
+    </Modal>
+  );
+}
+
+function NoteCard({ note: n, onOpen, onChange, onArchive, onLabel, onShare, onCopy, onDelete, onRemind }) {
   const items = n.items || [];
   const open = items.filter((i) => !i.done);
   const done = items.filter((i) => i.done);
@@ -165,14 +184,20 @@ function NoteCard({ note: n, onOpen, onChange, onArchive, onLabel, onShare, onCo
           {done.length > 0 && <li className="muted small">{done.length} ticked {done.length === 1 ? 'item' : 'items'}</li>}
         </ul>
       )}
-      {(n.labels.length > 0 || n.shared.length > 0 || !n.mine) && (
+      {(n.labels.length > 0 || n.shared.length > 0 || !n.mine || n.remind_at) && (
         <div className="note-chips">
+          {n.remind_at && <span className={`note-chip remind ${n.remind_at < Date.now() ? 'past' : ''}`}>⏰ {reminderText(n.remind_at)}<button type="button" className="chip-x" aria-label="Remove reminder" onClick={() => onRemind(null)}>×</button></span>}
           {n.labels.map((l) => <span key={l} className="note-chip">{l}</span>)}
           {!n.mine && <span title={`Shared by ${n.owner?.name}`}><Avatar name={n.owner?.name} size={22} userId={n.owner?.id} /></span>}
           {n.shared.filter((u) => n.mine || u.id !== n.owner?.id).slice(0, 4).map((u) => <span key={u.id} title={u.name}><Avatar name={u.name} size={22} userId={u.id} /></span>)}
         </div>
       )}
       <div className="row note-tools">
+        <Menu align="left" trigger={(p) => <button type="button" className="icon-btn" aria-label="Remind me" title="Remind me" {...p}><Icon name="bell" size={18} /></button>} items={[
+          ...quickTimes().map(([label, t]) => ({ label: `${label} · ${reminderText(t)}`, onClick: () => onRemind(t) })),
+          { label: 'Pick a day and time…', onClick: () => onRemind('pick') },
+          ...(n.remind_at ? [{ label: 'Remove reminder', onClick: () => onRemind(null) }] : []),
+        ]} />
         <ColorPicker value={n.color || ''} onChange={(color) => onChange({ color: color || null })} />
         <button type="button" className="icon-btn" aria-label={n.archived ? 'Unarchive' : 'Archive'} title={n.archived ? 'Unarchive' : 'Archive'} onClick={onArchive}><Icon name={n.archived ? 'restore' : 'archive'} size={18} /></button>
         {n.mine && <button type="button" className="icon-btn" aria-label="Share note" title="Share with colleagues" onClick={onShare}><Icon name="share" size={18} /></button>}
