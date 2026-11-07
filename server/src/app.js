@@ -13,6 +13,7 @@ import brandRoutes from './routes/brand.js';
 import announcementRoutes from './routes/announcements.js';
 import formRoutes, { publicFormRoutes } from './routes/forms.js';
 import { meetRoutes } from './meet.js';
+import { groupRoutes } from './groups.js';
 import contactRoutes from './routes/contacts.js';
 import taskRoutes from './routes/tasks.js';
 import notificationRoutes from './routes/notifications.js';
@@ -95,6 +96,7 @@ export function createApp({
   app.use('/api/announcements', requireAuth, announcementRoutes());
   app.use('/api/forms', requireAuth, formRoutes());
   app.use('/api/meet', requireAuth, meetRoutes());
+  app.use('/api/groups', requireAuth, groupRoutes());
   app.use('/api', (req, res, next) => next(new HttpError(404, 'Not found')));
   // Share-link pages: keep them out of search engines.
   app.use(['/s/', '/i/', '/f/'], (req, res, next) => { res.setHeader('X-Robots-Tag', 'noindex, nofollow'); next(); });

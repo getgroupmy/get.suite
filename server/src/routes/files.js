@@ -1,4 +1,5 @@
 import { withoutSuggestions } from '../office/suggestions.js';
+import { sync as syncShares, setFileGroups, groupsOf } from '../groups.js';
 import { recordActivity, activityOf } from '../fileactivity.js';
 import { isWatching, setWatching } from '../filewatch.js';
 import { notify as bell } from '../notifications.js';
@@ -174,7 +175,8 @@ export function transferOwnership(rootId, fromId, toId, { keepAccess = true } = 
       q('DELETE FROM shares WHERE file_id = ? AND user_id = ?').run(id, toId);
       q('DELETE FROM file_stars WHERE file_id = ? AND user_id = ?').run(id, fromId);
     }
-    if (keepAccess) q(`INSERT INTO shares (file_id, user_id, role) VALUES (?, ?, 'editor') ON CONFLICT(file_id, user_id) DO UPDATE SET role = 'editor'`).run(rootId, fromId);
+    if (keepAccess) q(`INSERT INTO shares (file_id, user_id, role, direct_role) VALUES (?, ?, 'editor', 'editor') ON CONFLICT(file_id, user_id) DO UPDATE SET role = 'editor', direct_role = 'editor'`).run(rootId, fromId);
+    for (const id of ids) syncShares(id); // the new owner no longer needs a group's share
   });
   return ids.length;
 }
@@ -493,7 +495,8 @@ export default function fileRoutes({ maxUploadBytes }) {
     if (req.body.approve) {
       const role = ['viewer', 'editor'].includes(req.body.role) ? req.body.role : a.role;
       if (!canReach(req.user, a.user_id)) throw bad('You can’t share with that person (external sharing may be turned off)');
-      q(`INSERT INTO shares (file_id, user_id, role) VALUES (?, ?, ?) ON CONFLICT(file_id, user_id) DO UPDATE SET role = excluded.role`).run(f.id, a.user_id, role);
+      q(`INSERT INTO shares (file_id, user_id, role, direct_role) VALUES (?, ?, ?, ?) ON CONFLICT(file_id, user_id) DO UPDATE SET direct_role = excluded.direct_role`).run(f.id, a.user_id, role, role);
+      syncShares(f.id);
       const who = q('SELECT name FROM users WHERE id = ?').get(a.user_id)?.name || 'someone';
       recordActivity(f.id, req.user.id, 'share', { added: [`${who} (${role === 'editor' ? 'can edit' : 'can view'})`], removed: [] });
       audit(req, 'file.share', { target: f.name, details: { with: [`${q('SELECT username FROM users WHERE id = ?').get(a.user_id)?.username} (${role})`], request: true } });
@@ -850,9 +853,30 @@ export default function fileRoutes({ maxUploadBytes }) {
 
   r.get('/:id/shares', (req, res) => {
     const f = loadFile(req.params.id, req.user);
-    res.json(q(`SELECT s.user_id, s.role, u.name, u.username, o.name AS org_name, (u.org_id != ?) AS external
+    res.json(q(`SELECT s.user_id, s.direct_role, u.name, u.username, o.name AS org_name, (u.org_id != ?) AS external
                 FROM shares s JOIN users u ON u.id = s.user_id JOIN orgs o ON o.id = u.org_id
-                WHERE s.file_id = ? ORDER BY u.name`).all(req.user.org_id, f.id).map((s) => ({ ...s, external: !!s.external })));
+                WHERE s.file_id = ? AND s.direct_role IS NOT NULL ORDER BY u.name`).all(req.user.org_id, f.id)
+      .map(({ direct_role: role, ...s }) => ({ ...s, role, external: !!s.external })));
+  });
+
+  // Groups it's shared with: [{ group_id, role, name, members }]; the owner sets them ({ groups: [{ group_id, role }] }).
+  r.get('/:id/groups', (req, res) => { const f = loadFile(req.params.id, req.user); res.json(groupsOf(f.id)); });
+  r.put('/:id/groups', (req, res) => {
+    const f = loadFile(req.params.id, req.user, 'owner');
+    const ownerOrg = q('SELECT org_id FROM users WHERE id = ?').get(f.owner_id).org_id;
+    const before = new Set(groupsOf(f.id).map((g) => g.group_id));
+    const audienceBefore = audienceFor(f.id);
+    const gained = setFileGroups(f.id, ownerOrg, req.body?.groups);
+    sendTo(new Set([...audienceBefore, ...audienceFor(f.id)]), { type: 'files-changed', parent_id: f.parent_id });
+    const now = groupsOf(f.id);
+    const added = now.filter((g) => !before.has(g.group_id));
+    if (added.length || before.size !== now.length - added.length) {
+      recordActivity(f.id, req.user.id, 'share', { added: added.map((g) => `the group ${g.name} (${g.role === 'editor' ? 'can edit' : 'can view'})`), removed: [] });
+      audit(req, 'file.share', { target: f.name, details: { groups: now.map((g) => `${g.name} (${g.role})`) } });
+    }
+    const fresh = gained.filter((id) => id !== req.user.id);
+    if (fresh.length) bell(fresh, { kind: 'share', title: `${req.user.name || req.user.username} shared “${f.name}” with ${added.length === 1 ? `the group ${added[0].name}` : 'a group you are in'}`, link: openLink(f), actor: req.user.name });
+    res.json(now);
   });
 
   // Share with everyone in the company (the owner's), or stop: { role: 'viewer' | 'editor' | null }.
@@ -942,15 +966,18 @@ export default function fileRoutes({ maxUploadBytes }) {
     const list = Array.isArray(req.body.shares) ? req.body.shares : null;
     if (!list) throw bad('shares must be an array');
     const before = audienceFor(f.id);
-    const had = new Set(q('SELECT user_id FROM shares WHERE file_id = ?').all(f.id).map((x) => x.user_id));
+    const had = new Set(q('SELECT user_id FROM shares WHERE file_id = ? AND direct_role IS NOT NULL').all(f.id).map((x) => x.user_id));
     tx(() => {
-      q('DELETE FROM shares WHERE file_id = ?').run(f.id);
+      // People shared with one by one; access through groups is worked out again after (syncShares).
+      q('UPDATE shares SET direct_role = NULL WHERE file_id = ?').run(f.id);
       for (const s of list) {
         if (!['viewer', 'editor'].includes(s.role)) throw bad('role must be viewer or editor');
         if (s.user_id === f.owner_id) continue;
         if (!canReach(req.user, s.user_id)) throw bad('You cannot share with that person (external sharing may be turned off)');
-        q('INSERT INTO shares (file_id, user_id, role) VALUES (?, ?, ?)').run(f.id, s.user_id, s.role);
+        q(`INSERT INTO shares (file_id, user_id, role, direct_role) VALUES (?, ?, ?, ?)
+           ON CONFLICT(file_id, user_id) DO UPDATE SET direct_role = excluded.direct_role`).run(f.id, s.user_id, s.role, s.role);
       }
+      syncShares(f.id);
     });
     sendTo(new Set([...before, ...audienceFor(f.id)]), { type: 'files-changed', parent_id: f.parent_id });
     for (const x of list) q('DELETE FROM access_requests WHERE file_id = ? AND user_id = ?').run(f.id, x.user_id); // asked, and now has it

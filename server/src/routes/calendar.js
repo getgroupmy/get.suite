@@ -139,7 +139,7 @@ function shareAttachments(owner, eventId) {
     const given = [];
     for (const g of guests) {
       if (!canReach(owner, g) || roleFor(a.id, g)) continue;
-      q('INSERT INTO shares (file_id, user_id, role) VALUES (?, ?, ?) ON CONFLICT(file_id, user_id) DO NOTHING').run(a.id, g, 'viewer');
+      q('INSERT INTO shares (file_id, user_id, role, direct_role) VALUES (?, ?, ?, ?) ON CONFLICT(file_id, user_id) DO NOTHING').run(a.id, g, 'viewer', 'viewer');
       given.push(q('SELECT name FROM users WHERE id = ?').get(g)?.name || 'someone');
     }
     if (given.length) {

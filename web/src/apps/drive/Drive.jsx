@@ -413,9 +413,14 @@ export function ShareDialog({ file, onClose }) {
     catch (e) { setCompany(was); toast(e.message, 'error'); }
   };
 
+  const [groups, setGroups] = useState([]); // the company's groups
+  const [fileGroups, setFileGroups] = useState(null); // the ones this is shared with
+  const mine = file.owner_id === user.id;
   useEffect(() => {
     get('/users/directory').then(setPeople);
     get(`/files/${file.id}/shares`).then(setShares);
+    get(`/files/${file.id}/groups`).then(setFileGroups).catch(() => setFileGroups([]));
+    get('/groups').then(setGroups).catch(() => {});
   }, [file.id]);
 
   const taken = (id) => id === user.id || id === file.owner_id || shares?.some((s) => s.user_id === id);
@@ -440,6 +445,7 @@ export function ShareDialog({ file, onClose }) {
   async function save() {
     try {
       await put(`/files/${file.id}/shares`, { shares: shares.map(({ user_id, role }) => ({ user_id, role })) });
+      if (mine && fileGroups) await put(`/files/${file.id}/groups`, { groups: fileGroups.map(({ group_id, role }) => ({ group_id, role })) });
       toast('Sharing updated');
       onClose();
     } catch (e) { toast(e.message, 'error'); }
@@ -472,6 +478,28 @@ export function ShareDialog({ file, onClose }) {
               <option value="">No access</option><option value="viewer">Viewer</option><option value="editor">Editor</option>
             </select>
             <span style={{ width: 32 }} />
+          </li>
+        )}
+        {fileGroups?.map((g) => (
+          <li key={g.group_id} className="share-group">
+            <span className="avatar company-avatar" aria-hidden="true"><Icon name="people" size={16} /></span>
+            <span className="grow ellipsis">{g.name} <span className="muted small">group · {g.members === 1 ? '1 person' : `${g.members} people`}</span></span>
+            <select value={g.role} disabled={!mine} aria-label={`Access for the group ${g.name}`} onChange={(e) => setFileGroups(fileGroups.map((x) => (x.group_id === g.group_id ? { ...x, role: e.target.value } : x)))}>
+              <option value="viewer">Viewer</option><option value="editor">Editor</option>
+            </select>
+            {mine ? <button className="icon-btn" aria-label={`Remove the group ${g.name}`} onClick={() => setFileGroups(fileGroups.filter((x) => x.group_id !== g.group_id))}><Icon name="close" size={18} /></button> : <span style={{ width: 32 }} />}
+          </li>
+        ))}
+        {mine && fileGroups && groups.some((g) => !fileGroups.some((x) => x.group_id === g.id)) && (
+          <li className="share-group-add">
+            <span className="avatar company-avatar" aria-hidden="true"><Icon name="people" size={16} /></span>
+            <select className="grow" value="" aria-label="Share with a group" onChange={(e) => {
+              const g = groups.find((x) => x.id === e.target.value);
+              if (g) setFileGroups([...fileGroups, { group_id: g.id, name: g.name, members: g.members.length, role }]);
+            }}>
+              <option value="">Share with a group…</option>
+              {groups.filter((g) => !fileGroups.some((x) => x.group_id === g.id)).map((g) => <option key={g.id} value={g.id}>{g.name} ({g.members.length})</option>)}
+            </select>
           </li>
         )}
         {shares?.map((s) => (

@@ -3021,3 +3021,61 @@ test('meet: a video meeting on a calendar event', async () => {
   const ooo = (await org('POST', '/api/events', { title: 'Away', kind: 'ooo', start: t, end: t + 36e5, meet_code: code })).body;
   assert.equal(ooo.meet_code, null, 'time off has no meeting');
 });
+
+test('groups: share with a group; joining and leaving it gives and takes access', async () => {
+  const own = client(); const a = client(); const b = client();
+  const ids = {};
+  for (const [local, name] of [['gro', 'Gil Owner'], ['gra', 'Gwen A'], ['grb', 'Gus B']]) {
+    const r = await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' });
+    assert.equal(r.status, 201);
+    ids[local] = r.body.id;
+  }
+  await login(own, 'gro@acme.com'); await login(a, 'gra@acme.com'); await login(b, 'grb@acme.com');
+  assert.equal((await own('POST', '/api/groups', { name: 'Marketing' })).status, 403, 'admins make groups');
+  const g = (await owner('POST', '/api/groups', { name: 'Marketing', description: 'The marketing team' })).body;
+  assert.equal((await owner('POST', '/api/groups', { name: 'marketing' })).status, 400, 'names are unique');
+  await owner('PUT', `/api/groups/${g.id}/members`, { user_ids: [ids.gra] });
+  assert.ok((await own('GET', '/api/groups')).body.some((x) => x.name === 'Marketing' && x.members.length === 1), 'everyone sees groups');
+
+  const folder = (await own('POST', '/api/files/folder', { name: 'Campaigns' })).body;
+  const doc = (await own('POST', '/api/files/new', { kind: 'doc', name: 'Plan', parent_id: folder.id })).body;
+  assert.equal((await a('GET', `/api/files/${doc.id}`)).status, 404);
+  const set = await own('PUT', `/api/files/${folder.id}/groups`, { groups: [{ group_id: g.id, role: 'editor' }] });
+  assert.equal(set.status, 200);
+  assert.equal(set.body[0].name, 'Marketing');
+  assert.equal((await a('GET', `/api/files/${doc.id}`)).body.role, 'editor', 'members get it, and what is inside');
+  assert.ok((await a('GET', '/api/notifications')).body.items.some((n) => /shared “Campaigns” with the group Marketing/.test(n.title)));
+  assert.equal((await b('GET', `/api/files/${doc.id}`)).status, 404);
+
+  // Joining gives access; it shows in Shared with me.
+  await owner('PUT', `/api/groups/${g.id}/members`, { user_ids: [ids.gra, ids.grb] });
+  assert.equal((await b('GET', `/api/files/${doc.id}`)).body.role, 'editor');
+  assert.ok((await b('GET', '/api/notifications')).body.items.some((n) => /added you to the group “Marketing”/.test(n.title)));
+  // Direct shares sit alongside: the person list only shows people shared with one by one.
+  await own('PUT', `/api/files/${folder.id}/shares`, { shares: [{ user_id: ids.grb, role: 'viewer' }] });
+  const people = (await own('GET', `/api/files/${folder.id}/shares`)).body;
+  assert.deepEqual(people.map((p) => [p.name, p.role]), [['Gus B', 'viewer']]);
+  assert.equal((await b('GET', `/api/files/${doc.id}`)).body.role, 'editor', 'the better of the two');
+  // Leaving the group: Gus keeps his own viewer share, Gwen loses access.
+  await owner('PUT', `/api/groups/${g.id}/members`, { user_ids: [] });
+  assert.equal((await b('GET', `/api/files/${doc.id}`)).body.role, 'viewer');
+  assert.equal((await a('GET', `/api/files/${doc.id}`)).status, 404);
+  // Clearing the person list doesn't drop group access.
+  await owner('PUT', `/api/groups/${g.id}/members`, { user_ids: [ids.gra] });
+  await own('PUT', `/api/files/${folder.id}/shares`, { shares: [] });
+  assert.equal((await a('GET', `/api/files/${doc.id}`)).body.role, 'editor');
+  assert.equal((await b('GET', `/api/files/${doc.id}`)).status, 404);
+  // Deleting the group takes its access away.
+  assert.equal((await owner('DELETE', `/api/groups/${g.id}`)).status, 200);
+  assert.equal((await a('GET', `/api/files/${doc.id}`)).status, 404);
+  assert.deepEqual((await own('GET', `/api/files/${folder.id}/groups`)).body, []);
+  // Groups are per company.
+  const other = (await owner('POST', '/api/groups', { name: 'Ops' })).body; // no description
+  assert.equal(other.description, '');
+  assert.equal((await owner('PATCH', `/api/groups/${other.id}`, { description: '' })).status, 200);
+  const gina2 = client();
+  assert.equal((await owner('POST', '/api/orgs', { name: 'Grpco', domain: 'grpco.com', admin_name: 'Gr', admin_local: 'gr', admin_password: 'password123' })).status, 201);
+  await login(gina2, 'gr@grpco.com');
+  const theirs = (await gina2('POST', '/api/files/folder', { name: 'X' })).body;
+  assert.equal((await gina2('PUT', `/api/files/${theirs.id}/groups`, { groups: [{ group_id: other.id, role: 'viewer' }] })).status, 400);
+});
