@@ -47,6 +47,7 @@ export default function Chat() {
   const [unread, setUnread] = useState({});
   const [mentioned, setMentioned] = useState({}); // conversations where someone @mentioned you since you read them
   const mention = useMentions(box, text, setText);
+  const [forwarding, setForwarding] = useState(null); // the message being forwarded
   const [threadId, setThreadId] = useState(null); // the message whose thread is open beside the conversation
   const [dialog, setDialog] = useState(false);
   const scroller = useRef();
@@ -316,7 +317,7 @@ export default function Chat() {
                   {newDay && <div className="day-sep"><span>{new Date(m.created_at).toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}</span></div>}
                   <Message m={m} grouped={grouped && !newDay} user={user} reminder={reminders.get(m.id)} editing={editingId === m.id} editText={editText} setEditText={setEditText}
                     onStartEdit={() => { setEditingId(m.id); setEditText(m.body); }} onSaveEdit={() => saveEdit(m)} onCancelEdit={() => setEditingId(null)}
-                    onReact={(e) => react(m, e)} onThread={() => setThreadId(m.id)} onPin={current.archived_at ? null : () => pin(m, !m.pinned_at)} onDelete={() => del(`/chat/messages/${m.id}`).catch((e) => toast(e.message, 'error'))} />
+                    onReact={(e) => react(m, e)} onThread={() => setThreadId(m.id)} onPin={current.archived_at ? null : () => pin(m, !m.pinned_at)} onForward={m.poll ? null : () => setForwarding(m)} onDelete={() => del(`/chat/messages/${m.id}`).catch((e) => toast(e.message, 'error'))} />
                 </div>
               );
             })}
@@ -354,6 +355,7 @@ export default function Chat() {
       {pickingTime && <ScheduleDialog title="Schedule message" confirm="Schedule" withinYear note={(at) => `It will be sent ${whenText(at)}, as if you sent it then, even if Workspace isn’t open.`}
         onClose={() => setPickingTime(false)} onPick={(at) => { setPickingTime(false); scheduleAt(at); }} />}
       {scheduledOpen && <ScheduledMessages list={scheduled} onClose={() => setScheduledOpen(false)} onChanged={loadScheduled} />}
+      {forwarding && <ForwardDialog message={forwarding} channels={channels} currentId={channelId} onClose={() => setForwarding(null)} onSent={() => setForwarding(null)} />}
       {pollOpen && current && <PollDialog onClose={() => setPollOpen(false)} onSubmit={async (poll) => {
         stick.current = true;
         const msg = await post(`/chat/channels/${channelId}/messages`, { poll });
@@ -441,7 +443,7 @@ function Thread({ id, channelId, user, onClose }) {
 }
 
 /** One message: text (or the box to change it), files, reactions, its thread, and hover actions. */
-function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit, onSaveEdit, onCancelEdit, onReact, onThread, onPin, onDelete, reminder }) {
+function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit, onSaveEdit, onCancelEdit, onReact, onThread, onPin, onForward, onDelete, reminder }) {
   const toast = useToast();
   const navigate = useNavigate();
   const [picking, setPicking] = useState(false);
@@ -470,6 +472,13 @@ function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit
           </form>
         ) : m.poll ? <Poll m={m} user={user} />
           : m.body && <div className="msg-text"><Formatted text={m.body} me={user.username} />{m.edited_at && <span className="muted small edited" title={`Edited ${new Date(m.edited_at).toLocaleString()}`}> (edited)</span>}</div>}
+        {m.forwarded && (
+          <blockquote className="msg-forwarded" aria-label={`Forwarded message from ${m.forwarded.name}`}>
+            <div className="muted small">↪ Forwarded · <strong>{m.forwarded.name}</strong>{m.forwarded.where ? ` in #${m.forwarded.where}` : ''} · {new Date(m.forwarded.at).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</div>
+            {m.forwarded.body && <div className="msg-text"><Formatted text={m.forwarded.body} me={user.username} /></div>}
+            <FileCards text={m.forwarded.body} />
+          </blockquote>
+        )}
         {!editing && <FileCards text={m.body} />}
         {m.files?.length > 0 && (
           <div className="msg-files">
@@ -501,6 +510,7 @@ function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit
         {onThread && <button type="button" className="icon-btn" aria-label="Reply in thread" title="Reply in thread" onClick={onThread}><Icon name="reply" size={16} /></button>}
         <Menu align="right" trigger={(p) => <button type="button" className="icon-btn" aria-label="Remind me about this" title="Remind me about this" {...p}><Icon name="clock" size={16} /></button>}
           items={[...soon.map(([label, at]) => ({ label: `${label} · ${whenText(at)}`, onClick: () => remind(at) })), '-', { label: 'Pick date and time…', icon: 'calendar', onClick: () => setPicking(true) }]} />
+        {onForward && <button type="button" className="icon-btn" aria-label="Forward" title="Forward to another conversation" onClick={onForward}><Icon name="forward" size={16} /></button>}
         <button type="button" className="icon-btn" aria-label="Add to Tasks" title="Add to Tasks" onClick={toTask}><Icon name="check" size={16} /></button>
         {onPin && !m.parent_id && <button type="button" className="icon-btn" aria-label={m.pinned_at ? 'Unpin message' : 'Pin message'} title={m.pinned_at ? 'Unpin' : 'Pin to the conversation'} onClick={onPin}>📌</button>}
         {m.user_id === user.id && !m.poll && <button type="button" className="icon-btn" aria-label="Edit message" onClick={onStartEdit}><Icon name="edit" size={16} /></button>}
@@ -513,6 +523,40 @@ function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit
 }
 
 /** A poll in a message: the question, a bar per option with who chose it, and voting (live for everyone). */
+/** Forward a message: pick a conversation you can write in, add a note if you like. */
+function ForwardDialog({ message, channels, currentId, onClose, onSent }) {
+  const toast = useToast();
+  const open = channels.filter((c) => !c.archived_at);
+  const [to, setTo] = useState(open.find((c) => c.id !== currentId)?.id || open[0]?.id || '');
+  const [note, setNote] = useState('');
+  const [error, setError] = useState('');
+  const name = (c) => (c.dm_key ? `${c.dm_name || 'Notes to self'}${c.dm_org ? ` (${c.dm_org})` : ''}` : `# ${c.name}`);
+  async function submit(e) {
+    e.preventDefault();
+    try {
+      await post(`/chat/messages/${message.id}/forward`, { channel_id: to, body: note });
+      onSent(to);
+      toast(`Forwarded to ${name(open.find((c) => c.id === to))}`);
+    } catch (err) { setError(err.message); }
+  }
+  return (
+    <Modal title="Forward message" onClose={onClose}>
+      <form className="stack" onSubmit={submit}>
+        <blockquote className="msg-forwarded"><div className="muted small">{message.forwarded ? message.forwarded.name : message.user_name}</div>
+          <div className="ellipsis">{(message.body || message.forwarded?.body || (message.files?.length ? `📎 ${message.files.map((f) => f.name).join(', ')}` : '')).slice(0, 200)}</div></blockquote>
+        <label className="field"><span>To</span>
+          <select value={to} onChange={(e) => setTo(e.target.value)} required>
+            {open.map((c) => <option key={c.id} value={c.id}>{name(c)}</option>)}
+          </select>
+        </label>
+        <label className="field"><span>Add a message (optional)</span><textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} maxLength={8000} /></label>
+        {error && <p className="error">{error}</p>}
+        <div className="row end"><button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn primary" disabled={!to}>Forward</button></div>
+      </form>
+    </Modal>
+  );
+}
+
 function Poll({ m, user }) {
   const toast = useToast();
   const p = m.poll;

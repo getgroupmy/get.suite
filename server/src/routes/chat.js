@@ -41,6 +41,8 @@ q(`CREATE TABLE IF NOT EXISTS poll_votes (
   PRIMARY KEY (message_id, user_id, option_id)
 )`).run();
 const MAX_OPTIONS = 10;
+// Forwarded messages: a copy of another message (who wrote it, where, when, its text), below an optional note.
+if (!q('PRAGMA table_info(messages)').all().some((c) => c.name === 'forwarded')) q('ALTER TABLE messages ADD COLUMN forwarded TEXT').run();
 
 /** A poll as sent with a new message, checked: 2–10 different options, a question. */
 export function cleanPoll(p) {
@@ -82,7 +84,7 @@ function dmOpen(c, user) {
 }
 
 // Each message with its thread: how many replies, when the last came, and who replied (first few).
-const MSG = `SELECT m.id, m.channel_id, m.user_id, m.body, m.created_at, m.edited_at, m.files, m.parent_id, m.pinned_at, m.poll, u.name AS user_name, (SELECT pu.name FROM users pu WHERE pu.id = m.pinned_by) AS pinned_by_name,
+const MSG = `SELECT m.id, m.channel_id, m.user_id, m.body, m.created_at, m.edited_at, m.files, m.parent_id, m.pinned_at, m.poll, m.forwarded, u.name AS user_name, (SELECT pu.name FROM users pu WHERE pu.id = m.pinned_by) AS pinned_by_name,
                (SELECT COUNT(*) FROM messages t WHERE t.parent_id = m.id) AS reply_count,
                (SELECT MAX(t.created_at) FROM messages t WHERE t.parent_id = m.id) AS last_reply_at,
                (SELECT json_group_array(name) FROM (SELECT DISTINCT tu.name FROM messages t JOIN users tu ON tu.id = t.user_id
@@ -111,7 +113,7 @@ function shape(rows) {
       if (!e) byEmoji.push(e = { emoji: r.emoji, users: [] });
       e.users.push({ id: r.user_id, name: r.name || 'Someone' });
     }
-    return { ...m, files: m.files ? JSON.parse(m.files) : [], reactions: byEmoji, repliers: m.repliers ? JSON.parse(m.repliers) : [], poll };
+    return { ...m, files: m.files ? JSON.parse(m.files) : [], reactions: byEmoji, repliers: m.repliers ? JSON.parse(m.repliers) : [], poll, forwarded: m.forwarded ? JSON.parse(m.forwarded) : null };
   });
 }
 const one = (id) => shape([q(`${MSG} WHERE m.id = ?`).get(id)].filter(Boolean))[0];
@@ -147,9 +149,9 @@ function readMessage(c, user, input) {
 }
 
 /** Post a message: saved, shown to everyone in the conversation, mentions told. */
-function deliver(c, user, { body, files, poll, parent }) {
+function deliver(c, user, { body, files, poll, parent, forwarded = null }) {
   const id = uid();
-  q('INSERT INTO messages (id, channel_id, user_id, body, created_at, files, parent_id, poll) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(id, c.id, user.id, body, now(), files.length ? JSON.stringify(files) : null, parent?.id ?? null, poll ? JSON.stringify(poll) : null);
+  q('INSERT INTO messages (id, channel_id, user_id, body, created_at, files, parent_id, poll, forwarded) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(id, c.id, user.id, body, now(), files.length ? JSON.stringify(files) : null, parent?.id ?? null, poll ? JSON.stringify(poll) : null, forwarded ? JSON.stringify(forwarded) : null);
   q('INSERT INTO channel_reads (channel_id, user_id, read_at) VALUES (?, ?, ?) ON CONFLICT(channel_id, user_id) DO UPDATE SET read_at = excluded.read_at').run(c.id, user.id, now());
   const msg = one(id);
   sendTo(audience(c), { type: 'message', message: msg });
@@ -438,6 +440,22 @@ export default function chatRoutes() {
     if (!m || m.parent_id) throw notFound('Message not found');
     loadChannel(m.channel_id, req.user);
     res.json({ message: one(m.id), replies: shape(q(`${MSG} WHERE m.parent_id = ? ORDER BY m.created_at LIMIT 1000`).all(m.id)) });
+  });
+
+  // Forward a message you can see to another conversation you can write in, with a note of your own if you like.
+  // Its files go with it (everyone there can open them from the message). Forwarding a forward passes on the original.
+  r.post('/messages/:id/forward', (req, res) => {
+    const src = q('SELECT m.*, u.name AS author FROM messages m LEFT JOIN users u ON u.id = m.user_id WHERE m.id = ?').get(req.params.id);
+    if (!src) throw notFound('Message not found');
+    const from = loadChannel(src.channel_id, req.user);
+    if (src.poll) throw bad('Polls can’t be forwarded');
+    const c = writable(String(req.body.channel_id || ''), req.user);
+    const note = str(req.body.body, { max: 8000, name: 'Message' }) || '';
+    const earlier = src.forwarded && !src.body ? JSON.parse(src.forwarded) : null;
+    // A channel's name is shown; a direct message or private channel's isn't.
+    const forwarded = earlier || { name: src.author || 'Deleted user', where: from.dm_key || from.private ? null : from.name, at: src.created_at, body: src.body || '' };
+    const files = src.files ? JSON.parse(src.files) : [];
+    res.status(201).json(deliver(c, req.user, { body: note, files, poll: null, parent: null, forwarded }));
   });
 
   r.post('/channels/:id/messages', (req, res) => {

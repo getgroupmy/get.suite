@@ -2220,3 +2220,38 @@ test('tasks: made from an email or chat message, linking back inside Workspace o
   const off = (await a('PATCH', `/api/tasks/tasks/${t.id}`, { link: null })).body;
   assert.equal(off.link_url, null);
 });
+
+test('chat: forward a message to another conversation, with its files and a note', async () => {
+  const a = client(), b = client(), c = client();
+  for (const [local, name] of [['fwda', 'Fwd Ann'], ['fwdb', 'Fwd Ben'], ['fwdc', 'Fwd Cat']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'fwda@acme.com');
+  const bid = (await login(b, 'fwdb@acme.com')).id;
+  const cid = (await login(c, 'fwdc@acme.com')).id;
+  const dm = (await a('POST', '/api/chat/dm', { user_id: bid })).body.id;
+  const folder = (await a('POST', '/api/chat/files-folder')).body.id;
+  const pic = (await a('POST', `/api/files/upload?name=plan.txt&parent=${folder}`, Buffer.from('the plan'), { raw: true })).body;
+  const src = (await a('POST', `/api/chat/channels/${dm}/messages`, { body: 'The plan is attached', files: [pic.id] })).body;
+  // Ben forwards it to his DM with Cat: Cat sees who wrote it (not where: a direct message) and can open the file.
+  const bc = (await b('POST', '/api/chat/dm', { user_id: cid })).body.id;
+  const f = await b('POST', `/api/chat/messages/${src.id}/forward`, { channel_id: bc, body: 'FYI' });
+  assert.equal(f.status, 201);
+  assert.equal(f.body.body, 'FYI');
+  assert.deepEqual({ ...f.body.forwarded, at: 0 }, { name: 'Fwd Ann', where: null, at: 0, body: 'The plan is attached' });
+  assert.equal(f.body.files[0].id, pic.id);
+  assert.equal((await c('GET', `/api/chat/messages/${f.body.id}/files/${pic.id}`)).status, 200);
+  const seen = (await c('GET', `/api/chat/channels/${bc}/messages`)).body;
+  assert.ok((seen.messages || seen).some((m) => m.forwarded?.name === 'Fwd Ann'));
+  // Forwarding the forward passes on the original; a channel's name is kept.
+  const office = (await c('POST', '/api/chat/channels', { name: 'fwd-office' })).body.id;
+  const g = (await c('POST', `/api/chat/messages/${f.body.id}/forward`, { channel_id: office })).body;
+  assert.deepEqual([g.forwarded.name, g.forwarded.body], ['Fwd Ben', 'FYI'], 'Ben wrote a note, so this forwards his message');
+  const h = (await c('POST', `/api/chat/messages/${g.id}/forward`, { channel_id: office })).body;
+  assert.deepEqual(h.forwarded, g.forwarded, 'an empty forward passes on the original');
+  const pub = (await c('POST', `/api/chat/channels/${office}/messages`, { body: 'In the office' })).body;
+  assert.equal((await b('POST', `/api/chat/messages/${pub.id}/forward`, { channel_id: bc })).body.forwarded.where, 'fwd-office');
+  // Only messages you can see, only to conversations you can write in; not polls.
+  assert.equal((await c('POST', `/api/chat/messages/${src.id}/forward`, { channel_id: office })).status, 404);
+  assert.equal((await a('POST', `/api/chat/messages/${src.id}/forward`, { channel_id: bc })).status, 404);
+  const poll = (await a('POST', `/api/chat/channels/${dm}/messages`, { poll: { question: 'Lunch?', options: ['Yes', 'No'] } })).body;
+  assert.equal((await a('POST', `/api/chat/messages/${poll.id}/forward`, { channel_id: dm })).status, 400);
+});
