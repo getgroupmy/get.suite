@@ -24,6 +24,8 @@ export const SHORTCUTS = {
     [`${mod}+C / ${mod}+X / ${mod}+V`, 'Copy, cut, paste (formulas move with the cells)'],
     [`${mod}+B / ${mod}+I / ${mod}+U`, 'Bold, italic, underline'],
     [`${mod}+Z`, 'Undo your last change'], [`${mod}+Y / ${mod}+Shift+Z`, 'Redo'],
+    [`${mod}+F / ${mod}+H`, 'Find, or find and replace'], [`${alt}+Shift+5`, 'Strikethrough'],
+    ['Typing a formula', 'Suggests functions: arrows, then Tab or Enter'],
     [`${mod}+${alt}+M`, 'Comment on the cell'], ['Shift+F10', 'Menu: insert or delete rows and columns, sort, freeze'],
   ] },
   slides: { title: 'Slides', keys: [
@@ -33,6 +35,8 @@ export const SHORTCUTS = {
     ['While presenting: arrows, space, click', 'Next or previous slide'], ['While presenting: N', 'Show or hide your notes'], ['While presenting: Escape', 'End the presentation'],
   ] },
   mail: { title: 'Mail', keys: [
+    ['C', 'Write a new message'], ['/', 'Search mail'], ['J / K', 'Older or newer message'], ['U', 'Back to the list'],
+    ['R / A / F', 'Reply, reply all, forward'], ['E', 'Archive'], ['#', 'Delete'], ['S', 'Star or unstar'], ['Shift+U', 'Mark unread'],
     [`${mod}+K`, 'Add a link while writing'], [`${mod}+] / ${mod}+[`, 'Indent or outdent'],
     [`${mod}+B / ${mod}+I / ${mod}+U`, 'Bold, italic, underline'],
   ] },

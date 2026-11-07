@@ -17,6 +17,7 @@ import { TextStyle, Color, BackgroundColor, FontSize, FontFamily } from '@tiptap
 import { useMailStatus } from '../../mailStatus.js';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
+import { mailKey, stepMessage } from './mailkeys.js';
 import { textToHtml, docToText, emailHtml, isEmptyDoc, linkHref } from './richtext.js';
 import { FiltersDialog } from './Filters.jsx';
 import { ASPECTS, FULL, fitAspect, moveRect, resizeRect, toPixels, rotatedSize, outputType, editedName } from './cropmath.js';
@@ -129,6 +130,44 @@ export default function Mail() {
     const keep = new URLSearchParams({ ...(q && { q }), ...(labelId && f === folder && { label: labelId }) }).toString();
     navigate(`/mail/${enc(f)}${uid ? `/${uid}` : ''}${keep ? `?${keep}` : ''}`);
   };
+
+  // Keyboard shortcuts (see mailkeys.js); the open message's buttons do the work, so they behave the same.
+  const keyState = useRef();
+  keyState.current = { data, openUid, special, folder, compose, go, openDraft: (uid) => openDraft(uid), newMessage: () => setCompose(withSignature({}, 'new')) };
+  useEffect(() => {
+    const onKey = (e) => {
+      const action = mailKey(e);
+      const st = keyState.current;
+      if (!action || st.compose || document.querySelector('.modal-backdrop, [role=menu], [role=dialog]')) return;
+      const reader = document.querySelector('.mail-reader');
+      const button = (match) => [...(reader?.querySelectorAll('button') || [])].find(match);
+      const byLabel = (...names) => button((b) => names.includes(b.getAttribute('aria-label')));
+      const byText = (text) => button((b) => b.textContent.trim() === text);
+      let target = null;
+      switch (action) {
+        case 'compose': e.preventDefault(); st.newMessage(); return;
+        case 'search': e.preventDefault(); document.querySelector('.mail-search input')?.focus(); return;
+        case 'next': case 'prev': {
+          const uid = stepMessage(st.data?.messages, st.openUid, action);
+          if (uid) { e.preventDefault(); if (st.special === '\\Drafts') st.openDraft(uid); else st.go(st.folder, uid); }
+          return;
+        }
+        case 'list': if (st.openUid) { e.preventDefault(); st.go(st.folder); } return;
+        case 'reply': target = byText('Reply'); break;
+        case 'replyAll': target = byText('Reply all') || byText('Reply'); break;
+        case 'forward': target = byText('Forward'); break;
+        case 'archive': target = byLabel('Archive'); break;
+        case 'delete': target = byLabel('Delete'); break;
+        case 'star': target = byLabel('Star', 'Unstar'); break;
+        case 'unread': target = byLabel('Mark unread'); break;
+        default: return;
+      }
+      if (target && st.openUid) { e.preventDefault(); target.click(); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function act(path, body, msg) {
     try { await post(`/mail/messages/${path}`, { folder, ...body }); if (msg) toast(msg); setChecked(new Set()); refresh(); return true; }
