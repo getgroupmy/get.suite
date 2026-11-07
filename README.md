@@ -280,6 +280,10 @@ Your Workspace calendar and contacts sync with the phone's own Calendar and Cont
 
 **Asking for access:** opening a link to a document, spreadsheet or presentation that isn't shared with you shows **You need access**: choose view or edit, add a note, and **Request access**. The owner gets a notification and **Access requests** in Drive, where they can **Share** (as asked, or view only) or **Decline**. Either way you're told. The page says nothing about the file, not even whether it exists, until the owner shares it.
 
+## Search everything
+
+The search box at the top looks everywhere at once as you type (two letters or more): **files** (names and what's inside), **chat** messages, **tasks**, **notes**, calendar **events**, your **contacts** and **people** in the company, a few of each with how many there are. Click one, or pick it with the arrow keys and Enter, to open it where it lives: a document opens, a chat message is shown in its conversation, a task, note or event opens in its app. Enter with nothing picked (or **Search Drive for …**) runs the full Drive search with its filters, as before. Escape closes the list.
+
 ## Searching Drive
 
 - The search box at the top finds files by **name** and by the **words inside** them: documents, spreadsheets (cell text and sheet names), presentations, and uploaded text, Word, Excel and PowerPoint files. Each match shows the sentence it was found in, with the words marked. It looks through your files, those shared with you or your company, and everything inside folders shared that way.

@@ -62,6 +62,13 @@ export default function Calendar() {
   // "Create event" on an email comes here with the event to start from.
   const location = useLocation();
   const navigateTo = useNavigate();
+  // A result from the search box in the top bar: open that event.
+  useEffect(() => {
+    const r = location.state?.openEvent;
+    if (!r) return;
+    navigateTo(location.pathname, { replace: true, state: null });
+    openFound(r);
+  }, [location.state]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const ev = location.state?.newEvent;
     if (!ev) return;

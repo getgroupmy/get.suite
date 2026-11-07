@@ -1,6 +1,7 @@
 // Notes: quick notes and checklists on coloured cards. "Take a note…" at the top, pinned ones first,
 // labels and the archive on the left, and sharing with colleagues (they see changes as they happen).
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router';
 import { get, post, patch, put, del, onLive } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
 import { Avatar, Empty, Menu, Modal, PromptModal, ConfirmModal, useToast } from '../../components/ui.jsx';
@@ -28,6 +29,15 @@ export default function Notes() {
   }, [where, search, toast]);
   useEffect(() => { const t = setTimeout(load, search ? 250 : 0); return () => clearTimeout(t); }, [load, search]);
   useEffect(() => onLive((m) => { if (m.type === 'notes-changed' || m.type === 'live-connected') load(); }), [load]);
+  // A result from the search box in the top bar: open that note.
+  const location = useLocation();
+  const navigate = useNavigate();
+  useEffect(() => {
+    const id = location.state?.openNote;
+    if (!id) return;
+    navigate(location.pathname, { replace: true, state: null });
+    get('/notes').then((list) => { if (!list.some((n) => n.id === id)) setWhere({ archived: true, label: null, reminders: false }); setEditing(id); }).catch(() => {});
+  }, [location.state]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const change = async (n, changes) => {
     setNotes((list) => list.map((x) => (x.id === n.id ? { ...x, ...changes } : x)));
