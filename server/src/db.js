@@ -231,6 +231,7 @@ db.exec(`CREATE TABLE IF NOT EXISTS file_versions (
   content TEXT                  -- Docs and Sheets: the JSON content
 )`);
 db.exec('CREATE INDEX IF NOT EXISTS file_versions_file ON file_versions(file_id, saved_at)');
+if (!db.prepare('PRAGMA table_info(file_versions)').all().some((c) => c.name === 'label')) db.exec('ALTER TABLE file_versions ADD COLUMN label TEXT'); // a name given to a version: kept however many come after
 // Signed-in devices: when, from what browser/address, and last activity of each session.
 if (!hasColumn('sessions', 'created_at')) db.exec('ALTER TABLE sessions ADD COLUMN created_at INTEGER');
 if (!hasColumn('sessions', 'last_seen')) db.exec('ALTER TABLE sessions ADD COLUMN last_seen INTEGER');

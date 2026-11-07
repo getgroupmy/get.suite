@@ -1273,3 +1273,20 @@ test('notifications: mentions, tasks, invitations and shares land in the bell; r
   assert.equal((await b('POST', '/api/notifications/read', { all: true })).body.unread, 0);
   assert.equal((await b('POST', '/api/notifications/read', {})).status, 400);
 });
+
+test('named versions: name the current state, name or un-name an earlier one, see its content', async () => {
+  const d = (await owner('POST', '/api/files/new', { kind: 'sheet', name: 'Forecast', content: { sheets: [{ name: 'Sheet1', cells: { A1: 'v1' } }] } })).body;
+  const named = await owner('POST', `/api/files/${d.id}/versions/name`, { label: 'Sent to the bank' });
+  assert.equal(named.status, 201);
+  assert.equal((await owner('POST', `/api/files/${d.id}/versions/name`, { label: '' })).status, 400);
+  const list = (await owner('GET', `/api/files/${d.id}/versions`)).body;
+  assert.equal(list[0].label, 'Sent to the bank');
+  const content = (await owner('GET', `/api/files/${d.id}/versions/${named.body.id}/content`)).body.content;
+  assert.equal(content.sheets[0].cells.A1, 'v1');
+  assert.equal((await owner('PATCH', `/api/files/${d.id}/versions/${named.body.id}`, { label: 'Final' })).body.label, 'Final');
+  assert.equal((await owner('PATCH', `/api/files/${d.id}/versions/${named.body.id}`, { label: '' })).body.label, null);
+  const other = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'verpal', domain: 'acme.com', name: 'Ver Pal', password: 'password123' })).status, 201);
+  await login(other, 'verpal@acme.com');
+  assert.equal((await other('PATCH', `/api/files/${d.id}/versions/${named.body.id}`, { label: 'x' })).status, 404, 'not for people without access');
+});

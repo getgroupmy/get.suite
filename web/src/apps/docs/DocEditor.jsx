@@ -23,6 +23,7 @@ import Icon from '../../components/Icon.jsx';
 import { FindReplace, countWords } from './findReplace.js';
 import { FindBar } from './FindBar.jsx';
 import { Outline } from './Outline.jsx';
+import { VersionHistory } from '../VersionHistory.jsx';
 
 /** Marks the text a comment is about (several comments may overlap); it travels with the text. */
 const CommentMark = Mark.create({
@@ -100,6 +101,7 @@ function SharedDoc({ file, setFile }) {
   const { user } = useAuth();
   const toast = useToast();
   const [sharing, setSharing] = useState(false);
+  const [history, setHistory] = useState(false);
   const [status, setStatus] = useState('connecting');
   const [others, setOthers] = useState([]);
   const readOnly = file.role === 'viewer';
@@ -282,6 +284,7 @@ function SharedDoc({ file, setFile }) {
         menu={[
           { label: 'Find and replace', icon: 'search', onClick: () => setFinding({ replace: !readOnly }) },
           ...(!readOnly ? [{ label: 'Page setup', icon: 'print', onClick: () => setPageSetupOpen(true) }] : []),
+          { label: 'Version history', icon: 'clock', onClick: () => setHistory(true) },
           { label: 'Word count', icon: 'doc', onClick: () => { const c = countWords(editor.state.doc); toast(`${c.words.toLocaleString()} ${c.words === 1 ? 'word' : 'words'}, ${c.characters.toLocaleString()} characters (without spaces)`); } },
           '-',
           { label: 'Print / Save as PDF', icon: 'print', onClick: () => window.print() },
@@ -309,6 +312,7 @@ function SharedDoc({ file, setFile }) {
           onClose={() => { if (pending) pending.onCancel(); setPanel(false); }} />}
       </div>
       {sharing && <ShareDialog file={file} onClose={() => setSharing(false)} />}
+      {history && <VersionHistory file={file} canEdit={!readOnly} onClose={() => setHistory(false)} renderPreview={(content) => <DocPreview content={content} fileId={file.id} />} />}
       {pageSetupOpen && <PageSetupDialog setup={file.page_setup} onClose={() => { setPageSetupOpen(false); editor.view.focus(); }}
         onSave={async (next) => { try { setFile(await patch(`/files/${file.id}`, { page_setup: next })); setPageSetupOpen(false); toast('Page setup saved'); } catch (e) { toast(e.message, 'error'); } }} />}
     </div>
@@ -452,4 +456,18 @@ function PageSetupDialog({ setup, onClose, onSave }) {
       </div>
     </Modal>
   );
+}
+
+/** A read-only document (an earlier version), drawn as the editor draws it. */
+function DocPreview({ content, fileId }) {
+  const editor = useEditor({
+    editable: false,
+    content,
+    extensions: [
+      StarterKit.configure({ link: { openOnClick: true } }), TextAlign.configure({ types: ['heading', 'paragraph'] }),
+      CommentMark, DocImage.configure({ docId: fileId }), Table, TableRow, TableHeader, TableCell,
+      TextStyle, Color, BackgroundColor, FontFamily, FontSize, LineHeight,
+    ],
+  }, [content]);
+  return <div className="paper preview-paper"><EditorContent editor={editor} /></div>;
 }

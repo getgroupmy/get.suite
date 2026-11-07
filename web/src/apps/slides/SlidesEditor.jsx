@@ -10,6 +10,7 @@ import { useAuth } from '../../App.jsx';
 import { useToast, Menu, ConfirmModal, Avatar } from '../../components/ui.jsx';
 import Icon from '../../components/Icon.jsx';
 import { ShareDialog } from '../drive/Drive.jsx';
+import { VersionHistory } from '../VersionHistory.jsx';
 import { EditorHeader } from '../editorCommon.jsx';
 import { useUndo, undoKey } from '../useUndo.js';
 import {
@@ -161,6 +162,7 @@ export default function SlidesEditor() {
         )}
         menu={[
           { label: 'Present', icon: 'slides', onClick: () => setPresenting(slideIndex) },
+          { label: 'Version history', icon: 'clock', onClick: () => setDialog('history') },
           { label: 'Print or save as PDF', icon: 'print', onClick: () => window.print() },
           { label: 'Download as PowerPoint (.pptx)', icon: 'download', onClick: () => { window.location.href = `/api/files/${id}/export`; } },
           ...(!readOnly ? ['-', ...Object.entries(THEMES).map(([k, t]) => ({ label: `Theme: ${t.name}${deck.theme === k ? ' ✓' : ''}`, onClick: () => change((d) => ({ ...d, theme: k })) }))] : []),
@@ -262,6 +264,9 @@ export default function SlidesEditor() {
       </div>
       {presenting !== null && <Presenter deck={deck} theme={theme} deckId={id} start={presenting} onClose={(i) => { setPresenting(null); goTo(i); }} />}
       {dialog === 'share' && <ShareDialog file={file} onClose={() => setDialog(null)} />}
+      {dialog === 'history' && <VersionHistory file={file} canEdit={!readOnly} onClose={() => setDialog(null)} renderPreview={(content) => (
+        <div className="deck-preview">{(content?.slides || []).map((sl, n) => <div key={sl.id || n} className="deck-preview-slide"><span className="muted small">{n + 1}</span><SlideView slide={sl} theme={THEMES[content.theme] || THEMES.light} deckId={file.id} /></div>)}</div>
+      )} />}
       {dialog?.type === 'delete-slide' && (
         <ConfirmModal title={`Delete slide ${dialog.index + 1}?`} confirm="Delete" message="The slide and everything on it is removed. Version history can bring it back."
           onClose={() => setDialog(null)} onConfirm={() => { change((d) => removeSlide(d, dialog.index)); goTo(Math.min(dialog.index, deck.slides.length - 2)); setDialog(null); }} />

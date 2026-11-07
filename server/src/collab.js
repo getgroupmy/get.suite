@@ -123,6 +123,8 @@ export function resetRoom(fileId) {
 }
 export const editorsOf = (fileId) => [...(rooms.get(fileId)?.conns.values() || [])].map((c) => c.userId);
 export function saveAll() { for (const room of rooms.values()) save(room); }
+/** Write one file's open editing session to the database now (if anything changed). */
+export function saveNow(fileId) { const room = rooms.get(fileId); if (room) save(room); }
 
 const wss = new WebSocketServer({ noServer: true, maxPayload: 8 * 1024 * 1024 });
 

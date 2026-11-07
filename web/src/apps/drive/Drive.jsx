@@ -591,7 +591,7 @@ function VersionsDialog({ file, onClose, onChanged }) {
   return (
     <Modal title={`Version history: ${file.name}`} onClose={onClose} footer={<button className="btn" onClick={onClose}>Close</button>}>
       <p className="muted small">{binary ? 'Each time someone uploads a new version, the previous one is kept here.'
-        : 'A version is kept from each editing session (when someone else starts editing, or after a 10-minute pause).'} The most recent 50 are kept, and they count towards your company's storage.</p>
+        : 'A version is kept from each editing session (when someone else starts editing, or after a 10-minute pause).'} The most recent 50 are kept (named versions, from the editor's Version history, are kept for good), and they count towards your company's storage.</p>
       <ul className="version-list" aria-label="Versions">
         <li className="current">
           <div className="grow"><strong>Current version</strong><span className="muted small">{when(current.updated_at)}{current.updated_by_name ? ` · ${current.updated_by_name}` : ''}{binary ? ` · ${formatBytes(current.size)}` : ''}</span></div>
@@ -600,7 +600,7 @@ function VersionsDialog({ file, onClose, onChanged }) {
         {list?.length === 0 && <li className="muted small">No earlier versions yet.</li>}
         {list?.map((v) => (
           <li key={v.id}>
-            <div className="grow"><strong>{when(v.saved_at)}</strong>
+            <div className="grow"><strong>{v.label ? `${v.label} · ` : ''}{when(v.saved_at)}</strong>
               <span className="muted small">{v.saved_by_name || 'Someone'}{binary ? ` · ${formatBytes(v.size)}` : ''}{v.name !== current.name ? ` · named “${v.name}”` : ''}</span></div>
             {binary && <a className="icon-btn" href={`/api/files/${file.id}/versions/${v.id}/raw?download`} aria-label={`Download the version from ${when(v.saved_at)}`} title="Download"><Icon name="download" size={18} /></a>}
             {canEdit && <button type="button" className="btn small" onClick={() => setConfirm({ kind: 'restore', version: v })} aria-label={`Restore the version from ${when(v.saved_at)}`}>Restore</button>}

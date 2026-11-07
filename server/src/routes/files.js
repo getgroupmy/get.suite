@@ -13,7 +13,7 @@ import { uid, now, str, bad, forbidden, notFound, HttpError, mimeFor, isInlineSa
 import { roleFor, atLeast, audienceFor, subtreeIds } from '../access.js';
 import { sendTo } from '../hub.js';
 import { canReach, checkQuota } from '../tenancy.js';
-import { resetRoom, CO_EDITED } from '../collab.js';
+import { resetRoom, CO_EDITED, saveNow } from '../collab.js';
 import { docFromWord, wordFromDoc } from '../office/word.js';
 import { sheetFromExcel, excelFromSheet } from '../office/excel.js';
 import { deckFromPowerPoint, powerPointFromDeck } from '../office/powerpoint.js';
@@ -120,15 +120,18 @@ export function snapshotIfNewSession(fileId, userId) {
 }
 
 /** Keep the file as it is now as an earlier version (and drop the oldest beyond the limit). */
-export function snapshot(fileId) {
+export function snapshot(fileId, label = null) {
   const f = q('SELECT * FROM files WHERE id = ?').get(fileId);
-  q(`INSERT INTO file_versions (id, file_id, version, name, saved_at, saved_by, size, mime, storage, content) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-    .run(uid(), f.id, f.version, f.name, f.updated_at, f.updated_by || f.owner_id, f.size, f.mime, f.storage, f.content);
-  const old = q('SELECT id, storage FROM file_versions WHERE file_id = ? ORDER BY saved_at DESC, version DESC LIMIT -1 OFFSET ?').all(f.id, KEEP_VERSIONS);
+  const id = uid();
+  q(`INSERT INTO file_versions (id, file_id, version, name, saved_at, saved_by, size, mime, storage, content, label) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(id, f.id, f.version, f.name, f.updated_at, f.updated_by || f.owner_id, f.size, f.mime, f.storage, f.content, label);
+  // Named versions are kept; the oldest of the others go beyond the limit.
+  const old = q('SELECT id, storage FROM file_versions WHERE file_id = ? AND label IS NULL ORDER BY saved_at DESC, version DESC LIMIT -1 OFFSET ?').all(f.id, KEEP_VERSIONS);
   for (const v of old) {
     q('DELETE FROM file_versions WHERE id = ?').run(v.id);
     if (v.storage) fs.rm(path.join(FILES_DIR, v.storage), { force: true }, () => {});
   }
+  return id;
 }
 
 /** Stream an upload into storage, within the size limit and the company's quota. */
@@ -547,7 +550,7 @@ export default function fileRoutes({ maxUploadBytes }) {
   };
   r.get('/:id/versions', (req, res) => {
     const f = loadFile(req.params.id, req.user);
-    res.json(q(`SELECT v.id, v.version, v.name, v.saved_at, v.size, u.name AS saved_by_name FROM file_versions v LEFT JOIN users u ON u.id = v.saved_by
+    res.json(q(`SELECT v.id, v.version, v.name, v.saved_at, v.size, v.label, u.name AS saved_by_name FROM file_versions v LEFT JOIN users u ON u.id = v.saved_by
                 WHERE v.file_id = ? ORDER BY v.saved_at DESC, v.version DESC`).all(f.id));
   });
 
@@ -565,6 +568,25 @@ export default function fileRoutes({ maxUploadBytes }) {
     });
     notify(f.id, { type: 'files-changed', parent_id: f.parent_id });
     res.json(publicFile(loadFile(f.id, req.user)));
+  });
+
+  // Name the file as it is now ("Sent to the client"); named versions are kept for good.
+  r.post('/:id/versions/name', (req, res) => {
+    const f = loadFile(req.params.id, req.user, 'editor');
+    const label = str(req.body.label, { required: true, name: 'Name', max: 100 });
+    if (CO_EDITED.includes(f.kind)) saveNow(f.id); // what the editors have now
+    const id = snapshot(f.id, label);
+    notify(f.id, { type: 'versions-changed', id: f.id });
+    res.status(201).json({ id, label });
+  });
+  // Name or rename an earlier version (empty: not named any more).
+  r.patch('/:id/versions/:vid', (req, res) => {
+    const f = loadFile(req.params.id, req.user, 'editor');
+    const v = versionOf(f, req.params.vid);
+    const label = str(req.body.label ?? '', { max: 100, name: 'Name' }) || null;
+    q('UPDATE file_versions SET label = ? WHERE id = ?').run(label, v.id);
+    notify(f.id, { type: 'versions-changed', id: f.id });
+    res.json({ id: v.id, label });
   });
 
   r.get('/:id/versions/:vid/raw', (req, res) => {

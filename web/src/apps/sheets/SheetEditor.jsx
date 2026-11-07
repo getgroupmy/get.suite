@@ -19,6 +19,8 @@ import { ValidationDialog, ChoicePicker } from './SheetValidation.jsx';
 import { validationAt, checkEntry, isTicked } from './validation.js';
 import { hiddenRows, columnValues, adjustFilter, filterArea } from './filter.js';
 import { FilterMenu } from './SheetFilter.jsx';
+import { SheetPreview } from './SheetPreview.jsx';
+import { VersionHistory } from '../VersionHistory.jsx';
 import { ruleStyle } from './condformat.js';
 import { useUndo, undoKey } from '../useUndo.js';
 
@@ -528,6 +530,7 @@ export default function SheetEditor() {
           )}
         </>}
         menu={[
+          { label: 'Version history', icon: 'clock', onClick: () => setDialog({ type: 'history' }) },
           { label: 'Download as Excel (.xlsx)', icon: 'download', onClick: () => { window.location.href = `/api/files/${id}/export`; } },
           { label: 'Download sheet as CSV', icon: 'download', onClick: exportCsv },
           !readOnly && { label: 'Import CSV as new sheet', icon: 'upload', onClick: importCsv },
@@ -694,6 +697,7 @@ export default function SheetEditor() {
           onSave={({ id: cid, newId, ...ch }) => writeChart(cid || newId, ch)} />
       )}
       {dialog?.type === 'share' && <ShareDialog file={file} onClose={() => setDialog(null)} />}
+      {dialog?.type === 'history' && <VersionHistory file={file} canEdit={!readOnly} onClose={() => setDialog(null)} renderPreview={(content) => <SheetPreview content={content} />} />}
       {dialog?.type === 'rename-sheet' && (
         <PromptModal title="Rename sheet" label="Sheet name" initial={data.sheets[dialog.index].name} onClose={() => setDialog(null)}
           onSubmit={async (name) => {
