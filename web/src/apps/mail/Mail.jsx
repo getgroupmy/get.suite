@@ -430,7 +430,7 @@ function Reader({ folder, uid, special, onClose, onChanged, act, onCompose, onFi
       <div className="reader-head">
         <Avatar name={who(m.from)} size={40} />
         <div className="grow">
-          <div><strong>{m.from?.name || m.from?.address}</strong> {m.from?.name && <span className="muted small">&lt;{m.from.address}&gt;</span>}</div>
+          <div><strong>{m.from?.name || m.from?.address}</strong> {m.from?.name && <span className="muted small">&lt;{m.from.address}&gt;</span>} {m.from?.address && <SenderContact from={m.from} />}</div>
           <div className="muted small">to {list(m.to) || '—'}{m.cc.length > 0 && <> · cc {list(m.cc)}</>}</div>
         </div>
         <span className="muted small nowrap">{m.date ? new Date(m.date).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : ''}</span>
@@ -463,6 +463,29 @@ function Reader({ folder, uid, special, onClose, onChanged, act, onCompose, onFi
         }}><Icon name="forward" size={18} /> Forward</button>
       </div>
     </article>
+  );
+}
+
+/** Beside the sender: "Add to contacts", or that they're already a contact (or a colleague). */
+function SenderContact({ from }) {
+  const toast = useToast();
+  const [state, setState] = useState(null); // { contact, colleague }
+  useEffect(() => {
+    let live = true;
+    get(`/contacts/lookup?email=${encodeURIComponent(from.address)}`).then((r) => live && setState(r)).catch(() => {});
+    return () => { live = false; };
+  }, [from.address]);
+  if (!state || state.colleague) return null;
+  if (state.contact) return <span className="pill sender-known" title={`${state.contact.name} is in your contacts`}>In your contacts</span>;
+  return (
+    <button type="button" className="link-btn small" onClick={async () => {
+      try {
+        const name = (from.name || from.address.split('@')[0]).trim();
+        const c = await post('/contacts', { name, email: from.address });
+        setState({ contact: { id: c.id, name: c.name }, colleague: false });
+        toast(`${c.name} added to your contacts`);
+      } catch (e) { toast(e.message, 'error'); }
+    }}>Add to contacts</button>
   );
 }
 

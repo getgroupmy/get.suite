@@ -1392,3 +1392,4 @@ button.rule-sample.on { outline: 2px solid var(--accent); outline-offset: 1px; }
 .tasks-search { display: flex; align-items: center; gap: 6px; margin: 4px 8px 8px; padding: 6px 10px; border-radius: 999px; background: var(--surface-2); }
 .tasks-search input { border: 0; background: none; flex: 1; min-width: 0; padding: 2px 0; }
 .tasks-main[hidden] { display: none; }
+.pill.sender-known { font-size: 11px; padding: 1px 8px; }

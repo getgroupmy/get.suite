@@ -132,6 +132,15 @@ export default function contactRoutes() {
     res.json({ added, skipped });
   });
 
+  // Is this address one of your contacts, or a colleague? (For "Add to contacts" on a message.)
+  r.get('/lookup', (req, res) => {
+    const email = String(req.query.email || '').trim().toLowerCase();
+    if (!EMAIL_RE.test(email)) throw bad('Not an email address');
+    const contact = q('SELECT id, name FROM contacts WHERE owner_id = ? AND LOWER(email) = ?').get(req.user.id, email) || null;
+    const colleague = !!q('SELECT 1 FROM users WHERE org_id = ? AND LOWER(username) = ? AND disabled = 0').get(req.user.org_id, email);
+    res.json({ contact, colleague });
+  });
+
   // Your contacts' birthdays between two dates (YYYY-MM-DD, at most a year and a bit apart), for the calendar.
   r.get('/birthdays', (req, res) => {
     const from = String(req.query.from || ''), to = String(req.query.to || '');

@@ -1678,3 +1678,14 @@ test('contacts: job title, address and web page saved; web page checked and comp
   assert.match(vcf, /TITLE:Head buyer/);
   assert.match(vcf, /URL:https:\/\/raj\.example\.com/);
 });
+
+test('contacts lookup: is this address a contact or a colleague', async () => {
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'looker', domain: 'acme.com', name: 'Look Ann', password: 'password123' })).status, 201);
+  await login(a, 'looker@acme.com');
+  assert.deepEqual((await a('GET', '/api/contacts/lookup?email=Sam@Client.example')).body, { contact: null, colleague: false });
+  const c = (await a('POST', '/api/contacts', { name: 'Sam Client', email: 'sam@client.example' })).body;
+  assert.deepEqual((await a('GET', '/api/contacts/lookup?email=SAM@client.example')).body, { contact: { id: c.id, name: 'Sam Client' }, colleague: false });
+  assert.equal((await a('GET', '/api/contacts/lookup?email=owner@acme.com')).body.colleague, true);
+  assert.equal((await a('GET', '/api/contacts/lookup?email=nope')).status, 400);
+});
