@@ -2419,3 +2419,21 @@ test('chat: mark unread from a message', async () => {
   assert.equal(await unread(), 0);
   assert.equal((await x('POST', `/api/chat/messages/${ids[0]}/unread`)).status, 404, 'not for people outside it');
 });
+
+test('docs: download as Markdown; open a .md file as a document', async () => {
+  const md = '# Minutes\n\nWe agreed on **three** things:\n\n- [x] budget\n- [ ] hiring\n\n| Who | What |\n| --- | --- |\n| Kim | slides |\n';
+  const up = (await owner('POST', '/api/files/upload?name=minutes.md', Buffer.from(md), { raw: true })).body;
+  const doc = await owner('POST', `/api/files/${up.id}/open-as`);
+  assert.equal(doc.status, 201);
+  assert.equal(doc.body.kind, 'doc');
+  assert.equal(doc.body.name, 'minutes');
+  const content = (await owner('GET', `/api/files/${doc.body.id}/content`)).body;
+  const json = JSON.stringify(content);
+  assert.ok(json.includes('"taskList"') && json.includes('"table"') && json.includes('"bold"'), json.slice(0, 300));
+  const out = await owner('GET', `/api/files/${doc.body.id}/export?format=md`);
+  assert.equal(out.status, 200);
+  assert.match(out.headers.get('content-disposition'), /minutes\.md/);
+  assert.equal(out.body.toString(), md, 'back as it was');
+  const word = await owner('GET', `/api/files/${doc.body.id}/export`);
+  assert.match(word.headers.get('content-disposition'), /minutes\.docx/, 'Word is still the default');
+});

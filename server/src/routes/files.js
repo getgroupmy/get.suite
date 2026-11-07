@@ -18,12 +18,15 @@ import { resetRoom, CO_EDITED, saveNow } from '../collab.js';
 import { docFromWord, wordFromDoc } from '../office/word.js';
 import { sheetFromExcel, excelFromSheet } from '../office/excel.js';
 import { deckFromPowerPoint, powerPointFromDeck } from '../office/powerpoint.js';
+import { markdownFromDoc, docFromMarkdown } from '../office/markdown.js';
 
 // Office files that open as Docs, Sheets and Slides (and download back in the same format).
 const OFFICE = {
   docx: { kind: 'doc', mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' },
   xlsx: { kind: 'sheet', mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' },
   pptx: { kind: 'slides', mime: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' },
+  md: { kind: 'doc', mime: 'text/markdown; charset=utf-8' },
+  markdown: { kind: 'doc', mime: 'text/markdown; charset=utf-8' },
 };
 const EXPORT_AS = { doc: 'docx', sheet: 'xlsx', slides: 'pptx' };
 const MAX_CONVERT = 50 * 1024 * 1024;
@@ -660,7 +663,7 @@ export default function fileRoutes({ maxUploadBytes }) {
   r.post('/:id/open-as', async (req, res) => {
     const f = loadFile(req.params.id, req.user);
     const type = f.kind === 'file' && officeType(f.name);
-    if (!type) throw bad('Only Word (.docx), Excel (.xlsx) and PowerPoint (.pptx) files can be opened this way');
+    if (!type) throw bad('Only Word (.docx), Excel (.xlsx), PowerPoint (.pptx) and Markdown (.md) files can be opened this way');
     if (f.size > MAX_CONVERT) throw bad('This file is too large to convert (50 MB at most)');
     const parentId = f.parent_id && atLeast(roleFor(f.parent_id, req.user.id), 'editor') ? f.parent_id : null;
     const buf = fs.readFileSync(path.join(FILES_DIR, f.storage));
@@ -677,6 +680,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     };
     try {
       if (type === 'docx') content = (await docFromWord(buf, { savePicture })).doc;
+      else if (type === 'md' || type === 'markdown') content = docFromMarkdown(buf.toString('utf8'));
       else if (type === 'xlsx') content = await sheetFromExcel(buf);
       else content = await deckFromPowerPoint(buf, { savePicture });
     } catch (e) { throw bad(`This file couldn't be read as ${type === 'docx' ? 'a Word document' : type === 'xlsx' ? 'an Excel workbook' : 'a PowerPoint presentation'}`); }
@@ -689,8 +693,9 @@ export default function fileRoutes({ maxUploadBytes }) {
   // Download a document, spreadsheet or presentation as Word, Excel or PowerPoint.
   r.get('/:id/export', async (req, res) => {
     const f = loadFile(req.params.id, req.user);
-    const type = EXPORT_AS[f.kind];
+    const type = req.query.format === 'md' && f.kind === 'doc' ? 'md' : EXPORT_AS[f.kind];
     if (!type) throw bad('Only documents, spreadsheets and presentations can be downloaded this way');
+    saveNow(f.id); // what's being typed right now goes in too
     const content = JSON.parse(q('SELECT content FROM files WHERE id = ?').get(f.id).content || '{}');
     // The same rule as showing pictures in the file: only pictures owned by someone who can edit it.
     const pictureData = async (fileId) => {
@@ -699,7 +704,8 @@ export default function fileRoutes({ maxUploadBytes }) {
       return { data: fs.readFileSync(path.join(FILES_DIR, pic.storage)), mime: pic.mime };
     };
     let buf;
-    if (type === 'docx') buf = await wordFromDoc(content, f.name, { pictureData, page: setupOf(f) });
+    if (type === 'md') buf = Buffer.from(markdownFromDoc(content), 'utf8');
+    else if (type === 'docx') buf = await wordFromDoc(content, f.name, { pictureData, page: setupOf(f) });
     else if (type === 'xlsx') buf = await excelFromSheet(content);
     else buf = await powerPointFromDeck(content, { title: f.name, pictureData });
     res.setHeader('Content-Type', OFFICE[type].mime);
