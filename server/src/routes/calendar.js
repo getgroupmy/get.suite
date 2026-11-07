@@ -10,6 +10,7 @@ import { mailEnabled, MAIL_HOSTNAME } from '../mail/config.js';
 import { smtpFor } from '../mail/imap.js';
 import { buildIcs, zoneOrUtc } from '../ics.js';
 import { remindersFor, remindersOf, setReminders } from '../reminders.js';
+import { setRooms, roomsOf } from './rooms.js';
 
 q(`CREATE TABLE IF NOT EXISTS event_guests (
   event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
@@ -256,7 +257,7 @@ export default function calendarRoutes() {
     res.json(rows.map((row) => {
       const mine = row.owner_id === req.user.id;
       const { my_status, organizer_name, organizer_email, ...ev } = row;
-      return { ...outEvent(ev), role: mine ? 'organizer' : 'guest', guests: allGuests(row.id), reminders: reminders.get(row.id) || [],
+      return { ...outEvent(ev), role: mine ? 'organizer' : 'guest', guests: allGuests(row.id), rooms: roomsOf(row.id), reminders: reminders.get(row.id) || [],
         ...(mine ? {} : { my_status, organizer: { name: organizer_name, email: organizer_email } }) };
     }));
   });
@@ -310,8 +311,9 @@ export default function calendarRoutes() {
       notifyOutside(req.user, saved, outside.added, 'invite', { base: baseUrl(req), tz });
       touch(added.map((g) => g.id));
     }
+    if (req.body.rooms !== undefined && e.kind !== 'ooo') setRooms(req.user, q('SELECT * FROM events WHERE id = ?').get(id), req.body.rooms);
     touch([req.user.id]); // your other tabs (and their reminders) see it too
-    res.status(201).json({ ...outEvent(q('SELECT * FROM events WHERE id = ?').get(id)), role: 'organizer', guests: allGuests(id), reminders });
+    res.status(201).json({ ...outEvent(q('SELECT * FROM events WHERE id = ?').get(id)), role: 'organizer', guests: allGuests(id), rooms: roomsOf(id), reminders });
   });
 
   r.patch('/:id', (req, res) => {
@@ -348,7 +350,9 @@ export default function calendarRoutes() {
     if (changed) notify(req.user, saved, guestsOf(e.id).filter((g) => !added.some((a) => a.id === g.id)).map((g) => ({ username: g.email, name: g.name })), 'update', tz);
     notifyOutside(req.user, saved, outside.removed, 'cancel', opts);
     touch([req.user.id, ...guestsOf(e.id).map((g) => g.id), ...removed]);
-    res.json({ ...saved, role: 'organizer', guests: allGuests(e.id), reminders: remindersOf(e.id, req.user.id) });
+    // Rooms: as asked, or (when the time changed) the same ones checked again.
+    if (req.body.rooms !== undefined || (changed && roomsOf(e.id).length)) setRooms(req.user, q('SELECT * FROM events WHERE id = ?').get(e.id), req.body.rooms ?? roomsOf(e.id).map((x) => x.id));
+    res.json({ ...saved, role: 'organizer', guests: allGuests(e.id), rooms: roomsOf(e.id), reminders: remindersOf(e.id, req.user.id) });
   });
 
   // Your own reminders of an event you organise or are invited to.

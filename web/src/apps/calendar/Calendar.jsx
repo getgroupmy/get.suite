@@ -451,6 +451,7 @@ function InvitationDialog({ event, onClose, onAnswered }) {
         {event.description && <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{event.description}</p>}
         <p style={{ margin: 0 }}><span className="muted">Organizer:</span> {event.organizer?.name} <span className="muted small">{event.organizer?.email}</span></p>
         <GuestList guests={event.guests} />
+        {event.rooms?.length > 0 && <p className="muted small">Room: {event.rooms.map((r) => `${r.name}${r.status === 'no' ? ' (declined: taken)' : ''}`).join(', ')}</p>}
         <RemindersField value={reminders} onChange={saveReminders} />
         <div className="stack" style={{ gap: 6 }}>
           <span className="muted small">Going?{event.rrule ? ' (for the whole series)' : ''}</span>
@@ -488,6 +489,40 @@ const ruleFromForm = (r, start) => {
   if (r.ends === 'after') out.count = Math.max(1, Math.min(999, Number(r.count) || 1));
   return out;
 };
+
+/** Rooms for the event: the company's rooms, marked free or taken at the event's time. */
+function RoomPicker({ eventId, chosen, booked, onChange, when }) {
+  const [rooms, setRooms] = useState(null);
+  const [start, end] = when || [];
+  useEffect(() => {
+    get(`/rooms${start ? `?start=${start}&end=${end}${eventId ? `&event=${eventId}` : ''}` : ''}`).then(setRooms).catch(() => setRooms([]));
+  }, [start, end, eventId]);
+  if (!rooms?.length) return null;
+  const label = (r) => `${r.name}${r.capacity ? ` (${r.capacity})` : ''}`;
+  return (
+    <div className="field">
+      <span>Room</span>
+      {chosen.length > 0 && (
+        <ul className="guest-chips" aria-label="Rooms">
+          {chosen.map((id) => {
+            const r = rooms.find((x) => x.id === id);
+            if (!r) return null;
+            const was = booked.find((x) => x.id === id);
+            // (This event's own booking doesn't count against it.)
+            const taken = r.free === false;
+            const state = taken ? 'Taken then' : was?.status === 'yes' ? 'Booked' : 'Free: booked when you save';
+            return <li key={id} className={taken || was?.status === 'no' ? 'room-taken' : ''}>{label(r)} <span className="muted small">· {state}</span>
+              <button type="button" className="icon-btn" aria-label={`Remove ${r.name}`} onClick={() => onChange(chosen.filter((x) => x !== id))}>×</button></li>;
+          })}
+        </ul>
+      )}
+      <select value="" aria-label="Add a room" onChange={(e) => { if (e.target.value) onChange([...chosen, e.target.value]); }}>
+        <option value="">+ Add a room…</option>
+        {rooms.filter((r) => !chosen.includes(r.id)).map((r) => <option key={r.id} value={r.id}>{label(r)}{r.free === false ? ' — taken then' : r.free ? ' — free' : ''}</option>)}
+      </select>
+    </div>
+  );
+}
 
 /** Find a time when you and the colleagues invited are all free (working hours, the next two weeks). */
 function FindATime({ guests, directory, minutes, onPick }) {
@@ -530,6 +565,7 @@ function EventDialog({ event, onClose, onSaved, onDuplicate }) {
     until: r0?.until !== undefined ? toDateInput(r0.until) : toDateInput(event.start + 30 * DAY), count: r0?.count || 10,
   });
   const [guests, setGuests] = useState((event.guests || []).map((g) => g.email));
+  const [roomIds, setRoomIds] = useState((event.rooms || []).map((r) => r.id));
   // New timed events remind you 10 minutes before, as in other calendars.
   const [reminders, setReminders] = useState(event.reminders ?? (event.id || event.all_day ? [] : [10]));
   const [guestInput, setGuestInput] = useState('');
@@ -550,7 +586,7 @@ function EventDialog({ event, onClose, onSaved, onDuplicate }) {
     const end = f.all_day ? fromInputs(f.endDate) + DAY - 1 : fromInputs(f.endDate, f.endTime);
     const all = guestInput.trim() ? [...new Set([...guests, ...guestInput.split(/[\s,;]+/).map((x) => x.trim().toLowerCase()).filter((x) => x.includes('@'))])] : guests;
     return { start, end, body: { title: f.title, location: f.ooo ? '' : f.location, description: f.description, color: f.color, all_day: f.all_day, start, end, rrule: ruleFromForm(rep, start),
-      guests: f.ooo ? [] : all, reminders, tz: TZ, kind: f.ooo ? 'ooo' : null } };
+      guests: f.ooo ? [] : all, reminders, tz: TZ, kind: f.ooo ? 'ooo' : null, ...(event.id && !event.rooms?.length && !roomIds.length ? {} : { rooms: f.ooo ? [] : roomIds }) } };
   };
 
   async function save(which) {
@@ -647,6 +683,7 @@ function EventDialog({ event, onClose, onSaved, onDuplicate }) {
             {guests.some((g) => { const k = (event.guests || []).find((x) => x.email === g); return k ? k.external : !directory.some((d) => d.username === g); })
               && ' People outside Workspace get an email invitation for their own calendar (Outlook, Gmail, phone) and a link to answer; they also get changes and cancellations.'}</span>}
         </div>}
+        {!f.ooo && <RoomPicker eventId={event.id} chosen={roomIds} booked={event.rooms || []} onChange={setRoomIds} when={(() => { const r = read(); return r.end > r.start ? [r.start, r.end] : null; })()} />}
         <RemindersField value={reminders} onChange={setReminders} />
         {!f.ooo && <label className="field"><span>Location</span><input value={f.location} onChange={set('location')} /></label>}
         <label className="field"><span>{f.ooo ? 'Message for people who invite you' : 'Description'}</span><textarea rows={3} value={f.description} onChange={set('description')} placeholder={f.ooo ? 'e.g. On holiday until Monday 9th; for anything urgent, ask Kim.' : undefined} /></label>

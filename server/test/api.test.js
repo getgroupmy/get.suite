@@ -1840,6 +1840,39 @@ test('drive search: files inside folders shared with you are found; not once the
   assert.equal(deep.name, 'Kiwi launch plan');
 });
 
+test('rooms: admins list them; an event books a free room, a clashing one is declined; repeats and moves are checked', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['rma', 'Room Ann'], ['rmb', 'Room Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'rma@acme.com');
+  await login(b, 'rmb@acme.com');
+  assert.equal((await a('POST', '/api/rooms', { name: 'Boardroom' })).status, 403, 'admins only');
+  const board = (await owner('POST', '/api/rooms', { name: 'Boardroom', capacity: 12 })).body;
+  const small = (await owner('POST', '/api/rooms', { name: 'Small room', capacity: 4 })).body;
+  assert.deepEqual((await a('GET', '/api/rooms')).body.map((r) => r.name).filter((n) => ['Boardroom', 'Small room'].includes(n)), ['Boardroom', 'Small room']);
+  const d = new Date(Date.now() + 9 * 864e5); d.setUTCHours(0, 0, 0, 0);
+  const day = d.getTime(), h = 36e5;
+  const e1 = (await a('POST', '/api/events', { title: 'Board meeting', start: day + 10 * h, end: day + 12 * h, rooms: [board.id] })).body;
+  assert.deepEqual(e1.rooms.map((r) => [r.name, r.status]), [['Boardroom', 'yes']]);
+  // Ben wants it at 11: taken; the small room is free.
+  const free = (await b('GET', `/api/rooms?start=${day + 11 * h}&end=${day + 12 * h}`)).body;
+  assert.equal(free.find((r) => r.id === board.id).free, false);
+  assert.equal(free.find((r) => r.id === small.id).free, true);
+  const e2 = (await b('POST', '/api/events', { title: 'Interview', start: day + 11 * h, end: day + 12 * h, rooms: [board.id, small.id] })).body;
+  assert.deepEqual(e2.rooms.map((r) => [r.name, r.status]), [['Boardroom', 'no'], ['Small room', 'yes']]);
+  // A weekly event that would meet the board meeting a week on: declined.
+  const weekly = (await b('POST', '/api/events', { title: 'Weekly sync', start: day - 7 * 864e5 + 10.5 * h, end: day - 7 * 864e5 + 11 * h, rrule: { freq: 'weekly' }, rooms: [board.id] })).body;
+  assert.equal(weekly.rooms[0].status, 'no');
+  // Ann moves the board meeting to the afternoon: Ben's interview could now have the boardroom, his own still says no until he asks again,
+  // and the moved meeting is still booked.
+  const moved = (await a('PATCH', `/api/events/${e1.id}`, { start: day + 14 * h, end: day + 15 * h })).body;
+  assert.equal(moved.rooms[0].status, 'yes');
+  const again = (await b('PATCH', `/api/events/${e2.id}`, { rooms: [board.id] })).body;
+  assert.deepEqual(again.rooms.map((r) => [r.name, r.status]), [['Boardroom', 'yes']]);
+  assert.ok((await b('GET', `/api/events?from=${day}&to=${day + 864e5}`)).body.find((e) => e.id === e2.id).rooms.length === 1);
+  await owner('DELETE', `/api/rooms/${small.id}`);
+  assert.equal((await a('POST', '/api/events', { title: 'x', start: day, end: day + h, rooms: [small.id] })).status, 400);
+});
+
 test('chat polls: ask, vote (one or several), change your vote, close; checked options', async () => {
   const a = client(), b = client(), c = client();
   for (const [local, name] of [['polla', 'Poll Ann'], ['pollb', 'Poll Ben'], ['pollc', 'Poll Cat']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);

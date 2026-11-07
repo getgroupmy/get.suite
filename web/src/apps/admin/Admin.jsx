@@ -325,6 +325,7 @@ function CompanySettings() {
             : org.require_2fa ? 'Everyone has set it up.' : ''}
         </p>
       </div>
+      <Rooms />
       <div className="card stack">
         <h2>Domains and storage</h2>
         <div>{org.domains.map((d) => <span key={d} className="pill" style={{ marginRight: 6 }}>{d}</span>)}</div>
@@ -333,6 +334,40 @@ function CompanySettings() {
           Ask the platform owner to add domains or change the quota.
         </p>
       </div>
+    </div>
+  );
+}
+
+/** Meeting rooms (and other things people book with events): add, rename, set how many fit, remove. */
+function Rooms() {
+  const toast = useToast();
+  const [rooms, setRooms] = useState(null);
+  const [name, setName] = useState('');
+  const [capacity, setCapacity] = useState('');
+  const load = () => get('/rooms').then(setRooms).catch(() => setRooms([]));
+  useEffect(() => { load(); }, []);
+  const run = (fn, msg) => async () => { try { await fn(); if (msg) toast(msg); load(); } catch (e) { toast(e.message, 'error'); } };
+  return (
+    <div className="card stack">
+      <h2>Rooms</h2>
+      <p className="muted small" style={{ margin: 0 }}>Meeting rooms (or a projector, a company car…) people can book by adding them to an event. A room that's taken at that time declines.</p>
+      {rooms?.length > 0 && (
+        <ul className="room-list" aria-label="Rooms">
+          {rooms.map((r) => (
+            <li key={r.id}>
+              <input aria-label={`Name of ${r.name}`} defaultValue={r.name} onBlur={(e) => { const v = e.target.value.trim(); if (v && v !== r.name) run(() => patch(`/rooms/${r.id}`, { name: v }), 'Room renamed')(); }} />
+              <input aria-label={`People ${r.name} fits`} type="number" min="1" placeholder="Seats" defaultValue={r.capacity ?? ''} style={{ width: 90 }}
+                onBlur={(e) => { const v = e.target.value === '' ? null : Number(e.target.value); if (v !== (r.capacity ?? null)) run(() => patch(`/rooms/${r.id}`, { capacity: v }))(); }} />
+              <button type="button" className="icon-btn" aria-label={`Remove ${r.name}`} onClick={run(() => del(`/rooms/${r.id}`), `${r.name} removed`)}><Icon name="trash" size={18} /></button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <form className="row" onSubmit={(e) => { e.preventDefault(); if (name.trim()) run(async () => { await post('/rooms', { name: name.trim(), capacity: capacity || null }); setName(''); setCapacity(''); }, 'Room added')(); }}>
+        <input className="grow" aria-label="New room name" placeholder="Room name, e.g. Boardroom" value={name} onChange={(e) => setName(e.target.value)} />
+        <input aria-label="Seats" type="number" min="1" placeholder="Seats" style={{ width: 90 }} value={capacity} onChange={(e) => setCapacity(e.target.value)} />
+        <button className="btn" disabled={!name.trim()}>Add room</button>
+      </form>
     </div>
   );
 }

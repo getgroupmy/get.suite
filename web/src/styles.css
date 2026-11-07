@@ -1498,3 +1498,8 @@ img.avatar.photo { object-fit: cover; border-radius: 50%; display: inline-block;
 .import-status { padding: 10px 12px; border-radius: 8px; background: var(--surface-2); }
 .import-status progress { display: block; width: 100%; margin-top: 6px; }
 .share-company .company-avatar { width: 28px; height: 28px; background: var(--accent); }
+/* Admin: rooms */
+.room-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.room-list li { display: flex; gap: 8px; align-items: center; }
+.room-list li input:first-child { flex: 1; }
+.guest-chips li.room-taken { border-color: var(--danger, #d93025); color: var(--danger, #d93025); }
