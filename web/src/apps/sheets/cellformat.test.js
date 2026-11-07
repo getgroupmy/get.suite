@@ -25,3 +25,22 @@ test('merging formats: toggles, removal, checks', () => {
   assert.deepEqual(mergeFormat({ num: 'number' }, { dp: 14 }), { num: 'number', dp: 10 });
   assert.deepEqual(cellStyle({ b: 1, i: 1, fill: '#fff2cc', align: 'center' }), { fontWeight: 700, fontStyle: 'italic', background: '#fff2cc', textAlign: 'center' });
 });
+
+test('strikethrough, wrapping and borders', async () => {
+  const { borderFor, cellStyle, mergeFormat } = await import('./cellformat.js');
+  assert.deepEqual(mergeFormat(null, { s: true, wrap: true, bd: 'rbtx' }), { s: 1, wrap: 1, bd: 'tbr' });
+  assert.equal(mergeFormat({ bd: 't' }, { bd: '' }), null);
+  const st = cellStyle({ u: 1, s: 1, wrap: 1, bd: 'tl' });
+  assert.equal(st.textDecoration, 'underline line-through');
+  assert.equal(st.whiteSpace, 'pre-wrap');
+  assert.ok(st.borderTop && st.borderLeft && !st.borderBottom && !st.borderRight);
+  const range = { r1: 0, r2: 2, c1: 0, c2: 1 };
+  assert.equal(borderFor('outer', range, 0, 0), 'tl');
+  assert.equal(borderFor('outer', range, 1, 2), 'br');
+  assert.equal(borderFor('outer', range, 0, 1, 'b'), 'bl');
+  assert.equal(borderFor('outer', { r1: 3, r2: 3, c1: 3, c2: 3 }, 3, 3), 'tblr');
+  assert.equal(borderFor('bottom', range, 1, 1), '');
+  assert.equal(borderFor('bottom', range, 1, 2, 't'), 'tb');
+  assert.equal(borderFor('all', range, 1, 1), 'tblr');
+  assert.equal(borderFor('none', range, 1, 1, 'tb'), '');
+});

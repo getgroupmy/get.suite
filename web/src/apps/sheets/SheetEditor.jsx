@@ -29,7 +29,7 @@ import { SheetFind } from './SheetFind.jsx';
 const SEL_COLORS = ['#1a73e8', '#d93025', '#188038', '#e37400', '#8430ce', '#00796b', '#c2185b', '#5f6368'];
 const colorFor = (id) => SEL_COLORS[[...String(id)].reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) >>> 0, 7) % SEL_COLORS.length];
 import { createEvaluator, display, colName, cellKey, parseRef, shiftFormula } from './formula.js';
-import { NUMBER_FORMATS, CURRENCIES, decimals, formatNumber, cellStyle, mergeFormat } from './cellformat.js';
+import { NUMBER_FORMATS, CURRENCIES, BORDERS, borderFor, decimals, formatNumber, cellStyle, mergeFormat } from './cellformat.js';
 
 const TEXT_COLORS = [['', 'Automatic'], ['#c5221f', 'Red'], ['#e37400', 'Orange'], ['#188038', 'Green'], ['#1a73e8', 'Blue'], ['#8430ce', 'Purple'], ['#5f6368', 'Grey']];
 const FILLS = [['', 'None'], ['#fce8e6', 'Light red'], ['#fef7e0', 'Light yellow'], ['#e6f4ea', 'Light green'], ['#e8f0fe', 'Light blue'], ['#f3e8fd', 'Light purple'], ['#f1f3f4', 'Light grey']];
@@ -172,6 +172,7 @@ export default function SheetEditor() {
   }
 
   /** Apply a format change to every selected cell. */
+  /** change: the same for every selected cell, or fn(key, c, r, format) → change (borders depend on the place). */
   function writeFormats(change) {
     if (readOnly) return;
     const cur = dataRef.current;
@@ -180,7 +181,7 @@ export default function SheetEditor() {
       const f = { ...(s.formats || {}) };
       for (let r = range.r1; r <= range.r2; r++) for (let c = range.c1; c <= range.c2; c++) {
         const k = cellKey(c, r);
-        const m = mergeFormat(f[k], change);
+        const m = mergeFormat(f[k], typeof change === 'function' ? change(k, c, r, f[k]) : change);
         if (m) f[k] = m; else delete f[k];
       }
       return { ...s, formats: f };
@@ -361,7 +362,8 @@ export default function SheetEditor() {
       e.preventDefault();
       const key = k.toLowerCase();
       writeFormats({ [key]: !formats[cellKey(sel.c, sel.r)]?.[key] });
-    } else if (mod && k.toLowerCase() === 'a') { e.preventDefault(); setAnchor({ c: 0, r: 0 }); setSel({ c: cols - 1, r: rows - 1 }); }
+    } else if (e.altKey && e.shiftKey && e.code === 'Digit5') { e.preventDefault(); writeFormats({ s: !formats[cellKey(sel.c, sel.r)]?.s }); }
+    else if (mod && k.toLowerCase() === 'a') { e.preventDefault(); setAnchor({ c: 0, r: 0 }); setSel({ c: cols - 1, r: rows - 1 }); }
     else if (mod && e.altKey && e.code === 'KeyM') { e.preventDefault(); startComment(); }
     else if (!mod && !e.altKey && k.length === 1) { e.preventDefault(); startEdit(k); }
   }
@@ -557,7 +559,8 @@ export default function SheetEditor() {
       />
       {status === 'offline' && <div className="banner warn">You're offline. Keep editing: your changes are kept here and sync when the connection is back.</div>}
       {readOnly && <div className="banner">View only. Ask {file.owner_name} for edit access.</div>}
-      {!readOnly && <FormatBar fmt={formats[selKey] || {}} onChange={(change) => { writeFormats(change); gridRef.current?.focus(); }} onComment={startComment} onChart={newChart} onSort={() => setDialog({ type: 'sort' })} onRules={() => setDialog({ type: 'rules' })} onValidation={() => setDialog({ type: 'validation' })} filterOn={!!filter} onFilter={toggleFilter} history={history} />}
+      {!readOnly && <FormatBar fmt={formats[selKey] || {}} onChange={(change) => { writeFormats(change); gridRef.current?.focus(); }}
+        onBorders={(kind) => { writeFormats((k, c, r, f) => ({ bd: borderFor(kind, range, c, r, f?.bd) })); gridRef.current?.focus(); }} onComment={startComment} onChart={newChart} onSort={() => setDialog({ type: 'sort' })} onRules={() => setDialog({ type: 'rules' })} onValidation={() => setDialog({ type: 'validation' })} filterOn={!!filter} onFilter={toggleFilter} history={history} />}
       {finding && sheet && (
         <SheetFind key={`${active}-${finding.n}`} cells={cells} shown={shown} hidden={hidden} replacing={finding.replace} canEdit={!readOnly}
           onGo={(m) => { setAnchor(null); setSel({ c: m.c, r: m.r }); requestAnimationFrame(() => gridRef.current?.querySelector(`[data-k="${m.key}"]`)?.scrollIntoView({ block: 'nearest', inline: 'nearest' })); }}
@@ -774,7 +777,7 @@ export function parseCsv(text) {
 }
 
 /** Formatting for the selected cells: bold, italic, underline, colours, alignment, number format. */
-function FormatBar({ fmt, onChange, onComment, onChart, onSort, onRules, onValidation, filterOn, onFilter, history }) {
+function FormatBar({ fmt, onChange, onBorders, onComment, onChart, onSort, onRules, onValidation, filterOn, onFilter, history }) {
   const keep = (e) => e.preventDefault(); // buttons don't take focus from the grid
   const Toggle = ({ k, label, title, children }) => (
     <button type="button" className={`tb ${fmt[k] ? 'on' : ''}`} aria-pressed={!!fmt[k]} aria-label={label} title={title} onMouseDown={keep} onClick={() => onChange({ [k]: !fmt[k] })}>{children}</button>
@@ -788,6 +791,7 @@ function FormatBar({ fmt, onChange, onComment, onChart, onSort, onRules, onValid
       <Toggle k="b" label="Bold" title="Bold (Ctrl+B)"><b>B</b></Toggle>
       <Toggle k="i" label="Italic" title="Italic (Ctrl+I)"><i>I</i></Toggle>
       <Toggle k="u" label="Underline" title="Underline (Ctrl+U)"><u>U</u></Toggle>
+      <Toggle k="s" label="Strikethrough" title="Strikethrough (Alt+Shift+5)"><s>S</s></Toggle>
       <span className="sep" />
       <label className="tb-color" title="Text colour"><span className="color-a" aria-hidden="true">A<span className="color-bar" style={{ background: fmt.color || 'currentColor' }} /></span>
         <select aria-label="Text colour" value={fmt.color || ''} onChange={(e) => onChange({ color: e.target.value })}>
@@ -802,6 +806,11 @@ function FormatBar({ fmt, onChange, onComment, onChart, onSort, onRules, onValid
         <button key={a} type="button" className={`tb ${align === a ? 'on' : ''}`} aria-pressed={align === a} aria-label={label} title={label} onMouseDown={keep}
           onClick={() => onChange({ align: align === a ? null : a })}><AlignGlyph to={a} /></button>
       ))}
+      <Toggle k="wrap" label="Wrap text" title="Wrap text onto more lines in the cell">↵</Toggle>
+      <select className="tb-select" aria-label="Borders" title="Borders around the selected cells" value="" onChange={(e) => { if (e.target.value) onBorders(e.target.value); }}>
+        <option value="">Borders…</option>
+        {BORDERS.map(([v, n]) => <option key={v} value={v}>{n}</option>)}
+      </select>
       <span className="sep" />
       <select className="tb-select" aria-label="Number format" title="Number format" value={fmt.num || ''} onChange={(e) => onChange({ num: e.target.value, dp: null })}>
         {NUMBER_FORMATS.map(([v, n]) => <option key={v} value={v}>{n}</option>)}
@@ -817,7 +826,7 @@ function FormatBar({ fmt, onChange, onComment, onChart, onSort, onRules, onValid
       </>}
       <span className="sep" />
       <button type="button" className="tb" aria-label="Clear formatting" title="Clear formatting" onMouseDown={keep}
-        onClick={() => onChange({ b: null, i: null, u: null, color: null, fill: null, align: null, num: null })}>Tx</button>
+        onClick={() => onChange({ b: null, i: null, u: null, s: null, wrap: null, bd: null, color: null, fill: null, align: null, num: null })}>Tx</button>
       <span className="sep" />
       <button type="button" className="tb labelled" aria-label="Conditional formatting" title="Colour cells by their value" onMouseDown={keep} onClick={onRules}><RulesGlyph /> Rules</button>
       <button type="button" className={`tb labelled ${filterOn ? 'on' : ''}`} aria-label={filterOn ? 'Remove filter' : 'Create a filter'} aria-pressed={filterOn} title={filterOn ? 'Remove the filter (shows every row)' : 'Filter rows by their values'} onMouseDown={keep} onClick={onFilter}><FilterGlyph /> Filter</button>

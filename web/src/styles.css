@@ -30,6 +30,7 @@
   --series-ink-5: #1f1f1f; --series-ink-6: #fff; --series-ink-7: #fff; --series-ink-8: #1f1f1f; /* text on each colour */
 }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --cell-border: #e8eaed;
     --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500;
     --series-5: #d55181; --series-6: #008300; --series-7: #9085e9; --series-8: #e66767;
     --series-ink-1: #1f1f1f; --series-ink-2: #1f1f1f; --series-ink-3: #1f1f1f; --series-ink-4: #1f1f1f;
@@ -53,6 +54,7 @@
   } }
 /* the same, when Dark is chosen in Settings */
 :root[data-theme="dark"] {
+  --cell-border: #e8eaed;
     --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500;
     --series-5: #d55181; --series-6: #008300; --series-7: #9085e9; --series-8: #e66767;
     --series-ink-1: #1f1f1f; --series-ink-2: #1f1f1f; --series-ink-3: #1f1f1f; --series-ink-4: #1f1f1f;

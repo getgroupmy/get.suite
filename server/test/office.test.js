@@ -297,3 +297,12 @@ test('PowerPoint: hidden slides stay skipped both ways; transitions are read', a
   const back = await deckFromPowerPoint(await zip.generateAsync({ type: 'nodebuffer' }), { savePicture: async () => 'x' });
   assert.deepEqual(back.slides.map((s) => [s.items[0]?.text, s.transition || null, !!s.skip]), [['Shown', 'push', false], ['Backup', null, true]]);
 });
+
+test('Excel: strikethrough, wrapped text and borders go out and come back', async () => {
+  const data = { sheets: [{ name: 'S', cells: { A1: 'Old', B1: 'A long note that wraps', C1: '1' }, formats: { A1: { s: 1 }, B1: { wrap: 1, align: 'center' }, C1: { bd: 'tblr' }, C2: { bd: 'b' } } }] };
+  const back = (await sheetFromExcel(await excelFromSheet(data))).sheets[0];
+  assert.deepEqual(back.formats.A1, { s: 1 });
+  assert.deepEqual(back.formats.B1, { wrap: 1, align: 'center' });
+  assert.equal(back.formats.C1.bd, 'tblr');
+  assert.equal(back.formats.C2.bd, 'b');
+});

@@ -57,8 +57,8 @@ export async function sheetFromExcel(buffer) {
   const sheets = [];
   wb.eachSheet((ws) => {
     const cells = {}, formats = {}, colWidths = {};
-    ws.eachRow({ includeEmpty: false }, (row, r) => {
-      row.eachCell({ includeEmpty: false }, (cell, c) => {
+    ws.eachRow({ includeEmpty: true }, (row, r) => {
+      row.eachCell({ includeEmpty: true }, (cell, c) => {
         const key = `${colName(c - 1)}${r}`;
         const t = cellText(cell);
         if (t !== null && t !== '') cells[key] = t;
@@ -66,6 +66,10 @@ export async function sheetFromExcel(buffer) {
         if (cell.font?.bold) f.b = 1;
         if (cell.font?.italic) f.i = 1;
         if (cell.font?.underline) f.u = 1;
+        if (cell.font?.strike) f.s = 1;
+        if (cell.alignment?.wrapText) f.wrap = 1;
+        const bd = ['top', 'bottom', 'left', 'right'].filter((side) => cell.border?.[side]?.style).map((side) => side[0]).join('');
+        if (bd) f.bd = bd;
         const color = hex(cell.font?.color?.argb);
         if (color && color !== '#000000') f.color = color;
         const fill = cell.fill?.type === 'pattern' && cell.fill.pattern === 'solid' ? hex(cell.fill.fgColor?.argb) : null;
@@ -116,9 +120,10 @@ export async function excelFromSheet(data) {
     }
     for (const [key, f] of Object.entries(s.formats || {})) {
       const cell = ws.getCell(key);
-      if (f.b || f.i || f.u || f.color) cell.font = { bold: !!f.b, italic: !!f.i, underline: !!f.u, ...(f.color && { color: { argb: argb(f.color) } }) };
+      if (f.b || f.i || f.u || f.s || f.color) cell.font = { bold: !!f.b, italic: !!f.i, underline: !!f.u, strike: !!f.s, ...(f.color && { color: { argb: argb(f.color) } }) };
       if (f.fill) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: argb(f.fill) } };
-      if (f.align) cell.alignment = { horizontal: f.align };
+      if (f.align || f.wrap) cell.alignment = { ...(f.align && { horizontal: f.align }), ...(f.wrap && { wrapText: true }) };
+      if (f.bd) cell.border = Object.fromEntries([['t', 'top'], ['b', 'bottom'], ['l', 'left'], ['r', 'right']].filter(([k]) => f.bd.includes(k)).map(([, side]) => [side, { style: 'thin', color: { argb: 'FF000000' } }]));
       const nf = numToExcel(f);
       if (nf) cell.numFmt = nf;
     }
