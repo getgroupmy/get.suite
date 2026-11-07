@@ -515,6 +515,7 @@ function InvitationDialog({ event, onClose, onAnswered }) {
         <GuestList guests={event.guests} />
         {event.rooms?.length > 0 && <p className="muted small">Room: {event.rooms.map((r) => `${r.name}${r.status === 'no' ? ' (declined: taken)' : ''}`).join(', ')}</p>}
         <RemindersField value={reminders} onChange={saveReminders} />
+        {!event.rrule && <ProposeTime event={event} onDone={onAnswered} />}
         <div className="stack" style={{ gap: 6 }}>
           <span className="muted small">Going?{event.rrule ? ' (for the whole series)' : ''}</span>
           <div className="row" role="group" aria-label="Your answer">
@@ -525,6 +526,33 @@ function InvitationDialog({ event, onClose, onAnswered }) {
         </div>
       </div>
     </Modal>
+  );
+}
+
+const proposalText = (g) => `${new Date(g.proposed_start).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' })}, ${fmtTime(g.proposed_start)} – ${fmtTime(g.proposed_end)}`;
+
+/** A guest suggests another time (and answers Maybe), or takes the suggestion back. */
+function ProposeTime({ event, onDone }) {
+  const toast = useToast();
+  const { user } = useAuth();
+  const me = (event.guests || []).find((g) => g.email === user.username);
+  const [open, setOpen] = useState(false);
+  const [v, setV] = useState({ date: toDateInput(event.start), start: toTimeInput(event.start), end: toTimeInput(event.end), note: '' });
+  const send = async (body) => { try { await post(`/events/${event.id}/propose`, { ...body, tz: TZ }); toast(body.start === null ? 'Suggestion taken back' : 'New time proposed to the organizer'); onDone(); } catch (e) { toast(e.message, 'error'); } };
+  if (me?.proposed_start) {
+    return <p className="muted small" style={{ margin: 0 }}>You proposed {proposalText(me)}. <button type="button" className="link-btn small" onClick={() => send({ start: null })}>Take it back</button></p>;
+  }
+  if (!open) return <div><button type="button" className="btn small" onClick={() => setOpen(true)}>Propose a new time</button></div>;
+  return (
+    <form className="stack propose-time" onSubmit={(e) => { e.preventDefault(); send({ start: fromInputs(v.date, v.start), end: fromInputs(v.date, v.end), note: v.note }); }}>
+      <div className="row wrap">
+        <label className="field"><span>Day</span><input type="date" required value={v.date} onChange={(e) => setV({ ...v, date: e.target.value })} /></label>
+        <label className="field"><span>From</span><input type="time" required value={v.start} onChange={(e) => setV({ ...v, start: e.target.value })} /></label>
+        <label className="field"><span>To</span><input type="time" required value={v.end} onChange={(e) => setV({ ...v, end: e.target.value })} /></label>
+      </div>
+      <label className="field"><span>Note to the organizer (optional)</span><input value={v.note} maxLength={500} onChange={(e) => setV({ ...v, note: e.target.value })} /></label>
+      <div className="row end"><button type="button" className="btn" onClick={() => setOpen(false)}>Cancel</button><button className="btn primary">Propose</button></div>
+    </form>
   );
 }
 
@@ -779,6 +807,12 @@ function EventDialog({ event, onClose, onSaved, onDuplicate }) {
               })}
             </ul>
           )}
+          {!event.rrule && (event.guests || []).filter((g) => g.proposed_start).map((g) => (
+            <p key={g.email} className="proposal small" style={{ margin: 0 }}>
+              <strong>{g.name || g.email}</strong> proposes {proposalText(g)}{g.proposal_note && <span className="muted"> · “{g.proposal_note}”</span>}{' '}
+              <button type="button" className="link-btn small" onClick={() => setF({ ...f, all_day: false, startDate: toDateInput(g.proposed_start), startTime: toTimeInput(g.proposed_start), endDate: toDateInput(g.proposed_end), endTime: toTimeInput(g.proposed_end) })}>Use this time</button>
+            </p>
+          ))}
           <input id="guest-input" list="guest-directory" value={guestInput} placeholder="Add people by email address" autoComplete="off"
             onChange={(e) => { const v = e.target.value; if (/[,;\s]$/.test(v) || directory.some((d) => d.username === v.trim().toLowerCase())) addGuests(v); else setGuestInput(v); }}
             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); if (guestInput.trim()) addGuests(guestInput); } }} /* Enter adds a guest, never saves */ />

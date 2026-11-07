@@ -23,6 +23,10 @@ q(`CREATE TABLE IF NOT EXISTS event_guests (
   PRIMARY KEY (event_id, user_id)
 )`).run();
 q('CREATE INDEX IF NOT EXISTS event_guests_user ON event_guests(user_id)').run();
+// A guest's suggestion of another time (the organizer can take it); gone when the time changes.
+for (const [col, type] of [['proposed_start', 'INTEGER'], ['proposed_end', 'INTEGER'], ['proposal_note', 'TEXT']]) {
+  if (!q('PRAGMA table_info(event_guests)').all().some((c) => c.name === col)) q(`ALTER TABLE event_guests ADD COLUMN ${col} ${type}`).run();
+}
 // Guests outside the server: invited by email with a calendar file, answering on a web page.
 q(`CREATE TABLE IF NOT EXISTS event_outside_guests (
   event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
@@ -139,7 +143,7 @@ const attachmentsFor = (ev, userId) => (ev.attachments || []).map((a) => ({ ...a
 // When a series ends, for the range query: its last possible end (null = never, or "after N times").
 const repeatUntil = (e) => (e.rrule ? (e.rrule.until !== undefined ? e.rrule.until + (e.end - e.start) : null) : null);
 
-const guestsOf = (eventId) => q(`SELECT u.id, u.username AS email, u.name, g.status FROM event_guests g JOIN users u ON u.id = g.user_id
+const guestsOf = (eventId) => q(`SELECT u.id, u.username AS email, u.name, g.status, g.proposed_start, g.proposed_end, g.proposal_note FROM event_guests g JOIN users u ON u.id = g.user_id
                                   WHERE g.event_id = ? ORDER BY u.name`).all(eventId);
 
 const EMAIL_RE = /^[^\s@<>"(),;:\\]+@[a-z0-9.-]+\.[a-z]{2,}$/i;
@@ -387,6 +391,7 @@ export default function calendarRoutes() {
     const attachments = req.body.attachments !== undefined ? readAttachments(req.user, req.body.attachments, before.attachments) : null;
     const tz = req.body.tz ? zoneOrUtc(req.body.tz) : existing.tz;
     const changed = detailsChanged(before, e);
+    if (before.start !== e.start || before.end !== e.end) q('UPDATE event_guests SET proposed_start = NULL, proposed_end = NULL, proposal_note = NULL WHERE event_id = ?').run(e.id);
     q(`UPDATE events SET title = ?, description = ?, location = ?, start = ?, end = ?, all_day = ?, color = ?, rrule = ?, exdates = ?, repeat_until = ?,
        tz = ?, sequence = sequence + ?, kind = ? WHERE id = ?`)
       .run(e.title, e.description, e.location, e.start, e.end, e.all_day, e.color, e.rrule ? JSON.stringify(e.rrule) : null, JSON.stringify(e.exdates || []), repeatUntil(e),
@@ -443,6 +448,30 @@ export default function calendarRoutes() {
     notify(req.user, outEvent(ev), guests.map((g) => ({ username: g.email, name: g.name })), 'cancel', req.query.tz);
     touch([req.user.id, ...guests.map((g) => g.id)]);
     res.json({ ok: true });
+  });
+
+  // A guest suggests another time (answering maybe or no as well), or takes their suggestion back
+  // (start: null). The organizer is told, and can move the event to it.
+  r.post('/:id/propose', (req, res) => {
+    const ev = q('SELECT * FROM events WHERE id = ?').get(req.params.id);
+    const mine = ev && q('SELECT 1 FROM event_guests WHERE event_id = ? AND user_id = ?').get(ev.id, req.user.id);
+    if (!ev || !mine) throw notFound();
+    if (ev.rrule) throw bad('For a repeating event, message the organizer instead');
+    if (req.body.start === null) {
+      q('UPDATE event_guests SET proposed_start = NULL, proposed_end = NULL, proposal_note = NULL WHERE event_id = ? AND user_id = ?').run(ev.id, req.user.id);
+      touch([ev.owner_id, req.user.id]);
+      return res.json({ ok: true });
+    }
+    const start = int(req.body.start, 'start'), end = int(req.body.end, 'end');
+    if (end <= start || end - start > 31 * 864e5) throw bad('The new time must end after it starts');
+    if (start === ev.start && end === ev.end) throw bad('That is the time it already has');
+    const status = ['maybe', 'no'].includes(req.body.status) ? req.body.status : 'maybe';
+    const note = str(req.body.note, { max: 500, name: 'Note' }) || null;
+    q('UPDATE event_guests SET status = ?, proposed_start = ?, proposed_end = ?, proposal_note = ? WHERE event_id = ? AND user_id = ?').run(status, start, end, note, ev.id, req.user.id);
+    bell([ev.owner_id], { kind: 'invite', title: `${req.user.name || req.user.username} proposed a new time for “${ev.title}”`,
+      body: `${whenText({ ...outEvent(ev), start, end, all_day: 0 }, req.body.tz || ev.tz || 'UTC')}${note ? ` · “${note}”` : ''}`, link: '/calendar', actor: req.user.name });
+    touch([ev.owner_id, req.user.id]);
+    res.json({ ok: true, status });
   });
 
   // A guest's answer: yes, maybe or no.

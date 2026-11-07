@@ -2666,3 +2666,25 @@ test('drive: before emailing links, which recipients can’t open which files', 
   assert.deepEqual(r.map((f) => [f.name, f.can_share, f.people.map((p) => p.username)]), [['Plan', true, ['mlb@acme.com']]], 'Ben’s own file and the shared one are fine; outsiders aren’t counted');
   assert.deepEqual((await a('POST', '/api/files/missing-access', { files: [mine.id], emails: [] })).body, []);
 });
+
+test('calendar: a guest proposes a new time; the organizer is told and moving the event clears it', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['ppa', 'Prop Ann'], ['ppb', 'Prop Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'ppa@acme.com');
+  await login(b, 'ppb@acme.com');
+  const h = 36e5, day = Date.UTC(2026, 11, 7);
+  const ev = (await a('POST', '/api/events', { title: 'Review', start: day + 9 * h, end: day + 10 * h, guests: ['ppb@acme.com'] })).body;
+  assert.equal((await b('POST', `/api/events/${ev.id}/propose`, { start: day + 14 * h, end: day + 13 * h })).status, 400);
+  const p = await b('POST', `/api/events/${ev.id}/propose`, { start: day + 14 * h, end: day + 15 * h, note: 'Morning is full', tz: 'UTC' });
+  assert.equal(p.status, 200);
+  assert.equal(p.body.status, 'maybe');
+  const seen = (await a('GET', `/api/events?from=${day}&to=${day + 864e5}`)).body.find((x) => x.id === ev.id);
+  const ben = seen.guests.find((g) => g.email === 'ppb@acme.com');
+  assert.deepEqual([ben.status, ben.proposed_start, ben.proposed_end, ben.proposal_note], ['maybe', day + 14 * h, day + 15 * h, 'Morning is full']);
+  assert.ok(JSON.stringify((await a('GET', '/api/notifications')).body).includes('Prop Ben proposed a new time for “Review”'));
+  assert.equal((await a('POST', `/api/events/${ev.id}/propose`, { start: day, end: day + h })).status, 404, 'only guests propose');
+  // The organizer takes it: the proposal is gone.
+  await a('PATCH', `/api/events/${ev.id}`, { start: day + 14 * h, end: day + 15 * h });
+  const after = (await a('GET', `/api/events?from=${day}&to=${day + 864e5}`)).body.find((x) => x.id === ev.id).guests.find((g) => g.email === 'ppb@acme.com');
+  assert.equal(after.proposed_start, null);
+});
