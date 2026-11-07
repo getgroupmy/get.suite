@@ -27,6 +27,7 @@ import { TableOfContents, htmlWithContents } from './toc.js';
 import { TaskList, TaskItem } from '@tiptap/extension-list';
 import { PageBreak } from './pagebreak.js';
 import { Footnote, footnotesOf, htmlWithFootnotes } from './footnote.js';
+import { diffDocs, changeCount } from './docdiff.js';
 import { VersionHistory } from '../VersionHistory.jsx';
 
 /** Marks the text a comment is about (several comments may overlap); it travels with the text. */
@@ -318,7 +319,7 @@ function SharedDoc({ file, setFile }) {
           onClose={() => { if (pending) pending.onCancel(); setPanel(false); }} />}
       </div>
       {sharing && <ShareDialog file={file} onClose={() => setSharing(false)} />}
-      {history && <VersionHistory file={file} canEdit={!readOnly} onClose={() => setHistory(false)} renderPreview={(content) => <DocPreview content={content} fileId={file.id} />} />}
+      {history && <VersionHistory file={file} canEdit={!readOnly} onClose={() => setHistory(false)} renderPreview={(content) => <DocPreview content={content} fileId={file.id} />} renderChanges={(content) => <DocChanges before={content} after={editor.getJSON()} />} />}
       {pageSetupOpen && <PageSetupDialog setup={file.page_setup} onClose={() => { setPageSetupOpen(false); editor.view.focus(); }}
         onSave={async (next) => { try { setFile(await patch(`/files/${file.id}`, { page_setup: next })); setPageSetupOpen(false); toast('Page setup saved'); } catch (e) { toast(e.message, 'error'); } }} />}
     </div>
@@ -511,6 +512,25 @@ function FootnoteList({ editor, readOnly }) {
         ))}
       </ol>
     </section>
+  );
+}
+
+/** What changed from an earlier version to now: added words green, removed ones struck through. */
+function DocChanges({ before, after }) {
+  const diff = useMemo(() => diffDocs(before, after), [before, after]);
+  const { added, removed } = changeCount(diff);
+  return (
+    <div className="paper preview-paper doc-changes">
+      <p className="muted small changes-summary">{added || removed ? `Since then: ${added} word${added === 1 ? '' : 's'} added, ${removed} taken out.` : 'No changes to the text since then.'}</p>
+      {diff.map((b, i) => {
+        const Tag = b.kind === 'heading' ? `h${Math.min(6, b.level || 2)}` : 'p';
+        return (
+          <Tag key={i} className={`change-${b.change} ${b.kind === 'item' ? 'change-item' : ''}`}>
+            {b.parts.map((x, j) => (x.t === 'add' ? <ins key={j}>{x.text}</ins> : x.t === 'del' ? <del key={j}>{x.text}</del> : <span key={j}>{x.text}</span>))}
+          </Tag>
+        );
+      })}
+    </div>
   );
 }
 

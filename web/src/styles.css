@@ -1510,3 +1510,12 @@ img.avatar.photo { object-fit: cover; border-radius: 50%; display: inline-block;
 .file-card .grow { display: grid; min-width: 0; }
 .file-card strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .file-card.none { color: var(--muted); }
+/* Docs: changes since an earlier version */
+.versions-changes { padding: 0 12px 6px; }
+.doc-changes ins { background: color-mix(in srgb, #188038 18%, transparent); color: inherit; text-decoration: none; border-radius: 2px; }
+.doc-changes del { background: color-mix(in srgb, #d93025 14%, transparent); color: var(--muted); border-radius: 2px; }
+.doc-changes .change-add { border-left: 3px solid #188038; padding-left: 8px; }
+.doc-changes .change-del { border-left: 3px solid #d93025; padding-left: 8px; }
+.doc-changes .change-edit { border-left: 3px solid #f9ab00; padding-left: 8px; }
+.doc-changes .change-item::before { content: "• "; }
+.changes-summary { margin-top: 0; }

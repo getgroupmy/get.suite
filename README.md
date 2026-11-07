@@ -100,6 +100,7 @@ Everyone who can edit a document, spreadsheet or presentation can work in it at 
 - **Viewers** see changes live but can't type.
 - **Version history** keeps a version each time a different person starts editing, or after a 10-minute pause. Restoring a version reloads it for everyone who has the document open.
   - In Docs, Sheets and Slides, **⋮ → Version history** lists them beside a preview of the one you pick (the document as written, the spreadsheet's values, or the slides), with **Restore this version**. What was there before a restore is kept as a version too.
+  - For documents, **Show changes since then** marks what has changed from that version to now, paragraph by paragraph: added words in green, removed words struck through, edited paragraphs flagged at the side, and a count of words added and taken out.
   - **Name current version** (or name any earlier one, such as "Sent to the client") marks it in the list; named versions are kept for good, however many come after.
 - **Sheets** works the same way, cell by cell: two people changing different cells at once both keep their change, and the same cell keeps the later change. Each person's selected cell is outlined in their colour. Formats, column widths and new sheets are shared too.
 - **Slides** too: slides and the boxes on them merge one by one, so two people working on different boxes (or slides) both keep their changes; the same box keeps the later change. Each person's selected box is outlined in their colour.

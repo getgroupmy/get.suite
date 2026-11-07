@@ -8,7 +8,8 @@ import Icon from '../components/Icon.jsx';
 
 const when = (ms) => new Date(ms).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
 
-export function VersionHistory({ file, canEdit, renderPreview, onClose }) {
+export function VersionHistory({ file, canEdit, renderPreview, renderChanges, onClose }) {
+  const [changes, setChanges] = useState(false);
   const toast = useToast();
   const [list, setList] = useState(null);
   const [picked, setPicked] = useState(null); // { v, content }
@@ -68,7 +69,10 @@ export function VersionHistory({ file, canEdit, renderPreview, onClose }) {
               {canEdit && <button type="button" className="btn small" onClick={() => { setNaming(picked.v); setLabel(picked.v.label || ''); }}>{picked.v.label ? 'Rename' : 'Name this version'}</button>}
               {canEdit && <button type="button" className="btn small primary" onClick={restore}>Restore this version</button>}
             </div>
-            <div className="versions-body">{renderPreview(picked.content)}</div>
+            {renderChanges && (
+              <label className="check small versions-changes"><input type="checkbox" checked={changes} onChange={(e) => setChanges(e.target.checked)} /> Show changes since then</label>
+            )}
+            <div className="versions-body">{changes && renderChanges ? renderChanges(picked.content) : renderPreview(picked.content)}</div>
           </>}
         </section>
       </div>
