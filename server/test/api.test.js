@@ -3247,3 +3247,24 @@ test('approvals: ask, approve, reject, cancel; changes after approval are flagge
   assert.equal(hist.current.id, b.id, 'cancelled ones are not current');
   assert.equal(hist.history.length, 3);
 });
+
+test('notes: copy to a document or to tasks', async () => {
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'ntd', domain: 'acme.com', name: 'Nat Doc', password: 'password123' })).status, 201);
+  await login(a, 'ntd@acme.com');
+  const list = (await a('POST', '/api/notes', { title: 'Trip', items: [{ text: 'Book hotel' }, { text: 'Passport', done: true }, { text: 'Taxi' }] })).body;
+  const text = (await a('POST', '/api/notes', { title: 'Minutes', body: 'Line one\nLine two' })).body;
+  const d1 = (await a('POST', `/api/notes/${list.id}/doc`)).body;
+  const { content } = (await a('GET', `/api/files/${d1.id}/content`)).body;
+  assert.equal((await a('GET', `/api/files/${d1.id}`)).body.name, 'Trip');
+  assert.equal(content.content[0].type, 'heading');
+  assert.deepEqual(content.content[1].content.map((i) => [i.attrs.checked, i.content[0].content[0].text]), [[false, 'Book hotel'], [true, 'Passport'], [false, 'Taxi']]);
+  const d2 = (await a('POST', `/api/notes/${text.id}/doc`)).body;
+  assert.deepEqual((await a('GET', `/api/files/${d2.id}/content`)).body.content.content.slice(1).map((p) => p.content[0].text), ['Line one', 'Line two']);
+  const t = (await a('POST', `/api/notes/${list.id}/tasks`)).body;
+  assert.equal(t.added, 2, 'only what is still to do');
+  assert.equal(t.list.name, 'My tasks');
+  const tasks = (await a('GET', `/api/tasks/lists/${t.list.id}/tasks`)).body.filter((x) => !x.done);
+  assert.deepEqual(tasks.slice(0, 2).map((x) => x.title), ['Book hotel', 'Taxi'], 'in order, on top');
+  assert.equal((await a('POST', `/api/notes/${text.id}/tasks`)).body.added, 1, 'a plain note becomes one task');
+});

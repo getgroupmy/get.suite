@@ -55,6 +55,8 @@ export default function Notes() {
   const current = notes?.find((n) => n.id === editing);
   const card = (n) => <NoteCard key={n.id} note={n} onOpen={() => setEditing(n.id)} onChange={(c) => change(n, c)} onArchive={() => archive(n, !n.archived)}
     onLabel={() => setLabelling(n)} onShare={() => setSharing(n)} onCopy={() => copy(n)} onDelete={() => setDeleting(n)}
+    onToDoc={async () => { try { const d = await post(`/notes/${n.id}/doc`); toast('Copied to a new document in My Drive', 'info', { action: { label: 'Open', onClick: () => navigate(`/docs/${d.id}`) } }); } catch (e) { toast(e.message, 'error'); } }}
+    onToTasks={async () => { try { const r = await post(`/notes/${n.id}/tasks`); toast(`${r.added === 1 ? '1 task' : `${r.added} tasks`} added to ${r.list.name}`, 'info', { action: { label: 'Open', onClick: () => navigate(`/tasks/${r.list.id}`) } }); } catch (e) { toast(e.message, 'error'); } }}
     onRemind={(t) => { if (t === 'pick') setPicking(n); else { change(n, { remind_at: t }); if (t) toast(`Reminder set for ${reminderText(t)}`); } }} />;
   return (
     <div className="notes-app">
@@ -175,7 +177,7 @@ function PickTime({ note, onPick, onClose }) {
   );
 }
 
-function NoteCard({ note: n, onOpen, onChange, onArchive, onLabel, onShare, onCopy, onDelete, onRemind }) {
+function NoteCard({ note: n, onOpen, onChange, onArchive, onLabel, onShare, onCopy, onDelete, onRemind, onToDoc, onToTasks }) {
   const items = n.items || [];
   const open = items.filter((i) => !i.done);
   const done = items.filter((i) => i.done);
@@ -214,6 +216,8 @@ function NoteCard({ note: n, onOpen, onChange, onArchive, onLabel, onShare, onCo
         <Menu trigger={(p) => <button type="button" className="icon-btn" aria-label="More" {...p}><Icon name="more" size={18} /></button>} items={[
           { label: 'Labels…', onClick: onLabel },
           { label: 'Make a copy', icon: 'copy', onClick: onCopy },
+          { label: 'Copy to a document', icon: 'doc', onClick: onToDoc },
+          { label: n.items?.length ? 'Copy unticked items to Tasks' : 'Copy to Tasks', icon: 'check', onClick: onToTasks },
           { label: n.mine ? 'Delete note' : 'Remove from my notes', icon: 'trash', onClick: onDelete },
         ]} />
       </div>

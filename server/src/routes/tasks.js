@@ -124,6 +124,19 @@ function assigneeOf(v, list) {
   return String(v);
 }
 
+/** Your first own list ("My tasks", made if you have none). */
+export function myFirstList(userId) {
+  if (!q('SELECT 1 FROM task_lists WHERE owner_id = ?').get(userId)) q('INSERT INTO task_lists (id, owner_id, name, created_at) VALUES (?, ?, ?, ?)').run(uid(), userId, 'My tasks', now());
+  return q('SELECT * FROM task_lists WHERE owner_id = ? ORDER BY created_at LIMIT 1').get(userId);
+}
+/** Add tasks on top of a list, in the order given. Returns how many. */
+export function addTasks(listId, userId, titles) {
+  let top = (q('SELECT MIN(position) AS p FROM tasks WHERE list_id = ? AND done_at IS NULL').get(listId).p ?? 1) - titles.length;
+  const t = now();
+  for (const title of titles) q('INSERT INTO tasks (id, list_id, title, position, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(uid(), listId, title.slice(0, 500), top++, userId, t, t);
+  return titles.length;
+}
+
 export default function taskRoutes() {
   const r = Router();
 

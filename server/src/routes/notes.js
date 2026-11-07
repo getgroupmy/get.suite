@@ -6,6 +6,8 @@ import { q, tx } from '../db.js';
 import { uid, now, str, bad, notFound, forbidden } from '../util.js';
 import { sendTo } from '../hub.js';
 import { notify as bell } from '../notifications.js';
+import { insertFile } from './files.js';
+import { myFirstList, addTasks } from './tasks.js';
 
 q(`CREATE TABLE IF NOT EXISTS notes (
   id TEXT PRIMARY KEY,
@@ -161,6 +163,33 @@ export default function noteRoutes() {
     const c = q('SELECT * FROM notes WHERE id = ?').get(id);
     tell(c);
     res.status(201).json(shape(c, req.user.id));
+  });
+
+  // A copy as a document in your Drive: the title as a heading, text as paragraphs, a checklist as tick boxes.
+  r.post('/:id/doc', (req, res) => {
+    const n = load(req.params.id, req.user);
+    const para = (text) => ({ type: 'paragraph', ...(text ? { content: [{ type: 'text', text }] } : {}) });
+    const items = n.items ? JSON.parse(n.items) : null;
+    const content = [
+      ...(n.title ? [{ type: 'heading', attrs: { level: 1 }, content: [{ type: 'text', text: n.title }] }] : []),
+      ...(items ? (items.length ? [{ type: 'taskList', content: items.map((i) => ({ type: 'taskItem', attrs: { checked: i.done }, content: [para(i.text)] })) }] : [])
+        : String(n.body || '').split('\n').map((line) => para(line))),
+    ];
+    const json = JSON.stringify({ type: 'doc', content: content.length ? content : [para('')] });
+    const id = insertFile({ owner: req.user.id, parentId: null, name: (n.title || (n.body || '').split('\n')[0] || 'Note').slice(0, 120), kind: 'doc', content: json, size: Buffer.byteLength(json) });
+    res.status(201).json({ id });
+  });
+
+  // The checklist's unticked items (or the note itself) as tasks on your first list.
+  r.post('/:id/tasks', (req, res) => {
+    const n = load(req.params.id, req.user);
+    const items = n.items ? JSON.parse(n.items).filter((i) => !i.done && i.text.trim()).map((i) => i.text.trim()) : [];
+    const titles = items.length ? items : [n.title || (n.body || '').split('\n')[0]].filter((x) => x && x.trim());
+    if (!titles.length) throw bad('Nothing to add as a task');
+    const list = myFirstList(req.user.id);
+    addTasks(list.id, req.user.id, titles);
+    sendTo([req.user.id], { type: 'tasks-changed', list_id: list.id });
+    res.status(201).json({ added: titles.length, list: { id: list.id, name: list.name } });
   });
 
   // Who it's shared with: { user_ids } (colleagues in your company). The owner decides.
