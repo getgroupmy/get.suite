@@ -5,6 +5,7 @@ import { useEffect } from 'react';
 import { get, onLive } from './api.js';
 import { desktopOn } from './mailNotify.js';
 import { claim } from './eventReminders.js';
+import { dueAt } from './apps/tasks/taskmath.js';
 
 export const MORNING_HOUR = 9;
 const pad = (n) => String(n).padStart(2, '0');
@@ -20,6 +21,12 @@ export function morningSummary(tasks, now = new Date()) {
   if (dueToday.length) parts.push(dueToday.length === 1 ? `“${dueToday[0].title}” is due today` : `${dueToday.length} tasks are due today`);
   if (overdue.length) parts.push(`${overdue.length} ${overdue.length === 1 ? 'is' : 'are'} overdue`);
   return { text: parts.join(', and '), dueToday: dueToday.length, overdue: overdue.length };
+}
+
+/** Open tasks with a due time still to come in the next day: [{ task, at }], soonest first. */
+export function comingTimed(tasks, now = Date.now()) {
+  return tasks.filter((t) => !t.done && t.due && t.due_time).map((t) => ({ task: t, at: dueAt(t.due, t.due_time) }))
+    .filter((x) => x.at > now && x.at - now <= 864e5).sort((a, b) => a.at - b.at);
 }
 
 /** Milliseconds until the next morning note (0: it's time now). */
@@ -57,7 +64,28 @@ export function useTaskReminders({ toast, navigate }) {
       timer = setTimeout(plan, next + 1000);
     };
     plan();
-    const wake = () => { if (!document.hidden) plan(); }; // timers stop while a laptop sleeps
+    // Tasks with a due time: a note at that time.
+    let timed = [];
+    const planTimed = async () => {
+      const now = new Date(), tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+      let tasks;
+      try { tasks = await get(`/tasks/due?from=${isoDay(now)}&to=${isoDay(tomorrow)}`); } catch { return; }
+      if (stopped) return;
+      timed.forEach(clearTimeout);
+      timed = comingTimed(tasks).map(({ task: t, at }) => setTimeout(() => {
+        claim(`task-due:${t.id}:${t.due}T${t.due_time}`).then((mine) => {
+          if (!mine || stopped) return;
+          const open = () => navigate(`/tasks/${t.list_id}?task=${t.id}`);
+          const text = `“${t.title}” is due now (${t.due_time})`;
+          toast(text, 'info', { action: { label: 'Open', onClick: open }, duration: 15000 });
+          desktop('Task due', text, open, `task-due-${t.id}`);
+        });
+      }, at - Date.now()));
+    };
+    planTimed();
+    const hourly = setInterval(planTimed, 36e5);
+    const offChanged = onLive((m) => { if (m.type === 'tasks-changed') planTimed(); });
+    const wake = () => { if (!document.hidden) { plan(); planTimed(); } }; // timers stop while a laptop sleeps
     document.addEventListener('visibilitychange', wake);
     const off = onLive((m) => {
       if (m.type !== 'task-assigned' || !m.task) return;
@@ -69,6 +97,6 @@ export function useTaskReminders({ toast, navigate }) {
         desktop('New task', text, open, `task-${m.task.id}`);
       });
     });
-    return () => { stopped = true; clearTimeout(timer); off(); document.removeEventListener('visibilitychange', wake); };
+    return () => { stopped = true; clearTimeout(timer); timed.forEach(clearTimeout); clearInterval(hourly); off(); offChanged(); document.removeEventListener('visibilitychange', wake); };
   }, [toast, navigate]);
 }

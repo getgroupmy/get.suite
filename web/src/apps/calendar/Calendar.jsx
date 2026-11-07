@@ -46,7 +46,7 @@ function TaskChip({ ev, onDone }) {
   return (
     <div className="chip allday task-chip" title={`Task on ${ev.task.list_name}${ev.task.assignee_name ? ` · for ${ev.task.assignee_name}` : ''}`}>
       <button type="button" className="task-tick" aria-label={`Mark done: ${ev.title}`} onClick={(e) => { e.stopPropagation(); onDone(ev.task); }}>☐</button>
-      <button type="button" className="task-open" onClick={(e) => { e.stopPropagation(); navigate(`/tasks/${ev.task.list_id}?task=${ev.task.id}`); }}>{ev.title}</button>
+      <button type="button" className="task-open" onClick={(e) => { e.stopPropagation(); navigate(`/tasks/${ev.task.list_id}?task=${ev.task.id}`); }}>{ev.task.due_time ? `${ev.task.due_time} ` : ''}{ev.title}</button>
     </div>
   );
 }

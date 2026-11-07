@@ -11,6 +11,9 @@ test('due dates in words, with a tone', () => {
   assert.equal(dueLabel('2026-11-20', now).tone, '');
   assert.match(dueLabel('2027-01-02', now).text, /2027/, 'another year says which');
   assert.doesNotMatch(dueLabel('2026-12-02', now).text, /2026/);
+  assert.deepEqual(dueLabel('2026-11-07', now, '15:30'), { text: 'Tomorrow 15:30', tone: 'soon' });
+  assert.deepEqual(dueLabel('2026-11-06', now, '14:00'), { text: 'Today 14:00', tone: 'late' }, 'its time has passed');
+  assert.deepEqual(dueLabel('2026-11-06', now, '16:00'), { text: 'Today 16:00', tone: 'soon' });
 });
 
 test('a dragged task lands between its neighbours', () => {

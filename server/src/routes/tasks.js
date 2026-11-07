@@ -35,7 +35,7 @@ q(`CREATE TABLE IF NOT EXISTS tasks (
 )`).run();
 q('CREATE INDEX IF NOT EXISTS tasks_list ON tasks(list_id, position)').run();
 // Repeating tasks: how it repeats, and (once ticked off) the task that came next.
-for (const [col, type] of [['repeat', 'TEXT'], ['next_id', 'TEXT'], ['steps', 'TEXT'], ['important', 'INTEGER NOT NULL DEFAULT 0'], ['link_url', 'TEXT'], ['link_label', 'TEXT']]) { // steps: a checklist, JSON [{ id, title, done }]
+for (const [col, type] of [['repeat', 'TEXT'], ['next_id', 'TEXT'], ['steps', 'TEXT'], ['important', 'INTEGER NOT NULL DEFAULT 0'], ['link_url', 'TEXT'], ['link_label', 'TEXT'], ['due_time', 'TEXT']]) { // steps: a checklist, JSON [{ id, title, done }]
   if (!q('PRAGMA table_info(tasks)').all().some((c) => c.name === col)) q(`ALTER TABLE tasks ADD COLUMN ${col} ${type}`).run();
 }
 q('CREATE INDEX IF NOT EXISTS tasks_assignee ON tasks(assignee_id, done_at)').run();
@@ -71,6 +71,12 @@ function notifyAssigned(task, by) {
 function dueOf(v) {
   if (v === null || v === '' || v === undefined) return null;
   if (typeof v !== 'string' || !DATE_RE.test(v) || Number.isNaN(Date.parse(v))) throw bad('Due date must be YYYY-MM-DD');
+  return v;
+}
+/** A time on the due date ("HH:MM", the person's own clock), or null for any time that day. */
+function dueTimeOf(v) {
+  if (v === null || v === '' || v === undefined) return null;
+  if (typeof v !== 'string' || !/^([01]\d|2[0-3]):[0-5]\d$/.test(v)) throw bad('Due time must be HH:MM');
   return v;
 }
 function repeatOf(v) {
@@ -180,14 +186,14 @@ export default function taskRoutes() {
 
   // Tasks given to you, on any list: overdue and soonest first, those without a date last.
   r.get('/assigned', (req, res) => {
-    res.json(q(`${TASK} WHERE t.assignee_id = ? AND t.done_at IS NULL ORDER BY t.due IS NULL, t.due, t.position`).all(req.user.id).map(shape));
+    res.json(q(`${TASK} WHERE t.assignee_id = ? AND t.done_at IS NULL ORDER BY t.due IS NULL, t.due, t.due_time IS NULL, t.due_time, t.position`).all(req.user.id).map(shape));
   });
 
   // Open tasks marked important on any of your lists: overdue and soonest first, those without a date last.
   r.get('/important', (req, res) => {
     const me = req.user.id;
     res.json(q(`${TASK} WHERE t.important = 1 AND t.done_at IS NULL AND (l.owner_id = ? OR l.id IN (SELECT list_id FROM task_list_members WHERE user_id = ?))
-                ORDER BY t.due IS NULL, t.due, t.position`).all(me, me).map(shape));
+                ORDER BY t.due IS NULL, t.due, t.due_time IS NULL, t.due_time, t.position`).all(me, me).map(shape));
   });
 
   // For the calendar: open tasks due between two dates (YYYY-MM-DD, both included) that are yours:
@@ -198,7 +204,7 @@ export default function taskRoutes() {
     const me = req.user.id;
     res.json(q(`${TASK} WHERE t.done_at IS NULL AND t.due >= ? AND t.due <= ?
                 AND (t.assignee_id = ? OR (t.assignee_id IS NULL AND l.owner_id = ?))
-                ORDER BY t.due, t.position LIMIT 500`).all(from, to, me, me).map(shape));
+                ORDER BY t.due, t.due_time IS NULL, t.due_time, t.position LIMIT 500`).all(from, to, me, me).map(shape));
   });
 
   r.post('/lists/:id/tasks', (req, res) => {
@@ -209,10 +215,11 @@ export default function taskRoutes() {
     const position = edge === null ? 0 : req.body.at === 'end' ? edge + 1 : edge - 1;
     const id = uid(), t = now();
     const due = dueOf(req.body.due), repeat = repeatOf(req.body.repeat);
+    const dueTime = due ? dueTimeOf(req.body.due_time) : null;
     if (repeat && !due) throw bad('A repeating task needs a due date');
     const link = linkOf(req.body.link);
-    q('INSERT INTO tasks (id, list_id, title, notes, due, assignee_id, position, repeat, important, link_url, link_label, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(id, list.id, str(req.body.title, { required: true, name: 'Task', max: 500 }), str(req.body.notes, { max: 10000 }), due, assigneeOf(req.body.assignee_id, list), position, repeat, req.body.important ? 1 : 0, link.url, link.label, req.user.id, t, t);
+    q('INSERT INTO tasks (id, list_id, title, notes, due, due_time, assignee_id, position, repeat, important, link_url, link_label, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, list.id, str(req.body.title, { required: true, name: 'Task', max: 500 }), str(req.body.notes, { max: 10000 }), due, dueTime, assigneeOf(req.body.assignee_id, list), position, repeat, req.body.important ? 1 : 0, link.url, link.label, req.user.id, t, t);
     changed(list);
     const made = shape(q(`${TASK} WHERE t.id = ?`).get(id));
     notifyAssigned(made, req.user);
@@ -235,6 +242,9 @@ export default function taskRoutes() {
     if (b.title !== undefined) set.title = str(b.title, { required: true, name: 'Task', max: 500 });
     if (b.notes !== undefined) set.notes = str(b.notes, { max: 10000 });
     if (b.due !== undefined) set.due = dueOf(b.due);
+    if (b.due_time !== undefined) set.due_time = dueTimeOf(b.due_time);
+    if (set.due === null) set.due_time = null; // no date, no time
+    else if (set.due_time && !(set.due !== undefined ? set.due : task.due)) throw bad('Set a due date first');
     if (b.assignee_id !== undefined) set.assignee_id = assigneeOf(b.assignee_id, target);
     if (b.done !== undefined) set.done_at = b.done ? task.done_at || now() : null;
     if (b.repeat !== undefined) set.repeat = repeatOf(b.repeat);
@@ -256,8 +266,8 @@ export default function taskRoutes() {
         const top = (q('SELECT MIN(position) AS p FROM tasks WHERE list_id = ? AND done_at IS NULL').get(after.list_id).p ?? 1) - 1;
         const id = uid(), t = now();
         const steps = after.steps ? JSON.stringify(JSON.parse(after.steps).map((x) => ({ ...x, id: uid(), done: false }))) : null; // a fresh checklist
-        q('INSERT INTO tasks (id, list_id, title, notes, due, assignee_id, position, repeat, steps, important, link_url, link_label, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-          .run(id, after.list_id, after.title, after.notes, due, after.assignee_id, top, after.repeat, steps, after.important ? 1 : 0, after.link_url, after.link_label, after.created_by, t, t);
+        q('INSERT INTO tasks (id, list_id, title, notes, due, due_time, assignee_id, position, repeat, steps, important, link_url, link_label, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+          .run(id, after.list_id, after.title, after.notes, due, after.due_time, after.assignee_id, top, after.repeat, steps, after.important ? 1 : 0, after.link_url, after.link_label, after.created_by, t, t);
         q('UPDATE tasks SET next_id = ? WHERE id = ?').run(id, task.id);
       }
       // Un-ticked (Undo): the next one goes again, unless someone has already worked on it.

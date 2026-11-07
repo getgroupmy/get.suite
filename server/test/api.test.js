@@ -2334,3 +2334,24 @@ test('other contacts: people you email are remembered and suggested; not colleag
   assert.deepEqual((await a('GET', '/api/contacts/other')).body, []);
   assert.equal((await a('DELETE', '/api/contacts/other/nobody%40x.com')).status, 404);
 });
+
+test('tasks: a due time on the due date; cleared with the date; kept on the next repeat', async () => {
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'dta', domain: 'acme.com', name: 'Time Ann', password: 'password123' })).status, 201);
+  await login(a, 'dta@acme.com');
+  const list = (await a('GET', '/api/tasks/lists')).body.lists.find((l) => l.mine).id;
+  const t = (await a('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Call Raj', due: '2026-12-01', due_time: '15:30' })).body;
+  assert.equal(t.due_time, '15:30');
+  assert.equal((await a('POST', `/api/tasks/lists/${list}/tasks`, { title: 'x', due: '2026-12-01', due_time: '25:00' })).status, 400);
+  assert.equal((await a('POST', `/api/tasks/lists/${list}/tasks`, { title: 'No date', due_time: '10:00' })).body.due_time, null, 'no date, no time');
+  const early = (await a('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Early', due: '2026-12-01', due_time: '09:00' })).body;
+  const allDay = (await a('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Any time', due: '2026-12-01' })).body;
+  assert.deepEqual((await a('GET', '/api/tasks/due?from=2026-12-01&to=2026-12-01')).body.map((x) => x.title), ['Early', 'Call Raj', 'Any time'], 'timed ones first, in order');
+  assert.equal((await a('PATCH', `/api/tasks/tasks/${allDay.id}`, { due_time: '08:00' })).body.due_time, '08:00');
+  assert.equal((await a('PATCH', `/api/tasks/tasks/${t.id}`, { due: null })).body.due_time, null, 'clearing the date clears the time');
+  assert.equal((await a('PATCH', `/api/tasks/tasks/${t.id}`, { due_time: '10:00' })).status, 400, 'a time needs a date');
+  await a('PATCH', `/api/tasks/tasks/${early.id}`, { repeat: 'daily' });
+  await a('PATCH', `/api/tasks/tasks/${early.id}`, { done: true, today: '2026-12-01' });
+  const next = (await a('GET', `/api/tasks/lists/${list}/tasks`)).body.find((x) => x.title === 'Early' && !x.done);
+  assert.deepEqual([next.due, next.due_time], ['2026-12-02', '09:00']);
+});

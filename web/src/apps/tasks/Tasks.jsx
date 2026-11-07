@@ -91,7 +91,7 @@ export default function Tasks() {
   }
 
   const row = (t, i) => {
-    const due = t.due && dueLabel(t.due);
+    const due = t.due && dueLabel(t.due, new Date(), t.due_time);
     return (
       <li key={t.id} className={`task ${t.done ? 'done' : ''} ${t.id === openId ? 'open' : ''} ${dropAt === i && dragging ? 'drop-before' : ''}`}
         draggable={!t.done && !virtual} onDragStart={(e) => { setDragging(t.id); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', t.title); }}
@@ -145,7 +145,7 @@ export default function Tasks() {
           {!found.list.length ? <Empty icon="search" title="No tasks found" /> : (
             <ul className="tasks task-results" aria-label="Search results">
               {found.list.map((t) => {
-                const due = t.due && dueLabel(t.due);
+                const due = t.due && dueLabel(t.due, new Date(), t.due_time);
                 return (
                   <li key={t.id} className={`task ${t.done ? 'done' : ''}`}>
                     <button type="button" className="task-main" onClick={() => { setFound(null); navigate(`/tasks/${t.list_id}?task=${t.id}`); }}>
@@ -244,6 +244,7 @@ function TaskDetails({ task, lists, people, onChange, onClose, onDelete, onMove,
       <Steps task={task} onReplaced={onReplaced} />
       <label className="field"><span>Due</span>
         <span className="row"><input type="date" value={task.due || ''} onChange={(e) => onChange({ due: e.target.value || null })} />
+          {task.due && <input type="time" aria-label="Due time" value={task.due_time || ''} onChange={(e) => onChange({ due_time: e.target.value || null })} />}
           {task.due && <button type="button" className="link-btn small" onClick={() => onChange({ due: null })}>Clear</button>}</span>
       </label>
       <label className="field"><span>Repeat</span>
