@@ -629,6 +629,8 @@ Each entry shows who did it, what it was done to, the details and the IP address
 The bell at the top right collects what needs you: being **@mentioned** in Chat or in a comment, a **task** given to you, a calendar **invitation** (or its cancellation), a file or folder **shared** with you, and someone **booking** time with you. New ones appear at once, with a count on the bell. Click one to go there (it's then marked read), or **Mark all read**. The latest 200 are kept.
 
 
+**Notification settings** (⚙ in the bell's panel) turns each kind on or off for you: mentions in Chat and documents, mentions in file comments, tasks, calendar invitations and answers, shared files and access requests, changes to files you follow, chat reminders, and bookings. Kinds you turn off aren't kept, so they don't turn up later either.
+
 **Pause notifications** (account menu, top right: for 30 minutes, 1 or 2 hours, or until 9:00 tomorrow) stops the pop-up notes and desktop notifications for new mail, mentions, event reminders and tasks until then. Everything still arrives in the bell and the apps. 🔕 by the bell shows it's on (click to resume), and colleagues see 🔕 by your name in Chat.
 ## Branding
 

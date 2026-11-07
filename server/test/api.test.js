@@ -2723,3 +2723,20 @@ test('drive: follow a file and hear when someone else changes it (once an hour)'
   await a('PUT', `/api/files/${f.id}/watch`, { on: false });
   assert.equal((await a('GET', `/api/files/${f.id}/watch`)).body.watching, false);
 });
+
+test('notifications: turn kinds off; those stop, others still come', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['nsa', 'Set Ann'], ['nsb', 'Set Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'nsa@acme.com');
+  const bid = (await login(b, 'nsb@acme.com')).id;
+  const s0 = (await b('GET', '/api/notifications/settings')).body;
+  assert.ok(s0.kinds.every((k) => k.on) && s0.kinds.some((k) => k.kind === 'share'));
+  const s1 = (await b('PUT', '/api/notifications/settings', { off: ['share', 'nonsense'] })).body;
+  assert.deepEqual(s1.kinds.filter((k) => !k.on).map((k) => k.kind), ['share']);
+  const doc = (await a('POST', '/api/files/new', { kind: 'doc', name: 'Quiet doc' })).body;
+  await a('PUT', `/api/files/${doc.id}/shares`, { shares: [{ user_id: bid, role: 'viewer' }] });
+  assert.ok(!JSON.stringify((await b('GET', '/api/notifications')).body).includes('Quiet doc'), 'no share notification');
+  await a('POST', `/api/files/${doc.id}/mention`, { user_id: bid });
+  assert.ok(JSON.stringify((await b('GET', '/api/notifications')).body).includes('mentioned you in “Quiet doc”'), 'mentions still come');
+  assert.equal((await b('PUT', '/api/notifications/settings', { off: [] })).body.kinds.every((k) => k.on), true);
+});

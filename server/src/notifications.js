@@ -18,13 +18,27 @@ q(`CREATE TABLE IF NOT EXISTS notifications (
 q('CREATE INDEX IF NOT EXISTS notifications_user ON notifications(user_id, created_at)').run();
 
 const KEEP = 200;
+// Kinds someone can turn off (each person's choice; all on to begin with).
+export const KINDS = [
+  ['mention', 'Mentions in Chat and in documents'], ['comment', 'Mentions in comments on files'], ['task', 'Tasks given to you, and comments on tasks'],
+  ['invite', 'Calendar invitations, answers and proposed times'], ['share', 'Files shared with you and access requests'],
+  ['edit', 'Changes to files you follow'], ['chat', 'Chat reminders and scheduled messages'], ['booking', 'Booking page appointments'],
+];
+if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'notify_off')) q('ALTER TABLE users ADD COLUMN notify_off TEXT').run();
+export const offFor = (userId) => { try { return JSON.parse(q('SELECT notify_off FROM users WHERE id = ?').get(userId)?.notify_off || '[]'); } catch { return []; } };
+export function setOff(userId, kinds) {
+  const known = new Set(KINDS.map(([k]) => k));
+  const off = [...new Set(kinds.map(String))].filter((k) => known.has(k));
+  q('UPDATE users SET notify_off = ? WHERE id = ?').run(off.length ? JSON.stringify(off) : null, userId);
+  return off;
+}
 const shape = (n) => ({ ...n, read: !!n.read_at });
 
 /** Add a notification for each of these people (and tell their open tabs). */
 export function notify(userIds, { kind, title, body = null, link = null, actor = null }) {
   const at = Date.now();
   for (const userId of new Set(userIds)) {
-    if (!userId) continue;
+    if (!userId || offFor(userId).includes(kind)) continue; // they turned this kind off
     const id = uid();
     q('INSERT INTO notifications (id, user_id, kind, title, body, link, actor, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
       .run(id, userId, kind, String(title).slice(0, 200), body ? String(body).slice(0, 300) : null, link, actor, at);

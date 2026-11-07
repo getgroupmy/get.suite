@@ -2,10 +2,11 @@
 // with you, bookings), newest first. Opening one marks it read and goes there.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
-import { get, post, onLive } from '../api.js';
+import { get, post, put, onLive } from '../api.js';
 import Icon from './Icon.jsx';
+import { Modal, useToast } from './ui.jsx';
 
-const ICONS = { mention: 'chat', comment: 'chat', task: 'check', invite: 'calendar', share: 'share', booking: 'calendar' };
+const ICONS = { mention: 'chat', comment: 'chat', task: 'check', invite: 'calendar', share: 'share', booking: 'calendar', edit: 'edit', chat: 'chat' };
 
 /** "just now", "5 min", "3 h", "yesterday", "2 Nov". */
 export function ago(ms, now = Date.now()) {
@@ -21,6 +22,7 @@ export default function Bell() {
   const navigate = useNavigate();
   const [data, setData] = useState({ items: [], unread: 0 });
   const [open, setOpen] = useState(false);
+  const [settings, setSettings] = useState(false);
   const box = useRef();
   const load = useCallback(() => get('/notifications').then(setData).catch(() => {}), []);
   useEffect(() => { load(); }, [load]);
@@ -49,7 +51,8 @@ export default function Bell() {
       {open && (
         <div className="bell-panel" role="dialog" aria-label="Notifications">
           <div className="row bell-head"><strong className="grow">Notifications</strong>
-            {data.unread > 0 && <button type="button" className="link-btn small" onClick={() => post('/notifications/read', { all: true }).then(setData)}>Mark all read</button>}</div>
+            {data.unread > 0 && <button type="button" className="link-btn small" onClick={() => post('/notifications/read', { all: true }).then(setData)}>Mark all read</button>}
+            <button type="button" className="icon-btn" aria-label="Notification settings" title="Choose what you're notified about" onClick={() => { setOpen(false); setSettings(true); }}><Icon name="settings" size={18} /></button></div>
           {data.items.length === 0 ? <p className="muted small bell-empty">Nothing yet. Mentions, tasks given to you, invitations and things shared with you will show here.</p> : (
             <ul>
               {data.items.map((n) => (
@@ -65,6 +68,28 @@ export default function Bell() {
           )}
         </div>
       )}
+      {settings && <NotificationSettings onClose={() => setSettings(false)} />}
     </div>
+  );
+}
+
+/** Which kinds of notification you get (each on or off). */
+function NotificationSettings({ onClose }) {
+  const toast = useToast();
+  const [kinds, setKinds] = useState(null);
+  useEffect(() => { get('/notifications/settings').then((r) => setKinds(r.kinds)).catch((e) => toast(e.message, 'error')); }, [toast]);
+  const toggle = async (kind) => {
+    const next = kinds.map((k) => (k.kind === kind ? { ...k, on: !k.on } : k));
+    setKinds(next);
+    try { setKinds((await put('/notifications/settings', { off: next.filter((k) => !k.on).map((k) => k.kind) })).kinds); } catch (e) { toast(e.message, 'error'); }
+  };
+  return (
+    <Modal title="Notification settings" onClose={onClose}>
+      <div className="stack">
+        <p className="muted small" style={{ margin: 0 }}>What shows in the bell (and pops up, and on your desktop). Turned-off kinds aren't kept, so they won't appear later either.</p>
+        {kinds?.map((k) => <label key={k.kind} className="check"><input type="checkbox" checked={k.on} onChange={() => toggle(k.kind)} /> {k.label}</label>)}
+        <div className="row end"><button type="button" className="btn primary" onClick={onClose}>Done</button></div>
+      </div>
+    </Modal>
   );
 }
