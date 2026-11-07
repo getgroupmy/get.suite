@@ -722,6 +722,13 @@ function EventDialog({ event, onClose, onSaved, onDuplicate }) {
   const [guestInput, setGuestInput] = useState('');
   const [directory, setDirectory] = useState([]);
   useEffect(() => { get('/users/directory').then(setDirectory).catch(() => {}); }, []);
+  const [groups, setGroups] = useState([]);
+  useEffect(() => { get('/groups').then(setGroups).catch(() => {}); }, []);
+  const { user: me } = useAuth();
+  const addGroup = (id) => {
+    const g = groups.find((x) => x.id === id);
+    if (g) setGuests((list) => [...new Set([...list, ...g.members.map((m) => m.username.toLowerCase()).filter((u) => u !== me.username.toLowerCase())])]);
+  };
   const addGuests = (text) => {
     const found = String(text).split(/[\s,;]+/).map((x) => x.trim().toLowerCase()).filter((x) => x.includes('@'));
     if (found.length) setGuests((g) => [...new Set([...g, ...found])]);
@@ -836,6 +843,12 @@ function EventDialog({ event, onClose, onSaved, onDuplicate }) {
             onChange={(e) => { const v = e.target.value; if (/[,;\s]$/.test(v) || directory.some((d) => d.username === v.trim().toLowerCase())) addGuests(v); else setGuestInput(v); }}
             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); if (guestInput.trim()) addGuests(guestInput); } }} /* Enter adds a guest, never saves */ />
           <datalist id="guest-directory">{directory.map((d) => <option key={d.id} value={d.username}>{d.name}</option>)}</datalist>
+          {groups.some((g) => g.members.length) && (
+            <select value="" aria-label="Invite a group" onChange={(e) => addGroup(e.target.value)}>
+              <option value="">Invite a group…</option>
+              {groups.filter((g) => g.members.length).map((g) => <option key={g.id} value={g.id}>{g.name} ({g.members.length})</option>)}
+            </select>
+          )}
           {guests.length > 0 && <span className="muted small">They'll see it in their calendar{event.id ? '' : ' and get an email'} and can answer Yes, Maybe or No.
             {guests.some((g) => { const k = (event.guests || []).find((x) => x.email === g); return k ? k.external : !directory.some((d) => d.username === g); })
               && ' People outside Workspace get an email invitation for their own calendar (Outlook, Gmail, phone) and a link to answer; they also get changes and cancellations.'}</span>}

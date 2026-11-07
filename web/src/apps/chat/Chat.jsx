@@ -830,10 +830,20 @@ function NewChannel({ people, onClose, onMade }) {
 function PeoplePicker({ people, chosen, onChange, label = 'Who can see it' }) {
   const [find, setFind] = useState('');
   const shown = people.filter((p) => `${p.name} ${p.username}`.toLowerCase().includes(find.toLowerCase()));
+  const [groups, setGroups] = useState([]);
+  useEffect(() => { get('/groups').then(setGroups).catch(() => {}); }, []);
+  const known = new Set(people.map((p) => p.id));
   return (
     <fieldset className="people-pick">
       <legend className="muted small">{label}</legend>
       <input type="search" value={find} onChange={(e) => setFind(e.target.value)} placeholder="Find people" aria-label="Find people" />
+      {groups.some((g) => g.members.length) && (
+        <div className="row wrap group-picks" role="group" aria-label="Add a group">
+          {groups.filter((g) => g.members.length).map((g) => (
+            <button key={g.id} type="button" className="btn small" onClick={() => onChange(new Set([...chosen, ...g.members.map((m) => m.id).filter((id) => known.has(id))]))}>+ {g.name} ({g.members.length})</button>
+          ))}
+        </div>
+      )}
       <ul>
         {shown.map((p) => (
           <li key={p.id}><label className="check"><input type="checkbox" checked={chosen.has(p.id)} onChange={(e) => { const n = new Set(chosen); e.target.checked ? n.add(p.id) : n.delete(p.id); onChange(n); }} />
