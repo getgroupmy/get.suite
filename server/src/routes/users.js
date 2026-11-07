@@ -125,6 +125,14 @@ export default function userRoutes() {
     res.json({ ...h, text: hoursText(h) });
   });
 
+  // Where Workspace opens for you: { page: 'drive' | 'home' }.
+  r.put('/me/start-page', (req, res) => {
+    const page = req.body?.page === 'home' ? 'home' : req.body?.page === 'drive' ? 'drive' : null;
+    if (!page) throw bad('page must be drive or home');
+    q('UPDATE users SET start_page = ? WHERE id = ?').run(page === 'drive' ? null : page, req.user.id);
+    res.json({ start_page: page });
+  });
+
   // Your status: what colleagues see next to your name, until it clears by itself.
   // Pause notifications ("do not disturb") until a time, or stop pausing (until: null).
   r.get('/me/pause', (req, res) => {

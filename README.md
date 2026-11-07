@@ -282,7 +282,7 @@ Your Workspace calendar and contacts sync with the phone's own Calendar and Cont
 
 ## Home
 
-**Home** (at the top of the left bar) is the day at a glance: today's **events** (with **Now** on the one that's on, and **Join** for those with a video meeting), **tasks due** today and overdue, **unread** email and chat conversations, your **recent files** and **pinned notes**. Everything opens where it lives, and the page keeps itself up to date as things change.
+**Home** (at the top of the left bar) is the day at a glance: today's **events** (with **Now** on the one that's on, and **Join** for those with a video meeting), **tasks due** today and overdue, **unread** email and chat conversations, your **recent files** and **pinned notes**. Everything opens where it lives, and the page keeps itself up to date as things change. To open Workspace on Home instead of Drive, choose it under **Settings → Appearance → Open Workspace on** (kept with your account, on every device).
 
 ## Search everything
 

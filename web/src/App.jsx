@@ -203,7 +203,7 @@ function Shell() {
       <main className="content">
         <Announcements />
         <Routes>
-          <Route path="/" element={<Navigate to="/drive" replace />} />
+          <Route path="/" element={<Navigate to={user.start_page === 'home' ? '/home' : '/drive'} replace />} />
           <Route path="/drive/*" element={<Drive />} />
           <Route path="/mail/:folder?/:uid?" element={<Mail />} />
           <Route path="/calendar" element={<Calendar />} />

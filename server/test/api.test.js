@@ -3195,3 +3195,14 @@ test('notes: reminders reach everyone on the note, then clear', async () => {
   assert.equal((await a('GET', '/api/notes')).body.find((x) => x.id === n.id).remind_at, null, 'cleared once sent');
   assert.equal(remindNotesDue(at + 5000), 0, 'only once');
 });
+
+test('start page: Drive by default, Home if chosen', async () => {
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'spage', domain: 'acme.com', name: 'Start Page', password: 'password123' })).status, 201);
+  assert.equal((await login(a, 'spage@acme.com')).start_page, 'drive');
+  assert.equal((await a('PUT', '/api/users/me/start-page', { page: 'elsewhere' })).status, 400);
+  assert.equal((await a('PUT', '/api/users/me/start-page', { page: 'home' })).body.start_page, 'home');
+  assert.equal((await a('GET', '/api/auth/me')).body.user.start_page, 'home');
+  await a('PUT', '/api/users/me/start-page', { page: 'drive' });
+  assert.equal((await a('GET', '/api/auth/me')).body.user.start_page, 'drive');
+});

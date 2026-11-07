@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
-import { api, get, patch, post, del, putBlob } from '../api.js';
+import { api, get, patch, post, put, del, putBlob } from '../api.js';
 import { reloadPhotos, usePhoto } from '../components/photos.js';
 import { useAuth } from '../App.jsx';
 import { Avatar, useToast } from '../components/ui.jsx';
@@ -177,7 +177,23 @@ function Appearance() {
         ))}
       </div>
       <p className="muted small" style={{ margin: 0 }}>Kept on this device, so a phone and a computer can differ.</p>
+      <StartPage />
     </section>
+  );
+}
+
+/** Where Workspace opens: Drive or Home (kept with your account). */
+function StartPage() {
+  const toast = useToast();
+  const { user, setUser } = useAuth();
+  const set = async (page) => {
+    try { await put('/users/me/start-page', { page }); setUser({ ...user, start_page: page }); toast(`Workspace now opens on ${page === 'home' ? 'Home' : 'Drive'}`); } catch (e) { toast(e.message, 'error'); }
+  };
+  return (
+    <label className="field" style={{ maxWidth: 320 }}><span>Open Workspace on</span>
+      <select value={user.start_page || 'drive'} onChange={(e) => set(e.target.value)}>
+        <option value="drive">Drive</option><option value="home">Home (the day at a glance)</option>
+      </select></label>
   );
 }
 
