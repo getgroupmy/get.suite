@@ -11,19 +11,28 @@ const FILE_ICON = { doc: 'doc', sheet: 'sheet', slides: 'slides', folder: 'folde
 const PER_GROUP = 4;
 const when = (ms) => new Date(ms).toLocaleDateString([], { day: 'numeric', month: 'short', year: new Date(ms).getFullYear() === new Date().getFullYear() ? undefined : 'numeric' });
 
+let mailOnce = null;
+const mailEnabled = () => (mailOnce ??= get('/mail/status').then((st) => !!st.enabled).catch(() => false));
+
 /** Everything that matches `text`, as groups of { key, icon, title, sub, to, state }. Each source failing on its own just leaves it out. */
 export async function searchAll(text) {
   const qs = encodeURIComponent(text);
   const low = text.toLowerCase();
   const safe = (p) => p.catch(() => []);
-  const [files, chat, tasks, notes, events, contacts, people] = await Promise.all([
+  const mailOn = await mailEnabled();
+  const mailIn = (folder) => (mailOn ? safe(get(`/mail/messages?folder=${encodeURIComponent(folder)}&q=${qs}`).then((r) => r.messages.map((m) => ({ ...m, folder })))) : Promise.resolve([]));
+  const [files, chat, tasks, notes, events, contacts, people, inbox, sent] = await Promise.all([
     safe(get(`/files?view=search&q=${qs}`)), safe(get(`/chat/search?q=${qs}`)), safe(get(`/tasks/search?q=${qs}`)), safe(get(`/notes?q=${qs}`)),
-    safe(get(`/events/search?q=${qs}`)), safe(get('/contacts')), safe(get('/users/directory')),
+    safe(get(`/events/search?q=${qs}`)), safe(get('/contacts')), safe(get('/users/directory')), mailIn('INBOX'), mailIn('Sent'),
   ]);
+  const mail = [...inbox, ...sent].sort((a, b) => (b.date || 0) - (a.date || 0));
   const has = (...xs) => xs.some((x) => String(x || '').toLowerCase().includes(low));
   return [
     ['Files', (Array.isArray(files) ? files : files.files || []).map((f) => ({ key: `f${f.id}`, icon: FILE_ICON[f.kind] || 'file', title: f.name,
       sub: f.owner_name ? `${f.owner_name} · ${when(f.updated_at)}` : when(f.updated_at), to: FILE_LINK[f.kind]?.(f) || `/drive/search?q=${encodeURIComponent(f.name)}` }))],
+    ['Mail', mail.map((m) => ({ key: `m${m.folder}${m.uid}`, icon: 'mail', title: m.subject || '(no subject)',
+      sub: `${m.folder === 'Sent' ? `To ${(m.to || []).map((t) => t.name || t.address).join(', ')}` : (m.from?.name || m.from?.address || '')}${m.date ? ` · ${when(m.date)}` : ''}`,
+      to: `/mail/${encodeURIComponent(m.folder)}/${m.uid}` }))],
     ['Chat', chat.map((m) => ({ key: `c${m.id}`, icon: 'chat', title: m.body, sub: `${m.user_name || ''} · ${m.where} · ${when(m.created_at)}`,
       to: `/chat/${m.channel_id}?msg=${m.parent_id || m.id}${m.parent_id ? `&thread=${m.parent_id}` : ''}` }))],
     ['Tasks', tasks.map((t) => ({ key: `t${t.id}`, icon: 'check', title: `${t.done ? '✓ ' : ''}${t.title}`, sub: t.list_name, to: `/tasks/${t.list_id}?task=${t.id}` }))],
