@@ -101,7 +101,7 @@ export default function SheetEditor() {
       provider.awareness.on('change', () => setOthers([...provider.awareness.getStates().entries()]
         .filter(([cid, st]) => cid !== ydoc.clientID && st.user).map(([cid, st]) => ({ cid, ...st.user, sel: st.sel }))));
       setLink({ ydoc, provider });
-    }).catch((e) => { toast(e.message, 'error'); navigate('/drive'); });
+    }).catch((e) => { if (e.status === 404) { navigate(`/access/${id}`, { replace: true }); return; } toast(e.message, 'error'); navigate('/drive'); });
     return () => { alive = false; document.title = 'Workspace'; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);

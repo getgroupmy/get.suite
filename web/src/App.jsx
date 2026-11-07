@@ -17,6 +17,7 @@ import BookingPage from './apps/calendar/BookingPage.jsx';
 import { TwoStep } from './apps/Settings.jsx';
 import Drive from './apps/drive/Drive.jsx';
 import DocEditor from './apps/docs/DocEditor.jsx';
+import RequestAccess from './apps/RequestAccess.jsx';
 import SheetEditor from './apps/sheets/SheetEditor.jsx';
 import SlidesEditor from './apps/slides/SlidesEditor.jsx';
 import PresenterView from './apps/slides/PresenterView.jsx';
@@ -76,6 +77,7 @@ function Workspace() {
             <ShortcutsHelp />
             <Routes>
               <Route path="/docs/:id" element={<DocEditor />} />
+              <Route path="/access/:id" element={<RequestAccess />} />
               <Route path="/sheets/:id" element={<SheetEditor />} />
               <Route path="/slides/:id/presenter" element={<PresenterView />} />
               <Route path="/slides/:id" element={<SlidesEditor />} />

@@ -46,6 +46,15 @@ const EMPTY = {
 };
 const EDITABLE = ['doc', 'sheet', 'slides'];
 /** Where a file opens in Workspace. */
+q(`CREATE TABLE IF NOT EXISTS access_requests (
+  id TEXT PRIMARY KEY,
+  file_id TEXT NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  role TEXT NOT NULL,                 -- viewer | editor: what they asked for
+  message TEXT,
+  created_at INTEGER NOT NULL,
+  UNIQUE (file_id, user_id)
+)`).run();
 const openLink = (f) => ({ folder: `/drive/folder/${f.id}`, doc: `/docs/${f.id}`, sheet: `/sheets/${f.id}`, slides: `/slides/${f.id}` }[f.kind] || '/drive/shared');
 const setupOf = (f) => { if (!f.page_setup || typeof f.page_setup === 'object') return f.page_setup || null; try { return JSON.parse(f.page_setup); } catch { return null; } };
 
@@ -365,6 +374,55 @@ export default function fileRoutes({ maxUploadBytes }) {
     tx(() => { for (const { id } of ids) permanentlyDelete(id); });
     if (ids.length) audit(req, 'trash.empty', { details: { items: ids.length } });
     res.json({ deleted: ids.length });
+  });
+
+  // ---- asking for access: someone with a link to a file they can't open asks its owner ----
+  // The asker learns nothing about the file (not even that it exists) until the owner says yes.
+  r.post('/:id/request-access', (req, res) => {
+    const role = req.body.role === 'editor' ? 'editor' : 'viewer';
+    const message = str(req.body.message ?? '', { max: 500, name: 'Message' }) || null;
+    const f = q('SELECT id, name, kind, owner_id, trashed FROM files WHERE id = ?').get(String(req.params.id));
+    if (f && roleFor(f.id, req.user.id)) throw bad('You can already open this');
+    if (q('SELECT COUNT(*) AS n FROM access_requests WHERE user_id = ?').get(req.user.id).n >= 50) throw bad('You have asked for too many files; wait for answers first');
+    // Sent (or quietly not, for a file that isn't there or an owner they can't reach): the answer is the same.
+    if (f && !f.trashed && f.owner_id !== req.user.id && canReach(req.user, f.owner_id)) {
+      const had = q('SELECT 1 FROM access_requests WHERE file_id = ? AND user_id = ?').get(f.id, req.user.id);
+      q(`INSERT INTO access_requests (id, file_id, user_id, role, message, created_at) VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(file_id, user_id) DO UPDATE SET role = excluded.role, message = excluded.message, created_at = excluded.created_at`)
+        .run(uid(), f.id, req.user.id, role, message, now());
+      if (!had) bell([f.owner_id], { kind: 'share', title: `${req.user.name || req.user.username} asks to ${role === 'editor' ? 'edit' : 'view'} “${f.name}”`, body: message || 'Open the request to answer', link: '/drive?requests=1', actor: req.user.name });
+      sendTo([f.owner_id], { type: 'access-requests' });
+    }
+    res.json({ ok: true });
+  });
+
+  // Requests for your files, newest first.
+  r.get('/access-requests', (req, res) => {
+    res.json(q(`SELECT a.id, a.role, a.message, a.created_at, f.id AS file_id, f.name AS file_name, f.kind AS file_kind, u.name AS user_name, u.username AS user_email
+                FROM access_requests a JOIN files f ON f.id = a.file_id JOIN users u ON u.id = a.user_id
+                WHERE f.owner_id = ? AND f.trashed = 0 ORDER BY a.created_at DESC`).all(req.user.id));
+  });
+
+  // Answer one: { approve, role } — yes shares the file with them (as asked, or as you choose); no just says so.
+  r.post('/access-requests/:rid', (req, res) => {
+    const a = q(`SELECT a.*, f.name AS file_name, f.kind AS file_kind, f.owner_id FROM access_requests a JOIN files f ON f.id = a.file_id WHERE a.id = ?`).get(String(req.params.rid));
+    if (!a || a.owner_id !== req.user.id) throw notFound();
+    const f = { id: a.file_id, name: a.file_name, kind: a.file_kind };
+    if (req.body.approve) {
+      const role = ['viewer', 'editor'].includes(req.body.role) ? req.body.role : a.role;
+      if (!canReach(req.user, a.user_id)) throw bad('You can’t share with that person (external sharing may be turned off)');
+      q(`INSERT INTO shares (file_id, user_id, role) VALUES (?, ?, ?) ON CONFLICT(file_id, user_id) DO UPDATE SET role = excluded.role`).run(f.id, a.user_id, role);
+      const who = q('SELECT name FROM users WHERE id = ?').get(a.user_id)?.name || 'someone';
+      recordActivity(f.id, req.user.id, 'share', { added: [`${who} (${role === 'editor' ? 'can edit' : 'can view'})`], removed: [] });
+      audit(req, 'file.share', { target: f.name, details: { with: [`${q('SELECT username FROM users WHERE id = ?').get(a.user_id)?.username} (${role})`], request: true } });
+      bell([a.user_id], { kind: 'share', title: `${req.user.name || req.user.username} shared “${f.name}” with you`, body: role === 'editor' ? 'You can edit' : 'You can view', link: openLink(f), actor: req.user.name });
+      sendTo([a.user_id], { type: 'files-changed', parent_id: null });
+    } else {
+      bell([a.user_id], { kind: 'share', title: `${req.user.name || req.user.username} didn’t give you access to “${f.name}”`, body: null, link: null, actor: req.user.name });
+    }
+    q('DELETE FROM access_requests WHERE id = ?').run(a.id);
+    sendTo([req.user.id], { type: 'access-requests' });
+    res.json({ ok: true });
   });
 
   r.get('/:id', (req, res) => {
@@ -696,6 +754,7 @@ export default function fileRoutes({ maxUploadBytes }) {
       }
     });
     sendTo(new Set([...before, ...audienceFor(f.id)]), { type: 'files-changed', parent_id: f.parent_id });
+    for (const x of list) q('DELETE FROM access_requests WHERE file_id = ? AND user_id = ?').run(f.id, x.user_id); // asked, and now has it
     const nameOf = (id) => q('SELECT username FROM users WHERE id = ?').get(id)?.username || id;
     audit(req, 'file.share', { target: f.name, details: { with: list.map((x) => `${nameOf(x.user_id)} (${x.role})`) } });
     const added = list.filter((x) => !had.has(x.user_id) && x.user_id !== f.owner_id && x.user_id !== req.user.id);

@@ -1443,3 +1443,11 @@ button.rule-sample.on { outline: 2px solid var(--accent); outline-offset: 1px; }
 /* Admin: importing users */
 .import-table { max-height: 320px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
 .import-table tr.bad td { background: color-mix(in srgb, var(--danger, #d93025) 6%, transparent); }
+/* Asking for access to a file */
+.access-page { display: grid; place-items: start center; }
+.access-card { max-width: 440px; width: 100%; margin-top: 8vh; padding: 28px; border: 1px solid var(--border); border-radius: 16px; background: var(--surface); text-align: center; display: grid; gap: 12px; justify-items: center; }
+.access-card form { width: 100%; text-align: left; }
+.access-card h1 { margin: 0; font-size: 22px; }
+.access-requests { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.access-requests li { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
+.subnav-item .count { font-size: 12px; font-weight: 700; }

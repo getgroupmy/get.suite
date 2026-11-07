@@ -1624,6 +1624,37 @@ test('admin: import people from a CSV — checked first, good rows created, pass
   assert.equal((await c('POST', '/api/users/import', { csv, domain: 'acme.com' })).status, 403, 'admins only');
 });
 
+test('drive: asking for access — the owner is told, approves (as asked or otherwise) or declines; nothing leaks', async () => {
+  const a = client(), b = client(), c = client();
+  for (const [local, name] of [['reqa', 'Req Ann'], ['reqb', 'Req Ben'], ['reqc', 'Req Cat']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'reqa@acme.com');
+  await login(b, 'reqb@acme.com');
+  await login(c, 'reqc@acme.com');
+  const doc = (await a('POST', '/api/files/new', { kind: 'doc', name: 'Budget 2027' })).body;
+  assert.equal((await b('GET', `/api/files/${doc.id}`)).status, 404);
+  assert.deepEqual((await b('POST', `/api/files/${doc.id}/request-access`, { role: 'editor', message: 'For the board pack' })).body, { ok: true });
+  assert.deepEqual((await b('POST', '/api/files/nonexistent/request-access', {})).body, { ok: true }, 'the same answer for a file that isn’t there');
+  assert.equal((await a('POST', `/api/files/${doc.id}/request-access`, {})).status, 400, 'the owner has it');
+  const bell = (await a('GET', '/api/notifications')).body.items;
+  assert.ok(bell.some((n) => n.title === 'Req Ben asks to edit “Budget 2027”' && n.body === 'For the board pack'));
+  await c('POST', `/api/files/${doc.id}/request-access`, {});
+  let reqs = (await a('GET', '/api/files/access-requests')).body;
+  assert.deepEqual(reqs.map((r) => [r.user_name, r.role, r.file_name]), [['Req Cat', 'viewer', 'Budget 2027'], ['Req Ben', 'editor', 'Budget 2027']]);
+  assert.deepEqual((await b('GET', '/api/files/access-requests')).body, [], 'only the owner sees them');
+  const ben = reqs.find((r) => r.user_name === 'Req Ben');
+  assert.equal((await b('POST', `/api/files/access-requests/${ben.id}`, { approve: true })).status, 404, 'only the owner answers');
+  // Ben gets to view (not edit, as asked); Cat is declined.
+  await a('POST', `/api/files/access-requests/${ben.id}`, { approve: true, role: 'viewer' });
+  assert.equal((await b('GET', `/api/files/${doc.id}`)).body.role, 'viewer');
+  assert.ok((await b('GET', '/api/notifications')).body.items.some((n) => n.title === 'Req Ann shared “Budget 2027” with you'));
+  const cat = (await a('GET', '/api/files/access-requests')).body[0];
+  await a('POST', `/api/files/access-requests/${cat.id}`, { approve: false });
+  assert.equal((await c('GET', `/api/files/${doc.id}`)).status, 404);
+  assert.ok((await c('GET', '/api/notifications')).body.items.some((n) => n.title === 'Req Ann didn’t give you access to “Budget 2027”'));
+  assert.deepEqual((await a('GET', '/api/files/access-requests')).body, []);
+  assert.equal((await b('POST', `/api/files/${doc.id}/request-access`, {})).status, 400, 'Ben can open it now');
+});
+
 test('chat polls: ask, vote (one or several), change your vote, close; checked options', async () => {
   const a = client(), b = client(), c = client();
   for (const [local, name] of [['polla', 'Poll Ann'], ['pollb', 'Poll Ben'], ['pollc', 'Poll Cat']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);

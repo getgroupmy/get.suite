@@ -109,6 +109,14 @@ export default function Drive() {
   useEffect(() => onLive((m) => {
     if (m.type === 'files-changed' || m.type === 'content-changed' || m.type === 'live-connected') load();
   }), [load]);
+  // People asking for access to your files (a notification links here with ?requests=1).
+  const [requests, setRequests] = useState([]);
+  const [requestsOpen, setRequestsOpen] = useState(false);
+  const loadRequests = useCallback(() => get('/files/access-requests').then(setRequests).catch(() => {}), []);
+  useEffect(() => { loadRequests(); }, [loadRequests]);
+  useEffect(() => onLive((m) => { if (m.type === 'access-requests' || m.type === 'live-connected') loadRequests(); }), [loadRequests]);
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => { if (searchParams.get('requests')) { setRequestsOpen(true); setSearchParams({}, { replace: true }); } }, [searchParams, setSearchParams]);
 
   const parentId = route.view === 'mine' ? route.folderId : null;
   const canCreate = route.view === 'mine' && (!folder || folder.role !== 'viewer');
@@ -220,6 +228,7 @@ export default function Drive() {
         <NavLink to="/drive/recent" className="subnav-item"><Icon name="clock" />Recent</NavLink>
         <NavLink to="/drive/starred" className="subnav-item"><Icon name="staroutline" />Starred</NavLink>
         <NavLink to="/drive/trash" className="subnav-item"><Icon name="trash" />Trash</NavLink>
+        {requests.length > 0 && <button type="button" className="subnav-item" onClick={() => setRequestsOpen(true)}><Icon name="lock" /><span className="grow">Access requests</span><span className="count">{requests.length}</span></button>}
         {usage && (
           <div className="usage">
             <div className="muted small">{formatBytes(usage.used)} used{usage.disk && ` · ${formatBytes(usage.disk.free)} free on NAS`}</div>
@@ -345,6 +354,7 @@ export default function Drive() {
       {dialog?.type === 'share' && <ShareDialog file={dialog.file} onClose={() => setDialog(null)} />}
       {dialog?.type === 'move' && <MoveDialog files={dialog.files} onClose={() => setDialog(null)} onMoved={() => { setChecked(new Set()); load(); }} />}
       {dialog?.type === 'preview' && <Preview file={dialog.file} onClose={() => setDialog(null)} onOpenAs={() => { setDialog(null); openAs(dialog.file); }} />}
+      {requestsOpen && <AccessRequests list={requests} onClose={() => setRequestsOpen(false)} onChanged={() => { loadRequests(); load(); }} />}
       {dialog?.type === 'details' && <DetailsDialog file={dialog.file} onClose={() => setDialog(null)} onChanged={load} />}
       {dialog?.type === 'versions' && <VersionsDialog file={dialog.file} onClose={() => setDialog(null)} onChanged={load} />}
       <input ref={versionInput} type="file" hidden aria-hidden="true" tabIndex={-1} onChange={(e) => { uploadNewVersion(e.target.files[0]); e.target.value = ''; }} />
@@ -604,6 +614,41 @@ function DetailsDialog({ file, onClose, onChanged }) {
           </div>
         )}
       </div>
+    </Modal>
+  );
+}
+
+/** People asking to see or edit your files: share as asked (or view only), or decline. */
+function AccessRequests({ list, onClose, onChanged }) {
+  const toast = useToast();
+  const [roles, setRoles] = useState({});
+  const answer = async (r, approve) => {
+    try {
+      const role = roles[r.id] || r.role;
+      await post(`/files/access-requests/${r.id}`, { approve, role });
+      toast(approve ? `${r.user_name} can now ${role === 'editor' ? 'edit' : 'view'} ${r.file_name}` : `Declined ${r.user_name}`);
+      onChanged();
+    } catch (e) { toast(e.message, 'error'); }
+  };
+  return (
+    <Modal wide title="Access requests" onClose={onClose} footer={<button className="btn" onClick={onClose}>Close</button>}>
+      {!list.length ? <p className="muted">Nobody is waiting.</p> : (
+        <ul className="access-requests">
+          {list.map((r) => (
+            <li key={r.id}>
+              <div className="grow">
+                <div><strong>{r.user_name}</strong> <span className="muted small">{r.user_email}</span> asks to {r.role === 'editor' ? 'edit' : 'view'} <strong>{r.file_name}</strong></div>
+                {r.message && <div className="muted small">“{r.message}”</div>}
+              </div>
+              <select value={roles[r.id] || r.role} onChange={(e) => setRoles({ ...roles, [r.id]: e.target.value })} aria-label={`Access for ${r.user_name}`}>
+                <option value="viewer">Can view</option><option value="editor">Can edit</option>
+              </select>
+              <button type="button" className="btn small primary" onClick={() => answer(r, true)}>Share</button>
+              <button type="button" className="btn small" onClick={() => answer(r, false)}>Decline</button>
+            </li>
+          ))}
+        </ul>
+      )}
     </Modal>
   );
 }

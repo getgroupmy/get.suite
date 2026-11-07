@@ -93,7 +93,7 @@ export default function DocEditor() {
   const toast = useToast();
   const [file, setFile] = useState(null);
   useEffect(() => {
-    get(`/files/${id}`).then((f) => { setFile(f); document.title = `${f.name} · Docs`; }).catch((e) => { toast(e.message, 'error'); navigate('/drive'); });
+    get(`/files/${id}`).then((f) => { setFile(f); document.title = `${f.name} · Docs`; }).catch((e) => { if (e.status === 404) { navigate(`/access/${id}`, { replace: true }); return; } toast(e.message, 'error'); navigate('/drive'); });
     return () => { document.title = 'Workspace'; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
