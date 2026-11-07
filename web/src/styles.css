@@ -1312,3 +1312,14 @@ button.rule-sample.on { outline: 2px solid var(--accent); outline-offset: 1px; }
 .paper .doc-toc a:hover { text-decoration: underline; }
 .paper .doc-toc-empty { color: var(--muted); font-size: 13px; }
 @media print { .paper .doc-toc { border: 0; background: none; padding: 0; } .paper .doc-toc a { color: inherit; } }
+/* Chat: pinned messages */
+.pins-wrap { position: relative; }
+.pins-panel { position: absolute; right: 0; top: calc(100% + 6px); z-index: 30; width: min(380px, calc(100vw - 32px)); max-height: 60vh; overflow: auto; padding: 10px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 8px; }
+.pins-panel ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.pins-panel li { display: flex; align-items: flex-start; gap: 6px; border-top: 1px solid var(--border); padding-top: 6px; }
+.pins-panel li:first-child { border-top: 0; padding-top: 0; }
+.pin-item { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; text-align: left; background: none; border: 0; padding: 4px 6px; border-radius: 6px; cursor: pointer; color: inherit; font: inherit; }
+.pin-item:hover { background: var(--surface-2); }
+.pin-text { overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; white-space: pre-wrap; }
+.msg.pinned { background: color-mix(in srgb, #f9ab00 8%, transparent); }
+.msg-pinned { margin-bottom: 2px; }

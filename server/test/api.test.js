@@ -1431,3 +1431,30 @@ test('chat search: all the words, in conversations you can see (threads too); ju
   assert.equal(around[0].id, m1.id);
   assert.equal(around.length, 50);
 });
+
+test('chat pins: anyone in the conversation pins and unpins; replies cannot be; outsiders see nothing', async () => {
+  const a = client(), b = client(), c = client();
+  for (const [local, name] of [['pina', 'Pin Ann'], ['pinb', 'Pin Ben'], ['pinc', 'Pin Cat']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'pina@acme.com');
+  const bid = (await login(b, 'pinb@acme.com')).id;
+  await login(c, 'pinc@acme.com');
+  const ch = (await a('POST', '/api/chat/channels', { name: 'pin-private', private: true, members: [bid] })).body.id;
+  const m1 = (await a('POST', `/api/chat/channels/${ch}/messages`, { body: 'Wifi password is on the fridge' })).body;
+  const m2 = (await a('POST', `/api/chat/channels/${ch}/messages`, { body: 'Standup moved to 10:00' })).body;
+  const reply = (await b('POST', `/api/chat/channels/${ch}/messages`, { body: 'thanks', parent_id: m1.id })).body;
+  const pinned = (await b('POST', `/api/chat/messages/${m1.id}/pin`, {})).body;
+  assert.ok(pinned.pinned_at);
+  assert.equal(pinned.pinned_by_name, 'Pin Ben');
+  await new Promise((r) => setTimeout(r, 5));
+  await a('POST', `/api/chat/messages/${m2.id}/pin`, {});
+  assert.deepEqual((await a('GET', `/api/chat/channels/${ch}/pins`)).body.map((m) => m.body), ['Standup moved to 10:00', 'Wifi password is on the fridge'], 'latest pinned first');
+  assert.ok((await a('GET', `/api/chat/channels/${ch}/messages`)).body.find((m) => m.id === m1.id).pinned_at, 'shown on the message');
+  assert.equal((await a('POST', `/api/chat/messages/${reply.id}/pin`, {})).status, 400);
+  assert.equal((await c('POST', `/api/chat/messages/${m1.id}/pin`, {})).status, 404, 'not in the private channel');
+  assert.equal((await c('GET', `/api/chat/channels/${ch}/pins`)).status, 404);
+  await a('POST', `/api/chat/messages/${m1.id}/pin`, { pinned: false });
+  assert.deepEqual((await b('GET', `/api/chat/channels/${ch}/pins`)).body.map((m) => m.body), ['Standup moved to 10:00']);
+  // Archived channels are read-only, pins included.
+  await a('PATCH', `/api/chat/channels/${ch}`, { archived: true });
+  assert.equal((await a('POST', `/api/chat/messages/${m2.id}/pin`, { pinned: false })).status, 400);
+});

@@ -20,7 +20,11 @@ q(`CREATE TABLE IF NOT EXISTS message_reactions (
   created_at INTEGER NOT NULL,
   PRIMARY KEY (message_id, user_id, emoji)
 )`).run();
-const MAX_FILES = 10;
+const MAX_FILES = 10, MAX_PINS = 50;
+// Pinned messages: kept at hand for everyone in the conversation.
+for (const [col, type] of [['pinned_at', 'INTEGER'], ['pinned_by', 'TEXT']]) {
+  if (!q('PRAGMA table_info(messages)').all().some((c) => c.name === col)) q(`ALTER TABLE messages ADD COLUMN ${col} ${type}`).run();
+}
 import { sendTo, onlineUserIds } from '../hub.js';
 import { canReach, orgMemberIds } from '../tenancy.js';
 
@@ -50,7 +54,7 @@ function dmOpen(c, user) {
 }
 
 // Each message with its thread: how many replies, when the last came, and who replied (first few).
-const MSG = `SELECT m.id, m.channel_id, m.user_id, m.body, m.created_at, m.edited_at, m.files, m.parent_id, u.name AS user_name,
+const MSG = `SELECT m.id, m.channel_id, m.user_id, m.body, m.created_at, m.edited_at, m.files, m.parent_id, m.pinned_at, u.name AS user_name, (SELECT pu.name FROM users pu WHERE pu.id = m.pinned_by) AS pinned_by_name,
                (SELECT COUNT(*) FROM messages t WHERE t.parent_id = m.id) AS reply_count,
                (SELECT MAX(t.created_at) FROM messages t WHERE t.parent_id = m.id) AS last_reply_at,
                (SELECT json_group_array(name) FROM (SELECT DISTINCT tu.name FROM messages t JOIN users tu ON tu.id = t.user_id
@@ -352,6 +356,30 @@ export default function chatRoutes() {
     const msg = one(m.id);
     sendTo(audience(c), { type: 'message-updated', message: msg });
     res.json(msg);
+  });
+
+  // Pin a message to its conversation (or unpin it). Anyone in the conversation may; threads' replies can't be.
+  r.post('/messages/:id/pin', (req, res) => {
+    const m = q('SELECT * FROM messages WHERE id = ?').get(req.params.id);
+    if (!m) throw notFound();
+    const c = loadChannel(m.channel_id, req.user);
+    readOnly(c);
+    if (m.parent_id) throw bad('Replies in a thread can’t be pinned');
+    const pin = req.body.pinned !== false;
+    if (pin && !m.pinned_at) {
+      if (q('SELECT COUNT(*) AS n FROM messages WHERE channel_id = ? AND pinned_at IS NOT NULL').get(c.id).n >= MAX_PINS) throw bad(`At most ${MAX_PINS} pinned messages; unpin one first`);
+      q('UPDATE messages SET pinned_at = ?, pinned_by = ? WHERE id = ?').run(now(), req.user.id, m.id);
+    } else if (!pin) q('UPDATE messages SET pinned_at = NULL, pinned_by = NULL WHERE id = ?').run(m.id);
+    const msg = one(m.id);
+    sendTo(audience(c), { type: 'message-updated', message: msg });
+    sendTo(audience(c), { type: 'pins-changed', channel_id: c.id });
+    res.json(msg);
+  });
+
+  // A conversation's pinned messages, most recently pinned first.
+  r.get('/channels/:id/pins', (req, res) => {
+    const c = loadChannel(req.params.id, req.user);
+    res.json(shape(q(`${MSG} WHERE m.channel_id = ? AND m.pinned_at IS NOT NULL ORDER BY m.pinned_at DESC LIMIT ${MAX_PINS}`).all(c.id)));
   });
 
   // A file attached to a message, for the people in the conversation.

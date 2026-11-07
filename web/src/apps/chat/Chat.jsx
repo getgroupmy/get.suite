@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { get, post, patch, del, onLive, uploadFile, formatBytes } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
@@ -20,6 +20,8 @@ export default function Chat() {
   const [online, setOnline] = useState([]);
   const [people, setPeople] = useState([]);
   const [messages, setMessages] = useState([]);
+  const [pins, setPins] = useState([]); // this conversation's pinned messages
+  const [pinsOpen, setPinsOpen] = useState(false);
   const [text, setText] = useState('');
   const box = useRef();
   // Put the emoji where the cursor was in the message box.
@@ -96,6 +98,14 @@ export default function Chat() {
     const target = r.parent_id || r.id;
     navigate(`/chat/${r.channel_id}?msg=${target}${r.parent_id ? `&thread=${r.parent_id}` : ''}`);
   };
+
+  const loadPins = useCallback(() => {
+    if (!channelId) { setPins([]); return; }
+    get(`/chat/channels/${channelId}/pins`).then(setPins).catch(() => setPins([]));
+  }, [channelId]);
+  useEffect(() => { loadPins(); setPinsOpen(false); }, [loadPins]);
+  useEffect(() => onLive((m) => { if (m.type === 'pins-changed' && m.channel_id === channelId) loadPins(); }), [channelId, loadPins]);
+  const pin = (m, on) => post(`/chat/messages/${m.id}/pin`, { pinned: on }).then(() => toast(on ? 'Pinned to the conversation' : 'Unpinned')).catch((e) => toast(e.message, 'error'));
 
   useEffect(() => onLive((m) => {
     if (m.type === 'message' && m.message.parent_id) {
@@ -235,6 +245,28 @@ export default function Chat() {
               {!current.dm_key && (current.topic ? <p className="chat-topic muted small" title={current.topic}>{current.topic}</p> : !current.archived_at && <button type="button" className="link-btn small" onClick={() => setSettingsOpen(true)}>Add a topic</button>)}
             </div>
             {!current.dm_key && <span className="muted small">{current.private ? `${current.member_count} member${current.member_count === 1 ? '' : 's'}` : 'Everyone'}</span>}
+            <div className="pins-wrap">
+              <button type="button" className={`btn small ${pinsOpen ? 'primary' : ''}`} aria-expanded={pinsOpen} aria-label={`Pinned messages (${pins.length})`} title="Pinned messages" onClick={() => setPinsOpen(!pinsOpen)}>📌 {pins.length || ''}</button>
+              {pinsOpen && (
+                <div className="pins-panel" role="dialog" aria-label="Pinned messages">
+                  <div className="row"><strong className="grow">Pinned</strong><button type="button" className="icon-btn" aria-label="Close pinned messages" onClick={() => setPinsOpen(false)}><Icon name="close" size={16} /></button></div>
+                  {!pins.length ? <p className="muted small">Nothing pinned yet. Pin a message (📌 on it) to keep it here for everyone.</p> : (
+                    <ul>
+                      {pins.map((m) => (
+                        <li key={m.id}>
+                          <button type="button" className="pin-item" onClick={() => { setPinsOpen(false); navigate(`/chat/${m.channel_id}?msg=${m.id}`); }}>
+                            <span className="small"><strong>{m.user_name || 'Deleted user'}</strong> <span className="muted">{timeOrDay(m.created_at)}</span></span>
+                            <span className="pin-text">{m.body || (m.files?.length ? `📎 ${m.files.map((f) => f.name).join(', ')}` : '')}</span>
+                            <span className="muted small">Pinned by {m.pinned_by_name || 'someone'}</span>
+                          </button>
+                          {!current.archived_at && <button type="button" className="link-btn small" onClick={() => pin(m, false)}>Unpin</button>}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+            </div>
             {!current.dm_key && <button type="button" className="icon-btn" aria-label="Channel settings" title="Channel settings" onClick={() => setSettingsOpen(true)}><Icon name="settings" /></button>}
           </div>
           <div className="messages" ref={scroller} onScroll={(e) => { const el = e.currentTarget; stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40; }}>
@@ -248,7 +280,7 @@ export default function Chat() {
                   {newDay && <div className="day-sep"><span>{new Date(m.created_at).toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}</span></div>}
                   <Message m={m} grouped={grouped && !newDay} user={user} editing={editingId === m.id} editText={editText} setEditText={setEditText}
                     onStartEdit={() => { setEditingId(m.id); setEditText(m.body); }} onSaveEdit={() => saveEdit(m)} onCancelEdit={() => setEditingId(null)}
-                    onReact={(e) => react(m, e)} onThread={() => setThreadId(m.id)} onDelete={() => del(`/chat/messages/${m.id}`).catch((e) => toast(e.message, 'error'))} />
+                    onReact={(e) => react(m, e)} onThread={() => setThreadId(m.id)} onPin={current.archived_at ? null : () => pin(m, !m.pinned_at)} onDelete={() => del(`/chat/messages/${m.id}`).catch((e) => toast(e.message, 'error'))} />
                 </div>
               );
             })}
@@ -356,12 +388,13 @@ function Thread({ id, channelId, user, onClose }) {
 }
 
 /** One message: text (or the box to change it), files, reactions, its thread, and hover actions. */
-function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit, onSaveEdit, onCancelEdit, onReact, onThread, onDelete }) {
+function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit, onSaveEdit, onCancelEdit, onReact, onThread, onPin, onDelete }) {
   return (
-    <div className={`msg ${grouped ? 'grouped' : ''}`} data-mid={m.id}>
+    <div className={`msg ${grouped ? 'grouped' : ''} ${m.pinned_at ? 'pinned' : ''}`} data-mid={m.id}>
       {grouped ? <span className="msg-gutter" /> : <Avatar name={m.user_name || 'Deleted user'} size={36} />}
       <div className="msg-body">
         {!grouped && <div className="msg-meta"><strong>{m.user_name || 'Deleted user'}</strong> <span className="muted small">{new Date(m.created_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span></div>}
+        {m.pinned_at && <div className="msg-pinned muted small">📌 Pinned by {m.pinned_by_name || 'someone'}</div>}
         {editing ? (
           <form className="msg-edit" onSubmit={(e) => { e.preventDefault(); onSaveEdit(); }}>
             <textarea autoFocus aria-label="Change the message" value={editText} rows={Math.min(6, editText.split('\n').length)} onChange={(e) => setEditText(e.target.value)}
@@ -397,6 +430,7 @@ function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit
         {['👍', '❤️', '😂'].map((e) => <button key={e} type="button" className="icon-btn" aria-label={`React with ${e}`} onClick={() => onReact(e)}>{e}</button>)}
         <EmojiPicker className="icon-btn" label="Add a reaction" onPick={(e) => onReact(e)} />
         {onThread && <button type="button" className="icon-btn" aria-label="Reply in thread" title="Reply in thread" onClick={onThread}><Icon name="reply" size={16} /></button>}
+        {onPin && !m.parent_id && <button type="button" className="icon-btn" aria-label={m.pinned_at ? 'Unpin message' : 'Pin message'} title={m.pinned_at ? 'Unpin' : 'Pin to the conversation'} onClick={onPin}>📌</button>}
         {m.user_id === user.id && <button type="button" className="icon-btn" aria-label="Edit message" onClick={onStartEdit}><Icon name="edit" size={16} /></button>}
         {(m.user_id === user.id || user.is_admin) && (
           <button className="icon-btn" aria-label="Delete message" onClick={onDelete}><Icon name="trash" size={16} /></button>
