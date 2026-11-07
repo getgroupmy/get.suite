@@ -1310,3 +1310,34 @@ test('storage report: per person (files, versions, trash), largest files, admins
   assert.ok(r.largest.find((x) => x.id === t.id).trashed);
   assert.equal((await p('GET', '/api/orgs/current/storage')).status, 403);
 });
+
+test('branding: colour and logo for the company, shown on its sign-in page by domain', async () => {
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  assert.equal((await owner('PATCH', '/api/orgs/current', { accent: 'red' })).status, 400);
+  await owner('PATCH', '/api/orgs/current', { accent: '#0B8043' });
+  assert.equal((await owner('PUT', '/api/orgs/current/logo', Buffer.from('<svg onload="alert(1)"/>'), { raw: true, headers: { 'content-type': 'image/svg+xml' } })).status, 400, 'no SVG');
+  const up = await owner('PUT', '/api/orgs/current/logo', png, { raw: true, headers: { 'content-type': 'image/png' } });
+  assert.equal(up.status, 200);
+  const me = (await owner('GET', '/api/auth/me')).body.user;
+  assert.equal(me.org_accent, '#0b8043');
+  assert.match(me.org_logo, /^\/api\/public\/brand\/logo\//);
+  const anyone = client();
+  const logo = await anyone('GET', me.org_logo, undefined, { binary: true });
+  assert.equal(logo.status, 200);
+  assert.equal(logo.headers?.get?.('content-type') ?? 'image/png', 'image/png');
+  // The sign-in page at workspace.acme.com shows Acme.
+  const { brandForHost } = await import('../src/routes/brand.js');
+  assert.equal(brandForHost('workspace.acme.com:8080').accent, '#0b8043');
+  assert.equal(brandForHost('acme.com').name, (await owner('GET', '/api/orgs/current')).body.name);
+  assert.equal(brandForHost('example.net'), null);
+  assert.equal(brandForHost('notacme.com'), null, 'whole domain names only');
+  assert.ok('brand' in (await anyone('GET', '/api/public/brand')).body);
+  // Not for people who aren't admins.
+  const p = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'brandpal', domain: 'acme.com', name: 'Brand Pal', password: 'password123' })).status, 201);
+  await login(p, 'brandpal@acme.com');
+  assert.equal((await p('PUT', '/api/orgs/current/logo', png, { raw: true, headers: { 'content-type': 'image/png' } })).status, 403);
+  await owner('DELETE', '/api/orgs/current/logo');
+  await owner('PATCH', '/api/orgs/current', { accent: null });
+  assert.equal((await owner('GET', '/api/auth/me')).body.user.org_logo, null);
+});

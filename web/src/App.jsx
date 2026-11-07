@@ -7,6 +7,8 @@ import { useEventReminders } from './eventReminders.js';
 import { useTaskReminders } from './taskReminders.js';
 import Icon from './components/Icon.jsx';
 import Bell from './components/Bell.jsx';
+import BrandMark from './components/BrandMark.jsx';
+import { applyAccent } from './theme.js';
 import { Avatar, Menu, ToastProvider, useToast } from './components/ui.jsx';
 import Login from './apps/Login.jsx';
 import PublicLink from './apps/PublicLink.jsx';
@@ -111,6 +113,7 @@ const APPS = [
 
 function Shell() {
   const { user, logout } = useAuth();
+  useEffect(() => { applyAccent(user.org_accent); return () => applyAccent(null); }, [user.org_accent]); // the company's colour
   const navigate = useNavigate();
   const [navOpen, setNavOpen] = useState(false);
   const mail = useMailStatus();
@@ -133,7 +136,7 @@ function Shell() {
       <header className="topbar">
         <button className="icon-btn mobile-only" aria-label="Menu" onClick={() => setNavOpen((o) => !o)}><Icon name="menu" /></button>
         <a className="brand" href="/drive" onClick={(e) => { e.preventDefault(); navigate('/drive'); }}>
-          <span className="brand-mark">{user.org_name.slice(0, 1).toUpperCase()}</span><span className="brand-text">{user.org_name}</span>
+          <BrandMark name={user.org_name} logo={user.org_logo} /><span className="brand-text">{user.org_name}</span>
         </a>
         <form className="search" role="search" onSubmit={(e) => {
           e.preventDefault();

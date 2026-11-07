@@ -178,6 +178,9 @@ if (!hasColumn('events', 'rrule')) db.exec('ALTER TABLE events ADD COLUMN rrule 
 if (!hasColumn('events', 'exdates')) db.exec("ALTER TABLE events ADD COLUMN exdates TEXT NOT NULL DEFAULT '[]'");
 if (!hasColumn('events', 'repeat_until')) db.exec('ALTER TABLE events ADD COLUMN repeat_until INTEGER');
 // Company setting: everyone must use two-step verification for web sign-in.
+if (!hasColumn('orgs', 'accent')) db.exec('ALTER TABLE orgs ADD COLUMN accent TEXT'); // branding: the company's colour
+if (!hasColumn('orgs', 'logo')) db.exec('ALTER TABLE orgs ADD COLUMN logo TEXT'); // branding: stored logo file (in FILES_DIR)
+if (!hasColumn('orgs', 'logo_mime')) db.exec('ALTER TABLE orgs ADD COLUMN logo_mime TEXT');
 if (!hasColumn('orgs', 'require_2fa')) db.exec('ALTER TABLE orgs ADD COLUMN require_2fa INTEGER NOT NULL DEFAULT 0');
 db.exec(`CREATE TABLE IF NOT EXISTS two_factor (
   user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,

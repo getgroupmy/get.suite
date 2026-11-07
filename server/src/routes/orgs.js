@@ -1,4 +1,8 @@
-import { Router } from 'express';
+import express, { Router } from 'express';
+import fs from 'node:fs';
+import path from 'node:path';
+import { FILES_DIR } from '../db.js';
+import { uid } from '../util.js';
 import { audit } from '../audit.js';
 import { q, tx } from '../db.js';
 import { str, int, bad, notFound } from '../util.js';
@@ -20,6 +24,8 @@ function describe(org) {
     domains: domainsOf(org.id),
     users: q('SELECT COUNT(*) AS n FROM users WHERE org_id = ?').get(org.id).n,
     storage_used: orgStorageUsed(org.id),
+    logo: org.logo ? `/api/public/brand/logo/${org.id}?v=${org.logo.slice(0, 8)}` : null,
+    logo_mime: undefined,
   };
 }
 
@@ -32,6 +38,10 @@ function updateOrg(orgId, body, { asSuper, user }) {
     const own = q('SELECT 1 FROM two_factor WHERE user_id = ? AND enabled = 1').get(user.id);
     if (body.require_2fa && user.org_id === orgId && !own) throw bad('Turn on two-step verification for your own account first (Settings), then require it for everyone');
     q('UPDATE orgs SET require_2fa = ? WHERE id = ?').run(body.require_2fa ? 1 : 0, orgId);
+  }
+  if (body.accent !== undefined) {
+    if (body.accent !== null && !/^#[0-9a-f]{6}$/i.test(String(body.accent))) throw bad('Pick a colour like #1a73e8');
+    q('UPDATE orgs SET accent = ? WHERE id = ?').run(body.accent ? String(body.accent).toLowerCase() : null, orgId);
   }
   if (body.quota_mb !== undefined) {
     if (!asSuper) throw bad('Only the platform owner can change storage quotas');
@@ -51,6 +61,28 @@ export default function orgRoutes() {
   r.patch('/current', requireAdmin, (req, res) => {
     updateOrg(req.user.org_id, req.body, { asSuper: req.user.is_super, user: req.user });
     audit(req, 'company.update', { org: req.user.org_id, details: Object.fromEntries(Object.entries(req.body || {}).filter(([k]) => !/password/i.test(k))) });
+    res.json(describe(q('SELECT * FROM orgs WHERE id = ?').get(req.user.org_id)));
+  });
+
+  // Branding: the company's logo (a PNG, JPEG or WebP picture up to 1 MB; no SVG, which can carry scripts).
+  r.put('/current/logo', requireAdmin, express.raw({ type: () => true, limit: '1mb' }), (req, res) => {
+    const buf = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+    const mime = buf.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) ? 'image/png'
+      : buf[0] === 0xff && buf[1] === 0xd8 ? 'image/jpeg'
+      : buf.subarray(0, 4).toString() === 'RIFF' && buf.subarray(8, 12).toString() === 'WEBP' ? 'image/webp' : null;
+    if (!mime) throw bad('The logo must be a PNG, JPEG or WebP picture');
+    const old = q('SELECT logo FROM orgs WHERE id = ?').get(req.user.org_id)?.logo;
+    const name = `logo-${uid()}`;
+    fs.writeFileSync(path.join(FILES_DIR, name), buf);
+    q('UPDATE orgs SET logo = ?, logo_mime = ? WHERE id = ?').run(name, mime, req.user.org_id);
+    if (old) fs.rm(path.join(FILES_DIR, old), { force: true }, () => {});
+    audit(req, 'company.update', { org: req.user.org_id, details: { logo: 'changed' } });
+    res.json(describe(q('SELECT * FROM orgs WHERE id = ?').get(req.user.org_id)));
+  });
+  r.delete('/current/logo', requireAdmin, (req, res) => {
+    const old = q('SELECT logo FROM orgs WHERE id = ?').get(req.user.org_id)?.logo;
+    q('UPDATE orgs SET logo = NULL, logo_mime = NULL WHERE id = ?').run(req.user.org_id);
+    if (old) fs.rm(path.join(FILES_DIR, old), { force: true }, () => {});
     res.json(describe(q('SELECT * FROM orgs WHERE id = ?').get(req.user.org_id)));
   });
 

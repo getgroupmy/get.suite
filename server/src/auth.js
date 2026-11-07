@@ -54,7 +54,7 @@ export function destroySession(token) {
 export function userFromToken(token) {
   if (!token) return null;
   const row = q(`SELECT u.id, u.username, u.name, u.is_admin, u.is_super, u.disabled, u.org_id,
-                        o.name AS org_name, o.allow_external, o.allow_links, o.require_2fa, s.expires_at, s.last_seen,
+                        o.name AS org_name, o.allow_external, o.allow_links, o.require_2fa, o.accent AS org_accent, o.logo AS org_logo, s.expires_at, s.last_seen,
                         (SELECT enabled FROM two_factor t WHERE t.user_id = u.id) AS tf_enabled
                  FROM sessions s JOIN users u ON u.id = s.user_id JOIN orgs o ON o.id = u.org_id
                  WHERE s.token = ?`).get(token);
@@ -70,6 +70,7 @@ export function userFromToken(token) {
     id: row.id, username: row.username, email: row.username, name: row.name,
     is_admin: !!row.is_admin || !!row.is_super, is_super: !!row.is_super,
     org_id: row.org_id, org_name: row.org_name, allow_external: !!row.allow_external, allow_links: !!row.allow_links,
+    org_accent: row.org_accent || null, org_logo: row.org_logo ? `/api/public/brand/logo/${row.org_id}?v=${row.org_logo.slice(0, 8)}` : null,
     // The company requires two-step verification and this person hasn't set it up yet.
     needs_two_factor: !!row.require_2fa && !row.tf_enabled,
   };

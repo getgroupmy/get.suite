@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { get, post, patch, del, formatBytes } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
 import { Avatar, ConfirmModal, Menu, Modal, useToast } from '../../components/ui.jsx';
@@ -208,6 +208,7 @@ function CompanySettings() {
         <label className="field"><span>Name</span><input value={name} onChange={(e) => setName(e.target.value)} required /></label>
         <div className="row end"><button className="btn primary">Save</button></div>
       </form>
+      <Branding org={org} onChanged={async (o) => { if (o) setOrg(o); setUser((await get('/auth/me')).user); }} />
       <div className="card stack">
         <h2>Working with other companies</h2>
         <label className="check">
@@ -395,5 +396,49 @@ function MailboxSize({ user, onClose, onSaved }) {
         <div className="row end"><button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn primary">Save</button></div>
       </form>
     </Modal>
+  );
+}
+
+const BRAND_COLOURS = ['#1a73e8', '#0b8043', '#d93025', '#e37400', '#8e24aa', '#00796b', '#3949ab', '#202124'];
+
+/** The company's logo (top bar and sign-in page) and colour (buttons, highlights, links). */
+function Branding({ org, onChanged }) {
+  const toast = useToast();
+  const input = useRef();
+  const [busy, setBusy] = useState(false);
+  async function upload(file) {
+    if (!file) return;
+    setBusy(true);
+    try {
+      const res = await fetch('/api/orgs/current/logo', { method: 'PUT', headers: { 'x-requested-with': 'nas-workspace', 'content-type': file.type || 'application/octet-stream' }, body: file });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error || 'Upload failed');
+      toast('Logo saved'); await onChanged(data);
+    } catch (e) { toast(e.message, 'error'); } finally { setBusy(false); }
+  }
+  const colour = async (accent) => { try { await onChanged(await patch('/orgs/current', { accent })); toast(accent ? 'Colour saved' : 'Back to the usual colour'); } catch (e) { toast(e.message, 'error'); } };
+  return (
+    <div className="card stack">
+      <h2>Branding</h2>
+      <div className="row" style={{ gap: 12 }}>
+        <div className="brand-preview">{org.logo ? <img src={org.logo} alt="Company logo" /> : <span className="muted small">No logo</span>}</div>
+        <div className="stack" style={{ gap: 6 }}>
+          <div className="row" style={{ gap: 8 }}>
+            <button type="button" className="btn" disabled={busy} onClick={() => input.current.click()}>{org.logo ? 'Change logo' : 'Upload logo'}</button>
+            {org.logo && <button type="button" className="btn" onClick={async () => { await onChanged(await del('/orgs/current/logo')); toast('Logo removed'); }}>Remove</button>}
+          </div>
+          <span className="muted small">A PNG, JPEG or WebP picture up to 1 MB; square works best. Shown in the top bar and on the sign-in page.</span>
+        </div>
+        <input ref={input} type="file" accept="image/png,image/jpeg,image/webp" hidden aria-label="Logo file" onChange={(e) => { upload(e.target.files[0]); e.target.value = ''; }} />
+      </div>
+      <div className="stack" style={{ gap: 6 }}>
+        <span className="muted small">Colour (buttons, highlights and links, for everyone in the company)</span>
+        <div className="label-colors" role="radiogroup" aria-label="Company colour">
+          {BRAND_COLOURS.map((c) => <button key={c} type="button" role="radio" aria-checked={(org.accent || '#1a73e8') === c} aria-label={c} className={(org.accent || '#1a73e8') === c ? 'on' : ''} style={{ background: c }} onClick={() => colour(c === '#1a73e8' ? null : c)} />)}
+          <label className="custom-colour" title="Another colour"><input type="color" aria-label="Another colour" value={org.accent || '#1a73e8'} onChange={(e) => colour(e.target.value)} /></label>
+        </div>
+      </div>
+      <p className="muted small" style={{ margin: 0 }}>The sign-in page shows your logo and colour when Workspace is opened at an address on one of your domains (for example workspace.{org.domains?.[0] || 'yourcompany.com'}).</p>
+    </div>
   );
 }

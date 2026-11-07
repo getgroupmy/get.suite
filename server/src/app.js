@@ -8,6 +8,7 @@ import userRoutes from './routes/users.js';
 import fileRoutes from './routes/files.js';
 import calendarRoutes, { publicInviteRoutes } from './routes/calendar.js';
 import bookingRoutes, { publicBookingRoutes } from './routes/booking.js';
+import brandRoutes from './routes/brand.js';
 import contactRoutes from './routes/contacts.js';
 import taskRoutes from './routes/tasks.js';
 import notificationRoutes from './routes/notifications.js';
@@ -67,6 +68,7 @@ export function createApp({
   app.use('/api/auth', authRoutes({ secureCookies }));
   app.use('/api/public/invites', publicInviteRoutes());
   app.use('/api/public/book', publicBookingRoutes());
+  app.use('/api/public/brand', brandRoutes());
   app.use('/api/public', publicLinkRoutes());
   app.use('/api/users', requireAuth, userRoutes());
   app.use('/api/orgs', requireAuth, orgRoutes());

@@ -1,5 +1,7 @@
-import { useState } from 'react';
-import { post } from '../api.js';
+import { useEffect, useState } from 'react';
+import { get, post } from '../api.js';
+import BrandMark from '../components/BrandMark.jsx';
+import { applyAccent } from '../theme.js';
 import { useAuth } from '../App.jsx';
 
 export default function Login({ needsSetup }) {
@@ -7,6 +9,10 @@ export default function Login({ needsSetup }) {
   const [form, setForm] = useState({ username: '', password: '', confirm: '', org_name: '', domain: '', name: '', local: '' });
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  // The company whose address this is (workspace.acme.com → Acme): its name, logo and colour.
+  const [brand, setBrand] = useState(null);
+  useEffect(() => { if (!needsSetup) get('/public/brand').then((r) => { setBrand(r.brand); applyAccent(r.brand?.accent); }).catch(() => {}); return () => applyAccent(null); }, [needsSetup]);
+  const mark = <div className="brand big"><BrandMark name={brand?.name || 'Workspace'} logo={brand?.logo} /><span className="brand-text">{brand?.name || 'Workspace'}</span></div>;
   // Two-step verification: after the password, a code from the authenticator app (or a recovery code).
   const [ticket, setTicket] = useState(null);
   const [code, setCode] = useState('');
@@ -40,7 +46,7 @@ export default function Login({ needsSetup }) {
     return (
       <div className="auth-page">
         <form className="auth-card stack" onSubmit={submit}>
-          <div className="brand big"><span className="brand-mark">W</span><span className="brand-text">Workspace</span></div>
+          {mark}
           <h1>Two-step verification</h1>
           <p className="muted">{useRecovery
             ? 'Enter one of the recovery codes you saved when you turned on two-step verification. Each code works once.'
@@ -66,7 +72,7 @@ export default function Login({ needsSetup }) {
   return (
     <div className="auth-page">
       <form className="auth-card stack" onSubmit={submit}>
-        <div className="brand big"><span className="brand-mark">W</span><span className="brand-text">Workspace</span></div>
+        {mark}
         <h1>{needsSetup ? 'Set up your workspace' : 'Sign in'}</h1>
         {needsSetup ? <>
           <p className="muted">You'll be the platform owner. You can add more companies and their domains later.</p>
