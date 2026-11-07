@@ -19,6 +19,7 @@ import { startImport, importOf } from '../mail/importer.js';
 import { insertFile, cleanName } from './files.js';
 import { checkQuota } from '../tenancy.js';
 import { recordSent } from '../othercontacts.js';
+import { parseMailQuery, allOf } from '../mail/searchquery.js';
 import { mimeFor } from '../util.js';
 
 const PAGE = 50;
@@ -520,12 +521,14 @@ export default function webmailRoutes() {
     const byKeyword = new Map(labels.map((l) => [l.keyword.toLowerCase(), l.id]));
     const only = req.query.label ? labels.find((l) => l.id === req.query.label) : null;
     if (req.query.label && !only) throw notFound('Label not found');
+    const parsed = parseMailQuery(term);
+    if (parsed.error) throw bad(parsed.error);
     const out = await withFolder(req.user, folder, async (client) => {
       const total = client.mailbox.exists;
       let range, uidMode = false, count = total;
-      if (term || only) {
-        const words = term ? { or: [{ subject: term }, { from: term }, { to: term }, { body: term }] } : {};
-        const uids = (await client.search(only ? { ...words, keyword: only.keyword } : words, { uid: true })) || [];
+      if (parsed.query || only) {
+        const query = allOf([...(parsed.query ? [parsed.query] : []), ...(only ? [{ keyword: only.keyword }] : [])]);
+        const uids = (await client.search(query, { uid: true })) || [];
         uids.sort((a, b) => b - a);
         count = uids.length;
         const slice = uids.slice((page - 1) * PAGE, page * PAGE);

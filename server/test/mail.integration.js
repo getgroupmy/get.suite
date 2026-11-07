@@ -1133,3 +1133,26 @@ test('save attachments to Drive: one or all, into "Email attachments"; odd names
   assert.equal((await olivia('GET', `/api/files/${all.files[1].id}/raw?download`)).body.toString(), 'second');
   assert.equal((await olivia('POST', `/api/mail/messages/${m.uid}/attachments/save`, { folder: 'INBOX', indexes: [7] })).status, 404);
 });
+
+test('search operators: from:, subject:, has:attachment, is:unread, -word, two words both needed', async () => {
+  const t = nodemailer.createTransport({ host: process.env.MAIL_IMAP_HOST, port: 25, secure: false, ignoreTLS: true, name: 'test.acme.com' });
+  await t.sendMail({ from: 'Raj <raj-search@acme.com>', to: 'olivia@acme.com', subject: 'Zq budget plan', text: 'numbers inside' });
+  await t.sendMail({ from: 'Kim <kim-search@acme.com>', to: 'olivia@acme.com', subject: 'Zq budget only', text: 'no plan here... wait', attachments: [{ filename: 'a.txt', content: 'x' }] });
+  await t.sendMail({ from: 'Raj <raj-search@acme.com>', to: 'olivia@acme.com', subject: 'Zq lunch', text: 'pizza' });
+  await eventually(async () => (await inbox(olivia, 'Zq')).filter((m) => m.subject.startsWith('Zq ')).length === 3, 20000);
+  const find = async (q) => {
+    const r = await olivia('GET', `/api/mail/messages?folder=INBOX&q=${encodeURIComponent(q)}`);
+    assert.equal(r.status, 200, `${q}: ${JSON.stringify(r.body)}`);
+    return r.body.messages.map((m) => m.subject).filter((s) => s.startsWith('Zq ')).sort();
+  };
+  assert.deepEqual(await find('from:raj-search'), ['Zq budget plan', 'Zq lunch']);
+  assert.deepEqual(await find('subject:budget -lunch'), ['Zq budget only', 'Zq budget plan']);
+  assert.deepEqual(await find('Zq has:attachment'), ['Zq budget only']);
+  assert.deepEqual(await find('from:raj-search pizza'), ['Zq lunch']);
+  assert.deepEqual(await find('subject:Zq subject:plan'), ['Zq budget plan'], 'both subjects needed');
+  const one = (await inbox(olivia, 'Zq lunch')).find((m) => m.subject === 'Zq lunch');
+  await olivia('POST', '/api/mail/messages/flags', { folder: 'INBOX', uids: [one.uid], seen: true });
+  assert.ok(!(await find('Zq is:unread')).includes('Zq lunch'));
+  assert.ok((await find('Zq is:read')).includes('Zq lunch'));
+  assert.equal((await olivia('GET', '/api/mail/messages?folder=INBOX&q=before:soon')).status, 400);
+});
