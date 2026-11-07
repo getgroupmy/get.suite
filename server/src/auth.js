@@ -32,6 +32,7 @@ export function createSession(userId, { userAgent = '', ip = '' } = {}) {
   const token = crypto.randomBytes(32).toString('base64url');
   q('INSERT INTO sessions (token, user_id, expires_at, created_at, last_seen, user_agent, ip) VALUES (?, ?, ?, ?, ?, ?, ?)')
     .run(token, userId, now() + SESSION_DAYS * 864e5, now(), now(), String(userAgent).slice(0, 400), String(ip).slice(0, 64));
+  q('UPDATE users SET last_active = ? WHERE id = ?').run(now(), userId);
   return token;
 }
 
@@ -61,7 +62,10 @@ export function userFromToken(token) {
   if (!row) return null;
   if (row.expires_at < now() || row.disabled) { destroySession(token); return null; }
   // Last activity, for the signed-in devices list (written at most every 5 minutes).
-  if (!row.last_seen || now() - row.last_seen > 5 * 60e3) q('UPDATE sessions SET last_seen = ? WHERE token = ?').run(now(), token);
+  if (!row.last_seen || now() - row.last_seen > 5 * 60e3) {
+    q('UPDATE sessions SET last_seen = ? WHERE token = ?').run(now(), token);
+    q('UPDATE users SET last_active = ? WHERE id = ?').run(now(), row.id);
+  }
   // Sliding expiry: refresh when less than half the lifetime remains.
   if (row.expires_at - now() < (SESSION_DAYS / 2) * 864e5) {
     q('UPDATE sessions SET expires_at = ? WHERE token = ?').run(now() + SESSION_DAYS * 864e5, token);

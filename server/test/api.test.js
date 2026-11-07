@@ -2538,3 +2538,17 @@ test('admin: export the people as CSV (formula-like names kept as text); admins 
   assert.match(row, /,\d{4}-\d{2}-\d{2}$/, 'last active, from the sign-in');
   assert.equal((await a('GET', '/api/users/export')).status, 403);
 });
+
+test('admin: when each person last used their account (signing in counts; signing out keeps it)', async () => {
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'lasta', domain: 'acme.com', name: 'Last Ann', password: 'password123' })).status, 201);
+  const before = (await owner('GET', '/api/users')).body.find((u) => u.username === 'lasta@acme.com');
+  assert.equal(before.last_active, null, 'never signed in');
+  const t0 = Date.now();
+  await login(a, 'lasta@acme.com');
+  await a('POST', '/api/auth/logout');
+  const after = (await owner('GET', '/api/users')).body.find((u) => u.username === 'lasta@acme.com');
+  assert.ok(after.last_active >= t0 - 1000, 'kept after signing out');
+  const csv = (await owner('GET', '/api/users/export')).body;
+  assert.match(csv.split('\r\n').find((l) => l.includes('lasta@acme.com')), new RegExp(`,${new Date(after.last_active).toISOString().slice(0, 10)}$`));
+});

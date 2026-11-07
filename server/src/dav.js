@@ -47,6 +47,8 @@ export function authenticate(req) {
     guard.recordFailure({ ip: req.ip, login, fp: guard.passwordFingerprint(password), service: 'dav' });
     return null;
   }
+  // A phone or Outlook syncing counts as using the account (at most every 5 minutes).
+  q('UPDATE users SET last_active = ? WHERE id = ? AND (last_active IS NULL OR last_active < ?)').run(now(), u.id, now() - 5 * 60e3);
   return u;
 }
 

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { get, post, patch, del, formatBytes } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
 import { Avatar, ConfirmModal, Menu, Modal, useToast } from '../../components/ui.jsx';
+import { inactive, lastActiveText } from './lastactive.js';
 import { useAuth } from '../../App.jsx';
 import EmailAdmin from './EmailAdmin.jsx';
 import SecurityAdmin from './SecurityAdmin.jsx';
@@ -40,6 +41,7 @@ function Users({ orgId, setOrgId }) {
   const toast = useToast();
   const { user: me } = useAuth();
   const [users, setUsers] = useState(null);
+  const [inactiveOnly, setInactiveOnly] = useState(false);
   const [orgs, setOrgs] = useState([]);
   const [domains, setDomains] = useState([]);
   const [dialog, setDialog] = useState(null);
@@ -57,15 +59,17 @@ function Users({ orgId, setOrgId }) {
   return <>
     <div className="row wrap">
       {me.is_super && <OrgPicker orgId={orgId} setOrgId={setOrgId} />}
+      <label className="check"><input type="checkbox" checked={inactiveOnly} onChange={(e) => setInactiveOnly(e.target.checked)} /> Only people inactive for 90 days or more</label>
       <div className="grow" />
       <button className="btn" onClick={() => setDialog({ type: 'import' })}><Icon name="upload" size={18} /> Import from CSV</button>
       <a className="btn" href={`/api/users/export${qs}`} download><Icon name="download" size={18} /> Export as CSV</a>
       <button className="btn primary" onClick={() => setDialog({ type: 'new' })}><Icon name="plus" size={18} /> Add user</button>
     </div>
     <table className="files">
-      <thead><tr><th>Name</th><th className="hide-sm">Email address</th><th className="hide-sm">Role</th><th className="hide-sm">Storage</th><th className="hide-sm">Mailbox size</th><th aria-label="Actions" /></tr></thead>
+      <thead><tr><th>Name</th><th className="hide-sm">Email address</th><th className="hide-sm">Role</th><th className="hide-sm">Storage</th><th className="hide-sm">Mailbox size</th><th className="hide-sm">Last active</th><th aria-label="Actions" /></tr></thead>
       <tbody>
-        {users?.map((u) => (
+        {inactiveOnly && users && !users.some((u) => inactive(u)) && <tr><td colSpan={7} className="muted">Everyone has used their account in the last 90 days.</td></tr>}
+        {users?.filter((u) => !inactiveOnly || inactive(u)).map((u) => (
           <tr key={u.id} className={u.disabled ? 'dim' : ''}>
             <td className="name"><Avatar name={u.name} size={28} userId={u.id} /><span>{u.name}{u.disabled ? ' (disabled)' : ''}</span></td>
             <td className="hide-sm muted">{u.username}</td>
@@ -73,6 +77,7 @@ function Users({ orgId, setOrgId }) {
               {u.two_factor ? <span className="pill ok" title="Signs in with a password and a code from their phone">2-step</span> : null}</td>
             <td className="hide-sm muted">{formatBytes(u.storage_used)}</td>
             <td className="hide-sm muted">{u.mail_quota_mb ? formatBytes(u.mail_quota_mb * 1048576) : 'Unlimited'}</td>
+            <td className="hide-sm muted" title={u.last_active ? new Date(u.last_active).toLocaleString() : undefined}>{lastActiveText(u.last_active)}</td>
             <td className="actions">
               {!(u.is_super && !me.is_super) && (
                 <Menu trigger={(p) => <button className="icon-btn" aria-label={`Actions for ${u.name}`} {...p}><Icon name="more" /></button>} items={[

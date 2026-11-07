@@ -174,7 +174,7 @@ export default function userRoutes() {
 
   r.get('/', (req, res) => {
     const orgId = targetOrg(req);
-    res.json(q(`SELECT u.id, u.username, u.name, u.is_admin, u.is_super, u.disabled, u.created_at, u.mail_quota_mb,
+    res.json(q(`SELECT u.id, u.username, u.name, u.is_admin, u.is_super, u.disabled, u.created_at, u.mail_quota_mb, u.last_active,
                   (SELECT COALESCE(SUM(size), 0) FROM files f WHERE f.owner_id = u.id) AS storage_used,
                   (SELECT COUNT(*) FROM two_factor t WHERE t.user_id = u.id AND t.enabled = 1) AS two_factor
                 FROM users u WHERE u.org_id = ? ORDER BY u.name`).all(orgId));
@@ -186,7 +186,7 @@ export default function userRoutes() {
     const rows = q(`SELECT u.username, u.name, u.is_admin, u.disabled, u.created_at,
                       (SELECT COALESCE(SUM(size), 0) FROM files f WHERE f.owner_id = u.id) AS storage_used,
                       (SELECT COUNT(*) FROM two_factor t WHERE t.user_id = u.id AND t.enabled = 1) AS two_factor,
-                      (SELECT MAX(s.last_seen) FROM sessions s WHERE s.user_id = u.id) AS last_active
+                      MAX(COALESCE(u.last_active, 0), COALESCE((SELECT MAX(s.last_seen) FROM sessions s WHERE s.user_id = u.id), 0)) AS last_active
                     FROM users u WHERE u.org_id = ? ORDER BY u.name COLLATE NOCASE`).all(orgId);
     audit(req, 'user.export', { org: orgId, details: { people: rows.length } });
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');

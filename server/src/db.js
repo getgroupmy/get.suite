@@ -227,6 +227,8 @@ if (!hasColumn('contacts', 'birthday')) db.exec('ALTER TABLE contacts ADD COLUMN
 // handed to a new person who later gets that address.
 // Your status for colleagues ("🌴 On leave"), cleared by itself at status_until (ms; null: kept).
 // Notifications paused ("do not disturb") until paused_until (ms).
+// When the account was last used (any signed-in device; written at most every 5 minutes).
+if (!hasColumn('users', 'last_active')) db.exec('ALTER TABLE users ADD COLUMN last_active INTEGER');
 for (const [col, type] of [['status_emoji', 'TEXT'], ['status_text', 'TEXT'], ['status_until', 'INTEGER'], ['paused_until', 'INTEGER']]) if (!hasColumn('users', col)) db.exec(`ALTER TABLE users ADD COLUMN ${col} ${type}`);
 if (!hasColumn('users', 'mail_home')) db.exec('ALTER TABLE users ADD COLUMN mail_home TEXT');
 db.exec('CREATE TABLE IF NOT EXISTS retired_mail_homes (path TEXT PRIMARY KEY, retired_at INTEGER NOT NULL)');
