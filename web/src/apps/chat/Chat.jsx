@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router';
 import { get, post, patch, del, onLive, uploadFile, formatBytes } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
 import EmojiPicker from '../../components/EmojiPicker.jsx';
-import { Avatar, Empty, PromptModal, useToast } from '../../components/ui.jsx';
+import { Avatar, ConfirmModal, Empty, Modal, PromptModal, useToast } from '../../components/ui.jsx';
 import { useAuth } from '../../App.jsx';
 import { useMentions, MENTION_RE } from '../../components/mentions.jsx';
 
@@ -150,7 +150,11 @@ export default function Chat() {
     navigate(`/chat/${id}`);
   }
 
-  const publicChannels = channels.filter((c) => !c.dm_key);
+  const publicChannels = channels.filter((c) => !c.dm_key && !c.archived_at);
+  const archivedChannels = channels.filter((c) => !c.dm_key && c.archived_at);
+  const [showArchived, setShowArchived] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const canManage = (c) => c && !c.dm_key && (c.created_by === user.id || user.is_admin);
   const dms = channels.filter((c) => c.dm_key);
   const title = current ? (current.dm_key ? (current.dm_name || 'Notes to self') + (current.dm_org ? ` (${current.dm_org})` : '') : `# ${current.name}`) : '';
 
@@ -158,11 +162,12 @@ export default function Chat() {
     <div className="chat">
       <aside className="subnav">
         <div className="subnav-title row">Channels<div className="grow" /><button className="icon-btn" aria-label="New channel" onClick={() => setDialog(true)}><Icon name="plus" size={18} /></button></div>
-        {publicChannels.map((c) => (
-          <button key={c.id} className={`subnav-item ${c.id === channelId ? 'active' : ''}`} onClick={() => navigate(`/chat/${c.id}`)}>
-            <span className="hash">#</span><span className="grow ellipsis">{c.name}</span>{mentioned[c.id] && <span className="badge at" aria-label="You were mentioned">@</span>}{unread[c.id] > 0 && <span className="badge">{unread[c.id]}</span>}
+        {[...publicChannels, ...(showArchived ? archivedChannels : [])].map((c) => (
+          <button key={c.id} className={`subnav-item ${c.id === channelId ? 'active' : ''} ${c.archived_at ? 'archived' : ''}`} onClick={() => navigate(`/chat/${c.id}`)}>
+            <span className="hash" aria-label={c.private ? 'Private channel' : undefined}>{c.private ? '🔒' : '#'}</span><span className="grow ellipsis">{c.name}</span>{mentioned[c.id] && <span className="badge at" aria-label="You were mentioned">@</span>}{unread[c.id] > 0 && <span className="badge">{unread[c.id]}</span>}
           </button>
         ))}
+        {archivedChannels.length > 0 && <button type="button" className="link-btn small archived-toggle" aria-expanded={showArchived} onClick={() => setShowArchived(!showArchived)}>{showArchived ? 'Hide' : 'Show'} archived ({archivedChannels.length})</button>}
         <div className="subnav-title">Direct messages</div>
         {dms.map((c) => (
           <button key={c.id} className={`subnav-item ${c.id === channelId ? 'active' : ''}`} onClick={() => navigate(`/chat/${c.id}`)}>
@@ -179,7 +184,14 @@ export default function Chat() {
       </aside>
       <section className="chat-main">
         {!current ? <Empty icon="chat" title="Pick a conversation" /> : <>
-          <div className="chat-head"><h1>{title}</h1></div>
+          <div className="chat-head">
+            <div className="grow" style={{ minWidth: 0 }}>
+              <h1>{current.private && !current.dm_key ? `🔒 ${current.name}` : title}</h1>
+              {!current.dm_key && (current.topic ? <p className="chat-topic muted small" title={current.topic}>{current.topic}</p> : !current.archived_at && <button type="button" className="link-btn small" onClick={() => setSettingsOpen(true)}>Add a topic</button>)}
+            </div>
+            {!current.dm_key && <span className="muted small">{current.private ? `${current.member_count} member${current.member_count === 1 ? '' : 's'}` : 'Everyone'}</span>}
+            {!current.dm_key && <button type="button" className="icon-btn" aria-label="Channel settings" title="Channel settings" onClick={() => setSettingsOpen(true)}><Icon name="settings" /></button>}
+          </div>
           <div className="messages" ref={scroller} onScroll={(e) => { const el = e.currentTarget; stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40; }}>
             {messages.length === 0 && <Empty icon="chat" title="No messages yet">Say hello 👋</Empty>}
             {messages.map((m, i) => {
@@ -202,7 +214,10 @@ export default function Chat() {
               {uploading > 0 && <li className="muted">Uploading {uploading}…</li>}
             </ul>
           )}
-          <form className="composer" onSubmit={send} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { if (e.dataTransfer.files.length) { e.preventDefault(); attach([...e.dataTransfer.files]); } }}>
+          {current.archived_at ? (
+            <div className="banner archived-banner">This channel is archived: it can be read but not written in.
+              {canManage(current) && <button type="button" className="btn small" onClick={async () => { await patch(`/chat/channels/${current.id}`, { archived: false }); loadChannels(); }}>Unarchive</button>}</div>
+          ) : <form className="composer" onSubmit={send} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { if (e.dataTransfer.files.length) { e.preventDefault(); attach([...e.dataTransfer.files]); } }}>
             <EmojiPicker up className="icon-btn" onPick={insertEmoji} />
             <button type="button" className="icon-btn" aria-label="Attach files" title="Attach files (or drop or paste them here)" onClick={() => fileInput.current.click()}><Icon name="attach" /></button>
             <input ref={fileInput} type="file" multiple hidden aria-label="Files to attach" onChange={(e) => { attach([...e.target.files]); e.target.value = ''; }} />
@@ -211,14 +226,16 @@ export default function Chat() {
               onKeyDown={(e) => { if (mention.keyDown(e)) return; if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) send(e); }} />
             {mention.list}
             <button className="icon-btn send" aria-label="Send" disabled={(!text.trim() && !files.length) || uploading > 0}><Icon name="send" /></button>
-          </form>
+          </form>}
         </>}
       </section>
       {current && threadId && <Thread key={threadId} id={threadId} channelId={channelId} user={user} onClose={() => setThreadId(null)} />}
       {dialog === 'email' && <PromptModal title="Message someone at another company" label="Their email address" confirm="Start chat" onClose={() => setDialog(false)}
         onSubmit={async (email) => { const p = await get(`/users/lookup?email=${encodeURIComponent(email)}`); await openDm(p.id); }} />}
-      {dialog === true && <PromptModal title="New channel" label="Channel name" confirm="Create" onClose={() => setDialog(false)}
-        onSubmit={async (name) => { const c = await post('/chat/channels', { name }); await loadChannels(); navigate(`/chat/${c.id}`); }} />}
+      {dialog === true && <NewChannel people={people.filter((p) => p.id !== user.id)} onClose={() => setDialog(false)}
+        onMade={async (id) => { setDialog(false); await loadChannels(); navigate(`/chat/${id}`); }} />}
+      {settingsOpen && current && !current.dm_key && <ChannelSettings channel={current} me={user} canManage={canManage(current)} people={people} onClose={() => setSettingsOpen(false)}
+        onChanged={loadChannels} onLeft={async () => { setSettingsOpen(false); await loadChannels(); navigate('/chat'); }} />}
     </div>
   );
 }
@@ -359,4 +376,119 @@ export function Linked({ text, me }) {
       if (i % 2 === 0) return part;
       return part.startsWith('/') ? <Link key={`${j}-${i}`} to={part}>{part}</Link> : <a key={`${j}-${i}`} href={part} target="_blank" rel="noopener noreferrer">{part}</a>;
     })));
+}
+
+/** A new channel: open to the company, or private to the people chosen. */
+function NewChannel({ people, onClose, onMade }) {
+  const [f, setF] = useState({ name: '', topic: '', private: false, members: new Set() });
+  const [error, setError] = useState('');
+  async function submit(e) {
+    e.preventDefault();
+    try { const c = await post('/chat/channels', { name: f.name, topic: f.topic, private: f.private, members: [...f.members] }); onMade(c.id); }
+    catch (err) { setError(err.message); }
+  }
+  return (
+    <Modal title="New channel" onClose={onClose}>
+      <form className="stack" onSubmit={submit}>
+        <label className="field"><span>Channel name</span><input autoFocus required maxLength={60} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="e.g. marketing" /></label>
+        <label className="field"><span>Topic (optional)</span><input maxLength={250} value={f.topic} onChange={(e) => setF({ ...f, topic: e.target.value })} placeholder="What it’s for" /></label>
+        <label className="check"><input type="checkbox" checked={f.private} onChange={(e) => setF({ ...f, private: e.target.checked })} /> Private: only the people you choose can see it</label>
+        {f.private && <PeoplePicker people={people} chosen={f.members} onChange={(members) => setF({ ...f, members })} />}
+        {error && <p className="error">{error}</p>}
+        <div className="row end"><button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn primary">Create</button></div>
+      </form>
+    </Modal>
+  );
+}
+
+function PeoplePicker({ people, chosen, onChange, label = 'Who can see it' }) {
+  const [find, setFind] = useState('');
+  const shown = people.filter((p) => `${p.name} ${p.username}`.toLowerCase().includes(find.toLowerCase()));
+  return (
+    <fieldset className="people-pick">
+      <legend className="muted small">{label}</legend>
+      <input type="search" value={find} onChange={(e) => setFind(e.target.value)} placeholder="Find people" aria-label="Find people" />
+      <ul>
+        {shown.map((p) => (
+          <li key={p.id}><label className="check"><input type="checkbox" checked={chosen.has(p.id)} onChange={(e) => { const n = new Set(chosen); e.target.checked ? n.add(p.id) : n.delete(p.id); onChange(n); }} />
+            <Avatar name={p.name} size={22} /> {p.name} <span className="muted small">{p.username}</span></label></li>
+        ))}
+      </ul>
+    </fieldset>
+  );
+}
+
+/** A channel's topic, name, privacy, members and archiving. */
+function ChannelSettings({ channel, me, canManage, people, onClose, onChanged, onLeft }) {
+  const toast = useToast();
+  const [topic, setTopic] = useState(channel.topic || '');
+  const [name, setName] = useState(channel.name);
+  const [members, setMembers] = useState(null);
+  const [adding, setAdding] = useState(new Set());
+  const [confirm, setConfirm] = useState(null);
+  const general = !channel.created_by; // the company-wide channel
+  const loadMembers = () => get(`/chat/channels/${channel.id}/members`).then(setMembers).catch(() => setMembers([]));
+  useEffect(() => { if (channel.private) loadMembers(); }, [channel.id, channel.private]); // eslint-disable-line react-hooks/exhaustive-deps
+  const change = async (body, done) => { try { await patch(`/chat/channels/${channel.id}`, body); toast(done); onChanged(); } catch (e) { toast(e.message, 'error'); } };
+  const memberIds = new Set((members || []).map((m) => m.id));
+  return (
+    <Modal wide title={`#${channel.name}`} onClose={onClose}>
+      <div className="stack">
+        <form className="row" style={{ gap: 8, alignItems: 'flex-end' }} onSubmit={(e) => { e.preventDefault(); change({ topic }, 'Topic saved'); }}>
+          <label className="field grow"><span>Topic</span><input maxLength={250} value={topic} disabled={!!channel.archived_at} onChange={(e) => setTopic(e.target.value)} placeholder="What it’s for" /></label>
+          <button className="btn" disabled={!!channel.archived_at || topic === (channel.topic || '')}>Save topic</button>
+        </form>
+        {canManage && (
+          <form className="row" style={{ gap: 8, alignItems: 'flex-end' }} onSubmit={(e) => { e.preventDefault(); change({ name }, 'Channel renamed'); }}>
+            <label className="field grow"><span>Name</span><input maxLength={60} value={name} onChange={(e) => setName(e.target.value)} /></label>
+            <button className="btn" disabled={!name.trim() || name === channel.name}>Rename</button>
+          </form>
+        )}
+        {channel.private ? (
+          <section className="stack" style={{ gap: 6 }}>
+            <strong>Members{members ? ` (${members.length})` : ''}</strong>
+            <ul className="member-list">
+              {(members || []).map((m) => (
+                <li key={m.id} className="row"><Avatar name={m.name} size={24} /><span className="grow">{m.name} <span className="muted small">{m.username}</span></span>
+                  {m.id === me.id
+                    ? <button type="button" className="btn small" onClick={() => setConfirm('leave')}>Leave</button>
+                    : canManage && <button type="button" className="icon-btn" aria-label={`Take ${m.name} off`} onClick={async () => { await del(`/chat/channels/${channel.id}/members/${m.id}`); loadMembers(); onChanged(); }}><Icon name="close" size={16} /></button>}
+                </li>
+              ))}
+            </ul>
+            {!channel.archived_at && <>
+              <PeoplePicker label="Add people" people={people.filter((p) => !memberIds.has(p.id) && !p.external)} chosen={adding} onChange={setAdding} />
+              <div className="row"><button type="button" className="btn" disabled={!adding.size} onClick={async () => {
+                try { await post(`/chat/channels/${channel.id}/members`, { user_ids: [...adding] }); setAdding(new Set()); loadMembers(); onChanged(); toast('Added'); } catch (e) { toast(e.message, 'error'); }
+              }}>Add {adding.size || ''}</button></div>
+            </>}
+          </section>
+        ) : <p className="muted small" style={{ margin: 0 }}>Everyone in the company can see and join this channel.</p>}
+        {canManage && !general && (
+          <div className="row wrap" style={{ gap: 8, borderTop: '1px solid var(--border)', paddingTop: 12 }}>
+            {!channel.private && <button type="button" className="btn" onClick={() => setConfirm('private')}>Make private</button>}
+            {channel.private && <button type="button" className="btn" onClick={() => setConfirm('public')}>Open to everyone</button>}
+            {channel.archived_at
+              ? <button type="button" className="btn" onClick={() => change({ archived: false }, 'Channel unarchived')}>Unarchive</button>
+              : <button type="button" className="btn danger" onClick={() => setConfirm('archive')}>Archive channel</button>}
+          </div>
+        )}
+      </div>
+      {confirm && (
+        <ConfirmModal danger={confirm === 'archive' || confirm === 'leave'}
+          title={{ archive: 'Archive this channel?', private: 'Make this channel private?', public: 'Open this channel to everyone?', leave: 'Leave this channel?' }[confirm]}
+          confirm={{ archive: 'Archive', private: 'Make private', public: 'Open to everyone', leave: 'Leave' }[confirm]}
+          message={{ archive: 'It stays readable, under Show archived, but no one can write in it. You can unarchive it later.',
+            private: 'Only you and the people who have written in it will see it; you can add others.',
+            public: 'Everyone in the company will be able to see it and its messages.',
+            leave: 'You won’t see it any more unless someone adds you again.' }[confirm]}
+          onClose={() => setConfirm(null)}
+          onConfirm={async () => {
+            if (confirm === 'leave') { await del(`/chat/channels/${channel.id}/members/me`); onLeft(); return; }
+            await change(confirm === 'archive' ? { archived: true } : { private: confirm === 'private' }, { archive: 'Channel archived', private: 'Channel is now private', public: 'Channel is open to everyone' }[confirm]);
+            onClose();
+          }} />
+      )}
+    </Modal>
+  );
 }

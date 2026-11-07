@@ -154,6 +154,9 @@ const hasColumn = (table, col) => db.prepare(`PRAGMA table_info(${table})`).all(
 if (!hasColumn('messages', 'edited_at')) db.exec('ALTER TABLE messages ADD COLUMN edited_at INTEGER');
 if (!hasColumn('messages', 'files')) db.exec('ALTER TABLE messages ADD COLUMN files TEXT'); // JSON [{ id, name, mime, size }]
 if (!hasColumn('files', 'page_setup')) db.exec('ALTER TABLE files ADD COLUMN page_setup TEXT'); // documents: JSON, see pagesetup.js
+if (!hasColumn('channels', 'private')) db.exec('ALTER TABLE channels ADD COLUMN private INTEGER NOT NULL DEFAULT 0'); // only its members see it
+if (!hasColumn('channels', 'topic')) db.exec('ALTER TABLE channels ADD COLUMN topic TEXT');
+if (!hasColumn('channels', 'archived_at')) db.exec('ALTER TABLE channels ADD COLUMN archived_at INTEGER'); // read-only once archived
 if (!hasColumn('messages', 'parent_id')) db.exec('ALTER TABLE messages ADD COLUMN parent_id TEXT'); // a reply in this message's thread
 db.exec('CREATE INDEX IF NOT EXISTS messages_parent ON messages(parent_id, created_at)');
 if (!hasColumn('users', 'org_id')) db.exec('ALTER TABLE users ADD COLUMN org_id TEXT REFERENCES orgs(id) ON DELETE CASCADE');

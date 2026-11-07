@@ -1199,3 +1199,44 @@ test('contact groups: made, changed, suggested in Mail with everyone in them, on
   await owner('DELETE', `/api/contacts/groups/${g.body.id}`);
   assert.ok(!(await owner('GET', '/api/contacts/groups')).body.some((x) => x.id === g.body.id));
 });
+
+test('chat channels: private ones only for members, topics, archiving, and who may change them', async () => {
+  const a = client(), b = client(), c = client();
+  for (const [local, name] of [['chana', 'Chan Ann'], ['chanb', 'Chan Ben'], ['chanc', 'Chan Cat']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'chana@acme.com');
+  const bid = (await login(b, 'chanb@acme.com')).id;
+  const cid = (await login(c, 'chanc@acme.com')).id;
+  const listOf = async (who) => (await who('GET', '/api/chat/channels')).body.channels;
+  const priv = (await a('POST', '/api/chat/channels', { name: 'board-only', private: true, members: [bid], topic: 'Board business' })).body.id;
+  assert.ok((await listOf(b)).some((x) => x.id === priv && x.private && x.topic === 'Board business'));
+  assert.ok(!(await listOf(c)).some((x) => x.id === priv), 'not for people outside it');
+  assert.equal((await c('GET', `/api/chat/channels/${priv}/messages`)).status, 404);
+  assert.equal((await c('POST', `/api/chat/channels/${priv}/messages`, { body: 'hi' })).status, 404);
+  assert.deepEqual((await a('GET', `/api/chat/channels/${priv}/members`)).body.map((m) => m.name), ['Chan Ann', 'Chan Ben']);
+  // Ben adds Cat; Ben can't take Ann off; Cat leaves.
+  await b('POST', `/api/chat/channels/${priv}/members`, { user_ids: [cid] });
+  assert.ok((await listOf(c)).some((x) => x.id === priv));
+  assert.equal((await b('DELETE', `/api/chat/channels/${priv}/members/${(await a('GET', '/api/auth/me')).body.user.id}`)).status, 403);
+  await c('DELETE', `/api/chat/channels/${priv}/members/me`);
+  assert.ok(!(await listOf(c)).some((x) => x.id === priv));
+  assert.equal((await a('POST', '/api/chat/channels', { name: 'x', private: true, members: [ginaId] })).status, 400, 'only colleagues');
+  // Topic by anyone in it; rename and archive by the maker.
+  await b('PATCH', `/api/chat/channels/${priv}`, { topic: 'Board meetings and papers' });
+  assert.equal((await listOf(a)).find((x) => x.id === priv).topic, 'Board meetings and papers');
+  assert.equal((await b('PATCH', `/api/chat/channels/${priv}`, { archived: true })).status, 403);
+  await a('PATCH', `/api/chat/channels/${priv}`, { archived: true, name: 'board-2026' });
+  const arch = (await listOf(b)).find((x) => x.id === priv);
+  assert.ok(arch.archived_at && arch.name === 'board-2026');
+  assert.equal((await b('POST', `/api/chat/channels/${priv}/messages`, { body: 'late' })).status, 400, 'read-only when archived');
+  await a('PATCH', `/api/chat/channels/${priv}`, { archived: false });
+  assert.equal((await b('POST', `/api/chat/channels/${priv}/messages`, { body: 'back' })).status, 201);
+  // The company-wide channel stays open.
+  const general = (await listOf(a)).find((x) => x.name === 'general');
+  assert.equal((await owner('PATCH', `/api/chat/channels/${general.id}`, { private: true })).status, 400);
+  // A public channel made private keeps those who wrote in it.
+  const pub = (await a('POST', '/api/chat/channels', { name: 'was-public' })).body.id;
+  await c('POST', `/api/chat/channels/${pub}/messages`, { body: 'hello' });
+  await a('PATCH', `/api/chat/channels/${pub}`, { private: true });
+  assert.ok((await listOf(c)).some((x) => x.id === pub), 'Cat wrote there');
+  assert.ok(!(await listOf(b)).some((x) => x.id === pub), 'Ben never did');
+});

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import path from 'node:path';
 import { q, tx, FILES_DIR } from '../db.js';
-import { uid, now, str, bad, notFound } from '../util.js';
+import { uid, now, str, bad, notFound, HttpError } from '../util.js';
 import { roleFor } from '../access.js';
 import { insertFile } from './files.js';
 
@@ -30,14 +30,18 @@ import { canReach, orgMemberIds } from '../tenancy.js';
 function loadChannel(id, user) {
   const c = q('SELECT * FROM channels WHERE id = ?').get(id);
   if (!c) throw notFound('Channel not found');
-  if (c.dm_key) {
-    if (!q('SELECT 1 FROM channel_members WHERE channel_id = ? AND user_id = ?').get(id, user.id)) throw notFound('Channel not found');
-  } else if (c.org_id !== user.org_id) throw notFound('Channel not found');
+  const member = () => !!q('SELECT 1 FROM channel_members WHERE channel_id = ? AND user_id = ?').get(id, user.id);
+  if (c.dm_key || c.private) { if (!member()) throw notFound('Channel not found'); }
+  else if (c.org_id !== user.org_id) throw notFound('Channel not found');
   return c;
 }
 
 const membersOf = (c) => q('SELECT user_id FROM channel_members WHERE channel_id = ?').all(c.id).map((r) => r.user_id);
-const audience = (c) => (c.dm_key ? membersOf(c) : orgMemberIds(c.org_id));
+const audience = (c) => (c.dm_key || c.private ? membersOf(c) : orgMemberIds(c.org_id));
+const isGeneral = (c) => !c.dm_key && c.id === q('SELECT id FROM channels WHERE org_id = ? AND dm_key IS NULL ORDER BY created_at LIMIT 1').get(c.org_id)?.id;
+/** May this person change the channel's name, privacy or archiving? Who made it, or a company admin. */
+const canManage = (c, user) => !c.dm_key && (c.created_by === user.id || (user.is_admin && c.org_id === user.org_id));
+const readOnly = (c) => { if (c.archived_at) throw bad('This channel is archived'); };
 
 /** For a DM: may this user still write to it? (the other person may be in a company that closed external access) */
 function dmOpen(c, user) {
@@ -107,12 +111,22 @@ function notifyMentions(c, from, msg) {
   if (ids.length) sendTo(ids, { type: 'chat-mention', channel_id: c.id, message_id: msg.id, parent_id: msg.parent_id, from: from.name || from.username, text: String(msg.body).slice(0, 140) });
 }
 
+/** People from your own company (ids), for a private channel. */
+function colleagues(user, list) {
+  const ids = [...new Set((Array.isArray(list) ? list : []).map(String))];
+  if (ids.length > 500) throw bad('Too many people');
+  const ok = new Set(q(`SELECT id FROM users WHERE org_id = ? AND disabled = 0 AND id IN (SELECT value FROM json_each(?))`).all(user.org_id, JSON.stringify(ids)).map((u) => u.id));
+  if (ids.some((id) => !ok.has(id))) throw bad('Private channels are for people in your company');
+  return ids;
+}
+
 export default function chatRoutes() {
   const r = Router();
 
   r.get('/channels', (req, res) => {
     const me = req.user.id;
-    const rows = q(`SELECT c.id, c.name, c.dm_key,
+    const rows = q(`SELECT c.id, c.name, c.dm_key, c.private, c.topic, c.archived_at, c.created_by,
+                      (SELECT COUNT(*) FROM channel_members cm WHERE cm.channel_id = c.id) AS member_count,
                       (SELECT MAX(created_at) FROM messages m WHERE m.channel_id = c.id) AS last_at,
                       (SELECT u.name FROM channel_members cm JOIN users u ON u.id = cm.user_id
                         WHERE cm.channel_id = c.id AND cm.user_id != ? LIMIT 1) AS dm_name,
@@ -126,9 +140,9 @@ export default function chatRoutes() {
                         AND m.created_at > COALESCE((SELECT read_at FROM channel_reads r WHERE r.channel_id = c.id AND r.user_id = ?), 0)
                         AND INSTR(LOWER(m.body), LOWER(?)) > 0) AS mentions
                     FROM channels c
-                    WHERE (c.dm_key IS NULL AND c.org_id = ?)
+                    WHERE (c.dm_key IS NULL AND c.private = 0 AND c.org_id = ?)
                        OR EXISTS (SELECT 1 FROM channel_members cm WHERE cm.channel_id = c.id AND cm.user_id = ?)
-                    ORDER BY c.dm_key IS NOT NULL, c.name`).all(me, me, req.user.org_id, me, me, me, me, me, `@${req.user.username}`, req.user.org_id, me);
+                    ORDER BY c.dm_key IS NOT NULL, c.archived_at IS NOT NULL, c.name`).all(me, me, req.user.org_id, me, me, me, me, me, `@${req.user.username}`, req.user.org_id, me);
     res.json({ channels: rows, online: onlineUserIds() });
   });
 
@@ -136,10 +150,78 @@ export default function chatRoutes() {
     const name = str(req.body.name, { required: true, name: 'Channel name', max: 60 }).toLowerCase().replace(/\s+/g, '-');
     if (!/^[a-z0-9_-]+$/.test(name)) throw bad('Channel names may contain letters, numbers, - and _');
     if (q('SELECT 1 FROM channels WHERE name = ? AND org_id = ?').get(name, req.user.org_id)) throw bad('Channel already exists');
+    const priv = !!req.body.private;
+    const topic = str(req.body.topic, { max: 250, name: 'Topic' }) || null;
+    const members = priv ? colleagues(req.user, req.body.members) : [];
     const id = uid();
-    q('INSERT INTO channels (id, org_id, name, created_by, created_at) VALUES (?, ?, ?, ?, ?)').run(id, req.user.org_id, name, req.user.id, now());
-    sendTo(orgMemberIds(req.user.org_id), { type: 'channels-changed' });
+    tx(() => {
+      q('INSERT INTO channels (id, org_id, name, created_by, created_at, private, topic) VALUES (?, ?, ?, ?, ?, ?, ?)').run(id, req.user.org_id, name, req.user.id, now(), priv ? 1 : 0, topic);
+      for (const m of new Set([req.user.id, ...members])) if (priv) q('INSERT INTO channel_members (channel_id, user_id) VALUES (?, ?)').run(id, m);
+    });
+    sendTo(priv ? [req.user.id, ...members] : orgMemberIds(req.user.org_id), { type: 'channels-changed' });
     res.status(201).json({ id, name });
+  });
+
+  // Settings: the topic (anyone in it); the name, privacy and archiving (whoever made it, or an admin).
+  r.patch('/channels/:id', (req, res) => {
+    const c = loadChannel(req.params.id, req.user);
+    if (c.dm_key) throw bad('Direct messages have no settings');
+    const b = req.body || {};
+    const set = {};
+    if (b.topic !== undefined) { if (c.archived_at && b.archived !== false) readOnly(c); set.topic = str(b.topic, { max: 250, name: 'Topic' }) || null; }
+    if (b.name !== undefined || b.private !== undefined || b.archived !== undefined) {
+      if (!canManage(c, req.user)) throw new HttpError(403, 'Only whoever made the channel, or an admin, can change that');
+      if (isGeneral(c) && (b.private || b.archived)) throw bad('The company-wide channel stays open to everyone');
+    }
+    if (b.name !== undefined) {
+      const name = str(b.name, { required: true, name: 'Channel name', max: 60 }).toLowerCase().replace(/\s+/g, '-');
+      if (!/^[a-z0-9_-]+$/.test(name)) throw bad('Channel names may contain letters, numbers, - and _');
+      if (name !== c.name && q('SELECT 1 FROM channels WHERE name = ? AND org_id = ?').get(name, c.org_id)) throw bad('Channel already exists');
+      set.name = name;
+    }
+    if (b.archived !== undefined) set.archived_at = b.archived ? now() : null;
+    const before = audience(c);
+    tx(() => {
+      if (b.private !== undefined && !!b.private !== !!c.private) {
+        set.private = b.private ? 1 : 0;
+        // Made private: those who've written in it (and you) become its members.
+        if (b.private) for (const m of new Set([req.user.id, ...q('SELECT DISTINCT user_id FROM messages WHERE channel_id = ? AND user_id IS NOT NULL').all(c.id).map((x) => x.user_id)])) {
+          q('INSERT OR IGNORE INTO channel_members (channel_id, user_id) VALUES (?, ?)').run(c.id, m);
+        }
+        else q('DELETE FROM channel_members WHERE channel_id = ?').run(c.id);
+      }
+      const keys = Object.keys(set);
+      if (keys.length) q(`UPDATE channels SET ${keys.map((k) => `${k} = ?`).join(', ')} WHERE id = ?`).run(...keys.map((k) => set[k]), c.id);
+    });
+    const after = q('SELECT * FROM channels WHERE id = ?').get(c.id);
+    sendTo(new Set([...before, ...audience(after)]), { type: 'channels-changed' });
+    res.json({ ok: true });
+  });
+
+  // Members of a private channel: anyone in it can add people; whoever made it (or an admin) can take them off.
+  r.get('/channels/:id/members', (req, res) => {
+    const c = loadChannel(req.params.id, req.user);
+    const ids = c.dm_key || c.private ? membersOf(c) : orgMemberIds(c.org_id);
+    res.json(q(`SELECT id, name, username FROM users WHERE id IN (SELECT value FROM json_each(?)) ORDER BY name COLLATE NOCASE`).all(JSON.stringify(ids)));
+  });
+  r.post('/channels/:id/members', (req, res) => {
+    const c = loadChannel(req.params.id, req.user);
+    if (!c.private) throw bad('Everyone in the company can see this channel');
+    readOnly(c);
+    const add = colleagues(req.user, req.body.user_ids);
+    for (const m of add) q('INSERT OR IGNORE INTO channel_members (channel_id, user_id) VALUES (?, ?)').run(c.id, m);
+    sendTo(membersOf(c), { type: 'channels-changed' });
+    res.json({ ok: true });
+  });
+  r.delete('/channels/:id/members/:userId', (req, res) => {
+    const c = loadChannel(req.params.id, req.user);
+    if (!c.private) throw bad('Everyone in the company can see this channel');
+    const who = req.params.userId === 'me' ? req.user.id : req.params.userId;
+    if (who !== req.user.id && !canManage(c, req.user)) throw new HttpError(403, 'Only whoever made the channel, or an admin, can take people off');
+    const before = membersOf(c);
+    q('DELETE FROM channel_members WHERE channel_id = ? AND user_id = ?').run(c.id, who);
+    sendTo(before, { type: 'channels-changed' });
+    res.json({ ok: true });
   });
 
   // Find or create a direct-message channel with another user (any company that allows it).
@@ -178,6 +260,7 @@ export default function chatRoutes() {
   r.post('/channels/:id/messages', (req, res) => {
     const c = loadChannel(req.params.id, req.user);
     if (c.dm_key && !dmOpen(c, req.user)) throw bad('External messaging is turned off for one of the companies');
+    readOnly(c);
     // Files from Drive the sender can open; everyone in the conversation can then open them from it.
     const ids = Array.isArray(req.body.files) ? [...new Set(req.body.files.map(String))] : [];
     if (ids.length > MAX_FILES) throw bad(`At most ${MAX_FILES} files per message`);
@@ -218,6 +301,7 @@ export default function chatRoutes() {
     if (!m) throw notFound();
     const c = loadChannel(m.channel_id, req.user);
     if (m.user_id !== req.user.id) throw notFound();
+    readOnly(c);
     const body = str(req.body.body, { required: !m.files, name: 'Message', max: 8000 }) || '';
     q('UPDATE messages SET body = ?, edited_at = ? WHERE id = ?').run(body, now(), m.id);
     const msg = one(m.id);
@@ -230,6 +314,7 @@ export default function chatRoutes() {
     const m = q('SELECT * FROM messages WHERE id = ?').get(req.params.id);
     if (!m) throw notFound();
     const c = loadChannel(m.channel_id, req.user);
+    readOnly(c);
     const emoji = String(req.body.emoji || '').trim();
     if (!emoji || emoji.length > 16 || /[\s<>]/.test(emoji)) throw bad('Choose an emoji');
     const had = q('DELETE FROM message_reactions WHERE message_id = ? AND user_id = ? AND emoji = ?').run(m.id, req.user.id, emoji).changes;
