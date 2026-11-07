@@ -371,6 +371,7 @@ function Reader({ folder, uid, special, onClose, onChanged, act, onCompose, onFi
   const { user } = useAuth();
   const [m, setM] = useState(null);
   const [images, setImages] = useState(false);
+  const [blocking, setBlocking] = useState(false);
   useEffect(() => {
     get(`/mail/messages/${uid}?folder=${enc(folder)}`).then((x) => { setM(x); onChanged(); }).catch((e) => { toast(e.message, 'error'); onClose(); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -417,6 +418,7 @@ function Reader({ folder, uid, special, onClose, onChanged, act, onCompose, onFi
           <span aria-hidden="true" style={{ fontSize: 20 }}>{m.flagged ? '★' : '☆'}</span>
         </button>
         {m.from?.address && <button className="btn small" onClick={() => onFilter(m.from.address)}>Filter messages like this</button>}
+        {m.from?.address && special !== '\\Junk' && <button className="btn small" onClick={() => setBlocking(true)}>Block sender</button>}
       </div>
       <h1 className="reader-subject">{m.subject || '(no subject)'}</h1>
       {(m.labels || []).length > 0 && (
@@ -427,6 +429,18 @@ function Reader({ folder, uid, special, onClose, onChanged, act, onCompose, onFi
         </div>
       )}
       {m.spam && <div className="banner warn">This message was marked as likely spam. Be careful with links and attachments.</div>}
+      {blocking && (
+        <ConfirmModal title={`Block ${m.from.address}?`} confirm="Block"
+          message="Their messages will go straight to Junk, marked read, from now on (on your phone too). This one moves to Junk now. You can undo it in Filters."
+          onClose={() => setBlocking(false)}
+          onConfirm={async () => {
+            try {
+              await post('/mail/block', { address: m.from.address });
+              setBlocking(false);
+              done('move', { to: 'junk' }, `Blocked ${m.from.address}: their mail goes to Junk`);
+            } catch (e) { toast(e.message, 'error'); }
+          }} />
+      )}
       <div className="reader-head">
         <Avatar name={who(m.from)} size={40} />
         <div className="grow">

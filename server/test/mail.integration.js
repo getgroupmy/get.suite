@@ -1012,3 +1012,21 @@ test('renaming an address keeps the mailbox; mail to old and new address arrives
   assert.deepEqual(mine, ['Welcome, new Kim'], 'an empty mailbox of their own');
   assert.ok(!(await inbox(kim)).some((m) => m.subject === 'Welcome, new Kim'), 'not delivered to Kim Park');
 });
+
+// ---- block a sender ----
+test('block a sender: a rule first in the list sends their mail to Junk, read', async () => {
+  assert.equal((await olivia('POST', '/api/mail/block', { address: 'nope' })).status, 400);
+  assert.equal((await olivia('POST', '/api/mail/block', { address: 'olivia@acme.com' })).status, 400, 'not yourself');
+  const r = await olivia('POST', '/api/mail/block', { address: 'Spammy@Acme.com' });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  await olivia('POST', '/api/mail/block', { address: 'spammy@acme.com' });
+  const rules = (await olivia('GET', '/api/mail/rules')).body;
+  assert.equal(rules[0].name, 'Blocked: spammy@acme.com');
+  assert.equal(rules.filter((x) => x.name === 'Blocked: spammy@acme.com').length, 1, 'once');
+  await eventually(() => { try { return /spammy@acme\.com/.test(fs.readFileSync('/run/nw/sieve/olivia@acme.com.sieve', 'utf8')); } catch { return false; } }, 15000);
+  const t = nodemailer.createTransport({ host: process.env.MAIL_IMAP_HOST, port: 25, secure: false, ignoreTLS: true, name: 'test.acme.com' });
+  await t.sendMail({ from: 'Spammy <spammy@acme.com>', to: 'olivia@acme.com', subject: 'Cheap watches', text: 'x' });
+  const junk = await eventually(async () => (await olivia('GET', `/api/mail/messages?folder=${encodeURIComponent(r.body.folder)}`)).body.messages.find((m) => m.subject === 'Cheap watches'), 20000);
+  assert.equal(junk.seen, true);
+  assert.ok(!(await inbox(olivia)).some((m) => m.subject === 'Cheap watches'));
+});

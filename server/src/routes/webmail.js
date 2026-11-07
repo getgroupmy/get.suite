@@ -281,6 +281,25 @@ export default function webmailRoutes() {
     res.json(rules);
   });
 
+  // Block a sender: a filter rule, first in the list, that files their mail in Junk (read). Asking
+  // again for the same address changes nothing; Filters shows it and can remove it.
+  r.post('/block', async (req, res) => {
+    const address = String(req.body.address || '').trim().toLowerCase();
+    if (!/^[^\s@"\\]+@[^\s@"\\]+\.[^\s@"\\]+$/.test(address)) throw bad('Not an email address');
+    if (address === req.user.username.toLowerCase()) throw bad('You can’t block yourself');
+    const junk = await specialOf(req.user, '\\Junk').catch(() => null) || 'Junk';
+    const row = q('SELECT rules FROM mail_rules WHERE user_id = ?').get(req.user.id);
+    const rules = row ? JSON.parse(row.rules) : [];
+    const name = `Blocked: ${address}`;
+    if (!rules.some((x) => x.name === name)) {
+      const next = normalizeRules([{ name, enabled: true, match: 'all', conditions: [{ field: 'from', op: 'contains', value: address }], actions: { moveTo: junk, markRead: true, stop: true } }, ...rules]);
+      q(`INSERT INTO mail_rules (user_id, rules, updated_at) VALUES (?, ?, ?)
+         ON CONFLICT(user_id) DO UPDATE SET rules = excluded.rules, updated_at = excluded.updated_at`).run(req.user.id, JSON.stringify(next), Date.now());
+      scheduleMailConfig();
+    }
+    res.json({ ok: true, rule: name, folder: junk });
+  });
+
   // ---- folders: create, rename, delete (built-in folders are protected) ----
   const cleanFolderName = (v) => {
     const name = str(v, { required: true, name: 'Folder name', max: 100 }).replace(/\/+/g, '/').replace(/^\/|\/$/g, '');
