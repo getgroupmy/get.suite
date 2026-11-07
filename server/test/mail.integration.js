@@ -411,6 +411,20 @@ test('labels: made, put on and taken off messages, listed, filtered, kept as IMA
   assert.equal((await gina('POST', '/api/mail/messages/labels', { folder: 'INBOX', uids: [1], add: [urgent.id] })).status, 400, "not someone else's");
 });
 
+test('templates: saved, changed, listed, deleted; only your own', async () => {
+  const a = await olivia('POST', '/api/mail/templates', { name: 'Thanks', subject: 'Thank you', html: '<p>Thanks for your order!</p>' });
+  assert.equal(a.status, 201);
+  assert.equal((await olivia('POST', '/api/mail/templates', { name: 'thanks', html: '' })).status, 400, 'names are unique');
+  assert.equal((await olivia('POST', '/api/mail/templates', { html: 'x' })).status, 400);
+  await olivia('PATCH', `/api/mail/templates/${a.body.id}`, { subject: 'Thank you for your order' });
+  const list = (await olivia('GET', '/api/mail/templates')).body;
+  assert.deepEqual(list.map((t) => [t.name, t.subject, t.html]), [['Thanks', 'Thank you for your order', '<p>Thanks for your order!</p>']]);
+  assert.equal((await gina('PATCH', `/api/mail/templates/${a.body.id}`, { name: 'x' })).status, 404);
+  assert.deepEqual((await gina('GET', '/api/mail/templates')).body, []);
+  await olivia('DELETE', `/api/mail/templates/${a.body.id}`);
+  assert.deepEqual((await olivia('GET', '/api/mail/templates')).body, []);
+});
+
 // ---- filter rules (Sieve) ----
 test('filter rules: move + mark read, star + forward, delete, chained rules, folders', async () => {
   const bad = await olivia('PUT', '/api/mail/rules', { rules: [{ conditions: [], actions: { star: true } }] });

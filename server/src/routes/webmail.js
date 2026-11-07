@@ -31,6 +31,15 @@ q(`CREATE TABLE IF NOT EXISTS scheduled_mail (
   error TEXT
 )`).run();
 
+q(`CREATE TABLE IF NOT EXISTS mail_templates (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  subject TEXT,
+  html TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
+)`).run();
+
 // Labels: your own coloured tags for messages, kept on the mail server as IMAP keywords (so mail
 // apps that show keywords, such as Thunderbird's tags, see them). Names and colours are kept here.
 q(`CREATE TABLE IF NOT EXISTS mail_labels (
@@ -419,6 +428,36 @@ export default function webmailRoutes() {
       if (add.length) await c.messageFlagsAdd(uids, add, { uid: true });
       if (remove.length) await c.messageFlagsRemove(uids, remove, { uid: true });
     });
+    res.json({ ok: true });
+  });
+
+  // ---- templates: saved messages (subject and body) to start a message or a reply from ----
+  r.get('/templates', (req, res) => res.json(q('SELECT id, name, subject, html, updated_at FROM mail_templates WHERE user_id = ? ORDER BY name COLLATE NOCASE').all(req.user.id)));
+  const readTemplate = (b, cur = {}) => {
+    const name = str(b.name ?? cur.name, { required: true, name: 'Template name', max: 100 });
+    const subject = str(b.subject ?? cur.subject ?? '', { max: 300, name: 'Subject' }) || '';
+    const html = typeof (b.html ?? cur.html) === 'string' ? (b.html ?? cur.html) : '';
+    if (html.length > 100000) throw bad('The template is too long');
+    return { name, subject, html };
+  };
+  r.post('/templates', (req, res) => {
+    const t = readTemplate(req.body || {});
+    if (q('SELECT COUNT(*) AS n FROM mail_templates WHERE user_id = ?').get(req.user.id).n >= 200) throw bad('Too many templates');
+    if (q('SELECT 1 FROM mail_templates WHERE user_id = ? AND name = ? COLLATE NOCASE').get(req.user.id, t.name)) throw bad('You already have a template with that name');
+    const id = newId();
+    q('INSERT INTO mail_templates (id, user_id, name, subject, html, updated_at) VALUES (?, ?, ?, ?, ?, ?)').run(id, req.user.id, t.name, t.subject, t.html, now());
+    res.status(201).json({ id, ...t });
+  });
+  r.patch('/templates/:id', (req, res) => {
+    const cur = q('SELECT * FROM mail_templates WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
+    if (!cur) throw notFound('Template not found');
+    const t = readTemplate(req.body || {}, cur);
+    if (q('SELECT 1 FROM mail_templates WHERE user_id = ? AND name = ? COLLATE NOCASE AND id != ?').get(req.user.id, t.name, cur.id)) throw bad('You already have a template with that name');
+    q('UPDATE mail_templates SET name = ?, subject = ?, html = ?, updated_at = ? WHERE id = ?').run(t.name, t.subject, t.html, now(), cur.id);
+    res.json({ id: cur.id, ...t });
+  });
+  r.delete('/templates/:id', (req, res) => {
+    if (!q('DELETE FROM mail_templates WHERE id = ? AND user_id = ?').run(req.params.id, req.user.id).changes) throw notFound('Template not found');
     res.json({ ok: true });
   });
 

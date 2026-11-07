@@ -514,6 +514,21 @@ function Compose({ initial, signatures = [], onClose, onSent, onDraftsChanged })
     onClose();
   }
   const [picking, setPicking] = useState(false);
+  const [templates, setTemplates] = useState([]);
+  const [templateDialog, setTemplateDialog] = useState(null); // 'save' | 'manage'
+  const loadTemplates = () => get('/mail/templates').then(setTemplates).catch(() => {});
+  useEffect(() => { loadTemplates(); }, []);
+  /** The message without its signature (that's added per address), as HTML. */
+  const bodyHtml = () => { const d = document.createElement('div'); d.innerHTML = editorRef.current?.getHTML() || ''; d.querySelectorAll('[data-signature]').forEach((x) => x.remove()); return d.innerHTML; };
+  /** Put a template in: its text where the cursor is (in place of an empty message), its subject if there's none yet. */
+  const applyTemplate = (t) => {
+    const ed = editorRef.current;
+    if (!ed) return;
+    const empty = !bodyHtml().replace(/<p><\/p>/g, '').trim();
+    if (empty) ed.chain().focus('start').insertContentAt(0, t.html || '<p></p>').run();
+    else ed.chain().focus().insertContent(t.html || '').run();
+    if (t.subject && !f.subject.trim()) setF((cur) => ({ ...cur, subject: t.subject }));
+  };
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(0);
   const fileInput = useRef();
@@ -633,6 +648,12 @@ function Compose({ initial, signatures = [], onClose, onSent, onDraftsChanged })
           </div>
           <button type="button" className="icon-btn" aria-label="Attach from computer" title="Attach from computer" onClick={() => fileInput.current.click()}><Icon name="attach" /></button>
           <button type="button" className="icon-btn" aria-label="Attach from Drive" title="Attach from Drive" onClick={() => setPicking(true)}><Icon name="folder" /></button>
+          <Menu align="left" trigger={(p) => <button type="button" className="icon-btn" aria-label="Templates" title="Templates" {...p}><Icon name="doc" /></button>} items={[
+            ...templates.map((t) => ({ label: t.name, onClick: () => applyTemplate(t) })),
+            ...(templates.length ? ['-'] : []),
+            { label: 'Save as template…', icon: 'plus', onClick: () => setTemplateDialog('save') },
+            ...(templates.length ? [{ label: 'Manage templates…', icon: 'settings', onClick: () => setTemplateDialog('manage') }] : []),
+          ]} />
           <input ref={fileInput} type="file" multiple hidden aria-label="Attachment files" onChange={(e) => { upload([...e.target.files]); e.target.value = ''; }} />
           <div className="grow" />
           <span className={`muted small draft-state ${draftState}`} aria-live="polite">
@@ -642,6 +663,9 @@ function Compose({ initial, signatures = [], onClose, onSent, onDraftsChanged })
         </div>
         <p className="muted small" style={{ margin: 0 }}>Drafts save automatically. Files you attach from your computer are also saved to your Drive.</p>
       </form>
+      {templateDialog === 'save' && <PromptModal title="Save as template" label="Template name" initial={f.subject} confirm="Save" onClose={() => setTemplateDialog(null)}
+        onSubmit={async (name) => { await post('/mail/templates', { name, subject: f.subject, html: bodyHtml() }); toast(`Template “${name.trim()}” saved`); loadTemplates(); }} />}
+      {templateDialog === 'manage' && <TemplatesDialog templates={templates} onClose={() => setTemplateDialog(null)} onChanged={loadTemplates} />}
       {picking && <DrivePicker onClose={() => setPicking(false)} onPick={(file) => { if (!files.some((x) => x.id === file.id)) setFiles([...files, file]); setPicking(false); }} />}
     </Modal>
     {scheduling && <ScheduleDialog onClose={() => setScheduling(false)} onPick={(at) => { setScheduling(false); sendLater(at); }} />}
@@ -1824,6 +1848,33 @@ function ScheduledDialog({ list, onClose, onChanged }) {
           ))}
         </ul>
       )}
+    </Modal>
+  );
+}
+
+/** Your templates: rename, change the subject, or delete (the text is changed by saving a message as a template again). */
+function TemplatesDialog({ templates, onClose, onChanged }) {
+  const toast = useToast();
+  const [editing, setEditing] = useState(null);
+  return (
+    <Modal title="Templates" onClose={onClose} footer={<button type="button" className="btn" onClick={onClose}>Close</button>}>
+      <ul className="rule-list">
+        {templates.map((t) => (
+          <li key={t.id}>
+            {editing?.id === t.id ? (
+              <form className="stack grow" onSubmit={async (e) => { e.preventDefault(); try { await api('PATCH', `/mail/templates/${t.id}`, { name: editing.name, subject: editing.subject }); setEditing(null); onChanged(); toast('Template saved'); } catch (err) { toast(err.message, 'error'); } }}>
+                <label className="field"><span>Name</span><input autoFocus value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} /></label>
+                <label className="field"><span>Subject</span><input value={editing.subject || ''} onChange={(e) => setEditing({ ...editing, subject: e.target.value })} /></label>
+                <div className="row"><button type="button" className="btn small" onClick={() => setEditing(null)}>Cancel</button><button className="btn small primary">Save</button></div>
+              </form>
+            ) : <>
+              <span className="grow"><strong>{t.name}</strong>{t.subject && <span className="muted small"> · {t.subject}</span>}</span>
+              <button type="button" className="icon-btn" aria-label={`Edit ${t.name}`} onClick={() => setEditing(t)}><Icon name="edit" size={16} /></button>
+              <button type="button" className="icon-btn" aria-label={`Delete ${t.name}`} onClick={async () => { await del(`/mail/templates/${t.id}`); onChanged(); toast('Template deleted'); }}><Icon name="trash" size={16} /></button>
+            </>}
+          </li>
+        ))}
+      </ul>
     </Modal>
   );
 }
