@@ -11,6 +11,7 @@ import calendarRoutes, { publicInviteRoutes } from './routes/calendar.js';
 import bookingRoutes, { publicBookingRoutes, freeBusyRoutes } from './routes/booking.js';
 import brandRoutes from './routes/brand.js';
 import announcementRoutes from './routes/announcements.js';
+import formRoutes, { publicFormRoutes } from './routes/forms.js';
 import contactRoutes from './routes/contacts.js';
 import taskRoutes from './routes/tasks.js';
 import notificationRoutes from './routes/notifications.js';
@@ -71,6 +72,7 @@ export function createApp({
   app.use('/api/public/invites', publicInviteRoutes());
   app.use('/api/public/book', publicBookingRoutes());
   app.use('/api/public/brand', brandRoutes());
+  app.use('/api/public/forms', publicFormRoutes());
   app.use('/api/public', publicLinkRoutes({ maxUploadBytes }));
   app.use('/api/users', requireAuth, userRoutes());
   app.use('/api/orgs', requireAuth, orgRoutes());
@@ -90,9 +92,10 @@ export function createApp({
   app.use('/api/tasks', requireAuth, taskRoutes());
   app.use('/api/notifications', requireAuth, notificationRoutes());
   app.use('/api/announcements', requireAuth, announcementRoutes());
+  app.use('/api/forms', requireAuth, formRoutes());
   app.use('/api', (req, res, next) => next(new HttpError(404, 'Not found')));
   // Share-link pages: keep them out of search engines.
-  app.use(['/s/', '/i/'], (req, res, next) => { res.setHeader('X-Robots-Tag', 'noindex, nofollow'); next(); });
+  app.use(['/s/', '/i/', '/f/'], (req, res, next) => { res.setHeader('X-Robots-Tag', 'noindex, nofollow'); next(); });
 
   // Web app (built React bundle) with SPA fallback.
   if (publicDir && fs.existsSync(publicDir)) {

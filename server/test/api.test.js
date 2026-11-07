@@ -2779,3 +2779,106 @@ test('announcements: an admin posts one; everyone sees it until they dismiss it 
   assert.ok(!(await owner('GET', '/api/announcements/all')).body.some((x) => x.id === ann.id));
   void old;
 });
+
+test('forms: questions are tidied and answers checked', async () => {
+  const { cleanQuestions, checkAnswers, responseTable } = await import('../src/routes/forms.js');
+  const qs = cleanQuestions([
+    { id: 'name', type: 'short', title: 'Your name', required: true },
+    { id: 'lunch', type: 'choice', title: 'Lunch', options: ['Fish', ' Veg ', 'Veg', ''] },
+    { id: 'days', type: 'checkbox', title: 'Days', options: ['Mon', 'Tue', 'Wed'] },
+    { id: 'rate', type: 'scale', title: 'Rate', max: 7 },
+    { id: 'when', type: 'date', title: 'When' },
+    { type: 'nonsense', title: 'x', options: ['a'] },
+  ]);
+  assert.deepEqual(qs[1].options, ['Fish', 'Veg'], 'trimmed, no blanks or repeats');
+  assert.equal(qs[3].max, 5, 'scales go to 5 or 10');
+  assert.equal(qs[5].type, 'short');
+  assert.equal(qs[5].options, undefined, 'only choice questions have options');
+  assert.throws(() => checkAnswers(qs, {}), /Your name: this question needs an answer/);
+  assert.throws(() => checkAnswers(qs, { name: 'A', lunch: 'Meat' }), /choose from the options/);
+  assert.throws(() => checkAnswers(qs, { name: 'A', rate: 6 }), /1 to 5/);
+  assert.throws(() => checkAnswers(qs, { name: 'A', when: 'tomorrow' }), /enter a date/);
+  const a = checkAnswers(qs, { name: '  Ann ', lunch: 'Veg', days: ['Wed', 'Mon', 'Mon'], rate: '4', extra: 'ignored', when: '' });
+  assert.deepEqual(a, { name: 'Ann', lunch: 'Veg', days: ['Mon', 'Wed'], rate: 4 });
+  const table = responseTable({ questions: qs, audience: 'public' }, [{ created_at: 0, answers: a }]);
+  assert.deepEqual(table[0].slice(0, 3), ['Submitted', 'Your name', 'Lunch']);
+  assert.equal(table[1][3], 'Mon; Wed');
+});
+
+test('forms: build one, share the link, collect and read responses', async () => {
+  const fa = client();
+  const outsider = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'frma', domain: 'acme.com', name: 'Fran Former', password: 'password123' })).status, 201);
+  assert.equal((await owner('POST', '/api/users', { local: 'frmb', domain: 'acme.com', name: 'Rex Responder', password: 'password123' })).status, 201);
+  await login(fa, 'frma@acme.com');
+  const rb = client();
+  await login(rb, 'frmb@acme.com');
+  const made = await fa('POST', '/api/forms', { title: 'Team lunch' });
+  assert.equal(made.status, 201);
+  const f = (await fa('PUT', `/api/forms/${made.body.id}`, { description: 'Pick one', confirmation: 'Thanks!', one_per_person: true, questions: [
+    { id: 'food', type: 'choice', title: 'Food', options: ['Pizza', 'Sushi'], required: true },
+    { id: 'note', type: 'paragraph', title: 'Anything else?' },
+  ] })).body;
+  assert.equal(f.questions.length, 2);
+  assert.equal((await rb('GET', `/api/forms/${f.id}`)).status, 404, 'only the owner edits it');
+
+  // A company form: sign-in needed, same company only, one each.
+  assert.equal((await outsider('GET', `/api/public/forms/${f.token}`)).status, 401);
+  const other = client();
+  assert.equal((await owner('POST', '/api/orgs', { name: 'Formco', domain: 'formco.com', admin_name: 'Fo Admin', admin_local: 'fo', admin_password: 'password123' })).status, 201);
+  await login(other, 'fo@formco.com');
+  assert.equal((await other('GET', `/api/public/forms/${f.token}`)).status, 403, 'other companies');
+  const seen = (await rb('GET', `/api/public/forms/${f.token}`)).body;
+  assert.equal(seen.title, 'Team lunch');
+  assert.equal(seen.answered, false);
+  assert.equal((await rb('POST', `/api/public/forms/${f.token}`, { answers: {} })).status, 400, 'required');
+  const sent = await rb('POST', `/api/public/forms/${f.token}`, { answers: { food: 'Sushi', note: '=cmd()' } });
+  assert.equal(sent.status, 201);
+  assert.equal(sent.body.confirmation, 'Thanks!');
+  assert.equal((await rb('GET', `/api/public/forms/${f.token}`)).body.answered, true);
+  assert.equal((await rb('POST', `/api/public/forms/${f.token}`, { answers: { food: 'Pizza' } })).status, 409, 'one each');
+  const bell = (await fa('GET', '/api/notifications')).body.items.find((n) => n.kind === 'form');
+  assert.match(bell.title, /Team lunch/);
+  assert.equal(bell.body, 'From Rex Responder');
+
+  const resp = (await fa('GET', `/api/forms/${f.id}/responses`)).body;
+  assert.equal(resp.responses.length, 1);
+  assert.deepEqual(resp.responses[0].user, { name: 'Rex Responder', email: 'frmb@acme.com' });
+  const csv = await fa('GET', `/api/forms/${f.id}/responses.csv`);
+  assert.match(csv.headers.get('content-type'), /text\/csv/);
+  assert.match(csv.body, /Submitted,Name,Email,Food,Anything else\?/);
+  assert.match(csv.body, /Rex Responder,frmb@acme\.com,Sushi,'=cmd\(\)/, 'formulas defused');
+  const sheet = await fa('POST', `/api/forms/${f.id}/sheet`);
+  assert.equal(sheet.status, 201);
+  const file = (await fa('GET', `/api/files/${sheet.body.id}`)).body;
+  assert.equal(file.name, 'Team lunch (responses)');
+  const { content } = (await fa('GET', `/api/files/${sheet.body.id}/content`)).body;
+  assert.equal(content.sheets[0].cells.D2, 'Sushi');
+  assert.equal(content.sheets[0].frozen.rows, 1);
+  assert.equal((await fa('GET', '/api/forms')).body.find((x) => x.id === f.id).responses, 1);
+
+  // Anyone with the link: no sign-in, no names kept; closing stops it; a new link drops the old one.
+  const pub = (await fa('PUT', `/api/forms/${f.id}`, { audience: 'public' })).body;
+  assert.equal((await outsider('POST', `/api/public/forms/${pub.token}`, { answers: { food: 'Pizza' } })).status, 201);
+  const all = (await fa('GET', `/api/forms/${f.id}/responses`)).body.responses;
+  assert.equal(all.length, 2);
+  assert.equal(all[1].user, null);
+  await fa('PUT', `/api/forms/${f.id}`, { accepting: false });
+  assert.equal((await outsider('POST', `/api/public/forms/${pub.token}`, { answers: { food: 'Pizza' } })).status, 409);
+  assert.equal((await outsider('GET', `/api/public/forms/${pub.token}`)).body.accepting, false);
+  const fresh = (await fa('POST', `/api/forms/${f.id}/new-link`)).body;
+  assert.notEqual(fresh.token, pub.token);
+  assert.equal((await outsider('GET', `/api/public/forms/${pub.token}`)).status, 404);
+  // A company with links turned off closes public forms.
+  await owner('PATCH', '/api/orgs/current', { allow_links: false });
+  assert.equal((await outsider('GET', `/api/public/forms/${fresh.token}`)).status, 403);
+  await owner('PATCH', '/api/orgs/current', { allow_links: true });
+
+  const copy = (await fa('POST', `/api/forms/${f.id}/copy`)).body;
+  assert.equal(copy.title, 'Copy of Team lunch');
+  assert.equal(copy.questions.length, 2);
+  assert.equal((await fa('DELETE', `/api/forms/${f.id}/responses/${all[0].id}`)).status, 200);
+  assert.equal((await fa('DELETE', `/api/forms/${f.id}/responses`)).body.deleted, 1);
+  assert.equal((await fa('DELETE', `/api/forms/${f.id}`)).status, 200);
+  assert.equal((await outsider('GET', `/api/public/forms/${fresh.token}`)).status, 404);
+});

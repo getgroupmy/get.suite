@@ -6,7 +6,7 @@ import { get, post, put, onLive } from '../api.js';
 import Icon from './Icon.jsx';
 import { Modal, useToast } from './ui.jsx';
 
-const ICONS = { mention: 'chat', comment: 'chat', task: 'check', invite: 'calendar', share: 'share', booking: 'calendar', edit: 'edit', chat: 'chat' };
+const ICONS = { mention: 'chat', comment: 'chat', task: 'check', invite: 'calendar', share: 'share', booking: 'calendar', edit: 'edit', chat: 'chat', form: 'form' };
 
 /** "just now", "5 min", "3 h", "yesterday", "2 Nov". */
 export function ago(ms, now = Date.now()) {

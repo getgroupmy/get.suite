@@ -30,6 +30,8 @@ import { whenText } from './components/schedule.jsx';
 import Calendar from './apps/calendar/Calendar.jsx';
 import Contacts from './apps/contacts/Contacts.jsx';
 import Tasks from './apps/tasks/Tasks.jsx';
+import Forms from './apps/forms/Forms.jsx';
+import FormRespond from './apps/forms/FormRespond.jsx';
 import Chat from './apps/chat/Chat.jsx';
 import Admin from './apps/admin/Admin.jsx';
 import Mail from './apps/mail/Mail.jsx';
@@ -47,7 +49,20 @@ export default function App() {
   // Booking time from a booking link (no account needed).
   const booking = window.location.pathname.match(/^\/b\/([A-Za-z0-9_-]+)\/?$/);
   if (booking) return <BookingPage token={booking[1]} />;
+  // Filling in a form (company forms ask you to sign in first).
+  const form = window.location.pathname.match(/^\/f\/([A-Za-z0-9_-]+)\/?$/);
+  if (form) return <FormGate token={form[1]} />;
   return invite ? <InviteAnswer token={invite[1]} /> : <Workspace />;
+}
+
+function FormGate({ token }) {
+  const [signIn, setSignIn] = useState(false);
+  if (!signIn) return <FormRespond token={token} onSignIn={() => setSignIn(true)} />;
+  return (
+    <AuthCtx.Provider value={{ user: null, setUser: () => window.location.reload() }}>
+      <ToastProvider><Login /></ToastProvider>
+    </AuthCtx.Provider>
+  );
 }
 
 function Workspace() {
@@ -116,6 +131,7 @@ const APPS = [
   { to: '/contacts', icon: 'person', label: 'Contacts' },
   { to: '/tasks', icon: 'check', label: 'Tasks' },
   { to: '/chat', icon: 'chat', label: 'Chat' },
+  { to: '/forms', icon: 'form', label: 'Forms' },
 ];
 
 function Shell() {
@@ -192,6 +208,7 @@ function Shell() {
           <Route path="/contacts" element={<Contacts />} />
           <Route path="/chat/:channelId?" element={<Chat />} />
           <Route path="/tasks/:listId?" element={<Tasks />} />
+          <Route path="/forms/:id?" element={<Forms />} />
           <Route path="/settings" element={<Settings />} />
           {user.is_admin && <Route path="/admin" element={<Admin />} />}
           <Route path="*" element={<Navigate to="/drive" replace />} />
