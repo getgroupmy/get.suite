@@ -30,7 +30,7 @@ import { SheetFind } from './SheetFind.jsx';
 const SEL_COLORS = ['#1a73e8', '#d93025', '#188038', '#e37400', '#8430ce', '#00796b', '#c2185b', '#5f6368'];
 const colorFor = (id) => SEL_COLORS[[...String(id)].reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) >>> 0, 7) % SEL_COLORS.length];
 import { createEvaluator, display, colName, cellKey, parseRef, shiftFormula } from './formula.js';
-import { NUMBER_FORMATS, CURRENCIES, BORDERS, borderFor, decimals, formatNumber, cellStyle, mergeFormat } from './cellformat.js';
+import { NUMBER_FORMATS, CURRENCIES, DATE_STYLES, BORDERS, borderFor, decimals, formatNumber, cellStyle, mergeFormat } from './cellformat.js';
 
 const TEXT_COLORS = [['', 'Automatic'], ['#c5221f', 'Red'], ['#e37400', 'Orange'], ['#188038', 'Green'], ['#1a73e8', 'Blue'], ['#8430ce', 'Purple'], ['#5f6368', 'Grey']];
 const FILLS = [['', 'None'], ['#fce8e6', 'Light red'], ['#fef7e0', 'Light yellow'], ['#e6f4ea', 'Light green'], ['#e8f0fe', 'Light blue'], ['#f3e8fd', 'Light purple'], ['#f1f3f4', 'Light grey']];
@@ -858,7 +858,12 @@ function FormatBar({ fmt, onChange, onBorders, onMerge, merged, onComment, onCha
           {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
         </select>
       )}
-      {fmt.num && <>
+      {fmt.num === 'date' && (
+        <select className="tb-select" aria-label="Date style" value={fmt.ds || 'medium'} onChange={(e) => onChange({ ds: e.target.value })}>
+          {DATE_STYLES.map(([v, n]) => <option key={v} value={v}>{n}</option>)}
+        </select>
+      )}
+      {fmt.num && fmt.num !== 'date' && <>
         <button type="button" className="tb" aria-label="Fewer decimals" title="Fewer decimals" onMouseDown={keep} onClick={() => onChange({ dp: Math.max(0, decimals(fmt) - 1) })}>.0←</button>
         <button type="button" className="tb" aria-label="More decimals" title="More decimals" onMouseDown={keep} onClick={() => onChange({ dp: Math.min(10, decimals(fmt) + 1) })}>.00→</button>
       </>}

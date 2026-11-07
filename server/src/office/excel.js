@@ -13,6 +13,12 @@ export function numFromExcel(fmt) {
   if (!fmt || fmt === 'General' || fmt === '@') return {};
   const main = fmt.split(';')[0];
   const dp = (/\.(0+)/.exec(main) || [, ''])[1].length;
+  // Dates: d, m and y parts (without digit placeholders); the closest of our styles.
+  const bare = main.replace(/"[^"]*"|\[[^\]]*\]/g, '').toLowerCase();
+  if (/[dy]/.test(bare) && /m/.test(bare) && !/[0#]/.test(bare)) {
+    const ds = /dddd|mmmm/.test(bare) ? 'long' : !/d/.test(bare) ? 'month' : /^y/.test(bare) ? 'iso' : /mmm/.test(bare) ? 'medium' : 'short';
+    return { num: 'date', ...(ds !== 'medium' && { ds }) };
+  }
   if (main.includes('%')) return { num: 'percent', dp };
   const iso = /\[\$([A-Z]{3})\]/.exec(main) || /"([A-Z]{3})"/.exec(main);
   const sign = CURRENCY_SIGNS.find(([s]) => main.includes(s) || main.includes(`[$${s}`));
@@ -22,6 +28,7 @@ export function numFromExcel(fmt) {
 }
 const numToExcel = (f) => {
   const dec = f.dp === 0 ? '' : `.${'0'.repeat(f.dp ?? 2)}`;
+  if (f.num === 'date') return { long: 'dddd, d mmmm yyyy', short: 'dd/mm/yyyy', iso: 'yyyy-mm-dd', month: 'mmm yyyy' }[f.ds] || 'd mmm yyyy';
   if (f.num === 'percent') return `0${f.dp ? `.${'0'.repeat(f.dp)}` : ''}%`;
   if (f.num === 'currency') return `[$${f.cur || 'MYR'}] #,##0${f.dp === undefined ? '.00' : dec}`;
   if (f.num === 'number') return `#,##0${f.dp === undefined ? '.00' : dec}`;
@@ -123,6 +130,7 @@ export async function excelFromSheet(data) {
       if (v.startsWith('=')) cell.value = { formula: formulaToExcel(v.slice(1)) };
       else if (v !== '' && !Number.isNaN(Number(v)) && /^[-+]?(\d|\.\d)/.test(v.trim())) cell.value = Number(v);
       else if (/^(TRUE|FALSE)$/i.test(v)) cell.value = /^TRUE$/i.test(v);
+      else if (/^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(`${v}T00:00:00Z`))) { cell.value = new Date(`${v}T00:00:00Z`); cell.numFmt = 'yyyy-mm-dd'; } // a real date in Excel
       else cell.value = v;
     }
     for (const m of s.merges || []) { try { ws.mergeCells(m); } catch { /* an overlapping or bad range is skipped */ } }

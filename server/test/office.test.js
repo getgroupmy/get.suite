@@ -356,3 +356,22 @@ test('Excel: merged cells go out and come back', async () => {
   const plain = (await sheetFromExcel(await excelFromSheet({ sheets: [{ name: 'S', cells: { A1: '1' } }] }))).sheets[0];
   assert.equal(plain.merges, undefined);
 });
+
+test('Excel: dates are real dates, and date formats go both ways', async () => {
+  const data = { sheets: [{ name: 'S', cells: { A1: '2026-11-07', A2: '2026-12-25', A3: '2027-01-02', A4: 'not a date' }, formats: { A2: { num: 'date' }, A3: { num: 'date', ds: 'long' } } }] };
+  const buf = await excelFromSheet(data);
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(buf);
+  const ws = wb.worksheets[0];
+  assert.ok(ws.getCell('A1').value instanceof Date, 'a date, not text');
+  assert.equal(ws.getCell('A2').numFmt, 'd mmm yyyy');
+  assert.equal(ws.getCell('A3').numFmt, 'dddd, d mmmm yyyy');
+  const back = (await sheetFromExcel(buf)).sheets[0];
+  assert.deepEqual([back.cells.A1, back.cells.A2, back.cells.A3, back.cells.A4], ['2026-11-07', '2026-12-25', '2027-01-02', 'not a date']);
+  assert.deepEqual(back.formats.A2, { num: 'date' });
+  assert.deepEqual(back.formats.A3, { num: 'date', ds: 'long' });
+  assert.deepEqual(back.formats.A1, { num: 'date', ds: 'iso' }, 'shown as typed');
+  assert.deepEqual(numFromExcel('dd/mm/yyyy'), { num: 'date', ds: 'short' });
+  assert.deepEqual(numFromExcel('mmm yyyy'), { num: 'date', ds: 'month' });
+  assert.deepEqual(numFromExcel('#,##0.00'), { num: 'number', dp: 2 });
+});

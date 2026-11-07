@@ -44,3 +44,18 @@ test('strikethrough, wrapping and borders', async () => {
   assert.equal(borderFor('all', range, 1, 1), 'tblr');
   assert.equal(borderFor('none', range, 1, 1, 'tb'), '');
 });
+
+test('date formats: typed dates and date numbers, in each style', async () => {
+  const { formatNumber, mergeFormat, dateValue } = await import('./cellformat.js');
+  const f = (ds) => ({ num: 'date', ...(ds && { ds }) });
+  assert.equal(formatNumber('2026-11-07', f()), '7 Nov 2026');
+  assert.equal(formatNumber('2026-11-07', f('short')), '07/11/2026');
+  assert.equal(formatNumber('2026-11-07', f('long')), 'Saturday, 7 November 2026');
+  assert.equal(formatNumber('2026-11-07', f('iso')), '2026-11-07');
+  assert.equal(formatNumber('2026-11-07', f('month')), 'Nov 2026');
+  assert.equal(formatNumber(46333, f('iso')), '2026-11-07', 'a spreadsheet date number');
+  assert.equal(formatNumber('hello', f()), null, 'not a date: shown as it is');
+  assert.equal(dateValue(-5), null);
+  assert.deepEqual(mergeFormat({ num: 'date', ds: 'long' }, { num: 'number' }), { num: 'number' }, 'style goes with the date format');
+  assert.deepEqual(mergeFormat(null, { num: 'date', ds: 'nope' }), { num: 'date' });
+});

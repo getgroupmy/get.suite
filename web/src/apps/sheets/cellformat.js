@@ -2,9 +2,11 @@
 // keys a format may have. Formats live per sheet in `formats` ({ A1: { b, i, u, s (strikethrough), wrap, bd (borders: sides from "tblr"),
 // color, fill, align, num, dp, cur } }).
 
-export const NUMBER_FORMATS = [['', 'Automatic'], ['number', 'Number'], ['currency', 'Currency'], ['percent', 'Percent']];
+export const NUMBER_FORMATS = [['', 'Automatic'], ['number', 'Number'], ['currency', 'Currency'], ['percent', 'Percent'], ['date', 'Date']];
+/** How a date shows (fmt.ds), with an example. */
+export const DATE_STYLES = [['medium', '7 Nov 2026'], ['short', '07/11/2026'], ['long', 'Saturday, 7 November 2026'], ['iso', '2026-11-07'], ['month', 'Nov 2026']];
 export const CURRENCIES = ['MYR', 'USD', 'EUR', 'GBP', 'SGD', 'AUD', 'JPY', 'CNY', 'IDR', 'THB', 'INR'];
-const KEYS = ['b', 'i', 'u', 's', 'wrap', 'bd', 'color', 'fill', 'align', 'num', 'dp', 'cur'];
+const KEYS = ['b', 'i', 'u', 's', 'wrap', 'bd', 'color', 'fill', 'align', 'num', 'dp', 'cur', 'ds'];
 const COLOR_RE = /^#[0-9a-f]{6}$/i;
 
 /** Default decimals for a format (currency: the currency's own, e.g. none for yen). */
@@ -16,7 +18,30 @@ export function decimals(fmt) {
 }
 
 /** A number as the format shows it, or null when the format doesn't change it. */
+const EXCEL_EPOCH = Date.UTC(1899, 11, 30);
+/** A date value as UTC ms: "2026-11-07" (as DATE and TODAY give) or a spreadsheet date number. */
+export function dateValue(v) {
+  if (typeof v === 'number' && Number.isFinite(v) && v > 0 && v < 2958466) return EXCEL_EPOCH + Math.floor(v) * 864e5;
+  const m = typeof v === 'string' && /^(\d{4})-(\d{2})-(\d{2})/.exec(v.trim());
+  return m ? Date.UTC(+m[1], +m[2] - 1, +m[3]) : null;
+}
+/** A date as the style shows it. */
+export function formatDate(v, style = 'medium', locale) {
+  const t = dateValue(v);
+  if (t === null) return null;
+  const d = new Date(t);
+  const opts = { timeZone: 'UTC' };
+  switch (style) {
+    case 'iso': return d.toISOString().slice(0, 10);
+    case 'short': return `${String(d.getUTCDate()).padStart(2, '0')}/${String(d.getUTCMonth() + 1).padStart(2, '0')}/${d.getUTCFullYear()}`;
+    case 'long': return d.toLocaleDateString(locale || 'en-GB', { ...opts, weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+    case 'month': return d.toLocaleDateString(locale || 'en-GB', { ...opts, month: 'short', year: 'numeric' });
+    default: return d.toLocaleDateString(locale || 'en-GB', { ...opts, day: 'numeric', month: 'short', year: 'numeric' });
+  }
+}
+
 export function formatNumber(v, fmt, locale) {
+  if (fmt?.num === 'date') return formatDate(v, fmt.ds, locale);
   if (typeof v !== 'number' || !Number.isFinite(v) || !fmt?.num) return null;
   const dp = Math.max(0, Math.min(10, decimals(fmt)));
   const opts = { minimumFractionDigits: dp, maximumFractionDigits: dp };
@@ -53,6 +78,7 @@ export function mergeFormat(fmt, change) {
     else out[k] = ['b', 'i', 'u', 's', 'wrap'].includes(k) ? 1 : v;
   }
   if (!out.num) { delete out.dp; delete out.cur; }
+  if (out.num !== 'date') delete out.ds; else { delete out.dp; delete out.cur; if (out.ds && !DATE_STYLES.some(([k]) => k === out.ds)) delete out.ds; }
   return Object.keys(out).length ? out : null;
 }
 
