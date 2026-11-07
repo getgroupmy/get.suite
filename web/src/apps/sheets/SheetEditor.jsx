@@ -13,6 +13,8 @@ import { CommentsPanel, useComments } from '../comments.jsx';
 import { ChartCard, ChartDialog } from './SheetCharts.jsx';
 import { dataRegion, rangeText, parseRange } from './charts.js';
 import { applyStructure, adjustKey, sortRange, looksLikeHeader } from './structure.js';
+import { removeDuplicates, splitColumn } from './data.js';
+import { DedupeDialog, SplitDialog } from './SheetData.jsx';
 import { SortDialog } from './SheetSort.jsx';
 import { RulesDialog } from './SheetRules.jsx';
 import { ValidationDialog, ChoicePicker } from './SheetValidation.jsx';
@@ -332,6 +334,26 @@ export default function SheetEditor() {
   }
   /** The cells a sort applies to: the selection, or with one cell selected, the table around it. */
   const sortTarget = () => (anchor ? range : dataRegion(sel, (c, r) => cells[cellKey(c, r)] !== undefined && cells[cellKey(c, r)] !== ''));
+  /** Data tools: they touch the rows of a range (refused across merged cells, like sorting). */
+  const touchesMerge = (g) => merges.some((m) => { const b = box(m); return b && b.c1 <= g.c2 && g.c1 <= b.c2 && b.r1 <= g.r2 && g.r1 <= b.r2; });
+  function dedupe(g, { header }) {
+    if (readOnly) return;
+    if (touchesMerge(g)) { toast('Unmerge the cells in these rows first', 'error'); return; }
+    const cur = dataRef.current;
+    const out = removeDuplicates(cur.sheets[active], g, { header, value: evaluate });
+    if (out.removed) commitData({ ...cur, sheets: cur.sheets.map((s, i) => (i === active ? { ...s, cells: out.cells, formats: out.formats } : s)) });
+    toast(out.removed ? `Removed ${out.removed} duplicate row${out.removed === 1 ? '' : 's'}; ${out.kept} left` : 'No duplicate rows');
+    gridRef.current?.focus();
+  }
+  function split(g, { sep }) {
+    if (readOnly) return;
+    const cur = dataRef.current;
+    const out = splitColumn(cur.sheets[active], g, sep);
+    if (out.columns < 2) { toast('Nothing to split there'); return; }
+    commitData({ ...cur, sheets: cur.sheets.map((s, i) => (i === active ? { ...s, cells: out.cells } : s)) });
+    toast(`Split into ${out.columns} columns${out.overwritten ? ` (${out.overwritten} cell${out.overwritten === 1 ? '' : 's'} written over)` : ''}`);
+    gridRef.current?.focus();
+  }
   const quickSort = (desc) => { const g = sortTarget(); sortBy({ range: g, by: sel.c, desc, header: looksLikeHeader(g, evaluate) }); };
 
   // The selection (grown to take in any merged cells it touches, so it never cuts one in two).
@@ -558,6 +580,9 @@ export default function SheetEditor() {
     { label: `Sort A → Z by column ${colName(sel.c)}`, onClick: () => quickSort(false) },
     { label: `Sort Z → A by column ${colName(sel.c)}`, onClick: () => quickSort(true) },
     { label: 'Sort range…', onClick: () => setDialog({ type: 'sort' }) },
+    '-',
+    { label: 'Remove duplicates…', onClick: () => setDialog({ type: 'dedupe' }) },
+    { label: 'Split text to columns…', onClick: () => setDialog({ type: 'split' }) },
   ];
   const freezeRows = [
     { label: range.r2 === 0 ? 'Freeze the first row' : `Freeze rows 1–${range.r2 + 1}`, onClick: () => setFrozen(Math.min(range.r2 + 1, 50), null), disabled: frozen.rows === range.r2 + 1 },
@@ -796,6 +821,12 @@ export default function SheetEditor() {
       })()}
       {dialog?.type === 'sort' && (() => { const g = sortTarget(); return (
         <SortDialog initial={{ range: g, by: sel.c }} header={looksLikeHeader(g, evaluate)} value={evaluate} onSort={sortBy} onClose={() => { setDialog(null); gridRef.current?.focus(); }} />
+      ); })()}
+      {dialog?.type === 'dedupe' && (() => { const g = sortTarget(); return (
+        <DedupeDialog range={g} header={looksLikeHeader(g, evaluate)} onClose={() => { setDialog(null); gridRef.current?.focus(); }} onRun={(o) => { setDialog(null); dedupe(g, o); }} />
+      ); })()}
+      {dialog?.type === 'split' && (() => { const g = anchor ? range : sortTarget(); const col = anchor ? { ...g, c2: g.c1 } : { ...g, c1: sel.c, c2: sel.c }; return (
+        <SplitDialog range={col} onClose={() => { setDialog(null); gridRef.current?.focus(); }} onRun={(o) => { setDialog(null); split(col, o); }} />
       ); })()}
       {dialog?.type === 'chart' && (
         <ChartDialog initial={dialog.chart} value={evaluate} onClose={() => { setDialog(null); gridRef.current?.focus(); }}

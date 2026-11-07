@@ -136,6 +136,7 @@ Everyone who can edit a document, spreadsheet or presentation can work in it at 
 - **Width:** drag the right edge of a column letter to make the column wider or narrower; double-click the edge (or right-click the letter → *Fit column to its contents*) to fit what's in it.
 - **Freeze:** right-click a row number → *Freeze the first row* (or *Freeze rows 1–3* with three rows selected) to keep headings in view while scrolling; the same for columns from a column letter. *Unfreeze* puts them back. A darker line shows where the frozen part ends.
 - **Hide rows and columns:** right-click a row number or column letter → *Hide row 3* (or *Hide columns B–D* with several selected). Formulas still use what is hidden; arrow keys step over it. A small button on the heading next to hidden ones shows them again, or select across them and choose *Unhide*. Hidden rows and columns move with inserts and deletes and are kept in Excel files.
+- **Remove duplicates, split text:** right-click → **Remove duplicates…** removes rows that repeat an earlier row in the selection (or the table around the cell): rows that are the same in every column, ignoring capitals and spaces at the ends, comparing what cells show. The rest close up. **Split text to columns…** splits a column's text ("Kim Park", "Leeds, UK") into the columns to its right at a comma, semicolon, tab, space, bar or anything you type, or the one it finds. Both can be undone.
 - Widths and frozen rows and columns are shared with everyone editing, kept per sheet, and carried to and from Excel.
 
 ## Filters (Sheets)
