@@ -12,7 +12,7 @@ import Collaboration from '@tiptap/extension-collaboration';
 import CollaborationCaret from '@tiptap/extension-collaboration-caret';
 import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
-import { get, patch, put, uploadFile, onLive } from '../../api.js';
+import { get, post, patch, put, uploadFile, onLive } from '../../api.js';
 import DrivePicker, { openUrl } from '../../components/DrivePicker.jsx';
 import { useAuth } from '../../App.jsx';
 import { useToast, Avatar, Menu, Modal } from '../../components/ui.jsx';
@@ -28,6 +28,7 @@ import { TableOfContents, htmlWithContents } from './toc.js';
 import { TaskList, TaskItem } from '@tiptap/extension-list';
 import { PageBreak } from './pagebreak.js';
 import { Footnote, footnotesOf, htmlWithFootnotes } from './footnote.js';
+import { Mention, mentionQuery, matchPeople } from './mention.js';
 import { diffDocs, changeCount } from './docdiff.js';
 import { VersionHistory } from '../VersionHistory.jsx';
 
@@ -159,6 +160,7 @@ function SharedDoc({ file, setFile }) {
   }, [provider, ydoc]);
 
   const addPicturesRef = useRef(null); // set below, once the editor is there
+  const mentionKeyRef = useRef(null); // the @-picker's keys, while it's open
   const editor = useEditor({
     extensions: [
       StarterKit.configure({ link: { openOnClick: false, autolink: true }, undoRedo: false }), // undo is per person, from Collaboration
@@ -171,13 +173,13 @@ function SharedDoc({ file, setFile }) {
       FindReplace,
       Table.configure({ resizable: false }), TableRow, TableHeader, TableCell,
       TextStyle, Color, BackgroundColor, FontFamily, FontSize, LineHeight, TableOfContents,
-      PageBreak, Footnote, TaskList, TaskItem.configure({ nested: true }), // checklists: everyone sees the ticks live; viewers can't tick
+      PageBreak, Footnote, Mention, TaskList, TaskItem.configure({ nested: true }), // checklists: everyone sees the ticks live; viewers can't tick
     ],
     editable: !readOnly,
     editorProps: {
       // A key pressed right after a click (Enter, Backspace…) acts where the click put the cursor,
       // even if the browser hasn't told the editor about the new selection yet.
-      handleKeyDown: (view) => { view.domObserver?.flush?.(); return false; },
+      handleKeyDown: (view, event) => { view.domObserver?.flush?.(); return mentionKeyRef.current?.(event) || false; },
       // Pictures pasted or dropped in go to Drive and into the document.
       handlePaste: (view, event) => {
         const files = [...(event.clipboardData?.files || [])].filter((f) => PICTURE_TYPES.test(f.type));
@@ -196,6 +198,55 @@ function SharedDoc({ file, setFile }) {
       },
     },
   }, [ydoc]);
+
+  // @mentions: typing "@" and a name offers colleagues; the one picked goes in as a chip and is told.
+  const [mention, setMention] = useState(null); // { from, query, left, top, list, pick }
+  const [colleagues, setColleagues] = useState([]);
+  useEffect(() => { if (!readOnly) get('/users/directory').then((l) => setColleagues(l.filter((p) => p.id !== user.id))).catch(() => {}); }, [readOnly, user.id]);
+  useEffect(() => {
+    if (!editor || readOnly) return undefined;
+    const check = () => {
+      const { state, view } = editor;
+      const sel = state.selection;
+      if (!sel.empty || !sel.$from.parent.isTextblock) { setMention(null); return; }
+      const before = sel.$from.parent.textBetween(0, sel.$from.parentOffset, undefined, '\ufffc');
+      const m = mentionQuery(before, sel.from);
+      const list = m ? matchPeople(colleagues, m.query) : [];
+      if (!m || !list.length) { setMention(null); return; }
+      const c = view.coordsAtPos(sel.from);
+      setMention((old) => ({ ...m, list, left: c.left, top: c.bottom + 4, pick: old && old.from === m.from ? Math.min(old.pick, list.length - 1) : 0 }));
+    };
+    editor.on('selectionUpdate', check);
+    editor.on('update', check);
+    return () => { editor.off('selectionUpdate', check); editor.off('update', check); };
+  }, [editor, readOnly, colleagues]);
+  const pickMention = async (p) => {
+    const m = mention;
+    setMention(null);
+    editor.chain().focus().deleteRange({ from: m.from, to: editor.state.selection.from })
+      .insertContent([{ type: 'mention', attrs: { id: p.id, name: p.name, email: p.username } }, { type: 'text', text: ' ' }]).run();
+    try {
+      const r = await post(`/files/${file.id}/mention`, { user_id: p.id });
+      if (r.notified) toast(`${p.name} was told`);
+      else if (r.no_access && r.can_share) {
+        toast(`${p.name} can't open this document`, 'info', { duration: 15000, action: { label: 'Share with them', onClick: async () => {
+          try {
+            const now = await get(`/files/${file.id}/shares`);
+            await put(`/files/${file.id}/shares`, { shares: [...now.map((x) => ({ user_id: x.user_id, role: x.role })), { user_id: p.id, role: 'editor' }] });
+            await post(`/files/${file.id}/mention`, { user_id: p.id });
+            toast(`Shared with ${p.name} (can edit), and they were told`);
+          } catch (e) { toast(e.message, 'error'); }
+        } } });
+      } else if (r.no_access) toast(`${p.name} can't open this document. Ask its owner to share it.`, 'info', { duration: 10000 });
+    } catch (e) { toast(e.message, 'error'); }
+  };
+  mentionKeyRef.current = (e) => {
+    if (!mention) return false;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { setMention({ ...mention, pick: (mention.pick + (e.key === 'ArrowDown' ? 1 : mention.list.length - 1)) % mention.list.length }); return true; }
+    if (e.key === 'Enter' || e.key === 'Tab') { pickMention(mention.list[mention.pick]); return true; }
+    if (e.key === 'Escape') { setMention(null); return true; }
+    return false;
+  };
 
   // Pictures: uploaded next to the document (or to your Drive), then put in at the cursor.
   addPicturesRef.current = async (files, at) => {
@@ -336,6 +387,15 @@ function SharedDoc({ file, setFile }) {
           <div className="paper" style={file.page_setup ? paperStyle(file.page_setup) : undefined}>
             {file.page_setup?.header && <div className="paper-header" aria-hidden="true">{file.page_setup.header}</div>}
             <EditorContent editor={editor} onClick={(e) => { const sup = e.target.closest?.('sup[data-footnote]'); if (sup) focusFootnote(e.currentTarget, sup); }} />
+            {mention && (
+              <ul className="mention-list doc-mention-list" role="listbox" aria-label="People to mention" style={{ position: 'fixed', left: mention.left, top: mention.top }}>
+                {mention.list.map((p, i) => (
+                  <li key={p.id} role="option" aria-selected={i === mention.pick} className={i === mention.pick ? 'on' : ''} onMouseDown={(e) => { e.preventDefault(); pickMention(p); }}>
+                    <Avatar name={p.name} size={20} userId={p.id} /> {p.name} <span className="muted small">{p.username}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
             <FootnoteList editor={editor} readOnly={readOnly} />
             {(file.page_setup?.footer || file.page_setup?.numbers) && <div className="paper-footer" aria-hidden="true">{[file.page_setup.footer, file.page_setup.numbers && 'Page 1'].filter(Boolean).join('   ')}</div>}
           </div>
@@ -581,7 +641,7 @@ function DocPreview({ content, fileId }) {
     extensions: [
       StarterKit.configure({ link: { openOnClick: true } }), TextAlign.configure({ types: ['heading', 'paragraph'] }),
       CommentMark, DocImage.configure({ docId: fileId }), Table, TableRow, TableHeader, TableCell,
-      TextStyle, Color, BackgroundColor, FontFamily, FontSize, LineHeight, TableOfContents, PageBreak, Footnote, TaskList, TaskItem.configure({ nested: true }),
+      TextStyle, Color, BackgroundColor, FontFamily, FontSize, LineHeight, TableOfContents, PageBreak, Footnote, Mention, TaskList, TaskItem.configure({ nested: true }),
     ],
   }, [content]);
   return <div className="paper preview-paper"><EditorContent editor={editor} /></div>;

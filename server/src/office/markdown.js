@@ -9,6 +9,7 @@ function inline(nodes = [], notes) {
   let out = '';
   for (const n of nodes) {
     if (n.type === 'hardBreak') { out += '  \n'; continue; }
+    if (n.type === 'mention') { out += `@${escapeText(n.attrs?.name || '')}`; continue; }
     if (n.type === 'footnote') { notes.push(n.attrs?.note || ''); out += `[^${notes.length}]`; continue; }
     if (n.type === 'image') { out += n.attrs?.alt || n.attrs?.title || ''; continue; }
     if (n.type !== 'text') { out += inline(n.content, notes); continue; }

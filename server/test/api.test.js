@@ -2688,3 +2688,18 @@ test('calendar: a guest proposes a new time; the organizer is told and moving th
   const after = (await a('GET', `/api/events?from=${day}&to=${day + 864e5}`)).body.find((x) => x.id === ev.id).guests.find((g) => g.email === 'ppb@acme.com');
   assert.equal(after.proposed_start, null);
 });
+
+test('docs: @mentioning someone in the text notifies them, or says they can’t open it', async () => {
+  const a = client(), b = client(), c = client();
+  for (const [local, name] of [['dma', 'Doc Ann'], ['dmb', 'Doc Ben'], ['dmc', 'Doc Cat']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'dma@acme.com');
+  const bid = (await login(b, 'dmb@acme.com')).id;
+  const cid = (await login(c, 'dmc@acme.com')).id;
+  const doc = (await a('POST', '/api/files/new', { kind: 'doc', name: 'Brief' })).body;
+  await a('PUT', `/api/files/${doc.id}/shares`, { shares: [{ user_id: bid, role: 'viewer' }] });
+  assert.deepEqual((await a('POST', `/api/files/${doc.id}/mention`, { user_id: bid })).body, { notified: true, name: 'Doc Ben' });
+  assert.ok(JSON.stringify((await b('GET', '/api/notifications')).body).includes('Doc Ann mentioned you in “Brief”'));
+  assert.equal((await a('POST', `/api/files/${doc.id}/mention`, { user_id: bid })).body.recently, true, 'not twice in a row');
+  assert.deepEqual((await a('POST', `/api/files/${doc.id}/mention`, { user_id: cid })).body, { notified: false, no_access: true, can_share: true, name: 'Doc Cat' });
+  assert.equal((await b('POST', `/api/files/${doc.id}/mention`, { user_id: cid })).status, 403, 'viewers don’t write mentions');
+});

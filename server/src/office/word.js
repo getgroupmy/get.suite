@@ -113,6 +113,7 @@ function runs(nodes = [], extra = {}) {
   const out = [];
   for (const n of nodes) {
     if (n.type === 'hardBreak') { out.push(new TextRun({ break: 1 })); continue; }
+    if (n.type === 'mention') { out.push(new TextRun({ text: `@${n.attrs?.name || ''}`, bold: true, color: '1A73E8' })); continue; }
     if (n.type === 'footnote' && footnotes) {
       const id = footnotes.length + 1;
       footnotes.push(n.attrs?.note || '');

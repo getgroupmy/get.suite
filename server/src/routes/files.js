@@ -852,6 +852,22 @@ export default function fileRoutes({ maxUploadBytes }) {
   });
 
   // Share with everyone in the company (the owner's), or stop: { role: 'viewer' | 'editor' | null }.
+  // Someone was @mentioned in a document's text: tell them (once in 10 minutes for the same document
+  // and person), or say they can't open it, and whether you could share it with them.
+  const mentioned = new Map(); // `${file}:${from}:${to}` → when
+  r.post('/:id/mention', (req, res) => {
+    const f = loadFile(req.params.id, req.user, 'editor');
+    const to = q('SELECT id, name, username FROM users WHERE id = ? AND disabled = 0').get(String(req.body.user_id || ''));
+    if (!to || !canReach(req.user, to.id)) throw bad('Choose someone you can work with');
+    if (to.id === req.user.id) return res.json({ notified: false });
+    if (!roleFor(f.id, to.id)) return res.json({ notified: false, no_access: true, can_share: f.owner_id === req.user.id, name: to.name });
+    const key = `${f.id}:${req.user.id}:${to.id}`;
+    if (Date.now() - (mentioned.get(key) || 0) < 10 * 60e3) return res.json({ notified: false, recently: true });
+    mentioned.set(key, Date.now());
+    bell([to.id], { kind: 'mention', title: `${req.user.name || req.user.username} mentioned you in “${f.name}”`, body: null, link: openLink(f), actor: req.user.name });
+    res.json({ notified: true, name: to.name });
+  });
+
   // Before sending an email that links to Drive files: which of the colleagues it goes to can't open
   // which file ({ files: [ids], emails: [addresses] }). Files you can't open yourself are left out.
   r.post('/missing-access', (req, res) => {

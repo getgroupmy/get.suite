@@ -59,3 +59,7 @@ test('round trip keeps the text and structure', () => {
   assert.deepEqual(inlineFromMarkdown('a\\*b'), [t('a*b')]);
   assert.deepEqual(docFromMarkdown(''), { type: 'doc', content: [{ type: 'paragraph' }] });
 });
+
+test('a person mentioned in a document is written as @Name', () => {
+  assert.equal(markdownFromDoc({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Ask ' }, { type: 'mention', attrs: { id: 'u1', name: 'Kim Park' } }] }] }), 'Ask @Kim Park\n');
+});

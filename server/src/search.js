@@ -24,6 +24,7 @@ export function docText(doc) {
     if (!n) return;
     if (n.type === 'text') { out.push(n.text || ''); return; }
     if (n.type === 'image' && n.attrs?.alt) out.push(` ${n.attrs.alt} `);
+    if (n.type === 'mention') out.push(`@${n.attrs?.name || ''}`);
     for (const c of n.content || []) walk(c);
     if (n.type !== 'doc' && !/^(text|hardBreak)$/.test(n.type) && n.content) out.push('\n');
   };
