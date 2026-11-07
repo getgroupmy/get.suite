@@ -36,7 +36,8 @@ function FormList() {
                 <Icon name="form" />
                 <span className="grow"><span className="form-row-title">{f.title}</span>
                   <span className="muted small">{f.responses === 1 ? '1 response' : `${f.responses} responses`}{f.last_response ? ` · last ${formatDate(f.last_response)}` : ''}</span></span>
-                {!f.accepting && <span className="tag">Closed</span>}
+                {f.owner_name && <span className="tag">Shared by {f.owner_name}</span>}
+                {f.closed && <span className="tag">{f.closed === 'full' ? 'Full' : 'Closed'}</span>}
                 {f.audience === 'public' && <span className="tag">Anyone with the link</span>}
                 <span className="muted small nowrap">Edited {formatDate(f.updated_at)}</span>
               </button>
@@ -60,15 +61,23 @@ function FormEditor({ id }) {
   const [status, setStatus] = useState('');
   const [confirm, setConfirm] = useState(false);
   const [responses, setResponses] = useState(null);
+  const pending = useRef(null); // edits not yet saved
 
   useEffect(() => { get(`/forms/${id}`).then(setForm).catch((e) => setError(e.message)); }, [id]);
   const loadResponses = useCallback(() => get(`/forms/${id}/responses`).then((r) => setResponses(r.responses)).catch(() => {}), [id]);
   useEffect(() => { loadResponses(); }, [loadResponses]);
-  useEffect(() => onLive((m) => { if (m.type === 'form-response' && m.form_id === id) loadResponses(); }), [id, loadResponses]);
+  // A colleague changed the form: take their version unless you have changes waiting to be saved.
+  const reloadForm = useCallback(() => get(`/forms/${id}`).then((f) => { if (!pending.current) setForm(f); }).catch(() => {}), [id]);
+  useEffect(() => onLive((m) => {
+    if (m.form_id !== id) return;
+    if (m.type === 'form-response') { loadResponses(); reloadForm(); }
+    if (m.type === 'form-changed') {
+      if (m.deleted || m.removed) { toast(m.deleted ? 'This form was deleted' : 'You were taken off this form'); navigate('/forms'); } else reloadForm();
+    }
+  }), [id, loadResponses, reloadForm, toast, navigate]);
   useEffect(() => { if (form?.title) document.title = `${form.title} – Forms`; }, [form?.title]);
 
   // Typing saves itself shortly after; leaving the page sends what's waiting.
-  const pending = useRef(null);
   const timer = useRef(null);
   const flush = useCallback(async () => {
     clearTimeout(timer.current);
@@ -115,7 +124,8 @@ function FormEditor({ id }) {
         <a className="btn" href={`/f/${form.token}`} target="_blank" rel="noreferrer">Preview</a>
         <Menu trigger={(p) => <button className="icon-btn" aria-label="More" {...p}><Icon name="more" /></button>} items={[
           { label: 'Make a copy', icon: 'copy', onClick: copyForm },
-          { label: 'Delete form', icon: 'trash', onClick: () => setConfirm(true) },
+          form.role === 'owner' ? { label: 'Delete form', icon: 'trash', onClick: () => setConfirm(true) }
+            : { label: 'Leave this form', icon: 'logout', onClick: async () => { await flush(); await del(`/forms/${id}/editors/${user.id}`); navigate('/forms'); } },
         ]} />
       </div>
       <div className="tabs" role="tablist" style={{ alignSelf: 'flex-start' }}>
@@ -125,7 +135,7 @@ function FormEditor({ id }) {
       </div>
       {tab === 'questions' && <QuestionsTab form={form} edit={edit} />}
       {tab === 'responses' && <ResponsesTab form={form} responses={responses} reload={loadResponses} setting={setting} flush={flush} />}
-      {tab === 'settings' && <SettingsTab form={form} setting={setting} orgName={user.org_name} allowLinks={user.allow_links} />}
+      {tab === 'settings' && <SettingsTab form={form} setForm={setForm} setting={setting} orgName={user.org_name} allowLinks={user.allow_links} />}
       {confirm && <ConfirmModal title="Delete this form?" message={`“${form.title}” and its ${count === 1 ? 'response' : `${count} responses`} will be deleted, and its link will stop working.`}
         onClose={() => setConfirm(false)} onConfirm={async () => { pending.current = null; await del(`/forms/${id}`); navigate('/forms'); }} />}
     </div>
@@ -207,7 +217,7 @@ function ResponsesTab({ form, responses, reload, setting, flush }) {
         <button type="button" className="btn" onClick={toSheet}><Icon name="sheet" size={18} /> Open in Sheets</button>
         {responses.length > 0 && <button type="button" className="btn" onClick={() => setClear(true)}>Delete all</button>}
       </div>
-      {!form.accepting && <p className="muted small" style={{ margin: 0 }}>This form is closed: people who open the link are told it isn't accepting responses.</p>}
+      {closedNote(form) && <p className="muted small" style={{ margin: 0 }} role="status">{closedNote(form)}</p>}
       {!responses.length ? <Empty icon="form" title="No responses yet">Share the link (<strong>Copy link</strong> at the top) and answers show up here as they come in.</Empty> : <>
         <div className="tabs" role="tablist" aria-label="Show" style={{ alignSelf: 'flex-start' }}>
           <button type="button" role="tab" aria-selected={view === 'summary'} className={view === 'summary' ? 'on' : ''} onClick={() => setView('summary')}>Summary</button>
@@ -250,11 +260,61 @@ function ResponsesTab({ form, responses, reload, setting, flush }) {
   );
 }
 
-function SettingsTab({ form, setting, orgName, allowLinks }) {
+const pad = (n) => String(n).padStart(2, '0');
+const localInput = (ms) => { const d = new Date(ms); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+const whenText = (ms) => new Date(ms).toLocaleString([], { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
+
+/** Why the form isn't taking answers, in words for its owner (or null). */
+function closedNote(form) {
+  if (!form.accepting) return 'This form is closed: people who open the link are told it isn\'t accepting responses.';
+  if (form.close_at && form.close_at <= Date.now()) return `This form closed on ${whenText(form.close_at)}. Change or clear the closing time in Settings to open it again.`;
+  if (form.max_responses && (form.responses ?? 0) >= form.max_responses) return `This form has reached its limit of ${form.max_responses} responses. Raise or clear the limit in Settings to take more.`;
+  return null;
+}
+
+function Editors({ form, setForm }) {
+  const toast = useToast();
+  const [email, setEmail] = useState('');
+  const [people, setPeople] = useState([]);
+  useEffect(() => { if (form.role === 'owner') get('/users/directory').then(setPeople).catch(() => {}); }, [form.role]);
+  const add = async (e) => {
+    e.preventDefault();
+    try { const editors = await post(`/forms/${form.id}/editors`, { email }); setForm((f) => ({ ...f, editors })); setEmail(''); } catch (err) { toast(err.message, 'error'); }
+  };
+  const remove = async (u) => {
+    try { const editors = await del(`/forms/${form.id}/editors/${u.id}`); setForm((f) => ({ ...f, editors })); } catch (err) { toast(err.message, 'error'); }
+  };
+  const taken = new Set([form.owner.id, ...form.editors.map((u) => u.id)]);
+  return (
+    <section className="stack-tight" aria-label="People who can edit">
+      <strong>People who can edit</strong>
+      <p className="muted small" style={{ margin: 0 }}>They can change the questions and settings and see the responses. Only the owner can add people or delete the form.</p>
+      <ul className="form-editors">
+        <li><span className="grow">{form.owner.name} <span className="muted small">{form.owner.email}</span></span><span className="muted small">Owner</span></li>
+        {form.editors.map((u) => (
+          <li key={u.id}><span className="grow">{u.name} <span className="muted small">{u.email}</span></span>
+            {form.role === 'owner' && <button type="button" className="icon-btn" aria-label={`Remove ${u.name}`} onClick={() => remove(u)}><Icon name="close" size={16} /></button>}</li>
+        ))}
+      </ul>
+      {form.role === 'owner' && (
+        <form className="row" onSubmit={add}>
+          <input className="grow" type="email" list="form-people" required aria-label="Add an editor" placeholder="Colleague's email address" value={email} onChange={(e) => setEmail(e.target.value)} />
+          <datalist id="form-people">{people.filter((p) => !taken.has(p.id)).map((p) => <option key={p.id} value={p.username}>{p.name}</option>)}</datalist>
+          <button className="btn">Add</button>
+        </form>
+      )}
+    </section>
+  );
+}
+
+function SettingsTab({ form, setForm, setting, orgName, allowLinks }) {
   const toast = useToast();
   const [confirmation, setConfirmation] = useState(form.confirmation);
+  const [limit, setLimit] = useState(form.max_responses ? String(form.max_responses) : '');
+  useEffect(() => { setLimit(form.max_responses ? String(form.max_responses) : ''); }, [form.max_responses]);
   return (
     <div className="stack form-settings">
+      <Editors form={form} setForm={setForm} />
       <fieldset className="stack-tight">
         <legend>Who can fill it in</legend>
         <label className="check"><input type="radio" name="aud" checked={form.audience === 'org'} onChange={() => setting({ audience: 'org' })} /> People at {orgName} (they sign in; their name is recorded)</label>
@@ -263,6 +323,13 @@ function SettingsTab({ form, setting, orgName, allowLinks }) {
       </fieldset>
       {form.audience === 'org' && <label className="check"><input type="checkbox" checked={form.one_per_person} onChange={(e) => setting({ one_per_person: e.target.checked })} /> One response per person</label>}
       <label className="check"><input type="checkbox" checked={form.notify} onChange={(e) => setting({ notify: e.target.checked })} /> Notify me of each new response</label>
+      <div className="row wrap form-limits">
+        <label className="field"><span>Close automatically on</span>
+          <input type="datetime-local" value={form.close_at ? localInput(form.close_at) : ''} onChange={(e) => setting({ close_at: e.target.value ? new Date(e.target.value).getTime() : null })} /></label>
+        <label className="field"><span>Stop after this many responses</span>
+          <input type="number" min={1} max={10000} placeholder="No limit" value={limit} onChange={(e) => setLimit(e.target.value)}
+            onBlur={() => { const v = limit.trim() ? Number(limit) : null; if (v !== (form.max_responses ?? null)) setting({ max_responses: v }); }} /></label>
+      </div>
       <label className="field"><span>Message after submitting</span>
         <textarea rows={2} maxLength={1000} value={confirmation} placeholder="Your response has been recorded." onChange={(e) => setConfirmation(e.target.value)}
           onBlur={() => confirmation !== form.confirmation && setting({ confirmation })} /></label>

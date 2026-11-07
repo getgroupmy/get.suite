@@ -60,7 +60,7 @@ export default function FormRespond({ token, onSignIn }) {
         <h1>{form.title}</h1>
         {form.description && <p className="form-desc">{form.description}</p>}
         {form.you && <p className="muted small" style={{ margin: 0 }}>Signed in as {form.you.name} ({form.you.email}). Your name is recorded with your answers.</p>}
-        {closed ? <p role="status"><strong>{form.answered ? 'You have already filled in this form.' : 'This form is no longer accepting responses.'}</strong></p> : <>
+        {closed ? <p role="status"><strong>{form.answered ? 'You have already filled in this form.' : `${form.closed_text || 'This form is no longer accepting responses'}.`}</strong></p> : <>
           {form.questions.some((q) => q.required) && <p className="muted small" style={{ margin: 0 }}><span className="req">*</span> Required</p>}
           {form.questions.map((q) => <Question key={q.id} q={q} value={answers[q.id]} onChange={(v) => set(q.id, v)} missing={missing.includes(q.id)} />)}
           {sendError && <p className="error small" role="alert">{sendError}</p>}

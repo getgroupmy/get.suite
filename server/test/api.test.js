@@ -2882,3 +2882,49 @@ test('forms: build one, share the link, collect and read responses', async () =>
   assert.equal((await fa('DELETE', `/api/forms/${f.id}`)).status, 200);
   assert.equal((await outsider('GET', `/api/public/forms/${fresh.token}`)).status, 404);
 });
+
+test('forms: editors, closing date and response limit', async () => {
+  const own = client(); const ed = client(); const visitor = client();
+  for (const [local, name] of [['fea', 'Fay Owner'], ['feb', 'Eddie Editor']]) {
+    assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  }
+  await login(own, 'fea@acme.com');
+  await login(ed, 'feb@acme.com');
+  const f = (await own('POST', '/api/forms', { title: 'Offsite', questions: [{ id: 'q', type: 'short', title: 'Ideas' }] })).body;
+  assert.equal((await ed('GET', `/api/forms/${f.id}`)).status, 404);
+  assert.equal((await own('POST', `/api/forms/${f.id}/editors`, { email: 'nobody@acme.com' })).status, 400);
+  const eds = (await own('POST', `/api/forms/${f.id}/editors`, { email: 'FEB@acme.com' })).body;
+  assert.deepEqual(eds.map((u) => u.name), ['Eddie Editor']);
+  assert.ok((await ed('GET', '/api/notifications')).body.items.some((n) => /added you to the form “Offsite”/.test(n.title)));
+  const seen = (await ed('GET', '/api/forms')).body.find((x) => x.id === f.id);
+  assert.equal(seen.owner_name, 'Fay Owner', 'shown as shared');
+  const got = (await ed('GET', `/api/forms/${f.id}`)).body;
+  assert.equal(got.role, 'editor');
+  assert.equal((await ed('PUT', `/api/forms/${f.id}`, { title: 'Offsite 2027' })).body.title, 'Offsite 2027', 'editors can edit');
+  assert.equal((await ed('POST', `/api/forms/${f.id}/editors`, { email: 'owner@acme.com' })).status, 403, 'only the owner adds people');
+  assert.equal((await ed('DELETE', `/api/forms/${f.id}`)).status, 403, 'only the owner deletes');
+
+  // Response limit, then a closing time.
+  await own('PUT', `/api/forms/${f.id}`, { audience: 'public', max_responses: 1 });
+  assert.equal((await own('PUT', `/api/forms/${f.id}`, { max_responses: 0 })).status, 400);
+  assert.equal((await visitor('POST', `/api/public/forms/${f.token}`, { answers: { q: 'Beach' } })).status, 201);
+  const full = await visitor('POST', `/api/public/forms/${f.token}`, { answers: { q: 'Hills' } });
+  assert.equal(full.status, 409);
+  assert.match(full.body.error, /all the responses it needs/);
+  assert.equal((await visitor('GET', `/api/public/forms/${f.token}`)).body.closed, 'full');
+  const bells = (await ed('GET', '/api/notifications')).body.items.filter((n) => n.kind === 'form');
+  assert.equal(bells.length, 1, 'editors hear about responses too');
+  assert.equal((await ed('GET', `/api/forms/${f.id}/responses`)).body.responses.length, 1, 'and read them');
+  await own('PUT', `/api/forms/${f.id}`, { max_responses: null, close_at: Date.now() - 1000 });
+  const g = await visitor('GET', `/api/public/forms/${f.token}`);
+  assert.equal(g.body.accepting, false);
+  assert.equal(g.body.closed_text, 'This form closed');
+  assert.equal((await own('GET', `/api/forms/${f.id}`)).body.closed, 'ended');
+  await own('PUT', `/api/forms/${f.id}`, { close_at: Date.now() + 864e5 });
+  assert.equal((await visitor('POST', `/api/public/forms/${f.token}`, { answers: { q: 'Lake' } })).status, 201);
+
+  // An editor can leave; then it's gone for them.
+  assert.deepEqual((await ed('DELETE', `/api/forms/${f.id}/editors/${got.editors[0].id}`)).body, []);
+  assert.equal((await ed('GET', `/api/forms/${f.id}`)).status, 404);
+  assert.equal((await own('DELETE', `/api/forms/${f.id}`)).status, 200);
+});
