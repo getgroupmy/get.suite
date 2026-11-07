@@ -12,6 +12,7 @@ A self-hosted, Google Workspace-style office suite built to run on a Synology DS
 | **Contacts** | Personal address book (import and export vCard and CSV, synced with phones), plus a directory of everyone on the NAS; addresses suggested while writing mail |
 | **Chat** | Channels and direct messages, delivered live over WebSockets: unread counts, reactions, editing your messages, pictures and files, and an emoji picker |
 | **Forms** | Questionnaires, sign-up sheets and polls: seven question types, a link for your company (signed in, names recorded) or for anyone, a live summary of the answers, CSV download and a copy in Sheets |
+| **Meet** | Video meetings in the browser for up to 8 people: a link and a code to join by, camera and microphone check before joining, screen sharing, raised hands, reactions and a meeting chat |
 | **Mail** | A mailbox for every user on their company's domains: webmail (read, reply, forward, attachments from your computer or Drive, archive, spam, search, stars), rich-text writing (bold, lists, links, quotes), drafts that save automatically, vacation auto-replies, filter rules, signatures, folders, send as aliases you belong to, and IMAP/SMTP for phones and Outlook |
 | **Admin** | Create, disable, reset or delete users; per-user storage use; company settings; all companies (platform owner) |
 
@@ -618,6 +619,15 @@ Each entry shows who did it, what it was done to, the details and the IP address
 - **Working together:** **Settings → People who can edit** lets the owner add colleagues by email. Editors see the form in their Forms list (*Shared by …*), can change its questions and settings and read and download the responses, and changes reach everyone who has it open. Only the owner adds or removes editors or deletes the form; an editor can **⋮ → Leave this form**.
 - **Notifications:** the owner and editors get a bell notification for each response (turn it off per form in Settings, or for all forms in the bell's settings).
 
+## Meet
+
+**Meet** in the left bar starts a video meeting: **New meeting** (give it a name if you like) opens it and gives it a code like `abc-defg-hij`. Share the link (🔗, or **Copy link** before joining) or read out the code; colleagues join with **Join with a code** (typing it with or without dashes, or pasting the link). **Recent meetings** lists the ones you started or joined, with how many people are in each now, so a regular meeting can keep its link.
+
+- **Before joining** you see your camera, can turn the microphone and camera off, and see who's already there. If there's no camera or microphone (or the browser isn't allowed to use them) you can still join to watch, listen and chat.
+- **In the meeting:** everyone's video in a grid (a picture of them when their camera is off), 🔇 on whoever is muted, and controls for the microphone, camera, **presenting your screen** (a window, a tab or the whole screen), **raising your hand** (outlined in yellow for everyone, and shown in **People**), quick reactions that float up over your video, the meeting **chat** (seen only by those in the meeting, and gone when it ends) and **Leave** (with **Rejoin**).
+- **Who can join:** people in your company, and in companies yours works with (when both allow working with other companies). Up to 8 at once.
+- **How it works:** sound and video go directly between the people in the meeting; the server only introduces them. Browsers only allow cameras on secure pages, so use Meet through HTTPS (see *Publish it securely*). People on the same network, or on most home and office connections, connect directly. For people behind strict firewalls, run a TURN server (for example coturn) and list it in `MEET_ICE_SERVERS`.
+
 ## Chat
 
 - **Unread:** Chat in the app bar and each conversation show how many messages you haven't read; opening the conversation clears them, on your other devices too. To come back to something later, hover over someone else's message and choose ✉ **Mark unread from here**: the conversation counts as unread from that message on (you're taken back to the list so it stays that way).
@@ -700,6 +710,7 @@ To update, replace the files in `docker/workspace/app` with the new version. The
 | `AUTH_ALLOWLIST` | empty | Extra never-block addresses or ranges, comma-separated (also editable in Admin → Security) |
 | `AUTH_SOFT_NETS` | private ranges | Ranges that are only slowed down, never blocked; set it empty to make LAN addresses blockable too |
 | `AUTH_POLICY_PORT` / `AUTH_POLICY_URL` | `8081` / `http://workspace:8081/` | Internal sign-in policy service, and how the mail container reaches it |
+| `MEET_ICE_SERVERS` | none | Extra STUN/TURN servers for Meet, as JSON, e.g. `[{"urls":"turn:turn.example.com:3478","username":"u","credential":"p"}]` |
 | `MAIL_DNS_SERVERS` | system | Comma-separated DNS servers for the "Check DNS" button, e.g. `1.1.1.1,8.8.8.8` |
 
 ## Development

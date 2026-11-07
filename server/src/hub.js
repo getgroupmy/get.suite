@@ -1,6 +1,7 @@
 import { WebSocketServer } from 'ws';
 import { userFromToken, tokenFromReq } from './auth.js';
 import { handleCollabUpgrade } from './collab.js';
+import { handleMeetUpgrade } from './meet.js';
 
 /** Live push channel: userId -> Set<WebSocket>. */
 const clients = new Map();
@@ -16,6 +17,7 @@ export function attachHub(server) {
     const user = userFromToken(tokenFromReq(req));
     if (!user || user.needs_two_factor) { socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n'); return socket.destroy(); }
     if (req.url.startsWith('/ws/collab/')) return handleCollabUpgrade(req, socket, head, user); // co-editing a document
+    if (req.url.startsWith('/ws/meet/')) return handleMeetUpgrade(req, socket, head, user); // a video meeting
     wss.handleUpgrade(req, socket, head, (ws) => {
       let set = clients.get(user.id);
       const first = !set;

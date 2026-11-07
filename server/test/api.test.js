@@ -2928,3 +2928,73 @@ test('forms: editors, closing date and response limit', async () => {
   assert.equal((await ed('GET', `/api/forms/${f.id}`)).status, 404);
   assert.equal((await own('DELETE', `/api/forms/${f.id}`)).status, 200);
 });
+
+test('meet: start a meeting, join its room, signals pass between people', async () => {
+  const { default: WS } = await import('ws');
+  const { newCode, validCode, iceServers } = await import('../src/meet.js');
+  assert.ok(validCode(newCode()));
+  assert.equal(validCode('abc-defg-hi1'), false);
+  assert.deepEqual(iceServers('[{"urls":"stun:stun.example.com:3478"},{"bad":1}]'), [{ urls: 'stun:stun.example.com:3478' }]);
+  assert.deepEqual(iceServers('not json'), []);
+
+  const cookieFor = async (local, name) => {
+    assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+    const r = await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ username: `${local}@acme.com`, password: 'password123' }) });
+    return r.headers.get('set-cookie').split(';')[0];
+  };
+  const ca = await cookieFor('mta', 'Mia Meet');
+  const cb = await cookieFor('mtb', 'Max Meet');
+  const call = (cookie, method, url, body) => fetch(base + url, { method, headers: { cookie, 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: body && JSON.stringify(body) }).then(async (r) => ({ status: r.status, body: await r.json() }));
+  const made = await call(ca, 'POST', '/api/meet', { title: 'Standup' });
+  assert.equal(made.status, 201);
+  const { code } = made.body;
+  assert.equal((await call(cb, 'GET', '/api/meet/abc-defg-hij')).status, 404);
+  assert.equal((await call(cb, 'GET', `/api/meet/${code}`)).body.title, 'Standup');
+
+  const open = (cookie, q = '') => new Promise((resolve, reject) => {
+    const ws = new WS(`${base.replace('http', 'ws')}/ws/meet/${code}${q}`, { headers: { cookie } });
+    const inbox = [];
+    ws.on('message', (d) => inbox.push(JSON.parse(String(d))));
+    ws.on('open', () => resolve({ ws, inbox, next: async (type) => { for (let i = 0; i < 100; i++) { const k = inbox.findIndex((m) => m.type === type); if (k >= 0) return inbox.splice(k, 1)[0]; await new Promise((r) => setTimeout(r, 20)); } throw new Error(`no ${type}`); } }));
+    ws.on('error', reject);
+  });
+  const a = await open(ca, '?cam=0');
+  const wa = await a.next('welcome');
+  assert.deepEqual(wa.peers, []);
+  const b = await open(cb);
+  const wb = await b.next('welcome');
+  assert.equal(wb.peers.length, 1);
+  assert.equal(wb.peers[0].user.name, 'Mia Meet');
+  assert.equal(wb.peers[0].state.cam, false, 'came in with the camera off');
+  const joined = await a.next('joined');
+  assert.equal(joined.peer.user.name, 'Max Meet');
+  assert.equal((await call(ca, 'GET', `/api/meet/${code}`)).body.people.length, 2);
+
+  b.ws.send(JSON.stringify({ type: 'signal', to: wa.id, data: { sdp: 'offer' } }));
+  const sig = await a.next('signal');
+  assert.equal(sig.from, wb.id);
+  assert.deepEqual(sig.data, { sdp: 'offer' });
+  a.ws.send(JSON.stringify({ type: 'state', state: { mic: false, hand: true, bogus: 1 } }));
+  const st = await b.next('state');
+  assert.deepEqual(st.state, { mic: false, cam: false, hand: true, screen: false });
+  b.ws.send(JSON.stringify({ type: 'chat', text: '  hello  ' }));
+  assert.equal((await a.next('chat')).text, 'hello');
+  b.ws.send(JSON.stringify({ type: 'react', emoji: '💣' }));
+  b.ws.send(JSON.stringify({ type: 'react', emoji: '👍' }));
+  assert.equal((await a.next('react')).emoji, '👍', 'only the offered reactions');
+
+  // Another company can't get in.
+  const outside = (await owner('POST', '/api/orgs', { name: 'Meetco', domain: 'meetco.com', admin_name: 'Mo', admin_local: 'mo', admin_password: 'password123' }));
+  assert.equal(outside.status, 201);
+  assert.equal((await owner('PATCH', `/api/orgs/${outside.body.id}`, { allow_external: false })).status, 200, 'and they keep to themselves');
+  const r = await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ username: 'mo@meetco.com', password: 'password123' }) });
+  const co = r.headers.get('set-cookie').split(';')[0];
+  assert.equal((await call(co, 'GET', `/api/meet/${code}`)).status, 403);
+  await assert.rejects(open(co));
+
+  b.ws.close();
+  assert.equal((await a.next('left')).id, wb.id);
+  a.ws.close();
+  const mine = (await call(cb, 'GET', '/api/meet')).body;
+  assert.equal(mine[0].code, code, 'recent meetings include ones you joined');
+});
