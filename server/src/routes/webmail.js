@@ -593,6 +593,20 @@ export default function webmailRoutes() {
 
   // The rest of a message's conversation: messages with the same subject (without Re:/Fwd:) that share
   // someone with it, in the Inbox, Sent, Archive and the message's own folder, oldest first.
+  // Where a message is now, by its Message-ID (a task made from it links here, and the message may
+  // have been archived or moved since). The Inbox and Archive are looked in first.
+  r.get('/find', async (req, res) => {
+    const id = String(req.query.message_id || '').trim();
+    if (!id || id.length > 1000 || /[\r\n]/.test(id)) throw bad('Message ID needed');
+    const boxes = (await withClient(req.user, (c) => c.list())).filter((b) => !b.flags?.has?.('\\Noselect'));
+    const rank = (b) => (b.path === 'INBOX' ? 0 : b.specialUse === '\\Archive' ? 1 : b.specialUse === '\\Trash' ? 3 : 2);
+    for (const b of boxes.sort((x, y) => rank(x) - rank(y))) {
+      const uids = await withFolder(req.user, b.path, (c) => c.search({ header: { 'message-id': id } }, { uid: true })).catch(() => []);
+      if (uids?.length) return res.json({ folder: b.path, uid: Math.max(...uids) });
+    }
+    throw notFound('That email is no longer in your mailbox');
+  });
+
   r.get('/messages/:uid/conversation', async (req, res) => {
     const folder = String(req.query.folder || 'INBOX');
     const uid = Number(req.params.uid);

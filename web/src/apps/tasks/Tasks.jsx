@@ -1,7 +1,7 @@
 // Tasks: your to-do lists and the ones colleagues share with you. Add a task with Enter, tick it
 // off, drag it into place, and open it for notes, a due date, who it's for, or another list.
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useNavigate, useParams, useSearchParams } from 'react-router';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { get, post, patch, put, del, onLive } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
 import { Avatar, ConfirmModal, Empty, Menu, Modal, PromptModal, useToast } from '../../components/ui.jsx';
@@ -103,6 +103,7 @@ export default function Tasks() {
           <span className="task-title">{t.title}</span>
           <span className="task-meta">
             {virtual && <span className="muted small">{t.list_name}</span>}
+            {t.link_url && <span className="muted small task-link" title={t.link_label || 'Linked'}>{t.link_url.startsWith('/chat') ? '💬' : '✉'}</span>}
             {t.notes && <span className="muted small ellipsis task-notes">{t.notes.split('\n')[0]}</span>}
             {due && <span className={`pill due ${due.tone}`}>{due.text}</span>}
             {t.steps?.length > 0 && <span className={`muted small task-steps ${t.steps.every((x) => x.done) ? 'all' : ''}`} title="Steps done">☑ {t.steps.filter((x) => x.done).length}/{t.steps.length}</span>}
@@ -234,6 +235,12 @@ function TaskDetails({ task, lists, people, onChange, onClose, onDelete, onMove,
       <label className="field"><span>Notes</span>
         <textarea rows={5} value={notes} onChange={(e) => setNotes(e.target.value)} onBlur={() => { if (notes.trim() !== (task.notes || '')) onChange({ notes: notes.trim() || null }); }} />
       </label>
+      {task.link_url && (
+        <div className="field"><span>From</span>
+          <span className="row"><Link to={task.link_url} className="grow ellipsis">{task.link_url.startsWith('/chat') ? '💬' : '✉'} {task.link_label || 'Open'}</Link>
+            <button type="button" className="link-btn small" onClick={() => onChange({ link: null })}>Remove</button></span>
+        </div>
+      )}
       <Steps task={task} onReplaced={onReplaced} />
       <label className="field"><span>Due</span>
         <span className="row"><input type="date" value={task.due || ''} onChange={(e) => onChange({ due: e.target.value || null })} />

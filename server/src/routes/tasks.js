@@ -35,7 +35,7 @@ q(`CREATE TABLE IF NOT EXISTS tasks (
 )`).run();
 q('CREATE INDEX IF NOT EXISTS tasks_list ON tasks(list_id, position)').run();
 // Repeating tasks: how it repeats, and (once ticked off) the task that came next.
-for (const [col, type] of [['repeat', 'TEXT'], ['next_id', 'TEXT'], ['steps', 'TEXT'], ['important', 'INTEGER NOT NULL DEFAULT 0']]) { // steps: a checklist, JSON [{ id, title, done }]
+for (const [col, type] of [['repeat', 'TEXT'], ['next_id', 'TEXT'], ['steps', 'TEXT'], ['important', 'INTEGER NOT NULL DEFAULT 0'], ['link_url', 'TEXT'], ['link_label', 'TEXT']]) { // steps: a checklist, JSON [{ id, title, done }]
   if (!q('PRAGMA table_info(tasks)').all().some((c) => c.name === col)) q(`ALTER TABLE tasks ADD COLUMN ${col} ${type}`).run();
 }
 q('CREATE INDEX IF NOT EXISTS tasks_assignee ON tasks(assignee_id, done_at)').run();
@@ -79,6 +79,17 @@ function repeatOf(v) {
   return v;
 }
 const todayOf = (v) => (typeof v === 'string' && DATE_RE.test(v) ? v : new Date().toISOString().slice(0, 10)); // the person's own date, if sent
+
+/**
+ * Where a task came from (an email, a chat message): a path inside Workspace and what to call it.
+ * Only paths to Mail or Chat are kept, so a link on a task can't take anyone off-site.
+ */
+export function linkOf(v) {
+  if (v == null || v === '') return { url: null, label: null };
+  const url = String(v.url || '');
+  if (!/^\/(mail|chat)(\/|\?|$)/.test(url) || url.length > 2000 || /[\s\\]/.test(url)) throw bad('Bad link');
+  return { url, label: String(v.label || '').trim().slice(0, 300) || null };
+}
 
 function assigneeOf(v, list) {
   if (v === null || v === '' || v === undefined) return null;
@@ -199,8 +210,9 @@ export default function taskRoutes() {
     const id = uid(), t = now();
     const due = dueOf(req.body.due), repeat = repeatOf(req.body.repeat);
     if (repeat && !due) throw bad('A repeating task needs a due date');
-    q('INSERT INTO tasks (id, list_id, title, notes, due, assignee_id, position, repeat, important, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(id, list.id, str(req.body.title, { required: true, name: 'Task', max: 500 }), str(req.body.notes, { max: 10000 }), due, assigneeOf(req.body.assignee_id, list), position, repeat, req.body.important ? 1 : 0, req.user.id, t, t);
+    const link = linkOf(req.body.link);
+    q('INSERT INTO tasks (id, list_id, title, notes, due, assignee_id, position, repeat, important, link_url, link_label, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, list.id, str(req.body.title, { required: true, name: 'Task', max: 500 }), str(req.body.notes, { max: 10000 }), due, assigneeOf(req.body.assignee_id, list), position, repeat, req.body.important ? 1 : 0, link.url, link.label, req.user.id, t, t);
     changed(list);
     const made = shape(q(`${TASK} WHERE t.id = ?`).get(id));
     notifyAssigned(made, req.user);
@@ -227,6 +239,7 @@ export default function taskRoutes() {
     if (b.done !== undefined) set.done_at = b.done ? task.done_at || now() : null;
     if (b.repeat !== undefined) set.repeat = repeatOf(b.repeat);
     if (b.important !== undefined) set.important = b.important ? 1 : 0;
+    if (b.link !== undefined) { const l = linkOf(b.link); set.link_url = l.url; set.link_label = l.label; } // null takes it off
     if ((set.repeat ?? task.repeat) && !(set.due !== undefined ? set.due : task.due)) {
       if (set.repeat) throw bad('A repeating task needs a due date');
       set.repeat = null; // clearing the date stops it repeating
@@ -243,8 +256,8 @@ export default function taskRoutes() {
         const top = (q('SELECT MIN(position) AS p FROM tasks WHERE list_id = ? AND done_at IS NULL').get(after.list_id).p ?? 1) - 1;
         const id = uid(), t = now();
         const steps = after.steps ? JSON.stringify(JSON.parse(after.steps).map((x) => ({ ...x, id: uid(), done: false }))) : null; // a fresh checklist
-        q('INSERT INTO tasks (id, list_id, title, notes, due, assignee_id, position, repeat, steps, important, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-          .run(id, after.list_id, after.title, after.notes, due, after.assignee_id, top, after.repeat, steps, after.important ? 1 : 0, after.created_by, t, t);
+        q('INSERT INTO tasks (id, list_id, title, notes, due, assignee_id, position, repeat, steps, important, link_url, link_label, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+          .run(id, after.list_id, after.title, after.notes, due, after.assignee_id, top, after.repeat, steps, after.important ? 1 : 0, after.link_url, after.link_label, after.created_by, t, t);
         q('UPDATE tasks SET next_id = ? WHERE id = ?').run(id, task.id);
       }
       // Un-ticked (Undo): the next one goes again, unless someone has already worked on it.

@@ -2201,3 +2201,22 @@ test('contacts lookup: is this address a contact or a colleague', async () => {
   assert.equal((await a('GET', '/api/contacts/lookup?email=owner@acme.com')).body.colleague, true);
   assert.equal((await a('GET', '/api/contacts/lookup?email=nope')).status, 400);
 });
+
+test('tasks: made from an email or chat message, linking back inside Workspace only', async () => {
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'lnka', domain: 'acme.com', name: 'Link Ann', password: 'password123' })).status, 201);
+  await login(a, 'lnka@acme.com');
+  const list = (await a('GET', '/api/tasks/lists')).body.lists.find((l) => l.mine).id;
+  const t = (await a('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Reply to Raj', link: { url: '/mail?open=%3Cx%40y.com%3E', label: 'Email from Raj' } })).body;
+  assert.equal(t.link_url, '/mail?open=%3Cx%40y.com%3E');
+  assert.equal(t.link_label, 'Email from Raj');
+  for (const url of ['https://evil.example.com', '//evil.example.com', 'javascript:alert(1)', '/files/x', '/mail\\..', '/chat x']) {
+    assert.equal((await a('POST', `/api/tasks/lists/${list}/tasks`, { title: 'x', link: { url } })).status, 400, url);
+  }
+  const c = (await a('POST', `/api/tasks/lists/${list}/tasks`, { title: 'From chat', link: { url: '/chat/abc?msg=1', label: 'x' }, due: '2026-12-01', repeat: 'daily' })).body;
+  const next = (await a('PATCH', `/api/tasks/tasks/${c.id}`, { done: true })).body;
+  const again = (await a('GET', `/api/tasks/lists/${list}/tasks`)).body.find((x) => x.title === 'From chat' && !x.done);
+  assert.ok(next.done && again && again.link_url === '/chat/abc?msg=1', 'the next repeat keeps the link');
+  const off = (await a('PATCH', `/api/tasks/tasks/${t.id}`, { link: null })).body;
+  assert.equal(off.link_url, null);
+});

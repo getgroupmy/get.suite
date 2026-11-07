@@ -22,6 +22,7 @@ import { mailKey, stepMessage } from './mailkeys.js';
 import { printMessage } from './mailprint.js';
 import { textToHtml, docToText, emailHtml, isEmptyDoc, linkHref } from './richtext.js';
 import { FiltersDialog } from './Filters.jsx';
+import { addToTasksWithToast, mailLink } from '../tasks/addtask.js';
 import { ASPECTS, FULL, fitAspect, moveRect, resizeRect, toPixels, rotatedSize, outputType, editedName } from './cropmath.js';
 
 const FOLDER_ICON = { '\\Inbox': 'inbox', '\\Drafts': 'doc', '\\Sent': 'send', '\\Archive': 'archive', '\\Junk': 'report', '\\Trash': 'trash' };
@@ -41,6 +42,13 @@ export default function Mail() {
   const openUid = params.uid ? Number(params.uid) : null;
   const q = search.get('q') || '';
   const labelId = search.get('label') || '';
+  // ?open=<Message-ID> (from a task made from an email): find where the message is now and open it.
+  const openId = search.get('open');
+  useEffect(() => {
+    if (!openId) return;
+    get(`/mail/find?message_id=${enc(openId)}`).then((r) => navigate(`/mail/${enc(r.folder)}/${r.uid}`, { replace: true }))
+      .catch((e) => { toast(e.message, 'error'); navigate('/mail', { replace: true }); });
+  }, [openId]); // eslint-disable-line react-hooks/exhaustive-deps
   const page = Number(search.get('page') || 1);
   const [labels, setLabels] = useState([]);
   const [labelColors, setLabelColors] = useState([]);
@@ -374,6 +382,7 @@ export default function Mail() {
 function Reader({ folder, uid, special, onClose, onOpen, onChanged, act, onCompose, onFilter, onSnoozeCustom, labels = [], onNewLabel }) {
   const mailStatus = useMailStatus();
   const toast = useToast();
+  const navigate = useNavigate();
   const { user } = useAuth();
   const [m, setM] = useState(null);
   const [images, setImages] = useState(false);
@@ -410,6 +419,7 @@ function Reader({ folder, uid, special, onClose, onOpen, onChanged, act, onCompo
         <button className="icon-btn" aria-label="Delete" title="Delete" onClick={() => done('delete', {}, special === '\\Trash' ? 'Deleted forever' : 'Moved to Trash')}><Icon name="trash" /></button>
         <button className="icon-btn" aria-label="Mark unread" title="Mark unread" onClick={() => done('flags', { seen: false })}><Icon name="markunread" /></button>
         <button className="icon-btn" aria-label="Print" title="Print (or save as PDF)" onClick={() => printMessage(m, { images })}><Icon name="print" /></button>
+        <button className="icon-btn" aria-label="Add to Tasks" title="Add to Tasks" onClick={() => addToTasksWithToast(toast, navigate, { title: m.subject || '(no subject)', link: { url: mailLink({ ...m, folder, uid }), label: `Email from ${m.from ? who(m.from) : 'unknown sender'}` } })}><Icon name="check" /></button>
         <Menu align="left" trigger={(p) => <button type="button" className="icon-btn" aria-label="Labels" title="Labels" {...p}><LabelGlyph /></button>} items={[
           ...labels.map((l) => {
             const on = (m.labels || []).includes(l.id);

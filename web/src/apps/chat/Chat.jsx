@@ -10,6 +10,7 @@ import { Avatar, ConfirmModal, Empty, Menu, Modal, PromptModal, useToast } from 
 import { whenText, laterChoices, ScheduleDialog } from '../../components/schedule.jsx';
 import { useAuth } from '../../App.jsx';
 import { useMentions, MENTION_RE } from '../../components/mentions.jsx';
+import { addToTasksWithToast, titleFromText } from '../tasks/addtask.js';
 
 export default function Chat() {
   const { channelId } = useParams();
@@ -442,7 +443,12 @@ function Thread({ id, channelId, user, onClose }) {
 /** One message: text (or the box to change it), files, reactions, its thread, and hover actions. */
 function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit, onSaveEdit, onCancelEdit, onReact, onThread, onPin, onDelete, reminder }) {
   const toast = useToast();
+  const navigate = useNavigate();
   const [picking, setPicking] = useState(false);
+  const toTask = () => addToTasksWithToast(toast, navigate, {
+    title: titleFromText(m.body) || (m.poll ? m.poll.question : 'Chat message'),
+    link: { url: `/chat/${m.channel_id}?msg=${m.id}${m.parent_id ? `&thread=${m.parent_id}` : ''}`, label: `Chat message from ${m.user_name || 'someone'}` },
+  });
   const remind = async (at) => {
     try { await post(`/chat/messages/${m.id}/remind`, { at }); toast(at ? `I'll remind you ${whenText(at)}` : 'Reminder removed'); } catch (e) { toast(e.message, 'error'); }
   };
@@ -495,6 +501,7 @@ function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit
         {onThread && <button type="button" className="icon-btn" aria-label="Reply in thread" title="Reply in thread" onClick={onThread}><Icon name="reply" size={16} /></button>}
         <Menu align="right" trigger={(p) => <button type="button" className="icon-btn" aria-label="Remind me about this" title="Remind me about this" {...p}><Icon name="clock" size={16} /></button>}
           items={[...soon.map(([label, at]) => ({ label: `${label} · ${whenText(at)}`, onClick: () => remind(at) })), '-', { label: 'Pick date and time…', icon: 'calendar', onClick: () => setPicking(true) }]} />
+        <button type="button" className="icon-btn" aria-label="Add to Tasks" title="Add to Tasks" onClick={toTask}><Icon name="check" size={16} /></button>
         {onPin && !m.parent_id && <button type="button" className="icon-btn" aria-label={m.pinned_at ? 'Unpin message' : 'Pin message'} title={m.pinned_at ? 'Unpin' : 'Pin to the conversation'} onClick={onPin}>📌</button>}
         {m.user_id === user.id && !m.poll && <button type="button" className="icon-btn" aria-label="Edit message" onClick={onStartEdit}><Icon name="edit" size={16} /></button>}
         {(m.user_id === user.id || user.is_admin) && (
