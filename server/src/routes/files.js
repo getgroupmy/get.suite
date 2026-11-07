@@ -1,4 +1,5 @@
 import { recordActivity, activityOf } from '../fileactivity.js';
+import { isWatching, setWatching } from '../filewatch.js';
 import { notify as bell } from '../notifications.js';
 import { Router } from 'express';
 import { audit } from '../audit.js';
@@ -756,6 +757,7 @@ export default function fileRoutes({ maxUploadBytes }) {
       q('UPDATE files SET storage = ?, size = ?, mime = ?, name = ?, version = version + 1, updated_at = ?, updated_by = ? WHERE id = ?')
         .run(storage, size, mimeFor(name), name === f.name ? f.name : uniqueName(f.parent_id, f.owner_id, name), now(), req.user.id, f.id);
     });
+    recordActivity(f.id, req.user.id, 'edit'); // a new version uploaded (followers hear of it)
     notify(f.id, { type: 'files-changed', parent_id: f.parent_id });
     res.json(publicFile(loadFile(f.id, req.user)));
   });
@@ -852,6 +854,15 @@ export default function fileRoutes({ maxUploadBytes }) {
   });
 
   // Share with everyone in the company (the owner's), or stop: { role: 'viewer' | 'editor' | null }.
+  // Follow a file: hear when someone else changes it.
+  r.get('/:id/watch', (req, res) => { const f = loadFile(req.params.id, req.user); res.json({ watching: isWatching(req.user.id, f.id) }); });
+  r.put('/:id/watch', (req, res) => {
+    const f = loadFile(req.params.id, req.user);
+    if (f.kind === 'folder') throw bad('Follow a file, not a folder');
+    setWatching(req.user.id, f.id, !!req.body.on);
+    res.json({ watching: !!req.body.on });
+  });
+
   // Someone was @mentioned in a document's text: tell them (once in 10 minutes for the same document
   // and person), or say they can't open it, and whether you could share it with them.
   const mentioned = new Map(); // `${file}:${from}:${to}` → when

@@ -78,6 +78,14 @@ export function EditorHeader({ icon, file, status, onRename, onShare, menu, extr
   const [name, setName] = useState('');
   useEffect(() => { if (file) setName(file.name); }, [file]);
   const canEdit = file && file.role !== 'viewer';
+  // "Notify me of changes": a notification when someone else edits it (at most once an hour).
+  const [watching, setWatching] = useState(false);
+  useEffect(() => { if (file?.id) get(`/files/${file.id}/watch`).then((r) => setWatching(r.watching)).catch(() => {}); }, [file?.id]);
+  const toggleWatch = async () => {
+    try { const r = await put(`/files/${file.id}/watch`, { on: !watching }); setWatching(r.watching); toast(r.watching ? 'You’ll get a notification when someone else changes it' : 'No more notifications about changes'); }
+    catch (e) { toast(e.message, 'error'); }
+  };
+  const items = menu && file ? [...menu, '-', { label: `${watching ? '✓ ' : ''}Notify me of changes`, icon: 'bell', onClick: toggleWatch }] : menu;
 
   async function commit() {
     const n = name.trim();
@@ -98,7 +106,7 @@ export function EditorHeader({ icon, file, status, onRename, onShare, menu, extr
       </div>
       <div className="grow" />
       {extra}
-      {menu && <Menu trigger={(p) => <button className="icon-btn" aria-label="More" {...p}><Icon name="more" /></button>} items={menu} />}
+      {items && <Menu trigger={(p) => <button className="icon-btn" aria-label="More" {...p}><Icon name="more" /></button>} items={items} />}
       {file?.role === 'owner' && <button className="btn primary" onClick={onShare}><Icon name="share" size={18} /> Share</button>}
     </header>
   );

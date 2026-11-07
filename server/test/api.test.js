@@ -2703,3 +2703,23 @@ test('docs: @mentioning someone in the text notifies them, or says they can’t 
   assert.deepEqual((await a('POST', `/api/files/${doc.id}/mention`, { user_id: cid })).body, { notified: false, no_access: true, can_share: true, name: 'Doc Cat' });
   assert.equal((await b('POST', `/api/files/${doc.id}/mention`, { user_id: cid })).status, 403, 'viewers don’t write mentions');
 });
+
+test('drive: follow a file and hear when someone else changes it (once an hour)', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['wta', 'Watch Ann'], ['wtb', 'Watch Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'wta@acme.com');
+  const bid = (await login(b, 'wtb@acme.com')).id;
+  const f = (await a('POST', '/api/files/upload?name=prices.csv', Buffer.from('a,b'), { raw: true })).body;
+  await a('PUT', `/api/files/${f.id}/shares`, { shares: [{ user_id: bid, role: 'editor' }] });
+  assert.equal((await a('GET', `/api/files/${f.id}/watch`)).body.watching, false);
+  assert.equal((await a('PUT', `/api/files/${f.id}/watch`, { on: true })).body.watching, true);
+  const told = async () => JSON.stringify((await a('GET', '/api/notifications')).body).split('Watch Ben changed “prices.csv”').length - 1;
+  await a('POST', `/api/files/${f.id}/versions`, Buffer.from('a,b,c'), { raw: true });
+  assert.equal(await told(), 0, 'your own changes don’t count');
+  await b('POST', `/api/files/${f.id}/versions`, Buffer.from('a,b,c,d'), { raw: true });
+  assert.equal(await told(), 1);
+  await b('POST', `/api/files/${f.id}/versions`, Buffer.from('a,b,c,d,e'), { raw: true });
+  assert.equal(await told(), 1, 'not again within the hour');
+  await a('PUT', `/api/files/${f.id}/watch`, { on: false });
+  assert.equal((await a('GET', `/api/files/${f.id}/watch`)).body.watching, false);
+});
