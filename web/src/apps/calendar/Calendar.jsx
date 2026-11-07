@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router';
+import { useLocation, useNavigate } from 'react-router';
 import { useAuth } from '../../App.jsx';
 import { get, post, put, patch, del, onLive } from '../../api.js';
 import { localToday } from '../tasks/taskmath.js';
@@ -58,6 +58,16 @@ export default function Calendar() {
   const [anchor, setAnchor] = useState(() => startOfDay(new Date()));
   const [events, setEvents] = useState([]);
   const [editing, setEditing] = useState(null);
+  // "Create event" on an email comes here with the event to start from.
+  const location = useLocation();
+  const navigateTo = useNavigate();
+  useEffect(() => {
+    const ev = location.state?.newEvent;
+    if (!ev) return;
+    setAnchor(startOfDay(new Date(ev.start)));
+    setEditing({ color: COLORS[0], ...ev });
+    navigateTo(location.pathname, { replace: true, state: null }); // a reload doesn't open it again
+  }, [location.state]); // eslint-disable-line react-hooks/exhaustive-deps
   const [showTasks, setShowTasksState] = useState(savedTasks);
   const [bookingOpen, setBookingOpen] = useState(false);
 

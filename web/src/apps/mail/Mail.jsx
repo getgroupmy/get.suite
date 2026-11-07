@@ -23,6 +23,7 @@ import { printMessage } from './mailprint.js';
 import { textToHtml, docToText, emailHtml, isEmptyDoc, linkHref } from './richtext.js';
 import { FiltersDialog } from './Filters.jsx';
 import { addToTasksWithToast, mailLink } from '../tasks/addtask.js';
+import { eventFromEmail } from '../calendar/fromemail.js';
 import { ASPECTS, FULL, fitAspect, moveRect, resizeRect, toPixels, rotatedSize, outputType, editedName } from './cropmath.js';
 
 const FOLDER_ICON = { '\\Inbox': 'inbox', '\\Drafts': 'doc', '\\Sent': 'send', '\\Archive': 'archive', '\\Junk': 'report', '\\Trash': 'trash' };
@@ -419,6 +420,7 @@ function Reader({ folder, uid, special, onClose, onOpen, onChanged, act, onCompo
         <button className="icon-btn" aria-label="Delete" title="Delete" onClick={() => done('delete', {}, special === '\\Trash' ? 'Deleted forever' : 'Moved to Trash')}><Icon name="trash" /></button>
         <button className="icon-btn" aria-label="Mark unread" title="Mark unread" onClick={() => done('flags', { seen: false })}><Icon name="markunread" /></button>
         <button className="icon-btn" aria-label="Print" title="Print (or save as PDF)" onClick={() => printMessage(m, { images })}><Icon name="print" /></button>
+        <button className="icon-btn" aria-label="Create event" title="Create an event from this email" onClick={() => navigate('/calendar', { state: { newEvent: eventFromEmail(m, [user.username, ...mine]) } })}><Icon name="calendar" /></button>
         <button className="icon-btn" aria-label="Add to Tasks" title="Add to Tasks" onClick={() => addToTasksWithToast(toast, navigate, { title: m.subject || '(no subject)', link: { url: mailLink({ ...m, folder, uid }), label: `Email from ${m.from ? who(m.from) : 'unknown sender'}` } })}><Icon name="check" /></button>
         <Menu align="left" trigger={(p) => <button type="button" className="icon-btn" aria-label="Labels" title="Labels" {...p}><LabelGlyph /></button>} items={[
           ...labels.map((l) => {
