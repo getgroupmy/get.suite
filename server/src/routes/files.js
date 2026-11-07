@@ -31,7 +31,7 @@ const officeType = (name) => OFFICE[(/\.([a-z]+)$/i.exec(name || '') || [])[1]?.
 
 // Company templates: documents, spreadsheets and presentations an admin has marked for everyone in the company to start from.
 if (!q('PRAGMA table_info(files)').all().some((c) => c.name === 'template')) q('ALTER TABLE files ADD COLUMN template INTEGER NOT NULL DEFAULT 0').run();
-const COLS = `f.id, f.owner_id, f.parent_id, f.name, f.kind, f.mime, f.size, f.version, f.trashed, f.trashed_at, f.page_setup, f.color, f.description, f.template,
+const COLS = `f.id, f.owner_id, f.parent_id, f.name, f.kind, f.mime, f.size, f.version, f.trashed, f.trashed_at, f.page_setup, f.color, f.description, f.template, f.org_role,
               f.created_at, f.updated_at, u.name AS owner_name, ub.name AS updated_by_name`;
 const FROM = `FROM files f JOIN users u ON u.id = f.owner_id LEFT JOIN users ub ON ub.id = f.updated_by`;
 // Owner is in my company, or both companies currently allow external collaboration.
@@ -237,13 +237,18 @@ export default function fileRoutes({ maxUploadBytes }) {
           .all(me).map((f) => publicFile(f, 'owner'));
       }
     } else if (view === 'shared') {
+      // Shared with you, and shared with everyone in your company (by someone else).
       rows = q(`SELECT ${COLS}, s.role ${FROM} JOIN shares s ON s.file_id = f.id
                 WHERE s.user_id = ? AND f.trashed = 0 AND ${REACHABLE} ${ORDER}`).all(me, org, org);
+      const ids = new Set(rows.map((f) => f.id));
+      const company = q(`SELECT ${COLS}, f.org_role AS role ${FROM} WHERE f.org_role IS NOT NULL AND u.org_id = ? AND f.owner_id != ? AND f.trashed = 0 ${ORDER}`).all(org, me)
+        .filter((f) => !ids.has(f.id)).map((f) => ({ ...f, role: roleFor(f.id, me) || f.role }));
+      rows = [...rows, ...company];
     } else if (view === 'recent') {
-      rows = q(`SELECT ${COLS}, CASE WHEN f.owner_id = ? THEN 'owner' ELSE s.role END AS role ${FROM}
+      rows = q(`SELECT ${COLS}, CASE WHEN f.owner_id = ? THEN 'owner' ELSE COALESCE(s.role, f.org_role) END AS role ${FROM}
                 LEFT JOIN shares s ON s.file_id = f.id AND s.user_id = ?
-                WHERE (f.owner_id = ? OR s.user_id IS NOT NULL) AND f.kind != 'folder' AND f.trashed = 0 AND ${REACHABLE}
-                ORDER BY f.updated_at DESC LIMIT 50`).all(me, me, me, org, org);
+                WHERE (f.owner_id = ? OR s.user_id IS NOT NULL OR (f.org_role IS NOT NULL AND u.org_id = ?)) AND f.kind != 'folder' AND f.trashed = 0 AND ${REACHABLE}
+                ORDER BY f.updated_at DESC LIMIT 50`).all(me, me, me, org, org, org);
     } else if (view === 'starred') {
       rows = q(`SELECT ${COLS}, CASE WHEN f.owner_id = ? THEN 'owner' ELSE NULL END AS role ${FROM}
                 JOIN file_stars st ON st.file_id = f.id AND st.user_id = ?
@@ -269,12 +274,12 @@ export default function fileRoutes({ maxUploadBytes }) {
       const days = Number(req.query.modified);
       if (req.query.modified && !(days > 0)) throw bad('Bad date filter');
       if (days > 0) { extra.push('f.updated_at >= ?'); args.push(Date.now() - days * 864e5); }
-      rows = q(`SELECT ${COLS}, CASE WHEN f.owner_id = ? THEN 'owner' ELSE s.role END AS role ${FROM}
+      rows = q(`SELECT ${COLS}, CASE WHEN f.owner_id = ? THEN 'owner' ELSE COALESCE(s.role, f.org_role) END AS role ${FROM}
                 LEFT JOIN shares s ON s.file_id = f.id AND s.user_id = ?
-                WHERE (f.owner_id = ? OR s.user_id IS NOT NULL) AND f.trashed = 0
+                WHERE (f.owner_id = ? OR s.user_id IS NOT NULL OR (f.org_role IS NOT NULL AND u.org_id = ?)) AND f.trashed = 0
                   AND (f.name LIKE ? ESCAPE '\\' OR f.description LIKE ? ESCAPE '\\' OR f.id IN (SELECT value FROM json_each(?))) AND ${REACHABLE}
                   ${extra.map((x) => `AND (${x})`).join(' ')}
-                ${ORDER} LIMIT 200`).all(me, me, me, term, term, ids, org, org, ...args);
+                ${ORDER} LIMIT 200`).all(me, me, me, org, term, term, ids, org, org, ...args);
       // Name matches first, then the best content matches; each content match says where it matched.
       const rank = new Map([...inside.keys()].map((id, i) => [id, i]));
       const byName = (f) => f.name.toLowerCase().includes(String(req.query.q || '').toLowerCase());
@@ -786,6 +791,20 @@ export default function fileRoutes({ maxUploadBytes }) {
     res.json(q(`SELECT s.user_id, s.role, u.name, u.username, o.name AS org_name, (u.org_id != ?) AS external
                 FROM shares s JOIN users u ON u.id = s.user_id JOIN orgs o ON o.id = u.org_id
                 WHERE s.file_id = ? ORDER BY u.name`).all(req.user.org_id, f.id).map((s) => ({ ...s, external: !!s.external })));
+  });
+
+  // Share with everyone in the company (the owner's), or stop: { role: 'viewer' | 'editor' | null }.
+  r.put('/:id/company', (req, res) => {
+    const f = loadFile(req.params.id, req.user, 'owner');
+    if (f.owner_id !== req.user.id) throw forbidden('Only the owner can share with the whole company');
+    const role = ['viewer', 'editor'].includes(req.body.role) ? req.body.role : null;
+    const before = audienceFor(f.id);
+    q('UPDATE files SET org_role = ? WHERE id = ?').run(role, f.id);
+    sendTo(new Set([...before, ...audienceFor(f.id)]), { type: 'files-changed', parent_id: f.parent_id });
+    const orgName = q('SELECT name FROM orgs WHERE id = ?').get(req.user.org_id)?.name || 'the company';
+    recordActivity(f.id, req.user.id, 'share', role ? { added: [`everyone at ${orgName} (${role === 'editor' ? 'can edit' : 'can view'})`], removed: [] } : { added: [], removed: [`everyone at ${orgName}`] });
+    audit(req, 'file.share', { target: f.name, details: { with: [role ? `everyone (${role})` : 'no longer everyone'] } });
+    res.json(publicFile(loadFile(f.id, req.user)));
   });
 
   // Replace the share list: [{ user_id, role }]

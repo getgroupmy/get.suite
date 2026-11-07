@@ -1786,6 +1786,39 @@ test('chat: remind me about a message — a notification at the time, linking ba
   assert.deepEqual((await a('GET', '/api/chat/reminders')).body, []);
 });
 
+test('drive: sharing with everyone in the company — view or edit, folders included, newcomers too, not other companies', async () => {
+  const a = client(), b = client(), c = client();
+  for (const [local, name] of [['coa', 'Co Ann'], ['cob', 'Co Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'coa@acme.com');
+  await login(b, 'cob@acme.com');
+  const folder = (await a('POST', '/api/files/folder', { name: 'Company handbook' })).body;
+  const doc = (await a('POST', '/api/files/new', { kind: 'doc', name: 'Holidays policy', parent_id: folder.id })).body;
+  assert.equal((await b('GET', `/api/files/${doc.id}`)).status, 404);
+  assert.equal((await b('PUT', `/api/files/${folder.id}/company`, { role: 'viewer' })).status, 404, 'only the owner');
+  assert.equal((await a('PUT', `/api/files/${folder.id}/company`, { role: 'viewer' })).body.org_role, 'viewer');
+  assert.equal((await b('GET', `/api/files/${doc.id}`)).body.role, 'viewer', 'inside the folder too');
+  assert.ok((await b('GET', '/api/files?view=shared')).body.some((f) => f.id === folder.id && f.role === 'viewer'));
+  assert.ok((await b('GET', `/api/files?view=search&q=${encodeURIComponent('handbook')}`)).body.some((f) => f.id === folder.id), 'found by search');
+  assert.equal((await b('PUT', `/api/files/${doc.id}/content`, { version: 1, content: { type: 'doc', content: [] } })).status, 403, 'view only');
+  // Someone who joins later has it too.
+  assert.equal((await owner('POST', '/api/users', { local: 'coc', domain: 'acme.com', name: 'Co Cat', password: 'password123' })).status, 201);
+  await login(c, 'coc@acme.com');
+  assert.equal((await c('GET', `/api/files/${folder.id}`)).body.role, 'viewer');
+  // Edit for everyone.
+  await a('PUT', `/api/files/${folder.id}/company`, { role: 'editor' });
+  assert.equal((await b('GET', `/api/files/${doc.id}`)).body.role, 'editor');
+  // Other companies don't.
+  const x = client();
+  assert.equal((await owner('POST', '/api/orgs', { name: 'Co Other', domain: 'coother.example', admin_name: 'Other X', admin_local: 'x', admin_password: 'password123' })).status, 201);
+  await login(x, 'x@coother.example');
+  assert.equal((await x('GET', `/api/files/${folder.id}`)).status, 404);
+  assert.equal((await x('GET', '/api/files?view=shared')).body.some((f) => f.id === folder.id), false);
+  // Stop.
+  await a('PUT', `/api/files/${folder.id}/company`, { role: null });
+  assert.equal((await b('GET', `/api/files/${doc.id}`)).status, 404);
+  assert.equal((await b('GET', '/api/files?view=shared')).body.some((f) => f.id === folder.id), false);
+});
+
 test('chat polls: ask, vote (one or several), change your vote, close; checked options', async () => {
   const a = client(), b = client(), c = client();
   for (const [local, name] of [['polla', 'Poll Ann'], ['pollb', 'Poll Ben'], ['pollc', 'Poll Cat']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);

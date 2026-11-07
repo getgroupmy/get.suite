@@ -237,6 +237,8 @@ Your Workspace calendar and contacts sync with the phone's own Calendar and Cont
 
 **Activity** in the same window lists what happened to it, newest first, for anyone who can open it: who created, uploaded or copied it, edited it (one line per person per hour of editing, including from Docs, Sheets, Slides and the network drive), renamed it, moved it, shared or stopped sharing it, put it in the trash or restored it, or brought back an earlier version. The latest 200 entries are kept for each file.
 
+**Everyone in the company:** in a file's or folder's **Share** window, its owner can give *Everyone at (your company)* view or edit access in one step, including people who join later (for a handbook, templates, shared forms). It shows in their **Shared with me**, covers everything inside a folder, and stops at once when set back to *No access*. People in other companies never get it this way.
+
 **Asking for access:** opening a link to a document, spreadsheet or presentation that isn't shared with you shows **You need access**: choose view or edit, add a note, and **Request access**. The owner gets a notification and **Access requests** in Drive, where they can **Share** (as asked, or view only) or **Decline**. Either way you're told. The page says nothing about the file, not even whether it exists, until the owner shares it.
 
 ## Searching Drive

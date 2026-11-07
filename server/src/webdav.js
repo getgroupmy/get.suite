@@ -80,7 +80,7 @@ function resolve(user, segments) {
   }
   return parent;
 }
-const sharedWithMe = (user) => q(`SELECT f.* FROM files f JOIN shares s ON s.file_id = f.id WHERE s.user_id = ? AND f.${LINKABLE.replace(/ AND /, ' AND f.')} ORDER BY f.name`).all(user.id)
+const sharedWithMe = (user) => q(`SELECT f.* FROM files f JOIN users o ON o.id = f.owner_id WHERE (f.id IN (SELECT file_id FROM shares WHERE user_id = ?) OR (f.org_role IS NOT NULL AND o.org_id = ? AND f.owner_id != ?)) AND f.${LINKABLE.replace(/ AND /, ' AND f.')} ORDER BY f.name`).all(user.id, user.org_id, user.id)
   .filter((f) => roleFor(f.id, user.id));
 const childrenOf = (user, node) => (node.type === 'root'
   ? q(`SELECT * FROM files WHERE owner_id = ? AND parent_id IS NULL AND ${LINKABLE} ORDER BY name`).all(user.id)

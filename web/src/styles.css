@@ -1497,3 +1497,4 @@ img.avatar.photo { object-fit: cover; border-radius: 50%; display: inline-block;
 /* Mail: importing from another account */
 .import-status { padding: 10px 12px; border-radius: 8px; background: var(--surface-2); }
 .import-status progress { display: block; width: 100%; margin-top: 6px; }
+.share-company .company-avatar { width: 28px; height: 28px; background: var(--accent); }

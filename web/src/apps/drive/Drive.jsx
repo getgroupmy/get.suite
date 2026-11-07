@@ -399,6 +399,13 @@ export function ShareDialog({ file, onClose }) {
   const [address, setAddress] = useState('');
   const [role, setRole] = useState('viewer');
   const [error, setError] = useState('');
+  const [company, setCompany] = useState(file.org_role || '');
+  const setCompanyRole = async (next) => {
+    const was = company;
+    setCompany(next);
+    try { await put(`/files/${file.id}/company`, { role: next || null }); toast(next ? `Everyone at ${user.org_name} can ${next === 'editor' ? 'edit' : 'view'} it` : `No longer shared with everyone at ${user.org_name}`); }
+    catch (e) { setCompany(was); toast(e.message, 'error'); }
+  };
 
   useEffect(() => {
     get('/users/directory').then(setPeople);
@@ -451,6 +458,16 @@ export function ShareDialog({ file, onClose }) {
       {!user.allow_external && <p className="muted small">Your company only allows sharing with colleagues.</p>}
       <ul className="share-list">
         <li><Avatar name={file.owner_name} size={28} userId={file.owner_id} /><span className="grow">{file.owner_name}</span><span className="muted">Owner</span></li>
+        {file.owner_id === user.id && (
+          <li className="share-company">
+            <span className="avatar company-avatar" aria-hidden="true"><Icon name="people" size={16} /></span>
+            <span className="grow">Everyone at {user.org_name} <span className="muted small">(also people who join later)</span></span>
+            <select value={company} aria-label={`Access for everyone at ${user.org_name}`} onChange={(e) => setCompanyRole(e.target.value)}>
+              <option value="">No access</option><option value="viewer">Viewer</option><option value="editor">Editor</option>
+            </select>
+            <span style={{ width: 32 }} />
+          </li>
+        )}
         {shares?.map((s) => (
           <li key={s.user_id}>
             <Avatar name={s.name} size={28} userId={s.user_id} />

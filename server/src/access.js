@@ -1,5 +1,9 @@
 import { q } from './db.js';
 
+// Shared with the whole company: a file or folder can give everyone in its owner's company a role
+// (viewer or editor), including people who join later.
+if (!q('PRAGMA table_info(files)').all().some((c) => c.name === 'org_role')) q('ALTER TABLE files ADD COLUMN org_role TEXT').run();
+
 const RANK = { viewer: 1, editor: 2, owner: 3 };
 
 /** Do two companies currently allow collaborating with each other? */
@@ -20,9 +24,10 @@ export function roleFor(fileId, userId) {
   let best = null;
   let cur = fileId;
   for (let depth = 0; cur && depth < 64; depth++) {
-    const f = q('SELECT f.id, f.owner_id, f.parent_id, u.org_id FROM files f JOIN users u ON u.id = f.owner_id WHERE f.id = ?').get(cur);
+    const f = q('SELECT f.id, f.owner_id, f.parent_id, f.org_role, u.org_id FROM files f JOIN users u ON u.id = f.owner_id WHERE f.id = ?').get(cur);
     if (!f) return best;
     if (f.owner_id === userId) return 'owner';
+    if (f.org_role && f.org_id === userOrg && (!best || RANK[f.org_role] > RANK[best])) best = f.org_role;
     const s = q('SELECT role FROM shares WHERE file_id = ? AND user_id = ?').get(f.id, userId);
     if (s && (!best || RANK[s.role] > RANK[best]) && orgsMayCollaborate(f.org_id, userOrg)) best = s.role;
     cur = f.parent_id;
@@ -39,9 +44,10 @@ export function audienceFor(fileId) {
   const ids = new Set();
   let cur = fileId;
   for (let depth = 0; cur && depth < 64; depth++) {
-    const f = q('SELECT owner_id, parent_id FROM files WHERE id = ?').get(cur);
+    const f = q('SELECT f.owner_id, f.parent_id, f.org_role, u.org_id FROM files f JOIN users u ON u.id = f.owner_id WHERE f.id = ?').get(cur);
     if (!f) break;
     ids.add(f.owner_id);
+    if (f.org_role) for (const u of q('SELECT id FROM users WHERE org_id = ? AND disabled = 0').all(f.org_id)) ids.add(u.id);
     for (const s of q('SELECT user_id FROM shares WHERE file_id = ?').all(cur)) ids.add(s.user_id);
     cur = f.parent_id;
   }
