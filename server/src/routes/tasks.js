@@ -35,7 +35,7 @@ q(`CREATE TABLE IF NOT EXISTS tasks (
 )`).run();
 q('CREATE INDEX IF NOT EXISTS tasks_list ON tasks(list_id, position)').run();
 // Repeating tasks: how it repeats, and (once ticked off) the task that came next.
-for (const [col, type] of [['repeat', 'TEXT'], ['next_id', 'TEXT'], ['steps', 'TEXT'], ['important', 'INTEGER NOT NULL DEFAULT 0'], ['link_url', 'TEXT'], ['link_label', 'TEXT'], ['due_time', 'TEXT']]) { // steps: a checklist, JSON [{ id, title, done }]
+for (const [col, type] of [['repeat', 'TEXT'], ['next_id', 'TEXT'], ['steps', 'TEXT'], ['important', 'INTEGER NOT NULL DEFAULT 0'], ['link_url', 'TEXT'], ['link_label', 'TEXT'], ['due_time', 'TEXT'], ['started', 'INTEGER NOT NULL DEFAULT 0']]) { // steps: a checklist, JSON [{ id, title, done }]
   if (!q('PRAGMA table_info(tasks)').all().some((c) => c.name === col)) q(`ALTER TABLE tasks ADD COLUMN ${col} ${type}`).run();
 }
 q('CREATE INDEX IF NOT EXISTS tasks_assignee ON tasks(assignee_id, done_at)').run();
@@ -77,7 +77,8 @@ const MAX_COMMENTS = 500;
 const TASK = `SELECT t.*, u.name AS assignee_name, c.name AS created_by_name, l.name AS list_name,
               (SELECT COUNT(*) FROM task_comments k WHERE k.task_id = t.id) AS comments
               FROM tasks t LEFT JOIN users u ON u.id = t.assignee_id LEFT JOIN users c ON c.id = t.created_by JOIN task_lists l ON l.id = t.list_id`;
-const shape = (t) => ({ ...t, done: !!t.done_at, important: !!t.important, steps: t.steps ? JSON.parse(t.steps) : [] });
+const shape = (t) => ({ ...t, done: !!t.done_at, important: !!t.important, started: !!t.started && !t.done_at, // started: "In progress" on the board
+  steps: t.steps ? JSON.parse(t.steps) : [] });
 const MAX_STEPS = 100;
 
 /** Tell someone a task was given to them (by someone else). */
@@ -315,6 +316,8 @@ export default function taskRoutes() {
     if (b.done !== undefined) set.done_at = b.done ? task.done_at || now() : null;
     if (b.repeat !== undefined) set.repeat = repeatOf(b.repeat);
     if (b.important !== undefined) set.important = b.important ? 1 : 0;
+    if (b.started !== undefined) set.started = b.started ? 1 : 0;
+    if (b.done === false && b.started === undefined) set.started = 0; // brought back: to do again
     if (b.link !== undefined) { const l = linkOf(b.link); set.link_url = l.url; set.link_label = l.label; } // null takes it off
     if ((set.repeat ?? task.repeat) && !(set.due !== undefined ? set.due : task.due)) {
       if (set.repeat) throw bad('A repeating task needs a due date');

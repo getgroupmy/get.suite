@@ -32,6 +32,11 @@ export default function Tasks() {
     try { setFound({ q: qs, list: await get(`/tasks/search?q=${encodeURIComponent(qs)}`) }); } catch (e) { toast(e.message, 'error'); }
   };
   const [showDone, setShowDone] = useState(false);
+  // List or board, remembered for each list in this browser.
+  const viewKey = `tasks-view:${listId}`;
+  const [view, setViewState] = useState('list');
+  useEffect(() => { try { setViewState(localStorage.getItem(viewKey) || 'list'); } catch { setViewState('list'); } }, [viewKey]);
+  const setView = (v) => { setViewState(v); try { localStorage.setItem(viewKey, v); } catch { /* not kept */ } };
   const [dialog, setDialog] = useState(null); // 'new' | 'rename' | 'share' | 'delete'
   const [dragging, setDragging] = useState(null);
   const [dropAt, setDropAt] = useState(null); // index the dragged task would go before
@@ -111,6 +116,7 @@ export default function Tasks() {
             {t.link_url && <span className="muted small task-link" title={t.link_label || 'Linked'}>{t.link_url.startsWith('/chat') ? '💬' : '✉'}</span>}
             {t.notes && <span className="muted small ellipsis task-notes">{t.notes.split('\n')[0]}</span>}
             {due && <span className={`pill due ${due.tone}`}>{due.text}</span>}
+            {t.started && !t.done && <span className="pill doing">In progress</span>}
             {t.steps?.length > 0 && <span className={`muted small task-steps ${t.steps.every((x) => x.done) ? 'all' : ''}`} title="Steps done">☑ {t.steps.filter((x) => x.done).length}/{t.steps.length}</span>}
             {t.comments > 0 && <span className="muted small task-comments" title={`${t.comments} comment${t.comments === 1 ? '' : 's'}`}>💬 {t.comments}</span>}
             {t.repeat && !t.done && <span className="muted small task-repeat" title={`Repeats: ${repeatText(t.repeat).toLowerCase()}`}>⟳ {repeatText(t.repeat)}</span>}
@@ -171,6 +177,12 @@ export default function Tasks() {
           {list && !list.mine && <span className="muted small">Shared by {list.owner_name}</span>}
           {list?.mine && <button type="button" className="btn" onClick={() => setDialog('share')}><Icon name="share" size={18} /> {list.members.length ? `Shared with ${list.members.length}` : 'Share'}</button>}
           {list && (
+            <div className="tabs view-toggle" role="tablist" aria-label="View">
+              <button type="button" role="tab" aria-selected={view === 'list'} className={view === 'list' ? 'on' : ''} onClick={() => setView('list')}>List</button>
+              <button type="button" role="tab" aria-selected={view === 'board'} className={view === 'board' ? 'on' : ''} onClick={() => setView('board')}>Board</button>
+            </div>
+          )}
+          {list && view === 'list' && (
             <Menu trigger={(p) => <button type="button" className="btn small" aria-label={`Sort: ${SORTS.find(([k]) => k === sortBy)[1]}`} title="Sort this list (just for you)" {...p}>⇅ {SORTS.find(([k]) => k === sortBy)[1]}</button>}
               items={SORTS.map(([k, label]) => ({ label: `${k === sortBy ? '✓ ' : ''}${label}`, onClick: () => setSort(k) }))} />
           )}
@@ -188,7 +200,15 @@ export default function Tasks() {
             <input ref={addBox} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Add a task" aria-label="Add a task" maxLength={500} />
           </form>
         )}
-        {tasks === null ? null : open.length === 0 && done.length === 0 ? (
+        {tasks === null ? null : list && view === 'board' ? (
+          <Board open={open} done={done} openId={openId} onOpen={(t) => show(t.id === openId ? null : t.id)}
+            onMove={(t, col) => {
+              if (col === 'done') { if (!t.done) toggle(t); return; }
+              const started = col === 'doing';
+              if (!t.done && !!t.started === started) return;
+              update(t, t.done ? { done: false, started } : { started });
+            }} />
+        ) : open.length === 0 && done.length === 0 ? (
           <Empty icon="check" title={listId === ASSIGNED ? 'Nothing assigned to you' : listId === IMPORTANT ? 'Nothing important' : 'No tasks yet'}>{listId === ASSIGNED ? 'Tasks people give you on shared lists show up here.' : listId === IMPORTANT ? 'Mark a task with ☆ and it shows up here, from every list.' : 'Type a task above and press Enter.'}</Empty>
         ) : (
           <>
@@ -220,6 +240,53 @@ export default function Tasks() {
           message={list.mine ? `Its ${open.length + done.length} task${open.length + done.length === 1 ? '' : 's'} go too${list.members.length ? ', for everyone it’s shared with' : ''}.` : 'You won’t see it any more, and tasks given to you on it become nobody’s.'}
           onClose={() => setDialog(null)} onConfirm={async () => { await del(`/tasks/lists/${list.id}`); setDialog(null); await loadLists(); navigate('/tasks'); }} />
       )}
+    </div>
+  );
+}
+
+const COLUMNS = [['todo', 'To do'], ['doing', 'In progress'], ['done', 'Done']];
+const columnOf = (t) => (t.done ? 'done' : t.started ? 'doing' : 'todo');
+
+/** The list as a board: To do, In progress, Done. Drag a card to another column, or use its arrows. */
+function Board({ open, done, openId, onOpen, onMove }) {
+  const [dragging, setDragging] = useState(null);
+  const [over, setOver] = useState(null);
+  const all = [...open, ...done];
+  return (
+    <div className="task-board">
+      {COLUMNS.map(([key, label], ci) => {
+        const cards = all.filter((t) => columnOf(t) === key);
+        return (
+          <section key={key} className={`board-col ${over === key ? 'over' : ''}`} aria-label={label}
+            onDragOver={(e) => { if (dragging) { e.preventDefault(); setOver(key); } }} onDragLeave={() => setOver(null)}
+            onDrop={(e) => { e.preventDefault(); const t = all.find((x) => x.id === dragging); setDragging(null); setOver(null); if (t) onMove(t, key); }}>
+            <h2 className="board-head">{label} <span className="muted small">{cards.length}</span></h2>
+            <ul>
+              {cards.map((t) => {
+                const due = t.due && !t.done && dueLabel(t.due, new Date(), t.due_time);
+                return (
+                  <li key={t.id} className={`board-card ${t.id === openId ? 'open' : ''}`} draggable onDragStart={(e) => { setDragging(t.id); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', t.title); }} onDragEnd={() => { setDragging(null); setOver(null); }}>
+                    <button type="button" className="board-open" onClick={() => onOpen(t)}>
+                      <span className="task-title">{t.important ? '★ ' : ''}{t.title}</span>
+                      <span className="task-meta">
+                        {due && <span className={`pill due ${due.tone}`}>{due.text}</span>}
+                        {t.steps?.length > 0 && <span className="muted small">☑ {t.steps.filter((x) => x.done).length}/{t.steps.length}</span>}
+                        {t.comments > 0 && <span className="muted small">💬 {t.comments}</span>}
+                      </span>
+                    </button>
+                    <div className="row board-foot">
+                      {t.assignee_name ? <span title={`For ${t.assignee_name}`}><Avatar name={t.assignee_name} size={22} userId={t.assignee_id} /></span> : <span />}
+                      <span className="grow" />
+                      {ci > 0 && <button type="button" className="icon-btn" aria-label={`Move “${t.title}” to ${COLUMNS[ci - 1][1]}`} onClick={() => onMove(t, COLUMNS[ci - 1][0])}>‹</button>}
+                      {ci < COLUMNS.length - 1 && <button type="button" className="icon-btn" aria-label={`Move “${t.title}” to ${COLUMNS[ci + 1][1]}`} onClick={() => onMove(t, COLUMNS[ci + 1][0])}>›</button>}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        );
+      })}
     </div>
   );
 }

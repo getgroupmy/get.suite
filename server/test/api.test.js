@@ -3079,3 +3079,20 @@ test('groups: share with a group; joining and leaving it gives and takes access'
   const theirs = (await gina2('POST', '/api/files/folder', { name: 'X' })).body;
   assert.equal((await gina2('PUT', `/api/files/${theirs.id}/groups`, { groups: [{ group_id: other.id, role: 'viewer' }] })).status, 400);
 });
+
+test('tasks: in progress for the board', async () => {
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'tboard', domain: 'acme.com', name: 'Board Bea', password: 'password123' })).status, 201);
+  await login(a, 'tboard@acme.com');
+  const list = (await a('POST', '/api/tasks/lists', { name: 'Sprint' })).body.id;
+  const t = (await a('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Design' })).body;
+  assert.equal(t.started, false);
+  assert.equal((await a('PATCH', `/api/tasks/tasks/${t.id}`, { started: true })).body.started, true);
+  const done = (await a('PATCH', `/api/tasks/tasks/${t.id}`, { done: true, today: '2026-11-07' })).body;
+  assert.equal(done.started, false, 'done is done');
+  const back = (await a('PATCH', `/api/tasks/tasks/${t.id}`, { done: false })).body;
+  assert.equal(back.started, false, 'brought back to do');
+  const inProgress = (await a('PATCH', `/api/tasks/tasks/${t.id}`, { done: false, started: true })).body;
+  assert.equal(inProgress.started, true, 'or straight back to in progress');
+  assert.equal((await a('GET', `/api/tasks/lists/${list}/tasks`)).body[0].started, true);
+});
