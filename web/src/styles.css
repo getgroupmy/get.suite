@@ -1715,3 +1715,20 @@ button.usage:hover .muted { color: var(--text); }
 .search-hit-title { font-weight: 500; }
 .search-none { padding: 8px 10px; margin: 0; }
 .search-all { align-self: flex-start; margin: 4px 10px; }
+
+/* Home */
+.home-hello h1 { margin: 0; font-size: 26px; font-weight: 500; }
+.home-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; align-items: start; }
+.home-card { padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; }
+.home-card h2 { margin: 0; font-size: 15px; display: flex; align-items: center; gap: 8px; }
+.home-card h2 a { color: inherit; text-decoration: none; display: inline-flex; align-items: center; gap: 8px; }
+.home-card h2 a:hover { text-decoration: underline; }
+.home-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.home-list li { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.home-list li.past { opacity: .55; }
+.home-item { text-align: left; color: var(--text); text-decoration: none; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+a.home-item:hover, button.home-item:hover { text-decoration: underline; }
+.home-when { width: 64px; flex: none; font-size: 13px; color: var(--muted); }
+.home-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.home-notes { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
+.home-note { border: 1px solid var(--border); border-radius: 8px; padding: 8px; background: var(--surface); color: var(--text); text-align: left; cursor: pointer; display: flex; flex-direction: column; gap: 4px; white-space: pre-wrap; font: inherit; overflow: hidden; max-height: 120px; }

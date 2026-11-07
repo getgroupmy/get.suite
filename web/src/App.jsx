@@ -33,6 +33,7 @@ import Contacts from './apps/contacts/Contacts.jsx';
 import Tasks from './apps/tasks/Tasks.jsx';
 import Forms from './apps/forms/Forms.jsx';
 import Notes from './apps/notes/Notes.jsx';
+import Home from './apps/home/Home.jsx';
 import Meet from './apps/meet/Meet.jsx';
 import MeetRoom from './apps/meet/MeetRoom.jsx';
 import FormRespond from './apps/forms/FormRespond.jsx';
@@ -130,6 +131,7 @@ function RequiredTwoStep() {
 }
 
 const APPS = [
+  { to: '/home', icon: 'home', label: 'Home' },
   { to: '/mail', icon: 'mail', label: 'Mail', mail: true },
   { to: '/drive', icon: 'folder', label: 'Drive' },
   { to: '/calendar', icon: 'calendar', label: 'Calendar' },
@@ -211,6 +213,7 @@ function Shell() {
           <Route path="/forms/:id?" element={<Forms />} />
           <Route path="/meet" element={<Meet />} />
           <Route path="/notes" element={<Notes />} />
+          <Route path="/home" element={<Home />} />
           <Route path="/settings" element={<Settings />} />
           {user.is_admin && <Route path="/admin" element={<Admin />} />}
           <Route path="*" element={<Navigate to="/drive" replace />} />
