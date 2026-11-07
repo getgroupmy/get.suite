@@ -1424,6 +1424,32 @@ test('out of office: invitations then are declined for you, the organizer is tol
   assert.equal((await a('PATCH', `/api/events/${away.id}`, { kind: null })).body.kind, null);
 });
 
+test('find a time: the first slots in working hours when everyone is free', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['fta', 'Find Ann'], ['ftb', 'Find Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'fta@acme.com');
+  const bid = (await login(b, 'ftb@acme.com')).id;
+  // A Monday at least a week ahead, midnight UTC.
+  const d = new Date(Date.now() + 8 * 864e5); d.setUTCHours(0, 0, 0, 0);
+  while (d.getUTCDay() !== 1) d.setUTCDate(d.getUTCDate() + 1);
+  const mon = d.getTime(), h = 36e5;
+  await a('POST', '/api/events', { title: 'Ann busy', start: mon + 9 * h, end: mon + 10 * h });
+  await b('POST', '/api/events', { title: 'Ben busy', start: mon + 10 * h, end: mon + 11.5 * h });
+  await b('POST', '/api/events', { title: 'Ben all day', all_day: 1, start: mon, end: mon + 864e5 - 1 }); // all-day events don't block
+  const r = (await a('GET', `/api/freebusy/suggest?users=${bid}&duration=60&tz=UTC&from=${mon}`)).body;
+  assert.equal(r.people, 2);
+  assert.deepEqual(r.slots.slice(0, 3).map((x) => (x.start - mon) / h), [11.5, 12, 12.5]);
+  assert.equal(r.slots[0].end - r.slots[0].start, h);
+  assert.equal(r.slots.length, 8);
+  // Alone: 10:00 is free for Ann.
+  assert.equal(((await a('GET', `/api/freebusy/suggest?duration=60&tz=UTC&from=${mon}`)).body.slots[0].start - mon) / h, 10);
+  // Late in the day it moves on to the next working day; a Friday afternoon skips the weekend.
+  const fri = mon + 4 * 864e5;
+  const late = (await a('GET', `/api/freebusy/suggest?duration=120&tz=UTC&from=${fri + 16 * h}`)).body.slots[0].start;
+  assert.equal(late, mon + 7 * 864e5 + 9 * h);
+  assert.equal((await a('GET', '/api/freebusy/suggest?duration=5')).status, 400);
+});
+
 test('free/busy: colleagues’ busy times without details; not other companies', async () => {
   const a = client();
   assert.equal((await owner('POST', '/api/users', { local: 'busybee', domain: 'acme.com', name: 'Busy Bee', password: 'password123' })).status, 201);

@@ -456,6 +456,31 @@ const ruleFromForm = (r, start) => {
   return out;
 };
 
+/** Find a time when you and the colleagues invited are all free (working hours, the next two weeks). */
+function FindATime({ guests, directory, minutes, onPick }) {
+  const [slots, setSlots] = useState(null);
+  const [error, setError] = useState('');
+  const ids = guests.map((g) => directory.find((d) => d.username === g)?.id).filter(Boolean);
+  const outside = guests.length - ids.length;
+  const find = async () => {
+    setError('');
+    try { setSlots((await get(`/freebusy/suggest?users=${ids.join(',')}&duration=${minutes}&tz=${encodeURIComponent(TZ)}`)).slots); } catch (e) { setError(e.message); }
+  };
+  const label = (s) => `${new Date(s.start).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' })}, ${fmtTime(s.start)} – ${fmtTime(s.end)}`;
+  return (
+    <div className="find-time">
+      <button type="button" className="btn small" onClick={find}><Icon name="search" size={16} /> Find a time{ids.length ? ` with ${ids.length} guest${ids.length === 1 ? '' : 's'}` : ''}</button>
+      {error && <span className="error small">{error}</span>}
+      {slots && (slots.length ? (
+        <div className="find-time-slots" role="group" aria-label="Free times">
+          {slots.map((s) => <button key={s.start} type="button" className="chip-btn" onClick={() => { onPick(s.start, s.end); setSlots(null); }}>{label(s)}</button>)}
+          <span className="muted small">{minutes} min, working hours (9–5, Mon–Fri), when {ids.length ? 'everyone invited from your company is' : 'you are'} free{outside ? `; ${outside} guest${outside === 1 ? '' : 's'} outside it not checked` : ''}.</span>
+        </div>
+      ) : <span className="muted small">No time in the next two weeks suits everyone.</span>)}
+    </div>
+  );
+}
+
 function EventDialog({ event, onClose, onSaved, onDuplicate }) {
   const toast = useToast();
   const recurring = !!(event.id && event.rrule);
@@ -531,6 +556,8 @@ function EventDialog({ event, onClose, onSaved, onDuplicate }) {
           <label className="field"><span>Ends</span><input type="date" required value={f.endDate} onChange={set('endDate')} /></label>
           {!f.all_day && <label className="field"><span>&nbsp;</span><input type="time" required value={f.endTime} onChange={set('endTime')} aria-label="End time" /></label>}
         </div>
+        {!f.ooo && <FindATime guests={guests} directory={directory} minutes={(() => { const { start, end } = read(); return f.all_day || !(end > start) ? 60 : Math.min(480, Math.max(15, Math.round((end - start) / 6e4))); })()}
+          onPick={(s, e) => setF({ ...f, all_day: false, startDate: toDateInput(s), startTime: toTimeInput(s), endDate: toDateInput(e), endTime: toTimeInput(e) })} />}
         <div className="repeat-box stack">
           <div className="row wrap">
             <label className="field"><span>Repeat</span>

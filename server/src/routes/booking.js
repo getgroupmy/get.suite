@@ -208,5 +208,38 @@ export function freeBusyRoutes() {
     }
     res.json(out);
   });
+
+  // Times when you and the colleagues given are all free, for a meeting of `duration` minutes:
+  // ?users=id,id&duration=60&tz=Europe/London[&from=ms]. Working hours (9:00–17:00, Monday to
+  // Friday, in your time zone), every half hour, over the next two weeks; the first 8 that fit.
+  r.get('/suggest', (req, res) => {
+    const duration = Number(req.query.duration || 60);
+    if (!Number.isInteger(duration) || duration < 15 || duration > 480) throw bad('A meeting of 15 minutes to 8 hours');
+    const tz = zoneOrUtc(String(req.query.tz || 'UTC'));
+    const now = Date.now();
+    const from = Math.max(now, Number(req.query.from) || now);
+    const people = [req.user.id];
+    for (const id of new Set(String(req.query.users || '').split(',').filter(Boolean))) {
+      const u = q('SELECT id, org_id FROM users WHERE id = ? AND disabled = 0').get(id);
+      if (u && u.org_id === req.user.org_id && u.id !== req.user.id) people.push(u.id);
+      if (people.length > 20) throw bad('At most 20 people');
+    }
+    const to = from + 15 * DAY;
+    const busy = people.flatMap((id) => busyOf(id, from, to));
+    const start = partsAt(from, tz);
+    const out = [];
+    for (let i = 0; i < 15 && out.length < 8; i++) {
+      const base = new Date(Date.UTC(start.y, start.m, start.d + i));
+      const wd = base.getUTCDay();
+      if (wd === 0 || wd === 6) continue;
+      for (let min = 9 * 60; min + duration <= 17 * 60 && out.length < 8; min += 30) {
+        const s = zonedTime(base.getUTCFullYear(), base.getUTCMonth(), base.getUTCDate(), min, tz), e = s + duration * 6e4;
+        if (s < from) continue;
+        if (busy.some((b) => b.start < e && b.end > s)) continue;
+        out.push({ start: s, end: e });
+      }
+    }
+    res.json({ people: people.length, slots: out });
+  });
   return r;
 }

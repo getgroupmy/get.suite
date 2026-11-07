@@ -1451,3 +1451,8 @@ button.rule-sample.on { outline: 2px solid var(--accent); outline-offset: 1px; }
 .access-requests { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
 .access-requests li { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
 .subnav-item .count { font-size: 12px; font-weight: 700; }
+/* Calendar: find a time */
+.find-time { display: grid; gap: 6px; justify-items: start; }
+.find-time-slots { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.find-time .chip-btn { border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 999px; padding: 4px 10px; font: inherit; font-size: 13px; cursor: pointer; }
+.find-time .chip-btn:hover { border-color: var(--accent); color: var(--accent); }
