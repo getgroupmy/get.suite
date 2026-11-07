@@ -13,7 +13,7 @@ import { TextStyle, Color, BackgroundColor } from '@tiptap/extension-text-style'
 import {
   Document, Packer, Paragraph, TextRun, HeadingLevel, ExternalHyperlink, AlignmentType, LevelFormat, BorderStyle,
   Table as WordTable, TableRow as WordRow, TableCell as WordCell, WidthType, ShadingType, ImageRun, Header, Footer, PageNumber, PageOrientation, LineRuleType,
-  Bookmark, InternalHyperlink,
+  Bookmark, InternalHyperlink, PageBreak,
 } from 'docx';
 import { pageMm, MARGINS } from '../pagesetup.js';
 
@@ -215,6 +215,7 @@ export async function wordFromDoc(doc, title = 'Document', { pictureData, page }
       else if (n.type === 'horizontalRule') paras.push(new Paragraph({ border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: 'BBBBBB', space: 1 } } }));
       else if (n.type === 'image') paras.push(picture(n));
       else if (n.type === 'tableOfContents') paras.push(...contentsBlock());
+      else if (n.type === 'pageBreak') paras.push(new Paragraph({ children: [new PageBreak()] }));
       else if (n.type === 'table') { paras.push(table(n)); paras.push(new Paragraph('')); }
       else if (n.content) walk(n.content, ctx);
     }

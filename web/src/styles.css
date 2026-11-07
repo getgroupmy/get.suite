@@ -1364,3 +1364,8 @@ button.rule-sample.on { outline: 2px solid var(--accent); outline-offset: 1px; }
 .cal-search input { width: 100%; }
 .cal-results { list-style: none; margin: 0; padding: 0; }
 .upcoming.past strong { color: var(--muted); }
+/* Docs: page breaks */
+.paper .page-break { position: relative; height: 22px; margin: 14px -20px; border-top: 2px dashed var(--border); }
+.paper .page-break::after { content: 'Page break'; position: absolute; top: -10px; left: 50%; transform: translateX(-50%); padding: 0 8px; font-size: 11px; color: var(--muted); background: var(--surface); }
+.paper .page-break.ProseMirror-selectednode { border-top-color: var(--accent); }
+@media print { .paper .page-break { height: 0; margin: 0; border: 0; break-after: page; page-break-after: always; } .paper .page-break::after { content: none; } }

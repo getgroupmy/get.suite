@@ -25,6 +25,7 @@ import { FindBar } from './FindBar.jsx';
 import { Outline } from './Outline.jsx';
 import { TableOfContents, htmlWithContents } from './toc.js';
 import { TaskList, TaskItem } from '@tiptap/extension-list';
+import { PageBreak } from './pagebreak.js';
 import { VersionHistory } from '../VersionHistory.jsx';
 
 /** Marks the text a comment is about (several comments may overlap); it travels with the text. */
@@ -145,7 +146,7 @@ function SharedDoc({ file, setFile }) {
       FindReplace,
       Table.configure({ resizable: false }), TableRow, TableHeader, TableCell,
       TextStyle, Color, BackgroundColor, FontFamily, FontSize, LineHeight, TableOfContents,
-      TaskList, TaskItem.configure({ nested: true }), // checklists: everyone sees the ticks live; viewers can't tick
+      PageBreak, TaskList, TaskItem.configure({ nested: true }), // checklists: everyone sees the ticks live; viewers can't tick
     ],
     editable: !readOnly,
     editorProps: {
@@ -427,6 +428,8 @@ function Toolbar({ editor, onComment, onPictures }) {
         { label: 'Delete column', icon: 'trash', danger: true, onClick: () => c().deleteColumn().run(), disabled: !editor.can().deleteColumn() },
         { label: 'Delete table', icon: 'trash', danger: true, onClick: () => c().deleteTable().run(), disabled: !editor.can().deleteTable() },
       ]} />
+      <button type="button" className="tb labelled" title="Page break: what follows starts a new page when printed or downloaded (Ctrl+Enter)" aria-label="Insert page break"
+        onMouseDown={(e) => e.preventDefault()} onClick={() => c().setPageBreak().run()}>⤓ Page break</button>
       <button type="button" className="tb labelled" title="Insert a table of contents: the document's headings, kept up to date, each a link" aria-label="Insert table of contents"
         onMouseDown={(e) => e.preventDefault()} onClick={() => c().insertTableOfContents().run()}><Icon name="menu" size={18} /> Contents</button>
       <span className="sep" />
@@ -472,7 +475,7 @@ function DocPreview({ content, fileId }) {
     extensions: [
       StarterKit.configure({ link: { openOnClick: true } }), TextAlign.configure({ types: ['heading', 'paragraph'] }),
       CommentMark, DocImage.configure({ docId: fileId }), Table, TableRow, TableHeader, TableCell,
-      TextStyle, Color, BackgroundColor, FontFamily, FontSize, LineHeight, TableOfContents, TaskList, TaskItem.configure({ nested: true }),
+      TextStyle, Color, BackgroundColor, FontFamily, FontSize, LineHeight, TableOfContents, PageBreak, TaskList, TaskItem.configure({ nested: true }),
     ],
   }, [content]);
   return <div className="paper preview-paper"><EditorContent editor={editor} /></div>;

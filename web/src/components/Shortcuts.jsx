@@ -15,6 +15,7 @@ export const SHORTCUTS = {
     [`${mod}+Z`, 'Undo your last change'], [`${mod}+Y / ${mod}+Shift+Z`, 'Redo'],
     [`${mod}+F`, 'Find in the document'], [`${mod}+H`, 'Find and replace'],
     [`${mod}+${alt}+M`, 'Comment on the selected text'],
+    [`${mod}+Enter`, 'Page break'],
     [`${mod}+Shift+L / E / R`, 'Align left, centre, right'],
     ['Tab / Shift+Tab', 'Next or previous table cell'],
   ] },

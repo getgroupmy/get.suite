@@ -335,3 +335,14 @@ test('Word: boxed paragraphs come back as a checklist', async () => {
   const list = back.content.find((n) => n.type === 'taskList');
   assert.deepEqual(list.content.map((i) => [i.attrs.checked, i.content[0].content.map((t) => t.text).join('')]), [[true, 'Done thing'], [false, 'Open thing']]);
 });
+
+test('Word: a page break is a real page break', async () => {
+  const JSZip = (await import('jszip')).default;
+  const doc = { type: 'doc', content: [
+    { type: 'paragraph', content: [{ type: 'text', text: 'Cover' }] },
+    { type: 'pageBreak' },
+    { type: 'paragraph', content: [{ type: 'text', text: 'Chapter one' }] },
+  ] };
+  const xml = await (await JSZip.loadAsync(await wordFromDoc(doc, 'Book'))).file('word/document.xml').async('string');
+  assert.match(xml, /Cover[\s\S]*<w:br w:type="page"\/>[\s\S]*Chapter one/);
+});
