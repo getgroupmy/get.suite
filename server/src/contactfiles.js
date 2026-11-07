@@ -1,5 +1,6 @@
 // Contact files people bring from elsewhere: vCard (.vcf, one or many cards, from phones, Outlook,
 // Gmail, iCloud) and CSV (Gmail's and Outlook's exports, or a simple name/email sheet).
+import { birthdayOf } from './birthday.js';
 import { parseVcard, buildVcard } from './vcard.js';
 
 export const MAX_IMPORT = 5000;
@@ -38,6 +39,7 @@ const COLUMNS = {
   phone: ['phone 1 - value', 'mobile phone', 'mobile', 'phone', 'primary phone', 'business phone', 'home phone', 'telephone', 'phone number'],
   company: ['organization 1 - name', 'organization name', 'company', 'organization', 'organisation'],
   notes: ['notes', 'note', 'comments'],
+  birthday: ['birthday', 'birth date', 'date of birth', 'birthdate'],
 };
 
 /** Contacts from a CSV export. The first row must name the columns. */
@@ -52,7 +54,7 @@ export function contactsFromCsv(text) {
   return rows.map((r) => {
     const email = v(r, 'email').split(/\s*:::\s*|[;,]\s*/)[0] || ''; // Gmail joins several with " ::: "
     const name = v(r, 'name') || [v(r, 'first'), v(r, 'middle'), v(r, 'last')].filter(Boolean).join(' ') || email;
-    return { name, email: /@/.test(email) ? email.toLowerCase() : null, phone: v(r, 'phone').split(/\s*:::\s*/)[0] || null, company: v(r, 'company') || null, notes: v(r, 'notes') || null };
+    return { name, email: /@/.test(email) ? email.toLowerCase() : null, phone: v(r, 'phone').split(/\s*:::\s*/)[0] || null, company: v(r, 'company') || null, notes: v(r, 'notes') || null, birthday: birthdayOf(v(r, 'birthday')) };
   }).filter((c) => c.name);
 }
 
@@ -74,7 +76,7 @@ export function contactsFromFile(text) {
 const csvField = (v) => { const s = String(v ?? ''); return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
 /** Contacts as a CSV that Gmail, Outlook and spreadsheets read. */
 export function contactsToCsv(list) {
-  const rows = [['Name', 'E-mail Address', 'Phone', 'Company', 'Notes'], ...list.map((c) => [c.name, c.email, c.phone, c.company, c.notes])];
+  const rows = [['Name', 'E-mail Address', 'Phone', 'Company', 'Notes', 'Birthday'], ...list.map((c) => [c.name, c.email, c.phone, c.company, c.notes, c.birthday])];
   return `﻿${rows.map((r) => r.map(csvField).join(',')).join('\r\n')}\r\n`;
 }
 export const contactsToVcf = (list) => list.map((c) => buildVcard(c)).join('');

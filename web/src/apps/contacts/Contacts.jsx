@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router';
+import { useNavigate, useSearchParams } from 'react-router';
 import { get, post, patch, del, postText } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
 import { Avatar, ConfirmModal, Empty, Menu, Modal, useToast } from '../../components/ui.jsx';
@@ -16,7 +16,8 @@ export default function Contacts() {
   const [tab, setTab] = useState('mine');
   const [contacts, setContacts] = useState(null);
   const [directory, setDirectory] = useState([]);
-  const [filter, setFilter] = useState('');
+  const [params] = useSearchParams();
+  const [filter, setFilter] = useState(params.get('q') || ''); // ?q= from a birthday on the calendar
   const [editing, setEditing] = useState(null);
   const [deleting, setDeleting] = useState(null);
 
@@ -98,7 +99,7 @@ function ContactDialog({ contact, onClose, onSaved }) {
   const [error, setError] = useState('');
   async function submit(e) {
     e.preventDefault();
-    const body = { name: f.name, email: f.email || '', phone: f.phone || '', company: f.company || '', notes: f.notes || '' };
+    const body = { name: f.name, email: f.email || '', phone: f.phone || '', company: f.company || '', notes: f.notes || '', birthday: f.birthday || null };
     try { if (contact.id) await patch(`/contacts/${contact.id}`, body); else await post('/contacts', body); onSaved(); }
     catch (err) { setError(err.message); }
   }
@@ -110,11 +111,30 @@ function ContactDialog({ contact, onClose, onSaved }) {
             <input autoFocus={i === 0} required={k === 'name'} type={k === 'email' ? 'email' : k === 'phone' ? 'tel' : 'text'} value={f[k] || ''} onChange={(e) => setF({ ...f, [k]: e.target.value })} />
           </label>
         ))}
+        <BirthdayField value={f.birthday || ''} onChange={(birthday) => setF({ ...f, birthday })} />
         <label className="field"><span>Notes</span><textarea rows={3} value={f.notes || ''} onChange={(e) => setF({ ...f, notes: e.target.value })} /></label>
         {error && <p className="error">{error}</p>}
         <div className="row end"><button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn primary">Save</button></div>
       </form>
     </Modal>
+  );
+}
+
+/**
+ * A birthday: a date, or day and month only ("Year not known", stored as --MM-DD as phones do).
+ * The date box needs a year, so a leap year stands in while the year is unknown.
+ */
+function BirthdayField({ value, onChange }) {
+  const noYear = value.startsWith('--');
+  const shown = noYear ? `2000${value.slice(1)}` : value;
+  return (
+    <div className="field"><label htmlFor="bday"><span>Birthday</span></label>
+      <span className="row">
+        <input id="bday" type="date" value={shown} min="1850-01-01" max="2200-12-31" onChange={(e) => onChange(e.target.value ? (noYear ? `--${e.target.value.slice(5)}` : e.target.value) : '')} />
+        <label className="check small"><input type="checkbox" checked={noYear} disabled={!value} onChange={(e) => onChange(e.target.checked ? `--${shown.slice(5)}` : shown)} /> Year not known</label>
+        {value && <button type="button" className="link-btn small" onClick={() => onChange('')}>Clear</button>}
+      </span>
+    </div>
   );
 }
 

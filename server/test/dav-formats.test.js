@@ -58,7 +58,8 @@ test('contact cards: fields Workspace shows, everything else kept', () => {
   assert.match(c.vcard_extra, /mei@harbour\.example/);
   assert.match(c.vcard_extra, /\+60 4-123 4567/);
   assert.match(c.vcard_extra, /item1\.ADR/);
-  assert.match(c.vcard_extra, /BDAY:1990-04-01/);
+  assert.equal(c.birthday, '1990-04-01');
+  assert.doesNotMatch(c.vcard_extra, /BDAY/);
   assert.ok(!/PRODID|^FN/m.test(c.vcard_extra));
   // Written back: Workspace's fields, then the rest; reading it again gives the same.
   const again = parseVcard(buildVcard({ id: 'c1', ...c, vcard_uid: c.uid }));

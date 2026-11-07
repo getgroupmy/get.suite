@@ -1,9 +1,10 @@
 // Contact cards (vCard 3.0, which every phone reads) for CardDAV. Workspace keeps name, email,
-// phone, company and notes; anything else on a card from a phone (addresses, birthdays, more
+// phone, company, notes and birthday; anything else on a card from a phone (addresses, more
 // numbers, a photo) is kept as it came, so syncing never drops it.
+import { birthdayOf } from './birthday.js';
 import { contentLines, unescapeText, escapeText, fold } from './ics.js';
 
-const KNOWN = new Set(['BEGIN', 'END', 'VERSION', 'UID', 'FN', 'N', 'ORG', 'NOTE', 'PRODID', 'REV']);
+const KNOWN = new Set(['BEGIN', 'END', 'VERSION', 'UID', 'FN', 'N', 'ORG', 'NOTE', 'PRODID', 'REV', 'BDAY']);
 const MAX_EXTRA = 256 * 1024; // photos can be big; keep cards reasonable
 
 /** The card for a contact. */
@@ -19,6 +20,7 @@ export function buildVcard(c) {
   if (c.email) lines.push(`EMAIL;TYPE=INTERNET:${c.email}`);
   if (c.phone) lines.push(`TEL;TYPE=CELL:${c.phone}`);
   if (c.notes) lines.push(`NOTE:${escapeText(c.notes)}`);
+  if (c.birthday) lines.push(`BDAY${c.birthday.startsWith('--') ? ';X-APPLE-OMIT-YEAR=1604' : ''}:${c.birthday.startsWith('--') ? `1604${c.birthday.slice(1)}` : c.birthday}`); // phones read a year; Apple's 1604 means none
   const extra = String(c.vcard_extra || '').split(/\r?\n/).filter(Boolean);
   return fold([...lines, ...extra, 'END:VCARD']);
 }
@@ -56,6 +58,7 @@ export function parseVcard(text) {
     phone: tel ? tel.value.trim().replace(/^tel:/i, '').slice(0, 50) : null,
     company: unescapeText((get('ORG')?.value || '').split(';')[0]).slice(0, 200) || null,
     notes: unescapeText(get('NOTE')?.value || '').slice(0, 5000) || null,
+    birthday: birthdayOf(get('BDAY')?.value),
     vcard_extra: extra.join('\n') || null,
   };
 }

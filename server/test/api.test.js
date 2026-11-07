@@ -849,12 +849,12 @@ test('contacts: import vCard and CSV files (duplicates skipped), export, and add
   const mei = list.find((x) => x.email === 'meiling@example.com');
   assert.deepEqual([mei.name, mei.phone, mei.company, mei.notes], ['Tan, Mei Ling', '+60 12-345 6789', 'Globex', 'Met at "Expo"\nKL']);
   assert.equal(list.find((x) => x.email === 'raj@example.com').name, 'Raj Kumar');
-  assert.match(list.find((x) => x.email === 'lee@example.com').vcard_extra, /BDAY:1990-04-01/, 'the rest of the card is kept');
+  assert.equal(list.find((x) => x.email === 'lee@example.com').birthday, '1990-04-01', 'the birthday comes with the card');
 
   const csv = await c('GET', '/api/contacts/export?format=csv');
   assert.match(csv.headers.get('content-disposition'), /contacts\.csv/);
   const text = csv.body;
-  assert.match(text, /^\uFEFF?Name,E-mail Address,Phone,Company,Notes\r\n/); // (the reader drops the byte-order mark)
+  assert.match(text, /^\uFEFF?Name,E-mail Address,Phone,Company,Notes,Birthday\r\n/); // (the reader drops the byte-order mark)
   assert.match(text, /"Tan, Mei Ling",meiling@example.com,\+60 12-345 6789,Globex,"Met at ""Expo""\nKL"/);
   const back = (await c('GET', '/api/contacts/export?format=vcf')).body;
   assert.equal((back.match(/BEGIN:VCARD/g) || []).length, 4);
@@ -1488,4 +1488,24 @@ test('tasks: a checklist of steps, shared with the list, fresh on each repeat', 
   assert.ok(next.steps.every((x) => !steps.some((y) => y.id === x.id)), 'new ids');
   steps = (await a('DELETE', `/api/tasks/tasks/${next.id}/steps/${next.steps[0].id}`)).body.steps;
   assert.equal(steps.length, 2);
+});
+
+test('contacts: birthdays saved, checked, exported, and listed for a date range', async () => {
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'bday', domain: 'acme.com', name: 'Bday Ann', password: 'password123' })).status, 201);
+  await login(a, 'bday@acme.com');
+  const ann = (await a('POST', '/api/contacts', { name: 'Ann Lee', birthday: '1990-05-17' })).body;
+  assert.equal(ann.birthday, '1990-05-17');
+  const bo = (await a('POST', '/api/contacts', { name: 'Bo Chan', birthday: '--05-02' })).body;
+  assert.equal(bo.birthday, '--05-02');
+  await a('POST', '/api/contacts', { name: 'No Date' });
+  assert.equal((await a('POST', '/api/contacts', { name: 'Bad', birthday: '1990-02-30' })).status, 400);
+  const may = (await a('GET', '/api/contacts/birthdays?from=2026-05-01&to=2026-05-31')).body;
+  assert.deepEqual(may.map((b) => [b.name, b.date, b.age]), [['Bo Chan', '2026-05-02', null], ['Ann Lee', '2026-05-17', 36]]);
+  assert.equal((await a('GET', '/api/contacts/birthdays?from=2026-01-01&to=2028-01-01')).status, 400, 'a year at most');
+  assert.equal((await a('PATCH', `/api/contacts/${ann.id}`, { birthday: null })).body.birthday, null);
+  assert.equal((await a('PATCH', `/api/contacts/${bo.id}`, { phone: '123' })).body.birthday, '--05-02', 'kept when not sent');
+  assert.deepEqual((await a('GET', '/api/contacts/birthdays?from=2026-05-01&to=2026-05-31')).body.map((b) => b.name), ['Bo Chan']);
+  const vcf = await a('GET', '/api/contacts/export');
+  assert.match(String(vcf.body ?? vcf.text ?? ''), /BDAY;X-APPLE-OMIT-YEAR=1604:1604-05-02/);
 });

@@ -1333,3 +1333,5 @@ button.rule-sample.on { outline: 2px solid var(--accent); outline-offset: 1px; }
 .step-title:hover, .step-title:focus { border-color: var(--border); background: var(--surface); }
 .task-steps-box li.done .step-title { text-decoration: line-through; color: var(--muted); }
 .task-steps-box form input { flex: 1; }
+/* Calendar: contacts' birthdays */
+.chip.birthday-chip { --c: #e37400; background: color-mix(in srgb, #e37400 14%, transparent); color: inherit; border: 0; text-align: left; cursor: pointer; }

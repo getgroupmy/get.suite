@@ -4,6 +4,7 @@ import express from 'express';
 import { uid, now, str, notFound, bad } from '../util.js';
 import { contactsFromFile, contactsToCsv, contactsToVcf, MAX_IMPORT } from '../contactfiles.js';
 import { canReach } from '../tenancy.js';
+import { birthdayOf, birthdaysBetween } from '../birthday.js';
 
 const FIELDS = { name: 200, email: 200, phone: 50, company: 200, notes: 5000 };
 
@@ -37,6 +38,9 @@ function read(body, partial) {
   for (const [k, max] of Object.entries(FIELDS)) {
     if (partial && body[k] === undefined) continue;
     out[k] = str(body[k], { max, required: k === 'name', name: k });
+  }
+  if (!partial || body.birthday !== undefined) {
+    try { out.birthday = birthdayOf(body.birthday, { strict: true }); } catch (e) { throw bad(e.message); }
   }
   return out;
 }
@@ -112,15 +116,27 @@ export default function contactRoutes() {
       const email = c.email ? c.email.toLowerCase() : null;
       const key = `${String(c.name).toLowerCase()}|${c.phone || ''}`;
       if ((email && emails.has(email)) || (c.uid && uids.has(c.uid)) || (!email && namePhone.has(key))) { skipped++; continue; } // already there
-      q(`INSERT INTO contacts (id, owner_id, name, email, phone, company, notes, created_at, vcard_uid, vcard_extra) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      q(`INSERT INTO contacts (id, owner_id, name, email, phone, company, notes, birthday, created_at, vcard_uid, vcard_extra) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
         .run(uid(), req.user.id, String(c.name).slice(0, 200), email, c.phone ? String(c.phone).slice(0, 50) : null, c.company ? String(c.company).slice(0, 200) : null,
-          c.notes ? String(c.notes).slice(0, 5000) : null, t, c.uid || null, c.vcard_extra || null);
+          c.notes ? String(c.notes).slice(0, 5000) : null, c.birthday || null, t, c.uid || null, c.vcard_extra || null);
       if (email) emails.add(email);
       if (c.uid) uids.add(c.uid);
       namePhone.add(key);
       added++;
     }
     res.json({ added, skipped });
+  });
+
+  // Your contacts' birthdays between two dates (YYYY-MM-DD, at most a year and a bit apart), for the calendar.
+  r.get('/birthdays', (req, res) => {
+    const from = String(req.query.from || ''), to = String(req.query.to || '');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || to < from) throw bad('from and to are required');
+    if (Date.parse(to) - Date.parse(from) > 400 * 864e5) throw bad('At most a year at a time');
+    const out = [];
+    for (const c of q('SELECT id, name, birthday FROM contacts WHERE owner_id = ? AND birthday IS NOT NULL').all(req.user.id)) {
+      for (const b of birthdaysBetween(c.birthday, from, to)) out.push({ contact_id: c.id, name: c.name, ...b });
+    }
+    res.json(out.sort((a, b) => a.date.localeCompare(b.date) || a.name.localeCompare(b.name)));
   });
 
   // Download all your contacts, as vCards (phones, Outlook, Apple) or CSV (Gmail, spreadsheets).
@@ -135,8 +151,8 @@ export default function contactRoutes() {
   r.post('/', (req, res) => {
     const c = read(req.body, false);
     const id = uid();
-    q(`INSERT INTO contacts (id, owner_id, name, email, phone, company, notes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(id, req.user.id, c.name, c.email, c.phone, c.company, c.notes, now());
+    q(`INSERT INTO contacts (id, owner_id, name, email, phone, company, notes, birthday, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(id, req.user.id, c.name, c.email, c.phone, c.company, c.notes, c.birthday, now());
     res.status(201).json(q('SELECT * FROM contacts WHERE id = ?').get(id));
   });
 
@@ -144,8 +160,8 @@ export default function contactRoutes() {
     const existing = q('SELECT * FROM contacts WHERE id = ? AND owner_id = ?').get(req.params.id, req.user.id);
     if (!existing) throw notFound();
     const c = { ...existing, ...read(req.body, true) };
-    q('UPDATE contacts SET name = ?, email = ?, phone = ?, company = ?, notes = ? WHERE id = ?')
-      .run(c.name, c.email, c.phone, c.company, c.notes, c.id);
+    q('UPDATE contacts SET name = ?, email = ?, phone = ?, company = ?, notes = ?, birthday = ? WHERE id = ?')
+      .run(c.name, c.email, c.phone, c.company, c.notes, c.birthday, c.id);
     res.json(q('SELECT * FROM contacts WHERE id = ?').get(c.id));
   });
 
