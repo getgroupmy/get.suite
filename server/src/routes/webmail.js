@@ -15,6 +15,7 @@ import { followedFolders, setFollowed, MAX_FOLLOWED } from '../mail/notify.js';
 import { forwardHtml } from '../mail/forwardhtml.js';
 import { unsubscribeOptions, oneClickUnsubscribe } from '../mail/unsubscribe.js';
 import { baseSubject, shareSomeone } from '../mail/thread.js';
+import { startImport, importOf } from '../mail/importer.js';
 
 const PAGE = 50;
 const OUTBOX = path.join(DATA_DIR, 'outbox');
@@ -622,6 +623,10 @@ export default function webmailRoutes() {
     const list = out.filter((m) => !m.messageId || !seen.has(m.messageId) && seen.add(m.messageId)).sort((a, b) => (a.date || 0) - (b.date || 0)).slice(-50);
     res.json(list.map(({ cc, messageId, ...m }) => m));
   });
+
+  // Importing mail from another account: start one, and how the latest is going.
+  r.post('/import', async (req, res) => res.status(201).json(await startImport(req.user, req.body || {})));
+  r.get('/import', (req, res) => res.json(importOf(req.user.id)));
 
   // Unsubscribe from the list a message came from: a one-click request to the list's web address,
   // or else an email to its unsubscribe address, sent from you.

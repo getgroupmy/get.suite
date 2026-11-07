@@ -60,6 +60,7 @@ export default function Mail() {
   const [folderDialog, setFolderDialog] = useState(null);
   const [signatures, setSignatures] = useState([]);
   const [signatureOpen, setSignatureOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [scheduled, setScheduled] = useState([]);
   const refreshRef = useRef(null);
   const [scheduledOpen, setScheduledOpen] = useState(false);
@@ -242,6 +243,7 @@ export default function Mail() {
         </button>
         <button className="subnav-item" onClick={() => setFilters({})}><Icon name="settings" /><span className="grow">Filters</span></button>
         <button className="subnav-item" onClick={() => setSignatureOpen(true)}><Icon name="edit" /><span className="grow">Signature</span></button>
+        <button className="subnav-item" onClick={() => setImportOpen(true)}><Icon name="download" /><span className="grow">Import mail</span></button>
         {desktopSupported() && (
           <button className="subnav-item" aria-pressed={desktop} onClick={async () => {
             if (desktop) { disableDesktop(); setDesktop(false); toast('Desktop notifications off'); return; }
@@ -338,6 +340,7 @@ export default function Mail() {
       {filters && <FiltersDialog folders={folders} onFoldersChanged={loadFolders} startWith={filters.startWith} onClose={() => { setFilters(null); loadFolders(); }} />}
       {newFolder && <PromptModal title="New folder" label="Folder name (use / for subfolders, e.g. Clients/Acme)" confirm="Create" onClose={() => setNewFolder(false)}
         onSubmit={async (name) => { const r = await post('/mail/folders', { name }); toast(`Folder ${r.path} created`); loadFolders(); }} />}
+      {importOpen && <ImportMail onClose={() => setImportOpen(false)} onDone={refresh} />}
       {signatureOpen && <SignatureDialog signatures={signatures} onClose={() => setSignatureOpen(false)} onSaved={(list) => setSignatures(list)} />}
       {folderDialog?.type === 'rename' && (
         <PromptModal title={`Rename “${folderDialog.folder.name}”`} label="New name (use / for subfolders)" initial={folderDialog.folder.path} confirm="Rename"
@@ -530,6 +533,55 @@ function Conversation({ folder, uid, date, onOpen }) {
         </ol>
       )}
     </div>
+  );
+}
+
+const IMPORT_FROM = [['', 'Another mail server'], ['imap.gmail.com', 'Gmail'], ['outlook.office365.com', 'Outlook.com / Microsoft 365'], ['imap.mail.yahoo.com', 'Yahoo Mail'], ['imap.mail.me.com', 'iCloud Mail']];
+
+/** Copy the mail of another account (all its folders) into this mailbox, with progress. */
+function ImportMail({ onClose, onDone }) {
+  const [job, setJob] = useState(undefined);
+  const [f, setF] = useState({ host: '', port: 993, username: '', password: '' });
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { get('/mail/import').then(setJob).catch(() => setJob(null)); }, []);
+  useEffect(() => onLive((m) => { if (m.type === 'mail-import') { setJob(m.import); if (m.import?.status === 'done') onDone(); } }), [onDone]);
+  const start = async (e) => {
+    e.preventDefault();
+    setError(''); setBusy(true);
+    try { setJob(await post('/mail/import', f)); setF((x) => ({ ...x, password: '' })); } catch (err) { setError(err.message); } finally { setBusy(false); }
+  };
+  const runningNow = job?.status === 'running';
+  return (
+    <Modal title="Import mail" onClose={onClose} footer={<button type="button" className="btn" onClick={onClose}>{runningNow ? 'Close (it carries on)' : 'Close'}</button>}>
+      <div className="stack">
+        {job && (
+          <div className={`import-status ${job.status}`} role="status">
+            {job.status === 'running' && <>Importing from <strong>{job.username}</strong>{job.folder ? ` · ${job.folder}` : ''}: {job.copied} of {job.total || '…'} copied{job.skipped ? `, ${job.skipped} already here` : ''}
+              <progress max={job.total || 1} value={job.copied + job.skipped} /></>}
+            {job.status === 'done' && <>Done: <strong>{job.copied}</strong> message{job.copied === 1 ? '' : 's'} copied from {job.username}{job.skipped ? `, ${job.skipped} already here` : ''}.</>}
+            {job.status === 'failed' && <span className="error">The import from {job.username} stopped: {job.error}</span>}
+          </div>
+        )}
+        {!runningNow && (
+          <form className="stack" onSubmit={start}>
+            <p className="muted small" style={{ margin: 0 }}>Copies all the mail in another account (every folder, with what's read and starred, and the dates) into this mailbox. Junk and Trash are left out. Messages already here are skipped, so you can run it again later. Your password there is used for this import only and never kept. Gmail, Yahoo and iCloud need an <em>app password</em> made in that account's security settings.</p>
+            <label className="field"><span>Import from</span>
+              <select aria-label="Import from" value={IMPORT_FROM.some(([h]) => h === f.host) ? f.host : ''} onChange={(e) => setF({ ...f, host: e.target.value, port: 993 })}>
+                {IMPORT_FROM.map(([h, n]) => <option key={n} value={h}>{n}</option>)}
+              </select></label>
+            <div className="row">
+              <label className="field grow"><span>Mail server (IMAP)</span><input required value={f.host} onChange={(e) => setF({ ...f, host: e.target.value.trim() })} placeholder="imap.example.com" /></label>
+              <label className="field" style={{ width: 110 }}><span>Port</span><select aria-label="Port" value={f.port} onChange={(e) => setF({ ...f, port: Number(e.target.value) })}><option value={993}>993 (secure)</option><option value={143}>143</option></select></label>
+            </div>
+            <label className="field"><span>Your user name there</span><input required autoComplete="off" value={f.username} onChange={(e) => setF({ ...f, username: e.target.value })} placeholder="you@example.com" /></label>
+            <label className="field"><span>Your password there</span><input required type="password" autoComplete="new-password" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} /></label>
+            {error && <p className="error">{error}</p>}
+            <div className="row end"><button className="btn primary" disabled={busy}>{busy ? 'Connecting…' : 'Start importing'}</button></div>
+          </form>
+        )}
+      </div>
+    </Modal>
   );
 }
 

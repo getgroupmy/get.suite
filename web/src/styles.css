@@ -1494,3 +1494,6 @@ img.avatar.photo { object-fit: cover; border-radius: 50%; display: inline-block;
 .schedule-item .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--c); flex: none; }
 .schedule-item .when { width: 150px; flex: none; color: var(--muted); font-size: 14px; }
 .schedule-item.declined .what { text-decoration: line-through; opacity: .6; }
+/* Mail: importing from another account */
+.import-status { padding: 10px 12px; border-radius: 8px; background: var(--surface-2); }
+.import-status progress { display: block; width: 100%; margin-top: 6px; }

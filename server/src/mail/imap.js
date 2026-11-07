@@ -121,3 +121,15 @@ export function smtpFor(user) {
     auth: { user: `${user.username}*webmail`, pass: webmailSecret() },
   });
 }
+
+/** A separate connection to someone's mailbox (for long jobs such as importing mail); the caller logs out. */
+export async function ownConnection(user) {
+  const client = new ImapFlow({
+    host: IMAP.host, port: IMAP.port, secure: true, tls: TLS,
+    auth: { user: `${user.username}*webmail`, pass: webmailSecret() },
+    logger: false, emitLogs: false, disableAutoIdle: true,
+  });
+  client.on('error', () => {});
+  try { await client.connect(); } catch (e) { throw unavailable(e); }
+  return client;
+}

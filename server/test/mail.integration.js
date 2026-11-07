@@ -13,6 +13,7 @@ process.env.DATA_DIR = dir;
 process.env.MAIL_CONFIG_DIR = process.env.MAIL_IT_CONFIG_DIR || '/etc/nw';
 process.env.MAIL_IMAP_HOST = process.env.MAIL_IT_IMAP_HOST || '127.0.0.1';
 process.env.MAIL_HOSTNAME = 'mail.acme.com';
+process.env.MAIL_IMPORT_ALLOW_PRIVATE = '1'; // importing from this machine's own mail server
 // Sign-in protection: Dovecot calls our policy service; loopback 127.0.0.1 (webmail) stays exempt,
 // while 127.0.0.6+ stand in for attackers on the internet.
 process.env.AUTH_POLICY_PORT = '18081';
@@ -1087,4 +1088,32 @@ test('conversation: the other messages with the same subject, your replies from 
   assert.notEqual(conv[1].folder, 'INBOX', 'your reply, from Sent');
   const desk = (await inbox(olivia)).find((m) => m.subject === 'Quote for desks');
   assert.deepEqual((await olivia('GET', `/api/mail/messages/${desk.uid}/conversation?folder=INBOX`)).body, []);
+});
+
+test('import mail from another account: folders, flags and dates copied; a second run skips what is there', async () => {
+  // Gina's mailbox (on this mail server) plays "the other account".
+  const t = nodemailer.createTransport({ host: process.env.MAIL_IMAP_HOST, port: 25, secure: false, ignoreTLS: true, name: 'test.acme.com' });
+  await t.sendMail({ from: 'Old Friend <friend@acme.com>', to: 'gina@globex.com', subject: 'Import me 1', text: 'one', date: new Date('2024-03-01T10:00:00Z') });
+  await t.sendMail({ from: 'Old Friend <friend@acme.com>', to: 'gina@globex.com', subject: 'Import me 2', text: 'two' });
+  await eventually(async () => (await inbox(gina)).filter((m) => /^Import me/.test(m.subject)).length === 2, 20000);
+  const two = (await inbox(gina)).find((m) => m.subject === 'Import me 2');
+  await gina('POST', '/api/mail/messages/flags', { folder: 'INBOX', uids: [two.uid], flagged: true });
+  assert.equal((await olivia('POST', '/api/mail/import', { host: '127.0.0.1', port: 25, username: 'x', password: 'y' })).status, 400, 'IMAP ports only');
+  assert.equal((await olivia('POST', '/api/mail/import', { host: '127.0.0.1', port: 993, username: 'gina@globex.com', password: 'wrong' })).status, 400);
+  const started = await olivia('POST', '/api/mail/import', { host: '127.0.0.1', port: 993, username: 'gina@globex.com', password: 'password123' });
+  assert.equal(started.status, 201, JSON.stringify(started.body));
+  const done = await eventually(async () => { const j = (await olivia('GET', '/api/mail/import')).body; return j.status !== 'running' && j; }, 60000);
+  assert.equal(done.status, 'done', JSON.stringify(done));
+  assert.ok(done.copied >= 2);
+  const mine = await inbox(olivia);
+  const one = mine.find((m) => m.subject === 'Import me 1'), twoHere = mine.find((m) => m.subject === 'Import me 2');
+  assert.ok(one && twoHere);
+  assert.equal(new Date(one.date).getUTCFullYear(), 2024, 'its own date');
+  assert.equal(twoHere.flagged, true, 'its star');
+  // Again: nothing doubled.
+  await olivia('POST', '/api/mail/import', { host: '127.0.0.1', port: 993, username: 'gina@globex.com', password: 'password123' });
+  const again = await eventually(async () => { const j = (await olivia('GET', '/api/mail/import')).body; return j.status !== 'running' && j; }, 60000);
+  assert.equal(again.copied, 0);
+  assert.ok(again.skipped >= 2);
+  assert.equal((await inbox(olivia)).filter((m) => m.subject === 'Import me 1').length, 1);
 });
