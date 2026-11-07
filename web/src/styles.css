@@ -1481,3 +1481,4 @@ img.avatar.photo { object-fit: cover; border-radius: 50%; display: inline-block;
 .conversation-list button { display: flex; gap: 10px; align-items: center; width: 100%; padding: 8px 12px; border: 0; background: var(--surface); color: var(--text); font: inherit; text-align: left; cursor: pointer; }
 .conversation-list button:hover { background: var(--surface-2); }
 .conversation-list li.unread strong { font-weight: 800; }
+.msg-reminder { color: var(--accent-text, var(--accent)); }

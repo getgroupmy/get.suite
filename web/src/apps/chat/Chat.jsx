@@ -160,6 +160,12 @@ export default function Chat() {
     box.current?.focus();
   }
 
+  // Your reminders about messages (shown on them), kept up to date live.
+  const [reminders, setReminders] = useState(new Map());
+  const loadReminders = useCallback(() => get('/chat/reminders').then((l) => setReminders(new Map(l.map((x) => [x.message_id, x.at])))).catch(() => {}), []);
+  useEffect(() => { loadReminders(); }, [loadReminders]);
+  useEffect(() => onLive((m) => { if (m.type === 'chat-reminders') loadReminders(); }), [loadReminders]);
+
   // Messages you've scheduled here, soonest first (live: they go when sent).
   const [scheduled, setScheduled] = useState([]);
   const [pickingTime, setPickingTime] = useState(false);
@@ -306,7 +312,7 @@ export default function Chat() {
               return (
                 <div key={m.id}>
                   {newDay && <div className="day-sep"><span>{new Date(m.created_at).toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}</span></div>}
-                  <Message m={m} grouped={grouped && !newDay} user={user} editing={editingId === m.id} editText={editText} setEditText={setEditText}
+                  <Message m={m} grouped={grouped && !newDay} user={user} reminder={reminders.get(m.id)} editing={editingId === m.id} editText={editText} setEditText={setEditText}
                     onStartEdit={() => { setEditingId(m.id); setEditText(m.body); }} onSaveEdit={() => saveEdit(m)} onCancelEdit={() => setEditingId(null)}
                     onReact={(e) => react(m, e)} onThread={() => setThreadId(m.id)} onPin={current.archived_at ? null : () => pin(m, !m.pinned_at)} onDelete={() => del(`/chat/messages/${m.id}`).catch((e) => toast(e.message, 'error'))} />
                 </div>
@@ -433,13 +439,22 @@ function Thread({ id, channelId, user, onClose }) {
 }
 
 /** One message: text (or the box to change it), files, reactions, its thread, and hover actions. */
-function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit, onSaveEdit, onCancelEdit, onReact, onThread, onPin, onDelete }) {
+function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit, onSaveEdit, onCancelEdit, onReact, onThread, onPin, onDelete, reminder }) {
+  const toast = useToast();
+  const [picking, setPicking] = useState(false);
+  const remind = async (at) => {
+    try { await post(`/chat/messages/${m.id}/remind`, { at }); toast(at ? `I'll remind you ${whenText(at)}` : 'Reminder removed'); } catch (e) { toast(e.message, 'error'); }
+  };
+  const soon = [['In 20 minutes', Date.now() + 20 * 60e3], ['In 1 hour', Date.now() + 36e5], ...laterChoices()];
   return (
     <div className={`msg ${grouped ? 'grouped' : ''} ${m.pinned_at ? 'pinned' : ''}`} data-mid={m.id}>
       {grouped ? <span className="msg-gutter" /> : <Avatar name={m.user_name || 'Deleted user'} size={36} userId={m.user_id} />}
       <div className="msg-body">
         {!grouped && <div className="msg-meta"><strong>{m.user_name || 'Deleted user'}</strong> <span className="muted small">{new Date(m.created_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span></div>}
         {m.pinned_at && <div className="msg-pinned muted small">📌 Pinned by {m.pinned_by_name || 'someone'}</div>}
+        {reminder && <div className="msg-reminder muted small">⏰ I'll remind you {whenText(reminder)} <button type="button" className="link-btn small" onClick={() => remind(null)}>Cancel</button></div>}
+        {picking && <ScheduleDialog title="Remind me" confirm="Remind me" withinYear note={(at) => `You'll get a notification ${whenText(at)}, linking back to this message.`}
+          onClose={() => setPicking(false)} onPick={(at) => { setPicking(false); remind(at); }} />}
         {editing ? (
           <form className="msg-edit" onSubmit={(e) => { e.preventDefault(); onSaveEdit(); }}>
             <textarea autoFocus aria-label="Change the message" value={editText} rows={Math.min(6, editText.split('\n').length)} onChange={(e) => setEditText(e.target.value)}
@@ -476,6 +491,8 @@ function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit
         {['👍', '❤️', '😂'].map((e) => <button key={e} type="button" className="icon-btn" aria-label={`React with ${e}`} onClick={() => onReact(e)}>{e}</button>)}
         <EmojiPicker className="icon-btn" label="Add a reaction" onPick={(e) => onReact(e)} />
         {onThread && <button type="button" className="icon-btn" aria-label="Reply in thread" title="Reply in thread" onClick={onThread}><Icon name="reply" size={16} /></button>}
+        <Menu align="right" trigger={(p) => <button type="button" className="icon-btn" aria-label="Remind me about this" title="Remind me about this" {...p}><Icon name="clock" size={16} /></button>}
+          items={[...soon.map(([label, at]) => ({ label: `${label} · ${whenText(at)}`, onClick: () => remind(at) })), '-', { label: 'Pick date and time…', icon: 'calendar', onClick: () => setPicking(true) }]} />
         {onPin && !m.parent_id && <button type="button" className="icon-btn" aria-label={m.pinned_at ? 'Unpin message' : 'Pin message'} title={m.pinned_at ? 'Unpin' : 'Pin to the conversation'} onClick={onPin}>📌</button>}
         {m.user_id === user.id && !m.poll && <button type="button" className="icon-btn" aria-label="Edit message" onClick={onStartEdit}><Icon name="edit" size={16} /></button>}
         {(m.user_id === user.id || user.is_admin) && (

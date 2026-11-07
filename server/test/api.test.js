@@ -1755,6 +1755,37 @@ test('company templates: an admin marks one; anyone in the company starts from i
   assert.equal((await b('GET', '/api/files/templates')).body.some((t) => t.id === doc.id), false);
 });
 
+test('chat: remind me about a message — a notification at the time, linking back; changed, cancelled, private', async () => {
+  const { sendDueChat } = await import('../src/routes/chat.js');
+  const a = client(), b = client();
+  for (const [local, name] of [['rema', 'Rem Ann'], ['remb', 'Rem Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'rema@acme.com');
+  const bid = (await login(b, 'remb@acme.com')).id;
+  const ch = (await a('POST', '/api/chat/channels', { name: 'remind-me', private: true, members: [bid] })).body.id;
+  const m = (await b('POST', `/api/chat/channels/${ch}/messages`, { body: 'Can you send the contract by Friday?' })).body;
+  const hour = Date.now() + 36e5;
+  assert.equal((await a('POST', `/api/chat/messages/${m.id}/remind`, { at: Date.now() })).status, 400);
+  assert.equal((await a('POST', `/api/chat/messages/${m.id}/remind`, { at: hour })).status, 200);
+  await a('POST', `/api/chat/messages/${m.id}/remind`, { at: hour + 60e3 }); // changed, not doubled
+  const mine = (await a('GET', '/api/chat/reminders')).body;
+  assert.equal(mine.length, 1);
+  assert.equal(mine[0].at, hour + 60e3);
+  assert.equal(mine[0].author, 'Rem Ben');
+  assert.deepEqual((await b('GET', '/api/chat/reminders')).body, [], 'private');
+  sendDueChat(hour); // not yet
+  assert.equal((await a('GET', '/api/chat/reminders')).body.length, 1);
+  sendDueChat(hour + 61e3);
+  assert.deepEqual((await a('GET', '/api/chat/reminders')).body, []);
+  const n = (await a('GET', '/api/notifications')).body.items.find((x) => x.title === 'Reminder: Rem Ben in #remind-me');
+  assert.ok(n);
+  assert.equal(n.body, 'Can you send the contract by Friday?');
+  assert.equal(n.link, `/chat/${ch}?msg=${m.id}`);
+  // Cancelled ones don't come.
+  await a('POST', `/api/chat/messages/${m.id}/remind`, { at: hour });
+  await a('POST', `/api/chat/messages/${m.id}/remind`, { at: null });
+  assert.deepEqual((await a('GET', '/api/chat/reminders')).body, []);
+});
+
 test('chat polls: ask, vote (one or several), change your vote, close; checked options', async () => {
   const a = client(), b = client(), c = client();
   for (const [local, name] of [['polla', 'Poll Ann'], ['pollb', 'Poll Ben'], ['pollc', 'Poll Cat']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);

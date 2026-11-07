@@ -193,10 +193,37 @@ function sendScheduled(row, now_ = false) {
   }
 }
 
-/** Send what's due (every few seconds; started with the server). */
+// "Remind me about this": a notification at the chosen time, linking back to the message.
+q(`CREATE TABLE IF NOT EXISTS chat_reminders (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+  at INTEGER NOT NULL,
+  UNIQUE (user_id, message_id)
+)`).run();
+
+function remindDue(at) {
+  const due = q(`SELECT r.*, m.body, m.channel_id, m.parent_id, u.name AS author, c.name AS channel, c.dm_key
+                 FROM chat_reminders r JOIN messages m ON m.id = r.message_id JOIN channels c ON c.id = m.channel_id LEFT JOIN users u ON u.id = m.user_id
+                 WHERE r.at <= ? ORDER BY r.at LIMIT 100`).all(at);
+  for (const r of due) {
+    q('DELETE FROM chat_reminders WHERE id = ?').run(r.id);
+    const user = q('SELECT * FROM users WHERE id = ? AND disabled = 0').get(r.user_id);
+    let ok = false;
+    try { ok = !!(user && loadChannel(r.channel_id, user)); } catch { ok = false; } // left the channel since: no reminder
+    if (!ok) continue;
+    notify([r.user_id], { kind: 'chat', title: `Reminder: ${r.author || 'a message'}${r.dm_key ? '' : ` in #${r.channel}`}`, body: String(r.body || '📎 a file').slice(0, 200),
+      link: `/chat/${r.channel_id}?msg=${r.parent_id || r.message_id}${r.parent_id ? `&thread=${r.parent_id}` : ''}`, actor: null });
+    sendTo([r.user_id], { type: 'chat-reminders' });
+  }
+  return due.length;
+}
+
+/** Send what's due, and remind about what's due (every few seconds; started with the server). */
 export function sendDueChat(at = Date.now()) {
   const due = q('SELECT * FROM chat_scheduled WHERE send_at <= ? AND error IS NULL ORDER BY send_at LIMIT 100').all(at);
   for (const row of due) sendScheduled(row);
+  remindDue(at);
   return due.length;
 }
 export function startChatScheduler() { setInterval(() => { try { sendDueChat(); } catch (e) { console.error('[chat] scheduled:', e.message); } }, 10e3).unref(); }
@@ -545,6 +572,30 @@ export default function chatRoutes() {
     const msg = one(m.id);
     sendTo(audience(c), { type: 'message-updated', message: msg });
     res.json(msg);
+  });
+
+  // Remind me about a message: { at } (or { at: null } to cancel). Only you see it.
+  r.post('/messages/:id/remind', (req, res) => {
+    const m = q('SELECT * FROM messages WHERE id = ?').get(req.params.id);
+    if (!m) throw notFound();
+    loadChannel(m.channel_id, req.user);
+    if (req.body.at === null) {
+      q('DELETE FROM chat_reminders WHERE user_id = ? AND message_id = ?').run(req.user.id, m.id);
+    } else {
+      const at = Number(req.body.at);
+      if (!Number.isFinite(at) || at < Date.now() + 30e3 || at > Date.now() + 366 * 864e5) throw bad('Choose a time from a minute to a year from now');
+      if (q('SELECT COUNT(*) AS n FROM chat_reminders WHERE user_id = ?').get(req.user.id).n >= 200) throw bad('You have enough reminders already');
+      q(`INSERT INTO chat_reminders (id, user_id, message_id, at) VALUES (?, ?, ?, ?)
+         ON CONFLICT(user_id, message_id) DO UPDATE SET at = excluded.at`).run(uid(), req.user.id, m.id, Math.round(at));
+    }
+    sendTo([req.user.id], { type: 'chat-reminders' });
+    res.json({ ok: true });
+  });
+  // Your reminders, soonest first.
+  r.get('/reminders', (req, res) => {
+    res.json(q(`SELECT r.message_id, r.at, m.body, m.channel_id, m.parent_id, u.name AS author, c.name AS channel, c.dm_key
+                FROM chat_reminders r JOIN messages m ON m.id = r.message_id JOIN channels c ON c.id = m.channel_id LEFT JOIN users u ON u.id = m.user_id
+                WHERE r.user_id = ? ORDER BY r.at`).all(req.user.id).map(({ dm_key, ...x }) => ({ ...x, dm: !!dm_key })));
   });
 
   // Pin a message to its conversation (or unpin it). Anyone in the conversation may; threads' replies can't be.
