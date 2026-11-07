@@ -1731,6 +1731,30 @@ test('drive: a folder path for uploading a folder — found when there, made whe
   assert.equal((await a('POST', '/api/files/folder-path', { path: [] })).status, 400);
 });
 
+test('company templates: an admin marks one; anyone in the company starts from it, shared or not', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['tpla', 'Tpl Ann'], ['tplb', 'Tpl Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'tpla@acme.com');
+  await login(b, 'tplb@acme.com');
+  const doc = (await a('POST', '/api/files/new', { kind: 'doc', name: 'Proposal', content: { type: 'doc', content: [{ type: 'heading', attrs: { level: 1 }, content: [{ type: 'text', text: 'Proposal for …' }] }] } })).body;
+  assert.equal((await a('PUT', `/api/files/${doc.id}/template`, { template: true })).status, 403, 'not an admin');
+  await a('PUT', `/api/files/${doc.id}/shares`, { shares: [] });
+  assert.equal((await owner('PUT', `/api/files/${doc.id}/template`, { template: true })).status, 404, 'the admin must be able to open it');
+  const ownerMe = (await owner('GET', '/api/auth/me')).body.user;
+  await a('PUT', `/api/files/${doc.id}/shares`, { shares: [{ user_id: ownerMe.id, role: 'viewer' }] });
+  assert.equal((await owner('PUT', `/api/files/${doc.id}/template`, { template: true })).body.template, 1);
+  const list = (await b('GET', '/api/files/templates')).body;
+  assert.ok(list.some((t) => t.id === doc.id && t.name === 'Proposal' && t.kind === 'doc'));
+  assert.equal((await b('GET', `/api/files/${doc.id}`)).status, 404, 'Ben can’t open the template itself');
+  const mine = (await b('POST', `/api/files/templates/${doc.id}/use`, { name: 'Proposal for Globex' })).body;
+  assert.equal(mine.name, 'Proposal for Globex');
+  assert.equal(mine.role, 'owner');
+  assert.match(JSON.stringify((await b('GET', `/api/files/${mine.id}/content`)).body.content), /Proposal for …/);
+  assert.equal((await b('POST', `/api/files/templates/${mine.id}/use`, {})).status, 404, 'not a template');
+  await owner('PUT', `/api/files/${doc.id}/template`, { template: false });
+  assert.equal((await b('GET', '/api/files/templates')).body.some((t) => t.id === doc.id), false);
+});
+
 test('chat polls: ask, vote (one or several), change your vote, close; checked options', async () => {
   const a = client(), b = client(), c = client();
   for (const [local, name] of [['polla', 'Poll Ann'], ['pollb', 'Poll Ben'], ['pollc', 'Poll Cat']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);

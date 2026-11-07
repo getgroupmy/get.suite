@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { NavLink, useLocation, useNavigate, useSearchParams } from 'react-router';
 import { get, post, patch, del, put, uploadFile, uploadVersion, onLive, formatBytes, formatDate } from '../../api.js';
+import { BUILT_IN } from './templates.js';
 import Icon, { fileIcon } from '../../components/Icon.jsx';
 import { Menu, Modal, PromptModal, ConfirmModal, Empty, useToast, Avatar } from '../../components/ui.jsx';
 import { useAuth } from '../../App.jsx';
@@ -206,6 +207,8 @@ export default function Drive() {
       f.kind === 'file' && { label: 'Download', icon: 'download', onClick: () => { location.href = `/api/files/${f.id}/raw?download`; } },
       f.kind === 'folder' && { label: 'Download as .zip', icon: 'download', onClick: () => zip([f.id]) },
       { label: 'Details', icon: 'more', onClick: () => setDialog({ type: 'details', file: f }) },
+      user.is_admin && ['doc', 'sheet', 'slides'].includes(f.kind) && { label: f.template ? 'Remove from company templates' : 'Make a company template', icon: 'doc',
+        onClick: async () => { try { await put(`/files/${f.id}/template`, { template: !f.template }); toast(f.template ? 'No longer a company template' : 'Everyone in your company can now start from it (New → From a template)'); load(); } catch (e) { toast(e.message, 'error'); } } },
       { label: f.starred ? 'Remove star' : 'Add star', icon: f.starred ? 'star' : 'staroutline', onClick: act(() => put(`/files/${f.id}/star`, { starred: !f.starred }), f.starred ? 'Star removed' : 'Starred') },
       '-',
       f.role === 'owner' && { label: 'Share', icon: 'share', onClick: () => setDialog({ type: 'share', file: f }) },
@@ -239,6 +242,7 @@ export default function Drive() {
           { label: 'Document', icon: 'doc', onClick: () => create('doc') },
           { label: 'Spreadsheet', icon: 'sheet', onClick: () => create('sheet') },
           { label: 'Presentation', icon: 'slides', onClick: () => create('slides') },
+          { label: 'From a template…', icon: 'doc', onClick: () => setDialog({ type: 'templates' }) },
         ]} />
         <input ref={fileInput} type="file" multiple hidden onChange={(e) => { startUploads(e.target.files); e.target.value = ''; }} />
         <input ref={folderInput} type="file" multiple hidden webkitdirectory="" aria-label="Folder to upload" onChange={(e) => { startUploads(e.target.files); e.target.value = ''; }} />
@@ -374,6 +378,12 @@ export default function Drive() {
       {dialog?.type === 'move' && <MoveDialog files={dialog.files} onClose={() => setDialog(null)} onMoved={() => { setChecked(new Set()); load(); }} />}
       {dialog?.type === 'preview' && <Preview file={dialog.file} onClose={() => setDialog(null)} onOpenAs={() => { setDialog(null); openAs(dialog.file); }} />}
       {requestsOpen && <AccessRequests list={requests} onClose={() => setRequestsOpen(false)} onChanged={() => { loadRequests(); load(); }} />}
+      {dialog?.type === 'templates' && <TemplatesDialog onClose={() => setDialog(null)} onPick={async (t) => {
+        try {
+          const f = t.builtIn ? await post('/files/new', { kind: t.kind, name: t.name, parent_id: parentId, content: t.content() }) : await post(`/files/templates/${t.id}/use`, { parent_id: parentId });
+          navigate(openPath(f));
+        } catch (e) { toast(e.message, 'error'); }
+      }} />}
       {dialog?.type === 'details' && <DetailsDialog file={dialog.file} onClose={() => setDialog(null)} onChanged={load} />}
       {dialog?.type === 'versions' && <VersionsDialog file={dialog.file} onClose={() => setDialog(null)} onChanged={load} />}
       <input ref={versionInput} type="file" hidden aria-hidden="true" tabIndex={-1} onChange={(e) => { uploadNewVersion(e.target.files[0]); e.target.value = ''; }} />
@@ -686,6 +696,31 @@ function AccessRequests({ list, onClose, onChanged }) {
           ))}
         </ul>
       )}
+    </Modal>
+  );
+}
+
+/** New from a template: the built-in ones, and your company's own. */
+function TemplatesDialog({ onClose, onPick }) {
+  const [company, setCompany] = useState(null);
+  useEffect(() => { get('/files/templates').then(setCompany).catch(() => setCompany([])); }, []);
+  const card = (t, key) => (
+    <button key={key} type="button" className="template-card" onClick={() => onPick(t)} aria-label={`${t.name} (${{ doc: 'document', sheet: 'spreadsheet', slides: 'presentation' }[t.kind]})`}>
+      <Icon name={t.kind} size={28} className={`ft ft-${t.kind}`} />
+      <strong>{t.name}</strong>
+      <span className="muted small">{t.blurb || t.description || (t.owner_name ? `From ${t.owner_name}` : '')}</span>
+    </button>
+  );
+  return (
+    <Modal wide title="New from a template" onClose={onClose} footer={<button className="btn" onClick={onClose}>Cancel</button>}>
+      <div className="stack">
+        {company?.length > 0 && <>
+          <h3 className="template-head">Your company</h3>
+          <div className="template-grid">{company.map((t) => card(t, t.id))}</div>
+        </>}
+        <h3 className="template-head">Ready-made</h3>
+        <div className="template-grid">{BUILT_IN.map((t) => card({ ...t, builtIn: true }, t.key))}</div>
+      </div>
     </Modal>
   );
 }

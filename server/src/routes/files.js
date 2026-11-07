@@ -29,7 +29,9 @@ const EXPORT_AS = { doc: 'docx', sheet: 'xlsx', slides: 'pptx' };
 const MAX_CONVERT = 50 * 1024 * 1024;
 const officeType = (name) => OFFICE[(/\.([a-z]+)$/i.exec(name || '') || [])[1]?.toLowerCase()] ? (/\.([a-z]+)$/i.exec(name)[1].toLowerCase()) : null;
 
-const COLS = `f.id, f.owner_id, f.parent_id, f.name, f.kind, f.mime, f.size, f.version, f.trashed, f.trashed_at, f.page_setup, f.color, f.description,
+// Company templates: documents, spreadsheets and presentations an admin has marked for everyone in the company to start from.
+if (!q('PRAGMA table_info(files)').all().some((c) => c.name === 'template')) q('ALTER TABLE files ADD COLUMN template INTEGER NOT NULL DEFAULT 0').run();
+const COLS = `f.id, f.owner_id, f.parent_id, f.name, f.kind, f.mime, f.size, f.version, f.trashed, f.trashed_at, f.page_setup, f.color, f.description, f.template,
               f.created_at, f.updated_at, u.name AS owner_name, ub.name AS updated_by_name`;
 const FROM = `FROM files f JOIN users u ON u.id = f.owner_id LEFT JOIN users ub ON ub.id = f.updated_by`;
 // Owner is in my company, or both companies currently allow external collaboration.
@@ -397,6 +399,12 @@ export default function fileRoutes({ maxUploadBytes }) {
     res.json({ deleted: ids.length });
   });
 
+  // Company templates, for New → From a template.
+  r.get('/templates', (req, res) => {
+    res.json(q(`SELECT f.id, f.name, f.kind, f.description, u.name AS owner_name FROM files f JOIN users u ON u.id = f.owner_id
+                WHERE f.template = 1 AND f.trashed = 0 AND u.org_id = ? ORDER BY f.kind, f.name COLLATE NOCASE`).all(req.user.org_id));
+  });
+
   // ---- asking for access: someone with a link to a file they can't open asks its owner ----
   // The asker learns nothing about the file (not even that it exists) until the owner says yes.
   r.post('/:id/request-access', (req, res) => {
@@ -460,6 +468,28 @@ export default function fileRoutes({ maxUploadBytes }) {
 
   // Make a copy of a file, document, spreadsheet or presentation, next to it if you can add files
   // there (otherwise in your Drive).
+  // ---- company templates ----
+  // Mark a file as a company template (or not): a company admin, for a file of their company they can open.
+  r.put('/:id/template', (req, res) => {
+    const f = loadFile(req.params.id, req.user);
+    if (!req.user.is_admin || q('SELECT org_id FROM users WHERE id = ?').get(f.owner_id)?.org_id !== req.user.org_id) throw forbidden('Only a company admin can make company templates');
+    if (!EDITABLE.includes(f.kind)) throw bad('Only documents, spreadsheets and presentations can be templates');
+    q('UPDATE files SET template = ? WHERE id = ?').run(req.body.template ? 1 : 0, f.id);
+    audit(req, req.body.template ? 'file.template' : 'file.untemplate', { target: f.name });
+    res.json(publicFile(loadFile(f.id, req.user)));
+  });
+  // Start a new file from a company template (everyone in the company may, shared with them or not).
+  r.post('/templates/:id/use', (req, res) => {
+    const row = q('SELECT f.*, u.org_id FROM files f JOIN users u ON u.id = f.owner_id WHERE f.id = ? AND f.template = 1 AND f.trashed = 0').get(String(req.params.id));
+    if (!row || row.org_id !== req.user.org_id) throw notFound('Template not found');
+    const parentId = resolveParent(req.body?.parent_id, req.user);
+    checkQuota(req.user.org_id, row.size || 0);
+    const name = req.body?.name ? cleanName(req.body.name) : row.name;
+    const id = insertFile({ owner: req.user.id, parentId, name, kind: row.kind, size: row.size, content: row.content, activity: { action: 'copy', details: { from: `the template ${row.name}` } } });
+    if (parentId) notify(parentId, { type: 'files-changed', parent_id: parentId });
+    res.status(201).json(publicFile(loadFile(id, req.user)));
+  });
+
   r.post('/:id/copy', (req, res) => {
     const f = loadFile(req.params.id, req.user);
     if (f.kind === 'folder') throw bad('Folders can’t be copied yet; copy the files in it');

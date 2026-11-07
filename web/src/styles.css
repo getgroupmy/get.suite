@@ -1469,3 +1469,8 @@ img.avatar.photo { object-fit: cover; border-radius: 50%; display: inline-block;
 .slide-table.with-header tr:first-child th { background: var(--head); color: var(--head-text); font-weight: 700; }
 .slide-cell { width: 100%; border: 0; background: transparent; color: inherit; font: inherit; padding: 0; outline: none; }
 .slide-cell:focus { box-shadow: inset 0 -2px 0 var(--accent); }
+/* Drive: templates */
+.template-head { margin: 4px 0 0; font-size: 14px; color: var(--muted); font-weight: 600; }
+.template-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
+.template-card { display: grid; gap: 4px; justify-items: start; text-align: left; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text); font: inherit; cursor: pointer; }
+.template-card:hover { border-color: var(--accent); }

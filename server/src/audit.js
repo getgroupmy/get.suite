@@ -22,7 +22,7 @@ export const ACTIONS = {
   'session.revoke': 'Signed out a device', 'mail-app.create': 'Made a mail-app password', 'mail-app.remove': 'Removed the mail-app password',
   'user.create': 'Added a person', 'user.update': 'Changed a person', 'user.delete': 'Deleted a person',
   'company.update': 'Changed company settings', 'domain.update': 'Changed a mail domain', 'alias.create': 'Added an alias', 'alias.update': 'Changed an alias', 'alias.delete': 'Deleted an alias',
-  'file.share': 'Changed sharing', 'link.create': 'Made a public link', 'link.delete': 'Removed a public link', 'file.delete': 'Deleted forever', 'trash.empty': 'Emptied the trash',
+  'file.share': 'Changed sharing', 'file.template': 'Made a company template', 'file.untemplate': 'Removed a company template', 'link.create': 'Made a public link', 'link.delete': 'Removed a public link', 'file.delete': 'Deleted forever', 'trash.empty': 'Emptied the trash',
 };
 
 const DAYS = Math.max(7, Number(process.env.AUDIT_DAYS) || 365);
