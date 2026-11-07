@@ -1459,6 +1459,49 @@ test('chat pins: anyone in the conversation pins and unpins; replies cannot be; 
   assert.equal((await a('POST', `/api/chat/messages/${m2.id}/pin`, { pinned: false })).status, 400);
 });
 
+test('chat polls: ask, vote (one or several), change your vote, close; checked options', async () => {
+  const a = client(), b = client(), c = client();
+  for (const [local, name] of [['polla', 'Poll Ann'], ['pollb', 'Poll Ben'], ['pollc', 'Poll Cat']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'polla@acme.com');
+  const bid = (await login(b, 'pollb@acme.com')).id;
+  await login(c, 'pollc@acme.com');
+  const ch = (await a('POST', '/api/chat/channels', { name: 'poll-private', private: true, members: [bid] })).body.id;
+  const send = (poll) => a('POST', `/api/chat/channels/${ch}/messages`, { poll });
+  assert.equal((await send({ question: 'Lunch?', options: ['Pizza'] })).status, 400, 'two options at least');
+  assert.equal((await send({ question: 'Lunch?', options: ['Pizza', 'pizza'] })).status, 400, 'no repeats');
+  assert.equal((await send({ question: '', options: ['A', 'B'] })).status, 400);
+  assert.equal((await send({ question: 'Q', options: Array.from({ length: 11 }, (_, i) => `o${i}`) })).status, 400);
+  const p = (await send({ question: 'Lunch on Friday?', options: ['Pizza', ' Sushi ', '', 'Salad'] })).body;
+  assert.equal(p.body, 'Lunch on Friday?');
+  assert.deepEqual(p.poll.options.map((o) => [o.id, o.text, o.votes.length]), [['o1', 'Pizza', 0], ['o2', 'Sushi', 0], ['o3', 'Salad', 0]]);
+  assert.equal(p.poll.multi, false);
+  const vote = (who, options) => who('POST', `/api/chat/messages/${p.id}/vote`, { options });
+  assert.equal((await vote(b, ['o1', 'o2'])).status, 400, 'one only');
+  assert.equal((await vote(b, ['o9'])).status, 400);
+  await vote(b, ['o2']);
+  let got = (await vote(a, ['o2'])).body;
+  assert.deepEqual(got.poll.options[1].votes.map((v) => v.name), ['Poll Ben', 'Poll Ann']);
+  assert.equal(got.poll.voters, 2);
+  got = (await vote(b, ['o3'])).body; // changed their mind
+  assert.deepEqual(got.poll.options.map((o) => o.votes.length), [0, 1, 1]);
+  got = (await vote(b, [])).body; // took it back
+  assert.equal(got.poll.voters, 1);
+  assert.equal((await vote(c, ['o1'])).status, 404, 'not in the channel');
+  assert.equal((await b('POST', `/api/chat/messages/${p.id}/poll/close`, {})).status, 400, 'only who asked');
+  assert.equal((await a('PATCH', `/api/chat/messages/${p.id}`, { body: 'x' })).status, 400, 'no editing');
+  assert.ok((await a('POST', `/api/chat/messages/${p.id}/poll/close`, {})).body.poll.closed_at);
+  assert.equal((await vote(b, ['o1'])).status, 400, 'closed');
+  assert.equal((await a('POST', `/api/chat/messages/${p.id}/poll/close`, { closed: false })).body.poll.closed_at, null);
+  // Several choices.
+  const m = (await send({ question: 'Which days?', options: ['Mon', 'Tue', 'Wed'], multi: true })).body;
+  got = (await b('POST', `/api/chat/messages/${m.id}/vote`, { options: ['o1', 'o3'] })).body;
+  assert.deepEqual(got.poll.options.map((o) => o.votes.length), [1, 0, 1]);
+  assert.equal(got.poll.voters, 1);
+  const listed = (await b('GET', `/api/chat/channels/${ch}/messages`)).body.find((x) => x.id === m.id);
+  assert.equal(listed.poll.question, 'Which days?');
+  assert.equal((await b('POST', `/api/chat/messages/${(await a('POST', `/api/chat/channels/${ch}/messages`, { body: 'plain' })).body.id}/vote`, { options: [] })).status, 404, 'not a poll');
+});
+
 test('tasks: a checklist of steps, shared with the list, fresh on each repeat', async () => {
   const a = client(), b = client(), c = client();
   for (const [local, name] of [['stepa', 'Step Ann'], ['stepb', 'Step Ben'], ['stepc', 'Step Cat']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);

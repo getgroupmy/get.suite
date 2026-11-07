@@ -31,6 +31,28 @@ q(`CREATE TABLE IF NOT EXISTS chat_mutes (
 for (const [col, type] of [['pinned_at', 'INTEGER'], ['pinned_by', 'TEXT']]) {
   if (!q('PRAGMA table_info(messages)').all().some((c) => c.name === col)) q(`ALTER TABLE messages ADD COLUMN ${col} ${type}`).run();
 }
+// Polls: a message can carry a question with options ({ question, options: [{ id, text }], multi, closed_at }); votes are kept per person.
+if (!q('PRAGMA table_info(messages)').all().some((c) => c.name === 'poll')) q('ALTER TABLE messages ADD COLUMN poll TEXT').run();
+q(`CREATE TABLE IF NOT EXISTS poll_votes (
+  message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  option_id TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (message_id, user_id, option_id)
+)`).run();
+const MAX_OPTIONS = 10;
+
+/** A poll as sent with a new message, checked: 2–10 different options, a question. */
+export function cleanPoll(p) {
+  if (!p || typeof p !== 'object') throw bad('A poll needs a question and options');
+  const question = str(p.question, { required: true, name: 'Question', max: 300 });
+  const texts = (Array.isArray(p.options) ? p.options : []).map((o) => String(o ?? '').trim()).filter(Boolean);
+  if (texts.some((t) => t.length > 200)) throw bad('An option is too long');
+  if (new Set(texts.map((t) => t.toLowerCase())).size !== texts.length) throw bad('Two options are the same');
+  if (texts.length < 2) throw bad('A poll needs at least two options');
+  if (texts.length > MAX_OPTIONS) throw bad(`At most ${MAX_OPTIONS} options`);
+  return { question, options: texts.map((text, i) => ({ id: `o${i + 1}`, text })), multi: !!p.multi };
+}
 import { sendTo, onlineUserIds } from '../hub.js';
 import { canReach, orgMemberIds } from '../tenancy.js';
 
@@ -60,7 +82,7 @@ function dmOpen(c, user) {
 }
 
 // Each message with its thread: how many replies, when the last came, and who replied (first few).
-const MSG = `SELECT m.id, m.channel_id, m.user_id, m.body, m.created_at, m.edited_at, m.files, m.parent_id, m.pinned_at, u.name AS user_name, (SELECT pu.name FROM users pu WHERE pu.id = m.pinned_by) AS pinned_by_name,
+const MSG = `SELECT m.id, m.channel_id, m.user_id, m.body, m.created_at, m.edited_at, m.files, m.parent_id, m.pinned_at, m.poll, u.name AS user_name, (SELECT pu.name FROM users pu WHERE pu.id = m.pinned_by) AS pinned_by_name,
                (SELECT COUNT(*) FROM messages t WHERE t.parent_id = m.id) AS reply_count,
                (SELECT MAX(t.created_at) FROM messages t WHERE t.parent_id = m.id) AS last_reply_at,
                (SELECT json_group_array(name) FROM (SELECT DISTINCT tu.name FROM messages t JOIN users tu ON tu.id = t.user_id
@@ -72,15 +94,24 @@ function shape(rows) {
   if (!rows.length) return rows;
   const reactions = q(`SELECT r.message_id, r.emoji, r.user_id, u.name FROM message_reactions r LEFT JOIN users u ON u.id = r.user_id
                        WHERE r.message_id IN (SELECT value FROM json_each(?)) ORDER BY r.created_at`).all(JSON.stringify(rows.map((m) => m.id)));
+  const withPolls = rows.filter((m) => m.poll).map((m) => m.id);
+  const votes = withPolls.length ? q(`SELECT v.message_id, v.option_id, v.user_id, u.name FROM poll_votes v LEFT JOIN users u ON u.id = v.user_id
+                       WHERE v.message_id IN (SELECT value FROM json_each(?)) ORDER BY v.created_at`).all(JSON.stringify(withPolls)) : [];
   return rows.map((m) => {
     const mine = reactions.filter((r) => r.message_id === m.id);
+    let poll = null;
+    if (m.poll) {
+      const p = JSON.parse(m.poll), mv = votes.filter((v) => v.message_id === m.id);
+      poll = { ...p, voters: new Set(mv.map((v) => v.user_id)).size,
+        options: p.options.map((o) => ({ ...o, votes: mv.filter((v) => v.option_id === o.id).map((v) => ({ id: v.user_id, name: v.name || 'Someone' })) })) };
+    }
     const byEmoji = [];
     for (const r of mine) {
       let e = byEmoji.find((x) => x.emoji === r.emoji);
       if (!e) byEmoji.push(e = { emoji: r.emoji, users: [] });
       e.users.push({ id: r.user_id, name: r.name || 'Someone' });
     }
-    return { ...m, files: m.files ? JSON.parse(m.files) : [], reactions: byEmoji, repliers: m.repliers ? JSON.parse(m.repliers) : [] };
+    return { ...m, files: m.files ? JSON.parse(m.files) : [], reactions: byEmoji, repliers: m.repliers ? JSON.parse(m.repliers) : [], poll };
   });
 }
 const one = (id) => shape([q(`${MSG} WHERE m.id = ?`).get(id)].filter(Boolean))[0];
@@ -309,7 +340,8 @@ export default function chatRoutes() {
       if (!f || f.kind !== 'file' || !roleFor(f.id, req.user.id)) throw bad('A file is not available');
       return { id: f.id, name: f.name, mime: f.mime || 'application/octet-stream', size: f.size };
     });
-    const body = str(req.body.body, { required: !files.length, name: 'Message', max: 8000 }) || '';
+    const poll = req.body.poll ? cleanPoll(req.body.poll) : null;
+    const body = poll ? poll.question : str(req.body.body, { required: !files.length, name: 'Message', max: 8000 }) || '';
     // A reply goes in the thread of a message in this conversation (threads don't nest).
     let parent = null;
     if (req.body.parent_id) {
@@ -318,7 +350,7 @@ export default function chatRoutes() {
       if (parent.parent_id) parent = { id: parent.parent_id };
     }
     const id = uid();
-    q('INSERT INTO messages (id, channel_id, user_id, body, created_at, files, parent_id) VALUES (?, ?, ?, ?, ?, ?, ?)').run(id, c.id, req.user.id, body, now(), files.length ? JSON.stringify(files) : null, parent?.id ?? null);
+    q('INSERT INTO messages (id, channel_id, user_id, body, created_at, files, parent_id, poll) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(id, c.id, req.user.id, body, now(), files.length ? JSON.stringify(files) : null, parent?.id ?? null, poll ? JSON.stringify(poll) : null);
     q('INSERT INTO channel_reads (channel_id, user_id, read_at) VALUES (?, ?, ?) ON CONFLICT(channel_id, user_id) DO UPDATE SET read_at = excluded.read_at').run(c.id, req.user.id, now());
     const msg = one(id);
     sendTo(audience(c), { type: 'message', message: msg });
@@ -351,6 +383,7 @@ export default function chatRoutes() {
     const c = loadChannel(m.channel_id, req.user);
     if (m.user_id !== req.user.id) throw notFound();
     readOnly(c);
+    if (m.poll) throw bad("A poll can't be edited");
     const body = str(req.body.body, { required: !m.files, name: 'Message', max: 8000 }) || '';
     q('UPDATE messages SET body = ?, edited_at = ? WHERE id = ?').run(body, now(), m.id);
     const msg = one(m.id);
@@ -371,6 +404,41 @@ export default function chatRoutes() {
       if (q('SELECT COUNT(DISTINCT emoji) AS n FROM message_reactions WHERE message_id = ?').get(m.id).n >= 20) throw bad('That message has enough reactions');
       q('INSERT INTO message_reactions (message_id, user_id, emoji, created_at) VALUES (?, ?, ?, ?)').run(m.id, req.user.id, emoji, now());
     }
+    const msg = one(m.id);
+    sendTo(audience(c), { type: 'message-updated', message: msg });
+    res.json(msg);
+  });
+
+  // Vote in a poll: `options` is your whole choice (one id, or several in a poll that allows it; [] takes your vote back).
+  r.post('/messages/:id/vote', (req, res) => {
+    const m = q('SELECT * FROM messages WHERE id = ?').get(req.params.id);
+    if (!m?.poll) throw notFound();
+    const c = loadChannel(m.channel_id, req.user);
+    readOnly(c);
+    const p = JSON.parse(m.poll);
+    if (p.closed_at) throw bad('This poll is closed');
+    const picked = [...new Set((Array.isArray(req.body.options) ? req.body.options : []).map(String))];
+    if (picked.some((o) => !p.options.some((x) => x.id === o))) throw bad('That option is not in the poll');
+    if (!p.multi && picked.length > 1) throw bad('Choose one option');
+    tx(() => {
+      q('DELETE FROM poll_votes WHERE message_id = ? AND user_id = ?').run(m.id, req.user.id);
+      for (const o of picked) q('INSERT INTO poll_votes (message_id, user_id, option_id, created_at) VALUES (?, ?, ?, ?)').run(m.id, req.user.id, o, now());
+    });
+    const msg = one(m.id);
+    sendTo(audience(c), { type: 'message-updated', message: msg });
+    res.json(msg);
+  });
+
+  // Close a poll (or open it again): only who asked.
+  r.post('/messages/:id/poll/close', (req, res) => {
+    const m = q('SELECT * FROM messages WHERE id = ?').get(req.params.id);
+    if (!m?.poll) throw notFound();
+    const c = loadChannel(m.channel_id, req.user);
+    if (m.user_id !== req.user.id) throw bad('Only who asked can close the poll');
+    readOnly(c);
+    const p = JSON.parse(m.poll);
+    const closed = req.body.closed !== false;
+    q('UPDATE messages SET poll = ? WHERE id = ?').run(JSON.stringify({ ...p, closed_at: closed ? now() : null }), m.id);
     const msg = one(m.id);
     sendTo(audience(c), { type: 'message-updated', message: msg });
     res.json(msg);

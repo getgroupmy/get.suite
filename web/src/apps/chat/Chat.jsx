@@ -174,6 +174,7 @@ export default function Chat() {
 
   const [editingId, setEditingId] = useState(null);
   const [editText, setEditText] = useState('');
+  const [pollOpen, setPollOpen] = useState(false);
   async function saveEdit(m) {
     const body = editText.trim();
     if (body === m.body) { setEditingId(null); return; }
@@ -305,6 +306,7 @@ export default function Chat() {
           ) : <form className="composer" onSubmit={send} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { if (e.dataTransfer.files.length) { e.preventDefault(); attach([...e.dataTransfer.files]); } }}>
             <EmojiPicker up className="icon-btn" onPick={insertEmoji} />
             <button type="button" className="icon-btn" aria-label="Attach files" title="Attach files (or drop or paste them here)" onClick={() => fileInput.current.click()}><Icon name="attach" /></button>
+            <button type="button" className="icon-btn" aria-label="Create a poll" title="Ask a question with options to vote on" onClick={() => setPollOpen(true)}>📊</button>
             <input ref={fileInput} type="file" multiple hidden aria-label="Files to attach" onChange={(e) => { attach([...e.target.files]); e.target.value = ''; }} />
             <textarea ref={box} rows={1} value={text} placeholder={`Message ${title}`} aria-label="Message" title="*bold*  _italic_  ~strike~  `code`  ```code block```  > quote" onChange={(e) => { setText(e.target.value); mention.track(e.target.value, e.target.selectionStart); }}
               onPaste={(e) => { const pasted = [...(e.clipboardData?.files || [])]; if (pasted.length) { e.preventDefault(); attach(pasted); } }}
@@ -315,6 +317,12 @@ export default function Chat() {
         </>}
       </section>
       {current && threadId && <Thread key={threadId} id={threadId} channelId={channelId} user={user} onClose={() => setThreadId(null)} />}
+      {pollOpen && current && <PollDialog onClose={() => setPollOpen(false)} onSubmit={async (poll) => {
+        stick.current = true;
+        const msg = await post(`/chat/channels/${channelId}/messages`, { poll });
+        setMessages((list) => (list.some((x) => x.id === msg.id) ? list : [...list, msg]));
+        setPollOpen(false);
+      }} />}
       {dialog === 'email' && <PromptModal title="Message someone at another company" label="Their email address" confirm="Start chat" onClose={() => setDialog(false)}
         onSubmit={async (email) => { const p = await get(`/users/lookup?email=${encodeURIComponent(email)}`); await openDm(p.id); }} />}
       {dialog === true && <NewChannel people={people.filter((p) => p.id !== user.id)} onClose={() => setDialog(false)}
@@ -409,7 +417,8 @@ function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit
               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSaveEdit(); } else if (e.key === 'Escape') { e.preventDefault(); onCancelEdit(); } }} />
             <span className="muted small">Enter to save · Esc to cancel</span>
           </form>
-        ) : m.body && <div className="msg-text"><Formatted text={m.body} me={user.username} />{m.edited_at && <span className="muted small edited" title={`Edited ${new Date(m.edited_at).toLocaleString()}`}> (edited)</span>}</div>}
+        ) : m.poll ? <Poll m={m} user={user} />
+          : m.body && <div className="msg-text"><Formatted text={m.body} me={user.username} />{m.edited_at && <span className="muted small edited" title={`Edited ${new Date(m.edited_at).toLocaleString()}`}> (edited)</span>}</div>}
         {m.files?.length > 0 && (
           <div className="msg-files">
             {m.files.map((f) => (/^image\/(png|jpeg|gif|webp)$/.test(f.mime)
@@ -439,12 +448,81 @@ function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit
         <EmojiPicker className="icon-btn" label="Add a reaction" onPick={(e) => onReact(e)} />
         {onThread && <button type="button" className="icon-btn" aria-label="Reply in thread" title="Reply in thread" onClick={onThread}><Icon name="reply" size={16} /></button>}
         {onPin && !m.parent_id && <button type="button" className="icon-btn" aria-label={m.pinned_at ? 'Unpin message' : 'Pin message'} title={m.pinned_at ? 'Unpin' : 'Pin to the conversation'} onClick={onPin}>📌</button>}
-        {m.user_id === user.id && <button type="button" className="icon-btn" aria-label="Edit message" onClick={onStartEdit}><Icon name="edit" size={16} /></button>}
+        {m.user_id === user.id && !m.poll && <button type="button" className="icon-btn" aria-label="Edit message" onClick={onStartEdit}><Icon name="edit" size={16} /></button>}
         {(m.user_id === user.id || user.is_admin) && (
           <button className="icon-btn" aria-label="Delete message" onClick={onDelete}><Icon name="trash" size={16} /></button>
         )}
       </div>
     </div>
+  );
+}
+
+/** A poll in a message: the question, a bar per option with who chose it, and voting (live for everyone). */
+function Poll({ m, user }) {
+  const toast = useToast();
+  const p = m.poll;
+  const mine = p.options.filter((o) => o.votes.some((v) => v.id === user.id)).map((o) => o.id);
+  const most = Math.max(1, ...p.options.map((o) => o.votes.length));
+  const closed = !!p.closed_at;
+  const vote = (id) => {
+    const next = p.multi ? (mine.includes(id) ? mine.filter((x) => x !== id) : [...mine, id]) : (mine.includes(id) ? [] : [id]);
+    post(`/chat/messages/${m.id}/vote`, { options: next }).catch((e) => toast(e.message, 'error'));
+  };
+  return (
+    <div className="poll" role="group" aria-label={`Poll: ${p.question}`}>
+      <div className="poll-q"><strong>📊 {p.question}</strong></div>
+      <div className="muted small">{closed ? 'Closed' : p.multi ? 'Choose any' : 'Choose one'} · {p.voters} {p.voters === 1 ? 'person' : 'people'} voted</div>
+      <ul className="poll-options">
+        {p.options.map((o) => {
+          const chosen = mine.includes(o.id);
+          const names = o.votes.map((v) => v.name).join(', ');
+          return (
+            <li key={o.id}>
+              <button type="button" className={`poll-option ${chosen ? 'chosen' : ''}`} disabled={closed} aria-pressed={chosen}
+                aria-label={`${o.text}: ${o.votes.length} vote${o.votes.length === 1 ? '' : 's'}`} title={names || 'No votes yet'} onClick={() => vote(o.id)}>
+                <span className="poll-bar" style={{ width: `${(o.votes.length / most) * 100}%` }} aria-hidden="true" />
+                <span className="poll-mark" aria-hidden="true">{chosen ? (p.multi ? '☑' : '◉') : (p.multi ? '☐' : '○')}</span>
+                <span className="grow poll-text">{o.text}</span>
+                <span className="poll-count">{o.votes.length}</span>
+              </button>
+              {names && <div className="muted small poll-names">{names}</div>}
+            </li>
+          );
+        })}
+      </ul>
+      {m.user_id === user.id && (
+        <button type="button" className="link-btn small" onClick={() => post(`/chat/messages/${m.id}/poll/close`, { closed: !closed }).catch((e) => toast(e.message, 'error'))}>{closed ? 'Reopen poll' : 'Close poll'}</button>
+      )}
+    </div>
+  );
+}
+
+/** Ask a question: 2–10 options, one choice or several. */
+function PollDialog({ onClose, onSubmit }) {
+  const [question, setQuestion] = useState('');
+  const [options, setOptions] = useState(['', '']);
+  const [multi, setMulti] = useState(false);
+  const [error, setError] = useState('');
+  async function submit(e) {
+    e.preventDefault();
+    try { await onSubmit({ question, options, multi }); } catch (err) { setError(err.message); }
+  }
+  return (
+    <Modal title="Create a poll" onClose={onClose}>
+      <form className="stack" onSubmit={submit}>
+        <label className="field"><span>Question</span><input autoFocus required maxLength={300} value={question} onChange={(e) => setQuestion(e.target.value)} placeholder="e.g. Where shall we have lunch?" /></label>
+        {options.map((o, i) => (
+          <div key={i} className="row">
+            <label className="field grow"><span>Option {i + 1}</span><input maxLength={200} value={o} onChange={(e) => setOptions(options.map((x, j) => (j === i ? e.target.value : x)))} /></label>
+            {options.length > 2 && <button type="button" className="icon-btn" aria-label={`Remove option ${i + 1}`} onClick={() => setOptions(options.filter((_, j) => j !== i))}><Icon name="close" size={16} /></button>}
+          </div>
+        ))}
+        {options.length < 10 && <button type="button" className="link-btn" onClick={() => setOptions([...options, ''])}>+ Add an option</button>}
+        <label className="check"><input type="checkbox" checked={multi} onChange={(e) => setMulti(e.target.checked)} /> People can choose more than one</label>
+        {error && <p className="error">{error}</p>}
+        <div className="row end"><button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn primary">Post poll</button></div>
+      </form>
+    </Modal>
   );
 }
 
