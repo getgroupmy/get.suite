@@ -72,6 +72,20 @@ export default function roomRoutes() {
     }
     res.json(list);
   });
+  // A room's bookings between two times (at most 31 days): when, what and who booked it (rooms are
+  // shared by the company, so its bookings are no secret inside it).
+  r.get('/:id/busy', (req, res) => {
+    const room = q('SELECT * FROM rooms WHERE id = ? AND org_id = ?').get(req.params.id, req.user.org_id);
+    if (!room) throw notFound();
+    const from = Number(req.query.from), to = Number(req.query.to);
+    if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from || to - from > 31 * 864e5) throw bad('Give from and to, at most 31 days apart');
+    const rows = q(`SELECT e.*, u.name AS organizer FROM events e JOIN event_rooms r ON r.event_id = e.id JOIN users u ON u.id = e.owner_id
+                    WHERE r.room_id = ? AND r.status = 'yes' AND e.start < ?
+                      AND (e.end > ? OR (e.rrule IS NOT NULL AND (e.repeat_until IS NULL OR e.repeat_until > ?)))`).all(room.id, to, from, from);
+    res.json(rows.flatMap((row) => expand(outEvent(row), from, to).map((o) => ({ start: o.start, end: o.end, title: row.title, organizer: row.organizer })))
+      .sort((x, y) => x.start - y.start));
+  });
+
   const admin = (req) => { if (!req.user.is_admin) throw forbidden('Only a company admin can change rooms'); };
   const read = (b, cur = {}) => ({
     name: str(b.name ?? cur.name, { required: true, name: 'Name', max: 100 }),

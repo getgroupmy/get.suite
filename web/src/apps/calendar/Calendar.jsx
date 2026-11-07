@@ -79,10 +79,17 @@ export default function Calendar() {
   const loadBusy = useCallback(() => {
     if (!others.length) { setBusy([]); return; }
     const from = days[0].getTime(), to = days[days.length - 1].getTime() + DAY;
-    get(`/freebusy?users=${others.map((o) => o.id).join(',')}&from=${from}&to=${to}`)
-      .then((r) => setBusy(others.flatMap((o) => (r[o.id]?.busy || []).map((b) => ({ ...b, key: `${o.id}@${b.start}`, name: o.name, color: o.color })))))
-      .catch(() => setBusy([]));
+    const people = others.filter((o) => !o.room), places = others.filter((o) => o.room);
+    Promise.all([
+      people.length ? get(`/freebusy?users=${people.map((o) => o.id).join(',')}&from=${from}&to=${to}`)
+        .then((r) => people.flatMap((o) => (r[o.id]?.busy || []).map((b) => ({ ...b, key: `${o.id}@${b.start}`, name: o.name, color: o.color })))) : [],
+      // A room's bookings, with what each is and who booked it.
+      ...places.map((o) => get(`/rooms/${o.id}/busy?from=${from}&to=${to}`)
+        .then((list) => list.map((b) => ({ ...b, key: `${o.id}@${b.start}`, name: o.name, color: o.color, room: true }))).catch(() => [])),
+    ]).then((parts) => setBusy(parts.flat())).catch(() => setBusy([]));
   }, [others, days]);
+  const [roomList, setRoomList] = useState([]);
+  useEffect(() => { get('/rooms').then(setRoomList).catch(() => {}); }, []);
   useEffect(loadBusy, [loadBusy]);
   useEffect(() => { const t = setInterval(loadBusy, 60e3); return () => clearInterval(t); }, [loadBusy]);
   // The upcoming list (next 30 days) doesn't depend on the period on screen.
@@ -184,7 +191,7 @@ export default function Calendar() {
         <button className="btn new-btn" onClick={() => newEvent()}><Icon name="plus" /> Create</button>
         <button type="button" className="subnav-item" onClick={() => { const d = startOfDay(new Date()).getTime(); setEditing({ title: 'Out of office', kind: 'ooo', start: d, end: d + DAY - 1, all_day: 1, color: '#5f6368', location: '', description: '' }); }}><span aria-hidden="true" style={{ width: 24, textAlign: 'center' }}>🌴</span><span className="grow">Out of office…</span></button>
         <button type="button" className="subnav-item" onClick={() => setBookingOpen(true)}><Icon name="link" /><span className="grow">Booking pages</span></button>
-        <div className="subnav-title">Other people</div>
+        <div className="subnav-title">Other calendars</div>
         {others.map((o) => (
           <div key={o.id} className="row other-cal"><span className="dot" style={{ background: o.color }} /><span className="grow ellipsis small">{o.name}</span>
             <button type="button" className="icon-btn" style={{ width: 24, height: 24 }} aria-label={`Hide ${o.name}`} onClick={() => setOthers(others.filter((x) => x.id !== o.id))}><Icon name="close" size={14} /></button></div>
@@ -198,7 +205,16 @@ export default function Calendar() {
             {people.filter((p) => p.id !== me.id && !others.some((o) => o.id === p.id)).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
         )}
-        {others.length > 0 && view === 'month' && <p className="muted small" style={{ margin: '4px 12px' }}>Their busy times show in the week and day views.</p>}
+        {others.length < 10 && roomList.some((r) => !others.some((o) => o.id === r.id)) && (
+          <select className="dm-pick" value="" aria-label="Show a room's bookings" onChange={(e) => {
+            const r = roomList.find((x) => x.id === e.target.value);
+            if (r) setOthers([...others, { id: r.id, name: r.name, room: true, color: OTHER_COLOURS[others.length % OTHER_COLOURS.length] }]);
+          }}>
+            <option value="">+ See a room’s bookings…</option>
+            {roomList.filter((r) => !others.some((o) => o.id === r.id)).map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+          </select>
+        )}
+        {others.length > 0 && view !== 'week' && view !== 'day' && <p className="muted small" style={{ margin: '4px 12px' }}>Their busy times (and rooms' bookings) show in the week and day views.</p>}
         <label className="check cal-show-tasks"><input type="checkbox" checked={showTasks} onChange={(e) => setShowTasks(e.target.checked)} /> Show tasks with due dates</label>
         <label className="check cal-show-tasks"><input type="checkbox" checked={showBirthdays} onChange={(e) => setShowBirthdays(e.target.checked)} /> Show contacts’ birthdays</label>
         <form className="cal-search" role="search" onSubmit={(e) => { e.preventDefault(); runSearch(new FormData(e.currentTarget).get('q')); }}>
@@ -370,7 +386,8 @@ function TimeGrid({ days, events, busy = [], today, onOpen, onNew, onDay: openDa
               {busy.filter((b) => b.start < d.getTime() + DAY && b.end > d.getTime()).map((b) => {
                 const s = Math.max(b.start, d.getTime()), e = Math.min(b.end, d.getTime() + DAY);
                 return <div key={b.key} className="tg-busy" style={{ '--c': b.color, top: ((s - d.getTime()) / 36e5) * HOUR_PX, height: Math.max(12, ((e - s) / 36e5) * HOUR_PX - 2) }}
-                  title={`${b.name} is ${b.ooo ? 'out of office' : 'busy'} ${fmtTime(b.start)} – ${fmtTime(b.end)}`} aria-label={`${b.name} ${b.ooo ? 'out of office' : 'busy'} ${fmtTime(b.start)} to ${fmtTime(b.end)}`}><span>{b.name}{b.ooo ? ' · out of office' : ''}</span></div>;
+                  title={b.room ? `${b.name}: ${b.title} (${b.organizer}), ${fmtTime(b.start)} – ${fmtTime(b.end)}` : `${b.name} is ${b.ooo ? 'out of office' : 'busy'} ${fmtTime(b.start)} – ${fmtTime(b.end)}`}
+                  aria-label={b.room ? `${b.name} booked: ${b.title} by ${b.organizer}, ${fmtTime(b.start)} to ${fmtTime(b.end)}` : `${b.name} ${b.ooo ? 'out of office' : 'busy'} ${fmtTime(b.start)} to ${fmtTime(b.end)}`}><span>{b.name}{b.room ? ` · ${b.title}` : b.ooo ? ' · out of office' : ''}</span></div>;
               })}
               {layoutDay(events, d).map(({ ev, top, height, col, cols: n }) => (
                 <button key={ev.key || ev.id} className={`tg-event ${inviteClass(ev)} ${ev.dragging ? 'dragging' : ''} ${ev.role !== 'guest' ? 'movable' : ''}`} title={`${ev.title} · ${fmtTime(ev.start)} – ${fmtTime(ev.end)}${ev.rrule ? ' · repeats' : ''}`}

@@ -1869,6 +1869,9 @@ test('rooms: admins list them; an event books a free room, a clashing one is dec
   const again = (await b('PATCH', `/api/events/${e2.id}`, { rooms: [board.id] })).body;
   assert.deepEqual(again.rooms.map((r) => [r.name, r.status]), [['Boardroom', 'yes']]);
   assert.ok((await b('GET', `/api/events?from=${day}&to=${day + 864e5}`)).body.find((e) => e.id === e2.id).rooms.length === 1);
+  const bookings = (await b('GET', `/api/rooms/${board.id}/busy?from=${day}&to=${day + 864e5}`)).body;
+  assert.deepEqual(bookings.map((x) => [x.title, x.organizer, (x.start - day) / h]), [['Interview', 'Room Ben', 11], ['Board meeting', 'Room Ann', 14]]);
+  assert.equal((await b('GET', `/api/rooms/${board.id}/busy?from=0&to=${100 * 864e5}`)).status, 400);
   await owner('DELETE', `/api/rooms/${small.id}`);
   assert.equal((await a('POST', '/api/events', { title: 'x', start: day, end: day + h, rooms: [small.id] })).status, 400);
 });
