@@ -244,7 +244,7 @@ function TaskDetails({ task, lists, people, onChange, onClose, onDelete, onMove,
       <Steps task={task} onReplaced={onReplaced} />
       <label className="field"><span>Due</span>
         <span className="row"><input type="date" value={task.due || ''} onChange={(e) => onChange({ due: e.target.value || null })} />
-          {task.due && <input type="time" aria-label="Due time" value={task.due_time || ''} onChange={(e) => onChange({ due_time: e.target.value || null })} />}
+          {task.due && <input type="time" aria-label="Time" title="Due time (optional)" value={task.due_time || ''} onChange={(e) => onChange({ due_time: e.target.value || null })} />}
           {task.due && <button type="button" className="link-btn small" onClick={() => onChange({ due: null })}>Clear</button>}</span>
       </label>
       <label className="field"><span>Repeat</span>
