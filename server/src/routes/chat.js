@@ -196,6 +196,15 @@ function sendScheduled(row, now_ = false) {
 }
 
 // "Remind me about this": a notification at the chosen time, linking back to the message.
+// Saved messages: a person's own bookmarks, to come back to (from any conversation they're in).
+q(`CREATE TABLE IF NOT EXISTS chat_saved (
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+  saved_at INTEGER NOT NULL,
+  PRIMARY KEY (user_id, message_id)
+)`).run();
+const MAX_SAVED = 1000;
+
 q(`CREATE TABLE IF NOT EXISTS chat_reminders (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -619,6 +628,27 @@ export default function chatRoutes() {
     sendTo([req.user.id], { type: 'chat-reminders' });
     res.json({ ok: true });
   });
+  // Save a message for later (or stop): only messages you can see.
+  r.put('/messages/:id/saved', (req, res) => {
+    const m = q('SELECT id, channel_id FROM messages WHERE id = ?').get(req.params.id);
+    if (!m) throw notFound('Message not found');
+    loadChannel(m.channel_id, req.user);
+    if (req.body.saved) {
+      if (q('SELECT COUNT(*) AS n FROM chat_saved WHERE user_id = ?').get(req.user.id).n >= MAX_SAVED) throw bad(`You can keep up to ${MAX_SAVED} saved messages`);
+      q('INSERT OR IGNORE INTO chat_saved (user_id, message_id, saved_at) VALUES (?, ?, ?)').run(req.user.id, m.id, now());
+    } else q('DELETE FROM chat_saved WHERE user_id = ? AND message_id = ?').run(req.user.id, m.id);
+    sendTo([req.user.id], { type: 'chat-saved' });
+    res.json({ saved: !!req.body.saved });
+  });
+  // Your saved messages, last saved first (ones in conversations you've left since are left out).
+  r.get('/saved', (req, res) => {
+    const rows = q(`SELECT s.message_id, s.saved_at, m.body, m.channel_id, m.parent_id, m.created_at, m.files, u.name AS author, c.name AS channel, c.dm_key
+                    FROM chat_saved s JOIN messages m ON m.id = s.message_id JOIN channels c ON c.id = m.channel_id LEFT JOIN users u ON u.id = m.user_id
+                    WHERE s.user_id = ? ORDER BY s.saved_at DESC`).all(req.user.id);
+    res.json(rows.filter((r) => { try { return !!loadChannel(r.channel_id, req.user); } catch { return false; } })
+      .map(({ dm_key, files, ...x }) => ({ ...x, dm: !!dm_key, files: files ? JSON.parse(files).length : 0 })));
+  });
+
   // Your reminders, soonest first.
   r.get('/reminders', (req, res) => {
     res.json(q(`SELECT r.message_id, r.at, m.body, m.channel_id, m.parent_id, u.name AS author, c.name AS channel, c.dm_key

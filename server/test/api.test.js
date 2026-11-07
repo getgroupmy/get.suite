@@ -2477,3 +2477,25 @@ test('calendar: import an .ics from another app (repeats, exceptions, reminders)
   const theirs = (await b('GET', `/api/events?from=${Date.UTC(2026, 11, 1)}&to=${Date.UTC(2026, 11, 31)}`)).body;
   assert.equal(theirs.find((e) => e.title === 'Supplier call').start, Date.UTC(2026, 11, 3, 9));
 });
+
+test('chat: save messages for later; only yours; gone when you leave the conversation', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['sva', 'Save Ann'], ['svb', 'Save Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'sva@acme.com');
+  const bid = (await login(b, 'svb@acme.com')).id;
+  const priv = (await a('POST', '/api/chat/channels', { name: 'save-team', private: true, members: [bid] })).body.id;
+  const m1 = (await a('POST', `/api/chat/channels/${priv}/messages`, { body: 'Quote is RM 4,500' })).body;
+  const m2 = (await a('POST', `/api/chat/channels/${priv}/messages`, { body: 'Delivery on Friday' })).body;
+  assert.equal((await b('PUT', `/api/chat/messages/${m1.id}/saved`, { saved: true })).body.saved, true);
+  await new Promise((r) => setTimeout(r, 5));
+  await b('PUT', `/api/chat/messages/${m2.id}/saved`, { saved: true });
+  const list = (await b('GET', '/api/chat/saved')).body;
+  assert.deepEqual(list.map((x) => [x.body, x.author, x.channel]), [['Delivery on Friday', 'Save Ann', 'save-team'], ['Quote is RM 4,500', 'Save Ann', 'save-team']], 'last saved first');
+  assert.deepEqual((await a('GET', '/api/chat/saved')).body, [], 'yours only');
+  await b('PUT', `/api/chat/messages/${m2.id}/saved`, { saved: false });
+  assert.deepEqual((await b('GET', '/api/chat/saved')).body.map((x) => x.body), ['Quote is RM 4,500']);
+  // Leaving the private channel: it drops out of the list, and can't be saved again.
+  await b('DELETE', `/api/chat/channels/${priv}/members/me`);
+  assert.deepEqual((await b('GET', '/api/chat/saved')).body, []);
+  assert.equal((await b('PUT', `/api/chat/messages/${m2.id}/saved`, { saved: true })).status, 404);
+});

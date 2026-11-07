@@ -3,7 +3,7 @@ import { blocks, hasMarkup } from './markup.js';
 import { fileLinksIn } from './filelinks.js';
 import { statusLine, untilText } from '../../components/status.js';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
-import { get, post, patch, del, onLive, uploadFile, formatBytes } from '../../api.js';
+import { get, post, put, patch, del, onLive, uploadFile, formatBytes } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
 import EmojiPicker from '../../components/EmojiPicker.jsx';
 import { Avatar, ConfirmModal, Empty, Menu, Modal, PromptModal, useToast } from '../../components/ui.jsx';
@@ -173,6 +173,16 @@ export default function Chat() {
   useEffect(() => { loadReminders(); }, [loadReminders]);
   useEffect(() => onLive((m) => { if (m.type === 'chat-reminders') loadReminders(); }), [loadReminders]);
 
+  // Messages you've saved for later (yours alone), kept up to date live.
+  const [saved, setSaved] = useState([]);
+  const [savedOpen, setSavedOpen] = useState(false);
+  const loadSaved = useCallback(() => get('/chat/saved').then(setSaved).catch(() => {}), []);
+  useEffect(() => { loadSaved(); }, [loadSaved]);
+  useEffect(() => onLive((m) => { if (m.type === 'chat-saved') loadSaved(); }), [loadSaved]);
+  useEffect(() => { setSavedOpen(false); }, [channelId]); // picking a conversation leaves the list
+  const savedIds = new Set(saved.map((x) => x.message_id));
+  const setSave = (id, on) => put(`/chat/messages/${id}/saved`, { saved: on }).then(() => { loadSaved(); toast(on ? 'Saved for later (🔖 Saved in the list)' : 'Removed from Saved'); }).catch((e) => toast(e.message, 'error'));
+
   // Messages you've scheduled here, soonest first (live: they go when sent).
   const [scheduled, setScheduled] = useState([]);
   const [pickingTime, setPickingTime] = useState(false);
@@ -237,6 +247,7 @@ export default function Chat() {
           <Icon name="search" size={18} />
           <input name="q" type="search" placeholder="Search messages" aria-label="Search messages" onChange={(e) => { if (!e.target.value) setSearch(null); }} />
         </form>
+        <button type="button" className={`subnav-item ${savedOpen ? 'active' : ''}`} onClick={() => { setSearch(null); setSavedOpen(true); }}><span className="hash" aria-hidden="true">🔖</span><span className="grow">Saved</span>{saved.length > 0 && <span className="count">{saved.length}</span>}</button>
         <div className="subnav-title row">Channels<div className="grow" /><button className="icon-btn" aria-label="New channel" onClick={() => setDialog(true)}><Icon name="plus" size={18} /></button></div>
         {[...publicChannels, ...(showArchived ? archivedChannels : [])].map((c) => (
           <button key={c.id} className={`subnav-item ${c.id === channelId ? 'active' : ''} ${c.archived_at ? 'archived' : ''} ${c.muted ? 'muted' : ''}`} onClick={() => navigate(`/chat/${c.id}`)}>
@@ -259,7 +270,24 @@ export default function Chat() {
         </select>
       </aside>
       <section className="chat-main">
-        {search ? (
+        {savedOpen && !search ? (
+          <div className="chat-results">
+            <div className="chat-head"><h1 className="grow">Saved</h1><button type="button" className="icon-btn" aria-label="Close saved" onClick={() => setSavedOpen(false)}><Icon name="close" /></button></div>
+            {!saved.length ? <Empty icon="chat" title="Nothing saved yet">Hover over a message and choose 🔖 to keep it here for later. Only you see what you save.</Empty> : (
+              <ul aria-label="Saved messages">
+                {saved.map((r) => (
+                  <li key={r.message_id} className="row">
+                    <button type="button" className="chat-result grow" onClick={() => { setSavedOpen(false); openResult({ id: r.message_id, channel_id: r.channel_id, parent_id: r.parent_id }); }}>
+                      <span className="muted small">{r.dm ? 'Direct message' : `#${r.channel}`}{r.parent_id ? ' · in a thread' : ''} · {new Date(r.created_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</span>
+                      <span><strong>{r.author || 'Someone'}</strong> {r.body || (r.files ? `📎 ${r.files} file${r.files === 1 ? '' : 's'}` : '')}</span>
+                    </button>
+                    <button type="button" className="icon-btn" aria-label={`Remove from Saved: ${(r.body || '').slice(0, 40)}`} title="Remove from Saved" onClick={() => setSave(r.message_id, false)}><Icon name="close" size={16} /></button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        ) : search ? (
           <div className="chat-results">
             <div className="chat-head"><h1 className="grow">Results for “{search.q}”</h1><button type="button" className="icon-btn" aria-label="Close search" onClick={() => setSearch(null)}><Icon name="close" /></button></div>
             {!search.results.length ? <Empty icon="search" title="No messages found" /> : (
@@ -319,7 +347,7 @@ export default function Chat() {
               return (
                 <div key={m.id}>
                   {newDay && <div className="day-sep"><span>{new Date(m.created_at).toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}</span></div>}
-                  <Message m={m} grouped={grouped && !newDay} user={user} reminder={reminders.get(m.id)} editing={editingId === m.id} editText={editText} setEditText={setEditText}
+                  <Message m={m} grouped={grouped && !newDay} user={user} reminder={reminders.get(m.id)} saved={savedIds.has(m.id)} onSave={(on) => setSave(m.id, on)} editing={editingId === m.id} editText={editText} setEditText={setEditText}
                     onStartEdit={() => { setEditingId(m.id); setEditText(m.body); }} onSaveEdit={() => saveEdit(m)} onCancelEdit={() => setEditingId(null)}
                     onReact={(e) => react(m, e)} onThread={() => setThreadId(m.id)} onPin={current.archived_at ? null : () => pin(m, !m.pinned_at)} onForward={m.poll ? null : () => setForwarding(m)} onMarkUnread={async () => {
                       try { await post(`/chat/messages/${m.id}/unread`); navigate('/chat'); toast(`Marked unread from ${m.user_name || 'this message'}’s message`); } catch (e) { toast(e.message, 'error'); }
@@ -449,7 +477,7 @@ function Thread({ id, channelId, user, onClose }) {
 }
 
 /** One message: text (or the box to change it), files, reactions, its thread, and hover actions. */
-function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit, onSaveEdit, onCancelEdit, onReact, onThread, onPin, onForward, onMarkUnread, onDelete, reminder }) {
+function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit, onSaveEdit, onCancelEdit, onReact, onThread, onPin, onForward, onMarkUnread, onDelete, reminder, saved, onSave }) {
   const toast = useToast();
   const navigate = useNavigate();
   const [picking, setPicking] = useState(false);
@@ -516,6 +544,7 @@ function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit
         {onThread && <button type="button" className="icon-btn" aria-label="Reply in thread" title="Reply in thread" onClick={onThread}><Icon name="reply" size={16} /></button>}
         <Menu align="right" trigger={(p) => <button type="button" className="icon-btn" aria-label="Remind me about this" title="Remind me about this" {...p}><Icon name="clock" size={16} /></button>}
           items={[...soon.map(([label, at]) => ({ label: `${label} · ${whenText(at)}`, onClick: () => remind(at) })), '-', { label: 'Pick date and time…', icon: 'calendar', onClick: () => setPicking(true) }]} />
+        {onSave && <button type="button" className={`icon-btn ${saved ? 'on' : ''}`} aria-pressed={!!saved} aria-label={saved ? 'Remove from Saved' : 'Save for later'} title={saved ? 'Saved (click to remove)' : 'Save for later'} onClick={() => onSave(!saved)}>🔖</button>}
         {onMarkUnread && m.user_id !== user.id && <button type="button" className="icon-btn" aria-label="Mark unread from here" title="Mark unread from here" onClick={onMarkUnread}><Icon name="markunread" size={16} /></button>}
         {onForward && <button type="button" className="icon-btn" aria-label="Forward" title="Forward to another conversation" onClick={onForward}><Icon name="forward" size={16} /></button>}
         <button type="button" className="icon-btn" aria-label="Add to Tasks" title="Add to Tasks" onClick={toTask}><Icon name="check" size={16} /></button>
