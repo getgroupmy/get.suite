@@ -100,7 +100,7 @@ function parse(src) {
       if (isOp('(')) {
         i++;
         const args = [];
-        if (!isOp(')')) { do { args.push(comparison()); } while (isOp(',') && ++i); }
+        if (!isOp(')')) { do { args.push(isOp(',', ')') ? { k: 'empty' } : comparison()); } while (isOp(',') && ++i); } // XLOOKUP(x, a, b, , 2): a skipped argument
         expect(')');
         return { k: 'call', name: tk.v, args };
       }
@@ -204,6 +204,65 @@ function toDate(v) {
 }
 const dateText = (ms) => new Date(ms).toISOString().slice(0, 10);
 const roundTo = (v, d, how) => { const f = 10 ** toNum(d ?? 0); const x = toNum(v) * f; return how(Math.abs(x) + 1e-9 * (how === Math.floor ? 1 : -1)) * Math.sign(x) / f; };
+
+// ---- helpers for statistics, TEXT, working days and loans
+function variance(a, sample) {
+  const n = nums(a);
+  if (n.length < (sample ? 2 : 1)) err('#DIV/0!');
+  const mean = n.reduce((s, x) => s + x, 0) / n.length;
+  return n.reduce((s, x) => s + (x - mean) ** 2, 0) / (n.length - (sample ? 1 : 0));
+}
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+/** TEXT(value, format): number patterns (0, 0.00, #,##0, 0%, with text around them) and dates (yyyy mm dd mmm mmmm ddd dddd). */
+function formatText(v, fmt) {
+  const f = toStr(fmt);
+  if (/[yd]|m{3,}/i.test(f.replace(/"[^"]*"/g, ''))) return formatDate(toDate(v), f);
+  const m = /^([^0#]*?)([#0,]*0[#0,]*|#[#,]*)(?:\.(0+|#+))?([^0#]*)$/.exec(f);
+  if (!m) return toStr(v);
+  let n = toNum(v);
+  const [, pre, int, dec = '', post] = m;
+  if (post.includes('%')) n *= 100;
+  const places = dec.length;
+  let text = Math.abs(n).toFixed(places);
+  if (dec.startsWith('#')) text = text.replace(/\.?0+$/, '');
+  let [whole, frac] = text.split('.');
+  const minDigits = (int.match(/0/g) || []).length;
+  whole = whole.replace(/^0+(?=\d)/, '');
+  if (whole === '0' && minDigits === 0) whole = '';
+  whole = whole.padStart(minDigits, '0');
+  if (int.includes(',')) whole = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return `${n < 0 && Number(text) !== 0 ? '-' : ''}${pre.replace(/"/g, '')}${whole}${frac !== undefined ? `.${frac}` : ''}${post.replace(/"/g, '')}`;
+}
+function formatDate(ms, f) {
+  const d = new Date(ms);
+  const Y = d.getUTCFullYear(), M = d.getUTCMonth(), D = d.getUTCDate(), W = d.getUTCDay();
+  const two = (x) => String(x).padStart(2, '0');
+  return f.replace(/"([^"]*)"|yyyy|yy|mmmm|mmm|mm|m|dddd|ddd|dd|d/gi, (t, lit) => {
+    if (lit !== undefined) return lit;
+    switch (t.toLowerCase()) {
+      case 'yyyy': return String(Y);
+      case 'yy': return two(Y % 100);
+      case 'mmmm': return MONTHS[M];
+      case 'mmm': return MONTHS[M].slice(0, 3);
+      case 'mm': return two(M + 1);
+      case 'm': return String(M + 1);
+      case 'dddd': return WEEKDAYS[W];
+      case 'ddd': return WEEKDAYS[W].slice(0, 3);
+      case 'dd': return two(D);
+      default: return String(D);
+    }
+  });
+}
+const holidaySet = (h) => new Set(h === undefined ? [] : flat([h]).filter((x) => x !== null && x !== '').map((x) => toDate(x)));
+const isWorkday = (ms, hol) => { const w = new Date(ms).getUTCDay(); return w !== 0 && w !== 6 && !hol.has(ms); };
+/** Loan maths shared by PMT, PV and FV (type 1: payments at the start of each period). */
+function pmt(rate, n, pv, fv, type) {
+  if (!n) err('#NUM!');
+  if (!rate) return -(pv + fv) / n;
+  const g = (1 + rate) ** n;
+  return -(rate * (fv + pv * g)) / ((1 + rate * type) * (g - 1));
+}
 
 const FUNCS = {
   SUM: (a) => nums(a).reduce((s, n) => s + n, 0),
@@ -321,6 +380,109 @@ const FUNCS = {
   EDATE: ([start, months]) => { const d = new Date(toDate(start)); const t = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + toNum(months), 1)); const last = new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth() + 1, 0)).getUTCDate(); return dateText(Date.UTC(t.getUTCFullYear(), t.getUTCMonth(), Math.min(d.getUTCDate(), last))); },
   EOMONTH: ([start, months]) => { const d = new Date(toDate(start)); return dateText(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + toNum(months) + 1, 0)); },
   NOW: () => new Date().toISOString().slice(0, 16).replace('T', ' '),
+  // statistics
+  'STDEV': (a) => Math.sqrt(variance(a, true)),
+  'STDEV.S': (a) => Math.sqrt(variance(a, true)),
+  'STDEV.P': (a) => Math.sqrt(variance(a, false)),
+  'STDEVP': (a) => Math.sqrt(variance(a, false)),
+  'VAR': (a) => variance(a, true),
+  'VAR.S': (a) => variance(a, true),
+  'VAR.P': (a) => variance(a, false),
+  'VARP': (a) => variance(a, false),
+  RANK: ([x, range, order]) => { const v = toNum(x); const n = nums([range]); if (!n.includes(v)) err('#N/A'); return 1 + n.filter((y) => (order !== undefined && toNum(order) ? y < v : y > v)).length; },
+  'RANK.EQ': (a) => FUNCS.RANK(a),
+  SUMPRODUCT: (a) => {
+    const lists = a.map((x) => flat([x]));
+    if (lists.some((l) => l.length !== lists[0].length)) err('#VALUE!');
+    let total = 0;
+    for (let i = 0; i < (lists[0]?.length || 0); i++) total += lists.reduce((p, l) => p * (typeof l[i] === 'number' ? l[i] : typeof l[i] === 'boolean' ? +l[i] : 0), 1);
+    return total;
+  },
+  // more maths
+  LN: ([v]) => { const n = toNum(v); if (n <= 0) err('#NUM!'); return Math.log(n); },
+  LOG: ([v, base]) => { const n = toNum(v), b = toNum(base ?? 10); if (n <= 0 || b <= 0 || b === 1) err('#NUM!'); return b === 10 ? Math.log10(n) : b === 2 ? Math.log2(n) : Math.log(n) / Math.log(b); },
+  LOG10: ([v]) => { const n = toNum(v); if (n <= 0) err('#NUM!'); return Math.log10(n); },
+  EXP: ([v]) => Math.exp(toNum(v)),
+  TRUNC: ([v, d]) => { const f = 10 ** toNum(d ?? 0); return Math.trunc(toNum(v) * f) / f; },
+  ISODD: ([v]) => Math.abs(Math.trunc(toNum(v))) % 2 === 1,
+  ISEVEN: ([v]) => Math.abs(Math.trunc(toNum(v))) % 2 === 0,
+  RAND: () => Math.random(),
+  RANDBETWEEN: ([lo, hi]) => { const a = Math.ceil(toNum(lo)), b = Math.floor(toNum(hi)); if (b < a) err('#NUM!'); return a + Math.floor(Math.random() * (b - a + 1)); },
+  // loans and savings
+  PMT: ([rate, n, pv, fv, type]) => pmt(toNum(rate), toNum(n), toNum(pv), toNum(fv), toNum(type) ? 1 : 0),
+  FV: ([rate, n, payment, pv, type]) => {
+    const r = toNum(rate), k = toNum(n), p = toNum(payment), v = toNum(pv), t = toNum(type) ? 1 : 0;
+    if (!r) return -(v + p * k);
+    const g = (1 + r) ** k;
+    return -(v * g + p * (1 + r * t) * (g - 1) / r);
+  },
+  PV: ([rate, n, payment, fv, type]) => {
+    const r = toNum(rate), k = toNum(n), p = toNum(payment), f = toNum(fv), t = toNum(type) ? 1 : 0;
+    if (!r) return -(f + p * k);
+    const g = (1 + r) ** k;
+    return -(f + p * (1 + r * t) * (g - 1) / r) / g;
+  },
+  // lookups and text
+  XLOOKUP: ([x, look, ret, ifNotFound, matchMode, searchMode]) => {
+    const keys = flat([look]), s = shapeOf(ret), mode = toNum(matchMode ?? 0), from = toNum(searchMode ?? 1);
+    const across = shapeOf(look).rows === 1 && keys.length > 1; // a row of keys picks columns
+    if ((across ? s.cols : s.rows) !== keys.length) err('#VALUE!');
+    const v = scalarOf(x);
+    const order = keys.map((_, i) => i);
+    if (from < 0) order.reverse();
+    let hit = -1;
+    if (mode === 2 || mode === 0) {
+      const re = mode === 2 && hasWildcard(v) ? wildcard(v) : null;
+      hit = order.find((i) => (re ? typeof keys[i] === 'string' && re.test(keys[i]) : same(keys[i], v))) ?? -1;
+    } else { // -1: exact or the next smaller, 1: exact or the next larger
+      for (const i of order) {
+        const k = keys[i];
+        if (k === null || k === '' || typeof k !== typeof v) continue;
+        if (same(k, v)) { hit = i; break; }
+        const ok = mode < 0 ? before(k, v) : before(v, k);
+        if (ok && (hit < 0 || (mode < 0 ? before(keys[hit], k) : before(k, keys[hit])))) hit = i;
+      }
+    }
+    if (hit < 0) return ifNotFound !== undefined ? ifNotFound : notFound();
+    if (across) { const col = Array.from({ length: s.rows }, (_, r) => s.at(r, hit)); col.rows = s.rows; col.cols = 1; return s.rows === 1 ? col[0] : col; }
+    if (s.cols === 1) return s.at(hit, 0);
+    const row = Array.from({ length: s.cols }, (_, c) => s.at(hit, c)); row.rows = 1; row.cols = s.cols;
+    return row;
+  },
+  TEXT: ([v, fmt]) => formatText(v, fmt),
+  CHAR: ([v]) => { const n = toNum(v); if (n < 1 || n > 0x10ffff) err('#VALUE!'); return String.fromCodePoint(n); },
+  CODE: ([v]) => { const t = toStr(v); if (!t) err('#VALUE!'); return t.codePointAt(0); },
+  // working days and date differences
+  NETWORKDAYS: ([start, end, holidays]) => {
+    let a = toDate(start), b = toDate(end), sign = 1;
+    if (b < a) { [a, b] = [b, a]; sign = -1; }
+    if ((b - a) / DAY_MS > 36600) err('#NUM!');
+    const hol = holidaySet(holidays);
+    let n = 0;
+    for (let t = a; t <= b; t += DAY_MS) if (isWorkday(t, hol)) n++;
+    return n * sign;
+  },
+  WORKDAY: ([start, days, holidays]) => {
+    let t = toDate(start), left = Math.trunc(toNum(days));
+    if (Math.abs(left) > 36600) err('#NUM!');
+    const step = left < 0 ? -DAY_MS : DAY_MS, hol = holidaySet(holidays);
+    while (left) { t += step; if (isWorkday(t, hol)) left -= Math.sign(left); }
+    return dateText(t);
+  },
+  DATEDIF: ([start, end, unit]) => {
+    const a = new Date(toDate(start)), b = new Date(toDate(end));
+    if (b < a) err('#NUM!');
+    const months = (b.getUTCFullYear() - a.getUTCFullYear()) * 12 + b.getUTCMonth() - a.getUTCMonth() - (b.getUTCDate() < a.getUTCDate() ? 1 : 0);
+    switch (toStr(unit).toUpperCase()) {
+      case 'D': return Math.round((b - a) / DAY_MS);
+      case 'M': return months;
+      case 'Y': return Math.floor(months / 12);
+      case 'YM': return months % 12;
+      case 'MD': { const anchor = Date.UTC(b.getUTCFullYear(), b.getUTCMonth() - (b.getUTCDate() < a.getUTCDate() ? 1 : 0), a.getUTCDate()); return Math.round((b - anchor) / DAY_MS); }
+      case 'YD': { let anchor = Date.UTC(b.getUTCFullYear(), a.getUTCMonth(), a.getUTCDate()); if (anchor > b) anchor = Date.UTC(b.getUTCFullYear() - 1, a.getUTCMonth(), a.getUTCDate()); return Math.round((b - anchor) / DAY_MS); }
+      default: return err('#NUM!');
+    }
+  },
 };
 // Lazily evaluated (short-circuit) functions receive thunks.
 const LAZY = {
@@ -396,6 +558,7 @@ export function createEvaluator(cells) {
   function evaluate(n) {
     switch (n.k) {
       case 'num': case 'str': case 'bool': return n.v;
+      case 'empty': return undefined;
       case 'referr': return err('#REF!');
       case 'ref': if (!n.ref) err('#REF!'); return valueOf(cellKey(n.ref.c, n.ref.r));
       case 'range': return range(n.a, n.b);

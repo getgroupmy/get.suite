@@ -139,3 +139,97 @@ test('numbers, text and dates', () => {
   assert.equal(v('=EOMONTH("2026-02-10",0)'), '2026-02-28');
   assert.deepEqual(v('=NA()'), { error: '#N/A' });
 });
+
+test('XLOOKUP: exact, not found, nearest, wildcards, last match, whole rows and across', () => {
+  const g = ev({ A1: 'apple', A2: 'pear', A3: 'plum', A4: 'pear', B1: '10', B2: '20', B3: '30', B4: '40', C1: 'red', C2: 'green', C3: 'purple', C4: 'yellow',
+    D1: '=XLOOKUP("pear", A1:A4, B1:B4)', D2: '=XLOOKUP("kiwi", A1:A4, B1:B4)', D3: '=XLOOKUP("kiwi", A1:A4, B1:B4, "none")',
+    D4: '=XLOOKUP("pear", A1:A4, B1:B4, , 0, -1)', D5: '=XLOOKUP("pl*", A1:A4, C1:C4, , 2)', D6: '=XLOOKUP(25, B1:B4, A1:A4, , -1)',
+    D7: '=XLOOKUP(25, B1:B4, A1:A4, , 1)', D8: '=INDEX(XLOOKUP("plum", A1:A4, B1:C4), 1, 2)', D9: '=XLOOKUP(20, B1:B3, A1:A4)',
+    E1: 'x', F1: 'y', G1: 'z', E2: '1', F2: '2', G2: '3', E3: '=XLOOKUP("y", E1:G1, E2:G2)' });
+  assert.equal(g('D1'), 20);
+  assert.deepEqual(g('D2'), { error: '#N/A' });
+  assert.equal(g('D3'), 'none');
+  assert.equal(g('D4'), 40);
+  assert.equal(g('D5'), 'purple');
+  assert.equal(g('D6'), 'pear');
+  assert.equal(g('D7'), 'plum');
+  assert.equal(g('D8'), 'purple');
+  assert.deepEqual(g('D9'), { error: '#VALUE!' });
+  assert.equal(g('E3'), 2);
+});
+
+test('statistics: STDEV, VAR, RANK and SUMPRODUCT', () => {
+  const g = ev({ A1: '2', A2: '4', A3: '4', A4: '4', A5: '5', A6: '5', A7: '7', A8: '9', B1: '3', B2: '1',
+    C1: '=STDEV.P(A1:A8)', C2: '=VAR.P(A1:A8)', C3: '=ROUND(STDEV(A1:A8), 4)', C4: '=ROUND(VAR.S(A1:A8), 4)', C5: '=STDEV(A1)',
+    C6: '=RANK(5, A1:A8)', C7: '=RANK.EQ(5, A1:A8, 1)', C8: '=RANK(6, A1:A8)', C9: '=SUMPRODUCT(A1:A2, B1:B2)', C10: '=SUMPRODUCT(A1:A3, B1:B2)' });
+  assert.equal(g('C1'), 2);
+  assert.equal(g('C2'), 4);
+  assert.equal(g('C3'), 2.1381);
+  assert.equal(g('C4'), 4.5714);
+  assert.deepEqual(g('C5'), { error: '#DIV/0!' });
+  assert.equal(g('C6'), 3);
+  assert.equal(g('C7'), 5);
+  assert.deepEqual(g('C8'), { error: '#N/A' });
+  assert.equal(g('C9'), 10);
+  assert.deepEqual(g('C10'), { error: '#VALUE!' });
+});
+
+test('TEXT formats numbers and dates', () => {
+  const g = ev({ A1: '1234.567', A2: '0.256', A3: '-5', A4: '2026-11-07',
+    B1: '=TEXT(A1, "#,##0.00")', B2: '=TEXT(A1, "0")', B3: '=TEXT(A2, "0%")', B4: '=TEXT(A2, "0.0%")', B5: '=TEXT(A3, "$0.00")',
+    B6: '=TEXT(7, "000")', B7: '=TEXT(A4, "dd/mm/yyyy")', B8: '=TEXT(A4, "dddd d mmmm yyyy")', B9: '=TEXT(A4, "mmm yy")', B10: '=TEXT(A1, "0.##")', B11: '=TEXT(2, "0.##")' });
+  assert.equal(g('B1'), '1,234.57');
+  assert.equal(g('B2'), '1235');
+  assert.equal(g('B3'), '26%');
+  assert.equal(g('B4'), '25.6%');
+  assert.equal(g('B5'), '-$5.00');
+  assert.equal(g('B6'), '007');
+  assert.equal(g('B7'), '07/11/2026');
+  assert.equal(g('B8'), 'Saturday 7 November 2026');
+  assert.equal(g('B9'), 'Nov 26');
+  assert.equal(g('B10'), '1234.57');
+  assert.equal(g('B11'), '2');
+});
+
+test('working days and DATEDIF', () => {
+  const g = ev({ H1: '2026-11-11',
+    A1: '=NETWORKDAYS("2026-11-02", "2026-11-13")', A2: '=NETWORKDAYS("2026-11-02", "2026-11-13", H1)', A3: '=NETWORKDAYS("2026-11-13", "2026-11-02")',
+    A4: '=WORKDAY("2026-11-06", 1)', A5: '=WORKDAY("2026-11-09", -1)', A6: '=WORKDAY("2026-11-10", 1, H1:H1)',
+    B1: '=DATEDIF("2020-03-15", "2026-11-07", "Y")', B2: '=DATEDIF("2020-03-15", "2026-11-07", "M")', B3: '=DATEDIF("2020-03-15", "2026-11-07", "YM")',
+    B4: '=DATEDIF("2020-03-15", "2026-11-07", "MD")', B5: '=DATEDIF("2026-11-01", "2026-11-07", "D")', B6: '=DATEDIF("2026-11-07", "2026-11-01", "D")', B7: '=DATEDIF("2026-03-15", "2026-11-07", "YD")' });
+  assert.equal(g('A1'), 10);
+  assert.equal(g('A2'), 9);
+  assert.equal(g('A3'), -10);
+  assert.equal(g('A4'), '2026-11-09');
+  assert.equal(g('A5'), '2026-11-06');
+  assert.equal(g('A6'), '2026-11-12');
+  assert.equal(g('B1'), 6);
+  assert.equal(g('B2'), 79);
+  assert.equal(g('B3'), 7);
+  assert.equal(g('B4'), 23);
+  assert.equal(g('B5'), 6);
+  assert.deepEqual(g('B6'), { error: '#NUM!' });
+  assert.equal(g('B7'), 237);
+});
+
+test('loans, logs and other maths', () => {
+  const g = ev({ A1: '=ROUND(PMT(0.05/12, 360, 200000), 2)', A2: '=PMT(0, 10, 1000)', A3: '=ROUND(FV(0.06/12, 10, -200, -500, 1), 2)', A4: '=ROUND(PV(0.08/12, 240, 500), 2)',
+    B1: '=LOG(1000)', B2: '=LOG(8, 2)', B3: '=LN(EXP(2))', B4: '=TRUNC(-4.78)', B5: '=TRUNC(3.14159, 2)', B6: '=ISODD(3)', B7: '=ISEVEN(-4)', B8: '=LN(0)',
+    C1: '=CHAR(65)', C2: '=CODE("a")', C3: '=RANDBETWEEN(3, 3)', C4: '=LOG10(100)' });
+  assert.equal(g('A1'), -1073.64);
+  assert.equal(g('A2'), -100);
+  assert.equal(g('A3'), 2581.4);
+  assert.equal(g('A4'), -59777.15);
+  assert.equal(g('B1'), 3);
+  assert.equal(g('B2'), 3);
+  assert.equal(g('B3'), 2);
+  assert.equal(g('B4'), -4);
+  assert.equal(g('B5'), 3.14);
+  assert.equal(g('B6'), true);
+  assert.equal(g('B7'), true);
+  assert.deepEqual(g('B8'), { error: '#NUM!' });
+  assert.equal(g('C1'), 'A');
+  assert.equal(g('C2'), 97);
+  assert.equal(g('C3'), 3);
+  assert.equal(g('C4'), 2);
+});

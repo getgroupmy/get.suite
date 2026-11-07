@@ -75,7 +75,7 @@ test('Word: tables, pictures and text colours go out to .docx and come back', as
 });
 
 import ExcelJS from 'exceljs';
-import { sheetFromExcel, excelFromSheet, numFromExcel } from '../src/office/excel.js';
+import { sheetFromExcel, excelFromSheet, numFromExcel, formulaFromExcel, formulaToExcel } from '../src/office/excel.js';
 
 test('Excel: a real .xlsx opens with values, formulas, formats and every sheet', async () => {
   const wb = new ExcelJS.Workbook();
@@ -242,4 +242,17 @@ test('Excel: a filter becomes an AutoFilter with its rows hidden, and comes back
   assert.deepEqual([2, 3, 4, 5].map((r) => !!ws.getRow(r).hidden), [true, false, true, false]);
   const back = (await sheetFromExcel(buf)).sheets[0];
   assert.deepEqual(back.filter, { range: 'A1:B4', hidden: {} });
+});
+
+test('Excel: newer functions carry the _xlfn. prefix in the file and lose it in Sheets', async () => {
+  assert.equal(formulaToExcel('IFERROR(XLOOKUP(A1,B:B,C:C),"_xlfn.x")+STDEV.S(D1:D3)+SUM(E1)'), 'IFERROR(_xlfn.XLOOKUP(A1,B:B,C:C),"_xlfn.x")+_xlfn.STDEV.S(D1:D3)+SUM(E1)');
+  assert.equal(formulaFromExcel('_xlfn.XLOOKUP(A1,B1:B3,C1:C3)&"_xlfn."'), 'XLOOKUP(A1,B1:B3,C1:C3)&"_xlfn."');
+  const data = { sheets: [{ name: 'S', cells: { A1: '1', B1: '=XLOOKUP(1,A1:A1,A1:A1)', B2: '=STDEV.P(A1:A2)' } }] };
+  const ExcelJS = (await import('exceljs')).default;
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(await excelFromSheet(data));
+  assert.equal(wb.worksheets[0].getCell('B1').value.formula, '_xlfn.XLOOKUP(1,A1:A1,A1:A1)');
+  const back = (await sheetFromExcel(await excelFromSheet(data))).sheets[0];
+  assert.equal(back.cells.B1, '=XLOOKUP(1,A1:A1,A1:A1)');
+  assert.equal(back.cells.B2, '=STDEV.P(A1:A2)');
 });

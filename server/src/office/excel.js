@@ -28,11 +28,17 @@ const numToExcel = (f) => {
   return undefined;
 };
 
+// Excel writes functions newer than 2007 with a prefix ("_xlfn.XLOOKUP("); we keep plain names.
+const NEW_FUNCS = ['XLOOKUP', 'STDEV.S', 'STDEV.P', 'VAR.S', 'VAR.P', 'RANK.EQ', 'IFS', 'SWITCH', 'IFNA', 'TEXTJOIN', 'CONCAT', 'MAXIFS', 'MINIFS', 'DAYS'];
+const NEW_RE = new RegExp(`("(?:[^"]|"")*")|(?<![A-Z0-9_.])(${NEW_FUNCS.map((n) => n.replace('.', '\\.')).join('|')})(?=\\()`, 'gi');
+export const formulaFromExcel = (f) => String(f).replace(/("(?:[^"]|"")*")|_xl(?:fn|ws)\./gi, (m, s) => s || '');
+export const formulaToExcel = (f) => String(f).replace(NEW_RE, (m, s, name) => s || `_xlfn.${name.toUpperCase()}`);
+
 function cellText(cell) {
   const v = cell.value;
   if (v === null || v === undefined) return null;
   if (typeof v === 'object') {
-    if ('formula' in v || 'sharedFormula' in v) return `=${v.formula || cell.formula}`;
+    if ('formula' in v || 'sharedFormula' in v) return `=${formulaFromExcel(v.formula || cell.formula)}`;
     if (v instanceof Date) return v.toISOString().slice(0, 10);
     if (v.richText) return v.richText.map((r) => r.text).join('');
     if ('text' in v) return String(v.text); // hyperlink
@@ -103,7 +109,7 @@ export async function excelFromSheet(data) {
     for (const [key, raw] of Object.entries(s.cells || {})) {
       const cell = ws.getCell(key);
       const v = String(raw);
-      if (v.startsWith('=')) cell.value = { formula: v.slice(1) };
+      if (v.startsWith('=')) cell.value = { formula: formulaToExcel(v.slice(1)) };
       else if (v !== '' && !Number.isNaN(Number(v)) && /^[-+]?(\d|\.\d)/.test(v.trim())) cell.value = Number(v);
       else if (/^(TRUE|FALSE)$/i.test(v)) cell.value = /^TRUE$/i.test(v);
       else cell.value = v;
