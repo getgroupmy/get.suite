@@ -538,6 +538,10 @@ Each entry shows who did it, what it was done to, the details and the IP address
 - **Threads:** hover over a message and choose **Reply in thread** to answer it beside the conversation, so side discussions don't bury everything else. The message shows how many replies it has, who replied and when the last came; click that to open the thread. Replies in a thread only count as unread for people in it (who started it or replied). Deleting a message deletes its thread.
 - **Pictures and files:** the paper clip attaches files (or drop or paste them into the message box). They're saved in a "Chat files" folder in your Drive, and everyone in the conversation can open them from the message, even without access to the folder. Pictures show in the conversation.
 
+## Notifications
+
+The bell at the top right collects what needs you: being **@mentioned** in Chat or in a comment, a **task** given to you, a calendar **invitation** (or its cancellation), a file or folder **shared** with you, and someone **booking** time with you. New ones appear at once, with a count on the bell. Click one to go there (it's then marked read), or **Mark all read**. The latest 200 are kept.
+
 ## Light and dark
 
 Workspace follows your computer's or phone's light or dark setting. To choose for yourself, go to **Settings → Appearance** and pick **Light** or **Dark** (or **System** to follow the device again). The choice is kept on that device and applies from the moment a page opens.

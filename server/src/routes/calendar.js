@@ -1,3 +1,4 @@
+import { notify as bell } from '../notifications.js';
 import { Router } from 'express';
 import { q, tx } from '../db.js';
 import { uid, str, int, bad, notFound, HttpError } from '../util.js';
@@ -192,6 +193,7 @@ function whenText(e, tz) {
 
 /** Email the guests (best effort: a failed email never fails the change). */
 function notify(organizer, e, recipients, kind, tz) {
+  if (recipients.length && kind !== 'update') bell(recipients.map((g) => g.id).filter(Boolean), { kind: 'invite', title: kind === 'cancel' ? `${organizer.name} cancelled “${e.title}”` : `${organizer.name} invited you to “${e.title}”`, body: whenText(e, tz), link: '/calendar', actor: organizer.name });
   if (!mailEnabled() || !recipients.length) return;
   const subject = `${{ cancel: 'Cancelled', update: 'Updated' }[kind] || 'Invitation'}: ${e.title}`;
   const lines = kind === 'cancel'

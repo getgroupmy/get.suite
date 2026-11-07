@@ -1,3 +1,4 @@
+import { notify } from '../notifications.js';
 import { Router } from 'express';
 import path from 'node:path';
 import { q, tx, FILES_DIR } from '../db.js';
@@ -108,6 +109,7 @@ function notifyMentions(c, from, msg) {
   const inIt = new Set(audience(c));
   const ids = q(`SELECT id FROM users WHERE LOWER(username) IN (SELECT value FROM json_each(?)) AND disabled = 0`).all(JSON.stringify(names))
     .map((u) => u.id).filter((id) => id !== from.id && inIt.has(id));
+  if (ids.length) notify(ids, { kind: 'mention', title: `${from.name || from.username} mentioned you in ${c.dm_key ? 'a message' : `#${c.name}`}`, body: String(msg.body).slice(0, 200), link: `/chat/${c.id}`, actor: from.name });
   if (ids.length) sendTo(ids, { type: 'chat-mention', channel_id: c.id, message_id: msg.id, parent_id: msg.parent_id, from: from.name || from.username, text: String(msg.body).slice(0, 140) });
 }
 

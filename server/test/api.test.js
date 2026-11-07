@@ -1240,3 +1240,36 @@ test('chat channels: private ones only for members, topics, archiving, and who m
   assert.ok((await listOf(c)).some((x) => x.id === pub), 'Cat wrote there');
   assert.ok(!(await listOf(b)).some((x) => x.id === pub), 'Ben never did');
 });
+
+test('notifications: mentions, tasks, invitations and shares land in the bell; read one or all', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['bella', 'Bell Ann'], ['bellb', 'Bell Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'bella@acme.com');
+  const bid = (await login(b, 'bellb@acme.com')).id;
+  const bell = async () => (await b('GET', '/api/notifications')).body;
+  assert.equal((await bell()).unread, 0);
+  // A chat mention.
+  const ch = (await a('POST', '/api/chat/channels', { name: 'bell-test' })).body.id;
+  await a('POST', `/api/chat/channels/${ch}/messages`, { body: 'Ping @bellb@acme.com please' });
+  // A task given to Ben.
+  const list = (await a('POST', '/api/tasks/lists', { name: 'Bell list' })).body.id;
+  await a('PUT', `/api/tasks/lists/${list}/members`, { user_ids: [bid] });
+  await a('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Ring it', assignee_id: bid });
+  // An invitation.
+  await a('POST', '/api/events', { title: 'Bell meeting', start: Date.now() + 864e5, end: Date.now() + 864e5 + 36e5, guests: ['bellb@acme.com'] });
+  // A shared document.
+  const doc = (await a('POST', '/api/files/new', { kind: 'doc', name: 'Bell notes' })).body;
+  await a('PUT', `/api/files/${doc.id}/shares`, { shares: [{ user_id: bid, role: 'editor' }] });
+  await a('PUT', `/api/files/${doc.id}/shares`, { shares: [{ user_id: bid, role: 'viewer' }] }); // a change, not a new share
+  const n = await bell();
+  assert.deepEqual(n.items.map((x) => x.kind), ['share', 'invite', 'task', 'mention']);
+  assert.equal(n.unread, 4);
+  assert.equal(n.items[0].title, 'Bell Ann shared “Bell notes” with you');
+  assert.equal(n.items[0].link, `/docs/${doc.id}`);
+  assert.equal(n.items[2].link.startsWith(`/tasks/${list}?task=`), true);
+  assert.equal(n.items[3].link, `/chat/${ch}`);
+  assert.equal((await a('GET', '/api/notifications')).body.unread, 0, 'nothing for the one who did it');
+  assert.equal((await b('POST', '/api/notifications/read', { ids: [n.items[0].id] })).body.unread, 3);
+  assert.equal((await b('POST', '/api/notifications/read', { all: true })).body.unread, 0);
+  assert.equal((await b('POST', '/api/notifications/read', {})).status, 400);
+});

@@ -2,6 +2,7 @@
 // with the comment's id, so it moves with the text while people co-edit) or to a cell (Sheets),
 // replies, resolving, and @mentions that notify by direct message. Anyone who can open the file
 // reads them; editors write them. Mounted at /api/comments.
+import { notify } from '../notifications.js';
 import { Router } from 'express';
 import { q, tx } from '../db.js';
 import { uid, now, str, bad, notFound, forbidden } from '../util.js';
@@ -57,6 +58,7 @@ function mention(user, file, body, commentId) {
     const where = file.kind === 'doc' ? 'docs' : 'sheets';
     const ok = sendDirect(user, u.id, `Mentioned you in a comment on “${file.name}”:\n${body}\n\nOpen: /${where}/${file.id}?comment=${commentId}`);
     if (ok) notified.push(u.username);
+    notify([u.id], { kind: 'comment', title: `${user.name || user.username} mentioned you in a comment on “${file.name}”`, body, link: `/${where}/${file.id}?comment=${commentId}`, actor: user.name });
   }
   return { notified, noAccess };
 }

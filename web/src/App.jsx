@@ -6,6 +6,7 @@ import { useMailNotifications } from './mailNotify.js';
 import { useEventReminders } from './eventReminders.js';
 import { useTaskReminders } from './taskReminders.js';
 import Icon from './components/Icon.jsx';
+import Bell from './components/Bell.jsx';
 import { Avatar, Menu, ToastProvider, useToast } from './components/ui.jsx';
 import Login from './apps/Login.jsx';
 import PublicLink from './apps/PublicLink.jsx';
@@ -142,6 +143,7 @@ function Shell() {
           <Icon name="search" />
           <input name="q" placeholder="Search in Drive" aria-label="Search in Drive" />
         </form>
+        <Bell />
         <Menu align="right" trigger={(p) => <button className="avatar-btn" aria-label="Account" {...p}><Avatar name={user.name} /></button>} items={[
           { label: `${user.name} · ${user.username}`, icon: 'person', onClick: () => navigate('/settings') },
           { label: 'Settings', icon: 'settings', onClick: () => navigate('/settings') },

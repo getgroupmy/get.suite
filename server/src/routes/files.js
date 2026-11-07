@@ -1,3 +1,4 @@
+import { notify as bell } from '../notifications.js';
 import { Router } from 'express';
 import { audit } from '../audit.js';
 import fs from 'node:fs';
@@ -43,6 +44,8 @@ const EMPTY = {
   ] }] }),
 };
 const EDITABLE = ['doc', 'sheet', 'slides'];
+/** Where a file opens in Workspace. */
+const openLink = (f) => ({ folder: `/drive/folder/${f.id}`, doc: `/docs/${f.id}`, sheet: `/sheets/${f.id}`, slides: `/slides/${f.id}` }[f.kind] || '/drive/shared');
 const setupOf = (f) => { if (!f.page_setup || typeof f.page_setup === 'object') return f.page_setup || null; try { return JSON.parse(f.page_setup); } catch { return null; } };
 
 function cleanName(name) {
@@ -626,6 +629,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     const list = Array.isArray(req.body.shares) ? req.body.shares : null;
     if (!list) throw bad('shares must be an array');
     const before = audienceFor(f.id);
+    const had = new Set(q('SELECT user_id FROM shares WHERE file_id = ?').all(f.id).map((x) => x.user_id));
     tx(() => {
       q('DELETE FROM shares WHERE file_id = ?').run(f.id);
       for (const s of list) {
@@ -638,6 +642,8 @@ export default function fileRoutes({ maxUploadBytes }) {
     sendTo(new Set([...before, ...audienceFor(f.id)]), { type: 'files-changed', parent_id: f.parent_id });
     const nameOf = (id) => q('SELECT username FROM users WHERE id = ?').get(id)?.username || id;
     audit(req, 'file.share', { target: f.name, details: { with: list.map((x) => `${nameOf(x.user_id)} (${x.role})`) } });
+    const added = list.filter((x) => !had.has(x.user_id) && x.user_id !== f.owner_id && x.user_id !== req.user.id);
+    for (const x of added) bell([x.user_id], { kind: 'share', title: `${req.user.name || req.user.username} shared “${f.name}” with you`, body: x.role === 'editor' ? 'You can edit' : 'You can view', link: openLink(f), actor: req.user.name });
     res.json({ ok: true });
   });
 

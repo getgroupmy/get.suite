@@ -2,6 +2,7 @@
 // see the free times in your bookable hours (your events, repeating ones included, and invitations
 // you haven't declined count as busy), pick one, and leave a name and email. The booking goes on
 // your calendar with them as a guest, and they get the invitation by email.
+import { notify as bell } from '../notifications.js';
 import { Router } from 'express';
 import crypto from 'node:crypto';
 import { q } from '../db.js';
@@ -180,6 +181,7 @@ export function publicBookingRoutes() {
     notifyOutside(owner, saved, added.map((g) => ({ ...g, status: 'yes' })), 'invite', { base: baseUrl(req), tz: p.tz });
     touch([owner.id]);
     sendTo([owner.id], { type: 'booking-made', title, start, page: p.title, by: name });
+    bell([owner.id], { kind: 'booking', title: `${name} booked “${p.title}”`, body: new Date(start).toLocaleString('en-GB', { timeZone: p.tz, weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) + ` (${p.tz})`, link: '/calendar', actor: name });
     res.status(201).json({ ok: true, title: p.title, start, end: start + p.duration * 6e4, tz: p.tz, owner: { name: p.owner_name } });
   });
   return r;

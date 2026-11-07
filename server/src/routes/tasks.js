@@ -5,6 +5,7 @@ import { Router } from 'express';
 import { q, tx } from '../db.js';
 import { uid, now, str, bad, notFound } from '../util.js';
 import { sendTo } from '../hub.js';
+import { notify as bell } from '../notifications.js';
 import { canReach } from '../tenancy.js';
 
 q(`CREATE TABLE IF NOT EXISTS task_lists (
@@ -56,6 +57,7 @@ const shape = (t) => ({ ...t, done: !!t.done_at });
 /** Tell someone a task was given to them (by someone else). */
 function notifyAssigned(task, by) {
   if (!task.assignee_id || task.assignee_id === by.id || task.done) return;
+  bell([task.assignee_id], { kind: 'task', title: `${by.name || by.username} gave you “${task.title}”`, body: task.list_name ? `On ${task.list_name}${task.due ? ` · due ${task.due}` : ''}` : null, link: `/tasks/${task.list_id}?task=${task.id}`, actor: by.name });
   sendTo([task.assignee_id], { type: 'task-assigned', at: Date.now(), from: by.name || by.username,
     task: { id: task.id, title: task.title, list_id: task.list_id, list_name: task.list_name, due: task.due } });
 }
