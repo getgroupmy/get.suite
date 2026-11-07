@@ -258,6 +258,8 @@ export default function Mail() {
             <input name="q" defaultValue={q} key={q} placeholder={`Search ${current?.name || 'mail'}`} aria-label="Search mail" />
           </form>
           <button className="icon-btn" aria-label="Refresh" onClick={refresh}><Icon name="restore" size={20} /></button>
+          {current?.unseen > 0 && <button className="icon-btn" aria-label="Mark all as read" title={`Mark all ${current.unseen} unread in ${current.name} as read`}
+            onClick={async () => { try { const r = await post('/mail/messages/read-all', { folder }); toast(`${r.marked} marked as read`); refresh(); } catch (e) { toast(e.message, 'error'); } }}><Icon name="check" size={20} /></button>}
         </div>
         {vacation?.enabled && (vacation.active || vacation.scheduled) && (
           <div className="mail-vacation">

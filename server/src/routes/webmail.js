@@ -634,6 +634,17 @@ export default function webmailRoutes() {
     res.json({ ok: true });
   });
 
+  // Mark everything in a folder as read. Returns how many were unread.
+  r.post('/messages/read-all', async (req, res) => {
+    const folder = String(req.body.folder || 'INBOX');
+    const n = await withFolder(req.user, folder, async (client) => {
+      const unread = await client.search({ seen: false }, { uid: true });
+      if (unread.length) await client.messageFlagsAdd(unread, ['\\Seen'], { uid: true });
+      return unread.length;
+    });
+    res.json({ ok: true, marked: n });
+  });
+
   // Move to another folder; `to` may be a path or a special folder: inbox, archive, junk, trash.
   r.post('/messages/move', async (req, res) => {
     const folder = String(req.body.folder || 'INBOX');

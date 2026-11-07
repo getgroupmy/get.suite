@@ -1030,3 +1030,14 @@ test('block a sender: a rule first in the list sends their mail to Junk, read', 
   assert.equal(junk.seen, true);
   assert.ok(!(await inbox(olivia)).some((m) => m.subject === 'Cheap watches'));
 });
+
+test('mark all as read: every unread message in a folder', async () => {
+  const t = nodemailer.createTransport({ host: process.env.MAIL_IMAP_HOST, port: 25, secure: false, ignoreTLS: true, name: 'test.acme.com' });
+  for (const s of ['Unread one', 'Unread two']) await t.sendMail({ from: 'Someone <someone@acme.com>', to: 'olivia@acme.com', subject: s, text: 'x' });
+  await eventually(async () => (await inbox(olivia)).filter((m) => /^Unread (one|two)$/.test(m.subject) && !m.seen).length === 2, 20000);
+  const r = await olivia('POST', '/api/mail/messages/read-all', { folder: 'INBOX' });
+  assert.equal(r.status, 200);
+  assert.ok(r.body.marked >= 2);
+  assert.ok((await inbox(olivia)).every((m) => m.seen), 'nothing unread left');
+  assert.equal((await olivia('POST', '/api/mail/messages/read-all', { folder: 'INBOX' })).body.marked, 0);
+});
