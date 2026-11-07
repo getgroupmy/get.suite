@@ -21,6 +21,12 @@ export default function Tasks() {
   const [assignedCount, setAssignedCount] = useState(0);
   const [tasks, setTasks] = useState(null);
   const [title, setTitle] = useState('');
+  const [found, setFound] = useState(null); // { q, list }: search results across your lists
+  const runSearch = async (text) => {
+    const qs = String(text || '').trim();
+    if (!qs) { setFound(null); return; }
+    try { setFound({ q: qs, list: await get(`/tasks/search?q=${encodeURIComponent(qs)}`) }); } catch (e) { toast(e.message, 'error'); }
+  };
   const [showDone, setShowDone] = useState(false);
   const [dialog, setDialog] = useState(null); // 'new' | 'rename' | 'share' | 'delete'
   const [dragging, setDragging] = useState(null);
@@ -109,6 +115,10 @@ export default function Tasks() {
   return (
     <div className="tasks-app">
       <aside className="subnav">
+        <form className="tasks-search" role="search" onSubmit={(e) => { e.preventDefault(); runSearch(new FormData(e.currentTarget).get('q')); }}>
+          <Icon name="search" size={18} />
+          <input name="q" type="search" placeholder="Search tasks" aria-label="Search tasks" onChange={(e) => { if (!e.target.value) setFound(null); }} />
+        </form>
         <button type="button" className={`subnav-item ${listId === ASSIGNED ? 'active' : ''}`} onClick={() => navigate(`/tasks/${ASSIGNED}`)}>
           <Icon name="person" /><span className="grow">Assigned to me</span>{assignedCount > 0 && <span className="count">{assignedCount}</span>}
         </button>
@@ -119,7 +129,27 @@ export default function Tasks() {
           </button>
         ))}
       </aside>
-      <section className="tasks-main">
+      {found && (
+        <section className="tasks-main">
+          <div className="page-head"><h1 className="grow ellipsis">Tasks matching “{found.q}”</h1><button type="button" className="icon-btn" aria-label="Close search" onClick={() => setFound(null)}><Icon name="close" /></button></div>
+          {!found.list.length ? <Empty icon="search" title="No tasks found" /> : (
+            <ul className="tasks task-results" aria-label="Search results">
+              {found.list.map((t) => {
+                const due = t.due && dueLabel(t.due);
+                return (
+                  <li key={t.id} className={`task ${t.done ? 'done' : ''}`}>
+                    <button type="button" className="task-main" onClick={() => { setFound(null); navigate(`/tasks/${t.list_id}?task=${t.id}`); }}>
+                      <span className="task-title">{t.done ? '✓ ' : ''}{t.title}</span>
+                      <span className="task-meta"><span className="muted small">{t.list_name}</span>{due && !t.done && <span className={`pill due ${due.tone}`}>{due.text}</span>}{t.notes && <span className="muted small ellipsis task-notes">{t.notes.split('\n')[0]}</span>}</span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+      )}
+      <section className="tasks-main" hidden={!!found}>
         <div className="page-head">
           <h1 className="grow ellipsis">{heading}</h1>
           {list && !list.mine && <span className="muted small">Shared by {list.owner_name}</span>}

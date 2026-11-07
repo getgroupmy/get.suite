@@ -153,6 +153,18 @@ export default function taskRoutes() {
     res.json(q(`${TASK} WHERE t.list_id = ? ORDER BY t.done_at IS NOT NULL, CASE WHEN t.done_at IS NULL THEN t.position END, t.done_at DESC`).all(list.id).map(shape));
   });
 
+  // Search your lists (your own and those shared with you) for tasks with all these words in the
+  // title, notes or steps. Open ones first (soonest due first), then done ones.
+  r.get('/search', (req, res) => {
+    const words = String(req.query.q || '').toLowerCase().match(/[\p{L}\p{N}@._'-]+/gu)?.slice(0, 8) || [];
+    if (!words.length) return res.json([]);
+    const me = req.user.id;
+    const like = words.map(() => "LOWER(t.title || ' ' || COALESCE(t.notes, '') || ' ' || COALESCE(t.steps, '')) LIKE ? ESCAPE '!'");
+    res.json(q(`${TASK} WHERE (l.owner_id = ? OR l.id IN (SELECT list_id FROM task_list_members WHERE user_id = ?)) AND ${like.join(' AND ')}
+                ORDER BY t.done_at IS NOT NULL, t.due IS NULL, t.due, t.done_at DESC, t.position LIMIT 100`)
+      .all(me, me, ...words.map((w) => `%${w.replace(/[%_!]/g, (x) => `!${x}`)}%`)).map(shape));
+  });
+
   // Tasks given to you, on any list: overdue and soonest first, those without a date last.
   r.get('/assigned', (req, res) => {
     res.json(q(`${TASK} WHERE t.assignee_id = ? AND t.done_at IS NULL ORDER BY t.due IS NULL, t.due, t.position`).all(req.user.id).map(shape));

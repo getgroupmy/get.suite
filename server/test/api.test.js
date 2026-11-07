@@ -1642,3 +1642,25 @@ test('chat mute: per person; counts still kept; unmuting', async () => {
   await b('POST', `/api/chat/channels/${ch}/mute`, { muted: false });
   assert.equal((await find(b)).muted, false);
 });
+
+test('tasks search: all the words in title, notes or steps; your lists and shared ones only', async () => {
+  const a = client(), b = client(), c = client();
+  for (const [local, name] of [['tsa', 'TS Ann'], ['tsb', 'TS Ben'], ['tsc', 'TS Cat']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'tsa@acme.com');
+  const bid = (await login(b, 'tsb@acme.com')).id;
+  await login(c, 'tsc@acme.com');
+  const mine = (await a('POST', '/api/tasks/lists', { name: 'Ann list' })).body.id;
+  const shared = (await b('POST', '/api/tasks/lists', { name: 'Ben shared' })).body.id;
+  await b('PUT', `/api/tasks/lists/${shared}/members`, { user_ids: [(await a('GET', '/api/tasks/lists')).body.lists[0].owner_id] });
+  const other = (await c('POST', '/api/tasks/lists', { name: 'Cat private' })).body.id;
+  await a('POST', `/api/tasks/lists/${mine}/tasks`, { title: 'Renew insurance', notes: 'car policy', due: '2026-12-01' });
+  const t2 = (await a('POST', `/api/tasks/lists/${mine}/tasks`, { title: 'Garage' })).body;
+  await a('POST', `/api/tasks/tasks/${t2.id}/steps`, { title: 'Call insurance broker' });
+  await b('POST', `/api/tasks/lists/${shared}/tasks`, { title: 'Office insurance quote', due: '2026-11-20' });
+  await c('POST', `/api/tasks/lists/${other}/tasks`, { title: 'Secret insurance thing' });
+  const found = (await a('GET', '/api/tasks/search?q=INSURANCE')).body;
+  assert.deepEqual(found.map((t) => [t.title, t.list_name]), [['Office insurance quote', 'Ben shared'], ['Renew insurance', 'Ann list'], ['Garage', 'Ann list']]);
+  assert.deepEqual((await a('GET', '/api/tasks/search?q=car insurance')).body.map((t) => t.title), ['Renew insurance'], 'all the words, notes too');
+  assert.deepEqual((await a('GET', '/api/tasks/search?q=')).body, []);
+  void bid;
+});

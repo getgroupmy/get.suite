@@ -1388,3 +1388,7 @@ button.rule-sample.on { outline: 2px solid var(--accent); outline-offset: 1px; }
 .subnav-item.muted .grow { opacity: .7; }
 .muted-mark { font-size: 12px; opacity: .7; }
 .badge.quiet { background: var(--surface-2); color: var(--muted); border: 1px solid var(--border); }
+/* Tasks: search */
+.tasks-search { display: flex; align-items: center; gap: 6px; margin: 4px 8px 8px; padding: 6px 10px; border-radius: 999px; background: var(--surface-2); }
+.tasks-search input { border: 0; background: none; flex: 1; min-width: 0; padding: 2px 0; }
+.tasks-main[hidden] { display: none; }
