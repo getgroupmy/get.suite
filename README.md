@@ -288,6 +288,14 @@ Your Workspace calendar and contacts sync with the phone's own Calendar and Cont
 
 The search box at the top looks everywhere at once as you type (two letters or more): **files** (names and what's inside), **mail** (Inbox and Sent, when email is on), **chat** messages, **tasks**, **notes**, calendar **events**, your **contacts** and **people** in the company, a few of each with how many there are. Click one, or pick it with the arrow keys and Enter, to open it where it lives: a document opens, a chat message is shown in its conversation, a task, note or event opens in its app. Enter with nothing picked (or **Search Drive for …**) runs the full Drive search with its filters, as before. Escape closes the list.
 
+## Approvals (Drive)
+
+Ask colleagues to sign off a file (a contract, a press release, a budget): **Request approval…** in its ⋮ menu (in Drive, or in a document, spreadsheet or presentation), pick the reviewers (they need to be able to open it), and add a message and a date it's needed by if you like.
+
+- Reviewers get a notification. At the top of the file a banner says who asked and what for, with **✓ Approve** and **✕ Reject** (and a comment). They can also decide from **Drive → Approvals**, which lists what's **waiting for you** and what **you asked** for.
+- It's **Approved** when every reviewer approves, and **Rejected** as soon as anyone rejects it. Everyone involved is told, and the banner shows the outcome (with each reviewer's decision and comment under **Details**). If the file is changed after it was approved, the banner says so.
+- Whoever asked can **Cancel request** while it's waiting; asking again starts a new request. Requests and decisions also appear in the file's activity (**Details**).
+
 ## Searching Drive
 
 - The search box at the top finds files by **name** and by the **words inside** them: documents, spreadsheets (cell text and sheet names), presentations, and uploaded text, Word, Excel and PowerPoint files. Each match shows the sentence it was found in, with the words marked. It looks through your files, those shared with you or your company, and everything inside folders shared that way.

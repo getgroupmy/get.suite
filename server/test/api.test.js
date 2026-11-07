@@ -3206,3 +3206,44 @@ test('start page: Drive by default, Home if chosen', async () => {
   await a('PUT', '/api/users/me/start-page', { page: 'drive' });
   assert.equal((await a('GET', '/api/auth/me')).body.user.start_page, 'drive');
 });
+
+test('approvals: ask, approve, reject, cancel; changes after approval are flagged', async () => {
+  const own = client(); const r1 = client(); const r2 = client();
+  const ids = {};
+  for (const [local, name] of [['apo', 'Ava Author'], ['ap1', 'Rae Reviewer'], ['ap2', 'Rob Reviewer']]) ids[local] = (await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).body.id;
+  await login(own, 'apo@acme.com'); await login(r1, 'ap1@acme.com'); await login(r2, 'ap2@acme.com');
+  const doc = (await own('POST', '/api/files/new', { kind: 'doc', name: 'Contract' })).body;
+  assert.equal((await own('POST', '/api/approvals', { file_id: doc.id, reviewers: [ids.ap1] })).status, 400, 'reviewers must be able to open it');
+  await own('PUT', `/api/files/${doc.id}/shares`, { shares: [{ user_id: ids.ap1, role: 'viewer' }, { user_id: ids.ap2, role: 'viewer' }] });
+  assert.equal((await r1('POST', '/api/approvals', { file_id: doc.id, reviewers: [ids.ap2] })).status, 403, 'viewers cannot ask');
+  const a = (await own('POST', '/api/approvals', { file_id: doc.id, reviewers: [ids.ap1, ids.ap2], message: 'Please check clause 4', due: '2026-12-01' })).body;
+  assert.equal(a.status, 'pending');
+  assert.equal(a.reviewers.length, 2);
+  assert.ok((await r1('GET', '/api/notifications')).body.items.some((n) => n.title === 'Ava Author asked you to approve “Contract”'));
+  assert.deepEqual((await r1('GET', '/api/approvals')).body.waiting.map((x) => x.id), [a.id]);
+  assert.equal((await own('POST', `/api/approvals/${a.id}/decide`, { decision: 'approved' })).status, 403, 'not a reviewer');
+  const half = (await r1('POST', `/api/approvals/${a.id}/decide`, { decision: 'approved', comment: 'Fine by me' })).body;
+  assert.equal(half.status, 'pending', 'still waiting for Rob');
+  assert.equal((await r1('POST', `/api/approvals/${a.id}/decide`, { decision: 'approved' })).status, 200, 'can change their mind while pending');
+  const done = (await r2('POST', `/api/approvals/${a.id}/decide`, { decision: 'approved' })).body;
+  assert.equal(done.status, 'approved');
+  assert.ok((await own('GET', '/api/notifications')).body.items.some((n) => n.title === '“Contract” is approved'));
+  assert.equal((await r2('POST', `/api/approvals/${a.id}/decide`, { decision: 'rejected' })).status, 400, 'finished');
+  // An edit afterwards is flagged.
+  await new Promise((r) => setTimeout(r, 5));
+  const cur = (await own('GET', `/api/files/${doc.id}`)).body;
+  await own('PUT', `/api/files/${doc.id}/content`, { version: cur.version, content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'New clause' }] }] } });
+  assert.equal((await own('GET', `/api/approvals/file/${doc.id}`)).body.current.changed_since, true);
+  // A new request: rejected by anyone means rejected.
+  const b = (await own('POST', '/api/approvals', { file_id: doc.id, reviewers: [ids.ap1, ids.ap2] })).body;
+  const rej = (await r2('POST', `/api/approvals/${b.id}/decide`, { decision: 'rejected', comment: 'Clause 4 is wrong' })).body;
+  assert.equal(rej.status, 'rejected');
+  assert.equal(rej.reviewers.find((x) => x.name === 'Rob Reviewer').comment, 'Clause 4 is wrong');
+  // Cancel.
+  const c = (await own('POST', '/api/approvals', { file_id: doc.id, reviewers: [ids.ap1] })).body;
+  assert.equal((await r1('POST', `/api/approvals/${c.id}/cancel`)).status, 403);
+  assert.equal((await own('POST', `/api/approvals/${c.id}/cancel`)).status, 200);
+  const hist = (await own('GET', `/api/approvals/file/${doc.id}`)).body;
+  assert.equal(hist.current.id, b.id, 'cancelled ones are not current');
+  assert.equal(hist.history.length, 3);
+});

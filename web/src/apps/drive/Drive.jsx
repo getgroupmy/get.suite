@@ -5,13 +5,14 @@ import { BUILT_IN } from './templates.js';
 import Icon, { fileIcon } from '../../components/Icon.jsx';
 import { Menu, Modal, PromptModal, ConfirmModal, Empty, useToast, Avatar } from '../../components/ui.jsx';
 import { useAuth } from '../../App.jsx';
+import { ApprovalsView, RequestApproval } from './Approvals.jsx';
 
 function useDriveRoute() {
   const { pathname } = useLocation();
   const [params] = useSearchParams();
   const parts = pathname.replace(/^\/drive\/?/, '').split('/');
   if (parts[0] === 'folder' && parts[1]) return { view: 'mine', folderId: parts[1] };
-  if (['shared', 'recent', 'starred', 'trash'].includes(parts[0])) return { view: parts[0] };
+  if (['shared', 'recent', 'starred', 'trash', 'approvals'].includes(parts[0])) return { view: parts[0] };
   if (parts[0] === 'search') return { view: 'search', q: params.get('q') || '', filters: Object.fromEntries(FILTERS.map(([k]) => [k, params.get(k) || ''])) };
   return { view: 'mine', folderId: null };
 }
@@ -37,7 +38,7 @@ export function goesIn(at, now = Date.now()) {
   const days = Math.ceil((at - now) / 864e5);
   return days <= 1 ? (days <= 0 ? 'Soon' : 'Tomorrow') : `In ${days} days`;
 }
-const TITLES = { shared: 'Shared with me', recent: 'Recent', starred: 'Starred', trash: 'Trash' };
+const TITLES = { shared: 'Shared with me', recent: 'Recent', starred: 'Starred', trash: 'Trash', approvals: 'Approvals' };
 const DRAG_TYPE = 'application/x-workspace-files';
 
 export default function Drive() {
@@ -59,6 +60,7 @@ export default function Drive() {
   const key = `${route.view}:${route.folderId || ''}:${route.q || ''}:${filterQuery}`;
 
   const load = useCallback(async () => {
+    if (route.view === 'approvals') { setFiles([]); return; } // its own list (Approvals.jsx)
     try {
       let url = `/files?view=${route.view}`;
       if (route.folderId) url += `&parent=${route.folderId}`;
@@ -222,6 +224,7 @@ export default function Drive() {
       f.kind !== 'folder' && '-',
       f.kind === 'file' && canEdit && { label: 'Upload new version', icon: 'upload', onClick: () => { versionFor.current = f; versionInput.current.click(); } },
       f.kind !== 'folder' && { label: 'Version history', icon: 'clock', onClick: () => setDialog({ type: 'versions', file: f }) },
+      f.kind !== 'folder' && canEdit && { label: 'Request approval…', icon: 'check', onClick: () => setDialog({ type: 'approval', file: f }) },
       canEdit && '-',
       canEdit && { label: 'Move to trash', icon: 'trash', danger: true, onClick: act(() => patch(`/files/${f.id}`, { trashed: true }), 'Moved to trash') },
     ];
@@ -254,6 +257,7 @@ export default function Drive() {
         <NavLink to="/drive/shared" className="subnav-item"><Icon name="people" />Shared with me</NavLink>
         <NavLink to="/drive/recent" className="subnav-item"><Icon name="clock" />Recent</NavLink>
         <NavLink to="/drive/starred" className="subnav-item"><Icon name="staroutline" />Starred</NavLink>
+        <NavLink to="/drive/approvals" className="subnav-item"><Icon name="check" />Approvals</NavLink>
         <NavLink to="/drive/trash" className="subnav-item"><Icon name="trash" />Trash</NavLink>
         {requests.length > 0 && <button type="button" className="subnav-item" onClick={() => setRequestsOpen(true)}><Icon name="lock" /><span className="grow">Access requests</span><span className="count">{requests.length}</span></button>}
         {usage && (
@@ -313,7 +317,7 @@ export default function Drive() {
         )}
         {folder && folder.owner_id !== user.id && <p className="muted small">Owned by {folder.owner_name} · you can {folder.role === 'viewer' ? 'view' : 'edit'}</p>}
 
-        {files === null ? <p className="muted">Loading…</p> : files.length === 0 ? (
+        {route.view === 'approvals' ? <ApprovalsView /> : files === null ? <p className="muted">Loading…</p> : files.length === 0 ? (
           route.view === 'trash' ? <Empty icon="trash" title="Trash is empty" />
             : route.view === 'search' ? <Empty icon="search" title="No matching files" />
               : route.view === 'shared' ? <Empty icon="people" title="Nothing shared with you yet" />
@@ -381,6 +385,7 @@ export default function Drive() {
           onClose={() => setDialog(null)} onConfirm={async () => { await post('/files/empty-trash'); load(); }} />
       )}
       {dialog?.type === 'share' && <ShareDialog file={dialog.file} onClose={() => setDialog(null)} />}
+      {dialog?.type === 'approval' && <RequestApproval file={dialog.file} onClose={() => setDialog(null)} />}
       {dialog?.type === 'move' && <MoveDialog files={dialog.files} onClose={() => setDialog(null)} onMoved={() => { setChecked(new Set()); load(); }} />}
       {dialog?.type === 'preview' && <Preview file={dialog.file} onClose={() => setDialog(null)} onOpenAs={() => { setDialog(null); openAs(dialog.file); }} />}
       {requestsOpen && <AccessRequests list={requests} onClose={() => setRequestsOpen(false)} onChanged={() => { loadRequests(); load(); }} />}
@@ -868,6 +873,7 @@ function activityText(a) {
     case 'transfer': return `${who} made ${d.to} the owner`;
     case 'version': return `${who} brought back ${d.label ? `the version “${d.label}”` : `the version from ${new Date(d.saved_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}`}`;
     case 'share': return [d.added?.length && `${who} shared it with ${d.added.join(', ')}`, d.removed?.length && `${d.added?.length ? 'and' : who} stopped sharing it with ${d.removed.join(', ')}`].filter(Boolean).join(' ') || `${who} changed who has it`;
+    case 'approval': return d.asked ? `${who} asked ${d.asked.join(', ')} to approve it` : `${who} ${d.decision === 'approved' ? 'approved' : 'rejected'} it${d.comment ? `: “${d.comment}”` : ''}`;
     default: return `${who}: ${a.action}`;
   }
 }

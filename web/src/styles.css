@@ -1732,3 +1732,17 @@ a.home-item:hover, button.home-item:hover { text-decoration: underline; }
 .home-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
 .home-notes { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
 .home-note { border: 1px solid var(--border); border-radius: 8px; padding: 8px; background: var(--surface); color: var(--text); text-align: left; cursor: pointer; display: flex; flex-direction: column; gap: 4px; white-space: pre-wrap; font: inherit; overflow: hidden; max-height: 120px; }
+
+/* Approvals */
+.approval-banner { margin: 0 16px 8px; display: flex; flex-direction: column; gap: 6px; }
+.approval-banner.approval-approved { background: #e6f4ea; color: #0d652d; }
+.approval-banner.approval-rejected { background: #fce8e6; color: #a50e0e; }
+.pill.approval-approved { background: #e6f4ea; color: #0d652d; }
+.pill.approval-rejected { background: #fce8e6; color: #a50e0e; }
+.pill.approval-pending, .pill.approval-waiting { background: #fef7e0; color: #8a5a00; }
+.approval-reviewers { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.approval-decide input { min-width: 160px; }
+.approval-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; max-width: 820px; }
+.approval-row { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; }
+.approval-file { font-weight: 600; text-align: left; }
+.approvals-view h2 { margin: 6px 0 0; text-transform: uppercase; letter-spacing: .06em; }

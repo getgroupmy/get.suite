@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router';
 import { get, put } from '../api.js';
 import Icon from '../components/Icon.jsx';
 import { Menu, useToast } from '../components/ui.jsx';
+import { ApprovalBanner, RequestApproval } from './drive/Approvals.jsx';
 
 /**
  * Debounced autosave with optimistic concurrency.
@@ -85,7 +86,9 @@ export function EditorHeader({ icon, file, status, onRename, onShare, menu, extr
     try { const r = await put(`/files/${file.id}/watch`, { on: !watching }); setWatching(r.watching); toast(r.watching ? 'You’ll get a notification when someone else changes it' : 'No more notifications about changes'); }
     catch (e) { toast(e.message, 'error'); }
   };
-  const items = menu && file ? [...menu, '-', { label: `${watching ? '✓ ' : ''}Notify me of changes`, icon: 'bell', onClick: toggleWatch }] : menu;
+  const [requesting, setRequesting] = useState(false);
+  const items = menu && file ? [...menu, '-', { label: `${watching ? '✓ ' : ''}Notify me of changes`, icon: 'bell', onClick: toggleWatch },
+    ...(canEdit ? [{ label: 'Request approval…', icon: 'check', onClick: () => setRequesting(true) }] : [])] : menu;
 
   async function commit() {
     const n = name.trim();
@@ -93,7 +96,7 @@ export function EditorHeader({ icon, file, status, onRename, onShare, menu, extr
     try { await onRename(n); } catch (e) { toast(e.message, 'error'); setName(file.name); }
   }
 
-  return (
+  return (<>
     <header className="editor-head">
       <button className="icon-btn" aria-label="Back to Drive" onClick={() => navigate(file?.parent_id ? `/drive/folder/${file.parent_id}` : '/drive')}>
         <Icon name="back" />
@@ -109,5 +112,7 @@ export function EditorHeader({ icon, file, status, onRename, onShare, menu, extr
       {items && <Menu trigger={(p) => <button className="icon-btn" aria-label="More" {...p}><Icon name="more" /></button>} items={items} />}
       {file?.role === 'owner' && <button className="btn primary" onClick={onShare}><Icon name="share" size={18} /> Share</button>}
     </header>
-  );
+    {file?.id && <ApprovalBanner fileId={file.id} />}
+    {requesting && <RequestApproval file={file} onClose={() => setRequesting(false)} />}
+  </>);
 }
