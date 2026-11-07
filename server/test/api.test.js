@@ -1625,3 +1625,20 @@ test('status: set, seen by colleagues in the directory, checked, and cleared by 
   const ch = (await b('GET', '/api/chat/channels')).body.channels.find((c) => c.id === (dm.id || dm.channel_id));
   assert.equal(ch.dm_user_id, aid);
 });
+
+test('chat mute: per person; counts still kept; unmuting', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['mua', 'Mute Ann'], ['mub', 'Mute Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'mua@acme.com'); await login(b, 'mub@acme.com');
+  const ch = (await a('POST', '/api/chat/channels', { name: 'mute-noisy' })).body.id;
+  const find = async (who) => (await who('GET', '/api/chat/channels')).body.channels.find((c) => c.id === ch);
+  assert.equal((await find(b)).muted, false);
+  assert.deepEqual((await b('POST', `/api/chat/channels/${ch}/mute`, {})).body, { muted: true });
+  await a('POST', `/api/chat/channels/${ch}/messages`, { body: 'chatter' });
+  const muted = await find(b);
+  assert.equal(muted.muted, true);
+  assert.equal(muted.unread, 1, 'still counted (the app bar leaves it out)');
+  assert.equal((await find(a)).muted, false, 'only for Ben');
+  await b('POST', `/api/chat/channels/${ch}/mute`, { muted: false });
+  assert.equal((await find(b)).muted, false);
+});

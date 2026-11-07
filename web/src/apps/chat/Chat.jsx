@@ -206,15 +206,15 @@ export default function Chat() {
         </form>
         <div className="subnav-title row">Channels<div className="grow" /><button className="icon-btn" aria-label="New channel" onClick={() => setDialog(true)}><Icon name="plus" size={18} /></button></div>
         {[...publicChannels, ...(showArchived ? archivedChannels : [])].map((c) => (
-          <button key={c.id} className={`subnav-item ${c.id === channelId ? 'active' : ''} ${c.archived_at ? 'archived' : ''}`} onClick={() => navigate(`/chat/${c.id}`)}>
-            <span className="hash" aria-label={c.private ? 'Private channel' : undefined}>{c.private ? '🔒' : '#'}</span><span className="grow ellipsis">{c.name}</span>{mentioned[c.id] && <span className="badge at" aria-label="You were mentioned">@</span>}{unread[c.id] > 0 && <span className="badge">{unread[c.id]}</span>}
+          <button key={c.id} className={`subnav-item ${c.id === channelId ? 'active' : ''} ${c.archived_at ? 'archived' : ''} ${c.muted ? 'muted' : ''}`} onClick={() => navigate(`/chat/${c.id}`)}>
+            <span className="hash" aria-label={c.private ? 'Private channel' : undefined}>{c.private ? '🔒' : '#'}</span><span className="grow ellipsis">{c.name}</span>{c.muted && <span className="muted-mark" aria-label="Muted" title="Muted">🔕</span>}{mentioned[c.id] && <span className="badge at" aria-label="You were mentioned">@</span>}{unread[c.id] > 0 && <span className={`badge ${c.muted ? 'quiet' : ''}`}>{unread[c.id]}</span>}
           </button>
         ))}
         {archivedChannels.length > 0 && <button type="button" className="link-btn small archived-toggle" aria-expanded={showArchived} onClick={() => setShowArchived(!showArchived)}>{showArchived ? 'Hide' : 'Show'} archived ({archivedChannels.length})</button>}
         <div className="subnav-title">Direct messages</div>
         {dms.map((c) => (
-          <button key={c.id} className={`subnav-item ${c.id === channelId ? 'active' : ''}`} onClick={() => navigate(`/chat/${c.id}`)}>
-            <Avatar name={c.dm_name || user.name} size={20} /><span className="grow ellipsis">{c.dm_name || 'Notes to self'}{c.dm_org && <span className="muted small"> · {c.dm_org}</span>}{statusFor(c.dm_user_id) && <span className="dm-status" title={statusLine(statusFor(c.dm_user_id))}> {statusFor(c.dm_user_id).emoji || '💬'}</span>}</span>{mentioned[c.id] && <span className="badge at" aria-label="You were mentioned">@</span>}{unread[c.id] > 0 && <span className="badge">{unread[c.id]}</span>}
+          <button key={c.id} className={`subnav-item ${c.id === channelId ? 'active' : ''} ${c.muted ? 'muted' : ''}`} onClick={() => navigate(`/chat/${c.id}`)}>
+            <Avatar name={c.dm_name || user.name} size={20} /><span className="grow ellipsis">{c.dm_name || 'Notes to self'}{c.dm_org && <span className="muted small"> · {c.dm_org}</span>}{statusFor(c.dm_user_id) && <span className="dm-status" title={statusLine(statusFor(c.dm_user_id))}> {statusFor(c.dm_user_id).emoji || '💬'}</span>}</span>{c.muted && <span className="muted-mark" aria-label="Muted" title="Muted">🔕</span>}{mentioned[c.id] && <span className="badge at" aria-label="You were mentioned">@</span>}{unread[c.id] > 0 && <span className={`badge ${c.muted ? 'quiet' : ''}`}>{unread[c.id]}</span>}
           </button>
         ))}
         <select className="dm-pick" value="" aria-label="Start a direct message" onChange={(e) => {
@@ -250,6 +250,9 @@ export default function Chat() {
               {!current.dm_key && (current.topic ? <p className="chat-topic muted small" title={current.topic}>{current.topic}</p> : !current.archived_at && <button type="button" className="link-btn small" onClick={() => setSettingsOpen(true)}>Add a topic</button>)}
             </div>
             {!current.dm_key && <span className="muted small">{current.private ? `${current.member_count} member${current.member_count === 1 ? '' : 's'}` : 'Everyone'}</span>}
+            <button type="button" className={`btn small ${current.muted ? 'primary' : ''}`} aria-pressed={!!current.muted} aria-label={current.muted ? 'Unmute conversation' : 'Mute conversation'}
+              title={current.muted ? 'Muted: messages here don’t add to Chat’s unread count (mentions still do). Click to unmute.' : 'Mute: messages here stop adding to Chat’s unread count (mentions still do)'}
+              onClick={async () => { try { await post(`/chat/channels/${current.id}/mute`, { muted: !current.muted }); await loadChannels(); toast(current.muted ? 'Unmuted' : 'Muted: only mentions will add to your unread count'); } catch (e) { toast(e.message, 'error'); } }}>{current.muted ? '🔕' : '🔔'}</button>
             <div className="pins-wrap">
               <button type="button" className={`btn small ${pinsOpen ? 'primary' : ''}`} aria-expanded={pinsOpen} aria-label={`Pinned messages (${pins.length})`} title="Pinned messages" onClick={() => setPinsOpen(!pinsOpen)}>📌 {pins.length || ''}</button>
               {pinsOpen && (

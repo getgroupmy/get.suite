@@ -193,7 +193,7 @@ function useChatUnread() {
   const [n, setN] = useState(0);
   useEffect(() => {
     let t = null;
-    const load = () => { clearTimeout(t); t = setTimeout(() => get('/chat/channels').then((r) => setN(r.channels.reduce((sum, c) => sum + (c.unread || 0), 0))).catch(() => {}), 400); };
+    const load = () => { clearTimeout(t); t = setTimeout(() => get('/chat/channels').then((r) => setN(r.channels.reduce((sum, c) => sum + (c.muted ? c.mentions || 0 : c.unread || 0), 0))).catch(() => {}), 400); };
     load();
     const off = onLive((m) => { if (['message', 'chat-read', 'message-deleted', 'channels-changed', 'live-connected'].includes(m.type)) load(); });
     return () => { off(); clearTimeout(t); };

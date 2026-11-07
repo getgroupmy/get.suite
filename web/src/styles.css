@@ -1384,3 +1384,7 @@ button.rule-sample.on { outline: 2px solid var(--accent); outline-offset: 1px; }
 .status-emoji { font-size: 24px; width: 32px; text-align: center; }
 .status-presets { display: flex; flex-wrap: wrap; gap: 6px; }
 .person-status { color: var(--muted); font-size: 12px; }
+/* Chat: muted conversations */
+.subnav-item.muted .grow { opacity: .7; }
+.muted-mark { font-size: 12px; opacity: .7; }
+.badge.quiet { background: var(--surface-2); color: var(--muted); border: 1px solid var(--border); }

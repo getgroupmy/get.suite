@@ -21,6 +21,12 @@ q(`CREATE TABLE IF NOT EXISTS message_reactions (
   PRIMARY KEY (message_id, user_id, emoji)
 )`).run();
 const MAX_FILES = 10, MAX_PINS = 50;
+// Muted conversations: no unread count in the app bar (mentions still count), for each person.
+q(`CREATE TABLE IF NOT EXISTS chat_mutes (
+  channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  PRIMARY KEY (channel_id, user_id)
+)`).run();
 // Pinned messages: kept at hand for everyone in the conversation.
 for (const [col, type] of [['pinned_at', 'INTEGER'], ['pinned_by', 'TEXT']]) {
   if (!q('PRAGMA table_info(messages)').all().some((c) => c.name === col)) q(`ALTER TABLE messages ADD COLUMN ${col} ${type}`).run();
@@ -133,6 +139,7 @@ export default function chatRoutes() {
     const me = req.user.id;
     const rows = q(`SELECT c.id, c.name, c.dm_key, c.private, c.topic, c.archived_at, c.created_by,
                       (SELECT COUNT(*) FROM channel_members cm WHERE cm.channel_id = c.id) AS member_count,
+                      EXISTS (SELECT 1 FROM chat_mutes mu WHERE mu.channel_id = c.id AND mu.user_id = ?) AS muted,
                       (SELECT MAX(created_at) FROM messages m WHERE m.channel_id = c.id) AS last_at,
                       (SELECT u.name FROM channel_members cm JOIN users u ON u.id = cm.user_id
                         WHERE cm.channel_id = c.id AND cm.user_id != ? LIMIT 1) AS dm_name,
@@ -150,8 +157,8 @@ export default function chatRoutes() {
                     FROM channels c
                     WHERE (c.dm_key IS NULL AND c.private = 0 AND c.org_id = ?)
                        OR EXISTS (SELECT 1 FROM channel_members cm WHERE cm.channel_id = c.id AND cm.user_id = ?)
-                    ORDER BY c.dm_key IS NOT NULL, c.archived_at IS NOT NULL, c.name`).all(me, me, me, req.user.org_id, me, me, me, me, me, `@${req.user.username}`, req.user.org_id, me);
-    res.json({ channels: rows, online: onlineUserIds() });
+                    ORDER BY c.dm_key IS NOT NULL, c.archived_at IS NOT NULL, c.name`).all(me, me, me, me, req.user.org_id, me, me, me, me, me, `@${req.user.username}`, req.user.org_id, me);
+    res.json({ channels: rows.map((c) => ({ ...c, muted: !!c.muted })), online: onlineUserIds() });
   });
 
   r.post('/channels', (req, res) => {
@@ -318,6 +325,15 @@ export default function chatRoutes() {
     notifyMentions(c, req.user, msg);
     if (parent) sendTo(audience(c), { type: 'message-updated', message: one(parent.id) }); // its reply count
     res.status(201).json(msg);
+  });
+
+  // Mute a conversation for yourself (or unmute it).
+  r.post('/channels/:id/mute', (req, res) => {
+    const c = loadChannel(req.params.id, req.user);
+    if (req.body.muted === false) q('DELETE FROM chat_mutes WHERE channel_id = ? AND user_id = ?').run(c.id, req.user.id);
+    else q('INSERT OR IGNORE INTO chat_mutes (channel_id, user_id) VALUES (?, ?)').run(c.id, req.user.id);
+    sendTo([req.user.id], { type: 'channels-changed' });
+    res.json({ muted: req.body.muted !== false });
   });
 
   // Read up to now: unread counts go back to zero (on your other devices too).
