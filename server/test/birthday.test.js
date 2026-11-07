@@ -40,5 +40,20 @@ test('birthdays travel on vCards and CSV', () => {
   assert.equal(parseVcard('BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Cy\r\nBDAY:--1224\r\nEND:VCARD\r\n').birthday, '--12-24');
   const csv = contactsFromCsv('Name,E-mail 1 - Value,Birthday\nAnn,ann@x.com,1990-05-17\nBo,bo@x.com,--05-17\n');
   assert.deepEqual(csv.map((c) => c.birthday), ['1990-05-17', '--05-17']);
-  assert.match(contactsToCsv([{ name: 'Ann', birthday: '1990-05-17' }]), /,Birthday\r\nAnn,,,,,1990-05-17/);
+  assert.match(contactsToCsv([{ name: "Ann", birthday: "1990-05-17" }]), /,Web Page\r\nAnn,,,,,1990-05-17,,,/);
+});
+
+test('job title, address and web page travel on cards and CSV; a phone’s address line is kept as it came', () => {
+  const card = ['BEGIN:VCARD', 'VERSION:3.0', 'FN:Mei Tan', 'TITLE:Sales Manager', 'item1.ADR;type=WORK;type=pref:;;1 Jalan Pantai;George Town;;10300;Malaysia', 'URL:https://harbour.example', 'END:VCARD'].join('\r\n');
+  const c = parseVcard(card);
+  assert.deepEqual([c.title, c.address, c.website], ['Sales Manager', '1 Jalan Pantai\nGeorge Town\n10300\nMalaysia', 'https://harbour.example']);
+  const same = buildVcard({ id: 'x', ...c });
+  assert.match(same, /item1\.ADR;type=WORK;type=pref:;;1 Jalan Pantai;George Town;;10300;Malaysia/, 'unchanged: the phone’s own line');
+  const moved = buildVcard({ id: 'x', ...c, address: '9 New Road\nIpoh' });
+  assert.doesNotMatch(moved, /Jalan Pantai/);
+  assert.match(moved, /ADR;TYPE=WORK:;;9 New Road\\nIpoh;;;;/);
+  assert.equal(parseVcard(moved).address, '9 New Road\nIpoh');
+  assert.match(same, /TITLE:Sales Manager/);
+  const csv = contactsFromCsv('Name,Job Title,Address,Website\nAnn,Engineer,"1 Main St, Ipoh",ann.example.com\n');
+  assert.deepEqual([csv[0].title, csv[0].address, csv[0].website], ['Engineer', '1 Main St, Ipoh', 'ann.example.com']);
 });

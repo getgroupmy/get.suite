@@ -854,7 +854,7 @@ test('contacts: import vCard and CSV files (duplicates skipped), export, and add
   const csv = await c('GET', '/api/contacts/export?format=csv');
   assert.match(csv.headers.get('content-disposition'), /contacts\.csv/);
   const text = csv.body;
-  assert.match(text, /^\uFEFF?Name,E-mail Address,Phone,Company,Notes,Birthday\r\n/); // (the reader drops the byte-order mark)
+  assert.match(text, /^\uFEFF?Name,E-mail Address,Phone,Company,Notes,Birthday,Job Title,Address,Web Page\r\n/); // (the reader drops the byte-order mark)
   assert.match(text, /"Tan, Mei Ling",meiling@example.com,\+60 12-345 6789,Globex,"Met at ""Expo""\nKL"/);
   const back = (await c('GET', '/api/contacts/export?format=vcf')).body;
   assert.equal((back.match(/BEGIN:VCARD/g) || []).length, 4);
@@ -1663,4 +1663,18 @@ test('tasks search: all the words in title, notes or steps; your lists and share
   assert.deepEqual((await a('GET', '/api/tasks/search?q=car insurance')).body.map((t) => t.title), ['Renew insurance'], 'all the words, notes too');
   assert.deepEqual((await a('GET', '/api/tasks/search?q=')).body, []);
   void bid;
+});
+
+test('contacts: job title, address and web page saved; web page checked and completed', async () => {
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'fields', domain: 'acme.com', name: 'Field Ann', password: 'password123' })).status, 201);
+  await login(a, 'fields@acme.com');
+  const c = (await a('POST', '/api/contacts', { name: 'Raj', title: 'Buyer', address: '1 Main St\nIpoh', website: 'raj.example.com' })).body;
+  assert.deepEqual([c.title, c.address, c.website], ['Buyer', '1 Main St\nIpoh', 'https://raj.example.com']);
+  assert.equal((await a('POST', '/api/contacts', { name: 'Bad', website: 'not a site' })).status, 400);
+  const e = (await a('PATCH', `/api/contacts/${c.id}`, { title: 'Head buyer' })).body;
+  assert.deepEqual([e.title, e.address], ['Head buyer', '1 Main St\nIpoh'], 'other fields kept');
+  const vcf = (await a('GET', '/api/contacts/export')).body;
+  assert.match(vcf, /TITLE:Head buyer/);
+  assert.match(vcf, /URL:https:\/\/raj\.example\.com/);
 });

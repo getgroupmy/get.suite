@@ -313,9 +313,9 @@ export default function davRoutes() {
         const c = parseVcard(req.body);
         if (c.error) return res.status(415).send(c.error);
         const id = row?.id || uid();
-        const vals = [c.name, c.email, c.phone, c.company, c.notes, c.birthday, c.vcard_extra];
-        if (row) q('UPDATE contacts SET name = ?, email = ?, phone = ?, company = ?, notes = ?, birthday = ?, vcard_extra = ? WHERE id = ?').run(...vals, id);
-        else q('INSERT INTO contacts (name, email, phone, company, notes, birthday, vcard_extra, id, owner_id, created_at, dav_name, vcard_uid) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(...vals, id, me, now(), at.name, c.uid);
+        const vals = [c.name, c.email, c.phone, c.company, c.title, c.address, c.website, c.notes, c.birthday, c.vcard_extra];
+        if (row) q('UPDATE contacts SET name = ?, email = ?, phone = ?, company = ?, title = ?, address = ?, website = ?, notes = ?, birthday = ?, vcard_extra = ? WHERE id = ?').run(...vals, id);
+        else q('INSERT INTO contacts (name, email, phone, company, title, address, website, notes, birthday, vcard_extra, id, owner_id, created_at, dav_name, vcard_uid) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(...vals, id, me, now(), at.name, c.uid);
         const saved = q('SELECT * FROM contacts WHERE id = ?').get(id);
         res.setHeader('ETag', etagOf(vcfOf(saved)));
         return res.status(row ? 204 : 201).end();

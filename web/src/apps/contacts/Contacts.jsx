@@ -8,7 +8,7 @@ import AddressInput from '../../components/AddressInput.jsx';
 import { parseAddresses, formatAddress } from '../../components/addresses.js';
 import { statusLine } from '../../components/status.js';
 
-const FIELDS = [['name', 'Name'], ['email', 'Email'], ['phone', 'Phone'], ['company', 'Company']];
+const FIELDS = [['name', 'Name'], ['email', 'Email'], ['phone', 'Phone'], ['company', 'Company'], ['title', 'Job title'], ['website', 'Website']];
 
 export default function Contacts() {
   const toast = useToast();
@@ -74,7 +74,7 @@ export default function Contacts() {
                 <td className="name"><Avatar name={c.name} size={28} /><span>{c.name}{c.status && <span className="person-status" aria-label={`Status: ${statusLine(c.status)}`}> · {statusLine(c.status)}</span>}</span></td>
                 <td className="hide-sm">{(c.email || c.username) ? <a href={`mailto:${c.email || c.username}`}>{c.email || c.username}</a> : <span className="muted">—</span>}</td>
                 <td className="hide-sm">{c.phone ? <a href={`tel:${c.phone}`}>{c.phone}</a> : <span className="muted">—</span>}</td>
-                <td className="hide-sm muted">{tab === 'mine' ? c.company || '—' : user.org_name}</td>
+                <td className="hide-sm muted">{tab === 'mine' ? [c.title, c.company].filter(Boolean).join(' · ') || '—' : user.org_name}{tab === 'mine' && c.website && <> · <a href={c.website} target="_blank" rel="noopener noreferrer">{c.website.replace(/^https?:\/\//, '')}</a></>}</td>
                 <td className="actions">
                   {tab === 'mine' ? <>
                     <button className="icon-btn" aria-label={`Edit ${c.name}`} onClick={() => setEditing(c)}><Icon name="edit" size={18} /></button>
@@ -100,7 +100,7 @@ function ContactDialog({ contact, onClose, onSaved }) {
   const [error, setError] = useState('');
   async function submit(e) {
     e.preventDefault();
-    const body = { name: f.name, email: f.email || '', phone: f.phone || '', company: f.company || '', notes: f.notes || '', birthday: f.birthday || null };
+    const body = { name: f.name, email: f.email || '', phone: f.phone || '', company: f.company || '', title: f.title || '', website: f.website || '', address: f.address || '', notes: f.notes || '', birthday: f.birthday || null };
     try { if (contact.id) await patch(`/contacts/${contact.id}`, body); else await post('/contacts', body); onSaved(); }
     catch (err) { setError(err.message); }
   }
@@ -109,9 +109,10 @@ function ContactDialog({ contact, onClose, onSaved }) {
       <form className="stack" onSubmit={submit}>
         {FIELDS.map(([k, label], i) => (
           <label key={k} className="field"><span>{label}</span>
-            <input autoFocus={i === 0} required={k === 'name'} type={k === 'email' ? 'email' : k === 'phone' ? 'tel' : 'text'} value={f[k] || ''} onChange={(e) => setF({ ...f, [k]: e.target.value })} />
+            <input autoFocus={i === 0} required={k === 'name'} type={k === 'email' ? 'email' : k === 'phone' ? 'tel' : 'text'} placeholder={k === 'website' ? 'example.com' : undefined} value={f[k] || ''} onChange={(e) => setF({ ...f, [k]: e.target.value })} />
           </label>
         ))}
+        <label className="field"><span>Address</span><textarea rows={3} value={f.address || ''} onChange={(e) => setF({ ...f, address: e.target.value })} /></label>
         <BirthdayField value={f.birthday || ''} onChange={(birthday) => setF({ ...f, birthday })} />
         <label className="field"><span>Notes</span><textarea rows={3} value={f.notes || ''} onChange={(e) => setF({ ...f, notes: e.target.value })} /></label>
         {error && <p className="error">{error}</p>}

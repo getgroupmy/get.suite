@@ -6,7 +6,10 @@ import { contactsFromFile, contactsToCsv, contactsToVcf, MAX_IMPORT } from '../c
 import { canReach } from '../tenancy.js';
 import { birthdayOf, birthdaysBetween } from '../birthday.js';
 
-const FIELDS = { name: 200, email: 200, phone: 50, company: 200, notes: 5000 };
+const FIELDS = { name: 200, email: 200, phone: 50, company: 200, title: 200, address: 500, website: 300, notes: 5000 };
+const COLS = [...Object.keys(FIELDS), 'birthday'];
+/** A web address as kept: with https:// added when it's left off. */
+const websiteOf = (v) => (!v ? v : /^https?:\/\//i.test(v) ? v : /^[\w-]+(\.[\w-]+)+(\/\S*)?$/.test(v) ? `https://${v}` : (() => { throw bad('Website must be a web address, like example.com'); })());
 
 // Groups: your own lists of people (contacts or colleagues, by address) to email all at once.
 q(`CREATE TABLE IF NOT EXISTS contact_groups (
@@ -39,6 +42,7 @@ function read(body, partial) {
     if (partial && body[k] === undefined) continue;
     out[k] = str(body[k], { max, required: k === 'name', name: k });
   }
+  if (out.website !== undefined) out.website = websiteOf(out.website);
   if (!partial || body.birthday !== undefined) {
     try { out.birthday = birthdayOf(body.birthday, { strict: true }); } catch (e) { throw bad(e.message); }
   }
@@ -116,9 +120,10 @@ export default function contactRoutes() {
       const email = c.email ? c.email.toLowerCase() : null;
       const key = `${String(c.name).toLowerCase()}|${c.phone || ''}`;
       if ((email && emails.has(email)) || (c.uid && uids.has(c.uid)) || (!email && namePhone.has(key))) { skipped++; continue; } // already there
-      q(`INSERT INTO contacts (id, owner_id, name, email, phone, company, notes, birthday, created_at, vcard_uid, vcard_extra) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-        .run(uid(), req.user.id, String(c.name).slice(0, 200), email, c.phone ? String(c.phone).slice(0, 50) : null, c.company ? String(c.company).slice(0, 200) : null,
-          c.notes ? String(c.notes).slice(0, 5000) : null, c.birthday || null, t, c.uid || null, c.vcard_extra || null);
+      const cut = (v, n) => (v ? String(v).slice(0, n) : null);
+      q(`INSERT INTO contacts (id, owner_id, name, email, phone, company, title, address, website, notes, birthday, created_at, vcard_uid, vcard_extra) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(uid(), req.user.id, String(c.name).slice(0, 200), email, cut(c.phone, 50), cut(c.company, 200), cut(c.title, 200), cut(c.address, 500), cut(c.website, 300),
+          cut(c.notes, 5000), c.birthday || null, t, c.uid || null, c.vcard_extra || null);
       if (email) emails.add(email);
       if (c.uid) uids.add(c.uid);
       namePhone.add(key);
@@ -151,8 +156,8 @@ export default function contactRoutes() {
   r.post('/', (req, res) => {
     const c = read(req.body, false);
     const id = uid();
-    q(`INSERT INTO contacts (id, owner_id, name, email, phone, company, notes, birthday, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(id, req.user.id, c.name, c.email, c.phone, c.company, c.notes, c.birthday, now());
+    q(`INSERT INTO contacts (id, owner_id, ${COLS.join(', ')}, created_at) VALUES (?, ?, ${COLS.map(() => '?').join(', ')}, ?)`)
+      .run(id, req.user.id, ...COLS.map((k) => c[k] ?? null), now());
     res.status(201).json(q('SELECT * FROM contacts WHERE id = ?').get(id));
   });
 
@@ -160,8 +165,7 @@ export default function contactRoutes() {
     const existing = q('SELECT * FROM contacts WHERE id = ? AND owner_id = ?').get(req.params.id, req.user.id);
     if (!existing) throw notFound();
     const c = { ...existing, ...read(req.body, true) };
-    q('UPDATE contacts SET name = ?, email = ?, phone = ?, company = ?, notes = ?, birthday = ? WHERE id = ?')
-      .run(c.name, c.email, c.phone, c.company, c.notes, c.birthday, c.id);
+    q(`UPDATE contacts SET ${COLS.map((k) => `${k} = ?`).join(', ')} WHERE id = ?`).run(...COLS.map((k) => c[k] ?? null), c.id);
     res.json(q('SELECT * FROM contacts WHERE id = ?').get(c.id));
   });
 

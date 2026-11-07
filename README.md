@@ -187,6 +187,7 @@ In Drive, **New → Presentation**. Presentations are shared, versioned and save
 - **Export:** **Export** downloads all your contacts as vCards (for phones, Outlook and Apple) or as CSV (for Gmail and spreadsheets).
 - **In Mail:** start typing a name or address in To, Cc or Bcc and pick from your contacts and colleagues (Up/Down, then Enter or Tab).
 
+- **More details:** a contact can also have a job title, a website (https:// is added if you leave it off) and a postal address. They show in the list (job title · company · website) and travel with vCard and CSV files and phone sync; an address that came from a phone keeps its parts (street, city, postcode…) on the phone unless you change it here.
 - **Birthdays:** a contact can have a birthday (with or without the year: tick **Year not known**). Birthdays show on the Calendar as all-day items with the age they turn when the year is known (29 February falls on the 28th in other years); click one to find the contact, or untick **Show contacts’ birthdays** to hide them. Birthdays come in and go out with vCard and CSV files and sync with phones.
 - **Groups:** the **Groups** tab in Contacts holds your own lists of people (contacts, colleagues or any address) to email together. Type a group's name in To, Cc or Bcc and pick it to put in everyone in it, or use the envelope button next to the group. Groups are private to you.
 ## Calendar and contacts on your phone

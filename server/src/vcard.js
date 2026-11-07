@@ -1,11 +1,14 @@
 // Contact cards (vCard 3.0, which every phone reads) for CardDAV. Workspace keeps name, email,
-// phone, company, notes and birthday; anything else on a card from a phone (addresses, more
+// phone, company, job title, an address, a web page, notes and birthday; anything else on a card from a phone (more
 // numbers, a photo) is kept as it came, so syncing never drops it.
 import { birthdayOf } from './birthday.js';
 import { contentLines, unescapeText, escapeText, fold } from './ics.js';
 
-const KNOWN = new Set(['BEGIN', 'END', 'VERSION', 'UID', 'FN', 'N', 'ORG', 'NOTE', 'PRODID', 'REV', 'BDAY']);
+const KNOWN = new Set(['BEGIN', 'END', 'VERSION', 'UID', 'FN', 'N', 'ORG', 'NOTE', 'PRODID', 'REV', 'BDAY', 'TITLE', 'URL']);
 const MAX_EXTRA = 256 * 1024; // photos can be big; keep cards reasonable
+
+/** ADR is "post box;extended;street;city;region;postcode;country": shown as lines, empty parts left out. */
+const adrText = (value) => String(value).split(/(?<!\\);/).map((x) => unescapeText(x).trim()).filter(Boolean).join('\n');
 
 /** The card for a contact. */
 export function buildVcard(c) {
@@ -20,8 +23,19 @@ export function buildVcard(c) {
   if (c.email) lines.push(`EMAIL;TYPE=INTERNET:${c.email}`);
   if (c.phone) lines.push(`TEL;TYPE=CELL:${c.phone}`);
   if (c.notes) lines.push(`NOTE:${escapeText(c.notes)}`);
+  if (c.title) lines.push(`TITLE:${escapeText(c.title)}`);
+
+  if (c.website) lines.push(`URL:${c.website}`);
   if (c.birthday) lines.push(`BDAY${c.birthday.startsWith('--') ? ';X-APPLE-OMIT-YEAR=1604' : ''}:${c.birthday.startsWith('--') ? `1604${c.birthday.slice(1)}` : c.birthday}`); // phones read a year; Apple's 1604 means none
-  const extra = String(c.vcard_extra || '').split(/\r?\n/).filter(Boolean);
+  let extra = String(c.vcard_extra || '').split(/\r?\n/).filter(Boolean);
+  // The address: the phone's own line when it still says the same, else one written from the text.
+  const adrAt = extra.findIndex((l) => /^([\w-]+\.)?ADR[;:]/i.test(l) && /pref/i.test(l.split(':')[0]));
+  const first = adrAt >= 0 ? adrAt : extra.findIndex((l) => /^([\w-]+\.)?ADR[;:]/i.test(l));
+  const kept = first >= 0 ? adrText(extra[first].slice(extra[first].indexOf(':') + 1)) : '';
+  if ((c.address || '') !== kept) {
+    if (first >= 0) extra = extra.filter((_, i) => i !== first);
+    if (c.address) lines.push(`ADR;TYPE=WORK:;;${escapeText(c.address)};;;;`); // the whole address in the street part
+  }
   return fold([...lines, ...extra, 'END:VCARD']);
 }
 
@@ -41,13 +55,17 @@ export function parseVcard(text) {
   // The preferred email/number (TYPE=PREF or PREF=1) is the one shown; others stay on the card.
   const pref = (list) => list.find((l) => /pref/i.test(l.params.TYPE || '') || l.params.PREF) || list[0];
   const email = pref(emails), tel = pref(tels);
+  const adrs = lines.filter((l) => l.name === 'ADR' || l.name.endsWith('.ADR'));
+  const adr = pref(adrs);
+  // ADR is "post box;extended;street;city;region;postcode;country": shown as lines, empty parts left out.
+  const address = adr ? adrText(adr.value) : '';
   const unfolded = raw.replace(/\r?\n[ \t]/g, '').split(/\r?\n/).filter(Boolean);
   // Keep every line Workspace doesn't model (raw, as it came), except the email/number it shows.
   const extra = [];
   let size = 0;
   for (const [i, line] of unfolded.entries()) {
     const l = lines[i];
-    if (!l || KNOWN.has(l.name) || l === email || l === tel) continue;
+    if (!l || KNOWN.has(l.name) || l === email || l === tel) continue; // the address line stays as it came too
     if ((size += line.length) > MAX_EXTRA) break;
     extra.push(line);
   }
@@ -58,6 +76,9 @@ export function parseVcard(text) {
     phone: tel ? tel.value.trim().replace(/^tel:/i, '').slice(0, 50) : null,
     company: unescapeText((get('ORG')?.value || '').split(';')[0]).slice(0, 200) || null,
     notes: unescapeText(get('NOTE')?.value || '').slice(0, 5000) || null,
+    title: unescapeText(get('TITLE')?.value || '').slice(0, 200) || null,
+    address: address.slice(0, 500) || null,
+    website: (get('URL')?.value || '').trim().slice(0, 300) || null,
     birthday: birthdayOf(get('BDAY')?.value),
     vcard_extra: extra.join('\n') || null,
   };
