@@ -116,6 +116,91 @@ function shape(rows) {
 }
 const one = (id) => shape([q(`${MSG} WHERE m.id = ?`).get(id)].filter(Boolean))[0];
 
+/** The conversation, if this person may write in it now. */
+function writable(channelId, user) {
+  const c = loadChannel(channelId, user);
+  if (c.dm_key && !dmOpen(c, user)) throw bad('External messaging is turned off for one of the companies');
+  readOnly(c);
+  return c;
+}
+
+/** A message as sent (checked): { body, files, poll, parent }. */
+function readMessage(c, user, input) {
+  // Files from Drive the sender can open; everyone in the conversation can then open them from it.
+  const ids = Array.isArray(input.files) ? [...new Set(input.files.map(String))] : [];
+  if (ids.length > MAX_FILES) throw bad(`At most ${MAX_FILES} files per message`);
+  const files = ids.map((fid) => {
+    const f = q("SELECT id, name, mime, size, kind FROM files WHERE id = ? AND trashed = 0").get(fid);
+    if (!f || f.kind !== 'file' || !roleFor(f.id, user.id)) throw bad('A file is not available');
+    return { id: f.id, name: f.name, mime: f.mime || 'application/octet-stream', size: f.size };
+  });
+  const poll = input.poll ? cleanPoll(input.poll) : null;
+  const body = poll ? poll.question : str(input.body, { required: !files.length, name: 'Message', max: 8000 }) || '';
+  // A reply goes in the thread of a message in this conversation (threads don't nest).
+  let parent = null;
+  if (input.parent_id) {
+    parent = q('SELECT id, parent_id, channel_id FROM messages WHERE id = ?').get(String(input.parent_id));
+    if (!parent || parent.channel_id !== c.id) throw bad('That message is gone');
+    if (parent.parent_id) parent = { id: parent.parent_id };
+  }
+  return { body, files, poll, parent };
+}
+
+/** Post a message: saved, shown to everyone in the conversation, mentions told. */
+function deliver(c, user, { body, files, poll, parent }) {
+  const id = uid();
+  q('INSERT INTO messages (id, channel_id, user_id, body, created_at, files, parent_id, poll) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(id, c.id, user.id, body, now(), files.length ? JSON.stringify(files) : null, parent?.id ?? null, poll ? JSON.stringify(poll) : null);
+  q('INSERT INTO channel_reads (channel_id, user_id, read_at) VALUES (?, ?, ?) ON CONFLICT(channel_id, user_id) DO UPDATE SET read_at = excluded.read_at').run(c.id, user.id, now());
+  const msg = one(id);
+  sendTo(audience(c), { type: 'message', message: msg });
+  notifyMentions(c, user, msg);
+  if (parent) sendTo(audience(c), { type: 'message-updated', message: one(parent.id) }); // its reply count
+  return msg;
+}
+
+// Scheduled messages: sent by the server at their time, checked again then (the sender may have left,
+// the channel been archived, a file been deleted). One that can't go is kept with the reason, and the
+// sender is told.
+q(`CREATE TABLE IF NOT EXISTS chat_scheduled (
+  id TEXT PRIMARY KEY,
+  channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  body TEXT NOT NULL,
+  files TEXT,
+  parent_id TEXT,
+  send_at INTEGER NOT NULL,
+  created_at INTEGER NOT NULL,
+  error TEXT
+)`).run();
+q('CREATE INDEX IF NOT EXISTS chat_scheduled_due ON chat_scheduled(send_at)').run();
+
+function sendScheduled(row, now_ = false) {
+  const user = q('SELECT * FROM users WHERE id = ? AND disabled = 0').get(row.user_id);
+  try {
+    if (!user) throw bad('Your account is turned off');
+    const c = writable(row.channel_id, user);
+    const files = row.files ? JSON.parse(row.files).map((f) => f.id) : [];
+    const msg = deliver(c, user, readMessage(c, user, { body: row.body, files, parent_id: row.parent_id }));
+    q('DELETE FROM chat_scheduled WHERE id = ?').run(row.id);
+    sendTo([user.id], { type: 'chat-scheduled', channel_id: row.channel_id });
+    return msg;
+  } catch (e) {
+    if (now_ || !user) throw e;
+    q('UPDATE chat_scheduled SET error = ?, send_at = ? WHERE id = ?').run(e.message, 8.64e15, row.id); // kept, not retried
+    notify([user.id], { kind: 'chat', title: 'A scheduled message couldn’t be sent', body: `${e.message}: “${row.body.slice(0, 80)}”`, link: `/chat/${row.channel_id}`, actor: null });
+    sendTo([user.id], { type: 'chat-scheduled', channel_id: row.channel_id });
+    return null;
+  }
+}
+
+/** Send what's due (every few seconds; started with the server). */
+export function sendDueChat(at = Date.now()) {
+  const due = q('SELECT * FROM chat_scheduled WHERE send_at <= ? AND error IS NULL ORDER BY send_at LIMIT 100').all(at);
+  for (const row of due) sendScheduled(row);
+  return due.length;
+}
+export function startChatScheduler() { setInterval(() => { try { sendDueChat(); } catch (e) { console.error('[chat] scheduled:', e.message); } }, 10e3).unref(); }
+
 /**
  * Send a direct message from one person to another (opening their conversation if needed), as if
  * typed in Chat. Used for notices such as comment mentions. Returns false if they can't be reached.
@@ -329,34 +414,52 @@ export default function chatRoutes() {
   });
 
   r.post('/channels/:id/messages', (req, res) => {
-    const c = loadChannel(req.params.id, req.user);
-    if (c.dm_key && !dmOpen(c, req.user)) throw bad('External messaging is turned off for one of the companies');
-    readOnly(c);
-    // Files from Drive the sender can open; everyone in the conversation can then open them from it.
-    const ids = Array.isArray(req.body.files) ? [...new Set(req.body.files.map(String))] : [];
-    if (ids.length > MAX_FILES) throw bad(`At most ${MAX_FILES} files per message`);
-    const files = ids.map((fid) => {
-      const f = q("SELECT id, name, mime, size, kind FROM files WHERE id = ? AND trashed = 0").get(fid);
-      if (!f || f.kind !== 'file' || !roleFor(f.id, req.user.id)) throw bad('A file is not available');
-      return { id: f.id, name: f.name, mime: f.mime || 'application/octet-stream', size: f.size };
-    });
-    const poll = req.body.poll ? cleanPoll(req.body.poll) : null;
-    const body = poll ? poll.question : str(req.body.body, { required: !files.length, name: 'Message', max: 8000 }) || '';
-    // A reply goes in the thread of a message in this conversation (threads don't nest).
-    let parent = null;
-    if (req.body.parent_id) {
-      parent = q('SELECT id, parent_id, channel_id FROM messages WHERE id = ?').get(String(req.body.parent_id));
-      if (!parent || parent.channel_id !== c.id) throw bad('That message is gone');
-      if (parent.parent_id) parent = { id: parent.parent_id };
-    }
+    const c = writable(req.params.id, req.user);
+    res.status(201).json(deliver(c, req.user, readMessage(c, req.user, req.body)));
+  });
+
+  // ---- scheduled messages: written now, sent at a chosen time (as if typed then) ----
+  const MAX_SCHEDULED = 50;
+  const shapeScheduled = (row) => ({ id: row.id, channel_id: row.channel_id, body: row.body, files: row.files ? JSON.parse(row.files) : [], parent_id: row.parent_id, send_at: row.send_at, error: row.error || null });
+  r.post('/channels/:id/scheduled', (req, res) => {
+    const c = writable(req.params.id, req.user);
+    const m = readMessage(c, req.user, req.body);
+    if (m.poll) throw bad('Polls can’t be scheduled');
+    const at = Number(req.body.send_at);
+    if (!Number.isFinite(at) || at < Date.now() + 30e3) throw bad('Choose a time at least a minute from now');
+    if (at > Date.now() + 366 * 864e5) throw bad('Choose a time within a year');
+    if (q('SELECT COUNT(*) AS n FROM chat_scheduled WHERE user_id = ?').get(req.user.id).n >= MAX_SCHEDULED) throw bad(`At most ${MAX_SCHEDULED} scheduled messages`);
     const id = uid();
-    q('INSERT INTO messages (id, channel_id, user_id, body, created_at, files, parent_id, poll) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(id, c.id, req.user.id, body, now(), files.length ? JSON.stringify(files) : null, parent?.id ?? null, poll ? JSON.stringify(poll) : null);
-    q('INSERT INTO channel_reads (channel_id, user_id, read_at) VALUES (?, ?, ?) ON CONFLICT(channel_id, user_id) DO UPDATE SET read_at = excluded.read_at').run(c.id, req.user.id, now());
-    const msg = one(id);
-    sendTo(audience(c), { type: 'message', message: msg });
-    notifyMentions(c, req.user, msg);
-    if (parent) sendTo(audience(c), { type: 'message-updated', message: one(parent.id) }); // its reply count
-    res.status(201).json(msg);
+    q('INSERT INTO chat_scheduled (id, channel_id, user_id, body, files, parent_id, send_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, c.id, req.user.id, m.body, m.files.length ? JSON.stringify(m.files) : null, m.parent?.id ?? null, Math.round(at), now());
+    sendTo([req.user.id], { type: 'chat-scheduled', channel_id: c.id });
+    res.status(201).json(shapeScheduled(q('SELECT * FROM chat_scheduled WHERE id = ?').get(id)));
+  });
+  // Your scheduled messages in a conversation (or, without one, everywhere), soonest first.
+  r.get('/scheduled', (req, res) => {
+    const rows = req.query.channel ? q('SELECT * FROM chat_scheduled WHERE user_id = ? AND channel_id = ? ORDER BY send_at').all(req.user.id, String(req.query.channel))
+      : q('SELECT * FROM chat_scheduled WHERE user_id = ? ORDER BY send_at').all(req.user.id);
+    res.json(rows.map(shapeScheduled));
+  });
+  const ownScheduled = (req) => { const row = q('SELECT * FROM chat_scheduled WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id); if (!row) throw notFound(); return row; };
+  r.patch('/scheduled/:id', (req, res) => {
+    const row = ownScheduled(req);
+    const at = req.body.send_at !== undefined ? Number(req.body.send_at) : row.send_at;
+    if (!Number.isFinite(at) || at < Date.now() + 30e3 || at > Date.now() + 366 * 864e5) throw bad('Choose a time from a minute to a year from now');
+    const body = req.body.body !== undefined ? str(req.body.body, { required: !row.files, name: 'Message', max: 8000 }) || '' : row.body;
+    q('UPDATE chat_scheduled SET send_at = ?, body = ?, error = NULL WHERE id = ?').run(Math.round(at), body, row.id);
+    sendTo([req.user.id], { type: 'chat-scheduled', channel_id: row.channel_id });
+    res.json(shapeScheduled(q('SELECT * FROM chat_scheduled WHERE id = ?').get(row.id)));
+  });
+  r.delete('/scheduled/:id', (req, res) => {
+    const row = ownScheduled(req);
+    q('DELETE FROM chat_scheduled WHERE id = ?').run(row.id);
+    sendTo([req.user.id], { type: 'chat-scheduled', channel_id: row.channel_id });
+    res.json({ ok: true });
+  });
+  r.post('/scheduled/:id/send', (req, res) => {
+    const row = ownScheduled(req);
+    res.json(sendScheduled(row, true));
   });
 
   // Mute a conversation for yourself (or unmute it).

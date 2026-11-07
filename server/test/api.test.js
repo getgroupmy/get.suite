@@ -1551,6 +1551,47 @@ test('contacts: duplicates found by email, phone or name; merging keeps one with
   assert.deepEqual((await a('GET', '/api/contacts/duplicates')).body, []);
 });
 
+test('chat: scheduled messages wait, can be changed or cancelled, send at their time or now; checked again when due', async () => {
+  const { sendDueChat } = await import('../src/routes/chat.js');
+  const a = client(), b = client();
+  for (const [local, name] of [['scha', 'Sched Ann'], ['schb', 'Sched Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'scha@acme.com');
+  const bid = (await login(b, 'schb@acme.com')).id;
+  const ch = (await a('POST', '/api/chat/channels', { name: 'sched-private', private: true, members: [bid] })).body.id;
+  const hour = Date.now() + 36e5;
+  assert.equal((await a('POST', `/api/chat/channels/${ch}/scheduled`, { body: 'too soon', send_at: Date.now() + 1000 })).status, 400);
+  assert.equal((await a('POST', `/api/chat/channels/${ch}/scheduled`, { body: 'too late', send_at: Date.now() + 400 * 864e5 })).status, 400);
+  assert.equal((await a('POST', `/api/chat/channels/${ch}/scheduled`, { poll: { question: 'Q', options: ['a', 'b'] }, send_at: hour })).status, 400);
+  const s1 = (await a('POST', `/api/chat/channels/${ch}/scheduled`, { body: 'Morning all, standup at 10', send_at: hour })).body;
+  const s2 = (await a('POST', `/api/chat/channels/${ch}/scheduled`, { body: 'Reminder: timesheets', send_at: hour + 36e5 })).body;
+  const s3 = (await a('POST', `/api/chat/channels/${ch}/scheduled`, { body: 'Never mind', send_at: hour })).body;
+  assert.deepEqual((await a('GET', `/api/chat/scheduled?channel=${ch}`)).body.map((x) => x.body), ['Morning all, standup at 10', 'Never mind', 'Reminder: timesheets']);
+  assert.deepEqual((await b('GET', `/api/chat/scheduled?channel=${ch}`)).body, [], 'only yours');
+  assert.equal((await b('DELETE', `/api/chat/scheduled/${s1.id}`)).status, 404);
+  const msgs = async () => (await b('GET', `/api/chat/channels/${ch}/messages`)).body.map((m) => m.body);
+  assert.deepEqual(await msgs(), [], 'nothing seen yet');
+  await a('DELETE', `/api/chat/scheduled/${s3.id}`);
+  assert.equal((await a('PATCH', `/api/chat/scheduled/${s2.id}`, { body: 'Reminder: timesheets by 5pm' })).body.body, 'Reminder: timesheets by 5pm');
+  // Due: sent as from them; the later one waits.
+  assert.equal(sendDueChat(hour + 1000), 1);
+  assert.deepEqual(await msgs(), ['Morning all, standup at 10']);
+  assert.equal((await b('GET', `/api/chat/channels/${ch}/messages`)).body[0].user_name, 'Sched Ann');
+  // Send now.
+  const now = (await a('POST', `/api/chat/scheduled/${s2.id}/send`, {})).body;
+  assert.equal(now.body, 'Reminder: timesheets by 5pm');
+  assert.deepEqual((await a('GET', `/api/chat/scheduled`)).body, []);
+  // Archived by the time it's due: kept with the reason, and the sender is told.
+  const s4 = (await a('POST', `/api/chat/channels/${ch}/scheduled`, { body: 'After the archive', send_at: hour })).body;
+  await a('PATCH', `/api/chat/channels/${ch}`, { archived: true });
+  assert.equal(sendDueChat(hour + 1000), 1);
+  const kept = (await a('GET', '/api/chat/scheduled')).body;
+  assert.equal(kept[0].id, s4.id);
+  assert.match(kept[0].error, /archived/);
+  assert.equal(sendDueChat(hour + 2000), 0, 'not tried again');
+  assert.ok((await a('GET', '/api/notifications')).body.items.some((n) => n.title === 'A scheduled message couldn’t be sent'));
+  assert.equal((await a('POST', `/api/chat/scheduled/${s4.id}/send`, {})).status, 400, 'still can’t');
+});
+
 test('chat polls: ask, vote (one or several), change your vote, close; checked options', async () => {
   const a = client(), b = client(), c = client();
   for (const [local, name] of [['polla', 'Poll Ann'], ['pollb', 'Poll Ben'], ['pollc', 'Poll Cat']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);

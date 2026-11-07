@@ -5,7 +5,8 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { get, post, patch, del, onLive, uploadFile, formatBytes } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
 import EmojiPicker from '../../components/EmojiPicker.jsx';
-import { Avatar, ConfirmModal, Empty, Modal, PromptModal, useToast } from '../../components/ui.jsx';
+import { Avatar, ConfirmModal, Empty, Menu, Modal, PromptModal, useToast } from '../../components/ui.jsx';
+import { whenText, laterChoices, ScheduleDialog } from '../../components/schedule.jsx';
 import { useAuth } from '../../App.jsx';
 import { useMentions, MENTION_RE } from '../../components/mentions.jsx';
 
@@ -157,6 +158,24 @@ export default function Chat() {
       try { const up = await uploadFile(f, folder); setFiles((x) => [...x, up]); } catch (e) { toast(e.message, 'error'); } finally { setUploading((n) => n - 1); }
     }
     box.current?.focus();
+  }
+
+  // Messages you've scheduled here, soonest first (live: they go when sent).
+  const [scheduled, setScheduled] = useState([]);
+  const [pickingTime, setPickingTime] = useState(false);
+  const [scheduledOpen, setScheduledOpen] = useState(false);
+  const loadScheduled = useCallback(() => { if (channelId) get(`/chat/scheduled?channel=${channelId}`).then(setScheduled).catch(() => {}); }, [channelId]);
+  useEffect(() => { setScheduled([]); loadScheduled(); }, [loadScheduled]);
+  useEffect(() => onLive((m) => { if (m.type === 'chat-scheduled' && m.channel_id === channelId) loadScheduled(); }), [channelId, loadScheduled]);
+  async function scheduleAt(at) {
+    const body = text.trim();
+    if ((!body && !files.length) || uploading) return;
+    try {
+      await post(`/chat/channels/${channelId}/scheduled`, { body, files: files.map((f) => f.id), send_at: at });
+      setText(''); setFiles([]);
+      toast(`Scheduled for ${whenText(at)}`);
+      loadScheduled();
+    } catch (err) { toast(err.message, 'error'); }
   }
 
   async function send(e) {
@@ -312,11 +331,21 @@ export default function Chat() {
               onPaste={(e) => { const pasted = [...(e.clipboardData?.files || [])]; if (pasted.length) { e.preventDefault(); attach(pasted); } }}
               onKeyDown={(e) => { if (mention.keyDown(e)) return; if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) send(e); }} />
             {mention.list}
+            <Menu align="right" trigger={(p) => <button type="button" className="icon-btn" aria-label="Schedule message" title="Send later" disabled={(!text.trim() && !files.length) || uploading > 0} {...p}><Icon name="clock" /></button>}
+              items={[...laterChoices().map(([label, at]) => ({ label: `${label} · ${whenText(at)}`, onClick: () => scheduleAt(at) })), '-', { label: 'Pick date and time…', icon: 'calendar', onClick: () => setPickingTime(true) }]} />
             <button className="icon-btn send" aria-label="Send" disabled={(!text.trim() && !files.length) || uploading > 0}><Icon name="send" /></button>
           </form>}
+          {scheduled.length > 0 && !current.archived_at && (
+            <button type="button" className="link-btn small scheduled-bar" onClick={() => setScheduledOpen(true)}>
+              🕒 {scheduled.length} scheduled message{scheduled.length === 1 ? '' : 's'}{scheduled.some((x) => x.error) ? ' (one couldn’t be sent)' : ` · next ${whenText(scheduled[0].send_at)}`}
+            </button>
+          )}
         </>}
       </section>
       {current && threadId && <Thread key={threadId} id={threadId} channelId={channelId} user={user} onClose={() => setThreadId(null)} />}
+      {pickingTime && <ScheduleDialog title="Schedule message" confirm="Schedule" withinYear note={(at) => `It will be sent ${whenText(at)}, as if you sent it then, even if Workspace isn’t open.`}
+        onClose={() => setPickingTime(false)} onPick={(at) => { setPickingTime(false); scheduleAt(at); }} />}
+      {scheduledOpen && <ScheduledMessages list={scheduled} onClose={() => setScheduledOpen(false)} onChanged={loadScheduled} />}
       {pollOpen && current && <PollDialog onClose={() => setPollOpen(false)} onSubmit={async (poll) => {
         stick.current = true;
         const msg = await post(`/chat/channels/${channelId}/messages`, { poll });
@@ -494,6 +523,30 @@ function Poll({ m, user }) {
         <button type="button" className="link-btn small" onClick={() => post(`/chat/messages/${m.id}/poll/close`, { closed: !closed }).catch((e) => toast(e.message, 'error'))}>{closed ? 'Reopen poll' : 'Close poll'}</button>
       )}
     </div>
+  );
+}
+
+/** Your scheduled messages in a conversation: when, what, and Send now or Delete. */
+function ScheduledMessages({ list, onClose, onChanged }) {
+  const toast = useToast();
+  const run = (fn, msg) => async () => { try { await fn(); toast(msg); onChanged(); } catch (e) { toast(e.message, 'error'); } };
+  return (
+    <Modal title="Scheduled messages" onClose={onClose} footer={<button className="btn" onClick={onClose}>Close</button>}>
+      {!list.length ? <p className="muted">Nothing is waiting to be sent here.</p> : (
+        <ul className="scheduled-list">
+          {list.map((m) => (
+            <li key={m.id}>
+              <div className="muted small">{m.error ? <span className="error">Couldn’t be sent: {m.error}</span> : `Sends ${whenText(m.send_at)}`}</div>
+              <div className="scheduled-text">{m.body || (m.files.length ? `📎 ${m.files.map((f) => f.name).join(', ')}` : '')}</div>
+              <div className="row">
+                <button type="button" className="btn small" onClick={run(() => post(`/chat/scheduled/${m.id}/send`, {}), 'Sent')}>Send now</button>
+                <button type="button" className="btn small danger" onClick={run(() => del(`/chat/scheduled/${m.id}`), 'Deleted')}>Delete</button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Modal>
   );
 }
 
