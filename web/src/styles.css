@@ -1281,3 +1281,14 @@ button.rule-sample.on { outline: 2px solid var(--accent); outline-offset: 1px; }
   border-left: 3px solid var(--c); font-size: 11px; color: var(--c); padding: 1px 4px; overflow: hidden; }
 .tg-busy span { font-weight: 600; }
 .tg-event { z-index: 1; }
+
+/* Chat search */
+.chat-search { display: flex; align-items: center; gap: 6px; margin: 4px 8px 6px; padding: 4px 10px; border-radius: 18px; background: var(--surface-2); color: var(--muted); }
+.chat-search input { flex: 1; min-width: 0; border: 0; background: none; font: inherit; padding: 4px 0; }
+.chat-search input:focus-visible { outline: none; }
+.chat-results { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+.chat-results ul { list-style: none; margin: 0; padding: 8px 12px; overflow: auto; }
+.chat-result { display: flex; flex-direction: column; gap: 2px; width: 100%; padding: 10px; border: 0; border-radius: 8px; background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.chat-result:hover { background: var(--hover); }
+.chat-result mark, .msg.found mark { background: var(--warn-bg); color: inherit; border-radius: 2px; }
+.msg.found { background: var(--warn-bg); transition: background 1s; }

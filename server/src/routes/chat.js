@@ -246,9 +246,34 @@ export default function chatRoutes() {
 
   r.get('/channels/:id/messages', (req, res) => {
     const c = loadChannel(req.params.id, req.user);
+    // ?around=<message id>: the messages either side of one (to jump to a search result).
+    if (req.query.around) {
+      const m = q('SELECT created_at FROM messages WHERE id = ? AND channel_id = ? AND parent_id IS NULL').get(String(req.query.around), c.id);
+      if (!m) throw notFound('Message not found');
+      const older = q(`${MSG} WHERE m.channel_id = ? AND m.parent_id IS NULL AND m.created_at < ? ORDER BY m.created_at DESC LIMIT 50`).all(c.id, m.created_at).reverse();
+      const newer = q(`${MSG} WHERE m.channel_id = ? AND m.parent_id IS NULL AND m.created_at >= ? ORDER BY m.created_at LIMIT 50`).all(c.id, m.created_at);
+      return res.json(shape([...older, ...newer]));
+    }
     const before = Number(req.query.before) || 8.64e15;
     const rows = q(`${MSG} WHERE m.channel_id = ? AND m.parent_id IS NULL AND m.created_at < ? ORDER BY m.created_at DESC LIMIT 100`).all(c.id, before);
     res.json(shape(rows.reverse()));
+  });
+
+  // Search: messages with all these words, in the conversations you can see (thread replies too),
+  // newest first. Each says where it is: the conversation, and the thread it's in.
+  r.get('/search', (req, res) => {
+    const words = String(req.query.q || '').toLowerCase().match(/[\p{L}\p{N}@._-]+/gu)?.slice(0, 8) || [];
+    if (!words.length) return res.json([]);
+    const me = req.user.id;
+    const like = words.map(() => "LOWER(m.body) LIKE ? ESCAPE '!'");
+    const rows = q(`SELECT m.id, m.channel_id, m.parent_id, m.user_id, m.body, m.created_at, u.name AS user_name, c.name AS channel_name, c.dm_key, c.private,
+                      (SELECT un.name FROM channel_members cm JOIN users un ON un.id = cm.user_id WHERE cm.channel_id = c.id AND cm.user_id != ? LIMIT 1) AS dm_name
+                    FROM messages m JOIN channels c ON c.id = m.channel_id LEFT JOIN users u ON u.id = m.user_id
+                    WHERE ${like.join(' AND ')}
+                      AND ((c.dm_key IS NULL AND c.private = 0 AND c.org_id = ?) OR EXISTS (SELECT 1 FROM channel_members cm WHERE cm.channel_id = c.id AND cm.user_id = ?))
+                    ORDER BY m.created_at DESC LIMIT 50`)
+      .all(me, ...words.map((w) => `%${w.replace(/[%_!]/g, (x) => `!${x}`)}%`), req.user.org_id, me);
+    res.json(rows.map((r) => ({ ...r, where: r.dm_key ? (r.dm_name || 'Notes to self') : `#${r.channel_name}`, private: !!r.private, dm_key: undefined, dm_name: undefined })));
   });
 
   // A thread: the message and its replies, oldest first.

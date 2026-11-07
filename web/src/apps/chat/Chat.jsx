@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { get, post, patch, del, onLive, uploadFile, formatBytes } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
 import EmojiPicker from '../../components/EmojiPicker.jsx';
@@ -9,6 +9,10 @@ import { useMentions, MENTION_RE } from '../../components/mentions.jsx';
 
 export default function Chat() {
   const { channelId } = useParams();
+  const [params, setParams] = useSearchParams();
+  const jumpTo = params.get('msg'); // a message to show (from search), with its thread if it's a reply
+  const jumpThread = params.get('thread');
+  const [search, setSearch] = useState(null); // { q, results }
   const navigate = useNavigate();
   const toast = useToast();
   const { user } = useAuth();
@@ -69,8 +73,29 @@ export default function Chat() {
     setUnread((u) => ({ ...u, [channelId]: 0 }));
     setMentioned((x) => ({ ...x, [channelId]: false }));
     setEditingId(null); setFiles([]); setThreadId(null);
-    get(`/chat/channels/${channelId}/messages`).then((list) => { setMessages(list); markRead(channelId); }).catch((e) => toast(e.message, 'error'));
-  }, [channelId, toast]);
+    if (jumpTo) stick.current = false;
+    get(`/chat/channels/${channelId}/messages${jumpTo ? `?around=${encodeURIComponent(jumpTo)}` : ''}`).then((list) => {
+      setMessages(list); markRead(channelId);
+      if (jumpTo) {
+        if (jumpThread) setThreadId(jumpThread);
+        requestAnimationFrame(() => {
+          const el = scroller.current?.querySelector(`[data-mid="${jumpTo}"]`);
+          el?.scrollIntoView({ block: 'center' });
+          el?.classList.add('found');
+          setTimeout(() => el?.classList.remove('found'), 4000);
+        });
+      }
+    }).catch((e) => toast(e.message, 'error'));
+  }, [channelId, jumpTo, jumpThread, toast]);
+  const runSearch = async (q) => {
+    if (!q.trim()) { setSearch(null); return; }
+    try { setSearch({ q, results: await get(`/chat/search?q=${encodeURIComponent(q)}`) }); } catch (e) { toast(e.message, 'error'); }
+  };
+  const openResult = (r) => {
+    setSearch(null);
+    const target = r.parent_id || r.id;
+    navigate(`/chat/${r.channel_id}?msg=${target}${r.parent_id ? `&thread=${r.parent_id}` : ''}`);
+  };
 
   useEffect(() => onLive((m) => {
     if (m.type === 'message' && m.message.parent_id) {
@@ -161,6 +186,10 @@ export default function Chat() {
   return (
     <div className="chat">
       <aside className="subnav">
+        <form className="chat-search" role="search" onSubmit={(e) => { e.preventDefault(); runSearch(new FormData(e.currentTarget).get('q')); }}>
+          <Icon name="search" size={18} />
+          <input name="q" type="search" placeholder="Search messages" aria-label="Search messages" onChange={(e) => { if (!e.target.value) setSearch(null); }} />
+        </form>
         <div className="subnav-title row">Channels<div className="grow" /><button className="icon-btn" aria-label="New channel" onClick={() => setDialog(true)}><Icon name="plus" size={18} /></button></div>
         {[...publicChannels, ...(showArchived ? archivedChannels : [])].map((c) => (
           <button key={c.id} className={`subnav-item ${c.id === channelId ? 'active' : ''} ${c.archived_at ? 'archived' : ''}`} onClick={() => navigate(`/chat/${c.id}`)}>
@@ -183,7 +212,23 @@ export default function Chat() {
         </select>
       </aside>
       <section className="chat-main">
-        {!current ? <Empty icon="chat" title="Pick a conversation" /> : <>
+        {search ? (
+          <div className="chat-results">
+            <div className="chat-head"><h1 className="grow">Results for “{search.q}”</h1><button type="button" className="icon-btn" aria-label="Close search" onClick={() => setSearch(null)}><Icon name="close" /></button></div>
+            {!search.results.length ? <Empty icon="search" title="No messages found" /> : (
+              <ul aria-label="Search results">
+                {search.results.map((r) => (
+                  <li key={r.id}>
+                    <button type="button" className="chat-result" onClick={() => openResult(r)}>
+                      <span className="muted small">{r.private ? '🔒 ' : ''}{r.where}{r.parent_id ? ' · in a thread' : ''} · {new Date(r.created_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</span>
+                      <span><strong>{r.user_name || 'Someone'}</strong> <Highlighted text={r.body} words={search.q} /></span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        ) : !current ? <Empty icon="chat" title="Pick a conversation" /> : <>
           <div className="chat-head">
             <div className="grow" style={{ minWidth: 0 }}>
               <h1>{current.private && !current.dm_key ? `🔒 ${current.name}` : title}</h1>
@@ -313,7 +358,7 @@ function Thread({ id, channelId, user, onClose }) {
 /** One message: text (or the box to change it), files, reactions, its thread, and hover actions. */
 function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit, onSaveEdit, onCancelEdit, onReact, onThread, onDelete }) {
   return (
-    <div className={`msg ${grouped ? 'grouped' : ''}`}>
+    <div className={`msg ${grouped ? 'grouped' : ''}`} data-mid={m.id}>
       {grouped ? <span className="msg-gutter" /> : <Avatar name={m.user_name || 'Deleted user'} size={36} />}
       <div className="msg-body">
         {!grouped && <div className="msg-meta"><strong>{m.user_name || 'Deleted user'}</strong> <span className="muted small">{new Date(m.created_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span></div>}
@@ -491,4 +536,12 @@ function ChannelSettings({ channel, me, canManage, people, onClose, onChanged, o
       )}
     </Modal>
   );
+}
+
+/** Text with the searched words marked. */
+function Highlighted({ text, words }) {
+  const list = String(words).toLowerCase().match(/[\p{L}\p{N}@._-]+/gu) || [];
+  if (!list.length) return text;
+  const re = new RegExp(`(${list.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})`, 'gi');
+  return String(text).slice(0, 300).split(re).map((part, i) => (i % 2 ? <mark key={i}>{part}</mark> : part));
 }

@@ -1370,3 +1370,25 @@ test('free/busy: colleagues’ busy times without details; not other companies',
   assert.equal(r[ginaId], undefined, 'not other companies');
   assert.equal((await owner('GET', `/api/freebusy?users=${aid}&from=0&to=${100 * 864e5}`)).status, 400);
 });
+
+test('chat search: all the words, in conversations you can see (threads too); jump to a message', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['seeka', 'Seek Ann'], ['seekb', 'Seek Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'seeka@acme.com'); await login(b, 'seekb@acme.com');
+  const open = (await a('POST', '/api/chat/channels', { name: 'seek-open' })).body.id;
+  const priv = (await a('POST', '/api/chat/channels', { name: 'seek-private', private: true })).body.id;
+  const m1 = (await a('POST', `/api/chat/channels/${open}/messages`, { body: 'The flamingo invoice is late' })).body;
+  for (let i = 0; i < 120; i++) await a('POST', `/api/chat/channels/${open}/messages`, { body: `filler ${i}` });
+  await a('POST', `/api/chat/channels/${open}/messages`, { body: 'Flamingo reply in thread', parent_id: m1.id });
+  await a('POST', `/api/chat/channels/${priv}/messages`, { body: 'secret flamingo plans' });
+  const found = (await b('GET', '/api/chat/search?q=FLAMINGO')).body;
+  assert.deepEqual(found.map((x) => x.body), ['Flamingo reply in thread', 'The flamingo invoice is late'], 'not the private channel Ben is not in');
+  assert.equal(found[0].parent_id, m1.id);
+  assert.equal(found[1].where, '#seek-open');
+  assert.equal((await a('GET', '/api/chat/search?q=flamingo plans')).body.length, 1, 'all the words');
+  assert.deepEqual((await b('GET', '/api/chat/search?q=')).body, []);
+  // Jump: the message and those around it (it's older than the latest 100).
+  const around = (await b('GET', `/api/chat/channels/${open}/messages?around=${m1.id}`)).body;
+  assert.equal(around[0].id, m1.id);
+  assert.equal(around.length, 50);
+});
