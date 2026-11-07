@@ -1272,3 +1272,12 @@ button.rule-sample.on { outline: 2px solid var(--accent); outline-offset: 1px; }
 .details-list { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0; font-size: 14px; }
 .details-list dt { color: var(--muted); }
 .details-list dd { margin: 0; overflow-wrap: anywhere; }
+
+/* Calendar: other people's busy times */
+.other-cal { gap: 8px; padding: 2px 12px; }
+.other-cal .dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.tg-busy { position: absolute; left: 2px; right: 2px; border-radius: 4px; pointer-events: none; z-index: 0; opacity: .9;
+  background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--c) 22%, transparent) 0 6px, color-mix(in srgb, var(--c) 10%, transparent) 6px 12px);
+  border-left: 3px solid var(--c); font-size: 11px; color: var(--c); padding: 1px 4px; overflow: hidden; }
+.tg-busy span { font-weight: 600; }
+.tg-event { z-index: 1; }

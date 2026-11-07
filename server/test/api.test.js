@@ -1354,3 +1354,19 @@ test('drive: folder colours and descriptions (found by search)', async () => {
   assert.equal((await owner('PATCH', `/api/files/${doc.id}`, { description: '' })).body.description, null);
   assert.equal((await owner('GET', '/api/files')).body.find((f) => f.id === folder.id).color, '#d93025');
 });
+
+test('free/busy: colleagues’ busy times without details; not other companies', async () => {
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'busybee', domain: 'acme.com', name: 'Busy Bee', password: 'password123' })).status, 201);
+  const aid = (await login(a, 'busybee@acme.com')).id;
+  const t = Date.now() + 2 * 864e5;
+  await a('POST', '/api/events', { title: 'Secret interview', location: 'Room 4', start: t, end: t + 36e5 });
+  await a('POST', '/api/events', { title: 'Every morning', start: t + 864e5, end: t + 864e5 + 18e5, rrule: { freq: 'daily', count: 3 } });
+  const r = (await owner('GET', `/api/freebusy?users=${aid},${ginaId}&from=${t - 36e5}&to=${t + 5 * 864e5}`)).body;
+  assert.equal(r[aid].name, 'Busy Bee');
+  assert.deepEqual(r[aid].busy[0], { start: t, end: t + 36e5 });
+  assert.equal(r[aid].busy.length, 4, 'repeating ones too');
+  assert.ok(!JSON.stringify(r).includes('Secret'), 'no titles');
+  assert.equal(r[ginaId], undefined, 'not other companies');
+  assert.equal((await owner('GET', `/api/freebusy?users=${aid}&from=0&to=${100 * 864e5}`)).status, 400);
+});

@@ -186,3 +186,24 @@ export function publicBookingRoutes() {
   });
   return r;
 }
+
+/**
+ * Colleagues' busy times (start and end only, never what or where), for seeing calendars side by
+ * side: ?users=id,id&from=ms&to=ms. Only people in your own company, at most 10 at a time, 31 days.
+ */
+export function freeBusyRoutes() {
+  const r = Router();
+  r.get('/', (req, res) => {
+    const ids = [...new Set(String(req.query.users || '').split(',').filter(Boolean))].slice(0, 10);
+    const from = Number(req.query.from), to = Number(req.query.to);
+    if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from || to - from > 31 * DAY) throw bad('Give from and to, at most 31 days apart');
+    const out = {};
+    for (const id of ids) {
+      const u = q('SELECT id, name, org_id FROM users WHERE id = ? AND disabled = 0').get(id);
+      if (!u || u.org_id !== req.user.org_id) continue; // not a colleague: nothing shown
+      out[id] = { name: u.name, busy: busyOf(id, from, to).sort((a, b) => a.start - b.start) };
+    }
+    res.json(out);
+  });
+  return r;
+}

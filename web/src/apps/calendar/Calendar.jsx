@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
+import { useAuth } from '../../App.jsx';
 import { get, post, put, patch, del, onLive } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
 import { Modal, useToast } from '../../components/ui.jsx';
 import { DAY, VIEWS, startOfDay, visibleDays, shift, title, onDay, layoutDay, expandAll, occurrenceIndex, describeRule, daysBetween, moveTimes, resizeEnd, shiftWeekdays, snapMinutes } from './calmath.js';
 
+const OTHER_COLOURS = ['#e37400', '#8e24aa', '#0b8043', '#d93025', '#00796b', '#3949ab'];
 const COLORS = ['#1a73e8', '#0b8043', '#d50000', '#f4511e', '#8e24aa', '#616161'];
 const HOUR_PX = 48; // height of one hour in the week/day grid
 const pad = (n) => String(n).padStart(2, '0');
@@ -42,11 +44,28 @@ export default function Calendar() {
   const [editing, setEditing] = useState(null);
   const [showTasks, setShowTasksState] = useState(savedTasks);
   const [bookingOpen, setBookingOpen] = useState(false);
+
   const [tasks, setTasks] = useState([]);
   const setShowTasks = (on) => { setShowTasksState(on); try { localStorage.setItem('nw.calTasks', on ? '1' : '0'); } catch { /* private window */ } };
   const setView = (v) => { setViewState(v); try { localStorage.setItem('nw.calView', v); } catch { /* private window */ } };
 
   const days = useMemo(() => visibleDays(view, anchor), [view, anchor]);
+  // Other people's calendars (busy times only), chosen on this device.
+  const [others, setOthersState] = useState(() => { try { return JSON.parse(localStorage.getItem('nw.calOthers') || '[]'); } catch { return []; } });
+  const setOthers = (list) => { setOthersState(list); try { localStorage.setItem('nw.calOthers', JSON.stringify(list)); } catch { /* private window */ } };
+  const [busy, setBusy] = useState([]);
+  const { user: me } = useAuth();
+  const [people, setPeople] = useState([]);
+  useEffect(() => { get('/users/directory').then(setPeople).catch(() => {}); }, []);
+  const loadBusy = useCallback(() => {
+    if (!others.length) { setBusy([]); return; }
+    const from = days[0].getTime(), to = days[days.length - 1].getTime() + DAY;
+    get(`/freebusy?users=${others.map((o) => o.id).join(',')}&from=${from}&to=${to}`)
+      .then((r) => setBusy(others.flatMap((o) => (r[o.id]?.busy || []).map((b) => ({ ...b, key: `${o.id}@${b.start}`, name: o.name, color: o.color })))))
+      .catch(() => setBusy([]));
+  }, [others, days]);
+  useEffect(loadBusy, [loadBusy]);
+  useEffect(() => { const t = setInterval(loadBusy, 60e3); return () => clearInterval(t); }, [loadBusy]);
   // The upcoming list (next 30 days) doesn't depend on the period on screen.
   const [upcomingList, setUpcoming] = useState([]);
   const load = useCallback(() => {
@@ -123,6 +142,21 @@ export default function Calendar() {
       <aside className="subnav">
         <button className="btn new-btn" onClick={() => newEvent()}><Icon name="plus" /> Create</button>
         <button type="button" className="subnav-item" onClick={() => setBookingOpen(true)}><Icon name="link" /><span className="grow">Booking pages</span></button>
+        <div className="subnav-title">Other people</div>
+        {others.map((o) => (
+          <div key={o.id} className="row other-cal"><span className="dot" style={{ background: o.color }} /><span className="grow ellipsis small">{o.name}</span>
+            <button type="button" className="icon-btn" style={{ width: 24, height: 24 }} aria-label={`Hide ${o.name}`} onClick={() => setOthers(others.filter((x) => x.id !== o.id))}><Icon name="close" size={14} /></button></div>
+        ))}
+        {others.length < 10 && (
+          <select className="dm-pick" value="" aria-label="Show a colleague's calendar" onChange={(e) => {
+            const p = people.find((x) => x.id === e.target.value);
+            if (p) setOthers([...others, { id: p.id, name: p.name, color: OTHER_COLOURS[others.length % OTHER_COLOURS.length] }]);
+          }}>
+            <option value="">+ See a colleague’s calendar…</option>
+            {people.filter((p) => p.id !== me.id && !others.some((o) => o.id === p.id)).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        )}
+        {others.length > 0 && view === 'month' && <p className="muted small" style={{ margin: '4px 12px' }}>Their busy times show in the week and day views.</p>}
         <label className="check cal-show-tasks"><input type="checkbox" checked={showTasks} onChange={(e) => setShowTasks(e.target.checked)} /> Show tasks with due dates</label>
         <h3 className="subnav-title">Upcoming</h3>
         {upcoming.length === 0 && <p className="muted small">Nothing scheduled</p>}
@@ -168,7 +202,7 @@ export default function Calendar() {
             })}
           </div>
         ) : (
-          <TimeGrid days={days} events={shown} today={today} onOpen={setEditing} onNew={newEvent} onDay={view === 'week' ? openDay : null} drag={drag} onTaskDone={taskDone} />
+          <TimeGrid days={days} events={shown} busy={busy} today={today} onOpen={setEditing} onNew={newEvent} onDay={view === 'week' ? openDay : null} drag={drag} onTaskDone={taskDone} />
         )}
       </section>
       {bookingOpen && <BookingPagesDialog onClose={() => setBookingOpen(false)} />}
@@ -184,7 +218,7 @@ export default function Calendar() {
 }
 
 /** Week / day view: an all-day row, then hours with timed events placed by their real times. */
-function TimeGrid({ days, events, today, onOpen, onNew, onDay: openDay, drag, onTaskDone }) {
+function TimeGrid({ days, events, busy = [], today, onOpen, onNew, onDay: openDay, drag, onTaskDone }) {
   const scroller = useRef();
   const [now, setNow] = useState(Date.now());
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 60e3); return () => clearInterval(t); }, []);
@@ -235,6 +269,11 @@ function TimeGrid({ days, events, today, onOpen, onNew, onDay: openDay, drag, on
                 const y = e.clientY - e.currentTarget.getBoundingClientRect().top;
                 onNew(d, Math.min(23 * 60 + 30, Math.floor(y / HOUR_PX * 2) * 30)); // the half hour clicked
               })}>
+              {busy.filter((b) => b.start < d.getTime() + DAY && b.end > d.getTime()).map((b) => {
+                const s = Math.max(b.start, d.getTime()), e = Math.min(b.end, d.getTime() + DAY);
+                return <div key={b.key} className="tg-busy" style={{ '--c': b.color, top: ((s - d.getTime()) / 36e5) * HOUR_PX, height: Math.max(12, ((e - s) / 36e5) * HOUR_PX - 2) }}
+                  title={`${b.name} is busy ${fmtTime(b.start)} – ${fmtTime(b.end)}`} aria-label={`${b.name} busy ${fmtTime(b.start)} to ${fmtTime(b.end)}`}><span>{b.name}</span></div>;
+              })}
               {layoutDay(events, d).map(({ ev, top, height, col, cols: n }) => (
                 <button key={ev.key || ev.id} className={`tg-event ${inviteClass(ev)} ${ev.dragging ? 'dragging' : ''} ${ev.role !== 'guest' ? 'movable' : ''}`} title={`${ev.title} · ${fmtTime(ev.start)} – ${fmtTime(ev.end)}${ev.rrule ? ' · repeats' : ''}`}
                   style={{ '--c': ev.color || COLORS[0], top: (top / 60) * HOUR_PX, height: (height / 60) * HOUR_PX - 2, left: `calc(${(col / n) * 100}% + 2px)`, width: `calc(${100 / n}% - 4px)` }}

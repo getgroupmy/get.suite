@@ -7,7 +7,7 @@ import authRoutes from './routes/auth.js';
 import userRoutes from './routes/users.js';
 import fileRoutes from './routes/files.js';
 import calendarRoutes, { publicInviteRoutes } from './routes/calendar.js';
-import bookingRoutes, { publicBookingRoutes } from './routes/booking.js';
+import bookingRoutes, { publicBookingRoutes, freeBusyRoutes } from './routes/booking.js';
 import brandRoutes from './routes/brand.js';
 import contactRoutes from './routes/contacts.js';
 import taskRoutes from './routes/tasks.js';
@@ -81,6 +81,7 @@ export function createApp({
   app.use('/api/comments', requireAuth, commentRoutes());
   app.use('/api/events', requireAuth, calendarRoutes());
   app.use('/api/bookings', requireAuth, bookingRoutes());
+  app.use('/api/freebusy', requireAuth, freeBusyRoutes());
   app.use('/api/contacts', requireAuth, contactRoutes());
   app.use('/api/chat', requireAuth, chatRoutes());
   app.use('/api/tasks', requireAuth, taskRoutes());
