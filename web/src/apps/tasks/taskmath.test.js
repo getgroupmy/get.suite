@@ -30,3 +30,20 @@ test('local today and repeat wording', async () => {
   assert.equal(repeatText(null), '');
   assert.deepEqual(REPEATS.map(([v]) => v), ['', 'daily', 'weekdays', 'weekly', 'monthly', 'yearly']);
 });
+
+test('sorting a list', async () => {
+  const { sortTasks } = await import('./taskmath.js');
+  const t = [
+    { id: 'a', title: 'Zebra', due: null, created_at: 1 },
+    { id: 'b', title: 'apple', due: '2026-11-10', due_time: '15:00', created_at: 3, important: true },
+    { id: 'c', title: 'Item 10', due: '2026-11-10', created_at: 2 },
+    { id: 'd', title: 'Item 9', due: '2026-11-09', created_at: 4 },
+    { id: 'e', title: 'Mango', due: '2026-11-10', due_time: '09:00', created_at: 5 },
+  ];
+  const ids = (s) => sortTasks(t, s).map((x) => x.id).join('');
+  assert.equal(ids('mine'), 'abcde');
+  assert.equal(ids('due'), 'debca', 'by date, timed ones first on a day, undated last');
+  assert.equal(ids('title'), 'bdcea', 'case doesn’t matter; numbers in order');
+  assert.equal(ids('added'), 'edbca');
+  assert.equal(ids('important'), 'bacde');
+});

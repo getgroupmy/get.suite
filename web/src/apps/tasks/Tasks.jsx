@@ -6,7 +6,7 @@ import { get, post, patch, put, del, onLive } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
 import { Avatar, ConfirmModal, Empty, Menu, Modal, PromptModal, useToast } from '../../components/ui.jsx';
 import { useAuth } from '../../App.jsx';
-import { dueLabel, between, localToday, REPEATS, repeatText } from './taskmath.js';
+import { dueLabel, between, localToday, REPEATS, repeatText, SORTS, sortTasks } from './taskmath.js';
 
 const ASSIGNED = 'assigned';
 const IMPORTANT = 'important'; // tasks marked ★ on any of your lists
@@ -53,7 +53,12 @@ export default function Tasks() {
 
   const list = lists?.find((l) => l.id === listId);
   const people = list ? [{ id: list.owner_id, name: list.owner_name }, ...list.members] : [];
-  const open = (tasks || []).filter((t) => !t.done);
+  const sortBy = list?.sort || 'mine';
+  const open = sortTasks((tasks || []).filter((t) => !t.done), sortBy);
+  const setSort = async (sort) => {
+    setLists((ls) => ls.map((l) => (l.id === list.id ? { ...l, sort } : l)));
+    try { await put(`/tasks/lists/${list.id}/sort`, { sort }); } catch (e) { toast(e.message, 'error'); loadLists(); }
+  };
   const done = (tasks || []).filter((t) => t.done);
   const current = (tasks || []).find((t) => t.id === openId);
   const show = (id) => setParams(id ? { task: id } : {});
@@ -94,7 +99,7 @@ export default function Tasks() {
     const due = t.due && dueLabel(t.due, new Date(), t.due_time);
     return (
       <li key={t.id} className={`task ${t.done ? 'done' : ''} ${t.id === openId ? 'open' : ''} ${dropAt === i && dragging ? 'drop-before' : ''}`}
-        draggable={!t.done && !virtual} onDragStart={(e) => { setDragging(t.id); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', t.title); }}
+        draggable={!t.done && !virtual && sortBy === 'mine'} onDragStart={(e) => { setDragging(t.id); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', t.title); }}
         onDragEnd={() => { setDragging(null); setDropAt(null); }}
         onDragOver={(e) => { if (!dragging || t.done) return; e.preventDefault(); const r = e.currentTarget.getBoundingClientRect(); setDropAt(e.clientY < r.top + r.height / 2 ? i : i + 1); }}
         onDrop={(e) => { if (!dragging) return; e.preventDefault(); drop(dropAt ?? i); }}>
@@ -164,6 +169,10 @@ export default function Tasks() {
           <h1 className="grow ellipsis">{heading}</h1>
           {list && !list.mine && <span className="muted small">Shared by {list.owner_name}</span>}
           {list?.mine && <button type="button" className="btn" onClick={() => setDialog('share')}><Icon name="share" size={18} /> {list.members.length ? `Shared with ${list.members.length}` : 'Share'}</button>}
+          {list && (
+            <Menu trigger={(p) => <button type="button" className="btn small" aria-label={`Sort: ${SORTS.find(([k]) => k === sortBy)[1]}`} title="Sort this list (just for you)" {...p}>⇅ {SORTS.find(([k]) => k === sortBy)[1]}</button>}
+              items={SORTS.map(([k, label]) => ({ label: `${k === sortBy ? '✓ ' : ''}${label}`, onClick: () => setSort(k) }))} />
+          )}
           {list && (
             <Menu trigger={(p) => <button type="button" className="icon-btn" aria-label="List actions" {...p}><Icon name="more" /></button>} items={[
               ...(list.mine ? [{ label: 'Rename list', icon: 'edit', onClick: () => setDialog('rename') }] : []),

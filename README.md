@@ -581,6 +581,7 @@ Each entry shows who did it, what it was done to, the details and the IP address
 ## Tasks
 
 - **Lists:** everyone starts with **My tasks**; **+** next to Lists makes more. Type in **Add a task** and press Enter: new tasks go on top. Drag tasks to put them in order.
+- **Sorting:** **⇅** at the top of a list sorts it your way: **My order** (drag to arrange), **Due date** (timed ones first on a day, undated at the end), **Title**, **Recently added** or **Starred first**. It's your own choice for each list, remembered on every device; others on a shared list keep theirs.
 - **Ticking off:** the box marks a task done (with **Undo**); done tasks move to **Completed** at the bottom, and **⋮ → Delete completed tasks** clears them.
 - **Details:** click a task for notes, a due date (shown as Today, Tomorrow or the date; overdue in red) and, if you like, a time on it ("Today 15:30"; red once it's passed; it shows on the calendar too, and a note pops up at that time while Workspace is open, with a desktop notification when those are on), who it's for, and which list it's on. Changes save as you make them.
 - **Search:** the **Search tasks** box finds tasks with all the words you type in their title, notes or steps, on your own lists and those shared with you (open ones first, soonest due first, then done ones). Click one to open it in its list.

@@ -2552,3 +2552,20 @@ test('admin: when each person last used their account (signing in counts; signin
   const csv = (await owner('GET', '/api/users/export')).body;
   assert.match(csv.split('\r\n').find((l) => l.includes('lasta@acme.com')), new RegExp(`,${new Date(after.last_active).toISOString().slice(0, 10)}$`));
 });
+
+test('tasks: each person sorts a list their own way', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['srta', 'Sort Ann'], ['srtb', 'Sort Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'srta@acme.com');
+  const bid = (await login(b, 'srtb@acme.com')).id;
+  const list = (await a('POST', '/api/tasks/lists', { name: 'Shared sort' })).body.id;
+  await a('PUT', `/api/tasks/lists/${list}/members`, { user_ids: [bid] });
+  const sortOf = async (who) => (await who('GET', '/api/tasks/lists')).body.lists.find((l) => l.id === list).sort;
+  assert.equal(await sortOf(a), 'mine');
+  assert.equal((await a('PUT', `/api/tasks/lists/${list}/sort`, { sort: 'due' })).body.sort, 'due');
+  assert.equal(await sortOf(a), 'due');
+  assert.equal(await sortOf(b), 'mine', 'Ben keeps his own');
+  assert.equal((await a('PUT', `/api/tasks/lists/${list}/sort`, { sort: 'colour' })).status, 400);
+  await a('PUT', `/api/tasks/lists/${list}/sort`, { sort: 'mine' });
+  assert.equal(await sortOf(a), 'mine');
+});

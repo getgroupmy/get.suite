@@ -41,6 +41,14 @@ for (const [col, type] of [['repeat', 'TEXT'], ['next_id', 'TEXT'], ['steps', 'T
 q('CREATE INDEX IF NOT EXISTS tasks_assignee ON tasks(assignee_id, done_at)').run();
 
 const MAX_LISTS = 200, MAX_TASKS = 5000;
+// How each person sorts each list (their own choice; others see their own).
+q(`CREATE TABLE IF NOT EXISTS task_list_views (
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  list_id TEXT NOT NULL REFERENCES task_lists(id) ON DELETE CASCADE,
+  sort TEXT NOT NULL,
+  PRIMARY KEY (user_id, list_id)
+)`).run();
+export const SORTS = ['mine', 'due', 'title', 'added', 'important'];
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 /** Everyone on a list: its owner and the people it's shared with. */
@@ -120,7 +128,8 @@ export default function taskRoutes() {
     const assigned = q('SELECT COUNT(*) AS n FROM tasks WHERE assignee_id = ? AND done_at IS NULL').get(me).n;
     const important = q(`SELECT COUNT(*) AS n FROM tasks t JOIN task_lists l ON l.id = t.list_id WHERE t.important = 1 AND t.done_at IS NULL
                          AND (l.owner_id = ? OR l.id IN (SELECT list_id FROM task_list_members WHERE user_id = ?))`).get(me, me).n;
-    res.json({ lists: lists.map((l) => ({ ...l, mine: l.owner_id === me, members: members.filter((m) => m.list_id === l.id).map(({ list_id, ...p }) => p) })), assigned, important });
+    const sorts = new Map(q('SELECT list_id, sort FROM task_list_views WHERE user_id = ?').all(me).map((v) => [v.list_id, v.sort]));
+    res.json({ lists: lists.map((l) => ({ ...l, sort: sorts.get(l.id) || 'mine', mine: l.owner_id === me, members: members.filter((m) => m.list_id === l.id).map(({ list_id, ...p }) => p) })), assigned, important });
   });
 
   r.post('/lists', (req, res) => {
@@ -165,6 +174,17 @@ export default function taskRoutes() {
     });
     sendTo(new Set(before), { type: 'tasks-changed', list_id: list.id });
     res.json({ ok: true });
+  });
+
+  // How you sort a list: your order (drag), by due date, by title, newest first, or starred first.
+  r.put('/lists/:id/sort', (req, res) => {
+    const list = loadList(req.params.id, req.user);
+    const sort = String(req.body.sort || '');
+    if (!SORTS.includes(sort)) throw bad('Sort by your order, due date, title, date added or importance');
+    if (sort === 'mine') q('DELETE FROM task_list_views WHERE user_id = ? AND list_id = ?').run(req.user.id, list.id);
+    else q('INSERT INTO task_list_views (user_id, list_id, sort) VALUES (?, ?, ?) ON CONFLICT(user_id, list_id) DO UPDATE SET sort = excluded.sort').run(req.user.id, list.id, sort);
+    sendTo([req.user.id], { type: 'tasks-changed', list_id: list.id });
+    res.json({ sort });
   });
 
   r.get('/lists/:id/tasks', (req, res) => {
