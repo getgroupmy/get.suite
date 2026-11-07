@@ -1347,3 +1347,11 @@ button.rule-sample.on { outline: 2px solid var(--accent); outline-offset: 1px; }
 @media (prefers-reduced-motion: reduce) { .presenter-slide[class*="tr-"] { animation: tr-fade .2s both; } }
 .slide-list li.skipped .thumb { opacity: .45; }
 .slide-list .thumb-mark { display: block; font-size: 11px; color: var(--muted); line-height: 1.2; }
+/* Docs: checklists */
+.paper ul[data-type="taskList"] { list-style: none; padding-left: 4px; }
+.paper ul[data-type="taskList"] li { display: flex; align-items: flex-start; gap: 8px; }
+.paper ul[data-type="taskList"] li > label { flex: none; margin-top: .2em; user-select: none; }
+.paper ul[data-type="taskList"] li > label input { width: 16px; height: 16px; cursor: pointer; accent-color: var(--accent); }
+.paper ul[data-type="taskList"] li > div { flex: 1; min-width: 0; }
+.paper ul[data-type="taskList"] li[data-checked="true"] > div { color: var(--muted); text-decoration: line-through; }
+.paper ul[data-type="taskList"] ul[data-type="taskList"] { padding-left: 20px; }

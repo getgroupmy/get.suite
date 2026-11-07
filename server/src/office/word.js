@@ -54,8 +54,25 @@ export async function docFromWord(buffer, { savePicture } = {}) {
   });
   // A picture that couldn't be kept leaves a note instead of disappearing silently.
   const withNotes = html.replace(/<img [^>]*alt="\[picture\]"[^>]*>/g, '<em>[picture]</em>');
-  const doc = generateJSON(withNotes || '<p></p>', EXTENSIONS);
+  const doc = checklists(generateJSON(withNotes || '<p></p>', EXTENSIONS));
   return { doc, warnings: messages.filter((m) => m.type === 'warning').map((m) => m.message) };
+}
+
+/** Paragraphs starting with a box (☐, or ☑ ☒ when ticked), one after another, become a checklist. */
+function checklists(doc) {
+  const BOX = /^\s*([☐☑☒])\s*/;
+  const out = [];
+  for (const n of doc.content || []) {
+    const first = n.type === 'paragraph' && n.content?.[0];
+    const m = first?.type === 'text' && BOX.exec(first.text);
+    if (!m) { out.push(n); continue; }
+    const rest = first.text.slice(m[0].length);
+    const content = [...(rest ? [{ ...first, text: rest }] : []), ...n.content.slice(1)];
+    const item = { type: 'taskItem', attrs: { checked: m[1] !== '☐' }, content: [{ type: 'paragraph', ...(content.length && { content }) }] };
+    const last = out[out.length - 1];
+    if (last?.type === 'taskList') last.content.push(item); else out.push({ type: 'taskList', content: [item] });
+  }
+  return { ...doc, content: out };
 }
 
 const ALIGN = { center: AlignmentType.CENTER, right: AlignmentType.RIGHT, justify: AlignmentType.JUSTIFIED };
@@ -184,6 +201,15 @@ export async function wordFromDoc(doc, title = 'Document', { pictureData, page }
       else if (n.type === 'bulletList' || n.type === 'orderedList') {
         const level = (ctx.level ?? -1) + 1;
         for (const li of n.content || []) walk(li.content, { level, para: n.type === 'bulletList' ? { bullet: { level } } : { numbering: { reference: 'numbers', level } } });
+      } else if (n.type === 'taskList') {
+        // A checklist: each item's first paragraph gets a box (☐, or ☑ when ticked); the rest follow indented.
+        const level = (ctx.level ?? -1) + 1;
+        for (const li of n.content || []) {
+          const [first, ...rest] = li.content || [];
+          const box = new TextRun({ text: li.attrs?.checked ? '☑ ' : '☐ ' });
+          paras.push(new Paragraph({ children: [box, ...runs(first?.type === 'paragraph' ? first.content : [])], indent: { left: 360 * (level + 1), hanging: 280 } }));
+          walk(first?.type === 'paragraph' ? rest : li.content, { level });
+        }
       } else if (n.type === 'blockquote') walk(n.content, { ...ctx, para: { indent: { left: 720 }, border: { left: { style: BorderStyle.SINGLE, size: 12, color: 'BBBBBB', space: 8 } } } });
       else if (n.type === 'codeBlock') for (const line of (n.content?.map((c) => c.text).join('') || '').split('\n')) paras.push(new Paragraph({ children: [new TextRun({ text: line, font: 'Consolas' })] }));
       else if (n.type === 'horizontalRule') paras.push(new Paragraph({ border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: 'BBBBBB', space: 1 } } }));

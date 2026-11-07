@@ -24,6 +24,7 @@ import { FindReplace, countWords } from './findReplace.js';
 import { FindBar } from './FindBar.jsx';
 import { Outline } from './Outline.jsx';
 import { TableOfContents, htmlWithContents } from './toc.js';
+import { TaskList, TaskItem } from '@tiptap/extension-list';
 import { VersionHistory } from '../VersionHistory.jsx';
 
 /** Marks the text a comment is about (several comments may overlap); it travels with the text. */
@@ -144,6 +145,7 @@ function SharedDoc({ file, setFile }) {
       FindReplace,
       Table.configure({ resizable: false }), TableRow, TableHeader, TableCell,
       TextStyle, Color, BackgroundColor, FontFamily, FontSize, LineHeight, TableOfContents,
+      TaskList, TaskItem.configure({ nested: true }), // checklists: everyone sees the ticks live; viewers can't tick
     ],
     editable: !readOnly,
     editorProps: {
@@ -387,6 +389,7 @@ function Toolbar({ editor, onComment, onPictures }) {
       <span className="sep" />
       <B label="•" title="Bulleted list" active={editor.isActive('bulletList')} onClick={() => c().toggleBulletList().run()} />
       <B label="1." title="Numbered list" active={editor.isActive('orderedList')} onClick={() => c().toggleOrderedList().run()} />
+      <B label="☑" title="Checklist (or type [ ] and a space)" active={editor.isActive('taskList')} onClick={() => c().toggleTaskList().run()} />
       <B label="❝" title="Quote" active={editor.isActive('blockquote')} onClick={() => c().toggleBlockquote().run()} />
       <B label="{ }" title="Code block" active={editor.isActive('codeBlock')} onClick={() => c().toggleCodeBlock().run()} />
       <B label="―" title="Horizontal line" onClick={() => c().setHorizontalRule().run()} />
@@ -469,7 +472,7 @@ function DocPreview({ content, fileId }) {
     extensions: [
       StarterKit.configure({ link: { openOnClick: true } }), TextAlign.configure({ types: ['heading', 'paragraph'] }),
       CommentMark, DocImage.configure({ docId: fileId }), Table, TableRow, TableHeader, TableCell,
-      TextStyle, Color, BackgroundColor, FontFamily, FontSize, LineHeight, TableOfContents,
+      TextStyle, Color, BackgroundColor, FontFamily, FontSize, LineHeight, TableOfContents, TaskList, TaskItem.configure({ nested: true }),
     ],
   }, [content]);
   return <div className="paper preview-paper"><EditorContent editor={editor} /></div>;

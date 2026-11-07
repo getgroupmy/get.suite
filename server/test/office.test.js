@@ -306,3 +306,32 @@ test('Excel: strikethrough, wrapped text and borders go out and come back', asyn
   assert.equal(back.formats.C1.bd, 'tblr');
   assert.equal(back.formats.C2.bd, 'b');
 });
+
+test('Word: a checklist gets boxes, ticked or not, and nested items indented', async () => {
+  const JSZip = (await import('jszip')).default;
+  const item = (checked, text, extra = []) => ({ type: 'taskItem', attrs: { checked }, content: [{ type: 'paragraph', content: [{ type: 'text', text }] }, ...extra] });
+  const doc = { type: 'doc', content: [{ type: 'taskList', content: [
+    item(true, 'Book the room'),
+    item(false, 'Send the agenda', [{ type: 'taskList', content: [item(false, 'Ask Kim for numbers')] }]),
+  ] }] };
+  const xml = await (await JSZip.loadAsync(await wordFromDoc(doc, 'List'))).file('word/document.xml').async('string');
+  const text = xml.replace(/<[^>]+>/g, '');
+  assert.match(text, /☑ Book the room/);
+  assert.match(text, /☐ Send the agenda/);
+  assert.match(text, /☐ Ask Kim for numbers/);
+  assert.match(xml, /<w:ind w:left="720" w:hanging="280"\/>/, 'the nested one is indented further');
+});
+
+test('Word: boxed paragraphs come back as a checklist', async () => {
+  const doc = { type: 'doc', content: [
+    { type: 'paragraph', content: [{ type: 'text', text: 'Before' }] },
+    { type: 'taskList', content: [
+      { type: 'taskItem', attrs: { checked: true }, content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Done thing' }] }] },
+      { type: 'taskItem', attrs: { checked: false }, content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Open thing' }] }] },
+    ] },
+  ] };
+  const back = (await docFromWord(await wordFromDoc(doc, 'x'))).doc;
+  assert.equal(back.content[0].type, 'paragraph');
+  const list = back.content.find((n) => n.type === 'taskList');
+  assert.deepEqual(list.content.map((i) => [i.attrs.checked, i.content[0].content.map((t) => t.text).join('')]), [[true, 'Done thing'], [false, 'Open thing']]);
+});
