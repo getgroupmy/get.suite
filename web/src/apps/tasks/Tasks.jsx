@@ -9,6 +9,8 @@ import { useAuth } from '../../App.jsx';
 import { dueLabel, between, localToday, REPEATS, repeatText } from './taskmath.js';
 
 const ASSIGNED = 'assigned';
+const IMPORTANT = 'important'; // tasks marked ★ on any of your lists
+const VIRTUAL = { [ASSIGNED]: '/tasks/assigned', [IMPORTANT]: '/tasks/important' };
 
 export default function Tasks() {
   const { listId } = useParams();
@@ -19,6 +21,8 @@ export default function Tasks() {
   const { user } = useAuth();
   const [lists, setLists] = useState(null);
   const [assignedCount, setAssignedCount] = useState(0);
+  const [importantCount, setImportantCount] = useState(0);
+  const virtual = !!VIRTUAL[listId];
   const [tasks, setTasks] = useState(null);
   const [title, setTitle] = useState('');
   const [found, setFound] = useState(null); // { q, list }: search results across your lists
@@ -33,15 +37,15 @@ export default function Tasks() {
   const [dropAt, setDropAt] = useState(null); // index the dragged task would go before
   const addBox = useRef();
 
-  const loadLists = useCallback(() => get('/tasks/lists').then((r) => { setLists(r.lists); setAssignedCount(r.assigned); }).catch((e) => toast(e.message, 'error')), [toast]);
+  const loadLists = useCallback(() => get('/tasks/lists').then((r) => { setLists(r.lists); setAssignedCount(r.assigned); setImportantCount(r.important || 0); }).catch((e) => toast(e.message, 'error')), [toast]);
   const loadTasks = useCallback(() => {
     if (!listId) return Promise.resolve();
-    return get(listId === ASSIGNED ? '/tasks/assigned' : `/tasks/lists/${listId}/tasks`).then(setTasks).catch((e) => { toast(e.message, 'error'); navigate('/tasks', { replace: true }); });
+    return get(VIRTUAL[listId] || `/tasks/lists/${listId}/tasks`).then(setTasks).catch((e) => { toast(e.message, 'error'); navigate('/tasks', { replace: true }); });
   }, [listId, toast, navigate]);
   useEffect(() => { loadLists(); }, [loadLists]);
   useEffect(() => { setTasks(null); loadTasks(); }, [loadTasks]);
   useEffect(() => onLive((m) => {
-    if (m.type === 'tasks-changed') { loadLists(); if (m.list_id === listId || listId === ASSIGNED) loadTasks(); }
+    if (m.type === 'tasks-changed') { loadLists(); if (m.list_id === listId || VIRTUAL[listId]) loadTasks(); }
     if (m.type === 'live-connected') { loadLists(); loadTasks(); }
   }), [listId, loadLists, loadTasks]);
   // No list picked: your first one.
@@ -90,15 +94,15 @@ export default function Tasks() {
     const due = t.due && dueLabel(t.due);
     return (
       <li key={t.id} className={`task ${t.done ? 'done' : ''} ${t.id === openId ? 'open' : ''} ${dropAt === i && dragging ? 'drop-before' : ''}`}
-        draggable={!t.done && listId !== ASSIGNED} onDragStart={(e) => { setDragging(t.id); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', t.title); }}
+        draggable={!t.done && !virtual} onDragStart={(e) => { setDragging(t.id); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', t.title); }}
         onDragEnd={() => { setDragging(null); setDropAt(null); }}
         onDragOver={(e) => { if (!dragging || t.done) return; e.preventDefault(); const r = e.currentTarget.getBoundingClientRect(); setDropAt(e.clientY < r.top + r.height / 2 ? i : i + 1); }}
         onDrop={(e) => { if (!dragging) return; e.preventDefault(); drop(dropAt ?? i); }}>
         <input type="checkbox" checked={t.done} aria-label={`Done: ${t.title}`} onChange={() => toggle(t)} />
-        <button type="button" className="task-main" onClick={() => (listId === ASSIGNED ? navigate(`/tasks/${t.list_id}?task=${t.id}`) : show(t.id === openId ? null : t.id))}>
+        <button type="button" className="task-main" onClick={() => (virtual ? navigate(`/tasks/${t.list_id}?task=${t.id}`) : show(t.id === openId ? null : t.id))}>
           <span className="task-title">{t.title}</span>
           <span className="task-meta">
-            {listId === ASSIGNED && <span className="muted small">{t.list_name}</span>}
+            {virtual && <span className="muted small">{t.list_name}</span>}
             {t.notes && <span className="muted small ellipsis task-notes">{t.notes.split('\n')[0]}</span>}
             {due && <span className={`pill due ${due.tone}`}>{due.text}</span>}
             {t.steps?.length > 0 && <span className={`muted small task-steps ${t.steps.every((x) => x.done) ? 'all' : ''}`} title="Steps done">☑ {t.steps.filter((x) => x.done).length}/{t.steps.length}</span>}
@@ -106,12 +110,14 @@ export default function Tasks() {
           </span>
         </button>
         {t.assignee_name && <span title={`For ${t.assignee_name}`}><Avatar name={t.assignee_name} size={24} /></span>}
+        {!t.done && <button type="button" className={`icon-btn task-star ${t.important ? 'on' : ''}`} aria-pressed={!!t.important} aria-label={`${t.important ? 'Not important' : 'Mark important'}: ${t.title}`}
+          title={t.important ? 'Important (click to unmark)' : 'Mark important'} onClick={() => update(t, { important: !t.important })}>{t.important ? '★' : '☆'}</button>}
       </li>
     );
   };
 
   if (lists === null) return null;
-  const heading = listId === ASSIGNED ? 'Assigned to me' : list?.name;
+  const heading = listId === ASSIGNED ? 'Assigned to me' : listId === IMPORTANT ? 'Important' : list?.name;
   return (
     <div className="tasks-app">
       <aside className="subnav">
@@ -121,6 +127,9 @@ export default function Tasks() {
         </form>
         <button type="button" className={`subnav-item ${listId === ASSIGNED ? 'active' : ''}`} onClick={() => navigate(`/tasks/${ASSIGNED}`)}>
           <Icon name="person" /><span className="grow">Assigned to me</span>{assignedCount > 0 && <span className="count">{assignedCount}</span>}
+        </button>
+        <button type="button" className={`subnav-item ${listId === IMPORTANT ? 'active' : ''}`} onClick={() => navigate(`/tasks/${IMPORTANT}`)}>
+          <span className="nav-star" aria-hidden="true">★</span><span className="grow">Important</span>{importantCount > 0 && <span className="count">{importantCount}</span>}
         </button>
         <div className="subnav-title row">Lists<div className="grow" /><button type="button" className="icon-btn" aria-label="New list" onClick={() => setDialog('new')}><Icon name="plus" size={18} /></button></div>
         {lists.map((l) => (
@@ -169,7 +178,7 @@ export default function Tasks() {
           </form>
         )}
         {tasks === null ? null : open.length === 0 && done.length === 0 ? (
-          <Empty icon="check" title={listId === ASSIGNED ? 'Nothing assigned to you' : 'No tasks yet'}>{listId === ASSIGNED ? 'Tasks people give you on shared lists show up here.' : 'Type a task above and press Enter.'}</Empty>
+          <Empty icon="check" title={listId === ASSIGNED ? 'Nothing assigned to you' : listId === IMPORTANT ? 'Nothing important' : 'No tasks yet'}>{listId === ASSIGNED ? 'Tasks people give you on shared lists show up here.' : listId === IMPORTANT ? 'Mark a task with ☆ and it shows up here, from every list.' : 'Type a task above and press Enter.'}</Empty>
         ) : (
           <>
             <ul className="task-list" aria-label="Tasks" onDragOver={(e) => dragging && e.preventDefault()} onDrop={(e) => { if (dragging && dropAt === null) { e.preventDefault(); drop(open.length); } }}>

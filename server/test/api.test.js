@@ -1724,6 +1724,35 @@ test('chat polls: ask, vote (one or several), change your vote, close; checked o
   assert.equal((await b('POST', `/api/chat/messages/${(await a('POST', `/api/chat/channels/${ch}/messages`, { body: 'plain' })).body.id}/vote`, { options: [] })).status, 404, 'not a poll');
 });
 
+test('tasks: important ones, starred on the task, gathered from every list; carried to the next repeat', async () => {
+  const a = client(), b = client(), c = client();
+  for (const [local, name] of [['impa', 'Imp Ann'], ['impb', 'Imp Ben'], ['impc', 'Imp Cat']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'impa@acme.com');
+  const bid = (await login(b, 'impb@acme.com')).id;
+  await login(c, 'impc@acme.com');
+  const mine = (await a('POST', '/api/tasks/lists', { name: 'Mine' })).body.id;
+  const shared = (await a('POST', '/api/tasks/lists', { name: 'Team' })).body.id;
+  await a('PUT', `/api/tasks/lists/${shared}/members`, { user_ids: [bid] });
+  const t1 = (await a('POST', `/api/tasks/lists/${mine}/tasks`, { title: 'Pay rent', important: true, due: '2026-12-01' })).body;
+  assert.equal(t1.important, true);
+  const t2 = (await a('POST', `/api/tasks/lists/${shared}/tasks`, { title: 'Book venue' })).body;
+  await a('POST', `/api/tasks/lists/${shared}/tasks`, { title: 'Not important' });
+  assert.equal((await b('PATCH', `/api/tasks/tasks/${t2.id}`, { important: true })).body.important, true, 'anyone on the list can star it');
+  assert.deepEqual((await a('GET', '/api/tasks/important')).body.map((t) => t.title), ['Pay rent', 'Book venue'], 'dated first');
+  assert.deepEqual((await b('GET', '/api/tasks/important')).body.map((t) => t.title), ['Book venue'], 'only lists you are on');
+  assert.deepEqual((await c('GET', '/api/tasks/important')).body, []);
+  assert.equal((await a('GET', '/api/tasks/lists')).body.important, 2);
+  await a('PATCH', `/api/tasks/tasks/${t2.id}`, { done: true });
+  assert.deepEqual((await a('GET', '/api/tasks/important')).body.map((t) => t.title), ['Pay rent'], 'done ones leave');
+  // Repeating: the next one is important too.
+  await a('PATCH', `/api/tasks/tasks/${t1.id}`, { repeat: 'monthly' });
+  await a('PATCH', `/api/tasks/tasks/${t1.id}`, { done: true, today: '2026-11-07' });
+  const next = (await a('GET', '/api/tasks/important')).body;
+  assert.equal(next.length, 1);
+  assert.equal(next[0].due, '2027-01-01');
+  assert.equal((await a('PATCH', `/api/tasks/tasks/${next[0].id}`, { important: false })).body.important, false);
+});
+
 test('tasks: a checklist of steps, shared with the list, fresh on each repeat', async () => {
   const a = client(), b = client(), c = client();
   for (const [local, name] of [['stepa', 'Step Ann'], ['stepb', 'Step Ben'], ['stepc', 'Step Cat']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
