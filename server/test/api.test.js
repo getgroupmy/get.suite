@@ -1509,3 +1509,35 @@ test('contacts: birthdays saved, checked, exported, and listed for a date range'
   const vcf = await a('GET', '/api/contacts/export');
   assert.match(String(vcf.body ?? vcf.text ?? ''), /BDAY;X-APPLE-OMIT-YEAR=1604:1604-05-02/);
 });
+
+test('drive trash: emptied for good after the company’s number of days; the setting is checked', async () => {
+  const { emptyOldTrash } = await import('../src/routes/files.js');
+  const { q } = await import('../src/db.js');
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'trashy', domain: 'acme.com', name: 'Trash Ann', password: 'password123' })).status, 201);
+  await login(a, 'trashy@acme.com');
+  const mk = async (name) => (await a('POST', '/api/files/new', { kind: 'doc', name })).body.id;
+  const oldOne = await mk('Old notes'), newOne = await mk('New notes'), kept = await mk('Kept');
+  for (const id of [oldOne, newOne]) assert.equal((await a('PATCH', `/api/files/${id}`, { trashed: true })).status, 200);
+  const trash = (await a('GET', '/api/files?view=trash')).body;
+  const listed = (trash.files || trash).find((f) => f.id === oldOne);
+  assert.ok(listed.deletes_at > Date.now() + 29 * 864e5 && listed.deletes_at < Date.now() + 31 * 864e5, 'goes in 30 days');
+  // 31 days pass for one of them.
+  q('UPDATE files SET trashed_at = ? WHERE id = ?').run(Date.now() - 31 * 864e5, oldOne);
+  assert.ok(emptyOldTrash() >= 1);
+  assert.equal(q('SELECT 1 FROM files WHERE id = ?').get(oldOne), undefined, 'gone for good');
+  assert.ok(q('SELECT 1 FROM files WHERE id = ?').get(newOne), 'the newer one stays');
+  assert.ok(q('SELECT 1 FROM files WHERE id = ? AND trashed = 0').get(kept), 'not in the trash: untouched');
+  // Restoring clears the time; the setting can be changed by an admin (0 = never).
+  await a('PATCH', `/api/files/${newOne}`, { trashed: false });
+  assert.equal(q('SELECT trashed_at FROM files WHERE id = ?').get(newOne).trashed_at, null);
+  assert.equal((await owner('PATCH', '/api/orgs/current', { trash_days: -1 })).status, 400);
+  assert.equal((await owner('PATCH', '/api/orgs/current', { trash_days: 0 })).status, 200);
+  await a('PATCH', `/api/files/${newOne}`, { trashed: true });
+  q('UPDATE files SET trashed_at = ? WHERE id = ?').run(Date.now() - 400 * 864e5, newOne);
+  emptyOldTrash();
+  assert.ok(q('SELECT 1 FROM files WHERE id = ?').get(newOne), 'never emptied with 0');
+  const t2 = (await a('GET', '/api/files?view=trash')).body;
+  assert.equal((t2.files || t2).find((f) => f.id === newOne).deletes_at, undefined);
+  assert.equal((await owner('PATCH', '/api/orgs/current', { trash_days: 30 })).status, 200);
+});

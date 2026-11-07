@@ -28,7 +28,7 @@ const EXPORT_AS = { doc: 'docx', sheet: 'xlsx', slides: 'pptx' };
 const MAX_CONVERT = 50 * 1024 * 1024;
 const officeType = (name) => OFFICE[(/\.([a-z]+)$/i.exec(name || '') || [])[1]?.toLowerCase()] ? (/\.([a-z]+)$/i.exec(name)[1].toLowerCase()) : null;
 
-const COLS = `f.id, f.owner_id, f.parent_id, f.name, f.kind, f.mime, f.size, f.version, f.trashed, f.page_setup, f.color, f.description,
+const COLS = `f.id, f.owner_id, f.parent_id, f.name, f.kind, f.mime, f.size, f.version, f.trashed, f.trashed_at, f.page_setup, f.color, f.description,
               f.created_at, f.updated_at, u.name AS owner_name, ub.name AS updated_by_name`;
 const FROM = `FROM files f JOIN users u ON u.id = f.owner_id LEFT JOIN users ub ON ub.id = f.updated_by`;
 // Owner is in my company, or both companies currently allow external collaboration.
@@ -99,6 +99,14 @@ export function insertFile({ owner, parentId, name, kind, mime = null, size = 0,
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
     .run(id, owner, parentId, uniqueName(parentId, owner, name), kind, mime, size, storage, content, t, t, owner);
   return id;
+}
+
+/** Delete for good what has been in the trash longer than its company keeps it. Returns how many went. */
+export function emptyOldTrash(at = now()) {
+  const old = q(`SELECT f.id FROM files f JOIN users u ON u.id = f.owner_id JOIN orgs o ON o.id = u.org_id
+                 WHERE f.trashed = 1 AND o.trash_days > 0 AND COALESCE(f.trashed_at, f.updated_at) < ? - o.trash_days * 86400000`).all(at);
+  tx(() => { for (const { id } of old) if (q('SELECT 1 FROM files WHERE id = ?').get(id)) permanentlyDelete(id); });
+  return old.length;
 }
 
 function permanentlyDelete(fileId) {
@@ -228,8 +236,10 @@ export default function fileRoutes({ maxUploadBytes }) {
                 WHERE f.trashed = 0 ${ORDER}`).all(me, me)
         .map((f) => ({ ...f, role: roleFor(f.id, me) })).filter((f) => f.role); // only what you can still open
     } else if (view === 'trash') {
-      rows = q(`SELECT ${COLS} ${FROM} WHERE f.owner_id = ? AND f.trashed = 1 ORDER BY f.updated_at DESC`)
-        .all(me).map((f) => publicFile(f, 'owner'));
+      // With when each goes for good, when the company empties the trash after a while.
+      const days = q('SELECT o.trash_days FROM orgs o JOIN users u ON u.org_id = o.id WHERE u.id = ?').get(me)?.trash_days ?? 30;
+      rows = q(`SELECT ${COLS} ${FROM} WHERE f.owner_id = ? AND f.trashed = 1 ORDER BY f.trashed_at DESC, f.updated_at DESC`)
+        .all(me).map((f) => ({ ...publicFile(f, 'owner'), ...(days > 0 && { deletes_at: (f.trashed_at || f.updated_at) + days * 864e5 }) }));
     } else if (view === 'search') {
       // By name, or by the words inside (documents, spreadsheets, presentations, text and Office files).
       const term = `%${String(req.query.q || '').replace(/[%_\\]/g, (c) => '\\' + c)}%`;
@@ -462,7 +472,7 @@ export default function fileRoutes({ maxUploadBytes }) {
         }
         q('UPDATE files SET parent_id = ? WHERE id = ?').run(parent_id, f.id);
       }
-      if (trashed !== undefined) q('UPDATE files SET trashed = ?, updated_at = ? WHERE id = ?').run(trashed ? 1 : 0, now(), f.id);
+      if (trashed !== undefined) q('UPDATE files SET trashed = ?, trashed_at = ?, updated_at = ? WHERE id = ?').run(trashed ? 1 : 0, trashed ? now() : null, now(), f.id);
     });
     notify(f.id, { type: 'files-changed', parent_id: f.parent_id });
     if (setup !== undefined) notify(f.id, { type: 'page-setup', id: f.id, page_setup: setup });

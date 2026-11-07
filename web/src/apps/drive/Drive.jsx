@@ -30,6 +30,12 @@ const FILTERS = [
   ['modified', 'Modified', [['', 'Any time'], ['1', 'Today'], ['7', 'Last 7 days'], ['30', 'Last 30 days'], ['365', 'Last year']]],
 ];
 
+/** When something in the trash goes for good: "in 12 days", "tomorrow", or "never" when the company keeps the trash. */
+export function goesIn(at, now = Date.now()) {
+  if (!at) return 'Never';
+  const days = Math.ceil((at - now) / 864e5);
+  return days <= 1 ? (days <= 0 ? 'Soon' : 'Tomorrow') : `In ${days} days`;
+}
 const TITLES = { shared: 'Shared with me', recent: 'Recent', starred: 'Starred', trash: 'Trash' };
 const DRAG_TYPE = 'application/x-workspace-files';
 
@@ -280,7 +286,7 @@ export default function Drive() {
           <table className="files">
             <thead><tr><th className="check-col"><input type="checkbox" aria-label="Select all" checked={files.length > 0 && picked.length === files.length}
               ref={(el) => { if (el) el.indeterminate = picked.length > 0 && picked.length < files.length; }}
-              onChange={(e) => setChecked(e.target.checked ? new Set(files.map((f) => f.id)) : new Set())} /></th><th>Name</th><th className="hide-sm">Owner</th><th className="hide-sm">Modified</th><th className="hide-sm">Size</th><th aria-label="Actions" /></tr></thead>
+              onChange={(e) => setChecked(e.target.checked ? new Set(files.map((f) => f.id)) : new Set())} /></th><th>Name</th><th className="hide-sm">Owner</th><th className="hide-sm">{route.view === 'trash' ? 'Deleted for good' : 'Modified'}</th><th className="hide-sm">Size</th><th aria-label="Actions" /></tr></thead>
             <tbody>
               {files.map((f) => (
                 <tr key={f.id} className={`${selected === f.id || checked.has(f.id) ? 'selected' : ''} ${dropOn === f.id ? 'drop-on' : ''}`} tabIndex={0}
@@ -292,7 +298,7 @@ export default function Drive() {
                   <td className="check-col" onClick={(e) => e.stopPropagation()}><input type="checkbox" aria-label={`Select ${f.name}`} checked={checked.has(f.id)} onChange={() => toggleCheck(f.id)} /></td>
                   <td className="name"><Icon name={fileIcon(f)} className={`ft ft-${fileIcon(f)}`} style={f.color ? { color: f.color } : undefined} /><span className="name-text">{f.name}{f.match && <MatchText text={f.match} />}</span>{f.starred && <Icon name="star" size={14} className="star-mark" title="Starred" />}</td>
                   <td className="hide-sm muted">{f.owner_id === user.id ? 'me' : f.owner_name}</td>
-                  <td className="hide-sm muted">{formatDate(f.updated_at)}</td>
+                  <td className="hide-sm muted">{route.view === 'trash' ? goesIn(f.deletes_at) : formatDate(f.updated_at)}</td>
                   <td className="hide-sm muted">{f.kind === 'folder' ? '—' : formatBytes(f.size)}</td>
                   <td className="actions">
                     <Menu trigger={(p) => <button className="icon-btn" aria-label={`Actions for ${f.name}`} {...p}><Icon name="more" /></button>} items={itemMenu(f)} />

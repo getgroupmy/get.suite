@@ -39,6 +39,11 @@ function updateOrg(orgId, body, { asSuper, user }) {
     if (body.require_2fa && user.org_id === orgId && !own) throw bad('Turn on two-step verification for your own account first (Settings), then require it for everyone');
     q('UPDATE orgs SET require_2fa = ? WHERE id = ?').run(body.require_2fa ? 1 : 0, orgId);
   }
+  if (body.trash_days !== undefined) {
+    const d = Number(body.trash_days);
+    if (!Number.isInteger(d) || d < 0 || d > 3650) throw bad('Days in the trash must be a whole number from 0 (never empty) to 3650');
+    q('UPDATE orgs SET trash_days = ? WHERE id = ?').run(d, orgId);
+  }
   if (body.accent !== undefined) {
     if (body.accent !== null && !/^#[0-9a-f]{6}$/i.test(String(body.accent))) throw bad('Pick a colour like #1a73e8');
     q('UPDATE orgs SET accent = ? WHERE id = ?').run(body.accent ? String(body.accent).toLowerCase() : null, orgId);

@@ -193,6 +193,8 @@ db.exec(`CREATE TABLE IF NOT EXISTS two_factor (
   enabled_at INTEGER
 )`);
 // Public share links: anyone with the link can open a file or folder, without an account.
+if (!hasColumn('files', 'trashed_at')) { db.exec('ALTER TABLE files ADD COLUMN trashed_at INTEGER'); db.exec('UPDATE files SET trashed_at = updated_at WHERE trashed = 1'); } // when it went in the trash
+if (!hasColumn('orgs', 'trash_days')) db.exec('ALTER TABLE orgs ADD COLUMN trash_days INTEGER NOT NULL DEFAULT 30'); // Drive trash empties itself after this many days (0: never)
 if (!hasColumn('orgs', 'allow_links')) db.exec('ALTER TABLE orgs ADD COLUMN allow_links INTEGER NOT NULL DEFAULT 1');
 db.exec(`CREATE TABLE IF NOT EXISTS share_links (
   id TEXT PRIMARY KEY,

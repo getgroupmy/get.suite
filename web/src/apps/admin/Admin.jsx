@@ -226,6 +226,17 @@ function CompanySettings() {
         <p className="muted small" style={{ margin: 0 }}>Turning this off immediately stops every existing link from working. Turning it back on restores the links that haven't expired.</p>
       </div>
       <div className="card stack">
+        <h2>Drive trash</h2>
+        <label className="field"><span>Empty the trash automatically</span>
+          <select aria-label="Empty the trash automatically" value={String(org.trash_days ?? 30)} onChange={(e) => { const d = Number(e.target.value); save({ trash_days: d }, d ? `Trash is now emptied after ${d} days` : 'Trash is now kept until people empty it'); }}>
+            {[[7, 'After 7 days'], [14, 'After 14 days'], [30, 'After 30 days'], [60, 'After 60 days'], [90, 'After 90 days'], [365, 'After a year'], [0, 'Never (people empty it themselves)']]
+              .concat([[org.trash_days ?? 30, `After ${org.trash_days} days`]].filter(([d]) => ![7, 14, 30, 60, 90, 365, 0].includes(d)))
+              .map(([d, n]) => <option key={d} value={d}>{n}</option>)}
+          </select>
+        </label>
+        <p className="muted small" style={{ margin: 0 }}>Files and folders that have been in someone’s trash this long are deleted for good, with their versions, freeing the space. Each item in the trash says when it goes.</p>
+      </div>
+      <div className="card stack">
         <h2>Sign-in security</h2>
         <label className="check">
           <input type="checkbox" checked={org.require_2fa} onChange={(e) => save({ require_2fa: e.target.checked }, e.target.checked ? 'Two-step verification is now required' : 'Two-step verification is now optional')} />

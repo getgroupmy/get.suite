@@ -12,6 +12,7 @@ import { purge as purgeAuthLog } from './security/guard.js';
 import { startIndexer } from './search.js';
 import { startScheduledSending } from './routes/webmail.js';
 import { purgeAudit } from './audit.js';
+import { emptyOldTrash } from './routes/files.js';
 
 const port = Number(process.env.PORT || 8080);
 const app = createApp();
@@ -24,6 +25,8 @@ setInterval(() => q('DELETE FROM sessions WHERE expires_at < ?').run(Date.now())
 scheduleBackups();
 setInterval(() => purgeAuthLog(), 3600e3).unref();
 setInterval(() => purgeAudit(), 6 * 3600e3).unref(); // activity older than AUDIT_DAYS
+setInterval(() => emptyOldTrash(), 3600e3).unref(); // Drive: trash older than each company keeps it
+setTimeout(() => emptyOldTrash(), 60e3).unref();
 if (mailEnabled()) { startPolicyServer(); startMailNotifications(); startRsvpWatcher(); }
 
 startIndexer(); // search inside files: indexes what changed, in the background
