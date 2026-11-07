@@ -71,6 +71,7 @@ export default function Calendar() {
   }, [location.state]); // eslint-disable-line react-hooks/exhaustive-deps
   const [showTasks, setShowTasksState] = useState(savedTasks);
   const [bookingOpen, setBookingOpen] = useState(false);
+  const [hoursOpen, setHoursOpen] = useState(false);
 
   const [tasks, setTasks] = useState([]);
   const [showBirthdays, setShowBirthdaysState] = useState(savedBirthdays);
@@ -202,6 +203,7 @@ export default function Calendar() {
         <button className="btn new-btn" onClick={() => newEvent()}><Icon name="plus" /> Create</button>
         <button type="button" className="subnav-item" onClick={() => { const d = startOfDay(new Date()).getTime(); setEditing({ title: 'Out of office', kind: 'ooo', start: d, end: d + DAY - 1, all_day: 1, color: '#5f6368', location: '', description: '' }); }}><span aria-hidden="true" style={{ width: 24, textAlign: 'center' }}>🌴</span><span className="grow">Out of office…</span></button>
         <button type="button" className="subnav-item" onClick={() => setBookingOpen(true)}><Icon name="link" /><span className="grow">Booking pages</span></button>
+        <button type="button" className="subnav-item" onClick={() => setHoursOpen(true)}><Icon name="clock" /><span className="grow">Working hours</span></button>
         <div className="subnav-title">Other calendars</div>
         {others.map((o) => (
           <div key={o.id} className="row other-cal"><span className="dot" style={{ background: o.color }} /><span className="grow ellipsis small">{o.name}</span>
@@ -299,6 +301,7 @@ export default function Calendar() {
         )}
       </section>
       {bookingOpen && <BookingPagesDialog onClose={() => setBookingOpen(false)} />}
+      {hoursOpen && <WorkHoursDialog onClose={() => setHoursOpen(false)} />}
       {editing && (editing.role === 'guest'
         ? <InvitationDialog event={editing} onClose={() => setEditing(null)} onAnswered={() => { setEditing(null); load(); }} />
         : <EventDialog key={editing.id ? `${editing.id}:${editing.start}` : `new:${editing.duplicateOf || ''}:${editing.start}`} event={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }}
@@ -571,14 +574,54 @@ function RoomPicker({ eventId, chosen, booked, onChange, when }) {
 }
 
 /** Find a time when you and the colleagues invited are all free (working hours, the next two weeks). */
+const WORK_DAYS = [[1, 'Mon'], [2, 'Tue'], [3, 'Wed'], [4, 'Thu'], [5, 'Fri'], [6, 'Sat'], [0, 'Sun']];
+const toHHMM = (m) => `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+const fromHHMM = (v, end) => { const [h, m] = v.split(':').map(Number); const x = h * 60 + m; return end && x === 0 ? 1440 : x; };
+
+/** Your working hours: the days and times you work, kept to by Find a time (in your time zone). */
+function WorkHoursDialog({ onClose }) {
+  const toast = useToast();
+  const [h, setH] = useState(null);
+  const [error, setError] = useState('');
+  useEffect(() => { get(`/users/me/work-hours?tz=${encodeURIComponent(TZ)}`).then(setH).catch((e) => setError(e.message)); }, []);
+  const save = async (hours) => {
+    setError('');
+    try { const r = await put('/users/me/work-hours', { hours }); toast(r.own ? `Working hours: ${r.text}` : 'Back to the usual hours'); onClose(); } catch (e) { setError(e.message); }
+  };
+  return (
+    <Modal title="Working hours" onClose={onClose}>
+      {!h ? <p className="muted">{error || 'Loading…'}</p> : (
+        <form className="stack" onSubmit={(e) => { e.preventDefault(); save({ days: h.days, start: h.start, end: h.end, tz: TZ }); }}>
+          <p className="muted small" style={{ margin: 0 }}>When colleagues use <strong>Find a time</strong>, they're only offered times inside these hours ({TZ}).</p>
+          <div className="row wrap" role="group" aria-label="Working days">
+            {WORK_DAYS.map(([d, name]) => (
+              <label key={d} className="check"><input type="checkbox" checked={h.days.includes(d)} onChange={(e) => setH({ ...h, days: e.target.checked ? [...h.days, d] : h.days.filter((x) => x !== d) })} /> {name}</label>
+            ))}
+          </div>
+          <div className="row wrap">
+            <label className="field"><span>From</span><input type="time" step={1800} required value={toHHMM(h.start)} onChange={(e) => setH({ ...h, start: fromHHMM(e.target.value) })} /></label>
+            <label className="field"><span>To</span><input type="time" step={1800} required value={toHHMM(h.end)} onChange={(e) => setH({ ...h, end: fromHHMM(e.target.value, true) })} /></label>
+          </div>
+          {error && <p className="error">{error}</p>}
+          <div className="row end">
+            {h.own && <button type="button" className="btn" onClick={() => save(null)}>Use the usual (Mon–Fri, 9–5)</button>}
+            <button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn primary">Save</button>
+          </div>
+        </form>
+      )}
+    </Modal>
+  );
+}
+
 function FindATime({ guests, directory, minutes, onPick }) {
   const [slots, setSlots] = useState(null);
+  const [hours, setHours] = useState([]); // people whose own working hours were kept to
   const [error, setError] = useState('');
   const ids = guests.map((g) => directory.find((d) => d.username === g)?.id).filter(Boolean);
   const outside = guests.length - ids.length;
   const find = async () => {
     setError('');
-    try { setSlots((await get(`/freebusy/suggest?users=${ids.join(',')}&duration=${minutes}&tz=${encodeURIComponent(TZ)}`)).slots); } catch (e) { setError(e.message); }
+    try { const r = await get(`/freebusy/suggest?users=${ids.join(',')}&duration=${minutes}&tz=${encodeURIComponent(TZ)}`); setSlots(r.slots); setHours(r.hours || []); } catch (e) { setError(e.message); }
   };
   const label = (s) => `${new Date(s.start).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' })}, ${fmtTime(s.start)} – ${fmtTime(s.end)}`;
   return (
@@ -588,7 +631,7 @@ function FindATime({ guests, directory, minutes, onPick }) {
       {slots && (slots.length ? (
         <div className="find-time-slots" role="group" aria-label="Free times">
           {slots.map((s) => <button key={s.start} type="button" className="chip-btn" onClick={() => { onPick(s.start, s.end); setSlots(null); }}>{label(s)}</button>)}
-          <span className="muted small">{minutes} min, working hours (9–5, Mon–Fri), when {ids.length ? 'everyone invited from your company is' : 'you are'} free{outside ? `; ${outside} guest${outside === 1 ? '' : 's'} outside it not checked` : ''}.</span>
+          <span className="muted small">{minutes} min, within working hours ({hours.length ? `${hours.map((x) => `${x.name}: ${x.hours}${x.tz !== TZ ? ` ${x.tz}` : ''}`).join('; ')}; anyone else 9–5, Mon–Fri` : '9–5, Mon–Fri'}), when {ids.length ? 'everyone invited from your company is' : 'you are'} free{outside ? `; ${outside} guest${outside === 1 ? '' : 's'} outside it not checked` : ''}.</span>
         </div>
       ) : <span className="muted small">No time in the next two weeks suits everyone.</span>)}
     </div>

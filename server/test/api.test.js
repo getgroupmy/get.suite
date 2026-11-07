@@ -2287,3 +2287,28 @@ test('calendar: files from Drive attached to an event; guests can view the organ
   assert.equal((await a('PATCH', `/api/events/${ev.id}`, { attachments: [] })).body.attachments.length, 0);
   void bid; void cid;
 });
+
+test('working hours: set your own; Find a time keeps to everyone’s, each in their time zone', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['wha', 'Hours Ann'], ['whb', 'Hours Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'wha@acme.com');
+  const bid = (await login(b, 'whb@acme.com')).id;
+  const usual = (await a('GET', '/api/users/me/work-hours?tz=UTC')).body;
+  assert.deepEqual([usual.own, usual.text, usual.tz], [false, 'Mon–Fri 9:00–17:00', 'UTC']);
+  assert.equal((await b('PUT', '/api/users/me/work-hours', { hours: { days: [], start: 0, end: 60 } })).status, 400);
+  // Ben works Tuesday and Thursday, 13:00–18:00 in Berlin (UTC+1 in winter).
+  const set = (await b('PUT', '/api/users/me/work-hours', { hours: { days: [2, 4], start: 13 * 60, end: 18 * 60, tz: 'Europe/Berlin' } })).body;
+  assert.deepEqual([set.own, set.text, set.tz], [true, 'Tue, Thu 13:00–18:00', 'Europe/Berlin']);
+  const d = new Date(Date.UTC(2026, 11, 7)); // a Monday in December (no clock change nearby)
+  while (d.getTime() < Date.now() + 864e5) d.setUTCDate(d.getUTCDate() + 7);
+  const mon = d.getTime(), h = 36e5;
+  const r = (await a('GET', `/api/freebusy/suggest?users=${bid}&duration=60&tz=UTC&from=${mon}`)).body;
+  // Tuesday, from 12:00 UTC (13:00 Berlin) to 16:00 UTC (Ann's 9–5 in UTC ends at 17:00, Ben's at 17:00 UTC).
+  assert.equal((r.slots[0].start - mon) / h, 24 + 12);
+  assert.ok(r.slots.every((x) => [2, 4].includes(new Date(x.start).getUTCDay())), 'only Tuesdays and Thursdays');
+  assert.ok(r.slots.every((x) => new Date(x.start).getUTCHours() >= 12 && new Date(x.end).getUTCHours() <= 17));
+  assert.deepEqual(r.hours.map((x) => [x.name, x.hours, x.tz]), [['Hours Ben', 'Tue, Thu 13:00–18:00', 'Europe/Berlin']]);
+  // Back to the usual.
+  assert.equal((await b('PUT', '/api/users/me/work-hours', { hours: null })).body.own, false);
+  assert.equal(((await a('GET', `/api/freebusy/suggest?users=${bid}&duration=60&tz=UTC&from=${mon}`)).body.slots[0].start - mon) / h, 9);
+});

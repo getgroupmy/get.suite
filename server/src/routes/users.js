@@ -12,6 +12,7 @@ import { validAddress, canReach, blobsOwnedBy, removeBlobs, mailHomeOf, retireMa
 import { uid } from '../util.js';
 import { planImport, readablePassword } from '../userimport.js';
 import { sendTo } from '../hub.js';
+import { hoursOf, setHours, readHours, hoursText } from '../workhours.js';
 
 /** A status as shown, or null once it has cleared. */
 export function statusOf(row, at = Date.now()) {
@@ -109,6 +110,17 @@ export default function userRoutes() {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Cache-Control', 'private, max-age=31536000, immutable'); // the address carries ?v=
     res.send(data);
+  });
+
+  // Your working hours (Find a time keeps to them); null puts back the usual Monday–Friday, 9–5.
+  r.get('/me/work-hours', (req, res) => {
+    const h = hoursOf(req.user.id, String(req.query.tz || 'UTC'));
+    res.json({ ...h, text: hoursText(h) });
+  });
+  r.put('/me/work-hours', (req, res) => {
+    setHours(req.user.id, req.body.hours === null ? null : readHours(req.body.hours));
+    const h = hoursOf(req.user.id, String(req.body.hours?.tz || 'UTC'));
+    res.json({ ...h, text: hoursText(h) });
   });
 
   // Your status: what colleagues see next to your name, until it clears by itself.

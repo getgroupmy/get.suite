@@ -9,6 +9,7 @@ import { q } from '../db.js';
 import { uid, str, bad, notFound, HttpError } from '../util.js';
 import { sendTo } from '../hub.js';
 import { zoneOrUtc } from '../ics.js';
+import { hoursOf, withinHours, hoursText } from '../workhours.js';
 import { expand } from '../calmath.js';
 import { notifyOutside, setOutside, touch, baseUrl, outEvent } from './calendar.js';
 
@@ -210,8 +211,9 @@ export function freeBusyRoutes() {
   });
 
   // Times when you and the colleagues given are all free, for a meeting of `duration` minutes:
-  // ?users=id,id&duration=60&tz=Europe/London[&from=ms]. Working hours (9:00–17:00, Monday to
-  // Friday, in your time zone), every half hour, over the next two weeks; the first 8 that fit.
+  // ?users=id,id&duration=60&tz=Europe/London[&from=ms]. Within everyone's working hours (each in
+  // their own time zone; Monday to Friday 9:00–17:00 in yours for anyone who hasn't set theirs),
+  // every half hour, over the next two weeks; the first 8 that fit.
   r.get('/suggest', (req, res) => {
     const duration = Number(req.query.duration || 60);
     if (!Number.isInteger(duration) || duration < 15 || duration > 480) throw bad('A meeting of 15 minutes to 8 hours');
@@ -226,20 +228,22 @@ export function freeBusyRoutes() {
     }
     const to = from + 15 * DAY;
     const busy = people.flatMap((id) => busyOf(id, from, to));
+    const hours = people.map((id) => hoursOf(id, tz));
     const start = partsAt(from, tz);
     const out = [];
     for (let i = 0; i < 15 && out.length < 8; i++) {
       const base = new Date(Date.UTC(start.y, start.m, start.d + i));
-      const wd = base.getUTCDay();
-      if (wd === 0 || wd === 6) continue;
-      for (let min = 9 * 60; min + duration <= 17 * 60 && out.length < 8; min += 30) {
+      for (let min = 0; min + duration <= 24 * 60 && out.length < 8; min += 30) {
         const s = zonedTime(base.getUTCFullYear(), base.getUTCMonth(), base.getUTCDate(), min, tz), e = s + duration * 6e4;
         if (s < from) continue;
+        if (!hours.every((h) => withinHours(s, e, h))) continue;
         if (busy.some((b) => b.start < e && b.end > s)) continue;
         out.push({ start: s, end: e });
       }
     }
-    res.json({ people: people.length, slots: out });
+    // Whose own hours were kept to (others are taken as the usual 9–5).
+    const own = people.map((id, i) => (hours[i].own ? { name: q('SELECT name FROM users WHERE id = ?').get(id)?.name, hours: hoursText(hours[i]), tz: hours[i].tz } : null)).filter(Boolean);
+    res.json({ people: people.length, slots: out, hours: own });
   });
   return r;
 }
