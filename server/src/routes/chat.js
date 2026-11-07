@@ -533,6 +533,17 @@ export default function chatRoutes() {
     res.json({ ok: true });
   });
 
+  // Who in a conversation can't open a Drive file (a link just sent there), so it can be shared with them.
+  // Only for someone who can open it; can_share says whether they own it.
+  r.get('/channels/:id/missing-access', (req, res) => {
+    const c = loadChannel(req.params.id, req.user);
+    const f = q('SELECT id, owner_id FROM files WHERE id = ? AND trashed = 0').get(String(req.query.file || ''));
+    if (!f || !roleFor(f.id, req.user.id)) throw notFound('File not found');
+    const ids = audience(c).filter((u) => u !== req.user.id && !roleFor(f.id, u));
+    const people = ids.length ? q(`SELECT id, name FROM users WHERE disabled = 0 AND id IN (SELECT value FROM json_each(?)) ORDER BY name`).all(JSON.stringify(ids)) : [];
+    res.json({ people: people.slice(0, 20), total: people.length, everyone: !c.dm_key && !c.private, can_share: f.owner_id === req.user.id });
+  });
+
   // Mark unread from a message: the conversation counts as read only up to just before it.
   r.post('/messages/:id/unread', (req, res) => {
     const m = q('SELECT id, channel_id, created_at FROM messages WHERE id = ?').get(req.params.id);

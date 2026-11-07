@@ -211,6 +211,7 @@ export default function Chat() {
     try {
       const msg = await post(`/chat/channels/${channelId}/messages`, { body, files: sending.map((f) => f.id) });
       setMessages((list) => (list.some((x) => x.id === msg.id) ? list : [...list, msg]));
+      checkLinkAccess(channelId, body, toast, user.org_name);
     } catch (err) { toast(err.message, 'error'); setText(body); setFiles(sending); }
   }
 
@@ -448,7 +449,7 @@ function Thread({ id, channelId, user, onClose }) {
     const body = text.trim();
     if (!body) return;
     setText('');
-    try { const msg = await post(`/chat/channels/${channelId}/messages`, { body, parent_id: id }); setReplies((list) => (list.some((x) => x.id === msg.id) ? list : [...list, msg])); }
+    try { const msg = await post(`/chat/channels/${channelId}/messages`, { body, parent_id: id }); setReplies((list) => (list.some((x) => x.id === msg.id) ? list : [...list, msg])); checkLinkAccess(channelId, body, toast, user.org_name); }
     catch (err) { toast(err.message, 'error'); setText(body); }
   }
   const item = (m, grouped) => (
@@ -559,6 +560,27 @@ function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit
 }
 
 /** A poll in a message: the question, a bar per option with who chose it, and voting (live for everyone). */
+/**
+ * After sending links to Drive files: if some people in the conversation can't open one, say so;
+ * when it's yours, offer to share it with them (in a company-wide channel: with the whole company).
+ */
+async function checkLinkAccess(channelId, body, toast, orgName) {
+  for (const { id } of fileLinksIn(body)) {
+    let gap, file;
+    try { [gap, file] = await Promise.all([get(`/chat/channels/${channelId}/missing-access?file=${id}`), get(`/files/${id}`)]); } catch { continue; }
+    if (!gap.total) continue;
+    const who = gap.everyone ? `${gap.total} ${gap.total === 1 ? 'person' : 'people'} here` : gap.people.map((p) => p.name).join(', ');
+    if (!gap.can_share) { toast(`${who} can't open “${file.name}”. Ask its owner to share it.`, 'info', { duration: 10000 }); continue; }
+    const share = gap.everyone
+      ? { label: `Share with everyone at ${orgName}`, run: () => put(`/files/${id}/company`, { role: 'viewer' }), done: `Everyone at ${orgName} can view “${file.name}”` }
+      : { label: 'Share with them', run: async () => {
+        const now = await get(`/files/${id}/shares`);
+        await put(`/files/${id}/shares`, { shares: [...now.map((x) => ({ user_id: x.user_id, role: x.role })), ...gap.people.map((p) => ({ user_id: p.id, role: 'viewer' }))] });
+      }, done: `Shared “${file.name}” with ${who} (can view)` };
+    toast(`${who} can't open “${file.name}”`, 'info', { duration: 15000, action: { label: share.label, onClick: () => share.run().then(() => toast(share.done)).catch((e) => toast(e.message, 'error')) } });
+  }
+}
+
 /** Forward a message: pick a conversation you can write in, add a note if you like. */
 function ForwardDialog({ message, channels, currentId, onClose, onSent }) {
   const toast = useToast();

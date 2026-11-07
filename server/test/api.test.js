@@ -2632,3 +2632,22 @@ test('drive: who can open a document but not a file it links to', async () => {
   assert.equal((await c('GET', `/api/files/${sheet.id}/missing-access?for=${doc.id}`)).body.can_share, false, 'Cat can open both but owns neither');
   assert.equal((await b('GET', `/api/files/${sheet.id}/missing-access?for=${doc.id}`)).status, 404, 'Ben can’t open the sheet');
 });
+
+test('chat: who in a conversation can’t open a linked Drive file', async () => {
+  const a = client(), b = client(), c = client();
+  for (const [local, name] of [['clka', 'Link Ann'], ['clkb', 'Link Ben'], ['clkc', 'Link Cat']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'clka@acme.com');
+  const bid = (await login(b, 'clkb@acme.com')).id;
+  const cid = (await login(c, 'clkc@acme.com')).id;
+  const sheet = (await a('POST', '/api/files/new', { kind: 'sheet', name: 'Budget' })).body;
+  const priv = (await a('POST', '/api/chat/channels', { name: 'clk-team', private: true, members: [bid, cid] })).body.id;
+  await a('PUT', `/api/files/${sheet.id}/shares`, { shares: [{ user_id: cid, role: 'viewer' }] });
+  const gap = (await a('GET', `/api/chat/channels/${priv}/missing-access?file=${sheet.id}`)).body;
+  assert.deepEqual([gap.people.map((p) => p.name), gap.total, gap.everyone, gap.can_share], [['Link Ben'], 1, false, true]);
+  assert.equal((await c('GET', `/api/chat/channels/${priv}/missing-access?file=${sheet.id}`)).body.can_share, false);
+  assert.equal((await b('GET', `/api/chat/channels/${priv}/missing-access?file=${sheet.id}`)).status, 404, 'Ben can’t open it');
+  const general = (await a('GET', '/api/chat/channels')).body.channels.find((x) => !x.dm_key && !x.private);
+  const pub = (await a('GET', `/api/chat/channels/${general.id}/missing-access?file=${sheet.id}`)).body;
+  assert.equal(pub.everyone, true);
+  assert.ok(pub.total >= 1);
+});
