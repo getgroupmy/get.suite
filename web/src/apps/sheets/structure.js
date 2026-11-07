@@ -1,6 +1,7 @@
 // Changing a sheet's structure: inserting and deleting rows or columns (formulas, formats, widths,
 // chart ranges, rules, dropdowns and commented cells follow), and sorting rows. Pure functions on the sheet's JSON.
 import { colName, colIndex, cellKey, parseRef, shiftFormula } from './formula.js';
+import { adjustHide } from './hide.js';
 
 /**
  * A structural change: on `axis` ('row' | 'col'), `count` > 0 inserts that many before index `at`;
@@ -85,7 +86,10 @@ export function applyStructure(sheet, change) {
   const validations = (sheet.validations || []).map((v) => ({ ...v, range: adjustRange(v.range, change) })).filter((v) => v.range);
   // Merges move and grow or shrink with their cells; one that's down to a single cell is no longer a merge.
   const merges = (sheet.merges || []).map((m) => adjustRange(m, change)).filter((m) => m && m.split(':')[0] !== m.split(':')[1]);
-  return { ...sheet, cells, colWidths, ...(sheet.formats && { formats }), ...(sheet.charts && { charts }), ...(sheet.rules && { rules }), ...(sheet.validations && { validations }), ...(sheet.merges && { merges }) };
+  const hide = adjustHide(sheet.hide, change);
+  const out = { ...sheet, cells, colWidths, ...(sheet.formats && { formats }), ...(sheet.charts && { charts }), ...(sheet.rules && { rules }), ...(sheet.validations && { validations }), ...(sheet.merges && { merges }) };
+  if (hide) out.hide = hide; else delete out.hide;
+  return out;
 }
 
 /** Does the top row of a range look like headings: all text, over at least one column of numbers? */

@@ -64,7 +64,9 @@ export async function sheetFromExcel(buffer) {
   const sheets = [];
   wb.eachSheet((ws) => {
     const cells = {}, formats = {}, colWidths = {};
+    const hideRows = [], hideCols = [];
     ws.eachRow({ includeEmpty: true }, (row, r) => {
+      if (row.hidden && r <= 10000) hideRows.push(r - 1);
       row.eachCell({ includeEmpty: true }, (cell, c) => {
         const key = `${colName(c - 1)}${r}`;
         const t = cellText(cell);
@@ -86,6 +88,7 @@ export async function sheetFromExcel(buffer) {
         if (Object.keys(f).length) formats[key] = f;
       });
     });
+    ws.columns?.forEach((col, i) => { if (col?.hidden && i < 702) hideCols.push(i); });
     ws.columns?.forEach((col, i) => { if (col?.width && Math.abs(col.width - 8.43) > 0.5) colWidths[colName(i)] = Math.round(col.width * 7 + 5); });
     // Frozen panes: the rows above and the columns left of the split stay in view.
     const view = (ws.views || []).find((v) => v.state === 'frozen');
@@ -106,6 +109,10 @@ export async function sheetFromExcel(buffer) {
     // An AutoFilter comes in as the sheet's filter (which values were hidden isn't kept).
     const af = typeof ws.autoFilter === 'string' ? ws.autoFilter : ws.autoFilter?.from && ws.autoFilter?.to ? `${ws.autoFilter.from}:${ws.autoFilter.to}` : null;
     const filter = af && /^[A-Z]+\d+:[A-Z]+\d+$/i.test(af) ? { range: af.toUpperCase(), hidden: {} } : null;
+    // Hidden rows and columns; rows inside the AutoFilter were hidden by it, not by hand.
+    const [fr1, fr2] = filter ? filter.range.match(/\d+/g).map((n) => Number(n) - 1) : [-1, -1];
+    const keptRows = hideRows.filter((r) => r <= fr1 || r > fr2);
+    const hide = keptRows.length || hideCols.length ? { ...(keptRows.length && { rows: keptRows }), ...(hideCols.length && { cols: hideCols }) } : null;
     // Merged cells, as ranges ("A1:C1"); the covered cells' values (Excel keeps only the top-left) are dropped.
     const merges = (ws.model.merges || []).map((m) => String(m).toUpperCase()).filter((m) => /^[A-Z]+\d+:[A-Z]+\d+$/.test(m));
     for (const m of merges) {
@@ -113,7 +120,7 @@ export async function sheetFromExcel(buffer) {
       const ci = (l) => [...l].reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0) - 1;
       for (let r = a.r; r <= b.r; r++) for (let c = ci(a.c); c <= ci(b.c); c++) if (r !== a.r || c !== ci(a.c)) delete cells[`${colName(c)}${r}`];
     }
-    sheets.push({ name: ws.name.slice(0, 30), cells, colWidths, ...(merges.length && { merges }), ...(rules.length && { rules }), ...(validations.length && { validations }), ...(filter && { filter }), ...(Object.keys(formats).length && { formats }), ...(frozen && (frozen.rows || frozen.cols) && { frozen }) });
+    sheets.push({ name: ws.name.slice(0, 30), cells, colWidths, ...(merges.length && { merges }), ...(rules.length && { rules }), ...(validations.length && { validations }), ...(filter && { filter }), ...(Object.keys(formats).length && { formats }), ...(frozen && (frozen.rows || frozen.cols) && { frozen }), ...(hide && { hide }) });
   });
   return { sheets: sheets.length ? sheets : [{ name: 'Sheet1', cells: {}, colWidths: {} }] };
 }
@@ -133,6 +140,12 @@ export async function excelFromSheet(data) {
       else if (/^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(`${v}T00:00:00Z`))) { cell.value = new Date(`${v}T00:00:00Z`); cell.numFmt = 'yyyy-mm-dd'; } // a real date in Excel
       else cell.value = v;
     }
+    for (const r of s.hide?.rows || []) {
+      const row = ws.getRow(r + 1);
+      row.hidden = true;
+      if (!row.cellCount) row.getCell(1).numFmt = 'General'; // a row with nothing in it isn't written at all otherwise
+    }
+    for (const c of s.hide?.cols || []) ws.getColumn(c + 1).hidden = true;
     for (const m of s.merges || []) { try { ws.mergeCells(m); } catch { /* an overlapping or bad range is skipped */ } }
     for (const [key, f] of Object.entries(s.formats || {})) {
       const cell = ws.getCell(key);

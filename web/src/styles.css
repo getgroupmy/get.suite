@@ -1393,3 +1393,12 @@ button.rule-sample.on { outline: 2px solid var(--accent); outline-offset: 1px; }
 .tasks-search input { border: 0; background: none; flex: 1; min-width: 0; padding: 2px 0; }
 .tasks-main[hidden] { display: none; }
 .pill.sender-known { font-size: 11px; padding: 1px 8px; }
+/* Sheets: the button next to hidden rows/columns that shows them again */
+.grid th .unhide-btn { position: absolute; z-index: 2; padding: 0; border: 1px solid var(--border); background: var(--surface); color: var(--muted); font-size: 11px; line-height: 1; cursor: pointer; border-radius: 3px; }
+.grid th .unhide-btn:hover { color: var(--accent); border-color: var(--accent); }
+.grid th .unhide-btn.col { top: 2px; width: 12px; height: calc(100% - 4px); }
+.grid th .unhide-btn.col.after { right: 3px; }
+.grid th .unhide-btn.col.before { left: 1px; }
+.grid th .unhide-btn.row { left: 2px; width: calc(100% - 4px); height: 10px; }
+.grid th .unhide-btn.row.after { bottom: -1px; }
+.grid th .unhide-btn.row.before { top: -1px; }

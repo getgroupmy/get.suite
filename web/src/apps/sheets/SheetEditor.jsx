@@ -18,6 +18,7 @@ import { RulesDialog } from './SheetRules.jsx';
 import { ValidationDialog, ChoicePicker } from './SheetValidation.jsx';
 import { validationAt, checkEntry, isTicked } from './validation.js';
 import { hiddenRows, columnValues, adjustFilter, filterArea } from './filter.js';
+import { setHidden, anyHidden, hiddenRuns } from './hide.js';
 import { FilterMenu } from './SheetFilter.jsx';
 import { SheetPreview } from './SheetPreview.jsx';
 import { VersionHistory } from '../VersionHistory.jsx';
@@ -136,7 +137,17 @@ export default function SheetEditor() {
   const { rows, cols } = useMemo(() => sheetSize(cells), [cells]);
   // The filter: which rows it hides, and where its headings are.
   const filter = sheet?.filter || null;
-  const hidden = useMemo(() => hiddenRows(filter, cells, evaluate), [filter, cells, evaluate]);
+  const hide = sheet?.hide || null; // rows and columns hidden by hand
+  const hidden = useMemo(() => { const h = hiddenRows(filter, cells, evaluate); for (const r of hide?.rows || []) h.add(r); return h; }, [filter, cells, evaluate, hide]);
+  const hiddenCols = useMemo(() => new Set(hide?.cols || []), [hide]);
+  // Where to put the "show hidden" buttons: on the heading just after each run (or just before, at the end).
+  const unhideAt = useMemo(() => {
+    const at = { row: new Map(), col: new Map() };
+    for (const [axis, list] of [['row', hide?.rows], ['col', hide?.cols]]) {
+      for (const [a, b] of hiddenRuns(list)) { if (a > 0) at[axis].set(a - 1, { a, b, side: 'after' }); else at[axis].set(b + 1, { a, b, side: 'before' }); }
+    }
+    return at;
+  }, [hide]);
   const fArea = useMemo(() => (filter ? filterArea(filter, cells) : null), [filter, cells]);
   const [filterMenu, setFilterMenu] = useState(null); // { c }
   // Find and replace: the bar ({ replace, n }), and the cells it highlights.
@@ -226,6 +237,17 @@ export default function SheetEditor() {
     commitData({ ...cur, sheets: cur.sheets.map((s, i) => (i === active ? { ...s, ...fn(s) } : s)) });
   }
   const setWidth = (c, w) => writeSheet((s) => ({ colWidths: { ...(s.colWidths || {}), [colName(c)]: Math.round(Math.max(MIN_W, Math.min(MAX_W, w))) } }));
+  /** Hide rows or columns a..b (or show them again). The selection steps off any it hides. */
+  const hideSpan = (axis, a, b, show = false) => {
+    writeSheet((s) => ({ hide: setHidden(s.hide, axis, a, b, show) }));
+    if (!show) {
+      const limit = axis === 'row' ? rows : cols;
+      const to = b + 1 < limit ? b + 1 : Math.max(0, a - 1);
+      setAnchor(null);
+      setSel((p) => (axis === 'row' ? { ...p, r: to } : { ...p, c: to }));
+    }
+    gridRef.current?.focus();
+  };
   const setFrozen = (rowsN, colsN) => writeSheet((s) => {
     const f = { rows: rowsN ?? (s.frozen?.rows || 0), cols: colsN ?? (s.frozen?.cols || 0) };
     return { frozen: f.rows || f.cols ? f : null };
@@ -326,6 +348,8 @@ export default function SheetEditor() {
       // Rows the filter hides are skipped over.
       while (dr && hidden.has(n.r) && n.r > 0 && n.r < rows - 1) n.r += Math.sign(dr);
       if (hidden.has(n.r)) n.r = s.r;
+      while (dc && hiddenCols.has(n.c) && n.c > 0 && n.c < cols - 1) n.c += Math.sign(dc); // and hidden columns
+      if (hiddenCols.has(n.c)) n.c = s.c;
       requestAnimationFrame(() => gridRef.current?.querySelector(`[data-k="${cellKey(n.c, n.r)}"]`)?.scrollIntoView({ block: 'nearest', inline: 'nearest' }));
       return n;
     });
@@ -544,8 +568,17 @@ export default function SheetEditor() {
     frozen.cols > 0 && { label: 'Unfreeze columns', onClick: () => setFrozen(null, 0) },
     { label: `Fit column ${colName(range.c1)} to its contents`, onClick: () => fitColumn(range.c1) },
   ];
-  rowItems.push('-', ...freezeRows);
-  colItems.push('-', ...freezeCols);
+  const rowSpan = nr > 1 ? `rows ${range.r1 + 1}–${range.r2 + 1}` : `row ${range.r1 + 1}`;
+  const colSpan = nc > 1 ? `columns ${colName(range.c1)}–${colName(range.c2)}` : `column ${colName(range.c1)}`;
+  const hideItems = (axis) => {
+    const [a, b, what] = axis === 'row' ? [range.r1, range.r2, rowSpan] : [range.c1, range.c2, colSpan];
+    return [
+      { label: `Hide ${what}`, onClick: () => hideSpan(axis, a, b) },
+      anyHidden(hide, axis, a, b) && { label: `Unhide ${axis === 'row' ? 'rows' : 'columns'}`, onClick: () => hideSpan(axis, a, b, true) },
+    ];
+  };
+  rowItems.push(...hideItems('row'), '-', ...freezeRows);
+  colItems.push(...hideItems('col'), '-', ...freezeCols);
   const ctxItems = ctx?.kind === 'row' ? rowItems : ctx?.kind === 'col' ? [...colItems, '-', ...sortItems] : [...rowItems, '-', ...colItems, '-', ...sortItems];
   /** Open the menu at the mouse, or (keyboard: the menu key, Shift+F10) at the selected cell. */
   const openMenu = (e, kind) => {
@@ -625,10 +658,11 @@ export default function SheetEditor() {
           <thead>
             <tr><th className="corner" />{Array.from({ length: cols }, (_, c) => (
               <th key={c} className={`${c >= range.c1 && c <= range.c2 ? 'hl' : ''} ${c < frozen.cols ? 'frozen-c' : ''} ${c === frozen.cols - 1 ? 'freeze-edge-r' : ''}`}
-                style={{ width: widthOf(c), minWidth: widthOf(c), maxWidth: widthOf(c), ...(c < frozen.cols && { left: stick.left[c] }) }}
+                style={{ width: widthOf(c), minWidth: widthOf(c), maxWidth: widthOf(c), ...(c < frozen.cols && { left: stick.left[c] }), ...(hiddenCols.has(c) && { display: 'none' }) }}
                 onMouseDown={(e) => { if (e.button === 0) pickCol(c, e); }}
                 onContextMenu={(e) => { if (!(isWholeCols && c >= range.c1 && c <= range.c2)) pickCol(c, { shiftKey: false }); openMenu(e, 'col'); }}>
                 {colName(c)}
+                {unhideAt.col.has(c) && <UnhideButton run={unhideAt.col.get(c)} axis="col" onShow={readOnly ? null : (a, b) => hideSpan('col', a, b, true)} />}
                 {!readOnly && <span className="col-resize" role="separator" aria-orientation="vertical" aria-label={`Resize column ${colName(c)}`} title="Drag to resize, double-click to fit"
                   onPointerDown={startResize(c)} onMouseDown={(e) => e.stopPropagation()} onDoubleClick={(e) => { e.stopPropagation(); fitColumn(c); }} />}
               </th>
@@ -639,10 +673,12 @@ export default function SheetEditor() {
               <tr key={r} className={hidden.has(r + 1) || hidden.has(r - 1) ? 'next-to-hidden' : undefined}>
                 <th className={`${r >= range.r1 && r <= range.r2 ? 'hl' : ''} ${r < frozen.rows ? 'frozen-r' : ''} ${r === frozen.rows - 1 ? 'freeze-edge-b' : ''}`}
                   style={r < frozen.rows ? { top: stick.top[r] } : undefined} onMouseDown={(e) => { if (e.button === 0) pickRow(r, e); }}
-                  onContextMenu={(e) => { if (!(isWholeRows && r >= range.r1 && r <= range.r2)) pickRow(r, { shiftKey: false }); openMenu(e, 'row'); }}>{r + 1}</th>
+                  onContextMenu={(e) => { if (!(isWholeRows && r >= range.r1 && r <= range.r2)) pickRow(r, { shiftKey: false }); openMenu(e, 'row'); }}>{r + 1}
+                  {unhideAt.row.has(r) && <UnhideButton run={unhideAt.row.get(r)} axis="row" onShow={readOnly ? null : (a, b) => hideSpan('row', a, b, true)} />}</th>
                 {Array.from({ length: cols }, (_, c) => {
                   const k = cellKey(c, r);
                   if (layout.covered.has(k)) return null; // drawn by its merge's top-left cell
+                  if (hiddenCols.has(c) && !layout.spans.has(k)) return <td key={k} data-k={k} style={{ display: 'none' }} />;
                   const span = layout.spans.get(k);
                   const spanProps = span ? { colSpan: span.colSpan, rowSpan: span.rowSpan } : {};
                   const isSel = c === sel.c && r === sel.r;
@@ -896,4 +932,14 @@ function SortGlyph() {
 
 function RulesGlyph() {
   return <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M4 4h7v7H4V4zm9 0h7v7h-7V4zM4 13h7v7H4v-7zm9 0h7v7h-7v-7z" opacity=".35" /><path fill="currentColor" d="M13 13h7v7h-7z" /></svg>;
+}
+
+/** The small button on a heading next to hidden rows or columns, which shows them again. */
+function UnhideButton({ run, axis, onShow }) {
+  const name = axis === 'row' ? (n) => String(n + 1) : colName;
+  const what = run.a === run.b ? `${axis === 'row' ? 'row' : 'column'} ${name(run.a)}` : `${axis === 'row' ? 'rows' : 'columns'} ${name(run.a)}–${name(run.b)}`;
+  return (
+    <button type="button" className={`unhide-btn ${axis} ${run.side}`} tabIndex={-1} disabled={!onShow} aria-label={`Show hidden ${what}`} title={`Show hidden ${what}`}
+      onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); onShow?.(run.a, run.b); }}>{axis === 'row' ? '⋯' : '⋮'}</button>
+  );
 }

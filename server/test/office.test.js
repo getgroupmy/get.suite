@@ -242,6 +242,7 @@ test('Excel: a filter becomes an AutoFilter with its rows hidden, and comes back
   assert.deepEqual([2, 3, 4, 5].map((r) => !!ws.getRow(r).hidden), [true, false, true, false]);
   const back = (await sheetFromExcel(buf)).sheets[0];
   assert.deepEqual(back.filter, { range: 'A1:B4', hidden: {} });
+  assert.equal(back.hide, undefined, 'rows the filter hid are not hidden by hand');
 });
 
 test('Excel: newer functions carry the _xlfn. prefix in the file and lose it in Sheets', async () => {
@@ -387,4 +388,13 @@ test('PowerPoint: lines and arrows go out and come back, with their direction an
   assert.deepEqual(items.map((i) => [i.shape, i.dir]), [['line', 'h'], ['arrow', 'u'], ['arrow', 'v']]);
   assert.equal(items[0].fill, '#c5221f');
   assert.ok(Math.abs(items[1].x - 50) < 1 && Math.abs(items[1].w - 30) < 1);
+});
+
+test('Excel: hidden rows and columns go out and come back', async () => {
+  const data = { sheets: [{ name: 'S', cells: { A1: 'a', B2: 'b', C6: 'c' }, colWidths: { C: 150 }, hide: { rows: [1, 3], cols: [2] } }] };
+  const back = (await sheetFromExcel(await excelFromSheet(data))).sheets[0];
+  assert.deepEqual(back.hide, { rows: [1, 3], cols: [2] });
+  assert.equal(back.cells.B2, 'b');
+  const plain = (await sheetFromExcel(await excelFromSheet({ sheets: [{ name: 'S', cells: { A1: '1' } }] }))).sheets[0];
+  assert.equal(plain.hide, undefined);
 });
