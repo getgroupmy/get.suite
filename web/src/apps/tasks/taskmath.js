@@ -21,3 +21,12 @@ export function between(before, after) {
   if (after === undefined) return before + 1;
   return (before + after) / 2;
 }
+
+/** Today's date where the person is, as YYYY-MM-DD (repeating tasks count from it). */
+export function localToday(now = new Date()) {
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+}
+
+/** How a task can repeat, with what the picker and the list say. */
+export const REPEATS = [['', 'Does not repeat'], ['daily', 'Every day'], ['weekdays', 'Every weekday (Mon–Fri)'], ['weekly', 'Every week'], ['monthly', 'Every month'], ['yearly', 'Every year']];
+export const repeatText = (r) => ({ daily: 'Daily', weekdays: 'Weekdays', weekly: 'Weekly', monthly: 'Monthly', yearly: 'Yearly' }[r] || '');

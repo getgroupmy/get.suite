@@ -1098,6 +1098,45 @@ test('tasks: lists, ordering, due dates, done, sharing and assigning', async () 
   assert.equal((await a('GET', `/api/tasks/lists/${list}/tasks`)).status, 404);
 });
 
+test('tasks: repeating tasks come back when ticked off, and Undo takes the next one away', async () => {
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'taskr', domain: 'acme.com', name: 'Task Rep', password: 'password123' })).status, 201);
+  await login(a, 'taskr@acme.com');
+  const list = (await a('POST', '/api/tasks/lists', { name: 'Chores' })).body.id;
+  const tasks = async () => (await a('GET', `/api/tasks/lists/${list}/tasks`)).body;
+  assert.equal((await a('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Bins', repeat: 'weekly' })).status, 400, 'needs a date');
+  assert.equal((await a('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Bins', due: '2026-11-02', repeat: 'hourly' })).status, 400);
+  const bins = (await a('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Bins', notes: 'Green one', due: '2026-11-02', repeat: 'weekly' })).body;
+  assert.equal(bins.repeat, 'weekly');
+  // Ticked off late: the next is the first Monday from today on, with the same notes.
+  const done = (await a('PATCH', `/api/tasks/tasks/${bins.id}`, { done: true, today: '2026-11-07' })).body;
+  assert.ok(done.done && done.next_id);
+  let all = await tasks();
+  const next = all.find((t) => !t.done);
+  assert.deepEqual([next.title, next.notes, next.due, next.repeat, next.id], ['Bins', 'Green one', '2026-11-09', 'weekly', done.next_id]);
+  // Ticking it again (already done) makes no second copy.
+  await a('PATCH', `/api/tasks/tasks/${bins.id}`, { done: true, today: '2026-11-07' });
+  assert.equal((await tasks()).length, 2);
+  // Undo: the next one goes away.
+  await a('PATCH', `/api/tasks/tasks/${bins.id}`, { done: false });
+  all = await tasks();
+  assert.deepEqual(all.map((t) => [t.title, t.done, t.due]), [['Bins', false, '2026-11-02']]);
+  // …but not once someone has changed it.
+  await a('PATCH', `/api/tasks/tasks/${bins.id}`, { done: true, today: '2026-11-07' });
+  const n2 = (await tasks()).find((t) => !t.done);
+  await a('PATCH', `/api/tasks/tasks/${n2.id}`, { notes: 'Green and blue' });
+  await a('PATCH', `/api/tasks/tasks/${bins.id}`, { done: false });
+  assert.equal((await tasks()).length, 2);
+  // Clearing the date stops it repeating; a repeat can't be set without one.
+  const cleared = (await a('PATCH', `/api/tasks/tasks/${n2.id}`, { due: null })).body;
+  assert.equal(cleared.repeat, null);
+  assert.equal((await a('PATCH', `/api/tasks/tasks/${n2.id}`, { repeat: 'daily' })).status, 400);
+  // A task that doesn't repeat just gets done.
+  const once = (await a('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Once', due: '2026-11-07' })).body;
+  await a('PATCH', `/api/tasks/tasks/${once.id}`, { done: true });
+  assert.equal((await tasks()).filter((t) => t.title === 'Once').length, 1);
+});
+
 test('search filters: kind of file, whose it is, and when it changed', async () => {
   const { q } = await import('../src/db.js');
   const tag = `flt${Date.now() % 100000}`;

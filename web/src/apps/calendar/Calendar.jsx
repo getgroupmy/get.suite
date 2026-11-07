@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useAuth } from '../../App.jsx';
 import { get, post, put, patch, del, onLive } from '../../api.js';
+import { localToday } from '../tasks/taskmath.js';
 import Icon from '../../components/Icon.jsx';
 import { Modal, useToast } from '../../components/ui.jsx';
 import { DAY, VIEWS, startOfDay, visibleDays, shift, title, onDay, layoutDay, expandAll, occurrenceIndex, describeRule, daysBetween, moveTimes, resizeEnd, shiftWeekdays, snapMinutes } from './calmath.js';
@@ -89,7 +90,8 @@ export default function Calendar() {
   const taskDone = async (t) => {
     setTasks((list) => list.filter((x) => x.id !== t.id));
     try {
-      await patch(`/tasks/tasks/${t.id}`, { done: true });
+      const done = await patch(`/tasks/tasks/${t.id}`, { done: true, today: localToday() });
+      if (done?.next_id) loadTasks(); // a repeating task: the next one shows
       toast(`“${t.title}” done`, 'info', { action: { label: 'Undo', onClick: async () => { await patch(`/tasks/tasks/${t.id}`, { done: false }); loadTasks(); } } });
     } catch (e) { toast(e.message, 'error'); loadTasks(); }
   };

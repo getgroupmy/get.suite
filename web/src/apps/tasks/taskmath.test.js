@@ -19,3 +19,11 @@ test('a dragged task lands between its neighbours', () => {
   assert.equal(between(3, undefined), 4);
   assert.equal(between(1, 2), 1.5);
 });
+
+test('local today and repeat wording', async () => {
+  const { localToday, repeatText, REPEATS } = await import('./taskmath.js');
+  assert.equal(localToday(new Date(2026, 0, 5, 23, 30)), '2026-01-05');
+  assert.equal(repeatText('weekdays'), 'Weekdays');
+  assert.equal(repeatText(null), '');
+  assert.deepEqual(REPEATS.map(([v]) => v), ['', 'daily', 'weekdays', 'weekly', 'monthly', 'yearly']);
+});

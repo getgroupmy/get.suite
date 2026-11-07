@@ -1,6 +1,7 @@
 // Tasks: to-do lists, your own or shared with colleagues. Each task has a title, notes, a due date,
 // someone it's assigned to (a person on the list), and a place in the list you can drag it to.
 // Everyone on a list sees changes as they're made.
+import { REPEATS, nextDue } from '../taskrepeat.js';
 import { Router } from 'express';
 import { q, tx } from '../db.js';
 import { uid, now, str, bad, notFound } from '../util.js';
@@ -33,6 +34,10 @@ q(`CREATE TABLE IF NOT EXISTS tasks (
   updated_at INTEGER NOT NULL
 )`).run();
 q('CREATE INDEX IF NOT EXISTS tasks_list ON tasks(list_id, position)').run();
+// Repeating tasks: how it repeats, and (once ticked off) the task that came next.
+for (const [col, type] of [['repeat', 'TEXT'], ['next_id', 'TEXT']]) {
+  if (!q('PRAGMA table_info(tasks)').all().some((c) => c.name === col)) q(`ALTER TABLE tasks ADD COLUMN ${col} ${type}`).run();
+}
 q('CREATE INDEX IF NOT EXISTS tasks_assignee ON tasks(assignee_id, done_at)').run();
 
 const MAX_LISTS = 200, MAX_TASKS = 5000;
@@ -67,6 +72,13 @@ function dueOf(v) {
   if (typeof v !== 'string' || !DATE_RE.test(v) || Number.isNaN(Date.parse(v))) throw bad('Due date must be YYYY-MM-DD');
   return v;
 }
+function repeatOf(v) {
+  if (v === null || v === '' || v === undefined) return null;
+  if (!REPEATS.includes(v)) throw bad('Repeat must be one of ' + REPEATS.join(', '));
+  return v;
+}
+const todayOf = (v) => (typeof v === 'string' && DATE_RE.test(v) ? v : new Date().toISOString().slice(0, 10)); // the person's own date, if sent
+
 function assigneeOf(v, list) {
   if (v === null || v === '' || v === undefined) return null;
   if (!peopleOn(list).includes(String(v))) throw bad('Only people on the list can be given a task');
@@ -163,8 +175,10 @@ export default function taskRoutes() {
     const edge = q(`SELECT ${req.body.at === 'end' ? 'MAX' : 'MIN'}(position) AS p FROM tasks WHERE list_id = ? AND done_at IS NULL`).get(list.id).p;
     const position = edge === null ? 0 : req.body.at === 'end' ? edge + 1 : edge - 1;
     const id = uid(), t = now();
-    q('INSERT INTO tasks (id, list_id, title, notes, due, assignee_id, position, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(id, list.id, str(req.body.title, { required: true, name: 'Task', max: 500 }), str(req.body.notes, { max: 10000 }), dueOf(req.body.due), assigneeOf(req.body.assignee_id, list), position, req.user.id, t, t);
+    const due = dueOf(req.body.due), repeat = repeatOf(req.body.repeat);
+    if (repeat && !due) throw bad('A repeating task needs a due date');
+    q('INSERT INTO tasks (id, list_id, title, notes, due, assignee_id, position, repeat, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, list.id, str(req.body.title, { required: true, name: 'Task', max: 500 }), str(req.body.notes, { max: 10000 }), due, assigneeOf(req.body.assignee_id, list), position, repeat, req.user.id, t, t);
     changed(list);
     const made = shape(q(`${TASK} WHERE t.id = ?`).get(id));
     notifyAssigned(made, req.user);
@@ -189,10 +203,33 @@ export default function taskRoutes() {
     if (b.due !== undefined) set.due = dueOf(b.due);
     if (b.assignee_id !== undefined) set.assignee_id = assigneeOf(b.assignee_id, target);
     if (b.done !== undefined) set.done_at = b.done ? task.done_at || now() : null;
+    if (b.repeat !== undefined) set.repeat = repeatOf(b.repeat);
+    if ((set.repeat ?? task.repeat) && !(set.due !== undefined ? set.due : task.due)) {
+      if (set.repeat) throw bad('A repeating task needs a due date');
+      set.repeat = null; // clearing the date stops it repeating
+    }
     if (b.position !== undefined) { if (!Number.isFinite(Number(b.position))) throw bad('Bad position'); set.position = Number(b.position); }
     if (b.done === false && task.done_at && b.position === undefined) set.position = (q('SELECT MIN(position) AS p FROM tasks WHERE list_id = ? AND done_at IS NULL').get(target.id).p ?? 1) - 1; // back on top
     const keys = Object.keys(set);
-    if (keys.length) q(`UPDATE tasks SET ${keys.map((k) => `${k} = ?`).join(', ')}, updated_at = ? WHERE id = ?`).run(...keys.map((k) => set[k]), now(), task.id);
+    tx(() => {
+      if (keys.length) q(`UPDATE tasks SET ${keys.map((k) => `${k} = ?`).join(', ')}, updated_at = ? WHERE id = ?`).run(...keys.map((k) => set[k]), now(), task.id);
+      const after = q('SELECT * FROM tasks WHERE id = ?').get(task.id);
+      // Ticked off a repeating task: the next one comes due, on top of its list.
+      if (b.done && !task.done_at && after.repeat && after.due && !after.next_id) {
+        const due = nextDue(after.due, after.repeat, todayOf(b.today));
+        const top = (q('SELECT MIN(position) AS p FROM tasks WHERE list_id = ? AND done_at IS NULL').get(after.list_id).p ?? 1) - 1;
+        const id = uid(), t = now();
+        q('INSERT INTO tasks (id, list_id, title, notes, due, assignee_id, position, repeat, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+          .run(id, after.list_id, after.title, after.notes, due, after.assignee_id, top, after.repeat, after.created_by, t, t);
+        q('UPDATE tasks SET next_id = ? WHERE id = ?').run(id, task.id);
+      }
+      // Un-ticked (Undo): the next one goes again, unless someone has already worked on it.
+      if (b.done === false && task.done_at && task.next_id) {
+        const n = q('SELECT * FROM tasks WHERE id = ?').get(task.next_id);
+        if (n && !n.done_at && n.updated_at === n.created_at) q('DELETE FROM tasks WHERE id = ?').run(n.id);
+        q('UPDATE tasks SET next_id = NULL WHERE id = ?').run(task.id);
+      }
+    });
     changed(list);
     if (target !== list) changed(target);
     const next = shape(q(`${TASK} WHERE t.id = ?`).get(task.id));

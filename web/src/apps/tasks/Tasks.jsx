@@ -6,7 +6,7 @@ import { get, post, patch, put, del, onLive } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
 import { Avatar, ConfirmModal, Empty, Menu, Modal, PromptModal, useToast } from '../../components/ui.jsx';
 import { useAuth } from '../../App.jsx';
-import { dueLabel, between } from './taskmath.js';
+import { dueLabel, between, localToday, REPEATS, repeatText } from './taskmath.js';
 
 const ASSIGNED = 'assigned';
 
@@ -54,8 +54,11 @@ export default function Tasks() {
     catch (e) { toast(e.message, 'error'); loadTasks(); return null; }
   };
   const toggle = async (t) => {
-    const next = await update(t, { done: !t.done });
-    if (next?.done) toast(`“${t.title}” done`, 'info', { action: { label: 'Undo', onClick: () => update(next, { done: false }) } });
+    const next = await update(t, t.done ? { done: false } : { done: true, today: localToday() });
+    if (!next?.done) return;
+    // A repeating task comes back: say when.
+    const again = next.next_id && (await get(`/tasks/lists/${next.list_id}/tasks`).catch(() => [])).find((x) => x.id === next.next_id);
+    toast(`“${t.title}” done${again?.due ? ` · next due ${dueLabel(again.due).text}` : ''}`, 'info', { action: { label: 'Undo', onClick: () => update(next, { done: false }) } });
   };
   async function add(e) {
     e.preventDefault();
@@ -92,6 +95,7 @@ export default function Tasks() {
             {listId === ASSIGNED && <span className="muted small">{t.list_name}</span>}
             {t.notes && <span className="muted small ellipsis task-notes">{t.notes.split('\n')[0]}</span>}
             {due && <span className={`pill due ${due.tone}`}>{due.text}</span>}
+            {t.repeat && !t.done && <span className="muted small task-repeat" title={`Repeats: ${repeatText(t.repeat).toLowerCase()}`}>⟳ {repeatText(t.repeat)}</span>}
           </span>
         </button>
         {t.assignee_name && <span title={`For ${t.assignee_name}`}><Avatar name={t.assignee_name} size={24} /></span>}
@@ -192,6 +196,12 @@ function TaskDetails({ task, lists, people, onChange, onClose, onDelete, onMove 
       <label className="field"><span>Due</span>
         <span className="row"><input type="date" value={task.due || ''} onChange={(e) => onChange({ due: e.target.value || null })} />
           {task.due && <button type="button" className="link-btn small" onClick={() => onChange({ due: null })}>Clear</button>}</span>
+      </label>
+      <label className="field"><span>Repeat</span>
+        <select value={task.repeat || ''} onChange={(e) => onChange({ repeat: e.target.value || null, ...(!task.due && e.target.value && { due: localToday() }) })}>
+          {REPEATS.map(([v, n]) => <option key={v} value={v}>{n}</option>)}
+        </select>
+        {task.repeat && <span className="muted small">When you tick it off, the next one is added{task.due ? '' : ' (it needs a due date)'}.</span>}
       </label>
       {people.length > 1 && (
         <label className="field"><span>Assigned to</span>
