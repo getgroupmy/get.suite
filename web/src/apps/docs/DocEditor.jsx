@@ -12,7 +12,8 @@ import Collaboration from '@tiptap/extension-collaboration';
 import CollaborationCaret from '@tiptap/extension-collaboration-caret';
 import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
-import { get, patch, uploadFile, onLive } from '../../api.js';
+import { get, patch, put, uploadFile, onLive } from '../../api.js';
+import DrivePicker, { openUrl } from '../../components/DrivePicker.jsx';
 import { useAuth } from '../../App.jsx';
 import { useToast, Avatar, Menu, Modal } from '../../components/ui.jsx';
 import { PAPER, MARGINS, DEFAULT_SETUP, paperStyle, printCss } from './pagesetup.js';
@@ -107,6 +108,28 @@ function SharedDoc({ file, setFile }) {
   const toast = useToast();
   const [sharing, setSharing] = useState(false);
   const [history, setHistory] = useState(false);
+  // A link to another file in Drive, named after it. If people who can open this document can't
+  // open that one, the owner is offered to share it with them (everyone else is told who can't).
+  const [linkingFile, setLinkingFile] = useState(false);
+  const linkFile = async (f) => {
+    const href = openUrl(f);
+    const c = editor.chain().focus();
+    if (editor.state.selection.empty) c.insertContent({ type: 'text', text: f.name, marks: [{ type: 'link', attrs: { href } }] }).insertContent(' ').run();
+    else c.extendMarkRange('link').setLink({ href }).run();
+    try {
+      const gap = await get(`/files/${f.id}/missing-access?for=${file.id}`);
+      if (!gap.people.length) return;
+      const names = gap.people.map((p) => p.name).join(', ');
+      if (!gap.can_share) { toast(`${names} can't open “${f.name}”. Ask its owner to share it.`, 'info', { duration: 10000 }); return; }
+      toast(`${names} can't open “${f.name}”`, 'info', { duration: 15000, action: { label: 'Share with them', onClick: async () => {
+        try {
+          const now = await get(`/files/${f.id}/shares`);
+          await put(`/files/${f.id}/shares`, { shares: [...now.map((x) => ({ user_id: x.user_id, role: x.role })), ...gap.people.map((p) => ({ user_id: p.id, role: 'viewer' }))] });
+          toast(`Shared “${f.name}” with ${names} (can view)`);
+        } catch (e) { toast(e.message, 'error'); }
+      } } });
+    } catch { /* checking is a courtesy */ }
+  };
   const [status, setStatus] = useState('connecting');
   const [others, setOthers] = useState([]);
   const readOnly = file.role === 'viewer';
@@ -299,7 +322,9 @@ function SharedDoc({ file, setFile }) {
           { label: 'Download as Markdown (.md)', icon: 'download', onClick: () => { window.location.href = `/api/files/${file.id}/export?format=md`; } },
         ]}
       />
-      {!readOnly && <Toolbar editor={editor} onComment={startComment} onPictures={(files) => addPicturesRef.current(files)} />}
+      {!readOnly && <Toolbar editor={editor} onComment={startComment} onPictures={(files) => addPicturesRef.current(files)} onLinkFile={() => setLinkingFile(true)} />}
+      {linkingFile && <DrivePicker title="Link to a file in Drive" accept={(x) => x.id !== file.id} empty="No files found." onClose={() => setLinkingFile(false)}
+        onPick={(f) => { setLinkingFile(false); linkFile(f); }} />}
       <style>{highlight}</style>
       <style>{printCss(file.page_setup)}</style>
       {status === 'offline' && <div className="banner warn">You're offline. Keep typing: your changes are kept here and sync when the connection is back.</div>}
@@ -329,7 +354,7 @@ function SharedDoc({ file, setFile }) {
 
 const escapeHtml = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-function Toolbar({ editor, onComment, onPictures }) {
+function Toolbar({ editor, onComment, onPictures, onLinkFile }) {
   const pictureInput = useRef();
   const [, force] = useState(0);
   useEffect(() => {
@@ -387,6 +412,7 @@ function Toolbar({ editor, onComment, onPictures }) {
         const url = window.prompt('Link URL');
         if (url && /^(https?:|mailto:|\/)/i.test(url)) c().extendMarkRange('link').setLink({ href: url }).run();
       }} />
+      <B label="📄" title="Link to a file in Drive" onClick={onLinkFile} />
       <span className="sep" />
       <B label="⯇" title="Align left" active={editor.isActive({ textAlign: 'left' })} onClick={() => c().setTextAlign('left').run()} />
       <B label="≡" title="Align center" active={editor.isActive({ textAlign: 'center' })} onClick={() => c().setTextAlign('center').run()} />

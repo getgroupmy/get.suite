@@ -114,6 +114,7 @@ Everyone who can edit a document, spreadsheet or presentation can work in it at 
 - **Fonts and spacing:** the toolbar's font, size and spacing menus set the font (Arial, Georgia, Times New Roman, Verdana, Trebuchet MS, Courier New) and size of the selected text, and the line spacing (single, 1.15, 1.5, double) of the paragraphs the cursor is in. **Default** takes them off again. They're kept in the Word download.
 - **Colour:** the **A** and highlight buttons colour the selected text or mark it with a highlight.
 
+- **Links to Drive files:** **📄** in the toolbar puts in a link to a document, spreadsheet, presentation, file or folder from Drive, named after it (or links the selected text). If anyone who can open this document can't open what you linked, a note says who; if it's yours, **Share with them** lets them view it.
 ## Find and replace, word count, outline (Docs)
 
 - **Ctrl+F** finds text in the document: every match is highlighted, and Enter (Shift+Enter) goes to the next (previous) one. *Match case* and *Whole words* narrow it down. **Ctrl+H** (or *Replace…*) replaces the current match or all of them; replaced text keeps its formatting, and each replace is one step for Undo. Only the person searching sees the highlights; replacements reach everyone as they're made. Viewers can find but not replace.

@@ -2615,3 +2615,20 @@ test('tasks: comments on a task, seen by everyone on the list; the people involv
   assert.equal((await b('DELETE', `/api/tasks/tasks/${t.id}/comments/${list2[1].id}`)).status, 200);
   assert.equal((await a('POST', `/api/tasks/tasks/${t.id}/comments`, { body: '  ' })).status, 400);
 });
+
+test('drive: who can open a document but not a file it links to', async () => {
+  const a = client(), b = client(), c = client();
+  for (const [local, name] of [['gapa', 'Gap Ann'], ['gapb', 'Gap Ben'], ['gapc', 'Gap Cat']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'gapa@acme.com');
+  const bid = (await login(b, 'gapb@acme.com')).id;
+  const cid = (await login(c, 'gapc@acme.com')).id;
+  const doc = (await a('POST', '/api/files/new', { kind: 'doc', name: 'Report' })).body;
+  const sheet = (await a('POST', '/api/files/new', { kind: 'sheet', name: 'Figures' })).body;
+  await a('PUT', `/api/files/${doc.id}/shares`, { shares: [{ user_id: bid, role: 'viewer' }, { user_id: cid, role: 'editor' }] });
+  await a('PUT', `/api/files/${sheet.id}/shares`, { shares: [{ user_id: cid, role: 'viewer' }] });
+  const gap = (await a('GET', `/api/files/${sheet.id}/missing-access?for=${doc.id}`)).body;
+  assert.deepEqual(gap.people.map((p) => p.name), ['Gap Ben']);
+  assert.equal(gap.can_share, true);
+  assert.equal((await c('GET', `/api/files/${sheet.id}/missing-access?for=${doc.id}`)).body.can_share, false, 'Cat can open both but owns neither');
+  assert.equal((await b('GET', `/api/files/${sheet.id}/missing-access?for=${doc.id}`)).status, 404, 'Ben can’t open the sheet');
+});

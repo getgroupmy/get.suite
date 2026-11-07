@@ -7,7 +7,7 @@ const KIND_ICON = { doc: 'doc', sheet: 'sheet', slides: 'slides' };
 const KIND_NAME = { doc: 'Document', sheet: 'Spreadsheet', slides: 'Presentation' };
 
 /** Where to open a Drive item: Docs, Sheets and Slides in their app; other files as they are (a new tab). */
-export const openUrl = (f) => (KIND_ICON[f.kind] ? `/${f.kind === 'doc' ? 'docs' : f.kind === 'sheet' ? 'sheets' : 'slides'}/${f.id}` : `/api/files/${f.id}/raw`);
+export const openUrl = (f) => (f.kind === 'folder' ? `/drive/folder/${f.id}` : KIND_ICON[f.kind] ? `/${f.kind === 'doc' ? 'docs' : f.kind === 'sheet' ? 'sheets' : 'slides'}/${f.id}` : `/api/files/${f.id}/raw`);
 
 /** Pick a file from Drive: recent ones, or search. `accept` says which items can be picked. */
 export default function DrivePicker({ title = 'Attach from Drive', accept = (x) => x.kind === 'file', empty = 'No files found.', onClose, onPick }) {

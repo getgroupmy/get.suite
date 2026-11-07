@@ -852,6 +852,16 @@ export default function fileRoutes({ maxUploadBytes }) {
   });
 
   // Share with everyone in the company (the owner's), or stop: { role: 'viewer' | 'editor' | null }.
+  // Who can open one file (?for=: a document linking to this one) but not this one: offered to share
+  // when a link is put in. Only for someone who can open both; can_share says whether they own this one.
+  r.get('/:id/missing-access', (req, res) => {
+    const f = loadFile(req.params.id, req.user);
+    const host = loadFile(String(req.query.for || ''), req.user);
+    const people = audienceFor(host.id).filter((u) => u !== req.user.id && !roleFor(f.id, u));
+    const rows = people.length ? q(`SELECT id, name, username FROM users WHERE disabled = 0 AND id IN (SELECT value FROM json_each(?)) ORDER BY name`).all(JSON.stringify(people)) : [];
+    res.json({ people: rows, can_share: f.owner_id === req.user.id });
+  });
+
   // Make a colleague the owner (of a folder: with everything in it you own). You keep edit access.
   r.post('/:id/transfer', (req, res) => {
     const f = loadFile(req.params.id, req.user, 'owner');
