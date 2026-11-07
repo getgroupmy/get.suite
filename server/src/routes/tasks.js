@@ -63,7 +63,19 @@ function loadList(id, user, { own = false } = {}) {
   throw notFound('List not found');
 }
 
-const TASK = `SELECT t.*, u.name AS assignee_name, c.name AS created_by_name, l.name AS list_name
+// Comments on a task: a short discussion everyone on the list sees.
+q(`CREATE TABLE IF NOT EXISTS task_comments (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  author_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+  body TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+)`).run();
+q('CREATE INDEX IF NOT EXISTS task_comments_task ON task_comments(task_id, created_at)').run();
+const MAX_COMMENTS = 500;
+
+const TASK = `SELECT t.*, u.name AS assignee_name, c.name AS created_by_name, l.name AS list_name,
+              (SELECT COUNT(*) FROM task_comments k WHERE k.task_id = t.id) AS comments
               FROM tasks t LEFT JOIN users u ON u.id = t.assignee_id LEFT JOIN users c ON c.id = t.created_by JOIN task_lists l ON l.id = t.list_id`;
 const shape = (t) => ({ ...t, done: !!t.done_at, important: !!t.important, steps: t.steps ? JSON.parse(t.steps) : [] });
 const MAX_STEPS = 100;
@@ -173,6 +185,40 @@ export default function taskRoutes() {
       q('UPDATE tasks SET assignee_id = NULL WHERE list_id = ? AND assignee_id = ?').run(list.id, req.user.id);
     });
     sendTo(new Set(before), { type: 'tasks-changed', list_id: list.id });
+    res.json({ ok: true });
+  });
+
+  // ---- comments ----
+  const taskFor = (req) => {
+    const t = q(`${TASK} WHERE t.id = ?`).get(req.params.id);
+    if (!t) throw notFound('Task not found');
+    return { task: t, list: loadList(t.list_id, req.user) };
+  };
+  r.get('/tasks/:id/comments', (req, res) => {
+    const { task } = taskFor(req);
+    res.json(q(`SELECT k.id, k.body, k.created_at, k.author_id, u.name AS author_name FROM task_comments k LEFT JOIN users u ON u.id = k.author_id
+                WHERE k.task_id = ? ORDER BY k.created_at`).all(task.id));
+  });
+  r.post('/tasks/:id/comments', (req, res) => {
+    const { task, list } = taskFor(req);
+    const body = str(req.body.body, { required: true, name: 'Comment', max: 4000 });
+    if (q('SELECT COUNT(*) AS n FROM task_comments WHERE task_id = ?').get(task.id).n >= MAX_COMMENTS) throw bad('This task has enough comments');
+    const id = uid();
+    q('INSERT INTO task_comments (id, task_id, author_id, body, created_at) VALUES (?, ?, ?, ?, ?)').run(id, task.id, req.user.id, body, now());
+    // Told: who it's for, who made it, and who has commented, if they're still on the list.
+    const on = new Set(peopleOn(list));
+    const told = new Set([task.assignee_id, task.created_by, ...q('SELECT DISTINCT author_id FROM task_comments WHERE task_id = ?').all(task.id).map((x) => x.author_id)]
+      .filter((u) => u && u !== req.user.id && on.has(u)));
+    if (told.size) bell([...told], { kind: 'task', title: `${req.user.name || req.user.username} commented on “${task.title}”`, body: body.slice(0, 200), link: `/tasks/${task.list_id}?task=${task.id}`, actor: req.user.name });
+    changed(list);
+    res.status(201).json({ id, body, created_at: now(), author_id: req.user.id, author_name: req.user.name });
+  });
+  r.delete('/tasks/:id/comments/:cid', (req, res) => {
+    const { task } = taskFor(req);
+    const c = q('SELECT * FROM task_comments WHERE id = ? AND task_id = ?').get(req.params.cid, task.id);
+    if (!c || c.author_id !== req.user.id) throw notFound('Comment not found'); // your own only
+    q('DELETE FROM task_comments WHERE id = ?').run(c.id);
+    changed(loadList(task.list_id, req.user));
     res.json({ ok: true });
   });
 

@@ -2590,3 +2590,28 @@ test('comments on presentations: anchored to a slide; mentions link to the prese
   const msgs = (await b('GET', `/api/chat/channels/${dms[0].id}/messages`)).body;
   assert.ok(msgs.some((m) => m.body.includes(`/slides/${deck.id}?comment=`)), 'the mention links to the slide');
 });
+
+test('tasks: comments on a task, seen by everyone on the list; the people involved are told', async () => {
+  const a = client(), b = client(), c = client();
+  for (const [local, name] of [['tca', 'Talk Ann'], ['tcb', 'Talk Ben'], ['tcc', 'Talk Cat']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'tca@acme.com');
+  const bid = (await login(b, 'tcb@acme.com')).id;
+  await login(c, 'tcc@acme.com');
+  const list = (await a('POST', '/api/tasks/lists', { name: 'Launch' })).body.id;
+  await a('PUT', `/api/tasks/lists/${list}/members`, { user_ids: [bid] });
+  const t = (await a('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Book venue', assignee_id: bid })).body;
+  const c1 = await a('POST', `/api/tasks/tasks/${t.id}/comments`, { body: 'Hotel or hall?' });
+  assert.equal(c1.status, 201);
+  const bell = async (who) => (await who('GET', '/api/notifications')).body;
+  const benBell = await bell(b);
+  assert.ok(JSON.stringify(benBell).includes('Talk Ann commented on “Book venue”'), 'the assignee is told');
+  await b('POST', `/api/tasks/tasks/${t.id}/comments`, { body: 'Hall, cheaper' });
+  assert.ok(JSON.stringify(await bell(a)).includes('Talk Ben commented'), 'the creator (and earlier commenter) is told');
+  const list2 = (await b('GET', `/api/tasks/tasks/${t.id}/comments`)).body;
+  assert.deepEqual(list2.map((x) => [x.author_name, x.body]), [['Talk Ann', 'Hotel or hall?'], ['Talk Ben', 'Hall, cheaper']]);
+  assert.equal((await a('GET', `/api/tasks/lists/${list}/tasks`)).body.find((x) => x.id === t.id).comments, 2);
+  assert.equal((await c('GET', `/api/tasks/tasks/${t.id}/comments`)).status, 404, 'not for people off the list');
+  assert.equal((await a('DELETE', `/api/tasks/tasks/${t.id}/comments/${list2[1].id}`)).status, 404, 'only your own');
+  assert.equal((await b('DELETE', `/api/tasks/tasks/${t.id}/comments/${list2[1].id}`)).status, 200);
+  assert.equal((await a('POST', `/api/tasks/tasks/${t.id}/comments`, { body: '  ' })).status, 400);
+});

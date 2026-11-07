@@ -112,6 +112,7 @@ export default function Tasks() {
             {t.notes && <span className="muted small ellipsis task-notes">{t.notes.split('\n')[0]}</span>}
             {due && <span className={`pill due ${due.tone}`}>{due.text}</span>}
             {t.steps?.length > 0 && <span className={`muted small task-steps ${t.steps.every((x) => x.done) ? 'all' : ''}`} title="Steps done">☑ {t.steps.filter((x) => x.done).length}/{t.steps.length}</span>}
+            {t.comments > 0 && <span className="muted small task-comments" title={`${t.comments} comment${t.comments === 1 ? '' : 's'}`}>💬 {t.comments}</span>}
             {t.repeat && !t.done && <span className="muted small task-repeat" title={`Repeats: ${repeatText(t.repeat).toLowerCase()}`}>⟳ {repeatText(t.repeat)}</span>}
           </span>
         </button>
@@ -278,6 +279,7 @@ function TaskDetails({ task, lists, people, onChange, onClose, onDelete, onMove,
         </label>
       )}
       <p className="muted small">Added by {task.created_by_name || 'someone'} · {new Date(task.created_at).toLocaleDateString([], { dateStyle: 'medium' })}{task.done && ` · done ${new Date(task.done_at).toLocaleDateString([], { dateStyle: 'medium' })}`}</p>
+      <TaskComments task={task} />
       <div className="row"><button type="button" className="btn danger" onClick={onDelete}><Icon name="trash" size={16} /> Delete task</button></div>
     </aside>
   );
@@ -343,6 +345,40 @@ function Steps({ task, onReplaced }) {
         </ul>
       )}
       <form onSubmit={add} className="row"><input value={text} onChange={(e) => setText(e.target.value)} placeholder="Add a step" aria-label="Add a step" maxLength={500} /></form>
+    </div>
+  );
+}
+
+/** A task's comments: everyone on the list sees them; you can remove your own. */
+function TaskComments({ task }) {
+  const toast = useToast();
+  const { user } = useAuth();
+  const [list, setList] = useState([]);
+  const [text, setText] = useState('');
+  const load = useCallback(() => get(`/tasks/tasks/${task.id}/comments`).then(setList).catch(() => {}), [task.id]);
+  useEffect(() => { load(); }, [load, task.comments]); // the count changes live when someone comments
+  const send = async (e) => {
+    e.preventDefault();
+    if (!text.trim()) return;
+    try { await post(`/tasks/tasks/${task.id}/comments`, { body: text }); setText(''); load(); } catch (err) { toast(err.message, 'error'); }
+  };
+  return (
+    <div className="field task-comments-box"><span>Comments</span>
+      {list.length > 0 && (
+        <ul className="task-comment-list" aria-label="Comments">
+          {list.map((c) => (
+            <li key={c.id}>
+              <div className="row"><strong className="small">{c.author_name || 'Someone'}</strong><span className="muted small grow">{new Date(c.created_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</span>
+                {c.author_id === user.id && <button type="button" className="icon-btn" aria-label="Delete comment" onClick={async () => { await del(`/tasks/tasks/${task.id}/comments/${c.id}`).catch((err) => toast(err.message, 'error')); load(); }}><Icon name="close" size={14} /></button>}</div>
+              <p className="task-comment-body">{c.body}</p>
+            </li>
+          ))}
+        </ul>
+      )}
+      <form className="row" onSubmit={send}>
+        <input className="grow" value={text} onChange={(e) => setText(e.target.value)} placeholder="Add a comment" aria-label="Add a comment" maxLength={4000} />
+        <button className="btn small" disabled={!text.trim()}>Post</button>
+      </form>
     </div>
   );
 }
