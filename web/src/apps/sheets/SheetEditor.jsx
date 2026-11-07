@@ -24,6 +24,7 @@ import { VersionHistory } from '../VersionHistory.jsx';
 import { ruleStyle } from './condformat.js';
 import { useUndo, undoKey } from '../useUndo.js';
 import { useFormulaAssist } from './FormulaAssist.jsx';
+import { SheetFind } from './SheetFind.jsx';
 
 const SEL_COLORS = ['#1a73e8', '#d93025', '#188038', '#e37400', '#8430ce', '#00796b', '#c2185b', '#5f6368'];
 const colorFor = (id) => SEL_COLORS[[...String(id)].reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) >>> 0, 7) % SEL_COLORS.length];
@@ -135,6 +136,21 @@ export default function SheetEditor() {
   const hidden = useMemo(() => hiddenRows(filter, cells, evaluate), [filter, cells, evaluate]);
   const fArea = useMemo(() => (filter ? filterArea(filter, cells) : null), [filter, cells]);
   const [filterMenu, setFilterMenu] = useState(null); // { c }
+  // Find and replace: the bar ({ replace, n }), and the cells it highlights.
+  const [finding, setFinding] = useState(null);
+  const [hits, setHits] = useState(null); // { keys: Set, current }
+  const shown = useCallback((k) => { const v = evaluate(k); return formatNumber(v, formats[k]) ?? display(v); }, [evaluate, formats]);
+  useEffect(() => {
+    const onKey = (e) => {
+      const k = e.key.toLowerCase();
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || (k !== 'f' && k !== 'h')) return;
+      if (document.querySelector('.modal-backdrop')) return;
+      e.preventDefault();
+      setFinding((f) => ({ replace: k === 'h' || !!f?.replace, n: (f?.n || 0) + 1 }));
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   function commitData(next) {
     if (readOnly || !ydoc) return;
@@ -532,6 +548,7 @@ export default function SheetEditor() {
           )}
         </>}
         menu={[
+          { label: 'Find and replace', icon: 'search', onClick: () => setFinding({ replace: !readOnly, n: 1 }) },
           { label: 'Version history', icon: 'clock', onClick: () => setDialog({ type: 'history' }) },
           { label: 'Download as Excel (.xlsx)', icon: 'download', onClick: () => { window.location.href = `/api/files/${id}/export`; } },
           { label: 'Download sheet as CSV', icon: 'download', onClick: exportCsv },
@@ -541,6 +558,12 @@ export default function SheetEditor() {
       {status === 'offline' && <div className="banner warn">You're offline. Keep editing: your changes are kept here and sync when the connection is back.</div>}
       {readOnly && <div className="banner">View only. Ask {file.owner_name} for edit access.</div>}
       {!readOnly && <FormatBar fmt={formats[selKey] || {}} onChange={(change) => { writeFormats(change); gridRef.current?.focus(); }} onComment={startComment} onChart={newChart} onSort={() => setDialog({ type: 'sort' })} onRules={() => setDialog({ type: 'rules' })} onValidation={() => setDialog({ type: 'validation' })} filterOn={!!filter} onFilter={toggleFilter} history={history} />}
+      {finding && sheet && (
+        <SheetFind key={`${active}-${finding.n}`} cells={cells} shown={shown} hidden={hidden} replacing={finding.replace} canEdit={!readOnly}
+          onGo={(m) => { setAnchor(null); setSel({ c: m.c, r: m.r }); requestAnimationFrame(() => gridRef.current?.querySelector(`[data-k="${m.key}"]`)?.scrollIntoView({ block: 'nearest', inline: 'nearest' })); }}
+          onHits={setHits} onWrite={(u) => { history.ownStep(); writeCells(u); history.ownStep(); }} onDone={(t) => toast(t)}
+          onClose={() => { setFinding(null); gridRef.current?.focus(); }} />
+      )}
       <div className="formula-bar">
         <span className="cell-name">{anchor ? `${cellKey(range.c1, range.r1)}:${cellKey(range.c2, range.r2)}` : selKey}</span>
         <span className="fx">fx</span>
@@ -606,7 +629,7 @@ export default function SheetEditor() {
                   return (
                     <td key={k} data-k={k} style={{ maxWidth: widthOf(c), ...stickyStyle(c, r), ...cellStyle(fmt), ...(rules.length && ruleStyle(rules, k, v)), ...(theirs.has(k) && { boxShadow: `${isSel ? 'inset 0 0 0 2px var(--accent), ' : ''}inset 0 0 0 ${isSel ? 4 : 2}px ${theirs.get(k).color}` }) }}
                       title={theirs.has(k) ? `${theirs.get(k).name} is here` : commented.has(k) ? 'Has comments' : undefined}
-                      className={`${frozenClass(c, r)} ${vd ? `has-${vd.type}` : ''} ${commented.has(k) ? 'commented' : ''} ${isSel ? 'sel' : ''} ${inRange(c, r) && anchor ? 'range' : ''} ${typeof v === 'number' ? 'num' : ''} ${isErr ? 'err' : ''}`}
+                      className={`${frozenClass(c, r)} ${vd ? `has-${vd.type}` : ''} ${commented.has(k) ? 'commented' : ''} ${isSel ? 'sel' : ''} ${inRange(c, r) && anchor ? 'range' : ''} ${typeof v === 'number' ? 'num' : ''} ${isErr ? 'err' : ''} ${hits?.keys.has(k) ? (hits.current === k ? 'find-current' : 'find-hit') : ''}`}
                       onContextMenu={(e) => { if (!inRange(c, r)) { setAnchor(null); setSel({ c, r }); } openMenu(e, 'cell'); }}
                       onMouseDown={(e) => {
                         if (e.button !== 0 && inRange(c, r)) return; // a right-click keeps the selection

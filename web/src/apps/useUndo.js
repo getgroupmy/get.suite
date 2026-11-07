@@ -22,6 +22,8 @@ export function useUndo(ydoc, scopeOf) {
   return {
     undo: () => { manager?.undo(); },
     redo: () => { manager?.redo(); },
+    /** Start a new step: the next change isn't merged with the one just before it. */
+    ownStep: () => { manager?.stopCapturing(); },
     canUndo: !!manager?.canUndo(),
     canRedo: !!manager?.canRedo(),
   };

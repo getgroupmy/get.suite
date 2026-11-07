@@ -956,6 +956,8 @@ td.name .match mark { background: var(--accent-soft); color: var(--accent-text);
 .find-bar .row { gap: 8px; flex-wrap: wrap; align-items: center; }
 .find-bar input:not([type=checkbox]) { width: 240px; max-width: 100%; }
 .find-count { min-width: 70px; }
+.grid td.find-hit { background-color: #fde293 !important; color: #1f1f1f; }
+.grid td.find-current { background-color: #f9ab00 !important; color: #1f1f1f; }
 .find-bar .check { display: inline-flex; align-items: center; gap: 4px; }
 .paper .find-match { background: #fde29380; border-radius: 2px; }
 .paper .find-match.current { background: #f9ab00; color: #1f1f1f; }
