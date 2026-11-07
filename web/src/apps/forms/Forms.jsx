@@ -142,6 +142,28 @@ function FormEditor({ id }) {
   );
 }
 
+const GRADED = new Set(['short', 'choice', 'checkbox', 'dropdown']);
+/** A quiz question's right answer and points. */
+function AnswerKey({ q, n, onChange }) {
+  if (!GRADED.has(q.type)) return <p className="muted small" style={{ margin: 0 }}>Not marked (only short answers and choices are).</p>;
+  const has = q.answer !== undefined && q.answer !== '' && !(Array.isArray(q.answer) && !q.answer.length);
+  const set = (answer) => onChange({ answer, points: q.points ?? 1 });
+  return (
+    <div className="answer-key row wrap" role="group" aria-label={`Answer key for question ${n}`}>
+      <strong className="small">✓ Answer</strong>
+      {q.type === 'short' ? <input aria-label={`Correct answer for question ${n}`} placeholder="Correct answer (capitals don't matter)" value={q.answer || ''} maxLength={500} onChange={(e) => set(e.target.value)} />
+        : q.type === 'checkbox' ? q.options.map((o) => (
+          <label key={o} className="check small"><input type="checkbox" checked={(q.answer || []).includes(o)} onChange={(e) => set(e.target.checked ? [...(q.answer || []), o] : (q.answer || []).filter((x) => x !== o))} /> {o}</label>
+        )) : (
+          <select aria-label={`Correct answer for question ${n}`} value={q.answer || ''} onChange={(e) => set(e.target.value)}>
+            <option value="">None</option>{q.options.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        )}
+      {has && <label className="row small">Points <input type="number" min={0} max={100} aria-label={`Points for question ${n}`} value={q.points ?? 1} style={{ width: 64 }} onChange={(e) => onChange({ points: Number(e.target.value) })} /></label>}
+    </div>
+  );
+}
+
 function QuestionsTab({ form, edit }) {
   const qs = form.questions;
   const setQs = (next) => edit({ questions: next });
@@ -181,6 +203,7 @@ function QuestionsTab({ form, edit }) {
               <input aria-label={`Label for ${q.max}, question ${i + 1}`} placeholder={`Label for ${q.max} (optional)`} value={q.high || ''} maxLength={60} onChange={(e) => change(i, { high: e.target.value })} />
             </div>
           )}
+          {form.quiz && <AnswerKey q={q} n={i + 1} onChange={(patch) => change(i, patch)} />}
           {(q.type === 'short' || q.type === 'paragraph' || q.type === 'date') && <p className="muted small form-q-sample">{q.type === 'date' ? 'They pick a date' : q.type === 'short' ? 'Short answer text' : 'Long answer text'}</p>}
           <div className="row form-q-foot">
             <label className="check grow"><input type="checkbox" checked={q.required} onChange={(e) => change(i, { required: e.target.checked })} /> Required</label>
@@ -223,6 +246,18 @@ function ResponsesTab({ form, responses, reload, setting, flush }) {
           <button type="button" role="tab" aria-selected={view === 'summary'} className={view === 'summary' ? 'on' : ''} onClick={() => setView('summary')}>Summary</button>
           <button type="button" role="tab" aria-selected={view === 'one'} className={view === 'one' ? 'on' : ''} onClick={() => setView('one')}>Individual</button>
         </div>
+        {form.quiz && view === 'summary' && responses[0]?.max > 0 && (
+          <section className="card form-summary" aria-label="Scores">
+            <h3>Scores</h3>
+            <p className="muted small">Average {Math.round((responses.reduce((t, r) => t + r.score, 0) / responses.length) * 10) / 10} out of {responses[0].max}</p>
+            <ul className="form-bars">
+              {[...new Set(responses.map((r) => r.score))].sort((a, b) => b - a).map((sc) => {
+                const n = responses.filter((r) => r.score === sc).length;
+                return <li key={sc}><span className="form-bar-label">{sc} / {responses[0].max}</span><span className="form-bar"><span style={{ width: percent(n / responses.length) }} /></span><span className="small nowrap">{n} ({percent(n / responses.length)})</span></li>;
+              })}
+            </ul>
+          </section>
+        )}
         {view === 'summary' ? summarize(form.questions, responses).map((s) => (
           <section key={s.id} className="card form-summary" aria-label={`Summary: ${s.title || 'Untitled question'}`}>
             <h3>{s.title || 'Untitled question'}</h3>
@@ -243,13 +278,14 @@ function ResponsesTab({ form, responses, reload, setting, flush }) {
           <section className="card stack" aria-label="Response">
             <div className="row">
               <button type="button" className="icon-btn" aria-label="Previous response" disabled={at === 0} onClick={() => setAt(at - 1)}>‹</button>
-              <span className="grow small">{Math.min(at, responses.length - 1) + 1} of {responses.length} · {formatDate(one.created_at)}{one.user ? ` · ${one.user.name} (${one.user.email})` : ''}</span>
+              <span className="grow small">{Math.min(at, responses.length - 1) + 1} of {responses.length} · {formatDate(one.created_at)}{one.user ? ` · ${one.user.name} (${one.user.email})` : ''}{one.max ? ` · Score ${one.score} / ${one.max}` : ''}</span>
               <button type="button" className="icon-btn" aria-label="Next response" disabled={at >= responses.length - 1} onClick={() => setAt(at + 1)}>›</button>
               <button type="button" className="icon-btn" aria-label="Delete this response" onClick={async () => { await del(`/forms/${form.id}/responses/${one.id}`); setAt(Math.max(0, at - 1)); reload(); }}><Icon name="trash" size={18} /></button>
             </div>
             {form.questions.map((q) => {
               const a = one.answers[q.id];
-              return <div key={q.id}><strong>{q.title || 'Untitled question'}</strong><p className={a === undefined ? 'muted' : ''} style={{ margin: '4px 0 0', whiteSpace: 'pre-wrap' }}>{a === undefined ? 'No answer' : Array.isArray(a) ? a.join(', ') : String(a)}</p></div>;
+              const mark = one.right && q.id in one.right ? (one.right[q.id] ? <span className="quiz-right" aria-label="right"> ✓</span> : <span className="quiz-wrong" aria-label="wrong"> ✗</span>) : null;
+              return <div key={q.id}><strong>{q.title || 'Untitled question'}</strong>{mark}<p className={a === undefined ? 'muted' : ''} style={{ margin: '4px 0 0', whiteSpace: 'pre-wrap' }}>{a === undefined ? 'No answer' : Array.isArray(a) ? a.join(', ') : String(a)}</p></div>;
             })}
           </section>
         )}
@@ -323,6 +359,12 @@ function SettingsTab({ form, setForm, setting, orgName, allowLinks }) {
       </fieldset>
       {form.audience === 'org' && <label className="check"><input type="checkbox" checked={form.one_per_person} onChange={(e) => setting({ one_per_person: e.target.checked })} /> One response per person</label>}
       <label className="check"><input type="checkbox" checked={form.notify} onChange={(e) => setting({ notify: e.target.checked })} /> Notify me of each new response</label>
+      <fieldset className="stack-tight">
+        <legend>Quiz</legend>
+        <label className="check"><input type="checkbox" checked={form.quiz} onChange={(e) => setting({ quiz: e.target.checked })} /> Make this a quiz (give answers points, and score each response)</label>
+        {form.quiz && <label className="check"><input type="checkbox" checked={form.show_score} onChange={(e) => setting({ show_score: e.target.checked })} /> Show people their score after submitting</label>}
+        {form.quiz && <p className="muted small" style={{ margin: 0 }}>Set the right answers under each question on the Questions tab. People filling it in never see them.</p>}
+      </fieldset>
       <div className="row wrap form-limits">
         <label className="field"><span>Close automatically on</span>
           <input type="datetime-local" value={form.close_at ? localInput(form.close_at) : ''} onChange={(e) => setting({ close_at: e.target.value ? new Date(e.target.value).getTime() : null })} /></label>

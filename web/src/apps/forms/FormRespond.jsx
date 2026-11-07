@@ -50,6 +50,12 @@ export default function FormRespond({ token, onSignIn }) {
       <section className="invite-card stack" aria-live="polite">
         <h1>{form.title}</h1>
         <p style={{ whiteSpace: 'pre-wrap' }}>{done.confirmation || 'Your response has been recorded.'}</p>
+        {done.max > 0 && <p className="quiz-score" role="status">Your score: <strong>{done.score} / {done.max}</strong></p>}
+        {done.right && (
+          <ul className="quiz-review">
+            {form.questions.filter((q) => q.id in done.right).map((q) => <li key={q.id}>{done.right[q.id] ? '✓' : '✗'} {q.title || 'Untitled question'}</li>)}
+          </ul>
+        )}
         {!form.one_per_person && <div><button type="button" className="link-btn" onClick={() => { setDone(null); setAnswers({}); }}>Submit another response</button></div>}
       </section>
     );

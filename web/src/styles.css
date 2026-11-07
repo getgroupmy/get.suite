@@ -1664,3 +1664,11 @@ button.usage:hover .muted { color: var(--text); }
 .board-open .task-meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .board-foot { margin-top: 6px; min-height: 24px; }
 @media (max-width: 700px) { .task-board { grid-template-columns: repeat(3, 78vw); } }
+.answer-key { background: #e6f4ea; border-radius: 8px; padding: 6px 10px; gap: 6px 12px; }
+.answer-key input:not([type]) , .answer-key input[type=number] { padding: 4px 8px; }
+.quiz-right { color: #188038; font-weight: 700; }
+.quiz-wrong { color: var(--danger); font-weight: 700; }
+.quiz-score { font-size: 18px; margin: 0; }
+.quiz-review { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 4px; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .answer-key { background: rgba(24, 128, 56, .2); } }
+:root[data-theme="dark"] .answer-key { background: rgba(24, 128, 56, .2); }

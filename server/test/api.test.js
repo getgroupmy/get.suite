@@ -3096,3 +3096,38 @@ test('tasks: in progress for the board', async () => {
   assert.equal(inProgress.started, true, 'or straight back to in progress');
   assert.equal((await a('GET', `/api/tasks/lists/${list}/tasks`)).body[0].started, true);
 });
+
+test('forms: quizzes score answers and keep the key secret', async () => {
+  const { scoreOf, cleanQuestions } = await import('../src/routes/forms.js');
+  const qs = cleanQuestions([
+    { id: 'cap', type: 'short', title: 'Capital of France', answer: ' Paris ', points: 2 },
+    { id: 'pr', type: 'checkbox', title: 'Primes', options: ['2', '3', '4'], answer: ['3', '2', 'nine'] },
+    { id: 'c', type: 'choice', title: 'Colour', options: ['Red', 'Blue'], answer: 'Green' }, // not an option: no key
+    { id: 'n', type: 'paragraph', title: 'Notes', answer: 'x' }, // paragraphs aren't marked
+  ]);
+  assert.deepEqual(qs[1].answer, ['2', '3']);
+  assert.equal(qs[2].answer, undefined);
+  assert.equal(qs[3].answer, undefined);
+  assert.deepEqual(scoreOf(qs, { cap: 'paris', pr: ['3', '2'] }), { score: 3, max: 3, right: { cap: true, pr: true } });
+  assert.equal(scoreOf(qs, { cap: 'Lyon', pr: ['2'] }).score, 0);
+
+  const o = client(); const v = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'quizo', domain: 'acme.com', name: 'Quiz Owner', password: 'password123' })).status, 201);
+  await login(o, 'quizo@acme.com');
+  const f = (await o('POST', '/api/forms', { title: 'Safety quiz', questions: [
+    { id: 'a', type: 'choice', title: 'Fire exit?', options: ['Left', 'Right'], answer: 'Right', points: 1 },
+    { id: 'b', type: 'short', title: 'Emergency number', answer: '999', points: 1 },
+  ] })).body;
+  await o('PUT', `/api/forms/${f.id}`, { quiz: true, audience: 'public' });
+  const seen = (await v('GET', `/api/public/forms/${f.token}`)).body;
+  assert.equal(seen.quiz, true);
+  assert.ok(seen.questions.every((x) => x.answer === undefined && x.points === undefined), 'the key never reaches people filling it in');
+  const sent = (await v('POST', `/api/public/forms/${f.token}`, { answers: { a: 'Right', b: '112' } })).body;
+  assert.deepEqual([sent.score, sent.max, sent.right], [1, 2, { a: true, b: false }]);
+  const resp = (await o('GET', `/api/forms/${f.id}/responses`)).body;
+  assert.equal(resp.responses[0].score, 1);
+  assert.match((await o('GET', `/api/forms/${f.id}/responses.csv`)).body, /Submitted,Score,Fire exit\?,Emergency number[\s\S]*,1 \/ 2,Right,112/);
+  await o('PUT', `/api/forms/${f.id}`, { show_score: false });
+  assert.equal((await v('POST', `/api/public/forms/${f.token}`, { answers: { a: 'Left' } })).body.score, undefined, 'score hidden when asked');
+  assert.equal((await o('POST', `/api/forms/${f.id}/copy`)).body.quiz, true);
+});

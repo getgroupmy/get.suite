@@ -42,7 +42,7 @@ q(`CREATE TABLE IF NOT EXISTS form_editors (
   added_at INTEGER NOT NULL,
   PRIMARY KEY (form_id, user_id)
 )`).run();
-for (const [col, type] of [['close_at', 'INTEGER'], ['max_responses', 'INTEGER']]) {
+for (const [col, type] of [['close_at', 'INTEGER'], ['max_responses', 'INTEGER'], ['quiz', 'INTEGER NOT NULL DEFAULT 0'], ['show_score', 'INTEGER NOT NULL DEFAULT 1']]) {
   if (!q('PRAGMA table_info(forms)').all().some((c) => c.name === col)) q(`ALTER TABLE forms ADD COLUMN ${col} ${type}`).run();
 }
 const MAX_EDITORS = 50;
@@ -77,9 +77,39 @@ export function cleanQuestions(list) {
       out.low = String(raw?.low ?? '').slice(0, 60);
       out.high = String(raw?.high ?? '').slice(0, 60);
     }
+    // Quizzes: the right answer (an option, several for tick boxes, or the text of a short answer) and its points.
+    if (GRADED.has(type) && raw?.answer !== undefined && raw?.answer !== null && raw?.answer !== '') {
+      if (type === 'checkbox') {
+        const a = (Array.isArray(raw.answer) ? raw.answer : [raw.answer]).map(String).filter((x) => out.options.includes(x));
+        if (a.length) out.answer = out.options.filter((o) => a.includes(o));
+      } else if (type === 'short') out.answer = String(raw.answer).trim().slice(0, 500);
+      else if (out.options.includes(String(raw.answer))) out.answer = String(raw.answer);
+      if (out.answer !== undefined) out.points = Math.min(100, Math.max(0, Math.round(Number(raw.points ?? 1)) || 0));
+    }
     return out;
   });
 }
+
+const GRADED = new Set(['short', 'choice', 'checkbox', 'dropdown']);
+/** A quiz's score: { score, max, right: { questionId: true | false } } over the questions with an answer key. */
+export function scoreOf(questions, answers) {
+  let score = 0, max = 0;
+  const right = {};
+  const norm = (v) => String(v ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+  for (const qu of questions) {
+    if (qu.answer === undefined) continue;
+    max += qu.points ?? 1;
+    const a = answers?.[qu.id];
+    const ok = qu.type === 'checkbox'
+      ? Array.isArray(a) && a.length === qu.answer.length && qu.answer.every((x) => a.includes(x))
+      : qu.type === 'short' ? norm(a) !== '' && norm(a) === norm(qu.answer) : a === qu.answer;
+    right[qu.id] = ok;
+    if (ok) score += qu.points ?? 1;
+  }
+  return { score, max, right };
+}
+/** The questions as people filling the form in see them: no answer key. */
+const withoutKey = (questions) => questions.map(({ answer, points, ...qu }) => qu);
 
 /** Check one person's answers against the questions; returns what's kept (only answered questions). */
 export function checkAnswers(questions, answers) {
@@ -120,16 +150,20 @@ const csvCell = (v) => {
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 };
 
-const parse = (f) => ({ ...f, questions: JSON.parse(f.questions || '[]'), accepting: !!f.accepting, one_per_person: !!f.one_per_person, notify: !!f.notify });
+const parse = (f) => ({ ...f, questions: JSON.parse(f.questions || '[]'), accepting: !!f.accepting, one_per_person: !!f.one_per_person, notify: !!f.notify, quiz: !!f.quiz, show_score: !!f.show_score });
 const responsesOf = (formId) => q(`SELECT r.id, r.answers, r.created_at, u.name AS user_name, u.username AS user_email
                                    FROM form_responses r LEFT JOIN users u ON u.id = r.user_id WHERE r.form_id = ? ORDER BY r.created_at`).all(formId)
   .map((r) => ({ id: r.id, created_at: r.created_at, user: r.user_email ? { name: r.user_name, email: r.user_email } : null, answers: JSON.parse(r.answers) }));
 
 /** The table of responses: a header row, then one row per response. */
 export function responseTable(form, responses, { withPeople = form.audience === 'org' || responses.some((r) => r.user) } = {}) {
-  const head = ['Submitted', ...(withPeople ? ['Name', 'Email'] : []), ...form.questions.map((qu) => qu.title || 'Untitled question')];
-  const rows = responses.map((r) => [new Date(r.created_at).toISOString().replace('T', ' ').slice(0, 19),
-    ...(withPeople ? [r.user?.name || '', r.user?.email || ''] : []), ...form.questions.map((qu) => asText(r.answers[qu.id]))]);
+  const quiz = !!form.quiz;
+  const head = ['Submitted', ...(withPeople ? ['Name', 'Email'] : []), ...(quiz ? ['Score'] : []), ...form.questions.map((qu) => qu.title || 'Untitled question')];
+  const rows = responses.map((r) => {
+    const sc = quiz ? scoreOf(form.questions, r.answers) : null;
+    return [new Date(r.created_at).toISOString().replace('T', ' ').slice(0, 19),
+      ...(withPeople ? [r.user?.name || '', r.user?.email || ''] : []), ...(quiz ? [`${sc.score} / ${sc.max}`] : []), ...form.questions.map((qu) => asText(r.answers[qu.id]))];
+  });
   return [head, ...rows];
 }
 
@@ -205,6 +239,8 @@ export default function formRoutes() {
       one_per_person: 'one_per_person' in b ? !!b.one_per_person : f.one_per_person,
       confirmation: 'confirmation' in b ? str(b.confirmation ?? '', { max: 1000 }) : f.confirmation,
       notify: 'notify' in b ? !!b.notify : f.notify,
+      quiz: 'quiz' in b ? !!b.quiz : f.quiz,
+      show_score: 'show_score' in b ? !!b.show_score : f.show_score,
       close_at: 'close_at' in b ? (b.close_at == null || b.close_at === '' ? null : Number(b.close_at)) : f.close_at,
       max_responses: 'max_responses' in b ? (b.max_responses == null || b.max_responses === '' ? null : Number(b.max_responses)) : f.max_responses,
     };
@@ -214,9 +250,9 @@ export default function formRoutes() {
     }
     if (next.audience === 'public' && f.audience !== 'public' && !req.user.allow_links) throw forbidden('Your company has turned off links for people outside it');
     q(`UPDATE forms SET title = ?, description = ?, questions = ?, audience = ?, accepting = ?, one_per_person = ?, confirmation = ?, notify = ?,
-       close_at = ?, max_responses = ?, updated_at = ? WHERE id = ?`)
+       close_at = ?, max_responses = ?, quiz = ?, show_score = ?, updated_at = ? WHERE id = ?`)
       .run(next.title, next.description, JSON.stringify(next.questions), next.audience, next.accepting ? 1 : 0, next.one_per_person ? 1 : 0, next.confirmation, next.notify ? 1 : 0,
-        next.close_at, next.max_responses, now(), f.id);
+        next.close_at, next.max_responses, next.quiz ? 1 : 0, next.show_score ? 1 : 0, now(), f.id);
     changed(f, req.user.id);
     const out = ownForm(f.id, req.user);
     res.json({ ...out, responses: countOf(f.id), closed: closedReason(out) });
@@ -226,10 +262,10 @@ export default function formRoutes() {
     const f = ownForm(req.params.id, req.user);
     const id = uid();
     const t = now();
-    q(`INSERT INTO forms (id, org_id, owner_id, token, title, description, questions, audience, accepting, one_per_person, confirmation, notify, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)`)
+    q(`INSERT INTO forms (id, org_id, owner_id, token, title, description, questions, audience, accepting, one_per_person, confirmation, notify, quiz, show_score, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)`)
       .run(id, req.user.org_id, req.user.id, crypto.randomBytes(12).toString('base64url'), `Copy of ${f.title}`.slice(0, 200), f.description, JSON.stringify(f.questions),
-        f.audience === 'public' && !req.user.allow_links ? 'org' : f.audience, f.one_per_person ? 1 : 0, f.confirmation, f.notify ? 1 : 0, t, t);
+        f.audience === 'public' && !req.user.allow_links ? 'org' : f.audience, f.one_per_person ? 1 : 0, f.confirmation, f.notify ? 1 : 0, f.quiz ? 1 : 0, f.show_score ? 1 : 0, t, t);
     res.status(201).json(ownForm(id, req.user));
   });
 
@@ -275,7 +311,8 @@ export default function formRoutes() {
 
   r.get('/:id/responses', (req, res) => {
     const f = ownForm(req.params.id, req.user);
-    res.json({ questions: f.questions, audience: f.audience, responses: responsesOf(f.id) });
+    const list = responsesOf(f.id);
+    res.json({ questions: f.questions, audience: f.audience, quiz: f.quiz, responses: f.quiz ? list.map((x) => ({ ...x, ...scoreOf(f.questions, x.answers) })) : list });
   });
 
   r.get('/:id/responses.csv', (req, res) => {
@@ -351,7 +388,7 @@ export function publicFormRoutes() {
     const answered = !!user && form.audience === 'org' && form.one_per_person
       && !!q('SELECT 1 FROM form_responses WHERE form_id = ? AND user_id = ?').get(form.id, user.id);
     const closed = closedReason(form);
-    res.json({ title: form.title, description: form.description, questions: form.questions, accepting: !closed, closed, closed_text: closed ? CLOSED_TEXT[closed] : null, audience: form.audience,
+    res.json({ title: form.title, description: form.description, questions: withoutKey(form.questions), quiz: form.quiz, accepting: !closed, closed, closed_text: closed ? CLOSED_TEXT[closed] : null, audience: form.audience,
       one_per_person: form.audience === 'org' && form.one_per_person, answered, org_name: f.org_name,
       you: form.audience === 'org' ? { name: user.name, email: user.email } : null, is_owner: !!user && teamOf(form).includes(user.id) });
   });
@@ -377,7 +414,8 @@ export function publicFormRoutes() {
     if (form.notify) {
       bell(team.filter((x) => x !== user?.id), { kind: 'form', title: `New response to “${form.title}”`, body: form.audience === 'org' ? `From ${user.name}` : null, link: `/forms/${form.id}?tab=responses`, actor: user?.id || null });
     }
-    res.status(201).json({ ok: true, confirmation: form.confirmation || '' });
+    const result = form.quiz && form.show_score ? scoreOf(form.questions, answers) : null;
+    res.status(201).json({ ok: true, confirmation: form.confirmation || '', ...(result && { score: result.score, max: result.max, right: result.right }) });
   });
   return r;
 }
