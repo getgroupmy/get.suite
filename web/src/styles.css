@@ -1302,3 +1302,13 @@ button.rule-sample.on { outline: 2px solid var(--accent); outline-offset: 1px; }
 .chat-result:hover { background: var(--hover); }
 .chat-result mark, .msg.found mark { background: var(--warn-bg); color: inherit; border-radius: 2px; }
 .msg.found { background: var(--warn-bg); transition: background 1s; }
+/* Docs: table of contents block */
+.paper .doc-toc { margin: 12px 0; padding: 10px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); user-select: none; }
+.paper .doc-toc.ProseMirror-selectednode { outline: 2px solid var(--accent); }
+.paper .doc-toc-title { font-weight: 600; margin-bottom: 4px; }
+.paper .doc-toc ul { list-style: none; margin: 0; padding: 0; }
+.paper .doc-toc li { margin: 2px 0; }
+.paper .doc-toc a { color: var(--accent); text-decoration: none; cursor: pointer; }
+.paper .doc-toc a:hover { text-decoration: underline; }
+.paper .doc-toc-empty { color: var(--muted); font-size: 13px; }
+@media print { .paper .doc-toc { border: 0; background: none; padding: 0; } .paper .doc-toc a { color: inherit; } }

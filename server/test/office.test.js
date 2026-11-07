@@ -256,3 +256,27 @@ test('Excel: newer functions carry the _xlfn. prefix in the file and lose it in 
   assert.equal(back.cells.B1, '=XLOOKUP(1,A1:A1,A1:A1)');
   assert.equal(back.cells.B2, '=STDEV.P(A1:A2)');
 });
+
+test('Word: a table of contents becomes links to bookmarked headings, and opens again as plain headings', async () => {
+  const JSZip = (await import('jszip')).default;
+  const doc = { type: 'doc', content: [
+    { type: 'tableOfContents' },
+    { type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: 'Plan' }] },
+    { type: 'heading', attrs: { level: 3 }, content: [{ type: 'text', text: 'Budget' }] },
+    { type: 'heading', attrs: { level: 3 } },
+    { type: 'paragraph', content: [{ type: 'text', text: 'Body' }] },
+  ] };
+  const buf = await wordFromDoc(doc, 'Contents');
+  const xml = await (await JSZip.loadAsync(buf)).file('word/document.xml').async('string');
+  assert.match(xml, /<w:bookmarkStart[^>]*w:name="toc_1"/);
+  assert.match(xml, /<w:bookmarkStart[^>]*w:name="toc_2"/);
+  assert.doesNotMatch(xml, /toc_3/);
+  assert.match(xml, /<w:hyperlink[^>]*w:anchor="toc_2"[^>]*>[\s\S]*?Budget/);
+  assert.match(xml, /<w:ind w:left="360"/); // Budget indented under Plan
+  const back = (await docFromWord(buf)).doc;
+  const headings = back.content.filter((n) => n.type === 'heading').map((n) => n.content?.map((t) => t.text).join(''));
+  assert.deepEqual(headings.filter(Boolean), ['Plan', 'Budget']);
+  // Without a contents block, headings aren't bookmarked.
+  const plain = await (await JSZip.loadAsync(await wordFromDoc({ type: 'doc', content: doc.content.slice(1) }, 'x'))).file('word/document.xml').async('string');
+  assert.doesNotMatch(plain, /w:hyperlink/);
+});

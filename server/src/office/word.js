@@ -13,6 +13,7 @@ import { TextStyle, Color, BackgroundColor } from '@tiptap/extension-text-style'
 import {
   Document, Packer, Paragraph, TextRun, HeadingLevel, ExternalHyperlink, AlignmentType, LevelFormat, BorderStyle,
   Table as WordTable, TableRow as WordRow, TableCell as WordCell, WidthType, ShadingType, ImageRun, Header, Footer, PageNumber, PageOrientation, LineRuleType,
+  Bookmark, InternalHyperlink,
 } from 'docx';
 import { pageMm, MARGINS } from '../pagesetup.js';
 
@@ -117,6 +118,24 @@ export async function wordFromDoc(doc, title = 'Document', { pictureData, page }
   collect(doc);
   if (pictureData) for (const id of pictures.keys()) { try { pictures.set(id, await pictureData(id)); } catch { /* left out */ } }
 
+  // A table of contents lists the headings (with text) as links to bookmarks on them.
+  const textOf = (n) => (n.text ?? (n.content || []).map(textOf).join(''));
+  const contents = [];
+  const gather = (n) => {
+    if (n.type === 'heading') { const text = textOf(n).trim(); if (text) contents.push({ level: n.attrs?.level || 1, text }); return; }
+    if (n.type !== 'paragraph') for (const c of n.content || []) gather(c);
+  };
+  gather(doc || {});
+  const top = Math.min(...contents.map((h) => h.level));
+  let headingNo = 0;
+  const contentsBlock = () => [
+    new Paragraph({ children: [new TextRun({ text: 'Contents', bold: true })], spacing: { after: 120 } }),
+    ...contents.map((h, k) => new Paragraph({
+      indent: { left: 360 * (h.level - top) },
+      children: [new InternalHyperlink({ anchor: `toc_${k + 1}`, children: [new TextRun({ text: h.text, style: 'Hyperlink' })] })],
+    })),
+    new Paragraph(''),
+  ];
   const block = (nodes, ctx = {}) => { const out = []; walkInto(out, nodes, ctx); return out; };
   const picture = (n) => {
     const p = pictures.get(n.attrs?.fileId);
@@ -161,7 +180,7 @@ export async function wordFromDoc(doc, title = 'Document', { pictureData, page }
     for (const n of nodes || []) {
       const align = ALIGN[n.attrs?.textAlign];
       if (n.type === 'paragraph') paras.push(new Paragraph({ children: runs(n.content), alignment: align, ...spacing(n.attrs?.lineHeight), ...ctx.para }));
-      else if (n.type === 'heading') paras.push(new Paragraph({ children: runs(n.content), heading: HEADINGS[n.attrs?.level] || HeadingLevel.HEADING_1, alignment: align, ...spacing(n.attrs?.lineHeight) }));
+      else if (n.type === 'heading') paras.push(new Paragraph({ children: textOf(n).trim() ? [new Bookmark({ id: `toc_${++headingNo}`, children: runs(n.content) })] : runs(n.content), heading: HEADINGS[n.attrs?.level] || HeadingLevel.HEADING_1, alignment: align, ...spacing(n.attrs?.lineHeight) }));
       else if (n.type === 'bulletList' || n.type === 'orderedList') {
         const level = (ctx.level ?? -1) + 1;
         for (const li of n.content || []) walk(li.content, { level, para: n.type === 'bulletList' ? { bullet: { level } } : { numbering: { reference: 'numbers', level } } });
@@ -169,6 +188,7 @@ export async function wordFromDoc(doc, title = 'Document', { pictureData, page }
       else if (n.type === 'codeBlock') for (const line of (n.content?.map((c) => c.text).join('') || '').split('\n')) paras.push(new Paragraph({ children: [new TextRun({ text: line, font: 'Consolas' })] }));
       else if (n.type === 'horizontalRule') paras.push(new Paragraph({ border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: 'BBBBBB', space: 1 } } }));
       else if (n.type === 'image') paras.push(picture(n));
+      else if (n.type === 'tableOfContents') paras.push(...contentsBlock());
       else if (n.type === 'table') { paras.push(table(n)); paras.push(new Paragraph('')); }
       else if (n.content) walk(n.content, ctx);
     }

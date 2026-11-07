@@ -23,6 +23,7 @@ import Icon from '../../components/Icon.jsx';
 import { FindReplace, countWords } from './findReplace.js';
 import { FindBar } from './FindBar.jsx';
 import { Outline } from './Outline.jsx';
+import { TableOfContents, htmlWithContents } from './toc.js';
 import { VersionHistory } from '../VersionHistory.jsx';
 
 /** Marks the text a comment is about (several comments may overlap); it travels with the text. */
@@ -142,7 +143,7 @@ function SharedDoc({ file, setFile }) {
       DocImage.configure({ docId: file.id }),
       FindReplace,
       Table.configure({ resizable: false }), TableRow, TableHeader, TableCell,
-      TextStyle, Color, BackgroundColor, FontFamily, FontSize, LineHeight,
+      TextStyle, Color, BackgroundColor, FontFamily, FontSize, LineHeight, TableOfContents,
     ],
     editable: !readOnly,
     editorProps: {
@@ -189,7 +190,7 @@ function SharedDoc({ file, setFile }) {
   }, [editor, provider, readOnly]);
 
   function exportHtml() {
-    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(file.name)}</title></head><body>${editor.getHTML()}</body></html>`;
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(file.name)}</title></head><body>${htmlWithContents(editor.getHTML(), editor.state.doc)}</body></html>`;
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
     a.download = `${file.name}.html`;
@@ -423,6 +424,8 @@ function Toolbar({ editor, onComment, onPictures }) {
         { label: 'Delete column', icon: 'trash', danger: true, onClick: () => c().deleteColumn().run(), disabled: !editor.can().deleteColumn() },
         { label: 'Delete table', icon: 'trash', danger: true, onClick: () => c().deleteTable().run(), disabled: !editor.can().deleteTable() },
       ]} />
+      <button type="button" className="tb labelled" title="Insert a table of contents: the document's headings, kept up to date, each a link" aria-label="Insert table of contents"
+        onMouseDown={(e) => e.preventDefault()} onClick={() => c().insertTableOfContents().run()}><Icon name="menu" size={18} /> Contents</button>
       <span className="sep" />
       <button type="button" className="tb labelled" title="Comment on the selected text (Ctrl+Alt+M)" aria-label="Add comment" disabled={editor.state.selection.empty}
         onMouseDown={(e) => e.preventDefault()} onClick={onComment}><Icon name="chat" size={18} /> Comment</button>
@@ -466,7 +469,7 @@ function DocPreview({ content, fileId }) {
     extensions: [
       StarterKit.configure({ link: { openOnClick: true } }), TextAlign.configure({ types: ['heading', 'paragraph'] }),
       CommentMark, DocImage.configure({ docId: fileId }), Table, TableRow, TableHeader, TableCell,
-      TextStyle, Color, BackgroundColor, FontFamily, FontSize, LineHeight,
+      TextStyle, Color, BackgroundColor, FontFamily, FontSize, LineHeight, TableOfContents,
     ],
   }, [content]);
   return <div className="paper preview-paper"><EditorContent editor={editor} /></div>;
