@@ -141,6 +141,8 @@ export default function Chat() {
     } else if (m.type === 'message-deleted') {
       setMessages((list) => list.filter((x) => x.id !== m.id));
       setThreadId((t) => (t === m.id ? null : t));
+    } else if (m.type === 'chat-unread') {
+      loadChannels();
     } else if (m.type === 'channels-changed' || m.type === 'live-connected') {
       loadChannels();
     }
@@ -319,7 +321,9 @@ export default function Chat() {
                   {newDay && <div className="day-sep"><span>{new Date(m.created_at).toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}</span></div>}
                   <Message m={m} grouped={grouped && !newDay} user={user} reminder={reminders.get(m.id)} editing={editingId === m.id} editText={editText} setEditText={setEditText}
                     onStartEdit={() => { setEditingId(m.id); setEditText(m.body); }} onSaveEdit={() => saveEdit(m)} onCancelEdit={() => setEditingId(null)}
-                    onReact={(e) => react(m, e)} onThread={() => setThreadId(m.id)} onPin={current.archived_at ? null : () => pin(m, !m.pinned_at)} onForward={m.poll ? null : () => setForwarding(m)} onDelete={() => del(`/chat/messages/${m.id}`).catch((e) => toast(e.message, 'error'))} />
+                    onReact={(e) => react(m, e)} onThread={() => setThreadId(m.id)} onPin={current.archived_at ? null : () => pin(m, !m.pinned_at)} onForward={m.poll ? null : () => setForwarding(m)} onMarkUnread={async () => {
+                      try { await post(`/chat/messages/${m.id}/unread`); navigate('/chat'); toast(`Marked unread from ${m.user_name || 'this message'}’s message`); } catch (e) { toast(e.message, 'error'); }
+                    }} onDelete={() => del(`/chat/messages/${m.id}`).catch((e) => toast(e.message, 'error'))} />
                 </div>
               );
             })}
@@ -445,7 +449,7 @@ function Thread({ id, channelId, user, onClose }) {
 }
 
 /** One message: text (or the box to change it), files, reactions, its thread, and hover actions. */
-function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit, onSaveEdit, onCancelEdit, onReact, onThread, onPin, onForward, onDelete, reminder }) {
+function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit, onSaveEdit, onCancelEdit, onReact, onThread, onPin, onForward, onMarkUnread, onDelete, reminder }) {
   const toast = useToast();
   const navigate = useNavigate();
   const [picking, setPicking] = useState(false);
@@ -512,6 +516,7 @@ function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit
         {onThread && <button type="button" className="icon-btn" aria-label="Reply in thread" title="Reply in thread" onClick={onThread}><Icon name="reply" size={16} /></button>}
         <Menu align="right" trigger={(p) => <button type="button" className="icon-btn" aria-label="Remind me about this" title="Remind me about this" {...p}><Icon name="clock" size={16} /></button>}
           items={[...soon.map(([label, at]) => ({ label: `${label} · ${whenText(at)}`, onClick: () => remind(at) })), '-', { label: 'Pick date and time…', icon: 'calendar', onClick: () => setPicking(true) }]} />
+        {onMarkUnread && m.user_id !== user.id && <button type="button" className="icon-btn" aria-label="Mark unread from here" title="Mark unread from here" onClick={onMarkUnread}><Icon name="markunread" size={16} /></button>}
         {onForward && <button type="button" className="icon-btn" aria-label="Forward" title="Forward to another conversation" onClick={onForward}><Icon name="forward" size={16} /></button>}
         <button type="button" className="icon-btn" aria-label="Add to Tasks" title="Add to Tasks" onClick={toTask}><Icon name="check" size={16} /></button>
         {onPin && !m.parent_id && <button type="button" className="icon-btn" aria-label={m.pinned_at ? 'Unpin message' : 'Pin message'} title={m.pinned_at ? 'Unpin' : 'Pin to the conversation'} onClick={onPin}>📌</button>}

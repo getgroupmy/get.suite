@@ -2400,3 +2400,22 @@ test('pause notifications: until a time; colleagues see it; stopping early', asy
   await a('PUT', '/api/users/me/pause', { until: null });
   assert.equal((await b('GET', '/api/users/directory')).body.find((u) => u.id === aid).paused_until, null);
 });
+
+test('chat: mark unread from a message', async () => {
+  const a = client(), b = client(), x = client();
+  for (const [local, name] of [['mku', 'Unread Ann'], ['mkv', 'Unread Ben'], ['mkw', 'Unread Xavi']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'mku@acme.com');
+  const bid = (await login(b, 'mkv@acme.com')).id;
+  await login(x, 'mkw@acme.com');
+  const dm = (await a('POST', '/api/chat/dm', { user_id: bid })).body.id;
+  const ids = [];
+  for (const t of ['one', 'two', 'three']) { ids.push((await a('POST', `/api/chat/channels/${dm}/messages`, { body: t })).body.id); await new Promise((r) => setTimeout(r, 5)); }
+  const unread = async () => (await b('GET', '/api/chat/channels')).body.channels.find((c) => c.id === dm).unread;
+  await b('POST', `/api/chat/channels/${dm}/read`);
+  assert.equal(await unread(), 0);
+  assert.equal((await b('POST', `/api/chat/messages/${ids[1]}/unread`)).status, 200);
+  assert.equal(await unread(), 2, 'from "two" on');
+  await b('POST', `/api/chat/channels/${dm}/read`);
+  assert.equal(await unread(), 0);
+  assert.equal((await x('POST', `/api/chat/messages/${ids[0]}/unread`)).status, 404, 'not for people outside it');
+});

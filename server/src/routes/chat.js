@@ -524,6 +524,16 @@ export default function chatRoutes() {
     res.json({ ok: true });
   });
 
+  // Mark unread from a message: the conversation counts as read only up to just before it.
+  r.post('/messages/:id/unread', (req, res) => {
+    const m = q('SELECT id, channel_id, created_at FROM messages WHERE id = ?').get(req.params.id);
+    if (!m) throw notFound('Message not found');
+    const c = loadChannel(m.channel_id, req.user);
+    q('INSERT INTO channel_reads (channel_id, user_id, read_at) VALUES (?, ?, ?) ON CONFLICT(channel_id, user_id) DO UPDATE SET read_at = excluded.read_at').run(c.id, req.user.id, m.created_at - 1);
+    sendTo([req.user.id], { type: 'chat-unread', channel_id: c.id });
+    res.json({ ok: true });
+  });
+
   // Change your own message.
   r.patch('/messages/:id', (req, res) => {
     const m = q('SELECT * FROM messages WHERE id = ?').get(req.params.id);
