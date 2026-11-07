@@ -96,3 +96,10 @@ export function formatDate(ms) {
   if (d.toDateString() === today.toDateString()) return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
   return d.toLocaleDateString([], { month: 'short', day: 'numeric', ...(d.getFullYear() !== today.getFullYear() && { year: 'numeric' }) });
 }
+/** Send a file (or blob) as the body, with its type. */
+export async function putBlob(url, blob) {
+  const res = await fetch(`/api${url}`, { method: 'PUT', credentials: 'same-origin', headers: { ...HEADERS, 'content-type': blob.type || 'application/octet-stream' }, body: blob });
+  const data = (res.headers.get('content-type') || '').includes('json') ? await res.json() : null;
+  if (!res.ok) throw new ApiError(res.status, data?.error || `Request failed (${res.status})`, data);
+  return data;
+}

@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
-import { api, get, patch, post } from '../api.js';
+import { api, get, patch, post, del, putBlob } from '../api.js';
+import { reloadPhotos, usePhoto } from '../components/photos.js';
 import { useAuth } from '../App.jsx';
-import { useToast } from '../components/ui.jsx';
+import { Avatar, useToast } from '../components/ui.jsx';
 import { getTheme, setTheme } from '../theme.js';
 
 export default function Settings() {
@@ -33,6 +34,7 @@ export default function Settings() {
       <h1>Settings</h1>
       <form className="card stack" onSubmit={saveProfile}>
         <h2>Profile</h2>
+        <ProfilePhoto user={user} />
         <label className="field"><span>Email address</span><input value={user.username} disabled /></label>
         <label className="field"><span>Company</span><input value={user.org_name} disabled /></label>
         <label className="field"><span>Full name</span><input value={name} onChange={(e) => setName(e.target.value)} required /></label>
@@ -278,5 +280,45 @@ function Devices() {
       </ul>
       {others.length > 0 && <div className="row end"><button type="button" className="btn" onClick={signOutOthers}>Sign out all other devices</button></div>}
     </section>
+  );
+}
+
+/** A square picture (cropped from the middle, 256 pixels) as a JPEG, made in the browser. */
+async function squarePhoto(file) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((resolve, reject) => { const i = new Image(); i.onload = () => resolve(i); i.onerror = () => reject(new Error('That file isn’t a picture')); i.src = url; });
+    const side = Math.min(img.naturalWidth, img.naturalHeight);
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 256;
+    canvas.getContext('2d').drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, 256, 256);
+    return await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.9));
+  } finally { URL.revokeObjectURL(url); }
+}
+
+/** Your photo: shown to colleagues instead of your initials. */
+function ProfilePhoto({ user }) {
+  const toast = useToast();
+  const input = useRef();
+  const has = !!usePhoto(user.id);
+  const [busy, setBusy] = useState(false);
+  const choose = async (file) => {
+    if (!file) return;
+    setBusy(true);
+    try { await putBlob('/users/me/photo', await squarePhoto(file)); await reloadPhotos(); toast('Photo saved'); } catch (e) { toast(e.message, 'error'); } finally { setBusy(false); }
+  };
+  const remove = async () => { try { await del('/users/me/photo'); await reloadPhotos(); toast('Photo removed'); } catch (e) { toast(e.message, 'error'); } };
+  return (
+    <div className="row profile-photo">
+      <Avatar name={user.name} userId={user.id} size={64} />
+      <div className="stack" style={{ gap: 4 }}>
+        <div className="row">
+          <button type="button" className="btn small" disabled={busy} onClick={() => input.current.click()}>{has ? 'Change photo' : 'Add a photo'}</button>
+          {has && <button type="button" className="btn small" onClick={remove}>Remove photo</button>}
+        </div>
+        <span className="muted small">Colleagues see it next to your name in Chat, Drive, Mail and elsewhere.</span>
+      </div>
+      <input ref={input} type="file" accept="image/*" hidden aria-label="Photo file" onChange={(e) => { choose(e.target.files[0]); e.target.value = ''; }} />
+    </div>
   );
 }

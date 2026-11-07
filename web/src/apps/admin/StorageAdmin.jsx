@@ -36,7 +36,7 @@ export default function StorageAdmin({ orgId, orgPicker }) {
           <tbody>
             {data.people.map((p) => (
               <tr key={p.id}>
-                <td className="name"><Avatar name={p.name} size={26} /><span>{p.name}<span className="muted small"> {p.username}</span></span></td>
+                <td className="name"><Avatar name={p.name} size={26} userId={p.id} /><span>{p.name}<span className="muted small"> {p.username}</span></span></td>
                 <td className="num">{formatBytes(p.files)} <span className="muted small">· {p.count}</span></td>
                 <td className="num hide-sm muted">{formatBytes(p.versions)}</td>
                 <td className="num hide-sm muted">{formatBytes(p.trash)}</td>

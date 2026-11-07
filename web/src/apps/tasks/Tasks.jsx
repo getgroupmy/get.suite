@@ -109,7 +109,7 @@ export default function Tasks() {
             {t.repeat && !t.done && <span className="muted small task-repeat" title={`Repeats: ${repeatText(t.repeat).toLowerCase()}`}>⟳ {repeatText(t.repeat)}</span>}
           </span>
         </button>
-        {t.assignee_name && <span title={`For ${t.assignee_name}`}><Avatar name={t.assignee_name} size={24} /></span>}
+        {t.assignee_name && <span title={`For ${t.assignee_name}`}><Avatar name={t.assignee_name} size={24} userId={t.assignee_id} /></span>}
         {!t.done && <button type="button" className={`icon-btn task-star ${t.important ? 'on' : ''}`} aria-pressed={!!t.important} aria-label={`${t.important ? 'Not important' : 'Mark important'}: ${t.title}`}
           title={t.important ? 'Important (click to unmark)' : 'Mark important'} onClick={() => update(t, { important: !t.important })}>{t.important ? '★' : '☆'}</button>}
       </li>
@@ -287,7 +287,7 @@ function ShareList({ list, me, onClose, onSaved }) {
         {shown.map((p) => (
           <li key={p.id}><label className="row">
             <input type="checkbox" checked={chosen.has(p.id)} onChange={(e) => { const n = new Set(chosen); e.target.checked ? n.add(p.id) : n.delete(p.id); setChosen(n); }} />
-            <Avatar name={p.name} size={24} /><span className="grow">{p.name} <span className="muted small">{p.username}</span></span>
+            <Avatar name={p.name} size={24} userId={p.id} /><span className="grow">{p.name} <span className="muted small">{p.username}</span></span>
           </label></li>
         ))}
       </ul>

@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import Icon from './Icon.jsx';
+import { usePhoto } from './photos.js';
 
 export function Modal({ title, onClose, children, footer, wide }) {
   const ref = useRef();
@@ -142,7 +143,9 @@ export function ContextMenu({ x, y, items, onClose, label = 'Actions' }) {
   );
 }
 
-export function Avatar({ name = '?', size = 32 }) {
+export function Avatar({ name = '?', size = 32, userId, email }) {
+  const photo = usePhoto(userId, email);
+  if (photo) return <img className="avatar photo" src={photo} alt="" width={size} height={size} style={{ width: size, height: size }} aria-hidden="true" />;
   const initials = name.split(/\s+/).filter(Boolean).slice(0, 2).map((s) => s[0]).join('').toUpperCase() || '?';
   let h = 0;
   for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) % 360;

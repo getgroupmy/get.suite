@@ -46,7 +46,7 @@ export function useMentions(ref, value, onChange) {
     <ul className="mention-list" role="listbox" aria-label="People to mention">
       {matches.map((p, i) => (
         <li key={p.id} role="option" aria-selected={i === pick} className={i === pick ? 'on' : ''} onMouseDown={(e) => { e.preventDefault(); choose(p); }}>
-          <Avatar name={p.name} size={20} /> {p.name} <span className="muted small">{p.username}</span>
+          <Avatar name={p.name} size={20} userId={p.id} /> {p.name} <span className="muted small">{p.username}</span>
         </li>
       ))}
     </ul>

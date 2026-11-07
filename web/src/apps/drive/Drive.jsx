@@ -421,10 +421,10 @@ export function ShareDialog({ file, onClose }) {
       {error && <p className="error small" role="alert">{error}</p>}
       {!user.allow_external && <p className="muted small">Your company only allows sharing with colleagues.</p>}
       <ul className="share-list">
-        <li><Avatar name={file.owner_name} size={28} /><span className="grow">{file.owner_name}</span><span className="muted">Owner</span></li>
+        <li><Avatar name={file.owner_name} size={28} userId={file.owner_id} /><span className="grow">{file.owner_name}</span><span className="muted">Owner</span></li>
         {shares?.map((s) => (
           <li key={s.user_id}>
-            <Avatar name={s.name} size={28} />
+            <Avatar name={s.name} size={28} userId={s.user_id} />
             <span className="grow ellipsis">{s.name} <span className="muted small">{s.username}</span>
               {s.external && <span className="pill ext">External · {s.org_name}</span>}</span>
             <select value={s.role} aria-label={`Access for ${s.name}`} onChange={(e) => setShares(shares.map((x) => (x.user_id === s.user_id ? { ...x, role: e.target.value } : x)))}>

@@ -42,7 +42,7 @@ export default function AddressInput({ value, onChange, label, ...rest }) {
         <ul className="address-list" role="listbox" aria-label={`Suggestions for ${label}`}>
           {list.map((p, i) => (
             <li key={p.email} role="option" aria-selected={i === pick} className={i === pick ? 'on' : ''} onMouseDown={(e) => { e.preventDefault(); choose(p); }}>
-              <Avatar name={p.name || p.email} size={24} />
+              <Avatar name={p.name || p.email} size={24} email={p.email} />
               {p.members
                 ? <span className="grow"><span>{p.name}</span><span className="muted small"> {p.members.length} {p.members.length === 1 ? 'person' : 'people'}</span></span>
                 : <span className="grow"><span>{p.name || p.email}</span>{p.name && <span className="muted small"> {p.email}</span>}</span>}

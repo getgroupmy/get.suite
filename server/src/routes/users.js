@@ -1,6 +1,10 @@
 import { disable as disableTwoFactor } from '../twofactor.js';
 import { audit } from '../audit.js';
-import { Router } from 'express';
+import express, { Router } from 'express';
+import fs from 'node:fs';
+import path from 'node:path';
+import { DATA_DIR } from '../db.js';
+import { orgMemberIds } from '../tenancy.js';
 import { q, tx } from '../db.js';
 import { str, bad, notFound, forbidden } from '../util.js';
 import { requireAdmin, validatePassword, hashPassword, newUserRow } from '../auth.js';
@@ -59,6 +63,15 @@ function renameAddress(u, address, keepOld) {
   u.username = address;
 }
 
+// Profile photos: a small picture instead of your initials, for your colleagues to see. The browser
+// makes it a square JPEG first; it's kept as DATA_DIR/photos/<user id>.jpg, versioned for caching.
+const PHOTOS = path.join(DATA_DIR, 'photos');
+fs.mkdirSync(PHOTOS, { recursive: true });
+if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'photo_v')) q('ALTER TABLE users ADD COLUMN photo_v INTEGER').run();
+const photoFile = (id) => path.join(PHOTOS, `${id.replace(/[^\w-]/g, '')}.jpg`);
+const isPicture = (b) => b.length > 8 && ((b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) || b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) || (b.subarray(0, 4).toString() === 'RIFF' && b.subarray(8, 12).toString() === 'WEBP'));
+const MAX_PHOTO = 1024 * 1024;
+
 export default function userRoutes() {
   const r = Router();
 
@@ -66,6 +79,36 @@ export default function userRoutes() {
   r.get('/directory', (req, res) => {
     res.json(q('SELECT id, username, name, status_emoji, status_text, status_until FROM users WHERE org_id = ? AND disabled = 0 ORDER BY name')
       .all(req.user.org_id).map(({ status_emoji, status_text, status_until, ...u }) => ({ ...u, status: statusOf({ status_emoji, status_text, status_until }) })));
+  });
+
+  // Photos: who has one (your company), yours to set or remove, and each one's picture.
+  r.get('/photos', (req, res) => {
+    res.json(q('SELECT id, username AS email, photo_v AS v FROM users WHERE org_id = ? AND photo_v IS NOT NULL AND disabled = 0').all(req.user.org_id));
+  });
+  r.put('/me/photo', express.raw({ type: () => true, limit: MAX_PHOTO }), (req, res) => {
+    const body = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+    if (!isPicture(body)) throw bad('Choose a JPEG, PNG or WebP picture');
+    fs.writeFileSync(photoFile(req.user.id), body);
+    const v = Date.now();
+    q('UPDATE users SET photo_v = ? WHERE id = ?').run(v, req.user.id);
+    sendTo(orgMemberIds(req.user.org_id), { type: 'photos-changed' });
+    res.json({ v });
+  });
+  r.delete('/me/photo', (req, res) => {
+    fs.rmSync(photoFile(req.user.id), { force: true });
+    q('UPDATE users SET photo_v = NULL WHERE id = ?').run(req.user.id);
+    sendTo(orgMemberIds(req.user.org_id), { type: 'photos-changed' });
+    res.json({ ok: true });
+  });
+  r.get('/:id/photo', (req, res) => {
+    const u = q('SELECT id, org_id, photo_v FROM users WHERE id = ?').get(String(req.params.id));
+    if (!u || !u.photo_v || (u.org_id !== req.user.org_id && !canReach(req.user, u.id))) throw notFound();
+    const data = fs.readFileSync(photoFile(u.id));
+    const type = data[0] === 0xff ? 'image/jpeg' : data[0] === 0x89 ? 'image/png' : 'image/webp';
+    res.setHeader('Content-Type', type);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Cache-Control', 'private, max-age=31536000, immutable'); // the address carries ?v=
+    res.send(data);
   });
 
   // Your status: what colleagues see next to your name, until it clears by itself.
@@ -200,6 +243,7 @@ export default function userRoutes() {
       // Their mail stays on the mail server; whoever gets this address next starts with an empty mailbox.
       retireMailHome(q('SELECT username, mail_home FROM users WHERE id = ?').get(u.id));
       q('DELETE FROM users WHERE id = ?').run(u.id);
+      fs.rmSync(photoFile(u.id), { force: true });
       return list;
     });
     removeBlobs(blobs);

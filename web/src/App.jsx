@@ -153,7 +153,7 @@ function Shell() {
           <input name="q" placeholder="Search in Drive" aria-label="Search in Drive" />
         </form>
         <Bell />
-        <Menu align="right" trigger={(p) => <button className="avatar-btn" aria-label="Account" title={myStatus ? statusLine(myStatus) : undefined} {...p}><Avatar name={user.name} />{myStatus?.emoji && <span className="avatar-status" aria-hidden="true">{myStatus.emoji}</span>}</button>} items={[
+        <Menu align="right" trigger={(p) => <button className="avatar-btn" aria-label="Account" title={myStatus ? statusLine(myStatus) : undefined} {...p}><Avatar name={user.name} userId={user.id} />{myStatus?.emoji && <span className="avatar-status" aria-hidden="true">{myStatus.emoji}</span>}</button>} items={[
           { label: `${user.name} · ${user.username}`, icon: 'person', onClick: () => navigate('/settings') },
           { label: myStatus ? `Status: ${statusLine(myStatus)}` : 'Set a status', icon: 'chat', onClick: () => setStatusOpen(true) },
           { label: 'Settings', icon: 'settings', onClick: () => navigate('/settings') },

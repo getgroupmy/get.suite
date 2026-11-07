@@ -1681,6 +1681,33 @@ test('drive: asking for access — the owner is told, approves (as asked or othe
   assert.equal((await b('POST', `/api/files/${doc.id}/request-access`, {})).status, 400, 'Ben can open it now');
 });
 
+test('profile photos: set, seen by colleagues and people you can work with, removed', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['pha', 'Photo Ann'], ['phb', 'Photo Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  const aid = (await login(a, 'pha@acme.com')).id;
+  await login(b, 'phb@acme.com');
+  const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+  const put = (who, body) => who('PUT', '/api/users/me/photo', body, { raw: true, headers: { 'content-type': 'image/png' } });
+  assert.equal((await put(a, Buffer.from('<svg></svg>'))).status, 400, 'pictures only');
+  assert.equal((await put(a, PNG)).status, 200);
+  const list = (await b('GET', '/api/users/photos')).body;
+  const mine = list.find((p) => p.id === aid);
+  assert.equal(mine.email, 'pha@acme.com');
+  const got = await b('GET', `/api/users/${aid}/photo?v=${mine.v}`, undefined, { binary: true });
+  assert.equal(got.status, 200);
+  assert.equal(got.headers.get('content-type'), 'image/png');
+  assert.deepEqual(got.body, PNG);
+  assert.equal((await owner('POST', '/api/orgs', { name: 'Photo Co', domain: 'photoco.example', admin_name: 'Photo X', admin_local: 'phx', admin_password: 'password123' })).status, 201);
+  const x = client();
+  await login(x, 'phx@photoco.example');
+  assert.equal((await x('GET', `/api/users/${aid}/photo`)).status, 200, 'another company you can work with (external collaboration on)');
+  assert.deepEqual((await x('GET', '/api/users/photos')).body, [], 'the list is your own company');
+  assert.equal((await b('GET', '/api/users/nobody/photo')).status, 404);
+  assert.equal((await a('DELETE', '/api/users/me/photo')).status, 200);
+  assert.equal((await b('GET', '/api/users/photos')).body.some((p) => p.id === aid), false);
+  assert.equal((await b('GET', `/api/users/${aid}/photo`)).status, 404);
+});
+
 test('chat polls: ask, vote (one or several), change your vote, close; checked options', async () => {
   const a = client(), b = client(), c = client();
   for (const [local, name] of [['polla', 'Poll Ann'], ['pollb', 'Poll Ben'], ['pollc', 'Poll Cat']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);

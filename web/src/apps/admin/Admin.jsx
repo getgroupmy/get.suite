@@ -66,7 +66,7 @@ function Users({ orgId, setOrgId }) {
       <tbody>
         {users?.map((u) => (
           <tr key={u.id} className={u.disabled ? 'dim' : ''}>
-            <td className="name"><Avatar name={u.name} size={28} /><span>{u.name}{u.disabled ? ' (disabled)' : ''}</span></td>
+            <td className="name"><Avatar name={u.name} size={28} userId={u.id} /><span>{u.name}{u.disabled ? ' (disabled)' : ''}</span></td>
             <td className="hide-sm muted">{u.username}</td>
             <td className="hide-sm">{u.is_super ? <span className="pill">Platform owner</span> : u.is_admin ? <span className="pill">Admin</span> : 'User'}
               {u.two_factor ? <span className="pill ok" title="Signs in with a password and a code from their phone">2-step</span> : null}</td>

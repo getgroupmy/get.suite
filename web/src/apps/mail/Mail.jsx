@@ -460,7 +460,7 @@ function Reader({ folder, uid, special, onClose, onChanged, act, onCompose, onFi
           }} />
       )}
       <div className="reader-head">
-        <Avatar name={who(m.from)} size={40} />
+        <Avatar name={who(m.from)} size={40} email={m.from?.address} />
         <div className="grow">
           <div><strong>{m.from?.name || m.from?.address}</strong> {m.from?.name && <span className="muted small">&lt;{m.from.address}&gt;</span>} {m.from?.address && <SenderContact from={m.from} />}
             {m.unsubscribe && (m.unsubscribe.how === 'link'

@@ -1460,3 +1460,6 @@ button.rule-sample.on { outline: 2px solid var(--accent); outline-offset: 1px; }
 .tasks-app .task-star { font-size: 18px; color: var(--muted); }
 .tasks-app .task-star.on { color: #f4b400; }
 .tasks-app .nav-star { width: 24px; text-align: center; color: #f4b400; font-size: 18px; }
+/* Profile photos */
+img.avatar.photo { object-fit: cover; border-radius: 50%; display: inline-block; flex: none; background: var(--surface-2); }
+.profile-photo { gap: 14px; align-items: center; }
