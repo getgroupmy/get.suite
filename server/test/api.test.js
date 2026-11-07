@@ -2522,3 +2522,19 @@ test('drive storage: files, older versions, trash and the biggest items; clearin
   assert.equal((await a('GET', `/api/files/${big.id}/raw`)).body.length, 6000, 'the file itself stays');
   assert.equal((await owner('DELETE', `/api/files/${big.id}/versions`)).status, 404, 'only the owner');
 });
+
+test('admin: export the people as CSV (formula-like names kept as text); admins only', async () => {
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'expa', domain: 'acme.com', name: '=HYPERLINK("x")', password: 'password123' })).status, 201);
+  await login(a, 'expa@acme.com');
+  const r = await owner('GET', '/api/users/export');
+  assert.equal(r.status, 200);
+  assert.match(r.headers.get('content-type'), /text\/csv/);
+  assert.match(r.headers.get('content-disposition'), /people\.csv/);
+  const lines = r.body.replace(/^﻿/, '').trim().split('\r\n');
+  assert.equal(lines[0], 'Name,Email,Administrator,Status,Two-step verification,Drive storage (MB),Created,Last active');
+  const row = lines.find((l) => l.includes('expa@acme.com'));
+  assert.ok(row.startsWith(`"'=HYPERLINK(""x"")",expa@acme.com,no,active,off,0.0,`), row);
+  assert.match(row, /,\d{4}-\d{2}-\d{2}$/, 'last active, from the sign-in');
+  assert.equal((await a('GET', '/api/users/export')).status, 403);
+});

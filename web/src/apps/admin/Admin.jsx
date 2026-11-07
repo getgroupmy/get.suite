@@ -59,6 +59,7 @@ function Users({ orgId, setOrgId }) {
       {me.is_super && <OrgPicker orgId={orgId} setOrgId={setOrgId} />}
       <div className="grow" />
       <button className="btn" onClick={() => setDialog({ type: 'import' })}><Icon name="upload" size={18} /> Import from CSV</button>
+      <a className="btn" href={`/api/users/export${qs}`} download><Icon name="download" size={18} /> Export as CSV</a>
       <button className="btn primary" onClick={() => setDialog({ type: 'new' })}><Icon name="plus" size={18} /> Add user</button>
     </div>
     <table className="files">

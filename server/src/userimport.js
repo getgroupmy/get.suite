@@ -56,3 +56,20 @@ export function planImport(text, { orgId, domain }) {
     return out;
   });
 }
+
+// ---- the other way: the company's people as a CSV (for audits, payroll, moving elsewhere) ----
+// Cells that a spreadsheet would read as a formula (=, +, -, @ first) get a leading ' so they stay text.
+const cell = (v) => {
+  let s = String(v ?? '');
+  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+};
+const day = (t) => (t ? new Date(t).toISOString().slice(0, 10) : '');
+
+/** Rows of { name, username, is_admin, disabled, two_factor, storage_used, created_at, last_active }. */
+export function usersCsv(rows) {
+  const head = ['Name', 'Email', 'Administrator', 'Status', 'Two-step verification', 'Drive storage (MB)', 'Created', 'Last active'];
+  const lines = rows.map((u) => [u.name, u.username, u.is_admin ? 'yes' : 'no', u.disabled ? 'disabled' : 'active', u.two_factor ? 'on' : 'off',
+    (u.storage_used / 1048576).toFixed(1), day(u.created_at), day(u.last_active)]);
+  return `﻿${[head, ...lines].map((r) => r.map(cell).join(',')).join('\r\n')}\r\n`;
+}
