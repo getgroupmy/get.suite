@@ -374,6 +374,7 @@ function Reader({ folder, uid, special, onClose, onChanged, act, onCompose, onFi
   const [m, setM] = useState(null);
   const [images, setImages] = useState(false);
   const [blocking, setBlocking] = useState(false);
+  const [unsubscribing, setUnsubscribing] = useState(false);
   useEffect(() => {
     get(`/mail/messages/${uid}?folder=${enc(folder)}`).then((x) => { setM(x); onChanged(); }).catch((e) => { toast(e.message, 'error'); onClose(); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -443,10 +444,27 @@ function Reader({ folder, uid, special, onClose, onChanged, act, onCompose, onFi
             } catch (e) { toast(e.message, 'error'); }
           }} />
       )}
+      {unsubscribing && (
+        <ConfirmModal title={`Unsubscribe from ${m.from?.name || m.from?.address || 'this list'}?`} confirm="Unsubscribe"
+          message={m.unsubscribe.how === 'one-click'
+            ? 'The list is told to stop sending you mail. It may take a few days to stop.'
+            : `An unsubscribe email is sent from your address to ${m.unsubscribe.to}. It may take a few days to stop.`}
+          onClose={() => setUnsubscribing(false)}
+          onConfirm={async () => {
+            try {
+              const r = await post(`/mail/messages/${uid}/unsubscribe`, { folder });
+              setUnsubscribing(false);
+              toast(r.how === 'email' ? `Unsubscribe email sent to ${r.to}` : 'Unsubscribed');
+            } catch (e) { toast(e.message, 'error'); }
+          }} />
+      )}
       <div className="reader-head">
         <Avatar name={who(m.from)} size={40} />
         <div className="grow">
-          <div><strong>{m.from?.name || m.from?.address}</strong> {m.from?.name && <span className="muted small">&lt;{m.from.address}&gt;</span>} {m.from?.address && <SenderContact from={m.from} />}</div>
+          <div><strong>{m.from?.name || m.from?.address}</strong> {m.from?.name && <span className="muted small">&lt;{m.from.address}&gt;</span>} {m.from?.address && <SenderContact from={m.from} />}
+            {m.unsubscribe && (m.unsubscribe.how === 'link'
+              ? <a className="link-btn small unsub" href={m.unsubscribe.url} target="_blank" rel="noopener noreferrer nofollow" title="Opens the list's own page to unsubscribe">Unsubscribe</a>
+              : <button type="button" className="link-btn small unsub" onClick={() => setUnsubscribing(true)}>Unsubscribe</button>)}</div>
           <div className="muted small">to {list(m.to) || '—'}{m.cc.length > 0 && <> · cc {list(m.cc)}</>}</div>
         </div>
         <span className="muted small nowrap">{m.date ? new Date(m.date).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : ''}</span>

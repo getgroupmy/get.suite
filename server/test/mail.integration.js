@@ -1041,3 +1041,31 @@ test('mark all as read: every unread message in a folder', async () => {
   assert.ok((await inbox(olivia)).every((m) => m.seen), 'nothing unread left');
   assert.equal((await olivia('POST', '/api/mail/messages/read-all', { folder: 'INBOX' })).body.marked, 0);
 });
+
+test('unsubscribe: a list with a mailto gets an email from you; one-click to the NAS’s own network is refused', async () => {
+  const t = nodemailer.createTransport({ host: process.env.MAIL_IMAP_HOST, port: 25, secure: false, ignoreTLS: true, name: 'test.acme.com' });
+  // The list's unsubscribe address is a mailbox here, so the email can be seen arriving.
+  await t.sendMail({ from: 'Weekly News <news@acme.com>', to: 'olivia@acme.com', subject: 'Weekly news 45', text: 'x',
+    headers: { 'List-Unsubscribe': '<mailto:olivia@acme.com?subject=Unsubscribe%20weekly>' } });
+  await t.sendMail({ from: 'Local List <list@acme.com>', to: 'olivia@acme.com', subject: 'Local list post', text: 'x',
+    headers: { 'List-Unsubscribe': '<https://127.0.0.1/unsub?id=9>', 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' } });
+  await t.sendMail({ from: 'Web Only <web@acme.com>', to: 'olivia@acme.com', subject: 'Web only post', text: 'x', headers: { 'List-Unsubscribe': '<https://news.example/leave>' } });
+  await eventually(async () => (await inbox(olivia)).filter((m) => ['Weekly news 45', 'Local list post', 'Web only post'].includes(m.subject)).length === 3, 20000);
+  const find = async (s) => (await inbox(olivia)).find((m) => m.subject === s).uid;
+  const weekly = (await olivia('GET', `/api/mail/messages/${await find('Weekly news 45')}?folder=INBOX`)).body;
+  assert.deepEqual(weekly.unsubscribe, { how: 'email', to: 'olivia@acme.com' });
+  const r = await olivia('POST', `/api/mail/messages/${weekly.uid}/unsubscribe`, { folder: 'INBOX' });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.how, 'email');
+  await eventually(async () => (await inbox(olivia)).some((m) => m.subject === 'Unsubscribe weekly'), 20000);
+  const local = (await olivia('GET', `/api/mail/messages/${await find('Local list post')}?folder=INBOX`)).body;
+  assert.deepEqual(local.unsubscribe, { how: 'one-click' });
+  const refused = await olivia('POST', `/api/mail/messages/${local.uid}/unsubscribe`, { folder: 'INBOX' });
+  assert.equal(refused.status, 424);
+  assert.match(refused.body.error, /private network/);
+  const web = (await olivia('GET', `/api/mail/messages/${await find('Web only post')}?folder=INBOX`)).body;
+  assert.deepEqual(web.unsubscribe, { how: 'link', url: 'https://news.example/leave' });
+  assert.equal((await olivia('POST', `/api/mail/messages/${web.uid}/unsubscribe`, { folder: 'INBOX' })).status, 400, 'a page to open, not done here');
+  const plain = (await inbox(olivia)).find((m) => m.subject === 'Unsubscribe weekly');
+  assert.equal((await olivia('GET', `/api/mail/messages/${plain.uid}?folder=INBOX`)).body.unsubscribe, null);
+});

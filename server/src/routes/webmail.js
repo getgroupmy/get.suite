@@ -13,6 +13,7 @@ import { withClient, withFolder, smtpFor } from '../mail/imap.js';
 import { normalizeRules } from '../mail/sieve.js';
 import { followedFolders, setFollowed, MAX_FOLLOWED } from '../mail/notify.js';
 import { forwardHtml } from '../mail/forwardhtml.js';
+import { unsubscribeOptions, oneClickUnsubscribe } from '../mail/unsubscribe.js';
 
 const PAGE = 50;
 const OUTBOX = path.join(DATA_DIR, 'outbox');
@@ -579,7 +580,35 @@ export default function webmailRoutes() {
       labels: (() => { const kw = new Map(labelsOf(req.user.id).map((l) => [l.keyword.toLowerCase(), l.id])); return [...flags].map((f) => kw.get(String(f).toLowerCase())).filter(Boolean); })(),
       spam: /yes/i.test(String(p.headers.get('x-spam') || '')),
       attachments: attachmentList(p),
+      // A mailing list's way out: done here (one click, or an email), or a page to open.
+      unsubscribe: (() => {
+        const u = unsubscribeOptions(p.headerLines);
+        if (!u) return null;
+        return u.oneClick ? { how: 'one-click' } : u.mailto ? { how: 'email', to: u.mailto.to } : { how: 'link', url: u.url };
+      })(),
     });
+  });
+
+  // Unsubscribe from the list a message came from: a one-click request to the list's web address,
+  // or else an email to its unsubscribe address, sent from you.
+  r.post('/messages/:uid/unsubscribe', async (req, res) => {
+    const folder = String(req.body.folder || 'INBOX');
+    const { parsed: p } = await loadMessage(req.user, folder, Number(req.params.uid), false);
+    const u = unsubscribeOptions(p.headerLines);
+    if (!u || (!u.oneClick && !u.mailto)) throw bad('This message has no way to unsubscribe from here');
+    const list = addrList(p.from)[0]?.address || 'the list';
+    if (u.oneClick) {
+      try {
+        const status = await oneClickUnsubscribe(u.url);
+        if (status >= 200 && status < 400) return res.json({ ok: true, how: 'one-click', list });
+        if (!u.mailto) throw new HttpError(424, `The list answered with an error (${status}). Try again later.`);
+      } catch (e) {
+        if (e instanceof HttpError) throw e;
+        if (!u.mailto) throw new HttpError(424, `Couldn’t unsubscribe: ${e.message}`);
+      }
+    }
+    await smtpFor(req.user).sendMail({ from: { name: req.user.name, address: req.user.username }, to: u.mailto.to, subject: u.mailto.subject, text: u.mailto.body });
+    res.json({ ok: true, how: 'email', to: u.mailto.to, list });
   });
 
   // The original's body for quoting in a reply or forward: its text with basic formatting and the
