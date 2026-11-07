@@ -292,7 +292,7 @@ The search box at the top looks everywhere at once as you type (two letters or m
 
 Ask colleagues to sign off a file (a contract, a press release, a budget): **Request approval…** in its ⋮ menu (in Drive, or in a document, spreadsheet or presentation), pick the reviewers (they need to be able to open it), and add a message and a date it's needed by if you like.
 
-- Reviewers get a notification. At the top of the file a banner says who asked and what for, with **✓ Approve** and **✕ Reject** (and a comment). They can also decide from **Drive → Approvals**, which lists what's **waiting for you** and what **you asked** for.
+- Reviewers get a notification. At the top of the file a banner says who asked and what for, with **✓ Approve** and **✕ Reject** (and a comment). They can also decide from **Drive → Approvals** (with a count of what's waiting beside it), which lists what's **waiting for you** and what **you asked** for. **Home** shows what's waiting for your approval too.
 - It's **Approved** when every reviewer approves, and **Rejected** as soon as anyone rejects it. Everyone involved is told, and the banner shows the outcome (with each reviewer's decision and comment under **Details**). If the file is changed after it was approved, the banner says so.
 - Whoever asked can **Cancel request** while it's waiting; asking again starts a new request. Requests and decisions also appear in the file's activity (**Details**).
 

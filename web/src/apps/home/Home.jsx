@@ -23,10 +23,10 @@ export default function Home() {
     const start = new Date(); start.setHours(0, 0, 0, 0);
     const from = start.getTime(), to = from + 864e5 - 1;
     const safe = (p, empty) => p.catch(() => empty);
-    const [events, due, channels, recent, notes, unread] = await Promise.all([
+    const [events, due, channels, recent, notes, unread, approvals] = await Promise.all([
       safe(get(`/events?from=${from}&to=${to}`), []), safe(get(`/tasks/due?from=2000-01-01&to=${localToday()}`), []),
       safe(get('/chat/channels'), { channels: [] }), safe(get('/files?view=recent'), []), safe(get('/notes'), []),
-      mail?.enabled ? safe(get('/mail/unread'), null) : Promise.resolve(null),
+      mail?.enabled ? safe(get('/mail/unread'), null) : Promise.resolve(null), safe(get('/approvals'), { waiting: [] }),
     ]);
     setData({
       events: expandAll(events, from, to).filter((e) => e.my_status !== 'no'),
@@ -34,12 +34,13 @@ export default function Home() {
       chats: channels.channels.filter((c) => (c.muted ? c.mentions : c.unread) > 0).sort((a, b) => (b.last_at || 0) - (a.last_at || 0)),
       recent: (Array.isArray(recent) ? recent : []).filter((f) => f.kind !== 'folder').slice(0, 6),
       notes: notes.filter((n) => n.pinned).slice(0, 4),
+      approvals: approvals.waiting,
       unread: unread?.unseen ?? null,
     });
   }, [mail?.enabled]);
   useEffect(() => { if (mail) load(); }, [load, mail]);
   useEffect(() => onLive((m) => {
-    if (['events-changed', 'tasks-changed', 'message', 'chat-read', 'notes-changed', 'files-changed', 'mail-new', 'mail-unread', 'live-connected'].includes(m.type)) load();
+    if (['events-changed', 'tasks-changed', 'message', 'chat-read', 'notes-changed', 'files-changed', 'mail-new', 'mail-unread', 'approvals-changed', 'live-connected'].includes(m.type)) load();
   }), [load]);
   useEffect(() => { document.title = 'Home'; return () => { document.title = 'Workspace'; }; }, []);
 
@@ -95,6 +96,18 @@ export default function Home() {
               ))}
             </ul>
           </section>
+          {data.approvals.length > 0 && (
+            <section className="card home-card" aria-label="Waiting for your approval">
+              <h2><Link to="/drive/approvals"><Icon name="check" size={18} /> Waiting for your approval</Link></h2>
+              <ul className="home-list">
+                {data.approvals.slice(0, 6).map((a) => (
+                  <li key={a.id}><Icon name={{ doc: 'doc', sheet: 'sheet', slides: 'slides' }[a.file.kind] || 'file'} size={16} />
+                    <Link className="grow home-item" to={FILE_LINK[a.file.kind]?.(a.file) || '/drive/approvals'}>{a.file.name}</Link>
+                    <span className="muted small nowrap">{a.requested_by?.name}{a.due ? ` · by ${a.due}` : ''}</span></li>
+                ))}
+              </ul>
+            </section>
+          )}
           <section className="card home-card" aria-label="Recent files">
             <h2><Link to="/drive/recent"><Icon name="folder" size={18} /> Recent files</Link></h2>
             {!data.recent.length ? <p className="muted small">Files you open or change show up here.</p> : (

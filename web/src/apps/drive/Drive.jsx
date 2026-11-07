@@ -114,6 +114,13 @@ export default function Drive() {
   }), [load]);
   // People asking for access to your files (a notification links here with ?requests=1).
   const [requests, setRequests] = useState([]);
+  // Approvals waiting for you, counted beside Approvals.
+  const [waitingCount, setWaitingCount] = useState(0);
+  useEffect(() => {
+    const count = () => get('/approvals').then((r) => setWaitingCount(r.waiting.length)).catch(() => {});
+    count();
+    return onLive((m) => { if (m.type === 'approvals-changed' || m.type === 'live-connected') count(); });
+  }, []);
   const [requestsOpen, setRequestsOpen] = useState(false);
   const loadRequests = useCallback(() => get('/files/access-requests').then(setRequests).catch(() => {}), []);
   useEffect(() => { loadRequests(); }, [loadRequests]);
@@ -257,7 +264,7 @@ export default function Drive() {
         <NavLink to="/drive/shared" className="subnav-item"><Icon name="people" />Shared with me</NavLink>
         <NavLink to="/drive/recent" className="subnav-item"><Icon name="clock" />Recent</NavLink>
         <NavLink to="/drive/starred" className="subnav-item"><Icon name="staroutline" />Starred</NavLink>
-        <NavLink to="/drive/approvals" className="subnav-item"><Icon name="check" />Approvals</NavLink>
+        <NavLink to="/drive/approvals" className="subnav-item"><Icon name="check" /><span className="grow">Approvals</span>{waitingCount > 0 && <span className="count" aria-label={`${waitingCount} waiting for you`}>{waitingCount}</span>}</NavLink>
         <NavLink to="/drive/trash" className="subnav-item"><Icon name="trash" />Trash</NavLink>
         {requests.length > 0 && <button type="button" className="subnav-item" onClick={() => setRequestsOpen(true)}><Icon name="lock" /><span className="grow">Access requests</span><span className="count">{requests.length}</span></button>}
         {usage && (
