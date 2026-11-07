@@ -1503,3 +1503,10 @@ img.avatar.photo { object-fit: cover; border-radius: 50%; display: inline-block;
 .room-list li { display: flex; gap: 8px; align-items: center; }
 .room-list li input:first-child { flex: 1; }
 .guest-chips li.room-taken { border-color: var(--danger, #d93025); color: var(--danger, #d93025); }
+/* Chat: cards for linked Workspace files */
+.file-cards { display: grid; gap: 6px; margin-top: 6px; max-width: 420px; }
+.file-card { display: flex; gap: 10px; align-items: center; padding: 8px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text); text-decoration: none; }
+.file-card:hover { border-color: var(--accent); }
+.file-card .grow { display: grid; min-width: 0; }
+.file-card strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-card.none { color: var(--muted); }

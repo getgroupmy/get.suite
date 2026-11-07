@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { blocks, hasMarkup } from './markup.js';
+import { fileLinksIn } from './filelinks.js';
 import { statusLine, untilText } from '../../components/status.js';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { get, post, patch, del, onLive, uploadFile, formatBytes } from '../../api.js';
@@ -463,6 +464,7 @@ function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit
           </form>
         ) : m.poll ? <Poll m={m} user={user} />
           : m.body && <div className="msg-text"><Formatted text={m.body} me={user.username} />{m.edited_at && <span className="muted small edited" title={`Edited ${new Date(m.edited_at).toLocaleString()}`}> (edited)</span>}</div>}
+        {!editing && <FileCards text={m.body} />}
         {m.files?.length > 0 && (
           <div className="msg-files">
             {m.files.map((f) => (/^image\/(png|jpeg|gif|webp)$/.test(f.mime)
@@ -593,6 +595,49 @@ function PollDialog({ onClose, onSubmit }) {
         <div className="row end"><button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn primary">Post poll</button></div>
       </form>
     </Modal>
+  );
+}
+
+// What each linked file is, fetched once per page (null: you can't open it, or it's gone).
+const fileInfo = new Map();
+const infoOf = (id) => {
+  if (!fileInfo.has(id)) fileInfo.set(id, get(`/files/${id}`).catch(() => null));
+  return fileInfo.get(id);
+};
+const OPEN = { doc: (id) => `/docs/${id}`, sheet: (id) => `/sheets/${id}`, slides: (id) => `/slides/${id}`, folder: (id) => `/drive/folder/${id}` };
+const KIND_NAME = { doc: 'Document', sheet: 'Spreadsheet', slides: 'Presentation', folder: 'Folder' };
+
+/** Links to Workspace files in a message, shown as cards: what it is, whose, and a way in. */
+function FileCards({ text }) {
+  const links = fileLinksIn(text);
+  const [info, setInfo] = useState({});
+  useEffect(() => {
+    let alive = true;
+    for (const l of links) infoOf(l.id).then((f) => { if (alive) setInfo((x) => ({ ...x, [l.id]: f || false })); });
+    return () => { alive = false; };
+  }, [text]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!links.length) return null;
+  return (
+    <div className="file-cards">
+      {links.map((l) => {
+        const f = info[l.id];
+        if (f === undefined) return null;
+        if (f === false) {
+          return (
+            <Link key={l.id} className="file-card none" to={`/access/${l.id}`}>
+              <Icon name="lock" size={22} />
+              <span className="grow"><strong>A file you can’t open</strong><span className="muted small">Ask for access</span></span>
+            </Link>
+          );
+        }
+        return (
+          <Link key={l.id} className="file-card" to={OPEN[f.kind]?.(f.id) || `/drive`} aria-label={`${KIND_NAME[f.kind] || 'File'}: ${f.name}`}>
+            <Icon name={f.kind === 'folder' ? 'folder' : f.kind} size={22} className={`ft ft-${f.kind}`} />
+            <span className="grow"><strong>{f.name}</strong><span className="muted small">{KIND_NAME[f.kind] || 'File'} · {f.owner_name}{f.role === 'viewer' ? ' · you can view' : f.role === 'editor' ? ' · you can edit' : ''}</span></span>
+          </Link>
+        );
+      })}
+    </div>
   );
 }
 
