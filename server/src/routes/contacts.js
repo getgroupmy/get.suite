@@ -7,6 +7,31 @@ import { canReach } from '../tenancy.js';
 
 const FIELDS = { name: 200, email: 200, phone: 50, company: 200, notes: 5000 };
 
+// Groups: your own lists of people (contacts or colleagues, by address) to email all at once.
+q(`CREATE TABLE IF NOT EXISTS contact_groups (
+  id TEXT PRIMARY KEY,
+  owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  members TEXT NOT NULL,              -- JSON [{ name, email }]
+  created_at INTEGER NOT NULL
+)`).run();
+const MAX_GROUPS = 200, MAX_MEMBERS = 500;
+const EMAIL_RE = /^[^\s@<>"(),;:\\]+@[a-z0-9.-]+\.[a-z]{2,}$/i;
+const groupsOf = (userId) => q('SELECT id, name, members FROM contact_groups WHERE owner_id = ? ORDER BY name COLLATE NOCASE').all(userId).map((g) => ({ ...g, members: JSON.parse(g.members) }));
+function readMembers(list) {
+  if (!Array.isArray(list)) throw bad('Members must be a list');
+  const seen = new Set(), out = [];
+  for (const m of list) {
+    const email = String(m?.email || '').trim().toLowerCase();
+    if (!EMAIL_RE.test(email)) throw bad(`Not an email address: ${email || '(empty)'}`);
+    if (seen.has(email)) continue;
+    seen.add(email);
+    out.push({ name: String(m.name || '').trim().slice(0, 200), email });
+  }
+  if (out.length > MAX_MEMBERS) throw bad(`At most ${MAX_MEMBERS} people in a group`);
+  return out;
+}
+
 function read(body, partial) {
   const out = {};
   for (const [k, max] of Object.entries(FIELDS)) {
@@ -24,9 +49,34 @@ export default function contactRoutes() {
   });
 
   // Suggestions while typing an address in Mail: your contacts and your colleagues.
+  // ---- groups ----
+  r.get('/groups', (req, res) => res.json(groupsOf(req.user.id)));
+  r.post('/groups', (req, res) => {
+    const name = str(req.body.name, { required: true, name: 'Group name', max: 100 });
+    const mine = groupsOf(req.user.id);
+    if (mine.length >= MAX_GROUPS) throw bad('Too many groups');
+    if (mine.some((g) => g.name.toLowerCase() === name.toLowerCase())) throw bad('You already have a group with that name');
+    const id = uid();
+    q('INSERT INTO contact_groups (id, owner_id, name, members, created_at) VALUES (?, ?, ?, ?, ?)').run(id, req.user.id, name, JSON.stringify(readMembers(req.body.members || [])), now());
+    res.status(201).json(groupsOf(req.user.id).find((g) => g.id === id));
+  });
+  const ownGroup = (req) => { const g = groupsOf(req.user.id).find((x) => x.id === req.params.id); if (!g) throw notFound('Group not found'); return g; };
+  r.patch('/groups/:id', (req, res) => {
+    const g = ownGroup(req);
+    const name = req.body.name !== undefined ? str(req.body.name, { required: true, name: 'Group name', max: 100 }) : g.name;
+    if (groupsOf(req.user.id).some((x) => x.id !== g.id && x.name.toLowerCase() === name.toLowerCase())) throw bad('You already have a group with that name');
+    const members = req.body.members !== undefined ? readMembers(req.body.members) : g.members;
+    q('UPDATE contact_groups SET name = ?, members = ? WHERE id = ?').run(name, JSON.stringify(members), g.id);
+    res.json(groupsOf(req.user.id).find((x) => x.id === g.id));
+  });
+  r.delete('/groups/:id', (req, res) => { q('DELETE FROM contact_groups WHERE id = ?').run(ownGroup(req).id); res.json({ ok: true }); });
+
   r.get('/suggest', (req, res) => {
     const term = String(req.query.q || '').trim().toLowerCase();
     if (!term) return res.json([]);
+    // Your groups whose name matches come first: picking one puts in everyone in it.
+    const groups = groupsOf(req.user.id).filter((g) => g.members.length && g.name.toLowerCase().includes(term)).slice(0, 3)
+      .map((g) => ({ kind: 'group', name: g.name, email: `group:${g.id}`, members: g.members }));
     const like = `%${term.replace(/[%_\\]/g, (c) => `\\${c}`)}%`;
     const starts = `${term.replace(/[%_\\]/g, (c) => `\\${c}`)}%`;
     const mine = q(`SELECT name, email FROM contacts WHERE owner_id = ? AND email IS NOT NULL AND email != ''
@@ -44,7 +94,7 @@ export default function contactRoutes() {
         out.push({ name: p.name || '', email, kind });
       }
     }
-    res.json(out.slice(0, 8));
+    res.json([...groups, ...out].slice(0, 8));
   });
 
   // Import a .vcf (one or many cards) or a CSV export (Gmail, Outlook, or Name/Email columns).

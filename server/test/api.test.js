@@ -1178,3 +1178,24 @@ test('page setup: kept with a document, checked, and only for documents', async 
   assert.equal((await owner('PATCH', `/api/files/${s.id}`, { page_setup: {} })).status, 400);
   assert.equal((await owner('PATCH', `/api/files/${d.id}`, { page_setup: null })).body.page_setup, null, 'back to the default');
 });
+
+test('contact groups: made, changed, suggested in Mail with everyone in them, only your own', async () => {
+  const g = await owner('POST', '/api/contacts/groups', { name: 'Board', members: [{ name: 'Ann Board', email: 'Ann@Example.org' }, { email: 'ben@example.org' }, { email: 'ann@example.org' }] });
+  assert.equal(g.status, 201);
+  assert.deepEqual(g.body.members, [{ name: 'Ann Board', email: 'ann@example.org' }, { name: '', email: 'ben@example.org' }], 'addresses kept once, in small letters');
+  assert.equal((await owner('POST', '/api/contacts/groups', { name: 'board' })).status, 400, 'names are unique');
+  assert.equal((await owner('POST', '/api/contacts/groups', { name: 'Bad', members: [{ email: 'nope' }] })).status, 400);
+  const s = (await owner('GET', '/api/contacts/suggest?q=boa')).body;
+  assert.equal(s[0].kind, 'group');
+  assert.equal(s[0].name, 'Board');
+  assert.equal(s[0].members.length, 2);
+  await owner('PATCH', `/api/contacts/groups/${g.body.id}`, { name: 'Board members', members: [{ email: 'cat@example.org' }] });
+  assert.deepEqual((await owner('GET', '/api/contacts/groups')).body.find((x) => x.id === g.body.id).members, [{ name: '', email: 'cat@example.org' }]);
+  const other = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'grouper', domain: 'acme.com', name: 'Gus Grouper', password: 'password123' })).status, 201);
+  await login(other, 'grouper@acme.com');
+  assert.equal((await other('PATCH', `/api/contacts/groups/${g.body.id}`, { name: 'x' })).status, 404);
+  assert.ok(!(await other('GET', '/api/contacts/suggest?q=board')).body.some((x) => x.kind === 'group'));
+  await owner('DELETE', `/api/contacts/groups/${g.body.id}`);
+  assert.ok(!(await owner('GET', '/api/contacts/groups')).body.some((x) => x.id === g.body.id));
+});

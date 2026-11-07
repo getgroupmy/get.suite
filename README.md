@@ -184,6 +184,7 @@ In Drive, **New → Presentation**. Presentations are shared, versioned and save
 - **Export:** **Export** downloads all your contacts as vCards (for phones, Outlook and Apple) or as CSV (for Gmail and spreadsheets).
 - **In Mail:** start typing a name or address in To, Cc or Bcc and pick from your contacts and colleagues (Up/Down, then Enter or Tab).
 
+- **Groups:** the **Groups** tab in Contacts holds your own lists of people (contacts, colleagues or any address) to email together. Type a group's name in To, Cc or Bcc and pick it to put in everyone in it, or use the envelope button next to the group. Groups are private to you.
 ## Calendar and contacts on your phone
 
 Your Workspace calendar and contacts sync with the phone's own Calendar and Contacts apps, both ways, using the standard CalDAV and CardDAV. Settings → *Calendar and contacts on your phone* shows the details for each person.

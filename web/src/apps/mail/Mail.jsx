@@ -66,6 +66,14 @@ export default function Mail() {
     [loadScheduled]);
   const { user } = useAuth();
   useEffect(() => { get('/mail/signatures').then(setSignatures).catch(() => {}); }, []);
+  // Opened to write to someone (/mail?compose=addresses, e.g. from a contact group).
+  useEffect(() => {
+    const to = search.get('compose');
+    if (to === null) return;
+    setCompose(withSignature({ to }, 'new'));
+    const next = new URLSearchParams(search); next.delete('compose'); setSearch(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search.get('compose')]);
 
   /** Add the From address's signature to a new message, or above the quote in a reply/forward (never to resumed drafts). */
   const withSignature = (init, kind) => {
