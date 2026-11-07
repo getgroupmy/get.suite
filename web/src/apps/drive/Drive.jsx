@@ -442,6 +442,7 @@ function LinkSharing({ file }) {
   const [days, setDays] = useState('7');
   const [password, setPassword] = useState('');
   const [usePassword, setUsePassword] = useState(false);
+  const [uploadOnly, setUploadOnly] = useState(false); // a file request: people send files in, and see nothing
   const [busy, setBusy] = useState(false);
 
   useEffect(() => { if (user.allow_links) get(`/links?file=${file.id}`).then(setLinks).catch(() => setLinks([])); }, [file.id, user.allow_links]);
@@ -451,10 +452,10 @@ function LinkSharing({ file }) {
   async function create() {
     setBusy(true);
     try {
-      const l = await post('/links', { file_id: file.id, expires_at: days ? Date.now() + Number(days) * 864e5 : null, ...(usePassword && { password }) });
+      const l = await post('/links', { file_id: file.id, expires_at: days ? Date.now() + Number(days) * 864e5 : null, ...(usePassword && { password }), ...(uploadOnly && { mode: 'upload' }) });
       setLinks([...links, l]);
-      setPassword(''); setUsePassword(false);
-      await copy(l, 'Link created and copied');
+      setPassword(''); setUsePassword(false); setUploadOnly(false);
+      await copy(l, l.mode === 'upload' ? 'File request created and copied' : 'Link created and copied');
     } catch (e) { toast(e.message, 'error'); }
     setBusy(false);
   }
@@ -471,15 +472,15 @@ function LinkSharing({ file }) {
   return (
     <section className="link-share" aria-label="Link sharing">
       <h3>Link sharing</h3>
-      <p className="muted small">Anyone with a link can view and download {what}, without an account.</p>
+      <p className="muted small">Anyone with a link can view and download {what}, without an account.{file.kind === 'folder' && ' A file request link instead lets people send files into it, without seeing what’s there.'}</p>
       <ul className="share-list">
         {links?.map((l) => (
           <li key={l.id} className={l.expired ? 'expired' : ''}>
-            <Icon name="link" size={20} />
+            <Icon name={l.mode === 'upload' ? 'upload' : 'link'} size={20} />
             <div className="grow" style={{ minWidth: 0 }}>
               <input className="link-url" readOnly value={linkUrl(l.token)} aria-label="Share link" onFocus={(e) => e.target.select()} />
               <span className="muted small">
-                {[l.expired ? 'Expired' : l.expires_at ? `Until ${formatDate(l.expires_at)}` : 'No expiry',
+                {[l.mode === 'upload' && 'File request (upload only)', l.expired ? 'Expired' : l.expires_at ? `Until ${formatDate(l.expires_at)}` : 'No expiry',
                   l.has_password && 'Password', l.opens ? `Opened ${l.opens === 1 ? 'once' : `${l.opens} times`}` : 'Not opened yet'].filter(Boolean).join(' · ')}
               </span>
             </div>
@@ -493,8 +494,9 @@ function LinkSharing({ file }) {
           {EXPIRY.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
         </select>
         <label className="check"><input type="checkbox" checked={usePassword} onChange={(e) => setUsePassword(e.target.checked)} /> Password</label>
+        {file.kind === 'folder' && <label className="check"><input type="checkbox" checked={uploadOnly} onChange={(e) => setUploadOnly(e.target.checked)} /> File request (upload only)</label>}
         {usePassword && <input type="text" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="At least 6 characters" aria-label="Link password" autoComplete="off" />}
-        <button type="button" className="btn" onClick={create} disabled={!links || busy || (usePassword && password.length < 6)}><Icon name="link" size={18} /> Create link</button>
+        <button type="button" className="btn" onClick={create} disabled={!links || busy || (usePassword && password.length < 6)}><Icon name={uploadOnly ? 'upload' : 'link'} size={18} /> {uploadOnly ? 'Create file request' : 'Create link'}</button>
       </div>
       {usePassword && <p className="muted small">Send the password separately from the link, for example by phone.</p>}
     </section>

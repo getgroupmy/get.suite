@@ -1369,3 +1369,12 @@ button.rule-sample.on { outline: 2px solid var(--accent); outline-offset: 1px; }
 .paper .page-break::after { content: 'Page break'; position: absolute; top: -10px; left: 50%; transform: translateX(-50%); padding: 0 8px; font-size: 11px; color: var(--muted); background: var(--surface); }
 .paper .page-break.ProseMirror-selectednode { border-top-color: var(--accent); }
 @media print { .paper .page-break { height: 0; margin: 0; border: 0; break-after: page; page-break-after: always; } .paper .page-break::after { content: none; } }
+/* Drive: file request page */
+.file-request { max-width: 520px; margin: 0 auto; text-align: center; align-items: center; }
+.file-request .field { width: 100%; text-align: left; }
+.file-request .drop-zone { width: 100%; display: flex; flex-direction: column; gap: 4px; align-items: center; padding: 36px 16px; border: 2px dashed var(--border); border-radius: 14px; cursor: pointer; background: var(--surface); }
+.file-request .drop-zone.over, .file-request .drop-zone:hover { border-color: var(--accent); background: var(--accent-soft); }
+.request-sent { list-style: none; margin: 0; padding: 0; width: 100%; text-align: left; display: flex; flex-direction: column; gap: 4px; }
+.request-sent li { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 8px; background: var(--surface-2); }
+.request-sent li.ok .small { color: var(--success, #188038); }
+.request-sent li.error .small { color: var(--danger); }

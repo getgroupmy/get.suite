@@ -44,6 +44,7 @@ export default function PublicLink({ token }) {
   if (error) body = <div className="link-msg" role="alert"><Icon name="link" size={40} /><h1>{error.status === 410 ? 'Link expired' : 'Link not available'}</h1><p className="muted">{error.message}</p></div>;
   else if (!info) body = <p className="muted">Loading…</p>;
   else if (info.locked) body = <Unlock token={token} info={info} onKey={(k) => { saveKey(token, k); setKey(k); }} />;
+  else if (info.mode === 'upload') body = <FileRequest token={token} info={info} linkKey={key} />;
   else if (info.kind === 'file') body = <FileView file={info} src={raw()} download={raw(null, true)} />;
   else if (open) body = (
     <>
@@ -57,7 +58,7 @@ export default function PublicLink({ token }) {
     <div className="link-page">
       <header className="link-head">
         <div className="brand"><span className="brand-mark">W</span><span className="brand-text">Workspace</span></div>
-        {info && !error && <span className="muted small">Shared by {info.owner_name} · {info.org_name}</span>}
+        {info && !error && <span className="muted small">{info.mode === 'upload' ? 'Requested by' : 'Shared by'} {info.owner_name} · {info.org_name}</span>}
       </header>
       <main className="link-main">{body}</main>
       {info?.expires_at && !error && <p className="muted small link-foot">This link works until {formatDate(info.expires_at)}.</p>}
@@ -128,5 +129,52 @@ function FolderView({ info, onFolder, onOpen, download }) {
         </ul>
       )}
     </section>
+  );
+}
+
+/** A file request: send files into someone's folder. You see only what you sent from this page. */
+function FileRequest({ token, info, linkKey }) {
+  const [from, setFrom] = useState(() => { try { return localStorage.getItem('nw.requestFrom') || ''; } catch { return ''; } });
+  const [sent, setSent] = useState([]); // { id, name, size, state: 'sending' | 'sent' | error message }
+  const [over, setOver] = useState(false);
+  async function send(files) {
+    try { localStorage.setItem('nw.requestFrom', from); } catch { /* private window */ }
+    for (const file of files) {
+      const id = Math.random().toString(36).slice(2);
+      setSent((list) => [...list, { id, name: file.name, size: file.size, state: 'sending' }]);
+      try {
+        const res = await fetch(`/api/public/links/${encodeURIComponent(token)}/upload?name=${encodeURIComponent(file.name)}${from.trim() ? `&from=${encodeURIComponent(from.trim())}` : ''}`, {
+          method: 'POST', body: file,
+          headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/octet-stream', ...(linkKey && { 'x-link-key': linkKey }) },
+        });
+        const data = await res.json().catch(() => null);
+        if (!res.ok) throw new Error(data?.error || `Upload failed (${res.status})`);
+        setSent((list) => list.map((x) => (x.id === id ? { ...x, state: 'sent' } : x)));
+      } catch (e) { setSent((list) => list.map((x) => (x.id === id ? { ...x, state: e.message } : x))); }
+    }
+  }
+  return (
+    <div className="file-request stack">
+      <Icon name="upload" size={40} />
+      <h1>Send files to {info.owner_name}</h1>
+      <p className="muted">They go into “{info.name}”. You won’t see anything else in it.</p>
+      <label className="field"><span>Your name (so they know who sent them)</span>
+        <input value={from} onChange={(e) => setFrom(e.target.value)} maxLength={100} placeholder="e.g. Bob Tan, Globex" /></label>
+      <label className={`drop-zone ${over ? 'over' : ''}`} onDragOver={(e) => { e.preventDefault(); setOver(true); }} onDragLeave={() => setOver(false)}
+        onDrop={(e) => { e.preventDefault(); setOver(false); send([...e.dataTransfer.files]); }}>
+        <input type="file" multiple hidden aria-label="Choose files to send" onChange={(e) => { send([...e.target.files]); e.target.value = ''; }} />
+        <strong>Drop files here</strong><span className="muted small">or click to choose them</span>
+      </label>
+      {sent.length > 0 && (
+        <ul className="request-sent" aria-label="Files you sent">
+          {sent.map((x) => (
+            <li key={x.id} className={x.state === 'sent' ? 'ok' : x.state === 'sending' ? '' : 'error'}>
+              <Icon name={fileIcon({ kind: 'file', name: x.name })} size={18} /> <span className="grow ellipsis">{x.name}</span>
+              <span className="small">{x.state === 'sent' ? `Sent · ${formatBytes(x.size)}` : x.state === 'sending' ? 'Sending…' : x.state}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }

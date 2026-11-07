@@ -69,7 +69,7 @@ export function createApp({
   app.use('/api/public/invites', publicInviteRoutes());
   app.use('/api/public/book', publicBookingRoutes());
   app.use('/api/public/brand', brandRoutes());
-  app.use('/api/public', publicLinkRoutes());
+  app.use('/api/public', publicLinkRoutes({ maxUploadBytes }));
   app.use('/api/users', requireAuth, userRoutes());
   app.use('/api/orgs', requireAuth, orgRoutes());
   app.use('/api/mail-admin', requireAuth, mailAdminRoutes());

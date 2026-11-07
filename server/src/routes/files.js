@@ -48,7 +48,7 @@ const EDITABLE = ['doc', 'sheet', 'slides'];
 const openLink = (f) => ({ folder: `/drive/folder/${f.id}`, doc: `/docs/${f.id}`, sheet: `/sheets/${f.id}`, slides: `/slides/${f.id}` }[f.kind] || '/drive/shared');
 const setupOf = (f) => { if (!f.page_setup || typeof f.page_setup === 'object') return f.page_setup || null; try { return JSON.parse(f.page_setup); } catch { return null; } };
 
-function cleanName(name) {
+export function cleanName(name) {
   const n = str(name, { required: true, name: 'Name', max: 255 });
   if (/[\/\\\0]/.test(n) || n === '.' || n === '..') throw bad('Name contains invalid characters');
   return n;

@@ -1564,3 +1564,35 @@ test('calendar search: words in title, place or notes; your events and invitatio
   assert.deepEqual((await a('GET', '/api/events/search?q=')).body, []);
   assert.deepEqual((await a('GET', '/api/events/search?q=100%25')).body, []);
 });
+
+test('file requests: people send files into a folder without seeing it; the owner is told', async () => {
+  const pub = client(), owner2 = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'requester', domain: 'acme.com', name: 'Req Ann', password: 'password123' })).status, 201);
+  await login(owner2, 'requester@acme.com');
+  const folder = (await owner2('POST', '/api/files/folder', { name: 'Receipts' })).body;
+  const secret = (await owner2('POST', `/api/files/upload?name=private.txt&parent=${folder.id}`, 'nope', { raw: true })).body;
+  const file = (await owner2('POST', '/api/files/upload?name=x.txt', 'x', { raw: true })).body;
+  assert.equal((await owner2('POST', '/api/links', { file_id: file.id, mode: 'upload' })).status, 400, 'folders only');
+  const link = (await owner2('POST', '/api/links', { file_id: folder.id, mode: 'upload' })).body;
+  assert.equal(link.mode, 'upload');
+  const info = (await pub('GET', `/api/public/links/${link.token}`)).body;
+  assert.deepEqual([info.mode, info.name, info.items], ['upload', 'Receipts', undefined], 'nothing inside is shown');
+  assert.equal((await pub('GET', `/api/public/links/${link.token}/raw?item=${secret.id}`)).status, 404);
+  const sent = await pub('POST', `/api/public/links/${link.token}/upload?name=${encodeURIComponent('taxi.pdf')}&from=${encodeURIComponent('Bob Client')}`, '%PDF-1.4 taxi', { raw: true, headers: { 'content-type': 'application/octet-stream' } });
+  assert.equal(sent.status, 201);
+  await pub('POST', `/api/public/links/${link.token}/upload?name=taxi.pdf`, '%PDF-1.4 again', { raw: true, headers: { 'content-type': 'application/octet-stream' } });
+  const inside = (await owner2('GET', `/api/files?parent=${folder.id}`)).body;
+  const list = inside.files || inside;
+  const names = list.map((f) => f.name).sort();
+  assert.equal(names.length, 3);
+  assert.ok(names.includes('taxi.pdf') && names.some((n) => n !== 'taxi.pdf' && n.startsWith('taxi')), 'same name kept apart');
+  assert.equal(list.find((f) => f.name === 'taxi.pdf').description, 'Sent by Bob Client through a file request');
+  const bell = (await owner2('GET', '/api/notifications')).body;
+  assert.ok((bell.items || bell).some((n) => /Bob Client sent “taxi.pdf”/.test(n.title)));
+  // A view link can't take uploads; bad names are refused; a removed request stops working.
+  const view = (await owner2('POST', '/api/links', { file_id: folder.id })).body;
+  assert.equal((await pub('POST', `/api/public/links/${view.token}/upload?name=a.txt`, 'a', { raw: true })).status, 404);
+  assert.equal((await pub('POST', `/api/public/links/${link.token}/upload?name=..%2Fa`, 'a', { raw: true })).status, 400);
+  await owner2('DELETE', `/api/links/${link.id}`);
+  assert.equal((await pub('POST', `/api/public/links/${link.token}/upload?name=late.txt`, 'a', { raw: true })).status, 404);
+});
