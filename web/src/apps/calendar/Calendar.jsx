@@ -271,7 +271,8 @@ export default function Calendar() {
       {bookingOpen && <BookingPagesDialog onClose={() => setBookingOpen(false)} />}
       {editing && (editing.role === 'guest'
         ? <InvitationDialog event={editing} onClose={() => setEditing(null)} onAnswered={() => { setEditing(null); load(); }} />
-        : <EventDialog event={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />)}
+        : <EventDialog key={editing.id ? `${editing.id}:${editing.start}` : `new:${editing.duplicateOf || ''}:${editing.start}`} event={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }}
+          onDuplicate={(copy) => { setEditing(copy); toast('Duplicated: change what you need, then Save'); }} />)}
       {pendingMove && (
         <ScopeDialog title="Move repeating event" confirm="Move" onClose={() => setPendingMove(null)}
           onConfirm={async (which) => { const m = pendingMove; setPendingMove(null); await commitMove(m.ev, m.start, m.end, which); }} />
@@ -454,7 +455,7 @@ const ruleFromForm = (r, start) => {
   return out;
 };
 
-function EventDialog({ event, onClose, onSaved }) {
+function EventDialog({ event, onClose, onSaved, onDuplicate }) {
   const toast = useToast();
   const recurring = !!(event.id && event.rrule);
   const [f, setF] = useState({
@@ -514,7 +515,7 @@ function EventDialog({ event, onClose, onSaved }) {
 
   const ruleNow = ruleFromForm(rep, read().start);
   return (
-    <Modal title={event.id ? 'Edit event' : 'New event'} onClose={onClose}>
+    <Modal title={event.id ? 'Edit event' : event.duplicateOf !== undefined ? 'Copy of event' : 'New event'} onClose={onClose}>
       <form className="stack" onSubmit={submit}>
         <label className="field"><span>Title</span><input autoFocus required value={f.title} onChange={set('title')} /></label>
         <label className="check"><input type="checkbox" checked={f.all_day} onChange={set('all_day')} /> All day</label>
@@ -593,6 +594,12 @@ function EventDialog({ event, onClose, onSaved }) {
         {error && <p className="error">{error}</p>}
         <div className="row">
           {event.id && <button type="button" className="btn danger" onClick={() => (recurring ? setScopeFor('delete') : run(remove)())}>Delete</button>}
+          {event.id && onDuplicate && <button type="button" className="btn" title="A new event like this one (as it is in this window), to change and save" onClick={() => {
+            // The new event starts where this one (or this occurrence) is; it doesn't repeat, and it's yours to change before saving.
+            const { start, end, body } = read();
+            onDuplicate({ title: body.title, location: body.location, description: body.description, color: body.color, all_day: f.all_day ? 1 : 0, start, end,
+              guests: body.guests.map((email) => ({ email })), reminders: body.reminders, duplicateOf: event.title });
+          }}>Duplicate</button>}
           <div className="grow" />
           <button type="button" className="btn" onClick={onClose}>Cancel</button>
           <button className="btn primary">Save</button>
