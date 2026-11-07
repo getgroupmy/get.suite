@@ -1541,3 +1541,26 @@ test('drive trash: emptied for good after the company’s number of days; the se
   assert.equal((t2.files || t2).find((f) => f.id === newOne).deletes_at, undefined);
   assert.equal((await owner('PATCH', '/api/orgs/current', { trash_days: 30 })).status, 200);
 });
+
+test('calendar search: words in title, place or notes; your events and invitations; next time for repeating ones', async () => {
+  const a = client(), b = client(), c = client();
+  for (const [local, name] of [['cfa', 'Cal Ann'], ['cfb', 'Cal Ben'], ['cfc', 'Cal Cat']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'cfa@acme.com');
+  await login(b, 'cfb@acme.com');
+  await login(c, 'cfc@acme.com');
+  const day = 864e5, now = Date.now();
+  await a('POST', '/api/events', { title: 'Budget review', location: 'Room 4', start: now + 2 * day, end: now + 2 * day + 36e5, guests: ['cfb@acme.com'] });
+  await a('POST', '/api/events', { title: 'Old budget talk', start: now - 40 * day, end: now - 40 * day + 36e5 });
+  await a('POST', '/api/events', { title: 'Standup', description: 'Daily budget check', start: now - 100 * day, end: now - 100 * day + 9e5, rrule: { freq: 'daily' } });
+  await c('POST', '/api/events', { title: 'Budget secret', start: now + day, end: now + day + 36e5 });
+  const found = (await a('GET', '/api/events/search?q=BUDGET')).body;
+  assert.deepEqual(found.map((e) => e.title), ['Standup', 'Budget review', 'Old budget talk'], 'coming (soonest first), then past; not other people’s');
+  const standup = found[0];
+  assert.ok(standup.repeats && standup.start >= now - day && standup.start < now + 2 * day, 'its next time, not its first');
+  assert.equal(found[1].location, 'Room 4');
+  assert.deepEqual((await a('GET', '/api/events/search?q=budget room')).body.map((e) => e.title), ['Budget review'], 'all the words');
+  const asGuest = (await b('GET', '/api/events/search?q=review')).body;
+  assert.deepEqual(asGuest.map((e) => [e.title, e.role]), [['Budget review', 'guest']]);
+  assert.deepEqual((await a('GET', '/api/events/search?q=')).body, []);
+  assert.deepEqual((await a('GET', '/api/events/search?q=100%25')).body, []);
+});

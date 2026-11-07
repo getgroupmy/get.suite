@@ -119,6 +119,22 @@ export default function Calendar() {
     } catch (e) { toast(e.message, 'error'); loadTasks(); }
   };
 
+  // Searching: the results replace Upcoming; opening one goes to its day and opens it.
+  const [found, setFound] = useState(null); // { q, list }
+  const runSearch = async (q) => {
+    const text = String(q || '').trim();
+    if (!text) { setFound(null); return; }
+    try { setFound({ q: text, list: await get(`/events/search?q=${encodeURIComponent(text)}`) }); } catch (e) { toast(e.message, 'error'); }
+  };
+  const openFound = async (r) => {
+    setAnchor(startOfDay(new Date(r.start)));
+    try {
+      const around = await get(`/events?from=${r.start - 1}&to=${r.end + 1}`);
+      const occ = expandAll(around, r.start - 1, r.end + 1).find((x) => x.id === r.id && x.start === r.start);
+      if (occ) setEditing(occ);
+    } catch { /* the day is shown anyway */ }
+  };
+
   const today = startOfDay(new Date()).getTime();
   const upcoming = upcomingList.filter((e) => e.end >= Date.now()).slice(0, 8);
   const unit = view === 'day' ? 'day' : view === 'week' ? 'week' : 'month';
@@ -184,6 +200,26 @@ export default function Calendar() {
         {others.length > 0 && view === 'month' && <p className="muted small" style={{ margin: '4px 12px' }}>Their busy times show in the week and day views.</p>}
         <label className="check cal-show-tasks"><input type="checkbox" checked={showTasks} onChange={(e) => setShowTasks(e.target.checked)} /> Show tasks with due dates</label>
         <label className="check cal-show-tasks"><input type="checkbox" checked={showBirthdays} onChange={(e) => setShowBirthdays(e.target.checked)} /> Show contacts’ birthdays</label>
+        <form className="cal-search" role="search" onSubmit={(e) => { e.preventDefault(); runSearch(new FormData(e.currentTarget).get('q')); }}>
+          <input name="q" type="search" placeholder="Search events" aria-label="Search events" onChange={(e) => { if (!e.target.value) setFound(null); }} />
+        </form>
+        {found ? <>
+          <h3 className="subnav-title row">Results<span className="grow" /><button type="button" className="link-btn small" onClick={() => setFound(null)}>Clear</button></h3>
+          {found.list.length === 0 && <p className="muted small">No events match “{found.q}”</p>}
+          <ul className="cal-results" aria-label="Search results">
+            {found.list.map((r) => (
+              <li key={`${r.id}:${r.start}`}>
+                <button type="button" className={`upcoming ${r.upcoming ? '' : 'past'}`} onClick={() => openFound(r)}>
+                  <span className="dot" style={{ background: r.color || COLORS[0] }} />
+                  <span>
+                    <strong>{r.title}</strong>
+                    <span className="muted small">{new Date(r.start).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric', ...(new Date(r.start).getFullYear() !== new Date().getFullYear() && { year: 'numeric' }) })}{!r.all_day && ` · ${fmtTime(r.start)}`}{r.repeats && ' · repeats'}{r.location && ` · ${r.location}`}</span>
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </> : <>
         <h3 className="subnav-title">Upcoming</h3>
         {upcoming.length === 0 && <p className="muted small">Nothing scheduled</p>}
         {upcoming.map((e) => (
@@ -195,6 +231,7 @@ export default function Calendar() {
             </span>
           </button>
         ))}
+        </>}
       </aside>
       <section className="cal-main">
         <div className="cal-head">

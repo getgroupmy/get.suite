@@ -1,5 +1,6 @@
 import { notify as bell } from '../notifications.js';
 import { Router } from 'express';
+import { expand } from '../calmath.js';
 import { q, tx } from '../db.js';
 import { uid, str, int, bad, notFound, HttpError } from '../util.js';
 import { canReach } from '../tenancy.js';
@@ -232,6 +233,32 @@ export default function calendarRoutes() {
       return { ...outEvent(ev), role: mine ? 'organizer' : 'guest', guests: allGuests(row.id), reminders: reminders.get(row.id) || [],
         ...(mine ? {} : { my_status, organizer: { name: organizer_name, email: organizer_email } }) };
     }));
+  });
+
+  // Search your events (and invitations) by words in the title, place or notes. Each result is
+  // dated by its next time (repeating events) or its own; coming ones first, then past ones, newest first.
+  r.get('/search', (req, res) => {
+    const words = String(req.query.q || '').toLowerCase().match(/[\p{L}\p{N}@._'-]+/gu)?.slice(0, 8) || [];
+    if (!words.length) return res.json([]);
+    const like = words.map(() => "LOWER(COALESCE(e.title, '') || ' ' || COALESCE(e.location, '') || ' ' || COALESCE(e.description, '')) LIKE ? ESCAPE '!'");
+    const rows = q(`SELECT e.*, g.status AS my_status FROM events e LEFT JOIN event_guests g ON g.event_id = e.id AND g.user_id = ?
+                    WHERE (e.owner_id = ? OR g.user_id IS NOT NULL) AND ${like.join(' AND ')} ORDER BY e.start DESC LIMIT 500`)
+      .all(req.user.id, req.user.id, ...words.map((w) => `%${w.replace(/[%_!]/g, (x) => `!${x}`)}%`));
+    const now = Date.now();
+    const found = rows.map((row) => {
+      const ev = outEvent(row);
+      let at = { start: ev.start, end: ev.end };
+      if (ev.rrule) {
+        const next = expand(ev, now, now + 3 * 366 * 864e5)[0];
+        const last = next ? null : expand(ev, ev.start, now).pop();
+        at = next || last || at;
+      }
+      return { id: ev.id, title: ev.title, location: ev.location, all_day: ev.all_day, color: ev.color, repeats: !!ev.rrule,
+        role: ev.owner_id === req.user.id ? 'organizer' : 'guest', my_status: row.my_status || undefined, start: at.start, end: at.end, upcoming: at.end >= now };
+    });
+    const coming = found.filter((e) => e.upcoming).sort((a, b) => a.start - b.start);
+    const past = found.filter((e) => !e.upcoming).sort((a, b) => b.start - a.start);
+    res.json([...coming, ...past].slice(0, 50));
   });
 
   r.post('/', (req, res) => {
