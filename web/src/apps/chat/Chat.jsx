@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { blocks, hasMarkup } from './markup.js';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { get, post, patch, del, onLive, uploadFile, formatBytes } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
@@ -298,7 +299,7 @@ export default function Chat() {
             <EmojiPicker up className="icon-btn" onPick={insertEmoji} />
             <button type="button" className="icon-btn" aria-label="Attach files" title="Attach files (or drop or paste them here)" onClick={() => fileInput.current.click()}><Icon name="attach" /></button>
             <input ref={fileInput} type="file" multiple hidden aria-label="Files to attach" onChange={(e) => { attach([...e.target.files]); e.target.value = ''; }} />
-            <textarea ref={box} rows={1} value={text} placeholder={`Message ${title}`} aria-label="Message" onChange={(e) => { setText(e.target.value); mention.track(e.target.value, e.target.selectionStart); }}
+            <textarea ref={box} rows={1} value={text} placeholder={`Message ${title}`} aria-label="Message" title="*bold*  _italic_  ~strike~  `code`  ```code block```  > quote" onChange={(e) => { setText(e.target.value); mention.track(e.target.value, e.target.selectionStart); }}
               onPaste={(e) => { const pasted = [...(e.clipboardData?.files || [])]; if (pasted.length) { e.preventDefault(); attach(pasted); } }}
               onKeyDown={(e) => { if (mention.keyDown(e)) return; if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) send(e); }} />
             {mention.list}
@@ -401,7 +402,7 @@ function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit
               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSaveEdit(); } else if (e.key === 'Escape') { e.preventDefault(); onCancelEdit(); } }} />
             <span className="muted small">Enter to save · Esc to cancel</span>
           </form>
-        ) : m.body && <div className="msg-text"><Linked text={m.body} me={user.username} />{m.edited_at && <span className="muted small edited" title={`Edited ${new Date(m.edited_at).toLocaleString()}`}> (edited)</span>}</div>}
+        ) : m.body && <div className="msg-text"><Formatted text={m.body} me={user.username} />{m.edited_at && <span className="muted small edited" title={`Edited ${new Date(m.edited_at).toLocaleString()}`}> (edited)</span>}</div>}
         {m.files?.length > 0 && (
           <div className="msg-files">
             {m.files.map((f) => (/^image\/(png|jpeg|gif|webp)$/.test(f.mime)
@@ -448,6 +449,25 @@ const timeOrDay = (ms) => {
 
 /** Message text with web addresses and links into the workspace (such as /docs/…) clickable. */
 const LINK_RE = /(https?:\/\/[^\s<>"]+[^\s<>".,;:!?)\]'"]|(?<![\w/])\/(?:docs|sheets|slides|drive|calendar|mail|chat)\/[\w-]+(?:\?[\w=&%-]+)?)/g;
+/** A message with its formatting (*bold*, _italic_, ~strike~, `code`, code blocks, quotes). */
+export function Formatted({ text, me }) {
+  if (!hasMarkup(text)) return <Linked text={text} me={me} />;
+  const draw = (nodes, key) => nodes.map((n, i) => {
+    const k = `${key}.${i}`;
+    if (n.t === 'text') return <Linked key={k} text={n.v} me={me} />;
+    if (n.t === 'code') return <code key={k} className="msg-inline-code">{n.v}</code>;
+    const Tag = { b: 'strong', i: 'em', s: 's' }[n.t];
+    return <Tag key={k}>{draw(n.c, k)}</Tag>;
+  });
+  const parts = blocks(text);
+  return parts.map((b, i) => {
+    const nl = i < parts.length - 1 && b.t === 'line' ? '\n' : '';
+    if (b.t === 'code') return <pre key={i} className="msg-code">{b.v}</pre>;
+    if (b.t === 'quote') return <blockquote key={i} className="msg-quote">{b.lines.map((l, j) => <span key={j}>{draw(l, `${i}.${j}`)}{j < b.lines.length - 1 ? '\n' : ''}</span>)}</blockquote>;
+    return <span key={i}>{draw(b.c, String(i))}{nl}</span>;
+  });
+}
+
 export function Linked({ text, me }) {
   return String(text).split(MENTION_RE).map((chunk, j) => (j % 2
     ? <span key={`m${j}`} className={`mention${me && chunk.slice(1).toLowerCase() === me.toLowerCase() ? ' me' : ''}`}>{chunk}</span>

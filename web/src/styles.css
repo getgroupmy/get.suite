@@ -1355,3 +1355,7 @@ button.rule-sample.on { outline: 2px solid var(--accent); outline-offset: 1px; }
 .paper ul[data-type="taskList"] li > div { flex: 1; min-width: 0; }
 .paper ul[data-type="taskList"] li[data-checked="true"] > div { color: var(--muted); text-decoration: line-through; }
 .paper ul[data-type="taskList"] ul[data-type="taskList"] { padding-left: 20px; }
+/* Chat: formatting in messages */
+.msg-inline-code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .9em; padding: 1px 4px; border-radius: 4px; background: var(--surface-2); border: 1px solid var(--border); }
+.msg-code { margin: 4px 0; padding: 8px 10px; border-radius: 8px; background: var(--surface-2); border: 1px solid var(--border); font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; white-space: pre-wrap; overflow-x: auto; }
+.msg-quote { margin: 2px 0; padding: 0 0 0 10px; border-left: 3px solid var(--border); color: var(--muted); }
