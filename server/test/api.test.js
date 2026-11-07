@@ -1708,6 +1708,29 @@ test('profile photos: set, seen by colleagues and people you can work with, remo
   assert.equal((await b('GET', `/api/users/${aid}/photo`)).status, 404);
 });
 
+test('drive: a folder path for uploading a folder — found when there, made when not, inside folders you can edit', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['fpa', 'Path Ann'], ['fpb', 'Path Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'fpa@acme.com');
+  const bid = (await login(b, 'fpb@acme.com')).id;
+  const one = (await a('POST', '/api/files/folder-path', { path: ['Holiday', '2026', 'Beach'] })).body;
+  assert.equal(one.created, 3);
+  const again = (await a('POST', '/api/files/folder-path', { path: ['Holiday', '2026', 'Hills'] })).body;
+  assert.equal(again.created, 1, 'Holiday and 2026 are reused');
+  const top = (await a('GET', '/api/files')).body.filter((f) => f.name === 'Holiday');
+  assert.equal(top.length, 1);
+  const y2026 = (await a('GET', `/api/files?parent=${top[0].id}`)).body;
+  assert.deepEqual(y2026.map((f) => f.name), ['2026']);
+  assert.deepEqual((await a('GET', `/api/files?parent=${y2026[0].id}`)).body.map((f) => f.name).sort(), ['Beach', 'Hills']);
+  // Inside a folder shared for viewing only: refused; for editing: allowed.
+  await a('PUT', `/api/files/${top[0].id}/shares`, { shares: [{ user_id: bid, role: 'viewer' }] });
+  assert.equal((await b('POST', '/api/files/folder-path', { parent_id: top[0].id, path: ['Ben'] })).status, 403);
+  await a('PUT', `/api/files/${top[0].id}/shares`, { shares: [{ user_id: bid, role: 'editor' }] });
+  const ben = (await b('POST', '/api/files/folder-path', { parent_id: top[0].id, path: ['2026', 'Ben'] })).body;
+  assert.equal(ben.created, 1, '2026 there already');
+  assert.equal((await a('POST', '/api/files/folder-path', { path: [] })).status, 400);
+});
+
 test('chat polls: ask, vote (one or several), change your vote, close; checked options', async () => {
   const a = client(), b = client(), c = client();
   for (const [local, name] of [['polla', 'Poll Ann'], ['pollb', 'Poll Ben'], ['pollc', 'Poll Cat']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);

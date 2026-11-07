@@ -121,13 +121,29 @@ export default function Drive() {
   const parentId = route.view === 'mine' ? route.folderId : null;
   const canCreate = route.view === 'mine' && (!folder || folder.role !== 'viewer');
 
+  /**
+   * Upload files; each may come with `dir`, the folders it was in (uploading or dropping a folder),
+   * which are found or made here first so the folder arrives as it was.
+   */
   async function startUploads(list) {
     if (!canCreate) return toast('Open a folder you can edit to upload files', 'error');
-    const items = [...list].map((file) => ({ id: Math.random(), name: file.name, progress: 0, file }));
+    const items = [...list].map((entry) => {
+      const file = entry instanceof File ? entry : entry.file;
+      const dir = entry instanceof File ? (file.webkitRelativePath || '').split('/').slice(0, -1) : entry.dir;
+      return { id: Math.random(), name: [...(dir || []), file.name].join('/'), progress: 0, file, dir: dir || [] };
+    });
+    if (!items.length) return;
     setUploads((u) => [...u, ...items]);
+    const folders = new Map(); // "a/b" → folder id
     for (const it of items) {
       try {
-        await uploadFile(it.file, parentId, (p) => setUploads((u) => u.map((x) => (x.id === it.id ? { ...x, progress: p } : x))));
+        let into = parentId;
+        if (it.dir.length) {
+          const key = it.dir.join('/');
+          if (!folders.has(key)) folders.set(key, (await post('/files/folder-path', { parent_id: parentId, path: it.dir })).id);
+          into = folders.get(key);
+        }
+        await uploadFile(it.file, into, (p) => setUploads((u) => u.map((x) => (x.id === it.id ? { ...x, progress: p } : x))));
         setUploads((u) => u.map((x) => (x.id === it.id ? { ...x, progress: 1, done: true } : x)));
       } catch (e) {
         setUploads((u) => u.map((x) => (x.id === it.id ? { ...x, error: e.message } : x)));
@@ -139,6 +155,7 @@ export default function Drive() {
   // Upload new version: pick a file, it replaces the contents (the old ones stay in the history).
   const versionInput = useRef();
   const versionFor = useRef(null);
+  const folderInput = useRef();
   async function uploadNewVersion(file) {
     const target = versionFor.current;
     if (!file || !target) return;
@@ -217,12 +234,14 @@ export default function Drive() {
           { label: 'New folder', icon: 'folder', onClick: () => setDialog({ type: 'folder' }) },
           '-',
           { label: 'Upload files', icon: 'upload', onClick: () => fileInput.current.click() },
+          { label: 'Upload folder', icon: 'folder', onClick: () => folderInput.current.click() },
           '-',
           { label: 'Document', icon: 'doc', onClick: () => create('doc') },
           { label: 'Spreadsheet', icon: 'sheet', onClick: () => create('sheet') },
           { label: 'Presentation', icon: 'slides', onClick: () => create('slides') },
         ]} />
         <input ref={fileInput} type="file" multiple hidden onChange={(e) => { startUploads(e.target.files); e.target.value = ''; }} />
+        <input ref={folderInput} type="file" multiple hidden webkitdirectory="" aria-label="Folder to upload" onChange={(e) => { startUploads(e.target.files); e.target.value = ''; }} />
         <NavLink end to="/drive" className={() => `subnav-item ${route.view === 'mine' ? 'active' : ''}`}><Icon name="folder" />My Drive</NavLink>
         <NavLink to="/drive/shared" className="subnav-item"><Icon name="people" />Shared with me</NavLink>
         <NavLink to="/drive/recent" className="subnav-item"><Icon name="clock" />Recent</NavLink>
@@ -241,7 +260,7 @@ export default function Drive() {
         className={`drive-main ${dragging ? 'dragging' : ''}`}
         onDragOver={(e) => { if (canCreate && e.dataTransfer.types.includes('Files')) { e.preventDefault(); setDragging(true); } }}
         onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setDragging(false); }}
-        onDrop={(e) => { e.preventDefault(); setDragging(false); if (e.dataTransfer.files.length) startUploads(e.dataTransfer.files); }}
+        onDrop={async (e) => { e.preventDefault(); setDragging(false); if (e.dataTransfer.files.length) startUploads(await droppedFiles(e.dataTransfer)); }}
       >
         <div className="drive-head">
           {title ? <h1>{title}</h1> : (
@@ -616,6 +635,24 @@ function DetailsDialog({ file, onClose, onChanged }) {
       </div>
     </Modal>
   );
+}
+
+/** What was dropped: files, and the files inside dropped folders with the folders they were in. */
+async function droppedFiles(dt) {
+  const entries = [...dt.items || []].map((i) => i.webkitGetAsEntry?.()).filter(Boolean);
+  if (!entries.some((x) => x.isDirectory)) return [...dt.files];
+  const out = [];
+  const walk = async (entry, dir) => {
+    if (entry.isFile) { out.push({ file: await new Promise((res, rej) => entry.file(res, rej)), dir }); return; }
+    const reader = entry.createReader();
+    for (;;) { // a folder is read a batch at a time
+      const batch = await new Promise((res, rej) => reader.readEntries(res, rej));
+      if (!batch.length) break;
+      for (const child of batch) await walk(child, [...dir, entry.name]);
+    }
+  };
+  for (const entry of entries) await walk(entry, []);
+  return out;
 }
 
 /** People asking to see or edit your files: share as asked (or view only), or decline. */

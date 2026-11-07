@@ -348,6 +348,27 @@ export default function fileRoutes({ maxUploadBytes }) {
     res.status(201).json(publicFile(loadFile(id, req.user)));
   });
 
+  // A folder path inside a folder (for uploading a whole folder): each level is found, if a folder of
+  // that name is already there that you can add to, or made. { parent_id, path: ['Photos', '2026'] } → { id }.
+  r.post('/folder-path', (req, res) => {
+    const names = Array.isArray(req.body.path) ? req.body.path.map((n) => cleanName(n)) : [];
+    if (!names.length || names.length > 32) throw bad('Give the folder path, at most 32 levels');
+    let parentId = resolveParent(req.body.parent_id, req.user);
+    const made = [];
+    for (const name of names) {
+      const there = parentId
+        ? q("SELECT id FROM files WHERE parent_id = ? AND name = ? AND kind = 'folder' AND trashed = 0").all(parentId, name)
+        : q("SELECT id FROM files WHERE parent_id IS NULL AND owner_id = ? AND name = ? AND kind = 'folder' AND trashed = 0").all(req.user.id, name);
+      const usable = there.find((f) => atLeast(roleFor(f.id, req.user.id) || '', 'editor'));
+      if (usable) { parentId = usable.id; continue; }
+      const before = parentId;
+      parentId = insertFile({ owner: req.user.id, parentId, name, kind: 'folder' });
+      made.push(before);
+    }
+    for (const p of new Set(made)) if (p) notify(p, { type: 'files-changed', parent_id: p });
+    res.json({ id: parentId, created: made.length });
+  });
+
   r.post('/new', (req, res) => {
     const kind = req.body.kind;
     if (!EMPTY[kind]) throw bad('kind must be doc, sheet or slides');
