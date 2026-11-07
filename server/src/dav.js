@@ -94,7 +94,7 @@ const outEvent = (e) => ({ ...e, rrule: e.rrule ? JSON.parse(e.rrule) : null, ex
 // DTSTAMP is fixed so the same event always gives the same file (and ETag); a changing timestamp
 // would make every phone think the event changed elsewhere.
 const STAMP = Date.UTC(2000, 0, 1);
-function icsOf(e) {
+export function icsOf(e) {
   const overrides = e.rrule ? q('SELECT * FROM events WHERE recur_parent = ? ORDER BY recur_id').all(e.id).map((o) => ({ ...o, recurrenceId: o.recur_id })) : [];
   // An invitation shows who organises it and who's coming, so the phone offers Accept / Decline.
   const invite = e.my_status !== null && e.my_status !== undefined;
@@ -114,7 +114,7 @@ const touch = (ids) => sendTo([].concat(ids), { type: 'events-changed' });
  * linked to the series, which skips that date; a cancelled one is just skipped; one no longer in
  * the copy is back to normal.
  */
-function syncOverrides(seriesId, e, userId) {
+export function syncOverrides(seriesId, e, userId) {
   const series = q('SELECT * FROM events WHERE id = ?').get(seriesId);
   const ex = new Set(JSON.parse(series.exdates || '[]'));
   const existing = new Map(q('SELECT * FROM events WHERE recur_parent = ?').all(seriesId).map((o) => [o.recur_id, o]));

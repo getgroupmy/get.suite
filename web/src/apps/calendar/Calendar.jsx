@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import { useAuth } from '../../App.jsx';
-import { get, post, put, patch, del, onLive } from '../../api.js';
+import { get, post, put, patch, del, onLive, postText } from '../../api.js';
 import { localToday } from '../tasks/taskmath.js';
 import Icon from '../../components/Icon.jsx';
 import DrivePicker, { openUrl } from '../../components/DrivePicker.jsx';
@@ -72,6 +72,16 @@ export default function Calendar() {
   const [showTasks, setShowTasksState] = useState(savedTasks);
   const [bookingOpen, setBookingOpen] = useState(false);
   const [hoursOpen, setHoursOpen] = useState(false);
+  // Import a calendar file from Google Calendar, Outlook or Apple Calendar.
+  const importInput = useRef();
+  const importIcs = async (file) => {
+    if (!file) return;
+    try {
+      const r = await postText(`/events/import?tz=${encodeURIComponent(TZ)}`, await file.text());
+      toast([`${r.added} event${r.added === 1 ? '' : 's'} imported`, r.skipped && `${r.skipped} already here`, r.failed && `${r.failed} couldn’t be read`].filter(Boolean).join(', '));
+      load();
+    } catch (e) { toast(e.message, 'error'); }
+  };
 
   const [tasks, setTasks] = useState([]);
   const [showBirthdays, setShowBirthdaysState] = useState(savedBirthdays);
@@ -204,6 +214,9 @@ export default function Calendar() {
         <button type="button" className="subnav-item" onClick={() => { const d = startOfDay(new Date()).getTime(); setEditing({ title: 'Out of office', kind: 'ooo', start: d, end: d + DAY - 1, all_day: 1, color: '#5f6368', location: '', description: '' }); }}><span aria-hidden="true" style={{ width: 24, textAlign: 'center' }}>🌴</span><span className="grow">Out of office…</span></button>
         <button type="button" className="subnav-item" onClick={() => setBookingOpen(true)}><Icon name="link" /><span className="grow">Booking pages</span></button>
         <button type="button" className="subnav-item" onClick={() => setHoursOpen(true)}><Icon name="clock" /><span className="grow">Working hours</span></button>
+        <button type="button" className="subnav-item" onClick={() => importInput.current.click()}><Icon name="upload" /><span className="grow">Import (.ics)</span></button>
+        <input ref={importInput} type="file" accept=".ics,text/calendar" hidden aria-label="Calendar file to import" onChange={(e) => { importIcs(e.target.files[0]); e.target.value = ''; }} />
+        <a className="subnav-item" href="/api/events/export" download><Icon name="download" /><span className="grow">Export (.ics)</span></a>
         <div className="subnav-title">Other calendars</div>
         {others.map((o) => (
           <div key={o.id} className="row other-cal"><span className="dot" style={{ background: o.color }} /><span className="grow ellipsis small">{o.name}</span>

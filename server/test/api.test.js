@@ -2437,3 +2437,43 @@ test('docs: download as Markdown; open a .md file as a document', async () => {
   const word = await owner('GET', `/api/files/${doc.body.id}/export`);
   assert.match(word.headers.get('content-disposition'), /minutes\.docx/, 'Word is still the default');
 });
+
+test('calendar: import an .ics from another app (repeats, exceptions, reminders); export yours', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['icsa', 'Ics Ann'], ['icsb', 'Ics Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'icsa@acme.com');
+  await login(b, 'icsb@acme.com');
+  const ics = [
+    'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Google Inc//Google Calendar 70.9054//EN',
+    'BEGIN:VTIMEZONE', 'TZID:Europe/Berlin', 'BEGIN:STANDARD', 'DTSTART:19701025T030000', 'TZOFFSETFROM:+0200', 'TZOFFSETTO:+0100', 'RRULE:FREQ=YEARLY;BYMONTH=10;BYDAY=-1SU', 'END:STANDARD', 'END:VTIMEZONE',
+    'BEGIN:VEVENT', 'UID:one@google.com', 'DTSTART;TZID=Europe/Berlin:20261203T100000', 'DTEND;TZID=Europe/Berlin:20261203T110000', 'SUMMARY:Supplier call', 'LOCATION:Room 2',
+    'BEGIN:VALARM', 'ACTION:DISPLAY', 'TRIGGER:-PT15M', 'END:VALARM', 'END:VEVENT',
+    'BEGIN:VEVENT', 'UID:two@google.com', 'DTSTART;VALUE=DATE:20261224', 'DTEND;VALUE=DATE:20261227', 'SUMMARY:Holiday', 'END:VEVENT',
+    'BEGIN:VEVENT', 'UID:three@google.com', 'DTSTART:20261201T090000Z', 'DTEND:20261201T093000Z', 'RRULE:FREQ=WEEKLY;COUNT=4', 'SUMMARY:Stand-up', 'END:VEVENT',
+    'BEGIN:VEVENT', 'UID:three@google.com', 'RECURRENCE-ID:20261208T090000Z', 'DTSTART:20261208T130000Z', 'DTEND:20261208T133000Z', 'SUMMARY:Stand-up (moved)', 'END:VEVENT',
+    'END:VCALENDAR', '',
+  ].join('\r\n');
+  const r = await a('POST', '/api/events/import?tz=Europe/Berlin', ics, { raw: true, headers: { 'content-type': 'text/calendar' } });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual(r.body, { added: 3, skipped: 0, failed: 0 });
+  const list = (await a('GET', `/api/events?from=${Date.UTC(2026, 11, 1)}&to=${Date.UTC(2026, 11, 31)}`)).body;
+  const call = list.find((e) => e.title === 'Supplier call');
+  assert.equal(call.start, Date.UTC(2026, 11, 3, 9), '10:00 in Berlin');
+  assert.equal(call.location, 'Room 2');
+  assert.deepEqual(call.reminders, [15]);
+  const holiday = list.find((e) => e.title === 'Holiday');
+  assert.equal(holiday.all_day, 1);
+  const standup = list.find((e) => e.title === 'Stand-up');
+  assert.deepEqual(standup.rrule, { freq: 'weekly', count: 4 });
+  assert.ok(list.some((e) => e.title === 'Stand-up (moved)' && e.start === Date.UTC(2026, 11, 8, 13)), 'the moved occurrence');
+  assert.deepEqual((await a('POST', '/api/events/import', ics, { raw: true, headers: { 'content-type': 'text/calendar' } })).body, { added: 0, skipped: 3, failed: 0 }, 'the same file twice adds nothing');
+  assert.equal((await a('POST', '/api/events/import', 'hello', { raw: true, headers: { 'content-type': 'text/plain' } })).status, 400);
+  // Exported, and imported by someone else: the same events.
+  const out = await a('GET', '/api/events/export');
+  assert.match(out.headers.get('content-type'), /text\/calendar/);
+  assert.equal((out.body.match(/BEGIN:VEVENT/g) || []).length, 4, 'three events and the moved occurrence');
+  assert.equal((out.body.match(/BEGIN:VTIMEZONE/g) || []).length, new Set(out.body.match(/TZID:[^\r\n]*/g)).size, 'each time zone once');
+  assert.deepEqual((await b('POST', '/api/events/import', out.body, { raw: true, headers: { 'content-type': 'text/calendar' } })).body, { added: 3, skipped: 0, failed: 0 });
+  const theirs = (await b('GET', `/api/events?from=${Date.UTC(2026, 11, 1)}&to=${Date.UTC(2026, 11, 31)}`)).body;
+  assert.equal(theirs.find((e) => e.title === 'Supplier call').start, Date.UTC(2026, 11, 3, 9));
+});

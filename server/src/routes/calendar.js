@@ -11,6 +11,8 @@ import { smtpFor } from '../mail/imap.js';
 import { buildIcs, zoneOrUtc } from '../ics.js';
 import { remindersFor, remindersOf, setReminders } from '../reminders.js';
 import { setRooms, roomsOf } from './rooms.js';
+import express from 'express';
+import { importCalendar, exportCalendar } from '../calimport.js';
 import { roleFor, audienceFor } from '../access.js';
 import { recordActivity } from '../fileactivity.js';
 
@@ -328,6 +330,20 @@ export default function calendarRoutes() {
     const coming = found.filter((e) => e.upcoming).sort((a, b) => a.start - b.start);
     const past = found.filter((e) => !e.upcoming).sort((a, b) => b.start - a.start);
     res.json([...coming, ...past].slice(0, 50));
+  });
+
+  // A calendar file (.ics) from another calendar app: its events are added to yours.
+  r.post('/import', express.text({ type: () => true, limit: '20mb' }), (req, res) => {
+    const r2 = importCalendar(req.user.id, req.body, String(req.query.tz || 'UTC'));
+    if (r2.error) throw bad(r2.error);
+    if (r2.added) touch([req.user.id]);
+    res.json(r2);
+  });
+  // Your own events as one calendar file.
+  r.get('/export', (req, res) => {
+    res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="calendar.ics"');
+    res.send(exportCalendar(req.user.id));
   });
 
   r.post('/', (req, res) => {
