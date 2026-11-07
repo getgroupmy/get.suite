@@ -2740,3 +2740,21 @@ test('notifications: turn kinds off; those stop, others still come', async () =>
   assert.ok(JSON.stringify((await b('GET', '/api/notifications')).body).includes('mentioned you in “Quiet doc”'), 'mentions still come');
   assert.equal((await b('PUT', '/api/notifications/settings', { off: [] })).body.kinds.every((k) => k.on), true);
 });
+
+test('drive: follow a folder and hear when someone adds or changes something in it', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['fwa', 'Folder Ann'], ['fwb', 'Folder Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'fwa@acme.com');
+  const bid = (await login(b, 'fwb@acme.com')).id;
+  const folder = (await a('POST', '/api/files/folder', { name: 'Invoices' })).body;
+  const sub = (await a('POST', '/api/files/folder', { name: '2026', parent_id: folder.id })).body;
+  await a('PUT', `/api/files/${folder.id}/shares`, { shares: [{ user_id: bid, role: 'editor' }] });
+  assert.equal((await a('PUT', `/api/files/${folder.id}/watch`, { on: true })).body.watching, true);
+  const bell = async () => JSON.stringify((await a('GET', '/api/notifications')).body);
+  await a('POST', `/api/files/upload?name=mine.pdf&parent=${folder.id}`, Buffer.from('x'), { raw: true });
+  assert.ok(!(await bell()).includes('mine.pdf'), 'not your own');
+  await b('POST', `/api/files/upload?name=march.pdf&parent=${sub.id}`, Buffer.from('x'), { raw: true });
+  assert.ok((await bell()).includes('Folder Ben added “march.pdf” in “Invoices”'), 'in a subfolder too');
+  await b('POST', `/api/files/upload?name=april.pdf&parent=${folder.id}`, Buffer.from('x'), { raw: true });
+  assert.ok(!(await bell()).includes('april.pdf'), 'once an hour');
+});

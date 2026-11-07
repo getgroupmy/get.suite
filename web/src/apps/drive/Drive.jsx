@@ -210,7 +210,7 @@ export default function Drive() {
       user.is_admin && ['doc', 'sheet', 'slides'].includes(f.kind) && { label: f.template ? 'Remove from company templates' : 'Make a company template', icon: 'doc',
         onClick: async () => { try { await put(`/files/${f.id}/template`, { template: !f.template }); toast(f.template ? 'No longer a company template' : 'Everyone in your company can now start from it (New → From a template)'); load(); } catch (e) { toast(e.message, 'error'); } } },
       { label: f.starred ? 'Remove star' : 'Add star', icon: f.starred ? 'star' : 'staroutline', onClick: act(() => put(`/files/${f.id}/star`, { starred: !f.starred }), f.starred ? 'Star removed' : 'Starred') },
-      f.kind !== 'folder' && { label: 'Change notifications on/off', icon: 'bell', onClick: async () => {
+      { label: 'Change notifications on/off', icon: 'bell', onClick: async () => {
         try { const now = (await get(`/files/${f.id}/watch`)).watching; await put(`/files/${f.id}/watch`, { on: !now }); toast(now ? `No more notifications about “${f.name}”` : `You’ll get a notification when someone else changes “${f.name}”`); } catch (e) { toast(e.message, 'error'); }
       } },
       '-',

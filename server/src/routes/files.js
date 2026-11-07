@@ -858,7 +858,6 @@ export default function fileRoutes({ maxUploadBytes }) {
   r.get('/:id/watch', (req, res) => { const f = loadFile(req.params.id, req.user); res.json({ watching: isWatching(req.user.id, f.id) }); });
   r.put('/:id/watch', (req, res) => {
     const f = loadFile(req.params.id, req.user);
-    if (f.kind === 'folder') throw bad('Follow a file, not a folder');
     setWatching(req.user.id, f.id, !!req.body.on);
     res.json({ watching: !!req.body.on });
   });

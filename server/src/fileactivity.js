@@ -20,7 +20,8 @@ const KEEP = 200;
 /** Note something that happened to a file. Edits by the same person within an hour are one entry. */
 export function recordActivity(fileId, userId, action, details = null, at = Date.now()) {
   if (!fileId) return;
-  if (action === 'edit' || action === 'version' || (action === 'upload' && details?.version)) changedBy(fileId, userId, at);
+  if (action === 'edit' || action === 'version') changedBy(fileId, userId, at);
+  else if (action === 'create' || action === 'upload' || action === 'copy' || action === 'request') changedBy(fileId, userId, at, { added: true });
   if (action === 'edit') {
     const last = q('SELECT id, user_id, action, at FROM file_activity WHERE file_id = ? ORDER BY id DESC LIMIT 1').get(fileId);
     if (last && last.action === 'edit' && last.user_id === userId && at - last.at < EDIT_RUN_MS) {
