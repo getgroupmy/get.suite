@@ -31,6 +31,7 @@ import Calendar from './apps/calendar/Calendar.jsx';
 import Contacts from './apps/contacts/Contacts.jsx';
 import Tasks from './apps/tasks/Tasks.jsx';
 import Forms from './apps/forms/Forms.jsx';
+import Notes from './apps/notes/Notes.jsx';
 import Meet from './apps/meet/Meet.jsx';
 import MeetRoom from './apps/meet/MeetRoom.jsx';
 import FormRespond from './apps/forms/FormRespond.jsx';
@@ -134,6 +135,7 @@ const APPS = [
   { to: '/contacts', icon: 'person', label: 'Contacts' },
   { to: '/tasks', icon: 'check', label: 'Tasks' },
   { to: '/chat', icon: 'chat', label: 'Chat' },
+  { to: '/notes', icon: 'note', label: 'Notes' },
   { to: '/meet', icon: 'video', label: 'Meet' },
   { to: '/forms', icon: 'form', label: 'Forms' },
 ];
@@ -214,6 +216,7 @@ function Shell() {
           <Route path="/tasks/:listId?" element={<Tasks />} />
           <Route path="/forms/:id?" element={<Forms />} />
           <Route path="/meet" element={<Meet />} />
+          <Route path="/notes" element={<Notes />} />
           <Route path="/settings" element={<Settings />} />
           {user.is_admin && <Route path="/admin" element={<Admin />} />}
           <Route path="*" element={<Navigate to="/drive" replace />} />

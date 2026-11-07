@@ -1672,3 +1672,33 @@ button.usage:hover .muted { color: var(--text); }
 .quiz-review { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 4px; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .answer-key { background: rgba(24, 128, 56, .2); } }
 :root[data-theme="dark"] .answer-key { background: rgba(24, 128, 56, .2); }
+
+/* Notes */
+.notes-app { display: flex; height: 100%; min-height: 0; }
+.notes-main { flex: 1; min-width: 0; overflow: auto; padding: 16px 20px 40px; background: var(--surface); border-radius: var(--radius) var(--radius) 0 0; margin-right: 16px; display: flex; flex-direction: column; gap: 14px; }
+.notes-search { display: flex; align-items: center; gap: 8px; background: var(--surface-2); border-radius: 24px; padding: 6px 14px; max-width: 560px; align-self: center; width: 100%; }
+.notes-search input { border: 0; background: none; flex: 1; font: inherit; color: var(--text); outline: none; }
+.note-composer { max-width: 600px; width: 100%; align-self: center; border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 1px 4px rgba(0,0,0,.12); padding: 8px 12px; display: flex; flex-direction: column; gap: 6px; background: var(--surface); }
+.note-composer.closed { flex-direction: row; align-items: center; padding: 4px 8px 4px 12px; }
+.note-take { all: unset; cursor: text; color: var(--muted); padding: 8px 0; }
+.note-composer input, .note-composer textarea, .note-editor input, .note-editor textarea { border: 0; background: transparent; font: inherit; color: inherit; outline: none; resize: vertical; padding: 4px 0; }
+.note-composer input[aria-label="Title"], .note-editor input[aria-label="Title"] { font-weight: 600; font-size: 16px; }
+.notes-heading { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 8px 4px -4px; }
+.notes-grid { columns: 240px; column-gap: 14px; }
+.note-card { break-inside: avoid; margin: 0 0 14px; border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px 4px; position: relative; background: var(--surface); display: flex; flex-direction: column; gap: 6px; overflow-wrap: anywhere; }
+.note-card:hover { box-shadow: 0 1px 6px rgba(0,0,0,.15); }
+.note-card h3 { margin: 0 24px 0 0; font-size: 15px; }
+.note-body { margin: 0; white-space: pre-wrap; font-size: 14px; }
+.note-open { cursor: pointer; display: flex; flex-direction: column; gap: 6px; min-height: 20px; }
+.note-pin { position: absolute; top: 4px; right: 4px; opacity: 0; font-size: 14px; }
+.note-pin.on, .note-card:hover .note-pin, .note-card:focus-within .note-pin { opacity: 1; }
+.note-tools { gap: 2px; opacity: .2; transition: opacity .15s; }
+.note-card:hover .note-tools, .note-card:focus-within .note-tools, .note-composer .note-tools { opacity: 1; }
+@media (hover: none) { .note-tools, .note-pin { opacity: 1; } }
+.note-checklist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; font-size: 14px; }
+.note-checklist.editing li { gap: 6px; }
+.note-checklist li.done input:not([type=checkbox]) { text-decoration: line-through; opacity: .6; }
+.note-chips { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.note-chip { font-size: 12px; background: rgba(0,0,0,.08); border-radius: 10px; padding: 1px 8px; }
+.note-label-icon { width: 24px; text-align: center; }
+@media (max-width: 700px) { .notes-app { flex-direction: column; } .notes-app .subnav { display: flex; flex-direction: row; overflow-x: auto; width: auto; flex: none; padding: 4px 8px; } .notes-app .subnav-item { flex: none; width: auto; } .notes-main { margin-right: 0; padding: 12px; } .notes-grid { columns: 2 150px; column-gap: 10px; } }

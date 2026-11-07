@@ -12,6 +12,7 @@ A self-hosted, Google Workspace-style office suite built to run on a Synology DS
 | **Contacts** | Personal address book (import and export vCard and CSV, synced with phones), plus a directory of everyone on the NAS; addresses suggested while writing mail |
 | **Chat** | Channels and direct messages, delivered live over WebSockets: unread counts, reactions, editing your messages, pictures and files, and an emoji picker |
 | **Forms** | Questionnaires, sign-up sheets and polls: seven question types, a link for your company (signed in, names recorded) or for anyone, a live summary of the answers, CSV download and a copy in Sheets |
+| **Notes** | Quick notes and checklists on coloured cards: pin, label, archive, search, and share with colleagues to keep one together |
 | **Meet** | Video meetings in the browser for up to 8 people: a link and a code to join by, camera and microphone check before joining, screen sharing, raised hands, reactions and a meeting chat |
 | **Mail** | A mailbox for every user on their company's domains: webmail (read, reply, forward, attachments from your computer or Drive, archive, spam, search, stars), rich-text writing (bold, lists, links, quotes), drafts that save automatically, vacation auto-replies, filter rules, signatures, folders, send as aliases you belong to, and IMAP/SMTP for phones and Outlook |
 | **Admin** | Create, disable, reset or delete users; per-user storage use; company settings; all companies (platform owner) |
@@ -639,6 +640,15 @@ Each entry shows who did it, what it was done to, the details and the IP address
 - **Quizzes:** **Settings → Make this a quiz**, then set the right answer under each short-answer or choice question (several for tick boxes; short answers ignore capitals and extra spaces) and how many points it's worth. Each response is scored: the **Responses** tab shows the average and how many got each score, and each response its score with ✓ and ✗ per question; the CSV and Sheets copy have a **Score** column. With **Show people their score after submitting**, people see their score and which questions they got right. The answers are never sent to people filling the form in.
 - **Working together:** **Settings → People who can edit** lets the owner add colleagues by email. Editors see the form in their Forms list (*Shared by …*), can change its questions and settings and read and download the responses, and changes reach everyone who has it open. Only the owner adds or removes editors or deletes the form; an editor can **⋮ → Leave this form**.
 - **Notifications:** the owner and editors get a bell notification for each response (turn it off per form in Settings, or for all forms in the bell's settings).
+
+## Notes
+
+**Notes** in the left bar is for quick notes and lists, kept as coloured cards:
+
+- **Take a note…** at the top, or ✓ for a checklist (Enter adds the next item; Backspace on an empty one removes it). Clicking outside or **Close** keeps it; an empty note isn't kept.
+- On a card: 📌 **pin** it to the top, 🎨 give it a colour, **archive** it (with **Undo**), tick checklist items off right there (ticked ones are counted underneath), and **⋮ → Labels…** (then pick a label on the left to see just those), **Make a copy** or **Delete**. Click a card to edit it; it saves as you go, and can switch between text and a checklist.
+- **Search notes** finds words in titles, text, checklist items and labels. **Archive** on the left has the archived ones.
+- **Share** (the person icon) gives colleagues in your company the note: they see it among their notes and can change it, and everyone sees changes as they're made. Only the owner can delete it or change who has it; the others can take it off their own list.
 
 ## Meet
 

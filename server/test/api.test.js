@@ -3131,3 +3131,44 @@ test('forms: quizzes score answers and keep the key secret', async () => {
   assert.equal((await v('POST', `/api/public/forms/${f.token}`, { answers: { a: 'Left' } })).body.score, undefined, 'score hidden when asked');
   assert.equal((await o('POST', `/api/forms/${f.id}/copy`)).body.quiz, true);
 });
+
+test('notes: write, check off, pin, label, archive, search and share', async () => {
+  const a = client(); const b = client();
+  const ids = {};
+  for (const [local, name] of [['nta', 'Nora Notes'], ['ntb', 'Ned Notes']]) ids[local] = (await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).body.id;
+  await login(a, 'nta@acme.com'); await login(b, 'ntb@acme.com');
+  assert.equal((await a('POST', '/api/notes', { title: ' ', body: '' })).status, 400, 'empty');
+  const n1 = (await a('POST', '/api/notes', { title: 'Shopping', items: [{ text: 'Milk' }, { text: 'Bread' }], labels: ['home', 'home', ' errands '] })).body;
+  assert.deepEqual(n1.labels, ['home', 'errands']);
+  assert.equal(n1.items.length, 2);
+  const n2 = (await a('POST', '/api/notes', { body: 'Call the plumber on Monday', color: '#fff8b8' })).body;
+  assert.equal((await a('POST', '/api/notes', { body: 'x', color: 'red' })).status, 400);
+  let list = (await a('GET', '/api/notes')).body;
+  assert.deepEqual(list.map((n) => n.id), [n2.id, n1.id], 'newest first');
+  await a('PATCH', `/api/notes/${n1.id}`, { pinned: true, items: [{ ...n1.items[0], done: true }, n1.items[1]] });
+  list = (await a('GET', '/api/notes')).body;
+  assert.equal(list[0].id, n1.id, 'pinned on top');
+  assert.equal(list[0].items[0].done, true);
+  assert.deepEqual((await a('GET', '/api/notes?q=plumber')).body.map((n) => n.id), [n2.id]);
+  assert.deepEqual((await a('GET', '/api/notes?q=bread')).body.map((n) => n.id), [n1.id], 'checklist text is searched');
+  assert.deepEqual((await a('GET', '/api/notes?label=errands')).body.map((n) => n.id), [n1.id]);
+  assert.deepEqual((await a('GET', '/api/notes/labels')).body, ['errands', 'home']);
+  const arch = (await a('PATCH', `/api/notes/${n1.id}`, { archived: true })).body;
+  assert.equal(arch.pinned, false, 'archiving unpins');
+  assert.deepEqual((await a('GET', '/api/notes?archived=1')).body.map((n) => n.id), [n1.id]);
+  assert.equal((await b('PATCH', `/api/notes/${n2.id}`, { body: 'hack' })).status, 404);
+  // Sharing: the colleague can edit, not delete; leaving takes it off their list.
+  const sh = (await a('PUT', `/api/notes/${n2.id}/shares`, { user_ids: [ids.ntb] })).body;
+  assert.deepEqual(sh.shared.map((u) => u.name), ['Ned Notes']);
+  assert.ok((await b('GET', '/api/notifications')).body.items.some((n) => n.title === 'Nora Notes shared a note with you'));
+  const seen = (await b('GET', '/api/notes')).body;
+  assert.equal(seen[0].mine, false);
+  assert.equal((await b('PATCH', `/api/notes/${n2.id}`, { body: 'Plumber booked for Tuesday' })).status, 200);
+  assert.equal((await a('GET', '/api/notes')).body.find((n) => n.id === n2.id).body, 'Plumber booked for Tuesday');
+  assert.equal((await b('PUT', `/api/notes/${n2.id}/shares`, { user_ids: [] })).status, 403);
+  const copy = (await b('POST', `/api/notes/${n2.id}/copy`)).body;
+  assert.equal(copy.mine, true);
+  assert.equal((await b('DELETE', `/api/notes/${n2.id}`)).body.deleted, false, 'they leave it');
+  assert.equal((await a('GET', '/api/notes')).body.some((n) => n.id === n2.id), true, 'still there for the owner');
+  assert.equal((await a('DELETE', `/api/notes/${n2.id}`)).body.deleted, true);
+});
