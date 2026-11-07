@@ -7,6 +7,7 @@ import { useEventReminders } from './eventReminders.js';
 import { useTaskReminders } from './taskReminders.js';
 import Icon from './components/Icon.jsx';
 import Bell from './components/Bell.jsx';
+import Announcements from './components/Announcements.jsx';
 import BrandMark from './components/BrandMark.jsx';
 import { applyAccent } from './theme.js';
 import { Avatar, Menu, ToastProvider, useToast } from './components/ui.jsx';
@@ -182,6 +183,7 @@ function Shell() {
         {user.is_admin && <NavLink to="/admin" className="appnav-item"><Icon name="shield" /><span>Admin</span></NavLink>}
       </nav>
       <main className="content">
+        <Announcements />
         <Routes>
           <Route path="/" element={<Navigate to="/drive" replace />} />
           <Route path="/drive/*" element={<Drive />} />

@@ -2758,3 +2758,24 @@ test('drive: follow a folder and hear when someone adds or changes something in 
   await b('POST', `/api/files/upload?name=april.pdf&parent=${folder.id}`, Buffer.from('x'), { raw: true });
   assert.ok(!(await bell()).includes('april.pdf'), 'once an hour');
 });
+
+test('announcements: an admin posts one; everyone sees it until they dismiss it or it ends', async () => {
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'annc', domain: 'acme.com', name: 'Ann Nounce', password: 'password123' })).status, 201);
+  await login(a, 'annc@acme.com');
+  assert.equal((await a('POST', '/api/announcements', { text: 'Not allowed' })).status, 403, 'admins only');
+  assert.equal((await owner('POST', '/api/announcements', { text: 'x', link: 'javascript:alert(1)' })).status, 400);
+  const ann = (await owner('POST', '/api/announcements', { text: 'Office closed Friday', link: '/calendar', tone: 'warn' })).body;
+  const old = (await owner('POST', '/api/announcements', { text: 'Ends soon', until: Date.now() + 300 })).body;
+  let mine = (await a('GET', '/api/announcements')).body;
+  assert.deepEqual(mine.map((x) => x.text), ['Ends soon', 'Office closed Friday']);
+  assert.equal(mine.find((x) => x.id === ann.id).tone, 'warn');
+  await new Promise((r) => setTimeout(r, 350));
+  assert.deepEqual((await a('GET', '/api/announcements')).body.map((x) => x.text), ['Office closed Friday'], 'ended ones go');
+  await a('POST', `/api/announcements/${ann.id}/dismiss`);
+  assert.deepEqual((await a('GET', '/api/announcements')).body, [], 'dismissed');
+  assert.equal((await owner('GET', '/api/announcements/all')).body.find((x) => x.id === ann.id).dismissed, 1);
+  assert.equal((await owner('DELETE', `/api/announcements/${ann.id}`)).status, 200);
+  assert.ok(!(await owner('GET', '/api/announcements/all')).body.some((x) => x.id === ann.id));
+  void old;
+});

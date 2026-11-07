@@ -10,6 +10,7 @@ import roomRoutes from './routes/rooms.js';
 import calendarRoutes, { publicInviteRoutes } from './routes/calendar.js';
 import bookingRoutes, { publicBookingRoutes, freeBusyRoutes } from './routes/booking.js';
 import brandRoutes from './routes/brand.js';
+import announcementRoutes from './routes/announcements.js';
 import contactRoutes from './routes/contacts.js';
 import taskRoutes from './routes/tasks.js';
 import notificationRoutes from './routes/notifications.js';
@@ -88,6 +89,7 @@ export function createApp({
   app.use('/api/chat', requireAuth, chatRoutes());
   app.use('/api/tasks', requireAuth, taskRoutes());
   app.use('/api/notifications', requireAuth, notificationRoutes());
+  app.use('/api/announcements', requireAuth, announcementRoutes());
   app.use('/api', (req, res, next) => next(new HttpError(404, 'Not found')));
   // Share-link pages: keep them out of search engines.
   app.use(['/s/', '/i/'], (req, res, next) => { res.setHeader('X-Robots-Tag', 'noindex, nofollow'); next(); });
