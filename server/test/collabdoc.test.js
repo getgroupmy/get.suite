@@ -74,3 +74,11 @@ test('presentations: round-trip; different boxes and slides changed at once both
   assert.equal(m.slides[0].items[1].x, 40);
   assert.deepEqual(m.slides.map((s) => s.id), ['a', 'b', 'c']);
 });
+
+test('presentations: a slide’s transition and "skip when presenting" go through the shared form', () => {
+  const deck = { theme: 'light', slides: [{ id: 'a', items: [], transition: 'zoom' }, { id: 'b', items: [], skip: true }] };
+  const doc = deckDocFromJson(deck);
+  assert.deepEqual(jsonFromDeckDoc(doc), deck);
+  applyDeckJson(doc, { theme: 'light', slides: [{ id: 'a', items: [] }, { id: 'b', items: [], transition: 'fade' }] });
+  assert.deepEqual(jsonFromDeckDoc(doc).slides, [{ id: 'a', items: [] }, { id: 'b', items: [], transition: 'fade' }]);
+});

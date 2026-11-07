@@ -95,7 +95,11 @@ export async function deckFromPowerPoint(buffer, { savePicture }) {
     const notesXml = notesFile && parseXml(await zip.file(notesFile)?.async('string') || '');
     const body = notesXml && deep(notesXml, P, 'sp').find((sp) => attr(deep(sp, P, 'ph')[0], 'type') === 'body');
     const notes = body ? deep(body, A, 'p').map((para) => deep(para, A, 't').map((t) => t.text).join('')).join('\n').replace(/\r\n?/g, '\n').trim().slice(0, 20000) : '';
-    slides.push({ id: id(), items, ...(bg && { bg }), ...(notes && { notes }) });
+    // Hidden slides (show="0") are skipped when presenting; transitions map to the nearest one Slides has.
+    const skip = attr(xml, 'show') === '0';
+    const tr = elements(deep(xml, P, 'transition')[0] || null)[0]?.local;
+    const transition = tr && ({ fade: 'fade', dissolve: 'fade', push: 'push', wipe: 'push', cover: 'push', pull: 'push', split: 'push', zoom: 'zoom', newsflash: 'zoom' }[tr] || 'fade');
+    slides.push({ id: id(), items, ...(bg && { bg }), ...(notes && { notes }), ...(transition && { transition }), ...(skip && { skip: true }) });
   }
   return { theme: 'light', slides: slides.length ? slides : [{ id: id(), items: [] }] };
 }
@@ -115,6 +119,7 @@ export async function powerPointFromDeck(deck, { pictureData, title = 'Presentat
     const slide = pptx.addSlide();
     slide.background = { color: color(s.bg, theme.bg) };
     if (s.notes) slide.addNotes(s.notes);
+    if (s.skip) slide.hidden = true; // (transitions stay in Workspace: the file writer has none)
     for (const it of s.items || []) {
       const pos = { x: (it.x / 100) * Win, y: (it.y / 100) * Hin, w: (it.w / 100) * Win, h: (it.h / 100) * Hin };
       if (it.type === 'text') {

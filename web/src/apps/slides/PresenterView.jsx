@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router';
 import { SlideView } from './SlidesEditor.jsx';
-import { THEMES } from './slidemath.js';
+import { THEMES, stepSlide } from './slidemath.js';
 
 const clock = (ms) => { const s = Math.floor(ms / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
 
@@ -37,8 +37,8 @@ export default function PresenterView() {
   const go = (n) => { const to = Math.max(0, Math.min(last, n)); setI(to); ch.current?.postMessage({ type: 'go', i: to }); };
   useEffect(() => {
     const onKey = (e) => {
-      if (['ArrowRight', 'ArrowDown', 'PageDown', ' ', 'Enter'].includes(e.key)) { e.preventDefault(); go(i + 1); }
-      else if (['ArrowLeft', 'ArrowUp', 'PageUp', 'Backspace'].includes(e.key)) { e.preventDefault(); go(i - 1); }
+      if (['ArrowRight', 'ArrowDown', 'PageDown', ' ', 'Enter'].includes(e.key)) { e.preventDefault(); if (deck) go(stepSlide(deck, i, 1)); }
+      else if (['ArrowLeft', 'ArrowUp', 'PageUp', 'Backspace'].includes(e.key)) { e.preventDefault(); if (deck) go(stepSlide(deck, i, -1)); }
       else if (e.key === 'Home') go(0);
       else if (e.key === 'End') go(last);
     };
@@ -49,7 +49,7 @@ export default function PresenterView() {
   if (ended) return <div className="presenter-view ended"><p>The presentation has ended.</p><button type="button" className="btn" onClick={() => window.close()}>Close this window</button></div>;
   if (!deck) return <div className="presenter-view ended"><p className="muted">Waiting for the presentation… Start it from the presentation’s window.</p></div>;
   const theme = THEMES[deck.theme] || THEMES.light;
-  const slide = deck.slides[i], next = deck.slides[i + 1];
+  const slide = deck.slides[i], next = stepSlide(deck, i, 1) !== i ? deck.slides[stepSlide(deck, i, 1)] : null; // skipped slides aren't next
   return (
     <div className="presenter-view">
       <header className="row">
@@ -68,8 +68,8 @@ export default function PresenterView() {
         </aside>
       </div>
       <footer className="row">
-        <button type="button" className="btn" disabled={i === 0} onClick={() => go(i - 1)}>‹ Previous</button>
-        <button type="button" className="btn primary" disabled={i === last} onClick={() => go(i + 1)}>Next ›</button>
+        <button type="button" className="btn" disabled={stepSlide(deck, i, -1) === i} onClick={() => go(stepSlide(deck, i, -1))}>‹ Previous</button>
+        <button type="button" className="btn primary" disabled={stepSlide(deck, i, 1) === i} onClick={() => go(stepSlide(deck, i, 1))}>Next ›</button>
       </footer>
     </div>
   );

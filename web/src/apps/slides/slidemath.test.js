@@ -45,3 +45,17 @@ test('items: update, restack; pictures fit and keep their shape', () => {
   assert.equal(Math.round(tall.h), 60);
   assert.ok(tall.w < 20, 'a tall picture is narrow');
 });
+
+test('presenting passes over skipped slides; slide settings change one slide', async () => {
+  const { stepSlide, firstShown, setSlide } = await import('./slidemath.js');
+  const deck = { slides: [{ id: 'a' }, { id: 'b', skip: true }, { id: 'c' }, { id: 'd', skip: true }] };
+  assert.equal(stepSlide(deck, 0, 1), 2);
+  assert.equal(stepSlide(deck, 2, -1), 0);
+  assert.equal(stepSlide(deck, 2, 1), 2, 'nothing shown after');
+  assert.equal(firstShown(deck, 1), 2);
+  assert.equal(firstShown(deck, 3), 3, 'the last one, skipped: shown anyway');
+  const next = setSlide(deck, 0, { transition: 'fade', skip: false });
+  assert.deepEqual(next.slides[0], { id: 'a', transition: 'fade' });
+  assert.deepEqual(setSlide(next, 0, { transition: '' }).slides[0], { id: 'a' });
+  assert.equal(deck.slides[0].transition, undefined, 'not changed in place');
+});

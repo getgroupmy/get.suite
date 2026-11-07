@@ -280,3 +280,20 @@ test('Word: a table of contents becomes links to bookmarked headings, and opens 
   const plain = await (await JSZip.loadAsync(await wordFromDoc({ type: 'doc', content: doc.content.slice(1) }, 'x'))).file('word/document.xml').async('string');
   assert.doesNotMatch(plain, /w:hyperlink/);
 });
+
+test('PowerPoint: hidden slides stay skipped both ways; transitions are read', async () => {
+  const JSZip = (await import('jszip')).default;
+  const deck = { theme: 'light', slides: [
+    { id: 'a', items: [{ id: 't', type: 'text', role: 'title', text: 'Shown', x: 10, y: 10, w: 80, h: 20, size: 60 }], transition: 'fade' },
+    { id: 'b', items: [{ id: 'u', type: 'text', role: 'title', text: 'Backup', x: 10, y: 10, w: 80, h: 20, size: 60 }], skip: true },
+  ] };
+  const buf = await powerPointFromDeck(deck, 'Deck');
+  const zip = await JSZip.loadAsync(buf);
+  assert.match(await zip.file('ppt/slides/slide2.xml').async('string'), /<p:sld[^>]* show="0"/);
+  assert.doesNotMatch(await zip.file('ppt/slides/slide1.xml').async('string'), /show="0"/);
+  // Add a transition the way PowerPoint writes it, then read the file back.
+  const s1 = await zip.file('ppt/slides/slide1.xml').async('string');
+  zip.file('ppt/slides/slide1.xml', s1.replace('</p:sld>', '<p:transition spd="med"><p:push dir="u"/></p:transition></p:sld>'));
+  const back = await deckFromPowerPoint(await zip.generateAsync({ type: 'nodebuffer' }), { savePicture: async () => 'x' });
+  assert.deepEqual(back.slides.map((s) => [s.items[0]?.text, s.transition || null, !!s.skip]), [['Shown', 'push', false], ['Backup', null, true]]);
+});

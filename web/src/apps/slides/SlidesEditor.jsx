@@ -16,6 +16,7 @@ import { useUndo, undoKey } from '../useUndo.js';
 import {
   THEMES, LAYOUTS, newId, clampBox, moveBox, resizeBox, addSlide, duplicateSlide, removeSlide, moveSlide,
   updateItem, addItem, removeItem, restack, pictureBox,
+  TRANSITIONS, setSlide, stepSlide, firstShown,
 } from './slidemath.js';
 
 const SIZES = [12, 14, 16, 18, 20, 24, 28, 32, 36, 40, 44, 54, 64, 72, 96];
@@ -227,8 +228,8 @@ export default function SlidesEditor() {
       <div className="slides-body">
         <ol className="slide-list" aria-label="Slides">
           {deck.slides.map((s, i) => (
-            <li key={s.id} className={i === slideIndex ? 'on' : ''}>
-              <span className="num" aria-hidden="true">{i + 1}</span>
+            <li key={s.id} className={`${i === slideIndex ? 'on' : ''} ${s.skip ? 'skipped' : ''}`}>
+              <span className="num" aria-hidden="true">{i + 1}{s.transition && <span className="thumb-mark" title={`Transition: ${s.transition}`}>✦</span>}{s.skip && <span className="thumb-mark" title="Skipped when presenting">⊘</span>}</span>
               <button type="button" className="thumb" aria-label={`Slide ${i + 1}`} aria-current={i === slideIndex ? 'true' : undefined} onClick={() => goTo(i)}>
                 <SlideView slide={s} theme={theme} deckId={id} />
               </button>
@@ -237,6 +238,9 @@ export default function SlidesEditor() {
                   { label: 'Duplicate', onClick: slideAction((d) => duplicateSlide(d, i)) },
                   i > 0 && { label: 'Move up', onClick: () => { change((d) => moveSlide(d, i, i - 1)); goTo(i - 1); } },
                   i < deck.slides.length - 1 && { label: 'Move down', onClick: () => { change((d) => moveSlide(d, i, i + 1)); goTo(i + 1); } },
+                  '-',
+                  { label: s.skip ? 'Show when presenting' : 'Skip when presenting', onClick: slideAction((d) => setSlide(d, i, { skip: !s.skip })) },
+                  ...TRANSITIONS.map(([v, name]) => ({ label: `${(s.transition || '') === v ? '✓ ' : ''}Transition: ${name}`, onClick: slideAction((d) => setSlide(d, i, { transition: v })) })),
                   '-',
                   { label: 'Delete slide', icon: 'trash', danger: true, onClick: () => setDialog({ type: 'delete-slide', index: i }) },
                 ]} />
@@ -358,7 +362,7 @@ function openPresenterView(deckId, i) {
 }
 
 function Presenter({ deck, theme, deckId, start, onClose }) {
-  const [i, setI] = useState(start);
+  const [i, setI] = useState(() => firstShown(deck, start));
   const [notes, setNotes] = useState(false);
   const ref = useRef();
   const last = deck.slides.length - 1;
@@ -371,7 +375,7 @@ function Presenter({ deck, theme, deckId, start, onClose }) {
     ch.onmessage = (e) => {
       const m = e.data || {};
       if (m.type === 'hello') ch.postMessage({ type: 'deck', deck, theme: deck.theme, i: iRef.current });
-      if (m.type === 'go' && Number.isInteger(m.i)) setI(Math.max(0, Math.min(last, m.i)));
+      if (m.type === 'go' && Number.isInteger(m.i)) setI(Math.max(0, Math.min(last, m.i))); // the presenter window passes over skipped slides itself
     };
     ch.postMessage({ type: 'deck', deck, theme: deck.theme, i: iRef.current });
     return () => { ch.postMessage({ type: 'end' }); ch.close(); channel.current = null; };
@@ -391,21 +395,21 @@ function Presenter({ deck, theme, deckId, start, onClose }) {
   const iRef = useRef(i);
   iRef.current = i;
   const onKey = (e) => {
-    if (['ArrowRight', 'ArrowDown', 'PageDown', ' ', 'Enter'].includes(e.key)) { e.preventDefault(); setI((x) => Math.min(last, x + 1)); }
-    else if (['ArrowLeft', 'ArrowUp', 'PageUp', 'Backspace'].includes(e.key)) { e.preventDefault(); setI((x) => Math.max(0, x - 1)); }
-    else if (e.key === 'Home') setI(0);
-    else if (e.key === 'End') setI(last);
+    if (['ArrowRight', 'ArrowDown', 'PageDown', ' ', 'Enter'].includes(e.key)) { e.preventDefault(); setI((x) => stepSlide(deck, x, 1)); }
+    else if (['ArrowLeft', 'ArrowUp', 'PageUp', 'Backspace'].includes(e.key)) { e.preventDefault(); setI((x) => stepSlide(deck, x, -1)); }
+    else if (e.key === 'Home') setI(firstShown(deck, 0));
+    else if (e.key === 'End') setI(deck.slides[last].skip ? stepSlide(deck, last, -1) : last);
     else if (e.key === 'Escape') { e.preventDefault(); onClose(i); }
     else if (e.key === 'n' || e.key === 'N') setNotes((v) => !v); // notes on this screen, for a single display
   };
   return (
-    <div ref={ref} className="presenter" tabIndex={-1} role="dialog" aria-label="Presenting" onKeyDown={onKey} onClick={() => setI((x) => Math.min(last, x + 1))}>
-      <div className="presenter-slide"><SlideView slide={deck.slides[i]} theme={theme} deckId={deckId} /></div>
+    <div ref={ref} className="presenter" tabIndex={-1} role="dialog" aria-label="Presenting" onKeyDown={onKey} onClick={() => setI((x) => stepSlide(deck, x, 1))}>
+      <div key={i} className={`presenter-slide ${deck.slides[i]?.transition ? `tr-${deck.slides[i].transition}` : ''}`}><SlideView slide={deck.slides[i]} theme={theme} deckId={deckId} /></div>
       {notes && <div className="presenter-notes" onClick={(e) => e.stopPropagation()}>{deck.slides[i]?.notes || <span className="muted">No notes for this slide</span>}</div>}
       <div className="presenter-bar" onClick={(e) => e.stopPropagation()}>
-        <button type="button" aria-label="Previous slide" disabled={i === 0} onClick={() => setI(i - 1)}>‹</button>
+        <button type="button" aria-label="Previous slide" disabled={stepSlide(deck, i, -1) === i} onClick={() => setI(stepSlide(deck, i, -1))}>‹</button>
         <span aria-live="polite">{i + 1} / {deck.slides.length}</span>
-        <button type="button" aria-label="Next slide" disabled={i === last} onClick={() => setI(i + 1)}>›</button>
+        <button type="button" aria-label="Next slide" disabled={stepSlide(deck, i, 1) === i} onClick={() => setI(stepSlide(deck, i, 1))}>›</button>
         <button type="button" aria-label="End presentation" onClick={() => onClose(i)}>✕</button>
       </div>
     </div>

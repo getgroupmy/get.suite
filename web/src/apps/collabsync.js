@@ -73,10 +73,10 @@ export function applySheetJson(doc, next) {
 
 // ---- presentations: slide order, and each slide's boxes by id, so different boxes (or slides)
 // changed at once both stay; the same box keeps the later change.
+const SLIDE_KEYS = ['bg', 'notes', 'transition', 'skip'];
 function slideMap(slide) {
   const m = new Y.Map();
-  if (slide.bg) m.set('bg', slide.bg);
-  if (slide.notes) m.set('notes', slide.notes); // speaker notes
+  for (const k of SLIDE_KEYS) if (slide[k]) m.set(k, slide[k]); // background, speaker notes, transition, skipped when presenting
   const order = new Y.Array();
   order.push((slide.items || []).map((it) => it.id));
   m.set('order', order);
@@ -106,8 +106,7 @@ export function jsonFromDeckDoc(doc) {
       const m = all.get(id);
       const items = m.get('items');
       const s = { id, items: m.get('order').toArray().filter((iid) => items.has(iid)).map((iid) => items.get(iid)) };
-      if (m.get('bg')) s.bg = m.get('bg');
-      if (m.get('notes')) s.notes = m.get('notes');
+      for (const k of SLIDE_KEYS) if (m.get(k)) s[k] = m.get(k);
       return s;
     }),
   };
@@ -126,8 +125,7 @@ export function applyDeckJson(doc, next) {
     for (const s of want) {
       if (!all.has(s.id)) { all.set(s.id, slideMap(s)); continue; }
       const m = all.get(s.id);
-      if ((m.get('bg') || null) !== (s.bg || null)) { if (s.bg) m.set('bg', s.bg); else m.delete('bg'); }
-      if ((m.get('notes') || '') !== (s.notes || '')) { if (s.notes) m.set('notes', s.notes); else m.delete('notes'); }
+      for (const k of SLIDE_KEYS) if ((m.get(k) || null) !== (s[k] || null)) { if (s[k]) m.set(k, s[k]); else m.delete(k); }
       const items = m.get('items');
       for (const iid of [...items.keys()]) if (!s.items.some((it) => it.id === iid)) items.delete(iid);
       for (const it of s.items) if (!same(items.get(it.id), it)) items.set(it.id, it);

@@ -1335,3 +1335,13 @@ button.rule-sample.on { outline: 2px solid var(--accent); outline-offset: 1px; }
 .task-steps-box form input { flex: 1; }
 /* Calendar: contacts' birthdays */
 .chip.birthday-chip { --c: #e37400; background: color-mix(in srgb, #e37400 14%, transparent); color: inherit; border: 0; text-align: left; cursor: pointer; }
+/* Slides: transitions when presenting, and skipped slides in the list */
+.presenter-slide.tr-fade { animation: tr-fade .5s ease both; }
+.presenter-slide.tr-push { animation: tr-push .5s cubic-bezier(.2, .8, .2, 1) both; }
+.presenter-slide.tr-zoom { animation: tr-zoom .45s ease-out both; }
+@keyframes tr-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes tr-push { from { transform: translateX(30%); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes tr-zoom { from { transform: scale(.85); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .presenter-slide[class*="tr-"] { animation: tr-fade .2s both; } }
+.slide-list li.skipped .thumb { opacity: .45; }
+.slide-list .thumb-mark { display: block; font-size: 11px; color: var(--muted); line-height: 1.2; }

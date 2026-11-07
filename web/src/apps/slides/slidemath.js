@@ -105,3 +105,22 @@ export function pictureBox(naturalW, naturalH) {
   if (h > 60) { h = 60; w = h * ratioPct; }
   return clampBox({ x: (100 - w) / 2, y: (100 - h) / 2, w, h });
 }
+
+/** Transitions a slide can have when presenting. */
+export const TRANSITIONS = [['', 'None'], ['fade', 'Fade'], ['push', 'Push'], ['zoom', 'Zoom']];
+/** Change one slide's own settings (transition, skip...); a falsy value removes the setting. */
+export function setSlide(deck, i, change) {
+  const s = { ...deck.slides[i] };
+  for (const [k, v] of Object.entries(change)) { if (v) s[k] = v; else delete s[k]; }
+  return { ...deck, slides: deck.slides.map((x, j) => (j === i ? s : x)) };
+}
+/**
+ * Presenting: the slide to show after (dir 1) or before (dir -1) slide i, passing over skipped
+ * ones. Stays at i when there's nowhere to go.
+ */
+export function stepSlide(deck, i, dir) {
+  for (let j = i + dir; j >= 0 && j < deck.slides.length; j += dir) if (!deck.slides[j].skip) return j;
+  return i;
+}
+/** The first slide to show from i on (i itself unless it's skipped and another follows). */
+export const firstShown = (deck, i) => (deck.slides[i]?.skip ? (stepSlide(deck, i, 1) !== i ? stepSlide(deck, i, 1) : i) : i);

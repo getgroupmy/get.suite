@@ -174,6 +174,7 @@ In Drive, **New → Presentation**. Presentations are shared, versioned and save
   - Drag to move, and drag the handles to resize. Pictures keep their shape; hold Shift to stretch them.
   - Double-click text to type. Arrow keys nudge the selected item (Shift for bigger steps), and Delete removes it.
   - The toolbar sets text size, bold, italic, colour and alignment, shape colour, the slide's background, and front/back order. The ⋮ menu picks one of four themes.
+- **Transitions and skipping:** a slide's ⋮ menu sets how it appears when presenting (**Fade**, **Push**, **Zoom** or none; ✦ marks it in the list) and **Skip when presenting** for backup slides (faded in the list, ⊘). Presenting passes over skipped slides, in the presenter window too. Skipped slides stay hidden in PowerPoint downloads; transitions from PowerPoint files are read, but downloads don't carry them.
 - **Speaker notes:** type them in the box under each slide. They're shared and saved with the presentation, carried to and from PowerPoint, and never shown to the audience.
 - **Present** opens full screen. The arrow keys, space or a click move between slides, and Esc ends. **N** shows or hides your notes at the bottom (handy with a single screen).
 - **Presenter view** also opens a second window for you, the speaker, to keep on your own screen: the current slide, the next one, your notes, a timer and the time. Moving through the slides in either window moves both.
