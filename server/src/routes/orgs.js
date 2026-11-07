@@ -54,6 +54,26 @@ export default function orgRoutes() {
     res.json(describe(q('SELECT * FROM orgs WHERE id = ?').get(req.user.org_id)));
   });
 
+  // Storage: the company's total (and quota), how much each person uses (files, earlier versions,
+  // the trash), and the largest files. The platform owner may ask about any company (?org_id=).
+  r.get('/current/storage', requireAdmin, (req, res) => {
+    const orgId = req.query.org_id && req.user.is_super ? String(req.query.org_id) : req.user.org_id;
+    const org = q('SELECT * FROM orgs WHERE id = ?').get(orgId);
+    if (!org) throw notFound('Company not found');
+    const people = q(`SELECT u.id, u.name, u.username,
+        COALESCE((SELECT SUM(f.size) FROM files f WHERE f.owner_id = u.id AND f.trashed = 0), 0) AS files,
+        COALESCE((SELECT SUM(f.size) FROM files f WHERE f.owner_id = u.id AND f.trashed = 1), 0) AS trash,
+        COALESCE((SELECT SUM(v.size) FROM file_versions v JOIN files f ON f.id = v.file_id WHERE f.owner_id = u.id), 0) AS versions,
+        (SELECT COUNT(*) FROM files f WHERE f.owner_id = u.id AND f.kind != 'folder') AS count
+      FROM users u WHERE u.org_id = ? ORDER BY u.name COLLATE NOCASE`).all(orgId)
+      .map((p) => ({ ...p, total: p.files + p.trash + p.versions })).sort((a, b) => b.total - a.total);
+    const largest = q(`SELECT f.id, f.name, f.kind, f.mime, f.size, f.trashed, f.updated_at, u.name AS owner_name,
+        COALESCE((SELECT SUM(v.size) FROM file_versions v WHERE v.file_id = f.id), 0) AS versions_size
+      FROM files f JOIN users u ON u.id = f.owner_id WHERE u.org_id = ? AND f.kind != 'folder' ORDER BY f.size + versions_size DESC LIMIT 25`).all(orgId)
+      .map((f) => ({ ...f, trashed: !!f.trashed }));
+    res.json({ used: orgStorageUsed(orgId), quota_mb: org.quota_mb || null, people, largest });
+  });
+
   // ---- platform owner: all companies ----
   r.use(requireSuper);
 

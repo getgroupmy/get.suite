@@ -6,6 +6,7 @@ import { useAuth } from '../../App.jsx';
 import EmailAdmin from './EmailAdmin.jsx';
 import SecurityAdmin from './SecurityAdmin.jsx';
 import ActivityAdmin from './ActivityAdmin.jsx';
+import StorageAdmin from './StorageAdmin.jsx';
 import { useMailStatus } from '../../mailStatus.js';
 
 export default function Admin() {
@@ -13,7 +14,7 @@ export default function Admin() {
   const [tab, setTab] = useState('users');
   const [orgId, setOrgId] = useState(user.org_id); // which company the Users tab shows
   const mail = useMailStatus();
-  const tabs = [['users', 'Users'], ...(mail?.enabled ? [['email', 'Email']] : []), ['company', 'Company settings'], ['activity', 'Activity'], ...(user.is_super ? [['companies', 'All companies'], ['security', 'Security']] : [])];
+  const tabs = [['users', 'Users'], ...(mail?.enabled ? [['email', 'Email']] : []), ['company', 'Company settings'], ['activity', 'Activity'], ['storage', 'Storage'], ...(user.is_super ? [['companies', 'All companies'], ['security', 'Security']] : [])];
 
   return (
     <div className="page">
@@ -27,6 +28,7 @@ export default function Admin() {
       {tab === 'email' && <EmailAdmin orgId={orgId} orgPicker={user.is_super ? <OrgPicker orgId={orgId} setOrgId={setOrgId} /> : null} />}
       {tab === 'company' && <CompanySettings />}
       {tab === 'activity' && <ActivityAdmin orgId={orgId} orgPicker={user.is_super ? <OrgPicker orgId={orgId} setOrgId={setOrgId} /> : null} />}
+      {tab === 'storage' && <StorageAdmin orgId={user.is_super ? orgId : null} orgPicker={user.is_super ? <OrgPicker orgId={orgId} setOrgId={setOrgId} /> : null} />}
       {tab === 'security' && <SecurityAdmin />}
       {tab === 'companies' && <Companies onManageUsers={(id) => { setOrgId(id); setTab('users'); }} />}
     </div>

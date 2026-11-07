@@ -1255,3 +1255,9 @@ button.rule-sample.on { outline: 2px solid var(--accent); outline-offset: 1px; }
 .deck-preview { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
 .deck-preview-slide { display: flex; flex-direction: column; gap: 4px; }
 @media (max-width: 700px) { .versions { grid-template-columns: 1fr; } .versions-list { border-right: 0; padding-right: 0; max-height: 30vh; } }
+
+/* Admin: storage */
+.usage-bar { height: 8px; border-radius: 4px; background: var(--surface-2); overflow: hidden; }
+.usage-bar > div { height: 100%; background: var(--accent); border-radius: 4px; }
+.usage-bar.warn > div { background: var(--danger); }
+.files .num { text-align: right; white-space: nowrap; }

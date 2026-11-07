@@ -1290,3 +1290,23 @@ test('named versions: name the current state, name or un-name an earlier one, se
   await login(other, 'verpal@acme.com');
   assert.equal((await other('PATCH', `/api/files/${d.id}/versions/${named.body.id}`, { label: 'x' })).status, 404, 'not for people without access');
 });
+
+test('storage report: per person (files, versions, trash), largest files, admins only', async () => {
+  const p = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'hoarder', domain: 'acme.com', name: 'Hal Hoarder', password: 'password123' })).status, 201);
+  await login(p, 'hoarder@acme.com');
+  const big = Buffer.alloc(300_000, 7);
+  const f = (await p('POST', '/api/files/upload?name=huge-scan.bin', big, { raw: true })).body;
+  await p('POST', `/api/files/${f.id}/versions?name=huge-scan.bin`, Buffer.alloc(100_000, 1), { raw: true }); // the 300 KB becomes a version
+  const t = (await p('POST', '/api/files/upload?name=old.bin', Buffer.alloc(50_000, 2), { raw: true })).body;
+  await p('PATCH', `/api/files/${t.id}`, { trashed: true });
+  const r = (await owner('GET', '/api/orgs/current/storage')).body;
+  const hal = r.people.find((x) => x.username === 'hoarder@acme.com');
+  assert.deepEqual([hal.files, hal.versions, hal.trash, hal.count, hal.total], [100_000, 300_000, 50_000, 2, 450_000]);
+  assert.ok(r.used >= 450_000);
+  const top = r.largest.find((x) => x.id === f.id);
+  assert.equal(top.versions_size, 300_000);
+  assert.equal(top.owner_name, 'Hal Hoarder');
+  assert.ok(r.largest.find((x) => x.id === t.id).trashed);
+  assert.equal((await p('GET', '/api/orgs/current/storage')).status, 403);
+});
