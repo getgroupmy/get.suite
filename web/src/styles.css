@@ -1432,3 +1432,6 @@ button.rule-sample.on { outline: 2px solid var(--accent); outline-offset: 1px; }
 .footnote-print { display: none; }
 @media print { .paper .footnotes { border-color: #999; } .footnote-input { display: none; } .footnote-print { display: inline; } .paper .tiptap sup.footnote-ref { color: inherit; } }
 .reader-head .unsub { margin-left: 8px; }
+/* Contacts: merging duplicates */
+.dup-group { border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; margin: 0; display: grid; gap: 4px; }
+.dup-row { display: flex; align-items: center; gap: 10px; padding: 4px 0; cursor: pointer; }

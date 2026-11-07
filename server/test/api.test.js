@@ -1524,6 +1524,33 @@ test('drive activity: who made, edited, renamed, moved, shared, trashed and rest
   assert.deepEqual((await a('GET', `/api/files/${doc.id}/activity`)).body[0].details, { added: [], removed: ['Act Ben'] });
 });
 
+test('contacts: duplicates found by email, phone or name; merging keeps one with everything', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['dupa', 'Dup Ann'], ['dupb', 'Dup Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'dupa@acme.com');
+  await login(b, 'dupb@acme.com');
+  const add = async (c) => (await a('POST', '/api/contacts', c)).body;
+  const k1 = await add({ name: 'Kim Park', email: 'kim@park.example', company: 'Acme', notes: 'Met at expo' });
+  const k2 = await add({ name: 'K. Park', email: 'KIM@park.example', phone: '+44 7700 900123', birthday: '1990-05-01' });
+  const k3 = await add({ name: 'Kimberly Park', email: 'kim.park@gmail.example', phone: '07700 900 123' });
+  await add({ name: 'Somebody Else', email: 'else@x.example' });
+  const groups = (await a('GET', '/api/contacts/duplicates')).body;
+  assert.equal(groups.length, 1);
+  assert.deepEqual(groups[0].map((c) => c.id).sort(), [k1.id, k2.id, k3.id].sort());
+  assert.deepEqual((await b('GET', '/api/contacts/duplicates')).body, [], 'only your own');
+  assert.equal((await b('POST', '/api/contacts/merge', { keep: k1.id, ids: [k2.id] })).status, 404, 'not theirs');
+  assert.equal((await a('POST', '/api/contacts/merge', { keep: k1.id, ids: [] })).status, 400);
+  const m = (await a('POST', '/api/contacts/merge', { keep: k1.id, ids: [k2.id, k3.id] })).body;
+  assert.equal(m.id, k1.id);
+  assert.equal(m.name, 'Kim Park');
+  assert.equal(m.phone, '+44 7700 900123');
+  assert.equal(m.birthday, '1990-05-01');
+  assert.equal(m.notes, 'Met at expo\nAlso email: kim.park@gmail.example');
+  const left = (await a('GET', '/api/contacts')).body.map((c) => c.name).sort();
+  assert.deepEqual(left, ['Kim Park', 'Somebody Else']);
+  assert.deepEqual((await a('GET', '/api/contacts/duplicates')).body, []);
+});
+
 test('chat polls: ask, vote (one or several), change your vote, close; checked options', async () => {
   const a = client(), b = client(), c = client();
   for (const [local, name] of [['polla', 'Poll Ann'], ['pollb', 'Poll Ben'], ['pollc', 'Poll Cat']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);

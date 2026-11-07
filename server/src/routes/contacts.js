@@ -1,10 +1,11 @@
 import { Router } from 'express';
-import { q } from '../db.js';
+import { q, tx } from '../db.js';
 import express from 'express';
 import { uid, now, str, notFound, bad } from '../util.js';
 import { contactsFromFile, contactsToCsv, contactsToVcf, MAX_IMPORT } from '../contactfiles.js';
 import { canReach } from '../tenancy.js';
 import { birthdayOf, birthdaysBetween } from '../birthday.js';
+import { duplicateGroups, mergedFields } from '../contactmerge.js';
 
 const FIELDS = { name: 200, email: 200, phone: 50, company: 200, title: 200, address: 500, website: 300, notes: 5000 };
 const COLS = [...Object.keys(FIELDS), 'birthday'];
@@ -160,6 +161,30 @@ export default function contactRoutes() {
     res.setHeader('Content-Type', csv ? 'text/csv; charset=utf-8' : 'text/vcard; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="contacts.${csv ? 'csv' : 'vcf'}"`);
     res.send(csv ? contactsToCsv(list) : contactsToVcf(list));
+  });
+
+  // Contacts that look like the same person (same email, phone or name), to merge.
+  r.get('/duplicates', (req, res) => {
+    res.json(duplicateGroups(q('SELECT * FROM contacts WHERE owner_id = ?').all(req.user.id)));
+  });
+
+  // Merge contacts into one: `keep` stays (its empty fields filled from the others, anything that
+  // differs noted), the others are deleted. Phones see the change on their next sync.
+  r.post('/merge', (req, res) => {
+    const ids = [...new Set((Array.isArray(req.body.ids) ? req.body.ids : []).map(String))];
+    const keepId = String(req.body.keep || '');
+    if (!ids.includes(keepId)) ids.unshift(keepId);
+    if (ids.length < 2 || ids.length > 50) throw bad('Choose 2 to 50 contacts to merge');
+    const rows = ids.map((id) => q('SELECT * FROM contacts WHERE id = ? AND owner_id = ?').get(id, req.user.id));
+    if (rows.some((x) => !x)) throw notFound('A contact is gone');
+    const keep = rows.find((x) => x.id === keepId);
+    const others = rows.filter((x) => x.id !== keepId);
+    const m = mergedFields(keep, others);
+    tx(() => {
+      q(`UPDATE contacts SET ${COLS.map((k) => `${k} = ?`).join(', ')} WHERE id = ?`).run(...COLS.map((k) => m[k] ?? null), keep.id);
+      for (const o of others) q('DELETE FROM contacts WHERE id = ?').run(o.id);
+    });
+    res.json(q('SELECT * FROM contacts WHERE id = ?').get(keep.id));
   });
 
   r.post('/', (req, res) => {

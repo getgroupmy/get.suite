@@ -21,6 +21,7 @@ export default function Contacts() {
   const [filter, setFilter] = useState(params.get('q') || ''); // ?q= from a birthday on the calendar
   const [editing, setEditing] = useState(null);
   const [deleting, setDeleting] = useState(null);
+  const [merging, setMerging] = useState(false);
 
   const load = () => get('/contacts').then(setContacts).catch((e) => toast(e.message, 'error'));
   // Import a .vcf or .csv from a phone, Gmail or Outlook; people already here are skipped.
@@ -55,6 +56,7 @@ export default function Contacts() {
           { label: 'vCard (.vcf): phones, Outlook, Apple', icon: 'download', onClick: () => { window.location.href = '/api/contacts/export?format=vcf'; } },
           { label: 'CSV: Gmail, spreadsheets', icon: 'download', onClick: () => { window.location.href = '/api/contacts/export?format=csv'; } },
         ]} />
+        <button className="btn" onClick={() => setMerging(true)} title="Find contacts that are the same person and merge them">Merge duplicates</button>
         <button className="btn primary" onClick={() => setEditing({})}><Icon name="plus" size={18} /> New contact</button>
       </div>
       <div className="row wrap">
@@ -88,10 +90,51 @@ export default function Contacts() {
           </tbody>
         </table>
       )}
+      {merging && <DuplicatesDialog onClose={() => setMerging(false)} onMerged={load} />}
       {editing && <ContactDialog contact={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />}
       {deleting && <ConfirmModal title="Delete contact?" message={`Delete ${deleting.name}?`} onClose={() => setDeleting(null)}
         onConfirm={async () => { await del(`/contacts/${deleting.id}`); load(); }} />}
     </div>
+  );
+}
+
+/** Contacts that look like the same person, in groups: choose which to keep and merge each group. */
+function DuplicatesDialog({ onClose, onMerged }) {
+  const toast = useToast();
+  const [groups, setGroups] = useState(null);
+  const [keep, setKeep] = useState({}); // group index → id to keep
+  const find = () => get('/contacts/duplicates').then((g) => { setGroups(g); setKeep({}); }).catch((e) => toast(e.message, 'error'));
+  useEffect(() => { find(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const merge = async (g, i) => {
+    const keepId = keep[i] || g[0].id;
+    try {
+      const m = await post('/contacts/merge', { keep: keepId, ids: g.map((c) => c.id) });
+      toast(`Merged ${g.length} contacts into ${m.name}`);
+      onMerged();
+      find();
+    } catch (e) { toast(e.message, 'error'); }
+  };
+  const line = (c) => [c.email, c.phone, [c.title, c.company].filter(Boolean).join(' · ')].filter(Boolean).join(' · ') || 'No details';
+  return (
+    <Modal wide title="Merge duplicates" onClose={onClose} footer={<button className="btn" onClick={onClose}>Close</button>}>
+      {groups === null ? <p className="muted">Looking…</p> : !groups.length ? <p className="muted">No duplicates: no two contacts share an email address, phone number or name.</p> : (
+        <div className="stack">
+          <p className="muted small" style={{ margin: 0 }}>These contacts share an email address, phone number or name. Merging keeps the one you choose, fills in what it's missing from the others, and adds anything different (another email or phone) to its notes. The others are deleted.</p>
+          {groups.map((g, i) => (
+            <fieldset key={g.map((c) => c.id).join()} className="dup-group" aria-label={`Duplicates of ${g[0].name}`}>
+              {g.map((c) => (
+                <label key={c.id} className="dup-row">
+                  <input type="radio" name={`keep-${i}`} checked={(keep[i] || g[0].id) === c.id} onChange={() => setKeep({ ...keep, [i]: c.id })} aria-label={`Keep ${c.name}`} />
+                  <Avatar name={c.name} size={28} />
+                  <span className="grow"><strong>{c.name}</strong><br /><span className="muted small">{line(c)}</span></span>
+                </label>
+              ))}
+              <div className="row end"><button type="button" className="btn primary small" onClick={() => merge(g, i)}>Merge {g.length}</button></div>
+            </fieldset>
+          ))}
+        </div>
+      )}
+    </Modal>
   );
 }
 
