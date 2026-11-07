@@ -59,3 +59,13 @@ test('presenting passes over skipped slides; slide settings change one slide', a
   assert.deepEqual(setSlide(next, 0, { transition: '' }).slides[0], { id: 'a' });
   assert.equal(deck.slides[0].transition, undefined, 'not changed in place');
 });
+
+import { newTable, resizeTable, setCell } from './slidemath.js';
+test('tables: new, grow and shrink keeping text, set a cell, limits', () => {
+  assert.deepEqual(newTable(2, 3), [['', '', ''], ['', '', '']]);
+  const t = setCell(newTable(2, 2), 1, 0, 'x');
+  assert.deepEqual(t, [['', ''], ['x', '']]);
+  assert.deepEqual(resizeTable(t, 3, 1), [[''], ['x'], ['']]);
+  assert.deepEqual(resizeTable(t, 0, 99)[0].length, 10);
+  assert.equal(resizeTable(t, 0, 1).length, 1);
+});

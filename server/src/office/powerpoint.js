@@ -101,6 +101,20 @@ export async function deckFromPowerPoint(buffer, { savePicture }) {
         ...({ ctr: { align: 'center' }, r: { align: 'right' } }[algn] || {}),
       });
     }
+    // Tables: each cell's text (the first row as headings when PowerPoint marks it so).
+    for (const gf of deep(tree, P, 'graphicFrame')) {
+      const tbl = deep(gf, A, 'tbl')[0];
+      const xf = kid(gf, P, 'xfrm'), off = kid(xf, A, 'off'), ext = kid(xf, A, 'ext');
+      if (!tbl || !off || !ext) continue;
+      const cells = kids(tbl, A, 'tr').map((tr) => kids(tr, A, 'tc').map((tc) => deep(tc, A, 'p').map((p) => deep(p, A, 't').map((t) => t.text).join('')).join('\n')));
+      if (!cells.length || !cells[0].length) continue;
+      const cols = Math.max(...cells.map((r) => r.length));
+      const rPr = deep(tbl, A, 'rPr')[0];
+      const pt = Number(attr(rPr, 'sz')) / 100 || 14;
+      items.push({ id: id(), type: 'table', cells: cells.map((r) => [...r, ...Array(cols - r.length).fill('')]).slice(0, 20).map((r) => r.slice(0, 10)),
+        header: attr(kid(tbl, A, 'tblPr'), 'firstRow') === '1' || kids(kids(tbl, A, 'tr')[0], A, 'tc').every((tc) => deep(tc, A, 'rPr').some((r) => attr(r, 'b') === '1')), size: Math.max(8, Math.round((pt / 72) * 1000 / widthIn)),
+        x: (Number(attr(off, 'x')) / W) * 100, y: (Number(attr(off, 'y')) / H) * 100, w: (Number(attr(ext, 'cx')) / W) * 100, h: (Number(attr(ext, 'cy')) / H) * 100 });
+    }
     const bg = colorIn(deep(xml, P, 'bg')[0]);
     // Speaker notes: the body text of the slide's notes page.
     const notesFile = [...rels.values()].find((t) => t.includes('notesSlides/'));
@@ -145,6 +159,11 @@ export async function powerPointFromDeck(deck, { pictureData, title = 'Presentat
           line: { color: color(it.fill || 'text', theme.text), width: 3, ...(it.shape === 'arrow' && { endArrowType: 'triangle' }) } });
       } else if (it.type === 'shape') {
         slide.addShape({ rect: pptx.ShapeType.rect, round: pptx.ShapeType.roundRect, ellipse: pptx.ShapeType.ellipse }[it.shape] || pptx.ShapeType.rect, { ...pos, fill: { color: color(it.fill || 'accent', theme.accent) }, line: { type: 'none' } });
+      } else if (it.type === 'table' && it.cells?.length) {
+        const fontSize = Math.round((it.size || 18) * Win * 72 / 1000);
+        const rows = it.cells.map((r, ri) => r.map((text) => ({ text: String(text ?? ''), options: { fontSize, color: color(null, theme.text), fontFace: 'Arial',
+          ...(it.header && ri === 0 && { bold: true, fill: { color: color('accent', theme.accent) }, color: color(theme.bg, theme.bg) }) } })));
+        slide.addTable(rows, { ...pos, colW: Array(it.cells[0].length).fill(pos.w / it.cells[0].length), border: { type: 'solid', pt: 1, color: color(null, theme.text) }, valign: 'middle', autoPage: false });
       } else if (it.type === 'image') {
         const pic = await pictureData?.(it.fileId);
         if (pic) slide.addImage({ ...pos, data: `data:${pic.mime};base64,${pic.data.toString('base64')}` });

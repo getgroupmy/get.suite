@@ -1463,3 +1463,9 @@ button.rule-sample.on { outline: 2px solid var(--accent); outline-offset: 1px; }
 /* Profile photos */
 img.avatar.photo { object-fit: cover; border-radius: 50%; display: inline-block; flex: none; background: var(--surface-2); }
 .profile-photo { gap: 14px; align-items: center; }
+/* Slides: tables */
+.slide-table { width: 100%; height: 100%; border-collapse: collapse; table-layout: fixed; }
+.slide-table td, .slide-table th { background: var(--cell); border: 1px solid color-mix(in srgb, var(--line) 45%, transparent); padding: 0.3em 0.5em; text-align: left; vertical-align: middle; overflow: hidden; overflow-wrap: anywhere; font-weight: 400; }
+.slide-table.with-header tr:first-child th { background: var(--head); color: var(--head-text); font-weight: 700; }
+.slide-cell { width: 100%; border: 0; background: transparent; color: inherit; font: inherit; padding: 0; outline: none; }
+.slide-cell:focus { box-shadow: inset 0 -2px 0 var(--accent); }

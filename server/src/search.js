@@ -38,7 +38,7 @@ export function sheetText(json) {
 
 /** A presentation's text boxes, slide by slide. */
 export function slidesText(json) {
-  return (json?.slides || []).map((s) => (s.items || []).filter((it) => it.type === 'text').map((it) => it.text || '').join('\n')).join('\n');
+  return (json?.slides || []).map((s) => (s.items || []).map((it) => (it.type === 'text' ? it.text || '' : it.type === 'table' ? (it.cells || []).flat().join(' ') : '')).filter(Boolean).join('\n')).join('\n');
 }
 
 /** The words in one file (a row of `files`), or '' when there's nothing to read. */

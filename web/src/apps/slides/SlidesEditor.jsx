@@ -16,8 +16,7 @@ import { useUndo, undoKey } from '../useUndo.js';
 import {
   THEMES, LAYOUTS, newId, clampBox, moveBox, resizeBox, addSlide, duplicateSlide, removeSlide, moveSlide,
   updateItem, addItem, removeItem, restack, pictureBox,
-  TRANSITIONS, setSlide, stepSlide, firstShown,
-} from './slidemath.js';
+  TRANSITIONS, setSlide, stepSlide, firstShown, newTable, resizeTable, setCell } from './slidemath.js';
 
 const SIZES = [12, 14, 16, 18, 20, 24, 28, 32, 36, 40, 44, 54, 64, 72, 96];
 const TEXT_COLORS = [['', 'Theme text'], ['accent', 'Theme accent'], ['#202124', 'Black'], ['#ffffff', 'White'], ['#c5221f', 'Red'], ['#e37400', 'Orange'], ['#188038', 'Green'], ['#1a73e8', 'Blue'], ['#8430ce', 'Purple']];
@@ -181,6 +180,7 @@ export default function SlidesEditor() {
           <span className="sep" />
           <button type="button" className="tb" onClick={() => insert({ type: 'text', role: 'body', x: 30, y: 40, w: 40, h: 14, text: '', size: 24 })}>Text box</button>
           <button type="button" className="tb" onClick={() => pictureInput.current.click()}>Picture</button>
+          <button type="button" className="tb" onClick={() => insert({ type: 'table', x: 15, y: 25, w: 70, h: 40, size: 18, header: true, cells: newTable(3, 3) })}>Table</button>
           <Menu align="left" trigger={(p) => <button type="button" className="tb" {...p}>Shape ▾</button>} items={[
             { label: 'Rectangle', onClick: () => insert({ type: 'shape', shape: 'rect', x: 35, y: 35, w: 30, h: 30, fill: 'accent' }) },
             { label: 'Rounded rectangle', onClick: () => insert({ type: 'shape', shape: 'round', x: 35, y: 35, w: 30, h: 30, fill: 'accent' }) },
@@ -203,6 +203,16 @@ export default function SlidesEditor() {
               <button key={a} type="button" className={`tb ${(item.align || 'left') === a ? 'on' : ''}`} aria-pressed={(item.align || 'left') === a}
                 aria-label={{ left: 'Align left', center: 'Centre', right: 'Align right' }[a]} onClick={() => setItem({ align: a })}>{{ left: '⯇', center: '≡', right: '⯈' }[a]}</button>
             ))}
+          </>}
+          {item?.type === 'table' && <>
+            <select className="tb-select" aria-label="Text size" value={item.size || 18} onChange={(e) => setItem({ size: Number(e.target.value) })}>
+              {[...new Set([...SIZES, item.size || 18])].sort((a, b) => a - b).map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+            <button type="button" className="tb" aria-label="Add a row" title="Add a row at the bottom" disabled={item.cells.length >= 20} onClick={() => setItem({ cells: resizeTable(item.cells, item.cells.length + 1, item.cells[0].length) })}>+ Row</button>
+            <button type="button" className="tb" aria-label="Remove the last row" title="Remove the last row" disabled={item.cells.length <= 1} onClick={() => setItem({ cells: resizeTable(item.cells, item.cells.length - 1, item.cells[0].length) })}>− Row</button>
+            <button type="button" className="tb" aria-label="Add a column" title="Add a column at the right" disabled={item.cells[0].length >= 10} onClick={() => setItem({ cells: resizeTable(item.cells, item.cells.length, item.cells[0].length + 1) })}>+ Column</button>
+            <button type="button" className="tb" aria-label="Remove the last column" title="Remove the last column" disabled={item.cells[0].length <= 1} onClick={() => setItem({ cells: resizeTable(item.cells, item.cells.length, item.cells[0].length - 1) })}>− Column</button>
+            <button type="button" className={`tb ${item.header ? 'on' : ''}`} aria-pressed={!!item.header} aria-label="Heading row" title="First row as headings" onClick={() => setItem({ header: !item.header })}>Heading row</button>
           </>}
           {item?.type === 'shape' && (item.shape === 'line' || item.shape === 'arrow') && (
             <select className="tb-select" aria-label="Direction" value={item.dir || 'h'} onChange={(e) => setItem({ dir: e.target.value })}>
@@ -343,6 +353,25 @@ export function SlideView({ slide, theme, deckId, editable, selected, editing, o
           // before the save, the person who added it opens the picture file directly.
           inner = <img src={`/api/files/${deckId}/pictures/${it.fileId}`} alt={it.name || ''} draggable={false}
             onError={(e) => { const direct = `/api/files/${it.fileId}/raw`; if (!e.currentTarget.src.endsWith(direct)) e.currentTarget.src = direct; }} />;
+        } else if (it.type === 'table') {
+          const typing = editable && editing === it.id;
+          inner = (
+            <table className={`slide-table ${it.header ? 'with-header' : ''}`} style={{ fontSize: `calc(${it.size || 18} * 0.1cqw)`, '--line': theme.text, '--head': theme.accent, '--head-text': theme.bg, '--cell': slide.bg || theme.bg }}>
+              <tbody>
+                {(it.cells || []).map((row, r) => (
+                  <tr key={r}>{row.map((text, c) => {
+                    const Cell = it.header && r === 0 ? 'th' : 'td';
+                    return <Cell key={c}>{typing
+                      ? <input className="slide-cell" defaultValue={text} aria-label={`Row ${r + 1}, column ${c + 1}`} autoFocus={r === 0 && c === 0}
+                          onPointerDown={(e) => e.stopPropagation()}
+                          onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); onEdit(null); } }}
+                          onChange={(e) => onChange(it.id, { cells: setCell(it.cells, r, c, e.target.value) })} />
+                      : text}</Cell>;
+                  })}</tr>
+                ))}
+              </tbody>
+            </table>
+          );
         } else if (it.type === 'shape') {
           inner = it.shape === 'line' || it.shape === 'arrow'
             ? <LineShape arrow={it.shape === 'arrow'} dir={it.dir || 'h'} color={colorOf(it.fill, theme, theme.accent)} />
@@ -352,9 +381,9 @@ export function SlideView({ slide, theme, deckId, editable, selected, editing, o
           <div key={it.id} className={`slide-item ${it.type} ${isSel ? 'sel' : ''}`} data-item={it.id}
             style={peers?.has(it.id) ? { ...pos, boxShadow: `0 0 0 ${isSel ? 4 : 2}px ${peers.get(it.id).color}` } : pos}
             title={peers?.has(it.id) ? `${peers.get(it.id).name} is here` : undefined}
-            aria-label={editable ? `${it.type === 'text' ? (it.text ? `Text: ${it.text.slice(0, 40)}` : PLACEHOLDER[it.role] || 'Text box') : it.type === 'image' ? 'Picture' : 'Shape'}` : undefined}
+            aria-label={editable ? `${it.type === 'text' ? (it.text ? `Text: ${it.text.slice(0, 40)}` : PLACEHOLDER[it.role] || 'Text box') : it.type === 'image' ? 'Picture' : it.type === 'table' ? 'Table' : 'Shape'}` : undefined}
             onPointerDown={editable ? (e) => startDrag(e, it) : undefined}
-            onDoubleClick={editable && it.type === 'text' ? () => onEdit(it.id) : undefined}>
+            onDoubleClick={editable && (it.type === 'text' || it.type === 'table') ? () => onEdit(it.id) : undefined}>
             {inner}
             {isSel && editing !== it.id && HANDLES.map((h) => <span key={h} className={`handle ${h}`} aria-hidden="true" onPointerDown={(e) => startDrag(e, it, h)} />)}
           </div>

@@ -420,3 +420,17 @@ test('Word: footnotes go out as real footnotes and come back as markers with the
   const none = await JSZip.loadAsync(await wordFromDoc({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'x' }] }] }));
   assert.ok(!(await none.file('word/document.xml').async('string')).includes('footnoteReference'));
 });
+
+test('PowerPoint: tables go out and come back, with their cells and heading row', async () => {
+  const deck = { theme: 'light', slides: [{ id: 's1', items: [
+    { id: 't1', type: 'table', x: 10, y: 20, w: 60, h: 30, size: 18, header: true, cells: [['Region', 'Sales'], ['North', '120'], ['South & West', '95']] },
+  ] }] };
+  const buf = await powerPointFromDeck(deck);
+  const back = await deckFromPowerPoint(buf, { savePicture: async () => 'x' });
+  const t = back.slides[0].items.find((i) => i.type === 'table');
+  assert.ok(t, JSON.stringify(back.slides[0].items));
+  assert.deepEqual(t.cells, [['Region', 'Sales'], ['North', '120'], ['South & West', '95']]);
+  assert.equal(t.header, true);
+  assert.ok(Math.abs(t.x - 10) < 1 && Math.abs(t.w - 60) < 1, `${t.x} ${t.w}`);
+  assert.ok(Math.abs(t.size - 18) <= 1, String(t.size));
+});

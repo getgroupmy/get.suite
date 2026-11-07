@@ -124,3 +124,13 @@ export function stepSlide(deck, i, dir) {
 }
 /** The first slide to show from i on (i itself unless it's skipped and another follows). */
 export const firstShown = (deck, i) => (deck.slides[i]?.skip ? (stepSlide(deck, i, 1) !== i ? stepSlide(deck, i, 1) : i) : i);
+
+// ---- tables: { type: 'table', cells: [[text]], header, size }, at most 20 rows and 10 columns
+export const MAX_ROWS = 20, MAX_COLS = 10;
+export const newTable = (rows = 3, cols = 3) => Array.from({ length: rows }, () => Array(cols).fill(''));
+/** The cells with rows/columns added at the end or taken off the end (keeping what's typed in the rest). */
+export function resizeTable(cells, rows, cols) {
+  rows = Math.max(1, Math.min(MAX_ROWS, rows)); cols = Math.max(1, Math.min(MAX_COLS, cols));
+  return Array.from({ length: rows }, (_, r) => Array.from({ length: cols }, (_, c) => cells[r]?.[c] ?? ''));
+}
+export const setCell = (cells, r, c, text) => cells.map((row, i) => (i === r ? row.map((v, j) => (j === c ? text : v)) : row));
