@@ -320,7 +320,7 @@ export default function Mail() {
       <section className="mail-reader">
         {openUid ? (
           <Reader key={`${folder}:${openUid}`} folder={folder} uid={openUid} special={special} onSnoozeCustom={(uids) => setSnoozing(uids)} labels={labels} onNewLabel={() => setLabelDialog({})}
-            onClose={() => go(folder)} onChanged={refresh} act={act} onCompose={(init) => setCompose(withSignature(init, 'reply'))}
+            onClose={() => go(folder)} onOpen={(f, u) => go(f, u)} onChanged={refresh} act={act} onCompose={(init) => setCompose(withSignature(init, 'reply'))}
             onFilter={(from) => setFilters({ startWith: { name: `From ${from}`, enabled: true, match: 'all', conditions: [{ field: 'from', op: 'contains', value: from }], actions: { stop: true } } })} />
         ) : <Empty icon="mail" title="No message selected" />}
       </section>
@@ -368,7 +368,7 @@ export default function Mail() {
   );
 }
 
-function Reader({ folder, uid, special, onClose, onChanged, act, onCompose, onFilter, onSnoozeCustom, labels = [], onNewLabel }) {
+function Reader({ folder, uid, special, onClose, onOpen, onChanged, act, onCompose, onFilter, onSnoozeCustom, labels = [], onNewLabel }) {
   const mailStatus = useMailStatus();
   const toast = useToast();
   const { user } = useAuth();
@@ -459,6 +459,7 @@ function Reader({ folder, uid, special, onClose, onChanged, act, onCompose, onFi
             } catch (e) { toast(e.message, 'error'); }
           }} />
       )}
+      <Conversation folder={folder} uid={uid} date={m.date} onOpen={onOpen} />
       <div className="reader-head">
         <Avatar name={who(m.from)} size={40} email={m.from?.address} />
         <div className="grow">
@@ -502,6 +503,36 @@ function Reader({ folder, uid, special, onClose, onChanged, act, onCompose, onFi
 }
 
 /** Beside the sender: "Add to contacts", or that they're already a contact (or a colleague). */
+/** The rest of the conversation (same subject without Re:/Fwd:, someone in common), earlier and later, from any folder. */
+function Conversation({ folder, uid, date, onOpen }) {
+  const [list, setList] = useState(null);
+  const [open, setOpen] = useState(false);
+  useEffect(() => { get(`/mail/messages/${uid}/conversation?folder=${enc(folder)}`).then(setList).catch(() => setList([])); }, [folder, uid]);
+  if (!list?.length) return null;
+  const earlier = list.filter((x) => (x.date || 0) <= (date || 0)).length;
+  const later = list.length - earlier;
+  const summary = [earlier && `${earlier} earlier`, later && `${later} later`].filter(Boolean).join(', ');
+  return (
+    <div className="conversation">
+      <button type="button" className="link-btn small" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? '▾' : '▸'} Conversation: {summary} message{list.length === 1 ? '' : 's'}</button>
+      {open && (
+        <ol className="conversation-list" aria-label="Conversation">
+          {list.map((x) => (
+            <li key={`${x.folder}:${x.uid}`} className={x.seen ? '' : 'unread'}>
+              <button type="button" onClick={() => onOpen?.(x.folder, x.uid)}>
+                <strong>{who(x.from)}</strong>
+                <span className="muted small grow ellipsis">{x.subject}</span>
+                {x.folder !== folder && <span className="pill small">{x.folder === 'INBOX' ? 'Inbox' : x.folder}</span>}
+                <span className="muted small">{new Date(x.date).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</span>
+              </button>
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
+  );
+}
+
 function SenderContact({ from }) {
   const toast = useToast();
   const [state, setState] = useState(null); // { contact, colleague }

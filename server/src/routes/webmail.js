@@ -14,6 +14,7 @@ import { normalizeRules } from '../mail/sieve.js';
 import { followedFolders, setFollowed, MAX_FOLLOWED } from '../mail/notify.js';
 import { forwardHtml } from '../mail/forwardhtml.js';
 import { unsubscribeOptions, oneClickUnsubscribe } from '../mail/unsubscribe.js';
+import { baseSubject, shareSomeone } from '../mail/thread.js';
 
 const PAGE = 50;
 const OUTBOX = path.join(DATA_DIR, 'outbox');
@@ -587,6 +588,39 @@ export default function webmailRoutes() {
         return u.oneClick ? { how: 'one-click' } : u.mailto ? { how: 'email', to: u.mailto.to } : { how: 'link', url: u.url };
       })(),
     });
+  });
+
+  // The rest of a message's conversation: messages with the same subject (without Re:/Fwd:) that share
+  // someone with it, in the Inbox, Sent, Archive and the message's own folder, oldest first.
+  r.get('/messages/:uid/conversation', async (req, res) => {
+    const folder = String(req.query.folder || 'INBOX');
+    const uid = Number(req.params.uid);
+    const me = await withFolder(req.user, folder, async (client) => (await client.fetchOne(String(uid), { envelope: true }, { uid: true }))?.envelope);
+    if (!me) throw notFound('Message not found');
+    const base = baseSubject(me.subject);
+    if (!base) return res.json([]);
+    const self = { from: addr(me.from?.[0]), to: (me.to || []).map(addr), cc: (me.cc || []).map(addr) };
+    const folders = [...new Set(['INBOX', folder, ...(await withClient(req.user, async (c) => Promise.all(['\\Sent', '\\Archive'].map((u) => specialFolder(c, u)))))].filter(Boolean))];
+    const out = [];
+    for (const f of folders) {
+      await withFolder(req.user, f, async (client) => {
+        // The server finds candidates by a word of the subject; the exact comparison is ours.
+        const word = base.split(' ').sort((x, y) => y.length - x.length)[0];
+        const uids = ((await client.search({ subject: word }, { uid: true })) || []).sort((x, y) => y - x).slice(0, 200);
+        if (!uids.length) return;
+        for await (const m of client.fetch(uids.join(','), { uid: true, envelope: true, flags: true, internalDate: true }, { uid: true })) {
+          if (f === folder && m.uid === uid) continue;
+          const env = m.envelope || {};
+          const it = { folder: f, uid: m.uid, subject: env.subject || '', from: addr(env.from?.[0]), to: (env.to || []).map(addr), cc: (env.cc || []).map(addr),
+            date: (env.date || m.internalDate)?.valueOf?.() ?? null, seen: m.flags.has('\\Seen'), messageId: env.messageId || null };
+          if (baseSubject(it.subject) === base && shareSomeone(self, it)) out.push(it);
+        }
+      }).catch(() => {}); // a folder that isn't there is skipped
+    }
+    // The same message in two folders (sent to yourself) counts once.
+    const seen = new Set();
+    const list = out.filter((m) => !m.messageId || !seen.has(m.messageId) && seen.add(m.messageId)).sort((a, b) => (a.date || 0) - (b.date || 0)).slice(-50);
+    res.json(list.map(({ cc, messageId, ...m }) => m));
   });
 
   // Unsubscribe from the list a message came from: a one-click request to the list's web address,

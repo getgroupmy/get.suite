@@ -1069,3 +1069,22 @@ test('unsubscribe: a list with a mailto gets an email from you; one-click to the
   const plain = (await inbox(olivia)).find((m) => m.subject === 'Unsubscribe weekly');
   assert.equal((await olivia('GET', `/api/mail/messages/${plain.uid}?folder=INBOX`)).body.unsubscribe, null);
 });
+
+test('conversation: the other messages with the same subject, your replies from Sent included, oldest first', async () => {
+  const t = nodemailer.createTransport({ host: process.env.MAIL_IMAP_HOST, port: 25, secure: false, ignoreTLS: true, name: 'test.acme.com' });
+  await t.sendMail({ from: 'Gina Globex <gina@globex.com>', to: 'olivia@acme.com', subject: 'Quote for chairs', text: 'Here is the quote.', date: new Date(Date.now() - 3 * 60e3) });
+  await eventually(async () => (await inbox(olivia)).some((m) => m.subject === 'Quote for chairs'), 20000);
+  const sent = await olivia('POST', '/api/mail/send', { to: 'gina@globex.com', subject: 'Re: Quote for chairs', text: 'Can you do 10% off?' });
+  assert.equal(sent.status, 200, JSON.stringify(sent.body));
+  await new Promise((r) => setTimeout(r, 1100));
+  await t.sendMail({ from: 'Gina Globex <gina@globex.com>', to: 'olivia@acme.com', subject: 'RE: Quote for chairs', text: 'Yes, 10% off.' });
+  await t.sendMail({ from: 'Gina Globex <gina@globex.com>', to: 'olivia@acme.com', subject: 'Quote for desks', text: 'Not the same.' });
+  await eventually(async () => (await inbox(olivia)).some((m) => m.subject === 'RE: Quote for chairs') && (await inbox(olivia)).some((m) => m.subject === 'Quote for desks'), 20000);
+  const last = (await inbox(olivia)).find((m) => m.subject === 'RE: Quote for chairs');
+  const conv = (await olivia('GET', `/api/mail/messages/${last.uid}/conversation?folder=INBOX`)).body;
+  assert.deepEqual(conv.map((m) => m.subject), ['Quote for chairs', 'Re: Quote for chairs'], JSON.stringify(conv));
+  assert.equal(conv[0].folder, 'INBOX');
+  assert.notEqual(conv[1].folder, 'INBOX', 'your reply, from Sent');
+  const desk = (await inbox(olivia)).find((m) => m.subject === 'Quote for desks');
+  assert.deepEqual((await olivia('GET', `/api/mail/messages/${desk.uid}/conversation?folder=INBOX`)).body, []);
+});
