@@ -409,6 +409,9 @@ function Reader({ folder, uid, special, onClose, onOpen, onChanged, act, onCompo
   const replyTo = m.replyTo.length ? m.replyTo : m.from ? [m.from] : [];
   const others = [...m.to, ...m.cc].filter((a) => !mine.includes(a.address) && a.address !== user.username && !replyTo.some((r) => r.address === a.address));
   const done = async (p, b, msg) => { if (await act(p, { uids: [uid], ...b }, msg)) onClose(); };
+  const answerReceipt = async (send) => {
+    try { await post(`/mail/messages/${uid}/receipt`, { folder, send }); setM({ ...m, receipt: null }); if (send) toast(`Read receipt sent to ${m.receipt.to}`); } catch (e) { toast(e.message, 'error'); }
+  };
   const saveToDrive = async (indexes) => {
     try {
       const r = await post(`/mail/messages/${uid}/attachments/save`, { folder, ...(indexes && { indexes }) });
@@ -494,6 +497,13 @@ function Reader({ folder, uid, special, onClose, onOpen, onChanged, act, onCompo
         </div>
         <span className="muted small nowrap">{m.date ? new Date(m.date).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : ''}</span>
       </div>
+      {m.receipt && (
+        <div className="banner receipt-ask" role="region" aria-label="Read receipt">
+          <span className="grow">{who(m.from)} asked to be told when you've opened this message.</span>
+          <button type="button" className="btn small" onClick={() => answerReceipt(true)}>Send receipt</button>
+          <button type="button" className="btn small" onClick={() => answerReceipt(false)}>Not now</button>
+        </div>
+      )}
       {m.html ? <HtmlBody html={m.html} images={images} onShowImages={() => setImages(true)} /> : <pre className="mail-text">{m.text}</pre>}
       {m.attachments.length > 0 && (
         <ul className="att-list">
@@ -660,6 +670,7 @@ function Compose({ initial, signatures = [], onClose, onSent, onDraftsChanged })
     return base;
   });
   const [showCc, setShowCc] = useState(!!(initial.cc || initial.bcc));
+  const [receipt, setReceipt] = useState(false); // ask for a read receipt
   const [files, setFiles] = useState(initial.files || []);
   // Attachments carried over from a forwarded message (attached by the server from the original).
   const [fwd, setFwd] = useState(initial.forwardOf || null);
@@ -744,7 +755,7 @@ function Compose({ initial, signatures = [], onClose, onSent, onDraftsChanged })
   const pendingSend = useRef(null); // the send to do when the wait is over (or the page is left)
   useEffect(() => () => { pendingSend.current?.(); }, []); // leaving now sends straight away
   const [scheduling, setScheduling] = useState(false);
-  const payload = () => ({ ...f, html: f.text.trim() ? emailHtml(f.html) : '', attachments: files.map((x) => x.id), draftUid: draftUid.current, forwardOf: fwd });
+  const payload = () => ({ ...f, html: f.text.trim() ? emailHtml(f.html) : '', attachments: files.map((x) => x.id), draftUid: draftUid.current, forwardOf: fwd, receipt });
   const stopAutosave = async () => {
     closed.current = true;          // no more autosaves
     clearTimeout(timer.current);
@@ -851,6 +862,7 @@ function Compose({ initial, signatures = [], onClose, onSent, onDraftsChanged })
           </div>
           <button type="button" className="icon-btn" aria-label="Attach from computer" title="Attach from computer" onClick={() => fileInput.current.click()}><Icon name="attach" /></button>
           <button type="button" className="icon-btn" aria-label="Attach from Drive" title="Attach from Drive" onClick={() => setPicking(true)}><Icon name="folder" /></button>
+          <label className="check small" title="The recipient's mail app may offer to tell you when they open it; they can say no"><input type="checkbox" checked={receipt} onChange={(e) => setReceipt(e.target.checked)} /> Read receipt</label>
           <Menu align="left" trigger={(p) => <button type="button" className="icon-btn" aria-label="Templates" title="Templates" {...p}><Icon name="doc" /></button>} items={[
             ...templates.map((t) => ({ label: t.name, onClick: () => applyTemplate(t) })),
             ...(templates.length ? ['-'] : []),

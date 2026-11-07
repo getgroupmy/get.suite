@@ -8,7 +8,7 @@ import { q, FILES_DIR, DATA_DIR } from '../db.js';
 import { sendTo } from '../hub.js';
 import { str, bad, notFound, HttpError, uid as newId, now } from '../util.js';
 import { roleFor } from '../access.js';
-import { mailEnabled, scheduleMailConfig } from '../mail/config.js';
+import { mailEnabled, scheduleMailConfig, MAIL_HOSTNAME } from '../mail/config.js';
 import { withClient, withFolder, smtpFor } from '../mail/imap.js';
 import { normalizeRules } from '../mail/sieve.js';
 import { followedFolders, setFollowed, MAX_FOLLOWED } from '../mail/notify.js';
@@ -20,6 +20,7 @@ import { insertFile, cleanName } from './files.js';
 import { checkQuota } from '../tenancy.js';
 import { recordSent } from '../othercontacts.js';
 import { parseMailQuery, allOf } from '../mail/searchquery.js';
+import { receiptRequest, buildReceipt } from '../mail/receipt.js';
 import { mimeFor } from '../util.js';
 
 const PAGE = 50;
@@ -589,6 +590,12 @@ export default function webmailRoutes() {
       labels: (() => { const kw = new Map(labelsOf(req.user.id).map((l) => [l.keyword.toLowerCase(), l.id])); return [...flags].map((f) => kw.get(String(f).toLowerCase())).filter(Boolean); })(),
       spam: /yes/i.test(String(p.headers.get('x-spam') || '')),
       attachments: attachmentList(p),
+      // The sender asked for a read receipt (and it hasn't been answered yet): offered, never sent by itself.
+      receipt: (() => {
+        if (flags.has('$MDNSent')) return null;
+        const to = receiptRequest(p, identities(req.user).map((i) => i.address));
+        return to ? { to } : null;
+      })(),
       // A mailing list's way out: done here (one click, or an email), or a page to open.
       unsubscribe: (() => {
         const u = unsubscribeOptions(p.headerLines);
@@ -596,6 +603,23 @@ export default function webmailRoutes() {
         return u.oneClick ? { how: 'one-click' } : u.mailto ? { how: 'email', to: u.mailto.to } : { how: 'link', url: u.url };
       })(),
     });
+  });
+
+  // Answer a read-receipt request: send the receipt, or not; either way it isn't asked again ($MDNSent).
+  r.post('/messages/:uid/receipt', async (req, res) => {
+    const folder = String(req.body.folder || 'INBOX');
+    const uid = Number(req.params.uid);
+    const { parsed: p, flags } = await loadMessage(req.user, folder, uid, false);
+    if (flags.has('$MDNSent')) return res.json({ sent: false, already: true });
+    const to = receiptRequest(p, identities(req.user).map((i) => i.address));
+    if (!to) throw bad('This message didn’t ask for a read receipt');
+    if (req.body.send) {
+      const raw = buildReceipt(p, { from: { name: req.user.name, address: req.user.username }, to, host: MAIL_HOSTNAME || 'localhost' });
+      try { await smtpFor(req.user).sendMail({ envelope: { from: req.user.username, to: [to] }, raw }); }
+      catch (e) { throw new HttpError(e.responseCode && e.responseCode < 500 ? 503 : 400, `Sending the receipt failed: ${e.response || e.message}`); }
+    }
+    await withFolder(req.user, folder, (c) => c.messageFlagsAdd(String(uid), ['$MDNSent'], { uid: true }));
+    res.json({ sent: !!req.body.send });
   });
 
   // The rest of a message's conversation: messages with the same subject (without Re:/Fwd:) that share
@@ -982,6 +1006,7 @@ export default function webmailRoutes() {
       text: typeof b.text === 'string' ? b.text : '',
       ...(html && { html }),
       ...(b.inReplyTo && { inReplyTo: String(b.inReplyTo), references: [].concat(b.references || [], b.inReplyTo).map(String).slice(-20) }),
+      ...(b.receipt && { headers: { 'Disposition-Notification-To': from.address } }), // ask for a read receipt
       attachments,
     };
     const raw = await new MailComposer(mail).compile().build();

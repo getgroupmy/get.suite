@@ -1156,3 +1156,20 @@ test('search operators: from:, subject:, has:attachment, is:unread, -word, two w
   assert.ok((await find('Zq is:read')).includes('Zq lunch'));
   assert.equal((await olivia('GET', '/api/mail/messages?folder=INBOX&q=before:soon')).status, 400);
 });
+
+test('read receipts: asked for when sending, offered (not sent) when opened, sent once on request', async () => {
+  const sent = await olivia('POST', '/api/mail/send', { to: 'gina@globex.com', subject: 'Receipt please', text: 'Did you get it?', receipt: true });
+  assert.equal(sent.status, 200);
+  const m = await eventually(async () => (await inbox(gina, 'Receipt please')).find((x) => x.subject === 'Receipt please'), 20000);
+  const opened = (await gina('GET', `/api/mail/messages/${m.uid}?folder=INBOX`)).body;
+  assert.deepEqual(opened.receipt, { to: 'olivia@acme.com' });
+  assert.equal((await gina('POST', `/api/mail/messages/${m.uid}/receipt`, { folder: 'INBOX', send: true })).body.sent, true);
+  const back = await eventually(async () => (await inbox(olivia, 'Read: Receipt please')).find((x) => x.subject === 'Read: Receipt please'), 20000);
+  assert.ok(back);
+  assert.equal((await gina('GET', `/api/mail/messages/${m.uid}?folder=INBOX`)).body.receipt, null, 'not asked again');
+  assert.equal((await gina('POST', `/api/mail/messages/${m.uid}/receipt`, { folder: 'INBOX', send: true })).body.already, true, 'never twice');
+  // The receipt itself didn't ask for one: nothing to answer.
+  const o = (await olivia('GET', `/api/mail/messages/${back.uid}?folder=INBOX`)).body;
+  assert.equal(o.receipt, null);
+  assert.equal((await olivia('POST', `/api/mail/messages/${back.uid}/receipt`, { folder: 'INBOX', send: true })).status, 400);
+});
