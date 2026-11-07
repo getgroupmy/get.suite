@@ -13,8 +13,9 @@ import { TextStyle, Color, BackgroundColor } from '@tiptap/extension-text-style'
 import {
   Document, Packer, Paragraph, TextRun, HeadingLevel, ExternalHyperlink, AlignmentType, LevelFormat, BorderStyle,
   Table as WordTable, TableRow as WordRow, TableCell as WordCell, WidthType, ShadingType, ImageRun, Header, Footer, PageNumber, PageOrientation, LineRuleType,
-  Bookmark, InternalHyperlink, PageBreak,
+  Bookmark, InternalHyperlink, PageBreak, FootnoteReferenceRun,
 } from 'docx';
+import { Node } from '@tiptap/core';
 import { pageMm, MARGINS } from '../pagesetup.js';
 
 // A picture is a Drive file, by id (as in web/src/apps/docs/DocEditor.jsx). Here it is read from
@@ -28,11 +29,31 @@ const DocImage = Image.extend({
   }),
   parseHTML: () => [{ tag: 'img' }],
 });
+// A footnote, as in web/src/apps/docs/footnote.js: a marker in the text carrying its note.
+const Footnote = Node.create({
+  name: 'footnote', group: 'inline', inline: true, atom: true,
+  addAttributes: () => ({ note: { default: '', parseHTML: (el) => el.getAttribute('data-note') || '' } }),
+  parseHTML: () => [{ tag: 'sup[data-footnote]' }],
+  renderHTML: ({ HTMLAttributes }) => ['sup', { ...HTMLAttributes, 'data-footnote': '' }],
+});
 // The same building blocks as the Docs editor.
 const EXTENSIONS = [
   StarterKit.configure({ link: { openOnClick: false } }), TextAlign.configure({ types: ['heading', 'paragraph'] }),
-  DocImage, Table, TableRow, TableHeader, TableCell, TextStyle, Color, BackgroundColor,
+  DocImage, Table, TableRow, TableHeader, TableCell, TextStyle, Color, BackgroundColor, Footnote,
 ];
+const attr = (t) => t.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+const plain = (html) => html.replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
+
+/** Word's footnotes (mammoth lists them at the end, linked from [n] markers) as Docs footnote markers. */
+function footnotesFromWord(html) {
+  const notes = new Map();
+  const rest = html.replace(/<ol>((?:<li id="footnote-\d+">[\s\S]*?<\/li>)+)<\/ol>\s*$/, (m, items) => {
+    for (const [, id, body] of items.matchAll(/<li id="footnote-(\d+)">([\s\S]*?)<\/li>/g)) notes.set(id, plain(body.replace(/<a href="#footnote-ref-\d+">[^<]*<\/a>/g, '')));
+    return '';
+  });
+  if (!notes.size) return html;
+  return rest.replace(/<sup><a href="#footnote-(\d+)" id="footnote-ref-\d+">\[\d+\]<\/a><\/sup>/g, (m, id) => `<sup data-footnote="" data-note="${attr(notes.get(id) ?? '')}"></sup>`);
+}
 
 /**
  * A Word file's content as a Docs document (JSON), plus any warnings about what didn't carry over.
@@ -53,7 +74,7 @@ export async function docFromWord(buffer, { savePicture } = {}) {
     styleMap: ['p[style-name=\'Title\'] => h1:fresh', 'p[style-name=\'Subtitle\'] => h2:fresh', 'u => u'],
   });
   // A picture that couldn't be kept leaves a note instead of disappearing silently.
-  const withNotes = html.replace(/<img [^>]*alt="\[picture\]"[^>]*>/g, '<em>[picture]</em>');
+  const withNotes = footnotesFromWord(html).replace(/<img [^>]*alt="\[picture\]"[^>]*>/g, '<em>[picture]</em>');
   const doc = checklists(generateJSON(withNotes || '<p></p>', EXTENSIONS));
   return { doc, warnings: messages.filter((m) => m.type === 'warning').map((m) => m.message) };
 }
@@ -85,10 +106,19 @@ const halfPoints = (v) => { const m = /^([\d.]+)(pt|px)$/.exec(String(v || '').t
 /** Line spacing (a multiple, such as 1.5) as Word paragraph spacing. */
 const spacing = (lh) => { const n = Number(lh); return n >= 0.5 && n <= 4 ? { spacing: { line: Math.round(240 * n), lineRule: LineRuleType.AUTO } } : {}; };
 
+// The notes of the document being written (wordFromDoc fills it as it meets footnote markers).
+let footnotes = null;
+
 function runs(nodes = [], extra = {}) {
   const out = [];
   for (const n of nodes) {
     if (n.type === 'hardBreak') { out.push(new TextRun({ break: 1 })); continue; }
+    if (n.type === 'footnote' && footnotes) {
+      const id = footnotes.length + 1;
+      footnotes.push(n.attrs?.note || '');
+      out.push(new FootnoteReferenceRun(id));
+      continue;
+    }
     if (n.type !== 'text') continue;
     const marks = Object.fromEntries((n.marks || []).map((m) => [m.type, m.attrs || true]));
     const hex = (c) => (/^#[0-9a-f]{6}$/i.test(c || '') ? c.slice(1).toUpperCase() : null);
@@ -220,9 +250,12 @@ export async function wordFromDoc(doc, title = 'Document', { pictureData, page }
       else if (n.content) walk(n.content, ctx);
     }
   }
-  const paras = block(doc?.content);
+  footnotes = [];
+  let paras, notes;
+  try { paras = block(doc?.content); notes = footnotes; } finally { footnotes = null; }
   const file = new Document({
     title,
+    ...(notes.length && { footnotes: Object.fromEntries(notes.map((t, i) => [i + 1, { children: [new Paragraph(t)] }])) }),
     numbering: { config: [{ reference: 'numbers', levels: [0, 1, 2, 3].map((level) => ({ level, format: LevelFormat.DECIMAL, text: `%${level + 1}.`, alignment: AlignmentType.START, style: { paragraph: { indent: { left: 720 * (level + 1), hanging: 360 } } } })) }] },
     sections: [{ ...sectionSetup(page), children: paras.length ? paras : [new Paragraph('')] }],
   });

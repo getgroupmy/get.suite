@@ -398,3 +398,25 @@ test('Excel: hidden rows and columns go out and come back', async () => {
   const plain = (await sheetFromExcel(await excelFromSheet({ sheets: [{ name: 'S', cells: { A1: '1' } }] }))).sheets[0];
   assert.equal(plain.hide, undefined);
 });
+
+test('Word: footnotes go out as real footnotes and come back as markers with their notes', async () => {
+  const doc = { type: 'doc', content: [
+    { type: 'paragraph', content: [{ type: 'text', text: 'Sales grew' }, { type: 'footnote', attrs: { note: 'Source: Q3 report & "notes"' } }, { type: 'text', text: ' fast.' }] },
+    { type: 'bulletList', content: [{ type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Costs' }, { type: 'footnote', attrs: { note: 'Before tax' } }] }] }] },
+  ] };
+  const buf = await wordFromDoc(doc, 'Report');
+  const zip = await JSZip.loadAsync(buf);
+  const xml = await zip.file('word/footnotes.xml').async('string');
+  assert.match(xml, /Source: Q3 report &amp; &quot;notes&quot;|Source: Q3 report &amp; "notes"/);
+  assert.match(xml, /Before tax/);
+  assert.match(await zip.file('word/document.xml').async('string'), /w:footnoteReference w:id="1"/);
+  const back = (await docFromWord(buf)).doc;
+  const p = back.content[0].content;
+  assert.deepEqual(p.map((n) => n.type), ['text', 'footnote', 'text']);
+  assert.equal(p[1].attrs.note, 'Source: Q3 report & "notes"');
+  assert.equal(JSON.stringify(back).includes('↑'), false, 'no list of notes left at the end');
+  assert.ok(JSON.stringify(back).includes('"note":"Before tax"'));
+  // Without footnotes nothing changes.
+  const none = await JSZip.loadAsync(await wordFromDoc({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'x' }] }] }));
+  assert.ok(!(await none.file('word/document.xml').async('string')).includes('footnoteReference'));
+});

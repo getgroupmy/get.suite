@@ -26,6 +26,7 @@ import { Outline } from './Outline.jsx';
 import { TableOfContents, htmlWithContents } from './toc.js';
 import { TaskList, TaskItem } from '@tiptap/extension-list';
 import { PageBreak } from './pagebreak.js';
+import { Footnote, footnotesOf, htmlWithFootnotes } from './footnote.js';
 import { VersionHistory } from '../VersionHistory.jsx';
 
 /** Marks the text a comment is about (several comments may overlap); it travels with the text. */
@@ -146,7 +147,7 @@ function SharedDoc({ file, setFile }) {
       FindReplace,
       Table.configure({ resizable: false }), TableRow, TableHeader, TableCell,
       TextStyle, Color, BackgroundColor, FontFamily, FontSize, LineHeight, TableOfContents,
-      PageBreak, TaskList, TaskItem.configure({ nested: true }), // checklists: everyone sees the ticks live; viewers can't tick
+      PageBreak, Footnote, TaskList, TaskItem.configure({ nested: true }), // checklists: everyone sees the ticks live; viewers can't tick
     ],
     editable: !readOnly,
     editorProps: {
@@ -193,7 +194,7 @@ function SharedDoc({ file, setFile }) {
   }, [editor, provider, readOnly]);
 
   function exportHtml() {
-    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(file.name)}</title></head><body>${htmlWithContents(editor.getHTML(), editor.state.doc)}</body></html>`;
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(file.name)}</title></head><body>${htmlWithFootnotes(htmlWithContents(editor.getHTML(), editor.state.doc))}</body></html>`;
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
     a.download = `${file.name}.html`;
@@ -307,7 +308,8 @@ function SharedDoc({ file, setFile }) {
         <div className="doc-scroll" onClick={(e) => e.target === e.currentTarget && editor.commands.focus('end')}>
           <div className="paper" style={file.page_setup ? paperStyle(file.page_setup) : undefined}>
             {file.page_setup?.header && <div className="paper-header" aria-hidden="true">{file.page_setup.header}</div>}
-            <EditorContent editor={editor} />
+            <EditorContent editor={editor} onClick={(e) => { const sup = e.target.closest?.('sup[data-footnote]'); if (sup) focusFootnote(e.currentTarget, sup); }} />
+            <FootnoteList editor={editor} readOnly={readOnly} />
             {(file.page_setup?.footer || file.page_setup?.numbers) && <div className="paper-footer" aria-hidden="true">{[file.page_setup.footer, file.page_setup.numbers && 'Page 1'].filter(Boolean).join('   ')}</div>}
           </div>
         </div>
@@ -430,6 +432,8 @@ function Toolbar({ editor, onComment, onPictures }) {
       ]} />
       <button type="button" className="tb labelled" title="Page break: what follows starts a new page when printed or downloaded (Ctrl+Enter)" aria-label="Insert page break"
         onMouseDown={(e) => e.preventDefault()} onClick={() => c().setPageBreak().run()}>⤓ Page break</button>
+      <button type="button" className="tb labelled" title="Footnote: a numbered note at the end of the document, for a source or an aside" aria-label="Insert footnote"
+        onMouseDown={(e) => e.preventDefault()} onClick={() => c().insertFootnote().run()}><sup>1</sup> Footnote</button>
       <button type="button" className="tb labelled" title="Insert a table of contents: the document's headings, kept up to date, each a link" aria-label="Insert table of contents"
         onMouseDown={(e) => e.preventDefault()} onClick={() => c().insertTableOfContents().run()}><Icon name="menu" size={18} /> Contents</button>
       <span className="sep" />
@@ -467,6 +471,61 @@ function PageSetupDialog({ setup, onClose, onSave }) {
   );
 }
 
+/** Clicking a footnote's number in the text goes to its note. */
+function focusFootnote(root, sup) {
+  const i = [...root.querySelectorAll('sup[data-footnote]')].indexOf(sup);
+  const box = document.getElementById(`footnote-${i + 1}`);
+  if (box) { box.scrollIntoView({ block: 'center' }); box.focus?.(); }
+}
+
+/** The notes at the end of the document, numbered in order; each can be changed in place. */
+function FootnoteList({ editor, readOnly }) {
+  const [, redraw] = useState(0);
+  useEffect(() => {
+    if (!editor) return undefined;
+    const up = () => redraw((n) => n + 1);
+    editor.on('update', up);
+    return () => editor.off('update', up);
+  }, [editor]);
+  const notes = editor ? footnotesOf(editor.state.doc) : [];
+  if (!notes.length) return null;
+  // The note of footnote n (counted afresh: positions move as the text changes).
+  const setNote = (n, note) => {
+    const f = footnotesOf(editor.state.doc)[n - 1];
+    const node = f && editor.state.doc.nodeAt(f.pos);
+    if (node?.type.name === 'footnote' && node.attrs.note !== note) editor.view.dispatch(editor.state.tr.setNodeMarkup(f.pos, undefined, { ...node.attrs, note }));
+  };
+  return (
+    <section className="footnotes" aria-label="Footnotes">
+      <ol>
+        {notes.map((f) => (
+          <li key={f.n}>
+            {readOnly ? <span id={`footnote-${f.n}`} tabIndex={-1}>{f.note}</span> : (
+              <>
+                <NoteBox n={f.n} note={f.note} onChange={(v) => setNote(f.n, v)}
+                  onDone={() => { const at = footnotesOf(editor.state.doc)[f.n - 1]; if (at) editor.commands.setTextSelection(at.pos + 1); editor.view.focus(); }} />
+                <span className="footnote-print">{f.note}</span>
+              </>
+            )}
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
+/** One note's box: what you type stays as typed (the shared copy catches up), others' changes show when you're not in it. */
+function NoteBox({ n, note, onChange, onDone }) {
+  const ref = useRef(null);
+  const [v, setV] = useState(note);
+  useEffect(() => { if (document.activeElement !== ref.current) setV(note); }, [note]);
+  return (
+    <textarea ref={ref} id={`footnote-${n}`} className="footnote-input" rows={1} value={v} placeholder="Write the note…" aria-label={`Footnote ${n}`}
+      onChange={(e) => { setV(e.target.value); onChange(e.target.value); }} onBlur={() => setV(note)}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === 'Escape') { e.preventDefault(); onDone(); } }} />
+  );
+}
+
 /** A read-only document (an earlier version), drawn as the editor draws it. */
 function DocPreview({ content, fileId }) {
   const editor = useEditor({
@@ -475,7 +534,7 @@ function DocPreview({ content, fileId }) {
     extensions: [
       StarterKit.configure({ link: { openOnClick: true } }), TextAlign.configure({ types: ['heading', 'paragraph'] }),
       CommentMark, DocImage.configure({ docId: fileId }), Table, TableRow, TableHeader, TableCell,
-      TextStyle, Color, BackgroundColor, FontFamily, FontSize, LineHeight, TableOfContents, PageBreak, TaskList, TaskItem.configure({ nested: true }),
+      TextStyle, Color, BackgroundColor, FontFamily, FontSize, LineHeight, TableOfContents, PageBreak, Footnote, TaskList, TaskItem.configure({ nested: true }),
     ],
   }, [content]);
   return <div className="paper preview-paper"><EditorContent editor={editor} /></div>;

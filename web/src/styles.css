@@ -1419,3 +1419,15 @@ button.rule-sample.on { outline: 2px solid var(--accent); outline-offset: 1px; }
 .file-activity { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; max-height: 220px; overflow: auto; font-size: 14px; }
 .file-activity li { padding: 4px 0; border-bottom: 1px solid var(--border); }
 .file-activity li:last-child { border-bottom: 0; }
+/* Docs: footnotes (numbers follow the order in the text) */
+.paper .tiptap { counter-reset: footnote; }
+.paper .tiptap sup.footnote-ref { counter-increment: footnote; color: var(--accent); cursor: pointer; padding: 0 1px; }
+.paper .tiptap sup.footnote-ref::after { content: counter(footnote); }
+.paper .tiptap sup.footnote-ref.ProseMirror-selectednode { outline: 2px solid var(--accent); border-radius: 2px; }
+.paper .footnotes { border-top: 1px solid var(--border); margin-top: 24px; padding-top: 8px; font-size: .85em; }
+.paper .footnotes ol { margin: 0; padding-left: 1.6em; }
+.paper .footnotes li { margin: 2px 0; }
+.footnote-input { width: 100%; border: 1px solid transparent; border-radius: 4px; background: transparent; font: inherit; color: inherit; resize: none; padding: 2px 4px; field-sizing: content; }
+.footnote-input:hover, .footnote-input:focus { border-color: var(--border); outline: none; background: var(--surface); }
+.footnote-print { display: none; }
+@media print { .paper .footnotes { border-color: #999; } .footnote-input { display: none; } .footnote-print { display: inline; } .paper .tiptap sup.footnote-ref { color: inherit; } }
