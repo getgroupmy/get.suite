@@ -4,6 +4,7 @@ import { useAuth } from '../../App.jsx';
 import { get, post, put, patch, del, onLive } from '../../api.js';
 import { localToday } from '../tasks/taskmath.js';
 import Icon from '../../components/Icon.jsx';
+import DrivePicker, { openUrl } from '../../components/DrivePicker.jsx';
 import { Modal, useToast, Empty } from '../../components/ui.jsx';
 import { scheduleOf, DAY, VIEWS, startOfDay, visibleDays, shift, title, onDay, layoutDay, expandAll, occurrenceIndex, describeRule, daysBetween, moveTimes, resizeEnd, shiftWeekdays, snapMinutes } from './calmath.js';
 
@@ -460,6 +461,23 @@ const whenLabel = (ev) => {
 };
 
 /** An event you're invited to: details, who's coming, and your answer. */
+/** Files attached to an event: open the ones you can; the others are named, marked as not shared with you. */
+function Attachments({ list = [], onRemove }) {
+  if (!list.length) return null;
+  return (
+    <ul className="event-attachments" aria-label="Attachments">
+      {list.map((a) => (
+        <li key={a.id}>
+          <Icon name={['doc', 'sheet', 'slides'].includes(a.kind) ? a.kind : 'file'} size={16} />
+          {a.can_open === false ? <span className="muted" title="Not shared with you">{a.name} (no access)</span>
+            : <a href={openUrl(a)} target="_blank" rel="noreferrer">{a.name}</a>}
+          {onRemove && <button type="button" className="icon-btn" aria-label={`Remove ${a.name}`} onClick={() => onRemove(a)}><Icon name="close" size={14} /></button>}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function InvitationDialog({ event, onClose, onAnswered }) {
   const toast = useToast();
   const [reminders, setReminders] = useState(event.reminders || []);
@@ -476,6 +494,7 @@ function InvitationDialog({ event, onClose, onAnswered }) {
         <p style={{ margin: 0 }}>{whenLabel(event)}{event.rrule && <><br /><span className="muted small">{describeRule(event.rrule, event.seriesStart ?? event.start)}</span></>}</p>
         {event.location && <p style={{ margin: 0 }}><span className="muted">Where:</span> {event.location}</p>}
         {event.description && <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{event.description}</p>}
+        <Attachments list={event.attachments} />
         <p style={{ margin: 0 }}><span className="muted">Organizer:</span> {event.organizer?.name} <span className="muted small">{event.organizer?.email}</span></p>
         <GuestList guests={event.guests} />
         {event.rooms?.length > 0 && <p className="muted small">Room: {event.rooms.map((r) => `${r.name}${r.status === 'no' ? ' (declined: taken)' : ''}`).join(', ')}</p>}
@@ -595,6 +614,8 @@ function EventDialog({ event, onClose, onSaved, onDuplicate }) {
   const [roomIds, setRoomIds] = useState((event.rooms || []).map((r) => r.id));
   // New timed events remind you 10 minutes before, as in other calendars.
   const [reminders, setReminders] = useState(event.reminders ?? (event.id || event.all_day ? [] : [10]));
+  const [attachments, setAttachments] = useState(event.attachments || []);
+  const [pickingFile, setPickingFile] = useState(false);
   const [guestInput, setGuestInput] = useState('');
   const [directory, setDirectory] = useState([]);
   useEffect(() => { get('/users/directory').then(setDirectory).catch(() => {}); }, []);
@@ -613,7 +634,7 @@ function EventDialog({ event, onClose, onSaved, onDuplicate }) {
     const end = f.all_day ? fromInputs(f.endDate) + DAY - 1 : fromInputs(f.endDate, f.endTime);
     const all = guestInput.trim() ? [...new Set([...guests, ...guestInput.split(/[\s,;]+/).map((x) => x.trim().toLowerCase()).filter((x) => x.includes('@'))])] : guests;
     return { start, end, body: { title: f.title, location: f.ooo ? '' : f.location, description: f.description, color: f.color, all_day: f.all_day, start, end, rrule: ruleFromForm(rep, start),
-      guests: f.ooo ? [] : all, reminders, tz: TZ, kind: f.ooo ? 'ooo' : null, ...(event.id && !event.rooms?.length && !roomIds.length ? {} : { rooms: f.ooo ? [] : roomIds }) } };
+      guests: f.ooo ? [] : all, reminders, tz: TZ, attachments: attachments.map((a) => a.id), kind: f.ooo ? 'ooo' : null, ...(event.id && !event.rooms?.length && !roomIds.length ? {} : { rooms: f.ooo ? [] : roomIds }) } };
   };
 
   async function save(which) {
@@ -714,6 +735,15 @@ function EventDialog({ event, onClose, onSaved, onDuplicate }) {
         <RemindersField value={reminders} onChange={setReminders} />
         {!f.ooo && <label className="field"><span>Location</span><input value={f.location} onChange={set('location')} /></label>}
         <label className="field"><span>{f.ooo ? 'Message for people who invite you' : 'Description'}</span><textarea rows={3} value={f.description} onChange={set('description')} placeholder={f.ooo ? 'e.g. On holiday until Monday 9th; for anything urgent, ask Kim.' : undefined} /></label>
+        {!f.ooo && (
+          <div className="field"><span>Attachments</span>
+            <Attachments list={attachments} onRemove={(a) => setAttachments(attachments.filter((x) => x.id !== a.id))} />
+            <span className="row"><button type="button" className="btn small" onClick={() => setPickingFile(true)}><Icon name="attach" size={16} /> Attach from Drive</button></span>
+            {attachments.length > 0 && (guests.length > 0 || guestInput.trim()) && <span className="muted small">Guests can view the files you own. They see the others only if they can already open them.</span>}
+          </div>
+        )}
+        {pickingFile && <DrivePicker title="Attach to the event" accept={(x) => x.kind !== 'folder'} onClose={() => setPickingFile(false)}
+          onPick={(x) => { if (!attachments.some((a) => a.id === x.id)) setAttachments([...attachments, { id: x.id, name: x.name, kind: x.kind, can_open: true }]); setPickingFile(false); }} />}
         <div className="colors" role="radiogroup" aria-label="Color">
           {COLORS.map((c) => (
             <button type="button" key={c} role="radio" aria-checked={f.color === c} aria-label={c} className={`swatch ${f.color === c ? 'on' : ''}`} style={{ background: c }} onClick={() => setF({ ...f, color: c })} />

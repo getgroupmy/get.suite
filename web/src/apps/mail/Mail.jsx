@@ -22,6 +22,7 @@ import { mailKey, stepMessage } from './mailkeys.js';
 import { printMessage } from './mailprint.js';
 import { textToHtml, docToText, emailHtml, isEmptyDoc, linkHref } from './richtext.js';
 import { FiltersDialog } from './Filters.jsx';
+import DrivePicker from '../../components/DrivePicker.jsx';
 import { addToTasksWithToast, mailLink } from '../tasks/addtask.js';
 import { eventFromEmail } from '../calendar/fromemail.js';
 import { ASPECTS, FULL, fitAspect, moveRect, resizeRect, toPixels, rotatedSize, outputType, editedName } from './cropmath.js';
@@ -860,30 +861,10 @@ function Compose({ initial, signatures = [], onClose, onSent, onDraftsChanged })
       {templateDialog === 'save' && <PromptModal title="Save as template" label="Template name" initial={f.subject} confirm="Save" onClose={() => setTemplateDialog(null)}
         onSubmit={async (name) => { await post('/mail/templates', { name, subject: f.subject, html: bodyHtml() }); toast(`Template “${name.trim()}” saved`); loadTemplates(); }} />}
       {templateDialog === 'manage' && <TemplatesDialog templates={templates} onClose={() => setTemplateDialog(null)} onChanged={loadTemplates} />}
-      {picking && <DrivePicker onClose={() => setPicking(false)} onPick={(file) => { if (!files.some((x) => x.id === file.id)) setFiles([...files, file]); setPicking(false); }} />}
+      {picking && <DrivePicker empty="No files found. (Docs and Sheets can't be attached yet; download them first.)" onClose={() => setPicking(false)} onPick={(file) => { if (!files.some((x) => x.id === file.id)) setFiles([...files, file]); setPicking(false); }} />}
     </Modal>
     {scheduling && <ScheduleDialog onClose={() => setScheduling(false)} onPick={(at) => { setScheduling(false); sendLater(at); }} />}
     </div>
-  );
-}
-
-function DrivePicker({ onClose, onPick }) {
-  const [items, setItems] = useState(null);
-  const [term, setTerm] = useState('');
-  useEffect(() => {
-    const url = term ? `/files?view=search&q=${enc(term)}` : '/files?view=recent';
-    const t = setTimeout(() => get(url).then((l) => setItems(l.filter((x) => x.kind === 'file'))), term ? 250 : 0);
-    return () => clearTimeout(t);
-  }, [term]);
-  return (
-    <Modal title="Attach from Drive" onClose={onClose}>
-      <input className="filter" style={{ width: '100%' }} placeholder="Search your files" aria-label="Search your files" value={term} onChange={(e) => setTerm(e.target.value)} autoFocus />
-      <ul className="pick-list">
-        {items === null && <li className="muted">Loading…</li>}
-        {items?.length === 0 && <li className="muted">No files found. (Docs and Sheets can't be attached yet; download them first.)</li>}
-        {items?.map((x) => <li key={x.id}><button onClick={() => onPick(x)}><Icon name="file" />{x.name}<span className="muted small">{formatBytes(x.size)}</span></button></li>)}
-      </ul>
-    </Modal>
   );
 }
 

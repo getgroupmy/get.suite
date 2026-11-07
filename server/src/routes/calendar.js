@@ -11,6 +11,8 @@ import { smtpFor } from '../mail/imap.js';
 import { buildIcs, zoneOrUtc } from '../ics.js';
 import { remindersFor, remindersOf, setReminders } from '../reminders.js';
 import { setRooms, roomsOf } from './rooms.js';
+import { roleFor, audienceFor } from '../access.js';
+import { recordActivity } from '../fileactivity.js';
 
 q(`CREATE TABLE IF NOT EXISTS event_guests (
   event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
@@ -31,6 +33,9 @@ q(`CREATE TABLE IF NOT EXISTS event_outside_guests (
 const hasColumn = (t, c) => q(`PRAGMA table_info(${t})`).all().some((x) => x.name === c);
 if (!hasColumn('events', 'sequence')) q('ALTER TABLE events ADD COLUMN sequence INTEGER NOT NULL DEFAULT 0').run(); // bumped when details change
 if (!hasColumn('events', 'tz')) q('ALTER TABLE events ADD COLUMN tz TEXT').run(); // the organizer's time zone, for calendar files
+// Files from Drive attached to an event: [{ id, name, kind, mime }]. Guests are given view access to the
+// ones the organizer owns; each person sees whether they can open each one.
+if (!hasColumn('events', 'attachments')) q('ALTER TABLE events ADD COLUMN attachments TEXT').run();
 if (!hasColumn('events', 'kind')) q('ALTER TABLE events ADD COLUMN kind TEXT').run(); // null, or 'ooo': out of office (invitations then are declined)
 const ANSWERS = ['yes', 'maybe', 'no'];
 const MAX_GUESTS = 50;
@@ -92,7 +97,43 @@ function readEvent(body, existing = {}) {
   return e;
 }
 
-export const outEvent = (row) => ({ ...row, rrule: row.rrule ? JSON.parse(row.rrule) : null, exdates: JSON.parse(row.exdates || '[]'), repeat_until: undefined });
+export const outEvent = (row) => ({ ...row, rrule: row.rrule ? JSON.parse(row.rrule) : null, exdates: JSON.parse(row.exdates || '[]'), repeat_until: undefined,
+  attachments: row.attachments ? JSON.parse(row.attachments) : [] });
+const MAX_ATTACHMENTS = 20;
+/** Attachments as asked ([file ids]): ones you can open, or ones already on the event (kept even if you can't any more). */
+function readAttachments(user, ids, existing = []) {
+  if (!Array.isArray(ids)) throw bad('attachments must be a list of files');
+  const unique = [...new Set(ids.map(String))];
+  if (unique.length > MAX_ATTACHMENTS) throw bad(`At most ${MAX_ATTACHMENTS} attachments`);
+  return unique.map((id) => {
+    const kept = existing.find((a) => a.id === id);
+    const f = q('SELECT id, name, kind, mime FROM files WHERE id = ? AND trashed = 0').get(id);
+    if (!f || f.kind === 'folder' || (!kept && !roleFor(f.id, user.id))) throw bad('A file is not available to attach');
+    return { id: f.id, name: f.name, kind: f.kind, mime: f.mime || null };
+  });
+}
+/** Guests (on the server) can view the attachments the organizer owns; nobody loses access they had. */
+function shareAttachments(owner, eventId) {
+  const ev = q('SELECT attachments FROM events WHERE id = ?').get(eventId);
+  const files = ev?.attachments ? JSON.parse(ev.attachments) : [];
+  const guests = q('SELECT user_id FROM event_guests WHERE event_id = ?').all(eventId).map((g) => g.user_id);
+  for (const a of files) {
+    if (roleFor(a.id, owner.id) !== 'owner') continue;
+    const given = [];
+    for (const g of guests) {
+      if (!canReach(owner, g) || roleFor(a.id, g)) continue;
+      q('INSERT INTO shares (file_id, user_id, role) VALUES (?, ?, ?) ON CONFLICT(file_id, user_id) DO NOTHING').run(a.id, g, 'viewer');
+      given.push(q('SELECT name FROM users WHERE id = ?').get(g)?.name || 'someone');
+    }
+    if (given.length) {
+      recordActivity(a.id, owner.id, 'share', { added: given.map((n) => `${n} (can view, guest of an event)`), removed: [] });
+      const parent = q('SELECT parent_id FROM files WHERE id = ?').get(a.id)?.parent_id;
+      sendTo(new Set(audienceFor(a.id)), { type: 'files-changed', parent_id: parent });
+    }
+  }
+}
+/** Each attachment with whether this person can open it. */
+const attachmentsFor = (ev, userId) => (ev.attachments || []).map((a) => ({ ...a, can_open: !!roleFor(a.id, userId) }));
 // When a series ends, for the range query: its last possible end (null = never, or "after N times").
 const repeatUntil = (e) => (e.rrule ? (e.rrule.until !== undefined ? e.rrule.until + (e.end - e.start) : null) : null);
 
@@ -257,7 +298,8 @@ export default function calendarRoutes() {
     res.json(rows.map((row) => {
       const mine = row.owner_id === req.user.id;
       const { my_status, organizer_name, organizer_email, ...ev } = row;
-      return { ...outEvent(ev), role: mine ? 'organizer' : 'guest', guests: allGuests(row.id), rooms: roomsOf(row.id), reminders: reminders.get(row.id) || [],
+      const out = outEvent(ev);
+      return { ...out, attachments: attachmentsFor(out, req.user.id), role: mine ? 'organizer' : 'guest', guests: allGuests(row.id), rooms: roomsOf(row.id), reminders: reminders.get(row.id) || [],
         ...(mine ? {} : { my_status, organizer: { name: organizer_name, email: organizer_email } }) };
     }));
   });
@@ -292,6 +334,7 @@ export default function calendarRoutes() {
     const e = readEvent(req.body);
     // Check the guests before saving anything, so a refused invitation leaves no event behind.
     const guests = req.body.guests !== undefined && e.kind !== 'ooo' ? readGuests(req.user, req.body.guests) : null;
+    const attachments = req.body.attachments !== undefined ? readAttachments(req.user, req.body.attachments) : [];
     const id = uid();
     const tz = req.body.tz ? zoneOrUtc(req.body.tz) : null;
     // "This event" of a repeating one: remember which series and occurrence it replaces (phones show it as part of the series).
@@ -302,10 +345,12 @@ export default function calendarRoutes() {
       .run(id, req.user.id, e.title, e.description ?? null, e.location ?? null, e.start, e.end, e.all_day ?? 0, e.color ?? null,
         e.rrule ? JSON.stringify(e.rrule) : null, JSON.stringify(e.exdates || []), repeatUntil(e), tz, parent?.id ?? null, parent ? int(of.occurrence, 'occurrence') : null, e.kind ?? null);
     const reminders = setReminders(id, req.user.id, req.body.reminders);
+    if (attachments.length) q('UPDATE events SET attachments = ? WHERE id = ?').run(JSON.stringify(attachments), id);
     if (guests) {
       const { added } = setGuests(id, guests.inside);
       const outside = setOutside(id, guests.outside);
       const saved = outEvent(q('SELECT * FROM events WHERE id = ?').get(id));
+      shareAttachments(req.user, id); // before they're told, so the files open from the invitation
       notify(req.user, saved, added, 'invite', req.body.tz);
       declineAway(req.user, saved, added);
       notifyOutside(req.user, saved, outside.added, 'invite', { base: baseUrl(req), tz });
@@ -313,7 +358,8 @@ export default function calendarRoutes() {
     }
     if (req.body.rooms !== undefined && e.kind !== 'ooo') setRooms(req.user, q('SELECT * FROM events WHERE id = ?').get(id), req.body.rooms);
     touch([req.user.id]); // your other tabs (and their reminders) see it too
-    res.status(201).json({ ...outEvent(q('SELECT * FROM events WHERE id = ?').get(id)), role: 'organizer', guests: allGuests(id), rooms: roomsOf(id), reminders });
+    const made = outEvent(q('SELECT * FROM events WHERE id = ?').get(id));
+    res.status(201).json({ ...made, attachments: attachmentsFor(made, req.user.id), role: 'organizer', guests: allGuests(id), rooms: roomsOf(id), reminders });
   });
 
   r.patch('/:id', (req, res) => {
@@ -322,12 +368,14 @@ export default function calendarRoutes() {
     const before = outEvent(existing);
     const e = readEvent(req.body, before);
     const guests = req.body.guests !== undefined ? readGuests(req.user, e.kind === 'ooo' ? [] : req.body.guests) : null; // before changing anything
+    const attachments = req.body.attachments !== undefined ? readAttachments(req.user, req.body.attachments, before.attachments) : null;
     const tz = req.body.tz ? zoneOrUtc(req.body.tz) : existing.tz;
     const changed = detailsChanged(before, e);
     q(`UPDATE events SET title = ?, description = ?, location = ?, start = ?, end = ?, all_day = ?, color = ?, rrule = ?, exdates = ?, repeat_until = ?,
        tz = ?, sequence = sequence + ?, kind = ? WHERE id = ?`)
       .run(e.title, e.description, e.location, e.start, e.end, e.all_day, e.color, e.rrule ? JSON.stringify(e.rrule) : null, JSON.stringify(e.exdates || []), repeatUntil(e),
         tz, changed ? 1 : 0, e.kind ?? null, e.id);
+    if (attachments) q('UPDATE events SET attachments = ? WHERE id = ?').run(attachments.length ? JSON.stringify(attachments) : null, e.id);
     const saved = outEvent(q('SELECT * FROM events WHERE id = ?').get(e.id));
     if (req.body.reminders !== undefined) setReminders(e.id, req.user.id, req.body.reminders);
     let removed = [];
@@ -338,6 +386,7 @@ export default function calendarRoutes() {
       removed = change.removed;
       added = change.added;
       outside = setOutside(e.id, guests.outside);
+      shareAttachments(req.user, e.id);
       notify(req.user, saved, change.added, 'invite', req.body.tz);
       declineAway(req.user, saved, change.added);
       notify(req.user, saved, removed.map((id) => q('SELECT username, name FROM users WHERE id = ?').get(id)).filter(Boolean), 'cancel', req.body.tz);
@@ -352,7 +401,8 @@ export default function calendarRoutes() {
     touch([req.user.id, ...guestsOf(e.id).map((g) => g.id), ...removed]);
     // Rooms: as asked, or (when the time changed) the same ones checked again.
     if (req.body.rooms !== undefined || (changed && roomsOf(e.id).length)) setRooms(req.user, q('SELECT * FROM events WHERE id = ?').get(e.id), req.body.rooms ?? roomsOf(e.id).map((x) => x.id));
-    res.json({ ...saved, role: 'organizer', guests: allGuests(e.id), rooms: roomsOf(e.id), reminders: remindersOf(e.id, req.user.id) });
+    if (attachments && !guests) shareAttachments(req.user, e.id);
+    res.json({ ...saved, attachments: attachmentsFor(saved, req.user.id), role: 'organizer', guests: allGuests(e.id), rooms: roomsOf(e.id), reminders: remindersOf(e.id, req.user.id) });
   });
 
   // Your own reminders of an event you organise or are invited to.

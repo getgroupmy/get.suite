@@ -2255,3 +2255,35 @@ test('chat: forward a message to another conversation, with its files and a note
   const poll = (await a('POST', `/api/chat/channels/${dm}/messages`, { poll: { question: 'Lunch?', options: ['Yes', 'No'] } })).body;
   assert.equal((await a('POST', `/api/chat/messages/${poll.id}/forward`, { channel_id: dm })).status, 400);
 });
+
+test('calendar: files from Drive attached to an event; guests can view the organizer’s', async () => {
+  const a = client(), b = client(), c = client();
+  for (const [local, name] of [['atta', 'Att Ann'], ['attb', 'Att Ben'], ['attc', 'Att Cat']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'atta@acme.com');
+  const bid = (await login(b, 'attb@acme.com')).id;
+  await login(c, 'attc@acme.com');
+  const agenda = (await a('POST', '/api/files/new', { kind: 'doc', name: 'Agenda' })).body;
+  const catsDoc = (await c('POST', '/api/files/new', { kind: 'doc', name: 'Cat private' })).body;
+  const folder = (await a('POST', '/api/files/folder', { name: 'F' })).body;
+  assert.equal((await a('POST', '/api/events', { title: 'x', start: 1, end: 2, attachments: [catsDoc.id] })).status, 400, 'only files you can open');
+  if (folder?.id) assert.equal((await a('POST', '/api/events', { title: 'x', start: 1, end: 2, attachments: [folder.id] })).status, 400, 'not folders');
+  assert.equal((await b('GET', `/api/files/${agenda.id}`)).status, 404);
+  const ev = (await a('POST', '/api/events', { title: 'Planning', start: 1000, end: 2000, guests: ['attb@acme.com'], attachments: [agenda.id] })).body;
+  assert.deepEqual(ev.attachments.map((x) => [x.name, x.kind, x.can_open]), [['Agenda', 'doc', true]]);
+  assert.equal((await b('GET', `/api/files/${agenda.id}`)).status, 200, 'the guest can now view it');
+  const seen = (await b('GET', '/api/events?from=0&to=5000')).body.find((x) => x.id === ev.id);
+  assert.deepEqual(seen.attachments.map((x) => [x.name, x.can_open]), [['Agenda', true]]);
+  // Cat shares her doc with Ann, who attaches it: Ben can't open it (Ann doesn't own it), and sees that.
+  const cid = (await c('GET', '/api/auth/me')).body.user.id;
+  const aid = (await a('GET', '/api/auth/me')).body.user.id;
+  await c('PUT', `/api/files/${catsDoc.id}/shares`, { shares: [{ user_id: aid, role: 'viewer' }] });
+  const both = (await a('PATCH', `/api/events/${ev.id}`, { attachments: [agenda.id, catsDoc.id] })).body;
+  assert.equal(both.attachments.length, 2);
+  const forBen = (await b('GET', '/api/events?from=0&to=5000')).body.find((x) => x.id === ev.id).attachments;
+  assert.deepEqual(forBen.map((x) => [x.name, x.can_open]), [['Agenda', true], ['Cat private', false]]);
+  // Cat stops sharing; Ann can still keep it on the event (but not add it anew elsewhere).
+  await c('PUT', `/api/files/${catsDoc.id}/shares`, { shares: [] });
+  assert.equal((await a('PATCH', `/api/events/${ev.id}`, { attachments: [catsDoc.id, agenda.id] })).status, 200);
+  assert.equal((await a('PATCH', `/api/events/${ev.id}`, { attachments: [] })).body.attachments.length, 0);
+  void bid; void cid;
+});
