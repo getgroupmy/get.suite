@@ -16,6 +16,9 @@ import { forwardHtml } from '../mail/forwardhtml.js';
 import { unsubscribeOptions, oneClickUnsubscribe } from '../mail/unsubscribe.js';
 import { baseSubject, shareSomeone } from '../mail/thread.js';
 import { startImport, importOf } from '../mail/importer.js';
+import { insertFile, cleanName } from './files.js';
+import { checkQuota } from '../tenancy.js';
+import { mimeFor } from '../util.js';
 
 const PAGE = 50;
 const OUTBOX = path.join(DATA_DIR, 'outbox');
@@ -702,6 +705,28 @@ export default function webmailRoutes() {
     res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(a.filename || 'attachment')}`);
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.end(a.content);
+  });
+
+  // Save attachments to Drive, in an "Email attachments" folder (made when first needed): all of them, or the ones asked.
+  r.post('/messages/:uid/attachments/save', async (req, res) => {
+    const { parsed } = await loadMessage(req.user, String(req.body.folder || 'INBOX'), Number(req.params.uid), false);
+    const all = parsed.attachments.filter((x) => !x.related);
+    const wanted = Array.isArray(req.body.indexes) ? [...new Set(req.body.indexes.map(Number))] : all.map((_, i) => i);
+    const picked = wanted.map((i) => all[i]);
+    if (!picked.length || picked.some((a) => !a)) throw notFound('Attachment not found');
+    checkQuota(req.user.org_id, picked.reduce((n, a) => n + a.content.length, 0));
+    let folderId = q("SELECT id FROM files WHERE owner_id = ? AND parent_id IS NULL AND kind = 'folder' AND name = 'Email attachments' AND trashed = 0").get(req.user.id)?.id;
+    if (!folderId) folderId = insertFile({ owner: req.user.id, parentId: null, name: 'Email attachments', kind: 'folder' });
+    const saved = [];
+    for (const a of picked) {
+      const storage = newId();
+      fs.writeFileSync(path.join(FILES_DIR, storage), a.content);
+      const name = cleanName(String(a.filename || '').replace(/[/\\\0]/g, '_').trim().slice(0, 255).replace(/^\.{1,2}$/, '') || 'attachment');
+      const id = insertFile({ owner: req.user.id, parentId: folderId, name, kind: 'file', mime: mimeFor(name), size: a.content.length, storage });
+      saved.push(q('SELECT id, name, size, mime FROM files WHERE id = ?').get(id));
+    }
+    sendTo([req.user.id], { type: 'files-changed', parent_id: folderId });
+    res.status(201).json({ folder_id: folderId, files: saved });
   });
 
   r.post('/messages/flags', async (req, res) => {

@@ -409,6 +409,13 @@ function Reader({ folder, uid, special, onClose, onOpen, onChanged, act, onCompo
   const replyTo = m.replyTo.length ? m.replyTo : m.from ? [m.from] : [];
   const others = [...m.to, ...m.cc].filter((a) => !mine.includes(a.address) && a.address !== user.username && !replyTo.some((r) => r.address === a.address));
   const done = async (p, b, msg) => { if (await act(p, { uids: [uid], ...b }, msg)) onClose(); };
+  const saveToDrive = async (indexes) => {
+    try {
+      const r = await post(`/mail/messages/${uid}/attachments/save`, { folder, ...(indexes && { indexes }) });
+      toast(r.files.length === 1 ? `Saved ${r.files[0].name} to Drive` : `Saved ${r.files.length} files to Drive`, 'info',
+        { action: { label: 'Show', onClick: () => navigate(`/drive/folder/${r.folder_id}`) } });
+    } catch (e) { toast(e.message, 'error'); }
+  };
 
   return (
     <article className="reader">
@@ -493,8 +500,9 @@ function Reader({ folder, uid, special, onClose, onOpen, onChanged, act, onCompo
           {m.attachments.map((a) => (
             <li key={a.index}><a className="att" href={`/api/mail/messages/${uid}/attachments/${a.index}?folder=${enc(folder)}`}>
               <Icon name="attach" size={18} /><span className="ellipsis">{a.filename}</span><span className="muted small">{formatBytes(a.size)}</span>
-            </a></li>
+            </a><button type="button" className="icon-btn" aria-label={`Save ${a.filename} to Drive`} title="Save to Drive" onClick={() => saveToDrive([a.index])}><Icon name="folder" size={16} /></button></li>
           ))}
+          {m.attachments.length > 1 && <li><button type="button" className="btn small" onClick={() => saveToDrive(null)}>Save all to Drive</button></li>}
         </ul>
       )}
       <div className="row wrap reader-reply">

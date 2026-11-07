@@ -1523,3 +1523,4 @@ img.avatar.photo { object-fit: cover; border-radius: 50%; display: inline-block;
 .msg-forwarded .msg-text { margin-top: 2px; }
 .event-attachments { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .event-attachments li { display: flex; align-items: center; gap: 6px; }
+.att-list li { display: flex; align-items: center; gap: 2px; }

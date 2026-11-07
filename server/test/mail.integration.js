@@ -1117,3 +1117,19 @@ test('import mail from another account: folders, flags and dates copied; a secon
   assert.ok(again.skipped >= 2);
   assert.equal((await inbox(olivia)).filter((m) => m.subject === 'Import me 1').length, 1);
 });
+
+test('save attachments to Drive: one or all, into "Email attachments"; odd names made safe', async () => {
+  const t = nodemailer.createTransport({ host: process.env.MAIL_IMAP_HOST, port: 25, secure: false, ignoreTLS: true, name: 'test.acme.com' });
+  await t.sendMail({ from: 'Someone <someone@acme.com>', to: 'olivia@acme.com', subject: 'Files to keep', text: 'x',
+    attachments: [{ filename: 'one.txt', content: 'first' }, { filename: '../two.txt', content: 'second' }] });
+  const m = await eventually(async () => (await inbox(olivia)).find((x) => x.subject === 'Files to keep'), 20000);
+  const one = await olivia('POST', `/api/mail/messages/${m.uid}/attachments/save`, { folder: 'INBOX', indexes: [0] });
+  assert.equal(one.status, 201);
+  assert.deepEqual(one.body.files.map((f) => f.name), ['one.txt']);
+  const all = (await olivia('POST', `/api/mail/messages/${m.uid}/attachments/save`, { folder: 'INBOX' })).body;
+  assert.equal(all.folder_id, one.body.folder_id, 'the same folder');
+  assert.equal(all.files.length, 2);
+  assert.ok(!all.files[1].name.includes('/'), all.files[1].name);
+  assert.equal((await olivia('GET', `/api/files/${all.files[1].id}/raw?download`)).body.toString(), 'second');
+  assert.equal((await olivia('POST', `/api/mail/messages/${m.uid}/attachments/save`, { folder: 'INBOX', indexes: [7] })).status, 404);
+});
