@@ -1643,3 +1643,4 @@ button.usage:hover .muted { color: var(--text); }
 .sugg-show { all: unset; cursor: pointer; display: flex; flex-direction: column; gap: 2px; overflow-wrap: anywhere; }
 .sugg-what { font-size: 14px; }
 @media print { .paper ins.sugg-ins { display: none; } .paper del.sugg-del { color: inherit; text-decoration: none; background: none; } }
+.pivot-banner { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }

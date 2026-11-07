@@ -16,6 +16,8 @@ import { applyStructure, adjustKey, sortRange, looksLikeHeader } from './structu
 import { removeDuplicates, splitColumn } from './data.js';
 import { DedupeDialog, SplitDialog } from './SheetData.jsx';
 import { SortDialog } from './SheetSort.jsx';
+import { PivotDialog } from './SheetPivot.jsx';
+import { buildPivot, pivotCells, sourceTable } from './pivot.js';
 import { RulesDialog } from './SheetRules.jsx';
 import { ValidationDialog, ChoicePicker } from './SheetValidation.jsx';
 import { validationAt, checkEntry, isTicked } from './validation.js';
@@ -179,6 +181,7 @@ export default function SheetEditor() {
 
   function writeCells(updates) {
     if (readOnly) return;
+    if (dataRef.current.sheets[active]?.pivot) { toast('This sheet is a pivot table: change it with Edit pivot table above', 'error'); return; }
     const cur = dataRef.current;
     const sheets = cur.sheets.map((s, i) => {
       if (i !== active) return s;
@@ -356,6 +359,63 @@ export default function SheetEditor() {
     toast(`Split into ${out.columns} columns${out.overwritten ? ` (${out.overwritten} cell${out.overwritten === 1 ? '' : 's'} written over)` : ''}`);
     gridRef.current?.focus();
   }
+  // ---- pivot tables: a sheet with { pivot } is filled from its source whenever the data changes ----
+  const pivotHeadings = (src, p) => {
+    const ev = createEvaluator(src.cells || {});
+    const out = [];
+    for (let c = p.c1; c <= p.c2; c++) { const v = ev(cellKey(c, p.r1)); out.push({ c, label: v && typeof v !== 'object' ? String(v) : '' }); }
+    return out;
+  };
+  /** The sheets with their pivot tables brought up to date (and whether anything changed). */
+  function refreshPivots(cur) {
+    let changed = false;
+    const sheets = cur.sheets.map((s) => {
+      if (!s.pivot) return s;
+      const src = cur.sheets.find((x) => x.name === s.pivot.source);
+      if (!src || src === s) return s;
+      const ev = createEvaluator(src.cells || {});
+      let last = s.pivot.r1;
+      for (const k of Object.keys(src.cells || {})) { const p = parseRef(k); if (p && p.c >= s.pivot.c1 && p.c <= s.pivot.c2) last = Math.max(last, p.r); }
+      const shown = (k) => { const v = ev(k); return v && typeof v === 'object' ? '' : v ?? ''; };
+      const rel = (c) => (c === null || c === undefined ? null : c - s.pivot.c1);
+      const grid = buildPivot(sourceTable(s.pivot, shown, last), { rows: rel(s.pivot.rows), cols: rel(s.pivot.cols), value: rel(s.pivot.value), fn: s.pivot.fn });
+      const { cells: pc, formats: pf } = pivotCells(grid);
+      if (JSON.stringify(pc) === JSON.stringify(s.cells || {}) && JSON.stringify(pf) === JSON.stringify(s.formats || {})) return s;
+      changed = true;
+      return { ...s, cells: pc, formats: pf };
+    });
+    return changed ? { ...cur, sheets } : null;
+  }
+  useEffect(() => {
+    if (readOnly || !data?.sheets.some((s) => s.pivot)) return undefined;
+    const t = setTimeout(() => { const next = refreshPivots(dataRef.current); if (next) commitData(next); }, 250);
+    return () => clearTimeout(t);
+  }, [data, readOnly]); // eslint-disable-line react-hooks/exhaustive-deps
+  function savePivot(spec, { index = null } = {}) {
+    const cur = dataRef.current;
+    let next;
+    if (index === null) {
+      let n = 1;
+      while (cur.sheets.some((s) => s.name === `Pivot table ${n}`)) n++;
+      next = { ...cur, sheets: [...cur.sheets, { name: `Pivot table ${n}`, cells: {}, colWidths: { A: 160 }, frozen: { rows: 1 }, pivot: spec }] };
+    } else next = { ...cur, sheets: cur.sheets.map((s, i) => (i === index ? { ...s, pivot: spec } : s)) };
+    commitData(refreshPivots(next) || next);
+    if (index === null) { setActive(next.sheets.length - 1); setSel({ c: 0, r: 0 }); setAnchor(null); }
+    setDialog(null);
+  }
+  function newPivot() {
+    const g = sortTarget();
+    if (g.r2 <= g.r1) { toast('Select a table with headings and at least one row of data first', 'error'); return; }
+    if (sheet.pivot) { toast('Pick the data on another sheet first', 'error'); return; }
+    const spec = { source: sheet.name, c1: g.c1, c2: g.c2, r1: g.r1, rows: g.c1, cols: null, value: g.c2 > g.c1 ? g.c2 : null, fn: 'sum' };
+    setDialog({ type: 'pivot', spec, headings: pivotHeadings(sheet, spec), index: null });
+  }
+  function editPivot() {
+    const src = data.sheets.find((x) => x.name === sheet.pivot.source);
+    if (!src) { toast(`The data sheet “${sheet.pivot.source}” is gone`, 'error'); return; }
+    setDialog({ type: 'pivot', spec: sheet.pivot, headings: pivotHeadings(src, sheet.pivot), index: active });
+  }
+
   const quickSort = (desc) => { const g = sortTarget(); sortBy({ range: g, by: sel.c, desc, header: looksLikeHeader(g, evaluate) }); };
 
   // The selection (grown to take in any merged cells it touches, so it never cuts one in two).
@@ -585,6 +645,7 @@ export default function SheetEditor() {
     '-',
     { label: 'Remove duplicates…', onClick: () => setDialog({ type: 'dedupe' }) },
     { label: 'Split text to columns…', onClick: () => setDialog({ type: 'split' }) },
+    { label: 'Pivot table…', onClick: newPivot },
   ];
   const freezeRows = [
     { label: range.r2 === 0 ? 'Freeze the first row' : `Freeze rows 1–${range.r2 + 1}`, onClick: () => setFrozen(Math.min(range.r2 + 1, 50), null), disabled: frozen.rows === range.r2 + 1 },
@@ -653,9 +714,15 @@ export default function SheetEditor() {
       />
       {status === 'offline' && <div className="banner warn">You're offline. Keep editing: your changes are kept here and sync when the connection is back.</div>}
       {readOnly && <div className="banner">View only. Ask {file.owner_name} for edit access.</div>}
+      {sheet?.pivot && (
+        <div className="banner pivot-banner" role="status">
+          Pivot table of <strong>{sheet.pivot.source}</strong> (columns {colName(sheet.pivot.c1)}–{colName(sheet.pivot.c2)}, from row {sheet.pivot.r1 + 1} down). It updates by itself when the data changes.
+          {!readOnly && <button type="button" className="btn small" onClick={editPivot}>Edit pivot table</button>}
+        </div>
+      )}
       {!readOnly && <FormatBar fmt={formats[selKey] || {}} onChange={(change) => { writeFormats(change); gridRef.current?.focus(); }}
         onMerge={() => { toggleMerge(); gridRef.current?.focus(); }} merged={!!mergeAt(merges, sel.c, sel.r)}
-        onBorders={(kind) => { writeFormats((k, c, r, f) => ({ bd: borderFor(kind, range, c, r, f?.bd) })); gridRef.current?.focus(); }} onComment={startComment} onChart={newChart} onSort={() => setDialog({ type: 'sort' })} onRules={() => setDialog({ type: 'rules' })} onValidation={() => setDialog({ type: 'validation' })} filterOn={!!filter} onFilter={toggleFilter} history={history} />}
+        onBorders={(kind) => { writeFormats((k, c, r, f) => ({ bd: borderFor(kind, range, c, r, f?.bd) })); gridRef.current?.focus(); }} onComment={startComment} onChart={newChart} onSort={() => setDialog({ type: 'sort' })} onRules={() => setDialog({ type: 'rules' })} onValidation={() => setDialog({ type: 'validation' })} onPivot={newPivot} filterOn={!!filter} onFilter={toggleFilter} history={history} />}
       {finding && sheet && (
         <SheetFind key={`${active}-${finding.n}`} cells={cells} shown={shown} hidden={hidden} replacing={finding.replace} canEdit={!readOnly}
           onGo={(m) => { setAnchor(null); setSel({ c: m.c, r: m.r }); requestAnimationFrame(() => gridRef.current?.querySelector(`[data-k="${m.key}"]`)?.scrollIntoView({ block: 'nearest', inline: 'nearest' })); }}
@@ -849,11 +916,19 @@ export default function SheetEditor() {
       )}
       {dialog?.type === 'share' && <ShareDialog file={file} onClose={() => setDialog(null)} />}
       {dialog?.type === 'history' && <VersionHistory file={file} canEdit={!readOnly} onClose={() => setDialog(null)} renderPreview={(content) => <SheetPreview content={content} />} />}
+      {dialog?.type === 'pivot' && (
+        <PivotDialog headings={dialog.headings} spec={dialog.spec} editing={dialog.index !== null}
+          source={`${dialog.spec.source}!${colName(dialog.spec.c1)}${dialog.spec.r1 + 1}:${colName(dialog.spec.c2)}`}
+          onSave={(spec) => savePivot(spec, { index: dialog.index })} onClose={() => { setDialog(null); gridRef.current?.focus(); }} />
+      )}
       {dialog?.type === 'rename-sheet' && (
         <PromptModal title="Rename sheet" label="Sheet name" initial={data.sheets[dialog.index].name} onClose={() => setDialog(null)}
           onSubmit={async (name) => {
             const cur = dataRef.current;
-            commitData({ ...cur, sheets: cur.sheets.map((s, i) => (i === dialog.index ? { ...s, name: name.slice(0, 50) } : s)) });
+            const old = cur.sheets[dialog.index].name;
+            const fresh = name.slice(0, 50);
+            // Pivot tables follow their data sheet's new name.
+            commitData({ ...cur, sheets: cur.sheets.map((s, i) => (i === dialog.index ? { ...s, name: fresh } : s.pivot?.source === old ? { ...s, pivot: { ...s.pivot, source: fresh } } : s)) });
           }} />
       )}
       {dialog?.type === 'delete-sheet' && (
@@ -896,7 +971,7 @@ export function parseCsv(text) {
 }
 
 /** Formatting for the selected cells: bold, italic, underline, colours, alignment, number format. */
-function FormatBar({ fmt, onChange, onBorders, onMerge, merged, onComment, onChart, onSort, onRules, onValidation, filterOn, onFilter, history }) {
+function FormatBar({ fmt, onChange, onBorders, onMerge, merged, onComment, onChart, onSort, onRules, onValidation, onPivot, filterOn, onFilter, history }) {
   const keep = (e) => e.preventDefault(); // buttons don't take focus from the grid
   const Toggle = ({ k, label, title, children }) => (
     <button type="button" className={`tb ${fmt[k] ? 'on' : ''}`} aria-pressed={!!fmt[k]} aria-label={label} title={title} onMouseDown={keep} onClick={() => onChange({ [k]: !fmt[k] })}>{children}</button>
@@ -958,6 +1033,7 @@ function FormatBar({ fmt, onChange, onBorders, onMerge, merged, onComment, onCha
       <button type="button" className="tb labelled" aria-label="Dropdowns and tick boxes" title="Dropdown lists and tick boxes in cells" onMouseDown={keep} onClick={onValidation}>▾ Dropdown</button>
       <button type="button" className="tb labelled" aria-label="Sort range" title="Sort rows by a column" onMouseDown={keep} onClick={onSort}><SortGlyph /> Sort</button>
       <button type="button" className="tb labelled" aria-label="Insert chart" title="Chart of the selected cells" onMouseDown={keep} onClick={onChart}><Icon name="chart" size={18} /> Chart</button>
+      <button type="button" className="tb labelled" aria-label="Pivot table" title="Summarise the table around the cursor on a new sheet" onMouseDown={keep} onClick={onPivot}>⊞ Pivot</button>
       <button type="button" className="tb labelled" aria-label="Add comment" title="Comment on this cell (Ctrl+Alt+M)" onMouseDown={keep} onClick={onComment}><Icon name="chat" size={18} /> Comment</button>
     </div>
   );

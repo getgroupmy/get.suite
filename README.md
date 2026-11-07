@@ -181,6 +181,14 @@ Switch **✎ Editing** to **💡 Suggesting** at the top of a document to propos
 - A sheet can have several rules. They're tried from the top, and the first that fits a cell colours it; the arrows change the order.
 - The colours follow the values as they change, for everyone editing. Rules move with their cells when rows or columns are inserted or deleted, and carry to and from Excel.
 
+## Pivot tables (Sheets)
+
+**⊞ Pivot** in the toolbar (or right-click → **Pivot table…**) summarises the table around the cursor on a new sheet, **Pivot table 1**:
+
+- **Rows:** one for each value of a column (e.g. *Region*); **Columns** (optional): one for each value of another (e.g. *Product*); **Values:** the **sum**, **count**, **average**, **minimum** or **maximum** of a column, or a count of rows. Each row and column has a total, and there's a grand total. Blank values are grouped as *(blank)*; numbers sort before text.
+- It **updates by itself** when the data changes, including rows added below the table, for everyone with the spreadsheet open. **Edit pivot table** at the top of its sheet changes what it shows.
+- Its cells can't be typed in (they come from the data). Renaming the data sheet keeps it working. Excel downloads have its values.
+
 ## Charts (Sheets)
 
 - **Insert:** select cells (or just click one inside your table) and press **Chart**. The first row and column are used as names when they hold text. Choose **Column**, **Bar**, **Line** or **Pie**, give it a title, and check the preview.
