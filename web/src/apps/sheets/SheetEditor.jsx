@@ -23,6 +23,7 @@ import { SheetPreview } from './SheetPreview.jsx';
 import { VersionHistory } from '../VersionHistory.jsx';
 import { ruleStyle } from './condformat.js';
 import { useUndo, undoKey } from '../useUndo.js';
+import { useFormulaAssist } from './FormulaAssist.jsx';
 
 const SEL_COLORS = ['#1a73e8', '#d93025', '#188038', '#e37400', '#8430ce', '#00796b', '#c2185b', '#5f6368'];
 const colorFor = (id) => SEL_COLORS[[...String(id)].reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) >>> 0, 7) % SEL_COLORS.length];
@@ -58,6 +59,7 @@ export default function SheetEditor() {
   const [anchor, setAnchor] = useState(null);
   const [editing, setEditing] = useState(null); // null | 'cell' | 'bar'
   const [draft, setDraft] = useState('');
+  const assist = useFormulaAssist(draft, setDraft, !!editing);
   const [dialog, setDialog] = useState(null);
   const dataRef = useRef(null);
   const gridRef = useRef();
@@ -546,14 +548,16 @@ export default function SheetEditor() {
           aria-label="Cell contents" readOnly={readOnly}
           value={editing ? draft : cells[selKey] ?? ''}
           onFocus={() => !editing && startEdit(undefined, 'bar')}
-          onChange={(e) => setDraft(e.target.value)}
+          onChange={(e) => setDraft(e.target.value)} onSelect={assist.track}
           onKeyDown={(e) => {
+            if (assist.handleKey(e)) return;
             if (e.key === 'Enter') { e.preventDefault(); commitEdit(0, 1, true); }
             if (e.key === 'Escape') cancelEdit();
           }}
           onBlur={() => editing === 'bar' && commitEdit(0, 0)}
         />
         {selValue && typeof selValue === 'object' && selValue.error && <span className="error small">{describeError(selValue.error)}</span>}
+        {editing === 'bar' && assist.popup}
       </div>
       <div className="sheet-body">
       <div className="grid-wrap" ref={gridRef} onContextMenu={(e) => { if (e.target === e.currentTarget) openMenu(e, 'cell'); }} tabIndex={0} onKeyDown={onGridKey} onCopy={onCopy} onCut={onCut} onPaste={onPaste}>
@@ -582,13 +586,15 @@ export default function SheetEditor() {
                   if (isSel && editing === 'cell') {
                     return (
                       <td key={k} data-k={k} className={`sel editing ${frozenClass(c, r)}`} style={{ maxWidth: widthOf(c), ...stickyStyle(c, r) }}>
-                        <input autoFocus value={draft} aria-label={`Edit ${k}`} onChange={(e) => setDraft(e.target.value)}
+                        <input autoFocus value={draft} aria-label={`Edit ${k}`} onChange={(e) => setDraft(e.target.value)} onSelect={assist.track}
                           onKeyDown={(e) => {
+                            if (assist.handleKey(e)) return;
                             if (e.key === 'Enter') { e.preventDefault(); commitEdit(0, e.shiftKey ? -1 : 1, true); }
                             else if (e.key === 'Tab') { e.preventDefault(); commitEdit(e.shiftKey ? -1 : 1, 0, true); }
                             else if (e.key === 'Escape') cancelEdit();
                           }}
                           onBlur={() => editing === 'cell' && commitEdit(0, 0)} />
+                        {assist.popup}
                       </td>
                     );
                   }

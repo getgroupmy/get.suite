@@ -494,6 +494,9 @@ const LAZY = {
   IFERROR: ([v, fallback]) => { try { return v(); } catch (e) { if (e instanceof FormulaError) return fallback ? fallback() : ''; throw e; } },
 };
 
+/** Every function a formula can call. */
+export const FUNCTION_NAMES = [...Object.keys(FUNCS), ...Object.keys(LAZY)];
+
 /** Convert a raw cell entry into a literal value. */
 export function literal(raw) {
   if (raw === undefined || raw === null || raw === '') return null;
