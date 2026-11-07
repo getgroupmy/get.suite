@@ -212,6 +212,7 @@ export default function Drive() {
       { label: f.starred ? 'Remove star' : 'Add star', icon: f.starred ? 'star' : 'staroutline', onClick: act(() => put(`/files/${f.id}/star`, { starred: !f.starred }), f.starred ? 'Star removed' : 'Starred') },
       '-',
       f.role === 'owner' && { label: 'Share', icon: 'share', onClick: () => setDialog({ type: 'share', file: f }) },
+      f.role === 'owner' && f.owner_id === user.id && { label: 'Transfer ownership…', icon: 'person', onClick: () => setDialog({ type: 'transfer', file: f }) },
       canEdit && { label: 'Rename', icon: 'edit', onClick: () => setDialog({ type: 'rename', file: f }) },
       canEdit && { label: 'Move to…', icon: 'move', onClick: () => setDialog({ type: 'move', files: [f] }) },
       f.kind !== 'folder' && { label: 'Make a copy', icon: 'copy', onClick: act(() => post(`/files/${f.id}/copy`), 'Copy made') },
@@ -362,6 +363,7 @@ export default function Drive() {
         <PromptModal title="New folder" label="Folder name" initial="Untitled folder" confirm="Create" onClose={() => setDialog(null)}
           onSubmit={async (name) => { await post('/files/folder', { name, parent_id: parentId }); load(); }} />
       )}
+      {dialog?.type === 'transfer' && <TransferDialog file={dialog.file} onClose={() => setDialog(null)} onDone={load} />}
       {dialog?.type === 'rename' && (
         <PromptModal title="Rename" label="New name" initial={dialog.file.name} onClose={() => setDialog(null)}
           onSubmit={async (name) => { await patch(`/files/${dialog.file.id}`, { name }); load(); }} />
@@ -742,6 +744,39 @@ function TemplatesDialog({ onClose, onPick }) {
   );
 }
 
+/** Make a colleague the owner; you keep edit access. */
+function TransferDialog({ file, onClose, onDone }) {
+  const toast = useToast();
+  const { user } = useAuth();
+  const [people, setPeople] = useState(null);
+  const [to, setTo] = useState('');
+  const [error, setError] = useState('');
+  useEffect(() => { get('/users/directory').then((l) => setPeople(l.filter((p) => p.id !== user.id))).catch(() => setPeople([])); }, [user.id]);
+  const submit = async (e) => {
+    e.preventDefault();
+    try {
+      const r = await post(`/files/${file.id}/transfer`, { user_id: to });
+      toast(`${people.find((p) => p.id === to)?.name} now owns “${file.name}”${r.items > 1 ? ` (${r.items} items)` : ''}. You can still edit it.`);
+      onClose(); onDone();
+    } catch (err) { setError(err.message); }
+  };
+  return (
+    <Modal title="Transfer ownership" onClose={onClose}>
+      <form className="stack" onSubmit={submit}>
+        <p className="muted small" style={{ margin: 0 }}>The new owner decides who has “{file.name}”{file.kind === 'folder' ? ' and everything in it you own' : ''}, and it counts as theirs. You keep edit access.</p>
+        <label className="field"><span>New owner</span>
+          <select value={to} onChange={(e) => setTo(e.target.value)} required>
+            <option value="">Choose a colleague…</option>
+            {(people || []).map((p) => <option key={p.id} value={p.id}>{p.name} ({p.username})</option>)}
+          </select>
+        </label>
+        {error && <p className="error">{error}</p>}
+        <div className="row end"><button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn primary" disabled={!to}>Transfer</button></div>
+      </form>
+    </Modal>
+  );
+}
+
 /** One line of a file's activity, e.g. "Kim Park renamed it from Plan to Plan 2027". */
 function activityText(a) {
   const who = a.user_name || (a.action === 'request' ? a.details?.from || 'Someone' : 'Someone');
@@ -756,6 +791,7 @@ function activityText(a) {
     case 'move': return d.to ? `${who} moved it to ${d.to}` : `${who} moved it to My Drive`;
     case 'trash': return `${who} moved it to the trash`;
     case 'restore': return `${who} restored it from the trash`;
+    case 'transfer': return `${who} made ${d.to} the owner`;
     case 'version': return `${who} brought back ${d.label ? `the version “${d.label}”` : `the version from ${new Date(d.saved_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}`}`;
     case 'share': return [d.added?.length && `${who} shared it with ${d.added.join(', ')}`, d.removed?.length && `${d.added?.length ? 'and' : who} stopped sharing it with ${d.removed.join(', ')}`].filter(Boolean).join(' ') || `${who} changed who has it`;
     default: return `${who}: ${a.action}`;

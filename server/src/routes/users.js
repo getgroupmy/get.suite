@@ -13,6 +13,7 @@ import { uid } from '../util.js';
 import { planImport, readablePassword } from '../userimport.js';
 import { sendTo } from '../hub.js';
 import { hoursOf, setHours, readHours, hoursText } from '../workhours.js';
+import { insertFile, uniqueName } from './files.js';
 
 /** A status as shown, or null once it has cleared. */
 export function statusOf(row, at = Date.now()) {
@@ -249,7 +250,24 @@ export default function userRoutes() {
     const u = loadManagedUser(req);
     if (u.id === req.user.id) throw bad('You cannot delete yourself');
     if (u.is_super) throw bad('The platform owner account cannot be deleted');
+    // Their Drive can go to a colleague first (into a "Files from …" folder), instead of being deleted.
+    let heir = null;
+    if (req.query.transfer_to) {
+      heir = q('SELECT id, name, org_id, disabled FROM users WHERE id = ?').get(String(req.query.transfer_to));
+      if (!heir || heir.disabled || heir.org_id !== u.org_id || heir.id === u.id) throw bad('Choose someone else in the same company to give their files to');
+    }
     const blobs = tx(() => {
+      let moved = 0;
+      if (heir) {
+        const roots = q('SELECT id, name FROM files WHERE owner_id = ? AND parent_id IS NULL').all(u.id);
+        if (roots.length) {
+          const folder = insertFile({ owner: heir.id, parentId: null, name: `Files from ${q("SELECT name FROM users WHERE id = ?").get(u.id).name}`.slice(0, 255), kind: 'folder' });
+          for (const f of roots) q('UPDATE files SET parent_id = ?, name = ? WHERE id = ?').run(folder, uniqueName(folder, heir.id, f.name), f.id);
+        }
+        moved = q('UPDATE files SET owner_id = ? WHERE owner_id = ?').run(heir.id, u.id).changes;
+        q('DELETE FROM shares WHERE user_id = ? AND file_id IN (SELECT id FROM files WHERE owner_id = ?)').run(heir.id, heir.id);
+      }
+      req.moved = moved;
       const list = blobsOwnedBy('?', u.id);
       q('UPDATE domains SET catchall = NULL WHERE catchall = (SELECT username FROM users WHERE id = ?)').run(u.id);
       // Their mail stays on the mail server; whoever gets this address next starts with an empty mailbox.
@@ -260,8 +278,8 @@ export default function userRoutes() {
     });
     removeBlobs(blobs);
     scheduleMailConfig();
-    audit(req, 'user.delete', { org: u.org_id, target: u.username });
-    res.json({ ok: true });
+    audit(req, 'user.delete', { org: u.org_id, target: u.username, ...(heir && { details: { files_to: heir.name, items: req.moved } }) });
+    res.json({ ok: true, files_moved: req.moved || 0 });
   });
 
   return r;

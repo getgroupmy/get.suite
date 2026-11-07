@@ -61,12 +61,13 @@ export function PromptModal({ title, label, initial = '', confirm = 'Save', onSu
   );
 }
 
-export function ConfirmModal({ title, message, confirm = 'Delete', danger = true, onConfirm, onClose }) {
+export function ConfirmModal({ title, message, confirm = 'Delete', danger = true, onConfirm, onClose, children }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   return (
     <Modal title={title} onClose={onClose}>
       <p>{message}</p>
+      {children}
       {error && <p className="error">{error}</p>}
       <div className="row end">
         <button className="btn" onClick={onClose}>Cancel</button>

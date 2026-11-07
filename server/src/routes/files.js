@@ -156,6 +156,24 @@ export function snapshot(fileId, label = null) {
   return id;
 }
 
+/**
+ * Give a file or folder (and everything in it the giver owns) to someone else. The new owner's own
+ * shares on them go (they own them now); the giver keeps edit access unless `keepAccess` is false.
+ */
+export function transferOwnership(rootId, fromId, toId, { keepAccess = true } = {}) {
+  const ids = q(`WITH RECURSIVE t(id) AS (SELECT ? UNION SELECT f.id FROM files f JOIN t ON f.parent_id = t.id)
+                 SELECT id FROM files WHERE id IN (SELECT id FROM t) AND owner_id = ?`).all(rootId, fromId).map((r) => r.id);
+  tx(() => {
+    for (const id of ids) {
+      q('UPDATE files SET owner_id = ? WHERE id = ?').run(toId, id);
+      q('DELETE FROM shares WHERE file_id = ? AND user_id = ?').run(id, toId);
+      q('DELETE FROM file_stars WHERE file_id = ? AND user_id = ?').run(id, fromId);
+    }
+    if (keepAccess) q(`INSERT INTO shares (file_id, user_id, role) VALUES (?, ?, 'editor') ON CONFLICT(file_id, user_id) DO UPDATE SET role = 'editor'`).run(rootId, fromId);
+  });
+  return ids.length;
+}
+
 /** Stream an upload into storage, within the size limit and the company's quota. */
 export async function receiveUpload(req, orgId, maxUploadBytes) {
   const declared = Number(req.headers['content-length'] || 0);
@@ -800,6 +818,22 @@ export default function fileRoutes({ maxUploadBytes }) {
   });
 
   // Share with everyone in the company (the owner's), or stop: { role: 'viewer' | 'editor' | null }.
+  // Make a colleague the owner (of a folder: with everything in it you own). You keep edit access.
+  r.post('/:id/transfer', (req, res) => {
+    const f = loadFile(req.params.id, req.user, 'owner');
+    if (f.owner_id !== req.user.id) throw forbidden('Only the owner can give it to someone else');
+    const to = q('SELECT id, name, org_id, disabled FROM users WHERE id = ?').get(String(req.body.user_id || ''));
+    if (!to || to.disabled || to.org_id !== req.user.org_id) throw bad('Choose someone in your company');
+    if (to.id === req.user.id) throw bad('You already own it');
+    const before = audienceFor(f.id);
+    const n = transferOwnership(f.id, req.user.id, to.id);
+    recordActivity(f.id, req.user.id, 'transfer', { to: to.name });
+    audit(req, 'file.transfer', { target: f.name, details: { to: q('SELECT username FROM users WHERE id = ?').get(to.id).username, items: n } });
+    bell([to.id], { kind: 'share', title: `${req.user.name} made you the owner of “${f.name}”`, body: f.kind === 'folder' ? `${n} item${n === 1 ? '' : 's'}` : '', link: openLink(f), actor: req.user.name });
+    sendTo(new Set([...before, ...audienceFor(f.id)]), { type: 'files-changed', parent_id: f.parent_id });
+    res.json({ ...publicFile(loadFile(f.id, req.user)), items: n });
+  });
+
   r.put('/:id/company', (req, res) => {
     const f = loadFile(req.params.id, req.user, 'owner');
     if (f.owner_id !== req.user.id) throw forbidden('Only the owner can share with the whole company');

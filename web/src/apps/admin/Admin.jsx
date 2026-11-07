@@ -102,8 +102,18 @@ function Users({ orgId, setOrgId }) {
     )}
     {dialog?.type === 'delete' && (
       <ConfirmModal title={`Delete ${dialog.user.name}?`} confirm="Delete user"
-        message={`This permanently deletes ${dialog.user.username}, their files (${formatBytes(dialog.user.storage_used)}), calendar, contacts and messages. Consider disabling the account instead.`}
-        onClose={() => setDialog(null)} onConfirm={async () => { await del(`/users/${dialog.user.id}`); toast('User deleted'); load(); }} />
+        message={`This permanently deletes ${dialog.user.username}, their ${dialog.heir ? '' : `files (${formatBytes(dialog.user.storage_used)}), `}calendar, contacts and messages. Consider disabling the account instead.`}
+        onClose={() => setDialog(null)} onConfirm={async () => {
+          const r = await del(`/users/${dialog.user.id}${dialog.heir ? `?transfer_to=${dialog.heir}` : ''}`);
+          toast(dialog.heir && r.files_moved ? `User deleted; ${r.files_moved} file${r.files_moved === 1 ? '' : 's'} given to ${users.find((x) => x.id === dialog.heir)?.name}` : 'User deleted'); load();
+        }}>
+        <label className="field"><span>Their Drive files</span>
+          <select value={dialog.heir || ''} onChange={(e) => setDialog({ ...dialog, heir: e.target.value || null })}>
+            <option value="">Delete them too</option>
+            {(users || []).filter((x) => x.id !== dialog.user.id && !x.disabled).map((x) => <option key={x.id} value={x.id}>Give them to {x.name}</option>)}
+          </select>
+        </label>
+      </ConfirmModal>
     )}
   </>;
 }

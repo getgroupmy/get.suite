@@ -2355,3 +2355,32 @@ test('tasks: a due time on the due date; cleared with the date; kept on the next
   const next = (await a('GET', `/api/tasks/lists/${list}/tasks`)).body.find((x) => x.title === 'Early' && !x.done);
   assert.deepEqual([next.due, next.due_time], ['2026-12-02', '09:00']);
 });
+
+test('transfer ownership: give a folder to a colleague; give a leaving person’s files to someone', async () => {
+  const a = client(), b = client(), c = client();
+  for (const [local, name] of [['tra', 'Give Ann'], ['trb', 'Give Ben'], ['trc', 'Give Cat']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  const aid = (await login(a, 'tra@acme.com')).id;
+  const bid = (await login(b, 'trb@acme.com')).id;
+  const cid = (await login(c, 'trc@acme.com')).id;
+  const folder = (await a('POST', '/api/files/folder', { name: 'Projects' })).body;
+  const doc = (await a('POST', '/api/files/new', { kind: 'doc', name: 'Plan', parent_id: folder.id })).body;
+  await a('PUT', `/api/files/${folder.id}/shares`, { shares: [{ user_id: bid, role: 'viewer' }] });
+  assert.equal((await b('POST', `/api/files/${folder.id}/transfer`, { user_id: bid })).status, 403, 'only the owner');
+  assert.equal((await a('POST', `/api/files/${folder.id}/transfer`, { user_id: aid })).status, 400);
+  const t = await a('POST', `/api/files/${folder.id}/transfer`, { user_id: bid });
+  assert.equal(t.status, 200);
+  assert.equal(t.body.items, 2);
+  assert.equal(t.body.role, 'editor', 'the giver keeps edit access');
+  assert.equal((await b('GET', `/api/files/${doc.id}`)).body.role, 'owner');
+  assert.deepEqual((await b('GET', `/api/files/${folder.id}/shares`)).body.map((s) => [s.name, s.role]), [['Give Ann', 'editor']], 'Ben’s own share is gone');
+  // Deleting Cat, her files go to Ben in "Files from Give Cat".
+  const notes = (await c('POST', '/api/files/new', { kind: 'doc', name: 'Notes' })).body;
+  const del = await owner('DELETE', `/api/users/${cid}?transfer_to=${bid}`);
+  assert.equal(del.status, 200);
+  assert.equal(del.body.files_moved, 1);
+  const got = (await b('GET', `/api/files/${notes.id}`)).body;
+  assert.equal(got.role, 'owner');
+  const parent = (await b('GET', `/api/files/${got.parent_id}`)).body;
+  assert.equal(parent.name, 'Files from Give Cat');
+  assert.equal((await owner('DELETE', `/api/users/${aid}?transfer_to=${aid}`)).status, 400);
+});

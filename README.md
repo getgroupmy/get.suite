@@ -234,6 +234,9 @@ Your Workspace calendar and contacts sync with the phone's own Calendar and Cont
 - **Download as .zip:** a folder's ⋮ menu, or **Download** with several ticked, gives one .zip with the folders inside it. Documents, spreadsheets and presentations go in as Word, Excel and PowerPoint files. Up to 2 GB at a time.
 - **Trash:** what you trash waits in **Trash**, where each item says when it goes for good: after 30 days unless an admin changes it (Admin → Company settings → **Empty the trash automatically**: 7 days to a year, or never). Its versions go with it and the space is freed. **Restore** brings it back and stops the countdown; **Empty trash** clears it at once.
 
+- **Transfer ownership:** **⋮ → Transfer ownership…** on something you own makes a colleague the owner (of a folder: with everything in it you own). They decide who has it, it counts as theirs, and you keep edit access. They get a notification, and its activity says who made whom the owner.
+- **When someone leaves:** deleting a user (Admin → Users → ⋮ → **Delete user and their files**) can **give their Drive files to** a colleague instead of deleting them. The files go into a **Files from {name}** folder in that colleague's My Drive, with their folders and sharing as they were.
+
 ## File details (Drive)
 
 **Details** in a file's or folder's ⋮ menu shows what it is, its size, owner, when it was made and last changed (and by whom), and who has access. Anyone who can edit it can add a **description** there, which search also finds, and give a folder a **colour**, shown on its icon in the list.
