@@ -2651,3 +2651,18 @@ test('chat: who in a conversation can’t open a linked Drive file', async () =>
   assert.equal(pub.everyone, true);
   assert.ok(pub.total >= 1);
 });
+
+test('drive: before emailing links, which recipients can’t open which files', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['mla', 'Mail Ann'], ['mlb', 'Mail Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'mla@acme.com');
+  await login(b, 'mlb@acme.com');
+  const mine = (await a('POST', '/api/files/new', { kind: 'doc', name: 'Plan' })).body;
+  const theirs = (await b('POST', '/api/files/new', { kind: 'doc', name: 'Ben notes' })).body;
+  const open = (await a('POST', '/api/files/new', { kind: 'sheet', name: 'Shared sheet' })).body;
+  const bid = (await b('GET', '/api/auth/me')).body.user.id;
+  await a('PUT', `/api/files/${open.id}/shares`, { shares: [{ user_id: bid, role: 'viewer' }] });
+  const r = (await a('POST', '/api/files/missing-access', { files: [mine.id, theirs.id, open.id], emails: ['MLB@acme.com', 'someone@outside.example'] })).body;
+  assert.deepEqual(r.map((f) => [f.name, f.can_share, f.people.map((p) => p.username)]), [['Plan', true, ['mlb@acme.com']]], 'Ben’s own file and the shared one are fine; outsiders aren’t counted');
+  assert.deepEqual((await a('POST', '/api/files/missing-access', { files: [mine.id], emails: [] })).body, []);
+});

@@ -852,6 +852,23 @@ export default function fileRoutes({ maxUploadBytes }) {
   });
 
   // Share with everyone in the company (the owner's), or stop: { role: 'viewer' | 'editor' | null }.
+  // Before sending an email that links to Drive files: which of the colleagues it goes to can't open
+  // which file ({ files: [ids], emails: [addresses] }). Files you can't open yourself are left out.
+  r.post('/missing-access', (req, res) => {
+    const ids = [...new Set((Array.isArray(req.body.files) ? req.body.files : []).map(String))].slice(0, 20);
+    const emails = [...new Set((Array.isArray(req.body.emails) ? req.body.emails : []).map((e) => String(e).trim().toLowerCase()))].slice(0, 100);
+    const people = emails.length ? q(`SELECT id, name, username FROM users WHERE disabled = 0 AND LOWER(username) IN (SELECT value FROM json_each(?))`).all(JSON.stringify(emails))
+      .filter((u) => u.id !== req.user.id && canReach(req.user, u.id)) : [];
+    const out = [];
+    for (const id of ids) {
+      const f = q('SELECT id, name, kind, owner_id FROM files WHERE id = ? AND trashed = 0').get(id);
+      if (!f || !roleFor(f.id, req.user.id)) continue;
+      const missing = people.filter((u) => !roleFor(f.id, u.id));
+      if (missing.length) out.push({ id: f.id, name: f.name, kind: f.kind, can_share: f.owner_id === req.user.id, people: missing });
+    }
+    res.json(out);
+  });
+
   // Who can open one file (?for=: a document linking to this one) but not this one: offered to share
   // when a link is put in. Only for someone who can open both; can_share says whether they own this one.
   r.get('/:id/missing-access', (req, res) => {

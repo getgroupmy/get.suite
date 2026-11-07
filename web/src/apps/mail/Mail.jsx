@@ -23,6 +23,8 @@ import { printMessage } from './mailprint.js';
 import { textToHtml, docToText, emailHtml, isEmptyDoc, linkHref } from './richtext.js';
 import { FiltersDialog } from './Filters.jsx';
 import DrivePicker from '../../components/DrivePicker.jsx';
+import { parseAddresses } from '../../components/addresses.js';
+import { fileLinksIn } from '../chat/filelinks.js';
 import { addToTasksWithToast, mailLink } from '../tasks/addtask.js';
 import { eventFromEmail } from '../calendar/fromemail.js';
 import { ASPECTS, FULL, fitAspect, moveRect, resizeRect, toPixels, rotatedSize, outputType, editedName } from './cropmath.js';
@@ -752,6 +754,7 @@ function Compose({ initial, signatures = [], onClose, onSent, onDraftsChanged })
 
   // Undo send: the window steps aside for a few seconds before the message really goes.
   const [waiting, setWaiting] = useState(false);
+  const [accessGaps, setAccessGaps] = useState(null); // linked files some recipients can't open
   const pendingSend = useRef(null); // the send to do when the wait is over (or the page is left)
   useEffect(() => () => { pendingSend.current?.(); }, []); // leaving now sends straight away
   const [scheduling, setScheduling] = useState(false);
@@ -768,6 +771,30 @@ function Compose({ initial, signatures = [], onClose, onSent, onDraftsChanged })
     // Only this form's own submit sends. Dialogs opened from the message (e.g. the link dialog) are
     // rendered elsewhere in the page, but React still passes their events up to here.
     if (e.target !== e.currentTarget) return;
+    // Links to Drive files that colleagues it goes to can't open: ask first.
+    const links = fileLinksIn(`${f.text} ${f.html}`).map((l) => l.id);
+    const emails = [f.to, f.cc, f.bcc].flatMap((t) => parseAddresses(t).list.map((a) => a.email));
+    if (links.length && emails.length) {
+      try {
+        const gaps = await post('/files/missing-access', { files: links, emails });
+        if (gaps.length) { setAccessGaps(gaps); return; }
+      } catch { /* checking is a courtesy */ }
+    }
+    reallySend();
+  }
+  /** Share the linked files you own with those who can't open them, then send. */
+  async function shareAndSend() {
+    const gaps = accessGaps;
+    setAccessGaps(null);
+    try {
+      for (const g of gaps.filter((x) => x.can_share)) {
+        const now = await get(`/files/${g.id}/shares`);
+        await put(`/files/${g.id}/shares`, { shares: [...now.map((x) => ({ user_id: x.user_id, role: x.role })), ...g.people.map((p) => ({ user_id: p.id, role: 'viewer' }))] });
+      }
+    } catch (err) { toast(err.message, 'error'); return; }
+    reallySend();
+  }
+  async function reallySend() {
     setBusy(true);
     await stopAutosave();
     const body = payload();
@@ -884,6 +911,20 @@ function Compose({ initial, signatures = [], onClose, onSent, onDraftsChanged })
       {picking && <DrivePicker empty="No files found. (Docs and Sheets can't be attached yet; download them first.)" onClose={() => setPicking(false)} onPick={(file) => { if (!files.some((x) => x.id === file.id)) setFiles([...files, file]); setPicking(false); }} />}
     </Modal>
     {scheduling && <ScheduleDialog onClose={() => setScheduling(false)} onPick={(at) => { setScheduling(false); sendLater(at); }} />}
+    {accessGaps && (
+      <Modal title="Some recipients can't open a linked file" onClose={() => setAccessGaps(null)}>
+        <div className="stack">
+          <ul className="access-gaps">
+            {accessGaps.map((g) => <li key={g.id}><strong>{g.name}</strong>: {g.people.map((p) => p.name).join(', ')}{!g.can_share && <span className="muted small"> (not yours to share; ask its owner)</span>}</li>)}
+          </ul>
+          <div className="row end">
+            <button type="button" className="btn" onClick={() => setAccessGaps(null)}>Cancel</button>
+            <button type="button" className="btn" onClick={() => { setAccessGaps(null); reallySend(); }}>Send anyway</button>
+            {accessGaps.some((g) => g.can_share) && <button type="button" className="btn primary" onClick={shareAndSend}>Share (can view) and send</button>}
+          </div>
+        </div>
+      </Modal>
+    )}
     </div>
   );
 }
