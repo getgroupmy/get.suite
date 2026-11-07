@@ -6,6 +6,15 @@ import { str, bad, notFound, forbidden } from '../util.js';
 import { requireAdmin, validatePassword, hashPassword, newUserRow } from '../auth.js';
 import { validAddress, canReach, blobsOwnedBy, removeBlobs, mailHomeOf, retireMailHome } from '../tenancy.js';
 import { uid } from '../util.js';
+import { sendTo } from '../hub.js';
+
+/** A status as shown, or null once it has cleared. */
+export function statusOf(row, at = Date.now()) {
+  if (!row || (!row.status_emoji && !row.status_text) || (row.status_until && row.status_until <= at)) return null;
+  return { emoji: row.status_emoji || null, text: row.status_text || null, until: row.status_until || null };
+}
+/** Colleagues (and the person's other tabs) see a status change at once. */
+const statusChanged = (user) => sendTo(q('SELECT id FROM users WHERE org_id = ? AND disabled = 0').all(user.org_id).map((u) => u.id), { type: 'status-changed', user_id: user.id });
 import { forgetConnection } from '../mail/imap.js';
 import { setMailPassword, scheduleMailConfig } from '../mail/config.js';
 
@@ -54,7 +63,30 @@ export default function userRoutes() {
 
   // Everyone: your own company's directory (for sharing, chat, contacts).
   r.get('/directory', (req, res) => {
-    res.json(q('SELECT id, username, name FROM users WHERE org_id = ? AND disabled = 0 ORDER BY name').all(req.user.org_id));
+    res.json(q('SELECT id, username, name, status_emoji, status_text, status_until FROM users WHERE org_id = ? AND disabled = 0 ORDER BY name')
+      .all(req.user.org_id).map(({ status_emoji, status_text, status_until, ...u }) => ({ ...u, status: statusOf({ status_emoji, status_text, status_until }) })));
+  });
+
+  // Your status: what colleagues see next to your name, until it clears by itself.
+  r.get('/me/status', (req, res) => {
+    res.json({ status: statusOf(q('SELECT status_emoji, status_text, status_until FROM users WHERE id = ?').get(req.user.id)) });
+  });
+  r.put('/me/status', (req, res) => {
+    const text = str(req.body.text, { max: 100, name: 'Status' }) || null;
+    const emoji = String(req.body.emoji || '').trim() || null;
+    if (emoji && (emoji.length > 16 || /[\s<>]/.test(emoji))) throw bad('Choose an emoji');
+    if (!text && !emoji) throw bad('Type a status or choose an emoji');
+    let until = req.body.until == null ? null : Number(req.body.until);
+    if (until !== null && (!Number.isFinite(until) || until <= Date.now())) throw bad('Pick a time in the future to clear it');
+    if (until !== null && until > Date.now() + 366 * 864e5) throw bad('A status can last up to a year');
+    q('UPDATE users SET status_emoji = ?, status_text = ?, status_until = ? WHERE id = ?').run(emoji, text, until, req.user.id);
+    statusChanged(req.user);
+    res.json({ status: statusOf({ status_emoji: emoji, status_text: text, status_until: until }) });
+  });
+  r.delete('/me/status', (req, res) => {
+    q('UPDATE users SET status_emoji = NULL, status_text = NULL, status_until = NULL WHERE id = ?').run(req.user.id);
+    statusChanged(req.user);
+    res.json({ status: null });
   });
 
   // Find someone in another company by exact address (only if both companies allow it).

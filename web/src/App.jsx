@@ -21,6 +21,8 @@ import SheetEditor from './apps/sheets/SheetEditor.jsx';
 import SlidesEditor from './apps/slides/SlidesEditor.jsx';
 import PresenterView from './apps/slides/PresenterView.jsx';
 import { ShortcutsHelp } from './components/Shortcuts.jsx';
+import { StatusDialog, useMyStatus } from './components/StatusDialog.jsx';
+import { statusLine } from './components/status.js';
 import Calendar from './apps/calendar/Calendar.jsx';
 import Contacts from './apps/contacts/Contacts.jsx';
 import Tasks from './apps/tasks/Tasks.jsx';
@@ -130,6 +132,8 @@ function Shell() {
     toast(`${m.by} booked “${m.page}” for ${when}`, 'info', { action: { label: 'Calendar', onClick: () => navigate('/calendar') } });
   }), [toast, navigate]);
   const chatUnread = useChatUnread();
+  const [myStatus, setMyStatus] = useMyStatus(user.id);
+  const [statusOpen, setStatusOpen] = useState(false);
 
   return (
     <div className={`shell ${navOpen ? 'nav-open' : ''}`}>
@@ -147,14 +151,16 @@ function Shell() {
           <input name="q" placeholder="Search in Drive" aria-label="Search in Drive" />
         </form>
         <Bell />
-        <Menu align="right" trigger={(p) => <button className="avatar-btn" aria-label="Account" {...p}><Avatar name={user.name} /></button>} items={[
+        <Menu align="right" trigger={(p) => <button className="avatar-btn" aria-label="Account" title={myStatus ? statusLine(myStatus) : undefined} {...p}><Avatar name={user.name} />{myStatus?.emoji && <span className="avatar-status" aria-hidden="true">{myStatus.emoji}</span>}</button>} items={[
           { label: `${user.name} · ${user.username}`, icon: 'person', onClick: () => navigate('/settings') },
+          { label: myStatus ? `Status: ${statusLine(myStatus)}` : 'Set a status', icon: 'chat', onClick: () => setStatusOpen(true) },
           { label: 'Settings', icon: 'settings', onClick: () => navigate('/settings') },
           user.is_admin && { label: 'Admin console', icon: 'shield', onClick: () => navigate('/admin') },
           '-',
           { label: 'Sign out', icon: 'logout', onClick: logout },
         ]} />
       </header>
+      {statusOpen && <StatusDialog current={myStatus} onClose={() => setStatusOpen(false)} onSaved={setMyStatus} />}
       <nav className="appnav" onClick={() => setNavOpen(false)}>
         {APPS.filter((a) => !a.mail || mail?.enabled).map((a) => (
           <NavLink key={a.to} to={a.to} className="appnav-item">

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { blocks, hasMarkup } from './markup.js';
+import { statusLine, untilText } from '../../components/status.js';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { get, post, patch, del, onLive, uploadFile, formatBytes } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
@@ -63,6 +64,8 @@ export default function Chat() {
     return () => document.removeEventListener('visibilitychange', back);
   }, []);
   useEffect(() => { loadChannels(); get('/users/directory').then(setPeople); }, []);
+  useEffect(() => onLive((m) => { if (m.type === 'status-changed') get('/users/directory').then(setPeople).catch(() => {}); }), []);
+  const statusFor = (userId) => people.find((p) => p.id === userId)?.status || null;
 
   const current = channels.find((c) => c.id === channelId);
   useEffect(() => {
@@ -211,7 +214,7 @@ export default function Chat() {
         <div className="subnav-title">Direct messages</div>
         {dms.map((c) => (
           <button key={c.id} className={`subnav-item ${c.id === channelId ? 'active' : ''}`} onClick={() => navigate(`/chat/${c.id}`)}>
-            <Avatar name={c.dm_name || user.name} size={20} /><span className="grow ellipsis">{c.dm_name || 'Notes to self'}{c.dm_org && <span className="muted small"> · {c.dm_org}</span>}</span>{mentioned[c.id] && <span className="badge at" aria-label="You were mentioned">@</span>}{unread[c.id] > 0 && <span className="badge">{unread[c.id]}</span>}
+            <Avatar name={c.dm_name || user.name} size={20} /><span className="grow ellipsis">{c.dm_name || 'Notes to self'}{c.dm_org && <span className="muted small"> · {c.dm_org}</span>}{statusFor(c.dm_user_id) && <span className="dm-status" title={statusLine(statusFor(c.dm_user_id))}> {statusFor(c.dm_user_id).emoji || '💬'}</span>}</span>{mentioned[c.id] && <span className="badge at" aria-label="You were mentioned">@</span>}{unread[c.id] > 0 && <span className="badge">{unread[c.id]}</span>}
           </button>
         ))}
         <select className="dm-pick" value="" aria-label="Start a direct message" onChange={(e) => {
@@ -243,6 +246,7 @@ export default function Chat() {
           <div className="chat-head">
             <div className="grow" style={{ minWidth: 0 }}>
               <h1>{current.private && !current.dm_key ? `🔒 ${current.name}` : title}</h1>
+              {current.dm_key && statusFor(current.dm_user_id) && <p className="chat-topic person-status" aria-label="Their status">{statusLine(statusFor(current.dm_user_id))}{statusFor(current.dm_user_id).until ? ` · ${untilText(statusFor(current.dm_user_id).until)}` : ''}</p>}
               {!current.dm_key && (current.topic ? <p className="chat-topic muted small" title={current.topic}>{current.topic}</p> : !current.archived_at && <button type="button" className="link-btn small" onClick={() => setSettingsOpen(true)}>Add a topic</button>)}
             </div>
             {!current.dm_key && <span className="muted small">{current.private ? `${current.member_count} member${current.member_count === 1 ? '' : 's'}` : 'Everyone'}</span>}

@@ -6,6 +6,7 @@ import { Avatar, ConfirmModal, Empty, Menu, Modal, useToast } from '../../compon
 import { useAuth } from '../../App.jsx';
 import AddressInput from '../../components/AddressInput.jsx';
 import { parseAddresses, formatAddress } from '../../components/addresses.js';
+import { statusLine } from '../../components/status.js';
 
 const FIELDS = [['name', 'Name'], ['email', 'Email'], ['phone', 'Phone'], ['company', 'Company']];
 
@@ -70,7 +71,7 @@ export default function Contacts() {
           <tbody>
             {list.map((c) => (
               <tr key={c.id}>
-                <td className="name"><Avatar name={c.name} size={28} /><span>{c.name}</span></td>
+                <td className="name"><Avatar name={c.name} size={28} /><span>{c.name}{c.status && <span className="person-status" aria-label={`Status: ${statusLine(c.status)}`}> · {statusLine(c.status)}</span>}</span></td>
                 <td className="hide-sm">{(c.email || c.username) ? <a href={`mailto:${c.email || c.username}`}>{c.email || c.username}</a> : <span className="muted">—</span>}</td>
                 <td className="hide-sm">{c.phone ? <a href={`tel:${c.phone}`}>{c.phone}</a> : <span className="muted">—</span>}</td>
                 <td className="hide-sm muted">{tab === 'mine' ? c.company || '—' : user.org_name}</td>

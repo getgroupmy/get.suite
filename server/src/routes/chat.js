@@ -136,6 +136,8 @@ export default function chatRoutes() {
                       (SELECT MAX(created_at) FROM messages m WHERE m.channel_id = c.id) AS last_at,
                       (SELECT u.name FROM channel_members cm JOIN users u ON u.id = cm.user_id
                         WHERE cm.channel_id = c.id AND cm.user_id != ? LIMIT 1) AS dm_name,
+                      (SELECT u.id FROM channel_members cm JOIN users u ON u.id = cm.user_id
+                        WHERE cm.channel_id = c.id AND cm.user_id != ? LIMIT 1) AS dm_user_id,
                       (SELECT o.name FROM channel_members cm JOIN users u ON u.id = cm.user_id JOIN orgs o ON o.id = u.org_id
                         WHERE cm.channel_id = c.id AND cm.user_id != ? AND u.org_id != ? LIMIT 1) AS dm_org,
                       (SELECT COUNT(*) FROM messages m WHERE m.channel_id = c.id AND (m.user_id IS NULL OR m.user_id != ?)
@@ -148,7 +150,7 @@ export default function chatRoutes() {
                     FROM channels c
                     WHERE (c.dm_key IS NULL AND c.private = 0 AND c.org_id = ?)
                        OR EXISTS (SELECT 1 FROM channel_members cm WHERE cm.channel_id = c.id AND cm.user_id = ?)
-                    ORDER BY c.dm_key IS NOT NULL, c.archived_at IS NOT NULL, c.name`).all(me, me, req.user.org_id, me, me, me, me, me, `@${req.user.username}`, req.user.org_id, me);
+                    ORDER BY c.dm_key IS NOT NULL, c.archived_at IS NOT NULL, c.name`).all(me, me, me, req.user.org_id, me, me, me, me, me, `@${req.user.username}`, req.user.org_id, me);
     res.json({ channels: rows, online: onlineUserIds() });
   });
 

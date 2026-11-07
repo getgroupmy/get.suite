@@ -1596,3 +1596,32 @@ test('file requests: people send files into a folder without seeing it; the owne
   await owner2('DELETE', `/api/links/${link.id}`);
   assert.equal((await pub('POST', `/api/public/links/${link.token}/upload?name=late.txt`, 'a', { raw: true })).status, 404);
 });
+
+test('status: set, seen by colleagues in the directory, checked, and cleared by itself', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['sta', 'Stat Ann'], ['stb', 'Stat Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  const aid = (await login(a, 'sta@acme.com')).id;
+  await login(b, 'stb@acme.com');
+  assert.deepEqual((await a('GET', '/api/users/me/status')).body, { status: null });
+  assert.equal((await a('PUT', '/api/users/me/status', {})).status, 400);
+  assert.equal((await a('PUT', '/api/users/me/status', { text: 'x', until: Date.now() - 1000 })).status, 400);
+  assert.equal((await a('PUT', '/api/users/me/status', { emoji: '<b>', text: 'x' })).status, 400);
+  const until = Date.now() + 36e5;
+  const set = (await a('PUT', '/api/users/me/status', { emoji: '🌴', text: 'On leave until Monday', until })).body.status;
+  assert.deepEqual(set, { emoji: '🌴', text: 'On leave until Monday', until });
+  const seen = (await b('GET', '/api/users/directory')).body.find((u) => u.id === aid);
+  assert.deepEqual(seen.status, set);
+  assert.equal(seen.status_text, undefined, 'only the shaped status');
+  // Past its time it's gone.
+  const { q } = await import('../src/db.js');
+  q('UPDATE users SET status_until = ? WHERE id = ?').run(Date.now() - 1, aid);
+  assert.equal((await b('GET', '/api/users/directory')).body.find((u) => u.id === aid).status, null);
+  await a('PUT', '/api/users/me/status', { text: 'Working from home' });
+  assert.deepEqual((await a('GET', '/api/users/me/status')).body.status, { emoji: null, text: 'Working from home', until: null });
+  await a('DELETE', '/api/users/me/status');
+  assert.equal((await b('GET', '/api/users/directory')).body.find((u) => u.id === aid).status, null);
+  // Direct messages say who the other person is, for showing their status.
+  const dm = (await b('POST', '/api/chat/dm', { user_id: aid })).body;
+  const ch = (await b('GET', '/api/chat/channels')).body.channels.find((c) => c.id === (dm.id || dm.channel_id));
+  assert.equal(ch.dm_user_id, aid);
+});

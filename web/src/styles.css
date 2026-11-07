@@ -1378,3 +1378,9 @@ button.rule-sample.on { outline: 2px solid var(--accent); outline-offset: 1px; }
 .request-sent li { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 8px; background: var(--surface-2); }
 .request-sent li.ok .small { color: var(--success, #188038); }
 .request-sent li.error .small { color: var(--danger); }
+/* Your status */
+.avatar-btn { position: relative; }
+.avatar-status { position: absolute; right: -4px; bottom: -4px; font-size: 13px; line-height: 1; background: var(--surface); border-radius: 50%; padding: 1px; }
+.status-emoji { font-size: 24px; width: 32px; text-align: center; }
+.status-presets { display: flex; flex-wrap: wrap; gap: 6px; }
+.person-status { color: var(--muted); font-size: 12px; }
