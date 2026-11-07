@@ -1,6 +1,6 @@
 // Presentations: a slide list, a 16:9 canvas with text boxes, pictures and shapes you can move and
 // resize, a full-screen presenter, and printing (Save as PDF). Edited together live, like Docs and Sheets.
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import { get, patch, uploadFile } from '../../api.js';
 import * as Y from 'yjs';
@@ -21,7 +21,7 @@ import {
 
 const SIZES = [12, 14, 16, 18, 20, 24, 28, 32, 36, 40, 44, 54, 64, 72, 96];
 const TEXT_COLORS = [['', 'Theme text'], ['accent', 'Theme accent'], ['#202124', 'Black'], ['#ffffff', 'White'], ['#c5221f', 'Red'], ['#e37400', 'Orange'], ['#188038', 'Green'], ['#1a73e8', 'Blue'], ['#8430ce', 'Purple']];
-const FILLS = [['accent', 'Theme accent'], ['#e8f0fe', 'Light blue'], ['#e6f4ea', 'Light green'], ['#fef7e0', 'Light yellow'], ['#fce8e6', 'Light red'], ['#1a73e8', 'Blue'], ['#188038', 'Green'], ['#c5221f', 'Red'], ['#202124', 'Black'], ['#ffffff', 'White']];
+const FILLS = [['accent', 'Theme accent'], ['text', 'Theme text'], ['#e8f0fe', 'Light blue'], ['#e6f4ea', 'Light green'], ['#fef7e0', 'Light yellow'], ['#fce8e6', 'Light red'], ['#1a73e8', 'Blue'], ['#188038', 'Green'], ['#c5221f', 'Red'], ['#202124', 'Black'], ['#ffffff', 'White']];
 const BACKGROUNDS = [['', 'Theme background'], ['#ffffff', 'White'], ['#f1f3f4', 'Light grey'], ['#e8f0fe', 'Light blue'], ['#fef7e0', 'Light yellow'], ['#202124', 'Black'], ['#0b57d0', 'Blue']];
 const HANDLES = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
 const PEOPLE_COLORS = ['#1a73e8', '#d93025', '#188038', '#e37400', '#8430ce', '#00796b', '#c2185b', '#5f6368'];
@@ -185,6 +185,8 @@ export default function SlidesEditor() {
             { label: 'Rectangle', onClick: () => insert({ type: 'shape', shape: 'rect', x: 35, y: 35, w: 30, h: 30, fill: 'accent' }) },
             { label: 'Rounded rectangle', onClick: () => insert({ type: 'shape', shape: 'round', x: 35, y: 35, w: 30, h: 30, fill: 'accent' }) },
             { label: 'Ellipse', onClick: () => insert({ type: 'shape', shape: 'ellipse', x: 40, y: 30, w: 20, h: 36, fill: 'accent' }) },
+            { label: 'Line', onClick: () => insert({ type: 'shape', shape: 'line', dir: 'h', x: 30, y: 46, w: 40, h: 8, fill: 'text' }) },
+            { label: 'Arrow', onClick: () => insert({ type: 'shape', shape: 'arrow', dir: 'h', x: 30, y: 46, w: 40, h: 8, fill: 'accent' }) },
           ]} />
           <input ref={pictureInput} type="file" accept="image/*" hidden onChange={(e) => { insertPicture(e.target.files[0]); e.target.value = ''; }} />
           <span className="sep" />
@@ -202,6 +204,11 @@ export default function SlidesEditor() {
                 aria-label={{ left: 'Align left', center: 'Centre', right: 'Align right' }[a]} onClick={() => setItem({ align: a })}>{{ left: '⯇', center: '≡', right: '⯈' }[a]}</button>
             ))}
           </>}
+          {item?.type === 'shape' && (item.shape === 'line' || item.shape === 'arrow') && (
+            <select className="tb-select" aria-label="Direction" value={item.dir || 'h'} onChange={(e) => setItem({ dir: e.target.value })}>
+              {[['h', '→ Across'], ['v', '↓ Down'], ['d', '↘ Diagonal down'], ['u', '↗ Diagonal up'], ['hr', '← Across, backwards'], ['vr', '↑ Up']].map(([v, n]) => <option key={v} value={v}>{n}</option>)}
+            </select>
+          )}
           {item?.type === 'shape' && (
             <select className="tb-select" aria-label="Shape colour" value={item.fill || 'accent'} onChange={(e) => setItem({ fill: e.target.value })}>
               {FILLS.map(([v, n]) => <option key={n} value={v}>{n}</option>)}
@@ -279,7 +286,7 @@ export default function SlidesEditor() {
   );
 }
 
-const colorOf = (v, theme, fallback) => (v === 'accent' ? theme.accent : v || fallback);
+const colorOf = (v, theme, fallback) => (v === 'accent' ? theme.accent : v === 'text' ? theme.text : v || fallback);
 
 /**
  * One slide. Sizes are in percent of the slide, text in 1/1000 of its width, so the same slide
@@ -337,7 +344,9 @@ export function SlideView({ slide, theme, deckId, editable, selected, editing, o
           inner = <img src={`/api/files/${deckId}/pictures/${it.fileId}`} alt={it.name || ''} draggable={false}
             onError={(e) => { const direct = `/api/files/${it.fileId}/raw`; if (!e.currentTarget.src.endsWith(direct)) e.currentTarget.src = direct; }} />;
         } else if (it.type === 'shape') {
-          inner = <div className={`slide-shape ${it.shape}`} style={{ background: colorOf(it.fill, theme, theme.accent) }} />;
+          inner = it.shape === 'line' || it.shape === 'arrow'
+            ? <LineShape arrow={it.shape === 'arrow'} dir={it.dir || 'h'} color={colorOf(it.fill, theme, theme.accent)} />
+            : <div className={`slide-shape ${it.shape}`} style={{ background: colorOf(it.fill, theme, theme.accent) }} />;
         }
         return (
           <div key={it.id} className={`slide-item ${it.type} ${isSel ? 'sel' : ''}`} data-item={it.id}
@@ -413,5 +422,36 @@ function Presenter({ deck, theme, deckId, start, onClose }) {
         <button type="button" aria-label="End presentation" onClick={() => onClose(i)}>✕</button>
       </div>
     </div>
+  );
+}
+
+/**
+ * A line or arrow across its box, drawn at the box's real size so the arrowhead keeps its shape.
+ * dir: h → across, hr ← across, v ↓ down, vr ↑ up, d ↘ corner to corner, u ↗ corner to corner.
+ */
+function LineShape({ arrow, dir, color }) {
+  const ref = useRef();
+  const [size, setSize] = useState({ w: 100, h: 20 });
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return undefined;
+    const measure = () => setSize({ w: el.clientWidth || 1, h: el.clientHeight || 1 });
+    measure();
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null;
+    ro?.observe(el);
+    return () => ro?.disconnect();
+  }, []);
+  const { w, h } = size;
+  const sw = Math.max(1.5, Math.min(w, h, 400) * 0.06, Math.max(w, h) * 0.008);
+  const [x1, y1, x2, y2] = { h: [0, h / 2, w, h / 2], hr: [w, h / 2, 0, h / 2], v: [w / 2, 0, w / 2, h], vr: [w / 2, h, w / 2, 0], d: [0, 0, w, h], u: [0, h, w, 0] }[dir] || [0, h / 2, w, h / 2];
+  const head = Math.max(8, sw * 3.5);
+  const len = Math.hypot(x2 - x1, y2 - y1) || 1;
+  const ux = (x2 - x1) / len, uy = (y2 - y1) / len;
+  const bx = x2 - ux * head, by = y2 - uy * head; // the arrowhead's base
+  return (
+    <svg ref={ref} className="slide-line" width="100%" height="100%" viewBox={`0 0 ${w} ${h}`} aria-hidden="true" style={{ overflow: 'visible' }}>
+      <line x1={x1} y1={y1} x2={arrow ? bx : x2} y2={arrow ? by : y2} stroke={color} strokeWidth={sw} strokeLinecap="round" />
+      {arrow && <polygon points={`${x2},${y2} ${bx - uy * head * 0.55},${by + ux * head * 0.55} ${bx + uy * head * 0.55},${by - ux * head * 0.55}`} fill={color} />}
+    </svg>
   );
 }

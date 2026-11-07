@@ -170,7 +170,7 @@ Everyone who can edit a document, spreadsheet or presentation can work in it at 
 In Drive, **New → Presentation**. Presentations are shared, versioned and saved automatically like documents.
 
 - **Slides:** **+ Slide** adds one after the current slide with a layout (title and text, title slide, section header, two columns, blank). Each slide's ⋮ menu duplicates, moves or deletes it.
-- **On a slide:** add a **Text box**, a **Picture** (from your computer; it's saved in Drive next to the presentation) or a **Shape**.
+- **On a slide:** add a **Text box**, a **Picture** (from your computer; it's saved in Drive next to the presentation) or a **Shape** (rectangle, rounded rectangle, ellipse, line or arrow; a line or arrow's **Direction** runs across, down, diagonally or backwards, and they're kept in PowerPoint files).
   - Drag to move, and drag the handles to resize. Pictures keep their shape; hold Shift to stretch them.
   - Double-click text to type. Arrow keys nudge the selected item (Shift for bigger steps), and Delete removes it.
   - The toolbar sets text size, bold, italic, colour and alignment, shape colour, the slide's background, and front/back order. The ⋮ menu picks one of four themes.

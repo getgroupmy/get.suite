@@ -375,3 +375,16 @@ test('Excel: dates are real dates, and date formats go both ways', async () => {
   assert.deepEqual(numFromExcel('mmm yyyy'), { num: 'date', ds: 'month' });
   assert.deepEqual(numFromExcel('#,##0.00'), { num: 'number', dp: 2 });
 });
+
+test('PowerPoint: lines and arrows go out and come back, with their direction and colour', async () => {
+  const deck = { theme: 'light', slides: [{ id: 'a', items: [
+    { id: 'l', type: 'shape', shape: 'line', dir: 'h', x: 10, y: 20, w: 40, h: 8, fill: '#c5221f' },
+    { id: 'r', type: 'shape', shape: 'arrow', dir: 'u', x: 50, y: 50, w: 30, h: 30, fill: 'accent' },
+    { id: 'v', type: 'shape', shape: 'arrow', dir: 'v', x: 80, y: 10, w: 4, h: 30 },
+  ] }] };
+  const back = await deckFromPowerPoint(await powerPointFromDeck(deck, 'Lines'), { savePicture: async () => 'x' });
+  const items = back.slides[0].items;
+  assert.deepEqual(items.map((i) => [i.shape, i.dir]), [['line', 'h'], ['arrow', 'u'], ['arrow', 'v']]);
+  assert.equal(items[0].fill, '#c5221f');
+  assert.ok(Math.abs(items[1].x - 50) < 1 && Math.abs(items[1].w - 30) < 1);
+});

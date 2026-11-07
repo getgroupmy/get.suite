@@ -56,7 +56,7 @@ export async function deckFromPowerPoint(buffer, { savePicture }) {
     };
     const items = [];
     const tree = deep(xml, P, 'spTree')[0];
-    for (const el of deep(tree, P, 'sp').concat(deep(tree, P, 'pic'))) {
+    for (const el of deep(tree, P, 'sp').concat(deep(tree, P, 'cxnSp'), deep(tree, P, 'pic'))) { // shapes, connectors (lines, arrows), pictures
       const box = boxOf(el);
       if (!box) continue;
       if (el.local === 'pic') {
@@ -72,6 +72,18 @@ export async function deckFromPowerPoint(buffer, { savePicture }) {
       const texts = paras.map((p) => deep(p, A, 't').map((t) => t.text).join(''));
       const content = texts.join('\n').replace(/\n+$/, '');
       const geom = attr(deep(kid(el, P, 'spPr'), A, 'prstGeom')[0], 'prst');
+      if (geom === 'line' || geom === 'straightConnector1') {
+        const ln = deep(kid(el, P, 'spPr'), A, 'ln')[0];
+        const xf = deep(kid(el, P, 'spPr'), A, 'xfrm')[0];
+        const flipH = attr(xf, 'flipH') === '1', flipV = attr(xf, 'flipV') === '1';
+        const arrow = !!deep(ln, A, 'tailEnd').find((t) => attr(t, 'type') && attr(t, 'type') !== 'none');
+        const flat = box.h < 0.5, tall = box.w < 0.5;
+        const dir = flat ? (flipH ? 'hr' : 'h') : tall ? (flipV ? 'vr' : 'v') : flipV !== flipH ? 'u' : 'd';
+        const lineColor = colorIn(kid(ln, A, 'solidFill'));
+        items.push({ id: id(), type: 'shape', shape: arrow ? 'arrow' : 'line', dir, fill: lineColor || 'text', ...box,
+          ...(flat && { y: box.y - 4, h: 8 }), ...(tall && { x: box.x - 2, w: 4 }) });
+        continue;
+      }
       const fill = colorIn(kid(kid(el, P, 'spPr'), A, 'solidFill'));
       if (!content.trim()) {
         if (SHAPES[geom] && fill) items.push({ id: id(), type: 'shape', shape: SHAPES[geom], fill, ...box });
@@ -114,7 +126,7 @@ export async function powerPointFromDeck(deck, { pictureData, title = 'Presentat
   pptx.title = title;
   const Win = 13.333, Hin = 7.5;
   const theme = THEMES[deck.theme] || THEMES.light;
-  const color = (v, fallback) => (v === 'accent' ? theme.accent : v || fallback).replace('#', '').toUpperCase();
+  const color = (v, fallback) => (v === 'accent' ? theme.accent : v === 'text' ? theme.text : v || fallback).replace('#', '').toUpperCase();
   for (const s of deck.slides || []) {
     const slide = pptx.addSlide();
     slide.background = { color: color(s.bg, theme.bg) };
@@ -125,6 +137,12 @@ export async function powerPointFromDeck(deck, { pictureData, title = 'Presentat
       if (it.type === 'text') {
         slide.addText(it.text || '', { ...pos, fontSize: Math.round((it.size || 24) * Win * 72 / 1000), bold: !!it.bold, italic: !!it.italic,
           color: color(it.color, theme.text), align: it.align || 'left', valign: 'top', margin: 0, fontFace: 'Arial' });
+      } else if (it.type === 'shape' && (it.shape === 'line' || it.shape === 'arrow')) {
+        // A line from one side (or corner) of its box to the other; arrows end in a triangle.
+        const d = it.dir || 'h';
+        const at = d === 'h' || d === 'hr' ? { ...pos, y: pos.y + pos.h / 2, h: 0 } : d === 'v' || d === 'vr' ? { ...pos, x: pos.x + pos.w / 2, w: 0 } : pos;
+        slide.addShape(pptx.ShapeType.line, { ...at, flipH: d === 'hr', flipV: d === 'u' || d === 'vr',
+          line: { color: color(it.fill || 'text', theme.text), width: 3, ...(it.shape === 'arrow' && { endArrowType: 'triangle' }) } });
       } else if (it.type === 'shape') {
         slide.addShape({ rect: pptx.ShapeType.rect, round: pptx.ShapeType.roundRect, ellipse: pptx.ShapeType.ellipse }[it.shape] || pptx.ShapeType.rect, { ...pos, fill: { color: color(it.fill || 'accent', theme.accent) }, line: { type: 'none' } });
       } else if (it.type === 'image') {
