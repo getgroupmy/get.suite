@@ -21,6 +21,9 @@ q(`CREATE TABLE IF NOT EXISTS contact_groups (
   created_at INTEGER NOT NULL
 )`).run();
 const MAX_GROUPS = 200, MAX_MEMBERS = 500;
+// Company contacts: a contact its owner shares with everyone in their company (suppliers, clients, a
+// shared phone list). Others see it, and find it when writing mail; its owner (or an admin) changes it.
+if (!q('PRAGMA table_info(contacts)').all().some((c) => c.name === 'shared')) q('ALTER TABLE contacts ADD COLUMN shared INTEGER NOT NULL DEFAULT 0').run();
 const EMAIL_RE = /^[^\s@<>"(),;:\\]+@[a-z0-9.-]+\.[a-z]{2,}$/i;
 const groupsOf = (userId) => q('SELECT id, name, members FROM contact_groups WHERE owner_id = ? ORDER BY name COLLATE NOCASE').all(userId).map((g) => ({ ...g, members: JSON.parse(g.members) }));
 function readMembers(list) {
@@ -54,6 +57,11 @@ export default function contactRoutes() {
   const r = Router();
 
   r.get('/', (req, res) => {
+    if (req.query.scope === 'company') {
+      return res.json(q(`SELECT c.*, u.name AS owner_name, (c.owner_id = ? OR ?) AS can_edit FROM contacts c JOIN users u ON u.id = c.owner_id
+                         WHERE c.shared = 1 AND u.org_id = ? ORDER BY c.name COLLATE NOCASE`).all(req.user.id, req.user.is_admin ? 1 : 0, req.user.org_id)
+        .map((c) => ({ ...c, can_edit: !!c.can_edit })));
+    }
     res.json(q('SELECT * FROM contacts WHERE owner_id = ? ORDER BY name COLLATE NOCASE').all(req.user.id));
   });
 
@@ -88,6 +96,8 @@ export default function contactRoutes() {
       .map((g) => ({ kind: 'group', name: g.name, email: `group:${g.id}`, members: g.members }));
     const like = `%${term.replace(/[%_\\]/g, (c) => `\\${c}`)}%`;
     const starts = `${term.replace(/[%_\\]/g, (c) => `\\${c}`)}%`;
+    const company = q(`SELECT c.name, c.email FROM contacts c JOIN users u ON u.id = c.owner_id WHERE c.shared = 1 AND u.org_id = ? AND c.owner_id != ? AND c.email IS NOT NULL AND c.email != ''
+                    AND (LOWER(c.name) LIKE ? ESCAPE '\\' OR LOWER(c.email) LIKE ? ESCAPE '\\') ORDER BY c.name COLLATE NOCASE LIMIT 8`).all(req.user.org_id, req.user.id, like, like);
     const mine = q(`SELECT name, email FROM contacts WHERE owner_id = ? AND email IS NOT NULL AND email != ''
                     AND (LOWER(name) LIKE ? ESCAPE '\\' OR LOWER(email) LIKE ? ESCAPE '\\')
                     ORDER BY (LOWER(name) LIKE ? ESCAPE '\\' OR LOWER(email) LIKE ? ESCAPE '\\') DESC, name COLLATE NOCASE LIMIT 8`).all(req.user.id, like, like, starts, starts);
@@ -95,7 +105,7 @@ export default function contactRoutes() {
                       AND (LOWER(name) LIKE ? ESCAPE '\\' OR username LIKE ? ESCAPE '\\') ORDER BY name COLLATE NOCASE LIMIT 8`).all(req.user.org_id, req.user.id, like, like);
     const seen = new Set();
     const out = [];
-    for (const [list, kind] of [[people, 'colleague'], [mine, 'contact']]) {
+    for (const [list, kind] of [[people, 'colleague'], [mine, 'contact'], [company, 'contact']]) {
       for (const p of list) {
         const email = p.email.toLowerCase();
         if (seen.has(email) || (kind === 'colleague' && !canReach(req.user, p.id))) continue;
@@ -190,22 +200,28 @@ export default function contactRoutes() {
   r.post('/', (req, res) => {
     const c = read(req.body, false);
     const id = uid();
-    q(`INSERT INTO contacts (id, owner_id, ${COLS.join(', ')}, created_at) VALUES (?, ?, ${COLS.map(() => '?').join(', ')}, ?)`)
-      .run(id, req.user.id, ...COLS.map((k) => c[k] ?? null), now());
+    q(`INSERT INTO contacts (id, owner_id, ${COLS.join(', ')}, created_at, shared) VALUES (?, ?, ${COLS.map(() => '?').join(', ')}, ?, ?)`)
+      .run(id, req.user.id, ...COLS.map((k) => c[k] ?? null), now(), req.body.shared ? 1 : 0);
     res.status(201).json(q('SELECT * FROM contacts WHERE id = ?').get(id));
   });
 
+  // Yours, or (for an admin) one shared with the company.
+  const editable = (req) => {
+    const c = q('SELECT c.*, u.org_id FROM contacts c JOIN users u ON u.id = c.owner_id WHERE c.id = ?').get(req.params.id);
+    if (!c || !(c.owner_id === req.user.id || (c.shared && req.user.is_admin && c.org_id === req.user.org_id))) throw notFound();
+    const { org_id, ...row } = c;
+    return row;
+  };
   r.patch('/:id', (req, res) => {
-    const existing = q('SELECT * FROM contacts WHERE id = ? AND owner_id = ?').get(req.params.id, req.user.id);
-    if (!existing) throw notFound();
+    const existing = editable(req);
     const c = { ...existing, ...read(req.body, true) };
     q(`UPDATE contacts SET ${COLS.map((k) => `${k} = ?`).join(', ')} WHERE id = ?`).run(...COLS.map((k) => c[k] ?? null), c.id);
+    if (req.body.shared !== undefined) q('UPDATE contacts SET shared = ? WHERE id = ?').run(req.body.shared ? 1 : 0, c.id);
     res.json(q('SELECT * FROM contacts WHERE id = ?').get(c.id));
   });
 
   r.delete('/:id', (req, res) => {
-    const info = q('DELETE FROM contacts WHERE id = ? AND owner_id = ?').run(req.params.id, req.user.id);
-    if (!info.changes) throw notFound();
+    q('DELETE FROM contacts WHERE id = ?').run(editable(req).id);
     res.json({ ok: true });
   });
 

@@ -1876,6 +1876,29 @@ test('rooms: admins list them; an event books a free room, a clashing one is dec
   assert.equal((await a('POST', '/api/events', { title: 'x', start: day, end: day + h, rooms: [small.id] })).status, 400);
 });
 
+test('company contacts: shared by their owner, seen and suggested to colleagues, changed by the owner or an admin', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['cca', 'Cc Ann'], ['ccb', 'Cc Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'cca@acme.com');
+  await login(b, 'ccb@acme.com');
+  const supplier = (await a('POST', '/api/contacts', { name: 'Zed Supplies', email: 'orders@zedsupplies.example', phone: '0123', shared: true })).body;
+  await a('POST', '/api/contacts', { name: 'Zed Private Friend', email: 'friend@zed.example' });
+  const company = (await b('GET', '/api/contacts?scope=company')).body;
+  const z = company.find((c) => c.name === 'Zed Supplies');
+  assert.ok(z);
+  assert.equal(z.owner_name, 'Cc Ann');
+  assert.equal(z.can_edit, false);
+  assert.equal(company.some((c) => c.name === 'Zed Private Friend'), false);
+  assert.ok((await b('GET', '/api/contacts/suggest?q=zed')).body.some((x) => x.email === 'orders@zedsupplies.example'), 'suggested when writing mail');
+  assert.equal((await b('GET', '/api/contacts/suggest?q=zed')).body.some((x) => x.email === 'friend@zed.example'), false);
+  assert.equal((await b('PATCH', `/api/contacts/${supplier.id}`, { phone: '999' })).status, 404, 'not Ben’s');
+  assert.equal((await owner('PATCH', `/api/contacts/${supplier.id}`, { phone: '0456' })).body.phone, '0456', 'an admin may');
+  assert.equal((await owner('GET', '/api/contacts?scope=company')).body.find((c) => c.id === supplier.id).can_edit, true);
+  await a('PATCH', `/api/contacts/${supplier.id}`, { shared: false });
+  assert.equal((await b('GET', '/api/contacts?scope=company')).body.some((c) => c.id === supplier.id), false);
+  assert.equal((await owner('DELETE', `/api/contacts/${supplier.id}`)).status, 404, 'no longer shared: Ann’s alone');
+});
+
 test('chat polls: ask, vote (one or several), change your vote, close; checked options', async () => {
   const a = client(), b = client(), c = client();
   for (const [local, name] of [['polla', 'Poll Ann'], ['pollb', 'Poll Ben'], ['pollc', 'Poll Cat']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);

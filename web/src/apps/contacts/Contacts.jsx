@@ -22,8 +22,12 @@ export default function Contacts() {
   const [editing, setEditing] = useState(null);
   const [deleting, setDeleting] = useState(null);
   const [merging, setMerging] = useState(false);
+  const [company, setCompany] = useState([]);
 
-  const load = () => get('/contacts').then(setContacts).catch((e) => toast(e.message, 'error'));
+  const load = () => {
+    get('/contacts').then(setContacts).catch((e) => toast(e.message, 'error'));
+    get('/contacts?scope=company').then(setCompany).catch(() => {});
+  };
   // Import a .vcf or .csv from a phone, Gmail or Outlook; people already here are skipped.
   const importInput = useRef();
   const importFile = async (file) => {
@@ -38,7 +42,8 @@ export default function Contacts() {
   useEffect(() => { load(); get('/users/directory').then(setDirectory); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const match = (c) => !filter || Object.values(c).some((v) => typeof v === 'string' && v.toLowerCase().includes(filter.toLowerCase()));
-  const list = tab === 'mine' ? (contacts || []).filter(match) : directory.filter(match);
+  const list = (tab === 'mine' ? (contacts || []) : tab === 'company' ? company : directory).filter(match);
+  const own = tab === 'mine' || tab === 'company'; // address-book rows, not NAS users
 
   async function message(person) {
     const { id } = await post('/chat/dm', { user_id: person.id });
@@ -63,22 +68,24 @@ export default function Contacts() {
         <div className="tabs" role="tablist">
           <button role="tab" aria-selected={tab === 'mine'} className={tab === 'mine' ? 'on' : ''} onClick={() => setTab('mine')}>My contacts</button>
           <button role="tab" aria-selected={tab === 'dir'} className={tab === 'dir' ? 'on' : ''} onClick={() => setTab('dir')}>Directory</button>
+          <button role="tab" aria-selected={tab === 'company'} className={tab === 'company' ? 'on' : ''} onClick={() => setTab('company')}>Company</button>
           <button role="tab" aria-selected={tab === 'groups'} className={tab === 'groups' ? 'on' : ''} onClick={() => setTab('groups')}>Groups</button>
         </div>
         <input className="filter" placeholder="Filter" aria-label="Filter contacts" value={filter} onChange={(e) => setFilter(e.target.value)} />
       </div>
-      {tab === 'groups' ? <Groups filter={filter} /> : tab === 'mine' && contacts?.length === 0 ? <Empty icon="person" title="No contacts yet">Add people you work with outside your NAS users.</Empty> : (
+      {tab === 'groups' ? <Groups filter={filter} /> : tab === 'mine' && contacts?.length === 0 ? <Empty icon="person" title="No contacts yet">Add people you work with outside your NAS users.</Empty>
+        : tab === 'company' && company.length === 0 ? <Empty icon="person" title="No company contacts yet">Contacts shared with everyone at {user.org_name} appear here. Tick “Share with everyone at {user.org_name}” on a contact to add it.</Empty> : (
         <table className="files">
           <thead><tr><th>Name</th><th className="hide-sm">Email</th><th className="hide-sm">Phone</th><th className="hide-sm">Company</th><th aria-label="Actions" /></tr></thead>
           <tbody>
             {list.map((c) => (
               <tr key={c.id}>
-                <td className="name"><Avatar name={c.name} size={28} userId={tab === 'dir' ? c.id : undefined} email={c.email || c.username} /><span>{c.name}{c.status && <span className="person-status" aria-label={`Status: ${statusLine(c.status)}`}> · {statusLine(c.status)}</span>}</span></td>
+                <td className="name"><Avatar name={c.name} size={28} userId={tab === 'dir' ? c.id : undefined} email={c.email || c.username} /><span>{c.name}{c.shared && tab === 'mine' ? <span className="muted"> · Shared with company</span> : null}{tab === 'company' && <span className="muted"> · Added by {c.owner_id === user.id ? 'you' : c.owner_name}</span>}{c.status && <span className="person-status" aria-label={`Status: ${statusLine(c.status)}`}> · {statusLine(c.status)}</span>}</span></td>
                 <td className="hide-sm">{(c.email || c.username) ? <a href={`mailto:${c.email || c.username}`}>{c.email || c.username}</a> : <span className="muted">—</span>}</td>
                 <td className="hide-sm">{c.phone ? <a href={`tel:${c.phone}`}>{c.phone}</a> : <span className="muted">—</span>}</td>
-                <td className="hide-sm muted">{tab === 'mine' ? [c.title, c.company].filter(Boolean).join(' · ') || '—' : user.org_name}{tab === 'mine' && c.website && <> · <a href={c.website} target="_blank" rel="noopener noreferrer">{c.website.replace(/^https?:\/\//, '')}</a></>}</td>
+                <td className="hide-sm muted">{own ? [c.title, c.company].filter(Boolean).join(' · ') || '—' : user.org_name}{own && c.website && <> · <a href={c.website} target="_blank" rel="noopener noreferrer">{c.website.replace(/^https?:\/\//, '')}</a></>}</td>
                 <td className="actions">
-                  {tab === 'mine' ? <>
+                  {own ? (tab === 'mine' || c.can_edit) && <>
                     <button className="icon-btn" aria-label={`Edit ${c.name}`} onClick={() => setEditing(c)}><Icon name="edit" size={18} /></button>
                     <button className="icon-btn" aria-label={`Delete ${c.name}`} onClick={() => setDeleting(c)}><Icon name="trash" size={18} /></button>
                   </> : c.id !== user.id && (
@@ -91,7 +98,7 @@ export default function Contacts() {
         </table>
       )}
       {merging && <DuplicatesDialog onClose={() => setMerging(false)} onMerged={load} />}
-      {editing && <ContactDialog contact={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />}
+      {editing && <ContactDialog contact={editing} orgName={user.org_name} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />}
       {deleting && <ConfirmModal title="Delete contact?" message={`Delete ${deleting.name}?`} onClose={() => setDeleting(null)}
         onConfirm={async () => { await del(`/contacts/${deleting.id}`); load(); }} />}
     </div>
@@ -138,12 +145,12 @@ function DuplicatesDialog({ onClose, onMerged }) {
   );
 }
 
-function ContactDialog({ contact, onClose, onSaved }) {
+function ContactDialog({ contact, orgName, onClose, onSaved }) {
   const [f, setF] = useState({ name: '', email: '', phone: '', company: '', notes: '', ...contact });
   const [error, setError] = useState('');
   async function submit(e) {
     e.preventDefault();
-    const body = { name: f.name, email: f.email || '', phone: f.phone || '', company: f.company || '', title: f.title || '', website: f.website || '', address: f.address || '', notes: f.notes || '', birthday: f.birthday || null };
+    const body = { name: f.name, email: f.email || '', phone: f.phone || '', company: f.company || '', title: f.title || '', website: f.website || '', address: f.address || '', notes: f.notes || '', birthday: f.birthday || null, shared: !!f.shared };
     try { if (contact.id) await patch(`/contacts/${contact.id}`, body); else await post('/contacts', body); onSaved(); }
     catch (err) { setError(err.message); }
   }
@@ -158,6 +165,7 @@ function ContactDialog({ contact, onClose, onSaved }) {
         <label className="field"><span>Address</span><textarea rows={3} value={f.address || ''} onChange={(e) => setF({ ...f, address: e.target.value })} /></label>
         <BirthdayField value={f.birthday || ''} onChange={(birthday) => setF({ ...f, birthday })} />
         <label className="field"><span>Notes</span><textarea rows={3} value={f.notes || ''} onChange={(e) => setF({ ...f, notes: e.target.value })} /></label>
+        <label className="check"><input type="checkbox" checked={!!f.shared} onChange={(e) => setF({ ...f, shared: e.target.checked })} /> Share with everyone at {orgName}</label>
         {error && <p className="error">{error}</p>}
         <div className="row end"><button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn primary">Save</button></div>
       </form>
