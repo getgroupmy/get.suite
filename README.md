@@ -105,6 +105,7 @@ Everyone who can edit a document, spreadsheet or presentation can work in it at 
 
 - **Tables:** **Table** → *Insert table*, then Tab to move from cell to cell. The same menu adds and deletes rows and columns, turns the heading row on or off, and deletes the table.
 - **Pictures:** **Picture** to choose one, or paste or drop it into the document. It's saved in Drive next to the document (or in your Drive), and everyone who can open the document sees it, even without access to the picture file itself. Click a picture to make it smaller (a quarter, half or three quarters of the page width) or put it in the centre or on the right.
+- **Fonts and spacing:** the toolbar's font, size and spacing menus set the font (Arial, Georgia, Times New Roman, Verdana, Trebuchet MS, Courier New) and size of the selected text, and the line spacing (single, 1.15, 1.5, double) of the paragraphs the cursor is in. **Default** takes them off again. They're kept in the Word download.
 - **Colour:** the **A** and highlight buttons colour the selected text or mark it with a highlight.
 
 ## Find and replace, word count, outline (Docs)

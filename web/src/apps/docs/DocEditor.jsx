@@ -6,7 +6,8 @@ import TextAlign from '@tiptap/extension-text-align';
 import Placeholder from '@tiptap/extension-placeholder';
 import Image from '@tiptap/extension-image';
 import { Table, TableRow, TableHeader, TableCell } from '@tiptap/extension-table';
-import { TextStyle, Color, BackgroundColor } from '@tiptap/extension-text-style';
+import { TextStyle, Color, BackgroundColor, FontFamily, FontSize } from '@tiptap/extension-text-style';
+import { FONTS, SIZES, LINE_HEIGHTS, fontChoice, LineHeight } from './typography.js';
 import Collaboration from '@tiptap/extension-collaboration';
 import CollaborationCaret from '@tiptap/extension-collaboration-caret';
 import * as Y from 'yjs';
@@ -139,7 +140,7 @@ function SharedDoc({ file, setFile }) {
       DocImage.configure({ docId: file.id }),
       FindReplace,
       Table.configure({ resizable: false }), TableRow, TableHeader, TableCell,
-      TextStyle, Color, BackgroundColor,
+      TextStyle, Color, BackgroundColor, FontFamily, FontSize, LineHeight,
     ],
     editable: !readOnly,
     editorProps: {
@@ -345,6 +346,24 @@ function Toolbar({ editor, onComment, onPictures }) {
       }}>
         <option value="p">Normal text</option><option value="h1">Heading 1</option><option value="h2">Heading 2</option><option value="h3">Heading 3</option>
       </select>
+      {(() => {
+        const ts = editor.getAttributes('textStyle');
+        const font = fontChoice(ts.fontFamily);
+        const lh = editor.getAttributes(editor.isActive('heading') ? 'heading' : 'paragraph').lineHeight || '';
+        return <>
+          <select aria-label="Font" title="Font" value={font} style={{ fontFamily: ts.fontFamily || undefined }} onChange={(e) => (e.target.value ? c().setFontFamily(e.target.value).run() : c().unsetFontFamily().run())}>
+            {font === 'other' && <option value="other" disabled>{String(ts.fontFamily).split(',')[0].replace(/["']/g, '')}</option>}
+            {FONTS.map(([v, n]) => <option key={n} value={v} style={{ fontFamily: v || undefined }}>{n}</option>)}
+          </select>
+          <select aria-label="Text size" title="Text size" value={SIZES.includes(ts.fontSize || '') ? ts.fontSize || '' : 'other'} onChange={(e) => (e.target.value ? c().setFontSize(e.target.value).run() : c().unsetFontSize().run())}>
+            {!SIZES.includes(ts.fontSize || '') && <option value="other" disabled>{ts.fontSize}</option>}
+            {SIZES.map((v) => <option key={v} value={v}>{v ? v.replace('pt', '') : 'Size'}</option>)}
+          </select>
+          <select aria-label="Line spacing" title="Line spacing" value={lh} onChange={(e) => c().setLineHeight(e.target.value || null).run()}>
+            {LINE_HEIGHTS.map(([v, n]) => <option key={n} value={v}>{v ? `↕ ${n}` : '↕ Spacing'}</option>)}
+          </select>
+        </>;
+      })()}
       <span className="sep" />
       <B label={<b>B</b>} title="Bold (Ctrl+B)" active={editor.isActive('bold')} onClick={() => c().toggleBold().run()} />
       <B label={<i>I</i>} title="Italic (Ctrl+I)" active={editor.isActive('italic')} onClick={() => c().toggleItalic().run()} />

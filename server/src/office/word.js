@@ -12,7 +12,7 @@ import { Table, TableRow, TableHeader, TableCell } from '@tiptap/extension-table
 import { TextStyle, Color, BackgroundColor } from '@tiptap/extension-text-style';
 import {
   Document, Packer, Paragraph, TextRun, HeadingLevel, ExternalHyperlink, AlignmentType, LevelFormat, BorderStyle,
-  Table as WordTable, TableRow as WordRow, TableCell as WordCell, WidthType, ShadingType, ImageRun, Header, Footer, PageNumber, PageOrientation,
+  Table as WordTable, TableRow as WordRow, TableCell as WordCell, WidthType, ShadingType, ImageRun, Header, Footer, PageNumber, PageOrientation, LineRuleType,
 } from 'docx';
 import { pageMm, MARGINS } from '../pagesetup.js';
 
@@ -60,6 +60,13 @@ export async function docFromWord(buffer, { savePicture } = {}) {
 const ALIGN = { center: AlignmentType.CENTER, right: AlignmentType.RIGHT, justify: AlignmentType.JUSTIFIED };
 const HEADINGS = { 1: HeadingLevel.HEADING_1, 2: HeadingLevel.HEADING_2, 3: HeadingLevel.HEADING_3, 4: HeadingLevel.HEADING_4, 5: HeadingLevel.HEADING_5, 6: HeadingLevel.HEADING_6 };
 
+/** The first font of a CSS font list ("Georgia, serif" → Georgia), for Word. */
+const fontName = (stack) => { const f = String(stack || '').split(',')[0].trim().replace(/^["']|["']$/g, ''); return f && !/^(serif|sans-serif|monospace)$/i.test(f) ? f : null; };
+/** A CSS size ("14pt", "18px") in Word's half-points. */
+const halfPoints = (v) => { const m = /^([\d.]+)(pt|px)$/.exec(String(v || '').trim()); if (!m) return null; const pt = m[2] === 'px' ? Number(m[1]) * 0.75 : Number(m[1]); return pt >= 4 && pt <= 200 ? Math.round(pt * 2) : null; };
+/** Line spacing (a multiple, such as 1.5) as Word paragraph spacing. */
+const spacing = (lh) => { const n = Number(lh); return n >= 0.5 && n <= 4 ? { spacing: { line: Math.round(240 * n), lineRule: LineRuleType.AUTO } } : {}; };
+
 function runs(nodes = [], extra = {}) {
   const out = [];
   for (const n of nodes) {
@@ -68,9 +75,10 @@ function runs(nodes = [], extra = {}) {
     const marks = Object.fromEntries((n.marks || []).map((m) => [m.type, m.attrs || true]));
     const hex = (c) => (/^#[0-9a-f]{6}$/i.test(c || '') ? c.slice(1).toUpperCase() : null);
     const color = hex(marks.textStyle?.color), fill = hex(marks.textStyle?.backgroundColor);
+    const font = fontName(marks.textStyle?.fontFamily), size = halfPoints(marks.textStyle?.fontSize);
     const run = {
       text: n.text, bold: !!marks.bold, italics: !!marks.italic, strike: !!marks.strike, ...(marks.underline && { underline: {} }), ...(marks.code && { font: 'Consolas' }),
-      ...(color && { color }), ...(fill && { shading: { type: ShadingType.CLEAR, color: 'auto', fill } }), ...extra,
+      ...(color && { color }), ...(fill && { shading: { type: ShadingType.CLEAR, color: 'auto', fill } }), ...(font && { font }), ...(size && { size }), ...extra,
     };
     if (marks.link?.href) out.push(new ExternalHyperlink({ link: marks.link.href, children: [new TextRun({ ...run, style: 'Hyperlink' })] }));
     else out.push(new TextRun(run));
@@ -152,8 +160,8 @@ export async function wordFromDoc(doc, title = 'Document', { pictureData, page }
     const walk = (list, c) => walkInto(paras, list, c);
     for (const n of nodes || []) {
       const align = ALIGN[n.attrs?.textAlign];
-      if (n.type === 'paragraph') paras.push(new Paragraph({ children: runs(n.content), alignment: align, ...ctx.para }));
-      else if (n.type === 'heading') paras.push(new Paragraph({ children: runs(n.content), heading: HEADINGS[n.attrs?.level] || HeadingLevel.HEADING_1, alignment: align }));
+      if (n.type === 'paragraph') paras.push(new Paragraph({ children: runs(n.content), alignment: align, ...spacing(n.attrs?.lineHeight), ...ctx.para }));
+      else if (n.type === 'heading') paras.push(new Paragraph({ children: runs(n.content), heading: HEADINGS[n.attrs?.level] || HeadingLevel.HEADING_1, alignment: align, ...spacing(n.attrs?.lineHeight) }));
       else if (n.type === 'bulletList' || n.type === 'orderedList') {
         const level = (ctx.level ?? -1) + 1;
         for (const li of n.content || []) walk(li.content, { level, para: n.type === 'bulletList' ? { bullet: { level } } : { numbering: { reference: 'numbers', level } } });

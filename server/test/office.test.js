@@ -219,3 +219,16 @@ test('Word: the page setup goes into the .docx (size, orientation, margins, head
   const plain = await wordFromDoc(doc, 'Plain');
   assert.ok(!Object.keys((await JSZip.loadAsync(plain)).files).some((f) => /header|footer/.test(f)), 'no setup: no header or footer');
 });
+
+test('Word: fonts, sizes and line spacing are kept', async () => {
+  const JSZip = (await import('jszip')).default;
+  const doc = { type: 'doc', content: [
+    { type: 'paragraph', attrs: { lineHeight: '1.5' }, content: [{ type: 'text', text: 'Serif text', marks: [{ type: 'textStyle', attrs: { fontFamily: 'Georgia, serif', fontSize: '14pt' } }] }] },
+    { type: 'paragraph', content: [{ type: 'text', text: 'Plain', marks: [{ type: 'textStyle', attrs: { fontFamily: 'serif', fontSize: '24px' } }] }] },
+  ] };
+  const xml = await (await JSZip.loadAsync(await wordFromDoc(doc, 'Fonts'))).file('word/document.xml').async('string');
+  assert.match(xml, /<w:spacing w:line="360" w:lineRule="auto"\/>/);
+  assert.match(xml, /<w:rFonts w:ascii="Georgia"/);
+  assert.match(xml, /<w:sz w:val="28"\/>/);
+  assert.match(xml, /<w:sz w:val="36"\/>/, '24px is 18pt');
+});
