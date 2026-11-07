@@ -2998,3 +2998,26 @@ test('meet: start a meeting, join its room, signals pass between people', async 
   const mine = (await call(cb, 'GET', '/api/meet')).body;
   assert.equal(mine[0].code, code, 'recent meetings include ones you joined');
 });
+
+test('meet: a video meeting on a calendar event', async () => {
+  const org = client(); const guest = client();
+  for (const [local, name] of [['mca', 'Cal Organizer'], ['mcb', 'Gus Guest']]) {
+    assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  }
+  await login(org, 'mca@acme.com');
+  await login(guest, 'mcb@acme.com');
+  const { code } = (await org('POST', '/api/meet', { title: 'Planning' })).body;
+  const t = Date.now() + 864e5;
+  assert.equal((await org('POST', '/api/events', { title: 'Planning', start: t, end: t + 36e5, meet_code: 'abc-defg-hij' })).status, 400, 'must be a real meeting');
+  const ev = (await org('POST', '/api/events', { title: 'Planning', start: t, end: t + 36e5, meet_code: code, guests: ['mcb@acme.com'] })).body;
+  assert.equal(ev.meet_code, code);
+  const seen = (await guest('GET', `/api/events?from=${t - 1}&to=${t + 864e5}`)).body;
+  assert.equal(seen.find((e) => e.id === ev.id)?.meet_code, code, 'guests see the meeting');
+  const { buildIcs } = await import('../src/ics.js');
+  process.env.PUBLIC_URL = 'https://work.example.com/';
+  assert.match(buildIcs({ ...ev, exdates: [] }, {}), new RegExp(`URL:https://work.example.com/meet/${code}`));
+  delete process.env.PUBLIC_URL;
+  assert.equal((await org('PATCH', `/api/events/${ev.id}`, { meet_code: null })).body.meet_code, null, 'removed');
+  const ooo = (await org('POST', '/api/events', { title: 'Away', kind: 'ooo', start: t, end: t + 36e5, meet_code: code })).body;
+  assert.equal(ooo.meet_code, null, 'time off has no meeting');
+});

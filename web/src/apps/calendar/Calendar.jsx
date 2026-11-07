@@ -494,6 +494,20 @@ function Attachments({ list = [], onRemove }) {
   );
 }
 
+/** The event's video meeting: Join (in a new tab, so the calendar stays open), its link, and Remove while editing. */
+function MeetLine({ code, onRemove }) {
+  const toast = useToast();
+  const link = `${location.origin}/meet/${code}`;
+  return (
+    <div className="row wrap meet-line" role="group" aria-label="Video meeting">
+      <a className="btn primary" href={`/meet/${code}`} target="_blank" rel="noreferrer"><Icon name="video" size={18} /> Join video meeting</a>
+      <span className="muted small grow">{code}</span>
+      <button type="button" className="link-btn small" onClick={async () => { try { await navigator.clipboard.writeText(link); toast('Meeting link copied'); } catch { toast(link); } }}>Copy link</button>
+      {onRemove && <button type="button" className="link-btn small" onClick={onRemove}>Remove</button>}
+    </div>
+  );
+}
+
 function InvitationDialog({ event, onClose, onAnswered }) {
   const toast = useToast();
   const [reminders, setReminders] = useState(event.reminders || []);
@@ -509,6 +523,7 @@ function InvitationDialog({ event, onClose, onAnswered }) {
       <div className="stack">
         <p style={{ margin: 0 }}>{whenLabel(event)}{event.rrule && <><br /><span className="muted small">{describeRule(event.rrule, event.seriesStart ?? event.start)}</span></>}</p>
         {event.location && <p style={{ margin: 0 }}><span className="muted">Where:</span> {event.location}</p>}
+        {event.meet_code && <MeetLine code={event.meet_code} />}
         {event.description && <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{event.description}</p>}
         <Attachments list={event.attachments} />
         <p style={{ margin: 0 }}><span className="muted">Organizer:</span> {event.organizer?.name} <span className="muted small">{event.organizer?.email}</span></p>
@@ -698,6 +713,10 @@ function EventDialog({ event, onClose, onSaved, onDuplicate }) {
   const [roomIds, setRoomIds] = useState((event.rooms || []).map((r) => r.id));
   // New timed events remind you 10 minutes before, as in other calendars.
   const [reminders, setReminders] = useState(event.reminders ?? (event.id || event.all_day ? [] : [10]));
+  const [meet, setMeet] = useState(event.meet_code || null);
+  const addMeet = async () => {
+    try { setMeet((await post('/meet', { title: f.title })).code); } catch (e) { toast(e.message, 'error'); }
+  };
   const [attachments, setAttachments] = useState(event.attachments || []);
   const [pickingFile, setPickingFile] = useState(false);
   const [guestInput, setGuestInput] = useState('');
@@ -718,7 +737,7 @@ function EventDialog({ event, onClose, onSaved, onDuplicate }) {
     const end = f.all_day ? fromInputs(f.endDate) + DAY - 1 : fromInputs(f.endDate, f.endTime);
     const all = guestInput.trim() ? [...new Set([...guests, ...guestInput.split(/[\s,;]+/).map((x) => x.trim().toLowerCase()).filter((x) => x.includes('@'))])] : guests;
     return { start, end, body: { title: f.title, location: f.ooo ? '' : f.location, description: f.description, color: f.color, all_day: f.all_day, start, end, rrule: ruleFromForm(rep, start),
-      guests: f.ooo ? [] : all, reminders, tz: TZ, attachments: attachments.map((a) => a.id), kind: f.ooo ? 'ooo' : null, ...(event.id && !event.rooms?.length && !roomIds.length ? {} : { rooms: f.ooo ? [] : roomIds }) } };
+      guests: f.ooo ? [] : all, reminders, tz: TZ, attachments: attachments.map((a) => a.id), kind: f.ooo ? 'ooo' : null, meet_code: f.ooo ? null : meet, ...(event.id && !event.rooms?.length && !roomIds.length ? {} : { rooms: f.ooo ? [] : roomIds }) } };
   };
 
   async function save(which) {
@@ -824,6 +843,8 @@ function EventDialog({ event, onClose, onSaved, onDuplicate }) {
         {!f.ooo && <RoomPicker eventId={event.id} chosen={roomIds} booked={event.rooms || []} onChange={setRoomIds} when={(() => { const r = read(); return r.end > r.start ? [r.start, r.end] : null; })()} />}
         <RemindersField value={reminders} onChange={setReminders} />
         {!f.ooo && <label className="field"><span>Location</span><input value={f.location} onChange={set('location')} /></label>}
+        {!f.ooo && (meet ? <MeetLine code={meet} onRemove={() => setMeet(null)} />
+          : <div><button type="button" className="btn" onClick={addMeet}><Icon name="video" size={18} /> Add video meeting</button></div>)}
         <label className="field"><span>{f.ooo ? 'Message for people who invite you' : 'Description'}</span><textarea rows={3} value={f.description} onChange={set('description')} placeholder={f.ooo ? 'e.g. On holiday until Monday 9th; for anything urgent, ask Kim.' : undefined} /></label>
         {!f.ooo && (
           <div className="field"><span>Attachments</span>

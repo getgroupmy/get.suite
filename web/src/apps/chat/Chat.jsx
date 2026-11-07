@@ -218,6 +218,15 @@ export default function Chat() {
   const [editingId, setEditingId] = useState(null);
   const [editText, setEditText] = useState('');
   const [pollOpen, setPollOpen] = useState(false);
+  // A video meeting for this conversation: post its link here, then go to it.
+  async function startMeeting() {
+    try {
+      const m = await post('/meet', { title: current?.dm_key ? '' : current?.name || '' });
+      const msg = await post(`/chat/channels/${channelId}/messages`, { body: `📹 Started a video meeting: ${location.origin}/meet/${m.code}`, files: [] });
+      setMessages((list) => (list.some((x) => x.id === msg.id) ? list : [...list, msg]));
+      window.open(`/meet/${m.code}`, '_blank', 'noopener');
+    } catch (err) { toast(err.message, 'error'); }
+  }
   async function saveEdit(m) {
     const body = editText.trim();
     if (body === m.body) { setEditingId(null); return; }
@@ -370,6 +379,7 @@ export default function Chat() {
             <EmojiPicker up className="icon-btn" onPick={insertEmoji} />
             <button type="button" className="icon-btn" aria-label="Attach files" title="Attach files (or drop or paste them here)" onClick={() => fileInput.current.click()}><Icon name="attach" /></button>
             <button type="button" className="icon-btn" aria-label="Create a poll" title="Ask a question with options to vote on" onClick={() => setPollOpen(true)}>📊</button>
+            <button type="button" className="icon-btn" aria-label="Start a video meeting" title="Start a video meeting and share its link here" onClick={startMeeting}><Icon name="video" /></button>
             <input ref={fileInput} type="file" multiple hidden aria-label="Files to attach" onChange={(e) => { attach([...e.target.files]); e.target.value = ''; }} />
             <textarea ref={box} rows={1} value={text} placeholder={`Message ${title}`} aria-label="Message" title="*bold*  _italic_  ~strike~  `code`  ```code block```  > quote" onChange={(e) => { setText(e.target.value); mention.track(e.target.value, e.target.selectionStart); }}
               onPaste={(e) => { const pasted = [...(e.clipboardData?.files || [])]; if (pasted.length) { e.preventDefault(); attach(pasted); } }}
@@ -506,7 +516,7 @@ function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit
             <span className="muted small">Enter to save · Esc to cancel</span>
           </form>
         ) : m.poll ? <Poll m={m} user={user} />
-          : m.body && <div className="msg-text"><Formatted text={m.body} me={user.username} />{m.edited_at && <span className="muted small edited" title={`Edited ${new Date(m.edited_at).toLocaleString()}`}> (edited)</span>}</div>}
+          : m.body && <div className="msg-text"><Formatted text={m.body} me={user.username} />{m.edited_at && <span className="muted small edited" title={`Edited ${new Date(m.edited_at).toLocaleString()}`}> (edited)</span>}<MeetJoin body={m.body} /></div>}
         {m.forwarded && (
           <blockquote className="msg-forwarded" aria-label={`Forwarded message from ${m.forwarded.name}`}>
             <div className="muted small">↪ Forwarded · <strong>{m.forwarded.name}</strong>{m.forwarded.where ? ` in #${m.forwarded.where}` : ''} · {new Date(m.forwarded.at).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</div>
@@ -784,6 +794,14 @@ export function Linked({ text, me }) {
       if (i % 2 === 0) return part;
       return part.startsWith('/') ? <Link key={`${j}-${i}`} to={part}>{part}</Link> : <a key={`${j}-${i}`} href={part} target="_blank" rel="noopener noreferrer">{part}</a>;
     })));
+}
+
+/** A message with a meeting link gets a Join button (opens in a new tab, so the chat stays open). */
+const MEET_RE = /\/meet\/([a-z]{3}-[a-z]{4}-[a-z]{3})\b/;
+function MeetJoin({ body }) {
+  const code = String(body || '').match(MEET_RE)?.[1];
+  if (!code) return null;
+  return <div><a className="btn small meet-join" href={`/meet/${code}`} target="_blank" rel="noreferrer"><Icon name="video" size={16} /> Join video meeting</a></div>;
 }
 
 /** A new channel: open to the company, or private to the people chosen. */

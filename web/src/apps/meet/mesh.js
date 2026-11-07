@@ -17,7 +17,13 @@ export class Mesh {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     const q = `?mic=${this.state.mic ? 1 : 0}&cam=${this.state.cam ? 1 : 0}`;
     this.ws = new WebSocket(`${proto}://${location.host}/ws/meet/${encodeURIComponent(this.code)}${q}`);
-    this.ws.onmessage = (e) => { let m; try { m = JSON.parse(e.data); } catch { return; } this.handle(m).catch((err) => console.warn('meet', err)); };
+    // One message at a time, in order: a network candidate must not be applied before the offer it belongs to.
+    this.queue = Promise.resolve();
+    this.ws.onmessage = (e) => {
+      let m;
+      try { m = JSON.parse(e.data); } catch { return; }
+      this.queue = this.queue.then(() => this.handle(m)).catch((err) => console.warn('meet', err));
+    };
     this.ws.onclose = (e) => { if (!this.left) { this.closeAll(); this.onClosed?.(e.reason || 'The connection to the meeting was lost'); } };
   }
 
@@ -26,8 +32,8 @@ export class Mesh {
   async handle(m) {
     if (m.type === 'welcome') {
       this.id = m.id;
-      for (const p of m.peers) this.addPeer(p);
-    } else if (m.type === 'joined') this.addPeer(m.peer);
+      for (const p of m.peers) this.addPeer(p, { offer: true }); // the newcomer calls everyone
+    } else if (m.type === 'joined') this.addPeer(m.peer, { offer: false }); // and they wait for the call
     else if (m.type === 'left') {
       const p = this.peers.get(m.id);
       if (p) { p.pc.close(); this.peers.delete(m.id); }
@@ -41,12 +47,14 @@ export class Mesh {
     this.onChange?.();
   }
 
-  addPeer({ id, user, state }) {
+  addPeer({ id, user, state }, { offer }) {
     if (this.peers.has(id)) return;
     const pc = new RTCPeerConnection({ iceServers: this.iceServers });
-    const p = { id, user, state, pc, stream: null, polite: this.id < id, makingOffer: false, ignoreOffer: false };
+    // Only one side makes the first offer, so the two never cross; later changes (presenting) use perfect negotiation.
+    const p = { id, user, state, pc, stream: null, polite: this.id < id, makingOffer: false, ignoreOffer: false, waiting: !offer };
     this.peers.set(id, p);
     pc.onnegotiationneeded = async () => {
+      if (p.waiting) return; // the browser asks again once the first offer has been answered
       try {
         p.makingOffer = true;
         await pc.setLocalDescription();
@@ -59,11 +67,17 @@ export class Mesh {
       if (!p.stream.getTracks().includes(track)) p.stream.addTrack(track);
       this.onChange?.();
     };
-    pc.onconnectionstatechange = () => this.onChange?.();
+    pc.onconnectionstatechange = () => {
+      if (pc.connectionState === 'failed' && !p.polite) pc.restartIce(); // try again (one side asks)
+      this.onChange?.();
+    };
     const video = this.screen?.getVideoTracks()[0] || this.stream?.getVideoTracks()[0];
     const audio = this.stream?.getAudioTracks()[0];
     if (audio) pc.addTrack(audio, this.stream);
     if (video) p.videoSender = pc.addTrack(video, this.screen || this.stream);
+    // Without a microphone or camera, still ask to receive theirs.
+    if (offer && !audio) pc.addTransceiver('audio', { direction: 'recvonly' });
+    if (offer && !video) pc.addTransceiver('video', { direction: 'recvonly' });
   }
 
   async signal(from, { description, candidate }) {
@@ -75,6 +89,7 @@ export class Mesh {
       p.ignoreOffer = !p.polite && collision;
       if (p.ignoreOffer) return;
       await pc.setRemoteDescription(description);
+      p.waiting = false;
       if (description.type === 'offer') {
         await pc.setLocalDescription();
         this.send({ type: 'signal', to: from, data: { description: pc.localDescription } });

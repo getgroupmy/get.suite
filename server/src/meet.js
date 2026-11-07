@@ -32,6 +32,11 @@ export function newCode() {
   return `${pick(3)}-${pick(4)}-${pick(3)}`;
 }
 export const validCode = (c) => /^[a-z]{3}-[a-z]{4}-[a-z]{3}$/.test(String(c || ''));
+/** The meeting with this code, if this person may use it (e.g. to put it on an event), else null. */
+export function meetingFor(code, user) {
+  const m = validCode(code) && q('SELECT * FROM meetings WHERE code = ?').get(code);
+  return m && mayJoin(m, user) ? m : null;
+}
 
 /** Extra servers that help calls cross the internet (STUN/TURN), from MEET_ICE_SERVERS (JSON list). */
 export function iceServers(env = process.env.MEET_ICE_SERVERS) {
@@ -43,7 +48,7 @@ export function iceServers(env = process.env.MEET_ICE_SERVERS) {
 }
 
 /** Can this person join a meeting from this company? Their own company, or one both sides work with. */
-function mayJoin(meeting, user) {
+export function mayJoin(meeting, user) {
   if (meeting.org_id === user.org_id) return true;
   return q('SELECT MIN(allow_external) AS ok FROM orgs WHERE id IN (?, ?)').get(meeting.org_id, user.org_id)?.ok === 1;
 }

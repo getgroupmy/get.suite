@@ -69,11 +69,12 @@ export function useEventReminders(enabled, { toast, openCalendar }) {
     const fire = async ({ key, ev }) => {
       if (stopped || isPaused() || !(await claim(key)) || stopped) return;
       const when = startsIn(ev);
-      toast(`${ev.title} ${when === 'now' ? 'is starting now' : `starts ${when}`}${ev.location ? ` · ${ev.location}` : ''}`);
+      toast(`${ev.title} ${when === 'now' ? 'is starting now' : `starts ${when}`}${ev.location ? ` · ${ev.location}` : ''}`, 'info',
+        ev.meet_code ? { action: { label: 'Join', onClick: () => window.open(`/meet/${ev.meet_code}`, '_blank', 'noopener') } } : undefined);
       if (desktopOn() && document.hidden) {
         try {
           const n = new Notification(ev.title, { body: `${when === 'now' ? 'Starting now' : `Starts ${when}`}${ev.location ? ` · ${ev.location}` : ''}`, tag: `reminder-${key}`, icon: '/favicon.svg' });
-          n.onclick = () => { window.focus(); openCalendar(); n.close(); };
+          n.onclick = () => { window.focus(); if (ev.meet_code) window.open(`/meet/${ev.meet_code}`, '_blank', 'noopener'); else openCalendar(); n.close(); };
         } catch { /* some browsers only allow notifications from a service worker */ }
       }
     };

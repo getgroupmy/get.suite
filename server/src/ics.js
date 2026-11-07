@@ -147,6 +147,8 @@ export function buildIcs(e, { method = 'REQUEST', uid, sequence = 0, organizer, 
   lines.push(`SUMMARY:${escapeText(e.title)}`);
   if (e.location) lines.push(`LOCATION:${escapeText(e.location)}`);
   if (e.description) lines.push(`DESCRIPTION:${escapeText(e.description)}`);
+  // Its video meeting, as the event's link (phones show it); only with a known public address.
+  if (e.meet_code && process.env.PUBLIC_URL) lines.push(`URL:${process.env.PUBLIC_URL.replace(/\/+$/, '')}/meet/${e.meet_code}`);
   if (organizer) lines.push(`ORGANIZER;CN=${param(organizer.name)}:mailto:${organizer.email}`);
   const PARTSTAT = { yes: 'ACCEPTED', maybe: 'TENTATIVE', no: 'DECLINED' };
   for (const a of attendees) {

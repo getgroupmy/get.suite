@@ -15,6 +15,7 @@ import express from 'express';
 import { importCalendar, exportCalendar } from '../calimport.js';
 import { roleFor, audienceFor } from '../access.js';
 import { recordActivity } from '../fileactivity.js';
+import { meetingFor } from '../meet.js';
 
 q(`CREATE TABLE IF NOT EXISTS event_guests (
   event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
@@ -42,6 +43,7 @@ if (!hasColumn('events', 'tz')) q('ALTER TABLE events ADD COLUMN tz TEXT').run()
 // Files from Drive attached to an event: [{ id, name, kind, mime }]. Guests are given view access to the
 // ones the organizer owns; each person sees whether they can open each one.
 if (!hasColumn('events', 'attachments')) q('ALTER TABLE events ADD COLUMN attachments TEXT').run();
+if (!hasColumn('events', 'meet_code')) q('ALTER TABLE events ADD COLUMN meet_code TEXT').run(); // a Meet video meeting for it
 if (!hasColumn('events', 'kind')) q('ALTER TABLE events ADD COLUMN kind TEXT').run(); // null, or 'ooo': out of office (invitations then are declined)
 const ANSWERS = ['yes', 'maybe', 'no'];
 const MAX_GUESTS = 50;
@@ -79,6 +81,15 @@ const readExdates = (list) => {
   if (!Array.isArray(list)) throw bad('Invalid skipped dates');
   return [...new Set(list.map((x) => int(x, 'exdate')))].slice(-1000);
 };
+
+/** The video meeting asked for an event: null (none), or a Meet code this person can use. */
+function readMeet(body, user, existing = null) {
+  if (body.meet_code === undefined) return existing ?? null;
+  if (!body.meet_code) return null;
+  if (body.meet_code === existing) return existing;
+  if (!meetingFor(String(body.meet_code), user)) throw bad('That video meeting does not exist');
+  return String(body.meet_code);
+}
 
 function readEvent(body, existing = {}) {
   const e = { ...existing };
@@ -199,7 +210,7 @@ export function setOutside(eventId, emails) {
 }
 
 /** Did anything a guest's calendar shows change? */
-const DETAILS = ['title', 'description', 'location', 'start', 'end', 'all_day'];
+const DETAILS = ['title', 'description', 'location', 'start', 'end', 'all_day', 'meet_code'];
 const detailsChanged = (a, b) => DETAILS.some((k) => (a[k] ?? null) !== (b[k] ?? null))
   || JSON.stringify(a.rrule ?? null) !== JSON.stringify(b.rrule ?? null) || JSON.stringify(a.exdates || []) !== JSON.stringify(b.exdates || []);
 
@@ -246,13 +257,14 @@ function whenText(e, tz) {
 }
 
 /** Email the guests (best effort: a failed email never fails the change). */
-function notify(organizer, e, recipients, kind, tz) {
+function notify(organizer, e, recipients, kind, tz, base = process.env.PUBLIC_URL || '') {
   if (recipients.length && kind !== 'update') bell(recipients.map((g) => g.id).filter(Boolean), { kind: 'invite', title: kind === 'cancel' ? `${organizer.name} cancelled “${e.title}”` : `${organizer.name} invited you to “${e.title}”`, body: whenText(e, tz), link: '/calendar', actor: organizer.name });
   if (!mailEnabled() || !recipients.length) return;
   const subject = `${{ cancel: 'Cancelled', update: 'Updated' }[kind] || 'Invitation'}: ${e.title}`;
   const lines = kind === 'cancel'
     ? [`${organizer.name} cancelled this event:`, '', e.title, whenText(e, tz)]
-    : [`${organizer.name} ${kind === 'update' ? 'changed this event' : 'invited you to'}:`, '', e.title, whenText(e, tz), ...(e.location ? [`Where: ${e.location}`] : []), ...(e.description ? ['', e.description] : []),
+    : [`${organizer.name} ${kind === 'update' ? 'changed this event' : 'invited you to'}:`, '', e.title, whenText(e, tz), ...(e.location ? [`Where: ${e.location}`] : []),
+      ...(e.meet_code ? [`Video meeting: ${base.replace(/\/+$/, '')}/meet/${e.meet_code}`] : []), ...(e.description ? ['', e.description] : []),
       '', kind === 'update' ? 'Your Workspace calendar already shows the change.' : 'Open Calendar in Workspace to answer Yes, Maybe or No.'];
   smtpFor(organizer).sendMail({
     from: { name: organizer.name, address: organizer.username },
@@ -360,10 +372,11 @@ export default function calendarRoutes() {
     // "This event" of a repeating one: remember which series and occurrence it replaces (phones show it as part of the series).
     const of = req.body.recurrence_of;
     const parent = of && !e.rrule ? q('SELECT id FROM events WHERE id = ? AND owner_id = ? AND rrule IS NOT NULL').get(String(of.id || ''), req.user.id) : null;
-    q(`INSERT INTO events (id, owner_id, title, description, location, start, end, all_day, color, rrule, exdates, repeat_until, tz, recur_parent, recur_id, kind)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    e.meet_code = e.kind === 'ooo' ? null : readMeet(req.body, req.user);
+    q(`INSERT INTO events (id, owner_id, title, description, location, start, end, all_day, color, rrule, exdates, repeat_until, tz, recur_parent, recur_id, kind, meet_code)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(id, req.user.id, e.title, e.description ?? null, e.location ?? null, e.start, e.end, e.all_day ?? 0, e.color ?? null,
-        e.rrule ? JSON.stringify(e.rrule) : null, JSON.stringify(e.exdates || []), repeatUntil(e), tz, parent?.id ?? null, parent ? int(of.occurrence, 'occurrence') : null, e.kind ?? null);
+        e.rrule ? JSON.stringify(e.rrule) : null, JSON.stringify(e.exdates || []), repeatUntil(e), tz, parent?.id ?? null, parent ? int(of.occurrence, 'occurrence') : null, e.kind ?? null, e.meet_code);
     const reminders = setReminders(id, req.user.id, req.body.reminders);
     if (attachments.length) q('UPDATE events SET attachments = ? WHERE id = ?').run(JSON.stringify(attachments), id);
     if (guests) {
@@ -371,7 +384,7 @@ export default function calendarRoutes() {
       const outside = setOutside(id, guests.outside);
       const saved = outEvent(q('SELECT * FROM events WHERE id = ?').get(id));
       shareAttachments(req.user, id); // before they're told, so the files open from the invitation
-      notify(req.user, saved, added, 'invite', req.body.tz);
+      notify(req.user, saved, added, 'invite', req.body.tz, baseUrl(req));
       declineAway(req.user, saved, added);
       notifyOutside(req.user, saved, outside.added, 'invite', { base: baseUrl(req), tz });
       touch(added.map((g) => g.id));
@@ -390,12 +403,13 @@ export default function calendarRoutes() {
     const guests = req.body.guests !== undefined ? readGuests(req.user, e.kind === 'ooo' ? [] : req.body.guests) : null; // before changing anything
     const attachments = req.body.attachments !== undefined ? readAttachments(req.user, req.body.attachments, before.attachments) : null;
     const tz = req.body.tz ? zoneOrUtc(req.body.tz) : existing.tz;
+    e.meet_code = e.kind === 'ooo' ? null : readMeet(req.body, req.user, before.meet_code);
     const changed = detailsChanged(before, e);
     if (before.start !== e.start || before.end !== e.end) q('UPDATE event_guests SET proposed_start = NULL, proposed_end = NULL, proposal_note = NULL WHERE event_id = ?').run(e.id);
     q(`UPDATE events SET title = ?, description = ?, location = ?, start = ?, end = ?, all_day = ?, color = ?, rrule = ?, exdates = ?, repeat_until = ?,
-       tz = ?, sequence = sequence + ?, kind = ? WHERE id = ?`)
+       tz = ?, sequence = sequence + ?, kind = ?, meet_code = ? WHERE id = ?`)
       .run(e.title, e.description, e.location, e.start, e.end, e.all_day, e.color, e.rrule ? JSON.stringify(e.rrule) : null, JSON.stringify(e.exdates || []), repeatUntil(e),
-        tz, changed ? 1 : 0, e.kind ?? null, e.id);
+        tz, changed ? 1 : 0, e.kind ?? null, e.meet_code, e.id);
     if (attachments) q('UPDATE events SET attachments = ? WHERE id = ?').run(attachments.length ? JSON.stringify(attachments) : null, e.id);
     const saved = outEvent(q('SELECT * FROM events WHERE id = ?').get(e.id));
     if (req.body.reminders !== undefined) setReminders(e.id, req.user.id, req.body.reminders);
@@ -408,16 +422,16 @@ export default function calendarRoutes() {
       added = change.added;
       outside = setOutside(e.id, guests.outside);
       shareAttachments(req.user, e.id);
-      notify(req.user, saved, change.added, 'invite', req.body.tz);
+      notify(req.user, saved, change.added, 'invite', req.body.tz, baseUrl(req));
       declineAway(req.user, saved, change.added);
-      notify(req.user, saved, removed.map((id) => q('SELECT username, name FROM users WHERE id = ?').get(id)).filter(Boolean), 'cancel', req.body.tz);
+      notify(req.user, saved, removed.map((id) => q('SELECT username, name FROM users WHERE id = ?').get(id)).filter(Boolean), 'cancel', req.body.tz, baseUrl(req));
     }
     // People outside only see what we email them: new guests are invited, the others get the update.
     const opts = { base: baseUrl(req), tz };
     notifyOutside(req.user, saved, outside.added, 'invite', opts);
     if (changed) notifyOutside(req.user, saved, outside.kept, 'update', opts);
     // Colleagues see the change in their calendar at once; an email tells them it happened.
-    if (changed) notify(req.user, saved, guestsOf(e.id).filter((g) => !added.some((a) => a.id === g.id)).map((g) => ({ username: g.email, name: g.name })), 'update', tz);
+    if (changed) notify(req.user, saved, guestsOf(e.id).filter((g) => !added.some((a) => a.id === g.id)).map((g) => ({ username: g.email, name: g.name })), 'update', tz, baseUrl(req));
     notifyOutside(req.user, saved, outside.removed, 'cancel', opts);
     touch([req.user.id, ...guestsOf(e.id).map((g) => g.id), ...removed]);
     // Rooms: as asked, or (when the time changed) the same ones checked again.
@@ -445,7 +459,7 @@ export default function calendarRoutes() {
     notifyOutside(req.user, gone, outside, 'cancel', { base: baseUrl(req), tz: req.query.tz || ev.tz }); // before the guest list goes
     q('DELETE FROM events WHERE id = ?').run(ev.id);
     q('DELETE FROM events WHERE recur_parent = ? AND owner_id = ?').run(ev.id, req.user.id); // its changed occurrences go with the series
-    notify(req.user, outEvent(ev), guests.map((g) => ({ username: g.email, name: g.name })), 'cancel', req.query.tz);
+    notify(req.user, outEvent(ev), guests.map((g) => ({ username: g.email, name: g.name })), 'cancel', req.query.tz, baseUrl(req));
     touch([req.user.id, ...guests.map((g) => g.id)]);
     res.json({ ok: true });
   });
