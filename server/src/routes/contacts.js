@@ -6,6 +6,7 @@ import { contactsFromFile, contactsToCsv, contactsToVcf, MAX_IMPORT } from '../c
 import { canReach } from '../tenancy.js';
 import { birthdayOf, birthdaysBetween } from '../birthday.js';
 import { duplicateGroups, mergedFields } from '../contactmerge.js';
+import { otherContactsOf, matchOther, forgetOther } from '../othercontacts.js';
 
 const FIELDS = { name: 200, email: 200, phone: 50, company: 200, title: 200, address: 500, website: 300, notes: 5000 };
 const COLS = [...Object.keys(FIELDS), 'birthday'];
@@ -88,6 +89,13 @@ export default function contactRoutes() {
   });
   r.delete('/groups/:id', (req, res) => { q('DELETE FROM contact_groups WHERE id = ?').run(ownGroup(req).id); res.json({ ok: true }); });
 
+  // People you've emailed who aren't in your contacts.
+  r.get('/other', (req, res) => res.json(otherContactsOf(req.user.id)));
+  r.delete('/other/:email', (req, res) => {
+    if (!forgetOther(req.user.id, req.params.email)) throw notFound();
+    res.json({ ok: true });
+  });
+
   r.get('/suggest', (req, res) => {
     const term = String(req.query.q || '').trim().toLowerCase();
     if (!term) return res.json([]);
@@ -101,11 +109,12 @@ export default function contactRoutes() {
     const mine = q(`SELECT name, email FROM contacts WHERE owner_id = ? AND email IS NOT NULL AND email != ''
                     AND (LOWER(name) LIKE ? ESCAPE '\\' OR LOWER(email) LIKE ? ESCAPE '\\')
                     ORDER BY (LOWER(name) LIKE ? ESCAPE '\\' OR LOWER(email) LIKE ? ESCAPE '\\') DESC, name COLLATE NOCASE LIMIT 8`).all(req.user.id, like, like, starts, starts);
+    const others = matchOther(req.user.id, like);
     const people = q(`SELECT id, name, username AS email FROM users WHERE org_id = ? AND disabled = 0 AND id != ?
                       AND (LOWER(name) LIKE ? ESCAPE '\\' OR username LIKE ? ESCAPE '\\') ORDER BY name COLLATE NOCASE LIMIT 8`).all(req.user.org_id, req.user.id, like, like);
     const seen = new Set();
     const out = [];
-    for (const [list, kind] of [[people, 'colleague'], [mine, 'contact'], [company, 'contact']]) {
+    for (const [list, kind] of [[people, 'colleague'], [mine, 'contact'], [company, 'contact'], [others, 'other']]) {
       for (const p of list) {
         const email = p.email.toLowerCase();
         if (seen.has(email) || (kind === 'colleague' && !canReach(req.user, p.id))) continue;

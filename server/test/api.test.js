@@ -2312,3 +2312,25 @@ test('working hours: set your own; Find a time keeps to everyone’s, each in th
   assert.equal((await b('PUT', '/api/users/me/work-hours', { hours: null })).body.own, false);
   assert.equal(((await a('GET', `/api/freebusy/suggest?users=${bid}&duration=60&tz=UTC&from=${mon}`)).body.slots[0].start - mon) / h, 9);
 });
+
+test('other contacts: people you email are remembered and suggested; not colleagues or contacts', async () => {
+  const { recordSent } = await import('../src/othercontacts.js');
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'otha', domain: 'acme.com', name: 'Other Ann', password: 'password123' })).status, 201);
+  const me = (await login(a, 'otha@acme.com'));
+  const user = { id: me.id, username: 'otha@acme.com', org_id: (await a('GET', '/api/auth/me')).body.user.org_id };
+  const colleague = (await owner('GET', '/api/auth/me')).body.user.username;
+  recordSent(user, [{ name: 'Raj Kumar', address: 'Raj@Globex.example.com' }, { address: colleague.toUpperCase() }, { address: 'otha@acme.com' }]);
+  recordSent(user, [{ address: 'raj@globex.example.com' }, { name: 'Sue Ng', address: 'sue@initech.example.com' }]);
+  const list = (await a('GET', '/api/contacts/other')).body;
+  assert.deepEqual(list.map((x) => [x.email, x.name, x.times]), [['raj@globex.example.com', 'Raj Kumar', 2], ['sue@initech.example.com', 'Sue Ng', 1]], 'not colleagues or yourself; the name is kept');
+  const s = (await a('GET', '/api/contacts/suggest?q=raj')).body;
+  assert.deepEqual(s.map((x) => [x.email, x.kind]), [['raj@globex.example.com', 'other']]);
+  // Added to your contacts: it leaves Other contacts (and is suggested as a contact).
+  await a('POST', '/api/contacts', { name: 'Raj Kumar', email: 'raj@globex.example.com' });
+  assert.deepEqual((await a('GET', '/api/contacts/other')).body.map((x) => x.email), ['sue@initech.example.com']);
+  assert.equal((await a('GET', '/api/contacts/suggest?q=raj')).body[0].kind, 'contact');
+  assert.equal((await a('DELETE', `/api/contacts/other/${encodeURIComponent('sue@initech.example.com')}`)).status, 200);
+  assert.deepEqual((await a('GET', '/api/contacts/other')).body, []);
+  assert.equal((await a('DELETE', '/api/contacts/other/nobody%40x.com')).status, 404);
+});

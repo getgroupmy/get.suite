@@ -18,6 +18,7 @@ import { baseSubject, shareSomeone } from '../mail/thread.js';
 import { startImport, importOf } from '../mail/importer.js';
 import { insertFile, cleanName } from './files.js';
 import { checkQuota } from '../tenancy.js';
+import { recordSent } from '../othercontacts.js';
 import { mimeFor } from '../util.js';
 
 const PAGE = 50;
@@ -1001,11 +1002,13 @@ export default function webmailRoutes() {
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'scheduled')`).run(id, req.user.id, at, JSON.stringify(m.envelope), m.subject, JSON.stringify(m.to),
         b.replyTo?.folder && b.replyTo?.uid ? JSON.stringify({ folder: String(b.replyTo.folder), uid: Number(b.replyTo.uid) }) : null, now());
       if (b.draftUid) await deleteDraft(req.user, await specialOf(req.user, '\\Drafts').catch(() => null), Number(b.draftUid)).catch(() => {});
+      recordSent(req.user, m.all);
       sendTo([req.user.id], { type: 'mail-scheduled' });
       return res.status(201).json({ ok: true, scheduled: { id, send_at: at } });
     }
     const m = await buildMessage(req);
     await deliver(req.user, m.raw, m.envelope, { replyTo: b.replyTo });
+    recordSent(req.user, m.all);
     if (b.draftUid) await deleteDraft(req.user, await specialOf(req.user, '\\Drafts').catch(() => null), Number(b.draftUid)).catch(() => {});
     res.json({ ok: true, recipients: m.all.length });
   });
