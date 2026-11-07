@@ -1524,3 +1524,8 @@ img.avatar.photo { object-fit: cover; border-radius: 50%; display: inline-block;
 .event-attachments { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .event-attachments li { display: flex; align-items: center; gap: 6px; }
 .att-list li { display: flex; align-items: center; gap: 2px; }
+button.usage { display: block; width: 100%; text-align: left; background: none; border: 0; cursor: pointer; font: inherit; color: inherit; }
+button.usage:hover .muted { color: var(--text); }
+.storage-sum th { text-align: left; font-weight: 400; color: var(--muted); padding: 2px 16px 2px 0; }
+.storage-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 320px; overflow: auto; }
+.storage-list li { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }

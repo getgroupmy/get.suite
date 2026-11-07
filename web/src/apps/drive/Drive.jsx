@@ -254,10 +254,10 @@ export default function Drive() {
         <NavLink to="/drive/trash" className="subnav-item"><Icon name="trash" />Trash</NavLink>
         {requests.length > 0 && <button type="button" className="subnav-item" onClick={() => setRequestsOpen(true)}><Icon name="lock" /><span className="grow">Access requests</span><span className="count">{requests.length}</span></button>}
         {usage && (
-          <div className="usage">
+          <button type="button" className="usage" aria-label="Storage" title="See what takes up space" onClick={() => setDialog({ type: 'storage' })}>
             <div className="muted small">{formatBytes(usage.used)} used{usage.disk && ` · ${formatBytes(usage.disk.free)} free on NAS`}</div>
             {usage.disk && <div className="bar"><div style={{ width: `${Math.min(100, (1 - usage.disk.free / usage.disk.total) * 100)}%` }} /></div>}
-          </div>
+          </button>
         )}
       </aside>
 
@@ -363,6 +363,7 @@ export default function Drive() {
         <PromptModal title="New folder" label="Folder name" initial="Untitled folder" confirm="Create" onClose={() => setDialog(null)}
           onSubmit={async (name) => { await post('/files/folder', { name, parent_id: parentId }); load(); }} />
       )}
+      {dialog?.type === 'storage' && <StorageDialog onClose={() => setDialog(null)} onChanged={load} />}
       {dialog?.type === 'transfer' && <TransferDialog file={dialog.file} onClose={() => setDialog(null)} onDone={load} />}
       {dialog?.type === 'rename' && (
         <PromptModal title="Rename" label="New name" initial={dialog.file.name} onClose={() => setDialog(null)}
@@ -739,6 +740,48 @@ function TemplatesDialog({ onClose, onPick }) {
         </>}
         <h3 className="template-head">Ready-made</h3>
         <div className="template-grid">{BUILT_IN.map((t) => card({ ...t, builtIn: true }, t.key))}</div>
+      </div>
+    </Modal>
+  );
+}
+
+/** Where your space goes, and the biggest things to clear. */
+function StorageDialog({ onClose, onChanged }) {
+  const toast = useToast();
+  const navigate = useNavigate();
+  const [s, setS] = useState(null);
+  const load = () => get('/files/storage').then(setS).catch((e) => toast(e.message, 'error'));
+  useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const act = (fn, msg) => async () => { try { const r = await fn(); toast(typeof msg === 'function' ? msg(r) : msg); load(); onChanged(); } catch (e) { toast(e.message, 'error'); } };
+  if (!s) return null;
+  const total = s.files + s.versions + s.trash;
+  return (
+    <Modal title="Storage" onClose={onClose}>
+      <div className="stack">
+        <table className="storage-sum">
+          <tbody>
+            <tr><th>Your files</th><td>{formatBytes(s.files)}</td></tr>
+            <tr><th>Older versions</th><td>{formatBytes(s.versions)}</td></tr>
+            <tr><th>In the trash</th><td>{formatBytes(s.trash)}{s.trash > 0 && <> <button type="button" className="link-btn small" onClick={act(() => post('/files/empty-trash'), 'Trash emptied')}>Empty trash</button></>}</td></tr>
+            <tr><th>Total</th><td><strong>{formatBytes(total)}</strong></td></tr>
+            <tr><th>Your company</th><td>{formatBytes(s.company.used)}{s.company.quota ? ` of ${formatBytes(s.company.quota)}` : ''}</td></tr>
+          </tbody>
+        </table>
+        {s.company.quota && <div className="bar" aria-label="Company storage used"><div style={{ width: `${Math.min(100, (s.company.used / s.company.quota) * 100)}%` }} /></div>}
+        <strong>Largest items</strong>
+        {!s.largest.length ? <p className="muted">Nothing stored yet.</p> : (
+          <ul className="storage-list" aria-label="Largest items">
+            {s.largest.map((f) => (
+              <li key={f.id}>
+                <button type="button" className="link-btn grow ellipsis" title="Show it in Drive" onClick={() => { onClose(); navigate(f.trashed ? '/drive/trash' : f.parent_id ? `/drive/folder/${f.parent_id}` : '/drive'); }}>{f.name}</button>
+                <span className="muted small">{formatBytes(f.size)}{f.versions_size > 0 && ` + ${formatBytes(f.versions_size)} in ${f.versions} older version${f.versions === 1 ? '' : 's'}`}{f.trashed && ' · in trash'}</span>
+                {f.versions_size > 0 && <button type="button" className="btn small" onClick={act(() => del(`/files/${f.id}/versions`), (r) => `Freed ${formatBytes(r.freed)}`)}>Delete older versions</button>}
+                {!f.trashed && <button type="button" className="icon-btn" aria-label={`Move ${f.name} to trash`} onClick={act(() => patch(`/files/${f.id}`, { trashed: true }), 'Moved to trash')}><Icon name="trash" size={16} /></button>}
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className="muted small" style={{ margin: 0 }}>Older versions are kept so you can go back; deleting them can't be undone. Trash is emptied for good after your company's set time.</p>
       </div>
     </Modal>
   );

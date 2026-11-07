@@ -2499,3 +2499,26 @@ test('chat: save messages for later; only yours; gone when you leave the convers
   assert.deepEqual((await b('GET', '/api/chat/saved')).body, []);
   assert.equal((await b('PUT', `/api/chat/messages/${m2.id}/saved`, { saved: true })).status, 404);
 });
+
+test('drive storage: files, older versions, trash and the biggest items; clearing old versions', async () => {
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'stra', domain: 'acme.com', name: 'Store Ann', password: 'password123' })).status, 201);
+  await login(a, 'stra@acme.com');
+  const big = (await a('POST', '/api/files/upload?name=video.bin', Buffer.alloc(5000, 1), { raw: true })).body;
+  assert.equal((await a('POST', `/api/files/${big.id}/versions`, Buffer.alloc(6000, 2), { raw: true })).status < 300, true);
+  const small = (await a('POST', '/api/files/upload?name=note.txt', Buffer.from('hello'), { raw: true })).body;
+  const old = (await a('POST', '/api/files/upload?name=old.zip', Buffer.alloc(2000, 3), { raw: true })).body;
+  await a('PATCH', `/api/files/${old.id}`, { trashed: true });
+  const s = (await a('GET', '/api/files/storage')).body;
+  assert.equal(s.files, 6000 + 5);
+  assert.equal(s.versions, 5000);
+  assert.equal(s.trash, 2000);
+  assert.ok(s.company.used >= 13005);
+  assert.deepEqual(s.largest.map((f) => [f.name, f.size, f.versions, f.versions_size, f.trashed]), [['video.bin', 6000, 1, 5000, false], ['old.zip', 2000, 0, 0, true], ['note.txt', 5, 0, 0, false]]);
+  void small;
+  const cleared = (await a('DELETE', `/api/files/${big.id}/versions`)).body;
+  assert.deepEqual(cleared, { deleted: 1, freed: 5000 });
+  assert.equal((await a('GET', '/api/files/storage')).body.versions, 0);
+  assert.equal((await a('GET', `/api/files/${big.id}/raw`)).body.length, 6000, 'the file itself stays');
+  assert.equal((await owner('DELETE', `/api/files/${big.id}/versions`)).status, 404, 'only the owner');
+});

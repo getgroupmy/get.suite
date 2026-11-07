@@ -13,7 +13,7 @@ import JSZip from 'jszip';
 import { uid, now, str, bad, forbidden, notFound, HttpError, mimeFor, isInlineSafe } from '../util.js';
 import { roleFor, atLeast, audienceFor, subtreeIds } from '../access.js';
 import { sendTo } from '../hub.js';
-import { canReach, checkQuota } from '../tenancy.js';
+import { canReach, checkQuota, orgStorageUsed } from '../tenancy.js';
 import { resetRoom, CO_EDITED, saveNow } from '../collab.js';
 import { docFromWord, wordFromDoc } from '../office/word.js';
 import { sheetFromExcel, excelFromSheet } from '../office/excel.js';
@@ -373,6 +373,25 @@ export default function fileRoutes({ maxUploadBytes }) {
     let disk = null;
     try { const s = fs.statfsSync(FILES_DIR); disk = { total: s.blocks * s.bsize, free: s.bavail * s.bsize }; } catch {}
     res.json({ used, disk });
+  });
+
+  // Where your space goes: your files, their older versions, the trash, and the biggest items.
+  r.get('/storage', (req, res) => {
+    const me = req.user.id;
+    const sum = (sql) => q(sql).get(me).n;
+    const org = q('SELECT quota_mb FROM orgs WHERE id = ?').get(req.user.org_id);
+    const largest = q(`SELECT f.id, f.name, f.kind, f.size, f.trashed, f.parent_id,
+                         (SELECT COUNT(*) FROM file_versions v WHERE v.file_id = f.id) AS versions,
+                         (SELECT COALESCE(SUM(v.size), 0) FROM file_versions v WHERE v.file_id = f.id) AS versions_size
+                       FROM files f WHERE f.owner_id = ? AND f.kind != 'folder' ORDER BY f.size + versions_size DESC LIMIT 25`).all(me)
+      .filter((f) => f.size + f.versions_size > 0).map((f) => ({ ...f, trashed: !!f.trashed }));
+    res.json({
+      files: sum('SELECT COALESCE(SUM(size), 0) AS n FROM files WHERE owner_id = ? AND trashed = 0'),
+      trash: sum('SELECT COALESCE(SUM(size), 0) AS n FROM files WHERE owner_id = ? AND trashed = 1'),
+      versions: sum('SELECT COALESCE(SUM(v.size), 0) AS n FROM file_versions v JOIN files f ON f.id = v.file_id WHERE f.owner_id = ?'),
+      company: { used: orgStorageUsed(req.user.org_id), quota: org?.quota_mb ? org.quota_mb * 1024 * 1024 : null },
+      largest,
+    });
   });
 
   r.post('/folder', (req, res) => {
@@ -800,6 +819,15 @@ export default function fileRoutes({ maxUploadBytes }) {
     notify(f.id, { type: 'content-changed', id: f.id, version: after.version, by: null, by_name: req.user.name });
     notify(f.id, { type: 'files-changed', parent_id: f.parent_id });
     res.json(publicFile(after));
+  });
+
+  // Free up space: all of a file's older versions go (named ones too). The file itself stays.
+  r.delete('/:id/versions', (req, res) => {
+    const f = loadFile(req.params.id, req.user, 'owner');
+    const list = q('SELECT id, size, storage FROM file_versions WHERE file_id = ?').all(f.id);
+    q('DELETE FROM file_versions WHERE file_id = ?').run(f.id);
+    for (const v of list) if (v.storage) fs.rm(path.join(FILES_DIR, v.storage), { force: true }, () => {});
+    res.json({ deleted: list.length, freed: list.reduce((n, v) => n + v.size, 0) });
   });
 
   r.delete('/:id/versions/:vid', (req, res) => {
