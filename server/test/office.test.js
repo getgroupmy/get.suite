@@ -346,3 +346,13 @@ test('Word: a page break is a real page break', async () => {
   const xml = await (await JSZip.loadAsync(await wordFromDoc(doc, 'Book'))).file('word/document.xml').async('string');
   assert.match(xml, /Cover[\s\S]*<w:br w:type="page"\/>[\s\S]*Chapter one/);
 });
+
+test('Excel: merged cells go out and come back', async () => {
+  const data = { sheets: [{ name: 'S', cells: { A1: 'Quarterly report', B3: 'x', A5: '1' }, merges: ['A1:D1', 'B3:C4'] }] };
+  const back = (await sheetFromExcel(await excelFromSheet(data))).sheets[0];
+  assert.deepEqual(back.merges.sort(), ['A1:D1', 'B3:C4']);
+  assert.equal(back.cells.A1, 'Quarterly report');
+  assert.equal(back.cells.A5, '1');
+  const plain = (await sheetFromExcel(await excelFromSheet({ sheets: [{ name: 'S', cells: { A1: '1' } }] }))).sheets[0];
+  assert.equal(plain.merges, undefined);
+});

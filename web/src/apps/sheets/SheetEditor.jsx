@@ -24,6 +24,7 @@ import { VersionHistory } from '../VersionHistory.jsx';
 import { ruleStyle } from './condformat.js';
 import { useUndo, undoKey } from '../useUndo.js';
 import { useFormulaAssist } from './FormulaAssist.jsx';
+import { box, mergeLayout, mergeAt, addMerge, removeMerges, growToMerges, stepWithMerges } from './merge.js';
 import { SheetFind } from './SheetFind.jsx';
 
 const SEL_COLORS = ['#1a73e8', '#d93025', '#188038', '#e37400', '#8430ce', '#00796b', '#c2185b', '#5f6368'];
@@ -114,6 +115,8 @@ export default function SheetEditor() {
   const colWidths = sheet?.colWidths || {};
   const rules = sheet?.rules || [];
   const validations = sheet?.validations || [];
+  const merges = useMemo(() => sheet?.merges || [], [sheet?.merges]);
+  const layout = useMemo(() => mergeLayout(merges), [merges]);
   const [picker, setPicker] = useState(null); // { key }: the choices of a dropdown cell are open
   const frozen = { rows: sheet?.frozen?.rows || 0, cols: sheet?.frozen?.cols || 0 };
   const [resizing, setResizing] = useState(null); // { c, w } while a column edge is dragged
@@ -187,6 +190,33 @@ export default function SheetEditor() {
       return { ...s, formats: f };
     });
     commitData({ ...cur, sheets });
+  }
+
+  /** Merge the selected cells (keeping the top-left value), or unmerge what the selection touches. */
+  function toggleMerge() {
+    if (readOnly) return;
+    const cur = dataRef.current;
+    const inMerge = mergeAt(merges, sel.c, sel.r);
+    const one = range.c1 === range.c2 && range.r1 === range.r2;
+    if (one && !inMerge) { toast('Select two or more cells to merge'); return; }
+    let dropped = 0;
+    const sheets = cur.sheets.map((sh, i) => {
+      if (i !== active) return sh;
+      if (inMerge && (one || (range.c1 === inMerge.c1 && range.r1 === inMerge.r1 && range.c2 === inMerge.c2 && range.r2 === inMerge.r2))) {
+        const left = removeMerges(sh.merges || [], range);
+        return { ...sh, merges: left };
+      }
+      const nextCells = { ...sh.cells };
+      for (let r = range.r1; r <= range.r2; r++) for (let c = range.c1; c <= range.c2; c++) {
+        const k = cellKey(c, r);
+        if ((c !== range.c1 || r !== range.r1) && nextCells[k] !== undefined && nextCells[k] !== '') { delete nextCells[k]; dropped++; }
+      }
+      return { ...sh, cells: nextCells, merges: addMerge(sh.merges || [], range) };
+    });
+    commitData({ ...cur, sheets });
+    setAnchor(null);
+    setSel({ c: range.c1, r: range.r1 });
+    if (dropped) toast(`Merged: only the top-left value is kept (${dropped} other ${dropped === 1 ? 'value' : 'values'} cleared; Undo brings them back)`);
   }
 
   /** Change this sheet's own settings (column widths, frozen panes): fn(sheet) → changes. */
@@ -271,6 +301,7 @@ export default function SheetEditor() {
   /** Sort rows of a range by one column. */
   function sortBy({ range: g, by, desc, header }) {
     if (readOnly) return;
+    if (merges.some((m) => { const b = box(m); return b && b.c1 <= g.c2 && g.c1 <= b.c2 && b.r1 <= g.r2 && g.r1 <= b.r2; })) { toast('Unmerge the cells in these rows before sorting them', 'error'); return; }
     const cur = dataRef.current;
     const sheets = cur.sheets.map((s, i) => (i === active ? { ...s, ...sortRange(s, g, by, { desc, header, value: evaluate }) } : s));
     commitData({ ...cur, sheets });
@@ -281,15 +312,17 @@ export default function SheetEditor() {
   const sortTarget = () => (anchor ? range : dataRegion(sel, (c, r) => cells[cellKey(c, r)] !== undefined && cells[cellKey(c, r)] !== ''));
   const quickSort = (desc) => { const g = sortTarget(); sortBy({ range: g, by: sel.c, desc, header: looksLikeHeader(g, evaluate) }); };
 
-  const range = anchor ? {
+  // The selection (grown to take in any merged cells it touches, so it never cuts one in two).
+  const range = growToMerges(merges, anchor ? {
     c1: Math.min(anchor.c, sel.c), c2: Math.max(anchor.c, sel.c), r1: Math.min(anchor.r, sel.r), r2: Math.max(anchor.r, sel.r),
-  } : { c1: sel.c, c2: sel.c, r1: sel.r, r2: sel.r };
+  } : { c1: sel.c, c2: sel.c, r1: sel.r, r2: sel.r });
   const inRange = (c, r) => c >= range.c1 && c <= range.c2 && r >= range.r1 && r <= range.r2;
 
   function move(dc, dr, extend = false) {
     if (extend) { if (!anchor) setAnchor(sel); } else setAnchor(null);
     setSel((s) => {
-      const n = { c: Math.max(0, Math.min(cols - 1, s.c + dc)), r: Math.max(0, Math.min(rows - 1, s.r + dr)) };
+      const n = extend ? { c: Math.max(0, Math.min(cols - 1, s.c + dc)), r: Math.max(0, Math.min(rows - 1, s.r + dr)) }
+        : stepWithMerges(merges, s.c, s.r, dc, dr, { cols, rows }); // over merged cells as one
       // Rows the filter hides are skipped over.
       while (dr && hidden.has(n.r) && n.r > 0 && n.r < rows - 1) n.r += Math.sign(dr);
       if (hidden.has(n.r)) n.r = s.r;
@@ -560,6 +593,7 @@ export default function SheetEditor() {
       {status === 'offline' && <div className="banner warn">You're offline. Keep editing: your changes are kept here and sync when the connection is back.</div>}
       {readOnly && <div className="banner">View only. Ask {file.owner_name} for edit access.</div>}
       {!readOnly && <FormatBar fmt={formats[selKey] || {}} onChange={(change) => { writeFormats(change); gridRef.current?.focus(); }}
+        onMerge={() => { toggleMerge(); gridRef.current?.focus(); }} merged={!!mergeAt(merges, sel.c, sel.r)}
         onBorders={(kind) => { writeFormats((k, c, r, f) => ({ bd: borderFor(kind, range, c, r, f?.bd) })); gridRef.current?.focus(); }} onComment={startComment} onChart={newChart} onSort={() => setDialog({ type: 'sort' })} onRules={() => setDialog({ type: 'rules' })} onValidation={() => setDialog({ type: 'validation' })} filterOn={!!filter} onFilter={toggleFilter} history={history} />}
       {finding && sheet && (
         <SheetFind key={`${active}-${finding.n}`} cells={cells} shown={shown} hidden={hidden} replacing={finding.replace} canEdit={!readOnly}
@@ -608,10 +642,13 @@ export default function SheetEditor() {
                   onContextMenu={(e) => { if (!(isWholeRows && r >= range.r1 && r <= range.r2)) pickRow(r, { shiftKey: false }); openMenu(e, 'row'); }}>{r + 1}</th>
                 {Array.from({ length: cols }, (_, c) => {
                   const k = cellKey(c, r);
+                  if (layout.covered.has(k)) return null; // drawn by its merge's top-left cell
+                  const span = layout.spans.get(k);
+                  const spanProps = span ? { colSpan: span.colSpan, rowSpan: span.rowSpan } : {};
                   const isSel = c === sel.c && r === sel.r;
                   if (isSel && editing === 'cell') {
                     return (
-                      <td key={k} data-k={k} className={`sel editing ${frozenClass(c, r)}`} style={{ maxWidth: widthOf(c), ...stickyStyle(c, r) }}>
+                      <td key={k} data-k={k} {...spanProps} className={`sel editing ${frozenClass(c, r)}`} style={{ maxWidth: span ? undefined : widthOf(c), ...stickyStyle(c, r) }}>
                         <input autoFocus value={draft} aria-label={`Edit ${k}`} onChange={(e) => setDraft(e.target.value)} onSelect={assist.track}
                           onKeyDown={(e) => {
                             if (assist.handleKey(e)) return;
@@ -630,7 +667,7 @@ export default function SheetEditor() {
                   const fmt = formats[k];
                   const vd = validations.length ? validationAt(validations, k) : null;
                   return (
-                    <td key={k} data-k={k} style={{ maxWidth: widthOf(c), ...stickyStyle(c, r), ...cellStyle(fmt), ...(rules.length && ruleStyle(rules, k, v)), ...(theirs.has(k) && { boxShadow: `${isSel ? 'inset 0 0 0 2px var(--accent), ' : ''}inset 0 0 0 ${isSel ? 4 : 2}px ${theirs.get(k).color}` }) }}
+                    <td key={k} data-k={k} {...spanProps} style={{ maxWidth: span ? undefined : widthOf(c), ...stickyStyle(c, r), ...cellStyle(fmt), ...(rules.length && ruleStyle(rules, k, v)), ...(theirs.has(k) && { boxShadow: `${isSel ? 'inset 0 0 0 2px var(--accent), ' : ''}inset 0 0 0 ${isSel ? 4 : 2}px ${theirs.get(k).color}` }) }}
                       title={theirs.has(k) ? `${theirs.get(k).name} is here` : commented.has(k) ? 'Has comments' : undefined}
                       className={`${frozenClass(c, r)} ${vd ? `has-${vd.type}` : ''} ${commented.has(k) ? 'commented' : ''} ${isSel ? 'sel' : ''} ${inRange(c, r) && anchor ? 'range' : ''} ${typeof v === 'number' ? 'num' : ''} ${isErr ? 'err' : ''} ${hits?.keys.has(k) ? (hits.current === k ? 'find-current' : 'find-hit') : ''}`}
                       onContextMenu={(e) => { if (!inRange(c, r)) { setAnchor(null); setSel({ c, r }); } openMenu(e, 'cell'); }}
@@ -777,7 +814,7 @@ export function parseCsv(text) {
 }
 
 /** Formatting for the selected cells: bold, italic, underline, colours, alignment, number format. */
-function FormatBar({ fmt, onChange, onBorders, onComment, onChart, onSort, onRules, onValidation, filterOn, onFilter, history }) {
+function FormatBar({ fmt, onChange, onBorders, onMerge, merged, onComment, onChart, onSort, onRules, onValidation, filterOn, onFilter, history }) {
   const keep = (e) => e.preventDefault(); // buttons don't take focus from the grid
   const Toggle = ({ k, label, title, children }) => (
     <button type="button" className={`tb ${fmt[k] ? 'on' : ''}`} aria-pressed={!!fmt[k]} aria-label={label} title={title} onMouseDown={keep} onClick={() => onChange({ [k]: !fmt[k] })}>{children}</button>
@@ -807,6 +844,7 @@ function FormatBar({ fmt, onChange, onBorders, onComment, onChart, onSort, onRul
           onClick={() => onChange({ align: align === a ? null : a })}><AlignGlyph to={a} /></button>
       ))}
       <Toggle k="wrap" label="Wrap text" title="Wrap text onto more lines in the cell">↵</Toggle>
+      <button type="button" className={`tb ${merged ? 'on' : ''}`} aria-pressed={merged} aria-label={merged ? 'Unmerge cells' : 'Merge cells'} title={merged ? 'Unmerge cells' : 'Merge the selected cells into one'} onMouseDown={keep} onClick={onMerge}>⊞</button>
       <select className="tb-select" aria-label="Borders" title="Borders around the selected cells" value="" onChange={(e) => { if (e.target.value) onBorders(e.target.value); }}>
         <option value="">Borders…</option>
         {BORDERS.map(([v, n]) => <option key={v} value={v}>{n}</option>)}

@@ -99,7 +99,14 @@ export async function sheetFromExcel(buffer) {
     // An AutoFilter comes in as the sheet's filter (which values were hidden isn't kept).
     const af = typeof ws.autoFilter === 'string' ? ws.autoFilter : ws.autoFilter?.from && ws.autoFilter?.to ? `${ws.autoFilter.from}:${ws.autoFilter.to}` : null;
     const filter = af && /^[A-Z]+\d+:[A-Z]+\d+$/i.test(af) ? { range: af.toUpperCase(), hidden: {} } : null;
-    sheets.push({ name: ws.name.slice(0, 30), cells, colWidths, ...(rules.length && { rules }), ...(validations.length && { validations }), ...(filter && { filter }), ...(Object.keys(formats).length && { formats }), ...(frozen && (frozen.rows || frozen.cols) && { frozen }) });
+    // Merged cells, as ranges ("A1:C1"); the covered cells' values (Excel keeps only the top-left) are dropped.
+    const merges = (ws.model.merges || []).map((m) => String(m).toUpperCase()).filter((m) => /^[A-Z]+\d+:[A-Z]+\d+$/.test(m));
+    for (const m of merges) {
+      const [a, b] = m.split(':').map((x) => ({ c: x.match(/[A-Z]+/)[0], r: Number(x.match(/\d+/)[0]) }));
+      const ci = (l) => [...l].reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0) - 1;
+      for (let r = a.r; r <= b.r; r++) for (let c = ci(a.c); c <= ci(b.c); c++) if (r !== a.r || c !== ci(a.c)) delete cells[`${colName(c)}${r}`];
+    }
+    sheets.push({ name: ws.name.slice(0, 30), cells, colWidths, ...(merges.length && { merges }), ...(rules.length && { rules }), ...(validations.length && { validations }), ...(filter && { filter }), ...(Object.keys(formats).length && { formats }), ...(frozen && (frozen.rows || frozen.cols) && { frozen }) });
   });
   return { sheets: sheets.length ? sheets : [{ name: 'Sheet1', cells: {}, colWidths: {} }] };
 }
@@ -118,6 +125,7 @@ export async function excelFromSheet(data) {
       else if (/^(TRUE|FALSE)$/i.test(v)) cell.value = /^TRUE$/i.test(v);
       else cell.value = v;
     }
+    for (const m of s.merges || []) { try { ws.mergeCells(m); } catch { /* an overlapping or bad range is skipped */ } }
     for (const [key, f] of Object.entries(s.formats || {})) {
       const cell = ws.getCell(key);
       if (f.b || f.i || f.u || f.s || f.color) cell.font = { bold: !!f.b, italic: !!f.i, underline: !!f.u, strike: !!f.s, ...(f.color && { color: { argb: argb(f.color) } }) };

@@ -83,7 +83,9 @@ export function applyStructure(sheet, change) {
   for (const [id, ch] of Object.entries(sheet.charts || {})) { const range = adjustRange(ch.range, change); if (range) charts[id] = { ...ch, range }; }
   const rules = (sheet.rules || []).map((r) => ({ ...r, range: adjustRange(r.range, change) })).filter((r) => r.range);
   const validations = (sheet.validations || []).map((v) => ({ ...v, range: adjustRange(v.range, change) })).filter((v) => v.range);
-  return { ...sheet, cells, colWidths, ...(sheet.formats && { formats }), ...(sheet.charts && { charts }), ...(sheet.rules && { rules }), ...(sheet.validations && { validations }) };
+  // Merges move and grow or shrink with their cells; one that's down to a single cell is no longer a merge.
+  const merges = (sheet.merges || []).map((m) => adjustRange(m, change)).filter((m) => m && m.split(':')[0] !== m.split(':')[1]);
+  return { ...sheet, cells, colWidths, ...(sheet.formats && { formats }), ...(sheet.charts && { charts }), ...(sheet.rules && { rules }), ...(sheet.validations && { validations }), ...(sheet.merges && { merges }) };
 }
 
 /** Does the top row of a range look like headings: all text, over at least one column of numbers? */

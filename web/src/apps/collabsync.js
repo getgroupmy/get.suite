@@ -15,6 +15,7 @@ function sheetMap(sheet) {
   if (sheet.rules?.length) m.set('rules', sheet.rules); // conditional formatting
   if (sheet.validations?.length) m.set('validations', sheet.validations); // dropdowns and tick boxes
   if (sheet.filter) m.set('filter', sheet.filter); // { range, hidden: { col: [values] } }
+  if (sheet.merges?.length) m.set('merges', sheet.merges); // merged cells: ["A1:C1", …]
   for (const k of SHEET_MAPS) {
     const inner = new Y.Map();
     for (const [key, v] of Object.entries(sheet[k] || {})) inner.set(key, v);
@@ -36,6 +37,7 @@ export function jsonFromSheetDoc(doc) {
     if (m.get('rules')?.length) s.rules = m.get('rules');
     if (m.get('validations')?.length) s.validations = m.get('validations');
     if (m.get('filter')) s.filter = m.get('filter');
+    if (m.get('merges')?.length) s.merges = m.get('merges');
     for (const k of SHEET_MAPS) { const inner = m.get(k); s[k] = inner ? inner.toJSON() : {}; }
     for (const k of ['formats', 'charts']) if (!Object.keys(s[k]).length) delete s[k];
     return s;
@@ -60,6 +62,7 @@ export function applySheetJson(doc, next) {
       if (!same(m.get('rules') || [], sheet.rules || [])) { if (sheet.rules?.length) m.set('rules', sheet.rules); else m.delete('rules'); }
       if (!same(m.get('validations') || [], sheet.validations || [])) { if (sheet.validations?.length) m.set('validations', sheet.validations); else m.delete('validations'); }
       if (!same(m.get('filter') || null, sheet.filter || null)) { if (sheet.filter) m.set('filter', sheet.filter); else m.delete('filter'); }
+      if (!same(m.get('merges') || [], sheet.merges || [])) { if (sheet.merges?.length) m.set('merges', sheet.merges); else m.delete('merges'); }
       for (const k of SHEET_MAPS) {
         let inner = m.get(k);
         if (!inner) { inner = new Y.Map(); m.set(k, inner); }
