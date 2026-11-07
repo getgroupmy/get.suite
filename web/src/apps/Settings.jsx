@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
-import { api, get, patch, post, put, del, putBlob } from '../api.js';
+import { api, get, patch, post, put, del, putBlob, formatBytes } from '../api.js';
 import { reloadPhotos, usePhoto } from '../components/photos.js';
 import { useAuth } from '../App.jsx';
 import { Avatar, useToast } from '../components/ui.jsx';
+import Icon from '../components/Icon.jsx';
 import { getTheme, setTheme } from '../theme.js';
 
 export default function Settings() {
@@ -52,6 +53,7 @@ export default function Settings() {
       <TwoStep />
       <MailApps />
       <Devices />
+      <YourData />
     </div>
   );
 }
@@ -178,6 +180,21 @@ function Appearance() {
       </div>
       <p className="muted small" style={{ margin: 0 }}>Kept on this device, so a phone and a computer can differ.</p>
       <StartPage />
+    </section>
+  );
+}
+
+/** Download your data: one .zip with everything you own, in formats other programs open. */
+function YourData() {
+  const [sum, setSum] = useState(null);
+  useEffect(() => { get('/takeout/summary').then(setSum).catch(() => {}); }, []);
+  const n = (x, one, many) => `${x} ${x === 1 ? one : many}`;
+  return (
+    <section className="card stack" aria-labelledby="yourdata-h">
+      <h2 id="yourdata-h">Download your data</h2>
+      <p className="muted small" style={{ margin: 0 }}>One .zip with everything you own: your Drive with its folders (documents as Word, spreadsheets as Excel, presentations as PowerPoint), your calendar (.ics), contacts (.vcf), tasks (a spreadsheet) and notes. Email stays on the mail server; a mail app can copy it (see above).</p>
+      {sum && <p className="small" style={{ margin: 0 }}>{n(sum.files, 'file', 'files')} ({formatBytes(sum.bytes)} of uploads) · {n(sum.events, 'event', 'events')} · {n(sum.contacts, 'contact', 'contacts')} · {n(sum.tasks, 'task', 'tasks')} · {n(sum.notes, 'note', 'notes')}</p>}
+      <div><a className="btn" href="/api/takeout" download><Icon name="download" size={18} /> Download your data (.zip)</a></div>
     </section>
   );
 }

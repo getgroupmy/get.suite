@@ -553,6 +553,10 @@ Your business fixed IP is what makes this work. Do these once:
 
 **Not built yet:** keeping the original's exact look (block and page backgrounds, page layout, sizes other than the four in the menu) in a normal forward (use **Forward as attachment** to keep everything).
 
+## Download your data
+
+**Settings → Download your data** gives you one .zip of everything you own, in formats other programs open: your **Drive** with its folders (documents as Word, spreadsheets as Excel, presentations as PowerPoint; pending suggestions left out), your **calendar** (.ics for Outlook, Google or Apple Calendar), **contacts** (.vcf), **tasks** (a CSV spreadsheet) and **notes** (Markdown). It says how much there is first. Email stays on the mail server: copy it with a mail app (see *Mail apps*). Each download is recorded in the admin activity log. Very large Drives (over 10 GB of uploads) are downloaded folder by folder from Drive instead.
+
 ## Two-step verification
 
 Everyone can add a second step to signing in on the web: after the password, a 6-digit code from an authenticator app on their phone (Google Authenticator, Microsoft Authenticator, 1Password, …). Someone who learns a password then still can't get in.

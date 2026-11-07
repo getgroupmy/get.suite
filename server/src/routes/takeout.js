@@ -1,0 +1,105 @@
+// Download your data: everything you own in one .zip, in formats other programs open. Drive (with its
+// folders; documents, spreadsheets and presentations as Word, Excel and PowerPoint), your calendar
+// (.ics), contacts (.vcf), tasks (CSV) and notes (Markdown). Mounted at /api/takeout.
+import { Router } from 'express';
+import fs from 'node:fs';
+import path from 'node:path';
+import JSZip from 'jszip';
+import { q, FILES_DIR } from '../db.js';
+import { bad } from '../util.js';
+import { audit } from '../audit.js';
+import { exportCalendar } from '../calimport.js';
+import { contactsToVcf } from '../contactfiles.js';
+import { wordFromDoc } from '../office/word.js';
+import { excelFromSheet } from '../office/excel.js';
+import { powerPointFromDeck } from '../office/powerpoint.js';
+import { withoutSuggestions } from '../office/suggestions.js';
+
+const MAX_BYTES = 10 * 1024 ** 3; // stored files; beyond this, download Drive in parts
+const safe = (name) => String(name).replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').trim().slice(0, 150) || 'untitled';
+const csvCell = (v) => { let s = String(v ?? ''); if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`; return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+
+/** Tasks as CSV rows (list, title, notes, due, time, done, for). */
+export function tasksCsv(userId) {
+  const rows = q(`SELECT l.name AS list, t.title, t.notes, t.due, t.due_time, t.done_at, u.name AS assignee, t.important
+                  FROM tasks t JOIN task_lists l ON l.id = t.list_id LEFT JOIN users u ON u.id = t.assignee_id
+                  WHERE l.owner_id = ? ORDER BY l.created_at, t.done_at IS NOT NULL, t.position`).all(userId);
+  const head = ['List', 'Task', 'Notes', 'Due', 'Time', 'Done', 'For', 'Important'];
+  return [head, ...rows.map((r) => [r.list, r.title, r.notes || '', r.due || '', r.due_time || '', r.done_at ? new Date(r.done_at).toISOString().slice(0, 10) : '', r.assignee || '', r.important ? 'yes' : ''])]
+    .map((row) => row.map(csvCell).join(',')).join('\r\n');
+}
+
+/** Your notes as one Markdown file. */
+export function notesMarkdown(userId) {
+  const notes = q('SELECT * FROM notes WHERE owner_id = ? ORDER BY archived, pinned DESC, position DESC').all(userId);
+  return notes.map((n) => {
+    const labels = JSON.parse(n.labels || '[]');
+    const items = n.items ? JSON.parse(n.items) : null;
+    return [`## ${n.title || 'Note'}${n.archived ? ' (archived)' : ''}${n.pinned ? ' 📌' : ''}`,
+      ...(labels.length ? [`Labels: ${labels.join(', ')}`, ''] : []),
+      items ? items.map((i) => `- [${i.done ? 'x' : ' '}] ${i.text}`).join('\n') : n.body,
+      ''].join('\n');
+  }).join('\n') || '_No notes._\n';
+}
+
+export default function takeoutRoutes() {
+  const r = Router();
+  // What's in it, before downloading.
+  r.get('/summary', (req, res) => {
+    const me = req.user.id;
+    const n = (sql) => q(sql).get(me).n;
+    res.json({
+      files: n("SELECT COUNT(*) AS n FROM files WHERE owner_id = ? AND trashed = 0 AND kind != 'folder'"),
+      bytes: n("SELECT COALESCE(SUM(size), 0) AS n FROM files WHERE owner_id = ? AND trashed = 0 AND kind = 'file'"),
+      events: n('SELECT COUNT(*) AS n FROM events WHERE owner_id = ? AND recur_parent IS NULL'),
+      contacts: n('SELECT COUNT(*) AS n FROM contacts WHERE owner_id = ?'),
+      tasks: n('SELECT COUNT(*) AS n FROM tasks t JOIN task_lists l ON l.id = t.list_id WHERE l.owner_id = ?'),
+      notes: n('SELECT COUNT(*) AS n FROM notes WHERE owner_id = ?'),
+    });
+  });
+
+  r.get('/', async (req, res) => {
+    const me = req.user.id;
+    const bytes = q("SELECT COALESCE(SUM(size), 0) AS n FROM files WHERE owner_id = ? AND trashed = 0 AND kind = 'file'").get(me).n;
+    if (bytes > MAX_BYTES) throw bad('Your Drive is larger than 10 GB: download its folders from Drive instead (select them, then Download)');
+    const zip = new JSZip();
+    const used = new Set();
+    const unique = (p) => { let x = p, i = 1; while (used.has(x.toLowerCase())) { const dot = p.lastIndexOf('.'); x = dot > p.lastIndexOf('/') ? `${p.slice(0, dot)} (${i})${p.slice(dot)}` : `${p} (${i})`; i++; } used.add(x.toLowerCase()); return x; };
+    // Drive: your own files and folders, as they're arranged (anything inside someone else's folder goes at the top).
+    const mine = q('SELECT * FROM files WHERE owner_id = ? AND trashed = 0').all(me);
+    const byId = new Map(mine.map((f) => [f.id, f]));
+    const pathOf = (f) => { const parts = []; let cur = f; for (let i = 0; cur && i < 64; i++) { parts.unshift(safe(cur.name)); cur = byId.get(cur.parent_id); } return parts.join('/'); };
+    for (const f of mine) {
+      if (f.kind === 'folder') { zip.folder(`Drive/${pathOf(f)}`); continue; }
+      const ext = { doc: '.docx', sheet: '.xlsx', slides: '.pptx' }[f.kind] || '';
+      const where = unique(`Drive/${pathOf(f)}${ext && !f.name.toLowerCase().endsWith(ext) ? ext : ''}`);
+      if (f.kind === 'file') { if (f.storage) zip.file(where, fs.createReadStream(path.join(FILES_DIR, f.storage)), { binary: true }); continue; }
+      const content = JSON.parse(f.content || '{}');
+      const pictureData = async (fileId) => {
+        const pic = q("SELECT * FROM files WHERE id = ? AND kind = 'file' AND trashed = 0").get(fileId);
+        return pic && /^image\//.test(pic.mime || '') && pic.owner_id === me ? { data: fs.readFileSync(path.join(FILES_DIR, pic.storage)), mime: pic.mime } : null;
+      };
+      try {
+        const buf = f.kind === 'doc' ? await wordFromDoc(withoutSuggestions(content), f.name, { pictureData })
+          : f.kind === 'sheet' ? await excelFromSheet(content) : await powerPointFromDeck(content, { title: f.name, pictureData });
+        zip.file(where, buf);
+      } catch (e) { zip.file(`${where}.error.txt`, `This file couldn't be converted: ${e.message}`); }
+    }
+    zip.file('Calendar.ics', exportCalendar(me));
+    zip.file('Contacts.vcf', contactsToVcf(q('SELECT * FROM contacts WHERE owner_id = ? ORDER BY name COLLATE NOCASE').all(me)));
+    zip.file('Tasks.csv', `﻿${tasksCsv(me)}\r\n`);
+    zip.file('Notes.md', `# Notes\n\n${notesMarkdown(me)}`);
+    zip.file('README.txt', [`Your Workspace data, ${new Date().toISOString().slice(0, 10)}`, '',
+      'Drive/        your files and folders (documents as Word, spreadsheets as Excel, presentations as PowerPoint)',
+      'Calendar.ics  your events, for Outlook, Google Calendar or Apple Calendar',
+      'Contacts.vcf  your contacts, for phones, Outlook, Gmail or Apple Contacts',
+      'Tasks.csv     your task lists, for a spreadsheet',
+      'Notes.md      your notes', '', 'Email stays on the mail server: use a mail app (see Settings) to copy it.'].join('\r\n'));
+    audit(req, 'data.export', { target: req.user.username });
+    const name = `Workspace data ${new Date().toISOString().slice(0, 10)}.zip`;
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(name)}`);
+    zip.generateNodeStream({ type: 'nodebuffer', streamFiles: true, compression: 'STORE' }).on('error', (err) => res.destroy(err)).pipe(res);
+  });
+  return r;
+}

@@ -3268,3 +3268,31 @@ test('notes: copy to a document or to tasks', async () => {
   assert.deepEqual(tasks.slice(0, 2).map((x) => x.title), ['Book hotel', 'Taxi'], 'in order, on top');
   assert.equal((await a('POST', `/api/notes/${text.id}/tasks`)).body.added, 1, 'a plain note becomes one task');
 });
+
+test('download your data: one zip with Drive, calendar, contacts, tasks and notes', async () => {
+  const JSZip = (await import('jszip')).default;
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'takeo', domain: 'acme.com', name: 'Tak Eout', password: 'password123' })).status, 201);
+  await login(a, 'takeo@acme.com');
+  const folder = (await a('POST', '/api/files/folder', { name: 'Reports' })).body;
+  await a('POST', '/api/files/new', { kind: 'doc', name: 'Q3', parent_id: folder.id });
+  await a('POST', '/api/files/new', { kind: 'sheet', name: 'Budget' });
+  const t = Date.now() + 864e5;
+  await a('POST', '/api/events', { title: 'Review', start: t, end: t + 36e5 });
+  await a('POST', '/api/contacts', { name: 'Zed Export', email: 'zed@example.com' });
+  const list = (await a('POST', '/api/tasks/lists', { name: 'Work' })).body.id;
+  await a('POST', `/api/tasks/lists/${list}/tasks`, { title: '=cmd() not a formula' });
+  await a('POST', '/api/notes', { title: 'Ideas', items: [{ text: 'One' }, { text: 'Two', done: true }] });
+  const sum = (await a('GET', '/api/takeout/summary')).body;
+  assert.deepEqual([sum.files, sum.events, sum.contacts, sum.notes], [2, 1, 1, 1]);
+  const r = await a('GET', '/api/takeout', undefined, { binary: true });
+  assert.equal(r.status, 200);
+  assert.match(r.headers.get('content-type'), /zip/);
+  const zip = await JSZip.loadAsync(r.body);
+  const names = Object.keys(zip.files);
+  for (const n of ['Drive/Reports/Q3.docx', 'Drive/Budget.xlsx', 'Calendar.ics', 'Contacts.vcf', 'Tasks.csv', 'Notes.md', 'README.txt']) assert.ok(names.includes(n), `${n} in ${names.join(', ')}`);
+  assert.match(await zip.file('Calendar.ics').async('string'), /SUMMARY:Review/);
+  assert.match(await zip.file('Contacts.vcf').async('string'), /zed@example.com/);
+  assert.match(await zip.file('Tasks.csv').async('string'), /Work,'=cmd\(\) not a formula/);
+  assert.match(await zip.file('Notes.md').async('string'), /## Ideas[\s\S]*- \[ \] One\n- \[x\] Two/);
+});
