@@ -1633,3 +1633,13 @@ button.usage:hover .muted { color: var(--text); }
 }
 .meet-join { margin-top: 6px; display: inline-flex; align-items: center; gap: 6px; }
 .meet-line .btn { display: inline-flex; align-items: center; gap: 6px; }
+
+/* Docs: suggestions */
+.paper ins.sugg-ins { color: #188038; text-decoration: underline; text-decoration-color: #188038; background: rgba(24, 128, 56, .08); }
+.paper del.sugg-del { color: #c5221f; text-decoration: line-through; background: rgba(197, 34, 31, .06); }
+.doc-mode { border: 1px solid var(--border); border-radius: 16px; padding: 4px 8px; background: var(--surface); color: var(--text); font: inherit; font-size: 13px; }
+.sugg-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.sugg-item { border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
+.sugg-show { all: unset; cursor: pointer; display: flex; flex-direction: column; gap: 2px; overflow-wrap: anywhere; }
+.sugg-what { font-size: 14px; }
+@media print { .paper ins.sugg-ins { display: none; } .paper del.sugg-del { color: inherit; text-decoration: none; background: none; } }

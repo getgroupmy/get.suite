@@ -1,3 +1,4 @@
+import { withoutSuggestions } from '../office/suggestions.js';
 import { recordActivity, activityOf } from '../fileactivity.js';
 import { isWatching, setWatching } from '../filewatch.js';
 import { notify as bell } from '../notifications.js';
@@ -716,7 +717,8 @@ export default function fileRoutes({ maxUploadBytes }) {
     const type = req.query.format === 'md' && f.kind === 'doc' ? 'md' : EXPORT_AS[f.kind];
     if (!type) throw bad('Only documents, spreadsheets and presentations can be downloaded this way');
     saveNow(f.id); // what's being typed right now goes in too
-    const content = JSON.parse(q('SELECT content FROM files WHERE id = ?').get(f.id).content || '{}');
+    const stored = JSON.parse(q('SELECT content FROM files WHERE id = ?').get(f.id).content || '{}');
+    const content = f.kind === 'doc' ? withoutSuggestions(stored) : stored; // pending suggestions aren't in it yet
     // The same rule as showing pictures in the file: only pictures owned by someone who can edit it.
     const pictureData = async (fileId) => {
       const pic = q("SELECT * FROM files WHERE id = ? AND kind = 'file' AND trashed = 0").get(fileId);

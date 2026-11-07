@@ -109,6 +109,15 @@ Everyone who can edit a document, spreadsheet or presentation can work in it at 
 - **Sheets** works the same way, cell by cell: two people changing different cells at once both keep their change, and the same cell keeps the later change. Each person's selected cell is outlined in their colour. Formats, column widths and new sheets are shared too.
 - **Slides** too: slides and the boxes on them merge one by one, so two people working on different boxes (or slides) both keep their changes; the same box keeps the later change. Each person's selected box is outlined in their colour.
 
+## Suggesting (Docs)
+
+Switch **✎ Editing** to **💡 Suggesting** at the top of a document to propose changes instead of making them, like track changes in Word:
+
+- What you type shows **green and underlined**; what you delete stays in the text, **red and struck through**. Typing over a selection suggests a replacement. Hovering shows who suggested it. Everyone with the document open sees suggestions as they're made.
+- **💡 (number)** at the top lists the suggestions in order, with who made each and when ("Replace “March” with “April”", "Add …", "Delete …"). Click one to go to it. Anyone who can edit can **Accept** (the change goes in) or **Reject** (it's undone) each one, or **Accept all** / **Reject all**.
+- Deleting your own suggested text simply removes it. Backspace at the start of a paragraph still joins paragraphs, and formatting, new paragraphs, pictures and tables go in directly: only text is tracked.
+- Until a suggestion is accepted it isn't part of the document: downloads (Word, Markdown, HTML) and printing show the text without pending suggestions.
+
 ## Tables and pictures (Docs)
 
 - **Tables:** **Table** → *Insert table*, then Tab to move from cell to cell. The same menu adds and deletes rows and columns, turns the heading row on or off, and deletes the table.

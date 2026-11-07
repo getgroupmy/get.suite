@@ -31,6 +31,7 @@ import { Footnote, footnotesOf, htmlWithFootnotes } from './footnote.js';
 import { Mention, mentionQuery, matchPeople } from './mention.js';
 import { diffDocs, changeCount } from './docdiff.js';
 import { VersionHistory } from '../VersionHistory.jsx';
+import { SuggestInsert, SuggestDelete, SuggestMode, listSuggestions, resolveSuggestion, describeSuggestion } from './suggest.js';
 
 /** Marks the text a comment is about (several comments may overlap); it travels with the text. */
 const CommentMark = Mark.create({
@@ -173,6 +174,7 @@ function SharedDoc({ file, setFile }) {
       FindReplace,
       Table.configure({ resizable: false }), TableRow, TableHeader, TableCell,
       TextStyle, Color, BackgroundColor, FontFamily, FontSize, LineHeight, TableOfContents,
+      SuggestInsert, SuggestDelete, SuggestMode,
       PageBreak, Footnote, Mention, TaskList, TaskItem.configure({ nested: true }), // checklists: everyone sees the ticks live; viewers can't tick
     ],
     editable: !readOnly,
@@ -269,7 +271,7 @@ function SharedDoc({ file, setFile }) {
   }, [editor, provider, readOnly]);
 
   function exportHtml() {
-    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(file.name)}</title></head><body>${htmlWithFootnotes(htmlWithContents(editor.getHTML(), editor.state.doc))}</body></html>`;
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(file.name)}</title></head><body>${htmlWithFootnotes(htmlWithContents(withoutSuggestionsHtml(editor.getHTML()), editor.state.doc))}</body></html>`;
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
     a.download = `${file.name}.html`;
@@ -281,6 +283,25 @@ function SharedDoc({ file, setFile }) {
   const [params] = useSearchParams();
   const { threads } = useComments(file.id);
   const [panel, setPanel] = useState(!!params.get('comment'));
+
+  // ---- suggesting mode ----
+  const [suggesting, setSuggesting] = useState(false);
+  const [suggestions, setSuggestions] = useState([]);
+  const [suggPanel, setSuggPanel] = useState(false);
+  useEffect(() => {
+    if (!editor) return undefined;
+    editor.storage.suggestMode.who = { id: user.id, name: user.name };
+    const update = () => setSuggestions(listSuggestions(editor.state.doc));
+    update();
+    editor.on('update', update);
+    return () => editor.off('update', update);
+  }, [editor, user.id, user.name]);
+  useEffect(() => { if (editor) editor.storage.suggestMode.on = suggesting && !readOnly; }, [editor, suggesting, readOnly]);
+  const resolve = (id, accept) => {
+    const tr = resolveSuggestion(editor.state, id, accept);
+    if (tr) editor.view.dispatch(tr);
+  };
+  const showSuggestion = (sg) => editor.chain().setTextSelection({ from: sg.from, to: sg.to }).scrollIntoView().run();
   const [active, setActive] = useState(params.get('comment'));
   const [pending, setPending] = useState(null);
   const [finding, setFinding] = useState(null); // { replace, n }
@@ -351,6 +372,17 @@ function SharedDoc({ file, setFile }) {
           <button type="button" className={`btn small ${outline ? 'primary' : ''}`} aria-pressed={outline} onClick={() => setOutline(!outline)} title="Outline">
             <Icon name="menu" size={16} /><span className="sr-only">Outline</span>
           </button>
+          {!readOnly && (
+            <select className="doc-mode" aria-label="Editing mode" title="Suggesting: your changes show as suggestions for others to accept or reject" value={suggesting ? 'suggest' : 'edit'}
+              onChange={(e) => { setSuggesting(e.target.value === 'suggest'); editor.view.focus(); }}>
+              <option value="edit">✎ Editing</option><option value="suggest">💡 Suggesting</option>
+            </select>
+          )}
+          {suggestions.length > 0 && (
+            <button type="button" className={`btn small ${suggPanel ? 'primary' : ''}`} aria-pressed={suggPanel} onClick={() => setSuggPanel(!suggPanel)} title="Suggestions">
+              💡 {suggestions.length}<span className="sr-only"> suggestions</span>
+            </button>
+          )}
           <button type="button" className={`btn small ${panel ? 'primary' : ''}`} aria-pressed={panel} onClick={() => setPanel(!panel)} title="Comments">
             <Icon name="chat" size={16} /> {open.length || ''}<span className="sr-only">Comments</span>
           </button>
@@ -400,6 +432,25 @@ function SharedDoc({ file, setFile }) {
             {(file.page_setup?.footer || file.page_setup?.numbers) && <div className="paper-footer" aria-hidden="true">{[file.page_setup.footer, file.page_setup.numbers && 'Page 1'].filter(Boolean).join('   ')}</div>}
           </div>
         </div>
+        {suggPanel && suggestions.length > 0 && (
+          <aside className="comments-panel sugg-panel" aria-label="Suggestions">
+            <div className="row"><strong className="grow">Suggestions</strong>
+              <button type="button" className="icon-btn" aria-label="Close suggestions" onClick={() => setSuggPanel(false)}><Icon name="close" size={18} /></button></div>
+            {!readOnly && <div className="row"><button type="button" className="btn small" onClick={() => resolve(null, true)}>Accept all</button><button type="button" className="btn small" onClick={() => resolve(null, false)}>Reject all</button></div>}
+            <ul className="sugg-list">
+              {suggestions.map((sg) => (
+                <li key={sg.id} className="sugg-item" aria-label={`Suggestion by ${sg.name}`}>
+                  <button type="button" className="sugg-show" onClick={() => showSuggestion(sg)}>
+                    <span className="small"><strong>{sg.name || 'Someone'}</strong> <span className="muted">{sg.at ? new Date(sg.at).toLocaleString([], { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) : ''}</span></span>
+                    <span className="sugg-what">{describeSuggestion(sg)}</span>
+                  </button>
+                  {!readOnly && <div className="row"><button type="button" className="btn small primary" aria-label={`Accept: ${describeSuggestion(sg)}`} onClick={() => resolve(sg.id, true)}>✓ Accept</button>
+                    <button type="button" className="btn small" aria-label={`Reject: ${describeSuggestion(sg)}`} onClick={() => resolve(sg.id, false)}>✕ Reject</button></div>}
+                </li>
+              ))}
+            </ul>
+          </aside>
+        )}
         {panel && <CommentsPanel fileId={file.id} threads={threads} canEdit={!readOnly} active={active} setActive={setActive} pending={pending}
           onShow={showThread} labelOf={(t) => `“${(t.anchor?.quote || '').slice(0, 60)}”`} onDeleted={(t) => removeMark(t.id)}
           onClose={() => { if (pending) pending.onCancel(); setPanel(false); }} />}
@@ -410,6 +461,14 @@ function SharedDoc({ file, setFile }) {
         onSave={async (next) => { try { setFile(await patch(`/files/${file.id}`, { page_setup: next })); setPageSetupOpen(false); toast('Page setup saved'); } catch (e) { toast(e.message, 'error'); } }} />}
     </div>
   );
+}
+
+/** HTML without pending suggestions: suggested insertions left out, suggested deletions kept as plain text. */
+function withoutSuggestionsHtml(html) {
+  const d = new DOMParser().parseFromString(`<body>${html}</body>`, 'text/html');
+  d.querySelectorAll('ins[data-sugg]').forEach((el) => el.remove());
+  d.querySelectorAll('del[data-sugg]').forEach((el) => el.replaceWith(...el.childNodes));
+  return d.body.innerHTML;
 }
 
 const escapeHtml = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
