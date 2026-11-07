@@ -30,6 +30,7 @@ q(`CREATE TABLE IF NOT EXISTS event_outside_guests (
 const hasColumn = (t, c) => q(`PRAGMA table_info(${t})`).all().some((x) => x.name === c);
 if (!hasColumn('events', 'sequence')) q('ALTER TABLE events ADD COLUMN sequence INTEGER NOT NULL DEFAULT 0').run(); // bumped when details change
 if (!hasColumn('events', 'tz')) q('ALTER TABLE events ADD COLUMN tz TEXT').run(); // the organizer's time zone, for calendar files
+if (!hasColumn('events', 'kind')) q('ALTER TABLE events ADD COLUMN kind TEXT').run(); // null, or 'ooo': out of office (invitations then are declined)
 const ANSWERS = ['yes', 'maybe', 'no'];
 const MAX_GUESTS = 50;
 
@@ -80,6 +81,10 @@ function readEvent(body, existing = {}) {
     e.color = body.color || null;
   }
   if (body.rrule !== undefined) e.rrule = readRule(body.rrule);
+  if (body.kind !== undefined) {
+    if (body.kind && body.kind !== 'ooo') throw bad('Unknown kind of event');
+    e.kind = body.kind || null;
+  }
   if (body.exdates !== undefined) e.exdates = readExdates(body.exdates);
   if (e.end < e.start) throw bad('End must be after start');
   if (e.rrule?.until !== undefined && e.rrule.until < e.start) throw bad('The repeat ends before the event starts');
@@ -208,6 +213,27 @@ function notify(organizer, e, recipients, kind, tz) {
   }).catch((err) => console.error('[calendar] invitation email failed:', err.message));
 }
 
+/**
+ * The out-of-office event of this person's that overlaps an event's first time, if any (their own
+ * repeating ones included). Used to decline invitations for them while they're away.
+ */
+export function awayDuring(userId, ev) {
+  const rows = q(`SELECT * FROM events WHERE owner_id = ? AND kind = 'ooo' AND start < ?
+                  AND (end > ? OR (rrule IS NOT NULL AND (repeat_until IS NULL OR repeat_until > ?)))`).all(userId, ev.end, ev.start, ev.start);
+  return rows.find((r) => expand(outEvent(r), ev.start, ev.end).some((o) => o.start < ev.end && o.end > ev.start)) || null;
+}
+
+/** New guests who are out of office then answer No at once; the organizer is told (with their message). */
+function declineAway(organizer, ev, added) {
+  if (ev.kind === 'ooo') return;
+  for (const g of added) {
+    const away = awayDuring(g.id, ev);
+    if (!away) continue;
+    q("UPDATE event_guests SET status = 'no' WHERE event_id = ? AND user_id = ?").run(ev.id, g.id);
+    bell([organizer.id], { kind: 'invite', title: `${g.name} is out of office and declined “${ev.title}”`, body: away.description || away.title, link: '/calendar', actor: g.name });
+  }
+}
+
 /** Tell everyone involved to refresh (organizer's other tabs, and guests). */
 export const touch = (ids) => sendTo([...new Set(ids)], { type: 'events-changed' });
 
@@ -264,22 +290,23 @@ export default function calendarRoutes() {
   r.post('/', (req, res) => {
     const e = readEvent(req.body);
     // Check the guests before saving anything, so a refused invitation leaves no event behind.
-    const guests = req.body.guests !== undefined ? readGuests(req.user, req.body.guests) : null;
+    const guests = req.body.guests !== undefined && e.kind !== 'ooo' ? readGuests(req.user, req.body.guests) : null;
     const id = uid();
     const tz = req.body.tz ? zoneOrUtc(req.body.tz) : null;
     // "This event" of a repeating one: remember which series and occurrence it replaces (phones show it as part of the series).
     const of = req.body.recurrence_of;
     const parent = of && !e.rrule ? q('SELECT id FROM events WHERE id = ? AND owner_id = ? AND rrule IS NOT NULL').get(String(of.id || ''), req.user.id) : null;
-    q(`INSERT INTO events (id, owner_id, title, description, location, start, end, all_day, color, rrule, exdates, repeat_until, tz, recur_parent, recur_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    q(`INSERT INTO events (id, owner_id, title, description, location, start, end, all_day, color, rrule, exdates, repeat_until, tz, recur_parent, recur_id, kind)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(id, req.user.id, e.title, e.description ?? null, e.location ?? null, e.start, e.end, e.all_day ?? 0, e.color ?? null,
-        e.rrule ? JSON.stringify(e.rrule) : null, JSON.stringify(e.exdates || []), repeatUntil(e), tz, parent?.id ?? null, parent ? int(of.occurrence, 'occurrence') : null);
+        e.rrule ? JSON.stringify(e.rrule) : null, JSON.stringify(e.exdates || []), repeatUntil(e), tz, parent?.id ?? null, parent ? int(of.occurrence, 'occurrence') : null, e.kind ?? null);
     const reminders = setReminders(id, req.user.id, req.body.reminders);
     if (guests) {
       const { added } = setGuests(id, guests.inside);
       const outside = setOutside(id, guests.outside);
       const saved = outEvent(q('SELECT * FROM events WHERE id = ?').get(id));
       notify(req.user, saved, added, 'invite', req.body.tz);
+      declineAway(req.user, saved, added);
       notifyOutside(req.user, saved, outside.added, 'invite', { base: baseUrl(req), tz });
       touch(added.map((g) => g.id));
     }
@@ -292,13 +319,13 @@ export default function calendarRoutes() {
     if (!existing) throw notFound();
     const before = outEvent(existing);
     const e = readEvent(req.body, before);
-    const guests = req.body.guests !== undefined ? readGuests(req.user, req.body.guests) : null; // before changing anything
+    const guests = req.body.guests !== undefined ? readGuests(req.user, e.kind === 'ooo' ? [] : req.body.guests) : null; // before changing anything
     const tz = req.body.tz ? zoneOrUtc(req.body.tz) : existing.tz;
     const changed = detailsChanged(before, e);
     q(`UPDATE events SET title = ?, description = ?, location = ?, start = ?, end = ?, all_day = ?, color = ?, rrule = ?, exdates = ?, repeat_until = ?,
-       tz = ?, sequence = sequence + ? WHERE id = ?`)
+       tz = ?, sequence = sequence + ?, kind = ? WHERE id = ?`)
       .run(e.title, e.description, e.location, e.start, e.end, e.all_day, e.color, e.rrule ? JSON.stringify(e.rrule) : null, JSON.stringify(e.exdates || []), repeatUntil(e),
-        tz, changed ? 1 : 0, e.id);
+        tz, changed ? 1 : 0, e.kind ?? null, e.id);
     const saved = outEvent(q('SELECT * FROM events WHERE id = ?').get(e.id));
     if (req.body.reminders !== undefined) setReminders(e.id, req.user.id, req.body.reminders);
     let removed = [];
@@ -310,6 +337,7 @@ export default function calendarRoutes() {
       added = change.added;
       outside = setOutside(e.id, guests.outside);
       notify(req.user, saved, change.added, 'invite', req.body.tz);
+      declineAway(req.user, saved, change.added);
       notify(req.user, saved, removed.map((id) => q('SELECT username, name FROM users WHERE id = ?').get(id)).filter(Boolean), 'cancel', req.body.tz);
     }
     // People outside only see what we email them: new guests are invited, the others get the update.

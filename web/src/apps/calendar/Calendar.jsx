@@ -182,6 +182,7 @@ export default function Calendar() {
     <div className="calendar">
       <aside className="subnav">
         <button className="btn new-btn" onClick={() => newEvent()}><Icon name="plus" /> Create</button>
+        <button type="button" className="subnav-item" onClick={() => { const d = startOfDay(new Date()).getTime(); setEditing({ title: 'Out of office', kind: 'ooo', start: d, end: d + DAY - 1, all_day: 1, color: '#5f6368', location: '', description: '' }); }}><span aria-hidden="true" style={{ width: 24, textAlign: 'center' }}>🌴</span><span className="grow">Out of office…</span></button>
         <button type="button" className="subnav-item" onClick={() => setBookingOpen(true)}><Icon name="link" /><span className="grow">Booking pages</span></button>
         <div className="subnav-title">Other people</div>
         {others.map((o) => (
@@ -336,7 +337,7 @@ function TimeGrid({ days, events, busy = [], today, onOpen, onNew, onDay: openDa
               {busy.filter((b) => b.start < d.getTime() + DAY && b.end > d.getTime()).map((b) => {
                 const s = Math.max(b.start, d.getTime()), e = Math.min(b.end, d.getTime() + DAY);
                 return <div key={b.key} className="tg-busy" style={{ '--c': b.color, top: ((s - d.getTime()) / 36e5) * HOUR_PX, height: Math.max(12, ((e - s) / 36e5) * HOUR_PX - 2) }}
-                  title={`${b.name} is busy ${fmtTime(b.start)} – ${fmtTime(b.end)}`} aria-label={`${b.name} busy ${fmtTime(b.start)} to ${fmtTime(b.end)}`}><span>{b.name}</span></div>;
+                  title={`${b.name} is ${b.ooo ? 'out of office' : 'busy'} ${fmtTime(b.start)} – ${fmtTime(b.end)}`} aria-label={`${b.name} ${b.ooo ? 'out of office' : 'busy'} ${fmtTime(b.start)} to ${fmtTime(b.end)}`}><span>{b.name}{b.ooo ? ' · out of office' : ''}</span></div>;
               })}
               {layoutDay(events, d).map(({ ev, top, height, col, cols: n }) => (
                 <button key={ev.key || ev.id} className={`tg-event ${inviteClass(ev)} ${ev.dragging ? 'dragging' : ''} ${ev.role !== 'guest' ? 'movable' : ''}`} title={`${ev.title} · ${fmtTime(ev.start)} – ${fmtTime(ev.end)}${ev.rrule ? ' · repeats' : ''}`}
@@ -390,7 +391,7 @@ function RemindersField({ value, onChange }) {
 }
 
 // Invitations you haven't answered look tentative; declined ones are faded.
-const inviteClass = (ev) => (ev.role !== 'guest' ? '' : ev.my_status === 'no' ? 'declined' : ev.my_status === 'yes' ? '' : 'tentative');
+const inviteClass = (ev) => (ev.kind === 'ooo' ? 'ooo' : ev.role !== 'guest' ? '' : ev.my_status === 'no' ? 'declined' : ev.my_status === 'yes' ? '' : 'tentative');
 const ANSWER_LABELS = { yes: 'Yes', maybe: 'Maybe', no: 'No', needs: 'Not answered' };
 const TZ = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { return 'UTC'; } })();
 const whenLabel = (ev) => {
@@ -460,7 +461,7 @@ function EventDialog({ event, onClose, onSaved, onDuplicate }) {
   const recurring = !!(event.id && event.rrule);
   const [f, setF] = useState({
     title: event.title, location: event.location || '', description: event.description || '', color: event.color || COLORS[0],
-    all_day: !!event.all_day,
+    all_day: !!event.all_day, ooo: event.kind === 'ooo',
     startDate: toDateInput(event.start), startTime: toTimeInput(event.start),
     endDate: toDateInput(event.end), endTime: toTimeInput(event.end),
   });
@@ -490,7 +491,8 @@ function EventDialog({ event, onClose, onSaved, onDuplicate }) {
     const start = f.all_day ? fromInputs(f.startDate) : fromInputs(f.startDate, f.startTime);
     const end = f.all_day ? fromInputs(f.endDate) + DAY - 1 : fromInputs(f.endDate, f.endTime);
     const all = guestInput.trim() ? [...new Set([...guests, ...guestInput.split(/[\s,;]+/).map((x) => x.trim().toLowerCase()).filter((x) => x.includes('@'))])] : guests;
-    return { start, end, body: { title: f.title, location: f.location, description: f.description, color: f.color, all_day: f.all_day, start, end, rrule: ruleFromForm(rep, start), guests: all, reminders, tz: TZ } };
+    return { start, end, body: { title: f.title, location: f.ooo ? '' : f.location, description: f.description, color: f.color, all_day: f.all_day, start, end, rrule: ruleFromForm(rep, start),
+      guests: f.ooo ? [] : all, reminders, tz: TZ, kind: f.ooo ? 'ooo' : null } };
   };
 
   async function save(which) {
@@ -519,6 +521,8 @@ function EventDialog({ event, onClose, onSaved, onDuplicate }) {
       <form className="stack" onSubmit={submit}>
         <label className="field"><span>Title</span><input autoFocus required value={f.title} onChange={set('title')} /></label>
         <label className="check"><input type="checkbox" checked={f.all_day} onChange={set('all_day')} /> All day</label>
+        <label className="check"><input type="checkbox" checked={f.ooo} onChange={set('ooo')} /> Out of office</label>
+        {f.ooo && <p className="muted small" style={{ margin: 0 }}>While you're away, new invitations for this time are declined for you, and whoever sent them sees the description below as your message. Colleagues see you as out of office.</p>}
         <div className="row wrap">
           <label className="field"><span>Starts</span><input type="date" required value={f.startDate} onChange={(e) => setF({ ...f, startDate: e.target.value, endDate: e.target.value > f.endDate ? e.target.value : f.endDate })} /></label>
           {!f.all_day && <label className="field"><span>&nbsp;</span><input type="time" required value={f.startTime} onChange={set('startTime')} aria-label="Start time" /></label>}
@@ -557,7 +561,7 @@ function EventDialog({ event, onClose, onSaved, onDuplicate }) {
           )}
           {rep.freq !== 'none' && <p className="muted small" aria-live="polite" style={{ margin: 0 }}>{describeRule(ruleNow, read().start)}</p>}
         </div>
-        <div className="field">
+        {!f.ooo && <div className="field">
           <label htmlFor="guest-input"><span>Guests</span></label>
           {event.guests?.length > 0 && (
             <span className="muted small" aria-live="polite">{event.guests.length} guest{event.guests.length === 1 ? '' : 's'}: {
@@ -582,10 +586,10 @@ function EventDialog({ event, onClose, onSaved, onDuplicate }) {
           {guests.length > 0 && <span className="muted small">They'll see it in their calendar{event.id ? '' : ' and get an email'} and can answer Yes, Maybe or No.
             {guests.some((g) => { const k = (event.guests || []).find((x) => x.email === g); return k ? k.external : !directory.some((d) => d.username === g); })
               && ' People outside Workspace get an email invitation for their own calendar (Outlook, Gmail, phone) and a link to answer; they also get changes and cancellations.'}</span>}
-        </div>
+        </div>}
         <RemindersField value={reminders} onChange={setReminders} />
-        <label className="field"><span>Location</span><input value={f.location} onChange={set('location')} /></label>
-        <label className="field"><span>Description</span><textarea rows={3} value={f.description} onChange={set('description')} /></label>
+        {!f.ooo && <label className="field"><span>Location</span><input value={f.location} onChange={set('location')} /></label>}
+        <label className="field"><span>{f.ooo ? 'Message for people who invite you' : 'Description'}</span><textarea rows={3} value={f.description} onChange={set('description')} placeholder={f.ooo ? 'e.g. On holiday until Monday 9th; for anything urgent, ask Kim.' : undefined} /></label>
         <div className="colors" role="radiogroup" aria-label="Color">
           {COLORS.map((c) => (
             <button type="button" key={c} role="radio" aria-checked={f.color === c} aria-label={c} className={`swatch ${f.color === c ? 'on' : ''}`} style={{ background: c }} onClick={() => setF({ ...f, color: c })} />
@@ -644,7 +648,7 @@ async function applyEdit(event, body, which) {
     return patch(`/events/${event.id}`, { ...body, start: event.seriesStart + delta, end: event.seriesStart + delta + (end - start) });
   }
   // Everything the new event copies from the series (the dialog sends all of it; a drag only the times).
-  const copy = { title: event.title, location: event.location || '', description: event.description || '', color: event.color, all_day: !!event.all_day,
+  const copy = { title: event.title, location: event.location || '', description: event.description || '', color: event.color, all_day: !!event.all_day, kind: event.kind || null,
     guests: (event.guests || []).map((g) => g.email), tz: TZ, rrule: event.rrule, ...body };
   if (which === 'this') {
     await patch(`/events/${event.id}`, { exdates: [...(event.exdates || []), event.occurrence] });

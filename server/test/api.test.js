@@ -1394,6 +1394,36 @@ test('drive: folder colours and descriptions (found by search)', async () => {
   assert.equal((await owner('GET', '/api/files')).body.find((f) => f.id === folder.id).color, '#d93025');
 });
 
+test('out of office: invitations then are declined for you, the organizer is told; shown as away in free/busy', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['oooa', 'Away Ann'], ['ooob', 'Ooo Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  const aid = (await login(a, 'oooa@acme.com')).id;
+  await login(b, 'ooob@acme.com');
+  const day = Date.now() + 10 * 864e5 - (Date.now() % 864e5); // a midnight (UTC) ten days on
+  const away = (await a('POST', '/api/events', { title: 'Out of office', description: 'On holiday, back on the 4th', kind: 'ooo', all_day: 1, start: day, end: day + 3 * 864e5 - 1, guests: ['ooob@acme.com'] })).body;
+  assert.equal(away.kind, 'ooo');
+  assert.deepEqual(away.guests, [], 'no guests on time off');
+  assert.equal((await a('POST', '/api/events', { title: 'x', kind: 'party', start: day, end: day + 1 })).status, 400);
+  const during = (await b('POST', '/api/events', { title: 'Budget review', start: day + 864e5 + 10 * 36e5, end: day + 864e5 + 11 * 36e5, guests: ['oooa@acme.com'] })).body;
+  assert.equal(during.guests.find((g) => g.email === 'oooa@acme.com').status, 'no');
+  const bell = (await b('GET', '/api/notifications')).body.items;
+  assert.ok(bell.some((n) => n.title === 'Away Ann is out of office and declined “Budget review”' && n.body === 'On holiday, back on the 4th'), JSON.stringify(bell.map((n) => n.title)));
+  const after = (await b('POST', '/api/events', { title: 'Catch-up', start: day + 4 * 864e5, end: day + 4 * 864e5 + 36e5, guests: ['oooa@acme.com'] })).body;
+  assert.equal(after.guests.find((g) => g.email === 'oooa@acme.com').status, 'needs', 'after the time off');
+  // Added later to an event during it: declined too.
+  const later = (await b('POST', '/api/events', { title: 'Planning', start: day + 2 * 36e5, end: day + 3 * 36e5 })).body;
+  const patched = (await b('PATCH', `/api/events/${later.id}`, { guests: ['oooa@acme.com'] })).body;
+  assert.equal(patched.guests[0].status, 'no');
+  // They can still say yes themselves.
+  assert.equal((await a('POST', `/api/events/${later.id}/rsvp`, { status: 'yes' })).status, 200);
+  // Free/busy: the whole time off, marked as away, all-day or not.
+  const fb = (await b('GET', `/api/freebusy?users=${aid}&from=${day}&to=${day + 5 * 864e5}`)).body;
+  assert.ok(fb[aid].busy.some((x) => x.ooo && x.start === day && x.end === day + 3 * 864e5 - 1), JSON.stringify(fb[aid].busy));
+  assert.ok(!JSON.stringify(fb).includes('holiday'), 'no details');
+  // Turning it into an ordinary event.
+  assert.equal((await a('PATCH', `/api/events/${away.id}`, { kind: null })).body.kind, null);
+});
+
 test('free/busy: colleagues’ busy times without details; not other companies', async () => {
   const a = client();
   assert.equal((await owner('POST', '/api/users', { local: 'busybee', domain: 'acme.com', name: 'Busy Bee', password: 'password123' })).status, 201);

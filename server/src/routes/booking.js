@@ -79,11 +79,14 @@ export function freeSlots(page, busy, now = Date.now()) {
   return out;
 }
 
-/** The owner's busy times between two moments: their events and invitations not declined (all-day ones don't block). */
+/**
+ * The owner's busy times between two moments: their events and invitations not declined (all-day ones
+ * don't block, except being out of office). Out-of-office times are marked { ooo: true }.
+ */
 function busyOf(userId, from, to) {
   const rows = q(`SELECT e.* FROM events e WHERE (e.owner_id = ? OR e.id IN (SELECT event_id FROM event_guests WHERE user_id = ? AND status != 'no'))
-                  AND e.all_day = 0 AND e.start < ? AND (e.end > ? OR (e.rrule IS NOT NULL AND (e.repeat_until IS NULL OR e.repeat_until > ?)))`).all(userId, userId, to, from, from);
-  return rows.flatMap((r) => expand(outEvent(r), from, to)).map((e) => ({ start: e.start, end: e.end }));
+                  AND (e.all_day = 0 OR (e.kind = 'ooo' AND e.owner_id = ?)) AND e.start < ? AND (e.end > ? OR (e.rrule IS NOT NULL AND (e.repeat_until IS NULL OR e.repeat_until > ?)))`).all(userId, userId, userId, to, from, from);
+  return rows.flatMap((r) => expand(outEvent(r), from, to).map((e) => ({ start: e.start, end: e.end, ...(r.kind === 'ooo' && { ooo: true }) })));
 }
 
 function readPage(b, current = {}) {
