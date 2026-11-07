@@ -223,6 +223,10 @@ Your Workspace calendar and contacts sync with the phone's own Calendar and Cont
 - **Make a copy** (⋮ menu) of a file, document, spreadsheet or presentation; it goes next to the original.
 - **Download as .zip:** a folder's ⋮ menu, or **Download** with several ticked, gives one .zip with the folders inside it. Documents, spreadsheets and presentations go in as Word, Excel and PowerPoint files. Up to 2 GB at a time.
 
+## File details (Drive)
+
+**Details** in a file's or folder's ⋮ menu shows what it is, its size, owner, when it was made and last changed (and by whom), and who has access. Anyone who can edit it can add a **description** there, which search also finds, and give a folder a **colour**, shown on its icon in the list.
+
 ## Searching Drive
 
 - The search box at the top finds files by **name** and by the **words inside** them: documents, spreadsheets (cell text and sheet names), presentations, and uploaded text, Word, Excel and PowerPoint files. Each match shows the sentence it was found in, with the words marked.

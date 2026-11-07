@@ -174,6 +174,7 @@ export default function Drive() {
       officeAs(f) && { label: `Open as ${officeAs(f).what}`, icon: officeAs(f).icon, onClick: () => openAs(f) },
       f.kind === 'file' && { label: 'Download', icon: 'download', onClick: () => { location.href = `/api/files/${f.id}/raw?download`; } },
       f.kind === 'folder' && { label: 'Download as .zip', icon: 'download', onClick: () => zip([f.id]) },
+      { label: 'Details', icon: 'more', onClick: () => setDialog({ type: 'details', file: f }) },
       { label: f.starred ? 'Remove star' : 'Add star', icon: f.starred ? 'star' : 'staroutline', onClick: act(() => put(`/files/${f.id}/star`, { starred: !f.starred }), f.starred ? 'Star removed' : 'Starred') },
       '-',
       f.role === 'owner' && { label: 'Share', icon: 'share', onClick: () => setDialog({ type: 'share', file: f }) },
@@ -289,7 +290,7 @@ export default function Drive() {
                   onClick={(e) => { if (e.shiftKey || e.metaKey || e.ctrlKey) toggleCheck(f.id); else setSelected(f.id); }} onDoubleClick={() => route.view !== 'trash' && open(f)}
                   onKeyDown={(e) => { if (e.key === 'Enter' && route.view !== 'trash') open(f); if (e.key === ' ' && e.target === e.currentTarget) { e.preventDefault(); toggleCheck(f.id); } }}>
                   <td className="check-col" onClick={(e) => e.stopPropagation()}><input type="checkbox" aria-label={`Select ${f.name}`} checked={checked.has(f.id)} onChange={() => toggleCheck(f.id)} /></td>
-                  <td className="name"><Icon name={fileIcon(f)} className={`ft ft-${fileIcon(f)}`} /><span className="name-text">{f.name}{f.match && <MatchText text={f.match} />}</span>{f.starred && <Icon name="star" size={14} className="star-mark" title="Starred" />}</td>
+                  <td className="name"><Icon name={fileIcon(f)} className={`ft ft-${fileIcon(f)}`} style={f.color ? { color: f.color } : undefined} /><span className="name-text">{f.name}{f.match && <MatchText text={f.match} />}</span>{f.starred && <Icon name="star" size={14} className="star-mark" title="Starred" />}</td>
                   <td className="hide-sm muted">{f.owner_id === user.id ? 'me' : f.owner_name}</td>
                   <td className="hide-sm muted">{formatDate(f.updated_at)}</td>
                   <td className="hide-sm muted">{f.kind === 'folder' ? '—' : formatBytes(f.size)}</td>
@@ -338,6 +339,7 @@ export default function Drive() {
       {dialog?.type === 'share' && <ShareDialog file={dialog.file} onClose={() => setDialog(null)} />}
       {dialog?.type === 'move' && <MoveDialog files={dialog.files} onClose={() => setDialog(null)} onMoved={() => { setChecked(new Set()); load(); }} />}
       {dialog?.type === 'preview' && <Preview file={dialog.file} onClose={() => setDialog(null)} onOpenAs={() => { setDialog(null); openAs(dialog.file); }} />}
+      {dialog?.type === 'details' && <DetailsDialog file={dialog.file} onClose={() => setDialog(null)} onChanged={load} />}
       {dialog?.type === 'versions' && <VersionsDialog file={dialog.file} onClose={() => setDialog(null)} onChanged={load} />}
       <input ref={versionInput} type="file" hidden aria-hidden="true" tabIndex={-1} onChange={(e) => { uploadNewVersion(e.target.files[0]); e.target.value = ''; }} />
     </div>
@@ -555,6 +557,48 @@ function Preview({ file, onClose, onOpenAs }) {
 }
 
 /** Earlier versions of a file: download or look at them, bring one back, or delete it. */
+const FOLDER_COLOURS = ['#5f6368', '#1a73e8', '#0b8043', '#d93025', '#e37400', '#f6bf26', '#8e24aa', '#00796b'];
+
+/** A file's details: what it is, whose, when it changed, who has it, a description, and (folders) a colour. */
+function DetailsDialog({ file, onClose, onChanged }) {
+  const toast = useToast();
+  const [f, setF] = useState(file);
+  const [desc, setDesc] = useState(file.description || '');
+  const [shares, setShares] = useState(null);
+  const canEdit = f.role === 'owner' || f.role === 'editor';
+  useEffect(() => { if (f.role === 'owner') get(`/files/${f.id}/shares`).then(setShares).catch(() => setShares([])); }, [f.id, f.role]);
+  const save = async (body, msg) => { try { const next = await patch(`/files/${f.id}`, body); setF({ ...f, ...next }); onChanged(); if (msg) toast(msg); } catch (e) { toast(e.message, 'error'); } };
+  const kind = { folder: 'Folder', doc: 'Document', sheet: 'Spreadsheet', slides: 'Presentation' }[f.kind] || f.mime || 'File';
+  const when = (ms) => new Date(ms).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+  return (
+    <Modal title="Details" onClose={onClose} footer={<button type="button" className="btn" onClick={onClose}>Close</button>}>
+      <div className="stack">
+        <div className="row" style={{ gap: 10 }}><Icon name={fileIcon(f)} size={32} className={`ft ft-${fileIcon(f)}`} style={f.color ? { color: f.color } : undefined} /><strong className="grow" style={{ overflowWrap: 'anywhere' }}>{f.name}</strong></div>
+        <dl className="details-list">
+          <dt>Type</dt><dd>{kind}</dd>
+          {f.kind !== 'folder' && <><dt>Size</dt><dd>{formatBytes(f.size)}</dd></>}
+          <dt>Owner</dt><dd>{f.owner_name}{f.role === 'owner' ? ' (you)' : ''}</dd>
+          <dt>Modified</dt><dd>{when(f.updated_at)}{f.updated_by_name ? ` by ${f.updated_by_name}` : ''}</dd>
+          <dt>Created</dt><dd>{when(f.created_at)}</dd>
+          <dt>Access</dt><dd>{f.role === 'owner' ? (shares === null ? '…' : shares.length ? shares.map((s) => `${s.name} (${s.role === 'editor' ? 'can edit' : 'can view'})`).join(', ') : 'Only you') : `You can ${f.role === 'editor' ? 'edit' : 'view'}`}</dd>
+        </dl>
+        <label className="field"><span>Description</span>
+          <textarea rows={3} maxLength={2000} value={desc} disabled={!canEdit} placeholder={canEdit ? 'What it is, for whom… (search finds it)' : ''} onChange={(e) => setDesc(e.target.value)}
+            onBlur={() => { if (desc.trim() !== (f.description || '')) save({ description: desc }, 'Description saved'); }} />
+        </label>
+        {f.kind === 'folder' && canEdit && (
+          <div className="stack" style={{ gap: 6 }}>
+            <span className="muted small">Folder colour</span>
+            <div className="label-colors" role="radiogroup" aria-label="Folder colour">
+              {FOLDER_COLOURS.map((c) => <button key={c} type="button" role="radio" aria-checked={(f.color || '#5f6368') === c} aria-label={c} className={(f.color || '#5f6368') === c ? 'on' : ''} style={{ background: c }} onClick={() => save({ color: c === '#5f6368' ? null : c })} />)}
+            </div>
+          </div>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
 function VersionsDialog({ file, onClose, onChanged }) {
   const toast = useToast();
   const [list, setList] = useState(null);

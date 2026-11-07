@@ -28,7 +28,7 @@ const EXPORT_AS = { doc: 'docx', sheet: 'xlsx', slides: 'pptx' };
 const MAX_CONVERT = 50 * 1024 * 1024;
 const officeType = (name) => OFFICE[(/\.([a-z]+)$/i.exec(name || '') || [])[1]?.toLowerCase()] ? (/\.([a-z]+)$/i.exec(name)[1].toLowerCase()) : null;
 
-const COLS = `f.id, f.owner_id, f.parent_id, f.name, f.kind, f.mime, f.size, f.version, f.trashed, f.page_setup,
+const COLS = `f.id, f.owner_id, f.parent_id, f.name, f.kind, f.mime, f.size, f.version, f.trashed, f.page_setup, f.color, f.description,
               f.created_at, f.updated_at, u.name AS owner_name, ub.name AS updated_by_name`;
 const FROM = `FROM files f JOIN users u ON u.id = f.owner_id LEFT JOIN users ub ON ub.id = f.updated_by`;
 // Owner is in my company, or both companies currently allow external collaboration.
@@ -248,9 +248,9 @@ export default function fileRoutes({ maxUploadBytes }) {
       rows = q(`SELECT ${COLS}, CASE WHEN f.owner_id = ? THEN 'owner' ELSE s.role END AS role ${FROM}
                 LEFT JOIN shares s ON s.file_id = f.id AND s.user_id = ?
                 WHERE (f.owner_id = ? OR s.user_id IS NOT NULL) AND f.trashed = 0
-                  AND (f.name LIKE ? ESCAPE '\\' OR f.id IN (SELECT value FROM json_each(?))) AND ${REACHABLE}
+                  AND (f.name LIKE ? ESCAPE '\\' OR f.description LIKE ? ESCAPE '\\' OR f.id IN (SELECT value FROM json_each(?))) AND ${REACHABLE}
                   ${extra.map((x) => `AND (${x})`).join(' ')}
-                ${ORDER} LIMIT 200`).all(me, me, me, term, ids, org, org, ...args);
+                ${ORDER} LIMIT 200`).all(me, me, me, term, term, ids, org, org, ...args);
       // Name matches first, then the best content matches; each content match says where it matched.
       const rank = new Map([...inside.keys()].map((id, i) => [id, i]));
       const byName = (f) => f.name.toLowerCase().includes(String(req.query.q || '').toLowerCase());
@@ -442,7 +442,12 @@ export default function fileRoutes({ maxUploadBytes }) {
     // Page setup (documents): checked before anything changes.
     const setup = req.body.page_setup !== undefined && f.kind === 'doc' ? readSetup(req.body.page_setup) : undefined;
     if (req.body.page_setup !== undefined && f.kind !== 'doc') throw bad('Only documents have a page setup');
+    const color = req.body.color !== undefined ? (req.body.color === null || req.body.color === '' ? null : /^#[0-9a-f]{6}$/i.test(String(req.body.color)) ? String(req.body.color).toLowerCase() : (() => { throw bad('Pick a colour like #1a73e8'); })()) : undefined;
+    if (color !== undefined && f.kind !== 'folder') throw bad('Only folders have a colour');
+    const description = req.body.description !== undefined ? (str(req.body.description ?? '', { max: 2000, name: 'Description' }) || null) : undefined;
     tx(() => {
+      if (color !== undefined) q('UPDATE files SET color = ? WHERE id = ?').run(color, f.id);
+      if (description !== undefined) q('UPDATE files SET description = ? WHERE id = ?').run(description, f.id);
       if (setup !== undefined) q('UPDATE files SET page_setup = ? WHERE id = ?').run(setup ? JSON.stringify(setup) : null, f.id);
       if (name !== undefined) {
         const n = cleanName(name);

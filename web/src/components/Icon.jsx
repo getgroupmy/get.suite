@@ -53,9 +53,9 @@ const P = {
   copy: 'M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z',
 };
 
-export default function Icon({ name, size = 20, className = '', title }) {
+export default function Icon({ name, size = 20, className = '', title, style }) {
   return (
-    <svg className={`icon ${className}`} width={size} height={size} viewBox="0 0 24 24" aria-hidden={title ? undefined : true} role={title ? 'img' : undefined}>
+    <svg className={`icon ${className}`} style={style} width={size} height={size} viewBox="0 0 24 24" aria-hidden={title ? undefined : true} role={title ? 'img' : undefined}>
       {title && <title>{title}</title>}
       <path d={P[name] || P.file} fill="currentColor" />
     </svg>

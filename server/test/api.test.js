@@ -1341,3 +1341,16 @@ test('branding: colour and logo for the company, shown on its sign-in page by do
   await owner('PATCH', '/api/orgs/current', { accent: null });
   assert.equal((await owner('GET', '/api/auth/me')).body.user.org_logo, null);
 });
+
+test('drive: folder colours and descriptions (found by search)', async () => {
+  const folder = (await owner('POST', '/api/files/folder', { name: 'Colourful' })).body;
+  const doc = (await owner('POST', '/api/files/new', { kind: 'doc', name: 'Plain name' })).body;
+  assert.equal((await owner('PATCH', `/api/files/${folder.id}`, { color: '#D93025' })).body.color, '#d93025');
+  assert.equal((await owner('PATCH', `/api/files/${folder.id}`, { color: 'red' })).status, 400);
+  assert.equal((await owner('PATCH', `/api/files/${doc.id}`, { color: '#d93025' })).status, 400, 'only folders');
+  const d = (await owner('PATCH', `/api/files/${doc.id}`, { description: 'Quarterly zebra figures for the board' })).body;
+  assert.equal(d.description, 'Quarterly zebra figures for the board');
+  assert.ok((await owner('GET', '/api/files?view=search&q=zebra')).body.some((f) => f.id === doc.id), 'found by its description');
+  assert.equal((await owner('PATCH', `/api/files/${doc.id}`, { description: '' })).body.description, null);
+  assert.equal((await owner('GET', '/api/files')).body.find((f) => f.id === folder.id).color, '#d93025');
+});

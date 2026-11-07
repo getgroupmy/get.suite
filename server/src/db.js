@@ -153,6 +153,8 @@ if (!/'slides'/.test(db.prepare("SELECT sql FROM sqlite_master WHERE type = 'tab
 const hasColumn = (table, col) => db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === col);
 if (!hasColumn('messages', 'edited_at')) db.exec('ALTER TABLE messages ADD COLUMN edited_at INTEGER');
 if (!hasColumn('messages', 'files')) db.exec('ALTER TABLE messages ADD COLUMN files TEXT'); // JSON [{ id, name, mime, size }]
+if (!hasColumn('files', 'color')) db.exec('ALTER TABLE files ADD COLUMN color TEXT'); // folders: a colour for their icon
+if (!hasColumn('files', 'description')) db.exec('ALTER TABLE files ADD COLUMN description TEXT');
 if (!hasColumn('files', 'page_setup')) db.exec('ALTER TABLE files ADD COLUMN page_setup TEXT'); // documents: JSON, see pagesetup.js
 if (!hasColumn('channels', 'private')) db.exec('ALTER TABLE channels ADD COLUMN private INTEGER NOT NULL DEFAULT 0'); // only its members see it
 if (!hasColumn('channels', 'topic')) db.exec('ALTER TABLE channels ADD COLUMN topic TEXT');
