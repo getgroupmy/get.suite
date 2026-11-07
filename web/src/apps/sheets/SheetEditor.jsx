@@ -17,6 +17,8 @@ import { SortDialog } from './SheetSort.jsx';
 import { RulesDialog } from './SheetRules.jsx';
 import { ValidationDialog, ChoicePicker } from './SheetValidation.jsx';
 import { validationAt, checkEntry, isTicked } from './validation.js';
+import { hiddenRows, columnValues, adjustFilter, filterArea } from './filter.js';
+import { FilterMenu } from './SheetFilter.jsx';
 import { ruleStyle } from './condformat.js';
 import { useUndo, undoKey } from '../useUndo.js';
 
@@ -124,6 +126,11 @@ export default function SheetEditor() {
   });
   const evaluate = useMemo(() => createEvaluator(cells), [cells]);
   const { rows, cols } = useMemo(() => sheetSize(cells), [cells]);
+  // The filter: which rows it hides, and where its headings are.
+  const filter = sheet?.filter || null;
+  const hidden = useMemo(() => hiddenRows(filter, cells, evaluate), [filter, cells, evaluate]);
+  const fArea = useMemo(() => (filter ? filterArea(filter, cells) : null), [filter, cells]);
+  const [filterMenu, setFilterMenu] = useState(null); // { c }
 
   function commitData(next) {
     if (readOnly || !ydoc) return;
@@ -228,7 +235,7 @@ export default function SheetEditor() {
   function changeStructure(change) {
     if (readOnly) return;
     const cur = dataRef.current;
-    commitData({ ...cur, sheets: cur.sheets.map((s, i) => (i === active ? applyStructure(s, change) : s)) });
+    commitData({ ...cur, sheets: cur.sheets.map((s, i) => (i === active ? { ...applyStructure(s, change), ...(s.filter && { filter: adjustFilter(s.filter, change) }) } : s)) });
     // Comments move with their cell; a deleted cell's thread is marked as such.
     for (const t of threads) {
       if ((t.anchor?.sheet || 0) !== active || !t.anchor?.cell || t.anchor.gone) continue;
@@ -262,6 +269,9 @@ export default function SheetEditor() {
     if (extend) { if (!anchor) setAnchor(sel); } else setAnchor(null);
     setSel((s) => {
       const n = { c: Math.max(0, Math.min(cols - 1, s.c + dc)), r: Math.max(0, Math.min(rows - 1, s.r + dr)) };
+      // Rows the filter hides are skipped over.
+      while (dr && hidden.has(n.r) && n.r > 0 && n.r < rows - 1) n.r += Math.sign(dr);
+      if (hidden.has(n.r)) n.r = s.r;
       requestAnimationFrame(() => gridRef.current?.querySelector(`[data-k="${cellKey(n.c, n.r)}"]`)?.scrollIntoView({ block: 'nearest', inline: 'nearest' }));
       return n;
     });
@@ -285,6 +295,14 @@ export default function SheetEditor() {
   }
 
   function cancelEdit() { setEditing(null); gridRef.current?.focus(); }
+  /** Turn the filter on (over the selection, or the table around the cursor) or off. */
+  const toggleFilter = () => {
+    if (filter) { writeSheet(() => ({ filter: null })); toast('Filter removed: every row shows'); gridRef.current?.focus(); return; }
+    const g = anchor ? range : dataRegion(sel, (c, r) => cells[cellKey(c, r)] !== undefined && cells[cellKey(c, r)] !== '');
+    if (g.r2 <= g.r1) { toast('Select a table with headings in its first row', 'error'); return; }
+    writeSheet(() => ({ filter: { range: rangeText(g), hidden: {} } }));
+    gridRef.current?.focus();
+  };
   const toggleTick = (key) => writeCells({ [key]: isTicked(evaluate(key)) ? 'FALSE' : 'TRUE' });
   /** The different values already in a range (for a new dropdown's choices). */
   const existingValues = (text) => {
@@ -517,7 +535,7 @@ export default function SheetEditor() {
       />
       {status === 'offline' && <div className="banner warn">You're offline. Keep editing: your changes are kept here and sync when the connection is back.</div>}
       {readOnly && <div className="banner">View only. Ask {file.owner_name} for edit access.</div>}
-      {!readOnly && <FormatBar fmt={formats[selKey] || {}} onChange={(change) => { writeFormats(change); gridRef.current?.focus(); }} onComment={startComment} onChart={newChart} onSort={() => setDialog({ type: 'sort' })} onRules={() => setDialog({ type: 'rules' })} onValidation={() => setDialog({ type: 'validation' })} history={history} />}
+      {!readOnly && <FormatBar fmt={formats[selKey] || {}} onChange={(change) => { writeFormats(change); gridRef.current?.focus(); }} onComment={startComment} onChart={newChart} onSort={() => setDialog({ type: 'sort' })} onRules={() => setDialog({ type: 'rules' })} onValidation={() => setDialog({ type: 'validation' })} filterOn={!!filter} onFilter={toggleFilter} history={history} />}
       <div className="formula-bar">
         <span className="cell-name">{anchor ? `${cellKey(range.c1, range.r1)}:${cellKey(range.c2, range.r2)}` : selKey}</span>
         <span className="fx">fx</span>
@@ -550,8 +568,8 @@ export default function SheetEditor() {
             ))}</tr>
           </thead>
           <tbody>
-            {Array.from({ length: rows }, (_, r) => (
-              <tr key={r}>
+            {Array.from({ length: rows }, (_, r) => (hidden.has(r) ? null : (
+              <tr key={r} className={hidden.has(r + 1) || hidden.has(r - 1) ? 'next-to-hidden' : undefined}>
                 <th className={`${r >= range.r1 && r <= range.r2 ? 'hl' : ''} ${r < frozen.rows ? 'frozen-r' : ''} ${r === frozen.rows - 1 ? 'freeze-edge-b' : ''}`}
                   style={r < frozen.rows ? { top: stick.top[r] } : undefined} onMouseDown={(e) => { if (e.button === 0) pickRow(r, e); }}
                   onContextMenu={(e) => { if (!(isWholeRows && r >= range.r1 && r <= range.r2)) pickRow(r, { shiftKey: false }); openMenu(e, 'row'); }}>{r + 1}</th>
@@ -597,12 +615,17 @@ export default function SheetEditor() {
                         <button type="button" className="cell-drop" tabIndex={-1} aria-label={`Choices for ${k}`}
                           onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); if (editing) commitEdit(0, 0); setAnchor(null); setSel({ c, r }); setPicker({ key: k }); }}>▾</button>
                       )}
+                      {fArea && r === fArea.r1 && c >= fArea.c1 && c <= fArea.c2 && (
+                        <button type="button" className={`filter-btn ${filter.hidden?.[colName(c)]?.length ? 'on' : ''}`} tabIndex={-1} aria-label={`Filter ${colName(c)}`}
+                          title={filter.hidden?.[colName(c)]?.length ? 'Filtered' : 'Filter and sort'}
+                          onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); if (editing) commitEdit(0, 0); setFilterMenu({ c }); }}>{filter.hidden?.[colName(c)]?.length ? '⏷' : '▾'}</button>
+                      )}
                       {commented.has(k) && <span className="cell-comment" aria-hidden="true" />}
                     </td>
                   );
                 })}
               </tr>
-            ))}
+            )))}
           </tbody>
         </table>
         <div className="chart-layer">
@@ -647,6 +670,15 @@ export default function SheetEditor() {
           defaultRange={anchor ? rangeText(range) : rangeText({ c1: sel.c, c2: sel.c, r1: sel.r, r2: sel.r })}
           onChange={(next) => writeSheet(() => ({ validations: next.length ? next : null }))} onClose={() => { setDialog(null); gridRef.current?.focus(); }} />
       )}
+      {filterMenu && fArea && (() => {
+        const td = gridRef.current?.querySelector(`[data-k="${cellKey(filterMenu.c, fArea.r1)}"]`);
+        if (!td) return null;
+        const col = colName(filterMenu.c);
+        const done = () => { setFilterMenu(null); gridRef.current?.focus(); };
+        return <FilterMenu anchor={td} column={col} values={columnValues(filter, cells, evaluate, filterMenu.c)} hidden={filter.hidden?.[col] || []} onClose={done}
+          onApply={(list) => { writeSheet((s) => ({ filter: { ...s.filter, hidden: { ...(s.filter?.hidden || {}), [col]: list } } })); done(); }}
+          onSort={(desc) => { sortBy({ range: fArea, by: filterMenu.c, desc, header: true }); done(); }} />;
+      })()}
       {picker && (() => {
         const vd = validationAt(validations, picker.key);
         const td = gridRef.current?.querySelector(`[data-k="${picker.key}"]`);
@@ -709,7 +741,7 @@ export function parseCsv(text) {
 }
 
 /** Formatting for the selected cells: bold, italic, underline, colours, alignment, number format. */
-function FormatBar({ fmt, onChange, onComment, onChart, onSort, onRules, onValidation, history }) {
+function FormatBar({ fmt, onChange, onComment, onChart, onSort, onRules, onValidation, filterOn, onFilter, history }) {
   const keep = (e) => e.preventDefault(); // buttons don't take focus from the grid
   const Toggle = ({ k, label, title, children }) => (
     <button type="button" className={`tb ${fmt[k] ? 'on' : ''}`} aria-pressed={!!fmt[k]} aria-label={label} title={title} onMouseDown={keep} onClick={() => onChange({ [k]: !fmt[k] })}>{children}</button>
@@ -755,6 +787,7 @@ function FormatBar({ fmt, onChange, onComment, onChart, onSort, onRules, onValid
         onClick={() => onChange({ b: null, i: null, u: null, color: null, fill: null, align: null, num: null })}>Tx</button>
       <span className="sep" />
       <button type="button" className="tb labelled" aria-label="Conditional formatting" title="Colour cells by their value" onMouseDown={keep} onClick={onRules}><RulesGlyph /> Rules</button>
+      <button type="button" className={`tb labelled ${filterOn ? 'on' : ''}`} aria-label={filterOn ? 'Remove filter' : 'Create a filter'} aria-pressed={filterOn} title={filterOn ? 'Remove the filter (shows every row)' : 'Filter rows by their values'} onMouseDown={keep} onClick={onFilter}><FilterGlyph /> Filter</button>
       <button type="button" className="tb labelled" aria-label="Dropdowns and tick boxes" title="Dropdown lists and tick boxes in cells" onMouseDown={keep} onClick={onValidation}>▾ Dropdown</button>
       <button type="button" className="tb labelled" aria-label="Sort range" title="Sort rows by a column" onMouseDown={keep} onClick={onSort}><SortGlyph /> Sort</button>
       <button type="button" className="tb labelled" aria-label="Insert chart" title="Chart of the selected cells" onMouseDown={keep} onClick={onChart}><Icon name="chart" size={18} /> Chart</button>
@@ -766,6 +799,10 @@ function FormatBar({ fmt, onChange, onComment, onChart, onSort, onRules, onValid
 function AlignGlyph({ to }) {
   const lines = to === 'center' ? [[4, 16], [7, 10], [4, 16], [7, 10]] : to === 'right' ? [[4, 16], [10, 10], [4, 16], [10, 10]] : [[4, 16], [4, 10], [4, 16], [4, 10]];
   return <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">{lines.map(([x, w], i) => <rect key={i} x={x} y={5 + i * 4} width={w} height="2" rx="1" fill="currentColor" />)}</svg>;
+}
+
+function FilterGlyph() {
+  return <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M3 5h18l-7 8v6l-4-2v-4L3 5z" /></svg>;
 }
 
 function SortGlyph() {

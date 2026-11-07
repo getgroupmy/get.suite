@@ -232,3 +232,14 @@ test('Word: fonts, sizes and line spacing are kept', async () => {
   assert.match(xml, /<w:sz w:val="28"\/>/);
   assert.match(xml, /<w:sz w:val="36"\/>/, '24px is 18pt');
 });
+
+test('Excel: a filter becomes an AutoFilter with its rows hidden, and comes back', async () => {
+  const data = { sheets: [{ name: 'Jobs', cells: { A1: 'Job', B1: 'Status', A2: 'Logo', B2: 'Done', A3: 'Site', B3: 'Open', A4: 'Ads', B4: 'Done', A5: 'Sum', B5: '=A1' }, filter: { range: 'A1:B4', hidden: { B: ['Done'] } } }] };
+  const buf = await excelFromSheet(data);
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(buf);
+  const ws = wb.worksheets[0];
+  assert.deepEqual([2, 3, 4, 5].map((r) => !!ws.getRow(r).hidden), [true, false, true, false]);
+  const back = (await sheetFromExcel(buf)).sheets[0];
+  assert.deepEqual(back.filter, { range: 'A1:B4', hidden: {} });
+});

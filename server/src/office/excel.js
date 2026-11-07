@@ -86,7 +86,10 @@ export async function sheetFromExcel(buffer) {
     }
     rules.sort((a, b) => a._p - b._p).forEach((r) => delete r._p);
     const validations = validationsFromExcel(ws.dataValidations?.model || {}, cells);
-    sheets.push({ name: ws.name.slice(0, 30), cells, colWidths, ...(rules.length && { rules }), ...(validations.length && { validations }), ...(Object.keys(formats).length && { formats }), ...(frozen && (frozen.rows || frozen.cols) && { frozen }) });
+    // An AutoFilter comes in as the sheet's filter (which values were hidden isn't kept).
+    const af = typeof ws.autoFilter === 'string' ? ws.autoFilter : ws.autoFilter?.from && ws.autoFilter?.to ? `${ws.autoFilter.from}:${ws.autoFilter.to}` : null;
+    const filter = af && /^[A-Z]+\d+:[A-Z]+\d+$/i.test(af) ? { range: af.toUpperCase(), hidden: {} } : null;
+    sheets.push({ name: ws.name.slice(0, 30), cells, colWidths, ...(rules.length && { rules }), ...(validations.length && { validations }), ...(filter && { filter }), ...(Object.keys(formats).length && { formats }), ...(frozen && (frozen.rows || frozen.cols) && { frozen }) });
   });
   return { sheets: sheets.length ? sheets : [{ name: 'Sheet1', cells: {}, colWidths: {} }] };
 }
@@ -123,6 +126,19 @@ export async function excelFromSheet(data) {
         ...((r.color || r.bold) && { font: { ...(r.color && { color: { argb: argb(r.color) } }), ...(r.bold && { bold: true }) } }),
       } }] });
     });
+    // The filter: an AutoFilter over its range, with the rows it hides hidden (by their stored values;
+    // a formula's result isn't known here, so those rows stay shown).
+    if (s.filter?.range && /^[A-Z]+\d+:[A-Z]+\d+$/.test(s.filter.range)) {
+      ws.autoFilter = s.filter.range;
+      const [, c1, r1, c2, r2] = /^([A-Z]+)(\d+):([A-Z]+)(\d+)$/.exec(s.filter.range);
+      const lists = Object.entries(s.filter.hidden || {}).filter(([col, l]) => l?.length && colIndex(col) >= colIndex(c1) && colIndex(col) <= colIndex(c2));
+      let last = Number(r2);
+      for (const k of Object.keys(s.cells || {})) { const m = /^([A-Z]+)(\d+)$/.exec(k); if (m && colIndex(m[1]) >= colIndex(c1) && colIndex(m[1]) <= colIndex(c2)) last = Math.max(last, Number(m[2])); }
+      for (let r = Number(r1) + 1; r <= last && lists.length; r++) {
+        const hide = lists.some(([col, l]) => { const raw = s.cells?.[`${col}${r}`]; if (typeof raw === 'string' && raw.startsWith('=')) return false; return l.includes(raw === undefined ? '' : String(raw).trim()); });
+        if (hide) ws.getRow(r).hidden = true;
+      }
+    }
     // Dropdowns as Excel list validations; tick boxes as a TRUE/FALSE list (Excel has no tick box to write).
     for (const v of s.validations || []) {
       const values = v.type === 'checkbox' ? ['TRUE', 'FALSE'] : (v.values || []).filter((x) => !/[,"]/.test(x));

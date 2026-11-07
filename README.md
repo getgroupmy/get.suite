@@ -135,6 +135,13 @@ Everyone who can edit a document, spreadsheet or presentation can work in it at 
 - **Freeze:** right-click a row number → *Freeze the first row* (or *Freeze rows 1–3* with three rows selected) to keep headings in view while scrolling; the same for columns from a column letter. *Unfreeze* puts them back. A darker line shows where the frozen part ends.
 - Widths and frozen rows and columns are shared with everyone editing, kept per sheet, and carried to and from Excel.
 
+## Filters (Sheets)
+
+- **Filter** in the toolbar turns on a filter over the selected cells, or the table around the cursor; its first row holds the headings, which get a ▾ button.
+- The ▾ menu lists the column's values (with how often each comes, and **(Blanks)** for empty cells): untick the ones to hide, or search a long list. Rows with a hidden value disappear for everyone; nothing is deleted, and the arrow keys skip them. The button turns blue on filtered columns. The same menu sorts the table by that column.
+- Rows added below the table are filtered too, and a row whose value changes to a hidden one goes as it changes. **Filter** again removes it, showing every row.
+- Downloading as Excel keeps it as an AutoFilter with those rows hidden; an Excel file's AutoFilter comes in as a filter.
+
 ## Dropdowns and tick boxes (Sheets)
 
 - **Dropdown** in the toolbar turns the selected cells into a list of choices. It starts from the values already in those cells; add or change them one per line. The cells show an arrow: click it, or press **Alt+↓**, then pick with the mouse or the arrow keys and Enter.
