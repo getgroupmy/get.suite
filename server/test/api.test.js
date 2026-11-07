@@ -1799,6 +1799,8 @@ test('drive: sharing with everyone in the company — view or edit, folders incl
   assert.equal((await b('GET', `/api/files/${doc.id}`)).body.role, 'viewer', 'inside the folder too');
   assert.ok((await b('GET', '/api/files?view=shared')).body.some((f) => f.id === folder.id && f.role === 'viewer'));
   assert.ok((await b('GET', `/api/files?view=search&q=${encodeURIComponent('handbook')}`)).body.some((f) => f.id === folder.id), 'found by search');
+  const inside = (await b('GET', `/api/files?view=search&q=${encodeURIComponent('Holidays')}`)).body.find((f) => f.id === doc.id);
+  assert.equal(inside?.role, 'viewer', 'and what is inside it');
   assert.equal((await b('PUT', `/api/files/${doc.id}/content`, { version: 1, content: { type: 'doc', content: [] } })).status, 403, 'view only');
   // Someone who joins later has it too.
   assert.equal((await owner('POST', '/api/users', { local: 'coc', domain: 'acme.com', name: 'Co Cat', password: 'password123' })).status, 201);
@@ -1817,6 +1819,25 @@ test('drive: sharing with everyone in the company — view or edit, folders incl
   await a('PUT', `/api/files/${folder.id}/company`, { role: null });
   assert.equal((await b('GET', `/api/files/${doc.id}`)).status, 404);
   assert.equal((await b('GET', '/api/files?view=shared')).body.some((f) => f.id === folder.id), false);
+});
+
+test('drive search: files inside folders shared with you are found; not once the folder is in the trash', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['sra', 'Srch Ann'], ['srb', 'Srch Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'sra@acme.com');
+  const bid = (await login(b, 'srb@acme.com')).id;
+  const top = (await a('POST', '/api/files/folder', { name: 'Projects zz' })).body;
+  const sub = (await a('POST', '/api/files/folder', { name: 'Kiwi', parent_id: top.id })).body;
+  const deep = (await a('POST', '/api/files/new', { kind: 'doc', name: 'Kiwi launch plan', parent_id: sub.id })).body;
+  await a('POST', '/api/files/new', { kind: 'doc', name: 'Kiwi private notes' }); // not shared
+  const find = async () => (await b('GET', `/api/files?view=search&q=kiwi`)).body.map((f) => f.name).sort();
+  assert.deepEqual(await find(), []);
+  await a('PUT', `/api/files/${top.id}/shares`, { shares: [{ user_id: bid, role: 'editor' }] });
+  assert.deepEqual(await find(), ['Kiwi', 'Kiwi launch plan']);
+  assert.equal((await b('GET', `/api/files?view=search&q=launch`)).body[0].role, 'editor');
+  await a('PATCH', `/api/files/${top.id}`, { trashed: true });
+  assert.deepEqual(await find(), []);
+  assert.equal(deep.name, 'Kiwi launch plan');
 });
 
 test('chat polls: ask, vote (one or several), change your vote, close; checked options', async () => {

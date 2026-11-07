@@ -243,7 +243,7 @@ Your Workspace calendar and contacts sync with the phone's own Calendar and Cont
 
 ## Searching Drive
 
-- The search box at the top finds files by **name** and by the **words inside** them: documents, spreadsheets (cell text and sheet names), presentations, and uploaded text, Word, Excel and PowerPoint files. Each match shows the sentence it was found in, with the words marked.
+- The search box at the top finds files by **name** and by the **words inside** them: documents, spreadsheets (cell text and sheet names), presentations, and uploaded text, Word, Excel and PowerPoint files. Each match shows the sentence it was found in, with the words marked. It looks through your files, those shared with you or your company, and everything inside folders shared that way.
 - Words can be typed in any order, the start of a word is enough (`penan` finds *Penang*), and accents don't matter (`cafe` finds *café*). Name matches come first.
 - **Filters** under the results narrow them by **type** (documents, spreadsheets, presentations, PDFs, pictures, videos, audio, archives, folders; Word, Excel and PowerPoint uploads count with their kind), **owner** (you or someone else), and **when they last changed**. They work without any words too: press Enter in an empty search box, then pick, say, PDFs. The filters are in the page address, so Back and bookmarks keep them.
 - Only files you can open are found, and files in the bin aren't. Changes are searchable within a few seconds, however they were made (in the editor, by upload, or over the network drive). PDFs and pictures are found by name only.

@@ -274,12 +274,18 @@ export default function fileRoutes({ maxUploadBytes }) {
       const days = Number(req.query.modified);
       if (req.query.modified && !(days > 0)) throw bad('Bad date filter');
       if (days > 0) { extra.push('f.updated_at >= ?'); args.push(Date.now() - days * 864e5); }
-      rows = q(`SELECT ${COLS}, CASE WHEN f.owner_id = ? THEN 'owner' ELSE COALESCE(s.role, f.org_role) END AS role ${FROM}
-                LEFT JOIN shares s ON s.file_id = f.id AND s.user_id = ?
-                WHERE (f.owner_id = ? OR s.user_id IS NOT NULL OR (f.org_role IS NOT NULL AND u.org_id = ?)) AND f.trashed = 0
+      // Yours, what's shared with you or your company, and everything inside folders shared that way.
+      rows = q(`WITH RECURSIVE acc(id) AS (
+                  SELECT s2.file_id FROM shares s2 JOIN files f1 ON f1.id = s2.file_id WHERE s2.user_id = ? AND f1.trashed = 0
+                  UNION SELECT f2.id FROM files f2 JOIN users u2 ON u2.id = f2.owner_id WHERE f2.org_role IS NOT NULL AND u2.org_id = ? AND f2.trashed = 0
+                  UNION SELECT f3.id FROM files f3 JOIN acc ON f3.parent_id = acc.id WHERE f3.trashed = 0)
+                SELECT ${COLS} ${FROM}
+                WHERE (f.owner_id = ? OR f.id IN (SELECT id FROM acc)) AND f.trashed = 0
                   AND (f.name LIKE ? ESCAPE '\\' OR f.description LIKE ? ESCAPE '\\' OR f.id IN (SELECT value FROM json_each(?))) AND ${REACHABLE}
                   ${extra.map((x) => `AND (${x})`).join(' ')}
-                ${ORDER} LIMIT 200`).all(me, me, me, org, term, term, ids, org, org, ...args);
+                ${ORDER} LIMIT 200`).all(me, org, me, term, term, ids, org, org, ...args)
+        .map((f) => ({ ...f, role: f.owner_id === me ? 'owner' : roleFor(f.id, me) })).filter((f) => f.role); // a trashed folder above, or sharing switched off between companies
+
       // Name matches first, then the best content matches; each content match says where it matched.
       const rank = new Map([...inside.keys()].map((id, i) => [id, i]));
       const byName = (f) => f.name.toLowerCase().includes(String(req.query.q || '').toLowerCase());
