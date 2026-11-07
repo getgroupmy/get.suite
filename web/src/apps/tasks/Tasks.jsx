@@ -95,6 +95,7 @@ export default function Tasks() {
             {listId === ASSIGNED && <span className="muted small">{t.list_name}</span>}
             {t.notes && <span className="muted small ellipsis task-notes">{t.notes.split('\n')[0]}</span>}
             {due && <span className={`pill due ${due.tone}`}>{due.text}</span>}
+            {t.steps?.length > 0 && <span className={`muted small task-steps ${t.steps.every((x) => x.done) ? 'all' : ''}`} title="Steps done">☑ {t.steps.filter((x) => x.done).length}/{t.steps.length}</span>}
             {t.repeat && !t.done && <span className="muted small task-repeat" title={`Repeats: ${repeatText(t.repeat).toLowerCase()}`}>⟳ {repeatText(t.repeat)}</span>}
           </span>
         </button>
@@ -156,6 +157,7 @@ export default function Tasks() {
         )}
       </section>
       {current && list && <TaskDetails key={current.id} task={current} lists={lists} people={people} onChange={(c) => update(current, c)} onClose={() => show(null)}
+        onReplaced={(next) => setTasks((all) => all && all.map((x) => (x.id === next.id ? next : x)))}
         onDelete={async () => { show(null); try { await del(`/tasks/tasks/${current.id}`); toast('Task deleted'); loadTasks(); } catch (e) { toast(e.message, 'error'); } }}
         onMove={async (to) => { show(null); if (await update(current, { list_id: to })) toast(`Moved to ${lists.find((l) => l.id === to)?.name}`); }} />}
       {dialog === 'new' && <PromptModal title="New list" label="List name" confirm="Create" onClose={() => setDialog(null)}
@@ -173,7 +175,7 @@ export default function Tasks() {
 }
 
 /** A task's details beside the list: changes save as you make them. */
-function TaskDetails({ task, lists, people, onChange, onClose, onDelete, onMove }) {
+function TaskDetails({ task, lists, people, onChange, onClose, onDelete, onMove, onReplaced }) {
   const [title, setTitle] = useState(task.title);
   const [notes, setNotes] = useState(task.notes || '');
   useEffect(() => { setTitle(task.title); }, [task.title]);
@@ -193,6 +195,7 @@ function TaskDetails({ task, lists, people, onChange, onClose, onDelete, onMove 
       <label className="field"><span>Notes</span>
         <textarea rows={5} value={notes} onChange={(e) => setNotes(e.target.value)} onBlur={() => { if (notes.trim() !== (task.notes || '')) onChange({ notes: notes.trim() || null }); }} />
       </label>
+      <Steps task={task} onReplaced={onReplaced} />
       <label className="field"><span>Due</span>
         <span className="row"><input type="date" value={task.due || ''} onChange={(e) => onChange({ due: e.target.value || null })} />
           {task.due && <button type="button" className="link-btn small" onClick={() => onChange({ due: null })}>Clear</button>}</span>
@@ -250,5 +253,40 @@ function ShareList({ list, me, onClose, onSaved }) {
         ))}
       </ul>
     </Modal>
+  );
+}
+
+/** A task's checklist: tick steps off, rename them (click the text), remove them, and add more. */
+function Steps({ task, onReplaced }) {
+  const toast = useToast();
+  const [text, setText] = useState('');
+  const steps = task.steps || [];
+  const call = async (fn) => { try { onReplaced(await fn()); } catch (e) { toast(e.message, 'error'); onReplaced(task); } }; // on failure, back as it was
+  const add = (e) => {
+    e.preventDefault();
+    const title = text.trim();
+    if (!title) return;
+    setText('');
+    call(() => post(`/tasks/tasks/${task.id}/steps`, { title }));
+  };
+  const done = steps.filter((x) => x.done).length;
+  return (
+    <div className="field task-steps-box">
+      <span>Steps{steps.length > 0 && ` · ${done} of ${steps.length} done`}</span>
+      {steps.length > 0 && (
+        <ul className="steps" aria-label="Steps">
+          {steps.map((x) => (
+            <li key={x.id} className={x.done ? 'done' : ''}>
+              <input type="checkbox" checked={x.done} aria-label={`Step done: ${x.title}`} onChange={() => { onReplaced({ ...task, steps: steps.map((y) => (y.id === x.id ? { ...y, done: !x.done } : y)) }); call(() => patch(`/tasks/tasks/${task.id}/steps/${x.id}`, { done: !x.done })); }} />
+              <input className="step-title" defaultValue={x.title} key={x.title} aria-label={`Step: ${x.title}`} maxLength={500}
+                onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') { e.currentTarget.value = x.title; e.currentTarget.blur(); e.stopPropagation(); } }}
+                onBlur={(e) => { const v = e.target.value.trim(); if (!v) e.target.value = x.title; else if (v !== x.title) call(() => patch(`/tasks/tasks/${task.id}/steps/${x.id}`, { title: v })); }} />
+              <button type="button" className="icon-btn" aria-label={`Remove step: ${x.title}`} onClick={() => call(() => del(`/tasks/tasks/${task.id}/steps/${x.id}`))}><Icon name="close" size={14} /></button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <form onSubmit={add} className="row"><input value={text} onChange={(e) => setText(e.target.value)} placeholder="Add a step" aria-label="Add a step" maxLength={500} /></form>
+    </div>
   );
 }

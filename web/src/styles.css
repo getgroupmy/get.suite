@@ -1323,3 +1323,13 @@ button.rule-sample.on { outline: 2px solid var(--accent); outline-offset: 1px; }
 .pin-text { overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; white-space: pre-wrap; }
 .msg.pinned { background: color-mix(in srgb, #f9ab00 8%, transparent); }
 .msg-pinned { margin-bottom: 2px; }
+/* Tasks: steps (a checklist inside a task) */
+.task-steps.all { color: var(--success, #188038); }
+.task-steps-box ul.steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.task-steps-box li { display: flex; align-items: center; gap: 6px; }
+.task-steps-box li .icon-btn { width: 26px; height: 26px; opacity: .6; }
+.task-steps-box li:hover .icon-btn { opacity: 1; }
+.step-title { flex: 1; min-width: 0; border: 1px solid transparent; background: none; padding: 3px 6px; border-radius: 6px; font: inherit; color: inherit; }
+.step-title:hover, .step-title:focus { border-color: var(--border); background: var(--surface); }
+.task-steps-box li.done .step-title { text-decoration: line-through; color: var(--muted); }
+.task-steps-box form input { flex: 1; }

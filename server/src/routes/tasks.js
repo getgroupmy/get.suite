@@ -35,7 +35,7 @@ q(`CREATE TABLE IF NOT EXISTS tasks (
 )`).run();
 q('CREATE INDEX IF NOT EXISTS tasks_list ON tasks(list_id, position)').run();
 // Repeating tasks: how it repeats, and (once ticked off) the task that came next.
-for (const [col, type] of [['repeat', 'TEXT'], ['next_id', 'TEXT']]) {
+for (const [col, type] of [['repeat', 'TEXT'], ['next_id', 'TEXT'], ['steps', 'TEXT']]) { // steps: a checklist, JSON [{ id, title, done }]
   if (!q('PRAGMA table_info(tasks)').all().some((c) => c.name === col)) q(`ALTER TABLE tasks ADD COLUMN ${col} ${type}`).run();
 }
 q('CREATE INDEX IF NOT EXISTS tasks_assignee ON tasks(assignee_id, done_at)').run();
@@ -57,7 +57,8 @@ function loadList(id, user, { own = false } = {}) {
 
 const TASK = `SELECT t.*, u.name AS assignee_name, c.name AS created_by_name, l.name AS list_name
               FROM tasks t LEFT JOIN users u ON u.id = t.assignee_id LEFT JOIN users c ON c.id = t.created_by JOIN task_lists l ON l.id = t.list_id`;
-const shape = (t) => ({ ...t, done: !!t.done_at });
+const shape = (t) => ({ ...t, done: !!t.done_at, steps: t.steps ? JSON.parse(t.steps) : [] });
+const MAX_STEPS = 100;
 
 /** Tell someone a task was given to them (by someone else). */
 function notifyAssigned(task, by) {
@@ -219,8 +220,9 @@ export default function taskRoutes() {
         const due = nextDue(after.due, after.repeat, todayOf(b.today));
         const top = (q('SELECT MIN(position) AS p FROM tasks WHERE list_id = ? AND done_at IS NULL').get(after.list_id).p ?? 1) - 1;
         const id = uid(), t = now();
-        q('INSERT INTO tasks (id, list_id, title, notes, due, assignee_id, position, repeat, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-          .run(id, after.list_id, after.title, after.notes, due, after.assignee_id, top, after.repeat, after.created_by, t, t);
+        const steps = after.steps ? JSON.stringify(JSON.parse(after.steps).map((x) => ({ ...x, id: uid(), done: false }))) : null; // a fresh checklist
+        q('INSERT INTO tasks (id, list_id, title, notes, due, assignee_id, position, repeat, steps, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+          .run(id, after.list_id, after.title, after.notes, due, after.assignee_id, top, after.repeat, steps, after.created_by, t, t);
         q('UPDATE tasks SET next_id = ? WHERE id = ?').run(id, task.id);
       }
       // Un-ticked (Undo): the next one goes again, unless someone has already worked on it.
@@ -235,6 +237,47 @@ export default function taskRoutes() {
     const next = shape(q(`${TASK} WHERE t.id = ?`).get(task.id));
     if (set.assignee_id && set.assignee_id !== task.assignee_id) notifyAssigned(next, req.user);
     res.json(next);
+  });
+
+  // A task's checklist: add a step, change one (title, done, or its place), or remove one.
+  function withSteps(req, fn) {
+    const task = q('SELECT * FROM tasks WHERE id = ?').get(req.params.id);
+    if (!task) throw notFound('Task not found');
+    const list = loadList(task.list_id, req.user);
+    let result;
+    tx(() => {
+      const steps = JSON.parse(q('SELECT steps FROM tasks WHERE id = ?').get(task.id).steps || '[]');
+      result = fn(steps);
+      q('UPDATE tasks SET steps = ?, updated_at = ? WHERE id = ?').run(steps.length ? JSON.stringify(steps) : null, now(), task.id);
+    });
+    changed(list);
+    return { task: shape(q(`${TASK} WHERE t.id = ?`).get(task.id)), result };
+  }
+  const stepIn = (steps, sid) => { const i = steps.findIndex((x) => x.id === sid); if (i < 0) throw notFound('Step not found'); return i; };
+
+  r.post('/tasks/:id/steps', (req, res) => {
+    const title = str(req.body.title, { required: true, name: 'Step', max: 500 });
+    res.status(201).json(withSteps(req, (steps) => {
+      if (steps.length >= MAX_STEPS) throw bad(`At most ${MAX_STEPS} steps`);
+      steps.push({ id: uid(), title, done: false });
+    }).task);
+  });
+
+  r.patch('/tasks/:id/steps/:sid', (req, res) => {
+    const b = req.body || {};
+    res.json(withSteps(req, (steps) => {
+      const i = stepIn(steps, req.params.sid);
+      if (b.title !== undefined) steps[i].title = str(b.title, { required: true, name: 'Step', max: 500 });
+      if (b.done !== undefined) steps[i].done = !!b.done;
+      if (b.index !== undefined) {
+        const to = Math.max(0, Math.min(steps.length - 1, Math.trunc(Number(b.index)) || 0));
+        steps.splice(to, 0, ...steps.splice(i, 1));
+      }
+    }).task);
+  });
+
+  r.delete('/tasks/:id/steps/:sid', (req, res) => {
+    res.json(withSteps(req, (steps) => { steps.splice(stepIn(steps, req.params.sid), 1); }).task);
   });
 
   r.delete('/tasks/:id', (req, res) => {

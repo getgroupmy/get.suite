@@ -1458,3 +1458,34 @@ test('chat pins: anyone in the conversation pins and unpins; replies cannot be; 
   await a('PATCH', `/api/chat/channels/${ch}`, { archived: true });
   assert.equal((await a('POST', `/api/chat/messages/${m2.id}/pin`, { pinned: false })).status, 400);
 });
+
+test('tasks: a checklist of steps, shared with the list, fresh on each repeat', async () => {
+  const a = client(), b = client(), c = client();
+  for (const [local, name] of [['stepa', 'Step Ann'], ['stepb', 'Step Ben'], ['stepc', 'Step Cat']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'stepa@acme.com');
+  const bid = (await login(b, 'stepb@acme.com')).id;
+  await login(c, 'stepc@acme.com');
+  const list = (await a('POST', '/api/tasks/lists', { name: 'Office' })).body.id;
+  await a('PUT', `/api/tasks/lists/${list}/members`, { user_ids: [bid] });
+  const t = (await a('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Monthly close', due: '2026-11-30', repeat: 'monthly' })).body;
+  assert.deepEqual(t.steps, []);
+  for (const title of ['Bank statements', 'Invoices', 'Payroll']) assert.equal((await a('POST', `/api/tasks/tasks/${t.id}/steps`, { title })).status, 201);
+  let steps = (await b('GET', `/api/tasks/lists/${list}/tasks`)).body[0].steps;
+  assert.deepEqual(steps.map((x) => x.title), ['Bank statements', 'Invoices', 'Payroll'], 'Ben sees them');
+  // Ben ticks one, renames one, moves the last to the top, removes one.
+  await b('PATCH', `/api/tasks/tasks/${t.id}/steps/${steps[0].id}`, { done: true });
+  await b('PATCH', `/api/tasks/tasks/${t.id}/steps/${steps[1].id}`, { title: 'Supplier invoices' });
+  const moved = (await b('PATCH', `/api/tasks/tasks/${t.id}/steps/${steps[2].id}`, { index: 0 })).body.steps;
+  assert.deepEqual(moved.map((x) => [x.title, x.done]), [['Payroll', false], ['Bank statements', true], ['Supplier invoices', false]]);
+  assert.equal((await b('PATCH', `/api/tasks/tasks/${t.id}/steps/nope`, { done: true })).status, 404);
+  assert.equal((await c('POST', `/api/tasks/tasks/${t.id}/steps`, { title: 'x' })).status, 404, 'not on the list');
+  assert.equal((await a('POST', `/api/tasks/tasks/${t.id}/steps`, { title: '' })).status, 400);
+  // Done: the next month's task has the same steps, none ticked.
+  await a('PATCH', `/api/tasks/tasks/${t.id}`, { done: true, today: '2026-11-30' });
+  const next = (await a('GET', `/api/tasks/lists/${list}/tasks`)).body.find((x) => !x.done);
+  assert.equal(next.due, '2026-12-30');
+  assert.deepEqual(next.steps.map((x) => [x.title, x.done]), [['Payroll', false], ['Bank statements', false], ['Supplier invoices', false]]);
+  assert.ok(next.steps.every((x) => !steps.some((y) => y.id === x.id)), 'new ids');
+  steps = (await a('DELETE', `/api/tasks/tasks/${next.id}/steps/${next.steps[0].id}`)).body.steps;
+  assert.equal(steps.length, 2);
+});
