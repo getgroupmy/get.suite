@@ -2,9 +2,12 @@
 import { useEffect, useState } from 'react';
 import { get, onLive } from '../api.js';
 
-let byId = new Map(), byEmail = new Map(), loading = null;
+let byId = new Map(), byEmail = new Map(), loading = null, off = false;
+/** For a page seen without an account (a guest in a meeting): there are no photos to load. */
+export const noPhotos = () => { off = true; };
 const listeners = new Set();
 function load() {
+  if (off) return Promise.resolve();
   loading = get('/users/photos').then((list) => {
     byId = new Map(list.map((p) => [p.id, `/api/users/${p.id}/photo?v=${p.v}`]));
     byEmail = new Map(list.map((p) => [p.email.toLowerCase(), `/api/users/${p.id}/photo?v=${p.v}`]));

@@ -5069,3 +5069,60 @@ test('meet polls: asked, voted once each (changeable), results to everyone, clos
     c.terminate();
   } finally { a.terminate(); b.terminate(); }
 });
+
+test('meet guests: ask to join by link, wait, let in or turned away by the company; admins can turn it off', { timeout: 20000 }, async () => {
+  const { default: WS } = await import('ws');
+  const kay = client(); await login(kay, 'kay@keepco.com');
+  const cookie = (await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ username: 'kay@keepco.com', password: 'password123' }) })).headers.get('set-cookie').split(';')[0];
+  const { code } = (await kay('POST', '/api/meet', { title: 'Client call' })).body;
+  const info = await (await fetch(`${base}/api/public/meet/${code}`)).json();
+  assert.equal(info.title, 'Client call');
+  assert.deepEqual(info.people, []);
+  const wsUrl = base.replace('http', 'ws');
+  const open = (url, headers = {}, until = 'welcome') => new Promise((resolve, reject) => {
+    const ws = new WS(url, { headers });
+    ws.msgs = [];
+    const t = setTimeout(() => reject(new Error(`no ${until}`)), 5000);
+    ws.on('message', (d) => { const msg = JSON.parse(String(d)); ws.msgs.push(msg); if (msg.type === until) { clearTimeout(t); ws.first = msg; resolve(ws); } });
+    ws.on('unexpected-response', (rq, res) => { clearTimeout(t); reject(new Error(`refused: ${res.statusCode}`)); });
+    ws.on('error', (e) => { clearTimeout(t); reject(e); });
+  });
+  const closed = (ws) => new Promise((resolve) => { if (ws.readyState === 3) resolve(ws.closedWith); ws.on('close', (c, why) => resolve({ code: c, why: String(why) })); });
+  const wait = (ms = 250) => new Promise((r) => setTimeout(r, ms));
+  const guest = (name) => open(`${wsUrl}/ws/meet-guest/${code}?name=${encodeURIComponent(name)}`, {}, 'waiting');
+  await assert.rejects(guest('   '), /refused: 404/, 'a name is needed');
+  const host = await open(`${wsUrl}/ws/meet/${code}`, { cookie });
+  const g1 = await guest('Gus <b>Guest</b>');
+  const g2 = await guest('Gia Guest');
+  try {
+    await wait();
+    const knock = [...host.msgs].reverse().find((m) => m.type === 'knock');
+    assert.deepEqual(knock.guests.map((g) => g.name), ['Gus bGuest/b', 'Gia Guest']);
+    const [gus, gia] = knock.guests;
+    // Before being let in, a guest can't do anything in the meeting.
+    g1.send(JSON.stringify({ type: 'chat', text: 'hello?' })); await wait();
+    assert.ok(!host.msgs.some((m) => m.type === 'chat'));
+    host.send(JSON.stringify({ type: 'admit', id: gus.id })); await wait();
+    assert.ok(g1.msgs.some((m) => m.type === 'admitted' && m.by === 'Kay Keep'));
+    const welcome = g1.msgs.find((m) => m.type === 'welcome');
+    assert.equal(welcome.guest, true); assert.equal(welcome.admit, false); assert.equal(welcome.host, false);
+    assert.equal(welcome.peers[0].user.name, 'Kay Keep');
+    assert.equal(host.msgs.find((m) => m.type === 'joined').peer.user.name, 'Gus bGuest/b (guest)');
+    // A guest in the meeting can't let others in.
+    g1.send(JSON.stringify({ type: 'admit', id: gia.id })); await wait();
+    assert.ok(!g2.msgs.some((m) => m.type === 'admitted'));
+    assert.deepEqual([...host.msgs].reverse().find((m) => m.type === 'knock').guests.map((g) => g.name), ['Gia Guest']);
+    const giaGone = closed(g2);
+    host.send(JSON.stringify({ type: 'deny', id: gia.id }));
+    assert.deepEqual(await giaGone, { code: 4004, why: 'Nobody in the meeting let you in' });
+    const att = (await kay('GET', `/api/meet/${code}/attendance`)).body.people;
+    assert.deepEqual(att.map((p) => [p.name, p.email ?? null]), [['Kay Keep', 'kay@keepco.com'], ['Gus bGuest/b (guest)', null]]);
+    // Turned off: no page, no knocking.
+    assert.equal((await kay('PATCH', '/api/orgs/current', { meet_guests: false })).body.meet_guests, false);
+    assert.equal((await fetch(`${base}/api/public/meet/${code}`)).status, 404);
+    await assert.rejects(guest('Late Guest'), /refused: 404/);
+  } finally {
+    await kay('PATCH', '/api/orgs/current', { meet_guests: true });
+    host.terminate(); g1.terminate(); g2.terminate();
+  }
+});

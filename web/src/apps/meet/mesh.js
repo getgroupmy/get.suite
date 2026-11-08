@@ -4,9 +4,11 @@
 // each other. `onChange` is called whenever something visible changes.
 
 export class Mesh {
-  constructor({ code, stream, iceServers = [], mic = true, cam = true, onChange, onChat, onReact, onClosed, onMuted, onPoll }) {
-    Object.assign(this, { code, stream, iceServers, onChange, onChat, onReact, onClosed, onMuted, onPoll });
+  constructor({ code, guestName = '', stream, iceServers = [], mic = true, cam = true, onChange, onChat, onReact, onClosed, onMuted, onPoll }) {
+    Object.assign(this, { code, guestName, stream, iceServers, onChange, onChat, onReact, onClosed, onMuted, onPoll });
     this.polls = new Map(); // the meeting's polls, by id
+    this.waiting = !!guestName; // a guest waits until someone in the meeting lets them in
+    this.knocking = []; // guests waiting to be let in (shown to people from the meeting's company)
     this.state = { mic, cam, hand: false, screen: false };
     this.peers = new Map(); // id -> { id, user, state, pc, stream, polite, makingOffer, ignoreOffer }
     this.id = null;
@@ -17,7 +19,9 @@ export class Mesh {
   connect() {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     const q = `?mic=${this.state.mic ? 1 : 0}&cam=${this.state.cam ? 1 : 0}`;
-    this.ws = new WebSocket(`${proto}://${location.host}/ws/meet/${encodeURIComponent(this.code)}${q}`);
+    this.ws = new WebSocket(this.guestName
+      ? `${proto}://${location.host}/ws/meet-guest/${encodeURIComponent(this.code)}${q}&name=${encodeURIComponent(this.guestName)}`
+      : `${proto}://${location.host}/ws/meet/${encodeURIComponent(this.code)}${q}`);
     // One message at a time, in order: a network candidate must not be applied before the offer it belongs to.
     this.queue = Promise.resolve();
     this.ws.onmessage = (e) => {
@@ -36,11 +40,18 @@ export class Mesh {
   pollVote(id, option) { this.send({ type: 'poll-vote', id, option }); }
   pollClose(id) { this.send({ type: 'poll-close', id }); }
   remove(to) { this.send({ type: 'remove', to }); }
+  /** Let a waiting guest in, or not. */
+  admit(id) { this.send({ type: 'admit', id }); }
+  deny(id) { this.send({ type: 'deny', id }); }
 
   async handle(m) {
     if (m.type === 'welcome') {
       this.id = m.id;
       this.host = !!m.host; // whoever started the meeting: may mute and remove people
+      this.you = m.you; // your account id (a guest's own id)
+      this.waiting = false;
+      this.mayAdmit = !!m.admit; // people from the meeting's company let guests in
+      this.knocking = m.knocking || [];
       for (const p of m.polls || []) this.polls.set(p.id, p);
       for (const p of m.peers) this.addPeer(p, { offer: true }); // the newcomer calls everyone
     } else if (m.type === 'joined') this.addPeer(m.peer, { offer: false }); // and they wait for the call
@@ -53,6 +64,8 @@ export class Mesh {
       if (p) p.state = m.state;
     } else if (m.type === 'signal') await this.signal(m.from, m.data);
     else if (m.type === 'chat') { this.onChat?.({ ...m, mine: m.id === this.id }); return; }
+    else if (m.type === 'knock') this.knocking = m.guests;
+    else if (m.type === 'waiting' || m.type === 'admitted') { /* redraw */ }
     else if (m.type === 'poll') { const isNew = !this.polls.has(m.poll.id); this.polls.set(m.poll.id, m.poll); if (isNew) this.onPoll?.(m.poll); }
     else if (m.type === 'muted') { this.setMic(false); this.onMuted?.(m.by); return; }
     else if (m.type === 'react') { this.onReact?.({ id: m.id === this.id ? 'me' : m.id, emoji: m.emoji }); return; }

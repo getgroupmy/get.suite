@@ -96,6 +96,17 @@ function cleanState(s = {}) {
   return { mic: s.mic !== false, cam: s.cam !== false, hand: !!s.hand, screen: !!s.screen, rec: !!s.rec }; // rec: they're recording the meeting (everyone is shown)
 }
 
+/** /api/public/meet/<code>: what a guest without an account sees before asking to join. */
+export function publicMeetRoutes() {
+  const r = Router();
+  r.get('/:code', (req, res) => {
+    const m = validCode(req.params.code) && q('SELECT m.*, o.name AS org_name FROM meetings m JOIN orgs o ON o.id = m.org_id WHERE m.code = ?').get(req.params.code);
+    if (!m || !guestsAllowed(m.org_id)) throw notFound('No meeting has that code, or it doesn’t take guests. Ask whoever invited you for the link again.');
+    res.json({ code: m.code, title: m.title, company: m.org_name, people: peopleIn(m.code).map((p) => ({ user: { name: p.user.name } })), max: MAX_PEOPLE, ice_servers: iceServers() });
+  });
+  return r;
+}
+
 export function meetRoutes() {
   const r = Router();
   r.get('/', (req, res) => {
@@ -150,13 +161,62 @@ const pollOut = (p, userId) => ({ id: p.id, by: p.by, by_name: p.by_name, questi
   counts: p.options.map((_, i) => [...p.votes.values()].filter((v) => v === i).length), mine: p.votes.has(userId) ? p.votes.get(userId) : null, voters: p.votes.size });
 // People the host removed from a meeting can't come back into it (until the server restarts).
 const removed = new Map(); // code -> Set(user id)
+// Whether guests without an account may ask to join the company's meetings (Admin → Company settings).
+if (!q('PRAGMA table_info(orgs)').all().some((c) => c.name === 'meet_guests')) q('ALTER TABLE orgs ADD COLUMN meet_guests INTEGER NOT NULL DEFAULT 1').run();
+
+// Guests (people without an account, from the meeting's link) wait here until someone from the meeting's
+// company lets them in: code -> Map(guestId -> { ws, name }).
+const waiting = new Map();
+export const MAX_WAITING = 10;
+const waitingList = (code) => [...(waiting.get(code)?.entries() ?? [])].map(([id, g]) => ({ id, name: g.name }));
+/** Who may let guests in: people in the meeting from its own company. */
+const mayAdmit = (m, user) => !user.guest && user.org_id === m.org_id;
+/** Tell everyone in the meeting who may let guests in who is waiting now. */
+function knockToAdmitters(code, m) {
+  const d = JSON.stringify({ type: 'knock', guests: waitingList(code) });
+  for (const p of rooms.get(code)?.values() ?? []) if (mayAdmit(m, p.user) && p.ws.readyState === 1) p.ws.send(d);
+}
+/** May guests ask to join this company's meetings? (Admin → Company settings.) */
+export const guestsAllowed = (orgId) => q('SELECT meet_guests FROM orgs WHERE id = ?').get(orgId)?.meet_guests === 1;
+export const guestName = (raw) => String(raw ?? '').replace(/[\u0000-\u001f\u007f<>]/g, '').replace(/\s+/g, ' ').trim().slice(0, 60);
 
 /** /ws/meet/<code>: join the meeting's room. */
 export function handleMeetUpgrade(req, socket, head, user) {
   const code = decodeURIComponent(req.url.split('?')[0].split('/')[3] || '');
   const m = validCode(code) && q('SELECT * FROM meetings WHERE code = ?').get(code);
   if (!m || !mayJoin(m, user)) { socket.write('HTTP/1.1 404 Not Found\r\n\r\n'); return socket.destroy(); }
+  wss.handleUpgrade(req, socket, head, (ws) => enterRoom(ws, req, code, m, user));
+}
+
+/**
+ * /ws/meet-guest/<code>?name=…: someone without an account asks to join. They wait (told "waiting") until
+ * someone from the meeting's company lets them in (then they're in the meeting as "Name (guest)") or
+ * says no (closed). Works only while the company lets guests ask to join.
+ */
+export function handleGuestUpgrade(req, socket, head) {
+  const code = decodeURIComponent(req.url.split('?')[0].split('/')[3] || '');
+  const m = validCode(code) && q('SELECT * FROM meetings WHERE code = ?').get(code);
+  const name = guestName(new URL(req.url, 'http://x').searchParams.get('name'));
+  if (!m || !guestsAllowed(m.org_id) || !name) { socket.write('HTTP/1.1 404 Not Found\r\n\r\n'); return socket.destroy(); }
   wss.handleUpgrade(req, socket, head, (ws) => {
+    if (!waiting.has(code)) waiting.set(code, new Map());
+    const line = waiting.get(code);
+    if (line.size >= MAX_WAITING) { ws.close(4001, 'Too many people are waiting to join. Try again in a little while.'); return; }
+    const gid = `guest-${crypto.randomBytes(8).toString('hex')}`;
+    line.set(gid, { ws, name, req });
+    ws.send(JSON.stringify({ type: 'waiting', title: m.title }));
+    knockToAdmitters(code, m);
+    ws.on('close', () => {
+      if (line.get(gid)?.ws !== ws) return; // already let in (or turned away)
+      line.delete(gid);
+      if (!line.size) waiting.delete(code);
+      knockToAdmitters(code, m);
+    });
+  });
+}
+
+function enterRoom(ws, req, code, m, user) {
+  {
     let room = rooms.get(code);
     if (room && room.size >= MAX_PEOPLE) { ws.close(4001, 'This meeting is full'); return; }
     if (removed.get(code)?.has(user.id)) { ws.close(4003, 'The host removed you from this meeting'); return; }
@@ -167,15 +227,16 @@ export function handleMeetUpgrade(req, socket, head, user) {
     const me = { ws, user, state: cleanState({ mic: asked.get('mic') !== '0', cam: asked.get('cam') !== '0' }) };
     const toOthers = (payload) => { const d = JSON.stringify(payload); for (const [pid, p] of room) if (pid !== id && p.ws.readyState === 1) p.ws.send(d); };
     const toAll = (payload) => { const d = JSON.stringify(payload); for (const p of room.values()) if (p.ws.readyState === 1) p.ws.send(d); };
-    ws.send(JSON.stringify({ type: 'welcome', id, peers: peopleIn(code), host: isHost, polls: (polls.get(code) || []).map((p) => pollOut(p, user.id)) }));
+    ws.send(JSON.stringify({ type: 'welcome', id, peers: peopleIn(code), host: isHost, you: user.id, guest: !!user.guest, polls: (polls.get(code) || []).map((p) => pollOut(p, user.id)),
+      admit: mayAdmit(m, user), knocking: mayAdmit(m, user) ? waitingList(code) : [] }));
     // Everyone gets a poll's results with their own vote in it.
     const pollToAll = (p) => { for (const q2 of room.values()) if (q2.ws.readyState === 1) q2.ws.send(JSON.stringify({ type: 'poll', poll: pollOut(p, q2.user.id) })); };
     room.set(id, me);
     toOthers({ type: 'joined', peer: describe(id, me) });
     const t = now();
     q('UPDATE meetings SET last_used = ? WHERE code = ?').run(t, code);
-    q('INSERT INTO meeting_visits (code, user_id, at) VALUES (?, ?, ?) ON CONFLICT (code, user_id) DO UPDATE SET at = excluded.at').run(code, user.id, t);
-    q('INSERT INTO meeting_attendance (id, code, user_id, name, email, joined_at) VALUES (?, ?, ?, ?, ?, ?)').run(id, code, user.id, user.name, user.email || user.username, t);
+    if (!user.guest) q('INSERT INTO meeting_visits (code, user_id, at) VALUES (?, ?, ?) ON CONFLICT (code, user_id) DO UPDATE SET at = excluded.at').run(code, user.id, t);
+    q('INSERT INTO meeting_attendance (id, code, user_id, name, email, joined_at) VALUES (?, ?, ?, ?, ?, ?)').run(id, code, user.guest ? null : user.id, user.name, user.guest ? null : (user.email || user.username), t);
 
     ws.on('message', (raw) => {
       let msg;
@@ -217,6 +278,19 @@ export function handleMeetUpgrade(req, socket, head, user) {
           p.votes.set(user.id, i); // one vote each; voting again changes it
         }
         pollToAll(p);
+      } else if ((msg?.type === 'admit' || msg?.type === 'deny') && mayAdmit(m, user)) {
+        // Someone from the company lets a waiting guest in, or turns them away.
+        const line = waiting.get(code);
+        const g = line?.get(String(msg.id));
+        if (!g) return;
+        line.delete(String(msg.id));
+        if (!line.size) waiting.delete(code);
+        if (msg.type === 'deny') { try { g.ws.close(4004, 'Nobody in the meeting let you in'); } catch { /* gone */ } }
+        else if (g.ws.readyState === 1) {
+          g.ws.send(JSON.stringify({ type: 'admitted', by: user.name }));
+          enterRoom(g.ws, g.req, code, m, { id: String(msg.id), name: `${g.name} (guest)`, email: null, guest: true, org_id: null });
+        }
+        knockToAdmitters(code, m);
       } else if (msg?.type === 'react') {
         const emoji = ['👍', '❤️', '😂', '😮', '👏', '🎉'].includes(msg.emoji) ? msg.emoji : null;
         if (emoji) toAll({ type: 'react', id, emoji });
@@ -228,5 +302,5 @@ export function handleMeetUpgrade(req, socket, head, user) {
       if (!room.size) { rooms.delete(code); polls.delete(code); } // polls last as long as the meeting
       toOthers({ type: 'left', id });
     });
-  });
+  }
 }

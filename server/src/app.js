@@ -12,7 +12,7 @@ import bookingRoutes, { publicBookingRoutes, freeBusyRoutes } from './routes/boo
 import brandRoutes from './routes/brand.js';
 import announcementRoutes from './routes/announcements.js';
 import formRoutes, { publicFormRoutes } from './routes/forms.js';
-import { meetRoutes } from './meet.js';
+import { meetRoutes, publicMeetRoutes } from './meet.js';
 import { groupRoutes } from './groups.js';
 import noteRoutes from './routes/notes.js';
 import approvalRoutes from './routes/approvals.js';
@@ -81,6 +81,7 @@ export function createApp({
   app.use('/api/public/brand', brandRoutes());
   app.use('/api/public/forms', publicFormRoutes());
   app.use('/api/public/sign', publicSignRoutes());
+  app.use('/api/public/meet', publicMeetRoutes());
   app.use('/api/public', publicLinkRoutes({ maxUploadBytes }));
   app.use('/api/users', requireAuth, userRoutes());
   app.use('/api/orgs', requireAuth, orgRoutes());

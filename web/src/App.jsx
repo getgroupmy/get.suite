@@ -77,6 +77,9 @@ function FormGate({ token }) {
 
 function Workspace() {
   const [state, setState] = useState({ loading: true, user: null, needsSetup: false });
+  // A meeting link opened without being signed in: join as a guest (or sign in instead).
+  const [guestSignIn, setGuestSignIn] = useState(false);
+  const guestMeet = /^\/meet\/[a-z]{3}-[a-z]{4}-[a-z]{3}\/?$/.test(window.location.pathname) && !guestSignIn;
 
   useEffect(() => {
     get('/auth/status').then((s) => setState({ loading: false, ...s })).catch(() => setState({ loading: false, user: null }));
@@ -111,7 +114,9 @@ function Workspace() {
   return (
     <AuthCtx.Provider value={auth}>
       <ToastProvider>
-        {!state.user ? <Login needsSetup={state.needsSetup} /> : state.user.needs_two_factor ? <RequiredTwoStep /> : state.user.must_change_password ? <RequiredPassword /> : (
+        {!state.user ? (guestMeet && !state.needsSetup
+          ? <BrowserRouter><Routes><Route path="/meet/:code" element={<MeetRoom guest onSignIn={() => setGuestSignIn(true)} />} /></Routes></BrowserRouter>
+          : <Login needsSetup={state.needsSetup} />) : state.user.needs_two_factor ? <RequiredTwoStep /> : state.user.must_change_password ? <RequiredPassword /> : (
           <BrowserRouter>
             <ShortcutsHelp />
             <Routes>

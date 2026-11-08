@@ -458,6 +458,10 @@ function CompanySettings() {
           Allow people to share files and folders by link with anyone, such as clients
         </label>
         <p className="muted small" style={{ margin: 0 }}>Turning this off immediately stops every existing link from working. Turning it back on restores the links that haven't expired.</p>
+        <label className="check">
+          <input type="checkbox" checked={org.meet_guests !== false} onChange={(e) => save({ meet_guests: e.target.checked }, e.target.checked ? 'Guests can ask to join meetings' : 'Guests can no longer join meetings')} />
+          Let guests without an account ask to join video meetings from the meeting’s link (someone in the meeting lets them in)
+        </label>
       </div>
       <CompanySignature org={org} save={save} />
       <div className="card stack">

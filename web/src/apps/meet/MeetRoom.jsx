@@ -10,6 +10,7 @@ import { useAuth } from '../../App.jsx';
 import { Mesh } from './mesh.js';
 import { columnsFor, whoIsHere, elapsed } from './meetmath.js';
 import { MeetingRecorder } from './recorder.js';
+import { noPhotos } from '../../components/photos.js';
 
 const REACTIONS = ['👍', '❤️', '😂', '😮', '👏', '🎉'];
 
@@ -88,11 +89,16 @@ function Video({ stream, muted, mirror, label }) {
   return <video ref={ref} autoPlay playsInline muted={muted} aria-label={label} className={mirror ? 'mirror' : ''} />;
 }
 
-export default function MeetRoom() {
+export default function MeetRoom({ guest = false, onSignIn }) {
   const { code } = useParams();
   const navigate = useNavigate();
   const toast = useToast();
-  const { user } = useAuth();
+  const mesh = useRef(null);
+  const { user: account } = useAuth();
+  // A guest (no account) gives their name in the lobby; everyone sees "Name (guest)".
+  const [guestName, setGuestName] = useState(() => { try { return localStorage.getItem('nw-guest-name') || ''; } catch { return ''; } });
+  if (guest) noPhotos();
+  const user = guest ? { id: mesh.current?.you || 'guest', name: guestName.trim() || 'Guest' } : account;
   const [info, setInfo] = useState(null);
   const [error, setError] = useState('');
   const [local, setLocal] = useState(null); // { stream, error }
@@ -100,7 +106,6 @@ export default function MeetRoom() {
   const [cam, setCam] = useState(true);
   const [phase, setPhase] = useState('lobby'); // lobby | call | left
   const [leftWhy, setLeftWhy] = useState(''); // why the meeting ended for you (removed, full…)
-  const mesh = useRef(null);
   const [, redraw] = useReducer((n) => n + 1, 0);
   const [panel, setPanel] = useState(null); // chat | people
   const [messages, setMessages] = useState([]);
@@ -111,16 +116,16 @@ export default function MeetRoom() {
   const panelRef = useRef(panel);
   panelRef.current = panel;
 
-  useEffect(() => { document.title = 'Meet'; get(`/meet/${code}`).then(setInfo).catch((e) => setError(e.message)); }, [code]);
+  useEffect(() => { document.title = 'Meet'; get(`${guest ? '/public' : ''}/meet/${code}`).then(setInfo).catch((e) => setError(e.message)); }, [code, guest]);
   useEffect(() => { if (info?.title) document.title = `${info.title} – Meet`; }, [info?.title]);
   // The lobby asks for the camera and microphone straight away, for the preview.
   useEffect(() => { let gone = false; openDevices().then((d) => { if (gone) d.stream?.getTracks().forEach((t) => t.stop()); else setLocal(d); }); return () => { gone = true; }; }, []);
   // Who's already in the meeting, while you're in the lobby.
   useEffect(() => {
     if (phase !== 'lobby' || error) return undefined;
-    const t = setInterval(() => get(`/meet/${code}`).then(setInfo).catch(() => {}), 5000);
+    const t = setInterval(() => get(`${guest ? '/public' : ''}/meet/${code}`).then(setInfo).catch(() => {}), 5000);
     return () => clearInterval(t);
-  }, [phase, code, error]);
+  }, [phase, code, error, guest]);
   useEffect(() => () => mesh.current?.leave(), []);
   useEffect(() => { if (phase !== 'call') return undefined; const t = setInterval(tick, 1000); return () => clearInterval(t); }, [phase]);
 
@@ -130,8 +135,9 @@ export default function MeetRoom() {
   const hasVideo = !!local?.stream?.getVideoTracks().length;
 
   const join = useCallback(() => {
+    if (guest) { try { localStorage.setItem('nw-guest-name', guestName.trim()); } catch { /* private mode */ } }
     const m = new Mesh({
-      code, stream: local?.stream, iceServers: info?.ice_servers || [], mic: mic && hasAudio, cam: cam && hasVideo,
+      code, guestName: guest ? guestName.trim() : '', stream: local?.stream, iceServers: info?.ice_servers || [], mic: mic && hasAudio, cam: cam && hasVideo,
       onChange: redraw,
       onChat: (msg) => { setMessages((list) => [...list.slice(-199), msg]); if (panelRef.current !== 'chat' && !msg.mine) setUnread((n) => n + 1); },
       onReact: (r) => {
@@ -147,7 +153,7 @@ export default function MeetRoom() {
     m.connect();
     setStartedAt(Date.now());
     setPhase('call');
-  }, [code, local, info, mic, cam, hasAudio, hasVideo, toast]);
+  }, [code, local, info, mic, cam, hasAudio, hasVideo, toast, guest, guestName]);
 
   // Recording (in this browser), saved to your Drive when it stops.
   const recorder = useRef(null);
@@ -179,7 +185,7 @@ export default function MeetRoom() {
     return (
       <div className="meet-page meet-center">
         <div className="meet-card stack" role="alert"><h1>Can’t join this meeting</h1><p className="muted">{error}</p>
-          <div><button type="button" className="btn primary" onClick={() => navigate('/meet')}>Back to Meet</button></div></div>
+          {!guest && <div><button type="button" className="btn primary" onClick={() => navigate('/meet')}>Back to Meet</button></div>}</div>
       </div>
     );
   }
@@ -187,10 +193,10 @@ export default function MeetRoom() {
   if (phase === 'left') {
     return (
       <div className="meet-page meet-center">
-        <div className="meet-card stack"><h1>{/removed you/.test(leftWhy) ? 'You were removed from the meeting' : 'You left the meeting'}</h1>
+        <div className="meet-card stack"><h1>{/removed you/.test(leftWhy) ? 'You were removed from the meeting' : /let you in/.test(leftWhy) ? 'You weren’t let in' : 'You left the meeting'}</h1>
           {leftWhy && <p className="muted" role="status" style={{ margin: 0 }}>{leftWhy}</p>}
           <div className="row">{!/removed you/.test(leftWhy) && <button type="button" className="btn primary" onClick={() => { setLeftWhy(''); setLocal(null); setPhase('lobby'); openDevices().then(setLocal); }}>Rejoin</button>}
-            <button type="button" className="btn" onClick={() => navigate('/meet')}>Back to Meet</button></div></div>
+            {!guest && <button type="button" className="btn" onClick={() => navigate('/meet')}>Back to Meet</button>}</div></div>
       </div>
     );
   }
@@ -213,9 +219,15 @@ export default function MeetRoom() {
             {info?.title && <p className="muted" style={{ margin: 0 }}>Ready to join?</p>}
             <p style={{ margin: 0 }}>{info ? whoIsHere(names) : 'Checking who’s here…'}</p>
             {local?.error && <p className="muted small" style={{ margin: 0 }}>{local.error}</p>}
-            {full ? <p className="error">This meeting is full ({info.max} people).</p> : <div><button type="button" className="btn primary" disabled={!info || !local} onClick={join}>Join now</button></div>}
+            {guest && <>
+              {info?.company && <p className="muted small" style={{ margin: 0 }}>A meeting at {info.company}. You’re joining as a guest: someone in the meeting lets you in.</p>}
+              <label className="stack" style={{ gap: 4 }}><span className="small">Your name</span>
+                <input value={guestName} onChange={(e) => setGuestName(e.target.value)} maxLength={60} autoComplete="name" placeholder="So people know who you are" /></label>
+            </>}
+            {full ? <p className="error">This meeting is full ({info.max} people).</p> : <div><button type="button" className="btn primary" disabled={!info || !local || (guest && !guestName.trim())} onClick={join}>{guest ? 'Ask to join' : 'Join now'}</button></div>}
             <p className="muted small" style={{ margin: 0 }}>Code: <strong>{code}</strong> · <button type="button" className="link-btn small" onClick={() => copyLink(code, toast)}>Copy link</button></p>
-            <div><button type="button" className="link-btn small" onClick={() => navigate('/meet')}>Back</button></div>
+            {guest ? <p className="muted small" style={{ margin: 0 }}>Have an account here? <button type="button" className="link-btn small" onClick={onSignIn}>Sign in</button></p>
+              : <div><button type="button" className="link-btn small" onClick={() => navigate('/meet')}>Back</button></div>}
           </div>
         </div>
       </div>
@@ -223,6 +235,15 @@ export default function MeetRoom() {
   }
 
   const m = mesh.current;
+  if (m?.waiting) {
+    return (
+      <div className="meet-page meet-center">
+        <div className="meet-card stack" role="status"><h1>Asking to join…</h1>
+          <p className="muted" style={{ margin: 0 }}>You’ll join {info?.title ? `“${info.title}”` : 'the meeting'} as soon as someone in it lets you in.</p>
+          <div><button type="button" className="btn" onClick={leave}>Cancel</button></div></div>
+      </div>
+    );
+  }
   const peers = m ? [...m.peers.values()] : [];
   const sharing = m?.state.screen;
   const tiles = [{ id: 'me', me: true, name: `${user.name} (you)`, userId: user.id, state: m?.state || {}, stream: sharing ? m.screen : local?.stream },
@@ -238,6 +259,11 @@ export default function MeetRoom() {
   return (
     <div className="meet-page meet-call">
       {tiles.some((t) => t.state.rec) && <div className="meet-rec-banner" role="status">🔴 {tiles.filter((t) => t.state.rec).map((t) => (t.me ? 'You are' : `${t.name} is`)).join(', ')} recording this meeting</div>}
+      {m.mayAdmit && m.knocking.length > 0 && <div className="meet-knock" role="region" aria-label="Waiting to join">
+        {m.knocking.map((g) => <div key={g.id} className="row"><span className="grow"><strong>{g.name}</strong> (guest) wants to join</span>
+          <button type="button" className="btn primary small" aria-label={`Let ${g.name} in`} onClick={() => m.admit(g.id)}>Let in</button>
+          <button type="button" className="btn small" aria-label={`Don’t let ${g.name} in`} onClick={() => m.deny(g.id)}>Don’t let in</button></div>)}
+      </div>}
       <header className="meet-top"><strong className="grow">{info?.title || code}</strong><span className="muted small" aria-label="Time in the meeting">{elapsed(Date.now() - startedAt)}</span></header>
       <div className="meet-body">
         <div ref={gridRef} className="meet-grid" style={{ gridTemplateColumns: `repeat(${columnsFor(tiles.length)}, 1fr)` }} aria-label="People in the meeting">
@@ -287,7 +313,7 @@ export default function MeetRoom() {
         <button type="button" className={`meet-btn ${panel === 'chat' ? 'on' : ''}`} aria-label={unread ? `Chat, ${unread} new` : 'Chat'} onClick={() => { setPanel(panel === 'chat' ? null : 'chat'); setUnread(0); }}>💬{unread > 0 && <span className="nav-badge">{unread}</span>}</button>
         <button type="button" className={`meet-btn ${panel === 'polls' ? 'on' : ''}`} aria-label={toVote ? `Polls, ${toVote} to answer` : 'Polls'} onClick={() => setPanel(panel === 'polls' ? null : 'polls')}>📊{toVote > 0 && <span className="nav-badge">{toVote}</span>}</button>
         <button type="button" className={`meet-btn ${panel === 'people' ? 'on' : ''}`} aria-label="People" onClick={() => setPanel(panel === 'people' ? null : 'people')}>👥</button>
-        <button type="button" className={`meet-btn ${m.state.rec ? 'on rec' : ''}`} disabled={saving} aria-pressed={!!m.state.rec} aria-label={saving ? 'Saving the recording' : m.state.rec ? 'Stop recording' : 'Record the meeting'} title={m.state.rec ? 'Stop and save it to your Drive' : 'Record the meeting (saved to your Drive)'} onClick={m.state.rec ? stopRecording : startRecording}>{saving ? '…' : '⏺'}</button>
+        {!guest && <button type="button" className={`meet-btn ${m.state.rec ? 'on rec' : ''}`} disabled={saving} aria-pressed={!!m.state.rec} aria-label={saving ? 'Saving the recording' : m.state.rec ? 'Stop recording' : 'Record the meeting'} title={m.state.rec ? 'Stop and save it to your Drive' : 'Record the meeting (saved to your Drive)'} onClick={m.state.rec ? stopRecording : startRecording}>{saving ? '…' : '⏺'}</button>}
         <button type="button" className="meet-btn" aria-label="Copy meeting link" onClick={() => copyLink(code, toast)}>🔗</button>
         <button type="button" className="meet-btn leave" aria-label="Leave the meeting" onClick={leave}>Leave</button>
       </footer>
