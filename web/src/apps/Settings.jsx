@@ -61,6 +61,7 @@ export default function Settings() {
       <ViewHistory />
       <ReadReceipts />
       <QuietHours />
+      <MorningSummary />
       <YourData />
     </div>
   );
@@ -194,6 +195,39 @@ function Appearance() {
 
 /** A second time zone beside the hours in Calendar. */
 /** Whether owners and editors see when you open their files. */
+/** The morning summary email: on at an hour of your choosing, in this browser's time zone. */
+function MorningSummary() {
+  const toast = useToast();
+  const [d, setD] = useState(null);
+  const [preview, setPreview] = useState(null);
+  useEffect(() => { get('/users/me/digest').then(setD).catch(() => {}); }, []);
+  if (!d) return null;
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const save = async (hour) => {
+    const before = d.hour;
+    setD({ ...d, hour });
+    try { await put('/users/me/digest', { hour, tz }); toast(hour === null ? 'No more morning summaries' : `You'll get a summary each day at ${hour}:00`); } catch (e) { setD({ ...d, hour: before }); toast(e.message, 'error'); }
+  };
+  return (
+    <section className="card stack" aria-labelledby="ms-h">
+      <h2 id="ms-h">Morning summary</h2>
+      {!d.mail ? <p className="muted small" style={{ margin: 0 }}>Needs email on this server.</p> : <>
+        <label className="check"><input type="checkbox" checked={d.hour !== null} onChange={(e) => save(e.target.checked ? 7 : null)} /> Email me a summary of my day</label>
+        {d.hour !== null && (
+          <label className="row small">at <select aria-label="Summary time" value={d.hour} onChange={(e) => save(Number(e.target.value))}>
+            {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{String(h).padStart(2, '0')}:00</option>)}
+          </select> <span className="muted">({tz})</span></label>
+        )}
+        <p className="muted small" style={{ margin: 0 }}>Today's events, tasks due or overdue, and how many chat messages are waiting, from your own mailbox to your inbox.</p>
+      </>}
+      <div className="row">
+        <button type="button" className="btn small" onClick={async () => { try { const r = await post('/users/me/digest/send', { preview: !d.mail }); setPreview(r.text); if (r.sent) toast('Sent to your inbox'); } catch (e) { toast(e.message, 'error'); } }}>{d.mail ? 'Send me one now' : 'Show what it would say'}</button>
+      </div>
+      {preview && <pre className="digest-preview" aria-label="Summary preview">{preview}</pre>}
+    </section>
+  );
+}
+
 /** Quiet hours: notifications pause by themselves outside your working hours. */
 function QuietHours() {
   const toast = useToast();

@@ -4344,3 +4344,36 @@ test('calendar feeds: subscribe by address; private addresses refused; events re
     assert.equal((await owner('GET', `/api/events?from=${from}&to=${to}`)).body.filter((e) => e.role === 'feed').length, 0);
   } finally { delete process.env.CALENDAR_FEEDS_ALLOW_PRIVATE; srv.close(); }
 });
+
+test('morning summary: today\'s events, tasks due and unread chat; off without email', async () => {
+  const { localNow, digestFor } = await import('../src/digest.js');
+  assert.deepEqual(localNow(Date.UTC(2026, 10, 8, 23, 30), 'Asia/Tokyo'), { date: '2026-11-09', hour: 8 });
+  const dee = client();
+  const made = await owner('POST', '/api/users', { local: 'digest', domain: 'acme.com', name: 'Dana Digest', password: 'password123' });
+  await login(dee, 'digest@acme.com');
+  assert.equal((await dee('PUT', '/api/users/me/digest', { hour: 7, tz: 'UTC' })).status, 400, 'needs email on the server');
+  assert.equal((await dee('PUT', '/api/users/me/digest', { hour: null, tz: 'Europe/London' })).status, 200);
+  const now = Date.now();
+  const today = new Date(now).toISOString().slice(0, 10);
+  const startToday = Date.parse(`${today}T00:00:00Z`);
+  await dee('POST', '/api/events', { title: 'Standup', start: startToday + 10 * 36e5, end: startToday + 10.5 * 36e5 });
+  await dee('POST', '/api/events', { title: 'Weekly review', start: startToday - 7 * 864e5 + 15 * 36e5, end: startToday - 7 * 864e5 + 16 * 36e5, rrule: { freq: 'weekly' } });
+  await dee('POST', '/api/events', { title: 'Tomorrow thing', start: startToday + 864e5 + 10 * 36e5, end: startToday + 864e5 + 11 * 36e5 });
+  const { lists } = (await dee('GET', '/api/tasks/lists')).body;
+  await dee('POST', `/api/tasks/lists/${lists[0].id}/tasks`, { title: 'Send invoice', due: today });
+  await dee('POST', `/api/tasks/lists/${lists[0].id}/tasks`, { title: 'Old thing', due: '2020-01-01' });
+  await dee('POST', `/api/tasks/lists/${lists[0].id}/tasks`, { title: 'Later', due: '2099-01-01' });
+  await dee('PUT', '/api/users/me/digest', { hour: null, tz: 'UTC' });
+  const d = digestFor(made.body.id, now);
+  assert.equal(d.events, 2);
+  assert.match(d.text, /10:00–10:30 {2}Standup/);
+  assert.match(d.text, /15:00–16:00 {2}Weekly review/);
+  assert.doesNotMatch(d.text, /Tomorrow thing/);
+  assert.equal(d.tasks, 2);
+  assert.match(d.text, /Overdue \(2020-01-01\) {2}Old thing/);
+  assert.match(d.text, /Today {2}Send invoice/);
+  assert.doesNotMatch(d.text, /Later/);
+  const preview = (await dee('POST', '/api/users/me/digest/send', {})).body;
+  assert.equal(preview.sent, false);
+  assert.equal(preview.subject, d.subject);
+});

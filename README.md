@@ -808,6 +808,8 @@ The bell at the top right collects what needs you: being **@mentioned** in Chat 
 **Pause notifications** (account menu, top right: for 30 minutes, 1 or 2 hours, or until 9:00 tomorrow) stops the pop-up notes and desktop notifications for new mail, mentions, event reminders and tasks until then. Everything still arrives in the bell and the apps. 🔕 by the bell shows it's on (click to resume), and colleagues see 🔕 by your name in Chat.
 
 **Quiet hours** (Settings → Quiet hours) pause notifications by themselves outside your working hours (set in Calendar → Working hours): pop-up notes and desktop notifications wait until your next working time, colleagues see 🔕 by your name, and everything still arrives in the bell. The 🔕 by the bell then says *Quiet hours until …* and leads to Settings.
+
+**Morning summary** (Settings → Morning summary, when this server has email): an email each day at the hour you choose (in your time zone) with today's events (repeating ones included; ones you declined left out, unanswered invitations marked), the tasks due today or overdue, and how many chat messages are waiting. It comes from your own mailbox to your inbox. **Send me one now** shows it and sends it straight away.
 ## Branding
 
 In **Admin → Company settings → Branding**, a company's admins can upload a **logo** (PNG, JPEG or WebP, up to 1 MB; SVG isn't accepted, as it can carry scripts) and pick a **colour**. Everyone in the company then sees the logo in the top bar and the colour on buttons, highlights and links. The sign-in page shows the logo and colour when Workspace is opened at an address on one of the company's domains, such as `workspace.acme.com` (set up the address in DNS and your reverse proxy); other addresses show the plain Workspace sign-in.

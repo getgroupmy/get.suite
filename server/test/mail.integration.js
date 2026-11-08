@@ -1288,3 +1288,18 @@ test('forms: people get a copy of their answers by email, from the form\'s owner
   assert.match(full.text, /Best chair: Blue\s+Why: Comfy/);
   assert.match(full.text, /To change your answers: http.*\/f\/.*\?edit=/);
 });
+
+test('morning summary: sent once a day after the chosen hour, from the person to themselves', async () => {
+  const { sendDueDigests } = await import('../src/digest.js');
+  assert.equal((await olivia('PUT', '/api/users/me/digest', { hour: 0, tz: 'UTC' })).status, 200);
+  const n = await sendDueDigests();
+  assert.ok(n >= 1);
+  assert.equal(await sendDueDigests(), 0, 'once a day');
+  const m = await eventually(async () => (await inbox(olivia)).find((x) => /^Your day: /.test(x.subject)));
+  assert.equal(m.from.address, 'olivia@acme.com');
+  const full = (await olivia('GET', `/api/mail/messages/${m.uid}?folder=INBOX`)).body;
+  assert.match(full.text, /Good morning, Olivia\./);
+  const now = (await olivia('POST', '/api/users/me/digest/send', {})).body;
+  assert.equal(now.sent, true, '"Send me one now" works any time');
+  await olivia('PUT', '/api/users/me/digest', { hour: null, tz: 'UTC' });
+});

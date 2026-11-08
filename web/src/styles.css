@@ -1892,3 +1892,4 @@ tr.shortcut-row.broken .name-text { color: var(--muted, #777); font-style: itali
 .cal-feed-list { list-style: none; margin: 0; padding: 0 4px 0 12px; }
 .cal-feed-list li { gap: 6px; }
 .cal-feed-dot { display: inline-block; width: 10px; height: 10px; border-radius: 3px; flex: none; }
+.digest-preview { white-space: pre-wrap; font-size: 13px; background: var(--surface-2); border-radius: 8px; padding: 10px; margin: 0; }

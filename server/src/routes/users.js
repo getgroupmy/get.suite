@@ -1,4 +1,7 @@
 import { syncCompanyGroupAliases } from '../groups.js';
+import { mailEnabled } from '../mail/config.js';
+import { digestFor, sendDigest } from '../digest.js';
+import { zoneOrUtc } from '../ics.js';
 import { disable as disableTwoFactor } from '../twofactor.js';
 import { audit } from '../audit.js';
 import express, { Router } from 'express';
@@ -222,6 +225,23 @@ export default function userRoutes() {
     const best = Math.max(until > Date.now() ? until : 0, focus || 0, quiet || 0);
     res.json({ paused_until: best || null, focus: !!focus && focus >= Math.max(until || 0, quiet || 0), quiet: !!quiet && quiet === best && quiet > (until || 0) && quiet > (focus || 0) });
   });
+  // The morning summary email: { hour: 0–23 or null (off), tz }; and one now ({ preview } without email).
+  r.get('/me/digest', (req, res) => {
+    const u = q('SELECT digest_hour, digest_tz FROM users WHERE id = ?').get(req.user.id);
+    res.json({ hour: u.digest_hour, tz: u.digest_tz, mail: mailEnabled() });
+  });
+  r.put('/me/digest', (req, res) => {
+    const hour = req.body?.hour === null || req.body?.hour === undefined || req.body?.hour === '' ? null : Number(req.body.hour);
+    if (hour !== null && (!Number.isInteger(hour) || hour < 0 || hour > 23)) throw bad('Pick an hour from 0 to 23');
+    if (hour !== null && !mailEnabled()) throw bad('Email is off on this server, so summaries can’t be sent');
+    q('UPDATE users SET digest_hour = ?, digest_tz = ? WHERE id = ?').run(hour, zoneOrUtc(String(req.body?.tz || 'UTC')), req.user.id);
+    res.json({ hour });
+  });
+  r.post('/me/digest/send', async (req, res) => {
+    if (req.body?.preview || !mailEnabled()) return res.json({ sent: false, ...digestFor(req.user.id) });
+    res.json({ sent: true, ...(await sendDigest(req.user.id)) });
+  });
+
   // Quiet hours: pause notifications outside your working hours (set in Calendar → Working hours).
   r.get('/me/quiet-hours', (req, res) => {
     const h = hoursOf(req.user.id);
