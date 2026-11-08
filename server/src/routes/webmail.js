@@ -307,6 +307,17 @@ export default function webmailRoutes() {
 
   r.use((req, res, next) => (mailEnabled() ? next() : next(new HttpError(503, 'Email is not set up on this server'))));
 
+  // Unread mail in the Inbox of each shared mailbox you're in (for the Mailbox picker): [{ id, unseen }].
+  r.get('/shared-unread', async (req, res) => {
+    const out = [];
+    for (const mb of sharedMailboxesFor(req.user)) {
+      const as = { ...req.user, username: mb.address, email: mb.address, name: mb.name, shared_mailbox: mb.id };
+      try { out.push({ id: mb.id, unseen: ((await withFolder(as, 'INBOX', (c) => c.search({ seen: false }, { uid: true }))) || []).length }); }
+      catch { out.push({ id: mb.id, unseen: null }); } // not reachable just now
+    }
+    res.json(out);
+  });
+
   // A shared mailbox (x-mailbox header, or ?mailbox= for links): for members, the mail actions below work
   // on it instead of their own mailbox (reading, moving, flags, folders, drafts and sending as it). Things
   // kept per person (filters, labels, signatures, snoozing, scheduled sending…) stay with their own mail.

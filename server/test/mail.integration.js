@@ -1480,6 +1480,8 @@ test('shared mailbox: its members read it and answer as it; nobody signs in to i
   const as = { headers: { 'x-mailbox': mb } };
   const got = await eventually(async () => (await bob('GET', '/api/mail/messages?folder=INBOX', undefined, as)).body.messages?.find((m) => m.subject === 'My order is late'), 20000);
   assert.ok(!(await inbox(bob)).some((m) => m.subject === 'My order is late'), 'not in Bob’s own inbox');
+  assert.deepEqual((await bob('GET', '/api/mail/shared-unread')).body, [{ id: mb, unseen: 1 }], 'its unread count, for the picker');
+  assert.deepEqual((await olivia('GET', '/api/mail/shared-unread')).body, [], 'only yours');
   assert.ok((await bob('GET', '/api/mail/status')).body.shared.some((x) => x.address === 'support@acme.com'));
   // Not a member: not even its existence.
   assert.equal((await olivia('GET', '/api/mail/messages?folder=INBOX', undefined, as)).status, 404);

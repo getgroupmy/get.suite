@@ -44,6 +44,15 @@ export default function MailPage() {
   const [sharedList, setSharedList] = useState([]);
   const [mailbox, setMailbox] = useState(() => { try { return sessionStorage.getItem('nw-mailbox') || null; } catch { return null; } });
   useEffect(() => { get('/mail/status').then((s) => setSharedList(s.shared || [])).catch(() => {}); }, []);
+  // How much is unread in each shared mailbox's Inbox (checked every minute while Mail is open).
+  const [sharedUnread, setSharedUnread] = useState({});
+  useEffect(() => {
+    if (!sharedList.length) return undefined;
+    const load = () => get('/mail/shared-unread').then((l) => setSharedUnread(Object.fromEntries(l.map((x) => [x.id, x.unseen])))).catch(() => {});
+    load();
+    const t = setInterval(load, 60e3);
+    return () => clearInterval(t);
+  }, [sharedList.length, mailbox]);
   const known = sharedList.find((b) => b.id === mailbox) || null;
   setSharedMailbox(known ? known.id : null); // before Mail's requests below
   useEffect(() => () => setSharedMailbox(null), []); // leaving Mail: back to your own
@@ -52,7 +61,7 @@ export default function MailPage() {
     setMailbox(id);
     navigate('/mail');
   };
-  return <Mail key={known?.id || 'own'} shared={known} sharedList={sharedList} onPickMailbox={pick} />;
+  return <Mail key={known?.id || 'own'} shared={known} sharedList={sharedList.map((b) => ({ ...b, unseen: sharedUnread[b.id] || 0 }))} onPickMailbox={pick} />;
 }
 
 function Mail({ shared = null, sharedList = [], onPickMailbox }) {
@@ -231,10 +240,11 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
           <label className="field mailbox-pick"><span className="small muted">Mailbox</span>
             <select aria-label="Mailbox" value={shared?.id || ''} onChange={(e) => onPickMailbox(e.target.value || null)}>
               <option value="">Your mail</option>
-              {sharedList.map((b) => <option key={b.id} value={b.id}>{b.name} ({b.address})</option>)}
+              {sharedList.map((b) => <option key={b.id} value={b.id}>{b.name} ({b.address}){b.unseen ? ` · ${b.unseen} unread` : ''}</option>)}
             </select>
           </label>
         )}
+        {!shared && sharedList.some((b) => b.unseen) && <div className="small muted shared-unread" role="status">{sharedList.filter((b) => b.unseen).map((b) => `${b.name}: ${b.unseen} unread`).join(' · ')}</div>}
         {shared && <div className="banner small" role="status">Shared mailbox <strong>{shared.address}</strong>: replies go out from it.</div>}
         <button className="btn new-btn" onClick={() => setCompose(shared ? {} : withSignature({}, 'new'))}><Icon name="edit" /> Compose</button>
         {folders.map((f) => {

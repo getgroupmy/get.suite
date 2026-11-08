@@ -17,7 +17,7 @@ export const idleMs = () => Date.now() - lastInput;
 let sharedMailbox = null;
 export const setSharedMailbox = (id) => { sharedMailbox = id || null; };
 export const currentSharedMailbox = () => sharedMailbox;
-const OWN_MAIL = /^\/mail\/(status|labels|signatures|templates|unread)(\?|$)/; // (the unread badge counts your own mail)
+const OWN_MAIL = /^\/mail\/(status|labels|signatures|templates|unread|shared-unread)(\?|$)/; // (the unread badge counts your own mail)
 /** ?mailbox=… for links (attachments) when a shared mailbox is open. */
 export const mailboxParam = () => (sharedMailbox ? `&mailbox=${encodeURIComponent(sharedMailbox)}` : '');
 
