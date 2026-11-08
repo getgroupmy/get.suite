@@ -1888,3 +1888,7 @@ tr.shortcut-row.broken .name-text { color: var(--muted, #777); font-style: itali
 .dup-files { list-style: none; margin: 4px 0 0 12px; padding: 0; display: flex; flex-direction: column; gap: 2px; }
 .dup-files li { gap: 8px; }
 .guest-note { font-style: italic; }
+.cal-feeds { margin-top: 8px; }
+.cal-feed-list { list-style: none; margin: 0; padding: 0 4px 0 12px; }
+.cal-feed-list li { gap: 6px; }
+.cal-feed-dot { display: inline-block; width: 10px; height: 10px; border-radius: 3px; flex: none; }

@@ -274,6 +274,7 @@ export default function Calendar() {
           </select>
         )}
         {others.length > 0 && view !== 'week' && view !== 'day' && <p className="muted small" style={{ margin: '4px 12px' }}>Their busy times (and rooms' bookings) show in the week and day views.</p>}
+        <Feeds onChanged={load} />
         <label className="check cal-show-tasks"><input type="checkbox" checked={showTasks} onChange={(e) => setShowTasks(e.target.checked)} /> Show tasks with due dates</label>
         <label className="check cal-show-tasks"><input type="checkbox" checked={showBirthdays} onChange={(e) => setShowBirthdays(e.target.checked)} /> Show contacts’ birthdays</label>
         <form className="cal-search" role="search" onSubmit={(e) => { e.preventDefault(); runSearch(new FormData(e.currentTarget).get('q')); }}>
@@ -354,7 +355,7 @@ export default function Calendar() {
       {insightsOpen && <TimeInsights anchor={anchor} onClose={() => setInsightsOpen(false)} />}
       {otherFor && <PromptModal title="Working elsewhere" label="Where?" confirm="Save" onClose={() => setOtherFor(null)}
         onSubmit={async (where) => { await setLocation(otherFor, 'other', where.trim() || null); setOtherFor(null); }} />}
-      {editing && (editing.role === 'guest'
+      {editing && (editing.role === 'feed' ? <FeedEventDialog event={editing} onClose={() => setEditing(null)} /> : editing.role === 'guest'
         ? <InvitationDialog event={editing} onClose={() => setEditing(null)} onAnswered={() => { setEditing(null); load(); }} />
         : <EventDialog key={editing.id ? `${editing.id}:${editing.start}` : `new:${editing.duplicateOf || ''}:${editing.start}`} event={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }}
           onDuplicate={(copy) => { setEditing(copy); toast('Duplicated: change what you need, then Save'); }} />)}
@@ -1185,13 +1186,75 @@ async function applyEdit(event, body, which) {
  * all-day row); `timeHandler` moves by days and 15-minute steps, or changes the end ('resize').
  * Escape cancels. A drag never counts as a click.
  */
+/** Calendars you subscribe to by address: listed in the sidebar, with refresh and remove; add one by its address. */
+function Feeds({ onChanged }) {
+  const toast = useToast();
+  const [feeds, setFeeds] = useState([]);
+  const [adding, setAdding] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const loadFeeds = useCallback(() => get('/events/feeds').then(setFeeds).catch(() => {}), []);
+  useEffect(() => { loadFeeds(); }, [loadFeeds]);
+  const changed = () => { loadFeeds(); onChanged(); };
+  const add = async (e) => {
+    e.preventDefault();
+    const f = new FormData(e.currentTarget);
+    setBusy(true);
+    try { const r = await post('/events/feeds', { url: f.get('url'), name: f.get('name') }); toast(`Added “${r.name}” (${r.events} event${r.events === 1 ? '' : 's'})`); setAdding(false); changed(); }
+    catch (err) { toast(err.message, 'error'); } finally { setBusy(false); }
+  };
+  return (
+    <div className="cal-feeds">
+      <div className="row"><span className="muted small grow" style={{ padding: '0 12px' }}>Other calendars</span>
+        <button type="button" className="icon-btn" aria-label="Subscribe to a calendar" title="Add a calendar by its address (public holidays, a published team calendar…)" onClick={() => setAdding(true)}><Icon name="plus" size={16} /></button></div>
+      {feeds.length > 0 && (
+        <ul className="cal-feed-list" aria-label="Subscribed calendars">
+          {feeds.map((f) => (
+            <li key={f.id} className="row" title={f.error ? `Couldn't update: ${f.error}` : `Updated ${f.fetched_at ? new Date(f.fetched_at).toLocaleString() : 'never'}`}>
+              <span className="cal-feed-dot" style={{ background: f.color }} aria-hidden="true" />
+              <span className="grow ellipsis small">{f.name}{f.error ? ' ⚠' : ''}</span>
+              <Menu trigger={(p) => <button type="button" className="icon-btn" aria-label={`Options for ${f.name}`} {...p}><Icon name="more" size={16} /></button>} items={[
+                { label: 'Update now', icon: 'restore', onClick: async () => { try { const r = await post(`/events/feeds/${f.id}/refresh`); toast(r.error ? `Couldn't update: ${r.error}` : `${r.name} is up to date`, r.error ? 'error' : 'info'); changed(); } catch (e) { toast(e.message, 'error'); } } },
+                { label: 'Unsubscribe', icon: 'trash', danger: true, onClick: async () => { try { await del(`/events/feeds/${f.id}`); toast(`Removed ${f.name}`); changed(); } catch (e) { toast(e.message, 'error'); } } },
+              ]} />
+            </li>
+          ))}
+        </ul>
+      )}
+      {adding && (
+        <Modal title="Subscribe to a calendar" onClose={() => setAdding(false)}>
+          <form className="stack" onSubmit={add}>
+            <p className="muted small" style={{ margin: 0 }}>Paste the address of a calendar published on the web (ending in .ics, or starting with webcal://), like your country's public holidays or a team's calendar. Its events show in your calendar, read-only, and are updated every few hours.</p>
+            <label className="field"><span>Calendar address</span><input name="url" type="url" required placeholder="https://example.com/holidays.ics" autoFocus /></label>
+            <label className="field"><span>Name (optional)</span><input name="name" maxLength={100} placeholder="Taken from the calendar if left empty" /></label>
+            <div className="row end"><button type="button" className="btn" onClick={() => setAdding(false)}>Cancel</button><button className="btn primary" disabled={busy}>{busy ? 'Adding…' : 'Subscribe'}</button></div>
+          </form>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+/** An event from a subscribed calendar: shown, not changed. */
+function FeedEventDialog({ event, onClose }) {
+  return (
+    <Modal title={event.title} onClose={onClose}>
+      <div className="stack">
+        <p style={{ margin: 0 }}>{whenLabel(event)}{event.rrule && <><br /><span className="muted small">{describeRule(event.rrule, event.seriesStart ?? event.start)}</span></>}</p>
+        {event.location && <p style={{ margin: 0 }}><span className="muted">Where:</span> {event.location}</p>}
+        {event.description && <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{event.description}</p>}
+        <p className="muted small" style={{ margin: 0 }}><span className="cal-feed-dot" style={{ background: event.color }} aria-hidden="true" /> From {event.feed?.name}, a calendar you subscribe to (it can't be changed here).</p>
+      </div>
+    </Modal>
+  );
+}
+
 function useEventDrag(onDrop) {
   const [drag, setDrag] = useState(null); // { ev, start, end }
   const dragged = useRef(false);
   const begin = (e, ev, compute) => {
     if (e.button !== 0 || e.pointerType === 'touch') return;
     // Someone else's event doesn't move, but the gesture still isn't a click on the grid below.
-    const locked = ev.role === 'guest';
+    const locked = ev.role === 'guest' || ev.role === 'feed';
     e.stopPropagation();
     const x0 = e.clientX, y0 = e.clientY;
     let cur = null;

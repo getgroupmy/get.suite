@@ -4301,3 +4301,46 @@ test('chat: a company can keep messages for a while only', async () => {
   assert.equal(purgeOldChat(), 0);
   assert.equal(q("SELECT COUNT(*) AS n FROM messages m JOIN channels c ON c.id = m.channel_id JOIN orgs o ON o.id = c.org_id WHERE o.name = 'Acme'").get().n, acme);
 });
+
+test('calendar feeds: subscribe by address; private addresses refused; events read-only in the calendar', async () => {
+  const { feedUrl, parseFeed } = await import('../src/calfeeds.js');
+  assert.equal(feedUrl('webcal://example.com/h.ics'), 'https://example.com/h.ics');
+  assert.throws(() => feedUrl('ftp://x/y.ics'), /https:\/\//);
+  assert.throws(() => feedUrl('https://me:pw@x.com/y.ics'), /name and password/);
+  const ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'X-WR-CALNAME:Public holidays',
+    'BEGIN:VEVENT', 'UID:h1@test', 'DTSTART;VALUE=DATE:20261225', 'DTEND;VALUE=DATE:20261226', 'SUMMARY:Christmas Day', 'END:VEVENT',
+    'BEGIN:VEVENT', 'UID:h2@test', 'DTSTART:20260105T090000Z', 'DTEND:20260105T093000Z', 'RRULE:FREQ=WEEKLY;BYDAY=MO', 'SUMMARY:Team standup', 'END:VEVENT',
+    'END:VCALENDAR'].join('\r\n');
+  assert.equal(parseFeed(ics).name, 'Public holidays');
+  assert.equal(parseFeed(ics).events.length, 2);
+  const srv = http.createServer((req, res) => {
+    if (req.url === '/move') { res.writeHead(302, { location: '/holidays.ics' }); return res.end(); }
+    if (req.url === '/holidays.ics') { res.writeHead(200, { 'content-type': 'text/calendar' }); return res.end(ics); }
+    res.writeHead(404); res.end();
+  });
+  await new Promise((r) => srv.listen(0, r));
+  const url = `http://127.0.0.1:${srv.address().port}`;
+  try {
+    const refused = await owner('POST', '/api/events/feeds', { url: `${url}/holidays.ics` });
+    assert.equal(refused.status, 400);
+    assert.match(refused.body.error, /private network/);
+    process.env.CALENDAR_FEEDS_ALLOW_PRIVATE = '1';
+    assert.equal((await owner('POST', '/api/events/feeds', { url: `${url}/nothing` })).status, 400);
+    const f = await owner('POST', '/api/events/feeds', { url: `${url}/move`, color: '#33b679' });
+    assert.equal(f.status, 201, JSON.stringify(f.body));
+    assert.equal(f.body.name, 'Public holidays');
+    assert.equal(f.body.events, 2);
+    const from = Date.UTC(2026, 11, 20), to = Date.UTC(2026, 11, 31);
+    const evs = (await owner('GET', `/api/events?from=${from}&to=${to}`)).body.filter((e) => e.role === 'feed');
+    assert.deepEqual(evs.map((e) => e.title).sort(), ['Christmas Day', 'Team standup']);
+    const xmas = evs.find((e) => e.title === 'Christmas Day');
+    assert.equal(xmas.color, '#33b679');
+    assert.equal(xmas.feed.name, 'Public holidays');
+    assert.equal(evs.find((e) => e.title === 'Team standup').rrule.freq, 'weekly');
+    assert.equal((await bob('GET', `/api/events?from=${from}&to=${to}`)).body.filter?.((e) => e.role === 'feed').length ?? 0, 0, 'only for who subscribed');
+    assert.equal((await owner('PATCH', `/api/events/feeds/${f.body.id}`, { name: 'Holidays' })).body.name, 'Holidays');
+    assert.equal((await owner('POST', `/api/events/feeds/${f.body.id}/refresh`)).body.error, null);
+    assert.equal((await owner('DELETE', `/api/events/feeds/${f.body.id}`)).status, 200);
+    assert.equal((await owner('GET', `/api/events?from=${from}&to=${to}`)).body.filter((e) => e.role === 'feed').length, 0);
+  } finally { delete process.env.CALENDAR_FEEDS_ALLOW_PRIVATE; srv.close(); }
+});

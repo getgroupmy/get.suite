@@ -43,7 +43,7 @@ export function isPrivateAddress(ip) {
 }
 
 /** A DNS lookup that refuses private addresses (used for the connection itself, so a name can't change in between). */
-function publicLookup(hostname, options, callback) {
+export function publicLookup(hostname, options, callback) {
   dns.lookup(hostname, { ...options, all: false }, (err, address, family) => {
     if (err) return callback(err);
     if (isPrivateAddress(address)) return callback(Object.assign(new Error('That address is on a private network'), { code: 'EPRIVATE' }));

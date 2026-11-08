@@ -16,6 +16,7 @@ import { importCalendar, exportCalendar } from '../calimport.js';
 import { roleFor, audienceFor } from '../access.js';
 import { recordActivity } from '../fileactivity.js';
 import { meetingFor } from '../meet.js';
+import { addFeed, feedsOf, feedOf, feedEvents, refreshFeed } from '../calfeeds.js';
 import { insertFile } from './files.js';
 import { notesContent, notesName } from '../meetingnotes.js';
 
@@ -361,13 +362,37 @@ export default function calendarRoutes() {
                     AND (e.end >= ? OR (e.rrule IS NOT NULL AND (e.repeat_until IS NULL OR e.repeat_until >= ?))) ORDER BY e.start`)
       .all(req.user.id, req.user.id, to, from, from);
     const reminders = remindersFor(req.user.id, rows.map((row) => row.id));
-    res.json(rows.map((row) => {
+    res.json([...rows.map((row) => {
       const mine = row.owner_id === req.user.id;
       const { my_status, my_note, organizer_name, organizer_email, ...ev } = row;
       const out = outEvent(ev);
       return { ...out, attachments: attachmentsFor(out, req.user.id), role: mine ? 'organizer' : 'guest', guests: allGuests(row.id), rooms: roomsOf(row.id), reminders: reminders.get(row.id) || [],
         ...(mine ? {} : { my_status, my_note: my_note || null, organizer: { name: organizer_name, email: organizer_email } }) };
-    }));
+    }), ...(req.query.feeds === '0' ? [] : feedEvents(req.user.id, from, to))]);
+  });
+
+  // Calendars you subscribe to by address (read-only): list, add { url, name?, color? }, refresh, rename/recolour, remove.
+  r.get('/feeds', (req, res) => res.json(feedsOf(req.user.id)));
+  r.post('/feeds', async (req, res) => res.status(201).json(await addFeed(req.user.id, req.body || {})));
+  r.post('/feeds/:id/refresh', async (req, res) => {
+    const f = q('SELECT * FROM calendar_feeds WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
+    if (!f) throw notFound();
+    await refreshFeed(f);
+    res.json(feedOf(f.id));
+  });
+  r.patch('/feeds/:id', (req, res) => {
+    const f = q('SELECT id FROM calendar_feeds WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
+    if (!f) throw notFound();
+    if (req.body?.name !== undefined) q('UPDATE calendar_feeds SET name = ? WHERE id = ?').run(String(req.body.name).trim().slice(0, 100) || 'Calendar', f.id);
+    if (req.body?.color !== undefined) { if (!/^#[0-9a-f]{6}$/i.test(req.body.color)) throw bad('Pick a colour'); q('UPDATE calendar_feeds SET color = ? WHERE id = ?').run(req.body.color, f.id); }
+    touch([req.user.id]);
+    res.json(feedOf(f.id));
+  });
+  r.delete('/feeds/:id', (req, res) => {
+    const n = q('DELETE FROM calendar_feeds WHERE id = ? AND user_id = ?').run(req.params.id, req.user.id).changes;
+    if (!n) throw notFound();
+    touch([req.user.id]);
+    res.json({ ok: true });
   });
 
   // Search your events (and invitations) by words in the title, place or notes. Each result is

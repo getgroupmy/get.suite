@@ -17,6 +17,7 @@ import { startShareExpiry } from './shareexpiry.js';
 import { purgeAudit } from './audit.js';
 import { emptyOldTrash } from './routes/files.js';
 import { purgeOldChat } from './routes/chat.js';
+import { refreshDueFeeds } from './calfeeds.js';
 
 const port = Number(process.env.PORT || 8080);
 const app = createApp();
@@ -33,6 +34,7 @@ setInterval(() => emptyOldTrash(), 3600e3).unref(); // Drive: trash older than e
 setTimeout(() => emptyOldTrash(), 60e3).unref();
 setInterval(() => { try { purgeOldChat(); } catch (e) { console.error('[chat] keeping:', e.message); } }, 3600e3).unref(); // Chat: messages older than each company keeps them
 setTimeout(() => { try { purgeOldChat(); } catch {} }, 90e3).unref();
+setInterval(() => refreshDueFeeds().catch((e) => console.error('[calendar] feeds:', e.message)), 15 * 60e3).unref(); // subscribed calendars, every few hours each
 if (mailEnabled()) { startPolicyServer(); startMailNotifications(); startRsvpWatcher(); }
 
 startIndexer(); // search inside files: indexes what changed, in the background
