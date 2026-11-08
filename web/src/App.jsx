@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, NavLink, useNavigate } from 'react-router';
-import { get, post, startLive, stopLive, onLive } from './api.js';
+import { get, post, patch, startLive, stopLive, onLive } from './api.js';
 import { useMailStatus } from './mailStatus.js';
 import { useMailNotifications } from './mailNotify.js';
 import { useEventReminders } from './eventReminders.js';
@@ -95,7 +95,7 @@ function Workspace() {
   return (
     <AuthCtx.Provider value={auth}>
       <ToastProvider>
-        {!state.user ? <Login needsSetup={state.needsSetup} /> : state.user.needs_two_factor ? <RequiredTwoStep /> : (
+        {!state.user ? <Login needsSetup={state.needsSetup} /> : state.user.needs_two_factor ? <RequiredTwoStep /> : state.user.must_change_password ? <RequiredPassword /> : (
           <BrowserRouter>
             <ShortcutsHelp />
             <Routes>
@@ -126,6 +126,37 @@ function RequiredTwoStep() {
         <TwoStep onEnabled={async () => setUser((await get('/auth/me')).user)} />
         <button type="button" className="link-btn" onClick={logout}>Sign out</button>
       </div>
+    </div>
+  );
+}
+
+/** An admin set this person's password: they choose their own before anything else. */
+function RequiredPassword() {
+  const { user, setUser, logout } = useAuth();
+  const [f, setF] = useState({ current: '', next: '', again: '' });
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const submit = async (e) => {
+    e.preventDefault();
+    setError('');
+    if (f.next !== f.again) { setError('The new passwords don’t match'); return; }
+    setBusy(true);
+    try { setUser((await patch('/auth/me', { currentPassword: f.current, newPassword: f.next })).user); }
+    catch (err) { setError(err.message); setBusy(false); }
+  };
+  return (
+    <div className="auth-page">
+      <form className="auth-card stack" onSubmit={submit}>
+        <div className="brand big"><span className="brand-mark">W</span><span className="brand-text">Workspace</span></div>
+        <h1>Choose your own password</h1>
+        <p className="muted">Welcome, {user.name}. Your password was set by an administrator; choose one only you know to continue.</p>
+        <label className="field"><span>Password you were given</span><input type="password" autoComplete="current-password" required value={f.current} onChange={(e) => setF({ ...f, current: e.target.value })} /></label>
+        <label className="field"><span>New password</span><input type="password" autoComplete="new-password" required minLength={8} value={f.next} onChange={(e) => setF({ ...f, next: e.target.value })} /></label>
+        <label className="field"><span>New password again</span><input type="password" autoComplete="new-password" required minLength={8} value={f.again} onChange={(e) => setF({ ...f, again: e.target.value })} /></label>
+        {error && <p className="error" role="alert">{error}</p>}
+        <button className="btn primary" disabled={busy}>{busy ? 'Saving…' : 'Save and continue'}</button>
+        <button type="button" className="link-btn" onClick={logout}>Sign out</button>
+      </form>
     </div>
   );
 }

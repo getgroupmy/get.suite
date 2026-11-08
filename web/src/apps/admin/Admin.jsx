@@ -263,7 +263,7 @@ function ImportTable({ rows, result = false }) {
 }
 
 function NewUser({ orgId, domains, onClose, onSaved }) {
-  const [f, setF] = useState({ name: '', local: '', domain: domains[0] || '', password: '', is_admin: false });
+  const [f, setF] = useState({ name: '', local: '', domain: domains[0] || '', password: '', is_admin: false, must_change_password: true });
   const [error, setError] = useState('');
   const set = (k) => (e) => setF({ ...f, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value });
   return (
@@ -281,6 +281,7 @@ function NewUser({ orgId, domains, onClose, onSaved }) {
           </span>
         </label>
         <label className="field"><span>Temporary password</span><input required minLength={8} type="text" autoComplete="off" value={f.password} onChange={set('password')} /></label>
+        <label className="check"><input type="checkbox" checked={f.must_change_password} onChange={(e) => setF({ ...f, must_change_password: e.target.checked })} /> Ask them to choose their own password when they first sign in</label>
         <label className="check"><input type="checkbox" checked={f.is_admin} onChange={set('is_admin')} /> Company administrator</label>
         {error && <p className="error">{error}</p>}
         <div className="row end"><button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn primary">Create user</button></div>
@@ -319,6 +320,8 @@ function ChangeAddress({ user, domains, onClose, onSaved }) {
 }
 
 function ResetPassword({ user, onClose }) {
+  const { user: me } = useAuth();
+  const [mustChange, setMustChange] = useState(true);
   const toast = useToast();
   const [pw, setPw] = useState('');
   const [error, setError] = useState('');
@@ -326,10 +329,11 @@ function ResetPassword({ user, onClose }) {
     <Modal title={`Reset password for ${user.name}`} onClose={onClose}>
       <form className="stack" onSubmit={async (e) => {
         e.preventDefault();
-        try { await patch(`/users/${user.id}`, { password: pw }); toast('Password reset. The user was signed out everywhere.'); onClose(); }
+        try { await patch(`/users/${user.id}`, { password: pw, must_change_password: mustChange }); toast('Password reset. The user was signed out everywhere.'); onClose(); }
         catch (err) { setError(err.message); }
       }}>
         <label className="field"><span>New password</span><input autoFocus required minLength={8} type="text" autoComplete="off" value={pw} onChange={(e) => setPw(e.target.value)} /></label>
+        {user.id !== me?.id && <label className="check"><input type="checkbox" checked={mustChange} onChange={(e) => setMustChange(e.target.checked)} /> Ask them to choose their own password when they next sign in</label>}
         {error && <p className="error">{error}</p>}
         <div className="row end"><button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn primary">Reset password</button></div>
       </form>

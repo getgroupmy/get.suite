@@ -324,7 +324,8 @@ export default function userRoutes() {
     const name = str(req.body.name, { required: true, name: 'Name', max: 100 });
     validatePassword(req.body.password);
     const id = newUserRow({ orgId, username, name, password: req.body.password, is_admin: !!req.body.is_admin });
-    audit(req, 'user.create', { org: orgId, target: username, details: { admin: !!req.body.is_admin } });
+    if (req.body.must_change_password) q('UPDATE users SET must_change_password = 1 WHERE id = ?').run(id);
+    audit(req, 'user.create', { org: orgId, target: username, details: { admin: !!req.body.is_admin, must_change_password: !!req.body.must_change_password } });
     res.status(201).json({ id, username });
   });
 
@@ -350,6 +351,7 @@ export default function userRoutes() {
       const password = p.password || readablePassword();
       try {
         const id = newUserRow({ orgId, username: p.email, name: p.name, password, is_admin: p.admin });
+        q("UPDATE users SET must_change_password = 1 WHERE id = ?").run(id); // made-up password: they choose their own at first sign-in
         saveProfile(typeof id === 'string' ? id : q('SELECT id FROM users WHERE username = ?').get(p.email).id, given(p));
         audit(req, 'user.create', { org: orgId, target: p.email, details: { admin: p.admin, imported: true } });
         rows.push({ line: p.line, name: p.name, email: p.email, admin: p.admin, created: true, ...(made && { password }) });
@@ -422,7 +424,7 @@ export default function userRoutes() {
     }
     if (password !== undefined) {
       validatePassword(password);
-      q('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(password), u.id);
+      q('UPDATE users SET password_hash = ?, must_change_password = ? WHERE id = ?').run(hashPassword(password), req.body.must_change_password && !self ? 1 : 0, u.id);
       setMailPassword(u.id, password);
       // A reset (e.g. after a break-in) also removes the mail-app password, so only the new password works anywhere.
       q('UPDATE users SET mail_app_hash = NULL, mail_app_created = NULL WHERE id = ?').run(u.id);

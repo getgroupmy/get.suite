@@ -4377,3 +4377,26 @@ test('morning summary: today\'s events, tasks due and unread chat; off without e
   assert.equal(preview.sent, false);
   assert.equal(preview.subject, d.subject);
 });
+
+test('must change password: an admin-set password works only to choose a new one', async () => {
+  const nu = client();
+  const made = await owner('POST', '/api/users', { local: 'newbie', domain: 'acme.com', name: 'Nat New', password: 'temporary123', must_change_password: true });
+  assert.equal(made.status, 201);
+  await login(nu, 'newbie@acme.com', 'temporary123');
+  assert.equal((await nu('GET', '/api/auth/me')).body.user.must_change_password, true);
+  const blocked = await nu('GET', '/api/files?view=mine');
+  assert.equal(blocked.status, 403);
+  assert.match(blocked.body.error, /Choose your own password/);
+  assert.equal((await nu('PATCH', '/api/auth/me', { currentPassword: 'temporary123', newPassword: 'temporary123' })).status, 400, 'not the same one');
+  const ok = await nu('PATCH', '/api/auth/me', { currentPassword: 'temporary123', newPassword: 'mine-and-secret' });
+  assert.equal(ok.status, 200);
+  assert.equal(ok.body.user.must_change_password, false);
+  assert.equal((await nu('GET', '/api/files?view=mine')).status, 200);
+  // A reset by an admin can ask for it again; without asking it doesn't.
+  await owner('PATCH', `/api/users/${made.body.id}`, { password: 'reset-pass-1', must_change_password: true });
+  await login(nu, 'newbie@acme.com', 'reset-pass-1');
+  assert.equal((await nu('GET', '/api/files?view=mine')).status, 403);
+  await owner('PATCH', `/api/users/${made.body.id}`, { password: 'reset-pass-2' });
+  await login(nu, 'newbie@acme.com', 'reset-pass-2');
+  assert.equal((await nu('GET', '/api/files?view=mine')).status, 200);
+});

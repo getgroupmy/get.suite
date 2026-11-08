@@ -7,6 +7,8 @@ import { freshMailHome } from './tenancy.js';
 
 // Where Workspace opens for each person: 'drive' (the default) or 'home'.
 if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'start_page')) q('ALTER TABLE users ADD COLUMN start_page TEXT').run();
+// Set by an admin (new account, or a reset): the person must choose their own password before using Workspace.
+if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'must_change_password')) q('ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0').run();
 // A second time zone shown beside the hours in Calendar (e.g. 'Asia/Tokyo'), or null.
 if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'second_tz')) q('ALTER TABLE users ADD COLUMN second_tz TEXT').run();
 
@@ -59,7 +61,7 @@ export function destroySession(token) {
 
 export function userFromToken(token) {
   if (!token) return null;
-  const row = q(`SELECT u.id, u.username, u.name, u.is_admin, u.is_super, u.disabled, u.org_id, u.start_page, u.second_tz,
+  const row = q(`SELECT u.id, u.username, u.name, u.is_admin, u.is_super, u.disabled, u.org_id, u.start_page, u.second_tz, u.must_change_password,
                         o.name AS org_name, o.allow_external, o.allow_links, o.require_2fa, o.accent AS org_accent, o.logo AS org_logo, s.expires_at, s.last_seen,
                         (SELECT enabled FROM two_factor t WHERE t.user_id = u.id) AS tf_enabled
                  FROM sessions s JOIN users u ON u.id = s.user_id JOIN orgs o ON o.id = u.org_id
@@ -82,6 +84,8 @@ export function userFromToken(token) {
     org_accent: row.org_accent || null, org_logo: row.org_logo ? `/api/public/brand/logo/${row.org_id}?v=${row.org_logo.slice(0, 8)}` : null,
     // The company requires two-step verification and this person hasn't set it up yet.
     needs_two_factor: !!row.require_2fa && !row.tf_enabled,
+    // An admin set their password: they choose their own before anything else.
+    must_change_password: !!row.must_change_password,
     start_page: row.start_page === 'home' ? 'home' : 'drive',
     second_tz: row.second_tz || null,
   };
@@ -104,6 +108,10 @@ export function requireAuth(req, res, next) {
   // Until required two-step verification is set up, only the account's own endpoints work.
   if (user.needs_two_factor && !req.originalUrl.startsWith('/api/auth/')) {
     return next(new HttpError(403, 'Your company requires two-step verification. Set it up to continue.'));
+  }
+  // Likewise until they've chosen their own password (when an admin asked them to).
+  if (user.must_change_password && !req.originalUrl.startsWith('/api/auth/')) {
+    return next(new HttpError(403, 'Choose your own password to continue.'));
   }
   req.user = user;
   next();

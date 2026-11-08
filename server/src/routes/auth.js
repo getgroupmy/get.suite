@@ -102,7 +102,8 @@ export default function authRoutes({ secureCookies }) {
       const row = q('SELECT password_hash FROM users WHERE id = ?').get(req.user.id);
       if (!verifyPassword(String(currentPassword || ''), row.password_hash)) throw bad('Current password is wrong');
       validatePassword(newPassword);
-      q('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(newPassword), req.user.id);
+      if (req.user.must_change_password && verifyPassword(newPassword, row.password_hash)) throw bad('Choose a new password, not the one you were given');
+      q('UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?').run(hashPassword(newPassword), req.user.id);
       setMailPassword(req.user.id, newPassword);
       // Sign out every other session for this user.
       q('DELETE FROM sessions WHERE user_id = ? AND token != ?').run(req.user.id, tokenFromReq(req));
