@@ -19,6 +19,7 @@ import { meetingFor } from '../meet.js';
 import { addFeed, feedsOf, feedOf, feedEvents, refreshFeed } from '../calfeeds.js';
 import { insertFile } from './files.js';
 import { notesContent, notesName } from '../meetingnotes.js';
+import { setVacation, vacationForAway } from '../mail/vacation.js';
 
 q(`CREATE TABLE IF NOT EXISTS event_guests (
   event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
@@ -309,6 +310,18 @@ function declineAway(organizer, ev, added) {
 }
 
 /** Tell everyone involved to refresh (organizer's other tabs, and guests). */
+/**
+ * An Out of office event saved with { auto_reply: true }: the email auto-reply is turned on for the
+ * same days, with its description as the message. Returns what was set, or null.
+ */
+function awayReply(req, ev, tz) {
+  if (!req.body?.auto_reply || ev.kind !== 'ooo') return null;
+  if (!mailEnabled()) throw bad('Email is off on this server, so there is no auto-reply to turn on');
+  const v = vacationForAway(ev, tz || req.body.tz);
+  setVacation(req.user.id, v);
+  return v;
+}
+
 export const touch = (ids) => sendTo([...new Set(ids)], { type: 'events-changed' });
 
 /**
@@ -465,7 +478,8 @@ export default function calendarRoutes() {
     if (req.body.rooms !== undefined && !SPECIAL.includes(e.kind)) setRooms(req.user, q('SELECT * FROM events WHERE id = ?').get(id), req.body.rooms);
     touch([req.user.id]); // your other tabs (and their reminders) see it too
     const made = outEvent(q('SELECT * FROM events WHERE id = ?').get(id));
-    res.status(201).json({ ...made, attachments: attachmentsFor(made, req.user.id), role: 'organizer', guests: allGuests(id), rooms: roomsOf(id), reminders });
+    const autoReply = awayReply(req, made, tz);
+    res.status(201).json({ ...made, attachments: attachmentsFor(made, req.user.id), role: 'organizer', guests: allGuests(id), rooms: roomsOf(id), reminders, ...(autoReply && { auto_reply: autoReply }) });
   });
 
   r.patch('/:id', (req, res) => {
@@ -510,7 +524,8 @@ export default function calendarRoutes() {
     // Rooms: as asked, or (when the time changed) the same ones checked again.
     if (req.body.rooms !== undefined || (changed && roomsOf(e.id).length)) setRooms(req.user, q('SELECT * FROM events WHERE id = ?').get(e.id), req.body.rooms ?? roomsOf(e.id).map((x) => x.id));
     if (attachments && !guests) shareAttachments(req.user, e.id);
-    res.json({ ...saved, attachments: attachmentsFor(saved, req.user.id), role: 'organizer', guests: allGuests(e.id), rooms: roomsOf(e.id), reminders: remindersOf(e.id, req.user.id) });
+    const autoReply = awayReply(req, saved, saved.tz);
+    res.json({ ...saved, attachments: attachmentsFor(saved, req.user.id), role: 'organizer', guests: allGuests(e.id), rooms: roomsOf(e.id), reminders: remindersOf(e.id, req.user.id), ...(autoReply && { auto_reply: autoReply }) });
   });
 
   // Meeting notes: the organizer makes a document for the event (or gets the one already made). It's

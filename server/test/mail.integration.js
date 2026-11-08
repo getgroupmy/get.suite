@@ -1404,3 +1404,15 @@ test('emptying Trash and Junk by themselves: the company setting reaches Dovecot
   await olivia('PATCH', '/api/orgs/current', { mail_trash_days: 0, mail_junk_days: 0 });
   await eventually(async () => !/autoexpunge/.test(fields()), 30000);
 });
+
+test('out of office in Calendar can turn on the email auto-reply for the same days', async () => {
+  const day = 864e5, base = Date.UTC(2026, 11, 21);
+  const r = await olivia('POST', '/api/events', { title: 'Out of office', kind: 'ooo', start: base, end: base + 3 * day - 1, all_day: 1, description: 'Back on the 24th.', auto_reply: true, tz: 'UTC' });
+  assert.equal(r.status, 201);
+  assert.deepEqual([r.body.auto_reply.start_date, r.body.auto_reply.end_date], ['2026-12-21', '2026-12-23']);
+  const v = (await olivia('GET', '/api/mail/vacation')).body;
+  assert.equal(v.enabled, true); assert.equal(v.body, 'Back on the 24th.');
+  assert.equal(v.start_date, '2026-12-21'); assert.equal(v.end_date, '2026-12-23');
+  assert.equal(v.scheduled, true);
+  await olivia('PUT', '/api/mail/vacation', { enabled: false, subject: 'Out of office', body: '' });
+});

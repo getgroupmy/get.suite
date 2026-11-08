@@ -28,6 +28,7 @@ import { receiptRequest, buildReceipt } from '../mail/receipt.js';
 import { mimeFor } from '../util.js';
 import { calendarPartOf, readInvite, replyIcs, eventForInvite, saveInvite, readReply } from '../mail/invite.js';
 import { recordReply } from '../mail/invitereply.js';
+import { setVacation } from '../mail/vacation.js';
 import { touch as eventsChanged } from './calendar.js';
 
 const PAGE = 50;
@@ -345,11 +346,7 @@ export default function webmailRoutes() {
     const subject = str(b.subject, { max: 200, name: 'Subject' }) || 'Out of office';
     const body = typeof b.body === 'string' ? b.body.slice(0, 5000) : '';
     if (b.enabled && !body.trim()) throw bad('Write the message people should receive');
-    q(`INSERT INTO vacations (user_id, enabled, subject, body, start_date, end_date, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(user_id) DO UPDATE SET enabled = excluded.enabled, subject = excluded.subject, body = excluded.body,
-         start_date = excluded.start_date, end_date = excluded.end_date, updated_at = excluded.updated_at`)
-      .run(req.user.id, b.enabled ? 1 : 0, subject, body, start, end, Date.now());
-    scheduleMailConfig();
+    setVacation(req.user.id, { enabled: !!b.enabled, subject, body, start_date: start, end_date: end });
     res.json(vacationOf(req.user.id));
   });
 

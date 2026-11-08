@@ -978,13 +978,9 @@ function EventDialog({ event, onClose, onSaved, onDuplicate }) {
   async function save(which) {
     const { start, end, body } = read();
     if (end < start) return setError('The event ends before it starts');
-    await applyEdit(event, body, which);
-    if (f.ooo && autoReply) {
-      try {
-        await put('/mail/vacation', { enabled: true, subject: f.title || 'Out of office', body: f.description.trim() || `I'm out of the office until ${f.endDate} and will reply when I'm back.`, start_date: f.startDate, end_date: f.endDate });
-        toast(`Email auto-reply on from ${f.startDate} to ${f.endDate}`);
-      } catch (e) { toast(`The event is saved, but the auto-reply wasn't: ${e.message}`, 'error'); }
-    }
+    // With the auto-reply, the server turns it on for the event's days, along with saving it.
+    await applyEdit(event, f.ooo && autoReply ? { ...body, auto_reply: true } : body, which);
+    if (f.ooo && autoReply) toast(`Email auto-reply on from ${f.startDate} to ${f.endDate}`);
     onSaved();
   }
   async function remove(which) {

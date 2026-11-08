@@ -4852,3 +4852,12 @@ test('company setting: empty Trash and Junk after so many days', async () => {
   assert.equal((await kay('PATCH', '/api/orgs/current', { mail_junk_days: 3 })).status, 400);
   await kay('PATCH', '/api/orgs/current', { mail_trash_days: 0, mail_junk_days: 0 });
 });
+
+test('out of office with an email auto-reply: refused when this server has no email', async () => {
+  const kay = client(); await login(kay, 'kay@keepco.com');
+  const t = Date.now() + 864e5;
+  const r = await kay('POST', '/api/events', { title: 'Out of office', kind: 'ooo', start: t, end: t + 864e5, all_day: 1, auto_reply: true, tz: 'UTC' });
+  assert.equal(r.status, 400);
+  assert.match(r.body.error, /Email is off/);
+  assert.equal((await kay('POST', '/api/events', { title: 'Out of office', kind: 'ooo', start: t, end: t + 864e5, all_day: 1, tz: 'UTC' })).status, 201, 'fine without it');
+});
