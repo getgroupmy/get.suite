@@ -164,6 +164,7 @@ function PublishDialog({ file, onClose }) {
           <div className="row"><input className="grow" readOnly value={url} aria-label="Published address" onFocus={(e) => e.target.select()} />
             <button type="button" className="btn" onClick={async () => { try { await navigator.clipboard.writeText(url); toast('Address copied'); } catch { toast(url); } }}>Copy</button>
             <a className="btn" href={url} target="_blank" rel="noreferrer">Open</a></div>
+          <EmbedCode url={url} />
           <p className="muted small" style={{ margin: 0 }}>Opened {state.views} time{state.views === 1 ? '' : 's'}.</p>
           <div><button type="button" className="btn danger" onClick={() => turn(false)}>Stop publishing</button></div>
         </div>
@@ -174,5 +175,18 @@ function PublishDialog({ file, onClose }) {
         </div>
       )}
     </Modal>
+  );
+}
+
+/** HTML to put a public page (a published file, a form) into another website, with Copy. */
+export function EmbedCode({ url, height = 600 }) {
+  const toast = useToast();
+  const code = `<iframe src="${url}?embed=1" width="100%" height="${height}" style="border:0" loading="lazy"></iframe>`;
+  return (
+    <details className="embed-code">
+      <summary className="small">Embed in a website</summary>
+      <div className="row"><textarea className="grow" readOnly rows={2} value={code} aria-label="Embed code" onFocus={(e) => e.target.select()} />
+        <button type="button" className="btn small" onClick={async () => { try { await navigator.clipboard.writeText(code); toast('Embed code copied'); } catch { toast(code); } }}>Copy</button></div>
+    </details>
   );
 }

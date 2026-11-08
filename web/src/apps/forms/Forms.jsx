@@ -6,6 +6,7 @@ import { get, post, put, del, onLive, formatDate } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
 import { ConfirmModal, Empty, Menu, Modal, useToast } from '../../components/ui.jsx';
 import { Question } from './FormRespond.jsx';
+import { EmbedCode } from '../editorCommon.jsx';
 import { useAuth } from '../../App.jsx';
 import { TYPES, HAS_OPTIONS, GRIDS, prefillParam, newId, retype, nextOption, summarize, percent } from './formmath.js';
 import { CHECKS, OPS, KIND_NAMES, cleanCheck } from './formcheck.js';
@@ -63,6 +64,7 @@ function FormEditor({ id }) {
   const [status, setStatus] = useState('');
   const [confirm, setConfirm] = useState(false);
   const [prefill, setPrefill] = useState(false); // the "Get pre-filled link" window
+  const [embedOpen, setEmbedOpen] = useState(false);
   const [responses, setResponses] = useState(null);
   const pending = useRef(null); // edits not yet saved
 
@@ -120,6 +122,12 @@ function FormEditor({ id }) {
   return (
     <div className="page form-editor">
       {prefill && <PrefillModal form={form} onClose={() => setPrefill(false)} />}
+      {embedOpen && (
+        <Modal title="Embed in a website" onClose={() => setEmbedOpen(false)} footer={<button type="button" className="btn" onClick={() => setEmbedOpen(false)}>Close</button>}>
+          <p className="muted small" style={{ marginTop: 0 }}>Put this form on your own web page: paste the code into the page's HTML. {form.audience === 'org' ? 'This form is for people at your company, who need to be signed in; for a page anyone visits, choose “Anyone with the link” in Settings.' : 'Answers arrive here as usual.'}</p>
+          <EmbedCode url={linkOf(form.token)} height={800} />
+        </Modal>
+      )}
       <div className="page-head">
         <button type="button" className="icon-btn" aria-label="All forms" onClick={() => navigate('/forms')}><Icon name="back" /></button>
         <input className="form-title-input grow" aria-label="Form title" value={form.title} maxLength={200} onChange={(e) => edit({ title: e.target.value })} />
@@ -128,6 +136,7 @@ function FormEditor({ id }) {
         <a className="btn" href={`/f/${form.token}`} target="_blank" rel="noreferrer">Preview</a>
         <Menu trigger={(p) => <button className="icon-btn" aria-label="More" {...p}><Icon name="more" /></button>} items={[
           { label: 'Get pre-filled link', icon: 'link', onClick: async () => { await flush(); setPrefill(true); } },
+          { label: 'Embed in a website', icon: 'link', onClick: () => setEmbedOpen(true) },
           { label: 'Make a copy', icon: 'copy', onClick: copyForm },
           form.role === 'owner' ? { label: 'Delete form', icon: 'trash', onClick: () => setConfirm(true) }
             : { label: 'Leave this form', icon: 'logout', onClick: async () => { await flush(); await del(`/forms/${id}/editors/${user.id}`); navigate('/forms'); } },

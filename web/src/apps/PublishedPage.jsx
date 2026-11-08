@@ -24,9 +24,10 @@ export default function PublishedPage({ token }) {
     return () => clearInterval(t);
   }, [token]);
   const base = `/api/public/pub/${encodeURIComponent(token)}`;
+  const embedded = new URLSearchParams(window.location.search).has('embed'); // inside another website: no heading
   return (
-    <div className="pub-page">
-      <header className="pub-head">
+    <div className={`pub-page ${embedded ? 'embedded' : ''}`}>
+      <header className="pub-head" hidden={embedded}>
         <div className="grow"><h1>{data?.name || 'Published'}</h1>{data && <div className="muted small">Published by {data.org_name} · updated {new Date(data.updated_at).toLocaleString()}</div>}</div>
       </header>
       <main className="pub-main">

@@ -2030,3 +2030,5 @@ tr.shortcut-row.broken .name-text { color: var(--muted, #777); font-style: itali
 .pub-sheet { border-collapse: collapse; font-size: .9rem; background: var(--surface); }
 .pub-sheet th, .pub-sheet td { border: 1px solid var(--border); padding: 3px 8px; white-space: nowrap; }
 .pub-sheet th { background: var(--hover, #f1f3f4); font-weight: normal; color: var(--muted); }
+.embed-code summary { cursor: pointer; } .embed-code textarea { font-family: monospace; font-size: .8rem; } .pub-page.embedded .pub-main { padding-top: 8px; }
+.pub-head[hidden], .link-head[hidden] { display: none; }

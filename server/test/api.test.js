@@ -5550,3 +5550,24 @@ test('mail: plus addresses into folders is a Sieve rule that only files into fol
   assert.ok(!/fileinto :create "\$\{/.test(s), 'never creates a folder');
   assert.ok(!userSieve({ username: 'k@x.com', vacation: { subject: 's', body: 'b', name: 'K', addresses: ['k@x.com'] } }).includes('subaddress'));
 });
+
+test('embedding: public forms and published pages may be framed by other sites; everything else only by Workspace', async () => {
+  // An app serving the web pages (index.html), as in production.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nw-web-'));
+  fs.writeFileSync(path.join(dir, 'index.html'), '<!doctype html><title>Workspace</title>');
+  const { createApp } = await import('../src/app.js');
+  const web = http.createServer(createApp({ publicDir: dir }));
+  await new Promise((r) => web.listen(0, '127.0.0.1', r));
+  const site = `http://127.0.0.1:${web.address().port}`;
+  try {
+  for (const p of ['/pub/abcDEF123', '/f/someToken', '/f/someToken/']) {
+    const r = await fetch(`${site}${p}`);
+    assert.equal(r.headers.get('content-security-policy'), 'frame-ancestors *', p);
+    assert.equal(r.headers.get('x-frame-options'), null, p);
+  }
+  for (const p of ['/drive', '/pub/a/b', '/f/x/edit', '/api/public/pub/abc']) {
+    const r = await fetch(`${site}${p}`);
+    assert.equal(r.headers.get('x-frame-options'), 'SAMEORIGIN', p);
+  }
+  } finally { web.close(); }
+});

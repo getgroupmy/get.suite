@@ -127,8 +127,8 @@ export default function FormRespond({ token, onSignIn }) {
     );
   }
   return (
-    <div className="link-page">
-      <header className="link-head"><div className="brand"><span className="brand-mark">W</span><span className="brand-text">{form?.org_name || 'Workspace'}</span></div></header>
+    <div className={`link-page ${new URLSearchParams(window.location.search).has('embed') ? 'embedded' : ''}`}>
+      <header className="link-head" hidden={new URLSearchParams(window.location.search).has('embed')}><div className="brand"><span className="brand-mark">W</span><span className="brand-text">{form?.org_name || 'Workspace'}</span></div></header>
       <main className="link-main">{body}</main>
     </div>
   );

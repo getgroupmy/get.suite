@@ -37,6 +37,9 @@ import { writeMailConfig, mailEnabled } from './mail/config.js';
 import { q } from './db.js';
 import { ensureGeneralChannel } from './tenancy.js';
 
+/** Pages that may be shown inside other websites: a form for anyone (/f/…) and a published page (/pub/…). */
+export const EMBEDDABLE = /^\/(f|pub)\/[A-Za-z0-9_-]+\/?$/;
+
 export function createApp({
   publicDir = process.env.PUBLIC_DIR,
   secureCookies = { true: true, false: false }[process.env.SECURE_COOKIES] ?? 'auto',
@@ -52,7 +55,10 @@ export function createApp({
   app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'same-origin');
-    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+    // Public forms and published pages may be embedded in other websites (an iframe on the company's own
+    // site); everything else only in Workspace itself.
+    if (req.method === 'GET' && EMBEDDABLE.test(req.path)) res.setHeader('Content-Security-Policy', 'frame-ancestors *');
+    else res.setHeader('X-Frame-Options', 'SAMEORIGIN');
     next();
   });
 
