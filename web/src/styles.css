@@ -2003,3 +2003,10 @@ tr.shortcut-row.broken .name-text { color: var(--muted, #777); font-style: itali
 .slide-number { position: absolute; right: 2.5%; bottom: 3%; font-size: 2.2cqw; opacity: .7; pointer-events: none; }
 .presenter.lasering { cursor: none; }
 .laser-dot { position: fixed; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%; background: #ff1744; box-shadow: 0 0 12px 4px rgba(255, 23, 68, .7); pointer-events: none; z-index: 10; }
+
+/* Forms: rating questions */
+.form-rating { display: flex; gap: 4px; }
+.form-rating-pick { cursor: pointer; font-size: 1.8rem; line-height: 1; color: var(--muted); filter: grayscale(1); opacity: .5; }
+.form-rating-pick.on { color: #f9ab00; filter: none; opacity: 1; }
+.form-rating-pick input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.form-rating-pick:focus-within { outline: 2px solid var(--accent, #1a73e8); border-radius: 4px; }

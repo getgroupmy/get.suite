@@ -5360,3 +5360,23 @@ test('presentations: import slides from another one, with their pictures copied 
   await owner('PATCH', `/api/files/${src.id}`, { no_download: true });
   assert.equal((await imp('POST', `/api/files/${mine.id}/import-slides`, { from: src.id, slides: ['s1'] })).status, 403);
 });
+
+test('forms: time and rating questions', async () => {
+  const { cleanQuestions, checkAnswers } = await import('../src/routes/forms.js');
+  const qs = cleanQuestions([
+    { id: 't', type: 'time', title: 'Arrival', required: true },
+    { id: 'r', type: 'rating', title: 'How was it?', max: 7, icon: 'heart' },
+    { id: 'r2', type: 'rating', title: 'Default', max: 99, icon: 'skull' },
+  ]);
+  assert.deepEqual([qs[1].max, qs[1].icon, qs[2].max, qs[2].icon], [7, 'heart', 10, 'star']);
+  assert.deepEqual(checkAnswers(qs, { t: '09:30', r: 6 }), { t: '09:30', r: 6 });
+  assert.throws(() => checkAnswers(qs, { t: '25:00' }), /enter a time/);
+  assert.throws(() => checkAnswers(qs, { t: '9:30am' }), /enter a time/);
+  assert.throws(() => checkAnswers(qs, {}), /needs an answer/);
+  assert.throws(() => checkAnswers(qs, { t: '10:00', r: 8 }), /from 1 to 7/);
+  const { summarize, prefillFrom } = await import('../../web/src/apps/forms/formmath.js');
+  const s = summarize(qs, [{ answers: { t: '09:00', r: 7 } }, { answers: { t: '10:00', r: 4 } }]);
+  assert.equal(s[1].average, 5.5);
+  assert.equal(s[1].bars.length, 7);
+  assert.deepEqual(prefillFrom(qs, JSON.stringify({ t: '08:15', r: 3, r2: 11 })), { t: '08:15', r: 3 });
+});

@@ -61,7 +61,7 @@ for (const [col, type] of [['collect_email', 'INTEGER NOT NULL DEFAULT 0'], ['se
 }
 const MAX_EDITORS = 50;
 
-export const TYPES = ['short', 'paragraph', 'choice', 'checkbox', 'dropdown', 'scale', 'date', 'file', 'grid', 'checkgrid', 'section'];
+export const TYPES = ['short', 'paragraph', 'choice', 'checkbox', 'dropdown', 'scale', 'date', 'time', 'rating', 'file', 'grid', 'checkgrid', 'section'];
 // Grids: rows (the things asked about) by columns (the choices); one choice per row, or several (checkgrid).
 const GRIDS = new Set(['grid', 'checkgrid']);
 const MAX_ROWS = 30, MAX_COLUMNS = 20;
@@ -129,6 +129,10 @@ export function cleanQuestions(list) {
     // Response validation; a rule that isn't finished yet (no number typed) is kept out until it is.
     if (CHECKS[type]) { try { const c = cleanCheck(type, raw?.check); if (c) out.check = c; } catch {} }
     if (type === 'file') out.max_files = Math.min(MAX_FILES, Math.max(1, Math.round(Number(raw?.max_files)) || 1)); // up to this many files
+    if (type === 'rating') { // 3 to 10 stars (or hearts, or thumbs)
+      out.max = Math.min(10, Math.max(3, Math.round(Number(raw?.max)) || 5));
+      out.icon = ['star', 'heart', 'thumb'].includes(raw?.icon) ? raw.icon : 'star';
+    }
     if (type === 'scale') {
       out.max = [5, 10].includes(Number(raw?.max)) ? Number(raw.max) : 5;
       out.low = String(raw?.low ?? '').slice(0, 60);
@@ -225,7 +229,7 @@ export function checkAnswers(questions, answers) {
       if (others.some((x) => x.length > 200)) throw bad(`${name}: that answer is too long`);
       a = [...qu.options.filter((o) => a.includes(o)), ...others]; // the form's order, no repeats; "Other" last
       if (!a.length) a = undefined;
-    } else if (qu.type === 'scale') {
+    } else if (qu.type === 'scale' || qu.type === 'rating') {
       if (a === '' || a == null) a = undefined;
       else {
         a = Number(a);
@@ -235,6 +239,7 @@ export function checkAnswers(questions, answers) {
       a = a == null ? '' : String(a).trim();
       if (WITH_OPTIONS.has(qu.type) && a && !qu.options.includes(a) && !(qu.other && qu.type === 'choice')) throw bad(`${name}: choose from the options`);
       if (qu.type === 'date' && a && !/^\d{4}-\d{2}-\d{2}$/.test(a)) throw bad(`${name}: enter a date`);
+      if (qu.type === 'time' && a && !/^([01]\d|2[0-3]):[0-5]\d$/.test(a)) throw bad(`${name}: enter a time`);
       if (a.length > (qu.type === 'paragraph' ? 5000 : 500)) throw bad(`${name}: that answer is too long`);
       if (!a) a = undefined;
     }

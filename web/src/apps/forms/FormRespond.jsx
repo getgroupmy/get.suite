@@ -147,6 +147,26 @@ export function Question({ q, token, value, onChange, missing }) {
   const cls = `form-fill-q ${missing || problem ? 'missing' : ''}`;
   const label = `${q.title || 'Untitled question'}${q.required ? ' (required)' : ''}`;
   if (q.type === 'file') return <FileQuestion q={q} token={token} value={value || []} onChange={onChange} title={title} help={help} err={err} cls={cls} label={label} />;
+  if (q.type === 'rating') {
+    // Stars (or hearts, or thumbs): pick how many; the ones up to the pick fill in.
+    const glyph = { star: '★', heart: '♥', thumb: '👍' }[q.icon] || '★';
+    const n = Number(value) || 0;
+    return (
+      <fieldset id={`q-${q.id}`} className={cls} aria-label={label}>
+        <legend>{title}</legend>{help}
+        <div className="form-rating" role="radiogroup" aria-label={`${q.title || 'Rating'}: ${n ? `${n} of ${q.max}` : 'not rated'}`}>
+          {Array.from({ length: q.max }, (_, k) => k + 1).map((k) => (
+            <label key={k} className={`form-rating-pick ${k <= n ? 'on' : ''}`} title={`${k} of ${q.max}`}>
+              <input type="radio" name={q.id} value={k} checked={n === k} aria-label={`${k} of ${q.max}`} onChange={() => onChange(k)} />
+              <span aria-hidden="true">{glyph}</span>
+            </label>
+          ))}
+        </div>
+        {!q.required && n > 0 && <button type="button" className="link-btn small" onClick={() => onChange(undefined)}>Clear selection</button>}
+        {err}
+      </fieldset>
+    );
+  }
   if (q.type === 'grid' || q.type === 'checkgrid') {
     const many = q.type === 'checkgrid';
     const v = value || {};
@@ -222,7 +242,7 @@ export function Question({ q, token, value, onChange, missing }) {
           <select aria-label={label} value={value || ''} onChange={(e) => onChange(e.target.value)}>
             <option value="">Choose</option>{order.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
-        ) : <input type={q.type === 'date' ? 'date' : 'text'} inputMode={q.check?.kind === 'number' ? 'decimal' : q.check?.op === 'email' ? 'email' : undefined} maxLength={500} aria-label={label} value={value || ''} onChange={(e) => onChange(e.target.value)} onBlur={() => setTouched(true)} />}
+        ) : <input type={q.type === 'date' ? 'date' : q.type === 'time' ? 'time' : 'text'} inputMode={q.check?.kind === 'number' ? 'decimal' : q.check?.op === 'email' ? 'email' : undefined} maxLength={500} aria-label={label} value={value || ''} onChange={(e) => onChange(e.target.value)} onBlur={() => setTouched(true)} />}
       {err}
     </label>
   );

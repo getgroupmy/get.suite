@@ -302,7 +302,13 @@ function QuestionsTab({ form, edit }) {
           )}
           {form.quiz && <AnswerKey q={q} n={i + 1} onChange={(patch) => change(i, patch)} />}
           {CHECKS[q.type] && <CheckEditor q={q} n={i + 1} onChange={(check) => change(i, { check })} />}
-          {(q.type === 'short' || q.type === 'paragraph' || q.type === 'date') && <p className="muted small form-q-sample">{q.type === 'date' ? 'They pick a date' : q.type === 'short' ? 'Short answer text' : 'Long answer text'}</p>}
+          {q.type === 'rating' && (
+            <div className="row wrap small">
+              <label className="row">Levels <select aria-label={`Levels of question ${i + 1}`} value={q.max} onChange={(e) => change(i, { max: Number(e.target.value) })}>{[3, 4, 5, 6, 7, 8, 9, 10].map((n) => <option key={n} value={n}>{n}</option>)}</select></label>
+              <label className="row">Shown as <select aria-label={`Rating icon of question ${i + 1}`} value={q.icon || 'star'} onChange={(e) => change(i, { icon: e.target.value })}><option value="star">★ Stars</option><option value="heart">♥ Hearts</option><option value="thumb">👍 Thumbs</option></select></label>
+            </div>
+          )}
+          {(q.type === 'short' || q.type === 'paragraph' || q.type === 'date' || q.type === 'time') && <p className="muted small form-q-sample">{q.type === 'date' ? 'They pick a date' : q.type === 'time' ? 'They pick a time' : q.type === 'short' ? 'Short answer text' : 'Long answer text'}</p>}
           <div className="row form-q-foot">
             <label className="check grow"><input type="checkbox" checked={q.required} onChange={(e) => change(i, { required: e.target.checked })} /> Required</label>
             {HAS_OPTIONS.has(q.type) && <label className="check"><input type="checkbox" checked={!!q.shuffle} onChange={(e) => change(i, { shuffle: e.target.checked || undefined })} /> Shuffle option order</label>}

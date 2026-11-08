@@ -2,7 +2,7 @@
 
 export const TYPES = [
   ['short', 'Short answer'], ['paragraph', 'Paragraph'], ['choice', 'Multiple choice'], ['checkbox', 'Tick boxes'],
-  ['dropdown', 'Dropdown'], ['scale', 'Linear scale'], ['date', 'Date'], ['file', 'File upload'],
+  ['dropdown', 'Dropdown'], ['scale', 'Linear scale'], ['rating', 'Rating'], ['date', 'Date'], ['time', 'Time'], ['file', 'File upload'],
   ['grid', 'Multiple choice grid'], ['checkgrid', 'Tick box grid'],
 ];
 export const HAS_OPTIONS = new Set(['choice', 'checkbox', 'dropdown']);
@@ -18,6 +18,7 @@ export function retype(q, type) {
   if (q?.other && (type === 'choice' || type === 'checkbox')) next.other = true;
   if (type === 'scale') Object.assign(next, { max: q?.max || 5, low: q?.low || '', high: q?.high || '' });
   if (type === 'file') next.max_files = q?.max_files || 1;
+  if (type === 'rating') Object.assign(next, { max: q?.type === 'rating' ? q.max : 5, icon: q?.icon || 'star' });
   if (GRIDS.has(type)) Object.assign(next, { rows: q?.rows?.length ? q.rows : ['Row 1'], columns: q?.columns?.length ? q.columns : (q?.options?.length ? q.options : ['Column 1']) });
   return next;
 }
@@ -46,7 +47,8 @@ export function prefillFrom(questions, raw) {
       const l = [...all.filter((x) => q.options.includes(x)), ...(q.other ? all.filter((x) => x && !q.options.includes(x)).slice(0, 1).map((x) => x.slice(0, 200)) : [])];
       if (l.length) out[q.id] = l;
     } else if (HAS_OPTIONS.has(q.type)) { if (q.options.includes(String(v)) || (q.other && q.type === 'choice' && String(v).trim())) out[q.id] = String(v).slice(0, 500); }
-    else if (q.type === 'scale') { const n = Number(v); if (Number.isInteger(n) && n >= 1 && n <= (q.max || 5)) out[q.id] = n; }
+    else if (q.type === 'time') { if (/^([01]\d|2[0-3]):[0-5]\d$/.test(String(v))) out[q.id] = String(v); }
+    else if (q.type === 'scale' || q.type === 'rating') { const n = Number(v); if (Number.isInteger(n) && n >= 1 && n <= (q.max || 5)) out[q.id] = n; }
     else if (GRIDS.has(q.type)) {
       if (typeof v !== 'object' || Array.isArray(v)) continue;
       const g = {};
@@ -79,8 +81,8 @@ export function summarize(questions, responses) {
   return questions.filter((q) => q.type !== 'section').map((q) => {
     const answers = responses.map((r) => r.answers?.[q.id]).filter((a) => a !== undefined && a !== '' && !(Array.isArray(a) && !a.length));
     const out = { id: q.id, title: q.title, type: q.type, answered: answers.length };
-    if (HAS_OPTIONS.has(q.type) || q.type === 'scale') {
-      const keys = q.type === 'scale' ? Array.from({ length: q.max || 5 }, (_, i) => i + 1) : q.options || [];
+    if (HAS_OPTIONS.has(q.type) || q.type === 'scale' || q.type === 'rating') {
+      const keys = q.type === 'scale' || q.type === 'rating' ? Array.from({ length: q.max || 5 }, (_, i) => i + 1) : q.options || [];
       const counts = new Map(keys.map((k) => [String(k), 0]));
       for (const a of answers) for (const v of Array.isArray(a) ? a : [a]) if (counts.has(String(v))) counts.set(String(v), counts.get(String(v)) + 1);
       out.bars = keys.map((k) => ({ label: String(k), count: counts.get(String(k)), share: answers.length ? counts.get(String(k)) / answers.length : 0 }));
@@ -90,7 +92,7 @@ export function summarize(questions, responses) {
         out.bars.push({ label: 'Other', count: typed.length, share: answers.length ? typed.length / answers.length : 0 });
         out.others = typed;
       }
-      if (q.type === 'scale' && answers.length) out.average = Math.round((answers.reduce((s, a) => s + Number(a), 0) / answers.length) * 10) / 10;
+      if ((q.type === 'scale' || q.type === 'rating') && answers.length) out.average = Math.round((answers.reduce((s, a) => s + Number(a), 0) / answers.length) * 10) / 10;
     } else if (GRIDS.has(q.type)) {
       // Per row: how many chose each column.
       out.grid = (q.rows || []).map((row) => {
