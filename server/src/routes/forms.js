@@ -132,6 +132,13 @@ export function cleanQuestions(list) {
     for (const o of qu.options) { const to = raw[o]; if (to === 'submit' || (sectionIds.includes(to) && later.has(to))) g[o] = to; }
     if (Object.keys(g).length) qu.goto = g;
   });
+  // "After this section": a later section or the end.
+  cleaned.forEach((qu, i) => {
+    if (qu.type !== 'section') return;
+    const to = list[i]?.after;
+    const later = cleaned.slice(i + 1).filter((x) => x.type === 'section').map((x) => x.id);
+    if (to === 'submit' || later.includes(to)) qu.after = to;
+  });
   return cleaned;
 }
 

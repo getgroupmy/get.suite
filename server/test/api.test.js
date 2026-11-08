@@ -3608,3 +3608,17 @@ test('forms: sections, and going to a section depending on the answer', async ()
   const table = responseTable({ questions: qs, audience: 'public' }, [{ created_at: 0, answers: { kind: 'No', why: 'Curious' } }]);
   assert.deepEqual(table[0], ['Submitted', 'Are you a customer?', 'Account number', 'Loop?', 'Why are you here?'], 'sections are not columns');
 });
+
+test('forms: after a section, go to a later one or to the end', async () => {
+  const { cleanQuestions, checkAnswers } = await import('../src/routes/forms.js');
+  const qs = cleanQuestions([
+    { id: 'k', type: 'choice', title: 'Coming?', options: ['Yes', 'No'], required: true, goto: { Yes: 'a', No: 'b' } },
+    { id: 'a', type: 'section', title: 'Yes page', after: 'submit' },
+    { id: 'diet', type: 'short', title: 'Diet', required: true },
+    { id: 'b', type: 'section', title: 'No page', after: 'a' },
+    { id: 'why', type: 'short', title: 'Why', required: true },
+  ]);
+  assert.equal(qs[1].after, 'submit'); assert.equal(qs[3].after, undefined, 'not back to an earlier one');
+  assert.deepEqual(checkAnswers(qs, { k: 'Yes', diet: 'Veg' }), { k: 'Yes', diet: 'Veg' }, 'Yes page ends the form: No page not required');
+  assert.deepEqual(checkAnswers(qs, { k: 'No', why: 'Busy', diet: 'x' }), { k: 'No', why: 'Busy' });
+});

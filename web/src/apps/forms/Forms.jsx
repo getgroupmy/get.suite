@@ -183,6 +183,12 @@ function QuestionsTab({ form, edit }) {
           </div>
           <input className="form-q-help" aria-label={`Description of section ${i + 1}`} placeholder="Description (optional)" value={q.help || ''} maxLength={1000} onChange={(e) => change(i, { help: e.target.value })} />
           <p className="muted small" style={{ margin: 0 }}>Starts a new page. Questions below it are on this page, up to the next section.</p>
+          <label className="row small">After this section
+            <select aria-label={`After section ${i + 1}`} value={q.after || ''} onChange={(e) => change(i, { after: e.target.value || undefined })}>
+              <option value="">Continue to the next section</option>
+              {qs.slice(i + 1).filter((x) => x.type === 'section').map((x) => <option key={x.id} value={x.id}>Go to: {x.title || 'Untitled section'}</option>)}
+              <option value="submit">Submit the form</option>
+            </select></label>
           <div className="row form-q-foot">
             <span className="grow" />
             <button type="button" className="icon-btn" aria-label={`Move section ${i + 1} up`} disabled={i === 0} onClick={() => move(i, -1)}>↑</button>

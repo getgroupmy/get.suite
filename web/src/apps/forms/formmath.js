@@ -55,7 +55,7 @@ export const percent = (share) => `${Math.round(share * 100)}%`;
 export function sectionsOf(questions) {
   const out = [{ id: null, title: '', help: '', items: [] }];
   for (const q of questions || []) {
-    if (q.type === 'section') out.push({ id: q.id, title: q.title || '', help: q.help || '', items: [] });
+    if (q.type === 'section') out.push({ id: q.id, title: q.title || '', help: q.help || '', after: q.after || null, items: [] });
     else out[out.length - 1].items.push(q);
   }
   // A form that starts with a section doesn't need an empty first page.
@@ -65,6 +65,10 @@ export function sectionsOf(questions) {
 /** Where to go after page i, given the answers: a page index, or the number of pages (= submit). */
 export function nextPage(pages, i, answers) {
   let next = i + 1;
+  // The section's own "after this section" (a later section, or the end); an answer can still say otherwise.
+  const after = pages[i].after;
+  if (after === 'submit') next = pages.length;
+  else if (after) { const j = pages.findIndex((p) => p.id === after); if (j > i) next = j; }
   for (const q of pages[i].items) {
     const to = q.goto && answers?.[q.id] !== undefined ? q.goto[String(answers[q.id])] : undefined;
     if (!to) continue;
