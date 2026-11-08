@@ -4179,3 +4179,27 @@ test('drive: duplicate files are found by content, whatever they are called', as
   assert.equal((await dup('GET', '/api/files/duplicates')).body.groups[0].files.length, 2);
   assert.equal((await owner('GET', '/api/files/duplicates')).body.groups.some((x) => x.files.some((f) => f.id === a.id)), false);
 });
+
+test('forms: collecting email addresses on forms for anyone with the link', async () => {
+  const { answersText } = await import('../src/routes/forms.js');
+  const qs = [{ id: 'a', type: 'short', title: 'Name' }, { id: 's', type: 'section', title: 'More' }, { id: 'b', type: 'checkbox', title: 'Days', options: ['Mon', 'Tue'] }];
+  assert.equal(answersText(qs, { a: 'Ana', b: ['Mon', 'Tue'] }), 'Name: Ana\n\n— More —\nDays: Mon, Tue');
+  const made = (await owner('POST', '/api/forms', { title: 'Newsletter' })).body;
+  const f = (await owner('PUT', `/api/forms/${made.id}`, { audience: 'public', collect_email: true, send_copy: true, questions: [{ id: 'topic', type: 'short', title: 'Topic' }] })).body;
+  assert.equal(f.collect_email, true);
+  const anon = client();
+  const pub = (await anon('GET', `/api/public/forms/${f.token}`)).body;
+  assert.equal(pub.collect_email, true);
+  assert.equal(pub.send_copy, false, 'no email on this test server, so no copies offered');
+  const bad = await anon('POST', `/api/public/forms/${f.token}`, { answers: { topic: 'AI' } });
+  assert.equal(bad.status, 400);
+  assert.match(bad.body.error, /email/);
+  const ok = await anon('POST', `/api/public/forms/${f.token}`, { email: ' Reader@Example.com ', answers: { topic: 'AI' } });
+  assert.equal(ok.status, 201);
+  assert.equal(ok.body.copy_to, undefined);
+  const rs = (await owner('GET', `/api/forms/${f.id}/responses`)).body.responses;
+  assert.equal(rs[0].email, 'reader@example.com');
+  const csv = await owner('GET', `/api/forms/${f.id}/responses.csv`);
+  assert.equal(csv.status, 200);
+  assert.match(csv.body, /Submitted,Email,Topic[\s\S]*reader@example\.com,AI/);
+});

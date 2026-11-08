@@ -3,6 +3,8 @@ import { shownQuestions } from '../formpath.js';
 // (/f/<token>) that people in the company (signed in) or anyone can fill in, and reads the answers:
 // a summary per question, each response, a CSV download, or a copy in a new spreadsheet in Drive.
 // Mounted at /api/forms (owner) and /api/public/forms (people filling it in).
+import { mailEnabled } from '../mail/config.js';
+import { smtpFor } from '../mail/imap.js';
 import { CHECKS, cleanCheck, checkProblem } from '../formcheck.js';
 import { Router } from 'express';
 import crypto from 'node:crypto';
@@ -41,7 +43,7 @@ q(`CREATE TABLE IF NOT EXISTS form_responses (
   created_at INTEGER NOT NULL
 )`).run();
 q('CREATE INDEX IF NOT EXISTS form_responses_form ON form_responses(form_id, created_at)').run();
-for (const [col, type] of [['edit_key', 'TEXT'], ['updated_at', 'INTEGER']]) {
+for (const [col, type] of [['edit_key', 'TEXT'], ['updated_at', 'INTEGER'], ['email', 'TEXT']]) {
   if (!q('PRAGMA table_info(form_responses)').all().some((c) => c.name === col)) q(`ALTER TABLE form_responses ADD COLUMN ${col} ${type}`).run();
 }
 // Colleagues who can edit a form and read its responses with the owner.
@@ -52,7 +54,8 @@ q(`CREATE TABLE IF NOT EXISTS form_editors (
   PRIMARY KEY (form_id, user_id)
 )`).run();
 // allow_edit: people can change their response afterwards, with the private link they get on sending it.
-for (const [col, type] of [['allow_edit', 'INTEGER NOT NULL DEFAULT 0'], ['close_at', 'INTEGER'], ['max_responses', 'INTEGER'], ['quiz', 'INTEGER NOT NULL DEFAULT 0'], ['show_score', 'INTEGER NOT NULL DEFAULT 1']]) {
+// collect_email: "anyone with the link" forms ask for an email address; send_copy: people get their answers by email.
+for (const [col, type] of [['collect_email', 'INTEGER NOT NULL DEFAULT 0'], ['send_copy', 'INTEGER NOT NULL DEFAULT 0'], ['allow_edit', 'INTEGER NOT NULL DEFAULT 0'], ['close_at', 'INTEGER'], ['max_responses', 'INTEGER'], ['quiz', 'INTEGER NOT NULL DEFAULT 0'], ['show_score', 'INTEGER NOT NULL DEFAULT 1']]) {
   if (!q('PRAGMA table_info(forms)').all().some((c) => c.name === col)) q(`ALTER TABLE forms ADD COLUMN ${col} ${type}`).run();
 }
 const MAX_EDITORS = 50;
@@ -217,19 +220,20 @@ const csvCell = (v) => {
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 };
 
-const parse = (f) => ({ ...f, questions: JSON.parse(f.questions || '[]'), accepting: !!f.accepting, one_per_person: !!f.one_per_person, notify: !!f.notify, quiz: !!f.quiz, show_score: !!f.show_score, allow_edit: !!f.allow_edit });
-const responsesOf = (formId) => q(`SELECT r.id, r.answers, r.created_at, r.updated_at, u.name AS user_name, u.username AS user_email
+const parse = (f) => ({ ...f, questions: JSON.parse(f.questions || '[]'), accepting: !!f.accepting, one_per_person: !!f.one_per_person, notify: !!f.notify, quiz: !!f.quiz, show_score: !!f.show_score, allow_edit: !!f.allow_edit, collect_email: !!f.collect_email, send_copy: !!f.send_copy });
+const responsesOf = (formId) => q(`SELECT r.id, r.answers, r.created_at, r.updated_at, r.email, u.name AS user_name, u.username AS user_email
                                    FROM form_responses r LEFT JOIN users u ON u.id = r.user_id WHERE r.form_id = ? ORDER BY r.created_at`).all(formId)
-  .map((r) => ({ id: r.id, created_at: r.created_at, ...(r.updated_at && { updated_at: r.updated_at }), user: r.user_email ? { name: r.user_name, email: r.user_email } : null, answers: JSON.parse(r.answers) }));
+  .map((r) => ({ id: r.id, created_at: r.created_at, ...(r.updated_at && { updated_at: r.updated_at }), ...(r.email && { email: r.email }), user: r.user_email ? { name: r.user_name, email: r.user_email } : null, answers: JSON.parse(r.answers) }));
 
 /** The table of responses: a header row, then one row per response. */
 export function responseTable(form, responses, { withPeople = form.audience === 'org' || responses.some((r) => r.user) } = {}) {
   const quiz = !!form.quiz;
-  const head = ['Submitted', ...(withPeople ? ['Name', 'Email'] : []), ...(quiz ? ['Score'] : []), ...form.questions.filter((qu) => qu.type !== 'section').map((qu) => qu.title || 'Untitled question')];
+  const emails = !withPeople && responses.some((r) => r.email);
+  const head = ['Submitted', ...(withPeople ? ['Name', 'Email'] : []), ...(emails ? ['Email'] : []), ...(quiz ? ['Score'] : []), ...form.questions.filter((qu) => qu.type !== 'section').map((qu) => qu.title || 'Untitled question')];
   const rows = responses.map((r) => {
     const sc = quiz ? scoreOf(form.questions, r.answers) : null;
     return [new Date(r.created_at).toISOString().replace('T', ' ').slice(0, 19),
-      ...(withPeople ? [r.user?.name || '', r.user?.email || ''] : []), ...(quiz ? [`${sc.score} / ${sc.max}`] : []), ...form.questions.filter((qu) => qu.type !== 'section').map((qu) => asText(r.answers[qu.id]))];
+      ...(withPeople ? [r.user?.name || '', r.user?.email || ''] : []), ...(emails ? [r.email || ''] : []), ...(quiz ? [`${sc.score} / ${sc.max}`] : []), ...form.questions.filter((qu) => qu.type !== 'section').map((qu) => asText(r.answers[qu.id]))];
   });
   return [head, ...rows];
 }
@@ -309,6 +313,8 @@ export default function formRoutes() {
       quiz: 'quiz' in b ? !!b.quiz : f.quiz,
       show_score: 'show_score' in b ? !!b.show_score : f.show_score,
       allow_edit: 'allow_edit' in b ? !!b.allow_edit : f.allow_edit,
+      collect_email: 'collect_email' in b ? !!b.collect_email : f.collect_email,
+      send_copy: 'send_copy' in b ? !!b.send_copy : f.send_copy,
       close_at: 'close_at' in b ? (b.close_at == null || b.close_at === '' ? null : Number(b.close_at)) : f.close_at,
       max_responses: 'max_responses' in b ? (b.max_responses == null || b.max_responses === '' ? null : Number(b.max_responses)) : f.max_responses,
     };
@@ -318,9 +324,9 @@ export default function formRoutes() {
     }
     if (next.audience === 'public' && f.audience !== 'public' && !req.user.allow_links) throw forbidden('Your company has turned off links for people outside it');
     q(`UPDATE forms SET title = ?, description = ?, questions = ?, audience = ?, accepting = ?, one_per_person = ?, confirmation = ?, notify = ?,
-       close_at = ?, max_responses = ?, quiz = ?, show_score = ?, allow_edit = ?, updated_at = ? WHERE id = ?`)
+       close_at = ?, max_responses = ?, quiz = ?, show_score = ?, allow_edit = ?, collect_email = ?, send_copy = ?, updated_at = ? WHERE id = ?`)
       .run(next.title, next.description, JSON.stringify(next.questions), next.audience, next.accepting ? 1 : 0, next.one_per_person ? 1 : 0, next.confirmation, next.notify ? 1 : 0,
-        next.close_at, next.max_responses, next.quiz ? 1 : 0, next.show_score ? 1 : 0, next.allow_edit ? 1 : 0, now(), f.id);
+        next.close_at, next.max_responses, next.quiz ? 1 : 0, next.show_score ? 1 : 0, next.allow_edit ? 1 : 0, next.collect_email ? 1 : 0, next.send_copy ? 1 : 0, now(), f.id);
     changed(f, req.user.id);
     const out = ownForm(f.id, req.user);
     res.json({ ...out, responses: countOf(f.id), closed: closedReason(out) });
@@ -461,6 +467,29 @@ function openForm(req) {
   return { form, user, f };
 }
 
+const baseUrlOf = (req) => process.env.PUBLIC_URL?.replace(/\/$/, '') || `${req.protocol}://${req.get('host')}`;
+/** "Question: answer" lines for a response, as people see it in their copy. */
+export function answersText(questions, answers) {
+  const lines = [];
+  for (const qu of questions) {
+    if (qu.type === 'section') { lines.push('', `— ${qu.title || 'Section'} —`); continue; }
+    if (!(qu.id in answers)) continue;
+    const a = answers[qu.id];
+    lines.push(`${qu.title || 'Untitled question'}: ${Array.isArray(a) ? a.map((x) => (x && typeof x === 'object' ? x.name : x)).join(', ') : a}`);
+  }
+  return lines.join('\n').replace(/^\n+/, '');
+}
+/** Email someone their answers, from the form's owner (when this server has email). */
+function sendCopy(form, to, answers, result, editLink) {
+  if (!mailEnabled()) return;
+  const owner = q('SELECT id, username, name FROM users WHERE id = ?').get(form.owner_id);
+  const text = [`Thanks for filling in “${form.title}”. Here's what you sent:`, '', answersText(form.questions, answers),
+    ...(result ? ['', `Your score: ${result.score} / ${result.max}`] : []),
+    ...(editLink ? ['', `To change your answers: ${editLink}`] : [])].join('\n');
+  smtpFor(owner).sendMail({ from: { name: owner.name, address: owner.username }, to, subject: `Your response to “${form.title}”`, text })
+    .catch((e) => console.error('[forms] copy of a response:', e.message));
+}
+
 export function publicFormRoutes() {
   const r = Router();
   r.use((req, res, next) => { res.setHeader('X-Robots-Tag', 'noindex, nofollow'); res.setHeader('Cache-Control', 'private, no-store'); next(); });
@@ -471,7 +500,7 @@ export function publicFormRoutes() {
     const answered = !!mine;
     const closed = closedReason(form);
     res.json({ title: form.title, description: form.description, questions: withoutKey(form.questions), quiz: form.quiz, accepting: !closed, closed, closed_text: closed ? CLOSED_TEXT[closed] : null, audience: form.audience,
-      one_per_person: form.audience === 'org' && form.one_per_person, answered, org_name: f.org_name, allow_edit: form.allow_edit, ...(mine && form.allow_edit && mine.edit_key && { my_edit_key: mine.edit_key }),
+      one_per_person: form.audience === 'org' && form.one_per_person, answered, org_name: f.org_name, allow_edit: form.allow_edit, collect_email: form.audience === 'public' && form.collect_email, send_copy: form.send_copy && mailEnabled(), ...(mine && form.allow_edit && mine.edit_key && { my_edit_key: mine.edit_key }),
       you: form.audience === 'org' ? { name: user.name, email: user.email } : null, is_owner: !!user && teamOf(form).includes(user.id) });
   });
 
@@ -495,6 +524,12 @@ export function publicFormRoutes() {
     const shut = closedReason(form);
     if (shut) throw new HttpError(409, CLOSED_TEXT[shut]);
     const answers = checkAnswers(form.questions, req.body?.answers);
+    // Their email address: from their account on company forms; asked for on others when collected.
+    let email = form.audience === 'org' ? user.username : null;
+    if (form.audience === 'public' && form.collect_email) {
+      email = String(req.body?.email || '').trim().toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 200) throw bad('Your email: enter your email address');
+    }
     // File answers: uploads to this form that haven't been used.
     const fileQs = form.questions.filter((qu) => qu.type === 'file' && answers[qu.id]);
     for (const qu of fileQs) for (const up of answers[qu.id]) {
@@ -523,8 +558,8 @@ export function publicFormRoutes() {
       if (form.audience === 'org' && form.one_per_person && q('SELECT 1 FROM form_responses WHERE form_id = ? AND user_id = ?').get(form.id, user.id)) {
         throw new HttpError(409, 'You have already filled in this form');
       }
-      q('INSERT INTO form_responses (id, form_id, user_id, answers, created_at, edit_key) VALUES (?, ?, ?, ?, ?, ?)')
-        .run(id, form.id, form.audience === 'org' ? user.id : null, JSON.stringify(answers), now(), editKey);
+      q('INSERT INTO form_responses (id, form_id, user_id, answers, created_at, edit_key, email) VALUES (?, ?, ?, ?, ?, ?, ?)')
+        .run(id, form.id, form.audience === 'org' ? user.id : null, JSON.stringify(answers), now(), editKey, form.audience === 'public' ? email : null);
     });
     const team = teamOf(form);
     sendTo(team, { type: 'form-response', form_id: form.id });
@@ -532,7 +567,8 @@ export function publicFormRoutes() {
       bell(team.filter((x) => x !== user?.id), { kind: 'form', title: `New response to “${form.title}”`, body: form.audience === 'org' ? `From ${user.name}` : null, link: `/forms/${form.id}?tab=responses`, actor: user?.id || null });
     }
     const result = form.quiz && form.show_score ? scoreOf(form.questions, answers) : null;
-    res.status(201).json({ ok: true, confirmation: form.confirmation || '', ...(editKey && { edit_key: editKey }), ...(result && { score: result.score, max: result.max, right: result.right }) });
+    if (form.send_copy && email) sendCopy(form, email, answers, result, editKey ? `${baseUrlOf(req)}/f/${form.token}?edit=${editKey}` : null);
+    res.status(201).json({ ok: true, confirmation: form.confirmation || '', ...(editKey && { edit_key: editKey }), ...(form.send_copy && email && mailEnabled() && { copy_to: email }), ...(result && { score: result.score, max: result.max, right: result.right }) });
   });
 
   // Changing a response afterwards (when the form allows it), with its private key. File answers stay

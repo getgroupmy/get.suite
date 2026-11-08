@@ -19,6 +19,8 @@ export default function FormRespond({ token, onSignIn }) {
   const [form, setForm] = useState(null);
   const [error, setError] = useState(null); // { status, message }
   const [answers, setAnswers] = useState({});
+  const [email, setEmail] = useState(''); // asked for when the form collects email addresses
+  const [emailMissing, setEmailMissing] = useState(false);
   const [missing, setMissing] = useState([]);
   const [busy, setBusy] = useState(false);
   const [sendError, setSendError] = useState('');
@@ -43,6 +45,7 @@ export default function FormRespond({ token, onSignIn }) {
   const submit = async (e) => {
     e.preventDefault();
     const need = (pages[page]?.items || []).filter((q) => (q.required && empty(answers[q.id]) && !(editing && q.type === 'file')) || checkProblem(q.check, answers[q.id])).map((q) => q.id);
+    if (form.collect_email && !editing && trail.length === 1 && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) { setEmailMissing(true); document.getElementById('q-email')?.scrollIntoView({ block: 'center' }); return; }
     if (!need.length && after < pages.length) { setTrail([...trail, after]); setMissing([]); window.scrollTo(0, 0); return; } // Next
     setMissing(need);
     if (need.length) { document.getElementById(`q-${need[0]}`)?.scrollIntoView({ block: 'center' }); return; }
@@ -50,7 +53,7 @@ export default function FormRespond({ token, onSignIn }) {
     // File questions hold the uploads ({ id, name }); the form gets their ids.
     const out = Object.fromEntries(Object.entries(answers).map(([k, v]) => [k, form.questions.find((q) => q.id === k)?.type === 'file' ? (v || []).map((f) => f.id) : v]));
     try {
-      setDone(editing ? await call('PUT', `/${encodeURIComponent(token)}/response/${encodeURIComponent(editing.key)}`, { answers: out }) : await call('POST', `/${encodeURIComponent(token)}`, { answers: out }));
+      setDone(editing ? await call('PUT', `/${encodeURIComponent(token)}/response/${encodeURIComponent(editing.key)}`, { answers: out }) : await call('POST', `/${encodeURIComponent(token)}`, { answers: out, ...(form.collect_email && { email: email.trim() }) }));
       window.scrollTo(0, 0);
     } catch (err) { setSendError(err.message); } finally { setBusy(false); }
   };
@@ -76,6 +79,7 @@ export default function FormRespond({ token, onSignIn }) {
             {form.questions.filter((q) => q.id in done.right).map((q) => <li key={q.id}>{done.right[q.id] ? '✓' : '✗'} {q.title || 'Untitled question'}</li>)}
           </ul>
         )}
+        {done.copy_to && <p className="small" style={{ margin: 0 }}>A copy of your answers is on its way to {done.copy_to}.</p>}
         {done.edit_key && <p className="small" style={{ margin: 0 }}><a href={`/f/${encodeURIComponent(token)}?edit=${encodeURIComponent(done.edit_key)}`}>Change your response</a> <span className="muted">· keep this link to change it later (anyone with it can)</span></p>}
         {!form.one_per_person && !editing && <div><button type="button" className="link-btn" onClick={() => { setDone(null); setAnswers({}); setTrail([0]); }}>Submit another response</button></div>}
       </section>
@@ -89,6 +93,15 @@ export default function FormRespond({ token, onSignIn }) {
         {form.you && <p className="muted small" style={{ margin: 0 }}>Signed in as {form.you.name} ({form.you.email}). Your name is recorded with your answers.</p>}
         {closed ? <p role="status"><strong>{form.answered && form.accepting ? 'You have already filled in this form.' : `${form.closed_text || 'This form is no longer accepting responses'}.`}</strong>
           {form.answered && form.accepting && form.my_edit_key && <> <a href={`/f/${encodeURIComponent(token)}?edit=${encodeURIComponent(form.my_edit_key)}`}>Change your response</a></>}</p> : editing && !editing.loaded ? <p className="muted">Loading your response…</p> : <>
+          {form.collect_email && !editing && page === 0 && (
+            <label id="q-email" className={`field form-fill-q ${emailMissing ? 'missing' : ''}`}>
+              <span className="form-fill-title">Your email<span className="req" aria-hidden="true"> *</span></span>
+              {form.send_copy && <span className="muted small form-help">A copy of your answers will be sent to it.</span>}
+              <input type="email" aria-label="Your email (required)" autoComplete="email" value={email} maxLength={200} onChange={(e) => { setEmail(e.target.value); setEmailMissing(false); }} />
+              {emailMissing && <span className="error small" role="alert">Enter your email address</span>}
+            </label>
+          )}
+          {form.send_copy && !form.collect_email && form.you && !editing && page === 0 && <p className="muted small" style={{ margin: 0 }}>A copy of your answers will be emailed to {form.you.email}.</p>}
           {editing && <p className="banner small" role="status" style={{ margin: 0 }}>You're changing the response you sent. Send it again to keep the changes.</p>}
           {form.questions.some((q) => q.required) && <p className="muted small" style={{ margin: 0 }}><span className="req">*</span> Required</p>}
           {pages.length > 1 && <p className="muted small form-page-of" style={{ margin: 0 }}>Page {trail.length} · {pages.length} sections</p>}

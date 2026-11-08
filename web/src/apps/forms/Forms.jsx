@@ -355,7 +355,7 @@ function ResponsesTab({ form, responses, reload, setting, flush }) {
           <section className="card stack" aria-label="Response">
             <div className="row">
               <button type="button" className="icon-btn" aria-label="Previous response" disabled={at === 0} onClick={() => setAt(at - 1)}>‹</button>
-              <span className="grow small">{Math.min(at, responses.length - 1) + 1} of {responses.length} · {formatDate(one.created_at)}{one.updated_at ? ` · changed ${formatDate(one.updated_at)}` : ''}{one.user ? ` · ${one.user.name} (${one.user.email})` : ''}{one.max ? ` · Score ${one.score} / ${one.max}` : ''}</span>
+              <span className="grow small">{Math.min(at, responses.length - 1) + 1} of {responses.length} · {formatDate(one.created_at)}{one.updated_at ? ` · changed ${formatDate(one.updated_at)}` : ''}{one.user ? ` · ${one.user.name} (${one.user.email})` : one.email ? ` · ${one.email}` : ''}{one.max ? ` · Score ${one.score} / ${one.max}` : ''}</span>
               <button type="button" className="icon-btn" aria-label="Next response" disabled={at >= responses.length - 1} onClick={() => setAt(at + 1)}>›</button>
               <button type="button" className="icon-btn" aria-label="Delete this response" onClick={async () => { await del(`/forms/${form.id}/responses/${one.id}`); setAt(Math.max(0, at - 1)); reload(); }}><Icon name="trash" size={18} /></button>
             </div>
@@ -435,6 +435,8 @@ function SettingsTab({ form, setForm, setting, orgName, allowLinks }) {
         {!allowLinks && <p className="muted small">Your company has turned off links for people outside it.</p>}
       </fieldset>
       {form.audience === 'org' && <label className="check"><input type="checkbox" checked={form.one_per_person} onChange={(e) => setting({ one_per_person: e.target.checked })} /> One response per person</label>}
+      {form.audience === 'public' && <label className="check"><input type="checkbox" checked={!!form.collect_email} onChange={(e) => setting({ collect_email: e.target.checked })} /> Collect email addresses (people type theirs in before the questions)</label>}
+      <label className="check"><input type="checkbox" checked={!!form.send_copy} onChange={(e) => setting({ send_copy: e.target.checked })} /> Send people a copy of their answers by email{form.audience === 'public' ? ' (needs email addresses collected)' : ''}</label>
       <label className="check"><input type="checkbox" checked={!!form.allow_edit} onChange={(e) => setting({ allow_edit: e.target.checked })} /> Let people change their response after sending it (they get a private link to it)</label>
       <label className="check"><input type="checkbox" checked={form.notify} onChange={(e) => setting({ notify: e.target.checked })} /> Notify me of each new response</label>
       <fieldset className="stack-tight">

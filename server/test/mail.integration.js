@@ -1271,3 +1271,18 @@ test('follow-ups: a reminder when nobody replied; none when someone did; cancell
   assert.match(n.body, /Sent to Gina Globex|Sent to gina@globex.com/);
   assert.equal((await olivia('GET', '/api/mail/followups')).body.length, 0, 'done with');
 });
+
+test('forms: people get a copy of their answers by email, from the form\'s owner', async () => {
+  const made = (await olivia('POST', '/api/forms', { title: 'Office survey' })).body;
+  const f = (await olivia('PUT', `/api/forms/${made.id}`, { audience: 'public', collect_email: true, send_copy: true, allow_edit: true, questions: [
+    { id: 'chair', type: 'choice', title: 'Best chair', options: ['Red', 'Blue'] }, { id: 'why', type: 'short', title: 'Why' },
+  ] })).body;
+  const r = await gina('POST', `/api/public/forms/${f.token}`, { email: 'gina@globex.com', answers: { chair: 'Blue', why: 'Comfy' } });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.equal(r.body.copy_to, 'gina@globex.com');
+  const m = await eventually(async () => (await inbox(gina)).find((x) => x.subject === 'Your response to “Office survey”'));
+  assert.equal(m.from.address, 'olivia@acme.com');
+  const full = (await gina('GET', `/api/mail/messages/${m.uid}?folder=INBOX`)).body;
+  assert.match(full.text, /Best chair: Blue\s+Why: Comfy/);
+  assert.match(full.text, /To change your answers: http.*\/f\/.*\?edit=/);
+});
