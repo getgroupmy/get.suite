@@ -104,7 +104,7 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
   const refreshRef = useRef(null);
   const [scheduledOpen, setScheduledOpen] = useState(false);
   const loadScheduled = useCallback(() => get('/mail/scheduled').then(setScheduled).catch(() => {}), []);
-  useEffect(() => { loadScheduled(); return onLive((m) => { if (m.type === 'mail-scheduled') { loadScheduled(); loadFolders(); } if (m.type === 'mail-snoozed') refreshRef.current?.(); }); },
+  useEffect(() => { loadScheduled(); return onLive((m) => { if (m.type === 'mail-scheduled') { loadScheduled(); loadFolders(); } if (m.type === 'mail-snoozed' || m.type === 'mail-assigned') refreshRef.current?.(); }); },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [loadScheduled]);
   const { user } = useAuth();
@@ -216,6 +216,7 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
     catch (e) { toast(e.message, 'error'); return false; }
   }
 
+  const [show, setShow] = useState('all'); // in a shared mailbox: all, given to me, not done
   if (failing) {
     return (
       <div className="page">
@@ -233,6 +234,9 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
   }
 
   const sel = [...checked];
+  // A shared mailbox: show everything, what's given to you, or what isn't done yet (on this page).
+  const shown = !data ? null : !shared || show === 'all' ? data.messages
+    : data.messages.filter((m) => (show === 'mine' ? m.assignee?.id === user.id && !m.done : !m.done));
   return (
     <div className={`mail ${openUid ? 'reading' : ''}`}>
       <aside className="subnav">
@@ -344,11 +348,16 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
         )}
         {labelId && <p className="muted small mail-note">Labelled <LabelChip label={labels.find((l) => l.id === labelId)} /> in {current?.name} · <button className="link" onClick={() => setSearch({})}>show all</button></p>}
         {q && <p className="muted small mail-note">Results for “{q}” in {current?.name} · <button className="link" onClick={() => setSearch({})}>clear</button></p>}
-        {!data ? <p className="muted mail-note">Loading…</p> : data.messages.length === 0 ? (
+        {shared && data && (
+          <div className="tabs mail-assign-tabs" role="tablist" aria-label="Show">
+            {[['all', 'All'], ['mine', 'Given to me'], ['open', 'Not done']].map(([k, label]) => <button key={k} type="button" role="tab" aria-selected={show === k} className={show === k ? 'on' : ''} onClick={() => setShow(k)}>{label}</button>)}
+          </div>
+        )}
+        {!data ? <p className="muted mail-note">Loading…</p> : shown.length === 0 ? (
           <Empty icon={q ? 'search' : 'inbox'} title={q ? 'No messages found' : `${current?.name || 'Folder'} is empty`} />
         ) : (
           <ul className="msg-list">
-            {data.messages.map((m) => (
+            {shown.map((m) => (
               <li key={m.uid} className={`${m.seen ? '' : 'unread'} ${m.uid === openUid ? 'open' : ''}`}>
                 <input type="checkbox" aria-label={`Select ${m.subject || '(no subject)'}`} checked={checked.has(m.uid)}
                   onChange={(e) => { const n = new Set(checked); e.target.checked ? n.add(m.uid) : n.delete(m.uid); setChecked(n); }} />
@@ -356,6 +365,7 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
                   <span className="msg-from ellipsis">{special === '\\Sent' || special === '\\Drafts' ? `To: ${m.to.map(who).join(', ')}` : who(m.from)}</span>
                   <span className="msg-date">{m.flagged && <span className="star" aria-label="Starred">★</span>}{m.attachment && <Icon name="attach" size={14} />} {m.snoozedUntil ? <span className="snoozed-until" title={`Comes back ${whenText(m.snoozedUntil)}`}><Icon name="clock" size={14} /> {formatDate(m.snoozedUntil)}</span> : m.date ? formatDate(m.date) : ''}</span>
                   <span className="msg-subject ellipsis">{(m.labels || []).map((id) => labels.find((l) => l.id === id)).filter(Boolean).map((l) => <LabelChip key={l.id} label={l} />)}{m.answered && '↩ '}{m.subject || '(no subject)'}</span>
+                  {shared && (m.assignee || m.done) && <span className="msg-assign small">{m.done ? <span className="pill done">✓ Done</span> : null}{m.assignee && <span className="pill" title={`Given to ${m.assignee.name}`}>→ {m.assignee.id === user.id ? 'You' : m.assignee.name}</span>}</span>}
                 </button>
               </li>
             ))}
@@ -585,6 +595,7 @@ function Reader({ shared = null, folder, uid, special, onClose, onOpen, onChange
       </div>
       {muted && <div className="banner" role="status">🔕 This conversation is muted: replies go straight to Archive. <button type="button" className="link-btn" onClick={unmute}>Unmute</button></div>}
       <h1 className="reader-subject">{m.subject || '(no subject)'}</h1>
+      {shared && m.messageId && <AssignBar m={m} onChanged={(a) => { setM({ ...m, ...a }); onChanged(); }} />}
       {(m.labels || []).length > 0 && (
         <div className="reader-labels">
           {m.labels.map((id) => labels.find((l) => l.id === id)).filter(Boolean).map((l) => (
@@ -2227,5 +2238,30 @@ function TemplatesDialog({ templates, onClose, onChanged }) {
         ))}
       </ul>
     </Modal>
+  );
+}
+
+/** In a shared mailbox: who answers this message (one of the mailbox's people, who is told), and whether it's done. */
+function AssignBar({ m, onChanged }) {
+  const toast = useToast();
+  const { user } = useAuth();
+  const [members, setMembers] = useState([]);
+  useEffect(() => { get('/mail/members').then(setMembers).catch(() => {}); }, []);
+  const save = async (change, msg) => {
+    try { const r = await post('/mail/assign', { message_id: m.messageId, subject: m.subject, ...change }); onChanged({ assignee: r.assignee, done: r.done }); if (msg) toast(msg); }
+    catch (e) { toast(e.message, 'error'); }
+  };
+  return (
+    <div className="row mail-assign" role="group" aria-label="Who answers this">
+      <label className="row small">Given to
+        <select aria-label="Given to" value={m.assignee?.id || ''} onChange={(e) => { const id = e.target.value || null; const who = members.find((x) => x.id === id); save({ assignee_id: id }, id ? `Given to ${id === user.id ? 'you' : who?.name}` : 'Given to nobody'); }}>
+          <option value="">Nobody</option>
+          {members.map((x) => <option key={x.id} value={x.id}>{x.id === user.id ? `${x.name} (you)` : x.name}</option>)}
+        </select>
+      </label>
+      {m.assignee?.id !== user.id && <button type="button" className="link-btn small" onClick={() => save({ assignee_id: user.id }, 'Given to you')}>Take it</button>}
+      <span className="grow" />
+      <button type="button" className={`btn small ${m.done ? '' : 'primary'}`} aria-pressed={!!m.done} onClick={() => save({ done: !m.done }, m.done ? 'Open again' : 'Marked done')}>{m.done ? '✓ Done · reopen' : 'Mark done'}</button>
+    </div>
   );
 }

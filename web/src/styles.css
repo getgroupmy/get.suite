@@ -2012,3 +2012,8 @@ tr.shortcut-row.broken .name-text { color: var(--muted, #777); font-style: itali
 .form-rating-pick:focus-within { outline: 2px solid var(--accent, #1a73e8); border-radius: 4px; }
 .msg-bot-avatar { width: 36px; height: 36px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: var(--hover, #eee); font-size: 20px; flex: none; } .plain-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .mailbox-pick { margin: 0 0 8px; } .mailbox-pick select { width: 100%; }
+/* Mail: who answers what in a shared mailbox */
+.mail-assign { padding: 6px 0 10px; gap: 8px; border-bottom: 1px solid var(--border); margin-bottom: 8px; }
+.msg-assign { display: inline-flex; gap: 4px; grid-column: 1 / -1; }
+.msg-assign .pill.done { background: color-mix(in srgb, #188038 18%, transparent); }
+.mail-assign-tabs { margin: 4px 8px; }

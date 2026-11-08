@@ -15,7 +15,7 @@ import { roleFor, mayTakeAway } from '../access.js';
 import { mailEnabled, scheduleMailConfig, MAIL_HOSTNAME } from '../mail/config.js';
 import { withClient, withFolder, smtpFor } from '../mail/imap.js';
 import { normalizeRules, cleanMessageId } from '../mail/sieve.js';
-import { sharedMailboxesFor, sharedMailboxFor } from '../mail/shared.js';
+import { sharedMailboxesFor, sharedMailboxFor, assignmentsOf, membersOf as sharedMembers } from '../mail/shared.js';
 import { followedFolders, setFollowed, MAX_FOLLOWED } from '../mail/notify.js';
 import { forwardHtml } from '../mail/forwardhtml.js';
 import { unsubscribeOptions, oneClickUnsubscribe } from '../mail/unsubscribe.js';
@@ -325,7 +325,7 @@ export default function webmailRoutes() {
     ['GET', /^\/(unread|folders|messages|find)$/], ['GET', /^\/messages\/\d+(\/(conversation|quote|pictures\/\d+|attachments\/\d+))?$/],
     ['POST', /^\/folders$/], ['PATCH', /^\/folders$/], ['DELETE', /^\/folders$/],
     ['POST', /^\/messages\/(flags|read-all|move|delete)$/], ['POST', /^\/messages\/\d+\/attachments\/save$/],
-    ['POST', /^\/drafts$/], ['GET', /^\/drafts\/\d+$/], ['DELETE', /^\/drafts\/\d+$/], ['POST', /^\/send$/],
+    ['POST', /^\/drafts$/], ['GET', /^\/drafts\/\d+$/], ['DELETE', /^\/drafts\/\d+$/], ['POST', /^\/send$/], ['POST', /^\/assign$/], ['GET', /^\/members$/],
   ];
   r.use((req, res, next) => {
     const id = req.get('x-mailbox') || (req.method === 'GET' ? req.query.mailbox : null);
@@ -334,9 +334,43 @@ export default function webmailRoutes() {
     if (!mb) return next(new HttpError(404, 'Shared mailbox not found'));
     if (!SHARED_OK.some(([m, re]) => m === req.method && re.test(req.path))) return next(bad('That isn’t available in a shared mailbox'));
     if (req.path === '/send' && (req.body?.sendAt != null || req.body?.followUp)) return next(bad('Send from a shared mailbox now (scheduling and follow-up reminders are for your own mail)'));
+    req.realUserId = req.user.id; req.realUserName = req.user.name;
     req.user = { ...req.user, username: mb.address, email: mb.address, name: mb.name, shared_mailbox: mb.id };
     next();
   });
+
+  // In a shared mailbox: its members (to give a message to), and giving a message to one of them
+  // ({ message_id, subject, assignee_id: id | null, done }). The person given it is told.
+  r.get('/members', (req, res) => {
+    if (!req.user.shared_mailbox) throw bad('Only shared mailboxes have members');
+    res.json(sharedMembers(req.user.shared_mailbox).map((m) => ({ id: m.id, name: m.name, username: m.username })));
+  });
+  r.post('/assign', (req, res) => {
+    const mb = req.user.shared_mailbox;
+    if (!mb) throw bad('Messages are given to people in shared mailboxes');
+    const messageId = cleanMessageId(req.body?.message_id);
+    if (!messageId) throw bad('This message can’t be given to anyone (it has no Message-ID)');
+    const before = q('SELECT * FROM shared_assignments WHERE mailbox_id = ? AND message_id = ?').get(mb, messageId);
+    let assignee = before?.assignee_id ?? null;
+    if (req.body?.assignee_id !== undefined) {
+      assignee = req.body.assignee_id ? String(req.body.assignee_id) : null;
+      if (assignee && !sharedMembers(mb).some((m) => m.id === assignee)) throw bad('Give it to someone who uses this mailbox');
+    }
+    const done = req.body?.done !== undefined ? (req.body.done ? 1 : 0) : (before?.done ?? 0);
+    const subject = str(req.body?.subject ?? before?.subject ?? '', { max: 300 }) || '';
+    q(`INSERT INTO shared_assignments (mailbox_id, message_id, assignee_id, done, subject, updated_by, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(mailbox_id, message_id) DO UPDATE SET assignee_id = excluded.assignee_id, done = excluded.done, subject = excluded.subject, updated_by = excluded.updated_by, updated_at = excluded.updated_at`)
+      .run(mb, messageId, assignee, done, subject, req.realUserId, now());
+    if (assignee && assignee !== before?.assignee_id && assignee !== req.realUserId) {
+      notifyBell([assignee], { kind: 'assign', title: `${req.realUserName} gave you an email in ${req.user.username}`, body: subject || '(no subject)', link: '/mail', actor: req.realUserId });
+    }
+    const members = sharedMembers(mb);
+    const others = members.map((m) => m.id);
+    sendTo(others, { type: 'mail-assigned', mailbox: mb, message_id: messageId });
+    const a = assignmentsOf(mb, [messageId]).get(messageId);
+    res.json({ message_id: messageId, assignee: a?.assignee || null, done: !!a?.done });
+  });
+
 
   // Unread mail across the folders you get notifications for (badge on the Mail icon, tab title).
   r.get('/unread', async (req, res) => {
@@ -671,6 +705,7 @@ export default function webmailRoutes() {
           labels: [...m.flags].map((f) => byKeyword.get(String(f).toLowerCase())).filter(Boolean),
           attachment: hasAttachment(m.bodyStructure),
           size: m.size,
+          messageId: env.messageId || null,
         });
       }
       messages.sort((a, b) => b.uid - a.uid);
@@ -680,6 +715,11 @@ export default function webmailRoutes() {
       }
       return { total: count, page, pageSize: PAGE, messages };
     });
+    // A shared mailbox: who each message is given to, and whether it's done.
+    if (req.user.shared_mailbox && out.messages?.length) {
+      const by = assignmentsOf(req.user.shared_mailbox, out.messages.map((m) => m.messageId));
+      for (const m of out.messages) { const a = by.get(m.messageId); m.assignee = a?.assignee || null; m.done = !!a?.done; }
+    }
     res.json(out);
   });
 
@@ -718,6 +758,8 @@ export default function webmailRoutes() {
         if (!u) return null;
         return u.oneClick ? { how: 'one-click' } : u.mailto ? { how: 'email', to: u.mailto.to } : { how: 'link', url: u.url };
       })(),
+      // In a shared mailbox: who it's given to, and whether it's done.
+      ...(req.user.shared_mailbox && (() => { const x = p.messageId && assignmentsOf(req.user.shared_mailbox, [p.messageId]).get(p.messageId); return { assignee: x?.assignee || null, done: !!x?.done }; })()),
     });
   });
 

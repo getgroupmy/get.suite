@@ -1500,6 +1500,20 @@ test('shared mailbox: its members read it and answer as it; nobody signs in to i
   const sentBox = folders.find((f) => f.specialUse === '\\Sent');
   assert.ok((await bob('GET', `/api/mail/messages?folder=${encodeURIComponent(sentBox.path)}`, undefined, as)).body.messages.some((m) => m.subject === 'Re: My order is late'), 'in the mailbox’s own Sent');
   assert.ok((await bob('GET', '/api/mail/messages?folder=INBOX', undefined, as)).body.messages.find((m) => m.uid === got.uid).answered !== false);
+  // Giving a message to a member (who is told) and marking it done.
+  const oliviaId = (await olivia('GET', '/api/auth/me')).body.user.id;
+  await olivia('PATCH', `/api/mail-admin/shared/${mb}`, { members: [bobUser.id, oliviaId] });
+  assert.deepEqual((await bob('GET', '/api/mail/members', undefined, as)).body.map((m) => m.name).sort(), ['Hal Helper', 'Olivia Owner']);
+  assert.equal((await bob('POST', '/api/mail/assign', { message_id: full.messageId, assignee_id: 'nobody' }, as)).status, 400);
+  assert.equal((await bob('POST', '/api/mail/assign', { message_id: full.messageId, assignee_id: oliviaId }, undefined)).status, 400, 'only in a shared mailbox');
+  const given = await bob('POST', '/api/mail/assign', { message_id: full.messageId, subject: full.subject, assignee_id: oliviaId }, as);
+  assert.deepEqual(given.body, { message_id: full.messageId, assignee: { id: oliviaId, name: 'Olivia Owner' }, done: false });
+  const bell = (await olivia('GET', '/api/notifications')).body;
+  assert.ok((bell.items || bell).some((n) => n.kind === 'assign' && /Hal Helper gave you an email in support@acme.com/.test(n.title)), JSON.stringify(bell).slice(0, 300));
+  await bob('POST', '/api/mail/assign', { message_id: full.messageId, done: true }, as);
+  const listed = (await olivia('GET', '/api/mail/messages?folder=INBOX', undefined, as)).body.messages.find((m) => m.uid === got.uid);
+  assert.deepEqual([listed.assignee?.name, listed.done], ['Olivia Owner', true]);
+  assert.equal((await olivia('GET', `/api/mail/messages/${got.uid}?folder=INBOX`, undefined, as)).body.assignee.name, 'Olivia Owner');
   // Nobody can sign in to it with a password.
   await assert.rejects(imapLogin('support@acme.com', 'password123'));
   // Taking Bob off: he can't open it any more. Deleting it frees the address.
