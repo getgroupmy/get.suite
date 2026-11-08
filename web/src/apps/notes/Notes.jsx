@@ -9,6 +9,25 @@ import { quickTimes, reminderText } from './remind.js';
 
 export const COLORS = [['', 'Default'], ['#faafa8', 'Coral'], ['#f39f76', 'Peach'], ['#fff8b8', 'Sand'], ['#e2f6d3', 'Mint'], ['#b4ddd3', 'Sage'],
   ['#d4e4ed', 'Fog'], ['#aeccdc', 'Storm'], ['#d3bfdb', 'Dusk'], ['#f6e2dd', 'Blossom'], ['#e9e3d4', 'Clay'], ['#efeff1', 'Chalk']];
+/** Put a picture on a note (PNG, JPEG, GIF or WebP, up to 10 MB). */
+async function addPicture(noteId, file) {
+  const res = await fetch(`/api/notes/${noteId}/pictures`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': file.type || 'application/octet-stream' }, body: file });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(data?.error || 'The picture could not be added');
+  return data;
+}
+function PictureButton({ noteId, onAdded, label = 'Insert picture' }) {
+  const toast = useToast();
+  const input = useRef();
+  return (<>
+    <button type="button" className="icon-btn" aria-label={label} title={label} onClick={() => input.current.click()}>🖼</button>
+    <input ref={input} type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden aria-label="Picture to add" onChange={async (e) => {
+      const files = [...e.target.files]; e.target.value = '';
+      for (const f of files) { try { await addPicture(noteId, f); } catch (err) { toast(err.message, 'error'); break; } }
+      onAdded?.();
+    }} />
+  </>);
+}
 const newItem = (text = '') => ({ id: Math.random().toString(36).slice(2, 10), text, done: false });
 
 export default function Notes() {
@@ -186,6 +205,11 @@ function NoteCard({ note: n, onOpen, onChange, onArchive, onLabel, onShare, onCo
     <article className="note-card" style={n.color ? { background: n.color, color: '#202124' } : undefined} aria-label={n.title || (n.body || items.map((i) => i.text).join(', ')).slice(0, 60) || 'Note'}>
       <button type="button" className={`icon-btn note-pin ${n.pinned ? 'on' : ''}`} aria-pressed={n.pinned} aria-label={n.pinned ? 'Unpin note' : 'Pin note'} onClick={() => onChange({ pinned: !n.pinned })}>📌</button>
       <div className="note-open" role="button" tabIndex={0} onClick={onOpen} onKeyDown={(e) => { if (e.key === 'Enter') onOpen(); }}>
+        {n.pictures?.length > 0 && (
+          <div className={`note-pictures n${Math.min(n.pictures.length, 3)}`}>
+            {n.pictures.slice(0, 3).map((pid) => <img key={pid} src={`/api/notes/${n.id}/pictures/${pid}`} alt="" loading="lazy" />)}
+          </div>
+        )}
         {n.title && <h3>{n.title}</h3>}
         {n.body && <p className="note-body">{n.body.length > 800 ? `${n.body.slice(0, 800)}…` : n.body}</p>}
       </div>
@@ -211,6 +235,7 @@ function NoteCard({ note: n, onOpen, onChange, onArchive, onLabel, onShare, onCo
           ...(n.remind_at ? [{ label: 'Remove reminder', onClick: () => onRemind(null) }] : []),
         ]} />
         <ColorPicker value={n.color || ''} onChange={(color) => onChange({ color: color || null })} />
+        <PictureButton noteId={n.id} />
         <button type="button" className="icon-btn" aria-label={n.archived ? 'Unarchive' : 'Archive'} title={n.archived ? 'Unarchive' : 'Archive'} onClick={onArchive}><Icon name={n.archived ? 'restore' : 'archive'} size={18} /></button>
         {n.mine && <button type="button" className="icon-btn" aria-label="Share note" title="Share with colleagues" onClick={onShare}><Icon name="share" size={18} /></button>}
         <Menu trigger={(p) => <button type="button" className="icon-btn" aria-label="More" {...p}><Icon name="more" size={18} /></button>} items={[
@@ -243,10 +268,18 @@ function NoteEditor({ note, onClose }) {
   return (
     <Modal title={note.title || 'Note'} onClose={close} footer={<><span className="muted small grow">Edited {new Date(note.updated_at).toLocaleString([], { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}</span><button type="button" className="btn" onClick={close}>Close</button></>}>
       <div className="stack note-editor" style={note.color ? { background: note.color, color: '#202124', padding: 12, borderRadius: 8 } : undefined}>
+        {note.pictures?.length > 0 && (
+          <ul className="note-editor-pictures" aria-label="Pictures">
+            {note.pictures.map((pid, i) => (
+              <li key={pid}><img src={`/api/notes/${note.id}/pictures/${pid}`} alt={`Picture ${i + 1}`} />
+                <button type="button" className="chip-x" aria-label={`Remove picture ${i + 1}`} onClick={() => del(`/notes/${note.id}/pictures/${pid}`).catch((e) => toast(e.message, 'error'))}>×</button></li>
+            ))}
+          </ul>
+        )}
         <input aria-label="Title" placeholder="Title" value={f.title} maxLength={300} onChange={(e) => edit({ title: e.target.value })} />
         {f.items ? <ChecklistEdit items={f.items} onChange={(items) => edit({ items })} />
           : <textarea aria-label="Note" rows={8} value={f.body} onChange={(e) => edit({ body: e.target.value })} />}
-        <div><button type="button" className="link-btn small" onClick={() => edit(f.items ? { items: null, body: f.items.map((i) => i.text).filter(Boolean).join('\n') } : { items: (f.body ? f.body.split('\n') : ['']).map((t) => newItem(t)), body: '' })}>
+        <div className="row"><PictureButton noteId={note.id} /><button type="button" className="link-btn small" onClick={() => edit(f.items ? { items: null, body: f.items.map((i) => i.text).filter(Boolean).join('\n') } : { items: (f.body ? f.body.split('\n') : ['']).map((t) => newItem(t)), body: '' })}>
           {f.items ? 'Change to plain text' : 'Change to a checklist'}</button></div>
       </div>
     </Modal>

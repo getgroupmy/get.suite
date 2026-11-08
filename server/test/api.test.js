@@ -4125,3 +4125,29 @@ test('chat: "Seen" in direct messages, unless either person turns read receipts 
   assert.ok((await rae('GET', `/api/chat/channels/${dm}/seen`)).body.read_at);
   assert.ok(raeId);
 });
+
+test('notes: pictures on a note, seen by everyone it is shared with', async () => {
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+  const pia = client();
+  const made = await owner('POST', '/api/users', { local: 'notepic', domain: 'acme.com', name: 'Pia Picture', password: 'password123' });
+  await login(pia, 'notepic@acme.com');
+  const n = (await owner('POST', '/api/notes', { title: 'Whiteboard' })).body;
+  const up = (body, type) => owner('POST', `/api/notes/${n.id}/pictures`, body, { raw: true, headers: { 'content-type': type } });
+  assert.equal((await up('<svg/>', 'image/svg+xml')).status, 400, 'no SVG');
+  const added = await up(png, 'image/png');
+  assert.equal(added.status, 201);
+  assert.equal(added.body.pictures.length, 1);
+  const pid = added.body.pictures[0];
+  assert.equal((await pia('GET', `/api/notes/${n.id}/pictures/${pid}`, undefined, { binary: true })).status, 404, 'not shared yet');
+  await owner('PUT', `/api/notes/${n.id}/shares`, { user_ids: [made.body.id] });
+  const got = await pia('GET', `/api/notes/${n.id}/pictures/${pid}`, undefined, { binary: true });
+  assert.equal(got.status, 200);
+  assert.equal(got.headers.get('content-type'), 'image/png');
+  assert.deepEqual(got.body, png);
+  // A copy gets its own picture; taking it off one leaves the other.
+  const copy = (await pia('POST', `/api/notes/${n.id}/copy`)).body;
+  assert.equal(copy.pictures.length, 1);
+  assert.notEqual(copy.pictures[0], pid);
+  assert.equal((await pia('DELETE', `/api/notes/${n.id}/pictures/${pid}`)).body.pictures.length, 0);
+  assert.equal((await pia('GET', `/api/notes/${copy.id}/pictures/${copy.pictures[0]}`, undefined, { binary: true })).status, 200);
+});

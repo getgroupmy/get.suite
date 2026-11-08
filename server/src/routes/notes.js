@@ -6,7 +6,10 @@ import { q, tx } from '../db.js';
 import { uid, now, str, bad, notFound, forbidden } from '../util.js';
 import { sendTo } from '../hub.js';
 import { notify as bell } from '../notifications.js';
-import { insertFile } from './files.js';
+import { insertFile, receiveUpload } from './files.js';
+import fs from 'node:fs';
+import path from 'node:path';
+import { FILES_DIR } from '../db.js';
 import { myFirstList, addTasks } from './tasks.js';
 
 q(`CREATE TABLE IF NOT EXISTS notes (
@@ -32,6 +35,22 @@ q(`CREATE TABLE IF NOT EXISTS note_shares (
 q('CREATE INDEX IF NOT EXISTS notes_owner ON notes(owner_id)').run();
 if (!q('PRAGMA table_info(notes)').all().some((c) => c.name === 'remind_at')) q('ALTER TABLE notes ADD COLUMN remind_at INTEGER').run(); // a reminder, for everyone on the note
 
+// Pictures on a note (shown at the top of the card), stored like Drive files but not listed in Drive.
+q(`CREATE TABLE IF NOT EXISTS note_pictures (
+  id TEXT PRIMARY KEY,
+  note_id TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+  storage TEXT NOT NULL,
+  mime TEXT NOT NULL,
+  size INTEGER NOT NULL,
+  added_by TEXT,
+  created_at INTEGER NOT NULL
+)`).run();
+const PICTURE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp']; // not SVG: it can carry scripts
+const MAX_PICTURES = 10, MAX_PICTURE_BYTES = 10 * 1024 * 1024;
+const picturesOf = (noteId) => q('SELECT id, mime, size FROM note_pictures WHERE note_id = ? ORDER BY created_at').all(noteId);
+/** Remove a note's picture files from disk (before the note or picture rows go). */
+function dropPictureFiles(rows) { for (const p of rows) fs.rm(path.join(FILES_DIR, p.storage), { force: true }, () => {}); }
+
 export const COLORS = ['#faafa8', '#f39f76', '#fff8b8', '#e2f6d3', '#b4ddd3', '#d4e4ed', '#aeccdc', '#d3bfdb', '#f6e2dd', '#e9e3d4', '#efeff1'];
 const MAX_NOTES = 2000, MAX_ITEMS = 200, MAX_LABELS = 10;
 
@@ -54,7 +73,7 @@ const team = (n) => [n.owner_id, ...q('SELECT user_id FROM note_shares WHERE not
 function shape(n, me) {
   return {
     id: n.id, title: n.title, body: n.body, items: n.items ? JSON.parse(n.items) : null, color: n.color, pinned: !!n.pinned, archived: !!n.archived,
-    labels: JSON.parse(n.labels || '[]'), remind_at: n.remind_at ?? null, position: n.position, created_at: n.created_at, updated_at: n.updated_at, mine: n.owner_id === me,
+    labels: JSON.parse(n.labels || '[]'), remind_at: n.remind_at ?? null, pictures: picturesOf(n.id).map((p) => p.id), position: n.position, created_at: n.created_at, updated_at: n.updated_at, mine: n.owner_id === me,
     owner: q('SELECT id, name, username FROM users WHERE id = ?').get(n.owner_id),
     shared: q(`SELECT u.id, u.name, u.username FROM note_shares s JOIN users u ON u.id = s.user_id WHERE s.note_id = ? ORDER BY u.name`).all(n.id),
   };
@@ -160,6 +179,11 @@ export default function noteRoutes() {
     const top = (q('SELECT MAX(position) AS p FROM notes WHERE owner_id = ?').get(req.user.id).p ?? 0) + 1;
     q(`INSERT INTO notes (id, owner_id, title, body, items, color, pinned, labels, position, created_at, updated_at, updated_by) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)`)
       .run(id, req.user.id, n.title, n.body, n.items, n.color, n.labels, top, t, t, req.user.id);
+    for (const p of q('SELECT * FROM note_pictures WHERE note_id = ? ORDER BY created_at').all(n.id)) { // the pictures too, as copies of their own
+      const storage = uid();
+      try { fs.copyFileSync(path.join(FILES_DIR, p.storage), path.join(FILES_DIR, storage)); } catch { continue; }
+      q('INSERT INTO note_pictures (id, note_id, storage, mime, size, added_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(uid(), id, storage, p.mime, p.size, req.user.id, p.created_at);
+    }
     const c = q('SELECT * FROM notes WHERE id = ?').get(id);
     tell(c);
     res.status(201).json(shape(c, req.user.id));
@@ -210,11 +234,45 @@ export default function noteRoutes() {
     res.json(shape(q('SELECT * FROM notes WHERE id = ?').get(n.id), req.user.id));
   });
 
+  // Pictures: add one (the raw image as the body), show one, or take one off. Anyone on the note can.
+  r.post('/:id/pictures', async (req, res) => {
+    const n = load(req.params.id, req.user);
+    const mime = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
+    if (!PICTURE_TYPES.includes(mime)) throw bad('Add a PNG, JPEG, GIF or WebP picture');
+    if (picturesOf(n.id).length >= MAX_PICTURES) throw bad(`A note can have up to ${MAX_PICTURES} pictures`);
+    const owner = q('SELECT org_id FROM users WHERE id = ?').get(n.owner_id);
+    const { storage, size } = await receiveUpload(req, owner.org_id, MAX_PICTURE_BYTES).catch((e) => { throw e.status === 413 ? bad('Pictures can be up to 10 MB') : e; });
+    const id = uid();
+    q('INSERT INTO note_pictures (id, note_id, storage, mime, size, added_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(id, n.id, storage, mime, size, req.user.id, now());
+    q('UPDATE notes SET updated_at = ?, updated_by = ? WHERE id = ?').run(now(), req.user.id, n.id);
+    tell(n);
+    res.status(201).json(shape(q('SELECT * FROM notes WHERE id = ?').get(n.id), req.user.id));
+  });
+  r.get('/:id/pictures/:pid', (req, res) => {
+    const n = load(req.params.id, req.user);
+    const p = q('SELECT * FROM note_pictures WHERE id = ? AND note_id = ?').get(req.params.pid, n.id);
+    if (!p) throw notFound();
+    res.setHeader('Content-Type', p.mime);
+    res.setHeader('Cache-Control', 'private, max-age=3600');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    fs.createReadStream(path.join(FILES_DIR, p.storage)).on('error', () => res.destroy()).pipe(res);
+  });
+  r.delete('/:id/pictures/:pid', (req, res) => {
+    const n = load(req.params.id, req.user);
+    const p = q('SELECT * FROM note_pictures WHERE id = ? AND note_id = ?').get(req.params.pid, n.id);
+    if (!p) throw notFound();
+    q('DELETE FROM note_pictures WHERE id = ?').run(p.id);
+    dropPictureFiles([p]);
+    q('UPDATE notes SET updated_at = ?, updated_by = ? WHERE id = ?').run(now(), req.user.id, n.id);
+    tell(n);
+    res.json(shape(q('SELECT * FROM notes WHERE id = ?').get(n.id), req.user.id));
+  });
+
   // Delete (the owner), or take yourself off a note shared with you.
   r.delete('/:id', (req, res) => {
     const n = load(req.params.id, req.user);
     const before = team(n);
-    if (n.owner_id === req.user.id) q('DELETE FROM notes WHERE id = ?').run(n.id);
+    if (n.owner_id === req.user.id) { dropPictureFiles(q('SELECT storage FROM note_pictures WHERE note_id = ?').all(n.id)); q('DELETE FROM notes WHERE id = ?').run(n.id); }
     else q('DELETE FROM note_shares WHERE note_id = ? AND user_id = ?').run(n.id, req.user.id);
     sendTo(before, { type: 'notes-changed' });
     res.json({ ok: true, deleted: n.owner_id === req.user.id });
