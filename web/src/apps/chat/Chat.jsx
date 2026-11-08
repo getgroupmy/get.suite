@@ -373,7 +373,9 @@ export default function Chat() {
               {uploading > 0 && <li className="muted">Uploading {uploading}…</li>}
             </ul>
           )}
-          {current.archived_at ? (
+          {!current.archived_at && current.can_post === false ? (
+            <div className="banner archived-banner" role="note">📣 Only {(current.posters || []).map((id) => people.find((p) => p.id === id)?.name).filter(Boolean).join(', ') || 'some people'} (and admins) start conversations here. Reply in a thread to join in.</div>
+          ) : current.archived_at ? (
             <div className="banner archived-banner">This channel is archived: it can be read but not written in.
               {canManage(current) && <button type="button" className="btn small" onClick={async () => { await patch(`/chat/channels/${current.id}`, { archived: false }); loadChannels(); }}>Unarchive</button>}</div>
           ) : <form className="composer" onSubmit={send} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { if (e.dataTransfer.files.length) { e.preventDefault(); attach([...e.dataTransfer.files]); } }}>
@@ -858,6 +860,22 @@ function PeoplePicker({ people, chosen, onChange, label = 'Who can see it' }) {
 }
 
 /** A channel's topic, name, privacy, members and archiving. */
+/** Announcement channels: everyone posts, or only the people chosen (whoever made it and admins always can). */
+function WhoPosts({ channel, people, onSave }) {
+  const [some, setSome] = useState(!!channel.posters);
+  const [chosen, setChosen] = useState(new Set(channel.posters || []));
+  const changed = some !== !!channel.posters || (some && [...chosen].sort().join() !== [...(channel.posters || [])].sort().join());
+  return (
+    <fieldset className="stack" style={{ gap: 6, border: 0, padding: 0, margin: 0 }}>
+      <legend><strong>Who can start conversations</strong></legend>
+      <label className="check"><input type="radio" name="who-posts" checked={!some} onChange={() => setSome(false)} /> Everyone in the channel</label>
+      <label className="check"><input type="radio" name="who-posts" checked={some} onChange={() => setSome(true)} /> Only some people (an announcement channel; everyone can still reply in threads and react)</label>
+      {some && <PeoplePicker label="People who can post" people={people} chosen={chosen} onChange={setChosen} />}
+      <div className="row"><button type="button" className="btn" disabled={!changed} onClick={() => onSave(some ? [...chosen] : null)}>Save</button></div>
+    </fieldset>
+  );
+}
+
 function ChannelSettings({ channel, me, canManage, people, onClose, onChanged, onLeft }) {
   const toast = useToast();
   const [topic, setTopic] = useState(channel.topic || '');
@@ -903,6 +921,7 @@ function ChannelSettings({ channel, me, canManage, people, onClose, onChanged, o
             </>}
           </section>
         ) : <p className="muted small" style={{ margin: 0 }}>Everyone in the company can see and join this channel.</p>}
+        {canManage && <WhoPosts channel={channel} people={people.filter((p) => !p.external)} onSave={(posters) => change({ posters }, posters ? 'Only the people chosen (and admins) can post now' : 'Everyone can post again')} />}
         {canManage && !general && (
           <div className="row wrap" style={{ gap: 8, borderTop: '1px solid var(--border)', paddingTop: 12 }}>
             {!channel.private && <button type="button" className="btn" onClick={() => setConfirm('private')}>Make private</button>}

@@ -77,6 +77,9 @@ const isGeneral = (c) => !c.dm_key && c.id === q('SELECT id FROM channels WHERE 
 /** May this person change the channel's name, privacy or archiving? Who made it, or a company admin. */
 const canManage = (c, user) => !c.dm_key && (c.created_by === user.id || (user.is_admin && c.org_id === user.org_id));
 const readOnly = (c) => { if (c.archived_at) throw bad('This channel is archived'); };
+/** Announcement channels: may this person start a conversation (not reply in a thread) here? */
+const postersOf = (c) => (c.posters ? JSON.parse(c.posters) : null);
+const mayPost = (c, user, parent) => !!parent || !postersOf(c) || canManage(c, user) || postersOf(c).includes(user.id);
 
 /** For a DM: may this user still write to it? (the other person may be in a company that closed external access) */
 function dmOpen(c, user) {
@@ -150,6 +153,7 @@ function readMessage(c, user, input) {
 
 /** Post a message: saved, shown to everyone in the conversation, mentions told. */
 function deliver(c, user, { body, files, poll, parent, forwarded = null }) {
+  if (!mayPost(c, user, parent)) throw new HttpError(403, 'Only some people post in this channel; you can reply in threads');
   const id = uid();
   q('INSERT INTO messages (id, channel_id, user_id, body, created_at, files, parent_id, poll, forwarded) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(id, c.id, user.id, body, now(), files.length ? JSON.stringify(files) : null, parent?.id ?? null, poll ? JSON.stringify(poll) : null, forwarded ? JSON.stringify(forwarded) : null);
   q('INSERT INTO channel_reads (channel_id, user_id, read_at) VALUES (?, ?, ?) ON CONFLICT(channel_id, user_id) DO UPDATE SET read_at = excluded.read_at').run(c.id, user.id, now());
@@ -291,7 +295,7 @@ export default function chatRoutes() {
 
   r.get('/channels', (req, res) => {
     const me = req.user.id;
-    const rows = q(`SELECT c.id, c.name, c.dm_key, c.private, c.topic, c.archived_at, c.created_by,
+    const rows = q(`SELECT c.id, c.name, c.dm_key, c.private, c.topic, c.archived_at, c.created_by, c.posters,
                       (SELECT COUNT(*) FROM channel_members cm WHERE cm.channel_id = c.id) AS member_count,
                       EXISTS (SELECT 1 FROM chat_mutes mu WHERE mu.channel_id = c.id AND mu.user_id = ?) AS muted,
                       (SELECT MAX(created_at) FROM messages m WHERE m.channel_id = c.id) AS last_at,
@@ -312,7 +316,7 @@ export default function chatRoutes() {
                     WHERE (c.dm_key IS NULL AND c.private = 0 AND c.org_id = ?)
                        OR EXISTS (SELECT 1 FROM channel_members cm WHERE cm.channel_id = c.id AND cm.user_id = ?)
                     ORDER BY c.dm_key IS NOT NULL, c.archived_at IS NOT NULL, c.name`).all(me, me, me, me, req.user.org_id, me, me, me, me, me, `@${req.user.username}`, req.user.org_id, me);
-    res.json({ channels: rows.map((c) => ({ ...c, muted: !!c.muted })), online: onlineUserIds() });
+    res.json({ channels: rows.map((c) => ({ ...c, muted: !!c.muted, posters: postersOf(c), can_post: mayPost(c, req.user, null) })), online: onlineUserIds() });
   });
 
   r.post('/channels', (req, res) => {
@@ -349,6 +353,17 @@ export default function chatRoutes() {
       set.name = name;
     }
     if (b.archived !== undefined) set.archived_at = b.archived ? now() : null;
+    // Who can post: { posters: null } (everyone) or { posters: [user ids] } (just them, plus whoever made it and admins).
+    if (b.posters !== undefined) {
+      if (!canManage(c, req.user)) throw new HttpError(403, 'Only whoever made the channel, or an admin, can change that');
+      if (b.posters === null) set.posters = null;
+      else {
+        if (!Array.isArray(b.posters)) throw bad('posters must be a list or null');
+        const ids = [...new Set(b.posters.map(String))].slice(0, 200);
+        for (const id of ids) { const u = q('SELECT org_id FROM users WHERE id = ?').get(id); if (!u || u.org_id !== c.org_id) throw bad('Posters must be in the company'); }
+        set.posters = JSON.stringify(ids);
+      }
+    }
     const before = audience(c);
     tx(() => {
       if (b.private !== undefined && !!b.private !== !!c.private) {
@@ -479,6 +494,7 @@ export default function chatRoutes() {
     const c = writable(req.params.id, req.user);
     const m = readMessage(c, req.user, req.body);
     if (m.poll) throw bad('Polls can’t be scheduled');
+    if (!mayPost(c, req.user, m.parent)) throw new HttpError(403, 'Only some people post in this channel; you can reply in threads');
     const at = Number(req.body.send_at);
     if (!Number.isFinite(at) || at < Date.now() + 30e3) throw bad('Choose a time at least a minute from now');
     if (at > Date.now() + 366 * 864e5) throw bad('Choose a time within a year');

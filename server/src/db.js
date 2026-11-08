@@ -177,6 +177,8 @@ if (!hasColumn('files', 'page_setup')) db.exec('ALTER TABLE files ADD COLUMN pag
 if (!hasColumn('channels', 'private')) db.exec('ALTER TABLE channels ADD COLUMN private INTEGER NOT NULL DEFAULT 0'); // only its members see it
 if (!hasColumn('channels', 'topic')) db.exec('ALTER TABLE channels ADD COLUMN topic TEXT');
 if (!hasColumn('channels', 'archived_at')) db.exec('ALTER TABLE channels ADD COLUMN archived_at INTEGER'); // read-only once archived
+// Announcement channels: only its posters (whoever made it, admins, and the people chosen) start conversations; everyone can reply in threads.
+if (!hasColumn('channels', 'posters')) db.exec('ALTER TABLE channels ADD COLUMN posters TEXT'); // null: everyone posts; JSON [user ids]: only them
 if (!hasColumn('messages', 'parent_id')) db.exec('ALTER TABLE messages ADD COLUMN parent_id TEXT'); // a reply in this message's thread
 db.exec('CREATE INDEX IF NOT EXISTS messages_parent ON messages(parent_id, created_at)');
 if (!hasColumn('users', 'org_id')) db.exec('ALTER TABLE users ADD COLUMN org_id TEXT REFERENCES orgs(id) ON DELETE CASCADE');

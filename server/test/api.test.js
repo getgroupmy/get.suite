@@ -3713,3 +3713,24 @@ test('assigning a comment gives the person a task; resolving the thread ticks it
   await k('PATCH', `/api/tasks/tasks/${t.id}`, { done: false });
   assert.equal((await owner('GET', `/api/comments/${doc.id}`)).body.find((x) => x.id === c.id).resolved, false);
 });
+
+test('announcement channels: only the chosen people post; everyone can reply in threads', async () => {
+  const a = client(); const b = client();
+  const ids = {};
+  for (const [local, name] of [['anma', 'Ann Maker'], ['anpo', 'Pat Poster'], ['anrd', 'Rob Reader']]) ids[local] = (await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).body.id;
+  await login(a, 'anpo@acme.com'); await login(b, 'anrd@acme.com');
+  const ch = (await owner('POST', '/api/chat/channels', { name: 'announcements-x' })).body;
+  assert.equal((await b('PATCH', `/api/chat/channels/${ch.id}`, { posters: [ids.anrd] })).status, 403, 'only the maker or an admin');
+  assert.equal((await owner('PATCH', `/api/chat/channels/${ch.id}`, { posters: [ids.anpo] })).status, 200);
+  const mine = (await b('GET', '/api/chat/channels')).body.channels.find((c) => c.id === ch.id);
+  assert.equal(mine.can_post, false); assert.deepEqual(mine.posters, [ids.anpo]);
+  const post = await a('POST', `/api/chat/channels/${ch.id}/messages`, { body: 'Office closed on Friday' });
+  assert.equal(post.status, 201);
+  assert.equal((await owner('POST', `/api/chat/channels/${ch.id}/messages`, { body: 'Admins can too' })).status, 201);
+  const no = await b('POST', `/api/chat/channels/${ch.id}/messages`, { body: 'Me too?' });
+  assert.equal(no.status, 403); assert.match(no.body.error, /reply in threads/);
+  assert.equal((await b('POST', `/api/chat/channels/${ch.id}/messages`, { body: 'Thanks!', parent_id: post.body.id })).status, 201, 'a thread reply is fine');
+  assert.equal((await b('POST', `/api/chat/channels/${ch.id}/scheduled`, { body: 'later', send_at: Date.now() + 36e5 })).status, 403, 'not by scheduling either');
+  await owner('PATCH', `/api/chat/channels/${ch.id}`, { posters: null });
+  assert.equal((await b('POST', `/api/chat/channels/${ch.id}/messages`, { body: 'Now I can' })).status, 201);
+});
