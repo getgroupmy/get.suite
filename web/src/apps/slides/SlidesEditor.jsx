@@ -21,7 +21,7 @@ import {
   THEMES, LAYOUTS, numberShown, newId, clampBox, moveBox, resizeBox, addSlide, duplicateSlide, removeSlide, moveSlide, moveSlides, duplicateSlides, removeSlides,
   updateItem, addItem, removeItem, restack, pictureBox,
   TRANSITIONS, setSlide, stepSlide, firstShown, newTable, resizeTable, setCell,
-  ANIMATIONS, builds, animChange, stepPresent, slideChanges } from './slidemath.js';
+  ANIMATIONS, builds, animChange, stepPresent, nextPresent, ADVANCES, advanceLabel, slideChanges } from './slidemath.js';
 
 const SIZES = [12, 14, 16, 18, 20, 24, 28, 32, 36, 40, 44, 54, 64, 72, 96];
 const TEXT_COLORS = [['', 'Theme text'], ['accent', 'Theme accent'], ['#202124', 'Black'], ['#ffffff', 'White'], ['#c5221f', 'Red'], ['#e37400', 'Orange'], ['#188038', 'Green'], ['#1a73e8', 'Blue'], ['#8430ce', 'Purple']];
@@ -233,7 +233,7 @@ export default function SlidesEditor() {
             setTimeout(done, 1000);
           } },
           { label: 'Download as PowerPoint (.pptx)', icon: 'download', onClick: () => { window.location.href = `/api/files/${id}/export`; } },
-          ...(!readOnly ? ['-', ...[[null, 'Slide numbers: off'], [true, 'Slide numbers: every slide'], ['skip-first', 'Slide numbers: all but the first']].map(([v, label]) => ({ label: `${label}${(deck.numbers || null) === v ? ' ✓' : ''}`, onClick: () => change((d) => { const { numbers, ...rest } = d; return v ? { ...rest, numbers: v } : rest; }) })),
+          ...(!readOnly ? ['-', { label: `Loop: start again after the last slide${deck.loop ? ' ✓' : ''}`, onClick: () => change((d) => { const { loop, ...rest } = d; return loop ? rest : { ...rest, loop: true }; }) }, ...[[null, 'Slide numbers: off'], [true, 'Slide numbers: every slide'], ['skip-first', 'Slide numbers: all but the first']].map(([v, label]) => ({ label: `${label}${(deck.numbers || null) === v ? ' ✓' : ''}`, onClick: () => change((d) => { const { numbers, ...rest } = d; return v ? { ...rest, numbers: v } : rest; }) })),
             '-', ...Object.entries(THEMES).map(([k, t]) => ({ label: `Theme: ${t.name}${deck.theme === k ? ' ✓' : ''}`, onClick: () => change((d) => ({ ...d, theme: k })) }))] : []),
         ]}
       />
@@ -352,7 +352,7 @@ export default function SlidesEditor() {
         <ol className="slide-list" aria-label="Slides">
           {deck.slides.map((s, i) => (
             <li key={s.id} className={`${i === slideIndex ? 'on' : ''} ${s.skip ? 'skipped' : ''} ${dropClass(i)}`} {...dragProps(i, false)}>
-              <span className="num" aria-hidden="true">{i + 1}{commentsOn(s.id) > 0 && <span className="thumb-mark" title={`${commentsOn(s.id)} open comment${commentsOn(s.id) === 1 ? '' : 's'}`}>💬</span>}{s.transition && <span className="thumb-mark" title={`Transition: ${s.transition}`}>✦</span>}{s.skip && <span className="thumb-mark" title="Skipped when presenting">⊘</span>}</span>
+              <span className="num" aria-hidden="true">{i + 1}{commentsOn(s.id) > 0 && <span className="thumb-mark" title={`${commentsOn(s.id)} open comment${commentsOn(s.id) === 1 ? '' : 's'}`}>💬</span>}{s.transition && <span className="thumb-mark" title={`Transition: ${s.transition}`}>✦</span>}{s.skip && <span className="thumb-mark" title="Skipped when presenting">⊘</span>}{s.advance > 0 && <span className="thumb-mark" title={`Moves on by itself after ${s.advance} s`}>⏱</span>}</span>
               <button type="button" className="thumb" aria-label={`Slide ${i + 1}`} aria-current={i === slideIndex ? 'true' : undefined} onClick={() => goTo(i)}>
                 <SlideView slide={s} theme={theme} deckId={id} number={numberShown(deck, i) ? i + 1 : null} />
               </button>
@@ -364,6 +364,8 @@ export default function SlidesEditor() {
                   '-',
                   { label: s.skip ? 'Show when presenting' : 'Skip when presenting', onClick: slideAction((d) => setSlide(d, i, { skip: !s.skip })) },
                   ...TRANSITIONS.map(([v, name]) => ({ label: `${(s.transition || '') === v ? '✓ ' : ''}Transition: ${name}`, onClick: slideAction((d) => setSlide(d, i, { transition: v })) })),
+                  '-',
+                  ...ADVANCES.map((v) => ({ label: `${(s.advance || 0) === v ? '✓ ' : ''}Move on by itself: ${advanceLabel(v).toLowerCase()}`, onClick: slideAction((d) => setSlide(d, i, { advance: v || null })) })),
                   '-',
                   { label: 'Delete slide', icon: 'trash', danger: true, onClick: () => setDialog({ type: 'delete-slide', index: i }) },
                 ]} />
@@ -582,8 +584,16 @@ function Presenter({ deck, theme, deckId, start, onClose }) {
   const [at, setAt] = useState(() => ({ i: firstShown(deck, start), b: 0 }));
   const i = at.i;
   const setI = (v) => setAt((cur) => { const n = typeof v === 'function' ? v(cur.i) : v; return n === cur.i ? cur : { i: n, b: 0 }; });
-  const step = (dir) => setAt((cur) => stepPresent(deck, cur, dir));
+  const step = (dir) => setAt((cur) => (dir > 0 ? nextPresent(deck, cur) : stepPresent(deck, cur, dir)));
   const [notes, setNotes] = useState(false);
+  // Slides that move on by themselves (P pauses and resumes); moving on yourself starts the wait again.
+  const [paused, setPaused] = useState(false);
+  const wait = deck.slides[at.i]?.advance || 0;
+  useEffect(() => {
+    if (!wait || paused) return undefined;
+    const t = setTimeout(() => setAt((cur) => nextPresent(deck, cur)), wait * 1000);
+    return () => clearTimeout(t);
+  }, [at, wait, paused, deck]);
   const [laser, setLaser] = useState(null); // null: off; { x, y } where it points (L turns it on and off)
   const ref = useRef();
   const last = deck.slides.length - 1;
@@ -623,6 +633,7 @@ function Presenter({ deck, theme, deckId, start, onClose }) {
     else if (e.key === 'Escape') { e.preventDefault(); onClose(i); }
     else if (e.key === 'n' || e.key === 'N') setNotes((v) => !v); // notes on this screen, for a single display
     else if (e.key === 'l' || e.key === 'L') setLaser((v) => (v ? null : { x: -100, y: -100 })); // a laser pointer that follows the mouse
+    else if (e.key === 'p' || e.key === 'P') setPaused((v) => !v); // stop (and restart) slides moving on by themselves
   };
   return (
     <div ref={ref} className={`presenter ${laser ? 'lasering' : ''}`} tabIndex={-1} role="dialog" aria-label="Presenting" onKeyDown={onKey} onClick={() => step(1)}
@@ -633,7 +644,9 @@ function Presenter({ deck, theme, deckId, start, onClose }) {
       <div className="presenter-bar" onClick={(e) => e.stopPropagation()}>
         <button type="button" aria-label="Previous slide" disabled={stepSlide(deck, i, -1) === i && at.b === 0} onClick={() => step(-1)}>‹</button>
         <span aria-live="polite">{i + 1} / {deck.slides.length}</span>
-        <button type="button" aria-label="Next slide" disabled={stepSlide(deck, i, 1) === i && at.b >= builds(deck.slides[i]).length} onClick={() => step(1)}>›</button>
+        <button type="button" aria-label="Next slide" disabled={!deck.loop && stepSlide(deck, i, 1) === i && at.b >= builds(deck.slides[i]).length} onClick={() => step(1)}>›</button>
+        {wait > 0 && <button type="button" aria-label={paused ? 'Resume moving on by itself' : 'Pause moving on by itself'} aria-pressed={paused} title={`${paused ? 'Paused' : `Moves on after ${wait} s`} (P)`} onClick={() => setPaused((v) => !v)}>{paused ? '▶' : '⏸'}</button>}
+        {deck.loop && <span className="muted small" title="Starts again after the last slide">⟳</span>}
         <button type="button" aria-label={laser ? 'Turn off the laser pointer' : 'Laser pointer'} aria-pressed={!!laser} title="Laser pointer (L)" onClick={() => setLaser((v) => (v ? null : { x: -100, y: -100 }))}>●</button>
         <button type="button" aria-label="End presentation" onClick={() => onClose(i)}>✕</button>
       </div>

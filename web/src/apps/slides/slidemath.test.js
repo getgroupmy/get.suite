@@ -135,3 +135,15 @@ test('moving, copying and deleting several slides at once', async () => {
   assert.equal(ids(removeSlides(deck, [0, 4])), 'bcd');
   assert.equal(removeSlides(deck, [0, 1, 2, 3, 4]).slides.length, 1);
 });
+
+import { nextPresent, advanceLabel } from './slidemath.js';
+test('presenting on: past the last slide only when the presentation loops, to the first shown slide', () => {
+  const deck = { slides: [{ id: 'a', items: [], skip: true }, { id: 'b', items: [] }, { id: 'c', items: [] }] };
+  assert.deepEqual(nextPresent(deck, { i: 1, b: 0 }), { i: 2, b: 0 });
+  const end = { i: 2, b: 0 };
+  assert.equal(nextPresent(deck, end), end, 'stays on the last one');
+  assert.deepEqual(nextPresent({ ...deck, loop: true }, end), { i: 1, b: 0 }, 'loops, passing over the skipped first slide');
+  assert.equal(advanceLabel(0), 'Never');
+  assert.equal(advanceLabel(15), 'After 15 seconds');
+  assert.equal(advanceLabel(60), 'After 1 minute');
+});

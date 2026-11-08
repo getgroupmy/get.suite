@@ -144,7 +144,8 @@ export function applySheetJson(doc, next) {
 
 // ---- presentations: slide order, and each slide's boxes by id, so different boxes (or slides)
 // changed at once both stay; the same box keeps the later change.
-const SLIDE_KEYS = ['bg', 'notes', 'transition', 'skip'];
+const SLIDE_KEYS = ['bg', 'notes', 'transition', 'skip', 'advance']; // advance: seconds before moving on by itself
+const DECK_KEYS = ['numbers', 'loop']; // slide numbers (true or 'skip-first'); start again after the last slide
 function slideMap(slide) {
   const m = new Y.Map();
   for (const k of SLIDE_KEYS) if (slide[k]) m.set(k, slide[k]); // background, speaker notes, transition, skipped when presenting
@@ -161,7 +162,7 @@ export function deckDocFromJson(json) {
   const doc = new Y.Doc();
   doc.transact(() => {
     doc.getMap('deck').set('theme', json?.theme || 'light');
-    if (json?.numbers) doc.getMap('deck').set('numbers', json.numbers);
+    for (const k of DECK_KEYS) if (json?.[k]) doc.getMap('deck').set(k, json[k]);
     const slides = json?.slides?.length ? json.slides : [{ id: 's1', items: [] }];
     doc.getArray('order').push(slides.map((s) => s.id));
     const all = doc.getMap('slides');
@@ -174,7 +175,7 @@ export function jsonFromDeckDoc(doc) {
   const all = doc.getMap('slides');
   return {
     theme: doc.getMap('deck').get('theme') || 'light',
-    ...(doc.getMap('deck').get('numbers') && { numbers: doc.getMap('deck').get('numbers') }), // slide numbers: true or 'skip-first'
+    ...Object.fromEntries(DECK_KEYS.filter((k) => doc.getMap('deck').get(k)).map((k) => [k, doc.getMap('deck').get(k)])),
     slides: doc.getArray('order').toArray().filter((id) => all.has(id)).map((id) => {
       const m = all.get(id);
       const items = m.get('items');
@@ -192,7 +193,7 @@ export function applyDeckJson(doc, next) {
   doc.transact(() => {
     const deck = doc.getMap('deck');
     if (deck.get('theme') !== next.theme) deck.set('theme', next.theme);
-    if ((deck.get('numbers') || null) !== (next.numbers || null)) { if (next.numbers) deck.set('numbers', next.numbers); else deck.delete('numbers'); }
+    for (const k of DECK_KEYS) if ((deck.get(k) || null) !== (next[k] || null)) { if (next[k]) deck.set(k, next[k]); else deck.delete(k); }
     const all = doc.getMap('slides');
     const want = next.slides || [];
     for (const id of [...all.keys()]) if (!want.some((s) => s.id === id)) all.delete(id);

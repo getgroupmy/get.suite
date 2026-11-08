@@ -93,3 +93,14 @@ test('sheet groups go both ways through the shared document', async () => {
   applySheetJson(doc, { sheets: [{ name: 'S', cells: { A1: '1' } }] });
   assert.equal(jsonFromSheetDoc(doc).sheets[0].groups, undefined);
 });
+
+test('presentations: looping and slides that move on by themselves are kept and merged', () => {
+  const deck = { theme: 'light', loop: true, numbers: true, slides: [{ id: 'a', items: [], advance: 10 }, { id: 'b', items: [] }] };
+  const doc = deckDocFromJson(deck);
+  assert.deepEqual(jsonFromDeckDoc(doc), deck);
+  applyDeckJson(doc, { theme: 'light', slides: [{ id: 'a', items: [] }, { id: 'b', items: [], advance: 5 }] });
+  const after = jsonFromDeckDoc(doc);
+  assert.equal(after.loop, undefined);
+  assert.equal(after.numbers, undefined);
+  assert.deepEqual(after.slides.map((s) => s.advance || null), [null, 5]);
+});

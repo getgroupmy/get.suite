@@ -292,9 +292,10 @@ test('PowerPoint: hidden slides stay skipped both ways; transitions are read', a
   const zip = await JSZip.loadAsync(buf);
   assert.match(await zip.file('ppt/slides/slide2.xml').async('string'), /<p:sld[^>]* show="0"/);
   assert.doesNotMatch(await zip.file('ppt/slides/slide1.xml').async('string'), /show="0"/);
-  // Add a transition the way PowerPoint writes it, then read the file back.
+  // The slide's transition goes out too; change it to another the way PowerPoint writes it, then read the file back.
   const s1 = await zip.file('ppt/slides/slide1.xml').async('string');
-  zip.file('ppt/slides/slide1.xml', s1.replace('</p:sld>', '<p:transition spd="med"><p:push dir="u"/></p:transition></p:sld>'));
+  assert.match(s1, /<p:transition spd="med"><p:fade\/><\/p:transition>/);
+  zip.file('ppt/slides/slide1.xml', s1.replace('<p:fade/>', '<p:push dir="u"/>'));
   const back = await deckFromPowerPoint(await zip.generateAsync({ type: 'nodebuffer' }), { savePicture: async () => 'x' });
   assert.deepEqual(back.slides.map((s) => [s.items[0]?.text, s.transition || null, !!s.skip]), [['Shown', 'push', false], ['Backup', null, true]]);
 });
@@ -564,4 +565,29 @@ test('equations: an equation in Word, its LaTeX in search', async () => {
   assert.match(docText(doc), /Energy: +E=mc\^2/);
   const xml = await (await JSZip.loadAsync(await wordFromDoc(doc, 'Physics'))).file('word/document.xml').async('string');
   assert.match(xml, /<m:oMath>[\s\S]*E=mc\^2[\s\S]*<\/m:oMath>/, 'a Word equation');
+});
+
+test('PowerPoint: transitions, slides that move on by themselves, and looping, both ways', async () => {
+  const JSZip = (await import('jszip')).default;
+  const deck = { theme: 'light', loop: true, slides: [
+    { id: 'a', items: [], advance: 8, transition: 'fade' },
+    { id: 'b', items: [], transition: 'push' },
+    { id: 'c', items: [] },
+    { id: 'd', items: [], advance: 30 },
+  ] };
+  const buf = await powerPointFromDeck(deck, { pictureData: async () => null });
+  const zip = await JSZip.loadAsync(buf);
+  const slide = async (n) => zip.file(`ppt/slides/slide${n}.xml`).async('string');
+  assert.match(await slide(1), /<\/p:clrMapOvr><p:transition spd="med" advTm="8000"><p:fade\/><\/p:transition>/);
+  assert.match(await slide(2), /<p:transition spd="med"><p:push dir="u"\/><\/p:transition>/);
+  assert.doesNotMatch(await slide(3), /p:transition/);
+  assert.match(await slide(4), /advTm="30000"><\/p:transition>/);
+  assert.match(await zip.file('ppt/presProps.xml').async('string'), /<p:presentationPr[^>]*><p:showPr loop="1"/);
+  const back = await deckFromPowerPoint(buf, { savePicture: async () => 'x' });
+  assert.equal(back.loop, true);
+  assert.deepEqual(back.slides.map((s) => [s.transition || null, s.advance || null]), [['fade', 8], ['push', null], [null, null], [null, 30]]);
+  // A deck without any of it is written as before.
+  const plain = await JSZip.loadAsync(await powerPointFromDeck({ theme: 'light', slides: [{ id: 'p', items: [] }] }, { pictureData: async () => null }));
+  assert.doesNotMatch(await plain.file('ppt/slides/slide1.xml').async('string'), /p:transition/);
+  assert.equal((await deckFromPowerPoint(await powerPointFromDeck({ theme: 'light', slides: [{ id: 'p', items: [] }] }, {}), { savePicture: async () => 'x' })).loop, undefined);
 });

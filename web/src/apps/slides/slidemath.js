@@ -194,6 +194,16 @@ export function stepPresent(deck, at, dir) {
   return { i: j, b: dir > 0 ? 0 : builds(deck.slides[j]).length };
 }
 
+/** Choices for a slide moving on by itself: seconds (0: only when you move on). */
+export const ADVANCES = [0, 5, 10, 15, 30, 60];
+export const advanceLabel = (secs) => (!secs ? 'Never' : secs < 60 ? `After ${secs} seconds` : secs === 60 ? 'After 1 minute' : `After ${Math.round(secs / 60)} minutes`);
+
+/** Forward one step; past the last slide, back to the first one shown when the presentation loops. */
+export function nextPresent(deck, at) {
+  const n = stepPresent(deck, at, 1);
+  return n === at && deck.loop ? { i: firstShown(deck, 0), b: 0 } : n;
+}
+
 // ---- what changed since an earlier version: slides added, deleted, moved or changed (and how)
 const boxName = (it) => (it.type === 'text' ? 'text box' : it.type === 'image' ? 'picture' : it.type === 'table' ? 'table' : 'shape');
 const textOf = (it) => (it.type === 'text' ? it.text || '' : it.type === 'table' ? (it.cells || []).map((r) => r.join(' | ')).join(' / ') : '');

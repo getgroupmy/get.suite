@@ -26,6 +26,43 @@ const relsOf = async (zip, file) => {
 };
 const colorIn = (el) => { const c = deep(el, A, 'srgbClr')[0]; return c ? `#${attr(c, 'val').toLowerCase()}` : null; };
 
+/** Seconds a slide stays before moving on by itself (1 to 3600), or null. */
+export function advanceOf(v) {
+  const n = Number(v);
+  if (v === null || v === undefined || v === '' || !Number.isFinite(n) || n <= 0) return null;
+  return Math.min(3600, Math.max(1, Math.round(n / 1000)));
+}
+
+const TRANSITION_XML = { fade: '<p:fade/>', push: '<p:push dir="u"/>', zoom: '<p:zoom/>' };
+
+/**
+ * What PowerPoint's file writer leaves out: each slide's transition and automatic advance
+ * (<p:transition advTm="…">, after the slide's colour mapping), and looping (<p:showPr loop="1">).
+ */
+async function withShowSettings(buffer, deck) {
+  const slides = deck.slides || [];
+  if (!deck.loop && !slides.some((s) => s.transition || s.advance)) return buffer;
+  const zip = await JSZip.loadAsync(buffer);
+  for (let i = 0; i < slides.length; i++) {
+    const s = slides[i];
+    const secs = Number(s.advance) > 0 ? Math.min(3600, Math.round(Number(s.advance))) : 0;
+    if (!s.transition && !secs) continue;
+    const file = `ppt/slides/slide${i + 1}.xml`;
+    const xml = await zip.file(file)?.async('string');
+    if (!xml) continue;
+    const el = `<p:transition spd="med"${secs ? ` advTm="${secs * 1000}"` : ''}>${TRANSITION_XML[s.transition] || ''}</p:transition>`;
+    zip.file(file, xml.includes('</p:clrMapOvr>') ? xml.replace('</p:clrMapOvr>', `</p:clrMapOvr>${el}`) : xml.replace('</p:sld>', `${el}</p:sld>`));
+  }
+  if (deck.loop) {
+    const props = await zip.file('ppt/presProps.xml')?.async('string');
+    if (props) {
+      const show = '<p:showPr loop="1" showNarration="1"><p:present/><p:sldAll/><p:penClr><a:prstClr val="red"/></p:penClr></p:showPr>';
+      zip.file('ppt/presProps.xml', props.replace(/<p:presentationPr([^>]*)\/>/, `<p:presentationPr$1>${show}</p:presentationPr>`).replace(/<p:presentationPr([^>]*[^/])>(?!<p:showPr)/, `<p:presentationPr$1>${show}`));
+    }
+  }
+  return zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
+}
+
 /**
  * A PowerPoint file as a Slides presentation. `savePicture(name, buffer, mime)` stores a picture
  * (in Drive) and returns its file id.
@@ -126,13 +163,18 @@ export async function deckFromPowerPoint(buffer, { savePicture }) {
     const notes = body ? deep(body, A, 'p').map((para) => deep(para, A, 't').map((t) => t.text).join('')).join('\n').replace(/\r\n?/g, '\n').trim().slice(0, 20000) : '';
     // Hidden slides (show="0") are skipped when presenting; transitions map to the nearest one Slides has.
     const skip = attr(xml, 'show') === '0';
-    const tr = elements(deep(xml, P, 'transition')[0] || null)[0]?.local;
+    const trEl = deep(xml, P, 'transition')[0] || null;
+    const tr = elements(trEl)[0]?.local;
+    const advance = advanceOf(attr(trEl, 'advTm')); // moves on by itself after so many seconds
     const transition = tr && ({ fade: 'fade', dissolve: 'fade', push: 'push', wipe: 'push', cover: 'push', pull: 'push', split: 'push', zoom: 'zoom', newsflash: 'zoom' }[tr] || 'fade');
-    slides.push({ id: id(), items, ...(bg && { bg }), ...(notes && { notes }), ...(transition && { transition }), ...(skip && { skip: true }) });
+    slides.push({ id: id(), items, ...(bg && { bg }), ...(notes && { notes }), ...(transition && { transition }), ...(advance && { advance }), ...(skip && { skip: true }) });
   }
+  // "Loop until Esc" in the file's slide show settings.
+  const props = parseXml(await zip.file('ppt/presProps.xml')?.async('string') || '');
+  const loop = !!props && ['1', 'true'].includes(attr(deep(props, P, 'showPr')[0] || null, 'loop'));
   // Numbered slides: all of them, or all but the first.
   const numbers = !numbered.size ? null : numbered.size >= slides.length ? true : numbered.size === slides.length - 1 && !numbered.has(0) ? 'skip-first' : true;
-  return { theme: 'light', ...(numbers && { numbers }), slides: slides.length ? slides : [{ id: id(), items: [] }] };
+  return { theme: 'light', ...(numbers && { numbers }), ...(loop && { loop: true }), slides: slides.length ? slides : [{ id: id(), items: [] }] };
 }
 
 /**
@@ -154,7 +196,7 @@ export async function powerPointFromDeck(deck, { pictureData, title = 'Presentat
     slide.background = { color: color(s.bg, theme.bg) };
     if (s.notes) slide.addNotes(s.notes);
     if (numberShown(deck, (deck.slides || []).indexOf(s))) slide.slideNumber = { x: Win - 1.1, y: Hin - 0.55, w: 0.8, h: 0.35, fontSize: 12, color: color('text', theme.text), align: 'right', fontFace: 'Arial' };
-    if (s.skip) slide.hidden = true; // (transitions stay in Workspace: the file writer has none)
+    if (s.skip) slide.hidden = true; // (transitions and timings are added afterwards: withShowSettings)
     for (const it of s.items || []) {
       const pos = { x: (it.x / 100) * Win, y: (it.y / 100) * Hin, w: (it.w / 100) * Win, h: (it.h / 100) * Hin };
       if (it.type === 'text') {
@@ -186,5 +228,5 @@ export async function powerPointFromDeck(deck, { pictureData, title = 'Presentat
       }
     }
   }
-  return Buffer.from(await pptx.write({ outputType: 'nodebuffer' }));
+  return withShowSettings(Buffer.from(await pptx.write({ outputType: 'nodebuffer' })), deck);
 }
