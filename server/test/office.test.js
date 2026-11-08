@@ -539,3 +539,20 @@ test('Excel: newer functions are written with their _xlfn. prefix and read back 
   assert.equal(formulaToExcel('=REGEXMATCH(A1,"x")'), '=REGEXMATCH(A1,"x")', 'not an Excel function: left as it is');
   assert.equal(formulaToExcel('="XMATCH(1)"&A1'), '="XMATCH(1)"&A1', 'text stays text');
 });
+
+test('dropdown chips: their choice in Word (shaded in its colour), Markdown and search', async () => {
+  const { markdownFromDoc } = await import('../src/office/markdown.js');
+  const { docText } = await import('../src/search.js');
+  const JSZip = (await import('jszip')).default;
+  const options = [{ label: 'Not started', color: 'grey' }, { label: 'In progress', color: 'blue' }, { label: 'Done', color: 'green' }];
+  const doc = { type: 'doc', content: [{ type: 'paragraph', content: [
+    { type: 'text', text: 'Status: ' }, { type: 'dropchip', attrs: { options, value: 'In progress' } },
+    { type: 'text', text: ' then ' }, { type: 'dropchip', attrs: { options, value: null } },
+    { type: 'text', text: ' and ' }, { type: 'dropchip', attrs: { options: [], value: 'x' } },
+  ] }] };
+  assert.equal(markdownFromDoc(doc).trim(), 'Status: **In progress** then **Not started** and **—**');
+  assert.match(docText(doc), /Status: +In progress +then +Not started/);
+  const xml = await (await JSZip.loadAsync(await wordFromDoc(doc, 'Chips'))).file('word/document.xml').async('string');
+  assert.match(xml, /w:fill="D3E3FD"[\s\S]*?In progress/, 'the chosen colour shades the text');
+  assert.match(xml, /w:fill="E8EAED"[\s\S]*?Not started/, 'nothing picked yet is grey');
+});

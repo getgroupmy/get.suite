@@ -4,6 +4,7 @@
 // tables, pictures and text colours.
 import mammoth from 'mammoth';
 import { chartTable } from './sheetchart.js';
+import { chipText } from './chiptext.js';
 import { imageSize } from 'image-size';
 import { generateJSON } from '@tiptap/html/server';
 import StarterKit from '@tiptap/starter-kit';
@@ -107,6 +108,9 @@ const halfPoints = (v) => { const m = /^([\d.]+)(pt|px)$/.exec(String(v || '').t
 /** Line spacing (a multiple, such as 1.5) as Word paragraph spacing. */
 const spacing = (lh) => { const n = Number(lh); return n >= 0.5 && n <= 4 ? { spacing: { line: Math.round(240 * n), lineRule: LineRuleType.AUTO } } : {}; };
 
+// Dropdown chips' colours, as shading behind their text.
+const CHIP_FILLS = { grey: 'E8EAED', blue: 'D3E3FD', green: 'C4EED0', yellow: 'FFE8A3', red: 'FAD2CF', purple: 'E9D7FE' };
+
 // The notes of the document being written (wordFromDoc fills it as it meets footnote markers).
 let footnotes = null;
 
@@ -115,6 +119,7 @@ function runs(nodes = [], extra = {}) {
   for (const n of nodes) {
     if (n.type === 'hardBreak') { out.push(new TextRun({ break: 1 })); continue; }
     if (n.type === 'mention') { out.push(new TextRun({ text: `@${n.attrs?.name || ''}`, bold: true, color: '1A73E8' })); continue; }
+    if (n.type === 'dropchip') { const fill = CHIP_FILLS[(n.attrs?.options || []).find((o) => o?.label === n.attrs?.value)?.color] || 'E8EAED'; out.push(new TextRun({ text: ` ${chipText(n.attrs)} `, bold: true, shading: { type: ShadingType.CLEAR, color: 'auto', fill } })); continue; }
     if (n.type === 'footnote' && footnotes) {
       const id = footnotes.length + 1;
       footnotes.push(n.attrs?.note || '');
