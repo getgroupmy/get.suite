@@ -13,6 +13,31 @@ q(`CREATE TABLE IF NOT EXISTS channel_reads (
   read_at INTEGER NOT NULL,
   PRIMARY KEY (channel_id, user_id)
 )`).run();
+// Keeping chat (a company setting): messages older than orgs.chat_days days are deleted (0: kept for good).
+if (!q('PRAGMA table_info(orgs)').all().some((c) => c.name === 'chat_days')) q('ALTER TABLE orgs ADD COLUMN chat_days INTEGER NOT NULL DEFAULT 0').run();
+export const CHAT_KEEP_DAYS = [0, 30, 90, 365, 1825];
+/**
+ * Delete the messages each company no longer keeps: in its channels, and in direct messages with
+ * any of its people (the shorter setting wins there). A thread goes with the message it answers.
+ */
+export function purgeOldChat(at = Date.now()) {
+  let n = 0;
+  for (const o of q('SELECT id, chat_days FROM orgs WHERE chat_days > 0').all()) {
+    const cutoff = at - o.chat_days * 864e5;
+    const old = q(`SELECT m.id FROM messages m JOIN channels c ON c.id = m.channel_id
+                   WHERE m.created_at < ? AND (c.org_id = ? OR (c.dm_key IS NOT NULL AND EXISTS (
+                     SELECT 1 FROM channel_members cm JOIN users u ON u.id = cm.user_id WHERE cm.channel_id = c.id AND u.org_id = ?)))
+                   LIMIT 5000`).all(cutoff, o.id, o.id).map((r) => r.id);
+    if (!old.length) continue;
+    const ids = JSON.stringify(old);
+    tx(() => {
+      n += q('DELETE FROM messages WHERE parent_id IN (SELECT value FROM json_each(?))').run(ids).changes;
+      n += q('DELETE FROM messages WHERE id IN (SELECT value FROM json_each(?))').run(ids).changes;
+    });
+  }
+  return n;
+}
+
 q(`CREATE TABLE IF NOT EXISTS message_reactions (
   message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

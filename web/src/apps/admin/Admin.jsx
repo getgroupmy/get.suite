@@ -399,6 +399,15 @@ function CompanySettings() {
         <p className="muted small" style={{ margin: 0 }}>Files and folders that have been in someone’s trash this long are deleted for good, with their versions, freeing the space. Each item in the trash says when it goes.</p>
       </div>
       <div className="card stack">
+        <h2>Keeping chat</h2>
+        <label className="field"><span>Keep chat messages</span>
+          <select aria-label="Keep chat messages" value={String(org.chat_days ?? 0)} onChange={(e) => { const d = Number(e.target.value); save({ chat_days: d }, d ? `Chat messages older than ${d === 1825 ? '5 years' : d === 365 ? 'a year' : `${d} days`} will be deleted` : 'Chat messages are kept for good'); }}>
+            {[[0, 'For good'], [1825, 'For 5 years'], [365, 'For a year'], [90, 'For 90 days'], [30, 'For 30 days']].map(([d, n]) => <option key={d} value={d}>{n}</option>)}
+          </select>
+        </label>
+        <p className="muted small" style={{ margin: 0 }}>Older messages (with their threads, reactions and polls) are deleted every hour, in your company's channels and in direct messages with your people. Files sent in chat stay in Drive. This can't be undone.</p>
+      </div>
+      <div className="card stack">
         <h2>Sign-in security</h2>
         <label className="check">
           <input type="checkbox" checked={org.require_2fa} onChange={(e) => save({ require_2fa: e.target.checked }, e.target.checked ? 'Two-step verification is now required' : 'Two-step verification is now optional')} />

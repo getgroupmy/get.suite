@@ -4274,3 +4274,30 @@ test('quiet hours: notifications pause outside your working hours', async () => 
   await q1('PUT', '/api/users/me/quiet-hours', { on: false });
   assert.equal((await q1('GET', '/api/users/me/pause')).body.paused_until, null);
 });
+
+test('chat: a company can keep messages for a while only', async () => {
+  const { purgeOldChat } = await import('../src/routes/chat.js');
+  const { q } = await import('../src/db.js');
+  const adm = client();
+  assert.equal((await owner('POST', '/api/orgs', { name: 'Keepco', domain: 'keepco.com', admin_name: 'Kay Keep', admin_local: 'kay', admin_password: 'password123' })).status, 201);
+  await login(adm, 'kay@keepco.com');
+  assert.equal((await adm('PATCH', '/api/orgs/current', { chat_days: 12 })).status, 400, 'one of the offered choices');
+  const ch = (await adm('POST', '/api/chat/channels', { name: 'keep-test' })).body;
+  const chId = ch.id || ch.channel?.id;
+  const old = (await adm('POST', `/api/chat/channels/${chId}/messages`, { body: 'Old news' })).body;
+  const oldId = old.id || old.message?.id;
+  const reply = (await adm('POST', `/api/chat/channels/${chId}/messages`, { body: 'A reply, sent today', parent_id: oldId })).body;
+  const fresh = (await adm('POST', `/api/chat/channels/${chId}/messages`, { body: 'Fresh news' })).body;
+  q('UPDATE messages SET created_at = ? WHERE id = ?').run(Date.now() - 40 * 864e5, oldId);
+  assert.equal(purgeOldChat(), 0, 'kept for good by default');
+  assert.equal((await adm('PATCH', '/api/orgs/current', { chat_days: 30 })).status, 200);
+  assert.equal((await adm('GET', '/api/orgs/current')).body.chat_days, 30);
+  assert.equal(purgeOldChat(), 2, 'the old message and its thread');
+  const left = (await adm('GET', `/api/chat/channels/${chId}/messages`)).body.map((m) => m.body);
+  assert.deepEqual(left, ['Fresh news']);
+  assert.ok(reply && fresh);
+  // Other companies' chat is untouched.
+  const acme = q("SELECT COUNT(*) AS n FROM messages m JOIN channels c ON c.id = m.channel_id JOIN orgs o ON o.id = c.org_id WHERE o.name = 'Acme'").get().n;
+  assert.equal(purgeOldChat(), 0);
+  assert.equal(q("SELECT COUNT(*) AS n FROM messages m JOIN channels c ON c.id = m.channel_id JOIN orgs o ON o.id = c.org_id WHERE o.name = 'Acme'").get().n, acme);
+});

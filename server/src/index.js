@@ -16,6 +16,7 @@ import { startNotesScheduler } from './routes/notes.js';
 import { startShareExpiry } from './shareexpiry.js';
 import { purgeAudit } from './audit.js';
 import { emptyOldTrash } from './routes/files.js';
+import { purgeOldChat } from './routes/chat.js';
 
 const port = Number(process.env.PORT || 8080);
 const app = createApp();
@@ -30,6 +31,8 @@ setInterval(() => purgeAuthLog(), 3600e3).unref();
 setInterval(() => purgeAudit(), 6 * 3600e3).unref(); // activity older than AUDIT_DAYS
 setInterval(() => emptyOldTrash(), 3600e3).unref(); // Drive: trash older than each company keeps it
 setTimeout(() => emptyOldTrash(), 60e3).unref();
+setInterval(() => { try { purgeOldChat(); } catch (e) { console.error('[chat] keeping:', e.message); } }, 3600e3).unref(); // Chat: messages older than each company keeps them
+setTimeout(() => { try { purgeOldChat(); } catch {} }, 90e3).unref();
 if (mailEnabled()) { startPolicyServer(); startMailNotifications(); startRsvpWatcher(); }
 
 startIndexer(); // search inside files: indexes what changed, in the background

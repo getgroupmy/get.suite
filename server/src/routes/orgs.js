@@ -46,6 +46,11 @@ function updateOrg(orgId, body, { asSuper, user }) {
     if (!Number.isInteger(d) || d < 0 || d > 3650) throw bad('Days in the trash must be a whole number from 0 (never empty) to 3650');
     q('UPDATE orgs SET trash_days = ? WHERE id = ?').run(d, orgId);
   }
+  if (body.chat_days !== undefined) {
+    const d = Number(body.chat_days);
+    if (![0, 30, 90, 365, 1825].includes(d)) throw bad('Keep chat messages forever, or for 30 days, 90 days, a year or 5 years');
+    q('UPDATE orgs SET chat_days = ? WHERE id = ?').run(d, orgId);
+  }
   // The company signature: a template ({name}, {job_title}…) and whether it's a default or for everyone.
   if (body.signature_template !== undefined) {
     const t = String(body.signature_template ?? '');
