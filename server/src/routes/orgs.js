@@ -1,3 +1,4 @@
+import { SIGNATURE_MODES } from '../mail/companysig.js';
 import express, { Router } from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -43,6 +44,16 @@ function updateOrg(orgId, body, { asSuper, user }) {
     const d = Number(body.trash_days);
     if (!Number.isInteger(d) || d < 0 || d > 3650) throw bad('Days in the trash must be a whole number from 0 (never empty) to 3650');
     q('UPDATE orgs SET trash_days = ? WHERE id = ?').run(d, orgId);
+  }
+  // The company signature: a template ({name}, {job_title}…) and whether it's a default or for everyone.
+  if (body.signature_template !== undefined) {
+    const t = String(body.signature_template ?? '');
+    if (t.length > 20000) throw bad('The signature is too long');
+    q('UPDATE orgs SET signature_template = ? WHERE id = ?').run(t.trim() ? t : null, orgId);
+  }
+  if (body.signature_mode !== undefined) {
+    if (!SIGNATURE_MODES.includes(body.signature_mode)) throw bad('signature_mode must be off, default or always');
+    q('UPDATE orgs SET signature_mode = ? WHERE id = ?').run(body.signature_mode, orgId);
   }
   if (body.accent !== undefined) {
     if (body.accent !== null && !/^#[0-9a-f]{6}$/i.test(String(body.accent))) throw bad('Pick a colour like #1a73e8');

@@ -324,6 +324,7 @@ function CompanySettings() {
         </label>
         <p className="muted small" style={{ margin: 0 }}>Turning this off immediately stops every existing link from working. Turning it back on restores the links that haven't expired.</p>
       </div>
+      <CompanySignature org={org} save={save} />
       <div className="card stack">
         <h2>Drive trash</h2>
         <label className="field"><span>Empty the trash automatically</span>
@@ -608,5 +609,26 @@ function JobDialog({ user: u, people, onClose, onSaved }) {
           </select></label>
       </div>
     </Modal>
+  );
+}
+
+/** One signature for everyone, filled in with each person's details. */
+function CompanySignature({ org, save }) {
+  const [text, setText] = useState(org.signature_template || '');
+  const mode = org.signature_template ? org.signature_mode || 'off' : 'off';
+  return (
+    <form className="card stack" aria-labelledby="csig-h" onSubmit={(e) => { e.preventDefault(); save({ signature_template: text, ...(mode === 'off' && text.trim() && { signature_mode: 'default' }) }, 'Company signature saved'); }}>
+      <h2 id="csig-h">Company signature</h2>
+      <p className="muted small" style={{ margin: 0 }}>One line per line. <code>{'{name}'}</code>, <code>{'{job_title}'}</code>, <code>{'{department}'}</code>, <code>{'{work_phone}'}</code>, <code>{'{email}'}</code> (the address they send from) and <code>{'{company}'}</code> are filled in for each person; a line whose details are all missing is left out.</p>
+      <label className="field"><span>Signature</span><textarea rows={5} maxLength={20000} value={text} onChange={(e) => setText(e.target.value)} placeholder={'{name}\n{job_title} · {department}\n{company} · {work_phone}'} /></label>
+      <fieldset className="stack-tight" style={{ border: 0, padding: 0, margin: 0 }}>
+        <legend className="small"><strong>Who gets it</strong></legend>
+        {[['off', 'Nobody (everyone writes their own)'], ['default', 'People who haven’t written their own'], ['always', 'Everyone (people can’t change theirs)']].map(([v, label]) => (
+          <label key={v} className="check"><input type="radio" name="sigmode" checked={mode === v} disabled={v !== 'off' && !org.signature_template}
+            onChange={() => save({ signature_mode: v }, v === 'off' ? 'Company signature off' : v === 'default' ? 'People without their own signature get the company one' : 'Everyone now uses the company signature')} /> {label}</label>
+        ))}
+      </fieldset>
+      <div className="row end"><button className="btn primary" disabled={text === (org.signature_template || '')}>Save signature</button></div>
+    </form>
   );
 }

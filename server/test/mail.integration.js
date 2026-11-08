@@ -526,6 +526,32 @@ test('signatures: one per sending address, only for your own identities', async 
   assert.equal((await olivia('PUT', '/api/mail/signatures/olivia@acme.com', { html: 'x'.repeat(20001) })).status, 400);
 });
 
+test('company signature: a default for people without their own, or the same for everyone', async () => {
+  const tpl = '{name}\n{job_title} · {department}\n{email}';
+  const sig = client();
+  assert.equal((await olivia('POST', '/api/users', { local: 'sigbo', domain: 'acme.com', name: 'Sig Bo', password: 'password123' })).status, 201);
+  assert.equal((await sig('POST', '/api/auth/login', { username: 'sigbo@acme.com', password: 'password123' })).status, 200);
+  await olivia('PUT', '/api/users/me/profile', { job_title: 'Owner', department: '' });
+  assert.equal((await sig('PATCH', '/api/orgs/current', { signature_template: tpl, signature_mode: 'default' })).status, 403, 'admins only');
+  assert.equal((await olivia('PATCH', '/api/orgs/current', { signature_template: tpl, signature_mode: 'sometimes' })).status, 400);
+  assert.equal((await olivia('PATCH', '/api/orgs/current', { signature_template: tpl, signature_mode: 'default' })).status, 200);
+  const bobs = Object.fromEntries((await sig('GET', '/api/mail/signatures')).body.map((x) => [x.address, x]));
+  assert.equal(bobs['sigbo@acme.com'].company, 'default');
+  assert.match(bobs['sigbo@acme.com'].html, /^<p>Sig Bo<\/p><p>sigbo@acme.com<\/p>$/, 'no title or department: that line left out');
+  // Olivia wrote her own: hers stays.
+  const all = (await olivia('GET', '/api/mail/signatures')).body;
+  const hers = all.find((x) => x.address === 'olivia@acme.com');
+  assert.equal(hers.html, '<p><strong>Olivia Owner</strong></p>'); assert.equal(hers.company, undefined);
+  // For everyone: the company's, and nobody can change theirs.
+  await olivia('PATCH', '/api/orgs/current', { signature_mode: 'always' });
+  const now = (await olivia('GET', '/api/mail/signatures')).body.find((x) => x.address === 'olivia@acme.com');
+  assert.equal(now.company, 'always'); assert.match(now.html, /<p>Owner · <\/p>/);
+  assert.equal((await olivia('PUT', '/api/mail/signatures/olivia@acme.com', { html: '<p>x</p>' })).status, 400);
+  // Back to off: her own again.
+  await olivia('PATCH', '/api/orgs/current', { signature_mode: 'off' });
+  assert.equal((await olivia('GET', '/api/mail/signatures')).body.find((x) => x.address === 'olivia@acme.com').html, '<p><strong>Olivia Owner</strong></p>');
+});
+
 test('inline images: Drive pictures are embedded as cid parts; others refused', async () => {
   const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
   const pic = (await olivia('POST', '/api/files/upload?name=logo.png', png, { raw: true })).body;

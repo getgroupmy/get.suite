@@ -1752,7 +1752,7 @@ function SignatureDialog({ signatures, onClose, onSaved }) {
         try {
           const r = await put(`/mail/signatures/${encodeURIComponent(address)}`, { html, on_new: onNew, on_reply: onReply });
           toast(`Signature for ${address} saved`);
-          onSaved(signatures.map((x) => (x.address === address ? r : x)));
+          onSaved(signatures.map((x) => (x.address === address ? { ...x, ...r, company: r.company } : x)));
         } catch (err) { toast(err.message, 'error'); }
       }}>
         {signatures.length > 1 && (
@@ -1762,11 +1762,24 @@ function SignatureDialog({ signatures, onClose, onSaved }) {
             ))}
           </div>
         )}
-        <RichBody key={address} initialHtml={current.html} label="Signature" placeholder="Your name, title, company, phone…" onChange={(h) => setHtml(h)} />
+        {current.company === 'always' ? (
+          <div className="stack-tight">
+            <p className="small" style={{ margin: 0 }}>Your company uses one signature for everyone, filled in with your details (your job title and phone are in Settings → About you):</p>
+            <div className="signature-preview card" aria-label="Company signature" dangerouslySetInnerHTML={{ __html: current.html }} />
+          </div>
+        ) : <>
+          {current.company === 'default' && <p className="small" style={{ margin: 0 }}>This is your company’s signature, filled in with your details. Change it to write your own.</p>}
+          <RichBody key={`${address}-${current.company || 'own'}`} initialHtml={current.html} label="Signature" placeholder="Your name, title, company, phone…" onChange={(h) => setHtml(h)} />
+          {!current.company && current.company_mode === 'default' && current.html && (
+            <button type="button" className="link-btn small" style={{ alignSelf: 'flex-start' }} onClick={async () => {
+              try { const r = await del(`/mail/signatures/${encodeURIComponent(address)}`); onSaved(signatures.map((x) => (x.address === address ? { ...x, ...r, company: r.company } : x))); toast('Using the company signature again'); onClose(); } catch (err) { toast(err.message, 'error'); }
+            }}>Use the company signature instead</button>
+          )}
+        </>}
         <label className="check"><input type="checkbox" checked={onNew} onChange={(e) => setOnNew(e.target.checked)} /> Add to new messages</label>
         <label className="check"><input type="checkbox" checked={onReply} onChange={(e) => setOnReply(e.target.checked)} /> Add to replies and forwards (above the quoted message)</label>
         <p className="muted small" style={{ margin: 0 }}>Each address you can send from has its own signature. Changing “From” while writing switches the signature.</p>
-        <div className="row end"><button type="button" className="btn" onClick={onClose}>Close</button><button className="btn primary">Save</button></div>
+        <div className="row end"><button type="button" className="btn" onClick={onClose}>Close</button>{current.company !== 'always' && <button className="btn primary">Save</button>}</div>
       </form>
     </Modal>
   );

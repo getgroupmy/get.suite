@@ -1,3 +1,4 @@
+import { companySignature, companySignatureFor } from '../mail/companysig.js';
 import { Router } from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -491,17 +492,24 @@ export default function webmailRoutes() {
 
   // ---- signatures: one per sending address ----
   r.get('/signatures', (req, res) => {
-    res.json(identities(req.user).map((i) => ({ address: i.address, ...signatureOf(req.user.id, i.address) })));
+    const company_mode = companySignature(req.user.org_id).mode; // off | default | always
+    res.json(identities(req.user).map((i) => ({ address: i.address, company_mode, ...signatureOf(req.user.id, i.address, req.user) })));
   });
   r.put('/signatures/:address', (req, res) => {
     const address = String(req.params.address).toLowerCase();
     if (!identities(req.user).some((i) => i.address === address)) throw bad('You cannot send from that address');
+    if (companySignature(req.user.org_id).mode === 'always') throw bad('Your company uses one signature for everyone; an admin changes it in Admin → Company settings');
     const html = typeof req.body.html === 'string' ? req.body.html : '';
     if (html.length > 20000) throw bad('The signature is too long');
     q(`INSERT INTO identity_signatures (user_id, address, html, on_new, on_reply, updated_at) VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT(user_id, address) DO UPDATE SET html = excluded.html, on_new = excluded.on_new, on_reply = excluded.on_reply, updated_at = excluded.updated_at`)
       .run(req.user.id, address, html, req.body.on_new === false ? 0 : 1, req.body.on_reply === false ? 0 : 1, Date.now());
-    res.json({ address, ...signatureOf(req.user.id, address) });
+    res.json({ address, ...signatureOf(req.user.id, address, req.user) });
+  });
+  // Back to the company's signature (when it's the default): forget your own.
+  r.delete('/signatures/:address', (req, res) => {
+    q('DELETE FROM identity_signatures WHERE user_id = ? AND address = ?').run(req.user.id, String(req.params.address).toLowerCase());
+    res.json({ address: String(req.params.address).toLowerCase(), ...signatureOf(req.user.id, String(req.params.address).toLowerCase(), req.user) });
   });
 
   r.get('/folders', async (req, res) => {
@@ -1090,9 +1098,14 @@ function attachmentList(p) {
     .map((a, i) => ({ index: i, filename: a.filename || `attachment-${i + 1}`, contentType: a.contentType, size: a.size }));
 }
 
-function signatureOf(userId, address) {
+/** The signature for one of your addresses: your own, or the company's (company: 'default' | 'always'). */
+function signatureOf(userId, address, user = null) {
+  const mode = user ? companySignature(user.org_id).mode : 'off';
+  if (mode === 'always') return { html: companySignatureFor(user, address), on_new: true, on_reply: true, company: 'always' };
   const sg = q('SELECT html, on_new, on_reply FROM identity_signatures WHERE user_id = ? AND address = ?').get(userId, address);
-  return sg ? { html: sg.html, on_new: !!sg.on_new, on_reply: !!sg.on_reply } : { html: '', on_new: true, on_reply: true };
+  if (sg) return { html: sg.html, on_new: !!sg.on_new, on_reply: !!sg.on_reply };
+  if (mode === 'default') return { html: companySignatureFor(user, address), on_new: true, on_reply: true, company: 'default' };
+  return { html: '', on_new: true, on_reply: true };
 }
 
 function vacationOf(userId) {
