@@ -1,6 +1,7 @@
 // The page people fill a form in on (/f/<token>). Company forms need the visitor signed in to that
 // company (they can sign in right here); "anyone with the link" forms need nothing.
 import { useEffect, useState } from 'react';
+import { sectionsOf, nextPage } from './formmath.js';
 
 async function call(method, url, body) {
   const res = await fetch(`/api/public/forms${url}`, {
@@ -21,14 +22,19 @@ export default function FormRespond({ token, onSignIn }) {
   const [busy, setBusy] = useState(false);
   const [sendError, setSendError] = useState('');
   const [done, setDone] = useState(null);
+  const [trail, setTrail] = useState([0]); // the pages they've been through; the last is the one shown
   const load = () => call('GET', `/${encodeURIComponent(token)}`).then((f) => { setForm(f); setError(null); }).catch((e) => setError({ status: e.status, message: e.message }));
   useEffect(() => { load(); }, [token]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { document.title = form?.title || 'Form'; }, [form?.title]);
 
   const set = (id, v) => { setAnswers((a) => ({ ...a, [id]: v })); setMissing((m) => m.filter((x) => x !== id)); };
+  const pages = form ? sectionsOf(form.questions) : [];
+  const page = trail[trail.length - 1];
+  const after = form ? nextPage(pages, Math.min(page, pages.length - 1), answers) : 0;
   const submit = async (e) => {
     e.preventDefault();
-    const need = form.questions.filter((q) => q.required && empty(answers[q.id])).map((q) => q.id);
+    const need = (pages[page]?.items || []).filter((q) => q.required && empty(answers[q.id])).map((q) => q.id);
+    if (!need.length && after < pages.length) { setTrail([...trail, after]); setMissing([]); window.scrollTo(0, 0); return; } // Next
     setMissing(need);
     if (need.length) { document.getElementById(`q-${need[0]}`)?.scrollIntoView({ block: 'center' }); return; }
     setBusy(true); setSendError('');
@@ -58,7 +64,7 @@ export default function FormRespond({ token, onSignIn }) {
             {form.questions.filter((q) => q.id in done.right).map((q) => <li key={q.id}>{done.right[q.id] ? '✓' : '✗'} {q.title || 'Untitled question'}</li>)}
           </ul>
         )}
-        {!form.one_per_person && <div><button type="button" className="link-btn" onClick={() => { setDone(null); setAnswers({}); }}>Submit another response</button></div>}
+        {!form.one_per_person && <div><button type="button" className="link-btn" onClick={() => { setDone(null); setAnswers({}); setTrail([0]); }}>Submit another response</button></div>}
       </section>
     );
   } else {
@@ -70,10 +76,14 @@ export default function FormRespond({ token, onSignIn }) {
         {form.you && <p className="muted small" style={{ margin: 0 }}>Signed in as {form.you.name} ({form.you.email}). Your name is recorded with your answers.</p>}
         {closed ? <p role="status"><strong>{form.answered ? 'You have already filled in this form.' : `${form.closed_text || 'This form is no longer accepting responses'}.`}</strong></p> : <>
           {form.questions.some((q) => q.required) && <p className="muted small" style={{ margin: 0 }}><span className="req">*</span> Required</p>}
-          {form.questions.map((q) => <Question key={q.id} q={q} token={token} value={answers[q.id]} onChange={(v) => set(q.id, v)} missing={missing.includes(q.id)} />)}
+          {pages.length > 1 && <p className="muted small form-page-of" style={{ margin: 0 }}>Page {trail.length} · {pages.length} sections</p>}
+          {pages[page]?.id && <div className="form-section-head"><h2>{pages[page].title || 'Untitled section'}</h2>{pages[page].help && <p className="muted" style={{ margin: 0 }}>{pages[page].help}</p>}</div>}
+          {(pages[page]?.items || []).map((q) => <Question key={q.id} q={q} token={token} value={answers[q.id]} onChange={(v) => set(q.id, v)} missing={missing.includes(q.id)} />)}
           {sendError && <p className="error small" role="alert">{sendError}</p>}
-          <div className="row"><button className="btn primary" disabled={busy}>{busy ? 'Sending…' : 'Submit'}</button>
-            {Object.keys(answers).length > 0 && <button type="button" className="link-btn" onClick={() => { setAnswers({}); setMissing([]); }}>Clear form</button>}</div>
+          <div className="row">
+            {trail.length > 1 && <button type="button" className="btn" onClick={() => { setTrail(trail.slice(0, -1)); setMissing([]); }}>Back</button>}
+            <button className="btn primary" disabled={busy}>{after < pages.length ? 'Next' : busy ? 'Sending…' : 'Submit'}</button>
+            {Object.keys(answers).length > 0 && <button type="button" className="link-btn" onClick={() => { setAnswers({}); setMissing([]); setTrail([0]); }}>Clear form</button>}</div>
         </>}
         {form.is_owner && <p className="muted small" style={{ margin: 0 }}>This is your form. <a href="/forms">Edit it in Forms</a></p>}
       </form>

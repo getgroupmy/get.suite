@@ -1,3 +1,4 @@
+import { shownQuestions } from '../formpath.js';
 // Forms: questionnaires, sign-up sheets and quick polls. The owner builds the questions, shares a link
 // (/f/<token>) that people in the company (signed in) or anyone can fill in, and reads the answers:
 // a summary per question, each response, a CSV download, or a copy in a new spreadsheet in Drive.
@@ -51,7 +52,7 @@ for (const [col, type] of [['close_at', 'INTEGER'], ['max_responses', 'INTEGER']
 }
 const MAX_EDITORS = 50;
 
-export const TYPES = ['short', 'paragraph', 'choice', 'checkbox', 'dropdown', 'scale', 'date', 'file'];
+export const TYPES = ['short', 'paragraph', 'choice', 'checkbox', 'dropdown', 'scale', 'date', 'file', 'section'];
 const WITH_OPTIONS = new Set(['choice', 'checkbox', 'dropdown']);
 const MAX_QUESTIONS = 100;
 const MAX_OPTIONS = 50;
@@ -90,7 +91,7 @@ export function cleanQuestions(list) {
   if (!Array.isArray(list)) throw bad('questions must be a list');
   if (list.length > MAX_QUESTIONS) throw bad(`A form can have up to ${MAX_QUESTIONS} questions`);
   const seen = new Set();
-  return list.map((raw, i) => {
+  const cleaned = list.map((raw, i) => {
     const type = TYPES.includes(raw?.type) ? raw.type : 'short';
     let id = typeof raw?.id === 'string' && /^[A-Za-z0-9_-]{1,40}$/.test(raw.id) ? raw.id : crypto.randomBytes(6).toString('base64url');
     if (seen.has(id)) id = `${id}-${i}`;
@@ -103,6 +104,7 @@ export function cleanQuestions(list) {
       out.options = [...new Set(opts)].slice(0, MAX_OPTIONS);
       if (!out.options.length) out.options = ['Option 1'];
     }
+    if (type === 'section') { delete out.required; return out; } // a new page: its title and help only
     if (type === 'file') out.max_files = Math.min(MAX_FILES, Math.max(1, Math.round(Number(raw?.max_files)) || 1)); // up to this many files
     if (type === 'scale') {
       out.max = [5, 10].includes(Number(raw?.max)) ? Number(raw.max) : 5;
@@ -120,6 +122,17 @@ export function cleanQuestions(list) {
     }
     return out;
   });
+  // "Go to section": choice and dropdown answers that lead to a later section (or to the end).
+  const sectionIds = cleaned.filter((x) => x.type === 'section').map((x) => x.id);
+  cleaned.forEach((qu, i) => {
+    const raw = list[i]?.goto;
+    if (!raw || typeof raw !== 'object' || !['choice', 'dropdown'].includes(qu.type)) return;
+    const later = new Set(cleaned.slice(i + 1).filter((x) => x.type === 'section').map((x) => x.id));
+    const g = {};
+    for (const o of qu.options) { const to = raw[o]; if (to === 'submit' || (sectionIds.includes(to) && later.has(to))) g[o] = to; }
+    if (Object.keys(g).length) qu.goto = g;
+  });
+  return cleaned;
 }
 
 const GRADED = new Set(['short', 'choice', 'checkbox', 'dropdown']);
@@ -147,7 +160,8 @@ const withoutKey = (questions) => questions.map(({ answer, points, ...qu }) => q
 export function checkAnswers(questions, answers) {
   if (!answers || typeof answers !== 'object' || Array.isArray(answers)) throw bad('answers must be an object');
   const out = {};
-  for (const qu of questions) {
+  // Only the pages they went through count (a skipped page's required questions aren't required).
+  for (const qu of shownQuestions(questions, answers)) {
     let a = answers[qu.id];
     const name = qu.title || 'This question';
     if (qu.type === 'file') {
@@ -195,11 +209,11 @@ const responsesOf = (formId) => q(`SELECT r.id, r.answers, r.created_at, u.name 
 /** The table of responses: a header row, then one row per response. */
 export function responseTable(form, responses, { withPeople = form.audience === 'org' || responses.some((r) => r.user) } = {}) {
   const quiz = !!form.quiz;
-  const head = ['Submitted', ...(withPeople ? ['Name', 'Email'] : []), ...(quiz ? ['Score'] : []), ...form.questions.map((qu) => qu.title || 'Untitled question')];
+  const head = ['Submitted', ...(withPeople ? ['Name', 'Email'] : []), ...(quiz ? ['Score'] : []), ...form.questions.filter((qu) => qu.type !== 'section').map((qu) => qu.title || 'Untitled question')];
   const rows = responses.map((r) => {
     const sc = quiz ? scoreOf(form.questions, r.answers) : null;
     return [new Date(r.created_at).toISOString().replace('T', ' ').slice(0, 19),
-      ...(withPeople ? [r.user?.name || '', r.user?.email || ''] : []), ...(quiz ? [`${sc.score} / ${sc.max}`] : []), ...form.questions.map((qu) => asText(r.answers[qu.id]))];
+      ...(withPeople ? [r.user?.name || '', r.user?.email || ''] : []), ...(quiz ? [`${sc.score} / ${sc.max}`] : []), ...form.questions.filter((qu) => qu.type !== 'section').map((qu) => asText(r.answers[qu.id]))];
   });
   return [head, ...rows];
 }

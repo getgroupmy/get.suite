@@ -1807,3 +1807,6 @@ a.home-item:hover, button.home-item:hover { text-decoration: underline; }
 .msg-author { color: inherit; }
 .form-files { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .form-files li { gap: 8px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 6px; }
+.form-section { border-left: 4px solid var(--primary, #1a73e8); }
+.form-goto summary { cursor: pointer; color: var(--primary, #1a73e8); }
+.form-section-head h2 { margin: 0 0 4px; font-size: 18px; }

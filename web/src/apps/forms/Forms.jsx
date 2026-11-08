@@ -175,7 +175,22 @@ function QuestionsTab({ form, edit }) {
       <label className="field"><span>Description</span>
         <textarea rows={2} value={form.description} maxLength={5000} placeholder="What it's for, shown at the top of the form" onChange={(e) => edit({ description: e.target.value })} /></label>
       {!qs.length && <p className="muted">No questions yet.</p>}
-      {qs.map((q, i) => (
+      {qs.map((q, i) => q.type === 'section' ? (
+        <section key={q.id} className="card form-section" aria-label={`Section: ${q.title || 'Untitled section'}`}>
+          <div className="row wrap">
+            <span className="pill">Section</span>
+            <input className="grow form-q-title" aria-label={`Section ${i + 1} title`} placeholder="Section title" value={q.title} maxLength={300} onChange={(e) => change(i, { title: e.target.value })} />
+          </div>
+          <input className="form-q-help" aria-label={`Description of section ${i + 1}`} placeholder="Description (optional)" value={q.help || ''} maxLength={1000} onChange={(e) => change(i, { help: e.target.value })} />
+          <p className="muted small" style={{ margin: 0 }}>Starts a new page. Questions below it are on this page, up to the next section.</p>
+          <div className="row form-q-foot">
+            <span className="grow" />
+            <button type="button" className="icon-btn" aria-label={`Move section ${i + 1} up`} disabled={i === 0} onClick={() => move(i, -1)}>↑</button>
+            <button type="button" className="icon-btn" aria-label={`Move section ${i + 1} down`} disabled={i === qs.length - 1} onClick={() => move(i, 1)}>↓</button>
+            <button type="button" className="icon-btn" aria-label={`Delete section ${i + 1}`} onClick={() => setQs(qs.filter((_, j) => j !== i))}><Icon name="trash" size={18} /></button>
+          </div>
+        </section>
+      ) : (
         <section key={q.id} className="card form-q" aria-label={`Question ${i + 1}`}>
           <div className="row wrap">
             <input className="grow form-q-title" aria-label={`Question ${i + 1} title`} placeholder="Question" value={q.title} maxLength={300} onChange={(e) => change(i, { title: e.target.value })} />
@@ -203,6 +218,21 @@ function QuestionsTab({ form, edit }) {
               <input aria-label={`Label for ${q.max}, question ${i + 1}`} placeholder={`Label for ${q.max} (optional)`} value={q.high || ''} maxLength={60} onChange={(e) => change(i, { high: e.target.value })} />
             </div>
           )}
+          {(q.type === 'choice' || q.type === 'dropdown') && qs.slice(i + 1).some((x) => x.type === 'section') && (
+            <details className="form-goto" open={!!q.goto && Object.keys(q.goto).length > 0}>
+              <summary className="small">Go to a section depending on the answer</summary>
+              <ul className="form-options">
+                {q.options.map((o) => (
+                  <li key={o} className="row small"><span className="grow ellipsis">{o}</span>
+                    <select aria-label={`After “${o}”, go to`} value={q.goto?.[o] || ''} onChange={(e) => { const g = { ...(q.goto || {}) }; if (e.target.value) g[o] = e.target.value; else delete g[o]; change(i, { goto: Object.keys(g).length ? g : undefined }); }}>
+                      <option value="">Continue to the next section</option>
+                      {qs.slice(i + 1).filter((x) => x.type === 'section').map((x) => <option key={x.id} value={x.id}>Go to: {x.title || 'Untitled section'}</option>)}
+                      <option value="submit">Submit the form</option>
+                    </select></li>
+                ))}
+              </ul>
+            </details>
+          )}
           {q.type === 'file' && (
             <label className="row small">People can send up to <select aria-label={`Files for question ${i + 1}`} value={q.max_files || 1} onChange={(e) => change(i, { max_files: Number(e.target.value) })}>{[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n}</option>)}</select> file{(q.max_files || 1) === 1 ? '' : 's'}, 10 MB each. They go into a “(File uploads)” folder in {form.owner?.name ? `${form.owner.name}’s` : 'your'} Drive.</label>
           )}
@@ -217,7 +247,8 @@ function QuestionsTab({ form, edit }) {
           </div>
         </section>
       ))}
-      {qs.length < 100 && <div><button type="button" className="btn" onClick={add}><Icon name="plus" size={18} /> Add question</button></div>}
+      {qs.length < 100 && <div className="row"><button type="button" className="btn" onClick={add}><Icon name="plus" size={18} /> Add question</button>
+        <button type="button" className="btn" onClick={() => setQs([...qs, { id: newId(), type: 'section', title: '' }])}>Add section</button></div>}
     </div>
   );
 }
@@ -287,7 +318,7 @@ function ResponsesTab({ form, responses, reload, setting, flush }) {
               <button type="button" className="icon-btn" aria-label="Next response" disabled={at >= responses.length - 1} onClick={() => setAt(at + 1)}>›</button>
               <button type="button" className="icon-btn" aria-label="Delete this response" onClick={async () => { await del(`/forms/${form.id}/responses/${one.id}`); setAt(Math.max(0, at - 1)); reload(); }}><Icon name="trash" size={18} /></button>
             </div>
-            {form.questions.map((q) => {
+            {form.questions.filter((q) => q.type !== 'section').map((q) => {
               const a = one.answers[q.id];
               const mark = one.right && q.id in one.right ? (one.right[q.id] ? <span className="quiz-right" aria-label="right"> ✓</span> : <span className="quiz-wrong" aria-label="wrong"> ✗</span>) : null;
               return <div key={q.id}><strong>{q.title || 'Untitled question'}</strong>{mark}<p className={a === undefined ? 'muted' : ''} style={{ margin: '4px 0 0', whiteSpace: 'pre-wrap' }}>{a === undefined ? 'No answer' : q.type === 'file' && Array.isArray(a) ? a.map((f, k) => <span key={f.file_id || k}>{k > 0 && ', '}<a href={`/api/forms/${form.id}/file/${f.file_id}`} target="_blank" rel="noopener noreferrer">📎 {f.name}</a></span>) : Array.isArray(a) ? a.join(', ') : String(a)}</p></div>;

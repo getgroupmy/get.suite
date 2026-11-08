@@ -28,7 +28,7 @@ export function nextOption(options) {
  * of the responses; for the rest, the answers themselves, newest first.
  */
 export function summarize(questions, responses) {
-  return questions.map((q) => {
+  return questions.filter((q) => q.type !== 'section').map((q) => {
     const answers = responses.map((r) => r.answers?.[q.id]).filter((a) => a !== undefined && a !== '' && !(Array.isArray(a) && !a.length));
     const out = { id: q.id, title: q.title, type: q.type, answered: answers.length };
     if (HAS_OPTIONS.has(q.type) || q.type === 'scale') {
@@ -48,3 +48,38 @@ export function summarize(questions, responses) {
 
 /** "42%" */
 export const percent = (share) => `${Math.round(share * 100)}%`;
+
+// ---- sections and "go to section" (the same as server/src/formpath.js) ----
+
+/** The pages: [{ id, title, help, items: [questions] }]; the first has id null (before any section). */
+export function sectionsOf(questions) {
+  const out = [{ id: null, title: '', help: '', items: [] }];
+  for (const q of questions || []) {
+    if (q.type === 'section') out.push({ id: q.id, title: q.title || '', help: q.help || '', items: [] });
+    else out[out.length - 1].items.push(q);
+  }
+  // A form that starts with a section doesn't need an empty first page.
+  return out[0].items.length || out.length === 1 ? out : out.slice(1);
+}
+
+/** Where to go after page i, given the answers: a page index, or the number of pages (= submit). */
+export function nextPage(pages, i, answers) {
+  let next = i + 1;
+  for (const q of pages[i].items) {
+    const to = q.goto && answers?.[q.id] !== undefined ? q.goto[String(answers[q.id])] : undefined;
+    if (!to) continue;
+    if (to === 'submit') next = pages.length;
+    else { const j = pages.findIndex((p) => p.id === to); if (j > i) next = j; }
+  }
+  return next;
+}
+
+/** The pages someone goes through with these answers (indexes, in order). */
+export function pathOf(pages, answers) {
+  const seen = [];
+  for (let i = 0; i < pages.length && !seen.includes(i); i = nextPage(pages, i, answers)) seen.push(i);
+  return seen;
+}
+
+/** The questions someone was shown (in the pages on their path). */
+export const shownQuestions = (questions, answers) => { const pages = sectionsOf(questions); return pathOf(pages, answers).flatMap((i) => pages[i].items); };

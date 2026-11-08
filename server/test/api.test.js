@@ -3585,3 +3585,26 @@ test('forms: file upload questions; files go to the owner’s Drive and open for
   const csv = (await owner('GET', `/api/forms/${f.id}/responses.csv`)).body;
   assert.match(csv, /cv\.pdf; letter\.pdf/);
 });
+
+test('forms: sections, and going to a section depending on the answer', async () => {
+  const { cleanQuestions, checkAnswers, responseTable } = await import('../src/routes/forms.js');
+  const qs = cleanQuestions([
+    { id: 'kind', type: 'choice', title: 'Are you a customer?', options: ['Yes', 'No', 'Skip'], required: true, goto: { Yes: 'cust', No: 'other', Skip: 'submit', Bogus: 'cust' } },
+    { id: 'cust', type: 'section', title: 'Customers', required: true },
+    { id: 'num', type: 'short', title: 'Account number', required: true },
+    { id: 'back', type: 'dropdown', title: 'Loop?', options: ['a'], goto: { a: 'cust' } },
+    { id: 'other', type: 'section', title: 'Everyone else' },
+    { id: 'why', type: 'paragraph', title: 'Why are you here?', required: true },
+  ]);
+  assert.deepEqual(qs[0].goto, { Yes: 'cust', No: 'other', Skip: 'submit' }, 'only options, only later sections');
+  assert.equal(qs[1].required, undefined);
+  assert.equal(qs[3].goto, undefined, 'never back to an earlier section');
+  // Customers answer the account number, then carry on to "Everyone else".
+  assert.throws(() => checkAnswers(qs, { kind: 'Yes' }), /Account number/);
+  assert.throws(() => checkAnswers(qs, { kind: 'Yes', num: '42' }), /Why are you here/);
+  // Others skip the customers' page: its required question isn't required, and an answer there is dropped.
+  assert.deepEqual(checkAnswers(qs, { kind: 'No', num: 'sneaky', why: 'Curious' }), { kind: 'No', why: 'Curious' });
+  assert.deepEqual(checkAnswers(qs, { kind: 'Skip' }), { kind: 'Skip' }, 'straight to the end');
+  const table = responseTable({ questions: qs, audience: 'public' }, [{ created_at: 0, answers: { kind: 'No', why: 'Curious' } }]);
+  assert.deepEqual(table[0], ['Submitted', 'Are you a customer?', 'Account number', 'Loop?', 'Why are you here?'], 'sections are not columns');
+});

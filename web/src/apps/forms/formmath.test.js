@@ -46,3 +46,15 @@ test('file questions: a new one allows one file; the summary lists the files, ne
   assert.equal(s[0].answered, 2);
   assert.deepEqual(s[0].files.map((f) => f.name), ['b.pdf', 'c.pdf', 'a.pdf']);
 });
+
+test('sections: pages, and where an answer leads (only forward)', async () => {
+  const { sectionsOf, nextPage, pathOf, summarize } = await import('./formmath.js');
+  const qs = [{ id: 'k', type: 'choice', options: ['A', 'B'], goto: { B: 's2' } }, { id: 's1', type: 'section', title: 'One' }, { id: 'x', type: 'short' }, { id: 's2', type: 'section', title: 'Two' }, { id: 'y', type: 'short', goto: { z: 's1' } }];
+  const pages = sectionsOf(qs);
+  assert.deepEqual(pages.map((p) => p.id), [null, 's1', 's2']);
+  assert.equal(nextPage(pages, 0, { k: 'A' }), 1);
+  assert.equal(nextPage(pages, 0, { k: 'B' }), 2);
+  assert.deepEqual(pathOf(pages, { k: 'B' }), [0, 2]);
+  assert.deepEqual(sectionsOf([{ id: 's', type: 'section' }, { id: 'q', type: 'short' }]).map((p) => p.id), ['s'], 'no empty first page');
+  assert.equal(summarize(qs, []).length, 3, 'sections are not summarised');
+});
