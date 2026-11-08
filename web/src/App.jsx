@@ -26,7 +26,7 @@ import PresenterView from './apps/slides/PresenterView.jsx';
 import { ShortcutsHelp } from './components/Shortcuts.jsx';
 import { StatusDialog, useMyStatus } from './components/StatusDialog.jsx';
 import { statusLine } from './components/status.js';
-import { usePause, pauseUntil, pauseChoices } from './pause.js';
+import { usePause, pauseUntil, pauseChoices, isQuietHours } from './pause.js';
 import { whenText } from './components/schedule.jsx';
 import Calendar from './apps/calendar/Calendar.jsx';
 import Contacts from './apps/contacts/Contacts.jsx';
@@ -177,7 +177,9 @@ function Shell() {
           <BrandMark name={user.org_name} logo={user.org_logo} /><span className="brand-text">{user.org_name}</span>
         </a>
         <GlobalSearch />
-        {paused && <button type="button" className="icon-btn paused-mark" aria-label={`Notifications paused until ${whenText(paused)}. Resume`} title={`Notifications paused until ${whenText(paused)} (click to resume)`} onClick={() => setPause(null)}>🔕</button>}
+        {paused && (isQuietHours()
+          ? <button type="button" className="icon-btn paused-mark" aria-label={`Quiet hours until ${whenText(paused)}. Settings`} title={`Quiet hours: notifications wait until ${whenText(paused)} (outside your working hours; change it in Settings)`} onClick={() => navigate('/settings')}>🔕</button>
+          : <button type="button" className="icon-btn paused-mark" aria-label={`Notifications paused until ${whenText(paused)}. Resume`} title={`Notifications paused until ${whenText(paused)} (click to resume)`} onClick={() => setPause(null)}>🔕</button>)}
         <Bell />
         <Menu align="right" trigger={(p) => <button className="avatar-btn" aria-label="Account" title={myStatus ? statusLine(myStatus) : undefined} {...p}><Avatar name={user.name} userId={user.id} />{myStatus?.emoji && <span className="avatar-status" aria-hidden="true">{myStatus.emoji}</span>}</button>} items={[
           { label: `${user.name} · ${user.username}`, icon: 'person', onClick: () => navigate('/settings') },

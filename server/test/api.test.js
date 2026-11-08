@@ -4247,3 +4247,30 @@ test('calendar: a note with an answer reaches the organizer', async () => {
   const g2 = (await owner('GET', `/api/events?from=${at - 864e5}&to=${at + 864e5}`)).body;
   assert.equal((Array.isArray(g2) ? g2 : g2.events).find((e) => e.id === ev.id).guests[0].answer_note, null);
 });
+
+test('quiet hours: notifications pause outside your working hours', async () => {
+  const { nextWorkStart, quietUntil } = await import('../src/workhours.js');
+  const h = { days: [1, 2, 3, 4, 5], start: 9 * 60, end: 17 * 60, tz: 'UTC' };
+  const fri18 = Date.UTC(2026, 10, 13, 18, 0); // Friday 18:00 UTC
+  assert.equal(nextWorkStart(h, fri18), Date.UTC(2026, 10, 16, 9, 0), 'Monday 9:00');
+  assert.equal(nextWorkStart(h, Date.UTC(2026, 10, 16, 10, 7)), Date.UTC(2026, 10, 16, 10, 15), 'already working: the next quarter');
+  const q1 = client();
+  const made = await owner('POST', '/api/users', { local: 'quiet', domain: 'acme.com', name: 'Quinn Quiet', password: 'password123' });
+  await login(q1, 'quiet@acme.com');
+  assert.equal((await q1('PUT', '/api/users/me/quiet-hours', { on: true })).status, 400, 'working hours first');
+  // Working hours that are never now: one day, a week away from today's weekday... simplest: today's
+  // weekday excluded, so it's always outside them right now.
+  const today = new Date().getUTCDay();
+  const days = [0, 1, 2, 3, 4, 5, 6].filter((d) => d !== today);
+  assert.equal((await q1('PUT', '/api/users/me/work-hours', { hours: { days, start: 9 * 60, end: 17 * 60, tz: 'UTC' } })).status, 200);
+  assert.equal((await q1('PUT', '/api/users/me/quiet-hours', { on: true })).body.on, true);
+  const p = (await q1('GET', '/api/users/me/pause')).body;
+  assert.ok(p.paused_until > Date.now(), 'paused now');
+  assert.equal(p.quiet, true);
+  assert.equal(p.paused_until, quietUntil(made.body.id));
+  const dir = (await owner('GET', '/api/users/directory')).body.find((u) => u.id === made.body.id);
+  assert.ok(dir.paused_until > Date.now(), 'colleagues see it');
+  assert.match((await q1('GET', '/api/users/me/quiet-hours')).body.hours, /9:00–17:00/);
+  await q1('PUT', '/api/users/me/quiet-hours', { on: false });
+  assert.equal((await q1('GET', '/api/users/me/pause')).body.paused_until, null);
+});

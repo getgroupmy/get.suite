@@ -49,3 +49,27 @@ export function hoursText(h) {
   const run = d.length > 2 && d.every((x, i) => i === 0 || x === d[i - 1] + 1);
   return `${run ? `${DAY_NAMES[d[0]]}–${DAY_NAMES[d[d.length - 1]]}` : d.map((x) => DAY_NAMES[x]).join(', ')} ${hhmm(h.start)}–${hhmm(h.end)}`;
 }
+
+// Quiet hours: with users.quiet_hours on, notifications are paused outside working hours.
+if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'quiet_hours')) q('ALTER TABLE users ADD COLUMN quiet_hours INTEGER NOT NULL DEFAULT 0').run();
+
+/** When working hours next begin, at or after t (to the quarter hour; null if they never do). */
+export function nextWorkStart(hours, t = Date.now()) {
+  const step = 15 * 6e4;
+  let x = Math.ceil(t / step) * step;
+  for (let i = 0; i < 8 * 96; i++, x += step) {
+    const p = parts(x, hours.tz);
+    if (hours.days.includes(p.wd) && p.min >= hours.start && p.min < hours.end) return x;
+  }
+  return null;
+}
+
+/** For someone with quiet hours on who is outside their working hours now: when they start again. */
+export function quietUntil(userId, t = Date.now()) {
+  if (!q('SELECT quiet_hours FROM users WHERE id = ?').get(userId)?.quiet_hours) return null;
+  const h = hoursOf(userId);
+  if (!h.own) return null; // only with working hours they've set themselves
+  const p = parts(t, h.tz);
+  if (h.days.includes(p.wd) && p.min >= h.start && p.min < h.end) return null;
+  return nextWorkStart(h, t);
+}

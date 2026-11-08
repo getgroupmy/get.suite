@@ -4,13 +4,15 @@ import { useEffect, useState } from 'react';
 import { get, put, onLive } from './api.js';
 
 let until = null;
+let quiet = false; // the pause is quiet hours (outside working hours), turned off in Settings rather than resumed
 const listeners = new Set();
-const set = (v) => { until = v && v > Date.now() ? v : null; listeners.forEach((f) => f(until)); };
+const set = (v, q = false) => { until = v && v > Date.now() ? v : null; quiet = !!until && q; listeners.forEach((f) => f(until)); };
+export const isQuietHours = () => quiet && isPaused();
 
 export const isPaused = (now = Date.now()) => !!until && until > now;
 export const pausedUntil = () => (isPaused() ? until : null);
-export async function loadPause() { try { set((await get('/users/me/pause')).paused_until); } catch { /* signed out */ } }
-export async function pauseUntil(at) { set((await put('/users/me/pause', { until: at })).paused_until); }
+export async function loadPause() { try { const p = await get('/users/me/pause'); set(p.paused_until, p.quiet); } catch { /* signed out */ } }
+export async function pauseUntil(at) { await put('/users/me/pause', { until: at }); await loadPause(); }
 
 /** Choices for the menu: [label, until]. */
 export function pauseChoices(now = new Date()) {

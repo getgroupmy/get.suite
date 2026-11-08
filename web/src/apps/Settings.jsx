@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { loadPause } from '../pause.js';
 import QRCode from 'qrcode';
 import { api, get, patch, post, put, del, putBlob, formatBytes } from '../api.js';
 import { reloadPhotos, usePhoto } from '../components/photos.js';
@@ -59,6 +60,7 @@ export default function Settings() {
       <Profile />
       <ViewHistory />
       <ReadReceipts />
+      <QuietHours />
       <YourData />
     </div>
   );
@@ -192,6 +194,25 @@ function Appearance() {
 
 /** A second time zone beside the hours in Calendar. */
 /** Whether owners and editors see when you open their files. */
+/** Quiet hours: notifications pause by themselves outside your working hours. */
+function QuietHours() {
+  const toast = useToast();
+  const [q, setQ] = useState(null);
+  useEffect(() => { get('/users/me/quiet-hours').then(setQ).catch(() => {}); }, []);
+  if (!q) return null;
+  return (
+    <section className="card stack" aria-labelledby="qh-h">
+      <h2 id="qh-h">Quiet hours</h2>
+      <label className="check"><input type="checkbox" checked={q.on} disabled={!q.hours} onChange={async (e) => {
+        const on = e.target.checked;
+        setQ({ ...q, on });
+        try { await put('/users/me/quiet-hours', { on }); await loadPause(); toast(on ? 'Notifications pause outside your working hours' : 'Quiet hours off'); } catch (err) { setQ({ ...q, on: !on }); toast(err.message, 'error'); }
+      }} /> Pause notifications outside my working hours</label>
+      <p className="muted small" style={{ margin: 0 }}>{q.hours ? `Your working hours: ${q.hours} (${q.tz}). Outside them, pop-up notes and desktop notifications wait, as with Pause notifications, and colleagues see 🔕. Everything still arrives in the bell.` : 'Set your working hours first, in Calendar → Working hours.'}</p>
+    </section>
+  );
+}
+
 /** "Seen" in direct messages: on for both people, or for neither. */
 function ReadReceipts() {
   const toast = useToast();

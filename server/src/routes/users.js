@@ -13,7 +13,7 @@ import { validAddress, canReach, blobsOwnedBy, removeBlobs, mailHomeOf, retireMa
 import { uid } from '../util.js';
 import { planImport, readablePassword, usersCsv } from '../userimport.js';
 import { sendTo } from '../hub.js';
-import { hoursOf, setHours, readHours, hoursText, withinHours } from '../workhours.js';
+import { hoursOf, setHours, readHours, hoursText, withinHours, quietUntil } from '../workhours.js';
 import { insertFile, uniqueName } from './files.js';
 import { focusUntil, calendarStatus } from './calendar.js';
 import { placeOn } from './location.js';
@@ -114,7 +114,7 @@ export default function userRoutes() {
   r.get('/directory', (req, res) => {
     const now = Date.now();
     res.json(q('SELECT id, username, name, job_title, department, work_phone, manager_id, status_emoji, status_text, status_until, paused_until FROM users WHERE org_id = ? AND disabled = 0 ORDER BY name')
-      .all(req.user.org_id).map(({ status_emoji, status_text, status_until, paused_until, ...u }) => ({ ...u, status: statusOf({ status_emoji, status_text, status_until }) || calendarStatus(u.id), paused_until: paused_until > now ? paused_until : null })));
+      .all(req.user.org_id).map(({ status_emoji, status_text, status_until, paused_until, ...u }) => ({ ...u, status: statusOf({ status_emoji, status_text, status_until }) || calendarStatus(u.id), paused_until: Math.max(paused_until > now ? paused_until : 0, quietUntil(u.id, now) || 0) || null })));
   });
 
   // Photos: who has one (your company), yours to set or remove, and each one's picture.
@@ -218,8 +218,21 @@ export default function userRoutes() {
   r.get('/me/pause', (req, res) => {
     const until = q('SELECT paused_until FROM users WHERE id = ?').get(req.user.id).paused_until;
     const focus = focusUntil(req.user.id); // in focus time: paused until it ends
-    const best = Math.max(until > Date.now() ? until : 0, focus || 0);
-    res.json({ paused_until: best || null, focus: !!focus && focus >= (until || 0) });
+    const quiet = quietUntil(req.user.id); // outside working hours, with quiet hours on
+    const best = Math.max(until > Date.now() ? until : 0, focus || 0, quiet || 0);
+    res.json({ paused_until: best || null, focus: !!focus && focus >= Math.max(until || 0, quiet || 0), quiet: !!quiet && quiet === best && quiet > (until || 0) && quiet > (focus || 0) });
+  });
+  // Quiet hours: pause notifications outside your working hours (set in Calendar → Working hours).
+  r.get('/me/quiet-hours', (req, res) => {
+    const h = hoursOf(req.user.id);
+    res.json({ on: !!q('SELECT quiet_hours FROM users WHERE id = ?').get(req.user.id).quiet_hours, hours: h.own ? hoursText(h) : null, tz: h.own ? h.tz : null });
+  });
+  r.put('/me/quiet-hours', (req, res) => {
+    const on = !!req.body?.on;
+    if (on && !hoursOf(req.user.id).own) throw bad('Set your working hours first (Calendar → Working hours)');
+    q('UPDATE users SET quiet_hours = ? WHERE id = ?').run(on ? 1 : 0, req.user.id);
+    statusChanged(req.user);
+    res.json({ on });
   });
   r.put('/me/pause', (req, res) => {
     let until = req.body.until == null ? null : Number(req.body.until);
