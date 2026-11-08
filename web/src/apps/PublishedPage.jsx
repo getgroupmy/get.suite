@@ -40,7 +40,7 @@ export default function PublishedPage({ token }) {
   );
 }
 
-function PublishedDeck({ deck, base }) {
+export function PublishedDeck({ deck, base }) {
   const theme = THEMES[deck.theme] || THEMES.light;
   return (
     <ol className="pub-slides" aria-label="Slides">
@@ -50,7 +50,7 @@ function PublishedDeck({ deck, base }) {
 }
 
 /** Each sheet's cells as a table (values worked out, formatted as in the spreadsheet). */
-function PublishedSheet({ book }) {
+export function PublishedSheet({ book }) {
   const [at, setAt] = useState(0);
   const sheet = book.sheets[at] || { cells: {}, formats: {} };
   const view = useMemo(() => {

@@ -24,6 +24,7 @@ import taskRoutes from './routes/tasks.js';
 import notificationRoutes from './routes/notifications.js';
 import chatRoutes, { chatHookRoutes } from './routes/chat.js';
 import { publishRoutes, publicPublishRoutes } from './routes/publish.js';
+import { officePreviewRoutes } from './office/preview.js';
 import orgRoutes from './routes/orgs.js';
 import mailAdminRoutes from './routes/mailAdmin.js';
 import webmailRoutes from './routes/webmail.js';
@@ -101,6 +102,7 @@ export function createApp({
   app.use('/api/audit', requireAuth, auditRoutes());
   app.use('/api/files', requireAuth, fileRoutes({ maxUploadBytes }));
   app.use('/api/publish', requireAuth, publishRoutes());
+  app.use('/api/office-preview', requireAuth, officePreviewRoutes());
   app.use('/api/links', requireAuth, linkRoutes());
   app.use('/api/comments', requireAuth, commentRoutes());
   app.use('/api/events', requireAuth, calendarRoutes());

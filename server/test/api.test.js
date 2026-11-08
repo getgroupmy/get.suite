@@ -721,6 +721,55 @@ test('Office files: open Word, Excel and PowerPoint as Docs, Sheets and Slides, 
   assert.equal((await owner('POST', `/api/files/${folder.id}/open-as`)).status, 400, 'folders and other files can\'t');
 });
 
+test('Office previews: Word, Excel and PowerPoint read without a copy; pictures only for whoever asked', async () => {
+  const { Document, Packer, Paragraph } = await import('docx');
+  const ExcelJS = (await import('exceljs')).default;
+  const PptxGenJS = (await import('pptxgenjs')).default;
+  const up = async (name, buf) => (await owner('POST', `/api/files/upload?name=${encodeURIComponent(name)}`, buf, { raw: true })).body;
+  const count = async () => (await owner('GET', '/api/files')).body.length;
+  const word = await up('Brief.docx', await Packer.toBuffer(new Document({ sections: [{ children: [new Paragraph('Budget is approved.')] }] })));
+  const wb = new ExcelJS.Workbook(); wb.addWorksheet('Q1').getCell('B2').value = 'Sales';
+  const book = await up('Q1.xlsx', Buffer.from(await wb.xlsx.writeBuffer()));
+  const p = new PptxGenJS(); p.layout = 'LAYOUT_WIDE';
+  p.addSlide().addImage({ data: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', x: 1, y: 1, w: 2, h: 2 });
+  const deck = await up('Pitch deck.pptx', await p.write({ outputType: 'nodebuffer' }));
+  const before = await count();
+
+  const d = await owner('GET', `/api/files/${word.id}/preview`);
+  assert.equal(d.status, 200, JSON.stringify(d.body));
+  assert.equal(d.body.kind, 'doc');
+  assert.match(JSON.stringify(d.body.content), /Budget is approved\./);
+  const s = (await owner('GET', `/api/files/${book.id}/preview`)).body;
+  assert.deepEqual([s.kind, s.content.sheets[0].name, s.content.sheets[0].cells.B2], ['sheet', 'Q1', 'Sales']);
+  const k = (await owner('GET', `/api/files/${deck.id}/preview`)).body;
+  assert.equal(k.kind, 'slides');
+  const pic = k.content.slides[0].items.find((i) => i.type === 'image').fileId;
+  const at = `/api/office-preview/${k.token}/pictures/${pic}`;
+  const shown = await owner('GET', at);
+  assert.equal(shown.status, 200);
+  assert.equal(shown.headers.get('content-type'), 'image/png');
+  assert.equal(await count(), before, 'nothing is added to Drive');
+
+  // Someone the file is shared with may preview it; nobody else sees its pictures or the file.
+  const colleague = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'previewer', domain: 'acme.com', name: 'Pre Viewer', password: 'password123' })).status, 201);
+  const cid = (await login(colleague, 'previewer@acme.com')).id;
+  assert.equal((await colleague('GET', at)).status, 404, 'a preview\'s pictures are for whoever asked for it');
+  assert.equal((await colleague('GET', `/api/files/${word.id}/preview`)).status, 404, 'not shared');
+  await owner('PUT', `/api/files/${word.id}/shares`, { shares: [{ user_id: cid, role: 'viewer' }] });
+  assert.equal((await colleague('GET', `/api/files/${word.id}/preview`)).status, 200, 'viewers may look');
+  assert.equal((await owner('GET', `/api/office-preview/${k.token}/pictures/p99`)).status, 404);
+  assert.equal((await owner('GET', `/api/office-preview/nonsense/pictures/${pic}`)).status, 404);
+
+  // Other kinds, and files that aren't what their name says.
+  const txt = await up('plain words.txt', Buffer.from('hello'));
+  assert.equal((await owner('GET', `/api/files/${txt.id}/preview`)).status, 400);
+  const fake = await up('Broken.docx', Buffer.from('not a zip'));
+  const bad = await owner('GET', `/api/files/${fake.id}/preview`);
+  assert.equal(bad.status, 400);
+  assert.match(bad.body.error, /couldn't be read/);
+});
+
 test('comments: threads on text or cells, replies, resolving, mentions by chat, who may do what', async () => {
   const cami = client(), vera = client(), out = client();
   for (const [c, local] of [[cami, 'cami'], [vera, 'vera'], [out, 'oscar']]) {

@@ -8,7 +8,9 @@ test('previewKind: by the file name, safe kinds only', () => {
   assert.equal(previewKind('notes.txt'), 'text');
   assert.equal(previewKind('memo.mp3'), 'audio');
   assert.equal(previewKind('clip.webm'), 'video');
-  for (const n of ['logo.svg', 'page.html', 'report.docx', 'a.zip', 'pdf', '', undefined]) assert.equal(previewKind(n), null);
+  assert.equal(previewKind('Report.DOCX'), 'office');
+  assert.equal(previewKind('deck.pptx'), 'office');
+  for (const n of ['logo.svg', 'page.html', 'report.doc', 'old.xls', 'a.zip', 'pdf', '', undefined]) assert.equal(previewKind(n), null);
 });
 
 test('stepPreview skips what cannot be shown and wraps round', () => {

@@ -23,6 +23,7 @@ import { resetRoom, CO_EDITED, saveNow } from '../collab.js';
 import { docFromWord, wordFromDoc } from '../office/word.js';
 import { sheetFromExcel, excelFromSheet } from '../office/excel.js';
 import { deckFromPowerPoint, powerPointFromDeck } from '../office/powerpoint.js';
+import { officePreview, officeKind, MAX_PREVIEW } from '../office/preview.js';
 import { markdownFromDoc, docFromMarkdown } from '../office/markdown.js';
 import { brokenProtections } from '../sheetprotect.js';
 
@@ -708,6 +709,15 @@ export default function fileRoutes({ maxUploadBytes }) {
     if (f.mime !== 'application/pdf') res.setHeader('Content-Security-Policy', "default-src 'none'; img-src 'self'; media-src 'self'; style-src 'unsafe-inline'");
     res.setHeader('Content-Disposition', `${inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(f.name)}`);
     res.sendFile(path.join(FILES_DIR, f.storage), { headers: { 'Cache-Control': 'private, max-age=0' } });
+  });
+
+  // A Word, Excel, PowerPoint or Markdown file as a read-only document, spreadsheet or presentation (nothing is saved).
+  r.get('/:id/preview', async (req, res) => {
+    const f = loadFile(req.params.id, req.user);
+    if (f.kind !== 'file' || !officeKind(f.name)) throw bad('This kind of file has no preview');
+    if (f.size > MAX_PREVIEW) throw bad('This file is too large to preview (20 MB at most): download it instead');
+    sawFile(f.id, req.user.id);
+    res.json(await officePreview(fs.readFileSync(path.join(FILES_DIR, f.storage)), f.name, req.user.id));
   });
 
   r.get('/:id/content', (req, res) => {

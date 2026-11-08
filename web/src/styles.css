@@ -2048,3 +2048,8 @@ tr.shortcut-row.broken .name-text { color: var(--muted, #777); font-style: itali
 .chip-opt { display: flex; align-items: center; justify-content: space-between; gap: 8px; background: none; border: 0; padding: 6px 8px; border-radius: 6px; text-align: left; color: inherit; font: inherit; cursor: pointer; }
 .chip-opt:hover, .chip-opt.on { background: var(--hover); }
 @media print { .doc-chip { box-shadow: none; } }
+
+/* Word, Excel and PowerPoint previews (Drive, email attachments) */
+.office-preview { width: 100%; max-height: 70vh; overflow: auto; background: var(--surface-2); border-radius: 8px; padding: 16px; box-sizing: border-box; align-self: stretch; }
+.office-preview .paper { margin: 0 auto; }
+.office-preview .pub-sheet-wrap { background: var(--surface); }

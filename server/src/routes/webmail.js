@@ -28,6 +28,7 @@ import { parseMailQuery, allOf } from '../mail/searchquery.js';
 import { receiptRequest, buildReceipt } from '../mail/receipt.js';
 import { mimeFor } from '../util.js';
 import { previewMime, previewHeaders } from '../mail/preview.js';
+import { officePreview } from '../office/preview.js';
 import { calendarPartOf, readInvite, replyIcs, eventForInvite, saveInvite, readReply } from '../mail/invite.js';
 import { recordReply } from '../mail/invitereply.js';
 import { setVacation } from '../mail/vacation.js';
@@ -323,7 +324,7 @@ export default function webmailRoutes() {
   // on it instead of their own mailbox (reading, moving, flags, folders, drafts and sending as it). Things
   // kept per person (filters, labels, signatures, snoozing, scheduled sending…) stay with their own mail.
   const SHARED_OK = [
-    ['GET', /^\/(unread|folders|messages|find)$/], ['GET', /^\/messages\/\d+(\/(conversation|quote|pictures\/\d+|attachments\/\d+))?$/],
+    ['GET', /^\/(unread|folders|messages|find)$/], ['GET', /^\/messages\/\d+(\/(conversation|quote|pictures\/\d+|attachments\/\d+(\/preview)?))?$/],
     ['POST', /^\/folders$/], ['PATCH', /^\/folders$/], ['DELETE', /^\/folders$/],
     ['POST', /^\/messages\/(flags|read-all|move|delete)$/], ['POST', /^\/messages\/\d+\/attachments\/save$/],
     ['POST', /^\/drafts$/], ['GET', /^\/drafts\/\d+$/], ['DELETE', /^\/drafts\/\d+$/], ['POST', /^\/send$/], ['POST', /^\/assign$/], ['GET', /^\/members$/], ['GET', /^\/notes$/], ['POST', /^\/notes$/], ['DELETE', /^\/notes\/[\w-]+$/],
@@ -972,6 +973,14 @@ export default function webmailRoutes() {
     res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(a.filename || 'attachment')}`);
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.end(a.content);
+  });
+
+  // A Word, Excel or PowerPoint attachment as a read-only document, spreadsheet or presentation.
+  r.get('/messages/:uid/attachments/:index/preview', async (req, res) => {
+    const { parsed } = await loadMessage(req.user, String(req.query.folder || 'INBOX'), Number(req.params.uid), false);
+    const a = parsed.attachments.filter((x) => !x.related)[Number(req.params.index)];
+    if (!a) throw notFound('Attachment not found');
+    res.json(await officePreview(a.content, a.filename, req.realUserId || req.user.id));
   });
 
   // Save attachments to Drive, in an "Email attachments" folder (made when first needed): all of them, or the ones asked.

@@ -21,6 +21,7 @@ import Placeholder from '@tiptap/extension-placeholder';
 import { mailKey, stepMessage } from './mailkeys.js';
 import { printMessage } from './mailprint.js';
 import { previewKind, stepPreview } from './attpreview.js';
+import OfficePreview from '../OfficePreview.jsx';
 import { textToHtml, docToText, emailHtml, isEmptyDoc, linkHref } from './richtext.js';
 import { FiltersDialog } from './Filters.jsx';
 import DrivePicker from '../../components/DrivePicker.jsx';
@@ -670,7 +671,7 @@ function Reader({ shared = null, folder, uid, special, onClose, onOpen, onChange
           {m.attachments.length > 1 && <li><button type="button" className="btn small" onClick={() => saveToDrive(null)}>Save all to Drive</button></li>}
         </ul>
       )}
-      {viewing !== null && m.attachments[viewing] && <AttachmentViewer attachments={m.attachments} at={viewing} url={attUrl}
+      {viewing !== null && m.attachments[viewing] && <AttachmentViewer attachments={m.attachments} at={viewing} url={attUrl} uid={uid} folder={folder}
         onStep={(dir) => setViewing(stepPreview(m.attachments, viewing, dir))} onSave={(a) => saveToDrive([a.index])} onClose={() => setViewing(null)} />}
       <div className="row wrap reader-reply">
         <button className="btn" onClick={async () => onCompose({ to: list(replyTo), subject: reSubject('Re:'), html: await quoted(), ...thread })}><Icon name="reply" size={18} /> Reply</button>
@@ -2310,8 +2311,8 @@ function InternalNotes({ messageId, onChanged }) {
   );
 }
 
-/** An email attachment shown in the browser (pictures, PDF, text, audio, video), with ← → to the others. */
-function AttachmentViewer({ attachments, at, url, onStep, onSave, onClose }) {
+/** An email attachment shown in the browser (pictures, PDF, text, audio, video, Word, Excel, PowerPoint), with ← → to the others. */
+function AttachmentViewer({ attachments, at, url, uid, folder, onStep, onSave, onClose }) {
   const a = attachments[at];
   const kind = previewKind(a.filename);
   const shown = attachments.filter((x) => previewKind(x.filename));
@@ -2325,7 +2326,8 @@ function AttachmentViewer({ attachments, at, url, onStep, onSave, onClose }) {
     return () => window.removeEventListener('keydown', key, true);
   });
   const src = url(a, true);
-  const body = kind === 'picture' ? <img src={src} alt={a.filename} className="preview-media" />
+  const body = kind === 'office' ? <OfficePreview url={`/mail/messages/${uid}/attachments/${a.index}/preview?folder=${enc(folder)}`} />
+    : kind === 'picture' ? <img src={src} alt={a.filename} className="preview-media" />
     : kind === 'video' ? <video src={src} controls className="preview-media" />
     : kind === 'audio' ? <audio src={src} controls />
     : <iframe src={src} title={a.filename} className="preview-frame" />;

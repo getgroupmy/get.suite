@@ -8,6 +8,7 @@ import { useAuth } from '../../App.jsx';
 import { ApprovalsView, RequestApproval } from './Approvals.jsx';
 import { SignaturesView } from '../docs/Signatures.jsx';
 import { CommentsPanel, useComments } from '../comments.jsx';
+import OfficePreview from '../OfficePreview.jsx';
 
 function useDriveRoute() {
   const { pathname } = useLocation();
@@ -758,12 +759,12 @@ function Preview({ file, onClose, onOpenAs, comment = null }) {
   else if (/^video\/(mp4|webm)$/.test(m)) body = <video src={src} controls className="preview-media" />;
   else if (m.startsWith('audio/')) body = <audio src={src} controls />;
   else if (m === 'application/pdf' || m.startsWith('text/')) body = <iframe src={src} title={file.name} className="preview-frame" />;
-  else if (officeAs(file)) body = <Empty icon={officeAs(file).icon} title={`Open it as a ${officeAs(file).what}`}>Workspace makes an editable copy next to it; the original stays as it is.</Empty>;
+  else if (officeAs(file)) body = <OfficePreview url={`/files/${file.id}/preview`} />;
   else body = <Empty icon="file" title="No preview available">Download the file to open it on your device.</Empty>;
   return (
     <Modal wide title={file.name} onClose={onClose} footer={<>
       <button type="button" className={`btn ${panel ? 'primary' : ''}`} aria-pressed={panel} onClick={() => setPanel(!panel)}><Icon name="chat" size={18} /> Comments{threads.filter((t) => !t.resolved).length ? ` (${threads.filter((t) => !t.resolved).length})` : ''}</button>
-      {officeAs(file) && <button type="button" className="btn primary" onClick={onOpenAs}><Icon name={officeAs(file).icon} size={18} /> Open as {officeAs(file).what}</button>}
+      {officeAs(file) && <button type="button" className="btn primary" title="Workspace makes an editable copy next to it; the original stays as it is" onClick={onOpenAs}><Icon name={officeAs(file).icon} size={18} /> Open as {officeAs(file).what}</button>}
       {viewOnly(file) ? <span className="muted small">View only: downloading is turned off</span> : <a className={`btn ${officeAs(file) ? '' : 'primary'}`} href={`${src}?download`}><Icon name="download" size={18} /> Download</a>}
     </>}>
       <div className={`preview-with-comments ${panel ? 'open' : ''}`}>
