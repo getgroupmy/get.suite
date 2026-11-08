@@ -38,6 +38,7 @@ export default function MeetRoom() {
   const [mic, setMic] = useState(true);
   const [cam, setCam] = useState(true);
   const [phase, setPhase] = useState('lobby'); // lobby | call | left
+  const [leftWhy, setLeftWhy] = useState(''); // why the meeting ended for you (removed, full…)
   const mesh = useRef(null);
   const [, redraw] = useReducer((n) => n + 1, 0);
   const [panel, setPanel] = useState(null); // chat | people
@@ -77,7 +78,8 @@ export default function MeetRoom() {
         setFloating((list) => [...list, { ...r, key }]);
         setTimeout(() => setFloating((list) => list.filter((x) => x.key !== key)), 3000);
       },
-      onClosed: (reason) => { toast(reason, 'error'); setPhase('left'); },
+      onClosed: (reason) => { toast(reason, 'error'); setLeftWhy(reason); setPhase('left'); },
+      onMuted: (by) => { setMic(false); toast(`${by} muted you. Unmute when you want to speak.`); },
     });
     mesh.current = m;
     m.connect();
@@ -123,8 +125,9 @@ export default function MeetRoom() {
   if (phase === 'left') {
     return (
       <div className="meet-page meet-center">
-        <div className="meet-card stack"><h1>You left the meeting</h1>
-          <div className="row"><button type="button" className="btn primary" onClick={() => { setLocal(null); setPhase('lobby'); openDevices().then(setLocal); }}>Rejoin</button>
+        <div className="meet-card stack"><h1>{/removed you/.test(leftWhy) ? 'You were removed from the meeting' : 'You left the meeting'}</h1>
+          {leftWhy && <p className="muted" role="status" style={{ margin: 0 }}>{leftWhy}</p>}
+          <div className="row">{!/removed you/.test(leftWhy) && <button type="button" className="btn primary" onClick={() => { setLeftWhy(''); setLocal(null); setPhase('lobby'); openDevices().then(setLocal); }}>Rejoin</button>}
             <button type="button" className="btn" onClick={() => navigate('/meet')}>Back to Meet</button></div></div>
       </div>
     );
@@ -199,7 +202,12 @@ export default function MeetRoom() {
               <form className="row" onSubmit={sendChat}><input name="msg" className="grow" aria-label="Send a message to everyone" placeholder="Send a message" maxLength={2000} autoComplete="off" /><button className="btn">Send</button></form>
             </> : (
               <ul className="meet-people">
-                {tiles.map((t) => <li key={t.id} className="row"><Avatar name={t.name} userId={t.userId} size={28} /><span className="grow">{t.name}</span>{t.state.hand && '✋'}{t.state.mic === false && '🔇'}</li>)}
+                {m.host && tiles.length > 1 && <li className="row"><span className="grow muted small">You started this meeting.</span><button type="button" className="btn small" onClick={() => { m.mute('all'); toast('Everyone else is muted'); }}>Mute everyone</button></li>}
+                {tiles.map((t) => <li key={t.id} className="row"><Avatar name={t.name} userId={t.userId} size={28} /><span className="grow">{t.name}</span>{t.state.hand && '✋'}{t.state.mic === false && '🔇'}
+                  {m.host && !t.me && <>
+                    {t.state.mic !== false && <button type="button" className="icon-btn" aria-label={`Mute ${t.name}`} title="Mute" onClick={() => m.mute(t.id)}>🔇</button>}
+                    <button type="button" className="icon-btn" aria-label={`Remove ${t.name} from the meeting`} title="Remove from the meeting" onClick={() => { if (window.confirm(`Remove ${t.name} from the meeting? They won't be able to join again.`)) m.remove(t.id); }}><Icon name="close" size={16} /></button>
+                  </>}</li>)}
               </ul>
             )}
           </aside>

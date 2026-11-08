@@ -4,8 +4,8 @@
 // each other. `onChange` is called whenever something visible changes.
 
 export class Mesh {
-  constructor({ code, stream, iceServers = [], mic = true, cam = true, onChange, onChat, onReact, onClosed }) {
-    Object.assign(this, { code, stream, iceServers, onChange, onChat, onReact, onClosed });
+  constructor({ code, stream, iceServers = [], mic = true, cam = true, onChange, onChat, onReact, onClosed, onMuted }) {
+    Object.assign(this, { code, stream, iceServers, onChange, onChat, onReact, onClosed, onMuted });
     this.state = { mic, cam, hand: false, screen: false };
     this.peers = new Map(); // id -> { id, user, state, pc, stream, polite, makingOffer, ignoreOffer }
     this.id = null;
@@ -29,9 +29,14 @@ export class Mesh {
 
   send(msg) { if (this.ws?.readyState === 1) this.ws.send(JSON.stringify(msg)); }
 
+  /** The host: mute someone (a peer id, or 'all' for everyone else), or remove someone. */
+  mute(to) { this.send({ type: 'mute', to }); }
+  remove(to) { this.send({ type: 'remove', to }); }
+
   async handle(m) {
     if (m.type === 'welcome') {
       this.id = m.id;
+      this.host = !!m.host; // whoever started the meeting: may mute and remove people
       for (const p of m.peers) this.addPeer(p, { offer: true }); // the newcomer calls everyone
     } else if (m.type === 'joined') this.addPeer(m.peer, { offer: false }); // and they wait for the call
     else if (m.type === 'left') {
@@ -43,6 +48,7 @@ export class Mesh {
       if (p) p.state = m.state;
     } else if (m.type === 'signal') await this.signal(m.from, m.data);
     else if (m.type === 'chat') { this.onChat?.({ ...m, mine: m.id === this.id }); return; }
+    else if (m.type === 'muted') { this.setMic(false); this.onMuted?.(m.by); return; }
     else if (m.type === 'react') { this.onReact?.({ id: m.id === this.id ? 'me' : m.id, emoji: m.emoji }); return; }
     this.onChange?.();
   }

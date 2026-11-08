@@ -144,6 +144,8 @@ export function meetRoutes() {
 }
 
 const wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 });
+// People the host removed from a meeting can't come back into it (until the server restarts).
+const removed = new Map(); // code -> Set(user id)
 
 /** /ws/meet/<code>: join the meeting's room. */
 export function handleMeetUpgrade(req, socket, head, user) {
@@ -153,13 +155,15 @@ export function handleMeetUpgrade(req, socket, head, user) {
   wss.handleUpgrade(req, socket, head, (ws) => {
     let room = rooms.get(code);
     if (room && room.size >= MAX_PEOPLE) { ws.close(4001, 'This meeting is full'); return; }
+    if (removed.get(code)?.has(user.id)) { ws.close(4003, 'The host removed you from this meeting'); return; }
+    const isHost = m.created_by === user.id;
     if (!room) rooms.set(code, (room = new Map()));
     const id = crypto.randomBytes(8).toString('hex');
     const asked = new URL(req.url, 'http://x').searchParams; // how they come in: ?mic=0&cam=0
     const me = { ws, user, state: cleanState({ mic: asked.get('mic') !== '0', cam: asked.get('cam') !== '0' }) };
     const toOthers = (payload) => { const d = JSON.stringify(payload); for (const [pid, p] of room) if (pid !== id && p.ws.readyState === 1) p.ws.send(d); };
     const toAll = (payload) => { const d = JSON.stringify(payload); for (const p of room.values()) if (p.ws.readyState === 1) p.ws.send(d); };
-    ws.send(JSON.stringify({ type: 'welcome', id, peers: peopleIn(code) }));
+    ws.send(JSON.stringify({ type: 'welcome', id, peers: peopleIn(code), host: isHost }));
     room.set(id, me);
     toOthers({ type: 'joined', peer: describe(id, me) });
     const t = now();
@@ -179,6 +183,16 @@ export function handleMeetUpgrade(req, socket, head, user) {
       } else if (msg?.type === 'chat') {
         const text = String(msg.text ?? '').trim().slice(0, 2000);
         if (text) toAll({ type: 'chat', id, name: user.name, text, at: now() });
+      } else if ((msg?.type === 'mute' || msg?.type === 'remove') && isHost) {
+        // The host (whoever started the meeting): mute someone (or everyone else), or remove someone.
+        const targets = msg.to === 'all' && msg.type === 'mute' ? [...room.keys()].filter((pid) => pid !== id) : [String(msg.to)].filter((pid) => pid !== id && room.has(pid));
+        for (const pid of targets) {
+          const p = room.get(pid);
+          if (msg.type === 'mute') { if (p.ws.readyState === 1) p.ws.send(JSON.stringify({ type: 'muted', by: user.name })); continue; }
+          if (!removed.has(code)) removed.set(code, new Set());
+          removed.get(code).add(p.user.id);
+          try { p.ws.close(4003, `${user.name} removed you from the meeting`); } catch { /* gone already */ }
+        }
       } else if (msg?.type === 'react') {
         const emoji = ['👍', '❤️', '😂', '😮', '👏', '🎉'].includes(msg.emoji) ? msg.emoji : null;
         if (emoji) toAll({ type: 'react', id, emoji });

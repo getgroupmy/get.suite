@@ -4993,3 +4993,40 @@ test('meet recording: everyone is told who is recording; recordings go to a Meet
   assert.equal(up.mime, 'video/webm');
   assert.equal(up.parent_id, f1);
 });
+
+test('meet host controls: the host mutes someone or everyone, and removes someone, who can\'t come back', { timeout: 20000 }, async () => {
+  const { default: WS } = await import('ws');
+  const kay = client(); await login(kay, 'kay@keepco.com');
+  for (const [local, name] of [['mhb', 'Hal Guest'], ['mhc', 'Cass Guest']]) await kay('POST', '/api/users', { local, domain: 'keepco.com', name, password: 'password123' });
+  const cookieOf = async (u) => (await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ username: u, password: 'password123' }) })).headers.get('set-cookie').split(';')[0];
+  const { code } = (await kay('POST', '/api/meet', { title: 'Hosted' })).body;
+  const open = (cookie) => new Promise((resolve, reject) => {
+    const ws = new WS(`${base.replace('http', 'ws')}/ws/meet/${code}`, { headers: { cookie } });
+    ws.msgs = [];
+    const t = setTimeout(() => reject(new Error('no welcome')), 5000);
+    ws.on('message', (d) => { const msg = JSON.parse(String(d)); ws.msgs.push(msg); if (msg.type === 'welcome') { clearTimeout(t); ws.me = msg; resolve(ws); } });
+    ws.on('close', (c, why) => { ws.closed = [c, String(why)]; clearTimeout(t); reject(new Error(`closed ${c} ${why}`)); });
+    ws.on('error', reject);
+  });
+  const host = await open(await cookieOf('kay@keepco.com'));
+  const hal = await open(await cookieOf('mhb@keepco.com'));
+  const cass = await open(await cookieOf('mhc@keepco.com'));
+  const wait = () => new Promise((r) => setTimeout(r, 200));
+  try {
+    assert.equal(host.me.host, true); assert.equal(hal.me.host, false);
+    // Only the host can.
+    hal.send(JSON.stringify({ type: 'mute', to: cass.me.id })); await wait();
+    assert.ok(!cass.msgs.some((m) => m.type === 'muted'));
+    host.send(JSON.stringify({ type: 'mute', to: hal.me.id })); await wait();
+    assert.deepEqual(hal.msgs.find((m) => m.type === 'muted'), { type: 'muted', by: 'Kay Keep' });
+    assert.ok(!cass.msgs.some((m) => m.type === 'muted'));
+    host.send(JSON.stringify({ type: 'mute', to: 'all' })); await wait();
+    assert.ok(cass.msgs.some((m) => m.type === 'muted'));
+    assert.ok(!host.msgs.some((m) => m.type === 'muted'), 'not the host');
+    host.send(JSON.stringify({ type: 'remove', to: cass.me.id })); await wait();
+    assert.equal(cass.closed?.[0], 4003);
+    assert.match(cass.closed[1], /removed you/);
+    assert.ok(host.msgs.some((m) => m.type === 'left' && m.id === cass.me.id));
+    await assert.rejects(open(await cookieOf('mhc@keepco.com')), /4003/, 'can\'t come back');
+  } finally { host.terminate(); hal.terminate(); cass.terminate(); }
+});
