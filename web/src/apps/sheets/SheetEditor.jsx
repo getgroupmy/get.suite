@@ -1,3 +1,4 @@
+import { pasteSpecial, PASTE_MODES } from './paste.js';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 import { get, patch } from '../../api.js';
@@ -625,6 +626,7 @@ export default function SheetEditor() {
       if (down) { if (range.r2 > range.r1) fillTo(range, { ...range, r2: range.r1 }); else if (range.r1 > 0) fillTo(range, { ...range, r1: range.r1 - 1, r2: range.r1 - 1 }); }
       else if (range.c2 > range.c1) fillTo(range, { ...range, c2: range.c1 }); else if (range.c1 > 0) fillTo(range, { ...range, c1: range.c1 - 1, c2: range.c1 - 1 });
     }
+    else if (mod && e.shiftKey && k.toLowerCase() === 'v') { pasteMode.current = 'values'; setTimeout(() => { pasteMode.current = null; }, 1000); } // the browser's paste follows
     else if (mod && k.toLowerCase() === 'a') { e.preventDefault(); setAnchor({ c: 0, r: 0 }); setSel({ c: cols - 1, r: rows - 1 }); }
     else if (mod && e.altKey && e.code === 'KeyM') { e.preventDefault(); startComment(); }
     else if (!mod && !e.altKey && k.length === 1) { e.preventDefault(); startEdit(k); }
@@ -635,21 +637,24 @@ export default function SheetEditor() {
     e.preventDefault();
     const raws = [];
     const fmts = [];
+    const shownVals = []; // what the cells show, unformatted, for Paste special → Values only
     const lines = [];
     for (let r = range.r1; r <= range.r2; r++) {
-      const rawRow = [], vals = [], fmtRow = [];
+      const rawRow = [], vals = [], fmtRow = [], plain = [];
       for (let c = range.c1; c <= range.c2; c++) {
         const k = cellKey(c, r);
         rawRow.push(cells[k] ?? '');
         fmtRow.push(formats[k] || null);
         vals.push(formatNumber(evaluate(k), formats[k]) ?? display(evaluate(k)));
+        plain.push(display(evaluate(k)));
       }
       raws.push(rawRow);
       fmts.push(fmtRow);
+      shownVals.push(plain);
       lines.push(vals.join('\t'));
     }
     const text = lines.join('\n');
-    clip.current = { text, raws, fmts, origin: { c: range.c1, r: range.r1 } };
+    clip.current = { text, raws, fmts, vals: shownVals, origin: { c: range.c1, r: range.r1 } };
     e.clipboardData.setData('text/plain', text);
   }
 
@@ -661,10 +666,33 @@ export default function SheetEditor() {
     writeCells(u);
   }
 
+  /** Paste special (values, formatting, transposed) from what was copied in this spreadsheet. */
+  function pasteAs(mode) {
+    if (readOnly) return;
+    if (!clip.current) { toast('Copy some cells in this spreadsheet first, then paste them this way', 'error'); return; }
+    const p = pasteSpecial(clip.current, { c: sel.c, r: sel.r }, mode, shiftFormula);
+    const cur = dataRef.current;
+    const sheets = cur.sheets.map((s, i) => {
+      if (i !== active) return s;
+      const nextCells = { ...s.cells };
+      for (const [k, v] of Object.entries(p.cells)) { if (v === '' || v == null) delete nextCells[k]; else nextCells[k] = v; }
+      const f = { ...(s.formats || {}) };
+      for (const [k, fm] of Object.entries(p.formats)) { if (fm) f[k] = fm; else delete f[k]; }
+      return { ...s, cells: nextCells, formats: f };
+    });
+    commitData({ ...cur, sheets });
+    setAnchor({ c: sel.c + p.size.cols - 1, r: sel.r + p.size.rows - 1 });
+    gridRef.current?.focus();
+  }
+  const pasteMode = useRef(null); // Ctrl+Shift+V: the paste that follows is values only
+
   function onPaste(e) {
     if (editing || readOnly) return;
     e.preventDefault();
     const text = e.clipboardData.getData('text/plain').replace(/\r/g, '').replace(/\n$/, '');
+    const asValues = pasteMode.current === 'values';
+    pasteMode.current = null;
+    if (asValues && clip.current && clip.current.text === text) { pasteAs('values'); return; }
     const u = {};
     if (clip.current && clip.current.text === text) {
       const { raws, fmts, origin } = clip.current;
@@ -806,7 +834,8 @@ export default function SheetEditor() {
   const noteItems = notes[selKey]
     ? [{ label: 'Edit note', icon: 'edit', onClick: () => editNote(selKey) }, { label: 'Delete note', icon: 'trash', onClick: () => saveNote(selKey, '') }]
     : [{ label: 'Insert note', icon: 'edit', onClick: () => editNote(selKey) }];
-  const ctxItems = ctx?.kind === 'row' ? rowItems : ctx?.kind === 'col' ? [...colItems, '-', ...sortItems] : [...rowItems, '-', ...colItems, '-', ...noteItems, '-', ...sortItems];
+  const pasteItems = PASTE_MODES.map(([mode, label]) => ({ label: `Paste special: ${label.toLowerCase()}`, onClick: () => pasteAs(mode), disabled: !clip.current }));
+  const ctxItems = ctx?.kind === 'row' ? rowItems : ctx?.kind === 'col' ? [...colItems, '-', ...sortItems] : [...rowItems, '-', ...colItems, '-', ...pasteItems, '-', ...noteItems, '-', ...sortItems];
   /** Open the menu at the mouse, or (keyboard: the menu key, Shift+F10) at the selected cell. */
   const openMenu = (e, kind) => {
     if (readOnly) return;

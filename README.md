@@ -199,6 +199,7 @@ Select rows (or columns) by their headings, then **Group rows 2–4** in the rig
 
 ## Filling and selection totals (Sheets)
 
+- **Paste special:** after copying cells in a spreadsheet, right-click where they should go → **Paste special: values only** (what the cells showed, so formulas become their results; also **Ctrl+Shift+V**), **formatting only** (the look without the values), or **transposed** (rows become columns, with formulas moved to match). A normal paste (Ctrl+V) still brings formulas and formatting.
 - **Fill handle:** the small square at the corner of the selection. Drag it down, up, left or right to carry the selected cells on: numbers with a steady step keep stepping (1, 2 → 3, 4; 10, 20 → 30), text ending in a number counts on (*Item 1* → *Item 2*), weekdays, months and quarters go round (*Mon* → *Tue*, *Nov, Dec* → *Jan*), and formulas move their references as with copy and paste. A single number, or anything else, repeats. Filled cells take the formatting of the cells they continue, and a fill that would reach into a protected range is refused as a whole.
 - **Ctrl+D / Ctrl+R** fill the selection down (or right) from its first row (column); on a single cell they copy the one above (or to the left).
 - **Totals:** select more than one cell to see their **Sum**, **Average**, **Min**, **Max** and **Count** at the bottom right (hidden rows left out).
