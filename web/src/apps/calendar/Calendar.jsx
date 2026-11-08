@@ -7,6 +7,7 @@ import Icon from '../../components/Icon.jsx';
 import DrivePicker, { openUrl } from '../../components/DrivePicker.jsx';
 import { Modal, useToast, Empty, Menu, PromptModal } from '../../components/ui.jsx';
 import { PLACES, placeText, isoDay } from '../../components/workloc.js';
+import { useMailStatus } from '../../mailStatus.js';
 import { insights, hoursText } from './insights.js';
 import { timeIn, zoneName, cityOf } from '../../components/zones.js';
 import { scheduleOf, DAY, VIEWS, startOfDay, visibleDays, shift, title, onDay, layoutDay, expandAll, occurrenceIndex, describeRule, daysBetween, moveTimes, resizeEnd, shiftWeekdays, snapMinutes } from './calmath.js';
@@ -847,6 +848,9 @@ function EventDialog({ event, onClose, onSaved, onDuplicate }) {
     endDate: toDateInput(event.end), endTime: toTimeInput(event.end),
   });
   const special = f.ooo || f.focus; // just you: no guests, rooms, place or video meeting
+  // Out of office: also turn on the email auto-reply for the same days (when this server has email).
+  const mail = useMailStatus();
+  const [autoReply, setAutoReply] = useState(false);
   const r0 = event.rrule;
   const [rep, setRep] = useState({
     freq: r0?.freq || 'none', interval: r0?.interval || 1, byday: r0?.byday || [new Date(event.start).getDay()],
@@ -895,6 +899,12 @@ function EventDialog({ event, onClose, onSaved, onDuplicate }) {
     const { start, end, body } = read();
     if (end < start) return setError('The event ends before it starts');
     await applyEdit(event, body, which);
+    if (f.ooo && autoReply) {
+      try {
+        await put('/mail/vacation', { enabled: true, subject: f.title || 'Out of office', body: f.description.trim() || `I'm out of the office until ${f.endDate} and will reply when I'm back.`, start_date: f.startDate, end_date: f.endDate });
+        toast(`Email auto-reply on from ${f.startDate} to ${f.endDate}`);
+      } catch (e) { toast(`The event is saved, but the auto-reply wasn't: ${e.message}`, 'error'); }
+    }
     onSaved();
   }
   async function remove(which) {
@@ -923,6 +933,7 @@ function EventDialog({ event, onClose, onSaved, onDuplicate }) {
         </div>
         {f.focus && <p className="muted small" style={{ margin: 0 }}>While it lasts, new invitations for this time are declined for you and notifications are paused (they still arrive in the bell).</p>}
         {f.ooo && <p className="muted small" style={{ margin: 0 }}>While you're away, new invitations for this time are declined for you, and whoever sent them sees the description below as your message. Colleagues see you as out of office.</p>}
+        {f.ooo && mail?.enabled && <label className="check"><input type="checkbox" checked={autoReply} onChange={(e) => setAutoReply(e.target.checked)} /> Also turn on my email auto-reply for these days (with the message below)</label>}
         <div className="row wrap">
           <label className="field"><span>Starts</span><input type="date" required value={f.startDate} onChange={(e) => setF({ ...f, startDate: e.target.value, endDate: e.target.value > f.endDate ? e.target.value : f.endDate })} /></label>
           {!f.all_day && <label className="field"><span>&nbsp;</span><input type="time" required value={f.startTime} onChange={set('startTime')} aria-label="Start time" /></label>}
