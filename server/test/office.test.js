@@ -591,3 +591,25 @@ test('PowerPoint: transitions, slides that move on by themselves, and looping, b
   assert.doesNotMatch(await plain.file('ppt/slides/slide1.xml').async('string'), /p:transition/);
   assert.equal((await deckFromPowerPoint(await powerPointFromDeck({ theme: 'light', slides: [{ id: 'p', items: [] }] }, {}), { savePicture: async () => 'x' })).loop, undefined);
 });
+
+test('watermarks: a Word watermark in every page header, read back from Word files', async () => {
+  const JSZip = (await import('jszip')).default;
+  const { watermarkOfWord } = await import('../src/office/word.js');
+  const { readSetup } = await import('../src/pagesetup.js');
+  const doc = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Terms.' }] }] };
+  const page = readSetup({ watermark: 'DRAFT "v2" & <final>' });
+  const buf = await wordFromDoc(doc, 'Contract', { page });
+  const zip = await JSZip.loadAsync(buf);
+  const header = await zip.file('word/header1.xml').async('string');
+  assert.match(header, /<w:hdr [^>]*xmlns:v="urn:schemas-microsoft-com:vml"/);
+  assert.match(header, /<v:shape id="PowerPlusWaterMarkObject"[^>]*rotation:315[\s\S]*<v:textpath [^>]*string="DRAFT &quot;v2&quot; &amp; &lt;final&gt;"\/>/);
+  assert.match(await zip.file('word/document.xml').async('string'), /<w:headerReference w:type="default"/, 'the section uses that header');
+  assert.equal(await watermarkOfWord(buf), 'DRAFT "v2" & <final>');
+  // With a header text too, both are there; without a watermark, no shape.
+  const both = await (await JSZip.loadAsync(await wordFromDoc(doc, 'C', { page: readSetup({ header: 'Acme', watermark: 'CONFIDENTIAL' }) }))).file('word/header1.xml').async('string');
+  assert.match(both, /Acme[\s\S]*string="CONFIDENTIAL"/);
+  assert.equal(await watermarkOfWord(await wordFromDoc(doc, 'C', { page: readSetup({ header: 'Acme' }) })), '');
+  assert.equal(await watermarkOfWord(Buffer.from('not a zip')), '');
+  assert.throws(() => readSetup({ watermark: 'x'.repeat(41) }), /40 characters/);
+  assert.equal(readSetup({}).watermark, '');
+});

@@ -1393,13 +1393,23 @@ test('page setup: kept with a document, checked, and only for documents', async 
   const d = (await owner('POST', '/api/files/new', { kind: 'doc', name: 'Letterhead' })).body;
   assert.equal(d.page_setup, null);
   const set = await owner('PATCH', `/api/files/${d.id}`, { page_setup: { size: 'letter', orientation: 'landscape', margin: 'wide', header: 'Acme\nTrading', numbers: true } });
-  assert.deepEqual(set.body.page_setup, { size: 'letter', orientation: 'landscape', margin: 'wide', header: 'Acme Trading', footer: '', numbers: true });
+  assert.deepEqual(set.body.page_setup, { size: 'letter', orientation: 'landscape', margin: 'wide', header: 'Acme Trading', footer: '', numbers: true, watermark: '' });
   assert.deepEqual((await owner('GET', `/api/files/${d.id}`)).body.page_setup.size, 'letter');
   assert.equal((await owner('PATCH', `/api/files/${d.id}`, { page_setup: { size: 'a3' } })).status, 400);
   assert.equal((await owner('PATCH', `/api/files/${d.id}`, { page_setup: { header: 'x'.repeat(201) } })).status, 400);
   const s = (await owner('POST', '/api/files/new', { kind: 'sheet', name: 'Not a doc' })).body;
   assert.equal((await owner('PATCH', `/api/files/${s.id}`, { page_setup: {} })).status, 400);
   assert.equal((await owner('PATCH', `/api/files/${d.id}`, { page_setup: null })).body.page_setup, null, 'back to the default');
+  // A watermark: on the page setup, in the Word download, and kept when a Word file is opened as a document.
+  assert.equal((await owner('PATCH', `/api/files/${d.id}`, { page_setup: { watermark: 'x'.repeat(41) } })).status, 400);
+  assert.equal((await owner('PATCH', `/api/files/${d.id}`, { page_setup: { watermark: ' DRAFT ' } })).body.page_setup.watermark, 'DRAFT');
+  const docx = await owner('GET', `/api/files/${d.id}/export`, undefined, { binary: true });
+  assert.equal(docx.status, 200);
+  const { watermarkOfWord } = await import('../src/office/word.js');
+  assert.equal(await watermarkOfWord(docx.body), 'DRAFT');
+  const up = (await owner('POST', '/api/files/upload?name=Draft%20contract.docx', docx.body, { raw: true })).body;
+  const opened = (await owner('POST', `/api/files/${up.id}/open-as`)).body;
+  assert.equal((await owner('GET', `/api/files/${opened.id}`)).body.page_setup.watermark, 'DRAFT');
 });
 
 test('contact groups: made, changed, suggested in Mail with everyone in them, only your own', async () => {

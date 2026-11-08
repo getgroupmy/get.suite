@@ -3,6 +3,7 @@
 // opens exactly like one typed in Docs. Saving: the document is written back as a .docx, with its
 // tables, pictures and text colours.
 import mammoth from 'mammoth';
+import JSZip from 'jszip';
 import { chartTable } from './sheetchart.js';
 import { chipText } from './chiptext.js';
 import { imageSize } from 'image-size';
@@ -142,6 +143,38 @@ function runs(nodes = [], extra = {}) {
   return out;
 }
 
+const xmlAttr = (s) => String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+// Word's own watermark: a faint diagonal WordArt text shape in the page header (VML, as Word writes it).
+const WATERMARK_TYPE = '<v:shapetype id="_x0000_t136" coordsize="21600,21600" o:spt="136" adj="10800" path="m@7,l@8,m@5,21600l@6,21600e"><v:formulas><v:f eqn="sum #0 0 10800"/><v:f eqn="prod #0 2 1"/><v:f eqn="sum 21600 0 @1"/><v:f eqn="sum 0 0 @2"/><v:f eqn="sum 21600 0 @3"/><v:f eqn="if @0 @3 0"/><v:f eqn="if @0 21600 @1"/><v:f eqn="if @0 0 @2"/><v:f eqn="if @0 @4 21600"/><v:f eqn="mid @5 @6"/><v:f eqn="mid @8 @5"/><v:f eqn="mid @7 @8"/><v:f eqn="mid @6 @7"/><v:f eqn="sum @6 0 @5"/></v:formulas><v:path textpathok="t" o:connecttype="custom" o:connectlocs="@9,0;@10,10800;@11,21600;@12,10800" o:connectangles="270,180,90,0"/><v:textpath on="t" fitshape="t"/><v:handles><v:h position="#0,bottomRight" xrange="6629,14971"/></v:handles><o:lock v:ext="edit" text="t" shapetype="t"/></v:shapetype>';
+export const watermarkXml = (text) => `<w:r><w:pict>${WATERMARK_TYPE}<v:shape id="PowerPlusWaterMarkObject" o:spid="_x0000_s2049" type="#_x0000_t136" style="position:absolute;margin-left:0;margin-top:0;width:468pt;height:117pt;rotation:315;z-index:-251657216;mso-position-horizontal:center;mso-position-horizontal-relative:margin;mso-position-vertical:center;mso-position-vertical-relative:margin" o:allowincell="f" fillcolor="silver" stroked="f"><v:fill opacity=".5"/><v:textpath style="font-family:&quot;Calibri&quot;;font-size:1pt" string="${xmlAttr(text)}"/></v:shape></w:pict></w:r>`;
+const VML_NS = { 'xmlns:v': 'urn:schemas-microsoft-com:vml', 'xmlns:o': 'urn:schemas-microsoft-com:office:office' };
+
+/** The written Word file with the watermark in each header's first paragraph. */
+async function withWatermark(buffer, text) {
+  const zip = await JSZip.loadAsync(buffer);
+  const headers = Object.keys(zip.files).filter((f) => /^word\/header\d+\.xml$/.test(f));
+  for (const f of headers) {
+    let xml = await zip.file(f).async('string');
+    for (const [ns, uri] of Object.entries(VML_NS)) if (!xml.includes(`${ns}=`)) xml = xml.replace(/<w:hdr\b/, `<w:hdr ${ns}="${uri}"`);
+    const at = xml.indexOf('</w:p>');
+    xml = at >= 0 ? xml.slice(0, at) + watermarkXml(text) + xml.slice(at) : xml.replace('</w:hdr>', `<w:p>${watermarkXml(text)}</w:p></w:hdr>`);
+    zip.file(f, xml);
+  }
+  return zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
+}
+
+/** A Word file's watermark text (the first one in its headers), or ''. */
+export async function watermarkOfWord(buffer) {
+  try {
+    const zip = await JSZip.loadAsync(buffer);
+    for (const f of Object.keys(zip.files).filter((n) => /^word\/header\d+\.xml$/.test(n)).sort()) {
+      const m = /<v:textpath\b[^>]*\bstring="([^"]*)"/.exec(await zip.file(f).async('string'));
+      if (m) return m[1].replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&apos;/g, "'").replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim().slice(0, 40);
+    }
+  } catch { /* not a zip: no watermark */ }
+  return '';
+}
+
 /** Word's page size, margins, header and footer (page number included) from the document's page setup. */
 function sectionSetup(setup) {
   if (!setup) return {};
@@ -154,7 +187,8 @@ function sectionSetup(setup) {
   ] });
   return {
     properties: { page: { size: { width: twip(w), height: twip(h), orientation: setup.orientation === 'landscape' ? PageOrientation.LANDSCAPE : PageOrientation.PORTRAIT }, margin: { top: m, bottom: m, left: m, right: m } } },
-    ...(setup.header && { headers: { default: new Header({ children: [line(setup.header, false)] }) } }),
+    // A watermark lives in the header (added to its first paragraph once the file is written: withWatermark).
+    ...((setup.header || setup.watermark) && { headers: { default: new Header({ children: [line(setup.header, false)] }) } }),
     ...((setup.footer || setup.numbers) && { footers: { default: new Footer({ children: [line(setup.footer, setup.numbers)] }) } }),
   };
 }
@@ -294,5 +328,6 @@ export async function wordFromDoc(doc, title = 'Document', { pictureData, page, 
     numbering: { config: [{ reference: 'numbers', levels: [0, 1, 2, 3].map((level) => ({ level, format: LevelFormat.DECIMAL, text: `%${level + 1}.`, alignment: AlignmentType.START, style: { paragraph: { indent: { left: 720 * (level + 1), hanging: 360 } } } })) }] },
     sections: [{ ...sectionSetup(page), children: paras.length ? paras : [new Paragraph('')] }],
   });
-  return Packer.toBuffer(file);
+  const buf = await Packer.toBuffer(file);
+  return page?.watermark ? withWatermark(buf, page.watermark) : buf;
 }

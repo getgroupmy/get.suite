@@ -17,3 +17,15 @@ test('printed pages: size, margins, header, footer and page numbers', () => {
   assert.match(css, /@bottom-center \{ content: "Confidential" "   " counter\(page\) " of " counter\(pages\)/);
   assert.match(printCss({ numbers: true }), /@bottom-center \{ content: counter\(page\) " of " counter\(pages\)/);
 });
+
+import { watermarkSvg, paperStyle as paperStyleW, printCss as printCssW } from './pagesetup.js';
+test('watermark: a faint diagonal picture on every page on screen and when printed', () => {
+  const svg = decodeURIComponent(watermarkSvg('R&D <draft>', 210, 297).split(',')[1]);
+  assert.match(svg, /<text [^>]*rotate\(-54\.7 105 148\.5\)[^>]*>R&amp;D &lt;draft&gt;<\/text>/);
+  const st = paperStyleW({ watermark: 'DRAFT' });
+  assert.match(st.backgroundImage, /^url\("data:image\/svg\+xml,/);
+  assert.equal(st.backgroundSize, '100% 1123px', 'one per A4 page length');
+  assert.equal(paperStyleW({}).backgroundImage, undefined);
+  assert.match(printCssW({ watermark: 'DRAFT' }), /\.print-watermark \{ display: block !important; position: fixed;/);
+  assert.doesNotMatch(printCssW({}), /print-watermark/);
+});

@@ -2098,3 +2098,4 @@ textarea.mono { font-family: ui-monospace, Consolas, monospace; }
 .symbol-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(38px, 1fr)); gap: 4px; }
 .symbol { height: 38px; font-size: 1.2em; border: 1px solid var(--border); background: var(--surface); color: inherit; border-radius: 6px; cursor: pointer; }
 .symbol:hover, .symbol:focus-visible { background: var(--hover); border-color: var(--accent); }
+.print-watermark { display: none; }

@@ -16,7 +16,7 @@ import { get, post, patch, put, uploadFile, onLive } from '../../api.js';
 import DrivePicker, { openUrl } from '../../components/DrivePicker.jsx';
 import { useAuth } from '../../App.jsx';
 import { useToast, Avatar, Menu, Modal } from '../../components/ui.jsx';
-import { PAPER, MARGINS, DEFAULT_SETUP, paperStyle, printCss } from './pagesetup.js';
+import { PAPER, MARGINS, DEFAULT_SETUP, WATERMARKS, paperStyle, printCss } from './pagesetup.js';
 import { ShareDialog } from '../drive/Drive.jsx';
 import { EditorHeader } from '../editorCommon.jsx';
 import { CommentsPanel, useComments } from '../comments.jsx';
@@ -473,6 +473,8 @@ function SharedDoc({ file, setFile }) {
         {outline && <Outline editor={editor} onClose={() => setOutline(false)} />}
         <div className="doc-scroll" onClick={(e) => e.target === e.currentTarget && editor.commands.focus('end')}>
           <div className="paper" style={file.page_setup ? paperStyle(file.page_setup) : undefined}>
+            {file.page_setup?.watermark && <div className="print-watermark" aria-hidden="true" />}
+            {file.page_setup?.watermark && <span className="sr-only">Watermark: {file.page_setup.watermark}</span>}
             {file.page_setup?.header && <div className="paper-header" aria-hidden="true">{file.page_setup.header}</div>}
             <EditorContent editor={editor} onClick={(e) => {
               const sup = e.target.closest?.('sup[data-footnote]'); if (sup) focusFootnote(e.currentTarget, sup);
@@ -810,6 +812,10 @@ function PageSetupDialog({ setup, onClose, onSave }) {
         <label className="field"><span>Header (top of every page)</span><input value={s.header} maxLength={200} onChange={set('header')} placeholder="e.g. Acme Trading · Quarterly report" /></label>
         <label className="field"><span>Footer (bottom of every page)</span><input value={s.footer} maxLength={200} onChange={set('footer')} placeholder="e.g. Confidential" /></label>
         <label className="check"><input type="checkbox" checked={s.numbers} onChange={set('numbers')} /> Page numbers in the footer</label>
+        <label className="field"><span>Watermark (faint, across every page)</span>
+          <input value={s.watermark || ''} maxLength={40} list="watermark-choices" onChange={set('watermark')} placeholder="None, or e.g. DRAFT or CONFIDENTIAL" />
+          <datalist id="watermark-choices">{WATERMARKS.map((w) => <option key={w} value={w} />)}</datalist>
+        </label>
         <p className="muted small" style={{ margin: 0 }}>Used when printing or saving as PDF, and in the Word download. Everyone editing sees the same.</p>
       </div>
     </Modal>
