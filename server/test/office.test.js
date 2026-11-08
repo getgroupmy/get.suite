@@ -505,3 +505,26 @@ test('Excel: grouped rows and columns are outline levels both ways, collapsed on
   assert.deepEqual(back.groups, [{ axis: 'row', from: 1, to: 3, collapsed: true }, { axis: 'col', from: 1, to: 2, collapsed: false }]);
   assert.equal(back.hide, undefined, 'not hidden by hand');
 });
+
+test('PowerPoint: slide numbers (every slide, or all but the first) go out and come back', async () => {
+  const { numberShown } = await import('../src/office/powerpoint.js');
+  const three = (numbers) => ({ theme: 'light', ...(numbers && { numbers }), slides: ['a', 'b', 'c'].map((id) => ({ id, items: [{ id: `${id}t`, type: 'text', text: `Slide ${id}`, x: 10, y: 10, w: 50, h: 20 }] })) });
+  assert.deepEqual([0, 1, 2].map((i) => numberShown(three('skip-first'), i)), [false, true, true]);
+  assert.deepEqual([0, 1].map((i) => numberShown(three(null), i)), [false, false]);
+  for (const numbers of [true, 'skip-first', null]) {
+    const buf = await powerPointFromDeck(three(numbers));
+    const back = await deckFromPowerPoint(buf, { savePicture: async () => 'x' });
+    assert.equal(back.numbers, numbers ?? undefined, `numbers: ${numbers}`);
+    assert.deepEqual(back.slides.map((s) => s.items.map((i) => i.text)), [['Slide a'], ['Slide b'], ['Slide c']], 'the number is not a text box');
+  }
+});
+
+test('live co-editing keeps a presentation\'s slide numbers setting', async () => {
+  const { deckDocFromJson, jsonFromDeckDoc, applyDeckJson } = await import('../src/collabdoc.js');
+  const doc = deckDocFromJson({ theme: 'dark', numbers: 'skip-first', slides: [{ id: 'a', items: [] }] });
+  assert.equal(jsonFromDeckDoc(doc).numbers, 'skip-first');
+  applyDeckJson(doc, { theme: 'dark', numbers: true, slides: [{ id: 'a', items: [] }] });
+  assert.equal(jsonFromDeckDoc(doc).numbers, true);
+  applyDeckJson(doc, { theme: 'dark', slides: [{ id: 'a', items: [] }] });
+  assert.equal('numbers' in jsonFromDeckDoc(doc), false);
+});

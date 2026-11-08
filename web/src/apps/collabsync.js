@@ -108,6 +108,7 @@ export function deckDocFromJson(json) {
   const doc = new Y.Doc();
   doc.transact(() => {
     doc.getMap('deck').set('theme', json?.theme || 'light');
+    if (json?.numbers) doc.getMap('deck').set('numbers', json.numbers);
     const slides = json?.slides?.length ? json.slides : [{ id: 's1', items: [] }];
     doc.getArray('order').push(slides.map((s) => s.id));
     const all = doc.getMap('slides');
@@ -120,6 +121,7 @@ export function jsonFromDeckDoc(doc) {
   const all = doc.getMap('slides');
   return {
     theme: doc.getMap('deck').get('theme') || 'light',
+    ...(doc.getMap('deck').get('numbers') && { numbers: doc.getMap('deck').get('numbers') }), // slide numbers: true or 'skip-first'
     slides: doc.getArray('order').toArray().filter((id) => all.has(id)).map((id) => {
       const m = all.get(id);
       const items = m.get('items');
@@ -137,6 +139,7 @@ export function applyDeckJson(doc, next) {
   doc.transact(() => {
     const deck = doc.getMap('deck');
     if (deck.get('theme') !== next.theme) deck.set('theme', next.theme);
+    if ((deck.get('numbers') || null) !== (next.numbers || null)) { if (next.numbers) deck.set('numbers', next.numbers); else deck.delete('numbers'); }
     const all = doc.getMap('slides');
     const want = next.slides || [];
     for (const id of [...all.keys()]) if (!want.some((s) => s.id === id)) all.delete(id);

@@ -39,6 +39,7 @@ export async function deckFromPowerPoint(buffer, { savePicture }) {
   const presRels = await relsOf(zip, 'ppt/presentation.xml');
   const order = kids(kid(pres, P, 'sldIdLst'), P, 'sldId').map((s) => presRels.get(rattr(s, 'id'))).filter(Boolean);
   const slides = [];
+  const numbered = new Set(); // slides with a slide number field
   for (const file of order) {
     const xml = parseXml(await zip.file(file)?.async('string') || '');
     if (!xml) continue;
@@ -68,6 +69,8 @@ export async function deckFromPowerPoint(buffer, { savePicture }) {
         if (data && mime) items.push({ id: id(), type: 'image', fileId: await savePicture(path.posix.basename(target), data, mime), name: path.posix.basename(target), ...box });
         continue;
       }
+      // A slide number field: the presentation numbers its slides (not a text box of its own).
+      if (deep(el, A, 'fld').some((f) => attr(f, 'type') === 'slidenum')) { numbered.add(slides.length); continue; }
       const paras = deep(el, A, 'p');
       const texts = paras.map((p) => deep(p, A, 't').map((t) => t.text).join(''));
       const content = texts.join('\n').replace(/\n+$/, '');
@@ -127,13 +130,18 @@ export async function deckFromPowerPoint(buffer, { savePicture }) {
     const transition = tr && ({ fade: 'fade', dissolve: 'fade', push: 'push', wipe: 'push', cover: 'push', pull: 'push', split: 'push', zoom: 'zoom', newsflash: 'zoom' }[tr] || 'fade');
     slides.push({ id: id(), items, ...(bg && { bg }), ...(notes && { notes }), ...(transition && { transition }), ...(skip && { skip: true }) });
   }
-  return { theme: 'light', slides: slides.length ? slides : [{ id: id(), items: [] }] };
+  // Numbered slides: all of them, or all but the first.
+  const numbers = !numbered.size ? null : numbered.size >= slides.length ? true : numbered.size === slides.length - 1 && !numbered.has(0) ? 'skip-first' : true;
+  return { theme: 'light', ...(numbers && { numbers }), slides: slides.length ? slides : [{ id: id(), items: [] }] };
 }
 
 /**
  * A Slides presentation as a PowerPoint file (Buffer). `pictureData(fileId)` gives a picture's
  * bytes and type ({ data, mime }) or null.
  */
+/** Does slide i show its number? deck.numbers: true (every slide) or 'skip-first' (all but the title slide). */
+export const numberShown = (deck, i) => !!deck?.numbers && !(deck.numbers === 'skip-first' && i === 0);
+
 export async function powerPointFromDeck(deck, { pictureData, title = 'Presentation' } = {}) {
   const pptx = new PptxGenJS();
   pptx.layout = 'LAYOUT_WIDE'; // 13.33 × 7.5 in, 16:9 like Slides
@@ -145,6 +153,7 @@ export async function powerPointFromDeck(deck, { pictureData, title = 'Presentat
     const slide = pptx.addSlide();
     slide.background = { color: color(s.bg, theme.bg) };
     if (s.notes) slide.addNotes(s.notes);
+    if (numberShown(deck, (deck.slides || []).indexOf(s))) slide.slideNumber = { x: Win - 1.1, y: Hin - 0.55, w: 0.8, h: 0.35, fontSize: 12, color: color('text', theme.text), align: 'right', fontFace: 'Arial' };
     if (s.skip) slide.hidden = true; // (transitions stay in Workspace: the file writer has none)
     for (const it of s.items || []) {
       const pos = { x: (it.x / 100) * Win, y: (it.y / 100) * Hin, w: (it.w / 100) * Win, h: (it.h / 100) * Hin };

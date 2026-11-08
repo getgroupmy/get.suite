@@ -294,6 +294,8 @@ In Drive, **New → Presentation**. Presentations are shared, versioned and save
 - **Speaker notes:** type them in the box under each slide. They're shared and saved with the presentation, carried to and from PowerPoint, and never shown to the audience.
 - **Present** opens full screen. The arrow keys, space or a click move between slides, and Esc ends. **N** shows or hides your notes at the bottom (handy with a single screen).
 - **Presenter view** also opens a second window for you, the speaker, to keep on your own screen: the current slide, the next one, your notes, a timer and the time. Moving through the slides in either window moves both.
+- **Slide numbers:** **⋮ → Slide numbers: every slide** (or **all but the first**, for a title slide) puts each slide's number in its bottom-right corner, on screen, when presenting, when printing and in PowerPoint downloads (where they're real slide numbers; PowerPoint files with them open with numbers on). **Slide numbers: off** takes them away. Everyone editing sees the change at once.
+- **Laser pointer:** while presenting, press **L** (or ● in the bar at the bottom) for a red dot that follows the mouse instead of the pointer; **L** again turns it off.
 - **Print or save as PDF** (⋮ menu) prints one slide per landscape page. Choose "Save as PDF" in the print dialog.
 - People you share a presentation with see its pictures, even ones that aren't shared with them separately. Viewers can present but not edit.
 

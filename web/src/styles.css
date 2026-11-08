@@ -1999,3 +1999,7 @@ tr.shortcut-row.broken .name-text { color: var(--muted, #777); font-style: itali
 .task-tags .pill.tag { display: inline-flex; align-items: center; gap: 2px; }
 .task-tags .pill.tag .icon-btn { padding: 0 2px; min-width: 0; height: auto; }
 .import-slide { cursor: pointer; border: 2px solid transparent; border-radius: 6px; padding: 4px; } .import-slide.on { border-color: var(--accent, #1a73e8); }
+/* Slides: slide numbers and the laser pointer */
+.slide-number { position: absolute; right: 2.5%; bottom: 3%; font-size: 2.2cqw; opacity: .7; pointer-events: none; }
+.presenter.lasering { cursor: none; }
+.laser-dot { position: fixed; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%; background: #ff1744; box-shadow: 0 0 12px 4px rgba(255, 23, 68, .7); pointer-events: none; z-index: 10; }

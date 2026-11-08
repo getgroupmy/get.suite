@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router';
 import { SlideView } from './SlidesEditor.jsx';
-import { THEMES, stepSlide } from './slidemath.js';
+import { THEMES, stepSlide, numberShown } from './slidemath.js';
 
 const clock = (ms) => { const s = Math.floor(ms / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
 
@@ -59,7 +59,7 @@ export default function PresenterView() {
         <span className="muted">{new Date(now).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span>
       </header>
       <div className="pv-main">
-        <section className="pv-current" aria-label="Current slide">{slide && <SlideView slide={slide} theme={theme} deckId={id} built={build.of ? build.b ?? undefined : undefined} />}
+        <section className="pv-current" aria-label="Current slide">{slide && <SlideView slide={slide} theme={theme} deckId={id} built={build.of ? build.b ?? undefined : undefined} number={numberShown(deck, i) ? i + 1 : null} />}
           {build.of > 0 && <span className="muted small pv-builds">Animations: {build.b} of {build.of} in{build.b < build.of ? ' · click for the next' : ''}</span>}</section>
         <aside className="pv-side">
           <section className="pv-next" aria-label="Next slide">

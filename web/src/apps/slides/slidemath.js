@@ -170,6 +170,9 @@ export const setCell = (cells, r, c, text) => cells.map((row, i) => (i === r ? r
 // presenting, in the order they were given an animation (animAt).
 export const ANIMATIONS = [['', 'None'], ['appear', 'Appear'], ['fade', 'Fade in'], ['fly', 'Fly in']];
 /** The slide's animated boxes, in the order they come in. */
+/** Does slide i show its number? deck.numbers: true (every slide) or 'skip-first' (all but the title slide). Same as the server's. */
+export const numberShown = (deck, i) => !!deck?.numbers && !(deck.numbers === 'skip-first' && i === 0);
+
 export const builds = (slide) => (slide?.items || []).filter((it) => it.anim).sort((a, b) => (a.animAt || 0) - (b.animAt || 0));
 /** A box's animation change: a new one goes last in the order; none takes it out. */
 export function animChange(slide, item, anim) {
