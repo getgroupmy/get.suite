@@ -1993,3 +1993,4 @@ tr.shortcut-row.broken .name-text { color: var(--muted, #777); font-style: itali
 .form-grid-edit { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 @media (max-width: 640px) { .form-grid-edit { grid-template-columns: 1fr; } }
 .form-prefill-link { width: 100%; margin-top: 12px; font-family: monospace; font-size: .8rem; }
+.form-other { display: flex; align-items: center; gap: 6px; } .form-other input[type=text], .form-other input:not([type]) { min-width: 0; }

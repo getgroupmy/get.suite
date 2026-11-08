@@ -252,7 +252,10 @@ function QuestionsTab({ form, edit }) {
                   {q.options.length > 1 && <button type="button" className="icon-btn" aria-label={`Remove option ${k + 1}`} onClick={() => change(i, { options: q.options.filter((_, m) => m !== k) })}><Icon name="close" size={16} /></button>}
                 </li>
               ))}
-              {q.options.length < 50 && <li><button type="button" className="link-btn" onClick={() => change(i, { options: [...q.options, nextOption(q.options)] })}>Add option</button></li>}
+              {q.other && <li className="row"><span className="form-option-mark" aria-hidden="true">{q.type === 'choice' ? '○' : '☐'}</span><span className="grow muted">Other…</span>
+                <button type="button" className="icon-btn" aria-label="Remove “Other”" onClick={() => change(i, { other: undefined })}><Icon name="close" size={16} /></button></li>}
+              {q.options.length < 50 && <li><button type="button" className="link-btn" onClick={() => change(i, { options: [...q.options, nextOption(q.options)] })}>Add option</button>
+                {(q.type === 'choice' || q.type === 'checkbox') && !q.other && <> or <button type="button" className="link-btn" onClick={() => change(i, { other: true })}>add “Other”</button></>}</li>}
             </ul>
           )}
           {GRIDS.has(q.type) && (
@@ -406,7 +409,12 @@ function ResponsesTab({ form, responses, reload, setting, flush }) {
                     <span className="small nowrap">{b.count} ({percent(b.share)})</span></li>
                 ))}
               </ul>
-            ) : s.files ? (
+            ) : null}
+            {s.others?.length ? (
+              <details className="form-others"><summary className="small">What people typed for Other ({s.others.length})</summary>
+                <ul className="form-texts">{s.others.slice(0, 100).map((t, k) => <li key={k}>{t}</li>)}</ul></details>
+            ) : null}
+            {s.bars || s.grid ? null : s.files ? (
               <ul className="form-texts">{s.files.slice(0, 100).map((f) => <li key={f.file_id}><a href={`/api/forms/${form.id}/file/${f.file_id}`} target="_blank" rel="noopener noreferrer">📎 {f.name}</a></li>)}</ul>
             ) : (
               <ul className="form-texts">{s.texts.slice(0, 100).map((t, k) => <li key={k}>{t}</li>)}{s.texts.length > 100 && <li className="muted small">and {s.texts.length - 100} more (download the CSV for all of them)</li>}</ul>

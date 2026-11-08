@@ -15,6 +15,7 @@ export function retype(q, type) {
   const next = { id: q?.id || newId(), type, title: q?.title || '', required: !!q?.required };
   if (q?.help) next.help = q.help;
   if (HAS_OPTIONS.has(type)) next.options = q?.options?.length ? q.options : ['Option 1'];
+  if (q?.other && (type === 'choice' || type === 'checkbox')) next.other = true;
   if (type === 'scale') Object.assign(next, { max: q?.max || 5, low: q?.low || '', high: q?.high || '' });
   if (type === 'file') next.max_files = q?.max_files || 1;
   if (GRIDS.has(type)) Object.assign(next, { rows: q?.rows?.length ? q.rows : ['Row 1'], columns: q?.columns?.length ? q.columns : (q?.options?.length ? q.options : ['Column 1']) });
@@ -40,8 +41,11 @@ export function prefillFrom(questions, raw) {
   for (const q of questions || []) {
     const v = data[q.id];
     if (v === undefined || v === null || q.type === 'file' || q.type === 'section') continue;
-    if (q.type === 'checkbox') { const l = [v].flat().map(String).filter((x) => q.options.includes(x)); if (l.length) out[q.id] = l; }
-    else if (HAS_OPTIONS.has(q.type)) { if (q.options.includes(String(v))) out[q.id] = String(v); }
+    if (q.type === 'checkbox') {
+      const all = [v].flat().map(String);
+      const l = [...all.filter((x) => q.options.includes(x)), ...(q.other ? all.filter((x) => x && !q.options.includes(x)).slice(0, 1).map((x) => x.slice(0, 200)) : [])];
+      if (l.length) out[q.id] = l;
+    } else if (HAS_OPTIONS.has(q.type)) { if (q.options.includes(String(v)) || (q.other && q.type === 'choice' && String(v).trim())) out[q.id] = String(v).slice(0, 500); }
     else if (q.type === 'scale') { const n = Number(v); if (Number.isInteger(n) && n >= 1 && n <= (q.max || 5)) out[q.id] = n; }
     else if (GRIDS.has(q.type)) {
       if (typeof v !== 'object' || Array.isArray(v)) continue;
@@ -80,6 +84,12 @@ export function summarize(questions, responses) {
       const counts = new Map(keys.map((k) => [String(k), 0]));
       for (const a of answers) for (const v of Array.isArray(a) ? a : [a]) if (counts.has(String(v))) counts.set(String(v), counts.get(String(v)) + 1);
       out.bars = keys.map((k) => ({ label: String(k), count: counts.get(String(k)), share: answers.length ? counts.get(String(k)) / answers.length : 0 }));
+      if (q.other) {
+        // "Other": how many typed their own, and what (newest first).
+        const typed = answers.slice().reverse().flatMap((a) => [a].flat().map(String).filter((v) => !counts.has(v)));
+        out.bars.push({ label: 'Other', count: typed.length, share: answers.length ? typed.length / answers.length : 0 });
+        out.others = typed;
+      }
       if (q.type === 'scale' && answers.length) out.average = Math.round((answers.reduce((s, a) => s + Number(a), 0) / answers.length) * 10) / 10;
     } else if (GRIDS.has(q.type)) {
       // Per row: how many chose each column.

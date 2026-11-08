@@ -5273,3 +5273,24 @@ test('forms: shuffled options are kept as a setting; pre-filled answers are take
   assert.deepEqual([...order].sort(), ['a', 'b', 'c', 'd']);
   assert.deepEqual(order, ['b', 'c', 'd', 'a']);
 });
+
+test('forms: an "Other" choice takes what people type (one, on tick boxes, after the options)', async () => {
+  const { cleanQuestions, checkAnswers } = await import('../src/routes/forms.js');
+  const qs = cleanQuestions([
+    { id: 'how', type: 'choice', title: 'How did you hear?', options: ['Friend', 'Web'], other: true },
+    { id: 'days', type: 'checkbox', title: 'Days', options: ['Mon', 'Tue'], other: true },
+    { id: 'plain', type: 'choice', title: 'Plain', options: ['A', 'B'] },
+    { id: 'dd', type: 'dropdown', title: 'Dropdown', options: ['X'], other: true },
+  ]);
+  assert.deepEqual(qs.map((x) => !!x.other), [true, true, false, false]);
+  assert.deepEqual(checkAnswers(qs, { how: 'A poster', days: ['Sat', 'Tue', 'Mon'] }), { how: 'A poster', days: ['Mon', 'Tue', 'Sat'] });
+  assert.throws(() => checkAnswers(qs, { days: ['Sat', 'Sun'] }), /choose from the options/);
+  assert.throws(() => checkAnswers(qs, { plain: 'C' }), /choose from the options/);
+  assert.throws(() => checkAnswers(qs, { dd: 'Y' }), /choose from the options/);
+  assert.throws(() => checkAnswers(qs, { days: ['x'.repeat(201)] }), /too long/);
+  const { summarize, prefillFrom } = await import('../../web/src/apps/forms/formmath.js');
+  const s = summarize(qs, [{ answers: { how: 'Friend' } }, { answers: { how: 'A poster' } }, { answers: { how: 'Radio' } }]);
+  assert.deepEqual(s[0].bars.map((b) => [b.label, b.count]), [['Friend', 1], ['Web', 0], ['Other', 2]]);
+  assert.deepEqual(s[0].others, ['Radio', 'A poster']);
+  assert.deepEqual(prefillFrom(qs, JSON.stringify({ how: 'Poster', days: ['Mon', 'Fri', 'Sun'], plain: 'C' })), { how: 'Poster', days: ['Mon', 'Fri'] });
+});

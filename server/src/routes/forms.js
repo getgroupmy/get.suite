@@ -118,6 +118,7 @@ export function cleanQuestions(list) {
       out.options = [...new Set(opts)].slice(0, MAX_OPTIONS);
       if (!out.options.length) out.options = ['Option 1'];
       if (raw?.shuffle) out.shuffle = true; // shown in a different order to each person
+      if (raw?.other && (type === 'choice' || type === 'checkbox')) out.other = true; // an "Other…" choice people type themselves
     }
     if (GRIDS.has(type)) {
       const tidy = (l, max, dflt) => { const v = [...new Set((Array.isArray(l) ? l : []).map((o) => String(o ?? '').trim().slice(0, 200)).filter(Boolean))].slice(0, max); return v.length ? v : [dflt]; };
@@ -218,9 +219,11 @@ export function checkAnswers(questions, answers) {
       if (qu.required && done && done < qu.rows.length) throw bad(`${name}: answer every row`);
       a = done ? kept : undefined;
     } else if (qu.type === 'checkbox') {
-      a = (Array.isArray(a) ? a : a == null || a === '' ? [] : [a]).map(String);
-      if (a.some((x) => !qu.options.includes(x))) throw bad(`${name}: choose from the options`);
-      a = qu.options.filter((o) => a.includes(o)); // the form's order, no repeats
+      a = (Array.isArray(a) ? a : a == null || a === '' ? [] : [a]).map((x) => String(x).trim()).filter(Boolean);
+      const others = [...new Set(a.filter((x) => !qu.options.includes(x)))];
+      if (others.length > (qu.other ? 1 : 0)) throw bad(`${name}: choose from the options`);
+      if (others.some((x) => x.length > 200)) throw bad(`${name}: that answer is too long`);
+      a = [...qu.options.filter((o) => a.includes(o)), ...others]; // the form's order, no repeats; "Other" last
       if (!a.length) a = undefined;
     } else if (qu.type === 'scale') {
       if (a === '' || a == null) a = undefined;
@@ -230,7 +233,7 @@ export function checkAnswers(questions, answers) {
       }
     } else {
       a = a == null ? '' : String(a).trim();
-      if (WITH_OPTIONS.has(qu.type) && a && !qu.options.includes(a)) throw bad(`${name}: choose from the options`);
+      if (WITH_OPTIONS.has(qu.type) && a && !qu.options.includes(a) && !(qu.other && qu.type === 'choice')) throw bad(`${name}: choose from the options`);
       if (qu.type === 'date' && a && !/^\d{4}-\d{2}-\d{2}$/.test(a)) throw bad(`${name}: enter a date`);
       if (a.length > (qu.type === 'paragraph' ? 5000 : 500)) throw bad(`${name}: that answer is too long`);
       if (!a) a = undefined;

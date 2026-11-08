@@ -136,6 +136,8 @@ export default function FormRespond({ token, onSignIn }) {
 
 export function Question({ q, token, value, onChange, missing }) {
   const [touched, setTouched] = useState(false); // typed answers are checked once you leave the box
+  const [otherOn, setOtherOn] = useState(false); // "Other" chosen (before anything is typed)
+  const [otherText, setOtherText] = useState('');
   // "Shuffle option order": each person gets their own order, kept while they fill the form in.
   const order = useMemo(() => (q.shuffle && q.options ? shuffled(q.options) : q.options), [q.shuffle, q.options]);
   const title = <>{q.title || 'Untitled question'}{q.required && <span className="req" aria-hidden="true"> *</span>}</>;
@@ -173,6 +175,16 @@ export function Question({ q, token, value, onChange, missing }) {
     const opts = q.type === 'scale' ? Array.from({ length: q.max }, (_, i) => String(i + 1)) : order;
     const many = q.type === 'checkbox';
     const list = many ? value || [] : [];
+    // "Other": what they typed is the answer (with the options they ticked, for tick boxes).
+    const typed = q.other ? (many ? list.find((x) => !q.options.includes(x)) : value !== undefined && value !== '' && !q.options.includes(String(value)) ? String(value) : undefined) : undefined;
+    const picked = many ? list.filter((x) => q.options.includes(x)) : [];
+    const setOther = (on, text) => {
+      setOtherText(text);
+      setOtherOn(on);
+      if (many) onChange([...picked, ...(on && text.trim() ? [text] : [])]);
+      else onChange(on ? (text.trim() ? text : undefined) : undefined);
+    };
+    const otherChecked = otherOn || typed !== undefined;
     return (
       <fieldset id={`q-${q.id}`} className={cls} aria-label={label}>
         <legend>{title}</legend>{help}
@@ -182,11 +194,20 @@ export function Question({ q, token, value, onChange, missing }) {
             <label key={o} className={q.type === 'scale' ? 'form-scale-pick' : 'check'}>
               <input type={many ? 'checkbox' : 'radio'} name={q.id} value={o}
                 checked={many ? list.includes(o) : String(value ?? '') === o}
-                onChange={(e) => (many ? onChange(e.target.checked ? [...list, o] : list.filter((x) => x !== o)) : onChange(q.type === 'scale' ? Number(o) : o))} />
+                onChange={(e) => { if (!many) setOtherOn(false); return many ? onChange(e.target.checked ? [...list, o] : list.filter((x) => x !== o)) : onChange(q.type === 'scale' ? Number(o) : o); }} />
               <span>{o}</span>
             </label>
           ))}
           {q.type === 'scale' && q.high && <span className="muted small">{q.high}</span>}
+          {q.other && (
+            <span className="check form-other">
+              <input type={many ? 'checkbox' : 'radio'} name={q.id} aria-label="Other" checked={otherChecked}
+                onChange={(e) => setOther(many ? e.target.checked : true, typed ?? otherText)} />
+              <span>Other:</span>
+              <input className="grow" aria-label={`${q.title || 'Question'}: other answer`} value={typed ?? otherText} maxLength={200}
+                onChange={(e) => setOther(true, e.target.value)} />
+            </span>
+          )}
         </div>
         {!many && !q.required && value !== undefined && value !== '' && <button type="button" className="link-btn small" onClick={() => onChange(undefined)}>Clear selection</button>}
         {err}
