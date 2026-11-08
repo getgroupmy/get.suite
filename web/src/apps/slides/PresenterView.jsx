@@ -13,6 +13,7 @@ export default function PresenterView() {
   const [params] = useSearchParams();
   const [deck, setDeck] = useState(null);
   const [i, setI] = useState(Number(params.get('slide')) || 0);
+  const [build, setBuild] = useState({ b: null, of: 0 }); // animated boxes in on the audience's screen
   const [ended, setEnded] = useState(false);
   const [started] = useState(Date.now());
   const [now, setNow] = useState(Date.now());
@@ -25,7 +26,7 @@ export default function PresenterView() {
     c.onmessage = (e) => {
       const m = e.data || {};
       if (m.type === 'deck') { setDeck(m.deck); if (Number.isInteger(m.i)) setI(m.i); setEnded(false); }
-      if (m.type === 'at') setI(m.i);
+      if (m.type === 'at') { setI(m.i); setBuild({ b: m.b ?? null, of: m.of || 0 }); }
       if (m.type === 'end') setEnded(true);
     };
     c.postMessage({ type: 'hello' });
@@ -58,7 +59,8 @@ export default function PresenterView() {
         <span className="muted">{new Date(now).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span>
       </header>
       <div className="pv-main">
-        <section className="pv-current" aria-label="Current slide">{slide && <SlideView slide={slide} theme={theme} deckId={id} />}</section>
+        <section className="pv-current" aria-label="Current slide">{slide && <SlideView slide={slide} theme={theme} deckId={id} built={build.of ? build.b ?? undefined : undefined} />}
+          {build.of > 0 && <span className="muted small pv-builds">Animations: {build.b} of {build.of} in{build.b < build.of ? ' · click for the next' : ''}</span>}</section>
         <aside className="pv-side">
           <section className="pv-next" aria-label="Next slide">
             <span className="muted small">Next</span>

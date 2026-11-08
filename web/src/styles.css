@@ -1778,3 +1778,11 @@ a.home-item:hover, button.home-item:hover { text-decoration: underline; }
 .names-list li { gap: 10px; padding: 4px 0; border-bottom: 1px solid var(--border); }
 .formula-bar input.cell-name { flex: none; width: 96px; min-width: 72px; border: 1px solid transparent; background: transparent; border-radius: 4px; padding: 2px 4px; font: inherit; }
 .formula-bar input.cell-name:focus { border-color: var(--primary, #1a73e8); background: var(--surface); color: var(--text); outline: none; }
+/* Slides animations: a number on animated boxes while editing; how they come in while presenting. */
+.slide-item .anim-badge { position: absolute; top: -10px; left: -10px; min-width: 18px; height: 18px; border-radius: 9px; background: #e37400; color: #fff; font-size: 11px; line-height: 18px; text-align: center; padding: 0 4px; pointer-events: none; z-index: 2; }
+.slide-item.anim-fade { animation: slide-anim-fade 0.5s ease-out both; }
+.slide-item.anim-fly { animation: slide-anim-fly 0.5s ease-out both; }
+@keyframes slide-anim-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes slide-anim-fly { from { opacity: 0; transform: translateY(40%); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .slide-item.anim-fade, .slide-item.anim-fly { animation: none; } }
+.pv-builds { display: block; margin-top: 6px; }

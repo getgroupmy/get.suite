@@ -79,8 +79,9 @@ export function moveSlide(deck, from, to) {
 }
 
 /** Change one item on one slide. */
+const dropUndefined = (o) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined));
 export function updateItem(deck, slideIndex, itemId, change) {
-  return { ...deck, slides: deck.slides.map((s, i) => (i !== slideIndex ? s : { ...s, items: s.items.map((it) => (it.id === itemId ? { ...it, ...(typeof change === 'function' ? change(it) : change) } : it)) })) };
+  return { ...deck, slides: deck.slides.map((s, i) => (i !== slideIndex ? s : { ...s, items: s.items.map((it) => (it.id === itemId ? dropUndefined({ ...it, ...(typeof change === 'function' ? change(it) : change) }) : it)) })) };
 }
 export function addItem(deck, slideIndex, item) {
   return { ...deck, slides: deck.slides.map((s, i) => (i !== slideIndex ? s : { ...s, items: [...s.items, item] })) };
@@ -134,3 +135,28 @@ export function resizeTable(cells, rows, cols) {
   return Array.from({ length: rows }, (_, r) => Array.from({ length: cols }, (_, c) => cells[r]?.[c] ?? ''));
 }
 export const setCell = (cells, r, c, text) => cells.map((row, i) => (i === r ? row.map((v, j) => (j === c ? text : v)) : row));
+
+// ---- animations: a box with { anim: 'appear' | 'fade' | 'fly', animAt: n } comes in on a click while
+// presenting, in the order they were given an animation (animAt).
+export const ANIMATIONS = [['', 'None'], ['appear', 'Appear'], ['fade', 'Fade in'], ['fly', 'Fly in']];
+/** The slide's animated boxes, in the order they come in. */
+export const builds = (slide) => (slide?.items || []).filter((it) => it.anim).sort((a, b) => (a.animAt || 0) - (b.animAt || 0));
+/** A box's animation change: a new one goes last in the order; none takes it out. */
+export function animChange(slide, item, anim) {
+  if (!anim) return { anim: undefined, animAt: undefined };
+  if (item.anim) return { anim }; // a different effect keeps its place
+  return { anim, animAt: Math.max(0, ...builds(slide).map((it) => it.animAt || 0)) + 1 };
+}
+/**
+ * Presenting with animations: from { i, b } (slide i with its first b boxes in), the next click
+ * (dir 1) brings in the next box or goes to the next slide; back (dir -1) takes the last one away,
+ * or goes to the previous slide with all its boxes in.
+ */
+export function stepPresent(deck, at, dir) {
+  const n = builds(deck.slides[at.i]).length;
+  if (dir > 0 && at.b < n) return { i: at.i, b: at.b + 1 };
+  if (dir < 0 && at.b > 0) return { i: at.i, b: at.b - 1 };
+  const j = stepSlide(deck, at.i, dir);
+  if (j === at.i) return at;
+  return { i: j, b: dir > 0 ? 0 : builds(deck.slides[j]).length };
+}

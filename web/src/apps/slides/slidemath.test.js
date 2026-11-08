@@ -69,3 +69,22 @@ test('tables: new, grow and shrink keeping text, set a cell, limits', () => {
   assert.deepEqual(resizeTable(t, 0, 99)[0].length, 10);
   assert.equal(resizeTable(t, 0, 1).length, 1);
 });
+
+test('animations: boxes come in one click at a time, in the order they were given one', async () => {
+  const { builds, animChange, stepPresent } = await import('./slidemath.js');
+  let s = { id: 'a', items: [{ id: 't' }, { id: 'p' }, { id: 'q' }] };
+  const set = (id, anim) => { s = { ...s, items: s.items.map((it) => (it.id === id ? Object.fromEntries(Object.entries({ ...it, ...animChange(s, it, anim) }).filter(([, v]) => v !== undefined)) : it)) }; };
+  set('q', 'fade'); set('p', 'fly');
+  assert.deepEqual(builds(s).map((it) => it.id), ['q', 'p']);
+  set('q', 'appear');
+  assert.deepEqual(builds(s).map((it) => it.id), ['q', 'p'], 'changing the effect keeps its place');
+  set('q', ''); set('q', 'fade');
+  assert.deepEqual(builds(s).map((it) => it.id), ['p', 'q'], 'taken out and put back: last');
+  const deck = { slides: [s, { id: 'b', skip: true, items: [] }, { id: 'c', items: [{ id: 'x', anim: 'fade', animAt: 1 }] }] };
+  let at = { i: 0, b: 0 };
+  const seq = [];
+  for (let k = 0; k < 6; k++) { at = stepPresent(deck, at, 1); seq.push(`${at.i}.${at.b}`); }
+  assert.deepEqual(seq, ['0.1', '0.2', '2.0', '2.1', '2.1', '2.1']);
+  assert.deepEqual(stepPresent(deck, { i: 2, b: 0 }, -1), { i: 0, b: 2 }, 'back: the previous slide with everything in');
+  assert.deepEqual(stepPresent(deck, { i: 2, b: 1 }, -1), { i: 2, b: 0 });
+});

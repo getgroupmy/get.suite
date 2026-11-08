@@ -17,7 +17,8 @@ import { useUndo, undoKey } from '../useUndo.js';
 import {
   THEMES, LAYOUTS, newId, clampBox, moveBox, resizeBox, addSlide, duplicateSlide, removeSlide, moveSlide,
   updateItem, addItem, removeItem, restack, pictureBox,
-  TRANSITIONS, setSlide, stepSlide, firstShown, newTable, resizeTable, setCell } from './slidemath.js';
+  TRANSITIONS, setSlide, stepSlide, firstShown, newTable, resizeTable, setCell,
+  ANIMATIONS, builds, animChange, stepPresent } from './slidemath.js';
 
 const SIZES = [12, 14, 16, 18, 20, 24, 28, 32, 36, 40, 44, 54, 64, 72, 96];
 const TEXT_COLORS = [['', 'Theme text'], ['accent', 'Theme accent'], ['#202124', 'Black'], ['#ffffff', 'White'], ['#c5221f', 'Red'], ['#e37400', 'Orange'], ['#188038', 'Green'], ['#1a73e8', 'Blue'], ['#8430ce', 'Purple']];
@@ -246,6 +247,12 @@ export default function SlidesEditor() {
               {FILLS.map(([v, n]) => <option key={n} value={v}>{n}</option>)}
             </select>
           )}
+          {item && (
+            <select className="tb-select" aria-label="Animation" title="How it comes in when presenting" value={item.anim || ''}
+              onChange={(e) => setItem(animChange(deck.slides[slideIndex], item, e.target.value))}>
+              {ANIMATIONS.map(([v, n]) => <option key={v} value={v}>{v ? `Animation: ${n}` : 'No animation'}</option>)}
+            </select>
+          )}
           {item && <>
             <button type="button" className="tb" aria-label="Bring to front" title="Bring to front" onClick={() => change((d) => restack(d, slideIndex, item.id, 1))}>⤒</button>
             <button type="button" className="tb" aria-label="Send to back" title="Send to back" onClick={() => change((d) => restack(d, slideIndex, item.id, -1))}>⤓</button>
@@ -329,7 +336,9 @@ const colorOf = (v, theme, fallback) => (v === 'accent' ? theme.accent : v === '
  * One slide. Sizes are in percent of the slide, text in 1/1000 of its width, so the same slide
  * draws the same in a thumbnail, the editor, full screen and on paper.
  */
-export function SlideView({ slide, theme, deckId, editable, selected, editing, onSelect, onEdit, onChange, peers }) {
+export function SlideView({ slide, theme, deckId, editable, selected, editing, onSelect, onEdit, onChange, peers, built }) {
+  // Animated boxes: where each comes in (1, 2…). Presenting (built set), the later ones aren't in yet.
+  const buildAt = new Map(builds(slide).map((it, k) => [it.id, k + 1]));
   const ref = useRef();
   const [live, setLive] = useState(null); // { id, box } while dragging
 
@@ -404,14 +413,18 @@ export function SlideView({ slide, theme, deckId, editable, selected, editing, o
             ? <LineShape arrow={it.shape === 'arrow'} dir={it.dir || 'h'} color={colorOf(it.fill, theme, theme.accent)} />
             : <div className={`slide-shape ${it.shape}`} style={{ background: colorOf(it.fill, theme, theme.accent) }} />;
         }
+        const at = buildAt.get(it.id);
+        const notYet = built !== undefined && at && at > built;
+        const arriving = built !== undefined && at && at === built ? `anim-${it.anim}` : '';
         return (
-          <div key={it.id} className={`slide-item ${it.type} ${isSel ? 'sel' : ''}`} data-item={it.id}
-            style={peers?.has(it.id) ? { ...pos, boxShadow: `0 0 0 ${isSel ? 4 : 2}px ${peers.get(it.id).color}` } : pos}
+          <div key={it.id} className={`slide-item ${it.type} ${isSel ? 'sel' : ''} ${arriving}`} data-item={it.id} data-built={built !== undefined && at ? (notYet ? 'no' : 'yes') : undefined}
+            style={{ ...(peers?.has(it.id) ? { ...pos, boxShadow: `0 0 0 ${isSel ? 4 : 2}px ${peers.get(it.id).color}` } : pos), ...(notYet && { visibility: 'hidden' }) }}
             title={peers?.has(it.id) ? `${peers.get(it.id).name} is here` : undefined}
             aria-label={editable ? `${it.type === 'text' ? (it.text ? `Text: ${it.text.slice(0, 40)}` : PLACEHOLDER[it.role] || 'Text box') : it.type === 'image' ? 'Picture' : it.type === 'table' ? 'Table' : 'Shape'}` : undefined}
             onPointerDown={editable ? (e) => startDrag(e, it) : undefined}
             onDoubleClick={editable && (it.type === 'text' || it.type === 'table') ? () => onEdit(it.id) : undefined}>
             {inner}
+            {editable && at && <span className="anim-badge" title={`Comes in on click ${at} (${it.anim})`} aria-hidden="true">{at}</span>}
             {isSel && editing !== it.id && HANDLES.map((h) => <span key={h} className={`handle ${h}`} aria-hidden="true" onPointerDown={(e) => startDrag(e, it, h)} />)}
           </div>
         );
@@ -427,7 +440,11 @@ function openPresenterView(deckId, i) {
 }
 
 function Presenter({ deck, theme, deckId, start, onClose }) {
-  const [i, setI] = useState(() => firstShown(deck, start));
+  // Where we are: slide i, with its first b animated boxes in.
+  const [at, setAt] = useState(() => ({ i: firstShown(deck, start), b: 0 }));
+  const i = at.i;
+  const setI = (v) => setAt((cur) => { const n = typeof v === 'function' ? v(cur.i) : v; return n === cur.i ? cur : { i: n, b: 0 }; });
+  const step = (dir) => setAt((cur) => stepPresent(deck, cur, dir));
   const [notes, setNotes] = useState(false);
   const ref = useRef();
   const last = deck.slides.length - 1;
@@ -446,7 +463,7 @@ function Presenter({ deck, theme, deckId, start, onClose }) {
     return () => { ch.postMessage({ type: 'end' }); ch.close(); channel.current = null; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deckId]);
-  useEffect(() => { channel.current?.postMessage({ type: 'at', i }); }, [i]);
+  useEffect(() => { channel.current?.postMessage({ type: 'at', i, b: at.b, of: builds(deck.slides[i]).length }); }, [i, at.b]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { channel.current?.postMessage({ type: 'deck', deck, theme: deck.theme, i: iRef.current }); }, [deck]);
   useEffect(() => {
     const el = ref.current;
@@ -460,21 +477,21 @@ function Presenter({ deck, theme, deckId, start, onClose }) {
   const iRef = useRef(i);
   iRef.current = i;
   const onKey = (e) => {
-    if (['ArrowRight', 'ArrowDown', 'PageDown', ' ', 'Enter'].includes(e.key)) { e.preventDefault(); setI((x) => stepSlide(deck, x, 1)); }
-    else if (['ArrowLeft', 'ArrowUp', 'PageUp', 'Backspace'].includes(e.key)) { e.preventDefault(); setI((x) => stepSlide(deck, x, -1)); }
+    if (['ArrowRight', 'ArrowDown', 'PageDown', ' ', 'Enter'].includes(e.key)) { e.preventDefault(); step(1); }
+    else if (['ArrowLeft', 'ArrowUp', 'PageUp', 'Backspace'].includes(e.key)) { e.preventDefault(); step(-1); }
     else if (e.key === 'Home') setI(firstShown(deck, 0));
     else if (e.key === 'End') setI(deck.slides[last].skip ? stepSlide(deck, last, -1) : last);
     else if (e.key === 'Escape') { e.preventDefault(); onClose(i); }
     else if (e.key === 'n' || e.key === 'N') setNotes((v) => !v); // notes on this screen, for a single display
   };
   return (
-    <div ref={ref} className="presenter" tabIndex={-1} role="dialog" aria-label="Presenting" onKeyDown={onKey} onClick={() => setI((x) => stepSlide(deck, x, 1))}>
-      <div key={i} className={`presenter-slide ${deck.slides[i]?.transition ? `tr-${deck.slides[i].transition}` : ''}`}><SlideView slide={deck.slides[i]} theme={theme} deckId={deckId} /></div>
+    <div ref={ref} className="presenter" tabIndex={-1} role="dialog" aria-label="Presenting" onKeyDown={onKey} onClick={() => step(1)}>
+      <div key={i} className={`presenter-slide ${deck.slides[i]?.transition ? `tr-${deck.slides[i].transition}` : ''}`}><SlideView slide={deck.slides[i]} theme={theme} deckId={deckId} built={at.b} /></div>
       {notes && <div className="presenter-notes" onClick={(e) => e.stopPropagation()}>{deck.slides[i]?.notes || <span className="muted">No notes for this slide</span>}</div>}
       <div className="presenter-bar" onClick={(e) => e.stopPropagation()}>
-        <button type="button" aria-label="Previous slide" disabled={stepSlide(deck, i, -1) === i} onClick={() => setI(stepSlide(deck, i, -1))}>‹</button>
+        <button type="button" aria-label="Previous slide" disabled={stepSlide(deck, i, -1) === i && at.b === 0} onClick={() => step(-1)}>‹</button>
         <span aria-live="polite">{i + 1} / {deck.slides.length}</span>
-        <button type="button" aria-label="Next slide" disabled={stepSlide(deck, i, 1) === i} onClick={() => setI(stepSlide(deck, i, 1))}>›</button>
+        <button type="button" aria-label="Next slide" disabled={stepSlide(deck, i, 1) === i && at.b >= builds(deck.slides[i]).length} onClick={() => step(1)}>›</button>
         <button type="button" aria-label="End presentation" onClick={() => onClose(i)}>✕</button>
       </div>
     </div>
