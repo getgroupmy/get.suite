@@ -56,8 +56,12 @@ export default function Tasks() {
     get('/tasks/tags').then((r) => setTagList(r.tags)).catch(() => {});
     return get('/tasks/lists').then((r) => { setLists(r.lists); setAssignedCount(r.assigned); setImportantCount(r.important || 0); }).catch((e) => toast(e.message, 'error'));
   }, [toast]);
+  // Time spent per task on this list: { taskId: { minutes, running: [{ name }] } }.
+  const [times, setTimes] = useState({});
   const loadTasks = useCallback(() => {
     if (!listId) return Promise.resolve();
+    if (!VIRTUAL[listId] && !listId.startsWith('tag:')) get(`/tasks/lists/${listId}/time`).then(setTimes).catch(() => setTimes({}));
+    else setTimes({});
     if (listId.startsWith('tag:')) return get(`/tasks/tags?tag=${encodeURIComponent(listId.slice(4))}`).then((r) => setTasks(r.tasks)).catch((e) => toast(e.message, 'error'));
     return get(VIRTUAL[listId] || `/tasks/lists/${listId}/tasks`).then(setTasks).catch((e) => { toast(e.message, 'error'); navigate('/tasks', { replace: true }); });
   }, [listId, toast, navigate]);
@@ -138,6 +142,8 @@ export default function Tasks() {
             {waits.length > 0 && <span className="pill waiting" title={`Waiting on ${waits.map((x) => `“${x.title}”`).join(', ')}`}>⏳ Waiting on {waits.length === 1 ? waits[0].title : `${waits.length} tasks`}</span>}
             {t.steps?.length > 0 && <span className={`muted small task-steps ${t.steps.every((x) => x.done) ? 'all' : ''}`} title="Steps done">☑ {t.steps.filter((x) => x.done).length}/{t.steps.length}</span>}
             {t.attachments?.length > 0 && <span className="muted small task-files" title={`${t.attachments.length} file${t.attachments.length === 1 ? '' : 's'}`}>📎 {t.attachments.length}</span>}
+            {times[t.id]?.running.length > 0 && <span className="pill timing" title={`Timer running: ${times[t.id].running.map((x) => x.name).join(', ')}`}>● {times[t.id].running.map((x) => x.name.split(' ')[0]).join(', ')}</span>}
+            {times[t.id]?.minutes > 0 && <span className="muted small task-time" title="Time spent">⏱ {formatMinutes(times[t.id].minutes)}</span>}
             {t.comments > 0 && <span className="muted small task-comments" title={`${t.comments} comment${t.comments === 1 ? '' : 's'}`}>💬 {t.comments}</span>}
             {t.tags?.map((tag) => <span key={tag} className="pill tag">#{tag}</span>)}
             {t.repeat && !t.done && <span className="muted small task-repeat" title={`Repeats: ${repeatText(t.repeat).toLowerCase()}`}>⟳ {repeatText(t.repeat)}</span>}
@@ -217,6 +223,7 @@ export default function Tasks() {
           {list && (
             <Menu trigger={(p) => <button type="button" className="icon-btn" aria-label="List actions" {...p}><Icon name="more" /></button>} items={[
               ...(list.mine ? [{ label: 'Rename list', icon: 'edit', onClick: () => setDialog('rename') }] : []),
+              { label: 'Time report…', icon: 'clock', onClick: () => setDialog('time') },
               ...(done.length ? [{ label: `Delete completed tasks (${done.length})`, icon: 'check', onClick: async () => { await del(`/tasks/lists/${list.id}/done`); loadTasks(); } }] : []),
               list.mine ? { label: 'Delete list', icon: 'trash', danger: true, onClick: () => setDialog('delete') } : { label: 'Leave list', icon: 'logout', onClick: () => setDialog('delete') },
             ]} />
@@ -278,6 +285,7 @@ export default function Tasks() {
         onSubmit={async (name) => { const r = await post('/tasks/lists', { name }); await loadLists(); navigate(`/tasks/${r.id}`); }} />}
       {dialog === 'rename' && list && <PromptModal title="Rename list" label="List name" initial={list.name} confirm="Rename" onClose={() => setDialog(null)}
         onSubmit={async (name) => { await patch(`/tasks/lists/${list.id}`, { name }); loadLists(); }} />}
+      {dialog === 'time' && list && <TimeReport list={list} onClose={() => setDialog(null)} />}
       {dialog === 'share' && list && <ShareList list={list} me={user} onClose={() => setDialog(null)} onSaved={() => { setDialog(null); loadLists(); }} />}
       {dialog === 'delete' && list && (
         <ConfirmModal title={list.mine ? `Delete “${list.name}”?` : `Leave “${list.name}”?`} confirm={list.mine ? 'Delete list' : 'Leave'}
@@ -431,6 +439,85 @@ function Board({ open, done, openId, onOpen, onMove }) {
 }
 
 /** A task's details beside the list: changes save as you make them. */
+export const formatMinutes = (min) => { const h = Math.floor(min / 60), m = Math.round(min % 60); return h ? `${h} h${m ? ` ${m} min` : ''}` : `${m} min`; };
+const dayOf = (ms) => new Date(ms).toLocaleDateString([], { day: 'numeric', month: 'short' });
+
+/** Time spent on a task: your timer, time added by hand, and everyone's entries (yours can be removed). */
+function TaskTime({ task }) {
+  const { user } = useAuth();
+  const toast = useToast();
+  const [t, setT] = useState(null);
+  const [adding, setAdding] = useState(null); // { duration, day, note }
+  const [, tick] = useState(0);
+  const load = useCallback(() => get(`/tasks/tasks/${task.id}/time`).then(setT).catch(() => {}), [task.id]);
+  useEffect(() => { load(); }, [load, task.updated_at]);
+  useEffect(() => onLive((m) => { if (m.type === 'tasks-changed' && m.list_id === task.list_id) load(); }), [load, task.list_id]);
+  const mine = t?.entries.find((e) => e.running && e.user_id === user.id);
+  useEffect(() => { if (!mine) return undefined; const i = setInterval(() => tick((n) => n + 1), 30000); return () => clearInterval(i); }, [mine]);
+  if (!t) return null;
+  const act = async (fn, msg) => { try { setT(await fn()); if (msg) toast(msg); return true; } catch (e) { toast(e.message, 'error'); return false; } };
+  const elapsed = mine ? Math.max(0, Math.round((Date.now() - mine.started_at) / 60000)) : 0;
+  return (
+    <section className="field task-time" aria-label="Time">
+      <span>Time{t.total ? ` · ${formatMinutes(t.total)} in all` : ''}</span>
+      <div className="row wrap" style={{ gap: 8 }}>
+        {mine
+          ? <button type="button" className="btn small primary" onClick={() => act(() => post('/tasks/timer/stop').then(() => get(`/tasks/tasks/${task.id}/time`)), 'Timer stopped')}>■ Stop timer ({formatMinutes(elapsed)})</button>
+          : <button type="button" className="btn small" onClick={() => act(() => post(`/tasks/tasks/${task.id}/timer`))}>▶ Start timer</button>}
+        {!adding && <button type="button" className="link-btn small" onClick={() => setAdding({ duration: '', day: new Date().toISOString().slice(0, 10), note: '' })}>Add time</button>}
+      </div>
+      {adding && (
+        <form className="row wrap task-time-add" style={{ gap: 6 }} onSubmit={(e) => { e.preventDefault(); act(() => post(`/tasks/tasks/${task.id}/time`, adding)).then((ok) => ok && setAdding(null)); }}>
+          <input aria-label="How long" placeholder="1h 30m" value={adding.duration} size={8} autoFocus onChange={(e) => setAdding({ ...adding, duration: e.target.value })} />
+          <input aria-label="Day" type="date" value={adding.day} max={new Date().toISOString().slice(0, 10)} onChange={(e) => setAdding({ ...adding, day: e.target.value })} />
+          <input aria-label="What for (optional)" placeholder="What for (optional)" value={adding.note} maxLength={300} onChange={(e) => setAdding({ ...adding, note: e.target.value })} />
+          <button className="btn small primary">Add</button><button type="button" className="btn small" onClick={() => setAdding(null)}>Cancel</button>
+        </form>
+      )}
+      {t.people.length > 1 && <div className="muted small">{t.people.map((p) => `${p.name} ${formatMinutes(p.minutes)}`).join(' · ')}</div>}
+      {t.entries.length > 0 && (
+        <ul className="plain-list task-time-list" aria-label="Time entries">
+          {t.entries.slice(0, 20).map((e) => (
+            <li key={e.id} className="row small">
+              <span className="grow">{e.running ? '● ' : ''}{e.user_name} · {dayOf(e.started_at)} · {e.running ? `running, ${formatMinutes(e.minutes)} so far` : formatMinutes(e.minutes)}{e.note ? ` · ${e.note}` : ''}</span>
+              {e.user_id === user.id && !e.running && <button type="button" className="icon-btn" aria-label={`Remove ${formatMinutes(e.minutes)} on ${dayOf(e.started_at)}`} onClick={() => act(() => del(`/tasks/time/${e.id}`))}><Icon name="close" size={14} /></button>}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+/** Who spent how long on what in a list, between two dates; downloadable as CSV. */
+function TimeReport({ list, onClose }) {
+  const today = new Date().toISOString().slice(0, 10);
+  const [range, setRange] = useState({ from: `${today.slice(0, 8)}01`, to: today });
+  const [rep, setRep] = useState(null);
+  const [error, setError] = useState('');
+  useEffect(() => { setError(''); get(`/tasks/lists/${list.id}/time-report?from=${range.from}&to=${range.to}`).then(setRep).catch((e) => { setRep(null); setError(e.message); }); }, [list.id, range.from, range.to]);
+  return (
+    <Modal wide title={`Time on “${list.name}”`} onClose={onClose} footer={<>
+      <a className="btn" href={`/api/tasks/lists/${list.id}/time-report?from=${range.from}&to=${range.to}&format=csv`}><Icon name="download" size={18} /> Download CSV</a>
+      <span className="grow" /><button type="button" className="btn primary" onClick={onClose}>Close</button></>}>
+      <div className="stack">
+        <div className="row wrap" style={{ gap: 12 }}>
+          <label className="field"><span>From</span><input type="date" value={range.from} onChange={(e) => setRange({ ...range, from: e.target.value })} /></label>
+          <label className="field"><span>To</span><input type="date" value={range.to} onChange={(e) => setRange({ ...range, to: e.target.value })} /></label>
+        </div>
+        {error && <p className="error" role="alert">{error}</p>}
+        {rep && (rep.lines.length ? (
+          <table className="data-table" aria-label="Time report">
+            <thead><tr><th scope="col">Person</th><th scope="col">Task</th><th scope="col" className="num">Time</th></tr></thead>
+            <tbody>{rep.lines.map((l, i) => <tr key={i}><td>{l.person}</td><td>{l.task}</td><td className="num">{formatMinutes(l.minutes)}</td></tr>)}</tbody>
+            <tfoot><tr><th scope="row" colSpan={2}>Total</th><td className="num"><strong>{formatMinutes(rep.total)}</strong></td></tr></tfoot>
+          </table>
+        ) : <p className="muted">No time recorded on this list in those dates.</p>)}
+      </div>
+    </Modal>
+  );
+}
+
 function TaskDetails({ task, tasks, lists, people, onChange, onClose, onDelete, onMove, onReplaced }) {
   const [title, setTitle] = useState(task.title);
   const [notes, setNotes] = useState(task.notes || '');
@@ -461,6 +548,7 @@ function TaskDetails({ task, tasks, lists, people, onChange, onClose, onDelete, 
       <TaskFiles task={task} onReplaced={onReplaced} />
       <WaitingOn task={task} tasks={tasks} onReplaced={onReplaced} />
       <TaskTags task={task} onChange={onChange} />
+      <TaskTime task={task} />
       <label className="field"><span>Due</span>
         <span className="row"><input type="date" value={task.due || ''} onChange={(e) => onChange({ due: e.target.value || null })} />
           {task.due && <input type="time" aria-label="Time" title="Due time (optional)" value={task.due_time || ''} onChange={(e) => onChange({ due_time: e.target.value || null })} />}

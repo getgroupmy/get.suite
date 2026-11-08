@@ -2116,3 +2116,12 @@ textarea.mono { font-family: ui-monospace, Consolas, monospace; }
 .doc-refs-empty { color: var(--muted); font-style: italic; }
 .doc-ref { padding-left: 2em; text-indent: -2em; margin: 0 0 0.5em; }
 .ProseMirror-selectednode.doc-refs { outline: 2px solid var(--accent); outline-offset: 4px; }
+
+/* Tasks: time spent */
+.pill.timing { background: color-mix(in srgb, #d93025 14%, transparent); color: #b3261e; }
+.task-time .btn.primary { min-width: 0; }
+.task-time-list { max-height: 180px; overflow: auto; }
+.data-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.data-table th, .data-table td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+.data-table .num { text-align: right; white-space: nowrap; }
+.data-table tfoot th, .data-table tfoot td { border-bottom: 0; }

@@ -1,6 +1,7 @@
 // Tasks: to-do lists, your own or shared with colleagues. Each task has a title, notes, a due date,
 // someone it's assigned to (a person on the list), and a place in the list you can drag it to.
 // Everyone on a list sees changes as they're made.
+import { addTimeRoutes } from '../tasktime.js';
 import { REPEATS, nextDue } from '../taskrepeat.js';
 import { Router } from 'express';
 import { q, tx } from '../db.js';
@@ -283,6 +284,7 @@ export default function taskRoutes() {
     if (!t) throw notFound('Task not found');
     return { task: t, list: loadList(t.list_id, req.user) };
   };
+  addTimeRoutes(r, { taskFor, loadList, changed }); // time spent on tasks (tasktime.js)
   r.get('/tasks/:id/comments', (req, res) => {
     const { task } = taskFor(req);
     res.json(q(`SELECT k.id, k.body, k.created_at, k.author_id, u.name AS author_name FROM task_comments k LEFT JOIN users u ON u.id = k.author_id

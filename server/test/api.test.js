@@ -2576,6 +2576,57 @@ test('tasks: a start date for the timeline; before the due date; moved with it; 
   assert.deepEqual([next.start, next.due], ['2026-12-07', '2026-12-11']);
 });
 
+test('task time: a timer per person, time added by hand, totals, a report and CSV; only your own entries change', async () => {
+  const { parseDuration, formatMinutes, reportCsv } = await import('../src/tasktime.js');
+  assert.deepEqual(['1h 30m', '1.5h', '90', '90m', '1:30', '2 h', '45 min', 'soon', ''].map(parseDuration), [90, 90, 90, 90, 90, 120, 45, null, null]);
+  assert.deepEqual([135, 45, 60, 0].map(formatMinutes), ['2 h 15 min', '45 min', '1 h', '0 min']);
+  assert.match(reportCsv({ lines: [{ person: '=cmd', task: 'a, b', minutes: 90 }], total: 90 }), /^Person,Task,Minutes,Hours\r\n'=cmd,"a, b",90,1\.50\r\nTotal,,90,1\.50\r\n$/);
+
+  const a = client(), b = client(), x = client();
+  for (const [local, name] of [['tta', 'Time Ann'], ['ttb', 'Time Ben'], ['ttx', 'Time Out']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'tta@acme.com'); const bid = (await login(b, 'ttb@acme.com')).id; await login(x, 'ttx@acme.com');
+  const list = (await a('POST', '/api/tasks/lists', { name: 'Client work' })).body.id;
+  await a('PUT', `/api/tasks/lists/${list}/members`, { user_ids: [bid] });
+  const t1 = (await a('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Design' })).body;
+  const t2 = (await a('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Build' })).body;
+
+  // A timer: running, then stopped; starting another stops the first.
+  assert.equal((await a('GET', '/api/tasks/timer')).body, null);
+  assert.equal((await a('POST', `/api/tasks/tasks/${t1.id}/timer`)).status, 201);
+  assert.equal((await a('GET', '/api/tasks/timer')).body.task_id, t1.id);
+  const { q } = await import('../src/db.js');
+  q('UPDATE task_time SET started_at = started_at - 25 * 60000 WHERE task_id = ? AND ended_at IS NULL').run(t1.id); // 25 minutes ago
+  assert.equal((await a('GET', `/api/tasks/lists/${list}/time`)).body[t1.id].running[0].name, 'Time Ann');
+  await a('POST', `/api/tasks/tasks/${t2.id}/timer`);
+  const d1 = (await a('GET', `/api/tasks/tasks/${t1.id}/time`)).body;
+  assert.deepEqual([d1.total, d1.entries[0].running], [25, false], 'the first timer stopped at 25 minutes');
+  assert.equal((await a('POST', '/api/tasks/timer/stop')).body.task_id, t2.id);
+  assert.equal((await a('POST', '/api/tasks/timer/stop')).status, 404);
+
+  // By hand, from either person on the list; not from outside it.
+  assert.equal((await b('POST', `/api/tasks/tasks/${t1.id}/time`, { duration: '1h 30m', note: 'Workshop' })).status, 201);
+  assert.equal((await b('POST', `/api/tasks/tasks/${t1.id}/time`, { duration: 'lots' })).status, 400);
+  assert.equal((await b('POST', `/api/tasks/tasks/${t1.id}/time`, { duration: '25h' })).status, 400);
+  assert.equal((await x('POST', `/api/tasks/tasks/${t1.id}/time`, { duration: '1h' })).status, 404);
+  const d2 = (await a('GET', `/api/tasks/tasks/${t1.id}/time`)).body;
+  assert.equal(d2.total, 115);
+  assert.deepEqual(d2.people.map((p) => [p.name, p.minutes]), [['Time Ben', 90], ['Time Ann', 25]]);
+  const bens = d2.entries.find((e) => e.user_id === bid);
+  assert.equal((await a('DELETE', `/api/tasks/time/${bens.id}`)).status, 404, 'only your own');
+
+  // The report: per person and task; CSV for Excel.
+  const day = new Date().toISOString().slice(0, 10);
+  const rep = (await a('GET', `/api/tasks/lists/${list}/time-report?from=${day}&to=${day}`)).body;
+  assert.deepEqual(rep.lines.map((l) => [l.person, l.task, l.minutes]), [['Time Ann', 'Design', 25], ['Time Ann', 'Build', rep.lines[1].minutes], ['Time Ben', 'Design', 90]]);
+  assert.equal(rep.total, 115 + rep.lines[1].minutes);
+  const csv = await a('GET', `/api/tasks/lists/${list}/time-report?from=${day}&to=${day}&format=csv`);
+  assert.match(csv.headers.get('content-type'), /text\/csv/);
+  assert.match(csv.body, /Time Ben,Design,90,1\.50/);
+  assert.equal((await a('GET', `/api/tasks/lists/${list}/time-report?from=2026-12-01&to=2026-11-01`)).status, 400);
+  assert.equal((await x('GET', `/api/tasks/lists/${list}/time-report?from=${day}&to=${day}`)).status, 404);
+  assert.equal((await b('DELETE', `/api/tasks/time/${bens.id}`)).body.total, 25);
+});
+
 test('transfer ownership: give a folder to a colleague; give a leaving person’s files to someone', async () => {
   const a = client(), b = client(), c = client();
   for (const [local, name] of [['tra', 'Give Ann'], ['trb', 'Give Ben'], ['trc', 'Give Cat']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
