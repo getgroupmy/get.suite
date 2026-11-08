@@ -376,7 +376,7 @@ export default function Chat() {
           </div>
           {(files.length > 0 || uploading > 0) && (
             <ul className="pending-files" aria-label="Files to send">
-              {files.map((f) => <li key={f.id}><Icon name="attach" size={14} /> {f.name} <button type="button" className="icon-btn" aria-label={`Remove ${f.name}`} onClick={() => setFiles((x) => x.filter((y) => y.id !== f.id))}><Icon name="close" size={14} /></button></li>)}
+              {files.map((f) => <li key={f.id}>{/^audio\//.test(f.mime || '') ? <audio controls src={`/api/files/${f.id}/raw`} aria-label={`Recording: ${f.name}`} /> : <><Icon name="attach" size={14} /> {f.name}</>} <button type="button" className="icon-btn" aria-label={`Remove ${f.name}`} onClick={() => setFiles((x) => x.filter((y) => y.id !== f.id))}><Icon name="close" size={14} /></button></li>)}
               {uploading > 0 && <li className="muted">Uploading {uploading}…</li>}
             </ul>
           )}
@@ -388,6 +388,7 @@ export default function Chat() {
           ) : <form className="composer" onSubmit={send} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { if (e.dataTransfer.files.length) { e.preventDefault(); attach([...e.dataTransfer.files]); } }}>
             <EmojiPicker up className="icon-btn" onPick={insertEmoji} />
             <button type="button" className="icon-btn" aria-label="Attach files" title="Attach files (or drop or paste them here)" onClick={() => fileInput.current.click()}><Icon name="attach" /></button>
+            <VoiceRecorder onDone={(file) => attach([file])} />
             <button type="button" className="icon-btn" aria-label="Create a poll" title="Ask a question with options to vote on" onClick={() => setPollOpen(true)}>📊</button>
             <button type="button" className="icon-btn" aria-label="Start a video meeting" title="Start a video meeting and share its link here" onClick={startMeeting}><Icon name="video" /></button>
             <input ref={fileInput} type="file" multiple hidden aria-label="Files to attach" onChange={(e) => { attach([...e.target.files]); e.target.value = ''; }} />
@@ -539,7 +540,9 @@ function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit
         {!editing && <FileCards text={m.body} />}
         {m.files?.length > 0 && (
           <div className="msg-files">
-            {m.files.map((f) => (/^image\/(png|jpeg|gif|webp)$/.test(f.mime)
+            {m.files.map((f) => (/^audio\/(webm|ogg|mp4|mpeg|wav)$/.test(f.mime)
+              ? <audio key={f.id} className="msg-voice" controls preload="metadata" src={`/api/chat/messages/${m.id}/files/${f.id}`} aria-label={f.name.startsWith('Voice message') ? `Voice message from ${m.user_name || 'someone'}` : f.name} />
+              : /^image\/(png|jpeg|gif|webp)$/.test(f.mime)
               ? <a key={f.id} href={`/api/chat/messages/${m.id}/files/${f.id}`} target="_blank" rel="noreferrer" className="msg-pic"><img src={`/api/chat/messages/${m.id}/files/${f.id}`} alt={f.name} loading="lazy" /></a>
               : <a key={f.id} className="msg-file" href={`/api/chat/messages/${m.id}/files/${f.id}?download`}><Icon name="attach" size={16} /> {f.name} <span className="muted small">{formatBytes(f.size)}</span></a>))}
           </div>
@@ -977,4 +980,49 @@ function Highlighted({ text, words }) {
   if (!list.length) return text;
   const re = new RegExp(`(${list.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})`, 'gi');
   return String(text).slice(0, 300).split(re).map((part, i) => (i % 2 ? <mark key={i}>{part}</mark> : part));
+}
+
+/** Record a voice message with the microphone: 🎙, then ■ to stop; it's added like an attached file. */
+function VoiceRecorder({ onDone }) {
+  const toast = useToast();
+  const [rec, setRec] = useState(null); // { recorder, started }
+  const [secs, setSecs] = useState(0);
+  useEffect(() => {
+    if (!rec) return undefined;
+    const t = setInterval(() => setSecs(Math.floor((Date.now() - rec.started) / 1000)), 250);
+    const max = setTimeout(() => rec.recorder.state === 'recording' && rec.recorder.stop(), 5 * 60e3); // five minutes at most
+    return () => { clearInterval(t); clearTimeout(max); };
+  }, [rec]);
+  if (typeof window === 'undefined' || !window.MediaRecorder || !navigator.mediaDevices?.getUserMedia) return null;
+  const start = async () => {
+    let stream;
+    try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); } catch { toast('Allow the microphone to record a voice message', 'error'); return; }
+    const type = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg'].find((t) => MediaRecorder.isTypeSupported(t)) || '';
+    const recorder = new MediaRecorder(stream, type ? { mimeType: type } : undefined);
+    const chunks = [];
+    const started = Date.now();
+    recorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+    recorder.onstop = () => {
+      stream.getTracks().forEach((t) => t.stop());
+      setRec(null);
+      const kind = (recorder.mimeType || type || 'audio/webm').split(';')[0];
+      const blob = new Blob(chunks, { type: kind });
+      const s = Math.max(1, Math.round((Date.now() - started) / 1000));
+      if (!blob.size || recorder.cancelled) return;
+      const ext = kind === 'audio/mp4' ? 'm4a' : kind === 'audio/ogg' ? 'ogg' : 'weba';
+      onDone(new File([blob], `Voice message ${Math.floor(s / 60)}.${String(s % 60).padStart(2, '0')}.${ext}`, { type: kind }));
+    };
+    recorder.start(250);
+    setSecs(0);
+    setRec({ recorder, started });
+  };
+  const stop = (cancel = false) => { if (rec) { rec.recorder.cancelled = cancel; rec.recorder.stop(); } };
+  if (!rec) return <button type="button" className="icon-btn" aria-label="Record a voice message" title="Record a voice message" onClick={start}>🎙</button>;
+  return (
+    <span className="voice-rec" role="status" aria-label="Recording">
+      <span className="rec-dot" aria-hidden="true" /> {Math.floor(secs / 60)}:{String(secs % 60).padStart(2, '0')}
+      <button type="button" className="icon-btn" aria-label="Stop recording" title="Stop and add it" onClick={() => stop(false)}>■</button>
+      <button type="button" className="icon-btn" aria-label="Cancel recording" title="Throw it away" onClick={() => stop(true)}><Icon name="close" size={14} /></button>
+    </span>
+  );
 }

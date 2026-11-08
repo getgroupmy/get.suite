@@ -4861,3 +4861,22 @@ test('out of office with an email auto-reply: refused when this server has no em
   assert.match(r.body.error, /Email is off/);
   assert.equal((await kay('POST', '/api/events', { title: 'Out of office', kind: 'ooo', start: t, end: t + 864e5, all_day: 1, tz: 'UTC' })).status, 201, 'fine without it');
 });
+
+test('chat voice messages: a recording plays in the conversation (audio, inline, with ranges for seeking)', async () => {
+  const kay = client(); await login(kay, 'kay@keepco.com');
+  const vb = await kay('POST', '/api/users', { local: 'vox', domain: 'keepco.com', name: 'Vic Voice', password: 'password123' });
+  const vic = client(); await login(vic, 'vox@keepco.com');
+  const folder = (await kay('POST', '/api/chat/files-folder')).body.id;
+  const audio = Buffer.concat([Buffer.from([0x1a, 0x45, 0xdf, 0xa3]), Buffer.alloc(2000, 7)]);
+  const up = (await kay('POST', `/api/files/upload?parent=${folder}&name=${encodeURIComponent('Voice message 0.07.weba')}`, audio, { raw: true })).body;
+  assert.equal(up.mime, 'audio/webm');
+  const dm = (await kay('POST', '/api/chat/dm', { user_id: vb.body.id })).body.id;
+  const m = (await kay('POST', `/api/chat/channels/${dm}/messages`, { files: [up.id] })).body;
+  assert.equal(m.body, '');
+  assert.equal(m.files[0].mime, 'audio/webm');
+  const got = await vic('GET', `/api/chat/messages/${m.id}/files/${up.id}`, undefined, { binary: true, headers: { range: 'bytes=0-99' } });
+  assert.equal(got.status, 206, 'ranges, so it can be skipped through');
+  assert.equal(got.headers.get('content-type'), 'audio/webm');
+  assert.match(got.headers.get('content-disposition'), /^inline/);
+  assert.equal(got.body.length, 100);
+});

@@ -789,7 +789,8 @@ export default function chatRoutes() {
     const listed = JSON.parse(m.files || '[]').some((f) => f.id === req.params.fileId);
     const f = listed && q("SELECT * FROM files WHERE id = ? AND kind = 'file' AND trashed = 0").get(req.params.fileId);
     if (!f) throw notFound('That file is no longer there');
-    const inline = /^image\/(png|jpeg|gif|webp)$/.test(f.mime || '') && req.query.download === undefined;
+    // Pictures show and sound (voice messages) plays in the conversation; anything else downloads.
+    const inline = /^(image\/(png|jpeg|gif|webp)|audio\/(webm|ogg|mp4|mpeg|wav))$/.test(f.mime || '') && req.query.download === undefined;
     res.setHeader('Content-Type', inline ? f.mime : (f.mime || 'application/octet-stream'));
     res.setHeader('Content-Security-Policy', "default-src 'none'");
     res.setHeader('X-Content-Type-Options', 'nosniff');

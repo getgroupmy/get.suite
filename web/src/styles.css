@@ -1938,3 +1938,10 @@ tr.shortcut-row.broken .name-text { color: var(--muted, #777); font-style: itali
   .signed-print-one { margin: 18px 0; }
   .signed-print .sign-mark { border-bottom: 1px solid #999; }
 }
+/* Voice messages in Chat. */
+.msg-voice { display: block; height: 36px; max-width: 320px; margin-top: 4px; }
+.pending-files audio { height: 32px; max-width: 260px; vertical-align: middle; }
+.voice-rec { display: inline-flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; color: #d93025; }
+.rec-dot { width: 10px; height: 10px; border-radius: 50%; background: #d93025; animation: rec-blink 1s infinite; }
+@keyframes rec-blink { 50% { opacity: .3; } }
+@media (prefers-reduced-motion: reduce) { .rec-dot { animation: none; } }
