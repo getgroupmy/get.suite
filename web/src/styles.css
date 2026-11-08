@@ -844,11 +844,12 @@ textarea.slide-text.editing { resize: none; border: 0; padding: 0; margin: 0; ba
   .slide-list li { width: 120px; flex: none; }
   .slide-stage { padding: 12px; }
 }
+/* Printing a presentation (only then: body.printing-deck): just the slides, on landscape pages. */
+@page deck { size: landscape; margin: 0; }
 @media print {
-  @page { size: landscape; margin: 0; }
-  body * { visibility: hidden; }
-  .print-deck, .print-deck * { visibility: visible; }
-  .print-deck { display: block; position: absolute; left: 0; top: 0; width: 100%; }
+  body.printing-deck * { visibility: hidden; }
+  body.printing-deck .print-deck, body.printing-deck .print-deck * { visibility: visible; }
+  body.printing-deck .print-deck { display: block; position: absolute; left: 0; top: 0; width: 100%; page: deck; }
   .print-slide { width: 100%; break-after: page; }
   .print-slide .slide { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
