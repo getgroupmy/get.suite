@@ -12,9 +12,10 @@ import { validAddress, canReach, blobsOwnedBy, removeBlobs, mailHomeOf, retireMa
 import { uid } from '../util.js';
 import { planImport, readablePassword, usersCsv } from '../userimport.js';
 import { sendTo } from '../hub.js';
-import { hoursOf, setHours, readHours, hoursText } from '../workhours.js';
+import { hoursOf, setHours, readHours, hoursText, withinHours } from '../workhours.js';
 import { insertFile, uniqueName } from './files.js';
 import { focusUntil, calendarStatus } from './calendar.js';
+import { placeOn } from './location.js';
 
 // Who's who: a job title, department and work phone for each person, and who they report to (set by
 // an admin). The Directory shows them, with an org chart.
@@ -134,6 +135,29 @@ export default function userRoutes() {
     sendTo(orgMemberIds(req.user.org_id), { type: 'photos-changed' });
     res.json({ ok: true });
   });
+  // A colleague's card: who they are, who they report to and who reports to them, how to reach them,
+  // whether it's working time for them now, and where they're working today.
+  r.get('/:id/card', (req, res) => {
+    const u = q(`SELECT id, username, name, job_title, department, work_phone, manager_id, status_emoji, status_text, status_until, paused_until, org_id, photo_v
+                 FROM users WHERE id = ? AND disabled = 0`).get(String(req.params.id));
+    if (!u || u.org_id !== req.user.org_id) throw notFound('No such person');
+    const brief = (x) => x && { id: x.id, name: x.name, job_title: x.job_title || null };
+    const now = Date.now();
+    const hours = hoursOf(u.id, 'UTC');
+    const day = new Intl.DateTimeFormat('en-CA', { timeZone: hours.tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(now));
+    const p = placeOn(u.id, day);
+    res.json({
+      id: u.id, name: u.name, email: u.username, job_title: u.job_title || null, department: u.department || null, work_phone: u.work_phone || null,
+      has_photo: !!u.photo_v,
+      manager: brief(u.manager_id && q('SELECT id, name, job_title FROM users WHERE id = ? AND disabled = 0').get(u.manager_id)),
+      reports: q('SELECT id, name, job_title FROM users WHERE manager_id = ? AND disabled = 0 ORDER BY name').all(u.id).map(brief),
+      status: statusOf(u, now) || calendarStatus(u.id),
+      paused_until: u.paused_until > now ? u.paused_until : null,
+      hours: hours.own ? { tz: hours.tz, text: hoursText(hours), working_now: withinHours(now, now + 6e4, hours) } : null,
+      where_today: p ? { place: p.place, label: p.label } : null,
+    });
+  });
+
   r.get('/:id/photo', (req, res) => {
     const u = q('SELECT id, org_id, photo_v FROM users WHERE id = ?').get(String(req.params.id));
     if (!u || !u.photo_v || (u.org_id !== req.user.org_id && !canReach(req.user, u.id))) throw notFound();

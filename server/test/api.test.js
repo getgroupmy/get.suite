@@ -3520,3 +3520,29 @@ test("people import and export carry job titles, departments, phones and manager
   assert.match(exp, /Job title,Department,Work phone,Manager/);
   assert.match(exp, /Ian Lead,ianl@acme.com.*Head of Ops,Ops,,ivyb@acme.com/);
 });
+
+test("a colleague's card: job, manager and reports, status, working hours and where they are today", async () => {
+  const a = client(); const other = client();
+  const ids = {};
+  for (const [local, name] of [['pcb', 'Pat Boss'], ['pcm', 'Pia Member'], ['pcr', 'Ray Report']]) ids[local] = (await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).body.id;
+  await login(a, 'pcm@acme.com');
+  await a('PUT', '/api/users/me/profile', { job_title: 'Analyst', department: 'Finance', work_phone: '+60 3 2222' });
+  await owner('PATCH', `/api/users/${ids.pcm}`, { manager_id: ids.pcb });
+  await owner('PATCH', `/api/users/${ids.pcr}`, { manager_id: ids.pcm, job_title: 'Junior' });
+  await a('PUT', '/api/users/me/status', { emoji: '🎧', text: 'Heads down' });
+  await a('PUT', '/api/users/me/work-hours', { hours: { days: [0, 1, 2, 3, 4, 5, 6], start: 0, end: 1440, tz: 'Asia/Tokyo' } });
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Tokyo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+  await a('PUT', '/api/location/day', { date: today, place: 'other', label: 'Client site' });
+  const card = (await owner('GET', `/api/users/${ids.pcm}/card`)).body;
+  assert.deepEqual([card.name, card.email, card.job_title, card.department, card.work_phone], ['Pia Member', 'pcm@acme.com', 'Analyst', 'Finance', '+60 3 2222']);
+  assert.equal(card.manager.name, 'Pat Boss');
+  assert.deepEqual(card.reports, [{ id: ids.pcr, name: 'Ray Report', job_title: 'Junior' }]);
+  assert.equal(card.status.text, 'Heads down');
+  assert.equal(card.hours.tz, 'Asia/Tokyo'); assert.equal(card.hours.working_now, true);
+  assert.deepEqual(card.where_today, { place: 'other', label: 'Client site' });
+  // Only colleagues.
+  await other('POST', '/api/auth/login', { username: 'gina@globex.com', password: 'password123' });
+  const g = await other('GET', `/api/users/${ids.pcm}/card`);
+  assert.ok(g.status === 404 || g.status === 401);
+  assert.equal((await owner('GET', '/api/users/nope/card')).status, 404);
+});
