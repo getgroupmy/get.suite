@@ -561,7 +561,17 @@ const LAZY = {
 };
 
 /** Every function a formula can call. */
-export const FUNCTION_NAMES = [...Object.keys(FUNCS), ...Object.keys(LAZY), 'IMPORTRANGE'];
+export const FUNCTION_NAMES = [...Object.keys(FUNCS), ...Object.keys(LAZY), 'IMPORTRANGE', 'HYPERLINK', 'SPARKLINE'];
+
+/** A link a cell may open: web addresses and email (mailto:), nothing else. */
+export function safeLink(v) {
+  const t = String(v ?? '').trim();
+  if (/^mailto:[^\s@]+@[^\s@]+$/i.test(t)) return t;
+  if (/^[^\s@:/]+@[^\s@]+\.[^\s@]+$/.test(t)) return `mailto:${t}`;
+  const withScheme = /^[a-z][a-z0-9+.-]*:/i.test(t) ? t : /^[\w-]+(\.[\w-]+)+(\/|$)/.test(t) ? `https://${t}` : null;
+  if (!withScheme) return null;
+  try { const u = new URL(withScheme); return ['http:', 'https:'].includes(u.protocol) ? u.toString() : null; } catch { return null; }
+}
 
 /** The file id in IMPORTRANGE's first argument: a spreadsheet's link (…/sheets/<id>) or the id itself. */
 export function importFileId(arg) {
@@ -594,6 +604,7 @@ export function createEvaluator(cells, names = null, book = null) {
   const named = new Map(Object.entries(names || {}).map(([k, v]) => [k.toUpperCase(), String(v).toUpperCase().split(':')]));
   const visiting = new Set();
   const asts = new Map();
+  const links = new Map(), sparks = new Map(); // HYPERLINK and SPARKLINE cells
   // Spilling: a formula that gives back several cells (=SEQUENCE(5), =FILTER(…), =A1:A5*2) fills the
   // empty cells beside and below it. Those formulas are worked out first, so the cells they fill are
   // known; a cell they'd fill that has something in it shows #SPILL! in the formula's cell instead.
@@ -637,7 +648,21 @@ export function createEvaluator(cells, names = null, book = null) {
     try {
       let ast = asts.get(key);
       if (!ast) { ast = parse(raw.slice(1)); asts.set(key, ast); }
-      let v = evaluate(ast);
+      let v;
+      if (ast.k === 'call' && ast.name === 'HYPERLINK') { // a link: the cell shows its label, and opens it
+        const [url, label] = ast.args.map((a) => scalar(evaluate(a)));
+        const href = safeLink(url);
+        if (!href) err('#VALUE!');
+        links.set(key, href);
+        v = label === undefined || label === null || label === '' ? href : label;
+      } else if (ast.k === 'call' && ast.name === 'SPARKLINE') { // a little chart drawn in the cell
+        const [range, opts] = ast.args.map(evaluate);
+        const values = (Array.isArray(range) ? range : [range]).map((x) => (typeof x === 'number' ? x : null));
+        const type = String(Array.isArray(opts) ? opts[0] ?? '' : opts ?? '').toLowerCase() === 'column' ? 'column' : 'line';
+        if (!values.some((x) => x !== null)) err('#VALUE!');
+        sparks.set(key, { type, values: values.slice(0, 200) });
+        v = '';
+      } else v = evaluate(ast);
       if (typeof v === 'number' && !Number.isFinite(v)) err('#NUM!');
       if (Array.isArray(v)) v = spill(key, v);
       memo.set(key, v);
@@ -760,6 +785,9 @@ export function createEvaluator(cells, names = null, book = null) {
   };
   get.cell = valueOf; // for formulas on other sheets (these throw)
   /** The formula cell whose array fills this (empty) cell, if one does. */
+  /** Where a HYPERLINK cell leads, and what a SPARKLINE cell draws ({ type, values }), once worked out. */
+  get.linkOf = (key) => { get(key); return links.get(key) || null; };
+  get.sparkOf = (key) => { get(key); return sparks.get(key) || null; };
   get.spilledFrom = (key) => { if (pending === null) findSpills(); return spillFrom.get(key)?.anchor ?? null; };
   get.spilledKeys = () => { if (pending === null) findSpills(); return [...spillFrom.keys()]; };
   get.named = namedValue;

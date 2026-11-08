@@ -77,6 +77,8 @@ export const HELP = {
   HLOOKUP: ['search, range, row, [approximate]', 'Finds a value in the first row and returns a cell from that column'],
   MATCH: ['search, range, [type]', 'The position of a value in a range'],
   INDEX: ['range, row, [column]', 'The cell at a row and column of a range'],
+  HYPERLINK: ['address, [label]', 'A link: the cell shows the label and opens the web address (or email) when clicked'],
+  SPARKLINE: ['range, ["line" or "column"]', 'A small chart of the numbers in a range, drawn in the cell'],
   FILTER: ['range, include, [if_empty]', 'The rows (or columns) of a range where include is TRUE, e.g. FILTER(A2:C20, C2:C20>100); spills into the cells below'],
   UNIQUE: ['range', 'The range without repeated rows (any case counts as the same); spills'],
   SORT: ['range, [column], [order]', 'The range sorted by a column (1 = first), order 1 rising or -1 falling; spills'],

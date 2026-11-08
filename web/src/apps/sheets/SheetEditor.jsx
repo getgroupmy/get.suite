@@ -937,6 +937,8 @@ export default function SheetEditor() {
                       onDoubleClick={() => startEdit()}>
                       {vd?.type === 'checkbox'
                         ? <input type="checkbox" className="cell-check" tabIndex={-1} checked={isTicked(v)} disabled={readOnly} aria-label={`Tick ${k}`} onChange={() => toggleTick(k)} onDoubleClick={(e) => e.stopPropagation()} />
+                        : evaluate.sparkOf?.(k) ? <Sparkline spark={evaluate.sparkOf(k)} />
+                        : evaluate.linkOf?.(k) ? <a className="cell-link" href={evaluate.linkOf(k)} target="_blank" rel="noopener noreferrer" title={evaluate.linkOf(k)} onDoubleClick={(e) => e.preventDefault()}>{formatNumber(v, fmt) ?? display(v)}</a>
                         : formatNumber(v, fmt) ?? display(v)}
                       {vd?.type === 'list' && !readOnly && (
                         <button type="button" className="cell-drop" tabIndex={-1} aria-label={`Choices for ${k}`}
@@ -1231,5 +1233,22 @@ function PrintDialog({ hasSelection, onClose, onPrint }) {
         <div className="row end"><button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn primary">Print</button></div>
       </form>
     </Modal>
+  );
+}
+
+/** A SPARKLINE: the range's numbers as a little line or columns filling the cell. */
+function Sparkline({ spark }) {
+  const vals = spark.values;
+  const nums = vals.filter((x) => x !== null);
+  const lo = Math.min(0, ...nums), hi = Math.max(...nums), span = hi - lo || 1;
+  const W = 100, H = 30, n = vals.length;
+  const y = (x) => H - 2 - ((x - lo) / span) * (H - 4);
+  return (
+    <svg className="sparkline" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label={`Sparkline of ${nums.length} values`}>
+      {spark.type === 'column'
+        ? vals.map((x, i) => x !== null && <rect key={i} x={(i * W) / n + 0.5} width={Math.max(1, W / n - 1)} y={Math.min(y(x), y(0))} height={Math.max(1, Math.abs(y(0) - y(x)))} fill={x < 0 ? '#d93025' : 'var(--accent)'} />)
+        : <polyline fill="none" stroke="var(--accent)" strokeWidth="1.6" vectorEffect="non-scaling-stroke"
+            points={vals.map((x, i) => (x === null ? null : `${n === 1 ? W / 2 : (i * W) / (n - 1)},${y(x)}`)).filter(Boolean).join(' ')} />}
+    </svg>
   );
 }

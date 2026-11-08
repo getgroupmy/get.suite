@@ -226,6 +226,11 @@ A formula that gives back several values **spills** them into the empty cells be
 - If something is already in a cell the result would fill, the formula shows `#SPILL!` until it's cleared.
 - Filled cells are printed and included in CSV downloads. In Excel downloads the formulas are kept (with the names Excel uses for them), and Excel works them out again.
 
+## Links and sparklines in cells (Sheets)
+
+- **`=HYPERLINK("https://example.com/orders", "Orders")`** shows *Orders* in the cell as a link that opens the address in a new tab (the label is optional; an email address opens a new email). Only web addresses and email work; anything else shows `#VALUE!`. Excel downloads and uploads keep the formula.
+- **`=SPARKLINE(B2:M2)`** draws a small line chart of a range's numbers inside the cell (`=SPARKLINE(B2:M2, "column")` for columns, negative ones in red), handy beside a row of monthly figures. Cells without numbers are left as gaps.
+
 ## Other sheets in formulas (Sheets)
 
 A formula can use cells on another sheet of the same spreadsheet: `=Data!A1*2`, or `=SUM('Q1 data'!B2:B9)` when the sheet's name has spaces or other characters (quote it, and double any ' in it). Sheet names match whatever the case.

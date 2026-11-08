@@ -485,3 +485,10 @@ test('Docs: a chart from Sheets is its title and a table of its figures in Word 
   for (const t of ['Sales by month', 'Sales', 'Jan', 'Feb', '10', '6']) assert.ok(xml.includes(`>${t}<`), t);
   assert.match(xml, /<w:tbl>/);
 });
+
+test('Excel: HYPERLINK cells keep their formula both ways', async () => {
+  const sheet = { sheets: [{ name: 'Links', cells: { A1: '=HYPERLINK("https://acme.com", "Acme")', A2: '=SPARKLINE(B1:B3)' } }] };
+  const buf = await excelFromSheet(sheet);
+  const back = await sheetFromExcel(buf);
+  assert.equal(back.sheets[0].cells.A1, '=HYPERLINK("https://acme.com", "Acme")');
+});

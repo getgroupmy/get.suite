@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createEvaluator, colName, colIndex, shiftFormula, display, bookEvaluator, importFileId } from './formula.js';
+import { createEvaluator, colName, colIndex, shiftFormula, display, bookEvaluator, importFileId, safeLink } from './formula.js';
 
 const ev = (cells) => createEvaluator(cells);
 
@@ -306,4 +306,22 @@ test('FILTER, UNIQUE and SORT', () => {
   assert.equal(v('L2'), 'none');
   assert.equal(v('M1'), 11);
   assert.equal(v('N1'), 3);
+});
+
+test('HYPERLINK: a label that opens a web address (or an email); nothing else', () => {
+  const v = ev({ A1: '=HYPERLINK("https://acme.com/orders", "Orders")', A2: '=HYPERLINK("acme.com")', A3: '=HYPERLINK("javascript:alert(1)", "x")', A4: '=HYPERLINK("kim@acme.com", "Email Kim")', B1: 'https://x.example', A5: '=HYPERLINK(B1, B1 & " site")' });
+  assert.equal(v('A1'), 'Orders'); assert.equal(v.linkOf('A1'), 'https://acme.com/orders');
+  assert.equal(v('A2'), 'https://acme.com/'); assert.equal(v.linkOf('A2'), 'https://acme.com/');
+  assert.deepEqual(v('A3'), { error: '#VALUE!' }); assert.equal(v.linkOf('A3'), null);
+  assert.equal(v.linkOf('A4'), 'mailto:kim@acme.com');
+  assert.equal(v('A5'), 'https://x.example site');
+  assert.equal(v.linkOf('B1'), null, 'plain text is just text');
+});
+
+test('SPARKLINE: the numbers of a range as a line or columns in the cell', () => {
+  const v = ev({ A1: '3', A2: '5', A3: 'n/a', A4: '2', B1: '=SPARKLINE(A1:A4)', B2: '=SPARKLINE(A1:A4, "column")', B3: '=SPARKLINE(C1:C3)' });
+  assert.equal(v('B1'), '');
+  assert.deepEqual(v.sparkOf('B1'), { type: 'line', values: [3, 5, null, 2] });
+  assert.equal(v.sparkOf('B2').type, 'column');
+  assert.deepEqual(v('B3'), { error: '#VALUE!' });
 });
