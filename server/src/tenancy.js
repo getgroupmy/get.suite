@@ -92,7 +92,13 @@ export function orgMemberIds(orgId) {
 export function orgStorageUsed(orgId) {
   // Earlier versions count too.
   return q('SELECT COALESCE(SUM(f.size), 0) AS n FROM files f JOIN users u ON u.id = f.owner_id WHERE u.org_id = ?').get(orgId).n
-    + q('SELECT COALESCE(SUM(v.size), 0) AS n FROM file_versions v JOIN files f ON f.id = v.file_id JOIN users u ON u.id = f.owner_id WHERE u.org_id = ?').get(orgId).n;
+    + q('SELECT COALESCE(SUM(v.size), 0) AS n FROM file_versions v JOIN files f ON f.id = v.file_id JOIN users u ON u.id = f.owner_id WHERE u.org_id = ?').get(orgId).n
+    + notePictureBytes(orgId);
+}
+// Pictures on notes (Notes) count too, once that table exists.
+function notePictureBytes(orgId) {
+  if (!q("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'note_pictures'").get()) return 0;
+  return q('SELECT COALESCE(SUM(p.size), 0) AS n FROM note_pictures p JOIN notes n ON n.id = p.note_id JOIN users u ON u.id = n.owner_id WHERE u.org_id = ?').get(orgId).n;
 }
 
 /** Throw 413 if adding `bytes` would exceed the company's quota. */

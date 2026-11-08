@@ -4138,6 +4138,10 @@ test('notes: pictures on a note, seen by everyone it is shared with', async () =
   assert.equal(added.status, 201);
   assert.equal(added.body.pictures.length, 1);
   const pid = added.body.pictures[0];
+  const { orgStorageUsed } = await import('../src/tenancy.js');
+  const me = (await owner('GET', '/api/auth/me')).body.user;
+  const used = orgStorageUsed(me.org_id);
+  assert.ok(used >= png.length, 'counted in the company\'s storage');
   assert.equal((await pia('GET', `/api/notes/${n.id}/pictures/${pid}`, undefined, { binary: true })).status, 404, 'not shared yet');
   await owner('PUT', `/api/notes/${n.id}/shares`, { user_ids: [made.body.id] });
   const got = await pia('GET', `/api/notes/${n.id}/pictures/${pid}`, undefined, { binary: true });
