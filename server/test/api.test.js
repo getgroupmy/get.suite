@@ -3415,3 +3415,28 @@ test('locking a file: nobody can change it until whoever locked it (or the owner
   const acts = (await own('GET', `/api/files/${doc.id}/activity`)).body.map((a) => a.action);
   assert.ok(acts.includes('lock') && acts.includes('unlock'));
 });
+
+test('calendar sharing: colleagues you choose see what your events are, others only when you are busy', async () => {
+  const a = client(); const b = client(); const c = client();
+  const ids = {};
+  for (const [local, name] of [['csa', 'Cara Share'], ['csb', 'Ben Sees'], ['csc', 'Cy Busy']]) ids[local] = (await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).body.id;
+  await login(a, 'csa@acme.com'); await login(b, 'csb@acme.com'); await login(c, 'csc@acme.com');
+  const now = Date.now();
+  await a('POST', '/api/events', { title: 'Dentist', location: 'High St', start: now + 36e5, end: now + 72e5 });
+  const fb = async (who) => (await who('GET', `/api/freebusy?users=${ids.csa}&from=${now}&to=${now + 864e5}`)).body[ids.csa];
+  let seen = await fb(b);
+  assert.equal(seen.details, false); assert.equal(seen.busy.length, 1); assert.equal(seen.busy[0].title, undefined);
+  // Only colleagues.
+  assert.equal((await a('PUT', '/api/freebusy/shares', { users: [ids.csb, 'nope'] })).status, 400);
+  const sh = (await a('PUT', '/api/freebusy/shares', { users: [ids.csb] })).body;
+  assert.deepEqual(sh.with.map((u) => u.name), ['Ben Sees']);
+  assert.deepEqual((await b('GET', '/api/freebusy/shares')).body.from.map((u) => u.name), ['Cara Share']);
+  seen = await fb(b);
+  assert.equal(seen.details, true); assert.equal(seen.busy[0].title, 'Dentist'); assert.equal(seen.busy[0].location, 'High St');
+  assert.equal((await fb(c)).busy[0].title, undefined, 'not shared with Cy');
+  const bells = (await b('GET', '/api/notifications')).body;
+  assert.ok(JSON.stringify(bells).includes('Cara Share shared their calendar with you'));
+  // Stop sharing.
+  await a('PUT', '/api/freebusy/shares', { users: [] });
+  assert.equal((await fb(b)).busy[0].title, undefined);
+});

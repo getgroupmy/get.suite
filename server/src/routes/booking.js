@@ -11,6 +11,7 @@ import { sendTo } from '../hub.js';
 import { zoneOrUtc } from '../ics.js';
 import { hoursOf, withinHours, hoursText } from '../workhours.js';
 import { expand } from '../calmath.js';
+import { seesDetails, sharesOf, setShares } from '../calshare.js';
 import { notifyOutside, setOutside, touch, baseUrl, outEvent } from './calendar.js';
 
 q(`CREATE TABLE IF NOT EXISTS booking_pages (
@@ -84,10 +85,11 @@ export function freeSlots(page, busy, now = Date.now()) {
  * The owner's busy times between two moments: their events and invitations not declined (all-day ones
  * don't block, except being out of office). Out-of-office times are marked { ooo: true }.
  */
-function busyOf(userId, from, to) {
+function busyOf(userId, from, to, details = false) {
   const rows = q(`SELECT e.* FROM events e WHERE (e.owner_id = ? OR e.id IN (SELECT event_id FROM event_guests WHERE user_id = ? AND status != 'no'))
                   AND (e.all_day = 0 OR (e.kind = 'ooo' AND e.owner_id = ?)) AND e.start < ? AND (e.end > ? OR (e.rrule IS NOT NULL AND (e.repeat_until IS NULL OR e.repeat_until > ?)))`).all(userId, userId, userId, to, from, from);
-  return rows.flatMap((r) => expand(outEvent(r), from, to).map((e) => ({ start: e.start, end: e.end, ...(r.kind === 'ooo' && { ooo: true }) })));
+  return rows.flatMap((r) => expand(outEvent(r), from, to).map((e) => ({ start: e.start, end: e.end, ...(r.kind === 'ooo' && { ooo: true }),
+    ...(details && { title: r.title || '(No title)', ...(r.location && { location: r.location }) }) }))); // shared with you: what it is
 }
 
 function readPage(b, current = {}) {
@@ -205,9 +207,26 @@ export function freeBusyRoutes() {
     for (const id of ids) {
       const u = q('SELECT id, name, org_id FROM users WHERE id = ? AND disabled = 0').get(id);
       if (!u || u.org_id !== req.user.org_id) continue; // not a colleague: nothing shown
-      out[id] = { name: u.name, busy: busyOf(id, from, to).sort((a, b) => a.start - b.start) };
+      const details = seesDetails(id, req.user.id); // they share their calendar with you
+      out[id] = { name: u.name, details, busy: busyOf(id, from, to, details).sort((a, b) => a.start - b.start) };
     }
     res.json(out);
+  });
+
+  // Calendar sharing: { with: [people you share yours with], from: [people who share theirs with you] }.
+  r.get('/shares', (req, res) => res.json(sharesOf(req.user.id)));
+  // Share yours with exactly these colleagues: { users: [ids] }. Newly added ones get a notification.
+  r.put('/shares', (req, res) => {
+    const ids = [...new Set((Array.isArray(req.body?.users) ? req.body.users : []).map(String))].filter((x) => x !== req.user.id);
+    if (ids.length > 100) throw bad('At most 100 people');
+    for (const id of ids) {
+      const u = q('SELECT org_id FROM users WHERE id = ? AND disabled = 0').get(id);
+      if (!u || u.org_id !== req.user.org_id) throw bad('You can share your calendar with people in your company');
+    }
+    const { added, removed } = setShares(req.user.id, ids);
+    if (added.length) bell(added, { kind: 'invite', title: `${req.user.name} shared their calendar with you`, body: 'See what their events are: Calendar → See a colleague’s calendar…', link: '/calendar', actor: req.user.name });
+    sendTo([req.user.id, ...ids, ...removed], { type: 'calendar-shares' }); // their views of yours change
+    res.json(sharesOf(req.user.id));
   });
 
   // Times when you and the colleagues given are all free, for a meeting of `duration` minutes:

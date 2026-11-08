@@ -82,6 +82,7 @@ export default function Calendar() {
   const [showTasks, setShowTasksState] = useState(savedTasks);
   const [bookingOpen, setBookingOpen] = useState(false);
   const [hoursOpen, setHoursOpen] = useState(false);
+  const [sharingOpen, setSharingOpen] = useState(false);
   // Import a calendar file from Google Calendar, Outlook or Apple Calendar.
   const importInput = useRef();
   const importIcs = async (file) => {
@@ -137,6 +138,7 @@ export default function Calendar() {
   const [roomList, setRoomList] = useState([]);
   useEffect(() => { get('/rooms').then(setRoomList).catch(() => {}); }, []);
   useEffect(loadBusy, [loadBusy]);
+  useEffect(() => onLive((m) => { if (m.type === 'calendar-shares') loadBusy(); }), [loadBusy]); // someone shared theirs with you (or stopped)
   useEffect(() => { const t = setInterval(loadBusy, 60e3); return () => clearInterval(t); }, [loadBusy]);
   // The upcoming list (next 30 days) doesn't depend on the period on screen.
   const [upcomingList, setUpcoming] = useState([]);
@@ -240,6 +242,7 @@ export default function Calendar() {
         <button type="button" className="subnav-item" onClick={() => setInsightsOpen(true)}><span aria-hidden="true" style={{ width: 24, textAlign: 'center' }}>📊</span><span className="grow">Time insights</span></button>
         <button type="button" className="subnav-item" onClick={() => setBookingOpen(true)}><Icon name="link" /><span className="grow">Booking pages</span></button>
         <button type="button" className="subnav-item" onClick={() => setHoursOpen(true)}><Icon name="clock" /><span className="grow">Working hours</span></button>
+        <button type="button" className="subnav-item" onClick={() => setSharingOpen(true)}><Icon name="share" /><span className="grow">Share my calendar</span></button>
         <button type="button" className="subnav-item" onClick={() => importInput.current.click()}><Icon name="upload" /><span className="grow">Import (.ics)</span></button>
         <input ref={importInput} type="file" accept=".ics,text/calendar" hidden aria-label="Calendar file to import" onChange={(e) => { importIcs(e.target.files[0]); e.target.value = ''; }} />
         <a className="subnav-item" href="/api/events/export" download><Icon name="download" /><span className="grow">Export (.ics)</span></a>
@@ -342,6 +345,7 @@ export default function Calendar() {
       </section>
       {bookingOpen && <BookingPagesDialog onClose={() => setBookingOpen(false)} />}
       {hoursOpen && <WorkHoursDialog onClose={() => setHoursOpen(false)} />}
+      {sharingOpen && <ShareCalendarDialog people={people.filter((p) => p.id !== me.id)} onClose={() => setSharingOpen(false)} />}
       {insightsOpen && <TimeInsights anchor={anchor} onClose={() => setInsightsOpen(false)} />}
       {otherFor && <PromptModal title="Working elsewhere" label="Where?" confirm="Save" onClose={() => setOtherFor(null)}
         onSubmit={async (where) => { await setLocation(otherFor, 'other', where.trim() || null); setOtherFor(null); }} />}
@@ -520,8 +524,8 @@ function TimeGrid({ days, events, busy = [], today, onOpen, onNew, onDay: openDa
               {busy.filter((b) => b.start < d.getTime() + DAY && b.end > d.getTime()).map((b) => {
                 const s = Math.max(b.start, d.getTime()), e = Math.min(b.end, d.getTime() + DAY);
                 return <div key={b.key} className="tg-busy" style={{ '--c': b.color, top: ((s - d.getTime()) / 36e5) * HOUR_PX, height: Math.max(12, ((e - s) / 36e5) * HOUR_PX - 2) }}
-                  title={b.room ? `${b.name}: ${b.title} (${b.organizer}), ${fmtTime(b.start)} – ${fmtTime(b.end)}` : `${b.name} is ${b.ooo ? 'out of office' : 'busy'} ${fmtTime(b.start)} – ${fmtTime(b.end)}`}
-                  aria-label={b.room ? `${b.name} booked: ${b.title} by ${b.organizer}, ${fmtTime(b.start)} to ${fmtTime(b.end)}` : `${b.name} ${b.ooo ? 'out of office' : 'busy'} ${fmtTime(b.start)} to ${fmtTime(b.end)}`}><span>{b.name}{b.room ? ` · ${b.title}` : b.ooo ? ' · out of office' : ''}</span></div>;
+                  title={b.room ? `${b.name}: ${b.title} (${b.organizer}), ${fmtTime(b.start)} – ${fmtTime(b.end)}` : b.title ? `${b.name}: ${b.title}${b.location ? ` (${b.location})` : ''}, ${fmtTime(b.start)} – ${fmtTime(b.end)}` : `${b.name} is ${b.ooo ? 'out of office' : 'busy'} ${fmtTime(b.start)} – ${fmtTime(b.end)}`}
+                  aria-label={b.room ? `${b.name} booked: ${b.title} by ${b.organizer}, ${fmtTime(b.start)} to ${fmtTime(b.end)}` : b.title ? `${b.name}: ${b.title}${b.location ? ` at ${b.location}` : ''}, ${fmtTime(b.start)} to ${fmtTime(b.end)}` : `${b.name} ${b.ooo ? 'out of office' : 'busy'} ${fmtTime(b.start)} to ${fmtTime(b.end)}`}><span>{b.name}{b.room || b.title ? ` · ${b.title}` : b.ooo ? ' · out of office' : ''}</span></div>;
               })}
               {layoutDay(events, d).map(({ ev, top, height, col, cols: n }) => (
                 <button key={ev.key || ev.id} className={`tg-event ${inviteClass(ev)} ${ev.dragging ? 'dragging' : ''} ${ev.role !== 'guest' ? 'movable' : ''}`} title={`${ev.title} · ${fmtTime(ev.start)} – ${fmtTime(ev.end)}${ev.rrule ? ' · repeats' : ''}`}
@@ -742,6 +746,38 @@ const toHHMM = (m) => `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${Str
 const fromHHMM = (v, end) => { const [h, m] = v.split(':').map(Number); const x = h * 60 + m; return end && x === 0 ? 1440 : x; };
 
 /** Your working hours: the days and times you work, kept to by Find a time (in your time zone). */
+/** Share my calendar: the colleagues who see what your events are (everyone else sees only when you're busy). */
+function ShareCalendarDialog({ people, onClose }) {
+  const toast = useToast();
+  const [shares, setShares] = useState(null);
+  useEffect(() => { get('/freebusy/shares').then(setShares).catch(() => setShares({ with: [], from: [] })); }, []);
+  const save = async (ids) => {
+    try { setShares(await put('/freebusy/shares', { users: ids })); } catch (e) { toast(e.message, 'error'); }
+  };
+  if (!shares) return null;
+  const ids = shares.with.map((u) => u.id);
+  return (
+    <Modal title="Share my calendar" onClose={onClose} footer={<button type="button" className="btn" onClick={onClose}>Done</button>}>
+      <div className="stack">
+        <p className="muted small" style={{ margin: 0 }}>Colleagues see when you're busy when they look at your calendar beside theirs. The people here also see what your events are: the title and place of each.</p>
+        {shares.with.length ? (
+          <ul className="group-people" aria-label="Sees your event details">
+            {shares.with.map((u) => (
+              <li key={u.id} className="row"><span className="grow">{u.name}</span>
+                <button type="button" className="link-btn small" aria-label={`Stop sharing with ${u.name}`} onClick={() => save(ids.filter((x) => x !== u.id))}>Remove</button></li>
+            ))}
+          </ul>
+        ) : <p className="small" style={{ margin: 0 }}>Nobody sees your event details yet.</p>}
+        <select className="dm-pick" value="" aria-label="Share with a colleague" onChange={(e) => { if (e.target.value) save([...ids, e.target.value]); }}>
+          <option value="">+ Share with a colleague…</option>
+          {people.filter((p) => !ids.includes(p.id)).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+        </select>
+        {shares.from.length > 0 && <p className="muted small" style={{ margin: 0 }}>Sharing theirs with you: {shares.from.map((u) => u.name).join(', ')}. Add them under <strong>Other calendars</strong> to see their events.</p>}
+      </div>
+    </Modal>
+  );
+}
+
 function WorkHoursDialog({ onClose }) {
   const toast = useToast();
   const [h, setH] = useState(null);
