@@ -15,6 +15,7 @@ import { str, int, bad, notFound } from '../util.js';
 import { requireAdmin, requireSuper } from '../auth.js';
 import { createOrg, addDomain, orgStorageUsed, blobsOwnedBy, removeBlobs } from '../tenancy.js';
 import { scheduleMailConfig } from '../mail/config.js';
+import { collectHealth } from '../health.js';
 
 const domainsOf = (orgId) => q('SELECT name FROM domains WHERE org_id = ? ORDER BY created_at').all(orgId).map((d) => d.name);
 
@@ -176,6 +177,8 @@ export default function orgRoutes() {
 
   // ---- platform owner: all companies ----
   r.use(requireSuper);
+  // System health: disk, snapshots, mail server and certificate, sizes (health.js).
+  r.get('/system/health', async (req, res) => res.json(await collectHealth()));
 
   r.get('/', (req, res) => {
     res.json(q('SELECT * FROM orgs ORDER BY name COLLATE NOCASE').all().map(describe));

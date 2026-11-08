@@ -2125,3 +2125,16 @@ textarea.mono { font-family: ui-monospace, Consolas, monospace; }
 .data-table th, .data-table td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); }
 .data-table .num { text-align: right; white-space: nowrap; }
 .data-table tfoot th, .data-table tfoot td { border-bottom: 0; }
+
+/* Admin → System */
+.health-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; background: var(--ok); }
+.health-dot.warn { background: #f9ab00; }
+.health-dot.bad { background: var(--danger); }
+.health-list { list-style: none; margin: 0; padding: 0; }
+.health-list li { padding: 12px 16px; border-bottom: 1px solid var(--border); gap: 12px; }
+.health-list li:last-child { border-bottom: 0; }
+.pill.health-ok { background: var(--surface-2); color: var(--text); }
+.pill.health-warn { background: var(--warn-bg); color: var(--text); }
+.pill.health-bad { color: var(--danger); background: var(--surface-2); font-weight: 600; }
+.health-facts { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; margin: 0; }
+.health-facts dd { margin: 2px 0 0; }

@@ -148,6 +148,15 @@ test('turning off external collaboration revokes access immediately', async () =
   assert.equal((await gina('GET', `/api/files/${sharedFile.id}/raw`)).body, 'joint spec');
 });
 
+test('system health: for the platform owner only', async () => {
+  const h = await owner('GET', '/api/orgs/system/health');
+  assert.equal(h.status, 200);
+  assert.ok(['ok', 'warn', 'bad'].includes(h.body.status));
+  assert.ok(h.body.checks.some((c) => c.id === 'disk'));
+  assert.equal(typeof h.body.facts.database_bytes, 'number');
+  assert.equal((await gina('GET', '/api/orgs/system/health')).status, 403, 'not company admins');
+});
+
 test('storage quota is enforced per company', async () => {
   assert.equal((await gina('PATCH', '/api/orgs/current', { quota_mb: 1 })).status, 400, 'company admins cannot set quotas');
   await owner('PATCH', `/api/orgs/${globexId}`, { quota_mb: 1 });

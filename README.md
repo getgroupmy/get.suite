@@ -826,6 +826,10 @@ Once ports 465, 587 and 993 are open, bots will start guessing passwords within 
 
 **Admin → Storage** shows how much of the company's storage is used (and its limit, if the platform owner set one), how much each person uses, split into their files, the earlier versions kept of them, and their trash, biggest users first, and the 25 largest files with their owners (including what's in the trash). Earlier versions and the trash count towards the limit: people can empty their trash in Drive, and delete versions from a file's version history.
 
+## System health (platform owner)
+
+**Admin → System** (platform owners only) shows whether everything is all right on the NAS: free disk space where the data lives (a warning under 15%, needs attention under 5% or 1 GB), the daily database snapshots (a warning when the newest is over 30 hours old, needs attention after two days), whether the mail server answers, and its TLS certificate: days left (a warning under three weeks, needs attention under a week or once expired) and whether it's self-signed. It also lists the version, how long the server has been running, and how big the database, files and snapshots are, with the number of companies and people. The same checks run every hour: platform owners get a notification (**Server health** in notification settings) for each problem, at most once a day, and again if a fixed problem comes back.
+
 ## Announcements (admins)
 
 **Admin → Announcements** puts a short notice at the top of every page for everyone in the company: an office closure, a maintenance window, a new policy. Give it the text (up to 300 characters), an optional link (a page in the suite like `/drive`, or an `https://` address), a style (**Info** or **Warning**, which is amber) and, if you like, an end date after which it disappears by itself. It shows up straight away for everyone signed in. Each person can dismiss it with the × and it stays gone for them. **Showing now** lists what's up, with how many people have dismissed each one, and **Take down** removes one for everyone. Posting and taking down are recorded in the activity log.

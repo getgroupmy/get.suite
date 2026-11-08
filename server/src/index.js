@@ -3,6 +3,7 @@ import { createApp } from './app.js';
 import { attachHub } from './hub.js';
 import { db, q, DATA_DIR } from './db.js';
 import { scheduleBackups } from './backup.js';
+import { scheduleHealthChecks } from './health.js';
 import { mailEnabled } from './mail/config.js';
 import { startPolicyServer } from './security/policyServer.js';
 import { startMailNotifications } from './mail/notify.js';
@@ -29,6 +30,7 @@ attachHub(server);
 
 // Housekeeping: purge expired sessions hourly; snapshot the database daily.
 setInterval(() => q('DELETE FROM sessions WHERE expires_at < ?').run(Date.now()), 3600e3).unref();
+scheduleHealthChecks(); // the platform owners hear about problems (disk, snapshots, mail, certificate)
 scheduleBackups();
 setInterval(() => purgeAuthLog(), 3600e3).unref();
 setInterval(() => purgeAudit(), 6 * 3600e3).unref(); // activity older than AUDIT_DAYS
