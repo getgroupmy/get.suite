@@ -296,6 +296,13 @@ Ask colleagues to sign off a file (a contract, a press release, a budget): **Req
 - It's **Approved** when every reviewer approves, and **Rejected** as soon as anyone rejects it. Everyone involved is told, and the banner shows the outcome (with each reviewer's decision and comment under **Details**). If the file is changed after it was approved, the banner says so.
 - Whoever asked can **Cancel request** while it's waiting; asking again starts a new request. Requests and decisions also appear in the file's activity (**Details**).
 
+## Locking a file (Drive)
+
+When a file is final (a signed contract, a published report), lock it so nobody changes it by accident: **Lock (stop changes)** in its ⋮ menu, in Drive or in the document, spreadsheet or presentation. Anyone who can edit it can lock it.
+
+- While it's locked, nobody can change its content, the owner included: editors open read-only with a 🔒 **Locked by …** banner, and Drive shows a lock beside its name. People already editing switch to read-only straight away. Uploaded files can't take a new version (in Drive or through the network drive) and earlier versions can't be brought back. Comments still work.
+- Whoever locked it, or the owner, can **Unlock** it (from the banner or the menu). Locking and unlocking show in the file's activity.
+
 ## Searching Drive
 
 - The search box at the top finds files by **name** and by the **words inside** them: documents, spreadsheets (cell text and sheet names), presentations, and uploaded text, Word, Excel and PowerPoint files. Each match shows the sentence it was found in, with the words marked. It looks through your files, those shared with you or your company, and everything inside folders shared that way.

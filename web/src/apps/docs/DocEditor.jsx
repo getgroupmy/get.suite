@@ -134,7 +134,7 @@ function SharedDoc({ file, setFile }) {
   };
   const [status, setStatus] = useState('connecting');
   const [others, setOthers] = useState([]);
-  const readOnly = file.role === 'viewer';
+  const readOnly = file.role === 'viewer' || !!file?.locked_at; // locked: nobody changes it until it's unlocked
 
   // One shared document per open editor; the provider keeps it in step with the server.
   const { ydoc, provider } = useMemo(() => {

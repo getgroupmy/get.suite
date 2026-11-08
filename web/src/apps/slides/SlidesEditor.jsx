@@ -48,7 +48,7 @@ export default function SlidesEditor() {
   const [pending, setPending] = useState(null);
   const deckRef = useRef(null);
   const pictureInput = useRef();
-  const readOnly = file?.role === 'viewer';
+  const readOnly = file?.role === 'viewer' || !!file?.locked_at; // locked: nobody changes it until it's unlocked
   const [status, setStatus] = useState('connecting');
   const [others, setOthers] = useState([]);
   const [{ ydoc, provider }, setLink] = useState({});

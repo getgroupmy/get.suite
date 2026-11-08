@@ -37,7 +37,9 @@ const officeType = (name) => OFFICE[(/\.([a-z]+)$/i.exec(name || '') || [])[1]?.
 
 // Company templates: documents, spreadsheets and presentations an admin has marked for everyone in the company to start from.
 if (!q('PRAGMA table_info(files)').all().some((c) => c.name === 'template')) q('ALTER TABLE files ADD COLUMN template INTEGER NOT NULL DEFAULT 0').run();
-const COLS = `f.id, f.owner_id, f.parent_id, f.name, f.kind, f.mime, f.size, f.version, f.trashed, f.trashed_at, f.page_setup, f.color, f.description, f.template, f.org_role,
+// Locked: nobody can change the content until whoever locked it (or the owner) unlocks it.
+for (const c of ['locked_by TEXT', 'locked_at INTEGER']) if (!q('PRAGMA table_info(files)').all().some((x) => x.name === c.split(' ')[0])) q(`ALTER TABLE files ADD COLUMN ${c}`).run();
+const COLS = `f.id, f.locked_by, f.locked_at, (SELECT name FROM users WHERE id = f.locked_by) AS locked_by_name, f.owner_id, f.parent_id, f.name, f.kind, f.mime, f.size, f.version, f.trashed, f.trashed_at, f.page_setup, f.color, f.description, f.template, f.org_role,
               f.created_at, f.updated_at, u.name AS owner_name, ub.name AS updated_by_name`;
 const FROM = `FROM files f JOIN users u ON u.id = f.owner_id LEFT JOIN users ub ON ub.id = f.updated_by`;
 // Owner is in my company, or both companies currently allow external collaboration.
@@ -80,6 +82,11 @@ function loadFile(id, user, needed = 'viewer') {
   if (!atLeast(role, needed)) throw forbidden(`You need ${needed} access`);
   f.role = role;
   return f;
+}
+
+/** Throws when the file is locked (its content can't change). */
+function notLocked(f) {
+  if (f.locked_at) throw new HttpError(423, `${f.locked_by_name || 'Someone'} locked this file. Unlock it to make changes.`);
 }
 
 function publicFile(f, role) {
@@ -595,6 +602,7 @@ export default function fileRoutes({ maxUploadBytes }) {
   r.put('/:id/content', (req, res) => {
     const f = loadFile(req.params.id, req.user, 'editor');
     if (!EDITABLE.includes(f.kind)) throw bad('No editable content');
+    notLocked(f);
     const json = JSON.stringify(req.body.content ?? null);
     // One earlier version per editing session: when someone else edited last, or after a pause.
     const cur = q('SELECT version, updated_at, updated_by, owner_id FROM files WHERE id = ?').get(f.id);
@@ -613,6 +621,23 @@ export default function fileRoutes({ maxUploadBytes }) {
     if (CO_EDITED.includes(f.kind)) resetRoom(f.id); // anyone co-editing reloads this version
     notify(f.id, { type: 'content-changed', id: f.id, version, by: req.user.id, by_name: req.user.name });
     res.json({ version });
+  });
+
+  // Lock or unlock: { locked }. Editors can lock; whoever locked it, or the owner, can unlock.
+  r.put('/:id/lock', (req, res) => {
+    const f = loadFile(req.params.id, req.user, 'editor');
+    if (f.kind === 'folder') throw bad('Folders can\'t be locked');
+    const locked = !!req.body?.locked;
+    if (locked === !!f.locked_at) return res.json(publicFile(f));
+    if (!locked && f.locked_by !== req.user.id && f.role !== 'owner') throw forbidden(`Only ${f.locked_by_name || 'whoever locked it'} or the owner can unlock it`);
+    if (CO_EDITED.includes(f.kind)) saveNow(f.id); // keep what's being typed now
+    q('UPDATE files SET locked_by = ?, locked_at = ? WHERE id = ?').run(locked ? req.user.id : null, locked ? now() : null, f.id);
+    if (CO_EDITED.includes(f.kind)) resetRoom(f.id); // open editors reload, read-only or editable again
+    recordActivity(f.id, req.user.id, locked ? 'lock' : 'unlock');
+    const after = loadFile(f.id, req.user);
+    notify(f.id, { type: 'file-locked', id: f.id, locked_at: after.locked_at, by_name: req.user.name });
+    notify(f.id, { type: 'files-changed', parent_id: f.parent_id });
+    res.json(publicFile(after));
   });
 
   r.patch('/:id', (req, res) => {
@@ -754,6 +779,7 @@ export default function fileRoutes({ maxUploadBytes }) {
   r.post('/:id/versions', async (req, res) => {
     const f = loadFile(req.params.id, req.user, 'editor');
     if (f.kind !== 'file') throw bad('Only uploaded files take a new version this way');
+    notLocked(f);
     const owner = q('SELECT org_id FROM users WHERE id = ?').get(f.owner_id);
     const { storage, size } = await receiveUpload(req, owner.org_id, maxUploadBytes);
     const name = req.query.name ? cleanName(String(req.query.name)) : f.name;
@@ -806,6 +832,7 @@ export default function fileRoutes({ maxUploadBytes }) {
   // Bring back an earlier version; what's there now is kept as a version too, so nothing is lost.
   r.post('/:id/versions/:vid/restore', (req, res) => {
     const f = loadFile(req.params.id, req.user, 'editor');
+    notLocked(f);
     const v = versionOf(f, req.params.vid);
     let storage = null;
     if (v.storage) {

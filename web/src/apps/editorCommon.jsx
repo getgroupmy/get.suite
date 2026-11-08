@@ -4,6 +4,7 @@ import { get, put } from '../api.js';
 import Icon from '../components/Icon.jsx';
 import { Menu, useToast } from '../components/ui.jsx';
 import { ApprovalBanner, RequestApproval } from './drive/Approvals.jsx';
+import { useAuth } from '../App.jsx';
 
 /**
  * Debounced autosave with optimistic concurrency.
@@ -87,8 +88,17 @@ export function EditorHeader({ icon, file, status, onRename, onShare, menu, extr
     catch (e) { toast(e.message, 'error'); }
   };
   const [requesting, setRequesting] = useState(false);
+  // Locked: nobody can change it (editors can lock; whoever locked it, or the owner, can unlock).
+  const { user } = useAuth();
+  const canUnlock = file?.locked_at && (file.locked_by === user?.id || file.role === 'owner');
+  const setLocked = async (locked) => {
+    try { await put(`/files/${file.id}/lock`, { locked }); window.location.reload(); } // open editors reload, read-only or editable again
+    catch (e) { toast(e.message, 'error'); }
+  };
   const items = menu && file ? [...menu, '-', { label: `${watching ? '✓ ' : ''}Notify me of changes`, icon: 'bell', onClick: toggleWatch },
-    ...(canEdit ? [{ label: 'Request approval…', icon: 'check', onClick: () => setRequesting(true) }] : [])] : menu;
+    ...(canEdit ? [{ label: 'Request approval…', icon: 'check', onClick: () => setRequesting(true) }] : []),
+    ...(canEdit && !file.locked_at ? [{ label: 'Lock (stop changes)', icon: 'lock', onClick: () => setLocked(true) }] : []),
+    ...(canUnlock ? [{ label: 'Unlock', icon: 'lock', onClick: () => setLocked(false) }] : [])] : menu;
 
   async function commit() {
     const n = name.trim();
@@ -112,6 +122,13 @@ export function EditorHeader({ icon, file, status, onRename, onShare, menu, extr
       {items && <Menu trigger={(p) => <button className="icon-btn" aria-label="More" {...p}><Icon name="more" /></button>} items={items} />}
       {file?.role === 'owner' && <button className="btn primary" onClick={onShare}><Icon name="share" size={18} /> Share</button>}
     </header>
+    {file?.locked_at && (
+      <div className="banner lock-banner row wrap" role="region" aria-label="Locked">
+        <Icon name="lock" size={18} />
+        <span className="grow"><strong>Locked</strong> by {file.locked_by === user?.id ? 'you' : file.locked_by_name} · nobody can change it until it's unlocked</span>
+        {canUnlock && <button type="button" className="btn small" onClick={() => setLocked(false)}>Unlock</button>}
+      </div>
+    )}
     {file?.id && <ApprovalBanner fileId={file.id} />}
     {requesting && <RequestApproval file={file} onClose={() => setRequesting(false)} />}
   </>);

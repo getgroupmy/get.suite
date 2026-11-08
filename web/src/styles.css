@@ -1069,6 +1069,7 @@ button.rule-sample.on { outline: 2px solid var(--accent); outline-offset: 1px; }
 .select-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 12px; margin-bottom: 8px; border-radius: 10px; background: var(--accent-soft); color: var(--accent-text); }
 .select-bar .btn { background: var(--surface); }
 .files .star-mark { color: #f9ab00; margin-left: 6px; vertical-align: middle; }
+.files .lock-mark { color: var(--muted, #5f6368); margin-left: 6px; vertical-align: middle; display: inline-flex; }
 .files tr.drop-on td, .crumb.drop-on { background: var(--accent-soft); box-shadow: inset 0 0 0 2px var(--accent); }
 .files tr[draggable="true"] { cursor: default; }
 
@@ -1737,6 +1738,7 @@ a.home-item:hover, button.home-item:hover { text-decoration: underline; }
 .approval-banner { margin: 0 16px 8px; display: flex; flex-direction: column; gap: 6px; }
 .approval-banner.approval-approved { background: #e6f4ea; color: #0d652d; }
 .approval-banner.approval-rejected { background: #fce8e6; color: #a50e0e; }
+.lock-banner { margin: 0 16px 8px; gap: 8px; align-items: center; }
 .pill.approval-approved { background: #e6f4ea; color: #0d652d; }
 .pill.approval-rejected { background: #fce8e6; color: #a50e0e; }
 .pill.approval-pending, .pill.approval-waiting { background: #fef7e0; color: #8a5a00; }

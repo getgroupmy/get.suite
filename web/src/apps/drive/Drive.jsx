@@ -229,7 +229,9 @@ export default function Drive() {
       canEdit && { label: 'Move to…', icon: 'move', onClick: () => setDialog({ type: 'move', files: [f] }) },
       f.kind !== 'folder' && { label: 'Make a copy', icon: 'copy', onClick: act(() => post(`/files/${f.id}/copy`), 'Copy made') },
       f.kind !== 'folder' && '-',
-      f.kind === 'file' && canEdit && { label: 'Upload new version', icon: 'upload', onClick: () => { versionFor.current = f; versionInput.current.click(); } },
+      f.kind !== 'folder' && canEdit && !f.locked_at && { label: 'Lock (stop changes)', icon: 'lock', onClick: act(() => put(`/files/${f.id}/lock`, { locked: true }), 'Locked: nobody can change it until it’s unlocked') },
+      f.locked_at && (f.locked_by === user.id || f.role === 'owner') && { label: 'Unlock', icon: 'lock', onClick: act(() => put(`/files/${f.id}/lock`, { locked: false }), 'Unlocked') },
+      f.kind === 'file' && canEdit && !f.locked_at && { label: 'Upload new version', icon: 'upload', onClick: () => { versionFor.current = f; versionInput.current.click(); } },
       f.kind !== 'folder' && { label: 'Version history', icon: 'clock', onClick: () => setDialog({ type: 'versions', file: f }) },
       f.kind !== 'folder' && canEdit && { label: 'Request approval…', icon: 'check', onClick: () => setDialog({ type: 'approval', file: f }) },
       canEdit && '-',
@@ -343,7 +345,7 @@ export default function Drive() {
                   onClick={(e) => { if (e.shiftKey || e.metaKey || e.ctrlKey) toggleCheck(f.id); else setSelected(f.id); }} onDoubleClick={() => route.view !== 'trash' && open(f)}
                   onKeyDown={(e) => { if (e.key === 'Enter' && route.view !== 'trash') open(f); if (e.key === ' ' && e.target === e.currentTarget) { e.preventDefault(); toggleCheck(f.id); } }}>
                   <td className="check-col" onClick={(e) => e.stopPropagation()}><input type="checkbox" aria-label={`Select ${f.name}`} checked={checked.has(f.id)} onChange={() => toggleCheck(f.id)} /></td>
-                  <td className="name"><Icon name={fileIcon(f)} className={`ft ft-${fileIcon(f)}`} style={f.color ? { color: f.color } : undefined} /><span className="name-text">{f.name}{f.match && <MatchText text={f.match} />}</span>{f.starred && <Icon name="star" size={14} className="star-mark" title="Starred" />}</td>
+                  <td className="name"><Icon name={fileIcon(f)} className={`ft ft-${fileIcon(f)}`} style={f.color ? { color: f.color } : undefined} /><span className="name-text">{f.name}{f.match && <MatchText text={f.match} />}</span>{f.starred && <Icon name="star" size={14} className="star-mark" title="Starred" />}{f.locked_at && <span className="lock-mark" title={`Locked by ${f.locked_by_name}`} aria-label="Locked"><Icon name="lock" size={14} /></span>}</td>
                   <td className="hide-sm muted">{f.owner_id === user.id ? 'me' : f.owner_name}</td>
                   <td className="hide-sm muted">{route.view === 'trash' ? goesIn(f.deletes_at) : formatDate(f.updated_at)}</td>
                   <td className="hide-sm muted">{f.kind === 'folder' ? '—' : formatBytes(f.size)}</td>
@@ -880,6 +882,8 @@ function activityText(a) {
     case 'transfer': return `${who} made ${d.to} the owner`;
     case 'version': return `${who} brought back ${d.label ? `the version “${d.label}”` : `the version from ${new Date(d.saved_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}`}`;
     case 'share': return [d.added?.length && `${who} shared it with ${d.added.join(', ')}`, d.removed?.length && `${d.added?.length ? 'and' : who} stopped sharing it with ${d.removed.join(', ')}`].filter(Boolean).join(' ') || `${who} changed who has it`;
+    case 'lock': return `${who} locked it`;
+    case 'unlock': return `${who} unlocked it`;
     case 'approval': return d.asked ? `${who} asked ${d.asked.join(', ')} to approve it` : `${who} ${d.decision === 'approved' ? 'approved' : 'rejected'} it${d.comment ? `: “${d.comment}”` : ''}`;
     default: return `${who}: ${a.action}`;
   }

@@ -133,12 +133,12 @@ const wss = new WebSocketServer({ noServer: true, maxPayload: 8 * 1024 * 1024 })
 /** Called by the hub for /ws/collab/<id> upgrades, with the signed-in user. */
 export function handleCollabUpgrade(req, socket, head, user) {
   const fileId = decodeURIComponent((req.url.split('?')[0].split('/')[3] || ''));
-  const f = fileId && q('SELECT id, kind, trashed FROM files WHERE id = ?').get(fileId);
+  const f = fileId && q('SELECT id, kind, trashed, locked_at FROM files WHERE id = ?').get(fileId);
   const role = f && roleFor(f.id, user.id);
   if (!f || !KINDS[f.kind] || f.trashed || !role) { socket.write('HTTP/1.1 404 Not Found\r\n\r\n'); return socket.destroy(); }
   wss.handleUpgrade(req, socket, head, (ws) => {
     const room = getRoom(f.id, f.kind);
-    room.conns.set(ws, { userId: user.id, canEdit: atLeast(role, 'editor'), clients: new Set() });
+    room.conns.set(ws, { userId: user.id, canEdit: atLeast(role, 'editor') && !f.locked_at, clients: new Set() });
     ws.binaryType = 'arraybuffer';
     ws.on('message', (data) => {
       try {

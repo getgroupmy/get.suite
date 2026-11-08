@@ -291,6 +291,7 @@ export default function webdavRoutes({ maxUploadBytes }) {
         if (node.type === 'item') {
           if (node.row.kind !== 'file') return res.status(405).end();
           if (!atLeast(node.role, 'editor')) return res.status(403).send('View only');
+          if (q('SELECT locked_at FROM files WHERE id = ?').get(node.row.id)?.locked_at) { req.resume(); return res.status(423).send('Locked'); }
           const owner = q('SELECT org_id FROM users WHERE id = ?').get(node.row.owner_id);
           const { storage, size } = await receiveUpload(req, owner.org_id, maxUploadBytes);
           tx(() => {

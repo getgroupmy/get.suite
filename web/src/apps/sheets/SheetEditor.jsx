@@ -75,7 +75,7 @@ export default function SheetEditor() {
   const clip = useRef(null);
   const [status, setStatus] = useState('connecting');
   const [others, setOthers] = useState([]);
-  const readOnly = file?.role === 'viewer';
+  const readOnly = file?.role === 'viewer' || !!file?.locked_at; // locked: nobody changes it until it's unlocked
   // Comments on cells.
   const [params] = useSearchParams();
   const { threads } = useComments(file?.id);

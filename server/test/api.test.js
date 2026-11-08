@@ -3392,3 +3392,26 @@ test('status from the calendar: in a meeting, focusing, out of office; a set sta
   assert.equal((await statusOfA()).text, 'Lunch');
   void ooo;
 });
+
+test('locking a file: nobody can change it until whoever locked it (or the owner) unlocks it', async () => {
+  const own = client(); const ed = client(); const ed2 = client();
+  const ids = {};
+  for (const [local, name] of [['lko', 'Lock Owner'], ['lke', 'Lock Editor'], ['lkf', 'Lock Other']]) ids[local] = (await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).body.id;
+  await login(own, 'lko@acme.com'); await login(ed, 'lke@acme.com'); await login(ed2, 'lkf@acme.com');
+  const doc = (await own('POST', '/api/files/new', { kind: 'doc', name: 'Final' })).body;
+  await own('PUT', `/api/files/${doc.id}/shares`, { shares: [{ user_id: ids.lke, role: 'editor' }, { user_id: ids.lkf, role: 'editor' }] });
+  const l = (await ed('PUT', `/api/files/${doc.id}/lock`, { locked: true })).body;
+  assert.ok(l.locked_at); assert.equal(l.locked_by, ids.lke); assert.equal(l.locked_by_name, 'Lock Editor');
+  // Nobody can change it, the owner included.
+  const content = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'x' }] }] };
+  const put = await own('PUT', `/api/files/${doc.id}/content`, { content, version: l.version });
+  assert.equal(put.status, 423); assert.match(put.body.error, /Lock Editor locked/);
+  // Only whoever locked it, or the owner, can unlock it.
+  assert.equal((await ed2('PUT', `/api/files/${doc.id}/lock`, { locked: false })).status, 403);
+  assert.ok((await own('GET', `/api/files/${doc.id}`)).body.locked_at);
+  assert.equal((await own('PUT', `/api/files/${doc.id}/lock`, { locked: false })).body.locked_at, null);
+  assert.equal((await own('PUT', `/api/files/${doc.id}/content`, { content, version: l.version })).status, 200);
+  // Shown in the file's activity.
+  const acts = (await own('GET', `/api/files/${doc.id}/activity`)).body.map((a) => a.action);
+  assert.ok(acts.includes('lock') && acts.includes('unlock'));
+});
