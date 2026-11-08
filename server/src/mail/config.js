@@ -84,7 +84,7 @@ export function buildMailConfig() {
   const users = q('SELECT id, org_id, username, name, mail_hash, mail_app_hash, mail_quota_mb, mail_home, disabled, is_admin FROM users ORDER BY username').all();
   const aliases = q('SELECT org_id, address, targets FROM aliases ORDER BY address').all();
   const userByAddress = new Map(users.map((u) => [u.username.toLowerCase(), u]));
-  const aliasMap = new Map(aliases.map((a) => [a.address.toLowerCase(), splitTargets(a.targets)]));
+  const aliasMap = new Map(aliases.map((a) => [a.address.toLowerCase(), splitTargets(a.targets)]).filter(([, t]) => t.length)); // a group with nobody in it yet: no address
 
   // RFC 2142: every domain must accept postmaster@ and abuse@. Route them to the company's admins.
   for (const d of domains) {

@@ -3758,3 +3758,30 @@ test('chat: @a-group and @channel mention everyone in them who is in the convers
   // An email address isn't mistaken for a group.
   await owner('POST', `/api/chat/channels/${ch.id}/messages`, { body: 'write to sales@field-sales.com' });
 });
+
+test('a group email address: mail reaches the members, kept up to date as people come and go', async () => {
+  const m = {};
+  for (const [local, name] of [['ge1', 'Gina Email'], ['ge2', 'Gabe Email'], ['ge3', 'Gil Email']]) m[local] = (await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).body.id;
+  const g = (await owner('POST', '/api/groups', { name: 'Support Team' })).body;
+  const targets = () => q('SELECT targets FROM aliases WHERE group_id = ?').get(g.id)?.targets;
+  const { q } = await import('../src/db.js');
+  assert.equal((await owner('PUT', `/api/groups/${g.id}/email`, { local: 'ge1', domain: 'acme.com' })).status, 400, 'taken by a person');
+  const set = (await owner('PUT', `/api/groups/${g.id}/email`, { local: 'support-x', domain: 'acme.com' })).body;
+  assert.equal(set.email, 'support-x@acme.com');
+  assert.equal(targets(), '', 'nobody in it yet');
+  await owner('PUT', `/api/groups/${g.id}/members`, { user_ids: [m.ge1, m.ge2] });
+  assert.equal(targets(), 'ge1@acme.com,ge2@acme.com');
+  // Disabled people stop getting it; deleted people too.
+  await owner('PATCH', `/api/users/${m.ge2}`, { disabled: true });
+  assert.equal(targets(), 'ge1@acme.com');
+  await owner('PATCH', `/api/users/${m.ge2}`, { disabled: false });
+  await owner('PUT', `/api/groups/${g.id}/members`, { user_ids: [m.ge1, m.ge2, m.ge3] });
+  await owner('DELETE', `/api/users/${m.ge3}`);
+  assert.equal(targets(), 'ge1@acme.com,ge2@acme.com');
+  // The address is taken now; removing it frees it; deleting the group removes it.
+  assert.equal((await owner('POST', '/api/users', { local: 'support-x', domain: 'acme.com', name: 'X', password: 'password123' })).status, 400);
+  await owner('PUT', `/api/groups/${g.id}/email`, { local: 'help-x', domain: 'acme.com' });
+  assert.equal(q("SELECT COUNT(*) AS n FROM aliases WHERE address = 'support-x@acme.com'").get().n, 0, 'the old address goes');
+  await owner('DELETE', `/api/groups/${g.id}`);
+  assert.equal(q("SELECT COUNT(*) AS n FROM aliases WHERE address = 'help-x@acme.com'").get().n, 0);
+});

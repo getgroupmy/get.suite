@@ -1199,3 +1199,17 @@ test('read receipts: asked for when sending, offered (not sent) when opened, sen
   assert.equal(o.receipt, null);
   assert.equal((await olivia('POST', `/api/mail/messages/${back.uid}/receipt`, { folder: 'INBOX', send: true })).status, 400);
 });
+
+test('a group email address delivers to its members, who can send as it', async () => {
+  const sam = client();
+  const samId = (await olivia('POST', '/api/users', { local: 'samgrp', domain: 'acme.com', name: 'Sam Group', password: 'password123' })).body.id;
+  assert.equal((await sam('POST', '/api/auth/login', { username: 'samgrp@acme.com', password: 'password123' })).status, 200);
+  const g = (await olivia('POST', '/api/groups', { name: 'Help Desk' })).body;
+  await olivia('PUT', `/api/groups/${g.id}/members`, { user_ids: [samId] });
+  assert.equal((await olivia('PUT', `/api/groups/${g.id}/email`, { local: 'helpdesk', domain: 'acme.com' })).body.email, 'helpdesk@acme.com');
+  await new Promise((r) => setTimeout(r, 6500)); // the mail server picks the change up
+  assert.equal((await olivia('POST', '/api/mail/send', { to: 'helpdesk@acme.com', subject: 'Printer jam', text: 'Third floor' })).status, 200);
+  await eventually(async () => (await inbox(sam, 'Printer jam')).length > 0);
+  const ids = (await sam('GET', '/api/mail/status')).body.identities.map((i) => i.address);
+  assert.ok(ids.includes('helpdesk@acme.com'), 'they can send from it');
+});

@@ -1,3 +1,4 @@
+import { syncCompanyGroupAliases } from '../groups.js';
 import { disable as disableTwoFactor } from '../twofactor.js';
 import { audit } from '../audit.js';
 import express, { Router } from 'express';
@@ -346,6 +347,7 @@ export default function userRoutes() {
       if (self) throw bad('You cannot disable yourself');
       q('UPDATE users SET disabled = ? WHERE id = ?').run(disabled ? 1 : 0, u.id);
       if (disabled) q('DELETE FROM sessions WHERE user_id = ?').run(u.id);
+      syncCompanyGroupAliases(u.org_id); // group email addresses reach active people only
     }
     if (password !== undefined) {
       validatePassword(password);
@@ -411,6 +413,7 @@ export default function userRoutes() {
       return list;
     });
     removeBlobs(blobs);
+    syncCompanyGroupAliases(u.org_id); // their groups' email addresses no longer include them
     scheduleMailConfig();
     audit(req, 'user.delete', { org: u.org_id, target: u.username, ...(heir && { details: { files_to: heir.name, items: req.moved } }) });
     res.json({ ok: true, files_moved: req.moved || 0 });

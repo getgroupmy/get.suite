@@ -9,6 +9,8 @@ import { Router } from 'express';
 import { q, tx, widenRoles } from './db.js';
 import { uid, now, str, bad, notFound } from './util.js';
 import { requireAdmin } from './auth.js';
+import { validAddress } from './tenancy.js';
+import { scheduleMailConfig } from './mail/config.js';
 import { sendTo } from './hub.js';
 import { audit } from './audit.js';
 import { notify as bell } from './notifications.js';
@@ -33,6 +35,19 @@ q(`CREATE TABLE IF NOT EXISTS group_shares (
 )`).run();
 q('CREATE INDEX IF NOT EXISTS group_shares_group ON group_shares(group_id)').run();
 widenRoles('group_shares'); // older databases: commenters too
+// A group's email address: an alias whose recipients are kept the same as the group's members.
+if (!q('PRAGMA table_info(aliases)').all().some((c) => c.name === 'group_id')) q('ALTER TABLE aliases ADD COLUMN group_id TEXT REFERENCES groups(id) ON DELETE CASCADE').run();
+/** Bring a group's email address up to date with its members (active people only). */
+export function syncGroupAlias(groupId) {
+  const a = q('SELECT id FROM aliases WHERE group_id = ?').get(groupId);
+  if (!a) return false;
+  const to = q(`SELECT u.username FROM group_members m JOIN users u ON u.id = m.user_id WHERE m.group_id = ? AND u.disabled = 0 ORDER BY u.username`).all(groupId).map((x) => x.username);
+  q('UPDATE aliases SET targets = ? WHERE id = ?').run(to.join(','), a.id);
+  scheduleMailConfig();
+  return true;
+}
+/** Every group email address in a company (after people leave or change address). */
+export const syncCompanyGroupAliases = (orgId) => { for (const g of q('SELECT group_id FROM aliases WHERE org_id = ? AND group_id IS NOT NULL').all(orgId)) syncGroupAlias(g.group_id); };
 if (!q('PRAGMA table_info(shares)').all().some((c) => c.name === 'direct_role')) {
   q('ALTER TABLE shares ADD COLUMN direct_role TEXT').run();
   q('UPDATE shares SET direct_role = role').run(); // every share so far was given directly
@@ -93,7 +108,7 @@ export function setFileGroups(fileId, orgId, list) {
   });
 }
 
-const describe = (g) => ({ ...g, slug: groupSlug(g.name), members: q(`SELECT u.id, u.name, u.username FROM group_members m JOIN users u ON u.id = m.user_id
+const describe = (g) => ({ ...g, slug: groupSlug(g.name), email: q('SELECT address FROM aliases WHERE group_id = ?').get(g.id)?.address || null, members: q(`SELECT u.id, u.name, u.username FROM group_members m JOIN users u ON u.id = m.user_id
                                              WHERE m.group_id = ? ORDER BY u.name`).all(g.id),
   files: q('SELECT COUNT(*) AS n FROM group_shares WHERE group_id = ?').get(g.id).n });
 
@@ -128,6 +143,26 @@ export function groupRoutes() {
     tell(g.org_id);
     res.json(describe(q('SELECT * FROM groups WHERE id = ?').get(g.id)));
   });
+  // Its email address: { local, domain } (mail to it reaches every member, who can also send as it), or { local: null } to remove it.
+  r.put('/:id/email', requireAdmin, (req, res) => {
+    const g = load(req);
+    const cur = q('SELECT * FROM aliases WHERE group_id = ?').get(g.id);
+    if (!req.body?.local) {
+      if (cur) q('DELETE FROM aliases WHERE id = ?').run(cur.id);
+      scheduleMailConfig();
+    } else {
+      const address = String(req.body.local).toLowerCase() + '@' + String(req.body.domain || '').toLowerCase();
+      if (cur && cur.address === address) return res.json(describe(g));
+      if (cur) q('DELETE FROM aliases WHERE id = ?').run(cur.id);
+      const checked = validAddress(req.body.local, req.body.domain, g.org_id);
+      q('INSERT INTO aliases (id, org_id, address, targets, created_at, group_id) VALUES (?, ?, ?, ?, ?, ?)').run(uid(), g.org_id, checked, '', now(), g.id);
+      syncGroupAlias(g.id);
+    }
+    audit(req, 'group.email', { target: g.name, details: { email: req.body?.local ? `${req.body.local}@${req.body.domain}` : null } });
+    tell(g.org_id);
+    res.json(describe(q('SELECT * FROM groups WHERE id = ?').get(g.id)));
+  });
+
   // The members, as a whole list: { user_ids: [...] }.
   r.put('/:id/members', requireAdmin, (req, res) => {
     const g = load(req);
@@ -139,6 +174,7 @@ export function groupRoutes() {
       q('DELETE FROM group_members WHERE group_id = ?').run(g.id);
       for (const id of ids) q('INSERT INTO group_members (group_id, user_id) VALUES (?, ?)').run(g.id, id);
       syncGroups([g.id]);
+      syncGroupAlias(g.id);
     });
     const added = ids.filter((id) => !before.has(id));
     const files = q('SELECT COUNT(*) AS n FROM group_shares WHERE group_id = ?').get(g.id).n;

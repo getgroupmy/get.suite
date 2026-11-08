@@ -10,6 +10,9 @@ export default function GroupsAdmin() {
   const [groups, setGroups] = useState(null);
   const [people, setPeople] = useState([]);
   const [name, setName] = useState('');
+  const [domains, setDomains] = useState([]); // for a group's email address (when the server has email)
+  const [mailOn, setMailOn] = useState(false);
+  useEffect(() => { get('/orgs/current').then((o) => setDomains(o.domains || [])).catch(() => {}); get('/mail/status').then((m) => setMailOn(!!m.enabled)).catch(() => {}); }, []);
   const [open, setOpen] = useState(null); // group id being edited
   const [gone, setGone] = useState(null);
   const load = () => get('/groups').then(setGroups).catch((e) => toast(e.message, 'error'));
@@ -46,6 +49,7 @@ export default function GroupsAdmin() {
                 <button type="button" className="icon-btn" aria-label={`Delete group ${g.name}`} onClick={() => setGone(g)}><Icon name="trash" size={18} /></button>
               </div>
               {g.members.length > 0 && <p className="muted small" style={{ margin: 0 }}>{g.members.map((m) => m.name).join(', ')}</p>}
+              {mailOn && <GroupEmail group={g} domains={domains} onSaved={load} />}
               {open === g.id && (
                 <div className="stack-tight group-edit">
                   <input aria-label={`Description of ${g.name}`} placeholder="Description (optional)" defaultValue={g.description} maxLength={300}
@@ -66,5 +70,29 @@ export default function GroupsAdmin() {
       {gone && <ConfirmModal title={`Delete the group “${gone.name}”?`} message={`Its ${gone.members.length} members lose access to what was shared with the group (${gone.files} ${gone.files === 1 ? 'item' : 'items'}), unless it was also shared with them directly.`}
         onClose={() => setGone(null)} onConfirm={async () => { await del(`/groups/${gone.id}`); setGone(null); load(); }} />}
     </div>
+  );
+}
+
+/** A group's email address: mail to it reaches everyone in the group, and they can send as it. */
+function GroupEmail({ group, domains, onSaved }) {
+  const toast = useToast();
+  const cur = group.email;
+  const [local, setLocal] = useState(group.email ? group.email.split('@')[0] : '');
+  const [domain, setDomain] = useState(group.email ? group.email.split('@')[1] : domains[0] || '');
+  useEffect(() => { if (!domain && domains[0]) setDomain(domains[0]); }, [domains]); // eslint-disable-line react-hooks/exhaustive-deps
+  const save = async (clear) => {
+    try { const r = await put(`/groups/${group.id}/email`, clear ? { local: null } : { local, domain }); toast(r.email ? `Mail to ${r.email} now reaches everyone in ${group.name}` : 'Email address removed'); if (clear) setLocal(''); onSaved(); }
+    catch (e) { toast(e.message, 'error'); }
+  };
+  return (
+    <form className="row wrap group-email" onSubmit={(e) => { e.preventDefault(); if (local.trim()) save(false); }} aria-label={`Email address of ${group.name}`}>
+      <span className="small">Email address</span>
+      <input aria-label={`Address for ${group.name}`} placeholder="e.g. sales" value={local} maxLength={64} onChange={(e) => setLocal(e.target.value)} style={{ width: 140 }} />
+      <span>@</span>
+      <select aria-label={`Domain for ${group.name}`} value={domain} onChange={(e) => setDomain(e.target.value)}>{domains.map((d) => <option key={d}>{d}</option>)}</select>
+      <button className="btn small" disabled={!local.trim() || `${local}@${domain}`.toLowerCase() === cur}>Save</button>
+      {cur && <button type="button" className="link-btn small" onClick={() => save(true)}>Remove</button>}
+      {cur && <span className="muted small">Members get mail sent to {cur} and can send from it.</span>}
+    </form>
   );
 }
