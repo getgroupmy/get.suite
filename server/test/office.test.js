@@ -613,3 +613,18 @@ test('watermarks: a Word watermark in every page header, read back from Word fil
   assert.throws(() => readSetup({ watermark: 'x'.repeat(41) }), /40 characters/);
   assert.equal(readSetup({}).watermark, '');
 });
+
+test('Excel: cell notes both ways (plain and rich-text notes), and found by search', async () => {
+  const { docText, sheetText } = await import('../src/search.js');
+  const data = { sheets: [{ name: 'Budget', cells: { A1: 'Rent', B1: '1200' }, notes: { B1: 'Up 5% from March\nAsk the landlord', C3: 'Empty cell, still noted' } }] };
+  const back = (await sheetFromExcel(await excelFromSheet(data))).sheets[0];
+  assert.deepEqual(back.notes, { B1: 'Up 5% from March\nAsk the landlord', C3: 'Empty cell, still noted' });
+  // A note written by Excel itself as rich text.
+  const wb = new ExcelJS.Workbook(); const ws = wb.addWorksheet('S');
+  ws.getCell('A2').value = 'x';
+  ws.getCell('A2').note = { texts: [{ font: { bold: true }, text: 'Kim: ' }, { text: 'check this' }] };
+  assert.deepEqual((await sheetFromExcel(Buffer.from(await wb.xlsx.writeBuffer()))).sheets[0].notes, { A2: 'Kim: check this' });
+  assert.equal((await sheetFromExcel(await excelFromSheet({ sheets: [{ name: 'N', cells: { A1: '1' } }] }))).sheets[0].notes, undefined);
+  assert.match(sheetText(data), /Ask the landlord/);
+  assert.ok(docText);
+});

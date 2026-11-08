@@ -225,6 +225,12 @@ Select rows (or columns) by their headings, then **Group rows 2–4** in the rig
 - **Tick box** shows a box in each cell: click it or press Space. Ticked is TRUE, so formulas such as `=COUNTIF(C2:C20, TRUE)` count them.
 - They move with inserted and deleted rows and columns, are shared live, and are kept when downloading as Excel (tick boxes become a TRUE/FALSE list there). Dropdowns in an uploaded Excel file, including lists taken from cells on the sheet, come in as dropdowns.
 
+## Cell notes (Sheets)
+
+- **A note on a cell:** right-click → **Insert note** (or **Shift+F2**), write it, and press Ctrl+Enter or click away (Esc leaves it as it was). The cell gets a small dark corner; pointing at it, or selecting it, shows the note. Unlike comments, notes have no replies or mentions: they're for a remark that belongs with the number, such as *Estimate* or *Up 5% from March*.
+- **Edit note** and **Delete note** are in the same menu. Everyone editing sees notes at once; people who can only view see them but can't change them.
+- Notes stay with their cells when rows or columns are inserted, deleted or sorted, Search finds their words, and they're Excel's own notes in downloads and uploads (both ways, including notes on empty cells).
+
 ## Conditional formatting (Sheets)
 
 - **Rules** in the toolbar colours cells by their value: greater or less than, between, equal or not equal to, text that contains, doesn't contain or starts with something, empty or not, or an error. Pick a colour (and bold) and the cells it applies to; the selection is filled in for you.

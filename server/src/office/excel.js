@@ -1,6 +1,8 @@
 // Excel files <-> Sheets: every worksheet, with values and formulas, bold/italic/underline, text and
 // fill colours, alignment, number formats (number, currency, percent, decimals) and column widths.
 import ExcelJS from 'exceljs';
+import JSZip from 'jszip';
+import path from 'node:path';
 
 const colName = (i) => { let s = ''; for (let n = i + 1; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + ((n - 1) % 26)) + s; return s; };
 const colIndex = (s) => [...s].reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0) - 1;
@@ -62,12 +64,55 @@ function cellText(cell) {
 }
 
 /** An Excel workbook (Buffer) as a Sheets spreadsheet. */
+/** A cell note's text (Excel keeps either plain text or rich-text runs), or ''. */
+export function noteText(note) {
+  const t = typeof note === 'string' ? note : Array.isArray(note?.texts) ? note.texts.map((x) => x?.text || '').join('') : '';
+  return t.replace(/\r\n?/g, '\n').trim().slice(0, MAX_NOTE);
+}
+export const MAX_NOTE = 2000;
+
+const unxml = (t) => t.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n))).replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCodePoint(parseInt(n, 16))).replace(/&amp;/g, '&');
+const attrOf = (tag, name) => (new RegExp(`\\b${name}="([^"]*)"`).exec(tag) || [])[1];
+
+/** Each sheet's cell notes ({ name → { A1: text } }), read from the workbook's comments parts. */
+export async function notesOfXlsx(buffer) {
+  const out = new Map();
+  try {
+    const zip = await JSZip.loadAsync(buffer);
+    const read = async (f) => (zip.file(f) ? zip.file(f).async('string') : '');
+    const rels = async (f) => {
+      const dir = f.slice(0, f.lastIndexOf('/'));
+      const xml = await read(`${dir}/_rels/${f.slice(f.lastIndexOf('/') + 1)}.rels`);
+      return [...xml.matchAll(/<Relationship\b[^>]*>/g)].map((m) => ({ id: attrOf(m[0], 'Id'), type: attrOf(m[0], 'Type') || '', target: attrOf(m[0], 'Target') || '' }))
+        .map((r) => ({ ...r, path: r.target.startsWith('/') ? r.target.slice(1) : path.posix.normalize(`${dir}/${r.target}`) }));
+    };
+    const book = await rels('xl/workbook.xml');
+    for (const m of (await read('xl/workbook.xml')).matchAll(/<sheet\b[^>]*>/g)) {
+      const name = unxml(attrOf(m[0], 'name') || ''), rid = attrOf(m[0], 'r:id');
+      const sheetPath = book.find((r) => r.id === rid)?.path;
+      if (!sheetPath) continue;
+      const commentsPath = (await rels(sheetPath)).find((r) => /\/comments$/.test(r.type))?.path;
+      if (!commentsPath) continue;
+      const notes = {};
+      for (const c of (await read(commentsPath)).matchAll(/<comment\b([^>]*)>([\s\S]*?)<\/comment>/g)) {
+        const ref = (attrOf(c[1], 'ref') || '').toUpperCase();
+        const text = noteText([...c[2].matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/g)].map((t) => unxml(t[1])).join(''));
+        if (/^[A-Z]{1,3}\d{1,7}$/.test(ref) && text) notes[ref] = text;
+      }
+      if (Object.keys(notes).length) out.set(name, notes);
+    }
+  } catch { /* unreadable: no notes */ }
+  return out;
+}
+
 export async function sheetFromExcel(buffer) {
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(buffer);
+  const noteSheets = await notesOfXlsx(buffer);
   const sheets = [];
   wb.eachSheet((ws) => {
     const cells = {}, formats = {}, colWidths = {};
+    const notes = noteSheets.get(ws.name) || {}; // read from the file itself: ExcelJS loses notes on empty cells
     const hideRows = [], hideCols = [];
     const outRows = new Map(), outCols = new Map(); // outlined (grouped) rows/columns → hidden?
     ws.eachRow({ includeEmpty: true }, (row, r) => {
@@ -134,7 +179,7 @@ export async function sheetFromExcel(buffer) {
       const ci = (l) => [...l].reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0) - 1;
       for (let r = a.r; r <= b.r; r++) for (let c = ci(a.c); c <= ci(b.c); c++) if (r !== a.r || c !== ci(a.c)) delete cells[`${colName(c)}${r}`];
     }
-    sheets.push({ _ws: ws.name, name: ws.name.slice(0, 30), cells, colWidths, ...(merges.length && { merges }), ...(rules.length && { rules }), ...(validations.length && { validations }), ...(filter && { filter }), ...(Object.keys(formats).length && { formats }), ...(frozen && (frozen.rows || frozen.cols) && { frozen }), ...(hide && { hide }), ...(groups.length && { groups }) });
+    sheets.push({ _ws: ws.name, name: ws.name.slice(0, 30), cells, colWidths, ...(merges.length && { merges }), ...(rules.length && { rules }), ...(validations.length && { validations }), ...(filter && { filter }), ...(Object.keys(formats).length && { formats }), ...(frozen && (frozen.rows || frozen.cols) && { frozen }), ...(hide && { hide }), ...(groups.length && { groups }), ...(Object.keys(notes).length && { notes }) });
   });
   // Named ranges ("Sales" = 'Sheet1'!$A$2:$A$10): on the sheet they point into.
   for (const d of wb.definedNames?.model || []) {
@@ -189,6 +234,7 @@ export async function excelFromSheet(data) {
       const nf = numToExcel(f);
       if (nf) cell.numFmt = nf;
     }
+    for (const [key, text] of Object.entries(s.notes || {})) if (/^[A-Z]+\d+$/.test(key) && text) ws.getCell(key).note = String(text);
     for (const [col, px] of Object.entries(s.colWidths || {})) ws.getColumn(col).width = Math.max(2, Math.round((px - 5) / 7));
     if (s.frozen?.rows || s.frozen?.cols) ws.views = [{ state: 'frozen', xSplit: s.frozen.cols || 0, ySplit: s.frozen.rows || 0 }];
     // Conditional formatting, in the order Sheets tries the rules (Excel's priority).

@@ -2099,3 +2099,10 @@ textarea.mono { font-family: ui-monospace, Consolas, monospace; }
 .symbol { height: 38px; font-size: 1.2em; border: 1px solid var(--border); background: var(--surface); color: inherit; border-radius: 6px; cursor: pointer; }
 .symbol:hover, .symbol:focus-visible { background: var(--hover); border-color: var(--accent); }
 .print-watermark { display: none; }
+
+/* Sheets: cell notes */
+.cell-note { position: absolute; top: 0; right: 0; width: 0; height: 0; border-top: 7px solid var(--text, #202124); border-left: 7px solid transparent; pointer-events: none; }
+.commented .cell-note { right: 9px; }
+.note-bubble { position: fixed; z-index: 40; max-width: 260px; white-space: pre-wrap; background: #fff8c5; color: #202124; border: 1px solid #e3d26f; border-radius: 4px; padding: 6px 8px; font-size: 13px; box-shadow: 0 2px 8px rgba(0,0,0,.15); pointer-events: none; }
+.note-bubble.note-edit { pointer-events: auto; width: 240px; display: flex; flex-direction: column; gap: 4px; }
+.note-edit textarea { width: 100%; box-sizing: border-box; resize: vertical; border: 0; background: transparent; font: inherit; color: inherit; outline: none; }

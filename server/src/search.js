@@ -37,7 +37,7 @@ export function docText(doc) {
 
 /** A spreadsheet's sheet names and cell entries (formulas are left out: they aren't words people look for). */
 export function sheetText(json) {
-  return (json?.sheets || []).map((s) => [s.name, ...Object.values(s.cells || {}).filter((v) => typeof v === 'string' && !v.startsWith('=')), ...Object.values(s.charts || {}).map((c) => c.title || '')].join('\n')).join('\n');
+  return (json?.sheets || []).map((s) => [s.name, ...Object.values(s.cells || {}).filter((v) => typeof v === 'string' && !v.startsWith('=')), ...Object.values(s.charts || {}).map((c) => c.title || ''), ...Object.values(s.notes || {})].join('\n')).join('\n');
 }
 
 /** A presentation's text boxes, slide by slide. */

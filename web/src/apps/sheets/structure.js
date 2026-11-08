@@ -114,10 +114,11 @@ export function adjustNames(names, change) {
 
 /** The sheet (one entry of `sheets`) with a row/column change applied to everything in it. */
 export function applyStructure(sheet, change) {
-  const cells = {}, formats = {}, colWidths = {}, charts = {};
+  const cells = {}, formats = {}, colWidths = {}, charts = {}, notes = {};
   const where = sheet.name ? { here: sheet.name, changed: sheet.name } : null;
   for (const [k, v] of Object.entries(sheet.cells || {})) { const nk = adjustKey(k, change); if (nk) cells[nk] = adjustFormula(v, change, where); }
   for (const [k, v] of Object.entries(sheet.formats || {})) { const nk = adjustKey(k, change); if (nk) formats[nk] = v; }
+  for (const [k, v] of Object.entries(sheet.notes || {})) { const nk = adjustKey(k, change); if (nk) notes[nk] = v; } // notes stay with their cells
   for (const [k, v] of Object.entries(sheet.colWidths || {})) {
     if (change.axis !== 'col') { colWidths[k] = v; continue; }
     const n = moveIndex(colIndex(k), change);
@@ -132,7 +133,7 @@ export function applyStructure(sheet, change) {
   const names = sheet.names && adjustNames(sheet.names, change);
   // Protected ranges move with their cells (whole-sheet ones stay); one whose cells all went goes too.
   const prot = sheet.protected && sheet.protected.flatMap((p) => { if (!p.range) return [p]; const range = adjustRange(p.range, change); return range ? [{ ...p, range }] : []; });
-  const out = { ...sheet, cells, colWidths, ...(sheet.formats && { formats }), ...(sheet.charts && { charts }), ...(sheet.rules && { rules }), ...(sheet.validations && { validations }), ...(sheet.merges && { merges }) };
+  const out = { ...sheet, cells, colWidths, ...(sheet.formats && { formats }), ...(sheet.notes && { notes }), ...(sheet.charts && { charts }), ...(sheet.rules && { rules }), ...(sheet.validations && { validations }), ...(sheet.merges && { merges }) };
   if (hide) out.hide = hide; else delete out.hide;
   const groups = adjustGroups(sheet.groups, change);
   if (groups) out.groups = groups; else delete out.groups;
@@ -161,7 +162,7 @@ const rank = (v) => (typeof v === 'number' ? 0 : typeof v === 'boolean' ? 2 : v 
  * Sort the rows of `range` by column `byCol` (ascending, or descending with `desc`), keeping the
  * header row in place if `header`. Numbers come before text; empty cells go last either way.
  * Formulas move with their row (their references move as when cut and pasted). Returns the new
- * { cells, formats } for the whole sheet.
+ * { cells, formats, notes } for the whole sheet.
  */
 export function sortRange(sheet, range, byCol, { desc = false, header = false, value }) {
   const r1 = header ? range.r1 + 1 : range.r1;
@@ -177,15 +178,16 @@ export function sortRange(sheet, range, byCol, { desc = false, header = false, v
     if (!d) d = rx === 0 ? x - y : rx === 1 ? collator.compare(x, y) : rx === 2 ? Number(x) - Number(y) : 0;
     return (desc ? -d : d) || a - b; // stable
   });
-  const cells = { ...(sheet.cells || {}) }, formats = { ...(sheet.formats || {}) };
-  const old = sheet.cells || {}, oldF = sheet.formats || {};
+  const cells = { ...(sheet.cells || {}) }, formats = { ...(sheet.formats || {}) }, notes = { ...(sheet.notes || {}) };
+  const old = sheet.cells || {}, oldF = sheet.formats || {}, oldN = sheet.notes || {};
   rows.forEach((from, i) => {
     const to = r1 + i;
     for (let c = range.c1; c <= range.c2; c++) {
       const k = cellKey(c, to), src = cellKey(c, from);
       if (old[src] === undefined || old[src] === '') delete cells[k]; else cells[k] = shiftFormula(old[src], 0, to - from);
       if (oldF[src]) formats[k] = oldF[src]; else delete formats[k];
+      if (oldN[src]) notes[k] = oldN[src]; else delete notes[k];
     }
   });
-  return { cells, formats };
+  return { cells, formats, ...(sheet.notes && { notes }) };
 }

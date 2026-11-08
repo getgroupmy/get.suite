@@ -5,7 +5,7 @@ import * as Y from 'yjs';
 
 // ---- spreadsheets: a list of sheets, each with cells, column widths, formats and charts as maps, so two
 // people changing different cells at once both keep their change (the same cell: the later wins).
-const SHEET_MAPS = ['cells', 'colWidths', 'formats', 'charts']; // charts: id → { type, range, title, x, y, w, h }
+const SHEET_MAPS = ['cells', 'colWidths', 'formats', 'charts', 'notes']; // charts: id → { type, range, title, x, y, w, h }; notes: cell → text
 
 /** Make a Y.Map for one sheet from its JSON. */
 function sheetMap(sheet) {
@@ -49,7 +49,7 @@ export function jsonFromSheetDoc(doc) {
     if (m.get('names')) s.names = m.get('names');
     if (m.get('protected')?.length) s.protected = m.get('protected');
     for (const k of SHEET_MAPS) { const inner = m.get(k); s[k] = inner ? inner.toJSON() : {}; }
-    for (const k of ['formats', 'charts']) if (!Object.keys(s[k]).length) delete s[k];
+    for (const k of ['formats', 'charts', 'notes']) if (!Object.keys(s[k]).length) delete s[k];
     return s;
   }) };
 }

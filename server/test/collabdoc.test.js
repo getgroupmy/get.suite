@@ -104,3 +104,12 @@ test('presentations: looping and slides that move on by themselves are kept and 
   assert.equal(after.numbers, undefined);
   assert.deepEqual(after.slides.map((s) => s.advance || null), [null, 5]);
 });
+
+test('spreadsheets: cell notes are shared cell by cell', () => {
+  const doc = sheetDocFromJson({ sheets: [{ name: 'S', cells: { A1: '1' }, notes: { A1: 'first' } }] });
+  assert.deepEqual(jsonFromSheetDoc(doc).sheets[0].notes, { A1: 'first' });
+  applySheetJson(doc, { sheets: [{ name: 'S', cells: { A1: '1' }, notes: { B2: 'second' } }] });
+  assert.deepEqual(jsonFromSheetDoc(doc).sheets[0].notes, { B2: 'second' });
+  applySheetJson(doc, { sheets: [{ name: 'S', cells: { A1: '1' } }] });
+  assert.equal(jsonFromSheetDoc(doc).sheets[0].notes, undefined);
+});

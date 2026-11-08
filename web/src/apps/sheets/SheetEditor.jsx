@@ -130,6 +130,7 @@ export default function SheetEditor() {
   const sheet = data?.sheets[Math.min(active, (data?.sheets.length || 1) - 1)];
   const cells = sheet?.cells || {};
   const formats = sheet?.formats || {};
+  const notes = sheet?.notes || {}; // cell notes: plain text shown when the cell is pointed at or selected
   const charts = sheet?.charts || {};
   const colWidths = sheet?.colWidths || {};
   const rules = sheet?.rules || [];
@@ -275,6 +276,17 @@ export default function SheetEditor() {
   }
 
   /** Change this sheet's own settings (column widths, frozen panes): fn(sheet) → changes. */
+  // Cell notes: { key, text, x, y } while one is being written.
+  const [noteEdit, setNoteEdit] = useState(null);
+  const editNote = (key = cellKey(sel.c, sel.r)) => {
+    if (readOnly) return;
+    const r = gridRef.current?.querySelector(`[data-k="${key}"]`)?.getBoundingClientRect();
+    setNoteEdit({ key, text: (dataRef.current.sheets[active]?.notes || {})[key] || '', x: r ? r.right + 4 : 200, y: r ? r.top : 200 });
+  };
+  const saveNote = (key, text) => {
+    const t = String(text || '').replace(/\r\n?/g, '\n').trim().slice(0, 2000);
+    writeSheet((sh) => { const n = { ...(sh.notes || {}) }; if (t) n[key] = t; else delete n[key]; return { notes: n }; });
+  };
   function writeSheet(fn) {
     if (readOnly) return;
     const cur = dataRef.current;
@@ -594,6 +606,7 @@ export default function SheetEditor() {
     else if (k === 'ArrowRight') { e.preventDefault(); move(1, 0, e.shiftKey); }
     else if (k === 'Tab') { e.preventDefault(); move(e.shiftKey ? -1 : 1, 0); }
     else if (k === ' ' && !mod && validationAt(validations, cellKey(sel.c, sel.r))?.type === 'checkbox') { e.preventDefault(); if (!readOnly) toggleTick(cellKey(sel.c, sel.r)); }
+    else if (k === 'F2' && e.shiftKey) { e.preventDefault(); editNote(); } // Shift+F2: the cell's note, as in Excel and Google Sheets
     else if (k === 'Enter' || k === 'F2') { e.preventDefault(); startEdit(); }
     else if (k === 'Delete' || k === 'Backspace') {
       e.preventDefault();
@@ -790,7 +803,10 @@ export default function SheetEditor() {
   };
   rowItems.push(...hideItems('row'), '-', ...freezeRows);
   colItems.push(...hideItems('col'), '-', ...freezeCols);
-  const ctxItems = ctx?.kind === 'row' ? rowItems : ctx?.kind === 'col' ? [...colItems, '-', ...sortItems] : [...rowItems, '-', ...colItems, '-', ...sortItems];
+  const noteItems = notes[selKey]
+    ? [{ label: 'Edit note', icon: 'edit', onClick: () => editNote(selKey) }, { label: 'Delete note', icon: 'trash', onClick: () => saveNote(selKey, '') }]
+    : [{ label: 'Insert note', icon: 'edit', onClick: () => editNote(selKey) }];
+  const ctxItems = ctx?.kind === 'row' ? rowItems : ctx?.kind === 'col' ? [...colItems, '-', ...sortItems] : [...rowItems, '-', ...colItems, '-', ...noteItems, '-', ...sortItems];
   /** Open the menu at the mouse, or (keyboard: the menu key, Shift+F10) at the selected cell. */
   const openMenu = (e, kind) => {
     if (readOnly) return;
@@ -932,7 +948,7 @@ export default function SheetEditor() {
                   const vd = validations.length ? validationAt(validations, k) : null;
                   return (
                     <td key={k} data-k={k} {...spanProps} style={{ maxWidth: span ? undefined : widthOf(c), ...stickyStyle(c, r), ...cellStyle(fmt), ...(rules.length && ruleStyle(rules, k, v)), ...(theirs.has(k) && { boxShadow: `${isSel ? 'inset 0 0 0 2px var(--accent), ' : ''}inset 0 0 0 ${isSel ? 4 : 2}px ${theirs.get(k).color}` }) }}
-                      title={theirs.has(k) ? `${theirs.get(k).name} is here` : commented.has(k) ? 'Has comments' : spilledFrom ? `From the formula in ${spilledFrom}` : undefined}
+                      title={notes[k] ? `Note: ${notes[k]}` : theirs.has(k) ? `${theirs.get(k).name} is here` : commented.has(k) ? 'Has comments' : spilledFrom ? `From the formula in ${spilledFrom}` : undefined}
                       className={`${frozenClass(c, r)} ${spilledFrom ? 'spilled' : ''} ${vd ? `has-${vd.type}` : ''} ${commented.has(k) ? 'commented' : ''} ${isSel ? 'sel' : ''} ${inRange(c, r) && anchor ? 'range' : ''} ${typeof v === 'number' ? 'num' : ''} ${isErr ? 'err' : ''} ${hits?.keys.has(k) ? (hits.current === k ? 'find-current' : 'find-hit') : ''} ${!readOnly && guardBoxes.length && guarded(c, r) ? 'guarded' : ''} ${inFill(c, r) ? 'fill-preview' : ''}`}
                       onContextMenu={(e) => { if (!inRange(c, r)) { setAnchor(null); setSel({ c, r }); } openMenu(e, 'cell'); }}
                       onMouseDown={(e) => {
@@ -959,6 +975,7 @@ export default function SheetEditor() {
                           onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); if (editing) commitEdit(0, 0); setFilterMenu({ c }); }}>{filter.hidden?.[colName(c)]?.length ? '⏷' : '▾'}</button>
                       )}
                       {commented.has(k) && <span className="cell-comment" aria-hidden="true" />}
+                      {notes[k] && <span className="cell-note" aria-hidden="true" />}
                     </td>
                   );
                 })}
@@ -1002,6 +1019,10 @@ export default function SheetEditor() {
           </div>
         ))}
       </div>
+      {notes[selKey] && !editing && !noteEdit && (
+        <div className="note-bubble" role="note" aria-label={`Note on ${selKey}`} style={(() => { const r = gridRef.current?.querySelector(`[data-k="${selKey}"]`)?.getBoundingClientRect(); return r ? { left: r.right + 4, top: r.top } : { display: 'none' }; })()}>{notes[selKey]}</div>
+      )}
+      {noteEdit && <NoteEditor at={noteEdit} onClose={() => { setNoteEdit(null); gridRef.current?.focus(); }} onSave={(text) => { saveNote(noteEdit.key, text); setNoteEdit(null); gridRef.current?.focus(); }} />}
       {ctx && <ContextMenu x={ctx.x} y={ctx.y} items={ctxItems} label={ctx.kind === 'row' ? 'Row actions' : ctx.kind === 'col' ? 'Column actions' : 'Cell actions'} onClose={closeCtx} />}
       {dialog?.type === 'rules' && (
         <RulesDialog rules={rules} defaultRange={anchor ? rangeText(range) : rangeText(dataRegion(sel, (c, r) => cells[cellKey(c, r)] !== undefined && cells[cellKey(c, r)] !== ''))}
@@ -1128,6 +1149,21 @@ export function parseCsv(text) {
 }
 
 /** Formatting for the selected cells: bold, italic, underline, colours, alignment, number format. */
+/** Writing a cell's note: Ctrl+Enter (or clicking away) keeps it, Esc leaves it as it was; empty removes it. */
+function NoteEditor({ at, onSave, onClose }) {
+  const [text, setText] = useState(at.text);
+  const done = useRef(false);
+  const finish = (save) => { if (done.current) return; done.current = true; if (save) onSave(text); else onClose(); };
+  return (
+    <div className="note-bubble note-edit" style={{ left: Math.min(at.x, window.innerWidth - 260), top: Math.min(at.y, window.innerHeight - 160) }}>
+      <textarea autoFocus aria-label={`Note on ${at.key}`} rows={4} maxLength={2000} value={text} placeholder="Write a note…" onChange={(e) => setText(e.target.value)}
+        onBlur={() => finish(true)}
+        onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); finish(false); } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); finish(true); } }} />
+      <div className="muted small">{at.key} · Ctrl+Enter to keep, Esc to cancel</div>
+    </div>
+  );
+}
+
 function FormatBar({ fmt, onChange, onBorders, onMerge, merged, onComment, onChart, onSort, onRules, onValidation, onPivot, filterOn, onFilter, history }) {
   const keep = (e) => e.preventDefault(); // buttons don't take focus from the grid
   const Toggle = ({ k, label, title, children }) => (

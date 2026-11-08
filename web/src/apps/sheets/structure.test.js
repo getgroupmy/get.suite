@@ -72,3 +72,13 @@ test('dropdowns and tick boxes follow inserted and deleted rows', () => {
   const delRow = applyStructure(sheet, { axis: 'row', at: 2, count: -1 });
   assert.deepEqual(delRow.validations.map((v) => v.range), ['B2:B4'], 'the one on the deleted row goes');
 });
+
+import { applyStructure as applyS, sortRange as sortR } from './structure.js';
+test('cell notes stay with their cells when rows go in or out, and when sorting', () => {
+  const sheet = { name: 'S', cells: { A1: 'b', A2: 'a' }, notes: { A1: 'about b', B2: 'beside a' } };
+  assert.deepEqual(applyS(sheet, { axis: 'row', at: 0, count: 1 }).notes, { A2: 'about b', B3: 'beside a' });
+  assert.deepEqual(applyS(sheet, { axis: 'row', at: 0, count: -1 }).notes, { B1: 'beside a' }, 'a deleted row takes its notes');
+  const sorted = sortR(sheet, { c1: 0, c2: 1, r1: 0, r2: 1 }, 0, { value: (k) => sheet.cells[k] });
+  assert.deepEqual(sorted.notes, { A2: 'about b', B1: 'beside a' });
+  assert.equal(sortR({ cells: {} }, { c1: 0, c2: 0, r1: 0, r2: 0 }, 0, { value: () => '' }).notes, undefined);
+});
