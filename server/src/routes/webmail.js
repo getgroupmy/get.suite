@@ -1,4 +1,6 @@
 import { companySignature, companySignatureFor } from '../mail/companysig.js';
+import { audit } from '../audit.js';
+import { fillTemplate, mergeHtml, unknownPlaceholders } from '../mail/merge.js';
 import { Router } from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -27,6 +29,7 @@ import { mimeFor } from '../util.js';
 const PAGE = 50;
 const OUTBOX = path.join(DATA_DIR, 'outbox');
 const MAX_SCHEDULED = 100;
+const MAX_MERGE = 200; // messages per mail merge
 q(`CREATE TABLE IF NOT EXISTS scheduled_mail (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -1047,6 +1050,37 @@ export default function webmailRoutes() {
     recordSent(req.user, m.all);
     if (b.draftUid) await deleteDraft(req.user, await specialOf(req.user, '\\Drafts').catch(() => null), Number(b.draftUid)).catch(() => {});
     res.json({ ok: true, recipients: m.all.length });
+  });
+
+  // Mail merge: { from, subject, text, columns: [names], rows: [{ email, fields: { Column: value } }], test }.
+  // Each row gets its own message (only their address on it), with {{Column}} filled in from the row.
+  // test: true sends just the first row's message, to yourself. Returns { sent, failed: [{ email, error }] }.
+  r.post('/merge', async (req, res) => {
+    const b = req.body || {};
+    const rows = Array.isArray(b.rows) ? b.rows : [];
+    if (!rows.length) throw bad('There is nobody to send to');
+    if (rows.length > MAX_MERGE) throw bad(`Mail merge sends up to ${MAX_MERGE} messages at a time`);
+    const subject = str(b.subject, { max: 998, name: 'Subject' }) || '';
+    const text = String(b.text || '');
+    if (!subject.trim() && !text.trim()) throw bad('Write a subject or a message');
+    if (text.length > 100000) throw bad('The message is too long');
+    const unknown = unknownPlaceholders(subject, text, Array.isArray(b.columns) ? b.columns.map(String) : []);
+    if (unknown.length) throw bad(`No column called ${unknown.map((u) => `“${u}”`).join(', ')}`);
+    const list = b.test ? [{ email: req.user.username, fields: rows[0].fields }] : rows;
+    const sent = [], failed = [];
+    for (const row of list) {
+      const email = String(row?.email || '').trim().toLowerCase();
+      if (!EMAIL_RE.test(email)) { failed.push({ email: email || '(empty)', error: 'Not an email address' }); continue; }
+      try {
+        const fields = row.fields && typeof row.fields === 'object' ? row.fields : {};
+        const m = await buildMessage({ user: req.user, body: { from: b.from, to: email, subject: fillTemplate(subject, fields).replace(/[\r\n]+/g, ' '), text: fillTemplate(text, fields), html: mergeHtml(text, fields) } });
+        await deliver(req.user, m.raw, m.envelope);
+        if (!b.test) recordSent(req.user, m.all);
+        sent.push(email);
+      } catch (e) { failed.push({ email, error: e.message }); }
+    }
+    if (!b.test) audit(req, 'mail.merge', { target: subject.slice(0, 200), details: { sent: sent.length, failed: failed.length } });
+    res.json({ sent: sent.length, failed });
   });
 
   // Messages waiting to be sent.

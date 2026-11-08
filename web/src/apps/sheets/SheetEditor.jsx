@@ -37,6 +37,8 @@ import { box, mergeLayout, mergeAt, addMerge, removeMerges, growToMerges, stepWi
 import { SheetFind } from './SheetFind.jsx';
 import { brokenProtections, protectionsAt, mayEdit, rangeBox } from './protect.js';
 import { ProtectDialog } from './SheetProtect.jsx';
+import { MailMergeDialog } from './MailMerge.jsx';
+import { useMailStatus } from '../../mailStatus.js';
 import { fillCells, fillTarget, fillSources, selectionStats } from './fill.js';
 
 const SEL_COLORS = ['#1a73e8', '#d93025', '#188038', '#e37400', '#8430ce', '#00796b', '#c2185b', '#5f6368'];
@@ -75,6 +77,7 @@ export default function SheetEditor() {
   const [draft, setDraft] = useState('');
   const assist = useFormulaAssist(draft, setDraft, !!editing);
   const [dialog, setDialog] = useState(null);
+  const mail = useMailStatus();
   const [nameBox, setNameBox] = useState(null); // what's being typed in the name box
   const dataRef = useRef(null);
   const gridRef = useRef();
@@ -812,6 +815,7 @@ export default function SheetEditor() {
           { label: 'Find and replace', icon: 'search', onClick: () => setFinding({ replace: !readOnly, n: 1 }) },
           { label: 'Named ranges', icon: 'link', onClick: () => setDialog({ type: 'names', initial: selText }) },
           { label: 'Protected sheets and ranges', icon: 'lock', onClick: () => setDialog({ type: 'protect', initial: selText }) },
+          mail?.enabled && { label: 'Mail merge…', icon: 'mail', onClick: () => setDialog({ type: 'mailmerge' }) },
           { label: 'Version history', icon: 'clock', onClick: () => setDialog({ type: 'history' }) },
           { label: 'Print or save as PDF', icon: 'print', onClick: () => setDialog({ type: 'print' }) },
           { label: 'Download as Excel (.xlsx)', icon: 'download', onClick: () => { window.location.href = `/api/files/${id}/export`; } },
@@ -1020,6 +1024,7 @@ export default function SheetEditor() {
           onSave={(next) => writeSheet(() => ({ names: Object.keys(next).length ? next : undefined }))}
           onGo={(t) => { setDialog(null); goTo(t); }} />
       )}
+      {dialog?.type === 'mailmerge' && <MailMergeDialog cells={cells} shown={shown} from={mail?.address || user.username} onClose={() => { setDialog(null); gridRef.current?.focus(); }} />}
       {dialog?.type === 'protect' && (
         <ProtectDialog fileId={file.id} sheetName={sheet.name} list={sheet.protected} initial={dialog.initial} me={user.id} ownerId={file.owner_id} ownerName={file.owner_name}
           canEdit={!readOnly} onClose={() => { setDialog(null); gridRef.current?.focus(); }}

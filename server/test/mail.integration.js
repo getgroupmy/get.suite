@@ -1213,3 +1213,28 @@ test('a group email address delivers to its members, who can send as it', async 
   const ids = (await sam('GET', '/api/mail/status')).body.identities.map((i) => i.address);
   assert.ok(ids.includes('helpdesk@acme.com'), 'they can send from it');
 });
+
+test('mail merge: a personal message to each row; unknown placeholders refused; a test goes to you', async () => {
+  const columns = ['Email', 'First name', 'Amount'];
+  const rows = [
+    { email: 'olivia@acme.com', fields: { Email: 'olivia@acme.com', 'First name': 'Olivia', Amount: '120' } },
+    { email: 'gina@globex.com', fields: { Email: 'gina@globex.com', 'First name': 'Gina', Amount: '75 & tax' } },
+    { email: 'not an address', fields: { 'First name': 'X' } },
+  ];
+  const bad = await olivia('POST', '/api/mail/merge', { columns, rows, subject: 'Hi {{First name}}', text: 'From {{Team}}' });
+  assert.equal(bad.status, 400);
+  assert.match(bad.body.error, /No column called “Team”/);
+  const test1 = await olivia('POST', '/api/mail/merge', { columns, rows, subject: 'Figures for {{First name}}', text: 'Dear {{first name}},\nyou owe {{Amount}}.', test: true });
+  assert.deepEqual(test1.body, { sent: 1, failed: [] });
+  await eventually(async () => (await inbox(olivia)).some((m) => m.subject === 'Figures for Olivia'));
+  const r = await olivia('POST', '/api/mail/merge', { columns, rows, subject: 'Figures for {{First name}}', text: 'Dear {{first name}},\nyou owe {{Amount}}.' });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.sent, 2);
+  assert.deepEqual(r.body.failed, [{ email: 'not an address', error: 'Not an email address' }]);
+  const g = await eventually(async () => (await inbox(gina)).find((m) => m.subject === 'Figures for Gina'));
+  const full = (await gina('GET', `/api/mail/messages/${g.uid}?folder=INBOX`)).body;
+  assert.match(full.text, /Dear Gina,\s+you owe 75 & tax\./);
+  assert.deepEqual(full.to.map((a) => a.address), ['gina@globex.com'], 'only their own address');
+  assert.match(full.html, /75 &amp; tax/);
+  await eventually(async () => (await inbox(olivia)).filter((m) => m.subject === 'Figures for Olivia').length === 2, 20000); // the test, then the real one
+});
