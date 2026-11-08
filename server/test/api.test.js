@@ -3684,3 +3684,27 @@ test('commenters through groups and the whole company; a commenter in a viewer g
   assert.equal((await m('GET', `/api/files/${doc2.id}`)).body.role, 'commenter');
   assert.equal((await m('POST', `/api/comments/${doc2.id}`, { body: 'Hello', anchor: { quote: 'x' } })).status, 201);
 });
+
+test('assigning a comment gives the person a task; resolving the thread ticks it off', async () => {
+  const k = client();
+  const kid = (await owner('POST', '/api/users', { local: 'asg', domain: 'acme.com', name: 'Asha Assigned', password: 'password123' })).body.id;
+  await login(k, 'asg@acme.com');
+  const doc = (await owner('POST', '/api/files/new', { kind: 'doc', name: 'Launch plan' })).body;
+  assert.equal((await owner('POST', `/api/comments/${doc.id}`, { body: '@asg@acme.com please check the dates', anchor: { quote: 'dates' }, assign: kid })).status, 400, 'not shared yet');
+  await owner('PUT', `/api/files/${doc.id}/shares`, { shares: [{ user_id: kid, role: 'commenter' }] });
+  const c = (await owner('POST', `/api/comments/${doc.id}`, { body: '@asg@acme.com please check the dates', anchor: { quote: 'dates' }, assign: kid })).body.comment;
+  assert.equal(c.assignee_id, kid); assert.equal(c.assignee_name, 'Asha Assigned');
+  const lists = (await k('GET', '/api/tasks/lists')).body;
+  const mine = (lists.lists || lists)[0];
+  const tasksOf = async () => (await k('GET', `/api/tasks/lists/${mine.id}/tasks`)).body;
+  const t = (await tasksOf()).find((x) => x.title.includes('please check the dates'));
+  assert.ok(t, 'a task'); assert.equal(t.link_url || t.link?.url, `/docs/${doc.id}?comment=${c.id}`);
+  assert.ok(JSON.stringify((await k('GET', '/api/notifications')).body).includes('assigned you a comment on “Launch plan”'));
+  // Resolving the thread ticks it off; reopening puts it back.
+  await k('PATCH', `/api/comments/${doc.id}/${c.id}`, { resolved: true });
+  const after = (await tasksOf()).find((x) => x.id === t.id);
+  assert.ok(after.done || after.done_at, JSON.stringify(after));
+  await owner('PATCH', `/api/comments/${doc.id}/${c.id}`, { resolved: false });
+  const again = (await tasksOf()).find((x) => x.id === t.id);
+  assert.ok(!again.done && !again.done_at);
+});

@@ -44,6 +44,12 @@ export function CommentsPanel({ fileId, threads, canEdit, active, setActive, pen
   const [showResolved, setShowResolved] = useState(false);
   const [draft, setDraft] = useState('');
   const [replies, setReplies] = useState({});
+  // "Assign to": the people @mentioned in a new comment (from the company directory).
+  const [people, setPeople] = useState([]);
+  const [assignTo, setAssignTo] = useState('');
+  useEffect(() => { if (pending) get('/users/directory').then(setPeople).catch(() => {}); }, [!!pending]); // eslint-disable-line react-hooks/exhaustive-deps
+  const mentioned = [...new Set([...draft.matchAll(/@([a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,})/gi)].map((m) => m[1].toLowerCase()))]
+    .map((e) => people.find((p) => p.username === e)).filter(Boolean);
   const send = async (body, extra) => {
     const r = await post(`/comments/${fileId}`, { body, ...extra });
     if (r.noAccess?.length) toast(`${r.noAccess.join(', ')} can't open this file, so they weren't told. Share it with them first.`, 'error');
@@ -63,12 +69,20 @@ export function CommentsPanel({ fileId, threads, canEdit, active, setActive, pen
         <form className="comment-new stack" onSubmit={async (e) => {
           e.preventDefault();
           if (!draft.trim()) return;
-          try { const c = await send(draft, { anchor: pending.anchor, id: pending.id }); setDraft(''); pending.onCreated(c.id); setActive(c.id); } catch (err) { toast(err.message, 'error'); }
+          const who = mentioned.find((p) => p.id === assignTo);
+          try { const c = await send(draft, { anchor: pending.anchor, id: pending.id, ...(who && { assign: who.id }) }); setDraft(''); setAssignTo(''); pending.onCreated(c.id); setActive(c.id); if (who) toast(`Assigned to ${who.name}: it's on their task list`); } catch (err) { toast(err.message, 'error'); }
         }}>
           <span className="muted small">On {pending.label}</span>
           <MentionBox value={draft} onChange={setDraft} autoFocus label="New comment" placeholder="Comment, or @mention someone" onSubmit={() => document.querySelector('.comment-new button[type=submit]')?.click()} />
+          {mentioned.length > 0 && (
+            <label className="row small comment-assign">Assign to
+              <select aria-label="Assign to" value={assignTo} onChange={(e) => setAssignTo(e.target.value)}>
+                <option value="">Nobody</option>
+                {mentioned.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select></label>
+          )}
           <div className="row end">
-            <button type="button" className="btn small" onClick={() => { setDraft(''); pending.onCancel(); }}>Cancel</button>
+            <button type="button" className="btn small" onClick={() => { setDraft(''); setAssignTo(''); pending.onCancel(); }}>Cancel</button>
             <button type="submit" className="btn small primary" disabled={!draft.trim()}>Comment</button>
           </div>
         </form>
@@ -85,6 +99,7 @@ export function CommentsPanel({ fileId, threads, canEdit, active, setActive, pen
                 <Body text={c.body} />
               </div>
             ))}
+            {t.assignee_name && <p className={`small comment-assigned ${t.resolved ? 'muted' : ''}`}>☑ Assigned to {t.assignee_name}{t.resolved ? ' · done' : ''}</p>}
             {t.resolved && <p className="muted small">Resolved by {t.resolved_by_name || 'someone'}</p>}
             {canEdit && t.id === active && (
               <div className="stack comment-reply" onClick={(e) => e.stopPropagation()}>
