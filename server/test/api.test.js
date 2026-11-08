@@ -998,6 +998,28 @@ test('chat: unread counts, editing, reactions and attached files', async () => {
   assert.equal(got.status, 200, 'the other person can open it');
   assert.match(got.headers.get('content-disposition'), /^inline/);
   assert.equal((await x('GET', `/api/chat/messages/${withFile.id}/files/${pic.id}`)).status, 404);
+  // The viewer: safe kinds shown with ?view, Word/Excel/PowerPoint read-only, zips listed; only for the conversation.
+  const { Document, Packer, Paragraph } = await import('docx');
+  const JSZip = (await import('jszip')).default;
+  const zz = new JSZip(); zz.file('inside/a.txt', 'A');
+  const upf = async (name, buf) => (await a('POST', `/api/files/upload?name=${encodeURIComponent(name)}&parent=${folder}`, buf, { raw: true })).body;
+  const txt = await upf('minutes.txt', Buffer.from('We agreed.'));
+  const word = await upf('Plan.docx', await Packer.toBuffer(new Document({ sections: [{ children: [new Paragraph('Phase two starts Monday.')] }] })));
+  const zipped = await upf('Bundle.zip', await zz.generateAsync({ type: 'nodebuffer' }));
+  const page = await upf('page.html', Buffer.from('<script>alert(1)</script>'));
+  const many = (await a('POST', `/api/chat/channels/${dm}/messages`, { body: 'files', files: [txt.id, word.id, zipped.id, page.id] })).body;
+  const at = (f, extra = '') => `/api/chat/messages/${many.id}/files/${f.id}${extra}`;
+  const shown = await b('GET', at(txt, '?view'));
+  assert.equal(shown.headers.get('content-type'), 'text/plain; charset=utf-8');
+  assert.match(shown.headers.get('content-security-policy'), /sandbox/);
+  assert.equal(shown.body, 'We agreed.');
+  assert.match((await b('GET', at(page, '?view'))).headers.get('content-disposition'), /^attachment/, 'web pages still download');
+  const prev = await b('GET', at(word, '/preview'));
+  assert.equal(prev.body.kind, 'doc');
+  assert.match(JSON.stringify(prev.body.content), /Phase two starts Monday/);
+  assert.deepEqual((await b('GET', at(zipped, '/zip'))).body.entries.map((e) => e.path), ['inside', 'inside/a.txt']);
+  assert.equal((await b('GET', at(txt, '/zip'))).status, 400);
+  for (const u of [at(word, '/preview'), at(zipped, '/zip'), at(txt, '?view')]) assert.equal((await x('GET', u)).status, 404, `outsiders: ${u}`);
   assert.equal((await b('POST', `/api/chat/channels/${dm}/messages`, { body: 'x', files: [pic.id] })).status, 400, 'only files you can open yourself');
   assert.equal((await a('POST', `/api/chat/channels/${dm}/messages`, { body: '' })).status, 400, 'a message needs text or a file');
 });

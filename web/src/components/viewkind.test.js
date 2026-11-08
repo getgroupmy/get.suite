@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { previewKind, stepPreview } from './attpreview.js';
+import { previewKind, stepPreview } from './viewkind.js';
 
 test('previewKind: by the file name, safe kinds only', () => {
   assert.equal(previewKind('Scan.JPG'), 'picture');

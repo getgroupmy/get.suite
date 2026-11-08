@@ -1,4 +1,4 @@
-// Which email attachments open in the viewer (the server shows only these: see server/src/mail/preview.js).
+// Which files open in the viewer (email attachments, chat files); the server shows only these (server/src/mail/preview.js).
 const KINDS = {
   picture: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'bmp'],
   pdf: ['pdf'],

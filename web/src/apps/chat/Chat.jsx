@@ -1,3 +1,5 @@
+import FileViewer from '../../components/FileViewer.jsx';
+import { previewKind, stepPreview } from '../../components/viewkind.js';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { blocks, hasMarkup } from './markup.js';
 import { fileLinksIn } from './filelinks.js';
@@ -545,15 +547,7 @@ function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit
             {m.preview.description && <span className="small">{m.preview.description}</span>}
           </a>
         )}
-        {m.files?.length > 0 && (
-          <div className="msg-files">
-            {m.files.map((f) => (/^audio\/(webm|ogg|mp4|mpeg|wav)$/.test(f.mime)
-              ? <audio key={f.id} className="msg-voice" controls preload="metadata" src={`/api/chat/messages/${m.id}/files/${f.id}`} aria-label={f.name.startsWith('Voice message') ? `Voice message from ${m.user_name || 'someone'}` : f.name} />
-              : /^image\/(png|jpeg|gif|webp)$/.test(f.mime)
-              ? <a key={f.id} href={`/api/chat/messages/${m.id}/files/${f.id}`} target="_blank" rel="noreferrer" className="msg-pic"><img src={`/api/chat/messages/${m.id}/files/${f.id}`} alt={f.name} loading="lazy" /></a>
-              : <a key={f.id} className="msg-file" href={`/api/chat/messages/${m.id}/files/${f.id}?download`}><Icon name="attach" size={16} /> {f.name} <span className="muted small">{formatBytes(f.size)}</span></a>))}
-          </div>
-        )}
+        {m.files?.length > 0 && <MessageFiles m={m} />}
         {m.reactions?.length > 0 && (
           <div className="reactions">
             {m.reactions.map((r) => {
@@ -1070,5 +1064,30 @@ function VoiceRecorder({ onDone }) {
       <button type="button" className="icon-btn" aria-label="Stop recording" title="Stop and add it" onClick={() => stop(false)}>■</button>
       <button type="button" className="icon-btn" aria-label="Cancel recording" title="Throw it away" onClick={() => stop(true)}><Icon name="close" size={14} /></button>
     </span>
+  );
+}
+
+/** A message's files: voice messages play here; pictures show; clicking a file opens the viewer when it can be shown. */
+function MessageFiles({ m }) {
+  const [viewing, setViewing] = useState(null);
+  const at = (f, extra = '') => `/api/chat/messages/${m.id}/files/${f.id}${extra}`;
+  const voice = (f) => /^audio\/(webm|ogg|mp4|mpeg|wav)$/.test(f.mime);
+  const items = m.files.filter((f) => !voice(f)).map((f) => ({ ...f, key: f.id, filename: f.name }));
+  const open = (e, f) => {
+    if (!previewKind(f.name) || e.shiftKey || e.ctrlKey || e.metaKey) return;
+    e.preventDefault();
+    setViewing(items.findIndex((x) => x.id === f.id));
+  };
+  return (
+    <div className="msg-files">
+      {m.files.map((f) => (voice(f)
+        ? <audio key={f.id} className="msg-voice" controls preload="metadata" src={at(f)} aria-label={f.name.startsWith('Voice message') ? `Voice message from ${m.user_name || 'someone'}` : f.name} />
+        : /^image\/(png|jpeg|gif|webp)$/.test(f.mime)
+        ? <a key={f.id} href={at(f)} target="_blank" rel="noreferrer" className="msg-pic" onClick={(e) => open(e, f)}><img src={at(f)} alt={f.name} loading="lazy" /></a>
+        : <a key={f.id} className="msg-file" href={at(f, '?download')} title={previewKind(f.name) ? 'Open (Shift+click to download)' : 'Download'} onClick={(e) => open(e, f)}><Icon name="attach" size={16} /> {f.name} <span className="muted small">{formatBytes(f.size)}</span></a>))}
+      {viewing !== null && items[viewing] && <FileViewer items={items} at={viewing}
+        urls={{ view: (f) => at(f, '?view'), download: (f) => at(f, '?download'), office: (f) => `/chat/messages/${m.id}/files/${f.id}/preview`, zip: (f) => `/chat/messages/${m.id}/files/${f.id}/zip` }}
+        onStep={(dir) => setViewing(stepPreview(items, viewing, dir))} onClose={() => setViewing(null)} />}
+    </div>
   );
 }

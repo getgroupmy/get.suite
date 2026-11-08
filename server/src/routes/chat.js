@@ -1,3 +1,6 @@
+import { previewMime, previewHeaders } from '../mail/preview.js';
+import { officePreview, MAX_PREVIEW } from '../office/preview.js';
+import { zipEntries } from '../zipfiles.js';
 import { notify } from '../notifications.js';
 import { firstLink, previewFor } from '../linkpreview.js';
 import { mailEnabled } from '../mail/config.js';
@@ -5,6 +8,7 @@ import { queueChatEmail } from '../chatmail.js';
 import express, { Router } from 'express';
 import crypto from 'node:crypto';
 import path from 'node:path';
+import fs from 'node:fs';
 import { q, tx, FILES_DIR } from '../db.js';
 import { uid, now, str, bad, notFound, HttpError } from '../util.js';
 import { roleFor, mayTakeAway } from '../access.js';
@@ -872,13 +876,20 @@ export default function chatRoutes() {
   });
 
   // A file attached to a message, for the people in the conversation.
-  r.get('/messages/:id/files/:fileId', (req, res) => {
+  const messageFile = (req) => {
     const m = q('SELECT * FROM messages WHERE id = ?').get(req.params.id);
     if (!m) throw notFound();
     loadChannel(m.channel_id, req.user);
     const listed = JSON.parse(m.files || '[]').some((f) => f.id === req.params.fileId);
     const f = listed && q("SELECT * FROM files WHERE id = ? AND kind = 'file' AND trashed = 0").get(req.params.fileId);
     if (!f) throw notFound('That file is no longer there');
+    return f;
+  };
+  r.get('/messages/:id/files/:fileId', (req, res) => {
+    const f = messageFile(req);
+    // ?view shows the kinds that can't run script (pictures, PDF, text, audio, video) in the viewer.
+    const shown = req.query.view !== undefined && previewMime(f.name);
+    if (shown) { res.set(previewHeaders(shown, f.name)); res.sendFile(path.join(FILES_DIR, f.storage)); return; }
     // Pictures show and sound (voice messages) plays in the conversation; anything else downloads.
     const inline = /^(image\/(png|jpeg|gif|webp)|audio\/(webm|ogg|mp4|mpeg|wav))$/.test(f.mime || '') && req.query.download === undefined;
     res.setHeader('Content-Type', inline ? f.mime : (f.mime || 'application/octet-stream'));
@@ -886,6 +897,17 @@ export default function chatRoutes() {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Content-Disposition', `${inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(f.name)}`);
     res.sendFile(path.join(FILES_DIR, f.storage), { headers: { 'Cache-Control': 'private, max-age=3600' } });
+  });
+  // Word, Excel and PowerPoint files read-only, and what's inside a zip.
+  r.get('/messages/:id/files/:fileId/preview', async (req, res) => {
+    const f = messageFile(req);
+    if (f.size > MAX_PREVIEW) throw bad('This file is too large to preview (20 MB at most): download it instead');
+    res.json(await officePreview(fs.readFileSync(path.join(FILES_DIR, f.storage)), f.name, req.user.id));
+  });
+  r.get('/messages/:id/files/:fileId/zip', async (req, res) => {
+    const f = messageFile(req);
+    if (!/\.zip$/i.test(f.name)) throw bad('Not a zip file');
+    res.json(await zipEntries(fs.readFileSync(path.join(FILES_DIR, f.storage))));
   });
 
   // The Drive folder files you attach from your computer go to ("Chat files", made when first needed).
