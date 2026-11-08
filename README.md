@@ -760,6 +760,7 @@ Each entry shows who did it, what it was done to, the details and the IP address
 ## Chat
 
 - **Unread:** Chat in the app bar and each conversation show how many messages you haven't read; opening the conversation clears them, on your other devices too. To come back to something later, hover over someone else's message and choose ✉ **Mark unread from here**: the conversation counts as unread from that message on (you're taken back to the list so it stays that way).
+- **Seen:** in a direct message, **Seen** appears under the latest message you sent once the other person has read it (hover for when), as it happens. **Settings → Read receipts** turns it off; then neither of you sees it for the other. Channels don't show it.
 - **Reactions:** hover over a message and pick 👍, ❤️, 😂 or any emoji; click a reaction to add yours or take it back. Hover over it to see who reacted.
 - **Editing:** hover over your own message and choose the pencil to change it (Enter saves, Esc cancels). Changed messages say "(edited)".
 - **Search:** the search box above the channels finds messages with all the words you type, in every channel and direct conversation you can see (thread replies too), newest first, with the words marked. Click one to jump to it, however far back it is (a reply opens its thread).

@@ -116,6 +116,11 @@ export default function Chat() {
   }, [channelId]);
   useEffect(() => { loadPins(); setPinsOpen(false); }, [loadPins]);
   useEffect(() => onLive((m) => { if (m.type === 'pins-changed' && m.channel_id === channelId) loadPins(); }), [channelId, loadPins]);
+  // Direct messages: when the other person last read the conversation ("Seen" under what you sent).
+  const [seenAt, setSeenAt] = useState(null);
+  const isDm = !!channels.find((c) => c.id === channelId)?.dm_key;
+  useEffect(() => { setSeenAt(null); if (channelId && isDm) get(`/chat/channels/${channelId}/seen`).then((r) => setSeenAt(r.read_at)).catch(() => {}); }, [channelId, isDm]);
+  useEffect(() => onLive((m) => { if (m.type === 'chat-seen' && m.channel_id === channelId) setSeenAt((t) => Math.max(t || 0, m.read_at)); }), [channelId]);
   const pin = (m, on) => post(`/chat/messages/${m.id}/pin`, { pinned: on }).then(() => toast(on ? 'Pinned to the conversation' : 'Unpinned')).catch((e) => toast(e.message, 'error'));
 
   useEffect(() => onLive((m) => {
@@ -353,6 +358,7 @@ export default function Chat() {
             {messages.length === 0 && <Empty icon="chat" title="No messages yet">Say hello 👋</Empty>}
             {messages.map((m, i) => {
               const prev = messages[i - 1];
+              const lastMine = current.dm_key && m.user_id === user.id && !messages.slice(i + 1).some((x) => x.user_id === user.id);
               const grouped = prev && prev.user_id === m.user_id && m.created_at - prev.created_at < 5 * 60e3;
               const newDay = !prev || new Date(prev.created_at).toDateString() !== new Date(m.created_at).toDateString();
               return (
@@ -363,6 +369,7 @@ export default function Chat() {
                     onReact={(e) => react(m, e)} onThread={() => setThreadId(m.id)} onPin={current.archived_at ? null : () => pin(m, !m.pinned_at)} onForward={m.poll ? null : () => setForwarding(m)} onMarkUnread={async () => {
                       try { await post(`/chat/messages/${m.id}/unread`); navigate('/chat'); toast(`Marked unread from ${m.user_name || 'this message'}’s message`); } catch (e) { toast(e.message, 'error'); }
                     }} onDelete={() => del(`/chat/messages/${m.id}`).catch((e) => toast(e.message, 'error'))} />
+                  {lastMine && seenAt >= m.created_at && current.dm_user_id !== user.id && <div className="seen-mark muted small" title={`Seen ${new Date(seenAt).toLocaleString()}`}>Seen</div>}
                 </div>
               );
             })}

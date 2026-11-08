@@ -4103,3 +4103,25 @@ test('forms: people can change their response afterwards when the form allows it
   await owner('PUT', `/api/forms/${f.id}`, { accepting: true, allow_edit: false });
   assert.equal((await anon('GET', `/api/public/forms/${f.token}/response/${key}`)).status, 404, 'turning it off stops the links');
 });
+
+test('chat: "Seen" in direct messages, unless either person turns read receipts off', async () => {
+  const mk = async (local, name) => { const c = client(); const r = await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' }); await login(c, `${local}@acme.com`); return [c, r.body.id]; };
+  const [rae, raeId] = await mk('seena', 'Rae Seen');
+  const [tom, tomId] = await mk('seenb', 'Tom Seen');
+  const dm = (await rae('POST', '/api/chat/dm', { user_id: tomId })).body.id;
+  await rae('POST', `/api/chat/channels/${dm}/messages`, { body: 'Lunch?' });
+  const before = (await rae('GET', `/api/chat/channels/${dm}/seen`)).body.read_at;
+  await tom('POST', `/api/chat/channels/${dm}/read`);
+  const seen = (await rae('GET', `/api/chat/channels/${dm}/seen`)).body.read_at;
+  assert.ok(seen && (!before || seen > before), 'Tom has read it');
+  // Not for channels.
+  const general = (await rae('GET', '/api/chat/channels')).body.channels?.find((c) => !c.dm_key) || (await rae('GET', '/api/chat/channels')).body.find?.((c) => !c.dm_key);
+  if (general) assert.equal((await rae('GET', `/api/chat/channels/${general.id}/seen`)).body.read_at, null);
+  // Off for one means off for both.
+  assert.equal((await tom('PUT', '/api/chat/me/read-receipts', { on: false })).body.on, false);
+  assert.equal((await rae('GET', `/api/chat/channels/${dm}/seen`)).body.read_at, null);
+  assert.equal((await tom('GET', `/api/chat/channels/${dm}/seen`)).body.read_at, null);
+  assert.equal((await tom('PUT', '/api/chat/me/read-receipts', { on: true })).body.on, true);
+  assert.ok((await rae('GET', `/api/chat/channels/${dm}/seen`)).body.read_at);
+  assert.ok(raeId);
+});

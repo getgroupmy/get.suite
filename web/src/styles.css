@@ -1867,3 +1867,4 @@ tr.shortcut-row.broken .name-text { color: var(--muted, #777); font-style: itali
 .slide-grid li.drop-after::after { right: -11px; }
 .slide-list li.drop-before { box-shadow: 0 -3px 0 var(--accent); }
 .slide-list li.drop-after { box-shadow: 0 3px 0 var(--accent); }
+.seen-mark { text-align: right; padding: 0 16px 2px; font-size: 12px; }

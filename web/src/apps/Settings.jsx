@@ -58,6 +58,7 @@ export default function Settings() {
       <SecondZone />
       <Profile />
       <ViewHistory />
+      <ReadReceipts />
       <YourData />
     </div>
   );
@@ -191,6 +192,24 @@ function Appearance() {
 
 /** A second time zone beside the hours in Calendar. */
 /** Whether owners and editors see when you open their files. */
+/** "Seen" in direct messages: on for both people, or for neither. */
+function ReadReceipts() {
+  const toast = useToast();
+  const [on, setOn] = useState(null);
+  useEffect(() => { get('/chat/me/read-receipts').then((r) => setOn(r.on)).catch(() => {}); }, []);
+  if (on === null) return null;
+  return (
+    <section className="card stack" aria-labelledby="rr-h">
+      <h2 id="rr-h">Read receipts</h2>
+      <label className="check"><input type="checkbox" checked={on} onChange={async (e) => {
+        const next = e.target.checked; setOn(next);
+        try { await put('/chat/me/read-receipts', { on: next }); toast(next ? 'People you message can see when you’ve read what they sent' : 'Read receipts are off, both ways'); } catch (err) { setOn(!next); toast(err.message, 'error'); }
+      }} /> Show “Seen” in direct messages</label>
+      <p className="muted small" style={{ margin: 0 }}>When it's off, people you message don't see when you've read what they sent, and you don't see it for them either.</p>
+    </section>
+  );
+}
+
 function ViewHistory() {
   const toast = useToast();
   const [show, setShow] = useState(null);

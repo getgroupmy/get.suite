@@ -73,6 +73,11 @@ function loadChannel(id, user) {
 }
 
 const membersOf = (c) => q('SELECT user_id FROM channel_members WHERE channel_id = ?').all(c.id).map((r) => r.user_id);
+// Read receipts in direct messages: users.hide_reads = 1 turns them off (both ways).
+if (!q('PRAGMA table_info(users)').all().some((x) => x.name === 'hide_reads')) q('ALTER TABLE users ADD COLUMN hide_reads INTEGER NOT NULL DEFAULT 0').run();
+const receiptsOn = (userId) => !q('SELECT hide_reads FROM users WHERE id = ?').get(userId)?.hide_reads;
+/** The other person in a direct message (null for channels and for a note to yourself). */
+const dmOther = (c, me) => (c.dm_key ? c.dm_key.split(':').find((x) => x !== me) || null : null);
 const audience = (c) => (c.dm_key || c.private ? membersOf(c) : orgMemberIds(c.org_id));
 const isGeneral = (c) => !c.dm_key && c.id === q('SELECT id FROM channels WHERE org_id = ? AND dm_key IS NULL ORDER BY created_at LIMIT 1').get(c.org_id)?.id;
 /** May this person change the channel's name, privacy or archiving? Who made it, or a company admin. */
@@ -554,12 +559,31 @@ export default function chatRoutes() {
     res.json({ muted: req.body.muted !== false });
   });
 
-  // Read up to now: unread counts go back to zero (on your other devices too).
+  // Read up to now: unread counts go back to zero (on your other devices too). In a direct message
+  // the other person sees "Seen" under what they sent, unless either of you has read receipts off.
   r.post('/channels/:id/read', (req, res) => {
     const c = loadChannel(req.params.id, req.user);
-    q('INSERT INTO channel_reads (channel_id, user_id, read_at) VALUES (?, ?, ?) ON CONFLICT(channel_id, user_id) DO UPDATE SET read_at = MAX(read_at, excluded.read_at)').run(c.id, req.user.id, now());
+    const t = now();
+    q('INSERT INTO channel_reads (channel_id, user_id, read_at) VALUES (?, ?, ?) ON CONFLICT(channel_id, user_id) DO UPDATE SET read_at = MAX(read_at, excluded.read_at)').run(c.id, req.user.id, t);
     sendTo([req.user.id], { type: 'chat-read', channel_id: c.id });
+    const other = dmOther(c, req.user.id);
+    if (other && receiptsOn(req.user.id) && receiptsOn(other)) sendTo([other], { type: 'chat-seen', channel_id: c.id, by: req.user.id, read_at: q('SELECT read_at FROM channel_reads WHERE channel_id = ? AND user_id = ?').get(c.id, req.user.id).read_at });
     res.json({ ok: true });
+  });
+
+  // When the other person in a direct message last read it: { read_at } (null when unknown or turned off).
+  r.get('/channels/:id/seen', (req, res) => {
+    const c = loadChannel(req.params.id, req.user);
+    const other = dmOther(c, req.user.id);
+    if (!other || !receiptsOn(req.user.id) || !receiptsOn(other)) return res.json({ read_at: null });
+    res.json({ read_at: q('SELECT read_at FROM channel_reads WHERE channel_id = ? AND user_id = ?').get(c.id, other)?.read_at ?? null });
+  });
+
+  // Read receipts on or off (both people need them on for either to see them).
+  r.get('/me/read-receipts', (req, res) => res.json({ on: receiptsOn(req.user.id) }));
+  r.put('/me/read-receipts', (req, res) => {
+    q('UPDATE users SET hide_reads = ? WHERE id = ?').run(req.body?.on === false ? 1 : 0, req.user.id);
+    res.json({ on: receiptsOn(req.user.id) });
   });
 
   // Who in a conversation can't open a Drive file (a link just sent there), so it can be shared with them.
