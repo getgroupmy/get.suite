@@ -51,4 +51,25 @@ export function assignmentsOf(mailboxId, messageIds) {
   return out;
 }
 
+// Internal notes on a message: a short discussion only the mailbox's people see (never sent to the customer).
+q(`CREATE TABLE IF NOT EXISTS shared_notes (
+  id TEXT PRIMARY KEY,
+  mailbox_id TEXT NOT NULL REFERENCES shared_mailboxes(id) ON DELETE CASCADE,
+  message_id TEXT NOT NULL,
+  user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+  body TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+)`).run();
+q('CREATE INDEX IF NOT EXISTS shared_notes_msg ON shared_notes(mailbox_id, message_id, created_at)').run();
+export const notesOf = (mailboxId, messageId) => q(`SELECT n.id, n.body, n.created_at, n.user_id, u.name AS user_name FROM shared_notes n LEFT JOIN users u ON u.id = n.user_id
+                                                     WHERE n.mailbox_id = ? AND n.message_id = ? ORDER BY n.created_at`).all(mailboxId, messageId);
+/** How many notes each message has: Map(messageId -> n). */
+export function noteCounts(mailboxId, messageIds) {
+  const out = new Map();
+  const ids = [...new Set(messageIds.filter(Boolean))].slice(0, 500);
+  if (!ids.length) return out;
+  for (const r of q(`SELECT message_id, COUNT(*) AS n FROM shared_notes WHERE mailbox_id = ? AND message_id IN (${ids.map(() => '?').join(',')}) GROUP BY message_id`).all(mailboxId, ...ids)) out.set(r.message_id, r.n);
+  return out;
+}
+
 export const membersOf = (id) => q(`SELECT u.id, u.name, u.username FROM shared_mailbox_members m JOIN users u ON u.id = m.user_id WHERE m.mailbox_id = ? ORDER BY u.name`).all(id);

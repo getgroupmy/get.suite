@@ -1514,6 +1514,16 @@ test('shared mailbox: its members read it and answer as it; nobody signs in to i
   const listed = (await olivia('GET', '/api/mail/messages?folder=INBOX', undefined, as)).body.messages.find((m) => m.uid === got.uid);
   assert.deepEqual([listed.assignee?.name, listed.done], ['Olivia Owner', true]);
   assert.equal((await olivia('GET', `/api/mail/messages/${got.uid}?folder=INBOX`, undefined, as)).body.assignee.name, 'Olivia Owner');
+  // Internal notes: only the mailbox's people see them; only the writer deletes one.
+  assert.equal((await bob('POST', '/api/mail/notes', { message_id: full.messageId, body: '  ' }, as)).status, 400);
+  const n1 = await bob('POST', '/api/mail/notes', { message_id: full.messageId, body: 'Customer is on the gold plan' }, as);
+  assert.equal(n1.status, 201);
+  const n2 = (await olivia('POST', '/api/mail/notes', { message_id: full.messageId, body: 'Refund approved' }, as)).body;
+  assert.deepEqual(n2.map((n) => [n.user_name, n.body]), [['Hal Helper', 'Customer is on the gold plan'], ['Olivia Owner', 'Refund approved']]);
+  assert.equal((await bob('GET', `/api/mail/notes?message_id=${encodeURIComponent(full.messageId)}`)).status, 400, 'not outside the shared mailbox');
+  assert.equal((await bob('DELETE', `/api/mail/notes/${n2[1].id}`, undefined, as)).status, 400, 'not someone else’s');
+  assert.equal((await bob('DELETE', `/api/mail/notes/${n2[0].id}`, undefined, as)).body.length, 1);
+  assert.equal((await bob('GET', '/api/mail/messages?folder=INBOX', undefined, as)).body.messages.find((m) => m.uid === got.uid).notes, 1);
   // Nobody can sign in to it with a password.
   await assert.rejects(imapLogin('support@acme.com', 'password123'));
   // Taking Bob off: he can't open it any more. Deleting it frees the address.

@@ -2017,3 +2017,5 @@ tr.shortcut-row.broken .name-text { color: var(--muted, #777); font-style: itali
 .msg-assign { display: inline-flex; gap: 4px; grid-column: 1 / -1; }
 .msg-assign .pill.done { background: color-mix(in srgb, #188038 18%, transparent); }
 .mail-assign-tabs { margin: 4px 8px; }
+.mail-notes { background: color-mix(in srgb, #f9ab00 10%, var(--surface)); border: 1px solid color-mix(in srgb, #f9ab00 35%, transparent); border-radius: 8px; padding: 8px 10px; margin-bottom: 10px; display: flex; flex-direction: column; gap: 6px; }
+.mail-note-item { border-top: 1px solid var(--border); padding-top: 4px; }

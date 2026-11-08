@@ -104,7 +104,7 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
   const refreshRef = useRef(null);
   const [scheduledOpen, setScheduledOpen] = useState(false);
   const loadScheduled = useCallback(() => get('/mail/scheduled').then(setScheduled).catch(() => {}), []);
-  useEffect(() => { loadScheduled(); return onLive((m) => { if (m.type === 'mail-scheduled') { loadScheduled(); loadFolders(); } if (m.type === 'mail-snoozed' || m.type === 'mail-assigned') refreshRef.current?.(); }); },
+  useEffect(() => { loadScheduled(); return onLive((m) => { if (m.type === 'mail-scheduled') { loadScheduled(); loadFolders(); } if (m.type === 'mail-snoozed' || m.type === 'mail-assigned' || m.type === 'mail-notes') refreshRef.current?.(); }); },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [loadScheduled]);
   const { user } = useAuth();
@@ -366,6 +366,7 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
                   <span className="msg-date">{m.flagged && <span className="star" aria-label="Starred">★</span>}{m.attachment && <Icon name="attach" size={14} />} {m.snoozedUntil ? <span className="snoozed-until" title={`Comes back ${whenText(m.snoozedUntil)}`}><Icon name="clock" size={14} /> {formatDate(m.snoozedUntil)}</span> : m.date ? formatDate(m.date) : ''}</span>
                   <span className="msg-subject ellipsis">{(m.labels || []).map((id) => labels.find((l) => l.id === id)).filter(Boolean).map((l) => <LabelChip key={l.id} label={l} />)}{m.answered && '↩ '}{m.subject || '(no subject)'}</span>
                   {shared && (m.assignee || m.done) && <span className="msg-assign small">{m.done ? <span className="pill done">✓ Done</span> : null}{m.assignee && <span className="pill" title={`Given to ${m.assignee.name}`}>→ {m.assignee.id === user.id ? 'You' : m.assignee.name}</span>}</span>}
+                  {shared && m.notes > 0 && <span className="msg-assign small"><span className="pill" title={`${m.notes} internal note${m.notes === 1 ? '' : 's'}`}>💬 {m.notes}</span></span>}
                 </button>
               </li>
             ))}
@@ -596,6 +597,7 @@ function Reader({ shared = null, folder, uid, special, onClose, onOpen, onChange
       {muted && <div className="banner" role="status">🔕 This conversation is muted: replies go straight to Archive. <button type="button" className="link-btn" onClick={unmute}>Unmute</button></div>}
       <h1 className="reader-subject">{m.subject || '(no subject)'}</h1>
       {shared && m.messageId && <AssignBar m={m} onChanged={(a) => { setM({ ...m, ...a }); onChanged(); }} />}
+      {shared && m.messageId && <InternalNotes messageId={m.messageId} onChanged={onChanged} />}
       {(m.labels || []).length > 0 && (
         <div className="reader-labels">
           {m.labels.map((id) => labels.find((l) => l.id === id)).filter(Boolean).map((l) => (
@@ -2263,5 +2265,39 @@ function AssignBar({ m, onChanged }) {
       <span className="grow" />
       <button type="button" className={`btn small ${m.done ? '' : 'primary'}`} aria-pressed={!!m.done} onClick={() => save({ done: !m.done }, m.done ? 'Open again' : 'Marked done')}>{m.done ? '✓ Done · reopen' : 'Mark done'}</button>
     </div>
+  );
+}
+
+/** Internal notes on a shared mailbox's message: for its people only, never sent to whoever wrote in. */
+function InternalNotes({ messageId, onChanged }) {
+  const toast = useToast();
+  const { user } = useAuth();
+  const [notes, setNotes] = useState([]);
+  const [text, setText] = useState('');
+  const load = useCallback(() => get(`/mail/notes?message_id=${encodeURIComponent(messageId)}`).then(setNotes).catch(() => {}), [messageId]);
+  useEffect(() => { load(); }, [load]);
+  useEffect(() => onLive((e) => { if (e.type === 'mail-notes' && e.message_id === messageId) load(); }), [load, messageId]);
+  const add = async (e) => {
+    e.preventDefault();
+    if (!text.trim()) return;
+    try { setNotes(await post('/mail/notes', { message_id: messageId, body: text.trim() })); setText(''); onChanged?.(); } catch (err) { toast(err.message, 'error'); }
+  };
+  return (
+    <section className="mail-notes" aria-label="Internal notes">
+      <div className="small"><strong>Internal notes</strong> <span className="muted">· only people using this mailbox see these</span></div>
+      {notes.length > 0 && (
+        <ul className="plain-list">
+          {notes.map((n) => (
+            <li key={n.id} className="mail-note-item"><div className="row small"><strong className="grow">{n.user_name || 'Someone'}</strong><span className="muted">{formatDate(n.created_at)}</span>
+              {n.user_id === user.id && <button type="button" className="icon-btn" aria-label="Delete note" onClick={async () => { try { setNotes(await del(`/mail/notes/${n.id}`)); onChanged?.(); } catch (err) { toast(err.message, 'error'); } }}><Icon name="close" size={14} /></button>}</div>
+              <div style={{ whiteSpace: 'pre-wrap' }}>{n.body}</div></li>
+          ))}
+        </ul>
+      )}
+      <form className="row" onSubmit={add}>
+        <input className="grow" value={text} onChange={(e) => setText(e.target.value)} maxLength={4000} aria-label="Add an internal note" placeholder="Add a note for the team (not sent)" />
+        <button className="btn small" disabled={!text.trim()}>Add note</button>
+      </form>
+    </section>
   );
 }

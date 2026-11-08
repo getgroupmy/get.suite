@@ -15,7 +15,7 @@ import { roleFor, mayTakeAway } from '../access.js';
 import { mailEnabled, scheduleMailConfig, MAIL_HOSTNAME } from '../mail/config.js';
 import { withClient, withFolder, smtpFor } from '../mail/imap.js';
 import { normalizeRules, cleanMessageId } from '../mail/sieve.js';
-import { sharedMailboxesFor, sharedMailboxFor, assignmentsOf, membersOf as sharedMembers } from '../mail/shared.js';
+import { sharedMailboxesFor, sharedMailboxFor, assignmentsOf, notesOf, noteCounts, membersOf as sharedMembers } from '../mail/shared.js';
 import { followedFolders, setFollowed, MAX_FOLLOWED } from '../mail/notify.js';
 import { forwardHtml } from '../mail/forwardhtml.js';
 import { unsubscribeOptions, oneClickUnsubscribe } from '../mail/unsubscribe.js';
@@ -325,7 +325,7 @@ export default function webmailRoutes() {
     ['GET', /^\/(unread|folders|messages|find)$/], ['GET', /^\/messages\/\d+(\/(conversation|quote|pictures\/\d+|attachments\/\d+))?$/],
     ['POST', /^\/folders$/], ['PATCH', /^\/folders$/], ['DELETE', /^\/folders$/],
     ['POST', /^\/messages\/(flags|read-all|move|delete)$/], ['POST', /^\/messages\/\d+\/attachments\/save$/],
-    ['POST', /^\/drafts$/], ['GET', /^\/drafts\/\d+$/], ['DELETE', /^\/drafts\/\d+$/], ['POST', /^\/send$/], ['POST', /^\/assign$/], ['GET', /^\/members$/],
+    ['POST', /^\/drafts$/], ['GET', /^\/drafts\/\d+$/], ['DELETE', /^\/drafts\/\d+$/], ['POST', /^\/send$/], ['POST', /^\/assign$/], ['GET', /^\/members$/], ['GET', /^\/notes$/], ['POST', /^\/notes$/], ['DELETE', /^\/notes\/[\w-]+$/],
   ];
   r.use((req, res, next) => {
     const id = req.get('x-mailbox') || (req.method === 'GET' ? req.query.mailbox : null);
@@ -344,6 +344,32 @@ export default function webmailRoutes() {
   r.get('/members', (req, res) => {
     if (!req.user.shared_mailbox) throw bad('Only shared mailboxes have members');
     res.json(sharedMembers(req.user.shared_mailbox).map((m) => ({ id: m.id, name: m.name, username: m.username })));
+  });
+  // Internal notes on a message of a shared mailbox (only its people see them).
+  r.get('/notes', (req, res) => {
+    const mb = req.user.shared_mailbox;
+    const messageId = cleanMessageId(req.query.message_id);
+    if (!mb || !messageId) throw bad('Notes are on messages in shared mailboxes');
+    res.json(notesOf(mb, messageId));
+  });
+  r.post('/notes', (req, res) => {
+    const mb = req.user.shared_mailbox;
+    const messageId = cleanMessageId(req.body?.message_id);
+    if (!mb || !messageId) throw bad('Notes are on messages in shared mailboxes');
+    const body = str(req.body?.body, { required: true, name: 'Note', max: 4000 });
+    if (q('SELECT COUNT(*) AS n FROM shared_notes WHERE mailbox_id = ? AND message_id = ?').get(mb, messageId).n >= 200) throw bad('This message has too many notes');
+    q('INSERT INTO shared_notes (id, mailbox_id, message_id, user_id, body, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(newId(), mb, messageId, req.realUserId, body, now());
+    sendTo(sharedMembers(mb).map((m) => m.id), { type: 'mail-notes', mailbox: mb, message_id: messageId });
+    res.status(201).json(notesOf(mb, messageId));
+  });
+  r.delete('/notes/:id', (req, res) => {
+    const mb = req.user.shared_mailbox;
+    const n = mb && q('SELECT * FROM shared_notes WHERE id = ? AND mailbox_id = ?').get(String(req.params.id), mb);
+    if (!n) throw notFound('Note not found');
+    if (n.user_id !== req.realUserId) throw bad('Only whoever wrote a note can delete it');
+    q('DELETE FROM shared_notes WHERE id = ?').run(n.id);
+    sendTo(sharedMembers(mb).map((m) => m.id), { type: 'mail-notes', mailbox: mb, message_id: n.message_id });
+    res.json(notesOf(mb, n.message_id));
   });
   r.post('/assign', (req, res) => {
     const mb = req.user.shared_mailbox;
@@ -718,7 +744,8 @@ export default function webmailRoutes() {
     // A shared mailbox: who each message is given to, and whether it's done.
     if (req.user.shared_mailbox && out.messages?.length) {
       const by = assignmentsOf(req.user.shared_mailbox, out.messages.map((m) => m.messageId));
-      for (const m of out.messages) { const a = by.get(m.messageId); m.assignee = a?.assignee || null; m.done = !!a?.done; }
+      const notes = noteCounts(req.user.shared_mailbox, out.messages.map((m) => m.messageId));
+      for (const m of out.messages) { const a = by.get(m.messageId); m.assignee = a?.assignee || null; m.done = !!a?.done; m.notes = notes.get(m.messageId) || 0; }
     }
     res.json(out);
   });
