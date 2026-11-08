@@ -1005,6 +1005,7 @@ function EventDialog({ event, onClose, onSaved, onDuplicate }) {
   return (
     <Modal title={event.id ? 'Edit event' : event.duplicateOf !== undefined ? 'Copy of event' : 'New event'} onClose={onClose}>
       <form className="stack" onSubmit={submit}>
+        {event.ext_organizer && <p className="muted small" style={{ margin: 0 }} role="note">📨 An invitation from {event.ext_organizer.name || event.ext_organizer.email}, by email{event.ext_status ? ` · you answered ${{ yes: 'Yes', maybe: 'Maybe', no: 'No' }[event.ext_status]}` : ''}. Changes here are only on your calendar; to change your answer, use the invitation in Mail.</p>}
         <label className="field"><span>Title</span><input autoFocus required value={f.title} onChange={set('title')} /></label>
         <label className="check"><input type="checkbox" checked={f.all_day} onChange={set('all_day')} /> All day</label>
         <div className="row wrap" style={{ gap: 16 }}>

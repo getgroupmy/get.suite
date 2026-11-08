@@ -26,6 +26,8 @@ import { recordSent } from '../othercontacts.js';
 import { parseMailQuery, allOf } from '../mail/searchquery.js';
 import { receiptRequest, buildReceipt } from '../mail/receipt.js';
 import { mimeFor } from '../util.js';
+import { calendarPartOf, readInvite, replyIcs, eventForInvite, saveInvite } from '../mail/invite.js';
+import { touch as eventsChanged } from './calendar.js';
 
 const PAGE = 50;
 const OUTBOX = path.join(DATA_DIR, 'outbox');
@@ -672,6 +674,7 @@ export default function webmailRoutes() {
       labels: (() => { const kw = new Map(labelsOf(req.user.id).map((l) => [l.keyword.toLowerCase(), l.id])); return [...flags].map((f) => kw.get(String(f).toLowerCase())).filter(Boolean); })(),
       spam: /yes/i.test(String(p.headers.get('x-spam') || '')),
       attachments: attachmentList(p),
+      invite: inviteFor(req.user, p),
       // The sender asked for a read receipt (and it hasn't been answered yet): offered, never sent by itself.
       receipt: (() => {
         if (flags.has('$MDNSent')) return null;
@@ -685,6 +688,34 @@ export default function webmailRoutes() {
         return u.oneClick ? { how: 'one-click' } : u.mailto ? { how: 'email', to: u.mailto.to } : { how: 'link', url: u.url };
       })(),
     });
+  });
+
+  // Answer an invitation from another calendar: Yes / Maybe / No (puts it on your calendar, or takes it
+  // off, and emails the organizer the answer), or take a cancelled one off your calendar.
+  r.post('/messages/:uid/invite', async (req, res) => {
+    const folder = String(req.body?.folder || 'INBOX');
+    const answer = String(req.body?.answer || '');
+    if (!['yes', 'maybe', 'no', 'remove'].includes(answer)) throw bad('Answer yes, maybe or no');
+    const { parsed: p } = await loadMessage(req.user, folder, Number(req.params.uid), false);
+    const text = calendarPartOf(p);
+    const mine = identities(req.user).map((i) => i.address);
+    const inv = readInvite(text, mine, req.user.tz || 'UTC');
+    if (!inv || inviteFor(req.user, p)?.internal) throw bad('There is no invitation to answer in this message');
+    if (inv.method === 'CANCEL' ? answer !== 'remove' : !['REQUEST', 'PUBLISH'].includes(inv.method) || answer === 'remove') throw bad('This invitation can’t be answered that way');
+    const id = saveInvite(req.user.id, inv, answer);
+    eventsChanged([req.user.id]);
+    let replied = false;
+    if (inv.method === 'REQUEST' && inv.organizer?.email && !mine.includes(inv.organizer.email)) {
+      const me = { name: req.user.name, email: inv.mine?.email || req.user.username };
+      const word = { yes: 'Accepted', maybe: 'Tentative', no: 'Declined' }[answer];
+      try {
+        await smtpFor(req.user).sendMail({ from: { name: req.user.name, address: me.email }, to: inv.organizer.email, subject: `${word}: ${inv.event.title}`,
+          text: `${req.user.name} has ${{ yes: 'accepted', maybe: 'tentatively accepted', no: 'declined' }[answer]} this invitation: ${inv.event.title}`,
+          icalEvent: { method: 'REPLY', filename: 'reply.ics', content: replyIcs(text, me, answer) } });
+        replied = true;
+      } catch (e) { console.error('[mail] invitation reply:', e.message); }
+    }
+    res.json({ ...inviteFor(req.user, p), replied, event_id: id });
   });
 
   // Answer a read-receipt request: send the receipt, or not; either way it isn't asked again ($MDNSent).
@@ -1215,6 +1246,27 @@ function chunk(value, size = 800) {
 }
 
 /** Attachments a reader sees (pictures embedded in the HTML are not listed). Indexes are used for download and forwarding. */
+/**
+ * An invitation (or a cancellation) in the message, as Mail shows it: what, when, who's organising,
+ * and whether it's on your calendar with your answer. One of this server's own invitations points
+ * to Calendar instead (it's answered there).
+ */
+function inviteFor(user, p) {
+  const text = calendarPartOf(p);
+  if (!text) return null;
+  const mine = identities(user).map((i) => i.address);
+  const inv = readInvite(text, mine, user.tz || 'UTC');
+  if (!inv || !['REQUEST', 'CANCEL', 'PUBLISH'].includes(inv.method)) return null;
+  if (inv.organizer?.email && mine.includes(inv.organizer.email)) return null; // your own invitation
+  const ours = new RegExp(`^(.+)@${String(MAIL_HOSTNAME || 'workspace').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`).exec(inv.uid || '');
+  const local = ours && q('SELECT e.id FROM events e JOIN event_guests g ON g.event_id = e.id AND g.user_id = ? WHERE e.id = ?').get(user.id, ours[1]);
+  const e = inv.event;
+  const base = { method: inv.method, title: e.title, start: e.start, end: e.end, all_day: !!e.all_day, location: e.location, repeats: !!e.rrule, organizer: inv.organizer };
+  if (local) return { ...base, internal: true, event_id: local.id };
+  const have = eventForInvite(user.id, inv.uid);
+  return { ...base, event_id: have?.id || null, answer: have?.ext_status || null };
+}
+
 function attachmentList(p) {
   return p.attachments.filter((a) => !a.related)
     .map((a, i) => ({ index: i, filename: a.filename || `attachment-${i + 1}`, contentType: a.contentType, size: a.size }));

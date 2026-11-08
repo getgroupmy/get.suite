@@ -1332,3 +1332,40 @@ test('chat emails: unread direct messages and mentions are emailed after a while
   assert.equal(await sendChatEmails(), 0);
   await olivia('PUT', '/api/chat/me/chat-email', { on: false });
 });
+
+test('invitations from another calendar: answered in Mail, put on the calendar, and the organizer gets the reply', async () => {
+  const { smtpFor } = await import('../src/mail/imap.js');
+  const { q } = await import('../src/db.js');
+  const pat = client();
+  await olivia('POST', '/api/users', { local: 'patinviter', domain: 'acme.com', name: 'Pat Inviter', password: 'password123' });
+  assert.equal((await pat('POST', '/api/auth/login', { username: 'patinviter@acme.com', password: 'password123' })).status, 200);
+  const patRow = q("SELECT * FROM users WHERE username = 'patinviter@acme.com'").get();
+  const start = Date.UTC(2026, 11, 3, 9), uidv = `ext-${Date.now()}@other.example`;
+  const stamp = (ms) => new Date(ms).toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '');
+  const ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Other//EN', 'METHOD:REQUEST', 'BEGIN:VEVENT', `UID:${uidv}`, 'SEQUENCE:0', `DTSTAMP:${stamp(Date.now())}`,
+    `DTSTART:${stamp(start)}`, `DTEND:${stamp(start + 36e5)}`, 'SUMMARY:Supplier visit', 'LOCATION:Gate 2', 'ORGANIZER;CN=Pat Inviter:mailto:patinviter@acme.com',
+    'ATTENDEE;CN=Olivia;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:olivia@acme.com', 'END:VEVENT', 'END:VCALENDAR'].join('\r\n');
+  // (a new mailbox takes a moment to be ready for sending)
+  await eventually(async () => { try { await smtpFor(patRow).sendMail({ from: 'patinviter@acme.com', to: 'olivia@acme.com', subject: 'Invitation: Supplier visit', text: 'Please come', icalEvent: { method: 'REQUEST', content: ics } }); return true; } catch { return false; } });
+  const m = await eventually(async () => (await inbox(olivia)).find((x) => x.subject === 'Invitation: Supplier visit'));
+  const full = (await olivia('GET', `/api/mail/messages/${m.uid}?folder=INBOX`)).body;
+  assert.equal(full.invite.title, 'Supplier visit');
+  assert.equal(full.invite.start, start);
+  assert.equal(full.invite.organizer.email, 'patinviter@acme.com');
+  assert.equal(full.invite.answer, null);
+  const r = await olivia('POST', `/api/mail/messages/${m.uid}/invite`, { folder: 'INBOX', answer: 'yes' });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.answer, 'yes');
+  assert.equal(r.body.replied, true);
+  const ev = (await olivia('GET', `/api/events?from=${start - 864e5}&to=${start + 864e5}`)).body.find((e) => e.title === 'Supplier visit');
+  assert.ok(ev, 'on the calendar');
+  assert.equal(ev.ext_organizer.email, 'patinviter@acme.com');
+  assert.equal(ev.ext_status, 'yes');
+  const reply = await eventually(async () => (await inbox(pat)).find((x) => x.subject === 'Accepted: Supplier visit'));
+  const rfull = (await pat('GET', `/api/mail/messages/${reply.uid}?folder=INBOX`)).body;
+  assert.ok(rfull.attachments.some((a) => /calendar/.test(a.contentType)) || /accepted/.test(rfull.text));
+  // Changing your mind: No takes it off the calendar.
+  assert.equal((await olivia('POST', `/api/mail/messages/${m.uid}/invite`, { folder: 'INBOX', answer: 'no' })).body.answer, null);
+  assert.ok(!(await olivia('GET', `/api/events?from=${start - 864e5}&to=${start + 864e5}`)).body.some((e) => e.title === 'Supplier visit'));
+  assert.equal((await olivia('POST', `/api/mail/messages/${m.uid}/invite`, { folder: 'INBOX', answer: 'remove' })).status, 400, 'not a cancellation');
+});

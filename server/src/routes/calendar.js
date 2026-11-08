@@ -123,7 +123,7 @@ function readEvent(body, existing = {}) {
 }
 
 export const outEvent = (row) => ({ ...row, rrule: row.rrule ? JSON.parse(row.rrule) : null, exdates: JSON.parse(row.exdates || '[]'), repeat_until: undefined,
-  attachments: row.attachments ? JSON.parse(row.attachments) : [] });
+  attachments: row.attachments ? JSON.parse(row.attachments) : [], ext_organizer: row.ext_organizer ? JSON.parse(row.ext_organizer) : null });
 const MAX_ATTACHMENTS = 20;
 /** Attachments as asked ([file ids]): ones you can open, or ones already on the event (kept even if you can't any more). */
 function readAttachments(user, ids, existing = []) {

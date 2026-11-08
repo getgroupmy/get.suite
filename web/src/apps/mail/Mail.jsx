@@ -384,6 +384,50 @@ export default function Mail() {
 }
 
 /** On a message you sent with "remind me if no reply": when, and a way to cancel it. */
+/** A calendar invitation (or cancellation) in the message: what, when, and Yes / Maybe / No. */
+function InviteCard({ invite, uid, folder, onChange }) {
+  const toast = useToast();
+  const navigate = useNavigate();
+  const [busy, setBusy] = useState(false);
+  const when = invite.all_day
+    ? new Date(invite.start).toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+    : `${new Date(invite.start).toLocaleString([], { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })} – ${new Date(invite.end).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+  const answer = async (a) => {
+    setBusy(true);
+    try {
+      const r = await post(`/mail/messages/${uid}/invite`, { folder, answer: a });
+      onChange(r);
+      toast(a === 'remove' ? 'Taken off your calendar' : a === 'no' ? `Declined${r.replied ? `; ${invite.organizer?.name || 'the organizer'} has been told` : ''}` : `${a === 'yes' ? 'Added' : 'Added as maybe'} to your calendar${r.replied ? `; ${invite.organizer?.name || 'the organizer'} has been told` : ''}`);
+    } catch (e) { toast(e.message, 'error'); } finally { setBusy(false); }
+  };
+  const cancelled = invite.method === 'CANCEL';
+  return (
+    <section className={`invite-card ${cancelled ? 'cancelled' : ''}`} aria-label="Invitation">
+      <div className="invite-date" aria-hidden="true"><span>{new Date(invite.start).toLocaleDateString([], { month: 'short' })}</span><strong>{new Date(invite.start).getDate()}</strong></div>
+      <div className="grow stack" style={{ gap: 2 }}>
+        <strong>{cancelled ? 'Cancelled: ' : ''}{invite.title}</strong>
+        <span className="small">{when}{invite.repeats ? ' · repeats' : ''}</span>
+        {invite.location && <span className="small muted">{invite.location}</span>}
+        {invite.organizer && <span className="small muted">Organised by {invite.organizer.name || invite.organizer.email}</span>}
+        {invite.internal ? (
+          <span className="row small"><span className="muted">This invitation is in your calendar.</span>
+            <button type="button" className="btn small" onClick={() => navigate("/calendar", { state: { openEvent: { id: invite.event_id, start: invite.start, end: invite.end } } })}>Answer in Calendar</button></span>
+        ) : cancelled ? (
+          <span className="row small">{invite.event_id ? <button type="button" className="btn small" disabled={busy} onClick={() => answer('remove')}>Remove from my calendar</button> : <span className="muted">It isn't on your calendar.</span>}</span>
+        ) : (
+          <span className="row small" role="group" aria-label="Going?">
+            <span className="muted">Going?</span>
+            {[['yes', 'Yes'], ['maybe', 'Maybe'], ['no', 'No']].map(([v, l]) => (
+              <button key={v} type="button" className={`btn small ${invite.answer === v ? 'primary' : ''}`} aria-pressed={invite.answer === v} disabled={busy} onClick={() => answer(v)}>{l}</button>
+            ))}
+            {invite.event_id && <button type="button" className="link-btn small" onClick={() => navigate("/calendar", { state: { openEvent: { id: invite.event_id, start: invite.start, end: invite.end } } })}>See it in Calendar</button>}
+          </span>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function FollowUpBanner({ messageId }) {
   const toast = useToast();
   const [f, setF] = useState(null);
@@ -520,6 +564,7 @@ function Reader({ folder, uid, special, onClose, onOpen, onChanged, act, onCompo
         <span className="muted small nowrap">{m.date ? new Date(m.date).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : ''}</span>
       </div>
       <FollowUpBanner messageId={m.messageId} />
+      {m.invite && <InviteCard invite={m.invite} uid={uid} folder={folder} onChange={(invite) => setM({ ...m, invite })} />}
       {m.receipt && (
         <div className="banner receipt-ask" role="region" aria-label="Read receipt">
           <span className="grow">{who(m.from)} asked to be told when you've opened this message.</span>
