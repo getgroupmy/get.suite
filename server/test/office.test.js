@@ -528,3 +528,14 @@ test('live co-editing keeps a presentation\'s slide numbers setting', async () =
   applyDeckJson(doc, { theme: 'dark', slides: [{ id: 'a', items: [] }] });
   assert.equal('numbers' in jsonFromDeckDoc(doc), false);
 });
+
+test('Excel: newer functions are written with their _xlfn. prefix and read back plain', async () => {
+  const { formulaToExcel, formulaFromExcel } = await import('../src/office/excel.js');
+  for (const f of ['=XMATCH(5,A1:A9)', '=VSTACK(A1:A2,B1:B2)', '=HSTACK(A1,B1)', '=TAKE(A1:A9,2)', '=DROP(A1:A9,1)', '=ISOWEEKNUM(A1)']) {
+    const x = formulaToExcel(f);
+    assert.match(x, /_xlfn\./, f);
+    assert.equal(formulaFromExcel(x), f);
+  }
+  assert.equal(formulaToExcel('=REGEXMATCH(A1,"x")'), '=REGEXMATCH(A1,"x")', 'not an Excel function: left as it is');
+  assert.equal(formulaToExcel('="XMATCH(1)"&A1'), '="XMATCH(1)"&A1', 'text stays text');
+});

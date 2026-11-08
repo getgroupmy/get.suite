@@ -325,3 +325,60 @@ test('SPARKLINE: the numbers of a range as a line or columns in the cell', () =>
   assert.equal(v.sparkOf('B2').type, 'column');
   assert.deepEqual(v('B3'), { error: '#VALUE!' });
 });
+
+test('more functions: patterns, splitting, choosing, stacking, times, week numbers, cash flows, where cells are', () => {
+  const v = (f, cells = {}) => { const e = createEvaluator({ F1: -100, F2: 30, F3: 40, F4: 50, G1: 'apple', G2: 'Banana', G3: 'apple', G4: '', ...cells, Z1: f }); try { const r = e('Z1'); return r && typeof r === 'object' && r.error ? r.error : r; } catch (x) { return x.code; } };
+  assert.equal(v('=REGEXMATCH("Invoice INV-2041", "INV-\\d+")'), true);
+  assert.equal(v('=REGEXMATCH("hello", "^\\d+$")'), false);
+  assert.equal(v('=REGEXEXTRACT("Order 1234 shipped", "\\d+")'), '1234');
+  assert.equal(v('=REGEXEXTRACT("Kim <kim@acme.com>", "<(.+)>")'), 'kim@acme.com');
+  assert.equal(v('=REGEXEXTRACT("abc", "\\d")'), '#N/A');
+  assert.equal(v('=REGEXREPLACE("2026-11-08", "(\\d+)-(\\d+)-(\\d+)", "$3/$2/$1")'), '08/11/2026');
+  assert.equal(v('=REGEXMATCH("x", "(")'), '#VALUE!', 'a broken pattern');
+  // SPLIT spills across; numbers stay numbers.
+  const sp = createEvaluator({ A1: '=SPLIT("red, green,,7", ", ")' });
+  assert.deepEqual(['A1', 'B1', 'C1', 'D1'].map((k) => sp(k)), ['red', 'green', 7, null]);
+  const sp2 = createEvaluator({ A1: '=SPLIT("a--b--c", "--", FALSE)' });
+  assert.deepEqual(['A1', 'B1', 'C1'].map((k) => sp2(k)), ['a', 'b', 'c']);
+  assert.equal(v('=JOIN("-", 1, 2, 3)'), '1-2-3');
+  assert.equal(v('=COUNTUNIQUE(G1:G4)'), 2, 'any case, blanks left out');
+  assert.equal(v('=FIXED(1234.567, 1)'), '1,234.6');
+  assert.equal(v('=CHOOSE(2, "low", "mid", "high")'), 'mid');
+  assert.equal(v('=CHOOSE(4, "a", "b")'), '#VALUE!');
+  assert.equal(v('=XMATCH("banana", G1:G3)'), 2);
+  assert.equal(v('=XMATCH("apple", G1:G3, 0, -1)'), 3, 'searching from the end');
+  assert.equal(v('=XMATCH(35, F2:F4, -1)'), 1, 'exact or next smaller');
+  assert.equal(v('=XMATCH(35, F2:F4, 1)'), 2, 'exact or next larger');
+  assert.equal(v('=XMATCH("b*", G1:G3, 2)'), 2, 'wildcards');
+  // Stacking and taking.
+  const st = createEvaluator({ F1: 1, F2: 2, G1: 3, A1: '=VSTACK(F1:F2, G1)', C1: '=HSTACK(F1:F2, G1)' });
+  assert.deepEqual(['A1', 'A2', 'A3', 'C1', 'D1', 'C2', 'D2'].map((k) => st(k)), [1, 2, 3, 1, 3, 2, '#N/A']);
+  const tk = createEvaluator({ F1: 1, F2: 2, F3: 3, F4: 4, A1: '=TAKE(F1:F4, 2)', B1: '=TAKE(F1:F4, -1)', C1: '=DROP(F1:F4, 3)' });
+  assert.deepEqual(['A1', 'A2', 'A3', 'B1', 'C1', 'C2'].map((k) => tk(k)), [1, 2, null, 4, 4, null]);
+  // Times of day.
+  assert.equal(v('=TIME(14, 30, 0)'), 14.5 / 24);
+  assert.equal(v('=HOUR("2:45 PM")'), 14);
+  assert.equal(v('=MINUTE("2026-11-08 09:07:30")'), 7);
+  assert.equal(v('=SECOND(TIME(1, 2, 3))'), 3);
+  assert.equal(v('=HOUR("25:00")'), '#VALUE!');
+  // Week numbers: 2026-01-01 is a Thursday.
+  assert.equal(v('=WEEKNUM("2026-01-03")'), 1);
+  assert.equal(v('=WEEKNUM("2026-01-04")'), 2, 'a new week on Sunday');
+  assert.equal(v('=WEEKNUM("2026-01-04", 2)'), 1, 'weeks from Monday');
+  assert.equal(v('=ISOWEEKNUM("2026-01-01")'), 1);
+  assert.equal(v('=ISOWEEKNUM("2027-01-01")'), 53, '2027-01-01 is a Friday in 2026’s week 53');
+  assert.equal(v('=ISOWEEKNUM("2026-12-28")'), 53);
+  // Cash flows.
+  assert.equal(Math.round(v('=NPV(0.1, F2:F4)') * 100) / 100, 97.9);
+  assert.equal(Math.round(v('=IRR(F1:F4)') * 1e4) / 1e4, 0.089);
+  assert.equal(v('=IRR(F2:F4)'), '#NUM!', 'needs money out and in');
+  assert.equal(Math.round(v('=RATE(12, -100, 1000)') * 1e5) / 1e5, 0.02923);
+  assert.equal(Math.round(v('=NPER(0.01, -100, 1000)') * 100) / 100, 10.59);
+  assert.equal(v('=NPER(0, -100, 1000)'), 10);
+  // Where cells are.
+  assert.equal(v('=ROW()'), 1);
+  assert.equal(createEvaluator({ C7: '=ROW()&","&COLUMN()' })('C7'), '7,3');
+  assert.equal(v('=ROW(B5:D9)'), 5);
+  assert.equal(v('=COLUMN(D2)'), 4);
+  assert.equal(v('=ROWS(F1:G4)&"x"&COLUMNS(F1:G4)'), '4x2');
+});

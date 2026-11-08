@@ -296,7 +296,57 @@ function order(a, b) {
   return Number(a) - Number(b);
 }
 /** Functions that give back several cells, which spill into the cells beside and below. */
-const ARRAY_FUNCS = new Set(['FILTER', 'UNIQUE', 'SORT', 'SEQUENCE', 'TRANSPOSE', 'IMPORTRANGE', 'XLOOKUP']);
+const ARRAY_FUNCS = new Set(['FILTER', 'UNIQUE', 'SORT', 'SEQUENCE', 'TRANSPOSE', 'IMPORTRANGE', 'XLOOKUP', 'SPLIT', 'VSTACK', 'HSTACK', 'TAKE', 'DROP', 'CHOOSE', 'REGEXEXTRACT']);
+
+// ---- helpers for regular expressions, times and cash flows
+/** A pattern from a formula (RE2-like: no lookbehind needed); a bad one, or one too long, is #VALUE!. */
+function regex(pattern, flags = '') {
+  const src = toStr(pattern);
+  if (src.length > 500) err('#VALUE!');
+  try { return new RegExp(src, flags); } catch { return err('#VALUE!'); }
+}
+const MAX_REGEX_TEXT = 50000;
+/** The time of day as a fraction of a day: from a number (its fraction), "14:30", "2:30 PM", "2026-11-08 14:30:15". */
+function dayFraction(v) {
+  if (typeof v === 'number') return v - Math.floor(v);
+  const m = /(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(am|pm)?\s*$/i.exec(toStr(v).trim());
+  if (!m) { if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(toStr(v).trim())) return 0; return err('#VALUE!'); }
+  let h = +m[1];
+  if (m[4]) { if (h > 12) err('#VALUE!'); h = (h % 12) + (m[4].toLowerCase() === 'pm' ? 12 : 0); }
+  if (h > 23 || +m[2] > 59 || +(m[3] || 0) > 59) err('#VALUE!');
+  return (h * 3600 + +m[2] * 60 + +(m[3] || 0)) / 86400;
+}
+const secondsOf = (v) => Math.round(dayFraction(v) * 86400) % 86400;
+/** Present value of cash flows at a rate, the first one period from now (as NPV does). */
+const npv = (rate, flows) => flows.reduce((s, x, i) => s + x / (1 + rate) ** (i + 1), 0);
+/** Solve f(x) = 0 near a guess (Newton's method, with a numerical slope); #NUM! when it doesn't settle. */
+function solve(f, guess) {
+  let x = guess;
+  for (let i = 0; i < 100; i++) {
+    const y = f(x);
+    if (!Number.isFinite(y)) break;
+    if (Math.abs(y) < 1e-10) return x;
+    const h = 1e-7 * Math.max(1, Math.abs(x));
+    const slope = (f(x + h) - y) / h;
+    if (!slope || !Number.isFinite(slope)) break;
+    const next = x - y / slope;
+    if (Math.abs(next - x) < 1e-12) return next;
+    x = next;
+    if (x <= -1) x = -0.999999;
+  }
+  return err('#NUM!');
+}
+/** Several ranges (or values) put together above one another (VSTACK) or side by side (HSTACK); gaps are #N/A. */
+function stack(arrays, across) {
+  const parts = arrays.filter((a) => a !== undefined).map(rowsOf);
+  if (!parts.length) err('#VALUE!');
+  if (!across) {
+    const cols = Math.max(...parts.map((p) => p[0]?.length || 0));
+    return grid(parts.flatMap((p) => p.map((row) => [...row, ...Array(cols - row.length).fill('#N/A')])));
+  }
+  const rows = Math.max(...parts.map((p) => p.length));
+  return grid(Array.from({ length: rows }, (_, r) => parts.flatMap((p) => p[r] || Array(p[0]?.length || 0).fill('#N/A'))));
+}
 
 const FUNCS = {
   FILTER: ([array, include, ifEmpty]) => {
@@ -365,6 +415,102 @@ const FUNCS = {
   AND: (a) => flat(a).every(toBool),
   OR: (a) => flat(a).some(toBool),
   NOT: ([v]) => !toBool(v),
+  // Text by pattern (regular expressions, as in other spreadsheets).
+  REGEXMATCH: ([text, pattern]) => { const t = toStr(scalarOf(text)); if (t.length > MAX_REGEX_TEXT) err('#VALUE!'); return regex(scalarOf(pattern)).test(t); },
+  REGEXEXTRACT: ([text, pattern]) => {
+    const t = toStr(scalarOf(text));
+    if (t.length > MAX_REGEX_TEXT) err('#VALUE!');
+    const m = regex(scalarOf(pattern)).exec(t);
+    if (!m) return err('#N/A');
+    if (m.length <= 2) return m[1] ?? m[0];
+    return grid([m.slice(1).map((x) => x ?? '')]); // several groups: side by side
+  },
+  REGEXREPLACE: ([text, pattern, replacement]) => { const t = toStr(scalarOf(text)); if (t.length > MAX_REGEX_TEXT) err('#VALUE!'); return t.replace(regex(scalarOf(pattern), 'g'), toStr(scalarOf(replacement))); },
+  // SPLIT("a,b;c", ",;"): each character of the delimiter splits (or the whole of it, with FALSE); empty bits dropped unless asked.
+  SPLIT: ([text, delim, eachChar, removeEmpty]) => {
+    const t = toStr(scalarOf(text)), d = toStr(scalarOf(delim));
+    if (!d) err('#VALUE!');
+    const byChar = eachChar === undefined || toBool(eachChar);
+    let parts = byChar ? t.split(new RegExp(`[${d.replace(/[\]\\^-]/g, '\\$&')}]`)) : t.split(d);
+    if (removeEmpty === undefined || toBool(removeEmpty)) parts = parts.filter((x) => x !== '');
+    return grid([(parts.length ? parts : ['']).map((x) => (x !== '' && !Number.isNaN(Number(x)) && /^\s*-?[\d.]+(e[+-]?\d+)?\s*$/i.test(x) ? Number(x) : x))]);
+  },
+  JOIN: ([sep, ...a]) => flat(a).map(toStr).join(toStr(sep)),
+  CLEAN: ([t]) => toStr(t).replace(/[\u0000-\u001f]/g, ''),
+  FIXED: ([v, places, noCommas]) => { const d = places === undefined ? 2 : toNum(places); const n = roundTo(v, d, Math.round); const txt = Math.abs(n).toFixed(Math.max(0, d)); const [w, f] = txt.split('.'); return `${n < 0 ? '-' : ''}${toBool(noCommas ?? false) ? w : w.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}${f !== undefined ? `.${f}` : ''}`; },
+  COUNTUNIQUE: (a) => new Set(flat(a).filter((v) => v !== null && v !== '' && v !== undefined).map((v) => (typeof v === 'string' ? `s:${v.toLowerCase()}` : `${typeof v}:${v}`))).size,
+  // Choosing and finding.
+  CHOOSE: ([i, ...options]) => { const n = Math.floor(toNum(scalarOf(i))); if (n < 1 || n > options.length) err('#VALUE!'); return options[n - 1] ?? null; },
+  // XMATCH(x, range, match_mode 0 exact / -1 exact or next smaller / 1 exact or next larger / 2 wildcards, search_mode 1 first / -1 last).
+  XMATCH: ([x, range, mode, search]) => {
+    const list = flat([range]), v = scalarOf(x), m = toNum(mode ?? 0), dir = toNum(search ?? 1) < 0 ? -1 : 1;
+    const idx = dir > 0 ? list.map((_, k) => k) : list.map((_, k) => list.length - 1 - k);
+    const re = m === 2 && typeof v === 'string' ? wildcard(v) : null;
+    const hit = idx.find((k) => (re ? typeof list[k] === 'string' && re.test(list[k]) : same(list[k], v)));
+    if (hit !== undefined) return hit + 1;
+    if (m === -1 || m === 1) {
+      let best = -1;
+      for (const k of idx) {
+        const c = list[k];
+        if (typeof c !== typeof v || c === null || c === '') continue;
+        if ((m === -1 ? before(c, v) : before(v, c)) && (best < 0 || (m === -1 ? before(list[best], c) : before(c, list[best])))) best = k;
+      }
+      if (best >= 0) return best + 1;
+    }
+    return notFound();
+  },
+  // Arrays: put together, or keep / leave out rows from the start (or the end, when negative).
+  VSTACK: (a) => stack(a, false),
+  HSTACK: (a) => stack(a, true),
+  TAKE: ([array, rows, cols]) => {
+    let g = rowsOf(array);
+    const r = rows === undefined ? g.length : Math.trunc(toNum(rows)), c = cols === undefined ? g[0].length : Math.trunc(toNum(cols));
+    if (!r || !c) err('#VALUE!');
+    g = r > 0 ? g.slice(0, r) : g.slice(r);
+    g = g.map((row) => (c > 0 ? row.slice(0, c) : row.slice(c)));
+    return grid(g);
+  },
+  DROP: ([array, rows, cols]) => {
+    let g = rowsOf(array);
+    const r = Math.trunc(toNum(rows ?? 0)), c = Math.trunc(toNum(cols ?? 0));
+    g = r >= 0 ? g.slice(r) : g.slice(0, r);
+    g = g.map((row) => (c >= 0 ? row.slice(c) : row.slice(0, c)));
+    if (!g.length || !g[0].length) err('#VALUE!');
+    return grid(g);
+  },
+  // Times of day: a fraction of a day, as other spreadsheets keep them (shown with a time format, or used in sums).
+  TIME: ([h, m, sec]) => { const t = (toNum(h) * 3600 + toNum(m) * 60 + toNum(sec ?? 0)) / 86400; if (t < 0) err('#NUM!'); return t - Math.floor(t); },
+  HOUR: ([v]) => Math.floor(secondsOf(v) / 3600),
+  MINUTE: ([v]) => Math.floor((secondsOf(v) % 3600) / 60),
+  SECOND: ([v]) => secondsOf(v) % 60,
+  // Week numbers: WEEKNUM (weeks start on Sunday, or Monday with 2; week 1 has 1 January) and ISOWEEKNUM (ISO 8601).
+  WEEKNUM: ([v, type]) => {
+    const ms = toDate(v), d = new Date(ms), jan1 = Date.UTC(d.getUTCFullYear(), 0, 1);
+    const start = toNum(type ?? 1) === 2 ? 1 : 0;
+    const offset = (new Date(jan1).getUTCDay() - start + 7) % 7;
+    return Math.floor(((ms - jan1) / DAY_MS + offset) / 7) + 1;
+  },
+  ISOWEEKNUM: ([v]) => {
+    const d = new Date(toDate(v));
+    const day = (d.getUTCDay() + 6) % 7; // Monday 0
+    d.setUTCDate(d.getUTCDate() - day + 3); // that week's Thursday
+    const firstThu = new Date(Date.UTC(d.getUTCFullYear(), 0, 4));
+    return 1 + Math.round(((d - firstThu) / DAY_MS - 3 + ((firstThu.getUTCDay() + 6) % 7)) / 7);
+  },
+  // Money over time: NPV, IRR (the rate where the cash flows come to nothing), RATE and NPER (a loan's rate or number of payments).
+  NPV: ([rate, ...flows]) => npv(toNum(rate), nums(flows)),
+  IRR: ([flows, guess]) => { const f = nums([flows]); if (!f.some((x) => x > 0) || !f.some((x) => x < 0)) err('#NUM!'); return solve((r) => f.reduce((s, x, i) => s + x / (1 + r) ** i, 0), guess === undefined ? 0.1 : toNum(guess)); },
+  RATE: ([n, payment, pv, fv, type, guess]) => {
+    const N = toNum(n), P = toNum(payment), V = toNum(pv), F = toNum(fv ?? 0), T = toNum(type ?? 0) ? 1 : 0;
+    return solve((r) => (Math.abs(r) < 1e-12 ? V + P * N + F : V * (1 + r) ** N + P * (1 + r * T) * (((1 + r) ** N - 1) / r) + F), guess === undefined ? 0.1 : toNum(guess));
+  },
+  NPER: ([rate, payment, pv, fv, type]) => {
+    const r = toNum(rate), P = toNum(payment), V = toNum(pv), F = toNum(fv ?? 0), T = toNum(type ?? 0) ? 1 : 0;
+    if (!r) { if (!P) err('#NUM!'); return -(V + F) / P; }
+    const a = P * (1 + r * T) - F * r, b = V * r + P * (1 + r * T);
+    if (a / b <= 0) err('#NUM!');
+    return Math.log(a / b) / Math.log(1 + r);
+  },
   TODAY: () => new Date().toISOString().slice(0, 10),
   // lookups
   MATCH: ([x, range, type]) => { const t = type === undefined ? 1 : Math.sign(toNum(type)); const i = findIn(flat([range]), scalarOf(x), t); return i < 0 ? notFound() : i + 1; },
@@ -561,7 +707,7 @@ const LAZY = {
 };
 
 /** Every function a formula can call. */
-export const FUNCTION_NAMES = [...Object.keys(FUNCS), ...Object.keys(LAZY), 'IMPORTRANGE', 'HYPERLINK', 'SPARKLINE'];
+export const FUNCTION_NAMES = [...Object.keys(FUNCS), ...Object.keys(LAZY), 'IMPORTRANGE', 'HYPERLINK', 'SPARKLINE', 'ROW', 'COLUMN', 'ROWS', 'COLUMNS'];
 
 /** A link a cell may open: web addresses and email (mailto:), nothing else. */
 export function safeLink(v) {
@@ -603,6 +749,7 @@ export function createEvaluator(cells, names = null, book = null) {
   // Named ranges: { Tax: 'B1', Sales: 'A2:A10' }, matched whatever the case.
   const named = new Map(Object.entries(names || {}).map(([k, v]) => [k.toUpperCase(), String(v).toUpperCase().split(':')]));
   const visiting = new Set();
+  let here = null; // the cell being worked out (for ROW() and COLUMN())
   const asts = new Map();
   const links = new Map(), sparks = new Map(); // HYPERLINK and SPARKLINE cells
   // Spilling: a formula that gives back several cells (=SEQUENCE(5), =FILTER(…), =A1:A5*2) fills the
@@ -662,7 +809,7 @@ export function createEvaluator(cells, names = null, book = null) {
         if (!values.some((x) => x !== null)) err('#VALUE!');
         sparks.set(key, { type, values: values.slice(0, 200) });
         v = '';
-      } else v = evaluate(ast);
+      } else { const outer = here; here = key; try { v = evaluate(ast); } finally { here = outer; } }
       if (typeof v === 'number' && !Number.isFinite(v)) err('#NUM!');
       if (Array.isArray(v)) v = spill(key, v);
       memo.set(key, v);
@@ -732,6 +879,14 @@ export function createEvaluator(cells, names = null, book = null) {
       case 'neg': { const v = evaluate(n.e); return Array.isArray(v) ? elementwise(v, null, (x) => -toNum(x)) : -toNum(v); }
       case 'call': {
         if (n.name === 'IMPORTRANGE') return importRange(n.args.map((a) => scalar(evaluate(a))));
+        // Where cells are: ROW()/COLUMN() of this cell, or of a reference (a range gives its first); ROWS/COLUMNS count a range.
+        if (n.name === 'ROW' || n.name === 'COLUMN') {
+          const a = n.args[0];
+          const at = !a || a.k === 'empty' ? (here ? parseRef(here) : err('#VALUE!')) : a.k === 'ref' ? a.ref : a.k === 'range' || (a.k === 'xref') ? { r: Math.min(a.a.r, a.b.r), c: Math.min(a.a.c, a.b.c) } : err('#VALUE!');
+          if (!at) err('#REF!');
+          return (n.name === 'ROW' ? at.r : at.c) + 1;
+        }
+        if (n.name === 'ROWS' || n.name === 'COLUMNS') { const s = shapeOf(evaluate(n.args[0])); return n.name === 'ROWS' ? s.rows : s.cols; }
         if (LAZY[n.name]) return LAZY[n.name](n.args.map((a) => () => scalar(evaluate(a))));
         const f = FUNCS[n.name];
         if (!f) err('#NAME?');
