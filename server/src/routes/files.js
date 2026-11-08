@@ -98,8 +98,13 @@ q(`CREATE TABLE IF NOT EXISTS file_views (
   times INTEGER NOT NULL DEFAULT 1,
   PRIMARY KEY (file_id, user_id)
 )`).run();
+// Off for a company (orgs.view_history = 0), or for a person who'd rather not be listed (users.hide_views).
+if (!q('PRAGMA table_info(orgs)').all().some((c) => c.name === 'view_history')) q('ALTER TABLE orgs ADD COLUMN view_history INTEGER NOT NULL DEFAULT 1').run();
+if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'hide_views')) q('ALTER TABLE users ADD COLUMN hide_views INTEGER NOT NULL DEFAULT 0').run();
+const historyOn = (fileId) => !!q('SELECT o.view_history FROM files f JOIN users u ON u.id = f.owner_id JOIN orgs o ON o.id = u.org_id WHERE f.id = ?').get(fileId)?.view_history;
 /** Count an opening (several within ten minutes count once). */
 export function sawFile(fileId, userId, t = now()) {
+  if (q('SELECT hide_views FROM users WHERE id = ?').get(userId)?.hide_views || !historyOn(fileId)) return;
   q(`INSERT INTO file_views (file_id, user_id, last_at, times) VALUES (?, ?, ?, 1)
      ON CONFLICT(file_id, user_id) DO UPDATE SET times = times + (CASE WHEN ? - last_at > 600000 THEN 1 ELSE 0 END), last_at = ?`).run(fileId, userId, t, t, t);
 }
@@ -541,8 +546,9 @@ export default function fileRoutes({ maxUploadBytes }) {
   // Who has opened it (people with access, their last time and how many times): for its owner and editors.
   r.get('/:id/viewers', (req, res) => {
     const f = loadFile(req.params.id, req.user, 'editor');
-    res.json(q(`SELECT v.user_id AS id, u.name, u.username, v.last_at, v.times FROM file_views v JOIN users u ON u.id = v.user_id
-                WHERE v.file_id = ? AND u.disabled = 0 ORDER BY v.last_at DESC LIMIT 200`).all(f.id).filter((v) => roleFor(f.id, v.id)));
+    if (!historyOn(f.id)) return res.json({ off: true, viewers: [] });
+    res.json({ off: false, viewers: q(`SELECT v.user_id AS id, u.name, u.username, v.last_at, v.times FROM file_views v JOIN users u ON u.id = v.user_id
+                WHERE v.file_id = ? AND u.disabled = 0 AND u.hide_views = 0 ORDER BY v.last_at DESC LIMIT 200`).all(f.id).filter((v) => roleFor(f.id, v.id)) });
   });
 
   // Star a file or folder (for you only), or take the star away.

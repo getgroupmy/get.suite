@@ -326,6 +326,11 @@ function CompanySettings() {
       </div>
       <CompanySignature org={org} save={save} />
       <div className="card stack">
+        <h2>Who has seen files</h2>
+        <label className="check"><input type="checkbox" checked={org.view_history !== false} onChange={(e) => save({ view_history: e.target.checked }, e.target.checked ? 'Owners and editors can see who has opened their files' : 'Nobody sees who has opened files')} /> Show owners and editors who has opened their files (Drive → Details)</label>
+        <p className="muted small" style={{ margin: 0 }}>Each person can also hide their own openings in Settings.</p>
+      </div>
+      <div className="card stack">
         <h2>Drive trash</h2>
         <label className="field"><span>Empty the trash automatically</span>
           <select aria-label="Empty the trash automatically" value={String(org.trash_days ?? 30)} onChange={(e) => { const d = Number(e.target.value); save({ trash_days: d }, d ? `Trash is now emptied after ${d} days` : 'Trash is now kept until people empty it'); }}>

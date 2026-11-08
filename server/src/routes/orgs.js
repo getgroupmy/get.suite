@@ -19,6 +19,7 @@ function describe(org) {
     allow_external: !!org.allow_external,
     allow_links: !!org.allow_links,
     require_2fa: !!org.require_2fa,
+    view_history: org.view_history === undefined ? true : !!org.view_history,
     // People who still have to set up two-step verification (when it's required).
     without_2fa: q(`SELECT COUNT(*) AS n FROM users u WHERE u.org_id = ? AND u.disabled = 0
                     AND NOT EXISTS (SELECT 1 FROM two_factor t WHERE t.user_id = u.id AND t.enabled = 1)`).get(org.id).n,
@@ -55,6 +56,7 @@ function updateOrg(orgId, body, { asSuper, user }) {
     if (!SIGNATURE_MODES.includes(body.signature_mode)) throw bad('signature_mode must be off, default or always');
     q('UPDATE orgs SET signature_mode = ? WHERE id = ?').run(body.signature_mode, orgId);
   }
+  if (body.view_history !== undefined) q('UPDATE orgs SET view_history = ? WHERE id = ?').run(body.view_history ? 1 : 0, orgId); // "who has seen it" in Drive
   if (body.accent !== undefined) {
     if (body.accent !== null && !/^#[0-9a-f]{6}$/i.test(String(body.accent))) throw bad('Pick a colour like #1a73e8');
     q('UPDATE orgs SET accent = ? WHERE id = ?').run(body.accent ? String(body.accent).toLowerCase() : null, orgId);

@@ -57,6 +57,7 @@ export default function Settings() {
       <WorkLocation />
       <SecondZone />
       <Profile />
+      <ViewHistory />
       <YourData />
     </div>
   );
@@ -189,6 +190,24 @@ function Appearance() {
 }
 
 /** A second time zone beside the hours in Calendar. */
+/** Whether owners and editors see when you open their files. */
+function ViewHistory() {
+  const toast = useToast();
+  const [show, setShow] = useState(null);
+  useEffect(() => { get('/users/me/view-history').then((r) => setShow(r.show)).catch(() => {}); }, []);
+  if (show === null) return null;
+  return (
+    <section className="card stack" aria-labelledby="vh-h">
+      <h2 id="vh-h">Who has seen it</h2>
+      <label className="check"><input type="checkbox" checked={show} onChange={async (e) => {
+        const next = e.target.checked; setShow(next);
+        try { await put('/users/me/view-history', { show: next }); toast(next ? 'Owners and editors can see when you open their files' : 'Your openings are hidden, and the ones kept so far are forgotten'); } catch (err) { setShow(!next); toast(err.message, 'error'); }
+      }} /> Show the owners and editors of files when I've opened them</label>
+      <p className="muted small" style={{ margin: 0 }}>They see it in Drive → Details → Who has seen it. Turning this off also forgets the openings kept so far.</p>
+    </section>
+  );
+}
+
 /** Your job title, department and work phone, as colleagues see them in the Directory. */
 function Profile() {
   const toast = useToast();

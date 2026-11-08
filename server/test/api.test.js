@@ -3796,15 +3796,26 @@ test('who has seen a file: owner and editors see the viewers, last time and how 
   await v('GET', `/api/files/${doc.id}?open`);
   await v('GET', `/api/files/${doc.id}?open`); // again at once: still one time
   await v('GET', `/api/files/${doc.id}`); // just the details (Drive lists, menus): not an opening
-  const list = (await owner('GET', `/api/files/${doc.id}/viewers`)).body;
+  const list = (await owner('GET', `/api/files/${doc.id}/viewers`)).body.viewers;
   assert.deepEqual(list.map((x) => [x.name, x.times]), [['Vi Viewer', 1]]);
   assert.equal((await e('GET', `/api/files/${doc.id}/viewers`)).status, 200, 'editors see it');
   assert.equal((await v('GET', `/api/files/${doc.id}/viewers`)).status, 403, 'viewers do not');
   // Someone who lost access drops off the list.
   await owner('PUT', `/api/files/${doc.id}/shares`, { shares: [{ user_id: eid, role: 'editor' }] });
-  assert.deepEqual((await owner('GET', `/api/files/${doc.id}/viewers`)).body, []);
+  assert.deepEqual((await owner('GET', `/api/files/${doc.id}/viewers`)).body.viewers, []);
   // Ten minutes later it counts again.
   const { sawFile } = await import('../src/routes/files.js');
   sawFile(doc.id, eid, Date.now()); sawFile(doc.id, eid, Date.now() + 11 * 60e3);
-  assert.equal((await owner('GET', `/api/files/${doc.id}/viewers`)).body[0].times, 2);
+  assert.equal((await owner('GET', `/api/files/${doc.id}/viewers`)).body.viewers[0].times, 2);
+  // Someone who'd rather not be listed: gone from the list, and not counted.
+  assert.equal((await e('PUT', '/api/users/me/view-history', { show: false })).body.show, false);
+  assert.deepEqual((await owner('GET', `/api/files/${doc.id}/viewers`)).body.viewers, []);
+  await e('GET', `/api/files/${doc.id}?open`);
+  assert.deepEqual((await owner('GET', `/api/files/${doc.id}/viewers`)).body.viewers, []);
+  await e('PUT', '/api/users/me/view-history', { show: true });
+  // The company can turn it off for everyone.
+  await owner('PATCH', '/api/orgs/current', { view_history: false });
+  assert.equal((await owner('GET', `/api/files/${doc.id}/viewers`)).body.off, true);
+  assert.equal((await owner('GET', '/api/orgs/current')).body.view_history, false);
+  await owner('PATCH', '/api/orgs/current', { view_history: true });
 });

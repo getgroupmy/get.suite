@@ -197,6 +197,15 @@ export default function userRoutes() {
     res.json(q('SELECT job_title, department, work_phone, manager_id FROM users WHERE id = ?').get(req.user.id));
   });
 
+  // Whether owners and editors see when you open their files (Drive → Details → Who has seen it).
+  r.get('/me/view-history', (req, res) => res.json({ show: !q('SELECT hide_views FROM users WHERE id = ?').get(req.user.id)?.hide_views }));
+  r.put('/me/view-history', (req, res) => {
+    const show = req.body?.show !== false;
+    q('UPDATE users SET hide_views = ? WHERE id = ?').run(show ? 0 : 1, req.user.id);
+    if (!show) q('DELETE FROM file_views WHERE user_id = ?').run(req.user.id); // and forget the ones already kept
+    res.json({ show });
+  });
+
   r.put('/me/start-page', (req, res) => {
     const page = req.body?.page === 'home' ? 'home' : req.body?.page === 'drive' ? 'drive' : null;
     if (!page) throw bad('page must be drive or home');

@@ -772,8 +772,8 @@ function DetailsDialog({ file, onClose, onChanged }) {
 function Viewers({ fileId }) {
   const { user } = useAuth();
   const [list, setList] = useState(null);
-  useEffect(() => { get(`/files/${fileId}/viewers`).then(setList).catch(() => setList([])); }, [fileId]);
-  if (!list) return null;
+  useEffect(() => { get(`/files/${fileId}/viewers`).then((r) => setList(r.off ? null : r.viewers)).catch(() => setList(null)); }, [fileId]);
+  if (!list) return null; // loading, or turned off for the company
   const others = list.filter((v) => v.id !== user.id); // not you
   return (
     <section className="stack-tight" aria-label="Who has seen it">
