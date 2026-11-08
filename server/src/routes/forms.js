@@ -41,6 +41,9 @@ q(`CREATE TABLE IF NOT EXISTS form_responses (
   created_at INTEGER NOT NULL
 )`).run();
 q('CREATE INDEX IF NOT EXISTS form_responses_form ON form_responses(form_id, created_at)').run();
+for (const [col, type] of [['edit_key', 'TEXT'], ['updated_at', 'INTEGER']]) {
+  if (!q('PRAGMA table_info(form_responses)').all().some((c) => c.name === col)) q(`ALTER TABLE form_responses ADD COLUMN ${col} ${type}`).run();
+}
 // Colleagues who can edit a form and read its responses with the owner.
 q(`CREATE TABLE IF NOT EXISTS form_editors (
   form_id TEXT NOT NULL REFERENCES forms(id) ON DELETE CASCADE,
@@ -48,7 +51,8 @@ q(`CREATE TABLE IF NOT EXISTS form_editors (
   added_at INTEGER NOT NULL,
   PRIMARY KEY (form_id, user_id)
 )`).run();
-for (const [col, type] of [['close_at', 'INTEGER'], ['max_responses', 'INTEGER'], ['quiz', 'INTEGER NOT NULL DEFAULT 0'], ['show_score', 'INTEGER NOT NULL DEFAULT 1']]) {
+// allow_edit: people can change their response afterwards, with the private link they get on sending it.
+for (const [col, type] of [['allow_edit', 'INTEGER NOT NULL DEFAULT 0'], ['close_at', 'INTEGER'], ['max_responses', 'INTEGER'], ['quiz', 'INTEGER NOT NULL DEFAULT 0'], ['show_score', 'INTEGER NOT NULL DEFAULT 1']]) {
   if (!q('PRAGMA table_info(forms)').all().some((c) => c.name === col)) q(`ALTER TABLE forms ADD COLUMN ${col} ${type}`).run();
 }
 const MAX_EDITORS = 50;
@@ -213,10 +217,10 @@ const csvCell = (v) => {
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 };
 
-const parse = (f) => ({ ...f, questions: JSON.parse(f.questions || '[]'), accepting: !!f.accepting, one_per_person: !!f.one_per_person, notify: !!f.notify, quiz: !!f.quiz, show_score: !!f.show_score });
-const responsesOf = (formId) => q(`SELECT r.id, r.answers, r.created_at, u.name AS user_name, u.username AS user_email
+const parse = (f) => ({ ...f, questions: JSON.parse(f.questions || '[]'), accepting: !!f.accepting, one_per_person: !!f.one_per_person, notify: !!f.notify, quiz: !!f.quiz, show_score: !!f.show_score, allow_edit: !!f.allow_edit });
+const responsesOf = (formId) => q(`SELECT r.id, r.answers, r.created_at, r.updated_at, u.name AS user_name, u.username AS user_email
                                    FROM form_responses r LEFT JOIN users u ON u.id = r.user_id WHERE r.form_id = ? ORDER BY r.created_at`).all(formId)
-  .map((r) => ({ id: r.id, created_at: r.created_at, user: r.user_email ? { name: r.user_name, email: r.user_email } : null, answers: JSON.parse(r.answers) }));
+  .map((r) => ({ id: r.id, created_at: r.created_at, ...(r.updated_at && { updated_at: r.updated_at }), user: r.user_email ? { name: r.user_name, email: r.user_email } : null, answers: JSON.parse(r.answers) }));
 
 /** The table of responses: a header row, then one row per response. */
 export function responseTable(form, responses, { withPeople = form.audience === 'org' || responses.some((r) => r.user) } = {}) {
@@ -304,6 +308,7 @@ export default function formRoutes() {
       notify: 'notify' in b ? !!b.notify : f.notify,
       quiz: 'quiz' in b ? !!b.quiz : f.quiz,
       show_score: 'show_score' in b ? !!b.show_score : f.show_score,
+      allow_edit: 'allow_edit' in b ? !!b.allow_edit : f.allow_edit,
       close_at: 'close_at' in b ? (b.close_at == null || b.close_at === '' ? null : Number(b.close_at)) : f.close_at,
       max_responses: 'max_responses' in b ? (b.max_responses == null || b.max_responses === '' ? null : Number(b.max_responses)) : f.max_responses,
     };
@@ -313,9 +318,9 @@ export default function formRoutes() {
     }
     if (next.audience === 'public' && f.audience !== 'public' && !req.user.allow_links) throw forbidden('Your company has turned off links for people outside it');
     q(`UPDATE forms SET title = ?, description = ?, questions = ?, audience = ?, accepting = ?, one_per_person = ?, confirmation = ?, notify = ?,
-       close_at = ?, max_responses = ?, quiz = ?, show_score = ?, updated_at = ? WHERE id = ?`)
+       close_at = ?, max_responses = ?, quiz = ?, show_score = ?, allow_edit = ?, updated_at = ? WHERE id = ?`)
       .run(next.title, next.description, JSON.stringify(next.questions), next.audience, next.accepting ? 1 : 0, next.one_per_person ? 1 : 0, next.confirmation, next.notify ? 1 : 0,
-        next.close_at, next.max_responses, next.quiz ? 1 : 0, next.show_score ? 1 : 0, now(), f.id);
+        next.close_at, next.max_responses, next.quiz ? 1 : 0, next.show_score ? 1 : 0, next.allow_edit ? 1 : 0, now(), f.id);
     changed(f, req.user.id);
     const out = ownForm(f.id, req.user);
     res.json({ ...out, responses: countOf(f.id), closed: closedReason(out) });
@@ -462,11 +467,11 @@ export function publicFormRoutes() {
 
   r.get('/:token', (req, res) => {
     const { form, user, f } = openForm(req);
-    const answered = !!user && form.audience === 'org' && form.one_per_person
-      && !!q('SELECT 1 FROM form_responses WHERE form_id = ? AND user_id = ?').get(form.id, user.id);
+    const mine = !!user && form.audience === 'org' && form.one_per_person && q('SELECT edit_key FROM form_responses WHERE form_id = ? AND user_id = ? ORDER BY created_at DESC').get(form.id, user.id);
+    const answered = !!mine;
     const closed = closedReason(form);
     res.json({ title: form.title, description: form.description, questions: withoutKey(form.questions), quiz: form.quiz, accepting: !closed, closed, closed_text: closed ? CLOSED_TEXT[closed] : null, audience: form.audience,
-      one_per_person: form.audience === 'org' && form.one_per_person, answered, org_name: f.org_name,
+      one_per_person: form.audience === 'org' && form.one_per_person, answered, org_name: f.org_name, allow_edit: form.allow_edit, ...(mine && form.allow_edit && mine.edit_key && { my_edit_key: mine.edit_key }),
       you: form.audience === 'org' ? { name: user.name, email: user.email } : null, is_owner: !!user && teamOf(form).includes(user.id) });
   });
 
@@ -497,6 +502,7 @@ export function publicFormRoutes() {
     }
     if (form.audience === 'public') limit(req.ip);
     const id = uid();
+    const editKey = form.allow_edit ? crypto.randomBytes(18).toString('base64url') : null;
     const who = form.audience === 'org' ? user.name : null;
     if (fileQs.length) {
       const folder = filesFolder(form);
@@ -517,8 +523,8 @@ export function publicFormRoutes() {
       if (form.audience === 'org' && form.one_per_person && q('SELECT 1 FROM form_responses WHERE form_id = ? AND user_id = ?').get(form.id, user.id)) {
         throw new HttpError(409, 'You have already filled in this form');
       }
-      q('INSERT INTO form_responses (id, form_id, user_id, answers, created_at) VALUES (?, ?, ?, ?, ?)')
-        .run(id, form.id, form.audience === 'org' ? user.id : null, JSON.stringify(answers), now());
+      q('INSERT INTO form_responses (id, form_id, user_id, answers, created_at, edit_key) VALUES (?, ?, ?, ?, ?, ?)')
+        .run(id, form.id, form.audience === 'org' ? user.id : null, JSON.stringify(answers), now(), editKey);
     });
     const team = teamOf(form);
     sendTo(team, { type: 'form-response', form_id: form.id });
@@ -526,7 +532,38 @@ export function publicFormRoutes() {
       bell(team.filter((x) => x !== user?.id), { kind: 'form', title: `New response to “${form.title}”`, body: form.audience === 'org' ? `From ${user.name}` : null, link: `/forms/${form.id}?tab=responses`, actor: user?.id || null });
     }
     const result = form.quiz && form.show_score ? scoreOf(form.questions, answers) : null;
-    res.status(201).json({ ok: true, confirmation: form.confirmation || '', ...(result && { score: result.score, max: result.max, right: result.right }) });
+    res.status(201).json({ ok: true, confirmation: form.confirmation || '', ...(editKey && { edit_key: editKey }), ...(result && { score: result.score, max: result.max, right: result.right }) });
+  });
+
+  // Changing a response afterwards (when the form allows it), with its private key. File answers stay
+  // as they were sent. A company form's response can only be changed by whoever sent it.
+  const editable = (req) => {
+    const { form, user } = openForm(req);
+    const resp = form.allow_edit && q('SELECT * FROM form_responses WHERE form_id = ? AND edit_key = ?').get(form.id, String(req.params.key));
+    if (!resp || (form.audience === 'org' && resp.user_id !== user.id)) throw notFound('This response can no longer be changed');
+    return { form, user, resp };
+  };
+  r.get('/:token/response/:key', (req, res) => {
+    const { form, resp } = editable(req);
+    const answers = JSON.parse(resp.answers);
+    for (const qu of form.questions) if (qu.type === 'file') delete answers[qu.id];
+    res.json({ answers, files: Object.fromEntries(form.questions.filter((qu) => qu.type === 'file' && JSON.parse(resp.answers)[qu.id]).map((qu) => [qu.id, JSON.parse(resp.answers)[qu.id].map((x) => x.name)])) });
+  });
+  r.put('/:token/response/:key', (req, res) => {
+    const { form, user, resp } = editable(req);
+    if (!form.accepting || (form.close_at && Date.now() >= form.close_at)) throw new HttpError(409, 'This form is no longer accepting responses, so the response can\'t be changed');
+    const old = JSON.parse(resp.answers);
+    // File questions keep what was sent (and aren't checked again).
+    const asked = form.questions.map((qu) => (qu.type === 'file' ? { ...qu, required: false } : qu));
+    const incoming = { ...(req.body?.answers || {}) };
+    for (const qu of form.questions) if (qu.type === 'file') delete incoming[qu.id];
+    const answers = checkAnswers(asked, incoming);
+    for (const qu of form.questions) if (qu.type === 'file' && old[qu.id]) answers[qu.id] = old[qu.id];
+    q('UPDATE form_responses SET answers = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(answers), now(), resp.id);
+    sendTo(teamOf(form), { type: 'form-response', form_id: form.id });
+    if (form.notify) bell(teamOf(form).filter((x) => x !== user?.id), { kind: 'form', title: `A response to “${form.title}” was changed`, body: form.audience === 'org' ? `By ${user.name}` : null, link: `/forms/${form.id}?tab=responses`, actor: user?.id || null });
+    const result = form.quiz && form.show_score ? scoreOf(form.questions, answers) : null;
+    res.json({ ok: true, confirmation: form.confirmation || '', edit_key: resp.edit_key, ...(result && { score: result.score, max: result.max, right: result.right }) });
   });
   return r;
 }

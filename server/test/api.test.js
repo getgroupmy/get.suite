@@ -4071,3 +4071,35 @@ test('docs: action items become tasks for the people they mention, once', async 
   await owner('PUT', `/api/files/${doc.id}/shares`, { shares: [{ user_id: made.body.id, role: 'viewer' }] });
   assert.equal((await ana('POST', `/api/tasks/from-doc/${doc.id}`, { items })).status, 400, 'viewers can\'t send');
 });
+
+test('forms: people can change their response afterwards when the form allows it', async () => {
+  const made = (await owner('POST', '/api/forms', { title: 'Lunch order' })).body;
+  const f = (await owner('PUT', `/api/forms/${made.id}`, { audience: 'public', quiz: true, show_score: true, questions: [
+    { id: 'food', type: 'choice', title: 'Food', options: ['Pizza', 'Salad'], required: true, answer: 'Salad', points: 1 },
+    { id: 'n', type: 'short', title: 'How many', check: { kind: 'number', op: 'between', a: 1, b: 5 } },
+  ] })).body;
+  const anon = client();
+  const first = (await anon('POST', `/api/public/forms/${f.token}`, { answers: { food: 'Pizza', n: '2' } })).body;
+  assert.equal(first.edit_key, undefined, 'not unless the form allows it');
+  await owner('PUT', `/api/forms/${f.id}`, { allow_edit: true });
+  const sent = (await anon('POST', `/api/public/forms/${f.token}`, { answers: { food: 'Pizza', n: '2' } })).body;
+  assert.ok(sent.edit_key);
+  assert.equal(sent.score, 0);
+  const key = sent.edit_key;
+  assert.deepEqual((await anon('GET', `/api/public/forms/${f.token}/response/${key}`)).body.answers, { food: 'Pizza', n: '2' });
+  assert.equal((await anon('GET', `/api/public/forms/${f.token}/response/nope`)).status, 404);
+  assert.equal((await anon('PUT', `/api/public/forms/${f.token}/response/${key}`, { answers: { food: 'Salad', n: '9' } })).status, 400, 'checked like a new one');
+  const changed = await anon('PUT', `/api/public/forms/${f.token}/response/${key}`, { answers: { food: 'Salad', n: '3' } });
+  assert.equal(changed.status, 200);
+  assert.equal(changed.body.score, 1);
+  const list = (await owner('GET', `/api/forms/${f.id}/responses`)).body.responses;
+  assert.equal(list.length, 2, 'changed, not added');
+  const mine = list.find((r) => r.answers.food === 'Salad');
+  assert.equal(mine.answers.n, '3');
+  assert.ok(mine.updated_at);
+  // Once the form stops taking responses, it can't be changed either.
+  await owner('PUT', `/api/forms/${f.id}`, { accepting: false });
+  assert.equal((await anon('PUT', `/api/public/forms/${f.token}/response/${key}`, { answers: { food: 'Pizza' } })).status, 409);
+  await owner('PUT', `/api/forms/${f.id}`, { accepting: true, allow_edit: false });
+  assert.equal((await anon('GET', `/api/public/forms/${f.token}/response/${key}`)).status, 404, 'turning it off stops the links');
+});
