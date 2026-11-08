@@ -154,6 +154,11 @@ export function buildMailConfig() {
     const script = userSieve({ username: u.username, rules: ruleSets.get(u.id) || [], muted: [...new Set(muted.get(u.id) || [])], vacation: v ? { ...v, name: u.name, addresses } : null });
     if (script) files[`sieve/${u.username}.sieve`] = script;
   }
+  // Shared mailboxes with an automatic reply: Sieve's vacation reply, once a day per sender.
+  for (const s of shared) {
+    if (!s.auto_reply) continue;
+    files[`sieve/${s.address}.sieve`] = userSieve({ username: s.address, vacation: { subject: s.auto_subject || 'We got your message', body: s.auto_reply, name: s.name, username: s.address, addresses: [s.address] } });
+  }
   for (const d of domains) {
     const k = ensureDkim(d.name);
     if (k?.dkim_private) files[`dkim/${d.name}.${DKIM_SELECTOR}.key`] = k.dkim_private;

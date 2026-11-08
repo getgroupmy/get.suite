@@ -230,7 +230,8 @@ function SharedMailboxes({ qs, orgId }) {
 }
 
 function SharedDialog({ box, domains, people, orgId, onClose, onSaved }) {
-  const [f, setF] = useState({ local: '', domain: domains[0] || '', name: box?.name || '' });
+  const [f, setF] = useState({ local: '', domain: domains[0] || '', name: box?.name || '', auto_subject: box?.auto_subject || 'We got your message', auto_reply: box?.auto_reply || '' });
+  const [autoOn, setAutoOn] = useState(!!box?.auto_reply);
   const [members, setMembers] = useState(new Set((box?.members || []).map((m) => m.id)));
   const [filter, setFilter] = useState('');
   const [error, setError] = useState('');
@@ -240,8 +241,9 @@ function SharedDialog({ box, domains, people, orgId, onClose, onSaved }) {
       <form className="stack" onSubmit={async (e) => {
         e.preventDefault();
         try {
-          if (box) await patch(`/mail-admin/shared/${box.id}`, { name: f.name, members: [...members] });
-          else await post('/mail-admin/shared', { ...f, members: [...members], org_id: orgId });
+          const auto = { auto_subject: f.auto_subject, auto_reply: autoOn ? f.auto_reply : '' };
+          if (box) await patch(`/mail-admin/shared/${box.id}`, { name: f.name, members: [...members], ...auto });
+          else await post('/mail-admin/shared', { ...f, ...auto, members: [...members], org_id: orgId });
           onSaved();
         } catch (err) { setError(err.message); }
       }}>
@@ -262,6 +264,11 @@ function SharedDialog({ box, domains, people, orgId, onClose, onSaved }) {
             {shown.map((p) => <li key={p.id}><label className="check"><input type="checkbox" checked={members.has(p.id)} onChange={(e) => { const n = new Set(members); if (e.target.checked) n.add(p.id); else n.delete(p.id); setMembers(n); }} /> {p.name} <span className="muted small">{p.username}</span></label></li>)}
           </ul>
         </fieldset>
+        <label className="check"><input type="checkbox" checked={autoOn} onChange={(e) => setAutoOn(e.target.checked)} /> Automatic reply to whoever writes in (once a day per sender)</label>
+        {autoOn && <>
+          <label className="field"><span>Reply subject</span><input value={f.auto_subject} onChange={(e) => setF({ ...f, auto_subject: e.target.value })} maxLength={200} /></label>
+          <label className="field"><span>Reply text</span><textarea rows={4} required value={f.auto_reply} onChange={(e) => setF({ ...f, auto_reply: e.target.value })} maxLength={4000} placeholder="Thanks for writing to us. We answer within one working day." /></label>
+        </>}
         {error && <p className="error">{error}</p>}
         <div className="row end"><button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn primary">Save</button></div>
       </form>

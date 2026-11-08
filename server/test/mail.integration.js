@@ -1524,6 +1524,16 @@ test('shared mailbox: its members read it and answer as it; nobody signs in to i
   assert.equal((await bob('DELETE', `/api/mail/notes/${n2[1].id}`, undefined, as)).status, 400, 'not someone else’s');
   assert.equal((await bob('DELETE', `/api/mail/notes/${n2[0].id}`, undefined, as)).body.length, 1);
   assert.equal((await bob('GET', '/api/mail/messages?folder=INBOX', undefined, as)).body.messages.find((m) => m.uid === got.uid).notes, 1);
+  // An automatic reply to whoever writes in (once a day per sender, as a vacation reply).
+  assert.equal((await olivia('PATCH', `/api/mail-admin/shared/${mb}`, { auto_reply: 'x'.repeat(4001) })).status, 400);
+  const ar = await olivia('PATCH', `/api/mail-admin/shared/${mb}`, { auto_subject: 'We got your message', auto_reply: 'Thanks for writing to Acme Support. We answer within a day.' });
+  assert.equal(ar.body.auto_subject, 'We got your message');
+  await eventually(() => { try { return fs.readFileSync('/run/nw/sieve/support@acme.com.sieve', 'utf8').includes('We answer within a day'); } catch { return false; } }, 15000);
+  await olivia('POST', '/api/mail/send', { to: 'support@acme.com', subject: 'Another question', text: 'Hi' });
+  const ack = await eventually(async () => (await inbox(olivia)).find((m) => m.subject === 'We got your message'), 30000);
+  assert.equal(ack.from.address, 'support@acme.com');
+  await olivia('PATCH', `/api/mail-admin/shared/${mb}`, { auto_reply: '' });
+  await eventually(() => !fs.existsSync('/run/nw/sieve/support@acme.com.sieve') || !fs.readFileSync('/run/nw/sieve/support@acme.com.sieve', 'utf8').includes('We answer within a day'), 15000);
   // Nobody can sign in to it with a password.
   await assert.rejects(imapLogin('support@acme.com', 'password123'));
   // Taking Bob off: he can't open it any more. Deleting it frees the address.

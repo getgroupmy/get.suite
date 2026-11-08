@@ -16,6 +16,9 @@ q(`CREATE TABLE IF NOT EXISTS shared_mailbox_members (
   PRIMARY KEY (mailbox_id, user_id)
 )`).run();
 
+// An automatic reply for a shared mailbox ("Thanks, we got your message…"), at most once a day per sender.
+for (const col of ['auto_subject', 'auto_reply']) if (!q('PRAGMA table_info(shared_mailboxes)').all().some((c) => c.name === col)) q(`ALTER TABLE shared_mailboxes ADD COLUMN ${col} TEXT`).run();
+
 export const allSharedMailboxes = () => q('SELECT * FROM shared_mailboxes ORDER BY address').all();
 export const isSharedAddress = (address) => !!q('SELECT 1 FROM shared_mailboxes WHERE address = ?').get(String(address).toLowerCase());
 /** The shared mailboxes this person may use (in their own company). */
