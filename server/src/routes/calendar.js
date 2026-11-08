@@ -385,6 +385,31 @@ export default function calendarRoutes() {
   });
 
   // Calendars you subscribe to by address (read-only): list, add { url, name?, color? }, refresh, rename/recolour, remove.
+  // Meetings with someone (by email): yours they're invited to, theirs you're invited to, and
+  // invitations from them by email. The last 5 and the next 5 (repeating ones by their next date).
+  r.get('/with', (req, res) => {
+    const a = String(req.query.email || '').trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(a)) throw bad('Give an email address');
+    const me = req.user.id, t = Date.now();
+    const rows = q(`SELECT DISTINCT e.* FROM events e
+      LEFT JOIN users o ON o.id = e.owner_id
+      WHERE e.recur_parent IS NULL AND (
+        (e.owner_id = ? AND (EXISTS (SELECT 1 FROM event_outside_guests x WHERE x.event_id = e.id AND x.email = ?)
+                          OR EXISTS (SELECT 1 FROM event_guests g JOIN users u ON u.id = g.user_id WHERE g.event_id = e.id AND u.username = ? COLLATE NOCASE)
+                          OR LOWER(json_extract(e.ext_organizer, '$.email')) = ?))
+        OR (o.username = ? COLLATE NOCASE AND EXISTS (SELECT 1 FROM event_guests g WHERE g.event_id = e.id AND g.user_id = ?)))
+      ORDER BY e.start DESC LIMIT 500`).all(me, a, a, a, a, me);
+    const when = (r) => {
+      if (!r.rrule) return r.start;
+      const occ = expand(outEvent(r), t, t + 400 * 864e5)[0]; // the next one, if any
+      return occ ? occ.start : r.start;
+    };
+    const items = rows.map((r) => ({ id: r.id, title: r.title, start: when(r), end: when(r) + (r.end - r.start), all_day: !!r.all_day, location: r.location || null, repeats: !!r.rrule }));
+    res.json({
+      upcoming: items.filter((e) => e.end >= t).sort((x, y) => x.start - y.start).slice(0, 5),
+      past: items.filter((e) => e.end < t).sort((x, y) => y.start - x.start).slice(0, 5),
+    });
+  });
   r.get('/feeds', (req, res) => res.json(feedsOf(req.user.id)));
   r.post('/feeds', async (req, res) => res.status(201).json(await addFeed(req.user.id, req.body || {})));
   r.post('/feeds/:id/refresh', async (req, res) => {

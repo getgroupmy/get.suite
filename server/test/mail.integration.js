@@ -1416,3 +1416,20 @@ test('out of office in Calendar can turn on the email auto-reply for the same da
   assert.equal(v.scheduled, true);
   await olivia('PUT', '/api/mail/vacation', { enabled: false, subject: 'Out of office', body: '' });
 });
+
+test('recent mail with someone: from them and to them, newest first', async () => {
+  const { smtpFor } = await import('../src/mail/imap.js');
+  const { q } = await import('../src/db.js');
+  const pat = q("SELECT * FROM users WHERE username = 'patinviter@acme.com'").get();
+  const tag = `with-${Date.now()}`;
+  await eventually(async () => { try { await smtpFor(pat).sendMail({ from: 'patinviter@acme.com', to: 'olivia@acme.com', subject: `${tag} from Pat`, text: 'hi' }); return true; } catch { return false; } });
+  await eventually(async () => (await olivia('GET', '/api/mail/with?address=patinviter@acme.com')).body.some((m) => m.subject === `${tag} from Pat`));
+  await new Promise((r) => setTimeout(r, 1500)); // dates are to the second
+  await olivia('POST', '/api/mail/send', { to: 'patinviter@acme.com', subject: `${tag} to Pat`, text: 'hello', html: '' });
+  const list = await eventually(async () => { const l = (await olivia('GET', '/api/mail/with?address=PatInviter@acme.com')).body; return l.some((m) => m.subject === `${tag} from Pat`) && l.some((m) => m.subject === `${tag} to Pat`) ? l : null; });
+  const mine = list.filter((m) => m.subject.startsWith(tag));
+  assert.equal(mine[0].subject, `${tag} to Pat`, 'newest first');
+  assert.equal(mine[0].sent, true); assert.equal(mine[1].sent, false);
+  assert.ok(list.length <= 10);
+  assert.ok(!(await olivia('GET', '/api/mail/with?address=nobody-at-all@nowhere.example')).body.length);
+});

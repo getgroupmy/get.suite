@@ -4941,3 +4941,23 @@ test('view only: viewers can\'t download, export, copy, zip or attach a file the
   await kay('PATCH', `/api/files/${pdf.id}`, { no_download: false });
   assert.equal((await val('GET', `/api/files/${pdf.id}/raw?download`, undefined, { binary: true })).status, 200);
 });
+
+test('meetings with someone: your events they\'re invited to, theirs you\'re invited to; past and upcoming', async () => {
+  const kay = client(); await login(kay, 'kay@keepco.com');
+  const mw = await kay('POST', '/api/users', { local: 'mwith', domain: 'keepco.com', name: 'Mo With', password: 'password123' });
+  const mo = client(); await login(mo, 'mwith@keepco.com');
+  const day = 864e5, t = Date.now();
+  await kay('POST', '/api/events', { title: 'Kickoff with Mo', start: t - 10 * day, end: t - 10 * day + 36e5, guests: ['mwith@keepco.com'], tz: 'UTC' });
+  await kay('POST', '/api/events', { title: 'Review with Mo', start: t + 3 * day, end: t + 3 * day + 36e5, guests: ['mwith@keepco.com'], tz: 'UTC' });
+  await mo('POST', '/api/events', { title: 'Mo invites Kay', start: t + day, end: t + day + 36e5, guests: ['kay@keepco.com'], tz: 'UTC' });
+  await kay('POST', '/api/events', { title: 'Not with Mo', start: t + 2 * day, end: t + 2 * day + 36e5, tz: 'UTC' });
+  await kay('POST', '/api/events', { title: 'Weekly with Mo', start: t - 30 * day, end: t - 30 * day + 36e5, rrule: { freq: 'weekly' }, guests: ['mwith@keepco.com'], tz: 'UTC' });
+  const r = (await kay('GET', '/api/events/with?email=MWITH@keepco.com')).body;
+  assert.ok(r.upcoming.some((e) => e.title === 'Review with Mo'));
+  assert.ok(r.upcoming.some((e) => e.title === 'Mo invites Kay'));
+  const weekly = r.upcoming.find((e) => e.title === 'Weekly with Mo');
+  assert.ok(weekly && weekly.start >= t - 36e5 && weekly.start <= t + 7 * day, 'a repeating one by its next date');
+  assert.deepEqual(r.past.map((e) => e.title), ['Kickoff with Mo']);
+  assert.ok(!r.upcoming.some((e) => e.title === 'Not with Mo'));
+  assert.equal((await kay('GET', '/api/events/with?email=nope')).status, 400);
+});

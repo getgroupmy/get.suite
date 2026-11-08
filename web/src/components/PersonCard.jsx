@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router';
 import { get, post } from '../api.js';
 import { Avatar, Modal, useToast } from './ui.jsx';
 import { useAuth } from '../App.jsx';
+import WithPerson from './WithPerson.jsx';
 import Icon from './Icon.jsx';
 import { statusLine } from './status.js';
 import { placeText } from './workloc.js';
@@ -54,6 +55,7 @@ export default function PersonCard({ userId, onClose }) {
             <button type="button" className="btn" onClick={seeCalendar}><Icon name="calendar" size={16} /> See their calendar</button>
           </div>
         )}
+        {card.id !== user.id && <WithPerson email={card.email} onOpen={onClose} />}
       </div>
     </Modal>
   );

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import WithPerson from '../../components/WithPerson.jsx';
 import { useNavigate, useSearchParams } from 'react-router';
 import { get, post, patch, del, postText, onLive } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
@@ -14,6 +15,7 @@ import PersonCard from '../../components/PersonCard.jsx';
 const FIELDS = [['name', 'Name'], ['email', 'Email'], ['phone', 'Phone'], ['company', 'Company'], ['title', 'Job title'], ['website', 'Website']];
 
 export default function Contacts() {
+  const [history, setHistory] = useState(null); // a contact whose emails and meetings are shown
   const toast = useToast();
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -97,6 +99,7 @@ export default function Contacts() {
                 <td className="hide-sm muted">{own ? [c.title, c.company].filter(Boolean).join(' · ') || '—' : [c.job_title, c.department].filter(Boolean).join(' · ') || user.org_name}{own && c.website && <> · <a href={c.website} target="_blank" rel="noopener noreferrer">{c.website.replace(/^https?:\/\//, '')}</a></>}</td>
                 <td className="actions">
                   {own ? (tab === 'mine' || c.can_edit) && <>
+                    {c.email && <button className="icon-btn" aria-label={`History with ${c.name}`} title="Emails and meetings with them" onClick={() => setHistory(c)}><Icon name="clock" size={18} /></button>}
                     <button className="icon-btn" aria-label={`Edit ${c.name}`} onClick={() => setEditing(c)}><Icon name="edit" size={18} /></button>
                     <button className="icon-btn" aria-label={`Delete ${c.name}`} onClick={() => setDeleting(c)}><Icon name="trash" size={18} /></button>
                   </> : c.id !== user.id && (
@@ -110,6 +113,7 @@ export default function Contacts() {
       )}
       {card && <PersonCard userId={card} onClose={() => setCard(null)} />}
       {merging && <DuplicatesDialog onClose={() => setMerging(false)} onMerged={load} />}
+      {history && <Modal title={`With ${history.name}`} onClose={() => setHistory(null)} footer={<button type="button" className="btn" onClick={() => setHistory(null)}>Close</button>}><WithPerson email={history.email} onOpen={() => setHistory(null)} /></Modal>}
       {editing && <ContactDialog contact={editing} orgName={user.org_name} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />}
       {deleting && <ConfirmModal title="Delete contact?" message={`Delete ${deleting.name}?`} onClose={() => setDeleting(null)}
         onConfirm={async () => { await del(`/contacts/${deleting.id}`); load(); }} />}

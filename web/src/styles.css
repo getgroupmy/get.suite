@@ -1956,3 +1956,8 @@ tr.shortcut-row.broken .name-text { color: var(--muted, #777); font-style: itali
 .grid tbody th.grouped { box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent) 45%, transparent); }
 .group-toggle { margin-left: 4px; width: 16px; height: 16px; padding: 0; line-height: 14px; border: 1px solid var(--border); border-radius: 3px; background: var(--surface); color: var(--text); font-size: 12px; cursor: pointer; vertical-align: middle; }
 .group-toggle:disabled { cursor: default; opacity: .6; }
+/* Emails and meetings with someone (contact history, colleague cards). */
+.with-person h3 { margin: 8px 0 4px; }
+.with-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.with-list li { display: flex; gap: 10px; align-items: baseline; }
+.with-list a.unread { font-weight: 600; }

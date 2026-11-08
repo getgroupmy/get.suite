@@ -780,6 +780,28 @@ export default function webmailRoutes() {
     res.json(list.map(({ cc, messageId, ...m }) => m));
   });
 
+  // Recent mail with someone (from them, or to or copied to them): Inbox, Sent and Archive, newest
+  // first, at most 10. For a contact's or a colleague's card.
+  r.get('/with', async (req, res) => {
+    const a = String(req.query.address || '').trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(a)) throw bad('Give an email address');
+    const folders = [...new Set(['INBOX', ...(await withClient(req.user, async (c) => Promise.all(['\\Sent', '\\Archive'].map((u) => specialFolder(c, u)))))].filter(Boolean))];
+    const out = [];
+    for (const f of folders) {
+      await withFolder(req.user, f, async (client) => {
+        const uids = ((await client.search({ or: [{ from: a }, { to: a }, { cc: a }] }, { uid: true })) || []).sort((x, y) => y - x).slice(0, 10);
+        if (!uids.length) return;
+        for await (const m of client.fetch(uids.join(','), { uid: true, envelope: true, flags: true, internalDate: true }, { uid: true })) {
+          const env = m.envelope || {};
+          out.push({ folder: f, uid: m.uid, subject: env.subject || '', from: addr(env.from?.[0]), date: (env.date || m.internalDate)?.valueOf?.() ?? null,
+            seen: m.flags.has('\\Seen'), sent: f !== 'INBOX' && addr(env.from?.[0])?.address?.toLowerCase() !== a, messageId: env.messageId || null });
+        }
+      }).catch(() => {}); // a folder that isn't there is skipped
+    }
+    const seen = new Set();
+    res.json(out.filter((m) => !m.messageId || !seen.has(m.messageId) && seen.add(m.messageId)).sort((x, y) => (y.date || 0) - (x.date || 0)).slice(0, 10).map(({ messageId, ...m }) => m));
+  });
+
   // Importing mail from another account: start one, and how the latest is going.
   r.post('/import', async (req, res) => res.status(201).json(await startImport(req.user, req.body || {})));
   r.get('/import', (req, res) => res.json(importOf(req.user.id)));
