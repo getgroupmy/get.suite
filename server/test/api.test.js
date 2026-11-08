@@ -5957,3 +5957,22 @@ test('shared drives: members from sharing, editors manage it, and what people ad
   assert.deepEqual((await c('GET', '/api/files?view=drives')).body.map((f) => [f.name, f.role]), [['Marketing team', 'viewer']]);
   assert.ok(JSON.stringify((await owner('GET', '/api/audit')).body).includes('drive.create'));
 });
+
+test('shared drives: an owner leaving with no editor and no heir leaves the drive with the admin, not lost', async () => {
+  const a = client(), b = client(), c = client();
+  for (const [local, name] of [['lva', 'Leave Ann'], ['lvb', 'Leave Ben'], ['lvc', 'Leave Cat']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  const aid = (await login(a, 'lva@acme.com')).id, bid = (await login(b, 'lvb@acme.com')).id;
+  await login(c, 'lvc@acme.com');
+  const ownerId = (await owner('GET', '/api/auth/me')).body.user.id;
+  const drive = (await a('POST', '/api/files/drives', { name: 'Archive team' })).body;
+  await a('PUT', `/api/files/${drive.id}/shares`, { shares: [{ user_id: bid, role: 'viewer' }] });
+  const report = (await a('POST', '/api/files/new', { kind: 'doc', name: 'Report', parent_id: drive.id })).body;
+  // A drive with nobody else in it goes with its owner, as a folder would.
+  const lonely = (await c('POST', '/api/files/drives', { name: 'Just me' })).body;
+  await owner('DELETE', `/api/users/${aid}`);
+  const kept = (await owner('GET', `/api/files/${drive.id}`)).body;
+  assert.deepEqual([kept.role, kept.owner_id], ['owner', ownerId], 'the admin who deleted Ann has it');
+  assert.equal((await b('GET', `/api/files/${report.id}`)).body.role, 'viewer', 'Ben still reads it');
+  await owner('DELETE', `/api/users/${(await c('GET', '/api/auth/me')).body.user.id}`);
+  assert.equal((await owner('GET', `/api/files/${lonely.id}`)).status, 404);
+});

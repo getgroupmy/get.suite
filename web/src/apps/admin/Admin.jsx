@@ -228,7 +228,9 @@ function Users({ orgId, setOrgId }) {
         message={`This permanently deletes ${dialog.user.username}, their ${dialog.heir ? '' : `files (${formatBytes(dialog.user.storage_used)}), `}calendar, contacts and messages. Consider disabling the account instead.`}
         onClose={() => setDialog(null)} onConfirm={async () => {
           const r = await del(`/users/${dialog.user.id}${dialog.heir ? `?transfer_to=${dialog.heir}` : ''}`);
-          toast(dialog.heir && r.files_moved ? `User deleted; ${r.files_moved} file${r.files_moved === 1 ? '' : 's'} given to ${users.find((x) => x.id === dialog.heir)?.name}` : 'User deleted'); load();
+          const given = dialog.heir && r.files_moved ? `; ${r.files_moved} file${r.files_moved === 1 ? '' : 's'} given to ${users.find((x) => x.id === dialog.heir)?.name}` : '';
+          const kept = r.drive_items_kept ? `; ${r.drive_items_kept} item${r.drive_items_kept === 1 ? '' : 's'} kept in shared drives` : '';
+          toast(`User deleted${given}${kept}`); load();
         }}>
         <label className="field"><span>Their Drive files</span>
           <select value={dialog.heir || ''} onChange={(e) => setDialog({ ...dialog, heir: e.target.value || null })}>
@@ -236,6 +238,7 @@ function Users({ orgId, setOrgId }) {
             {(users || []).filter((x) => x.id !== dialog.user.id && !x.disabled).map((x) => <option key={x.id} value={x.id}>Give them to {x.name}</option>)}
           </select>
         </label>
+        <p className="muted small" style={{ margin: 0 }}>What they added to shared drives stays there either way. A shared drive they own goes to one of its editors (or to whoever gets their files, or to you).</p>
       </ConfirmModal>
     )}
   </>;

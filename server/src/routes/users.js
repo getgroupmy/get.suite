@@ -515,7 +515,7 @@ export default function userRoutes() {
       heir = q('SELECT id, name, org_id, disabled FROM users WHERE id = ?').get(String(req.query.transfer_to));
       if (!heir || heir.disabled || heir.org_id !== u.org_id || heir.id === u.id) throw bad('Choose someone else in the same company to give their files to');
     }
-    const kept = keepDriveFiles(u.id, heir?.id); // what they added to shared drives stays there
+    const kept = keepDriveFiles(u.id, heir?.id, req.user.id); // what they added to shared drives stays there
     const blobs = tx(() => {
       let moved = 0;
       if (heir) {

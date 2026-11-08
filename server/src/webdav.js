@@ -2,9 +2,10 @@ import { recordActivity } from './fileactivity.js';
 // Drive as a network drive (WebDAV), for Finder (macOS: Go → Connect to Server), File Explorer
 // (Windows: Map network drive), Linux file managers and phone file apps. Mounted at /dav/files.
 //
-//   /dav/files/                      My Drive, plus "Shared with me"
+//   /dav/files/                      My Drive, plus "Shared with me" and "Shared drives"
 //   /dav/files/Projects/plan.pdf     a file in My Drive
 //   /dav/files/Shared with me/...    files and folders others shared with you
+//   /dav/files/Shared drives/...     the shared drives you're a member of
 //
 // Same sign-in as calendar sync (email + password, or the mail-app password with two-step
 // verification). Viewers can read; editors can change. Saving over a file keeps the old one as a
@@ -31,6 +32,7 @@ import * as L from './davlocks.js';
 function lockKey(node, user) {
   if (node.type === 'root') return `/u:${user.id}`;
   if (node.type === 'shared') return `/s:${user.id}`;
+  if (node.type === 'drives') return `/d:${user.id}`;
   if (node.type === 'missing') return `${lockKey(node.parent, user)}/n:${node.name}`;
   if (node.type !== 'item') return '/gone';
   const ids = [];
@@ -48,6 +50,8 @@ const targetOf = (node, user) => (node.type === 'item' ? node.row.id : `${node.t
 const deadProps = (target) => q('SELECT ns, name, value FROM webdav_props WHERE target = ?').all(target);
 
 const SHARED = 'Shared with me';
+const DRIVES = 'Shared drives';
+const VIRTUAL = { [SHARED]: 'shared', [DRIVES]: 'drives' }; // the two folders beside My Drive's own
 // System clutter that file managers write next to every file: accepted, but not kept.
 const JUNK = /^(\._.*|\.DS_Store|Thumbs\.db|desktop\.ini|\.localized)$/i;
 const NAME_OK = (n) => n && n.length <= 255 && !/[\/\\\0]/.test(n) && n !== '.' && n !== '..';
@@ -60,15 +64,16 @@ function resolve(user, segments) {
   if (!segments.length) return { type: 'root' };
   let parent = { type: 'root' };
   let i = 0;
-  if (segments[0] === SHARED) {
-    if (segments.length === 1) return { type: 'shared' };
-    parent = { type: 'shared' };
+  if (VIRTUAL[segments[0]]) {
+    if (segments.length === 1) return { type: VIRTUAL[segments[0]] };
+    parent = { type: VIRTUAL[segments[0]] };
     i = 1;
   }
   for (; i < segments.length; i++) {
     const name = segments[i];
     let row;
-    if (parent.type === 'root') row = q(`SELECT * FROM files WHERE owner_id = ? AND parent_id IS NULL AND name = ? AND ${LINKABLE}`).get(user.id, name);
+    if (parent.type === 'root') row = q(`SELECT * FROM files WHERE owner_id = ? AND parent_id IS NULL AND is_drive = 0 AND name = ? AND ${LINKABLE}`).get(user.id, name);
+    else if (parent.type === 'drives') row = drivesOf(user).find((f) => f.name === name);
     else if (parent.type === 'shared') row = sharedWithMe(user).find((f) => f.name === name);
     else row = q(`SELECT * FROM files WHERE parent_id = ? AND name = ? AND ${LINKABLE}`).get(parent.row.id, name);
     if (!row) return i === segments.length - 1 ? { type: 'missing', name, parent } : { type: 'gone' };
@@ -80,11 +85,14 @@ function resolve(user, segments) {
   }
   return parent;
 }
-const sharedWithMe = (user) => q(`SELECT f.* FROM files f JOIN users o ON o.id = f.owner_id WHERE (f.id IN (SELECT file_id FROM shares WHERE user_id = ?) OR (f.org_role IS NOT NULL AND o.org_id = ? AND f.owner_id != ?)) AND f.${LINKABLE.replace(/ AND /, ' AND f.')} ORDER BY f.name`).all(user.id, user.org_id, user.id)
+const sharedWithMe = (user) => q(`SELECT f.* FROM files f JOIN users o ON o.id = f.owner_id WHERE f.is_drive = 0 AND (f.id IN (SELECT file_id FROM shares WHERE user_id = ?) OR (f.org_role IS NOT NULL AND o.org_id = ? AND f.owner_id != ?)) AND f.${LINKABLE.replace(/ AND /, ' AND f.')} ORDER BY f.name`).all(user.id, user.org_id, user.id)
+  .filter((f) => roleFor(f.id, user.id));
+const drivesOf = (user) => q(`SELECT f.* FROM files f JOIN users o ON o.id = f.owner_id WHERE f.is_drive = 1 AND f.trashed = 0 AND (o.org_id = ? OR f.id IN (SELECT file_id FROM shares WHERE user_id = ?)) ORDER BY f.name`).all(user.org_id, user.id)
   .filter((f) => roleFor(f.id, user.id));
 const childrenOf = (user, node) => (node.type === 'root'
-  ? q(`SELECT * FROM files WHERE owner_id = ? AND parent_id IS NULL AND ${LINKABLE} ORDER BY name`).all(user.id)
+  ? q(`SELECT * FROM files WHERE owner_id = ? AND parent_id IS NULL AND is_drive = 0 AND ${LINKABLE} ORDER BY name`).all(user.id)
   : node.type === 'shared' ? sharedWithMe(user)
+  : node.type === 'drives' ? drivesOf(user)
   : q(`SELECT * FROM files WHERE parent_id = ? AND ${LINKABLE} ORDER BY name`).all(node.row.id));
 
 /** Can this user add things in this folder (node)? Where do new items go, and who owns them? */
@@ -95,10 +103,10 @@ function placeFor(user, node) {
 }
 
 /** The properties Drive itself provides, as { '{ns}name': inner XML }. */
-function liveProps(f, user, isRoot, lockXml = '') {
+function liveProps(f, user, isRoot, lockXml = '', virtualName = SHARED) {
   const coll = !f || f.kind === 'folder';
   const p = {
-    '{DAV:}displayname': esc(f ? f.name : isRoot ? 'Workspace Drive' : SHARED),
+    '{DAV:}displayname': esc(f ? f.name : isRoot ? 'Workspace Drive' : virtualName),
     '{DAV:}resourcetype': coll ? '<d:collection/>' : '',
     '{DAV:}supportedlock': '<d:lockentry><d:lockscope><d:exclusive/></d:lockscope><d:locktype><d:write/></d:locktype></d:lockentry>',
     '{DAV:}lockdiscovery': lockXml,
@@ -195,9 +203,12 @@ export default function webdavRoutes({ maxUploadBytes }) {
         }
         const out = [];
         const self = node.type === 'item' ? node.row : null;
-        out.push(propResponse(hrefOf(segs, !self || self.kind === 'folder'), liveProps(self, user, node.type === 'root', lockXmlOf(keyHere)), deadProps(targetOf(node, user)), want));
+        out.push(propResponse(hrefOf(segs, !self || self.kind === 'folder'), liveProps(self, user, node.type === 'root', lockXmlOf(keyHere), node.type === 'drives' ? DRIVES : SHARED), deadProps(targetOf(node, user)), want));
         if (req.get('depth') !== '0' && (!self || self.kind === 'folder')) {
-          if (node.type === 'root') out.push(propResponse(hrefOf([SHARED], true), liveProps(null, user, false), deadProps(`shared:${user.id}`), want));
+          if (node.type === 'root') {
+            out.push(propResponse(hrefOf([SHARED], true), liveProps(null, user, false), deadProps(`shared:${user.id}`), want));
+            out.push(propResponse(hrefOf([DRIVES], true), liveProps(null, user, false, '', DRIVES), deadProps(`drives:${user.id}`), want));
+          }
           for (const c of childrenOf(user, node)) out.push(propResponse(hrefOf([...segs, c.name], c.kind === 'folder'), liveProps(c, user, false, lockXmlOf(lockKey({ type: 'item', row: c }, user))), deadProps(c.id), want));
         }
         return res.status(207).type('application/xml; charset=utf-8').send(`<?xml version="1.0" encoding="utf-8"?>\n<d:multistatus xmlns:d="DAV:">${out.join('')}</d:multistatus>`);
@@ -205,7 +216,7 @@ export default function webdavRoutes({ maxUploadBytes }) {
 
       if (m === 'GET' || m === 'HEAD') {
         if (node.type !== 'item') {
-          if (node.type === 'root' || node.type === 'shared' || node.row?.kind === 'folder') return res.type('text/plain').send(m === 'HEAD' ? '' : 'Workspace Drive. Connect to this address as a network drive in Finder or File Explorer.');
+          if (node.type === 'root' || node.type === 'shared' || node.type === 'drives' || node.row?.kind === 'folder') return res.type('text/plain').send(m === 'HEAD' ? '' : 'Workspace Drive. Connect to this address as a network drive in Finder or File Explorer.');
           return res.status(404).end();
         }
         if (node.row.kind === 'folder') return res.type('text/plain').send('');
@@ -334,6 +345,7 @@ export default function webdavRoutes({ maxUploadBytes }) {
         if (JUNK.test(lastName || '')) return res.status(204).end();
         if (node.type !== 'item') return res.status(node.type === 'missing' ? 404 : 403).end();
         if (!atLeast(node.role, 'editor')) return res.status(403).end();
+        if (node.row.is_drive && node.role !== 'owner') return res.status(403).send('Only its owner can delete a shared drive');
         if (!guard([keyHere], true)) return;
         // To the trash, like deleting in Drive: it can be restored there.
         q('UPDATE files SET trashed = 1, trashed_at = ?, updated_at = ? WHERE id = ?').run(now(), now(), node.row.id);
@@ -353,8 +365,9 @@ export default function webdavRoutes({ maxUploadBytes }) {
         const newName = destSegs[destSegs.length - 1];
         if (!NAME_OK(newName)) return res.status(400).end();
         const overwrite = req.get('overwrite') !== 'F';
+        if (m === 'MOVE' && node.row.is_drive) return res.status(403).send('A shared drive can’t be moved or renamed here; rename it in Drive');
         if (target.type === 'item') {
-          if (target.row.id === node.row.id) return res.status(403).end();
+          if (target.row.id === node.row.id || target.row.is_drive) return res.status(403).end();
           if (!overwrite) return res.status(412).end();
           if (!atLeast(target.role, 'editor')) return res.status(403).end();
         } else if (target.type !== 'missing') return res.status(409).end();

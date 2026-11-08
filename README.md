@@ -429,7 +429,8 @@ A shared drive belongs to a team (Marketing, Finance, a client project) rather t
 
 - **Make one:** **Shared drives** in the Drive sidebar → **New shared drive**, give it a name, then add its members (people, groups, or everyone in the company) as viewers, commenters or editors.
 - **Members:** **Members** at the top of a shared drive (or **⋮ → Manage members** in the list). Editors can add files and folders, rename the drive and add or remove members too; viewers and commenters only read. A drive shows under **Shared drives** for its members, not in My Drive or Shared with me.
-- **When someone leaves:** deleting their account keeps what they added to shared drives, in place: it becomes the drive owner's. A drive whose owner leaves goes, with everything of theirs in it, to one of its editors (or to the person their files are given to). Only the drive's owner can delete the drive itself, and a shared drive can't be moved into a folder.
+- **When someone leaves:** deleting their account keeps what they added to shared drives, in place: it becomes the drive owner's. A drive whose owner leaves goes, with everything of theirs in it, to one of its editors, or to the person their files are given to, or else (while anyone else is still in it) to the admin deleting the account; the delete window says so, and how many items stayed. Only the drive's owner can delete the drive itself, and a shared drive can't be moved into a folder.
+- **As a network drive:** Finder, File Explorer and phone file apps show a **Shared drives** folder beside *Shared with me*, with the drives you're in; members who can edit add, change and move files there as anywhere else. New drives are made, renamed and deleted in Drive.
 
 ## Home
 
@@ -489,7 +490,7 @@ Drive can also appear on a computer as an ordinary drive (WebDAV), so files open
 - **Mac:** Finder → Go → **Connect to Server…** → enter the address → sign in.
 - **Windows:** File Explorer → This PC → **Map network drive** → *Connect to a website that you can use to store your documents and pictures*. Then enter the address.
 - **Linux, phones and other apps:** any WebDAV client (for example the Files app with a WebDAV app, rclone or Cyberduck).
-- **What you see:** *My Drive* at the top, plus a **Shared with me** folder. Documents, spreadsheets and presentations stay in the browser, so they aren't listed.
+- **What you see:** *My Drive* at the top, plus **Shared with me** and **Shared drives** folders. Documents, spreadsheets and presentations stay in the browser, so they aren't listed.
 - **Sign-in:** the same as for calendar sync: your email address and password, or your mail-app password with two-step verification.
 - **Safe by design:**
   - Saving over a file keeps the previous one in its version history.

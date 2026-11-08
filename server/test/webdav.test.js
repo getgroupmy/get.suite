@@ -35,7 +35,7 @@ test('connect, make a folder, save, open, list', async () => {
   assert.equal((await fetch(`${base}/dav/files/`, { method: 'PROPFIND' })).status, 401);
   const root = await dav('PROPFIND', '/dav/files/', { headers: { depth: '1' } });
   assert.equal(root.status, 207);
-  assert.deepEqual(names(root.text), ['/dav/files/', '/dav/files/Shared with me/']);
+  assert.deepEqual(names(root.text), ['/dav/files/', '/dav/files/Shared with me/', '/dav/files/Shared drives/']);
   assert.match(root.text, /<d:quota-used-bytes>/);
   assert.equal((await dav('MKCOL', '/dav/files/Clients')).status, 201);
   assert.equal((await dav('MKCOL', '/dav/files/Clients')).status, 405, 'already there');
@@ -110,4 +110,21 @@ test('a lock held by one person stops another from overwriting or deleting', asy
   assert.equal((await dav('UNLOCK', '/dav/files/Archive/from-kim.txt', { headers: { 'lock-token': '<opaquelocktoken:not-it>' } })).status, 409);
   assert.equal((await dav('UNLOCK', '/dav/files/Shared%20with%20me/Archive/from-kim.txt', { user: 'kim', headers: { 'lock-token': token } })).status, 204);
   assert.equal((await dav('PUT', '/dav/files/Archive/from-kim.txt', { body: 'now Pat' })).status, 204);
+});
+
+test('shared drives: their own folder, members read and write, the drive itself is protected', async () => {
+  const drive = (await api('POST', '/api/files/drives', { name: 'Finance' })).body;
+  const root = names((await dav('PROPFIND', '/dav/files/', { headers: { depth: '1' } })).text);
+  assert.ok(root.includes('/dav/files/Shared drives/'));
+  assert.ok(!root.includes('/dav/files/Finance/'), 'not in My Drive');
+  assert.deepEqual(names((await dav('PROPFIND', '/dav/files/Shared%20drives/', { headers: { depth: '1' } })).text), ['/dav/files/Shared drives/', '/dav/files/Shared drives/Finance/']);
+  assert.equal((await dav('PROPFIND', '/dav/files/Shared%20drives/Finance/', { headers: { depth: '0' }, user: 'kim' })).status, 404, 'not a member yet');
+  await api('PUT', `/api/files/${drive.id}/shares`, { shares: [{ user_id: kimId, role: 'editor' }] });
+  assert.ok(!names((await dav('PROPFIND', '/dav/files/Shared%20with%20me/', { headers: { depth: '1' }, user: 'kim' })).text).some((n) => n.includes('Finance')), 'not in Shared with me');
+  assert.equal((await dav('PUT', '/dav/files/Shared%20drives/Finance/budget.csv', { body: 'a,b', user: 'kim' })).status, 201);
+  assert.equal((await dav('GET', '/dav/files/Shared%20drives/Finance/budget.csv')).text, 'a,b', 'the owner sees Kim’s file');
+  assert.equal((await dav('MKCOL', '/dav/files/Shared%20drives/Q4/', { user: 'kim' })).status, 403, 'no new drives from here');
+  assert.equal((await dav('DELETE', '/dav/files/Shared%20drives/Finance/', { user: 'kim' })).status, 403, 'only its owner deletes it');
+  assert.equal((await dav('MOVE', '/dav/files/Shared%20drives/Finance/', { headers: { destination: '/dav/files/Finance/' } })).status, 403);
+  assert.equal((await dav('MOVE', '/dav/files/Shared%20drives/Finance/budget.csv', { headers: { destination: '/dav/files/Shared%20drives/Finance/budget-2026.csv' }, user: 'kim' })).status, 201, 'files inside move as usual');
 });

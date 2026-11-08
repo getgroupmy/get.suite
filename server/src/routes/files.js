@@ -250,9 +250,10 @@ function moveOwnership(rootId, fromId, toId) {
 /**
  * Someone is leaving (their account is being deleted): what they added to shared drives stays there.
  * A drive of theirs goes, with everything of theirs in it, to one of its members who can edit (or to
- * `heirId`); their files in others' drives go to each drive's owner. Returns how many items stayed.
+ * `heirId`, or, while others are still in it, to `adminId`, who is deleting the account, so it's never
+ * lost with them); their files in others' drives go to each drive's owner. Returns how many items stayed.
  */
-export function keepDriveFiles(userId, heirId = null) {
+export function keepDriveFiles(userId, heirId = null, adminId = null) {
   const org = q('SELECT org_id FROM users WHERE id = ?').get(userId)?.org_id;
   return tx(() => {
     let n = 0;
@@ -260,7 +261,8 @@ export function keepDriveFiles(userId, heirId = null) {
       if (d.owner_id === userId) {
         const next = q(`SELECT s.user_id FROM shares s JOIN users x ON x.id = s.user_id
                         WHERE s.file_id = ? AND s.role = 'editor' AND x.disabled = 0 AND x.id != ? AND x.org_id = ?
-                        ORDER BY s.direct_role IS NULL, x.created_at LIMIT 1`).get(d.id, userId, org)?.user_id || heirId;
+                        ORDER BY s.direct_role IS NULL, x.created_at LIMIT 1`).get(d.id, userId, org)?.user_id || heirId
+          || (adminId && adminId !== userId && audienceFor(d.id).some((id) => id !== userId) ? adminId : null);
         if (next) n += moveOwnership(d.id, userId, next);
       } else if (q('SELECT 1 FROM files WHERE owner_id = ? AND id IN (' + SUBTREE + ')').get(userId, d.id)) {
         n += moveOwnership(d.id, userId, d.owner_id);
