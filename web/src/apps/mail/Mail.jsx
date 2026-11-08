@@ -20,6 +20,7 @@ import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
 import { mailKey, stepMessage } from './mailkeys.js';
 import { printMessage } from './mailprint.js';
+import { previewKind, stepPreview } from './attpreview.js';
 import { textToHtml, docToText, emailHtml, isEmptyDoc, linkHref } from './richtext.js';
 import { FiltersDialog } from './Filters.jsx';
 import DrivePicker from '../../components/DrivePicker.jsx';
@@ -529,6 +530,7 @@ function Reader({ shared = null, folder, uid, special, onClose, onOpen, onChange
     }).catch((e) => { toast(e.message, 'error'); onClose(); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [folder, uid]);
+  const [viewing, setViewing] = useState(null); // the index of the attachment open in the viewer
   if (!m) return <p className="muted mail-note">Loading…</p>;
 
   // The original's body for a reply or forward. HTML mail keeps its basic formatting and embedded
@@ -557,6 +559,7 @@ function Reader({ shared = null, folder, uid, special, onClose, onOpen, onChange
   const answerReceipt = async (send) => {
     try { await post(`/mail/messages/${uid}/receipt`, { folder, send }); setM({ ...m, receipt: null }); if (send) toast(`Read receipt sent to ${m.receipt.to}`); } catch (e) { toast(e.message, 'error'); }
   };
+  const attUrl = (a, view) => `/api/mail/messages/${uid}/attachments/${a.index}?folder=${enc(folder)}${view ? '&view' : ''}${mailboxParam()}`;
   const saveToDrive = async (indexes) => {
     try {
       const r = await post(`/mail/messages/${uid}/attachments/save`, { folder, ...(indexes && { indexes }) });
@@ -659,13 +662,16 @@ function Reader({ shared = null, folder, uid, special, onClose, onOpen, onChange
       {m.attachments.length > 0 && (
         <ul className="att-list">
           {m.attachments.map((a) => (
-            <li key={a.index}><a className="att" href={`/api/mail/messages/${uid}/attachments/${a.index}?folder=${enc(folder)}${mailboxParam()}`}>
+            <li key={a.index}><a className="att" href={attUrl(a)} title={previewKind(a.filename) ? 'Open (Shift+click to download)' : 'Download'}
+              onClick={(e) => { if (previewKind(a.filename) && !e.shiftKey && !e.ctrlKey && !e.metaKey) { e.preventDefault(); setViewing(m.attachments.indexOf(a)); } }}>
               <Icon name="attach" size={18} /><span className="ellipsis">{a.filename}</span><span className="muted small">{formatBytes(a.size)}</span>
             </a><button type="button" className="icon-btn" aria-label={`Save ${a.filename} to Drive`} title="Save to Drive" onClick={() => saveToDrive([a.index])}><Icon name="folder" size={16} /></button></li>
           ))}
           {m.attachments.length > 1 && <li><button type="button" className="btn small" onClick={() => saveToDrive(null)}>Save all to Drive</button></li>}
         </ul>
       )}
+      {viewing !== null && m.attachments[viewing] && <AttachmentViewer attachments={m.attachments} at={viewing} url={attUrl}
+        onStep={(dir) => setViewing(stepPreview(m.attachments, viewing, dir))} onSave={(a) => saveToDrive([a.index])} onClose={() => setViewing(null)} />}
       <div className="row wrap reader-reply">
         <button className="btn" onClick={async () => onCompose({ to: list(replyTo), subject: reSubject('Re:'), html: await quoted(), ...thread })}><Icon name="reply" size={18} /> Reply</button>
         {others.length > 0 && <button className="btn" onClick={async () => onCompose({ to: list(replyTo), cc: list(others), subject: reSubject('Re:'), html: await quoted(), ...thread })}><Icon name="replyall" size={18} /> Reply all</button>}
@@ -2301,5 +2307,39 @@ function InternalNotes({ messageId, onChanged }) {
         <button className="btn small" disabled={!text.trim()}>Add note</button>
       </form>
     </section>
+  );
+}
+
+/** An email attachment shown in the browser (pictures, PDF, text, audio, video), with ← → to the others. */
+function AttachmentViewer({ attachments, at, url, onStep, onSave, onClose }) {
+  const a = attachments[at];
+  const kind = previewKind(a.filename);
+  const shown = attachments.filter((x) => previewKind(x.filename));
+  const many = shown.length > 1;
+  useEffect(() => {
+    const key = (e) => {
+      if (!many || e.target.closest?.('input, textarea, [contenteditable="true"]')) return;
+      if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') { e.preventDefault(); e.stopPropagation(); onStep(e.key === 'ArrowRight' ? 1 : -1); }
+    };
+    window.addEventListener('keydown', key, true);
+    return () => window.removeEventListener('keydown', key, true);
+  });
+  const src = url(a, true);
+  const body = kind === 'picture' ? <img src={src} alt={a.filename} className="preview-media" />
+    : kind === 'video' ? <video src={src} controls className="preview-media" />
+    : kind === 'audio' ? <audio src={src} controls />
+    : <iframe src={src} title={a.filename} className="preview-frame" />;
+  return (
+    <Modal wide title={a.filename} onClose={onClose} footer={<>
+      {many && <><button type="button" className="btn" aria-label="Previous attachment" onClick={() => onStep(-1)}>←</button>
+        <span className="muted small">{shown.indexOf(a) + 1} of {shown.length}</span>
+        <button type="button" className="btn" aria-label="Next attachment" onClick={() => onStep(1)}>→</button></>}
+      <span className="grow" />
+      <button type="button" className="btn" onClick={() => onSave(a)}><Icon name="folder" size={18} /> Save to Drive</button>
+      <a className="btn primary" href={url(a)}><Icon name="download" size={18} /> Download</a>
+    </>}>
+      <div className="preview" key={a.index}>{body}</div>
+      <p className="muted small">{formatBytes(a.size)}</p>
+    </Modal>
   );
 }

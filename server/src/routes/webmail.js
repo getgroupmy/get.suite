@@ -27,6 +27,7 @@ import { recordSent } from '../othercontacts.js';
 import { parseMailQuery, allOf } from '../mail/searchquery.js';
 import { receiptRequest, buildReceipt } from '../mail/receipt.js';
 import { mimeFor } from '../util.js';
+import { previewMime, previewHeaders } from '../mail/preview.js';
 import { calendarPartOf, readInvite, replyIcs, eventForInvite, saveInvite, readReply } from '../mail/invite.js';
 import { recordReply } from '../mail/invitereply.js';
 import { setVacation } from '../mail/vacation.js';
@@ -963,7 +964,10 @@ export default function webmailRoutes() {
     const { parsed } = await loadMessage(req.user, String(req.query.folder || 'INBOX'), Number(req.params.uid), false);
     const a = parsed.attachments.filter((x) => !x.related)[Number(req.params.index)];
     if (!a) throw notFound('Attachment not found');
-    // Always download (never render attacker-supplied content on our origin).
+    // ?view shows the safe kinds (pictures, PDF, text, audio, video) in the browser; anything else downloads.
+    const shown = req.query.view !== undefined && previewMime(a.filename);
+    if (shown) { res.set(previewHeaders(shown, a.filename)); res.end(a.content); return; }
+    // Otherwise always download (never render attacker-supplied content on our origin).
     res.setHeader('Content-Type', 'application/octet-stream');
     res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(a.filename || 'attachment')}`);
     res.setHeader('X-Content-Type-Options', 'nosniff');
