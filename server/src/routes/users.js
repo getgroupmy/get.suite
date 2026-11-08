@@ -371,6 +371,35 @@ export default function userRoutes() {
     res.json({ rows, created: rows.filter((x) => x.created).length, updated: rows.filter((x) => x.updated).length });
   });
 
+  // Usage over the last N days (7, 30 or 90) for everyone in the company: when each was last active,
+  // files created and edited, chat messages sent, meetings organised (events with guests that took
+  // place) and tasks completed. ?format=csv to download.
+  r.get('/report', (req, res) => {
+    const orgId = targetOrg(req);
+    const days = [7, 30, 90].includes(Number(req.query.days)) ? Number(req.query.days) : 30;
+    const to = Date.now(), from = to - days * 864e5;
+    const people = q('SELECT id, name, username, last_active, disabled FROM users WHERE org_id = ? ORDER BY name').all(orgId);
+    const count = (sql, ...args) => new Map(q(sql).all(...args).map((r) => [r.user_id, r.n]));
+    const created = count(`SELECT user_id, COUNT(*) AS n FROM file_activity WHERE at >= ? AND action IN ('create', 'upload', 'copy') GROUP BY user_id`, from);
+    const edited = count(`SELECT user_id, COUNT(DISTINCT file_id) AS n FROM file_activity WHERE at >= ? AND action IN ('edit', 'version') GROUP BY user_id`, from);
+    const chats = count('SELECT user_id, COUNT(*) AS n FROM messages WHERE created_at >= ? GROUP BY user_id', from);
+    const meetings = count(`SELECT e.owner_id AS user_id, COUNT(*) AS n FROM events e WHERE e.start >= ? AND e.start < ?
+                            AND EXISTS (SELECT 1 FROM event_guests g WHERE g.event_id = e.id) GROUP BY e.owner_id`, from, to);
+    const tasks = count(`SELECT COALESCE(t.assignee_id, t.created_by) AS user_id, COUNT(*) AS n FROM tasks t WHERE t.done_at >= ? GROUP BY 1`, from);
+    const rows = people.map((u) => ({ id: u.id, name: u.name, email: u.username, disabled: !!u.disabled, last_active: u.last_active || null,
+      files_created: created.get(u.id) || 0, files_edited: edited.get(u.id) || 0, chat_messages: chats.get(u.id) || 0, meetings: meetings.get(u.id) || 0, tasks_done: tasks.get(u.id) || 0 }));
+    const active = rows.filter((r) => r.last_active && r.last_active >= from).length;
+    if (req.query.format === 'csv') {
+      const cell = (v) => { const t = String(v ?? ''); return /[",\n]/.test(t) || /^[=+\-@]/.test(t) ? `"${t.replace(/^([=+\-@])/, "'$1").replace(/"/g, '""')}"` : t; };
+      const lines = [['Name', 'Email', 'Last active (UTC)', 'Files created', 'Files edited', 'Chat messages', 'Meetings organised', 'Tasks done', 'Suspended'],
+        ...rows.map((r) => [r.name, r.email, r.last_active ? new Date(r.last_active).toISOString().slice(0, 16).replace('T', ' ') : 'never', r.files_created, r.files_edited, r.chat_messages, r.meetings, r.tasks_done, r.disabled ? 'yes' : ''])];
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="usage-${days}-days.csv"`);
+      return res.send(`\ufeff${lines.map((l) => l.map(cell).join(',')).join('\r\n')}\r\n`);
+    }
+    res.json({ days, from, to, active, people: rows });
+  });
+
   // Someone's signed-in devices (web sessions), for an admin: see them and sign one or all out.
   r.get('/:id/sessions', (req, res) => {
     const u = loadManagedUser(req);

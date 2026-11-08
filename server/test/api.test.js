@@ -4488,3 +4488,28 @@ test('company networks: Workspace only from the company\'s own addresses, when i
   assert.equal((await kay('PATCH', '/api/orgs/current', { allowed_nets: '' })).status, 200);
   assert.equal((await kim('GET', '/api/files?view=mine', undefined, from('198.51.100.9'))).status, 200, 'from anywhere again');
 });
+
+test('admin: usage report for the company, with a CSV', async () => {
+  const kay = client(); await login(kay, 'kay@keepco.com');
+  await kay('POST', '/api/users', { local: 'rpt', domain: 'keepco.com', name: 'Rae Report', password: 'password123' });
+  const rae = client(); await login(rae, 'rpt@keepco.com');
+  await rae('POST', '/api/files/new', { kind: 'doc', name: 'Plan' });
+  const ch = (await rae('GET', '/api/chat/channels')).body.channels.find((c) => !c.dm_key);
+  await rae('POST', `/api/chat/channels/${ch.id}/messages`, { body: 'one' });
+  await rae('POST', `/api/chat/channels/${ch.id}/messages`, { body: 'two' });
+  const at = Date.now() - 36e5;
+  await rae('POST', '/api/events', { title: 'Sync', start: at, end: at + 18e5, guests: ['kay@keepco.com'] });
+  const { lists } = (await rae('GET', '/api/tasks/lists')).body;
+  const t = (await rae('POST', `/api/tasks/lists/${lists[0].id}/tasks`, { title: 'Do it' })).body;
+  await rae('PATCH', `/api/tasks/tasks/${t.id}`, { done: true });
+  assert.equal((await rae('GET', '/api/users/report')).status, 403, 'admins only');
+  const r = (await kay('GET', '/api/users/report?days=7')).body;
+  assert.equal(r.days, 7);
+  const me = r.people.find((p) => p.email === 'rpt@keepco.com');
+  assert.deepEqual([me.files_created, me.chat_messages, me.meetings, me.tasks_done], [1, 2, 1, 1]);
+  assert.ok(r.active >= 2);
+  assert.ok(!r.people.some((p) => p.email.endsWith('@acme.com')), 'only this company');
+  const csv = await kay('GET', '/api/users/report?format=csv');
+  assert.match(csv.body, /Name,Email,Last active \(UTC\),Files created,Files edited,Chat messages,Meetings organised,Tasks done,Suspended/);
+  assert.match(csv.body, /Rae Report,rpt@keepco\.com,[^,]+,1,0,2,1,1,/);
+});

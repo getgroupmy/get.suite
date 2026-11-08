@@ -699,6 +699,10 @@ Once ports 465, 587 and 993 are open, bots will start guessing passwords within 
 
 **Admin → Company settings → Networks** can limit Workspace to the company's own networks: choose **Only from these addresses and ranges** and list the office's public addresses and VPN ranges (`203.0.113.10`, `198.51.100.0/24`, IPv6 too). From anywhere else, people in the company can't sign in, and anyone already signed in is refused until they're back on one of those networks. Your own current address is shown and filled in, and it must be in the list, so an admin can't shut themselves out; the platform owner is never shut out. Phones and mail apps (IMAP, SMTP, calendar and contact sync) aren't affected. Behind a reverse proxy, set `TRUST_PROXY` so Workspace sees people's real addresses.
 
+## Reports (admins)
+
+**Admin → Reports** shows how the company has used Workspace over the last 7, 30 or 90 days: how many people were active, and for each person when they were last active, files created (new, uploaded or copied), files edited, chat messages sent, meetings organised (events with guests that took place) and tasks completed, with totals. Click a column heading to sort by it; **Download CSV** saves the table. Handy for seeing who hasn't started using Workspace yet.
+
 ## Storage (admins)
 
 **Admin → Storage** shows how much of the company's storage is used (and its limit, if the platform owner set one), how much each person uses, split into their files, the earlier versions kept of them, and their trash, biggest users first, and the 25 largest files with their owners (including what's in the trash). Earlier versions and the trash count towards the limit: people can empty their trash in Drive, and delete versions from a file's version history.
