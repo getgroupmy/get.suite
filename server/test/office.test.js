@@ -455,3 +455,21 @@ test('Excel: FILTER, SORT, UNIQUE and SEQUENCE carry their prefixes in the file 
   assert.equal(x, 'SUM(_xlfn._xlws.FILTER(A1:A9,B1:B9>5))+COUNTA(_xlfn.UNIQUE(_xlfn._xlws.SORT(C1:C9)))+SUM(_xlfn.SEQUENCE(3))&"FILTER("');
   assert.equal(formulaFromExcel(x), f);
 });
+
+test('PowerPoint: a chart from a spreadsheet on a slide becomes a real chart with its figures', async () => {
+  const deck = { theme: 'light', slides: [{ id: 's1', items: [
+    { id: 'c', type: 'chart', x: 10, y: 10, w: 80, h: 70, title: 'Sales by month', chartType: 'column', fileId: 'f1', chartId: 'x',
+      data: { categories: ['Jan', 'Feb'], series: [{ name: 'Sales', values: [10, null] }, { name: 'Costs', values: [4, 6] }] } },
+    { id: 'p', type: 'chart', x: 0, y: 0, w: 10, h: 10, chartType: 'pie', data: { categories: ['A'], series: [{ name: 'S', values: [1] }] } },
+    { id: 'e', type: 'chart', x: 0, y: 0, w: 10, h: 10, chartType: 'line', data: { categories: [], series: [] } },
+  ] }] };
+  const buf = await powerPointFromDeck(deck);
+  const zip = await JSZip.loadAsync(buf);
+  const charts = Object.keys(zip.files).filter((n) => /^ppt\/charts\/chart\d+\.xml$/.test(n));
+  assert.equal(charts.length, 2, 'one per chart with figures');
+  const xml = (await Promise.all(charts.map((n) => zip.file(n).async('string')))).join('');
+  assert.match(xml, /Sales by month/);
+  assert.match(xml, /barDir val="col"/);
+  assert.match(xml, /<c:pieChart>/);
+  assert.match(xml, /Feb/);
+});

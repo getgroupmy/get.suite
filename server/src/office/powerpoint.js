@@ -164,6 +164,13 @@ export async function powerPointFromDeck(deck, { pictureData, title = 'Presentat
         const rows = it.cells.map((r, ri) => r.map((text) => ({ text: String(text ?? ''), options: { fontSize, color: color(null, theme.text), fontFace: 'Arial',
           ...(it.header && ri === 0 && { bold: true, fill: { color: color('accent', theme.accent) }, color: color(theme.bg, theme.bg) }) } })));
         slide.addTable(rows, { ...pos, colW: Array(it.cells[0].length).fill(pos.w / it.cells[0].length), border: { type: 'solid', pt: 1, color: color(null, theme.text) }, valign: 'middle', autoPage: false });
+      } else if (it.type === 'chart' && it.data?.series?.length) {
+        // A chart from a spreadsheet: a real PowerPoint chart, with the figures the slide keeps.
+        const kind = { column: pptx.ChartType.bar, bar: pptx.ChartType.bar, line: pptx.ChartType.line, pie: pptx.ChartType.pie }[it.chartType] || pptx.ChartType.bar;
+        const labels = (it.data.categories || []).map(String);
+        const series = (it.chartType === 'pie' ? it.data.series.slice(0, 1) : it.data.series).map((x) => ({ name: String(x.name || ''), labels, values: (x.values || []).map((v) => (typeof v === 'number' ? v : 0)) }));
+        slide.addChart(kind, series, { ...pos, barDir: it.chartType === 'bar' ? 'bar' : 'col', showLegend: series.length > 1 || it.chartType === 'pie', legendPos: 'b',
+          ...(it.title && { showTitle: true, title: String(it.title), titleFontSize: 14 }) });
       } else if (it.type === 'image') {
         const pic = await pictureData?.(it.fileId);
         if (pic) slide.addImage({ ...pos, data: `data:${pic.mime};base64,${pic.data.toString('base64')}` });
