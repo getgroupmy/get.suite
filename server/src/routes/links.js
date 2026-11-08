@@ -167,6 +167,7 @@ export function publicLinkRoutes({ maxUploadBytes = 4096 * 1024 * 1024 } = {}) {
     const f = itemIn(l, req.query.item);
     if (f.kind !== 'file') throw bad('Not a file');
     const inline = req.query.download === undefined && isInlineSafe(f.mime);
+    if (!inline && f.no_download) throw new HttpError(403, 'Downloading this file is turned off'); // links are view-only: look, don't take
     res.setHeader('Content-Type', inline ? f.mime : 'application/octet-stream');
     if (f.mime !== 'application/pdf') res.setHeader('Content-Security-Policy', "default-src 'none'; img-src 'self'; media-src 'self'; style-src 'unsafe-inline'");
     res.setHeader('Content-Disposition', `${inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(f.name)}`);

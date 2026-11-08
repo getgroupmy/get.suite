@@ -19,6 +19,9 @@ function useDriveRoute() {
   return { view: 'mine', folderId: null };
 }
 
+/** "Viewers can't download, print or copy" is on and you can only view or comment. */
+export const viewOnly = (f) => !!f?.no_download && !['editor', 'owner'].includes(f.role);
+
 export function openPath(f) {
   if (f.kind === 'folder') return `/drive/folder/${f.id}`;
   if (f.kind === 'doc') return `/docs/${f.id}`;
@@ -239,7 +242,7 @@ export default function Drive() {
     return [
       { label: 'Open', icon: fileIcon(f), onClick: () => open(f) },
       officeAs(f) && { label: `Open as ${officeAs(f).what}`, icon: officeAs(f).icon, onClick: () => openAs(f) },
-      f.kind === 'file' && { label: 'Download', icon: 'download', onClick: () => { location.href = `/api/files/${f.id}/raw?download`; } },
+      f.kind === 'file' && !viewOnly(f) && { label: 'Download', icon: 'download', onClick: () => { location.href = `/api/files/${f.id}/raw?download`; } },
       f.kind === 'folder' && { label: 'Download as .zip', icon: 'download', onClick: () => zip([f.id]) },
       { label: 'Details', icon: 'more', onClick: () => setDialog({ type: 'details', file: f }) },
       user.is_admin && ['doc', 'sheet', 'slides'].includes(f.kind) && { label: f.template ? 'Remove from company templates' : 'Make a company template', icon: 'doc',
@@ -253,7 +256,7 @@ export default function Drive() {
       f.role === 'owner' && f.owner_id === user.id && { label: 'Transfer ownership…', icon: 'person', onClick: () => setDialog({ type: 'transfer', file: f }) },
       canEdit && { label: 'Rename', icon: 'edit', onClick: () => setDialog({ type: 'rename', file: f }) },
       canEdit && { label: 'Move to…', icon: 'move', onClick: () => setDialog({ type: 'move', files: [f] }) },
-      f.kind !== 'folder' && { label: 'Make a copy', icon: 'copy', onClick: act(() => post(`/files/${f.id}/copy`), 'Copy made') },
+      f.kind !== 'folder' && !viewOnly(f) && { label: 'Make a copy', icon: 'copy', onClick: act(() => post(`/files/${f.id}/copy`), 'Copy made') },
       { label: 'Add shortcut to Drive…', icon: 'link', onClick: () => setDialog({ type: 'shortcut', files: [f] }) },
       f.kind !== 'folder' && '-',
       f.kind !== 'folder' && canEdit && !f.locked_at && { label: 'Lock (stop changes)', icon: 'lock', onClick: act(() => put(`/files/${f.id}/lock`, { locked: true }), 'Locked: nobody can change it until it’s unlocked') },
@@ -444,6 +447,22 @@ export default function Drive() {
 const dayInput = (ms) => { const d = new Date(ms); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const endOfDay = (day) => { const [y, m, d] = day.split('-').map(Number); return new Date(y, m - 1, d, 23, 59, 59, 999).getTime(); };
 
+/** The owner's switch: may people who can only view or comment download, print and copy it? */
+function NoDownload({ file }) {
+  const toast = useToast();
+  const [off, setOff] = useState(!!file.no_download);
+  const flip = async (allow) => {
+    setOff(!allow);
+    try { await patch(`/files/${file.id}`, { no_download: !allow }); toast(allow ? 'Viewers and commenters can download, print and copy it' : 'Viewers and commenters can only look at it now'); }
+    catch (e) { setOff(allow); toast(e.message, 'error'); }
+  };
+  return (
+    <label className="check small" style={{ marginTop: 8 }}>
+      <input type="checkbox" checked={!off} onChange={(e) => flip(e.target.checked)} /> Viewers and commenters can download, print and copy
+    </label>
+  );
+}
+
 export function ShareDialog({ file, onClose }) {
   const toast = useToast();
   const { user } = useAuth();
@@ -565,6 +584,7 @@ export function ShareDialog({ file, onClose }) {
           </li>
         ))}
       </ul>
+      {mine && file.kind !== 'folder' && <NoDownload file={file} />}
       {shares?.length > 0 && <p className="muted small">A date beside someone ends their access after that day; leave it empty for no end.</p>}
       {external > 0 && <p className="muted small">{external === 1 ? '1 person' : `${external} people`} outside {user.org_name} can open this.</p>}
       {file.kind === 'folder' && <p className="muted small">People get the same access to everything inside this folder.</p>}
@@ -744,7 +764,7 @@ function Preview({ file, onClose, onOpenAs, comment = null }) {
     <Modal wide title={file.name} onClose={onClose} footer={<>
       <button type="button" className={`btn ${panel ? 'primary' : ''}`} aria-pressed={panel} onClick={() => setPanel(!panel)}><Icon name="chat" size={18} /> Comments{threads.filter((t) => !t.resolved).length ? ` (${threads.filter((t) => !t.resolved).length})` : ''}</button>
       {officeAs(file) && <button type="button" className="btn primary" onClick={onOpenAs}><Icon name={officeAs(file).icon} size={18} /> Open as {officeAs(file).what}</button>}
-      <a className={`btn ${officeAs(file) ? '' : 'primary'}`} href={`${src}?download`}><Icon name="download" size={18} /> Download</a>
+      {viewOnly(file) ? <span className="muted small">View only: downloading is turned off</span> : <a className={`btn ${officeAs(file) ? '' : 'primary'}`} href={`${src}?download`}><Icon name="download" size={18} /> Download</a>}
     </>}>
       <div className={`preview-with-comments ${panel ? 'open' : ''}`}>
         <div className="preview">{body}</div>

@@ -6,7 +6,7 @@ import { Router } from 'express';
 import path from 'node:path';
 import { q, tx, FILES_DIR } from '../db.js';
 import { uid, now, str, bad, notFound, HttpError } from '../util.js';
-import { roleFor } from '../access.js';
+import { roleFor, mayTakeAway } from '../access.js';
 import { insertFile } from './files.js';
 
 // Where each person has read up to in each conversation (for unread counts), and emoji reactions.
@@ -170,8 +170,9 @@ function readMessage(c, user, input) {
   const ids = Array.isArray(input.files) ? [...new Set(input.files.map(String))] : [];
   if (ids.length > MAX_FILES) throw bad(`At most ${MAX_FILES} files per message`);
   const files = ids.map((fid) => {
-    const f = q("SELECT id, name, mime, size, kind FROM files WHERE id = ? AND trashed = 0").get(fid);
+    const f = q("SELECT id, name, mime, size, kind, no_download FROM files WHERE id = ? AND trashed = 0").get(fid);
     if (!f || f.kind !== 'file' || !roleFor(f.id, user.id)) throw bad('A file is not available');
+    if (!mayTakeAway(f, roleFor(f.id, user.id))) throw bad(`“${f.name}” can’t be sent: its owner has turned off downloading and copying for people who can only view it`);
     return { id: f.id, name: f.name, mime: f.mime || 'application/octet-stream', size: f.size };
   });
   const poll = input.poll ? cleanPoll(input.poll) : null;

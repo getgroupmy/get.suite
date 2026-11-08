@@ -11,7 +11,7 @@ import addressparser from 'nodemailer/lib/addressparser/index.js';
 import { q, FILES_DIR, DATA_DIR } from '../db.js';
 import { sendTo } from '../hub.js';
 import { str, bad, notFound, HttpError, uid as newId, now } from '../util.js';
-import { roleFor } from '../access.js';
+import { roleFor, mayTakeAway } from '../access.js';
 import { mailEnabled, scheduleMailConfig, MAIL_HOSTNAME } from '../mail/config.js';
 import { withClient, withFolder, smtpFor } from '../mail/imap.js';
 import { normalizeRules } from '../mail/sieve.js';
@@ -997,8 +997,8 @@ export default function webmailRoutes() {
       if (joined) meta = JSON.parse(Buffer.from(joined, 'base64').toString('utf8'));
     } catch { meta = null; }
     const fmt = (list) => addrList(list).map((a) => (a.name ? `${a.name} <${a.address}>` : a.address)).join(', ');
-    const files = (meta?.attachments || []).map((id) => q("SELECT id, name, size, kind FROM files WHERE id = ?").get(id))
-      .filter((f) => f && f.kind === 'file' && roleFor(f.id, req.user.id));
+    const files = (meta?.attachments || []).map((id) => q("SELECT id, name, size, kind, no_download FROM files WHERE id = ?").get(id))
+      .filter((f) => f && f.kind === 'file' && roleFor(f.id, req.user.id) && mayTakeAway(f, roleFor(f.id, req.user.id)));
     res.json({
       uid: Number(req.params.uid),
       from: meta?.from || addrList(p.from)[0]?.address || req.user.username,
@@ -1041,8 +1041,9 @@ export default function webmailRoutes() {
     let total = 0;
     const attachments = [];
     for (const id of Array.isArray(b.attachments) ? b.attachments : []) {
-      const f = q("SELECT id, name, mime, size, storage, kind FROM files WHERE id = ?").get(id);
+      const f = q("SELECT id, name, mime, size, storage, kind, no_download FROM files WHERE id = ?").get(id);
       if (!f || f.kind !== 'file' || !roleFor(f.id, req.user.id)) throw bad('An attachment is not available');
+      if (!mayTakeAway(f, roleFor(f.id, req.user.id))) throw bad(`“${f.name}” can’t be sent: its owner has turned off downloading and copying for people who can only view it`);
       total += f.size;
       attachments.push({ filename: f.name, contentType: f.mime || 'application/octet-stream', path: path.join(FILES_DIR, f.storage) });
     }
@@ -1077,7 +1078,7 @@ export default function webmailRoutes() {
       const embedded = new Map();
       html = html.replace(/(<img\b[^>]*?\bsrc=")\/api\/files\/([0-9a-f-]{36})\/raw(?:\?[^"]*)?(")/gi, (m, pre, id, post) => {
         if (!embedded.has(id)) {
-          const f = q("SELECT id, name, mime, size, storage, kind FROM files WHERE id = ?").get(id);
+          const f = q("SELECT id, name, mime, size, storage, kind, no_download FROM files WHERE id = ?").get(id);
           if (!f || f.kind !== 'file' || !roleFor(f.id, req.user.id)) throw bad('A picture in the message is not available');
           if (!/^image\/(png|jpeg|gif|webp)$/.test(f.mime || '')) throw bad(`“${f.name}” is not a picture that can be shown in email`);
           total += f.size;

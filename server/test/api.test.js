@@ -4909,3 +4909,35 @@ test('chat link previews: a link\'s page title and description are added to the 
   const { previewFor } = await import('../src/linkpreview.js');
   assert.equal(await previewFor(`http://127.0.0.1:${port}/never`), null);
 });
+
+test('view only: viewers can\'t download, export, copy, zip or attach a file the owner locked down; editors can', async () => {
+  const JSZip = (await import('jszip')).default;
+  const kay = client(); await login(kay, 'kay@keepco.com');
+  const vw = await kay('POST', '/api/users', { local: 'vonly', domain: 'keepco.com', name: 'Val Viewer', password: 'password123' });
+  const ed = await kay('POST', '/api/users', { local: 'veditor', domain: 'keepco.com', name: 'Ed Editor', password: 'password123' });
+  const val = client(); await login(val, 'vonly@keepco.com');
+  const edc = client(); await login(edc, 'veditor@keepco.com');
+  const pdf = (await kay('POST', '/api/files/upload?name=board-pack.pdf', '%PDF-1.4 secret', { raw: true })).body;
+  const zipf = (await kay('POST', '/api/files/upload?name=data.zip', 'PK zipdata', { raw: true })).body;
+  const doc = (await kay('POST', '/api/files/new', { kind: 'doc', name: 'Strategy' })).body;
+  for (const f of [pdf, zipf, doc]) await kay('PUT', `/api/files/${f.id}/shares`, { shares: [{ user_id: vw.body.id, role: 'viewer' }, { user_id: ed.body.id, role: 'editor' }] });
+  assert.equal((await val('PATCH', `/api/files/${pdf.id}`, { no_download: true })).status, 403, 'only the owner');
+  for (const f of [pdf, zipf, doc]) assert.equal((await kay('PATCH', `/api/files/${f.id}`, { no_download: true })).status, 200);
+  assert.equal((await kay('GET', `/api/files/${pdf.id}`)).body.no_download, 1);
+  // Viewers: looking is fine, taking isn't.
+  assert.equal((await val('GET', `/api/files/${pdf.id}/raw`, undefined, { binary: true })).status, 200, 'shown in the browser');
+  assert.equal((await val('GET', `/api/files/${pdf.id}/raw?download`, undefined, { binary: true })).status, 403);
+  assert.equal((await val('GET', `/api/files/${zipf.id}/raw`, undefined, { binary: true })).status, 403, 'not viewable inline: no way to get it');
+  assert.equal((await val('GET', `/api/files/${doc.id}/export?format=docx`, undefined, { binary: true })).status, 403);
+  assert.equal((await val('POST', `/api/files/${doc.id}/copy`, {})).status, 403);
+  const z = await val('GET', `/api/files/zip?ids=${pdf.id},${doc.id}`, undefined, { binary: true });
+  if (z.status === 200) assert.equal(Object.values((await JSZip.loadAsync(z.body)).files).filter((x) => !x.dir).length, 0, 'left out of zips');
+  const dm = (await val('POST', '/api/chat/dm', { user_id: ed.body.id })).body.id;
+  assert.equal((await val('POST', `/api/chat/channels/${dm}/messages`, { files: [pdf.id] })).status, 400, 'not sent on in chat');
+  // Editors and the owner can.
+  assert.equal((await edc('GET', `/api/files/${pdf.id}/raw?download`, undefined, { binary: true })).status, 200);
+  assert.equal((await edc('GET', `/api/files/${doc.id}/export?format=docx`, undefined, { binary: true })).status, 200);
+  // Turned off again: viewers can download.
+  await kay('PATCH', `/api/files/${pdf.id}`, { no_download: false });
+  assert.equal((await val('GET', `/api/files/${pdf.id}/raw?download`, undefined, { binary: true })).status, 200);
+});

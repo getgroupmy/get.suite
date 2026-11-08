@@ -15,7 +15,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { q, tx, FILES_DIR } from './db.js';
 import { uid, now, HttpError, mimeFor } from './util.js';
-import { roleFor, atLeast, audienceFor, subtreeIds } from './access.js';
+import { roleFor, atLeast, audienceFor, subtreeIds, mayTakeAway } from './access.js';
 import { authenticate } from './dav.js';
 import { insertFile, receiveUpload, snapshot } from './routes/files.js';
 import { indexSoon } from './search.js';
@@ -209,6 +209,7 @@ export default function webdavRoutes({ maxUploadBytes }) {
           return res.status(404).end();
         }
         if (node.row.kind === 'folder') return res.type('text/plain').send('');
+        if (!mayTakeAway(node.row, node.role)) return res.status(403).type('text/plain').send('Downloading this file is turned off for people who can only view it.');
         res.setHeader('ETag', etag(node.row));
         res.setHeader('Last-Modified', new Date(node.row.updated_at).toUTCString());
         res.setHeader('Content-Type', node.row.mime || 'application/octet-stream');

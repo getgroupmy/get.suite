@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { viewOnly } from './drive/Drive.jsx';
 import { useNavigate } from 'react-router';
 import { get, put } from '../api.js';
 import Icon from '../components/Icon.jsx';
@@ -97,7 +98,10 @@ export function EditorHeader({ icon, file, status, onRename, onShare, menu, extr
     try { await put(`/files/${file.id}/lock`, { locked }); window.location.reload(); } // open editors reload, read-only or editable again
     catch (e) { toast(e.message, 'error'); }
   };
-  const items = menu && file ? [...menu, '-', { label: `${watching ? '✓ ' : ''}Notify me of changes`, icon: 'bell', onClick: toggleWatch },
+  // "Viewers can't download, print or copy": those choices aren't offered, and printing shows a note instead.
+  const takeOff = viewOnly(file);
+  const offered = takeOff ? (menu || []).filter((it) => !(it && typeof it === 'object' && /^(Print|Download|Make a copy|Save as)/.test(it.label || ''))) : menu;
+  const items = menu && file ? [...offered, '-', { label: `${watching ? '✓ ' : ''}Notify me of changes`, icon: 'bell', onClick: toggleWatch },
     ...(canEdit ? [{ label: 'Request approval…', icon: 'check', onClick: () => setRequesting(true) }] : []),
     ...(canEdit && icon === 'doc' && !file.locked_at ? [{ label: 'Send for signature…', icon: 'edit', onClick: () => setSigning(true) }] : []),
     ...(canEdit && !file.locked_at ? [{ label: 'Lock (stop changes)', icon: 'lock', onClick: () => setLocked(true) }] : []),
@@ -125,6 +129,8 @@ export function EditorHeader({ icon, file, status, onRename, onShare, menu, extr
       {items && <Menu trigger={(p) => <button className="icon-btn" aria-label="More" {...p}><Icon name="more" /></button>} items={items} />}
       {file?.role === 'owner' && <button className="btn primary" onClick={onShare}><Icon name="share" size={18} /> Share</button>}
     </header>
+    {takeOff && <style>{'@media print { body * { visibility: hidden !important; } body::before { content: "Printing is turned off for this file."; visibility: visible; display: block; padding: 40px; font: 16px sans-serif; } } .paper .tiptap, .grid td, .slide-stage { user-select: none; }'}</style>}
+    {takeOff && <div className="banner small" role="note">View only: the owner has turned off downloading, printing and copying.</div>}
     {file?.locked_at && (
       <div className="banner lock-banner row wrap" role="region" aria-label="Locked">
         <Icon name="lock" size={18} />

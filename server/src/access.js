@@ -62,3 +62,9 @@ export function subtreeIds(fileId) {
   return q(`WITH RECURSIVE t(id) AS (SELECT ? UNION SELECT f.id FROM files f JOIN t ON f.parent_id = t.id)
             SELECT id FROM t`).all(fileId).map((r) => r.id);
 }
+
+/**
+ * "Viewers can't download, print or copy" (a file's owner can set it): may someone with this role
+ * take the file's content away (download, export, copy, sync)? Editors and the owner always can.
+ */
+export const mayTakeAway = (file, role) => !file?.no_download || atLeast(role || '', 'editor');

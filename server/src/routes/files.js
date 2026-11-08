@@ -16,7 +16,7 @@ import { contentMatches, indexSoon } from '../search.js';
 import { readSetup } from '../pagesetup.js';
 import JSZip from 'jszip';
 import { uid, now, str, bad, forbidden, notFound, HttpError, mimeFor, isInlineSafe } from '../util.js';
-import { roleFor, atLeast, audienceFor, subtreeIds } from '../access.js';
+import { roleFor, atLeast, audienceFor, subtreeIds, mayTakeAway } from '../access.js';
 import { sendTo } from '../hub.js';
 import { canReach, checkQuota, orgStorageUsed } from '../tenancy.js';
 import { resetRoom, CO_EDITED, saveNow } from '../collab.js';
@@ -40,9 +40,12 @@ const officeType = (name) => OFFICE[(/\.([a-z]+)$/i.exec(name || '') || [])[1]?.
 
 // Company templates: documents, spreadsheets and presentations an admin has marked for everyone in the company to start from.
 if (!q('PRAGMA table_info(files)').all().some((c) => c.name === 'template')) q('ALTER TABLE files ADD COLUMN template INTEGER NOT NULL DEFAULT 0').run();
+// no_download: people who can only view or comment can't download, export, copy or sync it (see mayTakeAway).
+if (!q('PRAGMA table_info(files)').all().some((x) => x.name === 'no_download')) q('ALTER TABLE files ADD COLUMN no_download INTEGER NOT NULL DEFAULT 0').run();
+const NO_TAKING = 'The owner has turned off downloading, printing and copying for people who can only view it';
 // Locked: nobody can change the content until whoever locked it (or the owner) unlocks it.
 for (const c of ['locked_by TEXT', 'locked_at INTEGER']) if (!q('PRAGMA table_info(files)').all().some((x) => x.name === c.split(' ')[0])) q(`ALTER TABLE files ADD COLUMN ${c}`).run();
-const COLS = `f.id, f.locked_by, f.locked_at, (SELECT name FROM users WHERE id = f.locked_by) AS locked_by_name, f.owner_id, f.parent_id, f.name, f.kind, f.mime, f.size, f.version, f.trashed, f.trashed_at, f.page_setup, f.color, f.description, f.template, f.org_role,
+const COLS = `f.id, f.no_download, f.locked_by, f.locked_at, (SELECT name FROM users WHERE id = f.locked_by) AS locked_by_name, f.owner_id, f.parent_id, f.name, f.kind, f.mime, f.size, f.version, f.trashed, f.trashed_at, f.page_setup, f.color, f.description, f.template, f.org_role,
               f.created_at, f.updated_at, u.name AS owner_name, ub.name AS updated_by_name`;
 const FROM = `FROM files f JOIN users u ON u.id = f.owner_id LEFT JOIN users ub ON ub.id = f.updated_by`;
 // Owner is in my company, or both companies currently allow external collaboration.
@@ -418,9 +421,10 @@ export default function fileRoutes({ maxUploadBytes }) {
       if (f.kind === 'folder') {
         const here = unique(`${dir}${safe(f.name)}`);
         entries.push({ folder: true, path: `${here}/` });
-        for (const c of q("SELECT id, name, kind, size, storage, content, mime FROM files WHERE parent_id = ? AND trashed = 0 ORDER BY name").all(f.id)) add(c, `${here}/`);
+        for (const c of q("SELECT id, name, kind, size, storage, content, mime, no_download FROM files WHERE parent_id = ? AND trashed = 0 ORDER BY name").all(f.id)) add(c, `${here}/`);
         return;
       }
+      if (!mayTakeAway(f, roleFor(f.id, req.user.id))) return; // view only: left out
       if (f.kind === 'file') { total += f.size || 0; if (total > MAX_ZIP_BYTES) throw bad('More than 2 GB: download fewer files at a time'); }
       const ext = { doc: '.docx', sheet: '.xlsx', slides: '.pptx' }[f.kind] || '';
       entries.push({ f, path: unique(`${dir}${safe(f.name)}${ext && !f.name.toLowerCase().endsWith(ext) ? ext : ''}`) });
@@ -428,7 +432,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     for (const id of ids) {
       const f = loadFile(id, req.user);
       if (f.trashed) continue;
-      add(q('SELECT id, name, kind, size, storage, content, mime FROM files WHERE id = ?').get(f.id), '');
+      add(q('SELECT id, name, kind, size, storage, content, mime, no_download FROM files WHERE id = ?').get(f.id), '');
     }
     const zip = new JSZip();
     for (const e of entries) {
@@ -667,6 +671,7 @@ export default function fileRoutes({ maxUploadBytes }) {
 
   r.post('/:id/copy', (req, res) => {
     const f = loadFile(req.params.id, req.user);
+    if (!mayTakeAway(f, f.role)) throw forbidden(NO_TAKING);
     if (f.kind === 'folder') throw bad('Folders can’t be copied yet; copy the files in it');
     const row = q('SELECT * FROM files WHERE id = ?').get(f.id);
     const parentId = req.body?.parent_id !== undefined ? resolveParent(req.body.parent_id, req.user)
@@ -696,6 +701,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     if (f.kind !== 'file') throw bad('Not a binary file');
     sawFile(f.id, req.user.id);
     const inline = req.query.download === undefined && isInlineSafe(f.mime);
+    if (!inline && !mayTakeAway(f, f.role)) throw forbidden(NO_TAKING); // viewing in the browser only
     res.setHeader('Content-Type', inline ? f.mime : 'application/octet-stream');
     res.setHeader('X-Content-Type-Options', 'nosniff');
     // Lock down anything rendered on our origin (the PDF viewer needs default CSP to work).
@@ -763,7 +769,13 @@ export default function fileRoutes({ maxUploadBytes }) {
     const color = req.body.color !== undefined ? (req.body.color === null || req.body.color === '' ? null : /^#[0-9a-f]{6}$/i.test(String(req.body.color)) ? String(req.body.color).toLowerCase() : (() => { throw bad('Pick a colour like #1a73e8'); })()) : undefined;
     if (color !== undefined && f.kind !== 'folder') throw bad('Only folders have a colour');
     const description = req.body.description !== undefined ? (str(req.body.description ?? '', { max: 2000, name: 'Description' }) || null) : undefined;
+    if (req.body.no_download !== undefined && f.role !== 'owner') throw forbidden('Only the owner can change who may download it');
+    if (req.body.no_download !== undefined && f.kind === 'folder') throw bad('Set this on files, not folders');
     tx(() => {
+      if (req.body.no_download !== undefined) {
+        q('UPDATE files SET no_download = ? WHERE id = ?').run(req.body.no_download ? 1 : 0, f.id);
+        recordActivity(f.id, req.user.id, 'share', { added: [], removed: [], note: req.body.no_download ? 'Viewers and commenters can’t download, print or copy' : 'Viewers and commenters can download, print and copy' });
+      }
       if (color !== undefined) q('UPDATE files SET color = ? WHERE id = ?').run(color, f.id);
       if (description !== undefined) q('UPDATE files SET description = ? WHERE id = ?').run(description, f.id);
       if (setup !== undefined) q('UPDATE files SET page_setup = ? WHERE id = ?').run(setup ? JSON.stringify(setup) : null, f.id);
@@ -884,6 +896,7 @@ export default function fileRoutes({ maxUploadBytes }) {
   // Download a document, spreadsheet or presentation as Word, Excel or PowerPoint.
   r.get('/:id/export', async (req, res) => {
     const f = loadFile(req.params.id, req.user);
+    if (!mayTakeAway(f, f.role)) throw forbidden(NO_TAKING);
     const type = req.query.format === 'md' && f.kind === 'doc' ? 'md' : EXPORT_AS[f.kind];
     if (!type) throw bad('Only documents, spreadsheets and presentations can be downloaded this way');
     saveNow(f.id); // what's being typed right now goes in too
@@ -956,6 +969,7 @@ export default function fileRoutes({ maxUploadBytes }) {
 
   r.get('/:id/versions/:vid/raw', (req, res) => {
     const f = loadFile(req.params.id, req.user);
+    if (!mayTakeAway(f, f.role)) throw forbidden(NO_TAKING);
     const v = versionOf(f, req.params.vid);
     if (!v.storage) throw bad('Not a binary file');
     const inline = req.query.download === undefined && isInlineSafe(v.mime);
