@@ -26,9 +26,11 @@ export function usePause(userId) {
     const f = (x) => setV(x);
     listeners.add(f);
     loadPause();
-    const off = onLive((m) => { if (m.type === 'status-changed' && m.user_id === userId) loadPause(); });
+    // Focus time on the calendar pauses too: check again when events change, and every few minutes.
+    const off = onLive((m) => { if ((m.type === 'status-changed' && m.user_id === userId) || m.type === 'events-changed') loadPause(); });
+    const recheck = setInterval(loadPause, 5 * 60e3);
     const tick = setInterval(() => { if (until && until <= Date.now()) set(null); }, 30e3);
-    return () => { listeners.delete(f); off(); clearInterval(tick); };
+    return () => { listeners.delete(f); off(); clearInterval(tick); clearInterval(recheck); };
   }, [userId]);
   return v;
 }

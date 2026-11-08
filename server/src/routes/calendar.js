@@ -44,7 +44,8 @@ if (!hasColumn('events', 'tz')) q('ALTER TABLE events ADD COLUMN tz TEXT').run()
 // ones the organizer owns; each person sees whether they can open each one.
 if (!hasColumn('events', 'attachments')) q('ALTER TABLE events ADD COLUMN attachments TEXT').run();
 if (!hasColumn('events', 'meet_code')) q('ALTER TABLE events ADD COLUMN meet_code TEXT').run(); // a Meet video meeting for it
-if (!hasColumn('events', 'kind')) q('ALTER TABLE events ADD COLUMN kind TEXT').run(); // null, or 'ooo': out of office (invitations then are declined)
+if (!hasColumn('events', 'kind')) q('ALTER TABLE events ADD COLUMN kind TEXT').run();
+const SPECIAL = ['ooo', 'focus']; // out of office, focus time: just you (no guests, rooms or video meeting); invitations then are declined // null, or 'ooo': out of office (invitations then are declined)
 const ANSWERS = ['yes', 'maybe', 'no'];
 const MAX_GUESTS = 50;
 
@@ -105,7 +106,7 @@ function readEvent(body, existing = {}) {
   }
   if (body.rrule !== undefined) e.rrule = readRule(body.rrule);
   if (body.kind !== undefined) {
-    if (body.kind && body.kind !== 'ooo') throw bad('Unknown kind of event');
+    if (body.kind && !SPECIAL.includes(body.kind)) throw bad('Unknown kind of event');
     e.kind = body.kind || null;
   }
   if (body.exdates !== undefined) e.exdates = readExdates(body.exdates);
@@ -278,24 +279,34 @@ function notify(organizer, e, recipients, kind, tz, base = process.env.PUBLIC_UR
  * repeating ones included). Used to decline invitations for them while they're away.
  */
 export function awayDuring(userId, ev) {
-  const rows = q(`SELECT * FROM events WHERE owner_id = ? AND kind = 'ooo' AND start < ?
+  const rows = q(`SELECT * FROM events WHERE owner_id = ? AND kind IN ('ooo', 'focus') AND start < ?
                   AND (end > ? OR (rrule IS NOT NULL AND (repeat_until IS NULL OR repeat_until > ?)))`).all(userId, ev.end, ev.start, ev.start);
   return rows.find((r) => expand(outEvent(r), ev.start, ev.end).some((o) => o.start < ev.end && o.end > ev.start)) || null;
 }
 
 /** New guests who are out of office then answer No at once; the organizer is told (with their message). */
 function declineAway(organizer, ev, added) {
-  if (ev.kind === 'ooo') return;
+  if (SPECIAL.includes(ev.kind)) return;
   for (const g of added) {
     const away = awayDuring(g.id, ev);
     if (!away) continue;
     q("UPDATE event_guests SET status = 'no' WHERE event_id = ? AND user_id = ?").run(ev.id, g.id);
-    bell([organizer.id], { kind: 'invite', title: `${g.name} is out of office and declined “${ev.title}”`, body: away.description || away.title, link: '/calendar', actor: g.name });
+    const why = away.kind === 'focus' ? 'is in focus time' : 'is out of office';
+    bell([organizer.id], { kind: 'invite', title: `${g.name} ${why} and declined “${ev.title}”`, body: away.description || away.title, link: '/calendar', actor: g.name });
   }
 }
 
 /** Tell everyone involved to refresh (organizer's other tabs, and guests). */
 export const touch = (ids) => sendTo([...new Set(ids)], { type: 'events-changed' });
+
+/** The end of the focus time this person is in right now (their own repeating ones too), or null. */
+export function focusUntil(userId, t = Date.now()) {
+  const rows = q(`SELECT * FROM events WHERE owner_id = ? AND kind = 'focus' AND start <= ?
+                  AND (end > ? OR (rrule IS NOT NULL AND (repeat_until IS NULL OR repeat_until > ?)))`).all(userId, t, t, t);
+  let until = null;
+  for (const r of rows) for (const o of expand(outEvent(r), t - 864e5, t + 1)) if (o.start <= t && o.end > t) until = Math.max(until ?? 0, o.end);
+  return until;
+}
 
 export default function calendarRoutes() {
   const r = Router();
@@ -365,14 +376,14 @@ export default function calendarRoutes() {
   r.post('/', (req, res) => {
     const e = readEvent(req.body);
     // Check the guests before saving anything, so a refused invitation leaves no event behind.
-    const guests = req.body.guests !== undefined && e.kind !== 'ooo' ? readGuests(req.user, req.body.guests) : null;
+    const guests = req.body.guests !== undefined && !SPECIAL.includes(e.kind) ? readGuests(req.user, req.body.guests) : null;
     const attachments = req.body.attachments !== undefined ? readAttachments(req.user, req.body.attachments) : [];
     const id = uid();
     const tz = req.body.tz ? zoneOrUtc(req.body.tz) : null;
     // "This event" of a repeating one: remember which series and occurrence it replaces (phones show it as part of the series).
     const of = req.body.recurrence_of;
     const parent = of && !e.rrule ? q('SELECT id FROM events WHERE id = ? AND owner_id = ? AND rrule IS NOT NULL').get(String(of.id || ''), req.user.id) : null;
-    e.meet_code = e.kind === 'ooo' ? null : readMeet(req.body, req.user);
+    e.meet_code = SPECIAL.includes(e.kind) ? null : readMeet(req.body, req.user);
     q(`INSERT INTO events (id, owner_id, title, description, location, start, end, all_day, color, rrule, exdates, repeat_until, tz, recur_parent, recur_id, kind, meet_code)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(id, req.user.id, e.title, e.description ?? null, e.location ?? null, e.start, e.end, e.all_day ?? 0, e.color ?? null,
@@ -389,7 +400,7 @@ export default function calendarRoutes() {
       notifyOutside(req.user, saved, outside.added, 'invite', { base: baseUrl(req), tz });
       touch(added.map((g) => g.id));
     }
-    if (req.body.rooms !== undefined && e.kind !== 'ooo') setRooms(req.user, q('SELECT * FROM events WHERE id = ?').get(id), req.body.rooms);
+    if (req.body.rooms !== undefined && !SPECIAL.includes(e.kind)) setRooms(req.user, q('SELECT * FROM events WHERE id = ?').get(id), req.body.rooms);
     touch([req.user.id]); // your other tabs (and their reminders) see it too
     const made = outEvent(q('SELECT * FROM events WHERE id = ?').get(id));
     res.status(201).json({ ...made, attachments: attachmentsFor(made, req.user.id), role: 'organizer', guests: allGuests(id), rooms: roomsOf(id), reminders });
@@ -400,10 +411,10 @@ export default function calendarRoutes() {
     if (!existing) throw notFound();
     const before = outEvent(existing);
     const e = readEvent(req.body, before);
-    const guests = req.body.guests !== undefined ? readGuests(req.user, e.kind === 'ooo' ? [] : req.body.guests) : null; // before changing anything
+    const guests = req.body.guests !== undefined ? readGuests(req.user, SPECIAL.includes(e.kind) ? [] : req.body.guests) : null; // before changing anything
     const attachments = req.body.attachments !== undefined ? readAttachments(req.user, req.body.attachments, before.attachments) : null;
     const tz = req.body.tz ? zoneOrUtc(req.body.tz) : existing.tz;
-    e.meet_code = e.kind === 'ooo' ? null : readMeet(req.body, req.user, before.meet_code);
+    e.meet_code = SPECIAL.includes(e.kind) ? null : readMeet(req.body, req.user, before.meet_code);
     const changed = detailsChanged(before, e);
     if (before.start !== e.start || before.end !== e.end) q('UPDATE event_guests SET proposed_start = NULL, proposed_end = NULL, proposal_note = NULL WHERE event_id = ?').run(e.id);
     q(`UPDATE events SET title = ?, description = ?, location = ?, start = ?, end = ?, all_day = ?, color = ?, rrule = ?, exdates = ?, repeat_until = ?,

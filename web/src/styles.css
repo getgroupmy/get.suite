@@ -1754,3 +1754,4 @@ a.home-item:hover, button.home-item:hover { text-decoration: underline; }
 .tg-loc-btn:hover { border-color: var(--border); }
 .tg-loc-btn.set { color: var(--text); background: var(--surface-2); }
 .workloc-week { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px 12px; }
+.chip.focus, .tg-event.focus { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--c) 22%, transparent) 0 6px, color-mix(in srgb, var(--c) 12%, transparent) 6px 12px); color: var(--text); border-left: 3px solid var(--c); }

@@ -233,6 +233,7 @@ export default function Calendar() {
       <aside className="subnav">
         <button className="btn new-btn" onClick={() => newEvent()}><Icon name="plus" /> Create</button>
         <button type="button" className="subnav-item" onClick={() => { const d = startOfDay(new Date()).getTime(); setEditing({ title: 'Out of office', kind: 'ooo', start: d, end: d + DAY - 1, all_day: 1, color: '#5f6368', location: '', description: '' }); }}><span aria-hidden="true" style={{ width: 24, textAlign: 'center' }}>🌴</span><span className="grow">Out of office…</span></button>
+        <button type="button" className="subnav-item" onClick={() => { const t = new Date(); t.setMinutes(0, 0, 0); t.setHours(t.getHours() + 1); setEditing({ title: 'Focus time', kind: 'focus', start: t.getTime(), end: t.getTime() + 2 * 36e5, all_day: 0, color: '#7b61ff', location: '', description: '' }); }}><span aria-hidden="true" style={{ width: 24, textAlign: 'center' }}>🎯</span><span className="grow">Focus time…</span></button>
         <button type="button" className="subnav-item" onClick={() => setBookingOpen(true)}><Icon name="link" /><span className="grow">Booking pages</span></button>
         <button type="button" className="subnav-item" onClick={() => setHoursOpen(true)}><Icon name="clock" /><span className="grow">Working hours</span></button>
         <button type="button" className="subnav-item" onClick={() => importInput.current.click()}><Icon name="upload" /><span className="grow">Import (.ics)</span></button>
@@ -510,7 +511,7 @@ function RemindersField({ value, onChange }) {
 }
 
 // Invitations you haven't answered look tentative; declined ones are faded.
-const inviteClass = (ev) => (ev.kind === 'ooo' ? 'ooo' : ev.role !== 'guest' ? '' : ev.my_status === 'no' ? 'declined' : ev.my_status === 'yes' ? '' : 'tentative');
+const inviteClass = (ev) => (ev.kind === 'ooo' ? 'ooo' : ev.kind === 'focus' ? 'focus' : ev.role !== 'guest' ? '' : ev.my_status === 'no' ? 'declined' : ev.my_status === 'yes' ? '' : 'tentative');
 const ANSWER_LABELS = { yes: 'Yes', maybe: 'Maybe', no: 'No', needs: 'Not answered' };
 const TZ = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { return 'UTC'; } })();
 const whenLabel = (ev) => {
@@ -741,10 +742,11 @@ function EventDialog({ event, onClose, onSaved, onDuplicate }) {
   const recurring = !!(event.id && event.rrule);
   const [f, setF] = useState({
     title: event.title, location: event.location || '', description: event.description || '', color: event.color || COLORS[0],
-    all_day: !!event.all_day, ooo: event.kind === 'ooo',
+    all_day: !!event.all_day, ooo: event.kind === 'ooo', focus: event.kind === 'focus',
     startDate: toDateInput(event.start), startTime: toTimeInput(event.start),
     endDate: toDateInput(event.end), endTime: toTimeInput(event.end),
   });
+  const special = f.ooo || f.focus; // just you: no guests, rooms, place or video meeting
   const r0 = event.rrule;
   const [rep, setRep] = useState({
     freq: r0?.freq || 'none', interval: r0?.interval || 1, byday: r0?.byday || [new Date(event.start).getDay()],
@@ -785,8 +787,8 @@ function EventDialog({ event, onClose, onSaved, onDuplicate }) {
     const start = f.all_day ? fromInputs(f.startDate) : fromInputs(f.startDate, f.startTime);
     const end = f.all_day ? fromInputs(f.endDate) + DAY - 1 : fromInputs(f.endDate, f.endTime);
     const all = guestInput.trim() ? [...new Set([...guests, ...guestInput.split(/[\s,;]+/).map((x) => x.trim().toLowerCase()).filter((x) => x.includes('@'))])] : guests;
-    return { start, end, body: { title: f.title, location: f.ooo ? '' : f.location, description: f.description, color: f.color, all_day: f.all_day, start, end, rrule: ruleFromForm(rep, start),
-      guests: f.ooo ? [] : all, reminders, tz: TZ, attachments: attachments.map((a) => a.id), kind: f.ooo ? 'ooo' : null, meet_code: f.ooo ? null : meet, ...(event.id && !event.rooms?.length && !roomIds.length ? {} : { rooms: f.ooo ? [] : roomIds }) } };
+    return { start, end, body: { title: f.title, location: special ? '' : f.location, description: f.description, color: f.color, all_day: f.all_day, start, end, rrule: ruleFromForm(rep, start),
+      guests: special ? [] : all, reminders, tz: TZ, attachments: attachments.map((a) => a.id), kind: f.ooo ? 'ooo' : f.focus ? 'focus' : null, meet_code: special ? null : meet, ...(event.id && !event.rooms?.length && !roomIds.length ? {} : { rooms: special ? [] : roomIds }) } };
   };
 
   async function save(which) {
@@ -815,7 +817,11 @@ function EventDialog({ event, onClose, onSaved, onDuplicate }) {
       <form className="stack" onSubmit={submit}>
         <label className="field"><span>Title</span><input autoFocus required value={f.title} onChange={set('title')} /></label>
         <label className="check"><input type="checkbox" checked={f.all_day} onChange={set('all_day')} /> All day</label>
-        <label className="check"><input type="checkbox" checked={f.ooo} onChange={set('ooo')} /> Out of office</label>
+        <div className="row wrap" style={{ gap: 16 }}>
+          <label className="check"><input type="checkbox" checked={f.ooo} onChange={(e) => setF({ ...f, ooo: e.target.checked, focus: false })} /> Out of office</label>
+          <label className="check"><input type="checkbox" checked={f.focus} onChange={(e) => setF({ ...f, focus: e.target.checked, ooo: false })} /> Focus time</label>
+        </div>
+        {f.focus && <p className="muted small" style={{ margin: 0 }}>While it lasts, new invitations for this time are declined for you and notifications are paused (they still arrive in the bell).</p>}
         {f.ooo && <p className="muted small" style={{ margin: 0 }}>While you're away, new invitations for this time are declined for you, and whoever sent them sees the description below as your message. Colleagues see you as out of office.</p>}
         <div className="row wrap">
           <label className="field"><span>Starts</span><input type="date" required value={f.startDate} onChange={(e) => setF({ ...f, startDate: e.target.value, endDate: e.target.value > f.endDate ? e.target.value : f.endDate })} /></label>
@@ -825,7 +831,7 @@ function EventDialog({ event, onClose, onSaved, onDuplicate }) {
           <label className="field"><span>Ends</span><input type="date" required value={f.endDate} onChange={set('endDate')} /></label>
           {!f.all_day && <label className="field"><span>&nbsp;</span><input type="time" required value={f.endTime} onChange={set('endTime')} aria-label="End time" /></label>}
         </div>
-        {!f.ooo && <FindATime guests={guests} directory={directory} minutes={(() => { const { start, end } = read(); return f.all_day || !(end > start) ? 60 : Math.min(480, Math.max(15, Math.round((end - start) / 6e4))); })()}
+        {!special && <FindATime guests={guests} directory={directory} minutes={(() => { const { start, end } = read(); return f.all_day || !(end > start) ? 60 : Math.min(480, Math.max(15, Math.round((end - start) / 6e4))); })()}
           onPick={(s, e) => setF({ ...f, all_day: false, startDate: toDateInput(s), startTime: toTimeInput(s), endDate: toDateInput(e), endTime: toTimeInput(e) })} />}
         <div className="repeat-box stack">
           <div className="row wrap">
@@ -857,7 +863,7 @@ function EventDialog({ event, onClose, onSaved, onDuplicate }) {
           )}
           {rep.freq !== 'none' && <p className="muted small" aria-live="polite" style={{ margin: 0 }}>{describeRule(ruleNow, read().start)}</p>}
         </div>
-        {!f.ooo && <div className="field">
+        {!special && <div className="field">
           <label htmlFor="guest-input"><span>Guests</span></label>
           {event.guests?.length > 0 && (
             <span className="muted small" aria-live="polite">{event.guests.length} guest{event.guests.length === 1 ? '' : 's'}: {
@@ -895,13 +901,13 @@ function EventDialog({ event, onClose, onSaved, onDuplicate }) {
             {guests.some((g) => { const k = (event.guests || []).find((x) => x.email === g); return k ? k.external : !directory.some((d) => d.username === g); })
               && ' People outside Workspace get an email invitation for their own calendar (Outlook, Gmail, phone) and a link to answer; they also get changes and cancellations.'}</span>}
         </div>}
-        {!f.ooo && <RoomPicker eventId={event.id} chosen={roomIds} booked={event.rooms || []} onChange={setRoomIds} when={(() => { const r = read(); return r.end > r.start ? [r.start, r.end] : null; })()} />}
+        {!special && <RoomPicker eventId={event.id} chosen={roomIds} booked={event.rooms || []} onChange={setRoomIds} when={(() => { const r = read(); return r.end > r.start ? [r.start, r.end] : null; })()} />}
         <RemindersField value={reminders} onChange={setReminders} />
-        {!f.ooo && <label className="field"><span>Location</span><input value={f.location} onChange={set('location')} /></label>}
-        {!f.ooo && (meet ? <MeetLine code={meet} onRemove={() => setMeet(null)} />
+        {!special && <label className="field"><span>Location</span><input value={f.location} onChange={set('location')} /></label>}
+        {!special && (meet ? <MeetLine code={meet} onRemove={() => setMeet(null)} />
           : <div><button type="button" className="btn" onClick={addMeet}><Icon name="video" size={18} /> Add video meeting</button></div>)}
         <label className="field"><span>{f.ooo ? 'Message for people who invite you' : 'Description'}</span><textarea rows={3} value={f.description} onChange={set('description')} placeholder={f.ooo ? 'e.g. On holiday until Monday 9th; for anything urgent, ask Kim.' : undefined} /></label>
-        {!f.ooo && (
+        {!special && (
           <div className="field"><span>Attachments</span>
             <Attachments list={attachments} onRemove={(a) => setAttachments(attachments.filter((x) => x.id !== a.id))} />
             <span className="row"><button type="button" className="btn small" onClick={() => setPickingFile(true)}><Icon name="attach" size={16} /> Attach from Drive</button></span>

@@ -3334,3 +3334,23 @@ test('working location: usual week, a day different, and colleagues', async () =
   assert.equal((await a('GET', '/api/location?from=2026-11-09&to=2026-11-09')).body.days['2026-11-09'].place, 'office', 'back to the usual');
   assert.equal((await a('PUT', '/api/location/day', { date: 'monday', place: 'home' })).status, 400);
 });
+
+test('focus time: declines new invitations and pauses notifications while it lasts', async () => {
+  const a = client(); const org = client();
+  const aid = (await owner('POST', '/api/users', { local: 'foc', domain: 'acme.com', name: 'Fay Focus', password: 'password123' })).body.id;
+  assert.equal((await owner('POST', '/api/users', { local: 'foo', domain: 'acme.com', name: 'Otto Organizer', password: 'password123' })).status, 201);
+  await login(a, 'foc@acme.com'); await login(org, 'foo@acme.com');
+  const now = Date.now();
+  const f = (await a('POST', '/api/events', { title: 'Deep work', kind: 'focus', start: now - 60e3, end: now + 36e5, guests: ['foo@acme.com'] })).body;
+  assert.equal(f.kind, 'focus');
+  assert.equal((f.guests || []).length, 0, 'just you');
+  const p = (await a('GET', '/api/users/me/pause')).body;
+  assert.equal(p.paused_until, f.end, 'paused until it ends');
+  assert.equal(p.focus, true);
+  const inv = (await org('POST', '/api/events', { title: 'Sync', start: now + 10 * 6e4, end: now + 40 * 6e4, guests: ['foc@acme.com'] })).body;
+  assert.equal(inv.guests.find((g) => g.id === aid || g.email === 'foc@acme.com').status, 'no', 'declined for them');
+  assert.ok((await org('GET', '/api/notifications')).body.items.some((n) => n.title === 'Fay Focus is in focus time and declined “Sync”'));
+  // After it: not paused.
+  await a('PATCH', `/api/events/${f.id}`, { start: now - 2 * 36e5, end: now - 36e5 });
+  assert.equal((await a('GET', '/api/users/me/pause')).body.paused_until, null);
+});

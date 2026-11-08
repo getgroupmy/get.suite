@@ -14,6 +14,7 @@ import { planImport, readablePassword, usersCsv } from '../userimport.js';
 import { sendTo } from '../hub.js';
 import { hoursOf, setHours, readHours, hoursText } from '../workhours.js';
 import { insertFile, uniqueName } from './files.js';
+import { focusUntil } from './calendar.js';
 
 /** A status as shown, or null once it has cleared. */
 export function statusOf(row, at = Date.now()) {
@@ -137,7 +138,9 @@ export default function userRoutes() {
   // Pause notifications ("do not disturb") until a time, or stop pausing (until: null).
   r.get('/me/pause', (req, res) => {
     const until = q('SELECT paused_until FROM users WHERE id = ?').get(req.user.id).paused_until;
-    res.json({ paused_until: until > Date.now() ? until : null });
+    const focus = focusUntil(req.user.id); // in focus time: paused until it ends
+    const best = Math.max(until > Date.now() ? until : 0, focus || 0);
+    res.json({ paused_until: best || null, focus: !!focus && focus >= (until || 0) });
   });
   r.put('/me/pause', (req, res) => {
     let until = req.body.until == null ? null : Number(req.body.until);
