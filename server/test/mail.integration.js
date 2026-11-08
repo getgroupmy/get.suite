@@ -48,10 +48,10 @@ after(() => { notify.stopAll(); closeAll(); server.close(); policy.close(); fs.r
 
 function client() {
   let cookie = '';
-  const call = async (method, url, body, { raw } = {}) => {
+  const call = async (method, url, body, { raw, headers = {} } = {}) => {
     const res = await fetch(base + url, {
       method,
-      headers: { 'x-requested-with': 'nas-workspace', ...(cookie && { cookie }), ...(body !== undefined && !raw && { 'content-type': 'application/json' }) },
+      headers: { 'x-requested-with': 'nas-workspace', ...(cookie && { cookie }), ...(body !== undefined && !raw && { 'content-type': 'application/json' }), ...headers },
       body: raw ? body : body === undefined ? undefined : JSON.stringify(body),
     });
     const sc = res.headers.get('set-cookie');
@@ -1458,4 +1458,51 @@ test('mute a conversation: replies go to Archive, read; unmuting brings them bac
   await eventually(() => { try { return !fs.readFileSync('/run/nw/sieve/olivia@acme.com.sieve', 'utf8').includes('<thread-1@test.acme.com>'); } catch { return true; } }, 15000);
   await t.sendMail({ from: 'Chatty <chatty@acme.com>', to: 'olivia@acme.com', subject: 'Re: Big group thread', text: 'reply 2', inReplyTo: '<thread-2@test.acme.com>', references: ['<thread-1@test.acme.com>', '<thread-2@test.acme.com>'] });
   await eventually(async () => (await inbox(olivia)).some((x) => x.subject === 'Re: Big group thread'), 20000);
+});
+
+test('shared mailbox: its members read it and answer as it; nobody signs in to it; others can’t open it', async () => {
+  // A colleague of its own for this test (signed in afresh).
+  const bob = client();
+  const made = await olivia('POST', '/api/users', { local: 'helper', domain: 'acme.com', name: 'Hal Helper', password: 'password123' });
+  assert.equal(made.status, 201);
+  assert.equal((await bob('POST', '/api/auth/login', { username: 'helper@acme.com', password: 'password123' })).status, 200);
+  const bobUser = { id: made.body.id };
+  assert.equal((await olivia('POST', '/api/mail-admin/shared', { local: 'helper', domain: 'acme.com', name: 'X' })).status, 400, 'taken by a person');
+  const r = await olivia('POST', '/api/mail-admin/shared', { local: 'support', domain: 'acme.com', name: 'Acme Support', members: [bobUser.id] });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.deepEqual(r.body.members.map((m) => m.username), ['helper@acme.com']);
+  assert.equal((await olivia('POST', '/api/users', { local: 'support', domain: 'acme.com', name: 'S', password: 'password123' })).status, 400, 'its address is taken');
+  const mb = r.body.id;
+  await eventually(() => { try { return fs.readFileSync('/run/nw/dovecot/passwd', 'utf8').includes('support@acme.com:{SHA512-CRYPT}*'); } catch { return false; } }, 15000);
+  // Mail arrives in it.
+  const t = nodemailer.createTransport({ host: process.env.MAIL_IMAP_HOST, port: 25, secure: false, ignoreTLS: true, name: 'test.acme.com' });
+  await eventually(async () => { try { await t.sendMail({ from: 'Customer <cust@acme.com>', to: 'support@acme.com', subject: 'My order is late', text: 'Where is it?' }); return true; } catch { return false; } }, 20000);
+  const as = { headers: { 'x-mailbox': mb } };
+  const got = await eventually(async () => (await bob('GET', '/api/mail/messages?folder=INBOX', undefined, as)).body.messages?.find((m) => m.subject === 'My order is late'), 20000);
+  assert.ok(!(await inbox(bob)).some((m) => m.subject === 'My order is late'), 'not in Bob’s own inbox');
+  assert.ok((await bob('GET', '/api/mail/status')).body.shared.some((x) => x.address === 'support@acme.com'));
+  // Not a member: not even its existence.
+  assert.equal((await olivia('GET', '/api/mail/messages?folder=INBOX', undefined, as)).status, 404);
+  // Per-person things aren't available there.
+  assert.equal((await bob('GET', '/api/mail/rules', undefined, as)).status, 400);
+  // Reading and answering as it.
+  const full = (await bob('GET', `/api/mail/messages/${got.uid}?folder=INBOX&mailbox=${mb}`)).body;
+  assert.equal(full.subject, 'My order is late');
+  assert.equal((await bob('POST', '/api/mail/send', { from: 'helper@acme.com', to: 'olivia@acme.com', subject: 'x', text: 'x' }, as)).status, 400, 'only as the mailbox');
+  assert.equal((await bob('POST', '/api/mail/send', { from: 'support@acme.com', to: 'olivia@acme.com', subject: 'x', text: 'x', sendAt: Date.now() + 864e5 }, as)).status, 400, 'no scheduling');
+  const sent = await bob('POST', '/api/mail/send', { from: 'support@acme.com', to: 'olivia@acme.com', subject: 'Re: My order is late', text: 'It ships today.', inReplyTo: full.messageId, replyTo: { folder: 'INBOX', uid: got.uid } }, as);
+  assert.equal(sent.status, 200, JSON.stringify(sent.body));
+  const arrived = await eventually(async () => (await inbox(olivia)).find((m) => m.subject === 'Re: My order is late'), 20000);
+  assert.equal(arrived.from.address, 'support@acme.com');
+  const folders = (await bob('GET', '/api/mail/folders', undefined, as)).body;
+  const sentBox = folders.find((f) => f.specialUse === '\\Sent');
+  assert.ok((await bob('GET', `/api/mail/messages?folder=${encodeURIComponent(sentBox.path)}`, undefined, as)).body.messages.some((m) => m.subject === 'Re: My order is late'), 'in the mailbox’s own Sent');
+  assert.ok((await bob('GET', '/api/mail/messages?folder=INBOX', undefined, as)).body.messages.find((m) => m.uid === got.uid).answered !== false);
+  // Nobody can sign in to it with a password.
+  await assert.rejects(imapLogin('support@acme.com', 'password123'));
+  // Taking Bob off: he can't open it any more. Deleting it frees the address.
+  await olivia('PATCH', `/api/mail-admin/shared/${mb}`, { members: [] });
+  assert.equal((await bob('GET', '/api/mail/messages?folder=INBOX', undefined, as)).status, 404);
+  assert.equal((await olivia('DELETE', `/api/mail-admin/shared/${mb}`)).status, 200);
+  assert.equal((await olivia('GET', '/api/mail-admin/shared')).body.length, 0);
 });

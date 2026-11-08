@@ -24,8 +24,11 @@ function unavailable(e) {
   return err;
 }
 
+/** Whose connection: a person's own mailbox, or a shared mailbox (one connection for all its members). */
+const poolKey = (user) => (user.shared_mailbox ? `shared:${user.shared_mailbox}` : user.id);
+
 export async function imapFor(user) {
-  const entry = pool.get(user.id);
+  const entry = pool.get(poolKey(user));
   if (entry) {
     entry.lastUsed = Date.now();
     if (entry.ready) {
@@ -33,7 +36,7 @@ export async function imapFor(user) {
       try { await entry.ready; } catch (e) { throw unavailable(e); }
     }
     if (entry.client.usable) return entry.client;
-    if (pool.get(user.id) === entry) pool.delete(user.id);
+    if (pool.get(poolKey(user)) === entry) pool.delete(poolKey(user));
   }
   const client = new ImapFlow({
     host: IMAP.host, port: IMAP.port, secure: true, tls: TLS,
@@ -41,11 +44,11 @@ export async function imapFor(user) {
     logger: false, emitLogs: false, disableAutoIdle: true,
   });
   client.on('error', () => {});
-  client.on('close', () => { if (pool.get(user.id)?.client === client) pool.delete(user.id); });
+  client.on('close', () => { if (pool.get(poolKey(user))?.client === client) pool.delete(poolKey(user)); });
   const ready = client.connect();
   const e = { client, lastUsed: Date.now(), ready };
-  pool.set(user.id, e);
-  try { await ready; } catch (err) { if (pool.get(user.id) === e) pool.delete(user.id); throw unavailable(err); }
+  pool.set(poolKey(user), e);
+  try { await ready; } catch (err) { if (pool.get(poolKey(user)) === e) pool.delete(poolKey(user)); throw unavailable(err); }
   e.ready = null;
   return client;
 }
@@ -53,7 +56,7 @@ export async function imapFor(user) {
 const OP_TIMEOUT_MS = Number(process.env.MAIL_OP_TIMEOUT_MS || 45000);
 
 function drop(user, client) {
-  if (pool.get(user.id)?.client === client) pool.delete(user.id);
+  if (pool.get(poolKey(user))?.client === client) pool.delete(poolKey(user));
   try { client.close(); } catch {}
 }
 

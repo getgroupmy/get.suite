@@ -1,3 +1,4 @@
+import { isSharedAddress } from './mail/shared.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { q, FILES_DIR } from './db.js';
@@ -21,7 +22,7 @@ export function validAddress(local, domain, orgId) {
   const row = q('SELECT org_id FROM domains WHERE name = ?').get(d);
   if (!row || row.org_id !== orgId) throw bad(`${d} is not a domain of this company`);
   const address = `${l}@${d}`;
-  if (q('SELECT 1 FROM users WHERE username = ?').get(address) || q('SELECT 1 FROM aliases WHERE address = ?').get(address)) {
+  if (q('SELECT 1 FROM users WHERE username = ?').get(address) || q('SELECT 1 FROM aliases WHERE address = ?').get(address) || isSharedAddress(address)) {
     throw bad(`${address} is already taken`);
   }
   return address;

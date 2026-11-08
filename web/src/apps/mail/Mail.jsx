@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { closeHistory } from '@tiptap/pm/history';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
-import { api, get, post, put, del, onLive, uploadFile, formatBytes, formatDate } from '../../api.js';
+import { api, get, post, put, del, onLive, uploadFile, formatBytes, formatDate, setSharedMailbox, currentSharedMailbox, mailboxParam } from '../../api.js';
 import { desktopSupported, desktopOn, enableDesktop, disableDesktop } from '../../mailNotify.js';
 import Icon from '../../components/Icon.jsx';
 import EmojiPicker from '../../components/EmojiPicker.jsx';
@@ -37,7 +37,25 @@ const fmtDay = (d) => new Date(`${d}T12:00:00`).toLocaleDateString([], { weekday
 const who = (a) => (a ? a.name || a.address : '');
 const list = (arr) => (arr || []).map((a) => (a.name ? `${a.name} <${a.address}>` : a.address)).join(', ');
 
-export default function Mail() {
+// Your mail, or a shared mailbox you're a member of (support@…): the choice is kept for this tab, and
+// Mail starts afresh on it (folders, messages and sending all go to that mailbox).
+export default function MailPage() {
+  const navigate = useNavigate();
+  const [sharedList, setSharedList] = useState([]);
+  const [mailbox, setMailbox] = useState(() => { try { return sessionStorage.getItem('nw-mailbox') || null; } catch { return null; } });
+  useEffect(() => { get('/mail/status').then((s) => setSharedList(s.shared || [])).catch(() => {}); }, []);
+  const known = sharedList.find((b) => b.id === mailbox) || null;
+  setSharedMailbox(known ? known.id : null); // before Mail's requests below
+  useEffect(() => () => setSharedMailbox(null), []); // leaving Mail: back to your own
+  const pick = (id) => {
+    try { if (id) sessionStorage.setItem('nw-mailbox', id); else sessionStorage.removeItem('nw-mailbox'); } catch { /* private mode */ }
+    setMailbox(id);
+    navigate('/mail');
+  };
+  return <Mail key={known?.id || 'own'} shared={known} sharedList={sharedList} onPickMailbox={pick} />;
+}
+
+function Mail({ shared = null, sharedList = [], onPickMailbox }) {
   const toast = useToast();
   const navigate = useNavigate();
   const params = useParams();
@@ -209,7 +227,16 @@ export default function Mail() {
   return (
     <div className={`mail ${openUid ? 'reading' : ''}`}>
       <aside className="subnav">
-        <button className="btn new-btn" onClick={() => setCompose(withSignature({}, 'new'))}><Icon name="edit" /> Compose</button>
+        {sharedList.length > 0 && (
+          <label className="field mailbox-pick"><span className="small muted">Mailbox</span>
+            <select aria-label="Mailbox" value={shared?.id || ''} onChange={(e) => onPickMailbox(e.target.value || null)}>
+              <option value="">Your mail</option>
+              {sharedList.map((b) => <option key={b.id} value={b.id}>{b.name} ({b.address})</option>)}
+            </select>
+          </label>
+        )}
+        {shared && <div className="banner small" role="status">Shared mailbox <strong>{shared.address}</strong>: replies go out from it.</div>}
+        <button className="btn new-btn" onClick={() => setCompose(shared ? {} : withSignature({}, 'new'))}><Icon name="edit" /> Compose</button>
         {folders.map((f) => {
           const own = !f.specialUse && f.path.toUpperCase() !== 'INBOX';
           const followable = own || f.specialUse === '\\Archive'; // built-in Archive: notifications only, no rename/delete
@@ -238,6 +265,7 @@ export default function Mail() {
             <span className={`count ${scheduled.some((m) => m.status === 'failed') ? 'error' : 'muted'}`}>{scheduled.length}</span></button>
         )}
         <button className="subnav-item new-folder" onClick={() => setNewFolder(true)}><Icon name="plus" /><span className="grow">New folder</span></button>
+        {!shared && <>
         <div className="subnav-title row">Labels<div className="grow" /><button type="button" className="icon-btn" aria-label="New label" onClick={() => setLabelDialog({})}><Icon name="plus" size={18} /></button></div>
         {labels.map((l) => (
           <div key={l.id} className="folder-row">
@@ -264,6 +292,7 @@ export default function Mail() {
             toast(ok ? 'Desktop notifications on: you’ll be alerted to new mail while Workspace is open in a background tab' : 'Notifications are blocked in your browser settings for this site', ok ? 'info' : 'error');
           }}><Icon name="mail" /><span className="grow">Desktop alerts</span><span className={`pill ${desktop ? '' : 'off'}`}>{desktop ? 'On' : 'Off'}</span></button>
         )}
+        </>}
       </aside>
 
       <section className="mail-list">
@@ -276,7 +305,7 @@ export default function Mail() {
           {current?.unseen > 0 && <button className="icon-btn" aria-label="Mark all as read" title={`Mark all ${current.unseen} unread in ${current.name} as read`}
             onClick={async () => { try { const r = await post('/mail/messages/read-all', { folder }); toast(`${r.marked} marked as read`); refresh(); } catch (e) { toast(e.message, 'error'); } }}><Icon name="check" size={20} /></button>}
         </div>
-        {vacation?.enabled && (vacation.active || vacation.scheduled) && (
+        {!shared && vacation?.enabled && (vacation.active || vacation.scheduled) && (
           <div className="mail-vacation">
             <span>{vacation.active
               ? `Your vacation reply is on${vacation.end_date ? ` until ${fmtDay(vacation.end_date)}` : ''}.`
@@ -333,13 +362,13 @@ export default function Mail() {
 
       <section className="mail-reader">
         {openUid ? (
-          <Reader key={`${folder}:${openUid}`} folder={folder} uid={openUid} special={special} onSnoozeCustom={(uids) => setSnoozing(uids)} labels={labels} onNewLabel={() => setLabelDialog({})}
+          <Reader key={`${folder}:${openUid}`} shared={shared} folder={folder} uid={openUid} special={special} onSnoozeCustom={(uids) => setSnoozing(uids)} labels={labels} onNewLabel={() => setLabelDialog({})}
             onClose={() => go(folder)} onOpen={(f, u) => go(f, u)} onChanged={refresh} act={act} onCompose={(init) => setCompose(withSignature(init, 'reply'))}
             onFilter={(from) => setFilters({ startWith: { name: `From ${from}`, enabled: true, match: 'all', conditions: [{ field: 'from', op: 'contains', value: from }], actions: { stop: true } } })} />
         ) : <Empty icon="mail" title="No message selected" />}
       </section>
 
-      {compose && <Compose initial={compose} signatures={signatures} onClose={() => setCompose(null)} onSent={() => { setCompose(null); refresh(); }} onDraftsChanged={refresh} />}
+      {compose && <Compose initial={compose} shared={shared} signatures={shared ? [] : signatures} onClose={() => setCompose(null)} onSent={() => { setCompose(null); refresh(); }} onDraftsChanged={refresh} />}
       {labelDialog && !labelDialog.deleting && <LabelDialog label={labelDialog} colors={labelColors} onClose={() => setLabelDialog(null)}
         onSaved={() => { setLabelDialog(null); loadLabels(); }} />}
       {labelDialog?.deleting && (
@@ -460,7 +489,7 @@ function FollowUpBanner({ messageId }) {
   );
 }
 
-function Reader({ folder, uid, special, onClose, onOpen, onChanged, act, onCompose, onFilter, onSnoozeCustom, labels = [], onNewLabel }) {
+function Reader({ shared = null, folder, uid, special, onClose, onOpen, onChanged, act, onCompose, onFilter, onSnoozeCustom, labels = [], onNewLabel }) {
   const mailStatus = useMailStatus();
   const toast = useToast();
   const navigate = useNavigate();
@@ -487,7 +516,7 @@ function Reader({ folder, uid, special, onClose, onOpen, onChanged, act, onCompo
   const reSubject = (p) => (m.subject.toLowerCase().startsWith(p.toLowerCase()) ? m.subject : `${p} ${m.subject}`);
   // Reply from the address the message was sent to (e.g. sales@), if it is one of yours.
   const mine = (mailStatus?.identities || []).map((i) => i.address);
-  const replyFrom = [...m.to, ...m.cc].map((a) => a.address).find((a) => mine.includes(a)) || user.username;
+  const replyFrom = shared ? shared.address : [...m.to, ...m.cc].map((a) => a.address).find((a) => mine.includes(a)) || user.username;
   const thread = { inReplyTo: m.messageId, references: m.references, replyTo: { folder, uid }, from: replyFrom };
   const replyTo = m.replyTo.length ? m.replyTo : m.from ? [m.from] : [];
   const others = [...m.to, ...m.cc].filter((a) => !mine.includes(a.address) && a.address !== user.username && !replyTo.some((r) => r.address === a.address));
@@ -526,23 +555,23 @@ function Reader({ folder, uid, special, onClose, onOpen, onChanged, act, onCompo
         <button className="icon-btn" aria-label="Print" title="Print (or save as PDF)" onClick={() => printMessage(m, { images })}><Icon name="print" /></button>
         <button className="icon-btn" aria-label="Create event" title="Create an event from this email" onClick={() => navigate('/calendar', { state: { newEvent: eventFromEmail(m, [user.username, ...mine]) } })}><Icon name="calendar" /></button>
         <button className="icon-btn" aria-label="Add to Tasks" title="Add to Tasks" onClick={() => addToTasksWithToast(toast, navigate, { title: m.subject || '(no subject)', link: { url: mailLink({ ...m, folder, uid }), label: `Email from ${m.from ? who(m.from) : 'unknown sender'}` } })}><Icon name="check" /></button>
-        <Menu align="left" trigger={(p) => <button type="button" className="icon-btn" aria-label="Labels" title="Labels" {...p}><LabelGlyph /></button>} items={[
+        {!shared && <Menu align="left" trigger={(p) => <button type="button" className="icon-btn" aria-label="Labels" title="Labels" {...p}><LabelGlyph /></button>} items={[
           ...labels.map((l) => {
             const on = (m.labels || []).includes(l.id);
             return { label: `${on ? '✓ ' : ''}${l.name}`, onClick: async () => { if (await act('labels', { uids: [uid], [on ? 'remove' : 'add']: [l.id] })) setM({ ...m, labels: on ? m.labels.filter((x) => x !== l.id) : [...(m.labels || []), l.id] }); } };
           }),
           ...(labels.length ? ['-'] : []),
           { label: 'New label…', icon: 'plus', onClick: onNewLabel },
-        ]} />
-        <SnoozeMenu onPick={(at) => done('snooze', { until: at }, `Snoozed until ${whenText(at)}`)} onCustom={() => onSnoozeCustom([uid])} />
+        ]} />}
+        {!shared && <SnoozeMenu onPick={(at) => done('snooze', { until: at }, `Snoozed until ${whenText(at)}`)} onCustom={() => onSnoozeCustom([uid])} />}
         {folder === SNOOZED && <button className="btn small" onClick={() => done('unsnooze', {}, 'Back in the Inbox')}>Unsnooze</button>}
         <button className={`icon-btn ${m.flagged ? 'starred' : ''}`} aria-label={m.flagged ? 'Unstar' : 'Star'} aria-pressed={m.flagged} title="Star"
           onClick={async () => { if (await act('flags', { uids: [uid], flagged: !m.flagged })) setM({ ...m, flagged: !m.flagged }); }}>
           <span aria-hidden="true" style={{ fontSize: 20 }}>{m.flagged ? '★' : '☆'}</span>
         </button>
-        {m.from?.address && <button className="btn small" onClick={() => onFilter(m.from.address)}>Filter messages like this</button>}
-        {m.from?.address && special !== '\\Junk' && <button className="btn small" onClick={() => setBlocking(true)}>Block sender</button>}
-        {m.messageId && !muted && <button className="btn small" title="Replies in this conversation skip the Inbox" onClick={mute}>Mute</button>}
+        {!shared && m.from?.address && <button className="btn small" onClick={() => onFilter(m.from.address)}>Filter messages like this</button>}
+        {!shared && m.from?.address && special !== '\\Junk' && <button className="btn small" onClick={() => setBlocking(true)}>Block sender</button>}
+        {!shared && m.messageId && !muted && <button className="btn small" title="Replies in this conversation skip the Inbox" onClick={mute}>Mute</button>}
       </div>
       {muted && <div className="banner" role="status">🔕 This conversation is muted: replies go straight to Archive. <button type="button" className="link-btn" onClick={unmute}>Unmute</button></div>}
       <h1 className="reader-subject">{m.subject || '(no subject)'}</h1>
@@ -605,7 +634,7 @@ function Reader({ folder, uid, special, onClose, onOpen, onChanged, act, onCompo
       {m.attachments.length > 0 && (
         <ul className="att-list">
           {m.attachments.map((a) => (
-            <li key={a.index}><a className="att" href={`/api/mail/messages/${uid}/attachments/${a.index}?folder=${enc(folder)}`}>
+            <li key={a.index}><a className="att" href={`/api/mail/messages/${uid}/attachments/${a.index}?folder=${enc(folder)}${mailboxParam()}`}>
               <Icon name="attach" size={18} /><span className="ellipsis">{a.filename}</span><span className="muted small">{formatBytes(a.size)}</span>
             </a><button type="button" className="icon-btn" aria-label={`Save ${a.filename} to Drive`} title="Save to Drive" onClick={() => saveToDrive([a.index])}><Icon name="folder" size={16} /></button></li>
           ))}
@@ -756,7 +785,7 @@ function HtmlBody({ html, images, onShowImages }) {
 
 const FIELDS = ['from', 'to', 'cc', 'bcc', 'subject', 'text', 'html', 'inReplyTo', 'references', 'replyTo'];
 
-function Compose({ initial, signatures = [], onClose, onSent, onDraftsChanged }) {
+function Compose({ initial, shared = null, signatures = [], onClose, onSent, onDraftsChanged }) {
   const editorRef = useRef(null);
   const toast = useToast();
   const { user } = useAuth();
@@ -764,6 +793,7 @@ function Compose({ initial, signatures = [], onClose, onSent, onDraftsChanged })
   const [f, setF] = useState(() => {
     const base = { from: user.username, to: '', cc: '', bcc: '', subject: '', text: '', html: '' };
     for (const k of FIELDS) if (initial[k] !== undefined && initial[k] !== null) base[k] = initial[k];
+    if (shared) base.from = shared.address; // a shared mailbox sends only as itself
     return base;
   });
   const [showCc, setShowCc] = useState(!!(initial.cc || initial.bcc));
@@ -846,7 +876,7 @@ function Compose({ initial, signatures = [], onClose, onSent, onDraftsChanged })
   const fileInput = useRef();
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
 
-  useEffect(() => { get('/mail/status').then((s) => setIdentities(s.identities)).catch(() => {}); }, []);
+  useEffect(() => { if (shared) setIdentities([{ address: shared.address, name: shared.name }]); else get('/mail/status').then((s) => setIdentities(s.identities)).catch(() => {}); }, [shared]);
 
   // Undo send: the window steps aside for a few seconds before the message really goes.
   const [waiting, setWaiting] = useState(false);
@@ -980,16 +1010,16 @@ function Compose({ initial, signatures = [], onClose, onSent, onDraftsChanged })
         <div className="row">
           <div className="split-btn">
             <button className="btn primary" disabled={busy || uploading > 0 || !f.to.trim() || total > 25 * 1024 * 1024}><Icon name="send" size={18} /> {busy ? 'Sending…' : 'Send'}</button>
-            <Menu align="left" trigger={(p) => <button type="button" className="btn primary split-more" aria-label="Schedule for later" title="Schedule for later" disabled={busy || uploading > 0 || !f.to.trim() || total > 25 * 1024 * 1024} {...p}><Icon name="clock" size={16} /></button>}
-              items={[...laterChoices().map(([label, at]) => ({ label: `${label} · ${whenText(at)}`, onClick: () => sendLater(at) })), '-', { label: 'Pick date and time…', icon: 'calendar', onClick: () => setScheduling(true) }]} />
+            {!shared && <Menu align="left" trigger={(p) => <button type="button" className="btn primary split-more" aria-label="Schedule for later" title="Schedule for later" disabled={busy || uploading > 0 || !f.to.trim() || total > 25 * 1024 * 1024} {...p}><Icon name="clock" size={16} /></button>}
+              items={[...laterChoices().map(([label, at]) => ({ label: `${label} · ${whenText(at)}`, onClick: () => sendLater(at) })), '-', { label: 'Pick date and time…', icon: 'calendar', onClick: () => setScheduling(true) }]} />}
           </div>
           <button type="button" className="icon-btn" aria-label="Attach from computer" title="Attach from computer" onClick={() => fileInput.current.click()}><Icon name="attach" /></button>
           <button type="button" className="icon-btn" aria-label="Attach from Drive" title="Attach from Drive" onClick={() => setPicking(true)}><Icon name="folder" /></button>
           <label className="check small" title="The recipient's mail app may offer to tell you when they open it; they can say no"><input type="checkbox" checked={receipt} onChange={(e) => setReceipt(e.target.checked)} /> Read receipt</label>
-          <select className="small followup-pick" aria-label="Remind me if no reply" title="Get a notification if nobody has replied by then" value={followUp} onChange={(e) => setFollowUp(e.target.value)}>
+          {!shared && <select className="small followup-pick" aria-label="Remind me if no reply" title="Get a notification if nobody has replied by then" value={followUp} onChange={(e) => setFollowUp(e.target.value)}>
             <option value="">No follow-up</option>
             {[[1, 'in 1 day'], [2, 'in 2 days'], [3, 'in 3 days'], [7, 'in a week'], [14, 'in 2 weeks']].map(([d, t]) => <option key={d} value={d}>⏰ No reply {t}</option>)}
-          </select>
+          </select>}
           <Menu align="left" trigger={(p) => <button type="button" className="icon-btn" aria-label="Templates" title="Templates" {...p}><Icon name="doc" /></button>} items={[
             ...templates.map((t) => ({ label: t.name, onClick: () => applyTemplate(t) })),
             ...(templates.length ? ['-'] : []),

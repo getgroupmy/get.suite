@@ -5,6 +5,7 @@ import { q } from '../db.js';
 import { uid, now, str, bad, notFound, forbidden } from '../util.js';
 import { requireAdmin, requireSuper } from '../auth.js';
 import { validDomain } from '../tenancy.js';
+import { isSharedAddress, membersOf as sharedMembers } from '../mail/shared.js';
 import { mailEnabled, MAIL_HOSTNAME, ensureDkim, DKIM_SELECTOR, scheduleMailConfig } from '../mail/config.js';
 
 const EMAIL_RE = /^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i;
@@ -136,7 +137,7 @@ export default function mailAdminRoutes() {
     const domain = validDomain(req.body.domain);
     if (!q('SELECT 1 FROM domains WHERE name = ? AND org_id = ?').get(domain, orgId)) throw bad(`${domain} is not a domain of this company`);
     const address = `${local}@${domain}`;
-    if (q('SELECT 1 FROM users WHERE username = ?').get(address) || q('SELECT 1 FROM aliases WHERE address = ?').get(address)) throw bad(`${address} is already taken`);
+    if (q('SELECT 1 FROM users WHERE username = ?').get(address) || q('SELECT 1 FROM aliases WHERE address = ?').get(address) || isSharedAddress(address)) throw bad(`${address} is already taken`);
     const targets = parseTargets(req.body.targets);
     if (targets.includes(address)) throw bad('An alias cannot forward to itself');
     const id = uid();
@@ -167,6 +168,56 @@ export default function mailAdminRoutes() {
     q('DELETE FROM aliases WHERE id = ?').run(a.id);
     scheduleMailConfig();
     audit(req, 'alias.delete', { org: a.org_id, target: a.address });
+    res.json({ ok: true });
+  });
+
+  // ---- shared mailboxes (support@, info@…): their own mailbox, read and answered by the members chosen ----
+  const sharedOut = (m) => ({ id: m.id, address: m.address, name: m.name, created_at: m.created_at, members: sharedMembers(m.id) });
+  const membersFrom = (orgId, list) => {
+    const ids = [...new Set((Array.isArray(list) ? list : []).map(String))];
+    if (ids.length > 200) throw bad('At most 200 members');
+    for (const id of ids) if (!q('SELECT 1 FROM users WHERE id = ? AND org_id = ?').get(id, orgId)) throw bad('Members must be people in this company');
+    return ids;
+  };
+  const setMembers = (id, ids) => { q('DELETE FROM shared_mailbox_members WHERE mailbox_id = ?').run(id); for (const u of ids) q('INSERT INTO shared_mailbox_members (mailbox_id, user_id) VALUES (?, ?)').run(id, u); };
+  r.get('/shared', (req, res) => {
+    const orgId = targetOrg(req);
+    res.json(q('SELECT * FROM shared_mailboxes WHERE org_id = ? ORDER BY address').all(orgId).map(sharedOut));
+  });
+  r.post('/shared', (req, res) => {
+    const orgId = targetOrg(req);
+    const local = str(req.body.local, { required: true, name: 'Address', max: 64 }).toLowerCase();
+    if (!LOCAL_RE.test(local) || local.includes('..')) throw bad('The part before @ may contain letters, numbers, dots, dashes, plus and underscores');
+    const domain = validDomain(req.body.domain);
+    if (!q('SELECT 1 FROM domains WHERE name = ? AND org_id = ?').get(domain, orgId)) throw bad(`${domain} is not a domain of this company`);
+    const address = `${local}@${domain}`;
+    if (q('SELECT 1 FROM users WHERE username = ?').get(address) || q('SELECT 1 FROM aliases WHERE address = ?').get(address) || isSharedAddress(address)) throw bad(`${address} is already taken`);
+    const name = str(req.body.name, { max: 100 }) || local.charAt(0).toUpperCase() + local.slice(1);
+    const members = membersFrom(orgId, req.body.members);
+    const id = uid();
+    q('INSERT INTO shared_mailboxes (id, org_id, address, name, created_at) VALUES (?, ?, ?, ?, ?)').run(id, orgId, address, name, now());
+    setMembers(id, members);
+    scheduleMailConfig();
+    audit(req, 'shared_mailbox.create', { org: orgId, target: address, details: { members: members.length } });
+    res.status(201).json(sharedOut(q('SELECT * FROM shared_mailboxes WHERE id = ?').get(id)));
+  });
+  const loadShared = (req) => {
+    const m = q('SELECT * FROM shared_mailboxes WHERE id = ?').get(req.params.id);
+    if (!m || (m.org_id !== req.user.org_id && !req.user.is_super)) throw notFound('Shared mailbox not found');
+    return m;
+  };
+  r.patch('/shared/:id', (req, res) => {
+    const m = loadShared(req);
+    if (req.body.name !== undefined) q('UPDATE shared_mailboxes SET name = ? WHERE id = ?').run(str(req.body.name, { required: true, name: 'Name', max: 100 }), m.id);
+    if (req.body.members !== undefined) setMembers(m.id, membersFrom(m.org_id, req.body.members));
+    audit(req, 'shared_mailbox.update', { org: m.org_id, target: m.address });
+    res.json(sharedOut(q('SELECT * FROM shared_mailboxes WHERE id = ?').get(m.id)));
+  });
+  r.delete('/shared/:id', (req, res) => {
+    const m = loadShared(req);
+    q('DELETE FROM shared_mailboxes WHERE id = ?').run(m.id);
+    scheduleMailConfig();
+    audit(req, 'shared_mailbox.delete', { org: m.org_id, target: m.address });
     res.json({ ok: true });
   });
 

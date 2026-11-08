@@ -12,8 +12,18 @@ if (typeof window !== 'undefined') {
 }
 export const idleMs = () => Date.now() - lastInput;
 
+// A shared mailbox open in Mail (support@…): mail requests go to it, apart from your own lists of
+// labels, signatures and templates. Anything else kept per person is refused there by the server.
+let sharedMailbox = null;
+export const setSharedMailbox = (id) => { sharedMailbox = id || null; };
+export const currentSharedMailbox = () => sharedMailbox;
+const OWN_MAIL = /^\/mail\/(status|labels|signatures|templates|unread)(\?|$)/; // (the unread badge counts your own mail)
+/** ?mailbox=… for links (attachments) when a shared mailbox is open. */
+export const mailboxParam = () => (sharedMailbox ? `&mailbox=${encodeURIComponent(sharedMailbox)}` : '');
+
 export async function api(method, url, body) {
-  const headers = { ...HEADERS, 'x-user-idle': String(idleMs()), ...(body !== undefined && { 'content-type': 'application/json' }) };
+  const headers = { ...HEADERS, 'x-user-idle': String(idleMs()), ...(body !== undefined && { 'content-type': 'application/json' }),
+    ...(sharedMailbox && url.startsWith('/mail/') && !(method === 'GET' && OWN_MAIL.test(url)) && { 'x-mailbox': sharedMailbox }) };
   const res = await fetch(`/api${url}`, {
     method,
     credentials: 'same-origin',

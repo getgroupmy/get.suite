@@ -15,6 +15,7 @@ import { roleFor, mayTakeAway } from '../access.js';
 import { mailEnabled, scheduleMailConfig, MAIL_HOSTNAME } from '../mail/config.js';
 import { withClient, withFolder, smtpFor } from '../mail/imap.js';
 import { normalizeRules, cleanMessageId } from '../mail/sieve.js';
+import { sharedMailboxesFor, sharedMailboxFor } from '../mail/shared.js';
 import { followedFolders, setFollowed, MAX_FOLLOWED } from '../mail/notify.js';
 import { forwardHtml } from '../mail/forwardhtml.js';
 import { unsubscribeOptions, oneClickUnsubscribe } from '../mail/unsubscribe.js';
@@ -301,9 +302,30 @@ export default function webmailRoutes() {
 
   r.get('/status', (req, res) => res.json({
     enabled: mailEnabled(), address: req.user.username, identities: identities(req.user), vacation: vacationOf(req.user.id),
+    shared: mailEnabled() ? sharedMailboxesFor(req.user) : [], // shared mailboxes this person reads and answers
   }));
 
   r.use((req, res, next) => (mailEnabled() ? next() : next(new HttpError(503, 'Email is not set up on this server'))));
+
+  // A shared mailbox (x-mailbox header, or ?mailbox= for links): for members, the mail actions below work
+  // on it instead of their own mailbox (reading, moving, flags, folders, drafts and sending as it). Things
+  // kept per person (filters, labels, signatures, snoozing, scheduled sending…) stay with their own mail.
+  const SHARED_OK = [
+    ['GET', /^\/(unread|folders|messages|find)$/], ['GET', /^\/messages\/\d+(\/(conversation|quote|pictures\/\d+|attachments\/\d+))?$/],
+    ['POST', /^\/folders$/], ['PATCH', /^\/folders$/], ['DELETE', /^\/folders$/],
+    ['POST', /^\/messages\/(flags|read-all|move|delete)$/], ['POST', /^\/messages\/\d+\/attachments\/save$/],
+    ['POST', /^\/drafts$/], ['GET', /^\/drafts\/\d+$/], ['DELETE', /^\/drafts\/\d+$/], ['POST', /^\/send$/],
+  ];
+  r.use((req, res, next) => {
+    const id = req.get('x-mailbox') || (req.method === 'GET' ? req.query.mailbox : null);
+    if (!id) return next();
+    const mb = sharedMailboxFor(req.user, id);
+    if (!mb) return next(new HttpError(404, 'Shared mailbox not found'));
+    if (!SHARED_OK.some(([m, re]) => m === req.method && re.test(req.path))) return next(bad('That isn’t available in a shared mailbox'));
+    if (req.path === '/send' && (req.body?.sendAt != null || req.body?.followUp)) return next(bad('Send from a shared mailbox now (scheduling and follow-up reminders are for your own mail)'));
+    req.user = { ...req.user, username: mb.address, email: mb.address, name: mb.name, shared_mailbox: mb.id };
+    next();
+  });
 
   // Unread mail across the folders you get notifications for (badge on the Mail icon, tab title).
   r.get('/unread', async (req, res) => {
@@ -839,7 +861,7 @@ export default function webmailRoutes() {
     const out = forwardHtml(p.html, (cid) => {
       const hit = byCid.get(String(cid).toLowerCase());
       if (!hit || !PICTURE_TYPES.test(hit.a.contentType || '')) return null;
-      return forwardPictureUrl(folder, uid, hit.i);
+      return forwardPictureUrl(folder, uid, hit.i) + (req.user.shared_mailbox ? `&mailbox=${encodeURIComponent(req.user.shared_mailbox)}` : '');
     });
     res.json(out);
   });
@@ -1291,7 +1313,7 @@ export default function webmailRoutes() {
 
 const PICTURE_TYPES = /^image\/(png|jpeg|gif|webp)$/i;
 const forwardPictureUrl = (folder, uid, n) => `/api/mail/messages/${uid}/pictures/${n}?folder=${encodeURIComponent(folder)}`;
-const FORWARD_PICTURE_RE = /(<img\b[^>]*?\bsrc=")\/api\/mail\/messages\/(\d+)\/pictures\/(\d+)\?folder=([^"&]+)"/gi;
+const FORWARD_PICTURE_RE = /(<img\b[^>]*?\bsrc=")\/api\/mail\/messages\/(\d+)\/pictures\/(\d+)\?folder=([^"&]+)(?:&(?:amp;)?mailbox=[^"&]+)?"/gi; // (a shared mailbox's pictures carry &mailbox=)
 
 /** Split a long header value into numbered pieces (RFC 5322 lines must stay under 998 characters). */
 function chunk(value, size = 800) {

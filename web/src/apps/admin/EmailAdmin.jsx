@@ -19,6 +19,7 @@ export default function EmailAdmin({ orgId, orgPicker }) {
       {user.is_super && <HostCheck />}
       <Domains qs={qs} />
       <Aliases qs={qs} orgId={orgId} />
+      <SharedMailboxes qs={qs} orgId={orgId} />
       <MailApps hostname={status.hostname} />
     </div>
   );
@@ -186,5 +187,84 @@ function MailApps({ hostname }) {
         <div className="dns-row simple"><span className="dns-type">SMTP</span><code className="dns-value">{hostname} · port 465 · SSL/TLS (or 587 · STARTTLS)</code></div>
       </div>
     </div>
+  );
+}
+
+/** Shared mailboxes (support@, info@…): their own mailbox, read and answered by the people chosen. */
+function SharedMailboxes({ qs, orgId }) {
+  const toast = useToast();
+  const [list, setList] = useState(null);
+  const [domains, setDomains] = useState([]);
+  const [people, setPeople] = useState([]);
+  const [dialog, setDialog] = useState(null); // { type: 'edit', box } | { type: 'delete', box }
+  const load = useCallback(() => get(`/mail-admin/shared${qs}`).then(setList), [qs]);
+  useEffect(() => {
+    load();
+    get(`/mail-admin/domains${qs}`).then((d) => setDomains(d.map((x) => x.name)));
+    get(`/users${qs}`).then((u) => setPeople((Array.isArray(u) ? u : u.users || []).filter((x) => !x.disabled))).catch(() => {});
+  }, [load, qs]);
+  return (
+    <section className="card stack" aria-label="Shared mailboxes">
+      <div className="row"><h2 className="grow">Shared mailboxes</h2><button className="btn small" onClick={() => setDialog({ type: 'edit', box: null })}><Icon name="plus" size={16} /> Add shared mailbox</button></div>
+      <p className="muted small" style={{ margin: 0 }}>An address with its own mailbox (support@, info@, jobs@) that the people you choose read and answer in Mail, as that address: replies go out from it and are kept in its Sent, so everyone sees what was answered. Nobody signs in to it.</p>
+      {list?.length === 0 && <p className="muted">No shared mailboxes yet.</p>}
+      {list?.length > 0 && (
+        <table className="files">
+          <thead><tr><th>Address</th><th>People</th><th aria-label="Actions" /></tr></thead>
+          <tbody>{list.map((b) => (
+            <tr key={b.id}>
+              <td className="name"><span>{b.name} <span className="muted small">{b.address}</span></span></td>
+              <td className="muted">{b.members.map((m) => m.name).join(', ') || 'Nobody yet'}</td>
+              <td className="actions">
+                <button className="icon-btn" aria-label={`Edit ${b.address}`} onClick={() => setDialog({ type: 'edit', box: b })}><Icon name="edit" size={18} /></button>
+                <button className="icon-btn" aria-label={`Delete ${b.address}`} onClick={() => setDialog({ type: 'delete', box: b })}><Icon name="trash" size={18} /></button>
+              </td>
+            </tr>))}</tbody>
+        </table>
+      )}
+      {dialog?.type === 'edit' && <SharedDialog box={dialog.box} domains={domains} people={people} orgId={orgId} onClose={() => setDialog(null)} onSaved={() => { setDialog(null); toast('Shared mailbox saved'); load(); }} />}
+      {dialog?.type === 'delete' && <ConfirmModal title={`Delete ${dialog.box.address}?`} message="Mail sent to this address will bounce, and its members can no longer open its mail." onClose={() => setDialog(null)}
+        onConfirm={async () => { await del(`/mail-admin/shared/${dialog.box.id}`); load(); }} />}
+    </section>
+  );
+}
+
+function SharedDialog({ box, domains, people, orgId, onClose, onSaved }) {
+  const [f, setF] = useState({ local: '', domain: domains[0] || '', name: box?.name || '' });
+  const [members, setMembers] = useState(new Set((box?.members || []).map((m) => m.id)));
+  const [filter, setFilter] = useState('');
+  const [error, setError] = useState('');
+  const shown = people.filter((p) => !filter || `${p.name} ${p.username}`.toLowerCase().includes(filter.toLowerCase())).slice(0, 100);
+  return (
+    <Modal title={box ? `Edit ${box.address}` : 'Add shared mailbox'} onClose={onClose}>
+      <form className="stack" onSubmit={async (e) => {
+        e.preventDefault();
+        try {
+          if (box) await patch(`/mail-admin/shared/${box.id}`, { name: f.name, members: [...members] });
+          else await post('/mail-admin/shared', { ...f, members: [...members], org_id: orgId });
+          onSaved();
+        } catch (err) { setError(err.message); }
+      }}>
+        {!box && (
+          <label className="field"><span>Address</span>
+            <span className="address-input">
+              <input autoFocus required autoCapitalize="none" spellCheck={false} value={f.local} onChange={(e) => setF({ ...f, local: e.target.value })} placeholder="support" aria-label="Address before @" />
+              <span className="muted">@</span>
+              <select value={f.domain} onChange={(e) => setF({ ...f, domain: e.target.value })} aria-label="Domain">{domains.map((d) => <option key={d}>{d}</option>)}</select>
+            </span>
+          </label>
+        )}
+        <label className="field"><span>Name (shown on the mail it sends)</span><input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="Acme Support" maxLength={100} /></label>
+        <fieldset className="stack-tight" style={{ border: 0, padding: 0, margin: 0 }}>
+          <legend><strong>People who use it</strong></legend>
+          <input type="search" aria-label="Find people" placeholder="Find people" value={filter} onChange={(e) => setFilter(e.target.value)} />
+          <ul className="plain-list" style={{ maxHeight: 220, overflowY: 'auto' }}>
+            {shown.map((p) => <li key={p.id}><label className="check"><input type="checkbox" checked={members.has(p.id)} onChange={(e) => { const n = new Set(members); if (e.target.checked) n.add(p.id); else n.delete(p.id); setMembers(n); }} /> {p.name} <span className="muted small">{p.username}</span></label></li>)}
+          </ul>
+        </fieldset>
+        {error && <p className="error">{error}</p>}
+        <div className="row end"><button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn primary">Save</button></div>
+      </form>
+    </Modal>
   );
 }

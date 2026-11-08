@@ -6,6 +6,7 @@ import crypto from 'node:crypto';
 import { q } from '../db.js';
 import { dovecotHash } from './crypt.js';
 import { userSieve } from './sieve.js';
+import { allSharedMailboxes, membersOf as sharedMembers } from './shared.js';
 
 // Emptying Trash and Junk by themselves (a company setting, in days; 0: never).
 for (const col of ['mail_trash_days', 'mail_junk_days']) {
@@ -90,6 +91,7 @@ export function buildMailConfig() {
   const users = q(`SELECT u.id, u.org_id, u.username, u.name, u.mail_hash, u.mail_app_hash, u.mail_quota_mb, u.mail_home, u.disabled, u.is_admin, o.mail_trash_days, o.mail_junk_days
                    FROM users u LEFT JOIN orgs o ON o.id = u.org_id ORDER BY u.username`).all();
   const aliases = q('SELECT org_id, address, targets FROM aliases ORDER BY address').all();
+  const shared = allSharedMailboxes();
   const userByAddress = new Map(users.map((u) => [u.username.toLowerCase(), u]));
   const aliasMap = new Map(aliases.map((a) => [a.address.toLowerCase(), splitTargets(a.targets)]).filter(([, t]) => t.length)); // a group with nobody in it yet: no address
 
@@ -106,7 +108,7 @@ export function buildMailConfig() {
   const files = {
     'postfix/domains': lines(domains.map((d) => `${d.name} OK`)),
     // Disabled accounts keep receiving mail but cannot sign in (see nologin below).
-    'postfix/mailboxes': lines(users.map((u) => `${u.username} OK`)),
+    'postfix/mailboxes': lines([...users.map((u) => `${u.username} OK`), ...shared.map((s) => `${s.address} OK`)]),
     'postfix/aliases': lines([
       ...[...aliasMap].map(([addr, targets]) => `${addr} ${targets.join(',')}`),
       ...catchAllLines(domains, users, aliasMap),
@@ -114,10 +116,11 @@ export function buildMailConfig() {
     // Who may send as which address: yourself, plus any alias you are a member of.
     'postfix/senders': lines([
       ...users.map((u) => `${u.username} ${u.username}`),
+      ...shared.map((s) => `${s.address} ${s.address}`), // its members send as it through webmail, which signs in as the mailbox
       ...[...aliasMap].map(([addr, targets]) => [addr, targets.filter((t) => userByAddress.has(t))])
         .filter(([, members]) => members.length).map(([addr, members]) => `${addr} ${members.join(',')}`),
     ]),
-    'dovecot/passwd': lines(users.map((u) => {
+    'dovecot/passwd': lines([...users.map((u) => {
       // "*" can never match: users who haven't signed in since email was enabled have no hash yet.
       // With a mail-app password, that is the only password mail apps accept.
       const pass = u.mail_app_hash || u.mail_hash || '{SHA512-CRYPT}*';
@@ -130,7 +133,9 @@ export function buildMailConfig() {
       if (u.mail_trash_days > 0) extra.push(`userdb_namespace/inbox/mailbox/Trash/autoexpunge=${u.mail_trash_days}d`);
       if (u.mail_junk_days > 0) extra.push(`userdb_namespace/inbox/mailbox/Junk/autoexpunge=${u.mail_junk_days}d`);
       return `${u.username}:${pass}::::${u.mail_home || ''}::${extra.join(' ')}`; // user:pass:uid:gid:gecos:home:shell:extra
-    })),
+    }),
+    // Shared mailboxes: a password that never matches, so only webmail's login (for a member) opens them.
+    ...shared.map((s) => `${s.address}:{SHA512-CRYPT}*::::::`)]),
     'dovecot/masters': (webmailSecret(), `webmail:${getSetting('webmail_secret_hash')}\n`),
     // Sign-in protection: Dovecot (IMAP and Postfix SMTP AUTH) asks the app before/after each sign-in.
     'dovecot/policy.conf': policyConf(),
