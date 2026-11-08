@@ -40,6 +40,23 @@ export default function Admin() {
   );
 }
 
+/** Allowed networks: Workspace only from the company's own addresses (offices, VPN). */
+function Networks({ org, save }) {
+  const [text, setText] = useState(org.allowed_nets || '');
+  const [on, setOn] = useState(!!org.allowed_nets);
+  return (
+    <form className="card stack" aria-labelledby="nets-h" onSubmit={(e) => { e.preventDefault(); save({ allowed_nets: on ? text : '' }, on && text.trim() ? 'Workspace now works only from these networks' : 'Workspace works from anywhere'); }}>
+      <h2 id="nets-h">Networks</h2>
+      <label className="check"><input type="radio" name="nets" checked={!on} onChange={() => setOn(false)} /> Workspace works from anywhere</label>
+      <label className="check"><input type="radio" name="nets" checked={on} onChange={() => { setOn(true); if (!text.trim() && org.your_ip) setText(org.your_ip); }} /> Only from these addresses and ranges (offices, VPN)</label>
+      {on && <label className="field"><span>Addresses and ranges, one per line</span>
+        <textarea rows={4} value={text} onChange={(e) => setText(e.target.value)} placeholder={'203.0.113.10\n198.51.100.0/24'} /></label>}
+      <p className="muted small" style={{ margin: 0 }}>Your address now: <code>{org.your_ip}</code>. It must be in the list, so you don't shut yourself out. From anywhere else, people can't sign in and are signed out of the web app. Phones and mail apps aren't affected.</p>
+      <div><button className="btn">Save networks</button></div>
+    </form>
+  );
+}
+
 /** Where someone is signed in on the web (for a lost laptop or a phone left logged in), with sign-out. */
 function UserDevices({ user, onClose }) {
   const toast = useToast();
@@ -387,7 +404,7 @@ function CompanySettings() {
     setOrg({ ...org, ...body }); // optimistic
     try {
       const o = await patch('/orgs/current', body);
-      setOrg(o);
+      setOrg({ ...o, your_ip: before.your_ip });
       setUser({ ...user, org_name: o.name, allow_external: o.allow_external, allow_links: o.allow_links });
       toast(msg);
     } catch (e) { setOrg(before); toast(e.message, 'error'); }
@@ -434,6 +451,7 @@ function CompanySettings() {
         </label>
         <p className="muted small" style={{ margin: 0 }}>Files and folders that have been in someone’s trash this long are deleted for good, with their versions, freeing the space. Each item in the trash says when it goes.</p>
       </div>
+      <Networks org={org} save={save} />
       <div className="card stack">
         <h2>Keeping chat</h2>
         <label className="field"><span>Keep chat messages</span>

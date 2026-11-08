@@ -1,4 +1,6 @@
 import { SIGNATURE_MODES } from '../mail/companysig.js';
+import { readNets, inNets } from '../netrules.js';
+import { normalizeIp } from '../security/guard.js';
 import express, { Router } from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -46,6 +48,13 @@ function updateOrg(orgId, body, { asSuper, user }) {
     if (!Number.isInteger(d) || d < 0 || d > 3650) throw bad('Days in the trash must be a whole number from 0 (never empty) to 3650');
     q('UPDATE orgs SET trash_days = ? WHERE id = ?').run(d, orgId);
   }
+  if (body.allowed_nets !== undefined) {
+    let nets;
+    try { nets = readNets(body.allowed_nets); } catch (e) { throw bad(e.message); }
+    // Don't let an admin shut themselves out: where they are now must be in the list.
+    if (nets.length && !user.is_super && user.org_id === orgId && !inNets(user.ip, nets)) throw bad(`Your own address now (${user.ip}) isn't in the list: add it, or you'd be signed out at once`);
+    q('UPDATE orgs SET allowed_nets = ? WHERE id = ?').run(nets.length ? nets.join('\n') : null, orgId);
+  }
   if (body.chat_days !== undefined) {
     const d = Number(body.chat_days);
     if (![0, 30, 90, 365, 1825].includes(d)) throw bad('Keep chat messages forever, or for 30 days, 90 days, a year or 5 years');
@@ -79,10 +88,10 @@ export default function orgRoutes() {
 
   // ---- company admins: their own company ----
   r.get('/current', requireAdmin, (req, res) => {
-    res.json(describe(q('SELECT * FROM orgs WHERE id = ?').get(req.user.org_id)));
+    res.json({ ...describe(q('SELECT * FROM orgs WHERE id = ?').get(req.user.org_id)), your_ip: normalizeIp(req.ip) });
   });
   r.patch('/current', requireAdmin, (req, res) => {
-    updateOrg(req.user.org_id, req.body, { asSuper: req.user.is_super, user: req.user });
+    updateOrg(req.user.org_id, req.body, { asSuper: req.user.is_super, user: { ...req.user, ip: normalizeIp(req.ip) } });
     audit(req, 'company.update', { org: req.user.org_id, details: Object.fromEntries(Object.entries(req.body || {}).filter(([k]) => !/password/i.test(k))) });
     res.json(describe(q('SELECT * FROM orgs WHERE id = ?').get(req.user.org_id)));
   });

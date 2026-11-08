@@ -4462,3 +4462,29 @@ test('admin: see someone\'s signed-in devices and sign them out', async () => {
   const kay = client(); await login(kay, 'kay@keepco.com');
   assert.equal((await kay('GET', `/api/users/${made.body.id}/sessions`)).status, 404);
 });
+
+test('company networks: Workspace only from the company\'s own addresses, when it says so', async () => {
+  const { readNets, inNets } = await import('../src/netrules.js');
+  assert.deepEqual(readNets('203.0.113.0/24, 198.51.100.7\n2001:db8::/32'), ['203.0.113.0/24', '198.51.100.7', '2001:db8::/32']);
+  assert.throws(() => readNets('not-a-range'), /not an address or range/);
+  assert.ok(inNets('::ffff:203.0.113.9', ['203.0.113.0/24']));
+  assert.equal(inNets('198.51.100.8', ['203.0.113.0/24', '198.51.100.7']), false);
+  const kay = client(); await login(kay, 'kay@keepco.com');
+  await kay('POST', '/api/users', { local: 'netkim', domain: 'keepco.com', name: 'Kim Net', password: 'password123' });
+  const kim = client(); await login(kim, 'netkim@keepco.com');
+  const bad = await kay('PATCH', '/api/orgs/current', { allowed_nets: '203.0.113.0/24' });
+  assert.equal(bad.status, 400);
+  assert.match(bad.body.error, /Your own address now .* isn't in the list/);
+  assert.equal((await kay('PATCH', '/api/orgs/current', { allowed_nets: '127.0.0.1\n203.0.113.0/24' })).status, 200);
+  assert.equal((await kay('GET', '/api/orgs/current')).body.allowed_nets, '127.0.0.1\n203.0.113.0/24');
+  const from = (ip) => ({ headers: { 'x-forwarded-for': ip } });
+  const away = await kim('GET', '/api/files?view=mine', undefined, from('198.51.100.9'));
+  assert.equal(away.status, 403);
+  assert.match(away.body.error, /only allows Workspace from its own networks/);
+  assert.equal((await kim('GET', '/api/files?view=mine', undefined, from('203.0.113.9'))).status, 200, 'from the office');
+  const other = client();
+  assert.equal((await other('POST', '/api/auth/login', { username: 'netkim@keepco.com', password: 'password123' }, from('198.51.100.9'))).status, 403, 'nor sign in');
+  assert.equal((await owner('GET', '/api/files?view=mine', undefined, from('198.51.100.9'))).status, 200, 'other companies are not affected');
+  assert.equal((await kay('PATCH', '/api/orgs/current', { allowed_nets: '' })).status, 200);
+  assert.equal((await kim('GET', '/api/files?view=mine', undefined, from('198.51.100.9'))).status, 200, 'from anywhere again');
+});

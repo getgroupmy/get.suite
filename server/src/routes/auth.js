@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { networkAllowed, NETWORK_REFUSED } from '../netrules.js';
 import { q, tx } from '../db.js';
 import { str, bad, HttpError } from '../util.js';
 import {
@@ -51,6 +52,8 @@ export default function authRoutes({ secureCookies }) {
       if (row) audit(req, 'sign-in.failed', { actor: null, org: q('SELECT org_id FROM users WHERE id = ?').get(row.id)?.org_id ?? null, target: username, details: { reason: row.disabled ? 'disabled' : 'password' } });
       throw new HttpError(401, 'Wrong email address or password');
     }
+    // Only from the company's own networks, when it says so (the password was right: not a failed guess).
+    { const u = q('SELECT id, org_id, is_super FROM users WHERE id = ?').get(row.id); if (!networkAllowed(u, req.ip)) throw new HttpError(403, NETWORK_REFUSED); }
     // Accounts created before email existed get their mailbox password on next sign-in.
     if (!row.mail_hash) setMailPassword(row.id, password);
     // Two-step verification: the password was right; now ask for the code (no session yet).

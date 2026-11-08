@@ -4,6 +4,7 @@ import { uid, now, parseCookies, HttpError } from './util.js';
 import { dovecotHash } from './mail/crypt.js';
 import { scheduleMailConfig } from './mail/config.js';
 import { freshMailHome } from './tenancy.js';
+import { networkAllowed, NETWORK_REFUSED } from './netrules.js';
 
 // Where Workspace opens for each person: 'drive' (the default) or 'home'.
 if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'start_page')) q('ALTER TABLE users ADD COLUMN start_page TEXT').run();
@@ -105,6 +106,7 @@ export function clearSessionCookie(res) {
 export function requireAuth(req, res, next) {
   const user = userFromToken(tokenFromReq(req));
   if (!user) return next(new HttpError(401, 'Not signed in'));
+  if (!networkAllowed(user, req.ip)) return next(new HttpError(403, NETWORK_REFUSED));
   // Until required two-step verification is set up, only the account's own endpoints work.
   if (user.needs_two_factor && !req.originalUrl.startsWith('/api/auth/')) {
     return next(new HttpError(403, 'Your company requires two-step verification. Set it up to continue.'));
