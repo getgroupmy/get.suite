@@ -5250,3 +5250,26 @@ test('forms: grid questions (one choice per row, or several), every row when req
   assert.deepEqual(row.slice(1), ['Good', 'Great', 'Morning; Afternoon', '', '']);
   assert.equal(answersText(qs, a), 'Rate us:\n  Food: Good\n  Service: Great\nWhen can you come?:\n  Mon: Morning, Afternoon');
 });
+
+test('forms: shuffled options are kept as a setting; pre-filled answers are taken only in the shape each question takes', async () => {
+  const { cleanQuestions } = await import('../src/routes/forms.js');
+  const qs = cleanQuestions([
+    { id: 'team', type: 'dropdown', title: 'Team', options: ['Sales', 'Ops'], shuffle: true },
+    { id: 'name', type: 'short', title: 'Name', shuffle: true },
+    { id: 'days', type: 'checkbox', title: 'Days', options: ['Mon', 'Tue'] },
+    { id: 'rate', type: 'scale', title: 'Rate', max: 5 },
+    { id: 'g', type: 'grid', title: 'Grid', rows: ['A'], columns: ['X', 'Y'] },
+    { id: 'f', type: 'file', title: 'CV' },
+  ]);
+  assert.deepEqual(qs.map((x) => !!x.shuffle), [true, false, false, false, false, false]);
+  const { prefillFrom, prefillParam, shuffled } = await import('../../web/src/apps/forms/formmath.js');
+  const pre = prefillFrom(qs, JSON.stringify({ team: 'Ops', name: 'Kim', days: ['Tue', 'Sun'], rate: 9, g: { A: 'Y', B: 'X' }, f: ['x'], nope: 1 }));
+  assert.deepEqual(pre, { team: 'Ops', name: 'Kim', days: ['Tue'], g: { A: 'Y' } });
+  assert.deepEqual(prefillFrom(qs, 'not json'), {});
+  assert.deepEqual(prefillFrom(qs, JSON.stringify({ team: 'Marketing' })), {});
+  assert.equal(prefillParam({ team: 'Ops', name: '', days: [], g: {} }), '{"team":"Ops"}');
+  assert.equal(prefillParam({}), '');
+  const order = shuffled(['a', 'b', 'c', 'd'], () => 0);
+  assert.deepEqual([...order].sort(), ['a', 'b', 'c', 'd']);
+  assert.deepEqual(order, ['b', 'c', 'd', 'a']);
+});

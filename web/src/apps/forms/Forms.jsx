@@ -4,9 +4,10 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 import { get, post, put, del, onLive, formatDate } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
-import { ConfirmModal, Empty, Menu, useToast } from '../../components/ui.jsx';
+import { ConfirmModal, Empty, Menu, Modal, useToast } from '../../components/ui.jsx';
+import { Question } from './FormRespond.jsx';
 import { useAuth } from '../../App.jsx';
-import { TYPES, HAS_OPTIONS, GRIDS, newId, retype, nextOption, summarize, percent } from './formmath.js';
+import { TYPES, HAS_OPTIONS, GRIDS, prefillParam, newId, retype, nextOption, summarize, percent } from './formmath.js';
 import { CHECKS, OPS, KIND_NAMES, cleanCheck } from './formcheck.js';
 
 export default function Forms() {
@@ -61,6 +62,7 @@ function FormEditor({ id }) {
   const [error, setError] = useState('');
   const [status, setStatus] = useState('');
   const [confirm, setConfirm] = useState(false);
+  const [prefill, setPrefill] = useState(false); // the "Get pre-filled link" window
   const [responses, setResponses] = useState(null);
   const pending = useRef(null); // edits not yet saved
 
@@ -117,6 +119,7 @@ function FormEditor({ id }) {
   const count = responses?.length ?? form.responses ?? 0;
   return (
     <div className="page form-editor">
+      {prefill && <PrefillModal form={form} onClose={() => setPrefill(false)} />}
       <div className="page-head">
         <button type="button" className="icon-btn" aria-label="All forms" onClick={() => navigate('/forms')}><Icon name="back" /></button>
         <input className="form-title-input grow" aria-label="Form title" value={form.title} maxLength={200} onChange={(e) => edit({ title: e.target.value })} />
@@ -124,6 +127,7 @@ function FormEditor({ id }) {
         <button type="button" className="btn" onClick={copyLink}><Icon name="link" size={18} /> Copy link</button>
         <a className="btn" href={`/f/${form.token}`} target="_blank" rel="noreferrer">Preview</a>
         <Menu trigger={(p) => <button className="icon-btn" aria-label="More" {...p}><Icon name="more" /></button>} items={[
+          { label: 'Get pre-filled link', icon: 'link', onClick: async () => { await flush(); setPrefill(true); } },
           { label: 'Make a copy', icon: 'copy', onClick: copyForm },
           form.role === 'owner' ? { label: 'Delete form', icon: 'trash', onClick: () => setConfirm(true) }
             : { label: 'Leave this form', icon: 'logout', onClick: async () => { await flush(); await del(`/forms/${id}/editors/${user.id}`); navigate('/forms'); } },
@@ -298,6 +302,7 @@ function QuestionsTab({ form, edit }) {
           {(q.type === 'short' || q.type === 'paragraph' || q.type === 'date') && <p className="muted small form-q-sample">{q.type === 'date' ? 'They pick a date' : q.type === 'short' ? 'Short answer text' : 'Long answer text'}</p>}
           <div className="row form-q-foot">
             <label className="check grow"><input type="checkbox" checked={q.required} onChange={(e) => change(i, { required: e.target.checked })} /> Required</label>
+            {HAS_OPTIONS.has(q.type) && <label className="check"><input type="checkbox" checked={!!q.shuffle} onChange={(e) => change(i, { shuffle: e.target.checked || undefined })} /> Shuffle option order</label>}
             <button type="button" className="icon-btn" aria-label={`Move question ${i + 1} up`} disabled={i === 0} onClick={() => move(i, -1)}>↑</button>
             <button type="button" className="icon-btn" aria-label={`Move question ${i + 1} down`} disabled={i === qs.length - 1} onClick={() => move(i, 1)}>↓</button>
             <button type="button" className="icon-btn" aria-label={`Duplicate question ${i + 1}`} onClick={() => setQs([...qs.slice(0, i + 1), { ...q, id: newId() }, ...qs.slice(i + 1)])}><Icon name="copy" size={18} /></button>
@@ -308,6 +313,27 @@ function QuestionsTab({ form, edit }) {
       {qs.length < 100 && <div className="row"><button type="button" className="btn" onClick={add}><Icon name="plus" size={18} /> Add question</button>
         <button type="button" className="btn" onClick={() => setQs([...qs, { id: newId(), type: 'section', title: '' }])}>Add section</button></div>}
     </div>
+  );
+}
+
+// A link that opens the form with some answers filled in already (people can still change them),
+// e.g. their team in a sign-up sheet sent to one department.
+function PrefillModal({ form, onClose }) {
+  const toast = useToast();
+  const [answers, setAnswers] = useState({});
+  const param = prefillParam(answers);
+  const link = `${linkOf(form.token)}${param ? `?prefill=${encodeURIComponent(param)}` : ''}`;
+  const copy = async () => { try { await navigator.clipboard.writeText(link); toast('Pre-filled link copied'); } catch { toast(link); } };
+  return (
+    <Modal title="Get pre-filled link" onClose={onClose} wide footer={<><button type="button" className="btn" onClick={onClose}>Close</button><button type="button" className="btn primary" disabled={!param} onClick={copy}>Copy link</button></>}>
+      <p className="muted small" style={{ marginTop: 0 }}>Answer the questions you want filled in for people, then copy the link. They can still change the answers before sending.</p>
+      <div className="stack form-prefill">
+        {form.questions.filter((q) => q.type !== 'section' && q.type !== 'file').map((q) => (
+          <Question key={q.id} q={{ ...q, required: false, check: undefined, shuffle: false }} token={form.token} value={answers[q.id]} onChange={(v) => setAnswers((a) => ({ ...a, [q.id]: v }))} />
+        ))}
+      </div>
+      <input className="form-prefill-link" readOnly aria-label="Pre-filled link" value={param ? link : ''} placeholder="Answer a question to make the link" onFocus={(e) => e.target.select()} />
+    </Modal>
   );
 }
 

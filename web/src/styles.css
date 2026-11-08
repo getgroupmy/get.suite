@@ -1992,3 +1992,4 @@ tr.shortcut-row.broken .name-text { color: var(--muted, #777); font-style: itali
 .form-grid-count { display: inline-block; min-width: 2em; padding: 2px 6px; border-radius: 6px; background: color-mix(in srgb, var(--accent, #1a73e8) calc(var(--share) * 60%), transparent); }
 .form-grid-edit { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 @media (max-width: 640px) { .form-grid-edit { grid-template-columns: 1fr; } }
+.form-prefill-link { width: 100%; margin-top: 12px; font-family: monospace; font-size: .8rem; }

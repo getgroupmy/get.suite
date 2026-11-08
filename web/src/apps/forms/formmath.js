@@ -21,6 +21,47 @@ export function retype(q, type) {
   return next;
 }
 
+/** The options in a random order (each person sees their own), when the question asks for it. */
+export function shuffled(list, rand = Math.random) {
+  const a = [...list];
+  for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+  return a;
+}
+
+/**
+ * Answers to start a form with, from a pre-filled link (?prefill=… JSON): only questions the form has,
+ * in the shape each takes; anything else is dropped. People can still change them before sending.
+ */
+export function prefillFrom(questions, raw) {
+  let data;
+  try { data = JSON.parse(raw); } catch { return {}; }
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return {};
+  const out = {};
+  for (const q of questions || []) {
+    const v = data[q.id];
+    if (v === undefined || v === null || q.type === 'file' || q.type === 'section') continue;
+    if (q.type === 'checkbox') { const l = [v].flat().map(String).filter((x) => q.options.includes(x)); if (l.length) out[q.id] = l; }
+    else if (HAS_OPTIONS.has(q.type)) { if (q.options.includes(String(v))) out[q.id] = String(v); }
+    else if (q.type === 'scale') { const n = Number(v); if (Number.isInteger(n) && n >= 1 && n <= (q.max || 5)) out[q.id] = n; }
+    else if (GRIDS.has(q.type)) {
+      if (typeof v !== 'object' || Array.isArray(v)) continue;
+      const g = {};
+      for (const row of q.rows || []) {
+        const c = v[row];
+        if (q.type === 'checkgrid') { const l = [c ?? []].flat().map(String).filter((x) => q.columns.includes(x)); if (l.length) g[row] = l; }
+        else if (c != null && q.columns.includes(String(c))) g[row] = String(c);
+      }
+      if (Object.keys(g).length) out[q.id] = g;
+    } else if (typeof v === 'string' || typeof v === 'number') out[q.id] = String(v).slice(0, q.type === 'paragraph' ? 5000 : 500);
+  }
+  return out;
+}
+/** The text for ?prefill= from answers, leaving out the empty ones. */
+export function prefillParam(answers) {
+  const kept = Object.fromEntries(Object.entries(answers || {}).filter(([, v]) => v !== undefined && v !== '' && !(Array.isArray(v) && !v.length) && !(v && typeof v === 'object' && !Array.isArray(v) && !Object.keys(v).length)));
+  return Object.keys(kept).length ? JSON.stringify(kept) : '';
+}
+
 /** "Option 3": the next unused option name. */
 export function nextOption(options) {
   for (let n = options.length + 1; ; n++) if (!options.includes(`Option ${n}`)) return `Option ${n}`;

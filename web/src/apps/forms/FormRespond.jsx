@@ -1,8 +1,8 @@
 // The page people fill a form in on (/f/<token>). Company forms need the visitor signed in to that
 // company (they can sign in right here); "anyone with the link" forms need nothing.
 import { checkProblem } from './formcheck.js';
-import { useEffect, useState } from 'react';
-import { sectionsOf, nextPage } from './formmath.js';
+import { useEffect, useMemo, useState } from 'react';
+import { sectionsOf, nextPage, prefillFrom, shuffled } from './formmath.js';
 
 async function call(method, url, body) {
   const res = await fetch(`/api/public/forms${url}`, {
@@ -36,7 +36,12 @@ export default function FormRespond({ token, onSignIn }) {
       .then((r) => { setAnswers(r.answers || {}); setEditing({ ...editing, files: r.files || {}, loaded: true }); })
       .catch((e) => setError({ status: e.status, message: e.message }));
   }, [editing, form, token]);
-  const load = () => call('GET', `/${encodeURIComponent(token)}`).then((f) => { setForm(f); setError(null); }).catch((e) => setError({ status: e.status, message: e.message }));
+  // A pre-filled link (?prefill=…): start with those answers (not when changing a response sent earlier).
+  const load = () => call('GET', `/${encodeURIComponent(token)}`).then((f) => {
+    setForm(f); setError(null);
+    const pre = new URLSearchParams(window.location.search).get('prefill');
+    if (pre && !editing) setAnswers((a) => ({ ...prefillFrom(f.questions, pre), ...a }));
+  }).catch((e) => setError({ status: e.status, message: e.message }));
   useEffect(() => { load(); }, [token]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { document.title = form?.title || 'Form'; }, [form?.title]);
 
@@ -129,8 +134,10 @@ export default function FormRespond({ token, onSignIn }) {
   );
 }
 
-function Question({ q, token, value, onChange, missing }) {
+export function Question({ q, token, value, onChange, missing }) {
   const [touched, setTouched] = useState(false); // typed answers are checked once you leave the box
+  // "Shuffle option order": each person gets their own order, kept while they fill the form in.
+  const order = useMemo(() => (q.shuffle && q.options ? shuffled(q.options) : q.options), [q.shuffle, q.options]);
   const title = <>{q.title || 'Untitled question'}{q.required && <span className="req" aria-hidden="true"> *</span>}</>;
   const help = q.help && <span className="muted small form-help">{q.help}</span>;
   const problem = (touched || missing || q.type === 'checkbox') && checkProblem(q.check, value);
@@ -163,7 +170,7 @@ function Question({ q, token, value, onChange, missing }) {
     );
   }
   if (q.type === 'choice' || q.type === 'checkbox' || q.type === 'scale') {
-    const opts = q.type === 'scale' ? Array.from({ length: q.max }, (_, i) => String(i + 1)) : q.options;
+    const opts = q.type === 'scale' ? Array.from({ length: q.max }, (_, i) => String(i + 1)) : order;
     const many = q.type === 'checkbox';
     const list = many ? value || [] : [];
     return (
@@ -192,7 +199,7 @@ function Question({ q, token, value, onChange, missing }) {
       {q.type === 'paragraph' ? <textarea rows={4} maxLength={5000} aria-label={label} value={value || ''} onChange={(e) => onChange(e.target.value)} onBlur={() => setTouched(true)} />
         : q.type === 'dropdown' ? (
           <select aria-label={label} value={value || ''} onChange={(e) => onChange(e.target.value)}>
-            <option value="">Choose</option>{q.options.map((o) => <option key={o} value={o}>{o}</option>)}
+            <option value="">Choose</option>{order.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         ) : <input type={q.type === 'date' ? 'date' : 'text'} inputMode={q.check?.kind === 'number' ? 'decimal' : q.check?.op === 'email' ? 'email' : undefined} maxLength={500} aria-label={label} value={value || ''} onChange={(e) => onChange(e.target.value)} onBlur={() => setTouched(true)} />}
       {err}
