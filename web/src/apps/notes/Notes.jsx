@@ -19,7 +19,10 @@ async function addPicture(noteId, file) {
 function PictureButton({ noteId, onAdded, label = 'Insert picture' }) {
   const toast = useToast();
   const input = useRef();
+  const [drawing, setDrawing] = useState(false);
   return (<>
+    <button type="button" className="icon-btn" aria-label="Draw" title="Draw" onClick={() => setDrawing(true)}>✏️</button>
+    {drawing && <DrawPad onClose={() => setDrawing(false)} onSave={async (file) => { try { await addPicture(noteId, file); toast('Drawing added'); onAdded?.(); } catch (err) { toast(err.message, 'error'); throw err; } }} />}
     <button type="button" className="icon-btn" aria-label={label} title={label} onClick={() => input.current.click()}>🖼</button>
     <input ref={input} type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden aria-label="Picture to add" onChange={async (e) => {
       const files = [...e.target.files]; e.target.value = '';
@@ -28,6 +31,53 @@ function PictureButton({ noteId, onAdded, label = 'Insert picture' }) {
     }} />
   </>);
 }
+const INKS = ['#202124', '#d93025', '#1a73e8', '#188038', '#f9ab00', '#9334e6'];
+/** A sketch pad: draw with the mouse, a pen or a finger; saved as a PNG picture on the note. */
+function DrawPad({ onSave, onClose }) {
+  const canvas = useRef();
+  const [ink, setInk] = useState(INKS[0]);
+  const [size, setSize] = useState(4);
+  const [erase, setErase] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const strokes = useRef([]); // snapshots for undo
+  const [, rerender] = useState(0);
+  useEffect(() => {
+    const c = canvas.current, g = c.getContext('2d');
+    g.fillStyle = '#ffffff'; g.fillRect(0, 0, c.width, c.height);
+  }, []);
+  const at = (e) => { const r = canvas.current.getBoundingClientRect(); return [(e.clientX - r.left) * (canvas.current.width / r.width), (e.clientY - r.top) * (canvas.current.height / r.height)]; };
+  const down = (e) => {
+    const c = canvas.current, g = c.getContext('2d');
+    strokes.current.push(g.getImageData(0, 0, c.width, c.height)); if (strokes.current.length > 30) strokes.current.shift();
+    rerender((n) => n + 1);
+    c.setPointerCapture(e.pointerId);
+    g.lineCap = 'round'; g.lineJoin = 'round';
+    g.strokeStyle = erase ? '#ffffff' : ink; g.lineWidth = erase ? size * 4 : size;
+    const [x, y] = at(e);
+    g.beginPath(); g.moveTo(x, y); g.lineTo(x + 0.01, y + 0.01); g.stroke();
+    const move = (m) => { const [mx, my] = at(m); g.lineTo(mx, my); g.stroke(); };
+    const up = () => { c.removeEventListener('pointermove', move); c.removeEventListener('pointerup', up); c.removeEventListener('pointercancel', up); };
+    c.addEventListener('pointermove', move); c.addEventListener('pointerup', up); c.addEventListener('pointercancel', up);
+  };
+  const undo = () => { const last = strokes.current.pop(); if (last) { canvas.current.getContext('2d').putImageData(last, 0, 0); rerender((n) => n + 1); } };
+  const clear = () => { const c = canvas.current, g = c.getContext('2d'); strokes.current.push(g.getImageData(0, 0, c.width, c.height)); g.fillStyle = '#ffffff'; g.fillRect(0, 0, c.width, c.height); rerender((n) => n + 1); };
+  const save = () => { setBusy(true); canvas.current.toBlob(async (blob) => { try { await onSave(new File([blob], 'drawing.png', { type: 'image/png' })); onClose(); } catch { setBusy(false); } }, 'image/png'); };
+  return (
+    <Modal wide title="Drawing" onClose={onClose} footer={<><button type="button" className="btn" onClick={onClose}>Cancel</button><button type="button" className="btn primary" disabled={busy || !strokes.current.length} onClick={save}>{busy ? 'Saving…' : 'Add to note'}</button></>}>
+      <div className="stack-tight">
+        <div className="row wrap draw-tools" role="toolbar" aria-label="Drawing tools">
+          {INKS.map((c) => <button key={c} type="button" className={`swatch ${!erase && ink === c ? 'on' : ''}`} style={{ background: c }} aria-label={`Ink ${c}`} aria-pressed={!erase && ink === c} onClick={() => { setInk(c); setErase(false); }} />)}
+          <select aria-label="Pen size" value={size} onChange={(e) => setSize(Number(e.target.value))}>{[[2, 'Fine'], [4, 'Medium'], [8, 'Thick'], [16, 'Marker']].map(([v, n]) => <option key={v} value={v}>{n}</option>)}</select>
+          <button type="button" className={`btn small ${erase ? 'primary' : ''}`} aria-pressed={erase} onClick={() => setErase(!erase)}>Eraser</button>
+          <button type="button" className="btn small" disabled={!strokes.current.length} onClick={undo}>Undo</button>
+          <button type="button" className="btn small" onClick={clear}>Clear</button>
+        </div>
+        <canvas ref={canvas} width={1000} height={600} className="draw-pad" aria-label="Drawing area" onPointerDown={down} />
+      </div>
+    </Modal>
+  );
+}
+
 const newItem = (text = '') => ({ id: Math.random().toString(36).slice(2, 10), text, done: false });
 
 export default function Notes() {

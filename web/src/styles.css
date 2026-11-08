@@ -1895,3 +1895,5 @@ tr.shortcut-row.broken .name-text { color: var(--muted, #777); font-style: itali
 .digest-preview { white-space: pre-wrap; font-size: 13px; background: var(--surface-2); border-radius: 8px; padding: 10px; margin: 0; }
 .meet-recent { gap: 8px; align-items: center; }
 .files.report td.num, .files.report th.num { text-align: right; }
+.draw-pad { width: 100%; height: auto; aspect-ratio: 5 / 3; border: 1px solid var(--border); border-radius: 8px; background: #fff; touch-action: none; cursor: crosshair; }
+.draw-tools { gap: 6px; align-items: center; }
