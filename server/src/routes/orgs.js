@@ -16,6 +16,7 @@ import { requireAdmin, requireSuper } from '../auth.js';
 import { createOrg, addDomain, orgStorageUsed, blobsOwnedBy, removeBlobs } from '../tenancy.js';
 import { scheduleMailConfig } from '../mail/config.js';
 import { collectHealth } from '../health.js';
+import { backupDatabase, listBackups, backupPath } from '../backup.js';
 
 const domainsOf = (orgId) => q('SELECT name FROM domains WHERE org_id = ? ORDER BY created_at').all(orgId).map((d) => d.name);
 
@@ -179,6 +180,19 @@ export default function orgRoutes() {
   r.use(requireSuper);
   // System health: disk, snapshots, mail server and certificate, sizes (health.js).
   r.get('/system/health', async (req, res) => res.json(await collectHealth()));
+  // Database snapshots: the ones kept, one taken now (today's is replaced), and downloading one.
+  r.get('/system/backups', (req, res) => res.json(listBackups()));
+  r.post('/system/backups', (req, res) => {
+    const name = path.basename(backupDatabase());
+    audit(req, 'backup.create', { target: name });
+    res.json(listBackups());
+  });
+  r.get('/system/backups/:name', (req, res) => {
+    const f = backupPath(req.params.name);
+    if (!f) throw notFound('No such snapshot');
+    audit(req, 'backup.download', { target: req.params.name });
+    res.download(f, req.params.name);
+  });
 
   r.get('/', (req, res) => {
     res.json(q('SELECT * FROM orgs ORDER BY name COLLATE NOCASE').all().map(describe));

@@ -157,6 +157,26 @@ test('system health: for the platform owner only', async () => {
   assert.equal((await gina('GET', '/api/orgs/system/health')).status, 403, 'not company admins');
 });
 
+test('database snapshots: listed, taken now and downloaded by the platform owner only', async () => {
+  const made = await owner('POST', '/api/orgs/system/backups');
+  assert.equal(made.status, 200);
+  const today = `workspace-${new Date().toISOString().slice(0, 10)}.db`;
+  assert.equal(made.body[0].name, today);
+  assert.ok(made.body[0].size > 0);
+  assert.deepEqual((await owner('GET', '/api/orgs/system/backups')).body.map((b) => b.name)[0], today);
+  const dl = await owner('GET', `/api/orgs/system/backups/${today}`, undefined, { binary: true });
+  assert.equal(dl.status, 200);
+  assert.equal(dl.body.subarray(0, 15).toString(), 'SQLite format 3');
+  assert.match(dl.headers.get('content-disposition'), /attachment/);
+  assert.equal((await owner('GET', '/api/orgs/system/backups/..%2Fworkspace.db')).status, 404, 'only snapshot names');
+  assert.equal((await owner('GET', '/api/orgs/system/backups/workspace-1999-01-01.db')).status, 404);
+  assert.equal((await gina('GET', '/api/orgs/system/backups')).status, 403);
+  assert.equal((await gina('POST', '/api/orgs/system/backups')).status, 403);
+  assert.equal((await gina('GET', `/api/orgs/system/backups/${today}`)).status, 403);
+  const log = (await owner('GET', '/api/audit')).body;
+  assert.ok(JSON.stringify(log).includes('backup.download'), 'in the activity log');
+});
+
 test('storage quota is enforced per company', async () => {
   assert.equal((await gina('PATCH', '/api/orgs/current', { quota_mb: 1 })).status, 400, 'company admins cannot set quotas');
   await owner('PATCH', `/api/orgs/${globexId}`, { quota_mb: 1 });
@@ -239,6 +259,7 @@ test('session cookie is Secure only behind HTTPS (auto mode)', async () => {
 test('database backup snapshot is readable and rotated', async () => {
   const { backupDatabase, BACKUP_DIR } = await import('../src/backup.js');
   const { DatabaseSync } = await import('node:sqlite');
+  fs.rmSync(BACKUP_DIR, { recursive: true, force: true }); // only these
   for (let d = 1; d <= 9; d++) backupDatabase({ keep: 7, date: new Date(Date.UTC(2026, 0, d)) });
   const files = fs.readdirSync(BACKUP_DIR).sort();
   assert.equal(files.length, 7);

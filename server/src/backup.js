@@ -20,6 +20,16 @@ export function backupDatabase({ keep = 7, date = new Date() } = {}) {
   return target;
 }
 
+const SNAPSHOT = /^workspace-\d{4}-\d{2}-\d{2}\.db$/;
+/** The snapshots kept, newest first: { name, size, at }. */
+export function listBackups(dir = BACKUP_DIR) {
+  let names = [];
+  try { names = fs.readdirSync(dir).filter((f) => SNAPSHOT.test(f)); } catch { /* none yet */ }
+  return names.map((name) => { const st = fs.statSync(path.join(dir, name)); return { name, size: st.size, at: st.mtimeMs }; }).sort((a, b) => b.name.localeCompare(a.name));
+}
+/** The path of a kept snapshot by its name, or null (only names a snapshot can have). */
+export const backupPath = (name, dir = BACKUP_DIR) => (SNAPSHOT.test(String(name)) && fs.existsSync(path.join(dir, name)) ? path.join(dir, name) : null);
+
 export function scheduleBackups() {
   const run = () => {
     try { console.log(`Database backup written to ${backupDatabase()}`); }

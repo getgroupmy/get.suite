@@ -828,7 +828,7 @@ Once ports 465, 587 and 993 are open, bots will start guessing passwords within 
 
 ## System health (platform owner)
 
-**Admin → System** (platform owners only) shows whether everything is all right on the NAS: free disk space where the data lives (a warning under 15%, needs attention under 5% or 1 GB), the daily database snapshots (a warning when the newest is over 30 hours old, needs attention after two days), whether the mail server answers, and its TLS certificate: days left (a warning under three weeks, needs attention under a week or once expired) and whether it's self-signed. It also lists the version, how long the server has been running, and how big the database, files and snapshots are, with the number of companies and people. The same checks run every hour: platform owners get a notification (**Server health** in notification settings) for each problem, at most once a day, and again if a fixed problem comes back.
+**Admin → System** (platform owners only) shows whether everything is all right on the NAS: free disk space where the data lives (a warning under 15%, needs attention under 5% or 1 GB), the daily database snapshots (a warning when the newest is over 30 hours old, needs attention after two days), whether the mail server answers, and its TLS certificate: days left (a warning under three weeks, needs attention under a week or once expired) and whether it's self-signed. It also lists the version, how long the server has been running, and how big the database, files and snapshots are, with the number of companies and people. The same checks run every hour: platform owners get a notification (**Server health** in notification settings) for each problem, at most once a day, and again if a fixed problem comes back. Below the checks, **Database snapshots** lists the daily snapshots to take one now or download one (see [Backups](#backups)).
 
 ## Announcements (admins)
 
@@ -989,6 +989,8 @@ Back up `docker/workspace/data` and `docker/workspace/mailboxes`. (`mail-config`
 - `files/`: uploaded files
 - `workspace.db`: companies, users, docs, sheets, calendar, contacts and chat
 - `backups/`: a consistent database snapshot written daily (the last 7 are kept). It includes each domain's DKIM key and the webmail secret.
+
+**Admin → System** (platform owners) lists the snapshots kept, with their dates and sizes, and has **Take a snapshot now** (before updating, say; today's is replaced) and **Download** for each, to keep a copy elsewhere. Taking and downloading snapshots are in the activity log. A snapshot holds password hashes and mail-signing keys, so keep downloaded copies somewhere safe.
 
 Point **Hyper Backup** at both folders, ideally to an off-site target. To restore, stop the project, copy the files back (replace `workspace.db` with a snapshot from `backups/` if needed) and start it again.
 
