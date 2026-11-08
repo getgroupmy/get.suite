@@ -73,6 +73,19 @@ const HIGHLIGHTS = [['', 'None'], ['#fde293', 'Yellow'], ['#ceead6', 'Green'], [
 const PICTURE_TYPES = /^image\/(png|jpeg|gif|webp|avif|bmp)$/;
 
 /** Where in the document a comment's text is: [{ from, to }]. */
+/** Where a quote is in the document (for comments without a highlight, from commenters): [{ from, to }] or []. */
+function quoteRange(editor, quote) {
+  if (!quote) return [];
+  let found = null;
+  editor.state.doc.descendants((node, pos) => {
+    if (found || !node.isText) return !found;
+    const i = node.text.indexOf(quote.slice(0, 60));
+    if (i >= 0) found = { from: pos + i, to: pos + i + Math.min(quote.length, node.text.length - i) };
+    return false;
+  });
+  return found ? [found] : [];
+}
+
 function rangesOf(editor, id) {
   const out = [];
   editor.state.doc.descendants((node, pos) => {
@@ -134,7 +147,8 @@ function SharedDoc({ file, setFile }) {
   };
   const [status, setStatus] = useState('connecting');
   const [others, setOthers] = useState([]);
-  const readOnly = file.role === 'viewer' || !!file?.locked_at; // locked: nobody changes it until it's unlocked
+  const readOnly = (file.role === 'viewer' || file.role === 'commenter') || !!file?.locked_at;
+  const canComment = !!file && file.role !== 'viewer'; // commenters too, and on locked files
 
   // One shared document per open editor; the provider keeps it in step with the server.
   const { ydoc, provider } = useMemo(() => {
@@ -324,19 +338,20 @@ function SharedDoc({ file, setFile }) {
   const startComment = () => {
     editor.view.domObserver?.flush?.(); // take in a selection just made with the keyboard
     const { from, to, empty } = editor.state.selection;
-    if (empty || readOnly) return;
+    if (empty || !canComment) return;
     const id = (crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`).replace(/[^\w-]/g, '');
     const quote = editor.state.doc.textBetween(from, to, ' ').slice(0, 200);
-    editor.chain().setMark('comment', { id }).run(); // highlight it while the comment is written
+    // Highlight it (editors only: commenters can't change the document, so theirs find the quoted text instead).
+    if (!readOnly) editor.chain().setMark('comment', { id }).run();
     setPanel(true);
     setPending({ id, anchor: { quote }, label: `“${quote.length > 60 ? `${quote.slice(0, 60)}…` : quote}”`,
       onCreated: () => setPending(null),
-      onCancel: () => { removeMark(id); setPending(null); } });
+      onCancel: () => { if (!readOnly) removeMark(id); setPending(null); } });
   };
   if (editor) editor.storage.comment.start = startComment; // Ctrl+Alt+M
   const removeMark = (id) => { const tr = editor.state.tr; for (const r of rangesOf(editor, id)) tr.removeMark(r.from, r.to, editor.schema.marks.comment.create({ id })); editor.view.dispatch(tr); };
   const showThread = (t) => {
-    const [r] = rangesOf(editor, t.id);
+    const [r] = rangesOf(editor, t.id).length ? rangesOf(editor, t.id) : quoteRange(editor, t.anchor?.quote);
     if (!r) return;
     editor.commands.setTextSelection(r);
     editor.view.dom.querySelector(`[data-comment="${t.id}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
@@ -383,6 +398,7 @@ function SharedDoc({ file, setFile }) {
               💡 {suggestions.length}<span className="sr-only"> suggestions</span>
             </button>
           )}
+          {readOnly && canComment && <button type="button" className="btn small" onMouseDown={(e) => e.preventDefault()} onClick={startComment} title="Select some text first">Comment</button>}
           <button type="button" className={`btn small ${panel ? 'primary' : ''}`} aria-pressed={panel} onClick={() => setPanel(!panel)} title="Comments">
             <Icon name="chat" size={16} /> {open.length || ''}<span className="sr-only">Comments</span>
           </button>
@@ -411,7 +427,7 @@ function SharedDoc({ file, setFile }) {
       <style>{highlight}</style>
       <style>{printCss(file.page_setup)}</style>
       {status === 'offline' && <div className="banner warn">You're offline. Keep typing: your changes are kept here and sync when the connection is back.</div>}
-      {readOnly && <div className="banner">View only. Ask {file.owner_name} for edit access.</div>}
+      {readOnly && <div className="banner">{file.locked_at ? 'Locked.' : file.role === 'commenter' ? 'You can comment, not edit.' : 'View only.'} {!file.locked_at && `Ask ${file.owner_name} for edit access.`}</div>}
       {finding && <FindBar key={finding.n} editor={editor} replacing={finding.replace} canEdit={!readOnly} onClose={() => { editor.view.focus(); setFinding(null); }} />} {/* focus back first, so it doesn't go with the bar */}
       <div className="doc-body">
         {outline && <Outline editor={editor} onClose={() => setOutline(false)} />}
@@ -451,7 +467,7 @@ function SharedDoc({ file, setFile }) {
             </ul>
           </aside>
         )}
-        {panel && <CommentsPanel fileId={file.id} threads={threads} canEdit={!readOnly} active={active} setActive={setActive} pending={pending}
+        {panel && <CommentsPanel fileId={file.id} threads={threads} canEdit={canComment} active={active} setActive={setActive} pending={pending}
           onShow={showThread} labelOf={(t) => `“${(t.anchor?.quote || '').slice(0, 60)}”`} onDeleted={(t) => removeMark(t.id)}
           onClose={() => { if (pending) pending.onCancel(); setPanel(false); }} />}
       </div>

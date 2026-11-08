@@ -138,7 +138,7 @@ export default function Drive() {
   }, [searchParams, setSearchParams]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const parentId = route.view === 'mine' ? route.folderId : null;
-  const canCreate = route.view === 'mine' && (!folder || folder.role !== 'viewer');
+  const canCreate = route.view === 'mine' && (!folder || folder.role === 'editor' || folder.role === 'owner');
 
   /**
    * Upload files; each may come with `dir`, the folders it was in (uploading or dropping a folder),
@@ -333,7 +333,7 @@ export default function Drive() {
             <button className="btn small" onClick={() => setChecked(new Set())}>Clear</button>
           </div>
         )}
-        {folder && folder.owner_id !== user.id && <p className="muted small">Owned by {folder.owner_name} · you can {folder.role === 'viewer' ? 'view' : 'edit'}</p>}
+        {folder && folder.owner_id !== user.id && <p className="muted small">Owned by {folder.owner_name} · you can {folder.role === 'viewer' ? 'view' : folder.role === 'commenter' ? 'view and comment' : 'edit'}</p>}
 
         {route.view === 'approvals' ? <ApprovalsView /> : files === null ? <p className="muted">Loading…</p> : files.length === 0 ? (
           route.view === 'trash' ? <Empty icon="trash" title="Trash is empty" />
@@ -350,7 +350,7 @@ export default function Drive() {
                 <tr key={f.id} className={`${selected === f.id || checked.has(f.id) ? 'selected' : ''} ${dropOn === f.id ? 'drop-on' : ''}`} tabIndex={0}
                   draggable={route.view !== 'trash' && (f.role === 'owner' || f.role === 'editor')}
                   onDragStart={(e) => { const ids = checked.has(f.id) ? [...checked] : [f.id]; e.dataTransfer.setData(DRAG_TYPE, JSON.stringify(ids)); e.dataTransfer.effectAllowed = 'move'; }}
-                  {...(f.kind === 'folder' && route.view !== 'trash' && f.role !== 'viewer' ? dropTarget(f.id) : {})}
+                  {...(f.kind === 'folder' && route.view !== 'trash' && (f.role === 'editor' || f.role === 'owner') ? dropTarget(f.id) : {})}
                   onClick={(e) => { if (e.shiftKey || e.metaKey || e.ctrlKey) toggleCheck(f.id); else setSelected(f.id); }} onDoubleClick={() => route.view !== 'trash' && open(f)}
                   onKeyDown={(e) => { if (e.key === 'Enter' && route.view !== 'trash') open(f); if (e.key === ' ' && e.target === e.currentTarget) { e.preventDefault(); toggleCheck(f.id); } }}>
                   <td className="check-col" onClick={(e) => e.stopPropagation()}><input type="checkbox" aria-label={`Select ${f.name}`} checked={checked.has(f.id)} onChange={() => toggleCheck(f.id)} /></td>
@@ -488,7 +488,7 @@ export function ShareDialog({ file, onClose }) {
           {suggestions.map((p) => <option key={p.id} value={p.username}>{p.name}</option>)}
         </datalist>
         <select value={role} onChange={(e) => setRole(e.target.value)} aria-label="Access">
-          <option value="viewer">Viewer</option><option value="editor">Editor</option>
+          <option value="viewer">Viewer</option><option value="commenter">Commenter</option><option value="editor">Editor</option>
         </select>
         <button className="btn" disabled={!address.trim()}>Add</button>
       </form>
@@ -534,7 +534,7 @@ export function ShareDialog({ file, onClose }) {
             <span className="grow ellipsis">{s.name} <span className="muted small">{s.username}</span>
               {s.external && <span className="pill ext">External · {s.org_name}</span>}</span>
             <select value={s.role} aria-label={`Access for ${s.name}`} onChange={(e) => setShares(shares.map((x) => (x.user_id === s.user_id ? { ...x, role: e.target.value } : x)))}>
-              <option value="viewer">Viewer</option><option value="editor">Editor</option>
+              <option value="viewer">Viewer</option><option value="commenter">Commenter</option><option value="editor">Editor</option>
             </select>
             {/* Until a day (optional): access ends at the end of it. */}
             <input type="date" className="share-until" aria-label={`Access for ${s.name} ends`} title="Access ends after this day (empty: no end)"

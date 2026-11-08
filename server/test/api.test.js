@@ -3645,3 +3645,22 @@ test('comments on uploaded files: the whole file or a spot on a picture; mention
   assert.ok(JSON.stringify(bell).includes(`/drive?preview=${pic.id}&comment=${c3.comment.id}`));
   assert.equal((await kim('GET', `/api/comments/${pic.id}`)).body.length, 3);
 });
+
+test('sharing as commenter: reads and comments, never edits', async () => {
+  const c = client();
+  const cid = (await owner('POST', '/api/users', { local: 'cmt', domain: 'acme.com', name: 'Cal Commenter', password: 'password123' })).body.id;
+  await login(c, 'cmt@acme.com');
+  const sheet = (await owner('POST', '/api/files/new', { kind: 'sheet', name: 'Budget review' })).body;
+  assert.equal((await owner('PUT', `/api/files/${sheet.id}/shares`, { shares: [{ user_id: cid, role: 'commenter' }] })).status, 200);
+  const f = (await c('GET', `/api/files/${sheet.id}`)).body;
+  assert.equal(f.role, 'commenter');
+  assert.equal((await owner('GET', `/api/files/${sheet.id}/shares`)).body[0].role, 'commenter');
+  assert.ok(JSON.stringify((await c('GET', '/api/notifications')).body).includes('You can comment'));
+  // Comments yes; content, renaming and sharing no.
+  assert.equal((await c('POST', `/api/comments/${sheet.id}`, { body: 'Is B2 right?', anchor: { sheet: 0, cell: 'B2' } })).status, 201);
+  assert.equal((await c('PUT', `/api/files/${sheet.id}/content`, { content: { sheets: [] }, version: f.version })).status, 403);
+  assert.equal((await c('PATCH', `/api/files/${sheet.id}`, { name: 'Mine now' })).status, 403);
+  // A viewer still can't comment.
+  await owner('PUT', `/api/files/${sheet.id}/shares`, { shares: [{ user_id: cid, role: 'viewer' }] });
+  assert.equal((await c('POST', `/api/comments/${sheet.id}`, { body: 'Again?', anchor: { sheet: 0, cell: 'B3' } })).status, 403);
+});

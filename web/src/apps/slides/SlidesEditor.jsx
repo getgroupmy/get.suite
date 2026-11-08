@@ -49,7 +49,8 @@ export default function SlidesEditor() {
   const [pending, setPending] = useState(null);
   const deckRef = useRef(null);
   const pictureInput = useRef();
-  const readOnly = file?.role === 'viewer' || !!file?.locked_at; // locked: nobody changes it until it's unlocked
+  const readOnly = (file?.role === 'viewer' || file?.role === 'commenter') || !!file?.locked_at;
+  const canComment = !!file && file.role !== 'viewer'; // commenters too, and on locked files
   const [status, setStatus] = useState('connecting');
   const [others, setOthers] = useState([]);
   const [{ ydoc, provider }, setLink] = useState({});
@@ -192,7 +193,7 @@ export default function SlidesEditor() {
         ]}
       />
       {status === 'offline' && <div className="banner warn">You're offline. Keep editing: your changes are kept here and sync when the connection is back.</div>}
-      {readOnly && <div className="banner">View only. Ask {file.owner_name} for edit access.</div>}
+      {readOnly && <div className="banner">{file.locked_at ? 'Locked.' : file.role === 'commenter' ? 'You can comment, not edit.' : 'View only.'} {!file.locked_at && `Ask ${file.owner_name} for edit access.`}</div>}
       {!readOnly && (
         <div className="slides-toolbar" role="toolbar" aria-label="Slide tools">
           <button type="button" className="tb" aria-label="Undo" title="Undo (Ctrl+Z)" disabled={!history.canUndo} onClick={history.undo}>↶</button>
@@ -271,6 +272,7 @@ export default function SlidesEditor() {
         </div>
       )}
       {readOnly && <div className="slides-toolbar"><div className="grow" /><button type="button" className={`btn small ${panel ? 'primary' : ''}`} aria-pressed={panel} title="Comments" onClick={() => { if (panel && pending) setPending(null); setPanel(!panel); }}>💬 Comments{openThreads ? ` (${openThreads})` : ''}</button>
+        {canComment && <button type="button" className="btn small" onClick={commentOnSlide}>Comment on this slide</button>}
           <button type="button" className="btn small primary" onClick={() => setPresenting(slideIndex)}><Icon name="slides" size={16} /> Present</button>
           <button type="button" className="btn small" title="Present, with your notes, the next slide and a timer in a second window" onClick={() => { openPresenterView(id, slideIndex); setPresenting(slideIndex); }}>Presenter view</button></div>}
 
@@ -310,7 +312,7 @@ export default function SlidesEditor() {
             </label>
           )}
         </div>
-        {panel && <CommentsPanel fileId={file.id} threads={threads} canEdit={!readOnly} active={thread} setActive={setThread} pending={pending}
+        {panel && <CommentsPanel fileId={file.id} threads={threads} canEdit={canComment} active={thread} setActive={setThread} pending={pending}
           onShow={showThread} labelOf={slideLabel} onClose={() => { setPending(null); setPanel(false); }} />}
       </div>
 

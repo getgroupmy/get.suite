@@ -78,7 +78,8 @@ export default function SheetEditor() {
   const clip = useRef(null);
   const [status, setStatus] = useState('connecting');
   const [others, setOthers] = useState([]);
-  const readOnly = file?.role === 'viewer' || !!file?.locked_at; // locked: nobody changes it until it's unlocked
+  const readOnly = (file?.role === 'viewer' || file?.role === 'commenter') || !!file?.locked_at;
+  const canComment = !!file && file.role !== 'viewer'; // commenters too, and on locked files
   // Comments on cells.
   const [params] = useSearchParams();
   const { threads } = useComments(file?.id);
@@ -639,7 +640,7 @@ export default function SheetEditor() {
     requestAnimationFrame(() => gridRef.current?.querySelector(`[data-k="${t.anchor.cell}"]`)?.scrollIntoView({ block: 'nearest', inline: 'nearest' }));
   };
   const startComment = () => {
-    if (readOnly) return;
+    if (!canComment) return;
     setPanel(true);
     setPending({ anchor: { sheet: active, cell: selKey }, label: data.sheets.length > 1 ? `${sheetName(active)} ${selKey}` : selKey,
       onCreated: () => setPending(null), onCancel: () => setPending(null) });
@@ -712,6 +713,7 @@ export default function SheetEditor() {
         onRename={async (name) => setFile(await patch(`/files/${id}`, { name }))}
         onShare={() => setDialog({ type: 'share' })}
         extra={<>
+          {readOnly && canComment && <button type="button" className="btn small" onClick={startComment}>Comment on {anchor ? 'this cell' : selKey}</button>}
           <button type="button" className={`btn small ${panel ? 'primary' : ''}`} aria-pressed={panel} onClick={() => { if (panel && pending) setPending(null); setPanel(!panel); }} title="Comments">
             <Icon name="chat" size={16} /> {openThreads.length || ''}<span className="sr-only">Comments</span>
           </button>
@@ -733,7 +735,7 @@ export default function SheetEditor() {
         ]}
       />
       {status === 'offline' && <div className="banner warn">You're offline. Keep editing: your changes are kept here and sync when the connection is back.</div>}
-      {readOnly && <div className="banner">View only. Ask {file.owner_name} for edit access.</div>}
+      {readOnly && <div className="banner">{file.locked_at ? 'Locked.' : file.role === 'commenter' ? 'You can comment, not edit.' : 'View only.'} {!file.locked_at && `Ask ${file.owner_name} for edit access.`}</div>}
       {sheet?.pivot && (
         <div className="banner pivot-banner" role="status">
           Pivot table of <strong>{sheet.pivot.source}</strong> (columns {colName(sheet.pivot.c1)}–{colName(sheet.pivot.c2)}, from row {sheet.pivot.r1 + 1} down). It updates by itself when the data changes.
@@ -862,7 +864,7 @@ export default function SheetEditor() {
           ))}
         </div>
       </div>
-      {panel && <CommentsPanel fileId={file.id} threads={threads} canEdit={!readOnly} active={thread} setActive={setThread} pending={pending}
+      {panel && <CommentsPanel fileId={file.id} threads={threads} canEdit={canComment} active={thread} setActive={setThread} pending={pending}
         onShow={goToCell} labelOf={where} onClose={() => { setPending(null); setPanel(false); }} />}
       </div>
       <div className="sheet-tabs">

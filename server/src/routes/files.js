@@ -471,7 +471,7 @@ export default function fileRoutes({ maxUploadBytes }) {
   // ---- asking for access: someone with a link to a file they can't open asks its owner ----
   // The asker learns nothing about the file (not even that it exists) until the owner says yes.
   r.post('/:id/request-access', (req, res) => {
-    const role = req.body.role === 'editor' ? 'editor' : 'viewer';
+    const role = ['editor', 'commenter'].includes(req.body.role) ? req.body.role : 'viewer';
     const message = str(req.body.message ?? '', { max: 500, name: 'Message' }) || null;
     const f = q('SELECT id, name, kind, owner_id, trashed FROM files WHERE id = ?').get(String(req.params.id));
     if (f && roleFor(f.id, req.user.id)) throw bad('You can already open this');
@@ -501,14 +501,14 @@ export default function fileRoutes({ maxUploadBytes }) {
     if (!a || a.owner_id !== req.user.id) throw notFound();
     const f = { id: a.file_id, name: a.file_name, kind: a.file_kind };
     if (req.body.approve) {
-      const role = ['viewer', 'editor'].includes(req.body.role) ? req.body.role : a.role;
+      const role = ['viewer', 'commenter', 'editor'].includes(req.body.role) ? req.body.role : a.role;
       if (!canReach(req.user, a.user_id)) throw bad('You can’t share with that person (external sharing may be turned off)');
       q(`INSERT INTO shares (file_id, user_id, role, direct_role) VALUES (?, ?, ?, ?) ON CONFLICT(file_id, user_id) DO UPDATE SET direct_role = excluded.direct_role`).run(f.id, a.user_id, role, role);
       syncShares(f.id);
       const who = q('SELECT name FROM users WHERE id = ?').get(a.user_id)?.name || 'someone';
       recordActivity(f.id, req.user.id, 'share', { added: [`${who} (${role === 'editor' ? 'can edit' : 'can view'})`], removed: [] });
       audit(req, 'file.share', { target: f.name, details: { with: [`${q('SELECT username FROM users WHERE id = ?').get(a.user_id)?.username} (${role})`], request: true } });
-      bell([a.user_id], { kind: 'share', title: `${req.user.name || req.user.username} shared “${f.name}” with you`, body: role === 'editor' ? 'You can edit' : 'You can view', link: openLink(f), actor: req.user.name });
+      bell([a.user_id], { kind: 'share', title: `${req.user.name || req.user.username} shared “${f.name}” with you`, body: role === 'editor' ? 'You can edit' : role === 'commenter' ? 'You can comment' : 'You can view', link: openLink(f), actor: req.user.name });
       sendTo([a.user_id], { type: 'files-changed', parent_id: null });
     } else {
       bell([a.user_id], { kind: 'share', title: `${req.user.name || req.user.username} didn’t give you access to “${f.name}”`, body: null, link: null, actor: req.user.name });
@@ -999,7 +999,7 @@ export default function fileRoutes({ maxUploadBytes }) {
       // People shared with one by one; access through groups is worked out again after (syncShares).
       q('UPDATE shares SET direct_role = NULL, expires_at = NULL WHERE file_id = ?').run(f.id);
       for (const s of list) {
-        if (!['viewer', 'editor'].includes(s.role)) throw bad('role must be viewer or editor');
+        if (!['viewer', 'commenter', 'editor'].includes(s.role)) throw bad('role must be viewer, commenter or editor');
         // Until when (optional): a moment in the future, up to a year ahead.
         const until = s.expires_at === undefined || s.expires_at === null || s.expires_at === '' ? null : Number(s.expires_at);
         if (until !== null && (!Number.isFinite(until) || until <= Date.now() || until > Date.now() + MAX_SHARE_DAYS * 864e5)) throw bad('Access can end at a time in the next year');
@@ -1019,7 +1019,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     const who = (id) => q('SELECT name FROM users WHERE id = ?').get(id)?.name || 'someone';
     if (added.length || gone.length) recordActivity(f.id, req.user.id, 'share', { added: added.map((x) => `${who(x.user_id)} (${x.role === 'editor' ? 'can edit' : 'can view'})`), removed: gone.map(who) });
     const untilText = (x) => (x.expires_at ? ` until ${new Date(Number(x.expires_at)).toISOString().slice(0, 10)}` : '');
-    for (const x of added) bell([x.user_id], { kind: 'share', title: `${req.user.name || req.user.username} shared “${f.name}” with you`, body: `${x.role === 'editor' ? 'You can edit' : 'You can view'}${untilText(x)}`, link: openLink(f), actor: req.user.name });
+    for (const x of added) bell([x.user_id], { kind: 'share', title: `${req.user.name || req.user.username} shared “${f.name}” with you`, body: `${x.role === 'editor' ? 'You can edit' : x.role === 'commenter' ? 'You can comment' : 'You can view'}${untilText(x)}`, link: openLink(f), actor: req.user.name });
     res.json({ ok: true });
   });
 

@@ -79,7 +79,7 @@ export function EditorHeader({ icon, file, status, onRename, onShare, menu, extr
   const toast = useToast();
   const [name, setName] = useState('');
   useEffect(() => { if (file) setName(file.name); }, [file]);
-  const canEdit = file && file.role !== 'viewer';
+  const canEdit = file && (file.role === 'editor' || file.role === 'owner');
   // "Notify me of changes": a notification when someone else edits it (at most once an hour).
   const [watching, setWatching] = useState(false);
   useEffect(() => { if (file?.id) get(`/files/${file.id}/watch`).then((r) => setWatching(r.watching)).catch(() => {}); }, [file?.id]);

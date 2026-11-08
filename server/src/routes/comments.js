@@ -35,7 +35,7 @@ function loadFile(id, user, needed = 'viewer') {
   const f = q('SELECT id, name, kind, trashed FROM files WHERE id = ?').get(String(id || ''));
   const role = f && roleFor(f.id, user.id);
   if (!f || !role || f.trashed || !KINDS.includes(f.kind)) throw notFound('File not found');
-  if (!atLeast(role, needed)) throw forbidden('Only people who can edit this file can comment');
+  if (!atLeast(role, needed)) throw forbidden('Only people who can comment on this file can do that');
   return { ...f, role };
 }
 function readAnchor(kind, a) {
@@ -83,7 +83,7 @@ export default function commentRoutes() {
 
   // A new thread (with an anchor) or a reply (with thread_id).
   r.post('/:fileId', (req, res) => {
-    const f = loadFile(req.params.fileId, req.user, 'editor');
+    const f = loadFile(req.params.fileId, req.user, 'commenter');
     const body = str(req.body.body, { required: true, name: 'Comment', max: 4000 });
     let threadId = null, anchor = null;
     if (req.body.thread_id) {
@@ -101,7 +101,7 @@ export default function commentRoutes() {
   });
 
   r.patch('/:fileId/:id', (req, res) => {
-    const f = loadFile(req.params.fileId, req.user, 'editor');
+    const f = loadFile(req.params.fileId, req.user, 'commenter');
     const c = q('SELECT * FROM file_comments WHERE id = ? AND file_id = ?').get(req.params.id, f.id);
     if (!c) throw notFound();
     if (req.body.body !== undefined) {
@@ -122,7 +122,7 @@ export default function commentRoutes() {
 
   // Delete a comment (the author, or the file's owner); deleting the first one removes the thread.
   r.delete('/:fileId/:id', (req, res) => {
-    const f = loadFile(req.params.fileId, req.user, 'editor');
+    const f = loadFile(req.params.fileId, req.user, 'commenter');
     const c = q('SELECT * FROM file_comments WHERE id = ? AND file_id = ?').get(req.params.id, f.id);
     if (!c) throw notFound();
     if (c.author_id !== req.user.id && f.role !== 'owner') throw forbidden('Only the author or the file\'s owner can delete a comment');

@@ -4,7 +4,7 @@ import { q } from './db.js';
 // (viewer or editor), including people who join later.
 if (!q('PRAGMA table_info(files)').all().some((c) => c.name === 'org_role')) q('ALTER TABLE files ADD COLUMN org_role TEXT').run();
 
-const RANK = { viewer: 1, editor: 2, owner: 3 };
+const RANK = { viewer: 1, commenter: 1.5, editor: 2, owner: 3 }; // commenter: reads, and comments
 
 /** Do two companies currently allow collaborating with each other? */
 function orgsMayCollaborate(orgA, orgB) {
