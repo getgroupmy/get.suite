@@ -5126,3 +5126,60 @@ test('meet guests: ask to join by link, wait, let in or turned away by the compa
     host.terminate(); g1.terminate(); g2.terminate();
   }
 });
+
+test('meet breakout rooms: the host splits people up, moves them, visits, and brings everyone back', { timeout: 20000 }, async () => {
+  const { default: WS } = await import('ws');
+  const kay = client(); await login(kay, 'kay@keepco.com');
+  for (const [local, name] of [['bra', 'Bree Room'], ['brb', 'Bo Room']]) await kay('POST', '/api/users', { local, domain: 'keepco.com', name, password: 'password123' });
+  const cookieOf = async (u) => (await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ username: u, password: 'password123' }) })).headers.get('set-cookie').split(';')[0];
+  const { code } = (await kay('POST', '/api/meet', { title: 'Workshop' })).body;
+  const open = (cookie, room = 0) => new Promise((resolve, reject) => {
+    const ws = new WS(`${base.replace('http', 'ws')}/ws/meet/${code}${room ? `?room=${room}` : ''}`, { headers: { cookie } });
+    ws.msgs = [];
+    const t = setTimeout(() => reject(new Error('no welcome')), 5000);
+    ws.on('message', (d) => { const msg = JSON.parse(String(d)); ws.msgs.push(msg); if (msg.type === 'welcome') { clearTimeout(t); ws.me = msg; resolve(ws); } });
+    ws.on('error', reject);
+  });
+  const wait = () => new Promise((r) => setTimeout(r, 250));
+  const last = (ws, type) => [...ws.msgs].reverse().find((x) => x.type === type);
+  const [ck, ca, cb] = [await cookieOf('kay@keepco.com'), await cookieOf('bra@keepco.com'), await cookieOf('brb@keepco.com')];
+  const host = await open(ck);
+  let a = await open(ca);
+  let b = await open(cb);
+  const all = [host, a, b];
+  try {
+    assert.equal(last(host, 'breakouts').count, 0);
+    // Only the host can open rooms.
+    a.send(JSON.stringify({ type: 'breakout-open', count: 2, assign: { [b.me.id]: 2 } })); await wait();
+    assert.equal(last(b, 'breakout'), undefined);
+    host.send(JSON.stringify({ type: 'breakout-open', count: 2, assign: { [a.me.id]: 1, [b.me.id]: 2, [host.me.id]: 1 } })); await wait();
+    assert.deepEqual([last(a, 'breakout').room, last(a, 'breakout').by, last(b, 'breakout').room], [1, 'Kay Keep', 2]);
+    assert.equal(last(host, 'breakout'), undefined, 'the host stays where they are');
+    // They reconnect to their rooms; asking for someone else's room puts you in the main room.
+    a.terminate(); b.terminate();
+    a = await open(ca, 1); all.push(a);
+    const wrong = await open(cb, 1); all.push(wrong);
+    assert.equal(wrong.me.room, 0);
+    wrong.terminate();
+    b = await open(cb, 2); all.push(b);
+    assert.deepEqual([a.me.room, a.me.breakouts, a.me.peers.length, b.me.room], [1, 2, 0, 2]);
+    await wait();
+    const sum = last(host, 'breakouts');
+    assert.deepEqual(sum.rooms.map((r) => r.people.map((p) => p.name)), [['Kay Keep'], ['Bree Room'], ['Bo Room']]);
+    // Chat stays in the room.
+    b.send(JSON.stringify({ type: 'chat', text: 'room two only' })); await wait();
+    assert.ok(!a.msgs.some((x) => x.type === 'chat') && !host.msgs.some((x) => x.type === 'chat'));
+    // The host moves Bo to room 1, and visits room 2 (any room).
+    host.send(JSON.stringify({ type: 'breakout-move', to: b.me.id, room: 1 })); await wait();
+    assert.equal(last(b, 'breakout').room, 1);
+    const visit = await open(ck, 2); all.push(visit);
+    assert.equal(visit.me.room, 2);
+    visit.terminate();
+    // Everyone back.
+    host.send(JSON.stringify({ type: 'breakout-close' })); await wait();
+    assert.equal(last(a, 'breakout').room, 0);
+    assert.equal(last(host, 'breakouts').count, 0);
+    const late = await open(ca, 1); all.push(late);
+    assert.equal(late.me.room, 0, 'rooms are closed');
+  } finally { for (const w of all) w.terminate(); }
+});

@@ -75,6 +75,48 @@ function MeetPolls({ m, user, polls }) {
   );
 }
 
+// Breakout rooms, for the host: open 2–8 rooms (people are shared out between them), move someone,
+// visit a room, and bring everyone back. Guests stay in the main room.
+function Breakouts({ m, goToRoom }) {
+  const [count, setCount] = useState(2);
+  const b = m.breakouts;
+  if (!b || !b.count) {
+    const people = [...m.peers.values()].filter((p) => !/\(guest\)$/.test(p.user.name));
+    const open = () => {
+      const assign = {};
+      people.forEach((p, i) => { assign[p.id] = (i % count) + 1; });
+      m.breakoutOpen(count, assign);
+    };
+    return (
+      <div className="meet-breakouts row" aria-label="Breakout rooms">
+        <span className="grow small">Breakout rooms</span>
+        <select aria-label="Number of rooms" value={count} onChange={(e) => setCount(Number(e.target.value))}>
+          {[2, 3, 4, 5, 6, 7, 8].map((n) => <option key={n} value={n}>{n} rooms</option>)}
+        </select>
+        <button type="button" className="btn small" disabled={people.length < 1} onClick={open}>Open rooms</button>
+      </div>
+    );
+  }
+  return (
+    <div className="meet-breakouts stack" aria-label="Breakout rooms">
+      <div className="row"><strong className="grow small">Breakout rooms are open</strong><button type="button" className="btn small primary" onClick={() => m.breakoutClose()}>Bring everyone back</button></div>
+      {b.rooms.map((r) => (
+        <div key={r.n} className="meet-breakout-room" aria-label={r.n ? `Room ${r.n}` : 'Main room'}>
+          <div className="row"><span className="grow small"><strong>{r.n ? `Room ${r.n}` : 'Main room'}</strong>{m.room === r.n ? ' · you’re here' : ''}</span>
+            {m.room !== r.n && <button type="button" className="link-btn small" aria-label={r.n ? `Go to Room ${r.n}` : 'Go to the main room'} onClick={() => goToRoom(r.n)}>Go</button>}</div>
+          {r.people.length === 0 && <div className="muted small">Nobody yet</div>}
+          {r.people.filter((p) => p.id !== m.id).map((p) => (
+            <div key={p.id} className="row small"><span className="grow">{p.name}</span>
+              {!p.guest && <select aria-label={`Move ${p.name}`} value={r.n} onChange={(e) => m.breakoutMove(p.id, Number(e.target.value))}>
+                {Array.from({ length: b.count + 1 }, (_, n) => <option key={n} value={n}>{n ? `Room ${n}` : 'Main room'}</option>)}
+              </select>}</div>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 async function openDevices() {
   if (!navigator.mediaDevices?.getUserMedia) return { stream: null, error: 'This browser can’t use a camera or microphone here (Meet needs HTTPS).' };
   for (const want of [{ audio: true, video: true }, { audio: true }, { video: true }]) {
@@ -134,10 +176,11 @@ export default function MeetRoom({ guest = false, onSignIn }) {
   const hasAudio = !!local?.stream?.getAudioTracks().length;
   const hasVideo = !!local?.stream?.getVideoTracks().length;
 
-  const join = useCallback(() => {
+  const joinRef = useRef(null);
+  const join = useCallback((room = 0) => {
     if (guest) { try { localStorage.setItem('nw-guest-name', guestName.trim()); } catch { /* private mode */ } }
     const m = new Mesh({
-      code, guestName: guest ? guestName.trim() : '', stream: local?.stream, iceServers: info?.ice_servers || [], mic: mic && hasAudio, cam: cam && hasVideo,
+      code, room, guestName: guest ? guestName.trim() : '', stream: local?.stream, iceServers: info?.ice_servers || [], mic: mic && hasAudio, cam: cam && hasVideo,
       onChange: redraw,
       onChat: (msg) => { setMessages((list) => [...list.slice(-199), msg]); if (panelRef.current !== 'chat' && !msg.mine) setUnread((n) => n + 1); },
       onReact: (r) => {
@@ -147,13 +190,22 @@ export default function MeetRoom({ guest = false, onSignIn }) {
       },
       onClosed: (reason) => { toast(reason, 'error'); setLeftWhy(reason); setPhase('left'); },
       onPoll: (p) => { if (panelRef.current !== 'polls') toast(`${p.by_name} asked: ${p.question}`); },
+      // Breakout rooms: off to another room (or back to the main one), keeping camera and microphone.
+      onBreakout: ({ room: to, by }) => { toast(to ? `${by} moved you to Room ${to}` : `${by} brought everyone back to the main room`); goToRoom(to); },
       onMuted: (by) => { setMic(false); toast(`${by} muted you. Unmute when you want to speak.`); },
     });
     mesh.current = m;
     m.connect();
-    setStartedAt(Date.now());
+    setStartedAt((t) => t || Date.now()); // the time in the meeting carries on across rooms
     setPhase('call');
   }, [code, local, info, mic, cam, hasAudio, hasVideo, toast, guest, guestName]);
+  joinRef.current = join;
+  function goToRoom(n) {
+    const old = mesh.current;
+    if (old) { old.switchAway(); mesh.current = null; }
+    setMessages([]); setUnread(0);
+    joinRef.current(n);
+  }
 
   // Recording (in this browser), saved to your Drive when it stops.
   const recorder = useRef(null);
@@ -179,7 +231,7 @@ export default function MeetRoom({ guest = false, onSignIn }) {
     catch (e) { toast(`The recording couldn’t be saved: ${e.message}`, 'error'); }
     finally { setSaving(false); }
   };
-  const leave = async () => { if (recorder.current) await stopRecording(); mesh.current?.leave(); mesh.current = null; setPhase('left'); setMessages([]); };
+  const leave = async () => { if (recorder.current) await stopRecording(); mesh.current?.leave(); mesh.current = null; setStartedAt(0); setPhase('left'); setMessages([]); };
 
   if (error) {
     return (
@@ -224,7 +276,7 @@ export default function MeetRoom({ guest = false, onSignIn }) {
               <label className="stack" style={{ gap: 4 }}><span className="small">Your name</span>
                 <input value={guestName} onChange={(e) => setGuestName(e.target.value)} maxLength={60} autoComplete="name" placeholder="So people know who you are" /></label>
             </>}
-            {full ? <p className="error">This meeting is full ({info.max} people).</p> : <div><button type="button" className="btn primary" disabled={!info || !local || (guest && !guestName.trim())} onClick={join}>{guest ? 'Ask to join' : 'Join now'}</button></div>}
+            {full ? <p className="error">This meeting is full ({info.max} people).</p> : <div><button type="button" className="btn primary" disabled={!info || !local || (guest && !guestName.trim())} onClick={() => join(0)}>{guest ? 'Ask to join' : 'Join now'}</button></div>}
             <p className="muted small" style={{ margin: 0 }}>Code: <strong>{code}</strong> · <button type="button" className="link-btn small" onClick={() => copyLink(code, toast)}>Copy link</button></p>
             {guest ? <p className="muted small" style={{ margin: 0 }}>Have an account here? <button type="button" className="link-btn small" onClick={onSignIn}>Sign in</button></p>
               : <div><button type="button" className="link-btn small" onClick={() => navigate('/meet')}>Back</button></div>}
@@ -264,7 +316,8 @@ export default function MeetRoom({ guest = false, onSignIn }) {
           <button type="button" className="btn primary small" aria-label={`Let ${g.name} in`} onClick={() => m.admit(g.id)}>Let in</button>
           <button type="button" className="btn small" aria-label={`Don’t let ${g.name} in`} onClick={() => m.deny(g.id)}>Don’t let in</button></div>)}
       </div>}
-      <header className="meet-top"><strong className="grow">{info?.title || code}</strong><span className="muted small" aria-label="Time in the meeting">{elapsed(Date.now() - startedAt)}</span></header>
+      {m.room > 0 && !m.host && <div className="meet-room-banner" role="status">You’re in breakout Room {m.room}. The host will bring everyone back to the main room.</div>}
+      <header className="meet-top"><strong className="grow">{info?.title || code}{m.room ? ` · Room ${m.room}` : ''}</strong><span className="muted small" aria-label="Time in the meeting">{elapsed(Date.now() - startedAt)}</span></header>
       <div className="meet-body">
         <div ref={gridRef} className="meet-grid" style={{ gridTemplateColumns: `repeat(${columnsFor(tiles.length)}, 1fr)` }} aria-label="People in the meeting">
           {tiles.map((t) => {
@@ -290,7 +343,8 @@ export default function MeetRoom({ guest = false, onSignIn }) {
                 {messages.map((msg, i) => <li key={i}><strong>{msg.mine ? 'You' : msg.name}</strong> <span className="muted small">{new Date(msg.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span><div>{msg.text}</div></li>)}
               </ul>
               <form className="row" onSubmit={sendChat}><input name="msg" className="grow" aria-label="Send a message to everyone" placeholder="Send a message" maxLength={2000} autoComplete="off" /><button className="btn">Send</button></form>
-            </> : panel === 'polls' ? <MeetPolls m={m} user={user} polls={polls} /> : (
+            </> : panel === 'polls' ? <MeetPolls m={m} user={user} polls={polls} /> : (<>
+              {m.host && !guest && <Breakouts m={m} goToRoom={goToRoom} />}
               <ul className="meet-people">
                 {m.host && tiles.length > 1 && <li className="row"><span className="grow muted small">You started this meeting.</span><button type="button" className="btn small" onClick={() => { m.mute('all'); toast('Everyone else is muted'); }}>Mute everyone</button></li>}
                 {tiles.map((t) => <li key={t.id} className="row"><Avatar name={t.name} userId={t.userId} size={28} /><span className="grow">{t.name}</span>{t.state.hand && '✋'}{t.state.mic === false && '🔇'}
@@ -299,7 +353,7 @@ export default function MeetRoom({ guest = false, onSignIn }) {
                     <button type="button" className="icon-btn" aria-label={`Remove ${t.name} from the meeting`} title="Remove from the meeting" onClick={() => { if (window.confirm(`Remove ${t.name} from the meeting? They won't be able to join again.`)) m.remove(t.id); }}><Icon name="close" size={16} /></button>
                   </>}</li>)}
               </ul>
-            )}
+            </>)}
           </aside>
         )}
       </div>

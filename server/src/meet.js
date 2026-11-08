@@ -91,6 +91,8 @@ export function mayJoin(meeting, user) {
 const rooms = new Map();
 const describe = (id, p) => ({ id, user: { id: p.user.id, name: p.user.name, email: p.user.email }, state: p.state });
 export const peopleIn = (code) => [...(rooms.get(code)?.entries() ?? [])].map(([id, p]) => describe(id, p));
+/** Everyone in a meeting, in the main room or a breakout room. */
+const everyoneIn = (code) => roomsOf(code).flatMap((k) => peopleIn(k));
 
 function cleanState(s = {}) {
   return { mic: s.mic !== false, cam: s.cam !== false, hand: !!s.hand, screen: !!s.screen, rec: !!s.rec }; // rec: they're recording the meeting (everyone is shown)
@@ -102,7 +104,7 @@ export function publicMeetRoutes() {
   r.get('/:code', (req, res) => {
     const m = validCode(req.params.code) && q('SELECT m.*, o.name AS org_name FROM meetings m JOIN orgs o ON o.id = m.org_id WHERE m.code = ?').get(req.params.code);
     if (!m || !guestsAllowed(m.org_id)) throw notFound('No meeting has that code, or it doesn’t take guests. Ask whoever invited you for the link again.');
-    res.json({ code: m.code, title: m.title, company: m.org_name, people: peopleIn(m.code).map((p) => ({ user: { name: p.user.name } })), max: MAX_PEOPLE, ice_servers: iceServers() });
+    res.json({ code: m.code, title: m.title, company: m.org_name, people: everyoneIn(m.code).map((p) => ({ user: { name: p.user.name } })), max: MAX_PEOPLE, ice_servers: iceServers() });
   });
   return r;
 }
@@ -114,7 +116,7 @@ export function meetRoutes() {
                 LEFT JOIN users u ON u.id = m.created_by
                 WHERE m.created_by = ? OR m.code IN (SELECT code FROM meeting_visits WHERE user_id = ?)
                 ORDER BY m.last_used DESC LIMIT 20`).all(req.user.id, req.user.id)
-      .map((m) => ({ ...m, people: peopleIn(m.code).length })));
+      .map((m) => ({ ...m, people: everyoneIn(m.code).length })));
   });
   r.post('/', (req, res) => {
     const title = str(req.body?.title ?? '', { max: 200 }) || '';
@@ -149,7 +151,7 @@ export function meetRoutes() {
     const m = validCode(req.params.code) && q('SELECT * FROM meetings WHERE code = ?').get(req.params.code);
     if (!m) throw notFound('No meeting has that code. Check it and try again.');
     if (!mayJoin(m, req.user)) throw forbidden('This meeting belongs to another company');
-    res.json({ code: m.code, title: m.title, people: peopleIn(m.code), max: MAX_PEOPLE, ice_servers: iceServers() });
+    res.json({ code: m.code, title: m.title, people: everyoneIn(m.code), max: MAX_PEOPLE, ice_servers: iceServers() });
   });
   return r;
 }
@@ -215,24 +217,53 @@ export function handleGuestUpgrade(req, socket, head) {
   });
 }
 
+// Breakout rooms: the host splits the meeting into smaller rooms for a while. code -> { count, assign: Map(userId -> room number) }.
+// Room n of a meeting is kept in `rooms` as "code#n" (the main room is just "code").
+const breakouts = new Map();
+export const MAX_BREAKOUTS = 8;
+const keyOf = (code, n) => (n ? `${code}#${n}` : code);
+const roomsOf = (code) => [code, ...Array.from({ length: breakouts.get(code)?.count || 0 }, (_, i) => keyOf(code, i + 1))];
+/** Find someone in any room of the meeting by their peer id. */
+const findPeer = (code, pid) => { for (const k of roomsOf(code)) { const p = rooms.get(k)?.get(pid); if (p) return p; } return null; };
+/** Who is in which breakout room, for the host (wherever they are). */
+function breakoutSummary(code) {
+  const b = breakouts.get(code);
+  if (!b) return { type: 'breakouts', count: 0, rooms: [] };
+  return { type: 'breakouts', count: b.count, rooms: Array.from({ length: b.count + 1 }, (_, n) => ({ n, people: peopleIn(keyOf(code, n)).map((p) => ({ id: p.id, name: p.user.name, guest: !!p.user.guest })) })) };
+}
+function summaryToHosts(code, m) {
+  const d = JSON.stringify(breakoutSummary(code));
+  for (const k of roomsOf(code)) for (const p of rooms.get(k)?.values() ?? []) if (p.user.id === m.created_by && p.ws.readyState === 1) p.ws.send(d);
+}
+/** Send someone to a room (0: the main room): they reconnect there. */
+function sendToRoom(p, n, by) { if (p.ws.readyState === 1) p.ws.send(JSON.stringify({ type: 'breakout', room: n, by })); }
+
 function enterRoom(ws, req, code, m, user) {
   {
-    let room = rooms.get(code);
+    const isHost = m.created_by === user.id;
+    // Which room: ?room=n, if breakout rooms are open and it's yours (the host may go into any); else the main room.
+    const askedRoom = Number(new URL(req.url, 'http://x').searchParams.get('room') || 0);
+    const b = breakouts.get(code);
+    const n = b && Number.isInteger(askedRoom) && askedRoom >= 1 && askedRoom <= b.count && !user.guest && (isHost || b.assign.get(user.id) === askedRoom) ? askedRoom : 0;
+    const key = keyOf(code, n);
+    let room = rooms.get(key);
     if (room && room.size >= MAX_PEOPLE) { ws.close(4001, 'This meeting is full'); return; }
     if (removed.get(code)?.has(user.id)) { ws.close(4003, 'The host removed you from this meeting'); return; }
-    const isHost = m.created_by === user.id;
-    if (!room) rooms.set(code, (room = new Map()));
+    if (!room) rooms.set(key, (room = new Map()));
     const id = crypto.randomBytes(8).toString('hex');
     const asked = new URL(req.url, 'http://x').searchParams; // how they come in: ?mic=0&cam=0
     const me = { ws, user, state: cleanState({ mic: asked.get('mic') !== '0', cam: asked.get('cam') !== '0' }) };
     const toOthers = (payload) => { const d = JSON.stringify(payload); for (const [pid, p] of room) if (pid !== id && p.ws.readyState === 1) p.ws.send(d); };
     const toAll = (payload) => { const d = JSON.stringify(payload); for (const p of room.values()) if (p.ws.readyState === 1) p.ws.send(d); };
-    ws.send(JSON.stringify({ type: 'welcome', id, peers: peopleIn(code), host: isHost, you: user.id, guest: !!user.guest, polls: (polls.get(code) || []).map((p) => pollOut(p, user.id)),
+    ws.send(JSON.stringify({ type: 'welcome', id, peers: peopleIn(key), host: isHost, you: user.id, guest: !!user.guest, polls: (polls.get(key) || []).map((p) => pollOut(p, user.id)),
+      room: n, breakouts: b ? b.count : 0,
       admit: mayAdmit(m, user), knocking: mayAdmit(m, user) ? waitingList(code) : [] }));
     // Everyone gets a poll's results with their own vote in it.
     const pollToAll = (p) => { for (const q2 of room.values()) if (q2.ws.readyState === 1) q2.ws.send(JSON.stringify({ type: 'poll', poll: pollOut(p, q2.user.id) })); };
     room.set(id, me);
     toOthers({ type: 'joined', peer: describe(id, me) });
+    if (isHost) ws.send(JSON.stringify(breakoutSummary(code)));
+    if (b) summaryToHosts(code, m);
     const t = now();
     q('UPDATE meetings SET last_used = ? WHERE code = ?').run(t, code);
     if (!user.guest) q('INSERT INTO meeting_visits (code, user_id, at) VALUES (?, ?, ?) ON CONFLICT (code, user_id) DO UPDATE SET at = excluded.at').run(code, user.id, t);
@@ -263,13 +294,13 @@ function enterRoom(ws, req, code, m, user) {
       } else if (msg?.type === 'poll-new') {
         const question = String(msg.question ?? '').trim().slice(0, 300);
         const options = [...new Set((Array.isArray(msg.options) ? msg.options : []).map((o) => String(o ?? '').trim().slice(0, 100)).filter(Boolean))].slice(0, 10);
-        const list = polls.get(code) || [];
+        const list = polls.get(key) || [];
         if (!question || options.length < 2 || list.length >= 50) return;
         const p = { id: crypto.randomBytes(6).toString('hex'), by: user.id, by_name: user.name, question, options, votes: new Map(), closed: false };
-        polls.set(code, [...list, p]);
+        polls.set(key, [...list, p]);
         pollToAll(p);
       } else if (msg?.type === 'poll-vote' || msg?.type === 'poll-close') {
-        const p = (polls.get(code) || []).find((x) => x.id === String(msg.id));
+        const p = (polls.get(key) || []).find((x) => x.id === String(msg.id));
         if (!p) return;
         if (msg.type === 'poll-close') { if (p.by !== user.id && !isHost) return; p.closed = true; }
         else {
@@ -291,6 +322,35 @@ function enterRoom(ws, req, code, m, user) {
           enterRoom(g.ws, g.req, code, m, { id: String(msg.id), name: `${g.name} (guest)`, email: null, guest: true, org_id: null });
         }
         knockToAdmitters(code, m);
+      } else if (msg?.type === 'breakout-open' && isHost) {
+        // The host opens breakout rooms: { count, assign: { peerId: room } } for people in the main room
+        // (guests stay in the main room). Everyone assigned is sent to theirs.
+        const count = Number(msg.count);
+        if (!Number.isInteger(count) || count < 2 || count > MAX_BREAKOUTS) return;
+        const assign = new Map();
+        const main = rooms.get(code) || new Map();
+        for (const [pid, r2] of Object.entries(msg.assign || {})) {
+          const p = main.get(pid);
+          const to = Number(r2);
+          if (p && !p.user.guest && p.user.id !== user.id && Number.isInteger(to) && to >= 1 && to <= count) assign.set(p.user.id, to);
+        }
+        breakouts.set(code, { count, assign });
+        for (const p of main.values()) if (assign.has(p.user.id)) sendToRoom(p, assign.get(p.user.id), user.name);
+        summaryToHosts(code, m);
+      } else if (msg?.type === 'breakout-move' && isHost && breakouts.has(code)) {
+        // Move one person (someone who came late, say) to a room, or back to the main room (0).
+        const bo = breakouts.get(code);
+        const p = findPeer(code, String(msg.to));
+        const to = Number(msg.room);
+        if (!p || p.user.guest || p.user.id === user.id || !Number.isInteger(to) || to < 0 || to > bo.count) return;
+        if (to) bo.assign.set(p.user.id, to); else bo.assign.delete(p.user.id);
+        sendToRoom(p, to, user.name);
+      } else if (msg?.type === 'breakout-close' && isHost && breakouts.has(code)) {
+        // Everyone comes back to the main room.
+        const keys = roomsOf(code).slice(1);
+        breakouts.delete(code);
+        for (const k of keys) for (const p of rooms.get(k)?.values() ?? []) sendToRoom(p, 0, user.name);
+        for (const p of rooms.get(code)?.values() ?? []) if (p.user.id === user.id && p.ws.readyState === 1) p.ws.send(JSON.stringify(breakoutSummary(code)));
       } else if (msg?.type === 'react') {
         const emoji = ['👍', '❤️', '😂', '😮', '👏', '🎉'].includes(msg.emoji) ? msg.emoji : null;
         if (emoji) toAll({ type: 'react', id, emoji });
@@ -299,7 +359,11 @@ function enterRoom(ws, req, code, m, user) {
     ws.on('close', () => {
       q('UPDATE meeting_attendance SET left_at = ? WHERE id = ? AND left_at IS NULL').run(now(), id);
       room.delete(id);
-      if (!room.size) { rooms.delete(code); polls.delete(code); } // polls last as long as the meeting
+      if (!room.size) { rooms.delete(key); polls.delete(key); } // polls last as long as the meeting (or the room)
+      if (breakouts.has(code)) {
+        if (roomsOf(code).every((k) => !rooms.get(k)?.size)) breakouts.delete(code); // everyone has gone
+        else summaryToHosts(code, m);
+      }
       toOthers({ type: 'left', id });
     });
   }

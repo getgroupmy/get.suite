@@ -4,8 +4,8 @@
 // each other. `onChange` is called whenever something visible changes.
 
 export class Mesh {
-  constructor({ code, guestName = '', stream, iceServers = [], mic = true, cam = true, onChange, onChat, onReact, onClosed, onMuted, onPoll }) {
-    Object.assign(this, { code, guestName, stream, iceServers, onChange, onChat, onReact, onClosed, onMuted, onPoll });
+  constructor({ code, room = 0, onBreakout, guestName = '', stream, iceServers = [], mic = true, cam = true, onChange, onChat, onReact, onClosed, onMuted, onPoll }) {
+    Object.assign(this, { code, room, onBreakout, guestName, stream, iceServers, onChange, onChat, onReact, onClosed, onMuted, onPoll });
     this.polls = new Map(); // the meeting's polls, by id
     this.waiting = !!guestName; // a guest waits until someone in the meeting lets them in
     this.knocking = []; // guests waiting to be let in (shown to people from the meeting's company)
@@ -18,7 +18,7 @@ export class Mesh {
 
   connect() {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    const q = `?mic=${this.state.mic ? 1 : 0}&cam=${this.state.cam ? 1 : 0}`;
+    const q = `?mic=${this.state.mic ? 1 : 0}&cam=${this.state.cam ? 1 : 0}${this.room ? `&room=${this.room}` : ''}`;
     this.ws = new WebSocket(this.guestName
       ? `${proto}://${location.host}/ws/meet-guest/${encodeURIComponent(this.code)}${q}&name=${encodeURIComponent(this.guestName)}`
       : `${proto}://${location.host}/ws/meet/${encodeURIComponent(this.code)}${q}`);
@@ -40,6 +40,10 @@ export class Mesh {
   pollVote(id, option) { this.send({ type: 'poll-vote', id, option }); }
   pollClose(id) { this.send({ type: 'poll-close', id }); }
   remove(to) { this.send({ type: 'remove', to }); }
+  /** The host: open breakout rooms ({ peerId: room }), move someone (room 0: the main room), close them. */
+  breakoutOpen(count, assign) { this.send({ type: 'breakout-open', count, assign }); }
+  breakoutMove(to, room) { this.send({ type: 'breakout-move', to, room }); }
+  breakoutClose() { this.send({ type: 'breakout-close' }); }
   /** Let a waiting guest in, or not. */
   admit(id) { this.send({ type: 'admit', id }); }
   deny(id) { this.send({ type: 'deny', id }); }
@@ -50,6 +54,8 @@ export class Mesh {
       this.host = !!m.host; // whoever started the meeting: may mute and remove people
       this.you = m.you; // your account id (a guest's own id)
       this.waiting = false;
+      this.room = m.room || 0; // 0: the main room
+      this.breakoutCount = m.breakouts || 0;
       this.mayAdmit = !!m.admit; // people from the meeting's company let guests in
       this.knocking = m.knocking || [];
       for (const p of m.polls || []) this.polls.set(p.id, p);
@@ -65,6 +71,8 @@ export class Mesh {
     } else if (m.type === 'signal') await this.signal(m.from, m.data);
     else if (m.type === 'chat') { this.onChat?.({ ...m, mine: m.id === this.id }); return; }
     else if (m.type === 'knock') this.knocking = m.guests;
+    else if (m.type === 'breakouts') { this.breakouts = m; this.breakoutCount = m.count; }
+    else if (m.type === 'breakout') { this.onBreakout?.(m); return; }
     else if (m.type === 'waiting' || m.type === 'admitted') { /* redraw */ }
     else if (m.type === 'poll') { const isNew = !this.polls.has(m.poll.id); this.polls.set(m.poll.id, m.poll); if (isNew) this.onPoll?.(m.poll); }
     else if (m.type === 'muted') { this.setMic(false); this.onMuted?.(m.by); return; }
@@ -165,6 +173,13 @@ export class Mesh {
     for (const p of this.peers.values()) p.pc.close();
     this.peers.clear();
     if (this.screen) for (const t of this.screen.getTracks()) t.stop();
+  }
+
+  /** Off to another room of the meeting: hang up here, but keep the camera and microphone. */
+  switchAway() {
+    this.left = true;
+    this.closeAll();
+    this.ws?.close();
   }
 
   leave() {
