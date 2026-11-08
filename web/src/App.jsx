@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
-import { BrowserRouter, Routes, Route, Navigate, NavLink, useNavigate } from 'react-router';
+import { BrowserRouter, Routes, Route, Navigate, NavLink, useNavigate, useParams } from 'react-router';
 import { get, post, patch, startLive, stopLive, onLive } from './api.js';
 import { useMailStatus } from './mailStatus.js';
 import { useMailNotifications } from './mailNotify.js';
@@ -15,6 +15,8 @@ import { Avatar, Menu, ToastProvider, useToast } from './components/ui.jsx';
 import Login from './apps/Login.jsx';
 import PublicLink from './apps/PublicLink.jsx';
 import InviteAnswer from './apps/calendar/InviteAnswer.jsx';
+import { SignPage } from './apps/docs/Signatures.jsx';
+const SignRoute = () => <SignPage token={useParams().token} />;
 import BookingPage from './apps/calendar/BookingPage.jsx';
 import { TwoStep } from './apps/Settings.jsx';
 import Drive from './apps/drive/Drive.jsx';
@@ -57,6 +59,9 @@ export default function App() {
   // Filling in a form (company forms ask you to sign in first).
   const form = window.location.pathname.match(/^\/f\/([A-Za-z0-9_-]+)\/?$/);
   if (form) return <FormGate token={form[1]} />;
+  // Signing a document from a private link (no account needed).
+  const sign = window.location.pathname.match(/^\/sign\/([A-Za-z0-9_-]+)\/?$/);
+  if (sign) return <SignPage token={sign[1]} />;
   return invite ? <InviteAnswer token={invite[1]} /> : <Workspace />;
 }
 
@@ -244,6 +249,7 @@ function Shell() {
           <Route path="/chat/:channelId?" element={<Chat />} />
           <Route path="/tasks/:listId?" element={<Tasks />} />
           <Route path="/forms/:id?" element={<Forms />} />
+          <Route path="/sign/:token" element={<SignRoute />} />
           <Route path="/meet" element={<Meet />} />
           <Route path="/notes" element={<Notes />} />
           <Route path="/home" element={<Home />} />

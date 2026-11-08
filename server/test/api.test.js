@@ -4655,3 +4655,57 @@ test('forms: a linked spreadsheet gets each response as it arrives, and changed 
   assert.equal((await cells()).D4, undefined);
   assert.equal((await kay('GET', `/api/forms/${f.id}`)).body.linked_sheet, null);
 });
+
+test('signatures: a document sent for signing is locked; each signer signs on their own link', async () => {
+  const kay = client(); await login(kay, 'kay@keepco.com');
+  const sb = await kay('POST', '/api/users', { local: 'sgb', domain: 'keepco.com', name: 'Sid Signer', password: 'password123' });
+  const sid = client(); await login(sid, 'sgb@keepco.com');
+  const doc = (await kay('POST', '/api/files/new', { kind: 'doc', name: 'Lease', content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Rent is 1000 a month.' }] }] } })).body;
+  const sheet = (await kay('POST', '/api/files/new', { kind: 'sheet', name: 'Not a doc' })).body;
+  assert.equal((await kay('POST', '/api/signatures', { file_id: sheet.id, signers: ['sgb@keepco.com'] })).status, 400);
+  assert.equal((await kay('POST', '/api/signatures', { file_id: doc.id, signers: ['not an email'] })).status, 400);
+  assert.equal((await sid('POST', '/api/signatures', { file_id: doc.id, signers: ['sgb@keepco.com'] })).status, 404, 'needs the document');
+  const made = await kay('POST', '/api/signatures', { file_id: doc.id, signers: ['sgb@keepco.com', 'kay@keepco.com'], message: 'Please sign by Friday' });
+  assert.equal(made.status, 201);
+  assert.equal(made.body.status, 'pending');
+  assert.match(made.body.hash, /^[0-9a-f]{64}$/);
+  assert.ok(made.body.signers.find((x) => x.email === 'kay@keepco.com').my_link, 'your own link to sign');
+  assert.equal((await kay('POST', '/api/signatures', { file_id: doc.id, signers: ['sgb@keepco.com'] })).status, 400, 'one at a time');
+  // Locked while it's out.
+  assert.equal((await kay('PUT', `/api/files/${doc.id}/content`, { version: 1, content: { type: 'doc', content: [] } })).status, 423);
+  // Sid got a notification with his link; the link works without the document being shared.
+  const n = (await sid('GET', '/api/notifications')).body.items.find((x) => /asked you to sign “Lease”/.test(x.title));
+  const token = n.link.split('/sign/')[1];
+  const anon = client();
+  const page = (await anon('GET', `/api/public/sign/${token}`)).body;
+  assert.equal(page.title, 'Lease');
+  assert.equal(page.content.content[0].content[0].text, 'Rent is 1000 a month.');
+  assert.deepEqual(page.signers.map((x) => x.signed), [false, false]);
+  assert.equal((await anon('POST', `/api/public/sign/${token}`, { name: 'Sid Signer', image: null })).status, 400, 'must agree');
+  assert.equal((await anon('POST', `/api/public/sign/${token}`, { name: 'Sid', image: 'javascript:alert(1)', agree: true })).status, 400);
+  const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+  const signed = await anon('POST', `/api/public/sign/${token}`, { name: 'Sid Signer', image: png, agree: true });
+  assert.equal(signed.status, 200);
+  assert.equal(signed.body.me.name, 'Sid Signer');
+  assert.equal((await anon('POST', `/api/public/sign/${token}`, { name: 'Again', image: null, agree: true })).status, 400, 'once');
+  // The last one completes it.
+  const mine = made.body.signers.find((x) => x.email === 'kay@keepco.com').my_link.split('/sign/')[1];
+  await kay('POST', `/api/public/sign/${mine}`, { name: 'Kay Keeper', image: null, agree: true });
+  const cur = (await kay('GET', `/api/signatures/file/${doc.id}`)).body.current;
+  assert.equal(cur.status, 'complete');
+  assert.deepEqual(cur.signers.map((x) => [x.name, !!x.signed_at, x.image ? 'drawn' : 'typed']), [['Sid Signer', true, 'drawn'], ['Kay Keeper', true, 'typed']]);
+  assert.equal(cur.changed_since, false);
+  assert.equal(cur.signers.some((x) => x.token), false, 'links stay private');
+  assert.ok((await kay('GET', '/api/notifications')).body.items.some((x) => x.title === 'Everyone has signed “Lease”'));
+  assert.equal((await sid('GET', `/api/signatures/file/${doc.id}`)).status, 404, 'signing doesn\'t share the document');
+  // Still locked after; unlocking and changing it shows the signed text has changed.
+  assert.equal((await kay('PUT', `/api/files/${doc.id}/lock`, { locked: false })).status, 200);
+  const v = (await kay('GET', `/api/files/${doc.id}/content`)).body.file.version;
+  await kay('PUT', `/api/files/${doc.id}/content`, { version: v, content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Rent is 900.' }] }] } });
+  assert.equal((await kay('GET', `/api/signatures/file/${doc.id}`)).body.current.changed_since, true);
+  // Cancelling a new one unlocks it.
+  const again = (await kay('POST', '/api/signatures', { file_id: doc.id, signers: ['sgb@keepco.com'] })).body;
+  assert.equal((await kay('POST', `/api/signatures/${again.id}/cancel`)).status, 200);
+  assert.equal((await anon('GET', `/api/public/sign/${token}`)).status, 200, 'the finished one is still readable by its signer');
+  assert.equal((await kay('GET', `/api/files/${doc.id}`)).body.locked_at, null);
+});

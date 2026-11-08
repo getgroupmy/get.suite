@@ -377,6 +377,15 @@ Ask colleagues to sign off a file (a contract, a press release, a budget): **Req
 - It's **Approved** when every reviewer approves, and **Rejected** as soon as anyone rejects it. Everyone involved is told, and the banner shows the outcome (with each reviewer's decision and comment under **Details**). If the file is changed after it was approved, the banner says so.
 - Whoever asked can **Cancel request** while it's waiting; asking again starts a new request. Requests and decisions also appear in the file's activity (**Details**).
 
+## Signatures (Docs)
+
+Get a document signed (a contract, a lease, a consent form): **⋮ → Send for signature…** in the document, add the signers (colleagues, or anyone by email when this server has email and your company allows links for people outside it) and a message.
+
+- Each signer gets a private link (colleagues also a notification; everyone an email from you, when email is on). It opens the document **exactly as it was sent**, with nothing else of yours, and no account is needed. They type their name, then **draw** their signature (mouse, pen or finger) or **type** it, tick that they agree to sign electronically, and **Sign**.
+- While it's out the document is **locked**, so the text can't change under the signers. Its banner shows **Out for signature · 1 of 2 signed**, with **Sign now** when it's your turn, and **Cancel** for whoever sent it (which unlocks it).
+- When the last person signs, you're told (by email too), and the banner says **Signed by everyone**. **Signature record** lists each signer with their signature, name, email, the time and the address they signed from, and a fingerprint (SHA-256) of the text that was signed; **Print** it to keep with the document. The document stays locked; if it's unlocked and changed afterwards, the banner says it has **changed since it was signed**.
+- Pictures in the document aren't shown on the signing page for people outside the company.
+
 ## Locking a file (Drive)
 
 When a file is final (a signed contract, a published report), lock it so nobody changes it by accident: **Lock (stop changes)** in its ⋮ menu, in Drive or in the document, spreadsheet or presentation. Anyone who can edit it can lock it.

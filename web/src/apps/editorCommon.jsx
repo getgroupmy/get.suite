@@ -4,6 +4,7 @@ import { get, put } from '../api.js';
 import Icon from '../components/Icon.jsx';
 import { Menu, useToast } from '../components/ui.jsx';
 import { ApprovalBanner, RequestApproval } from './drive/Approvals.jsx';
+import { SignatureBanner, SendForSignature } from './docs/Signatures.jsx';
 import { useAuth } from '../App.jsx';
 
 /**
@@ -88,6 +89,7 @@ export function EditorHeader({ icon, file, status, onRename, onShare, menu, extr
     catch (e) { toast(e.message, 'error'); }
   };
   const [requesting, setRequesting] = useState(false);
+  const [signing, setSigning] = useState(false);
   // Locked: nobody can change it (editors can lock; whoever locked it, or the owner, can unlock).
   const { user } = useAuth();
   const canUnlock = file?.locked_at && (file.locked_by === user?.id || file.role === 'owner');
@@ -97,6 +99,7 @@ export function EditorHeader({ icon, file, status, onRename, onShare, menu, extr
   };
   const items = menu && file ? [...menu, '-', { label: `${watching ? '✓ ' : ''}Notify me of changes`, icon: 'bell', onClick: toggleWatch },
     ...(canEdit ? [{ label: 'Request approval…', icon: 'check', onClick: () => setRequesting(true) }] : []),
+    ...(canEdit && icon === 'doc' && !file.locked_at ? [{ label: 'Send for signature…', icon: 'edit', onClick: () => setSigning(true) }] : []),
     ...(canEdit && !file.locked_at ? [{ label: 'Lock (stop changes)', icon: 'lock', onClick: () => setLocked(true) }] : []),
     ...(canUnlock ? [{ label: 'Unlock', icon: 'lock', onClick: () => setLocked(false) }] : [])] : menu;
 
@@ -131,5 +134,7 @@ export function EditorHeader({ icon, file, status, onRename, onShare, menu, extr
     )}
     {file?.id && <ApprovalBanner fileId={file.id} />}
     {requesting && <RequestApproval file={file} onClose={() => setRequesting(false)} />}
+    {file?.id && icon === 'doc' && <SignatureBanner fileId={file.id} me={user} onChanged={() => window.location.reload()} />}
+    {signing && <SendForSignature file={file} onClose={(sent) => { setSigning(false); if (sent) window.location.reload(); }} />}
   </>);
 }

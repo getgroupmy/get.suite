@@ -16,6 +16,7 @@ import { meetRoutes } from './meet.js';
 import { groupRoutes } from './groups.js';
 import noteRoutes from './routes/notes.js';
 import approvalRoutes from './routes/approvals.js';
+import signatureRoutes, { publicSignRoutes } from './routes/signatures.js';
 import takeoutRoutes from './routes/takeout.js';
 import locationRoutes from './routes/location.js';
 import contactRoutes from './routes/contacts.js';
@@ -79,6 +80,7 @@ export function createApp({
   app.use('/api/public/book', publicBookingRoutes());
   app.use('/api/public/brand', brandRoutes());
   app.use('/api/public/forms', publicFormRoutes());
+  app.use('/api/public/sign', publicSignRoutes());
   app.use('/api/public', publicLinkRoutes({ maxUploadBytes }));
   app.use('/api/users', requireAuth, userRoutes());
   app.use('/api/orgs', requireAuth, orgRoutes());
@@ -103,6 +105,7 @@ export function createApp({
   app.use('/api/groups', requireAuth, groupRoutes());
   app.use('/api/notes', requireAuth, noteRoutes());
   app.use('/api/approvals', requireAuth, approvalRoutes());
+  app.use('/api/signatures', requireAuth, signatureRoutes());
   app.use('/api/takeout', requireAuth, takeoutRoutes());
   app.use('/api/location', requireAuth, locationRoutes());
   app.use('/api', (req, res, next) => next(new HttpError(404, 'Not found')));

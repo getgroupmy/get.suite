@@ -721,7 +721,7 @@ function NoteBox({ n, note, onChange, onDone }) {
 }
 
 /** A read-only document (an earlier version), drawn as the editor draws it. */
-function DocPreview({ content, fileId }) {
+export function DocPreview({ content, fileId }) {
   const editor = useEditor({
     editable: false,
     content,
