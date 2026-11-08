@@ -22,6 +22,8 @@ q(`CREATE TABLE IF NOT EXISTS published_files (
   views INTEGER NOT NULL DEFAULT 0
 )`).run();
 const KINDS = ['doc', 'sheet', 'slides'];
+// A company can turn publishing off on its own (Admin → Company settings); pages already published stop showing.
+if (!q('PRAGMA table_info(orgs)').all().some((c) => c.name === 'allow_publish')) q('ALTER TABLE orgs ADD COLUMN allow_publish INTEGER NOT NULL DEFAULT 1').run();
 
 /** The owner's controls: GET /api/publish/:fileId, PUT { on: true | false }. */
 export function publishRoutes() {
@@ -33,12 +35,28 @@ export function publishRoutes() {
     return f;
   };
   const out = (f) => { const p = q('SELECT token, created_at, views FROM published_files WHERE file_id = ?').get(f.id); return p ? { published: true, path: `/pub/${p.token}`, since: p.created_at, views: p.views } : { published: false }; };
+  // Admins: everything the company has published (to review, or stop).
+  r.get('/', (req, res) => {
+    if (!req.user.is_admin) throw forbidden('Only admins see this');
+    res.json(q(`SELECT p.file_id, p.token, p.created_at, p.views, f.name, f.kind, u.name AS owner_name FROM published_files p JOIN files f ON f.id = p.file_id JOIN users u ON u.id = f.owner_id
+                WHERE u.org_id = ? AND f.trashed = 0 ORDER BY p.created_at DESC`).all(req.user.org_id).map(({ token, ...x }) => ({ ...x, path: `/pub/${token}` })));
+  });
+  r.delete('/:fileId', (req, res) => {
+    if (!req.user.is_admin) throw forbidden('Only admins can stop someone else’s published page');
+    const p = q(`SELECT p.file_id, f.name FROM published_files p JOIN files f ON f.id = p.file_id JOIN users u ON u.id = f.owner_id WHERE p.file_id = ? AND u.org_id = ?`).get(String(req.params.fileId), req.user.org_id);
+    if (!p) throw notFound();
+    q('DELETE FROM published_files WHERE file_id = ?').run(p.file_id);
+    audit(req, 'file.unpublish', { target: p.name, details: { by_admin: true } });
+    res.json({ ok: true });
+  });
   r.get('/:fileId', (req, res) => res.json(out(own(req))));
   r.put('/:fileId', (req, res) => {
     const f = own(req);
     if (f.owner_id !== req.user.id) throw forbidden('Only the owner can publish it');
     if (req.body?.on) {
-      if (!q('SELECT allow_links FROM orgs WHERE id = ?').get(f.org_id)?.allow_links) throw forbidden('Your company has turned off sharing with people who have no account');
+      const org = q('SELECT allow_links, allow_publish FROM orgs WHERE id = ?').get(f.org_id);
+      if (!org?.allow_links) throw forbidden('Your company has turned off sharing with people who have no account');
+      if (!org.allow_publish) throw forbidden('Your company has turned off publishing to the web');
       if (!q('SELECT 1 FROM published_files WHERE file_id = ?').get(f.id)) {
         q('INSERT INTO published_files (file_id, token, created_by, created_at) VALUES (?, ?, ?, ?)').run(f.id, crypto.randomBytes(18).toString('base64url'), req.user.id, now());
         audit(req, 'file.publish', { target: f.name });
@@ -51,10 +69,10 @@ export function publishRoutes() {
 
 /** What's published there, if it still may be seen. */
 function published(token) {
-  const p = q(`SELECT p.*, f.name, f.kind, f.updated_at, f.trashed, f.owner_id, u.disabled, o.allow_links, o.name AS org_name
+  const p = q(`SELECT p.*, f.name, f.kind, f.updated_at, f.trashed, f.owner_id, u.disabled, o.allow_links, o.allow_publish, o.name AS org_name
                FROM published_files p JOIN files f ON f.id = p.file_id JOIN users u ON u.id = f.owner_id JOIN orgs o ON o.id = u.org_id
                WHERE p.token = ?`).get(String(token));
-  if (!p || p.trashed || p.disabled || !p.allow_links) throw notFound('Nothing is published at this address (any more)');
+  if (!p || p.trashed || p.disabled || !p.allow_links || !p.allow_publish) throw notFound('Nothing is published at this address (any more)');
   return p;
 }
 

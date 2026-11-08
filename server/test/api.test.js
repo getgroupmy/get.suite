@@ -5516,3 +5516,27 @@ test('publish to the web: the owner publishes a doc, sheet or deck; anyone reads
   assert.equal((await pub(`/${token}`)).status, 404);
   assert.equal((await pub('/nonsense')).status, 404);
 });
+
+test('publish to the web: admins list and stop what the company published, and can turn publishing off', async () => {
+  const pub = (path) => fetch(`${base}/api/public/pub${path}`).then((r) => r.status);
+  const u = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'publisher', domain: 'acme.com', name: 'Pat Publisher', password: 'password123' })).status, 201);
+  await login(u, 'publisher@acme.com');
+  const doc = (await u('POST', '/api/files/new', { kind: 'doc', name: 'Menu' })).body;
+  const path = (await u('PUT', `/api/publish/${doc.id}`, { on: true })).body.path;
+  assert.equal(await pub(path.replace('/pub', '')), 200);
+  assert.equal((await u('GET', '/api/publish')).status, 403, 'admins only');
+  const list = (await owner('GET', '/api/publish')).body;
+  const mine = list.find((x) => x.file_id === doc.id);
+  assert.deepEqual([mine.name, mine.owner_name, mine.path], ['Menu', 'Pat Publisher', path]);
+  // The switch: published pages stop, and nobody can publish while it's off.
+  assert.equal((await owner('PATCH', '/api/orgs/current', { allow_publish: false })).body.allow_publish, false);
+  assert.equal(await pub(path.replace('/pub', '')), 404);
+  assert.equal((await u('PUT', `/api/publish/${doc.id}`, { on: true })).status, 403);
+  await owner('PATCH', '/api/orgs/current', { allow_publish: true });
+  assert.equal(await pub(path.replace('/pub', '')), 200);
+  // An admin stops it.
+  assert.equal((await owner('DELETE', `/api/publish/${doc.id}`)).status, 200);
+  assert.equal(await pub(path.replace('/pub', '')), 404);
+  assert.deepEqual((await u('GET', `/api/publish/${doc.id}`)).body, { published: false });
+});

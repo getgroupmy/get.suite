@@ -400,6 +400,8 @@ The search box at the top looks everywhere at once as you type (two letters or m
 
 **⋮ → Publish to the web…** in a document, spreadsheet or presentation (for its owner) makes a read-only page anyone with its address can see, with no account: a price list, a policy, a timetable, a deck to send round. **Publish** gives the address (**Copy** or **Open** it); the page always shows the latest version and checks for a newer one every minute. Documents show as they read (pictures included, suggestions that weren't accepted left out), spreadsheets as tables of their worked-out values with their formatting (one tab per sheet), presentations slide after slide (skipped slides and speaker notes left out). The dialog says how often it was opened; **Stop publishing** ends it at once. It follows the company's *Links for people without an account* switch, and stops when the file goes to the trash or the owner's account is turned off. Published pages aren't indexed by search engines.
 
+**Admins:** Admin → Company settings → *Links for people without an account* lists everything the company has published (with its owner and how often it was opened), each with **Stop**, and has its own switch, **Let people publish … to the web**: turning it off stops every published page at once and publishing until it's back on (pages come back then). Publishing and stopping are in the activity log.
+
 ## Approvals (Drive)
 
 Ask colleagues to sign off a file (a contract, a press release, a budget): **Request approval…** in its ⋮ menu (in Drive, or in a document, spreadsheet or presentation), pick the reviewers (they need to be able to open it), and add a message and a date it's needed by if you like.

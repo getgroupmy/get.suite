@@ -24,6 +24,7 @@ function describe(org) {
     allow_external: !!org.allow_external,
     allow_links: !!org.allow_links,
     meet_guests: org.meet_guests === undefined ? true : !!org.meet_guests,
+    allow_publish: org.allow_publish === undefined ? true : !!org.allow_publish,
     require_2fa: !!org.require_2fa,
     password_rules: rulesOf(org.id),
     view_history: org.view_history === undefined ? true : !!org.view_history,
@@ -41,6 +42,7 @@ function describe(org) {
 function updateOrg(orgId, body, { asSuper, user }) {
   if (body.name !== undefined) q('UPDATE orgs SET name = ? WHERE id = ?').run(str(body.name, { required: true, name: 'Company name', max: 100 }), orgId);
   if (body.allow_external !== undefined) q('UPDATE orgs SET allow_external = ? WHERE id = ?').run(body.allow_external ? 1 : 0, orgId);
+  if (body.allow_publish !== undefined) q('UPDATE orgs SET allow_publish = ? WHERE id = ?').run(body.allow_publish ? 1 : 0, orgId);
   if (body.meet_guests !== undefined) q('UPDATE orgs SET meet_guests = ? WHERE id = ?').run(body.meet_guests ? 1 : 0, orgId);
   if (body.allow_links !== undefined) q('UPDATE orgs SET allow_links = ? WHERE id = ?').run(body.allow_links ? 1 : 0, orgId);
   if (body.require_2fa !== undefined) {

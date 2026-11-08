@@ -462,6 +462,11 @@ function CompanySettings() {
           <input type="checkbox" checked={org.meet_guests !== false} onChange={(e) => save({ meet_guests: e.target.checked }, e.target.checked ? 'Guests can ask to join meetings' : 'Guests can no longer join meetings')} />
           Let guests without an account ask to join video meetings from the meeting’s link (someone in the meeting lets them in)
         </label>
+        <label className="check">
+          <input type="checkbox" checked={org.allow_publish !== false} onChange={(e) => save({ allow_publish: e.target.checked }, e.target.checked ? 'Publishing to the web is on' : 'Publishing to the web is off: published pages no longer show')} />
+          Let people publish documents, spreadsheets and presentations to the web (read-only pages anyone with the address can see)
+        </label>
+        <PublishedList />
       </div>
       <CompanySignature org={org} save={save} />
       <div className="card stack">
@@ -807,5 +812,25 @@ function CompanySignature({ org, save }) {
       </fieldset>
       <div className="row end"><button className="btn primary" disabled={text === (org.signature_template || '')}>Save signature</button></div>
     </form>
+  );
+}
+
+/** What the company has published to the web, to review or stop. */
+function PublishedList() {
+  const toast = useToast();
+  const [list, setList] = useState(null);
+  const load = () => get('/publish').then(setList).catch(() => setList([]));
+  useEffect(() => { load(); }, []);
+  if (!list?.length) return <p className="muted small" style={{ margin: 0 }}>Nothing is published to the web now.</p>;
+  return (
+    <section className="stack-tight" aria-label="Published to the web">
+      <strong className="small">Published to the web</strong>
+      <ul className="plain-list">
+        {list.map((p) => (
+          <li key={p.file_id} className="row small"><span className="grow"><a href={p.path} target="_blank" rel="noreferrer">{p.name}</a> <span className="muted">· {p.owner_name} · opened {p.views} time{p.views === 1 ? '' : 's'}</span></span>
+            <button type="button" className="btn small" aria-label={`Stop publishing ${p.name}`} onClick={async () => { try { await del(`/publish/${p.file_id}`); toast(`“${p.name}” is no longer published`); load(); } catch (e) { toast(e.message, 'error'); } }}>Stop</button></li>
+        ))}
+      </ul>
+    </section>
   );
 }
