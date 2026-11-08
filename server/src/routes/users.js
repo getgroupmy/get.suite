@@ -336,6 +336,35 @@ export default function userRoutes() {
     res.json({ rows, created: rows.filter((x) => x.created).length, updated: rows.filter((x) => x.updated).length });
   });
 
+  // The same change for several people at once: { ids, action: suspend | restore | signout | department, value }.
+  // Each is checked as for one (not yourself, not the platform owner unless you are it); returns
+  // { done, skipped: [{ name, reason }] }.
+  r.post('/bulk', (req, res) => {
+    const ids = Array.isArray(req.body?.ids) ? [...new Set(req.body.ids.map(String))].slice(0, 500) : [];
+    const action = String(req.body?.action || '');
+    if (!['suspend', 'restore', 'signout', 'department'].includes(action)) throw bad('Unknown action');
+    if (!ids.length) throw bad('Choose people first');
+    const department = action === 'department' ? String(req.body?.value ?? '').trim().slice(0, 100) : null;
+    const done = [], skipped = [];
+    const orgs = new Set();
+    for (const id of ids) {
+      const u = q('SELECT id, org_id, is_super, username, name, disabled FROM users WHERE id = ?').get(id);
+      if (!u || (u.org_id !== req.user.org_id && !req.user.is_super)) { skipped.push({ name: id, reason: 'Not found' }); continue; }
+      if (u.is_super && !req.user.is_super) { skipped.push({ name: u.name, reason: 'Only the platform owner can change this account' }); continue; }
+      if (u.id === req.user.id && ['suspend', 'signout'].includes(action)) { skipped.push({ name: u.name, reason: action === 'suspend' ? 'You cannot suspend yourself' : 'Not your own account (use Settings → Signed-in devices)' }); continue; }
+      if (action === 'suspend') { q('UPDATE users SET disabled = 1 WHERE id = ?').run(u.id); q('DELETE FROM sessions WHERE user_id = ?').run(u.id); }
+      if (action === 'restore') q('UPDATE users SET disabled = 0 WHERE id = ?').run(u.id);
+      if (action === 'signout') q('DELETE FROM sessions WHERE user_id = ?').run(u.id);
+      if (action === 'department') q('UPDATE users SET department = ? WHERE id = ?').run(department || null, u.id);
+      orgs.add(u.org_id);
+      done.push(u.username);
+    }
+    if (['suspend', 'restore'].includes(action)) { for (const o of orgs) syncCompanyGroupAliases(o); scheduleMailConfig(); }
+    for (const o of orgs) sendTo(orgMemberIds(o), { type: 'directory-changed' });
+    if (done.length) audit(req, `user.bulk.${action}`, { target: `${done.length} people`, details: { people: done.slice(0, 50), ...(action === 'department' && { department }) } });
+    res.json({ done: done.length, skipped });
+  });
+
   r.patch('/:id', (req, res) => {
     const u = loadManagedUser(req);
     const self = u.id === req.user.id;

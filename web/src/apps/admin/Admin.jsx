@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { get, post, patch, del, formatBytes } from '../../api.js';
+import { get, post, put, patch, del, formatBytes } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
-import { Avatar, ConfirmModal, Menu, Modal, useToast } from '../../components/ui.jsx';
+import { Avatar, ConfirmModal, Menu, Modal, PromptModal, useToast } from '../../components/ui.jsx';
 import { inactive, lastActiveText } from './lastactive.js';
 import AnnouncementsAdmin from './AnnouncementsAdmin.jsx';
 import GroupsAdmin from './GroupsAdmin.jsx';
@@ -40,6 +40,29 @@ export default function Admin() {
   );
 }
 
+/** Add the chosen people to one of the company's groups (keeping its members). */
+function AddToGroup({ ids, onClose, onDone }) {
+  const toast = useToast();
+  const [groups, setGroups] = useState(null);
+  const [gid, setGid] = useState('');
+  useEffect(() => { get('/groups').then((g) => { setGroups(g); setGid(g[0]?.id || ''); }).catch((e) => toast(e.message, 'error')); }, [toast]);
+  const save = async () => {
+    const g = groups.find((x) => x.id === gid);
+    try {
+      await put(`/groups/${g.id}/members`, { user_ids: [...new Set([...g.members.map((m) => m.id), ...ids])] });
+      toast(`Added to ${g.name}`); onDone();
+    } catch (e) { toast(e.message, 'error'); }
+  };
+  return (
+    <Modal title={`Add ${ids.length} ${ids.length === 1 ? 'person' : 'people'} to a group`} onClose={onClose}
+      footer={<><button className="btn" onClick={onClose}>Cancel</button><button className="btn primary" disabled={!gid} onClick={save}>Add</button></>}>
+      {groups === null ? <p className="muted">Loading…</p> : !groups.length ? <p>There are no groups yet: make one in the Groups tab.</p> : (
+        <label className="field"><span>Group</span><select value={gid} onChange={(e) => setGid(e.target.value)}>{groups.map((g) => <option key={g.id} value={g.id}>{g.name} ({g.members.length})</option>)}</select></label>
+      )}
+    </Modal>
+  );
+}
+
 // ---------------- users of one company ----------------
 function Users({ orgId, setOrgId }) {
   const toast = useToast();
@@ -59,6 +82,18 @@ function Users({ orgId, setOrgId }) {
   }, [me.is_super, orgId]);
 
   const act = (fn, msg) => async () => { try { await fn(); toast(msg); load(); } catch (e) { toast(e.message, 'error'); } };
+  // Several people at once: tick them, then act on all of them.
+  const [picked, setPicked] = useState(new Set());
+  useEffect(() => { setPicked(new Set()); }, [orgId]);
+  const toggle = (id) => setPicked((s0) => { const s = new Set(s0); if (s.has(id)) s.delete(id); else s.add(id); return s; });
+  const bulk = async (action, value) => {
+    try {
+      const r = await post('/users/bulk', { ids: [...picked], action, value });
+      toast(`${r.done} ${r.done === 1 ? 'person' : 'people'} updated${r.skipped.length ? `; skipped ${r.skipped.map((x) => `${x.name} (${x.reason})`).join(', ')}` : ''}`, r.skipped.length ? 'error' : 'info');
+      setPicked(new Set()); load();
+    } catch (e) { toast(e.message, 'error'); }
+  };
+  const shown = users?.filter((u) => !inactiveOnly || inactive(u)) || [];
 
   return <>
     <div className="row wrap">
@@ -69,12 +104,26 @@ function Users({ orgId, setOrgId }) {
       <a className="btn" href={`/api/users/export${qs}`} download><Icon name="download" size={18} /> Export as CSV</a>
       <button className="btn primary" onClick={() => setDialog({ type: 'new' })}><Icon name="plus" size={18} /> Add user</button>
     </div>
+    {picked.size > 0 && (
+      <div className="select-bar" role="toolbar" aria-label="Selected people">
+        <strong>{picked.size} selected</strong>
+        <button className="btn small" onClick={() => setDialog({ type: 'bulk-suspend' })}>Suspend</button>
+        <button className="btn small" onClick={() => bulk('restore')}>Restore</button>
+        <button className="btn small" onClick={() => bulk('signout')}>Sign out everywhere</button>
+        <button className="btn small" onClick={() => setDialog({ type: 'bulk-department' })}>Set department…</button>
+        <button className="btn small" onClick={() => setDialog({ type: 'bulk-group' })}>Add to group…</button>
+        <div className="grow" />
+        <button className="btn small" onClick={() => setPicked(new Set())}>Clear</button>
+      </div>
+    )}
     <table className="files">
-      <thead><tr><th>Name</th><th className="hide-sm">Email address</th><th className="hide-sm">Role</th><th className="hide-sm">Storage</th><th className="hide-sm">Mailbox size</th><th className="hide-sm">Last active</th><th aria-label="Actions" /></tr></thead>
+      <thead><tr><th className="check-col"><input type="checkbox" aria-label="Select everyone shown" checked={shown.length > 0 && shown.every((u) => picked.has(u.id))}
+        onChange={(e) => setPicked(e.target.checked ? new Set(shown.map((u) => u.id)) : new Set())} /></th><th>Name</th><th className="hide-sm">Email address</th><th className="hide-sm">Role</th><th className="hide-sm">Storage</th><th className="hide-sm">Mailbox size</th><th className="hide-sm">Last active</th><th aria-label="Actions" /></tr></thead>
       <tbody>
-        {inactiveOnly && users && !users.some((u) => inactive(u)) && <tr><td colSpan={7} className="muted">Everyone has used their account in the last 90 days.</td></tr>}
+        {inactiveOnly && users && !users.some((u) => inactive(u)) && <tr><td colSpan={8} className="muted">Everyone has used their account in the last 90 days.</td></tr>}
         {users?.filter((u) => !inactiveOnly || inactive(u)).map((u) => (
-          <tr key={u.id} className={u.disabled ? 'dim' : ''}>
+          <tr key={u.id} className={`${u.disabled ? 'dim' : ''} ${picked.has(u.id) ? 'selected' : ''}`}>
+            <td className="check-col"><input type="checkbox" aria-label={`Select ${u.name}`} checked={picked.has(u.id)} onChange={() => toggle(u.id)} /></td>
             <td className="name"><Avatar name={u.name} size={28} userId={u.id} /><span>{u.name}{u.disabled ? ' (disabled)' : ''}</span></td>
             <td className="hide-sm muted">{u.username}</td>
             <td className="hide-sm">{u.is_super ? <span className="pill">Platform owner</span> : u.is_admin ? <span className="pill">Admin</span> : 'User'}
@@ -102,6 +151,14 @@ function Users({ orgId, setOrgId }) {
         ))}
       </tbody>
     </table>
+    {dialog?.type === 'bulk-suspend' && (
+      <ConfirmModal title={`Suspend ${picked.size} ${picked.size === 1 ? 'person' : 'people'}?`} confirm="Suspend"
+        message="They're signed out everywhere and can't sign in (on the web, phones or mail apps) until restored. Their mail keeps arriving and nothing is deleted."
+        onClose={() => setDialog(null)} onConfirm={() => bulk('suspend')} />
+    )}
+    {dialog?.type === 'bulk-department' && <PromptModal title={`Department for ${picked.size} ${picked.size === 1 ? 'person' : 'people'}`} label="Department" confirm="Save"
+      onClose={() => setDialog(null)} onSubmit={async (v) => { await bulk('department', v); setDialog(null); }} />}
+    {dialog?.type === 'bulk-group' && <AddToGroup ids={[...picked]} onClose={() => setDialog(null)} onDone={() => { setDialog(null); setPicked(new Set()); }} />}
     {dialog?.type === 'import' && <ImportUsers orgId={orgId} domains={domains} onClose={() => setDialog(null)} onDone={load} />}
     {dialog?.type === 'new' && <NewUser orgId={orgId} domains={domains} onClose={() => setDialog(null)} onSaved={(addr) => { setDialog(null); toast(`${addr} created`); load(); }} />}
     {dialog?.type === 'password' && <ResetPassword user={dialog.user} onClose={() => setDialog(null)} />}

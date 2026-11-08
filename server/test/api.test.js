@@ -4203,3 +4203,24 @@ test('forms: collecting email addresses on forms for anyone with the link', asyn
   assert.equal(csv.status, 200);
   assert.match(csv.body, /Submitted,Email,Topic[\s\S]*reader@example\.com,AI/);
 });
+
+test('admin: the same change for several people at once', async () => {
+  const mk = async (local, name) => (await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).body.id;
+  const a = await mk('bulka', 'Bea Bulk'), b = await mk('bulkb', 'Ben Bulk');
+  const me = (await owner('GET', '/api/auth/me')).body.user;
+  const bea = client(); await login(bea, 'bulka@acme.com');
+  assert.equal((await bea('POST', '/api/users/bulk', { ids: [b], action: 'suspend' })).status, 403, 'admins only');
+  const dep = (await owner('POST', '/api/users/bulk', { ids: [a, b], action: 'department', value: 'Field sales' })).body;
+  assert.equal(dep.done, 2);
+  assert.equal((await owner('GET', `/api/users/${a}/card`)).body.department, 'Field sales');
+  const sus = (await owner('POST', '/api/users/bulk', { ids: [a, b, me.id], action: 'suspend' })).body;
+  assert.equal(sus.done, 2);
+  assert.deepEqual(sus.skipped.map((x) => x.reason), ['You cannot suspend yourself']);
+  assert.equal((await bea('GET', '/api/auth/me')).status, 401, 'signed out');
+  assert.equal((await bea('POST', '/api/auth/login', { username: 'bulka@acme.com', password: 'password123' })).status >= 400, true, 'cannot sign in');
+  assert.equal((await owner('POST', '/api/users/bulk', { ids: [a, b], action: 'restore' })).body.done, 2);
+  await login(bea, 'bulka@acme.com');
+  assert.equal((await owner('POST', '/api/users/bulk', { ids: [a], action: 'signout' })).body.done, 1);
+  assert.equal((await bea('GET', '/api/auth/me')).status, 401);
+  assert.equal((await owner('POST', '/api/users/bulk', { ids: [a], action: 'explode' })).status, 400);
+});
