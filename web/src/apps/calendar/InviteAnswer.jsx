@@ -30,12 +30,13 @@ export default function InviteAnswer({ token }) {
   const [ev, setEv] = useState(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState(null); // the note sent with the answer (null: as it was)
   useEffect(() => { call('GET', `/${encodeURIComponent(token)}`).then(setEv).catch((e) => setError(e.message)); }, [token]);
   useEffect(() => { if (ev?.title) document.title = ev.title; }, [ev?.title]);
 
   async function answer(status) {
     setBusy(true);
-    try { setEv(await call('POST', `/${encodeURIComponent(token)}/answer`, { status })); } catch (e) { setError(e.message); }
+    try { setEv(await call('POST', `/${encodeURIComponent(token)}/answer`, { status, note: note ?? ev?.note ?? '' })); } catch (e) { setError(e.message); }
     setBusy(false);
   }
 
@@ -61,6 +62,7 @@ export default function InviteAnswer({ token }) {
               <button key={s} type="button" className={`btn ${ev.status === s ? 'primary' : ''}`} aria-pressed={ev.status === s} disabled={busy} onClick={() => answer(s)}>{LABELS[s]}</button>
             ))}
           </div>
+          <input aria-label="Note for the organizer" placeholder="Add a note (optional), then choose your answer" maxLength={300} value={note ?? ev.note ?? ''} onChange={(e) => setNote(e.target.value)} />
           <p className="muted small" aria-live="polite">{DONE[ev.status] ? `${DONE[ev.status]} ${ev.organizer.name} can see your answer, and you can change it here any time.` : `Answering as ${ev.email}.`}</p>
           {error && <p className="error small" role="alert">{error}</p>}
         </div>

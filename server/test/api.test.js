@@ -4224,3 +4224,26 @@ test('admin: the same change for several people at once', async () => {
   assert.equal((await bea('GET', '/api/auth/me')).status, 401);
   assert.equal((await owner('POST', '/api/users/bulk', { ids: [a], action: 'explode' })).status, 400);
 });
+
+test('calendar: a note with an answer reaches the organizer', async () => {
+  const gus = client();
+  await owner('POST', '/api/users', { local: 'rsvpnote', domain: 'acme.com', name: 'Gus Guest', password: 'password123' });
+  await login(gus, 'rsvpnote@acme.com');
+  const at = Date.now() + 3 * 864e5;
+  const ev = (await owner('POST', '/api/events', { title: 'Planning day', start: at, end: at + 36e5, guests: ['rsvpnote@acme.com'] })).body;
+  assert.equal((await gus('POST', `/api/events/${ev.id}/rsvp`, { status: 'yes', note: '  Joining 10   minutes late  ' })).status, 200);
+  const seen = (await owner('GET', `/api/events?from=${at - 864e5}&to=${at + 864e5}`)).body;
+  const mine = (Array.isArray(seen) ? seen : seen.events).find((e) => e.id === ev.id);
+  assert.equal(mine.guests.find((g) => g.email === 'rsvpnote@acme.com').answer_note, 'Joining 10 minutes late');
+  const bell = (await owner('GET', '/api/notifications')).body;
+  const list = Array.isArray(bell) ? bell : bell.items || bell.notifications || [];
+  const n = list.find((x) => x.title === 'Gus Guest answered Yes to “Planning day”');
+  assert.equal(n?.body, 'Joining 10 minutes late');
+  // Answering again without a note keeps it; an empty note clears it.
+  await gus('POST', `/api/events/${ev.id}/rsvp`, { status: 'maybe' });
+  const g1 = (await owner('GET', `/api/events?from=${at - 864e5}&to=${at + 864e5}`)).body;
+  assert.equal((Array.isArray(g1) ? g1 : g1.events).find((e) => e.id === ev.id).guests[0].answer_note, 'Joining 10 minutes late');
+  await gus('POST', `/api/events/${ev.id}/rsvp`, { status: 'yes', note: '' });
+  const g2 = (await owner('GET', `/api/events?from=${at - 864e5}&to=${at + 864e5}`)).body;
+  assert.equal((Array.isArray(g2) ? g2 : g2.events).find((e) => e.id === ev.id).guests[0].answer_note, null);
+});

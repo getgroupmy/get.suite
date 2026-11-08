@@ -631,8 +631,9 @@ function InvitationDialog({ event, onClose, onAnswered }) {
     setReminders(list);
     try { await put(`/events/${event.id}/reminders`, { reminders: list }); } catch (e) { toast(e.message, 'error'); }
   };
+  const [note, setNote] = useState(event.my_note || ''); // goes with the answer, for the organizer
   const answer = async (status) => {
-    try { await post(`/events/${event.id}/rsvp`, { status }); toast(`Answered ${ANSWER_LABELS[status]}`); onAnswered(); } catch (e) { toast(e.message, 'error'); }
+    try { await post(`/events/${event.id}/rsvp`, { status, note }); toast(`Answered ${ANSWER_LABELS[status]}${note.trim() ? ' with a note' : ''}`); onAnswered(); } catch (e) { toast(e.message, 'error'); }
   };
   return (
     <Modal title={event.title} onClose={onClose}>
@@ -654,6 +655,7 @@ function InvitationDialog({ event, onClose, onAnswered }) {
               <button key={s} type="button" className={`btn ${event.my_status === s ? 'primary' : ''}`} aria-pressed={event.my_status === s} onClick={() => answer(s)}>{ANSWER_LABELS[s]}</button>
             ))}
           </div>
+          <input aria-label="Note for the organizer" placeholder="Add a note for the organizer (optional), e.g. “I'll join 10 minutes late”" maxLength={300} value={note} onChange={(e) => setNote(e.target.value)} />
         </div>
       </div>
     </Modal>
@@ -694,7 +696,7 @@ function GuestList({ guests }) {
     <div className="stack" style={{ gap: 4 }}>
       <span className="muted small">{guests.length} guest{guests.length === 1 ? '' : 's'}: {counts.map(([s, n]) => `${n} ${ANSWER_LABELS[s].toLowerCase()}`).join(', ')}</span>
       <ul className="guest-list" aria-label="Guests">
-        {guests.map((g) => <li key={g.email}><span className={`rsvp ${g.status}`} aria-hidden="true" />{g.name || g.email} <span className="muted small">{g.name ? `${g.email} · ` : ''}{g.external ? 'by email · ' : ''}{ANSWER_LABELS[g.status]}</span></li>)}
+        {guests.map((g) => <li key={g.email}><span className={`rsvp ${g.status}`} aria-hidden="true" />{g.name || g.email} <span className="muted small">{g.name ? `${g.email} · ` : ''}{g.external ? 'by email · ' : ''}{ANSWER_LABELS[g.status]}</span>{g.answer_note && <span className="small guest-note"> “{g.answer_note}”</span>}</li>)}
       </ul>
     </div>
   );
@@ -1065,6 +1067,7 @@ function EventDialog({ event, onClose, onSaved, onDuplicate }) {
                 return <li key={g} className={outside ? 'outside' : ''}>{directory.find((d) => d.username === g)?.name || known?.name || g}
                   {outside && <span className="muted small" title="Invited by email: they answer on a web page"> · by email</span>}
                   {known && <span className="muted small"> · {ANSWER_LABELS[known.status]}</span>}
+                  {known?.answer_note && <span className="small guest-note" title="Their note with the answer"> “{known.answer_note}”</span>}
                   <button type="button" className="icon-btn" aria-label={`Remove ${g}`} onClick={() => setGuests(guests.filter((x) => x !== g))}>×</button></li>;
               })}
             </ul>

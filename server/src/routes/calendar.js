@@ -27,9 +27,11 @@ q(`CREATE TABLE IF NOT EXISTS event_guests (
 )`).run();
 q('CREATE INDEX IF NOT EXISTS event_guests_user ON event_guests(user_id)').run();
 // A guest's suggestion of another time (the organizer can take it); gone when the time changes.
-for (const [col, type] of [['proposed_start', 'INTEGER'], ['proposed_end', 'INTEGER'], ['proposal_note', 'TEXT']]) {
+for (const [col, type] of [['proposed_start', 'INTEGER'], ['proposed_end', 'INTEGER'], ['proposal_note', 'TEXT'], ['answer_note', 'TEXT']]) {
   if (!q('PRAGMA table_info(event_guests)').all().some((c) => c.name === col)) q(`ALTER TABLE event_guests ADD COLUMN ${col} ${type}`).run();
 }
+// A note with an answer ("Yes, but 10 minutes late"), for the organizer; people outside the server too.
+const answerNote = (v) => { const n = String(v ?? '').trim().replace(/\s+/g, ' ').slice(0, 300); return n || null; };
 // Guests outside the server: invited by email with a calendar file, answering on a web page.
 q(`CREATE TABLE IF NOT EXISTS event_outside_guests (
   event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
@@ -40,6 +42,7 @@ q(`CREATE TABLE IF NOT EXISTS event_outside_guests (
   PRIMARY KEY (event_id, email)
 )`).run();
 const hasColumn = (t, c) => q(`PRAGMA table_info(${t})`).all().some((x) => x.name === c);
+if (!hasColumn('event_outside_guests', 'answer_note')) q('ALTER TABLE event_outside_guests ADD COLUMN answer_note TEXT').run();
 if (!hasColumn('events', 'sequence')) q('ALTER TABLE events ADD COLUMN sequence INTEGER NOT NULL DEFAULT 0').run(); // bumped when details change
 if (!hasColumn('events', 'tz')) q('ALTER TABLE events ADD COLUMN tz TEXT').run(); // the organizer's time zone, for calendar files
 // Files from Drive attached to an event: [{ id, name, kind, mime }]. Guests are given view access to the
@@ -163,7 +166,7 @@ const attachmentsFor = (ev, userId) => (ev.attachments || []).map((a) => ({ ...a
 // When a series ends, for the range query: its last possible end (null = never, or "after N times").
 const repeatUntil = (e) => (e.rrule ? (e.rrule.until !== undefined ? e.rrule.until + (e.end - e.start) : null) : null);
 
-const guestsOf = (eventId) => q(`SELECT u.id, u.username AS email, u.name, g.status, g.proposed_start, g.proposed_end, g.proposal_note FROM event_guests g JOIN users u ON u.id = g.user_id
+const guestsOf = (eventId) => q(`SELECT u.id, u.username AS email, u.name, g.status, g.proposed_start, g.proposed_end, g.proposal_note, g.answer_note FROM event_guests g JOIN users u ON u.id = g.user_id
                                   WHERE g.event_id = ? ORDER BY u.name`).all(eventId);
 
 const EMAIL_RE = /^[^\s@<>"(),;:\\]+@[a-z0-9.-]+\.[a-z]{2,}$/i;
@@ -202,7 +205,7 @@ function setGuests(eventId, guests) {
   return { added: guests.filter((g) => !before.has(g.id)), removed: [...before.keys()].filter((id) => !want.has(id)) };
 }
 
-const outsideOf = (eventId) => q('SELECT email, status, token FROM event_outside_guests WHERE event_id = ? ORDER BY email').all(eventId);
+const outsideOf = (eventId) => q('SELECT email, status, token, answer_note FROM event_outside_guests WHERE event_id = ? ORDER BY email').all(eventId);
 /** The guest list shown in the calendar: colleagues, then people outside (marked external). */
 const allGuests = (eventId) => [...guestsOf(eventId).map(({ id, ...g }) => g), ...outsideOf(eventId).map(({ token, ...g }) => ({ ...g, name: null, external: true }))];
 
@@ -351,7 +354,7 @@ export default function calendarRoutes() {
     const to = int(req.query.to ?? 8.64e15, 'to');
     // Repeating events count from their first date; the browser expands them in local time.
     // Your own events and the ones you're invited to.
-    const rows = q(`SELECT e.*, g.status AS my_status, o.name AS organizer_name, o.username AS organizer_email
+    const rows = q(`SELECT e.*, g.status AS my_status, g.answer_note AS my_note, o.name AS organizer_name, o.username AS organizer_email
                     FROM events e JOIN users o ON o.id = e.owner_id
                     LEFT JOIN event_guests g ON g.event_id = e.id AND g.user_id = ?
                     WHERE (e.owner_id = ? OR g.user_id IS NOT NULL) AND e.start < ?
@@ -360,10 +363,10 @@ export default function calendarRoutes() {
     const reminders = remindersFor(req.user.id, rows.map((row) => row.id));
     res.json(rows.map((row) => {
       const mine = row.owner_id === req.user.id;
-      const { my_status, organizer_name, organizer_email, ...ev } = row;
+      const { my_status, my_note, organizer_name, organizer_email, ...ev } = row;
       const out = outEvent(ev);
       return { ...out, attachments: attachmentsFor(out, req.user.id), role: mine ? 'organizer' : 'guest', guests: allGuests(row.id), rooms: roomsOf(row.id), reminders: reminders.get(row.id) || [],
-        ...(mine ? {} : { my_status, organizer: { name: organizer_name, email: organizer_email } }) };
+        ...(mine ? {} : { my_status, my_note: my_note || null, organizer: { name: organizer_name, email: organizer_email } }) };
     }));
   });
 
@@ -563,9 +566,13 @@ export default function calendarRoutes() {
   r.post('/:id/rsvp', (req, res) => {
     const status = String(req.body.status || '');
     if (!ANSWERS.includes(status)) throw bad('Answer yes, maybe or no');
-    const ev = q('SELECT owner_id FROM events WHERE id = ?').get(req.params.id);
-    const info = q('UPDATE event_guests SET status = ? WHERE event_id = ? AND user_id = ?').run(status, req.params.id, req.user.id);
+    const ev = q('SELECT owner_id, title FROM events WHERE id = ?').get(req.params.id);
+    const note = req.body.note !== undefined ? answerNote(req.body.note) : undefined;
+    const info = note !== undefined
+      ? q('UPDATE event_guests SET status = ?, answer_note = ? WHERE event_id = ? AND user_id = ?').run(status, note, req.params.id, req.user.id)
+      : q('UPDATE event_guests SET status = ? WHERE event_id = ? AND user_id = ?').run(status, req.params.id, req.user.id);
     if (!ev || !info.changes) throw notFound();
+    if (note) bell([ev.owner_id], { kind: 'invite', title: `${req.user.name || req.user.username} answered ${{ yes: 'Yes', maybe: 'Maybe', no: 'No' }[status]} to “${ev.title}”`, body: note, link: '/calendar', actor: req.user.name });
     touch([ev.owner_id, req.user.id]);
     res.json({ ok: true, status });
   });
@@ -578,14 +585,14 @@ export function publicInviteRoutes() {
   const r = Router();
   r.use((req, res, next) => { res.setHeader('X-Robots-Tag', 'noindex, nofollow'); res.setHeader('Cache-Control', 'private, no-store'); next(); });
   const find = (token) => {
-    const g = q(`SELECT g.email, g.status, g.token, e.*, o.name AS organizer_name, o.username AS organizer_email, o.disabled AS organizer_disabled
+    const g = q(`SELECT g.email, g.status, g.token, g.answer_note, e.*, o.name AS organizer_name, o.username AS organizer_email, o.disabled AS organizer_disabled
                  FROM event_outside_guests g JOIN events e ON e.id = g.event_id JOIN users o ON o.id = e.owner_id WHERE g.token = ?`).get(String(token || ''));
     if (!g || g.organizer_disabled) throw new HttpError(404, 'This invitation is no longer valid. The event may have been cancelled, or you were taken off the guest list.');
     return g;
   };
   const shown = (g) => ({
     title: g.title, start: g.start, end: g.end, all_day: !!g.all_day, location: g.location, description: g.description,
-    rrule: g.rrule ? JSON.parse(g.rrule) : null, when: whenText(outEvent(g), g.tz), email: g.email, status: g.status,
+    rrule: g.rrule ? JSON.parse(g.rrule) : null, when: whenText(outEvent(g), g.tz), email: g.email, status: g.status, note: g.answer_note || null,
     organizer: { name: g.organizer_name, email: g.organizer_email },
   });
 
@@ -595,7 +602,9 @@ export function publicInviteRoutes() {
     const g = find(req.params.token);
     const status = String(req.body.status || '');
     if (!ANSWERS.includes(status)) throw bad('Answer yes, maybe or no');
-    q('UPDATE event_outside_guests SET status = ?, answered_at = ? WHERE token = ?').run(status, Date.now(), g.token);
+    const note = answerNote(req.body.note);
+    q('UPDATE event_outside_guests SET status = ?, answered_at = ?, answer_note = ? WHERE token = ?').run(status, Date.now(), note, g.token);
+    if (note) bell([g.owner_id], { kind: 'invite', title: `${g.email} answered ${{ yes: 'Yes', maybe: 'Maybe', no: 'No' }[status]} to “${g.title}”`, body: note, link: '/calendar', actor: null });
     touch([g.owner_id]);
     res.json(shown({ ...g, status }));
   });

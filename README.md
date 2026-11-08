@@ -425,6 +425,7 @@ Send a file or a whole folder to someone who has no account, such as a client. I
 - **Inviting colleagues:** add people under **Guests** (type an address; suggestions come from your company directory). You can invite anyone you can work with: your own company, and other companies when both allow collaboration.
   - Guests see the event in their calendar, outlined until they answer, and answer **Yes / Maybe / No**. For a repeating event, the answer covers the whole series.
   - When email is set up, they also get an invitation email from you (with the time in your time zone), an "Updated:" email when you change the time, place or details, and a cancellation if you delete the event or remove them.
+  - **A note with the answer:** guests can add a few words when answering (*I'll join 10 minutes late*), on the event or on the answer page for people outside Workspace. The organizer gets a notification with it and sees it beside the guest's answer.
   - You see each answer in the event, for example "3 guests: 2 yes, 1 not answered". Calendars that are open update straight away.
   - Only the organiser can change or delete the event. A guest who says No still sees it, faded.
 - **Inviting people outside Workspace** (clients, suppliers): type their email address under **Guests**; they show as "by email". This needs email to be set up.

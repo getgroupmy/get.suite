@@ -1887,3 +1887,4 @@ tr.shortcut-row.broken .name-text { color: var(--muted, #777); font-style: itali
 .dup-list .dup-group { display: block; padding: 6px 0; }
 .dup-files { list-style: none; margin: 4px 0 0 12px; padding: 0; display: flex; flex-direction: column; gap: 2px; }
 .dup-files li { gap: 8px; }
+.guest-note { font-style: italic; }
