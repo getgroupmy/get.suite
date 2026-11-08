@@ -26,7 +26,8 @@ import { recordSent } from '../othercontacts.js';
 import { parseMailQuery, allOf } from '../mail/searchquery.js';
 import { receiptRequest, buildReceipt } from '../mail/receipt.js';
 import { mimeFor } from '../util.js';
-import { calendarPartOf, readInvite, replyIcs, eventForInvite, saveInvite } from '../mail/invite.js';
+import { calendarPartOf, readInvite, replyIcs, eventForInvite, saveInvite, readReply } from '../mail/invite.js';
+import { recordReply } from '../mail/invitereply.js';
 import { touch as eventsChanged } from './calendar.js';
 
 const PAGE = 50;
@@ -1254,6 +1255,9 @@ function chunk(value, size = 800) {
 function inviteFor(user, p) {
   const text = calendarPartOf(p);
   if (!text) return null;
+  // A guest's answer to one of your invitations: recorded on the event (once), and shown as such.
+  const reply = readReply(text);
+  if (reply) { const r = recordReply(user.id, reply); return r ? { method: 'REPLY', ...r } : null; }
   const mine = identities(user).map((i) => i.address);
   const inv = readInvite(text, mine, user.tz || 'UTC');
   if (!inv || !['REQUEST', 'CANCEL', 'PUBLISH'].includes(inv.method)) return null;

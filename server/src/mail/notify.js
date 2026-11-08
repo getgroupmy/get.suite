@@ -46,6 +46,13 @@ async function unseenCount(client) {
  * FRESH_MS, and not announced already from another folder (e.g. it arrived in the Inbox and was
  * archived straight away). Remembers it, so it is only ever announced once.
  */
+/** Whether a message (its IMAP body structure) has a calendar file in it. */
+export function hasCalendarPart(bs) {
+  if (!bs) return false;
+  if (/^(text\/calendar|application\/ics)$/i.test(bs.type || '')) return true;
+  return (bs.childNodes || []).some(hasCalendarPart);
+}
+
 export function isNewMail(w, m, now = Date.now()) {
   for (const [id, t] of w.announced) if (now - t > FRESH_MS) w.announced.delete(id); // forget old ones
   if (m.flags?.has('\\Seen')) return false;
@@ -91,8 +98,17 @@ async function connectFolder(userId, w, path, conn) {
     if (count <= prevCount) return;
     try {
       const fresh = [];
-      for await (const m of client.fetch(`${Math.max(prevCount + 1, count - 4)}:${count}`, { uid: true, envelope: true, flags: true, internalDate: true })) {
+      for await (const m of client.fetch(`${Math.max(prevCount + 1, count - 4)}:${count}`, { uid: true, envelope: true, flags: true, internalDate: true, bodyStructure: true })) {
         if (isNewMail(w, m)) fresh.push(m);
+      }
+      // A guest's emailed answer to one of your invitations goes on the event as it arrives.
+      for (const m of fresh.filter((x) => hasCalendarPart(x.bodyStructure))) {
+        try {
+          const one = await client.fetchOne(String(m.uid), { source: true }, { uid: true });
+          const [{ simpleParser }, { calendarPartOf, readReply }, { recordReply }] = await Promise.all([import('mailparser'), import('./invite.js'), import('./invitereply.js')]);
+          const reply = readReply(calendarPartOf(await simpleParser(one.source)));
+          if (reply) recordReply(userId, reply);
+        } catch { /* it's recorded when the message is opened */ }
       }
       for (const m of fresh) {
         const from = m.envelope?.from?.[0];

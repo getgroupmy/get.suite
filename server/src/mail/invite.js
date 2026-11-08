@@ -92,3 +92,35 @@ export function saveInvite(userId, inv, answer) {
   });
   return id;
 }
+
+/** A guest's answer to one of your invitations (METHOD:REPLY): { uid, email, name, answer } or null. */
+export function readReply(text) {
+  if (!text || !/\nMETHOD:REPLY/i.test(`\n${String(text).replace(/\r/g, '')}`)) return null;
+  const lines = mainEventLines(text);
+  const uidLine = lines.find((l) => nameOf(l) === 'UID');
+  const att = lines.find((l) => nameOf(l) === 'ATTENDEE' && /;PARTSTAT=/i.test(l));
+  const answer = att && FROM_PARTSTAT[/;PARTSTAT=([A-Z-]+)/i.exec(att)[1].toUpperCase()];
+  if (!uidLine || !att || !answer || !mailtoOf(att)) return null;
+  return { uid: uidLine.slice(uidLine.indexOf(':') + 1).trim(), email: mailtoOf(att), name: cnOf(att), answer };
+}
+
+/**
+ * Record a guest's emailed answer on your event (one of this server's invitations, which you
+ * organise): an outside guest, or a colleague answering from another calendar app. Returns
+ * { event_id, title, start, end, who, answer, changed } or null if it isn't for one of your events.
+ */
+export function applyReply(ownerId, reply, host) {
+  const m = new RegExp(`^(.+)@${String(host).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`).exec(reply?.uid || '');
+  const ev = m && q('SELECT id, title, start, end FROM events WHERE id = ? AND owner_id = ?').get(m[1], ownerId);
+  if (!ev) return null;
+  let changed = false;
+  const outside = q('SELECT status FROM event_outside_guests WHERE event_id = ? AND email = ?').get(ev.id, reply.email);
+  if (outside) {
+    if (outside.status !== reply.answer) { q('UPDATE event_outside_guests SET status = ?, answered_at = ? WHERE event_id = ? AND email = ?').run(reply.answer, Date.now(), ev.id, reply.email); changed = true; }
+  } else {
+    const g = q('SELECT g.user_id, g.status FROM event_guests g JOIN users u ON u.id = g.user_id WHERE g.event_id = ? AND u.username = ? COLLATE NOCASE').get(ev.id, reply.email);
+    if (!g) return null;
+    if (g.status !== reply.answer) { q('UPDATE event_guests SET status = ? WHERE event_id = ? AND user_id = ?').run(reply.answer, ev.id, g.user_id); changed = true; }
+  }
+  return { event_id: ev.id, title: ev.title, start: ev.start, end: ev.end, who: reply.name || reply.email, email: reply.email, answer: reply.answer, changed };
+}

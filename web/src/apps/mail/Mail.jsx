@@ -401,6 +401,19 @@ function InviteCard({ invite, uid, folder, onChange }) {
     } catch (e) { toast(e.message, 'error'); } finally { setBusy(false); }
   };
   const cancelled = invite.method === 'CANCEL';
+  const open = () => navigate('/calendar', { state: { openEvent: { id: invite.event_id, start: invite.start, end: invite.end } } });
+  if (invite.method === 'REPLY') {
+    return (
+      <section className="invite-card" aria-label="Answer to your invitation">
+        <div className="invite-date" aria-hidden="true"><span>{new Date(invite.start).toLocaleDateString([], { month: 'short' })}</span><strong>{new Date(invite.start).getDate()}</strong></div>
+        <div className="grow stack" style={{ gap: 2 }}>
+          <strong>{invite.who} {{ yes: 'accepted', maybe: 'said maybe to', no: 'declined' }[invite.answer]} “{invite.title}”</strong>
+          <span className="small muted">Their answer is on your event.</span>
+          <span className="row small"><button type="button" className="btn small" onClick={open}>See it in Calendar</button></span>
+        </div>
+      </section>
+    );
+  }
   return (
     <section className={`invite-card ${cancelled ? 'cancelled' : ''}`} aria-label="Invitation">
       <div className="invite-date" aria-hidden="true"><span>{new Date(invite.start).toLocaleDateString([], { month: 'short' })}</span><strong>{new Date(invite.start).getDate()}</strong></div>

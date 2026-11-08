@@ -1369,3 +1369,25 @@ test('invitations from another calendar: answered in Mail, put on the calendar, 
   assert.ok(!(await olivia('GET', `/api/events?from=${start - 864e5}&to=${start + 864e5}`)).body.some((e) => e.title === 'Supplier visit'));
   assert.equal((await olivia('POST', `/api/mail/messages/${m.uid}/invite`, { folder: 'INBOX', answer: 'remove' })).status, 400, 'not a cancellation');
 });
+
+test('a guest\'s answer emailed back from their calendar app goes on the event', async () => {
+  const { smtpFor } = await import('../src/mail/imap.js');
+  const { q } = await import('../src/db.js');
+  const { MAIL_HOSTNAME } = await import('../src/mail/config.js');
+  const guest = 'answerer@clients-test.example';
+  const t = Date.now() + 5 * 864e5;
+  const ev = (await olivia('POST', '/api/events', { title: 'Contract review', start: t, end: t + 36e5, guests: [guest], tz: 'UTC' })).body;
+  // Their calendar app's reply, sent through a colleague's mailbox here (it's the calendar file that counts).
+  const relay = q("SELECT * FROM users WHERE username = 'patinviter@acme.com'").get();
+  const ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Other//EN', 'METHOD:REPLY', 'BEGIN:VEVENT', `UID:${ev.id}@${MAIL_HOSTNAME || 'workspace'}`, 'SEQUENCE:0',
+    `DTSTAMP:20261108T120000Z`, 'ATTENDEE;CN=Ann Swerer;PARTSTAT=ACCEPTED:mailto:answerer@clients-test.example', 'END:VEVENT', 'END:VCALENDAR'].join('\r\n');
+  await eventually(async () => { try { await smtpFor(relay).sendMail({ from: 'patinviter@acme.com', to: 'olivia@acme.com', subject: 'Accepted: Contract review', text: 'Accepted', icalEvent: { method: 'REPLY', content: ics } }); return true; } catch { return false; } });
+  const m = await eventually(async () => (await inbox(olivia)).find((x) => x.subject === 'Accepted: Contract review'));
+  const full = (await olivia('GET', `/api/mail/messages/${m.uid}?folder=INBOX`)).body;
+  assert.equal(full.invite.method, 'REPLY');
+  assert.equal(full.invite.who, 'Ann Swerer');
+  assert.equal(full.invite.answer, 'yes');
+  const saved = (await olivia('GET', `/api/events?from=${t - 1}&to=${t + 1}`)).body.find((e) => e.id === ev.id);
+  assert.equal(saved.guests.find((g) => g.email === guest).status, 'yes');
+  assert.ok((await olivia('GET', '/api/notifications')).body.items.some((n) => n.title === 'Ann Swerer accepted “Contract review”'));
+});
