@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import { createPortal } from 'react-dom';
 import { useAuth } from '../../App.jsx';
-import { get, post, put, patch, del, onLive, postText } from '../../api.js';
+import { get, post, put, patch, del, onLive, postText, setCalendarOwner } from '../../api.js';
 import { localToday } from '../tasks/taskmath.js';
 import Icon from '../../components/Icon.jsx';
 import DrivePicker, { openUrl } from '../../components/DrivePicker.jsx';
@@ -58,7 +58,20 @@ function TaskChip({ ev, onDone }) {
 
 const savedView = () => { try { return VIEWS.includes(localStorage.getItem('nw.calView')) ? localStorage.getItem('nw.calView') : 'month'; } catch { return 'month'; } };
 
-export default function Calendar() {
+// Your calendar, or a colleague's that they let you manage (an assistant): the choice is kept for this
+// tab, and Calendar starts afresh on it (events made, changed and deleted there are theirs).
+export default function CalendarPage() {
+  const [managed, setManaged] = useState([]);
+  const [acting, setActing] = useState(() => { try { return sessionStorage.getItem('nw-calendar') || null; } catch { return null; } });
+  useEffect(() => { get('/freebusy/shares').then((s) => setManaged(s.from.filter((u) => u.can_edit))).catch(() => {}); }, []);
+  const known = managed.find((m) => m.id === acting) || null;
+  setCalendarOwner(known ? known.id : null); // before the view's requests below
+  useEffect(() => () => setCalendarOwner(null), []); // leaving Calendar: back to your own
+  const pick = (id) => { try { if (id) sessionStorage.setItem('nw-calendar', id); else sessionStorage.removeItem('nw-calendar'); } catch { /* private mode */ } setActing(id || null); };
+  return <Calendar key={known?.id || 'own'} acting={known} managed={managed} onPick={pick} />;
+}
+
+function Calendar({ acting = null, managed = [], onPick }) {
   const toast = useToast();
   const [view, setViewState] = useState(savedView);
   const [anchor, setAnchor] = useState(() => startOfDay(new Date()));
@@ -239,7 +252,17 @@ export default function Calendar() {
   return (
     <div className="calendar">
       <aside className="subnav">
+        {managed.length > 0 && (
+          <label className="field mailbox-pick"><span className="small muted">Calendar</span>
+            <select aria-label="Calendar" value={acting?.id || ''} onChange={(e) => onPick(e.target.value || null)}>
+              <option value="">My calendar</option>
+              {managed.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+            </select>
+          </label>
+        )}
+        {acting && <div className="banner small" role="status"><strong>{acting.name}</strong>’s calendar: events you add, change or delete here are theirs (they’re told).</div>}
         <button className="btn new-btn" onClick={() => newEvent()}><Icon name="plus" /> Create</button>
+        {!acting && <>
         <button type="button" className="subnav-item" onClick={() => { const d = startOfDay(new Date()).getTime(); setEditing({ title: 'Out of office', kind: 'ooo', start: d, end: d + DAY - 1, all_day: 1, color: '#5f6368', location: '', description: '' }); }}><span aria-hidden="true" style={{ width: 24, textAlign: 'center' }}>🌴</span><span className="grow">Out of office…</span></button>
         <button type="button" className="subnav-item" onClick={() => { const t = new Date(); t.setMinutes(0, 0, 0); t.setHours(t.getHours() + 1); setEditing({ title: 'Focus time', kind: 'focus', start: t.getTime(), end: t.getTime() + 2 * 36e5, all_day: 0, color: '#7b61ff', location: '', description: '' }); }}><span aria-hidden="true" style={{ width: 24, textAlign: 'center' }}>🎯</span><span className="grow">Focus time…</span></button>
         <button type="button" className="subnav-item" onClick={() => setInsightsOpen(true)}><span aria-hidden="true" style={{ width: 24, textAlign: 'center' }}>📊</span><span className="grow">Time insights</span></button>
@@ -250,6 +273,7 @@ export default function Calendar() {
         <button type="button" className="subnav-item" onClick={() => importInput.current.click()}><Icon name="upload" /><span className="grow">Import (.ics)</span></button>
         <input ref={importInput} type="file" accept=".ics,text/calendar" hidden aria-label="Calendar file to import" onChange={(e) => { importIcs(e.target.files[0]); e.target.value = ''; }} />
         <a className="subnav-item" href="/api/events/export" download><Icon name="download" /><span className="grow">Export (.ics)</span></a>
+        </>}
         <div className="subnav-title">Other calendars</div>
         {others.map((o) => (
           <div key={o.id} className="row other-cal"><span className="dot" style={{ background: o.color }} /><span className="grow ellipsis small">{o.name}</span>
@@ -819,11 +843,14 @@ function ShareCalendarDialog({ people, onClose }) {
   const toast = useToast();
   const [shares, setShares] = useState(null);
   useEffect(() => { get('/freebusy/shares').then(setShares).catch(() => setShares({ with: [], from: [] })); }, []);
-  const save = async (ids) => {
-    try { setShares(await put('/freebusy/shares', { users: ids })); } catch (e) { toast(e.message, 'error'); }
+  const save = async (ids, editors = (shares?.with || []).filter((u) => u.can_edit && ids.includes(u.id)).map((u) => u.id)) => {
+    // Ticks change at once; the server's answer follows (and wins).
+    if (shares) setShares({ ...shares, with: shares.with.filter((u) => ids.includes(u.id)).map((u) => ({ ...u, can_edit: editors.includes(u.id) })) });
+    try { setShares(await put('/freebusy/shares', { users: ids, editors })); } catch (e) { toast(e.message, 'error'); get('/freebusy/shares').then(setShares).catch(() => {}); }
   };
   if (!shares) return null;
   const ids = shares.with.map((u) => u.id);
+  const editors = shares.with.filter((u) => u.can_edit).map((u) => u.id);
   return (
     <Modal title="Share my calendar" onClose={onClose} footer={<button type="button" className="btn" onClick={onClose}>Done</button>}>
       <div className="stack">
@@ -832,6 +859,7 @@ function ShareCalendarDialog({ people, onClose }) {
           <ul className="group-people" aria-label="Sees your event details">
             {shares.with.map((u) => (
               <li key={u.id} className="row"><span className="grow">{u.name}</span>
+                <label className="check small"><input type="checkbox" checked={u.can_edit} onChange={(e) => save(ids, e.target.checked ? [...editors, u.id] : editors.filter((x) => x !== u.id))} aria-label={`${u.name} can make and change events`} /> Can make and change events</label>
                 <button type="button" className="link-btn small" aria-label={`Stop sharing with ${u.name}`} onClick={() => save(ids.filter((x) => x !== u.id))}>Remove</button></li>
             ))}
           </ul>
@@ -840,7 +868,8 @@ function ShareCalendarDialog({ people, onClose }) {
           <option value="">+ Share with a colleague…</option>
           {people.filter((p) => !ids.includes(p.id)).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
-        {shares.from.length > 0 && <p className="muted small" style={{ margin: 0 }}>Sharing theirs with you: {shares.from.map((u) => u.name).join(', ')}. Add them under <strong>Other calendars</strong> to see their events.</p>}
+        <p className="muted small" style={{ margin: 0 }}>With <strong>Can make and change events</strong> (an assistant), they can also open your calendar (Calendar at the top of the sidebar) and add, change and delete events on it, as you; you're told each time.</p>
+        {shares.from.length > 0 && <p className="muted small" style={{ margin: 0 }}>Sharing theirs with you: {shares.from.map((u) => `${u.name}${u.can_edit ? ' (you can manage it)' : ''}`).join(', ')}. Add them under <strong>Other calendars</strong> to see their events.</p>}
       </div>
     </Modal>
   );

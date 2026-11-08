@@ -3712,6 +3712,44 @@ test('calendar sharing: colleagues you choose see what your events are, others o
   assert.equal((await fb(b)).busy[0].title, undefined);
 });
 
+test('calendar editors: someone given "can edit" makes, changes and deletes events on your calendar, as you; others can’t', async () => {
+  const boss = client(), pa = client(), viewer = client();
+  const ids = {};
+  for (const [local, name] of [['ceb', 'Bea Boss'], ['cep', 'Pat Assistant'], ['cev', 'Val Viewer']]) ids[local] = (await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).body.id;
+  await login(boss, 'ceb@acme.com'); await login(pa, 'cep@acme.com'); await login(viewer, 'cev@acme.com');
+  const sh = (await boss('PUT', '/api/freebusy/shares', { users: [ids.cep, ids.cev], editors: [ids.cep, 'stranger'] })).body;
+  assert.deepEqual(sh.with.map((u) => [u.name, u.can_edit]), [['Pat Assistant', true], ['Val Viewer', false]]);
+  assert.deepEqual((await pa('GET', '/api/freebusy/shares')).body.from.map((u) => [u.name, u.can_edit]), [['Bea Boss', true]]);
+  assert.ok(JSON.stringify((await pa('GET', '/api/notifications')).body).includes('Bea Boss lets you manage their calendar'));
+  const as = { headers: { 'x-calendar': ids.ceb } };
+  const now = Date.now();
+  // Pat adds an event to Bea's calendar: it's Bea's (Bea organises it), not Pat's.
+  const made = await pa('POST', '/api/events', { title: 'Board meeting', start: now + 36e5, end: now + 72e5 }, as);
+  assert.equal(made.status, 201, JSON.stringify(made.body));
+  const mine = (await boss('GET', `/api/events?from=${now}&to=${now + 864e5}`)).body;
+  assert.deepEqual(mine.filter((e) => e.title === 'Board meeting').map((e) => e.role), ['organizer']);
+  assert.ok(!(await pa('GET', `/api/events?from=${now}&to=${now + 864e5}`)).body.some((e) => e.title === 'Board meeting'), 'not on Pat’s own calendar');
+  assert.ok((await pa('GET', `/api/events?from=${now}&to=${now + 864e5}`, undefined, as)).body.some((e) => e.title === 'Board meeting'), 'on Bea’s, seen by Pat');
+  assert.ok(JSON.stringify((await boss('GET', '/api/notifications')).body).includes('Pat Assistant added “Board meeting” on your calendar'));
+  // Changing and deleting it.
+  const id = mine.find((e) => e.title === 'Board meeting').id;
+  assert.equal((await pa('PATCH', `/api/events/${id}`, { title: 'Board meeting (room 2)' }, as)).status, 200);
+  assert.equal((await boss('GET', `/api/events?from=${now}&to=${now + 864e5}`)).body.find((e) => e.id === id).title, 'Board meeting (room 2)');
+  // A viewer can't; nor can anyone without a share; nor other things (her settings, feeds, sharing).
+  assert.equal((await viewer('POST', '/api/events', { title: 'x', start: now, end: now + 1 }, { headers: { 'x-calendar': ids.ceb } })).status, 404);
+  assert.equal((await owner('GET', '/api/events', undefined, { headers: { 'x-calendar': ids.ceb } })).status, 404);
+  assert.equal((await pa('POST', '/api/events/import', 'BEGIN:VCALENDAR', { ...as, raw: true })).status, 400);
+  assert.deepEqual((await pa('GET', '/api/events/feeds', undefined, as)).body, []);
+  assert.equal((await pa('DELETE', `/api/events/${id}`, undefined, as)).status, 200);
+  assert.ok(!(await boss('GET', `/api/events?from=${now}&to=${now + 864e5}`)).body.some((e) => e.id === id));
+  const log = JSON.stringify((await owner('GET', '/api/audit?limit=100')).body);
+  assert.match(log, /calendar\.editor/);
+  assert.match(log, /calendar\.added_for/);
+  // Taken back: no more.
+  await boss('PUT', '/api/freebusy/shares', { users: [ids.cep], editors: [] });
+  assert.equal((await pa('GET', '/api/events', undefined, as)).status, 404);
+});
+
 test('sharing until a date: access ends by itself and the owner is told', async () => {
   const own = client(); const tmp = client();
   const ids = {};

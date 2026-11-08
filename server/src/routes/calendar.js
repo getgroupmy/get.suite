@@ -1,3 +1,6 @@
+import { userById } from '../auth.js';
+import { canEditCalendar } from '../calshare.js';
+import { audit } from '../audit.js';
 import { notify as bell } from '../notifications.js';
 import { Router } from 'express';
 import { expand } from '../calmath.js';
@@ -361,6 +364,31 @@ export function focusUntil(userId, t = Date.now()) {
 
 export default function calendarRoutes() {
   const r = Router();
+
+  // A colleague's calendar they let you manage (x-calendar: their id): seeing, making, changing and
+  // deleting their events, as them. Everything else stays your own. They're told what changed.
+  const ON_THEIRS = [['GET', /^\/$/], ['GET', /^\/search$/], ['GET', /^\/feeds$/], ['POST', /^\/$/], ['PATCH', /^\/[\w-]+$/], ['DELETE', /^\/[\w-]+$/]];
+  r.use((req, res, next) => {
+    const id = req.get('x-calendar');
+    if (!id || id === req.user.id) return next();
+    const owner = userById(id);
+    if (!owner || owner.org_id !== req.user.org_id || !canEditCalendar(owner.id, req.user.id)) return next(new HttpError(404, 'Calendar not found'));
+    if (!ON_THEIRS.some(([m, re]) => m === req.method && re.test(req.path))) return next(bad('That isn’t available on a colleague’s calendar'));
+    if (req.path === '/feeds') return res.json([]); // their subscriptions are theirs
+    const by = req.user;
+    req.calendarDelegate = { id: by.id, name: by.name };
+    req.user = owner;
+    if (req.method !== 'GET') {
+      const what = req.method === 'POST' ? 'added' : req.method === 'DELETE' ? 'deleted' : 'changed';
+      const title = req.method === 'DELETE' ? q('SELECT title FROM events WHERE id = ?').get(req.path.slice(1))?.title : req.body?.title;
+      res.on('finish', () => {
+        if (res.statusCode >= 300) return;
+        bell([owner.id], { kind: 'invite', title: `${by.name} ${what} ${title ? `“${title}”` : 'an event'} on your calendar`, body: null, link: '/calendar', actor: by.name });
+        audit(req, `calendar.${what}_for`, { target: `${owner.username}: ${title || ''}`, actor: by, org: by.org_id });
+      });
+    }
+    next();
+  });
 
   // Events overlapping [from, to)
   r.get('/', (req, res) => {

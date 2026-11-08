@@ -21,11 +21,16 @@ const OWN_MAIL = /^\/mail\/(status|labels|signatures|templates|unread|shared-unr
 /** ?mailbox=… for links (attachments) when a shared mailbox is open. */
 export const mailboxParam = () => (sharedMailbox ? `&mailbox=${encodeURIComponent(sharedMailbox)}` : '');
 
+// A colleague's calendar you manage, open in Calendar: event requests go to it (x-calendar).
+let calendarOwner = null;
+export const setCalendarOwner = (id) => { calendarOwner = id || null; };
+
 /** opts.mailbox: the mailbox to use (undefined: the one open now; null: your own) — for a send that may happen after Mail has moved on. */
 export async function api(method, url, body, opts = {}) {
   const box = opts.mailbox !== undefined ? opts.mailbox : sharedMailbox;
   const headers = { ...HEADERS, 'x-user-idle': String(idleMs()), ...(body !== undefined && { 'content-type': 'application/json' }),
-    ...(box && url.startsWith('/mail/') && !(method === 'GET' && OWN_MAIL.test(url)) && { 'x-mailbox': box }) };
+    ...(box && url.startsWith('/mail/') && !(method === 'GET' && OWN_MAIL.test(url)) && { 'x-mailbox': box }),
+    ...(calendarOwner && /^\/events(\/|\?|$)/.test(url) && { 'x-calendar': calendarOwner }) };
   const res = await fetch(`/api${url}`, {
     method,
     credentials: 'same-origin',

@@ -117,6 +117,12 @@ function userFromApiToken(req) {
   return userOf(row);
 }
 
+/** A person as requireAuth gives them (their company's settings included), or null when they're disabled or gone. */
+export function userById(id) {
+  const row = q(`SELECT ${USER_COLUMNS} FROM users u JOIN orgs o ON o.id = u.org_id WHERE u.id = ? AND u.disabled = 0`).get(String(id));
+  return row ? userOf(row) : null;
+}
+
 function userOf(row) {
   return {
     id: row.id, username: row.username, email: row.username, name: row.name,

@@ -2,6 +2,7 @@
 // see the free times in your bookable hours (your events, repeating ones included, and invitations
 // you haven't declined count as busy), pick one, and leave a name and email. The booking goes on
 // your calendar with them as a guest, and they get the invitation by email.
+import { audit } from '../audit.js';
 import { notify as bell } from '../notifications.js';
 import { Router } from 'express';
 import crypto from 'node:crypto';
@@ -215,7 +216,7 @@ export function freeBusyRoutes() {
 
   // Calendar sharing: { with: [people you share yours with], from: [people who share theirs with you] }.
   r.get('/shares', (req, res) => res.json(sharesOf(req.user.id)));
-  // Share yours with exactly these colleagues: { users: [ids] }. Newly added ones get a notification.
+  // Share yours with exactly these colleagues: { users: [ids], editors: [ids of them who can make and change events] }. Newly added ones get a notification.
   r.put('/shares', (req, res) => {
     const ids = [...new Set((Array.isArray(req.body?.users) ? req.body.users : []).map(String))].filter((x) => x !== req.user.id);
     if (ids.length > 100) throw bad('At most 100 people');
@@ -223,7 +224,12 @@ export function freeBusyRoutes() {
       const u = q('SELECT org_id FROM users WHERE id = ? AND disabled = 0').get(id);
       if (!u || u.org_id !== req.user.org_id) throw bad('You can share your calendar with people in your company');
     }
-    const { added, removed } = setShares(req.user.id, ids);
+    const editors = (Array.isArray(req.body?.editors) ? req.body.editors : []).map(String).filter((x) => ids.includes(x));
+    const editorsBefore = new Set(sharesOf(req.user.id).with.filter((x) => x.can_edit).map((x) => x.id));
+    const { added, removed } = setShares(req.user.id, ids, editors);
+    const newEditors = editors.filter((x) => !editorsBefore.has(x));
+    if (newEditors.length) bell(newEditors, { kind: 'invite', title: `${req.user.name} lets you manage their calendar`, body: 'Pick it under Calendar at the top of the Calendar sidebar to add and change their events.', link: '/calendar', actor: req.user.name });
+    for (const id of newEditors) audit(req, 'calendar.editor', { target: q('SELECT username FROM users WHERE id = ?').get(id)?.username });
     if (added.length) bell(added, { kind: 'invite', title: `${req.user.name} shared their calendar with you`, body: 'See what their events are: Calendar → See a colleague’s calendar…', link: '/calendar', actor: req.user.name });
     sendTo([req.user.id, ...ids, ...removed], { type: 'calendar-shares' }); // their views of yours change
     res.json(sharesOf(req.user.id));
