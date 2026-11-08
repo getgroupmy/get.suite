@@ -3935,3 +3935,24 @@ test('protected sheet ranges: a live change to one from someone not allowed is r
   assert.equal(b.doc.getArray('sheets').get(0).get('cells').get('A2'), undefined, 'nobody else got it');
   b.ws.close();
 });
+
+test('forms: response validation is kept with the question and checked on submit', async () => {
+  const made = (await owner('POST', '/api/forms', { title: 'Sign-up' })).body;
+  const f = (await owner('PUT', `/api/forms/${made.id}`, { audience: 'public', questions: [
+    { id: 'age', type: 'short', title: 'Age', required: true, check: { kind: 'number', op: 'between', a: 18, b: 99, msg: 'Adults only' } },
+    { id: 'mail', type: 'short', title: 'Email', check: { kind: 'text', op: 'email' } },
+    { id: 'days', type: 'checkbox', title: 'Days', options: ['Mon', 'Tue', 'Wed'], check: { kind: 'count', op: 'atmost', a: 2 } },
+    { id: 'half', type: 'short', title: 'Unfinished rule', check: { kind: 'number', op: 'gt', a: '' } },
+  ] })).body;
+  assert.deepEqual(f.questions[0].check, { kind: 'number', op: 'between', a: 18, b: 99, msg: 'Adults only' });
+  assert.equal(f.questions[3].check, undefined, 'an unfinished rule is left out');
+  const anon = client();
+  assert.equal((await anon('GET', `/api/public/forms/${f.token}`)).body.questions[1].check.op, 'email');
+  const send = (answers) => anon('POST', `/api/public/forms/${f.token}`, { answers });
+  const r1 = await send({ age: '12' });
+  assert.equal(r1.status, 400);
+  assert.equal(r1.body.error, 'Age: Adults only');
+  assert.equal((await send({ age: '30', mail: 'nope' })).body.error, 'Email: Enter an email address');
+  assert.equal((await send({ age: '30', days: ['Mon', 'Tue', 'Wed'] })).body.error, 'Days: Choose at most 2');
+  assert.equal((await send({ age: '30', mail: 'a@b.co', days: ['Tue'] })).status, 201);
+});

@@ -1,5 +1,6 @@
 // The page people fill a form in on (/f/<token>). Company forms need the visitor signed in to that
 // company (they can sign in right here); "anyone with the link" forms need nothing.
+import { checkProblem } from './formcheck.js';
 import { useEffect, useState } from 'react';
 import { sectionsOf, nextPage } from './formmath.js';
 
@@ -33,7 +34,7 @@ export default function FormRespond({ token, onSignIn }) {
   const after = form ? nextPage(pages, Math.min(page, pages.length - 1), answers) : 0;
   const submit = async (e) => {
     e.preventDefault();
-    const need = (pages[page]?.items || []).filter((q) => q.required && empty(answers[q.id])).map((q) => q.id);
+    const need = (pages[page]?.items || []).filter((q) => (q.required && empty(answers[q.id])) || checkProblem(q.check, answers[q.id])).map((q) => q.id);
     if (!need.length && after < pages.length) { setTrail([...trail, after]); setMissing([]); window.scrollTo(0, 0); return; } // Next
     setMissing(need);
     if (need.length) { document.getElementById(`q-${need[0]}`)?.scrollIntoView({ block: 'center' }); return; }
@@ -98,10 +99,12 @@ export default function FormRespond({ token, onSignIn }) {
 }
 
 function Question({ q, token, value, onChange, missing }) {
+  const [touched, setTouched] = useState(false); // typed answers are checked once you leave the box
   const title = <>{q.title || 'Untitled question'}{q.required && <span className="req" aria-hidden="true"> *</span>}</>;
   const help = q.help && <span className="muted small form-help">{q.help}</span>;
-  const err = missing && <span className="error small" role="alert">This question needs an answer</span>;
-  const cls = `form-fill-q ${missing ? 'missing' : ''}`;
+  const problem = (touched || missing || q.type === 'checkbox') && checkProblem(q.check, value);
+  const err = problem ? <span className="error small" role="alert">{problem}</span> : missing && <span className="error small" role="alert">This question needs an answer</span>;
+  const cls = `form-fill-q ${missing || problem ? 'missing' : ''}`;
   const label = `${q.title || 'Untitled question'}${q.required ? ' (required)' : ''}`;
   if (q.type === 'file') return <FileQuestion q={q} token={token} value={value || []} onChange={onChange} title={title} help={help} err={err} cls={cls} label={label} />;
   if (q.type === 'choice' || q.type === 'checkbox' || q.type === 'scale') {
@@ -131,12 +134,12 @@ function Question({ q, token, value, onChange, missing }) {
   return (
     <label id={`q-${q.id}`} className={`field ${cls}`}>
       <span className="form-fill-title">{title}</span>{help}
-      {q.type === 'paragraph' ? <textarea rows={4} maxLength={5000} aria-label={label} value={value || ''} onChange={(e) => onChange(e.target.value)} />
+      {q.type === 'paragraph' ? <textarea rows={4} maxLength={5000} aria-label={label} value={value || ''} onChange={(e) => onChange(e.target.value)} onBlur={() => setTouched(true)} />
         : q.type === 'dropdown' ? (
           <select aria-label={label} value={value || ''} onChange={(e) => onChange(e.target.value)}>
             <option value="">Choose</option>{q.options.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
-        ) : <input type={q.type === 'date' ? 'date' : 'text'} maxLength={500} aria-label={label} value={value || ''} onChange={(e) => onChange(e.target.value)} />}
+        ) : <input type={q.type === 'date' ? 'date' : 'text'} inputMode={q.check?.kind === 'number' ? 'decimal' : q.check?.op === 'email' ? 'email' : undefined} maxLength={500} aria-label={label} value={value || ''} onChange={(e) => onChange(e.target.value)} onBlur={() => setTouched(true)} />}
       {err}
     </label>
   );

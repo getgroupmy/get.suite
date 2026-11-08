@@ -7,6 +7,7 @@ import Icon from '../../components/Icon.jsx';
 import { ConfirmModal, Empty, Menu, useToast } from '../../components/ui.jsx';
 import { useAuth } from '../../App.jsx';
 import { TYPES, HAS_OPTIONS, newId, retype, nextOption, summarize, percent } from './formmath.js';
+import { CHECKS, OPS, KIND_NAMES, cleanCheck } from './formcheck.js';
 
 export default function Forms() {
   const { id } = useParams();
@@ -164,6 +165,39 @@ function AnswerKey({ q, n, onChange }) {
   );
 }
 
+/** Response validation: the rule an answer must follow (formcheck.js), and the message people see. */
+function CheckEditor({ q, n, onChange }) {
+  const rule = q.check;
+  const kinds = CHECKS[q.type];
+  const set = (patch) => onChange({ ...rule, ...patch });
+  let problem = null;
+  if (rule) { try { cleanCheck(q.type, rule); } catch (e) { problem = e.message; } }
+  const numeric = rule && !['isnum', 'whole', 'email', 'url', 'contains', 'notcontains', 'matches', 'notmatches'].includes(rule.op);
+  const texty = rule && ['contains', 'notcontains', 'matches', 'notmatches'].includes(rule.op);
+  return (
+    <div className="form-check stack-tight" role="group" aria-label={`Response validation for question ${n}`}>
+      <label className="check small"><input type="checkbox" checked={!!rule} onChange={(e) => onChange(e.target.checked ? { kind: kinds[0], op: OPS[kinds[0]][0][0] } : undefined)} /> Response validation</label>
+      {rule && (
+        <div className="row wrap small">
+          {kinds.length > 1 && (
+            <select aria-label={`Kind of rule for question ${n}`} value={rule.kind} onChange={(e) => onChange({ kind: e.target.value, op: OPS[e.target.value][0][0], ...(rule.msg && { msg: rule.msg }) })}>
+              {kinds.map((k) => <option key={k} value={k}>{KIND_NAMES[k]}</option>)}
+            </select>
+          )}
+          <select aria-label={`Rule for question ${n}`} value={rule.op} onChange={(e) => set({ op: e.target.value })}>
+            {OPS[rule.kind].map(([o, label]) => <option key={o} value={o}>{label}</option>)}
+          </select>
+          {numeric && <input type="number" aria-label={`Value for question ${n}`} style={{ width: 90 }} value={rule.a ?? ''} onChange={(e) => set({ a: e.target.value })} />}
+          {numeric && /between/.test(rule.op) && <>and <input type="number" aria-label={`Second value for question ${n}`} style={{ width: 90 }} value={rule.b ?? ''} onChange={(e) => set({ b: e.target.value })} /></>}
+          {texty && <input aria-label={`${rule.kind === 'pattern' ? 'Pattern' : 'Text'} for question ${n}`} placeholder={rule.kind === 'pattern' ? '^[A-Z]{2}[0-9]{4}$' : 'Text'} maxLength={200} value={rule.a ?? ''} onChange={(e) => set({ a: e.target.value })} />}
+          <input className="grow" aria-label={`Error message for question ${n}`} placeholder="Message when it doesn't fit (optional)" maxLength={200} value={rule.msg || ''} onChange={(e) => set({ msg: e.target.value })} />
+        </div>
+      )}
+      {problem && <p className="error small" role="alert" style={{ margin: 0 }}>{problem}. Until then the rule isn't used.</p>}
+    </div>
+  );
+}
+
 function QuestionsTab({ form, edit }) {
   const qs = form.questions;
   const setQs = (next) => edit({ questions: next });
@@ -243,6 +277,7 @@ function QuestionsTab({ form, edit }) {
             <label className="row small">People can send up to <select aria-label={`Files for question ${i + 1}`} value={q.max_files || 1} onChange={(e) => change(i, { max_files: Number(e.target.value) })}>{[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n}</option>)}</select> file{(q.max_files || 1) === 1 ? '' : 's'}, 10 MB each. They go into a “(File uploads)” folder in {form.owner?.name ? `${form.owner.name}’s` : 'your'} Drive.</label>
           )}
           {form.quiz && <AnswerKey q={q} n={i + 1} onChange={(patch) => change(i, patch)} />}
+          {CHECKS[q.type] && <CheckEditor q={q} n={i + 1} onChange={(check) => change(i, { check })} />}
           {(q.type === 'short' || q.type === 'paragraph' || q.type === 'date') && <p className="muted small form-q-sample">{q.type === 'date' ? 'They pick a date' : q.type === 'short' ? 'Short answer text' : 'Long answer text'}</p>}
           <div className="row form-q-foot">
             <label className="check grow"><input type="checkbox" checked={q.required} onChange={(e) => change(i, { required: e.target.checked })} /> Required</label>

@@ -3,6 +3,7 @@ import { shownQuestions } from '../formpath.js';
 // (/f/<token>) that people in the company (signed in) or anyone can fill in, and reads the answers:
 // a summary per question, each response, a CSV download, or a copy in a new spreadsheet in Drive.
 // Mounted at /api/forms (owner) and /api/public/forms (people filling it in).
+import { CHECKS, cleanCheck, checkProblem } from '../formcheck.js';
 import { Router } from 'express';
 import crypto from 'node:crypto';
 import { q, tx } from '../db.js';
@@ -105,6 +106,8 @@ export function cleanQuestions(list) {
       if (!out.options.length) out.options = ['Option 1'];
     }
     if (type === 'section') { delete out.required; return out; } // a new page: its title and help only
+    // Response validation; a rule that isn't finished yet (no number typed) is kept out until it is.
+    if (CHECKS[type]) { try { const c = cleanCheck(type, raw?.check); if (c) out.check = c; } catch {} }
     if (type === 'file') out.max_files = Math.min(MAX_FILES, Math.max(1, Math.round(Number(raw?.max_files)) || 1)); // up to this many files
     if (type === 'scale') {
       out.max = [5, 10].includes(Number(raw?.max)) ? Number(raw.max) : 5;
@@ -195,6 +198,8 @@ export function checkAnswers(questions, answers) {
       if (!a) a = undefined;
     }
     if (a === undefined) { if (qu.required) throw bad(`${name}: this question needs an answer`); continue; }
+    const problem = checkProblem(qu.check, a);
+    if (problem) throw bad(`${name}: ${problem}`);
     out[qu.id] = a;
   }
   return out;
