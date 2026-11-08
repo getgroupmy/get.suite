@@ -12,7 +12,7 @@ import { EditorHeader } from '../editorCommon.jsx';
 import { CommentsPanel, useComments } from '../comments.jsx';
 import { ChartCard, ChartDialog } from './SheetCharts.jsx';
 import { dataRegion, rangeText, parseRange } from './charts.js';
-import { applyStructure, adjustKey, sortRange, looksLikeHeader } from './structure.js';
+import { applyStructure, adjustKey, sortRange, looksLikeHeader, adjustOtherSheets, renameSheetRefs } from './structure.js';
 import { removeDuplicates, splitColumn } from './data.js';
 import { DedupeDialog, SplitDialog } from './SheetData.jsx';
 import { NamesDialog } from './SheetNames.jsx';
@@ -38,7 +38,7 @@ import { SheetFind } from './SheetFind.jsx';
 
 const SEL_COLORS = ['#1a73e8', '#d93025', '#188038', '#e37400', '#8430ce', '#00796b', '#c2185b', '#5f6368'];
 const colorFor = (id) => SEL_COLORS[[...String(id)].reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) >>> 0, 7) % SEL_COLORS.length];
-import { createEvaluator, display, colName, cellKey, parseRef, shiftFormula } from './formula.js';
+import { createEvaluator, bookEvaluator, display, colName, cellKey, parseRef, shiftFormula } from './formula.js';
 import { NUMBER_FORMATS, CURRENCIES, DATE_STYLES, BORDERS, borderFor, decimals, formatNumber, cellStyle, mergeFormat } from './cellformat.js';
 
 const TEXT_COLORS = [['', 'Automatic'], ['#c5221f', 'Red'], ['#e37400', 'Orange'], ['#188038', 'Green'], ['#1a73e8', 'Blue'], ['#8430ce', 'Purple'], ['#5f6368', 'Grey']];
@@ -143,7 +143,8 @@ export default function SheetEditor() {
     if (top.join() !== stick.top.join() || left.join() !== stick.left.join()) setStick({ top, left });
   });
   const names = sheet?.names || null; // named ranges: { Tax: 'B1' }
-  const evaluate = useMemo(() => createEvaluator(cells, names), [cells, names]);
+  // Formulas can use the other sheets too (Sheet2!A1).
+  const evaluate = useMemo(() => (data?.sheets ? bookEvaluator(data.sheets, Math.min(active, data.sheets.length - 1)) : createEvaluator(cells, names)), [data?.sheets, active, cells, names]);
   const { rows, cols } = useMemo(() => sheetSize(cells), [cells]);
   // The filter: which rows it hides, and where its headings are.
   const filter = sheet?.filter || null;
@@ -319,7 +320,8 @@ export default function SheetEditor() {
   function changeStructure(change) {
     if (readOnly) return;
     const cur = dataRef.current;
-    commitData({ ...cur, sheets: cur.sheets.map((s, i) => (i === active ? { ...applyStructure(s, change), ...(s.filter && { filter: adjustFilter(s.filter, change) }) } : s)) });
+    // References to this sheet from the others move too.
+    commitData({ ...cur, sheets: adjustOtherSheets(cur.sheets, active, change).map((s, i) => (i === active ? { ...applyStructure(s, change), ...(s.filter && { filter: adjustFilter(s.filter, change) }) } : s)) });
     // Comments move with their cell; a deleted cell's thread is marked as such.
     for (const t of threads) {
       if ((t.anchor?.sheet || 0) !== active || !t.anchor?.cell || t.anchor.gone) continue;
@@ -952,8 +954,9 @@ export default function SheetEditor() {
             const cur = dataRef.current;
             const old = cur.sheets[dialog.index].name;
             const fresh = name.slice(0, 50);
-            // Pivot tables follow their data sheet's new name.
-            commitData({ ...cur, sheets: cur.sheets.map((s, i) => (i === dialog.index ? { ...s, name: fresh } : s.pivot?.source === old ? { ...s, pivot: { ...s.pivot, source: fresh } } : s)) });
+            // Pivot tables and formulas (Sheet1!A1) follow the sheet's new name.
+            const renamed = (s) => { const cells = {}; let n = 0; for (const [k, v] of Object.entries(s.cells || {})) { cells[k] = renameSheetRefs(v, old, fresh); if (cells[k] !== v) n++; } return n ? { ...s, cells } : s; };
+            commitData({ ...cur, sheets: cur.sheets.map((s0, i) => { const s = renamed(s0); return i === dialog.index ? { ...s, name: fresh } : s.pivot?.source === old ? { ...s, pivot: { ...s.pivot, source: fresh } } : s; }) });
           }} />
       )}
       {dialog?.type === 'delete-sheet' && (

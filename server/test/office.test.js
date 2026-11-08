@@ -442,3 +442,9 @@ test('excel: named ranges both ways', async () => {
   assert.deepEqual(back.sheets[1].names, { Other: 'C3' });
   assert.equal(back.sheets[0].cells.C1, '=SUM(Sales)*Tax');
 });
+
+test('excel: formulas that refer to other sheets', async () => {
+  const data = { sheets: [{ name: 'Summary', cells: { A1: "=SUM('Q1 data'!B1:B2)+Other!A1" } }, { name: 'Q1 data', cells: { B1: '1', B2: '2' } }, { name: 'Other', cells: { A1: '3' } }] };
+  const back = await sheetFromExcel(await excelFromSheet(data));
+  assert.equal(back.sheets[0].cells.A1, "=SUM('Q1 data'!B1:B2)+Other!A1");
+});

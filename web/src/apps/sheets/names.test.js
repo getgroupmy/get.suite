@@ -46,3 +46,35 @@ test('names move with inserted and deleted rows', () => {
   // Formulas referring to the name don't change.
   assert.equal(applyStructure({ cells: { A1: '=SUM(Sales)+abc_d2' } }, { axis: 'row', at: 0, count: 1 }).cells.A2, '=SUM(Sales)+abc_d2');
 });
+
+test('references to other sheets', async () => {
+  const { bookEvaluator, sheetPrefix } = await import('./formula.js');
+  const sheets = [
+    { name: 'Summary', cells: { A1: "=Data!A1*2", A2: "=SUM('Q1 data'!B1:B3)", A3: '=Gone!A1', A4: '=data!Total', A5: '=Data!B1', B1: '=Data!C1' } },
+    { name: 'Data', cells: { A1: '21', B1: '=Summary!B1', C1: '=Summary!A5' }, names: { Total: 'A1' } },
+    { name: 'Q1 data', cells: { B1: '1', B2: '2', B3: '3' } },
+  ];
+  const get = bookEvaluator(sheets, 0);
+  assert.equal(get('A1'), 42);
+  assert.equal(get('A2'), 6);
+  assert.deepEqual(get('A3'), { error: '#REF!' });
+  assert.deepEqual(get('A5'), { error: '#CIRC!' }, 'a loop across sheets');
+  assert.equal(sheetPrefix('Data'), 'Data');
+  assert.equal(sheetPrefix('Q1 data'), "'Q1 data'");
+  assert.equal(sheetPrefix('A1'), "'A1'");
+  assert.equal(sheetPrefix("Bob's"), "'Bob''s'");
+});
+
+test('other sheets: inserting rows and renaming sheets', async () => {
+  const { adjustOtherSheets, renameSheetRefs } = await import('./structure.js');
+  const sheets = [
+    { name: 'Summary', cells: { A1: "=Data!A2+A2+'Data'!B2:B3", A2: '5' } },
+    { name: 'Data', cells: { A2: '1', B1: '=A2+Summary!A2+Data!A2' } },
+  ];
+  // Two rows inserted at the top of Data: Summary's references into Data move; its own don't.
+  const after = adjustOtherSheets(sheets, 1, { axis: 'row', at: 0, count: 2 });
+  assert.equal(after[0].cells.A1, "=Data!A4+A2+'Data'!B4:B5");
+  const data = applyStructure(sheets[1], { axis: 'row', at: 0, count: 2 });
+  assert.equal(data.cells.B3, '=A4+Summary!A2+Data!A4');
+  assert.equal(renameSheetRefs("=Data!A1+'data'!B2+Other!C1+\"Data!A1\"", 'Data', 'Q1 data'), "='Q1 data'!A1+'Q1 data'!B2+Other!C1+\"Data!A1\"");
+});

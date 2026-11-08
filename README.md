@@ -190,12 +190,20 @@ Switch **✎ Editing** to **💡 Suggesting** at the top of a document to propos
 - It **updates by itself** when the data changes, including rows added below the table, for everyone with the spreadsheet open. **Edit pivot table** at the top of its sheet changes what it shows.
 - Its cells can't be typed in (they come from the data). Renaming the data sheet keeps it working. Excel downloads have its values.
 
+## Other sheets in formulas (Sheets)
+
+A formula can use cells on another sheet of the same spreadsheet: `=Data!A1*2`, or `=SUM('Q1 data'!B2:B9)` when the sheet's name has spaces or other characters (quote it, and double any ' in it). Sheet names match whatever the case.
+
+- A change on the other sheet shows straight away. Inserting or deleting rows or columns there moves the references to it, and renaming a sheet renames it in every formula. A sheet that doesn't exist (or was deleted) shows `#REF!`, and a loop through several sheets shows `#CIRC!`.
+- Named ranges on another sheet work the same way: `=Data!Total`.
+- Excel downloads and uploads keep these formulas as they are.
+
 ## Named ranges (Sheets)
 
 Give cells a name and use it in formulas instead of the address: `=SUM(Sales)*Tax`. Select the cells and right-click → **Name this range…**, or use ⋮ → **Named ranges** to list, add, rename (**Change**) and remove them. Names use letters, numbers and _, start with a letter, and can't look like a cell (`Q1` is a cell; `Q1_sales` is fine). Case doesn't matter in formulas.
 
 - The box left of the formula bar shows the selection's name when it has one. Type a name, a cell (`D7`) or a range (`A2:A10`) there and press Enter to go to it.
-- A name nobody has defined shows `#NAME?`. Named ranges move with their cells when rows or columns are inserted or deleted, and a name whose cells are all deleted goes. Each sheet has its own names.
+- A name nobody has defined shows `#NAME?`. Named ranges move with their cells when rows or columns are inserted or deleted, and a name whose cells are all deleted goes. Each sheet has its own names (use another sheet's as `Data!Total`).
 - Excel downloads and uploads keep them as Excel's defined names.
 
 ## Charts (Sheets)

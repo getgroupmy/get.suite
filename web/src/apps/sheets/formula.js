@@ -25,6 +25,11 @@ export function parseRef(ref) {
 // ---------- tokenizer ----------
 const TOKEN_RE = /\s*(?:(\d+(?:\.\d*)?(?:[eE][+-]?\d+)?|\.\d+)|("(?:[^"]|"")*")|(\$?[A-Z]+\$?\d+(?::\$?[A-Z]+\$?\d+)?)(?![A-Z0-9_(])|([A-Z_][A-Z0-9_.]*)|(<=|>=|<>|[-+*/^&=<>(),:%]))/iy;
 
+// A reference on another sheet: Sheet2!A1, 'Q1 data'!B2:B9.
+const XREF_RE = /\s*(?:'((?:[^']|'')+)'|([A-Z_][A-Z0-9_]*))!(\$?[A-Z]+\$?\d+(?::\$?[A-Z]+\$?\d+)?)(?![A-Z0-9_(])/iy;
+/** How a sheet's name is written before "!" in a formula (quoted when it has to be). */
+export const sheetPrefix = (name) => (/^[A-Z_][A-Z0-9_]*$/i.test(name) && !/^[A-Z]{1,3}\d+$/i.test(name) ? name : `'${String(name).replace(/'/g, "''")}'`);
+
 function tokenize(src) {
   const out = [];
   TOKEN_RE.lastIndex = 0;
@@ -32,6 +37,9 @@ function tokenize(src) {
     if (/^\s*$/.test(src.slice(TOKEN_RE.lastIndex))) break;
     const refErr = /^\s*#REF!/i.exec(src.slice(TOKEN_RE.lastIndex)); // a reference to cells that were deleted
     if (refErr) { out.push({ t: 'referr' }); TOKEN_RE.lastIndex += refErr[0].length; continue; }
+    XREF_RE.lastIndex = TOKEN_RE.lastIndex;
+    const x = XREF_RE.exec(src);
+    if (x) { out.push({ t: 'xref', sheet: x[1] !== undefined ? x[1].replace(/''/g, "'") : x[2], v: x[3].toUpperCase() }); TOKEN_RE.lastIndex = XREF_RE.lastIndex; continue; }
     const m = TOKEN_RE.exec(src);
     if (!m) err('#ERROR!');
     if (m[1] !== undefined) out.push({ t: 'num', v: Number(m[1]) });
@@ -92,6 +100,7 @@ function parse(src) {
     if (tk.t === 'num') return { k: 'num', v: tk.v };
     if (tk.t === 'referr') return { k: 'referr' };
     if (tk.t === 'str') return { k: 'str', v: tk.v };
+    if (tk.t === 'xref') { const [a, b = a] = tk.v.split(':'); return { k: 'xref', sheet: tk.sheet, a: parseRef(a), b: parseRef(b), one: !tk.v.includes(':') }; }
     if (tk.t === 'ref') {
       if (tk.v.includes(':')) { const [a, b] = tk.v.split(':'); return { k: 'range', a: parseRef(a), b: parseRef(b) }; }
       return { k: 'ref', ref: parseRef(tk.v) };
@@ -511,8 +520,9 @@ export function literal(raw) {
  * Build an evaluator over a sheet's raw cells ({ "A1": "=SUM(B1:B3)" }).
  * Returns get(key) -> value (number | string | boolean | null) or { error: '#CODE' }.
  */
-export function createEvaluator(cells, names = null) {
+export function createEvaluator(cells, names = null, book = null) {
   const memo = new Map();
+  // The other sheets (for Sheet2!A1): { sheets: [{ name, cells, names }], open: Map(name -> evaluator) }, shared by them all.
   // Named ranges: { Tax: 'B1', Sales: 'A2:A10' }, matched whatever the case.
   const named = new Map(Object.entries(names || {}).map(([k, v]) => [k.toUpperCase(), String(v).toUpperCase().split(':')]));
   const visiting = new Set();
@@ -567,6 +577,11 @@ export function createEvaluator(cells, names = null) {
       case 'referr': return err('#REF!');
       case 'ref': if (!n.ref) err('#REF!'); return valueOf(cellKey(n.ref.c, n.ref.r));
       case 'range': return range(n.a, n.b);
+      case 'xref': {
+        const other = book && sheetEvaluator(book, n.sheet);
+        if (!other || !n.a || !n.b) err('#REF!');
+        return n.one ? other.cell(cellKey(n.a.c, n.a.r)) : other.range(n.a, n.b);
+      }
       case 'name': {
         const t = named.get(n.v);
         if (!t) err('#NAME?');
@@ -597,9 +612,32 @@ export function createEvaluator(cells, names = null) {
     err('#ERROR!');
   }
 
-  return function get(key) {
+  const get = function get(key) {
     try { return valueOf(key); } catch (e) { if (e instanceof FormulaError) return { error: e.code }; throw e; }
   };
+  get.cell = valueOf; // for formulas on other sheets (these throw)
+  get.range = range;
+  return get;
+}
+
+/** The evaluator of a sheet in the book (by name, any case), made once and shared. */
+function sheetEvaluator(book, name) {
+  const key = String(name).toUpperCase();
+  if (!book.open.has(key)) {
+    const s = book.sheets.find((x) => String(x.name).toUpperCase() === key);
+    book.open.set(key, s ? createEvaluator(s.cells || {}, s.names, book) : null);
+  }
+  return book.open.get(key);
+}
+
+/** An evaluator for one sheet of a spreadsheet whose formulas can refer to the other sheets. */
+export function bookEvaluator(sheets, index) {
+  const book = { sheets: sheets || [], open: new Map() };
+  const s = book.sheets[index];
+  if (!s) return createEvaluator({});
+  const ev = createEvaluator(s.cells || {}, s.names, book);
+  book.open.set(String(s.name).toUpperCase(), ev); // the same one, so loops across sheets are caught
+  return ev;
 }
 
 const scalar = (v) => (Array.isArray(v) ? err('#VALUE!') : v);

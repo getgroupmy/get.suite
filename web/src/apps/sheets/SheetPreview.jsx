@@ -1,12 +1,12 @@
 // A read-only look at a spreadsheet's content (for version history): its values, sheet by sheet.
 import { useMemo, useState } from 'react';
-import { createEvaluator, display, colName, cellKey, parseRef } from './formula.js';
+import { bookEvaluator, display, colName, cellKey, parseRef } from './formula.js';
 
 export function SheetPreview({ content }) {
   const sheets = content?.sheets || [];
   const [i, setI] = useState(0);
   const sheet = sheets[Math.min(i, sheets.length - 1)] || { cells: {} };
-  const value = useMemo(() => createEvaluator(sheet.cells || {}, sheet.names), [sheet]);
+  const value = useMemo(() => bookEvaluator(sheets, Math.min(i, sheets.length - 1)), [sheets, i]);
   let rows = 0, cols = 0;
   for (const k of Object.keys(sheet.cells || {})) { const p = parseRef(k); if (p) { rows = Math.max(rows, p.r + 1); cols = Math.max(cols, p.c + 1); } }
   rows = Math.min(Math.max(rows, 5), 200); cols = Math.min(Math.max(cols, 3), 26);

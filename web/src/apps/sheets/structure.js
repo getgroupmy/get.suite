@@ -1,6 +1,6 @@
 // Changing a sheet's structure: inserting and deleting rows or columns (formulas, formats, widths,
 // chart ranges, rules, dropdowns and commented cells follow), and sorting rows. Pure functions on the sheet's JSON.
-import { colName, colIndex, cellKey, parseRef, shiftFormula } from './formula.js';
+import { colName, colIndex, cellKey, parseRef, shiftFormula, sheetPrefix } from './formula.js';
 import { adjustHide } from './hide.js';
 
 /**
@@ -25,27 +25,55 @@ function moveSpan(a, b, change) {
   return [na, nb];
 }
 
-const REF = /("(?:[^"]|"")*")|(?<![A-Z0-9_.$])(\$?)([A-Z]+)(\$?)(\d+)(?::(\$?)([A-Z]+)(\$?)(\d+))?(?![A-Z0-9_(])/gi;
+const REF = /("(?:[^"]|"")*")|(?<![A-Z0-9_.$'])(?:('(?:[^']|'')+'|[A-Z_][A-Z0-9_]*)!)?(\$?)([A-Z]+)(\$?)(\d+)(?::(\$?)([A-Z]+)(\$?)(\d+))?(?![A-Z0-9_(])/gi;
 
-/** A formula with its cell references moved for a structural change ("#REF!" where they were deleted). */
-export function adjustFormula(raw, change) {
+const prefixName = (p) => (p.startsWith("'") ? p.slice(1, -1).replace(/''/g, "'") : p).toUpperCase();
+
+/**
+ * A formula with its cell references moved for a structural change ("#REF!" where they were deleted).
+ * `where`: { here, changed } — the sheet the formula is on and the one that changed (both names);
+ * left out, the formula is on the changed sheet. Only references into the changed sheet move.
+ */
+export function adjustFormula(raw, change, where = null) {
   if (typeof raw !== 'string' || !raw.startsWith('=')) return raw;
   const row = change.axis === 'row';
-  return raw.replace(REF, (m, str, ca, col, ra, r, ca2, col2, ra2, r2) => {
+  const changed = where ? String(where.changed).toUpperCase() : null, here = where ? String(where.here).toUpperCase() : null;
+  return raw.replace(REF, (m, str, pre, ca, col, ra, r, ca2, col2, ra2, r2) => {
     if (str) return str;
+    const into = pre ? prefixName(pre) : here; // the sheet this reference points into (null: this one, which changed)
+    if (where ? into !== changed : !!pre) return m; // points somewhere else: stays
+    const lead = pre ? `${pre}!` : '';
     const p = { c: colIndex(col), r: Number(r) - 1 };
     const text = (c, rr, cAbs, rAbs) => `${cAbs}${colName(c)}${rAbs}${rr + 1}`;
     if (col2 === undefined) {
       const n = moveIndex(row ? p.r : p.c, change);
       if (n === null) return '#REF!';
-      return row ? text(p.c, n, ca, ra) : text(n, p.r, ca, ra);
+      return lead + (row ? text(p.c, n, ca, ra) : text(n, p.r, ca, ra));
     }
     const q = { c: colIndex(col2), r: Number(r2) - 1 };
     const span = row ? moveSpan(Math.min(p.r, q.r), Math.max(p.r, q.r), change) : moveSpan(Math.min(p.c, q.c), Math.max(p.c, q.c), change);
     if (!span) return '#REF!';
-    return row
+    return lead + (row
       ? `${text(p.c, span[0], ca, ra)}:${text(q.c, span[1], ca2, ra2)}`
-      : `${text(span[0], p.r, ca, ra)}:${text(span[1], q.r, ca2, ra2)}`;
+      : `${text(span[0], p.r, ca, ra)}:${text(span[1], q.r, ca2, ra2)}`);
+  });
+}
+
+/** A formula with references to sheet `from` renamed to `to` (Sheet1!A1 -> 'Q1 data'!A1). */
+export function renameSheetRefs(raw, from, to) {
+  if (typeof raw !== 'string' || !raw.startsWith('=')) return raw;
+  return raw.replace(REF, (m, str, pre) => (str || !pre || prefixName(pre) !== String(from).toUpperCase() ? m : `${sheetPrefix(to)}!${m.slice(pre.length + 1)}`));
+}
+
+/** Every sheet's formulas after the sheet at `index` had a row/column change (references into it move). */
+export function adjustOtherSheets(sheets, index, change) {
+  const changed = sheets[index]?.name;
+  return sheets.map((s, i) => {
+    if (i === index) return s;
+    let touched = false;
+    const cells = {};
+    for (const [k, v] of Object.entries(s.cells || {})) { const n = adjustFormula(v, change, { here: s.name, changed }); if (n !== v) touched = true; cells[k] = n; }
+    return touched ? { ...s, cells } : s;
   });
 }
 
@@ -86,7 +114,8 @@ export function adjustNames(names, change) {
 /** The sheet (one entry of `sheets`) with a row/column change applied to everything in it. */
 export function applyStructure(sheet, change) {
   const cells = {}, formats = {}, colWidths = {}, charts = {};
-  for (const [k, v] of Object.entries(sheet.cells || {})) { const nk = adjustKey(k, change); if (nk) cells[nk] = adjustFormula(v, change); }
+  const where = sheet.name ? { here: sheet.name, changed: sheet.name } : null;
+  for (const [k, v] of Object.entries(sheet.cells || {})) { const nk = adjustKey(k, change); if (nk) cells[nk] = adjustFormula(v, change, where); }
   for (const [k, v] of Object.entries(sheet.formats || {})) { const nk = adjustKey(k, change); if (nk) formats[nk] = v; }
   for (const [k, v] of Object.entries(sheet.colWidths || {})) {
     if (change.axis !== 'col') { colWidths[k] = v; continue; }
