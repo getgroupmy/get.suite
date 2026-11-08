@@ -4155,3 +4155,27 @@ test('notes: pictures on a note, seen by everyone it is shared with', async () =
   assert.equal((await pia('DELETE', `/api/notes/${n.id}/pictures/${pid}`)).body.pictures.length, 0);
   assert.equal((await pia('GET', `/api/notes/${copy.id}/pictures/${copy.pictures[0]}`, undefined, { binary: true })).status, 200);
 });
+
+test('drive: duplicate files are found by content, whatever they are called', async () => {
+  const dup = client();
+  await owner('POST', '/api/users', { local: 'dupes', domain: 'acme.com', name: 'Dee Dupes', password: 'password123' });
+  await login(dup, 'dupes@acme.com');
+  const up = (name, body, parent = '') => dup('POST', `/api/files/upload?name=${encodeURIComponent(name)}${parent ? `&parent=${parent}` : ''}`, body, { raw: true });
+  const folder = (await dup('POST', '/api/files/folder', { name: 'Old' })).body;
+  const a = (await up('report.pdf', 'PDF-CONTENT-1234')).body;
+  const b = (await up('report (1).pdf', 'PDF-CONTENT-1234', folder.id)).body;
+  const c = (await up('copy of report.pdf', 'PDF-CONTENT-1234')).body;
+  await up('other.pdf', 'PDF-CONTENT-9999'); // same size, other content
+  await up('small.txt', 'x');
+  const r = (await dup('GET', '/api/files/duplicates')).body;
+  assert.equal(r.groups.length, 1);
+  assert.equal(r.incomplete, false);
+  const g = r.groups[0];
+  assert.deepEqual(g.files.map((f) => f.id).sort(), [a.id, b.id, c.id].sort());
+  assert.equal(g.wasted, 2 * 16);
+  assert.equal(g.files.find((f) => f.id === b.id).folder.name, 'Old');
+  // Trashed copies don't count; others' files never show.
+  await dup('PATCH', `/api/files/${c.id}`, { trashed: true });
+  assert.equal((await dup('GET', '/api/files/duplicates')).body.groups[0].files.length, 2);
+  assert.equal((await owner('GET', '/api/files/duplicates')).body.groups.some((x) => x.files.some((f) => f.id === a.id)), false);
+});

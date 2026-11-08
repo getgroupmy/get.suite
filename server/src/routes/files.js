@@ -1,4 +1,5 @@
 import { withoutSuggestions } from '../office/suggestions.js';
+import crypto from 'node:crypto';
 import { sync as syncShares, setFileGroups, groupsOf } from '../groups.js';
 import { MAX_SHARE_DAYS } from '../shareexpiry.js';
 import { recordActivity, activityOf } from '../fileactivity.js';
@@ -294,6 +295,15 @@ function shortcutsIn(parentId, user) {
   return out;
 }
 const MAX_ZIP_BYTES = 2 * 1024 ** 3, MAX_ZIP_FILES = 20000;
+// Content fingerprints, by stored file (stored files never change: a new version is a new one).
+q('CREATE TABLE IF NOT EXISTS file_hashes (storage TEXT PRIMARY KEY, sha256 TEXT NOT NULL)').run();
+const DUPLICATE_READ_BYTES = 4 * 1024 ** 3;
+function hashFile(file) {
+  return new Promise((resolve, reject) => {
+    const h = crypto.createHash('sha256');
+    fs.createReadStream(file).on('error', reject).on('data', (d) => h.update(d)).on('end', () => resolve(h.digest('hex')));
+  });
+}
 
 /** The kinds of file search can be narrowed to: Workspace files and the usual uploads of the same kind. */
 const SEARCH_TYPES = {
@@ -451,6 +461,34 @@ export default function fileRoutes({ maxUploadBytes }) {
   });
 
   // Where your space goes: your files, their older versions, the trash, and the biggest items.
+  // Duplicate files: your files (not in the trash) with exactly the same content, whatever they're
+  // called, biggest waste first. Only files of a size another file also has are read (and their
+  // fingerprints kept), at most a few GB per look; { groups, incomplete } says if it stopped early.
+  r.get('/duplicates', async (req, res) => {
+    const same = q(`SELECT f.id, f.name, f.size, f.storage, f.parent_id, f.updated_at, p.name AS folder_name
+                    FROM files f LEFT JOIN files p ON p.id = f.parent_id
+                    WHERE f.owner_id = ? AND f.kind = 'file' AND f.trashed = 0 AND f.size > 0 AND f.storage IS NOT NULL
+                      AND f.size IN (SELECT size FROM files WHERE owner_id = ? AND kind = 'file' AND trashed = 0 AND size > 0 GROUP BY size HAVING COUNT(*) > 1)
+                    ORDER BY f.size DESC`).all(req.user.id, req.user.id);
+    let budget = DUPLICATE_READ_BYTES, incomplete = false;
+    const byHash = new Map();
+    for (const f of same) {
+      let hash = q('SELECT sha256 FROM file_hashes WHERE storage = ?').get(f.storage)?.sha256;
+      if (!hash) {
+        if (budget < f.size) { incomplete = true; continue; }
+        budget -= f.size;
+        try { hash = await hashFile(path.join(FILES_DIR, f.storage)); } catch { continue; }
+        q('INSERT OR REPLACE INTO file_hashes (storage, sha256) VALUES (?, ?)').run(f.storage, hash);
+      }
+      const k = `${f.size}:${hash}`;
+      byHash.set(k, [...(byHash.get(k) || []), { id: f.id, name: f.name, size: f.size, folder: f.parent_id ? { id: f.parent_id, name: f.folder_name } : null, updated_at: f.updated_at }]);
+    }
+    const groups = [...byHash.values()].filter((g) => g.length > 1)
+      .map((files) => ({ size: files[0].size, wasted: files[0].size * (files.length - 1), files: files.sort((a, b) => b.updated_at - a.updated_at) }))
+      .sort((a, b) => b.wasted - a.wasted).slice(0, 100);
+    res.json({ groups, wasted: groups.reduce((n, g) => n + g.wasted, 0), incomplete });
+  });
+
   r.get('/storage', (req, res) => {
     const me = req.user.id;
     const sum = (sql) => q(sql).get(me).n;

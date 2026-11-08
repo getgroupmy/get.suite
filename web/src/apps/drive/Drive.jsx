@@ -936,9 +936,47 @@ function StorageDialog({ onClose, onChanged }) {
             ))}
           </ul>
         )}
+        <Duplicates onChanged={() => { load(); onChanged(); }} onShow={(f) => { onClose(); navigate(f.folder ? `/drive/folder/${f.folder.id}` : '/drive'); }} />
         <p className="muted small" style={{ margin: 0 }}>Older versions are kept so you can go back; deleting them can't be undone. Trash is emptied for good after your company's set time.</p>
       </div>
     </Modal>
+  );
+}
+
+/** Files with exactly the same content as another of yours: keep the newest, trash the rest. */
+function Duplicates({ onChanged, onShow }) {
+  const toast = useToast();
+  const [d, setD] = useState(null); // null: not looked yet; 'busy'
+  const look = () => { setD('busy'); get('/files/duplicates').then(setD).catch((e) => { toast(e.message, 'error'); setD(null); }); };
+  const trash = async (files) => {
+    try { for (const f of files) await patch(`/files/${f.id}`, { trashed: true }); toast(`Moved ${files.length} to trash`); onChanged(); look(); } catch (e) { toast(e.message, 'error'); }
+  };
+  if (!d) return <div><button type="button" className="btn small" onClick={look}>Find duplicate files</button></div>;
+  if (d === 'busy') return <p className="muted small">Looking for files with the same content…</p>;
+  return (
+    <section className="stack-tight" aria-label="Duplicate files">
+      <strong>Duplicate files {d.groups.length > 0 && <span className="muted small">· {formatBytes(d.wasted)} in extra copies</span>}</strong>
+      {!d.groups.length ? <p className="muted small" style={{ margin: 0 }}>No duplicates: every file has different content.</p> : (
+        <ul className="storage-list dup-list">
+          {d.groups.map((g) => (
+            <li key={g.files[0].id} className="dup-group">
+              <div className="row"><span className="grow small"><strong>{g.files.length} copies</strong> of {formatBytes(g.size)}</span>
+                <button type="button" className="btn small" onClick={() => trash(g.files.slice(1))}>Keep the newest, trash {g.files.length - 1}</button></div>
+              <ul className="dup-files">
+                {g.files.map((f, i) => (
+                  <li key={f.id} className="row">
+                    <button type="button" className="link-btn grow ellipsis" title="Show it in Drive" onClick={() => onShow(f)}>{f.name}</button>
+                    <span className="muted small">{f.folder ? f.folder.name : 'My Drive'} · {formatDate(f.updated_at)}{i === 0 ? ' · newest' : ''}</span>
+                    <button type="button" className="icon-btn" aria-label={`Move ${f.name} to trash`} onClick={() => trash([f])}><Icon name="trash" size={16} /></button>
+                  </li>
+                ))}
+              </ul>
+            </li>
+          ))}
+        </ul>
+      )}
+      {d.incomplete && <p className="muted small" style={{ margin: 0 }}>There's a lot to compare: look again to check the rest.</p>}
+    </section>
   );
 }
 
