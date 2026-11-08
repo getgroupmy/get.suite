@@ -13,6 +13,7 @@ process.env.DATA_DIR = dir;
 process.env.MAIL_CONFIG_DIR = process.env.MAIL_IT_CONFIG_DIR || '/etc/nw';
 process.env.MAIL_IMAP_HOST = process.env.MAIL_IT_IMAP_HOST || '127.0.0.1';
 process.env.MAIL_HOSTNAME = 'mail.acme.com';
+process.env.MAIL_STATUS_DIR = process.env.MAIL_IT_STATUS_DIR || '/var/nw-status'; // the queue report (mail/entrypoint.sh)
 process.env.MAIL_IMPORT_ALLOW_PRIVATE = '1'; // importing from this machine's own mail server
 // Sign-in protection: Dovecot calls our policy service; loopback 127.0.0.1 (webmail) stays exempt,
 // while 127.0.0.6+ stand in for attackers on the internet.
@@ -1609,4 +1610,26 @@ test('delegation: a colleague reads and answers someone’s mail as them (Sender
   const log = JSON.stringify((await olivia('GET', '/api/audit?limit=50')).body);
   assert.match(log, /mail\.delegate/);
   assert.match(log, /mail\.undelegate/);
+});
+
+test('outgoing queue: mail that can’t go out is listed for the platform owner, and deleted from there', async () => {
+  const t = nodemailer.createTransport({ host: process.env.MAIL_IMAP_HOST, port: 465, secure: true, tls: { rejectUnauthorized: false }, auth: { user: 'olivia@acme.com', pass: 'password123' } });
+  // An address on a documentation-only network: nothing answers, so Postfix keeps it to retry.
+  await t.sendMail({ from: 'olivia@acme.com', to: 'client@[192.0.2.10]', subject: 'Stuck quote', text: 'Will not arrive.' });
+  const waiting = await eventually(async () => {
+    const r = (await olivia('GET', '/api/orgs/system/mail-queue')).body;
+    return r.available && r.messages.find((m) => m.recipients.some((x) => x.address === 'client@[192.0.2.10]') && m.queue === 'deferred');
+  }, 30000);
+  assert.equal(waiting.sender, 'olivia@acme.com');
+  assert.match(waiting.recipients[0].reason, /192\.0\.2\.10/);
+  const health = (await olivia('GET', '/api/orgs/system/health')).body;
+  assert.match(health.checks.find((c) => c.id === 'queue').detail, /waiting/);
+  assert.equal((await gina('GET', '/api/orgs/system/mail-queue')).status, 403, 'not company admins');
+  assert.equal((await olivia('POST', '/api/orgs/system/mail-queue', { op: 'delete', id: 'not/an-id' })).status, 400);
+  const { seq } = (await olivia('POST', '/api/orgs/system/mail-queue', { op: 'delete', id: waiting.id })).body;
+  await eventually(async () => {
+    const r = (await olivia('GET', '/api/orgs/system/mail-queue')).body;
+    return r.done >= seq && !r.messages.some((m) => m.id === waiting.id);
+  }, 20000);
+  assert.ok(JSON.stringify((await olivia('GET', '/api/audit')).body).includes('mail-queue.delete'));
 });

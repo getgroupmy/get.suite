@@ -177,6 +177,13 @@ test('database snapshots: listed, taken now and downloaded by the platform owner
   assert.ok(JSON.stringify(log).includes('backup.download'), 'in the activity log');
 });
 
+test('mail queue: for the platform owner, and only where the mail server reports it', async () => {
+  assert.deepEqual((await owner('GET', '/api/orgs/system/mail-queue')).body, { available: false, reason: 'no-mail' });
+  assert.equal((await owner('POST', '/api/orgs/system/mail-queue', { op: 'flush' })).status, 400);
+  assert.equal((await gina('GET', '/api/orgs/system/mail-queue')).status, 403);
+  assert.equal((await gina('POST', '/api/orgs/system/mail-queue', { op: 'flush' })).status, 403);
+});
+
 test('storage quota is enforced per company', async () => {
   assert.equal((await gina('PATCH', '/api/orgs/current', { quota_mb: 1 })).status, 400, 'company admins cannot set quotas');
   await owner('PATCH', `/api/orgs/${globexId}`, { quota_mb: 1 });

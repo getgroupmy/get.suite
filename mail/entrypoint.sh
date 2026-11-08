@@ -15,6 +15,7 @@ TLS_SRC=${NW_TLS_DIR:-/etc/nw-tls}
 TLS_LIVE=${NW_TLS_LIVE_DIR:-/run/nw-tls}
 HOSTNAME_FQDN=${MAIL_HOSTNAME:-$(hostname -f)}
 INTERVAL=${SYNC_INTERVAL:-5}
+STATUS=${NW_STATUS_DIR:-/var/nw-status}   # written here, read by the app: the outgoing queue
 
 log() { echo "[mail] $*"; }
 
@@ -89,6 +90,35 @@ reload_changed() {
   last_postfix=$p; last_dovecot=$d; last_rspamd=$r
 }
 
+# The outgoing queue, for Admin → System: what's waiting (postqueue -j, one JSON object a line),
+# headed by when it was read and the last request of the app's that was carried out.
+QUEUE_DONE=0
+write_queue_status() {
+  mkdir -p "$STATUS"
+  local tmp="$STATUS/queue.jsonl.tmp"
+  { echo "{\"at\":$(date +%s),\"done\":$QUEUE_DONE}"; postqueue -j 2>/dev/null || true; } > "$tmp"
+  chmod 644 "$tmp"
+  mv -f "$tmp" "$STATUS/queue.jsonl"
+}
+# The app's requests, in $SRC/queue/actions: lines of "<seq> flush", "<seq> retry <id>" or
+# "<seq> delete <id>". Each is carried out once, in order (the last done is kept across restarts).
+run_queue_actions() {
+  local f="$SRC/queue/actions" seq op id
+  [[ -f $f ]] || return 0
+  [[ -f $STATUS/queue.done ]] && QUEUE_DONE=$(cat "$STATUS/queue.done" 2>/dev/null || echo 0)
+  [[ $QUEUE_DONE =~ ^[0-9]+$ ]] || QUEUE_DONE=0
+  while read -r seq op id _; do
+    [[ $seq =~ ^[0-9]+$ ]] && (( seq > QUEUE_DONE )) || continue
+    case $op in
+      flush) postqueue -f >/dev/null 2>&1 || true ;;
+      retry) [[ $id =~ ^[0-9A-Za-z]+$ ]] && { postqueue -i "$id" >/dev/null 2>&1 || true; } ;;
+      delete) [[ $id =~ ^[0-9A-Za-z]+$ ]] && { postsuper -d "$id" >/dev/null 2>&1 || true; log "Deleted queued message $id"; } ;;
+    esac
+    QUEUE_DONE=$seq
+  done < "$f"
+  mkdir -p "$STATUS"; echo "$QUEUE_DONE" > "$STATUS/queue.done"
+}
+
 stop_all() {
   log "Stopping"
   postfix stop >/dev/null 2>&1 || true
@@ -133,6 +163,8 @@ while true; do
     reload_changed
     last=$now
   fi
+  run_queue_actions || true
+  write_queue_status || true
   postfix status >/dev/null 2>&1 || { log "postfix died"; exit 1; }
   pgrep -x dovecot >/dev/null || { log "dovecot died"; exit 1; }
   pgrep -x rspamd >/dev/null || { log "rspamd died"; exit 1; }

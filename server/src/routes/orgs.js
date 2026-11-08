@@ -17,6 +17,8 @@ import { createOrg, addDomain, orgStorageUsed, blobsOwnedBy, removeBlobs } from 
 import { scheduleMailConfig } from '../mail/config.js';
 import { collectHealth } from '../health.js';
 import { backupDatabase, listBackups, backupPath } from '../backup.js';
+import { readQueue, requestQueueAction, MAIL_STATUS_DIR } from '../mail/queue.js';
+import { mailEnabled } from '../mail/config.js';
 
 const domainsOf = (orgId) => q('SELECT name FROM domains WHERE org_id = ? ORDER BY created_at').all(orgId).map((d) => d.name);
 
@@ -181,6 +183,19 @@ export default function orgRoutes() {
   // System health: disk, snapshots, mail server and certificate, sizes (health.js).
   r.get('/system/health', async (req, res) => res.json(await collectHealth()));
   // Database snapshots: the ones kept, one taken now (today's is replaced), and downloading one.
+  // The outgoing mail queue: what's waiting, and asking the mail server to retry or delete it.
+  r.get('/system/mail-queue', (req, res) => {
+    const qd = mailEnabled() ? readQueue() : null;
+    res.json(qd ? { available: true, ...qd } : { available: false, reason: !mailEnabled() ? 'no-mail' : !MAIL_STATUS_DIR ? 'not-set-up' : 'no-report' });
+  });
+  r.post('/system/mail-queue', (req, res) => {
+    if (!mailEnabled() || !MAIL_STATUS_DIR) throw bad('The mail queue isn’t available on this server');
+    const op = str(req.body?.op), id = req.body?.id ? str(req.body.id) : null;
+    let seq;
+    try { seq = requestQueueAction(op, id); } catch (e) { throw bad(e.message); }
+    if (op === 'delete') audit(req, 'mail-queue.delete', { target: id });
+    res.json({ seq });
+  });
   r.get('/system/backups', (req, res) => res.json(listBackups()));
   r.post('/system/backups', (req, res) => {
     const name = path.basename(backupDatabase());

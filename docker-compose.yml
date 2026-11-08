@@ -17,12 +17,15 @@ services:
       - /volume1/docker/workspace/data:/data
       # Mail accounts, aliases and DKIM keys, written by the app for the mail container.
       - /volume1/docker/workspace/mail-config:/mail-config
+      # What the mail server reports back (mail waiting to go out), for Admin → System.
+      - /volume1/docker/workspace/mail-status:/mail-status:ro
     # Must own the folders above. On DSM, SSH in and run `id` to see your uid/gid.
     user: "1026:100"
     environment:
       TZ: *timezone
       MAX_UPLOAD_MB: "4096"
       MAIL_CONFIG_DIR: /mail-config
+      MAIL_STATUS_DIR: /mail-status
       MAIL_HOSTNAME: *mail_hostname
       MAIL_IMAP_HOST: mail
     depends_on:
@@ -42,6 +45,7 @@ services:
       - "993:993"   # reading mail from phones / Outlook (IMAP over SSL)
     volumes:
       - /volume1/docker/workspace/mail-config:/etc/nw:ro
+      - /volume1/docker/workspace/mail-status:/var/nw-status
       # Mailboxes. Back this folder up too.
       - /volume1/docker/workspace/mailboxes:/var/vmail
       # Recommended: DSM's Let's Encrypt certificate for the mail hostname (see README → Email).

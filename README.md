@@ -79,7 +79,7 @@ Phones/Outlook ── IMAP 993 / SMTP 465·587 ──▶ (same container)
 
 Requires DSM 7.2+ and **Container Manager** (from Package Center).
 
-1. **Create folders.** In File Station, inside the `docker` shared folder, create `workspace/app`, `workspace/data`, `workspace/mail-config` and `workspace/mailboxes`.
+1. **Create folders.** In File Station, inside the `docker` shared folder, create `workspace/app`, `workspace/data`, `workspace/mail-config`, `workspace/mail-status` and `workspace/mailboxes`.
 2. **Copy the code.** Upload this whole project into `docker/workspace/app`, so that `docker-compose.yml` sits directly in it.
 3. **Set the user ID.** Enable SSH (Control Panel → Terminal & SNMP), connect with `ssh you@NAS-IP` and run `id`. Put your `uid` and `gid` into the `user:` line of `docker-compose.yml` (the default `1026:100` is the usual first admin account on DSM). At the top of the file, set your **mail hostname** (e.g. `mail.yourcompany.com`) and **time zone**.
 4. **Build and start.** In Container Manager, go to **Project → Create**:
@@ -828,7 +828,11 @@ Once ports 465, 587 and 993 are open, bots will start guessing passwords within 
 
 ## System health (platform owner)
 
-**Admin → System** (platform owners only) shows whether everything is all right on the NAS: free disk space where the data lives (a warning under 15%, needs attention under 5% or 1 GB), the daily database snapshots (a warning when the newest is over 30 hours old, needs attention after two days), whether the mail server answers, and its TLS certificate: days left (a warning under three weeks, needs attention under a week or once expired) and whether it's self-signed. It also lists the version, how long the server has been running, and how big the database, files and snapshots are, with the number of companies and people. The same checks run every hour: platform owners get a notification (**Server health** in notification settings) for each problem, at most once a day, and again if a fixed problem comes back. Below the checks, **Database snapshots** lists the daily snapshots to take one now or download one (see [Backups](#backups)).
+**Admin → System** (platform owners only) shows whether everything is all right on the NAS: free disk space where the data lives (a warning under 15%, needs attention under 5% or 1 GB), the daily database snapshots (a warning when the newest is over 30 hours old, needs attention after two days), whether the mail server answers, and its TLS certificate: days left (a warning under three weeks, needs attention under a week or once expired) and whether it's self-signed. It also lists the version, how long the server has been running, and how big the database, files and snapshots are, with the number of companies and people. The same checks run every hour: platform owners get a notification (**Server health** in notification settings) for each problem, at most once a day, and again if a fixed problem comes back. Below the checks:
+
+- **Outgoing mail queue** lists mail the other side hasn't taken yet: to whom, from whom, how long it has waited and why (*Connection timed out*, a refusal from the other server, …). The mail server keeps trying for five days before returning it to the sender; **Retry** tries one again now (after fixing what was wrong), **Retry all** the whole queue, and **Delete** drops a message without telling the sender (in the activity log). An **Outgoing mail** check warns when something has waited over an hour, and needs attention after a day, which is how you'd notice that, say, your internet provider blocks port 25 or a big provider refuses this server's mail. The mail container reports its queue every few seconds to `mail-status/`, and carries out the requests the app leaves in `mail-config/queue/`.
+
+**Database snapshots** lists the daily snapshots to take one now or download one (see [Backups](#backups)).
 
 ## Announcements (admins)
 
@@ -998,7 +1002,7 @@ Point **Hyper Backup** at both folders, ideally to an off-site target. To restor
 
 Upgrading from v0.1 (before companies existed) is automatic. Existing users are moved into a company called "My company" with addresses like `alice@workspace.local`, and the first admin becomes the platform owner. Afterwards, add your real domain under Admin → All companies → Domains. Changing existing users' addresses isn't built in yet; it's on the roadmap.
 
-To update, replace the files in `docker/workspace/app` with the new version. Then in Container Manager, go to Project → workspace → **Action → Build**. Your data folder is untouched.
+To update, replace the files in `docker/workspace/app` with the new version. Then in Container Manager, go to Project → workspace → **Action → Build**. Your data folder is untouched. (Updating from a version without **Outgoing mail queue** on Admin → System: create the `workspace/mail-status` folder first; the new `docker-compose.yml` gives it to both containers.)
 
 ## Configuration (environment variables)
 
@@ -1014,6 +1018,7 @@ To update, replace the files in `docker/workspace/app` with the new version. The
 | `PUBLIC_URL` | the address the browser used | The web address people outside use (e.g. `https://workspace.example.com`), for links in invitation emails |
 | `TRUST_PROXY` | `loopback, linklocal, uniquelocal` | Which proxies' `X-Forwarded-*` headers to trust |
 | `MAIL_CONFIG_DIR` | unset (mail off) | Folder shared with the mail container; setting it turns email on |
+| `MAIL_STATUS_DIR` | unset | Where the mail container reports its outgoing queue (`/mail-status` in docker-compose.yml); without it, Admin → System doesn't show the queue |
 | `MAIL_HOSTNAME` | unset | Public name of the mail server (MX target, certificate name) |
 | `MAIL_IMAP_HOST` | `mail` | Where the app reaches the mail container (IMAP 993, SMTP 465) |
 | `AUTH_MAX_FAILURES` / `AUTH_WINDOW_MIN` / `AUTH_BAN_MIN` | `10` / `15` / `60` | Sign-in protection: failures allowed per address, time window, first block length |

@@ -10,6 +10,7 @@ import { BACKUP_DIR } from './backup.js';
 import { mailEnabled } from './mail/config.js';
 import { IMAP_SETTINGS } from './mail/imap.js';
 import { notify } from './notifications.js';
+import { readQueue, queueCheck } from './mail/queue.js';
 
 const GB = 1024 ** 3;
 const STARTED = Date.now();
@@ -35,7 +36,7 @@ const dirSize = (dir) => { try { return fs.readdirSync(dir).reduce((n, f) => { t
  * passed in, so tests can try each case: statfs(dir) → { bsize, blocks, bavail }, the backups
  * folder, probe() → as probeMail, and now.
  */
-export async function collectHealth({ statfs = (d) => fs.statfsSync(d), dataDir = DATA_DIR, backupDir = BACKUP_DIR, mail = mailEnabled(), probe = probeMail, now = Date.now(), started = STARTED } = {}) {
+export async function collectHealth({ statfs = (d) => fs.statfsSync(d), dataDir = DATA_DIR, backupDir = BACKUP_DIR, mail = mailEnabled(), probe = probeMail, queue = readQueue, now = Date.now(), started = STARTED } = {}) {
   const checks = [];
   const add = (id, label, status, detail) => checks.push({ id, label, status, detail });
 
@@ -69,6 +70,10 @@ export async function collectHealth({ statfs = (d) => fs.statfsSync(d), dataDir 
         `${m.self_signed ? 'Self-signed (phones and mail apps will warn): use a real certificate, such as DSM’s Let’s Encrypt one. ' : ''}Valid for ${days} more day${days === 1 ? '' : 's'}`);
     }
   }
+
+  // Outgoing mail stuck in the queue (when the mail server reports it).
+  const qc = mail ? queueCheck(queue(), now) : null;
+  if (qc) add('queue', 'Outgoing mail', qc.status, qc.detail);
 
   const dbFile = path.join(dataDir, 'workspace.db');
   const size = (f) => { try { return fs.statSync(f).size; } catch { return 0; } };

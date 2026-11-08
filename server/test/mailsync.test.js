@@ -75,3 +75,33 @@ cycle tls
   assert.equal(after('dkim'), 'RSPAMD -HUP -x rspamd');
   assert.equal(after('tls'), 'POSTFIX reload\nDOVEADM reload');
 });
+
+test('mail queue: the app’s requests are carried out once each, in order, and the queue is reported', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nw-mailq-'));
+  const script = `
+set -euo pipefail
+export NW_MAIL_FUNCTIONS_ONLY=1 NW_CONFIG_DIR=${dir}/src NW_STATUS_DIR=${dir}/status MAIL_HOSTNAME=mail.test
+source ${JSON.stringify(ENTRYPOINT)}
+CALLS=${dir}/calls; : > "$CALLS"
+postqueue() { if [[ $1 == -j ]]; then echo '{"queue_name":"deferred","queue_id":"A1B2C3","sender":"kim@acme.test"}'; else echo "POSTQUEUE $*" >> "$CALLS"; fi; }
+postsuper() { echo "POSTSUPER $*" >> "$CALLS"; }
+log() { :; }
+mkdir -p "$SRC/queue"
+printf '1 retry A1B2C3\\n2 delete A1B2C3\\n3 delete ../../etc\\n4 flush\\n' > "$SRC/queue/actions"
+run_queue_actions; write_queue_status
+echo "-- again"; run_queue_actions
+printf '1 retry A1B2C3\\n5 flush\\n' > "$SRC/queue/actions"
+QUEUE_DONE=0  # a restart: what was done is read back
+echo "-- later"; run_queue_actions
+cat "$CALLS"; echo "STATUS"; cat "$STATUS/queue.jsonl"
+`;
+  try {
+    const out = execFileSync('bash', ['-c', script], { encoding: 'utf8' });
+    const [calls, status] = out.split('STATUS\n');
+    // Calls are appended to a file, so they come out in the order made: all of the first round, then only seq 5.
+    assert.deepEqual(calls.match(/POST\S+ .*/g), ['POSTQUEUE -i A1B2C3', 'POSTSUPER -d A1B2C3', 'POSTQUEUE -f', 'POSTQUEUE -f']);
+    const lines = status.trim().split('\n').map((l) => JSON.parse(l));
+    assert.equal(lines[0].done, 4);
+    assert.equal(lines[1].queue_id, 'A1B2C3');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});

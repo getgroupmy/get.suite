@@ -45,6 +45,10 @@ test('health: the mail server and its certificate', async () => {
   assert.equal((await mail(async () => ({ ok: true, valid_to: now + 3 * 864e5 }))).certificate.status, 'bad');
   assert.match((await mail(async () => ({ ok: true, valid_to: now - 2 * 864e5 }))).certificate.detail, /Expired 2 days ago/);
   assert.match((await mail(async () => ({ ok: true, valid_to: now + 300 * 864e5, self_signed: true }))).certificate.detail, /Self-signed/);
+  const stuck = { at: now, done: 0, messages: [{ id: 'AAA111', queue: 'deferred', arrived: now - 30 * 3600e3, recipients: [{ address: 'a@b.test', reason: 'Connection timed out' }] }] };
+  const h = byId(await collectHealth({ ...base, statfs: disk(400, 1000), backupDir: backups(1), mail: true, probe: async () => ({ ok: true, valid_to: now + 60 * 864e5 }), queue: () => stuck }));
+  assert.deepEqual([h.queue.label, h.queue.status], ['Outgoing mail', 'bad']);
+  assert.equal(byId(await collectHealth({ ...base, statfs: disk(400, 1000), backupDir: backups(1), mail: true, probe: async () => ({ ok: true }), queue: () => null })).queue, undefined, 'not reported: no check');
 });
 
 test('health: probing a real TLS server reads its certificate; a closed port is reported', async () => {
