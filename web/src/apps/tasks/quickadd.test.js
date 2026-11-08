@@ -48,3 +48,14 @@ test('quick add: times, repeats, importance and people', () => {
   assert.deepEqual(p('tomorrow').due, null);
   assert.deepEqual(p('Send invoice tomorrow 3pm every month !').found.map((f) => f.kind), ['due', 'time', 'important', 'repeat']);
 });
+
+test('quick add: #tags', () => {
+  const r = parseQuickAdd('Call Acme #client #Sales tomorrow #client', { today: '2026-11-08' });
+  assert.equal(r.title, 'Call Acme');
+  assert.deepEqual(r.tags, ['client', 'sales']);
+  assert.equal(r.due, '2026-11-09');
+  assert.deepEqual(r.found.filter((f) => f.kind === 'tag').map((f) => f.text), ['#client', '#sales']);
+  const n = parseQuickAdd('Fix issue #42', { today: '2026-11-08' });
+  assert.equal(n.title, 'Fix issue #42');
+  assert.deepEqual(n.tags, []);
+});

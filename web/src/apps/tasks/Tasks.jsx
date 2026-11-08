@@ -27,7 +27,10 @@ export default function Tasks() {
   const [lists, setLists] = useState(null);
   const [assignedCount, setAssignedCount] = useState(0);
   const [importantCount, setImportantCount] = useState(0);
-  const virtual = !!VIRTUAL[listId];
+  // A tag's view (/tasks/tag:client): open tasks with that tag, from every list.
+  const tagView = listId?.startsWith('tag:') ? listId.slice(4) : null;
+  const virtual = !!VIRTUAL[listId] || !!tagView;
+  const [tagList, setTagList] = useState([]); // tags in use on open tasks, with how many
   const [tasks, setTasks] = useState(null);
   const [title, setTitle] = useState('');
   const [asTyped, setAsTyped] = useState(false); // "Keep as typed": don't read dates and so on out of this one
@@ -48,15 +51,19 @@ export default function Tasks() {
   const [dropAt, setDropAt] = useState(null); // index the dragged task would go before
   const addBox = useRef();
 
-  const loadLists = useCallback(() => get('/tasks/lists').then((r) => { setLists(r.lists); setAssignedCount(r.assigned); setImportantCount(r.important || 0); }).catch((e) => toast(e.message, 'error')), [toast]);
+  const loadLists = useCallback(() => {
+    get('/tasks/tags').then((r) => setTagList(r.tags)).catch(() => {});
+    return get('/tasks/lists').then((r) => { setLists(r.lists); setAssignedCount(r.assigned); setImportantCount(r.important || 0); }).catch((e) => toast(e.message, 'error'));
+  }, [toast]);
   const loadTasks = useCallback(() => {
     if (!listId) return Promise.resolve();
+    if (listId.startsWith('tag:')) return get(`/tasks/tags?tag=${encodeURIComponent(listId.slice(4))}`).then((r) => setTasks(r.tasks)).catch((e) => toast(e.message, 'error'));
     return get(VIRTUAL[listId] || `/tasks/lists/${listId}/tasks`).then(setTasks).catch((e) => { toast(e.message, 'error'); navigate('/tasks', { replace: true }); });
   }, [listId, toast, navigate]);
   useEffect(() => { loadLists(); }, [loadLists]);
   useEffect(() => { setTasks(null); loadTasks(); }, [loadTasks]);
   useEffect(() => onLive((m) => {
-    if (m.type === 'tasks-changed') { loadLists(); if (m.list_id === listId || VIRTUAL[listId]) loadTasks(); }
+    if (m.type === 'tasks-changed') { loadLists(); if (m.list_id === listId || VIRTUAL[listId] || listId?.startsWith('tag:')) loadTasks(); }
     if (m.type === 'live-connected') { loadLists(); loadTasks(); }
   }), [listId, loadLists, loadTasks]);
   // No list picked: your first one.
@@ -92,7 +99,7 @@ export default function Tasks() {
     e.preventDefault();
     const text = title.trim();
     if (!text || !list) return;
-    const body = quick?.found.length ? { title: quick.title, due: quick.due, due_time: quick.due_time, repeat: quick.repeat, important: quick.important, assignee_id: quick.assignee_id } : { title: text };
+    const body = quick?.found.length ? { title: quick.title, due: quick.due, due_time: quick.due_time, repeat: quick.repeat, important: quick.important, assignee_id: quick.assignee_id, tags: quick.tags } : { title: text };
     setTitle(''); setAsTyped(false);
     try { await post(`/tasks/lists/${list.id}/tasks`, body); loadTasks(); loadLists(); }
     catch (err) { toast(err.message, 'error'); setTitle(text); }
@@ -131,6 +138,7 @@ export default function Tasks() {
             {t.steps?.length > 0 && <span className={`muted small task-steps ${t.steps.every((x) => x.done) ? 'all' : ''}`} title="Steps done">☑ {t.steps.filter((x) => x.done).length}/{t.steps.length}</span>}
             {t.attachments?.length > 0 && <span className="muted small task-files" title={`${t.attachments.length} file${t.attachments.length === 1 ? '' : 's'}`}>📎 {t.attachments.length}</span>}
             {t.comments > 0 && <span className="muted small task-comments" title={`${t.comments} comment${t.comments === 1 ? '' : 's'}`}>💬 {t.comments}</span>}
+            {t.tags?.map((tag) => <span key={tag} className="pill tag">#{tag}</span>)}
             {t.repeat && !t.done && <span className="muted small task-repeat" title={`Repeats: ${repeatText(t.repeat).toLowerCase()}`}>⟳ {repeatText(t.repeat)}</span>}
           </span>
         </button>
@@ -142,7 +150,7 @@ export default function Tasks() {
   };
 
   if (lists === null) return null;
-  const heading = listId === ASSIGNED ? 'Assigned to me' : listId === IMPORTANT ? 'Important' : list?.name;
+  const heading = tagView ? `#${tagView}` : listId === ASSIGNED ? 'Assigned to me' : listId === IMPORTANT ? 'Important' : list?.name;
   return (
     <div className="tasks-app">
       <aside className="subnav">
@@ -160,6 +168,12 @@ export default function Tasks() {
         {lists.map((l) => (
           <button key={l.id} type="button" className={`subnav-item ${l.id === listId ? 'active' : ''}`} onClick={() => navigate(`/tasks/${l.id}`)}>
             <Icon name={l.mine && !l.members.length ? 'check' : 'people'} /><span className="grow ellipsis">{l.name}</span>{l.open > 0 && <span className="count">{l.open}</span>}
+          </button>
+        ))}
+        {(tagList.length > 0 || tagView) && <div className="subnav-title">Tags</div>}
+        {tagList.map((t) => (
+          <button key={t.name} type="button" className={`subnav-item ${tagView === t.name ? 'active' : ''}`} aria-label={`Tag ${t.name}, ${t.count} open`} onClick={() => navigate(`/tasks/tag:${encodeURIComponent(t.name)}`)}>
+            <span className="nav-star" aria-hidden="true">#</span><span className="grow ellipsis">{t.name}</span><span className="count">{t.count}</span>
           </button>
         ))}
       </aside>
@@ -220,6 +234,7 @@ export default function Tasks() {
               {quick.due && <span className="chip">📅 {dueLabel(quick.due, new Date(), quick.due_time).text}</span>}
               {quick.repeat && <span className="chip">⟳ {repeatText(quick.repeat)}</span>}
               {quick.important && <span className="chip">★ Important</span>}
+              {quick.tags?.map((t) => <span key={t} className="chip">#{t}</span>)}
               {quick.assignee_id && <span className="chip">👤 {people.find((x) => x.id === quick.assignee_id)?.name}</span>}
             </>}
             <button type="button" className="link-btn small" onClick={() => { setAsTyped(!asTyped); addBox.current?.focus(); }}>{asTyped ? 'Read dates again' : 'Keep as typed'}</button>
@@ -234,7 +249,7 @@ export default function Tasks() {
               update(t, t.done ? { done: false, started } : { started });
             }} />
         ) : open.length === 0 && done.length === 0 ? (
-          <Empty icon="check" title={listId === ASSIGNED ? 'Nothing assigned to you' : listId === IMPORTANT ? 'Nothing important' : 'No tasks yet'}>{listId === ASSIGNED ? 'Tasks people give you on shared lists show up here.' : listId === IMPORTANT ? 'Mark a task with ☆ and it shows up here, from every list.' : 'Type a task above and press Enter.'}</Empty>
+          <Empty icon="check" title={tagView ? `Nothing open tagged #${tagView}` : listId === ASSIGNED ? 'Nothing assigned to you' : listId === IMPORTANT ? 'Nothing important' : 'No tasks yet'}>{listId === ASSIGNED ? 'Tasks people give you on shared lists show up here.' : listId === IMPORTANT ? 'Mark a task with ☆ and it shows up here, from every list.' : 'Type a task above and press Enter.'}</Empty>
         ) : (
           <>
             <ul className="task-list" aria-label="Tasks" onDragOver={(e) => dragging && e.preventDefault()} onDrop={(e) => { if (dragging && dropAt === null) { e.preventDefault(); drop(open.length); } }}>
@@ -347,6 +362,7 @@ function TaskDetails({ task, tasks, lists, people, onChange, onClose, onDelete, 
       <Steps task={task} onReplaced={onReplaced} />
       <TaskFiles task={task} onReplaced={onReplaced} />
       <WaitingOn task={task} tasks={tasks} onReplaced={onReplaced} />
+      <TaskTags task={task} onChange={onChange} />
       <label className="field"><span>Due</span>
         <span className="row"><input type="date" value={task.due || ''} onChange={(e) => onChange({ due: e.target.value || null })} />
           {task.due && <input type="time" aria-label="Time" title="Due time (optional)" value={task.due_time || ''} onChange={(e) => onChange({ due_time: e.target.value || null })} />}
@@ -552,6 +568,26 @@ function TaskComments({ task }) {
         <input className="grow" value={text} onChange={(e) => setText(e.target.value)} placeholder="Add a comment" aria-label="Add a comment" maxLength={4000} />
         <button className="btn small" disabled={!text.trim()}>Post</button>
       </form>
+    </div>
+  );
+}
+
+/** Tags in a task's details: type them (with or without #, separated by spaces or commas); × takes one off. */
+function TaskTags({ task, onChange }) {
+  const [text, setText] = useState('');
+  const tags = task.tags || [];
+  const add = () => {
+    const more = text.split(/[\s,]+/).map((x) => x.replace(/^#+/, '').toLowerCase()).filter(Boolean);
+    setText('');
+    if (more.length) onChange({ tags: [...new Set([...tags, ...more])] });
+  };
+  return (
+    <div className="field"><span>Tags</span>
+      <div className="row wrap task-tags">
+        {tags.map((t) => <span key={t} className="pill tag">#{t}<button type="button" className="icon-btn" aria-label={`Remove tag ${t}`} onClick={() => onChange({ tags: tags.filter((x) => x !== t) })}>×</button></span>)}
+        <input className="grow" value={text} aria-label="Add a tag" placeholder={tags.length ? 'Add a tag' : 'Add a tag, like client'} maxLength={100}
+          onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); add(); } }} onBlur={add} />
+      </div>
     </div>
   );
 }

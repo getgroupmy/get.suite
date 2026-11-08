@@ -5294,3 +5294,31 @@ test('forms: an "Other" choice takes what people type (one, on tick boxes, after
   assert.deepEqual(s[0].others, ['Radio', 'A poster']);
   assert.deepEqual(prefillFrom(qs, JSON.stringify({ how: 'Poster', days: ['Mon', 'Fri', 'Sun'], plain: 'C' })), { how: 'Poster', days: ['Mon', 'Fri'] });
 });
+
+test('tasks: tags (tidied, searched, gathered from every list you are on, carried to the next repeat)', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['taga', 'Tag Ann'], ['tagb', 'Tag Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'taga@acme.com');
+  await login(b, 'tagb@acme.com');
+  const mine = (await a('POST', '/api/tasks/lists', { name: 'Mine' })).body.id;
+  const other = (await a('POST', '/api/tasks/lists', { name: 'Other' })).body.id;
+  const t1 = (await a('POST', `/api/tasks/lists/${mine}/tasks`, { title: 'Call Acme', tags: ['#Client', 'client', 'sales'], due: '2026-12-01' })).body;
+  assert.deepEqual(t1.tags, ['client', 'sales']);
+  assert.equal((await a('POST', `/api/tasks/lists/${mine}/tasks`, { title: 'Bad', tags: ['no spaces please!'] })).status, 400);
+  assert.equal((await a('POST', `/api/tasks/lists/${mine}/tasks`, { title: 'Bad', tags: ['42'] })).status, 400, 'a tag starts with a letter');
+  const t2 = (await a('POST', `/api/tasks/lists/${other}/tasks`, { title: 'Send quote', tags: 'client, quotes' })).body;
+  assert.deepEqual(t2.tags, ['client', 'quotes']);
+  await a('POST', `/api/tasks/lists/${other}/tasks`, { title: 'Untagged' });
+  let r = (await a('GET', '/api/tasks/tags?tag=%23client')).body;
+  assert.deepEqual(r.tags, [{ name: 'client', count: 2 }, { name: 'quotes', count: 1 }, { name: 'sales', count: 1 }]);
+  assert.deepEqual(r.tasks.map((t) => t.title), ['Call Acme', 'Send quote'], 'dated first, from every list');
+  assert.deepEqual((await b('GET', '/api/tasks/tags?tag=client')).body, { tags: [], tasks: [] }, 'only lists you are on');
+  assert.deepEqual((await a('GET', '/api/tasks/search?q=quotes')).body.map((t) => t.title), ['Send quote'], 'search finds tags');
+  assert.deepEqual((await a('PATCH', `/api/tasks/tasks/${t2.id}`, { tags: [] })).body.tags, []);
+  assert.deepEqual((await a('GET', '/api/tasks/tags')).body.tags.map((t) => t.name), ['client', 'sales']);
+  // Repeating: the next one keeps its tags; done ones leave the tag's view.
+  await a('PATCH', `/api/tasks/tasks/${t1.id}`, { repeat: 'weekly' });
+  const done = (await a('PATCH', `/api/tasks/tasks/${t1.id}`, { done: true, today: '2026-12-01' })).body;
+  r = (await a('GET', '/api/tasks/tags?tag=client')).body;
+  assert.deepEqual(r.tasks.map((t) => [t.id, t.tags]), [[done.next_id, ['client', 'sales']]]);
+});

@@ -44,7 +44,7 @@ const REPEAT_WORDS = [
  */
 export function parseQuickAdd(input, { today, people = [] } = {}) {
   let s = ` ${String(input || '')} `;
-  const out = { due: null, due_time: null, repeat: null, important: false, assignee_id: null, found: [] };
+  const out = { due: null, due_time: null, repeat: null, important: false, assignee_id: null, tags: [], found: [] };
   const take = (re, fn) => {
     const m = re.exec(s);
     if (!m) return false;
@@ -54,6 +54,8 @@ export function parseQuickAdd(input, { today, people = [] } = {}) {
     return true;
   };
 
+  // Tags: "#client" (a word starting with a letter, so "issue #42" stays as it is).
+  while (take(/\s#(\p{L}[\p{L}\p{N}_-]{0,29})(?=[\s,.]|$)/u, (m) => { const t = m[1].toLowerCase(); if (!out.tags.includes(t) && out.tags.length < 10) { out.tags.push(t); out.found.push({ kind: 'tag', text: `#${t}` }); } }));
   take(/\s!(?:important)?(?=\s)/i, () => { out.important = true; out.found.push({ kind: 'important', text: 'Important' }); });
   for (const [re, v] of REPEAT_WORDS) if (take(re, () => { out.repeat = v; })) break;
 
@@ -104,6 +106,6 @@ export function parseQuickAdd(input, { today, people = [] } = {}) {
   if (out.repeat) out.found.push({ kind: 'repeat', text: out.repeat });
   out.title = s.replace(/\s+/g, ' ').replace(/\s+([,.])/g, '$1').replace(/^[\s,.-]+|[\s,-]+$/g, '').trim();
   // Nothing left to call it: keep the text as it was.
-  if (!out.title) return { title: String(input || '').trim(), due: null, due_time: null, repeat: null, important: false, assignee_id: null, found: [] };
+  if (!out.title) return { title: String(input || '').trim(), due: null, due_time: null, repeat: null, important: false, assignee_id: null, tags: [], found: [] };
   return out;
 }

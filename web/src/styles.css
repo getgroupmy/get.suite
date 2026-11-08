@@ -1994,3 +1994,7 @@ tr.shortcut-row.broken .name-text { color: var(--muted, #777); font-style: itali
 @media (max-width: 640px) { .form-grid-edit { grid-template-columns: 1fr; } }
 .form-prefill-link { width: 100%; margin-top: 12px; font-family: monospace; font-size: .8rem; }
 .form-other { display: flex; align-items: center; gap: 6px; } .form-other input[type=text], .form-other input:not([type]) { min-width: 0; }
+
+.pill.tag { background: color-mix(in srgb, var(--accent, #1a73e8) 14%, transparent); color: inherit; }
+.task-tags .pill.tag { display: inline-flex; align-items: center; gap: 2px; }
+.task-tags .pill.tag .icon-btn { padding: 0 2px; min-width: 0; height: auto; }
