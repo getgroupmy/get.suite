@@ -82,3 +82,14 @@ test('presentations: a slide’s transition and "skip when presenting" go throug
   applyDeckJson(doc, { theme: 'light', slides: [{ id: 'a', items: [] }, { id: 'b', items: [], transition: 'fade' }] });
   assert.deepEqual(jsonFromDeckDoc(doc).slides, [{ id: 'a', items: [] }, { id: 'b', items: [], transition: 'fade' }]);
 });
+
+test('sheet groups go both ways through the shared document', async () => {
+  const { sheetDocFromJson, jsonFromSheetDoc, applySheetJson } = await import('../src/collabdoc.js');
+  const json = { sheets: [{ name: 'S', cells: { A1: '1' }, groups: [{ axis: 'row', from: 2, to: 4, collapsed: false }] }] };
+  const doc = sheetDocFromJson(json);
+  assert.deepEqual(jsonFromSheetDoc(doc).sheets[0].groups, json.sheets[0].groups);
+  applySheetJson(doc, { sheets: [{ ...json.sheets[0], groups: [{ axis: 'row', from: 2, to: 4, collapsed: true }] }] });
+  assert.equal(jsonFromSheetDoc(doc).sheets[0].groups[0].collapsed, true);
+  applySheetJson(doc, { sheets: [{ name: 'S', cells: { A1: '1' } }] });
+  assert.equal(jsonFromSheetDoc(doc).sheets[0].groups, undefined);
+});

@@ -70,6 +70,7 @@ function sheetMap(sheet) {
   if (sheet.filter) m.set('filter', sheet.filter); // { range, hidden: { col: [values] } }
   if (sheet.merges?.length) m.set('merges', sheet.merges); // merged cells: ["A1:C1", …]
   if (sheet.hide) m.set('hide', sheet.hide); // hidden rows and columns: { rows: [2, 3], cols: [0] }
+  if (sheet.groups) m.set('groups', sheet.groups); // grouped rows and columns: [{ axis, from, to, collapsed }]
   if (sheet.pivot) m.set('pivot', sheet.pivot); // a pivot table: { source, c1, c2, r1, rows, cols, value, fn }
   if (sheet.names) m.set('names', sheet.names); // named ranges: { Tax: 'B1', Sales: 'A2:A10' }
   if (sheet.protected?.length) m.set('protected', sheet.protected); // protected ranges (sheetprotect.js)
@@ -96,6 +97,7 @@ export function jsonFromSheetDoc(doc) {
     if (m.get('filter')) s.filter = m.get('filter');
     if (m.get('merges')?.length) s.merges = m.get('merges');
     if (m.get('hide')) s.hide = m.get('hide');
+    if (m.get('groups')) s.groups = m.get('groups');
     if (m.get('pivot')) s.pivot = m.get('pivot');
     if (m.get('names')) s.names = m.get('names');
     if (m.get('protected')?.length) s.protected = m.get('protected');
@@ -125,6 +127,7 @@ export function applySheetJson(doc, next) {
       if (!same(m.get('filter') || null, sheet.filter || null)) { if (sheet.filter) m.set('filter', sheet.filter); else m.delete('filter'); }
       if (!same(m.get('merges') || [], sheet.merges || [])) { if (sheet.merges?.length) m.set('merges', sheet.merges); else m.delete('merges'); }
       if (!same(m.get('hide') || null, sheet.hide || null)) { if (sheet.hide) m.set('hide', sheet.hide); else m.delete('hide'); }
+      if (!same(m.get('groups') || null, sheet.groups || null)) { if (sheet.groups) m.set('groups', sheet.groups); else m.delete('groups'); }
       if (!same(m.get('pivot') || null, sheet.pivot || null)) { if (sheet.pivot) m.set('pivot', sheet.pivot); else m.delete('pivot'); }
       if (!same(m.get('names') || null, sheet.names || null)) { if (sheet.names) m.set('names', sheet.names); else m.delete('names'); }
       if (!same(m.get('protected') || [], sheet.protected || [])) { if (sheet.protected?.length) m.set('protected', sheet.protected); else m.delete('protected'); }

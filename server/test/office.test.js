@@ -492,3 +492,16 @@ test('Excel: HYPERLINK cells keep their formula both ways', async () => {
   const back = await sheetFromExcel(buf);
   assert.equal(back.sheets[0].cells.A1, '=HYPERLINK("https://acme.com", "Acme")');
 });
+
+test('Excel: grouped rows and columns are outline levels both ways, collapsed ones hidden', async () => {
+  const sheet = { sheets: [{ name: 'Plan', cells: { A1: 'Total', A2: 'a', A3: 'b', A4: 'c', D1: 'x' }, groups: [{ axis: 'col', from: 1, to: 2, collapsed: false }, { axis: 'row', from: 1, to: 3, collapsed: true }] }] };
+  const buf = await excelFromSheet(sheet);
+  const ExcelJS = (await import('exceljs')).default;
+  const wb = new ExcelJS.Workbook(); await wb.xlsx.load(buf);
+  const ws = wb.worksheets[0];
+  assert.equal(ws.getRow(2).outlineLevel, 1); assert.equal(ws.getRow(2).hidden, true);
+  assert.equal(ws.getColumn(2).outlineLevel, 1); assert.ok(!ws.getColumn(2).hidden);
+  const back = (await sheetFromExcel(buf)).sheets[0];
+  assert.deepEqual(back.groups, [{ axis: 'row', from: 1, to: 3, collapsed: true }, { axis: 'col', from: 1, to: 2, collapsed: false }]);
+  assert.equal(back.hide, undefined, 'not hidden by hand');
+});

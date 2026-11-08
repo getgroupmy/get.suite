@@ -174,6 +174,10 @@ Write action items as checklist items that mention someone, like *☐ @Kim send 
 - **Everything follows:** formulas point to the same cells after they move, and ranges grow or shrink (`=SUM(B2:B10)` becomes `=SUM(B2:B11)` with a row inserted inside it). A formula that used a deleted cell shows `#REF!`. Formats, column widths, charts and comments move with their cells; a comment whose cell is deleted is marked *(deleted)*.
 - **Sort:** right-click a cell and choose *Sort A → Z* or *Z → A* to sort the table around it by that column, or press **Sort** for a range, column and order of your choice. A heading row is spotted and kept at the top. Numbers come before text, and empty cells go last. Formulas move with their row.
 
+## Grouping rows and columns (Sheets)
+
+Select rows (or columns) by their headings, then **Group rows 2–4** in the right-click menu: they're marked at the side, and a **−** on the heading just after them collapses them (**+** brings them back), like the details under a total. Everyone with the spreadsheet sees the same; groups move with inserted and deleted rows, can't overlap, and **Ungroup rows** removes them (collapsed rows show again). Collapsed rows and columns are left out when printing, and Excel downloads and uploads keep groups as outlines.
+
 ## Filling and selection totals (Sheets)
 
 - **Fill handle:** the small square at the corner of the selection. Drag it down, up, left or right to carry the selected cells on: numbers with a steady step keep stepping (1, 2 → 3, 4; 10, 20 → 30), text ending in a number counts on (*Item 1* → *Item 2*), weekdays, months and quarters go round (*Mon* → *Tue*, *Nov, Dec* → *Jan*), and formulas move their references as with copy and paste. A single number, or anything else, repeats. Filled cells take the formatting of the cells they continue, and a fill that would reach into a protected range is refused as a whole.

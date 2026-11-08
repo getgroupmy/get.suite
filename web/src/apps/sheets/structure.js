@@ -2,6 +2,7 @@
 // chart ranges, rules, dropdowns and commented cells follow), and sorting rows. Pure functions on the sheet's JSON.
 import { colName, colIndex, cellKey, parseRef, shiftFormula, sheetPrefix } from './formula.js';
 import { adjustHide } from './hide.js';
+import { adjustGroups } from './groups.js';
 
 /**
  * A structural change: on `axis` ('row' | 'col'), `count` > 0 inserts that many before index `at`;
@@ -133,6 +134,8 @@ export function applyStructure(sheet, change) {
   const prot = sheet.protected && sheet.protected.flatMap((p) => { if (!p.range) return [p]; const range = adjustRange(p.range, change); return range ? [{ ...p, range }] : []; });
   const out = { ...sheet, cells, colWidths, ...(sheet.formats && { formats }), ...(sheet.charts && { charts }), ...(sheet.rules && { rules }), ...(sheet.validations && { validations }), ...(sheet.merges && { merges }) };
   if (hide) out.hide = hide; else delete out.hide;
+  const groups = adjustGroups(sheet.groups, change);
+  if (groups) out.groups = groups; else delete out.groups;
   if (names && Object.keys(names).length) out.names = names; else delete out.names;
   if (prot?.length) out.protected = prot; else delete out.protected;
   return out;

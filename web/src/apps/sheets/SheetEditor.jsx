@@ -25,6 +25,7 @@ import { ValidationDialog, ChoicePicker } from './SheetValidation.jsx';
 import { validationAt, checkEntry, isTicked } from './validation.js';
 import { hiddenRows, columnValues, adjustFilter, filterArea } from './filter.js';
 import { setHidden, anyHidden, hiddenRuns } from './hide.js';
+import { addGroup, removeGroups, toggleGroup, collapsedOn, toggleAt } from './groups.js';
 import { FilterMenu } from './SheetFilter.jsx';
 import { SheetPreview, SheetChanges } from './SheetPreview.jsx';
 import { VersionHistory } from '../VersionHistory.jsx';
@@ -170,8 +171,12 @@ export default function SheetEditor() {
   // The filter: which rows it hides, and where its headings are.
   const filter = sheet?.filter || null;
   const hide = sheet?.hide || null; // rows and columns hidden by hand
-  const hidden = useMemo(() => { const h = hiddenRows(filter, cells, evaluate); for (const r of hide?.rows || []) h.add(r); return h; }, [filter, cells, evaluate, hide]);
-  const hiddenCols = useMemo(() => new Set(hide?.cols || []), [hide]);
+  const groups = sheet?.groups || null; // grouped rows and columns (collapsed ones are hidden too)
+  const hidden = useMemo(() => { const h = hiddenRows(filter, cells, evaluate); for (const r of hide?.rows || []) h.add(r); for (const r of collapsedOn(groups, 'row')) h.add(r); return h; }, [filter, cells, evaluate, hide, groups]);
+  const hiddenCols = useMemo(() => new Set([...(hide?.cols || []), ...collapsedOn(groups, 'col')]), [hide, groups]);
+  const groupToggle = useMemo(() => ({ row: toggleAt(groups, 'row'), col: toggleAt(groups, 'col') }), [groups]);
+  const inGroup = (axis, i) => (groups || []).some((g) => g.axis === axis && i >= g.from && i <= g.to);
+  const flipGroup = (axis, from) => writeSheet((sh) => ({ groups: toggleGroup(sh.groups, axis, from) }));
   // Where to put the "show hidden" buttons: on the heading just after each run (or just before, at the end).
   const unhideAt = useMemo(() => {
     const at = { row: new Map(), col: new Map() };
@@ -779,6 +784,8 @@ export default function SheetEditor() {
     return [
       { label: `Hide ${what}`, onClick: () => hideSpan(axis, a, b) },
       anyHidden(hide, axis, a, b) && { label: `Unhide ${axis === 'row' ? 'rows' : 'columns'}`, onClick: () => hideSpan(axis, a, b, true) },
+      { label: `Group ${what}`, onClick: () => { const next = addGroup(groups, axis, a, b); if (!next) return toast('Those overlap a group already there: ungroup it first', 'error'); writeSheet(() => ({ groups: next })); } },
+      (groups || []).some((g) => g.axis === axis && g.from <= b && a <= g.to) && { label: `Ungroup ${axis === 'row' ? 'rows' : 'columns'}`, onClick: () => writeSheet((sh) => ({ groups: removeGroups(sh.groups, axis, a, b) })) },
     ];
   };
   rowItems.push(...hideItems('row'), '-', ...freezeRows);
@@ -875,11 +882,12 @@ export default function SheetEditor() {
         <table className="grid" role="grid" aria-label={sheet.name}>
           <thead>
             <tr><th className="corner" />{Array.from({ length: cols }, (_, c) => (
-              <th key={c} className={`${c >= range.c1 && c <= range.c2 ? 'hl' : ''} ${c < frozen.cols ? 'frozen-c' : ''} ${c === frozen.cols - 1 ? 'freeze-edge-r' : ''}`}
+              <th key={c} className={`${inGroup('col', c) ? 'grouped' : ''} ${c >= range.c1 && c <= range.c2 ? 'hl' : ''} ${c < frozen.cols ? 'frozen-c' : ''} ${c === frozen.cols - 1 ? 'freeze-edge-r' : ''}`}
                 style={{ width: widthOf(c), minWidth: widthOf(c), maxWidth: widthOf(c), ...(c < frozen.cols && { left: stick.left[c] }), ...(hiddenCols.has(c) && { display: 'none' }) }}
                 onMouseDown={(e) => { if (e.button === 0) pickCol(c, e); }}
                 onContextMenu={(e) => { if (!(isWholeCols && c >= range.c1 && c <= range.c2)) pickCol(c, { shiftKey: false }); openMenu(e, 'col'); }}>
                 {colName(c)}
+                {groupToggle.col.has(c) && <GroupToggle group={groupToggle.col.get(c)} onToggle={readOnly ? null : () => flipGroup('col', groupToggle.col.get(c).from)} />}
                 {unhideAt.col.has(c) && <UnhideButton run={unhideAt.col.get(c)} axis="col" onShow={readOnly ? null : (a, b) => hideSpan('col', a, b, true)} />}
                 {!readOnly && <span className="col-resize" role="separator" aria-orientation="vertical" aria-label={`Resize column ${colName(c)}`} title="Drag to resize, double-click to fit"
                   onPointerDown={startResize(c)} onMouseDown={(e) => e.stopPropagation()} onDoubleClick={(e) => { e.stopPropagation(); fitColumn(c); }} />}
@@ -889,9 +897,10 @@ export default function SheetEditor() {
           <tbody>
             {Array.from({ length: rows }, (_, r) => (hidden.has(r) ? null : (
               <tr key={r} className={hidden.has(r + 1) || hidden.has(r - 1) ? 'next-to-hidden' : undefined}>
-                <th className={`${r >= range.r1 && r <= range.r2 ? 'hl' : ''} ${r < frozen.rows ? 'frozen-r' : ''} ${r === frozen.rows - 1 ? 'freeze-edge-b' : ''}`}
+                <th className={`${inGroup('row', r) ? 'grouped' : ''} ${r >= range.r1 && r <= range.r2 ? 'hl' : ''} ${r < frozen.rows ? 'frozen-r' : ''} ${r === frozen.rows - 1 ? 'freeze-edge-b' : ''}`}
                   style={r < frozen.rows ? { top: stick.top[r] } : undefined} onMouseDown={(e) => { if (e.button === 0) pickRow(r, e); }}
                   onContextMenu={(e) => { if (!(isWholeRows && r >= range.r1 && r <= range.r2)) pickRow(r, { shiftKey: false }); openMenu(e, 'row'); }}>{r + 1}
+                  {groupToggle.row.has(r) && <GroupToggle group={groupToggle.row.get(r)} onToggle={readOnly ? null : () => flipGroup('row', groupToggle.row.get(r).from)} />}
                   {unhideAt.row.has(r) && <UnhideButton run={unhideAt.row.get(r)} axis="row" onShow={readOnly ? null : (a, b) => hideSpan('row', a, b, true)} />}</th>
                 {Array.from({ length: cols }, (_, c) => {
                   const k = cellKey(c, r);
@@ -1250,5 +1259,16 @@ function Sparkline({ spark }) {
         : <polyline fill="none" stroke="var(--accent)" strokeWidth="1.6" vectorEffect="non-scaling-stroke"
             points={vals.map((x, i) => (x === null ? null : `${n === 1 ? W / 2 : (i * W) / (n - 1)},${y(x)}`)).filter(Boolean).join(' ')} />}
     </svg>
+  );
+}
+
+/** The − / + of a group of rows or columns, on the heading just after it. */
+function GroupToggle({ group, onToggle }) {
+  const n = group.to - group.from + 1;
+  const what = group.axis === 'row' ? `rows ${group.from + 1}–${group.to + 1}` : `columns ${colName(group.from)}–${colName(group.to)}`;
+  return (
+    <button type="button" className="group-toggle" aria-expanded={!group.collapsed} disabled={!onToggle}
+      aria-label={`${group.collapsed ? 'Expand' : 'Collapse'} ${what}`} title={`${group.collapsed ? 'Show' : 'Hide'} the ${n} grouped ${group.axis === 'row' ? 'rows' : 'columns'}`}
+      onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onToggle?.(); }}>{group.collapsed ? '+' : '−'}</button>
   );
 }

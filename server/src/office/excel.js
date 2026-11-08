@@ -69,8 +69,10 @@ export async function sheetFromExcel(buffer) {
   wb.eachSheet((ws) => {
     const cells = {}, formats = {}, colWidths = {};
     const hideRows = [], hideCols = [];
+    const outRows = new Map(), outCols = new Map(); // outlined (grouped) rows/columns → hidden?
     ws.eachRow({ includeEmpty: true }, (row, r) => {
-      if (row.hidden && r <= 10000) hideRows.push(r - 1);
+      if (row.outlineLevel > 0 && r <= 10000) outRows.set(r - 1, !!row.hidden);
+      else if (row.hidden && r <= 10000) hideRows.push(r - 1);
       row.eachCell({ includeEmpty: true }, (cell, c) => {
         const key = `${colName(c - 1)}${r}`;
         const t = cellText(cell);
@@ -92,7 +94,15 @@ export async function sheetFromExcel(buffer) {
         if (Object.keys(f).length) formats[key] = f;
       });
     });
-    ws.columns?.forEach((col, i) => { if (col?.hidden && i < 702) hideCols.push(i); });
+    ws.columns?.forEach((col, i) => { if (i >= 702) return; if (col?.outlineLevel > 0) outCols.set(i, !!col.hidden); else if (col?.hidden) hideCols.push(i); });
+    // Outlined rows and columns become groups (collapsed when hidden), one per run.
+    const groups = [];
+    for (const [axis, m] of [['row', outRows], ['col', outCols]]) {
+      for (const i of [...m.keys()].sort((a, b) => a - b)) {
+        const last = groups[groups.length - 1];
+        if (last && last.axis === axis && last.to === i - 1) { last.to = i; last.collapsed = last.collapsed && m.get(i); } else groups.push({ axis, from: i, to: i, collapsed: m.get(i) });
+      }
+    }
     ws.columns?.forEach((col, i) => { if (col?.width && Math.abs(col.width - 8.43) > 0.5) colWidths[colName(i)] = Math.round(col.width * 7 + 5); });
     // Frozen panes: the rows above and the columns left of the split stay in view.
     const view = (ws.views || []).find((v) => v.state === 'frozen');
@@ -124,7 +134,7 @@ export async function sheetFromExcel(buffer) {
       const ci = (l) => [...l].reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0) - 1;
       for (let r = a.r; r <= b.r; r++) for (let c = ci(a.c); c <= ci(b.c); c++) if (r !== a.r || c !== ci(a.c)) delete cells[`${colName(c)}${r}`];
     }
-    sheets.push({ _ws: ws.name, name: ws.name.slice(0, 30), cells, colWidths, ...(merges.length && { merges }), ...(rules.length && { rules }), ...(validations.length && { validations }), ...(filter && { filter }), ...(Object.keys(formats).length && { formats }), ...(frozen && (frozen.rows || frozen.cols) && { frozen }), ...(hide && { hide }) });
+    sheets.push({ _ws: ws.name, name: ws.name.slice(0, 30), cells, colWidths, ...(merges.length && { merges }), ...(rules.length && { rules }), ...(validations.length && { validations }), ...(filter && { filter }), ...(Object.keys(formats).length && { formats }), ...(frozen && (frozen.rows || frozen.cols) && { frozen }), ...(hide && { hide }), ...(groups.length && { groups }) });
   });
   // Named ranges ("Sales" = 'Sheet1'!$A$2:$A$10): on the sheet they point into.
   for (const d of wb.definedNames?.model || []) {
@@ -160,6 +170,15 @@ export async function excelFromSheet(data) {
       if (!row.cellCount) row.getCell(1).numFmt = 'General'; // a row with nothing in it isn't written at all otherwise
     }
     for (const c of s.hide?.cols || []) ws.getColumn(c + 1).hidden = true;
+    // Grouped rows and columns: an outline level, hidden when collapsed.
+    for (const g of s.groups || []) {
+      for (let i = g.from; i <= g.to; i++) {
+        const line = g.axis === 'row' ? ws.getRow(i + 1) : ws.getColumn(i + 1);
+        line.outlineLevel = 1;
+        if (g.collapsed) line.hidden = true;
+        if (g.axis === 'row' && !line.cellCount) line.getCell(1).numFmt = 'General';
+      }
+    }
     for (const m of s.merges || []) { try { ws.mergeCells(m); } catch { /* an overlapping or bad range is skipped */ } }
     for (const [key, f] of Object.entries(s.formats || {})) {
       const cell = ws.getCell(key);
