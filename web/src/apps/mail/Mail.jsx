@@ -119,9 +119,11 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
   }, [search.get('compose')]);
 
   /** Add the From address's signature to a new message, or above the quote in a reply/forward (never to resumed drafts). */
+  // In a shared mailbox, its own signature (set by an admin; {name} is you) instead of yours.
+  const sigs = shared ? (shared.signature ? [{ address: shared.address, html: textToHtml(shared.signature.replaceAll('{name}', user.name)), on_new: true, on_reply: true }] : []) : signatures;
   const withSignature = (init, kind) => {
-    const from = init.from || user.username;
-    const block = signatureBlock(signatures, from, kind);
+    const from = shared ? shared.address : init.from || user.username;
+    const block = signatureBlock(sigs, from, kind);
     const out = { ...init, from, kind };
     if (!block) return out;
     if (kind === 'new') return { ...out, html: `<p></p>${block}` };
@@ -250,7 +252,7 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
         )}
         {!shared && sharedList.some((b) => b.unseen) && <div className="small muted shared-unread" role="status">{sharedList.filter((b) => b.unseen).map((b) => `${b.name}: ${b.unseen} unread`).join(' · ')}</div>}
         {shared && <div className="banner small" role="status">Shared mailbox <strong>{shared.address}</strong>: replies go out from it.</div>}
-        <button className="btn new-btn" onClick={() => setCompose(shared ? {} : withSignature({}, 'new'))}><Icon name="edit" /> Compose</button>
+        <button className="btn new-btn" onClick={() => setCompose(withSignature({}, 'new'))}><Icon name="edit" /> Compose</button>
         {folders.map((f) => {
           const own = !f.specialUse && f.path.toUpperCase() !== 'INBOX';
           const followable = own || f.specialUse === '\\Archive'; // built-in Archive: notifications only, no rename/delete
@@ -389,7 +391,7 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
         ) : <Empty icon="mail" title="No message selected" />}
       </section>
 
-      {compose && <Compose initial={compose} shared={shared} signatures={shared ? [] : signatures} onClose={() => setCompose(null)} onSent={() => { setCompose(null); refresh(); }} onDraftsChanged={refresh} />}
+      {compose && <Compose initial={compose} shared={shared} signatures={sigs} onClose={() => setCompose(null)} onSent={() => { setCompose(null); refresh(); }} onDraftsChanged={refresh} />}
       {labelDialog && !labelDialog.deleting && <LabelDialog label={labelDialog} colors={labelColors} onClose={() => setLabelDialog(null)}
         onSaved={() => { setLabelDialog(null); loadLabels(); }} />}
       {labelDialog?.deleting && (

@@ -17,12 +17,12 @@ q(`CREATE TABLE IF NOT EXISTS shared_mailbox_members (
 )`).run();
 
 // An automatic reply for a shared mailbox ("Thanks, we got your message…"), at most once a day per sender.
-for (const col of ['auto_subject', 'auto_reply']) if (!q('PRAGMA table_info(shared_mailboxes)').all().some((c) => c.name === col)) q(`ALTER TABLE shared_mailboxes ADD COLUMN ${col} TEXT`).run();
+for (const col of ['auto_subject', 'auto_reply', 'signature']) if (!q('PRAGMA table_info(shared_mailboxes)').all().some((c) => c.name === col)) q(`ALTER TABLE shared_mailboxes ADD COLUMN ${col} TEXT`).run();
 
 export const allSharedMailboxes = () => q('SELECT * FROM shared_mailboxes ORDER BY address').all();
 export const isSharedAddress = (address) => !!q('SELECT 1 FROM shared_mailboxes WHERE address = ?').get(String(address).toLowerCase());
 /** The shared mailboxes this person may use (in their own company). */
-export const sharedMailboxesFor = (user) => q(`SELECT s.id, s.address, s.name FROM shared_mailboxes s JOIN shared_mailbox_members m ON m.mailbox_id = s.id
+export const sharedMailboxesFor = (user) => q(`SELECT s.id, s.address, s.name, s.signature FROM shared_mailboxes s JOIN shared_mailbox_members m ON m.mailbox_id = s.id
                                                 WHERE m.user_id = ? AND s.org_id = ? ORDER BY s.address`).all(user.id, user.org_id);
 /** One of them, if this person is a member. */
 export const sharedMailboxFor = (user, id) => q(`SELECT s.* FROM shared_mailboxes s JOIN shared_mailbox_members m ON m.mailbox_id = s.id

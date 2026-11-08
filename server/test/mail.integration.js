@@ -1534,6 +1534,10 @@ test('shared mailbox: its members read it and answer as it; nobody signs in to i
   assert.equal(ack.from.address, 'support@acme.com');
   await olivia('PATCH', `/api/mail-admin/shared/${mb}`, { auto_reply: '' });
   await eventually(() => !fs.existsSync('/run/nw/sieve/support@acme.com.sieve') || !fs.readFileSync('/run/nw/sieve/support@acme.com.sieve', 'utf8').includes('We answer within a day'), 15000);
+  // Its signature (set by an admin) reaches its people with the mailbox.
+  assert.equal((await olivia('PATCH', `/api/mail-admin/shared/${mb}`, { signature: 'y'.repeat(2001) })).status, 400);
+  assert.equal((await olivia('PATCH', `/api/mail-admin/shared/${mb}`, { signature: '{name}\nAcme Support' })).body.signature, '{name}\nAcme Support');
+  assert.equal((await bob('GET', '/api/mail/status')).body.shared.find((x) => x.id === mb).signature, '{name}\nAcme Support');
   // Nobody can sign in to it with a password.
   await assert.rejects(imapLogin('support@acme.com', 'password123'));
   // Taking Bob off: he can't open it any more. Deleting it frees the address.

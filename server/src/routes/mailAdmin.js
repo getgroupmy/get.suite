@@ -172,7 +172,9 @@ export default function mailAdminRoutes() {
   });
 
   // ---- shared mailboxes (support@, info@…): their own mailbox, read and answered by the members chosen ----
-  const sharedOut = (m) => ({ id: m.id, address: m.address, name: m.name, created_at: m.created_at, members: sharedMembers(m.id), auto_subject: m.auto_subject || null, auto_reply: m.auto_reply || null });
+  const sharedOut = (m) => ({ id: m.id, address: m.address, name: m.name, created_at: m.created_at, members: sharedMembers(m.id), auto_subject: m.auto_subject || null, auto_reply: m.auto_reply || null, signature: m.signature || null });
+  /** The signature its people's mail ends with (plain text; {name} is whoever writes). */
+  const signatureOf = (b) => { const t = String(b.signature ?? '').replace(/\r\n?/g, '\n').trim(); if (t.length > 2000) throw bad('The signature is too long (2,000 characters at most)'); return t || null; };
   /** The automatic reply from a request: { auto_reply: text | '' (off), auto_subject }. */
   const autoReply = (b) => {
     const text = String(b.auto_reply ?? '').replace(/\r\n?/g, '\n').trim();
@@ -205,6 +207,7 @@ export default function mailAdminRoutes() {
     q('INSERT INTO shared_mailboxes (id, org_id, address, name, created_at) VALUES (?, ?, ?, ?, ?)').run(id, orgId, address, name, now());
     setMembers(id, members);
     if (req.body.auto_reply !== undefined) { const a = autoReply(req.body); q('UPDATE shared_mailboxes SET auto_reply = ?, auto_subject = ? WHERE id = ?').run(a.text, a.subject, id); }
+    if (req.body.signature !== undefined) q('UPDATE shared_mailboxes SET signature = ? WHERE id = ?').run(signatureOf(req.body), id);
     scheduleMailConfig();
     audit(req, 'shared_mailbox.create', { org: orgId, target: address, details: { members: members.length } });
     res.status(201).json(sharedOut(q('SELECT * FROM shared_mailboxes WHERE id = ?').get(id)));
@@ -218,6 +221,7 @@ export default function mailAdminRoutes() {
     const m = loadShared(req);
     if (req.body.name !== undefined) q('UPDATE shared_mailboxes SET name = ? WHERE id = ?').run(str(req.body.name, { required: true, name: 'Name', max: 100 }), m.id);
     if (req.body.members !== undefined) setMembers(m.id, membersFrom(m.org_id, req.body.members));
+    if (req.body.signature !== undefined) q('UPDATE shared_mailboxes SET signature = ? WHERE id = ?').run(signatureOf(req.body), m.id);
     if (req.body.auto_reply !== undefined) { const a = autoReply(req.body); q('UPDATE shared_mailboxes SET auto_reply = ?, auto_subject = ? WHERE id = ?').run(a.text, a.subject, m.id); scheduleMailConfig(); }
     audit(req, 'shared_mailbox.update', { org: m.org_id, target: m.address });
     res.json(sharedOut(q('SELECT * FROM shared_mailboxes WHERE id = ?').get(m.id)));

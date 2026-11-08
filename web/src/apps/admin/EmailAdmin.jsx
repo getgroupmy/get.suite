@@ -230,7 +230,7 @@ function SharedMailboxes({ qs, orgId }) {
 }
 
 function SharedDialog({ box, domains, people, orgId, onClose, onSaved }) {
-  const [f, setF] = useState({ local: '', domain: domains[0] || '', name: box?.name || '', auto_subject: box?.auto_subject || 'We got your message', auto_reply: box?.auto_reply || '' });
+  const [f, setF] = useState({ local: '', domain: domains[0] || '', name: box?.name || '', auto_subject: box?.auto_subject || 'We got your message', auto_reply: box?.auto_reply || '', signature: box?.signature || '' });
   const [autoOn, setAutoOn] = useState(!!box?.auto_reply);
   const [members, setMembers] = useState(new Set((box?.members || []).map((m) => m.id)));
   const [filter, setFilter] = useState('');
@@ -241,7 +241,7 @@ function SharedDialog({ box, domains, people, orgId, onClose, onSaved }) {
       <form className="stack" onSubmit={async (e) => {
         e.preventDefault();
         try {
-          const auto = { auto_subject: f.auto_subject, auto_reply: autoOn ? f.auto_reply : '' };
+          const auto = { auto_subject: f.auto_subject, auto_reply: autoOn ? f.auto_reply : '', signature: f.signature };
           if (box) await patch(`/mail-admin/shared/${box.id}`, { name: f.name, members: [...members], ...auto });
           else await post('/mail-admin/shared', { ...f, ...auto, members: [...members], org_id: orgId });
           onSaved();
@@ -264,6 +264,8 @@ function SharedDialog({ box, domains, people, orgId, onClose, onSaved }) {
             {shown.map((p) => <li key={p.id}><label className="check"><input type="checkbox" checked={members.has(p.id)} onChange={(e) => { const n = new Set(members); if (e.target.checked) n.add(p.id); else n.delete(p.id); setMembers(n); }} /> {p.name} <span className="muted small">{p.username}</span></label></li>)}
           </ul>
         </fieldset>
+        <label className="field"><span>Signature for mail written as it ({'{name}'} is whoever writes)</span>
+          <textarea rows={3} value={f.signature} onChange={(e) => setF({ ...f, signature: e.target.value })} maxLength={2000} placeholder={'{name}\nAcme Support · +1 555 0100'} /></label>
         <label className="check"><input type="checkbox" checked={autoOn} onChange={(e) => setAutoOn(e.target.checked)} /> Automatic reply to whoever writes in (once a day per sender)</label>
         {autoOn && <>
           <label className="field"><span>Reply subject</span><input value={f.auto_subject} onChange={(e) => setF({ ...f, auto_subject: e.target.value })} maxLength={200} /></label>
