@@ -770,6 +770,51 @@ test('Office previews: Word, Excel and PowerPoint read without a copy; pictures 
   assert.match(bad.body.error, /couldn't be read/);
 });
 
+test('zip files: see inside, unpack into a folder next to it; view-only and broken zips refused', async () => {
+  const JSZip = (await import('jszip')).default;
+  const z = new JSZip(); z.file('Readme.txt', 'hello'); z.file('site/photos/a.jpg', 'jpg'); z.file('../../evil.txt', 'x'); z.file('__MACOSX/._Readme.txt', 'junk');
+  const folder = (await owner('POST', '/api/files/folder', { name: 'Zips arrive here' })).body;
+  const zipf = (await owner('POST', `/api/files/upload?parent=${folder.id}&name=Site%20backup.zip`, await z.generateAsync({ type: 'nodebuffer' }), { raw: true })).body;
+  const inside = (await owner('GET', `/api/files/${zipf.id}/zip`)).body;
+  assert.deepEqual(inside.entries.map((e) => e.path), ['evil.txt', 'Readme.txt', 'site', 'site/photos', 'site/photos/a.jpg']);
+  assert.deepEqual([inside.files, inside.folders], [3, 2]);
+
+  const r = await owner('POST', `/api/files/${zipf.id}/extract`);
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.deepEqual([r.body.folder.name, r.body.folder.parent_id, r.body.files, r.body.folders], ['Site backup', folder.id, 3, 2]);
+  const list = async (parent) => (await owner('GET', `/api/files?parent=${parent}`)).body;
+  const top = await list(r.body.folder.id);
+  assert.deepEqual(top.map((f) => f.name).sort(), ['Readme.txt', 'evil.txt', 'site']);
+  const readme = top.find((f) => f.name === 'Readme.txt');
+  assert.equal(readme.mime, 'text/plain');
+  assert.equal((await owner('GET', `/api/files/${readme.id}/raw`)).body, 'hello');
+  const photos = (await list((await list(top.find((f) => f.name === 'site').id))[0].id));
+  assert.deepEqual(photos.map((f) => f.name), ['a.jpg']);
+  assert.equal((await owner('POST', `/api/files/${zipf.id}/extract`)).body.folder.name, 'Site backup (1)', 'again: a second folder');
+
+  // Someone who can only view a view-only zip can look inside but not unpack it.
+  const viewer = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'zipviewer', domain: 'acme.com', name: 'Zip Viewer', password: 'password123' })).status, 201);
+  const vid = (await login(viewer, 'zipviewer@acme.com')).id;
+  await owner('PUT', `/api/files/${zipf.id}/shares`, { shares: [{ user_id: vid, role: 'viewer' }] });
+  await owner('PATCH', `/api/files/${zipf.id}`, { no_download: true });
+  assert.equal((await viewer('GET', `/api/files/${zipf.id}/zip`)).status, 200);
+  assert.equal((await viewer('POST', `/api/files/${zipf.id}/extract`)).status, 403);
+  await owner('PATCH', `/api/files/${zipf.id}`, { no_download: false });
+  const v = await viewer('POST', `/api/files/${zipf.id}/extract`);
+  assert.equal(v.status, 201);
+  assert.equal(v.body.folder.parent_id, null, 'into their own Drive when they can\'t add to the folder');
+
+  // Not zips, damaged zips (nothing is left behind).
+  const txt = (await owner('POST', '/api/files/upload?name=plain.txt', Buffer.from('x'), { raw: true })).body;
+  assert.equal((await owner('POST', `/api/files/${txt.id}/extract`)).status, 400);
+  const before = (await owner('GET', '/api/files')).body.length;
+  const broken = (await owner('POST', '/api/files/upload?name=broken.zip', Buffer.from('PK\u0003\u0004 nope'), { raw: true })).body;
+  const b = await owner('POST', `/api/files/${broken.id}/extract`);
+  assert.equal(b.status, 400);
+  assert.equal((await owner('GET', '/api/files')).body.length, before + 1, 'only the zip itself');
+});
+
 test('comments: threads on text or cells, replies, resolving, mentions by chat, who may do what', async () => {
   const cami = client(), vera = client(), out = client();
   for (const [c, local] of [[cami, 'cami'], [vera, 'vera'], [out, 'oscar']]) {

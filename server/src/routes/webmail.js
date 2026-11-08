@@ -29,6 +29,7 @@ import { receiptRequest, buildReceipt } from '../mail/receipt.js';
 import { mimeFor } from '../util.js';
 import { previewMime, previewHeaders } from '../mail/preview.js';
 import { officePreview } from '../office/preview.js';
+import { zipEntries } from '../zipfiles.js';
 import { calendarPartOf, readInvite, replyIcs, eventForInvite, saveInvite, readReply } from '../mail/invite.js';
 import { recordReply } from '../mail/invitereply.js';
 import { setVacation } from '../mail/vacation.js';
@@ -324,7 +325,7 @@ export default function webmailRoutes() {
   // on it instead of their own mailbox (reading, moving, flags, folders, drafts and sending as it). Things
   // kept per person (filters, labels, signatures, snoozing, scheduled sending…) stay with their own mail.
   const SHARED_OK = [
-    ['GET', /^\/(unread|folders|messages|find)$/], ['GET', /^\/messages\/\d+(\/(conversation|quote|pictures\/\d+|attachments\/\d+(\/preview)?))?$/],
+    ['GET', /^\/(unread|folders|messages|find)$/], ['GET', /^\/messages\/\d+(\/(conversation|quote|pictures\/\d+|attachments\/\d+(\/preview|\/zip)?))?$/],
     ['POST', /^\/folders$/], ['PATCH', /^\/folders$/], ['DELETE', /^\/folders$/],
     ['POST', /^\/messages\/(flags|read-all|move|delete)$/], ['POST', /^\/messages\/\d+\/attachments\/save$/],
     ['POST', /^\/drafts$/], ['GET', /^\/drafts\/\d+$/], ['DELETE', /^\/drafts\/\d+$/], ['POST', /^\/send$/], ['POST', /^\/assign$/], ['GET', /^\/members$/], ['GET', /^\/notes$/], ['POST', /^\/notes$/], ['DELETE', /^\/notes\/[\w-]+$/],
@@ -981,6 +982,15 @@ export default function webmailRoutes() {
     const a = parsed.attachments.filter((x) => !x.related)[Number(req.params.index)];
     if (!a) throw notFound('Attachment not found');
     res.json(await officePreview(a.content, a.filename, req.realUserId || req.user.id));
+  });
+
+  // What's inside a zip attachment.
+  r.get('/messages/:uid/attachments/:index/zip', async (req, res) => {
+    const { parsed } = await loadMessage(req.user, String(req.query.folder || 'INBOX'), Number(req.params.uid), false);
+    const a = parsed.attachments.filter((x) => !x.related)[Number(req.params.index)];
+    if (!a) throw notFound('Attachment not found');
+    if (!/\.zip$/i.test(a.filename || '')) throw bad('Not a zip file');
+    res.json(await zipEntries(a.content));
   });
 
   // Save attachments to Drive, in an "Email attachments" folder (made when first needed): all of them, or the ones asked.

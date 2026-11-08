@@ -9,6 +9,7 @@ import { ApprovalsView, RequestApproval } from './Approvals.jsx';
 import { SignaturesView } from '../docs/Signatures.jsx';
 import { CommentsPanel, useComments } from '../comments.jsx';
 import OfficePreview from '../OfficePreview.jsx';
+import ZipContents from '../ZipContents.jsx';
 
 function useDriveRoute() {
   const { pathname } = useLocation();
@@ -739,6 +740,18 @@ function Preview({ file, onClose, onOpenAs, comment = null }) {
   const [pinning, setPinning] = useState(false);
   const canEdit = file.role !== 'viewer';
   const isPicture = /^image\/(png|jpeg|gif|webp|avif|bmp)$/.test(m);
+  const isZip = /\.zip$/i.test(file.name);
+  const navigate = useNavigate();
+  const toast = useToast();
+  const [unpacking, setUnpacking] = useState(false);
+  const extract = async () => {
+    setUnpacking(true);
+    try {
+      const r = await post(`/files/${file.id}/extract`);
+      onClose();
+      toast(`Unpacked ${r.files} file${r.files === 1 ? '' : 's'} into “${r.folder.name}”`, 'info', { action: { label: 'Show', onClick: () => navigate(`/drive/folder/${r.folder.id}`) } });
+    } catch (e) { toast(e.message, 'error'); setUnpacking(false); }
+  };
   const pins = threads.filter((t) => !t.resolved && t.anchor && t.anchor.x !== undefined);
   const newComment = (anchor, label) => { setPanel(true); setPending({ anchor, label, onCreated: () => setPending(null), onCancel: () => setPending(null) }); };
   const pinAt = (e) => {
@@ -760,12 +773,14 @@ function Preview({ file, onClose, onOpenAs, comment = null }) {
   else if (m.startsWith('audio/')) body = <audio src={src} controls />;
   else if (m === 'application/pdf' || m.startsWith('text/')) body = <iframe src={src} title={file.name} className="preview-frame" />;
   else if (officeAs(file)) body = <OfficePreview url={`/files/${file.id}/preview`} />;
+  else if (isZip) body = <ZipContents url={`/files/${file.id}/zip`} />;
   else body = <Empty icon="file" title="No preview available">Download the file to open it on your device.</Empty>;
   return (
     <Modal wide title={file.name} onClose={onClose} footer={<>
       <button type="button" className={`btn ${panel ? 'primary' : ''}`} aria-pressed={panel} onClick={() => setPanel(!panel)}><Icon name="chat" size={18} /> Comments{threads.filter((t) => !t.resolved).length ? ` (${threads.filter((t) => !t.resolved).length})` : ''}</button>
+      {isZip && !viewOnly(file) && <button type="button" className="btn primary" disabled={unpacking} title="Unpack it into a folder of the same name next to it" onClick={extract}><Icon name="folder" size={18} /> {unpacking ? 'Unpacking…' : 'Extract here'}</button>}
       {officeAs(file) && <button type="button" className="btn primary" title="Workspace makes an editable copy next to it; the original stays as it is" onClick={onOpenAs}><Icon name={officeAs(file).icon} size={18} /> Open as {officeAs(file).what}</button>}
-      {viewOnly(file) ? <span className="muted small">View only: downloading is turned off</span> : <a className={`btn ${officeAs(file) ? '' : 'primary'}`} href={`${src}?download`}><Icon name="download" size={18} /> Download</a>}
+      {viewOnly(file) ? <span className="muted small">View only: downloading is turned off</span> : <a className={`btn ${officeAs(file) || isZip ? '' : 'primary'}`} href={`${src}?download`}><Icon name="download" size={18} /> Download</a>}
     </>}>
       <div className={`preview-with-comments ${panel ? 'open' : ''}`}>
         <div className="preview">{body}</div>

@@ -2053,3 +2053,9 @@ tr.shortcut-row.broken .name-text { color: var(--muted, #777); font-style: itali
 .office-preview { width: 100%; max-height: 70vh; overflow: auto; background: var(--surface-2); border-radius: 8px; padding: 16px; box-sizing: border-box; align-self: stretch; }
 .office-preview .paper { margin: 0 auto; }
 .office-preview .pub-sheet-wrap { background: var(--surface); }
+
+/* What's inside a zip */
+.zip-contents { width: 100%; align-self: stretch; }
+.zip-list { list-style: none; margin: 0; padding: 4px 0; max-height: 60vh; overflow: auto; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.zip-list li { display: flex; align-items: center; gap: 8px; padding: 4px 12px 4px 8px; min-width: 0; }
+.zip-list li.dir { font-weight: 500; }

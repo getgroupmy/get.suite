@@ -10,13 +10,14 @@ test('previewKind: by the file name, safe kinds only', () => {
   assert.equal(previewKind('clip.webm'), 'video');
   assert.equal(previewKind('Report.DOCX'), 'office');
   assert.equal(previewKind('deck.pptx'), 'office');
-  for (const n of ['logo.svg', 'page.html', 'report.doc', 'old.xls', 'a.zip', 'pdf', '', undefined]) assert.equal(previewKind(n), null);
+  assert.equal(previewKind('Photos.ZIP'), 'zip');
+  for (const n of ['logo.svg', 'page.html', 'report.doc', 'old.xls', 'a.7z', 'pdf', '', undefined]) assert.equal(previewKind(n), null);
 });
 
 test('stepPreview skips what cannot be shown and wraps round', () => {
-  const atts = [{ filename: 'a.png' }, { filename: 'b.zip' }, { filename: 'c.pdf' }];
+  const atts = [{ filename: 'a.png' }, { filename: 'b.rar' }, { filename: 'c.pdf' }];
   assert.equal(stepPreview(atts, 0, 1), 2);
   assert.equal(stepPreview(atts, 2, 1), 0);
   assert.equal(stepPreview(atts, 0, -1), 2);
-  assert.equal(stepPreview([{ filename: 'a.png' }, { filename: 'b.zip' }], 0, 1), 0);
+  assert.equal(stepPreview([{ filename: 'a.png' }, { filename: 'b.exe' }], 0, 1), 0);
 });

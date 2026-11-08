@@ -24,6 +24,7 @@ import { docFromWord, wordFromDoc } from '../office/word.js';
 import { sheetFromExcel, excelFromSheet } from '../office/excel.js';
 import { deckFromPowerPoint, powerPointFromDeck } from '../office/powerpoint.js';
 import { officePreview, officeKind, MAX_PREVIEW } from '../office/preview.js';
+import { zipEntries, extractZip } from '../zipfiles.js';
 import { markdownFromDoc, docFromMarkdown } from '../office/markdown.js';
 import { brokenProtections } from '../sheetprotect.js';
 
@@ -718,6 +719,36 @@ export default function fileRoutes({ maxUploadBytes }) {
     if (f.size > MAX_PREVIEW) throw bad('This file is too large to preview (20 MB at most): download it instead');
     sawFile(f.id, req.user.id);
     res.json(await officePreview(fs.readFileSync(path.join(FILES_DIR, f.storage)), f.name, req.user.id));
+  });
+
+  // What's inside a zip file, and unpacking it into a folder next to it (or in your Drive).
+  const isZip = (f) => f.kind === 'file' && /\.zip$/i.test(f.name);
+  r.get('/:id/zip', async (req, res) => {
+    const f = loadFile(req.params.id, req.user);
+    if (!isZip(f)) throw bad('Not a zip file');
+    res.json(await zipEntries(fs.readFileSync(path.join(FILES_DIR, f.storage))));
+  });
+  r.post('/:id/extract', async (req, res) => {
+    const f = loadFile(req.params.id, req.user);
+    if (!isZip(f)) throw bad('Not a zip file');
+    if (!mayTakeAway(f, f.role)) throw forbidden(NO_TAKING);
+    const parentId = f.parent_id && atLeast(roleFor(f.parent_id, req.user.id) || '', 'editor') ? f.parent_id : null;
+    const owner = req.user.id;
+    let done;
+    try {
+      done = await extractZip(fs.readFileSync(path.join(FILES_DIR, f.storage)), {
+        rootName: f.name.replace(/\.zip$/i, '') || 'Unzipped', parentId,
+        checkSpace: (bytes) => checkQuota(req.user.org_id, bytes),
+        makeFolder: (name, parent) => insertFile({ owner, parentId: parent, name, kind: 'folder', activity: { action: 'create', details: { from: f.name } } }),
+        makeFile: ({ name, parentId: parent, size, storage, mime }) => insertFile({ owner, parentId: parent, name, kind: 'file', mime, size, storage, activity: { action: 'upload', details: { from: f.name } } }),
+      });
+    } catch (e) {
+      if (e.root) permanentlyDelete(e.root);
+      for (const s of e.written || []) fs.rm(path.join(FILES_DIR, s), { force: true }, () => {});
+      throw e;
+    }
+    if (parentId) notify(parentId, { type: 'files-changed', parent_id: parentId });
+    res.status(201).json({ folder: publicFile(loadFile(done.id, req.user)), files: done.files, folders: done.folders });
   });
 
   r.get('/:id/content', (req, res) => {

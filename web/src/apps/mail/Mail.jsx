@@ -22,6 +22,7 @@ import { mailKey, stepMessage } from './mailkeys.js';
 import { printMessage } from './mailprint.js';
 import { previewKind, stepPreview } from './attpreview.js';
 import OfficePreview from '../OfficePreview.jsx';
+import ZipContents from '../ZipContents.jsx';
 import { textToHtml, docToText, emailHtml, isEmptyDoc, linkHref } from './richtext.js';
 import { FiltersDialog } from './Filters.jsx';
 import DrivePicker from '../../components/DrivePicker.jsx';
@@ -2326,7 +2327,8 @@ function AttachmentViewer({ attachments, at, url, uid, folder, onStep, onSave, o
     return () => window.removeEventListener('keydown', key, true);
   });
   const src = url(a, true);
-  const body = kind === 'office' ? <OfficePreview url={`/mail/messages/${uid}/attachments/${a.index}/preview?folder=${enc(folder)}`} />
+  const body = kind === 'zip' ? <ZipContents url={`/mail/messages/${uid}/attachments/${a.index}/zip?folder=${enc(folder)}`} />
+    : kind === 'office' ? <OfficePreview url={`/mail/messages/${uid}/attachments/${a.index}/preview?folder=${enc(folder)}`} />
     : kind === 'picture' ? <img src={src} alt={a.filename} className="preview-media" />
     : kind === 'video' ? <video src={src} controls className="preview-media" />
     : kind === 'audio' ? <audio src={src} controls />
