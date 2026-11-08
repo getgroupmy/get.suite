@@ -938,7 +938,9 @@ test('people outside the server get calendar invitations, updates and cancellati
   assert.match(page.when, /Thursday,? 3 December 2026, 10:00 – 11:00 \(Europe\/London\)/);
   assert.deepEqual(page.organizer, { name: 'Pat Planner', email: 'planner@acme.com' });
   assert.equal((await pub('POST', `/api/public/invites/${token}/answer`, { status: 'perhaps' })).status, 400);
-  assert.equal((await pub('POST', `/api/public/invites/${token}/answer`, { status: 'yes' })).body.status, 'yes');
+  const withNote = (await pub('POST', `/api/public/invites/${token}/answer`, { status: 'yes', note: 'Bringing the samples' })).body;
+  assert.equal(withNote.status, 'yes');
+  assert.equal(withNote.note, 'Bringing the samples', 'a note with the answer, kept for the organizer');
   const mine = (await planner('GET', `/api/events?from=${t - 864e5}&to=${t + 864e5}`)).body[0];
   assert.equal(mine.guests.find((g) => g.email === outsider).status, 'yes');
   const file = await pub('GET', `/api/public/invites/${token}/ics`);

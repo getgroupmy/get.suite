@@ -606,7 +606,7 @@ export function publicInviteRoutes() {
     q('UPDATE event_outside_guests SET status = ?, answered_at = ?, answer_note = ? WHERE token = ?').run(status, Date.now(), note, g.token);
     if (note) bell([g.owner_id], { kind: 'invite', title: `${g.email} answered ${{ yes: 'Yes', maybe: 'Maybe', no: 'No' }[status]} to “${g.title}”`, body: note, link: '/calendar', actor: null });
     touch([g.owner_id]);
-    res.json(shown({ ...g, status }));
+    res.json(shown({ ...g, status, answer_note: note }));
   });
 
   // "Add to my calendar" for apps that didn't pick up the emailed invitation.
