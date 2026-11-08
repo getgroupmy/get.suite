@@ -32,7 +32,9 @@ export default function FormRespond({ token, onSignIn }) {
     setMissing(need);
     if (need.length) { document.getElementById(`q-${need[0]}`)?.scrollIntoView({ block: 'center' }); return; }
     setBusy(true); setSendError('');
-    try { setDone(await call('POST', `/${encodeURIComponent(token)}`, { answers })); window.scrollTo(0, 0); } catch (err) { setSendError(err.message); } finally { setBusy(false); }
+    // File questions hold the uploads ({ id, name }); the form gets their ids.
+    const out = Object.fromEntries(Object.entries(answers).map(([k, v]) => [k, form.questions.find((q) => q.id === k)?.type === 'file' ? (v || []).map((f) => f.id) : v]));
+    try { setDone(await call('POST', `/${encodeURIComponent(token)}`, { answers: out })); window.scrollTo(0, 0); } catch (err) { setSendError(err.message); } finally { setBusy(false); }
   };
 
   let body;
@@ -68,7 +70,7 @@ export default function FormRespond({ token, onSignIn }) {
         {form.you && <p className="muted small" style={{ margin: 0 }}>Signed in as {form.you.name} ({form.you.email}). Your name is recorded with your answers.</p>}
         {closed ? <p role="status"><strong>{form.answered ? 'You have already filled in this form.' : `${form.closed_text || 'This form is no longer accepting responses'}.`}</strong></p> : <>
           {form.questions.some((q) => q.required) && <p className="muted small" style={{ margin: 0 }}><span className="req">*</span> Required</p>}
-          {form.questions.map((q) => <Question key={q.id} q={q} value={answers[q.id]} onChange={(v) => set(q.id, v)} missing={missing.includes(q.id)} />)}
+          {form.questions.map((q) => <Question key={q.id} q={q} token={token} value={answers[q.id]} onChange={(v) => set(q.id, v)} missing={missing.includes(q.id)} />)}
           {sendError && <p className="error small" role="alert">{sendError}</p>}
           <div className="row"><button className="btn primary" disabled={busy}>{busy ? 'Sending…' : 'Submit'}</button>
             {Object.keys(answers).length > 0 && <button type="button" className="link-btn" onClick={() => { setAnswers({}); setMissing([]); }}>Clear form</button>}</div>
@@ -85,12 +87,13 @@ export default function FormRespond({ token, onSignIn }) {
   );
 }
 
-function Question({ q, value, onChange, missing }) {
+function Question({ q, token, value, onChange, missing }) {
   const title = <>{q.title || 'Untitled question'}{q.required && <span className="req" aria-hidden="true"> *</span>}</>;
   const help = q.help && <span className="muted small form-help">{q.help}</span>;
   const err = missing && <span className="error small" role="alert">This question needs an answer</span>;
   const cls = `form-fill-q ${missing ? 'missing' : ''}`;
   const label = `${q.title || 'Untitled question'}${q.required ? ' (required)' : ''}`;
+  if (q.type === 'file') return <FileQuestion q={q} token={token} value={value || []} onChange={onChange} title={title} help={help} err={err} cls={cls} label={label} />;
   if (q.type === 'choice' || q.type === 'checkbox' || q.type === 'scale') {
     const opts = q.type === 'scale' ? Array.from({ length: q.max }, (_, i) => String(i + 1)) : q.options;
     const many = q.type === 'checkbox';
@@ -126,5 +129,46 @@ function Question({ q, value, onChange, missing }) {
         ) : <input type={q.type === 'date' ? 'date' : 'text'} maxLength={500} aria-label={label} value={value || ''} onChange={(e) => onChange(e.target.value)} />}
       {err}
     </label>
+  );
+}
+
+/** A file upload question: each file is sent when it's picked (up to 10 MB), and listed with ×. */
+function FileQuestion({ q, token, value, onChange, title, help, err, cls, label }) {
+  const [busy, setBusy] = useState(0);
+  const [problem, setProblem] = useState('');
+  const max = q.max_files || 1;
+  const add = async (files) => {
+    setProblem('');
+    let list = value;
+    for (const file of [...files].slice(0, max - list.length)) {
+      if (file.size > 10 * 1024 * 1024) { setProblem(`${file.name} is larger than 10 MB`); continue; }
+      setBusy((n) => n + 1);
+      try {
+        const r = await fetch(`/api/public/forms/${encodeURIComponent(token)}/upload?name=${encodeURIComponent(file.name)}`, { method: 'POST', credentials: 'same-origin', headers: { 'x-requested-with': 'nas-workspace', 'content-type': file.type || 'application/octet-stream' }, body: file });
+        const b = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(b.error || 'The file could not be sent');
+        list = [...list, b];
+        onChange(list);
+      } catch (e) { setProblem(e.message); } finally { setBusy((n) => n - 1); }
+    }
+  };
+  return (
+    <fieldset id={`q-${q.id}`} className={cls} aria-label={label}>
+      <legend>{title}</legend>{help}
+      {value.length > 0 && (
+        <ul className="form-files" aria-label="Files you've added">
+          {value.map((f) => <li key={f.id} className="row"><span className="grow ellipsis">📎 {f.name}</span><button type="button" className="icon-btn" aria-label={`Remove ${f.name}`} onClick={() => onChange(value.filter((x) => x.id !== f.id))}>×</button></li>)}
+        </ul>
+      )}
+      {value.length < max && (
+        <label className="btn" style={{ alignSelf: 'flex-start' }}>
+          {busy ? 'Sending…' : value.length ? 'Add another file' : 'Add file'}
+          <input type="file" hidden multiple={max > 1} aria-label={`Add a file: ${label}`} disabled={busy > 0} onChange={(e) => { add(e.target.files); e.target.value = ''; }} />
+        </label>
+      )}
+      <span className="muted small">Up to {max === 1 ? '1 file' : `${max} files`}, 10 MB each</span>
+      {problem && <span className="error small" role="alert">{problem}</span>}
+      {err}
+    </fieldset>
   );
 }

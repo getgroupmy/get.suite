@@ -2,7 +2,7 @@
 
 export const TYPES = [
   ['short', 'Short answer'], ['paragraph', 'Paragraph'], ['choice', 'Multiple choice'], ['checkbox', 'Tick boxes'],
-  ['dropdown', 'Dropdown'], ['scale', 'Linear scale'], ['date', 'Date'],
+  ['dropdown', 'Dropdown'], ['scale', 'Linear scale'], ['date', 'Date'], ['file', 'File upload'],
 ];
 export const HAS_OPTIONS = new Set(['choice', 'checkbox', 'dropdown']);
 
@@ -14,6 +14,7 @@ export function retype(q, type) {
   if (q?.help) next.help = q.help;
   if (HAS_OPTIONS.has(type)) next.options = q?.options?.length ? q.options : ['Option 1'];
   if (type === 'scale') Object.assign(next, { max: q?.max || 5, low: q?.low || '', high: q?.high || '' });
+  if (type === 'file') next.max_files = q?.max_files || 1;
   return next;
 }
 
@@ -36,6 +37,8 @@ export function summarize(questions, responses) {
       for (const a of answers) for (const v of Array.isArray(a) ? a : [a]) if (counts.has(String(v))) counts.set(String(v), counts.get(String(v)) + 1);
       out.bars = keys.map((k) => ({ label: String(k), count: counts.get(String(k)), share: answers.length ? counts.get(String(k)) / answers.length : 0 }));
       if (q.type === 'scale' && answers.length) out.average = Math.round((answers.reduce((s, a) => s + Number(a), 0) / answers.length) * 10) / 10;
+    } else if (q.type === 'file') {
+      out.files = answers.slice().reverse().flat().filter((f) => f && typeof f === 'object'); // newest first
     } else {
       out.texts = answers.slice().reverse().map(String);
     }

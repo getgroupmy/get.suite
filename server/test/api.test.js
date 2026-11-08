@@ -3546,3 +3546,42 @@ test("a colleague's card: job, manager and reports, status, working hours and wh
   assert.ok(g.status === 404 || g.status === 401);
   assert.equal((await owner('GET', '/api/users/nope/card')).status, 404);
 });
+
+test('forms: file upload questions; files go to the owner’s Drive and open for the team', async () => {
+  const resp = client(); const anon = client();
+  await owner('POST', '/api/users', { local: 'ffr', domain: 'acme.com', name: 'Fay Files', password: 'password123' });
+  await login(resp, 'ffr@acme.com');
+  const f = (await owner('POST', '/api/forms', { title: 'Job application' })).body;
+  const qs = [{ id: 'cv', type: 'file', title: 'Your CV', required: true, max_files: 2 }, { id: 'nm', type: 'short', title: 'Name' }];
+  const saved = (await owner('PUT', `/api/forms/${f.id}`, { questions: qs, audience: 'public' })).body;
+  assert.equal(saved.questions[0].max_files, 2);
+  const tok = saved.token;
+  const up = async (who, name, body, type = 'application/pdf') => {
+    const r = await fetch(`${base}/api/public/forms/${tok}/upload?name=${encodeURIComponent(name)}`, { method: 'POST', headers: { 'content-type': type, 'x-requested-with': 'nas-workspace', ...(who.cookie && { cookie: who.cookie }) }, body });
+    return { status: r.status, body: await r.json() };
+  };
+  void anon;
+  const a = await up({}, 'cv.pdf', Buffer.from('%PDF-1.4 my cv'));
+  assert.equal(a.status, 201); assert.equal(a.body.name, 'cv.pdf');
+  assert.equal((await up({}, 'big.bin', Buffer.alloc(10 * 1024 * 1024 + 10))).status, 413);
+  const b = await up({}, 'letter.pdf', Buffer.from('%PDF-1.4 letter'));
+  const c = await up({}, 'extra.pdf', Buffer.from('%PDF x'));
+  const send = (answers) => fetch(`${base}/api/public/forms/${tok}`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-requested-with': 'nas-workspace' }, body: JSON.stringify({ answers }) });
+  assert.equal((await send({ nm: 'X' })).status, 400, 'required');
+  assert.equal((await send({ cv: [a.body.id, b.body.id, c.body.id] })).status, 400, 'at most 2');
+  assert.equal((await send({ cv: ['made-up'] })).status, 400, 'only real uploads');
+  assert.equal((await send({ cv: [a.body.id, b.body.id], nm: 'Ann' })).status, 201);
+  assert.equal((await send({ cv: [a.body.id] })).status, 400, 'an upload is used once');
+  // In the owner's Drive, in the form's folder.
+  const rs = (await owner('GET', `/api/forms/${f.id}/responses`)).body;
+  const files = (rs.responses || rs)[0].answers.cv;
+  assert.deepEqual(files.map((x) => x.name), ['cv.pdf', 'letter.pdf']);
+  const folders = (await owner('GET', '/api/files')).body;
+  const folder = (folders.files || folders).find((x) => x.name === 'Job application (File uploads)');
+  assert.ok(folder, 'a folder for the uploads');
+  const raw = await owner('GET', `/api/forms/${f.id}/file/${files[0].file_id}`);
+  assert.equal(raw.status, 200);
+  assert.equal((await resp('GET', `/api/forms/${f.id}/file/${files[0].file_id}`)).status, 404, 'not for others');
+  const csv = (await owner('GET', `/api/forms/${f.id}/responses.csv`)).body;
+  assert.match(csv, /cv\.pdf; letter\.pdf/);
+});

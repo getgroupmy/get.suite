@@ -1805,3 +1805,5 @@ a.home-item:hover, button.home-item:hover { text-decoration: underline; }
 .person-facts dd { margin: 0; }
 .avatar-btn { border: 0; padding: 0; background: none; cursor: pointer; border-radius: 50%; align-self: flex-start; }
 .msg-author { color: inherit; }
+.form-files { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.form-files li { gap: 8px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 6px; }

@@ -38,3 +38,11 @@ test('summarize counts choices, scales and lists text', () => {
   assert.equal(rate.average, 4.5);
   assert.deepEqual(note.texts, ['last', 'first'], 'newest first');
 });
+
+test('file questions: a new one allows one file; the summary lists the files, newest first', async () => {
+  const { retype, summarize } = await import('./formmath.js');
+  assert.equal(retype({ id: 'a', title: 'CV' }, 'file').max_files, 1);
+  const s = summarize([{ id: 'cv', type: 'file', title: 'CV' }], [{ answers: { cv: [{ file_id: '1', name: 'a.pdf' }] } }, { answers: { cv: [{ file_id: '2', name: 'b.pdf' }, { file_id: '3', name: 'c.pdf' }] } }, { answers: {} }]);
+  assert.equal(s[0].answered, 2);
+  assert.deepEqual(s[0].files.map((f) => f.name), ['b.pdf', 'c.pdf', 'a.pdf']);
+});

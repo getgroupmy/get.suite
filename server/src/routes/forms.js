@@ -5,11 +5,15 @@
 import { Router } from 'express';
 import crypto from 'node:crypto';
 import { q, tx } from '../db.js';
-import { uid, now, str, bad, notFound, forbidden, HttpError } from '../util.js';
+import { uid, now, str, bad, notFound, forbidden, HttpError, isInlineSafe } from '../util.js';
 import { userFromToken, tokenFromReq } from '../auth.js';
 import { notify as bell } from '../notifications.js';
 import { sendTo } from '../hub.js';
-import { insertFile } from './files.js';
+import { insertFile, receiveUpload, cleanName } from './files.js';
+import fs from 'node:fs';
+import path from 'node:path';
+import { FILES_DIR } from '../db.js';
+import { mimeFor } from '../util.js';
 
 q(`CREATE TABLE IF NOT EXISTS forms (
   id TEXT PRIMARY KEY,
@@ -47,11 +51,38 @@ for (const [col, type] of [['close_at', 'INTEGER'], ['max_responses', 'INTEGER']
 }
 const MAX_EDITORS = 50;
 
-export const TYPES = ['short', 'paragraph', 'choice', 'checkbox', 'dropdown', 'scale', 'date'];
+export const TYPES = ['short', 'paragraph', 'choice', 'checkbox', 'dropdown', 'scale', 'date', 'file'];
 const WITH_OPTIONS = new Set(['choice', 'checkbox', 'dropdown']);
 const MAX_QUESTIONS = 100;
 const MAX_OPTIONS = 50;
 const MAX_RESPONSES = 10000;
+// File upload questions: each file up to 10 MB, a few per question. Uploads wait here (for a day at
+// most) until the response is sent, then go into a folder in the form owner's Drive.
+export const MAX_FILES = 5, MAX_FILE_BYTES = 10 * 1024 * 1024;
+q(`CREATE TABLE IF NOT EXISTS form_uploads (
+  id TEXT PRIMARY KEY,
+  form_id TEXT NOT NULL REFERENCES forms(id) ON DELETE CASCADE,
+  storage TEXT NOT NULL,
+  name TEXT NOT NULL,
+  size INTEGER NOT NULL,
+  created_at INTEGER NOT NULL
+)`).run();
+if (!q('PRAGMA table_info(forms)').all().some((c) => c.name === 'files_folder')) q('ALTER TABLE forms ADD COLUMN files_folder TEXT').run();
+/** Throw away uploads that never became part of a response. */
+function dropStaleUploads(t = Date.now()) {
+  for (const u of q('SELECT id, storage FROM form_uploads WHERE created_at < ?').all(t - 864e5)) {
+    fs.rm(path.join(FILES_DIR, u.storage), { force: true }, () => {});
+    q('DELETE FROM form_uploads WHERE id = ?').run(u.id);
+  }
+}
+/** The form's folder for uploaded files in its owner's Drive (made the first time, or again if it's gone). */
+function filesFolder(form) {
+  const cur = form.files_folder && q("SELECT id FROM files WHERE id = ? AND kind = 'folder' AND trashed = 0 AND owner_id = ?").get(form.files_folder, form.owner_id);
+  if (cur) return cur.id;
+  const id = insertFile({ owner: form.owner_id, parentId: null, name: `${(form.title || 'Form').slice(0, 200)} (File uploads)`, kind: 'folder' });
+  q('UPDATE forms SET files_folder = ? WHERE id = ?').run(id, form.id);
+  return id;
+}
 const MAX_FORMS = 500;
 
 /** Tidy questions from the editor: known types, trimmed text, options only where they belong. */
@@ -72,6 +103,7 @@ export function cleanQuestions(list) {
       out.options = [...new Set(opts)].slice(0, MAX_OPTIONS);
       if (!out.options.length) out.options = ['Option 1'];
     }
+    if (type === 'file') out.max_files = Math.min(MAX_FILES, Math.max(1, Math.round(Number(raw?.max_files)) || 1)); // up to this many files
     if (type === 'scale') {
       out.max = [5, 10].includes(Number(raw?.max)) ? Number(raw.max) : 5;
       out.low = String(raw?.low ?? '').slice(0, 60);
@@ -118,7 +150,12 @@ export function checkAnswers(questions, answers) {
   for (const qu of questions) {
     let a = answers[qu.id];
     const name = qu.title || 'This question';
-    if (qu.type === 'checkbox') {
+    if (qu.type === 'file') {
+      // The uploads (their ids from /upload); they become Drive files when the response is saved.
+      a = (Array.isArray(a) ? a : a == null || a === '' ? [] : [a]).map(String).filter(Boolean);
+      if (a.length > (qu.max_files || 1)) throw bad(`${name}: up to ${qu.max_files || 1} file${(qu.max_files || 1) === 1 ? '' : 's'}`);
+      if (!a.length) a = undefined;
+    } else if (qu.type === 'checkbox') {
       a = (Array.isArray(a) ? a : a == null || a === '' ? [] : [a]).map(String);
       if (a.some((x) => !qu.options.includes(x))) throw bad(`${name}: choose from the options`);
       a = qu.options.filter((o) => a.includes(o)); // the form's order, no repeats
@@ -143,7 +180,7 @@ export function checkAnswers(questions, answers) {
 }
 
 /** One answer as text, for CSV and spreadsheets. */
-const asText = (a) => (Array.isArray(a) ? a.join('; ') : a == null ? '' : String(a));
+const asText = (a) => (Array.isArray(a) ? a.map((x) => (x && typeof x === 'object' ? x.name : x)).join('; ') : a == null ? '' : String(a));
 const csvCell = (v) => {
   let s = String(v ?? '');
   if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`; // don't let a spreadsheet run an answer as a formula
@@ -315,6 +352,20 @@ export default function formRoutes() {
     res.json({ questions: f.questions, audience: f.audience, quiz: f.quiz, responses: f.quiz ? list.map((x) => ({ ...x, ...scoreOf(f.questions, x.answers) })) : list });
   });
 
+  // A file sent with a response (for the owner and editors).
+  r.get('/:id/file/:fileId', (req, res) => {
+    const f = ownForm(req.params.id, req.user);
+    const fileId = String(req.params.fileId);
+    if (!q('SELECT 1 FROM form_responses WHERE form_id = ? AND answers LIKE ?').get(f.id, `%"file_id":"${fileId.replace(/[%_"\\]/g, '')}"%`)) throw notFound('File not found');
+    const file = q("SELECT * FROM files WHERE id = ? AND kind = 'file' AND trashed = 0").get(fileId);
+    if (!file) throw notFound('That file has been deleted');
+    const inline = req.query.download === undefined && isInlineSafe(file.mime);
+    res.setHeader('Content-Type', inline ? file.mime : 'application/octet-stream');
+    if (file.mime !== 'application/pdf') res.setHeader('Content-Security-Policy', "default-src 'none'; img-src 'self'; media-src 'self'; style-src 'unsafe-inline'");
+    res.setHeader('Content-Disposition', `${inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(file.name)}`);
+    res.sendFile(path.join(FILES_DIR, file.storage));
+  });
+
   r.get('/:id/responses.csv', (req, res) => {
     const f = ownForm(req.params.id, req.user);
     const csv = responseTable(f, responsesOf(f.id)).map((row) => row.map(csvCell).join(',')).join('\r\n');
@@ -393,13 +444,47 @@ export function publicFormRoutes() {
       you: form.audience === 'org' ? { name: user.name, email: user.email } : null, is_owner: !!user && teamOf(form).includes(user.id) });
   });
 
+  // A file for a file upload question (?name=): kept until the response is sent. Returns { id, name, size }.
+  r.post('/:token/upload', async (req, res) => {
+    const { form } = openForm(req);
+    const shut = closedReason(form);
+    if (shut) throw new HttpError(409, CLOSED_TEXT[shut]);
+    if (!form.questions.some((qu) => qu.type === 'file')) throw bad('This form has no file questions');
+    if (form.audience === 'public') limit(req.ip);
+    dropStaleUploads();
+    const name = cleanName(String(req.query.name || 'file'));
+    const { storage, size } = await receiveUpload(req, form.org_id, MAX_FILE_BYTES).catch((e) => { throw e.status === 413 ? new HttpError(413, 'Files can be up to 10 MB') : e; });
+    const id = crypto.randomBytes(16).toString('base64url');
+    q('INSERT INTO form_uploads (id, form_id, storage, name, size, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(id, form.id, storage, name, size, now());
+    res.status(201).json({ id, name, size });
+  });
+
   r.post('/:token', (req, res) => {
     const { form, user } = openForm(req);
     const shut = closedReason(form);
     if (shut) throw new HttpError(409, CLOSED_TEXT[shut]);
     const answers = checkAnswers(form.questions, req.body?.answers);
+    // File answers: uploads to this form that haven't been used.
+    const fileQs = form.questions.filter((qu) => qu.type === 'file' && answers[qu.id]);
+    for (const qu of fileQs) for (const up of answers[qu.id]) {
+      if (!q('SELECT 1 FROM form_uploads WHERE id = ? AND form_id = ?').get(up, form.id)) throw bad(`${qu.title || 'A file question'}: upload the file again`);
+    }
     if (form.audience === 'public') limit(req.ip);
     const id = uid();
+    const who = form.audience === 'org' ? user.name : null;
+    if (fileQs.length) {
+      const folder = filesFolder(form);
+      for (const qu of fileQs) {
+        answers[qu.id] = answers[qu.id].map((up) => {
+          const u = q('SELECT * FROM form_uploads WHERE id = ?').get(up);
+          const fileId = insertFile({ owner: form.owner_id, parentId: folder, name: who ? `${who} - ${u.name}` : u.name, kind: 'file', mime: mimeFor(u.name), size: u.size, storage: u.storage });
+          q('UPDATE files SET description = ? WHERE id = ?').run(`Sent${who ? ` by ${who}` : ''} with “${form.title}”`, fileId);
+          q('DELETE FROM form_uploads WHERE id = ?').run(up);
+          return { file_id: fileId, name: u.name, size: u.size };
+        });
+      }
+      sendTo([form.owner_id], { type: 'files-changed', parent_id: folder });
+    }
     tx(() => {
       const n = countOf(form.id);
       if (n >= MAX_RESPONSES || (form.max_responses && n >= form.max_responses)) throw new HttpError(409, n >= MAX_RESPONSES ? 'This form is full' : CLOSED_TEXT.full);
