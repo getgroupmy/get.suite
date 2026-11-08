@@ -21,9 +21,11 @@ const OWN_MAIL = /^\/mail\/(status|labels|signatures|templates|unread|shared-unr
 /** ?mailbox=… for links (attachments) when a shared mailbox is open. */
 export const mailboxParam = () => (sharedMailbox ? `&mailbox=${encodeURIComponent(sharedMailbox)}` : '');
 
-export async function api(method, url, body) {
+/** opts.mailbox: the mailbox to use (undefined: the one open now; null: your own) — for a send that may happen after Mail has moved on. */
+export async function api(method, url, body, opts = {}) {
+  const box = opts.mailbox !== undefined ? opts.mailbox : sharedMailbox;
   const headers = { ...HEADERS, 'x-user-idle': String(idleMs()), ...(body !== undefined && { 'content-type': 'application/json' }),
-    ...(sharedMailbox && url.startsWith('/mail/') && !(method === 'GET' && OWN_MAIL.test(url)) && { 'x-mailbox': sharedMailbox }) };
+    ...(box && url.startsWith('/mail/') && !(method === 'GET' && OWN_MAIL.test(url)) && { 'x-mailbox': box }) };
   const res = await fetch(`/api${url}`, {
     method,
     credentials: 'same-origin',
@@ -39,7 +41,7 @@ export async function api(method, url, body) {
 }
 
 export const get = (url) => api('GET', url);
-export const post = (url, body = {}) => api('POST', url, body);
+export const post = (url, body = {}, opts) => api('POST', url, body, opts);
 export const patch = (url, body) => api('PATCH', url, body);
 export const put = (url, body) => api('PUT', url, body);
 export const del = (url) => api('DELETE', url);

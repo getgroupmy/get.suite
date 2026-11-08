@@ -15,7 +15,7 @@ import { roleFor, mayTakeAway } from '../access.js';
 import { mailEnabled, scheduleMailConfig, MAIL_HOSTNAME } from '../mail/config.js';
 import { withClient, withFolder, smtpFor } from '../mail/imap.js';
 import { normalizeRules, cleanMessageId } from '../mail/sieve.js';
-import { sharedMailboxesFor, sharedMailboxFor, assignmentsOf, notesOf, noteCounts, membersOf as sharedMembers } from '../mail/shared.js';
+import { sharedMailboxesFor, sharedMailboxFor, assignmentsOf, notesOf, noteCounts, membersOf as sharedMembers, delegatedMailboxesFor, delegatedMailboxFor, delegatesOf, MAX_DELEGATES } from '../mail/shared.js';
 import { followedFolders, setFollowed, MAX_FOLLOWED } from '../mail/notify.js';
 import { forwardHtml } from '../mail/forwardhtml.js';
 import { unsubscribeOptions, oneClickUnsubscribe } from '../mail/unsubscribe.js';
@@ -305,7 +305,7 @@ export default function webmailRoutes() {
 
   r.get('/status', (req, res) => res.json({
     enabled: mailEnabled(), address: req.user.username, identities: identities(req.user), vacation: vacationOf(req.user.id),
-    shared: mailEnabled() ? sharedMailboxesFor(req.user) : [], // shared mailboxes this person reads and answers
+    shared: mailEnabled() ? [...sharedMailboxesFor(req.user), ...delegatedMailboxesFor(req.user)] : [], // shared mailboxes this person reads and answers, and colleagues' mail delegated to them
   }));
 
   r.use((req, res, next) => (mailEnabled() ? next() : next(new HttpError(503, 'Email is not set up on this server'))));
@@ -313,7 +313,7 @@ export default function webmailRoutes() {
   // Unread mail in the Inbox of each shared mailbox you're in (for the Mailbox picker): [{ id, unseen }].
   r.get('/shared-unread', async (req, res) => {
     const out = [];
-    for (const mb of sharedMailboxesFor(req.user)) {
+    for (const mb of [...sharedMailboxesFor(req.user), ...delegatedMailboxesFor(req.user)]) {
       const as = { ...req.user, username: mb.address, email: mb.address, name: mb.name, shared_mailbox: mb.id };
       try { out.push({ id: mb.id, unseen: ((await withFolder(as, 'INBOX', (c) => c.search({ seen: false }, { uid: true }))) || []).length }); }
       catch { out.push({ id: mb.id, unseen: null }); } // not reachable just now
@@ -333,13 +333,38 @@ export default function webmailRoutes() {
   r.use((req, res, next) => {
     const id = req.get('x-mailbox') || (req.method === 'GET' ? req.query.mailbox : null);
     if (!id) return next();
-    const mb = sharedMailboxFor(req.user, id);
+    const mb = String(id).startsWith('d:') ? delegatedMailboxFor(req.user, id) : sharedMailboxFor(req.user, id);
     if (!mb) return next(new HttpError(404, 'Shared mailbox not found'));
     if (!SHARED_OK.some(([m, re]) => m === req.method && re.test(req.path))) return next(bad('That isn’t available in a shared mailbox'));
+    if (mb.delegated && /^\/(assign|members|notes)/.test(req.path)) return next(bad('Assigning and internal notes are for shared mailboxes'));
     if (req.path === '/send' && (req.body?.sendAt != null || req.body?.followUp)) return next(bad('Send from a shared mailbox now (scheduling and follow-up reminders are for your own mail)'));
     req.realUserId = req.user.id; req.realUserName = req.user.name;
-    req.user = { ...req.user, username: mb.address, email: mb.address, name: mb.name, shared_mailbox: mb.id };
+    // A delegate sends as the owner, and the mail says who actually sent it (Sender:).
+    req.user = { ...req.user, username: mb.address, email: mb.address, name: mb.name, shared_mailbox: mb.id, ...(mb.delegated && { delegate: { name: req.realUserName, address: req.user.username } }) };
     next();
+  });
+
+  // Delegation (your own mail only): who can read and answer it, and whose mail you can.
+  r.get('/delegates', (req, res) => {
+    res.json({ mine: delegatesOf(req.user.id), toMe: delegatedMailboxesFor(req.user).map((m) => ({ id: m.id.slice(2), name: m.name, username: m.address })) });
+  });
+  r.post('/delegates', (req, res) => {
+    if (!mailEnabled()) throw bad('Email is not set up on this server');
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    const d = q('SELECT id, name, username, disabled FROM users WHERE username = ? AND org_id = ?').get(email, req.user.org_id);
+    if (!d || d.disabled) throw bad('Choose someone in your company');
+    if (d.id === req.user.id) throw bad('That’s you');
+    if (delegatesOf(req.user.id).length >= MAX_DELEGATES) throw bad(`At most ${MAX_DELEGATES} people can have your mail`);
+    q('INSERT OR IGNORE INTO mail_delegates (owner_id, delegate_id, created_at) VALUES (?, ?, ?)').run(req.user.id, d.id, now());
+    audit(req, 'mail.delegate', { target: d.username });
+    notifyBell([d.id], { kind: 'share', title: `${req.user.name || req.user.username} gave you access to their mail`, body: 'Pick it under Mailbox in Mail.', link: '/mail', actor: req.user.name });
+    res.status(201).json(delegatesOf(req.user.id));
+  });
+  r.delete('/delegates/:id', (req, res) => {
+    const gone = q('DELETE FROM mail_delegates WHERE owner_id = ? AND delegate_id = ?').run(req.user.id, req.params.id).changes;
+    if (!gone) throw notFound('Not a delegate');
+    audit(req, 'mail.undelegate', { target: q('SELECT username FROM users WHERE id = ?').get(req.params.id)?.username || req.params.id });
+    res.json(delegatesOf(req.user.id));
   });
 
   // In a shared mailbox: its members (to give a message to), and giving a message to one of them
@@ -769,6 +794,8 @@ export default function webmailRoutes() {
       uid: Number(req.params.uid), folder,
       subject: p.subject || '', date: p.date?.valueOf() ?? null,
       from: addrList(p.from)[0] || null, to: addrList(p.to), cc: addrList(p.cc), replyTo: addrList(p.replyTo),
+      // Sent by someone else for the sender (a delegate): the Sender: header, when it differs from From.
+      sentBy: (() => { const sn = addrList(p.headers?.get('sender'))[0]; const fr = addrList(p.from)[0]; return sn && sn.address && sn.address !== fr?.address ? sn : null; })(),
       messageId: p.messageId || null, references: [].concat(p.references || []),
       html: p.html || null, text: p.text || '', textAsHtml: p.textAsHtml || '',
       flagged: flags.has('\\Flagged'),
@@ -1309,6 +1336,7 @@ export default function webmailRoutes() {
       ...(html && { html }),
       ...(b.inReplyTo && { inReplyTo: String(b.inReplyTo), references: [].concat(b.references || [], b.inReplyTo).map(String).slice(-20) }),
       ...(b.receipt && { headers: { 'Disposition-Notification-To': from.address } }), // ask for a read receipt
+      ...(req.user.delegate && { sender: { name: req.user.delegate.name, address: req.user.delegate.address } }), // sent by a delegate
       attachments,
     };
     const raw = await new MailComposer(mail).compile().build();

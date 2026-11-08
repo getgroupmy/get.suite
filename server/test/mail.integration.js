@@ -1563,3 +1563,50 @@ test('plus addresses into folders: you+name@ goes into your folder “Name”, w
   assert.ok(!(await olivia('GET', '/api/mail/folders')).body.some((f) => /madeup/i.test(f.path)), 'no folder made by a sender');
   await olivia('PUT', '/api/mail/plus-folders', { on: false });
 });
+
+test('delegation: a colleague reads and answers someone’s mail as them (Sender: shows who); only those given it', async () => {
+  const dana = client(), eve = client();
+  for (const [local, name] of [['dana', 'Dana Delegate'], ['eve', 'Eve Elsewhere']]) assert.equal((await olivia('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  assert.equal((await dana('POST', '/api/auth/login', { username: 'dana@acme.com', password: 'password123' })).status, 200);
+  assert.equal((await eve('POST', '/api/auth/login', { username: 'eve@acme.com', password: 'password123' })).status, 200);
+  const oliviaId = (await olivia('GET', '/api/auth/me')).body.user.id;
+  assert.equal((await olivia('POST', '/api/mail/delegates', { email: 'olivia@acme.com' })).status, 400, 'not yourself');
+  assert.equal((await olivia('POST', '/api/mail/delegates', { email: 'nobody@acme.com' })).status, 400);
+  const given = await olivia('POST', '/api/mail/delegates', { email: 'dana@acme.com' });
+  assert.equal(given.status, 201);
+  assert.deepEqual(given.body.map((d) => d.username), ['dana@acme.com']);
+  assert.deepEqual((await dana('GET', '/api/mail/delegates')).body.toMe.map((d) => d.username), ['olivia@acme.com']);
+  const box = (await dana('GET', '/api/mail/status')).body.shared.find((x) => x.delegated);
+  assert.deepEqual([box.id, box.address, box.name], [`d:${oliviaId}`, 'olivia@acme.com', 'Olivia Owner']);
+  assert.ok(JSON.stringify((await dana('GET', '/api/notifications')).body).includes('Olivia Owner gave you access to their mail'));
+
+  // Reading Olivia's inbox; Eve can't; per-person things and team-mailbox extras aren't there.
+  await olivia('POST', '/api/mail/send', { to: 'olivia@acme.com', subject: 'Board pack for Thursday', text: 'Attached soon.' });
+  const as = { headers: { 'x-mailbox': `d:${oliviaId}` } };
+  const msg = await eventually(async () => (await dana('GET', '/api/mail/messages?folder=INBOX', undefined, as)).body.messages?.find((m) => m.subject === 'Board pack for Thursday'), 20000);
+  assert.ok(!(await inbox(dana)).some((m) => m.subject === 'Board pack for Thursday'), 'not in Dana’s own inbox');
+  assert.equal((await eve('GET', '/api/mail/messages?folder=INBOX', undefined, { headers: { 'x-mailbox': `d:${oliviaId}` } })).status, 404);
+  assert.equal((await dana('GET', '/api/mail/rules', undefined, as)).status, 400);
+  assert.equal((await dana('GET', '/api/mail/members', undefined, as)).status, 400);
+  assert.equal((await dana('POST', '/api/mail/delegates', { email: 'eve@acme.com' }, as)).status, 400, 'she can’t pass it on');
+  assert.ok((await dana('GET', '/api/mail/shared-unread')).body.some((x) => x.id === `d:${oliviaId}`));
+
+  // Answering: from Olivia, saying Dana sent it; in Olivia's Sent.
+  const sent = await dana('POST', '/api/mail/send', { from: 'olivia@acme.com', to: 'eve@acme.com', subject: 'Re: Board pack', text: 'Olivia will bring it.' }, as);
+  assert.equal(sent.status, 200, JSON.stringify(sent.body));
+  const got = await eventually(async () => (await inbox(eve)).find((m) => m.subject === 'Re: Board pack'), 20000);
+  assert.equal(got.from.address, 'olivia@acme.com');
+  const full = (await eve('GET', `/api/mail/messages/${got.uid}?folder=INBOX`)).body;
+  assert.deepEqual([full.sentBy?.address, full.sentBy?.name], ['dana@acme.com', 'Dana Delegate']);
+  const sentBox = (await olivia('GET', '/api/mail/folders')).body.find((f) => f.specialUse === '\\Sent');
+  assert.ok((await olivia('GET', `/api/mail/messages?folder=${encodeURIComponent(sentBox.path)}`)).body.messages.some((m) => m.subject === 'Re: Board pack'));
+
+  // Taken away: no more access.
+  const danaId = given.body[0].id;
+  assert.equal((await olivia('DELETE', `/api/mail/delegates/${danaId}`)).body.length, 0);
+  assert.equal((await dana('GET', '/api/mail/messages?folder=INBOX', undefined, as)).status, 404);
+  assert.ok(!(await dana('GET', '/api/mail/status')).body.shared.some((x) => x.delegated));
+  const log = JSON.stringify((await olivia('GET', '/api/audit?limit=50')).body);
+  assert.match(log, /mail\.delegate/);
+  assert.match(log, /mail\.undelegate/);
+});

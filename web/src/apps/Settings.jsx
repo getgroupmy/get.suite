@@ -56,6 +56,7 @@ export default function Settings() {
       <RecoveryEmail />
       <TwoStep />
       <MailApps />
+      <MailDelegates />
       <Devices />
       <WorkLocation />
       <SecondZone />
@@ -404,6 +405,42 @@ function StartPage() {
       <select value={user.start_page || 'drive'} onChange={(e) => set(e.target.value)}>
         <option value="drive">Drive</option><option value="home">Home (the day at a glance)</option>
       </select></label>
+  );
+}
+
+/** Who can read and answer your mail (an assistant, a stand-in), and whose mail you can. */
+function MailDelegates() {
+  const toast = useToast();
+  const [d, setD] = useState(null);
+  const [email, setEmail] = useState('');
+  const [people, setPeople] = useState([]);
+  const [ok, setOk] = useState(false);
+  useEffect(() => {
+    get('/mail/status').then((s) => { if (!s.enabled) return; setOk(true); get('/mail/delegates').then(setD).catch(() => {}); get('/users/directory').then(setPeople).catch(() => {}); }).catch(() => {});
+  }, []);
+  if (!ok || !d) return null;
+  const add = async (e) => {
+    e.preventDefault();
+    try { const mine = await post('/mail/delegates', { email }); setD({ ...d, mine }); setEmail(''); toast('They can now read and answer your mail'); } catch (err) { toast(err.message, 'error'); }
+  };
+  const remove = async (p) => { try { const mine = await del(`/mail/delegates/${p.id}`); setD({ ...d, mine }); toast(`${p.name} no longer has your mail`); } catch (err) { toast(err.message, 'error'); } };
+  return (
+    <section className="card stack" aria-labelledby="deleg-h">
+      <h2 id="deleg-h">Mail delegation</h2>
+      <p className="muted small" style={{ margin: 0 }}>Let a colleague (an assistant, or someone standing in for you) read and answer your mail. They pick it under <strong>Mailbox</strong> in Mail; what they send comes from you and says they sent it. Your filters, signatures and settings stay yours. Each change is in the activity log.</p>
+      {d.mine.length > 0 && (
+        <ul className="plain-list" aria-label="People who have your mail">
+          {d.mine.map((p) => <li key={p.id} className="row small"><span className="grow"><strong>{p.name}</strong> <span className="muted">{p.username}</span></span>
+            <button type="button" className="btn small" aria-label={`Remove ${p.name}`} onClick={() => remove(p)}>Remove</button></li>)}
+        </ul>
+      )}
+      <form className="row" onSubmit={add} style={{ gap: 8 }}>
+        <input className="grow" type="email" aria-label="Colleague's email address" list="deleg-people" placeholder="colleague@company.com" value={email} onChange={(e) => setEmail(e.target.value)} required />
+        <datalist id="deleg-people">{people.map((p) => <option key={p.id} value={p.username}>{p.name}</option>)}</datalist>
+        <button className="btn">Give access</button>
+      </form>
+      {d.toMe.length > 0 && <p className="muted small" style={{ margin: 0 }}>You can read and answer the mail of {d.toMe.map((p) => p.name).join(', ')} (Mail → Mailbox).</p>}
+    </section>
   );
 }
 

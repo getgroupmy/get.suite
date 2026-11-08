@@ -253,7 +253,9 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
           </label>
         )}
         {!shared && sharedList.some((b) => b.unseen) && <div className="small muted shared-unread" role="status">{sharedList.filter((b) => b.unseen).map((b) => `${b.name}: ${b.unseen} unread`).join(' · ')}</div>}
-        {shared && <div className="banner small" role="status">Shared mailbox <strong>{shared.address}</strong>: replies go out from it.</div>}
+        {shared && (shared.delegated
+          ? <div className="banner small" role="status"><strong>{shared.name}</strong>’s mail: what you send comes from {shared.address}, and says you sent it.</div>
+          : <div className="banner small" role="status">Shared mailbox <strong>{shared.address}</strong>: replies go out from it.</div>)}
         <button className="btn new-btn" onClick={() => setCompose(withSignature({}, 'new'))}><Icon name="edit" /> Compose</button>
         {folders.map((f) => {
           const own = !f.specialUse && f.path.toUpperCase() !== 'INBOX';
@@ -602,8 +604,8 @@ function Reader({ shared = null, folder, uid, special, onClose, onOpen, onChange
       </div>
       {muted && <div className="banner" role="status">🔕 This conversation is muted: replies go straight to Archive. <button type="button" className="link-btn" onClick={unmute}>Unmute</button></div>}
       <h1 className="reader-subject">{m.subject || '(no subject)'}</h1>
-      {shared && m.messageId && <AssignBar m={m} onChanged={(a) => { setM({ ...m, ...a }); onChanged(); }} />}
-      {shared && m.messageId && <InternalNotes messageId={m.messageId} onChanged={onChanged} />}
+      {shared && !shared.delegated && m.messageId && <AssignBar m={m} onChanged={(a) => { setM({ ...m, ...a }); onChanged(); }} />}
+      {shared && !shared.delegated && m.messageId && <InternalNotes messageId={m.messageId} onChanged={onChanged} />}
       {(m.labels || []).length > 0 && (
         <div className="reader-labels">
           {m.labels.map((id) => labels.find((l) => l.id === id)).filter(Boolean).map((l) => (
@@ -646,6 +648,7 @@ function Reader({ shared = null, folder, uid, special, onClose, onOpen, onChange
             {m.unsubscribe && (m.unsubscribe.how === 'link'
               ? <a className="link-btn small unsub" href={m.unsubscribe.url} target="_blank" rel="noopener noreferrer nofollow" title="Opens the list's own page to unsubscribe">Unsubscribe</a>
               : <button type="button" className="link-btn small unsub" onClick={() => setUnsubscribing(true)}>Unsubscribe</button>)}</div>
+          {m.sentBy && <div className="muted small sent-by">sent by {m.sentBy.name || m.sentBy.address}{m.sentBy.name ? ` <${m.sentBy.address}>` : ''}</div>}
           <div className="muted small">to {list(m.to) || '—'}{m.cc.length > 0 && <> · cc {list(m.cc)}</>}</div>
         </div>
         <span className="muted small nowrap">{m.date ? new Date(m.date).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : ''}</span>
@@ -957,10 +960,11 @@ function Compose({ initial, shared = null, signatures = [], onClose, onSent, onD
     setBusy(true);
     await stopAutosave();
     const body = payload();
+    const mailbox = currentSharedMailbox(); // as it is now: leaving Mail (or switching mailbox) during the wait still sends from here
     const go = async () => {
       pendingSend.current = null;
       try {
-        const r = await post('/mail/send', body);
+        const r = await post('/mail/send', body, { mailbox });
         toast(`Sent to ${r.recipients} recipient${r.recipients === 1 ? '' : 's'}`);
         onSent();
       } catch (err) { toast(err.message, 'error'); reopen(); }

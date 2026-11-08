@@ -76,3 +76,28 @@ export function noteCounts(mailboxId, messageIds) {
 }
 
 export const membersOf = (id) => q(`SELECT u.id, u.name, u.username FROM shared_mailbox_members m JOIN users u ON u.id = m.user_id WHERE m.mailbox_id = ? ORDER BY u.name`).all(id);
+
+// ---- delegation: someone lets colleagues (an assistant, a stand-in) read and answer their own mail.
+// A delegated mailbox appears in the delegate's Mailbox picker as "d:<owner id>" and works like a
+// shared mailbox (the same actions; filters, signatures and settings stay the owner's own). Mail a
+// delegate sends comes from the owner, with a Sender: header naming the delegate.
+q(`CREATE TABLE IF NOT EXISTS mail_delegates (
+  owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  delegate_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (owner_id, delegate_id)
+)`).run();
+export const MAX_DELEGATES = 10;
+const delegatedBox = (o) => ({ id: `d:${o.id}`, address: o.username, name: o.name, signature: null, delegated: true });
+/** Mailboxes delegated to this person (their owners active and in the same company). */
+export const delegatedMailboxesFor = (user) => q(`SELECT u.id, u.username, u.name FROM mail_delegates d JOIN users u ON u.id = d.owner_id
+  WHERE d.delegate_id = ? AND u.org_id = ? AND u.disabled = 0 ORDER BY u.name`).all(user.id, user.org_id).map(delegatedBox);
+/** One of them ("d:<owner id>"), if it's delegated to this person. */
+export function delegatedMailboxFor(user, id) {
+  const ownerId = String(id).slice(2);
+  const o = q(`SELECT u.id, u.username, u.name FROM mail_delegates d JOIN users u ON u.id = d.owner_id
+    WHERE d.owner_id = ? AND d.delegate_id = ? AND u.org_id = ? AND u.disabled = 0`).get(ownerId, user.id, user.org_id);
+  return o ? delegatedBox(o) : null;
+}
+/** The people who can read and answer this person's mail. */
+export const delegatesOf = (ownerId) => q(`SELECT u.id, u.name, u.username, d.created_at FROM mail_delegates d JOIN users u ON u.id = d.delegate_id WHERE d.owner_id = ? ORDER BY u.name`).all(ownerId);
