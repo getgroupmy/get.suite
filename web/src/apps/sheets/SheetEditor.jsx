@@ -37,6 +37,7 @@ import { box, mergeLayout, mergeAt, addMerge, removeMerges, growToMerges, stepWi
 import { SheetFind } from './SheetFind.jsx';
 import { brokenProtections, protectionsAt, mayEdit, rangeBox } from './protect.js';
 import { ProtectDialog } from './SheetProtect.jsx';
+import { fillCells, fillTarget, selectionStats } from './fill.js';
 
 const SEL_COLORS = ['#1a73e8', '#d93025', '#188038', '#e37400', '#8430ce', '#00796b', '#c2185b', '#5f6368'];
 const colorFor = (id) => SEL_COLORS[[...String(id)].reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) >>> 0, 7) % SEL_COLORS.length];
@@ -444,6 +445,57 @@ export default function SheetEditor() {
   } : { c1: sel.c, c2: sel.c, r1: sel.r, r2: sel.r });
   const inRange = (c, r) => c >= range.c1 && c <= range.c2 && r >= range.r1 && r <= range.r2;
 
+  // Filling: the fill handle (the square at the selection's corner) dragged over cells, or Ctrl+D / Ctrl+R.
+  const [filling, setFilling] = useState(null); // the box being dragged out to
+  const inFill = (c, r) => filling && c >= filling.c1 && c <= filling.c2 && r >= filling.r1 && r <= filling.r2 && !inRange(c, r);
+  function fillTo(target, from = range) {
+    if (readOnly || !target) return;
+    const u = fillCells(cells, from, target);
+    if (!Object.keys(u).length) return;
+    writeCells(u);
+    setAnchor({ c: target.c1, r: target.r1 }); setSel({ c: target.c2, r: target.r2 });
+  }
+  function startFill(e) {
+    e.preventDefault(); e.stopPropagation();
+    const from = range;
+    let target = null;
+    const over = (ev) => {
+      const td = document.elementFromPoint(ev.clientX, ev.clientY)?.closest?.('td[data-k]');
+      const p = td && parseRef(td.dataset.k);
+      if (!p) return;
+      target = fillTarget(from, p.c, p.r);
+      setFilling(target);
+    };
+    const up = () => {
+      window.removeEventListener('mousemove', over); window.removeEventListener('mouseup', up);
+      setFilling(null);
+      fillTo(target, from);
+      gridRef.current?.focus();
+    };
+    window.addEventListener('mousemove', over); window.addEventListener('mouseup', up);
+  }
+  // Where the handle goes: the bottom-right corner of the selection, measured from the grid.
+  const [handleAt, setHandleAt] = useState(null);
+  useLayoutEffect(() => {
+    const wrap = gridRef.current;
+    const td = !readOnly && !editing && wrap?.querySelector(`td[data-k="${cellKey(range.c2, range.r2)}"]`);
+    if (!td) { if (handleAt) setHandleAt(null); return; }
+    const w = wrap.getBoundingClientRect(), b = td.getBoundingClientRect();
+    const at = { left: b.right - w.left + wrap.scrollLeft - 4, top: b.bottom - w.top + wrap.scrollTop - 4 };
+    if (!handleAt || at.left !== handleAt.left || at.top !== handleAt.top) setHandleAt(at);
+  });
+  // Sum, average and count of what's selected (when it's more than one cell).
+  const stats = useMemo(() => {
+    if (range.c1 === range.c2 && range.r1 === range.r2) return null;
+    const vals = [];
+    for (let r = range.r1; r <= Math.min(range.r2, range.r1 + 5000); r++) for (let c = range.c1; c <= range.c2; c++) {
+      const k = cellKey(c, r);
+      if (cells[k] === undefined || hidden.has(r)) continue;
+      vals.push(evaluate(k));
+    }
+    return selectionStats(vals);
+  }, [range.c1, range.c2, range.r1, range.r2, cells, evaluate, hidden]);
+
   function move(dc, dr, extend = false) {
     if (extend) { if (!anchor) setAnchor(sel); } else setAnchor(null);
     setSel((s) => {
@@ -526,6 +578,13 @@ export default function SheetEditor() {
       const key = k.toLowerCase();
       writeFormats({ [key]: !formats[cellKey(sel.c, sel.r)]?.[key] });
     } else if (e.altKey && e.shiftKey && e.code === 'Digit5') { e.preventDefault(); writeFormats({ s: !formats[cellKey(sel.c, sel.r)]?.s }); }
+    else if (mod && !e.shiftKey && !e.altKey && (k.toLowerCase() === 'd' || k.toLowerCase() === 'r')) {
+      // Fill down / right: the selection's first row (column) into the rest; a single cell copies the one above (left).
+      e.preventDefault();
+      const down = k.toLowerCase() === 'd';
+      if (down) { if (range.r2 > range.r1) fillTo(range, { ...range, r2: range.r1 }); else if (range.r1 > 0) fillTo(range, { ...range, r1: range.r1 - 1, r2: range.r1 - 1 }); }
+      else if (range.c2 > range.c1) fillTo(range, { ...range, c2: range.c1 }); else if (range.c1 > 0) fillTo(range, { ...range, c1: range.c1 - 1, c2: range.c1 - 1 });
+    }
     else if (mod && k.toLowerCase() === 'a') { e.preventDefault(); setAnchor({ c: 0, r: 0 }); setSel({ c: cols - 1, r: rows - 1 }); }
     else if (mod && e.altKey && e.code === 'KeyM') { e.preventDefault(); startComment(); }
     else if (!mod && !e.altKey && k.length === 1) { e.preventDefault(); startEdit(k); }
@@ -841,7 +900,7 @@ export default function SheetEditor() {
                   return (
                     <td key={k} data-k={k} {...spanProps} style={{ maxWidth: span ? undefined : widthOf(c), ...stickyStyle(c, r), ...cellStyle(fmt), ...(rules.length && ruleStyle(rules, k, v)), ...(theirs.has(k) && { boxShadow: `${isSel ? 'inset 0 0 0 2px var(--accent), ' : ''}inset 0 0 0 ${isSel ? 4 : 2}px ${theirs.get(k).color}` }) }}
                       title={theirs.has(k) ? `${theirs.get(k).name} is here` : commented.has(k) ? 'Has comments' : undefined}
-                      className={`${frozenClass(c, r)} ${vd ? `has-${vd.type}` : ''} ${commented.has(k) ? 'commented' : ''} ${isSel ? 'sel' : ''} ${inRange(c, r) && anchor ? 'range' : ''} ${typeof v === 'number' ? 'num' : ''} ${isErr ? 'err' : ''} ${hits?.keys.has(k) ? (hits.current === k ? 'find-current' : 'find-hit') : ''} ${!readOnly && guardBoxes.length && guarded(c, r) ? 'guarded' : ''}`}
+                      className={`${frozenClass(c, r)} ${vd ? `has-${vd.type}` : ''} ${commented.has(k) ? 'commented' : ''} ${isSel ? 'sel' : ''} ${inRange(c, r) && anchor ? 'range' : ''} ${typeof v === 'number' ? 'num' : ''} ${isErr ? 'err' : ''} ${hits?.keys.has(k) ? (hits.current === k ? 'find-current' : 'find-hit') : ''} ${!readOnly && guardBoxes.length && guarded(c, r) ? 'guarded' : ''} ${inFill(c, r) ? 'fill-preview' : ''}`}
                       onContextMenu={(e) => { if (!inRange(c, r)) { setAnchor(null); setSel({ c, r }); } openMenu(e, 'cell'); }}
                       onMouseDown={(e) => {
                         if (e.button !== 0 && inRange(c, r)) return; // a right-click keeps the selection
@@ -872,6 +931,7 @@ export default function SheetEditor() {
             )))}
           </tbody>
         </table>
+        {handleAt && <span className="fill-handle" style={{ left: handleAt.left, top: handleAt.top }} onMouseDown={startFill} title="Drag to fill (Ctrl+D fills down, Ctrl+R right)" aria-hidden="true" />}
         <div className="chart-layer">
           {Object.entries(charts).map(([cid, ch]) => (
             <ChartCard key={cid} chart={ch} value={evaluate} canEdit={!readOnly}
@@ -885,6 +945,9 @@ export default function SheetEditor() {
         onShow={goToCell} labelOf={where} onClose={() => { setPending(null); setPanel(false); }} />}
       </div>
       <div className="sheet-tabs">
+        {stats && <div className="sel-stats small" role="status" aria-label="Selection">
+          {stats.numbers > 0 ? <>Sum: <strong>{display(stats.sum)}</strong> · Average: <strong>{display(Math.round(stats.average * 1e6) / 1e6)}</strong> · Min: {display(stats.min)} · Max: {display(stats.max)} · </> : null}Count: <strong>{stats.count}</strong>
+        </div>}
         {!readOnly && (
           <button className="icon-btn" aria-label="Add sheet" onClick={() => {
             const cur = dataRef.current;
