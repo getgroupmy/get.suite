@@ -5322,3 +5322,41 @@ test('tasks: tags (tidied, searched, gathered from every list you are on, carrie
   r = (await a('GET', '/api/tasks/tags?tag=client')).body;
   assert.deepEqual(r.tasks.map((t) => [t.id, t.tags]), [[done.next_id, ['client', 'sales']]]);
 });
+
+test('presentations: import slides from another one, with their pictures copied for the importer', async () => {
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  const src = (await owner('POST', '/api/files/new', { kind: 'slides', name: 'Sales deck' })).body;
+  const pic = (await owner('POST', '/api/files/upload?name=chart.png', png, { raw: true })).body;
+  const cur = (await owner('GET', `/api/files/${src.id}/content`)).body;
+  const content = { ...cur.content, theme: 'dark', slides: [
+    { id: 's1', items: [{ id: 't', type: 'text', text: 'Intro', x: 0, y: 0, w: 10, h: 10 }] },
+    { id: 's2', items: [{ id: 't2', type: 'text', text: 'Numbers', x: 0, y: 0, w: 10, h: 10 }, { id: 'p', type: 'image', fileId: pic.id, x: 0, y: 0, w: 10, h: 10 }], notes: 'Say the numbers' },
+  ] };
+  await owner('PUT', `/api/files/${src.id}/content`, { version: cur.file.version, content });
+  const imp = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'deckimp', domain: 'acme.com', name: 'Deck Importer', password: 'password123' })).status, 201);
+  const iid = (await login(imp, 'deckimp@acme.com')).id;
+  const mine = (await imp('POST', '/api/files/new', { kind: 'slides' })).body;
+  assert.equal((await imp('POST', `/api/files/${mine.id}/import-slides`, { from: src.id, slides: ['s2'] })).status, 404, 'they must be able to open it');
+  await owner('PUT', `/api/files/${src.id}/shares`, { shares: [{ user_id: iid, role: 'viewer' }] });
+  assert.equal((await imp('POST', `/api/files/${src.id}/import-slides`, { from: mine.id, slides: ['x'] })).status, 403, 'only into one they can edit');
+  assert.equal((await imp('POST', `/api/files/${mine.id}/import-slides`, { from: src.id, slides: [] })).status, 400);
+  const r = (await imp('POST', `/api/files/${mine.id}/import-slides`, { from: src.id, slides: ['s2', 'nope'] })).body;
+  assert.equal(r.slides.length, 1);
+  const [s] = r.slides;
+  assert.notEqual(s.id, 's2');
+  assert.equal(s.notes, 'Say the numbers');
+  assert.equal(s.items[0].text, 'Numbers');
+  const img = s.items.find((x) => x.type === 'image');
+  assert.notEqual(img.fileId, pic.id, 'the picture is a copy');
+  const copy = (await imp('GET', `/api/files/${img.fileId}`)).body;
+  assert.equal(copy.owner_id ?? copy.owner?.id, iid);
+  // Once in the importer's deck, people they share it with see the picture.
+  const mc = (await imp('GET', `/api/files/${mine.id}/content`)).body;
+  await imp('PUT', `/api/files/${mine.id}/content`, { version: mc.file.version, content: { ...mc.content, slides: [...mc.content.slides, s] } });
+  await imp('PUT', `/api/files/${mine.id}/shares`, { shares: [{ user_id: (await owner('GET', '/api/auth/me')).body.user.id, role: 'viewer' }] }).catch(() => {});
+  assert.equal((await imp('GET', `/api/files/${mine.id}/pictures/${img.fileId}`)).status, 200);
+  // View-only with downloading turned off: no copying slides out.
+  await owner('PATCH', `/api/files/${src.id}`, { no_download: true });
+  assert.equal((await imp('POST', `/api/files/${mine.id}/import-slides`, { from: src.id, slides: ['s1'] })).status, 403);
+});

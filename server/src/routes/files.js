@@ -861,6 +861,38 @@ export default function fileRoutes({ maxUploadBytes }) {
     res.sendFile(path.join(FILES_DIR, f.storage), { headers: { 'Cache-Control': 'private, max-age=3600' } });
   });
 
+  // Import slides from another presentation into this one: { from, slides: [slide ids] } gives back
+  // copies of those slides (new ids) to put in. Their pictures are copied for the person importing,
+  // next to this presentation (or in their Drive), so everyone who can open it sees them.
+  r.post('/:id/import-slides', (req, res) => {
+    const deck = loadFile(req.params.id, req.user, 'editor');
+    const src = loadFile(String(req.body?.from || ''), req.user);
+    if (deck.kind !== 'slides' || src.kind !== 'slides') throw bad('Slides can only come from another presentation');
+    if (!mayTakeAway(src, src.role)) throw forbidden(NO_TAKING);
+    const want = Array.isArray(req.body?.slides) ? req.body.slides.map(String).slice(0, 100) : [];
+    if (!want.length) throw bad('Choose the slides to import');
+    saveNow(src.id); // what's being changed there right now
+    const content = JSON.parse(q('SELECT content FROM files WHERE id = ?').get(src.id).content || '{}');
+    const chosen = (content.slides || []).filter((sl) => want.includes(sl.id));
+    if (!chosen.length) throw notFound('Those slides aren’t in that presentation any more');
+    const parentId = deck.parent_id && atLeast(roleFor(deck.parent_id, req.user.id) || '', 'editor') ? deck.parent_id : null;
+    const copied = new Map(); // old picture id -> new
+    const pics = [...picturesIn('slides', { slides: chosen })].map((pid) => q("SELECT * FROM files WHERE id = ? AND kind = 'file' AND trashed = 0").get(pid)).filter(Boolean);
+    checkQuota(req.user.org_id, pics.reduce((n, f) => n + (f.size || 0), 0));
+    for (const f of pics) {
+      // Only pictures this presentation could show (owned by someone who can edit it), like the deck does.
+      if (!/^image\//.test(f.mime || '') || !atLeast(roleFor(src.id, f.owner_id) || '', 'editor')) continue;
+      const storage = uid();
+      fs.copyFileSync(path.join(FILES_DIR, f.storage), path.join(FILES_DIR, storage));
+      copied.set(f.id, insertFile({ owner: req.user.id, parentId, name: f.name, kind: 'file', mime: f.mime, size: f.size, storage, activity: { action: 'copy', details: { from: `${f.name} in ${src.name}` } } }));
+    }
+    const fresh = () => crypto.randomBytes(6).toString('base64url');
+    const slides = chosen.map((sl) => ({ ...JSON.parse(JSON.stringify(sl)), id: fresh(),
+      items: (sl.items || []).flatMap((it) => (it.type === 'image' && it.fileId && !copied.has(it.fileId) ? [] : [{ ...it, id: fresh(), ...(it.type === 'image' && it.fileId ? { fileId: copied.get(it.fileId) } : {}) }])) }));
+    if (parentId && copied.size) notify(parentId, { type: 'files-changed', parent_id: parentId });
+    res.json({ slides, theme: content.theme || null });
+  });
+
   // Open a Word, Excel or PowerPoint file as a Docs, Sheets or Slides copy, next to it if you can
   // add files there (otherwise in your Drive). The original stays as it is.
   r.post('/:id/open-as', async (req, res) => {

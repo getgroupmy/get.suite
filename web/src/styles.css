@@ -1998,3 +1998,4 @@ tr.shortcut-row.broken .name-text { color: var(--muted, #777); font-style: itali
 .pill.tag { background: color-mix(in srgb, var(--accent, #1a73e8) 14%, transparent); color: inherit; }
 .task-tags .pill.tag { display: inline-flex; align-items: center; gap: 2px; }
 .task-tags .pill.tag .icon-btn { padding: 0 2px; min-width: 0; height: auto; }
+.import-slide { cursor: pointer; border: 2px solid transparent; border-radius: 6px; padding: 4px; } .import-slide.on { border-color: var(--accent, #1a73e8); }

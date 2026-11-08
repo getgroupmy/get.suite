@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 import { CommentsPanel, useComments } from '../comments.jsx';
-import { get, patch, uploadFile } from '../../api.js';
+import { get, patch, post, uploadFile } from '../../api.js';
 import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
 import { jsonFromDeckDoc, applyDeckJson } from '../collabsync.js';
@@ -224,6 +224,7 @@ export default function SlidesEditor() {
         menu={[
           { label: 'Present', icon: 'slides', onClick: () => setPresenting(slideIndex) },
           { label: 'Version history', icon: 'clock', onClick: () => setDialog('history') },
+          ...(!readOnly ? [{ label: 'Import slides…', icon: 'upload', onClick: () => setDialog({ type: 'import-file' }) }] : []),
           { label: 'Print or save as PDF', icon: 'print', onClick: () => {
             document.body.classList.add('printing-deck'); // the print styles show just the slides
             const done = () => { document.body.classList.remove('printing-deck'); window.removeEventListener('afterprint', done); };
@@ -394,6 +395,18 @@ export default function SlidesEditor() {
       {dialog === 'history' && <VersionHistory file={file} canEdit={!readOnly} onClose={() => setDialog(null)} renderPreview={(content) => (
         <div className="deck-preview">{(content?.slides || []).map((sl, n) => <div key={sl.id || n} className="deck-preview-slide"><span className="muted small">{n + 1}</span><SlideView slide={sl} theme={THEMES[content.theme] || THEMES.light} deckId={file.id} /></div>)}</div>
       )} renderChanges={(content) => <SlideChanges before={content} after={deckRef.current} theme={theme} deckId={file.id} />} />}
+      {dialog?.type === 'import-file' && <DrivePicker title="Import slides from a presentation" accept={(x) => x.kind === 'slides' && x.id !== id} empty="No other presentations found."
+        onClose={() => setDialog(null)} onPick={(x) => setDialog({ type: 'import-pick', file: x })} />}
+      {dialog?.type === 'import-pick' && <ImportSlides from={dialog.file} onClose={() => setDialog(null)} onImport={async (ids) => {
+        try {
+          const r = await post(`/files/${id}/import-slides`, { from: dialog.file.id, slides: ids });
+          const at = slideIndex + 1;
+          change((d) => ({ ...d, slides: [...d.slides.slice(0, at), ...r.slides, ...d.slides.slice(at)] }));
+          setDialog(null);
+          goTo(at);
+          toast(`${r.slides.length === 1 ? '1 slide' : `${r.slides.length} slides`} imported from “${dialog.file.name}”`);
+        } catch (e) { toast(e.message, 'error'); }
+      }} />}
       {dialog?.type === 'chart-file' && <DrivePicker title="Chart from a spreadsheet" accept={(x) => x.kind === 'sheet'} empty="No spreadsheets found."
         onClose={() => setDialog(null)} onPick={(x) => setDialog({ type: 'chart-pick', file: x })} />}
       {dialog?.type === 'chart-pick' && <ChartPick file={dialog.file} onClose={() => setDialog(null)}
@@ -416,6 +429,39 @@ const colorOf = (v, theme, fallback) => (v === 'accent' ? theme.accent : v === '
  * One slide. Sizes are in percent of the slide, text in 1/1000 of its width, so the same slide
  * draws the same in a thumbnail, the editor, full screen and on paper.
  */
+/** Pick slides from another presentation to bring into this one (after the current slide). */
+function ImportSlides({ from, onClose, onImport }) {
+  const [src, setSrc] = useState(null);
+  const [error, setError] = useState('');
+  const [chosen, setChosen] = useState(new Set());
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { get(`/files/${from.id}/content`).then((r) => setSrc(r.content)).catch((e) => setError(e.message)); }, [from.id]);
+  const slides = src?.slides || [];
+  const toggle = (sid) => setChosen((c) => { const n = new Set(c); if (n.has(sid)) n.delete(sid); else n.add(sid); return n; });
+  return (
+    <Modal title={`Import slides from “${from.name}”`} wide onClose={onClose}
+      footer={<>
+        <button type="button" className="link-btn small" disabled={!slides.length} onClick={() => setChosen(chosen.size === slides.length ? new Set() : new Set(slides.map((sl) => sl.id)))}>{chosen.size === slides.length && slides.length ? 'Select none' : 'Select all'}</button>
+        <span className="grow" />
+        <button type="button" className="btn" onClick={onClose}>Cancel</button>
+        <button type="button" className="btn primary" disabled={!chosen.size || busy} onClick={async () => { setBusy(true); await onImport(slides.filter((sl) => chosen.has(sl.id)).map((sl) => sl.id)); setBusy(false); }}>
+          {chosen.size ? `Import ${chosen.size === 1 ? '1 slide' : `${chosen.size} slides`}` : 'Import'}</button>
+      </>}>
+      {error ? <p className="error">{error}</p> : !src ? <p className="muted">Loading…</p> : (
+        <div className="deck-preview import-slides" role="group" aria-label="Slides to import">
+          {slides.map((sl, n) => (
+            <label key={sl.id} className={`deck-preview-slide import-slide ${chosen.has(sl.id) ? 'on' : ''}`}>
+              <span className="row small"><input type="checkbox" checked={chosen.has(sl.id)} onChange={() => toggle(sl.id)} aria-label={`Slide ${n + 1}`} /> {n + 1}</span>
+              <SlideView slide={sl} theme={THEMES[src.theme] || THEMES.light} deckId={from.id} />
+            </label>
+          ))}
+        </div>
+      )}
+      <p className="muted small">They go after the current slide, in this presentation's theme. Pictures are copied for you.</p>
+    </Modal>
+  );
+}
+
 export function SlideView({ slide, theme, deckId, editable, selected, editing, onSelect, onEdit, onChange, peers, built }) {
   // Animated boxes: where each comes in (1, 2…). Presenting (built set), the later ones aren't in yet.
   const buildAt = new Map(builds(slide).map((it, k) => [it.id, k + 1]));
