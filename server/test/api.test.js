@@ -4550,3 +4550,38 @@ test('IMPORTRANGE reads another spreadsheet with the reader\'s own access', asyn
   assert.equal(r.body.file.kind, 'sheet');
   assert.equal(r.body.content.sheets[0].cells.A1, '12');
 });
+
+test('task attachments: files from Drive, shared with the people on the list', async () => {
+  const kay = client(); await login(kay, 'kay@keepco.com');
+  const tb = await kay('POST', '/api/users', { local: 'tfb', domain: 'keepco.com', name: 'Tess Files', password: 'password123' });
+  const tc = await kay('POST', '/api/users', { local: 'tfc', domain: 'keepco.com', name: 'Theo Later', password: 'password123' });
+  const tess = client(); await login(tess, 'tfb@keepco.com');
+  const theo = client(); await login(theo, 'tfc@keepco.com');
+  const list = (await kay('POST', '/api/tasks/lists', { name: 'Fit-out' })).body.id;
+  await kay('PUT', `/api/tasks/lists/${list}/members`, { user_ids: [tb.body.id] });
+  const task = (await kay('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Order chairs', repeat: 'monthly', due: '2026-12-01' })).body;
+  const folder = (await kay('POST', '/api/tasks/files-folder')).body.id;
+  assert.equal((await kay('POST', '/api/tasks/files-folder')).body.id, folder, 'the same folder each time');
+  const quote = (await kay('POST', `/api/files/upload?parent=${folder}&name=quote.pdf`, '%PDF-1.4 quote', { raw: true })).body;
+  const theirs = (await theo('POST', '/api/files/upload?name=private.txt', 'mine', { raw: true })).body;
+  assert.equal((await kay('POST', `/api/tasks/tasks/${task.id}/attachments`, { file_id: theirs.id })).status, 400, 'not one you can open');
+  assert.equal((await tess('GET', `/api/files/${quote.id}`)).status, 404);
+  const r = await kay('POST', `/api/tasks/tasks/${task.id}/attachments`, { file_id: quote.id });
+  assert.equal(r.status, 201);
+  assert.deepEqual(r.body.attachments.map((a) => [a.name, a.can_open]), [['quote.pdf', true]]);
+  assert.equal((await kay('POST', `/api/tasks/tasks/${task.id}/attachments`, { file_id: quote.id })).body.attachments.length, 1, 'once');
+  assert.equal((await tess('GET', `/api/files/${quote.id}`)).status, 200, 'people on the list can view it');
+  assert.equal((await tess('GET', `/api/tasks/lists/${list}/tasks`)).body[0].attachments[0].can_open, true);
+  // Someone added to the list later gets it too.
+  await kay('PUT', `/api/tasks/lists/${list}/members`, { user_ids: [tb.body.id, tc.body.id] });
+  assert.equal((await theo('GET', `/api/files/${quote.id}`)).status, 200);
+  // The next one of a repeating task keeps its files.
+  await kay('PATCH', `/api/tasks/tasks/${task.id}`, { done: true, today: '2026-12-01' });
+  const open = (await kay('GET', `/api/tasks/lists/${list}/tasks`)).body.find((t) => !t.done);
+  assert.deepEqual(open.attachments.map((a) => a.name), ['quote.pdf']);
+  // Taking it off leaves the access people were given.
+  const off = await tess('DELETE', `/api/tasks/tasks/${open.id}/attachments/${quote.id}`);
+  assert.deepEqual(off.body.attachments, []);
+  assert.equal((await tess('GET', `/api/files/${quote.id}`)).status, 200);
+  assert.equal((await theo('POST', `/api/tasks/tasks/${task.id}/attachments`, { file_id: quote.id })).status, 201, 'anyone on the list can attach');
+});

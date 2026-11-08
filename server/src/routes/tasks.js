@@ -9,6 +9,8 @@ import { sendTo } from '../hub.js';
 import { notify as bell } from '../notifications.js';
 import { canReach } from '../tenancy.js';
 import { audienceFor, roleFor, atLeast } from '../access.js';
+import { recordActivity } from '../fileactivity.js';
+import { insertFile } from './files.js';
 
 q(`CREATE TABLE IF NOT EXISTS task_lists (
   id TEXT PRIMARY KEY,
@@ -36,7 +38,7 @@ q(`CREATE TABLE IF NOT EXISTS tasks (
 )`).run();
 q('CREATE INDEX IF NOT EXISTS tasks_list ON tasks(list_id, position)').run();
 // Repeating tasks: how it repeats, and (once ticked off) the task that came next.
-for (const [col, type] of [['repeat', 'TEXT'], ['next_id', 'TEXT'], ['steps', 'TEXT'], ['important', 'INTEGER NOT NULL DEFAULT 0'], ['link_url', 'TEXT'], ['link_label', 'TEXT'], ['due_time', 'TEXT'], ['started', 'INTEGER NOT NULL DEFAULT 0'], ['done_by', 'TEXT']]) { // steps: a checklist, JSON [{ id, title, done }]
+for (const [col, type] of [['repeat', 'TEXT'], ['next_id', 'TEXT'], ['steps', 'TEXT'], ['important', 'INTEGER NOT NULL DEFAULT 0'], ['link_url', 'TEXT'], ['link_label', 'TEXT'], ['due_time', 'TEXT'], ['started', 'INTEGER NOT NULL DEFAULT 0'], ['done_by', 'TEXT'], ['attachments', 'TEXT']]) { // attachments: Drive files, JSON [{ id, name, kind, mime }]; // steps: a checklist, JSON [{ id, title, done }]
   if (!q('PRAGMA table_info(tasks)').all().some((c) => c.name === col)) q(`ALTER TABLE tasks ADD COLUMN ${col} ${type}`).run();
 }
 q('CREATE INDEX IF NOT EXISTS tasks_assignee ON tasks(assignee_id, done_at)').run();
@@ -79,8 +81,35 @@ const TASK = `SELECT t.*, u.name AS assignee_name, c.name AS created_by_name, l.
               (SELECT COUNT(*) FROM task_comments k WHERE k.task_id = t.id) AS comments
               FROM tasks t LEFT JOIN users u ON u.id = t.assignee_id LEFT JOIN users c ON c.id = t.created_by JOIN task_lists l ON l.id = t.list_id`;
 const shape = (t) => ({ ...t, done: !!t.done_at, important: !!t.important, started: !!t.started && !t.done_at, // started: "In progress" on the board
-  steps: t.steps ? JSON.parse(t.steps) : [] });
-const MAX_STEPS = 100;
+  steps: t.steps ? JSON.parse(t.steps) : [], attachments: t.attachments ? JSON.parse(t.attachments) : [] });
+const MAX_STEPS = 100, MAX_ATTACHMENTS = 20;
+/** A task as one person sees it: each attachment says whether they can open it. */
+const shapeFor = (userId) => (t) => { const out = shape(t); out.attachments = out.attachments.map((a) => ({ ...a, can_open: !!roleFor(a.id, userId) })); return out; };
+
+/**
+ * Everyone on a list can view the files attached to its tasks that someone on the list owns
+ * (people its owner can share with); nobody loses access they had.
+ */
+function shareAttachments(list, tasks) {
+  const people = peopleOn(list);
+  for (const t of tasks) {
+    for (const a of t.attachments ? JSON.parse(t.attachments) : []) {
+      const f = q('SELECT id, owner_id, parent_id FROM files WHERE id = ? AND trashed = 0').get(a.id);
+      if (!f || !people.includes(f.owner_id)) continue;
+      const owner = q('SELECT * FROM users WHERE id = ?').get(f.owner_id);
+      const given = [];
+      for (const p of people) {
+        if (p === f.owner_id || roleFor(f.id, p) || !canReach(owner, p)) continue;
+        q("INSERT INTO shares (file_id, user_id, role, direct_role) VALUES (?, ?, 'viewer', 'viewer') ON CONFLICT(file_id, user_id) DO NOTHING").run(f.id, p);
+        given.push(q('SELECT name FROM users WHERE id = ?').get(p)?.name || 'someone');
+      }
+      if (given.length) {
+        recordActivity(f.id, owner.id, 'share', { added: given.map((n) => `${n} (can view, on the task list “${list.name}”)`), removed: [] });
+        sendTo(new Set(audienceFor(f.id)), { type: 'files-changed', parent_id: f.parent_id });
+      }
+    }
+  }
+}
 
 /** Tell someone a task was given to them (by someone else). */
 function notifyAssigned(task, by) {
@@ -196,6 +225,7 @@ export default function taskRoutes() {
       // Tasks given to someone no longer on the list aren't theirs any more.
       q(`UPDATE tasks SET assignee_id = NULL WHERE list_id = ? AND assignee_id IS NOT NULL AND assignee_id NOT IN (SELECT value FROM json_each(?))`).run(list.id, JSON.stringify([list.owner_id, ...ids]));
     });
+    shareAttachments(list, q('SELECT attachments FROM tasks WHERE list_id = ? AND attachments IS NOT NULL').all(list.id)); // for the people added
     sendTo(new Set([...before, ...ids]), { type: 'tasks-changed', list_id: list.id });
     res.json({ ok: true });
   });
@@ -260,7 +290,7 @@ export default function taskRoutes() {
 
   r.get('/lists/:id/tasks', (req, res) => {
     const list = loadList(req.params.id, req.user);
-    res.json(q(`${TASK} WHERE t.list_id = ? ORDER BY t.done_at IS NOT NULL, CASE WHEN t.done_at IS NULL THEN t.position END, t.done_at DESC`).all(list.id).map(shape));
+    res.json(q(`${TASK} WHERE t.list_id = ? ORDER BY t.done_at IS NOT NULL, CASE WHEN t.done_at IS NULL THEN t.position END, t.done_at DESC`).all(list.id).map(shapeFor(req.user.id)));
   });
 
   // Search your lists (your own and those shared with you) for tasks with all these words in the
@@ -396,8 +426,8 @@ export default function taskRoutes() {
         const top = (q('SELECT MIN(position) AS p FROM tasks WHERE list_id = ? AND done_at IS NULL').get(after.list_id).p ?? 1) - 1;
         const id = uid(), t = now();
         const steps = after.steps ? JSON.stringify(JSON.parse(after.steps).map((x) => ({ ...x, id: uid(), done: false }))) : null; // a fresh checklist
-        q('INSERT INTO tasks (id, list_id, title, notes, due, due_time, assignee_id, position, repeat, steps, important, link_url, link_label, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-          .run(id, after.list_id, after.title, after.notes, due, after.due_time, after.assignee_id, top, after.repeat, steps, after.important ? 1 : 0, after.link_url, after.link_label, after.created_by, t, t);
+        q('INSERT INTO tasks (id, list_id, title, notes, due, due_time, assignee_id, position, repeat, steps, important, link_url, link_label, attachments, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+          .run(id, after.list_id, after.title, after.notes, due, after.due_time, after.assignee_id, top, after.repeat, steps, after.important ? 1 : 0, after.link_url, after.link_label, after.attachments, after.created_by, t, t);
         q('UPDATE tasks SET next_id = ? WHERE id = ?').run(id, task.id);
       }
       // Un-ticked (Undo): the next one goes again, unless someone has already worked on it.
@@ -461,6 +491,40 @@ export default function taskRoutes() {
 
   r.delete('/tasks/:id/steps/:sid', (req, res) => {
     res.json(withSteps(req, (steps) => { steps.splice(stepIn(steps, req.params.sid), 1); }).task);
+  });
+
+  // Files on a task: attach one from Drive (that you can open), or take one off. Files you attach
+  // from your computer are uploaded first to a "Task files" folder in your Drive.
+  r.post('/files-folder', (req, res) => {
+    const found = q("SELECT id FROM files WHERE owner_id = ? AND parent_id IS NULL AND kind = 'folder' AND name = 'Task files' AND trashed = 0").get(req.user.id);
+    res.json({ id: found ? found.id : insertFile({ owner: req.user.id, parentId: null, name: 'Task files', kind: 'folder' }) });
+  });
+  r.post('/tasks/:id/attachments', (req, res) => {
+    const task = q('SELECT * FROM tasks WHERE id = ?').get(req.params.id);
+    if (!task) throw notFound('Task not found');
+    const list = loadList(task.list_id, req.user);
+    const f = q('SELECT id, name, kind, mime FROM files WHERE id = ? AND trashed = 0').get(String(req.body?.file_id || ''));
+    if (!f || f.kind === 'folder' || !roleFor(f.id, req.user.id)) throw bad('That file is not available to attach');
+    tx(() => {
+      const list2 = JSON.parse(q('SELECT attachments FROM tasks WHERE id = ?').get(task.id).attachments || '[]');
+      if (!list2.some((a) => a.id === f.id)) {
+        if (list2.length >= MAX_ATTACHMENTS) throw bad(`At most ${MAX_ATTACHMENTS} files on a task`);
+        list2.push({ id: f.id, name: f.name, kind: f.kind, mime: f.mime || null });
+      }
+      q('UPDATE tasks SET attachments = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(list2), now(), task.id);
+    });
+    shareAttachments(list, [q('SELECT attachments FROM tasks WHERE id = ?').get(task.id)]);
+    changed(list);
+    res.status(201).json(shapeFor(req.user.id)(q(`${TASK} WHERE t.id = ?`).get(task.id)));
+  });
+  r.delete('/tasks/:id/attachments/:fid', (req, res) => {
+    const task = q('SELECT * FROM tasks WHERE id = ?').get(req.params.id);
+    if (!task) throw notFound('Task not found');
+    const list = loadList(task.list_id, req.user);
+    const left = JSON.parse(task.attachments || '[]').filter((a) => a.id !== req.params.fid);
+    q('UPDATE tasks SET attachments = ?, updated_at = ? WHERE id = ?').run(left.length ? JSON.stringify(left) : null, now(), task.id);
+    changed(list);
+    res.json(shapeFor(req.user.id)(q(`${TASK} WHERE t.id = ?`).get(task.id)));
   });
 
   r.delete('/tasks/:id', (req, res) => {

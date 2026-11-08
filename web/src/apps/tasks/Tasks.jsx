@@ -2,7 +2,8 @@
 // off, drag it into place, and open it for notes, a due date, who it's for, or another list.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
-import { get, post, patch, put, del, onLive } from '../../api.js';
+import { get, post, patch, put, del, onLive, uploadFile } from '../../api.js';
+import DrivePicker, { openUrl } from '../../components/DrivePicker.jsx';
 import Icon from '../../components/Icon.jsx';
 import { Avatar, ConfirmModal, Empty, Menu, Modal, PromptModal, useToast } from '../../components/ui.jsx';
 import { useAuth } from '../../App.jsx';
@@ -123,6 +124,7 @@ export default function Tasks() {
             {due && <span className={`pill due ${due.tone}`}>{due.text}</span>}
             {t.started && !t.done && <span className="pill doing">In progress</span>}
             {t.steps?.length > 0 && <span className={`muted small task-steps ${t.steps.every((x) => x.done) ? 'all' : ''}`} title="Steps done">☑ {t.steps.filter((x) => x.done).length}/{t.steps.length}</span>}
+            {t.attachments?.length > 0 && <span className="muted small task-files" title={`${t.attachments.length} file${t.attachments.length === 1 ? '' : 's'}`}>📎 {t.attachments.length}</span>}
             {t.comments > 0 && <span className="muted small task-comments" title={`${t.comments} comment${t.comments === 1 ? '' : 's'}`}>💬 {t.comments}</span>}
             {t.repeat && !t.done && <span className="muted small task-repeat" title={`Repeats: ${repeatText(t.repeat).toLowerCase()}`}>⟳ {repeatText(t.repeat)}</span>}
           </span>
@@ -337,6 +339,7 @@ function TaskDetails({ task, lists, people, onChange, onClose, onDelete, onMove,
         </div>
       )}
       <Steps task={task} onReplaced={onReplaced} />
+      <TaskFiles task={task} onReplaced={onReplaced} />
       <label className="field"><span>Due</span>
         <span className="row"><input type="date" value={task.due || ''} onChange={(e) => onChange({ due: e.target.value || null })} />
           {task.due && <input type="time" aria-label="Time" title="Due time (optional)" value={task.due_time || ''} onChange={(e) => onChange({ due_time: e.target.value || null })} />}
@@ -430,6 +433,51 @@ function Steps({ task, onReplaced }) {
         </ul>
       )}
       <form onSubmit={add} className="row"><input value={text} onChange={(e) => setText(e.target.value)} placeholder="Add a step" aria-label="Add a step" maxLength={500} /></form>
+    </div>
+  );
+}
+
+/** Files on a task: from Drive, or uploaded from your computer (into "Task files" in your Drive). */
+function TaskFiles({ task, onReplaced }) {
+  const toast = useToast();
+  const [picking, setPicking] = useState(false);
+  const [uploading, setUploading] = useState(0);
+  const input = useRef();
+  const files = task.attachments || [];
+  const attach = async (fileId) => { try { onReplaced(await post(`/tasks/tasks/${task.id}/attachments`, { file_id: fileId })); } catch (e) { toast(e.message, 'error'); } };
+  const upload = async (list) => {
+    if (!list?.length) return;
+    let folder;
+    try { folder = (await post('/tasks/files-folder')).id; } catch (e) { toast(e.message, 'error'); return; }
+    for (const f of list) {
+      setUploading((n) => n + 1);
+      try { const up = await uploadFile(f, folder); await attach(up.id); } catch (e) { toast(e.message, 'error'); } finally { setUploading((n) => n - 1); }
+    }
+  };
+  return (
+    <div className="field task-files-box" onDragOver={(e) => { if (e.dataTransfer.types.includes('Files')) e.preventDefault(); }}
+      onDrop={(e) => { if (!e.dataTransfer.files.length) return; e.preventDefault(); upload([...e.dataTransfer.files]); }}>
+      <span>Files</span>
+      {files.length > 0 && (
+        <ul className="event-attachments" aria-label="Files">
+          {files.map((a) => (
+            <li key={a.id}>
+              <Icon name={['doc', 'sheet', 'slides'].includes(a.kind) ? a.kind : 'file'} size={16} />
+              {a.can_open === false ? <span className="muted" title="Not shared with you">{a.name} (no access)</span>
+                : <a href={openUrl(a)} target="_blank" rel="noreferrer">{a.name}</a>}
+              <button type="button" className="icon-btn" aria-label={`Remove ${a.name}`} onClick={async () => { try { onReplaced(await del(`/tasks/tasks/${task.id}/attachments/${a.id}`)); } catch (e) { toast(e.message, 'error'); } }}><Icon name="close" size={14} /></button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <span className="row wrap">
+        <button type="button" className="btn small" onClick={() => setPicking(true)}><Icon name="folder" size={16} /> From Drive</button>
+        <button type="button" className="btn small" onClick={() => input.current?.click()}><Icon name="attach" size={16} /> Upload</button>
+        {uploading > 0 && <span className="muted small" role="status">Uploading…</span>}
+        <input ref={input} type="file" multiple hidden aria-label="Upload files to the task" onChange={(e) => { upload([...e.target.files]); e.target.value = ''; }} />
+      </span>
+      {files.length > 0 && <span className="muted small">Everyone on the list can view the files that people on it own.</span>}
+      {picking && <DrivePicker title="Attach to the task" accept={(x) => x.kind !== 'folder'} onClose={() => setPicking(false)} onPick={(x) => { setPicking(false); attach(x.id); }} />}
     </div>
   );
 }
