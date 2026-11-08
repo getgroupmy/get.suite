@@ -10,6 +10,9 @@ import { useAuth } from '../../App.jsx';
 import { dueLabel, between, localToday, REPEATS, repeatText, SORTS, sortTasks } from './taskmath.js';
 import { parseQuickAdd } from './quickadd.js';
 
+/** The open tasks a task still waits on (from the tasks on its list). */
+const waitingOn = (t, all) => (t.blocked_by?.length && !t.done ? (all || []).filter((x) => t.blocked_by.includes(x.id) && !x.done) : []);
+
 const ASSIGNED = 'assigned';
 const IMPORTANT = 'important'; // tasks marked ★ on any of your lists
 const VIRTUAL = { [ASSIGNED]: '/tasks/assigned', [IMPORTANT]: '/tasks/important' };
@@ -108,6 +111,7 @@ export default function Tasks() {
 
   const row = (t, i) => {
     const due = t.due && dueLabel(t.due, new Date(), t.due_time);
+    const waits = virtual ? [] : waitingOn(t, tasks);
     return (
       <li key={t.id} className={`task ${t.done ? 'done' : ''} ${t.id === openId ? 'open' : ''} ${dropAt === i && dragging ? 'drop-before' : ''}`}
         draggable={!t.done && !virtual && sortBy === 'mine'} onDragStart={(e) => { setDragging(t.id); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', t.title); }}
@@ -123,6 +127,7 @@ export default function Tasks() {
             {t.notes && <span className="muted small ellipsis task-notes">{t.notes.split('\n')[0]}</span>}
             {due && <span className={`pill due ${due.tone}`}>{due.text}</span>}
             {t.started && !t.done && <span className="pill doing">In progress</span>}
+            {waits.length > 0 && <span className="pill waiting" title={`Waiting on ${waits.map((x) => `“${x.title}”`).join(', ')}`}>⏳ Waiting on {waits.length === 1 ? waits[0].title : `${waits.length} tasks`}</span>}
             {t.steps?.length > 0 && <span className={`muted small task-steps ${t.steps.every((x) => x.done) ? 'all' : ''}`} title="Steps done">☑ {t.steps.filter((x) => x.done).length}/{t.steps.length}</span>}
             {t.attachments?.length > 0 && <span className="muted small task-files" title={`${t.attachments.length} file${t.attachments.length === 1 ? '' : 's'}`}>📎 {t.attachments.length}</span>}
             {t.comments > 0 && <span className="muted small task-comments" title={`${t.comments} comment${t.comments === 1 ? '' : 's'}`}>💬 {t.comments}</span>}
@@ -246,7 +251,7 @@ export default function Tasks() {
           </>
         )}
       </section>
-      {current && list && <TaskDetails key={current.id} task={current} lists={lists} people={people} onChange={(c) => update(current, c)} onClose={() => show(null)}
+      {current && list && <TaskDetails key={current.id} task={current} tasks={tasks} lists={lists} people={people} onChange={(c) => update(current, c)} onClose={() => show(null)}
         onReplaced={(next) => setTasks((all) => all && all.map((x) => (x.id === next.id ? next : x)))}
         onDelete={async () => { show(null); try { await del(`/tasks/tasks/${current.id}`); toast('Task deleted'); loadTasks(); } catch (e) { toast(e.message, 'error'); } }}
         onMove={async (to) => { show(null); if (await update(current, { list_id: to })) toast(`Moved to ${lists.find((l) => l.id === to)?.name}`); }} />}
@@ -290,6 +295,7 @@ function Board({ open, done, openId, onOpen, onMove }) {
                       <span className="task-title">{t.important ? '★ ' : ''}{t.title}</span>
                       <span className="task-meta">
                         {due && <span className={`pill due ${due.tone}`}>{due.text}</span>}
+                        {waitingOn(t, all).length > 0 && <span className="pill waiting">⏳ Waiting</span>}
                         {t.steps?.length > 0 && <span className="muted small">☑ {t.steps.filter((x) => x.done).length}/{t.steps.length}</span>}
                         {t.comments > 0 && <span className="muted small">💬 {t.comments}</span>}
                       </span>
@@ -312,7 +318,7 @@ function Board({ open, done, openId, onOpen, onMove }) {
 }
 
 /** A task's details beside the list: changes save as you make them. */
-function TaskDetails({ task, lists, people, onChange, onClose, onDelete, onMove, onReplaced }) {
+function TaskDetails({ task, tasks, lists, people, onChange, onClose, onDelete, onMove, onReplaced }) {
   const [title, setTitle] = useState(task.title);
   const [notes, setNotes] = useState(task.notes || '');
   useEffect(() => { setTitle(task.title); }, [task.title]);
@@ -340,6 +346,7 @@ function TaskDetails({ task, lists, people, onChange, onClose, onDelete, onMove,
       )}
       <Steps task={task} onReplaced={onReplaced} />
       <TaskFiles task={task} onReplaced={onReplaced} />
+      <WaitingOn task={task} tasks={tasks} onReplaced={onReplaced} />
       <label className="field"><span>Due</span>
         <span className="row"><input type="date" value={task.due || ''} onChange={(e) => onChange({ due: e.target.value || null })} />
           {task.due && <input type="time" aria-label="Time" title="Due time (optional)" value={task.due_time || ''} onChange={(e) => onChange({ due_time: e.target.value || null })} />}
@@ -433,6 +440,39 @@ function Steps({ task, onReplaced }) {
         </ul>
       )}
       <form onSubmit={add} className="row"><input value={text} onChange={(e) => setText(e.target.value)} placeholder="Add a step" aria-label="Add a step" maxLength={500} /></form>
+    </div>
+  );
+}
+
+/** What a task waits on: other tasks on its list to do first. */
+function WaitingOn({ task, tasks, onReplaced }) {
+  const toast = useToast();
+  const ids = task.blocked_by || [];
+  const byId = new Map((tasks || []).map((t) => [t.id, t]));
+  const save = async (next) => {
+    onReplaced({ ...task, blocked_by: next });
+    try { onReplaced(await put(`/tasks/tasks/${task.id}/waiting-on`, { task_ids: next })); } catch (e) { toast(e.message, 'error'); onReplaced(task); }
+  };
+  const choices = (tasks || []).filter((t) => t.id !== task.id && !t.done && !ids.includes(t.id));
+  return (
+    <div className="field task-waiting-box"><span>Waiting on</span>
+      {ids.length > 0 && (
+        <ul className="steps" aria-label="Waiting on">
+          {ids.map((id) => { const t = byId.get(id); if (!t) return null; return (
+            <li key={id} className={t.done ? 'done' : ''}>
+              <span className="grow">{t.done ? '✓' : '⏳'} {t.title}</span>
+              <button type="button" className="icon-btn" aria-label={`No longer waiting on ${t.title}`} onClick={() => save(ids.filter((x) => x !== id))}><Icon name="close" size={14} /></button>
+            </li>
+          ); })}
+        </ul>
+      )}
+      {choices.length > 0 && (
+        <select aria-label="Add a task this waits on" value="" onChange={(e) => e.target.value && save([...ids, e.target.value])}>
+          <option value="">{ids.length ? 'And on…' : 'Nothing (choose a task to do first)'}</option>
+          {choices.map((t) => <option key={t.id} value={t.id}>{t.title}</option>)}
+        </select>
+      )}
+      {ids.length > 0 && <span className="muted small">When they're all done, {task.assignee_name ? task.assignee_name.split(' ')[0] : 'whoever added it'} gets a notification.</span>}
     </div>
   );
 }

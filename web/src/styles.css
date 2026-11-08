@@ -1655,6 +1655,7 @@ button.usage:hover .muted { color: var(--text); }
 .view-toggle { padding: 2px; }
 .view-toggle button { padding: 4px 12px; }
 .pill.doing { background: #e8f0fe; color: #1a56c4; }
+.pill.waiting { background: #fef3e2; color: #8a5300; }
 .task-board { display: grid; grid-template-columns: repeat(3, minmax(170px, 1fr)); gap: 10px; align-items: start; overflow-x: auto; padding-bottom: 12px; }
 .board-col { background: var(--surface-2); border-radius: 12px; padding: 10px; min-height: 160px; border: 2px dashed transparent; }
 .board-col.over { border-color: var(--accent); }

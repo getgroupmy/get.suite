@@ -38,7 +38,7 @@ q(`CREATE TABLE IF NOT EXISTS tasks (
 )`).run();
 q('CREATE INDEX IF NOT EXISTS tasks_list ON tasks(list_id, position)').run();
 // Repeating tasks: how it repeats, and (once ticked off) the task that came next.
-for (const [col, type] of [['repeat', 'TEXT'], ['next_id', 'TEXT'], ['steps', 'TEXT'], ['important', 'INTEGER NOT NULL DEFAULT 0'], ['link_url', 'TEXT'], ['link_label', 'TEXT'], ['due_time', 'TEXT'], ['started', 'INTEGER NOT NULL DEFAULT 0'], ['done_by', 'TEXT'], ['attachments', 'TEXT']]) { // attachments: Drive files, JSON [{ id, name, kind, mime }]; // steps: a checklist, JSON [{ id, title, done }]
+for (const [col, type] of [['repeat', 'TEXT'], ['next_id', 'TEXT'], ['steps', 'TEXT'], ['important', 'INTEGER NOT NULL DEFAULT 0'], ['link_url', 'TEXT'], ['link_label', 'TEXT'], ['due_time', 'TEXT'], ['started', 'INTEGER NOT NULL DEFAULT 0'], ['done_by', 'TEXT'], ['attachments', 'TEXT'], ['blocked_by', 'TEXT']]) { // blocked_by: tasks on the same list this one waits on, JSON [ids]; // attachments: Drive files, JSON [{ id, name, kind, mime }]; // steps: a checklist, JSON [{ id, title, done }]
   if (!q('PRAGMA table_info(tasks)').all().some((c) => c.name === col)) q(`ALTER TABLE tasks ADD COLUMN ${col} ${type}`).run();
 }
 q('CREATE INDEX IF NOT EXISTS tasks_assignee ON tasks(assignee_id, done_at)').run();
@@ -81,7 +81,7 @@ const TASK = `SELECT t.*, u.name AS assignee_name, c.name AS created_by_name, l.
               (SELECT COUNT(*) FROM task_comments k WHERE k.task_id = t.id) AS comments
               FROM tasks t LEFT JOIN users u ON u.id = t.assignee_id LEFT JOIN users c ON c.id = t.created_by JOIN task_lists l ON l.id = t.list_id`;
 const shape = (t) => ({ ...t, done: !!t.done_at, important: !!t.important, started: !!t.started && !t.done_at, // started: "In progress" on the board
-  steps: t.steps ? JSON.parse(t.steps) : [], attachments: t.attachments ? JSON.parse(t.attachments) : [] });
+  steps: t.steps ? JSON.parse(t.steps) : [], attachments: t.attachments ? JSON.parse(t.attachments) : [], blocked_by: t.blocked_by ? JSON.parse(t.blocked_by) : [] });
 const MAX_STEPS = 100, MAX_ATTACHMENTS = 20;
 /** A task as one person sees it: each attachment says whether they can open it. */
 const shapeFor = (userId) => (t) => { const out = shape(t); out.attachments = out.attachments.map((a) => ({ ...a, can_open: !!roleFor(a.id, userId) })); return out; };
@@ -108,6 +108,23 @@ function shareAttachments(list, tasks) {
         sendTo(new Set(audienceFor(f.id)), { type: 'files-changed', parent_id: f.parent_id });
       }
     }
+  }
+}
+
+/** Take a task out of what the others on its list wait on (it was deleted or moved away). */
+function unblockFrom(listId, taskId) {
+  for (const t of q("SELECT id, blocked_by FROM tasks WHERE list_id = ? AND blocked_by IS NOT NULL AND EXISTS (SELECT 1 FROM json_each(blocked_by) WHERE value = ?)").all(listId, taskId)) {
+    const left = JSON.parse(t.blocked_by).filter((x) => x !== taskId);
+    q('UPDATE tasks SET blocked_by = ? WHERE id = ?').run(left.length ? JSON.stringify(left) : null, t.id);
+  }
+}
+/** A task just ticked off: whoever has a task that was waiting only on open ones like it can start now. */
+function notifyUnblocked(done, by) {
+  for (const t of q(`${TASK} WHERE t.list_id = ? AND t.done_at IS NULL AND t.blocked_by IS NOT NULL AND EXISTS (SELECT 1 FROM json_each(t.blocked_by) WHERE value = ?)`).all(done.list_id, done.id)) {
+    const open = q("SELECT COUNT(*) AS n FROM tasks WHERE id IN (SELECT value FROM json_each(?)) AND done_at IS NULL").get(t.blocked_by).n;
+    const who = t.assignee_id || t.created_by;
+    if (open || !who || who === by.id) continue;
+    bell([who], { kind: 'task', title: `“${t.title}” can start`, body: `${by.name || by.username} finished “${done.title}”, which it was waiting on`, link: `/tasks/${t.list_id}?task=${t.id}`, actor: by.name });
   }
 }
 
@@ -393,6 +410,8 @@ export default function taskRoutes() {
     if (b.list_id !== undefined && b.list_id !== task.list_id) { // move to another of your lists
       const to = loadList(String(b.list_id), req.user);
       set.list_id = to.id;
+      set.blocked_by = null; // what it waited on stays behind, and nothing there waits on it any more
+      unblockFrom(task.list_id, task.id);
       set.position = (q('SELECT MIN(position) AS p FROM tasks WHERE list_id = ? AND done_at IS NULL').get(to.id).p ?? 1) - 1;
       if (task.assignee_id && !peopleOn(to).includes(task.assignee_id)) set.assignee_id = null;
     }
@@ -439,6 +458,7 @@ export default function taskRoutes() {
     });
     changed(list);
     if (target !== list) changed(target);
+    if (b.done && !task.done_at) notifyUnblocked(task, req.user);
     // A task from an assigned comment: ticking it off resolves the comment thread (and un-ticking reopens it).
     if (b.done !== undefined && !!b.done !== !!task.done_at) {
       const c = q('SELECT id, file_id, resolved FROM file_comments WHERE task_id = ? AND thread_id IS NULL').get(task.id);
@@ -493,6 +513,25 @@ export default function taskRoutes() {
     res.json(withSteps(req, (steps) => { steps.splice(stepIn(steps, req.params.sid), 1); }).task);
   });
 
+  // What a task waits on: other tasks on its list that need doing first (no loops).
+  r.put('/tasks/:id/waiting-on', (req, res) => {
+    const task = q('SELECT * FROM tasks WHERE id = ?').get(req.params.id);
+    if (!task) throw notFound('Task not found');
+    const list = loadList(task.list_id, req.user);
+    const ids = [...new Set((Array.isArray(req.body?.task_ids) ? req.body.task_ids : []).map(String))];
+    if (ids.length > 20) throw bad('A task can wait on at most 20 others');
+    const onList = new Map(q('SELECT id, blocked_by FROM tasks WHERE list_id = ?').all(list.id).map((t) => [t.id, t.blocked_by ? JSON.parse(t.blocked_by) : []]));
+    for (const id of ids) if (id === task.id || !onList.has(id)) throw bad('A task can only wait on other tasks on its list');
+    onList.set(task.id, ids);
+    // A loop: following what each waits on comes back to this one.
+    const seen = new Set();
+    const reaches = (id) => { if (id === task.id) return true; if (seen.has(id)) return false; seen.add(id); return (onList.get(id) || []).some(reaches); };
+    if (ids.some(reaches)) throw bad('That would make tasks wait on each other');
+    q('UPDATE tasks SET blocked_by = ?, updated_at = ? WHERE id = ?').run(ids.length ? JSON.stringify(ids) : null, now(), task.id);
+    changed(list);
+    res.json(shapeFor(req.user.id)(q(`${TASK} WHERE t.id = ?`).get(task.id)));
+  });
+
   // Files on a task: attach one from Drive (that you can open), or take one off. Files you attach
   // from your computer are uploaded first to a "Task files" folder in your Drive.
   r.post('/files-folder', (req, res) => {
@@ -531,7 +570,7 @@ export default function taskRoutes() {
     const task = q('SELECT * FROM tasks WHERE id = ?').get(req.params.id);
     if (!task) throw notFound('Task not found');
     const list = loadList(task.list_id, req.user);
-    q('DELETE FROM tasks WHERE id = ?').run(task.id);
+    tx(() => { q('DELETE FROM tasks WHERE id = ?').run(task.id); unblockFrom(list.id, task.id); });
     changed(list);
     res.json({ ok: true });
   });
@@ -539,6 +578,7 @@ export default function taskRoutes() {
   // Clear the completed tasks of a list.
   r.delete('/lists/:id/done', (req, res) => {
     const list = loadList(req.params.id, req.user);
+    for (const t of q('SELECT id FROM tasks WHERE list_id = ? AND done_at IS NOT NULL').all(list.id)) unblockFrom(list.id, t.id);
     const n = q('DELETE FROM tasks WHERE list_id = ? AND done_at IS NOT NULL').run(list.id).changes;
     changed(list);
     res.json({ ok: true, deleted: n });

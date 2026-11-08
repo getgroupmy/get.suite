@@ -4585,3 +4585,37 @@ test('task attachments: files from Drive, shared with the people on the list', a
   assert.equal((await tess('GET', `/api/files/${quote.id}`)).status, 200);
   assert.equal((await theo('POST', `/api/tasks/tasks/${task.id}/attachments`, { file_id: quote.id })).status, 201, 'anyone on the list can attach');
 });
+
+test('tasks waiting on others: same list, no loops, and a note when it can start', async () => {
+  const kay = client(); await login(kay, 'kay@keepco.com');
+  const wb = await kay('POST', '/api/users', { local: 'twb', domain: 'keepco.com', name: 'Wes Waiting', password: 'password123' });
+  const wes = client(); await login(wes, 'twb@keepco.com');
+  const list = (await kay('POST', '/api/tasks/lists', { name: 'Launch plan' })).body.id;
+  const other = (await kay('POST', '/api/tasks/lists', { name: 'Elsewhere' })).body.id;
+  await kay('PUT', `/api/tasks/lists/${list}/members`, { user_ids: [wb.body.id] });
+  const add = async (title, extra = {}) => (await kay('POST', `/api/tasks/lists/${list}/tasks`, { title, ...extra })).body;
+  const design = await add('Design'), copy = await add('Write copy'), print = await add('Print flyers', { assignee_id: wb.body.id });
+  const away = (await kay('POST', `/api/tasks/lists/${other}/tasks`, { title: 'Away' })).body;
+  const wait = (t, ids) => kay('PUT', `/api/tasks/tasks/${t.id}/waiting-on`, { task_ids: ids });
+  assert.equal((await wait(print, [away.id])).status, 400, 'only on its own list');
+  assert.equal((await wait(print, [print.id])).status, 400, 'not on itself');
+  const r = await wait(print, [design.id, copy.id]);
+  assert.deepEqual(r.body.blocked_by.sort(), [design.id, copy.id].sort());
+  assert.equal((await wait(design, [print.id])).status, 400, 'no loops');
+  await wait(copy, [design.id]);
+  assert.equal((await wait(design, [copy.id])).status, 400, 'no loops through others');
+  const bells = async () => (await wes('GET', '/api/notifications')).body.items.filter((n) => /can start/.test(n.title)).length;
+  await kay('PATCH', `/api/tasks/tasks/${design.id}`, { done: true });
+  assert.equal(await bells(), 0, 'still waiting on the copy');
+  await kay('PATCH', `/api/tasks/tasks/${copy.id}`, { done: true });
+  assert.equal(await bells(), 1, 'all done: Wes is told');
+  const n = (await wes('GET', '/api/notifications')).body.items.find((x) => /can start/.test(x.title));
+  assert.equal(n.title, '“Print flyers” can start');
+  // Deleting a task it waited on takes it off.
+  await kay('DELETE', `/api/tasks/tasks/${copy.id}`);
+  const after = (await kay('GET', `/api/tasks/lists/${list}/tasks`)).body.find((t) => t.id === print.id);
+  assert.deepEqual(after.blocked_by, [design.id]);
+  // Moving it to another list leaves what it waited on behind.
+  await kay('PATCH', `/api/tasks/tasks/${print.id}`, { list_id: other });
+  assert.deepEqual((await kay('GET', `/api/tasks/lists/${other}/tasks`)).body.find((t) => t.id === print.id).blocked_by, []);
+});
