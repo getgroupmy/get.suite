@@ -61,7 +61,10 @@ for (const [col, type] of [['collect_email', 'INTEGER NOT NULL DEFAULT 0'], ['se
 }
 const MAX_EDITORS = 50;
 
-export const TYPES = ['short', 'paragraph', 'choice', 'checkbox', 'dropdown', 'scale', 'date', 'file', 'section'];
+export const TYPES = ['short', 'paragraph', 'choice', 'checkbox', 'dropdown', 'scale', 'date', 'file', 'grid', 'checkgrid', 'section'];
+// Grids: rows (the things asked about) by columns (the choices); one choice per row, or several (checkgrid).
+const GRIDS = new Set(['grid', 'checkgrid']);
+const MAX_ROWS = 30, MAX_COLUMNS = 20;
 const WITH_OPTIONS = new Set(['choice', 'checkbox', 'dropdown']);
 const MAX_QUESTIONS = 100;
 const MAX_OPTIONS = 50;
@@ -114,6 +117,11 @@ export function cleanQuestions(list) {
       const opts = (Array.isArray(raw?.options) ? raw.options : []).map((o) => String(o ?? '').trim().slice(0, 200)).filter(Boolean);
       out.options = [...new Set(opts)].slice(0, MAX_OPTIONS);
       if (!out.options.length) out.options = ['Option 1'];
+    }
+    if (GRIDS.has(type)) {
+      const tidy = (l, max, dflt) => { const v = [...new Set((Array.isArray(l) ? l : []).map((o) => String(o ?? '').trim().slice(0, 200)).filter(Boolean))].slice(0, max); return v.length ? v : [dflt]; };
+      out.rows = tidy(raw?.rows, MAX_ROWS, 'Row 1');
+      out.columns = tidy(raw?.columns, MAX_COLUMNS, 'Column 1');
     }
     if (type === 'section') { delete out.required; return out; } // a new page: its title and help only
     // Response validation; a rule that isn't finished yet (no number typed) is kept out until it is.
@@ -189,6 +197,25 @@ export function checkAnswers(questions, answers) {
       a = (Array.isArray(a) ? a : a == null || a === '' ? [] : [a]).map(String).filter(Boolean);
       if (a.length > (qu.max_files || 1)) throw bad(`${name}: up to ${qu.max_files || 1} file${(qu.max_files || 1) === 1 ? '' : 's'}`);
       if (!a.length) a = undefined;
+    } else if (GRIDS.has(qu.type)) {
+      // { row: column } (or { row: [columns] }), only rows of the question; a required grid needs every row.
+      if (a != null && (typeof a !== 'object' || Array.isArray(a))) throw bad(`${name}: answer row by row`);
+      const kept = {};
+      for (const row of qu.rows) {
+        let v = a?.[row];
+        if (qu.type === 'checkgrid') {
+          v = (Array.isArray(v) ? v : v == null || v === '' ? [] : [v]).map(String);
+          if (v.some((x) => !qu.columns.includes(x))) throw bad(`${name}: choose from the columns`);
+          v = qu.columns.filter((c) => v.includes(c));
+          if (v.length) kept[row] = v;
+        } else if (v != null && v !== '') {
+          if (!qu.columns.includes(String(v))) throw bad(`${name}: choose from the columns`);
+          kept[row] = String(v);
+        }
+      }
+      const done = Object.keys(kept).length;
+      if (qu.required && done && done < qu.rows.length) throw bad(`${name}: answer every row`);
+      a = done ? kept : undefined;
     } else if (qu.type === 'checkbox') {
       a = (Array.isArray(a) ? a : a == null || a === '' ? [] : [a]).map(String);
       if (a.some((x) => !qu.options.includes(x))) throw bad(`${name}: choose from the options`);
@@ -232,11 +259,15 @@ const responsesOf = (formId) => q(`SELECT r.id, r.answers, r.created_at, r.updat
 export function responseTable(form, responses, { withPeople = form.audience === 'org' || responses.some((r) => r.user) } = {}) {
   const quiz = !!form.quiz;
   const emails = !withPeople && responses.some((r) => r.email);
-  const head = ['Submitted', ...(withPeople ? ['Name', 'Email'] : []), ...(emails ? ['Email'] : []), ...(quiz ? ['Score'] : []), ...form.questions.filter((qu) => qu.type !== 'section').map((qu) => qu.title || 'Untitled question')];
+  // One column per question; a grid gets one per row, "Question [Row]".
+  const cols = form.questions.filter((qu) => qu.type !== 'section').flatMap((qu) => (GRIDS.has(qu.type)
+    ? qu.rows.map((row) => ({ title: `${qu.title || 'Untitled question'} [${row}]`, of: (ans) => ans[qu.id]?.[row] }))
+    : [{ title: qu.title || 'Untitled question', of: (ans) => ans[qu.id] }]));
+  const head = ['Submitted', ...(withPeople ? ['Name', 'Email'] : []), ...(emails ? ['Email'] : []), ...(quiz ? ['Score'] : []), ...cols.map((c) => c.title)];
   const rows = responses.map((r) => {
     const sc = quiz ? scoreOf(form.questions, r.answers) : null;
     return [new Date(r.created_at).toISOString().replace('T', ' ').slice(0, 19),
-      ...(withPeople ? [r.user?.name || '', r.user?.email || ''] : []), ...(emails ? [r.email || ''] : []), ...(quiz ? [`${sc.score} / ${sc.max}`] : []), ...form.questions.filter((qu) => qu.type !== 'section').map((qu) => asText(r.answers[qu.id]))];
+      ...(withPeople ? [r.user?.name || '', r.user?.email || ''] : []), ...(emails ? [r.email || ''] : []), ...(quiz ? [`${sc.score} / ${sc.max}`] : []), ...cols.map((c) => asText(c.of(r.answers)))];
   });
   return [head, ...rows];
 }
@@ -530,6 +561,7 @@ export function answersText(questions, answers) {
     if (qu.type === 'section') { lines.push('', `— ${qu.title || 'Section'} —`); continue; }
     if (!(qu.id in answers)) continue;
     const a = answers[qu.id];
+    if (GRIDS.has(qu.type)) { lines.push(`${qu.title || 'Untitled question'}:`, ...qu.rows.filter((row) => row in a).map((row) => `  ${row}: ${[a[row]].flat().join(', ')}`)); continue; }
     lines.push(`${qu.title || 'Untitled question'}: ${Array.isArray(a) ? a.map((x) => (x && typeof x === 'object' ? x.name : x)).join(', ') : a}`);
   }
   return lines.join('\n').replace(/^\n+/, '');

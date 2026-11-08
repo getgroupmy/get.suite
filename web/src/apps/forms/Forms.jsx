@@ -6,7 +6,7 @@ import { get, post, put, del, onLive, formatDate } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
 import { ConfirmModal, Empty, Menu, useToast } from '../../components/ui.jsx';
 import { useAuth } from '../../App.jsx';
-import { TYPES, HAS_OPTIONS, newId, retype, nextOption, summarize, percent } from './formmath.js';
+import { TYPES, HAS_OPTIONS, GRIDS, newId, retype, nextOption, summarize, percent } from './formmath.js';
 import { CHECKS, OPS, KIND_NAMES, cleanCheck } from './formcheck.js';
 
 export default function Forms() {
@@ -251,6 +251,23 @@ function QuestionsTab({ form, edit }) {
               {q.options.length < 50 && <li><button type="button" className="link-btn" onClick={() => change(i, { options: [...q.options, nextOption(q.options)] })}>Add option</button></li>}
             </ul>
           )}
+          {GRIDS.has(q.type) && (
+            <div className="form-grid-edit">
+              {[['rows', 'Rows', 'Row', 30], ['columns', 'Columns', 'Column', 20]].map(([key, head, one, max]) => (
+                <ul key={key} className="form-options" aria-label={`${head} of question ${i + 1}`}>
+                  <li className="small"><strong>{head}</strong></li>
+                  {q[key].map((o, k) => (
+                    <li key={k} className="row">
+                      <span className="form-option-mark" aria-hidden="true">{key === 'rows' ? `${k + 1}.` : q.type === 'grid' ? '○' : '☐'}</span>
+                      <input className="grow" aria-label={`Question ${i + 1}, ${one.toLowerCase()} ${k + 1}`} value={o} maxLength={200} onChange={(e) => change(i, { [key]: q[key].map((x, m) => (m === k ? e.target.value : x)) })} />
+                      {q[key].length > 1 && <button type="button" className="icon-btn" aria-label={`Remove ${one.toLowerCase()} ${k + 1}`} onClick={() => change(i, { [key]: q[key].filter((_, m) => m !== k) })}><Icon name="close" size={16} /></button>}
+                    </li>
+                  ))}
+                  {q[key].length < max && <li><button type="button" className="link-btn" onClick={() => { let n = q[key].length + 1; while (q[key].includes(`${one} ${n}`)) n++; change(i, { [key]: [...q[key], `${one} ${n}`] }); }}>Add {one.toLowerCase()}</button></li>}
+                </ul>
+              ))}
+            </div>
+          )}
           {q.type === 'scale' && (
             <div className="row wrap">
               <label className="row small">1 to <select aria-label={`Scale of question ${i + 1}`} value={q.max} onChange={(e) => change(i, { max: Number(e.target.value) })}><option value={5}>5</option><option value={10}>10</option></select></label>
@@ -350,7 +367,12 @@ function ResponsesTab({ form, responses, reload, setting, flush }) {
           <section key={s.id} className="card form-summary" aria-label={`Summary: ${s.title || 'Untitled question'}`}>
             <h3>{s.title || 'Untitled question'}</h3>
             <p className="muted small">{s.answered === 1 ? '1 answer' : `${s.answered} answers`}{s.average !== undefined ? ` · average ${s.average}` : ''}</p>
-            {s.bars ? (
+            {s.grid ? (
+              <div className="form-grid-wrap"><table className="form-grid form-grid-sum">
+                <thead><tr><th />{(s.grid[0]?.bars || []).map((b) => <th key={b.label} scope="col">{b.label}</th>)}</tr></thead>
+                <tbody>{s.grid.map((g) => <tr key={g.row}><th scope="row">{g.row}</th>{g.bars.map((b) => <td key={b.label} aria-label={`${g.row}, ${b.label}: ${b.count}`}><span className="form-grid-count" style={{ '--share': b.share }}>{b.count}</span></td>)}</tr>)}</tbody>
+              </table></div>
+            ) : s.bars ? (
               <ul className="form-bars">
                 {s.bars.map((b) => (
                   <li key={b.label}><span className="form-bar-label">{b.label}</span>
@@ -375,7 +397,7 @@ function ResponsesTab({ form, responses, reload, setting, flush }) {
             {form.questions.filter((q) => q.type !== 'section').map((q) => {
               const a = one.answers[q.id];
               const mark = one.right && q.id in one.right ? (one.right[q.id] ? <span className="quiz-right" aria-label="right"> ✓</span> : <span className="quiz-wrong" aria-label="wrong"> ✗</span>) : null;
-              return <div key={q.id}><strong>{q.title || 'Untitled question'}</strong>{mark}<p className={a === undefined ? 'muted' : ''} style={{ margin: '4px 0 0', whiteSpace: 'pre-wrap' }}>{a === undefined ? 'No answer' : q.type === 'file' && Array.isArray(a) ? a.map((f, k) => <span key={f.file_id || k}>{k > 0 && ', '}<a href={`/api/forms/${form.id}/file/${f.file_id}`} target="_blank" rel="noopener noreferrer">📎 {f.name}</a></span>) : Array.isArray(a) ? a.join(', ') : String(a)}</p></div>;
+              return <div key={q.id}><strong>{q.title || 'Untitled question'}</strong>{mark}<p className={a === undefined ? 'muted' : ''} style={{ margin: '4px 0 0', whiteSpace: 'pre-wrap' }}>{a === undefined ? 'No answer' : GRIDS.has(q.type) ? q.rows.filter((row) => a[row] !== undefined).map((row) => `${row}: ${[a[row]].flat().join(', ')}`).join('\n') : q.type === 'file' && Array.isArray(a) ? a.map((f, k) => <span key={f.file_id || k}>{k > 0 && ', '}<a href={`/api/forms/${form.id}/file/${f.file_id}`} target="_blank" rel="noopener noreferrer">📎 {f.name}</a></span>) : Array.isArray(a) ? a.join(', ') : String(a)}</p></div>;
             })}
           </section>
         )}

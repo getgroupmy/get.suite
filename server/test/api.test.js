@@ -5229,3 +5229,24 @@ test('meet Q&A: ask, upvote once (not your own), answered or taken away by the a
     assert.ok(host.msgs.some((m) => m.type === 'question-gone' && m.id === x.id));
   } finally { for (const w of all) w.terminate(); }
 });
+
+test('forms: grid questions (one choice per row, or several), every row when required, one column per row', async () => {
+  const { cleanQuestions, checkAnswers, responseTable, answersText } = await import('../src/routes/forms.js');
+  const qs = cleanQuestions([
+    { id: 'g', type: 'grid', title: 'Rate us', required: true, rows: ['Food', 'Service', 'Food', ''], columns: ['Poor', 'Good', 'Great'] },
+    { id: 'c', type: 'checkgrid', title: 'When can you come?', rows: ['Mon', 'Tue'], columns: ['Morning', 'Afternoon'] },
+    { id: 'e', type: 'grid', title: 'Empty' },
+  ]);
+  assert.deepEqual([qs[0].rows, qs[0].columns, qs[2].rows, qs[2].columns], [['Food', 'Service'], ['Poor', 'Good', 'Great'], ['Row 1'], ['Column 1']]);
+  assert.throws(() => checkAnswers(qs, { g: { Food: 'Good' } }), /answer every row/);
+  assert.throws(() => checkAnswers(qs, {}), /needs an answer/);
+  assert.throws(() => checkAnswers(qs, { g: { Food: 'Meh', Service: 'Good' } }), /choose from the columns/);
+  assert.throws(() => checkAnswers(qs, { g: 'Good' }), /row by row/);
+  const a = checkAnswers(qs, { g: { Food: 'Good', Service: 'Great', Extra: 'Poor' }, c: { Mon: ['Afternoon', 'Morning'], Tue: [] } });
+  assert.deepEqual(a, { g: { Food: 'Good', Service: 'Great' }, c: { Mon: ['Morning', 'Afternoon'] } });
+  assert.throws(() => checkAnswers(qs, { g: { Food: 'Good', Service: 'Great' }, c: { Mon: ['Evening'] } }), /choose from the columns/);
+  const [head, row] = responseTable({ questions: qs, audience: 'public' }, [{ created_at: 0, answers: a }]);
+  assert.deepEqual(head.slice(1), ['Rate us [Food]', 'Rate us [Service]', 'When can you come? [Mon]', 'When can you come? [Tue]', 'Empty [Row 1]']);
+  assert.deepEqual(row.slice(1), ['Good', 'Great', 'Morning; Afternoon', '', '']);
+  assert.equal(answersText(qs, a), 'Rate us:\n  Food: Good\n  Service: Great\nWhen can you come?:\n  Mon: Morning, Afternoon');
+});

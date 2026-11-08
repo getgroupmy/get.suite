@@ -14,6 +14,8 @@ async function call(method, url, body) {
 }
 
 const empty = (a) => a === undefined || a === '' || (Array.isArray(a) && !a.length);
+/** A grid is answered when every row is. */
+const unanswered = (q, a) => (q.type === 'grid' || q.type === 'checkgrid' ? (q.rows || []).some((row) => empty(a?.[row])) : empty(a));
 
 export default function FormRespond({ token, onSignIn }) {
   const [form, setForm] = useState(null);
@@ -44,7 +46,7 @@ export default function FormRespond({ token, onSignIn }) {
   const after = form ? nextPage(pages, Math.min(page, pages.length - 1), answers) : 0;
   const submit = async (e) => {
     e.preventDefault();
-    const need = (pages[page]?.items || []).filter((q) => (q.required && empty(answers[q.id]) && !(editing && q.type === 'file')) || checkProblem(q.check, answers[q.id])).map((q) => q.id);
+    const need = (pages[page]?.items || []).filter((q) => (q.required && unanswered(q, answers[q.id]) && !(editing && q.type === 'file')) || checkProblem(q.check, answers[q.id])).map((q) => q.id);
     if (form.collect_email && !editing && trail.length === 1 && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) { setEmailMissing(true); document.getElementById('q-email')?.scrollIntoView({ block: 'center' }); return; }
     if (!need.length && after < pages.length) { setTrail([...trail, after]); setMissing([]); window.scrollTo(0, 0); return; } // Next
     setMissing(need);
@@ -136,6 +138,30 @@ function Question({ q, token, value, onChange, missing }) {
   const cls = `form-fill-q ${missing || problem ? 'missing' : ''}`;
   const label = `${q.title || 'Untitled question'}${q.required ? ' (required)' : ''}`;
   if (q.type === 'file') return <FileQuestion q={q} token={token} value={value || []} onChange={onChange} title={title} help={help} err={err} cls={cls} label={label} />;
+  if (q.type === 'grid' || q.type === 'checkgrid') {
+    const many = q.type === 'checkgrid';
+    const v = value || {};
+    const pick = (row, c, on) => {
+      const next = { ...v };
+      if (many) { const l = (v[row] || []).filter((x) => x !== c); next[row] = on ? q.columns.filter((x) => x === c || l.includes(x)) : l; if (!next[row].length) delete next[row]; }
+      else next[row] = c;
+      onChange(Object.keys(next).length ? next : undefined);
+    };
+    return (
+      <fieldset id={`q-${q.id}`} className={cls} aria-label={label}>
+        <legend>{title}</legend>{help}
+        <div className="form-grid-wrap"><table className="form-grid">
+          <thead><tr><th />{q.columns.map((c) => <th key={c} scope="col">{c}</th>)}</tr></thead>
+          <tbody>{q.rows.map((row) => (
+            <tr key={row} role="group" aria-label={row}><th scope="row">{row}</th>
+              {q.columns.map((c) => <td key={c}><input type={many ? 'checkbox' : 'radio'} name={`${q.id}-${row}`} aria-label={`${row}: ${c}`}
+                checked={many ? (v[row] || []).includes(c) : v[row] === c} onChange={(e) => pick(row, c, e.target.checked)} /></td>)}
+            </tr>))}</tbody>
+        </table></div>
+        {missing && <span className="error small" role="alert">Answer every row</span>}
+      </fieldset>
+    );
+  }
   if (q.type === 'choice' || q.type === 'checkbox' || q.type === 'scale') {
     const opts = q.type === 'scale' ? Array.from({ length: q.max }, (_, i) => String(i + 1)) : q.options;
     const many = q.type === 'checkbox';

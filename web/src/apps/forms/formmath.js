@@ -3,8 +3,10 @@
 export const TYPES = [
   ['short', 'Short answer'], ['paragraph', 'Paragraph'], ['choice', 'Multiple choice'], ['checkbox', 'Tick boxes'],
   ['dropdown', 'Dropdown'], ['scale', 'Linear scale'], ['date', 'Date'], ['file', 'File upload'],
+  ['grid', 'Multiple choice grid'], ['checkgrid', 'Tick box grid'],
 ];
 export const HAS_OPTIONS = new Set(['choice', 'checkbox', 'dropdown']);
+export const GRIDS = new Set(['grid', 'checkgrid']);
 
 export const newId = () => Math.random().toString(36).slice(2, 10);
 
@@ -15,6 +17,7 @@ export function retype(q, type) {
   if (HAS_OPTIONS.has(type)) next.options = q?.options?.length ? q.options : ['Option 1'];
   if (type === 'scale') Object.assign(next, { max: q?.max || 5, low: q?.low || '', high: q?.high || '' });
   if (type === 'file') next.max_files = q?.max_files || 1;
+  if (GRIDS.has(type)) Object.assign(next, { rows: q?.rows?.length ? q.rows : ['Row 1'], columns: q?.columns?.length ? q.columns : (q?.options?.length ? q.options : ['Column 1']) });
   return next;
 }
 
@@ -37,6 +40,12 @@ export function summarize(questions, responses) {
       for (const a of answers) for (const v of Array.isArray(a) ? a : [a]) if (counts.has(String(v))) counts.set(String(v), counts.get(String(v)) + 1);
       out.bars = keys.map((k) => ({ label: String(k), count: counts.get(String(k)), share: answers.length ? counts.get(String(k)) / answers.length : 0 }));
       if (q.type === 'scale' && answers.length) out.average = Math.round((answers.reduce((s, a) => s + Number(a), 0) / answers.length) * 10) / 10;
+    } else if (GRIDS.has(q.type)) {
+      // Per row: how many chose each column.
+      out.grid = (q.rows || []).map((row) => {
+        const picks = answers.map((a) => a?.[row]).filter((v) => v !== undefined);
+        return { row, answered: picks.length, bars: (q.columns || []).map((c) => { const n = picks.filter((v) => [v].flat().includes(c)).length; return { label: c, count: n, share: picks.length ? n / picks.length : 0 }; }) };
+      });
     } else if (q.type === 'file') {
       out.files = answers.slice().reverse().flat().filter((f) => f && typeof f === 'object'); // newest first
     } else {

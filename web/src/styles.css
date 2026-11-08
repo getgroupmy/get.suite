@@ -1982,3 +1982,13 @@ tr.shortcut-row.broken .name-text { color: var(--muted, #777); font-style: itali
 /* Recording a meeting. */
 .meet-rec-banner { background: #d93025; color: #fff; text-align: center; padding: 4px 8px; font-size: 14px; }
 .meet-btn.rec { background: #d93025; color: #fff; }
+
+/* Forms: grid questions */
+.form-grid-wrap { overflow-x: auto; }
+.form-grid { border-collapse: collapse; }
+.form-grid th, .form-grid td { padding: 6px 10px; text-align: center; font-weight: normal; }
+.form-grid tbody th { text-align: left; }
+.form-grid tbody tr:nth-child(odd) { background: color-mix(in srgb, var(--text) 4%, transparent); }
+.form-grid-count { display: inline-block; min-width: 2em; padding: 2px 6px; border-radius: 6px; background: color-mix(in srgb, var(--accent, #1a73e8) calc(var(--share) * 60%), transparent); }
+.form-grid-edit { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 640px) { .form-grid-edit { grid-template-columns: 1fr; } }
