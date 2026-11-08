@@ -7,6 +7,8 @@ import { freshMailHome } from './tenancy.js';
 
 // Where Workspace opens for each person: 'drive' (the default) or 'home'.
 if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'start_page')) q('ALTER TABLE users ADD COLUMN start_page TEXT').run();
+// A second time zone shown beside the hours in Calendar (e.g. 'Asia/Tokyo'), or null.
+if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'second_tz')) q('ALTER TABLE users ADD COLUMN second_tz TEXT').run();
 
 const SESSION_DAYS = 30;
 export const COOKIE = 'nw_sid';
@@ -57,7 +59,7 @@ export function destroySession(token) {
 
 export function userFromToken(token) {
   if (!token) return null;
-  const row = q(`SELECT u.id, u.username, u.name, u.is_admin, u.is_super, u.disabled, u.org_id, u.start_page,
+  const row = q(`SELECT u.id, u.username, u.name, u.is_admin, u.is_super, u.disabled, u.org_id, u.start_page, u.second_tz,
                         o.name AS org_name, o.allow_external, o.allow_links, o.require_2fa, o.accent AS org_accent, o.logo AS org_logo, s.expires_at, s.last_seen,
                         (SELECT enabled FROM two_factor t WHERE t.user_id = u.id) AS tf_enabled
                  FROM sessions s JOIN users u ON u.id = s.user_id JOIN orgs o ON o.id = u.org_id
@@ -81,6 +83,7 @@ export function userFromToken(token) {
     // The company requires two-step verification and this person hasn't set it up yet.
     needs_two_factor: !!row.require_2fa && !row.tf_enabled,
     start_page: row.start_page === 'home' ? 'home' : 'drive',
+    second_tz: row.second_tz || null,
   };
 }
 

@@ -8,6 +8,7 @@ import DrivePicker, { openUrl } from '../../components/DrivePicker.jsx';
 import { Modal, useToast, Empty, Menu, PromptModal } from '../../components/ui.jsx';
 import { PLACES, placeText, isoDay } from '../../components/workloc.js';
 import { insights, hoursText } from './insights.js';
+import { timeIn, zoneName, cityOf } from '../../components/zones.js';
 import { scheduleOf, DAY, VIEWS, startOfDay, visibleDays, shift, title, onDay, layoutDay, expandAll, occurrenceIndex, describeRule, daysBetween, moveTimes, resizeEnd, shiftWeekdays, snapMinutes } from './calmath.js';
 
 const OTHER_COLOURS = ['#e37400', '#8e24aa', '#0b8043', '#d93025', '#00796b', '#3949ab'];
@@ -456,6 +457,8 @@ function LocationCell({ date, loc, onLocation }) {
 }
 
 function TimeGrid({ days, events, busy = [], today, onOpen, onNew, onDay: openDay, drag, onTaskDone, locations, onLocation }) {
+  const { user } = useAuth();
+  const tz2 = user.second_tz; // a second column of hours, if chosen
   const scroller = useRef();
   const [now, setNow] = useState(Date.now());
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 60e3); return () => clearInterval(t); }, []);
@@ -466,13 +469,14 @@ function TimeGrid({ days, events, busy = [], today, onOpen, onNew, onDay: openDa
     if (scroller.current) scroller.current.scrollTop = (minutes / 60) * HOUR_PX;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [days[0].getTime(), days.length]);
-  const cols = { gridTemplateColumns: `56px repeat(${days.length}, minmax(0, 1fr))` };
+  const cols = { gridTemplateColumns: `${tz2 ? 72 : 56}px repeat(${days.length}, minmax(0, 1fr))` };
+  const day0 = days[0]?.getTime() ?? Date.now();
   const dayLabel = (d) => d.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' });
 
   return (
     <div className="timegrid" data-days={days.length}>
       <div className="tg-head" style={cols}>
-        <div />
+        {tz2 ? <div className="tg-zones small muted" title={`Your time, and ${cityOf(tz2)}`}><span>{zoneName(Intl.DateTimeFormat().resolvedOptions().timeZone, day0)}</span><span className="tz2">{zoneName(tz2, day0)}</span></div> : <div />}
         {days.map((d) => {
           const isToday = d.getTime() === today;
           const inner = <><span className="tg-dow">{d.toLocaleDateString([], { weekday: 'short' })}</span><span className={`tg-num ${isToday ? 'today' : ''}`}>{d.getDate()}</span></>;
@@ -502,7 +506,8 @@ function TimeGrid({ days, events, busy = [], today, onOpen, onNew, onDay: openDa
         <div className="tg-body" style={{ ...cols, height: 24 * HOUR_PX }}>
           <div className="tg-hours">
             {Array.from({ length: 24 }, (_, h) => (
-              <div key={h} className="tg-hour small muted" style={{ top: h * HOUR_PX }}>{h ? new Date(2000, 0, 1, h).toLocaleTimeString([], { hour: 'numeric' }) : ''}</div>
+              <div key={h} className="tg-hour small muted" style={{ top: h * HOUR_PX }}>{h ? new Date(2000, 0, 1, h).toLocaleTimeString([], { hour: 'numeric' }) : ''}
+                {tz2 && h > 0 && <span className="tz2" aria-label={`${cityOf(tz2)}: ${timeIn(day0 + h * 36e5, tz2)}`}>{timeIn(day0 + h * 36e5, tz2)}</span>}</div>
             ))}
           </div>
           {days.map((d) => (

@@ -3354,3 +3354,14 @@ test('focus time: declines new invitations and pauses notifications while it las
   await a('PATCH', `/api/events/${f.id}`, { start: now - 2 * 36e5, end: now - 36e5 });
   assert.equal((await a('GET', '/api/users/me/pause')).body.paused_until, null);
 });
+
+test('second time zone for Calendar', async () => {
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'stz', domain: 'acme.com', name: 'Sec Zone', password: 'password123' })).status, 201);
+  assert.equal((await login(a, 'stz@acme.com')).second_tz, null);
+  assert.equal((await a('PUT', '/api/users/me/second-tz', { tz: 'Mars/Olympus' })).status, 400);
+  assert.equal((await a('PUT', '/api/users/me/second-tz', { tz: 'Asia/Kolkata' })).body.second_tz, 'Asia/Kolkata');
+  assert.equal((await a('GET', '/api/auth/me')).body.user.second_tz, 'Asia/Kolkata');
+  await a('PUT', '/api/users/me/second-tz', { tz: null });
+  assert.equal((await a('GET', '/api/auth/me')).body.user.second_tz, null);
+});

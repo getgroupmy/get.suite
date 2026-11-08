@@ -126,6 +126,14 @@ export default function userRoutes() {
     res.json({ ...h, text: hoursText(h) });
   });
 
+  // A second time zone for Calendar: { tz: 'Asia/Tokyo' } or { tz: null }.
+  r.put('/me/second-tz', (req, res) => {
+    const tz = req.body?.tz ? String(req.body.tz).slice(0, 64) : null;
+    if (tz) { try { new Intl.DateTimeFormat('en', { timeZone: tz }); } catch { throw bad('Unknown time zone'); } }
+    q('UPDATE users SET second_tz = ? WHERE id = ?').run(tz, req.user.id);
+    res.json({ second_tz: tz });
+  });
+
   // Where Workspace opens for you: { page: 'drive' | 'home' }.
   r.put('/me/start-page', (req, res) => {
     const page = req.body?.page === 'home' ? 'home' : req.body?.page === 'drive' ? 'drive' : null;

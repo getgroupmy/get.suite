@@ -5,6 +5,7 @@ import { reloadPhotos, usePhoto } from '../components/photos.js';
 import { useAuth } from '../App.jsx';
 import { Avatar, useToast } from '../components/ui.jsx';
 import Icon from '../components/Icon.jsx';
+import { allZones, zoneName, cityOf } from '../components/zones.js';
 import { getTheme, setTheme } from '../theme.js';
 
 export default function Settings() {
@@ -54,6 +55,7 @@ export default function Settings() {
       <MailApps />
       <Devices />
       <WorkLocation />
+      <SecondZone />
       <YourData />
     </div>
   );
@@ -181,6 +183,26 @@ function Appearance() {
       </div>
       <p className="muted small" style={{ margin: 0 }}>Kept on this device, so a phone and a computer can differ.</p>
       <StartPage />
+    </section>
+  );
+}
+
+/** A second time zone beside the hours in Calendar. */
+function SecondZone() {
+  const toast = useToast();
+  const { user, setUser } = useAuth();
+  const zones = allZones();
+  const set = async (tz) => {
+    try { await put('/users/me/second-tz', { tz: tz || null }); setUser({ ...user, second_tz: tz || null }); toast(tz ? `Calendar also shows the time in ${cityOf(tz)}` : 'Second time zone removed'); } catch (e) { toast(e.message, 'error'); }
+  };
+  return (
+    <section className="card stack" aria-labelledby="tz2-h">
+      <h2 id="tz2-h">Second time zone</h2>
+      <p className="muted small" style={{ margin: 0 }}>Show another place's time beside the hours in Calendar's week and day views, for working with colleagues or clients elsewhere.</p>
+      <label className="field" style={{ maxWidth: 360 }}><span>Also show the time in</span>
+        <select value={user.second_tz || ''} onChange={(e) => set(e.target.value)}>
+          <option value="">None</option>{zones.map((z) => <option key={z} value={z}>{z.replace(/_/g, ' ')} ({zoneName(z)})</option>)}
+        </select></label>
     </section>
   );
 }
