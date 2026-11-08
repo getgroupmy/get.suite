@@ -41,6 +41,8 @@ if (!q('PRAGMA table_info(shares)').all().some((c) => c.name === 'direct_role'))
 const RANK = { viewer: 1, commenter: 1.5, editor: 2 };
 const best = (a, b) => (!a ? b : !b ? a : RANK[a] >= RANK[b] ? a : b);
 export const MAX_GROUPS = 200;
+/** How a group is @mentioned in Chat: its name in lower case with dashes ("Marketing team" -> marketing-team). */
+export const groupSlug = (name) => String(name || '').toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 
 /** Bring the effective shares of one file in line with its direct and group shares. Returns who gained access. */
 export function sync(fileId) {
@@ -91,7 +93,7 @@ export function setFileGroups(fileId, orgId, list) {
   });
 }
 
-const describe = (g) => ({ ...g, members: q(`SELECT u.id, u.name, u.username FROM group_members m JOIN users u ON u.id = m.user_id
+const describe = (g) => ({ ...g, slug: groupSlug(g.name), members: q(`SELECT u.id, u.name, u.username FROM group_members m JOIN users u ON u.id = m.user_id
                                              WHERE m.group_id = ? ORDER BY u.name`).all(g.id),
   files: q('SELECT COUNT(*) AS n FROM group_shares WHERE group_id = ?').get(g.id).n });
 

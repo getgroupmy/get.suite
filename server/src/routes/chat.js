@@ -57,6 +57,7 @@ export function cleanPoll(p) {
 }
 import { sendTo, onlineUserIds } from '../hub.js';
 import { canReach, orgMemberIds } from '../tenancy.js';
+import { groupSlug } from '../groups.js';
 
 /**
  * Channels belong to one company (org_id set, dm_key NULL).
@@ -271,12 +272,24 @@ export function sendDirect(from, toUserId, body) {
 
 /** "@someone@example.com" in a message: a notice to each person mentioned who is in the conversation. */
 const MENTION_RE = /@([\w.+-]+@[\w.-]+\.[a-z]{2,})/gi;
+// @a-group (one of the company's groups, by its name with dashes) and @channel (everyone in the conversation).
+const GROUP_MENTION_RE = /(?<![\w@.+-])@([a-z0-9][a-z0-9-]{0,79})(?![\w@.-])/gi;
 function notifyMentions(c, from, msg) {
-  const names = [...new Set([...String(msg.body).matchAll(MENTION_RE)].map((m) => m[1].toLowerCase()))].slice(0, 50);
-  if (!names.length) return;
+  const body = String(msg.body);
+  const names = [...new Set([...body.matchAll(MENTION_RE)].map((m) => m[1].toLowerCase()))].slice(0, 50);
+  const words = [...new Set([...body.matchAll(GROUP_MENTION_RE)].map((m) => m[1].toLowerCase()))].slice(0, 20);
+  if (!names.length && !words.length) return;
   const inIt = new Set(audience(c));
-  const ids = q(`SELECT id FROM users WHERE LOWER(username) IN (SELECT value FROM json_each(?)) AND disabled = 0`).all(JSON.stringify(names))
-    .map((u) => u.id).filter((id) => id !== from.id && inIt.has(id));
+  const people = new Set(q(`SELECT id FROM users WHERE LOWER(username) IN (SELECT value FROM json_each(?)) AND disabled = 0`).all(JSON.stringify(names)).map((u) => u.id));
+  if (words.length && !c.dm_key) {
+    if (words.includes('channel')) for (const id of inIt) people.add(id);
+    const org = c.org_id || from.org_id;
+    for (const g of q('SELECT id, name FROM groups WHERE org_id = ?').all(org)) {
+      if (!words.includes(groupSlug(g.name))) continue;
+      for (const m of q('SELECT user_id FROM group_members WHERE group_id = ?').all(g.id)) people.add(m.user_id);
+    }
+  }
+  const ids = [...people].filter((id) => id !== from.id && inIt.has(id)); // only people in the conversation
   if (ids.length) notify(ids, { kind: 'mention', title: `${from.name || from.username} mentioned you in ${c.dm_key ? 'a message' : `#${c.name}`}`, body: String(msg.body).slice(0, 200), link: `/chat/${c.id}`, actor: from.name });
   if (ids.length) sendTo(ids, { type: 'chat-mention', channel_id: c.id, message_id: msg.id, parent_id: msg.parent_id, from: from.name || from.username, text: String(msg.body).slice(0, 140) });
 }

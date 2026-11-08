@@ -10,7 +10,7 @@ import EmojiPicker from '../../components/EmojiPicker.jsx';
 import { Avatar, ConfirmModal, Empty, Menu, Modal, PromptModal, useToast } from '../../components/ui.jsx';
 import { whenText, laterChoices, ScheduleDialog } from '../../components/schedule.jsx';
 import { useAuth } from '../../App.jsx';
-import { useMentions, MENTION_RE } from '../../components/mentions.jsx';
+import { useMentions, MENTION_RE, GROUP_WORD_RE, knownGroupWords } from '../../components/mentions.jsx';
 import { addToTasksWithToast, titleFromText } from '../tasks/addtask.js';
 import { isPaused } from '../../pause.js';
 
@@ -48,7 +48,7 @@ export default function Chat() {
   }, [text]);
   const [unread, setUnread] = useState({});
   const [mentioned, setMentioned] = useState({}); // conversations where someone @mentioned you since you read them
-  const mention = useMentions(box, text, setText);
+  const mention = useMentions(box, text, setText, { groups: true });
   const [forwarding, setForwarding] = useState(null); // the message being forwarded
   const [threadId, setThreadId] = useState(null); // the message whose thread is open beside the conversation
   const [dialog, setDialog] = useState(false);
@@ -430,7 +430,7 @@ function Thread({ id, channelId, user, onClose }) {
   const [editText, setEditText] = useState('');
   const end = useRef();
   const box = useRef();
-  const mention = useMentions(box, text, setText);
+  const mention = useMentions(box, text, setText, { groups: true });
   useEffect(() => {
     get(`/chat/messages/${id}/replies`).then((t) => { setParent(t.message); setReplies(t.replies); }).catch((e) => { toast(e.message, 'error'); onClose(); });
     box.current?.focus();
@@ -792,11 +792,24 @@ export function Formatted({ text, me }) {
   });
 }
 
+/** @a-group and @channel, highlighted (plain text otherwise). */
+function groupWords(text, key) {
+  const parts = String(text).split(GROUP_WORD_RE);
+  if (parts.length === 1) return text;
+  // split with two groups: [before, lead, word, before, lead, word, ...]
+  const out = [];
+  for (let k = 0; k < parts.length; k++) {
+    if (k % 3 === 2) out.push(knownGroupWords.has(parts[k].slice(1).toLowerCase()) ? <span key={`${key}g${k}`} className="mention group">{parts[k]}</span> : parts[k]);
+    else if (parts[k]) out.push(parts[k]);
+  }
+  return out;
+}
+
 export function Linked({ text, me }) {
   return String(text).split(MENTION_RE).map((chunk, j) => (j % 2
     ? <span key={`m${j}`} className={`mention${me && chunk.slice(1).toLowerCase() === me.toLowerCase() ? ' me' : ''}`}>{chunk}</span>
     : chunk.split(LINK_RE).map((part, i) => {
-      if (i % 2 === 0) return part;
+      if (i % 2 === 0) return groupWords(part, `${j}-${i}`);
       return part.startsWith('/') ? <Link key={`${j}-${i}`} to={part}>{part}</Link> : <a key={`${j}-${i}`} href={part} target="_blank" rel="noopener noreferrer">{part}</a>;
     })));
 }

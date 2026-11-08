@@ -3734,3 +3734,27 @@ test('announcement channels: only the chosen people post; everyone can reply in 
   await owner('PATCH', `/api/chat/channels/${ch.id}`, { posters: null });
   assert.equal((await b('POST', `/api/chat/channels/${ch.id}/messages`, { body: 'Now I can' })).status, 201);
 });
+
+test('chat: @a-group and @channel mention everyone in them who is in the conversation', async () => {
+  const people = {};
+  for (const [local, name] of [['gm1', 'Gail One'], ['gm2', 'Gus Two'], ['gm3', 'Gwen Three']]) {
+    people[local] = client();
+    await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' });
+    await login(people[local], `${local}@acme.com`);
+  }
+  const ids = Object.fromEntries(await Promise.all(Object.entries(people).map(async ([k, c]) => [k, (await c('GET', '/api/auth/me')).body.user.id])));
+  const g = (await owner('POST', '/api/groups', { name: 'Field Sales' })).body;
+  assert.equal(g.slug, 'field-sales');
+  await owner('PUT', `/api/groups/${g.id}/members`, { user_ids: [ids.gm1, ids.gm2] });
+  // A private channel with gm1 and gm3 only: gm2 is in the group but not in the conversation.
+  const ch = (await owner('POST', '/api/chat/channels', { name: 'deals-x', private: true, members: [ids.gm1, ids.gm3] })).body;
+  await owner('POST', `/api/chat/channels/${ch.id}/messages`, { body: 'Big order in, @field-sales!' });
+  const told = async (k) => JSON.stringify((await people[k]('GET', '/api/notifications')).body).includes('mentioned you in #deals-x');
+  assert.equal(await told('gm1'), true);
+  assert.equal(await told('gm2'), false, 'not in the conversation');
+  assert.equal(await told('gm3'), false, 'not in the group');
+  await owner('POST', `/api/chat/channels/${ch.id}/messages`, { body: 'Lunch at 1, @channel' });
+  assert.equal(await told('gm3'), true, '@channel reaches everyone in it');
+  // An email address isn't mistaken for a group.
+  await owner('POST', `/api/chat/channels/${ch.id}/messages`, { body: 'write to sales@field-sales.com' });
+});
