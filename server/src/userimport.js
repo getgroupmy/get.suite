@@ -3,6 +3,7 @@
 // whether they're an admin. Checked first; only good rows are created. People without a password
 // get one made up, shown once to the admin to pass on.
 import crypto from 'node:crypto';
+import { rulesOf, passwordProblem } from './passwordrules.js';
 import { parseCsv } from './contactfiles.js';
 import { validAddress } from './tenancy.js';
 import { q } from './db.js';
@@ -27,7 +28,10 @@ const YES = /^(yes|y|true|1|admin|administrator)$/i;
 export function readablePassword() {
   const abc = 'abcdefghjkmnpqrstuvwxyz23456789';
   const b = crypto.randomBytes(12);
-  return [0, 4, 8].map((i) => [...b.subarray(i, i + 4)].map((x) => abc[x % abc.length]).join('')).join('-');
+  const pw = [0, 4, 8].map((i) => [...b.subarray(i, i + 4)].map((x) => abc[x % abc.length]).join('')).join('-');
+  // Letters, a number and a symbol (the dashes), so it meets any company's rules.
+  const withDigit = /\d/.test(pw) ? pw : `${pw.slice(0, -1)}${2 + (b[0] % 8)}`;
+  return /[a-z]/.test(withDigit) ? withDigit : `k${withDigit.slice(1)}`;
 }
 
 /**
@@ -71,7 +75,7 @@ export function planImport(text, { orgId, domain }) {
       const [local, d] = email.split('@');
       out.email = validAddress(local, d, orgId);
       if (seen.has(out.email)) throw new Error(`${out.email} is in the file twice`);
-      if (out.password !== null && (out.password.length < 8 || out.password.length > 200)) throw new Error('The password must be at least 8 characters');
+      if (out.password !== null) { const problem = passwordProblem(out.password, rulesOf(orgId), { email: out.email, name }); if (problem) throw new Error(problem); }
     } catch (e) { out.error = e.message; }
     seen.add(out.email);
     return out;

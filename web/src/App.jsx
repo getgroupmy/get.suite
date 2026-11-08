@@ -139,6 +139,8 @@ function RequiredTwoStep() {
 function RequiredPassword() {
   const { user, setUser, logout } = useAuth();
   const [f, setF] = useState({ current: '', next: '', again: '' });
+  const [rules, setRules] = useState('');
+  useEffect(() => { get('/auth/password-rules').then((r) => setRules(r.text)).catch(() => {}); }, []);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const submit = async (e) => {
@@ -154,7 +156,8 @@ function RequiredPassword() {
       <form className="auth-card stack" onSubmit={submit}>
         <div className="brand big"><span className="brand-mark">W</span><span className="brand-text">Workspace</span></div>
         <h1>Choose your own password</h1>
-        <p className="muted">Welcome, {user.name}. Your password was set by an administrator; choose one only you know to continue.</p>
+        <p className="muted">{user.password_expired ? `Your password has expired, ${user.name}. Choose a new one to continue.` : `Welcome, ${user.name}. Your password was set by an administrator; choose one only you know to continue.`}</p>
+        {rules && <p className="small" role="note" style={{ margin: 0 }}>{rules}</p>}
         <label className="field"><span>Password you were given</span><input type="password" autoComplete="current-password" required value={f.current} onChange={(e) => setF({ ...f, current: e.target.value })} /></label>
         <label className="field"><span>New password</span><input type="password" autoComplete="new-password" required minLength={8} value={f.next} onChange={(e) => setF({ ...f, next: e.target.value })} /></label>
         <label className="field"><span>New password again</span><input type="password" autoComplete="new-password" required minLength={8} value={f.again} onChange={(e) => setF({ ...f, again: e.target.value })} /></label>

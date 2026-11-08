@@ -47,6 +47,7 @@ export default function Settings() {
       <form className="card stack" onSubmit={savePassword}>
         <h2>Change password</h2>
         <label className="field"><span>Current password</span><input type="password" autoComplete="current-password" value={pw.currentPassword} onChange={(e) => setPw({ ...pw, currentPassword: e.target.value })} required /></label>
+        <PasswordRulesNote />
         <label className="field"><span>New password</span><input type="password" autoComplete="new-password" minLength={8} value={pw.newPassword} onChange={(e) => setPw({ ...pw, newPassword: e.target.value })} required /></label>
         <label className="field"><span>Confirm new password</span><input type="password" autoComplete="new-password" value={pw.confirm} onChange={(e) => setPw({ ...pw, confirm: e.target.value })} required /></label>
         {error && <p className="error">{error}</p>}
@@ -544,4 +545,11 @@ function ProfilePhoto({ user }) {
       <input ref={input} type="file" accept="image/*" hidden aria-label="Photo file" onChange={(e) => { choose(e.target.files[0]); e.target.value = ''; }} />
     </div>
   );
+}
+
+/** The company's password rules, in a line, where a new password is chosen. */
+function PasswordRulesNote() {
+  const [text, setText] = useState('');
+  useEffect(() => { get('/auth/password-rules').then((r) => setText(r.text)).catch(() => {}); }, []);
+  return text ? <p className="muted small" role="note" style={{ margin: 0 }}>{text}</p> : null;
 }

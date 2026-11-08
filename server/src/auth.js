@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { rulesOf, passwordProblem, isExpired } from './passwordrules.js';
 import { q } from './db.js';
 import { uid, now, parseCookies, HttpError } from './util.js';
 import { dovecotHash } from './mail/crypt.js';
@@ -31,9 +32,10 @@ export function verifyPassword(password, stored) {
   return crypto.timingSafeEqual(expected, actual);
 }
 
-export function validatePassword(pw) {
-  if (typeof pw !== 'string' || pw.length < 8) throw new HttpError(400, 'Password must be at least 8 characters');
-  if (pw.length > 200) throw new HttpError(400, 'Password is too long');
+/** Throws (400) unless the password meets the rules: the company's, when it's for someone in one. */
+export function validatePassword(pw, { orgId = null, email = '', name = '' } = {}) {
+  const problem = passwordProblem(pw, rulesOf(orgId), { email, name });
+  if (problem) throw new HttpError(400, problem);
 }
 
 export function createSession(userId, { userAgent = '', ip = '' } = {}) {
@@ -62,7 +64,7 @@ export function destroySession(token) {
 
 export function userFromToken(token) {
   if (!token) return null;
-  const row = q(`SELECT u.id, u.username, u.name, u.is_admin, u.is_super, u.disabled, u.org_id, u.start_page, u.second_tz, u.must_change_password,
+  const row = q(`SELECT u.id, u.username, u.name, u.is_admin, u.is_super, u.disabled, u.org_id, u.start_page, u.second_tz, u.must_change_password, COALESCE(u.password_set_at, u.created_at) AS password_set_at, o.pw_max_days,
                         o.name AS org_name, o.allow_external, o.allow_links, o.require_2fa, o.accent AS org_accent, o.logo AS org_logo, s.expires_at, s.last_seen,
                         (SELECT enabled FROM two_factor t WHERE t.user_id = u.id) AS tf_enabled
                  FROM sessions s JOIN users u ON u.id = s.user_id JOIN orgs o ON o.id = u.org_id
@@ -86,7 +88,9 @@ export function userFromToken(token) {
     // The company requires two-step verification and this person hasn't set it up yet.
     needs_two_factor: !!row.require_2fa && !row.tf_enabled,
     // An admin set their password: they choose their own before anything else.
-    must_change_password: !!row.must_change_password,
+    // …or their password has expired under the company's rules (they choose a new one first, too).
+    must_change_password: !!row.must_change_password || isExpired({ max_days: row.pw_max_days }, row.password_set_at),
+    password_expired: !row.must_change_password && isExpired({ max_days: row.pw_max_days }, row.password_set_at),
     start_page: row.start_page === 'home' ? 'home' : 'drive',
     second_tz: row.second_tz || null,
   };
@@ -135,6 +139,7 @@ export function newUserRow({ orgId, username, name, password, is_admin, is_super
   q(`INSERT INTO users (id, org_id, username, name, email, password_hash, mail_hash, is_admin, is_super, created_at, mail_home)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
     .run(id, orgId, username, name, username, hashPassword(password), dovecotHash(password), is_admin ? 1 : 0, is_super ? 1 : 0, now(), freshMailHome(username, id));
+  q('UPDATE users SET password_set_at = ? WHERE id = ?').run(now(), id);
   scheduleMailConfig();
   return id;
 }

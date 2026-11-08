@@ -1,4 +1,5 @@
 import { SIGNATURE_MODES } from '../mail/companysig.js';
+import { rulesOf, EXPIRY_CHOICES } from '../passwordrules.js';
 import { readNets, inNets } from '../netrules.js';
 import { normalizeIp } from '../security/guard.js';
 import express, { Router } from 'express';
@@ -21,6 +22,7 @@ function describe(org) {
     allow_external: !!org.allow_external,
     allow_links: !!org.allow_links,
     require_2fa: !!org.require_2fa,
+    password_rules: rulesOf(org.id),
     view_history: org.view_history === undefined ? true : !!org.view_history,
     // People who still have to set up two-step verification (when it's required).
     without_2fa: q(`SELECT COUNT(*) AS n FROM users u WHERE u.org_id = ? AND u.disabled = 0
@@ -54,6 +56,15 @@ function updateOrg(orgId, body, { asSuper, user }) {
     // Don't let an admin shut themselves out: where they are now must be in the list.
     if (nets.length && !user.is_super && user.org_id === orgId && !inNets(user.ip, nets)) throw bad(`Your own address now (${user.ip}) isn't in the list: add it, or you'd be signed out at once`);
     q('UPDATE orgs SET allowed_nets = ? WHERE id = ?').run(nets.length ? nets.join('\n') : null, orgId);
+  }
+  // Password rules: { min, mix, symbol, common, max_days }; they apply to passwords chosen from now on
+  // (and an expiry, to everyone's current one).
+  if (body.password_rules !== undefined) {
+    const pr = body.password_rules || {};
+    const min = Number(pr.min ?? 8), days = Number(pr.max_days ?? 0);
+    if (!Number.isInteger(min) || min < 8 || min > 64) throw bad('The minimum length must be from 8 to 64 characters');
+    if (!EXPIRY_CHOICES.includes(days)) throw bad(`Passwords can expire after ${EXPIRY_CHOICES.filter(Boolean).join(', ')} days, or never`);
+    q('UPDATE orgs SET pw_min = ?, pw_mix = ?, pw_symbol = ?, pw_common = ?, pw_max_days = ? WHERE id = ?').run(min, pr.mix ? 1 : 0, pr.symbol ? 1 : 0, pr.common ? 1 : 0, days, orgId);
   }
   if (body.chat_days !== undefined) {
     const d = Number(body.chat_days);

@@ -393,6 +393,29 @@ function ResetPassword({ user, onClose }) {
 }
 
 // ---------------- the admin's own company ----------------
+/** The company's password rules: length, letters and numbers, a symbol, nothing easy to guess, expiry. */
+function PasswordRules({ org, save }) {
+  const r = org.password_rules || { min: 8, mix: false, symbol: false, common: false, max_days: 0 };
+  const set = (c, msg) => save({ password_rules: { ...r, ...c } }, msg || 'Password rules saved');
+  return (
+    <div className="card stack" aria-labelledby="pwr-h">
+      <h2 id="pwr-h">Password rules</h2>
+      <label className="field" style={{ maxWidth: 260 }}><span>Shortest password</span>
+        <select aria-label="Shortest password" value={r.min} onChange={(e) => set({ min: Number(e.target.value) })}>
+          {[8, 10, 12, 14, 16, 20].map((n) => <option key={n} value={n}>{n} characters</option>)}
+        </select></label>
+      <label className="check"><input type="checkbox" checked={r.mix} onChange={(e) => set({ mix: e.target.checked })} /> Letters and numbers</label>
+      <label className="check"><input type="checkbox" checked={r.symbol} onChange={(e) => set({ symbol: e.target.checked })} /> A symbol (like ! # or -)</label>
+      <label className="check"><input type="checkbox" checked={r.common} onChange={(e) => set({ common: e.target.checked })} /> Nothing easy to guess (well-known passwords, or the person's own name or address)</label>
+      <label className="field" style={{ maxWidth: 260 }}><span>Passwords expire</span>
+        <select aria-label="Passwords expire" value={r.max_days} onChange={(e) => { const d = Number(e.target.value); set({ max_days: d }, d ? `Passwords now expire after ${d} days` : 'Passwords no longer expire'); }}>
+          {[[0, 'Never'], [30, 'After 30 days'], [60, 'After 60 days'], [90, 'After 90 days'], [180, 'After 180 days'], [365, 'After a year']].map(([d, n]) => <option key={d} value={d}>{n}</option>)}
+        </select></label>
+      <p className="muted small" style={{ margin: 0 }}>They apply whenever someone chooses a password (and to passwords you set or import). Existing passwords keep working; with an expiry, people choose a new one once theirs is older than that, before going on. Mail-app passwords are made by Workspace and are always strong.</p>
+    </div>
+  );
+}
+
 function CompanySettings() {
   const toast = useToast();
   const { setUser, user } = useAuth();
@@ -454,6 +477,7 @@ function CompanySettings() {
         <p className="muted small" style={{ margin: 0 }}>Files and folders that have been in someone’s trash this long are deleted for good, with their versions, freeing the space. Each item in the trash says when it goes.</p>
       </div>
       <Networks org={org} save={save} />
+      <PasswordRules org={org} save={save} />
       <div className="card stack">
         <h2>Keeping chat</h2>
         <label className="field"><span>Keep chat messages</span>

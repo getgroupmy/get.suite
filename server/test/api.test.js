@@ -1630,7 +1630,7 @@ test('admin: import people from a CSV — checked first, good rows created, pass
   assert.equal(dry.status, 200);
   assert.deepEqual(dry.body.rows.map((r) => [r.line, r.email, r.error || 'ok']), [
     [2, 'imp1@acme.com', 'ok'], [3, 'imp2@acme.com', 'ok'], [4, 'imp3@other.example', 'other.example is not a domain of this company'],
-    [5, 'imp1@acme.com', 'imp1@acme.com is in the file twice'], [6, 'imp5@acme.com', 'No name'], [7, 'imp6@acme.com', 'The password must be at least 8 characters']]);
+    [5, 'imp1@acme.com', 'imp1@acme.com is in the file twice'], [6, 'imp5@acme.com', 'No name'], [7, 'imp6@acme.com', 'Password must be at least 8 characters']]);
   assert.equal(dry.body.rows[1].admin, true);
   assert.equal(JSON.stringify(dry.body).includes('secretpass1'), false, 'passwords not sent back');
   assert.equal((await owner('GET', '/api/users')).body.some((u) => u.username === 'imp1@acme.com'), false, 'a dry run creates nobody');
@@ -4792,4 +4792,29 @@ test('signatures: a signed document\'s Word download ends with its signatures pa
   assert.match(xml, />Kay Keeper</);
   assert.match(xml, new RegExp(made.hash));
   assert.match(xml, /<w:drawing>/, 'the drawn signature');
+});
+
+test('company password rules: kept by admins, applied to new passwords, and expiry asks for a new one', async () => {
+  const { q } = await import('../src/db.js');
+  const kay = client(); await login(kay, 'kay@keepco.com');
+  assert.equal((await kay('PATCH', '/api/orgs/current', { password_rules: { min: 4 } })).status, 400);
+  assert.equal((await kay('PATCH', '/api/orgs/current', { password_rules: { min: 8, max_days: 45 } })).status, 400);
+  const r = await kay('PATCH', '/api/orgs/current', { password_rules: { min: 10, mix: true, symbol: false, common: true, max_days: 90 } });
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.body.password_rules, { min: 10, mix: true, symbol: false, common: true, max_days: 90 });
+  assert.equal((await kay('POST', '/api/users', { local: 'pwr', domain: 'keepco.com', name: 'Pat Rule', password: 'password123' })).status, 400);
+  const made = await kay('POST', '/api/users', { local: 'pwr', domain: 'keepco.com', name: 'Pat Rule', password: 'blue-kettle-49' });
+  assert.equal(made.status, 201);
+  const pat = client(); await login(pat, 'pwr@keepco.com', 'blue-kettle-49');
+  assert.match((await pat('GET', '/api/auth/password-rules')).body.text, /at least 10 characters, with letters and numbers/);
+  assert.equal((await pat('GET', '/api/auth/me')).body.user.must_change_password, false);
+  // 91 days later: a new password before anything else.
+  q('UPDATE users SET password_set_at = ? WHERE id = ?').run(Date.now() - 91 * 864e5, made.body.id);
+  const me = (await pat('GET', '/api/auth/me')).body.user;
+  assert.equal(me.must_change_password, true); assert.equal(me.password_expired, true);
+  assert.equal((await pat('GET', '/api/files')).status, 403);
+  assert.equal((await pat('PATCH', '/api/auth/me', { currentPassword: 'blue-kettle-49', newPassword: 'short1' })).status, 400);
+  assert.equal((await pat('PATCH', '/api/auth/me', { currentPassword: 'blue-kettle-49', newPassword: 'green-teapot-77' })).status, 200);
+  assert.equal((await pat('GET', '/api/auth/me')).body.user.must_change_password, false);
+  await kay('PATCH', '/api/orgs/current', { password_rules: { min: 8, mix: false, symbol: false, common: false, max_days: 0 } });
 });

@@ -322,7 +322,7 @@ export default function userRoutes() {
     const orgId = targetOrg(req);
     const username = validAddress(req.body.local, req.body.domain, orgId);
     const name = str(req.body.name, { required: true, name: 'Name', max: 100 });
-    validatePassword(req.body.password);
+    validatePassword(req.body.password, { orgId, email: username, name });
     const id = newUserRow({ orgId, username, name, password: req.body.password, is_admin: !!req.body.is_admin });
     if (req.body.must_change_password) q('UPDATE users SET must_change_password = 1 WHERE id = ?').run(id);
     audit(req, 'user.create', { org: orgId, target: username, details: { admin: !!req.body.is_admin, must_change_password: !!req.body.must_change_password } });
@@ -473,8 +473,8 @@ export default function userRoutes() {
       syncCompanyGroupAliases(u.org_id); // group email addresses reach active people only
     }
     if (password !== undefined) {
-      validatePassword(password);
-      q('UPDATE users SET password_hash = ?, must_change_password = ? WHERE id = ?').run(hashPassword(password), req.body.must_change_password && !self ? 1 : 0, u.id);
+      validatePassword(password, { orgId: u.org_id, email: u.username, name: u.name });
+      q('UPDATE users SET password_hash = ?, must_change_password = ?, password_set_at = ? WHERE id = ?').run(hashPassword(password), req.body.must_change_password && !self ? 1 : 0, Date.now(), u.id);
       setMailPassword(u.id, password);
       // A reset (e.g. after a break-in) also removes the mail-app password, so only the new password works anywhere.
       q('UPDATE users SET mail_app_hash = NULL, mail_app_created = NULL WHERE id = ?').run(u.id);

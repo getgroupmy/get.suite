@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { rulesOf, rulesText } from '../passwordrules.js';
 import { networkAllowed, NETWORK_REFUSED } from '../netrules.js';
 import { q, tx } from '../db.js';
 import { str, bad, HttpError } from '../util.js';
@@ -97,6 +98,8 @@ export default function authRoutes({ secureCookies }) {
   });
 
   r.get('/me', requireAuth, (req, res) => res.json({ user: req.user }));
+  // The company's password rules, to show where a new password is chosen.
+  r.get('/password-rules', requireAuth, (req, res) => { const rules = rulesOf(req.user.org_id); res.json({ ...rules, text: rulesText(rules) }); });
 
   r.patch('/me', requireAuth, (req, res) => {
     const { name, currentPassword, newPassword } = req.body;
@@ -104,9 +107,9 @@ export default function authRoutes({ secureCookies }) {
     if (newPassword !== undefined) {
       const row = q('SELECT password_hash FROM users WHERE id = ?').get(req.user.id);
       if (!verifyPassword(String(currentPassword || ''), row.password_hash)) throw bad('Current password is wrong');
-      validatePassword(newPassword);
+      validatePassword(newPassword, { orgId: req.user.org_id, email: req.user.username, name: req.user.name });
       if (req.user.must_change_password && verifyPassword(newPassword, row.password_hash)) throw bad('Choose a new password, not the one you were given');
-      q('UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?').run(hashPassword(newPassword), req.user.id);
+      q('UPDATE users SET password_hash = ?, must_change_password = 0, password_set_at = ? WHERE id = ?').run(hashPassword(newPassword), Date.now(), req.user.id);
       setMailPassword(req.user.id, newPassword);
       // Sign out every other session for this user.
       q('DELETE FROM sessions WHERE user_id = ? AND token != ?').run(req.user.id, tokenFromReq(req));
