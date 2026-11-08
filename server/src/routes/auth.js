@@ -12,11 +12,13 @@ import crypto from 'node:crypto';
 import * as twoFactor from '../twofactor.js';
 import { otpauthUrl } from '../totp.js';
 import { audit } from '../audit.js';
+import { newDeviceSignIn } from '../alerts.js';
 
 export default function authRoutes({ secureCookies }) {
   const r = Router();
   const startSession = (req, res, userId) => {
     const token = createSession(userId, { userAgent: req.headers['user-agent'] || '', ip: req.ip });
+    newDeviceSignIn(userId, describeDevice(req.headers['user-agent'] || ''), req.ip);
     setSessionCookie(res, token, secureCookies === true || (secureCookies === 'auto' && req.secure));
     return userFromToken(token);
   };

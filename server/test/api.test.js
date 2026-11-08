@@ -3841,3 +3841,18 @@ test('security alerts reach the company admins: new admins, two-step turned off,
   // The person who did it isn't told about their own change.
   assert.doesNotMatch(JSON.stringify((await owner('GET', '/api/notifications')).body), /made sau@acme.com an admin/);
 });
+
+test('a sign-in from a new device tells the account owner (not the first one, not a known one)', async () => {
+  await owner('POST', '/api/users', { local: 'nd1', domain: 'acme.com', name: 'Nia Device', password: 'password123' });
+  const chromeWin = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36';
+  const firefoxLinux = 'Mozilla/5.0 (X11; Linux x86_64; rv:121.0) Gecko/20100101 Firefox/121.0';
+  const signInWith = async (ua) => { const c = client(); await c('POST', '/api/auth/login', { username: 'nd1@acme.com', password: 'password123' }, { headers: { 'user-agent': ua } }); return c; };
+  const a = await signInWith(chromeWin);
+  const count = async (c) => (JSON.stringify((await c('GET', '/api/notifications')).body).match(/New sign-in to your account/g) || []).length;
+  assert.equal(await count(a), 0, 'the first sign-in is not news');
+  await signInWith(chromeWin);
+  assert.equal(await count(a), 0, 'the same kind of device again');
+  await signInWith(firefoxLinux);
+  assert.equal(await count(a), 1);
+  assert.match(JSON.stringify((await a('GET', '/api/notifications')).body), /New sign-in to your account on Firefox on Linux/);
+});

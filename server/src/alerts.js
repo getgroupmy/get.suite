@@ -35,3 +35,20 @@ export function securityAlert({ orgId, action, actor, target, details, at = Date
     }
   }
 }
+
+// A sign-in on a device (browser and system) this account hasn't used before: its owner is told, so
+// they can spot one that wasn't them (on their other devices, live). The very first sign-in isn't news.
+q(`CREATE TABLE IF NOT EXISTS known_devices (
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  device TEXT NOT NULL,
+  first_at INTEGER NOT NULL,
+  PRIMARY KEY (user_id, device)
+)`).run();
+export function newDeviceSignIn(userId, device, ip, at = Date.now()) {
+  const known = q('SELECT device FROM known_devices WHERE user_id = ?').all(userId).map((r) => r.device);
+  if (known.includes(device)) return false;
+  q('INSERT OR IGNORE INTO known_devices (user_id, device, first_at) VALUES (?, ?, ?)').run(userId, device, at);
+  if (!known.length) return false;
+  notify([userId], { kind: 'signin', title: `New sign-in to your account on ${device}`, body: `From ${ip || 'an unknown address'}. If it wasn't you, change your password and sign that device out in Settings.`, link: '/settings' });
+  return true;
+}

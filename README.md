@@ -676,6 +676,8 @@ Each entry shows who did it, what it was done to, the details and the IP address
 
 **Security alerts:** a company's admins also get a notification right away when someone is made an admin or loses admin rights, two-step verification is reset or turned off, one account has five failed sign-ins within 15 minutes (once an hour at most), or an admin downloads someone else's data. Clicking it opens **Admin → Activity**. Whoever made the change isn't told about their own action. Each admin can turn these off in the bell's settings (*Security alerts*).
 
+**New sign-ins:** when your account signs in on a kind of device it hasn't used before (another browser or system, e.g. *Safari on iPhone*), you get a notification at once on the devices you're already using, with the address it came from and a link to Settings to change your password or sign that device out. Your very first sign-in isn't flagged. Turn it off in the bell's settings if you like.
+
 ## Tasks
 
 - **Lists:** everyone starts with **My tasks**; **+** next to Lists makes more. Type in **Add a task** and press Enter: new tasks go on top. Drag tasks to put them in order.
