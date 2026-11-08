@@ -129,9 +129,12 @@ export function applyStructure(sheet, change) {
   const merges = (sheet.merges || []).map((m) => adjustRange(m, change)).filter((m) => m && m.split(':')[0] !== m.split(':')[1]);
   const hide = adjustHide(sheet.hide, change);
   const names = sheet.names && adjustNames(sheet.names, change);
+  // Protected ranges move with their cells (whole-sheet ones stay); one whose cells all went goes too.
+  const prot = sheet.protected && sheet.protected.flatMap((p) => { if (!p.range) return [p]; const range = adjustRange(p.range, change); return range ? [{ ...p, range }] : []; });
   const out = { ...sheet, cells, colWidths, ...(sheet.formats && { formats }), ...(sheet.charts && { charts }), ...(sheet.rules && { rules }), ...(sheet.validations && { validations }), ...(sheet.merges && { merges }) };
   if (hide) out.hide = hide; else delete out.hide;
   if (names && Object.keys(names).length) out.names = names; else delete out.names;
+  if (prot?.length) out.protected = prot; else delete out.protected;
   return out;
 }
 

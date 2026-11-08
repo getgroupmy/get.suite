@@ -1838,3 +1838,7 @@ a.home-item:hover, button.home-item:hover { text-decoration: underline; }
   body.printing-agenda .print-agenda-root, body.printing-agenda .print-agenda-root * { visibility: visible; } /* over Slides' "only the deck" rule */
   .agenda-day { break-inside: avoid; }
 }
+/* Protected cells this person can't change (Sheets). */
+.sheet-grid td.guarded, td.guarded { background-image: repeating-linear-gradient(135deg, transparent 0 6px, color-mix(in srgb, var(--muted, #888) 14%, transparent) 6px 8px); }
+.protect-people { display: flex; flex-direction: column; gap: 4px; margin-left: 24px; max-height: 160px; overflow: auto; }
+.protect-form .row { gap: 8px; }

@@ -17,6 +17,7 @@ import { roleFor, atLeast, audienceFor } from './access.js';
 import { docFromJson, jsonFromDoc, sheetDocFromJson, jsonFromSheetDoc, deckDocFromJson, jsonFromDeckDoc } from './collabdoc.js';
 import { snapshotIfNewSession } from './routes/files.js';
 import { sendTo } from './hub.js';
+import { brokenProtections, mayEdit } from './sheetprotect.js';
 
 const MESSAGE_SYNC = 0, MESSAGE_AWARENESS = 1;
 const SAVE_DELAY_MS = Number(process.env.COLLAB_SAVE_MS || 2000);
@@ -94,6 +95,23 @@ function getRoom(fileId, kind) {
   return room;
 }
 
+/** Would this sync message (step 2 or an update) change a protected range `c` may not edit? */
+function breaksProtection(room, c, data) {
+  const before = jsonFromSheetDoc(room.doc);
+  const guarded = before.sheets.some((s) => (s.protected || []).some((p) => !p.warn && !mayEdit(p, c.userId, c.ownerId)));
+  if (!guarded) return false;
+  const dec = decoding.createDecoder(new Uint8Array(data));
+  decoding.readVarUint(dec); // message type
+  decoding.readVarUint(dec); // sync step 2 or update
+  const update = decoding.readVarUint8Array(dec);
+  const trial = new Y.Doc();
+  Y.applyUpdate(trial, Y.encodeStateAsUpdate(room.doc));
+  Y.applyUpdate(trial, update);
+  const after = jsonFromSheetDoc(trial);
+  trial.destroy();
+  return brokenProtections(before, after, c.userId, c.ownerId).length > 0;
+}
+
 function send(room, ws, msg) {
   if (ws.readyState !== 1) { leave(room, ws); return; }
   ws.send(msg, (err) => { if (err) leave(room, ws); });
@@ -133,12 +151,12 @@ const wss = new WebSocketServer({ noServer: true, maxPayload: 8 * 1024 * 1024 })
 /** Called by the hub for /ws/collab/<id> upgrades, with the signed-in user. */
 export function handleCollabUpgrade(req, socket, head, user) {
   const fileId = decodeURIComponent((req.url.split('?')[0].split('/')[3] || ''));
-  const f = fileId && q('SELECT id, kind, trashed, locked_at FROM files WHERE id = ?').get(fileId);
+  const f = fileId && q('SELECT id, kind, trashed, locked_at, owner_id FROM files WHERE id = ?').get(fileId);
   const role = f && roleFor(f.id, user.id);
   if (!f || !KINDS[f.kind] || f.trashed || !role) { socket.write('HTTP/1.1 404 Not Found\r\n\r\n'); return socket.destroy(); }
   wss.handleUpgrade(req, socket, head, (ws) => {
     const room = getRoom(f.id, f.kind);
-    room.conns.set(ws, { userId: user.id, canEdit: atLeast(role, 'editor') && !f.locked_at, clients: new Set() });
+    room.conns.set(ws, { userId: user.id, ownerId: f.owner_id, canEdit: atLeast(role, 'editor') && !f.locked_at, clients: new Set() });
     ws.binaryType = 'arraybuffer';
     ws.on('message', (data) => {
       try {
@@ -152,6 +170,13 @@ export function handleCollabUpgrade(req, socket, head, user) {
           // Viewers may ask for the document (step 1) but their changes (step 2, updates) are ignored.
           const sub = decoding.peekVarUint(dec);
           if (sub !== syncProtocol.messageYjsSyncStep1 && !c.canEdit) return;
+          // Protected sheet ranges: a change to cells this person may not edit is refused, and
+          // their editor starts again from what's stored (the browser normally stops it first).
+          if (sub !== syncProtocol.messageYjsSyncStep1 && room.kind === 'sheet' && breaksProtection(room, c, data)) {
+            console.warn('[collab] refused a change to a protected range by', c.userId);
+            try { ws.close(4000, 'protected'); } catch {}
+            return;
+          }
           syncProtocol.readSyncMessage(dec, enc, room.doc, ws);
           if (encoding.length(enc) > 1) send(room, ws, encoding.toUint8Array(enc));
         } else if (type === MESSAGE_AWARENESS) {

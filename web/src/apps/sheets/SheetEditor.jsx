@@ -35,6 +35,8 @@ import { useUndo, undoKey } from '../useUndo.js';
 import { useFormulaAssist } from './FormulaAssist.jsx';
 import { box, mergeLayout, mergeAt, addMerge, removeMerges, growToMerges, stepWithMerges } from './merge.js';
 import { SheetFind } from './SheetFind.jsx';
+import { brokenProtections, protectionsAt, mayEdit, rangeBox } from './protect.js';
+import { ProtectDialog } from './SheetProtect.jsx';
 
 const SEL_COLORS = ['#1a73e8', '#d93025', '#188038', '#e37400', '#8430ce', '#00796b', '#c2185b', '#5f6368'];
 const colorFor = (id) => SEL_COLORS[[...String(id)].reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) >>> 0, 7) % SEL_COLORS.length];
@@ -144,6 +146,11 @@ export default function SheetEditor() {
     if (top.join() !== stick.top.join() || left.join() !== stick.left.join()) setStick({ top, left });
   });
   const names = sheet?.names || null; // named ranges: { Tax: 'B1' }
+  // Protections on this sheet that keep this person out: whole-sheet ones get a banner, ranges are hatched.
+  const guards = useMemo(() => (sheet?.protected || []).filter((p) => !p.warn && file && !mayEdit(p, user.id, file.owner_id)), [sheet?.protected, file, user.id]);
+  const sheetGuard = guards.find((p) => !p.range);
+  const guardBoxes = useMemo(() => guards.filter((p) => p.range).map((p) => rangeBox(p.range)).filter(Boolean), [guards]);
+  const guarded = (c, r) => guardBoxes.some((b) => c >= b.c1 && c <= b.c2 && r >= b.r1 && r <= b.r2);
   // Formulas can use the other sheets too (Sheet2!A1).
   const evaluate = useMemo(() => (data?.sheets ? bookEvaluator(data.sheets, Math.min(active, data.sheets.length - 1)) : createEvaluator(cells, names)), [data?.sheets, active, cells, names]);
   const { rows, cols } = useMemo(() => sheetSize(cells), [cells]);
@@ -178,8 +185,14 @@ export default function SheetEditor() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  // Protected ranges: confirmed warnings (by id) aren't asked about again while the sheet is open.
+  const warned = useRef(new Set());
   function commitData(next) {
     if (readOnly || !ydoc) return;
+    const broken = brokenProtections(dataRef.current, next, user.id, file.owner_id, { warnings: true }).filter(({ p }) => !warned.current.has(p.id));
+    const hard = broken.find(({ p }) => !p.warn);
+    if (hard) { toast(`${hard.p.range ? `${hard.sheet}!${hard.p.range}` : `The sheet “${hard.sheet}”`} is protected${hard.p.desc ? ` (${hard.p.desc})` : ''}. Only some people can change it.`, 'error'); return; }
+    if (broken.length) { setDialog({ type: 'protect-warn', next, list: broken }); return; }
     dataRef.current = next;
     setData(next);
     applySheetJson(ydoc, next); // only the cells that changed go to the others
@@ -448,6 +461,8 @@ export default function SheetEditor() {
 
   function startEdit(initial, where = 'cell') {
     if (readOnly) return;
+    const lock = protectionsAt(sheet, cellKey(sel.c, sel.r)).find((p) => !p.warn && !mayEdit(p, user.id, file.owner_id));
+    if (lock) { toast(`This cell is protected${lock.desc ? ` (${lock.desc})` : ''}. Only some people can change it.`, 'error'); return; }
     setEditing(where);
     setDraft(initial ?? cells[cellKey(sel.c, sel.r)] ?? '');
   }
@@ -727,6 +742,7 @@ export default function SheetEditor() {
         menu={[
           { label: 'Find and replace', icon: 'search', onClick: () => setFinding({ replace: !readOnly, n: 1 }) },
           { label: 'Named ranges', icon: 'link', onClick: () => setDialog({ type: 'names', initial: selText }) },
+          { label: 'Protected sheets and ranges', icon: 'lock', onClick: () => setDialog({ type: 'protect', initial: selText }) },
           { label: 'Version history', icon: 'clock', onClick: () => setDialog({ type: 'history' }) },
           { label: 'Print or save as PDF', icon: 'print', onClick: () => setDialog({ type: 'print' }) },
           { label: 'Download as Excel (.xlsx)', icon: 'download', onClick: () => { window.location.href = `/api/files/${id}/export`; } },
@@ -736,6 +752,7 @@ export default function SheetEditor() {
       />
       {status === 'offline' && <div className="banner warn">You're offline. Keep editing: your changes are kept here and sync when the connection is back.</div>}
       {readOnly && <div className="banner">{file.locked_at ? 'Locked.' : file.role === 'commenter' ? 'You can comment, not edit.' : 'View only.'} {!file.locked_at && `Ask ${file.owner_name} for edit access.`}</div>}
+      {!readOnly && sheetGuard && <div className="banner" role="status">🔒 This sheet is protected{sheetGuard.desc ? ` (${sheetGuard.desc})` : ''}: only some people can change it.</div>}
       {sheet?.pivot && (
         <div className="banner pivot-banner" role="status">
           Pivot table of <strong>{sheet.pivot.source}</strong> (columns {colName(sheet.pivot.c1)}–{colName(sheet.pivot.c2)}, from row {sheet.pivot.r1 + 1} down). It updates by itself when the data changes.
@@ -824,7 +841,7 @@ export default function SheetEditor() {
                   return (
                     <td key={k} data-k={k} {...spanProps} style={{ maxWidth: span ? undefined : widthOf(c), ...stickyStyle(c, r), ...cellStyle(fmt), ...(rules.length && ruleStyle(rules, k, v)), ...(theirs.has(k) && { boxShadow: `${isSel ? 'inset 0 0 0 2px var(--accent), ' : ''}inset 0 0 0 ${isSel ? 4 : 2}px ${theirs.get(k).color}` }) }}
                       title={theirs.has(k) ? `${theirs.get(k).name} is here` : commented.has(k) ? 'Has comments' : undefined}
-                      className={`${frozenClass(c, r)} ${vd ? `has-${vd.type}` : ''} ${commented.has(k) ? 'commented' : ''} ${isSel ? 'sel' : ''} ${inRange(c, r) && anchor ? 'range' : ''} ${typeof v === 'number' ? 'num' : ''} ${isErr ? 'err' : ''} ${hits?.keys.has(k) ? (hits.current === k ? 'find-current' : 'find-hit') : ''}`}
+                      className={`${frozenClass(c, r)} ${vd ? `has-${vd.type}` : ''} ${commented.has(k) ? 'commented' : ''} ${isSel ? 'sel' : ''} ${inRange(c, r) && anchor ? 'range' : ''} ${typeof v === 'number' ? 'num' : ''} ${isErr ? 'err' : ''} ${hits?.keys.has(k) ? (hits.current === k ? 'find-current' : 'find-hit') : ''} ${!readOnly && guardBoxes.length && guarded(c, r) ? 'guarded' : ''}`}
                       onContextMenu={(e) => { if (!inRange(c, r)) { setAnchor(null); setSel({ c, r }); } openMenu(e, 'cell'); }}
                       onMouseDown={(e) => {
                         if (e.button !== 0 && inRange(c, r)) return; // a right-click keeps the selection
@@ -929,6 +946,17 @@ export default function SheetEditor() {
         <NamesDialog names={names} initial={dialog.initial} canEdit={!readOnly} onClose={() => { setDialog(null); gridRef.current?.focus(); }}
           onSave={(next) => writeSheet(() => ({ names: Object.keys(next).length ? next : undefined }))}
           onGo={(t) => { setDialog(null); goTo(t); }} />
+      )}
+      {dialog?.type === 'protect' && (
+        <ProtectDialog fileId={file.id} sheetName={sheet.name} list={sheet.protected} initial={dialog.initial} me={user.id} ownerId={file.owner_id} ownerName={file.owner_name}
+          canEdit={!readOnly} onClose={() => { setDialog(null); gridRef.current?.focus(); }}
+          onSave={(next) => writeSheet(() => ({ protected: next.length ? next : undefined }))} />
+      )}
+      {dialog?.type === 'protect-warn' && (
+        <ConfirmModal title="Change protected cells?" confirm="Change anyway" danger={false}
+          message={`${dialog.list.map(({ p, sheet: sn }) => `${p.range ? `${sn}!${p.range}` : `The sheet “${sn}”`}${p.desc ? ` (${p.desc})` : ''}`).join(', ')} ${dialog.list.length > 1 ? 'are' : 'is'} marked to be changed with care.`}
+          onClose={() => { setDialog(null); gridRef.current?.focus(); }}
+          onConfirm={() => { for (const { p } of dialog.list) warned.current.add(p.id); commitData(dialog.next); }} />
       )}
       {dialog?.type === 'sort' && (() => { const g = sortTarget(); return (
         <SortDialog initial={{ range: g, by: sel.c }} header={looksLikeHeader(g, evaluate)} value={evaluate} onSort={sortBy} onClose={() => { setDialog(null); gridRef.current?.focus(); }} />

@@ -23,6 +23,7 @@ import { docFromWord, wordFromDoc } from '../office/word.js';
 import { sheetFromExcel, excelFromSheet } from '../office/excel.js';
 import { deckFromPowerPoint, powerPointFromDeck } from '../office/powerpoint.js';
 import { markdownFromDoc, docFromMarkdown } from '../office/markdown.js';
+import { brokenProtections } from '../sheetprotect.js';
 
 // Office files that open as Docs, Sheets and Slides (and download back in the same format).
 const OFFICE = {
@@ -83,6 +84,20 @@ function loadFile(id, user, needed = 'viewer') {
   if (!atLeast(role, needed)) throw forbidden(`You need ${needed} access`);
   f.role = role;
   return f;
+}
+
+/** Refuse replacing a spreadsheet's content with `next` (JSON text) if it changes ranges protected from this person. */
+function protectionsKept(f, next, user) {
+  if (f.kind !== 'sheet') return;
+  saveNow(f.id);
+  const cur = q('SELECT content FROM files WHERE id = ?').get(f.id)?.content;
+  let before, after;
+  try { before = JSON.parse(cur || '{}'); after = JSON.parse(next || '{}'); } catch { return; }
+  const broken = brokenProtections(before, after, user.id, f.owner_id);
+  if (broken.length) {
+    const { p, sheet } = broken[0];
+    throw forbidden(`${p.range ? `${sheet}!${p.range}` : `The sheet “${sheet}”`} is protected${p.desc ? ` (${p.desc})` : ''}. Ask the owner if you need to change it.`);
+  }
 }
 
 /** Throws when the file is locked (its content can't change). */
@@ -635,6 +650,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     if (!EDITABLE.includes(f.kind)) throw bad('No editable content');
     notLocked(f);
     const json = JSON.stringify(req.body.content ?? null);
+    protectionsKept(f, json, req.user);
     // One earlier version per editing session: when someone else edited last, or after a pause.
     const cur = q('SELECT version, updated_at, updated_by, owner_id FROM files WHERE id = ?').get(f.id);
     const newSession = cur.version === Number(req.body.version) && cur.version > 1
@@ -865,6 +881,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     const f = loadFile(req.params.id, req.user, 'editor');
     notLocked(f);
     const v = versionOf(f, req.params.vid);
+    if (v.content) protectionsKept(f, v.content, req.user);
     let storage = null;
     if (v.storage) {
       const owner = q('SELECT org_id FROM users WHERE id = ?').get(f.owner_id);

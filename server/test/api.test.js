@@ -3856,3 +3856,82 @@ test('a sign-in from a new device tells the account owner (not the first one, no
   assert.equal(await count(a), 1);
   assert.match(JSON.stringify((await a('GET', '/api/notifications')).body), /New sign-in to your account on Firefox on Linux/);
 });
+
+test('protected sheet ranges: saving changes inside one is refused for people not allowed', async () => {
+  const me = (await owner('GET', '/api/auth/me')).body.user;
+  const p = { id: 'pr1', range: 'A1:A3', editors: [], by: me.id, desc: 'Rates' };
+  const content = { sheets: [{ name: 'Sheet1', cells: { A1: '10', B1: 'x' }, protected: [p] }] };
+  const f = (await owner('POST', '/api/files/new', { kind: 'sheet', name: 'Rates', content })).body;
+  const pat = client();
+  const made = await owner('POST', '/api/users', { local: 'prot', domain: 'acme.com', name: 'Pat Protect', password: 'password123' });
+  await login(pat, 'prot@acme.com');
+  await owner('PUT', `/api/files/${f.id}/shares`, { shares: [{ user_id: made.body.id ?? made.body.user?.id, role: 'editor' }] });
+  const save = (c, cells, extra = {}) => c('GET', `/api/files/${f.id}`).then((r) => c('PUT', `/api/files/${f.id}/content`, { version: r.body.version, content: { sheets: [{ name: 'Sheet1', cells, protected: [p], ...extra }] } }));
+  const refused = await save(pat, { A1: '99', B1: 'x' });
+  assert.equal(refused.status, 403);
+  assert.match(refused.body.error, /Sheet1!A1:A3 is protected \(Rates\)/);
+  assert.equal((await save(pat, { A1: '10', B1: 'changed' })).status, 200, 'outside the range is fine');
+  assert.equal((await save(pat, { A1: '10', B1: 'x' }, { protected: [] })).status, 403, 'nor can they take it off');
+  assert.equal((await save(owner, { A1: '11', B1: 'x' })).status, 200, 'the owner can');
+  // Restoring an earlier version would change the range too.
+  const versions = (await pat('GET', `/api/files/${f.id}/versions`)).body;
+  const old = versions.find((v) => v.id);
+  if (old) assert.equal((await pat('POST', `/api/files/${f.id}/versions/${old.id}/restore`)).status, 403);
+});
+
+test('protected sheet ranges: a live change to one from someone not allowed is refused', async () => {
+  const { default: WS } = await import('ws');
+  const Y = await import('yjs');
+  const sync = await import('y-protocols/sync');
+  const encoding = await import('lib0/encoding');
+  const decoding = await import('lib0/decoding');
+  const me = (await owner('GET', '/api/auth/me')).body.user;
+  const content = { sheets: [{ name: 'Sheet1', cells: { A1: '10' }, protected: [{ id: 'lv', range: 'A1:A3', editors: [], by: me.id }] }] };
+  const f = (await owner('POST', '/api/files/new', { kind: 'sheet', name: 'Live rates', content })).body;
+  const made = await owner('POST', '/api/users', { local: 'livep', domain: 'acme.com', name: 'Liv Live', password: 'password123' });
+  await owner('PUT', `/api/files/${f.id}/shares`, { shares: [{ user_id: made.body.id, role: 'editor' }] });
+  const r = await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ username: 'livep@acme.com', password: 'password123' }) });
+  const cookie = r.headers.get('set-cookie').split(';')[0];
+
+  // A client that skips the browser's checks: syncs, then edits the shared document directly.
+  const connect = () => new Promise((resolve, reject) => {
+    const doc = new Y.Doc();
+    const ws = new WS(`${base.replace('http', 'ws')}/ws/collab/${f.id}`, { headers: { cookie } });
+    ws.binaryType = 'arraybuffer';
+    let closed = null;
+    ws.on('close', (code) => { closed = code; });
+    ws.on('message', (data) => {
+      const dec = decoding.createDecoder(new Uint8Array(data));
+      if (decoding.readVarUint(dec) !== 0) return;
+      const enc = encoding.createEncoder();
+      encoding.writeVarUint(enc, 0);
+      sync.readSyncMessage(dec, enc, doc, 'server');
+      if (encoding.length(enc) > 1) ws.send(encoding.toUint8Array(enc));
+      if (doc.getArray('sheets').length) resolve({ doc, ws, closed: () => closed });
+    });
+    ws.on('open', () => { const enc = encoding.createEncoder(); encoding.writeVarUint(enc, 0); sync.writeSyncStep1(enc, doc); ws.send(encoding.toUint8Array(enc)); });
+    ws.on('error', reject);
+  });
+  const change = (c, key, value) => {
+    const before = Y.encodeStateVector(c.doc);
+    c.doc.getArray('sheets').get(0).get('cells').set(key, value);
+    const enc = encoding.createEncoder();
+    encoding.writeVarUint(enc, 0);
+    sync.writeUpdate(enc, Y.encodeStateAsUpdate(c.doc, before));
+    c.ws.send(encoding.toUint8Array(enc));
+  };
+  const wait = async (fn) => { for (let i = 0; i < 100; i++) { if (await fn()) return true; await new Promise((res) => setTimeout(res, 50)); } return false; };
+  const stored = async () => (await owner('GET', `/api/files/${f.id}/content`)).body.content.sheets[0].cells;
+
+  const a = await connect();
+  change(a, 'C1', 'fine');
+  assert.ok(await wait(async () => (await stored()).C1 === 'fine'), 'a change elsewhere is kept');
+  assert.equal(a.closed(), null);
+  change(a, 'A2', 'sneaky');
+  assert.ok(await wait(() => a.closed() === 4000), 'the editor is sent back to what is stored');
+  await new Promise((res) => setTimeout(res, 300));
+  assert.equal((await stored()).A2, undefined);
+  const b = await connect();
+  assert.equal(b.doc.getArray('sheets').get(0).get('cells').get('A2'), undefined, 'nobody else got it');
+  b.ws.close();
+});

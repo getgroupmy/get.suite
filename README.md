@@ -210,6 +210,15 @@ Give cells a name and use it in formulas instead of the address: `=SUM(Sales)*Ta
 - A name nobody has defined shows `#NAME?`. Named ranges move with their cells when rows or columns are inserted or deleted, and a name whose cells are all deleted goes. Each sheet has its own names (use another sheet's as `Data!Total`).
 - Excel downloads and uploads keep them as Excel's defined names.
 
+## Protected sheets and ranges (Sheets)
+
+**⋮ → Protected sheets and ranges** keeps cells from being changed by mistake. **Add a protection**, choose the cells (your selection is filled in) or the **whole sheet**, add a description if you like ("Prices: ask Finance"), and say who can edit it:
+
+- **Only the owner, you, and people ticked here:** the ticked colleagues with edit access, plus the file's owner and whoever set it up. Everyone else sees those cells hatched, gets a note when they try to type there, and a whole protected sheet shows a 🔒 banner. Changes that would reach into the cells (clearing a selection that overlaps them, inserting rows above them, sorting over them) are refused as a whole. Formulas elsewhere still read them, and people can still comment.
+- **Anyone who can edit, after a warning:** people are asked to confirm the first time they change those cells while the sheet is open.
+
+Protections move with their cells when the owner (or someone allowed) inserts or deletes rows and columns. Only the people allowed to edit a protection can change or remove it. The server checks every change, so live edits, saves and restoring an earlier version can't get around a protection either.
+
 ## Charts (Sheets)
 
 - **Insert:** select cells (or just click one inside your table) and press **Chart**. The first row and column are used as names when they hold text. Choose **Column**, **Bar**, **Line** or **Pie**, give it a title, and check the preview.

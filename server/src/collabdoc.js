@@ -72,6 +72,7 @@ function sheetMap(sheet) {
   if (sheet.hide) m.set('hide', sheet.hide); // hidden rows and columns: { rows: [2, 3], cols: [0] }
   if (sheet.pivot) m.set('pivot', sheet.pivot); // a pivot table: { source, c1, c2, r1, rows, cols, value, fn }
   if (sheet.names) m.set('names', sheet.names); // named ranges: { Tax: 'B1', Sales: 'A2:A10' }
+  if (sheet.protected?.length) m.set('protected', sheet.protected); // protected ranges (sheetprotect.js)
   for (const k of SHEET_MAPS) {
     const inner = new Y.Map();
     for (const [key, v] of Object.entries(sheet[k] || {})) inner.set(key, v);
@@ -97,6 +98,7 @@ export function jsonFromSheetDoc(doc) {
     if (m.get('hide')) s.hide = m.get('hide');
     if (m.get('pivot')) s.pivot = m.get('pivot');
     if (m.get('names')) s.names = m.get('names');
+    if (m.get('protected')?.length) s.protected = m.get('protected');
     for (const k of SHEET_MAPS) { const inner = m.get(k); s[k] = inner ? inner.toJSON() : {}; }
     for (const k of ['formats', 'charts']) if (!Object.keys(s[k]).length) delete s[k];
     return s;
@@ -125,6 +127,7 @@ export function applySheetJson(doc, next) {
       if (!same(m.get('hide') || null, sheet.hide || null)) { if (sheet.hide) m.set('hide', sheet.hide); else m.delete('hide'); }
       if (!same(m.get('pivot') || null, sheet.pivot || null)) { if (sheet.pivot) m.set('pivot', sheet.pivot); else m.delete('pivot'); }
       if (!same(m.get('names') || null, sheet.names || null)) { if (sheet.names) m.set('names', sheet.names); else m.delete('names'); }
+      if (!same(m.get('protected') || [], sheet.protected || [])) { if (sheet.protected?.length) m.set('protected', sheet.protected); else m.delete('protected'); }
       for (const k of SHEET_MAPS) {
         let inner = m.get(k);
         if (!inner) { inner = new Y.Map(); m.set(k, inner); }

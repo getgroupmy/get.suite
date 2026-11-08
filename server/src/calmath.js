@@ -256,3 +256,19 @@ export function scheduleOf(events, days) {
   return days.map((d) => ({ day: d, items: onDay(events, d).sort((a, b) => (b.all_day ? 1 : 0) - (a.all_day ? 1 : 0) || a.start - b.start) }))
     .filter((x) => x.items.length);
 }
+
+/** Printing: the days of a range ('week' = this week from Monday, 'month' = this calendar month, 'four' = four weeks from today). */
+export function printRange(kind, today = new Date()) {
+  const d = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  if (kind === 'month') return { from: new Date(d.getFullYear(), d.getMonth(), 1), to: new Date(d.getFullYear(), d.getMonth() + 1, 0) };
+  if (kind === 'four') return { from: d, to: new Date(d.getFullYear(), d.getMonth(), d.getDate() + 27) };
+  const back = (d.getDay() + 6) % 7; // Monday
+  const from = new Date(d.getFullYear(), d.getMonth(), d.getDate() - back);
+  return { from, to: new Date(from.getFullYear(), from.getMonth(), from.getDate() + 6) };
+}
+/** Every day from `from` to `to` (local dates, both included; at most 92). */
+export function daysFromTo(from, to) {
+  const out = [];
+  for (let d = new Date(from.getFullYear(), from.getMonth(), from.getDate()); d <= to && out.length < 92; d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1)) out.push(d);
+  return out;
+}
