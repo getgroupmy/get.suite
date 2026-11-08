@@ -385,7 +385,7 @@ export default function userRoutes() {
     const chats = count('SELECT user_id, COUNT(*) AS n FROM messages WHERE created_at >= ? GROUP BY user_id', from);
     const meetings = count(`SELECT e.owner_id AS user_id, COUNT(*) AS n FROM events e WHERE e.start >= ? AND e.start < ?
                             AND EXISTS (SELECT 1 FROM event_guests g WHERE g.event_id = e.id) GROUP BY e.owner_id`, from, to);
-    const tasks = count(`SELECT COALESCE(t.assignee_id, t.created_by) AS user_id, COUNT(*) AS n FROM tasks t WHERE t.done_at >= ? GROUP BY 1`, from);
+    const tasks = count(`SELECT COALESCE(t.done_by, t.assignee_id, t.created_by) AS user_id, COUNT(*) AS n FROM tasks t WHERE t.done_at >= ? GROUP BY 1`, from);
     const rows = people.map((u) => ({ id: u.id, name: u.name, email: u.username, disabled: !!u.disabled, last_active: u.last_active || null,
       files_created: created.get(u.id) || 0, files_edited: edited.get(u.id) || 0, chat_messages: chats.get(u.id) || 0, meetings: meetings.get(u.id) || 0, tasks_done: tasks.get(u.id) || 0 }));
     const active = rows.filter((r) => r.last_active && r.last_active >= from).length;

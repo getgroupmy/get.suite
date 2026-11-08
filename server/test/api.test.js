@@ -4512,4 +4512,11 @@ test('admin: usage report for the company, with a CSV', async () => {
   const csv = await kay('GET', '/api/users/report?format=csv');
   assert.match(csv.body, /Name,Email,Last active \(UTC\),Files created,Files edited,Chat messages,Meetings organised,Tasks done,Suspended/);
   assert.match(csv.body, /Rae Report,rpt@keepco\.com,[^,]+,1,0,2,1,1,/);
+  // Credit goes to whoever ticked it off.
+  const t2 = (await rae('POST', `/api/tasks/lists/${lists[0].id}/tasks`, { title: 'Kay ticks this' })).body;
+  await rae('PUT', `/api/tasks/lists/${lists[0].id}/members`, { user_ids: [(await kay('GET', '/api/auth/me')).body.user.id] });
+  assert.equal((await kay('PATCH', `/api/tasks/tasks/${t2.id}`, { done: true })).status, 200);
+  const r2 = (await kay('GET', '/api/users/report?days=7')).body;
+  assert.equal(r2.people.find((p) => p.email === 'kay@keepco.com').tasks_done, 1);
+  assert.equal(r2.people.find((p) => p.email === 'rpt@keepco.com').tasks_done, 1);
 });

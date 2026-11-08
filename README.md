@@ -701,7 +701,7 @@ Once ports 465, 587 and 993 are open, bots will start guessing passwords within 
 
 ## Reports (admins)
 
-**Admin → Reports** shows how the company has used Workspace over the last 7, 30 or 90 days: how many people were active, and for each person when they were last active, files created (new, uploaded or copied), files edited, chat messages sent, meetings organised (events with guests that took place) and tasks completed, with totals. Click a column heading to sort by it; **Download CSV** saves the table. Handy for seeing who hasn't started using Workspace yet.
+**Admin → Reports** shows how the company has used Workspace over the last 7, 30 or 90 days: how many people were active, and for each person when they were last active, files created (new, uploaded or copied), files edited, chat messages sent, meetings organised (events with guests that took place) and tasks completed (counted for whoever ticked them off), with totals. Click a column heading to sort by it; **Download CSV** saves the table. Handy for seeing who hasn't started using Workspace yet.
 
 ## Storage (admins)
 
