@@ -5,7 +5,8 @@ import { get, post, put, patch, del, onLive, postText } from '../../api.js';
 import { localToday } from '../tasks/taskmath.js';
 import Icon from '../../components/Icon.jsx';
 import DrivePicker, { openUrl } from '../../components/DrivePicker.jsx';
-import { Modal, useToast, Empty } from '../../components/ui.jsx';
+import { Modal, useToast, Empty, Menu, PromptModal } from '../../components/ui.jsx';
+import { PLACES, placeText, isoDay } from '../../components/workloc.js';
 import { scheduleOf, DAY, VIEWS, startOfDay, visibleDays, shift, title, onDay, layoutDay, expandAll, occurrenceIndex, describeRule, daysBetween, moveTimes, resizeEnd, shiftWeekdays, snapMinutes } from './calmath.js';
 
 const OTHER_COLOURS = ['#e37400', '#8e24aa', '#0b8043', '#d93025', '#00796b', '#3949ab'];
@@ -102,6 +103,19 @@ export default function Calendar() {
   const [others, setOthersState] = useState(() => { try { return JSON.parse(localStorage.getItem('nw.calOthers') || '[]'); } catch { return []; } });
   const setOthers = (list) => { setOthersState(list); try { localStorage.setItem('nw.calOthers', JSON.stringify(list)); } catch { /* private window */ } };
   const [busy, setBusy] = useState([]);
+  // Working location for the days shown (week and day views).
+  const [locations, setLocations] = useState({});
+  const [otherFor, setOtherFor] = useState(null); // a date whose "elsewhere" is being named
+  const loadLocations = useCallback(() => {
+    if (view === 'month' || !days.length) return;
+    get(`/location?from=${isoDay(days[0])}&to=${isoDay(days[days.length - 1])}`).then((r) => setLocations(r.days)).catch(() => {});
+  }, [view, days]);
+  useEffect(() => { loadLocations(); }, [loadLocations]);
+  useEffect(() => onLive((m) => { if (m.type === 'location-changed') loadLocations(); }), [loadLocations]);
+  const setLocation = async (date, place, label = null) => {
+    try { const r = await put('/location/day', { date, place, label }); setLocations((l) => ({ ...l, [date]: r.place ? r : null })); }
+    catch (e) { toast(e.message, 'error'); }
+  };
   const { user: me } = useAuth();
   const [people, setPeople] = useState([]);
   useEffect(() => { get('/users/directory').then(setPeople).catch(() => {}); }, []);
@@ -317,11 +331,14 @@ export default function Calendar() {
         ) : view === 'schedule' ? (
           <Schedule days={days} events={shown} today={today} onOpen={setEditing} onTaskDone={taskDone} onDay={openDay} />
         ) : (
-          <TimeGrid days={days} events={shown} busy={busy} today={today} onOpen={setEditing} onNew={newEvent} onDay={view === 'week' ? openDay : null} drag={drag} onTaskDone={taskDone} />
+          <TimeGrid days={days} events={shown} busy={busy} today={today} onOpen={setEditing} onNew={newEvent} onDay={view === 'week' ? openDay : null} drag={drag} onTaskDone={taskDone}
+            locations={locations} onLocation={(d, place) => (place === 'other' ? setOtherFor(d) : setLocation(d, place))} />
         )}
       </section>
       {bookingOpen && <BookingPagesDialog onClose={() => setBookingOpen(false)} />}
       {hoursOpen && <WorkHoursDialog onClose={() => setHoursOpen(false)} />}
+      {otherFor && <PromptModal title="Working elsewhere" label="Where?" confirm="Save" onClose={() => setOtherFor(null)}
+        onSubmit={async (where) => { await setLocation(otherFor, 'other', where.trim() || null); setOtherFor(null); }} />}
       {editing && (editing.role === 'guest'
         ? <InvitationDialog event={editing} onClose={() => setEditing(null)} onAnswered={() => { setEditing(null); load(); }} />
         : <EventDialog key={editing.id ? `${editing.id}:${editing.start}` : `new:${editing.duplicateOf || ''}:${editing.start}`} event={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }}
@@ -366,7 +383,19 @@ function Schedule({ days, events, today, onOpen, onTaskDone, onDay: openDay }) {
   );
 }
 
-function TimeGrid({ days, events, busy = [], today, onOpen, onNew, onDay: openDay, drag, onTaskDone }) {
+/** One day's working location, with a menu to change it. */
+function LocationCell({ date, loc, onLocation }) {
+  const label = new Date(`${date}T12:00:00`).toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' });
+  return (
+    <Menu align="left" trigger={(p) => <button type="button" className={`tg-loc-btn ${loc ? 'set' : ''}`} aria-label={`Working location on ${label}: ${loc ? placeText(loc) : 'not set'}`} {...p}>{loc ? placeText(loc) : '+ Location'}</button>}
+      items={[
+        ...PLACES.map(([k, icon, name]) => ({ label: `${loc?.place === k ? '✓ ' : ''}${icon} ${k === 'other' ? 'Elsewhere…' : name}`, onClick: () => onLocation(date, k) })),
+        ...(loc?.from === 'day' ? [{ label: 'Back to my usual week', onClick: () => onLocation(date, null) }] : []),
+      ]} />
+  );
+}
+
+function TimeGrid({ days, events, busy = [], today, onOpen, onNew, onDay: openDay, drag, onTaskDone, locations, onLocation }) {
   const scroller = useRef();
   const [now, setNow] = useState(Date.now());
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 60e3); return () => clearInterval(t); }, []);
@@ -392,6 +421,12 @@ function TimeGrid({ days, events, busy = [], today, onOpen, onNew, onDay: openDa
             : <div key={d.getTime()} className="tg-day">{inner}</div>;
         })}
       </div>
+      {locations && (
+        <div className="tg-loc" style={cols} role="group" aria-label="Working location">
+          <div className="tg-gutter small muted" title="Where you're working">📍</div>
+          {days.map((d) => <div key={d.getTime()} className="tg-loc-cell"><LocationCell date={isoDay(d)} loc={locations[isoDay(d)]} onLocation={onLocation} /></div>)}
+        </div>
+      )}
       <div className="tg-allday" style={cols}>
         <div className="tg-gutter small muted">all day</div>
         {days.map((d) => (

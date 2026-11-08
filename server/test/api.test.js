@@ -3313,3 +3313,24 @@ test('download your data: admins can download a colleague’s (same company only
   assert.match(await zip.file('Notes.md').async('string'), /Handover/);
   assert.equal((await owner('GET', '/api/takeout?user=nobody')).status, 404);
 });
+
+test('working location: usual week, a day different, and colleagues', async () => {
+  const a = client(); const b = client();
+  const aid = (await owner('POST', '/api/users', { local: 'wla', domain: 'acme.com', name: 'Wendy Where', password: 'password123' })).body.id;
+  assert.equal((await owner('POST', '/api/users', { local: 'wlb', domain: 'acme.com', name: 'Walt Watcher', password: 'password123' })).status, 201);
+  await login(a, 'wla@acme.com'); await login(b, 'wlb@acme.com');
+  assert.equal((await a('PUT', '/api/location/week', { week: { 1: 'castle' } })).status, 400);
+  await a('PUT', '/api/location/week', { week: { 1: 'office', 2: 'office', 3: 'home', 4: 'office', 5: 'home', 6: null } });
+  // 2026-11-09 is a Monday, 11 a Wednesday.
+  let r = (await a('GET', '/api/location?from=2026-11-09&to=2026-11-15')).body;
+  assert.deepEqual(Object.values(r.days).map((d) => d?.place ?? null), ['office', 'office', 'home', 'office', 'home', null, null]);
+  assert.equal(r.days['2026-11-09'].from, 'week');
+  await a('PUT', '/api/location/day', { date: '2026-11-09', place: 'other', label: 'Client site' });
+  r = (await a('GET', '/api/location?from=2026-11-09&to=2026-11-09')).body;
+  assert.deepEqual(r.days['2026-11-09'], { place: 'other', label: 'Client site', from: 'day' });
+  assert.deepEqual((await b('GET', '/api/location/people?date=2026-11-09')).body[aid], { place: 'other', label: 'Client site' }, 'colleagues see it');
+  assert.equal((await b('GET', '/api/location/people?date=2026-11-11')).body[aid].place, 'home');
+  await a('PUT', '/api/location/day', { date: '2026-11-09', place: null });
+  assert.equal((await a('GET', '/api/location?from=2026-11-09&to=2026-11-09')).body.days['2026-11-09'].place, 'office', 'back to the usual');
+  assert.equal((await a('PUT', '/api/location/day', { date: 'monday', place: 'home' })).status, 400);
+});

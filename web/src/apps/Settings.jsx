@@ -53,6 +53,7 @@ export default function Settings() {
       <TwoStep />
       <MailApps />
       <Devices />
+      <WorkLocation />
       <YourData />
     </div>
   );
@@ -180,6 +181,34 @@ function Appearance() {
       </div>
       <p className="muted small" style={{ margin: 0 }}>Kept on this device, so a phone and a computer can differ.</p>
       <StartPage />
+    </section>
+  );
+}
+
+/** Where you usually work each weekday (change single days in Calendar). */
+function WorkLocation() {
+  const toast = useToast();
+  const [week, setWeek] = useState(null);
+  useEffect(() => { const d = new Date(); const iso = d.toISOString().slice(0, 10); get(`/location?from=${iso}&to=${iso}`).then((r) => setWeek(r.week)).catch(() => setWeek({})); }, []);
+  const set = async (day, place) => {
+    const next = { ...week, [day]: place || null };
+    setWeek(next);
+    try { setWeek((await put('/location/week', { week: next })).week); toast('Working location saved'); } catch (e) { toast(e.message, 'error'); }
+  };
+  if (!week) return null;
+  const DAYS = [[1, 'Monday'], [2, 'Tuesday'], [3, 'Wednesday'], [4, 'Thursday'], [5, 'Friday'], [6, 'Saturday'], [0, 'Sunday']];
+  return (
+    <section className="card stack" aria-labelledby="workloc-h">
+      <h2 id="workloc-h">Working location</h2>
+      <p className="muted small" style={{ margin: 0 }}>Where you usually work. Colleagues see it in the Directory, and it shows above each day in Calendar, where you can change a single day.</p>
+      <div className="workloc-week">
+        {DAYS.map(([d, name]) => (
+          <label key={d} className="field"><span>{name}</span>
+            <select value={week[d] || ''} onChange={(e) => set(d, e.target.value)}>
+              <option value="">Not set</option><option value="office">🏢 Office</option><option value="home">🏠 Home</option><option value="other">📍 Elsewhere</option>
+            </select></label>
+        ))}
+      </div>
     </section>
   );
 }

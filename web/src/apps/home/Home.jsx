@@ -12,6 +12,7 @@ import { dueLabel, localToday } from '../tasks/taskmath.js';
 const FILE_LINK = { doc: (f) => `/docs/${f.id}`, sheet: (f) => `/sheets/${f.id}`, slides: (f) => `/slides/${f.id}`, folder: (f) => `/drive/folder/${f.id}` };
 const time = (ms) => new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
+import { placeText } from '../../components/workloc.js';
 import { greeting } from './greeting.js';
 
 export default function Home() {
@@ -23,10 +24,11 @@ export default function Home() {
     const start = new Date(); start.setHours(0, 0, 0, 0);
     const from = start.getTime(), to = from + 864e5 - 1;
     const safe = (p, empty) => p.catch(() => empty);
-    const [events, due, channels, recent, notes, unread, approvals] = await Promise.all([
+    const [events, due, channels, recent, notes, unread, approvals, where] = await Promise.all([
       safe(get(`/events?from=${from}&to=${to}`), []), safe(get(`/tasks/due?from=2000-01-01&to=${localToday()}`), []),
       safe(get('/chat/channels'), { channels: [] }), safe(get('/files?view=recent'), []), safe(get('/notes'), []),
       mail?.enabled ? safe(get('/mail/unread'), null) : Promise.resolve(null), safe(get('/approvals'), { waiting: [] }),
+      safe(get(`/location?from=${localToday()}&to=${localToday()}`), { days: {} }),
     ]);
     setData({
       events: expandAll(events, from, to).filter((e) => e.my_status !== 'no'),
@@ -35,12 +37,13 @@ export default function Home() {
       recent: (Array.isArray(recent) ? recent : []).filter((f) => f.kind !== 'folder').slice(0, 6),
       notes: notes.filter((n) => n.pinned).slice(0, 4),
       approvals: approvals.waiting,
+      where: where.days?.[localToday()] || null,
       unread: unread?.unseen ?? null,
     });
   }, [mail?.enabled]);
   useEffect(() => { if (mail) load(); }, [load, mail]);
   useEffect(() => onLive((m) => {
-    if (['events-changed', 'tasks-changed', 'message', 'chat-read', 'notes-changed', 'files-changed', 'mail-new', 'mail-unread', 'approvals-changed', 'live-connected'].includes(m.type)) load();
+    if (['events-changed', 'tasks-changed', 'message', 'chat-read', 'notes-changed', 'files-changed', 'mail-new', 'mail-unread', 'approvals-changed', 'location-changed', 'live-connected'].includes(m.type)) load();
   }), [load]);
   useEffect(() => { document.title = 'Home'; return () => { document.title = 'Workspace'; }; }, []);
 
@@ -50,7 +53,7 @@ export default function Home() {
     <div className="page home">
       <div className="home-hello">
         <h1>{greeting()}, {first}</h1>
-        <p className="muted" style={{ margin: 0 }}>{new Date().toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</p>
+        <p className="muted" style={{ margin: 0 }}>{new Date().toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}{data?.where && ` · ${placeText(data.where)} today`}</p>
       </div>
       {!data ? <p className="muted">Loading…</p> : (
         <div className="home-grid">
