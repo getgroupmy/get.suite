@@ -25,7 +25,7 @@ function moveSpan(a, b, change) {
   return [na, nb];
 }
 
-const REF = /("(?:[^"]|"")*")|(\$?)([A-Z]+)(\$?)(\d+)(?::(\$?)([A-Z]+)(\$?)(\d+))?(?![A-Z0-9_(])/gi;
+const REF = /("(?:[^"]|"")*")|(?<![A-Z0-9_.$])(\$?)([A-Z]+)(\$?)(\d+)(?::(\$?)([A-Z]+)(\$?)(\d+))?(?![A-Z0-9_(])/gi;
 
 /** A formula with its cell references moved for a structural change ("#REF!" where they were deleted). */
 export function adjustFormula(raw, change) {
@@ -71,6 +71,18 @@ export function adjustRange(text, change) {
   return `${cellKey(c1, r1)}:${cellKey(c2, r2)}`;
 }
 
+/** Named ranges after the change (a name whose cells were all deleted goes). */
+export function adjustNames(names, change) {
+  const out = {};
+  for (const [k, v] of Object.entries(names || {})) {
+    const r = adjustRange(v, change);
+    if (!r) continue;
+    const [a, b] = r.split(':');
+    out[k] = String(v).includes(':') ? r : a === b ? a : r;
+  }
+  return out;
+}
+
 /** The sheet (one entry of `sheets`) with a row/column change applied to everything in it. */
 export function applyStructure(sheet, change) {
   const cells = {}, formats = {}, colWidths = {}, charts = {};
@@ -87,8 +99,10 @@ export function applyStructure(sheet, change) {
   // Merges move and grow or shrink with their cells; one that's down to a single cell is no longer a merge.
   const merges = (sheet.merges || []).map((m) => adjustRange(m, change)).filter((m) => m && m.split(':')[0] !== m.split(':')[1]);
   const hide = adjustHide(sheet.hide, change);
+  const names = sheet.names && adjustNames(sheet.names, change);
   const out = { ...sheet, cells, colWidths, ...(sheet.formats && { formats }), ...(sheet.charts && { charts }), ...(sheet.rules && { rules }), ...(sheet.validations && { validations }), ...(sheet.merges && { merges }) };
   if (hide) out.hide = hide; else delete out.hide;
+  if (names && Object.keys(names).length) out.names = names; else delete out.names;
   return out;
 }
 

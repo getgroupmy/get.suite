@@ -120,8 +120,18 @@ export async function sheetFromExcel(buffer) {
       const ci = (l) => [...l].reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0) - 1;
       for (let r = a.r; r <= b.r; r++) for (let c = ci(a.c); c <= ci(b.c); c++) if (r !== a.r || c !== ci(a.c)) delete cells[`${colName(c)}${r}`];
     }
-    sheets.push({ name: ws.name.slice(0, 30), cells, colWidths, ...(merges.length && { merges }), ...(rules.length && { rules }), ...(validations.length && { validations }), ...(filter && { filter }), ...(Object.keys(formats).length && { formats }), ...(frozen && (frozen.rows || frozen.cols) && { frozen }), ...(hide && { hide }) });
+    sheets.push({ _ws: ws.name, name: ws.name.slice(0, 30), cells, colWidths, ...(merges.length && { merges }), ...(rules.length && { rules }), ...(validations.length && { validations }), ...(filter && { filter }), ...(Object.keys(formats).length && { formats }), ...(frozen && (frozen.rows || frozen.cols) && { frozen }), ...(hide && { hide }) });
   });
+  // Named ranges ("Sales" = 'Sheet1'!$A$2:$A$10): on the sheet they point into.
+  for (const d of wb.definedNames?.model || []) {
+    const m = /^(?:'((?:[^']|'')+)'|([^'!]+))!\$?([A-Z]+)\$?(\d+)(?::\$?([A-Z]+)\$?(\d+))?$/i.exec(String(d.ranges?.[0] || ''));
+    if (!m || !/^[A-Za-z_][A-Za-z0-9_]{0,49}$/.test(d.name || '') || /^[A-Za-z]{1,3}\d+$/.test(d.name)) continue;
+    const s = sheets.find((x) => x._ws === (m[1] ? m[1].replace(/''/g, "'") : m[2]));
+    if (!s) continue;
+    const a = `${m[3]}${m[4]}`.toUpperCase(), b = m[5] ? `${m[5]}${m[6]}`.toUpperCase() : a;
+    (s.names ||= {})[d.name] = a === b ? a : `${a}:${b}`;
+  }
+  for (const s of sheets) delete s._ws;
   return { sheets: sheets.length ? sheets : [{ name: 'Sheet1', cells: {}, colWidths: {} }] };
 }
 
@@ -188,6 +198,14 @@ export async function excelFromSheet(data) {
     }
   }
   if (!wb.worksheets.length) wb.addWorksheet('Sheet1');
+  // Named ranges, as Excel defined names.
+  wb.worksheets.forEach((ws, i) => {
+    const s = (data.sheets || [])[i];
+    for (const [name, target] of Object.entries(s?.names || {})) {
+      const abs = String(target).toUpperCase().split(':').map((x) => x.replace(/^([A-Z]+)(\d+)$/, '$$$1$$$2')).join(':');
+      try { wb.definedNames.add(`'${ws.name.replace(/'/g, "''")}'!${abs}`, name); } catch { /* not a name Excel takes */ }
+    }
+  });
   return Buffer.from(await wb.xlsx.writeBuffer());
 }
 

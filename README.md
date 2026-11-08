@@ -190,6 +190,14 @@ Switch **✎ Editing** to **💡 Suggesting** at the top of a document to propos
 - It **updates by itself** when the data changes, including rows added below the table, for everyone with the spreadsheet open. **Edit pivot table** at the top of its sheet changes what it shows.
 - Its cells can't be typed in (they come from the data). Renaming the data sheet keeps it working. Excel downloads have its values.
 
+## Named ranges (Sheets)
+
+Give cells a name and use it in formulas instead of the address: `=SUM(Sales)*Tax`. Select the cells and right-click → **Name this range…**, or use ⋮ → **Named ranges** to list, add, rename (**Change**) and remove them. Names use letters, numbers and _, start with a letter, and can't look like a cell (`Q1` is a cell; `Q1_sales` is fine). Case doesn't matter in formulas.
+
+- The box left of the formula bar shows the selection's name when it has one. Type a name, a cell (`D7`) or a range (`A2:A10`) there and press Enter to go to it.
+- A name nobody has defined shows `#NAME?`. Named ranges move with their cells when rows or columns are inserted or deleted, and a name whose cells are all deleted goes. Each sheet has its own names.
+- Excel downloads and uploads keep them as Excel's defined names.
+
 ## Charts (Sheets)
 
 - **Insert:** select cells (or just click one inside your table) and press **Chart**. The first row and column are used as names when they hold text. Choose **Column**, **Bar**, **Line** or **Pie**, give it a title, and check the preview.

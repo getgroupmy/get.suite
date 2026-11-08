@@ -105,7 +105,7 @@ function parse(src) {
         return { k: 'call', name: tk.v, args };
       }
       if (tk.v === 'TRUE' || tk.v === 'FALSE') return { k: 'bool', v: tk.v === 'TRUE' };
-      err('#NAME?');
+      return { k: 'name', v: tk.v }; // a named range (looked up when it's worked out)
     }
     if (tk.t === 'op' && tk.v === '(') { const e = comparison(); expect(')'); return e; }
     err('#ERROR!');
@@ -511,8 +511,10 @@ export function literal(raw) {
  * Build an evaluator over a sheet's raw cells ({ "A1": "=SUM(B1:B3)" }).
  * Returns get(key) -> value (number | string | boolean | null) or { error: '#CODE' }.
  */
-export function createEvaluator(cells) {
+export function createEvaluator(cells, names = null) {
   const memo = new Map();
+  // Named ranges: { Tax: 'B1', Sales: 'A2:A10' }, matched whatever the case.
+  const named = new Map(Object.entries(names || {}).map(([k, v]) => [k.toUpperCase(), String(v).toUpperCase().split(':')]));
   const visiting = new Set();
   const asts = new Map();
 
@@ -565,6 +567,12 @@ export function createEvaluator(cells) {
       case 'referr': return err('#REF!');
       case 'ref': if (!n.ref) err('#REF!'); return valueOf(cellKey(n.ref.c, n.ref.r));
       case 'range': return range(n.a, n.b);
+      case 'name': {
+        const t = named.get(n.v);
+        if (!t) err('#NAME?');
+        if (t.length === 1 || t[0] === t[1]) { const p = parseRef(t[0]); if (!p) err('#REF!'); return valueOf(cellKey(p.c, p.r)); }
+        return range(parseRef(t[0]), parseRef(t[1]));
+      }
       case 'neg': return -toNum(evaluate(n.e));
       case 'call': {
         if (LAZY[n.name]) return LAZY[n.name](n.args.map((a) => () => scalar(evaluate(a))));
@@ -622,7 +630,7 @@ export function display(v) {
 /** Shift relative references in a formula by (dc, dr) — used for copy/paste and fill. */
 export function shiftFormula(raw, dc, dr) {
   if (typeof raw !== 'string' || !raw.startsWith('=')) return raw;
-  return raw.replace(/("(?:[^"]|"")*")|(\$?)([A-Z]+)(\$?)(\d+)(?![A-Z0-9_(])/gi, (m, s, cAbs, col, rAbs, row) => {
+  return raw.replace(/("(?:[^"]|"")*")|(?<![A-Z0-9_.$])(\$?)([A-Z]+)(\$?)(\d+)(?![A-Z0-9_(])/gi, (m, s, cAbs, col, rAbs, row) => {
     if (s) return s;
     const c = cAbs ? colIndex(col) : colIndex(col) + dc;
     const r = rAbs ? Number(row) - 1 : Number(row) - 1 + dr;

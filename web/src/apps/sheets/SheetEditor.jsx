@@ -15,6 +15,8 @@ import { dataRegion, rangeText, parseRange } from './charts.js';
 import { applyStructure, adjustKey, sortRange, looksLikeHeader } from './structure.js';
 import { removeDuplicates, splitColumn } from './data.js';
 import { DedupeDialog, SplitDialog } from './SheetData.jsx';
+import { NamesDialog } from './SheetNames.jsx';
+import { targetOf, cleanTarget } from './names.js';
 import { SortDialog } from './SheetSort.jsx';
 import { PivotDialog } from './SheetPivot.jsx';
 import { buildPivot, pivotCells, sourceTable } from './pivot.js';
@@ -70,6 +72,7 @@ export default function SheetEditor() {
   const [draft, setDraft] = useState('');
   const assist = useFormulaAssist(draft, setDraft, !!editing);
   const [dialog, setDialog] = useState(null);
+  const [nameBox, setNameBox] = useState(null); // what's being typed in the name box
   const dataRef = useRef(null);
   const gridRef = useRef();
   const clip = useRef(null);
@@ -139,7 +142,8 @@ export default function SheetEditor() {
     const left = Array.from({ length: frozen.cols }, (_, c) => heads[c + 1]?.offsetLeft ?? 0);
     if (top.join() !== stick.top.join() || left.join() !== stick.left.join()) setStick({ top, left });
   });
-  const evaluate = useMemo(() => createEvaluator(cells), [cells]);
+  const names = sheet?.names || null; // named ranges: { Tax: 'B1' }
+  const evaluate = useMemo(() => createEvaluator(cells, names), [cells, names]);
   const { rows, cols } = useMemo(() => sheetSize(cells), [cells]);
   // The filter: which rows it hides, and where its headings are.
   const filter = sheet?.filter || null;
@@ -361,7 +365,7 @@ export default function SheetEditor() {
   }
   // ---- pivot tables: a sheet with { pivot } is filled from its source whenever the data changes ----
   const pivotHeadings = (src, p) => {
-    const ev = createEvaluator(src.cells || {});
+    const ev = createEvaluator(src.cells || {}, src.names);
     const out = [];
     for (let c = p.c1; c <= p.c2; c++) { const v = ev(cellKey(c, p.r1)); out.push({ c, label: v && typeof v !== 'object' ? String(v) : '' }); }
     return out;
@@ -373,7 +377,7 @@ export default function SheetEditor() {
       if (!s.pivot) return s;
       const src = cur.sheets.find((x) => x.name === s.pivot.source);
       if (!src || src === s) return s;
-      const ev = createEvaluator(src.cells || {});
+      const ev = createEvaluator(src.cells || {}, src.names);
       let last = s.pivot.r1;
       for (const k of Object.keys(src.cells || {})) { const p = parseRef(k); if (p && p.c >= s.pivot.c1 && p.c <= s.pivot.c2) last = Math.max(last, p.r); }
       const shown = (k) => { const v = ev(k); return v && typeof v === 'object' ? '' : v ?? ''; };
@@ -603,6 +607,18 @@ export default function SheetEditor() {
   if (!data) return <div className="editor-page"><EditorHeader icon="sheet" file={null} status="saved" /></div>;
 
   const selKey = cellKey(sel.c, sel.r);
+  const selText = anchor && (range.c1 !== range.c2 || range.r1 !== range.r2) ? `${cellKey(range.c1, range.r1)}:${cellKey(range.c2, range.r2)}` : selKey;
+  // The name box: the selection's name if it has one; type a cell, a range or a name to go there.
+  const selName = Object.entries(names || {}).find(([, t]) => t === selText)?.[0];
+  const goTo = (text) => {
+    const t = cleanTarget(targetOf(names, text) || text);
+    if (!t) { toast(`There's no cell or named range called “${text}”`, 'error'); return false; }
+    const [a, b = a] = t.split(':').map(parseRef);
+    if (a.c === b.c && a.r === b.r) setAnchor(null); else setAnchor({ c: b.c, r: b.r });
+    setSel({ c: a.c, r: a.r });
+    requestAnimationFrame(() => { gridRef.current?.querySelector(`[data-k="${cellKey(a.c, a.r)}"]`)?.scrollIntoView({ block: 'nearest', inline: 'nearest' }); gridRef.current?.focus(); });
+    return true;
+  };
   const people = [...new Map(others.map((p) => [p.id, p])).values()].filter((p) => p.id !== user.id);
   // Other people's selected cells on this sheet: outlined in their colour.
   const theirs = new Map(others.filter((p) => p.id !== user.id && p.sel?.sheet === active).map((p) => [p.sel.k, p]));
@@ -646,6 +662,7 @@ export default function SheetEditor() {
     { label: 'Remove duplicates…', onClick: () => setDialog({ type: 'dedupe' }) },
     { label: 'Split text to columns…', onClick: () => setDialog({ type: 'split' }) },
     { label: 'Pivot table…', onClick: newPivot },
+    { label: 'Name this range…', onClick: () => setDialog({ type: 'names', initial: selText }) },
   ];
   const freezeRows = [
     { label: range.r2 === 0 ? 'Freeze the first row' : `Freeze rows 1–${range.r2 + 1}`, onClick: () => setFrozen(Math.min(range.r2 + 1, 50), null), disabled: frozen.rows === range.r2 + 1 },
@@ -705,6 +722,7 @@ export default function SheetEditor() {
         </>}
         menu={[
           { label: 'Find and replace', icon: 'search', onClick: () => setFinding({ replace: !readOnly, n: 1 }) },
+          { label: 'Named ranges', icon: 'link', onClick: () => setDialog({ type: 'names', initial: selText }) },
           { label: 'Version history', icon: 'clock', onClick: () => setDialog({ type: 'history' }) },
           { label: 'Print or save as PDF', icon: 'print', onClick: () => setDialog({ type: 'print' }) },
           { label: 'Download as Excel (.xlsx)', icon: 'download', onClick: () => { window.location.href = `/api/files/${id}/export`; } },
@@ -730,7 +748,9 @@ export default function SheetEditor() {
           onClose={() => { setFinding(null); gridRef.current?.focus(); }} />
       )}
       <div className="formula-bar">
-        <span className="cell-name">{anchor ? `${cellKey(range.c1, range.r1)}:${cellKey(range.c2, range.r2)}` : selKey}</span>
+        <input className="cell-name" aria-label="Name box" value={nameBox ?? selName ?? selText} onFocus={(e) => { setNameBox(selName ?? selText); requestAnimationFrame(() => e.target.select()); }}
+          onChange={(e) => setNameBox(e.target.value)} onBlur={() => setNameBox(null)}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); if (goTo(nameBox || '')) setNameBox(null); } if (e.key === 'Escape') { setNameBox(null); gridRef.current?.focus(); } }} />
         <span className="fx">fx</span>
         <input
           aria-label="Cell contents" readOnly={readOnly}
@@ -900,6 +920,11 @@ export default function SheetEditor() {
             layout, hiddenRows: hidden, hiddenCols, width: widthOf, gridlines: o.gridlines, landscape: o.landscape, paper: o.paper,
           }));
         }} />
+      )}
+      {dialog?.type === 'names' && (
+        <NamesDialog names={names} initial={dialog.initial} canEdit={!readOnly} onClose={() => { setDialog(null); gridRef.current?.focus(); }}
+          onSave={(next) => writeSheet(() => ({ names: Object.keys(next).length ? next : undefined }))}
+          onGo={(t) => { setDialog(null); goTo(t); }} />
       )}
       {dialog?.type === 'sort' && (() => { const g = sortTarget(); return (
         <SortDialog initial={{ range: g, by: sel.c }} header={looksLikeHeader(g, evaluate)} value={evaluate} onSort={sortBy} onClose={() => { setDialog(null); gridRef.current?.focus(); }} />

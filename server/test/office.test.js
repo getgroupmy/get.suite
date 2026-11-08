@@ -434,3 +434,11 @@ test('PowerPoint: tables go out and come back, with their cells and heading row'
   assert.ok(Math.abs(t.x - 10) < 1 && Math.abs(t.w - 60) < 1, `${t.x} ${t.w}`);
   assert.ok(Math.abs(t.size - 18) <= 1, String(t.size));
 });
+
+test('excel: named ranges both ways', async () => {
+  const data = { sheets: [{ name: 'Data', cells: { A1: '1', A2: '2', C1: '=SUM(Sales)*Tax' }, names: { Sales: 'A1:A2', Tax: 'B1' } }, { name: "Bob's", cells: { A1: 'x' }, names: { Other: 'C3' } }] };
+  const back = await sheetFromExcel(await excelFromSheet(data));
+  assert.deepEqual(back.sheets[0].names, { Sales: 'A1:A2', Tax: 'B1' });
+  assert.deepEqual(back.sheets[1].names, { Other: 'C3' });
+  assert.equal(back.sheets[0].cells.C1, '=SUM(Sales)*Tax');
+});
