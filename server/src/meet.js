@@ -144,6 +144,10 @@ export function meetRoutes() {
 }
 
 const wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 });
+// Polls during a meeting (while it lasts): code -> [{ id, by, by_name, question, options, votes: Map(userId -> index), closed }]
+const polls = new Map();
+const pollOut = (p, userId) => ({ id: p.id, by: p.by, by_name: p.by_name, question: p.question, options: p.options, closed: p.closed,
+  counts: p.options.map((_, i) => [...p.votes.values()].filter((v) => v === i).length), mine: p.votes.has(userId) ? p.votes.get(userId) : null, voters: p.votes.size });
 // People the host removed from a meeting can't come back into it (until the server restarts).
 const removed = new Map(); // code -> Set(user id)
 
@@ -163,7 +167,9 @@ export function handleMeetUpgrade(req, socket, head, user) {
     const me = { ws, user, state: cleanState({ mic: asked.get('mic') !== '0', cam: asked.get('cam') !== '0' }) };
     const toOthers = (payload) => { const d = JSON.stringify(payload); for (const [pid, p] of room) if (pid !== id && p.ws.readyState === 1) p.ws.send(d); };
     const toAll = (payload) => { const d = JSON.stringify(payload); for (const p of room.values()) if (p.ws.readyState === 1) p.ws.send(d); };
-    ws.send(JSON.stringify({ type: 'welcome', id, peers: peopleIn(code), host: isHost }));
+    ws.send(JSON.stringify({ type: 'welcome', id, peers: peopleIn(code), host: isHost, polls: (polls.get(code) || []).map((p) => pollOut(p, user.id)) }));
+    // Everyone gets a poll's results with their own vote in it.
+    const pollToAll = (p) => { for (const q2 of room.values()) if (q2.ws.readyState === 1) q2.ws.send(JSON.stringify({ type: 'poll', poll: pollOut(p, q2.user.id) })); };
     room.set(id, me);
     toOthers({ type: 'joined', peer: describe(id, me) });
     const t = now();
@@ -193,6 +199,24 @@ export function handleMeetUpgrade(req, socket, head, user) {
           removed.get(code).add(p.user.id);
           try { p.ws.close(4003, `${user.name} removed you from the meeting`); } catch { /* gone already */ }
         }
+      } else if (msg?.type === 'poll-new') {
+        const question = String(msg.question ?? '').trim().slice(0, 300);
+        const options = [...new Set((Array.isArray(msg.options) ? msg.options : []).map((o) => String(o ?? '').trim().slice(0, 100)).filter(Boolean))].slice(0, 10);
+        const list = polls.get(code) || [];
+        if (!question || options.length < 2 || list.length >= 50) return;
+        const p = { id: crypto.randomBytes(6).toString('hex'), by: user.id, by_name: user.name, question, options, votes: new Map(), closed: false };
+        polls.set(code, [...list, p]);
+        pollToAll(p);
+      } else if (msg?.type === 'poll-vote' || msg?.type === 'poll-close') {
+        const p = (polls.get(code) || []).find((x) => x.id === String(msg.id));
+        if (!p) return;
+        if (msg.type === 'poll-close') { if (p.by !== user.id && !isHost) return; p.closed = true; }
+        else {
+          const i = Number(msg.option);
+          if (p.closed || !Number.isInteger(i) || i < 0 || i >= p.options.length) return;
+          p.votes.set(user.id, i); // one vote each; voting again changes it
+        }
+        pollToAll(p);
       } else if (msg?.type === 'react') {
         const emoji = ['👍', '❤️', '😂', '😮', '👏', '🎉'].includes(msg.emoji) ? msg.emoji : null;
         if (emoji) toAll({ type: 'react', id, emoji });
@@ -201,7 +225,7 @@ export function handleMeetUpgrade(req, socket, head, user) {
     ws.on('close', () => {
       q('UPDATE meeting_attendance SET left_at = ? WHERE id = ? AND left_at IS NULL').run(now(), id);
       room.delete(id);
-      if (!room.size) rooms.delete(code);
+      if (!room.size) { rooms.delete(code); polls.delete(code); } // polls last as long as the meeting
       toOthers({ type: 'left', id });
     });
   });

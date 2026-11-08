@@ -1615,6 +1615,15 @@ button.usage:hover .muted { color: var(--text); }
 .meet-panel { width: 320px; background: var(--surface); color: var(--text); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
 .meet-panel .muted { color: var(--muted); }
 .meet-chat { list-style: none; margin: 0; padding: 0; flex: 1; overflow: auto; display: flex; flex-direction: column; gap: 10px; overflow-wrap: anywhere; }
+.meet-polls { display: flex; flex-direction: column; gap: 10px; overflow-y: auto; }
+.meet-poll-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px; }
+.meet-poll { display: flex; flex-direction: column; gap: 6px; }
+.meet-poll-opt { position: relative; display: flex; gap: 8px; align-items: center; padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; background: transparent; color: inherit; cursor: pointer; text-align: left; overflow: hidden; }
+.meet-poll-opt > span { position: relative; }
+.meet-poll-opt .meet-poll-bar { position: absolute; left: 0; top: 0; bottom: 0; background: color-mix(in srgb, var(--accent, #1a73e8) 18%, transparent); transition: width .3s; }
+.meet-poll-opt.mine { border-color: var(--accent, #1a73e8); font-weight: 600; }
+.meet-poll-opt:disabled { cursor: default; }
+.meet-poll-form { display: flex; flex-direction: column; gap: 6px; }
 .meet-people { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .meet-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px; padding: 12px; }
 .meet-btn { position: relative; min-width: 48px; height: 48px; border-radius: 24px; border: 0; background: #3c4043; color: #fff; font-size: 20px; cursor: pointer; padding: 0 14px; }

@@ -13,6 +13,67 @@ import { MeetingRecorder } from './recorder.js';
 
 const REACTIONS = ['👍', '❤️', '😂', '😮', '👏', '🎉'];
 
+// Polls asked during the meeting: everyone votes once (and can change it); counts show live; the asker
+// or the host closes a poll. They last as long as the meeting does.
+function MeetPolls({ m, user, polls }) {
+  const [asking, setAsking] = useState(false);
+  const [question, setQuestion] = useState('');
+  const [options, setOptions] = useState(['', '']);
+  const ask = (e) => {
+    e.preventDefault();
+    const opts = options.map((o) => o.trim()).filter(Boolean);
+    if (!question.trim() || new Set(opts).size < 2) return;
+    m.pollNew(question.trim(), opts);
+    setQuestion(''); setOptions(['', '']); setAsking(false);
+  };
+  return (
+    <div className="meet-polls">
+      {polls.length === 0 && !asking && <p className="muted small" style={{ margin: 0 }}>No polls yet. Ask everyone a quick question.</p>}
+      <ul className="meet-poll-list">
+        {[...polls].reverse().map((p) => {
+          const total = p.voters || 0;
+          return (
+            <li key={p.id} className="meet-poll" aria-label={`Poll: ${p.question}`}>
+              <strong>{p.question}</strong>
+              <div className="muted small">{p.by === user.id ? 'You' : p.by_name} asked · {total} {total === 1 ? 'vote' : 'votes'}{p.closed ? ' · closed' : ''}</div>
+              {p.options.map((o, i) => {
+                const n = p.counts[i] || 0;
+                const pct = total ? Math.round((n / total) * 100) : 0;
+                return (
+                  <button key={o} type="button" className={`meet-poll-opt ${p.mine === i ? 'mine' : ''}`} disabled={p.closed} aria-pressed={p.mine === i}
+                    aria-label={`Vote ${o}, ${n} ${n === 1 ? 'vote' : 'votes'}`} onClick={() => m.pollVote(p.id, i)}>
+                    <span className="meet-poll-bar" style={{ width: `${pct}%` }} />
+                    <span className="grow">{p.mine === i ? '✓ ' : ''}{o}</span><span className="small">{n} · {pct}%</span>
+                  </button>
+                );
+              })}
+              {!p.closed && (p.by === user.id || m.host) && <button type="button" className="btn small" onClick={() => m.pollClose(p.id)}>Close poll</button>}
+            </li>
+          );
+        })}
+      </ul>
+      {asking ? (
+        <form className="meet-poll-form" onSubmit={ask} aria-label="New poll">
+          <input value={question} onChange={(e) => setQuestion(e.target.value)} aria-label="Question" placeholder="Ask a question" maxLength={300} autoFocus />
+          {options.map((o, i) => (
+            <div key={i} className="row">
+              <input className="grow" value={o} aria-label={`Option ${i + 1}`} placeholder={`Option ${i + 1}`} maxLength={100}
+                onChange={(e) => setOptions(options.map((x, j) => (j === i ? e.target.value : x)))} />
+              {options.length > 2 && <button type="button" className="icon-btn" aria-label={`Remove option ${i + 1}`} onClick={() => setOptions(options.filter((_, j) => j !== i))}><Icon name="close" size={14} /></button>}
+            </div>
+          ))}
+          <div className="row">
+            {options.length < 10 && <button type="button" className="btn small" onClick={() => setOptions([...options, ''])}>Add option</button>}
+            <span className="grow" />
+            <button type="button" className="btn small" onClick={() => setAsking(false)}>Cancel</button>
+            <button className="btn primary small">Ask</button>
+          </div>
+        </form>
+      ) : <button type="button" className="btn" onClick={() => setAsking(true)}>New poll</button>}
+    </div>
+  );
+}
+
 async function openDevices() {
   if (!navigator.mediaDevices?.getUserMedia) return { stream: null, error: 'This browser can’t use a camera or microphone here (Meet needs HTTPS).' };
   for (const want of [{ audio: true, video: true }, { audio: true }, { video: true }]) {
@@ -79,6 +140,7 @@ export default function MeetRoom() {
         setTimeout(() => setFloating((list) => list.filter((x) => x.key !== key)), 3000);
       },
       onClosed: (reason) => { toast(reason, 'error'); setLeftWhy(reason); setPhase('left'); },
+      onPoll: (p) => { if (panelRef.current !== 'polls') toast(`${p.by_name} asked: ${p.question}`); },
       onMuted: (by) => { setMic(false); toast(`${by} muted you. Unmute when you want to speak.`); },
     });
     mesh.current = m;
@@ -165,6 +227,8 @@ export default function MeetRoom() {
   const sharing = m?.state.screen;
   const tiles = [{ id: 'me', me: true, name: `${user.name} (you)`, userId: user.id, state: m?.state || {}, stream: sharing ? m.screen : local?.stream },
     ...peers.map((p) => ({ id: p.id, name: p.user.name, userId: p.user.id, state: p.state, stream: p.stream, connecting: p.pc.connectionState !== 'connected' }))];
+  const polls = m ? [...m.polls.values()] : [];
+  const toVote = polls.filter((p) => !p.closed && p.mine === null).length;
   const sendChat = (e) => {
     e.preventDefault();
     const input = e.currentTarget.elements.msg;
@@ -191,8 +255,8 @@ export default function MeetRoom() {
           })}
         </div>
         {panel && (
-          <aside className="meet-panel" aria-label={panel === 'chat' ? 'Meeting chat' : 'People'}>
-            <div className="row"><strong className="grow">{panel === 'chat' ? 'Messages' : `People (${tiles.length})`}</strong>
+          <aside className="meet-panel" aria-label={panel === 'chat' ? 'Meeting chat' : panel === 'polls' ? 'Polls' : 'People'}>
+            <div className="row"><strong className="grow">{panel === 'chat' ? 'Messages' : panel === 'polls' ? 'Polls' : `People (${tiles.length})`}</strong>
               <button type="button" className="icon-btn" aria-label="Close panel" onClick={() => setPanel(null)}><Icon name="close" size={18} /></button></div>
             {panel === 'chat' ? <>
               <p className="muted small" style={{ margin: 0 }}>Messages are only seen by people in the meeting now, and go when it ends.</p>
@@ -200,7 +264,7 @@ export default function MeetRoom() {
                 {messages.map((msg, i) => <li key={i}><strong>{msg.mine ? 'You' : msg.name}</strong> <span className="muted small">{new Date(msg.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span><div>{msg.text}</div></li>)}
               </ul>
               <form className="row" onSubmit={sendChat}><input name="msg" className="grow" aria-label="Send a message to everyone" placeholder="Send a message" maxLength={2000} autoComplete="off" /><button className="btn">Send</button></form>
-            </> : (
+            </> : panel === 'polls' ? <MeetPolls m={m} user={user} polls={polls} /> : (
               <ul className="meet-people">
                 {m.host && tiles.length > 1 && <li className="row"><span className="grow muted small">You started this meeting.</span><button type="button" className="btn small" onClick={() => { m.mute('all'); toast('Everyone else is muted'); }}>Mute everyone</button></li>}
                 {tiles.map((t) => <li key={t.id} className="row"><Avatar name={t.name} userId={t.userId} size={28} /><span className="grow">{t.name}</span>{t.state.hand && '✋'}{t.state.mic === false && '🔇'}
@@ -221,6 +285,7 @@ export default function MeetRoom() {
         <button type="button" className={`meet-btn ${m.state.hand ? 'on' : ''}`} aria-pressed={m.state.hand} aria-label={m.state.hand ? 'Lower hand' : 'Raise hand'} onClick={() => m.setState({ hand: !m.state.hand })}>✋</button>
         <span className="meet-reacts" role="group" aria-label="Send a reaction">{REACTIONS.map((e) => <button key={e} type="button" className="meet-react" aria-label={`React ${e}`} onClick={() => m.react(e)}>{e}</button>)}</span>
         <button type="button" className={`meet-btn ${panel === 'chat' ? 'on' : ''}`} aria-label={unread ? `Chat, ${unread} new` : 'Chat'} onClick={() => { setPanel(panel === 'chat' ? null : 'chat'); setUnread(0); }}>💬{unread > 0 && <span className="nav-badge">{unread}</span>}</button>
+        <button type="button" className={`meet-btn ${panel === 'polls' ? 'on' : ''}`} aria-label={toVote ? `Polls, ${toVote} to answer` : 'Polls'} onClick={() => setPanel(panel === 'polls' ? null : 'polls')}>📊{toVote > 0 && <span className="nav-badge">{toVote}</span>}</button>
         <button type="button" className={`meet-btn ${panel === 'people' ? 'on' : ''}`} aria-label="People" onClick={() => setPanel(panel === 'people' ? null : 'people')}>👥</button>
         <button type="button" className={`meet-btn ${m.state.rec ? 'on rec' : ''}`} disabled={saving} aria-pressed={!!m.state.rec} aria-label={saving ? 'Saving the recording' : m.state.rec ? 'Stop recording' : 'Record the meeting'} title={m.state.rec ? 'Stop and save it to your Drive' : 'Record the meeting (saved to your Drive)'} onClick={m.state.rec ? stopRecording : startRecording}>{saving ? '…' : '⏺'}</button>
         <button type="button" className="meet-btn" aria-label="Copy meeting link" onClick={() => copyLink(code, toast)}>🔗</button>

@@ -5030,3 +5030,42 @@ test('meet host controls: the host mutes someone or everyone, and removes someon
     await assert.rejects(open(await cookieOf('mhc@keepco.com')), /4003/, 'can\'t come back');
   } finally { host.terminate(); hal.terminate(); cass.terminate(); }
 });
+
+test('meet polls: asked, voted once each (changeable), results to everyone, closed by whoever asked', { timeout: 20000 }, async () => {
+  const { default: WS } = await import('ws');
+  const kay = client(); await login(kay, 'kay@keepco.com');
+  await kay('POST', '/api/users', { local: 'mpb', domain: 'keepco.com', name: 'Pol Voter', password: 'password123' });
+  const cookieOf = async (u) => (await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ username: u, password: 'password123' }) })).headers.get('set-cookie').split(';')[0];
+  const { code } = (await kay('POST', '/api/meet', { title: 'Polled' })).body;
+  const open = (cookie) => new Promise((resolve, reject) => {
+    const ws = new WS(`${base.replace('http', 'ws')}/ws/meet/${code}`, { headers: { cookie } });
+    ws.msgs = [];
+    const t = setTimeout(() => reject(new Error('no welcome')), 5000);
+    ws.on('message', (d) => { const msg = JSON.parse(String(d)); ws.msgs.push(msg); if (msg.type === 'welcome') { clearTimeout(t); ws.me = msg; resolve(ws); } });
+    ws.on('error', reject);
+  });
+  const wait = () => new Promise((r) => setTimeout(r, 200));
+  const latest = (ws) => [...ws.msgs].reverse().find((m) => m.type === 'poll')?.poll;
+  const a = await open(await cookieOf('kay@keepco.com'));
+  const b = await open(await cookieOf('mpb@keepco.com'));
+  try {
+    b.send(JSON.stringify({ type: 'poll-new', question: 'Lunch?', options: ['Pizza'] })); await wait();
+    assert.equal(latest(a), undefined, 'two choices at least');
+    b.send(JSON.stringify({ type: 'poll-new', question: 'Lunch?', options: ['Pizza', 'Sushi', 'Pizza', ''] })); await wait();
+    const p = latest(a);
+    assert.deepEqual([p.question, p.options, p.by_name, p.counts], ['Lunch?', ['Pizza', 'Sushi'], 'Pol Voter', [0, 0]]);
+    a.send(JSON.stringify({ type: 'poll-vote', id: p.id, option: 1 })); await wait();
+    b.send(JSON.stringify({ type: 'poll-vote', id: p.id, option: 1 })); await wait();
+    a.send(JSON.stringify({ type: 'poll-vote', id: p.id, option: 0 })); await wait(); // changed her mind
+    assert.deepEqual(latest(b).counts, [1, 1]);
+    assert.equal(latest(a).mine, 0); assert.equal(latest(b).mine, 1);
+    b.send(JSON.stringify({ type: 'poll-close', id: p.id })); await wait();
+    assert.equal(latest(a).closed, true);
+    a.send(JSON.stringify({ type: 'poll-vote', id: p.id, option: 1 })); await wait();
+    assert.deepEqual(latest(a).counts, [1, 1], 'closed: no more votes');
+    // Someone joining now sees it.
+    const c = await open(await cookieOf('kay@keepco.com'));
+    assert.equal(c.me.polls[0].question, 'Lunch?');
+    c.terminate();
+  } finally { a.terminate(); b.terminate(); }
+});
