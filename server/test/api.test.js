@@ -5427,3 +5427,47 @@ test('chat webhooks: made by whoever manages the channel, post with only the sec
   await a('PATCH', `/api/chat/channels/${ch}`, { archived: true });
   assert.equal((await fetch(`${base}${h2.path}`, { method: 'POST', headers: { 'content-type': 'text/plain' }, body: 'x' })).status, 410);
 });
+
+test('forgot password: a one-hour, one-use link to the recovery address; the same answer whoever asks', async () => {
+  const { setResetMailer } = await import('../src/routes/auth.js');
+  const sent = [];
+  setResetMailer(async (user, to, link) => { sent.push({ from: user.username, to, link }); });
+  const u = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'forgetful', domain: 'acme.com', name: 'Fay Forgetful', password: 'password123' })).status, 201);
+  await login(u, 'forgetful@acme.com');
+  const ask = (username) => fetch(`${base}/api/auth/forgot`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ username }) }).then((r) => r.json());
+  // No recovery address yet: nothing is sent, and the answer doesn't say so.
+  const a1 = await ask('forgetful@acme.com');
+  const a2 = await ask('nobody@acme.com');
+  assert.deepEqual(a1, a2);
+  assert.equal(sent.length, 0);
+  // Setting one needs the password, and a personal address.
+  assert.equal((await u('PUT', '/api/auth/recovery-email', { email: 'fay@home.example', password: 'wrong' })).status, 400);
+  assert.equal((await u('PUT', '/api/auth/recovery-email', { email: 'forgetful@acme.com', password: 'password123' })).status, 400);
+  assert.equal((await u('PUT', '/api/auth/recovery-email', { email: 'not an address', password: 'password123' })).status, 400);
+  assert.equal((await u('PUT', '/api/auth/recovery-email', { email: 'Fay@Home.example', password: 'password123' })).body.recovery_email, 'fay@home.example');
+  assert.equal((await u('GET', '/api/auth/me')).body.user.recovery_email, 'fay@home.example');
+  await ask('Forgetful@acme.com');
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].to, 'fay@home.example');
+  const token = sent[0].link.split('/reset/')[1];
+  assert.match(token, /^[A-Za-z0-9_-]{43}$/);
+  const plain = (method, url, body) => fetch(`${base}/api/auth${url}`, { method, headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: body && JSON.stringify(body) });
+  assert.equal((await (await plain('GET', `/reset/${token}`)).json()).username, 'forgetful@acme.com');
+  assert.equal((await plain('POST', `/reset/${token}`, { password: 'short' })).status, 400, 'the company’s password rules apply');
+  assert.equal((await plain('POST', `/reset/${token}`, { password: 'a new secret 42' })).status, 200);
+  // Used: it doesn't work again; signed out everywhere; the new password works, the old doesn't.
+  assert.equal((await plain('POST', `/reset/${token}`, { password: 'another one 77' })).status, 410);
+  assert.equal((await plain('GET', `/reset/${token}`)).status, 410);
+  assert.equal((await u('GET', '/api/auth/me')).status, 401);
+  const tryLogin = (password) => fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ username: 'forgetful@acme.com', password }) });
+  assert.equal((await tryLogin('password123')).status, 401);
+  assert.equal((await tryLogin('a new secret 42')).status, 200);
+  assert.equal((await plain('GET', '/reset/not-a-token')).status, 410);
+  // At most three links an hour for one account.
+  for (let i = 0; i < 4; i++) await ask('forgetful@acme.com');
+  assert.equal(sent.length, 3);
+  const log = (await owner('GET', '/api/audit?limit=50')).body;
+  const actions = (log.entries || log).map((e) => e.action);
+  assert.ok(actions.includes('password.reset') && actions.includes('password.reset_requested'));
+});

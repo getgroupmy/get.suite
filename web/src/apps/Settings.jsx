@@ -53,6 +53,7 @@ export default function Settings() {
         {error && <p className="error">{error}</p>}
         <div className="row end"><button className="btn primary">Change password</button></div>
       </form>
+      <RecoveryEmail />
       <TwoStep />
       <MailApps />
       <Devices />
@@ -552,4 +553,36 @@ function PasswordRulesNote() {
   const [text, setText] = useState('');
   useEffect(() => { get('/auth/password-rules').then((r) => setText(r.text)).catch(() => {}); }, []);
   return text ? <p className="muted small" role="note" style={{ margin: 0 }}>{text}</p> : null;
+}
+
+/** A personal address for "Forgot password?" on the sign-in page (the link is emailed there). */
+function RecoveryEmail() {
+  const { user, setUser } = useAuth();
+  const toast = useToast();
+  const [email, setEmail] = useState(user.recovery_email || '');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const save = async (value) => {
+    setError('');
+    try {
+      const r = await put('/auth/recovery-email', { email: value || null, password });
+      setUser({ ...user, recovery_email: r.recovery_email });
+      setPassword('');
+      toast(r.recovery_email ? `Recovery address saved: ${r.recovery_email}` : 'Recovery address removed');
+    } catch (e) { setError(e.message); }
+  };
+  return (
+    <form className="card stack" aria-labelledby="rec-h" onSubmit={(e) => { e.preventDefault(); save(email.trim()); }}>
+      <h2 id="rec-h">Recovery email</h2>
+      <p className="muted small" style={{ margin: 0 }}>A personal address (not this account's) where <strong>Forgot password?</strong> on the sign-in page can send you a link to choose a new password.
+        {user.recovery_email ? <> Now: <strong>{user.recovery_email}</strong>.</> : ' None yet.'}</p>
+      <label className="field"><span>Recovery address</span><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" autoComplete="email" /></label>
+      <label className="field"><span>Your password (to confirm it's you)</span><input type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required /></label>
+      {error && <p className="error">{error}</p>}
+      <div className="row end">
+        {user.recovery_email && <button type="button" className="btn" onClick={() => { if (password) { setEmail(''); save(''); } else setError('Type your password to remove it'); }}>Remove</button>}
+        <button className="btn primary" disabled={!email.trim()}>Save</button>
+      </div>
+    </form>
+  );
 }

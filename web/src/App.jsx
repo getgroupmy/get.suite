@@ -12,7 +12,7 @@ import Announcements from './components/Announcements.jsx';
 import BrandMark from './components/BrandMark.jsx';
 import { applyAccent } from './theme.js';
 import { Avatar, Menu, ToastProvider, useToast } from './components/ui.jsx';
-import Login from './apps/Login.jsx';
+import Login, { ResetPassword } from './apps/Login.jsx';
 import PublicLink from './apps/PublicLink.jsx';
 import InviteAnswer from './apps/calendar/InviteAnswer.jsx';
 import { SignPage } from './apps/docs/Signatures.jsx';
@@ -60,6 +60,9 @@ export default function App() {
   const form = window.location.pathname.match(/^\/f\/([A-Za-z0-9_-]+)\/?$/);
   if (form) return <FormGate token={form[1]} />;
   // Signing a document from a private link (no account needed).
+  // Choosing a new password from a "Forgot password?" email (no account session needed).
+  const reset = window.location.pathname.match(/^\/reset\/([A-Za-z0-9_-]+)\/?$/);
+  if (reset) return <ToastProvider><ResetPassword token={reset[1]} /></ToastProvider>;
   const sign = window.location.pathname.match(/^\/sign\/([A-Za-z0-9_-]+)\/?$/);
   if (sign) return <SignPage token={sign[1]} />;
   return invite ? <InviteAnswer token={invite[1]} /> : <Workspace />;
@@ -116,7 +119,7 @@ function Workspace() {
       <ToastProvider>
         {!state.user ? (guestMeet && !state.needsSetup
           ? <BrowserRouter><Routes><Route path="/meet/:code" element={<MeetRoom guest onSignIn={() => setGuestSignIn(true)} />} /></Routes></BrowserRouter>
-          : <Login needsSetup={state.needsSetup} />) : state.user.needs_two_factor ? <RequiredTwoStep /> : state.user.must_change_password ? <RequiredPassword /> : (
+          : <Login needsSetup={state.needsSetup} canReset={!!state.can_reset} />) : state.user.needs_two_factor ? <RequiredTwoStep /> : state.user.must_change_password ? <RequiredPassword /> : (
           <BrowserRouter>
             <ShortcutsHelp />
             <Routes>

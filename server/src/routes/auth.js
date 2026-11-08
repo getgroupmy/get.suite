@@ -15,6 +15,37 @@ import * as twoFactor from '../twofactor.js';
 import { otpauthUrl } from '../totp.js';
 import { audit } from '../audit.js';
 import { newDeviceSignIn } from '../alerts.js';
+import { smtpFor } from '../mail/imap.js';
+
+// "Forgot password?": a link (valid for an hour, once) sent to the personal recovery address someone
+// added in Settings. The reply never says whether the account exists or has an address.
+if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'recovery_email')) q('ALTER TABLE users ADD COLUMN recovery_email TEXT').run();
+q(`CREATE TABLE IF NOT EXISTS password_resets (
+  token_hash TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  used_at INTEGER
+)`).run();
+const RESET_MINUTES = 60;
+const resetHash = (t) => crypto.createHash('sha256').update(String(t)).digest('hex');
+const EMAIL_RE = /^[^\s@"<>]+@[^\s@"<>]+\.[^\s@"<>]+$/;
+const resetAsks = new Map(); // "user:<id>" / "ip:<ip>" -> times asked in the last hour
+function tooMany(key, max) {
+  const t = Date.now();
+  const list = (resetAsks.get(key) || []).filter((x) => x > t - 36e5);
+  resetAsks.set(key, [...list, t]);
+  return list.length >= max;
+}
+/** How the link is sent (replaceable in tests): from the person's own address, to their recovery address. */
+let resetMailer = async (user, to, link) => {
+  await smtpFor(user).sendMail({
+    from: { name: 'Workspace', address: user.username }, to, subject: 'Reset your Workspace password',
+    text: [`Someone (hopefully you) asked to reset the password for ${user.username}.`, '', `Choose a new password here (the link works once, for ${RESET_MINUTES} minutes):`, link, '',
+      'If it wasn’t you, ignore this email: your password stays as it is.'].join('\n'),
+  });
+};
+export const setResetMailer = (fn) => { resetMailer = fn; };
 
 export default function authRoutes({ secureCookies }) {
   const r = Router();
@@ -27,7 +58,7 @@ export default function authRoutes({ secureCookies }) {
 
   r.get('/status', (req, res) => {
     const count = q('SELECT COUNT(*) AS n FROM users').get().n;
-    res.json({ needsSetup: count === 0, user: userFromToken(tokenFromReq(req), { idleMs: idleOf(req) }) });
+    res.json({ needsSetup: count === 0, can_reset: mailEnabled(), user: userFromToken(tokenFromReq(req), { idleMs: idleOf(req) }) });
   });
 
   // First run: create the first company, its domain and the platform owner.
@@ -98,6 +129,56 @@ export default function authRoutes({ secureCookies }) {
   });
 
   r.get('/me', requireAuth, (req, res) => res.json({ user: req.user }));
+
+  // Your recovery address (or null to remove it); your password is asked for, as it's a way into the account.
+  r.put('/recovery-email', requireAuth, (req, res) => {
+    const row = q('SELECT password_hash FROM users WHERE id = ?').get(req.user.id);
+    if (!verifyPassword(String(req.body?.password || ''), row.password_hash)) throw bad('Your password is not right');
+    const email = req.body?.email ? String(req.body.email).trim().toLowerCase() : null;
+    if (email && (!EMAIL_RE.test(email) || email.length > 200)) throw bad('Enter an email address');
+    if (email && email === req.user.username) throw bad('Use a personal address, not this account’s own: you couldn’t read it without signing in');
+    q('UPDATE users SET recovery_email = ? WHERE id = ?').run(email, req.user.id);
+    audit(req, email ? 'recovery.set' : 'recovery.remove', { target: req.user.username });
+    res.json({ recovery_email: email });
+  });
+  // Ask for a reset link. Always the same answer, whether or not anything is sent.
+  r.post('/forgot', async (req, res) => {
+    const username = String(req.body?.username || '').trim().toLowerCase();
+    const answer = { ok: true, message: 'If that account has a recovery address, a link to choose a new password is on its way to it.' };
+    if (!username || tooMany(`ip:${req.ip}`, 10)) return res.json(answer);
+    const user = q('SELECT id, username, name, org_id, recovery_email, disabled, is_super FROM users WHERE username = ?').get(username);
+    if (!user || user.disabled || !user.recovery_email || tooMany(`user:${user.id}`, 3) || !networkAllowed(user, req.ip)) return res.json(answer);
+    const token = crypto.randomBytes(32).toString('base64url');
+    const t = Date.now();
+    q('INSERT INTO password_resets (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)').run(resetHash(token), user.id, t, t + RESET_MINUTES * 6e4);
+    const base = process.env.PUBLIC_URL?.replace(/\/$/, '') || `${req.protocol}://${req.get('host')}`;
+    try { await resetMailer(user, user.recovery_email, `${base}/reset/${token}`); } catch (e) { console.error('[auth] reset email:', e.message); }
+    audit(req, 'password.reset_requested', { target: user.username, actor: user });
+    res.json(answer);
+  });
+  // Is a reset link still good? (for the page, before typing a password)
+  r.get('/reset/:token', (req, res) => {
+    const row = q('SELECT r.*, u.username FROM password_resets r JOIN users u ON u.id = r.user_id WHERE r.token_hash = ?').get(resetHash(req.params.token));
+    if (!row || row.used_at || row.expires_at < Date.now()) throw new HttpError(410, 'This link has expired or been used. Ask for a new one from the sign-in page.');
+    res.json({ username: row.username });
+  });
+  r.post('/reset/:token', (req, res) => {
+    const row = q('SELECT * FROM password_resets WHERE token_hash = ?').get(resetHash(req.params.token));
+    if (!row || row.used_at || row.expires_at < Date.now()) throw new HttpError(410, 'This link has expired or been used. Ask for a new one from the sign-in page.');
+    const user = q('SELECT id, username, name, org_id, disabled FROM users WHERE id = ?').get(row.user_id);
+    if (!user || user.disabled) throw new HttpError(410, 'This account is turned off');
+    const pw = String(req.body?.password || '');
+    validatePassword(pw, { orgId: user.org_id, email: user.username, name: user.name });
+    tx(() => {
+      q('UPDATE users SET password_hash = ?, must_change_password = 0, password_set_at = ? WHERE id = ?').run(hashPassword(pw), Date.now(), user.id);
+      q('UPDATE password_resets SET used_at = ? WHERE user_id = ? AND used_at IS NULL').run(Date.now(), user.id); // every other link stops working too
+      q('DELETE FROM sessions WHERE user_id = ?').run(user.id); // signed out everywhere
+    });
+    setMailPassword(user.id, pw);
+    q('UPDATE users SET mail_app_hash = NULL, mail_app_created = NULL WHERE id = ?').run(user.id); // as with an admin's reset
+    audit(req, 'password.reset', { target: user.username, actor: user });
+    res.json({ ok: true, username: user.username });
+  });
   // The company's password rules, to show where a new password is chosen.
   r.get('/password-rules', requireAuth, (req, res) => { const rules = rulesOf(req.user.org_id); res.json({ ...rules, text: rulesText(rules) }); });
 

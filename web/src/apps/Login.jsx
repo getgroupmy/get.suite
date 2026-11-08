@@ -4,7 +4,7 @@ import BrandMark from '../components/BrandMark.jsx';
 import { applyAccent } from '../theme.js';
 import { useAuth } from '../App.jsx';
 
-export default function Login({ needsSetup }) {
+export default function Login({ needsSetup, canReset = false }) {
   const { setUser } = useAuth();
   const [form, setForm] = useState({ username: '', password: '', confirm: '', org_name: '', domain: '', name: '', local: '' });
   const [error, setError] = useState(() => { try { const m = sessionStorage.getItem('nw-signed-out'); sessionStorage.removeItem('nw-signed-out'); return m || ''; } catch { return ''; } });
@@ -18,6 +18,7 @@ export default function Login({ needsSetup }) {
   const [code, setCode] = useState('');
   const [useRecovery, setUseRecovery] = useState(false);
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
+  const [forgot, setForgot] = useState(null); // null, or { sent: message } once asked
 
   async function submit(e) {
     e.preventDefault();
@@ -69,6 +70,30 @@ export default function Login({ needsSetup }) {
 
   const domain = form.domain.trim().toLowerCase() || 'yourcompany.com';
 
+  if (forgot) {
+    return (
+      <div className="auth-page">
+        <form className="auth-card stack" aria-label="Forgot your password?" onSubmit={async (e) => {
+          e.preventDefault();
+          setBusy(true);
+          try { const r = await post('/auth/forgot', { username: form.username.trim() }); setForgot({ sent: r.message }); }
+          catch (err) { setError(err.message); }
+          finally { setBusy(false); }
+        }}>
+          {mark}
+          <h1>Forgot your password?</h1>
+          {forgot.sent ? <p role="status">{forgot.sent} Check that inbox (and its spam folder). No address? Ask your company's admin to reset your password.</p> : <>
+            <p className="muted small" style={{ margin: 0 }}>We'll email a link to choose a new one to the recovery address you added in Settings.</p>
+            <label className="field"><span>Email address</span><input type="email" value={form.username} onChange={set('username')} autoComplete="username" required autoFocus /></label>
+            {error && <p className="error" role="alert">{error}</p>}
+            <button className="btn primary block" disabled={busy}>{busy ? 'Please wait…' : 'Send me a link'}</button>
+          </>}
+          <button type="button" className="link-btn small" onClick={() => { setForgot(null); setError(''); }}>Back to sign in</button>
+        </form>
+      </div>
+    );
+  }
+
   return (
     <div className="auth-page">
       <form className="auth-card stack" onSubmit={submit}>
@@ -100,6 +125,48 @@ export default function Login({ needsSetup }) {
         )}
         {error && <p className="error" role="alert">{error}</p>}
         <button className="btn primary block" disabled={busy}>{busy ? 'Please wait…' : needsSetup ? 'Create workspace' : 'Sign in'}</button>
+        {!needsSetup && !ticket && canReset && <button type="button" className="link-btn small" onClick={() => setForgot({})}>Forgot password?</button>}
+      </form>
+    </div>
+  );
+}
+
+/** /reset/<token>: choose a new password from the link emailed to the recovery address. */
+export function ResetPassword({ token }) {
+  const [state, setState] = useState({ loading: true }); // { username } | { error } | { done }
+  const [pw, setPw] = useState({ password: '', confirm: '' });
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    fetch(`/api/auth/reset/${encodeURIComponent(token)}`).then(async (r) => {
+      const d = await r.json().catch(() => ({}));
+      setState(r.ok ? { username: d.username } : { error: d.error || 'This link has expired or been used.' });
+    }).catch(() => setState({ error: 'The server could not be reached.' }));
+  }, [token]);
+  const submit = async (e) => {
+    e.preventDefault();
+    setError('');
+    if (pw.password !== pw.confirm) return setError('Passwords do not match');
+    setBusy(true);
+    try { await post(`/auth/reset/${encodeURIComponent(token)}`, { password: pw.password }); setState({ done: true, username: state.username }); }
+    catch (err) { setError(err.message); }
+    finally { setBusy(false); }
+  };
+  return (
+    <div className="auth-page">
+      <form className="auth-card stack" onSubmit={submit} aria-label="Choose a new password">
+        <div className="brand big"><BrandMark name="Workspace" /><span className="brand-text">Workspace</span></div>
+        <h1>Choose a new password</h1>
+        {state.loading ? <p className="muted">Checking the link…</p>
+          : state.error ? <><p className="error" role="alert">{state.error}</p><a className="btn" href="/">Back to sign in</a></>
+          : state.done ? <><p role="status">Your password is changed, and you've been signed out everywhere. Sign in with the new one.</p><a className="btn primary" href="/">Sign in</a></>
+          : <>
+            <p className="muted small" style={{ margin: 0 }}>For {state.username}. You'll be signed out on every device.</p>
+            <label className="field"><span>New password</span><input type="password" autoComplete="new-password" minLength={8} value={pw.password} onChange={(e) => setPw({ ...pw, password: e.target.value })} required autoFocus /></label>
+            <label className="field"><span>Confirm new password</span><input type="password" autoComplete="new-password" value={pw.confirm} onChange={(e) => setPw({ ...pw, confirm: e.target.value })} required /></label>
+            {error && <p className="error" role="alert">{error}</p>}
+            <button className="btn primary block" disabled={busy}>{busy ? 'Please wait…' : 'Change password'}</button>
+          </>}
       </form>
     </div>
   );
