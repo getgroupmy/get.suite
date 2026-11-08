@@ -3365,3 +3365,30 @@ test('second time zone for Calendar', async () => {
   await a('PUT', '/api/users/me/second-tz', { tz: null });
   assert.equal((await a('GET', '/api/auth/me')).body.user.second_tz, null);
 });
+
+test('status from the calendar: in a meeting, focusing, out of office; a set status wins', async () => {
+  const a = client(); const b = client();
+  const aid = (await owner('POST', '/api/users', { local: 'cst', domain: 'acme.com', name: 'Cal Status', password: 'password123' })).body.id;
+  assert.equal((await owner('POST', '/api/users', { local: 'csu', domain: 'acme.com', name: 'Cal Viewer', password: 'password123' })).status, 201);
+  await login(a, 'cst@acme.com'); await login(b, 'csu@acme.com');
+  const statusOfA = async () => (await b('GET', '/api/users/directory')).body.find((u) => u.id === aid).status;
+  assert.equal(await statusOfA(), null);
+  const now = Date.now();
+  // On your own: no status. With someone: in a meeting.
+  const solo = (await a('POST', '/api/events', { title: 'Lunch', start: now - 60e3, end: now + 36e5 })).body;
+  assert.equal(await statusOfA(), null);
+  await a('PATCH', `/api/events/${solo.id}`, { guests: ['csu@acme.com'] });
+  const st = await statusOfA();
+  assert.deepEqual([st.emoji, st.text, st.auto], ['📅', 'In a meeting', true]);
+  assert.equal(st.until, solo.end);
+  assert.ok(!JSON.stringify(st).includes('Lunch'), 'no titles');
+  // Focus outranks a meeting; out of office outranks both.
+  await a('POST', '/api/events', { title: 'Deep', kind: 'focus', start: now - 60e3, end: now + 30 * 6e4 });
+  assert.equal((await statusOfA()).text, 'Focusing');
+  const ooo = (await a('POST', '/api/events', { title: 'Away', kind: 'ooo', start: now - 864e5, end: now + 864e5, all_day: 1 })).body;
+  assert.equal((await statusOfA()).text, 'Out of office');
+  // A status you set yourself wins.
+  await a('PUT', '/api/users/me/status', { emoji: '🍕', text: 'Lunch', until: now + 36e5 });
+  assert.equal((await statusOfA()).text, 'Lunch');
+  void ooo;
+});

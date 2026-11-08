@@ -32,4 +32,8 @@ export function untilText(until, now = new Date()) {
 }
 
 /** The words for a status: "🌴 On holiday". */
-export const statusLine = (s) => (s ? [s.emoji, s.text].filter(Boolean).join(' ') : '');
+export const statusLine = (s, now = new Date()) => {
+  if (!s) return '';
+  const words = [s.emoji, s.text].filter(Boolean).join(' ');
+  return s.auto && s.until ? `${words} ${untilText(s.until, now)}` : words; // from the calendar: "📅 In a meeting until 15:00"
+};

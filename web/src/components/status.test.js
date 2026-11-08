@@ -22,3 +22,9 @@ test('describing when it clears', () => {
   assert.equal(statusLine({ emoji: null, text: 'Busy' }), 'Busy');
   assert.equal(statusLine(null), '');
 });
+
+test('a status from the calendar says until when', () => {
+  const now = new Date(2026, 10, 9, 14, 0);
+  const line = statusLine({ emoji: '📅', text: 'In a meeting', until: new Date(2026, 10, 9, 15, 0).getTime(), auto: true }, now);
+  assert.match(line, /^📅 In a meeting until (3:00\s?PM|15:00)$/i);
+});

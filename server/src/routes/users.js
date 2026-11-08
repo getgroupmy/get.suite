@@ -14,7 +14,7 @@ import { planImport, readablePassword, usersCsv } from '../userimport.js';
 import { sendTo } from '../hub.js';
 import { hoursOf, setHours, readHours, hoursText } from '../workhours.js';
 import { insertFile, uniqueName } from './files.js';
-import { focusUntil } from './calendar.js';
+import { focusUntil, calendarStatus } from './calendar.js';
 
 /** A status as shown, or null once it has cleared. */
 export function statusOf(row, at = Date.now()) {
@@ -82,7 +82,7 @@ export default function userRoutes() {
   r.get('/directory', (req, res) => {
     const now = Date.now();
     res.json(q('SELECT id, username, name, status_emoji, status_text, status_until, paused_until FROM users WHERE org_id = ? AND disabled = 0 ORDER BY name')
-      .all(req.user.org_id).map(({ status_emoji, status_text, status_until, paused_until, ...u }) => ({ ...u, status: statusOf({ status_emoji, status_text, status_until }), paused_until: paused_until > now ? paused_until : null })));
+      .all(req.user.org_id).map(({ status_emoji, status_text, status_until, paused_until, ...u }) => ({ ...u, status: statusOf({ status_emoji, status_text, status_until }) || calendarStatus(u.id), paused_until: paused_until > now ? paused_until : null })));
   });
 
   // Photos: who has one (your company), yours to set or remove, and each one's picture.

@@ -299,6 +299,32 @@ function declineAway(organizer, ev, added) {
 /** Tell everyone involved to refresh (organizer's other tabs, and guests). */
 export const touch = (ids) => sendTo([...new Set(ids)], { type: 'events-changed' });
 
+/**
+ * What someone's calendar says they're doing right now, as a status for colleagues (no titles):
+ * out of office, focus time or a meeting (an event with other people they haven't declined).
+ * { emoji, text, until, auto: true } or null.
+ */
+export function calendarStatus(userId, t = Date.now()) {
+  const rows = q(`SELECT DISTINCT e.* FROM events e LEFT JOIN event_guests g ON g.event_id = e.id AND g.user_id = ?
+                  WHERE (e.owner_id = ? OR (g.user_id IS NOT NULL AND COALESCE(g.status, '') != 'no')) AND e.start <= ?
+                  AND (e.end > ? OR (e.rrule IS NOT NULL AND (e.repeat_until IS NULL OR e.repeat_until > ?)))`).all(userId, userId, t, t, t);
+  let best = null;
+  const rank = { ooo: 3, focus: 2, meeting: 1 };
+  for (const r of rows) {
+    const kind = r.kind === 'ooo' ? 'ooo' : r.kind === 'focus' ? 'focus' : r.all_day ? null
+      : (r.owner_id !== userId || q('SELECT 1 FROM event_guests WHERE event_id = ? AND user_id != ? AND COALESCE(status, \'\') != \'no\'').get(r.id, userId)
+        || q('SELECT 1 FROM event_outside_guests WHERE event_id = ?').get(r.id)) ? 'meeting' : null;
+    if (!kind) continue;
+    for (const o of expand(outEvent(r), t - 31 * 864e5, t + 1)) {
+      if (!(o.start <= t && o.end > t)) continue;
+      if (!best || rank[kind] > rank[best.kind] || (rank[kind] === rank[best.kind] && o.end > best.until)) best = { kind, until: o.end };
+    }
+  }
+  if (!best) return null;
+  const say = { ooo: ['🌴', 'Out of office'], focus: ['🎯', 'Focusing'], meeting: ['📅', 'In a meeting'] }[best.kind];
+  return { emoji: say[0], text: say[1], until: best.until, auto: true };
+}
+
 /** The end of the focus time this person is in right now (their own repeating ones too), or null. */
 export function focusUntil(userId, t = Date.now()) {
   const rows = q(`SELECT * FROM events WHERE owner_id = ? AND kind = 'focus' AND start <= ?
