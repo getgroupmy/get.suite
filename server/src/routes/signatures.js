@@ -24,7 +24,7 @@ q(`CREATE TABLE IF NOT EXISTS sign_requests (
   message TEXT NOT NULL DEFAULT '',
   content TEXT NOT NULL,            -- the document as sent (what's signed)
   hash TEXT NOT NULL,               -- SHA-256 of it
-  status TEXT NOT NULL DEFAULT 'pending', -- pending | complete | cancelled
+  status TEXT NOT NULL DEFAULT 'pending', -- pending | complete | cancelled | declined
   created_at INTEGER NOT NULL,
   completed_at INTEGER
 )`).run();
@@ -42,6 +42,10 @@ q(`CREATE TABLE IF NOT EXISTS sign_signers (
 )`).run();
 q('CREATE INDEX IF NOT EXISTS sign_requests_file ON sign_requests(file_id, created_at)').run();
 if (!q('PRAGMA table_info(sign_requests)').all().some((c) => c.name === 'reminded_at')) q('ALTER TABLE sign_requests ADD COLUMN reminded_at INTEGER').run();
+// A signer who declined: who, why and when (the request stops there).
+for (const [col, type] of [['declined_by', 'TEXT'], ['decline_reason', 'TEXT']]) {
+  if (!q('PRAGMA table_info(sign_requests)').all().some((c) => c.name === col)) q(`ALTER TABLE sign_requests ADD COLUMN ${col} ${type}`).run();
+}
 // in_order: signers sign one after another, each asked once the one before has signed.
 if (!q('PRAGMA table_info(sign_requests)').all().some((c) => c.name === 'in_order')) q('ALTER TABLE sign_requests ADD COLUMN in_order INTEGER NOT NULL DEFAULT 0').run();
 
@@ -71,7 +75,7 @@ export function describe(r, { forUser = null } = {}) {
   const cur = q('SELECT content FROM files WHERE id = ?').get(r.file_id)?.content || '{}';
   return { id: r.id, file_id: r.file_id, title: r.title, message: r.message, status: r.status, hash: r.hash, created_at: r.created_at, completed_at: r.completed_at, requested_by: by,
     changed_since: crypto.createHash('sha256').update(cur).digest('hex') !== r.hash, // the document isn't what was signed any more
-    in_order: !!r.in_order,
+    in_order: !!r.in_order, declined_by: r.declined_by || null, decline_reason: r.decline_reason || null,
     signers: signers.map(({ token, ...s }) => ({ ...s, ...(forUser && s.user_id === forUser && !s.signed_at && r.status === 'pending' && turnOf(r).some((t) => t.token === token) && { my_link: `/sign/${token}` }) })) };
 }
 const latestFor = (fileId, userId) => describe(q("SELECT * FROM sign_requests WHERE file_id = ? AND status != 'cancelled' ORDER BY created_at DESC LIMIT 1").get(fileId), { forUser: userId });
@@ -175,7 +179,7 @@ export default function signatureRoutes() {
 export function publicSignRoutes() {
   const r = Router();
   const find = (token) => {
-    const s = q(`SELECT s.*, r.id AS rid, r.title, r.message, r.content, r.hash, r.status, r.requested_by, r.file_id, r.in_order, u.name AS by_name
+    const s = q(`SELECT s.*, r.id AS rid, r.title, r.message, r.content, r.hash, r.status, r.requested_by, r.file_id, r.in_order, r.declined_by, r.decline_reason, u.name AS by_name
                  FROM sign_signers s JOIN sign_requests r ON r.id = s.request_id LEFT JOIN users u ON u.id = r.requested_by WHERE s.token = ?`).get(String(token));
     if (!s || s.status === 'cancelled') throw notFound('This signing link is no longer valid');
     return s;
@@ -183,7 +187,7 @@ export function publicSignRoutes() {
   const shown = (s) => ({
     title: s.title, message: s.message, requested_by: s.by_name, status: s.status, hash: s.hash, content: JSON.parse(s.content),
     me: { email: s.email, signed_at: s.signed_at, name: s.name },
-    in_order: !!s.in_order,
+    in_order: !!s.in_order, declined_by: s.declined_by || null, decline_reason: s.decline_reason || null,
     waiting_for: s.status === 'pending' && !s.signed_at && !turnOf({ id: s.rid, in_order: s.in_order }).some((t) => t.token === s.token)
       ? (() => { const t = turnOf({ id: s.rid, in_order: s.in_order })[0]; return t ? (q('SELECT name FROM sign_signers WHERE request_id = ? AND email = ?').get(s.rid, t.email)?.name || t.email) : null; })() : null,
     signers: q('SELECT email, name, signed_at FROM sign_signers WHERE request_id = ? ORDER BY position').all(s.rid).map((x) => ({ name: x.name, email: x.email, signed: !!x.signed_at })),
@@ -213,6 +217,27 @@ export function publicSignRoutes() {
       bell([s.requested_by], { kind: 'share', title: done ? `Everyone has signed “${s.title}”` : `${name} signed “${s.title}”`, body: null, link: `/docs/${s.file_id}`, actor: name });
       if (done && requester) await mailSigner(requester, requester.username, `Signed by everyone: ${s.title}`, `Everyone has signed “${s.title}”.\n\nThe document is locked, with the signatures, in Workspace: ${baseUrl(req)}/docs/${s.file_id}`);
     }
+    tell(reqRow);
+    res.json(shown(find(req.params.token)));
+  });
+  // Decline to sign, with a reason: the request stops, the document is unlocked, and the sender is told.
+  r.post('/:token/decline', async (req, res) => {
+    const s = find(req.params.token);
+    if (s.signed_at) throw bad('You have already signed this');
+    if (s.status !== 'pending') throw bad('This is no longer waiting for signatures');
+    const reason = str(req.body?.reason ?? '', { max: 500 }) || null;
+    const who = s.name || q('SELECT name FROM users WHERE id = ?').get(s.user_id)?.name || s.email;
+    tx(() => {
+      q("UPDATE sign_requests SET status = 'declined', completed_at = ?, declined_by = ?, decline_reason = ? WHERE id = ?").run(now(), who, reason, s.rid);
+      q('UPDATE files SET locked_by = NULL, locked_at = NULL WHERE id = ? AND locked_by = ?').run(s.file_id, s.requested_by);
+    });
+    const reqRow = q('SELECT * FROM sign_requests WHERE id = ?').get(s.rid);
+    if (s.requested_by) {
+      bell([s.requested_by], { kind: 'share', title: `${who} declined to sign “${s.title}”`, body: reason, link: `/docs/${s.file_id}`, actor: who });
+      const requester = q('SELECT * FROM users WHERE id = ?').get(s.requested_by);
+      if (requester) await mailSigner(requester, requester.username, `Declined: ${s.title}`, `${who} (${s.email}) declined to sign “${s.title}”.${reason ? `\n\nTheir reason: ${reason}` : ''}\n\nThe document is unlocked again: ${baseUrl(req)}/docs/${s.file_id}`);
+    }
+    sendTo(new Set(peopleOf(reqRow)), { type: 'file-locked', id: s.file_id, locked_at: null, by_name: who });
     tell(reqRow);
     res.json(shown(find(req.params.token)));
   });

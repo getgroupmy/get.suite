@@ -1931,3 +1931,4 @@ tr.shortcut-row.broken .name-text { color: var(--muted, #777); font-style: itali
 .sign-pad { width: min(100%, 480px); height: 140px; border: 1px dashed var(--border); border-radius: 6px; background: #fff; touch-action: none; cursor: crosshair; }
 .sign-page .paper { width: 100%; box-sizing: border-box; min-height: 0; padding: clamp(20px, 6vw, 72px) clamp(16px, 8vw, 88px); }
 .sign-page .paper .tiptap { min-height: 0; }
+.sign-banner.declined { background: color-mix(in srgb, #d93025 10%, var(--surface)); }

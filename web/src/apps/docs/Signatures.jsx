@@ -55,7 +55,9 @@ export function SignatureBanner({ fileId, me, onChanged }) {
   return (
     <div className={`banner sign-banner row wrap ${s.status}`} role="region" aria-label="Signatures">
       <span aria-hidden="true">✍️</span>
-      <span className="grow">{s.status === 'complete'
+      <span className="grow">{s.status === 'declined'
+        ? <><strong>Declined</strong> by {s.declined_by}{s.decline_reason ? `: “${s.decline_reason}”` : ''} · it can be sent again</>
+        : s.status === 'complete'
         ? <><strong>Signed by everyone</strong> · {when(s.completed_at)}{s.changed_since && <> · <strong className="error">changed since it was signed</strong></>}</>
         : <><strong>Out for signature</strong>{s.in_order ? ' in order' : ''} · {signed} of {s.signers.length} signed{s.requested_by ? ` · sent by ${s.requested_by.id === me?.id ? 'you' : s.requested_by.name}` : ''}</>}</span>
       {mine && <a className="btn small primary" href={mine.my_link}>Sign now</a>}
@@ -119,6 +121,7 @@ export function SignPage({ token }) {
   const [image, setImage] = useState(null);
   const [agree, setAgree] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [declining, setDeclining] = useState(null); // the reason being typed
   useEffect(() => { api('GET', `/public/sign/${token}`).then((r) => { setD(r); setName(r.me.name || ''); }).catch((e) => setError(e.message)); }, [token]);
   if (error && !d) return <div className="auth-page"><div className="auth-card"><h1>Signing</h1><p>{error}</p></div></div>;
   if (!d) return <div className="auth-page"><p className="muted">Loading…</p></div>;
@@ -127,6 +130,10 @@ export function SignPage({ token }) {
     try { setD(await api('POST', `/public/sign/${token}`, { name, image: mode === 'draw' ? image : null, agree })); } catch (e) { setError(e.message); } finally { setBusy(false); }
   };
   const ready = name.trim() && agree && (mode === 'type' || image);
+  const decline = async () => {
+    setBusy(true); setError('');
+    try { setD(await api('POST', `/public/sign/${token}/decline`, { reason: declining })); setDeclining(null); } catch (e) { setError(e.message); } finally { setBusy(false); }
+  };
   return (
     <div className="sign-page">
       <header className="sign-head">
@@ -138,7 +145,14 @@ export function SignPage({ token }) {
       <section className="sign-box card stack" aria-label="Sign">
         {d.me.signed_at ? (
           <p role="status"><strong>You signed this</strong> as {d.me.name} on {when(d.me.signed_at)}.{d.status === 'complete' ? ' Everyone has signed.' : ' The others are still to sign.'}</p>
-        ) : d.status !== 'pending' ? <p>This is no longer waiting for signatures.</p> : d.waiting_for ? (
+        ) : d.status === 'declined' ? (
+          <p role="status"><strong>Declined</strong> by {d.declined_by}{d.decline_reason ? `: “${d.decline_reason}”` : ''}. It is no longer waiting for signatures.</p>
+        ) : d.status !== 'pending' ? <p>This is no longer waiting for signatures.</p> : declining !== null ? <>
+          <h2 style={{ margin: 0 }}>Decline to sign</h2>
+          <label className="field"><span>Why? (optional, {d.requested_by || 'the sender'} sees it)</span><textarea rows={3} maxLength={500} value={declining} onChange={(e) => setDeclining(e.target.value)} /></label>
+          {error && <p className="error" role="alert">{error}</p>}
+          <div className="row"><button type="button" className="btn danger" disabled={busy} onClick={decline}>Decline</button><button type="button" className="btn" onClick={() => setDeclining(null)}>Back</button></div>
+        </> : d.waiting_for ? (
           <p role="status">It's signed in order: <strong>{d.waiting_for}</strong> signs before you. You'll be asked when it's your turn.</p>
         ) : <>
           <h2 style={{ margin: 0 }}>Sign</h2>
@@ -150,7 +164,8 @@ export function SignPage({ token }) {
           {mode === 'draw' ? <SignaturePad onChange={setImage} /> : <div className="sign-typed big" aria-label="Your typed signature">{name || ' '}</div>}
           <label className="check small"><input type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} /> I agree to sign this document electronically, and that this is my signature.</label>
           {error && <p className="error" role="alert">{error}</p>}
-          <div className="row"><button type="button" className="btn primary" disabled={!ready || busy} onClick={sign}>{busy ? 'Signing…' : 'Sign'}</button></div>
+          <div className="row"><button type="button" className="btn primary" disabled={!ready || busy} onClick={sign}>{busy ? 'Signing…' : 'Sign'}</button>
+            <span className="grow" /><button type="button" className="link-btn small" onClick={() => setDeclining('')}>Decline to sign…</button></div>
           <p className="muted small" style={{ margin: 0 }}>The time, your address and this exact text (fingerprint {d.hash.slice(0, 12)}…) are recorded with your signature.</p>
         </>}
       </section>

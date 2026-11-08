@@ -4754,3 +4754,23 @@ test('signatures in order: each signer is asked once the one before has signed',
   assert.equal((await anon('GET', `/api/public/sign/${tomToken}`)).body.waiting_for, null);
   assert.equal((await anon('POST', `/api/public/sign/${tomToken}`, { name: 'Tom Second', image: null, agree: true })).body.status, 'complete');
 });
+
+test('signatures: a signer can decline with a reason; it stops and the document unlocks', async () => {
+  const kay = client(); await login(kay, 'kay@keepco.com');
+  await kay('POST', '/api/users', { local: 'sdx', domain: 'keepco.com', name: 'Dee Cliner', password: 'password123' });
+  const dee = client(); await login(dee, 'sdx@keepco.com');
+  const doc = (await kay('POST', '/api/files/new', { kind: 'doc', name: 'Offer' })).body;
+  await kay('POST', '/api/signatures', { file_id: doc.id, signers: ['sdx@keepco.com'] });
+  const token = (await dee('GET', '/api/signatures')).body.waiting[0].link.split('/sign/')[1];
+  const anon = client();
+  const r = await anon('POST', `/api/public/sign/${token}/decline`, { reason: 'The salary is wrong' });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.status, 'declined');
+  assert.equal(r.body.decline_reason, 'The salary is wrong');
+  assert.equal((await anon('POST', `/api/public/sign/${token}`, { name: 'Dee', image: null, agree: true })).status, 400);
+  const cur = (await kay('GET', `/api/signatures/file/${doc.id}`)).body.current;
+  assert.equal(cur.status, 'declined'); assert.equal(cur.declined_by, 'Dee Cliner');
+  assert.equal((await kay('GET', `/api/files/${doc.id}`)).body.locked_at, null, 'unlocked');
+  assert.ok((await kay('GET', '/api/notifications')).body.items.some((n) => n.title === 'Dee Cliner declined to sign “Offer”' && n.body === 'The salary is wrong'));
+  assert.equal((await kay('POST', '/api/signatures', { file_id: doc.id, signers: ['sdx@keepco.com'] })).status, 201, 'can be sent again');
+});
