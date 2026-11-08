@@ -1238,3 +1238,36 @@ test('mail merge: a personal message to each row; unknown placeholders refused; 
   assert.match(full.html, /75 &amp; tax/);
   await eventually(async () => (await inbox(olivia)).filter((m) => m.subject === 'Figures for Olivia').length === 2, 20000); // the test, then the real one
 });
+
+test('follow-ups: a reminder when nobody replied; none when someone did; cancelling', async () => {
+  const { checkFollowUps } = await import('../src/routes/webmail.js');
+  const { q } = await import('../src/db.js');
+  assert.equal((await olivia('POST', '/api/mail/send', { to: 'gina@globex.com', subject: 'Quote request', text: 'x', followUp: 5 })).status, 400, 'only the offered choices');
+  for (const subject of ['Any news on the quote?', 'Meeting next week?', 'Cancel me']) {
+    const r = await olivia('POST', '/api/mail/send', { to: 'gina@globex.com', subject, text: 'Let me know.', followUp: 3 });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+  }
+  const waiting = (await olivia('GET', '/api/mail/followups')).body;
+  assert.equal(waiting.length, 3);
+  assert.ok(waiting.every((f) => f.message_id.startsWith('<') && f.due_at > Date.now() + 2.9 * 864e5));
+  // Gina answers the second one.
+  const m = await eventually(async () => (await inbox(gina)).find((x) => x.subject === 'Meeting next week?'));
+  const full = (await gina('GET', `/api/mail/messages/${m.uid}?folder=INBOX`)).body;
+  assert.equal((await gina('POST', '/api/mail/send', { to: 'olivia@acme.com', subject: 'Re: Meeting next week?', text: 'Yes!', inReplyTo: full.messageId, references: full.references })).status, 200);
+  await eventually(async () => (await inbox(olivia)).some((x) => x.subject === 'Re: Meeting next week?'));
+  // Cancel the third.
+  const third = waiting.find((f) => f.subject === 'Cancel me');
+  assert.equal((await olivia('GET', `/api/mail/followups?message_id=${encodeURIComponent(third.message_id)}`)).body.length, 1);
+  assert.equal((await olivia('DELETE', `/api/mail/followups/${third.id}`)).status, 200);
+  // Time passes.
+  q('UPDATE mail_followups SET due_at = ?').run(Date.now() - 1000);
+  assert.equal(await checkFollowUps(), 1);
+  const bell = (await olivia('GET', '/api/notifications')).body;
+  const list = Array.isArray(bell) ? bell : bell.items || bell.notifications || [];
+  const told = list.filter((n) => /^No reply yet/.test(n.title)).map((n) => n.title);
+  assert.deepEqual(told, ['No reply yet: “Any news on the quote?”']);
+  const n = list.find((x) => /^No reply yet/.test(x.title));
+  assert.match(n.link, /^\/mail\?open=%3C/);
+  assert.match(n.body, /Sent to Gina Globex|Sent to gina@globex.com/);
+  assert.equal((await olivia('GET', '/api/mail/followups')).body.length, 0, 'done with');
+});

@@ -383,6 +383,26 @@ export default function Mail() {
   );
 }
 
+/** On a message you sent with "remind me if no reply": when, and a way to cancel it. */
+function FollowUpBanner({ messageId }) {
+  const toast = useToast();
+  const [f, setF] = useState(null);
+  useEffect(() => {
+    setF(null);
+    if (!messageId) return undefined;
+    let alive = true;
+    get(`/mail/followups?message_id=${encodeURIComponent(messageId)}`).then((l) => { if (alive) setF(l[0] || null); }).catch(() => {});
+    return () => { alive = false; };
+  }, [messageId]);
+  if (!f) return null;
+  return (
+    <div className="banner" role="region" aria-label="Follow-up">
+      <span className="grow">⏰ You'll be reminded {new Date(f.due_at).toLocaleString([], { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })} if nobody has replied.</span>
+      <button type="button" className="btn small" onClick={async () => { try { await del(`/mail/followups/${f.id}`); setF(null); toast('Follow-up reminder cancelled'); } catch (e) { toast(e.message, 'error'); } }}>Cancel reminder</button>
+    </div>
+  );
+}
+
 function Reader({ folder, uid, special, onClose, onOpen, onChanged, act, onCompose, onFilter, onSnoozeCustom, labels = [], onNewLabel }) {
   const mailStatus = useMailStatus();
   const toast = useToast();
@@ -499,6 +519,7 @@ function Reader({ folder, uid, special, onClose, onOpen, onChanged, act, onCompo
         </div>
         <span className="muted small nowrap">{m.date ? new Date(m.date).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : ''}</span>
       </div>
+      <FollowUpBanner messageId={m.messageId} />
       {m.receipt && (
         <div className="banner receipt-ask" role="region" aria-label="Read receipt">
           <span className="grow">{who(m.from)} asked to be told when you've opened this message.</span>
@@ -673,6 +694,7 @@ function Compose({ initial, signatures = [], onClose, onSent, onDraftsChanged })
   });
   const [showCc, setShowCc] = useState(!!(initial.cc || initial.bcc));
   const [receipt, setReceipt] = useState(false); // ask for a read receipt
+  const [followUp, setFollowUp] = useState(''); // days: remind me if nobody replies by then
   const [files, setFiles] = useState(initial.files || []);
   // Attachments carried over from a forwarded message (attached by the server from the original).
   const [fwd, setFwd] = useState(initial.forwardOf || null);
@@ -758,7 +780,7 @@ function Compose({ initial, signatures = [], onClose, onSent, onDraftsChanged })
   const pendingSend = useRef(null); // the send to do when the wait is over (or the page is left)
   useEffect(() => () => { pendingSend.current?.(); }, []); // leaving now sends straight away
   const [scheduling, setScheduling] = useState(false);
-  const payload = () => ({ ...f, html: f.text.trim() ? emailHtml(f.html) : '', attachments: files.map((x) => x.id), draftUid: draftUid.current, forwardOf: fwd, receipt });
+  const payload = () => ({ ...f, html: f.text.trim() ? emailHtml(f.html) : '', attachments: files.map((x) => x.id), draftUid: draftUid.current, forwardOf: fwd, receipt, ...(followUp && { followUp: Number(followUp) }) });
   const stopAutosave = async () => {
     closed.current = true;          // no more autosaves
     clearTimeout(timer.current);
@@ -890,6 +912,10 @@ function Compose({ initial, signatures = [], onClose, onSent, onDraftsChanged })
           <button type="button" className="icon-btn" aria-label="Attach from computer" title="Attach from computer" onClick={() => fileInput.current.click()}><Icon name="attach" /></button>
           <button type="button" className="icon-btn" aria-label="Attach from Drive" title="Attach from Drive" onClick={() => setPicking(true)}><Icon name="folder" /></button>
           <label className="check small" title="The recipient's mail app may offer to tell you when they open it; they can say no"><input type="checkbox" checked={receipt} onChange={(e) => setReceipt(e.target.checked)} /> Read receipt</label>
+          <select className="small followup-pick" aria-label="Remind me if no reply" title="Get a notification if nobody has replied by then" value={followUp} onChange={(e) => setFollowUp(e.target.value)}>
+            <option value="">No follow-up</option>
+            {[[1, 'in 1 day'], [2, 'in 2 days'], [3, 'in 3 days'], [7, 'in a week'], [14, 'in 2 weeks']].map(([d, t]) => <option key={d} value={d}>⏰ No reply {t}</option>)}
+          </select>
           <Menu align="left" trigger={(p) => <button type="button" className="icon-btn" aria-label="Templates" title="Templates" {...p}><Icon name="doc" /></button>} items={[
             ...templates.map((t) => ({ label: t.name, onClick: () => applyTemplate(t) })),
             ...(templates.length ? ['-'] : []),

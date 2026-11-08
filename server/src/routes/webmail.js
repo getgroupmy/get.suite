@@ -1,4 +1,5 @@
 import { companySignature, companySignatureFor } from '../mail/companysig.js';
+import { notify as notifyBell } from '../notifications.js';
 import { audit } from '../audit.js';
 import { fillTemplate, mergeHtml, unknownPlaceholders } from '../mail/merge.js';
 import { Router } from 'express';
@@ -151,6 +152,75 @@ export function redate(raw, date = new Date()) {
   return Buffer.concat([Buffer.from(next, 'latin1'), raw.subarray(Buffer.byteLength(head, 'latin1'))]);
 }
 
+// Follow-ups: "remind me if nobody replies" on a sent message. When it's due, the person's folders
+// (not Sent, Drafts, Junk or Trash) are searched for a reply to it (In-Reply-To or References); if
+// there's none, a notification says so. Replies on the way cancel nothing early; it's checked when due.
+q(`CREATE TABLE IF NOT EXISTS mail_followups (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  message_id TEXT NOT NULL,
+  subject TEXT,
+  recipients TEXT,
+  due_at INTEGER NOT NULL,
+  created_at INTEGER NOT NULL
+)`).run();
+const FOLLOW_UP_DAYS = [1, 2, 3, 7, 14];
+/** The Message-ID header of a built message. */
+export function messageIdOf(raw) {
+  const head = raw.toString('latin1').split(/\r?\n\r?\n/)[0];
+  return (/^Message-ID:\s*(<[^>\r\n]+>)/im.exec(head) || [])[1] || null;
+}
+function addFollowUp(user, raw, { subject, to }, days, from = Date.now()) {
+  const d = Number(days);
+  if (!FOLLOW_UP_DAYS.includes(d)) throw bad('Choose when to be reminded');
+  const mid = messageIdOf(raw);
+  if (!mid) return null;
+  const id = newId();
+  q('INSERT INTO mail_followups (id, user_id, message_id, subject, recipients, due_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .run(id, user.id, mid, subject || '', JSON.stringify(to || []), from + d * 864e5, Date.now());
+  return id;
+}
+/** Has anything in the person's mailbox (other than what they sent or binned) replied to this message? */
+async function hasReply(user, messageId) {
+  return withClient(user, async (c) => {
+    const skip = new Set(['\\Sent', '\\Drafts', '\\Junk', '\\Trash']);
+    for (const f of await c.list()) {
+      if (f.flags?.has?.('\\Noselect') || skip.has(f.specialUse)) continue;
+      const lock = await c.getMailboxLock(f.path).catch(() => null);
+      if (!lock) continue;
+      try {
+        const a = (await c.search({ header: { 'in-reply-to': messageId } }, { uid: true })) || [];
+        const b = a.length ? a : (await c.search({ header: { references: messageId } }, { uid: true })) || [];
+        if (b.length) return true;
+      } finally { lock.release(); }
+    }
+    return false;
+  });
+}
+let following = false;
+/** Check the follow-ups that are due: tell the sender about the ones nobody has answered. */
+export async function checkFollowUps(at = Date.now()) {
+  if (following) return 0;
+  following = true;
+  let told = 0;
+  try {
+    for (const row of q('SELECT * FROM mail_followups WHERE due_at <= ? ORDER BY due_at LIMIT 50').all(at)) {
+      const user = q('SELECT * FROM users WHERE id = ? AND disabled = 0').get(row.user_id);
+      if (!user) continue;
+      let replied;
+      try { replied = await hasReply(user, row.message_id); } catch (e) { console.error('[mail] follow-up:', e.message); continue; }
+      q('DELETE FROM mail_followups WHERE id = ?').run(row.id);
+      if (replied) continue;
+      const to = JSON.parse(row.recipients || '[]');
+      const days = Math.max(1, Math.round((row.due_at - row.created_at) / 864e5));
+      notifyBell([user.id], { kind: 'followup', title: `No reply yet: “${row.subject || '(no subject)'}”`, body: `Sent to ${to.slice(0, 3).join(', ')}${to.length > 3 ? ` and ${to.length - 3} more` : ''} ${days} day${days === 1 ? '' : 's'} ago`, link: `/mail?open=${encodeURIComponent(row.message_id)}`, actor: null });
+      sendTo([user.id], { type: 'mail-followups' });
+      told++;
+    }
+  } finally { following = false; }
+  return told;
+}
+
 let sending = false;
 /** Send the scheduled messages that are due (tried three times, a few minutes apart, before giving up). */
 export async function sendDue() {
@@ -182,6 +252,7 @@ export function startScheduledSending() {
   setInterval(() => {
     sendDue().catch((e) => console.error('[mail] scheduled sending:', e.message));
     wakeDue().catch((e) => console.error('[mail] snooze:', e.message));
+    checkFollowUps().catch((e) => console.error('[mail] follow-ups:', e.message));
   }, 20e3).unref();
 }
 const MAX_SEND_BYTES = 25 * 1024 * 1024;
@@ -1042,12 +1113,15 @@ export default function webmailRoutes() {
         b.replyTo?.folder && b.replyTo?.uid ? JSON.stringify({ folder: String(b.replyTo.folder), uid: Number(b.replyTo.uid) }) : null, now());
       if (b.draftUid) await deleteDraft(req.user, await specialOf(req.user, '\\Drafts').catch(() => null), Number(b.draftUid)).catch(() => {});
       recordSent(req.user, m.all);
+      if (b.followUp) addFollowUp(req.user, m.raw, m, b.followUp, at);
       sendTo([req.user.id], { type: 'mail-scheduled' });
       return res.status(201).json({ ok: true, scheduled: { id, send_at: at } });
     }
+    if (b.followUp && !FOLLOW_UP_DAYS.includes(Number(b.followUp))) throw bad('Choose when to be reminded');
     const m = await buildMessage(req);
     await deliver(req.user, m.raw, m.envelope, { replyTo: b.replyTo });
     recordSent(req.user, m.all);
+    if (b.followUp) addFollowUp(req.user, m.raw, m, b.followUp);
     if (b.draftUid) await deleteDraft(req.user, await specialOf(req.user, '\\Drafts').catch(() => null), Number(b.draftUid)).catch(() => {});
     res.json({ ok: true, recipients: m.all.length });
   });
@@ -1081,6 +1155,20 @@ export default function webmailRoutes() {
     }
     if (!b.test) audit(req, 'mail.merge', { target: subject.slice(0, 200), details: { sent: sent.length, failed: failed.length } });
     res.json({ sent: sent.length, failed });
+  });
+
+  // Follow-up reminders: ?message_id= for one message's, or all that are waiting; DELETE cancels one.
+  r.get('/followups', (req, res) => {
+    const rows = req.query.message_id ? q('SELECT id, message_id, subject, recipients, due_at FROM mail_followups WHERE user_id = ? AND message_id = ?').all(req.user.id, String(req.query.message_id))
+      : q('SELECT id, message_id, subject, recipients, due_at FROM mail_followups WHERE user_id = ? ORDER BY due_at').all(req.user.id);
+    res.json(rows.map((r) => ({ ...r, recipients: JSON.parse(r.recipients || '[]') })));
+  });
+  r.delete('/followups/:id', (req, res) => {
+    const row = q('SELECT id FROM mail_followups WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
+    if (!row) throw notFound();
+    q('DELETE FROM mail_followups WHERE id = ?').run(row.id);
+    sendTo([req.user.id], { type: 'mail-followups' });
+    res.json({ ok: true });
   });
 
   // Messages waiting to be sent.
