@@ -9,6 +9,7 @@ import { Avatar, useToast } from '../../components/ui.jsx';
 import { useAuth } from '../../App.jsx';
 import { Mesh } from './mesh.js';
 import { columnsFor, whoIsHere, elapsed } from './meetmath.js';
+import { MeetingRecorder } from './recorder.js';
 
 const REACTIONS = ['👍', '❤️', '😂', '😮', '👏', '🎉'];
 
@@ -84,7 +85,31 @@ export default function MeetRoom() {
     setPhase('call');
   }, [code, local, info, mic, cam, hasAudio, hasVideo, toast]);
 
-  const leave = () => { mesh.current?.leave(); mesh.current = null; setPhase('left'); setMessages([]); };
+  // Recording (in this browser), saved to your Drive when it stops.
+  const recorder = useRef(null);
+  const [saving, setSaving] = useState(false);
+  const gridRef = useRef(null);
+  const startRecording = () => {
+    if (!window.MediaRecorder || !HTMLCanvasElement.prototype.captureStream) { toast('This browser can’t record', 'error'); return; }
+    const m = mesh.current;
+    const r = new MeetingRecorder({ grid: gridRef.current, streams: () => [m.screen?.getAudioTracks?.().length ? m.screen : null, local?.stream, ...[...m.peers.values()].map((p) => p.stream)].filter(Boolean) });
+    r.start();
+    recorder.current = r;
+    m.setState({ rec: true });
+    toast('Recording. Everyone in the meeting can see that you are.');
+  };
+  const stopRecording = async () => {
+    const r = recorder.current;
+    if (!r) return;
+    recorder.current = null;
+    mesh.current?.setState({ rec: false });
+    setSaving(true);
+    const stamp = new Date().toISOString().slice(0, 16).replace('T', ' ').replace(':', '.');
+    try { const f = await r.stop(`${info?.title || code} ${stamp}`); toast(`Saved “${f.name}” to Meet recordings in your Drive`); }
+    catch (e) { toast(`The recording couldn’t be saved: ${e.message}`, 'error'); }
+    finally { setSaving(false); }
+  };
+  const leave = async () => { if (recorder.current) await stopRecording(); mesh.current?.leave(); mesh.current = null; setPhase('left'); setMessages([]); };
 
   if (error) {
     return (
@@ -145,9 +170,10 @@ export default function MeetRoom() {
   };
   return (
     <div className="meet-page meet-call">
+      {tiles.some((t) => t.state.rec) && <div className="meet-rec-banner" role="status">🔴 {tiles.filter((t) => t.state.rec).map((t) => (t.me ? 'You are' : `${t.name} is`)).join(', ')} recording this meeting</div>}
       <header className="meet-top"><strong className="grow">{info?.title || code}</strong><span className="muted small" aria-label="Time in the meeting">{elapsed(Date.now() - startedAt)}</span></header>
       <div className="meet-body">
-        <div className="meet-grid" style={{ gridTemplateColumns: `repeat(${columnsFor(tiles.length)}, 1fr)` }} aria-label="People in the meeting">
+        <div ref={gridRef} className="meet-grid" style={{ gridTemplateColumns: `repeat(${columnsFor(tiles.length)}, 1fr)` }} aria-label="People in the meeting">
           {tiles.map((t) => {
             const videoOn = t.me ? (sharing || (t.state.cam && hasVideo)) : (t.state.screen || t.state.cam);
             return (
@@ -188,6 +214,7 @@ export default function MeetRoom() {
         <span className="meet-reacts" role="group" aria-label="Send a reaction">{REACTIONS.map((e) => <button key={e} type="button" className="meet-react" aria-label={`React ${e}`} onClick={() => m.react(e)}>{e}</button>)}</span>
         <button type="button" className={`meet-btn ${panel === 'chat' ? 'on' : ''}`} aria-label={unread ? `Chat, ${unread} new` : 'Chat'} onClick={() => { setPanel(panel === 'chat' ? null : 'chat'); setUnread(0); }}>💬{unread > 0 && <span className="nav-badge">{unread}</span>}</button>
         <button type="button" className={`meet-btn ${panel === 'people' ? 'on' : ''}`} aria-label="People" onClick={() => setPanel(panel === 'people' ? null : 'people')}>👥</button>
+        <button type="button" className={`meet-btn ${m.state.rec ? 'on rec' : ''}`} disabled={saving} aria-pressed={!!m.state.rec} aria-label={saving ? 'Saving the recording' : m.state.rec ? 'Stop recording' : 'Record the meeting'} title={m.state.rec ? 'Stop and save it to your Drive' : 'Record the meeting (saved to your Drive)'} onClick={m.state.rec ? stopRecording : startRecording}>{saving ? '…' : '⏺'}</button>
         <button type="button" className="meet-btn" aria-label="Copy meeting link" onClick={() => copyLink(code, toast)}>🔗</button>
         <button type="button" className="meet-btn leave" aria-label="Leave the meeting" onClick={leave}>Leave</button>
       </footer>

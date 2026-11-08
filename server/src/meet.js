@@ -3,6 +3,7 @@
 // (/ws/meet/<code>) and passes on what they say to each other: connection offers and answers, network
 // candidates, mute/camera/hand state, and the meeting's chat. Mounted at /api/meet for the REST side.
 import { Router } from 'express';
+import { insertFile } from './routes/files.js';
 import crypto from 'node:crypto';
 import { WebSocketServer } from 'ws';
 import { q } from './db.js';
@@ -92,7 +93,7 @@ const describe = (id, p) => ({ id, user: { id: p.user.id, name: p.user.name, ema
 export const peopleIn = (code) => [...(rooms.get(code)?.entries() ?? [])].map(([id, p]) => describe(id, p));
 
 function cleanState(s = {}) {
-  return { mic: s.mic !== false, cam: s.cam !== false, hand: !!s.hand, screen: !!s.screen };
+  return { mic: s.mic !== false, cam: s.cam !== false, hand: !!s.hand, screen: !!s.screen, rec: !!s.rec }; // rec: they're recording the meeting (everyone is shown)
 }
 
 export function meetRoutes() {
@@ -127,6 +128,11 @@ export function meetRoutes() {
       return res.send(`\ufeff${rows.map((r) => r.map(cell).join(',')).join('\r\n')}\r\n`);
     }
     res.json({ code: m.code, title: m.title, people: people.map((p) => ({ ...p, minutes: minutes(p.ms) })) });
+  });
+  // Recordings are saved in a "Meet recordings" folder in the recorder's Drive (made when first needed).
+  r.post('/recordings-folder', (req, res) => {
+    const found = q("SELECT id FROM files WHERE owner_id = ? AND parent_id IS NULL AND kind = 'folder' AND name = 'Meet recordings' AND trashed = 0").get(req.user.id);
+    res.json({ id: found ? found.id : insertFile({ owner: req.user.id, parentId: null, name: 'Meet recordings', kind: 'folder' }) });
   });
   r.get('/:code', (req, res) => {
     const m = validCode(req.params.code) && q('SELECT * FROM meetings WHERE code = ?').get(req.params.code);

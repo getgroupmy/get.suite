@@ -2976,7 +2976,7 @@ test('meet: start a meeting, join its room, signals pass between people', async 
   assert.deepEqual(sig.data, { sdp: 'offer' });
   a.ws.send(JSON.stringify({ type: 'state', state: { mic: false, hand: true, bogus: 1 } }));
   const st = await b.next('state');
-  assert.deepEqual(st.state, { mic: false, cam: false, hand: true, screen: false });
+  assert.deepEqual(st.state, { mic: false, cam: false, hand: true, screen: false, rec: false });
   b.ws.send(JSON.stringify({ type: 'chat', text: '  hello  ' }));
   assert.equal((await a.next('chat')).text, 'hello');
   b.ws.send(JSON.stringify({ type: 'react', emoji: '💣' }));
@@ -4960,4 +4960,36 @@ test('meetings with someone: your events they\'re invited to, theirs you\'re inv
   assert.deepEqual(r.past.map((e) => e.title), ['Kickoff with Mo']);
   assert.ok(!r.upcoming.some((e) => e.title === 'Not with Mo'));
   assert.equal((await kay('GET', '/api/events/with?email=nope')).status, 400);
+});
+
+test('meet recording: everyone is told who is recording; recordings go to a Meet recordings folder', { timeout: 20000 }, async () => {
+  const { default: WS } = await import('ws');
+  const kay = client(); await login(kay, 'kay@keepco.com');
+  await kay('POST', '/api/users', { local: 'mrec', domain: 'keepco.com', name: 'Rex Recorder', password: 'password123' });
+  const cookieOf = async (u) => (await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ username: u, password: 'password123' }) })).headers.get('set-cookie').split(';')[0];
+  const { code } = (await kay('POST', '/api/meet', { title: 'Recorded' })).body;
+  const open = (cookie) => new Promise((resolve, reject) => {
+    const ws = new WS(`${base.replace('http', 'ws')}/ws/meet/${code}`, { headers: { cookie } });
+    ws.msgs = [];
+    ws.on('message', (d) => { const m = JSON.parse(String(d)); ws.msgs.push(m); if (m.type === 'welcome') resolve(ws); });
+    ws.on('error', reject);
+    ws.on('unexpected-response', (rq, res) => reject(new Error(`refused: ${res.statusCode}`)));
+    ws.on('close', (c, why) => reject(new Error(`closed ${c} ${why}`)));
+    const t = setTimeout(() => reject(new Error('no welcome')), 5000);
+    ws.on('message', () => clearTimeout(t));
+  });
+  const a = await open(await cookieOf('kay@keepco.com'));
+  const b = await open(await cookieOf('mrec@keepco.com'));
+  try {
+    b.send(JSON.stringify({ type: 'state', state: { rec: true } }));
+    await new Promise((r) => setTimeout(r, 200));
+    const seen = a.msgs.find((m) => m.type === 'state' && m.state.rec === true);
+    assert.ok(seen, 'the others see that someone is recording');
+    assert.equal(seen.state.mic, true, 'the rest of their state stays');
+  } finally { a.terminate(); b.terminate(); }
+  const f1 = (await kay('POST', '/api/meet/recordings-folder')).body.id;
+  assert.equal((await kay('POST', '/api/meet/recordings-folder')).body.id, f1, 'the same folder each time');
+  const up = (await kay('POST', `/api/files/upload?parent=${f1}&name=${encodeURIComponent('Recorded 2026-11-08 14.50.webm')}`, Buffer.alloc(3000, 1), { raw: true })).body;
+  assert.equal(up.mime, 'video/webm');
+  assert.equal(up.parent_id, f1);
 });
