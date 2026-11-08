@@ -6,6 +6,7 @@ import { dovecotHash } from './mail/crypt.js';
 import { scheduleMailConfig } from './mail/config.js';
 import { freshMailHome } from './tenancy.js';
 import { networkAllowed, NETWORK_REFUSED } from './netrules.js';
+import { bearerOf, tokenRow, tokenRefusal } from './apitokens.js';
 
 // Where Workspace opens for each person: 'drive' (the default) or 'home'.
 if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'start_page')) q('ALTER TABLE users ADD COLUMN start_page TEXT').run();
@@ -100,6 +101,23 @@ export function userFromToken(token, { idleMs = null } = {}) {
   if (row.expires_at - now() < (SESSION_DAYS / 2) * 864e5) {
     q('UPDATE sessions SET expires_at = ? WHERE token = ?').run(now() + SESSION_DAYS * 864e5, token);
   }
+  return userOf(row);
+}
+
+const USER_COLUMNS = `u.id, u.username, u.name, u.is_admin, u.is_super, u.disabled, u.org_id, u.start_page, u.second_tz, u.must_change_password, u.recovery_email, COALESCE(u.password_set_at, u.created_at) AS password_set_at, o.pw_max_days,
+  o.name AS org_name, o.allow_external, o.allow_links, o.require_2fa, o.accent AS org_accent, o.logo AS org_logo, o.session_idle_min, (SELECT enabled FROM two_factor t WHERE t.user_id = u.id) AS tf_enabled`;
+
+/** The person an API token acts for (see apitokens.js), as requireAuth gives it, with req.apiToken set. */
+function userFromApiToken(req) {
+  const t = tokenRow(bearerOf(req), req.ip);
+  if (!t) return null;
+  const row = q(`SELECT ${USER_COLUMNS} FROM users u JOIN orgs o ON o.id = u.org_id WHERE u.id = ? AND u.disabled = 0`).get(t.user_id);
+  if (!row) return null;
+  req.apiToken = { id: t.id, scope: t.scope };
+  return userOf(row);
+}
+
+function userOf(row) {
   return {
     id: row.id, username: row.username, email: row.username, name: row.name,
     is_admin: !!row.is_admin || !!row.is_super, is_super: !!row.is_super,
@@ -130,8 +148,11 @@ export function clearSessionCookie(res) {
 }
 
 export function requireAuth(req, res, next) {
-  const user = userFromToken(tokenFromReq(req), { idleMs: idleOf(req) });
-  if (!user) return next(new HttpError(401, 'Not signed in'));
+  const cookie = tokenFromReq(req);
+  // A script with an API token (and no session cookie): the same API, as that person, within the token's limits.
+  const user = cookie ? userFromToken(cookie, { idleMs: idleOf(req) }) : bearerOf(req) ? userFromApiToken(req) : null;
+  if (!user) return next(new HttpError(401, bearerOf(req) && !cookie ? 'This API token isn’t valid (expired, revoked, or not allowed by your company)' : 'Not signed in'));
+  if (req.apiToken) { const why = tokenRefusal(req.apiToken, req); if (why) return next(new HttpError(403, why)); }
   if (!networkAllowed(user, req.ip)) return next(new HttpError(403, NETWORK_REFUSED));
   // Until required two-step verification is set up, only the account's own endpoints work.
   if (user.needs_two_factor && !req.originalUrl.startsWith('/api/auth/')) {

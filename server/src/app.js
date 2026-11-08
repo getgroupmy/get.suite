@@ -1,7 +1,7 @@
 import express from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
-import { requireAuth } from './auth.js';
+import { requireAuth, tokenFromReq } from './auth.js';
 import { HttpError } from './util.js';
 import authRoutes from './routes/auth.js';
 import userRoutes from './routes/users.js';
@@ -25,6 +25,7 @@ import notificationRoutes from './routes/notifications.js';
 import chatRoutes, { chatHookRoutes } from './routes/chat.js';
 import { publishRoutes, publicPublishRoutes } from './routes/publish.js';
 import { officePreviewRoutes } from './office/preview.js';
+import { apiTokenRoutes, bearerOf } from './apitokens.js';
 import orgRoutes from './routes/orgs.js';
 import mailAdminRoutes from './routes/mailAdmin.js';
 import webmailRoutes from './routes/webmail.js';
@@ -77,7 +78,9 @@ export function createApp({
   // CSRF defence: state-changing API calls must carry a custom header,
   // which browsers never attach to cross-site form posts.
   app.use('/api', (req, res, next) => {
-    if (req.method !== 'GET' && req.method !== 'HEAD' && req.get('x-requested-with') !== 'nas-workspace') {
+    // Scripts with an API token and no cookie can't be a forged browser request, so they needn't send it.
+    const scripted = bearerOf(req) && !tokenFromReq(req);
+    if (req.method !== 'GET' && req.method !== 'HEAD' && !scripted && req.get('x-requested-with') !== 'nas-workspace') {
       return next(new HttpError(403, 'Missing request header'));
     }
     next();
@@ -102,6 +105,7 @@ export function createApp({
   app.use('/api/audit', requireAuth, auditRoutes());
   app.use('/api/files', requireAuth, fileRoutes({ maxUploadBytes }));
   app.use('/api/publish', requireAuth, publishRoutes());
+  app.use('/api/tokens', requireAuth, apiTokenRoutes());
   app.use('/api/office-preview', requireAuth, officePreviewRoutes());
   app.use('/api/links', requireAuth, linkRoutes());
   app.use('/api/comments', requireAuth, commentRoutes());

@@ -4,7 +4,7 @@ import QRCode from 'qrcode';
 import { api, get, patch, post, put, del, putBlob, formatBytes } from '../api.js';
 import { reloadPhotos, usePhoto } from '../components/photos.js';
 import { useAuth } from '../App.jsx';
-import { Avatar, useToast } from '../components/ui.jsx';
+import { Avatar, ConfirmModal, useToast } from '../components/ui.jsx';
 import Icon from '../components/Icon.jsx';
 import { allZones, zoneName, cityOf } from '../components/zones.js';
 import { getTheme, setTheme } from '../theme.js';
@@ -65,6 +65,7 @@ export default function Settings() {
       <QuietHours />
       <MorningSummary />
       <ChatEmail />
+      <ApiTokens />
       <YourData />
     </div>
   );
@@ -556,6 +557,67 @@ function PasswordRulesNote() {
 }
 
 /** A personal address for "Forgot password?" on the sign-in page (the link is emailed there). */
+const when = (ms) => (ms ? new Date(ms).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' }) : null);
+
+/** Personal API tokens for scripts: made here, shown once, revoked here (or by an admin). */
+function ApiTokens() {
+  const toast = useToast();
+  const [data, setData] = useState(null);
+  const [form, setForm] = useState(null); // { name, scope, days } while making one
+  const [made, setMade] = useState(null);
+  const [revoking, setRevoking] = useState(null);
+  const load = () => get('/tokens').then(setData).catch(() => setData({ allowed: false, tokens: [] }));
+  useEffect(() => { load(); }, []);
+  if (!data) return null;
+  const create = async (e) => {
+    e.preventDefault();
+    try { const t = await post('/tokens', { ...form, days: Number(form.days) }); setMade(t); setForm(null); load(); } catch (err) { toast(err.message, 'error'); }
+  };
+  const revoke = async (t) => {
+    try { await del(`/tokens/${t.id}`); toast(`“${t.name}” revoked`); load(); } catch (err) { toast(err.message, 'error'); }
+  };
+  return (
+    <section className="card stack" aria-labelledby="tokens-h">
+      <h2 id="tokens-h">API tokens</h2>
+      <p className="muted small" style={{ margin: 0 }}>For your own scripts and tools (a backup job, uploads from a scanner, a report): they use Workspace's API as you, with <code>Authorization: Bearer …</code>. A token can't sign in, change your account or make more tokens. Keep it secret like a password.</p>
+      {!data.allowed && !data.tokens.length ? <p className="muted">Your company hasn't turned on API tokens. An admin can, in Admin → Company settings.</p> : <>
+        {made && (
+          <div className="stack-tight" role="status">
+            <p style={{ margin: 0 }}><strong>Your new token “{made.name}”.</strong> Copy it now: it's shown only once.</p>
+            <div className="row"><code className="secret-key grow" aria-label="New API token">{made.token}</code>
+              <button type="button" className="btn small" onClick={() => { navigator.clipboard?.writeText(made.token).then(() => toast('Copied'), () => {}); }}>Copy</button></div>
+            <p className="muted small" style={{ margin: 0 }}>Try it: <code>{`curl -H "Authorization: Bearer ${made.token.slice(0, 8)}…" ${window.location.origin}/api/files`}</code></p>
+            <button type="button" className="link-btn small" style={{ alignSelf: 'flex-start' }} onClick={() => setMade(null)}>Done, I've copied it</button>
+          </div>
+        )}
+        {data.tokens.length > 0 && (
+          <ul className="plain-list" aria-label="Your API tokens">
+            {data.tokens.map((t) => (
+              <li key={t.id} className="row small">
+                <span className="grow"><strong>{t.name}</strong> <span className="muted">…{t.hint} · {t.scope === 'write' ? 'read and write' : 'read only'} · made {when(t.created_at)} · {t.expired ? 'expired' : t.expires_at ? `expires ${when(t.expires_at)}` : 'never expires'} · {t.last_used_at ? `last used ${when(t.last_used_at)}${t.last_ip ? ` from ${t.last_ip}` : ''}` : 'never used'}</span></span>
+                <button type="button" className="btn small" aria-label={`Revoke ${t.name}`} onClick={() => setRevoking(t)}>Revoke</button>
+              </li>
+            ))}
+          </ul>
+        )}
+        {data.allowed && (form ? (
+          <form className="stack-tight" onSubmit={create} aria-label="Make an API token">
+            <label className="field"><span>What it's for</span><input autoFocus required maxLength={80} value={form.name} placeholder="e.g. Nightly backup" onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>
+            <div className="row wrap" style={{ gap: 12 }}>
+              <label className="field"><span>Access</span><select value={form.scope} onChange={(e) => setForm({ ...form, scope: e.target.value })}><option value="read">Read only</option><option value="write">Read and write</option></select></label>
+              <label className="field"><span>Expires</span><select value={form.days} onChange={(e) => setForm({ ...form, days: e.target.value })}><option value="30">In 30 days</option><option value="90">In 90 days</option><option value="365">In a year</option><option value="0">Never</option></select></label>
+            </div>
+            <div className="row"><button className="btn primary">Make token</button><button type="button" className="btn" onClick={() => setForm(null)}>Cancel</button></div>
+          </form>
+        ) : <button type="button" className="btn" style={{ alignSelf: 'flex-start' }} onClick={() => { setMade(null); setForm({ name: '', scope: 'read', days: '90' }); }}>New token</button>)}
+        {!data.allowed && <p className="muted small">Your company has turned API tokens off, so these don't work now.</p>}
+      </>}
+      {revoking && <ConfirmModal title={`Revoke “${revoking.name}”?`} message="Scripts using it stop working at once." confirm="Revoke"
+        onClose={() => setRevoking(null)} onConfirm={async () => { const t = revoking; setRevoking(null); await revoke(t); }} />}
+    </section>
+  );
+}
+
 function RecoveryEmail() {
   const { user, setUser } = useAuth();
   const toast = useToast();

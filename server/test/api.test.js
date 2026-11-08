@@ -1059,6 +1059,74 @@ test('drive: stars, copies, and downloading several files as a zip', async () =>
   assert.equal((await someone('GET', `/api/files/zip?ids=${folder.id}`)).status, 404, "not someone else's files");
 });
 
+test('API tokens: off until the company allows them; read-only or write; expire; revoked by owner or admin; never for sign-in', async () => {
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'scripter', domain: 'acme.com', name: 'Sam Script', password: 'password123' })).status, 201);
+  const sid = (await login(a, 'scripter@acme.com')).id;
+  const bearer = (token, method, url, body) => fetch(base + url, { method, headers: { authorization: `Bearer ${token}`, ...(body && { 'content-type': 'application/json' }) }, body: body ? JSON.stringify(body) : undefined })
+    .then(async (r) => ({ status: r.status, body: await r.json().catch(() => null) }));
+
+  assert.equal((await a('GET', '/api/tokens')).body.allowed, false);
+  assert.equal((await a('POST', '/api/tokens', { name: 'Backup', scope: 'read' })).status, 403, 'off by default');
+  assert.equal((await a('PATCH', '/api/orgs/current', { allow_api_tokens: true })).status, 403, 'admins turn it on');
+  await owner('PATCH', '/api/orgs/current', { allow_api_tokens: true });
+  assert.equal((await owner('GET', '/api/orgs/current')).body.allow_api_tokens, true);
+
+  const made = await a('POST', '/api/tokens', { name: 'Backup', scope: 'read', days: 30 });
+  assert.equal(made.status, 201);
+  const ro = made.body.token;
+  assert.match(ro, /^nwt_[A-Za-z0-9_-]{40}$/);
+  assert.equal(made.body.hint, ro.slice(-4));
+  const listed = (await a('GET', '/api/tokens')).body.tokens;
+  assert.deepEqual(listed.map((x) => [x.name, x.scope]), [['Backup', 'read']]);
+  assert.ok(!JSON.stringify(listed).includes(ro), 'the token itself is shown only once');
+  assert.ok(Math.abs(listed[0].expires_at - (Date.now() + 30 * 864e5)) < 60e3);
+  assert.equal((await a('POST', '/api/tokens', { name: 'x', days: 7 })).status, 400);
+  assert.equal((await a('POST', '/api/tokens', { name: 'x', scope: 'admin' })).status, 400);
+
+  // Read-only: GETs as that person, nothing else.
+  const me = await bearer(ro, 'GET', '/api/files');
+  assert.equal(me.status, 200);
+  assert.equal((await bearer(ro, 'POST', '/api/files/folder', { name: 'Nope' })).status, 403);
+  assert.equal((await bearer(ro, 'GET', '/api/auth/me')).status, 403, 'not for the account itself');
+  assert.equal((await bearer(ro, 'GET', '/api/tokens')).status, 403, 'and no making more tokens');
+  assert.ok((await a('GET', '/api/tokens')).body.tokens[0].last_used_at, 'when it was last used');
+
+  // Write: makes things as that person, without the browser's header; a session cookie still needs it.
+  const rw = (await a('POST', '/api/tokens', { name: 'Uploader', scope: 'write', days: 0 })).body;
+  assert.equal(rw.expires_at, null);
+  const folder = await bearer(rw.token, 'POST', '/api/files/folder', { name: 'From the scanner' });
+  assert.equal(folder.status, 201);
+  assert.equal((await a('GET', '/api/files')).body.find((f) => f.id === folder.body.id).owner_id, sid);
+  assert.equal((await fetch(base + '/api/files/folder', { method: 'POST', headers: { authorization: `Bearer ${rw.token}`, cookie: 'nw_sid=forged', 'content-type': 'application/json' }, body: '{"name":"x"}' })).status, 403, 'with a cookie, the CSRF header is still needed');
+
+  // Not valid: made up, revoked, expired, owner disabled, company turned it off.
+  assert.equal((await bearer('nwt_' + 'x'.repeat(40), 'GET', '/api/files')).status, 401);
+  assert.equal((await a('DELETE', `/api/tokens/${made.body.id}`)).status, 200);
+  assert.equal((await bearer(ro, 'GET', '/api/files')).status, 401, 'revoked');
+  const { q } = await import('../src/db.js');
+  q('UPDATE api_tokens SET expires_at = ? WHERE id = ?').run(Date.now() - 1000, rw.id);
+  assert.equal((await bearer(rw.token, 'GET', '/api/files')).status, 401, 'expired');
+  q('UPDATE api_tokens SET expires_at = NULL WHERE id = ?').run(rw.id);
+  assert.equal((await bearer(rw.token, 'GET', '/api/files')).status, 200);
+  await owner('PATCH', `/api/users/${sid}`, { disabled: true });
+  assert.equal((await bearer(rw.token, 'GET', '/api/files')).status, 401, 'owner disabled');
+  await owner('PATCH', `/api/users/${sid}`, { disabled: false });
+  await login(a, 'scripter@acme.com'); // disabling signed them out
+  await owner('PATCH', '/api/orgs/current', { allow_api_tokens: false });
+  assert.equal((await bearer(rw.token, 'GET', '/api/files')).status, 401, 'company turned them off');
+  await owner('PATCH', '/api/orgs/current', { allow_api_tokens: true });
+
+  // Admins see the company's tokens and revoke them; others can't; the activity log has it.
+  const all = (await owner('GET', '/api/tokens/company')).body;
+  assert.ok(all.some((x) => x.id === rw.id && x.username === 'scripter@acme.com'));
+  assert.equal((await a('GET', '/api/tokens/company')).status, 403);
+  assert.equal((await a('DELETE', `/api/tokens/${rw.id}`)).status, 200);
+  const log = JSON.stringify((await owner('GET', '/api/audit?limit=50')).body);
+  assert.match(log, /api_token\.create/);
+  assert.match(log, /api_token\.revoke/);
+});
+
 test('activity log: sign-ins, account changes and sharing, for each company\'s admins only', async () => {
   const p = client();
   assert.equal((await owner('POST', '/api/users', { local: 'auditee', domain: 'acme.com', name: 'Audi Tee', password: 'password123' })).status, 201);

@@ -467,6 +467,11 @@ function CompanySettings() {
           Let people publish documents, spreadsheets and presentations to the web (read-only pages anyone with the address can see)
         </label>
         <PublishedList />
+        <label className="check">
+          <input type="checkbox" checked={!!org.allow_api_tokens} onChange={(e) => save({ allow_api_tokens: e.target.checked }, e.target.checked ? 'People can make API tokens' : 'API tokens are off: existing ones stop working')} />
+          Let people make API tokens for their own scripts (Settings → API tokens). Each acts as its owner, can be read-only, and expires
+        </label>
+        <CompanyTokens />
       </div>
       <CompanySignature org={org} save={save} />
       <div className="card stack">
@@ -816,6 +821,26 @@ function CompanySignature({ org, save }) {
 }
 
 /** What the company has published to the web, to review or stop. */
+function CompanyTokens() {
+  const toast = useToast();
+  const [list, setList] = useState(null);
+  const load = () => get('/tokens/company').then(setList).catch(() => setList([]));
+  useEffect(() => { load(); }, []);
+  if (!list?.length) return null;
+  const day = (ms) => (ms ? new Date(ms).toLocaleDateString() : null);
+  return (
+    <section className="stack-tight" aria-label="API tokens in the company">
+      <strong className="small">API tokens</strong>
+      <ul className="plain-list">
+        {list.map((t) => (
+          <li key={t.id} className="row small"><span className="grow">{t.name} <span className="muted">· {t.user_name} · {t.scope === 'write' ? 'read and write' : 'read only'} · {t.expired ? 'expired' : t.expires_at ? `expires ${day(t.expires_at)}` : 'never expires'} · {t.last_used_at ? `last used ${day(t.last_used_at)}` : 'never used'}</span></span>
+            <button type="button" className="btn small" aria-label={`Revoke ${t.name} of ${t.user_name}`} onClick={async () => { try { await del(`/tokens/company/${t.id}`); toast(`“${t.name}” revoked`); load(); } catch (e) { toast(e.message, 'error'); } }}>Revoke</button></li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 function PublishedList() {
   const toast = useToast();
   const [list, setList] = useState(null);

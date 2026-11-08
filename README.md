@@ -761,6 +761,15 @@ Settings → **Signed-in devices** lists every browser where you're signed in: w
 - Mail apps aren't listed (they don't keep a web session). Use a mail-app password to control those.
 - Sessions from before this version show as "Browser" without details until they next sign in.
 
+## API tokens (scripts)
+
+Your own scripts and tools can use the same API as the web app, as you: a nightly backup that downloads a folder, a scanner that uploads into Drive, a report that reads a spreadsheet.
+
+- **Turning it on (admins):** Admin → Company settings → **Let people make API tokens**. It's off until then, and turning it off stops every token at once (they work again if it's turned back on).
+- **Making one:** Settings → **API tokens** → **New token**: what it's for, **Read only** or **Read and write**, and when it expires (30 or 90 days, a year, or never). The token (`nwt_…`) is shown once: copy it then. Only a fingerprint of it is kept, so it can't be shown again.
+- **Using it:** send it as `Authorization: Bearer nwt_…`, for example `curl -H "Authorization: Bearer nwt_…" https://your-server/api/files`. Requests with a token don't need the browser's `X-Requested-With` header. A read-only token can only read (GET). A token can't sign in, change the account (anything under `/api/auth`) or make more tokens. It stops working when it's revoked or expires, when its owner is suspended, or when the company turns tokens off; the company's network rules still apply.
+- **Keeping track:** the list shows each token's access, when it was made, when it expires, and when and from where it was last used. **Revoke** stops it at once. Admins see every token in the company under Company settings and can revoke any of them. Making and revoking tokens are in the activity log.
+
 ## Mail apps (phones, Outlook)
 
 Settings → **Mail apps** shows what to enter in a phone or Outlook: the server name, ports (IMAP 993, SMTP 465 or 587) and user name (your email address).
