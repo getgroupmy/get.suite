@@ -3469,3 +3469,24 @@ test('sharing until a date: access ends by itself and the owner is told', async 
   assert.equal(expireShares(Date.now() + 999 * 864e5), 0);
   assert.equal((await tmp('GET', `/api/files/${doc.id}`)).status, 200);
 });
+
+test("who's who: titles, departments, phones and managers in the Directory (no loops)", async () => {
+  const me = client();
+  const ids = {};
+  for (const [local, name] of [['wwc', 'Cleo Chief'], ['wwm', 'Max Manager'], ['wwe', 'Eve Engineer']]) ids[local] = (await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).body.id;
+  await login(me, 'wwe@acme.com');
+  assert.equal((await me('PUT', '/api/users/me/profile', { job_title: 'Engineer', department: 'R&D', work_phone: '+60 3-1234 5678' })).status, 200);
+  assert.equal((await me('PUT', '/api/users/me/profile', { work_phone: 'call me' })).status, 400);
+  assert.equal((await me('PATCH', `/api/users/${ids.wwe}`, { manager_id: ids.wwm })).status, 403, 'only admins set managers');
+  assert.equal((await owner('PATCH', `/api/users/${ids.wwm}`, { manager_id: ids.wwc, job_title: 'Head of R&D', department: 'R&D' })).status, 200);
+  assert.equal((await owner('PATCH', `/api/users/${ids.wwe}`, { manager_id: ids.wwm })).status, 200);
+  const loop = await owner('PATCH', `/api/users/${ids.wwc}`, { manager_id: ids.wwe });
+  assert.equal(loop.status, 400); assert.match(loop.body.error, /loop/);
+  assert.equal((await owner('PATCH', `/api/users/${ids.wwc}`, { manager_id: ids.wwc })).status, 400, 'not themselves');
+  const dir = (await me('GET', '/api/users/directory')).body;
+  const eve = dir.find((u) => u.id === ids.wwe), max = dir.find((u) => u.id === ids.wwm);
+  assert.deepEqual([eve.job_title, eve.department, eve.work_phone, eve.manager_id], ['Engineer', 'R&D', '+60 3-1234 5678', ids.wwm]);
+  assert.deepEqual([max.job_title, max.manager_id], ['Head of R&D', ids.wwc]);
+  await owner('PATCH', `/api/users/${ids.wwe}`, { manager_id: null });
+  assert.equal((await me('GET', '/api/users/directory')).body.find((u) => u.id === ids.wwe).manager_id, null);
+});

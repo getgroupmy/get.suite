@@ -87,6 +87,7 @@ function Users({ orgId, setOrgId }) {
                 <Menu trigger={(p) => <button className="icon-btn" aria-label={`Actions for ${u.name}`} {...p}><Icon name="more" /></button>} items={[
                   { label: 'Reset password', icon: 'edit', onClick: () => setDialog({ type: 'password', user: u }) },
                   { label: 'Change email address', icon: 'mail', onClick: () => setDialog({ type: 'address', user: u }) },
+                  { label: 'Job and manager', icon: 'person', onClick: () => setDialog({ type: 'job', user: u }) },
                   { label: 'Mailbox size', icon: 'mail', onClick: () => setDialog({ type: 'quota', user: u }) },
                   u.two_factor && u.id !== me.id && { label: 'Reset two-step verification', icon: 'shield', onClick: () => setDialog({ type: 'reset2fa', user: u }) },
                   u.id !== me.id && !u.is_super && { label: u.is_admin ? 'Remove admin' : 'Make admin', icon: 'shield', onClick: act(() => patch(`/users/${u.id}`, { is_admin: !u.is_admin }), 'Role updated') },
@@ -104,6 +105,7 @@ function Users({ orgId, setOrgId }) {
     {dialog?.type === 'import' && <ImportUsers orgId={orgId} domains={domains} onClose={() => setDialog(null)} onDone={load} />}
     {dialog?.type === 'new' && <NewUser orgId={orgId} domains={domains} onClose={() => setDialog(null)} onSaved={(addr) => { setDialog(null); toast(`${addr} created`); load(); }} />}
     {dialog?.type === 'password' && <ResetPassword user={dialog.user} onClose={() => setDialog(null)} />}
+    {dialog?.type === 'job' && <JobDialog user={dialog.user} people={users || []} onClose={() => setDialog(null)} onSaved={() => { setDialog(null); toast('Saved'); load(); }} />}
     {dialog?.type === 'address' && <ChangeAddress user={dialog.user} domains={domains} onClose={() => setDialog(null)} onSaved={(addr) => { setDialog(null); toast(`Address changed to ${addr}`); load(); }} />}
     {dialog?.type === 'quota' && <MailboxSize user={dialog.user} onClose={() => setDialog(null)} onSaved={() => { setDialog(null); toast('Mailbox size updated'); load(); }} />}
     {dialog?.type === 'reset2fa' && (
@@ -583,5 +585,28 @@ function Branding({ org, onChanged }) {
       </div>
       <p className="muted small" style={{ margin: 0 }}>The sign-in page shows your logo and colour when Workspace is opened at an address on one of your domains (for example workspace.{org.domains?.[0] || 'yourcompany.com'}).</p>
     </div>
+  );
+}
+
+/** Who's who for one person: job title, department, work phone and who they report to. */
+function JobDialog({ user: u, people, onClose, onSaved }) {
+  const toast = useToast();
+  const [f, setF] = useState({ job_title: u.job_title || '', department: u.department || '', work_phone: u.work_phone || '', manager_id: u.manager_id || '' });
+  const save = async () => {
+    try { await patch(`/users/${u.id}`, { ...f, manager_id: f.manager_id || null }); onSaved(); } catch (e) { toast(e.message, 'error'); }
+  };
+  return (
+    <Modal title={`Job and manager: ${u.name}`} onClose={onClose} footer={<><button type="button" className="btn" onClick={onClose}>Cancel</button><button type="button" className="btn primary" onClick={save}>Save</button></>}>
+      <div className="stack">
+        <label className="field"><span>Job title</span><input value={f.job_title} maxLength={100} onChange={(e) => setF({ ...f, job_title: e.target.value })} /></label>
+        <label className="field"><span>Department</span><input value={f.department} maxLength={100} onChange={(e) => setF({ ...f, department: e.target.value })} /></label>
+        <label className="field"><span>Work phone</span><input type="tel" value={f.work_phone} maxLength={40} onChange={(e) => setF({ ...f, work_phone: e.target.value })} /></label>
+        <label className="field"><span>Reports to</span>
+          <select value={f.manager_id} onChange={(e) => setF({ ...f, manager_id: e.target.value })}>
+            <option value="">Nobody (top of the org chart)</option>
+            {people.filter((p) => p.id !== u.id && !p.disabled).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select></label>
+      </div>
+    </Modal>
   );
 }

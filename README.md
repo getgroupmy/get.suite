@@ -234,6 +234,7 @@ In Drive, **New → Presentation**. Presentations are shared, versioned and save
 
 ## Contacts
 
+- **Who's who:** everyone can add their job title, department and work phone in **Settings → About you**; admins can change them and set who each person reports to in **Admin → Users → ⋮ → Job and manager** (someone can't report to a person who reports to them). The **Directory** shows title · department and the phone, and **Org chart** draws who reports to whom, with a message button on each person. Typing in **Filter** narrows the chart to the people who match, shown with their managers.
 - **Import:** **Import** takes a vCard file (.vcf, with one or many contacts) exported from a phone, iCloud, Outlook or Gmail, or a CSV export from Gmail or Outlook (or any sheet with a Name or Email column). People who are already in your contacts (the same email address) are skipped, so importing the same file twice is harmless. Birthdays, addresses and other details on a vCard are kept for your phone.
 - **Export:** **Export** downloads all your contacts as vCards (for phones, Outlook and Apple) or as CSV (for Gmail and spreadsheets).
 - **In Mail:** start typing a name or address in To, Cc or Bcc and pick from your contacts and colleagues (Up/Down, then Enter or Tab).

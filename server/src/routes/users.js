@@ -16,6 +16,36 @@ import { hoursOf, setHours, readHours, hoursText } from '../workhours.js';
 import { insertFile, uniqueName } from './files.js';
 import { focusUntil, calendarStatus } from './calendar.js';
 
+// Who's who: a job title, department and work phone for each person, and who they report to (set by
+// an admin). The Directory shows them, with an org chart.
+for (const c of ['job_title TEXT', 'department TEXT', 'work_phone TEXT', 'manager_id TEXT REFERENCES users(id) ON DELETE SET NULL']) {
+  if (!q('PRAGMA table_info(users)').all().some((x) => x.name === c.split(' ')[0])) q(`ALTER TABLE users ADD COLUMN ${c}`).run();
+}
+/** The profile fields in a request body that were given, cleaned ({ job_title, department, work_phone }). */
+function readProfile(b) {
+  const out = {};
+  if (b.job_title !== undefined) out.job_title = str(b.job_title ?? '', { max: 100, name: 'Job title' }) || null;
+  if (b.department !== undefined) out.department = str(b.department ?? '', { max: 100, name: 'Department' }) || null;
+  if (b.work_phone !== undefined) {
+    const p = str(b.work_phone ?? '', { max: 40, name: 'Phone' }) || null;
+    if (p && !/^[+()\d\s.\-\/x]+$/i.test(p)) throw bad('A phone number has digits, spaces and + ( ) - only');
+    out.work_phone = p;
+  }
+  return out;
+}
+const saveProfile = (id, fields) => { for (const [k, v] of Object.entries(fields)) q(`UPDATE users SET ${k} = ? WHERE id = ?`).run(v, id); };
+/** Set who someone reports to: a colleague, never themselves or someone who reports to them. */
+function setManager(u, managerId) {
+  if (!managerId) { q('UPDATE users SET manager_id = NULL WHERE id = ?').run(u.id); return; }
+  const m = q('SELECT id, org_id FROM users WHERE id = ?').get(String(managerId));
+  if (!m || m.org_id !== u.org_id) throw bad('Their manager must be in the same company');
+  for (let cur = m.id, i = 0; cur && i < 200; i++) {
+    if (cur === u.id) throw bad('That would make a loop: they can’t report to someone who reports to them');
+    cur = q('SELECT manager_id FROM users WHERE id = ?').get(cur)?.manager_id;
+  }
+  q('UPDATE users SET manager_id = ? WHERE id = ?').run(m.id, u.id);
+}
+
 /** A status as shown, or null once it has cleared. */
 export function statusOf(row, at = Date.now()) {
   if (!row || (!row.status_emoji && !row.status_text) || (row.status_until && row.status_until <= at)) return null;
@@ -81,7 +111,7 @@ export default function userRoutes() {
   // Everyone: your own company's directory (for sharing, chat, contacts).
   r.get('/directory', (req, res) => {
     const now = Date.now();
-    res.json(q('SELECT id, username, name, status_emoji, status_text, status_until, paused_until FROM users WHERE org_id = ? AND disabled = 0 ORDER BY name')
+    res.json(q('SELECT id, username, name, job_title, department, work_phone, manager_id, status_emoji, status_text, status_until, paused_until FROM users WHERE org_id = ? AND disabled = 0 ORDER BY name')
       .all(req.user.org_id).map(({ status_emoji, status_text, status_until, paused_until, ...u }) => ({ ...u, status: statusOf({ status_emoji, status_text, status_until }) || calendarStatus(u.id), paused_until: paused_until > now ? paused_until : null })));
   });
 
@@ -135,6 +165,13 @@ export default function userRoutes() {
   });
 
   // Where Workspace opens for you: { page: 'drive' | 'home' }.
+  // Your own job title, department and phone ({ job_title, department, work_phone }).
+  r.put('/me/profile', (req, res) => {
+    saveProfile(req.user.id, readProfile(req.body || {}));
+    sendTo(orgMemberIds(req.user.org_id), { type: 'directory-changed' });
+    res.json(q('SELECT job_title, department, work_phone, manager_id FROM users WHERE id = ?').get(req.user.id));
+  });
+
   r.put('/me/start-page', (req, res) => {
     const page = req.body?.page === 'home' ? 'home' : req.body?.page === 'drive' ? 'drive' : null;
     if (!page) throw bad('page must be drive or home');
@@ -193,7 +230,7 @@ export default function userRoutes() {
 
   r.get('/', (req, res) => {
     const orgId = targetOrg(req);
-    res.json(q(`SELECT u.id, u.username, u.name, u.is_admin, u.is_super, u.disabled, u.created_at, u.mail_quota_mb, u.last_active,
+    res.json(q(`SELECT u.id, u.username, u.name, u.is_admin, u.is_super, u.disabled, u.created_at, u.mail_quota_mb, u.last_active, u.job_title, u.department, u.work_phone, u.manager_id,
                   (SELECT COALESCE(SUM(size), 0) FROM files f WHERE f.owner_id = u.id) AS storage_used,
                   (SELECT COUNT(*) FROM two_factor t WHERE t.user_id = u.id AND t.enabled = 1) AS two_factor
                 FROM users u WHERE u.org_id = ? ORDER BY u.name`).all(orgId));
@@ -281,13 +318,18 @@ export default function userRoutes() {
       disableTwoFactor(u.id);
       q('DELETE FROM sessions WHERE user_id = ?').run(u.id);
     }
+    // Who's who (admins): title, department, phone and manager.
+    const profile = readProfile(req.body);
+    saveProfile(u.id, profile);
+    if (req.body.manager_id !== undefined) setManager(u, req.body.manager_id);
+    if (Object.keys(profile).length || req.body.manager_id !== undefined) sendTo(orgMemberIds(u.org_id), { type: 'directory-changed' });
     if (mail_quota_mb !== undefined) {
       const mb = Math.trunc(Number(mail_quota_mb));
       if (!Number.isFinite(mb) || mb < 0) throw bad('Mailbox size must be 0 (unlimited) or more');
       q('UPDATE users SET mail_quota_mb = ? WHERE id = ?').run(mb, u.id);
     }
     scheduleMailConfig();
-    const changed = Object.fromEntries(Object.entries({ name, is_admin, disabled, mail_quota_mb, reset_two_factor, password: password !== undefined ? 'reset' : undefined,
+    const changed = Object.fromEntries(Object.entries({ name, is_admin, disabled, mail_quota_mb, reset_two_factor, ...profile, manager_id: req.body.manager_id, password: password !== undefined ? 'reset' : undefined,
       address: req.body.local !== undefined || req.body.domain !== undefined ? q('SELECT username FROM users WHERE id = ?').get(u.id)?.username : undefined }).filter(([, v]) => v !== undefined));
     if (Object.keys(changed).length) audit(req, 'user.update', { org: u.org_id, target: u.username, details: changed });
     res.json({ ok: true });

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
-import { get, post, patch, del, postText } from '../../api.js';
+import { get, post, patch, del, postText, onLive } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
 import { Avatar, ConfirmModal, Empty, Menu, Modal, useToast } from '../../components/ui.jsx';
 import { useAuth } from '../../App.jsx';
@@ -8,6 +8,7 @@ import AddressInput from '../../components/AddressInput.jsx';
 import { parseAddresses, formatAddress } from '../../components/addresses.js';
 import { placeText, isoDay } from '../../components/workloc.js';
 import { statusLine } from '../../components/status.js';
+import { orgTree, chainOf } from '../../components/orgchart.js';
 
 const FIELDS = [['name', 'Name'], ['email', 'Email'], ['phone', 'Phone'], ['company', 'Company'], ['title', 'Job title'], ['website', 'Website']];
 
@@ -41,6 +42,8 @@ export default function Contacts() {
     } catch (e) { toast(e.message, 'error'); }
   };
   useEffect(() => { load(); get('/users/directory').then(setDirectory); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => onLive((m) => { if (m.type === 'directory-changed') get('/users/directory').then(setDirectory).catch(() => {}); }), []);
+  const [chart, setChart] = useState(false); // Directory as an org chart
   // Where colleagues are working today (those who've said).
   const [whereToday, setWhereToday] = useState({});
   useEffect(() => { get(`/location/people?date=${isoDay(new Date())}`).then(setWhereToday).catch(() => {}); }, []);
@@ -77,8 +80,9 @@ export default function Contacts() {
           <button role="tab" aria-selected={tab === 'groups'} className={tab === 'groups' ? 'on' : ''} onClick={() => setTab('groups')}>Groups</button>
         </div>
         <input className="filter" placeholder="Filter" aria-label="Filter contacts" value={filter} onChange={(e) => setFilter(e.target.value)} />
+        {tab === 'dir' && <button type="button" className={`btn small ${chart ? 'primary' : ''}`} aria-pressed={chart} onClick={() => setChart(!chart)}>Org chart</button>}
       </div>
-      {tab === 'groups' ? <Groups filter={filter} /> : tab === 'other' ? <OtherContacts filter={filter} onAdded={load} /> : tab === 'mine' && contacts?.length === 0 ? <Empty icon="person" title="No contacts yet">Add people you work with outside your NAS users.</Empty>
+      {tab === 'dir' && chart ? <OrgChart people={directory} filter={filter} onMessage={message} me={user.id} /> : tab === 'groups' ? <Groups filter={filter} /> : tab === 'other' ? <OtherContacts filter={filter} onAdded={load} /> : tab === 'mine' && contacts?.length === 0 ? <Empty icon="person" title="No contacts yet">Add people you work with outside your NAS users.</Empty>
         : tab === 'company' && company.length === 0 ? <Empty icon="person" title="No company contacts yet">Contacts shared with everyone at {user.org_name} appear here. Tick “Share with everyone at {user.org_name}” on a contact to add it.</Empty> : (
         <table className="files">
           <thead><tr><th>Name</th><th className="hide-sm">Email</th><th className="hide-sm">Phone</th><th className="hide-sm">Company</th><th aria-label="Actions" /></tr></thead>
@@ -87,8 +91,8 @@ export default function Contacts() {
               <tr key={c.id}>
                 <td className="name"><Avatar name={c.name} size={28} userId={tab === 'dir' ? c.id : undefined} email={c.email || c.username} /><span>{c.name}{c.shared && tab === 'mine' ? <span className="muted"> · Shared with company</span> : null}{tab === 'company' && <span className="muted"> · Added by {c.owner_id === user.id ? 'you' : c.owner_name}</span>}{c.status && <span className="person-status" aria-label={`Status: ${statusLine(c.status)}`}> · {statusLine(c.status)}</span>}{tab === 'dir' && whereToday[c.id] && <span className="muted person-where" title="Working location today"> · {placeText(whereToday[c.id])} today</span>}</span></td>
                 <td className="hide-sm">{(c.email || c.username) ? <a href={`mailto:${c.email || c.username}`}>{c.email || c.username}</a> : <span className="muted">—</span>}</td>
-                <td className="hide-sm">{c.phone ? <a href={`tel:${c.phone}`}>{c.phone}</a> : <span className="muted">—</span>}</td>
-                <td className="hide-sm muted">{own ? [c.title, c.company].filter(Boolean).join(' · ') || '—' : user.org_name}{own && c.website && <> · <a href={c.website} target="_blank" rel="noopener noreferrer">{c.website.replace(/^https?:\/\//, '')}</a></>}</td>
+                <td className="hide-sm">{(c.phone || c.work_phone) ? <a href={`tel:${c.phone || c.work_phone}`}>{c.phone || c.work_phone}</a> : <span className="muted">—</span>}</td>
+                <td className="hide-sm muted">{own ? [c.title, c.company].filter(Boolean).join(' · ') || '—' : [c.job_title, c.department].filter(Boolean).join(' · ') || user.org_name}{own && c.website && <> · <a href={c.website} target="_blank" rel="noopener noreferrer">{c.website.replace(/^https?:\/\//, '')}</a></>}</td>
                 <td className="actions">
                   {own ? (tab === 'mine' || c.can_edit) && <>
                     <button className="icon-btn" aria-label={`Edit ${c.name}`} onClick={() => setEditing(c)}><Icon name="edit" size={18} /></button>
@@ -292,4 +296,26 @@ function GroupDialog({ group, onClose, onSaved }) {
       </form>
     </Modal>
   );
+}
+
+/** Who reports to whom: the Directory as a tree (filtering shows the matching people with their managers). */
+function OrgChart({ people, filter, onMessage, me }) {
+  const f = filter.trim().toLowerCase();
+  const hit = (p) => !f || [p.name, p.job_title, p.department, p.username].some((v) => v && v.toLowerCase().includes(f));
+  const keep = new Set();
+  if (f) for (const p of people) if (hit(p)) { keep.add(p.id); for (const m of chainOf(people, p.id)) keep.add(m.id); }
+  const tree = orgTree(f ? people.filter((p) => keep.has(p.id)) : people);
+  if (!people.some((p) => p.manager_id)) return <Empty icon="people" title="No org chart yet">An admin sets who each person reports to in Admin → Users → ⋮ → Job and manager.</Empty>;
+  const node = (p) => (
+    <li key={p.id}>
+      <div className={`org-card ${f && hit(p) ? 'hit' : ''}`} aria-label={`${p.name}${p.job_title ? `, ${p.job_title}` : ''}`}>
+        <Avatar name={p.name} size={32} userId={p.id} />
+        <span className="grow"><strong>{p.name}</strong>{(p.job_title || p.department) && <span className="muted small"><br />{[p.job_title, p.department].filter(Boolean).join(' · ')}</span>}</span>
+        {p.reports.length > 0 && <span className="muted small" title="Reports">{p.reports.length}</span>}
+        {p.id !== me && <button className="icon-btn" aria-label={`Message ${p.name}`} onClick={() => onMessage(p)}><Icon name="chat" size={16} /></button>}
+      </div>
+      {p.reports.length > 0 && <ul>{p.reports.map(node)}</ul>}
+    </li>
+  );
+  return <ul className="org-chart" aria-label="Org chart">{tree.map(node)}</ul>;
 }

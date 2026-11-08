@@ -1794,3 +1794,9 @@ a.home-item:hover, button.home-item:hover { text-decoration: underline; }
 .slide-changes ul { margin: 4px 0 0; padding-left: 18px; }
 .share-list .share-until { width: 132px; font-size: 12px; color: var(--muted); }
 .share-list .share-until:valid:not([value=""]) { color: var(--text); }
+/* Contacts → Directory → Org chart: who reports to whom, indented under their manager. */
+.org-chart, .org-chart ul { list-style: none; margin: 0; padding: 0; }
+.org-chart ul { margin-left: 22px; padding-left: 16px; border-left: 2px solid var(--border); }
+.org-chart li { margin: 6px 0; }
+.org-card { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); max-width: 420px; }
+.org-card.hit { border-color: var(--primary, #1a73e8); box-shadow: 0 0 0 1px var(--primary, #1a73e8); }

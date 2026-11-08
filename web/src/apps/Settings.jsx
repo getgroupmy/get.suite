@@ -56,6 +56,7 @@ export default function Settings() {
       <Devices />
       <WorkLocation />
       <SecondZone />
+      <Profile />
       <YourData />
     </div>
   );
@@ -188,6 +189,31 @@ function Appearance() {
 }
 
 /** A second time zone beside the hours in Calendar. */
+/** Your job title, department and work phone, as colleagues see them in the Directory. */
+function Profile() {
+  const toast = useToast();
+  const { user } = useAuth();
+  const [p, setP] = useState(null);
+  useEffect(() => { get('/users/directory').then((list) => { const me = list.find((u) => u.id === user.id) || {}; setP({ job_title: me.job_title || '', department: me.department || '', work_phone: me.work_phone || '' }); }).catch(() => {}); }, [user.id]);
+  if (!p) return null;
+  const save = async (e) => {
+    e.preventDefault();
+    try { await put('/users/me/profile', p); toast('Saved: colleagues see it in the Directory'); } catch (err) { toast(err.message, 'error'); }
+  };
+  return (
+    <form className="card stack" aria-labelledby="profile-h" onSubmit={save}>
+      <h2 id="profile-h">About you</h2>
+      <p className="muted small" style={{ margin: 0 }}>Colleagues see these in Contacts → Directory and the org chart. Who you report to is set by an admin.</p>
+      <div className="row wrap">
+        <label className="field grow"><span>Job title</span><input value={p.job_title} maxLength={100} onChange={(e) => setP({ ...p, job_title: e.target.value })} placeholder="Sales manager" /></label>
+        <label className="field grow"><span>Department</span><input value={p.department} maxLength={100} onChange={(e) => setP({ ...p, department: e.target.value })} placeholder="Sales" /></label>
+        <label className="field grow"><span>Work phone</span><input type="tel" value={p.work_phone} maxLength={40} onChange={(e) => setP({ ...p, work_phone: e.target.value })} placeholder="+60 3-1234 5678" /></label>
+      </div>
+      <div className="row end"><button className="btn primary">Save</button></div>
+    </form>
+  );
+}
+
 function SecondZone() {
   const toast = useToast();
   const { user, setUser } = useAuth();
