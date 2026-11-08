@@ -1792,3 +1792,5 @@ a.home-item:hover, button.home-item:hover { text-decoration: underline; }
 .change-pill-add { background: #e6f4ea; color: #0d652d; margin-left: 6px; font-size: 11px; }
 .change-pill-del { background: #fce8e6; color: #a50e0e; margin-left: 6px; font-size: 11px; }
 .slide-changes ul { margin: 4px 0 0; padding-left: 18px; }
+.share-list .share-until { width: 132px; font-size: 12px; color: var(--muted); }
+.share-list .share-until:valid:not([value=""]) { color: var(--text); }

@@ -28,7 +28,10 @@ export function roleFor(fileId, userId) {
     if (!f) return best;
     if (f.owner_id === userId) return 'owner';
     if (f.org_role && f.org_id === userOrg && (!best || RANK[f.org_role] > RANK[best])) best = f.org_role;
-    const s = q('SELECT role FROM shares WHERE file_id = ? AND user_id = ?').get(f.id, userId);
+    let s = q('SELECT role, expires_at FROM shares WHERE file_id = ? AND user_id = ?').get(f.id, userId);
+    // Shared until a time that has passed: only what groups give them counts (the sweep tidies up soon).
+    if (s?.expires_at && s.expires_at <= Date.now()) s = q(`SELECT gs.role FROM group_shares gs JOIN group_members m ON m.group_id = gs.group_id
+                                                            WHERE gs.file_id = ? AND m.user_id = ? ORDER BY gs.role = 'editor' DESC LIMIT 1`).get(f.id, userId);
     if (s && (!best || RANK[s.role] > RANK[best]) && orgsMayCollaborate(f.org_id, userOrg)) best = s.role;
     cur = f.parent_id;
   }

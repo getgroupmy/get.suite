@@ -3440,3 +3440,32 @@ test('calendar sharing: colleagues you choose see what your events are, others o
   await a('PUT', '/api/freebusy/shares', { users: [] });
   assert.equal((await fb(b)).busy[0].title, undefined);
 });
+
+test('sharing until a date: access ends by itself and the owner is told', async () => {
+  const own = client(); const tmp = client();
+  const ids = {};
+  for (const [local, name] of [['sxo', 'Sam Owner'], ['sxt', 'Tia Temp']]) ids[local] = (await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).body.id;
+  await login(own, 'sxo@acme.com'); await login(tmp, 'sxt@acme.com');
+  const doc = (await own('POST', '/api/files/new', { kind: 'doc', name: 'Audit pack' })).body;
+  const share = (expires_at) => own('PUT', `/api/files/${doc.id}/shares`, { shares: [{ user_id: ids.sxt, role: 'editor', expires_at }] });
+  assert.equal((await share(Date.now() - 1000)).status, 400, 'not in the past');
+  assert.equal((await share(Date.now() + 400 * 864e5)).status, 400, 'at most a year');
+  const until = Date.now() + 2000;
+  assert.equal((await share(until)).status, 200);
+  assert.equal((await own('GET', `/api/files/${doc.id}/shares`)).body[0].expires_at, until);
+  assert.equal((await tmp('GET', `/api/files/${doc.id}`)).status, 200);
+  assert.ok(JSON.stringify((await tmp('GET', '/api/notifications')).body).includes(`until ${new Date(until).toISOString().slice(0, 10)}`));
+  // Once the time has passed it's refused straight away, before the sweep.
+  await new Promise((r) => setTimeout(r, 2100));
+  assert.equal((await tmp('GET', `/api/files/${doc.id}`)).status, 404);
+  const { expireShares } = await import('../src/shareexpiry.js');
+  assert.ok(expireShares() >= 1);
+  assert.deepEqual((await own('GET', `/api/files/${doc.id}/shares`)).body, []);
+  assert.ok(JSON.stringify((await own('GET', '/api/notifications')).body).includes('Tia Temp\'s access to “Audit pack” has ended'));
+  const acts = (await own('GET', `/api/files/${doc.id}/activity`)).body;
+  assert.ok(JSON.stringify(acts).includes('access ended'));
+  // Shared again without an end date: it stays.
+  await share(null);
+  assert.equal(expireShares(Date.now() + 999 * 864e5), 0);
+  assert.equal((await tmp('GET', `/api/files/${doc.id}`)).status, 200);
+});

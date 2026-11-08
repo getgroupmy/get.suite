@@ -1,5 +1,6 @@
 import { withoutSuggestions } from '../office/suggestions.js';
 import { sync as syncShares, setFileGroups, groupsOf } from '../groups.js';
+import { MAX_SHARE_DAYS } from '../shareexpiry.js';
 import { recordActivity, activityOf } from '../fileactivity.js';
 import { isWatching, setWatching } from '../filewatch.js';
 import { notify as bell } from '../notifications.js';
@@ -880,7 +881,7 @@ export default function fileRoutes({ maxUploadBytes }) {
 
   r.get('/:id/shares', (req, res) => {
     const f = loadFile(req.params.id, req.user);
-    res.json(q(`SELECT s.user_id, s.direct_role, u.name, u.username, o.name AS org_name, (u.org_id != ?) AS external
+    res.json(q(`SELECT s.user_id, s.direct_role, s.expires_at, u.name, u.username, o.name AS org_name, (u.org_id != ?) AS external
                 FROM shares s JOIN users u ON u.id = s.user_id JOIN orgs o ON o.id = u.org_id
                 WHERE s.file_id = ? AND s.direct_role IS NOT NULL ORDER BY u.name`).all(req.user.org_id, f.id)
       .map(({ direct_role: role, ...s }) => ({ ...s, role, external: !!s.external })));
@@ -996,13 +997,16 @@ export default function fileRoutes({ maxUploadBytes }) {
     const had = new Set(q('SELECT user_id FROM shares WHERE file_id = ? AND direct_role IS NOT NULL').all(f.id).map((x) => x.user_id));
     tx(() => {
       // People shared with one by one; access through groups is worked out again after (syncShares).
-      q('UPDATE shares SET direct_role = NULL WHERE file_id = ?').run(f.id);
+      q('UPDATE shares SET direct_role = NULL, expires_at = NULL WHERE file_id = ?').run(f.id);
       for (const s of list) {
         if (!['viewer', 'editor'].includes(s.role)) throw bad('role must be viewer or editor');
+        // Until when (optional): a moment in the future, up to a year ahead.
+        const until = s.expires_at === undefined || s.expires_at === null || s.expires_at === '' ? null : Number(s.expires_at);
+        if (until !== null && (!Number.isFinite(until) || until <= Date.now() || until > Date.now() + MAX_SHARE_DAYS * 864e5)) throw bad('Access can end at a time in the next year');
         if (s.user_id === f.owner_id) continue;
         if (!canReach(req.user, s.user_id)) throw bad('You cannot share with that person (external sharing may be turned off)');
-        q(`INSERT INTO shares (file_id, user_id, role, direct_role) VALUES (?, ?, ?, ?)
-           ON CONFLICT(file_id, user_id) DO UPDATE SET direct_role = excluded.direct_role`).run(f.id, s.user_id, s.role, s.role);
+        q(`INSERT INTO shares (file_id, user_id, role, direct_role, expires_at) VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT(file_id, user_id) DO UPDATE SET direct_role = excluded.direct_role, expires_at = excluded.expires_at`).run(f.id, s.user_id, s.role, s.role, until);
       }
       syncShares(f.id);
     });
@@ -1014,7 +1018,8 @@ export default function fileRoutes({ maxUploadBytes }) {
     const gone = [...had].filter((id) => !list.some((x) => x.user_id === id));
     const who = (id) => q('SELECT name FROM users WHERE id = ?').get(id)?.name || 'someone';
     if (added.length || gone.length) recordActivity(f.id, req.user.id, 'share', { added: added.map((x) => `${who(x.user_id)} (${x.role === 'editor' ? 'can edit' : 'can view'})`), removed: gone.map(who) });
-    for (const x of added) bell([x.user_id], { kind: 'share', title: `${req.user.name || req.user.username} shared “${f.name}” with you`, body: x.role === 'editor' ? 'You can edit' : 'You can view', link: openLink(f), actor: req.user.name });
+    const untilText = (x) => (x.expires_at ? ` until ${new Date(Number(x.expires_at)).toISOString().slice(0, 10)}` : '');
+    for (const x of added) bell([x.user_id], { kind: 'share', title: `${req.user.name || req.user.username} shared “${f.name}” with you`, body: `${x.role === 'editor' ? 'You can edit' : 'You can view'}${untilText(x)}`, link: openLink(f), actor: req.user.name });
     res.json({ ok: true });
   });
 

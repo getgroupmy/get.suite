@@ -411,6 +411,9 @@ export default function Drive() {
   );
 }
 
+const dayInput = (ms) => { const d = new Date(ms); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+const endOfDay = (day) => { const [y, m, d] = day.split('-').map(Number); return new Date(y, m - 1, d, 23, 59, 59, 999).getTime(); };
+
 export function ShareDialog({ file, onClose }) {
   const toast = useToast();
   const { user } = useAuth();
@@ -458,7 +461,7 @@ export function ShareDialog({ file, onClose }) {
 
   async function save() {
     try {
-      await put(`/files/${file.id}/shares`, { shares: shares.map(({ user_id, role }) => ({ user_id, role })) });
+      await put(`/files/${file.id}/shares`, { shares: shares.map(({ user_id, role, expires_at }) => ({ user_id, role, expires_at: expires_at || null })) });
       if (mine && fileGroups) await put(`/files/${file.id}/groups`, { groups: fileGroups.map(({ group_id, role }) => ({ group_id, role })) });
       toast('Sharing updated');
       onClose();
@@ -524,10 +527,15 @@ export function ShareDialog({ file, onClose }) {
             <select value={s.role} aria-label={`Access for ${s.name}`} onChange={(e) => setShares(shares.map((x) => (x.user_id === s.user_id ? { ...x, role: e.target.value } : x)))}>
               <option value="viewer">Viewer</option><option value="editor">Editor</option>
             </select>
+            {/* Until a day (optional): access ends at the end of it. */}
+            <input type="date" className="share-until" aria-label={`Access for ${s.name} ends`} title="Access ends after this day (empty: no end)"
+              min={dayInput(Date.now())} max={dayInput(Date.now() + 365 * 864e5)} value={s.expires_at ? dayInput(s.expires_at) : ''}
+              onChange={(e) => setShares(shares.map((x) => (x.user_id === s.user_id ? { ...x, expires_at: e.target.value ? endOfDay(e.target.value) : null } : x)))} />
             <button className="icon-btn" aria-label={`Remove ${s.name}`} onClick={() => setShares(shares.filter((x) => x.user_id !== s.user_id))}><Icon name="close" size={18} /></button>
           </li>
         ))}
       </ul>
+      {shares?.length > 0 && <p className="muted small">A date beside someone ends their access after that day; leave it empty for no end.</p>}
       {external > 0 && <p className="muted small">{external === 1 ? '1 person' : `${external} people`} outside {user.org_name} can open this.</p>}
       {file.kind === 'folder' && <p className="muted small">People get the same access to everything inside this folder.</p>}
       {(file.kind === 'file' || file.kind === 'folder') && <LinkSharing file={file} />}
