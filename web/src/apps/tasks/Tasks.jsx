@@ -118,7 +118,7 @@ export default function Tasks() {
           <span className="task-title">{t.title}</span>
           <span className="task-meta">
             {virtual && <span className="muted small">{t.list_name}</span>}
-            {t.link_url && <span className="muted small task-link" title={t.link_label || 'Linked'}>{t.link_url.startsWith('/chat') ? '💬' : '✉'}</span>}
+            {t.link_url && <span className="muted small task-link" title={t.link_label || 'Linked'}>{t.link_url.startsWith('/chat') ? '💬' : t.link_url.startsWith('/docs') ? '📄' : '✉'}</span>}
             {t.notes && <span className="muted small ellipsis task-notes">{t.notes.split('\n')[0]}</span>}
             {due && <span className={`pill due ${due.tone}`}>{due.text}</span>}
             {t.started && !t.done && <span className="pill doing">In progress</span>}
@@ -332,7 +332,7 @@ function TaskDetails({ task, lists, people, onChange, onClose, onDelete, onMove,
       </label>
       {task.link_url && (
         <div className="field"><span>From</span>
-          <span className="row"><Link to={task.link_url} className="grow ellipsis">{task.link_url.startsWith('/chat') ? '💬' : '✉'} {task.link_label || 'Open'}</Link>
+          <span className="row"><Link to={task.link_url} className="grow ellipsis">{task.link_url.startsWith('/chat') ? '💬' : task.link_url.startsWith('/docs') ? '📄' : '✉'} {task.link_label || 'Open'}</Link>
             <button type="button" className="link-btn small" onClick={() => onChange({ link: null })}>Remove</button></span>
         </div>
       )}

@@ -8,7 +8,7 @@ import { uid, now, str, bad, notFound } from '../util.js';
 import { sendTo } from '../hub.js';
 import { notify as bell } from '../notifications.js';
 import { canReach } from '../tenancy.js';
-import { audienceFor } from '../access.js';
+import { audienceFor, roleFor, atLeast } from '../access.js';
 
 q(`CREATE TABLE IF NOT EXISTS task_lists (
   id TEXT PRIMARY KEY,
@@ -115,7 +115,7 @@ const todayOf = (v) => (typeof v === 'string' && DATE_RE.test(v) ? v : new Date(
 export function linkOf(v) {
   if (v == null || v === '') return { url: null, label: null };
   const url = String(v.url || '');
-  if (!/^\/(mail|chat)(\/|\?|$)/.test(url) || url.length > 2000 || /[\s\\]/.test(url)) throw bad('Bad link');
+  if (!/^\/(mail|chat|docs)(\/|\?|$)/.test(url) || url.length > 2000 || /[\s\\]/.test(url)) throw bad('Bad link');
   return { url, label: String(v.label || '').trim().slice(0, 300) || null };
 }
 
@@ -126,6 +126,16 @@ function assigneeOf(v, list) {
 }
 
 /** Your first own list ("My tasks", made if you have none). */
+// Action items sent from a document: which (person, item) became which task, so sending again doesn't repeat them.
+q(`CREATE TABLE IF NOT EXISTS doc_action_tasks (
+  file_id TEXT NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  item_key TEXT NOT NULL,
+  task_id TEXT NOT NULL,
+  PRIMARY KEY (file_id, user_id, item_key)
+)`).run();
+const itemKey = (text) => String(text).toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 300);
+
 export function myFirstList(userId) {
   if (!q('SELECT 1 FROM task_lists WHERE owner_id = ?').get(userId)) q('INSERT INTO task_lists (id, owner_id, name, created_at) VALUES (?, ?, ?, ?)').run(uid(), userId, 'My tasks', now());
   return q('SELECT * FROM task_lists WHERE owner_id = ? ORDER BY created_at LIMIT 1').get(userId);
@@ -305,6 +315,43 @@ export default function taskRoutes() {
     const made = shape(q(`${TASK} WHERE t.id = ?`).get(id));
     notifyAssigned(made, req.user);
     res.status(201).json(made);
+  });
+
+  // A document's action items (ticked-off-able items that @mention someone) become tasks for those
+  // people, on their own first list, given by you and linking back to the document. Items already
+  // sent (and still there) aren't sent again. Body: { items: [{ text, title, user_id, due?, due_time? }] }.
+  r.get('/from-doc/:fileId', (req, res) => {
+    if (!roleFor(req.params.fileId, req.user.id)) throw notFound();
+    res.json(q(`SELECT d.user_id, d.item_key AS key, t.done_at FROM doc_action_tasks d JOIN tasks t ON t.id = d.task_id WHERE d.file_id = ?`).all(req.params.fileId)
+      .map((x) => ({ user_id: x.user_id, key: x.key, done: !!x.done_at })));
+  });
+  r.post('/from-doc/:fileId', (req, res) => {
+    const file = q("SELECT id, name, kind FROM files WHERE id = ? AND trashed = 0").get(req.params.fileId);
+    const role = file && roleFor(file.id, req.user.id);
+    if (!role || file.kind !== 'doc') throw notFound();
+    if (!atLeast(role, 'editor')) throw bad('Only people who can edit the document can send its action items');
+    const items = Array.isArray(req.body?.items) ? req.body.items.slice(0, 100) : [];
+    const made = [], already = [], skipped = [];
+    for (const it of items) {
+      const who = q('SELECT id, name, disabled FROM users WHERE id = ?').get(String(it.user_id || ''));
+      const title = String(it.title || '').trim().slice(0, 500);
+      if (!who || who.disabled || !title || !canReach(req.user, who.id)) { skipped.push(String(it.text || title)); continue; }
+      const key = itemKey(it.text || title);
+      const had = q('SELECT d.task_id FROM doc_action_tasks d JOIN tasks t ON t.id = d.task_id WHERE d.file_id = ? AND d.user_id = ? AND d.item_key = ?').get(file.id, who.id, key);
+      if (had) { already.push(title); continue; }
+      const list = myFirstList(who.id);
+      const due = it.due ? dueOf(it.due) : null;
+      const dueTime = due && it.due_time ? dueTimeOf(it.due_time) : null;
+      const id = uid(), t = now();
+      const position = (q('SELECT MIN(position) AS p FROM tasks WHERE list_id = ? AND done_at IS NULL').get(list.id).p ?? 1) - 1;
+      q(`INSERT INTO tasks (id, list_id, title, due, due_time, assignee_id, position, link_url, link_label, created_by, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, list.id, title, due, dueTime, who.id, position, `/docs/${file.id}`, file.name.slice(0, 300), req.user.id, t, t);
+      q('INSERT OR REPLACE INTO doc_action_tasks (file_id, user_id, item_key, task_id) VALUES (?, ?, ?, ?)').run(file.id, who.id, key, id);
+      changed(list);
+      notifyAssigned(shape(q(`${TASK} WHERE t.id = ?`).get(id)), req.user);
+      made.push({ title, name: who.name, can_open: !!roleFor(file.id, who.id) });
+    }
+    res.json({ made, already, skipped });
   });
 
   r.patch('/tasks/:id', (req, res) => {

@@ -4045,3 +4045,29 @@ test('tasks: one request can add a task with its date, time, repeat, star and pe
   assert.deepEqual([t.title, t.due, t.due_time, t.repeat, t.important], ['Send invoice', '2026-12-01', '15:00', 'monthly', true]);
   assert.equal((await owner('POST', `/api/tasks/lists/${list.id}/tasks`, { title: 'x', due_time: '15:00' })).body.due_time ?? null, null, 'a time needs a date');
 });
+
+test('docs: action items become tasks for the people they mention, once', async () => {
+  const ana = client();
+  const made = await owner('POST', '/api/users', { local: 'actiona', domain: 'acme.com', name: 'Ana Action', password: 'password123' });
+  await login(ana, 'actiona@acme.com');
+  const doc = (await owner('POST', '/api/files/new', { kind: 'doc', name: 'Sync notes' })).body;
+  const items = [{ text: '@Ana Action send the figures by Friday', title: 'send the figures', user_id: made.body.id, due: '2026-12-04' }];
+  assert.equal((await ana('POST', `/api/tasks/from-doc/${doc.id}`, { items })).status, 404, 'needs the document');
+  const r = await owner('POST', `/api/tasks/from-doc/${doc.id}`, { items: [...items, { text: 'x', title: 'x', user_id: 'nobody' }] });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.made.length, 1);
+  assert.equal(r.body.made[0].can_open, false, 'tells you they can\'t open the document');
+  assert.equal(r.body.skipped.length, 1);
+  const assigned = (await ana('GET', '/api/tasks/assigned')).body;
+  const t = assigned.find((x) => x.title === 'send the figures');
+  assert.ok(t, JSON.stringify(assigned));
+  assert.equal(t.due, '2026-12-04');
+  assert.equal(t.link_url, `/docs/${doc.id}`);
+  assert.equal(t.link_label, 'Sync notes');
+  const again = (await owner('POST', `/api/tasks/from-doc/${doc.id}`, { items })).body;
+  assert.equal(again.made.length, 0);
+  assert.deepEqual(again.already, ['send the figures']);
+  assert.deepEqual((await owner('GET', `/api/tasks/from-doc/${doc.id}`)).body.map((x) => x.done), [false]);
+  await owner('PUT', `/api/files/${doc.id}/shares`, { shares: [{ user_id: made.body.id, role: 'viewer' }] });
+  assert.equal((await ana('POST', `/api/tasks/from-doc/${doc.id}`, { items })).status, 400, 'viewers can\'t send');
+});

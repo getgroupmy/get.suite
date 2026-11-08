@@ -130,6 +130,10 @@ Switch **✎ Editing** to **💡 Suggesting** at the top of a document to propos
 
 - **@mentions:** type **@** and a few letters of a colleague's name, then Enter (or click) to put them in as a chip. They get a notification linking to the document (once in a while, not for every mention). If they can't open it, a note says so; if it's yours, **Share with them** lets them edit it and tells them. Mentions read as @Name in Word, Markdown and search.
 - **Links to Drive files:** **📄** in the toolbar puts in a link to a document, spreadsheet, presentation, file or folder from Drive, named after it (or links the selected text). If anyone who can open this document can't open what you linked, a note says who; if it's yours, **Share with them** lets them view it.
+## Action items to Tasks (Docs)
+
+Write action items as checklist items that mention someone, like *☐ @Kim send the figures by Friday* (the **Meeting notes** a calendar event makes have a list ready). **⋮ → Send action items to Tasks** lists the unticked ones and, after you choose, makes each a task in that person's Tasks (on their first list, under **Assigned to me**), given by you, with 📄 linking back to the document. A date or time in the item (*by Friday*, *tomorrow 3pm*) becomes the due date, as in Tasks' quick add; an item mentioning two people goes to both. Sending again leaves items already sent alone (the list shows them as *already sent* or *done ✓*). If someone can't open the document, you're told, so you can share it.
+
 ## Find and replace, word count, outline (Docs)
 
 - **Ctrl+F** finds text in the document: every match is highlighted, and Enter (Shift+Enter) goes to the next (previous) one. *Match case* and *Whole words* narrow it down. **Ctrl+H** (or *Replace…*) replaces the current match or all of them; replaced text keeps its formatting, and each replace is one step for Undo. Only the person searching sees the highlights; replacements reach everyone as they're made. Viewers can find but not replace.

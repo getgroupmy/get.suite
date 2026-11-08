@@ -24,6 +24,7 @@ import Icon from '../../components/Icon.jsx';
 import { FindReplace, countWords } from './findReplace.js';
 import { FindBar } from './FindBar.jsx';
 import { Outline } from './Outline.jsx';
+import { ActionItemsDialog } from './ActionItems.jsx';
 import { TableOfContents, htmlWithContents } from './toc.js';
 import { TaskList, TaskItem } from '@tiptap/extension-list';
 import { PageBreak } from './pagebreak.js';
@@ -123,6 +124,7 @@ function SharedDoc({ file, setFile }) {
   const toast = useToast();
   const [sharing, setSharing] = useState(false);
   const [history, setHistory] = useState(false);
+  const [sendingItems, setSendingItems] = useState(false);
   // A link to another file in Drive, named after it. If people who can open this document can't
   // open that one, the owner is offered to share it with them (everyone else is told who can't).
   const [linkingFile, setLinkingFile] = useState(false);
@@ -413,6 +415,7 @@ function SharedDoc({ file, setFile }) {
           { label: 'Find and replace', icon: 'search', onClick: () => setFinding({ replace: !readOnly }) },
           ...(!readOnly ? [{ label: 'Page setup', icon: 'print', onClick: () => setPageSetupOpen(true) }] : []),
           { label: 'Version history', icon: 'clock', onClick: () => setHistory(true) },
+          ...(!readOnly ? [{ label: 'Send action items to Tasks', icon: 'check', onClick: () => setSendingItems(true) }] : []),
           { label: 'Word count', icon: 'doc', onClick: () => { const c = countWords(editor.state.doc); toast(`${c.words.toLocaleString()} ${c.words === 1 ? 'word' : 'words'}, ${c.characters.toLocaleString()} characters (without spaces)`); } },
           '-',
           { label: 'Print / Save as PDF', icon: 'print', onClick: () => window.print() },
@@ -472,6 +475,7 @@ function SharedDoc({ file, setFile }) {
           onClose={() => { if (pending) pending.onCancel(); setPanel(false); }} />}
       </div>
       {sharing && <ShareDialog file={file} onClose={() => setSharing(false)} />}
+      {sendingItems && <ActionItemsDialog fileId={file.id} doc={editor.getJSON()} onClose={() => setSendingItems(false)} />}
       {history && <VersionHistory file={file} canEdit={!readOnly} onClose={() => setHistory(false)} renderPreview={(content) => <DocPreview content={content} fileId={file.id} />} renderChanges={(content) => <DocChanges before={content} after={editor.getJSON()} />} />}
       {pageSetupOpen && <PageSetupDialog setup={file.page_setup} onClose={() => { setPageSetupOpen(false); editor.view.focus(); }}
         onSave={async (next) => { try { setFile(await patch(`/files/${file.id}`, { page_setup: next })); setPageSetupOpen(false); toast('Page setup saved'); } catch (e) { toast(e.message, 'error'); } }} />}
