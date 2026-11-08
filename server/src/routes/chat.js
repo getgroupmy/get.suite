@@ -2,7 +2,8 @@ import { notify } from '../notifications.js';
 import { firstLink, previewFor } from '../linkpreview.js';
 import { mailEnabled } from '../mail/config.js';
 import { queueChatEmail } from '../chatmail.js';
-import { Router } from 'express';
+import express, { Router } from 'express';
+import crypto from 'node:crypto';
 import path from 'node:path';
 import { q, tx, FILES_DIR } from '../db.js';
 import { uid, now, str, bad, notFound, HttpError } from '../util.js';
@@ -122,7 +123,7 @@ function dmOpen(c, user) {
 
 // Each message with its thread: how many replies, when the last came, and who replied (first few).
 if (!q('PRAGMA table_info(messages)').all().some((c) => c.name === 'preview')) q('ALTER TABLE messages ADD COLUMN preview TEXT').run(); // a link's title and description (linkpreview.js)
-const MSG = `SELECT m.id, m.channel_id, m.user_id, m.body, m.created_at, m.edited_at, m.files, m.parent_id, m.pinned_at, m.poll, m.forwarded, m.preview, u.name AS user_name, (SELECT pu.name FROM users pu WHERE pu.id = m.pinned_by) AS pinned_by_name,
+const MSG = `SELECT m.id, m.channel_id, m.user_id, m.bot, m.body, m.created_at, m.edited_at, m.files, m.parent_id, m.pinned_at, m.poll, m.forwarded, m.preview, u.name AS user_name, (SELECT pu.name FROM users pu WHERE pu.id = m.pinned_by) AS pinned_by_name,
                (SELECT COUNT(*) FROM messages t WHERE t.parent_id = m.id) AS reply_count,
                (SELECT MAX(t.created_at) FROM messages t WHERE t.parent_id = m.id) AS last_reply_at,
                (SELECT json_group_array(name) FROM (SELECT DISTINCT tu.name FROM messages t JOIN users tu ON tu.id = t.user_id
@@ -352,6 +353,55 @@ function colleagues(user, list) {
   return ids;
 }
 
+// Incoming webhooks: a secret address that posts into a channel, for scripts, monitoring, a build server…
+// Messages it posts have no person: messages.bot holds the webhook's name.
+if (!q('PRAGMA table_info(messages)').all().some((c) => c.name === 'bot')) q('ALTER TABLE messages ADD COLUMN bot TEXT').run();
+q(`CREATE TABLE IF NOT EXISTS chat_webhooks (
+  id TEXT PRIMARY KEY,
+  channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  token_hash TEXT NOT NULL UNIQUE,     -- sha256 of the secret in the address (the address itself is shown once)
+  created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+  created_at INTEGER NOT NULL,
+  last_used INTEGER
+)`).run();
+const MAX_HOOKS = 10, HOOK_RATE = 30; // per channel; messages per minute per webhook
+const hashToken = (t) => crypto.createHash('sha256').update(String(t)).digest('hex');
+const hookCalls = new Map(); // webhook id -> recent post times
+const hooksOf = (channelId) => q(`SELECT w.id, w.name, w.created_at, w.last_used, u.name AS created_by_name FROM chat_webhooks w LEFT JOIN users u ON u.id = w.created_by
+                                   WHERE w.channel_id = ? ORDER BY w.created_at`).all(channelId);
+
+/** /hooks/chat/<secret>: POST { "text": "…" } (JSON, as Slack-style tools send) or plain text posts it in the channel. */
+export function chatHookRoutes() {
+  const r = Router();
+  r.use(express.json({ limit: '64kb' }), express.text({ limit: '64kb', type: ['text/*'] }));
+  r.post('/:token', (req, res) => {
+    const hook = q('SELECT * FROM chat_webhooks WHERE token_hash = ?').get(hashToken(req.params.token));
+    if (!hook) throw notFound('No webhook here (it may have been removed)');
+    const c = q('SELECT * FROM channels WHERE id = ?').get(hook.channel_id);
+    if (!c || c.archived_at) throw new HttpError(410, 'The channel is archived');
+    const raw = typeof req.body === 'string' ? req.body : req.body?.text ?? req.body?.body ?? req.body?.content;
+    const body = String(raw ?? '').replace(/\r\n?/g, '\n').trim().slice(0, 8000);
+    if (!body) throw bad('Send { "text": "your message" }');
+    const t = Date.now();
+    const recent = (hookCalls.get(hook.id) || []).filter((x) => x > t - 60e3);
+    if (recent.length >= HOOK_RATE) { res.setHeader('Retry-After', '60'); throw new HttpError(429, `At most ${HOOK_RATE} messages a minute`); }
+    hookCalls.set(hook.id, [...recent, t]);
+    const id = uid();
+    q('INSERT INTO messages (id, channel_id, user_id, bot, body, created_at) VALUES (?, ?, NULL, ?, ?, ?)').run(id, c.id, hook.name, body, now());
+    q('UPDATE chat_webhooks SET last_used = ? WHERE id = ?').run(now(), hook.id);
+    const msg = one(id);
+    sendTo(audience(c), { type: 'message', message: msg });
+    addPreview(c, msg);
+    res.json({ ok: true, id });
+  });
+  r.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
+    const status = err.status || err.statusCode || 500;
+    res.status(status).json({ error: status === 500 ? 'Something went wrong' : err.message });
+  });
+  return r;
+}
+
 export default function chatRoutes() {
   const r = Router();
 
@@ -398,6 +448,30 @@ export default function chatRoutes() {
   });
 
   // Settings: the topic (anyone in it); the name, privacy and archiving (whoever made it, or an admin).
+  // Webhooks for a channel: whoever made it, or an admin, adds and removes them.
+  const hookChannel = (req) => {
+    const c = loadChannel(req.params.id, req.user);
+    if (c.dm_key) throw bad('Webhooks are for channels');
+    if (!canManage(c, req.user)) throw new HttpError(403, 'Only whoever made the channel, or an admin, can manage its webhooks');
+    return c;
+  };
+  r.get('/channels/:id/webhooks', (req, res) => res.json(hooksOf(hookChannel(req).id)));
+  r.post('/channels/:id/webhooks', (req, res) => {
+    const c = hookChannel(req);
+    readOnly(c);
+    if (hooksOf(c.id).length >= MAX_HOOKS) throw bad(`A channel can have up to ${MAX_HOOKS} webhooks`);
+    const name = str(req.body?.name, { required: true, name: 'Name', max: 60 });
+    const token = crypto.randomBytes(24).toString('base64url');
+    const id = uid();
+    q('INSERT INTO chat_webhooks (id, channel_id, name, token_hash, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(id, c.id, name, hashToken(token), req.user.id, now());
+    res.status(201).json({ id, name, path: `/hooks/chat/${token}` }); // the secret is shown this once
+  });
+  r.delete('/channels/:id/webhooks/:hook', (req, res) => {
+    const c = hookChannel(req);
+    if (!q('DELETE FROM chat_webhooks WHERE id = ? AND channel_id = ?').run(String(req.params.hook), c.id).changes) throw notFound();
+    res.json({ ok: true });
+  });
+
   r.patch('/channels/:id', (req, res) => {
     const c = loadChannel(req.params.id, req.user);
     if (c.dm_key) throw bad('Direct messages have no settings');

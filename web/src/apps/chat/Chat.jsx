@@ -359,7 +359,7 @@ export default function Chat() {
             {messages.map((m, i) => {
               const prev = messages[i - 1];
               const lastMine = current.dm_key && m.user_id === user.id && !messages.slice(i + 1).some((x) => x.user_id === user.id);
-              const grouped = prev && prev.user_id === m.user_id && m.created_at - prev.created_at < 5 * 60e3;
+              const grouped = prev && prev.user_id === m.user_id && (prev.bot || null) === (m.bot || null) && m.created_at - prev.created_at < 5 * 60e3;
               const newDay = !prev || new Date(prev.created_at).toDateString() !== new Date(m.created_at).toDateString();
               return (
                 <div key={m.id}>
@@ -514,10 +514,10 @@ function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit
   const soon = [['In 20 minutes', Date.now() + 20 * 60e3], ['In 1 hour', Date.now() + 36e5], ...laterChoices()];
   return (
     <div className={`msg ${grouped ? 'grouped' : ''} ${m.pinned_at ? 'pinned' : ''}`} data-mid={m.id}>
-      {grouped ? <span className="msg-gutter" /> : m.user_id ? <button type="button" className="avatar-btn" aria-label={`About ${m.user_name}`} onClick={() => setCard(true)}><Avatar name={m.user_name || 'Deleted user'} size={36} userId={m.user_id} /></button> : <Avatar name="Deleted user" size={36} />}
+      {grouped ? <span className="msg-gutter" /> : m.user_id ? <button type="button" className="avatar-btn" aria-label={`About ${m.user_name}`} onClick={() => setCard(true)}><Avatar name={m.user_name || 'Deleted user'} size={36} userId={m.user_id} /></button> : m.bot ? <span className="msg-bot-avatar" aria-hidden="true">🤖</span> : <Avatar name="Deleted user" size={36} />}
       {card && <PersonCard userId={m.user_id} onClose={() => setCard(false)} />}
       <div className="msg-body">
-        {!grouped && <div className="msg-meta">{m.user_id ? <button type="button" className="link-btn msg-author" onClick={() => setCard(true)}><strong>{m.user_name}</strong></button> : <strong>Deleted user</strong>} <span className="muted small">{new Date(m.created_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span></div>}
+        {!grouped && <div className="msg-meta">{m.user_id ? <button type="button" className="link-btn msg-author" onClick={() => setCard(true)}><strong>{m.user_name}</strong></button> : m.bot ? <><strong>{m.bot}</strong> <span className="pill small" title="Posted by a webhook">App</span></> : <strong>Deleted user</strong>} <span className="muted small">{new Date(m.created_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span></div>}
         {m.pinned_at && <div className="msg-pinned muted small">📌 Pinned by {m.pinned_by_name || 'someone'}</div>}
         {reminder && <div className="msg-reminder muted small">⏰ I'll remind you {whenText(reminder)} <button type="button" className="link-btn small" onClick={() => remind(null)}>Cancel</button></div>}
         {picking && <ScheduleDialog title="Remind me" confirm="Remind me" withinYear note={(at) => `You'll get a notification ${whenText(at)}, linking back to this message.`}
@@ -889,6 +889,44 @@ function PeoplePicker({ people, chosen, onChange, label = 'Who can see it' }) {
   );
 }
 
+/** Incoming webhooks: secret addresses that post into this channel (for scripts, monitoring, a build server). */
+function Webhooks({ channel }) {
+  const toast = useToast();
+  const [list, setList] = useState([]);
+  const [name, setName] = useState('');
+  const [made, setMade] = useState(null); // { name, url }: shown once, right after making it
+  const load = useCallback(() => get(`/chat/channels/${channel.id}/webhooks`).then(setList).catch(() => {}), [channel.id]);
+  useEffect(() => { load(); }, [load]);
+  const add = async (e) => {
+    e.preventDefault();
+    try { const h = await post(`/chat/channels/${channel.id}/webhooks`, { name }); setMade({ name: h.name, url: `${window.location.origin}${h.path}` }); setName(''); load(); }
+    catch (err) { toast(err.message, 'error'); }
+  };
+  return (
+    <section className="stack" style={{ gap: 6 }} aria-label="Webhooks">
+      <strong>Webhooks</strong>
+      <p className="muted small" style={{ margin: 0 }}>A secret address that posts messages here, for scripts, alerts or a build server: send it <code>{'{"text": "…"}'}</code> (or plain text) with POST.</p>
+      {made && (
+        <div className="banner" role="status">
+          <div className="small">Address for <strong>{made.name}</strong> (copy it now: it isn't shown again):</div>
+          <div className="row"><input className="grow" readOnly value={made.url} aria-label="Webhook address" onFocus={(e) => e.target.select()} />
+            <button type="button" className="btn small" onClick={async () => { try { await navigator.clipboard.writeText(made.url); toast('Copied'); } catch { toast(made.url); } }}>Copy</button></div>
+          <div className="muted small">For example: <code>{`curl -X POST -H 'Content-Type: application/json' -d '{"text":"Hello"}' ${made.url}`}</code></div>
+        </div>
+      )}
+      {list.length > 0 && (
+        <ul className="plain-list">
+          {list.map((h) => (
+            <li key={h.id} className="row"><span className="grow">🤖 {h.name} <span className="muted small">· added by {h.created_by_name || 'someone'}{h.last_used ? ` · last used ${new Date(h.last_used).toLocaleString()}` : ' · not used yet'}</span></span>
+              <button type="button" className="btn small" aria-label={`Remove webhook ${h.name}`} onClick={async () => { await del(`/chat/channels/${channel.id}/webhooks/${h.id}`); if (made?.name === h.name) setMade(null); load(); }}>Remove</button></li>
+          ))}
+        </ul>
+      )}
+      {!channel.archived_at && <form className="row" onSubmit={add}><input className="grow" value={name} onChange={(e) => setName(e.target.value)} maxLength={60} aria-label="Webhook name" placeholder="Name, like Build server" /><button className="btn small" disabled={!name.trim()}>Add webhook</button></form>}
+    </section>
+  );
+}
+
 /** A channel's topic, name, privacy, members and archiving. */
 /** Announcement channels: everyone posts, or only the people chosen (whoever made it and admins always can). */
 function WhoPosts({ channel, people, onSave }) {
@@ -951,6 +989,7 @@ function ChannelSettings({ channel, me, canManage, people, onClose, onChanged, o
             </>}
           </section>
         ) : <p className="muted small" style={{ margin: 0 }}>Everyone in the company can see and join this channel.</p>}
+        {canManage && <Webhooks channel={channel} />}
         {canManage && <WhoPosts channel={channel} people={people.filter((p) => !p.external)} onSave={(posters) => change({ posters }, posters ? 'Only the people chosen (and admins) can post now' : 'Everyone can post again')} />}
         {canManage && !general && (
           <div className="row wrap" style={{ gap: 8, borderTop: '1px solid var(--border)', paddingTop: 12 }}>

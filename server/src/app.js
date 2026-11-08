@@ -22,7 +22,7 @@ import locationRoutes from './routes/location.js';
 import contactRoutes from './routes/contacts.js';
 import taskRoutes from './routes/tasks.js';
 import notificationRoutes from './routes/notifications.js';
-import chatRoutes from './routes/chat.js';
+import chatRoutes, { chatHookRoutes } from './routes/chat.js';
 import orgRoutes from './routes/orgs.js';
 import mailAdminRoutes from './routes/mailAdmin.js';
 import webmailRoutes from './routes/webmail.js';
@@ -61,6 +61,8 @@ export function createApp({
   for (const w of ['/.well-known/caldav', '/.well-known/carddav']) app.all(w, (req, res) => res.redirect(301, '/dav/'));
   app.use('/dav/files', webdavRoutes({ maxUploadBytes })); // Drive as a network drive
   app.use('/dav', davRoutes());
+  // Chat webhooks: scripts post with only the secret address (no session, so outside /api and its CSRF check).
+  app.use('/hooks/chat', chatHookRoutes());
   // Apps given only the server name ask the root first.
   app.use((req, res, next) => (req.path === '/' && (req.method === 'PROPFIND' || req.method === 'REPORT') ? res.redirect(301, '/dav/') : next()));
 

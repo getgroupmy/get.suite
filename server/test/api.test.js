@@ -5393,3 +5393,37 @@ test('mail: a muted conversation is a Sieve rule before the filters, filing repl
   assert.match(s, /addflag "\\\\Seen";\n  fileinto :create "Archive";/);
   assert.ok(s.indexOf('Muted conversations') < s.indexOf('# R'), 'before the rules');
 });
+
+test('chat webhooks: made by whoever manages the channel, post with only the secret address, limited, removable', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['hooka', 'Hook Ann'], ['hookb', 'Hook Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'hooka@acme.com'); await login(b, 'hookb@acme.com');
+  const ch = (await a('POST', '/api/chat/channels', { name: 'builds' })).body.id;
+  assert.equal((await b('POST', `/api/chat/channels/${ch}/webhooks`, { name: 'CI' })).status, 403, 'only who made it (or an admin)');
+  const h = await a('POST', `/api/chat/channels/${ch}/webhooks`, { name: 'Build server' });
+  assert.equal(h.status, 201);
+  assert.match(h.body.path, /^\/hooks\/chat\/[A-Za-z0-9_-]{32}$/);
+  const list = (await a('GET', `/api/chat/channels/${ch}/webhooks`)).body;
+  assert.deepEqual(list.map((x) => [x.name, x.created_by_name]), [['Build server', 'Hook Ann']]);
+  assert.ok(!JSON.stringify(list).includes(h.body.path.split('/').pop()), 'the secret is not kept or shown again');
+  // Posting: JSON or plain text, no cookie and no special header needed.
+  let r = await fetch(`${base}${h.body.path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: 'Build #12 passed ✅' }) });
+  assert.equal(r.status, 200);
+  r = await fetch(`${base}${h.body.path}`, { method: 'POST', headers: { 'content-type': 'text/plain' }, body: 'Deployed to staging' });
+  assert.equal(r.status, 200);
+  assert.equal((await fetch(`${base}${h.body.path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).status, 400);
+  assert.equal((await fetch(`${base}/hooks/chat/not-a-real-secret`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: 'x' }) })).status, 404);
+  const msgs = (await b('GET', `/api/chat/channels/${ch}/messages`)).body;
+  assert.deepEqual(msgs.slice(-2).map((m) => [m.body, m.bot, m.user_id]), [['Build #12 passed ✅', 'Build server', null], ['Deployed to staging', 'Build server', null]]);
+  assert.ok((await b('GET', '/api/chat/channels')).body.channels.find((x) => x.id === ch).unread >= 2);
+  // At most 30 a minute.
+  let last;
+  for (let i = 0; i < 30; i++) last = await fetch(`${base}${h.body.path}`, { method: 'POST', headers: { 'content-type': 'text/plain' }, body: `ping ${i}` });
+  assert.equal(last.status, 429);
+  // Removed: the address stops working. Archived channel: refused.
+  assert.equal((await a('DELETE', `/api/chat/channels/${ch}/webhooks/${h.body.id}`)).status, 200);
+  assert.equal((await fetch(`${base}${h.body.path}`, { method: 'POST', headers: { 'content-type': 'text/plain' }, body: 'x' })).status, 404);
+  const h2 = (await a('POST', `/api/chat/channels/${ch}/webhooks`, { name: 'Two' })).body;
+  await a('PATCH', `/api/chat/channels/${ch}`, { archived: true });
+  assert.equal((await fetch(`${base}${h2.path}`, { method: 'POST', headers: { 'content-type': 'text/plain' }, body: 'x' })).status, 410);
+});
