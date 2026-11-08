@@ -7,6 +7,7 @@ import Icon from '../../components/Icon.jsx';
 import { Avatar, ConfirmModal, Empty, Menu, Modal, PromptModal, useToast } from '../../components/ui.jsx';
 import { useAuth } from '../../App.jsx';
 import { dueLabel, between, localToday, REPEATS, repeatText, SORTS, sortTasks } from './taskmath.js';
+import { parseQuickAdd } from './quickadd.js';
 
 const ASSIGNED = 'assigned';
 const IMPORTANT = 'important'; // tasks marked ★ on any of your lists
@@ -25,6 +26,7 @@ export default function Tasks() {
   const virtual = !!VIRTUAL[listId];
   const [tasks, setTasks] = useState(null);
   const [title, setTitle] = useState('');
+  const [asTyped, setAsTyped] = useState(false); // "Keep as typed": don't read dates and so on out of this one
   const [found, setFound] = useState(null); // { q, list }: search results across your lists
   const runSearch = async (text) => {
     const qs = String(text || '').trim();
@@ -80,12 +82,15 @@ export default function Tasks() {
     const again = next.next_id && (await get(`/tasks/lists/${next.list_id}/tasks`).catch(() => [])).find((x) => x.id === next.next_id);
     toast(`“${t.title}” done${again?.due ? ` · next due ${dueLabel(again.due).text}` : ''}`, 'info', { action: { label: 'Undo', onClick: () => update(next, { done: false }) } });
   };
+  // Quick add: "Call Kim tomorrow 3pm !" fills in the due date, time and star (shown before adding).
+  const quick = title.trim() && !asTyped ? parseQuickAdd(title, { today: localToday(), people: list?.members.length ? people : [] }) : null;
   async function add(e) {
     e.preventDefault();
     const text = title.trim();
     if (!text || !list) return;
-    setTitle('');
-    try { await post(`/tasks/lists/${list.id}/tasks`, { title: text }); loadTasks(); loadLists(); }
+    const body = quick?.found.length ? { title: quick.title, due: quick.due, due_time: quick.due_time, repeat: quick.repeat, important: quick.important, assignee_id: quick.assignee_id } : { title: text };
+    setTitle(''); setAsTyped(false);
+    try { await post(`/tasks/lists/${list.id}/tasks`, body); loadTasks(); loadLists(); }
     catch (err) { toast(err.message, 'error'); setTitle(text); }
   }
   function drop(index) {
@@ -197,8 +202,21 @@ export default function Tasks() {
         {list && (
           <form className="task-add" onSubmit={add}>
             <Icon name="plus" />
-            <input ref={addBox} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Add a task" aria-label="Add a task" maxLength={500} />
+            <input ref={addBox} value={title} onChange={(e) => { setTitle(e.target.value); if (!e.target.value.trim()) setAsTyped(false); }} placeholder="Add a task" aria-label="Add a task" maxLength={500}
+              title="Add a date, time, repeat, ! or @name: “Send invoice tomorrow 3pm every month !”" />
           </form>
+        )}
+        {list && (quick?.found.length > 0 || asTyped) && (
+          <div className="quick-add-preview small" role="status" aria-label="Quick add">
+            {asTyped ? <span className="muted">Adding just as typed.</span> : <>
+              <strong>{quick.title}</strong>
+              {quick.due && <span className="chip">📅 {dueLabel(quick.due, new Date(), quick.due_time).text}</span>}
+              {quick.repeat && <span className="chip">⟳ {repeatText(quick.repeat)}</span>}
+              {quick.important && <span className="chip">★ Important</span>}
+              {quick.assignee_id && <span className="chip">👤 {people.find((x) => x.id === quick.assignee_id)?.name}</span>}
+            </>}
+            <button type="button" className="link-btn small" onClick={() => { setAsTyped(!asTyped); addBox.current?.focus(); }}>{asTyped ? 'Read dates again' : 'Keep as typed'}</button>
+          </div>
         )}
         {tasks === null ? null : list && view === 'board' ? (
           <Board open={open} done={done} openId={openId} onOpen={(t) => show(t.id === openId ? null : t.id)}

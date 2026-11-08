@@ -4035,3 +4035,13 @@ test('drive: shortcuts show a file or folder in another place without moving it'
   assert.equal((await sam('GET', `/api/files?view=mine&parent=${folder.id}`)).body.length, 0);
   assert.equal((await owner('GET', `/api/files/${report.id}`)).status, 200, 'the file stays');
 });
+
+test('tasks: one request can add a task with its date, time, repeat, star and person (quick add)', async () => {
+  const { lists } = (await owner('GET', '/api/tasks/lists')).body;
+  const list = lists.find((l) => l.mine);
+  const r = await owner('POST', `/api/tasks/lists/${list.id}/tasks`, { title: 'Send invoice', due: '2026-12-01', due_time: '15:00', repeat: 'monthly', important: true, assignee_id: null });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  const t = r.body.task || r.body;
+  assert.deepEqual([t.title, t.due, t.due_time, t.repeat, t.important], ['Send invoice', '2026-12-01', '15:00', 'monthly', true]);
+  assert.equal((await owner('POST', `/api/tasks/lists/${list.id}/tasks`, { title: 'x', due_time: '15:00' })).body.due_time ?? null, null, 'a time needs a date');
+});

@@ -1846,3 +1846,6 @@ a.home-item:hover, button.home-item:hover { text-decoration: underline; }
 .shortcut-icon { position: relative; display: inline-flex; }
 .shortcut-arrow { position: absolute; right: -4px; bottom: -4px; font-size: 11px; line-height: 1; background: var(--bg, #fff); border-radius: 50%; padding: 0 1px; }
 tr.shortcut-row.broken .name-text { color: var(--muted, #777); font-style: italic; }
+/* Tasks quick add: what was understood, under the box. */
+.quick-add-preview { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 4px 12px 8px 44px; }
+.quick-add-preview .chip { background: var(--accent-soft, #e8f0fe); border-radius: 12px; padding: 1px 8px; }
