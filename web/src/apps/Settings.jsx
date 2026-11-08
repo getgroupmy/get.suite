@@ -62,6 +62,7 @@ export default function Settings() {
       <ReadReceipts />
       <QuietHours />
       <MorningSummary />
+      <ChatEmail />
       <YourData />
     </div>
   );
@@ -224,6 +225,25 @@ function MorningSummary() {
         <button type="button" className="btn small" onClick={async () => { try { const r = await post('/users/me/digest/send', { preview: !d.mail }); setPreview(r.text); if (r.sent) toast('Sent to your inbox'); } catch (e) { toast(e.message, 'error'); } }}>{d.mail ? 'Send me one now' : 'Show what it would say'}</button>
       </div>
       {preview && <pre className="digest-preview" aria-label="Summary preview">{preview}</pre>}
+    </section>
+  );
+}
+
+/** Chat emails: unread direct messages and mentions come by email after half an hour. */
+function ChatEmail() {
+  const toast = useToast();
+  const [c, setC] = useState(null);
+  useEffect(() => { get('/chat/me/chat-email').then(setC).catch(() => {}); }, []);
+  if (!c) return null;
+  return (
+    <section className="card stack" aria-labelledby="ce-h">
+      <h2 id="ce-h">Chat emails</h2>
+      <label className="check"><input type="checkbox" checked={c.on} disabled={!c.mail} onChange={async (e) => {
+        const on = e.target.checked;
+        setC({ ...c, on });
+        try { await put('/chat/me/chat-email', { on }); toast(on ? "You'll get an email about chat messages you haven't read" : 'No more chat emails'); } catch (err) { setC({ ...c }); toast(err.message, 'error'); }
+      }} /> Email me about unread direct messages and mentions</label>
+      <p className="muted small" style={{ margin: 0 }}>{c.mail ? 'Sent when one has waited half an hour and you still haven\'t read it, not during quiet hours or while notifications are paused.' : 'Needs email on this server.'}</p>
     </section>
   );
 }

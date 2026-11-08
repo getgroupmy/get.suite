@@ -1303,3 +1303,32 @@ test('morning summary: sent once a day after the chosen hour, from the person to
   assert.equal(now.sent, true, '"Send me one now" works any time');
   await olivia('PUT', '/api/users/me/digest', { hour: null, tz: 'UTC' });
 });
+
+test('chat emails: unread direct messages and mentions are emailed after a while; read ones are not', async () => {
+  const { sendChatEmails, WAIT_MS } = await import('../src/chatmail.js');
+  const { q } = await import('../src/db.js');
+  assert.equal((await olivia('PUT', '/api/chat/me/chat-email', { on: true })).status, 200);
+  const me = (await olivia('GET', '/api/auth/me')).body.user;
+  const chet = client();
+  await olivia('POST', '/api/users', { local: 'chatmailer', domain: 'acme.com', name: 'Chet Mailer', password: 'password123' });
+  assert.equal((await chet('POST', '/api/auth/login', { username: 'chatmailer@acme.com', password: 'password123' })).status, 200);
+  const dm = (await chet('POST', '/api/chat/dm', { user_id: me.id })).body.id;
+  await chet('POST', `/api/chat/channels/${dm}/messages`, { body: 'Can you sign the contract today?' });
+  const general = (await chet('GET', '/api/chat/channels')).body.channels.find((c) => !c.dm_key && !c.private);
+  await chet('POST', `/api/chat/channels/${general.id}/messages`, { body: 'Thanks @olivia@acme.com for the help!' });
+  assert.equal(await sendChatEmails(), 0, 'not before 30 minutes');
+  q('UPDATE chat_email_queue SET created_at = created_at - ?').run(WAIT_MS + 1000);
+  q('UPDATE messages SET created_at = created_at - ? WHERE channel_id IN (?, ?)').run(WAIT_MS + 1000, dm, general.id);
+  assert.equal(await sendChatEmails(), 1, 'one email for both');
+  const m = await eventually(async () => (await inbox(olivia)).find((x) => x.subject === '2 unread chat messages for you'));
+  const full = (await olivia('GET', `/api/mail/messages/${m.uid}?folder=INBOX`)).body;
+  assert.match(full.text, /Chet Mailer \(direct message\):\s+Can you sign the contract today\?/);
+  assert.match(full.text, /Chet Mailer in #general:\s+Thanks @olivia@acme\.com/);
+  // Read before the wait is over: no email.
+  await chet('POST', `/api/chat/channels/${dm}/messages`, { body: 'Never mind' });
+  await olivia('POST', `/api/chat/channels/${dm}/read`);
+  q('UPDATE chat_email_queue SET created_at = created_at - ?').run(WAIT_MS + 1000);
+  q('UPDATE messages SET created_at = created_at - ? WHERE body = ?').run(WAIT_MS + 1000, 'Never mind');
+  assert.equal(await sendChatEmails(), 0);
+  await olivia('PUT', '/api/chat/me/chat-email', { on: false });
+});

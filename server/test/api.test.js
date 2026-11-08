@@ -4520,3 +4520,21 @@ test('admin: usage report for the company, with a CSV', async () => {
   assert.equal(r2.people.find((p) => p.email === 'kay@keepco.com').tasks_done, 1);
   assert.equal(r2.people.find((p) => p.email === 'rpt@keepco.com').tasks_done, 1);
 });
+
+test('chat emails: refused without email; messages are queued only for people who turned it on', async () => {
+  const { q } = await import('../src/db.js');
+  const kay = client(); await login(kay, 'kay@keepco.com');
+  const a = client(), b = client();
+  const ua = await kay('POST', '/api/users', { local: 'cma', domain: 'keepco.com', name: 'Cam A', password: 'password123' });
+  const ub = await kay('POST', '/api/users', { local: 'cmb', domain: 'keepco.com', name: 'Cam B', password: 'password123' });
+  await login(a, 'cma@keepco.com'); await login(b, 'cmb@keepco.com');
+  assert.equal((await b('PUT', '/api/chat/me/chat-email', { on: true })).status, 400, 'needs email');
+  const dm = (await a('POST', '/api/chat/dm', { user_id: ub.body.id })).body.id;
+  await a('POST', `/api/chat/channels/${dm}/messages`, { body: 'not queued: B has it off' });
+  q('UPDATE users SET chat_email = 1 WHERE id = ?').run(ub.body.id);
+  await a('POST', `/api/chat/channels/${dm}/messages`, { body: 'queued for B' });
+  const rows = q('SELECT user_id FROM chat_email_queue WHERE user_id IN (?, ?)').all(ua.body.id, ub.body.id);
+  assert.deepEqual(rows.map((r) => r.user_id), [ub.body.id]);
+  assert.equal((await b('PUT', '/api/chat/me/chat-email', { on: false })).body.on, false);
+  assert.equal(q('SELECT COUNT(*) AS n FROM chat_email_queue WHERE user_id = ?').get(ub.body.id).n, 0, 'turning it off clears the queue');
+});

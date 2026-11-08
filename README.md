@@ -823,6 +823,8 @@ The bell at the top right collects what needs you: being **@mentioned** in Chat 
 
 **Quiet hours** (Settings → Quiet hours) pause notifications by themselves outside your working hours (set in Calendar → Working hours): pop-up notes and desktop notifications wait until your next working time, colleagues see 🔕 by your name, and everything still arrives in the bell. The 🔕 by the bell then says *Quiet hours until …* and leads to Settings.
 
+**Chat emails** (Settings → Chat emails, when this server has email): **Email me about unread direct messages and mentions** sends you an email when a direct message to you, or a message mentioning you, has waited half an hour unread. Several are gathered into one email ("3 unread chat messages for you") with who said what and where, and a link to Chat. Messages you read in the meantime are left out, and nothing is sent during your quiet hours or while notifications are paused (it comes once they're over). The email comes from your own mailbox to your inbox. Turning it off drops anything still waiting.
+
 **Morning summary** (Settings → Morning summary, when this server has email): an email each day at the hour you choose (in your time zone) with today's events (repeating ones included; ones you declined left out, unanswered invitations marked), the tasks due today or overdue, and how many chat messages are waiting. It comes from your own mailbox to your inbox. **Send me one now** shows it and sends it straight away.
 ## Branding
 

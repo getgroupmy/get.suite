@@ -1,4 +1,6 @@
 import { notify } from '../notifications.js';
+import { mailEnabled } from '../mail/config.js';
+import { queueChatEmail } from '../chatmail.js';
 import { Router } from 'express';
 import path from 'node:path';
 import { q, tx, FILES_DIR } from '../db.js';
@@ -191,6 +193,7 @@ function deliver(c, user, { body, files, poll, parent, forwarded = null }) {
   const msg = one(id);
   sendTo(audience(c), { type: 'message', message: msg });
   notifyMentions(c, user, msg);
+  if (c.dm_key) queueChatEmail(c.dm_key.split(':').filter((x) => x !== user.id), msg.id); // direct messages too
   if (parent) sendTo(audience(c), { type: 'message-updated', message: one(parent.id) }); // its reply count
   return msg;
 }
@@ -320,6 +323,7 @@ function notifyMentions(c, from, msg) {
     }
   }
   const ids = [...people].filter((id) => id !== from.id && inIt.has(id)); // only people in the conversation
+  queueChatEmail(ids, msg.id);
   if (ids.length) notify(ids, { kind: 'mention', title: `${from.name || from.username} mentioned you in ${c.dm_key ? 'a message' : `#${c.name}`}`, body: String(msg.body).slice(0, 200), link: `/chat/${c.id}`, actor: from.name });
   if (ids.length) sendTo(ids, { type: 'chat-mention', channel_id: c.id, message_id: msg.id, parent_id: msg.parent_id, from: from.name || from.username, text: String(msg.body).slice(0, 140) });
 }
@@ -605,6 +609,14 @@ export default function chatRoutes() {
   });
 
   // Read receipts on or off (both people need them on for either to see them).
+  // Emails about unread direct messages and mentions (after 30 minutes).
+  r.get('/me/chat-email', (req, res) => res.json({ on: !!q('SELECT chat_email FROM users WHERE id = ?').get(req.user.id).chat_email, mail: mailEnabled() }));
+  r.put('/me/chat-email', (req, res) => {
+    if (req.body?.on && !mailEnabled()) throw bad('Email is off on this server');
+    q('UPDATE users SET chat_email = ? WHERE id = ?').run(req.body?.on ? 1 : 0, req.user.id);
+    if (!req.body?.on) q('DELETE FROM chat_email_queue WHERE user_id = ?').run(req.user.id);
+    res.json({ on: !!req.body?.on });
+  });
   r.get('/me/read-receipts', (req, res) => res.json({ on: receiptsOn(req.user.id) }));
   r.put('/me/read-receipts', (req, res) => {
     q('UPDATE users SET hide_reads = ? WHERE id = ?').run(req.body?.on === false ? 1 : 0, req.user.id);
