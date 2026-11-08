@@ -26,7 +26,7 @@ export function parseRef(ref) {
 const TOKEN_RE = /\s*(?:(\d+(?:\.\d*)?(?:[eE][+-]?\d+)?|\.\d+)|("(?:[^"]|"")*")|(\$?[A-Z]+\$?\d+(?::\$?[A-Z]+\$?\d+)?)(?![A-Z0-9_(])|([A-Z_][A-Z0-9_.]*)|(<=|>=|<>|[-+*/^&=<>(),:%]))/iy;
 
 // A reference on another sheet: Sheet2!A1, 'Q1 data'!B2:B9.
-const XREF_RE = /\s*(?:'((?:[^']|'')+)'|([A-Z_][A-Z0-9_]*))!(\$?[A-Z]+\$?\d+(?::\$?[A-Z]+\$?\d+)?)(?![A-Z0-9_(])/iy;
+const XREF_RE = /\s*(?:'((?:[^']|'')+)'|([A-Z_][A-Z0-9_]*))!(?:(\$?[A-Z]+\$?\d+(?::\$?[A-Z]+\$?\d+)?)(?![A-Z0-9_(])|([A-Z_][A-Z0-9_]*)(?![A-Z0-9_(]))/iy;
 /** How a sheet's name is written before "!" in a formula (quoted when it has to be). */
 export const sheetPrefix = (name) => (/^[A-Z_][A-Z0-9_]*$/i.test(name) && !/^[A-Z]{1,3}\d+$/i.test(name) ? name : `'${String(name).replace(/'/g, "''")}'`);
 
@@ -39,7 +39,11 @@ function tokenize(src) {
     if (refErr) { out.push({ t: 'referr' }); TOKEN_RE.lastIndex += refErr[0].length; continue; }
     XREF_RE.lastIndex = TOKEN_RE.lastIndex;
     const x = XREF_RE.exec(src);
-    if (x) { out.push({ t: 'xref', sheet: x[1] !== undefined ? x[1].replace(/''/g, "'") : x[2], v: x[3].toUpperCase() }); TOKEN_RE.lastIndex = XREF_RE.lastIndex; continue; }
+    if (x) {
+      const sheet = x[1] !== undefined ? x[1].replace(/''/g, "'") : x[2];
+      out.push(x[3] !== undefined ? { t: 'xref', sheet, v: x[3].toUpperCase() } : { t: 'xname', sheet, v: x[4].toUpperCase() }); // Data!Total: a named range there
+      TOKEN_RE.lastIndex = XREF_RE.lastIndex; continue;
+    }
     const m = TOKEN_RE.exec(src);
     if (!m) err('#ERROR!');
     if (m[1] !== undefined) out.push({ t: 'num', v: Number(m[1]) });
@@ -101,6 +105,7 @@ function parse(src) {
     if (tk.t === 'referr') return { k: 'referr' };
     if (tk.t === 'str') return { k: 'str', v: tk.v };
     if (tk.t === 'xref') { const [a, b = a] = tk.v.split(':'); return { k: 'xref', sheet: tk.sheet, a: parseRef(a), b: parseRef(b), one: !tk.v.includes(':') }; }
+    if (tk.t === 'xname') return { k: 'xname', sheet: tk.sheet, v: tk.v };
     if (tk.t === 'ref') {
       if (tk.v.includes(':')) { const [a, b] = tk.v.split(':'); return { k: 'range', a: parseRef(a), b: parseRef(b) }; }
       return { k: 'ref', ref: parseRef(tk.v) };
@@ -559,6 +564,13 @@ export function createEvaluator(cells, names = null, book = null) {
     }
   }
 
+  function namedValue(v) {
+    const t = named.get(v);
+    if (!t) err('#NAME?');
+    if (t.length === 1 || t[0] === t[1]) { const p = parseRef(t[0]); if (!p) err('#REF!'); return valueOf(cellKey(p.c, p.r)); }
+    return range(parseRef(t[0]), parseRef(t[1]));
+  }
+
   function range(a, b) {
     if (!a || !b) err('#REF!');
     const out = [];
@@ -582,12 +594,12 @@ export function createEvaluator(cells, names = null, book = null) {
         if (!other || !n.a || !n.b) err('#REF!');
         return n.one ? other.cell(cellKey(n.a.c, n.a.r)) : other.range(n.a, n.b);
       }
-      case 'name': {
-        const t = named.get(n.v);
-        if (!t) err('#NAME?');
-        if (t.length === 1 || t[0] === t[1]) { const p = parseRef(t[0]); if (!p) err('#REF!'); return valueOf(cellKey(p.c, p.r)); }
-        return range(parseRef(t[0]), parseRef(t[1]));
+      case 'xname': {
+        const other = book && sheetEvaluator(book, n.sheet);
+        if (!other) err('#REF!');
+        return other.named(n.v);
       }
+      case 'name': return namedValue(n.v);
       case 'neg': return -toNum(evaluate(n.e));
       case 'call': {
         if (LAZY[n.name]) return LAZY[n.name](n.args.map((a) => () => scalar(evaluate(a))));
@@ -616,6 +628,7 @@ export function createEvaluator(cells, names = null, book = null) {
     try { return valueOf(key); } catch (e) { if (e instanceof FormulaError) return { error: e.code }; throw e; }
   };
   get.cell = valueOf; // for formulas on other sheets (these throw)
+  get.named = namedValue;
   get.range = range;
   return get;
 }

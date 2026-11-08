@@ -59,6 +59,8 @@ test('references to other sheets', async () => {
   assert.equal(get('A2'), 6);
   assert.deepEqual(get('A3'), { error: '#REF!' });
   assert.deepEqual(get('A5'), { error: '#CIRC!' }, 'a loop across sheets');
+  assert.equal(get('A4'), 21, 'a named range on another sheet');
+  assert.deepEqual(bookEvaluator([{ name: 'S', cells: { A1: '=Data!Nope' } }, sheets[1]], 0)('A1'), { error: '#NAME?' });
   assert.equal(sheetPrefix('Data'), 'Data');
   assert.equal(sheetPrefix('Q1 data'), "'Q1 data'");
   assert.equal(sheetPrefix('A1'), "'A1'");
