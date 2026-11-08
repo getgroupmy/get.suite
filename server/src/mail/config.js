@@ -88,7 +88,8 @@ const splitTargets = (s) => s.split(',').map((t) => t.trim().toLowerCase()).filt
 
 export function buildMailConfig() {
   const domains = q('SELECT name, org_id, catchall FROM domains ORDER BY name').all();
-  const users = q(`SELECT u.id, u.org_id, u.username, u.name, u.mail_hash, u.mail_app_hash, u.mail_quota_mb, u.mail_home, u.disabled, u.is_admin, o.mail_trash_days, o.mail_junk_days
+  if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'plus_folders')) q('ALTER TABLE users ADD COLUMN plus_folders INTEGER NOT NULL DEFAULT 0').run(); // you+name@ into the folder "name"
+  const users = q(`SELECT u.id, u.org_id, u.plus_folders, u.username, u.name, u.mail_hash, u.mail_app_hash, u.mail_quota_mb, u.mail_home, u.disabled, u.is_admin, o.mail_trash_days, o.mail_junk_days
                    FROM users u LEFT JOIN orgs o ON o.id = u.org_id ORDER BY u.username`).all();
   const aliases = q('SELECT org_id, address, targets FROM aliases ORDER BY address').all();
   const shared = allSharedMailboxes();
@@ -151,7 +152,7 @@ export function buildMailConfig() {
     if (u.disabled) continue;
     const v = vacations.get(u.id);
     const addresses = [u.username, ...[...aliasMap].filter(([, t]) => t.includes(u.username)).map(([a]) => a)];
-    const script = userSieve({ username: u.username, rules: ruleSets.get(u.id) || [], muted: [...new Set(muted.get(u.id) || [])], vacation: v ? { ...v, name: u.name, addresses } : null });
+    const script = userSieve({ username: u.username, rules: ruleSets.get(u.id) || [], muted: [...new Set(muted.get(u.id) || [])], plusFolders: !!u.plus_folders, vacation: v ? { ...v, name: u.name, addresses } : null });
     if (script) files[`sieve/${u.username}.sieve`] = script;
   }
   // Shared mailboxes with an automatic reply: Sieve's vacation reply, once a day per sender.

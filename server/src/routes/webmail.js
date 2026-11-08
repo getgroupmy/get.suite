@@ -1015,6 +1015,15 @@ export default function webmailRoutes() {
     res.json({ ok: true, marked: n });
   });
 
+  if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'plus_folders')) q('ALTER TABLE users ADD COLUMN plus_folders INTEGER NOT NULL DEFAULT 0').run();
+  // Plus addresses into folders: { on } (see mail/sieve.js). Mail to you+name@… goes into your folder "name".
+  r.get('/plus-folders', (req, res) => res.json({ on: !!q('SELECT plus_folders FROM users WHERE id = ?').get(req.user.id)?.plus_folders, example: req.user.username.replace('@', '+receipts@') }));
+  r.put('/plus-folders', (req, res) => {
+    q('UPDATE users SET plus_folders = ? WHERE id = ?').run(req.body?.on ? 1 : 0, req.user.id);
+    scheduleMailConfig();
+    res.json({ on: !!req.body?.on, example: req.user.username.replace('@', '+receipts@') });
+  });
+
   // Muted conversations: { message_id, references, subject } of a message in it. From then on, replies
   // in that conversation go straight to Archive, already read (a Sieve rule, so phones and mail apps
   // see the same). One entry per conversation; muting again adds the newest messages' ids to it.

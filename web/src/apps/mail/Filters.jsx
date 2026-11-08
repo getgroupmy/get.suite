@@ -47,6 +47,7 @@ export function FiltersDialog({ onClose, folders, onFoldersChanged, startWith })
   return (
     <Modal wide title="Filters" onClose={onClose} footer={<button className="btn primary" onClick={() => setEditing({ index: -1, rule: null })}><Icon name="plus" size={18} /> New filter</button>}>
       <p className="muted small" style={{ marginTop: 0 }}>Filters run on the mail server as messages arrive, so they also apply to mail read on your phone. They run in this order.</p>
+      <PlusFolders />
       {rules?.length === 0 && <p className="muted">No filters yet.</p>}
       <ul className="rule-list">
         {rules?.map((r, i) => (
@@ -68,6 +69,20 @@ export function FiltersDialog({ onClose, folders, onFoldersChanged, startWith })
       </ul>
       <MutedList />
     </Modal>
+  );
+}
+
+/** Plus addresses into folders: you+name@… goes into your folder "name" (one that already exists). */
+function PlusFolders() {
+  const toast = useToast();
+  const [st, setSt] = useState(null);
+  useEffect(() => { get('/mail/plus-folders').then(setSt).catch(() => {}); }, []);
+  if (!st) return null;
+  return (
+    <label className="check plus-folders">
+      <input type="checkbox" checked={st.on} onChange={async (e) => { const on = e.target.checked; const before = st; setSt({ ...st, on }); try { setSt(await put('/mail/plus-folders', { on })); toast(on ? 'Plus addresses now go into folders' : 'Plus addresses go to the Inbox again'); } catch (err) { setSt(before); toast(err.message, 'error'); } }} />
+      <span>Put mail sent to <strong>{st.example}</strong> into my folder called <em>receipts</em> (any folder you have: give out you+<em>name</em>@ to sort mail as it arrives; names with no folder go to the Inbox)</span>
+    </label>
   );
 }
 

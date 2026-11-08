@@ -5540,3 +5540,13 @@ test('publish to the web: admins list and stop what the company published, and c
   assert.equal(await pub(path.replace('/pub', '')), 404);
   assert.deepEqual((await u('GET', `/api/publish/${doc.id}`)).body, { published: false });
 });
+
+test('mail: plus addresses into folders is a Sieve rule that only files into folders that exist', async () => {
+  const { userSieve } = await import('../src/mail/sieve.js');
+  const s = userSieve({ username: 'k@x.com', plusFolders: true });
+  assert.match(s, /require \[.*"envelope", "subaddress"\]/);
+  assert.match(s, /envelope :detail :matches "to" "\?\*"/);
+  assert.match(s, /if mailboxexists "\$\{as_is\}" \{ fileinto "\$\{as_is\}"/);
+  assert.ok(!/fileinto :create "\$\{/.test(s), 'never creates a folder');
+  assert.ok(!userSieve({ username: 'k@x.com', vacation: { subject: 's', body: 'b', name: 'K', addresses: ['k@x.com'] } }).includes('subaddress'));
+});

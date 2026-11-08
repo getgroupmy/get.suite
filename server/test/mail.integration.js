@@ -1546,3 +1546,20 @@ test('shared mailbox: its members read it and answer as it; nobody signs in to i
   assert.equal((await olivia('DELETE', `/api/mail-admin/shared/${mb}`)).status, 200);
   assert.equal((await olivia('GET', '/api/mail-admin/shared')).body.length, 0);
 });
+
+test('plus addresses into folders: you+name@ goes into your folder “Name”, when you have one and turned it on', async () => {
+  const t = nodemailer.createTransport({ host: process.env.MAIL_IMAP_HOST, port: 25, secure: false, ignoreTLS: true, name: 'test.acme.com' });
+  assert.deepEqual((await olivia('GET', '/api/mail/plus-folders')).body, { on: false, example: 'olivia+receipts@acme.com' });
+  // Off: plus mail just arrives in the Inbox.
+  await t.sendMail({ from: 'Shop <shop@acme.com>', to: 'olivia+receipts@acme.com', subject: 'Receipt one', text: 'x' });
+  await eventually(async () => (await inbox(olivia)).some((m) => m.subject === 'Receipt one'), 20000);
+  await olivia('POST', '/api/mail/folders', { name: 'Receipts' });
+  assert.equal((await olivia('PUT', '/api/mail/plus-folders', { on: true })).body.on, true);
+  await eventually(() => { try { return fs.readFileSync('/run/nw/sieve/olivia@acme.com.sieve', 'utf8').includes('subaddress'); } catch { return false; } }, 15000);
+  await t.sendMail({ from: 'Shop <shop@acme.com>', to: 'olivia+receipts@acme.com', subject: 'Receipt two', text: 'x' });
+  await t.sendMail({ from: 'Spammer <s@acme.com>', to: 'olivia+madeup@acme.com', subject: 'No such folder', text: 'x' });
+  await eventually(async () => (await olivia('GET', '/api/mail/messages?folder=Receipts')).body.messages?.some((m) => m.subject === 'Receipt two'), 20000);
+  await eventually(async () => (await inbox(olivia)).some((m) => m.subject === 'No such folder'), 20000);
+  assert.ok(!(await olivia('GET', '/api/mail/folders')).body.some((f) => /madeup/i.test(f.path)), 'no folder made by a sender');
+  await olivia('PUT', '/api/mail/plus-folders', { on: false });
+});
