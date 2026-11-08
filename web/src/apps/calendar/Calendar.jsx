@@ -7,6 +7,7 @@ import Icon from '../../components/Icon.jsx';
 import DrivePicker, { openUrl } from '../../components/DrivePicker.jsx';
 import { Modal, useToast, Empty, Menu, PromptModal } from '../../components/ui.jsx';
 import { PLACES, placeText, isoDay } from '../../components/workloc.js';
+import { insights, hoursText } from './insights.js';
 import { scheduleOf, DAY, VIEWS, startOfDay, visibleDays, shift, title, onDay, layoutDay, expandAll, occurrenceIndex, describeRule, daysBetween, moveTimes, resizeEnd, shiftWeekdays, snapMinutes } from './calmath.js';
 
 const OTHER_COLOURS = ['#e37400', '#8e24aa', '#0b8043', '#d93025', '#00796b', '#3949ab'];
@@ -106,6 +107,7 @@ export default function Calendar() {
   // Working location for the days shown (week and day views).
   const [locations, setLocations] = useState({});
   const [otherFor, setOtherFor] = useState(null); // a date whose "elsewhere" is being named
+  const [insightsOpen, setInsightsOpen] = useState(false);
   const loadLocations = useCallback(() => {
     if (view === 'month' || !days.length) return;
     get(`/location?from=${isoDay(days[0])}&to=${isoDay(days[days.length - 1])}`).then((r) => setLocations(r.days)).catch(() => {});
@@ -234,6 +236,7 @@ export default function Calendar() {
         <button className="btn new-btn" onClick={() => newEvent()}><Icon name="plus" /> Create</button>
         <button type="button" className="subnav-item" onClick={() => { const d = startOfDay(new Date()).getTime(); setEditing({ title: 'Out of office', kind: 'ooo', start: d, end: d + DAY - 1, all_day: 1, color: '#5f6368', location: '', description: '' }); }}><span aria-hidden="true" style={{ width: 24, textAlign: 'center' }}>🌴</span><span className="grow">Out of office…</span></button>
         <button type="button" className="subnav-item" onClick={() => { const t = new Date(); t.setMinutes(0, 0, 0); t.setHours(t.getHours() + 1); setEditing({ title: 'Focus time', kind: 'focus', start: t.getTime(), end: t.getTime() + 2 * 36e5, all_day: 0, color: '#7b61ff', location: '', description: '' }); }}><span aria-hidden="true" style={{ width: 24, textAlign: 'center' }}>🎯</span><span className="grow">Focus time…</span></button>
+        <button type="button" className="subnav-item" onClick={() => setInsightsOpen(true)}><span aria-hidden="true" style={{ width: 24, textAlign: 'center' }}>📊</span><span className="grow">Time insights</span></button>
         <button type="button" className="subnav-item" onClick={() => setBookingOpen(true)}><Icon name="link" /><span className="grow">Booking pages</span></button>
         <button type="button" className="subnav-item" onClick={() => setHoursOpen(true)}><Icon name="clock" /><span className="grow">Working hours</span></button>
         <button type="button" className="subnav-item" onClick={() => importInput.current.click()}><Icon name="upload" /><span className="grow">Import (.ics)</span></button>
@@ -338,6 +341,7 @@ export default function Calendar() {
       </section>
       {bookingOpen && <BookingPagesDialog onClose={() => setBookingOpen(false)} />}
       {hoursOpen && <WorkHoursDialog onClose={() => setHoursOpen(false)} />}
+      {insightsOpen && <TimeInsights anchor={anchor} onClose={() => setInsightsOpen(false)} />}
       {otherFor && <PromptModal title="Working elsewhere" label="Where?" confirm="Save" onClose={() => setOtherFor(null)}
         onSubmit={async (where) => { await setLocation(otherFor, 'other', where.trim() || null); setOtherFor(null); }} />}
       {editing && (editing.role === 'guest'
@@ -381,6 +385,61 @@ function Schedule({ days, events, today, onOpen, onTaskDone, onDay: openDay }) {
         </li>
       ))}
     </ol>
+  );
+}
+
+/** How a week's time was spent: meetings, focus time and the rest, each day, and who you meet with most. */
+function TimeInsights({ anchor, onClose }) {
+  const { user } = useAuth();
+  const monday = (d) => { const x = startOfDay(new Date(d)); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return x; };
+  const [week, setWeek] = useState(() => monday(anchor).getTime());
+  const [data, setData] = useState(null);
+  useEffect(() => {
+    const to = new Date(week); to.setDate(to.getDate() + 7);
+    setData(null);
+    get(`/events?from=${week}&to=${to.getTime()}`).then((list) => setData(insights(expandAll(list, week, to.getTime()), week, to.getTime(), user.username))).catch(() => setData(insights([], week, to.getTime(), user.username)));
+  }, [week, user.username]);
+  const step = (n) => { const d = new Date(week); d.setDate(d.getDate() + 7 * n); setWeek(d.getTime()); };
+  const end = new Date(week); end.setDate(end.getDate() + 6);
+  const range = `${new Date(week).toLocaleDateString([], { day: 'numeric', month: 'short' })} – ${end.toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' })}`;
+  const most = data ? Math.max(1, ...data.byDay.map((d) => d.meetings + d.focus + d.other)) : 1;
+  return (
+    <Modal title="Time insights" onClose={onClose}>
+      <div className="stack insights">
+        <div className="row"><button type="button" className="icon-btn" aria-label="Previous week" onClick={() => step(-1)}>‹</button><strong className="grow" style={{ textAlign: 'center' }}>{range}</strong><button type="button" className="icon-btn" aria-label="Next week" onClick={() => step(1)}>›</button></div>
+        {!data ? <p className="muted">Loading…</p> : <>
+          <div className="insight-tiles" role="list" aria-label="This week">
+            <div role="listitem"><span className="insight-num">{hoursText(data.meetings)}</span><span className="muted small"><i className="ins-dot meetings" /> In meetings</span></div>
+            <div role="listitem"><span className="insight-num">{hoursText(data.focus)}</span><span className="muted small"><i className="ins-dot focus" /> Focus time</span></div>
+            <div role="listitem"><span className="insight-num">{hoursText(data.other)}</span><span className="muted small"><i className="ins-dot other" /> Other events</span></div>
+          </div>
+          <ul className="insight-days" aria-label="Each day">
+            {data.byDay.map((d) => {
+              const label = new Date(d.day).toLocaleDateString([], { weekday: 'short' });
+              const sum = d.meetings + d.focus + d.other;
+              return (
+                <li key={d.day} title={`${label}: ${hoursText(d.meetings)} meetings, ${hoursText(d.focus)} focus, ${hoursText(d.other)} other`}>
+                  <span className="insight-day">{label}</span>
+                  <span className="insight-bar" aria-label={`${label}: ${hoursText(Math.round(sum * 10) / 10)}`}>
+                    {['meetings', 'focus', 'other'].map((k) => d[k] > 0 && <span key={k} className={`seg ${k}`} style={{ width: `${(d[k] / most) * 100}%` }} />)}
+                  </span>
+                  <span className="muted small nowrap">{sum ? hoursText(Math.round(sum * 10) / 10) : '—'}</span>
+                </li>
+              );
+            })}
+          </ul>
+          {data.people.length > 0 && (
+            <div className="stack-tight">
+              <strong className="small">Who you meet with most</strong>
+              <ul className="insight-people">
+                {data.people.map((p) => <li key={p.email} className="row"><span className="grow">{p.name}</span><span className="muted small">{hoursText(p.hours)} · {p.count === 1 ? '1 meeting' : `${p.count} meetings`}</span></li>)}
+              </ul>
+            </div>
+          )}
+          <p className="muted small" style={{ margin: 0 }}>Only you see this. Meetings are events with other people; all-day events, out of office and invitations you declined aren't counted.</p>
+        </>}
+      </div>
+    </Modal>
   );
 }
 
