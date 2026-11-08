@@ -6,6 +6,7 @@ import Icon, { fileIcon } from '../../components/Icon.jsx';
 import { Menu, Modal, PromptModal, ConfirmModal, Empty, useToast, Avatar } from '../../components/ui.jsx';
 import { useAuth } from '../../App.jsx';
 import { ApprovalsView, RequestApproval } from './Approvals.jsx';
+import { SignaturesView } from '../docs/Signatures.jsx';
 import { CommentsPanel, useComments } from '../comments.jsx';
 
 function useDriveRoute() {
@@ -13,7 +14,7 @@ function useDriveRoute() {
   const [params] = useSearchParams();
   const parts = pathname.replace(/^\/drive\/?/, '').split('/');
   if (parts[0] === 'folder' && parts[1]) return { view: 'mine', folderId: parts[1] };
-  if (['shared', 'recent', 'starred', 'trash', 'approvals'].includes(parts[0])) return { view: parts[0] };
+  if (['shared', 'recent', 'starred', 'trash', 'approvals', 'signatures'].includes(parts[0])) return { view: parts[0] };
   if (parts[0] === 'search') return { view: 'search', q: params.get('q') || '', filters: Object.fromEntries(FILTERS.map(([k]) => [k, params.get(k) || ''])) };
   return { view: 'mine', folderId: null };
 }
@@ -39,7 +40,7 @@ export function goesIn(at, now = Date.now()) {
   const days = Math.ceil((at - now) / 864e5);
   return days <= 1 ? (days <= 0 ? 'Soon' : 'Tomorrow') : `In ${days} days`;
 }
-const TITLES = { shared: 'Shared with me', recent: 'Recent', starred: 'Starred', trash: 'Trash', approvals: 'Approvals' };
+const TITLES = { shared: 'Shared with me', recent: 'Recent', starred: 'Starred', trash: 'Trash', approvals: 'Approvals', signatures: 'Signatures' };
 const DRAG_TYPE = 'application/x-workspace-files';
 
 export default function Drive() {
@@ -61,7 +62,7 @@ export default function Drive() {
   const key = `${route.view}:${route.folderId || ''}:${route.q || ''}:${filterQuery}`;
 
   const load = useCallback(async () => {
-    if (route.view === 'approvals') { setFiles([]); return; } // its own list (Approvals.jsx)
+    if (route.view === 'approvals' || route.view === 'signatures') { setFiles([]); return; } // their own lists (Approvals.jsx, Signatures.jsx)
     try {
       let url = `/files?view=${route.view}`;
       if (route.folderId) url += `&parent=${route.folderId}`;
@@ -121,6 +122,13 @@ export default function Drive() {
     const count = () => get('/approvals').then((r) => setWaitingCount(r.waiting.length)).catch(() => {});
     count();
     return onLive((m) => { if (m.type === 'approvals-changed' || m.type === 'live-connected') count(); });
+  }, []);
+  // Documents waiting for your signature, counted beside Signatures.
+  const [signCount, setSignCount] = useState(0);
+  useEffect(() => {
+    const count = () => get('/signatures').then((r) => setSignCount(r.waiting.length)).catch(() => {});
+    count();
+    return onLive((m) => { if (m.type === 'signatures-changed' || m.type === 'live-connected') count(); });
   }, []);
   const [requestsOpen, setRequestsOpen] = useState(false);
   const loadRequests = useCallback(() => get('/files/access-requests').then(setRequests).catch(() => {}), []);
@@ -286,6 +294,7 @@ export default function Drive() {
         <NavLink to="/drive/recent" className="subnav-item"><Icon name="clock" />Recent</NavLink>
         <NavLink to="/drive/starred" className="subnav-item"><Icon name="staroutline" />Starred</NavLink>
         <NavLink to="/drive/approvals" className="subnav-item"><Icon name="check" /><span className="grow">Approvals</span>{waitingCount > 0 && <span className="count" aria-label={`${waitingCount} waiting for you`}>{waitingCount}</span>}</NavLink>
+        <NavLink to="/drive/signatures" className="subnav-item"><span aria-hidden="true" style={{ width: 24, textAlign: 'center' }}>✍️</span><span className="grow">Signatures</span>{signCount > 0 && <span className="count" aria-label={`${signCount} waiting for your signature`}>{signCount}</span>}</NavLink>
         <NavLink to="/drive/trash" className="subnav-item"><Icon name="trash" />Trash</NavLink>
         {requests.length > 0 && <button type="button" className="subnav-item" onClick={() => setRequestsOpen(true)}><Icon name="lock" /><span className="grow">Access requests</span><span className="count">{requests.length}</span></button>}
         {usage && (
@@ -345,7 +354,7 @@ export default function Drive() {
         )}
         {folder && folder.owner_id !== user.id && <p className="muted small">Owned by {folder.owner_name} · you can {folder.role === 'viewer' ? 'view' : folder.role === 'commenter' ? 'view and comment' : 'edit'}</p>}
 
-        {route.view === 'approvals' ? <ApprovalsView /> : files === null ? <p className="muted">Loading…</p> : files.length === 0 ? (
+        {route.view === 'approvals' ? <ApprovalsView /> : route.view === 'signatures' ? <SignaturesView /> : files === null ? <p className="muted">Loading…</p> : files.length === 0 ? (
           route.view === 'trash' ? <Empty icon="trash" title="Trash is empty" />
             : route.view === 'search' ? <Empty icon="search" title="No matching files" />
               : route.view === 'shared' ? <Empty icon="people" title="Nothing shared with you yet" />

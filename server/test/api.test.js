@@ -4709,3 +4709,22 @@ test('signatures: a document sent for signing is locked; each signer signs on th
   assert.equal((await anon('GET', `/api/public/sign/${token}`)).status, 200, 'the finished one is still readable by its signer');
   assert.equal((await kay('GET', `/api/files/${doc.id}`)).body.locked_at, null);
 });
+
+test('signatures: waiting for you and sent by you, and reminders at most hourly', async () => {
+  const kay = client(); await login(kay, 'kay@keepco.com');
+  await kay('POST', '/api/users', { local: 'sgr', domain: 'keepco.com', name: 'Rae Reminded', password: 'password123' });
+  const rae = client(); await login(rae, 'sgr@keepco.com');
+  const doc = (await kay('POST', '/api/files/new', { kind: 'doc', name: 'NDA' })).body;
+  const made = (await kay('POST', '/api/signatures', { file_id: doc.id, signers: ['sgr@keepco.com'] })).body;
+  const w = (await rae('GET', '/api/signatures')).body;
+  assert.deepEqual(w.waiting.map((x) => x.title), ['NDA']);
+  assert.match(w.waiting[0].link, /^\/sign\/[\w-]+$/);
+  assert.ok((await kay('GET', '/api/signatures')).body.sent.some((x) => x.id === made.id));
+  assert.equal((await rae('POST', `/api/signatures/${made.id}/remind`)).status, 403);
+  assert.equal((await kay('POST', `/api/signatures/${made.id}/remind`)).body.reminded, 1);
+  assert.equal((await kay('POST', `/api/signatures/${made.id}/remind`)).status, 429, 'not again so soon');
+  assert.ok((await rae('GET', '/api/notifications')).body.items.some((n) => n.title === 'Reminder: Kay Keeper is waiting for you to sign “NDA”' || /is waiting for you to sign “NDA”/.test(n.title)));
+  const anon = client();
+  await anon('POST', `/api/public/sign/${w.waiting[0].link.split('/sign/')[1]}`, { name: 'Rae', image: null, agree: true });
+  assert.deepEqual((await rae('GET', '/api/signatures')).body.waiting, [], 'signed: no longer waiting');
+});

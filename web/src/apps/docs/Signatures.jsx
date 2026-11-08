@@ -153,3 +153,38 @@ export function SignPage({ token }) {
     </div>
   );
 }
+
+/** Drive → Signatures: documents waiting for your signature, and the ones you've sent. */
+export function SignaturesView() {
+  const toast = useToast();
+  const [d, setD] = useState(null);
+  const load = () => get('/signatures').then(setD).catch(() => setD({ waiting: [], sent: [] }));
+  useEffect(() => { load(); return onLive((m) => { if (m.type === 'signatures-changed' || m.type === 'live-connected') load(); }); }, []);
+  if (!d) return <p className="muted">Loading…</p>;
+  const remind = async (s) => { try { const r = await post(`/signatures/${s.id}/remind`); toast(r.reminded ? `Reminded ${r.reminded} ${r.reminded === 1 ? 'person' : 'people'}` : 'Nobody else to remind'); } catch (e) { toast(e.message, 'error'); } };
+  return (
+    <div className="stack">
+      <section aria-label="Waiting for your signature">
+        <h2 className="small">Waiting for your signature</h2>
+        {!d.waiting.length ? <p className="muted small">Nothing to sign.</p> : (
+          <ul className="approval-list">{d.waiting.map((s) => (
+            <li key={s.id} className="row"><span className="grow"><strong>{s.title}</strong> <span className="muted small">from {s.requested_by?.name} · {when(s.created_at)}{s.message ? ` · “${s.message}”` : ''}</span></span>
+              <a className="btn small primary" href={s.link}>Sign</a></li>
+          ))}</ul>
+        )}
+      </section>
+      <section aria-label="Sent for signature">
+        <h2 className="small">Sent for signature</h2>
+        {!d.sent.length ? <p className="muted small">Documents you send for signature (⋮ → Send for signature… in a document) are listed here.</p> : (
+          <ul className="approval-list">{d.sent.map((s) => {
+            const n = s.signers.filter((x) => x.signed_at).length;
+            return (
+              <li key={s.id} className="row"><span className="grow"><a href={`/docs/${s.file_id}`}><strong>{s.title}</strong></a> <span className="muted small">{s.status === 'complete' ? `signed by everyone · ${when(s.completed_at)}` : `${n} of ${s.signers.length} signed · waiting for ${s.signers.filter((x) => !x.signed_at).map((x) => x.name || x.email).join(', ')}`}</span></span>
+                {s.status === 'pending' && <button type="button" className="btn small" onClick={() => remind(s)}>Remind</button>}</li>
+            );
+          })}</ul>
+        )}
+      </section>
+    </div>
+  );
+}

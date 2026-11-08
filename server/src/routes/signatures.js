@@ -41,6 +41,7 @@ q(`CREATE TABLE IF NOT EXISTS sign_signers (
   PRIMARY KEY (request_id, email)
 )`).run();
 q('CREATE INDEX IF NOT EXISTS sign_requests_file ON sign_requests(file_id, created_at)').run();
+if (!q('PRAGMA table_info(sign_requests)').all().some((c) => c.name === 'reminded_at')) q('ALTER TABLE sign_requests ADD COLUMN reminded_at INTEGER').run();
 
 const MAX_SIGNERS = 20, MAX_IMAGE = 300 * 1024;
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -67,6 +68,32 @@ async function mailSigner(from, to, subject, text) {
 
 export default function signatureRoutes() {
   const r = Router();
+
+  // Waiting for your signature, and what you've sent.
+  r.get('/', (req, res) => {
+    const waiting = q(`SELECT r.*, s.token FROM sign_requests r JOIN sign_signers s ON s.request_id = r.id
+                       WHERE s.user_id = ? AND s.signed_at IS NULL AND r.status = 'pending' ORDER BY r.created_at DESC`).all(req.user.id)
+      .map(({ token, ...x }) => ({ ...describe(x), link: `/sign/${token}` }));
+    const sent = q("SELECT * FROM sign_requests WHERE requested_by = ? AND status != 'cancelled' ORDER BY created_at DESC LIMIT 50").all(req.user.id).map((x) => describe(x));
+    res.json({ waiting, sent });
+  });
+
+  // Remind the people who haven't signed yet (at most once an hour).
+  r.post('/:id/remind', async (req, res) => {
+    const s = q('SELECT * FROM sign_requests WHERE id = ?').get(req.params.id);
+    if (!s) throw notFound('Not found');
+    if (s.requested_by !== req.user.id) throw forbidden('Only the person who sent it can send reminders');
+    if (s.status !== 'pending') throw bad('It is already finished');
+    if (s.reminded_at && now() - s.reminded_at < 3600e3) throw new HttpError(429, 'A reminder was sent less than an hour ago');
+    const left = q('SELECT email, user_id, token FROM sign_signers WHERE request_id = ? AND signed_at IS NULL').all(s.id);
+    q('UPDATE sign_requests SET reminded_at = ? WHERE id = ?').run(now(), s.id);
+    for (const p of left) {
+      if (p.user_id === req.user.id) continue;
+      if (p.user_id) bell([p.user_id], { kind: 'share', title: `Reminder: ${req.user.name} is waiting for you to sign “${s.title}”`, body: null, link: `/sign/${p.token}`, actor: req.user.name });
+      await mailSigner(req.user, p.email, `Reminder: please sign ${s.title}`, `${req.user.name} is still waiting for you to sign “${s.title}”.\n\nRead and sign it here:\n${baseUrl(req)}/sign/${p.token}`);
+    }
+    res.json({ reminded: left.filter((p) => p.user_id !== req.user.id).length });
+  });
 
   r.get('/file/:fileId', (req, res) => {
     const f = q('SELECT * FROM files WHERE id = ? AND trashed = 0').get(String(req.params.fileId));
