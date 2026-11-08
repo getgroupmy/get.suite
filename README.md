@@ -242,6 +242,7 @@ Protections move with their cells when the owner (or someone allowed) inserts or
 In Drive, **New → Presentation**. Presentations are shared, versioned and saved automatically like documents.
 
 - **Slides:** **+ Slide** adds one after the current slide with a layout (title and text, title slide, section header, two columns, blank). Each slide's ⋮ menu duplicates, moves or deletes it.
+- **Ordering slides:** drag slides up and down the list on the left. **⊞ Grid view** shows every slide at once: drag them into order, Ctrl- or Shift-click to choose several and drag them together (they keep their order), or **Duplicate**, **Skip / show** or **Delete** them in one go. Double-click a slide (or Enter) to open it.
 - **On a slide:** add a **Text box**, a **Picture** (from your computer; it's saved in Drive next to the presentation) or a **Shape** (rectangle, rounded rectangle, ellipse, line or arrow; a line or arrow's **Direction** runs across, down, diagonally or backwards, and they're kept in PowerPoint files).
   - Drag to move, and drag the handles to resize. Pictures keep their shape; hold Shift to stretch them.
   - Double-click text to type. Arrow keys nudge the selected item (Shift for bigger steps), and Delete removes it.

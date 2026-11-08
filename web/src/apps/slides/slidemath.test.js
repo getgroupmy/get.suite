@@ -114,3 +114,24 @@ test('presentation changes: slides added, deleted, moved, and what changed on ea
   assert.deepEqual(ch[2].details.map((d) => `${d.kind} ${d.what}`), ['look shape', 'look transition']);
   assert.deepEqual(slideChanges(after, after), []);
 });
+
+test('moving, copying and deleting several slides at once', async () => {
+  const { moveSlides, duplicateSlides, removeSlides } = await import('./slidemath.js');
+  const deck = { theme: 'light', slides: ['a', 'b', 'c', 'd', 'e'].map((id) => ({ id, items: [{ id: `${id}1`, type: 'text', text: id }] })) };
+  const ids = (d) => d.slides.map((s) => s.id).join('');
+  let r = moveSlides(deck, [1, 3], 5);
+  assert.equal(ids(r.deck), 'acebd'); assert.equal(r.first, 3);
+  r = moveSlides(deck, [3, 4], 0);
+  assert.equal(ids(r.deck), 'deabc'); assert.equal(r.first, 0);
+  r = moveSlides(deck, [2], 3);
+  assert.equal(r.deck, deck, 'dropped where it was'); assert.equal(r.first, 2);
+  r = moveSlides(deck, [0], 2);
+  assert.equal(ids(r.deck), 'bacde'); assert.equal(r.first, 1);
+  const dup = duplicateSlides(deck, [3, 1]);
+  assert.equal(dup.slides.length, 7);
+  assert.equal(dup.slides.slice(0, 4).map((s) => s.id).join(''), 'abcd');
+  assert.equal(dup.slides[4].items[0].text, 'b'); assert.equal(dup.slides[5].items[0].text, 'd');
+  assert.notEqual(dup.slides[4].id, 'b'); assert.notEqual(dup.slides[4].items[0].id, 'b1');
+  assert.equal(ids(removeSlides(deck, [0, 4])), 'bcd');
+  assert.equal(removeSlides(deck, [0, 1, 2, 3, 4]).slides.length, 1);
+});

@@ -15,7 +15,7 @@ import { VersionHistory } from '../VersionHistory.jsx';
 import { EditorHeader } from '../editorCommon.jsx';
 import { useUndo, undoKey } from '../useUndo.js';
 import {
-  THEMES, LAYOUTS, newId, clampBox, moveBox, resizeBox, addSlide, duplicateSlide, removeSlide, moveSlide,
+  THEMES, LAYOUTS, newId, clampBox, moveBox, resizeBox, addSlide, duplicateSlide, removeSlide, moveSlide, moveSlides, duplicateSlides, removeSlides,
   updateItem, addItem, removeItem, restack, pictureBox,
   TRANSITIONS, setSlide, stepSlide, firstShown, newTable, resizeTable, setCell,
   ANIMATIONS, builds, animChange, stepPresent, slideChanges } from './slidemath.js';
@@ -165,12 +165,46 @@ export default function SlidesEditor() {
   // Tell the others which slide and box are selected.
   useEffect(() => { provider?.awareness.setLocalStateField('sel', slide ? { slide: slide.id, item: selected } : null); }, [provider, slide?.id, selected]);
 
+  // Grid view (all slides at once) and dragging slides into a new order.
+  const [grid, setGrid] = useState(false);
+  const [picked, setPicked] = useState(new Set()); // slides chosen in the grid (Ctrl/Shift-click)
+  const [drag, setDrag] = useState(null); // { from: [indexes], at: drop position or null }
   if (!deck) return <div className="editor-page"><EditorHeader icon="slides" file={null} status="saved" /></div>;
   const people = [...new Map(others.map((p) => [p.id, p])).values()].filter((p) => p.id !== user.id);
   const peers = new Map(others.filter((p) => p.id !== user.id && p.sel?.slide === slide.id && p.sel.item).map((p) => [p.sel.item, p]));
 
   const setItem = (c) => item && change((d) => updateItem(d, slideIndex, item.id, c));
   const slideAction = (fn) => () => change(fn);
+  // Grid view (all slides at once) and dragging slides into a new order, here and in the side list.
+  const pickSlide = (i, e) => {
+    if (e.shiftKey && picked.size) { const last = [...picked].pop(); const n = new Set(picked); for (let k = Math.min(last, i); k <= Math.max(last, i); k++) n.add(k); setPicked(n); return; }
+    if (e.ctrlKey || e.metaKey) { const n = new Set(picked); if (n.has(i)) n.delete(i); else n.add(i); setPicked(n); return; }
+    setPicked(new Set([i])); goTo(i);
+  };
+  const dragProps = (i, horizontal) => readOnly ? {} : {
+    draggable: true,
+    onDragStart: (e) => { const from = grid && picked.has(i) ? [...picked].sort((a, b) => a - b) : [i]; setDrag({ from, at: null }); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', 'slides'); },
+    onDragOver: (e) => {
+      if (!drag) return;
+      e.preventDefault();
+      const b = e.currentTarget.getBoundingClientRect();
+      const after = horizontal ? e.clientX > b.left + b.width / 2 : e.clientY > b.top + b.height / 2;
+      const at = i + (after ? 1 : 0);
+      if (drag.at !== at) setDrag({ ...drag, at });
+    },
+    onDrop: (e) => {
+      e.preventDefault();
+      if (!drag || drag.at === null) { setDrag(null); return; }
+      const { deck: next, first } = moveSlides(deckRef.current, drag.from, drag.at);
+      if (next !== deckRef.current) commit(next);
+      setPicked(new Set(drag.from.map((_, k) => first + k)));
+      goTo(first);
+      setDrag(null);
+    },
+    onDragEnd: () => setDrag(null),
+  };
+  const dropClass = (i) => (drag && drag.at === i ? 'drop-before' : drag && drag.at === i + 1 && i === deck.slides.length - 1 ? 'drop-after' : '');
+  const pickedList = () => [...picked].filter((i) => i < deck.slides.length).sort((a, b) => a - b);
 
   return (
     <div className="editor-page slides-page">
@@ -273,19 +307,44 @@ export default function SlidesEditor() {
           <div className="grow" />
           <button type="button" className={`btn small ${panel ? 'primary' : ''}`} aria-pressed={panel} title="Comments" onClick={() => { if (panel && pending) setPending(null); setPanel(!panel); }}>💬 Comments{openThreads ? ` (${openThreads})` : ''}</button>
           <button type="button" className="btn small" onClick={commentOnSlide}>Comment on this slide</button>
+          <button type="button" className={`btn small ${grid ? 'primary' : ''}`} aria-pressed={grid} title="See all the slides at once, and drag them into order" onClick={() => { setGrid(!grid); setPicked(new Set([slideIndex])); }}>⊞ Grid view</button>
           <button type="button" className="btn small primary" onClick={() => setPresenting(slideIndex)}><Icon name="slides" size={16} /> Present</button>
           <button type="button" className="btn small" title="Present, with your notes, the next slide and a timer in a second window" onClick={() => { openPresenterView(id, slideIndex); setPresenting(slideIndex); }}>Presenter view</button>
         </div>
       )}
       {readOnly && <div className="slides-toolbar"><div className="grow" /><button type="button" className={`btn small ${panel ? 'primary' : ''}`} aria-pressed={panel} title="Comments" onClick={() => { if (panel && pending) setPending(null); setPanel(!panel); }}>💬 Comments{openThreads ? ` (${openThreads})` : ''}</button>
         {canComment && <button type="button" className="btn small" onClick={commentOnSlide}>Comment on this slide</button>}
+          <button type="button" className={`btn small ${grid ? 'primary' : ''}`} aria-pressed={grid} title="See all the slides at once, and drag them into order" onClick={() => { setGrid(!grid); setPicked(new Set([slideIndex])); }}>⊞ Grid view</button>
           <button type="button" className="btn small primary" onClick={() => setPresenting(slideIndex)}><Icon name="slides" size={16} /> Present</button>
           <button type="button" className="btn small" title="Present, with your notes, the next slide and a timer in a second window" onClick={() => { openPresenterView(id, slideIndex); setPresenting(slideIndex); }}>Presenter view</button></div>}
 
-      <div className="slides-body">
+      {grid && (
+        <div className="slide-grid-wrap">
+          {!readOnly && (
+            <div className="row slide-grid-bar" role="toolbar" aria-label="Selected slides">
+              <span className="muted small grow">{picked.size > 1 ? `${picked.size} slides selected` : 'Drag slides to put them in order. Ctrl or Shift-click to choose several.'}</span>
+              <button type="button" className="btn small" disabled={!picked.size} onClick={() => { const list = pickedList(); change((d) => duplicateSlides(d, list)); const at = list[list.length - 1] + 1; setPicked(new Set(list.map((_, k) => at + k))); }}>Duplicate</button>
+              <button type="button" className="btn small" disabled={!picked.size} onClick={() => { const list = pickedList(); const skip = !list.every((i) => deck.slides[i].skip); change((d) => ({ ...d, slides: d.slides.map((x, i) => (list.includes(i) ? { ...x, skip: skip || undefined } : x)) })); }}>Skip / show</button>
+              <button type="button" className="btn small danger" disabled={!picked.size} onClick={() => setDialog({ type: 'delete-slides', list: pickedList() })}>Delete</button>
+            </div>
+          )}
+          <ol className="slide-grid" aria-label="All slides">
+            {deck.slides.map((s, i) => (
+              <li key={s.id} className={`${picked.has(i) ? 'picked' : ''} ${s.skip ? 'skipped' : ''} ${dropClass(i)}`} {...dragProps(i, true)}>
+                <button type="button" className="thumb" aria-label={`Slide ${i + 1}`} aria-pressed={picked.has(i)} onClick={(e) => pickSlide(i, e)} onDoubleClick={() => { goTo(i); setGrid(false); }}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); goTo(i); setGrid(false); } }}>
+                  <SlideView slide={s} theme={theme} deckId={id} />
+                </button>
+                <span className="muted small">{i + 1}{s.skip ? ' · skipped' : ''}</span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+      <div className="slides-body" style={grid ? { display: 'none' } : undefined}>
         <ol className="slide-list" aria-label="Slides">
           {deck.slides.map((s, i) => (
-            <li key={s.id} className={`${i === slideIndex ? 'on' : ''} ${s.skip ? 'skipped' : ''}`}>
+            <li key={s.id} className={`${i === slideIndex ? 'on' : ''} ${s.skip ? 'skipped' : ''} ${dropClass(i)}`} {...dragProps(i, false)}>
               <span className="num" aria-hidden="true">{i + 1}{commentsOn(s.id) > 0 && <span className="thumb-mark" title={`${commentsOn(s.id)} open comment${commentsOn(s.id) === 1 ? '' : 's'}`}>💬</span>}{s.transition && <span className="thumb-mark" title={`Transition: ${s.transition}`}>✦</span>}{s.skip && <span className="thumb-mark" title="Skipped when presenting">⊘</span>}</span>
               <button type="button" className="thumb" aria-label={`Slide ${i + 1}`} aria-current={i === slideIndex ? 'true' : undefined} onClick={() => goTo(i)}>
                 <SlideView slide={s} theme={theme} deckId={id} />
@@ -333,6 +392,10 @@ export default function SlidesEditor() {
       {dialog?.type === 'delete-slide' && (
         <ConfirmModal title={`Delete slide ${dialog.index + 1}?`} confirm="Delete" message="The slide and everything on it is removed. Version history can bring it back."
           onClose={() => setDialog(null)} onConfirm={() => { change((d) => removeSlide(d, dialog.index)); goTo(Math.min(dialog.index, deck.slides.length - 2)); setDialog(null); }} />
+      )}
+      {dialog?.type === 'delete-slides' && (
+        <ConfirmModal title={`Delete ${dialog.list.length} slide${dialog.list.length === 1 ? '' : 's'}?`} message="They can be brought back from Version history." confirm="Delete"
+          onClose={() => setDialog(null)} onConfirm={() => { change((d) => removeSlides(d, dialog.list)); setPicked(new Set()); goTo(Math.min(dialog.list[0], deck.slides.length - dialog.list.length - 1)); setDialog(null); }} />
       )}
     </div>
   );

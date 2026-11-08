@@ -78,6 +78,36 @@ export function moveSlide(deck, from, to) {
   return { ...deck, slides };
 }
 
+/**
+ * Several slides (by index) moved together so they land at position `to` (an index in the deck as it
+ * is, 0..length: "before the slide now at `to`"), keeping their order. Returns { deck, first } with
+ * where the first moved slide ends up.
+ */
+export function moveSlides(deck, indexes, to) {
+  const set = new Set(indexes.filter((i) => i >= 0 && i < deck.slides.length));
+  if (!set.size) return { deck, first: to };
+  const moving = deck.slides.filter((_, i) => set.has(i));
+  const rest = deck.slides.filter((_, i) => !set.has(i));
+  const at = to - [...set].filter((i) => i < to).length;
+  const slides = [...rest.slice(0, at), ...moving, ...rest.slice(at)];
+  if (slides.every((x, i) => x === deck.slides[i])) return { deck, first: at };
+  return { deck: { ...deck, slides }, first: at };
+}
+/** Copies of several slides, each placed after the last of them. */
+export function duplicateSlides(deck, indexes) {
+  const sorted = [...new Set(indexes)].filter((i) => i >= 0 && i < deck.slides.length).sort((a, b) => a - b);
+  if (!sorted.length) return deck;
+  const copies = sorted.map((i) => { const c = { ...JSON.parse(JSON.stringify(deck.slides[i])), id: newId() }; c.items = c.items.map((it) => ({ ...it, id: newId() })); return c; });
+  const after = sorted[sorted.length - 1] + 1;
+  return { ...deck, slides: [...deck.slides.slice(0, after), ...copies, ...deck.slides.slice(after)] };
+}
+/** Several slides deleted (a presentation keeps at least one, blank). */
+export function removeSlides(deck, indexes) {
+  const set = new Set(indexes);
+  const slides = deck.slides.filter((_, i) => !set.has(i));
+  return { ...deck, slides: slides.length ? slides : [{ id: newId(), items: [] }] };
+}
+
 /** Change one item on one slide. */
 const dropUndefined = (o) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined));
 export function updateItem(deck, slideIndex, itemId, change) {

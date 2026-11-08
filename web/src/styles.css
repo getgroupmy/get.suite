@@ -1854,3 +1854,16 @@ tr.shortcut-row.broken .name-text { color: var(--muted, #777); font-style: itali
 .fill-handle { position: absolute; width: 8px; height: 8px; background: var(--accent); border: 1px solid var(--surface); cursor: crosshair; z-index: 7; }
 .grid td.fill-preview { box-shadow: inset 0 0 0 1px var(--accent); background: color-mix(in srgb, var(--accent-soft) 35%, transparent); }
 .sheet-tabs .sel-stats { order: 99; margin-left: auto; white-space: nowrap; color: var(--muted); padding-left: 12px; }
+/* Slides: grid view, and where a dragged slide will land. */
+.slide-grid-wrap { flex: 1; overflow: auto; padding: 12px 20px; background: var(--surface-2); }
+.slide-grid-bar { gap: 8px; margin-bottom: 12px; }
+.slide-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 18px; }
+.slide-grid li { display: flex; flex-direction: column; align-items: center; gap: 4px; position: relative; }
+.slide-grid .thumb { width: 100%; padding: 0; border: 2px solid transparent; border-radius: 6px; background: none; cursor: pointer; }
+.slide-grid li.picked .thumb { border-color: var(--accent); }
+.slide-grid li.skipped .thumb { opacity: .5; }
+.slide-grid li.drop-before::before, .slide-grid li.drop-after::after { content: ''; position: absolute; top: 0; bottom: 18px; width: 3px; background: var(--accent); border-radius: 2px; }
+.slide-grid li.drop-before::before { left: -11px; }
+.slide-grid li.drop-after::after { right: -11px; }
+.slide-list li.drop-before { box-shadow: 0 -3px 0 var(--accent); }
+.slide-list li.drop-after { box-shadow: 0 3px 0 var(--accent); }
