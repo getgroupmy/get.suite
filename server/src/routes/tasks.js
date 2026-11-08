@@ -8,6 +8,7 @@ import { uid, now, str, bad, notFound } from '../util.js';
 import { sendTo } from '../hub.js';
 import { notify as bell } from '../notifications.js';
 import { canReach } from '../tenancy.js';
+import { audienceFor } from '../access.js';
 
 q(`CREATE TABLE IF NOT EXISTS task_lists (
   id TEXT PRIMARY KEY,
@@ -361,6 +362,14 @@ export default function taskRoutes() {
     });
     changed(list);
     if (target !== list) changed(target);
+    // A task from an assigned comment: ticking it off resolves the comment thread (and un-ticking reopens it).
+    if (b.done !== undefined && !!b.done !== !!task.done_at) {
+      const c = q('SELECT id, file_id, resolved FROM file_comments WHERE task_id = ? AND thread_id IS NULL').get(task.id);
+      if (c && !!c.resolved !== !!b.done) {
+        q('UPDATE file_comments SET resolved = ?, resolved_by = ? WHERE id = ?').run(b.done ? 1 : 0, b.done ? req.user.id : null, c.id);
+        sendTo(audienceFor(c.file_id), { type: 'comments-changed', id: c.file_id });
+      }
+    }
     const next = shape(q(`${TASK} WHERE t.id = ?`).get(task.id));
     if (set.assignee_id && set.assignee_id !== task.assignee_id) notifyAssigned(next, req.user);
     res.json(next);

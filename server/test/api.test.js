@@ -3707,4 +3707,9 @@ test('assigning a comment gives the person a task; resolving the thread ticks it
   await owner('PATCH', `/api/comments/${doc.id}/${c.id}`, { resolved: false });
   const again = (await tasksOf()).find((x) => x.id === t.id);
   assert.ok(!again.done && !again.done_at);
+  // The other way: ticking the task off in Tasks resolves the thread.
+  assert.equal((await k('PATCH', `/api/tasks/tasks/${t.id}`, { done: true })).status, 200);
+  assert.equal((await owner('GET', `/api/comments/${doc.id}`)).body.find((x) => x.id === c.id).resolved, true);
+  await k('PATCH', `/api/tasks/tasks/${t.id}`, { done: false });
+  assert.equal((await owner('GET', `/api/comments/${doc.id}`)).body.find((x) => x.id === c.id).resolved, false);
 });
