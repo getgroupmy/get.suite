@@ -77,6 +77,11 @@ export const HELP = {
   HLOOKUP: ['search, range, row, [approximate]', 'Finds a value in the first row and returns a cell from that column'],
   MATCH: ['search, range, [type]', 'The position of a value in a range'],
   INDEX: ['range, row, [column]', 'The cell at a row and column of a range'],
+  FILTER: ['range, include, [if_empty]', 'The rows (or columns) of a range where include is TRUE, e.g. FILTER(A2:C20, C2:C20>100); spills into the cells below'],
+  UNIQUE: ['range', 'The range without repeated rows (any case counts as the same); spills'],
+  SORT: ['range, [column], [order]', 'The range sorted by a column (1 = first), order 1 rising or -1 falling; spills'],
+  SEQUENCE: ['rows, [columns], [start], [step]', 'Numbers counting up: SEQUENCE(5) is 1 to 5 down a column; spills'],
+  TRANSPOSE: ['range', 'The range turned on its side: rows become columns; spills'],
   IMPORTRANGE: ['spreadsheet_link, "Sheet1!A1:C10"', 'Cells from another spreadsheet you can open (its link or id); use it in SUM, VLOOKUP and the like for a range'],
   // text
   CONCAT: ['text1, [text2, …]', 'Joins text together'],

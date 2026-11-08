@@ -39,7 +39,11 @@ const numToExcel = (f) => {
 const NEW_FUNCS = ['XLOOKUP', 'STDEV.S', 'STDEV.P', 'VAR.S', 'VAR.P', 'RANK.EQ', 'IFS', 'SWITCH', 'IFNA', 'TEXTJOIN', 'CONCAT', 'MAXIFS', 'MINIFS', 'DAYS'];
 const NEW_RE = new RegExp(`("(?:[^"]|"")*")|(?<![A-Z0-9_.])(${NEW_FUNCS.map((n) => n.replace('.', '\\.')).join('|')})(?=\\()`, 'gi');
 export const formulaFromExcel = (f) => String(f).replace(/("(?:[^"]|"")*")|_xl(?:fn|ws)\./gi, (m, s) => s || '');
-export const formulaToExcel = (f) => String(f).replace(NEW_RE, (m, s, name) => s || `_xlfn.${name.toUpperCase()}`);
+// The dynamic-array functions; FILTER and SORT also carry "_xlws." in the file.
+const ARRAY_FUNCS = { FILTER: '_xlfn._xlws.', SORT: '_xlfn._xlws.', UNIQUE: '_xlfn.', SEQUENCE: '_xlfn.' };
+const ARRAY_RE = new RegExp(`("(?:[^"]|"")*")|(?<![A-Z0-9_.])(${Object.keys(ARRAY_FUNCS).join('|')})(?=\\()`, 'gi');
+export const formulaToExcel = (f) => String(f).replace(NEW_RE, (m, s, name) => s || `_xlfn.${name.toUpperCase()}`)
+  .replace(ARRAY_RE, (m, s, name) => s || `${ARRAY_FUNCS[name.toUpperCase()]}${name.toUpperCase()}`);
 
 function cellText(cell) {
   const v = cell.value;

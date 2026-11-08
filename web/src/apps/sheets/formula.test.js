@@ -268,3 +268,42 @@ test('IMPORTRANGE: spreadsheets importing each other stop after a few steps', ()
   const ev = bookEvaluator(books.aaaaaa.sheets, 0, { book: (id) => books[id], depth: 0 });
   assert.deepEqual(ev('A1'), { error: '#REF!' });
 });
+
+test('spilling: a formula giving several cells fills the empty cells beside and below it', () => {
+  const v = ev({
+    A1: '=SEQUENCE(3)', B1: '=A1:A3*10', C1: '=SUM(B1:B3)',
+    E1: '=SEQUENCE(2, 3, 5, 5)',
+    A6: 'x', A5: '=SEQUENCE(3)',
+    H1: '=TRANSPOSE(A1:A3)',
+  });
+  assert.deepEqual([v('A1'), v('A2'), v('A3'), v('A4')], [1, 2, 3, null]);
+  assert.deepEqual([v('B1'), v('B2'), v('B3')], [10, 20, 30]);
+  assert.equal(v('C1'), 60, 'a formula can use spilled cells');
+  assert.deepEqual([v('E1'), v('F1'), v('G1'), v('E2'), v('G2')], [5, 10, 15, 20, 30]);
+  assert.deepEqual(v('A5'), { error: '#SPILL!' }, 'blocked by A6');
+  assert.deepEqual([v('H1'), v('I1'), v('J1')], [1, 2, 3]);
+  assert.equal(v.spilledFrom('A2'), 'A1');
+  assert.equal(v.spilledFrom('A1'), null);
+  // A formula asked about first, before the cells it reads were filled, still sees them.
+  const w = ev({ D1: '=SUM(A1:A4)', A1: '=SEQUENCE(4)' });
+  assert.equal(w('D1'), 10);
+});
+
+test('FILTER, UNIQUE and SORT', () => {
+  const v = ev({
+    A1: 'Tea', B1: '3', A2: 'Cake', B2: '12', A3: 'tea', B3: '8', A4: 'Pie', B4: '15',
+    D1: '=FILTER(A1:B4, B1:B4>5)',
+    G1: '=UNIQUE(A1:A4)',
+    I1: '=SORT(A1:B4, 2, -1)',
+    L1: '=FILTER(A1:A4, B1:B4>100)', L2: '=FILTER(A1:A4, B1:B4>100, "none")',
+    M1: '=SUM(FILTER(B1:B4, A1:A4="tea"))',
+    N1: '=COUNTA(UNIQUE(A1:A4))',
+  });
+  assert.deepEqual([v('D1'), v('E1'), v('D2'), v('E2'), v('D3'), v('E3'), v('D4')], ['Cake', 12, 'tea', 8, 'Pie', 15, null]);
+  assert.deepEqual([v('G1'), v('G2'), v('G3'), v('G4')], ['Tea', 'Cake', 'Pie', null], 'any case counts as the same');
+  assert.deepEqual([v('I1'), v('J1'), v('I4'), v('J4')], ['Pie', 15, 'Tea', 3]);
+  assert.deepEqual(v('L1'), { error: '#CALC!' });
+  assert.equal(v('L2'), 'none');
+  assert.equal(v('M1'), 11);
+  assert.equal(v('N1'), 3);
+});

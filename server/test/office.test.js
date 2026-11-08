@@ -448,3 +448,10 @@ test('excel: formulas that refer to other sheets', async () => {
   const back = await sheetFromExcel(await excelFromSheet(data));
   assert.equal(back.sheets[0].cells.A1, "=SUM('Q1 data'!B1:B2)+Other!A1");
 });
+
+test('Excel: FILTER, SORT, UNIQUE and SEQUENCE carry their prefixes in the file and lose them in Sheets', () => {
+  const f = 'SUM(FILTER(A1:A9,B1:B9>5))+COUNTA(UNIQUE(SORT(C1:C9)))+SUM(SEQUENCE(3))&"FILTER("';
+  const x = formulaToExcel(f);
+  assert.equal(x, 'SUM(_xlfn._xlws.FILTER(A1:A9,B1:B9>5))+COUNTA(_xlfn.UNIQUE(_xlfn._xlws.SORT(C1:C9)))+SUM(_xlfn.SEQUENCE(3))&"FILTER("');
+  assert.equal(formulaFromExcel(x), f);
+});

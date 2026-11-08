@@ -278,7 +278,59 @@ function pmt(rate, n, pv, fv, type) {
   return -(rate * (fv + pv * g)) / ((1 + rate * type) * (g - 1));
 }
 
+/** A grid of values (rows of cells) as a range-shaped array. */
+function grid(rows) {
+  const out = rows.flat();
+  out.rows = rows.length;
+  out.cols = rows[0]?.length ?? 0;
+  return out;
+}
+const rowsOf = (a) => { const s = shapeOf(a); return Array.from({ length: s.rows }, (_, r) => Array.from({ length: s.cols }, (_, c) => s.at(r, c) ?? null)); };
+/** Sort order for SORT: numbers, then text (any case), then TRUE/FALSE, then blanks. */
+function order(a, b) {
+  const rank = (v) => (v === null || v === undefined || v === '' ? 3 : typeof v === 'number' ? 0 : typeof v === 'string' ? 1 : 2);
+  const ra = rank(a), rb = rank(b);
+  if (ra !== rb) return ra - rb;
+  if (ra === 0) return a - b;
+  if (ra === 1) return a.toLowerCase().localeCompare(b.toLowerCase());
+  return Number(a) - Number(b);
+}
+/** Functions that give back several cells, which spill into the cells beside and below. */
+const ARRAY_FUNCS = new Set(['FILTER', 'UNIQUE', 'SORT', 'SEQUENCE', 'TRANSPOSE', 'IMPORTRANGE', 'XLOOKUP']);
+
 const FUNCS = {
+  FILTER: ([array, include, ifEmpty]) => {
+    const rows = rowsOf(array), inc = shapeOf(include);
+    let out;
+    if (inc.cols === 1 && inc.rows === rows.length) out = rows.filter((_, r) => toBool(inc.at(r, 0)));
+    else if (inc.rows === 1 && inc.cols === (rows[0]?.length ?? 0)) { const keep = rows[0].map((_, c) => toBool(inc.at(0, c))); out = rows.map((row) => row.filter((_, c) => keep[c])); if (!out[0]?.length) out = []; }
+    else err('#VALUE!');
+    if (!out.length) return ifEmpty === undefined ? err('#CALC!') : ifEmpty;
+    return grid(out);
+  },
+  UNIQUE: ([array]) => {
+    const seen = new Set();
+    const out = rowsOf(array).filter((row) => { const k = JSON.stringify(row.map((v) => (typeof v === 'string' ? v.toLowerCase() : v))); if (seen.has(k)) return false; seen.add(k); return true; });
+    return grid(out);
+  },
+  SORT: ([array, by, dir]) => {
+    const rows = rowsOf(array);
+    const c = by === undefined || by === null ? 0 : Math.trunc(toNum(by)) - 1;
+    if (c < 0 || c >= (rows[0]?.length ?? 0)) err('#VALUE!');
+    const sign = dir === undefined || dir === null || toNum(dir) >= 0 ? 1 : -1;
+    return grid(rows.map((row, i) => [row, i]).sort((a, b) => sign * order(a[0][c], b[0][c]) || a[1] - b[1]).map(([row]) => row));
+  },
+  SEQUENCE: ([rows, cols, start, step]) => {
+    const r = Math.trunc(toNum(rows)), c = cols === undefined || cols === null ? 1 : Math.trunc(toNum(cols));
+    if (r < 1 || c < 1) err('#VALUE!');
+    if (r * c > 10000) err('#NUM!');
+    const s0 = start === undefined || start === null ? 1 : toNum(start), st = step === undefined || step === null ? 1 : toNum(step);
+    return grid(Array.from({ length: r }, (_, i) => Array.from({ length: c }, (_, j) => s0 + (i * c + j) * st)));
+  },
+  TRANSPOSE: ([array]) => {
+    const rows = rowsOf(array);
+    return grid((rows[0] || []).map((_, c) => rows.map((row) => row[c])));
+  },
   SUM: (a) => nums(a).reduce((s, n) => s + n, 0),
   AVERAGE: (a) => { const n = nums(a); if (!n.length) err('#DIV/0!'); return n.reduce((s, x) => s + x, 0) / n.length; },
   MIN: (a) => { const n = nums(a); return n.length ? Math.min(...n) : 0; },
@@ -542,16 +594,41 @@ export function createEvaluator(cells, names = null, book = null) {
   const named = new Map(Object.entries(names || {}).map(([k, v]) => [k.toUpperCase(), String(v).toUpperCase().split(':')]));
   const visiting = new Set();
   const asts = new Map();
+  // Spilling: a formula that gives back several cells (=SEQUENCE(5), =FILTER(…), =A1:A5*2) fills the
+  // empty cells beside and below it. Those formulas are worked out first, so the cells they fill are
+  // known; a cell they'd fill that has something in it shows #SPILL! in the formula's cell instead.
+  const spillFrom = new Map(); // filled cell -> { anchor, value }
+  let pending = null; // formulas that may spill and haven't been worked out yet (while finding spills)
+  const isEmpty = (raw) => raw === undefined || raw === null || raw === '';
+
+  function findSpills() {
+    pending = [];
+    for (const [k, raw] of Object.entries(cells)) {
+      if (typeof raw !== 'string' || !raw.startsWith('=')) continue;
+      try { const ast = asts.get(k) || parse(raw.slice(1)); asts.set(k, ast); if (mayArray(ast)) pending.push(k); } catch { /* shows its error when asked */ }
+    }
+    runPending();
+    pending = [];
+  }
+  function runPending() {
+    while (pending.length) {
+      const k = pending.shift();
+      if (visiting.has(k) || memo.has(k)) continue;
+      try { valueOf(k); } catch (e) { if (!(e instanceof FormulaError)) throw e; }
+    }
+  }
 
   function valueOf(key) {
+    if (pending === null) findSpills();
     if (memo.has(key)) {
       const v = memo.get(key);
       if (v && typeof v === 'object' && v.error) throw new FormulaError(v.error);
       return v;
     }
     const raw = cells[key];
+    if (isEmpty(raw) && pending.length) runPending(); // a formula still to come may fill this cell
     if (typeof raw !== 'string' || !raw.startsWith('=')) {
-      const v = literal(raw);
+      const v = isEmpty(raw) && spillFrom.has(key) ? spillFrom.get(key).value : literal(raw);
       memo.set(key, v);
       return v;
     }
@@ -562,7 +639,7 @@ export function createEvaluator(cells, names = null, book = null) {
       if (!ast) { ast = parse(raw.slice(1)); asts.set(key, ast); }
       let v = evaluate(ast);
       if (typeof v === 'number' && !Number.isFinite(v)) err('#NUM!');
-      if (Array.isArray(v)) v = v.flat(Infinity)[0] ?? null;
+      if (Array.isArray(v)) v = spill(key, v);
       memo.set(key, v);
       return v;
     } catch (e) {
@@ -572,6 +649,23 @@ export function createEvaluator(cells, names = null, book = null) {
     } finally {
       visiting.delete(key);
     }
+  }
+
+  /** Fill the cells an array from `key` covers, or #SPILL! if one has something in it; its first value. */
+  function spill(key, v) {
+    const s = shapeOf(v);
+    if (s.rows * s.cols <= 1) return s.rows && s.cols ? s.at(0, 0) ?? null : null;
+    const at = parseRef(key);
+    const targets = [];
+    for (let r = 0; r < s.rows; r++) for (let c = 0; c < s.cols; c++) {
+      if (!r && !c) continue;
+      const t = cellKey(at.c + c, at.r + r);
+      const other = spillFrom.get(t);
+      if (!isEmpty(cells[t]) || (other && other.anchor !== key) || (memo.has(t) && !other && memo.get(t) !== null)) err('#SPILL!');
+      targets.push([t, s.at(r, c) ?? null]);
+    }
+    for (const [t, value] of targets) { spillFrom.set(t, { anchor: key, value }); memo.set(t, value); }
+    return s.at(0, 0) ?? null;
   }
 
   function namedValue(v) {
@@ -610,7 +704,7 @@ export function createEvaluator(cells, names = null, book = null) {
         return other.named(n.v);
       }
       case 'name': return namedValue(n.v);
-      case 'neg': return -toNum(evaluate(n.e));
+      case 'neg': { const v = evaluate(n.e); return Array.isArray(v) ? elementwise(v, null, (x) => -toNum(x)) : -toNum(v); }
       case 'call': {
         if (n.name === 'IMPORTRANGE') return importRange(n.args.map((a) => scalar(evaluate(a))));
         if (LAZY[n.name]) return LAZY[n.name](n.args.map((a) => () => scalar(evaluate(a))));
@@ -619,20 +713,25 @@ export function createEvaluator(cells, names = null, book = null) {
         return f(n.args.map(evaluate));
       }
       case 'bin': {
-        const l = scalar(evaluate(n.left));
-        const r = scalar(evaluate(n.right));
-        switch (n.op) {
-          case '+': return toNum(l) + toNum(r);
-          case '-': return toNum(l) - toNum(r);
-          case '*': return toNum(l) * toNum(r);
-          case '/': { const d = toNum(r); if (d === 0) err('#DIV/0!'); return toNum(l) / d; }
-          case '^': return toNum(l) ** toNum(r);
-          case '&': return toStr(l) + toStr(r);
-          default: return compare(n.op, l, r);
-        }
+        const l = evaluate(n.left);
+        const r = evaluate(n.right);
+        if (Array.isArray(l) || Array.isArray(r)) return elementwise(l, r, (x, y) => operate(n.op, x, y)); // A1:A5*2, B1:B5>10
+        return operate(n.op, l, r);
       }
     }
     err('#ERROR!');
+  }
+
+  function operate(op, l, r) {
+    switch (op) {
+      case '+': return toNum(l) + toNum(r);
+      case '-': return toNum(l) - toNum(r);
+      case '*': return toNum(l) * toNum(r);
+      case '/': { const d = toNum(r); if (d === 0) err('#DIV/0!'); return toNum(l) / d; }
+      case '^': return toNum(l) ** toNum(r);
+      case '&': return toStr(l) + toStr(r);
+      default: return compare(op, l, r);
+    }
   }
 
   // IMPORTRANGE("link or id", "Sheet1!A1:C10"): cells of another spreadsheet you can open, loaded by
@@ -660,6 +759,9 @@ export function createEvaluator(cells, names = null, book = null) {
     try { return valueOf(key); } catch (e) { if (e instanceof FormulaError) return { error: e.code }; throw e; }
   };
   get.cell = valueOf; // for formulas on other sheets (these throw)
+  /** The formula cell whose array fills this (empty) cell, if one does. */
+  get.spilledFrom = (key) => { if (pending === null) findSpills(); return spillFrom.get(key)?.anchor ?? null; };
+  get.spilledKeys = () => { if (pending === null) findSpills(); return [...spillFrom.keys()]; };
   get.named = namedValue;
   get.range = range;
   return get;
@@ -686,6 +788,30 @@ export function bookEvaluator(sheets, index, imports = null) {
 }
 
 const scalar = (v) => (Array.isArray(v) ? err('#VALUE!') : v);
+
+/** An operator cell by cell over one or two arrays (a single row or column stretches to fit). */
+function elementwise(a, b, fn) {
+  const sa = shapeOf(a), sb = b === null ? { rows: 1, cols: 1, at: () => null } : shapeOf(b);
+  const rows = Math.max(sa.rows, sb.rows), cols = Math.max(sa.cols, sb.cols);
+  const pick = (s, r, c) => {
+    if ((s.rows !== 1 && r >= s.rows) || (s.cols !== 1 && c >= s.cols)) err('#VALUE!');
+    return s.at(s.rows === 1 ? 0 : r, s.cols === 1 ? 0 : c);
+  };
+  return grid(Array.from({ length: rows }, (_, r) => Array.from({ length: cols }, (_, c) => fn(pick(sa, r, c), pick(sb, r, c)))));
+}
+
+/** Whether a formula can give back several cells (and so may spill). */
+function mayArray(n) {
+  if (!n) return false;
+  switch (n.k) {
+    case 'range': case 'name': case 'xname': return true;
+    case 'xref': return !n.one;
+    case 'neg': return mayArray(n.e);
+    case 'bin': return mayArray(n.left) || mayArray(n.right);
+    case 'call': return ARRAY_FUNCS.has(n.name);
+    default: return false;
+  }
+}
 
 function compare(op, l, r) {
   const bothNum = (typeof l === 'number' || l === null) && (typeof r === 'number' || r === null);

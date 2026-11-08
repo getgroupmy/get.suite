@@ -210,6 +210,16 @@ Write action items as checklist items that mention someone, like *☐ @Kim send 
 - It **updates by itself** when the data changes, including rows added below the table, for everyone with the spreadsheet open. **Edit pivot table** at the top of its sheet changes what it shows.
 - Its cells can't be typed in (they come from the data). Renaming the data sheet keeps it working. Excel downloads have its values.
 
+## Formulas that fill several cells (Sheets)
+
+A formula that gives back several values **spills** them into the empty cells beside and below it: `=SEQUENCE(10)` fills the numbers 1 to 10 down the column, `=B2:B20*1.06` puts each price with tax next to it, `=B2:B20>100` a TRUE or FALSE for each. Hovering over a filled cell says which formula it comes from; only the formula's own cell is saved, so changing the data changes what's filled at once.
+
+- **FILTER(range, include, [if_empty])** keeps the rows where include is TRUE: `=FILTER(A2:C50, C2:C50>100)`, `=FILTER(A2:C50, B2:B50="Sales")`. With nothing left it shows `#CALC!`, or if_empty when given.
+- **UNIQUE(range)** leaves out repeated rows (any case counts as the same); **SORT(range, [column], [order])** sorts by a column (1 = first; -1 for largest first); **SEQUENCE(rows, [columns], [start], [step])** counts; **TRANSPOSE(range)** turns rows into columns.
+- They work inside other functions too: `=SUM(FILTER(B2:B50, A2:A50="Tea"))`, `=COUNTA(UNIQUE(A2:A50))`, and other formulas can use the filled cells (`=SUM(G1:G10)`).
+- If something is already in a cell the result would fill, the formula shows `#SPILL!` until it's cleared.
+- Filled cells are printed and included in CSV downloads. In Excel downloads the formulas are kept (with the names Excel uses for them), and Excel works them out again.
+
 ## Other sheets in formulas (Sheets)
 
 A formula can use cells on another sheet of the same spreadsheet: `=Data!A1*2`, or `=SUM('Q1 data'!B2:B9)` when the sheet's name has spaces or other characters (quote it, and double any ' in it). Sheet names match whatever the case.
@@ -217,7 +227,7 @@ A formula can use cells on another sheet of the same spreadsheet: `=Data!A1*2`, 
 - A change on the other sheet shows straight away. Inserting or deleting rows or columns there moves the references to it, and renaming a sheet renames it in every formula. A sheet that doesn't exist (or was deleted) shows `#REF!`, and a loop through several sheets shows `#CIRC!`.
 - Named ranges on another sheet work the same way: `=Data!Total`.
 - Excel downloads and uploads keep these formulas as they are.
-- **From another spreadsheet:** `=IMPORTRANGE("link", "Sheet1!A1:C10")` takes cells from another spreadsheet, given by its link (copy it from the address bar) or its id. Leave out the sheet name for the first sheet. One cell shows as it is (`=IMPORTRANGE("link", "B2")`); for a range, use it inside another function: `=SUM(IMPORTRANGE("link", "A1:A20"))`, `=VLOOKUP("Tea", IMPORTRANGE("link", "'Price list'!A1:B50"), 2, FALSE)`. The other spreadsheet's formulas are worked out as they are there.
+- **From another spreadsheet:** `=IMPORTRANGE("link", "Sheet1!A1:C10")` takes cells from another spreadsheet, given by its link (copy it from the address bar) or its id. Leave out the sheet name for the first sheet. One cell shows as it is (`=IMPORTRANGE("link", "B2")`), and a range spills into the cells below and beside it like other formulas giving several values (see above); it also works inside another function: `=SUM(IMPORTRANGE("link", "A1:A20"))`, `=VLOOKUP("Tea", IMPORTRANGE("link", "'Price list'!A1:B50"), 2, FALSE)`. The other spreadsheet's formulas are worked out as they are there.
   - It loads in the background (`#LOADING` meanwhile) and is checked again every minute and whenever you come back to the tab.
   - Each person sees it with their own access: anyone who can't open the other spreadsheet sees `#REF!` there, so nothing is shown to someone it wasn't shared with. A spreadsheet that doesn't exist, a sheet name it doesn't have, or spreadsheets importing each other in a loop also show `#REF!`.
 

@@ -55,9 +55,9 @@ const DEFAULT_W = 100; // column width in pixels when none is set
 const MIN_W = 30, MAX_W = 800;
 const MIN_COLS = 26;
 
-function sheetSize(cells) {
+function sheetSize(cells, spilled = []) {
   let rows = 0, cols = 0;
-  for (const k of Object.keys(cells)) {
+  for (const k of [...Object.keys(cells), ...spilled]) {
     const p = parseRef(k);
     if (p) { rows = Math.max(rows, p.r + 1); cols = Math.max(cols, p.c + 1); }
   }
@@ -166,7 +166,7 @@ export default function SheetEditor() {
     return () => { off(); clearInterval(t); window.removeEventListener('focus', refreshImports); };
   }, []);
   const evaluate = useMemo(() => (data?.sheets ? bookEvaluator(data.sheets, Math.min(active, data.sheets.length - 1), { book: importBook, depth: 0 }) : createEvaluator(cells, names)), [data?.sheets, active, cells, names, importsAt]);
-  const { rows, cols } = useMemo(() => sheetSize(cells), [cells]);
+  const { rows, cols } = useMemo(() => sheetSize(cells, evaluate.spilledKeys?.() || []), [cells, evaluate]);
   // The filter: which rows it hides, and where its headings are.
   const filter = sheet?.filter || null;
   const hide = sheet?.hide || null; // rows and columns hidden by hand
@@ -670,7 +670,7 @@ export default function SheetEditor() {
 
   function exportCsv() {
     let maxR = 0, maxC = 0;
-    for (const k of Object.keys(cells)) { const p = parseRef(k); if (p) { maxR = Math.max(maxR, p.r); maxC = Math.max(maxC, p.c); } }
+    for (const k of [...Object.keys(cells), ...(evaluate.spilledKeys?.() || [])]) { const p = parseRef(k); if (p) { maxR = Math.max(maxR, p.r); maxC = Math.max(maxC, p.c); } }
     const out = [];
     for (let r = 0; r <= maxR; r++) {
       const row = [];
@@ -916,14 +916,15 @@ export default function SheetEditor() {
                     );
                   }
                   const raw = cells[k];
-                  const v = raw === undefined ? null : evaluate(k);
+                  const v = evaluate(k); // an empty cell can show part of a formula's array (spilled)
+                  const spilledFrom = raw === undefined ? evaluate.spilledFrom?.(k) : null;
                   const isErr = v && typeof v === 'object';
                   const fmt = formats[k];
                   const vd = validations.length ? validationAt(validations, k) : null;
                   return (
                     <td key={k} data-k={k} {...spanProps} style={{ maxWidth: span ? undefined : widthOf(c), ...stickyStyle(c, r), ...cellStyle(fmt), ...(rules.length && ruleStyle(rules, k, v)), ...(theirs.has(k) && { boxShadow: `${isSel ? 'inset 0 0 0 2px var(--accent), ' : ''}inset 0 0 0 ${isSel ? 4 : 2}px ${theirs.get(k).color}` }) }}
-                      title={theirs.has(k) ? `${theirs.get(k).name} is here` : commented.has(k) ? 'Has comments' : undefined}
-                      className={`${frozenClass(c, r)} ${vd ? `has-${vd.type}` : ''} ${commented.has(k) ? 'commented' : ''} ${isSel ? 'sel' : ''} ${inRange(c, r) && anchor ? 'range' : ''} ${typeof v === 'number' ? 'num' : ''} ${isErr ? 'err' : ''} ${hits?.keys.has(k) ? (hits.current === k ? 'find-current' : 'find-hit') : ''} ${!readOnly && guardBoxes.length && guarded(c, r) ? 'guarded' : ''} ${inFill(c, r) ? 'fill-preview' : ''}`}
+                      title={theirs.has(k) ? `${theirs.get(k).name} is here` : commented.has(k) ? 'Has comments' : spilledFrom ? `From the formula in ${spilledFrom}` : undefined}
+                      className={`${frozenClass(c, r)} ${spilledFrom ? 'spilled' : ''} ${vd ? `has-${vd.type}` : ''} ${commented.has(k) ? 'commented' : ''} ${isSel ? 'sel' : ''} ${inRange(c, r) && anchor ? 'range' : ''} ${typeof v === 'number' ? 'num' : ''} ${isErr ? 'err' : ''} ${hits?.keys.has(k) ? (hits.current === k ? 'find-current' : 'find-hit') : ''} ${!readOnly && guardBoxes.length && guarded(c, r) ? 'guarded' : ''} ${inFill(c, r) ? 'fill-preview' : ''}`}
                       onContextMenu={(e) => { if (!inRange(c, r)) { setAnchor(null); setSel({ c, r }); } openMenu(e, 'cell'); }}
                       onMouseDown={(e) => {
                         if (e.button !== 0 && inRange(c, r)) return; // a right-click keeps the selection
@@ -1018,7 +1019,7 @@ export default function SheetEditor() {
       })()}
       {dialog?.type === 'print' && (
         <PrintDialog hasSelection={range.c1 !== range.c2 || range.r1 !== range.r2} onClose={() => setDialog(null)} onPrint={(o) => {
-          const area = o.what === 'selection' ? range : usedArea(Object.keys(cells).filter((k) => cells[k] !== '' && cells[k] != null));
+          const area = o.what === 'selection' ? range : usedArea([...Object.keys(cells).filter((k) => cells[k] !== '' && cells[k] != null), ...(evaluate.spilledKeys?.() || [])]);
           if (!area) { toast('There is nothing on this sheet to print'); return; }
           setDialog(null);
           printHtml(sheetPrintHtml({

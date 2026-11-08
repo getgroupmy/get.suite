@@ -17,7 +17,7 @@ export function SheetPreview({ content }) {
       <table className="grid-preview">
         <thead><tr><th />{Array.from({ length: cols }, (_, c) => <th key={c}>{colName(c)}</th>)}</tr></thead>
         <tbody>{Array.from({ length: rows }, (_, r) => (
-          <tr key={r}><th>{r + 1}</th>{Array.from({ length: cols }, (_, c) => { const k = cellKey(c, r); const v = sheet.cells?.[k] === undefined ? null : value(k); return <td key={c} className={typeof v === 'number' ? 'num' : ''}>{display(v)}</td>; })}</tr>
+          <tr key={r}><th>{r + 1}</th>{Array.from({ length: cols }, (_, c) => { const k = cellKey(c, r); const v = value(k); return <td key={c} className={typeof v === 'number' ? 'num' : ''}>{display(v)}</td>; })}</tr>
         ))}</tbody>
       </table>
     </div>
