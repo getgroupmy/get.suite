@@ -23,6 +23,39 @@ q(`CREATE TABLE IF NOT EXISTS meeting_visits (
   PRIMARY KEY (code, user_id)
 )`).run();
 
+// Attendance: each time someone is in a meeting (from joining to leaving; left_at null while there).
+q(`CREATE TABLE IF NOT EXISTS meeting_attendance (
+  id TEXT PRIMARY KEY,
+  code TEXT NOT NULL REFERENCES meetings(code) ON DELETE CASCADE,
+  user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+  name TEXT NOT NULL,
+  email TEXT,
+  joined_at INTEGER NOT NULL,
+  left_at INTEGER
+)`).run();
+q('CREATE INDEX IF NOT EXISTS meeting_attendance_code ON meeting_attendance(code, joined_at)').run();
+// After a restart nobody is in a meeting any more.
+q('UPDATE meeting_attendance SET left_at = joined_at WHERE left_at IS NULL').run();
+
+/**
+ * Who came to a meeting: one row per person (first joined, last left, total time there, how many
+ * times they joined), earliest first. Times still running count up to `at`.
+ */
+export function attendanceOf(code, at = Date.now()) {
+  const byPerson = new Map();
+  for (const v of q('SELECT * FROM meeting_attendance WHERE code = ? ORDER BY joined_at').all(code)) {
+    const key = v.user_id || v.email || v.name;
+    const p = byPerson.get(key) || { name: v.name, email: v.email, first: v.joined_at, last: null, ms: 0, times: 0, here: false };
+    p.times++;
+    p.ms += (v.left_at ?? at) - v.joined_at;
+    if (v.left_at === null) p.here = true;
+    p.last = p.here ? null : Math.max(p.last ?? 0, v.left_at);
+    byPerson.set(key, p);
+  }
+  return [...byPerson.values()];
+}
+const minutes = (ms) => Math.max(0, Math.round(ms / 6e4));
+
 export const MAX_PEOPLE = 8;
 const LETTERS = 'abcdefghijkmnopqrstuvwxyz'; // no l: it looks like 1 and I
 
@@ -79,6 +112,22 @@ export function meetRoutes() {
     q('INSERT INTO meetings (code, org_id, created_by, title, created_at, last_used) VALUES (?, ?, ?, ?, ?, ?)').run(code, req.user.org_id, req.user.id, title, t, t);
     res.status(201).json({ code, title });
   });
+  // Who came: for whoever started it, or anyone who was in it. ?format=csv to download.
+  r.get('/:code/attendance', (req, res) => {
+    const m = validCode(req.params.code) && q('SELECT * FROM meetings WHERE code = ?').get(req.params.code);
+    if (!m || (m.created_by !== req.user.id && !q('SELECT 1 FROM meeting_attendance WHERE code = ? AND user_id = ?').get(m.code, req.user.id))) throw notFound();
+    const people = attendanceOf(m.code);
+    if (req.query.format === 'csv') {
+      const cell = (v) => { const s = String(v ?? ''); return /[",\n]/.test(s) || /^[=+\-@]/.test(s) ? `"${s.replace(/^([=+\-@])/, "'$1").replace(/"/g, '""')}"` : s; };
+      const iso = (t) => (t ? new Date(t).toISOString().replace('T', ' ').slice(0, 16) : '');
+      const rows = [['Name', 'Email', 'First joined (UTC)', 'Last left (UTC)', 'Minutes', 'Times joined'],
+        ...people.map((p) => [p.name, p.email, iso(p.first), p.here ? 'still there' : iso(p.last), minutes(p.ms), p.times])];
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="attendance-${m.code}.csv"`);
+      return res.send(`\ufeff${rows.map((r) => r.map(cell).join(',')).join('\r\n')}\r\n`);
+    }
+    res.json({ code: m.code, title: m.title, people: people.map((p) => ({ ...p, minutes: minutes(p.ms) })) });
+  });
   r.get('/:code', (req, res) => {
     const m = validCode(req.params.code) && q('SELECT * FROM meetings WHERE code = ?').get(req.params.code);
     if (!m) throw notFound('No meeting has that code. Check it and try again.');
@@ -110,6 +159,7 @@ export function handleMeetUpgrade(req, socket, head, user) {
     const t = now();
     q('UPDATE meetings SET last_used = ? WHERE code = ?').run(t, code);
     q('INSERT INTO meeting_visits (code, user_id, at) VALUES (?, ?, ?) ON CONFLICT (code, user_id) DO UPDATE SET at = excluded.at').run(code, user.id, t);
+    q('INSERT INTO meeting_attendance (id, code, user_id, name, email, joined_at) VALUES (?, ?, ?, ?, ?, ?)').run(id, code, user.id, user.name, user.email || user.username, t);
 
     ws.on('message', (raw) => {
       let msg;
@@ -129,6 +179,7 @@ export function handleMeetUpgrade(req, socket, head, user) {
       }
     });
     ws.on('close', () => {
+      q('UPDATE meeting_attendance SET left_at = ? WHERE id = ? AND left_at IS NULL').run(now(), id);
       room.delete(id);
       if (!room.size) rooms.delete(code);
       toOthers({ type: 'left', id });

@@ -4400,3 +4400,44 @@ test('must change password: an admin-set password works only to choose a new one
   await login(nu, 'newbie@acme.com', 'reset-pass-2');
   assert.equal((await nu('GET', '/api/files?view=mine')).status, 200);
 });
+
+test('meet: attendance — who joined, when, and for how long', async () => {
+  const { default: WS } = await import('ws');
+  const cookieFor = async (local, name) => {
+    await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' });
+    const r = await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ username: `${local}@acme.com`, password: 'password123' }) });
+    return r.headers.get('set-cookie').split(';')[0];
+  };
+  const host = await cookieFor('mattenda', 'Ada Host'), guest = await cookieFor('mattendb', 'Ben Guest'), other = await cookieFor('mattendc', 'Cy Other');
+  const call = (cookie, method, url, body) => fetch(base + url, { method, headers: { cookie, 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: body && JSON.stringify(body) })
+    .then(async (r) => ({ status: r.status, type: r.headers.get('content-type'), body: r.headers.get('content-type')?.includes('json') ? await r.json() : await r.text() }));
+  const { code } = (await call(host, 'POST', '/api/meet', { title: 'Weekly sync' })).body;
+  const open = (cookie) => new Promise((resolve, reject) => {
+    const ws = new WS(`${base.replace('http', 'ws')}/ws/meet/${code}`, { headers: { cookie } });
+    ws.on('message', (d) => { if (JSON.parse(String(d)).type === 'welcome') resolve(ws); });
+    ws.on('error', reject);
+    ws.on('unexpected-response', (req2, res) => reject(new Error(`refused: ${res.statusCode}`)));
+    ws.on('close', (c, why) => reject(new Error(`closed ${c} ${why}`)));
+  });
+  const a = await open(host);
+  try {
+  const b = await open(guest);
+  await new Promise((r) => setTimeout(r, 150));
+  b.close();
+  await new Promise((r) => setTimeout(r, 150));
+  const b2 = await open(guest); // back again
+  b2.close();
+  await new Promise((r) => setTimeout(r, 150));
+  const att = (await call(host, 'GET', `/api/meet/${code}/attendance`)).body;
+  assert.equal(att.title, 'Weekly sync');
+  assert.deepEqual(att.people.map((p) => [p.name, p.times, p.here]), [['Ada Host', 1, true], ['Ben Guest', 2, false]]);
+  assert.ok(att.people[1].last >= att.people[1].first);
+  assert.equal((await call(guest, 'GET', `/api/meet/${code}/attendance`)).status, 200, 'people who were there can see it');
+  assert.equal((await call(other, 'GET', `/api/meet/${code}/attendance`)).status, 404, 'others can\'t');
+  const csv = await call(host, 'GET', `/api/meet/${code}/attendance?format=csv`);
+  assert.match(csv.type, /text\/csv/);
+  assert.match(csv.body, /Name,Email,First joined \(UTC\),Last left \(UTC\),Minutes,Times joined/);
+  assert.match(csv.body, /Ada Host,mattenda@acme\.com,.*,still there,0,1/);
+  assert.match(csv.body, /Ben Guest,mattendb@acme\.com,.*,0,2/);
+  } finally { a.close(); }
+});

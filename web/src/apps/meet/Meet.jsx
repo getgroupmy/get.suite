@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { get, post, formatDate } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
-import { useToast } from '../../components/ui.jsx';
+import { useToast, Modal } from '../../components/ui.jsx';
 import { parseCode } from './meetmath.js';
 
 export default function Meet() {
@@ -12,6 +12,7 @@ export default function Meet() {
   const [recent, setRecent] = useState(null);
   const [code, setCode] = useState('');
   const [title, setTitle] = useState('');
+  const [attendance, setAttendance] = useState(null); // the meeting whose "Who joined" is open
   useEffect(() => { get('/meet').then(setRecent).catch(() => setRecent([])); }, []);
   const start = async (e) => {
     e?.preventDefault();
@@ -44,18 +45,50 @@ export default function Meet() {
           <strong>Recent meetings</strong>
           <ul className="form-list">
             {recent.map((m) => (
-              <li key={m.code}>
-                <button type="button" className="form-row" onClick={() => navigate(`/meet/${m.code}`)}>
+              <li key={m.code} className="row meet-recent">
+                <button type="button" className="form-row grow" onClick={() => navigate(`/meet/${m.code}`)}>
                   <Icon name="video" />
                   <span className="grow"><span className="form-row-title">{m.title || m.code}</span>
                     <span className="muted small">{m.title ? `${m.code} · ` : ''}started by {m.created_by_name || 'someone'} · last used {formatDate(m.last_used)}</span></span>
                   {m.people > 0 && <span className="tag live">{m.people} in the meeting</span>}
                 </button>
+                <button type="button" className="btn small" aria-label={`Who joined ${m.title || m.code}`} onClick={() => setAttendance(m)}>Who joined</button>
               </li>
             ))}
           </ul>
         </section>
       )}
+      {attendance && <Attendance meeting={attendance} onClose={() => setAttendance(null)} />}
     </div>
+  );
+}
+
+/** Who came to a meeting: first joined, last left, time there and how many times. */
+function Attendance({ meeting, onClose }) {
+  const toast = useToast();
+  const [a, setA] = useState(null);
+  useEffect(() => { get(`/meet/${meeting.code}/attendance`).then(setA).catch((e) => { toast(e.message, 'error'); onClose(); }); }, [meeting.code]); // eslint-disable-line react-hooks/exhaustive-deps
+  const time = (t) => (t ? new Date(t).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '');
+  return (
+    <Modal title={`Who joined ${meeting.title || meeting.code}`} onClose={onClose} wide footer={<>
+      <a className="btn" href={`/api/meet/${meeting.code}/attendance?format=csv`} download><Icon name="download" size={16} /> Download CSV</a>
+      <button type="button" className="btn primary" onClick={onClose}>Done</button>
+    </>}>
+      {!a ? <p className="muted">Loading…</p> : !a.people.length ? <p className="muted">Nobody has joined yet.</p> : (
+        <table className="files attendance" aria-label="Attendance">
+          <thead><tr><th>Name</th><th>First joined</th><th>Last left</th><th>Time there</th></tr></thead>
+          <tbody>
+            {a.people.map((p) => (
+              <tr key={`${p.email}-${p.first}`}>
+                <td>{p.name}<div className="muted small">{p.email}</div></td>
+                <td className="muted">{time(p.first)}</td>
+                <td className="muted">{p.here ? <span className="tag live">still there</span> : time(p.last)}</td>
+                <td>{p.minutes < 1 ? 'under a minute' : `${p.minutes} min`}{p.times > 1 ? <span className="muted small"> · joined {p.times} times</span> : null}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </Modal>
   );
 }
