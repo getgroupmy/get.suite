@@ -556,3 +556,12 @@ test('dropdown chips: their choice in Word (shaded in its colour), Markdown and 
   assert.match(xml, /w:fill="D3E3FD"[\s\S]*?In progress/, 'the chosen colour shades the text');
   assert.match(xml, /w:fill="E8EAED"[\s\S]*?Not started/, 'nothing picked yet is grey');
 });
+
+test('equations: an equation in Word, its LaTeX in search', async () => {
+  const { docText } = await import('../src/search.js');
+  const JSZip = (await import('jszip')).default;
+  const doc = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Energy: ' }, { type: 'math', attrs: { latex: 'E=mc^2' } }] }] };
+  assert.match(docText(doc), /Energy: +E=mc\^2/);
+  const xml = await (await JSZip.loadAsync(await wordFromDoc(doc, 'Physics'))).file('word/document.xml').async('string');
+  assert.match(xml, /<m:oMath>[\s\S]*E=mc\^2[\s\S]*<\/m:oMath>/, 'a Word equation');
+});

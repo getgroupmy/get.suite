@@ -2086,3 +2086,15 @@ tr.shortcut-row.broken .name-text { color: var(--muted, #777); font-style: itali
 .tl-handle { width: 6px; align-self: stretch; cursor: ew-resize; flex: none; }
 .tl-undated ul { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 16px; }
 .tl-undated h2 { margin: 0 0 4px; }
+
+/* Docs: equations and special characters */
+.doc-math { cursor: pointer; padding: 0 2px; border-radius: 4px; }
+.doc-math:hover { background: var(--hover); }
+.ProseMirror-selectednode.doc-math { outline: 2px solid var(--accent); }
+.math-preview { min-height: 56px; display: grid; place-items: center; padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); overflow-x: auto; }
+textarea.mono { font-family: ui-monospace, Consolas, monospace; }
+.symbol-groups { max-height: 50vh; overflow: auto; }
+.symbol-groups h3 { margin: 8px 0 4px; }
+.symbol-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(38px, 1fr)); gap: 4px; }
+.symbol { height: 38px; font-size: 1.2em; border: 1px solid var(--border); background: var(--surface); color: inherit; border-radius: 6px; cursor: pointer; }
+.symbol:hover, .symbol:focus-visible { background: var(--hover); border-color: var(--accent); }

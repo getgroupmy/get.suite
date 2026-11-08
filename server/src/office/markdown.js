@@ -5,13 +5,15 @@ import { chartTable } from './sheetchart.js';
 import { chipText } from './chiptext.js';
 
 // ---- document → Markdown ----
-const escapeText = (s) => s.replace(/([\\`*_~[\]<>]|^#|^[-+](?= ))/gm, '\\$1').replace(/^(\d+)\. /gm, '$1\\. ');
+const escapeText = (s) => s.replace(/([\\`*_~[\]<>]|^#|^[-+](?= ))/gm, '\\$1').replace(/^(\d+)\. /gm, '$1\\. ')
+  .replace(/\$(?=[^\s\d$])/g, '\\$'); // "$x" could start an equation; prices such as "$5" can't
 
 function inline(nodes = [], notes) {
   let out = '';
   for (const n of nodes) {
     if (n.type === 'hardBreak') { out += '  \n'; continue; }
     if (n.type === 'mention') { out += `@${escapeText(n.attrs?.name || '')}`; continue; }
+    if (n.type === 'math') { const l = String(n.attrs?.latex || '').replace(/\s+/g, ' ').trim(); if (l) out += `$${l}$`; continue; }
     if (n.type === 'dropchip') { out += `**${escapeText(chipText(n.attrs))}**`; continue; }
     if (n.type === 'footnote') { notes.push(n.attrs?.note || ''); out += `[^${notes.length}]`; continue; }
     if (n.type === 'image') { out += n.attrs?.alt || n.attrs?.title || ''; continue; }
@@ -95,7 +97,9 @@ export function inlineFromMarkdown(s, notes = {}, marks = []) {
   for (let i = 0; i < s.length;) {
     const rest = s.slice(i);
     let m;
-    if (s[i] === '\\' && i + 1 < s.length && /[\\`*_~[\]<>#+\-.!|()]/.test(s[i + 1])) { buf += s[i + 1]; i += 2; continue; }
+    if (s[i] === '\\' && i + 1 < s.length && /[\\`*_~[\]<>#+\-.!|()$]/.test(s[i + 1])) { buf += s[i + 1]; i += 2; continue; }
+    // $equation$: no space just inside the dollars, and not "$5 … 6$" money (no digit right after the closing one).
+    if ((m = /^\$(?=\S)((?:\\.|[^$\n\\])*?(?:\\.|[^\s$\\]))\$(?!\d)/.exec(rest))) { flush(); out.push({ type: 'math', attrs: { latex: m[1] } }); i += m[0].length; continue; }
     if ((m = /^ {2,}\n|^\\\n/.exec(rest))) { flush(); out.push({ type: 'hardBreak' }); i += m[0].length; continue; }
     if ((m = /^(`+)([\s\S]*?[^`])\1(?!`)/.exec(rest))) { flush(); out.push(text(m[2].replace(/^ (.*) $/, '$1'), [...marks, 'code'])); i += m[0].length; continue; }
     if ((m = /^\[\^([^\]]+)\]/.exec(rest)) && notes[m[1]] !== undefined) { flush(); out.push({ type: 'footnote', attrs: { note: notes[m[1]] } }); i += m[0].length; continue; }

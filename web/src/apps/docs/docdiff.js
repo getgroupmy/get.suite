@@ -5,7 +5,7 @@
 /** The document's paragraphs as text: [{ kind: 'heading'|'item'|'para', text }]. */
 export function blocksOf(json) {
   const out = [];
-  const textOf = (n) => (n.type === 'text' ? n.text || '' : n.type === 'hardBreak' ? ' ' : n.type === 'footnote' ? '' : (n.content || []).map(textOf).join(''));
+  const textOf = (n) => (n.type === 'text' ? n.text || '' : n.type === 'hardBreak' ? ' ' : n.type === 'footnote' ? '' : n.type === 'math' ? n.attrs?.latex || '' : (n.content || []).map(textOf).join(''));
   const walk = (n, inItem) => {
     for (const c of n?.content || []) {
       if (c.type === 'heading') out.push({ kind: 'heading', level: c.attrs?.level || 1, text: textOf(c) });

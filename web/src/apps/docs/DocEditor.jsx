@@ -34,6 +34,8 @@ import { PageBreak } from './pagebreak.js';
 import { Footnote, footnotesOf, htmlWithFootnotes } from './footnote.js';
 import { Mention, mentionQuery, matchPeople } from './mention.js';
 import { DropChip, CHIP_PRESETS, CHIP_COLORS, cleanOptions } from './dropchip.js';
+import { MathInline, mathHtml, mathError, MAX_LATEX } from './math.js';
+import { SYMBOL_GROUPS, findSymbols } from './symbols.js';
 import { diffDocs, changeCount } from './docdiff.js';
 import { VersionHistory } from '../VersionHistory.jsx';
 import { SuggestInsert, SuggestDelete, SuggestMode, listSuggestions, resolveSuggestion, describeSuggestion } from './suggest.js';
@@ -197,7 +199,7 @@ function SharedDoc({ file, setFile }) {
       Table.configure({ resizable: false }), TableRow, TableHeader, TableCell,
       TextStyle, Color, BackgroundColor, FontFamily, FontSize, LineHeight, TableOfContents, SheetChart,
       SuggestInsert, SuggestDelete, SuggestMode,
-      PageBreak, Footnote, Mention, DropChip, TaskList, TaskItem.configure({ nested: true }), // checklists: everyone sees the ticks live; viewers can't tick
+      PageBreak, Footnote, Mention, DropChip, MathInline, TaskList, TaskItem.configure({ nested: true }), // checklists: everyone sees the ticks live; viewers can't tick
     ],
     editable: !readOnly,
     editorProps: {
@@ -272,10 +274,14 @@ function SharedDoc({ file, setFile }) {
     const r = editor.view.nodeDOM(pos)?.getBoundingClientRect?.();
     if (r) setChipMenu({ pos, left: r.left, top: r.bottom + 4 });
   };
-  const chipAt = (el) => {
+  const nodeAtDom = (el, name) => {
     const at = editor.view.posAtDOM(el, 0);
-    return [at, at - 1].find((p) => p >= 0 && editor.state.doc.nodeAt(p)?.type.name === 'dropchip');
+    return [at, at - 1].find((p) => p >= 0 && editor.state.doc.nodeAt(p)?.type.name === name);
   };
+  const chipAt = (el) => nodeAtDom(el, 'dropchip');
+  // Equations: { pos } to change one, { pos: null } for a new one. Special characters: the Ω picker.
+  const [mathEdit, setMathEdit] = useState(null);
+  const [symbols, setSymbols] = useState(false);
   const setChip = (pos, attrs) => {
     const node = editor.state.doc.nodeAt(pos);
     if (node?.type.name !== 'dropchip') return;
@@ -452,7 +458,7 @@ function SharedDoc({ file, setFile }) {
           { label: 'Download as Markdown (.md)', icon: 'download', onClick: () => { window.location.href = `/api/files/${file.id}/export?format=md`; } },
         ]}
       />
-      {!readOnly && <Toolbar editor={editor} onDropdown={() => setChipEdit({ pos: null })} onComment={startComment} onPictures={(files) => addPicturesRef.current(files)} onLinkFile={() => setLinkingFile(true)} onChart={() => setChartFrom({ step: 'file' })} />}
+      {!readOnly && <Toolbar editor={editor} onDropdown={() => setChipEdit({ pos: null })} onEquation={() => setMathEdit({ pos: null })} onSymbols={() => setSymbols(true)} onComment={startComment} onPictures={(files) => addPicturesRef.current(files)} onLinkFile={() => setLinkingFile(true)} onChart={() => setChartFrom({ step: 'file' })} />}
       {chartFrom?.step === 'file' && <DrivePicker title="Chart from a spreadsheet" accept={(x) => x.kind === 'sheet'} empty="No spreadsheets found." onClose={() => setChartFrom(null)} onPick={(f) => setChartFrom({ step: 'chart', file: f })} />}
       {chartFrom?.step === 'chart' && <ChartPick file={chartFrom.file} onClose={() => setChartFrom(null)}
         onPick={(ch) => { const f = chartFrom.file; setChartFrom(null); editor.chain().focus().insertSheetChart({ fileId: f.id, chartId: ch.id, title: ch.now.title, chartType: ch.now.chartType, data: JSON.stringify(ch.now.data) }).run(); }} />}
@@ -471,6 +477,7 @@ function SharedDoc({ file, setFile }) {
             <EditorContent editor={editor} onClick={(e) => {
               const sup = e.target.closest?.('sup[data-footnote]'); if (sup) focusFootnote(e.currentTarget, sup);
               const chip = e.target.closest?.('[data-dropchip]'); if (chip) { const at = chipAt(chip); if (at != null) openChip(at); }
+              const eq = e.target.closest?.('[data-math]'); if (eq && !readOnly) { const at = nodeAtDom(eq, 'math'); if (at != null) setMathEdit({ pos: at }); }
             }} />
             {chipMenu && <ChipMenu node={editor.state.doc.nodeAt(chipMenu.pos)} at={chipMenu} onClose={() => { setChipMenu(null); editor.view.focus(); }}
               onPick={(value) => { setChip(chipMenu.pos, { value }); setChipMenu(null); const after = chipMenu.pos + 1; editor.chain().focus().setTextSelection(after + (editor.state.doc.textBetween(after, Math.min(after + 1, editor.state.doc.content.size)) === ' ' ? 1 : 0)).run(); }}
@@ -515,6 +522,16 @@ function SharedDoc({ file, setFile }) {
       {sharing && <ShareDialog file={file} onClose={() => setSharing(false)} />}
       {sendingItems && <ActionItemsDialog fileId={file.id} doc={editor.getJSON()} onClose={() => setSendingItems(false)} />}
       {history && <VersionHistory file={file} canEdit={!readOnly} onClose={() => setHistory(false)} renderPreview={(content) => <DocPreview content={content} fileId={file.id} />} renderChanges={(content) => <DocChanges before={content} after={editor.getJSON()} />} />}
+      {mathEdit && <MathDialog latex={mathEdit.pos != null ? editor.state.doc.nodeAt(mathEdit.pos)?.attrs.latex : ''}
+        onClose={() => { setMathEdit(null); editor.view.focus(); }}
+        onRemove={mathEdit.pos != null ? () => { const at = mathEdit.pos; setMathEdit(null); editor.chain().focus().deleteRange({ from: at, to: at + 1 }).run(); } : null}
+        onSave={(latex) => {
+          const at = mathEdit.pos;
+          setMathEdit(null);
+          if (at != null && editor.state.doc.nodeAt(at)?.type.name === 'math') { editor.view.dispatch(editor.state.tr.setNodeMarkup(at, undefined, { latex })); editor.chain().focus().setTextSelection(at + 1).run(); }
+          else editor.chain().focus().insertMath(latex).run();
+        }} />}
+      {symbols && <SymbolDialog onClose={() => { setSymbols(false); editor.view.focus(); }} onPick={(ch) => { editor.chain().focus().insertContent(ch).run(); }} />}
       {chipEdit && <ChipDialog options={chipEdit.pos != null ? editor.state.doc.nodeAt(chipEdit.pos)?.attrs.options : null}
         onClose={() => { setChipEdit(null); editor.view.focus(); }}
         onSave={(options) => {
@@ -541,7 +558,7 @@ function withoutSuggestionsHtml(html) {
 
 const escapeHtml = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-function Toolbar({ editor, onDropdown, onComment, onPictures, onLinkFile, onChart }) {
+function Toolbar({ editor, onDropdown, onEquation, onSymbols, onComment, onPictures, onLinkFile, onChart }) {
   const pictureInput = useRef();
   const [, force] = useState(0);
   useEffect(() => {
@@ -645,6 +662,10 @@ function Toolbar({ editor, onDropdown, onComment, onPictures, onLinkFile, onChar
         { label: 'Delete column', icon: 'trash', danger: true, onClick: () => c().deleteColumn().run(), disabled: !editor.can().deleteColumn() },
         { label: 'Delete table', icon: 'trash', danger: true, onClick: () => c().deleteTable().run(), disabled: !editor.can().deleteTable() },
       ]} />
+      <button type="button" className="tb labelled" title="Equation: write it in LaTeX, such as \frac{a}{b} or x^2 (or type $$…$$ in the text)" aria-label="Insert equation"
+        onMouseDown={(e) => e.preventDefault()} onClick={onEquation}>∑ Equation</button>
+      <button type="button" className="tb" title="Special characters: dashes, symbols, currencies, arrows, Greek and accented letters" aria-label="Insert special character"
+        onMouseDown={(e) => e.preventDefault()} onClick={onSymbols}>Ω</button>
       <Menu align="left" trigger={(p) => <button type="button" className="tb labelled" title="Dropdown: a coloured choice in the text (status, review, priority…) that anyone editing changes with a click" aria-label="Insert dropdown" onMouseDown={(e) => e.preventDefault()} {...p}>▾ Dropdown</button>} items={[
         ...CHIP_PRESETS.map((p) => ({ label: `${p.name}: ${p.options.map((o) => o.label).join(', ')}`, onClick: () => c().insertDropChip(p.options).run() })),
         '-',
@@ -667,6 +688,52 @@ function Toolbar({ editor, onDropdown, onComment, onPictures, onLinkFile, onChar
 
 function TableGlyph() {
   return <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M3 4h18v16H3V4zm2 2v3h6V6H5zm8 0v3h6V6h-6zm-8 5v3h6v-3H5zm8 0v3h6v-3h-6zm-8 5v2h6v-2H5zm8 0v2h6v-2h-6z" /></svg>;
+}
+
+/** Writing an equation in LaTeX, with how it looks as you type. */
+function MathDialog({ latex, onSave, onRemove, onClose }) {
+  const [v, setV] = useState(latex || '');
+  const error = v.trim() ? mathError(v) : null;
+  const EXAMPLES = [['Fraction', '\\frac{a}{b}'], ['Power', 'x^{2}'], ['Root', '\\sqrt{x}'], ['Sum', '\\sum_{i=1}^{n} i'], ['Integral', '\\int_{0}^{1} f(x)\\,dx'], ['Greek', '\\alpha + \\beta']];
+  return (
+    <Modal title={latex ? 'Change equation' : 'New equation'} onClose={onClose}
+      footer={<>{onRemove && <button type="button" className="btn danger" onClick={onRemove}>Remove</button>}<span className="grow" /><button type="button" className="btn" onClick={onClose}>Cancel</button>
+        <button type="button" className="btn primary" disabled={!v.trim() || !!error} onClick={() => onSave(v.trim().slice(0, MAX_LATEX))}>{latex ? 'Save' : 'Insert'}</button></>}>
+      <div className="stack">
+        <label className="field"><span>LaTeX</span>
+          <textarea autoFocus rows={3} maxLength={MAX_LATEX} value={v} spellCheck={false} className="mono" placeholder="e.g. \frac{-b \pm \sqrt{b^2-4ac}}{2a}" onChange={(e) => setV(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && v.trim() && !error) onSave(v.trim()); }} />
+        </label>
+        <div className="row wrap" style={{ gap: 6 }}>{EXAMPLES.map(([n, x]) => <button key={n} type="button" className="btn small" onClick={() => setV((cur) => `${cur}${cur && !cur.endsWith(' ') ? ' ' : ''}${x}`)}>{n}</button>)}</div>
+        <div className="math-preview" role="img" aria-label="Preview" dangerouslySetInnerHTML={{ __html: v.trim() ? mathHtml(v, true) : '<span class="muted">The equation shows here.</span>' }} />
+        {error && <p className="error small" role="alert" style={{ margin: 0 }}>{error}</p>}
+      </div>
+    </Modal>
+  );
+}
+
+/** Special characters to put in at the cursor: search by name, or browse the groups. */
+function SymbolDialog({ onPick, onClose }) {
+  const [q, setQ] = useState('');
+  const found = findSymbols(q);
+  const groups = SYMBOL_GROUPS.map(([g]) => [g, found.filter((s) => s.group === g)]).filter(([, l]) => l.length);
+  return (
+    <Modal title="Special characters" onClose={onClose} footer={<button type="button" className="btn" onClick={onClose}>Done</button>}>
+      <div className="stack">
+        <input autoFocus type="search" aria-label="Search characters" placeholder="Search: dash, euro, arrow, alpha…" value={q} onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && found[0]) { e.preventDefault(); onPick(found[0].ch); } }} />
+        <div className="symbol-groups">
+          {groups.map(([g, list]) => (
+            <section key={g} aria-label={g}><h3 className="small muted">{g}</h3>
+              <div className="symbol-grid">{list.map((s) => <button key={s.ch} type="button" className="symbol" title={s.name} aria-label={s.name} onClick={() => onPick(s.ch)}>{s.ch}</button>)}</div>
+            </section>
+          ))}
+          {!groups.length && <p className="muted">No characters match.</p>}
+        </div>
+        <p className="muted small" style={{ margin: 0 }}>Click a character to put it in where the cursor is; the window stays open for more.</p>
+      </div>
+    </Modal>
+  );
 }
 
 /** A dropdown chip's choices, under the chip. */
@@ -831,7 +898,7 @@ export function DocPreview({ content, fileId, pictureBase = null }) {
     extensions: [
       StarterKit.configure({ link: { openOnClick: true } }), TextAlign.configure({ types: ['heading', 'paragraph'] }),
       CommentMark, DocImage.configure({ docId: fileId, pictureBase }), Table, TableRow, TableHeader, TableCell,
-      TextStyle, Color, BackgroundColor, FontFamily, FontSize, LineHeight, TableOfContents, SheetChart, PageBreak, Footnote, Mention, DropChip, TaskList, TaskItem.configure({ nested: true }),
+      TextStyle, Color, BackgroundColor, FontFamily, FontSize, LineHeight, TableOfContents, SheetChart, PageBreak, Footnote, Mention, DropChip, MathInline, TaskList, TaskItem.configure({ nested: true }),
     ],
   }, [content]);
   return <div className="paper preview-paper"><EditorContent editor={editor} /></div>;

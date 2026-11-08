@@ -63,3 +63,14 @@ test('round trip keeps the text and structure', () => {
 test('a person mentioned in a document is written as @Name', () => {
   assert.equal(markdownFromDoc({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Ask ' }, { type: 'mention', attrs: { id: 'u1', name: 'Kim Park' } }] }] }), 'Ask @Kim Park\n');
 });
+
+test('equations: $…$ both ways; money and escaped dollars stay text', () => {
+  const doc = { type: 'doc', content: [p(t('Area '), { type: 'math', attrs: { latex: '\\pi r^2' } }, t(' costs $5 to $10, and $x stays text.'))] };
+  const md = markdownFromDoc(doc).trim();
+  assert.equal(md, 'Area $\\pi r^2$ costs $5 to $10, and \\$x stays text.');
+  const back = docFromMarkdown(md).content[0].content;
+  assert.deepEqual(back.map((n) => n.type), ['text', 'math', 'text']);
+  assert.equal(back[1].attrs.latex, '\\pi r^2');
+  assert.equal(back[2].text, ' costs $5 to $10, and $x stays text.');
+  assert.deepEqual(inlineFromMarkdown('$E = mc^2$ and $ not $ and $3$4').map((n) => n.type === 'math' ? `[${n.attrs.latex}]` : n.text), ['[E = mc^2]', ' and $ not $ and $3$4']);
+});
