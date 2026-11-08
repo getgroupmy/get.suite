@@ -518,6 +518,7 @@ Your business fixed IP is what makes this work. Do these once:
   - The catch-all must be a mailbox in the same company, so the server can't be used to relay a domain's junk elsewhere.
   - Catch-alls attract extra spam; turn it off to return such mail to the sender again.
 - **Mailbox size limits** (Admin → Users → ⋮ → Mailbox size). When a mailbox is full, new mail bounces to the sender.
+- **Emptying Trash and Junk:** Admin → Company settings → **Emptying Trash and Junk** has the mail server delete mail that has been in Trash, or in Junk, for a while (7, 14, 30, 60 or 90 days, or a year; *Never* by default), for everyone's mailbox in the company, whether it's read in Workspace, on a phone or in Outlook. It frees the space it took.
 - **Spam:** Rspamd scores incoming mail, rejects obvious spam and files likely spam in Junk.
 - **Suspended users:** disabling a user blocks sign-in everywhere, but their mail keeps arriving.
 - **Drafts:** compose saves to the Drafts folder 2 seconds after you stop typing. Closing the window keeps the draft, the bin icon discards it, and clicking a draft in Drafts resumes it.

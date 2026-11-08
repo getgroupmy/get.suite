@@ -4843,3 +4843,12 @@ test('sign-in sessions: signed out after so long without activity, or after so m
   assert.equal((await c('GET', '/api/files')).status, 401);
   await kay('PATCH', '/api/orgs/current', { session_idle_min: 0, session_max_hours: 0 });
 });
+
+test('company setting: empty Trash and Junk after so many days', async () => {
+  const kay = client(); await login(kay, 'kay@keepco.com');
+  const r = await kay('PATCH', '/api/orgs/current', { mail_trash_days: 30, mail_junk_days: 14 });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.mail_trash_days, 30); assert.equal(r.body.mail_junk_days, 14);
+  assert.equal((await kay('PATCH', '/api/orgs/current', { mail_junk_days: 3 })).status, 400);
+  await kay('PATCH', '/api/orgs/current', { mail_trash_days: 0, mail_junk_days: 0 });
+});

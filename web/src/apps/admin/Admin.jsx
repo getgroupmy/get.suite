@@ -478,6 +478,16 @@ function CompanySettings() {
       </div>
       <Networks org={org} save={save} />
       <PasswordRules org={org} save={save} />
+      <div className="card stack" aria-labelledby="mailempty-h">
+        <h2 id="mailempty-h">Emptying Trash and Junk</h2>
+        {[['mail_trash_days', 'Empty Trash after', 'Trash'], ['mail_junk_days', 'Empty Junk after', 'Junk']].map(([key, label, folder]) => (
+          <label key={key} className="field" style={{ maxWidth: 320 }}><span>{label}</span>
+            <select aria-label={label} value={org[key] ?? 0} onChange={(e) => { const d = Number(e.target.value); save({ [key]: d }, d ? `Mail is now deleted from ${folder} after ${d} days` : `${folder} is no longer emptied by itself`); }}>
+              {[[0, 'Never'], [7, '7 days'], [14, '14 days'], [30, '30 days'], [60, '60 days'], [90, '90 days'], [365, 'A year']].map(([d, n]) => <option key={d} value={d}>{n}</option>)}
+            </select></label>
+        ))}
+        <p className="muted small" style={{ margin: 0 }}>For everyone's mailbox in your company: mail that has been in Trash (or Junk) that long is deleted for good by the mail server, also when it's read on a phone or in Outlook. It frees the space it took.</p>
+      </div>
       <div className="card stack" aria-labelledby="sess-h">
         <h2 id="sess-h">Sign-in sessions</h2>
         <label className="field" style={{ maxWidth: 320 }}><span>Sign out after no activity for</span>

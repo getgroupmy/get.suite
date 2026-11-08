@@ -1391,3 +1391,16 @@ test('a guest\'s answer emailed back from their calendar app goes on the event',
   assert.equal(saved.guests.find((g) => g.email === guest).status, 'yes');
   assert.ok((await olivia('GET', '/api/notifications')).body.items.some((n) => n.title === 'Ann Swerer accepted “Contract review”'));
 });
+
+test('emptying Trash and Junk by themselves: the company setting reaches Dovecot', async () => {
+  const { execFileSync } = await import('node:child_process');
+  const r = await olivia('PATCH', '/api/orgs/current', { mail_trash_days: 30, mail_junk_days: 7 });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.mail_trash_days, 30);
+  assert.equal((await olivia('PATCH', '/api/orgs/current', { mail_trash_days: 5 })).status, 400);
+  const fields = () => execFileSync('doveadm', ['user', 'olivia@acme.com'], { encoding: 'utf8' });
+  await eventually(async () => /namespace\/inbox\/mailbox\/Trash\/autoexpunge\s+30d/.test(fields()) && /namespace\/inbox\/mailbox\/Junk\/autoexpunge\s+7d/.test(fields()), 30000);
+  // (Dovecot then expunges mail saved in those folders longer ago than that, when the mailbox is used.)
+  await olivia('PATCH', '/api/orgs/current', { mail_trash_days: 0, mail_junk_days: 0 });
+  await eventually(async () => !/autoexpunge/.test(fields()), 30000);
+});

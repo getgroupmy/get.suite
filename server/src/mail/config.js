@@ -7,6 +7,12 @@ import { q } from '../db.js';
 import { dovecotHash } from './crypt.js';
 import { userSieve } from './sieve.js';
 
+// Emptying Trash and Junk by themselves (a company setting, in days; 0: never).
+for (const col of ['mail_trash_days', 'mail_junk_days']) {
+  if (!q('PRAGMA table_info(orgs)').all().some((c) => c.name === col)) q(`ALTER TABLE orgs ADD COLUMN ${col} INTEGER NOT NULL DEFAULT 0`).run();
+}
+export const MAIL_EMPTY_CHOICES = [0, 7, 14, 30, 60, 90, 365];
+
 export const MAIL_CONFIG_DIR = process.env.MAIL_CONFIG_DIR || null;
 export const MAIL_HOSTNAME = process.env.MAIL_HOSTNAME || null;
 export const mailEnabled = () => !!MAIL_CONFIG_DIR;
@@ -81,7 +87,8 @@ const splitTargets = (s) => s.split(',').map((t) => t.trim().toLowerCase()).filt
 
 export function buildMailConfig() {
   const domains = q('SELECT name, org_id, catchall FROM domains ORDER BY name').all();
-  const users = q('SELECT id, org_id, username, name, mail_hash, mail_app_hash, mail_quota_mb, mail_home, disabled, is_admin FROM users ORDER BY username').all();
+  const users = q(`SELECT u.id, u.org_id, u.username, u.name, u.mail_hash, u.mail_app_hash, u.mail_quota_mb, u.mail_home, u.disabled, u.is_admin, o.mail_trash_days, o.mail_junk_days
+                   FROM users u LEFT JOIN orgs o ON o.id = u.org_id ORDER BY u.username`).all();
   const aliases = q('SELECT org_id, address, targets FROM aliases ORDER BY address').all();
   const userByAddress = new Map(users.map((u) => [u.username.toLowerCase(), u]));
   const aliasMap = new Map(aliases.map((a) => [a.address.toLowerCase(), splitTargets(a.targets)]).filter(([, t]) => t.length)); // a group with nobody in it yet: no address
@@ -119,6 +126,9 @@ export function buildMailConfig() {
       if (u.mail_quota_mb > 0) extra.push(`userdb_quota_rule=*:storage=${u.mail_quota_mb}M`);
       // Someone renamed (or given a fresh folder) keeps their mail in their own folder.
       if (u.mail_home) extra.push(`userdb_mail=maildir:${u.mail_home}/Maildir`);
+      // The company empties Trash and Junk by itself after so many days (Dovecot's autoexpunge).
+      if (u.mail_trash_days > 0) extra.push(`userdb_namespace/inbox/mailbox/Trash/autoexpunge=${u.mail_trash_days}d`);
+      if (u.mail_junk_days > 0) extra.push(`userdb_namespace/inbox/mailbox/Junk/autoexpunge=${u.mail_junk_days}d`);
       return `${u.username}:${pass}::::${u.mail_home || ''}::${extra.join(' ')}`; // user:pass:uid:gid:gecos:home:shell:extra
     })),
     'dovecot/masters': (webmailSecret(), `webmail:${getSetting('webmail_secret_hash')}\n`),
