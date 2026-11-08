@@ -478,6 +478,18 @@ function CompanySettings() {
       </div>
       <Networks org={org} save={save} />
       <PasswordRules org={org} save={save} />
+      <div className="card stack" aria-labelledby="sess-h">
+        <h2 id="sess-h">Sign-in sessions</h2>
+        <label className="field" style={{ maxWidth: 320 }}><span>Sign out after no activity for</span>
+          <select aria-label="Sign out after no activity for" value={org.session_idle_min ?? 0} onChange={(e) => { const m = Number(e.target.value); save({ session_idle_min: m }, m ? `People are now signed out after ${m >= 60 ? `${m / 60} hour${m === 60 ? '' : 's'}` : `${m} minutes`} without activity` : 'People stay signed in while away'); }}>
+            {[[0, 'Never'], [15, '15 minutes'], [30, '30 minutes'], [60, '1 hour'], [120, '2 hours'], [240, '4 hours'], [480, '8 hours']].map(([m, n]) => <option key={m} value={m}>{n}</option>)}
+          </select></label>
+        <label className="field" style={{ maxWidth: 320 }}><span>A sign-in lasts at most</span>
+          <select aria-label="A sign-in lasts at most" value={org.session_max_hours ?? 0} onChange={(e) => { const h = Number(e.target.value); save({ session_max_hours: h }, h ? `Sign-ins now last at most ${h} hours` : 'Sign-ins last 30 days, renewed while used'); }}>
+            {[[0, '30 days (renewed while used)'], [8, '8 hours'], [12, '12 hours'], [24, '1 day'], [72, '3 days'], [168, '1 week']].map(([h, n]) => <option key={h} value={h}>{n}</option>)}
+          </select></label>
+        <p className="muted small" style={{ margin: 0 }}>For shared or front-desk computers. "No activity" means no typing, clicking or scrolling in Workspace (the app refreshing itself doesn't count). Once signed out, people sign in again; phones and mail apps aren't affected.</p>
+      </div>
       <div className="card stack">
         <h2>Keeping chat</h2>
         <label className="field"><span>Keep chat messages</span>

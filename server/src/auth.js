@@ -62,15 +62,35 @@ export function destroySession(token) {
   q('DELETE FROM sessions WHERE token = ?').run(token);
 }
 
-export function userFromToken(token) {
+// Sign-in sessions (a company setting): signed out after so many minutes without using Workspace,
+// and after so many hours however active (0: neither; sessions otherwise last 30 days, renewed as used).
+for (const [col, type] of [['session_idle_min', 'INTEGER NOT NULL DEFAULT 0'], ['session_max_hours', 'INTEGER NOT NULL DEFAULT 0']]) {
+  if (!q('PRAGMA table_info(orgs)').all().some((c) => c.name === col)) q(`ALTER TABLE orgs ADD COLUMN ${col} ${type}`).run();
+}
+export const IDLE_CHOICES = [0, 15, 30, 60, 120, 240, 480];
+export const MAX_HOURS_CHOICES = [0, 8, 12, 24, 72, 168];
+/** How long the person has been away from the keyboard and mouse, as the web app reports it (ms), or null. */
+export const idleOf = (req) => { const v = Number(req.get?.('x-user-idle')); return Number.isFinite(v) && v >= 0 ? v : null; };
+
+/**
+ * The signed-in person for a session, or null. `idleMs`: how long they've been away (from the app);
+ * with the company's limits, a session idle too long (by that, or by its last request) or too old ends.
+ */
+export function userFromToken(token, { idleMs = null } = {}) {
   if (!token) return null;
   const row = q(`SELECT u.id, u.username, u.name, u.is_admin, u.is_super, u.disabled, u.org_id, u.start_page, u.second_tz, u.must_change_password, COALESCE(u.password_set_at, u.created_at) AS password_set_at, o.pw_max_days,
-                        o.name AS org_name, o.allow_external, o.allow_links, o.require_2fa, o.accent AS org_accent, o.logo AS org_logo, s.expires_at, s.last_seen,
+                        o.name AS org_name, o.allow_external, o.allow_links, o.require_2fa, o.accent AS org_accent, o.logo AS org_logo, s.expires_at, s.last_seen, s.created_at AS session_at, o.session_idle_min, o.session_max_hours,
                         (SELECT enabled FROM two_factor t WHERE t.user_id = u.id) AS tf_enabled
                  FROM sessions s JOIN users u ON u.id = s.user_id JOIN orgs o ON o.id = u.org_id
                  WHERE s.token = ?`).get(token);
   if (!row) return null;
   if (row.expires_at < now() || row.disabled) { destroySession(token); return null; }
+  const idleLimit = row.session_idle_min * 60e3;
+  if ((row.session_max_hours && row.session_at && now() - row.session_at > row.session_max_hours * 3600e3)
+    || (idleLimit && ((idleMs !== null && idleMs > idleLimit) || (row.last_seen && now() - row.last_seen > idleLimit + 5 * 60e3)))) {
+    destroySession(token);
+    return null;
+  }
   // Last activity, for the signed-in devices list (written at most every 5 minutes).
   if (!row.last_seen || now() - row.last_seen > 5 * 60e3) {
     q('UPDATE sessions SET last_seen = ? WHERE token = ?').run(now(), token);
@@ -93,6 +113,7 @@ export function userFromToken(token) {
     password_expired: !row.must_change_password && isExpired({ max_days: row.pw_max_days }, row.password_set_at),
     start_page: row.start_page === 'home' ? 'home' : 'drive',
     second_tz: row.second_tz || null,
+    session_idle_min: row.session_idle_min || 0,
   };
 }
 
@@ -108,7 +129,7 @@ export function clearSessionCookie(res) {
 }
 
 export function requireAuth(req, res, next) {
-  const user = userFromToken(tokenFromReq(req));
+  const user = userFromToken(tokenFromReq(req), { idleMs: idleOf(req) });
   if (!user) return next(new HttpError(401, 'Not signed in'));
   if (!networkAllowed(user, req.ip)) return next(new HttpError(403, NETWORK_REFUSED));
   // Until required two-step verification is set up, only the account's own endpoints work.

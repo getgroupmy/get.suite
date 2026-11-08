@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, NavLink, useNavigate, useParams } from 'react-router';
-import { get, post, patch, startLive, stopLive, onLive } from './api.js';
+import { get, post, patch, startLive, stopLive, onLive, idleMs } from './api.js';
 import { useMailStatus } from './mailStatus.js';
 import { useMailNotifications } from './mailNotify.js';
 import { useEventReminders } from './eventReminders.js';
@@ -80,7 +80,11 @@ function Workspace() {
 
   useEffect(() => {
     get('/auth/status').then((s) => setState({ loading: false, ...s })).catch(() => setState({ loading: false, user: null }));
-    const onOut = () => setState((s) => ({ ...s, user: null }));
+    const onOut = () => setState((s) => {
+      // Signed out by the company's limit on time away: say so on the sign-in page.
+      if (s.user?.session_idle_min && idleMs() > s.user.session_idle_min * 60e3) { try { sessionStorage.setItem('nw-signed-out', `You were signed out after ${s.user.session_idle_min} minutes without activity.`); } catch { /* private mode */ } }
+      return { ...s, user: null };
+    });
     window.addEventListener('nw:signed-out', onOut);
     return () => window.removeEventListener('nw:signed-out', onOut);
   }, []);
@@ -88,6 +92,13 @@ function Workspace() {
   useEffect(() => {
     if (state.user) startLive(); else stopLive();
   }, [state.user]);
+  // Away longer than the company allows: check now and then (the next request is turned away).
+  const idleLimit = state.user?.session_idle_min;
+  useEffect(() => {
+    if (!idleLimit) return undefined;
+    const t = setInterval(() => { if (idleMs() > idleLimit * 60e3) get('/auth/me').catch(() => window.dispatchEvent(new Event('nw:signed-out'))); }, 15000);
+    return () => clearInterval(t);
+  }, [idleLimit]);
 
   if (state.loading) return <div className="splash">Loading…</div>;
 

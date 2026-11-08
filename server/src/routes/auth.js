@@ -5,7 +5,7 @@ import { q, tx } from '../db.js';
 import { str, bad, HttpError } from '../util.js';
 import {
   verifyPassword, createSession, destroySession, setSessionCookie, clearSessionCookie, tokenFromReq,
-  requireAuth, validatePassword, hashPassword, userFromToken, sessionId, describeDevice,
+  requireAuth, validatePassword, hashPassword, userFromToken, idleOf, sessionId, describeDevice,
 } from '../auth.js';
 import * as guard from '../security/guard.js';
 import { createOrg } from '../tenancy.js';
@@ -27,7 +27,7 @@ export default function authRoutes({ secureCookies }) {
 
   r.get('/status', (req, res) => {
     const count = q('SELECT COUNT(*) AS n FROM users').get().n;
-    res.json({ needsSetup: count === 0, user: userFromToken(tokenFromReq(req)) });
+    res.json({ needsSetup: count === 0, user: userFromToken(tokenFromReq(req), { idleMs: idleOf(req) }) });
   });
 
   // First run: create the first company, its domain and the platform owner.

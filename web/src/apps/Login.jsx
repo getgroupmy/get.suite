@@ -7,7 +7,7 @@ import { useAuth } from '../App.jsx';
 export default function Login({ needsSetup }) {
   const { setUser } = useAuth();
   const [form, setForm] = useState({ username: '', password: '', confirm: '', org_name: '', domain: '', name: '', local: '' });
-  const [error, setError] = useState('');
+  const [error, setError] = useState(() => { try { const m = sessionStorage.getItem('nw-signed-out'); sessionStorage.removeItem('nw-signed-out'); return m || ''; } catch { return ''; } });
   const [busy, setBusy] = useState(false);
   // The company whose address this is (workspace.acme.com → Acme): its name, logo and colour.
   const [brand, setBrand] = useState(null);

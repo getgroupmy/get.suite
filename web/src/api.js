@@ -4,11 +4,20 @@ export class ApiError extends Error {
 
 const HEADERS = { 'x-requested-with': 'nas-workspace' };
 
+// When the person last used the keyboard, mouse or screen here: each request says how long ago, so
+// a company's "sign out after … without activity" isn't kept going by the app refreshing itself.
+let lastInput = Date.now();
+if (typeof window !== 'undefined') {
+  for (const ev of ['pointerdown', 'keydown', 'wheel', 'touchstart', 'mousemove']) window.addEventListener(ev, () => { lastInput = Date.now(); }, { passive: true, capture: true });
+}
+export const idleMs = () => Date.now() - lastInput;
+
 export async function api(method, url, body) {
+  const headers = { ...HEADERS, 'x-user-idle': String(idleMs()), ...(body !== undefined && { 'content-type': 'application/json' }) };
   const res = await fetch(`/api${url}`, {
     method,
     credentials: 'same-origin',
-    headers: body === undefined ? HEADERS : { ...HEADERS, 'content-type': 'application/json' },
+    headers,
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const data = (res.headers.get('content-type') || '').includes('json') ? await res.json() : null;

@@ -4818,3 +4818,28 @@ test('company password rules: kept by admins, applied to new passwords, and expi
   assert.equal((await pat('GET', '/api/auth/me')).body.user.must_change_password, false);
   await kay('PATCH', '/api/orgs/current', { password_rules: { min: 8, mix: false, symbol: false, common: false, max_days: 0 } });
 });
+
+test('sign-in sessions: signed out after so long without activity, or after so many hours', async () => {
+  const { q } = await import('../src/db.js');
+  const kay = client(); await login(kay, 'kay@keepco.com');
+  assert.equal((await kay('PATCH', '/api/orgs/current', { session_idle_min: 7 })).status, 400);
+  const r = await kay('PATCH', '/api/orgs/current', { session_idle_min: 30, session_max_hours: 8 });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.session_idle_min, 30); assert.equal(r.body.session_max_hours, 8);
+  await kay('POST', '/api/users', { local: 'sesx', domain: 'keepco.com', name: 'Ses Sion', password: 'password123' });
+  const uid = q("SELECT id FROM users WHERE username = 'sesx@keepco.com'").get().id;
+  // Away from the keyboard longer than allowed (as the web app reports it): signed out.
+  const a = client(); await login(a, 'sesx@keepco.com');
+  assert.equal((await a('GET', '/api/files', undefined, { headers: { 'x-user-idle': String(10 * 60e3) } })).status, 200);
+  assert.equal((await a('GET', '/api/files', undefined, { headers: { 'x-user-idle': String(31 * 60e3) } })).status, 401);
+  assert.equal((await a('GET', '/api/files')).status, 401, 'the session is gone');
+  // A tab closed long ago: the session's last request was too long ago.
+  const b = client(); await login(b, 'sesx@keepco.com');
+  q('UPDATE sessions SET last_seen = ? WHERE user_id = ?').run(Date.now() - 40 * 60e3, uid);
+  assert.equal((await b('GET', '/api/files')).status, 401);
+  // However active, a sign-in lasts at most 8 hours.
+  const c = client(); await login(c, 'sesx@keepco.com');
+  q('UPDATE sessions SET created_at = ? WHERE user_id = ?').run(Date.now() - 9 * 3600e3, uid);
+  assert.equal((await c('GET', '/api/files')).status, 401);
+  await kay('PATCH', '/api/orgs/current', { session_idle_min: 0, session_max_hours: 0 });
+});

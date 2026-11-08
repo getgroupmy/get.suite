@@ -1,4 +1,5 @@
 import { SIGNATURE_MODES } from '../mail/companysig.js';
+import { IDLE_CHOICES, MAX_HOURS_CHOICES } from '../auth.js';
 import { rulesOf, EXPIRY_CHOICES } from '../passwordrules.js';
 import { readNets, inNets } from '../netrules.js';
 import { normalizeIp } from '../security/guard.js';
@@ -65,6 +66,16 @@ function updateOrg(orgId, body, { asSuper, user }) {
     if (!Number.isInteger(min) || min < 8 || min > 64) throw bad('The minimum length must be from 8 to 64 characters');
     if (!EXPIRY_CHOICES.includes(days)) throw bad(`Passwords can expire after ${EXPIRY_CHOICES.filter(Boolean).join(', ')} days, or never`);
     q('UPDATE orgs SET pw_min = ?, pw_mix = ?, pw_symbol = ?, pw_common = ?, pw_max_days = ? WHERE id = ?').run(min, pr.mix ? 1 : 0, pr.symbol ? 1 : 0, pr.common ? 1 : 0, days, orgId);
+  }
+  if (body.session_idle_min !== undefined) {
+    const m = Number(body.session_idle_min);
+    if (!IDLE_CHOICES.includes(m)) throw bad('Choose how long without activity before signing out');
+    q('UPDATE orgs SET session_idle_min = ? WHERE id = ?').run(m, orgId);
+  }
+  if (body.session_max_hours !== undefined) {
+    const h = Number(body.session_max_hours);
+    if (!MAX_HOURS_CHOICES.includes(h)) throw bad('Choose the longest a sign-in lasts');
+    q('UPDATE orgs SET session_max_hours = ? WHERE id = ?').run(h, orgId);
   }
   if (body.chat_days !== undefined) {
     const d = Number(body.chat_days);
