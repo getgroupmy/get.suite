@@ -144,7 +144,7 @@ function ImportUsers({ orgId, domains, onClose, onDone }) {
   const call = (dry) => post('/users/import', { csv, domain, org_id: orgId, dry_run: dry });
   const check = async () => { setError(''); try { setRows((await call(true)).rows); } catch (e) { setError(e.message); } };
   const create = async () => {
-    try { const r = await call(false); setDone(r); onDone(); toast(`${r.created} user${r.created === 1 ? '' : 's'} created`); } catch (e) { setError(e.message); }
+    try { const r = await call(false); setDone(r); onDone(); toast(`${r.created} user${r.created === 1 ? '' : 's'} created${r.updated ? `, ${r.updated} updated` : ''}`); } catch (e) { setError(e.message); }
   };
   const good = rows?.filter((r) => !r.error) || [];
   const download = () => {
@@ -160,13 +160,13 @@ function ImportUsers({ orgId, domains, onClose, onDone }) {
     <Modal wide title="Import users" onClose={onClose} footer={<button type="button" className="btn" onClick={onClose}>{done ? 'Done' : 'Cancel'}</button>}>
       {done ? (
         <div className="stack">
-          <p style={{ margin: 0 }}><strong>{done.created}</strong> created. Passwords made up for people who had none are shown only now: download them or copy them to pass on.</p>
+          <p style={{ margin: 0 }}><strong>{done.created}</strong> created{done.updated ? <>, <strong>{done.updated}</strong> updated</> : ''}. Passwords made up for people who had none are shown only now: download them or copy them to pass on.</p>
           <ImportTable rows={done.rows} result />
           <div className="row"><button type="button" className="btn primary" onClick={download}><Icon name="download" size={18} /> Download sign-in details (CSV)</button></div>
         </div>
       ) : (
         <div className="stack">
-          <p className="muted small" style={{ margin: 0 }}>A CSV file with one person per row. The first row names the columns: <strong>Name</strong> (or First name and Last name), <strong>Email</strong> (a full address, or just the part before @), and optionally <strong>Password</strong> (at least 8 characters; one is made up if it's empty) and <strong>Admin</strong> (yes). Up to 500 people.</p>
+          <p className="muted small" style={{ margin: 0 }}>A CSV file with one person per row. The first row names the columns: <strong>Name</strong> (or First name and Last name), <strong>Email</strong> (a full address, or just the part before @), and optionally <strong>Password</strong> (at least 8 characters; one is made up if it's empty), <strong>Admin</strong> (yes), <strong>Job title</strong>, <strong>Department</strong>, <strong>Work phone</strong> and <strong>Manager</strong> (their email address). People already here get their job details brought up to date (empty cells leave what's there), so a file from <strong>Export</strong> can come back in. Up to 500 people.</p>
           <div className="row wrap">
             <button type="button" className="btn" onClick={() => fileInput.current.click()}><Icon name="upload" size={18} /> Choose file</button>
             <span className="muted small">{fileName || 'No file chosen'}</span>
@@ -178,7 +178,7 @@ function ImportUsers({ orgId, domains, onClose, onDone }) {
           {rows && <ImportTable rows={rows} />}
           <div className="row end">
             {!rows ? <button type="button" className="btn primary" disabled={!csv} onClick={check}>Check</button>
-              : <button type="button" className="btn primary" disabled={!good.length} onClick={create}>Create {good.length} user{good.length === 1 ? '' : 's'}</button>}
+              : <button type="button" className="btn primary" disabled={!good.length} onClick={create}>{(() => { const n = good.filter((r) => !r.update).length, u = good.length - n; return [n && `Create ${n} user${n === 1 ? '' : 's'}`, u && `${n ? 'update' : 'Update'} ${u}`].filter(Boolean).join(', '); })()}</button>}
           </div>
         </div>
       )}
@@ -196,7 +196,7 @@ function ImportTable({ rows, result = false }) {
             <tr key={r.line} className={r.error ? 'bad' : ''}>
               <td className="muted">{r.line}</td><td>{r.name || <span className="muted">—</span>}</td><td>{r.email || <span className="muted">—</span>}</td>
               <td>{result ? (r.password ? <code>{r.password}</code> : r.created ? <span className="muted">from the file</span> : '') : r.admin ? 'Yes' : ''}</td>
-              <td>{r.error ? <span className="error">{r.error}</span> : result ? 'Created' : 'OK'}</td>
+              <td>{r.error ? <span className="error">{r.error}</span> : result ? (r.updated ? 'Updated' : 'Created') : r.update ? 'Already here: details updated' : 'OK'}{r.warning && <span className="muted small"> · {r.warning}</span>}</td>
             </tr>
           ))}
         </tbody>

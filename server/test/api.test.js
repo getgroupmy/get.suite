@@ -1645,7 +1645,7 @@ test('admin: import people from a CSV — checked first, good rows created, pass
   assert.equal((await two('POST', '/api/auth/login', { username: 'imp2@acme.com', password: 'secretpass1' })).status, 200);
   assert.equal(!!(await two('GET', '/api/auth/me')).body.user.is_admin, true);
   // Again: now they're taken.
-  assert.match((await owner('POST', '/api/users/import', { csv: 'Name,Email\nX Y,imp1', domain: 'acme.com', dry_run: true })).body.rows[0].error, /already taken/);
+  assert.equal((await owner('POST', '/api/users/import', { csv: 'Name,Email\nX Y,imp1', domain: 'acme.com', dry_run: true })).body.rows[0].update, true, 'someone already here is updated, not added again');
   assert.equal((await owner('POST', '/api/users/import', { csv: 'Who,Where\na,b', domain: 'acme.com' })).status, 400, 'columns named');
   assert.equal((await c('POST', '/api/users/import', { csv, domain: 'acme.com' })).status, 403, 'admins only');
 });
@@ -2532,10 +2532,10 @@ test('admin: export the people as CSV (formula-like names kept as text); admins 
   assert.match(r.headers.get('content-type'), /text\/csv/);
   assert.match(r.headers.get('content-disposition'), /people\.csv/);
   const lines = r.body.replace(/^﻿/, '').trim().split('\r\n');
-  assert.equal(lines[0], 'Name,Email,Administrator,Status,Two-step verification,Drive storage (MB),Created,Last active');
+  assert.equal(lines[0], 'Name,Email,Administrator,Status,Two-step verification,Drive storage (MB),Created,Last active,Job title,Department,Work phone,Manager');
   const row = lines.find((l) => l.includes('expa@acme.com'));
   assert.ok(row.startsWith(`"'=HYPERLINK(""x"")",expa@acme.com,no,active,off,0.0,`), row);
-  assert.match(row, /,\d{4}-\d{2}-\d{2}$/, 'last active, from the sign-in');
+  assert.match(row, /,\d{4}-\d{2}-\d{2},,,,$/, 'last active, from the sign-in (then no job details)');
   assert.equal((await a('GET', '/api/users/export')).status, 403);
 });
 
@@ -2550,7 +2550,7 @@ test('admin: when each person last used their account (signing in counts; signin
   const after = (await owner('GET', '/api/users')).body.find((u) => u.username === 'lasta@acme.com');
   assert.ok(after.last_active >= t0 - 1000, 'kept after signing out');
   const csv = (await owner('GET', '/api/users/export')).body;
-  assert.match(csv.split('\r\n').find((l) => l.includes('lasta@acme.com')), new RegExp(`,${new Date(after.last_active).toISOString().slice(0, 10)}$`));
+  assert.match(csv.split('\r\n').find((l) => l.includes('lasta@acme.com')), new RegExp(`,${new Date(after.last_active).toISOString().slice(0, 10)},,,,$`));
 });
 
 test('tasks: each person sorts a list their own way', async () => {
@@ -3489,4 +3489,34 @@ test("who's who: titles, departments, phones and managers in the Directory (no l
   assert.deepEqual([max.job_title, max.manager_id], ['Head of R&D', ids.wwc]);
   await owner('PATCH', `/api/users/${ids.wwe}`, { manager_id: null });
   assert.equal((await me('GET', '/api/users/directory')).body.find((u) => u.id === ids.wwe).manager_id, null);
+});
+
+test("people import and export carry job titles, departments, phones and managers (and update people already here)", async () => {
+  const csv = ['Name,Email,Job title,Department,Work phone,Manager',
+    'Ivy Boss,ivyb,CEO,,+60 3 1111,',
+    'Ian Lead,ianl,Head of Ops,Ops,,ivyb',
+    'Ida Crew,idac,Clerk,Ops,not a phone,ianl',
+    'Ike Stray,ikes,Intern,Ops,,nobody'].join('\n');
+  const dry = (await owner('POST', '/api/users/import', { csv, domain: 'acme.com', dry_run: true })).body.rows;
+  assert.match(dry[2].error, /isn't a phone number/);
+  const r = (await owner('POST', '/api/users/import', { csv, domain: 'acme.com' })).body;
+  assert.equal(r.created, 3);
+  assert.match(r.rows.find((x) => x.email === 'ikes@acme.com').warning, /No one called nobody@acme.com/);
+  const dir = (await owner('GET', '/api/users/directory')).body;
+  const by = (e) => dir.find((u) => u.username === e);
+  assert.equal(by('ianl@acme.com').manager_id, by('ivyb@acme.com').id);
+  assert.deepEqual([by('ianl@acme.com').job_title, by('ianl@acme.com').department], ['Head of Ops', 'Ops']);
+  assert.equal(by('ivyb@acme.com').work_phone, '+60 3 1111');
+  // The same file again updates them: a new title, a manager for the stray one, no new people.
+  const again = (await owner('POST', '/api/users/import', { csv: 'Email,Job title,Manager\nikes@acme.com,Junior analyst,ianl@acme.com\nivyb@acme.com,,ikes@acme.com', domain: 'acme.com' })).body;
+  assert.equal(again.created, 0); assert.equal(again.updated, 2);
+  assert.match(again.rows.find((x) => x.email === 'ivyb@acme.com').warning, /loop/);
+  const dir2 = (await owner('GET', '/api/users/directory')).body;
+  const ike = dir2.find((u) => u.username === 'ikes@acme.com');
+  assert.deepEqual([ike.job_title, ike.department, ike.manager_id], ['Junior analyst', 'Ops', by('ianl@acme.com').id]);
+  assert.equal(dir2.find((u) => u.username === 'ivyb@acme.com').job_title, 'CEO', 'an empty cell leaves it');
+  // Export has the columns.
+  const exp = (await owner('GET', '/api/users/export')).body;
+  assert.match(exp, /Job title,Department,Work phone,Manager/);
+  assert.match(exp, /Ian Lead,ianl@acme.com.*Head of Ops,Ops,,ivyb@acme.com/);
 });

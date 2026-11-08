@@ -239,7 +239,8 @@ export default function userRoutes() {
   // Everyone in the company as a spreadsheet (CSV), for audits or moving elsewhere.
   r.get('/export', (req, res) => {
     const orgId = targetOrg(req);
-    const rows = q(`SELECT u.username, u.name, u.is_admin, u.disabled, u.created_at,
+    const rows = q(`SELECT u.username, u.name, u.is_admin, u.disabled, u.created_at, u.job_title, u.department, u.work_phone,
+                      (SELECT m.username FROM users m WHERE m.id = u.manager_id) AS manager_email,
                       (SELECT COALESCE(SUM(size), 0) FROM files f WHERE f.owner_id = u.id) AS storage_used,
                       (SELECT COUNT(*) FROM two_factor t WHERE t.user_id = u.id AND t.enabled = 1) AS two_factor,
                       MAX(COALESCE(u.last_active, 0), COALESCE((SELECT MAX(s.last_seen) FROM sessions s WHERE s.user_id = u.id), 0)) AS last_active
@@ -267,19 +268,38 @@ export default function userRoutes() {
     let plan;
     try { plan = planImport(String(req.body.csv || ''), { orgId, domain: String(req.body.domain || '').trim().toLowerCase() || null }); }
     catch (e) { throw bad(e.message); }
-    if (req.body.dry_run) return res.json({ rows: plan.map(({ password, ...p }) => ({ ...p, has_password: !!password })) });
+    if (req.body.dry_run) return res.json({ rows: plan.map(({ password, update, ...p }) => ({ ...p, has_password: !!password, ...(update && { update: true }) })) });
     const rows = [];
+    const details = (p) => ({ job_title: p.job_title, department: p.department, work_phone: p.work_phone });
+    const given = (p) => Object.fromEntries(Object.entries(details(p)).filter(([, v]) => v !== null)); // empty cells leave what's there
     for (const p of plan) {
       if (p.error) { rows.push({ line: p.line, name: p.name, email: p.email, error: p.error }); continue; }
+      if (p.update) {
+        saveProfile(p.update, given(p));
+        rows.push({ line: p.line, name: p.name, email: p.email, updated: true });
+        continue;
+      }
       const made = !p.password;
       const password = p.password || readablePassword();
       try {
-        newUserRow({ orgId, username: p.email, name: p.name, password, is_admin: p.admin });
+        const id = newUserRow({ orgId, username: p.email, name: p.name, password, is_admin: p.admin });
+        saveProfile(typeof id === 'string' ? id : q('SELECT id FROM users WHERE username = ?').get(p.email).id, given(p));
         audit(req, 'user.create', { org: orgId, target: p.email, details: { admin: p.admin, imported: true } });
         rows.push({ line: p.line, name: p.name, email: p.email, admin: p.admin, created: true, ...(made && { password }) });
       } catch (e) { rows.push({ line: p.line, name: p.name, email: p.email, error: e.message }); }
     }
-    res.json({ rows, created: rows.filter((x) => x.created).length });
+    // Managers last, once everyone in the file exists (by their address, in this company).
+    for (const p of plan) {
+      if (p.error || !p.manager) continue;
+      const row = rows.find((x) => x.line === p.line);
+      const u = q('SELECT id, org_id FROM users WHERE username = ? AND org_id = ?').get(p.email, orgId);
+      const m = q('SELECT id FROM users WHERE username = ? AND org_id = ?').get(p.manager, orgId);
+      if (!u || !row || row.error) continue;
+      if (!m) { row.warning = `No one called ${p.manager} here, so no manager was set`; continue; }
+      try { setManager(u, m.id); } catch (e) { row.warning = e.message; }
+    }
+    if (rows.some((x) => x.created || x.updated)) sendTo(orgMemberIds(orgId), { type: 'directory-changed' });
+    res.json({ rows, created: rows.filter((x) => x.created).length, updated: rows.filter((x) => x.updated).length });
   });
 
   r.patch('/:id', (req, res) => {
