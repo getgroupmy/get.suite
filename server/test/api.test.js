@@ -4000,3 +4000,38 @@ test('calendar: take meeting notes makes a document, attaches it and lets collea
   await owner('PATCH', `/api/events/${ev.id}`, { attachments: [] });
   assert.equal((await owner('POST', `/api/events/${ev.id}/notes`, {})).body.id, first.body.id);
 });
+
+test('drive: shortcuts show a file or folder in another place without moving it', async () => {
+  const sam = client();
+  const made = await owner('POST', '/api/users', { local: 'shorty', domain: 'acme.com', name: 'Sam Short', password: 'password123' });
+  await login(sam, 'shorty@acme.com');
+  const report = (await owner('POST', '/api/files/new', { kind: 'doc', name: 'Annual report' })).body;
+  const folder = (await sam('POST', '/api/files/folder', { name: 'Reading' })).body;
+  assert.equal((await sam('POST', `/api/files/${report.id}/shortcut`, { parent_id: folder.id })).status, 404, 'needs access to it');
+  await owner('PUT', `/api/files/${report.id}/shares`, { shares: [{ user_id: made.body.id, role: 'viewer' }] });
+  const sc = await sam('POST', `/api/files/${report.id}/shortcut`, { parent_id: folder.id });
+  assert.equal(sc.status, 201);
+  assert.equal((await sam('POST', `/api/files/${report.id}/shortcut`, { parent_id: folder.id })).body.existing, true, 'one per place');
+  const inFolder = (await sam('GET', `/api/files?view=mine&parent=${folder.id}`)).body;
+  const row = inFolder.find((f) => f.shortcut_id === sc.body.id);
+  assert.equal(row.id, report.id);
+  assert.equal(row.name, 'Annual report');
+  assert.equal(row.role, 'viewer');
+  assert.equal((await sam('GET', `/api/files?view=mine&parent=${folder.id}&noshortcuts=1`)).body.length, 0);
+  // In My Drive too; the file itself hasn't moved.
+  assert.equal((await sam('POST', `/api/files/${report.id}/shortcut`, {})).status, 201);
+  assert.ok((await sam('GET', '/api/files?view=mine')).body.some((f) => f.shortcut_id && f.id === report.id));
+  assert.equal((await owner('GET', `/api/files/${report.id}`)).body.parent_id, null);
+  // A folder can't hold a shortcut to itself.
+  assert.equal((await sam('POST', `/api/files/${folder.id}/shortcut`, { parent_id: folder.id })).status, 400);
+  // When access goes, others don't see it; its maker sees it can't be opened, and can remove it.
+  await owner('PUT', `/api/files/${report.id}/shares`, { shares: [] });
+  const after = (await sam('GET', `/api/files?view=mine&parent=${folder.id}`)).body;
+  assert.equal(after.length, 1);
+  assert.equal(after[0].broken, true);
+  assert.equal(after[0].id, sc.body.id, 'the broken one doesn\'t give away the file');
+  assert.equal((await owner('DELETE', `/api/files/shortcuts/${sc.body.id}`)).status, 404, 'not theirs to remove');
+  assert.equal((await sam('DELETE', `/api/files/shortcuts/${sc.body.id}`)).status, 200);
+  assert.equal((await sam('GET', `/api/files?view=mine&parent=${folder.id}`)).body.length, 0);
+  assert.equal((await owner('GET', `/api/files/${report.id}`)).status, 200, 'the file stays');
+});

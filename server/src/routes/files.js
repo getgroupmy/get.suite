@@ -266,6 +266,33 @@ q(`CREATE TABLE IF NOT EXISTS file_stars (
   created_at INTEGER NOT NULL,
   PRIMARY KEY (user_id, file_id)
 )`).run();
+// Shortcuts: a file or folder shown in another folder (or your My Drive) without moving or copying
+// it. Each person still needs access to what it points to; a shortcut to something they can't open
+// isn't listed for them (only its maker sees it, so they can remove it).
+q(`CREATE TABLE IF NOT EXISTS file_shortcuts (
+  id TEXT PRIMARY KEY,
+  owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  parent_id TEXT REFERENCES files(id) ON DELETE CASCADE,
+  target_id TEXT NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+  created_at INTEGER NOT NULL
+)`).run();
+q('CREATE INDEX IF NOT EXISTS file_shortcuts_parent ON file_shortcuts(parent_id, owner_id)').run();
+const MAX_SHORTCUTS = 500;
+
+/** The shortcuts in a folder (or a person's My Drive), as the files they point to, for this person. */
+function shortcutsIn(parentId, user) {
+  const rows = parentId ? q('SELECT * FROM file_shortcuts WHERE parent_id = ? ORDER BY created_at').all(parentId)
+    : q('SELECT * FROM file_shortcuts WHERE parent_id IS NULL AND owner_id = ? ORDER BY created_at').all(user.id);
+  const out = [];
+  for (const s of rows) {
+    const t = q(`SELECT ${COLS} ${FROM} WHERE f.id = ?`).get(s.target_id);
+    const role = t && !t.trashed && roleFor(t.id, user.id);
+    const mayRemove = s.owner_id === user.id || (parentId && atLeast(roleFor(parentId, user.id), 'editor'));
+    if (role) out.push({ ...publicFile(t, role), shortcut_id: s.id, shortcut_parent: s.parent_id, shortcut_removable: !!mayRemove });
+    else if (s.owner_id === user.id) out.push({ id: s.id, shortcut_id: s.id, shortcut_parent: s.parent_id, shortcut_removable: true, broken: true, kind: 'file', name: 'Shortcut to something you can no longer open', owner_id: user.id, updated_at: s.created_at, size: 0 });
+  }
+  return out;
+}
 const MAX_ZIP_BYTES = 2 * 1024 ** 3, MAX_ZIP_FILES = 20000;
 
 /** The kinds of file search can be narrowed to: Workspace files and the usual uploads of the same kind. */
@@ -359,6 +386,8 @@ export default function fileRoutes({ maxUploadBytes }) {
       rows = rows.map((f) => (inside.has(f.id) && !byName(f) ? { ...f, match: inside.get(f.id) } : f))
         .sort((a, b) => (byName(b) - byName(a)) || ((rank.get(a.id) ?? 0) - (rank.get(b.id) ?? 0)));
     } else throw bad('Unknown view');
+    // Shortcuts in this folder (or your My Drive), unless asked to leave them out.
+    if (view === 'mine' && !req.query.noshortcuts) rows = [...rows, ...shortcutsIn(req.query.parent || null, req.user)];
     // Your stars on what's listed.
     const starred = new Set(q('SELECT file_id FROM file_stars WHERE user_id = ? AND file_id IN (SELECT value FROM json_each(?))').all(me, JSON.stringify(rows.map((f) => f.id))).map((x) => x.file_id));
     res.json(rows.map((f) => (starred.has(f.id) ? { ...f, starred: true } : f)));
@@ -726,6 +755,34 @@ export default function fileRoutes({ maxUploadBytes }) {
     notify(f.id, { type: 'files-changed', parent_id: f.parent_id });
     if (setup !== undefined) notify(f.id, { type: 'page-setup', id: f.id, page_setup: setup });
     res.json(publicFile(loadFile(f.id, req.user)));
+  });
+
+  // Add a shortcut to a file or folder you can open: { parent_id } (none = My Drive). One per place.
+  r.post('/:id/shortcut', (req, res) => {
+    const t = loadFile(req.params.id, req.user);
+    if (t.trashed) throw bad('That is in the trash');
+    const parentId = resolveParent(req.body?.parent_id, req.user);
+    if (parentId === t.id || (parentId && t.kind === 'folder' && subtreeIds(t.id).includes(parentId))) throw bad('A folder can\'t hold a shortcut to itself');
+    const dup = parentId ? q('SELECT id FROM file_shortcuts WHERE parent_id = ? AND target_id = ?').get(parentId, t.id)
+      : q('SELECT id FROM file_shortcuts WHERE parent_id IS NULL AND owner_id = ? AND target_id = ?').get(req.user.id, t.id);
+    if (dup) return res.json({ id: dup.id, existing: true });
+    if (q('SELECT COUNT(*) AS n FROM file_shortcuts WHERE owner_id = ?').get(req.user.id).n >= MAX_SHORTCUTS) throw bad(`Up to ${MAX_SHORTCUTS} shortcuts`);
+    const id = uid();
+    q('INSERT INTO file_shortcuts (id, owner_id, parent_id, target_id, created_at) VALUES (?, ?, ?, ?, ?)').run(id, req.user.id, parentId, t.id, now());
+    if (parentId) notify(parentId, { type: 'files-changed', parent_id: parentId });
+    else sendTo([req.user.id], { type: 'files-changed', parent_id: null });
+    res.status(201).json({ id });
+  });
+
+  // Remove a shortcut (whoever made it, or anyone who can edit the folder it's in). What it points to stays.
+  r.delete('/shortcuts/:sid', (req, res) => {
+    const s = q('SELECT * FROM file_shortcuts WHERE id = ?').get(req.params.sid);
+    if (!s) throw notFound();
+    if (s.owner_id !== req.user.id && !(s.parent_id && atLeast(roleFor(s.parent_id, req.user.id), 'editor'))) throw notFound();
+    q('DELETE FROM file_shortcuts WHERE id = ?').run(s.id);
+    if (s.parent_id) notify(s.parent_id, { type: 'files-changed', parent_id: s.parent_id });
+    else sendTo([req.user.id], { type: 'files-changed', parent_id: null });
+    res.json({ ok: true });
   });
 
   r.delete('/:id', (req, res) => {

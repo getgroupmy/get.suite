@@ -214,6 +214,15 @@ export default function Drive() {
   };
 
   function itemMenu(f) {
+    // A shortcut: open what it points to, find where that really is, or take the shortcut away.
+    if (f.shortcut_id) return [
+      !f.broken && { label: 'Open', icon: fileIcon(f), onClick: () => open(f) },
+      !f.broken && { label: 'Show file location', icon: 'folder', onClick: async () => {
+        try { const p = await get(`/files/${f.id}/path`); const up = p[p.length - 2]; navigate(up ? `/drive/folder/${up.id}` : f.owner_id === user.id ? '/drive' : '/drive/shared'); } catch (e) { toast(e.message, 'error'); }
+      } },
+      !f.broken && { label: 'Details', icon: 'more', onClick: () => setDialog({ type: 'details', file: f }) },
+      f.shortcut_removable && { label: 'Remove shortcut', icon: 'trash', danger: true, onClick: act(() => del(`/files/shortcuts/${f.shortcut_id}`), 'Shortcut removed (the file itself is still there)') },
+    ];
     const canEdit = f.role === 'owner' || f.role === 'editor';
     if (route.view === 'trash') return [
       { label: 'Restore', icon: 'restore', onClick: act(() => patch(`/files/${f.id}`, { trashed: false }), 'Restored') },
@@ -237,6 +246,7 @@ export default function Drive() {
       canEdit && { label: 'Rename', icon: 'edit', onClick: () => setDialog({ type: 'rename', file: f }) },
       canEdit && { label: 'Move to…', icon: 'move', onClick: () => setDialog({ type: 'move', files: [f] }) },
       f.kind !== 'folder' && { label: 'Make a copy', icon: 'copy', onClick: act(() => post(`/files/${f.id}/copy`), 'Copy made') },
+      { label: 'Add shortcut to Drive…', icon: 'link', onClick: () => setDialog({ type: 'shortcut', files: [f] }) },
       f.kind !== 'folder' && '-',
       f.kind !== 'folder' && canEdit && !f.locked_at && { label: 'Lock (stop changes)', icon: 'lock', onClick: act(() => put(`/files/${f.id}/lock`, { locked: true }), 'Locked: nobody can change it until it’s unlocked') },
       f.locked_at && (f.locked_by === user.id || f.role === 'owner') && { label: 'Unlock', icon: 'lock', onClick: act(() => put(`/files/${f.id}/lock`, { locked: false }), 'Unlocked') },
@@ -344,9 +354,10 @@ export default function Drive() {
           <table className="files">
             <thead><tr><th className="check-col"><input type="checkbox" aria-label="Select all" checked={files.length > 0 && picked.length === files.length}
               ref={(el) => { if (el) el.indeterminate = picked.length > 0 && picked.length < files.length; }}
-              onChange={(e) => setChecked(e.target.checked ? new Set(files.map((f) => f.id)) : new Set())} /></th><th>Name</th><th className="hide-sm">Owner</th><th className="hide-sm">{route.view === 'trash' ? 'Deleted for good' : 'Modified'}</th><th className="hide-sm">Size</th><th aria-label="Actions" /></tr></thead>
+              onChange={(e) => setChecked(e.target.checked ? new Set(files.filter((f) => !f.shortcut_id).map((f) => f.id)) : new Set())} /></th><th>Name</th><th className="hide-sm">Owner</th><th className="hide-sm">{route.view === 'trash' ? 'Deleted for good' : 'Modified'}</th><th className="hide-sm">Size</th><th aria-label="Actions" /></tr></thead>
             <tbody>
-              {files.map((f) => (
+              {files.map((f) => f.shortcut_id ? <ShortcutRow key={`s-${f.shortcut_id}`} f={f} me={user.id} selected={selected === f.shortcut_id} onSelect={() => setSelected(f.shortcut_id)}
+                onOpen={() => (f.broken ? toast('You can no longer open what this shortcut points to', 'error') : open(f))} menu={itemMenu(f)} /> : (
                 <tr key={f.id} className={`${selected === f.id || checked.has(f.id) ? 'selected' : ''} ${dropOn === f.id ? 'drop-on' : ''}`} tabIndex={0}
                   draggable={route.view !== 'trash' && (f.role === 'owner' || f.role === 'editor')}
                   onDragStart={(e) => { const ids = checked.has(f.id) ? [...checked] : [f.id]; e.dataTransfer.setData(DRAG_TYPE, JSON.stringify(ids)); e.dataTransfer.effectAllowed = 'move'; }}
@@ -405,6 +416,7 @@ export default function Drive() {
       {dialog?.type === 'share' && <ShareDialog file={dialog.file} onClose={() => setDialog(null)} />}
       {dialog?.type === 'approval' && <RequestApproval file={dialog.file} onClose={() => setDialog(null)} />}
       {dialog?.type === 'move' && <MoveDialog files={dialog.files} onClose={() => setDialog(null)} onMoved={() => { setChecked(new Set()); load(); }} />}
+      {dialog?.type === 'shortcut' && <MoveDialog shortcut files={dialog.files} onClose={() => setDialog(null)} onMoved={() => load()} />}
       {dialog?.type === 'preview' && <Preview file={dialog.file} comment={dialog.comment} onClose={() => setDialog(null)} onOpenAs={() => { setDialog(null); openAs(dialog.file); }} />}
       {requestsOpen && <AccessRequests list={requests} onClose={() => setRequestsOpen(false)} onChanged={() => { loadRequests(); load(); }} />}
       {dialog?.type === 'templates' && <TemplatesDialog onClose={() => setDialog(null)} onPick={async (t) => {
@@ -624,19 +636,24 @@ function LinkSharing({ file }) {
   );
 }
 
-function MoveDialog({ files, onClose, onMoved }) {
+/** Move files into a folder, or (shortcut) add a shortcut to one there. */
+function MoveDialog({ files, onClose, onMoved, shortcut = false }) {
   const toast = useToast();
   const [cur, setCur] = useState(null); // null = My Drive root
   const [path, setPath] = useState([]);
   const [folders, setFolders] = useState([]);
 
   useEffect(() => {
-    get(`/files?view=mine${cur ? `&parent=${cur}` : ''}`).then((l) => setFolders(l.filter((f) => f.kind === 'folder' && !files.some((x) => x.id === f.id))));
+    get(`/files?view=mine&noshortcuts=1${cur ? `&parent=${cur}` : ''}`).then((l) => setFolders(l.filter((f) => f.kind === 'folder' && !files.some((x) => x.id === f.id))));
     if (cur) get(`/files/${cur}/path`).then(setPath); else setPath([]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cur]);
 
   async function move() {
+    if (shortcut) {
+      try { const r = await post(`/files/${files[0].id}/shortcut`, { parent_id: cur }); toast(r.existing ? 'There’s already a shortcut to it there' : 'Shortcut added'); onMoved(); onClose(); } catch (e) { toast(e.message, 'error'); }
+      return;
+    }
     let ok = 0;
     for (const f of files) { try { await patch(`/files/${f.id}`, { parent_id: cur }); ok++; } catch (e) { toast(`${f.name}: ${e.message}`, 'error'); } }
     if (ok) toast(ok === 1 ? 'Moved' : `Moved ${ok} items`);
@@ -644,7 +661,9 @@ function MoveDialog({ files, onClose, onMoved }) {
   }
 
   return (
-    <Modal title={files.length === 1 ? `Move “${files[0].name}”` : `Move ${files.length} items`} onClose={onClose} footer={<><button className="btn" onClick={onClose}>Cancel</button><button className="btn primary" onClick={move}>Move here</button></>}>
+    <Modal title={shortcut ? `Add a shortcut to “${files[0].name}”` : files.length === 1 ? `Move “${files[0].name}”` : `Move ${files.length} items`} onClose={onClose}
+      footer={<><button className="btn" onClick={onClose}>Cancel</button><button className="btn primary" onClick={move}>{shortcut ? 'Add shortcut here' : 'Move here'}</button></>}>
+      {shortcut && <p className="muted small" style={{ marginTop: 0 }}>It stays where it is; the shortcut opens it from this folder too. People still need access to it to open it.</p>}
       <nav className="crumbs small">
         <button className="crumb" onClick={() => setCur(null)}>My Drive</button>
         {path.map((c) => <span key={c.id} className="crumb-wrap"><Icon name="right" size={16} /><button className="crumb" onClick={() => setCur(c.id)}>{c.name}</button></span>)}
@@ -654,6 +673,21 @@ function MoveDialog({ files, onClose, onMoved }) {
         {folders.map((f) => <li key={f.id}><button onClick={() => setCur(f.id)}><Icon name="folder" className="ft ft-folder" />{f.name}<Icon name="right" size={18} /></button></li>)}
       </ul>
     </Modal>
+  );
+}
+
+/** A shortcut in the list: what it points to, marked with an arrow; it can be opened but not moved or picked. */
+function ShortcutRow({ f, me, selected, onSelect, onOpen, menu }) {
+  return (
+    <tr className={`shortcut-row ${selected ? 'selected' : ''} ${f.broken ? 'broken' : ''}`} tabIndex={0} onClick={onSelect} onDoubleClick={onOpen} onKeyDown={(e) => { if (e.key === 'Enter') onOpen(); }}>
+      <td className="check-col" />
+      <td className="name"><span className="shortcut-icon"><Icon name={f.broken ? 'file' : fileIcon(f)} className={`ft ft-${fileIcon(f)}`} style={f.color ? { color: f.color } : undefined} /><span className="shortcut-arrow" aria-hidden="true">↪</span></span>
+        <span className="name-text">{f.name}<span className="sr-only"> (shortcut)</span></span></td>
+      <td className="hide-sm muted">{f.broken ? '' : f.owner_id === me ? 'me' : f.owner_name}</td>
+      <td className="hide-sm muted">{f.broken ? '' : formatDate(f.updated_at)}</td>
+      <td className="hide-sm muted">—</td>
+      <td className="actions"><Menu trigger={(p) => <button className="icon-btn" aria-label={`Actions for ${f.name} (shortcut)`} {...p}><Icon name="more" /></button>} items={menu} /></td>
+    </tr>
   );
 }
 

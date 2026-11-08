@@ -1842,3 +1842,7 @@ a.home-item:hover, button.home-item:hover { text-decoration: underline; }
 .sheet-grid td.guarded, td.guarded { background-image: repeating-linear-gradient(135deg, transparent 0 6px, color-mix(in srgb, var(--muted, #888) 14%, transparent) 6px 8px); }
 .protect-people { display: flex; flex-direction: column; gap: 4px; margin-left: 24px; max-height: 160px; overflow: auto; }
 .protect-form .row { gap: 8px; }
+/* Drive shortcuts: the item's icon with a small arrow. */
+.shortcut-icon { position: relative; display: inline-flex; }
+.shortcut-arrow { position: absolute; right: -4px; bottom: -4px; font-size: 11px; line-height: 1; background: var(--bg, #fff); border-radius: 50%; padding: 0 1px; }
+tr.shortcut-row.broken .name-text { color: var(--muted, #777); font-style: italic; }
