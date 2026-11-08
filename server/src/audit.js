@@ -1,3 +1,4 @@
+import { securityAlert } from './alerts.js';
 // The activity log company admins see: sign-ins, account and security changes, sharing and
 // deleting files, and mail settings. Each entry belongs to one company (the one whose account,
 // file or setting it is about). Kept for AUDIT_DAYS days (365 unless set).
@@ -38,6 +39,8 @@ export function audit(req, action, { target = null, details = null, org, actor }
     q('INSERT INTO audit_log (org_id, at, actor_id, actor_name, action, target, details, ip) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
       .run(org !== undefined ? org : who?.org_id ?? null, Date.now(), who?.id ?? null, who ? (who.name || who.username || null) : null, action,
         target === null ? null : String(target).slice(0, 300), details ? JSON.stringify(details).slice(0, 4000) : null, req?.ip ?? null);
+    const orgId = org !== undefined ? org : who?.org_id ?? null;
+    securityAlert({ orgId, action, actor: who, target, details });
   } catch (e) { console.error('[audit]', e.message); } // never let logging break the action itself
 }
 

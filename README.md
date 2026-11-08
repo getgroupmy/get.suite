@@ -674,6 +674,8 @@ Once ports 465, 587 and 993 are open, bots will start guessing passwords within 
 
 Each entry shows who did it, what it was done to, the details and the IP address. Filter by kind, search for a person, file or address, or pick dates. **Download CSV** saves what's shown, for a spreadsheet or your records. Admins see only their own company; the platform owner can pick any company. Entries are kept for a year (set `AUDIT_DAYS` to change this).
 
+**Security alerts:** a company's admins also get a notification right away when someone is made an admin or loses admin rights, two-step verification is reset or turned off, one account has five failed sign-ins within 15 minutes (once an hour at most), or an admin downloads someone else's data. Clicking it opens **Admin → Activity**. Whoever made the change isn't told about their own action. Each admin can turn these off in the bell's settings (*Security alerts*).
+
 ## Tasks
 
 - **Lists:** everyone starts with **My tasks**; **+** next to Lists makes more. Type in **Add a task** and press Enter: new tasks go on top. Drag tasks to put them in order.

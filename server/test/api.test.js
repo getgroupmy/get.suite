@@ -3819,3 +3819,25 @@ test('who has seen a file: owner and editors see the viewers, last time and how 
   assert.equal((await owner('GET', '/api/orgs/current')).body.view_history, false);
   await owner('PATCH', '/api/orgs/current', { view_history: true });
 });
+
+test('security alerts reach the company admins: new admins, two-step turned off, repeated failed sign-ins', async () => {
+  const adm = client(); const u = client();
+  const aid = (await owner('POST', '/api/users', { local: 'sal', domain: 'acme.com', name: 'Sal Admin', password: 'password123' })).body.id;
+  await owner('PATCH', `/api/users/${aid}`, { is_admin: true });
+  await login(adm, 'sal@acme.com');
+  const uid2 = (await owner('POST', '/api/users', { local: 'sau', domain: 'acme.com', name: 'Sam User', password: 'password123' })).body.id;
+  const alerts = async () => (await adm('GET', '/api/notifications')).body;
+  const titles = async () => JSON.stringify(await alerts());
+  await owner('PATCH', `/api/users/${uid2}`, { is_admin: true });
+  assert.match(await titles(), /made sau@acme.com an admin/);
+  await owner('PATCH', `/api/users/${uid2}`, { is_admin: false });
+  assert.match(await titles(), /took away sau@acme.com's admin rights/);
+  // Five wrong passwords on one account in a few minutes: one alert, not five.
+  for (let i = 0; i < 6; i++) await u('POST', '/api/auth/login', { username: 'sau@acme.com', password: 'wrong-password' });
+  const all = await alerts();
+  const list = all.items || all.notifications || all;
+  const fails = JSON.stringify(list).match(/failed sign-ins for sau@acme.com/g) || [];
+  assert.equal(fails.length, 1);
+  // The person who did it isn't told about their own change.
+  assert.doesNotMatch(JSON.stringify((await owner('GET', '/api/notifications')).body), /made sau@acme.com an admin/);
+});

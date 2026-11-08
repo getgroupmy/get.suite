@@ -14,7 +14,7 @@ import { useMailStatus } from '../../mailStatus.js';
 
 export default function Admin() {
   const { user } = useAuth();
-  const [tab, setTab] = useState('users');
+  const [tab, setTab] = useState(() => new URLSearchParams(window.location.search).get('tab') || 'users'); // ?tab=activity (from a security alert)
   const [orgId, setOrgId] = useState(user.org_id); // which company the Users tab shows
   const mail = useMailStatus();
   const tabs = [['users', 'Users'], ...(mail?.enabled ? [['email', 'Email']] : []), ['company', 'Company settings'], ['groups', 'Groups'], ['announcements', 'Announcements'], ['activity', 'Activity'], ['storage', 'Storage'], ...(user.is_super ? [['companies', 'All companies'], ['security', 'Security']] : [])];
