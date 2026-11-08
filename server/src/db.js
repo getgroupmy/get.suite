@@ -150,23 +150,24 @@ if (!/'slides'/.test(db.prepare("SELECT sql FROM sqlite_master WHERE type = 'tab
       COMMIT;`);
   } catch (e) { try { db.exec('ROLLBACK'); } catch {} throw e; } finally { db.exec('PRAGMA foreign_keys = ON'); }
 }
-// Commenters (v1.x): the shares table's CHECK allowed only viewer and editor. Rebuilt the same way,
-// from its own definition (so columns added since are kept), with the indexes put back.
-{
-  const t = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'shares'").get();
-  if (t && !/'commenter'/.test(t.sql)) {
-    const indexes = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'index' AND tbl_name = 'shares' AND sql IS NOT NULL").all().map((x) => x.sql);
-    const create = t.sql.replace(/CREATE TABLE\s+(IF NOT EXISTS\s+)?"?shares"?/i, 'CREATE TABLE shares_new').replace(/role IN \('viewer',\s*'editor'\)/, "role IN ('viewer','commenter','editor')");
-    db.exec('PRAGMA foreign_keys = OFF');
-    try {
-      db.exec('BEGIN');
-      db.exec(create);
-      db.exec('INSERT INTO shares_new SELECT * FROM shares; DROP TABLE shares; ALTER TABLE shares_new RENAME TO shares;');
-      for (const i of indexes) db.exec(i);
-      db.exec('COMMIT');
-    } catch (e) { try { db.exec('ROLLBACK'); } catch {} throw e; } finally { db.exec('PRAGMA foreign_keys = ON'); }
-  }
+// Commenters (v1.x): role CHECKs allowed only viewer and editor. SQLite can't change a CHECK, so the
+// table is rebuilt from its own definition (columns added since are kept), with its indexes put back.
+export function widenRoles(table) {
+  const t = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?").get(table);
+  if (!t || /'commenter'/.test(t.sql)) return false;
+  const indexes = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'index' AND tbl_name = ? AND sql IS NOT NULL").all(table).map((x) => x.sql);
+  const create = t.sql.replace(new RegExp(`CREATE TABLE\\s+(IF NOT EXISTS\\s+)?"?${table}"?`, 'i'), `CREATE TABLE ${table}_new`).replace(/role IN \('viewer',\s*'editor'\)/, "role IN ('viewer','commenter','editor')");
+  db.exec('PRAGMA foreign_keys = OFF');
+  try {
+    db.exec('BEGIN');
+    db.exec(create);
+    db.exec(`INSERT INTO ${table}_new SELECT * FROM ${table}; DROP TABLE ${table}; ALTER TABLE ${table}_new RENAME TO ${table};`);
+    for (const x of indexes) db.exec(x);
+    db.exec('COMMIT');
+  } catch (e) { try { db.exec('ROLLBACK'); } catch {} throw e; } finally { db.exec('PRAGMA foreign_keys = ON'); }
+  return true;
 }
+widenRoles('shares');
 const hasColumn = (table, col) => db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === col);
 if (!hasColumn('messages', 'edited_at')) db.exec('ALTER TABLE messages ADD COLUMN edited_at INTEGER');
 if (!hasColumn('messages', 'files')) db.exec('ALTER TABLE messages ADD COLUMN files TEXT'); // JSON [{ id, name, mime, size }]

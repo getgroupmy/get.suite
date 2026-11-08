@@ -435,7 +435,7 @@ export function ShareDialog({ file, onClose }) {
   const setCompanyRole = async (next) => {
     const was = company;
     setCompany(next);
-    try { await put(`/files/${file.id}/company`, { role: next || null }); toast(next ? `Everyone at ${user.org_name} can ${next === 'editor' ? 'edit' : 'view'} it` : `No longer shared with everyone at ${user.org_name}`); }
+    try { await put(`/files/${file.id}/company`, { role: next || null }); toast(next ? `Everyone at ${user.org_name} can ${next === 'editor' ? 'edit' : next === 'commenter' ? 'comment on' : 'view'} it` : `No longer shared with everyone at ${user.org_name}`); }
     catch (e) { setCompany(was); toast(e.message, 'error'); }
   };
 
@@ -501,7 +501,7 @@ export function ShareDialog({ file, onClose }) {
             <span className="avatar company-avatar" aria-hidden="true"><Icon name="people" size={16} /></span>
             <span className="grow">Everyone at {user.org_name} <span className="muted small">(also people who join later)</span></span>
             <select value={company} aria-label={`Access for everyone at ${user.org_name}`} onChange={(e) => setCompanyRole(e.target.value)}>
-              <option value="">No access</option><option value="viewer">Viewer</option><option value="editor">Editor</option>
+              <option value="">No access</option><option value="viewer">Viewer</option><option value="commenter">Commenter</option><option value="editor">Editor</option>
             </select>
             <span style={{ width: 32 }} />
           </li>
@@ -511,7 +511,7 @@ export function ShareDialog({ file, onClose }) {
             <span className="avatar company-avatar" aria-hidden="true"><Icon name="people" size={16} /></span>
             <span className="grow ellipsis">{g.name} <span className="muted small">group · {g.members === 1 ? '1 person' : `${g.members} people`}</span></span>
             <select value={g.role} disabled={!mine} aria-label={`Access for the group ${g.name}`} onChange={(e) => setFileGroups(fileGroups.map((x) => (x.group_id === g.group_id ? { ...x, role: e.target.value } : x)))}>
-              <option value="viewer">Viewer</option><option value="editor">Editor</option>
+              <option value="viewer">Viewer</option><option value="commenter">Commenter</option><option value="editor">Editor</option>
             </select>
             {mine ? <button className="icon-btn" aria-label={`Remove the group ${g.name}`} onClick={() => setFileGroups(fileGroups.filter((x) => x.group_id !== g.group_id))}><Icon name="close" size={18} /></button> : <span style={{ width: 32 }} />}
           </li>

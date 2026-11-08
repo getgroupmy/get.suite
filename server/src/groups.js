@@ -6,7 +6,7 @@
 // direct_role is what they were given one by one, and group_shares what groups were given. sync()
 // works out the effective role from both whenever either changes.
 import { Router } from 'express';
-import { q, tx } from './db.js';
+import { q, tx, widenRoles } from './db.js';
 import { uid, now, str, bad, notFound } from './util.js';
 import { requireAdmin } from './auth.js';
 import { sendTo } from './hub.js';
@@ -28,16 +28,17 @@ q(`CREATE TABLE IF NOT EXISTS group_members (
 q(`CREATE TABLE IF NOT EXISTS group_shares (
   file_id TEXT NOT NULL REFERENCES files(id) ON DELETE CASCADE,
   group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
-  role TEXT NOT NULL CHECK (role IN ('viewer','editor')),
+  role TEXT NOT NULL CHECK (role IN ('viewer','commenter','editor')),
   PRIMARY KEY (file_id, group_id)
 )`).run();
 q('CREATE INDEX IF NOT EXISTS group_shares_group ON group_shares(group_id)').run();
+widenRoles('group_shares'); // older databases: commenters too
 if (!q('PRAGMA table_info(shares)').all().some((c) => c.name === 'direct_role')) {
   q('ALTER TABLE shares ADD COLUMN direct_role TEXT').run();
   q('UPDATE shares SET direct_role = role').run(); // every share so far was given directly
 }
 
-const RANK = { viewer: 1, editor: 2 };
+const RANK = { viewer: 1, commenter: 1.5, editor: 2 };
 const best = (a, b) => (!a ? b : !b ? a : RANK[a] >= RANK[b] ? a : b);
 export const MAX_GROUPS = 200;
 
@@ -82,7 +83,7 @@ export function setFileGroups(fileId, orgId, list) {
   return tx(() => {
     q('DELETE FROM group_shares WHERE file_id = ?').run(fileId);
     for (const s of list) {
-      if (!['viewer', 'editor'].includes(s.role)) throw bad('role must be viewer or editor');
+      if (!['viewer', 'commenter', 'editor'].includes(s.role)) throw bad('role must be viewer, commenter or editor');
       if (!q('SELECT 1 FROM groups WHERE id = ? AND org_id = ?').get(String(s.group_id), orgId)) throw bad('No such group in your company');
       q('INSERT OR REPLACE INTO group_shares (file_id, group_id, role) VALUES (?, ?, ?)').run(fileId, String(s.group_id), s.role);
     }

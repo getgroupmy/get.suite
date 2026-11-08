@@ -3664,3 +3664,23 @@ test('sharing as commenter: reads and comments, never edits', async () => {
   await owner('PUT', `/api/files/${sheet.id}/shares`, { shares: [{ user_id: cid, role: 'viewer' }] });
   assert.equal((await c('POST', `/api/comments/${sheet.id}`, { body: 'Again?', anchor: { sheet: 0, cell: 'B3' } })).status, 403);
 });
+
+test('commenters through groups and the whole company; a commenter in a viewer group stays a commenter', async () => {
+  const m = client();
+  const mid = (await owner('POST', '/api/users', { local: 'gcm', domain: 'acme.com', name: 'Gus Commenter', password: 'password123' })).body.id;
+  await login(m, 'gcm@acme.com');
+  const g = (await owner('POST', '/api/groups', { name: 'Readers' })).body;
+  await owner('PUT', `/api/groups/${g.id}/members`, { user_ids: [mid] });
+  const doc = (await owner('POST', '/api/files/new', { kind: 'doc', name: 'Group doc' })).body;
+  assert.equal((await owner('PUT', `/api/files/${doc.id}/groups`, { groups: [{ group_id: g.id, role: 'commenter' }] })).status, 200);
+  assert.equal((await m('GET', `/api/files/${doc.id}`)).body.role, 'commenter');
+  // Personally a commenter, through the group a viewer: commenter wins.
+  await owner('PUT', `/api/files/${doc.id}/groups`, { groups: [{ group_id: g.id, role: 'viewer' }] });
+  await owner('PUT', `/api/files/${doc.id}/shares`, { shares: [{ user_id: mid, role: 'commenter' }] });
+  assert.equal((await m('GET', `/api/files/${doc.id}`)).body.role, 'commenter');
+  // Everyone in the company can comment.
+  const doc2 = (await owner('POST', '/api/files/new', { kind: 'doc', name: 'Company doc' })).body;
+  assert.equal((await owner('PUT', `/api/files/${doc2.id}/company`, { role: 'commenter' })).body.org_role, 'commenter');
+  assert.equal((await m('GET', `/api/files/${doc2.id}`)).body.role, 'commenter');
+  assert.equal((await m('POST', `/api/comments/${doc2.id}`, { body: 'Hello', anchor: { quote: 'x' } })).status, 201);
+});

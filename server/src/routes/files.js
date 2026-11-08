@@ -506,7 +506,7 @@ export default function fileRoutes({ maxUploadBytes }) {
       q(`INSERT INTO shares (file_id, user_id, role, direct_role) VALUES (?, ?, ?, ?) ON CONFLICT(file_id, user_id) DO UPDATE SET direct_role = excluded.direct_role`).run(f.id, a.user_id, role, role);
       syncShares(f.id);
       const who = q('SELECT name FROM users WHERE id = ?').get(a.user_id)?.name || 'someone';
-      recordActivity(f.id, req.user.id, 'share', { added: [`${who} (${role === 'editor' ? 'can edit' : 'can view'})`], removed: [] });
+      recordActivity(f.id, req.user.id, 'share', { added: [`${who} (${role === 'editor' ? 'can edit' : role === 'commenter' ? 'can comment' : 'can view'})`], removed: [] });
       audit(req, 'file.share', { target: f.name, details: { with: [`${q('SELECT username FROM users WHERE id = ?').get(a.user_id)?.username} (${role})`], request: true } });
       bell([a.user_id], { kind: 'share', title: `${req.user.name || req.user.username} shared “${f.name}” with you`, body: role === 'editor' ? 'You can edit' : role === 'commenter' ? 'You can comment' : 'You can view', link: openLink(f), actor: req.user.name });
       sendTo([a.user_id], { type: 'files-changed', parent_id: null });
@@ -978,12 +978,12 @@ export default function fileRoutes({ maxUploadBytes }) {
   r.put('/:id/company', (req, res) => {
     const f = loadFile(req.params.id, req.user, 'owner');
     if (f.owner_id !== req.user.id) throw forbidden('Only the owner can share with the whole company');
-    const role = ['viewer', 'editor'].includes(req.body.role) ? req.body.role : null;
+    const role = ['viewer', 'commenter', 'editor'].includes(req.body.role) ? req.body.role : null;
     const before = audienceFor(f.id);
     q('UPDATE files SET org_role = ? WHERE id = ?').run(role, f.id);
     sendTo(new Set([...before, ...audienceFor(f.id)]), { type: 'files-changed', parent_id: f.parent_id });
     const orgName = q('SELECT name FROM orgs WHERE id = ?').get(req.user.org_id)?.name || 'the company';
-    recordActivity(f.id, req.user.id, 'share', role ? { added: [`everyone at ${orgName} (${role === 'editor' ? 'can edit' : 'can view'})`], removed: [] } : { added: [], removed: [`everyone at ${orgName}`] });
+    recordActivity(f.id, req.user.id, 'share', role ? { added: [`everyone at ${orgName} (${role === 'editor' ? 'can edit' : role === 'commenter' ? 'can comment' : 'can view'})`], removed: [] } : { added: [], removed: [`everyone at ${orgName}`] });
     audit(req, 'file.share', { target: f.name, details: { with: [role ? `everyone (${role})` : 'no longer everyone'] } });
     res.json(publicFile(loadFile(f.id, req.user)));
   });

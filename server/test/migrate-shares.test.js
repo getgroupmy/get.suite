@@ -28,6 +28,14 @@ test('shares from before commenters keep every row and column, and take commente
   db.prepare("INSERT INTO shares (file_id, user_id, role) VALUES ('f1', 'u3', 'commenter')").run();
   assert.throws(() => db.prepare("INSERT INTO shares (file_id, user_id, role) VALUES ('f1', 'u4', 'boss')").run());
   assert.ok(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'shares_user'").get(), 'index kept');
+  // Group shares (and any table like them) the same way.
+  const { widenRoles } = await import('../src/db.js');
+  db.exec(`CREATE TABLE gs_old (file_id TEXT NOT NULL, group_id TEXT NOT NULL, role TEXT NOT NULL CHECK (role IN ('viewer','editor')), PRIMARY KEY (file_id, group_id));
+           INSERT INTO gs_old VALUES ('f', 'g', 'editor');`);
+  assert.equal(widenRoles('gs_old'), true);
+  assert.equal(widenRoles('gs_old'), false, 'once');
+  db.prepare("INSERT INTO gs_old VALUES ('f', 'h', 'commenter')").run();
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM gs_old').get().n, 2);
   db.close();
   fs.rmSync(dir, { recursive: true, force: true });
 });
