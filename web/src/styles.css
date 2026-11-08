@@ -1810,3 +1810,12 @@ a.home-item:hover, button.home-item:hover { text-decoration: underline; }
 .form-section { border-left: 4px solid var(--primary, #1a73e8); }
 .form-goto summary { cursor: pointer; color: var(--primary, #1a73e8); }
 .form-section-head h2 { margin: 0 0 4px; font-size: 18px; }
+/* Drive preview: comments beside the file, and numbered pins on pictures. */
+.preview-with-comments.open { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 12px; align-items: start; }
+.preview-comments .comments-panel { position: static; width: auto; max-height: 60vh; border-left: 0; }
+.preview-pic { position: relative; display: inline-block; max-width: 100%; }
+.preview-pic.pinning { cursor: crosshair; }
+.comment-pin { position: absolute; transform: translate(-50%, -50%); min-width: 24px; height: 24px; border-radius: 12px 12px 12px 2px; border: 2px solid #fff; background: #e37400; color: #fff; font-size: 12px; font-weight: 600; padding: 0 5px; cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,.4); }
+.comment-pin.on { background: #1a73e8; }
+.comment-pin.new { background: #188038; pointer-events: none; }
+@media (max-width: 760px) { .preview-with-comments.open { grid-template-columns: 1fr; } }

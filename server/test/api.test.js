@@ -3622,3 +3622,26 @@ test('forms: after a section, go to a later one or to the end', async () => {
   assert.deepEqual(checkAnswers(qs, { k: 'Yes', diet: 'Veg' }), { k: 'Yes', diet: 'Veg' }, 'Yes page ends the form: No page not required');
   assert.deepEqual(checkAnswers(qs, { k: 'No', why: 'Busy', diet: 'x' }), { k: 'No', why: 'Busy' });
 });
+
+test('comments on uploaded files: the whole file or a spot on a picture; mentions open Drive’s preview', async () => {
+  const kim = client();
+  const kimId = (await owner('POST', '/api/users', { local: 'cfk', domain: 'acme.com', name: 'Cora File', password: 'password123' })).body.id;
+  await login(kim, 'cfk@acme.com');
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  const pic = (await owner('POST', '/api/files/upload?name=logo.png', png, { raw: true })).body;
+  const whole = await owner('POST', `/api/comments/${pic.id}`, { body: 'Is this the final logo?', anchor: {} });
+  assert.equal(whole.status, 201);
+  const spot = await owner('POST', `/api/comments/${pic.id}`, { body: 'Too dark here @cfk@acme.com', anchor: { x: 25.55, y: 70 } });
+  assert.equal(spot.status, 201);
+  assert.deepEqual(spot.body.noAccess, ['cfk@acme.com'], 'not shared yet');
+  assert.equal((await owner('POST', `/api/comments/${pic.id}`, { body: 'x', anchor: { x: 120, y: 5 } })).status, 400);
+  const list = (await owner('GET', `/api/comments/${pic.id}`)).body;
+  assert.deepEqual(list.map((c) => c.anchor), [{}, { x: 25.6, y: 70 }]);
+  // Shared: a mention reaches them with a link to the preview.
+  await owner('PUT', `/api/files/${pic.id}/shares`, { shares: [{ user_id: kimId, role: 'editor' }] });
+  const c3 = (await owner('POST', `/api/comments/${pic.id}`, { body: 'What do you think @cfk@acme.com?', anchor: {} })).body;
+  assert.deepEqual(c3.notified, ['cfk@acme.com']);
+  const bell = (await kim('GET', '/api/notifications')).body;
+  assert.ok(JSON.stringify(bell).includes(`/drive?preview=${pic.id}&comment=${c3.comment.id}`));
+  assert.equal((await kim('GET', `/api/comments/${pic.id}`)).body.length, 3);
+});

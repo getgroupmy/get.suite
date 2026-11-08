@@ -6,6 +6,7 @@ import Icon, { fileIcon } from '../../components/Icon.jsx';
 import { Menu, Modal, PromptModal, ConfirmModal, Empty, useToast, Avatar } from '../../components/ui.jsx';
 import { useAuth } from '../../App.jsx';
 import { ApprovalsView, RequestApproval } from './Approvals.jsx';
+import { CommentsPanel, useComments } from '../comments.jsx';
 
 function useDriveRoute() {
   const { pathname } = useLocation();
@@ -127,6 +128,14 @@ export default function Drive() {
   useEffect(() => onLive((m) => { if (m.type === 'access-requests' || m.type === 'live-connected') loadRequests(); }), [loadRequests]);
   const [searchParams, setSearchParams] = useSearchParams();
   useEffect(() => { if (searchParams.get('requests')) { setRequestsOpen(true); setSearchParams({}, { replace: true }); } }, [searchParams, setSearchParams]);
+  // /drive?preview=<file id>&comment=<id>: a file's preview (e.g. from a comment notification).
+  useEffect(() => {
+    const id = searchParams.get('preview');
+    if (!id) return;
+    const comment = searchParams.get('comment');
+    setSearchParams({}, { replace: true });
+    get(`/files/${id}`).then((f) => setDialog({ type: 'preview', file: f, comment })).catch((e) => toast(e.message, 'error'));
+  }, [searchParams, setSearchParams]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const parentId = route.view === 'mine' ? route.folderId : null;
   const canCreate = route.view === 'mine' && (!folder || folder.role !== 'viewer');
@@ -396,7 +405,7 @@ export default function Drive() {
       {dialog?.type === 'share' && <ShareDialog file={dialog.file} onClose={() => setDialog(null)} />}
       {dialog?.type === 'approval' && <RequestApproval file={dialog.file} onClose={() => setDialog(null)} />}
       {dialog?.type === 'move' && <MoveDialog files={dialog.files} onClose={() => setDialog(null)} onMoved={() => { setChecked(new Set()); load(); }} />}
-      {dialog?.type === 'preview' && <Preview file={dialog.file} onClose={() => setDialog(null)} onOpenAs={() => { setDialog(null); openAs(dialog.file); }} />}
+      {dialog?.type === 'preview' && <Preview file={dialog.file} comment={dialog.comment} onClose={() => setDialog(null)} onOpenAs={() => { setDialog(null); openAs(dialog.file); }} />}
       {requestsOpen && <AccessRequests list={requests} onClose={() => setRequestsOpen(false)} onChanged={() => { loadRequests(); load(); }} />}
       {dialog?.type === 'templates' && <TemplatesDialog onClose={() => setDialog(null)} onPick={async (t) => {
         try {
@@ -655,11 +664,34 @@ export function officeAs(f) {
   return { docx: { what: 'document', icon: 'doc' }, md: { what: 'document', icon: 'doc' }, markdown: { what: 'document', icon: 'doc' }, xlsx: { what: 'spreadsheet', icon: 'sheet' }, pptx: { what: 'presentation', icon: 'slides' } }[ext] || null;
 }
 
-function Preview({ file, onClose, onOpenAs }) {
+function Preview({ file, onClose, onOpenAs, comment = null }) {
   const src = `/api/files/${file.id}/raw`;
   const m = file.mime || '';
+  // Comments: on the whole file, or (pictures) on a spot, shown as a numbered pin.
+  const { threads } = useComments(file.id);
+  const [panel, setPanel] = useState(!!comment);
+  const [active, setActive] = useState(comment);
+  const [pending, setPending] = useState(null);
+  const [pinning, setPinning] = useState(false);
+  const canEdit = file.role !== 'viewer';
+  const isPicture = /^image\/(png|jpeg|gif|webp|avif|bmp)$/.test(m);
+  const pins = threads.filter((t) => !t.resolved && t.anchor && t.anchor.x !== undefined);
+  const newComment = (anchor, label) => { setPanel(true); setPending({ anchor, label, onCreated: () => setPending(null), onCancel: () => setPending(null) }); };
+  const pinAt = (e) => {
+    if (!pinning) return;
+    const r = e.currentTarget.getBoundingClientRect();
+    setPinning(false);
+    newComment({ x: ((e.clientX - r.left) / r.width) * 100, y: ((e.clientY - r.top) / r.height) * 100 }, 'this spot');
+  };
+  const labelOf = (t) => (t.anchor?.x !== undefined ? `Spot ${pins.findIndex((p) => p.id === t.id) + 1 || ''}`.trim() : 'The whole file');
   let body;
-  if (/^image\/(png|jpeg|gif|webp|avif|bmp)$/.test(m)) body = <img src={src} alt={file.name} className="preview-media" />;
+  if (isPicture) body = (
+    <div className={`preview-pic ${pinning ? 'pinning' : ''}`} onClick={pinAt}>
+      <img src={src} alt={file.name} className="preview-media" />
+      {pins.map((t, k) => <button key={t.id} type="button" className={`comment-pin ${t.id === active ? 'on' : ''}`} style={{ left: `${t.anchor.x}%`, top: `${t.anchor.y}%` }} aria-label={`Comment ${k + 1}`} onClick={(e) => { e.stopPropagation(); setPanel(true); setActive(t.id); }}>{k + 1}</button>)}
+      {pending?.anchor?.x !== undefined && <span className="comment-pin new" style={{ left: `${pending.anchor.x}%`, top: `${pending.anchor.y}%` }} aria-hidden="true">+</span>}
+    </div>
+  );
   else if (/^video\/(mp4|webm)$/.test(m)) body = <video src={src} controls className="preview-media" />;
   else if (m.startsWith('audio/')) body = <audio src={src} controls />;
   else if (m === 'application/pdf' || m.startsWith('text/')) body = <iframe src={src} title={file.name} className="preview-frame" />;
@@ -667,10 +699,25 @@ function Preview({ file, onClose, onOpenAs }) {
   else body = <Empty icon="file" title="No preview available">Download the file to open it on your device.</Empty>;
   return (
     <Modal wide title={file.name} onClose={onClose} footer={<>
+      <button type="button" className={`btn ${panel ? 'primary' : ''}`} aria-pressed={panel} onClick={() => setPanel(!panel)}><Icon name="chat" size={18} /> Comments{threads.filter((t) => !t.resolved).length ? ` (${threads.filter((t) => !t.resolved).length})` : ''}</button>
       {officeAs(file) && <button type="button" className="btn primary" onClick={onOpenAs}><Icon name={officeAs(file).icon} size={18} /> Open as {officeAs(file).what}</button>}
       <a className={`btn ${officeAs(file) ? '' : 'primary'}`} href={`${src}?download`}><Icon name="download" size={18} /> Download</a>
     </>}>
-      <div className="preview">{body}</div>
+      <div className={`preview-with-comments ${panel ? 'open' : ''}`}>
+        <div className="preview">{body}</div>
+        {panel && (
+          <div className="preview-comments stack-tight">
+            {canEdit && !pending && (
+              <div className="row wrap">
+                <button type="button" className="btn small" onClick={() => newComment({}, 'the whole file')}>Comment on the file</button>
+                {isPicture && <button type="button" className={`btn small ${pinning ? 'primary' : ''}`} aria-pressed={pinning} onClick={() => setPinning(!pinning)}>{pinning ? 'Click a spot on the picture…' : 'Comment on a spot'}</button>}
+              </div>
+            )}
+            <CommentsPanel fileId={file.id} threads={threads} canEdit={canEdit} active={active} setActive={setActive} pending={pending}
+              onShow={(t) => setActive(t.id)} labelOf={labelOf} onClose={() => { setPending(null); setPanel(false); }} />
+          </div>
+        )}
+      </div>
       <p className="muted small">{formatBytes(file.size)} · modified {formatDate(file.updated_at)}</p>
     </Modal>
   );

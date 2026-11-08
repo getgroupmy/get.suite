@@ -25,8 +25,10 @@ q(`CREATE TABLE IF NOT EXISTS file_comments (
 )`).run();
 q('CREATE INDEX IF NOT EXISTS file_comments_file ON file_comments(file_id, created_at)').run();
 
-const KINDS = ['doc', 'sheet', 'slides'];
+const KINDS = ['doc', 'sheet', 'slides', 'file'];
 const APP = { doc: 'docs', sheet: 'sheets', slides: 'slides' };
+/** Where a comment opens: in its editor, or (an uploaded file) in Drive's preview. */
+const linkTo = (file, commentId) => (APP[file.kind] ? `/${APP[file.kind]}/${file.id}?comment=${commentId}` : `/drive?preview=${file.id}&comment=${commentId}`);
 const MENTION_RE = /@([a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,})/gi;
 
 function loadFile(id, user, needed = 'viewer') {
@@ -39,6 +41,12 @@ function loadFile(id, user, needed = 'viewer') {
 function readAnchor(kind, a) {
   if (!a || typeof a !== 'object') return null;
   if (kind === 'doc') return { quote: str(a.quote ?? '', { max: 500 }) };
+  if (kind === 'file') { // the whole file, or a spot on a picture ({ x, y } in % of its width and height)
+    const x = Number(a.x), y = Number(a.y);
+    if (a.x === undefined && a.y === undefined) return {};
+    if (![x, y].every((v) => Number.isFinite(v) && v >= 0 && v <= 100)) throw bad('Comment on a spot inside the picture');
+    return { x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10 };
+  }
   if (kind === 'slides') { // the slide's own id, so the comment stays with it when slides move
     const slide = String(a.slide || '');
     if (!/^[\w-]{1,64}$/.test(slide)) throw bad('Comment on a slide');
@@ -61,10 +69,9 @@ function mention(user, file, body, commentId) {
     const u = q('SELECT id, name, username FROM users WHERE username = ? AND disabled = 0').get(email.toLowerCase());
     if (!u || u.id === user.id || notified.includes(u.username) || noAccess.includes(email.toLowerCase())) continue;
     if (!canReach(user, u.id) || !roleFor(file.id, u.id)) { noAccess.push(u.username); continue; }
-    const where = APP[file.kind];
-    const ok = sendDirect(user, u.id, `Mentioned you in a comment on “${file.name}”:\n${body}\n\nOpen: /${where}/${file.id}?comment=${commentId}`);
+    const ok = sendDirect(user, u.id, `Mentioned you in a comment on “${file.name}”:\n${body}\n\nOpen: ${linkTo(file, commentId)}`);
     if (ok) notified.push(u.username);
-    notify([u.id], { kind: 'comment', title: `${user.name || user.username} mentioned you in a comment on “${file.name}”`, body, link: `/${where}/${file.id}?comment=${commentId}`, actor: user.name });
+    notify([u.id], { kind: 'comment', title: `${user.name || user.username} mentioned you in a comment on “${file.name}”`, body, link: linkTo(file, commentId), actor: user.name });
   }
   return { notified, noAccess };
 }
