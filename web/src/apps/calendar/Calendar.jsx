@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router';
+import { createPortal } from 'react-dom';
 import { useAuth } from '../../App.jsx';
 import { get, post, put, patch, del, onLive, postText } from '../../api.js';
 import { localToday } from '../tasks/taskmath.js';
@@ -10,7 +11,7 @@ import { PLACES, placeText, isoDay } from '../../components/workloc.js';
 import { useMailStatus } from '../../mailStatus.js';
 import { insights, hoursText } from './insights.js';
 import { timeIn, zoneName, cityOf } from '../../components/zones.js';
-import { scheduleOf, DAY, VIEWS, startOfDay, visibleDays, shift, title, onDay, layoutDay, expandAll, occurrenceIndex, describeRule, daysBetween, moveTimes, resizeEnd, shiftWeekdays, snapMinutes } from './calmath.js';
+import { printRange, daysFromTo, scheduleOf, DAY, VIEWS, startOfDay, visibleDays, shift, title, onDay, layoutDay, expandAll, occurrenceIndex, describeRule, daysBetween, moveTimes, resizeEnd, shiftWeekdays, snapMinutes } from './calmath.js';
 
 const OTHER_COLOURS = ['#e37400', '#8e24aa', '#0b8043', '#d93025', '#00796b', '#3949ab'];
 const COLORS = ['#1a73e8', '#0b8043', '#d50000', '#f4511e', '#8e24aa', '#616161'];
@@ -84,6 +85,7 @@ export default function Calendar() {
   const [bookingOpen, setBookingOpen] = useState(false);
   const [hoursOpen, setHoursOpen] = useState(false);
   const [sharingOpen, setSharingOpen] = useState(false);
+  const [printOpen, setPrintOpen] = useState(false);
   // Import a calendar file from Google Calendar, Outlook or Apple Calendar.
   const importInput = useRef();
   const importIcs = async (file) => {
@@ -244,6 +246,7 @@ export default function Calendar() {
         <button type="button" className="subnav-item" onClick={() => setBookingOpen(true)}><Icon name="link" /><span className="grow">Booking pages</span></button>
         <button type="button" className="subnav-item" onClick={() => setHoursOpen(true)}><Icon name="clock" /><span className="grow">Working hours</span></button>
         <button type="button" className="subnav-item" onClick={() => setSharingOpen(true)}><Icon name="share" /><span className="grow">Share my calendar</span></button>
+        <button type="button" className="subnav-item" onClick={() => setPrintOpen(true)}><Icon name="print" /><span className="grow">Print or save as PDF</span></button>
         <button type="button" className="subnav-item" onClick={() => importInput.current.click()}><Icon name="upload" /><span className="grow">Import (.ics)</span></button>
         <input ref={importInput} type="file" accept=".ics,text/calendar" hidden aria-label="Calendar file to import" onChange={(e) => { importIcs(e.target.files[0]); e.target.value = ''; }} />
         <a className="subnav-item" href="/api/events/export" download><Icon name="download" /><span className="grow">Export (.ics)</span></a>
@@ -346,6 +349,7 @@ export default function Calendar() {
       </section>
       {bookingOpen && <BookingPagesDialog onClose={() => setBookingOpen(false)} />}
       {hoursOpen && <WorkHoursDialog onClose={() => setHoursOpen(false)} />}
+      {printOpen && <PrintAgenda onClose={() => setPrintOpen(false)} />}
       {sharingOpen && <ShareCalendarDialog people={people.filter((p) => p.id !== me.id)} onClose={() => setSharingOpen(false)} />}
       {insightsOpen && <TimeInsights anchor={anchor} onClose={() => setInsightsOpen(false)} />}
       {otherFor && <PromptModal title="Working elsewhere" label="Where?" confirm="Save" onClose={() => setOtherFor(null)}
@@ -747,6 +751,66 @@ const toHHMM = (m) => `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${Str
 const fromHHMM = (v, end) => { const [h, m] = v.split(':').map(Number); const x = h * 60 + m; return end && x === 0 ? 1440 : x; };
 
 /** Your working hours: the days and times you work, kept to by Find a time (in your time zone). */
+/** Print or save as PDF: an agenda of a week, a month, four weeks or chosen dates, day by day. */
+function PrintAgenda({ onClose }) {
+  const [kind, setKind] = useState('week');
+  const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const [custom, setCustom] = useState(() => { const r = printRange('week'); return { from: iso(r.from), to: iso(r.to) }; });
+  const range = kind === 'custom' ? { from: new Date(`${custom.from}T00:00`), to: new Date(`${custom.to}T00:00`) } : printRange(kind);
+  const [events, setEvents] = useState(null);
+  const from = range.from.getTime(), to = range.to.getTime() + DAY;
+  useEffect(() => {
+    if (!(to > from)) { setEvents([]); return; }
+    setEvents(null);
+    get(`/events?from=${from}&to=${to}`).then((list) => setEvents(expandAll(list, from, to).filter((e) => e.my_status !== 'no'))).catch(() => setEvents([]));
+  }, [from, to]);
+  const days = to > from ? daysFromTo(range.from, range.to) : [];
+  const list = events ? scheduleOf(events, days) : [];
+  const title = `${range.from.toLocaleDateString([], { day: 'numeric', month: 'long', year: 'numeric' })} – ${range.to.toLocaleDateString([], { day: 'numeric', month: 'long', year: 'numeric' })}`;
+  const print = () => {
+    document.body.classList.add('printing-agenda');
+    const done = () => { document.body.classList.remove('printing-agenda'); window.removeEventListener('afterprint', done); };
+    window.addEventListener('afterprint', done);
+    window.print();
+    setTimeout(done, 1000);
+  };
+  const agenda = (
+    <div className="print-agenda" aria-label="Agenda to print">
+      <h1>{title}</h1>
+      {events === null ? <p className="muted">Loading…</p> : !list.length ? <p className="muted">Nothing scheduled.</p> : list.map(({ day, items }) => (
+        <section key={day.getTime()} className="agenda-day">
+          <h2>{day.toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' })}</h2>
+          <table><tbody>{items.map((ev) => (
+            <tr key={ev.key || `${ev.id}:${ev.start}`}>
+              <td className="agenda-time">{ev.all_day ? 'All day' : `${fmtTime(ev.start)} – ${fmtTime(ev.end)}`}</td>
+              <td><strong>{ev.title || '(No title)'}</strong>{ev.location ? <span className="agenda-where"> · {ev.location}</span> : ''}{ev.kind === 'ooo' ? ' (out of office)' : ''}</td>
+            </tr>
+          ))}</tbody></table>
+        </section>
+      ))}
+    </div>
+  );
+  return (<>
+    <Modal wide title="Print or save as PDF" onClose={onClose} footer={<><button type="button" className="btn" onClick={onClose}>Close</button><button type="button" className="btn primary" disabled={events === null} onClick={print}><Icon name="print" size={18} /> Print</button></>}>
+      <div className="stack">
+        <div className="row wrap">
+          <label className="field"><span>What to print</span>
+            <select value={kind} onChange={(e) => setKind(e.target.value)} aria-label="What to print">
+              <option value="week">This week</option><option value="month">This month</option><option value="four">The next four weeks</option><option value="custom">Dates I choose…</option>
+            </select></label>
+          {kind === 'custom' && <>
+            <label className="field"><span>From</span><input type="date" value={custom.from} onChange={(e) => setCustom({ ...custom, from: e.target.value })} /></label>
+            <label className="field"><span>To</span><input type="date" value={custom.to} onChange={(e) => setCustom({ ...custom, to: e.target.value })} /></label>
+          </>}
+        </div>
+        <p className="muted small" style={{ margin: 0 }}>Your events and the invitations you haven't declined, day by day (up to three months). Choose “Save as PDF” in the print window to keep a copy.</p>
+        <div className="agenda-preview">{agenda}</div>
+      </div>
+    </Modal>
+    {createPortal(<div className="print-agenda-root">{agenda}</div>, document.body)}
+  </>);
+}
+
 /** Share my calendar: the colleagues who see what your events are (everyone else sees only when you're busy). */
 function ShareCalendarDialog({ people, onClose }) {
   const toast = useToast();

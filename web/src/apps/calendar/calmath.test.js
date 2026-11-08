@@ -170,3 +170,14 @@ test('schedule: four weeks from the day; only days with something; all-day first
   assert.equal(s[0].day.getDate(), 9);
   assert.deepEqual(s[0].items.map((e) => e.title), ['Holiday', 'Early', 'Late']);
 });
+
+test('printing: this week (from Monday), this month, four weeks', async () => {
+  const { printRange, daysFromTo } = await import('./calmath.js');
+  const wed = new Date(2026, 10, 11, 15); // Wednesday 11 November 2026
+  const w = printRange('week', wed);
+  assert.deepEqual([w.from.getDate(), w.to.getDate(), w.from.getDay()], [9, 15, 1]);
+  const m = printRange('month', wed);
+  assert.deepEqual([m.from.getDate(), m.to.getDate()], [1, 30]);
+  assert.equal(daysFromTo(printRange('four', wed).from, printRange('four', wed).to).length, 28);
+  assert.equal(daysFromTo(new Date(2026, 0, 1), new Date(2026, 11, 31)).length, 92, 'at most 92 days');
+});
