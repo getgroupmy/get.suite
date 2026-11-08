@@ -4538,3 +4538,15 @@ test('chat emails: refused without email; messages are queued only for people wh
   assert.equal((await b('PUT', '/api/chat/me/chat-email', { on: false })).body.on, false);
   assert.equal(q('SELECT COUNT(*) AS n FROM chat_email_queue WHERE user_id = ?').get(ub.body.id).n, 0, 'turning it off clears the queue');
 });
+
+test('IMPORTRANGE reads another spreadsheet with the reader\'s own access', async () => {
+  const kay = client(); await login(kay, 'kay@keepco.com');
+  const ir = await kay('POST', '/api/users', { local: 'irb', domain: 'keepco.com', name: 'Ira Reader', password: 'password123' });
+  const ira = client(); await login(ira, 'irb@keepco.com');
+  const src = (await kay('POST', '/api/files/new', { kind: 'sheet', name: 'Rates', content: { sheets: [{ name: 'Sheet1', cells: { A1: '12' } }] } })).body;
+  assert.equal((await ira('GET', `/api/files/${src.id}/content`)).status, 404, 'not shared: nothing to import');
+  assert.equal((await kay('PUT', `/api/files/${src.id}/shares`, { shares: [{ user_id: ir.body.id, role: 'viewer' }] })).status, 200);
+  const r = await ira('GET', `/api/files/${src.id}/content`);
+  assert.equal(r.body.file.kind, 'sheet');
+  assert.equal(r.body.content.sheets[0].cells.A1, '12');
+});

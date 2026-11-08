@@ -77,6 +77,7 @@ export const HELP = {
   HLOOKUP: ['search, range, row, [approximate]', 'Finds a value in the first row and returns a cell from that column'],
   MATCH: ['search, range, [type]', 'The position of a value in a range'],
   INDEX: ['range, row, [column]', 'The cell at a row and column of a range'],
+  IMPORTRANGE: ['spreadsheet_link, "Sheet1!A1:C10"', 'Cells from another spreadsheet you can open (its link or id); use it in SUM, VLOOKUP and the like for a range'],
   // text
   CONCAT: ['text1, [text2, …]', 'Joins text together'],
   CONCATENATE: ['text1, [text2, …]', 'Joins text together'],

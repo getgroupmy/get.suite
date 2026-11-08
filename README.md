@@ -217,6 +217,9 @@ A formula can use cells on another sheet of the same spreadsheet: `=Data!A1*2`, 
 - A change on the other sheet shows straight away. Inserting or deleting rows or columns there moves the references to it, and renaming a sheet renames it in every formula. A sheet that doesn't exist (or was deleted) shows `#REF!`, and a loop through several sheets shows `#CIRC!`.
 - Named ranges on another sheet work the same way: `=Data!Total`.
 - Excel downloads and uploads keep these formulas as they are.
+- **From another spreadsheet:** `=IMPORTRANGE("link", "Sheet1!A1:C10")` takes cells from another spreadsheet, given by its link (copy it from the address bar) or its id. Leave out the sheet name for the first sheet. One cell shows as it is (`=IMPORTRANGE("link", "B2")`); for a range, use it inside another function: `=SUM(IMPORTRANGE("link", "A1:A20"))`, `=VLOOKUP("Tea", IMPORTRANGE("link", "'Price list'!A1:B50"), 2, FALSE)`. The other spreadsheet's formulas are worked out as they are there.
+  - It loads in the background (`#LOADING` meanwhile) and is checked again every minute and whenever you come back to the tab.
+  - Each person sees it with their own access: anyone who can't open the other spreadsheet sees `#REF!` there, so nothing is shown to someone it wasn't shared with. A spreadsheet that doesn't exist, a sheet name it doesn't have, or spreadsheets importing each other in a loop also show `#REF!`.
 
 ## Named ranges (Sheets)
 

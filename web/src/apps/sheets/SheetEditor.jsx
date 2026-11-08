@@ -43,6 +43,7 @@ import { fillCells, fillTarget, fillSources, selectionStats } from './fill.js';
 
 const SEL_COLORS = ['#1a73e8', '#d93025', '#188038', '#e37400', '#8430ce', '#00796b', '#c2185b', '#5f6368'];
 const colorFor = (id) => SEL_COLORS[[...String(id)].reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) >>> 0, 7) % SEL_COLORS.length];
+import { importBook, onImports, refreshImports } from './imports.js';
 import { createEvaluator, bookEvaluator, display, colName, cellKey, parseRef, shiftFormula } from './formula.js';
 import { NUMBER_FORMATS, CURRENCIES, DATE_STYLES, BORDERS, borderFor, decimals, formatNumber, cellStyle, mergeFormat } from './cellformat.js';
 
@@ -156,7 +157,15 @@ export default function SheetEditor() {
   const guardBoxes = useMemo(() => guards.filter((p) => p.range).map((p) => rangeBox(p.range)).filter(Boolean), [guards]);
   const guarded = (c, r) => guardBoxes.some((b) => c >= b.c1 && c <= b.c2 && r >= b.r1 && r <= b.r2);
   // Formulas can use the other sheets too (Sheet2!A1).
-  const evaluate = useMemo(() => (data?.sheets ? bookEvaluator(data.sheets, Math.min(active, data.sheets.length - 1)) : createEvaluator(cells, names)), [data?.sheets, active, cells, names]);
+  // …and other spreadsheets (IMPORTRANGE), loaded in the background and checked again each minute and on coming back to the tab.
+  const [importsAt, setImportsAt] = useState(0);
+  useEffect(() => {
+    const off = onImports(() => setImportsAt((n) => n + 1));
+    const t = setInterval(refreshImports, 60000);
+    window.addEventListener('focus', refreshImports); // back from the other spreadsheet: its latest
+    return () => { off(); clearInterval(t); window.removeEventListener('focus', refreshImports); };
+  }, []);
+  const evaluate = useMemo(() => (data?.sheets ? bookEvaluator(data.sheets, Math.min(active, data.sheets.length - 1), { book: importBook, depth: 0 }) : createEvaluator(cells, names)), [data?.sheets, active, cells, names, importsAt]);
   const { rows, cols } = useMemo(() => sheetSize(cells), [cells]);
   // The filter: which rows it hides, and where its headings are.
   const filter = sheet?.filter || null;
@@ -414,7 +423,7 @@ export default function SheetEditor() {
     if (readOnly || !data?.sheets.some((s) => s.pivot)) return undefined;
     const t = setTimeout(() => { const next = refreshPivots(dataRef.current); if (next) commitData(next); }, 250);
     return () => clearTimeout(t);
-  }, [data, readOnly]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [data, readOnly]);
   function savePivot(spec, { index = null } = {}) {
     const cur = dataRef.current;
     let next;

@@ -509,7 +509,17 @@ const LAZY = {
 };
 
 /** Every function a formula can call. */
-export const FUNCTION_NAMES = [...Object.keys(FUNCS), ...Object.keys(LAZY)];
+export const FUNCTION_NAMES = [...Object.keys(FUNCS), ...Object.keys(LAZY), 'IMPORTRANGE'];
+
+/** The file id in IMPORTRANGE's first argument: a spreadsheet's link (…/sheets/<id>) or the id itself. */
+export function importFileId(arg) {
+  const t = String(arg ?? '').trim();
+  const m = /\/sheets\/([A-Za-z0-9_-]+)/.exec(t);
+  if (m) return m[1];
+  return /^[A-Za-z0-9_-]{6,}$/.test(t) ? t : null;
+}
+
+const IMPORT_DEPTH = 3;
 
 /** Convert a raw cell entry into a literal value. */
 export function literal(raw) {
@@ -602,6 +612,7 @@ export function createEvaluator(cells, names = null, book = null) {
       case 'name': return namedValue(n.v);
       case 'neg': return -toNum(evaluate(n.e));
       case 'call': {
+        if (n.name === 'IMPORTRANGE') return importRange(n.args.map((a) => scalar(evaluate(a))));
         if (LAZY[n.name]) return LAZY[n.name](n.args.map((a) => () => scalar(evaluate(a))));
         const f = FUNCS[n.name];
         if (!f) err('#NAME?');
@@ -624,6 +635,27 @@ export function createEvaluator(cells, names = null, book = null) {
     err('#ERROR!');
   }
 
+  // IMPORTRANGE("link or id", "Sheet1!A1:C10"): cells of another spreadsheet you can open, loaded by
+  // book.imports ({ book(id) -> { sheets } | { error } | null while loading }, depth).
+  function importRange([link, spec]) {
+    const imports = book?.imports;
+    const id = importFileId(link);
+    if (!imports || !id || (imports.depth || 0) >= IMPORT_DEPTH) err('#REF!');
+    const m = /^\s*(?:(?:'((?:[^']|'')+)'|([^!]+))!)?\s*(\$?[A-Z]+\$?\d+)(?::(\$?[A-Z]+\$?\d+))?\s*$/i.exec(String(spec ?? ''));
+    if (!m) err('#REF!');
+    const src = imports.book(id);
+    if (!src) err('#LOADING');
+    if (src.error || !Array.isArray(src.sheets)) err('#REF!');
+    const name = m[1] !== undefined ? m[1].replace(/''/g, "'") : m[2]?.trim();
+    const index = name === undefined ? 0 : src.sheets.findIndex((x) => String(x.name).toUpperCase() === name.toUpperCase());
+    if (index < 0) err('#REF!');
+    const a = parseRef(m[3].replace(/\$/g, '')), b = parseRef((m[4] || m[3]).replace(/\$/g, ''));
+    if (!a || !b) err('#REF!');
+    const ev = bookEvaluator(src.sheets, index, { book: imports.book, depth: (imports.depth || 0) + 1 });
+    if (!m[4]) return ev.cell(cellKey(a.c, a.r));
+    return ev.range(a, b);
+  }
+
   const get = function get(key) {
     try { return valueOf(key); } catch (e) { if (e instanceof FormulaError) return { error: e.code }; throw e; }
   };
@@ -644,10 +676,10 @@ function sheetEvaluator(book, name) {
 }
 
 /** An evaluator for one sheet of a spreadsheet whose formulas can refer to the other sheets. */
-export function bookEvaluator(sheets, index) {
-  const book = { sheets: sheets || [], open: new Map() };
+export function bookEvaluator(sheets, index, imports = null) {
+  const book = { sheets: sheets || [], open: new Map(), imports };
   const s = book.sheets[index];
-  if (!s) return createEvaluator({});
+  if (!s) return createEvaluator({}, null, book);
   const ev = createEvaluator(s.cells || {}, s.names, book);
   book.open.set(String(s.name).toUpperCase(), ev); // the same one, so loops across sheets are caught
   return ev;

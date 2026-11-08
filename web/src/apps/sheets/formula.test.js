@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createEvaluator, colName, colIndex, shiftFormula, display } from './formula.js';
+import { createEvaluator, colName, colIndex, shiftFormula, display, bookEvaluator, importFileId } from './formula.js';
 
 const ev = (cells) => createEvaluator(cells);
 
@@ -232,4 +232,39 @@ test('loans, logs and other maths', () => {
   assert.equal(g('C2'), 97);
   assert.equal(g('C3'), 3);
   assert.equal(g('C4'), 2);
+});
+
+test('IMPORTRANGE: cells and ranges of another spreadsheet, by link or id, with its own formulas', () => {
+  const other = { sheets: [{ name: 'Sheet1', cells: { A1: '5', A2: '7', A3: '=A1*2' } }, { name: 'Prices 2026', cells: { A1: 'Tea', B1: '3.5', A2: 'Cake', B2: '=Data!A1', }, }, { name: 'Data', cells: { A1: '4' } }] };
+  const asked = [];
+  const imports = { book: (id) => { asked.push(id); return id === 'abc123' ? other : id === 'secret1' ? { error: 'not found' } : null; }, depth: 0 };
+  const ev = bookEvaluator([{ name: 'S', cells: {
+    A1: '=IMPORTRANGE("abc123", "A3")',
+    A2: '=SUM(IMPORTRANGE("https://ws.example.com/sheets/abc123", "Sheet1!A1:A3"))',
+    A3: `=VLOOKUP("cake", IMPORTRANGE("abc123", "'Prices 2026'!A1:B2"), 2, FALSE)`,
+    A4: '=IMPORTRANGE("secret1", "A1")',
+    A5: '=IMPORTRANGE("waiting9", "A1")',
+    A6: '=IMPORTRANGE("abc123", "Nope!A1")',
+    A7: '=IMPORTRANGE("abc123", "rubbish")',
+    A8: '=IFERROR(IMPORTRANGE("waiting9", "A1"), "…")',
+  } }], 0, imports);
+  assert.equal(ev('A1'), 10);
+  assert.equal(ev('A2'), 22);
+  assert.equal(ev('A3'), 4);
+  assert.deepEqual(ev('A4'), { error: '#REF!' });
+  assert.deepEqual(ev('A5'), { error: '#LOADING' });
+  assert.deepEqual(ev('A6'), { error: '#REF!' });
+  assert.deepEqual(ev('A7'), { error: '#REF!' });
+  assert.equal(ev('A8'), '…');
+  assert.ok(asked.includes('waiting9'));
+  // Without a way to load other files (a version preview), it's #REF!.
+  assert.deepEqual(bookEvaluator([{ name: 'S', cells: { A1: '=IMPORTRANGE("abc123", "A1")' } }], 0)('A1'), { error: '#REF!' });
+  assert.equal(importFileId('http://nas:8080/sheets/f_9x-Y?x=1'), 'f_9x-Y');
+  assert.equal(importFileId('no good'), null);
+});
+
+test('IMPORTRANGE: spreadsheets importing each other stop after a few steps', () => {
+  const books = { aaaaaa: { sheets: [{ name: 'A', cells: { A1: '=IMPORTRANGE("bbbbbb", "A1")' } }] }, bbbbbb: { sheets: [{ name: 'B', cells: { A1: '=IMPORTRANGE("aaaaaa", "A1")' } }] } };
+  const ev = bookEvaluator(books.aaaaaa.sheets, 0, { book: (id) => books[id], depth: 0 });
+  assert.deepEqual(ev('A1'), { error: '#REF!' });
 });
