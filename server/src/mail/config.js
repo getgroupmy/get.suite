@@ -184,8 +184,14 @@ function catchAllLines(domains, users, aliasMap) {
 }
 
 /** Write the tables atomically; remove DKIM keys of domains that no longer exist. */
+// When the mail setup last changed (scheduled or written). The mail server picks changes up a few
+// seconds later, so until then a new account (or address) can be refused: see sendMail in imap.js.
+let changedAt = 0;
+export const mailConfigChangedAt = () => changedAt;
+
 export function writeMailConfig(dir = MAIL_CONFIG_DIR) {
   if (!dir) return false;
+  changedAt = Date.now();
   const files = buildMailConfig();
   for (const sub of ['postfix', 'dovecot', 'dkim', 'sieve']) fs.mkdirSync(path.join(dir, sub), { recursive: true, mode: 0o750 });
   for (const [rel, content] of Object.entries(files)) {
@@ -209,6 +215,7 @@ let timer = null;
 /** Debounced write after any change that affects mail (users, aliases, domains, passwords). */
 export function scheduleMailConfig() {
   if (!MAIL_CONFIG_DIR) return;
+  changedAt = Date.now();
   clearTimeout(timer);
   timer = setTimeout(() => {
     try { writeMailConfig(); } catch (e) { console.error('Writing mail configuration failed:', e); }

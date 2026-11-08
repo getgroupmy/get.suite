@@ -3,7 +3,7 @@
 import { ImapFlow } from 'imapflow';
 import nodemailer from 'nodemailer';
 import { HttpError } from '../util.js';
-import { webmailSecret } from './config.js';
+import { webmailSecret, mailConfigChangedAt } from './config.js';
 
 const IMAP = { host: process.env.MAIL_IMAP_HOST || 'mail', port: Number(process.env.MAIL_IMAP_PORT || 993) };
 const SMTP = { host: process.env.MAIL_SMTP_HOST || IMAP.host, port: Number(process.env.MAIL_SMTP_PORT || 465) };
@@ -119,10 +119,28 @@ setInterval(() => {
 }, 60e3).unref();
 
 export function smtpFor(user) {
-  return nodemailer.createTransport({
+  const transport = nodemailer.createTransport({
     host: SMTP.host, port: SMTP.port, secure: true, tls: TLS,
     auth: { user: `${user.username}*webmail`, pass: webmailSecret() },
   });
+  return { sendMail: (message) => sendWithRetry(() => transport.sendMail(message)) };
+}
+
+// The mail server reads new accounts and addresses every few seconds. Mail sent in that moment
+// (a password-reset email for someone just added, a message from a new alias) is refused as
+// "not owned by user" or with a failed sign-in; it's tried again for a little while.
+export const SETTLE_MS = 20e3;
+const notKnownYet = (e) => (e?.responseCode === 553 && /not owned by user/i.test(String(e.response || e.message || ''))) || e?.code === 'EAUTH';
+const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** send(), tried again (after waits) while the refusal is one the mail setup catching up would fix. */
+export async function sendWithRetry(send, { waits = [1500, 2500, 3500, 4500], changedAt = mailConfigChangedAt, clock = Date.now } = {}) {
+  for (let i = 0; ; i++) {
+    try { return await send(); } catch (e) {
+      if (!notKnownYet(e) || i >= waits.length || clock() - changedAt() > SETTLE_MS) throw e;
+      await pause(waits[i]);
+    }
+  }
 }
 
 /** A separate connection to someone's mailbox (for long jobs such as importing mail); the caller logs out. */

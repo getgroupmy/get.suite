@@ -10,9 +10,9 @@
 set -euo pipefail
 
 SRC=${NW_CONFIG_DIR:-/etc/nw}
-LIVE=/run/nw
+LIVE=${NW_LIVE_DIR:-/run/nw}
 TLS_SRC=${NW_TLS_DIR:-/etc/nw-tls}
-TLS_LIVE=/run/nw-tls
+TLS_LIVE=${NW_TLS_LIVE_DIR:-/run/nw-tls}
 HOSTNAME_FQDN=${MAIL_HOSTNAME:-$(hostname -f)}
 INTERVAL=${SYNC_INTERVAL:-5}
 
@@ -22,12 +22,18 @@ fingerprint() {
   # Paths may not exist yet; that must not stop the script (set -e / pipefail).
   { find "$@" -type f -printf '%p %s %T@\n' 2>/dev/null || true; } | sort | md5sum | cut -d' ' -f1
 }
+# What the services read, by content: the copies in $LIVE and $TLS_LIVE (not the app's files,
+# which can change again between copying and looking, and their times change on every copy).
+content_fp() {
+  { find "$@" -type f -print0 2>/dev/null | sort -z | xargs -0 -r md5sum 2>/dev/null || true; } | md5sum | cut -d' ' -f1
+}
+# Whether to copy at all: the app's files, cheaply (names, sizes, times).
+fp_all()     { fingerprint "$SRC" "$TLS_SRC"; }
 # Change groups, so each change reloads only what needs it. Reloading Dovecot drops every
 # open IMAP connection (phones, webmail), so it is reserved for its own settings and TLS.
-fp_all()     { fingerprint "$SRC" "$TLS_SRC"; }
-fp_postfix() { fingerprint "$SRC/postfix" "$TLS_SRC"; }
-fp_dovecot() { fingerprint "$SRC/dovecot/policy.conf" "$TLS_SRC"; }
-fp_rspamd()  { fingerprint "$SRC/dkim"; }
+fp_postfix() { content_fp "$LIVE/postfix" "$TLS_LIVE"; }
+fp_dovecot() { content_fp "$LIVE/dovecot/policy.conf" "$TLS_LIVE"; }
+fp_rspamd()  { content_fp "$LIVE/dkim"; }
 
 sync_tls() {
   mkdir -p "$TLS_LIVE"
@@ -71,7 +77,9 @@ sync_config() {
 }
 
 # Account files (dovecot/passwd, masters) are re-read by Dovecot automatically when they change,
-# and Sieve scripts are read at delivery time, so those need no reload at all.
+# and Sieve scripts are read at delivery time, so those need no reload at all. Called right after
+# sync_config, it compares what is live now with what the services were last given, so a change
+# the app makes while copying is never marked as loaded before it is.
 reload_changed() {
   local p d r
   p=$(fp_postfix); d=$(fp_dovecot); r=$(fp_rspamd)
@@ -89,6 +97,9 @@ stop_all() {
   exit 0
 }
 trap stop_all TERM INT
+
+# Sourced with NW_MAIL_FUNCTIONS_ONLY=1 (tests): just the functions above.
+if [[ ${NW_MAIL_FUNCTIONS_ONLY:-} == 1 ]]; then trap - TERM INT; return 0; fi
 
 log "Starting mail server for $HOSTNAME_FQDN"
 postconf -e "myhostname = $HOSTNAME_FQDN"
