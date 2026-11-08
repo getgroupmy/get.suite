@@ -37,7 +37,7 @@ import { box, mergeLayout, mergeAt, addMerge, removeMerges, growToMerges, stepWi
 import { SheetFind } from './SheetFind.jsx';
 import { brokenProtections, protectionsAt, mayEdit, rangeBox } from './protect.js';
 import { ProtectDialog } from './SheetProtect.jsx';
-import { fillCells, fillTarget, selectionStats } from './fill.js';
+import { fillCells, fillTarget, fillSources, selectionStats } from './fill.js';
 
 const SEL_COLORS = ['#1a73e8', '#d93025', '#188038', '#e37400', '#8430ce', '#00796b', '#c2185b', '#5f6368'];
 const colorFor = (id) => SEL_COLORS[[...String(id)].reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) >>> 0, 7) % SEL_COLORS.length];
@@ -452,7 +452,17 @@ export default function SheetEditor() {
     if (readOnly || !target) return;
     const u = fillCells(cells, from, target);
     if (!Object.keys(u).length) return;
-    writeCells(u);
+    if (dataRef.current.sheets[active]?.pivot) { toast('This sheet is a pivot table: change it with Edit pivot table above', 'error'); return; }
+    // Values and formats in one change (so a protected range refuses the whole fill).
+    const src = fillSources(from, target);
+    const cur = dataRef.current;
+    commitData({ ...cur, sheets: cur.sheets.map((s, i) => {
+      if (i !== active) return s;
+      const nextCells = { ...s.cells }, nextFormats = { ...(s.formats || {}) };
+      for (const [k, v] of Object.entries(u)) { if (v === '' || v == null) delete nextCells[k]; else nextCells[k] = v; }
+      for (const [k, from0] of Object.entries(src)) { if (s.formats?.[from0]) nextFormats[k] = s.formats[from0]; else delete nextFormats[k]; }
+      return { ...s, cells: nextCells, formats: nextFormats };
+    }) });
     setAnchor({ c: target.c1, r: target.r1 }); setSel({ c: target.c2, r: target.r2 });
   }
   function startFill(e) {

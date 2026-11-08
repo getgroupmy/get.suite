@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { continueSeries, fillCells, fillTarget, selectionStats } from './fill.js';
+import { continueSeries, fillCells, fillTarget, fillSources, selectionStats } from './fill.js';
 
 test('fill: series carry on', () => {
   assert.deepEqual(continueSeries(['1', '2'], 3), ['3', '4', '5']);
@@ -35,4 +35,9 @@ test('fill: down, up, right and left over a box', () => {
 test('selection stats', () => {
   assert.deepEqual(selectionStats([1, 2, 'x', null, 3]), { count: 4, numbers: 3, sum: 6, average: 2, min: 1, max: 3 });
   assert.deepEqual(selectionStats(['a', '']), { count: 1, numbers: 0 });
+});
+
+test('fill: each new cell takes the format of the cell it continues', () => {
+  assert.deepEqual(fillSources({ c1: 0, r1: 0, c2: 0, r2: 1 }, { c1: 0, r1: 0, c2: 0, r2: 4 }), { A3: 'A1', A4: 'A2', A5: 'A1' });
+  assert.deepEqual(fillSources({ c1: 1, r1: 0, c2: 1, r2: 0 }, { c1: 0, r1: 0, c2: 1, r2: 0 }), { A1: 'B1' });
 });

@@ -103,6 +103,18 @@ export function fillCells(cells, src, to) {
   return out;
 }
 
+/** For each cell a fill writes, the source cell it continues (for copying its format). */
+export function fillSources(src, to) {
+  const out = {};
+  const h = src.r2 - src.r1 + 1, w = src.c2 - src.c1 + 1;
+  const mod = (a, n) => ((a % n) + n) % n;
+  for (let r = to.r1; r <= to.r2; r++) for (let c = to.c1; c <= to.c2; c++) {
+    if (r >= src.r1 && r <= src.r2 && c >= src.c1 && c <= src.c2) continue;
+    out[cellKey(c, r)] = cellKey(src.c1 + mod(c - src.c1, w), src.r1 + mod(r - src.r1, h));
+  }
+  return out;
+}
+
 /** Where a drag from the selection to cell (c, r) fills: further along whichever way is further. */
 export function fillTarget(src, c, r) {
   const below = r - src.r2, above = src.r1 - r, after = c - src.c2, before = src.c1 - c;
