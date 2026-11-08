@@ -3,6 +3,7 @@
 // highlight have no Markdown, so they're left out; pictures become their names.
 import { chartTable } from './sheetchart.js';
 import { chipText } from './chiptext.js';
+import { inText, reference, sourcesOf } from './cite.js';
 
 // ---- document → Markdown ----
 const escapeText = (s) => s.replace(/([\\`*_~[\]<>]|^#|^[-+](?= ))/gm, '\\$1').replace(/^(\d+)\. /gm, '$1\\. ')
@@ -13,6 +14,7 @@ function inline(nodes = [], notes) {
   for (const n of nodes) {
     if (n.type === 'hardBreak') { out += '  \n'; continue; }
     if (n.type === 'mention') { out += `@${escapeText(n.attrs?.name || '')}`; continue; }
+    if (n.type === 'citation') { out += escapeText(inText(n.attrs)); continue; }
     if (n.type === 'math') { const l = String(n.attrs?.latex || '').replace(/\s+/g, ' ').trim(); if (l) out += `$${l}$`; continue; }
     if (n.type === 'dropchip') { out += `**${escapeText(chipText(n.attrs))}**`; continue; }
     if (n.type === 'footnote') { notes.push(n.attrs?.note || ''); out += `[^${notes.length}]`; continue; }
@@ -74,6 +76,9 @@ function blocks(nodes = [], notes, indent = '') {
       const width = Math.max(...rows.map((r) => r.length));
       const line = (r) => `| ${Array.from({ length: width }, (_, i) => r[i] ?? '').join(' | ')} |`;
       out.push([line(rows[0]), `|${' --- |'.repeat(width)}`, ...rows.slice(1).map(line)].join('\n'));
+    } else if (t === 'references') {
+      const list = sourcesOf(blocks.doc);
+      out.push(['**References**', ...list.map((s) => reference(s).map((p) => (p.italic ? `*${escapeText(p.text)}*` : escapeText(p.text))).join(''))].join('\n\n'));
     } else if (t !== 'tableOfContents' && n.content) out.push(...blocks(n.content, notes, indent));
   }
   return out.filter((b) => b !== '');
@@ -81,6 +86,7 @@ function blocks(nodes = [], notes, indent = '') {
 
 export function markdownFromDoc(doc) {
   const notes = [];
+  blocks.doc = doc; // the references list needs the whole document's citations
   const body = blocks(doc?.content, notes).join('\n\n');
   const defs = notes.map((t, i) => `[^${i + 1}]: ${escapeText(t).replace(/\n/g, ' ')}`);
   return `${body}${defs.length ? `\n\n${defs.join('\n')}` : ''}\n`;

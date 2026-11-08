@@ -6,6 +6,7 @@ import mammoth from 'mammoth';
 import JSZip from 'jszip';
 import { chartTable } from './sheetchart.js';
 import { chipText } from './chiptext.js';
+import { inText, reference, sourcesOf } from './cite.js';
 import { imageSize } from 'image-size';
 import { generateJSON } from '@tiptap/html/server';
 import StarterKit from '@tiptap/starter-kit';
@@ -120,6 +121,7 @@ function runs(nodes = [], extra = {}) {
   for (const n of nodes) {
     if (n.type === 'hardBreak') { out.push(new TextRun({ break: 1 })); continue; }
     if (n.type === 'mention') { out.push(new TextRun({ text: `@${n.attrs?.name || ''}`, bold: true, color: '1A73E8' })); continue; }
+    if (n.type === 'citation') { out.push(new TextRun({ text: inText(n.attrs), ...extra })); continue; }
     if (n.type === 'math') { const l = String(n.attrs?.latex || '').trim(); if (l) out.push(new WordMath({ children: [new MathRun(l)] })); continue; }
     if (n.type === 'dropchip') { const fill = CHIP_FILLS[(n.attrs?.options || []).find((o) => o?.label === n.attrs?.value)?.color] || 'E8EAED'; out.push(new TextRun({ text: ` ${chipText(n.attrs)} `, bold: true, shading: { type: ShadingType.CLEAR, color: 'auto', fill } })); continue; }
     if (n.type === 'footnote' && footnotes) {
@@ -304,6 +306,10 @@ export async function wordFromDoc(doc, title = 'Document', { pictureData, page, 
       else if (n.type === 'horizontalRule') paras.push(new Paragraph({ border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: 'BBBBBB', space: 1 } } }));
       else if (n.type === 'image') paras.push(picture(n));
       else if (n.type === 'tableOfContents') paras.push(...contentsBlock());
+      else if (n.type === 'references') { // every source cited, APA style, with a hanging indent
+        paras.push(new Paragraph({ heading: HeadingLevel.HEADING_2, children: [new TextRun('References')] }));
+        for (const s of sourcesOf(doc)) paras.push(new Paragraph({ indent: { left: 720, hanging: 720 }, children: reference(s).map((p) => new TextRun({ text: p.text, italics: !!p.italic })) }));
+      }
       else if (n.type === 'sheetChart') { // a chart from Sheets: its title and its figures
         const { title, rows } = chartTable(n.attrs);
         paras.push(new Paragraph({ children: [new TextRun({ text: title, bold: true })] }));

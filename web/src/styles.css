@@ -2106,3 +2106,13 @@ textarea.mono { font-family: ui-monospace, Consolas, monospace; }
 .note-bubble { position: fixed; z-index: 40; max-width: 260px; white-space: pre-wrap; background: #fff8c5; color: #202124; border: 1px solid #e3d26f; border-radius: 4px; padding: 6px 8px; font-size: 13px; box-shadow: 0 2px 8px rgba(0,0,0,.15); pointer-events: none; }
 .note-bubble.note-edit { pointer-events: auto; width: 240px; display: flex; flex-direction: column; gap: 4px; }
 .note-edit textarea { width: 100%; box-sizing: border-box; resize: vertical; border: 0; background: transparent; font: inherit; color: inherit; outline: none; }
+
+/* Docs: citations and the references list */
+.doc-cite { cursor: pointer; border-bottom: 1px dotted var(--muted); }
+.doc-cite:hover { background: var(--hover); }
+.ProseMirror-selectednode.doc-cite { outline: 2px solid var(--accent); }
+.doc-refs { margin: 1em 0; padding: 8px 0; border-top: 1px solid var(--border); }
+.doc-refs-title { font-weight: 700; font-size: 1.2em; margin-bottom: 0.5em; }
+.doc-refs-empty { color: var(--muted); font-style: italic; }
+.doc-ref { padding-left: 2em; text-indent: -2em; margin: 0 0 0.5em; }
+.ProseMirror-selectednode.doc-refs { outline: 2px solid var(--accent); outline-offset: 4px; }

@@ -28,6 +28,7 @@ export function docText(doc) {
     if (n.type === 'mention') out.push(`@${n.attrs?.name || ''}`);
     if (n.type === 'dropchip') out.push(` ${chipText(n.attrs)} `);
     if (n.type === 'math') out.push(` ${n.attrs?.latex || ''} `);
+    if (n.type === 'citation') out.push(` ${n.attrs?.author || ''} ${n.attrs?.title || ''} `);
     for (const c of n.content || []) walk(c);
     if (n.type !== 'doc' && !/^(text|hardBreak)$/.test(n.type) && n.content) out.push('\n');
   };

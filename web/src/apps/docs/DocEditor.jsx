@@ -35,6 +35,8 @@ import { Footnote, footnotesOf, htmlWithFootnotes } from './footnote.js';
 import { Mention, mentionQuery, matchPeople } from './mention.js';
 import { DropChip, CHIP_PRESETS, CHIP_COLORS, cleanOptions } from './dropchip.js';
 import { MathInline, mathHtml, mathError, MAX_LATEX } from './math.js';
+import { Citation, References, htmlWithReferences } from './citation.js';
+import { CITE_FIELDS, cleanSource, inText, sourcesOf, sourceKey } from './cite.js';
 import { SYMBOL_GROUPS, findSymbols } from './symbols.js';
 import { diffDocs, changeCount } from './docdiff.js';
 import { VersionHistory } from '../VersionHistory.jsx';
@@ -199,7 +201,7 @@ function SharedDoc({ file, setFile }) {
       Table.configure({ resizable: false }), TableRow, TableHeader, TableCell,
       TextStyle, Color, BackgroundColor, FontFamily, FontSize, LineHeight, TableOfContents, SheetChart,
       SuggestInsert, SuggestDelete, SuggestMode,
-      PageBreak, Footnote, Mention, DropChip, MathInline, TaskList, TaskItem.configure({ nested: true }), // checklists: everyone sees the ticks live; viewers can't tick
+      PageBreak, Footnote, Mention, DropChip, MathInline, Citation, References, TaskList, TaskItem.configure({ nested: true }), // checklists: everyone sees the ticks live; viewers can't tick
     ],
     editable: !readOnly,
     editorProps: {
@@ -281,6 +283,9 @@ function SharedDoc({ file, setFile }) {
   const chipAt = (el) => nodeAtDom(el, 'dropchip');
   // Equations: { pos } to change one, { pos: null } for a new one. Special characters: the Ω picker.
   const [mathEdit, setMathEdit] = useState(null);
+  const [citeEdit, setCiteEdit] = useState(null); // { pos } to change a citation, { pos: null } for a new one
+  // Back to the text once a dialog has closed (and given focus back to whatever opened it), so typing goes on there.
+  const refocus = () => setTimeout(() => editor?.commands.focus(), 0);
   const [symbols, setSymbols] = useState(false);
   const setChip = (pos, attrs) => {
     const node = editor.state.doc.nodeAt(pos);
@@ -321,7 +326,7 @@ function SharedDoc({ file, setFile }) {
   }, [editor, provider, readOnly]);
 
   function exportHtml() {
-    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(file.name)}</title></head><body>${htmlWithFootnotes(htmlWithContents(withoutSuggestionsHtml(editor.getHTML()), editor.state.doc))}</body></html>`;
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(file.name)}</title></head><body>${htmlWithFootnotes(htmlWithReferences(htmlWithContents(withoutSuggestionsHtml(editor.getHTML()), editor.state.doc), editor.getJSON()))}</body></html>`;
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
     a.download = `${file.name}.html`;
@@ -458,7 +463,7 @@ function SharedDoc({ file, setFile }) {
           { label: 'Download as Markdown (.md)', icon: 'download', onClick: () => { window.location.href = `/api/files/${file.id}/export?format=md`; } },
         ]}
       />
-      {!readOnly && <Toolbar editor={editor} onDropdown={() => setChipEdit({ pos: null })} onEquation={() => setMathEdit({ pos: null })} onSymbols={() => setSymbols(true)} onComment={startComment} onPictures={(files) => addPicturesRef.current(files)} onLinkFile={() => setLinkingFile(true)} onChart={() => setChartFrom({ step: 'file' })} />}
+      {!readOnly && <Toolbar editor={editor} onDropdown={() => setChipEdit({ pos: null })} onEquation={() => setMathEdit({ pos: null })} onCite={() => setCiteEdit({ pos: null })} onSymbols={() => setSymbols(true)} onComment={startComment} onPictures={(files) => addPicturesRef.current(files)} onLinkFile={() => setLinkingFile(true)} onChart={() => setChartFrom({ step: 'file' })} />}
       {chartFrom?.step === 'file' && <DrivePicker title="Chart from a spreadsheet" accept={(x) => x.kind === 'sheet'} empty="No spreadsheets found." onClose={() => setChartFrom(null)} onPick={(f) => setChartFrom({ step: 'chart', file: f })} />}
       {chartFrom?.step === 'chart' && <ChartPick file={chartFrom.file} onClose={() => setChartFrom(null)}
         onPick={(ch) => { const f = chartFrom.file; setChartFrom(null); editor.chain().focus().insertSheetChart({ fileId: f.id, chartId: ch.id, title: ch.now.title, chartType: ch.now.chartType, data: JSON.stringify(ch.now.data) }).run(); }} />}
@@ -479,6 +484,7 @@ function SharedDoc({ file, setFile }) {
             <EditorContent editor={editor} onClick={(e) => {
               const sup = e.target.closest?.('sup[data-footnote]'); if (sup) focusFootnote(e.currentTarget, sup);
               const chip = e.target.closest?.('[data-dropchip]'); if (chip) { const at = chipAt(chip); if (at != null) openChip(at); }
+              const ct = e.target.closest?.('[data-cite]'); if (ct && !readOnly) { const at = nodeAtDom(ct, 'citation'); if (at != null) setCiteEdit({ pos: at }); }
               const eq = e.target.closest?.('[data-math]'); if (eq && !readOnly) { const at = nodeAtDom(eq, 'math'); if (at != null) setMathEdit({ pos: at }); }
             }} />
             {chipMenu && <ChipMenu node={editor.state.doc.nodeAt(chipMenu.pos)} at={chipMenu} onClose={() => { setChipMenu(null); editor.view.focus(); }}
@@ -524,8 +530,18 @@ function SharedDoc({ file, setFile }) {
       {sharing && <ShareDialog file={file} onClose={() => setSharing(false)} />}
       {sendingItems && <ActionItemsDialog fileId={file.id} doc={editor.getJSON()} onClose={() => setSendingItems(false)} />}
       {history && <VersionHistory file={file} canEdit={!readOnly} onClose={() => setHistory(false)} renderPreview={(content) => <DocPreview content={content} fileId={file.id} />} renderChanges={(content) => <DocChanges before={content} after={editor.getJSON()} />} />}
+      {citeEdit && <CiteDialog source={citeEdit.pos != null ? editor.state.doc.nodeAt(citeEdit.pos)?.attrs : null} known={sourcesOf(editor.getJSON())}
+        onClose={() => { setCiteEdit(null); refocus(); }}
+        onRemove={citeEdit.pos != null ? () => { const at = citeEdit.pos; setCiteEdit(null); editor.chain().deleteRange({ from: at, to: at + 1 }).run(); refocus(); } : null}
+        onSave={(src) => {
+          const at = citeEdit.pos;
+          setCiteEdit(null);
+          if (at != null && editor.state.doc.nodeAt(at)?.type.name === 'citation') { editor.view.dispatch(editor.state.tr.setNodeMarkup(at, undefined, cleanSource(src))); editor.commands.setTextSelection(at + 1); }
+          else editor.chain().insertCitation(src).run();
+          refocus();
+        }} />}
       {mathEdit && <MathDialog latex={mathEdit.pos != null ? editor.state.doc.nodeAt(mathEdit.pos)?.attrs.latex : ''}
-        onClose={() => { setMathEdit(null); editor.view.focus(); }}
+        onClose={() => { setMathEdit(null); refocus(); }}
         onRemove={mathEdit.pos != null ? () => { const at = mathEdit.pos; setMathEdit(null); editor.chain().focus().deleteRange({ from: at, to: at + 1 }).run(); } : null}
         onSave={(latex) => {
           const at = mathEdit.pos;
@@ -535,14 +551,14 @@ function SharedDoc({ file, setFile }) {
         }} />}
       {symbols && <SymbolDialog onClose={() => { setSymbols(false); editor.view.focus(); }} onPick={(ch) => { editor.chain().focus().insertContent(ch).run(); }} />}
       {chipEdit && <ChipDialog options={chipEdit.pos != null ? editor.state.doc.nodeAt(chipEdit.pos)?.attrs.options : null}
-        onClose={() => { setChipEdit(null); editor.view.focus(); }}
+        onClose={() => { setChipEdit(null); refocus(); }}
         onSave={(options) => {
           if (chipEdit.pos != null) {
             const node = editor.state.doc.nodeAt(chipEdit.pos);
             setChip(chipEdit.pos, { options, value: options.some((o) => o.label === node?.attrs.value) ? node.attrs.value : null });
-            editor.view.focus();
-          } else editor.chain().focus().insertDropChip(options).run();
+          } else editor.chain().insertDropChip(options).run();
           setChipEdit(null);
+          refocus();
         }} />}
       {pageSetupOpen && <PageSetupDialog setup={file.page_setup} onClose={() => { setPageSetupOpen(false); editor.view.focus(); }}
         onSave={async (next) => { try { setFile(await patch(`/files/${file.id}`, { page_setup: next })); setPageSetupOpen(false); toast('Page setup saved'); } catch (e) { toast(e.message, 'error'); } }} />}
@@ -560,7 +576,7 @@ function withoutSuggestionsHtml(html) {
 
 const escapeHtml = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-function Toolbar({ editor, onDropdown, onEquation, onSymbols, onComment, onPictures, onLinkFile, onChart }) {
+function Toolbar({ editor, onDropdown, onEquation, onCite, onSymbols, onComment, onPictures, onLinkFile, onChart }) {
   const pictureInput = useRef();
   const [, force] = useState(0);
   useEffect(() => {
@@ -666,6 +682,10 @@ function Toolbar({ editor, onDropdown, onEquation, onSymbols, onComment, onPictu
       ]} />
       <button type="button" className="tb labelled" title="Equation: write it in LaTeX, such as \frac{a}{b} or x^2 (or type $$…$$ in the text)" aria-label="Insert equation"
         onMouseDown={(e) => e.preventDefault()} onClick={onEquation}>∑ Equation</button>
+      <Menu align="left" trigger={(p) => <button type="button" className="tb labelled" title="Cite a source (APA style), and list the sources in a References section" aria-label="Citations" onMouseDown={(e) => e.preventDefault()} {...p}>❝ Cite</button>} items={[
+        { label: 'Cite a source…', onClick: onCite },
+        { label: 'Insert references list', onClick: () => c().insertReferences().run(), disabled: (() => { let has = false; editor.state.doc.descendants((n) => { if (n.type.name === 'references') has = true; }); return has; })() },
+      ]} />
       <button type="button" className="tb" title="Special characters: dashes, symbols, currencies, arrows, Greek and accented letters" aria-label="Insert special character"
         onMouseDown={(e) => e.preventDefault()} onClick={onSymbols}>Ω</button>
       <Menu align="left" trigger={(p) => <button type="button" className="tb labelled" title="Dropdown: a coloured choice in the text (status, review, priority…) that anyone editing changes with a click" aria-label="Insert dropdown" onMouseDown={(e) => e.preventDefault()} {...p}>▾ Dropdown</button>} items={[
@@ -690,6 +710,37 @@ function Toolbar({ editor, onDropdown, onEquation, onSymbols, onComment, onPictu
 
 function TableGlyph() {
   return <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M3 4h18v16H3V4zm2 2v3h6V6H5zm8 0v3h6V6h-6zm-8 5v3h6v-3H5zm8 0v3h6v-3h-6zm-8 5v2h6v-2H5zm8 0v2h6v-2h-6z" /></svg>;
+}
+
+const CITE_LABELS = { author: 'Author(s)', year: 'Year', title: 'Title', publisher: 'Publisher or website', url: 'Web address (optional)' };
+/** A source to cite: one already cited in the document, or a new one. */
+function CiteDialog({ source, known, onSave, onRemove, onClose }) {
+  const [s, setS] = useState(() => ({ ...cleanSource(source || {}) }));
+  const ready = (s.author || s.title) && s.title;
+  const set = (k) => (e) => setS({ ...s, [k]: e.target.value });
+  return (
+    <Modal title={source ? 'Change citation' : 'Cite a source'} onClose={onClose}
+      footer={<>{onRemove && <button type="button" className="btn danger" onClick={onRemove}>Remove</button>}<span className="grow" /><button type="button" className="btn" onClick={onClose}>Cancel</button>
+        <button type="button" className="btn primary" disabled={!ready} onClick={() => onSave(cleanSource(s))}>{source ? 'Save' : 'Insert'}</button></>}>
+      <div className="stack">
+        {!source && known.length > 0 && (
+          <label className="field"><span>A source already cited</span>
+            <select value="" onChange={(e) => { const k = known.find((x) => sourceKey(x) === e.target.value); if (k) setS({ ...k }); }}>
+              <option value="">Choose one, or fill in a new one below</option>
+              {known.map((k) => <option key={sourceKey(k)} value={sourceKey(k)}>{inText(k)} {k.title}</option>)}
+            </select>
+          </label>
+        )}
+        {CITE_FIELDS.map((k) => (
+          <label key={k} className="field"><span>{CITE_LABELS[k]}</span>
+            <input value={s[k]} onChange={set(k)} inputMode={k === 'year' ? 'numeric' : undefined} type={k === 'url' ? 'url' : 'text'}
+              placeholder={{ author: 'Smith, J. & Lee, K. (separate people with & or ;)', year: '2024', title: 'The title of the book, article or page', publisher: '', url: 'https://' }[k]} />
+          </label>
+        ))}
+        <p className="muted small" style={{ margin: 0 }}>In the text: <strong>{inText(s)}</strong>. Insert a references list from the ❝ Cite menu to list every source, APA style.</p>
+      </div>
+    </Modal>
+  );
 }
 
 /** Writing an equation in LaTeX, with how it looks as you type. */
@@ -904,7 +955,7 @@ export function DocPreview({ content, fileId, pictureBase = null }) {
     extensions: [
       StarterKit.configure({ link: { openOnClick: true } }), TextAlign.configure({ types: ['heading', 'paragraph'] }),
       CommentMark, DocImage.configure({ docId: fileId, pictureBase }), Table, TableRow, TableHeader, TableCell,
-      TextStyle, Color, BackgroundColor, FontFamily, FontSize, LineHeight, TableOfContents, SheetChart, PageBreak, Footnote, Mention, DropChip, MathInline, TaskList, TaskItem.configure({ nested: true }),
+      TextStyle, Color, BackgroundColor, FontFamily, FontSize, LineHeight, TableOfContents, SheetChart, PageBreak, Footnote, Mention, DropChip, MathInline, Citation, References, TaskList, TaskItem.configure({ nested: true }),
     ],
   }, [content]);
   return <div className="paper preview-paper"><EditorContent editor={editor} /></div>;
