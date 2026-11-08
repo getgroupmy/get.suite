@@ -11,7 +11,7 @@ import { PLACES, placeText, isoDay } from '../../components/workloc.js';
 import { useMailStatus } from '../../mailStatus.js';
 import { insights, hoursText } from './insights.js';
 import { timeIn, zoneName, cityOf } from '../../components/zones.js';
-import { printRange, daysFromTo, scheduleOf, DAY, VIEWS, startOfDay, visibleDays, shift, title, onDay, layoutDay, expandAll, occurrenceIndex, describeRule, daysBetween, moveTimes, resizeEnd, shiftWeekdays, snapMinutes } from './calmath.js';
+import { printRange, daysFromTo, scheduleOf, DAY, VIEWS, startOfDay, visibleDays, shift, title, onDay, layoutDay, expandAll, occurrenceIndex, describeRule, daysBetween, moveTimes, resizeEnd, shiftWeekdays, snapMinutes, moveStart } from './calmath.js';
 
 const OTHER_COLOURS = ['#e37400', '#8e24aa', '#0b8043', '#d93025', '#00796b', '#3949ab'];
 const COLORS = ['#1a73e8', '#0b8043', '#d50000', '#f4511e', '#8e24aa', '#616161'];
@@ -1041,8 +1041,8 @@ function EventDialog({ event, onClose, onSaved, onDuplicate }) {
         {f.ooo && <p className="muted small" style={{ margin: 0 }}>While you're away, new invitations for this time are declined for you, and whoever sent them sees the description below as your message. Colleagues see you as out of office.</p>}
         {f.ooo && mail?.enabled && <label className="check"><input type="checkbox" checked={autoReply} onChange={(e) => setAutoReply(e.target.checked)} /> Also turn on my email auto-reply for these days (with the message below)</label>}
         <div className="row wrap">
-          <label className="field"><span>Starts</span><input type="date" required value={f.startDate} onChange={(e) => setF({ ...f, startDate: e.target.value, endDate: e.target.value > f.endDate ? e.target.value : f.endDate })} /></label>
-          {!f.all_day && <label className="field"><span>&nbsp;</span><input type="time" required value={f.startTime} onChange={set('startTime')} aria-label="Start time" /></label>}
+          <label className="field"><span>Starts</span><input type="date" required value={f.startDate} onChange={(e) => setF(e.target.value ? moveStart(f, { startDate: e.target.value }) : { ...f, startDate: '' })} /></label>
+          {!f.all_day && <label className="field"><span>&nbsp;</span><input type="time" required value={f.startTime} onChange={(e) => setF(e.target.value ? moveStart(f, { startTime: e.target.value }) : { ...f, startTime: '' })} aria-label="Start time" /></label>}
         </div>
         <div className="row wrap">
           <label className="field"><span>Ends</span><input type="date" required value={f.endDate} onChange={set('endDate')} /></label>

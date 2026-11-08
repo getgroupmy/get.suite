@@ -181,3 +181,12 @@ test('printing: this week (from Monday), this month, four weeks', async () => {
   assert.equal(daysFromTo(printRange('four', wed).from, printRange('four', wed).to).length, 28);
   assert.equal(daysFromTo(new Date(2026, 0, 1), new Date(2026, 11, 31)).length, 92, 'at most 92 days');
 });
+
+import { moveStart } from './calmath.js';
+test('moving the start keeps the length: a late-evening draft moved to 16:00 ends the same day', () => {
+  const late = { startDate: '2026-11-08', startTime: '23:00', endDate: '2026-11-09', endTime: '00:00', all_day: false };
+  assert.deepEqual(moveStart(late, { startTime: '16:00' }), { ...late, startTime: '16:00', endDate: '2026-11-08', endTime: '17:00' });
+  assert.deepEqual(moveStart(late, { startDate: '2026-11-12' }), { ...late, startDate: '2026-11-12', endDate: '2026-11-13', endTime: '00:00' });
+  const days = { startDate: '2026-11-08', startTime: '', endDate: '2026-11-10', endTime: '', all_day: true };
+  assert.deepEqual(moveStart(days, { startDate: '2026-11-20' }), { ...days, startDate: '2026-11-20', endDate: '2026-11-22' });
+});

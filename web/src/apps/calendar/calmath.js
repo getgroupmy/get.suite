@@ -270,3 +270,19 @@ export function daysFromTo(from, to) {
   for (let d = new Date(from.getFullYear(), from.getMonth(), from.getDate()); d <= to && out.length < 92; d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1)) out.push(d);
   return out;
 }
+
+/**
+ * The event form after its start changes: the end moves with it, keeping the length (as in other
+ * calendars), so moving a late-evening draft to 16:00 doesn't leave it ending the next day.
+ * form: { startDate: 'YYYY-MM-DD', startTime: 'HH:MM', endDate, endTime, all_day }.
+ */
+export function moveStart(form, change) {
+  const at = (d, t) => new Date(`${d}T${form.all_day ? '00:00' : t || '00:00'}`).getTime();
+  const oldStart = at(form.startDate, form.startTime), oldEnd = at(form.endDate, form.endTime);
+  const next = { ...form, ...change };
+  const ns = at(next.startDate, next.startTime);
+  if (!Number.isFinite(oldStart) || !Number.isFinite(oldEnd) || !Number.isFinite(ns)) return next;
+  const end = new Date(ns + Math.max(0, oldEnd - oldStart));
+  const pad = (n) => String(n).padStart(2, '0');
+  return { ...next, endDate: `${end.getFullYear()}-${pad(end.getMonth() + 1)}-${pad(end.getDate())}`, ...(!form.all_day && { endTime: `${pad(end.getHours())}:${pad(end.getMinutes())}` }) };
+}
