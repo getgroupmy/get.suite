@@ -747,12 +747,13 @@ function DetailsDialog({ file, onClose, onChanged }) {
           <dt>Owner</dt><dd>{f.owner_name}{f.role === 'owner' ? ' (you)' : ''}</dd>
           <dt>Modified</dt><dd>{when(f.updated_at)}{f.updated_by_name ? ` by ${f.updated_by_name}` : ''}</dd>
           <dt>Created</dt><dd>{when(f.created_at)}</dd>
-          <dt>Access</dt><dd>{f.role === 'owner' ? (shares === null ? '…' : shares.length ? shares.map((s) => `${s.name} (${s.role === 'editor' ? 'can edit' : 'can view'})`).join(', ') : 'Only you') : `You can ${f.role === 'editor' ? 'edit' : 'view'}`}</dd>
+          <dt>Access</dt><dd>{f.role === 'owner' ? (shares === null ? '…' : shares.length ? shares.map((s) => `${s.name} (${s.role === 'editor' ? 'can edit' : s.role === 'commenter' ? 'can comment' : 'can view'})`).join(', ') : 'Only you') : `You can ${f.role === 'editor' ? 'edit' : 'view'}`}</dd>
         </dl>
         <label className="field"><span>Description</span>
           <textarea rows={3} maxLength={2000} value={desc} disabled={!canEdit} placeholder={canEdit ? 'What it is, for whom… (search finds it)' : ''} onChange={(e) => setDesc(e.target.value)}
             onBlur={() => { if (desc.trim() !== (f.description || '')) save({ description: desc }, 'Description saved'); }} />
         </label>
+        {canEdit && f.kind !== 'folder' && <Viewers fileId={f.id} />}
         <Activity fileId={f.id} />
         {f.kind === 'folder' && canEdit && (
           <div className="stack" style={{ gap: 6 }}>
@@ -764,6 +765,26 @@ function DetailsDialog({ file, onClose, onChanged }) {
         )}
       </div>
     </Modal>
+  );
+}
+
+/** Who has opened the file (owners and editors see this), most recent first. */
+function Viewers({ fileId }) {
+  const { user } = useAuth();
+  const [list, setList] = useState(null);
+  useEffect(() => { get(`/files/${fileId}/viewers`).then(setList).catch(() => setList([])); }, [fileId]);
+  if (!list) return null;
+  const others = list.filter((v) => v.id !== user.id); // not you
+  return (
+    <section className="stack-tight" aria-label="Who has seen it">
+      <span className="muted small">Who has seen it</span>
+      {others.length ? (
+        <ul className="viewers-list">
+          {others.map((v) => <li key={v.id} className="row"><Avatar name={v.name} size={22} userId={v.id} /><span className="grow">{v.name}</span>
+            <span className="muted small">{formatDate(v.last_at)}{v.times > 1 ? ` · ${v.times} times` : ''}</span></li>)}
+        </ul>
+      ) : <p className="muted small" style={{ margin: 0 }}>Nobody has opened it yet.</p>}
+    </section>
   );
 }
 

@@ -93,7 +93,7 @@ export default function SheetEditor() {
   const [{ ydoc, provider }, setLink] = useState({});
   useEffect(() => {
     let alive = true;
-    get(`/files/${id}`).then((f) => {
+    get(`/files/${id}?open`).then((f) => {
       if (!alive) return;
       setFile(f);
       document.title = `${f.name} · Sheets`;

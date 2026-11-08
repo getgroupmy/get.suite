@@ -1819,3 +1819,5 @@ a.home-item:hover, button.home-item:hover { text-decoration: underline; }
 .comment-pin.on { background: #1a73e8; }
 .comment-pin.new { background: #188038; pointer-events: none; }
 @media (max-width: 760px) { .preview-with-comments.open { grid-template-columns: 1fr; } }
+.viewers-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.viewers-list li { gap: 8px; }

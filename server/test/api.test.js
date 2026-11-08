@@ -3785,3 +3785,26 @@ test('a group email address: mail reaches the members, kept up to date as people
   await owner('DELETE', `/api/groups/${g.id}`);
   assert.equal(q("SELECT COUNT(*) AS n FROM aliases WHERE address = 'help-x@acme.com'").get().n, 0);
 });
+
+test('who has seen a file: owner and editors see the viewers, last time and how often', async () => {
+  const v = client(); const e = client();
+  const vid = (await owner('POST', '/api/users', { local: 'svw', domain: 'acme.com', name: 'Vi Viewer', password: 'password123' })).body.id;
+  const eid = (await owner('POST', '/api/users', { local: 'sed', domain: 'acme.com', name: 'Ed Editor', password: 'password123' })).body.id;
+  await login(v, 'svw@acme.com'); await login(e, 'sed@acme.com');
+  const doc = (await owner('POST', '/api/files/new', { kind: 'doc', name: 'Seen doc' })).body;
+  await owner('PUT', `/api/files/${doc.id}/shares`, { shares: [{ user_id: vid, role: 'viewer' }, { user_id: eid, role: 'editor' }] });
+  await v('GET', `/api/files/${doc.id}?open`);
+  await v('GET', `/api/files/${doc.id}?open`); // again at once: still one time
+  await v('GET', `/api/files/${doc.id}`); // just the details (Drive lists, menus): not an opening
+  const list = (await owner('GET', `/api/files/${doc.id}/viewers`)).body;
+  assert.deepEqual(list.map((x) => [x.name, x.times]), [['Vi Viewer', 1]]);
+  assert.equal((await e('GET', `/api/files/${doc.id}/viewers`)).status, 200, 'editors see it');
+  assert.equal((await v('GET', `/api/files/${doc.id}/viewers`)).status, 403, 'viewers do not');
+  // Someone who lost access drops off the list.
+  await owner('PUT', `/api/files/${doc.id}/shares`, { shares: [{ user_id: eid, role: 'editor' }] });
+  assert.deepEqual((await owner('GET', `/api/files/${doc.id}/viewers`)).body, []);
+  // Ten minutes later it counts again.
+  const { sawFile } = await import('../src/routes/files.js');
+  sawFile(doc.id, eid, Date.now()); sawFile(doc.id, eid, Date.now() + 11 * 60e3);
+  assert.equal((await owner('GET', `/api/files/${doc.id}/viewers`)).body[0].times, 2);
+});

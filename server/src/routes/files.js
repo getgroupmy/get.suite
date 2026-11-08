@@ -90,6 +90,20 @@ function notLocked(f) {
   if (f.locked_at) throw new HttpError(423, `${f.locked_by_name || 'Someone'} locked this file. Unlock it to make changes.`);
 }
 
+// Who has opened a file: the last time and how many times, per person (shown to its owner and editors).
+q(`CREATE TABLE IF NOT EXISTS file_views (
+  file_id TEXT NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  last_at INTEGER NOT NULL,
+  times INTEGER NOT NULL DEFAULT 1,
+  PRIMARY KEY (file_id, user_id)
+)`).run();
+/** Count an opening (several within ten minutes count once). */
+export function sawFile(fileId, userId, t = now()) {
+  q(`INSERT INTO file_views (file_id, user_id, last_at, times) VALUES (?, ?, ?, 1)
+     ON CONFLICT(file_id, user_id) DO UPDATE SET times = times + (CASE WHEN ? - last_at > 600000 THEN 1 ELSE 0 END), last_at = ?`).run(fileId, userId, t, t, t);
+}
+
 function publicFile(f, role) {
   const { storage, page_setup: setup, ...rest } = f;
   return { ...rest, ...(f.kind === 'doc' && { page_setup: setupOf({ page_setup: setup }) }), role: role ?? f.role };
@@ -519,7 +533,16 @@ export default function fileRoutes({ maxUploadBytes }) {
   });
 
   r.get('/:id', (req, res) => {
-    res.json(publicFile(loadFile(req.params.id, req.user)));
+    const f = loadFile(req.params.id, req.user);
+    if (req.query.open !== undefined) sawFile(f.id, req.user.id); // opened in its editor
+    res.json(publicFile(f));
+  });
+
+  // Who has opened it (people with access, their last time and how many times): for its owner and editors.
+  r.get('/:id/viewers', (req, res) => {
+    const f = loadFile(req.params.id, req.user, 'editor');
+    res.json(q(`SELECT v.user_id AS id, u.name, u.username, v.last_at, v.times FROM file_views v JOIN users u ON u.id = v.user_id
+                WHERE v.file_id = ? AND u.disabled = 0 ORDER BY v.last_at DESC LIMIT 200`).all(f.id).filter((v) => roleFor(f.id, v.id)));
   });
 
   // Star a file or folder (for you only), or take the star away.
@@ -583,6 +606,7 @@ export default function fileRoutes({ maxUploadBytes }) {
   r.get('/:id/raw', (req, res) => {
     const f = loadFile(req.params.id, req.user);
     if (f.kind !== 'file') throw bad('Not a binary file');
+    sawFile(f.id, req.user.id);
     const inline = req.query.download === undefined && isInlineSafe(f.mime);
     res.setHeader('Content-Type', inline ? f.mime : 'application/octet-stream');
     res.setHeader('X-Content-Type-Options', 'nosniff');

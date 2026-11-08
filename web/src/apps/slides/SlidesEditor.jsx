@@ -58,7 +58,7 @@ export default function SlidesEditor() {
   // The presentation is shared live (Yjs): slides and boxes merge one by one.
   useEffect(() => {
     let alive = true;
-    get(`/files/${id}`).then((f) => {
+    get(`/files/${id}?open`).then((f) => {
       if (!alive) return;
       setFile(f);
       document.title = `${f.name} · Slides`;
