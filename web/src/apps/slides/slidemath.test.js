@@ -88,3 +88,29 @@ test('animations: boxes come in one click at a time, in the order they were give
   assert.deepEqual(stepPresent(deck, { i: 2, b: 0 }, -1), { i: 0, b: 2 }, 'back: the previous slide with everything in');
   assert.deepEqual(stepPresent(deck, { i: 2, b: 1 }, -1), { i: 2, b: 0 });
 });
+
+test('presentation changes: slides added, deleted, moved, and what changed on each', async () => {
+  const { slideChanges } = await import('./slidemath.js');
+  const t = (id, text, role) => ({ id, type: 'text', text, ...(role && { role }) });
+  const before = { slides: [
+    { id: 'a', items: [t('a1', 'Welcome', 'title'), t('a2', 'Old words')] },
+    { id: 'b', items: [t('b1', 'Plan', 'title')] },
+    { id: 'c', items: [t('c1', 'Gone', 'title')] },
+    { id: 'd', items: [t('d1', 'Same', 'title'), { id: 'd2', type: 'shape', fill: 'accent' }] },
+  ] };
+  const after = { slides: [
+    { id: 'b', items: [t('b1', 'Plan', 'title')] },
+    { id: 'a', items: [t('a1', 'Welcome', 'title'), t('a2', 'New words'), { id: 'a3', type: 'image', fileId: 'f' }], notes: 'Say hi' },
+    { id: 'd', items: [t('d1', 'Same', 'title'), { id: 'd2', type: 'shape', fill: 'text' }], transition: 'fade' },
+    { id: 'e', items: [t('e1', 'Fresh', 'title')] },
+  ] };
+  const ch = slideChanges(before, after);
+  assert.deepEqual(ch.map((c) => `${c.n}:${c.status}:${c.title}`), ['1:moved:Plan', '2:changed:Welcome', '3:changed:Same', '4:added:Fresh', '3:removed:Gone']);
+  assert.deepEqual(ch[1].details, [
+    { kind: 'edit', what: 'text box', was: 'Old words', now: 'New words' },
+    { kind: 'add', what: 'picture', now: '' },
+    { kind: 'edit', what: 'speaker notes', was: '', now: 'Say hi' },
+  ]);
+  assert.deepEqual(ch[2].details.map((d) => `${d.kind} ${d.what}`), ['look shape', 'look transition']);
+  assert.deepEqual(slideChanges(after, after), []);
+});

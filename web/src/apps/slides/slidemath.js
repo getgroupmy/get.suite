@@ -160,3 +160,36 @@ export function stepPresent(deck, at, dir) {
   if (j === at.i) return at;
   return { i: j, b: dir > 0 ? 0 : builds(deck.slides[j]).length };
 }
+
+// ---- what changed since an earlier version: slides added, deleted, moved or changed (and how)
+const boxName = (it) => (it.type === 'text' ? 'text box' : it.type === 'image' ? 'picture' : it.type === 'table' ? 'table' : 'shape');
+const textOf = (it) => (it.type === 'text' ? it.text || '' : it.type === 'table' ? (it.cells || []).map((r) => r.join(' | ')).join(' / ') : '');
+const titleOf = (s) => (s?.items || []).find((it) => it.type === 'text' && it.role === 'title' && it.text)?.text || (s?.items || []).find((it) => it.type === 'text' && it.text)?.text || '';
+/**
+ * [{ id, n, was, status: 'added' | 'removed' | 'changed' | 'moved', title, details: [{ kind, what, was?, now? }] }]
+ * n: its number now (or then, for a removed one); was: its number then.
+ */
+export function slideChanges(before, after) {
+  const old = before?.slides || [], now = after?.slides || [];
+  const oldAt = new Map(old.map((s, i) => [s.id, i]));
+  const out = [];
+  now.forEach((s, i) => {
+    if (!oldAt.has(s.id)) { out.push({ id: s.id, n: i + 1, status: 'added', title: titleOf(s), details: [] }); return; }
+    const o = old[oldAt.get(s.id)];
+    const details = [];
+    const oItems = new Map((o.items || []).map((it) => [it.id, it]));
+    for (const it of s.items || []) {
+      const p = oItems.get(it.id);
+      if (!p) details.push({ kind: 'add', what: boxName(it), now: textOf(it) });
+      else if (textOf(p) !== textOf(it)) details.push({ kind: 'edit', what: boxName(it), was: textOf(p), now: textOf(it) });
+      else if (JSON.stringify(p) !== JSON.stringify(it)) details.push({ kind: 'look', what: boxName(it), now: textOf(it) });
+    }
+    for (const p of o.items || []) if (!(s.items || []).some((it) => it.id === p.id)) details.push({ kind: 'del', what: boxName(p), was: textOf(p) });
+    if ((o.notes || '') !== (s.notes || '')) details.push({ kind: 'edit', what: 'speaker notes', was: o.notes || '', now: s.notes || '' });
+    for (const k of ['bg', 'transition', 'skip']) if ((o[k] || '') !== (s[k] || '')) details.push({ kind: 'look', what: { bg: 'background', transition: 'transition', skip: 'skipping' }[k] });
+    const moved = oldAt.get(s.id) !== i;
+    if (details.length || moved) out.push({ id: s.id, n: i + 1, was: oldAt.get(s.id) + 1, status: details.length ? 'changed' : 'moved', title: titleOf(s), details });
+  });
+  old.forEach((o, i) => { if (!now.some((s) => s.id === o.id)) out.push({ id: o.id, n: i + 1, status: 'removed', title: titleOf(o), details: [] }); });
+  return out;
+}

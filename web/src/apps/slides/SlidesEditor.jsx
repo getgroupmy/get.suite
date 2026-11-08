@@ -18,7 +18,7 @@ import {
   THEMES, LAYOUTS, newId, clampBox, moveBox, resizeBox, addSlide, duplicateSlide, removeSlide, moveSlide,
   updateItem, addItem, removeItem, restack, pictureBox,
   TRANSITIONS, setSlide, stepSlide, firstShown, newTable, resizeTable, setCell,
-  ANIMATIONS, builds, animChange, stepPresent } from './slidemath.js';
+  ANIMATIONS, builds, animChange, stepPresent, slideChanges } from './slidemath.js';
 
 const SIZES = [12, 14, 16, 18, 20, 24, 28, 32, 36, 40, 44, 54, 64, 72, 96];
 const TEXT_COLORS = [['', 'Theme text'], ['accent', 'Theme accent'], ['#202124', 'Black'], ['#ffffff', 'White'], ['#c5221f', 'Red'], ['#e37400', 'Orange'], ['#188038', 'Green'], ['#1a73e8', 'Blue'], ['#8430ce', 'Purple']];
@@ -321,7 +321,7 @@ export default function SlidesEditor() {
       {dialog === 'share' && <ShareDialog file={file} onClose={() => setDialog(null)} />}
       {dialog === 'history' && <VersionHistory file={file} canEdit={!readOnly} onClose={() => setDialog(null)} renderPreview={(content) => (
         <div className="deck-preview">{(content?.slides || []).map((sl, n) => <div key={sl.id || n} className="deck-preview-slide"><span className="muted small">{n + 1}</span><SlideView slide={sl} theme={THEMES[content.theme] || THEMES.light} deckId={file.id} /></div>)}</div>
-      )} />}
+      )} renderChanges={(content) => <SlideChanges before={content} after={deckRef.current} theme={theme} deckId={file.id} />} />}
       {dialog?.type === 'delete-slide' && (
         <ConfirmModal title={`Delete slide ${dialog.index + 1}?`} confirm="Delete" message="The slide and everything on it is removed. Version history can bring it back."
           onClose={() => setDialog(null)} onConfirm={() => { change((d) => removeSlide(d, dialog.index)); goTo(Math.min(dialog.index, deck.slides.length - 2)); setDialog(null); }} />
@@ -526,5 +526,41 @@ function LineShape({ arrow, dir, color }) {
       <line x1={x1} y1={y1} x2={arrow ? bx : x2} y2={arrow ? by : y2} stroke={color} strokeWidth={sw} strokeLinecap="round" />
       {arrow && <polygon points={`${x2},${y2} ${bx - uy * head * 0.55},${by + ux * head * 0.55} ${bx + uy * head * 0.55},${by - ux * head * 0.55}`} fill={color} />}
     </svg>
+  );
+}
+
+/** What changed since an earlier version: each slide added, deleted, moved or changed, and how. */
+function SlideChanges({ before, after, theme, deckId }) {
+  const changes = slideChanges(before, after);
+  const quote = (t) => (t ? `“${t.length > 120 ? `${t.slice(0, 120)}…` : t}”` : '');
+  const STATUS = { added: 'New slide', removed: 'Deleted', moved: 'Moved', changed: 'Changed' };
+  return (
+    <div className="slide-changes">
+      <p className="muted small changes-summary">{changes.length ? `Since then: ${changes.length} slide${changes.length === 1 ? '' : 's'} added, deleted, moved or changed.` : 'No changes since then.'}</p>
+      <ul className="slide-changes-list" style={{ listStyle: 'none', padding: 0 }}>
+        {changes.map((c) => {
+          const slide = (c.status === 'removed' ? before : after)?.slides?.find((x) => x.id === c.id);
+          return (
+            <li key={`${c.status}-${c.id}`} className={`row slide-change change-${c.status}`} aria-label={`Slide ${c.n}: ${STATUS[c.status]}`} style={{ alignItems: 'flex-start', gap: 12, marginBottom: 12 }}>
+              <div style={{ width: 160, flex: 'none' }}>{slide && <SlideView slide={slide} theme={theme} deckId={deckId} />}</div>
+              <div className="grow">
+                <strong>Slide {c.n}{c.title ? `: ${c.title}` : ''}</strong>
+                <span className={`pill ${c.status === 'added' ? 'change-pill-add' : c.status === 'removed' ? 'change-pill-del' : ''}`}>{STATUS[c.status]}{c.was && c.was !== c.n ? ` (was slide ${c.was})` : ''}</span>
+                {c.details.length > 0 && (
+                  <ul className="small">
+                    {c.details.map((d, k) => (
+                      <li key={k}>{d.kind === 'add' ? <>Added a {d.what}{d.now ? <> <ins>{quote(d.now)}</ins></> : ''}</>
+                        : d.kind === 'del' ? <>Removed a {d.what}{d.was ? <> <del>{quote(d.was)}</del></> : ''}</>
+                        : d.kind === 'edit' ? <>{d.what === 'speaker notes' ? 'Speaker notes' : `Text of a ${d.what}`}: {d.was ? <del>{quote(d.was)}</del> : <span className="muted">(empty)</span>} → {d.now ? <ins>{quote(d.now)}</ins> : <span className="muted">(empty)</span>}</>
+                        : <>Changed the look of {d.what === 'background' || d.what === 'transition' || d.what === 'skipping' ? `the ${d.what === 'skipping' ? 'skip setting' : d.what}` : `a ${d.what}`}{d.now ? ` ${quote(d.now)}` : ''}</>}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
   );
 }

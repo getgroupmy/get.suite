@@ -26,7 +26,7 @@ import { validationAt, checkEntry, isTicked } from './validation.js';
 import { hiddenRows, columnValues, adjustFilter, filterArea } from './filter.js';
 import { setHidden, anyHidden, hiddenRuns } from './hide.js';
 import { FilterMenu } from './SheetFilter.jsx';
-import { SheetPreview } from './SheetPreview.jsx';
+import { SheetPreview, SheetChanges } from './SheetPreview.jsx';
 import { VersionHistory } from '../VersionHistory.jsx';
 import { ruleStyle } from './condformat.js';
 import { sheetPrintHtml, usedArea } from './sheetprint.js';
@@ -942,7 +942,7 @@ export default function SheetEditor() {
           onSave={({ id: cid, newId, ...ch }) => writeChart(cid || newId, ch)} />
       )}
       {dialog?.type === 'share' && <ShareDialog file={file} onClose={() => setDialog(null)} />}
-      {dialog?.type === 'history' && <VersionHistory file={file} canEdit={!readOnly} onClose={() => setDialog(null)} renderPreview={(content) => <SheetPreview content={content} />} />}
+      {dialog?.type === 'history' && <VersionHistory file={file} canEdit={!readOnly} onClose={() => setDialog(null)} renderPreview={(content) => <SheetPreview content={content} />} renderChanges={(content) => <SheetChanges before={content} after={dataRef.current} />} />}
       {dialog?.type === 'pivot' && (
         <PivotDialog headings={dialog.headings} spec={dialog.spec} editing={dialog.index !== null}
           source={`${dialog.spec.source}!${colName(dialog.spec.c1)}${dialog.spec.r1 + 1}:${colName(dialog.spec.c2)}`}

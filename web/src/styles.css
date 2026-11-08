@@ -1786,3 +1786,9 @@ a.home-item:hover, button.home-item:hover { text-decoration: underline; }
 @keyframes slide-anim-fly { from { opacity: 0; transform: translateY(40%); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .slide-item.anim-fade, .slide-item.anim-fly { animation: none; } }
 .pv-builds { display: block; margin-top: 6px; }
+.sheet-changes ins, .slide-changes ins { background: color-mix(in srgb, #188038 18%, transparent); color: inherit; text-decoration: none; border-radius: 2px; }
+.sheet-changes del, .slide-changes del { background: color-mix(in srgb, #c5221f 14%, transparent); color: inherit; border-radius: 2px; }
+.changes-table td { white-space: pre-wrap; }
+.change-pill-add { background: #e6f4ea; color: #0d652d; margin-left: 6px; font-size: 11px; }
+.change-pill-del { background: #fce8e6; color: #a50e0e; margin-left: 6px; font-size: 11px; }
+.slide-changes ul { margin: 4px 0 0; padding-left: 18px; }
