@@ -10,9 +10,8 @@ import { jsonFromDeckDoc, applyDeckJson } from '../collabsync.js';
 import { useAuth } from '../../App.jsx';
 import { useToast, Menu, ConfirmModal, Avatar, Modal } from '../../components/ui.jsx';
 import DrivePicker from '../../components/DrivePicker.jsx';
-import ChartView from '../sheets/Chart.jsx';
-import { importBook, onImports, refreshImports } from '../sheets/imports.js';
-import { chartsIn, chartNow, chartChanged } from './linkedchart.js';
+import { chartChanged } from './linkedchart.js';
+import { useChartNow, ChartPick, ChartBox } from '../ChartLink.jsx';
 import Icon from '../../components/Icon.jsx';
 import { ShareDialog } from '../drive/Drive.jsx';
 import { VersionHistory } from '../VersionHistory.jsx';
@@ -490,7 +489,7 @@ export function SlideView({ slide, theme, deckId, editable, selected, editing, o
             </table>
           );
         } else if (it.type === 'chart') {
-          inner = <SlideChart item={it} theme={theme} />;
+          inner = <ChartBox item={it} />; // from the copy kept on the slide
         } else if (it.type === 'shape') {
           inner = it.shape === 'line' || it.shape === 'arrow'
             ? <LineShape arrow={it.shape === 'arrow'} dir={it.dir || 'h'} color={colorOf(it.fill, theme, theme.accent)} />
@@ -518,69 +517,12 @@ export function SlideView({ slide, theme, deckId, editable, selected, editing, o
 
 /** Full screen: arrows, space, Page Up/Down or a click move; Escape ends. */
 /** The speaker's window: opened beside the presentation, kept in step over a BroadcastChannel. */
-/** A chart from a spreadsheet, drawn at the size of its box (from the copy kept on the slide). */
-function SlideChart({ item, theme }) {
-  const ref = useRef();
-  const [size, setSize] = useState(null);
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el) return undefined;
-    const ro = new ResizeObserver(([e]) => setSize({ w: e.contentRect.width, h: e.contentRect.height }));
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-  const titleH = item.title && size ? Math.max(14, size.h * 0.08) : 0;
-  return (
-    <div ref={ref} className="slide-chart" style={{ '--chart-text': theme.text }}>
-      {item.title && <div className="slide-chart-title" style={{ fontSize: titleH * 0.8, height: titleH }}>{item.title}</div>}
-      {size && <ChartView type={item.chartType} data={item.data || { categories: [], series: [] }} width={size.w} height={size.h - titleH} />}
-    </div>
-  );
-}
-
-/** The spreadsheet a selected chart came from, as it is now (for people who can open it). */
-function useChartNow(item) {
-  const [, setTick] = useState(0);
-  useEffect(() => onImports(() => setTick((n) => n + 1)), []);
-  useEffect(() => {
-    refreshImports(); // the latest, each time a chart is selected, coming back to the tab, and each minute
-    window.addEventListener('focus', refreshImports);
-    const t = setInterval(refreshImports, 60000);
-    return () => { window.removeEventListener('focus', refreshImports); clearInterval(t); };
-  }, [item.fileId]);
-  const book = importBook(item.fileId);
-  if (!book || book.error) return { state: book ? 'no-access' : 'loading' };
-  const now = chartNow(book, item.chartId, { book: importBook, depth: 0 });
-  return now ? { state: 'ok', now } : { state: 'gone' };
-}
-
 /** "Update" when the spreadsheet's chart has changed since it was put on the slide. */
 function ChartUpdate({ item, onUpdate }) {
   const { state, now } = useChartNow(item);
   if (state === 'ok' && chartChanged(item, now)) return <button type="button" className="tb on" title="The spreadsheet has changed: show its latest figures" onClick={() => onUpdate(now)}>↻ Update chart</button>;
   const note = { ok: 'Up to date', loading: '…', 'no-access': 'Spreadsheet not shared with you', gone: 'Chart deleted in the spreadsheet' }[state];
   return <><span className="muted small" role="status">{note}</span>{state !== 'no-access' && <a className="tb" href={`/sheets/${item.fileId}`} target="_blank" rel="noreferrer">Open spreadsheet</a>}</>;
-}
-
-/** Choose one of a spreadsheet's charts. */
-function ChartPick({ file, onClose, onPick }) {
-  const [content, setContent] = useState(null);
-  const [error, setError] = useState(null);
-  useEffect(() => { get(`/files/${file.id}/content`).then((r) => setContent(r.content)).catch((e) => setError(e.message)); }, [file.id]);
-  const charts = content ? chartsIn(content) : [];
-  return (
-    <Modal title={`Charts in “${file.name}”`} onClose={onClose} footer={<button type="button" className="btn" onClick={onClose}>Cancel</button>}>
-      {error && <p className="error">{error}</p>}
-      {!content && !error && <p className="muted">Loading…</p>}
-      {content && !charts.length && <p className="muted">This spreadsheet has no charts yet. Make one there with the <strong>Chart</strong> button, then come back.</p>}
-      <ul className="chart-pick">
-        {charts.map((c) => (
-          <li key={c.id}><button type="button" className="btn" onClick={() => onPick({ id: c.id, now: chartNow(content, c.id, { book: importBook, depth: 0 }) })}>
-            {c.title || 'Untitled chart'} <span className="muted small">{c.type} · on {c.sheet}</span></button></li>
-        ))}
-      </ul>
-    </Modal>
-  );
 }
 
 function openPresenterView(deckId, i) {

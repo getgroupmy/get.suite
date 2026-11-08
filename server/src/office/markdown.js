@@ -1,6 +1,7 @@
 // Markdown both ways for Docs: a document (TipTap JSON) as Markdown (GitHub style: tables, task
 // lists, strikethrough, footnotes), and a .md file opened as a document. Underline, colours and
 // highlight have no Markdown, so they're left out; pictures become their names.
+import { chartTable } from './sheetchart.js';
 
 // ---- document → Markdown ----
 const escapeText = (s) => s.replace(/([\\`*_~[\]<>]|^#|^[-+](?= ))/gm, '\\$1').replace(/^(\d+)\. /gm, '$1\\. ');
@@ -58,6 +59,11 @@ function blocks(nodes = [], notes, indent = '') {
       out.push(`${fence}${n.attrs?.language || ''}\n${code}\n${fence}`);
     } else if (t === 'horizontalRule' || t === 'pageBreak') out.push('---');
     else if (t === 'image') out.push(n.attrs?.alt || n.attrs?.title || '');
+    else if (t === 'sheetChart') {
+      const { title, rows } = chartTable(n.attrs);
+      const esc = (x) => x.replace(/\|/g, '\\|');
+      out.push([`**${title}**`, ...(rows.length ? ['', `| ${rows[0].map(esc).join(' | ')} |`, `|${' --- |'.repeat(rows[0].length)}`, ...rows.slice(1).map((r) => `| ${r.map(esc).join(' | ')} |`)] : [])].join('\n'));
+    }
     else if (t === 'table') {
       const rows = (n.content || []).map((r) => (r.content || []).map((c) => cell(c, notes)));
       if (!rows.length) continue;

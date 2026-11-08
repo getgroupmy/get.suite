@@ -3,6 +3,7 @@
 // opens exactly like one typed in Docs. Saving: the document is written back as a .docx, with its
 // tables, pictures and text colours.
 import mammoth from 'mammoth';
+import { chartTable } from './sheetchart.js';
 import { imageSize } from 'image-size';
 import { generateJSON } from '@tiptap/html/server';
 import StarterKit from '@tiptap/starter-kit';
@@ -246,6 +247,15 @@ export async function wordFromDoc(doc, title = 'Document', { pictureData, page }
       else if (n.type === 'horizontalRule') paras.push(new Paragraph({ border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: 'BBBBBB', space: 1 } } }));
       else if (n.type === 'image') paras.push(picture(n));
       else if (n.type === 'tableOfContents') paras.push(...contentsBlock());
+      else if (n.type === 'sheetChart') { // a chart from Sheets: its title and its figures
+        const { title, rows } = chartTable(n.attrs);
+        paras.push(new Paragraph({ children: [new TextRun({ text: title, bold: true })] }));
+        if (rows.length) {
+          paras.push(new WordTable({ width: { size: 100, type: WidthType.PERCENTAGE }, columnWidths: rows[0].map(() => Math.floor(9000 / rows[0].length)),
+            rows: rows.map((r, ri) => new WordRow({ tableHeader: ri === 0, children: r.map((t) => new WordCell({ ...(ri === 0 && { shading: { type: ShadingType.CLEAR, color: 'auto', fill: 'F1F3F4' } }), children: [new Paragraph({ children: [new TextRun({ text: t, bold: ri === 0 })] })] })) })) }));
+        }
+        paras.push(new Paragraph(''));
+      }
       else if (n.type === 'pageBreak') paras.push(new Paragraph({ children: [new PageBreak()] }));
       else if (n.type === 'table') { paras.push(table(n)); paras.push(new Paragraph('')); }
       else if (n.content) walk(n.content, ctx);

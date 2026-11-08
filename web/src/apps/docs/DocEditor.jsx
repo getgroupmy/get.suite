@@ -26,6 +26,8 @@ import { FindBar } from './FindBar.jsx';
 import { Outline } from './Outline.jsx';
 import { ActionItemsDialog } from './ActionItems.jsx';
 import { TableOfContents, htmlWithContents } from './toc.js';
+import { SheetChart } from './sheetchart.jsx';
+import { ChartPick } from '../ChartLink.jsx';
 import { TaskList, TaskItem } from '@tiptap/extension-list';
 import { PageBreak } from './pagebreak.js';
 import { Footnote, footnotesOf, htmlWithFootnotes } from './footnote.js';
@@ -128,6 +130,7 @@ function SharedDoc({ file, setFile }) {
   // A link to another file in Drive, named after it. If people who can open this document can't
   // open that one, the owner is offered to share it with them (everyone else is told who can't).
   const [linkingFile, setLinkingFile] = useState(false);
+  const [chartFrom, setChartFrom] = useState(null); // choosing a chart: { step: 'file' } or { step: 'chart', file }
   const linkFile = async (f) => {
     const href = openUrl(f);
     const c = editor.chain().focus();
@@ -189,7 +192,7 @@ function SharedDoc({ file, setFile }) {
       DocImage.configure({ docId: file.id }),
       FindReplace,
       Table.configure({ resizable: false }), TableRow, TableHeader, TableCell,
-      TextStyle, Color, BackgroundColor, FontFamily, FontSize, LineHeight, TableOfContents,
+      TextStyle, Color, BackgroundColor, FontFamily, FontSize, LineHeight, TableOfContents, SheetChart,
       SuggestInsert, SuggestDelete, SuggestMode,
       PageBreak, Footnote, Mention, TaskList, TaskItem.configure({ nested: true }), // checklists: everyone sees the ticks live; viewers can't tick
     ],
@@ -424,7 +427,10 @@ function SharedDoc({ file, setFile }) {
           { label: 'Download as Markdown (.md)', icon: 'download', onClick: () => { window.location.href = `/api/files/${file.id}/export?format=md`; } },
         ]}
       />
-      {!readOnly && <Toolbar editor={editor} onComment={startComment} onPictures={(files) => addPicturesRef.current(files)} onLinkFile={() => setLinkingFile(true)} />}
+      {!readOnly && <Toolbar editor={editor} onComment={startComment} onPictures={(files) => addPicturesRef.current(files)} onLinkFile={() => setLinkingFile(true)} onChart={() => setChartFrom({ step: 'file' })} />}
+      {chartFrom?.step === 'file' && <DrivePicker title="Chart from a spreadsheet" accept={(x) => x.kind === 'sheet'} empty="No spreadsheets found." onClose={() => setChartFrom(null)} onPick={(f) => setChartFrom({ step: 'chart', file: f })} />}
+      {chartFrom?.step === 'chart' && <ChartPick file={chartFrom.file} onClose={() => setChartFrom(null)}
+        onPick={(ch) => { const f = chartFrom.file; setChartFrom(null); editor.chain().focus().insertSheetChart({ fileId: f.id, chartId: ch.id, title: ch.now.title, chartType: ch.now.chartType, data: JSON.stringify(ch.now.data) }).run(); }} />}
       {linkingFile && <DrivePicker title="Link to a file in Drive" accept={(x) => x.id !== file.id} empty="No files found." onClose={() => setLinkingFile(false)}
         onPick={(f) => { setLinkingFile(false); linkFile(f); }} />}
       <style>{highlight}</style>
@@ -493,7 +499,7 @@ function withoutSuggestionsHtml(html) {
 
 const escapeHtml = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-function Toolbar({ editor, onComment, onPictures, onLinkFile }) {
+function Toolbar({ editor, onComment, onPictures, onLinkFile, onChart }) {
   const pictureInput = useRef();
   const [, force] = useState(0);
   useEffect(() => {
@@ -603,6 +609,8 @@ function Toolbar({ editor, onComment, onPictures, onLinkFile }) {
         onMouseDown={(e) => e.preventDefault()} onClick={() => c().insertFootnote().run()}><sup>1</sup> Footnote</button>
       <button type="button" className="tb labelled" title="Insert a table of contents: the document's headings, kept up to date, each a link" aria-label="Insert table of contents"
         onMouseDown={(e) => e.preventDefault()} onClick={() => c().insertTableOfContents().run()}><Icon name="menu" size={18} /> Contents</button>
+      <button type="button" className="tb labelled" title="A chart from one of your spreadsheets (it can be updated when the spreadsheet changes)" aria-label="Insert chart from Sheets"
+        onMouseDown={(e) => e.preventDefault()} onClick={onChart}><Icon name="chart" size={18} /> Chart</button>
       <span className="sep" />
       <button type="button" className="tb labelled" title="Comment on the selected text (Ctrl+Alt+M)" aria-label="Add comment" disabled={editor.state.selection.empty}
         onMouseDown={(e) => e.preventDefault()} onClick={onComment}><Icon name="chat" size={18} /> Comment</button>
@@ -720,7 +728,7 @@ function DocPreview({ content, fileId }) {
     extensions: [
       StarterKit.configure({ link: { openOnClick: true } }), TextAlign.configure({ types: ['heading', 'paragraph'] }),
       CommentMark, DocImage.configure({ docId: fileId }), Table, TableRow, TableHeader, TableCell,
-      TextStyle, Color, BackgroundColor, FontFamily, FontSize, LineHeight, TableOfContents, PageBreak, Footnote, Mention, TaskList, TaskItem.configure({ nested: true }),
+      TextStyle, Color, BackgroundColor, FontFamily, FontSize, LineHeight, TableOfContents, SheetChart, PageBreak, Footnote, Mention, TaskList, TaskItem.configure({ nested: true }),
     ],
   }, [content]);
   return <div className="paper preview-paper"><EditorContent editor={editor} /></div>;

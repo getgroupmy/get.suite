@@ -473,3 +473,15 @@ test('PowerPoint: a chart from a spreadsheet on a slide becomes a real chart wit
   assert.match(xml, /<c:pieChart>/);
   assert.match(xml, /Feb/);
 });
+
+test('Docs: a chart from Sheets is its title and a table of its figures in Word and Markdown', async () => {
+  const { markdownFromDoc } = await import('../src/office/markdown.js');
+  const data = JSON.stringify({ categories: ['Jan', 'Feb'], series: [{ name: 'Sales', values: [10, null] }, { name: 'Costs|net', values: [4, 6] }] });
+  const doc = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Before' }] }, { type: 'sheetChart', attrs: { fileId: 'f', chartId: 'c', title: 'Sales by month', chartType: 'line', data } }] };
+  const md = markdownFromDoc(doc);
+  assert.match(md, /\*\*Sales by month\*\*\n\n\|  \| Sales \| Costs\\\|net \|\n\| --- \| --- \| --- \|\n\| Jan \| 10 \| 4 \|\n\| Feb \|  \| 6 \|/);
+  const buf = await wordFromDoc(doc, 'Report');
+  const xml = await (await JSZip.loadAsync(buf)).file('word/document.xml').async('string');
+  for (const t of ['Sales by month', 'Sales', 'Jan', 'Feb', '10', '6']) assert.ok(xml.includes(`>${t}<`), t);
+  assert.match(xml, /<w:tbl>/);
+});
