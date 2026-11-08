@@ -931,6 +931,19 @@ function EventDialog({ event, onClose, onSaved, onDuplicate }) {
   };
   const [attachments, setAttachments] = useState(event.attachments || []);
   const [pickingFile, setPickingFile] = useState(false);
+  // Meeting notes: made (once) on the server, attached here, and opened in a new tab.
+  const [notesId, setNotesId] = useState(event.notes_id || null);
+  const takeNotes = async () => {
+    const tab = window.open('', '_blank');
+    try {
+      const r = await post(`/events/${event.id}/notes`, { tz: Intl.DateTimeFormat().resolvedOptions().timeZone });
+      setNotesId(r.id);
+      const doc = await get(`/files/${r.id}`);
+      setAttachments((list) => (list.some((a) => a.id === r.id) ? list : [...list, { id: r.id, name: doc.name, kind: 'doc', can_open: true }]));
+      if (tab) tab.location.href = `/docs/${r.id}`; else window.location.href = `/docs/${r.id}`;
+      if (r.created) toast('Meeting notes made and attached. Guests can edit them.');
+    } catch (e) { tab?.close(); toast(e.message, 'error'); }
+  };
   const [guestInput, setGuestInput] = useState('');
   const [directory, setDirectory] = useState([]);
   useEffect(() => { get('/users/directory').then(setDirectory).catch(() => {}); }, []);
@@ -1085,7 +1098,9 @@ function EventDialog({ event, onClose, onSaved, onDuplicate }) {
         {!special && (
           <div className="field"><span>Attachments</span>
             <Attachments list={attachments} onRemove={(a) => setAttachments(attachments.filter((x) => x.id !== a.id))} />
-            <span className="row"><button type="button" className="btn small" onClick={() => setPickingFile(true)}><Icon name="attach" size={16} /> Attach from Drive</button></span>
+            <span className="row"><button type="button" className="btn small" onClick={() => setPickingFile(true)}><Icon name="attach" size={16} /> Attach from Drive</button>
+              {event.id && <button type="button" className="btn small" onClick={takeNotes} title="A document for this meeting: when it is, who's coming, the agenda, notes and action items. Guests can edit it.">
+                📝 {attachments.some((a) => a.id === notesId) ? 'Open meeting notes' : 'Take meeting notes'}</button>}</span>
             {attachments.length > 0 && (guests.length > 0 || guestInput.trim()) && <span className="muted small">Guests can view the files you own. They see the others only if they can already open them.</span>}
           </div>
         )}

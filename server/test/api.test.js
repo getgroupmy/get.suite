@@ -3956,3 +3956,47 @@ test('forms: response validation is kept with the question and checked on submit
   assert.equal((await send({ age: '30', days: ['Mon', 'Tue', 'Wed'] })).body.error, 'Days: Choose at most 2');
   assert.equal((await send({ age: '30', mail: 'a@b.co', days: ['Tue'] })).status, 201);
 });
+
+test('calendar: take meeting notes makes a document, attaches it and lets colleagues invited edit it', async () => {
+  const { notesContent, notesName, whenText } = await import('../src/meetingnotes.js');
+  const at = Date.UTC(2026, 2, 10, 14);
+  assert.equal(whenText({ start: at, end: at + 36e5 }, 'Europe/London'), 'Tuesday, 10 March 2026, 14:00–15:00 (Europe/London)');
+  assert.equal(notesName({ title: 'Sync', start: at }, 'Asia/Tokyo'), 'Notes – Sync (10 Mar 2026)');
+  const doc = notesContent({ title: 'Sync', start: at, end: at + 36e5, description: 'Budget\nHiring' }, { organizer: { id: 'o', name: 'Olga', email: 'o@x.com' }, guests: [{ id: 'g', name: 'Gus', email: 'g@x.com' }], outside: [{ email: 'c@client.com' }] });
+  const attendees = doc.content.find((n) => n.content?.[0]?.text === 'Attendees: ').content;
+  assert.deepEqual(attendees.filter((n) => n.type === 'mention').map((n) => n.attrs.name), ['Olga', 'Gus']);
+  assert.ok(attendees.some((n) => n.text === 'c@client.com'));
+  assert.ok(JSON.stringify(doc).includes('Hiring') && JSON.stringify(doc).includes('taskItem'));
+
+  const nia = client();
+  const made = await owner('POST', '/api/users', { local: 'notesg', domain: 'acme.com', name: 'Nia Notes', password: 'password123' });
+  await login(nia, 'notesg@acme.com');
+  const ev = (await owner('POST', '/api/events', { title: 'Quarterly review', start: at, end: at + 36e5, guests: ['notesg@acme.com'], tz: 'Europe/London' })).body;
+  assert.equal((await nia('POST', `/api/events/${ev.id}/notes`)).status, 404, 'only the organizer');
+  const first = await owner('POST', `/api/events/${ev.id}/notes`, {});
+  assert.equal(first.status, 201);
+  const again = await owner('POST', `/api/events/${ev.id}/notes`, {});
+  assert.equal(again.status, 200);
+  assert.equal(again.body.id, first.body.id, 'one notes document per event');
+  const f = (await owner('GET', `/api/files/${first.body.id}`)).body;
+  assert.equal(f.name, 'Notes – Quarterly review (10 Mar 2026)');
+  const content = (await nia('GET', `/api/files/${first.body.id}/content`));
+  assert.equal(content.status, 200);
+  assert.equal(content.body.file.role, 'editor', 'the guest can edit');
+  const seen = (await nia('GET', `/api/events?from=${at - 864e5}&to=${at + 864e5}`)).body;
+  const mine = (Array.isArray(seen) ? seen : seen.events).find((e) => e.id === ev.id);
+  assert.ok(mine.attachments.some((a) => a.id === first.body.id && a.can_open));
+  assert.equal(mine.notes_id, first.body.id);
+  // A guest added later can edit it too.
+  const late = await owner('POST', '/api/users', { local: 'notesl', domain: 'acme.com', name: 'Leo Late', password: 'password123' });
+  const put = await owner('PATCH', `/api/events/${ev.id}`, { guests: ['notesg@acme.com', 'notesl@acme.com'] });
+  assert.equal(put.status, 200, JSON.stringify(put.body));
+  const leo = client(); await login(leo, 'notesl@acme.com');
+  const leoSees = await leo('GET', `/api/files/${first.body.id}/content`);
+  assert.equal(leoSees.status, 200, JSON.stringify(leoSees.body));
+  assert.equal(leoSees.body.file.role, 'editor');
+  assert.ok(made.status === 201 && late.status === 201);
+  // Taken off the event and asked for again: the same document comes back on it.
+  await owner('PATCH', `/api/events/${ev.id}`, { attachments: [] });
+  assert.equal((await owner('POST', `/api/events/${ev.id}/notes`, {})).body.id, first.body.id);
+});

@@ -16,6 +16,8 @@ import { importCalendar, exportCalendar } from '../calimport.js';
 import { roleFor, audienceFor } from '../access.js';
 import { recordActivity } from '../fileactivity.js';
 import { meetingFor } from '../meet.js';
+import { insertFile } from './files.js';
+import { notesContent, notesName } from '../meetingnotes.js';
 
 q(`CREATE TABLE IF NOT EXISTS event_guests (
   event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
@@ -44,6 +46,7 @@ if (!hasColumn('events', 'tz')) q('ALTER TABLE events ADD COLUMN tz TEXT').run()
 // ones the organizer owns; each person sees whether they can open each one.
 if (!hasColumn('events', 'attachments')) q('ALTER TABLE events ADD COLUMN attachments TEXT').run();
 if (!hasColumn('events', 'meet_code')) q('ALTER TABLE events ADD COLUMN meet_code TEXT').run(); // a Meet video meeting for it
+if (!hasColumn('events', 'notes_id')) q('ALTER TABLE events ADD COLUMN notes_id TEXT').run(); // its meeting notes document
 if (!hasColumn('events', 'kind')) q('ALTER TABLE events ADD COLUMN kind TEXT').run();
 const SPECIAL = ['ooo', 'focus']; // out of office, focus time: just you (no guests, rooms or video meeting); invitations then are declined // null, or 'ooo': out of office (invitations then are declined)
 const ANSWERS = ['yes', 'maybe', 'no'];
@@ -130,21 +133,26 @@ function readAttachments(user, ids, existing = []) {
     return { id: f.id, name: f.name, kind: f.kind, mime: f.mime || null };
   });
 }
-/** Guests (on the server) can view the attachments the organizer owns; nobody loses access they had. */
+/** Guests (on the server) can view the attachments the organizer owns, and edit its meeting notes; nobody loses access they had. */
 function shareAttachments(owner, eventId) {
-  const ev = q('SELECT attachments FROM events WHERE id = ?').get(eventId);
+  const ev = q('SELECT attachments, notes_id FROM events WHERE id = ?').get(eventId);
   const files = ev?.attachments ? JSON.parse(ev.attachments) : [];
   const guests = q('SELECT user_id FROM event_guests WHERE event_id = ?').all(eventId).map((g) => g.user_id);
   for (const a of files) {
     if (roleFor(a.id, owner.id) !== 'owner') continue;
+    const notes = a.id === ev.notes_id;
     const given = [];
     for (const g of guests) {
-      if (!canReach(owner, g) || roleFor(a.id, g)) continue;
-      q('INSERT INTO shares (file_id, user_id, role, direct_role) VALUES (?, ?, ?, ?) ON CONFLICT(file_id, user_id) DO NOTHING').run(a.id, g, 'viewer', 'viewer');
+      const had = roleFor(a.id, g);
+      if (!canReach(owner, g) || (had && !(notes && !['editor', 'owner'].includes(had)))) continue;
+      if (notes) {
+        q(`INSERT INTO shares (file_id, user_id, role, direct_role) VALUES (?, ?, 'editor', 'editor')
+           ON CONFLICT(file_id, user_id) DO UPDATE SET role = 'editor', direct_role = 'editor'`).run(a.id, g);
+      } else q('INSERT INTO shares (file_id, user_id, role, direct_role) VALUES (?, ?, ?, ?) ON CONFLICT(file_id, user_id) DO NOTHING').run(a.id, g, 'viewer', 'viewer');
       given.push(q('SELECT name FROM users WHERE id = ?').get(g)?.name || 'someone');
     }
     if (given.length) {
-      recordActivity(a.id, owner.id, 'share', { added: given.map((n) => `${n} (can view, guest of an event)`), removed: [] });
+      recordActivity(a.id, owner.id, 'share', { added: given.map((n) => `${n} (can ${notes ? 'edit' : 'view'}, guest of an event)`), removed: [] });
       const parent = q('SELECT parent_id FROM files WHERE id = ?').get(a.id)?.parent_id;
       sendTo(new Set(audienceFor(a.id)), { type: 'files-changed', parent_id: parent });
     }
@@ -475,6 +483,32 @@ export default function calendarRoutes() {
     if (req.body.rooms !== undefined || (changed && roomsOf(e.id).length)) setRooms(req.user, q('SELECT * FROM events WHERE id = ?').get(e.id), req.body.rooms ?? roomsOf(e.id).map((x) => x.id));
     if (attachments && !guests) shareAttachments(req.user, e.id);
     res.json({ ...saved, attachments: attachmentsFor(saved, req.user.id), role: 'organizer', guests: allGuests(e.id), rooms: roomsOf(e.id), reminders: remindersOf(e.id, req.user.id) });
+  });
+
+  // Meeting notes: the organizer makes a document for the event (or gets the one already made). It's
+  // attached to the event, and colleagues invited can edit it.
+  r.post('/:id/notes', (req, res) => {
+    const row = q('SELECT * FROM events WHERE id = ? AND owner_id = ?').get(req.params.id, req.user.id);
+    if (!row) throw notFound();
+    if (SPECIAL.includes(row.kind)) throw bad('Out of office and focus time have no meeting notes');
+    const ev = outEvent(row);
+    const kept = row.notes_id && q('SELECT id FROM files WHERE id = ? AND trashed = 0').get(row.notes_id);
+    let id = kept?.id;
+    if (!id) {
+      if (ev.attachments.length >= MAX_ATTACHMENTS) throw bad(`At most ${MAX_ATTACHMENTS} attachments`);
+      const tz = zoneOrUtc(req.body?.tz || row.tz || 'UTC');
+      const content = JSON.stringify(notesContent(ev, { organizer: { id: req.user.id, name: req.user.name, email: req.user.email }, guests: guestsOf(ev.id), outside: outsideOf(ev.id), tz }));
+      id = insertFile({ owner: req.user.id, parentId: null, name: notesName(ev, tz), kind: 'doc', content, size: Buffer.byteLength(content) });
+    }
+    // Attached (again, if someone took it off the event).
+    if (!ev.attachments.some((a) => a.id === id)) {
+      if (ev.attachments.length >= MAX_ATTACHMENTS) throw bad(`At most ${MAX_ATTACHMENTS} attachments`);
+      const attachments = [...ev.attachments.filter((a) => a.id !== row.notes_id), { id, name: q('SELECT name FROM files WHERE id = ?').get(id).name, kind: 'doc', mime: null }];
+      q('UPDATE events SET notes_id = ?, attachments = ? WHERE id = ?').run(id, JSON.stringify(attachments), ev.id);
+    }
+    shareAttachments(req.user, ev.id); // colleagues invited can write in it
+    touch([req.user.id, ...guestsOf(ev.id).map((g) => g.id)]);
+    res.status(kept ? 200 : 201).json({ id, created: !kept });
   });
 
   // Your own reminders of an event you organise or are invited to.
