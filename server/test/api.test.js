@@ -4880,3 +4880,32 @@ test('chat voice messages: a recording plays in the conversation (audio, inline,
   assert.match(got.headers.get('content-disposition'), /^inline/);
   assert.equal(got.body.length, 100);
 });
+
+test('chat link previews: a link\'s page title and description are added to the message', async () => {
+  const http = await import('node:http');
+  const srv = http.createServer((req, res) => {
+    if (req.url === '/moved') { res.writeHead(302, { location: '/page' }); return res.end(); }
+    if (req.url === '/file.pdf') { res.writeHead(200, { 'content-type': 'application/pdf' }); return res.end('%PDF'); }
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+    res.end('<html><head><title>Supplier price list</title><meta name="description" content="All prices for 2027."></head><body></body></html>');
+  });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  const port = srv.address().port;
+  process.env.LINK_PREVIEWS_ALLOW_PRIVATE = '1';
+  try {
+    const kay = client(); await login(kay, 'kay@keepco.com');
+    const ch = (await kay('GET', '/api/chat/channels')).body.channels.find((c) => !c.dm_key && !c.private);
+    const msg = (await kay('POST', `/api/chat/channels/${ch.id}/messages`, { body: `Prices: http://127.0.0.1:${port}/moved.` })).body;
+    const preview = async (id) => { for (let i = 0; i < 40; i++) { const l = (await kay('GET', `/api/chat/channels/${ch.id}/messages`)).body; const m = (l.messages || l).find((x) => x.id === id); if (m.preview) return m.preview; await new Promise((r) => setTimeout(r, 100)); } return null; };
+    const p = await preview(msg.id);
+    assert.equal(p.title, 'Supplier price list');
+    assert.equal(p.description, 'All prices for 2027.');
+    assert.equal(p.url, `http://127.0.0.1:${port}/moved`);
+    const pdf = (await kay('POST', `/api/chat/channels/${ch.id}/messages`, { body: `http://127.0.0.1:${port}/file.pdf` })).body;
+    await new Promise((r) => setTimeout(r, 500));
+    assert.equal(await preview(pdf.id) ?? null, null, 'only web pages');
+  } finally { delete process.env.LINK_PREVIEWS_ALLOW_PRIVATE; srv.close(); }
+  // Without the test switch, an address on the server's own network isn't fetched.
+  const { previewFor } = await import('../src/linkpreview.js');
+  assert.equal(await previewFor(`http://127.0.0.1:${port}/never`), null);
+});

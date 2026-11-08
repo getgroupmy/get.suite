@@ -538,6 +538,13 @@ function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit
           </blockquote>
         )}
         {!editing && <FileCards text={m.body} />}
+        {!editing && m.preview && (
+          <a className="link-preview" href={m.preview.url} target="_blank" rel="noopener noreferrer" aria-label={`Link: ${m.preview.title}`}>
+            <span className="link-site small muted">{m.preview.site}</span>
+            <strong>{m.preview.title}</strong>
+            {m.preview.description && <span className="small">{m.preview.description}</span>}
+          </a>
+        )}
         {m.files?.length > 0 && (
           <div className="msg-files">
             {m.files.map((f) => (/^audio\/(webm|ogg|mp4|mpeg|wav)$/.test(f.mime)

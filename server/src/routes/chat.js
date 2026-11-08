@@ -1,4 +1,5 @@
 import { notify } from '../notifications.js';
+import { firstLink, previewFor } from '../linkpreview.js';
 import { mailEnabled } from '../mail/config.js';
 import { queueChatEmail } from '../chatmail.js';
 import { Router } from 'express';
@@ -120,7 +121,8 @@ function dmOpen(c, user) {
 }
 
 // Each message with its thread: how many replies, when the last came, and who replied (first few).
-const MSG = `SELECT m.id, m.channel_id, m.user_id, m.body, m.created_at, m.edited_at, m.files, m.parent_id, m.pinned_at, m.poll, m.forwarded, u.name AS user_name, (SELECT pu.name FROM users pu WHERE pu.id = m.pinned_by) AS pinned_by_name,
+if (!q('PRAGMA table_info(messages)').all().some((c) => c.name === 'preview')) q('ALTER TABLE messages ADD COLUMN preview TEXT').run(); // a link's title and description (linkpreview.js)
+const MSG = `SELECT m.id, m.channel_id, m.user_id, m.body, m.created_at, m.edited_at, m.files, m.parent_id, m.pinned_at, m.poll, m.forwarded, m.preview, u.name AS user_name, (SELECT pu.name FROM users pu WHERE pu.id = m.pinned_by) AS pinned_by_name,
                (SELECT COUNT(*) FROM messages t WHERE t.parent_id = m.id) AS reply_count,
                (SELECT MAX(t.created_at) FROM messages t WHERE t.parent_id = m.id) AS last_reply_at,
                (SELECT json_group_array(name) FROM (SELECT DISTINCT tu.name FROM messages t JOIN users tu ON tu.id = t.user_id
@@ -149,7 +151,7 @@ function shape(rows) {
       if (!e) byEmoji.push(e = { emoji: r.emoji, users: [] });
       e.users.push({ id: r.user_id, name: r.name || 'Someone' });
     }
-    return { ...m, files: m.files ? JSON.parse(m.files) : [], reactions: byEmoji, repliers: m.repliers ? JSON.parse(m.repliers) : [], poll, forwarded: m.forwarded ? JSON.parse(m.forwarded) : null };
+    return { ...m, files: m.files ? JSON.parse(m.files) : [], reactions: byEmoji, repliers: m.repliers ? JSON.parse(m.repliers) : [], poll, forwarded: m.forwarded ? JSON.parse(m.forwarded) : null, preview: m.preview ? JSON.parse(m.preview) : null };
   });
 }
 const one = (id) => shape([q(`${MSG} WHERE m.id = ?`).get(id)].filter(Boolean))[0];
@@ -195,7 +197,19 @@ function deliver(c, user, { body, files, poll, parent, forwarded = null }) {
   notifyMentions(c, user, msg);
   if (c.dm_key) queueChatEmail(c.dm_key.split(':').filter((x) => x !== user.id), msg.id); // direct messages too
   if (parent) sendTo(audience(c), { type: 'message-updated', message: one(parent.id) }); // its reply count
+  addPreview(c, msg);
   return msg;
+}
+
+/** A link in the message: its page's title and description are added under it when they arrive. */
+function addPreview(c, msg) {
+  const url = firstLink(msg.body, (process.env.PUBLIC_URL && new URL(process.env.PUBLIC_URL).host) || null);
+  if (!url) return;
+  previewFor(url).then((p) => {
+    if (!p || !q('SELECT 1 FROM messages WHERE id = ? AND body = ?').get(msg.id, msg.body)) return; // edited or deleted meanwhile
+    q('UPDATE messages SET preview = ? WHERE id = ?').run(JSON.stringify(p), msg.id);
+    sendTo(audience(c), { type: 'message-updated', message: one(msg.id) });
+  }).catch(() => {});
 }
 
 // Scheduled messages: sent by the server at their time, checked again then (the sender may have left,
@@ -653,9 +667,10 @@ export default function chatRoutes() {
     readOnly(c);
     if (m.poll) throw bad("A poll can't be edited");
     const body = str(req.body.body, { required: !m.files, name: 'Message', max: 8000 }) || '';
-    q('UPDATE messages SET body = ?, edited_at = ? WHERE id = ?').run(body, now(), m.id);
+    q('UPDATE messages SET body = ?, edited_at = ?, preview = NULL WHERE id = ?').run(body, now(), m.id);
     const msg = one(m.id);
     sendTo(audience(c), { type: 'message-updated', message: msg });
+    addPreview(c, msg); // the link (if any) as it is now
     res.json(msg);
   });
 
