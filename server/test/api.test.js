@@ -3296,3 +3296,20 @@ test('download your data: one zip with Drive, calendar, contacts, tasks and note
   assert.match(await zip.file('Tasks.csv').async('string'), /Work,'=cmd\(\) not a formula/);
   assert.match(await zip.file('Notes.md').async('string'), /## Ideas[\s\S]*- \[ \] One\n- \[x\] Two/);
 });
+
+test('download your data: admins can download a colleague’s (same company only)', async () => {
+  const JSZip = (await import('jszip')).default;
+  const a = client(); const b = client();
+  const aid = (await owner('POST', '/api/users', { local: 'tka', domain: 'acme.com', name: 'Leaving Lee', password: 'password123' })).body.id;
+  assert.equal((await owner('POST', '/api/users', { local: 'tkb', domain: 'acme.com', name: 'Nosy Ned', password: 'password123' })).status, 201);
+  await login(a, 'tka@acme.com'); await login(b, 'tkb@acme.com');
+  await a('POST', '/api/notes', { title: 'Handover', body: 'Keys in drawer' });
+  assert.equal((await b('GET', `/api/takeout?user=${aid}`)).status, 403, 'not for colleagues');
+  assert.equal((await owner('GET', `/api/takeout/summary?user=${aid}`)).body.notes, 1);
+  const r = await owner('GET', `/api/takeout?user=${aid}`, undefined, { binary: true });
+  assert.equal(r.status, 200);
+  assert.match(decodeURIComponent(r.headers.get('content-disposition')), /tka@acme\.com/);
+  const zip = await JSZip.loadAsync(r.body);
+  assert.match(await zip.file('Notes.md').async('string'), /Handover/);
+  assert.equal((await owner('GET', '/api/takeout?user=nobody')).status, 404);
+});

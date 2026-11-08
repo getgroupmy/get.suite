@@ -555,7 +555,7 @@ Your business fixed IP is what makes this work. Do these once:
 
 ## Download your data
 
-**Settings → Download your data** gives you one .zip of everything you own, in formats other programs open: your **Drive** with its folders (documents as Word, spreadsheets as Excel, presentations as PowerPoint; pending suggestions left out), your **calendar** (.ics for Outlook, Google or Apple Calendar), **contacts** (.vcf), **tasks** (a CSV spreadsheet) and **notes** (Markdown). It says how much there is first. Email stays on the mail server: copy it with a mail app (see *Mail apps*). Each download is recorded in the admin activity log. Very large Drives (over 10 GB of uploads) are downloaded folder by folder from Drive instead.
+**Settings → Download your data** gives you one .zip of everything you own, in formats other programs open: your **Drive** with its folders (documents as Word, spreadsheets as Excel, presentations as PowerPoint; pending suggestions left out), your **calendar** (.ics for Outlook, Google or Apple Calendar), **contacts** (.vcf), **tasks** (a CSV spreadsheet) and **notes** (Markdown). It says how much there is first. Email stays on the mail server: copy it with a mail app (see *Mail apps*). Each download is recorded in the admin activity log. Admins can download the same for anyone in their company (**Admin → Users → ⋮ → Download their data**), for example before deleting the account of someone who has left. Very large Drives (over 10 GB of uploads) are downloaded folder by folder from Drive instead.
 
 ## Two-step verification
 

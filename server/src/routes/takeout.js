@@ -8,6 +8,7 @@ import JSZip from 'jszip';
 import { q, FILES_DIR } from '../db.js';
 import { bad } from '../util.js';
 import { audit } from '../audit.js';
+import { forbidden, notFound } from '../util.js';
 import { exportCalendar } from '../calimport.js';
 import { contactsToVcf } from '../contactfiles.js';
 import { wordFromDoc } from '../office/word.js';
@@ -46,7 +47,7 @@ export default function takeoutRoutes() {
   const r = Router();
   // What's in it, before downloading.
   r.get('/summary', (req, res) => {
-    const me = req.user.id;
+    const me = whose(req).id;
     const n = (sql) => q(sql).get(me).n;
     res.json({
       files: n("SELECT COUNT(*) AS n FROM files WHERE owner_id = ? AND trashed = 0 AND kind != 'folder'"),
@@ -58,8 +59,18 @@ export default function takeoutRoutes() {
     });
   });
 
+  /** Whose data: your own, or (admins) someone's in your company, for when they leave: ?user=<id>. */
+  const whose = (req) => {
+    if (!req.query.user || req.query.user === req.user.id) return { id: req.user.id, username: req.user.username };
+    if (!req.user.is_admin) throw forbidden('Admins only');
+    const u = q('SELECT id, org_id, username FROM users WHERE id = ?').get(String(req.query.user));
+    if (!u || (u.org_id !== req.user.org_id && !req.user.is_super)) throw notFound('No such person');
+    return u;
+  };
+
   r.get('/', async (req, res) => {
-    const me = req.user.id;
+    const who = whose(req);
+    const me = who.id;
     const bytes = q("SELECT COALESCE(SUM(size), 0) AS n FROM files WHERE owner_id = ? AND trashed = 0 AND kind = 'file'").get(me).n;
     if (bytes > MAX_BYTES) throw bad('Your Drive is larger than 10 GB: download its folders from Drive instead (select them, then Download)');
     const zip = new JSZip();
@@ -95,8 +106,8 @@ export default function takeoutRoutes() {
       'Contacts.vcf  your contacts, for phones, Outlook, Gmail or Apple Contacts',
       'Tasks.csv     your task lists, for a spreadsheet',
       'Notes.md      your notes', '', 'Email stays on the mail server: use a mail app (see Settings) to copy it.'].join('\r\n'));
-    audit(req, 'data.export', { target: req.user.username });
-    const name = `Workspace data ${new Date().toISOString().slice(0, 10)}.zip`;
+    audit(req, 'data.export', { target: who.username });
+    const name = `Workspace data${who.id === req.user.id ? '' : ` ${who.username}`} ${new Date().toISOString().slice(0, 10)}.zip`;
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(name)}`);
     zip.generateNodeStream({ type: 'nodebuffer', streamFiles: true, compression: 'STORE' }).on('error', (err) => res.destroy(err)).pipe(res);
