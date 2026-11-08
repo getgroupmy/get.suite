@@ -4619,3 +4619,39 @@ test('tasks waiting on others: same list, no loops, and a note when it can start
   await kay('PATCH', `/api/tasks/tasks/${print.id}`, { list_id: other });
   assert.deepEqual((await kay('GET', `/api/tasks/lists/${other}/tasks`)).body.find((t) => t.id === print.id).blocked_by, []);
 });
+
+test('forms: a linked spreadsheet gets each response as it arrives, and changed ones in their row', async () => {
+  const kay = client(); await login(kay, 'kay@keepco.com');
+  const anon = client();
+  const f = (await kay('POST', '/api/forms', { title: 'Lunch order', questions: [{ id: 'food', type: 'short', title: 'Food' }] })).body;
+  await kay('PUT', `/api/forms/${f.id}`, { audience: 'public', allow_edit: true });
+  await anon('POST', `/api/public/forms/${f.token}`, { answers: { food: 'Soup' } });
+  const made = await kay('POST', `/api/forms/${f.id}/sheet`, { link: true });
+  assert.equal(made.status, 201);
+  assert.equal(made.body.linked, true);
+  assert.equal((await kay('POST', `/api/forms/${f.id}/sheet`, { link: true })).body.id, made.body.id, 'the same one again');
+  assert.equal((await kay('GET', `/api/forms/${f.id}`)).body.linked_sheet.id, made.body.id);
+  const cells = async () => (await kay('GET', `/api/files/${made.body.id}/content`)).body.content.sheets[0].cells;
+  let c = await cells();
+  assert.equal(c.A1, 'Submitted'); assert.equal(c.B1, 'Food'); assert.equal(c.C1, 'Response ID'); assert.equal(c.B2, 'Soup');
+  // Someone moves the columns about and adds their own notes: new rows still land under the headings.
+  const cur = (await kay('GET', `/api/files/${made.body.id}/content`)).body;
+  const moved = { ...cur.content.sheets[0].cells, B1: 'Notes', D1: 'Food', D2: 'Soup', B2: 'paid' };
+  await kay('PUT', `/api/files/${made.body.id}/content`, { version: cur.file.version, content: { sheets: [{ ...cur.content.sheets[0], cells: moved }] } });
+  const sent = (await anon('POST', `/api/public/forms/${f.token}`, { answers: { food: '=1+1' } })).body;
+  c = await cells();
+  assert.equal(c.D3, "'=1+1", 'under its heading, never a formula');
+  assert.equal(c.B3, undefined);
+  // A question added later gets a column at the end.
+  await kay('PUT', `/api/forms/${f.id}`, { questions: [{ id: 'food', type: 'short', title: 'Food' }, { id: 'drink', type: 'short', title: 'Drink' }] });
+  await anon('PUT', `/api/public/forms/${f.token}/response/${sent.edit_key}`, { answers: { food: 'Pie', drink: 'Tea' } });
+  c = await cells();
+  assert.equal(c.D3, 'Pie', 'a changed response stays in its row');
+  assert.equal(c.E1, 'Drink'); assert.equal(c.E3, 'Tea');
+  assert.equal(c.D4, undefined);
+  // Unlinked: no more rows.
+  await kay('DELETE', `/api/forms/${f.id}/sheet`);
+  await anon('POST', `/api/public/forms/${f.token}`, { answers: { food: 'Cake' } });
+  assert.equal((await cells()).D4, undefined);
+  assert.equal((await kay('GET', `/api/forms/${f.id}`)).body.linked_sheet, null);
+});

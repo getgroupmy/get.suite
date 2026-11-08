@@ -14,6 +14,7 @@ import { userFromToken, tokenFromReq } from '../auth.js';
 import { notify as bell } from '../notifications.js';
 import { sendTo } from '../hub.js';
 import { insertFile, receiveUpload, cleanName } from './files.js';
+import { changeSheet } from '../collab.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { FILES_DIR } from '../db.js';
@@ -77,6 +78,8 @@ q(`CREATE TABLE IF NOT EXISTS form_uploads (
   created_at INTEGER NOT NULL
 )`).run();
 if (!q('PRAGMA table_info(forms)').all().some((c) => c.name === 'files_folder')) q('ALTER TABLE forms ADD COLUMN files_folder TEXT').run();
+// linked_sheet: a spreadsheet in the owner's Drive that each response is added to as it arrives.
+if (!q('PRAGMA table_info(forms)').all().some((c) => c.name === 'linked_sheet')) q('ALTER TABLE forms ADD COLUMN linked_sheet TEXT').run();
 /** Throw away uploads that never became part of a response. */
 function dropStaleUploads(t = Date.now()) {
   for (const u of q('SELECT id, storage FROM form_uploads WHERE created_at < ?').all(t - 864e5)) {
@@ -240,6 +243,43 @@ export function responseTable(form, responses, { withPeople = form.audience === 
 
 const colName = (n) => { let s = ''; for (n += 1; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + ((n - 1) % 26)) + s; return s; };
 
+/** The linked spreadsheet, if it's still there (not deleted or in the bin). */
+const linkedSheetOf = (f) => (f.linked_sheet && q("SELECT id, name FROM files WHERE id = ? AND kind = 'sheet' AND trashed = 0").get(f.linked_sheet)) || null;
+const cellOf = (v) => (/^[=]/.test(v) ? `'${v}` : v);
+
+/**
+ * Put a response in the form's linked spreadsheet, on its first sheet: a new row at the bottom, or
+ * (changed afterwards) the row it was given. Columns are found by their heading in the first row, so
+ * people can move them; questions added later get a new column at the end.
+ */
+export function addToLinkedSheet(form, responseId, { changedRow = false } = {}) {
+  if (!linkedSheetOf(form)) return;
+  const resp = responsesOf(form.id).find((x) => x.id === responseId);
+  if (!resp) return;
+  const [head, row] = responseTable(form, [resp], { withPeople: form.audience === 'org' });
+  changeSheet(form.linked_sheet, (json) => {
+    const sheets = json.sheets?.length ? json.sheets : [{ name: 'Responses', cells: {} }];
+    const sheet = { ...sheets[0], cells: { ...(sheets[0].cells || {}) } };
+    const cells = sheet.cells;
+    let lastRow = 1;
+    for (const k of Object.keys(cells)) { const m = /^[A-Z]+(\d+)$/.exec(k); if (m && cells[k] !== '') lastRow = Math.max(lastRow, Number(m[1])); }
+    let lastCol = -1;
+    const colOf = new Map();
+    for (let c = 0; c < 200; c++) { const h = cells[`${colName(c)}1`]; if (h !== undefined && h !== '') { lastCol = c; if (!colOf.has(String(h))) colOf.set(String(h), c); } }
+    head.forEach((h) => { if (!colOf.has(h)) { lastCol += 1; colOf.set(h, lastCol); cells[`${colName(lastCol)}1`] = h; } });
+    // Its row: the one with the same id (column of ids is kept out of sight: Submitted + seconds can repeat).
+    let r = lastRow + 1;
+    if (changedRow) {
+      const idCol = colOf.get('Response ID');
+      for (let i = 2; i <= lastRow; i++) if (idCol !== undefined && cells[`${colName(idCol)}${i}`] === resp.id) { r = i; break; }
+    }
+    if (!colOf.has('Response ID')) { lastCol += 1; colOf.set('Response ID', lastCol); cells[`${colName(lastCol)}1`] = 'Response ID'; }
+    head.forEach((h, i) => { const k = `${colName(colOf.get(h))}${r}`; if (row[i] === '') delete cells[k]; else cells[k] = cellOf(row[i]); });
+    cells[`${colName(colOf.get('Response ID'))}${r}`] = resp.id;
+    return { ...json, sheets: [sheet, ...sheets.slice(1)] };
+  }, form.owner_id);
+}
+
 const countOf = (formId) => q('SELECT COUNT(*) AS n FROM form_responses WHERE form_id = ?').get(formId).n;
 const editorsOf = (formId) => q(`SELECT u.id, u.name, u.username AS email FROM form_editors e JOIN users u ON u.id = e.user_id
                                  WHERE e.form_id = ? ORDER BY e.added_at`).all(formId);
@@ -295,7 +335,7 @@ export default function formRoutes() {
   r.get('/:id', (req, res) => {
     const f = ownForm(req.params.id, req.user);
     const responses = countOf(f.id);
-    res.json({ ...f, responses, closed: closedReason(f, Date.now(), responses) });
+    res.json({ ...f, responses, closed: closedReason(f, Date.now(), responses), linked_sheet: linkedSheetOf(f) });
   });
 
   r.put('/:id', (req, res) => {
@@ -413,16 +453,31 @@ export default function formRoutes() {
   });
 
   // A copy of the responses so far in a new spreadsheet in your Drive.
+  // With { link: true } it stays linked: each new response is added to it as it arrives.
   r.post('/:id/sheet', (req, res) => {
     const f = ownForm(req.params.id, req.user);
-    const table = responseTable(f, responsesOf(f.id));
+    const link = !!req.body?.link;
+    const already = link && linkedSheetOf(f);
+    if (already) return res.json({ id: already.id, linked: true });
+    const table = responseTable(f, responsesOf(f.id), { withPeople: f.audience === 'org' || undefined });
+    if (link) { table[0].push('Response ID'); responsesOf(f.id).forEach((x, i) => table[i + 1].push(x.id)); }
     const cells = {};
     table.forEach((row, ri) => row.forEach((v, ci) => { if (v !== '') cells[`${colName(ci)}${ri + 1}`] = /^[=]/.test(v) ? `'${v}` : v; }));
     const colWidths = {};
     table[0].forEach((h, ci) => { colWidths[colName(ci)] = ci === 0 ? 160 : Math.min(320, Math.max(100, h.length * 8)); });
     const fileId = insertFile({ owner: req.user.id, parentId: null, name: `${f.title} (responses)`.slice(0, 200), kind: 'sheet',
       content: JSON.stringify({ sheets: [{ name: 'Responses', cells, colWidths, frozen: { rows: 1 } }] }) });
-    res.status(201).json({ id: fileId });
+    if (link) {
+      q('UPDATE forms SET linked_sheet = ? WHERE id = ?').run(fileId, f.id);
+      changed(f, req.user.id);
+    }
+    res.status(201).json({ id: fileId, linked: link });
+  });
+  r.delete('/:id/sheet', (req, res) => {
+    const f = ownForm(req.params.id, req.user);
+    q('UPDATE forms SET linked_sheet = NULL WHERE id = ?').run(f.id);
+    changed(f, req.user.id);
+    res.json({ ok: true });
   });
 
   r.delete('/:id/responses/:rid', (req, res) => {
@@ -563,6 +618,7 @@ export function publicFormRoutes() {
     });
     const team = teamOf(form);
     sendTo(team, { type: 'form-response', form_id: form.id });
+    try { addToLinkedSheet(form, id); } catch (e) { console.error('[forms] linked sheet:', e.message); }
     if (form.notify) {
       bell(team.filter((x) => x !== user?.id), { kind: 'form', title: `New response to “${form.title}”`, body: form.audience === 'org' ? `From ${user.name}` : null, link: `/forms/${form.id}?tab=responses`, actor: user?.id || null });
     }
@@ -596,6 +652,7 @@ export function publicFormRoutes() {
     const answers = checkAnswers(asked, incoming);
     for (const qu of form.questions) if (qu.type === 'file' && old[qu.id]) answers[qu.id] = old[qu.id];
     q('UPDATE form_responses SET answers = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(answers), now(), resp.id);
+    try { addToLinkedSheet(form, resp.id, { changedRow: true }); } catch (e) { console.error('[forms] linked sheet:', e.message); }
     sendTo(teamOf(form), { type: 'form-response', form_id: form.id });
     if (form.notify) bell(teamOf(form).filter((x) => x !== user?.id), { kind: 'form', title: `A response to “${form.title}” was changed`, body: form.audience === 'org' ? `By ${user.name}` : null, link: `/forms/${form.id}?tab=responses`, actor: user?.id || null });
     const result = form.quiz && form.show_score ? scoreOf(form.questions, answers) : null;

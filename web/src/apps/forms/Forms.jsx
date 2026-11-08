@@ -301,6 +301,15 @@ function ResponsesTab({ form, responses, reload, setting, flush }) {
   const [at, setAt] = useState(0);
   const [clear, setClear] = useState(false);
   if (!responses) return <p className="muted">Loading…</p>;
+  const [linked, setLinked] = useState(form.linked_sheet || null);
+  useEffect(() => { setLinked(form.linked_sheet || null); }, [form.linked_sheet]);
+  const linkSheet = async () => {
+    await flush();
+    try { const r = await post(`/forms/${form.id}/sheet`, { link: true }); setLinked({ id: r.id }); toast('Linked: each new response is added to the spreadsheet'); window.open(`/sheets/${r.id}`, '_blank', 'noopener'); } catch (e) { toast(e.message, 'error'); }
+  };
+  const unlink = async () => {
+    try { await del(`/forms/${form.id}/sheet`); setLinked(null); toast('Unlinked: new responses won\'t be added to the spreadsheet (it stays in your Drive)'); } catch (e) { toast(e.message, 'error'); }
+  };
   const toSheet = async () => {
     await flush();
     try { const r = await post(`/forms/${form.id}/sheet`); toast('Responses copied to a new spreadsheet in your Drive'); navigate(`/sheets/${r.id}`); } catch (e) { toast(e.message, 'error'); }
@@ -312,7 +321,11 @@ function ResponsesTab({ form, responses, reload, setting, flush }) {
         <strong className="grow">{responses.length === 1 ? '1 response' : `${responses.length} responses`}</strong>
         <label className="check"><input type="checkbox" checked={form.accepting} onChange={(e) => setting({ accepting: e.target.checked })} /> Accepting responses</label>
         <a className="btn" href={`/api/forms/${form.id}/responses.csv`} download>Download CSV</a>
-        <button type="button" className="btn" onClick={toSheet}><Icon name="sheet" size={18} /> Open in Sheets</button>
+        {linked
+          ? <span className="row linked-sheet"><a className="btn" href={`/sheets/${linked.id}`} target="_blank" rel="noreferrer"><Icon name="sheet" size={18} /> Linked spreadsheet</a>
+            <button type="button" className="link-btn small" onClick={unlink}>Unlink</button></span>
+          : <button type="button" className="btn" title="A spreadsheet in your Drive that each new response is added to as it arrives" onClick={linkSheet}><Icon name="sheet" size={18} /> Link to Sheets</button>}
+        <button type="button" className="btn" title="A copy of the responses so far, in a new spreadsheet" onClick={toSheet}>Open in Sheets</button>
         {responses.length > 0 && <button type="button" className="btn" onClick={() => setClear(true)}>Delete all</button>}
       </div>
       {closedNote(form) && <p className="muted small" style={{ margin: 0 }} role="status">{closedNote(form)}</p>}
