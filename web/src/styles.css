@@ -1932,3 +1932,9 @@ tr.shortcut-row.broken .name-text { color: var(--muted, #777); font-style: itali
 .sign-page .paper { width: 100%; box-sizing: border-box; min-height: 0; padding: clamp(20px, 6vw, 72px) clamp(16px, 8vw, 88px); }
 .sign-page .paper .tiptap { min-height: 0; }
 .sign-banner.declined { background: color-mix(in srgb, #d93025 10%, var(--surface)); }
+.signed-print { display: none; }
+@media print {
+  .signed-print { display: block; break-before: page; page-break-before: always; }
+  .signed-print-one { margin: 18px 0; }
+  .signed-print .sign-mark { border-bottom: 1px solid #999; }
+}

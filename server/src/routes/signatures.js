@@ -78,6 +78,11 @@ export function describe(r, { forUser = null } = {}) {
     in_order: !!r.in_order, declined_by: r.declined_by || null, decline_reason: r.decline_reason || null,
     signers: signers.map(({ token, ...s }) => ({ ...s, ...(forUser && s.user_id === forUser && !s.signed_at && r.status === 'pending' && turnOf(r).some((t) => t.token === token) && { my_link: `/sign/${token}` }) })) };
 }
+/** The finished signatures of a document, for its downloads, if what it says now is what was signed. */
+export function signedRecord(fileId) {
+  const r = describe(q("SELECT * FROM sign_requests WHERE file_id = ? AND status = 'complete' ORDER BY completed_at DESC LIMIT 1").get(fileId));
+  return r && !r.changed_since ? r : null;
+}
 const latestFor = (fileId, userId) => describe(q("SELECT * FROM sign_requests WHERE file_id = ? AND status != 'cancelled' ORDER BY created_at DESC LIMIT 1").get(fileId), { forUser: userId });
 const peopleOf = (r) => [r.requested_by, ...q('SELECT user_id FROM sign_signers WHERE request_id = ? AND user_id IS NOT NULL').all(r.id).map((x) => x.user_id)].filter(Boolean);
 const tell = (r) => sendTo(new Set(peopleOf(r)), { type: 'signatures-changed', file_id: r.file_id });

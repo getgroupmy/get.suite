@@ -4774,3 +4774,22 @@ test('signatures: a signer can decline with a reason; it stops and the document 
   assert.ok((await kay('GET', '/api/notifications')).body.items.some((n) => n.title === 'Dee Cliner declined to sign “Offer”' && n.body === 'The salary is wrong'));
   assert.equal((await kay('POST', '/api/signatures', { file_id: doc.id, signers: ['sdx@keepco.com'] })).status, 201, 'can be sent again');
 });
+
+test('signatures: a signed document\'s Word download ends with its signatures page', async () => {
+  const JSZip = (await import('jszip')).default;
+  const kay = client(); await login(kay, 'kay@keepco.com');
+  const doc = (await kay('POST', '/api/files/new', { kind: 'doc', name: 'Deed', content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Terms.' }] }] } })).body;
+  const xmlOf = async () => {
+    const r = await kay('GET', `/api/files/${doc.id}/export?format=docx`, undefined, { binary: true });
+    return (await JSZip.loadAsync(r.body)).file('word/document.xml').async('string');
+  };
+  assert.doesNotMatch(await xmlOf(), />Signatures</);
+  const made = (await kay('POST', '/api/signatures', { file_id: doc.id, signers: ['kay@keepco.com'] })).body;
+  const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+  await kay('POST', `/api/public/sign/${made.signers[0].my_link.split('/sign/')[1]}`, { name: 'Kay Keeper', image: png, agree: true });
+  const xml = await xmlOf();
+  assert.match(xml, />Signatures</);
+  assert.match(xml, />Kay Keeper</);
+  assert.match(xml, new RegExp(made.hash));
+  assert.match(xml, /<w:drawing>/, 'the drawn signature');
+});

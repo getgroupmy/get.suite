@@ -28,6 +28,7 @@ import { ActionItemsDialog } from './ActionItems.jsx';
 import { TableOfContents, htmlWithContents } from './toc.js';
 import { SheetChart } from './sheetchart.jsx';
 import { ChartPick } from '../ChartLink.jsx';
+import { SignedPrintPage } from './Signatures.jsx';
 import { TaskList, TaskItem } from '@tiptap/extension-list';
 import { PageBreak } from './pagebreak.js';
 import { Footnote, footnotesOf, htmlWithFootnotes } from './footnote.js';
@@ -454,6 +455,7 @@ function SharedDoc({ file, setFile }) {
               </ul>
             )}
             <FootnoteList editor={editor} readOnly={readOnly} />
+            <SignedPrintPage fileId={file.id} />
             {(file.page_setup?.footer || file.page_setup?.numbers) && <div className="paper-footer" aria-hidden="true">{[file.page_setup.footer, file.page_setup.numbers && 'Page 1'].filter(Boolean).join('   ')}</div>}
           </div>
         </div>

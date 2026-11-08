@@ -897,7 +897,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     };
     let buf;
     if (type === 'md') buf = Buffer.from(markdownFromDoc(content), 'utf8');
-    else if (type === 'docx') buf = await wordFromDoc(content, f.name, { pictureData, page: setupOf(f) });
+    else if (type === 'docx') buf = await wordFromDoc(content, f.name, { pictureData, page: setupOf(f), signatures: (await import('./signatures.js')).signedRecord(f.id) });
     else if (type === 'xlsx') buf = await excelFromSheet(content);
     else buf = await powerPointFromDeck(content, { title: f.name, pictureData });
     res.setHeader('Content-Type', OFFICE[type].mime);

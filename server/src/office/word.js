@@ -160,7 +160,24 @@ const IMAGE_TYPES = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif
  * A Docs document as a Word file (Buffer). `pictureData(fileId)` gives a picture's { data, mime }
  * (or null to leave it out).
  */
-export async function wordFromDoc(doc, title = 'Document', { pictureData, page } = {}) {
+/** The signatures on a signed document, on a page of their own at the end. */
+function signaturePage(sig) {
+  const stamp = (t) => new Date(t).toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
+  const out = [new Paragraph({ children: [new PageBreak()] }), new Paragraph({ heading: HeadingLevel.HEADING_1, children: [new TextRun('Signatures')] })];
+  for (const s of sig.signers) {
+    const png = typeof s.image === 'string' && /^data:image\/png;base64,/.test(s.image) ? Buffer.from(s.image.split(',')[1], 'base64') : null;
+    out.push(png
+      ? new Paragraph({ children: [new ImageRun({ type: 'png', data: png, transformation: { width: 220, height: 64 }, altText: { name: 'Signature', description: `Signature of ${s.name}` } })] })
+      : new Paragraph({ children: [new TextRun({ text: s.name || '', italics: true, size: 40, font: 'Segoe Script' })] }));
+    out.push(new Paragraph({ border: { top: { style: BorderStyle.SINGLE, size: 6, color: '999999', space: 2 } }, children: [new TextRun({ text: s.name || s.email, bold: true }), new TextRun(`  ${s.email}`)] }));
+    out.push(new Paragraph({ children: [new TextRun({ text: `Signed ${stamp(s.signed_at)}${s.ip ? ` from ${s.ip}` : ''} · ${png ? 'drawn' : 'typed'} signature`, size: 18, color: '666666' })] }));
+    out.push(new Paragraph(''));
+  }
+  out.push(new Paragraph({ children: [new TextRun({ text: `Signed electronically in Workspace; completed ${stamp(sig.completed_at)}. Document fingerprint (SHA-256): ${sig.hash}`, size: 16, color: '666666' })] }));
+  return out;
+}
+
+export async function wordFromDoc(doc, title = 'Document', { pictureData, page, signatures = null } = {}) {
   // Pictures first (reading them is asynchronous), then the document in one pass.
   const pictures = new Map();
   const collect = (n) => { if (n?.type === 'image' && n.attrs?.fileId) pictures.set(n.attrs.fileId, null); for (const c of n?.content || []) collect(c); };
@@ -264,6 +281,7 @@ export async function wordFromDoc(doc, title = 'Document', { pictureData, page }
   footnotes = [];
   let paras, notes;
   try { paras = block(doc?.content); notes = footnotes; } finally { footnotes = null; }
+  if (signatures) paras.push(...signaturePage(signatures));
   const file = new Document({
     title,
     ...(notes.length && { footnotes: Object.fromEntries(notes.map((t, i) => [i + 1, { children: [new Paragraph(t)] }])) }),

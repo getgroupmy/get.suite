@@ -207,3 +207,26 @@ export function SignaturesView() {
     </div>
   );
 }
+
+/** The signatures, printed on a page of their own after a signed document (hidden on screen). */
+export function SignedPrintPage({ fileId }) {
+  const [s, setS] = useState(null);
+  useEffect(() => {
+    const load = () => get(`/signatures/file/${fileId}`).then((r) => setS(r.current)).catch(() => {});
+    load();
+    return onLive((m) => { if (m.type === 'signatures-changed' && m.file_id === fileId) load(); });
+  }, [fileId]);
+  if (!s || s.status !== 'complete' || s.changed_since) return null;
+  return (
+    <section className="signed-print" aria-hidden="true">
+      <h1>Signatures</h1>
+      {s.signers.map((x) => (
+        <div key={x.email} className="signed-print-one">
+          <div className="sign-mark">{x.image ? <img src={x.image} alt="" /> : <span className="sign-typed">{x.name}</span>}</div>
+          <p><strong>{x.name}</strong> {x.email}<br /><small>Signed {when(x.signed_at)}{x.ip ? ` from ${x.ip}` : ''} · {x.image ? 'drawn' : 'typed'} signature</small></p>
+        </div>
+      ))}
+      <p><small>Signed electronically in Workspace; completed {when(s.completed_at)}. Document fingerprint (SHA-256): {s.hash}</small></p>
+    </section>
+  );
+}
