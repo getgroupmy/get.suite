@@ -463,7 +463,7 @@ function ImportSlides({ from, onClose, onImport }) {
   );
 }
 
-export function SlideView({ slide, theme, deckId, editable, selected, editing, onSelect, onEdit, onChange, peers, built, number }) {
+export function SlideView({ slide, theme, deckId, editable, selected, editing, onSelect, onEdit, onChange, peers, built, number, pictureBase = null }) {
   // Animated boxes: where each comes in (1, 2…). Presenting (built set), the later ones aren't in yet.
   const buildAt = new Map(builds(slide).map((it, k) => [it.id, k + 1]));
   const ref = useRef();
@@ -514,7 +514,7 @@ export function SlideView({ slide, theme, deckId, editable, selected, editing, o
         } else if (it.type === 'image') {
           // Through the deck (works for everyone who can open it, once saved); just after inserting,
           // before the save, the person who added it opens the picture file directly.
-          inner = <img src={`/api/files/${deckId}/pictures/${it.fileId}`} alt={it.name || ''} draggable={false}
+          inner = <img src={`${pictureBase || `/api/files/${deckId}`}/pictures/${it.fileId}`} alt={it.name || ''} draggable={false}
             onError={(e) => { const direct = `/api/files/${it.fileId}/raw`; if (!e.currentTarget.src.endsWith(direct)) e.currentTarget.src = direct; }} />;
         } else if (it.type === 'table') {
           const typing = editable && editing === it.id;

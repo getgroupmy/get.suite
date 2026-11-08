@@ -13,6 +13,7 @@ import BrandMark from './components/BrandMark.jsx';
 import { applyAccent } from './theme.js';
 import { Avatar, Menu, ToastProvider, useToast } from './components/ui.jsx';
 import Login, { ResetPassword } from './apps/Login.jsx';
+import PublishedPage from './apps/PublishedPage.jsx';
 import PublicLink from './apps/PublicLink.jsx';
 import InviteAnswer from './apps/calendar/InviteAnswer.jsx';
 import { SignPage } from './apps/docs/Signatures.jsx';
@@ -60,6 +61,9 @@ export default function App() {
   const form = window.location.pathname.match(/^\/f\/([A-Za-z0-9_-]+)\/?$/);
   if (form) return <FormGate token={form[1]} />;
   // Signing a document from a private link (no account needed).
+  // A published document, spreadsheet or presentation (no account needed).
+  const pub = window.location.pathname.match(/^\/pub\/([A-Za-z0-9_-]+)\/?$/);
+  if (pub) return <PublishedPage token={pub[1]} />;
   // Choosing a new password from a "Forgot password?" email (no account session needed).
   const reset = window.location.pathname.match(/^\/reset\/([A-Za-z0-9_-]+)\/?$/);
   if (reset) return <ToastProvider><ResetPassword token={reset[1]} /></ToastProvider>;

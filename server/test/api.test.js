@@ -5471,3 +5471,48 @@ test('forgot password: a one-hour, one-use link to the recovery address; the sam
   const actions = (log.entries || log).map((e) => e.action);
   assert.ok(actions.includes('password.reset') && actions.includes('password.reset_requested'));
 });
+
+test('publish to the web: the owner publishes a doc, sheet or deck; anyone reads the latest, without notes or suggestions', async () => {
+  const pub = (path) => fetch(`${base}/api/public/pub${path}`).then(async (r) => ({ status: r.status, body: await r.json().catch(() => null) }));
+  const deck = (await owner('POST', '/api/files/new', { kind: 'slides', name: 'Launch deck' })).body;
+  const cur = (await owner('GET', `/api/files/${deck.id}/content`)).body;
+  await owner('PUT', `/api/files/${deck.id}/content`, { version: cur.file.version, content: { ...cur.content, slides: [{ id: 'a', items: [{ id: 't', type: 'text', text: 'Hello world', x: 0, y: 0, w: 10, h: 10 }], notes: 'secret talking points' }, { id: 'b', skip: true, items: [] }] } });
+  assert.deepEqual((await owner('GET', `/api/publish/${deck.id}`)).body, { published: false });
+  const viewer = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'pubview', domain: 'acme.com', name: 'Pub Viewer', password: 'password123' })).status, 201);
+  const vid = (await login(viewer, 'pubview@acme.com')).id;
+  await owner('PUT', `/api/files/${deck.id}/shares`, { shares: [{ user_id: vid, role: 'editor' }] });
+  assert.equal((await viewer('PUT', `/api/publish/${deck.id}`, { on: true })).status, 403, 'only the owner');
+  const on = (await owner('PUT', `/api/publish/${deck.id}`, { on: true })).body;
+  assert.equal(on.published, true);
+  assert.match(on.path, /^\/pub\/[\w-]{24}$/);
+  const token = on.path.split('/').pop();
+  let r = await pub(`/${token}`);
+  assert.equal(r.status, 200);
+  assert.equal(r.body.kind, 'slides');
+  assert.equal(r.body.content.slides.length, 1, 'skipped slides left out');
+  assert.equal(r.body.content.slides[0].notes, undefined, 'no speaker notes');
+  assert.equal(r.body.content.slides[0].items[0].text, 'Hello world');
+  // Always the latest.
+  const cur2 = (await owner('GET', `/api/files/${deck.id}/content`)).body;
+  await owner('PUT', `/api/files/${deck.id}/content`, { version: cur2.file.version, content: { ...cur2.content, slides: [{ id: 'a', items: [{ id: 't', type: 'text', text: 'Hello again', x: 0, y: 0, w: 10, h: 10 }] }] } });
+  assert.equal((await pub(`/${token}`)).body.content.slides[0].items[0].text, 'Hello again');
+  assert.equal((await owner('GET', `/api/publish/${deck.id}`)).body.views, 2);
+  // A doc: suggestions that weren't accepted aren't shown.
+  const doc = (await owner('POST', '/api/files/new', { kind: 'doc', name: 'Policy' })).body;
+  const dc = (await owner('GET', `/api/files/${doc.id}/content`)).body;
+  await owner('PUT', `/api/files/${doc.id}/content`, { version: dc.file.version, content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Kept. ' }, { type: 'text', text: 'Proposed.', marks: [{ type: 'suggestInsert', attrs: { id: 's1' } }] }] }] } });
+  const dt = (await owner('PUT', `/api/publish/${doc.id}`, { on: true })).body.path.split('/').pop();
+  assert.ok(!JSON.stringify((await pub(`/${dt}`)).body.content).includes('Proposed.'));
+  // A file that isn't a doc, sheet or deck can't be published.
+  const up = (await owner('POST', '/api/files/upload?name=a.txt', Buffer.from('x'), { raw: true })).body;
+  assert.equal((await owner('PUT', `/api/publish/${up.id}`, { on: true })).status, 400);
+  // The company switch, the trash and unpublishing all stop it.
+  await owner('PATCH', '/api/orgs/current', { allow_links: false });
+  assert.equal((await pub(`/${token}`)).status, 404);
+  await owner('PATCH', '/api/orgs/current', { allow_links: true });
+  assert.equal((await pub(`/${token}`)).status, 200);
+  await owner('PUT', `/api/publish/${deck.id}`, { on: false });
+  assert.equal((await pub(`/${token}`)).status, 404);
+  assert.equal((await pub('/nonsense')).status, 404);
+});

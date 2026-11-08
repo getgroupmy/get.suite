@@ -23,6 +23,7 @@ import contactRoutes from './routes/contacts.js';
 import taskRoutes from './routes/tasks.js';
 import notificationRoutes from './routes/notifications.js';
 import chatRoutes, { chatHookRoutes } from './routes/chat.js';
+import { publishRoutes, publicPublishRoutes } from './routes/publish.js';
 import orgRoutes from './routes/orgs.js';
 import mailAdminRoutes from './routes/mailAdmin.js';
 import webmailRoutes from './routes/webmail.js';
@@ -83,6 +84,7 @@ export function createApp({
   app.use('/api/public/brand', brandRoutes());
   app.use('/api/public/forms', publicFormRoutes());
   app.use('/api/public/sign', publicSignRoutes());
+  app.use('/api/public/pub', publicPublishRoutes());
   app.use('/api/public/meet', publicMeetRoutes());
   app.use('/api/public', publicLinkRoutes({ maxUploadBytes }));
   app.use('/api/users', requireAuth, userRoutes());
@@ -92,6 +94,7 @@ export function createApp({
   app.use('/api/security', requireAuth, securityRoutes());
   app.use('/api/audit', requireAuth, auditRoutes());
   app.use('/api/files', requireAuth, fileRoutes({ maxUploadBytes }));
+  app.use('/api/publish', requireAuth, publishRoutes());
   app.use('/api/links', requireAuth, linkRoutes());
   app.use('/api/comments', requireAuth, commentRoutes());
   app.use('/api/events', requireAuth, calendarRoutes());

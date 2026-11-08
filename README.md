@@ -396,6 +396,10 @@ Your Workspace calendar and contacts sync with the phone's own Calendar and Cont
 
 The search box at the top looks everywhere at once as you type (two letters or more): **files** (names and what's inside), **mail** (Inbox and Sent, when email is on), **chat** messages, **tasks**, **notes**, calendar **events**, your **contacts** and **people** in the company, a few of each with how many there are. Click one, or pick it with the arrow keys and Enter, to open it where it lives: a document opens, a chat message is shown in its conversation, a task, note or event opens in its app. Enter with nothing picked (or **Search Drive for …**) runs the full Drive search with its filters, as before. Escape closes the list.
 
+## Publish to the web (Docs, Sheets, Slides)
+
+**⋮ → Publish to the web…** in a document, spreadsheet or presentation (for its owner) makes a read-only page anyone with its address can see, with no account: a price list, a policy, a timetable, a deck to send round. **Publish** gives the address (**Copy** or **Open** it); the page always shows the latest version and checks for a newer one every minute. Documents show as they read (pictures included, suggestions that weren't accepted left out), spreadsheets as tables of their worked-out values with their formatting (one tab per sheet), presentations slide after slide (skipped slides and speaker notes left out). The dialog says how often it was opened; **Stop publishing** ends it at once. It follows the company's *Links for people without an account* switch, and stops when the file goes to the trash or the owner's account is turned off. Published pages aren't indexed by search engines.
+
 ## Approvals (Drive)
 
 Ask colleagues to sign off a file (a contract, a press release, a budget): **Request approval…** in its ⋮ menu (in Drive, or in a document, spreadsheet or presentation), pick the reviewers (they need to be able to open it), and add a message and a date it's needed by if you like.

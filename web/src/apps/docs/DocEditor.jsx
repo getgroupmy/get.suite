@@ -54,7 +54,7 @@ const CommentMark = Mark.create({
  * that everyone who can open the document sees it. Size (share of the page width) and alignment.
  */
 const DocImage = Image.extend({
-  addOptions() { return { ...this.parent?.(), docId: null }; },
+  addOptions() { return { ...this.parent?.(), docId: null, pictureBase: null }; },
   addAttributes: () => ({
     fileId: { default: null, parseHTML: (el) => el.getAttribute('data-file'), renderHTML: () => ({}) },
     alt: { default: '' },
@@ -65,7 +65,7 @@ const DocImage = Image.extend({
   renderHTML({ node }) {
     const { fileId, alt, width, align } = node.attrs;
     return ['img', {
-      src: `/api/files/${this.options.docId}/pictures/${fileId}`, alt, 'data-file': fileId, draggable: 'true',
+      src: `${this.options.pictureBase || `/api/files/${this.options.docId}`}/pictures/${fileId}`, alt, 'data-file': fileId, draggable: 'true',
       ...(width && { 'data-width': width }), ...(align && { 'data-align': align }),
       style: `${width ? `width:${width};` : ''}${align === 'center' ? 'margin-left:auto;margin-right:auto;' : align === 'right' ? 'margin-left:auto;margin-right:0;' : ''}`,
     }];
@@ -723,13 +723,13 @@ function NoteBox({ n, note, onChange, onDone }) {
 }
 
 /** A read-only document (an earlier version), drawn as the editor draws it. */
-export function DocPreview({ content, fileId }) {
+export function DocPreview({ content, fileId, pictureBase = null }) {
   const editor = useEditor({
     editable: false,
     content,
     extensions: [
       StarterKit.configure({ link: { openOnClick: true } }), TextAlign.configure({ types: ['heading', 'paragraph'] }),
-      CommentMark, DocImage.configure({ docId: fileId }), Table, TableRow, TableHeader, TableCell,
+      CommentMark, DocImage.configure({ docId: fileId, pictureBase }), Table, TableRow, TableHeader, TableCell,
       TextStyle, Color, BackgroundColor, FontFamily, FontSize, LineHeight, TableOfContents, SheetChart, PageBreak, Footnote, Mention, TaskList, TaskItem.configure({ nested: true }),
     ],
   }, [content]);

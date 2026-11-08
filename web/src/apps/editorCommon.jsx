@@ -3,7 +3,7 @@ import { viewOnly } from './drive/Drive.jsx';
 import { useNavigate } from 'react-router';
 import { get, put } from '../api.js';
 import Icon from '../components/Icon.jsx';
-import { Menu, useToast } from '../components/ui.jsx';
+import { Menu, Modal, useToast } from '../components/ui.jsx';
 import { ApprovalBanner, RequestApproval } from './drive/Approvals.jsx';
 import { SignatureBanner, SendForSignature } from './docs/Signatures.jsx';
 import { useAuth } from '../App.jsx';
@@ -91,6 +91,7 @@ export function EditorHeader({ icon, file, status, onRename, onShare, menu, extr
   };
   const [requesting, setRequesting] = useState(false);
   const [signing, setSigning] = useState(false);
+  const [publishing, setPublishing] = useState(false);
   // Locked: nobody can change it (editors can lock; whoever locked it, or the owner, can unlock).
   const { user } = useAuth();
   const canUnlock = file?.locked_at && (file.locked_by === user?.id || file.role === 'owner');
@@ -103,6 +104,7 @@ export function EditorHeader({ icon, file, status, onRename, onShare, menu, extr
   const offered = takeOff ? (menu || []).filter((it) => !(it && typeof it === 'object' && /^(Print|Download|Make a copy|Save as)/.test(it.label || ''))) : menu;
   const items = menu && file ? [...offered, '-', { label: `${watching ? '✓ ' : ''}Notify me of changes`, icon: 'bell', onClick: toggleWatch },
     ...(canEdit ? [{ label: 'Request approval…', icon: 'check', onClick: () => setRequesting(true) }] : []),
+    ...(file.role === 'owner' ? [{ label: 'Publish to the web…', icon: 'link', onClick: () => setPublishing(true) }] : []),
     ...(canEdit && icon === 'doc' && !file.locked_at ? [{ label: 'Send for signature…', icon: 'edit', onClick: () => setSigning(true) }] : []),
     ...(canEdit && !file.locked_at ? [{ label: 'Lock (stop changes)', icon: 'lock', onClick: () => setLocked(true) }] : []),
     ...(canUnlock ? [{ label: 'Unlock', icon: 'lock', onClick: () => setLocked(false) }] : [])] : menu;
@@ -129,6 +131,7 @@ export function EditorHeader({ icon, file, status, onRename, onShare, menu, extr
       {items && <Menu trigger={(p) => <button className="icon-btn" aria-label="More" {...p}><Icon name="more" /></button>} items={items} />}
       {file?.role === 'owner' && <button className="btn primary" onClick={onShare}><Icon name="share" size={18} /> Share</button>}
     </header>
+    {publishing && file && <PublishDialog file={file} onClose={() => setPublishing(false)} />}
     {takeOff && <style>{'@media print { body * { visibility: hidden !important; } body::before { content: "Printing is turned off for this file."; visibility: visible; display: block; padding: 40px; font: 16px sans-serif; } } .paper .tiptap, .grid td, .slide-stage { user-select: none; }'}</style>}
     {takeOff && <div className="banner small" role="note">View only: the owner has turned off downloading, printing and copying.</div>}
     {file?.locked_at && (
@@ -143,4 +146,33 @@ export function EditorHeader({ icon, file, status, onRename, onShare, menu, extr
     {file?.id && icon === 'doc' && <SignatureBanner fileId={file.id} me={user} onChanged={() => window.location.reload()} />}
     {signing && <SendForSignature file={file} onClose={(sent) => { setSigning(false); if (sent) window.location.reload(); }} />}
   </>);
+}
+
+/** Publish to the web: a read-only page anyone with its address can see, always the latest version. */
+function PublishDialog({ file, onClose }) {
+  const toast = useToast();
+  const [state, setState] = useState(null);
+  useEffect(() => { get(`/publish/${file.id}`).then(setState).catch((e) => toast(e.message, 'error')); }, [file.id, toast]);
+  const url = state?.published ? `${window.location.origin}${state.path}` : '';
+  const turn = async (on) => { try { setState(await put(`/publish/${file.id}`, { on })); toast(on ? 'Published' : 'No longer published'); } catch (e) { toast(e.message, 'error'); } };
+  const what = { doc: 'document', sheet: 'spreadsheet', slides: 'presentation' }[file.kind] || 'file';
+  return (
+    <Modal title="Publish to the web" onClose={onClose} footer={<button type="button" className="btn" onClick={onClose}>Close</button>}>
+      {!state ? <p className="muted">Loading…</p> : state.published ? (
+        <div className="stack">
+          <p style={{ margin: 0 }}>This {what} is published. Anyone with the address can read it (no account needed), and it always shows the latest version. Comments, speaker notes and suggestions aren't shown.</p>
+          <div className="row"><input className="grow" readOnly value={url} aria-label="Published address" onFocus={(e) => e.target.select()} />
+            <button type="button" className="btn" onClick={async () => { try { await navigator.clipboard.writeText(url); toast('Address copied'); } catch { toast(url); } }}>Copy</button>
+            <a className="btn" href={url} target="_blank" rel="noreferrer">Open</a></div>
+          <p className="muted small" style={{ margin: 0 }}>Opened {state.views} time{state.views === 1 ? '' : 's'}.</p>
+          <div><button type="button" className="btn danger" onClick={() => turn(false)}>Stop publishing</button></div>
+        </div>
+      ) : (
+        <div className="stack">
+          <p style={{ margin: 0 }}>Make a read-only page of this {what} that anyone with its address can see, without an account: for a price list, a policy, a timetable. It keeps showing the latest version until you stop publishing.</p>
+          <div><button type="button" className="btn primary" onClick={() => turn(true)}>Publish</button></div>
+        </div>
+      )}
+    </Modal>
+  );
 }
