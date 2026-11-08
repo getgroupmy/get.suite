@@ -4728,3 +4728,29 @@ test('signatures: waiting for you and sent by you, and reminders at most hourly'
   await anon('POST', `/api/public/sign/${w.waiting[0].link.split('/sign/')[1]}`, { name: 'Rae', image: null, agree: true });
   assert.deepEqual((await rae('GET', '/api/signatures')).body.waiting, [], 'signed: no longer waiting');
 });
+
+test('signatures in order: each signer is asked once the one before has signed', async () => {
+  const kay = client(); await login(kay, 'kay@keepco.com');
+  await kay('POST', '/api/users', { local: 'so1', domain: 'keepco.com', name: 'Ola First', password: 'password123' });
+  await kay('POST', '/api/users', { local: 'so2', domain: 'keepco.com', name: 'Tom Second', password: 'password123' });
+  const ola = client(); await login(ola, 'so1@keepco.com');
+  const tom = client(); await login(tom, 'so2@keepco.com');
+  const doc = (await kay('POST', '/api/files/new', { kind: 'doc', name: 'Contract' })).body;
+  const made = (await kay('POST', '/api/signatures', { file_id: doc.id, signers: ['so1@keepco.com', 'so2@keepco.com'], in_order: true })).body;
+  assert.equal(made.in_order, true);
+  const asked = async (c) => (await c('GET', '/api/notifications')).body.items.filter((n) => /asked you to sign “Contract”/.test(n.title));
+  assert.equal((await asked(ola)).length, 1);
+  assert.equal((await asked(tom)).length, 0, 'not yet');
+  assert.equal((await tom('GET', '/api/signatures')).body.waiting.length, 0);
+  // Tom's link (from the record) says to wait.
+  const { q } = await import('../src/db.js');
+  const tomToken = q('SELECT token FROM sign_signers WHERE request_id = ? AND email = ?').get(made.id, 'so2@keepco.com').token;
+  const anon = client();
+  assert.equal((await anon('GET', `/api/public/sign/${tomToken}`)).body.waiting_for, 'so1@keepco.com');
+  assert.equal((await anon('POST', `/api/public/sign/${tomToken}`, { name: 'Tom', image: null, agree: true })).status, 400, 'not your turn');
+  const olaToken = (await asked(ola))[0].link.split('/sign/')[1];
+  await anon('POST', `/api/public/sign/${olaToken}`, { name: 'Ola First', image: null, agree: true });
+  assert.equal((await asked(tom)).length, 1, 'now Tom is asked');
+  assert.equal((await anon('GET', `/api/public/sign/${tomToken}`)).body.waiting_for, null);
+  assert.equal((await anon('POST', `/api/public/sign/${tomToken}`, { name: 'Tom Second', image: null, agree: true })).body.status, 'complete');
+});

@@ -19,11 +19,12 @@ export function SendForSignature({ file, onClose }) {
   const toast = useToast();
   const [to, setTo] = useState('');
   const [message, setMessage] = useState('');
+  const [inOrder, setInOrder] = useState(false);
   const [busy, setBusy] = useState(false);
   const emails = to.split(/[,;\s]+/).map((x) => x.replace(/^.*<|>$/g, '').trim()).filter((x) => x.includes('@'));
   const send = async () => {
     setBusy(true);
-    try { await post('/signatures', { file_id: file.id, signers: emails, message }); toast(`Sent to ${emails.length} ${emails.length === 1 ? 'person' : 'people'} to sign`); onClose(true); }
+    try { await post('/signatures', { file_id: file.id, signers: emails, message, in_order: inOrder }); toast(`Sent to ${emails.length} ${emails.length === 1 ? 'person' : 'people'} to sign`); onClose(true); }
     catch (e) { toast(e.message, 'error'); setBusy(false); }
   };
   return (
@@ -33,6 +34,7 @@ export function SendForSignature({ file, onClose }) {
       <div className="stack">
         <p className="muted small" style={{ margin: 0 }}>Each person gets a private link to read “{file.name}” and sign it (drawn or typed). The document is locked until it's signed or you cancel.</p>
         <label className="field"><span>Signers (in order)</span><AddressInput label="Signers" value={to} onChange={setTo} placeholder="Names or email addresses" /></label>
+        <label className="check small"><input type="checkbox" checked={inOrder} onChange={(e) => setInOrder(e.target.checked)} /> One after another, in this order (each is asked once the one before has signed)</label>
         <label className="field"><span>Message</span><textarea rows={3} value={message} maxLength={1000} onChange={(e) => setMessage(e.target.value)} placeholder="Please sign by Friday" /></label>
       </div>
     </Modal>
@@ -55,7 +57,7 @@ export function SignatureBanner({ fileId, me, onChanged }) {
       <span aria-hidden="true">✍️</span>
       <span className="grow">{s.status === 'complete'
         ? <><strong>Signed by everyone</strong> · {when(s.completed_at)}{s.changed_since && <> · <strong className="error">changed since it was signed</strong></>}</>
-        : <><strong>Out for signature</strong> · {signed} of {s.signers.length} signed{s.requested_by ? ` · sent by ${s.requested_by.id === me?.id ? 'you' : s.requested_by.name}` : ''}</>}</span>
+        : <><strong>Out for signature</strong>{s.in_order ? ' in order' : ''} · {signed} of {s.signers.length} signed{s.requested_by ? ` · sent by ${s.requested_by.id === me?.id ? 'you' : s.requested_by.name}` : ''}</>}</span>
       {mine && <a className="btn small primary" href={mine.my_link}>Sign now</a>}
       <button type="button" className="btn small" onClick={() => setRecord(true)}>{s.status === 'complete' ? 'Signature record' : 'Details'}</button>
       {s.status === 'pending' && s.requested_by?.id === me?.id && <button type="button" className="btn small" onClick={cancel}>Cancel</button>}
@@ -136,7 +138,9 @@ export function SignPage({ token }) {
       <section className="sign-box card stack" aria-label="Sign">
         {d.me.signed_at ? (
           <p role="status"><strong>You signed this</strong> as {d.me.name} on {when(d.me.signed_at)}.{d.status === 'complete' ? ' Everyone has signed.' : ' The others are still to sign.'}</p>
-        ) : d.status !== 'pending' ? <p>This is no longer waiting for signatures.</p> : <>
+        ) : d.status !== 'pending' ? <p>This is no longer waiting for signatures.</p> : d.waiting_for ? (
+          <p role="status">It's signed in order: <strong>{d.waiting_for}</strong> signs before you. You'll be asked when it's your turn.</p>
+        ) : <>
           <h2 style={{ margin: 0 }}>Sign</h2>
           <label className="field"><span>Your full name</span><input value={name} maxLength={100} onChange={(e) => setName(e.target.value)} autoComplete="name" /></label>
           <div className="tabs" role="tablist" aria-label="How to sign">
