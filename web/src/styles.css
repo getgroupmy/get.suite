@@ -1803,3 +1803,5 @@ a.home-item:hover, button.home-item:hover { text-decoration: underline; }
 .person-facts { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0; }
 .person-facts dt { color: var(--muted); font-size: 13px; }
 .person-facts dd { margin: 0; }
+.avatar-btn { border: 0; padding: 0; background: none; cursor: pointer; border-radius: 50%; align-self: flex-start; }
+.msg-author { color: inherit; }

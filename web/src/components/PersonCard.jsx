@@ -17,7 +17,7 @@ export default function PersonCard({ userId, onClose }) {
   const navigate = useNavigate();
   const toast = useToast();
   const { user } = useAuth();
-  useEffect(() => { setCard(null); get(`/users/${id}/card`).then(setCard).catch((e) => { toast(e.message, 'error'); onClose(); }); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setCard(null); get(`/users/${id}/card`).then(setCard).catch((e) => { toast(e.status === 404 ? 'Cards are for colleagues in your company' : e.message, 'error'); onClose(); }); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!card) return null;
   const message = async () => { const { id: dm } = await post('/chat/dm', { user_id: card.id }); onClose(); navigate(`/chat/${dm}`); };
   const seeCalendar = () => {

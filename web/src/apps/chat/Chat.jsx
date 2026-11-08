@@ -5,6 +5,7 @@ import { statusLine, untilText } from '../../components/status.js';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { get, post, put, patch, del, onLive, uploadFile, formatBytes } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
+import PersonCard from '../../components/PersonCard.jsx';
 import EmojiPicker from '../../components/EmojiPicker.jsx';
 import { Avatar, ConfirmModal, Empty, Menu, Modal, PromptModal, useToast } from '../../components/ui.jsx';
 import { whenText, laterChoices, ScheduleDialog } from '../../components/schedule.jsx';
@@ -492,6 +493,7 @@ function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit
   const toast = useToast();
   const navigate = useNavigate();
   const [picking, setPicking] = useState(false);
+  const [card, setCard] = useState(false); // the author's card
   const toTask = () => addToTasksWithToast(toast, navigate, {
     title: titleFromText(m.body) || (m.poll ? m.poll.question : 'Chat message'),
     link: { url: `/chat/${m.channel_id}?msg=${m.id}${m.parent_id ? `&thread=${m.parent_id}` : ''}`, label: `Chat message from ${m.user_name || 'someone'}` },
@@ -502,9 +504,10 @@ function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit
   const soon = [['In 20 minutes', Date.now() + 20 * 60e3], ['In 1 hour', Date.now() + 36e5], ...laterChoices()];
   return (
     <div className={`msg ${grouped ? 'grouped' : ''} ${m.pinned_at ? 'pinned' : ''}`} data-mid={m.id}>
-      {grouped ? <span className="msg-gutter" /> : <Avatar name={m.user_name || 'Deleted user'} size={36} userId={m.user_id} />}
+      {grouped ? <span className="msg-gutter" /> : m.user_id ? <button type="button" className="avatar-btn" aria-label={`About ${m.user_name}`} onClick={() => setCard(true)}><Avatar name={m.user_name || 'Deleted user'} size={36} userId={m.user_id} /></button> : <Avatar name="Deleted user" size={36} />}
+      {card && <PersonCard userId={m.user_id} onClose={() => setCard(false)} />}
       <div className="msg-body">
-        {!grouped && <div className="msg-meta"><strong>{m.user_name || 'Deleted user'}</strong> <span className="muted small">{new Date(m.created_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span></div>}
+        {!grouped && <div className="msg-meta">{m.user_id ? <button type="button" className="link-btn msg-author" onClick={() => setCard(true)}><strong>{m.user_name}</strong></button> : <strong>Deleted user</strong>} <span className="muted small">{new Date(m.created_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span></div>}
         {m.pinned_at && <div className="msg-pinned muted small">📌 Pinned by {m.pinned_by_name || 'someone'}</div>}
         {reminder && <div className="msg-reminder muted small">⏰ I'll remind you {whenText(reminder)} <button type="button" className="link-btn small" onClick={() => remind(null)}>Cancel</button></div>}
         {picking && <ScheduleDialog title="Remind me" confirm="Remind me" withinYear note={(at) => `You'll get a notification ${whenText(at)}, linking back to this message.`}
