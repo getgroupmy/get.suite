@@ -25,7 +25,7 @@ export const ACTIONS = {
   'company.update': 'Changed company settings', 'domain.update': 'Changed a mail domain', 'alias.create': 'Added an alias', 'alias.update': 'Changed an alias', 'alias.delete': 'Deleted an alias',
   'file.share': 'Changed sharing', 'file.template': 'Made a company template', 'file.untemplate': 'Removed a company template', 'link.create': 'Made a public link', 'link.delete': 'Removed a public link', 'file.delete': 'Deleted forever', 'trash.empty': 'Emptied the trash',
   'group.create': 'Made a group', 'group.members': 'Changed a group\'s members', 'group.delete': 'Deleted a group', 'data.export': 'Downloaded their data',
-  'backup.create': 'Took a database snapshot', 'backup.download': 'Downloaded a database snapshot', 'mail-queue.delete': 'Deleted a message waiting to go out',
+  'backup.create': 'Took a database snapshot', 'backup.download': 'Downloaded a database snapshot', 'mail-queue.delete': 'Deleted a message waiting to go out', 'drive.create': 'Made a shared drive',
 };
 
 const DAYS = Math.max(7, Number(process.env.AUDIT_DAYS) || 365);

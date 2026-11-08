@@ -419,9 +419,17 @@ Your Workspace calendar and contacts sync with the phone's own Calendar and Cont
 
 **View only (no downloading, printing or copying):** in a file's **Share** window its owner can untick **Viewers and commenters can download, print and copy**. People who can only view or comment then read it in Workspace but get no **Download**, **Print**, **Download as…** or **Make a copy** (printing shows a note instead, and text can't be selected), and the server refuses those for them too: downloads and Word/Excel/PowerPoint/Markdown exports, copies, zip downloads (it's left out), the network drive, share links, and attaching it to an email or a chat message. Editors and the owner aren't limited. It keeps honest people honest; anyone can still take a screenshot.
 
-**Everyone in the company:** in a file's or folder's **Share** window, its owner can give *Everyone at (your company)* view or edit access in one step, including people who join later (for a handbook, templates, shared forms). It shows in their **Shared with me**, covers everything inside a folder, and stops at once when set back to *No access*. People in other companies never get it this way.
+**Everyone in the company:** in a file's or folder's **Share** window, its owner (or an editor of a [shared drive](#shared-drives-drive)) can give *Everyone at (your company)* view or edit access in one step, including people who join later (for a handbook, templates, shared forms). It shows in their **Shared with me**, covers everything inside a folder, and stops at once when set back to *No access*. People in other companies never get it this way.
 
 **Asking for access:** opening a link to a document, spreadsheet or presentation that isn't shared with you shows **You need access**: choose view or edit, add a note, and **Request access**. The owner gets a notification and **Access requests** in Drive, where they can **Share** (as asked, or view only) or **Decline**. Either way you're told. The page says nothing about the file, not even whether it exists, until the owner shares it.
+
+## Shared drives (Drive)
+
+A shared drive belongs to a team (Marketing, Finance, a client project) rather than to one person: everyone in it sees the same files, and what people add stays when they leave the company.
+
+- **Make one:** **Shared drives** in the Drive sidebar → **New shared drive**, give it a name, then add its members (people, groups, or everyone in the company) as viewers, commenters or editors.
+- **Members:** **Members** at the top of a shared drive (or **⋮ → Manage members** in the list). Editors can add files and folders, rename the drive and add or remove members too; viewers and commenters only read. A drive shows under **Shared drives** for its members, not in My Drive or Shared with me.
+- **When someone leaves:** deleting their account keeps what they added to shared drives, in place: it becomes the drive owner's. A drive whose owner leaves goes, with everything of theirs in it, to one of its editors (or to the person their files are given to). Only the drive's owner can delete the drive itself, and a shared drive can't be moved into a folder.
 
 ## Home
 

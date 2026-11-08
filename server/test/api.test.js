@@ -5917,3 +5917,43 @@ test('embedding: public forms and published pages may be framed by other sites; 
   }
   } finally { web.close(); }
 });
+
+test('shared drives: members from sharing, editors manage it, and what people add stays when they leave', async () => {
+  const a = client(), b = client(), c = client(), d = client();
+  for (const [local, name] of [['sda', 'Drive Ann'], ['sdb', 'Drive Ben'], ['sdc', 'Drive Cat'], ['sdd', 'Drive Dan']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  const aid = (await login(a, 'sda@acme.com')).id, bid = (await login(b, 'sdb@acme.com')).id, cid = (await login(c, 'sdc@acme.com')).id, did = (await login(d, 'sdd@acme.com')).id;
+  const drive = (await a('POST', '/api/files/drives', { name: 'Marketing' })).body;
+  assert.equal(drive.is_drive, 1);
+  assert.ok(!(await a('GET', '/api/files')).body.some((f) => f.id === drive.id), 'not in My Drive');
+  assert.deepEqual((await a('GET', '/api/files?view=drives')).body.map((f) => [f.name, f.role, f.members]), [['Marketing', 'owner', 1]]);
+  assert.deepEqual((await b('GET', '/api/files?view=drives')).body, [], 'not a member yet');
+  // Ann adds Ben (can edit: manages it too) and Cat (can view).
+  await a('PUT', `/api/files/${drive.id}/shares`, { shares: [{ user_id: bid, role: 'editor' }, { user_id: cid, role: 'viewer' }] });
+  assert.deepEqual((await b('GET', '/api/files?view=drives')).body.map((f) => [f.name, f.role, f.members]), [['Marketing', 'editor', 3]]);
+  assert.ok(!(await b('GET', '/api/files?view=shared')).body.some((f) => f.id === drive.id), 'not in Shared with me');
+  // Ben, an editor, adds Dan; Cat, a viewer, can't.
+  assert.equal((await c('PUT', `/api/files/${drive.id}/shares`, { shares: [{ user_id: did, role: 'editor' }] })).status, 403);
+  assert.equal((await b('PUT', `/api/files/${drive.id}/shares`, { shares: [{ user_id: bid, role: 'editor' }, { user_id: cid, role: 'viewer' }, { user_id: did, role: 'editor' }] })).status, 200);
+  assert.equal((await d('GET', `/api/files/${drive.id}`)).body.role, 'editor');
+  // A folder of Ben's own is still only his to share.
+  const own = (await b('POST', '/api/files/folder', { name: 'Ben private' })).body;
+  assert.equal((await d('PUT', `/api/files/${own.id}/shares`, { shares: [] })).status, 404);
+  // Ben adds work; it can't be moved into a folder, and only Ann can delete the drive.
+  const brief = (await b('POST', '/api/files/new', { kind: 'doc', name: 'Brief', parent_id: drive.id })).body;
+  const sub = (await d('POST', '/api/files/folder', { name: 'Assets', parent_id: drive.id })).body;
+  assert.equal((await a('PATCH', `/api/files/${drive.id}`, { parent_id: own.id })).status, 400);
+  assert.equal((await b('PATCH', `/api/files/${drive.id}`, { trashed: true })).status, 403);
+  assert.equal((await b('PATCH', `/api/files/${drive.id}`, { name: 'Marketing team' })).status, 200, 'editors rename it');
+  // Ben leaves (deleted without anyone to give his files to): the Brief stays, now Ann's.
+  const del = await owner('DELETE', `/api/users/${bid}`);
+  assert.equal(del.body.drive_items_kept, 1);
+  const kept = (await c('GET', `/api/files/${brief.id}`)).body;
+  assert.deepEqual([kept.name, kept.owner_id, kept.parent_id], ['Brief', aid, drive.id]);
+  // Ann leaves: the drive goes to Dan, who can edit it, with all of hers in it; Cat still sees it.
+  await owner('DELETE', `/api/users/${aid}`);
+  assert.equal((await d('GET', `/api/files/${drive.id}`)).body.role, 'owner');
+  assert.equal((await d('GET', `/api/files/${brief.id}`)).body.owner_id, did);
+  assert.equal((await d('GET', `/api/files/${sub.id}`)).body.role, 'owner');
+  assert.deepEqual((await c('GET', '/api/files?view=drives')).body.map((f) => [f.name, f.role]), [['Marketing team', 'viewer']]);
+  assert.ok(JSON.stringify((await owner('GET', '/api/audit')).body).includes('drive.create'));
+});

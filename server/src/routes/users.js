@@ -17,7 +17,7 @@ import { uid } from '../util.js';
 import { planImport, readablePassword, usersCsv } from '../userimport.js';
 import { sendTo } from '../hub.js';
 import { hoursOf, setHours, readHours, hoursText, withinHours, quietUntil } from '../workhours.js';
-import { insertFile, uniqueName } from './files.js';
+import { insertFile, uniqueName, keepDriveFiles } from './files.js';
 import { focusUntil, calendarStatus } from './calendar.js';
 import { placeOn } from './location.js';
 
@@ -515,6 +515,7 @@ export default function userRoutes() {
       heir = q('SELECT id, name, org_id, disabled FROM users WHERE id = ?').get(String(req.query.transfer_to));
       if (!heir || heir.disabled || heir.org_id !== u.org_id || heir.id === u.id) throw bad('Choose someone else in the same company to give their files to');
     }
+    const kept = keepDriveFiles(u.id, heir?.id); // what they added to shared drives stays there
     const blobs = tx(() => {
       let moved = 0;
       if (heir) {
@@ -539,7 +540,7 @@ export default function userRoutes() {
     syncCompanyGroupAliases(u.org_id); // their groups' email addresses no longer include them
     scheduleMailConfig();
     audit(req, 'user.delete', { org: u.org_id, target: u.username, ...(heir && { details: { files_to: heir.name, items: req.moved } }) });
-    res.json({ ok: true, files_moved: req.moved || 0 });
+    res.json({ ok: true, files_moved: req.moved || 0, drive_items_kept: kept });
   });
 
   return r;

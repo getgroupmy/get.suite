@@ -16,7 +16,7 @@ function useDriveRoute() {
   const [params] = useSearchParams();
   const parts = pathname.replace(/^\/drive\/?/, '').split('/');
   if (parts[0] === 'folder' && parts[1]) return { view: 'mine', folderId: parts[1] };
-  if (['shared', 'recent', 'starred', 'trash', 'approvals', 'signatures'].includes(parts[0])) return { view: parts[0] };
+  if (['drives', 'shared', 'recent', 'starred', 'trash', 'approvals', 'signatures'].includes(parts[0])) return { view: parts[0] };
   if (parts[0] === 'search') return { view: 'search', q: params.get('q') || '', filters: Object.fromEntries(FILTERS.map(([k]) => [k, params.get(k) || ''])) };
   return { view: 'mine', folderId: null };
 }
@@ -45,7 +45,7 @@ export function goesIn(at, now = Date.now()) {
   const days = Math.ceil((at - now) / 864e5);
   return days <= 1 ? (days <= 0 ? 'Soon' : 'Tomorrow') : `In ${days} days`;
 }
-const TITLES = { shared: 'Shared with me', recent: 'Recent', starred: 'Starred', trash: 'Trash', approvals: 'Approvals', signatures: 'Signatures' };
+const TITLES = { drives: 'Shared drives', shared: 'Shared with me', recent: 'Recent', starred: 'Starred', trash: 'Trash', approvals: 'Approvals', signatures: 'Signatures' };
 const DRAG_TYPE = 'application/x-workspace-files';
 
 export default function Drive() {
@@ -62,6 +62,7 @@ export default function Drive() {
   const [dragging, setDragging] = useState(false);
   const [selected, setSelected] = useState(null);
   const fileInput = useRef();
+  const madeDrive = useRef(null); // a shared drive just made: its members are asked for next
 
   const filterQuery = route.filters ? FILTERS.filter(([k]) => route.filters[k]).map(([k]) => `&${k}=${encodeURIComponent(route.filters[k])}`).join('') : '';
   const key = `${route.view}:${route.folderId || ''}:${route.q || ''}:${filterQuery}`;
@@ -254,7 +255,7 @@ export default function Drive() {
         try { const now = (await get(`/files/${f.id}/watch`)).watching; await put(`/files/${f.id}/watch`, { on: !now }); toast(now ? `No more notifications about “${f.name}”` : `You’ll get a notification when someone else changes “${f.name}”`); } catch (e) { toast(e.message, 'error'); }
       } },
       '-',
-      f.role === 'owner' && { label: 'Share', icon: 'share', onClick: () => setDialog({ type: 'share', file: f }) },
+      (f.role === 'owner' || (f.is_drive && f.role === 'editor')) && { label: f.is_drive ? 'Manage members' : 'Share', icon: 'share', onClick: () => setDialog({ type: 'share', file: f }) },
       f.role === 'owner' && f.owner_id === user.id && { label: 'Transfer ownership…', icon: 'person', onClick: () => setDialog({ type: 'transfer', file: f }) },
       canEdit && { label: 'Rename', icon: 'edit', onClick: () => setDialog({ type: 'rename', file: f }) },
       canEdit && { label: 'Move to…', icon: 'move', onClick: () => setDialog({ type: 'move', files: [f] }) },
@@ -294,8 +295,9 @@ export default function Drive() {
         ]} />
         <input ref={fileInput} type="file" multiple hidden onChange={(e) => { startUploads(e.target.files); e.target.value = ''; }} />
         <input ref={folderInput} type="file" multiple hidden webkitdirectory="" aria-label="Folder to upload" onChange={(e) => { startUploads(e.target.files); e.target.value = ''; }} />
-        <NavLink end to="/drive" className={() => `subnav-item ${route.view === 'mine' ? 'active' : ''}`}><Icon name="folder" />My Drive</NavLink>
-        <NavLink to="/drive/shared" className="subnav-item"><Icon name="people" />Shared with me</NavLink>
+        <NavLink end to="/drive" className={() => `subnav-item ${route.view === 'mine' && !crumbs[0]?.is_drive ? 'active' : ''}`}><Icon name="folder" />My Drive</NavLink>
+        <NavLink to="/drive/drives" className={() => `subnav-item ${route.view === 'drives' || (route.view === 'mine' && crumbs[0]?.is_drive) ? 'active' : ''}`}><Icon name="people" />Shared drives</NavLink>
+        <NavLink to="/drive/shared" className="subnav-item"><Icon name="share" />Shared with me</NavLink>
         <NavLink to="/drive/recent" className="subnav-item"><Icon name="clock" />Recent</NavLink>
         <NavLink to="/drive/starred" className="subnav-item"><Icon name="staroutline" />Starred</NavLink>
         <NavLink to="/drive/approvals" className="subnav-item"><Icon name="check" /><span className="grow">Approvals</span>{waitingCount > 0 && <span className="count" aria-label={`${waitingCount} waiting for you`}>{waitingCount}</span>}</NavLink>
@@ -319,7 +321,8 @@ export default function Drive() {
         <div className="drive-head">
           {title ? <h1>{title}</h1> : (
             <nav className="crumbs" aria-label="Folder path">
-              <button className={`crumb ${dropOn === 'root' ? 'drop-on' : ''}`} onClick={() => navigate('/drive')} {...dropTarget(null)}>My Drive</button>
+              {crumbs[0]?.is_drive ? <button className="crumb" onClick={() => navigate('/drive/drives')}>Shared drives</button>
+                : <button className={`crumb ${dropOn === 'root' ? 'drop-on' : ''}`} onClick={() => navigate('/drive')} {...dropTarget(null)}>My Drive</button>}
               {crumbs.map((c) => (
                 <span key={c.id} className="crumb-wrap"><Icon name="right" size={18} />
                   <button className={`crumb ${dropOn === c.id ? 'drop-on' : ''}`} onClick={() => navigate(`/drive/folder/${c.id}`)} {...dropTarget(c.id)}>{c.name}</button></span>
@@ -328,6 +331,12 @@ export default function Drive() {
           )}
           {route.view === 'trash' && files?.length > 0 && (
             <button className="btn" onClick={() => setDialog({ type: 'empty-trash' })}>Empty trash</button>
+          )}
+          {route.view === 'drives' && <button className="btn" onClick={() => setDialog({ type: 'drive' })}><Icon name="plus" /> New shared drive</button>}
+          {route.view === 'mine' && crumbs[0]?.is_drive && (
+            <button className="btn" onClick={async () => { try { setDialog({ type: 'share', file: await get(`/files/${crumbs[0].id}`) }); } catch (e) { toast(e.message, 'error'); } }}>
+              <Icon name="people" /> Members
+            </button>
           )}
         </div>
         {route.view === 'search' && (
@@ -363,6 +372,7 @@ export default function Drive() {
           route.view === 'trash' ? <Empty icon="trash" title="Trash is empty" />
             : route.view === 'search' ? <Empty icon="search" title="No matching files" />
               : route.view === 'shared' ? <Empty icon="people" title="Nothing shared with you yet" />
+              : route.view === 'drives' ? <Empty icon="people" title="No shared drives yet">A shared drive belongs to a team: everyone in it sees the same files, and what people add stays when they leave. Make one with New shared drive.</Empty>
                 : <Empty icon="upload" title="Drop files here">or use the New button to create a folder, document or spreadsheet</Empty>
         ) : (
           <table className="files">
@@ -412,6 +422,10 @@ export default function Drive() {
       {dialog?.type === 'folder' && (
         <PromptModal title="New folder" label="Folder name" initial="Untitled folder" confirm="Create" onClose={() => setDialog(null)}
           onSubmit={async (name) => { await post('/files/folder', { name, parent_id: parentId }); load(); }} />
+      )}
+      {dialog?.type === 'drive' && (
+        <PromptModal title="New shared drive" label="Name" initial="" confirm="Create" onClose={() => { setDialog(madeDrive.current ? { type: 'share', file: madeDrive.current } : null); madeDrive.current = null; }}
+          onSubmit={async (name) => { const d = await post('/files/drives', { name }); madeDrive.current = d; navigate(`/drive/folder/${d.id}`); }} />
       )}
       {dialog?.type === 'storage' && <StorageDialog onClose={() => setDialog(null)} onChanged={load} />}
       {dialog?.type === 'transfer' && <TransferDialog file={dialog.file} onClose={() => setDialog(null)} onDone={load} />}
@@ -484,6 +498,8 @@ export function ShareDialog({ file, onClose }) {
   const [groups, setGroups] = useState([]); // the company's groups
   const [fileGroups, setFileGroups] = useState(null); // the ones this is shared with
   const mine = file.owner_id === user.id;
+  // A shared drive: those who can edit it manage its members too.
+  const manages = mine || (!!file.is_drive && !file.parent_id && file.role === 'editor');
   useEffect(() => {
     get('/users/directory').then(setPeople);
     get(`/files/${file.id}/shares`).then(setShares);
@@ -513,7 +529,7 @@ export function ShareDialog({ file, onClose }) {
   async function save() {
     try {
       await put(`/files/${file.id}/shares`, { shares: shares.map(({ user_id, role, expires_at }) => ({ user_id, role, expires_at: expires_at || null })) });
-      if (mine && fileGroups) await put(`/files/${file.id}/groups`, { groups: fileGroups.map(({ group_id, role }) => ({ group_id, role })) });
+      if (manages && fileGroups) await put(`/files/${file.id}/groups`, { groups: fileGroups.map(({ group_id, role }) => ({ group_id, role })) });
       toast('Sharing updated');
       onClose();
     } catch (e) { toast(e.message, 'error'); }
@@ -522,7 +538,8 @@ export function ShareDialog({ file, onClose }) {
   const external = shares?.filter((s) => s.external).length || 0;
 
   return (
-    <Modal title={`Share “${file.name}”`} onClose={onClose} footer={<><button className="btn" onClick={onClose}>Cancel</button><button className="btn primary" onClick={save} disabled={!shares}>Save</button></>}>
+    <Modal title={file.is_drive && !file.parent_id ? `Members of “${file.name}”` : `Share “${file.name}”`} onClose={onClose} footer={<><button className="btn" onClick={onClose}>Cancel</button><button className="btn primary" onClick={save} disabled={!shares}>Save</button></>}>
+      {file.is_drive && !file.parent_id && <p className="muted small" style={{ marginTop: 0 }}>Everyone added sees everything in this shared drive. Editors can also add files, rename the drive and manage its members; what people add stays here when they leave the company.</p>}
       <form className="row" onSubmit={add}>
         <input className="grow" list="share-people" type="email" value={address} placeholder="Add people by email address"
           aria-label="Email address" autoFocus onChange={(e) => { setAddress(e.target.value); setError(''); }} />
@@ -538,7 +555,7 @@ export function ShareDialog({ file, onClose }) {
       {!user.allow_external && <p className="muted small">Your company only allows sharing with colleagues.</p>}
       <ul className="share-list">
         <li><Avatar name={file.owner_name} size={28} userId={file.owner_id} /><span className="grow">{file.owner_name}</span><span className="muted">Owner</span></li>
-        {file.owner_id === user.id && (
+        {manages && (
           <li className="share-company">
             <span className="avatar company-avatar" aria-hidden="true"><Icon name="people" size={16} /></span>
             <span className="grow">Everyone at {user.org_name} <span className="muted small">(also people who join later)</span></span>
@@ -552,13 +569,13 @@ export function ShareDialog({ file, onClose }) {
           <li key={g.group_id} className="share-group">
             <span className="avatar company-avatar" aria-hidden="true"><Icon name="people" size={16} /></span>
             <span className="grow ellipsis">{g.name} <span className="muted small">group · {g.members === 1 ? '1 person' : `${g.members} people`}</span></span>
-            <select value={g.role} disabled={!mine} aria-label={`Access for the group ${g.name}`} onChange={(e) => setFileGroups(fileGroups.map((x) => (x.group_id === g.group_id ? { ...x, role: e.target.value } : x)))}>
+            <select value={g.role} disabled={!manages} aria-label={`Access for the group ${g.name}`} onChange={(e) => setFileGroups(fileGroups.map((x) => (x.group_id === g.group_id ? { ...x, role: e.target.value } : x)))}>
               <option value="viewer">Viewer</option><option value="commenter">Commenter</option><option value="editor">Editor</option>
             </select>
-            {mine ? <button className="icon-btn" aria-label={`Remove the group ${g.name}`} onClick={() => setFileGroups(fileGroups.filter((x) => x.group_id !== g.group_id))}><Icon name="close" size={18} /></button> : <span style={{ width: 32 }} />}
+            {manages ? <button className="icon-btn" aria-label={`Remove the group ${g.name}`} onClick={() => setFileGroups(fileGroups.filter((x) => x.group_id !== g.group_id))}><Icon name="close" size={18} /></button> : <span style={{ width: 32 }} />}
           </li>
         ))}
-        {mine && fileGroups && groups.some((g) => !fileGroups.some((x) => x.group_id === g.id)) && (
+        {manages && fileGroups && groups.some((g) => !fileGroups.some((x) => x.group_id === g.id)) && (
           <li className="share-group-add">
             <span className="avatar company-avatar" aria-hidden="true"><Icon name="people" size={16} /></span>
             <select className="grow" value="" aria-label="Share with a group" onChange={(e) => {

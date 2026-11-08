@@ -47,7 +47,7 @@ if (!q('PRAGMA table_info(files)').all().some((x) => x.name === 'no_download')) 
 const NO_TAKING = 'The owner has turned off downloading, printing and copying for people who can only view it';
 // Locked: nobody can change the content until whoever locked it (or the owner) unlocks it.
 for (const c of ['locked_by TEXT', 'locked_at INTEGER']) if (!q('PRAGMA table_info(files)').all().some((x) => x.name === c.split(' ')[0])) q(`ALTER TABLE files ADD COLUMN ${c}`).run();
-const COLS = `f.id, f.no_download, f.locked_by, f.locked_at, (SELECT name FROM users WHERE id = f.locked_by) AS locked_by_name, f.owner_id, f.parent_id, f.name, f.kind, f.mime, f.size, f.version, f.trashed, f.trashed_at, f.page_setup, f.color, f.description, f.template, f.org_role,
+const COLS = `f.id, f.is_drive, f.no_download, f.locked_by, f.locked_at, (SELECT name FROM users WHERE id = f.locked_by) AS locked_by_name, f.owner_id, f.parent_id, f.name, f.kind, f.mime, f.size, f.version, f.trashed, f.trashed_at, f.page_setup, f.color, f.description, f.template, f.org_role,
               f.created_at, f.updated_at, u.name AS owner_name, ub.name AS updated_by_name`;
 const FROM = `FROM files f JOIN users u ON u.id = f.owner_id LEFT JOIN users ub ON ub.id = f.updated_by`;
 // Owner is in my company, or both companies currently allow external collaboration.
@@ -80,6 +80,18 @@ export function cleanName(name) {
   const n = str(name, { required: true, name: 'Name', max: 255 });
   if (/[\/\\\0]/.test(n) || n === '.' || n === '..') throw bad('Name contains invalid characters');
   return n;
+}
+
+// Shared drives: a top-level folder that belongs to a team rather than a person. Its members are who
+// it's shared with (people, groups, everyone in the company); those who can edit it also manage it
+// (add and remove members, rename it), and what's in it stays when the person who added it leaves.
+if (!q('PRAGMA table_info(files)').all().some((c) => c.name === 'is_drive')) q('ALTER TABLE files ADD COLUMN is_drive INTEGER NOT NULL DEFAULT 0').run();
+
+/** A file whose sharing you may change: yours, or a shared drive you can edit. */
+function loadManaged(id, user) {
+  const f = loadFile(id, user);
+  if (f.role === 'owner' || (f.is_drive && !f.parent_id && atLeast(f.role, 'editor'))) return f;
+  throw forbidden('Only the owner can change who has access');
 }
 
 function loadFile(id, user, needed = 'viewer') {
@@ -215,19 +227,49 @@ export function snapshot(fileId, label = null) {
  * shares on them go (they own them now); the giver keeps edit access unless `keepAccess` is false.
  */
 export function transferOwnership(rootId, fromId, toId, { keepAccess = true } = {}) {
+  return tx(() => {
+    const n = moveOwnership(rootId, fromId, toId);
+    if (keepAccess) q(`INSERT INTO shares (file_id, user_id, role, direct_role) VALUES (?, ?, 'editor', 'editor') ON CONFLICT(file_id, user_id) DO UPDATE SET role = 'editor', direct_role = 'editor'`).run(rootId, fromId);
+    return n;
+  });
+}
+
+/** What fromId owns in a folder (and the folder, if theirs) becomes toId's. Call inside a transaction. */
+function moveOwnership(rootId, fromId, toId) {
   const ids = q(`WITH RECURSIVE t(id) AS (SELECT ? UNION SELECT f.id FROM files f JOIN t ON f.parent_id = t.id)
                  SELECT id FROM files WHERE id IN (SELECT id FROM t) AND owner_id = ?`).all(rootId, fromId).map((r) => r.id);
-  tx(() => {
-    for (const id of ids) {
-      q('UPDATE files SET owner_id = ? WHERE id = ?').run(toId, id);
-      q('DELETE FROM shares WHERE file_id = ? AND user_id = ?').run(id, toId);
-      q('DELETE FROM file_stars WHERE file_id = ? AND user_id = ?').run(id, fromId);
-    }
-    if (keepAccess) q(`INSERT INTO shares (file_id, user_id, role, direct_role) VALUES (?, ?, 'editor', 'editor') ON CONFLICT(file_id, user_id) DO UPDATE SET role = 'editor', direct_role = 'editor'`).run(rootId, fromId);
-    for (const id of ids) syncShares(id); // the new owner no longer needs a group's share
-  });
+  for (const id of ids) {
+    q('UPDATE files SET owner_id = ? WHERE id = ?').run(toId, id);
+    q('DELETE FROM shares WHERE file_id = ? AND user_id = ?').run(id, toId);
+    q('DELETE FROM file_stars WHERE file_id = ? AND user_id = ?').run(id, fromId);
+  }
+  for (const id of ids) syncShares(id); // the new owner no longer needs a group's share
   return ids.length;
 }
+
+/**
+ * Someone is leaving (their account is being deleted): what they added to shared drives stays there.
+ * A drive of theirs goes, with everything of theirs in it, to one of its members who can edit (or to
+ * `heirId`); their files in others' drives go to each drive's owner. Returns how many items stayed.
+ */
+export function keepDriveFiles(userId, heirId = null) {
+  const org = q('SELECT org_id FROM users WHERE id = ?').get(userId)?.org_id;
+  return tx(() => {
+    let n = 0;
+    for (const d of q('SELECT id, owner_id FROM files WHERE is_drive = 1').all()) {
+      if (d.owner_id === userId) {
+        const next = q(`SELECT s.user_id FROM shares s JOIN users x ON x.id = s.user_id
+                        WHERE s.file_id = ? AND s.role = 'editor' AND x.disabled = 0 AND x.id != ? AND x.org_id = ?
+                        ORDER BY s.direct_role IS NULL, x.created_at LIMIT 1`).get(d.id, userId, org)?.user_id || heirId;
+        if (next) n += moveOwnership(d.id, userId, next);
+      } else if (q('SELECT 1 FROM files WHERE owner_id = ? AND id IN (' + SUBTREE + ')').get(userId, d.id)) {
+        n += moveOwnership(d.id, userId, d.owner_id);
+      }
+    }
+    return n;
+  });
+}
+const SUBTREE = 'WITH RECURSIVE t(id) AS (SELECT ? UNION SELECT f.id FROM files f JOIN t ON f.parent_id = t.id) SELECT id FROM t';
 
 /** Stream an upload into storage, within the size limit and the company's quota. */
 export async function receiveUpload(req, orgId, maxUploadBytes) {
@@ -342,17 +384,22 @@ export default function fileRoutes({ maxUploadBytes }) {
         rows = rows.map((f) => publicFile(f, parent.role));
         for (const f of rows) if (f.owner_id === me) f.role = 'owner';
       } else {
-        rows = q(`SELECT ${COLS} ${FROM} WHERE f.owner_id = ? AND f.parent_id IS NULL AND f.trashed = 0 ${ORDER}`)
+        rows = q(`SELECT ${COLS} ${FROM} WHERE f.owner_id = ? AND f.parent_id IS NULL AND f.is_drive = 0 AND f.trashed = 0 ${ORDER}`)
           .all(me).map((f) => publicFile(f, 'owner'));
       }
     } else if (view === 'shared') {
       // Shared with you, and shared with everyone in your company (by someone else).
       rows = q(`SELECT ${COLS}, s.role ${FROM} JOIN shares s ON s.file_id = f.id
-                WHERE s.user_id = ? AND f.trashed = 0 AND ${REACHABLE} ${ORDER}`).all(me, org, org);
+                WHERE s.user_id = ? AND f.trashed = 0 AND f.is_drive = 0 AND ${REACHABLE} ${ORDER}`).all(me, org, org);
       const ids = new Set(rows.map((f) => f.id));
-      const company = q(`SELECT ${COLS}, f.org_role AS role ${FROM} WHERE f.org_role IS NOT NULL AND u.org_id = ? AND f.owner_id != ? AND f.trashed = 0 ${ORDER}`).all(org, me)
+      const company = q(`SELECT ${COLS}, f.org_role AS role ${FROM} WHERE f.org_role IS NOT NULL AND u.org_id = ? AND f.owner_id != ? AND f.trashed = 0 AND f.is_drive = 0 ${ORDER}`).all(org, me)
         .filter((f) => !ids.has(f.id)).map((f) => ({ ...f, role: roleFor(f.id, me) || f.role }));
       rows = [...rows, ...company];
+    } else if (view === 'drives') {
+      // The shared drives you're a member of (or own), by name, with how many people are in each.
+      rows = q(`SELECT ${COLS} ${FROM} WHERE f.is_drive = 1 AND f.trashed = 0 AND (u.org_id = ? OR f.id IN (SELECT file_id FROM shares WHERE user_id = ?)) AND ${REACHABLE} ORDER BY f.name COLLATE NOCASE`)
+        .all(org, me, org, org).map((f) => ({ ...publicFile(f), role: f.owner_id === me ? 'owner' : roleFor(f.id, me) })).filter((f) => f.role)
+        .map((f) => ({ ...f, members: audienceFor(f.id).length }));
     } else if (view === 'recent') {
       rows = q(`SELECT ${COLS}, CASE WHEN f.owner_id = ? THEN 'owner' ELSE COALESCE(s.role, f.org_role) END AS role ${FROM}
                 LEFT JOIN shares s ON s.file_id = f.id AND s.user_id = ?
@@ -511,6 +558,14 @@ export default function fileRoutes({ maxUploadBytes }) {
       company: { used: orgStorageUsed(req.user.org_id), quota: org?.quota_mb ? org.quota_mb * 1024 * 1024 : null },
       largest,
     });
+  });
+
+  // A new shared drive: { name }. You're its owner; add members with Share.
+  r.post('/drives', (req, res) => {
+    const id = insertFile({ owner: req.user.id, parentId: null, name: cleanName(req.body?.name), kind: 'folder' });
+    q('UPDATE files SET is_drive = 1 WHERE id = ?').run(id);
+    audit(req, 'drive.create', { target: q('SELECT name FROM files WHERE id = ?').get(id).name });
+    res.status(201).json(publicFile(loadFile(id, req.user)));
   });
 
   r.post('/folder', (req, res) => {
@@ -691,9 +746,9 @@ export default function fileRoutes({ maxUploadBytes }) {
     const out = [];
     let cur = loadFile(req.params.id, req.user);
     for (let d = 0; cur && d < 64; d++) {
-      out.unshift({ id: cur.id, name: cur.name });
+      out.unshift({ id: cur.id, name: cur.name, ...(cur.is_drive && { is_drive: 1 }) });
       if (!cur.parent_id || !roleFor(cur.parent_id, req.user.id)) break;
-      cur = q('SELECT id, name, parent_id FROM files WHERE id = ?').get(cur.parent_id);
+      cur = q('SELECT id, name, parent_id, is_drive FROM files WHERE id = ?').get(cur.parent_id);
     }
     res.json(out);
   });
@@ -828,6 +883,8 @@ export default function fileRoutes({ maxUploadBytes }) {
           recordActivity(f.id, req.user.id, 'rename', { from: f.name, to });
         }
       }
+      if (f.is_drive && parent_id !== undefined && parent_id !== f.parent_id) throw bad('A shared drive can’t be moved into a folder');
+      if (f.is_drive && trashed !== undefined && f.role !== 'owner') throw forbidden('Only its owner can delete a shared drive');
       if (parent_id !== undefined && parent_id !== f.parent_id) {
         if (parent_id === null) {
           if (f.role !== 'owner' || f.owner_id !== req.user.id) throw forbidden('Only the owner can move this to their root');
@@ -1120,7 +1177,7 @@ export default function fileRoutes({ maxUploadBytes }) {
   // Groups it's shared with: [{ group_id, role, name, members }]; the owner sets them ({ groups: [{ group_id, role }] }).
   r.get('/:id/groups', (req, res) => { const f = loadFile(req.params.id, req.user); res.json(groupsOf(f.id)); });
   r.put('/:id/groups', (req, res) => {
-    const f = loadFile(req.params.id, req.user, 'owner');
+    const f = loadManaged(req.params.id, req.user);
     const ownerOrg = q('SELECT org_id FROM users WHERE id = ?').get(f.owner_id).org_id;
     const before = new Set(groupsOf(f.id).map((g) => g.group_id));
     const audienceBefore = audienceFor(f.id);
@@ -1206,8 +1263,7 @@ export default function fileRoutes({ maxUploadBytes }) {
   });
 
   r.put('/:id/company', (req, res) => {
-    const f = loadFile(req.params.id, req.user, 'owner');
-    if (f.owner_id !== req.user.id) throw forbidden('Only the owner can share with the whole company');
+    const f = loadManaged(req.params.id, req.user);
     const role = ['viewer', 'commenter', 'editor'].includes(req.body.role) ? req.body.role : null;
     const before = audienceFor(f.id);
     q('UPDATE files SET org_role = ? WHERE id = ?').run(role, f.id);
@@ -1220,7 +1276,7 @@ export default function fileRoutes({ maxUploadBytes }) {
 
   // Replace the share list: [{ user_id, role }]
   r.put('/:id/shares', (req, res) => {
-    const f = loadFile(req.params.id, req.user, 'owner');
+    const f = loadManaged(req.params.id, req.user);
     const list = Array.isArray(req.body.shares) ? req.body.shares : null;
     if (!list) throw bad('shares must be an array');
     const before = audienceFor(f.id);
