@@ -82,7 +82,7 @@ export const HELP = {
   SORT: ['range, [column], [order]', 'The range sorted by a column (1 = first), order 1 rising or -1 falling; spills'],
   SEQUENCE: ['rows, [columns], [start], [step]', 'Numbers counting up: SEQUENCE(5) is 1 to 5 down a column; spills'],
   TRANSPOSE: ['range', 'The range turned on its side: rows become columns; spills'],
-  IMPORTRANGE: ['spreadsheet_link, "Sheet1!A1:C10"', 'Cells from another spreadsheet you can open (its link or id); use it in SUM, VLOOKUP and the like for a range'],
+  IMPORTRANGE: ['spreadsheet_link, "Sheet1!A1:C10"', 'Cells from another spreadsheet you can open (its link or id); a range spills, or use it in SUM, VLOOKUP and the like'],
   // text
   CONCAT: ['text1, [text2, …]', 'Joins text together'],
   CONCATENATE: ['text1, [text2, …]', 'Joins text together'],
