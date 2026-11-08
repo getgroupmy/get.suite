@@ -1433,3 +1433,29 @@ test('recent mail with someone: from them and to them, newest first', async () =
   assert.ok(list.length <= 10);
   assert.ok(!(await olivia('GET', '/api/mail/with?address=nobody-at-all@nowhere.example')).body.length);
 });
+
+test('mute a conversation: replies go to Archive, read; unmuting brings them back to the Inbox', async () => {
+  const t = nodemailer.createTransport({ host: process.env.MAIL_IMAP_HOST, port: 25, secure: false, ignoreTLS: true, name: 'test.acme.com' });
+  await t.sendMail({ from: 'Chatty <chatty@acme.com>', to: 'olivia@acme.com', subject: 'Big group thread', text: 'first', messageId: '<thread-1@test.acme.com>' });
+  const first = await eventually(async () => (await inbox(olivia)).find((m) => m.subject === 'Big group thread'), 20000);
+  const msg = (await olivia('GET', `/api/mail/messages/${first.uid}?folder=INBOX`)).body;
+  assert.equal(msg.messageId, '<thread-1@test.acme.com>');
+  assert.equal((await olivia('POST', '/api/mail/muted', { message_id: 'no-brackets', references: [] })).status, 400);
+  const m = await olivia('POST', '/api/mail/muted', { message_id: msg.messageId, references: msg.references, subject: msg.subject });
+  assert.equal(m.status, 201, JSON.stringify(m.body));
+  assert.equal((await olivia('POST', '/api/mail/muted', { message_id: msg.messageId, subject: msg.subject })).status, 200, 'the same conversation once');
+  assert.deepEqual((await olivia('GET', `/api/mail/muted/check?message_id=${encodeURIComponent(msg.messageId)}`)).body, { muted: true, id: m.body.id });
+  assert.equal((await olivia('GET', '/api/mail/muted')).body.length, 1);
+  await eventually(() => { try { return fs.readFileSync('/run/nw/sieve/olivia@acme.com.sieve', 'utf8').includes('<thread-1@test.acme.com>'); } catch { return false; } }, 15000);
+  await t.sendMail({ from: 'Chatty <chatty@acme.com>', to: 'olivia@acme.com', subject: 'Re: Big group thread', text: 'reply 1', messageId: '<thread-2@test.acme.com>', inReplyTo: '<thread-1@test.acme.com>', references: ['<thread-1@test.acme.com>'] });
+  await t.sendMail({ from: 'Chatty <chatty@acme.com>', to: 'olivia@acme.com', subject: 'Something else', text: 'not muted' });
+  const archived = await eventually(async () => (await olivia('GET', '/api/mail/messages?folder=Archive')).body.messages?.find((x) => x.subject === 'Re: Big group thread'), 20000);
+  assert.equal(archived.seen, true);
+  await eventually(async () => (await inbox(olivia)).some((x) => x.subject === 'Something else'), 20000);
+  assert.ok(!(await inbox(olivia)).some((x) => x.subject === 'Re: Big group thread'));
+  // Unmute: the next reply arrives as usual.
+  assert.equal((await olivia('DELETE', `/api/mail/muted/${m.body.id}`)).status, 200);
+  await eventually(() => { try { return !fs.readFileSync('/run/nw/sieve/olivia@acme.com.sieve', 'utf8').includes('<thread-1@test.acme.com>'); } catch { return true; } }, 15000);
+  await t.sendMail({ from: 'Chatty <chatty@acme.com>', to: 'olivia@acme.com', subject: 'Re: Big group thread', text: 'reply 2', inReplyTo: '<thread-2@test.acme.com>', references: ['<thread-1@test.acme.com>', '<thread-2@test.acme.com>'] });
+  await eventually(async () => (await inbox(olivia)).some((x) => x.subject === 'Re: Big group thread'), 20000);
+});

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { get, put, post } from '../../api.js';
+import { get, put, post, del } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
 import { Modal, useToast } from '../../components/ui.jsx';
 
@@ -66,7 +66,28 @@ export function FiltersDialog({ onClose, folders, onFoldersChanged, startWith })
           </li>
         ))}
       </ul>
+      <MutedList />
     </Modal>
+  );
+}
+
+/** Conversations you muted (Mute on a message): their replies go straight to Archive. */
+function MutedList() {
+  const [list, setList] = useState(null);
+  const load = () => get('/mail/muted').then(setList).catch(() => setList([]));
+  useEffect(() => { load(); }, []);
+  if (!list?.length) return null;
+  return (
+    <section aria-label="Muted conversations">
+      <h3 style={{ marginBottom: 4 }}>Muted conversations</h3>
+      <p className="muted small" style={{ marginTop: 0 }}>Replies in these go straight to Archive, already read.</p>
+      <ul className="rule-list">
+        {list.map((m) => (
+          <li key={m.id}><span className="grow">🔕 {m.subject || '(no subject)'}</span>
+            <button type="button" className="btn small" onClick={async () => { await del(`/mail/muted/${m.id}`); load(); }}>Unmute</button></li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

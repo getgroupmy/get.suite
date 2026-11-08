@@ -294,6 +294,15 @@ CREATE TABLE IF NOT EXISTS mail_rules (
   rules TEXT NOT NULL,                -- JSON: ordered list, see mail/sieve.js
   updated_at INTEGER NOT NULL
 );
+-- Muted conversations: replies that name one of these Message-IDs skip the Inbox (see mail/sieve.js).
+CREATE TABLE IF NOT EXISTS mail_muted (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  subject TEXT NOT NULL DEFAULT '',
+  ids TEXT NOT NULL,                  -- JSON list of "<message@id>"
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS mail_muted_user ON mail_muted(user_id);
 CREATE TABLE IF NOT EXISTS mail_signatures (
   user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   html TEXT NOT NULL DEFAULT '',

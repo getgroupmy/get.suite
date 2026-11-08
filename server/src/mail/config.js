@@ -140,11 +140,13 @@ export function buildMailConfig() {
   const vacations = new Map(q('SELECT * FROM vacations WHERE enabled = 1').all()
     .filter((v) => !v.end_date || v.end_date >= today).map((v) => [v.user_id, v]));
   const ruleSets = new Map(q('SELECT user_id, rules FROM mail_rules').all().map((r) => [r.user_id, JSON.parse(r.rules)]));
+  const muted = new Map();
+  for (const m of q('SELECT user_id, ids FROM mail_muted ORDER BY created_at').all()) muted.set(m.user_id, [...(muted.get(m.user_id) || []), ...JSON.parse(m.ids)]);
   for (const u of users) {
     if (u.disabled) continue;
     const v = vacations.get(u.id);
     const addresses = [u.username, ...[...aliasMap].filter(([, t]) => t.includes(u.username)).map(([a]) => a)];
-    const script = userSieve({ username: u.username, rules: ruleSets.get(u.id) || [], vacation: v ? { ...v, name: u.name, addresses } : null });
+    const script = userSieve({ username: u.username, rules: ruleSets.get(u.id) || [], muted: [...new Set(muted.get(u.id) || [])], vacation: v ? { ...v, name: u.name, addresses } : null });
     if (script) files[`sieve/${u.username}.sieve`] = script;
   }
   for (const d of domains) {

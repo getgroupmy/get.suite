@@ -469,8 +469,12 @@ function Reader({ folder, uid, special, onClose, onOpen, onChanged, act, onCompo
   const [images, setImages] = useState(false);
   const [blocking, setBlocking] = useState(false);
   const [unsubscribing, setUnsubscribing] = useState(false);
+  const [muted, setMuted] = useState(null); // its conversation is muted: the entry's id
   useEffect(() => {
-    get(`/mail/messages/${uid}?folder=${enc(folder)}`).then((x) => { setM(x); onChanged(); }).catch((e) => { toast(e.message, 'error'); onClose(); });
+    get(`/mail/messages/${uid}?folder=${enc(folder)}`).then((x) => {
+      setM(x); onChanged();
+      if (x.messageId) get(`/mail/muted/check?message_id=${encodeURIComponent(x.messageId)}&references=${encodeURIComponent((x.references || []).join(','))}`).then((r) => setMuted(r.id)).catch(() => {});
+    }).catch((e) => { toast(e.message, 'error'); onClose(); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [folder, uid]);
   if (!m) return <p className="muted mail-note">Loading…</p>;
@@ -488,6 +492,16 @@ function Reader({ folder, uid, special, onClose, onOpen, onChanged, act, onCompo
   const replyTo = m.replyTo.length ? m.replyTo : m.from ? [m.from] : [];
   const others = [...m.to, ...m.cc].filter((a) => !mine.includes(a.address) && a.address !== user.username && !replyTo.some((r) => r.address === a.address));
   const done = async (p, b, msg) => { if (await act(p, { uids: [uid], ...b }, msg)) onClose(); };
+  // Mute: replies in this conversation skip the Inbox from now on; this message goes to Archive.
+  const mute = async () => {
+    try {
+      const r = await post('/mail/muted', { message_id: m.messageId, references: m.references, subject: m.subject });
+      setMuted(r.id);
+      if (special === '\\Archive') toast('Muted: replies go straight to Archive');
+      else done('move', { to: 'archive' }, 'Muted: this conversation is archived, and replies go straight to Archive');
+    } catch (e) { toast(e.message, 'error'); }
+  };
+  const unmute = async () => { try { await del(`/mail/muted/${muted}`); setMuted(null); toast('Unmuted: replies come to the Inbox again'); } catch (e) { toast(e.message, 'error'); } };
   const answerReceipt = async (send) => {
     try { await post(`/mail/messages/${uid}/receipt`, { folder, send }); setM({ ...m, receipt: null }); if (send) toast(`Read receipt sent to ${m.receipt.to}`); } catch (e) { toast(e.message, 'error'); }
   };
@@ -528,7 +542,9 @@ function Reader({ folder, uid, special, onClose, onOpen, onChanged, act, onCompo
         </button>
         {m.from?.address && <button className="btn small" onClick={() => onFilter(m.from.address)}>Filter messages like this</button>}
         {m.from?.address && special !== '\\Junk' && <button className="btn small" onClick={() => setBlocking(true)}>Block sender</button>}
+        {m.messageId && !muted && <button className="btn small" title="Replies in this conversation skip the Inbox" onClick={mute}>Mute</button>}
       </div>
+      {muted && <div className="banner" role="status">🔕 This conversation is muted: replies go straight to Archive. <button type="button" className="link-btn" onClick={unmute}>Unmute</button></div>}
       <h1 className="reader-subject">{m.subject || '(no subject)'}</h1>
       {(m.labels || []).length > 0 && (
         <div className="reader-labels">

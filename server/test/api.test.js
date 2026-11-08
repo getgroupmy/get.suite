@@ -5380,3 +5380,16 @@ test('forms: time and rating questions', async () => {
   assert.equal(s[1].bars.length, 7);
   assert.deepEqual(prefillFrom(qs, JSON.stringify({ t: '08:15', r: 3, r2: 11 })), { t: '08:15', r: 3 });
 });
+
+test('mail: a muted conversation is a Sieve rule before the filters, filing replies in Archive, read', async () => {
+  const { userSieve, cleanMessageId } = await import('../src/mail/sieve.js');
+  assert.equal(cleanMessageId('<a@b>'), '<a@b>');
+  assert.equal(cleanMessageId('a@b'), null);
+  assert.equal(cleanMessageId('<a b@c>'), null);
+  assert.equal(cleanMessageId('<a"@c>'), null);
+  assert.equal(userSieve({ username: 'k@x.com' }), null);
+  const s = userSieve({ username: 'k@x.com', muted: ['<t1@x>', '<t2@x>'], rules: [{ id: 'r', name: 'R', enabled: true, match: 'all', conditions: [{ field: 'subject', op: 'contains', value: 'x' }], actions: { moveTo: 'Work' } }] });
+  assert.match(s, /header :contains \["references", "in-reply-to"\] \["<t1@x>", "<t2@x>"\]/);
+  assert.match(s, /addflag "\\\\Seen";\n  fileinto :create "Archive";/);
+  assert.ok(s.indexOf('Muted conversations') < s.indexOf('# R'), 'before the rules');
+});

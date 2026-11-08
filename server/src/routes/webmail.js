@@ -14,7 +14,7 @@ import { str, bad, notFound, HttpError, uid as newId, now } from '../util.js';
 import { roleFor, mayTakeAway } from '../access.js';
 import { mailEnabled, scheduleMailConfig, MAIL_HOSTNAME } from '../mail/config.js';
 import { withClient, withFolder, smtpFor } from '../mail/imap.js';
-import { normalizeRules } from '../mail/sieve.js';
+import { normalizeRules, cleanMessageId } from '../mail/sieve.js';
 import { followedFolders, setFollowed, MAX_FOLLOWED } from '../mail/notify.js';
 import { forwardHtml } from '../mail/forwardhtml.js';
 import { unsubscribeOptions, oneClickUnsubscribe } from '../mail/unsubscribe.js';
@@ -911,6 +911,40 @@ export default function webmailRoutes() {
       return unread.length;
     });
     res.json({ ok: true, marked: n });
+  });
+
+  // Muted conversations: { message_id, references, subject } of a message in it. From then on, replies
+  // in that conversation go straight to Archive, already read (a Sieve rule, so phones and mail apps
+  // see the same). One entry per conversation; muting again adds the newest messages' ids to it.
+  const MAX_MUTED = 200;
+  const mutedOf = (userId) => q('SELECT id, subject, ids, created_at FROM mail_muted WHERE user_id = ? ORDER BY created_at DESC').all(userId)
+    .map((m) => ({ ...m, ids: JSON.parse(m.ids) }));
+  r.get('/muted', (req, res) => res.json(mutedOf(req.user.id).map(({ ids, ...m }) => ({ ...m, message_ids: ids }))));
+  r.post('/muted', (req, res) => {
+    const ids = [...new Set([req.body?.message_id, ...[].concat(req.body?.references || [])].map(cleanMessageId).filter(Boolean))].slice(-50);
+    if (!ids.length) throw bad('This message can’t be muted (it has no Message-ID)');
+    const mine = mutedOf(req.user.id);
+    const same = mine.find((m) => m.ids.some((x) => ids.includes(x)));
+    const subject = str(req.body?.subject ?? '', { max: 300 }) || '';
+    if (same) q('UPDATE mail_muted SET ids = ? WHERE id = ?').run(JSON.stringify([...new Set([...same.ids, ...ids])].slice(-100)), same.id);
+    else {
+      if (mine.length >= MAX_MUTED) throw bad(`You can mute up to ${MAX_MUTED} conversations; unmute some first`);
+      q('INSERT INTO mail_muted (id, user_id, subject, ids, created_at) VALUES (?, ?, ?, ?, ?)').run(newId(), req.user.id, subject, JSON.stringify(ids), now());
+    }
+    scheduleMailConfig();
+    res.status(same ? 200 : 201).json({ muted: true, id: same?.id || q('SELECT id FROM mail_muted WHERE user_id = ? ORDER BY created_at DESC LIMIT 1').get(req.user.id).id });
+  });
+  // Is a message's conversation muted? (?message_id=&references=a,b)
+  r.get('/muted/check', (req, res) => {
+    const ids = [req.query.message_id, ...String(req.query.references || '').split(/[\s,]+/)].map(cleanMessageId).filter(Boolean);
+    const m = ids.length && mutedOf(req.user.id).find((x) => x.ids.some((y) => ids.includes(y)));
+    res.json({ muted: !!m, id: m ? m.id : null });
+  });
+  r.delete('/muted/:id', (req, res) => {
+    const gone = q('DELETE FROM mail_muted WHERE id = ? AND user_id = ?').run(String(req.params.id), req.user.id).changes;
+    if (!gone) throw notFound();
+    scheduleMailConfig();
+    res.json({ muted: false });
   });
 
   // Move to another folder; `to` may be a path or a special folder: inbox, archive, junk, trash.
