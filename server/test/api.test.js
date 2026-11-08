@@ -2472,6 +2472,32 @@ test('tasks: a due time on the due date; cleared with the date; kept on the next
   assert.deepEqual([next.due, next.due_time], ['2026-12-02', '09:00']);
 });
 
+test('tasks: a start date for the timeline; before the due date; moved with it; kept as long on the next repeat', async () => {
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'tla', domain: 'acme.com', name: 'Timeline Ann', password: 'password123' })).status, 201);
+  await login(a, 'tla@acme.com');
+  const list = (await a('GET', '/api/tasks/lists')).body.lists.find((l) => l.mine).id;
+  const t = (await a('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Design', due: '2026-12-10' })).body;
+  assert.equal(t.start, null);
+  assert.equal((await a('PATCH', `/api/tasks/tasks/${t.id}`, { start: '2026-12-07' })).body.start, '2026-12-07');
+  assert.equal((await a('PATCH', `/api/tasks/tasks/${t.id}`, { start: '2026-12-11' })).status, 400, 'not after the due date');
+  assert.match((await a('PATCH', `/api/tasks/tasks/${t.id}`, { due: '2026-12-05' })).body.error, /start can’t be after/);
+  assert.equal((await a('PATCH', `/api/tasks/tasks/${t.id}`, { start: '7 Dec' })).status, 400);
+  const moved = (await a('PATCH', `/api/tasks/tasks/${t.id}`, { start: '2026-12-14', due: '2026-12-17' })).body; // dragged along the timeline
+  assert.deepEqual([moved.start, moved.due], ['2026-12-14', '2026-12-17']);
+  assert.equal((await a('PATCH', `/api/tasks/tasks/${t.id}`, { start: null })).body.start, null);
+  const undated = (await a('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Someday' })).body;
+  assert.match((await a('PATCH', `/api/tasks/tasks/${undated.id}`, { start: '2026-12-01' })).body.error, /due date first/);
+  await a('PATCH', `/api/tasks/tasks/${t.id}`, { start: '2026-12-15' });
+  assert.equal((await a('PATCH', `/api/tasks/tasks/${t.id}`, { due: null })).body.start, null, 'clearing the due date clears the start');
+  // Repeating: the next one starts as long before its due date.
+  const sprint = (await a('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Sprint', due: '2026-12-04', repeat: 'weekly' })).body;
+  await a('PATCH', `/api/tasks/tasks/${sprint.id}`, { start: '2026-11-30' });
+  await a('PATCH', `/api/tasks/tasks/${sprint.id}`, { done: true, today: '2026-12-04' });
+  const next = (await a('GET', `/api/tasks/lists/${list}/tasks`)).body.find((x) => x.title === 'Sprint' && !x.done);
+  assert.deepEqual([next.start, next.due], ['2026-12-07', '2026-12-11']);
+});
+
 test('transfer ownership: give a folder to a colleague; give a leaving person’s files to someone', async () => {
   const a = client(), b = client(), c = client();
   for (const [local, name] of [['tra', 'Give Ann'], ['trb', 'Give Ben'], ['trc', 'Give Cat']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);

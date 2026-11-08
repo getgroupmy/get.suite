@@ -38,7 +38,7 @@ q(`CREATE TABLE IF NOT EXISTS tasks (
 )`).run();
 q('CREATE INDEX IF NOT EXISTS tasks_list ON tasks(list_id, position)').run();
 // Repeating tasks: how it repeats, and (once ticked off) the task that came next.
-for (const [col, type] of [['repeat', 'TEXT'], ['next_id', 'TEXT'], ['steps', 'TEXT'], ['important', 'INTEGER NOT NULL DEFAULT 0'], ['link_url', 'TEXT'], ['link_label', 'TEXT'], ['due_time', 'TEXT'], ['started', 'INTEGER NOT NULL DEFAULT 0'], ['done_by', 'TEXT'], ['attachments', 'TEXT'], ['blocked_by', 'TEXT'], ['tags', 'TEXT']]) { // tags: JSON ["client", …]; // blocked_by: tasks on the same list this one waits on, JSON [ids]; // attachments: Drive files, JSON [{ id, name, kind, mime }]; // steps: a checklist, JSON [{ id, title, done }]
+for (const [col, type] of [['repeat', 'TEXT'], ['next_id', 'TEXT'], ['steps', 'TEXT'], ['important', 'INTEGER NOT NULL DEFAULT 0'], ['link_url', 'TEXT'], ['link_label', 'TEXT'], ['due_time', 'TEXT'], ['started', 'INTEGER NOT NULL DEFAULT 0'], ['done_by', 'TEXT'], ['attachments', 'TEXT'], ['blocked_by', 'TEXT'], ['tags', 'TEXT'], ['start', 'TEXT']]) { // start: the day work begins (YYYY-MM-DD), for the timeline; // tags: JSON ["client", …]; // blocked_by: tasks on the same list this one waits on, JSON [ids]; // attachments: Drive files, JSON [{ id, name, kind, mime }]; // steps: a checklist, JSON [{ id, title, done }]
   if (!q('PRAGMA table_info(tasks)').all().some((c) => c.name === col)) q(`ALTER TABLE tasks ADD COLUMN ${col} ${type}`).run();
 }
 q('CREATE INDEX IF NOT EXISTS tasks_assignee ON tasks(assignee_id, done_at)').run();
@@ -149,6 +149,15 @@ function dueOf(v) {
   if (typeof v !== 'string' || !DATE_RE.test(v) || Number.isNaN(Date.parse(v))) throw bad('Due date must be YYYY-MM-DD');
   return v;
 }
+function startOf(v) {
+  if (typeof v !== 'string' || !DATE_RE.test(v) || Number.isNaN(Date.parse(v))) throw bad('Start date must be YYYY-MM-DD');
+  return v;
+}
+const dayMs = (d) => Date.parse(`${d}T00:00:00Z`);
+/** Whole days from a to b (YYYY-MM-DD). */
+export const daysBetween = (a, b) => Math.round((dayMs(b) - dayMs(a)) / 86400000);
+/** A day moved by n days. */
+export const shiftDay = (d, n) => new Date(dayMs(d) + n * 86400000).toISOString().slice(0, 10);
 /** A time on the due date ("HH:MM", the person's own clock), or null for any time that day. */
 function dueTimeOf(v) {
   if (v === null || v === '' || v === undefined) return null;
@@ -441,8 +450,12 @@ export default function taskRoutes() {
     if (b.notes !== undefined) set.notes = str(b.notes, { max: 10000 });
     if (b.due !== undefined) set.due = dueOf(b.due);
     if (b.due_time !== undefined) set.due_time = dueTimeOf(b.due_time);
-    if (set.due === null) set.due_time = null; // no date, no time
+    if (b.start !== undefined) set.start = b.start === null || b.start === '' ? null : startOf(b.start);
+    if (set.due === null) { set.due_time = null; set.start = null; } // no date, no time and no start
     else if (set.due_time && !(set.due !== undefined ? set.due : task.due)) throw bad('Set a due date first');
+    { const st = set.start !== undefined ? set.start : task.start, du = set.due !== undefined ? set.due : task.due;
+      if (st && !du) throw bad('Set a due date first');
+      if (st && du && st > du) throw bad('The start can’t be after the due date'); }
     if (b.assignee_id !== undefined) set.assignee_id = assigneeOf(b.assignee_id, target);
     if (b.done !== undefined) { set.done_at = b.done ? task.done_at || now() : null; set.done_by = b.done ? task.done_by || req.user.id : null; }
     if (b.repeat !== undefined) set.repeat = repeatOf(b.repeat);
@@ -464,11 +477,12 @@ export default function taskRoutes() {
       // Ticked off a repeating task: the next one comes due, on top of its list.
       if (b.done && !task.done_at && after.repeat && after.due && !after.next_id) {
         const due = nextDue(after.due, after.repeat, todayOf(b.today));
+        const start = after.start ? shiftDay(due, -daysBetween(after.start, after.due)) : null; // as long as before
         const top = (q('SELECT MIN(position) AS p FROM tasks WHERE list_id = ? AND done_at IS NULL').get(after.list_id).p ?? 1) - 1;
         const id = uid(), t = now();
         const steps = after.steps ? JSON.stringify(JSON.parse(after.steps).map((x) => ({ ...x, id: uid(), done: false }))) : null; // a fresh checklist
-        q('INSERT INTO tasks (id, list_id, title, notes, due, due_time, assignee_id, position, repeat, steps, important, link_url, link_label, attachments, tags, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-          .run(id, after.list_id, after.title, after.notes, due, after.due_time, after.assignee_id, top, after.repeat, steps, after.important ? 1 : 0, after.link_url, after.link_label, after.attachments, after.tags, after.created_by, t, t);
+        q('INSERT INTO tasks (id, list_id, title, notes, due, due_time, start, assignee_id, position, repeat, steps, important, link_url, link_label, attachments, tags, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+          .run(id, after.list_id, after.title, after.notes, due, after.due_time, start, after.assignee_id, top, after.repeat, steps, after.important ? 1 : 0, after.link_url, after.link_label, after.attachments, after.tags, after.created_by, t, t);
         q('UPDATE tasks SET next_id = ? WHERE id = ?').run(id, task.id);
       }
       // Un-ticked (Undo): the next one goes again, unless someone has already worked on it.

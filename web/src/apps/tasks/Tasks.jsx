@@ -9,6 +9,7 @@ import { Avatar, ConfirmModal, Empty, Menu, Modal, PromptModal, useToast } from 
 import { useAuth } from '../../App.jsx';
 import { dueLabel, between, localToday, REPEATS, repeatText, SORTS, sortTasks } from './taskmath.js';
 import { parseQuickAdd } from './quickadd.js';
+import { addDays, daysFrom, barOf, timelineRange, dragChange } from './timeline.js';
 
 /** The open tasks a task still waits on (from the tasks on its list). */
 const waitingOn = (t, all) => (t.blocked_by?.length && !t.done ? (all || []).filter((x) => t.blocked_by.includes(x.id) && !x.done) : []);
@@ -206,6 +207,7 @@ export default function Tasks() {
             <div className="tabs view-toggle" role="tablist" aria-label="View">
               <button type="button" role="tab" aria-selected={view === 'list'} className={view === 'list' ? 'on' : ''} onClick={() => setView('list')}>List</button>
               <button type="button" role="tab" aria-selected={view === 'board'} className={view === 'board' ? 'on' : ''} onClick={() => setView('board')}>Board</button>
+              <button type="button" role="tab" aria-selected={view === 'timeline'} className={view === 'timeline' ? 'on' : ''} onClick={() => setView('timeline')}>Timeline</button>
             </div>
           )}
           {list && view === 'list' && (
@@ -240,7 +242,9 @@ export default function Tasks() {
             <button type="button" className="link-btn small" onClick={() => { setAsTyped(!asTyped); addBox.current?.focus(); }}>{asTyped ? 'Read dates again' : 'Keep as typed'}</button>
           </div>
         )}
-        {tasks === null ? null : list && view === 'board' ? (
+        {tasks === null ? null : list && view === 'timeline' ? (
+          <Timeline open={open} openId={openId} onOpen={(t) => show(t.id === openId ? null : t.id)} onChange={(t, c) => update(t, c)} />
+        ) : list && view === 'board' ? (
           <Board open={open} done={done} openId={openId} onOpen={(t) => show(t.id === openId ? null : t.id)}
             onMove={(t, col) => {
               if (col === 'done') { if (!t.done) toggle(t); return; }
@@ -279,6 +283,100 @@ export default function Tasks() {
         <ConfirmModal title={list.mine ? `Delete “${list.name}”?` : `Leave “${list.name}”?`} confirm={list.mine ? 'Delete list' : 'Leave'}
           message={list.mine ? `Its ${open.length + done.length} task${open.length + done.length === 1 ? '' : 's'} go too${list.members.length ? ', for everyone it’s shared with' : ''}.` : 'You won’t see it any more, and tasks given to you on it become nobody’s.'}
           onClose={() => setDialog(null)} onConfirm={async () => { await del(`/tasks/lists/${list.id}`); setDialog(null); await loadLists(); navigate('/tasks'); }} />
+      )}
+    </div>
+  );
+}
+
+const DAY_W = 32; // pixels per day on the timeline
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const shortDay = (d) => `${+d.slice(8, 10)} ${MONTHS[+d.slice(5, 7) - 1]}`;
+
+/**
+ * The list's open tasks on a strip of days: a bar from each one's start to its due date. Drag a
+ * bar to move it, or its ends to change the start or due date; with the keyboard, ← → move it a
+ * day, Shift+← → change the due date and Alt+← → the start. Tasks without a due date are listed below.
+ */
+function Timeline({ open, openId, onOpen, onChange }) {
+  const today = localToday();
+  const dated = open.filter((t) => t.due).sort((a, b) => barOf(a).from.localeCompare(barOf(b).from) || a.due.localeCompare(b.due));
+  const undated = open.filter((t) => !t.due);
+  const { from, days } = timelineRange(dated, today);
+  const [drag, setDrag] = useState(null); // { id, mode, x, delta }
+  const scroller = useRef(null);
+  useEffect(() => { // start with today in view
+    const el = scroller.current;
+    if (el) el.scrollLeft = Math.max(0, (daysFrom(from, today) - 3) * DAY_W);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const dayList = Array.from({ length: days }, (_, i) => addDays(from, i));
+  const begin = (e, t, mode) => {
+    if (e.button !== 0) return;
+    e.preventDefault(); e.stopPropagation();
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    setDrag({ id: t.id, mode, x: e.clientX, delta: 0 });
+  };
+  const moveTo = (e) => { if (drag) setDrag({ ...drag, delta: Math.round((e.clientX - drag.x) / DAY_W) }); };
+  const end = (t) => {
+    if (!drag || drag.id !== t.id) return;
+    const { mode, delta } = drag;
+    setDrag(null);
+    if (!delta) { if (mode === 'move') onOpen(t); return; }
+    onChange(t, dragChange(t, mode, delta));
+  };
+  const keys = (e, t) => {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') { if (e.key === 'Enter') onOpen(t); return; }
+    e.preventDefault();
+    const d = e.key === 'ArrowRight' ? 1 : -1;
+    const c = dragChange(t, e.shiftKey ? 'end' : e.altKey ? 'start' : 'move', d);
+    if (Object.keys(c).length) onChange(t, c);
+  };
+  const shown = (t) => {
+    if (drag?.id !== t.id || !drag.delta) return barOf(t);
+    const c = { ...t, ...dragChange(t, drag.mode, drag.delta) };
+    return barOf(c);
+  };
+  return (
+    <div className="timeline">
+      <div className="timeline-scroll" ref={scroller}>
+        <div className="timeline-grid" style={{ '--days': days, '--day-w': `${DAY_W}px` }}>
+          <div className="tl-corner">Task</div>
+          <div className="tl-days" aria-hidden="true">
+            {dayList.map((d) => {
+              const wd = new Date(`${d}T12:00:00`).getDay();
+              return <span key={d} className={`tl-day ${wd === 0 || wd === 6 ? 'weekend' : ''} ${d === today ? 'today' : ''}`}>{wd === 1 || d === from ? <b>{shortDay(d)}</b> : null}{+d.slice(8, 10)}</span>;
+            })}
+          </div>
+          {dated.map((t) => {
+            const b = shown(t);
+            const left = daysFrom(from, b.from) * DAY_W, width = (daysFrom(b.from, b.to) + 1) * DAY_W;
+            const late = t.due < today;
+            return (
+              <div key={t.id} className="tl-row" role="group" aria-label={t.title}>
+                <button type="button" className={`tl-name ellipsis ${t.id === openId ? 'on' : ''}`} onClick={() => onOpen(t)}>{t.title}</button>
+                <div className="tl-track">
+                  {daysFrom(from, today) >= 0 && <span className="tl-now" style={{ left: daysFrom(from, today) * DAY_W + DAY_W / 2 }} aria-hidden="true" />}
+                  <div role="slider" tabIndex={0} aria-label={`${t.title}: ${b.from === b.to ? shortDay(b.to) : `${shortDay(b.from)} to ${shortDay(b.to)}`}`}
+                    aria-valuetext={b.from === b.to ? `Due ${shortDay(b.to)}` : `${shortDay(b.from)} to ${shortDay(b.to)}`} aria-valuenow={daysFrom(from, b.to)}
+                    title="Drag to move; drag an end to change the start or due date (← → with Shift or Alt)"
+                    className={`tl-bar ${late ? 'late' : ''} ${t.started ? 'doing' : ''} ${drag?.id === t.id ? 'dragging' : ''}`} style={{ left, width }}
+                    onPointerDown={(e) => begin(e, t, 'move')} onPointerMove={moveTo} onPointerUp={() => end(t)} onPointerCancel={() => setDrag(null)} onKeyDown={(e) => keys(e, t)}>
+                    <span className="tl-handle start" onPointerDown={(e) => begin(e, t, 'start')} onPointerMove={moveTo} onPointerUp={() => end(t)} aria-hidden="true" />
+                    <span className="tl-label ellipsis">{t.title}</span>
+                    <span className="tl-handle end" onPointerDown={(e) => begin(e, t, 'end')} onPointerMove={moveTo} onPointerUp={() => end(t)} aria-hidden="true" />
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      {!dated.length && <p className="muted">Give tasks a due date (and a start, in their details) to see them here.</p>}
+      {undated.length > 0 && (
+        <div className="tl-undated">
+          <h2 className="small muted">No due date ({undated.length})</h2>
+          <ul>{undated.map((t) => <li key={t.id}><button type="button" className="link-btn" onClick={() => onOpen(t)}>{t.title}</button></li>)}</ul>
+        </div>
       )}
     </div>
   );
@@ -368,6 +466,13 @@ function TaskDetails({ task, tasks, lists, people, onChange, onClose, onDelete, 
           {task.due && <input type="time" aria-label="Time" title="Due time (optional)" value={task.due_time || ''} onChange={(e) => onChange({ due_time: e.target.value || null })} />}
           {task.due && <button type="button" className="link-btn small" onClick={() => onChange({ due: null })}>Clear</button>}</span>
       </label>
+      {task.due && (
+        <label className="field"><span>Starts</span>
+          <span className="row"><input type="date" aria-label="Starts" max={task.due} value={task.start || ''} onChange={(e) => onChange({ start: e.target.value || null })} />
+            {task.start && <button type="button" className="link-btn small" onClick={() => onChange({ start: null })}>Clear</button>}
+            {!task.start && <span className="muted small">optional, for the timeline</span>}</span>
+        </label>
+      )}
       <label className="field"><span>Repeat</span>
         <select value={task.repeat || ''} onChange={(e) => onChange({ repeat: e.target.value || null, ...(!task.due && e.target.value && { due: localToday() }) })}>
           {REPEATS.map(([v, n]) => <option key={v} value={v}>{n}</option>)}
