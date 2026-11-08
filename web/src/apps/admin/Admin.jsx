@@ -40,6 +40,36 @@ export default function Admin() {
   );
 }
 
+/** Where someone is signed in on the web (for a lost laptop or a phone left logged in), with sign-out. */
+function UserDevices({ user, onClose }) {
+  const toast = useToast();
+  const [list, setList] = useState(null);
+  const load = useCallback(() => get(`/users/${user.id}/sessions`).then(setList).catch((e) => { toast(e.message, 'error'); onClose(); }), [user.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { load(); }, [load]);
+  const out = async (sid) => {
+    try { const r = await del(`/users/${user.id}/sessions/${sid}`); toast(r.signedOut ? `Signed out ${r.signedOut === 1 ? 'that device' : `${r.signedOut} devices`}` : 'Nothing to sign out'); load(); } catch (e) { toast(e.message, 'error'); }
+  };
+  return (
+    <Modal title={`${user.name}'s signed-in devices`} onClose={onClose} footer={<>
+      {list?.some((d) => !d.yours) && <button type="button" className="btn danger" onClick={() => out('all')}>Sign out everywhere</button>}
+      <button type="button" className="btn primary" onClick={onClose}>Done</button>
+    </>}>
+      {!list ? <p className="muted">Loading…</p> : !list.length ? <p className="muted">{user.name} isn't signed in anywhere on the web.</p> : (
+        <ul className="storage-list" aria-label="Devices">
+          {list.map((d) => (
+            <li key={d.id}>
+              <span className="grow"><strong>{d.device}</strong>{d.yours ? ' (this browser)' : ''}<br />
+                <span className="muted small">{d.ip ? `${d.ip} · ` : ''}last active {new Date(d.last_seen || d.created_at).toLocaleString()} · signed in {new Date(d.created_at).toLocaleDateString()}</span></span>
+              {!d.yours && <button type="button" className="btn small" onClick={() => out(d.id)}>Sign out</button>}
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className="muted small">Phones and mail apps that sync with a password keep working until the password is changed (⋮ → Reset password).</p>
+    </Modal>
+  );
+}
+
 /** Add the chosen people to one of the company's groups (keeping its members). */
 function AddToGroup({ ids, onClose, onDone }) {
   const toast = useToast();
@@ -138,6 +168,7 @@ function Users({ orgId, setOrgId }) {
                   { label: 'Change email address', icon: 'mail', onClick: () => setDialog({ type: 'address', user: u }) },
                   { label: 'Job and manager', icon: 'person', onClick: () => setDialog({ type: 'job', user: u }) },
                   { label: 'Mailbox size', icon: 'mail', onClick: () => setDialog({ type: 'quota', user: u }) },
+                  { label: 'Signed-in devices', icon: 'logout', onClick: () => setDialog({ type: 'devices', user: u }) },
                   u.two_factor && u.id !== me.id && { label: 'Reset two-step verification', icon: 'shield', onClick: () => setDialog({ type: 'reset2fa', user: u }) },
                   u.id !== me.id && !u.is_super && { label: u.is_admin ? 'Remove admin' : 'Make admin', icon: 'shield', onClick: act(() => patch(`/users/${u.id}`, { is_admin: !u.is_admin }), 'Role updated') },
                   u.id !== me.id && !u.is_super && { label: u.disabled ? 'Enable account' : 'Disable account', icon: 'logout', onClick: act(() => patch(`/users/${u.id}`, { disabled: !u.disabled }), u.disabled ? 'Account enabled' : 'Account disabled') },
@@ -159,6 +190,7 @@ function Users({ orgId, setOrgId }) {
     {dialog?.type === 'bulk-department' && <PromptModal title={`Department for ${picked.size} ${picked.size === 1 ? 'person' : 'people'}`} label="Department" confirm="Save"
       onClose={() => setDialog(null)} onSubmit={async (v) => { await bulk('department', v); setDialog(null); }} />}
     {dialog?.type === 'bulk-group' && <AddToGroup ids={[...picked]} onClose={() => setDialog(null)} onDone={() => { setDialog(null); setPicked(new Set()); }} />}
+    {dialog?.type === 'devices' && <UserDevices user={dialog.user} onClose={() => setDialog(null)} />}
     {dialog?.type === 'import' && <ImportUsers orgId={orgId} domains={domains} onClose={() => setDialog(null)} onDone={load} />}
     {dialog?.type === 'new' && <NewUser orgId={orgId} domains={domains} onClose={() => setDialog(null)} onSaved={(addr) => { setDialog(null); toast(`${addr} created`); load(); }} />}
     {dialog?.type === 'password' && <ResetPassword user={dialog.user} onClose={() => setDialog(null)} />}

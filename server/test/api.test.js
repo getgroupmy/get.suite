@@ -4441,3 +4441,24 @@ test('meet: attendance — who joined, when, and for how long', async () => {
   assert.match(csv.body, /Ben Guest,mattendb@acme\.com,.*,0,2/);
   } finally { a.close(); }
 });
+
+test('admin: see someone\'s signed-in devices and sign them out', async () => {
+  const sid = client();
+  const made = await owner('POST', '/api/users', { local: 'devices', domain: 'acme.com', name: 'Dev Ice', password: 'password123' });
+  await login(sid, 'devices@acme.com');
+  const list = (await owner('GET', `/api/users/${made.body.id}/sessions`)).body;
+  assert.equal(list.length, 1);
+  assert.ok(list[0].id && list[0].device);
+  assert.equal(list[0].yours, false);
+  assert.equal((await sid('GET', `/api/users/${made.body.id}/sessions`)).status, 403, 'admins only');
+  assert.equal((await owner('DELETE', `/api/users/${made.body.id}/sessions/nope`)).status, 404);
+  assert.equal((await owner('DELETE', `/api/users/${made.body.id}/sessions/${list[0].id}`)).body.signedOut, 1);
+  assert.equal((await sid('GET', '/api/auth/me')).status, 401, 'signed out');
+  await login(sid, 'devices@acme.com');
+  const other = client(); await login(other, 'devices@acme.com');
+  assert.equal((await owner('DELETE', `/api/users/${made.body.id}/sessions/all`)).body.signedOut, 2);
+  assert.equal((await other('GET', '/api/auth/me')).status, 401);
+  // Another company's admin can't see them.
+  const kay = client(); await login(kay, 'kay@keepco.com');
+  assert.equal((await kay('GET', `/api/users/${made.body.id}/sessions`)).status, 404);
+});

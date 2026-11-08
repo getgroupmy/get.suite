@@ -11,7 +11,7 @@ import { DATA_DIR } from '../db.js';
 import { orgMemberIds } from '../tenancy.js';
 import { q, tx } from '../db.js';
 import { str, bad, notFound, forbidden } from '../util.js';
-import { requireAdmin, validatePassword, hashPassword, newUserRow } from '../auth.js';
+import { requireAdmin, validatePassword, hashPassword, newUserRow, sessionId, describeDevice, destroySession, tokenFromReq } from '../auth.js';
 import { validAddress, canReach, blobsOwnedBy, removeBlobs, mailHomeOf, retireMailHome } from '../tenancy.js';
 import { uid } from '../util.js';
 import { planImport, readablePassword, usersCsv } from '../userimport.js';
@@ -369,6 +369,27 @@ export default function userRoutes() {
     }
     if (rows.some((x) => x.created || x.updated)) sendTo(orgMemberIds(orgId), { type: 'directory-changed' });
     res.json({ rows, created: rows.filter((x) => x.created).length, updated: rows.filter((x) => x.updated).length });
+  });
+
+  // Someone's signed-in devices (web sessions), for an admin: see them and sign one or all out.
+  r.get('/:id/sessions', (req, res) => {
+    const u = loadManagedUser(req);
+    if (u.is_super && !req.user.is_super) throw forbidden('Only the platform owner can see this account’s devices');
+    const mine = tokenFromReq(req);
+    res.json(q('SELECT token, created_at, last_seen, user_agent, ip FROM sessions WHERE user_id = ? AND expires_at > ? ORDER BY last_seen DESC').all(u.id, Date.now())
+      .map((s) => ({ id: sessionId(s.token), device: describeDevice(s.user_agent || ''), ip: s.ip || null, created_at: s.created_at, last_seen: s.last_seen, yours: s.token === mine })));
+  });
+  r.delete('/:id/sessions/:sid', (req, res) => {
+    const u = loadManagedUser(req);
+    if (u.is_super && !req.user.is_super) throw forbidden('Only the platform owner can change this account');
+    const rows = q('SELECT token FROM sessions WHERE user_id = ?').all(u.id);
+    const hit = req.params.sid === 'all' ? null : rows.find((x) => sessionId(x.token) === req.params.sid);
+    if (req.params.sid !== 'all' && !hit) throw notFound('That device is already signed out');
+    const mine = tokenFromReq(req);
+    const gone = hit ? [hit] : rows.filter((x) => x.token !== mine); // "all" never signs you out of the page you're on
+    for (const x of gone) destroySession(x.token);
+    if (gone.length) audit(req, 'session.revoke', { org: u.org_id, target: u.username, details: { devices: gone.length, by_admin: true } });
+    res.json({ signedOut: gone.length });
   });
 
   // The same change for several people at once: { ids, action: suspend | restore | signout | department, value }.
