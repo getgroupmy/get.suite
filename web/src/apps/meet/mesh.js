@@ -4,9 +4,10 @@
 // each other. `onChange` is called whenever something visible changes.
 
 export class Mesh {
-  constructor({ code, room = 0, onBreakout, guestName = '', stream, iceServers = [], mic = true, cam = true, onChange, onChat, onReact, onClosed, onMuted, onPoll }) {
-    Object.assign(this, { code, room, onBreakout, guestName, stream, iceServers, onChange, onChat, onReact, onClosed, onMuted, onPoll });
+  constructor({ code, room = 0, onBreakout, guestName = '', stream, iceServers = [], mic = true, cam = true, onChange, onChat, onReact, onClosed, onMuted, onPoll, onQuestion }) {
+    Object.assign(this, { code, room, onBreakout, guestName, stream, iceServers, onChange, onChat, onReact, onClosed, onMuted, onPoll, onQuestion });
     this.polls = new Map(); // the meeting's polls, by id
+    this.questions = new Map(); // Q&A, by id
     this.waiting = !!guestName; // a guest waits until someone in the meeting lets them in
     this.knocking = []; // guests waiting to be let in (shown to people from the meeting's company)
     this.state = { mic, cam, hand: false, screen: false };
@@ -36,6 +37,11 @@ export class Mesh {
 
   /** The host: mute someone (a peer id, or 'all' for everyone else), or remove someone. */
   mute(to) { this.send({ type: 'mute', to }); }
+  /** Q&A: ask, upvote (or take it back), mark answered (asker or host), take a question away. */
+  ask(text) { this.send({ type: 'ask', text }); }
+  upvote(id, on = true) { this.send({ type: 'upvote', id, on }); }
+  markAnswered(id, on = true) { this.send({ type: 'answered', id, on }); }
+  unask(id) { this.send({ type: 'unask', id }); }
   pollNew(question, options) { this.send({ type: 'poll-new', question, options }); }
   pollVote(id, option) { this.send({ type: 'poll-vote', id, option }); }
   pollClose(id) { this.send({ type: 'poll-close', id }); }
@@ -59,6 +65,7 @@ export class Mesh {
       this.mayAdmit = !!m.admit; // people from the meeting's company let guests in
       this.knocking = m.knocking || [];
       for (const p of m.polls || []) this.polls.set(p.id, p);
+      for (const x of m.questions || []) this.questions.set(x.id, x);
       for (const p of m.peers) this.addPeer(p, { offer: true }); // the newcomer calls everyone
     } else if (m.type === 'joined') this.addPeer(m.peer, { offer: false }); // and they wait for the call
     else if (m.type === 'left') {
@@ -74,6 +81,8 @@ export class Mesh {
     else if (m.type === 'breakouts') { this.breakouts = m; this.breakoutCount = m.count; }
     else if (m.type === 'breakout') { this.onBreakout?.(m); return; }
     else if (m.type === 'waiting' || m.type === 'admitted') { /* redraw */ }
+    else if (m.type === 'question') { const isNew = !this.questions.has(m.question.id); this.questions.set(m.question.id, m.question); if (isNew) this.onQuestion?.(m.question); }
+    else if (m.type === 'question-gone') this.questions.delete(m.id);
     else if (m.type === 'poll') { const isNew = !this.polls.has(m.poll.id); this.polls.set(m.poll.id, m.poll); if (isNew) this.onPoll?.(m.poll); }
     else if (m.type === 'muted') { this.setMic(false); this.onMuted?.(m.by); return; }
     else if (m.type === 'react') { this.onReact?.({ id: m.id === this.id ? 'me' : m.id, emoji: m.emoji }); return; }

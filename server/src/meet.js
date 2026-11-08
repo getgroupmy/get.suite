@@ -159,6 +159,10 @@ export function meetRoutes() {
 const wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 });
 // Polls during a meeting (while it lasts): code -> [{ id, by, by_name, question, options, votes: Map(userId -> index), closed }]
 const polls = new Map();
+// Q&A during a meeting (or a breakout room), while it lasts: key -> [{ id, by, by_name, text, at, votes: Set(userId), answered }]
+const questions = new Map();
+const MAX_QUESTIONS = 200;
+const questionOut = (x, userId) => ({ id: x.id, by_name: x.by_name, mine: x.by === userId, text: x.text, at: x.at, votes: x.votes.size, voted: x.votes.has(userId), answered: x.answered });
 const pollOut = (p, userId) => ({ id: p.id, by: p.by, by_name: p.by_name, question: p.question, options: p.options, closed: p.closed,
   counts: p.options.map((_, i) => [...p.votes.values()].filter((v) => v === i).length), mine: p.votes.has(userId) ? p.votes.get(userId) : null, voters: p.votes.size });
 // People the host removed from a meeting can't come back into it (until the server restarts).
@@ -255,10 +259,11 @@ function enterRoom(ws, req, code, m, user) {
     const me = { ws, user, state: cleanState({ mic: asked.get('mic') !== '0', cam: asked.get('cam') !== '0' }) };
     const toOthers = (payload) => { const d = JSON.stringify(payload); for (const [pid, p] of room) if (pid !== id && p.ws.readyState === 1) p.ws.send(d); };
     const toAll = (payload) => { const d = JSON.stringify(payload); for (const p of room.values()) if (p.ws.readyState === 1) p.ws.send(d); };
-    ws.send(JSON.stringify({ type: 'welcome', id, peers: peopleIn(key), host: isHost, you: user.id, guest: !!user.guest, polls: (polls.get(key) || []).map((p) => pollOut(p, user.id)),
+    ws.send(JSON.stringify({ type: 'welcome', id, peers: peopleIn(key), host: isHost, you: user.id, guest: !!user.guest, polls: (polls.get(key) || []).map((p) => pollOut(p, user.id)), questions: (questions.get(key) || []).map((x) => questionOut(x, user.id)),
       room: n, breakouts: b ? b.count : 0,
       admit: mayAdmit(m, user), knocking: mayAdmit(m, user) ? waitingList(code) : [] }));
     // Everyone gets a poll's results with their own vote in it.
+    const questionToAll = (x) => { for (const q2 of room.values()) if (q2.ws.readyState === 1) q2.ws.send(JSON.stringify({ type: 'question', question: questionOut(x, q2.user.id) })); };
     const pollToAll = (p) => { for (const q2 of room.values()) if (q2.ws.readyState === 1) q2.ws.send(JSON.stringify({ type: 'poll', poll: pollOut(p, q2.user.id) })); };
     room.set(id, me);
     toOthers({ type: 'joined', peer: describe(id, me) });
@@ -291,6 +296,31 @@ function enterRoom(ws, req, code, m, user) {
           removed.get(code).add(p.user.id);
           try { p.ws.close(4003, `${user.name} removed you from the meeting`); } catch { /* gone already */ }
         }
+      } else if (msg?.type === 'ask') {
+        // Q&A: ask a question (anyone in the room).
+        const text = String(msg.text ?? '').trim().slice(0, 500);
+        const list = questions.get(key) || [];
+        if (!text || list.length >= MAX_QUESTIONS) return;
+        const x = { id: crypto.randomBytes(6).toString('hex'), by: user.id, by_name: user.name, text, at: now(), votes: new Set(), answered: false };
+        questions.set(key, [...list, x]);
+        questionToAll(x);
+      } else if (['upvote', 'answered', 'unask'].includes(msg?.type)) {
+        const list = questions.get(key) || [];
+        const x = list.find((y) => y.id === String(msg.id));
+        if (!x) return;
+        if (msg.type === 'upvote') {
+          if (x.by === user.id || x.answered) return; // not your own, and not once answered
+          if (msg.on === false) x.votes.delete(user.id); else x.votes.add(user.id);
+        } else if (msg.type === 'answered') {
+          if (x.by !== user.id && !isHost) return; // the asker or the host
+          x.answered = msg.on !== false;
+        } else {
+          if (x.by !== user.id && !isHost) return; // take a question away: the asker or the host
+          questions.set(key, list.filter((y) => y !== x));
+          toAll({ type: 'question-gone', id: x.id });
+          return;
+        }
+        questionToAll(x);
       } else if (msg?.type === 'poll-new') {
         const question = String(msg.question ?? '').trim().slice(0, 300);
         const options = [...new Set((Array.isArray(msg.options) ? msg.options : []).map((o) => String(o ?? '').trim().slice(0, 100)).filter(Boolean))].slice(0, 10);
@@ -359,7 +389,7 @@ function enterRoom(ws, req, code, m, user) {
     ws.on('close', () => {
       q('UPDATE meeting_attendance SET left_at = ? WHERE id = ? AND left_at IS NULL').run(now(), id);
       room.delete(id);
-      if (!room.size) { rooms.delete(key); polls.delete(key); } // polls last as long as the meeting (or the room)
+      if (!room.size) { rooms.delete(key); polls.delete(key); questions.delete(key); } // polls last as long as the meeting (or the room)
       if (breakouts.has(code)) {
         if (roomsOf(code).every((k) => !rooms.get(k)?.size)) breakouts.delete(code); // everyone has gone
         else summaryToHosts(code, m);

@@ -5183,3 +5183,49 @@ test('meet breakout rooms: the host splits people up, moves them, visits, and br
     assert.equal(late.me.room, 0, 'rooms are closed');
   } finally { for (const w of all) w.terminate(); }
 });
+
+test('meet Q&A: ask, upvote once (not your own), answered or taken away by the asker or host', { timeout: 20000 }, async () => {
+  const { default: WS } = await import('ws');
+  const kay = client(); await login(kay, 'kay@keepco.com');
+  await kay('POST', '/api/users', { local: 'qna', domain: 'keepco.com', name: 'Quinn Asker', password: 'password123' });
+  await kay('POST', '/api/users', { local: 'qnb', domain: 'keepco.com', name: 'Val Voter', password: 'password123' });
+  const cookieOf = async (u) => (await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ username: u, password: 'password123' }) })).headers.get('set-cookie').split(';')[0];
+  const { code } = (await kay('POST', '/api/meet', { title: 'Town hall' })).body;
+  const open = (cookie) => new Promise((resolve, reject) => {
+    const ws = new WS(`${base.replace('http', 'ws')}/ws/meet/${code}`, { headers: { cookie } });
+    ws.msgs = [];
+    const t = setTimeout(() => reject(new Error('no welcome')), 5000);
+    ws.on('message', (d) => { const msg = JSON.parse(String(d)); ws.msgs.push(msg); if (msg.type === 'welcome') { clearTimeout(t); ws.me = msg; resolve(ws); } });
+    ws.on('error', reject);
+  });
+  const wait = () => new Promise((r) => setTimeout(r, 200));
+  const latest = (ws) => [...ws.msgs].reverse().find((m) => m.type === 'question')?.question;
+  const host = await open(await cookieOf('kay@keepco.com'));
+  const asker = await open(await cookieOf('qna@keepco.com'));
+  const voter = await open(await cookieOf('qnb@keepco.com'));
+  const all = [host, asker, voter];
+  try {
+    asker.send(JSON.stringify({ type: 'ask', text: '   ' })); await wait();
+    assert.equal(latest(host), undefined);
+    asker.send(JSON.stringify({ type: 'ask', text: 'When is the offsite?' })); await wait();
+    const x = latest(voter);
+    assert.deepEqual([x.text, x.by_name, x.votes, x.mine, latest(asker).mine], ['When is the offsite?', 'Quinn Asker', 0, false, true]);
+    asker.send(JSON.stringify({ type: 'upvote', id: x.id })); await wait();
+    assert.equal(latest(host).votes, 0, 'not your own');
+    voter.send(JSON.stringify({ type: 'upvote', id: x.id })); voter.send(JSON.stringify({ type: 'upvote', id: x.id })); host.send(JSON.stringify({ type: 'upvote', id: x.id })); await wait();
+    assert.deepEqual([latest(asker).votes, latest(voter).voted, latest(asker).voted], [2, true, false]);
+    voter.send(JSON.stringify({ type: 'upvote', id: x.id, on: false })); await wait();
+    assert.equal(latest(asker).votes, 1);
+    voter.send(JSON.stringify({ type: 'answered', id: x.id })); await wait();
+    assert.equal(latest(asker).answered, false, 'only the asker or host');
+    host.send(JSON.stringify({ type: 'answered', id: x.id })); await wait();
+    assert.equal(latest(voter).answered, true);
+    // Joining later sees it; the asker can take it away.
+    const late = await open(await cookieOf('qnb@keepco.com')); all.push(late);
+    assert.equal(late.me.questions[0].text, 'When is the offsite?');
+    voter.send(JSON.stringify({ type: 'unask', id: x.id })); await wait();
+    assert.ok(!host.msgs.some((m) => m.type === 'question-gone'));
+    asker.send(JSON.stringify({ type: 'unask', id: x.id })); await wait();
+    assert.ok(host.msgs.some((m) => m.type === 'question-gone' && m.id === x.id));
+  } finally { for (const w of all) w.terminate(); }
+});

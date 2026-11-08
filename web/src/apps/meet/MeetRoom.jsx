@@ -117,6 +117,40 @@ function Breakouts({ m, goToRoom }) {
   );
 }
 
+// Q&A: questions for whoever is presenting; people upvote the ones they want answered (most votes
+// first), and the asker or the host marks them answered. They last as long as the meeting does.
+function MeetQA({ m }) {
+  const [text, setText] = useState('');
+  const list = [...m.questions.values()].sort((a, b) => (a.answered - b.answered) || (b.votes - a.votes) || (a.at - b.at));
+  const ask = (e) => { e.preventDefault(); if (text.trim()) { m.ask(text.trim()); setText(''); } };
+  return (
+    <div className="meet-polls">
+      <form className="meet-poll-form" onSubmit={ask}>
+        <textarea rows={2} value={text} onChange={(e) => setText(e.target.value)} aria-label="Your question" placeholder="Ask a question" maxLength={500}
+          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) ask(e); }} />
+        <div className="row"><span className="grow muted small">Everyone in the meeting sees who asked.</span><button className="btn primary small" disabled={!text.trim()}>Ask</button></div>
+      </form>
+      {list.length === 0 && <p className="muted small" style={{ margin: 0 }}>No questions yet.</p>}
+      <ul className="meet-poll-list">
+        {list.map((x) => (
+          <li key={x.id} className={`meet-question ${x.answered ? 'answered' : ''}`} aria-label={`Question: ${x.text}`}>
+            <div>{x.text}</div>
+            <div className="row small">
+              <span className="grow muted">{x.mine ? 'You' : x.by_name}{x.answered ? ' · answered' : ''}</span>
+              <button type="button" className={`meet-upvote ${x.voted ? 'on' : ''}`} disabled={x.mine || x.answered} aria-pressed={x.voted}
+                aria-label={`Upvote, ${x.votes} ${x.votes === 1 ? 'vote' : 'votes'}`} title={x.mine ? 'Your question' : 'Upvote'} onClick={() => m.upvote(x.id, !x.voted)}>👍 {x.votes}</button>
+              {(x.mine || m.host) && <>
+                <button type="button" className="link-btn small" onClick={() => m.markAnswered(x.id, !x.answered)}>{x.answered ? 'Not answered' : 'Mark answered'}</button>
+                <button type="button" className="icon-btn" aria-label="Take the question away" onClick={() => m.unask(x.id)}><Icon name="close" size={14} /></button>
+              </>}
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 async function openDevices() {
   if (!navigator.mediaDevices?.getUserMedia) return { stream: null, error: 'This browser can’t use a camera or microphone here (Meet needs HTTPS).' };
   for (const want of [{ audio: true, video: true }, { audio: true }, { video: true }]) {
@@ -152,6 +186,7 @@ export default function MeetRoom({ guest = false, onSignIn }) {
   const [panel, setPanel] = useState(null); // chat | people
   const [messages, setMessages] = useState([]);
   const [unread, setUnread] = useState(0);
+  const [newQs, setNewQs] = useState(0); // questions asked while Q&A was closed
   const [floating, setFloating] = useState([]); // reactions shown for a moment
   const [startedAt, setStartedAt] = useState(0);
   const [, tick] = useReducer((n) => n + 1, 0);
@@ -189,6 +224,7 @@ export default function MeetRoom({ guest = false, onSignIn }) {
         setTimeout(() => setFloating((list) => list.filter((x) => x.key !== key)), 3000);
       },
       onClosed: (reason) => { toast(reason, 'error'); setLeftWhy(reason); setPhase('left'); },
+      onQuestion: (x) => { if (panelRef.current !== 'qa' && !x.mine) setNewQs((n) => n + 1); },
       onPoll: (p) => { if (panelRef.current !== 'polls') toast(`${p.by_name} asked: ${p.question}`); },
       // Breakout rooms: off to another room (or back to the main one), keeping camera and microphone.
       onBreakout: ({ room: to, by }) => { toast(to ? `${by} moved you to Room ${to}` : `${by} brought everyone back to the main room`); goToRoom(to); },
@@ -334,8 +370,8 @@ export default function MeetRoom({ guest = false, onSignIn }) {
           })}
         </div>
         {panel && (
-          <aside className="meet-panel" aria-label={panel === 'chat' ? 'Meeting chat' : panel === 'polls' ? 'Polls' : 'People'}>
-            <div className="row"><strong className="grow">{panel === 'chat' ? 'Messages' : panel === 'polls' ? 'Polls' : `People (${tiles.length})`}</strong>
+          <aside className="meet-panel" aria-label={panel === 'chat' ? 'Meeting chat' : panel === 'polls' ? 'Polls' : panel === 'qa' ? 'Questions' : 'People'}>
+            <div className="row"><strong className="grow">{panel === 'chat' ? 'Messages' : panel === 'polls' ? 'Polls' : panel === 'qa' ? 'Questions' : `People (${tiles.length})`}</strong>
               <button type="button" className="icon-btn" aria-label="Close panel" onClick={() => setPanel(null)}><Icon name="close" size={18} /></button></div>
             {panel === 'chat' ? <>
               <p className="muted small" style={{ margin: 0 }}>Messages are only seen by people in the meeting now, and go when it ends.</p>
@@ -343,7 +379,7 @@ export default function MeetRoom({ guest = false, onSignIn }) {
                 {messages.map((msg, i) => <li key={i}><strong>{msg.mine ? 'You' : msg.name}</strong> <span className="muted small">{new Date(msg.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span><div>{msg.text}</div></li>)}
               </ul>
               <form className="row" onSubmit={sendChat}><input name="msg" className="grow" aria-label="Send a message to everyone" placeholder="Send a message" maxLength={2000} autoComplete="off" /><button className="btn">Send</button></form>
-            </> : panel === 'polls' ? <MeetPolls m={m} user={user} polls={polls} /> : (<>
+            </> : panel === 'polls' ? <MeetPolls m={m} user={user} polls={polls} /> : panel === 'qa' ? <MeetQA m={m} /> : (<>
               {m.host && !guest && <Breakouts m={m} goToRoom={goToRoom} />}
               <ul className="meet-people">
                 {m.host && tiles.length > 1 && <li className="row"><span className="grow muted small">You started this meeting.</span><button type="button" className="btn small" onClick={() => { m.mute('all'); toast('Everyone else is muted'); }}>Mute everyone</button></li>}
@@ -365,6 +401,7 @@ export default function MeetRoom({ guest = false, onSignIn }) {
         <button type="button" className={`meet-btn ${m.state.hand ? 'on' : ''}`} aria-pressed={m.state.hand} aria-label={m.state.hand ? 'Lower hand' : 'Raise hand'} onClick={() => m.setState({ hand: !m.state.hand })}>✋</button>
         <span className="meet-reacts" role="group" aria-label="Send a reaction">{REACTIONS.map((e) => <button key={e} type="button" className="meet-react" aria-label={`React ${e}`} onClick={() => m.react(e)}>{e}</button>)}</span>
         <button type="button" className={`meet-btn ${panel === 'chat' ? 'on' : ''}`} aria-label={unread ? `Chat, ${unread} new` : 'Chat'} onClick={() => { setPanel(panel === 'chat' ? null : 'chat'); setUnread(0); }}>💬{unread > 0 && <span className="nav-badge">{unread}</span>}</button>
+        <button type="button" className={`meet-btn ${panel === 'qa' ? 'on' : ''}`} aria-label={newQs ? `Questions, ${newQs} new` : 'Questions'} onClick={() => { setPanel(panel === 'qa' ? null : 'qa'); setNewQs(0); }}>❓{newQs > 0 && <span className="nav-badge">{newQs}</span>}</button>
         <button type="button" className={`meet-btn ${panel === 'polls' ? 'on' : ''}`} aria-label={toVote ? `Polls, ${toVote} to answer` : 'Polls'} onClick={() => setPanel(panel === 'polls' ? null : 'polls')}>📊{toVote > 0 && <span className="nav-badge">{toVote}</span>}</button>
         <button type="button" className={`meet-btn ${panel === 'people' ? 'on' : ''}`} aria-label="People" onClick={() => setPanel(panel === 'people' ? null : 'people')}>👥</button>
         {!guest && <button type="button" className={`meet-btn ${m.state.rec ? 'on rec' : ''}`} disabled={saving} aria-pressed={!!m.state.rec} aria-label={saving ? 'Saving the recording' : m.state.rec ? 'Stop recording' : 'Record the meeting'} title={m.state.rec ? 'Stop and save it to your Drive' : 'Record the meeting (saved to your Drive)'} onClick={m.state.rec ? stopRecording : startRecording}>{saving ? '…' : '⏺'}</button>}
