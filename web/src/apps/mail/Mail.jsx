@@ -134,8 +134,14 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
   useEffect(() => { get('/mail/vacation').then(setVacation).catch(() => {}); }, []);
 
   const loadFolders = useCallback(() => get('/mail/folders').then(setFolders).catch((e) => setError(e.message)), []);
-  const loadList = useCallback(() => get(`/mail/messages?folder=${enc(folder)}&page=${page}${q ? `&q=${enc(q)}` : ''}${labelId ? `&label=${enc(labelId)}` : ''}`)
-    .then((d) => { setData(d); setError(''); }).catch((e) => setError(e.message)), [folder, page, q, labelId]);
+  // Inbox tabs: Primary (people) and Updates (newsletters, notifications), unless turned off in Filters.
+  const [tabsOn, setTabsOn] = useState(false);
+  const [tab, setTab] = useState('primary');
+  useEffect(() => { if (!shared) get('/mail/inbox-tabs').then((r) => setTabsOn(r.on)).catch(() => {}); }, [shared]);
+  useEffect(() => { const on = () => get('/mail/inbox-tabs').then((r) => setTabsOn(r.on)).catch(() => {}); window.addEventListener('nw:inbox-tabs', on); return () => window.removeEventListener('nw:inbox-tabs', on); }, []);
+  const tabbed = tabsOn && !shared && folder === 'INBOX' && !q && !labelId;
+  const loadList = useCallback(() => get(`/mail/messages?folder=${enc(folder)}&page=${page}${q ? `&q=${enc(q)}` : ''}${labelId ? `&label=${enc(labelId)}` : ''}${tabbed ? `&tab=${tab}` : ''}`)
+    .then((d) => { setData(d); setError(''); }).catch((e) => setError(e.message)), [folder, page, q, labelId, tabbed, tab]);
 
   useEffect(() => { setData(null); setChecked(new Set()); loadList(); }, [loadList]);
   useEffect(() => { loadFolders(); }, [loadFolders]);
@@ -347,6 +353,9 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
               return <Menu align="left" trigger={(p) => <button type="button" className="btn small" {...p}>Label</button>}
                 items={labels.map((l) => ({ label: `${has(l.id) ? '✓ ' : ''}${l.name}`, onClick: () => act('labels', { uids: sel, [has(l.id) ? 'remove' : 'add']: [l.id] }, has(l.id) ? `Took off ${l.name}` : `Labelled ${l.name}`) }))} />;
             })()}
+            {tabbed && <button className="btn small" title={tab === 'primary' ? 'Newsletters and notifications: keep them in Updates' : 'From people you want to read: keep them in Primary'}
+              onClick={async () => { try { await Promise.all(sel.map((uid) => post(`/mail/messages/${uid}/tab`, { tab: tab === 'primary' ? 'updates' : 'primary' }))); toast(`Moved to ${tab === 'primary' ? 'Updates' : 'Primary'}`); setChecked(new Set()); refresh(); } catch (e) { toast(e.message, 'error'); } }}>
+              Move to {tab === 'primary' ? 'Updates' : 'Primary'}</button>}
             <SnoozeMenu small onPick={(at) => act('snooze', { uids: sel, until: at }, `Snoozed until ${whenText(at)}`)} onCustom={() => setSnoozing(sel)} />
             {folder === SNOOZED && <button className="btn small" onClick={() => act('unsnooze', { uids: sel }, 'Back in the Inbox')}>Unsnooze</button>}
             <button className="btn small danger" onClick={() => act('delete', { uids: sel }, special === '\\Trash' ? 'Deleted forever' : 'Moved to Trash')}>Delete</button>
@@ -354,13 +363,23 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
         )}
         {labelId && <p className="muted small mail-note">Labelled <LabelChip label={labels.find((l) => l.id === labelId)} /> in {current?.name} · <button className="link" onClick={() => setSearch({})}>show all</button></p>}
         {q && <p className="muted small mail-note">Results for “{q}” in {current?.name} · <button className="link" onClick={() => setSearch({})}>clear</button></p>}
+        {tabbed && (
+          <div className="tabs mail-inbox-tabs" role="tablist" aria-label="Inbox tabs">
+            {[['primary', 'Primary', 'person'], ['updates', 'Updates', 'bell']].map(([k, label, icon]) => (
+              <button key={k} type="button" role="tab" aria-selected={tab === k} className={tab === k ? 'on' : ''} onClick={() => { setTab(k); setChecked(new Set()); }}>
+                <Icon name={icon} size={18} /> {label}
+                {tab !== k && data?.tab === tab && data.otherUnread > 0 && <span className="count" aria-label={`${data.otherUnread} unread`}>{data.otherUnread}</span>}
+              </button>
+            ))}
+          </div>
+        )}
         {shared && data && (
           <div className="tabs mail-assign-tabs" role="tablist" aria-label="Show">
             {[['all', 'All'], ['mine', 'Given to me'], ['open', 'Not done']].map(([k, label]) => <button key={k} type="button" role="tab" aria-selected={show === k} className={show === k ? 'on' : ''} onClick={() => setShow(k)}>{label}</button>)}
           </div>
         )}
         {!data ? <p className="muted mail-note">Loading…</p> : shown.length === 0 ? (
-          <Empty icon={q ? 'search' : 'inbox'} title={q ? 'No messages found' : `${current?.name || 'Folder'} is empty`} />
+          <Empty icon={q ? 'search' : 'inbox'} title={q ? 'No messages found' : tabbed && tab === 'updates' ? 'No updates: newsletters and notifications go here' : `${current?.name || 'Folder'} is empty`} />
         ) : (
           <ul className="msg-list">
             {shown.map((m) => (

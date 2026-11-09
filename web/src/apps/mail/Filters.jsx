@@ -47,6 +47,7 @@ export function FiltersDialog({ onClose, folders, onFoldersChanged, startWith })
   return (
     <Modal wide title="Filters" onClose={onClose} footer={<button className="btn primary" onClick={() => setEditing({ index: -1, rule: null })}><Icon name="plus" size={18} /> New filter</button>}>
       <p className="muted small" style={{ marginTop: 0 }}>Filters run on the mail server as messages arrive, so they also apply to mail read on your phone. They run in this order.</p>
+      <InboxTabs />
       <PlusFolders />
       {rules?.length === 0 && <p className="muted">No filters yet.</p>}
       <ul className="rule-list">
@@ -69,6 +70,24 @@ export function FiltersDialog({ onClose, folders, onFoldersChanged, startWith })
       </ul>
       <MutedList />
     </Modal>
+  );
+}
+
+/** Inbox tabs: Primary and Updates (on unless turned off). */
+function InboxTabs() {
+  const toast = useToast();
+  const [on, setOn] = useState(null);
+  useEffect(() => { get('/mail/inbox-tabs').then((r) => setOn(r.on)).catch(() => {}); }, []);
+  if (on === null) return null;
+  return (
+    <label className="check plus-folders">
+      <input type="checkbox" checked={on} onChange={async (e) => {
+        const next = e.target.checked;
+        setOn(next);
+        try { await put('/mail/inbox-tabs', { on: next }); window.dispatchEvent(new Event('nw:inbox-tabs')); toast(next ? 'Inbox tabs on' : 'One Inbox again'); } catch (err) { setOn(!next); toast(err.message, 'error'); }
+      }} />
+      <span>Split the Inbox into <strong>Primary</strong> (mail from people) and <strong>Updates</strong> (newsletters, notifications, receipts and mailing lists)</span>
+    </label>
   );
 }
 

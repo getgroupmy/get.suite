@@ -26,6 +26,7 @@ import { insertFile, cleanName } from './files.js';
 import { checkQuota } from '../tenancy.js';
 import { recordSent } from '../othercontacts.js';
 import { parseMailQuery, allOf } from '../mail/searchquery.js';
+import { tabQuery, TABS, TO_PRIMARY, TO_UPDATES } from '../mail/tabs.js';
 import { receiptRequest, buildReceipt } from '../mail/receipt.js';
 import { mimeFor } from '../util.js';
 import { previewMime, previewHeaders } from '../mail/preview.js';
@@ -35,6 +36,10 @@ import { calendarPartOf, readInvite, replyIcs, eventForInvite, saveInvite, readR
 import { recordReply } from '../mail/invitereply.js';
 import { setVacation } from '../mail/vacation.js';
 import { touch as eventsChanged } from './calendar.js';
+
+// Inbox tabs: on for everyone unless they turn them off.
+if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'inbox_tabs')) q('ALTER TABLE users ADD COLUMN inbox_tabs INTEGER NOT NULL DEFAULT 1').run();
+const inboxTabsOn = (userId) => !!q('SELECT inbox_tabs FROM users WHERE id = ?').get(userId)?.inbox_tabs;
 
 const PAGE = 50;
 const OUTBOX = path.join(DATA_DIR, 'outbox');
@@ -729,16 +734,20 @@ export default function webmailRoutes() {
     if (req.query.label && !only) throw notFound('Label not found');
     const parsed = parseMailQuery(term);
     if (parsed.error) throw bad(parsed.error);
+    // Inbox tabs (Primary, Updates): only for the Inbox itself, not while searching.
+    const tab = folder === 'INBOX' && !term && !only && TABS.includes(req.query.tab) && inboxTabsOn(req.user.id) ? req.query.tab : null;
     const out = await withFolder(req.user, folder, async (client) => {
       const total = client.mailbox.exists;
       let range, uidMode = false, count = total;
-      if (parsed.query || only) {
-        const query = allOf([...(parsed.query ? [parsed.query] : []), ...(only ? [{ keyword: only.keyword }] : [])]);
+      // How many unread are in the other tab, for its badge.
+      const otherUnread = tab ? ((await client.search(allOf([tabQuery(tab === 'primary' ? 'updates' : 'primary'), { seen: false }]), { uid: true })) || []).length : undefined;
+      if (parsed.query || only || tab) {
+        const query = allOf([...(parsed.query ? [parsed.query] : []), ...(only ? [{ keyword: only.keyword }] : []), ...(tab ? [tabQuery(tab)] : [])]);
         const uids = (await client.search(query, { uid: true })) || [];
         uids.sort((a, b) => b - a);
         count = uids.length;
         const slice = uids.slice((page - 1) * PAGE, page * PAGE);
-        if (!slice.length) return { total: count, page, messages: [] };
+        if (!slice.length) return { total: count, page, messages: [], ...(tab && { tab, otherUnread }) };
         range = slice.join(',');
         uidMode = true;
       } else {
@@ -769,7 +778,7 @@ export default function webmailRoutes() {
         const until = new Map(q('SELECT uid, until FROM snoozed_mail WHERE user_id = ?').all(req.user.id).map((x) => [x.uid, x.until]));
         for (const m of messages) m.snoozedUntil = until.get(m.uid) ?? null;
       }
-      return { total: count, page, pageSize: PAGE, messages };
+      return { total: count, page, pageSize: PAGE, messages, ...(tab && { tab, otherUnread }) };
     });
     // A shared mailbox: who each message is given to, and whether it's done.
     if (req.user.shared_mailbox && out.messages?.length) {
@@ -1065,6 +1074,23 @@ export default function webmailRoutes() {
       return unread.length;
     });
     res.json({ ok: true, marked: n });
+  });
+
+  // Inbox tabs: on unless turned off (Settings → Mail); a message moved to the other tab by hand.
+  r.get('/inbox-tabs', (req, res) => res.json({ on: inboxTabsOn(req.user.id) }));
+  r.put('/inbox-tabs', (req, res) => {
+    q('UPDATE users SET inbox_tabs = ? WHERE id = ?').run(req.body?.on ? 1 : 0, req.user.id);
+    res.json({ on: !!req.body?.on });
+  });
+  r.post('/messages/:uid/tab', async (req, res) => {
+    const tab = req.body?.tab;
+    if (!TABS.includes(tab)) throw bad('Primary or Updates');
+    const uid = String(Number(req.params.uid));
+    await withFolder(req.user, 'INBOX', async (c) => {
+      await c.messageFlagsRemove(uid, [TO_PRIMARY, TO_UPDATES], { uid: true });
+      await c.messageFlagsAdd(uid, [tab === 'primary' ? TO_PRIMARY : TO_UPDATES], { uid: true });
+    });
+    res.json({ ok: true, tab });
   });
 
   if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'plus_folders')) q('ALTER TABLE users ADD COLUMN plus_folders INTEGER NOT NULL DEFAULT 0').run();

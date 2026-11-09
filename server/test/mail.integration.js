@@ -1728,3 +1728,44 @@ test('new mail on phones: the mail server tells the app as it delivers, and the 
     svc.close();
   }
 });
+
+test('inbox tabs: newsletters and automatic mail in Updates, people in Primary; moved by hand; turned off', async () => {
+  assert.equal((await olivia('POST', '/api/users', { local: 'tabby', domain: 'acme.com', name: 'Tabby Tabs', password: 'password123' })).status, 201);
+  const tabby = client();
+  assert.equal((await tabby('POST', '/api/auth/login', { username: 'tabby@acme.com', password: 'password123' })).status, 200);
+  await eventually(async () => (await tabby('GET', '/api/mail/folders')).status === 200);
+  const t = nodemailer.createTransport({ host: process.env.MAIL_IMAP_HOST, port: 25, secure: false, ignoreTLS: true, name: 'test.acme.com' });
+  const to = 'tabby@acme.com';
+  const send = (opts) => eventually(async () => { try { await t.sendMail(opts); return true; } catch { return false; } }, 30000); // once the mail server knows the new address
+  await send({ from: 'Pat <pat@acme.com>', to, subject: 'Lunch on Friday?', text: 'x' });
+  await send({ from: 'Shop <news@globex.com>', to, subject: 'Our autumn sale', text: 'x', headers: { 'List-Unsubscribe': '<mailto:unsub@globex.com>' } });
+  await send({ from: 'Club <club@globex.com>', to, subject: 'Meeting minutes', text: 'x', headers: { 'List-Id': 'Club members <members.club.example>' } });
+  await send({ from: 'Billing <billing@globex.com>', to, subject: 'Your receipt', text: 'x', headers: { 'Auto-Submitted': 'auto-generated' } });
+  await send({ from: 'Kim <kim@acme.com>', to, subject: 'Contract draft', text: 'x' });
+  const tab = async (name) => (await tabby('GET', `/api/mail/messages?folder=INBOX&tab=${name}`)).body;
+  const subjects = (r) => r.messages.map((m) => m.subject).sort();
+  const primary = await eventually(async () => { const r = await tab('primary'); return r.total === 2 && r; }, 30000);
+  assert.deepEqual(subjects(primary), ['Contract draft', 'Lunch on Friday?']);
+  assert.equal(primary.otherUnread, 3, 'unread in Updates, for its badge');
+  const updates = await eventually(async () => { const r = await tab('updates'); return r.total === 3 && r; });
+  assert.deepEqual(subjects(updates), ['Meeting minutes', 'Our autumn sale', 'Your receipt']);
+  assert.equal(updates.otherUnread, 2);
+  // The plain Inbox (no tab), and searching, still show everything.
+  assert.equal((await tabby('GET', '/api/mail/messages?folder=INBOX')).body.total, 5);
+  assert.equal((await tabby('GET', '/api/mail/messages?folder=INBOX&tab=updates&q=minutes')).body.messages.length, 1);
+  // Moved by hand: the club minutes matter; Kim's draft doesn't.
+  const minutes = updates.messages.find((m) => m.subject === 'Meeting minutes');
+  assert.equal((await tabby('POST', `/api/mail/messages/${minutes.uid}/tab`, { tab: 'primary' })).status, 200);
+  const kim = primary.messages.find((m) => m.subject === 'Contract draft');
+  await tabby('POST', `/api/mail/messages/${kim.uid}/tab`, { tab: 'updates' });
+  assert.deepEqual(subjects(await tab('primary')), ['Lunch on Friday?', 'Meeting minutes']);
+  assert.deepEqual(subjects(await tab('updates')), ['Contract draft', 'Our autumn sale', 'Your receipt']);
+  assert.equal((await tabby('POST', `/api/mail/messages/${kim.uid}/tab`, { tab: 'other' })).status, 400);
+  // Turned off: one Inbox, whatever the tab asked for.
+  assert.deepEqual((await tabby('PUT', '/api/mail/inbox-tabs', { on: false })).body, { on: false });
+  const all = await tab('primary');
+  assert.equal(all.total, 5);
+  assert.equal(all.tab, undefined);
+  await tabby('PUT', '/api/mail/inbox-tabs', { on: true });
+  assert.deepEqual((await tabby('GET', '/api/mail/inbox-tabs')).body, { on: true });
+});

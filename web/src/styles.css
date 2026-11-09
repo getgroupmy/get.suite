@@ -2191,3 +2191,7 @@ textarea.mono { font-family: ui-monospace, Consolas, monospace; }
 .scan-pages { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 10px; counter-reset: page; }
 .scan-pages li { width: 96px; display: flex; flex-direction: column; gap: 2px; }
 .scan-pages img { width: 96px; height: 128px; object-fit: contain; background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; }
+/* Mail: Inbox tabs (Primary, Updates) */
+.mail-inbox-tabs { margin: 4px 8px; }
+.mail-inbox-tabs button { display: inline-flex; align-items: center; gap: 6px; }
+.mail-inbox-tabs .count { background: var(--accent); color: var(--on-accent, #fff); border-radius: 10px; padding: 0 7px; font-size: .75rem; font-weight: 600; line-height: 1.5; }
