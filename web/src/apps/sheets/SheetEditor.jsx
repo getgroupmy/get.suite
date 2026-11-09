@@ -55,6 +55,7 @@ import { fillCells, fillTarget, fillSources, selectionStats } from './fill.js';
 const SEL_COLORS = ['#1a73e8', '#d93025', '#188038', '#e37400', '#8430ce', '#00796b', '#c2185b', '#5f6368'];
 const colorFor = (id) => SEL_COLORS[[...String(id)].reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) >>> 0, 7) % SEL_COLORS.length];
 import { importBook, onImports, refreshImports } from './imports.js';
+import { GoalSeekDialog } from './SheetGoalSeek.jsx';
 import { createEvaluator, bookEvaluator, display, colName, cellKey, parseRef, shiftFormula, colIndex } from './formula.js';
 import { NUMBER_FORMATS, CURRENCIES, DATE_STYLES, BORDERS, borderFor, decimals, formatNumber, cellStyle, mergeFormat, VALIGNS, ROTATIONS, codeColour } from './cellformat.js';
 
@@ -942,6 +943,7 @@ export default function SheetEditor() {
           { label: 'Find and replace', icon: 'search', onClick: () => setFinding({ replace: !readOnly, n: 1 }) },
           { label: 'Named ranges', icon: 'link', onClick: () => setDialog({ type: 'names', initial: selText }) },
           { label: 'Named functions', icon: 'edit', onClick: () => setDialog({ type: 'functions' }) },
+          !readOnly && { label: 'Goal seek…', icon: 'search', onClick: () => setDialog({ type: 'goalseek' }) },
           { label: 'Protected sheets and ranges', icon: 'lock', onClick: () => setDialog({ type: 'protect', initial: selText }) },
           mail?.enabled && { label: 'Mail merge…', icon: 'mail', onClick: () => setDialog({ type: 'mailmerge' }) },
           { label: 'Version history', icon: 'clock', onClick: () => setDialog({ type: 'history' }) },
@@ -1204,6 +1206,15 @@ export default function SheetEditor() {
         <PictureCellDialog cell={dialog.key} parentId={file.parent_id}
           onPick={(formula) => { writeCells({ [dialog.key]: formula }); setDialog(null); gridRef.current?.focus(); }}
           onClose={() => { setDialog(null); gridRef.current?.focus(); }} />
+      )}
+      {dialog?.type === 'goalseek' && (
+        <GoalSeekDialog sheets={data.sheets || [{ name: 'Sheet1', cells, names }]} index={data.sheets ? Math.min(active, data.sheets.length - 1) : 0} imports={{ book: importBook, depth: 0 }} functions={data.functions}
+          setCell={typeof cells[selKey] === 'string' && cells[selKey].startsWith('=') ? selKey : ''}
+          onClose={() => { setDialog(null); gridRef.current?.focus(); }}
+          onKeep={(key, value) => {
+            const lock = protectionsAt(sheet, key).find((p) => !p.warn && !mayEdit(p, user.id, file.owner_id));
+            if (lock) { toast(`${key} is protected${lock.desc ? ` (${lock.desc})` : ''}. Only some people can change it.`, 'error'); return; }
+            writeCells({ [key]: String(value) }); setDialog(null); toast(`${key} set to ${display(value)}`); gridRef.current?.focus(); }} />
       )}
       {dialog?.type === 'colstats' && (() => {
         // How far the sheet's data goes (cells and formula spills), so empty rows below don't count.

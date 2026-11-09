@@ -2378,3 +2378,4 @@ del.compare-key { background: color-mix(in srgb, #d93025 14%, transparent); text
 .link-places ul { list-style: none; margin: 0; padding: 0; max-height: 240px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
 .link-place { display: block; width: 100%; text-align: left; background: none; border: 0; padding: 6px 8px; color: inherit; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .link-place:hover, .link-place:focus-visible, .link-place.on { background: var(--hover, rgba(0,0,0,.06)); }
+.goal-found { margin: 8px 0 0; padding: 8px 10px; border-radius: 8px; background: color-mix(in srgb, #188038 12%, transparent); }
