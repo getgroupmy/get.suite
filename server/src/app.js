@@ -135,6 +135,7 @@ export function createApp({
     publicDir = path.resolve(publicDir);
     app.use(express.static(publicDir, { index: false, maxAge: '1h', setHeaders: (res, p) => {
       if (p.includes(`${path.sep}assets${path.sep}`)) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      if (/[\\/](sw\.js|manifest\.webmanifest)$/.test(p)) res.setHeader('Cache-Control', 'no-cache'); // the installed app picks up new versions at once
     } }));
     const index = path.join(publicDir, 'index.html');
     app.use((req, res, next) => (req.method === 'GET' ? res.sendFile(index, { headers: { 'Cache-Control': 'no-cache' } }) : next()));

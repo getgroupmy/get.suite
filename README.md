@@ -104,6 +104,16 @@ On 2 GB of RAM, both containers fit with room to spare. Adding a RAM stick only 
 
 Cookies switch to `Secure` automatically once traffic arrives over HTTPS through the proxy.
 
+## Install as an app (phones and computers)
+
+Once Workspace is published over HTTPS (above), it can be installed like an app, with its own icon and window, without an app store:
+
+- **iPhone / iPad:** open it in Safari → Share → **Add to Home Screen**.
+- **Android:** Chrome's menu → **Install app** (or **Add to Home screen**).
+- **Windows / Mac:** in Chrome or Edge, the install icon in the address bar (or menu → **Install Workspace**). The installed app's icon offers **Mail**, **Calendar**, **Drive** and **Chat** shortcuts (right-click it, or press and hold on Android).
+
+It opens even without a connection, with a note at the bottom saying so; it reconnects by itself when the network is back (documents, spreadsheets and presentations you had open keep your changes meanwhile). Only the app itself is kept on the device: mail, files and everything else always come from the server and are never stored by it. Over plain HTTP on the local network it still works in the browser, just without installing or opening offline.
+
 ## Editing documents together
 
 Everyone who can edit a document, spreadsheet or presentation can work in it at the same time, like in Google Docs, Sheets and Slides.

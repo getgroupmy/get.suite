@@ -2138,3 +2138,6 @@ textarea.mono { font-family: ui-monospace, Consolas, monospace; }
 .pill.health-bad { color: var(--danger); background: var(--surface-2); font-weight: 600; }
 .health-facts { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; margin: 0; }
 .health-facts dd { margin: 2px 0 0; }
+
+/* No connection (main.jsx) */
+.offline-bar { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 1000; background: #202124; color: #fff; padding: 8px 16px; border-radius: 8px; font-size: 14px; box-shadow: 0 2px 8px rgba(0,0,0,.3); max-width: calc(100vw - 32px); }
