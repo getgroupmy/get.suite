@@ -8,9 +8,11 @@ export const noPhotos = () => { off = true; };
 const listeners = new Set();
 function load() {
   if (off) return Promise.resolve();
-  loading = get('/users/photos').then((list) => {
+  // Colleagues' own photos first; then photos on your contacts (and the company's), for everyone else.
+  loading = Promise.all([get('/users/photos'), get('/contacts/photos').catch(() => [])]).then(([list, contacts]) => {
     byId = new Map(list.map((p) => [p.id, `/api/users/${p.id}/photo?v=${p.v}`]));
-    byEmail = new Map(list.map((p) => [p.email.toLowerCase(), `/api/users/${p.id}/photo?v=${p.v}`]));
+    byEmail = new Map(contacts.map((c) => [c.email, c.url]).reverse()); // your own contact wins over a shared one
+    for (const p of list) byEmail.set(p.email.toLowerCase(), `/api/users/${p.id}/photo?v=${p.v}`);
     for (const f of listeners) f();
   }).catch(() => {});
   return loading;

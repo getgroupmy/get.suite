@@ -6480,6 +6480,20 @@ test('contact photos: set, see, share, export as a vCard PHOTO, import one back,
   assert.ok(imported.photo_at, 'photo came with the card');
   assert.ok((await kay('GET', `/api/contacts/${imported.id}/photo`, undefined, { binary: true })).body.equals(PNG));
   assert.ok(!/PHOTO/.test(imported.vcard_extra || ''), 'not kept twice');
+  // By email address, for Mail: yours and the company's shared ones.
+  const byEmail = (await kay('GET', '/api/contacts/photos')).body;
+  assert.ok(byEmail.some((x) => x.email === 'photo@example.com' && x.url.startsWith(`/api/contacts/${c.id}/photo?v=`)));
+  assert.ok((await pat('GET', '/api/contacts/photos')).body.some((x) => x.email === 'photo@example.com'), 'shared: colleagues see it');
+  assert.ok(!(await pat('GET', '/api/contacts/photos')).body.some((x) => x.email === 'pic@example.com'), 'not shared: they don\'t');
+  // A photo left on a card by an older sync is brought out once.
+  const { q } = await import('../src/db.js');
+  const { liftCardPhotos } = await import('../src/contactphotos.js');
+  const old = (await kay('POST', '/api/contacts', { name: 'Old Sync' })).body;
+  q('UPDATE contacts SET vcard_extra = ? WHERE id = ?').run(`TEL;TYPE=HOME:123\nPHOTO;ENCODING=b;TYPE=PNG:${PNG.toString('base64')}`, old.id);
+  assert.ok(liftCardPhotos() >= 1);
+  assert.ok((await kay('GET', `/api/contacts/${old.id}/photo`, undefined, { binary: true })).body.equals(PNG));
+  assert.equal(q('SELECT vcard_extra FROM contacts WHERE id = ?').get(old.id).vcard_extra, 'TEL;TYPE=HOME:123', 'the rest of the card stays');
+  assert.equal(liftCardPhotos(), 0, 'only once');
   // Removing it.
   assert.equal((await kay('DELETE', `/api/contacts/${c.id}/photo`)).status, 200);
   assert.equal((await kay('GET', `/api/contacts/${c.id}/photo`)).status, 404);

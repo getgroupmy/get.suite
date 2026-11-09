@@ -3,7 +3,8 @@ import { q, tx } from '../db.js';
 import express from 'express';
 import { uid, now, str, notFound, bad } from '../util.js';
 import { contactsFromFile, contactsToCsv, contactsToVcf, MAX_IMPORT } from '../contactfiles.js';
-import { canReach } from '../tenancy.js';
+import { canReach, orgMemberIds } from '../tenancy.js';
+import { sendTo } from '../hub.js';
 import { birthdayOf, birthdaysBetween } from '../birthday.js';
 import { duplicateGroups, mergedFields } from '../contactmerge.js';
 import { otherContactsOf, matchOther, forgetOther } from '../othercontacts.js';
@@ -68,6 +69,18 @@ export default function contactRoutes() {
   });
 
   // ---- photos ----
+  // Which of your contacts (and the company's shared ones) have a photo, by email address: Mail and
+  // elsewhere show them for people who aren't colleagues.
+  r.get('/photos', (req, res) => {
+    res.json(q(`SELECT c.id, LOWER(c.email) AS email, p.updated_at AS v FROM contacts c JOIN contact_photos p ON p.contact_id = c.id JOIN users u ON u.id = c.owner_id
+                WHERE c.email IS NOT NULL AND c.email != '' AND (c.owner_id = ? OR (c.shared = 1 AND u.org_id = ?))
+                ORDER BY c.owner_id = ? DESC`).all(req.user.id, req.user.org_id, req.user.id)
+      .map((x) => ({ email: x.email, url: `/api/contacts/${x.id}/photo?v=${x.v}` })));
+  });
+  const photoChanged = (c) => {
+    const org = q('SELECT org_id FROM users WHERE id = ?').get(c.owner_id)?.org_id;
+    sendTo(c.shared && org ? orgMemberIds(org) : [c.owner_id], { type: 'photos-changed' });
+  };
   // Seen by whoever sees the contact: its owner, or everyone in the company for a shared one.
   r.get('/:id/photo', (req, res) => {
     const c = q('SELECT c.id, c.owner_id, c.shared, u.org_id FROM contacts c JOIN users u ON u.id = c.owner_id WHERE c.id = ?').get(req.params.id);
@@ -82,9 +95,12 @@ export default function contactRoutes() {
   r.put('/:id/photo', express.raw({ type: () => true, limit: MAX_PHOTO + 1024 }), (req, res) => {
     const c = editable(req);
     if (!Buffer.isBuffer(req.body) || !req.body.length) throw bad('Send the picture');
-    try { res.json({ photo_at: setPhoto(c.id, req.body) }); } catch (e) { throw bad(e.message); }
+    let at;
+    try { at = setPhoto(c.id, req.body); } catch (e) { throw bad(e.message); }
+    photoChanged(c);
+    res.json({ photo_at: at });
   });
-  r.delete('/:id/photo', (req, res) => { setPhoto(editable(req).id, null); res.json({ ok: true }); });
+  r.delete('/:id/photo', (req, res) => { const c = editable(req); setPhoto(c.id, null); photoChanged(c); res.json({ ok: true }); });
 
   // Suggestions while typing an address in Mail: your contacts and your colleagues.
   // ---- groups ----

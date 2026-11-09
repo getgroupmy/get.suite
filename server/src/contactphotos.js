@@ -46,3 +46,37 @@ export function withPhoto(c) {
 export function photoFromCard(contactId, card) {
   try { if (card.photo) setPhoto(contactId, card.photo); else setPhoto(contactId, null); } catch { /* not a picture we keep */ }
 }
+
+/** A photo carried on a raw vCard line (PHOTO;ENCODING=b;TYPE=JPEG:… or PHOTO:data:image/…;base64,…), as bytes; or null. */
+export function photoFromLine(line) {
+  const m = /^(?:[\w-]+\.)?PHOTO([^:]*):(.*)$/is.exec(String(line || ''));
+  if (!m) return null;
+  const params = m[1], value = m[2].trim();
+  const data = /^data:image\/[\w.+-]+;base64,(.*)$/is.exec(value);
+  const b64 = data ? data[1] : /ENCODING=(b|base64)\b/i.test(params) ? value : null;
+  if (!b64) return null;
+  const buf = Buffer.from(b64.replace(/\s+/g, ''), 'base64');
+  return buf.length ? buf : null;
+}
+
+/**
+ * Contacts synced from phones before photos were shown kept them inside the raw card: bring each one
+ * out as the contact's photo (once; nothing is lost if one can't be read, it stays on the card).
+ */
+export function liftCardPhotos() {
+  const rows = q(`SELECT id, vcard_extra FROM contacts WHERE vcard_extra LIKE '%PHOTO%'
+                  AND NOT EXISTS (SELECT 1 FROM contact_photos p WHERE p.contact_id = contacts.id)`).all();
+  let n = 0;
+  for (const r of rows) {
+    const lines = String(r.vcard_extra).split('\n');
+    const at = lines.findIndex((l) => /^([\w-]+\.)?PHOTO[;:]/i.test(l));
+    const buf = at >= 0 ? photoFromLine(lines[at]) : null;
+    if (!buf) continue;
+    try { setPhoto(r.id, buf); } catch { continue; }
+    lines.splice(at, 1);
+    q('UPDATE contacts SET vcard_extra = ? WHERE id = ?').run(lines.join('\n') || null, r.id);
+    n++;
+  }
+  return n;
+}
+liftCardPhotos();
