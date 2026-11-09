@@ -28,3 +28,14 @@ export function elapsed(ms) {
   const ss = String(s % 60).padStart(2, '0');
   return h ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`;
 }
+
+/**
+ * Who fills the big space: the person you pinned (while they're still here), else someone presenting
+ * their screen (yours aside: you know what you share), else nobody (everyone in a grid). With one
+ * person there's no one to spotlight.
+ */
+export function spotlightOf(tiles, pinned) {
+  if (tiles.length < 2) return null;
+  if (pinned && tiles.some((t) => t.id === pinned)) return pinned;
+  return tiles.find((t) => !t.me && t.state?.screen)?.id || null;
+}

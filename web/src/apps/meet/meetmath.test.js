@@ -20,3 +20,14 @@ test('grid and text helpers', () => {
   assert.equal(elapsed(5000), '0:05');
   assert.equal(elapsed(3723000), '1:02:03');
 });
+
+test('spotlight: the pinned person, else whoever presents, else nobody', async () => {
+  const { spotlightOf } = await import('./meetmath.js');
+  const me = { id: 'me', me: true, state: {} }, kim = { id: 'k', state: {} }, ann = { id: 'a', state: { screen: true } };
+  assert.equal(spotlightOf([me, kim], null), null);
+  assert.equal(spotlightOf([me, kim, ann], null), 'a', 'a presenter is shown big');
+  assert.equal(spotlightOf([me, kim, ann], 'k'), 'k', 'pinning wins');
+  assert.equal(spotlightOf([me, ann], 'gone'), 'a', 'a pin on someone who left is let go');
+  assert.equal(spotlightOf([{ ...me, state: { screen: true } }, kim], null), null, 'not your own screen');
+  assert.equal(spotlightOf([me], 'me'), null, 'alone: no spotlight');
+});

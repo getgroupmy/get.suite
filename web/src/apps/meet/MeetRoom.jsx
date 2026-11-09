@@ -9,7 +9,7 @@ import { Avatar, useToast } from '../../components/ui.jsx';
 import { useAuth } from '../../App.jsx';
 import MeetBoard from './MeetBoard.jsx';
 import { Mesh } from './mesh.js';
-import { columnsFor, whoIsHere, elapsed } from './meetmath.js';
+import { columnsFor, whoIsHere, elapsed, spotlightOf } from './meetmath.js';
 import { MeetingRecorder } from './recorder.js';
 import { noPhotos } from '../../components/photos.js';
 
@@ -188,6 +188,7 @@ export default function MeetRoom({ guest = false, onSignIn }) {
   const [messages, setMessages] = useState([]);
   const [unread, setUnread] = useState(0);
   const [newQs, setNewQs] = useState(0); // questions asked while Q&A was closed
+  const [pinned, setPinned] = useState(null); // shown big, just for you
   const [board, setBoard] = useState(false); // the whiteboard is open
   const [boardNew, setBoardNew] = useState(0); // strokes others drew while it was closed
   const boardRef = useRef(board);
@@ -346,6 +347,7 @@ export default function MeetRoom({ guest = false, onSignIn }) {
   const sharing = m?.state.screen;
   const tiles = [{ id: 'me', me: true, name: `${user.name} (you)`, userId: user.id, state: m?.state || {}, stream: sharing ? m.screen : local?.stream },
     ...peers.map((p) => ({ id: p.id, name: p.user.name, userId: p.user.id, state: p.state, stream: p.stream, connecting: p.pc.connectionState !== 'connected' }))];
+  const spot = spotlightOf(tiles, pinned); // who is shown big (pinned, or presenting)
   const polls = m ? [...m.polls.values()] : [];
   const toVote = polls.filter((p) => !p.closed && p.mine === null).length;
   const sendChat = (e) => {
@@ -366,11 +368,15 @@ export default function MeetRoom({ guest = false, onSignIn }) {
       <header className="meet-top"><strong className="grow">{info?.title || code}{m.room ? ` · Room ${m.room}` : ''}</strong><span className="muted small" aria-label="Time in the meeting">{elapsed(Date.now() - startedAt)}</span></header>
       <div className="meet-body">
         {board && <MeetBoard m={m} title={info?.title || code} canSave={!guest} onClose={() => setBoard(false)} />}
-        <div ref={gridRef} className={`meet-grid ${board ? 'with-board' : ''}`} style={{ gridTemplateColumns: `repeat(${columnsFor(tiles.length)}, 1fr)` }} aria-label="People in the meeting">
-          {tiles.map((t) => {
+        <div ref={gridRef} className={`meet-grid ${board ? 'with-board' : ''} ${spot && !board ? 'spotlight' : ''}`} style={spot && !board ? { gridTemplateRows: `repeat(${Math.max(3, tiles.length - 1)}, minmax(0, 1fr))` } : { gridTemplateColumns: `repeat(${columnsFor(tiles.length)}, 1fr)` }} aria-label="People in the meeting">
+          {(spot && !board ? [...tiles.filter((t) => t.id === spot), ...tiles.filter((t) => t.id !== spot)] : tiles).map((t) => {
             const videoOn = t.me ? (sharing || (t.state.cam && hasVideo)) : (t.state.screen || t.state.cam);
+            const big = spot === t.id && !board;
             return (
-              <div key={t.id} className={`meet-tile ${t.state.hand ? 'hand' : ''}`} data-name={t.name}>
+              <div key={t.id} className={`meet-tile ${t.state.hand ? 'hand' : ''} ${big ? 'big' : ''}`} data-name={t.name}>
+                {tiles.length > 1 && <button type="button" className={`meet-pin ${pinned === t.id ? 'on' : ''}`} aria-pressed={pinned === t.id}
+                  aria-label={pinned === t.id ? `Unpin ${t.me ? 'yourself' : t.name}` : `Pin ${t.me ? 'yourself' : t.name}`} title={pinned === t.id ? 'Unpin' : 'Pin: show big (only for you)'}
+                  onClick={() => setPinned(pinned === t.id ? null : t.id)}>📌</button>}
                 {t.stream && <Video stream={t.stream} muted={t.me} mirror={t.me && !sharing} label={`Video of ${t.name}`} />}
                 {!videoOn && <div className="meet-avatar"><Avatar name={t.name} userId={t.userId} size={72} /></div>}
                 <span className="meet-name">{t.state.mic === false && <span aria-label="muted" title="Muted">🔇 </span>}{t.name}{t.state.screen ? ' · presenting' : ''}{t.connecting ? ' · connecting…' : ''}</span>
