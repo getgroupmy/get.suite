@@ -225,6 +225,23 @@ export async function sheetFromExcel(buffer) {
     rules.sort((a, b) => a._p - b._p).forEach((r) => delete r._p);
     const validations = validationsFromExcel(ws.dataValidations?.model || {}, cells);
     const bands = Object.values(ws.tables || {}).map((t, i) => bandFromTable(t.table || t, i + 1)).filter(Boolean).slice(0, 50);
+    // Cells painted in their table's own stripe colours (as Sheets' downloads do) are the table's: not formats of their own.
+    for (const b of bands) {
+      const [a, z] = b.range.split(':');
+      const [c1, r1, c2, r2] = [colIndex(/[A-Z]+/.exec(a)[0]), +/\d+/.exec(a)[0], colIndex(/[A-Z]+/.exec(z)[0]), +/\d+/.exec(z)[0]];
+      const painted = new Set(Object.values(BAND_COLOURS).flatMap((c) => [c.head, c.odd, c.even, c.foot]));
+      // A table whose style was lost (LibreOffice keeps tables but not their style) takes its colours from its painted heading.
+      const headFill = formats[`${colName(c1)}${r1}`]?.fill;
+      const byHead = Object.values(BAND_COLOURS).find((c) => c.head === headFill);
+      if (byHead && b.head !== byHead.head && b._unstyled) Object.assign(b, byHead, b.even === b.odd ? { even: byHead.odd } : {});
+      for (let r = r1; r <= r2; r++) for (let c = c1; c <= c2; c++) {
+        const k = `${colName(c)}${r}`, f = formats[k];
+        if (!f?.fill || !painted.has(f.fill)) continue;
+        delete f.fill;
+        if (r === r1 && f.b) delete f.b; // the heading's bold comes with the table
+        if (!Object.keys(f).length) delete formats[k];
+      }
+    }
     // An AutoFilter comes in as the sheet's filter (which values were hidden isn't kept).
     const af = typeof ws.autoFilter === 'string' ? ws.autoFilter : ws.autoFilter?.from && ws.autoFilter?.to ? `${ws.autoFilter.from}:${ws.autoFilter.to}` : null;
     const filter = af && /^[A-Z]+\d+:[A-Z]+\d+$/i.test(af) ? { range: af.toUpperCase(), hidden: {} } : null;
@@ -324,6 +341,8 @@ export async function excelFromSheet(data) {
     }
     // Alternating colours become each cell's fill (a cell's own fill wins), the heading row in bold.
     for (const band of s.bands || []) {
+      // Also painted when it goes out as an Excel table (withTables): Excel shows the same colours either
+      // way, and programs that don't draw table styles (LibreOffice, Numbers) still show them.
       const m = /^([A-Z]+)(\d+):([A-Z]+)(\d+)$/.exec(String(band.range || ''));
       if (!m) continue;
       const [c1, r1, c2, r2] = [colIndex(m[1]), Number(m[2]), colIndex(m[3]), Number(m[4])];
@@ -394,7 +413,7 @@ export async function excelFromSheet(data) {
   });
   // Charts: added to the finished file (the library has none), with each sheet's name as written.
   const named = (data.sheets || []).map((s, i) => ({ ...s, xlName: wb.worksheets[i]?.name || s.name }));
-  return withCharts(await withFunctions(Buffer.from(await wb.xlsx.writeBuffer()), data.functions), named);
+  return withCharts(await withTables(await withFunctions(Buffer.from(await wb.xlsx.writeBuffer()), data.functions), named), named);
 }
 
 // ---- named functions (⋮ → Named functions): Excel keeps them as defined names holding a LAMBDA,
@@ -563,13 +582,90 @@ const BAND_COLOURS = {
   green: { head: '#34a853', odd: '#ffffff', even: '#e6f4ea', foot: '#bfe3c8' },
 };
 const THEME_CYCLE = ['grey', 'blue', 'orange', 'grey', 'orange', 'teal', 'green']; // dark 1, accents 1–6
+const STYLE_OF_HEAD = { '#5f6368': 'TableStyleMedium1', '#4a86e8': 'TableStyleMedium2', '#f6911e': 'TableStyleMedium3', '#16a2b8': 'TableStyleMedium6', '#34a853': 'TableStyleMedium7' };
+/**
+ * Whether a band goes to Excel as a table, and how: when it has a heading row of different,
+ * non-empty text (Excel names a table's columns by them, so no formulas), at least one row under
+ * it, one of the usual colours, and no merged cells. { name, ref, columns, style, totals, stripes } or null.
+ */
+export function tableOfBand(band, sheet, n = 1) {
+  const m = /^([A-Z]{1,3})(\d+):([A-Z]{1,3})(\d+)$/.exec(String(band?.range || ''));
+  const style = STYLE_OF_HEAD[String(band?.head || '').toLowerCase()];
+  if (!m || !style || band.header === false) return null;
+  const c1 = colIndex(m[1]), r1 = +m[2], c2 = colIndex(m[3]), r2 = +m[4];
+  if (r2 <= r1 + (band.footer ? 1 : 0) || c2 - c1 > 200 || r2 - r1 > 100000) return null;
+  const columns = [];
+  for (let c = c1; c <= c2; c++) {
+    const v = String(sheet.cells?.[`${colName(c)}${r1}`] ?? '').trim();
+    if (!v || v.startsWith('=') || v.length > 255 || columns.some((x) => x.toLowerCase() === v.toLowerCase())) return null;
+    columns.push(v);
+  }
+  const inside = (ref) => { const k = /^([A-Z]+)(\d+)/.exec(ref); return k && colIndex(k[1]) >= c1 && colIndex(k[1]) <= c2 && +k[2] >= r1 && +k[2] <= r2; };
+  if ((sheet.merges || []).some((mg) => String(mg).split(':').some(inside))) return null;
+  return { name: `Table${n}`, ref: band.range, columns, style, totals: !!band.footer, stripes: String(band.even || '').toLowerCase() !== String(band.odd || '').toLowerCase() };
+}
+/** The workbook with each sheet's bands that can be tables written as Excel tables (tables can't overlap). */
+async function withTables(buffer, sheets) {
+  let n = 0;
+  const plan = (sheets || []).map((s) => {
+    const taken = [];
+    return (s.bands || []).map((b) => tableOfBand(b, s, n + 1)).filter((t) => {
+      if (!t) return false;
+      const [a, b] = t.ref.split(':');
+      const box = [colIndex(/[A-Z]+/.exec(a)[0]), +/\d+/.exec(a)[0], colIndex(/[A-Z]+/.exec(b)[0]), +/\d+/.exec(b)[0]];
+      if (taken.some((x) => !(box[2] < x[0] || box[0] > x[2] || box[3] < x[1] || box[1] > x[3]))) return false;
+      taken.push(box);
+      t.name = `Table${++n}`;
+      return true;
+    });
+  });
+  if (!n) return buffer;
+  const zip = await JSZip.loadAsync(buffer);
+  let types = await zip.file('[Content_Types].xml').async('string');
+  let no = 0;
+  for (let i = 0; i < plan.length; i++) {
+    if (!plan[i].length) continue;
+    const sheetPath = `xl/worksheets/sheet${i + 1}.xml`;
+    if (!zip.file(sheetPath)) continue;
+    const relsPath = `xl/worksheets/_rels/sheet${i + 1}.xml.rels`;
+    let rels = zip.file(relsPath) ? await zip.file(relsPath).async('string') : '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>';
+    const parts = [];
+    for (const t of plan[i]) {
+      no += 1;
+      const [a, b] = t.ref.split(':');
+      const filterTo = t.totals ? `${/[A-Z]+/.exec(b)[0]}${+/\d+/.exec(b)[0] - 1}` : b;
+      zip.file(`xl/tables/table${no}.xml`, `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<table xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" id="${no}" name="${t.name}" displayName="${t.name}" ref="${t.ref}" headerRowCount="1"${t.totals ? ' totalsRowCount="1"' : ''}><autoFilter ref="${a}:${filterTo}"/><tableColumns count="${t.columns.length}">${t.columns.map((c, k) => `<tableColumn id="${k + 1}" name="${xmlText(c)}"/>`).join('')}</tableColumns><tableStyleInfo name="${t.style}" showFirstColumn="0" showLastColumn="0" showRowStripes="${t.stripes ? 1 : 0}" showColumnStripes="0"/></table>`);
+      types = types.replace('</Types>', `<Override PartName="/xl/tables/table${no}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.table+xml"/></Types>`);
+      const rid = `rIdTable${no}`;
+      rels = rels.replace('</Relationships>', `<Relationship Id="${rid}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/table" Target="../tables/table${no}.xml"/></Relationships>`);
+      parts.push(`<tablePart r:id="${rid}"/>`);
+    }
+    zip.file(relsPath, rels);
+    let x = await zip.file(sheetPath).async('string');
+    if (!/xmlns:r=/.test(x.slice(0, 800))) x = x.replace(/<worksheet\b/, '<worksheet xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"');
+    // A sheet filter over the same cells would clash with the table's own: the table's wins.
+    const boxOf = (ref) => { const [p, q] = String(ref).split(':'); const k = (t) => [colIndex(/[A-Z]+/.exec(t)[0]), +/\d+/.exec(t)[0]]; const [c1, r1] = k(p), [c2, r2] = k(q || p); return [c1, r1, c2, r2]; };
+    const overlaps = (ref) => plan[i].some((t) => { const a = boxOf(t.ref), b = boxOf(ref); return !(a[2] < b[0] || a[0] > b[2] || a[3] < b[1] || a[1] > b[3]); });
+    x = x.replace(/<autoFilter\b[^>]*ref="([^"]+)"[^>]*\/>|<autoFilter\b[^>]*ref="([^"]+)"[\s\S]*?<\/autoFilter>/, (f, r1, r2) => (overlaps(r1 || r2) ? '' : f));
+    const tag = `<tableParts count="${parts.length}">${parts.join('')}</tableParts>`;
+    x = /<extLst\b/.test(x) ? x.replace(/<extLst\b/, `${tag}<extLst`) : x.replace('</worksheet>', `${tag}</worksheet>`);
+    zip.file(sheetPath, x);
+  }
+  zip.file('[Content_Types].xml', types);
+  return zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
+}
+
+/** Whether a table has a heading row. Excel leaves headerRowCount out when there is one (the default), which the
+ *  library reads as none; a table with a heading row has a filter on it, one without doesn't. */
+const hasHeader = (t) => t.headerRow === true || !!t.autoFilterRef || (t.headerRow !== false && t.headerRowCount !== 0);
 /** A table's name, columns (names in order) and box, from Excel's table model: for its structured references. */
 export function tableShape(t) {
   const m = /^([A-Z]{1,3})(\d+):([A-Z]{1,3})(\d+)$/.exec(String(t?.tableRef || t?.ref || '').toUpperCase());
   if (!m || !t.name) return null;
   const c1 = colIndex(m[1]), c2 = colIndex(m[3]), r1 = +m[2], r2 = +m[4];
   const columns = (t.columns || []).map((c) => String(c.name ?? ''));
-  return { name: String(t.name), columns, c1, c2, r1, r2, header: t.headerRow !== false, totals: !!t.totalsRow };
+  return { name: String(t.name), columns, c1, c2, r1, r2, header: hasHeader(t), totals: !!t.totalsRow };
 }
 /**
  * A formula's structured references to tables written as ranges: Sales[Amount] is that column's
@@ -629,7 +725,9 @@ export function bandFromTable(t, n = 1) {
   const m = /^TableStyle(Light|Medium|Dark)(\d+)$/i.exec(t.style?.theme || '');
   const colours = BAND_COLOURS[m ? THEME_CYCLE[(Number(m[2]) - 1) % 7] : 'blue'];
   const stripes = t.style?.showRowStripes !== false;
-  return { id: `t${n}`, range: ref, header: t.headerRow !== false, footer: !!t.totalsRow, ...colours, ...(!stripes && { even: colours.odd }) };
+  const band = { id: `t${n}`, range: ref, header: hasHeader(t), footer: !!t.totalsRow, ...colours, ...(!stripes && { even: colours.odd }) };
+  if (!m) Object.defineProperty(band, '_unstyled', { value: true }); // no known style: colours may come from its cells
+  return band;
 }
 
 // ---- conditional formatting, both ways

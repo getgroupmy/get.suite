@@ -304,6 +304,7 @@ test('Excel: rows a filter condition leaves out are hidden in the download', asy
 
 test('Excel: alternating colours become cell fills, a cell\'s own fill kept', async () => {
   const data = { sheets: [{ name: 'S', cells: { A1: 'Item', B1: 'Cost', A2: 'Pens', A3: 'Desk', A4: 'Lamp' }, formats: { B3: { fill: '#ff0000' } }, bands: [{ id: 'b', range: 'A1:B4', header: true, footer: false, head: '#4a86e8', odd: '#ffffff', even: '#e8f0fe', foot: '#c6dafc' }] }] };
+  data.sheets[0].cells.B1 = 'Item'; // two headings the same: not a table, so painted
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(await excelFromSheet(data));
   const ws = wb.worksheets[0];
@@ -1435,4 +1436,28 @@ test('Excel: a table\'s structured references become ranges, so its total row wo
     columns: [{ name: 'Region', totalsRowLabel: 'Total' }, { name: 'Amount', totalsRowFunction: 'sum' }], rows: [['North', 10], ['South', 20]] });
   const back = await sheetFromExcel(Buffer.from(await wb.xlsx.writeBuffer()));
   assert.equal(back.sheets[0].cells.B4, '=SUBTOTAL(109,B2:B3)');
+});
+
+test('Excel: alternating colours go out as Excel tables when they can, and come back', async () => {
+  const { tableOfBand } = await import('../src/office/excel.js');
+  const cells = { A1: 'Region', B1: 'Amount', A2: 'North', B2: '10', A3: 'South', B3: '20', A4: 'Total', B4: '=SUM(B2:B3)', D1: 'x', E1: 'x', D2: '1' };
+  const green = { id: 'g', range: 'A1:B4', header: true, footer: true, head: '#34a853', odd: '#ffffff', even: '#e6f4ea', foot: '#bfe3c8' };
+  assert.deepEqual(tableOfBand(green, { cells }), { name: 'Table1', ref: 'A1:B4', columns: ['Region', 'Amount'], style: 'TableStyleMedium7', totals: true, stripes: true });
+  assert.equal(tableOfBand({ ...green, range: 'D1:E2' }, { cells }), null, 'two columns with the same heading');
+  assert.equal(tableOfBand({ ...green, head: '#123456' }, { cells }), null, 'colours of its own: painted instead');
+  assert.equal(tableOfBand({ ...green, header: false }, { cells }), null);
+  assert.equal(tableOfBand(green, { cells, merges: ['A2:B2'] }), null);
+  // Out and back: the table, its style and its stripes; the cells keep their values.
+  const sheet = { name: 'Sales', cells, bands: [green, { id: 'p', range: 'D1:E2', header: true, head: '#4a86e8', odd: '#ffffff', even: '#e8f0fe' }] };
+  const buf = await excelFromSheet({ sheets: [sheet] });
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(buf);
+  const t = Object.values(wb.worksheets[0].tables)[0];
+  assert.deepEqual([t.table.tableRef || t.table.ref, t.table.style.theme, t.table.totalsRow], ['A1:B4', 'TableStyleMedium7', true]);
+  assert.equal(wb.worksheets[0].getCell('D1').fill?.fgColor?.argb, 'FF4A86E8', 'the band that can\'t be a table is painted as before');
+  assert.equal(wb.worksheets[0].getCell('A3').fill?.fgColor?.argb, 'FFE6F4EA', 'painted too, for programs that don\'t draw table styles');
+  const back = await sheetFromExcel(buf);
+  assert.deepEqual(back.sheets[0].bands.map(({ id, ...b }) => b), [{ range: 'A1:B4', header: true, footer: true, head: '#34a853', odd: '#ffffff', even: '#e6f4ea', foot: '#bfe3c8' }]);
+  assert.equal(back.sheets[0].cells.B4, '=SUM(B2:B3)');
+  assert.equal(back.sheets[0].formats?.A3, undefined, 'the stripes come back as the band, not as cell colours');
 });
