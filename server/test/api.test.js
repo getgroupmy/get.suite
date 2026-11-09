@@ -7535,3 +7535,18 @@ test('Office files: comments in a PowerPoint file become comment threads on thei
   assert.equal(threads[0].body, 'Needs a chart\n\n— Jane Smith (in the PowerPoint file)');
   assert.deepEqual(threads[0].anchor, { slide: deck.slides[1].id }, 'on the second slide');
 });
+
+test('Office files: slide comment threads go into the PowerPoint download', async () => {
+  const deck = { theme: 'light', slides: [{ id: 'one', items: [] }, { id: 'two', items: [] }] };
+  const f = (await owner('POST', '/api/files/new', { kind: 'slides', name: 'Pitch', content: deck })).body;
+  const made = await owner('POST', `/api/comments/${f.id}`, { body: 'Add the market size', anchor: { slide: 'two' } });
+  assert.equal(made.status, 201);
+  await owner('POST', `/api/comments/${f.id}`, { body: 'Done', thread_id: made.body.comment.id });
+  const old = (await owner('POST', `/api/comments/${f.id}`, { body: 'Fixed already', anchor: { slide: 'one' } })).body.comment;
+  await owner('PATCH', `/api/comments/${f.id}/${old.id}`, { resolved: true });
+  const out = await owner('GET', `/api/files/${f.id}/export`, undefined, { binary: true });
+  const { deckFromPowerPoint, commentsOfDeck } = await import('../src/office/powerpoint.js');
+  const back = await deckFromPowerPoint(out.body, { savePicture: async () => null });
+  const cs = commentsOfDeck(back);
+  assert.deepEqual(cs.map((c) => [back.slides.findIndex((s) => s.id === c.slideId), c.text, c.replies.map((r) => r.text)]), [[1, 'Add the market size', ['Done']]], 'resolved ones stay out');
+});

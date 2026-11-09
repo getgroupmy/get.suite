@@ -76,6 +76,10 @@ q(`CREATE TABLE IF NOT EXISTS access_requests (
   UNIQUE (file_id, user_id)
 )`).run();
 const openLink = (f) => ({ folder: `/drive/folder/${f.id}`, doc: `/docs/${f.id}`, sheet: `/sheets/${f.id}`, slides: `/slides/${f.id}` }[f.kind] || '/drive/shared');
+/** A presentation's open comment threads, for its PowerPoint download: [{ slideId, author, at, text, replies }]. */
+function slideCommentsOf(fileId) {
+  return wordCommentsOf(fileId).map((t) => ({ ...t, slideId: (() => { try { return JSON.parse(q('SELECT anchor FROM file_comments WHERE id = ?').get(t.id)?.anchor || '{}').slide; } catch { return null; } })() })).filter((t) => t.slideId);
+}
 /** A document's open comment threads, for its Word download: [{ id, author, at, text, replies }]. */
 function wordCommentsOf(fileId) {
   const rows = q(`SELECT c.id, c.thread_id, c.body, c.created_at, u.name AS author FROM file_comments c LEFT JOIN users u ON u.id = c.author_id
@@ -542,7 +546,7 @@ export default function fileRoutes({ maxUploadBytes }) {
           if (!pic || !(/^image\//.test(pic.mime || '') || (f.kind === 'slides' && /^video\//.test(pic.mime || ''))) || !atLeast(roleFor(f.id, pic.owner_id), 'editor')) return null; // pictures, and videos on slides
           return { data: fs.readFileSync(path.join(FILES_DIR, pic.storage)), mime: pic.mime };
         };
-        const buf = f.kind === 'doc' ? await wordFromDoc(content, f.name, { pictureData, page: setupOf(f), comments: wordCommentsOf(f.id) }) : f.kind === 'sheet' ? await excelFromSheet(content) : await powerPointFromDeck(content, { title: f.name, pictureData });
+        const buf = f.kind === 'doc' ? await wordFromDoc(content, f.name, { pictureData, page: setupOf(f), comments: wordCommentsOf(f.id) }) : f.kind === 'sheet' ? await excelFromSheet(content) : await powerPointFromDeck(content, { title: f.name, pictureData, comments: slideCommentsOf(f.id) });
         zip.file(e.path, buf);
       }
     }
@@ -1175,7 +1179,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     if (type === 'md') buf = Buffer.from(markdownFromDoc(content), 'utf8');
     else if (type === 'docx') buf = await wordFromDoc(content, f.name, { pictureData, page: setupOf(f), comments: wordCommentsOf(f.id), signatures: (await import('./signatures.js')).signedRecord(f.id) });
     else if (type === 'xlsx') buf = await excelFromSheet(content);
-    else buf = await powerPointFromDeck(content, { title: f.name, pictureData });
+    else buf = await powerPointFromDeck(content, { title: f.name, pictureData, comments: slideCommentsOf(f.id) });
     res.setHeader('Content-Type', OFFICE[type].mime);
     res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(`${f.name}.${type}`)}`);
     res.send(buf);

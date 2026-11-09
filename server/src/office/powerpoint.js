@@ -123,6 +123,55 @@ const TRANSITION_XML = { fade: '<p:fade/>', push: '<p:push dir="u"/>', zoom: '<p
  * What PowerPoint's file writer leaves out: each slide's transition and automatic advance
  * (<p:transition advTm="…">, after the slide's colour mapping), and looping (<p:showPr loop="1">).
  */
+const xmlEsc = (t) => String(t ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+/**
+ * The file with comments on its slides, in PowerPoint's comment format that every version and
+ * LibreOffice read: comment authors in ppt/commentAuthors.xml, each slide's comments in
+ * ppt/comments/commentN.xml (a reply names the comment it answers).
+ */
+export async function withSlideComments(buffer, deck, threads) {
+  const bySlide = new Map();
+  for (const t of threads || []) {
+    const i = (deck.slides || []).findIndex((s) => s.id === t.slideId);
+    if (i < 0 || !t.text) continue;
+    if (!bySlide.has(i)) bySlide.set(i, []);
+    bySlide.get(i).push(t);
+  }
+  if (!bySlide.size) return buffer;
+  const zip = await JSZip.loadAsync(buffer);
+  const authors = new Map(); // name → { id, lastIdx }
+  const authorOf = (name) => { const n = String(name || 'Workspace').slice(0, 100); if (!authors.has(n)) authors.set(n, { id: authors.size, lastIdx: 0 }); return authors.get(n); };
+  const stamp = (ms) => new Date(Number.isFinite(ms) ? ms : Date.now()).toISOString().replace(/Z$/, '');
+  let types = await zip.file('[Content_Types].xml').async('string');
+  for (const [i, list] of bySlide) {
+    const slideFile = `ppt/slides/slide${i + 1}.xml`;
+    if (!zip.file(slideFile)) continue;
+    const cms = [];
+    list.slice(0, 200).forEach((t, k) => {
+      const a = authorOf(t.author);
+      const idx = ++a.lastIdx;
+      const y = 80 + k * 160; // down the slide's corner, one under another
+      cms.push(`<p:cm authorId="${a.id}" dt="${stamp(t.at)}" idx="${idx}"><p:pos x="10" y="${y}"/><p:text>${xmlEsc(t.text)}</p:text></p:cm>`);
+      for (const r of (t.replies || []).slice(0, 100)) {
+        const ra = authorOf(r.author);
+        cms.push(`<p:cm authorId="${ra.id}" dt="${stamp(r.at)}" idx="${++ra.lastIdx}"><p:pos x="10" y="${y}"/><p:text>${xmlEsc(r.text)}</p:text><p:extLst><p:ext uri="{C676402C-5697-4E1C-873F-D02D1690AC5C}"><p15:threadingInfo xmlns:p15="http://schemas.microsoft.com/office/powerpoint/2012/main" timeZoneBias="0"><p15:parentCm authorId="${a.id}" idx="${idx}"/></p15:threadingInfo></p:ext></p:extLst></p:cm>`);
+      }
+    });
+    const file = `ppt/comments/comment${i + 1}.xml`;
+    zip.file(file, `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<p:cmLst xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">${cms.join('')}</p:cmLst>`);
+    types = types.replace('</Types>', `<Override PartName="/${file}" ContentType="application/vnd.openxmlformats-officedocument.presentationml.comments+xml"/></Types>`);
+    const relsFile = `ppt/slides/_rels/slide${i + 1}.xml.rels`;
+    const rels = (await zip.file(relsFile)?.async('string')) || '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>';
+    zip.file(relsFile, rels.replace('</Relationships>', `<Relationship Id="rIdComments1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments" Target="../comments/comment${i + 1}.xml"/></Relationships>`));
+  }
+  zip.file('ppt/commentAuthors.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<p:cmAuthorLst xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">${[...authors].map(([name, a]) => `<p:cmAuthor id="${a.id}" name="${xmlEsc(name)}" initials="${xmlEsc(name.split(/\s+/).map((w) => w[0] || '').join('').slice(0, 3).toUpperCase())}" lastIdx="${a.lastIdx}" clrIdx="${a.id % 8}"/>`).join('')}</p:cmAuthorLst>`);
+  types = types.replace('</Types>', '<Override PartName="/ppt/commentAuthors.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.commentAuthors+xml"/></Types>');
+  zip.file('[Content_Types].xml', types);
+  const presRels = 'ppt/_rels/presentation.xml.rels';
+  zip.file(presRels, (await zip.file(presRels).async('string')).replace('</Relationships>', '<Relationship Id="rIdCmAuthors" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/commentAuthors" Target="commentAuthors.xml"/></Relationships>'));
+  return zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
+}
+
 async function withShowSettings(buffer, deck) {
   const slides = deck.slides || [];
   if (!deck.loop && !slides.some((s) => s.transition || s.advance)) return buffer;
@@ -335,7 +384,11 @@ export async function deckFromPowerPoint(buffer, { savePicture }) {
 /** Does slide i show its number? deck.numbers: true (every slide) or 'skip-first' (all but the title slide). */
 export const numberShown = (deck, i) => !!deck?.numbers && !(deck.numbers === 'skip-first' && i === 0);
 
-export async function powerPointFromDeck(deck, { pictureData, title = 'Presentation' } = {}) {
+/**
+ * `comments`: the presentation's open comment threads, [{ slideId, author, at, text, replies: [{ author, at, text }] }];
+ * each goes on its slide as a PowerPoint comment, replies as replies to it.
+ */
+export async function powerPointFromDeck(deck, { pictureData, title = 'Presentation', comments = [] } = {}) {
   const pptx = new PptxGenJS();
   pptx.layout = 'LAYOUT_WIDE'; // 13.33 × 7.5 in, 16:9 like Slides
   pptx.title = title;
@@ -404,5 +457,5 @@ export async function powerPointFromDeck(deck, { pictureData, title = 'Presentat
       }
     }
   }
-  return withShowSettings(Buffer.from(await pptx.write({ outputType: 'nodebuffer' })), deck);
+  return withSlideComments(await withShowSettings(Buffer.from(await pptx.write({ outputType: 'nodebuffer' })), deck), deck, comments);
 }

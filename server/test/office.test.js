@@ -1380,3 +1380,20 @@ test('PowerPoint: comments on slides come in, older and newer kinds, with replie
   assert.equal(JSON.stringify(deck).includes('Swap these'), false, 'comments aren\'t part of the presentation itself');
   assert.deepEqual(commentsOfDeck(await deckFromPowerPoint(plain, { savePicture: async () => null })), []);
 });
+
+test('PowerPoint: open comment threads go into the download on their slides', async () => {
+  const { powerPointFromDeck, deckFromPowerPoint, commentsOfDeck } = await import('../src/office/powerpoint.js');
+  const deck = { theme: 'light', slides: [{ id: 's1', items: [] }, { id: 's2', items: [] }] };
+  const comments = [
+    { slideId: 's2', author: 'Olivia Owner', at: Date.parse('2026-11-01T09:00:00Z'), text: 'Add the <source> & date', replies: [{ author: 'Kim Park', at: Date.parse('2026-11-01T10:00:00Z'), text: 'Added' }] },
+    { slideId: 's1', author: 'Kim Park', at: null, text: 'Nice title', replies: [] },
+    { slideId: 'gone', author: 'X', text: 'On a deleted slide', replies: [] },
+  ];
+  const buf = await powerPointFromDeck(deck, { comments });
+  const back = await deckFromPowerPoint(buf, { savePicture: async () => null });
+  const got = commentsOfDeck(back).map((c) => [back.slides.findIndex((s) => s.id === c.slideId), c.author, c.text, c.replies.map((r) => [r.author, r.text])]);
+  assert.deepEqual(got, [[0, 'Kim Park', 'Nice title', []], [1, 'Olivia Owner', 'Add the <source> & date', [['Kim Park', 'Added']]]]);
+  assert.equal(commentsOfDeck(back)[1].at, Date.parse('2026-11-01T09:00:00Z'));
+  const zip = await JSZip.loadAsync(await powerPointFromDeck(deck));
+  assert.equal(zip.file('ppt/commentAuthors.xml'), null, 'none: no comment parts');
+});
