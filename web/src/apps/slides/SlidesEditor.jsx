@@ -23,6 +23,7 @@ import {
   updateItem, addItem, removeItem, restack, pictureBox,
   TRANSITIONS, setSlide, stepSlide, firstShown, newTable, resizeTable, setCell,
   ANIMATIONS, builds, animChange, stepPresent, nextPresent, ADVANCES, advanceLabel, slideChanges } from './slidemath.js';
+import { cleanLink, linkTarget, linkLabel, slideTitle, dropLinksTo } from './slidelinks.js';
 
 const SIZES = [12, 14, 16, 18, 20, 24, 28, 32, 36, 40, 44, 54, 64, 72, 96];
 const TEXT_COLORS = [['', 'Theme text'], ['accent', 'Theme accent'], ['#202124', 'Black'], ['#ffffff', 'White'], ['#c5221f', 'Red'], ['#e37400', 'Orange'], ['#188038', 'Green'], ['#1a73e8', 'Blue'], ['#8430ce', 'Purple']];
@@ -368,6 +369,10 @@ export default function SlidesEditor() {
               {ANIMATIONS.map(([v, n]) => <option key={v} value={v}>{v ? `Animation: ${n}` : 'No animation'}</option>)}
             </select>
           )}
+          {item && item.type !== 'video' && (
+            <button type="button" className={`tb labelled ${item.link ? 'on' : ''}`} aria-label="Link" title={item.link ? `Link: ${linkLabel(deck, item.link)}` : 'Link to a web page or another slide (followed when presenting)'}
+              onClick={() => setDialog({ type: 'link', id: item.id })}>🔗 Link{item.link ? ' ✓' : ''}</button>
+          )}
           {item && <>
             <label className="tb rot-field" title="Rotation in degrees">⟳<input type="number" aria-label="Rotation" min={-360} max={360} step={15} value={item.rot || 0}
               onChange={(e) => { const rot = normAngle(Number(e.target.value)); change((d) => updateItem(d, slideIndex, item.id, rot ? { rot } : { rot: undefined })); }} />°</label>
@@ -498,9 +503,13 @@ export default function SlidesEditor() {
         onClose={() => setDialog(null)} onPick={(x) => setDialog({ type: 'chart-pick', file: x })} />}
       {dialog?.type === 'chart-pick' && <ChartPick file={dialog.file} onClose={() => setDialog(null)}
         onPick={(c) => { setDialog(null); insert({ type: 'chart', fileId: dialog.file.id, chartId: c.id, ...c.now, x: 15, y: 18, w: 70, h: 66 }); }} />}
+      {dialog?.type === 'link' && item?.id === dialog.id && (
+        <LinkDialog deck={deck} here={slideIndex} link={item.link} onClose={() => setDialog(null)}
+          onSave={(link) => { setItem({ link: cleanLink(link, deck.slides.map((x) => x.id)) || undefined }); setDialog(null); }} />
+      )}
       {dialog?.type === 'delete-slide' && (
         <ConfirmModal title={`Delete slide ${dialog.index + 1}?`} confirm="Delete" message="The slide and everything on it is removed. Version history can bring it back."
-          onClose={() => setDialog(null)} onConfirm={() => { change((d) => removeSlide(d, dialog.index)); goTo(Math.min(dialog.index, deck.slides.length - 2)); setDialog(null); }} />
+          onClose={() => setDialog(null)} onConfirm={() => { change((d) => dropLinksTo(removeSlide(d, dialog.index), d.slides[dialog.index].id)); goTo(Math.min(dialog.index, deck.slides.length - 2)); setDialog(null); }} />
       )}
       {dialog?.type === 'delete-slides' && (
         <ConfirmModal title={`Delete ${dialog.list.length} slide${dialog.list.length === 1 ? '' : 's'}?`} message="They can be brought back from Version history." confirm="Delete"
@@ -679,9 +688,11 @@ export function SlideView({ slide, theme, deckId, editable, selected, group = []
             style={{ ...(peers?.has(it.id) ? { ...pos, boxShadow: `0 0 0 ${isSel ? 4 : 2}px ${peers.get(it.id).color}` } : pos), ...(notYet && { visibility: 'hidden' }) }}
             title={peers?.has(it.id) ? `${peers.get(it.id).name} is here` : undefined}
             aria-label={editable ? `${it.type === 'text' ? (it.text ? `Text: ${it.text.slice(0, 40)}` : PLACEHOLDER[it.role] || 'Text box') : it.type === 'image' ? (it.alt ? `Picture: ${it.alt.slice(0, 80)}` : 'Picture') : it.type === 'video' ? `Video: ${it.name || ''}` : it.type === 'table' ? 'Table' : it.type === 'chart' ? `Chart: ${it.title || 'Untitled'}` : 'Shape'}` : undefined}
+            data-link={!editable && it.link ? '1' : undefined}
             onPointerDown={editable ? (e) => startDrag(e, it) : undefined}
             onDoubleClick={editable && (it.type === 'text' || it.type === 'table') ? () => onEdit(it.id) : undefined}>
             {inner}
+            {editable && it.link && <span className="link-badge" title="Has a link (followed when presenting)" aria-hidden="true">🔗</span>}
             {editable && at && <span className="anim-badge" title={`Comes in on click ${at} (${it.anim})`} aria-hidden="true">{at}</span>}
             {isSel && editing !== it.id && HANDLES.map((h) => <span key={h} className={`handle ${h}`} aria-hidden="true" onPointerDown={(e) => startDrag(e, it, h)} />)}
             {isSel && editing !== it.id && <span className="handle rot" title="Drag to rotate (Shift: any angle)" aria-hidden="true" onPointerDown={(e) => startDrag(e, it, 'rot')} />}
@@ -765,7 +776,15 @@ function Presenter({ deck, theme, deckId, start, onClose }) {
     else if (e.key === 'p' || e.key === 'P') setPaused((v) => !v); // stop (and restart) slides moving on by themselves
   };
   return (
-    <div ref={ref} className={`presenter ${laser ? 'lasering' : ''}`} tabIndex={-1} role="dialog" aria-label="Presenting" onKeyDown={onKey} onClick={() => step(1)}
+    <div ref={ref} className={`presenter ${laser ? 'lasering' : ''}`} tabIndex={-1} role="dialog" aria-label="Presenting" onKeyDown={onKey} onClick={(e) => {
+        // A box with a link: open the web page (in a new tab) or go to that slide; anywhere else moves on.
+        const el = e.target.closest?.('[data-link]');
+        const it = el && deck.slides[i]?.items.find((x) => x.id === el.dataset.item);
+        const t = it && linkTarget(deck, it.link);
+        if (t?.url) { window.open(t.url, '_blank', 'noopener,noreferrer'); return; }
+        if (t && t.i !== undefined) { setI(t.i); return; }
+        step(1);
+      }}
       onPointerMove={(e) => { if (laser) setLaser({ x: e.clientX, y: e.clientY }); }}>
       {laser && <span className="laser-dot" role="img" aria-label="Laser pointer" style={{ left: laser.x, top: laser.y }} />}
       <div key={i} className={`presenter-slide ${deck.slides[i]?.transition ? `tr-${deck.slides[i].transition}` : ''}`}><SlideView slide={deck.slides[i]} theme={theme} deckId={deckId} built={at.b} number={numberShown(deck, i) ? i + 1 : null} /></div>
@@ -847,5 +866,33 @@ function SlideChanges({ before, after, theme, deckId }) {
         })}
       </ul>
     </div>
+  );
+}
+
+/** Where a box leads: a web address or another slide of this presentation (or nowhere). */
+function LinkDialog({ deck, here, link, onSave, onClose }) {
+  const [kind, setKind] = useState(link?.slide ? 'slide' : 'url');
+  const [url, setUrl] = useState(link?.url || '');
+  const [slide, setSlide] = useState(link?.slide || deck.slides[here + 1]?.id || deck.slides[0]?.id);
+  const ok = kind === 'slide' ? !!slide : !!cleanLink({ url }, []);
+  return (
+    <Modal title="Link" onClose={onClose}
+      footer={<>
+        {link && <button type="button" className="btn danger" style={{ marginRight: 'auto' }} onClick={() => onSave(null)}>Remove link</button>}
+        <button type="button" className="btn" onClick={onClose}>Cancel</button>
+        <button type="button" className="btn primary" disabled={!ok} onClick={() => onSave(kind === 'slide' ? { slide } : { url })}>Save</button>
+      </>}>
+      <div className="stack">
+        <div className="seg" role="radiogroup" aria-label="Link to">
+          {[['url', 'A web page'], ['slide', 'A slide']].map(([k, l]) => <button key={k} type="button" role="radio" aria-checked={kind === k} className={kind === k ? 'on' : ''} onClick={() => setKind(k)}>{l}</button>)}
+        </div>
+        {kind === 'url'
+          ? <label className="field"><span>Web address or email</span><input autoFocus value={url} onChange={(e) => setUrl(e.target.value)} placeholder="acme.com/orders" aria-invalid={!!url && !ok} /></label>
+          : <label className="field"><span>Slide</span><select value={slide} onChange={(e) => setSlide(e.target.value)}>
+              {deck.slides.map((x, k) => <option key={x.id} value={x.id}>{`Slide ${k + 1}${slideTitle(x) ? `: ${slideTitle(x)}` : ''}${k === here ? ' (this one)' : ''}`}</option>)}
+            </select></label>}
+        <p className="muted small" style={{ margin: 0 }}>While presenting, a click on the box follows the link (web pages open in a new tab) instead of moving on.</p>
+      </div>
+    </Modal>
   );
 }

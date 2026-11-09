@@ -26,6 +26,21 @@ const relsOf = async (zip, file) => {
 };
 const colorIn = (el) => { const c = deep(el, A, 'srgbClr')[0]; return c ? `#${attr(c, 'val').toLowerCase()}` : null; };
 
+/** A box's link as PowerPoint takes it: { url } for a web page (http, https or mailto), { slide: n } (1-based) for another slide. */
+export function linkFor(link, slides) {
+  if (!link) return null;
+  if (link.slide !== undefined) { const n = slides.findIndex((x) => x.id === link.slide); return n >= 0 ? { slide: n + 1 } : null; }
+  const url = String(link.url || '');
+  return /^(https?:\/\/|mailto:)[^\s"<>]+$/i.test(url) ? { url: url.slice(0, 2000) } : null;
+}
+
+/** Relationships as written (external addresses kept as they are): id → { target, external }. */
+const rawRelsOf = async (zip, file) => {
+  const x = await zip.file(path.posix.join(path.posix.dirname(file), '_rels', `${path.posix.basename(file)}.rels`))?.async('string');
+  const doc = x && parseXml(x);
+  return new Map((doc ? kids(doc, RELS, 'Relationship') : []).map((r) => [attr(r, 'Id'), { target: attr(r, 'Target'), external: attr(r, 'TargetMode') === 'External' }]));
+};
+
 /** Seconds a slide stays before moving on by itself (1 to 3600), or null. */
 export function advanceOf(v) {
   const n = Number(v);
@@ -75,7 +90,7 @@ export async function deckFromPowerPoint(buffer, { savePicture }) {
   const widthIn = W / 914400;
   const presRels = await relsOf(zip, 'ppt/presentation.xml');
   const order = kids(kid(pres, P, 'sldIdLst'), P, 'sldId').map((s) => presRels.get(rattr(s, 'id'))).filter(Boolean);
-  const slides = [];
+  const slides = [], slideFiles = [];
   const numbered = new Set(); // slides with a slide number field
   for (const file of order) {
     const xml = parseXml(await zip.file(file)?.async('string') || '');
@@ -95,6 +110,18 @@ export async function deckFromPowerPoint(buffer, { savePicture }) {
       return { x: (Number(attr(off, 'x')) / W) * 100, y: (Number(attr(off, 'y')) / H) * 100, w: (Number(attr(ext, 'cx')) / W) * 100, h: (Number(attr(ext, 'cy')) / H) * 100, ...(rot && { rot }) };
     };
     const items = [];
+    const raw = await rawRelsOf(zip, file);
+    // A shape's (or its text's) click link: a web page, or another slide (resolved once all slides are read).
+    const linkOfEl = (el) => {
+      const h = deep(el, A, 'hlinkClick')[0];
+      const rid = h && rattr(h, 'id');
+      const rel = rid && raw.get(rid);
+      if (!rel) return null;
+      if (rel.external) return /^(https?:\/\/|mailto:)[^\s"<>]+$/i.test(rel.target) ? { url: rel.target.slice(0, 2000) } : null;
+      if (/hlinksldjump/.test(attr(h, 'action') || '') || /slides\/slide\d+\.xml$/.test(rel.target)) return { file: path.posix.normalize(path.posix.join(path.posix.dirname(file), rel.target)) };
+      return null;
+    };
+    const linked = (el, item) => { const l = linkOfEl(el); if (l) item.link = l; return item; };
     const tree = deep(xml, P, 'spTree')[0];
     for (const el of deep(tree, P, 'sp').concat(deep(tree, P, 'cxnSp'), deep(tree, P, 'pic'))) { // shapes, connectors (lines, arrows), pictures
       const box = boxOf(el);
@@ -109,7 +136,7 @@ export async function deckFromPowerPoint(buffer, { savePicture }) {
         // (Some programs write the picture's own data or file path there instead: not a description.)
         const raw = String(attr(deep(el, P, 'cNvPr')[0], 'descr') || '').replace(/\s+/g, ' ').trim();
         const descr = /^(data:|[a-z]:\\|\/|file:|preencoded\.\w+$)/i.test(raw) ? '' : raw.slice(0, 500);
-        if (data && mime) items.push({ id: id(), type: 'image', fileId: await savePicture(path.posix.basename(target), data, mime), name: path.posix.basename(target), ...(descr && { alt: descr }), ...box });
+        if (data && mime) items.push(linked(el, { id: id(), type: 'image', fileId: await savePicture(path.posix.basename(target), data, mime), name: path.posix.basename(target), ...(descr && { alt: descr }), ...box }));
         continue;
       }
       // A slide number field: the presentation numbers its slides (not a text box of its own).
@@ -132,20 +159,20 @@ export async function deckFromPowerPoint(buffer, { savePicture }) {
       }
       const fill = colorIn(kid(kid(el, P, 'spPr'), A, 'solidFill'));
       if (!content.trim()) {
-        if (SHAPES[geom] && fill) items.push({ id: id(), type: 'shape', shape: SHAPES[geom], fill, ...box });
+        if (SHAPES[geom] && fill) items.push(linked(el, { id: id(), type: 'shape', shape: SHAPES[geom], fill, ...box }));
         continue;
       }
       const rPr = deep(el, A, 'rPr')[0] || deep(el, A, 'defRPr')[0];
       const pt = Number(attr(rPr, 'sz')) / 100 || 18;
       const algn = attr(deep(el, A, 'pPr')[0], 'algn');
       const ph = attr(deep(el, P, 'ph')[0], 'type');
-      items.push({
+      items.push(linked(el, {
         id: id(), type: 'text', role: ph === 'title' || ph === 'ctrTitle' ? 'title' : ph === 'subTitle' ? 'subtitle' : 'body', text: content, ...box,
         size: Math.max(8, Math.round((pt / 72) * 1000 / widthIn)),
         ...(attr(rPr, 'b') === '1' && { bold: true }), ...(attr(rPr, 'i') === '1' && { italic: true }),
         ...(colorIn(kid(rPr, A, 'solidFill')) && { color: colorIn(kid(rPr, A, 'solidFill')) }),
         ...({ ctr: { align: 'center' }, r: { align: 'right' } }[algn] || {}),
-      });
+      }));
     }
     // Tables: each cell's text (the first row as headings when PowerPoint marks it so).
     for (const gf of deep(tree, P, 'graphicFrame')) {
@@ -173,7 +200,14 @@ export async function deckFromPowerPoint(buffer, { savePicture }) {
     const tr = elements(trEl)[0]?.local;
     const advance = advanceOf(attr(trEl, 'advTm')); // moves on by itself after so many seconds
     const transition = tr && ({ fade: 'fade', dissolve: 'fade', push: 'push', wipe: 'push', cover: 'push', pull: 'push', split: 'push', zoom: 'zoom', newsflash: 'zoom' }[tr] || 'fade');
+    slideFiles.push(file);
     slides.push({ id: id(), items, ...(bg && { bg }), ...(notes && { notes }), ...(transition && { transition }), ...(advance && { advance }), ...(skip && { skip: true }) });
+  }
+  // Links to another slide: from its file to its id (a slide that didn't come in drops the link).
+  for (const sl of slides) for (const it of sl.items) {
+    if (!it.link?.file) continue;
+    const k = slideFiles.indexOf(it.link.file);
+    if (k >= 0) it.link = { slide: slides[k].id }; else delete it.link;
   }
   // "Loop until Esc" in the file's slide show settings.
   const props = parseXml(await zip.file('ppt/presProps.xml')?.async('string') || '');
@@ -204,10 +238,14 @@ export async function powerPointFromDeck(deck, { pictureData, title = 'Presentat
     if (numberShown(deck, (deck.slides || []).indexOf(s))) slide.slideNumber = { x: Win - 1.1, y: Hin - 0.55, w: 0.8, h: 0.35, fontSize: 12, color: color('text', theme.text), align: 'right', fontFace: 'Arial' };
     if (s.skip) slide.hidden = true; // (transitions and timings are added afterwards: withShowSettings)
     for (const it of s.items || []) {
+      const hyperlink = linkFor(it.link, deck.slides || []); // a web page or another slide, followed when presenting
       const pos = { x: (it.x / 100) * Win, y: (it.y / 100) * Hin, w: (it.w / 100) * Win, h: (it.h / 100) * Hin, ...(Number(it.rot) && { rotate: ((Number(it.rot) % 360) + 360) % 360 }) };
       if (it.type === 'text') {
-        slide.addText(it.text || '', { ...pos, fontSize: Math.round((it.size || 24) * Win * 72 / 1000), bold: !!it.bold, italic: !!it.italic,
-          color: color(it.color, theme.text), align: it.align || 'left', valign: 'top', margin: 0, fontFace: 'Arial' });
+        const look = { fontSize: Math.round((it.size || 24) * Win * 72 / 1000), bold: !!it.bold, italic: !!it.italic, color: color(it.color, theme.text), fontFace: 'Arial' };
+        if (hyperlink) { // the whole text is the link
+          const lines = String(it.text || '').split('\n');
+          slide.addText(lines.map((t, k) => ({ text: t, options: { ...look, hyperlink, breakLine: k < lines.length - 1 } })), { ...pos, align: it.align || 'left', valign: 'top', margin: 0 });
+        } else slide.addText(it.text || '', { ...pos, ...look, align: it.align || 'left', valign: 'top', margin: 0 });
       } else if (it.type === 'shape' && (it.shape === 'line' || it.shape === 'arrow')) {
         // A line from one side (or corner) of its box to the other; arrows end in a triangle.
         const d = it.dir || 'h';
@@ -215,7 +253,7 @@ export async function powerPointFromDeck(deck, { pictureData, title = 'Presentat
         slide.addShape(pptx.ShapeType.line, { ...at, flipH: d === 'hr', flipV: d === 'u' || d === 'vr',
           line: { color: color(it.fill || 'text', theme.text), width: 3, ...(it.shape === 'arrow' && { endArrowType: 'triangle' }) } });
       } else if (it.type === 'shape') {
-        slide.addShape({ rect: pptx.ShapeType.rect, round: pptx.ShapeType.roundRect, ellipse: pptx.ShapeType.ellipse }[it.shape] || pptx.ShapeType.rect, { ...pos, fill: { color: color(it.fill || 'accent', theme.accent) }, line: { type: 'none' } });
+        slide.addShape({ rect: pptx.ShapeType.rect, round: pptx.ShapeType.roundRect, ellipse: pptx.ShapeType.ellipse }[it.shape] || pptx.ShapeType.rect, { ...pos, ...(hyperlink && { hyperlink }), fill: { color: color(it.fill || 'accent', theme.accent) }, line: { type: 'none' } });
       } else if (it.type === 'table' && it.cells?.length) {
         const fontSize = Math.round((it.size || 18) * Win * 72 / 1000);
         const rows = it.cells.map((r, ri) => r.map((text) => ({ text: String(text ?? ''), options: { fontSize, color: color(null, theme.text), fontFace: 'Arial',
@@ -231,7 +269,7 @@ export async function powerPointFromDeck(deck, { pictureData, title = 'Presentat
       } else if (it.type === 'image') {
         const pic = await pictureData?.(it.fileId);
         // Alt Text: its description (a blank one when it has none: left empty, the library would write a made-up file name).
-        if (pic) slide.addImage({ ...pos, data: `data:${pic.mime};base64,${pic.data.toString('base64')}`, altText: String(it.alt || ' ').slice(0, 500) });
+        if (pic) slide.addImage({ ...pos, ...(hyperlink && { hyperlink }), data: `data:${pic.mime};base64,${pic.data.toString('base64')}`, altText: String(it.alt || ' ').slice(0, 500) });
       } else if (it.type === 'video') {
         // A video plays in PowerPoint too (up to 100 MB; a bigger one is named instead, so the file stays manageable).
         const vid = await pictureData?.(it.fileId);

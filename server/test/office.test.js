@@ -821,3 +821,28 @@ test('Excel: formulas that give a date get a date format', async () => {
   assert.equal(wb.getWorksheet('S').getCell('B1').numFmt, 'yyyy-mm-dd');
   assert.equal(wb.getWorksheet('S').getCell('C1').numFmt, 'd mmm', 'the cell’s own format wins');
 });
+
+test('PowerPoint: links on boxes (a web page or another slide) go out and come back', async () => {
+  const { linkFor } = await import('../src/office/powerpoint.js');
+  const slidesIn = [{ id: 's1' }, { id: 's2' }];
+  assert.deepEqual(linkFor({ url: 'https://acme.com/orders' }, slidesIn), { url: 'https://acme.com/orders' });
+  assert.deepEqual(linkFor({ slide: 's2' }, slidesIn), { slide: 2 });
+  assert.equal(linkFor({ url: 'javascript:alert(1)' }, slidesIn), null);
+  assert.equal(linkFor({ slide: 'gone' }, slidesIn), null);
+  const deck = { theme: 'light', slides: [
+    { id: 's1', items: [
+      { id: 't', type: 'text', text: 'Order online\nToday', x: 10, y: 10, w: 50, h: 20, size: 24, link: { url: 'https://acme.com/orders' } },
+      { id: 'b', type: 'shape', shape: 'rect', fill: 'accent', x: 10, y: 50, w: 20, h: 20, link: { slide: 's2' } },
+      { id: 'p', type: 'text', text: 'Plain', x: 60, y: 50, w: 20, h: 10 },
+    ] },
+    { id: 's2', items: [{ id: 'u', type: 'text', text: 'Prices', x: 10, y: 10, w: 50, h: 20 }] },
+  ] };
+  const buf = await powerPointFromDeck(deck, { pictureData: async () => null });
+  const back = await deckFromPowerPoint(buf, { savePicture: async () => 'x' });
+  const [one, two] = back.slides;
+  const t = one.items.find((x) => x.type === 'text' && x.text.startsWith('Order'));
+  assert.deepEqual(t.link, { url: 'https://acme.com/orders' });
+  assert.equal(t.text, 'Order online\nToday');
+  assert.deepEqual(one.items.find((x) => x.type === 'shape').link, { slide: two.id }, 'to the second slide, by its new id');
+  assert.equal(one.items.find((x) => x.text === 'Plain').link, undefined);
+});
