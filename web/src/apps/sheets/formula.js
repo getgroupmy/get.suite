@@ -1,8 +1,12 @@
 // Small spreadsheet formula engine: arithmetic, comparisons, text, cell refs, ranges, common functions.
 
+import { runQuery, QueryError } from './query.js';
+
 export class FormulaError extends Error {
-  constructor(code) { super(code); this.code = code; }
+  /** `why` says what went wrong in words, for errors where the code alone doesn't (QUERY's). */
+  constructor(code, why) { super(code); this.code = code; if (why) this.why = why; }
 }
+const errorValue = (e) => ({ error: e.code, ...(e.why && { why: e.why }) });
 const err = (code) => { throw new FormulaError(code); };
 
 export function colName(i) {
@@ -359,7 +363,7 @@ function order(a, b) {
   return Number(a) - Number(b);
 }
 /** Functions that give back several cells, which spill into the cells beside and below. */
-const ARRAY_FUNCS = new Set(['OFFSET', 'INDIRECT', 'TEXTSPLIT', 'CHOOSECOLS', 'CHOOSEROWS', 'WRAPROWS', 'WRAPCOLS', 'TOCOL', 'TOROW', 'FLATTEN', 'SORTBY', 'FREQUENCY', 'RANDARRAY', 'EXPAND', 'FILTER', 'UNIQUE', 'SORT', 'SEQUENCE', 'TRANSPOSE', 'IMPORTRANGE', 'XLOOKUP', 'SPLIT', 'VSTACK', 'HSTACK', 'TAKE', 'DROP', 'CHOOSE', 'REGEXEXTRACT', 'LET', 'MAP', 'BYROW', 'BYCOL', 'MAKEARRAY', 'REDUCE', 'SCAN']);
+const ARRAY_FUNCS = new Set(['OFFSET', 'INDIRECT', 'TEXTSPLIT', 'CHOOSECOLS', 'CHOOSEROWS', 'WRAPROWS', 'WRAPCOLS', 'TOCOL', 'TOROW', 'FLATTEN', 'SORTBY', 'FREQUENCY', 'RANDARRAY', 'EXPAND', 'FILTER', 'UNIQUE', 'SORT', 'SEQUENCE', 'TRANSPOSE', 'IMPORTRANGE', 'QUERY', 'XLOOKUP', 'SPLIT', 'VSTACK', 'HSTACK', 'TAKE', 'DROP', 'CHOOSE', 'REGEXEXTRACT', 'LET', 'MAP', 'BYROW', 'BYCOL', 'MAKEARRAY', 'REDUCE', 'SCAN']);
 
 // ---- helpers for regular expressions, times and cash flows
 /** A pattern from a formula (RE2-like: no lookbehind needed); a bad one, or one too long, is #VALUE!. */
@@ -1057,10 +1061,10 @@ export function namedFunctions(list) {
   }
   return out.size ? out : null;
 }
-const BUILTIN_SPECIAL = new Set(['OFFSET', 'INDIRECT', 'IMPORTRANGE', 'HYPERLINK', 'SPARKLINE', 'IMAGE', 'ROW', 'COLUMN', 'ROWS', 'COLUMNS', 'LET', 'LAMBDA', 'TRUE', 'FALSE']);
+const BUILTIN_SPECIAL = new Set(['OFFSET', 'INDIRECT', 'IMPORTRANGE', 'QUERY', 'HYPERLINK', 'SPARKLINE', 'IMAGE', 'ROW', 'COLUMN', 'ROWS', 'COLUMNS', 'LET', 'LAMBDA', 'TRUE', 'FALSE']);
 
 /** Every function a formula can call. */
-export const FUNCTION_NAMES = [...Object.keys(FUNCS), ...Object.keys(LAZY), ...Object.keys(LAMBDA_USERS), 'OFFSET', 'INDIRECT', 'LET', 'LAMBDA', 'IMPORTRANGE', 'HYPERLINK', 'SPARKLINE', 'IMAGE', 'ROW', 'COLUMN', 'ROWS', 'COLUMNS'];
+export const FUNCTION_NAMES = [...Object.keys(FUNCS), ...Object.keys(LAZY), ...Object.keys(LAMBDA_USERS), 'OFFSET', 'INDIRECT', 'LET', 'LAMBDA', 'IMPORTRANGE', 'QUERY', 'HYPERLINK', 'SPARKLINE', 'IMAGE', 'ROW', 'COLUMN', 'ROWS', 'COLUMNS'];
 
 /** A link a cell may open: web addresses and email (mailto:), nothing else. */
 /**
@@ -1148,7 +1152,7 @@ export function createEvaluator(cells, names = null, book = null) {
     if (pending === null) findSpills();
     if (memo.has(key)) {
       const v = memo.get(key);
-      if (v && typeof v === 'object' && v.error) throw new FormulaError(v.error);
+      if (v && typeof v === 'object' && v.error) throw new FormulaError(v.error, v.why);
       return v;
     }
     const raw = cells[key];
@@ -1194,7 +1198,7 @@ export function createEvaluator(cells, names = null, book = null) {
       return v;
     } catch (e) {
       if (!(e instanceof FormulaError)) throw e;
-      memo.set(key, { error: e.code });
+      memo.set(key, errorValue(e));
       throw e;
     } finally {
       visiting.delete(key);
@@ -1321,6 +1325,17 @@ export function createEvaluator(cells, names = null, book = null) {
       case 'neg': { const v = evaluate(n.e); return Array.isArray(v) ? elementwise(v, null, (x) => -toNum(x)) : -toNum(v); }
       case 'call': {
         if (n.name === 'IMPORTRANGE') return importRange(n.args.map((a) => scalar(evaluate(a))));
+        if (n.name === 'QUERY') {
+          // Columns go by their letters on the sheet, so where the range starts matters.
+          const a = n.args[0];
+          if (!a || n.args.length < 2) err('#N/A');
+          const first = a.k === 'range' || a.k === 'xref' ? Math.min(a.a.c, a.b.c) : null;
+          const h = n.args[2] && n.args[2].k !== 'empty' ? toNum(scalar(evaluate(n.args[2]))) : undefined;
+          let out;
+          try { out = runQuery(rowsOf(evaluate(a)), toStr(scalar(evaluate(n.args[1]))), h, first); } catch (e) { if (e instanceof QueryError) throw new FormulaError('#VALUE!', e.message); throw e; }
+          if (!out) err('#N/A');
+          return out.length === 1 && out[0].length === 1 ? out[0][0] : grid(out);
+        }
         if (n.name === 'OFFSET' || n.name === 'INDIRECT') return readRef(refOf(n));
         // Where cells are: ROW()/COLUMN() of this cell, or of a reference (a range gives its first); ROWS/COLUMNS count a range.
         if (n.name === 'ROW' || n.name === 'COLUMN') {
@@ -1430,7 +1445,7 @@ export function createEvaluator(cells, names = null, book = null) {
   }
 
   const get = function get(key) {
-    try { return valueOf(key); } catch (e) { if (e instanceof FormulaError) return { error: e.code }; throw e; }
+    try { return valueOf(key); } catch (e) { if (e instanceof FormulaError) return errorValue(e); throw e; }
   };
   get.cell = valueOf; // for formulas on other sheets (these throw)
   /** The formula cell whose array fills this (empty) cell, if one does. */
@@ -1452,7 +1467,7 @@ export function createEvaluator(cells, names = null, book = null) {
       if (!ast) { ast = parse(text); if (tried.size < 500) tried.set(text, ast); }
       const outer = here; here = key;
       try { const v = evaluate(ast); return Array.isArray(v) ? (v.length ? v[0] : null) : v; } finally { here = outer; }
-    } catch (e) { if (e instanceof FormulaError) return { error: e.code }; throw e; }
+    } catch (e) { if (e instanceof FormulaError) return errorValue(e); throw e; }
   };
   return get;
 }

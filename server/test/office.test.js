@@ -571,6 +571,13 @@ test('Docs: a chart from Sheets is its title and a table of its figures in Word 
   assert.match(xml, /<w:tbl>/);
 });
 
+test('Excel: QUERY formulas (quotes and all) go to Excel and back as written', async () => {
+  const q = '=QUERY(A1:C9, "select A, sum(C) where B = \'North\' and C > 0 group by A label sum(C) \'Total\'", 1)';
+  const back = await sheetFromExcel(await excelFromSheet({ sheets: [{ name: 'Data', cells: { A1: 'Rep', E1: q, F1: '=SUM(QUERY(A2:C9, "select C"))' } }] }));
+  assert.equal(back.sheets[0].cells.E1, q);
+  assert.equal(back.sheets[0].cells.F1, '=SUM(QUERY(A2:C9, "select C"))');
+});
+
 test('Excel: HYPERLINK cells keep their formula both ways', async () => {
   const sheet = { sheets: [{ name: 'Links', cells: { A1: '=HYPERLINK("https://acme.com", "Acme")', A2: '=SPARKLINE(B1:B3)' } }] };
   const buf = await excelFromSheet(sheet);

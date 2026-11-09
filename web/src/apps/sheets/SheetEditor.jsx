@@ -997,7 +997,7 @@ export default function SheetEditor() {
           }}
           onBlur={() => editing === 'bar' && commitEdit(0, 0)}
         />
-        {selValue && typeof selValue === 'object' && selValue.error && <span className="error small">{describeError(selValue.error)}</span>}
+        {selValue && typeof selValue === 'object' && selValue.error && <span className="error small">{selValue.why || describeError(selValue.error)}</span>}
         {editing === 'bar' && assist.popup}
       </div>
       <div className="sheet-body">

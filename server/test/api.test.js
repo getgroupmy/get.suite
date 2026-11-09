@@ -1653,7 +1653,7 @@ test('booking pages: a gap and a daily limit; the visitor cancels with their own
   await login(a, 'booker2@acme.com');
   assert.equal((await a('POST', '/api/bookings', { title: 'x', buffer_min: 7 })).status, 400);
   assert.equal((await a('POST', '/api/bookings', { title: 'x', max_per_day: 50 })).status, 400);
-  const page = (await a('POST', '/api/bookings', { title: 'Demo', duration: 30, days: [0, 1, 2, 3, 4, 5, 6], from_min: 0, to_min: 1440, tz: 'UTC', notice_hours: 0, days_ahead: 3, buffer_min: 30, max_per_day: 1 })).body;
+  const page = (await a('POST', '/api/bookings', { title: 'Demo', duration: 30, days: [0, 1, 2, 3, 4, 5, 6], from_min: 0, to_min: 1440, tz: 'UTC', notice_hours: 0, days_ahead: 5, buffer_min: 30, max_per_day: 1 })).body;
   assert.deepEqual([page.buffer_min, page.max_per_day], [30, 1]);
   const token = page.url.split('/b/')[1];
   const days = (await outsider('GET', `/api/public/book/${token}`)).body.days;
@@ -1696,7 +1696,7 @@ test('booking pages: questions for the visitor; required ones must be answered; 
   await login(a, 'booker3@acme.com');
   assert.equal((await a('POST', '/api/bookings', { title: 'x', questions: Array.from({ length: 6 }, () => ({ label: 'Q' })) })).status, 400, 'at most 5');
   assert.equal((await a('POST', '/api/bookings', { title: 'x', questions: [{ label: '' }] })).status, 400);
-  const page = (await a('POST', '/api/bookings', { title: 'Consult', duration: 30, days: [0, 1, 2, 3, 4, 5, 6], from_min: 0, to_min: 1440, tz: 'UTC', notice_hours: 0, days_ahead: 2,
+  const page = (await a('POST', '/api/bookings', { title: 'Consult', duration: 30, days: [0, 1, 2, 3, 4, 5, 6], from_min: 0, to_min: 1440, tz: 'UTC', notice_hours: 0, days_ahead: 4,
     questions: [{ label: 'Phone number', required: true }, { label: 'Company' }] })).body;
   assert.deepEqual(page.questions, [{ label: 'Phone number', required: true }, { label: 'Company', required: false }]);
   const token = page.url.split('/b/')[1];

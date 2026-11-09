@@ -330,6 +330,18 @@ A formula that gives back several values **spills** them into the empty cells be
 - If something is already in a cell the result would fill, the formula shows `#SPILL!` until it's cleared.
 - Filled cells are printed and included in CSV downloads. In Excel downloads the formulas are kept (with the names Excel uses for them), and Excel works them out again.
 
+## QUERY (Sheets)
+
+`=QUERY(data, "query", [headers])` picks, filters, groups and sorts rows with the same query language as Google Sheets, and spills the answer (headings first) into the cells beside and below. It follows the data as it changes.
+
+- **Columns** go by their letters on the sheet: in `QUERY(C1:F50, …)` they're C, D, E and F. For data that isn't a plain range (the result of another function), use `Col1`, `Col2`…
+- **select** the columns you want (`select *` or no select is all of them), with sums such as `C * 1.2` and `upper()`, `lower()`, `len()`, `trim()`, `abs()`, `round()`, `year()`, `month()` (counting from 0, as in Google Sheets) and `day()`.
+- **where** keeps rows that match: `=`, `<>` (or `!=`), `<`, `>`, `<=`, `>=`, `contains`, `starts with`, `ends with`, `matches` (a pattern), `like` (`%` any text, `_` one character), `is null` and `is not null`, joined with `and`, `or` and `not`. Text matches case, as in Google Sheets; dates are written `date '2026-11-09'`.
+- **group by** with `sum()`, `avg()`, `count()`, `min()` and `max()` totals each group (or the whole range when there's no group by); **pivot** turns a column's values into columns of their own (`select A, sum(C) group by A pivot B`).
+- **order by** (`asc` or `desc`, several columns), **limit**, **offset**, and **label** to name a column's heading (`label sum(C) 'Total'`). `format` and `options` are accepted and left to the cells' own formats.
+- **Headings:** `headers` says how many rows at the top are headings (their text becomes the result's headings; `0` means none). Left out, the first row counts as headings when it's all text and the row under it isn't.
+- A mistake in the query shows `#VALUE!`, and selecting the cell says what's wrong (*There's no column Z in the data*). QUERY goes to Excel as written, but Excel has no QUERY of its own.
+
 ## Patterns, splitting and stacking (Sheets)
 
 - **Regular expressions:** `=REGEXMATCH(A2, "^INV-\d+$")` is TRUE when the text matches, `=REGEXEXTRACT(A2, "<(.+)>")` gives the part in brackets (or the whole match; several bracketed parts spill across), and `=REGEXREPLACE(A2, "(\d+)-(\d+)", "$2/$1")` rewrites every match. A pattern that isn't valid shows `#VALUE!`.
