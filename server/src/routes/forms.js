@@ -609,7 +609,8 @@ export function publicFormRoutes() {
     if (form.audience === 'public') limit(req.ip);
     dropStaleUploads();
     const name = cleanName(String(req.query.name || 'file'));
-    const { storage, size } = await receiveUpload(req, form.org_id, MAX_FILE_BYTES).catch((e) => { throw e.status === 413 ? new HttpError(413, 'Files can be up to 10 MB') : e; });
+    // Files go to the form owner's Drive: their storage limit too (a full one says so, not "too large").
+    const { storage, size } = await receiveUpload(req, form.org_id, MAX_FILE_BYTES, form.owner_id).catch((e) => { throw e.status === 413 && /too large/i.test(e.message) ? new HttpError(413, 'Files can be up to 10 MB') : e; });
     const id = crypto.randomBytes(16).toString('base64url');
     q('INSERT INTO form_uploads (id, form_id, storage, name, size, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(id, form.id, storage, name, size, now());
     res.status(201).json({ id, name, size });

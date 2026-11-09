@@ -184,7 +184,7 @@ export function publicLinkRoutes({ maxUploadBytes = 4096 * 1024 * 1024 } = {}) {
     if (verdict.action === 'reject') throw new HttpError(429, 'Too many uploads from your network. Try again later.');
     const name = cleanName(String(req.query.name || ''));
     const from = String(req.query.from || '').trim().replace(/[\u0000-\u001f]/g, '').slice(0, 100);
-    const { storage, size } = await receiveUpload(req, l.org_id, maxUploadBytes);
+    const { storage, size } = await receiveUpload(req, l.org_id, maxUploadBytes, l.created_by); // in the requester's Drive: their limit
     const id = insertFile({ owner: l.created_by, parentId: l.file_id, name, kind: 'file', mime: mimeFor(name), size, storage, activity: { by: null, action: 'request', details: { from: from || null } } });
     q('UPDATE files SET description = ? WHERE id = ?').run(`Sent${from ? ` by ${from}` : ''} through a file request`, id);
     const saved = q('SELECT name FROM files WHERE id = ?').get(id).name;

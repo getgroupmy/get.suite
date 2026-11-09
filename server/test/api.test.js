@@ -2547,6 +2547,15 @@ test('file requests: people send files into a folder without seeing it; the owne
   assert.equal(names.length, 3);
   assert.ok(names.includes('taxi.pdf') && names.some((n) => n !== 'taxi.pdf' && n.startsWith('taxi')), 'same name kept apart');
   assert.equal(list.find((f) => f.name === 'taxi.pdf').description, 'Sent by Bob Client through a file request');
+  // Into a Drive with a limit of its own: refused once it's full, saying so.
+  const meId = (await owner2('GET', '/api/auth/me')).body; const reqId = meId.user?.id || meId.id;
+  await owner('PATCH', `/api/users/${reqId}`, { drive_quota_mb: 1 });
+  const scan = () => pub('POST', `/api/public/links/${link.token}/upload?name=scan.pdf`, Buffer.alloc(700 * 1024, 1), { raw: true, headers: { 'content-type': 'application/octet-stream' } });
+  assert.equal((await scan()).status, 201);
+  const big = await scan();
+  assert.equal(big.status, 413);
+  assert.match(big.body.error, /Req Ann's storage \(1 MB\) is full/);
+  await owner('PATCH', `/api/users/${reqId}`, { drive_quota_mb: null });
   const bell = (await owner2('GET', '/api/notifications')).body;
   assert.ok((bell.items || bell).some((n) => /Bob Client sent “taxi.pdf”/.test(n.title)));
   // A view link can't take uploads; bad names are refused; a removed request stops working.
