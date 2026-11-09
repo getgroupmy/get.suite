@@ -1083,3 +1083,14 @@ test('Excel: duplicates, unique values, top and bottom, averages and custom form
   assert.deepEqual([xr[2].type, xr[2].rank, xr[3].bottom, xr[5].aboveAverage], ['top10', 3, true, false]);
   assert.equal(xr[6].formulae[0], 'AND($C2="done",_xlfn.TEXTAFTER($A2,"@")<>"")', 'newer functions get Excel\'s prefix');
 });
+
+test('Excel: colour scales carry both ways', async () => {
+  const rules = [{ id: 'a', range: 'B2:B20', when: 'scale', scale: ['#f8696b', '#ffeb84', '#63be7b'] }, { id: 'b', range: 'C2:C20', when: 'scale', scale: ['#ffffff', '#5a8ac6'] }];
+  const buf = await excelFromSheet({ sheets: [{ name: 'S', rules, cells: { A1: 'x' } }] });
+  const back = await sheetFromExcel(buf);
+  assert.deepEqual(back.sheets[0].rules.map(({ id, ...r }) => r), rules.map(({ id, ...r }) => r));
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(buf);
+  const xr = wb.worksheets[0].conditionalFormattings.flatMap((cf) => cf.rules);
+  assert.deepEqual([xr[0].type, xr[0].cfvo.map((c) => c.type), xr[1].color.map((c) => c.argb)], ['colorScale', ['min', 'percentile', 'max'], ['FFFFFFFF', 'FF5A8AC6']]);
+});

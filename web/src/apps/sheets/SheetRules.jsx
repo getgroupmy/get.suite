@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { Modal } from '../../components/ui.jsx';
 import Icon from '../../components/Icon.jsx';
-import { CONDITIONS, NEEDS_VALUE, STYLES, describeRule } from './condformat.js';
+import { CONDITIONS, NEEDS_VALUE, STYLES, SCALES, scaleOf, describeRule } from './condformat.js';
 import { parseRange } from './charts.js';
 
 const newId = () => Math.random().toString(36).slice(2, 10);
@@ -11,7 +11,8 @@ const newId = () => Math.random().toString(36).slice(2, 10);
 export function RulesDialog({ rules, defaultRange, onChange, onClose }) {
   const [editing, setEditing] = useState(rules.length ? null : { id: null, range: defaultRange, when: 'gt', value: '', value2: '', fill: STYLES[1][0], color: STYLES[1][1], bold: false });
   const save = (r) => {
-    const clean = { ...r, range: r.range.toUpperCase().replace(/\s/g, ''), ...(NEEDS_VALUE.has(r.when) ? {} : { value: undefined, value2: undefined }), ...(r.when === 'between' ? {} : { value2: undefined }) };
+    const clean = { ...r, range: r.range.toUpperCase().replace(/\s/g, ''), ...(NEEDS_VALUE.has(r.when) ? {} : { value: undefined, value2: undefined }), ...(r.when === 'between' ? {} : { value2: undefined }),
+      ...(r.when === 'scale' ? { scale: scaleOf(r), fill: undefined, color: undefined, bold: undefined } : { scale: undefined }) };
     onChange(r.id ? rules.map((x) => (x.id === r.id ? clean : x)) : [...rules, { ...clean, id: newId() }]);
     setEditing(null);
   };
@@ -24,7 +25,8 @@ export function RulesDialog({ rules, defaultRange, onChange, onClose }) {
           <ol className="rule-list">
             {rules.map((r, i) => (
               <li key={r.id}>
-                <span className="rule-sample" style={{ background: r.fill || 'transparent', color: r.color || 'inherit', fontWeight: r.bold ? 700 : 400 }}>123</span>
+                {r.when === 'scale' ? <span className="rule-sample" aria-hidden="true" style={{ background: `linear-gradient(to right, ${scaleOf(r).join(', ')})` }}>123</span>
+                  : <span className="rule-sample" style={{ background: r.fill || 'transparent', color: r.color || 'inherit', fontWeight: r.bold ? 700 : 400 }}>123</span>}
                 <span className="grow">{describeRule(r)}</span>
                 <button type="button" className="icon-btn" aria-label={`Try earlier: ${describeRule(r)}`} disabled={i === 0} onClick={() => move(i, -1)}>↑</button>
                 <button type="button" className="icon-btn" aria-label={`Try later: ${describeRule(r)}`} disabled={i === rules.length - 1} onClick={() => move(i, 1)}>↓</button>
@@ -60,6 +62,15 @@ function RuleForm({ rule, onSave, onCancel }) {
         {r.when === 'between' && <label className="field"><span>To</span><input value={r.value2 ?? ''} onChange={set('value2')} /></label>}
       </div>
       {r.when === 'formula' && <p className="muted small" style={{ margin: 0 }}>Write it for the first cell of the range ({String(r.range || '').split(':')[0] || 'its top left cell'}); it moves along to each cell like a copied formula, and colours the cells where it's TRUE. Put $ before a column or row to keep it fixed: <code>=$C2&gt;100</code> colours a whole row by its C cell.</p>}
+      {r.when === 'scale' ? (
+        <fieldset className="rule-styles">
+          <legend className="muted small">Colours (smallest number to largest)</legend>
+          {SCALES.map(([name, colours]) => (
+            <button key={name} type="button" className={`rule-sample scale ${scaleOf(r).join() === colours.join() ? 'on' : ''}`} aria-pressed={scaleOf(r).join() === colours.join()} aria-label={name} title={name}
+              style={{ background: `linear-gradient(to right, ${colours.join(', ')})`, width: 72 }} onClick={() => setR({ ...r, scale: colours })}>&nbsp;</button>
+          ))}
+        </fieldset>
+      ) : (
       <fieldset className="rule-styles">
         <legend className="muted small">Format</legend>
         {STYLES.map(([fill, color, name]) => (
@@ -68,6 +79,7 @@ function RuleForm({ rule, onSave, onCancel }) {
         ))}
         <label className="check"><input type="checkbox" checked={!!r.bold} onChange={set('bold')} /> Bold</label>
       </fieldset>
+      )}
       <div className="row end">
         <button type="button" className="btn" onClick={onCancel}>Cancel</button>
         <button className="btn primary" disabled={!ok}>{rule.id ? 'Save rule' : 'Add rule'}</button>

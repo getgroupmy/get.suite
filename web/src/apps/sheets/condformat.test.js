@@ -68,3 +68,23 @@ test('custom formula rules move along the range like a copied formula', async ()
   assert.equal(!!ruleStyle([{ ...rule, value: '=1/0' }], 'A1', 'Ana', ctx), false, 'an error colours nothing');
   assert.equal(!!ruleStyle([{ ...rule, value: '=NOPE(' }], 'A1', 'Ana', ctx), false, 'nor does a broken formula');
 });
+
+test('colour scales shade each number between the smallest and largest', async () => {
+  const { ruleStyle, ruleContext, scaleColour, scaleOf, describeRule } = await import('./condformat.js');
+  const { createEvaluator } = await import('./formula.js');
+  assert.equal(scaleColour(['#000000', '#ffffff'], 5, 0, 10), '#808080');
+  assert.equal(scaleColour(['#ff0000', '#ffffff', '#0000ff'], 0, 0, 10), '#ff0000');
+  assert.equal(scaleColour(['#ff0000', '#ffffff', '#0000ff'], 5, 0, 10), '#ffffff');
+  assert.equal(scaleColour(['#ff0000', '#ffffff', '#0000ff'], 10, 0, 10), '#0000ff');
+  assert.equal(scaleColour(['#000000', '#ffffff'], 3, 3, 3), '#808080', 'all the same: the middle');
+  const ev = createEvaluator({ A1: 10, A2: 20, A3: 30, A4: 'n/a', A5: '' });
+  const ctx = ruleContext(ev, ev.formulaAt);
+  const rule = { id: 's', range: 'A1:A5', when: 'scale', scale: ['#ffffff', '#000000'] };
+  assert.deepEqual(ruleStyle([rule], 'A1', 10, ctx), { background: '#ffffff' });
+  assert.deepEqual(ruleStyle([rule], 'A3', 30, ctx), { background: '#000000', color: '#ffffff' }, 'light text on a dark shade');
+  assert.equal(ruleStyle([rule], 'A2', 20, ctx).background, '#808080');
+  assert.equal(ruleStyle([rule], 'A4', 'n/a', ctx), null, 'text is left alone');
+  assert.equal(ruleStyle([rule], 'A5', '', ctx), null);
+  assert.deepEqual(scaleOf({ scale: ['red', 'x'] }), ['#f8696b', '#ffeb84', '#63be7b'], 'bad colours: the usual scale');
+  assert.equal(describeRule({ range: 'B2:B9', when: 'scale', scale: ['#ffffff', '#63be7b'] }), 'B2:B9 · Colour scale: white to green');
+});

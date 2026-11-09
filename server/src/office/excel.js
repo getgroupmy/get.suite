@@ -481,6 +481,10 @@ const quoted = (t) => `"${String(t ?? '').replace(/"/g, '""')}"`;
 function ruleToExcel(r) {
   if (OPS[r.when]) return { type: 'cellIs', operator: OPS[r.when], formulae: r.when === 'between' ? [formula(r.value), formula(r.value2)] : [formula(r.value)] };
   const cell = String(r.range).split(':')[0].replace(/\$/g, '');
+  if (r.when === 'scale') {
+    const colours = Array.isArray(r.scale) && r.scale.length >= 2 && r.scale.length <= 3 && r.scale.every((c) => /^#[0-9a-f]{6}$/i.test(c)) ? r.scale : ['#f8696b', '#ffeb84', '#63be7b'];
+    return { type: 'colorScale', cfvo: colours.length === 3 ? [{ type: 'min' }, { type: 'percentile', value: 50 }, { type: 'max' }] : [{ type: 'min' }, { type: 'max' }], color: colours.map((c) => ({ argb: argb(c) })) };
+  }
   // Rules over the whole range; duplicates and unique values as the formula Excel itself would use.
   if (r.when === 'top' || r.when === 'bottom') return { type: 'top10', rank: Math.max(1, Math.min(1000, Math.trunc(Number(r.value)) || 10)), ...(r.when === 'bottom' && { bottom: true }) };
   if (r.when === 'aboveAvg' || r.when === 'belowAvg') return { type: 'aboveAverage', ...(r.when === 'belowAvg' && { aboveAverage: false }) };
@@ -506,6 +510,10 @@ function ruleFromExcel(x) {
     const when = Object.keys(OPS).find((k) => OPS[k] === x.operator);
     if (!when) return null;
     return { when, value: unformula(x.formulae?.[0]), ...(when === 'between' && { value2: unformula(x.formulae?.[1]) }) };
+  }
+  if (x.type === 'colorScale') {
+    const colours = (x.color || []).map((c) => hex(c?.argb)).filter(Boolean);
+    return colours.length >= 2 && colours.length <= 3 ? { when: 'scale', scale: colours } : null;
   }
   if (x.type === 'top10') return { when: x.bottom ? 'bottom' : 'top', value: String(x.percent ? 10 : (x.rank || 10)) };
   if (x.type === 'aboveAverage') return { when: x.aboveAverage === false ? 'belowAvg' : 'aboveAvg' };
