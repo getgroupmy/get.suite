@@ -6766,3 +6766,33 @@ test('company apps on Home: the ones you may use that have an address', async ()
   assert.ok(!theirs.some((a) => a.name === 'Books'), 'only for its group');
   assert.equal(books.home_url, 'https://books.example/');
 });
+
+test('Sign in with Workspace: an app signs people out of Workspace too', async () => {
+  const kay = client(); const me = await login(kay, 'kay@keepco.com');
+  const app = (await kay('POST', '/api/oauth/apps', { name: 'Logout app', redirect_uris: ['https://lo.example/cb'] })).body;
+  assert.equal((await (await fetch(`${base}/.well-known/openid-configuration`)).json()).end_session_endpoint, `${base}/oauth/logout`);
+  const params = { client_id: app.client_id, redirect_uri: 'https://lo.example/cb', scope: 'openid' };
+  const code = new URL((await kay('POST', '/api/oauth/approve', params)).body.redirect).searchParams.get('code');
+  const tok = await (await fetch(`${base}/oauth/token`, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ grant_type: 'authorization_code', code, redirect_uri: params.redirect_uri, client_id: app.client_id, client_secret: app.client_secret }) })).json();
+  // A second session, to be signed out by the app.
+  const login2 = await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ username: 'kay@keepco.com', password: 'password123' }) });
+  const cookie = login2.headers.get('set-cookie').split(';')[0];
+  const me2 = async () => (await fetch(`${base}/api/auth/me`, { headers: { cookie } })).status;
+  assert.equal(await me2(), 200);
+  // Without proof it's them: Workspace's page asks; an address that isn't the app's is dropped.
+  const ask = await fetch(`${base}/oauth/logout?${new URLSearchParams({ client_id: app.client_id, post_logout_redirect_uri: 'https://evil.example/' })}`, { headers: { cookie }, redirect: 'manual' });
+  assert.match(ask.headers.get('location'), /^\/oauth\/signout\?client_id=/);
+  assert.ok(!ask.headers.get('location').includes('evil'));
+  assert.equal(await me2(), 200, 'not signed out yet');
+  assert.deepEqual((await kay('GET', `/api/oauth/signout?${new URLSearchParams({ client_id: app.client_id, post_logout_redirect_uri: 'https://lo.example/bye' })}`)).body, { app: 'Logout app', back: 'https://lo.example/bye' });
+  // With the ID token the app was given: signed out at once, and back to the app.
+  const out = await fetch(`${base}/oauth/logout?${new URLSearchParams({ id_token_hint: tok.id_token, post_logout_redirect_uri: 'https://lo.example/bye', state: 'z' })}`, { headers: { cookie }, redirect: 'manual' });
+  assert.equal(out.status, 302);
+  assert.equal(out.headers.get('location'), 'https://lo.example/bye?state=z');
+  assert.equal(await me2(), 401, 'signed out of Workspace');
+  // A forged token does nothing.
+  const forged = `${tok.id_token.split('.').slice(0, 2).join('.')}.AAAA`;
+  const r = await fetch(`${base}/oauth/logout?${new URLSearchParams({ id_token_hint: forged })}`, { headers: { cookie: (await (await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ username: 'kay@keepco.com', password: 'password123' }) })).headers.get('set-cookie')).split(';')[0] }, redirect: 'manual' });
+  assert.match(r.headers.get('location'), /^\/oauth\/signout/);
+  assert.ok(me.id);
+});

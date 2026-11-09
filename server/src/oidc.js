@@ -11,6 +11,7 @@ import express, { Router } from 'express';
 import { q } from './db.js';
 import { uid, now, bad, notFound, HttpError } from './util.js';
 import { audit } from './audit.js';
+import { userFromToken, tokenFromReq, destroySession, clearSessionCookie } from './auth.js';
 
 q(`CREATE TABLE IF NOT EXISTS oidc_clients (
   id TEXT PRIMARY KEY,
@@ -102,6 +103,27 @@ export function signJwt(payload) {
   return `${head}.${body}.${b64url(crypto.sign('sha256', Buffer.from(`${head}.${body}`), key))}`;
 }
 
+/** The claims of an ID token Workspace signed (any of its keys), or null. Expiry isn't checked: an app may sign someone out later. */
+export function verifyJwt(token) {
+  const [h, p, sig] = String(token || '').split('.');
+  if (!h || !p || !sig) return null;
+  try {
+    const head = JSON.parse(Buffer.from(h, 'base64url'));
+    const row = q('SELECT private_pem FROM oidc_keys WHERE kid = ?').get(String(head.kid));
+    if (!row || head.alg !== 'RS256') return null;
+    if (!crypto.verify('sha256', Buffer.from(`${h}.${p}`), crypto.createPublicKey(row.private_pem), Buffer.from(sig, 'base64url'))) return null;
+    return JSON.parse(Buffer.from(p, 'base64url'));
+  } catch { return null; }
+}
+
+/** Where an app may send people after signing out: one of its registered addresses, or its own address, or anything on the same sites. */
+export function logoutTargetOk(c, uri) {
+  let u;
+  try { u = new URL(String(uri)); } catch { return false; }
+  const origins = [...JSON.parse(c.redirect_uris), ...(c.home_url ? [c.home_url] : [])].map((x) => { try { return new URL(x).origin; } catch { return null; } });
+  return origins.includes(u.origin) && /^https?:$/.test(u.protocol);
+}
+
 /** Scopes asked for, of the ones Workspace gives (openid always). */
 export const scopesOf = (scope) => ['openid', ...String(scope || '').split(/\s+/).filter((s) => SCOPES.includes(s) && s !== 'openid')].filter((s, i, a) => a.indexOf(s) === i);
 
@@ -138,6 +160,7 @@ export function oidcPublicRoutes() {
       response_types_supported: ['code'], grant_types_supported: ['authorization_code', 'refresh_token'], subject_types_supported: ['public'], id_token_signing_alg_values_supported: ['RS256'],
       scopes_supported: SCOPES, token_endpoint_auth_methods_supported: ['client_secret_basic', 'client_secret_post'], code_challenge_methods_supported: ['S256', 'plain'],
       claims_supported: ['sub', 'name', 'preferred_username', 'email', 'email_verified', 'groups'],
+      end_session_endpoint: `${iss}/oauth/logout`,
     });
   });
   r.get('/oauth/jwks', (req, res) => { signingKey(); res.json(jwks()); });
@@ -153,6 +176,27 @@ export function oidcPublicRoutes() {
     // The person says yes (or signs in first) on Workspace's own page, which carries on from here.
     const qs = new URLSearchParams(Object.fromEntries(['client_id', 'redirect_uri', 'scope', 'state', 'nonce', 'code_challenge', 'code_challenge_method'].filter((k) => req.query[k]).map((k) => [k, String(req.query[k])])));
     res.redirect(302, `/oauth/consent?${qs}`);
+  });
+
+  // Signing out from an app ("RP-initiated logout"). With the ID token the app was given (for the
+  // person signed in here), Workspace signs them out at once; otherwise its own page asks first.
+  // Then back to the app, when the address is one of its own.
+  r.get('/oauth/logout', (req, res) => {
+    const claims = verifyJwt(req.query.id_token_hint);
+    const c = clientBy(req.query.client_id || claims?.aud);
+    const back = req.query.post_logout_redirect_uri && c && logoutTargetOk(c, req.query.post_logout_redirect_uri) ? String(req.query.post_logout_redirect_uri) : null;
+    const withState = (u) => { const x = new URL(u); if (req.query.state) x.searchParams.set('state', String(req.query.state)); return x.toString(); };
+    const token = tokenFromReq(req);
+    const user = token && userFromToken(token);
+    if (claims && c && claims.aud === c.client_id && user && claims.sub === user.id) {
+      destroySession(token);
+      clearSessionCookie(res);
+      audit(req, 'sign-out', { actor: user, target: user.username, details: { via: c.name } });
+      return res.redirect(302, back ? withState(back) : '/');
+    }
+    if (!user) return res.redirect(302, back ? withState(back) : '/'); // already signed out
+    const qs = new URLSearchParams({ ...(c && { client_id: c.client_id }), ...(back && { post_logout_redirect_uri: withState(back) }) });
+    res.redirect(302, `/oauth/signout?${qs}`);
   });
 
   // The app swaps the code for tokens.
@@ -257,6 +301,13 @@ export function oidcApiRoutes() {
   r.get('/launcher', (req, res) => {
     res.json(q('SELECT * FROM oidc_clients WHERE org_id = ? AND home_url IS NOT NULL ORDER BY name COLLATE NOCASE').all(req.user.org_id)
       .filter((c) => mayUse(c, req.user)).map((c) => ({ id: c.id, name: c.name, url: c.home_url })));
+  });
+
+  // The sign-out page: which app is asking, and whether its return address is its own.
+  r.get('/signout', (req, res) => {
+    const c = clientBy(req.query.client_id);
+    const back = c && req.query.post_logout_redirect_uri && logoutTargetOk(c, req.query.post_logout_redirect_uri) ? String(req.query.post_logout_redirect_uri) : null;
+    res.json({ app: c?.name || null, back });
   });
 
   // Apps you've let in (and taking that back).
