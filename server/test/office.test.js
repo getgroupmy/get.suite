@@ -873,3 +873,17 @@ test('Word and Markdown: superscript and subscript go out and come back (footnot
   const fromMd = docFromMarkdown(md);
   assert.ok(JSON.stringify(fromMd).includes('"superscript"') && JSON.stringify(fromMd).includes('"subscript"'));
 });
+
+test('Word: indented paragraphs and headings keep their indent', async () => {
+  const JSZip = (await import('jszip')).default;
+  const doc = { type: 'doc', content: [
+    { type: 'heading', attrs: { level: 2, indent: 1 }, content: [{ type: 'text', text: 'Indented heading' }] },
+    { type: 'paragraph', attrs: { indent: 2 }, content: [{ type: 'text', text: 'Twice in' }] },
+    { type: 'paragraph', content: [{ type: 'text', text: 'At the margin' }] },
+  ] };
+  const xml = await (await JSZip.loadAsync(await wordFromDoc(doc, 'Indents'))).file('word/document.xml').async('string');
+  const paraOf = (text) => xml.split('<w:p>').concat(xml.split('<w:p ')).find((p) => p.includes(text)) || '';
+  assert.match(paraOf('Twice in'), /<w:ind w:left="1440"/);
+  assert.match(paraOf('Indented heading'), /<w:ind w:left="720"/);
+  assert.doesNotMatch(paraOf('At the margin'), /<w:ind /);
+});

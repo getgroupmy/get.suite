@@ -293,8 +293,10 @@ export async function wordFromDoc(doc, title = 'Document', { pictureData, page, 
     const walk = (list, c) => walkInto(paras, list, c);
     for (const n of nodes || []) {
       const align = ALIGN[n.attrs?.textAlign];
-      if (n.type === 'paragraph') paras.push(new Paragraph({ children: runs(n.content), alignment: align, ...spacing(n.attrs?.lineHeight), ...ctx.para }));
-      else if (n.type === 'heading') paras.push(new Paragraph({ children: textOf(n).trim() ? [new Bookmark({ id: `toc_${++headingNo}`, children: runs(n.content) })] : runs(n.content), heading: HEADINGS[n.attrs?.level] || HeadingLevel.HEADING_1, alignment: align, ...spacing(n.attrs?.lineHeight) }));
+      // Indented paragraphs: half an inch (720 twentieths of a point) a step, as in Docs.
+      const indent = Number(n.attrs?.indent) > 0 ? { indent: { left: 720 * Math.min(8, Math.round(n.attrs.indent)) } } : {};
+      if (n.type === 'paragraph') paras.push(new Paragraph({ children: runs(n.content), alignment: align, ...spacing(n.attrs?.lineHeight), ...indent, ...ctx.para }));
+      else if (n.type === 'heading') paras.push(new Paragraph({ children: textOf(n).trim() ? [new Bookmark({ id: `toc_${++headingNo}`, children: runs(n.content) })] : runs(n.content), heading: HEADINGS[n.attrs?.level] || HeadingLevel.HEADING_1, alignment: align, ...spacing(n.attrs?.lineHeight), ...indent }));
       else if (n.type === 'bulletList' || n.type === 'orderedList') {
         const level = (ctx.level ?? -1) + 1;
         for (const li of n.content || []) walk(li.content, { level, para: n.type === 'bulletList' ? { bullet: { level } } : { numbering: { reference: 'numbers', level } } });

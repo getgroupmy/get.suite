@@ -1,10 +1,10 @@
 // Paint format (Docs): copy the formatting where the cursor is (bold, italic, colours, font, size…
-// and the paragraph's style: heading level, alignment, spacing) and put it on other text. Links,
+// and the paragraph's style: heading level, alignment, spacing, indent) and put it on other text. Links,
 // comments and suggestions aren't formatting, so they stay as they are.
 
 export const FORMAT_MARKS = ['bold', 'italic', 'underline', 'strike', 'code', 'textStyle', 'highlight', 'subscript', 'superscript'];
 const BLOCKS = ['paragraph', 'heading'];
-const BLOCK_ATTRS = ['level', 'textAlign', 'lineHeight'];
+const BLOCK_ATTRS = ['level', 'textAlign', 'lineHeight', 'indent'];
 
 /** The formatting at the start of the selection: { marks: [{ type, attrs }], block: { type, attrs } }. */
 export function captureFormat(state) {
