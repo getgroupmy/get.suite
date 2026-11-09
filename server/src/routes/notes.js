@@ -33,6 +33,16 @@ q(`CREATE TABLE IF NOT EXISTS note_shares (
   PRIMARY KEY (note_id, user_id)
 )`).run();
 q('CREATE INDEX IF NOT EXISTS notes_owner ON notes(owner_id)').run();
+// Each person's own order of the cards (dragged into place); notes they haven't moved keep the note's own position.
+q(`CREATE TABLE IF NOT EXISTS note_order (
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  note_id TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+  position REAL NOT NULL,
+  PRIMARY KEY (user_id, note_id)
+)`).run();
+/** One above the highest card this person sees, so a new note goes first. */
+const topFor = (userId) => (q(`SELECT MAX(COALESCE(o.position, n.position)) AS p FROM notes n LEFT JOIN note_order o ON o.note_id = n.id AND o.user_id = ?
+                               WHERE n.owner_id = ? OR n.id IN (SELECT note_id FROM note_shares WHERE user_id = ?)`).get(userId, userId, userId).p ?? 0) + 1;
 if (!q('PRAGMA table_info(notes)').all().some((c) => c.name === 'remind_at')) q('ALTER TABLE notes ADD COLUMN remind_at INTEGER').run(); // a reminder, for everyone on the note
 
 // Pictures on a note (shown at the top of the card), stored like Drive files but not listed in Drive.
@@ -120,8 +130,9 @@ export default function noteRoutes() {
     if (req.query.trash === '1') { // your deleted notes, most recent first
       return res.json(q('SELECT * FROM notes WHERE owner_id = ? AND trashed_at IS NOT NULL ORDER BY trashed_at DESC').all(req.user.id).map((n) => shape(n, req.user.id)));
     }
-    let rows = q(`SELECT n.* FROM notes n WHERE (n.owner_id = ? OR n.id IN (SELECT note_id FROM note_shares WHERE user_id = ?)) AND n.archived = ? AND n.trashed_at IS NULL
-                  ORDER BY n.pinned DESC, n.position DESC`).all(req.user.id, req.user.id, archived);
+    let rows = q(`SELECT n.* FROM notes n LEFT JOIN note_order o ON o.note_id = n.id AND o.user_id = ?
+                  WHERE (n.owner_id = ? OR n.id IN (SELECT note_id FROM note_shares WHERE user_id = ?)) AND n.archived = ? AND n.trashed_at IS NULL
+                  ORDER BY n.pinned DESC, COALESCE(o.position, n.position) DESC`).all(req.user.id, req.user.id, req.user.id, archived);
     const words = String(req.query.q || '').toLowerCase().split(/\s+/).filter(Boolean);
     if (words.length) {
       rows = rows.filter((n) => {
@@ -133,6 +144,20 @@ export default function noteRoutes() {
                                                 ORDER BY n.remind_at`).all(req.user.id, req.user.id);
     if (req.query.label) rows = rows.filter((n) => JSON.parse(n.labels).includes(String(req.query.label)));
     res.json(rows.map((n) => shape(n, req.user.id)));
+  });
+
+  // Your order of the cards: { ids } as they should now show, first to last (yours and shared ones;
+  // others see their own order). They go above the rest, in that order.
+  r.post('/order', (req, res) => {
+    const ids = Array.isArray(req.body?.ids) ? [...new Set(req.body.ids.map(String))].slice(0, MAX_NOTES) : null;
+    if (!ids?.length) throw bad('Which notes, in which order?');
+    const mine = new Set(q('SELECT id FROM notes WHERE (owner_id = ? OR id IN (SELECT note_id FROM note_shares WHERE user_id = ?)) AND trashed_at IS NULL').all(req.user.id, req.user.id).map((x) => x.id));
+    const ok = ids.filter((id) => mine.has(id));
+    const top = topFor(req.user.id) + ok.length;
+    const put = q('INSERT INTO note_order (user_id, note_id, position) VALUES (?, ?, ?) ON CONFLICT (user_id, note_id) DO UPDATE SET position = excluded.position');
+    tx(() => ok.forEach((id, i) => put.run(req.user.id, id, top - i)));
+    sendTo([req.user.id], { type: 'notes-changed' }); // your other tabs and devices
+    res.json({ ok: true, ordered: ok.length });
   });
 
   // Every label you use (on your notes and those shared with you), for the sidebar.
@@ -153,7 +178,7 @@ export default function noteRoutes() {
     if (!title.trim() && !body.trim() && !(items || []).some((i) => i.text.trim())) throw bad('The note is empty');
     if (b.color && !COLORS.includes(b.color)) throw bad('Unknown colour');
     const id = uid(), t = now();
-    const top = (q('SELECT MAX(position) AS p FROM notes WHERE owner_id = ?').get(req.user.id).p ?? 0) + 1;
+    const top = topFor(req.user.id);
     q(`INSERT INTO notes (id, owner_id, title, body, items, color, pinned, labels, position, created_at, updated_at, updated_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(id, req.user.id, title, body, items ? JSON.stringify(items) : null, b.color || null, b.pinned ? 1 : 0, JSON.stringify(cleanLabels(b.labels || [])), top, t, t, req.user.id);
     const n = q('SELECT * FROM notes WHERE id = ?').get(id);
@@ -192,7 +217,7 @@ export default function noteRoutes() {
   r.post('/:id/copy', (req, res) => {
     const n = load(req.params.id, req.user);
     const id = uid(), t = now();
-    const top = (q('SELECT MAX(position) AS p FROM notes WHERE owner_id = ?').get(req.user.id).p ?? 0) + 1;
+    const top = topFor(req.user.id);
     q(`INSERT INTO notes (id, owner_id, title, body, items, color, pinned, labels, position, created_at, updated_at, updated_by) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)`)
       .run(id, req.user.id, n.title, n.body, n.items, n.color, n.labels, top, t, t, req.user.id);
     for (const p of q('SELECT * FROM note_pictures WHERE note_id = ? ORDER BY created_at').all(n.id)) { // the pictures too, as copies of their own

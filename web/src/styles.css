@@ -1739,6 +1739,8 @@ button.usage:hover .muted { color: var(--text); }
 .notes-grid { columns: 240px; column-gap: 14px; }
 .note-card { break-inside: avoid; margin: 0 0 14px; border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px 4px; position: relative; background: var(--surface); display: flex; flex-direction: column; gap: 6px; overflow-wrap: anywhere; }
 .note-card:hover { box-shadow: 0 1px 6px rgba(0,0,0,.15); }
+.note-card[draggable=true] { cursor: grab; }
+.note-card.dragging { opacity: .4; }
 .note-card h3 { margin: 0 24px 0 0; font-size: 15px; }
 .note-body { margin: 0; white-space: pre-wrap; font-size: 14px; }
 .note-open { cursor: pointer; display: flex; flex-direction: column; gap: 6px; min-height: 20px; }

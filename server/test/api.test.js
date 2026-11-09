@@ -3772,6 +3772,37 @@ test('notes: write, check off, pin, label, archive, search and share', async () 
   assert.equal((await a('DELETE', `/api/notes/${n2.id}`)).body.deleted, true);
 });
 
+test('notes: each person drags the cards into their own order', async () => {
+  const a = client(); const b = client(); const c = client();
+  const ids = {};
+  for (const [local, name] of [['noa', 'Ola Order'], ['nob', 'Obi Order'], ['noc', 'Cy Order']]) ids[local] = (await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).body.id;
+  await login(a, 'noa@acme.com'); await login(b, 'nob@acme.com'); await login(c, 'noc@acme.com');
+  const mk = async (title) => (await a('POST', '/api/notes', { title })).body.id;
+  const one = await mk('One'), two = await mk('Two'), three = await mk('Three');
+  const order = async (who) => (await who('GET', '/api/notes')).body.map((n) => n.title).join(',');
+  assert.equal(await order(a), 'Three,Two,One');
+  await a('PUT', `/api/notes/${two}/shares`, { user_ids: [ids.nob] });
+  const theirs = (await b('POST', '/api/notes', { title: 'Bee' })).body.id;
+  assert.equal(await order(b), 'Bee,Two');
+  // Ola puts One first.
+  assert.equal((await a('POST', '/api/notes/order', { ids: [one, three, two] })).status, 200);
+  assert.equal(await order(a), 'One,Three,Two');
+  assert.equal(await order(b), 'Bee,Two', 'Obi keeps his own order');
+  // Obi orders his, including the shared one; Ola's stays.
+  await b('POST', '/api/notes/order', { ids: [two, theirs] });
+  assert.equal(await order(b), 'Two,Bee');
+  assert.equal(await order(a), 'One,Three,Two');
+  // A new note still goes first; notes you can't see are ignored.
+  await mk('Four');
+  assert.equal(await order(a), 'Four,One,Three,Two');
+  const r = await c('POST', '/api/notes/order', { ids: [one, two] });
+  assert.equal(r.body.ordered, 0, 'not theirs');
+  assert.equal((await a('POST', '/api/notes/order', { ids: [] })).status, 400);
+  // Pinned ones stay on top whatever the order.
+  await a('PATCH', `/api/notes/${two}`, { pinned: true });
+  assert.equal(await order(a), 'Two,Four,One,Three');
+});
+
 test('notes: reminders reach everyone on the note, then clear', async () => {
   const { remindNotesDue } = await import('../src/routes/notes.js');
   const a = client(); const b = client();

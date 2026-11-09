@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import { get, post, patch, put, del, onLive } from '../../api.js';
+import { moveTo, moveBy } from './order.js';
 import Icon from '../../components/Icon.jsx';
 import { Avatar, Empty, Menu, Modal, PromptModal, ConfirmModal, useToast } from '../../components/ui.jsx';
 import { quickTimes, reminderText } from './remind.js';
@@ -84,7 +85,27 @@ export default function Notes() {
   const pinned = (notes || []).filter((n) => n.pinned);
   const others = (notes || []).filter((n) => !n.pinned);
   const current = notes?.find((n) => n.id === editing);
-  const card = (n) => <NoteCard key={n.id} note={n} onOpen={() => setEditing(n.id)} onChange={(c) => change(n, c)} onArchive={() => archive(n, !n.archived)}
+  // Your own order: drag a card onto another (within Pinned or Others), or ⋮ → Move earlier / later.
+  // Not while searching or looking at a label or reminders, where only some cards show.
+  const sortable = !search && !where.label && !where.reminders && !where.trash;
+  const [dragging, setDragging] = useState(null);
+  const reorder = async (group, next) => {
+    const ids = group === 'pinned' ? [...next, ...others.map((n) => n.id)] : [...pinned.map((n) => n.id), ...next];
+    const byId = new Map((notes || []).map((n) => [n.id, n]));
+    setNotes(ids.map((id) => byId.get(id)));
+    try { await post('/notes/order', { ids }); } catch (e) { toast(e.message, 'error'); load(); }
+  };
+  const groupOf = (n) => (n.pinned ? pinned : others).map((x) => x.id);
+  const dragProps = (n) => (!sortable ? {} : {
+    draggable: true,
+    onDragStart: (e) => { setDragging(n.id); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', n.id); },
+    onDragEnd: () => setDragging(null),
+    onDragOver: (e) => { const d = (notes || []).find((x) => x.id === dragging); if (d && d.id !== n.id && !!d.pinned === !!n.pinned) e.preventDefault(); },
+    onDrop: (e) => { e.preventDefault(); const d = (notes || []).find((x) => x.id === dragging); setDragging(null); if (d && d.id !== n.id && !!d.pinned === !!n.pinned) reorder(n.pinned ? 'pinned' : 'others', moveTo(groupOf(n), d.id, n.id)); },
+  });
+  const card = (n) => <NoteCard key={n.id} note={n} drag={dragProps(n)} dragging={dragging === n.id}
+    onMove={sortable ? (by) => reorder(n.pinned ? 'pinned' : 'others', moveBy(groupOf(n), n.id, by)) : null}
+    first={groupOf(n)[0] === n.id} last={groupOf(n).at(-1) === n.id} onOpen={() => setEditing(n.id)} onChange={(c) => change(n, c)} onArchive={() => archive(n, !n.archived)}
     onLabel={() => setLabelling(n)} onShare={() => setSharing(n)} onCopy={() => copy(n)} onDelete={() => (n.mine ? trash(n) : setDeleting(n))}
     onToDoc={async () => { try { const d = await post(`/notes/${n.id}/doc`); toast('Copied to a new document in My Drive', 'info', { action: { label: 'Open', onClick: () => navigate(`/docs/${d.id}`) } }); } catch (e) { toast(e.message, 'error'); } }}
     onToTasks={async () => { try { const r = await post(`/notes/${n.id}/tasks`); toast(`${r.added === 1 ? '1 task' : `${r.added} tasks`} added to ${r.list.name}`, 'info', { action: { label: 'Open', onClick: () => navigate(`/tasks/${r.list.id}`) } }); } catch (e) { toast(e.message, 'error'); } }}
@@ -226,13 +247,13 @@ function PickTime({ note, onPick, onClose }) {
   );
 }
 
-function NoteCard({ note: n, onOpen, onChange, onArchive, onLabel, onShare, onCopy, onDelete, onRemind, onToDoc, onToTasks }) {
+function NoteCard({ note: n, drag = {}, dragging, onMove, first, last, onOpen, onChange, onArchive, onLabel, onShare, onCopy, onDelete, onRemind, onToDoc, onToTasks }) {
   const items = n.items || [];
   const open = items.filter((i) => !i.done);
   const done = items.filter((i) => i.done);
   const tick = (it) => onChange({ items: items.map((x) => (x.id === it.id ? { ...x, done: !x.done } : x)) });
   return (
-    <article className="note-card" style={n.color ? { background: n.color, color: '#202124' } : undefined} aria-label={n.title || (n.body || items.map((i) => i.text).join(', ')).slice(0, 60) || 'Note'}>
+    <article className={`note-card ${dragging ? 'dragging' : ''}`} {...drag} style={n.color ? { background: n.color, color: '#202124' } : undefined} aria-label={n.title || (n.body || items.map((i) => i.text).join(', ')).slice(0, 60) || 'Note'}>
       <button type="button" className={`icon-btn note-pin ${n.pinned ? 'on' : ''}`} aria-pressed={n.pinned} aria-label={n.pinned ? 'Unpin note' : 'Pin note'} onClick={() => onChange({ pinned: !n.pinned })}>📌</button>
       <div className="note-open" role="button" tabIndex={0} onClick={onOpen} onKeyDown={(e) => { if (e.key === 'Enter') onOpen(); }}>
         {n.pictures?.length > 0 && (
@@ -269,6 +290,7 @@ function NoteCard({ note: n, onOpen, onChange, onArchive, onLabel, onShare, onCo
         <button type="button" className="icon-btn" aria-label={n.archived ? 'Unarchive' : 'Archive'} title={n.archived ? 'Unarchive' : 'Archive'} onClick={onArchive}><Icon name={n.archived ? 'restore' : 'archive'} size={18} /></button>
         {n.mine && <button type="button" className="icon-btn" aria-label="Share note" title="Share with colleagues" onClick={onShare}><Icon name="share" size={18} /></button>}
         <Menu trigger={(p) => <button type="button" className="icon-btn" aria-label="More" {...p}><Icon name="more" size={18} /></button>} items={[
+          ...(onMove ? [{ label: 'Move earlier', onClick: () => onMove(-1), disabled: first }, { label: 'Move later', onClick: () => onMove(1), disabled: last }] : []),
           { label: 'Labels…', onClick: onLabel },
           { label: 'Make a copy', icon: 'copy', onClick: onCopy },
           { label: 'Copy to a document', icon: 'doc', onClick: onToDoc },
