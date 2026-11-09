@@ -135,6 +135,10 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
   useEffect(() => { get('/mail/vacation').then(setVacation).catch(() => {}); }, []);
 
   const loadFolders = useCallback(() => get('/mail/folders').then(setFolders).catch((e) => setError(e.message)), []);
+  // Saved searches in the sidebar, with how many unread match (refreshed with the folders).
+  const [searches, setSearches] = useState([]);
+  const loadSearches = useCallback(() => { if (!shared) get('/mail/searches').then(setSearches).catch(() => {}); }, [shared]);
+  useEffect(() => { loadSearches(); }, [loadSearches]);
   // Inbox tabs: Primary (people) and Updates (newsletters, notifications), unless turned off in Filters.
   const [tabsOn, setTabsOn] = useState(false);
   const [tab, setTab] = useState('primary');
@@ -148,8 +152,8 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
   useEffect(() => { loadFolders(); }, [loadFolders]);
   // New mail arrives: refresh straight away instead of waiting for the next 30-second check.
   useEffect(() => onLive((m) => {
-    if (m.type === 'mail-new' || m.type === 'mail-unread') { loadFolders(); if (m.type === 'mail-unread' || m.folder === folder) loadList(); }
-  }), [loadFolders, loadList, folder]);
+    if (m.type === 'mail-new' || m.type === 'mail-unread') { loadFolders(); loadSearches(); if (m.type === 'mail-unread' || m.folder === folder) loadList(); }
+  }), [loadFolders, loadList, loadSearches, folder]);
   // Folders with new-mail notifications (Inbox always). The badge counts unread mail across them.
   const [followed, setFollowed] = useState(['INBOX']);
   useEffect(() => { get('/mail/notify-folders').then((r) => setFollowed(r.folders)).catch(() => {}); }, []);
@@ -176,7 +180,7 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
 
   const current = folders.find((f) => f.path === folder);
   const special = current?.specialUse;
-  const refresh = () => { loadFolders(); loadList(); };
+  const refresh = () => { loadFolders(); loadList(); loadSearches(); };
   refreshRef.current = refresh;
   const [snoozing, setSnoozing] = useState(null); // uids waiting for a picked time
   const go = (f, uid) => {
@@ -292,6 +296,17 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
             <span className={`count ${scheduled.some((m) => m.status === 'failed') ? 'error' : 'muted'}`}>{scheduled.length}</span></button>
         )}
         <button className="subnav-item new-folder" onClick={() => setNewFolder(true)}><Icon name="plus" /><span className="grow">New folder</span></button>
+        {!shared && searches.length > 0 && <>
+          <div className="subnav-title">Searches</div>
+          {searches.map((sv) => (
+            <div key={sv.id} className="folder-row">
+              <button className={`subnav-item ${folder === sv.folder && q === sv.query ? 'active' : ''}`} title={`${sv.query} (in ${folders.find((f) => f.path === sv.folder)?.name || sv.folder})`}
+                onClick={() => navigate(`/mail/${enc(sv.folder)}?q=${enc(sv.query)}`)}>
+                <Icon name="search" /><span className="grow ellipsis">{sv.name}</span>{sv.unseen > 0 && <span className="count">{sv.unseen}</span>}</button>
+              <button type="button" className="icon-btn folder-menu" aria-label={`Remove saved search ${sv.name}`} title="Remove" onClick={async () => { await del(`/mail/searches/${sv.id}`); loadSearches(); }}><Icon name="close" size={16} /></button>
+            </div>
+          ))}
+        </>}
         {!shared && <>
         <div className="subnav-title row">Labels<div className="grow" /><button type="button" className="icon-btn" aria-label="New label" onClick={() => setLabelDialog({})}><Icon name="plus" size={18} /></button></div>
         {labels.map((l) => (
@@ -365,7 +380,8 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
           </div>
         )}
         {labelId && <p className="muted small mail-note">Labelled <LabelChip label={labels.find((l) => l.id === labelId)} /> in {current?.name} · <button className="link" onClick={() => setSearch({})}>show all</button></p>}
-        {q && <p className="muted small mail-note">Results for “{q}” in {current?.name} · <button className="link" onClick={() => setSearch({})}>clear</button></p>}
+        {q && <p className="muted small mail-note">Results for “{q}” in {current?.name} · <button className="link" onClick={() => setSearch({})}>clear</button>
+          {!shared && !searches.some((sv) => sv.folder === folder && sv.query === q) && <> · <button className="link" onClick={async () => { try { await post('/mail/searches', { folder, query: q }); toast('Search saved: it\'s in the sidebar'); loadSearches(); } catch (e) { toast(e.message, 'error'); } }}>Save this search</button></>}</p>}
         {tabbed && (
           <div className="tabs mail-inbox-tabs" role="tablist" aria-label="Inbox tabs">
             {[['primary', 'Primary', 'person'], ['updates', 'Updates', 'bell']].map(([k, label, icon]) => (

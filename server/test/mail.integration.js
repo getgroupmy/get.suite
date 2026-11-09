@@ -1820,3 +1820,26 @@ test('when someone leaves, mail to their address arrives in the colleague\'s inb
   const got = await eventually(async () => (await inbox(olivia, subject))[0], 30000);
   assert.ok(got);
 });
+
+test('saved searches: kept with their folder, unread matches counted by the mail server, renamed, removed', async () => {
+  assert.equal((await olivia('POST', '/api/mail/searches', { query: '' })).status, 400);
+  assert.equal((await olivia('POST', '/api/mail/searches', { query: 'before:yesterdayish' })).status, 400, 'a search that can\'t be read');
+  const tag = `Inv${Date.now()}`;
+  const saved = await olivia('POST', '/api/mail/searches', { name: 'Invoices', folder: 'INBOX', query: `subject:${tag}` });
+  assert.equal(saved.status, 201, JSON.stringify(saved.body));
+  assert.equal((await olivia('POST', '/api/mail/searches', { folder: 'INBOX', query: `subject:${tag}` })).status, 400, 'saved already');
+  const t = nodemailer.createTransport({ host: process.env.MAIL_IMAP_HOST, port: 25, secure: false, ignoreTLS: true, name: 'test.acme.com' });
+  for (const n of [1, 2]) await t.sendMail({ from: 'Supplier <billing@globex.com>', to: 'olivia@acme.com', subject: `${tag} number ${n}`, text: 'x' });
+  await t.sendMail({ from: 'Friend <friend@globex.com>', to: 'olivia@acme.com', subject: 'Something else', text: 'x' });
+  const count = async () => (await olivia('GET', '/api/mail/searches')).body.find((x) => x.id === saved.body.id);
+  await eventually(async () => (await count())?.unseen === 2, 30000);
+  // Reading one: one unread left.
+  const first = (await inbox(olivia, tag))[0];
+  await olivia('GET', `/api/mail/messages/${first.uid}?folder=INBOX`);
+  await eventually(async () => (await count()).unseen === 1);
+  assert.equal((await bob('PATCH', `/api/mail/searches/${saved.body.id}`, { name: 'Mine now' })).status, 404, 'your own only');
+  await olivia('PATCH', `/api/mail/searches/${saved.body.id}`, { name: 'Supplier invoices' });
+  assert.deepEqual([(await count()).name, (await count()).query], ['Supplier invoices', `subject:${tag}`]);
+  assert.equal((await olivia('DELETE', `/api/mail/searches/${saved.body.id}`)).status, 200);
+  assert.equal(await count(), undefined);
+});

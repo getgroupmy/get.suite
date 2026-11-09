@@ -39,6 +39,11 @@ import { recordReply } from '../mail/invitereply.js';
 import { setVacation } from '../mail/vacation.js';
 import { touch as eventsChanged } from './calendar.js';
 
+// Saved searches (Mail sidebar → Searches).
+q(`CREATE TABLE IF NOT EXISTS mail_searches (
+  id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL, folder TEXT NOT NULL, query TEXT NOT NULL, position REAL NOT NULL, created_at INTEGER NOT NULL
+)`).run();
 // Inbox tabs: on for everyone unless they turn them off.
 if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'inbox_tabs')) q('ALTER TABLE users ADD COLUMN inbox_tabs INTEGER NOT NULL DEFAULT 1').run();
 const inboxTabsOn = (userId) => !!q('SELECT inbox_tabs FROM users WHERE id = ?').get(userId)?.inbox_tabs;
@@ -721,6 +726,41 @@ export default function webmailRoutes() {
   r.delete('/signatures/:address', (req, res) => {
     q('DELETE FROM identity_signatures WHERE user_id = ? AND address = ?').run(req.user.id, String(req.params.address).toLowerCase());
     res.json({ address: String(req.params.address).toLowerCase(), ...signatureOf(req.user.id, String(req.params.address).toLowerCase(), req.user) });
+  });
+
+  // Saved searches: a search (with the folder it's in) kept in the sidebar, with how many unread match.
+  r.get('/searches', async (req, res) => {
+    const list = q('SELECT id, name, folder, query FROM mail_searches WHERE user_id = ? ORDER BY position, created_at').all(req.user.id);
+    for (const sv of list) {
+      try {
+        const parsed = parseMailQuery(sv.query);
+        sv.unseen = parsed.query ? ((await withFolder(req.user, sv.folder, (c) => c.search(allOf([parsed.query, { seen: false }]), { uid: true }))) || []).length : 0;
+      } catch { sv.unseen = null; } // a folder that's gone
+    }
+    res.json(list);
+  });
+  r.post('/searches', (req, res) => {
+    const query = String(req.body?.query || '').trim().slice(0, 500);
+    const folder = String(req.body?.folder || 'INBOX').slice(0, 300);
+    if (!query) throw bad('Search for something first');
+    const parsed = parseMailQuery(query);
+    if (parsed.error) throw bad(parsed.error);
+    const name = String(req.body?.name || query).trim().slice(0, 60) || query.slice(0, 60);
+    if (q('SELECT COUNT(*) AS n FROM mail_searches WHERE user_id = ?').get(req.user.id).n >= 30) throw bad('At most 30 saved searches');
+    if (q('SELECT 1 FROM mail_searches WHERE user_id = ? AND folder = ? AND query = ?').get(req.user.id, folder, query)) throw bad('That search is saved already');
+    const id = newId();
+    q('INSERT INTO mail_searches (id, user_id, name, folder, query, position, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(id, req.user.id, name, folder, query, Date.now(), Date.now());
+    res.status(201).json({ id, name, folder, query });
+  });
+  r.patch('/searches/:id', (req, res) => {
+    const name = String(req.body?.name || '').trim().slice(0, 60);
+    if (!name) throw bad('Give it a name');
+    if (!q('UPDATE mail_searches SET name = ? WHERE id = ? AND user_id = ?').run(name, String(req.params.id), req.user.id).changes) throw notFound('Saved search not found');
+    res.json({ ok: true });
+  });
+  r.delete('/searches/:id', (req, res) => {
+    if (!q('DELETE FROM mail_searches WHERE id = ? AND user_id = ?').run(String(req.params.id), req.user.id).changes) throw notFound('Saved search not found');
+    res.json({ ok: true });
   });
 
   r.get('/folders', async (req, res) => {
