@@ -76,3 +76,37 @@ export function columnFiltered(filter, col) {
 }
 
 export { rangeText, colName };
+
+// ---- slicers: a control on the sheet that filters a table by one column's values, like the filter's
+// ▾ menu but always in view (handy above a chart). A sheet keeps them as
+// slicers: { id: { range: "A1:D20", col: "B", hidden: ["East"], x, y } }. Their hidden rows add to the filter's.
+export const slicerAsFilter = (s) => ({ range: s.range, hidden: { [s.col]: s.hidden || [] } });
+
+/** The rows (0-based) all the sheet's slicers hide. */
+export function slicerHiddenRows(slicers, cells, value) {
+  const out = new Set();
+  for (const s of Object.values(slicers || {})) if (s?.hidden?.length) for (const r of hiddenRows(slicerAsFilter(s), cells, value)) out.add(r);
+  return out;
+}
+
+/** The slicers after rows or columns are inserted or deleted (one whose column or headings went is dropped). */
+export function adjustSlicers(slicers, change) {
+  if (!slicers) return slicers;
+  const out = {};
+  for (const [id, s] of Object.entries(slicers)) {
+    const f = adjustFilter(slicerAsFilter(s), change);
+    const col = f && Object.keys(f.hidden)[0];
+    if (!f || !col) continue;
+    out[id] = { ...s, range: f.range, col, hidden: f.hidden[col] };
+  }
+  return out;
+}
+
+/** What a slicer's chip says: "All", the one value shown, or "3 of 5". */
+export function slicerSummary(s, values) {
+  const hidden = new Set(s.hidden || []);
+  const shown = values.filter((v) => !hidden.has(v.label));
+  if (shown.length === values.length) return 'All';
+  if (shown.length === 1) return shown[0].label || '(Blanks)';
+  return `${shown.length} of ${values.length}`;
+}

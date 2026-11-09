@@ -468,6 +468,19 @@ export async function excelFromSheet(data, { comments = [] } = {}) {
         if (hide) ws.getRow(r).hidden = true;
       }
     }
+    // Slicers: Excel's need a table or pivot table behind them, so the rows they hide go hidden (by
+    // their stored values, as for the filter) and the slicer itself stays in Workspace.
+    for (const sl of Object.values(s.slicers || {})) {
+      const m = /^([A-Z]+)(\d+):([A-Z]+)(\d+)$/.exec(sl?.range || '');
+      if (!m || !sl.hidden?.length || !/^[A-Z]+$/.test(sl.col || '') || colIndex(sl.col) < colIndex(m[1]) || colIndex(sl.col) > colIndex(m[3])) continue;
+      let last = Number(m[4]);
+      for (const k of Object.keys(s.cells || {})) { const x = /^([A-Z]+)(\d+)$/.exec(k); if (x && x[1] === sl.col) last = Math.max(last, Math.min(Number(x[2]), last + 1000)); }
+      for (let r = Number(m[2]) + 1; r <= last; r++) {
+        const raw = s.cells?.[`${sl.col}${r}`];
+        if (typeof raw === 'string' && raw.startsWith('=')) continue;
+        if (sl.hidden.includes(raw === undefined ? '' : String(raw).trim())) ws.getRow(r).hidden = true;
+      }
+    }
     // Dropdowns as Excel list validations; tick boxes as a TRUE/FALSE list (Excel has no tick box to write).
     for (const v of s.validations || []) {
       if (v.type === 'rule') { const x = ruleValidationToExcel(v); if (x) ws.dataValidations.add(v.range, x); continue; }

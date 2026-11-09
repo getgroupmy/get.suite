@@ -29,7 +29,8 @@ import { CellPicture, PictureCellDialog } from './SheetPicture.jsx';
 import { CustomFormatDialog } from './SheetNumFmt.jsx';
 import { heightOf, setHeights, MIN_H, MAX_H, DEFAULT_H } from './rowheights.js';
 import { validationAt, checkEntry, isTicked, withChoices, choicesFrom, chipColour, breaksRule, describeCheck } from './validation.js';
-import { hiddenRows, columnValues, adjustFilter, filterArea, columnFiltered } from './filter.js';
+import { hiddenRows, columnValues, adjustFilter, filterArea, columnFiltered, slicerHiddenRows, slicerAsFilter, adjustSlicers } from './filter.js';
+import { SlicerCard } from './SheetSlicer.jsx';
 import { describeCondition } from './filtercond.js';
 import { setHidden, anyHidden, hiddenRuns } from './hide.js';
 import { addGroup, removeGroups, toggleGroup, collapsedOn, toggleAt } from './groups.js';
@@ -202,7 +203,8 @@ export default function SheetEditor() {
   const filter = sheet?.filter || null;
   const hide = sheet?.hide || null; // rows and columns hidden by hand
   const groups = sheet?.groups || null; // grouped rows and columns (collapsed ones are hidden too)
-  const hidden = useMemo(() => { const h = hiddenRows(filter, cells, evaluate); for (const r of hide?.rows || []) h.add(r); for (const r of collapsedOn(groups, 'row')) h.add(r); return h; }, [filter, cells, evaluate, hide, groups]);
+  const slicers = sheet?.slicers || {};
+  const hidden = useMemo(() => { const h = hiddenRows(filter, cells, evaluate); for (const r of slicerHiddenRows(slicers, cells, evaluate)) h.add(r); for (const r of hide?.rows || []) h.add(r); for (const r of collapsedOn(groups, 'row')) h.add(r); return h; }, [filter, slicers, cells, evaluate, hide, groups]);
   const hiddenCols = useMemo(() => new Set([...(hide?.cols || []), ...collapsedOn(groups, 'col')]), [hide, groups]);
   const groupToggle = useMemo(() => ({ row: toggleAt(groups, 'row'), col: toggleAt(groups, 'col') }), [groups]);
   const inGroup = (axis, i) => (groups || []).some((g) => g.axis === axis && i >= g.from && i <= g.to);
@@ -430,7 +432,7 @@ export default function SheetEditor() {
     if (readOnly) return;
     const cur = dataRef.current;
     // References to this sheet from the others move too.
-    commitData({ ...cur, sheets: adjustOtherSheets(cur.sheets, active, change).map((s, i) => (i === active ? { ...applyStructure(s, change), ...(s.filter && { filter: adjustFilter(s.filter, change) }) } : s)) });
+    commitData({ ...cur, sheets: adjustOtherSheets(cur.sheets, active, change).map((s, i) => (i === active ? { ...applyStructure(s, change), ...(s.filter && { filter: adjustFilter(s.filter, change) }), ...(s.slicers && { slicers: adjustSlicers(s.slicers, change) }) } : s)) });
     // Comments move with their cell; a deleted cell's thread is marked as such.
     for (const t of threads) {
       if ((t.anchor?.sheet || 0) !== active || !t.anchor?.cell || t.anchor.gone) continue;
@@ -649,6 +651,21 @@ export default function SheetEditor() {
     writeSheet(() => ({ filter: { range: rangeText(g), hidden: {} } }));
     gridRef.current?.focus();
   };
+  /** A slicer for the table around the cursor, filtering by the cursor's column, placed above the table's right. */
+  const newSlicer = () => {
+    const g = anchor ? range : dataRegion(sel, (c, r) => cells[cellKey(c, r)] !== undefined && cells[cellKey(c, r)] !== '');
+    if (g.r2 <= g.r1) { toast('Put the cursor in a table with headings in its first row', 'error'); return; }
+    const col = colName(Math.min(Math.max(sel.c, g.c1), g.c2));
+    const wrap = gridRef.current;
+    const td = wrap?.querySelector(`[data-k="${cellKey(Math.min(g.c2 + 1, cols - 1), g.r1)}"]`);
+    let x = 160, y = 40;
+    if (td && wrap) { const a = td.getBoundingClientRect(), b = wrap.getBoundingClientRect(); x = a.left - b.left + wrap.scrollLeft + 12; y = a.top - b.top + wrap.scrollTop; }
+    const id = (crypto.randomUUID?.() || `${Date.now()}${Math.random()}`).replace(/[^\w]/g, '').slice(0, 20);
+    writeSheet((s) => ({ slicers: { ...(s.slicers || {}), [id]: { range: rangeText(g), col, hidden: [], x: Math.round(x), y: Math.round(y) } } }));
+    toast(`Slicer added for ${display(evaluate(`${col}${g.r1 + 1}`)) || `column ${col}`}: click it to choose what to show`);
+    gridRef.current?.focus();
+  };
+  const writeSlicer = (id, next) => writeSheet((s) => { const all = { ...(s.slicers || {}) }; if (next) all[id] = next; else delete all[id]; return { slicers: all }; });
   const toggleTick = (key) => writeCells({ [key]: isTicked(evaluate(key)) ? 'FALSE' : 'TRUE' });
   /** The different values already in a range (for a new dropdown's choices). */
   const existingValues = (text) => {
@@ -973,7 +990,7 @@ export default function SheetEditor() {
       )}
       {!readOnly && <FormatBar sample={evaluate(selKey)} painter={painter} onPaint={(sticky) => (painter && !sticky ? setPainter(null) : startPaint(sticky))} fmt={formats[selKey] || {}} onChange={(change) => { writeFormats(change); gridRef.current?.focus(); }}
         onMerge={() => { toggleMerge(); gridRef.current?.focus(); }} merged={!!mergeAt(merges, sel.c, sel.r)}
-        onBorders={(kind) => { writeFormats((k, c, r, f) => ({ bd: borderFor(kind, range, c, r, f?.bd) })); gridRef.current?.focus(); }} onComment={startComment} onChart={newChart} onSort={() => setDialog({ type: 'sort' })} onRules={() => setDialog({ type: 'rules' })} onValidation={() => setDialog({ type: 'validation' })} onPivot={newPivot} filterOn={!!filter} onFilter={toggleFilter} history={history} />}
+        onBorders={(kind) => { writeFormats((k, c, r, f) => ({ bd: borderFor(kind, range, c, r, f?.bd) })); gridRef.current?.focus(); }} onComment={startComment} onChart={newChart} onSort={() => setDialog({ type: 'sort' })} onRules={() => setDialog({ type: 'rules' })} onValidation={() => setDialog({ type: 'validation' })} onPivot={newPivot} filterOn={!!filter} onFilter={toggleFilter} onSlicer={newSlicer} history={history} />}
       {finding && sheet && (
         <SheetFind key={`${active}-${finding.n}`} cells={cells} shown={shown} hidden={hidden} replacing={finding.replace} canEdit={!readOnly}
           onGo={(m) => { setAnchor(null); setSel({ c: m.c, r: m.r }); requestAnimationFrame(() => gridRef.current?.querySelector(`[data-k="${m.key}"]`)?.scrollIntoView({ block: 'nearest', inline: 'nearest' })); }}
@@ -1099,11 +1116,21 @@ export default function SheetEditor() {
         {handleAt && <span className="fill-handle" style={{ left: handleAt.left, top: handleAt.top }} onMouseDown={startFill} title="Drag to fill (Ctrl+D fills down, Ctrl+R right)" aria-hidden="true" />}
         <div className="chart-layer">
           {Object.entries(charts).map(([cid, ch]) => (
-            <ChartCard key={cid} chart={ch} value={evaluate} canEdit={!readOnly}
+            <ChartCard key={cid} chart={ch} value={evaluate} skipRow={(r) => hidden.has(r)} canEdit={!readOnly}
               onChange={(next) => writeChart(cid, next)}
               onEdit={() => setDialog({ type: 'chart', chart: { ...ch, id: cid } })}
               onDelete={() => writeChart(cid, null)} />
           ))}
+          {Object.entries(slicers).map(([id, sl]) => {
+            const g = parseRange(sl.range);
+            if (!g) return null;
+            const headings = Array.from({ length: g.c2 - g.c1 + 1 }, (_, i) => ({ col: colName(g.c1 + i), name: display(evaluate(cellKey(g.c1 + i, g.r1))) }));
+            return (
+              <SlicerCard key={id} slicer={sl} heading={headings.find((h) => h.col === sl.col)?.name || `Column ${sl.col}`} headings={headings} canEdit={!readOnly}
+                values={columnValues(slicerAsFilter(sl), cells, evaluate, colIndex(sl.col))}
+                onChange={(next) => writeSlicer(id, next)} onDelete={() => writeSlicer(id, null)} />
+            );
+          })}
         </div>
       </div>
       {panel && <CommentsPanel fileId={file.id} threads={threads} canEdit={canComment} active={thread} setActive={setThread} pending={pending}
@@ -1332,7 +1359,7 @@ function NoteEditor({ at, onSave, onClose }) {
   );
 }
 
-function FormatBar({ sample, painter, onPaint, fmt, onChange, onBorders, onMerge, merged, onComment, onChart, onSort, onRules, onValidation, onPivot, filterOn, onFilter, history }) {
+function FormatBar({ sample, painter, onPaint, fmt, onChange, onBorders, onMerge, merged, onComment, onChart, onSort, onRules, onValidation, onPivot, filterOn, onFilter, onSlicer, history }) {
   const keep = (e) => e.preventDefault(); // buttons don't take focus from the grid
   const Toggle = ({ k, label, title, children }) => (
     <button type="button" className={`tb ${fmt[k] ? 'on' : ''}`} aria-pressed={!!fmt[k]} aria-label={label} title={title} onMouseDown={keep} onClick={() => onChange({ [k]: !fmt[k] })}>{children}</button>
@@ -1407,6 +1434,7 @@ function FormatBar({ sample, painter, onPaint, fmt, onChange, onBorders, onMerge
       <span className="sep" />
       <button type="button" className="tb labelled" aria-label="Conditional formatting" title="Colour cells by their value" onMouseDown={keep} onClick={onRules}><RulesGlyph /> Rules</button>
       <button type="button" className={`tb labelled ${filterOn ? 'on' : ''}`} aria-label={filterOn ? 'Remove filter' : 'Create a filter'} aria-pressed={filterOn} title={filterOn ? 'Remove the filter (shows every row)' : 'Filter rows by their values'} onMouseDown={keep} onClick={onFilter}><FilterGlyph /> Filter</button>
+      <button type="button" className="tb labelled" aria-label="Add a slicer" title="A control on the sheet that filters the table around the cursor by its column" onMouseDown={keep} onClick={onSlicer}>⧩ Slicer</button>
       <button type="button" className="tb labelled" aria-label="Data validation" title="Dropdowns, tick boxes and rules for what cells may hold" onMouseDown={keep} onClick={onValidation}>▾ Validation</button>
       <button type="button" className="tb labelled" aria-label="Sort range" title="Sort rows by a column" onMouseDown={keep} onClick={onSort}><SortGlyph /> Sort</button>
       <button type="button" className="tb labelled" aria-label="Insert chart" title="Chart of the selected cells" onMouseDown={keep} onClick={onChart}><Icon name="chart" size={18} /> Chart</button>

@@ -1169,6 +1169,15 @@ test('PowerPoint: stacked, area, scatter and doughnut charts from spreadsheets',
   assert.match(all, /<c:doughnutChart>/);
 });
 
+test('Excel: rows a slicer hides go hidden into the download', async () => {
+  const cells = { A1: 'Region', B1: 'Sales', A2: 'North', B2: '10', A3: 'South', B3: '4', A4: 'North', B4: '7', A5: '=A2', B5: '1', A6: '', B6: '2' };
+  const buf = await excelFromSheet({ sheets: [{ name: 'S', cells, slicers: { a: { range: 'A1:B4', col: 'A', hidden: ['South', 'North'], x: 0, y: 0 }, z: { range: 'A1:B4', col: 'Q', hidden: ['x'] } } }] });
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(buf);
+  const ws = wb.worksheets[0];
+  assert.deepEqual([1, 2, 3, 4, 5, 6].map((r) => !!ws.getRow(r).hidden), [false, true, true, true, false, false], 'rows below the range count too; a formula stays shown');
+});
+
 test('Excel and PowerPoint: histograms and waterfalls go as the columns they are drawn with', async () => {
   const { chartXml } = await import('../src/office/xlsxcharts.js');
   const cells = { A1: 'Step', B1: 'Cash', A2: 'Start', B2: '100', A3: 'Sales', B3: '50', A4: 'Costs', B4: '-80', D1: 'Height', D2: '151', D3: '158', D4: '162', D5: '175', D6: '188', E2: '=B2' };

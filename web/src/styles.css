@@ -904,6 +904,15 @@ textarea.slide-text.editing { resize: none; border: 0; padding: 0; margin: 0; ba
 
 /* ---------- charts (Sheets) ---------- */
 .chart-layer { position: absolute; left: 0; top: 0; width: 0; height: 0; z-index: 2; }
+.slicer { position: absolute; display: flex; align-items: center; gap: 2px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow); padding: 2px; user-select: none; }
+.slicer.on { border-color: var(--accent); }
+.slicer.dragging { opacity: 0.85; cursor: grabbing; }
+.slicer-chip { display: flex; align-items: center; gap: 8px; border: 0; background: none; padding: 6px 8px; border-radius: 6px; cursor: pointer; font: inherit; color: var(--text); max-width: 280px; touch-action: none; }
+.slicer-chip:hover { background: var(--hover); }
+.slicer-name { font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.slicer-value { font-size: 13px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.slicer.on .slicer-value { color: var(--accent-text); font-weight: 600; }
+.slicer-more { width: 26px; height: 26px; }
 .chart-card { position: absolute; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow); padding: 0 10px 8px; display: flex; flex-direction: column; user-select: none; }
 .chart-card.dragging { opacity: .9; box-shadow: 0 8px 24px rgba(0,0,0,.25); }
 .chart-head { display: flex; align-items: center; gap: 4px; height: 36px; flex: none; }

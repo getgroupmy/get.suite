@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { CONDITIONS, cleanCondition } from './filtercond.js';
 
-export function FilterMenu({ anchor, column, values, hidden, cond, onApply, onSort, onClose }) {
+export function FilterMenu({ anchor, column, values, hidden, cond, onApply, onSort, onClose, label }) {
   const [op, setOp] = useState(cond?.op || '');
   const [a, setA] = useState(cond?.a || '');
   const [b, setB] = useState(cond?.b || '');
@@ -26,12 +26,12 @@ export function FilterMenu({ anchor, column, values, hidden, cond, onApply, onSo
   const shown = values.filter((v) => (v.label || '(Blanks)').toLowerCase().includes(find.toLowerCase()));
   const toggle = (l) => { const n = new Set(show); n.has(l) ? n.delete(l) : n.add(l); setShow(n); };
   return (
-    <div ref={box} className="filter-menu" role="dialog" aria-label={`Filter column ${column}`} style={pos || { visibility: 'hidden' }}>
-      <div className="filter-sort">
+    <div ref={box} className="filter-menu" role="dialog" aria-label={label || `Filter column ${column}`} style={pos || { visibility: 'hidden' }}>
+      {onSort && <div className="filter-sort">
         <button type="button" className="link-btn" onClick={() => onSort(false)}>Sort A → Z</button>
         <button type="button" className="link-btn" onClick={() => onSort(true)}>Sort Z → A</button>
-      </div>
-      <fieldset className="filter-cond">
+      </div>}
+      {onSort && <fieldset className="filter-cond">
         <legend className="small muted">Filter by condition</legend>
         <select value={op} onChange={(e) => setOp(e.target.value)} aria-label="Condition">
           <option value="">None</option>
@@ -39,7 +39,7 @@ export function FilterMenu({ anchor, column, values, hidden, cond, onApply, onSo
         </select>
         {args >= 1 && <input value={a} onChange={(e) => setA(e.target.value)} placeholder="Value" aria-label="Condition value" />}
         {args === 2 && <input value={b} onChange={(e) => setB(e.target.value)} placeholder="and" aria-label="Second value" />}
-      </fieldset>
+      </fieldset>}
       <input type="search" autoFocus value={find} onChange={(e) => setFind(e.target.value)} placeholder="Search values" aria-label="Search values" />
       <div className="row small" style={{ gap: 10 }}>
         <button type="button" className="link-btn small" onClick={() => setShow(new Set(values.map((v) => v.label)))}>Select all</button>

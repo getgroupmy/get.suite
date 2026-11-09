@@ -8,11 +8,11 @@ import { Modal, Menu } from '../../components/ui.jsx';
 export const MIN_W = 240, MIN_H = 180;
 
 /** One chart on the sheet. `onChange(next)` is called once a move or resize ends. */
-export function ChartCard({ chart, value, canEdit, onChange, onEdit, onDelete }) {
+export function ChartCard({ chart, value, skipRow, canEdit, onChange, onEdit, onDelete }) {
   const [live, setLive] = useState(null); // position/size while dragging
   const drag = useRef(null);
   const box = { x: chart.x, y: chart.y, w: chart.w, h: chart.h, ...live };
-  const data = chartData(chart.range, value);
+  const data = chartData(chart.range, value, skipRow);
 
   const start = (mode) => (e) => {
     if (!canEdit || e.button !== 0 || e.target.closest('button')) return;

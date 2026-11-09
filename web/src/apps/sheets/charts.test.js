@@ -98,3 +98,10 @@ test('waterfall: changes add up, with a total at the end', async () => {
   assert.deepEqual(w.steps, [{ from: 0, to: 100, kind: 'up' }, { from: 100, to: 150, kind: 'up' }, { from: 150, to: 70, kind: 'down' }, { from: 70, to: 70, kind: 'up' }, { from: 0, to: 70, kind: 'total' }]);
   assert.deepEqual(w.series[0].values, [100, 50, -80, null, 70]);
 });
+
+test('charts leave out rows a filter or slicer hides', () => {
+  const v = sheet([['Region', 'Sales'], ['North', 10], ['South', 4], ['East', 7]]);
+  const d = chartData('A1:B4', v, (r) => r === 2);
+  assert.deepEqual(d.categories, ['North', 'East']);
+  assert.deepEqual(d.series[0].values, [10, 7]);
+});

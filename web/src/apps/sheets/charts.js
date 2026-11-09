@@ -57,9 +57,10 @@ const label = (v) => (isBlank(v) ? '' : typeof v === 'object' ? String(v.error |
 /**
  * Read a range as a chart: the first row is the series names when it holds text, and the first
  * column the category labels when it holds text (or when it's the only non-number column).
- * `value(key)` gives a cell's computed value. Returns { categories, series: [{ name, values }] }.
+ * `value(key)` gives a cell's computed value; rows `skipRow(r)` says are hidden (by a filter or slicer) are
+ * left out, as in Google Sheets. Returns { categories, series: [{ name, values }] }.
  */
-export function chartData(range, value) {
+export function chartData(range, value, skipRow) {
   const g = typeof range === 'string' ? parseRange(range) : range;
   if (!g) return { categories: [], series: [], error: 'Choose cells like A1:C6' };
   const at = (c, r) => value(cellKey(c, r));
@@ -67,13 +68,15 @@ export function chartData(range, value) {
   const textIn = (cells) => cells.some((v) => !isBlank(v) && !isNum(v));
   const headRow = textIn(Array.from({ length: cols }, (_, i) => at(g.c1 + i, g.r1)).slice(cols > 1 ? 1 : 0));
   const r0 = headRow ? g.r1 + 1 : g.r1;
-  const rows = Math.min(g.r2 - r0 + 1, MAX_POINTS);
-  const firstCol = Array.from({ length: Math.max(0, rows) }, (_, i) => at(g.c1, r0 + i));
+  const rowAt = [];
+  for (let r = r0; r <= g.r2 && rowAt.length < MAX_POINTS; r++) if (!skipRow?.(r)) rowAt.push(r);
+  const rows = rowAt.length;
+  const firstCol = Array.from({ length: Math.max(0, rows) }, (_, i) => at(g.c1, rowAt[i]));
   const labelCol = cols > 1 && textIn(firstCol);
   const c0 = labelCol ? g.c1 + 1 : g.c1;
   const series = [];
   for (let c = c0; c <= g.c2 && series.length < MAX_SERIES; c++) {
-    const values = Array.from({ length: Math.max(0, rows) }, (_, i) => { const v = at(c, r0 + i); return isNum(v) ? v : null; });
+    const values = Array.from({ length: Math.max(0, rows) }, (_, i) => { const v = at(c, rowAt[i]); return isNum(v) ? v : null; });
     if (values.every((v) => v === null)) continue; // a column of text or blanks isn't a series
     series.push({ name: headRow ? label(at(c, g.r1)) || `Series ${series.length + 1}` : `Series ${series.length + 1}`, values });
   }

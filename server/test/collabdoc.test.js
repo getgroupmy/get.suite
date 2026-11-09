@@ -128,3 +128,19 @@ test('presentations: a background picture is shared, changed and taken away like
   Y.applyUpdate(b, Y.encodeStateAsUpdate(a));
   assert.deepEqual(jsonFromDeckDoc(b).slides[0], { id: 's', bg: '#fde293', items: [] });
 });
+
+test('spreadsheets: slicers are kept, and two people changing different slicers both keep their change', () => {
+  const a = { range: 'A1:C9', col: 'A', hidden: [], x: 400, y: 20 }, b = { range: 'A1:C9', col: 'B', hidden: [], x: 400, y: 80 };
+  const doc = sheetDocFromJson({ sheets: [{ name: 'S', cells: { A1: 'Region' }, slicers: { a, b } }] });
+  assert.deepEqual(jsonFromSheetDoc(doc).sheets[0].slicers, { a, b });
+  const other = new Y.Doc();
+  Y.applyUpdate(other, Y.encodeStateAsUpdate(doc));
+  const mine = jsonFromSheetDoc(doc), theirs = jsonFromSheetDoc(other);
+  applySheetJson(doc, { sheets: [{ ...mine.sheets[0], slicers: { a: { ...a, hidden: ['East'] }, b } }] });
+  applySheetJson(other, { sheets: [{ ...theirs.sheets[0], slicers: { a, b: { ...b, x: 600 } } }] });
+  Y.applyUpdate(doc, Y.encodeStateAsUpdate(other));
+  const got = jsonFromSheetDoc(doc).sheets[0].slicers;
+  assert.deepEqual([got.a.hidden, got.b.x], [['East'], 600]);
+  applySheetJson(doc, { sheets: [{ ...jsonFromSheetDoc(doc).sheets[0], slicers: {} }] });
+  assert.equal(jsonFromSheetDoc(doc).sheets[0].slicers, undefined, 'none left: none kept');
+});

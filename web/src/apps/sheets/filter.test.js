@@ -34,3 +34,19 @@ test('inserting and deleting rows and columns', () => {
   assert.equal(adjustFilter(f, { axis: 'row', at: 0, count: -1 }), null, 'headings deleted: filter gone');
   assert.deepEqual(adjustFilter(f, { axis: 'col', at: 1, count: -1 }), { range: 'A1:B5', hidden: {} }, 'its column deleted');
 });
+
+test('slicers: each hides rows of its table by one column; they move with inserted columns', async () => {
+  const { slicerHiddenRows, adjustSlicers, slicerSummary, columnValues, slicerAsFilter } = await import('./filter.js');
+  const cells = { A1: 'Region', B1: 'Rep', A2: 'North', B2: 'Ana', A3: 'South', B3: 'Ben', A4: 'North', B4: 'Cleo', A5: 'East', B5: 'Dev' };
+  const value = (k) => cells[k] ?? null;
+  const slicers = { a: { range: 'A1:B5', col: 'A', hidden: ['South', 'East'], x: 0, y: 0 }, b: { range: 'A1:B5', col: 'B', hidden: ['Cleo'] }, c: { range: 'A1:B5', col: 'B', hidden: [] } };
+  assert.deepEqual([...slicerHiddenRows(slicers, cells, value)].sort(), [2, 3, 4]);
+  const vals = columnValues(slicerAsFilter(slicers.a), cells, value, 0);
+  assert.equal(slicerSummary(slicers.a, vals), 'North');
+  assert.equal(slicerSummary(slicers.c, vals), 'All');
+  assert.equal(slicerSummary({ hidden: ['East'] }, vals), '2 of 3');
+  const moved = adjustSlicers(slicers, { axis: 'col', at: 0, count: 1 });
+  assert.deepEqual([moved.a.range, moved.a.col, moved.a.hidden, moved.a.x], ['B1:C5', 'B', ['South', 'East'], 0]);
+  assert.equal(adjustSlicers(slicers, { axis: 'row', at: 0, count: -1 }).a, undefined, 'its headings went: so does it');
+  assert.equal(Object.keys(adjustSlicers({ a: slicers.a }, { axis: 'col', at: 0, count: -1 })).length, 0, 'its column went: so does it');
+});
