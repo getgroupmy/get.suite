@@ -7,7 +7,7 @@ export function SheetPreview({ content }) {
   const sheets = content?.sheets || [];
   const [i, setI] = useState(0);
   const sheet = sheets[Math.min(i, sheets.length - 1)] || { cells: {} };
-  const value = useMemo(() => bookEvaluator(sheets, Math.min(i, sheets.length - 1)), [sheets, i]);
+  const value = useMemo(() => bookEvaluator(sheets, Math.min(i, sheets.length - 1), null, content?.functions), [sheets, i, content?.functions]);
   let rows = 0, cols = 0;
   for (const k of Object.keys(sheet.cells || {})) { const p = parseRef(k); if (p) { rows = Math.max(rows, p.r + 1); cols = Math.max(cols, p.c + 1); } }
   rows = Math.min(Math.max(rows, 5), 200); cols = Math.min(Math.max(cols, 3), 26);

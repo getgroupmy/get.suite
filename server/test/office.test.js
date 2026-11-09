@@ -581,6 +581,26 @@ test('LET and LAMBDA in Excel files: _xlfn. on the functions, _xlpm. on the name
   assert.equal(formulaToExcel('=SUM(Net)+Net!A1'), '=SUM(Net)+Net!A1', 'no LET: nothing changes');
 });
 
+test('named functions: Excel defined names holding a LAMBDA, both ways', async () => {
+  const JSZip = (await import('jszip')).default;
+  const data = { sheets: [{ name: 'Prices', cells: { A1: '100', B1: '=WITHTAX(A1)' }, names: { Rate: 'E1' } }], functions: [
+    { name: 'WithTax', params: ['amount'], body: '=amount * (1 + Rate)', description: 'Adds sales tax & rounding' },
+    { name: 'MARGIN', params: ['price', 'cost'], body: 'IF(price=0, "n/a", (price - cost) / price)' },
+  ] };
+  const buf = await excelFromSheet(data);
+  const xml = await (await JSZip.loadAsync(buf)).file('xl/workbook.xml').async('string');
+  assert.match(xml, /<definedName name="WITHTAX" comment="Adds sales tax &amp; rounding">_xlfn.LAMBDA\(_xlpm.amount, _xlpm.amount \* \(1 \+ Rate\)\)<\/definedName>/);
+  assert.match(xml, /<definedName name="MARGIN">_xlfn.LAMBDA\(_xlpm.price, _xlpm.cost, IF\(_xlpm.price=0, &quot;n\/a&quot;, /);
+  assert.match(xml, /<definedName name="Rate"/, 'named ranges are still there');
+  const back = await sheetFromExcel(buf);
+  assert.deepEqual(back.functions, [
+    { name: 'WITHTAX', params: ['amount'], body: 'amount * (1 + Rate)', description: 'Adds sales tax & rounding' },
+    { name: 'MARGIN', params: ['price', 'cost'], body: 'IF(price=0, "n/a", (price - cost) / price)' },
+  ]);
+  assert.equal(back.sheets[0].names.Rate, 'E1');
+  assert.equal((await sheetFromExcel(await excelFromSheet({ sheets: data.sheets }))).functions, undefined, 'none: none');
+});
+
 test('date chips: the day in Word, Markdown and search (by its words or as 2026-11-09)', async () => {
   const { markdownFromDoc } = await import('../src/office/markdown.js');
   const { docText } = await import('../src/search.js');

@@ -56,7 +56,7 @@ function tokenize(src) {
 }
 
 // ---------- parser (recursive descent -> AST) ----------
-function parse(src) {
+export function parse(src) {
   const toks = tokenize(src);
   let i = 0;
   const peek = () => toks[i];
@@ -801,6 +801,27 @@ const LAMBDA_USERS = {
   },
 };
 
+/**
+ * A spreadsheet's named functions ([{ name, params, body, description }]) as a Map by name, or null.
+ * Names and argument names follow the rules of named ranges; a name taken by a built-in function is skipped.
+ */
+export const OWN_NAME_RE = /^[A-Z][A-Z0-9_.]{0,39}$/i;
+export const OWN_PARAM_RE = /^[A-Z_][A-Z0-9_]{0,29}$/i;
+const looksLikeCell = (n) => /^[A-Z]{1,3}\d+$/i.test(n);
+export function namedFunctions(list) {
+  if (!Array.isArray(list) || !list.length) return null;
+  const out = new Map();
+  for (const f of list) {
+    const name = String(f?.name || '').toUpperCase();
+    const params = Array.isArray(f?.params) ? f.params.map((p) => String(p).toUpperCase()) : [];
+    if (!OWN_NAME_RE.test(name) || looksLikeCell(name) || FUNCS[name] || LAZY[name] || LAMBDA_USERS[name] || BUILTIN_SPECIAL.has(name) || out.has(name)) continue;
+    if (params.length > 10 || params.some((p) => !OWN_PARAM_RE.test(p) || looksLikeCell(p)) || new Set(params).size !== params.length) continue;
+    out.set(name, { name, params, body: String(f.body || '').replace(/^=/, ''), description: f.description || '' });
+  }
+  return out.size ? out : null;
+}
+const BUILTIN_SPECIAL = new Set(['IMPORTRANGE', 'HYPERLINK', 'SPARKLINE', 'ROW', 'COLUMN', 'ROWS', 'COLUMNS', 'LET', 'LAMBDA', 'TRUE', 'FALSE']);
+
 /** Every function a formula can call. */
 export const FUNCTION_NAMES = [...Object.keys(FUNCS), ...Object.keys(LAZY), ...Object.keys(LAMBDA_USERS), 'LET', 'LAMBDA', 'IMPORTRANGE', 'HYPERLINK', 'SPARKLINE', 'ROW', 'COLUMN', 'ROWS', 'COLUMNS'];
 
@@ -986,7 +1007,11 @@ export function createEvaluator(cells, names = null, book = null) {
         if (n.name === 'LET' || n.name === 'LAMBDA' || LAMBDA_USERS[n.name]) return withNames(n);
         if (LAZY[n.name]) return LAZY[n.name](n.args.map((a) => () => scalar(evaluate(a))));
         const f = FUNCS[n.name];
-        if (!f) err('#NAME?');
+        if (!f) {
+          const own = book?.functions?.get(n.name);
+          if (own) return callOwn(own, n.args.map(evaluate));
+          err('#NAME?');
+        }
         return f(n.args.map(evaluate));
       }
       case 'bin': {
@@ -1018,6 +1043,17 @@ export function createEvaluator(cells, names = null, book = null) {
     return fn;
   }
   const lambdaArg = (a, arity) => { const f = evaluate(a); if (typeof f !== 'function' || !f.isLambda || f.arity !== arity) err('#VALUE!'); return f; };
+  // A named function of the spreadsheet (⋮ → Named functions): its formula, with its argument names
+  // set to what it's given and nothing else in scope (it works the same wherever it's used).
+  let ownDepth = 0;
+  function callOwn(fn, vals) {
+    if (vals.length !== fn.params.length) err('#N/A');
+    if (!fn.ast) { try { fn.ast = parse(fn.body); } catch { fn.ast = { k: 'referr' }; } }
+    if (++ownDepth > 50) { ownDepth = 0; err('#REF!'); } // a function that calls itself for ever
+    const saved = scopes;
+    scopes = [new Map(fn.params.map((p, i) => [p, vals[i]]))];
+    try { return evaluate(fn.ast); } finally { scopes = saved; ownDepth--; }
+  }
   function withNames(n) {
     if (n.name === 'LAMBDA') return makeLambda(n.args);
     if (n.name === 'LET') {
@@ -1093,8 +1129,8 @@ function sheetEvaluator(book, name) {
 }
 
 /** An evaluator for one sheet of a spreadsheet whose formulas can refer to the other sheets. */
-export function bookEvaluator(sheets, index, imports = null) {
-  const book = { sheets: sheets || [], open: new Map(), imports };
+export function bookEvaluator(sheets, index, imports = null, functions = null) {
+  const book = { sheets: sheets || [], open: new Map(), imports, functions: namedFunctions(functions) };
   const s = book.sheets[index];
   if (!s) return createEvaluator({}, null, book);
   const ev = createEvaluator(s.cells || {}, s.names, book);

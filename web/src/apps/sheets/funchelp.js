@@ -219,8 +219,8 @@ export function suggest(word, names, limit = 8) {
 }
 
 /** A function's arguments split for display, with the one the caret is in marked (variadic "…" lists keep the last one marked). */
-export function signatureParts(name, arg) {
-  const h = HELP[name];
+export function signatureParts(name, arg, extra = null) {
+  const h = HELP[name] || extra?.[name];
   if (!h) return null;
   const parts = h[0] ? h[0].split(/,\s*/) : [];
   const variadic = parts.findIndex((p) => p.includes('…'));

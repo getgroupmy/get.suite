@@ -461,3 +461,35 @@ test('LET and LAMBDA: names in a formula, and MAP, BYROW, BYCOL, REDUCE, SCAN, M
   assert.equal(g('I4'), '#NAME?');
   assert.equal(g('I5'), 13);
 });
+
+import { namedFunctions } from './formula.js';
+test('named functions: defined once for the spreadsheet, used like any function, on every sheet', () => {
+  const functions = [
+    { name: 'WithTax', params: ['amount'], body: '=amount * (1 + Rate)', description: 'Adds sales tax' },
+    { name: 'MARGIN', params: ['price', 'cost'], body: 'ROUND((price - cost) / price * 100, 1)' },
+    { name: 'TOTALS', params: ['r'], body: 'BYROW(r, LAMBDA(row, SUM(row)))' },
+    { name: 'FOREVER', params: ['x'], body: 'FOREVER(x)' },
+    { name: 'SUM', params: ['x'], body: 'x' }, // a built-in's name: skipped
+    { name: 'A1', params: [], body: '1' }, // looks like a cell: skipped
+    { name: 'TWICE', params: ['x', 'X'], body: 'x' }, // the same argument twice: skipped
+  ];
+  assert.deepEqual([...namedFunctions(functions).keys()], ['WITHTAX', 'MARGIN', 'TOTALS', 'FOREVER']);
+  const sheets = [
+    { name: 'Prices', cells: { A1: 100, B1: 60, A2: 50, B2: 45, C1: '=withtax(A1)', C2: '=MARGIN(A1, B1)', C3: '=MARGIN(A1)', C4: '=FOREVER(1)', C5: '=TOTALS(A1:B2)', C7: '=TWICE(1)', D1: '=LET(amount, 7, WITHTAX(A2) + amount)' }, names: { Rate: 'E1' } },
+    { name: 'Other', cells: { A1: '=WITHTAX(10)', A2: '=MARGIN(Prices!A2, Prices!B2)' } },
+  ];
+  sheets[0].cells.E1 = 0.2;
+  const ev = bookEvaluator(sheets, 0, null, functions);
+  const g = (k) => { const v = ev(k); return v?.error ?? v; };
+  assert.equal(g('C1'), 120);
+  assert.equal(g('C2'), 40);
+  assert.equal(g('C3'), '#N/A', 'too few arguments');
+  assert.equal(g('C4'), '#REF!', 'calls itself for ever');
+  assert.deepEqual([g('C5'), g('C6')], [160, 95]);
+  assert.equal(g('C7'), '#NAME?');
+  assert.equal(g('D1'), 67, 'its own names don\'t leak in or out');
+  const other = bookEvaluator(sheets, 1, null, functions);
+  assert.equal(other('A1')?.error ?? other('A1'), '#NAME?', 'Rate is a name on Prices only');
+  assert.equal(other('A2'), 10);
+  assert.equal(bookEvaluator(sheets, 0)('C1')?.error, '#NAME?', 'without them: unknown');
+});

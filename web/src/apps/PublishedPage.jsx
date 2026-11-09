@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { DocPreview } from './docs/DocEditor.jsx';
 import { SlideView } from './slides/SlidesEditor.jsx';
 import { THEMES } from './slides/slidemath.js';
-import { createEvaluator, cellKey, colName, display, parseRef } from './sheets/formula.js';
+import { bookEvaluator, cellKey, colName, display, parseRef } from './sheets/formula.js';
 import { formatNumber, cellStyle } from './sheets/cellformat.js';
 
 export default function PublishedPage({ token }) {
@@ -54,13 +54,13 @@ export function PublishedSheet({ book }) {
   const [at, setAt] = useState(0);
   const sheet = book.sheets[at] || { cells: {}, formats: {} };
   const view = useMemo(() => {
-    const evaluate = createEvaluator(sheet.cells || {}, book.names);
+    const evaluate = bookEvaluator(book.sheets, at, null, book.functions); // other sheets, named ranges and named functions work too
     let maxR = 0, maxC = 0;
     for (const k of Object.keys(sheet.cells || {})) { const p = parseRef(k); if (p) { maxR = Math.max(maxR, p.r); maxC = Math.max(maxC, p.c); } }
     maxR = Math.min(maxR, 999); maxC = Math.min(maxC, 51);
     const value = (k) => { let v; try { v = evaluate(k); } catch (e) { v = { error: e.code || '#ERROR!' }; } return formatNumber(v, sheet.formats?.[k]) ?? display(v); };
     return { rows: maxR + 1, cols: maxC + 1, value };
-  }, [sheet, book.names]);
+  }, [sheet, book, at]);
   return (
     <div className="stack">
       {book.sheets.length > 1 && <div className="tabs" role="tablist" aria-label="Sheets">{book.sheets.map((s, i) => <button key={s.name} type="button" role="tab" aria-selected={i === at} className={i === at ? 'on' : ''} onClick={() => setAt(i)}>{s.name}</button>)}</div>}

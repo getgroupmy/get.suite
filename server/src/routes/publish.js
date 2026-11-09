@@ -85,7 +85,7 @@ export function publicPublishRoutes() {
     let content = JSON.parse(q('SELECT content FROM files WHERE id = ?').get(p.file_id).content || 'null');
     if (p.kind === 'doc') content = withoutSuggestions(content);
     if (p.kind === 'slides') content = { ...content, slides: (content?.slides || []).filter((s) => !s.skip).map(({ notes, ...s }) => s) }; // no speaker notes, no skipped slides
-    if (p.kind === 'sheet') content = { sheets: (content?.sheets || []).filter((s) => !s.hidden).map((s) => ({ name: s.name, cells: s.cells || {}, formats: s.formats || {}, widths: s.widths || s.colWidths || {}, merges: s.merges || [] })), names: content?.names || null };
+    if (p.kind === 'sheet') content = { sheets: (content?.sheets || []).filter((s) => !s.hidden).map((s) => ({ name: s.name, cells: s.cells || {}, formats: s.formats || {}, widths: s.widths || s.colWidths || {}, merges: s.merges || [], ...(s.names && { names: s.names }) })), ...(content?.functions?.length && { functions: content.functions }) }; // each sheet's named ranges, and the named functions, for its formulas
     if (!req.query.peek) q('UPDATE published_files SET views = views + 1 WHERE file_id = ?').run(p.file_id);
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Robots-Tag', 'noindex');

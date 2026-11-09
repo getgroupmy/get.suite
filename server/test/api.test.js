@@ -5921,6 +5921,22 @@ test('forgot password: a one-hour, one-use link to the recovery address; the sam
   assert.ok(actions.includes('password.reset') && actions.includes('password.reset_requested'));
 });
 
+test('a published spreadsheet carries each sheet\'s named ranges and the named functions its formulas use', async () => {
+  const pub = (path) => fetch(`${base}/api/public/pub${path}`).then(async (r) => ({ status: r.status, body: await r.json().catch(() => null) }));
+  const sheet = (await owner('POST', '/api/files/new', { kind: 'sheet', name: 'Price list' })).body;
+  const cur = (await owner('GET', `/api/files/${sheet.id}/content`)).body;
+  const functions = [{ name: 'WITHTAX', params: ['amount'], body: 'amount*(1+Rate)', description: 'Adds tax' }];
+  const put = await owner('PUT', `/api/files/${sheet.id}/content`, { version: cur.file.version, content: { sheets: [{ name: 'Prices', cells: { A1: '10', B1: '=WITHTAX(A1)', E1: '0.2' }, names: { Rate: 'E1' } }, { name: 'Notes', cells: {}, hidden: true }], functions } });
+  assert.equal(put.status, 200, JSON.stringify(put.body));
+  assert.deepEqual((await owner('GET', `/api/files/${sheet.id}/content`)).body.content.functions, functions, 'kept with the spreadsheet');
+  const token = (await owner('PUT', `/api/publish/${sheet.id}`, { on: true })).body.path.split('/').pop();
+  const r = (await pub(`/${token}`)).body;
+  assert.deepEqual(r.content.sheets.map((x) => x.name), ['Prices']);
+  assert.deepEqual(r.content.sheets[0].names, { Rate: 'E1' });
+  assert.deepEqual(r.content.functions, functions);
+  await owner('PUT', `/api/publish/${sheet.id}`, { on: false });
+});
+
 test('publish to the web: the owner publishes a doc, sheet or deck; anyone reads the latest, without notes or suggestions', async () => {
   const pub = (path) => fetch(`${base}/api/public/pub${path}`).then(async (r) => ({ status: r.status, body: await r.json().catch(() => null) }));
   const deck = (await owner('POST', '/api/files/new', { kind: 'slides', name: 'Launch deck' })).body;

@@ -220,7 +220,8 @@ export async function sheetFromExcel(buffer) {
     (s.names ||= {})[d.name] = a === b ? a : `${a}:${b}`;
   }
   for (const s of sheets) delete s._ws;
-  return { sheets: sheets.length ? sheets : [{ name: 'Sheet1', cells: {}, colWidths: {} }] };
+  const functions = await functionsOfXlsx(buffer);
+  return { sheets: sheets.length ? sheets : [{ name: 'Sheet1', cells: {}, colWidths: {} }], ...(functions.length && { functions }) };
 }
 
 /** A Sheets spreadsheet as an Excel workbook (Buffer). Formulas are written as formulas. */
@@ -304,7 +305,62 @@ export async function excelFromSheet(data) {
       try { wb.definedNames.add(`'${ws.name.replace(/'/g, "''")}'!${abs}`, name); } catch { /* not a name Excel takes */ }
     }
   });
-  return Buffer.from(await wb.xlsx.writeBuffer());
+  return withFunctions(Buffer.from(await wb.xlsx.writeBuffer()), data.functions);
+}
+
+// ---- named functions (⋮ → Named functions): Excel keeps them as defined names holding a LAMBDA,
+// <definedName name="WITHTAX">_xlfn.LAMBDA(_xlpm.amount,_xlpm.amount*1.2)</definedName>. ExcelJS only
+// knows names of cells, so these are written into and read from the workbook part directly.
+const xmlText = (t) => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const fromXml = (t) => String(t).replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&');
+const OWN_NAME = /^[A-Z][A-Z0-9_.]{0,39}$/i, OWN_PARAM = /^[A-Z_][A-Z0-9_]{0,29}$/i;
+
+/** The workbook's file with its named functions added as Excel defined names. */
+export async function withFunctions(buffer, functions) {
+  const list = (Array.isArray(functions) ? functions : []).filter((f) => OWN_NAME.test(f?.name || '') && (f.params || []).every((p) => OWN_PARAM.test(p)) && f.body);
+  if (!list.length) return buffer;
+  const zip = await JSZip.loadAsync(buffer);
+  let xml = await zip.file('xl/workbook.xml').async('string');
+  const defs = list.map((f) => {
+    const body = String(f.body).replace(/^=/, '');
+    const lambda = formulaToExcel(`LAMBDA(${[...f.params, body].join(', ')})`);
+    return `<definedName name="${xmlText(f.name.toUpperCase())}"${f.description ? ` comment="${xmlText(String(f.description).slice(0, 255))}"` : ''}>${xmlText(lambda)}</definedName>`;
+  }).join('');
+  xml = /<definedNames>/.test(xml) ? xml.replace('</definedNames>', `${defs}</definedNames>`)
+    : xml.replace(/(<\/sheets>)/, `$1<definedNames>${defs}</definedNames>`);
+  zip.file('xl/workbook.xml', xml);
+  return zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
+}
+
+/** Named functions in an Excel file: defined names whose formula is a LAMBDA. */
+export async function functionsOfXlsx(buffer) {
+  let xml;
+  try { xml = await (await JSZip.loadAsync(buffer)).file('xl/workbook.xml')?.async('string'); } catch { return []; }
+  const out = [];
+  for (const m of String(xml || '').matchAll(/<definedName\b([^>]*)>([^<]*)<\/definedName>/g)) {
+    const name = /\bname="([^"]*)"/.exec(m[1])?.[1] || '';
+    const comment = /\bcomment="([^"]*)"/.exec(m[1])?.[1];
+    const f = formulaFromExcel(fromXml(m[2])).trim().replace(/^=/, '');
+    const lm = /^LAMBDA\(([\s\S]*)\)$/i.exec(f);
+    if (!lm || !OWN_NAME.test(name) || /^_xl/i.test(name)) continue;
+    // Its arguments: the LAMBDA's names before the last comma at the top level.
+    const parts = [];
+    let depth = 0, start = 0, inText = false;
+    const t = lm[1];
+    for (let i = 0; i < t.length; i++) {
+      const ch = t[i];
+      if (ch === '"') inText = !inText;
+      else if (inText) continue;
+      else if (ch === '(' || ch === '{') depth++;
+      else if (ch === ')' || ch === '}') depth--;
+      else if (ch === ',' && !depth) { parts.push(t.slice(start, i).trim()); start = i + 1; }
+    }
+    parts.push(t.slice(start).trim());
+    const params = parts.slice(0, -1);
+    if (!params.every((p) => OWN_PARAM.test(p)) || out.length >= 100) continue;
+    out.push({ name: name.toUpperCase(), params, body: parts[parts.length - 1], ...(comment && { description: fromXml(comment) }) });
+  }
+  return out;
 }
 
 // ---- data validation from Excel: list validations become dropdowns (a TRUE/FALSE list, a tick box).

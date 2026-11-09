@@ -321,6 +321,16 @@ Give cells a name and use it in formulas instead of the address: `=SUM(Sales)*Ta
 - A name nobody has defined shows `#NAME?`. Named ranges move with their cells when rows or columns are inserted or deleted, and a name whose cells are all deleted goes. Each sheet has its own names (use another sheet's as `Data!Total`).
 - Excel downloads and uploads keep them as Excel's defined names.
 
+## Named functions (Sheets)
+
+Write a formula once and use it in any cell like a built-in function. **⋮ → Named functions** → give it a name (`WITHTAX`), its arguments (`amount`), its formula (`=ROUND(amount * 1.2, 2)`) and, if you like, a description; then `=WITHTAX(B2)` anywhere in the spreadsheet, on every sheet.
+
+- While typing a formula, it's suggested with the built-in functions, and its arguments and description show inside its brackets.
+- **Change** it and every cell using it is worked out again, for everyone with the spreadsheet open; **Remove** takes it away (cells using it then show `#NAME?`).
+- Its formula only sees its own arguments (and the sheet's named ranges), so it works the same wherever it's used; it can use LET, LAMBDA, MAP and the rest, and other named functions. One that calls itself for ever shows `#REF!`.
+- Names can't be a built-in function's or look like a cell. Up to 100 per spreadsheet, 10 arguments each.
+- Excel downloads keep them as Excel's LAMBDA names (Formulas → Name Manager), and LAMBDA names in Excel files you upload come in as named functions. Published copies and version history work them out too.
+
 ## Protected sheets and ranges (Sheets)
 
 **⋮ → Protected sheets and ranges** keeps cells from being changed by mistake. **Add a protection**, choose the cells (your selection is filled in) or the **whole sheet**, add a description if you like ("Prices: ask Finance"), and say who can edit it:

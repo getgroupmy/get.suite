@@ -8,7 +8,10 @@ import { HELP, formulaContext, suggest, signatureParts } from './funchelp.js';
  * Wire `track` to the input's onSelect, call `handleKey(e)` first in its onKeyDown (true means
  * it used the key), and render `popup` next to the input.
  */
-export function useFormulaAssist(draft, setDraft, active) {
+export function useFormulaAssist(draft, setDraft, active, own = null) {
+  // The spreadsheet's named functions are offered too, with their arguments and description.
+  const ownHelp = Object.fromEntries((own || []).map((f) => [String(f.name).toUpperCase(), [f.params.join(', '), f.description || 'A named function of this spreadsheet']]));
+  const names = own?.length ? [...FUNCTION_NAMES, ...Object.keys(ownHelp)] : FUNCTION_NAMES;
   const [caret, setCaret] = useState(0);
   const [pick, setPick] = useState(0);
   const [hushed, setHushed] = useState(null); // the text when Escape closed the list
@@ -16,9 +19,9 @@ export function useFormulaAssist(draft, setDraft, active) {
   const nextCaret = useRef(null);
 
   const ctx = active ? formulaContext(draft, Math.min(caret, draft.length)) : {};
-  const choices = hushed === draft ? [] : suggest(ctx.word, FUNCTION_NAMES);
+  const choices = hushed === draft ? [] : suggest(ctx.word, names);
   const at = Math.min(pick, Math.max(0, choices.length - 1));
-  const sig = !choices.length && ctx.fn ? signatureParts(ctx.fn, ctx.arg) : null;
+  const sig = !choices.length && ctx.fn ? signatureParts(ctx.fn, ctx.arg, ownHelp) : null;
 
   useLayoutEffect(() => {
     if (nextCaret.current === null || !input.current) return;
@@ -58,7 +61,7 @@ export function useFormulaAssist(draft, setDraft, active) {
         {choices.map((n, i) => (
           <li key={n} role="option" aria-selected={i === at} className={i === at ? 'on' : ''}
             onMouseDown={(e) => { e.preventDefault(); accept(n, document.activeElement); }} onMouseEnter={() => setPick(i)}>
-            <b>{n}</b><span className="muted small">{HELP[n]?.[1]}</span>
+            <b>{n}</b><span className="muted small">{(HELP[n] || ownHelp[n])?.[1]}</span>
           </li>
         ))}
       </ul>

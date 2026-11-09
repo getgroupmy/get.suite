@@ -84,7 +84,10 @@ function sheetMap(sheet) {
 
 export function sheetDocFromJson(json) {
   const doc = new Y.Doc();
-  doc.transact(() => { doc.getArray('sheets').push((json?.sheets?.length ? json.sheets : [{ name: 'Sheet1' }]).map(sheetMap)); });
+  doc.transact(() => {
+    doc.getArray('sheets').push((json?.sheets?.length ? json.sheets : [{ name: 'Sheet1' }]).map(sheetMap));
+    if (json?.functions?.length) doc.getMap('book').set('functions', json.functions); // named functions, for the whole spreadsheet
+  });
   return doc;
 }
 
@@ -104,7 +107,7 @@ export function jsonFromSheetDoc(doc) {
     for (const k of SHEET_MAPS) { const inner = m.get(k); s[k] = inner ? inner.toJSON() : {}; }
     for (const k of ['formats', 'charts', 'notes']) if (!Object.keys(s[k]).length) delete s[k];
     return s;
-  }) };
+  }), ...(doc.getMap('book').get('functions')?.length && { functions: doc.getMap('book').get('functions') }) };
 }
 
 /**
@@ -115,6 +118,8 @@ export function applySheetJson(doc, next) {
   const arr = doc.getArray('sheets');
   const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
   doc.transact(() => {
+    const book = doc.getMap('book');
+    if (!same(book.get('functions') || [], next.functions || [])) { if (next.functions?.length) book.set('functions', next.functions); else book.delete('functions'); }
     const want = next.sheets || [];
     if (arr.length > want.length) arr.delete(want.length, arr.length - want.length);
     want.forEach((sheet, i) => {

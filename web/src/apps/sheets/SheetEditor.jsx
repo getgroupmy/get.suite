@@ -17,6 +17,7 @@ import { applyStructure, adjustKey, sortRange, looksLikeHeader, adjustOtherSheet
 import { removeDuplicates, splitColumn } from './data.js';
 import { DedupeDialog, SplitDialog } from './SheetData.jsx';
 import { NamesDialog } from './SheetNames.jsx';
+import { FunctionsDialog } from './SheetFunctions.jsx';
 import { targetOf, cleanTarget } from './names.js';
 import { SortDialog } from './SheetSort.jsx';
 import { PivotDialog } from './SheetPivot.jsx';
@@ -78,7 +79,7 @@ export default function SheetEditor() {
   const [anchor, setAnchor] = useState(null);
   const [editing, setEditing] = useState(null); // null | 'cell' | 'bar'
   const [draft, setDraft] = useState('');
-  const assist = useFormulaAssist(draft, setDraft, !!editing);
+  const assist = useFormulaAssist(draft, setDraft, !!editing, data?.functions);
   const [dialog, setDialog] = useState(null);
   const mail = useMailStatus();
   const [nameBox, setNameBox] = useState(null); // what's being typed in the name box
@@ -168,7 +169,7 @@ export default function SheetEditor() {
     window.addEventListener('focus', refreshImports); // back from the other spreadsheet: its latest
     return () => { off(); clearInterval(t); window.removeEventListener('focus', refreshImports); };
   }, []);
-  const evaluate = useMemo(() => (data?.sheets ? bookEvaluator(data.sheets, Math.min(active, data.sheets.length - 1), { book: importBook, depth: 0 }) : createEvaluator(cells, names)), [data?.sheets, active, cells, names, importsAt]);
+  const evaluate = useMemo(() => (data?.sheets ? bookEvaluator(data.sheets, Math.min(active, data.sheets.length - 1), { book: importBook, depth: 0 }, data.functions) : createEvaluator(cells, names)), [data?.sheets, data?.functions, active, cells, names, importsAt]);
   const { rows, cols } = useMemo(() => sheetSize(cells, evaluate.spilledKeys?.() || []), [cells, evaluate]);
   // The filter: which rows it hides, and where its headings are.
   const filter = sheet?.filter || null;
@@ -875,6 +876,7 @@ export default function SheetEditor() {
         menu={[
           { label: 'Find and replace', icon: 'search', onClick: () => setFinding({ replace: !readOnly, n: 1 }) },
           { label: 'Named ranges', icon: 'link', onClick: () => setDialog({ type: 'names', initial: selText }) },
+          { label: 'Named functions', icon: 'edit', onClick: () => setDialog({ type: 'functions' }) },
           { label: 'Protected sheets and ranges', icon: 'lock', onClick: () => setDialog({ type: 'protect', initial: selText }) },
           mail?.enabled && { label: 'Mail merge…', icon: 'mail', onClick: () => setDialog({ type: 'mailmerge' }) },
           { label: 'Version history', icon: 'clock', onClick: () => setDialog({ type: 'history' }) },
@@ -1094,6 +1096,10 @@ export default function SheetEditor() {
         <NamesDialog names={names} initial={dialog.initial} canEdit={!readOnly} onClose={() => { setDialog(null); gridRef.current?.focus(); }}
           onSave={(next) => writeSheet(() => ({ names: Object.keys(next).length ? next : undefined }))}
           onGo={(t) => { setDialog(null); goTo(t); }} />
+      )}
+      {dialog?.type === 'functions' && (
+        <FunctionsDialog functions={data.functions} canEdit={!readOnly} onClose={() => { setDialog(null); gridRef.current?.focus(); }}
+          onSave={(next) => { const cur = dataRef.current; const { functions, ...rest } = cur; commitData(next.length ? { ...rest, functions: next } : rest); }} />
       )}
       {dialog?.type === 'mailmerge' && <MailMergeDialog cells={cells} shown={shown} from={mail?.address || user.username} onClose={() => { setDialog(null); gridRef.current?.focus(); }} />}
       {dialog?.type === 'protect' && (
