@@ -3,6 +3,7 @@
 import ExcelJS from 'exceljs';
 import JSZip from 'jszip';
 import path from 'node:path';
+import { meetsCondition, cleanCondition } from './filtercond.js';
 
 const colName = (i) => { let s = ''; for (let n = i + 1; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + ((n - 1) % 26)) + s; return s; };
 const colIndex = (s) => [...s].reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0) - 1;
@@ -280,11 +281,15 @@ export async function excelFromSheet(data) {
     if (s.filter?.range && /^[A-Z]+\d+:[A-Z]+\d+$/.test(s.filter.range)) {
       ws.autoFilter = s.filter.range;
       const [, c1, r1, c2, r2] = /^([A-Z]+)(\d+):([A-Z]+)(\d+)$/.exec(s.filter.range);
-      const lists = Object.entries(s.filter.hidden || {}).filter(([col, l]) => l?.length && colIndex(col) >= colIndex(c1) && colIndex(col) <= colIndex(c2));
+      const inside = (col) => colIndex(col) >= colIndex(c1) && colIndex(col) <= colIndex(c2);
+      const lists = Object.entries(s.filter.hidden || {}).filter(([col, l]) => l?.length && inside(col));
+      const conds = Object.entries(s.filter.cond || {}).filter(([col, c]) => inside(col) && cleanCondition(c));
       let last = Number(r2);
       for (const k of Object.keys(s.cells || {})) { const m = /^([A-Z]+)(\d+)$/.exec(k); if (m && colIndex(m[1]) >= colIndex(c1) && colIndex(m[1]) <= colIndex(c2)) last = Math.max(last, Number(m[2])); }
-      for (let r = Number(r1) + 1; r <= last && lists.length; r++) {
-        const hide = lists.some(([col, l]) => { const raw = s.cells?.[`${col}${r}`]; if (typeof raw === 'string' && raw.startsWith('=')) return false; return l.includes(raw === undefined ? '' : String(raw).trim()); });
+      const stored = (col, r) => { const raw = s.cells?.[`${col}${r}`]; return typeof raw === 'string' && raw.startsWith('=') ? undefined : raw === undefined ? '' : String(raw).trim(); };
+      for (let r = Number(r1) + 1; r <= last && (lists.length || conds.length); r++) {
+        const hide = lists.some(([col, l]) => { const v = stored(col, r); return v !== undefined && l.includes(v); })
+          || conds.some(([col, c]) => { const v = stored(col, r); return v !== undefined && !meetsCondition(c, v); });
         if (hide) ws.getRow(r).hidden = true;
       }
     }

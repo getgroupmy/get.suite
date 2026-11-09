@@ -1,10 +1,12 @@
 // Filters: a sheet can have one, over a range whose first row holds the headings. For each column,
 // the values to hide; rows below the headings with a hidden value aren't shown (for everyone; the
 // data is untouched). Kept as { range: "A1:D20", hidden: { B: ["Done", ""] } } ("" = empty cells).
-// The range grows to take in rows added below it.
+// The range grows to take in rows added below it. A column can also have a condition (filtercond.js):
+// { ..., cond: { C: { op: 'gt', a: '10' } } } hides rows whose value doesn't meet it.
 import { parseRange, rangeText } from './charts.js';
 import { cellKey, colName, colIndex, display } from './formula.js';
 import { adjustRange, adjustKey } from './structure.js';
+import { meetsCondition, cleanCondition } from './filtercond.js';
 
 /** How a value shows in the filter's list ("" for an empty cell). */
 export const filterLabel = (v) => (v === null || v === undefined || v === '' ? '' : display(v));
@@ -29,9 +31,11 @@ export function hiddenRows(filter, cells, value) {
   const g = filterArea(filter, cells);
   if (!g) return out;
   const cols = Object.entries(filter.hidden || {}).filter(([, list]) => list?.length).map(([col, list]) => [colIndex(col), new Set(list)]);
-  if (!cols.length) return out;
+  const conds = Object.entries(filter.cond || {}).filter(([, c]) => cleanCondition(c)).map(([col, c]) => [colIndex(col), c]);
+  if (!cols.length && !conds.length) return out;
   for (let r = g.r1 + 1; r <= g.r2; r++) {
-    if (cols.some(([c, hide]) => hide.has(filterLabel(value(cellKey(c, r)))))) out.add(r);
+    if (cols.some(([c, hide]) => hide.has(filterLabel(value(cellKey(c, r)))))
+      || conds.some(([c, cond]) => !meetsCondition(cond, value(cellKey(c, r))))) out.add(r);
   }
   return out;
 }
@@ -54,12 +58,21 @@ export function adjustFilter(filter, change) {
   if (change.axis === 'row' && change.count < 0 && g.r1 >= change.at && g.r1 < change.at - change.count) return null; // the heading row went
   const range = adjustRange(filter.range, change);
   if (!range) return null;
-  const hidden = {};
-  for (const [col, list] of Object.entries(filter.hidden || {})) {
-    const k = change.axis === 'col' ? adjustKey(`${col}1`, change) : `${col}1`;
-    if (k) hidden[k.replace(/\d+$/, '')] = list;
-  }
-  return { range, hidden };
+  const move = (map) => {
+    const out = {};
+    for (const [col, v] of Object.entries(map || {})) {
+      const k = change.axis === 'col' ? adjustKey(`${col}1`, change) : `${col}1`;
+      if (k) out[k.replace(/\d+$/, '')] = v;
+    }
+    return out;
+  };
+  const cond = move(filter.cond);
+  return { range, hidden: move(filter.hidden), ...(Object.keys(cond).length && { cond }) };
+}
+
+/** Whether a filter column hides anything (ticked-off values or a condition). */
+export function columnFiltered(filter, col) {
+  return !!(filter?.hidden?.[col]?.length || cleanCondition(filter?.cond?.[col]));
 }
 
 export { rangeText, colName };

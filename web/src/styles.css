@@ -1222,6 +1222,8 @@ button.rule-sample.on { outline: 2px solid var(--accent); outline-offset: 1px; }
 .filter-sort { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
 .filter-sort .link-btn { text-decoration: none; color: var(--text); font-size: 13px; }
 .filter-values { list-style: none; margin: 0; padding: 0; max-height: 220px; overflow: auto; }
+.filter-cond { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.filter-cond legend { padding: 0; margin-bottom: 4px; }
 .filter-values label { display: flex; gap: 8px; align-items: center; padding: 3px 2px; font-size: 13px; }
 .group-people .address-input { display: block; }
 .group-people .address-list { position: static; margin-top: 4px; box-shadow: none; max-width: none; }

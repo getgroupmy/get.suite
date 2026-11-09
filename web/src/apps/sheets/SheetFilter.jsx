@@ -1,8 +1,13 @@
 // The menu under a filter heading: sort the filtered rows by this column, and tick the values to
-// show (with a search for long lists).
+// show (with a search for long lists), or a condition the values must meet.
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { CONDITIONS, cleanCondition } from './filtercond.js';
 
-export function FilterMenu({ anchor, column, values, hidden, onApply, onSort, onClose }) {
+export function FilterMenu({ anchor, column, values, hidden, cond, onApply, onSort, onClose }) {
+  const [op, setOp] = useState(cond?.op || '');
+  const [a, setA] = useState(cond?.a || '');
+  const [b, setB] = useState(cond?.b || '');
+  const args = CONDITIONS.find((c) => c.op === op)?.args || 0;
   const [show, setShow] = useState(() => new Set(values.map((v) => v.label).filter((l) => !hidden.includes(l))));
   const [find, setFind] = useState('');
   const box = useRef();
@@ -26,6 +31,15 @@ export function FilterMenu({ anchor, column, values, hidden, onApply, onSort, on
         <button type="button" className="link-btn" onClick={() => onSort(false)}>Sort A → Z</button>
         <button type="button" className="link-btn" onClick={() => onSort(true)}>Sort Z → A</button>
       </div>
+      <fieldset className="filter-cond">
+        <legend className="small muted">Filter by condition</legend>
+        <select value={op} onChange={(e) => setOp(e.target.value)} aria-label="Condition">
+          <option value="">None</option>
+          {CONDITIONS.map((c) => <option key={c.op} value={c.op}>{c.label}</option>)}
+        </select>
+        {args >= 1 && <input value={a} onChange={(e) => setA(e.target.value)} placeholder="Value" aria-label="Condition value" />}
+        {args === 2 && <input value={b} onChange={(e) => setB(e.target.value)} placeholder="and" aria-label="Second value" />}
+      </fieldset>
       <input type="search" autoFocus value={find} onChange={(e) => setFind(e.target.value)} placeholder="Search values" aria-label="Search values" />
       <div className="row small" style={{ gap: 10 }}>
         <button type="button" className="link-btn small" onClick={() => setShow(new Set(values.map((v) => v.label)))}>Select all</button>
@@ -42,7 +56,7 @@ export function FilterMenu({ anchor, column, values, hidden, onApply, onSort, on
       </ul>
       <div className="row end">
         <button type="button" className="btn small" onClick={onClose}>Cancel</button>
-        <button type="button" className="btn small primary" onClick={() => onApply(values.map((v) => v.label).filter((l) => !show.has(l)))}>OK</button>
+        <button type="button" className="btn small primary" onClick={() => onApply(values.map((v) => v.label).filter((l) => !show.has(l)), cleanCondition({ op, a, b }))}>OK</button>
       </div>
     </div>
   );

@@ -268,6 +268,13 @@ test('Excel: a filter becomes an AutoFilter with its rows hidden, and comes back
   assert.equal(back.hide, undefined, 'rows the filter hid are not hidden by hand');
 });
 
+test('Excel: rows a filter condition leaves out are hidden in the download', async () => {
+  const data = { sheets: [{ name: 'Costs', cells: { A1: 'Item', B1: 'Cost', A2: 'Pens', B2: '4', A3: 'Desk', B3: '250', A4: 'Lamp', B4: '40', A5: 'Sum', B5: '=B2' }, filter: { range: 'A1:B5', hidden: {}, cond: { B: { op: 'gt', a: '10' } } } }] };
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(await excelFromSheet(data));
+  assert.deepEqual([2, 3, 4, 5].map((r) => !!wb.worksheets[0].getRow(r).hidden), [true, false, false, false], 'formula rows stay shown');
+});
+
 test('Excel: newer functions carry the _xlfn. prefix in the file and lose it in Sheets', async () => {
   assert.equal(formulaToExcel('IFERROR(XLOOKUP(A1,B:B,C:C),"_xlfn.x")+STDEV.S(D1:D3)+SUM(E1)'), 'IFERROR(_xlfn.XLOOKUP(A1,B:B,C:C),"_xlfn.x")+_xlfn.STDEV.S(D1:D3)+SUM(E1)');
   assert.equal(formulaFromExcel('_xlfn.XLOOKUP(A1,B1:B3,C1:C3)&"_xlfn."'), 'XLOOKUP(A1,B1:B3,C1:C3)&"_xlfn."');

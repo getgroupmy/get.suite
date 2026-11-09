@@ -25,7 +25,8 @@ import { buildPivot, pivotCells, sourceTable } from './pivot.js';
 import { RulesDialog } from './SheetRules.jsx';
 import { ValidationDialog, ChoicePicker } from './SheetValidation.jsx';
 import { validationAt, checkEntry, isTicked } from './validation.js';
-import { hiddenRows, columnValues, adjustFilter, filterArea } from './filter.js';
+import { hiddenRows, columnValues, adjustFilter, filterArea, columnFiltered } from './filter.js';
+import { describeCondition } from './filtercond.js';
 import { setHidden, anyHidden, hiddenRuns } from './hide.js';
 import { addGroup, removeGroups, toggleGroup, collapsedOn, toggleAt } from './groups.js';
 import { FilterMenu } from './SheetFilter.jsx';
@@ -1001,9 +1002,9 @@ export default function SheetEditor() {
                           onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); if (editing) commitEdit(0, 0); setAnchor(null); setSel({ c, r }); setPicker({ key: k }); }}>▾</button>
                       )}
                       {fArea && r === fArea.r1 && c >= fArea.c1 && c <= fArea.c2 && (
-                        <button type="button" className={`filter-btn ${filter.hidden?.[colName(c)]?.length ? 'on' : ''}`} tabIndex={-1} aria-label={`Filter ${colName(c)}`}
-                          title={filter.hidden?.[colName(c)]?.length ? 'Filtered' : 'Filter and sort'}
-                          onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); if (editing) commitEdit(0, 0); setFilterMenu({ c }); }}>{filter.hidden?.[colName(c)]?.length ? '⏷' : '▾'}</button>
+                        <button type="button" className={`filter-btn ${columnFiltered(filter, colName(c)) ? 'on' : ''}`} tabIndex={-1} aria-label={`Filter ${colName(c)}`}
+                          title={columnFiltered(filter, colName(c)) ? `Filtered${filter.cond?.[colName(c)] ? `: ${describeCondition(filter.cond[colName(c)])}` : ''}` : 'Filter and sort'}
+                          onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); if (editing) commitEdit(0, 0); setFilterMenu({ c }); }}>{columnFiltered(filter, colName(c)) ? '⏷' : '▾'}</button>
                       )}
                       {commented.has(k) && <span className="cell-comment" aria-hidden="true" />}
                       {notes[k] && <span className="cell-note" aria-hidden="true" />}
@@ -1069,8 +1070,16 @@ export default function SheetEditor() {
         if (!td) return null;
         const col = colName(filterMenu.c);
         const done = () => { setFilterMenu(null); gridRef.current?.focus(); };
-        return <FilterMenu anchor={td} column={col} values={columnValues(filter, cells, evaluate, filterMenu.c)} hidden={filter.hidden?.[col] || []} onClose={done}
-          onApply={(list) => { writeSheet((s) => ({ filter: { ...s.filter, hidden: { ...(s.filter?.hidden || {}), [col]: list } } })); done(); }}
+        return <FilterMenu anchor={td} column={col} values={columnValues(filter, cells, evaluate, filterMenu.c)} hidden={filter.hidden?.[col] || []} cond={filter.cond?.[col]} onClose={done}
+          onApply={(list, cond) => {
+            writeSheet((s) => {
+              const conds = { ...(s.filter?.cond || {}) };
+              if (cond) conds[col] = cond; else delete conds[col];
+              const { cond: _old, ...rest } = s.filter || {};
+              return { filter: { ...rest, hidden: { ...(s.filter?.hidden || {}), [col]: list }, ...(Object.keys(conds).length && { cond: conds }) } };
+            });
+            done();
+          }}
           onSort={(desc) => { sortBy({ range: fArea, by: filterMenu.c, desc, header: true }); done(); }} />;
       })()}
       {picker && (() => {

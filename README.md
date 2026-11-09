@@ -249,8 +249,9 @@ Select rows (or columns) by their headings, then **Group rows 2–4** in the rig
 
 - **Filter** in the toolbar turns on a filter over the selected cells, or the table around the cursor; its first row holds the headings, which get a ▾ button.
 - The ▾ menu lists the column's values (with how often each comes, and **(Blanks)** for empty cells): untick the ones to hide, or search a long list. Rows with a hidden value disappear for everyone; nothing is deleted, and the arrow keys skip them. The button turns blue on filtered columns. The same menu sorts the table by that column.
+- **Filter by condition** in the same menu shows only rows whose value meets a test: empty or not, text that contains, starts with, ends with or is exactly something (ignoring capitals), or a number greater or less than, equal to, or between two values. It works together with the ticked values; the button's tooltip says what it's filtering by, and **None** clears it.
 - Rows added below the table are filtered too, and a row whose value changes to a hidden one goes as it changes. **Filter** again removes it, showing every row.
-- Downloading as Excel keeps it as an AutoFilter with those rows hidden; an Excel file's AutoFilter comes in as a filter.
+- Downloading as Excel keeps it as an AutoFilter with those rows hidden (conditions included); an Excel file's AutoFilter comes in as a filter.
 
 ## Dropdowns and tick boxes (Sheets)
 
