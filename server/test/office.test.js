@@ -1339,3 +1339,44 @@ test('Word: open comment threads go into the download as Word comments', async (
   const zip = await (await import('jszip')).default.loadAsync(await wordFromDoc(doc, 'Report'));
   assert.equal(zip.file('word/comments.xml'), null);
 });
+
+/** A PowerPoint file with comments added to its slides (the kinds PowerPoint writes). */
+async function withPptComments(buf, { legacy, modern }) {
+  const zip = await JSZip.loadAsync(buf);
+  const types = await zip.file('[Content_Types].xml').async('string');
+  let extra = '';
+  if (legacy) {
+    zip.file('ppt/commentAuthors.xml', '<?xml version="1.0"?><p:cmAuthorLst xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:cmAuthor id="0" name="Jane Smith" initials="JS" lastIdx="2" clrIdx="0"/><p:cmAuthor id="1" name="Raj &amp; Co" initials="RC" lastIdx="1" clrIdx="1"/></p:cmAuthorLst>');
+    zip.file('ppt/comments/comment1.xml', `<?xml version="1.0"?><p:cmLst xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:p15="http://schemas.microsoft.com/office/powerpoint/2012/main">
+      <p:cm authorId="0" dt="2026-10-01T10:00:00.000" idx="1"><p:pos x="10" y="10"/><p:text>Make the title shorter</p:text></p:cm>
+      <p:cm authorId="1" dt="2026-10-02T10:00:00.000" idx="1"><p:pos x="10" y="10"/><p:text>Done</p:text><p:extLst><p:ext uri="{C676402C-5697-4E1C-873F-D02D1690AC5C}"><p15:threadingInfo timeZoneBias="0"><p15:parentCm authorId="0" idx="1"/></p15:threadingInfo></p:ext></p:extLst></p:cm>
+    </p:cmLst>`);
+    const rels = await zip.file('ppt/slides/_rels/slide1.xml.rels').async('string');
+    zip.file('ppt/slides/_rels/slide1.xml.rels', rels.replace('</Relationships>', '<Relationship Id="rIdCm1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments" Target="../comments/comment1.xml"/></Relationships>'));
+    extra += '<Override PartName="/ppt/comments/comment1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.comments+xml"/>';
+  }
+  if (modern) {
+    zip.file('ppt/authors.xml', '<?xml version="1.0"?><p188:authorLst xmlns:p188="http://schemas.microsoft.com/office/powerpoint/2018/8/main"><p188:author id="{A1}" name="Kim Park" initials="KP" userId="kim" providerId="None"/><p188:author id="{B2}" name="Lee Wu" initials="LW" userId="lee" providerId="None"/></p188:authorLst>');
+    zip.file('ppt/comments/modernComment_101_1.xml', `<?xml version="1.0"?><p188:cmLst xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p188="http://schemas.microsoft.com/office/powerpoint/2018/8/main">
+      <p188:cm id="{C1}" authorId="{A1}" created="2026-10-05T09:00:00.000" status="resolved"><pc:sldMkLst xmlns:pc="http://schemas.microsoft.com/office/powerpoint/2013/main/command"/><p188:replyLst><p188:reply id="{R1}" authorId="{B2}" created="2026-10-05T10:00:00.000"><p188:txBody><a:bodyPr/><a:p><a:r><a:t>Agreed</a:t></a:r></a:p></p188:txBody></p188:reply></p188:replyLst><p188:txBody><a:bodyPr/><a:p><a:r><a:t>Swap these two charts</a:t></a:r></a:p><a:p><a:r><a:t>and add a source</a:t></a:r></a:p></p188:txBody></p188:cm>
+    </p188:cmLst>`);
+    const f = 'ppt/slides/_rels/slide2.xml.rels';
+    zip.file(f, (await zip.file(f).async('string')).replace('</Relationships>', '<Relationship Id="rIdMc1" Type="http://schemas.microsoft.com/office/2018/10/relationships/comments" Target="../comments/modernComment_101_1.xml"/></Relationships>'));
+  }
+  zip.file('[Content_Types].xml', types.replace('</Types>', `${extra}</Types>`));
+  return zip.generateAsync({ type: 'nodebuffer' });
+}
+
+test('PowerPoint: comments on slides come in, older and newer kinds, with replies', async () => {
+  const { powerPointFromDeck, deckFromPowerPoint, commentsOfDeck } = await import('../src/office/powerpoint.js');
+  const plain = await powerPointFromDeck({ theme: 'light', slides: [{ id: 'a', items: [{ id: 't', type: 'text', x: 5, y: 5, w: 50, h: 10, text: 'Plan' }] }, { id: 'b', items: [] }] });
+  const deck = await deckFromPowerPoint(await withPptComments(plain, { legacy: true, modern: true }), { savePicture: async () => null });
+  const cs = commentsOfDeck(deck);
+  assert.deepEqual(cs.map((c) => [deck.slides.findIndex((s) => s.id === c.slideId), c.author, c.text, c.resolved, c.replies.map((r) => [r.author, r.text])]), [
+    [0, 'Jane Smith', 'Make the title shorter', false, [['Raj & Co', 'Done']]],
+    [1, 'Kim Park', 'Swap these two charts\nand add a source', true, [['Lee Wu', 'Agreed']]],
+  ]);
+  assert.equal(cs[1].at, Date.parse('2026-10-05T09:00:00.000'));
+  assert.equal(JSON.stringify(deck).includes('Swap these'), false, 'comments aren\'t part of the presentation itself');
+  assert.deepEqual(commentsOfDeck(await deckFromPowerPoint(plain, { savePicture: async () => null })), []);
+});

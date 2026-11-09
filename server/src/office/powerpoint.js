@@ -32,6 +32,56 @@ const relsOf = async (zip, file) => {
 };
 const colorIn = (el) => { const c = deep(el, A, 'srgbClr')[0]; return c ? `#${attr(c, 'val').toLowerCase()}` : null; };
 
+// ---- comments on slides: PowerPoint's older kind (comments/commentN.xml, names in commentAuthors.xml) and
+// its newer one (modernComment_*.xml, names in authors.xml, with replies and a resolved status).
+const pptComments = new WeakMap(); // deck → [{ slideId, author, text, at, resolved, replies: [{ author, text, at }] }]
+/** The comments a presentation read from PowerPoint had, by slide (see deckFromPowerPoint). */
+export const commentsOfDeck = (deck) => pptComments.get(deck) || [];
+const unxml = (t) => String(t ?? '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&');
+const when = (t) => { const ms = Date.parse(t || ''); return Number.isFinite(ms) ? ms : null; };
+const paraText = (xml) => [...String(xml).matchAll(/<a:p\b[\s\S]*?<\/a:p>/g)].map((p) => unxml([...p[0].matchAll(/<a:t>([^<]*)<\/a:t>/g)].map((t) => t[1]).join(''))).join('\n').trim();
+async function authorsOf(zip) {
+  const names = new Map();
+  for (const f of ['ppt/commentAuthors.xml', 'ppt/authors.xml']) {
+    const x = await zip.file(f)?.async('string');
+    for (const m of String(x || '').matchAll(/<p(?:188)?:(?:cmAuthor|author)\b([^>]*)\/?>/g)) {
+      const id = /\bid="([^"]+)"/.exec(m[1])?.[1], name = /\bname="([^"]*)"/.exec(m[1])?.[1];
+      if (id !== undefined) names.set(id, unxml(name || '').slice(0, 100));
+    }
+  }
+  return names;
+}
+async function slideCommentsOf(zip, slideFile, authors) {
+  const relsXml = await zip.file(path.posix.join(path.posix.dirname(slideFile), '_rels', `${path.posix.basename(slideFile)}.rels`))?.async('string');
+  const out = [];
+  for (const m of String(relsXml || '').matchAll(/<Relationship\b[^>]*>/g)) {
+    if (!/Type="[^"]*\/comments"/.test(m[0])) continue;
+    const target = /Target="([^"]+)"/.exec(m[0])?.[1];
+    if (!target) continue;
+    const file = target.startsWith('/') ? target.slice(1) : path.posix.normalize(path.posix.join(path.posix.dirname(slideFile), target));
+    const x = String(await zip.file(file)?.async('string') || '');
+    // The newer kind: a thread with its replies.
+    for (const cm of x.matchAll(/<p188:cm\b([^>]*)>([\s\S]*?)<\/p188:cm>/g)) {
+      const body = cm[2].replace(/<p188:replyLst>[\s\S]*<\/p188:replyLst>/, '');
+      const text = paraText(/<p188:txBody>([\s\S]*?)<\/p188:txBody>/.exec(body)?.[1] || '');
+      if (!text) continue;
+      const replies = [...cm[2].matchAll(/<p188:reply\b([^>]*)>([\s\S]*?)<\/p188:reply>/g)].map((r) => ({
+        author: authors.get(/authorId="([^"]+)"/.exec(r[1])?.[1]) || '', text: paraText(r[2]), at: when(/created="([^"]+)"/.exec(r[1])?.[1]),
+      })).filter((r) => r.text);
+      out.push({ author: authors.get(/authorId="([^"]+)"/.exec(cm[1])?.[1]) || '', text, at: when(/created="([^"]+)"/.exec(cm[1])?.[1]), resolved: /status="resolved"/.test(cm[1]), replies });
+    }
+    // The older kind: one comment each (a reply names its parent in an extension).
+    const old = [...x.matchAll(/<p:cm\b([^>]*)>([\s\S]*?)<\/p:cm>/g)].map((cm) => ({
+      key: `${/authorId="(\d+)"/.exec(cm[1])?.[1]}:${/idx="(\d+)"/.exec(cm[1])?.[1]}`,
+      parent: (() => { const pm = /<p15:parentCm\b[^>]*authorId="(\d+)"[^>]*idx="(\d+)"/.exec(cm[2]); return pm ? `${pm[1]}:${pm[2]}` : null; })(),
+      author: authors.get(/authorId="(\d+)"/.exec(cm[1])?.[1]) || '', text: unxml(/<p:text>([\s\S]*?)<\/p:text>/.exec(cm[2])?.[1] || '').trim(), at: when(/dt="([^"]+)"/.exec(cm[1])?.[1]),
+    })).filter((c) => c.text);
+    const tops = old.filter((c) => !c.parent || !old.some((o) => o.key === c.parent));
+    for (const t of tops) out.push({ author: t.author, text: t.text, at: t.at, resolved: false, replies: old.filter((c) => c.parent === t.key).map((c) => ({ author: c.author, text: c.text, at: c.at })) });
+  }
+  return out.slice(0, 200).map((c) => ({ ...c, text: c.text.slice(0, 4000), replies: c.replies.slice(0, 100).map((r) => ({ ...r, text: r.text.slice(0, 4000) })) }));
+}
+
 /** A box's link as PowerPoint takes it: { url } for a web page (http, https or mailto), { slide: n } (1-based) for another slide. */
 /**
  * A scatter chart's series for PowerPoint: the X values first, then each Y series (as Sheets draws
@@ -110,6 +160,7 @@ export async function deckFromPowerPoint(buffer, { savePicture }) {
   const presRels = await relsOf(zip, 'ppt/presentation.xml');
   const order = kids(kid(pres, P, 'sldIdLst'), P, 'sldId').map((s) => presRels.get(rattr(s, 'id'))).filter(Boolean);
   const slides = [], slideFiles = [];
+  const authors = await authorsOf(zip), comments = [];
   const numbered = new Set(); // slides with a slide number field
   for (const file of order) {
     const xml = parseXml(await zip.file(file)?.async('string') || '');
@@ -257,7 +308,9 @@ export async function deckFromPowerPoint(buffer, { savePicture }) {
     const advance = advanceOf(attr(trEl, 'advTm')); // moves on by itself after so many seconds
     const transition = tr && ({ fade: 'fade', dissolve: 'fade', push: 'push', wipe: 'push', cover: 'push', pull: 'push', split: 'push', zoom: 'zoom', newsflash: 'zoom' }[tr] || 'fade');
     slideFiles.push(file);
-    slides.push({ id: id(), items, ...(bg && { bg }), ...(bgImage && { bgImage }), ...(notes && { notes }), ...(transition && { transition }), ...(advance && { advance }), ...(skip && { skip: true }) });
+    const slideId = id();
+    for (const c of await slideCommentsOf(zip, file, authors)) comments.push({ slideId, ...c });
+    slides.push({ id: slideId, items, ...(bg && { bg }), ...(bgImage && { bgImage }), ...(notes && { notes }), ...(transition && { transition }), ...(advance && { advance }), ...(skip && { skip: true }) });
   }
   // Links to another slide: from its file to its id (a slide that didn't come in drops the link).
   for (const sl of slides) for (const it of sl.items) {
@@ -270,7 +323,9 @@ export async function deckFromPowerPoint(buffer, { savePicture }) {
   const loop = !!props && ['1', 'true'].includes(attr(deep(props, P, 'showPr')[0] || null, 'loop'));
   // Numbered slides: all of them, or all but the first.
   const numbers = !numbered.size ? null : numbered.size >= slides.length ? true : numbered.size === slides.length - 1 && !numbered.has(0) ? 'skip-first' : true;
-  return { theme: 'light', ...(numbers && { numbers }), ...(loop && { loop: true }), slides: slides.length ? slides : [{ id: id(), items: [] }] };
+  const deck = { theme: 'light', ...(numbers && { numbers }), ...(loop && { loop: true }), slides: slides.length ? slides : [{ id: id(), items: [] }] };
+  if (comments.length) pptComments.set(deck, comments);
+  return deck;
 }
 
 /**

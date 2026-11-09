@@ -7518,3 +7518,20 @@ test('Office files: comments in a Word file become comment threads on the docume
   assert.equal((await owner('PATCH', `/api/comments/${opened.id}/${threads[0].id}`, { resolved: true })).status, 200);
   assert.deepEqual((await docFromWord((await owner('GET', `/api/files/${opened.id}/export`, undefined, { binary: true })).body)).comments, []);
 });
+
+test('Office files: comments in a PowerPoint file become comment threads on their slides', async () => {
+  const { powerPointFromDeck } = await import('../src/office/powerpoint.js');
+  const JSZip = (await import('jszip')).default;
+  const zip = await JSZip.loadAsync(await powerPointFromDeck({ theme: 'light', slides: [{ id: 'a', items: [] }, { id: 'b', items: [] }] }));
+  zip.file('ppt/commentAuthors.xml', '<p:cmAuthorLst xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:cmAuthor id="0" name="Jane Smith" initials="JS" lastIdx="1" clrIdx="0"/></p:cmAuthorLst>');
+  zip.file('ppt/comments/comment1.xml', '<p:cmLst xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:cm authorId="0" dt="2026-10-01T10:00:00.000" idx="1"><p:pos x="0" y="0"/><p:text>Needs a chart</p:text></p:cm></p:cmLst>');
+  const rels = 'ppt/slides/_rels/slide2.xml.rels';
+  zip.file(rels, (await zip.file(rels).async('string')).replace('</Relationships>', '<Relationship Id="rIdC" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments" Target="../comments/comment1.xml"/></Relationships>'));
+  const up = (await owner('POST', '/api/files/upload?name=Pitch%20reviewed.pptx', await zip.generateAsync({ type: 'nodebuffer' }), { raw: true })).body;
+  const opened = (await owner('POST', `/api/files/${up.id}/open-as`)).body;
+  const deck = (await owner('GET', `/api/files/${opened.id}/content`)).body.content;
+  const threads = (await owner('GET', `/api/comments/${opened.id}`)).body;
+  assert.equal(threads.length, 1);
+  assert.equal(threads[0].body, 'Needs a chart\n\n— Jane Smith (in the PowerPoint file)');
+  assert.deepEqual(threads[0].anchor, { slide: deck.slides[1].id }, 'on the second slide');
+});

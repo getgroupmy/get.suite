@@ -23,7 +23,7 @@ import { canReach, checkQuota, orgStorageUsed, userStorageUsed } from '../tenanc
 import { resetRoom, CO_EDITED, saveNow } from '../collab.js';
 import { docFromWord, wordFromDoc, watermarkOfWord, layoutOfWord, pageOfWord } from '../office/word.js';
 import { sheetFromExcel, excelFromSheet } from '../office/excel.js';
-import { deckFromPowerPoint, powerPointFromDeck } from '../office/powerpoint.js';
+import { deckFromPowerPoint, powerPointFromDeck, commentsOfDeck } from '../office/powerpoint.js';
 import { officePreview, officeKind, MAX_PREVIEW } from '../office/preview.js';
 import { zipEntries, extractZip } from '../zipfiles.js';
 import { markdownFromDoc, docFromMarkdown } from '../office/markdown.js';
@@ -1110,7 +1110,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     const parentId = f.parent_id && atLeast(roleFor(f.parent_id, req.user.id), 'editor') ? f.parent_id : null;
     const buf = fs.readFileSync(path.join(FILES_DIR, f.storage));
     const name = f.name.replace(/\.[a-z]+$/i, '');
-    let content, watermark = '', layout = { columns: 1, lineNumbers: false }, wordComments = [];
+    let content, watermark = '', layout = { columns: 1, lineNumbers: false }, wordComments = [], slideComments = [];
     let folder = null;
     // The document's or presentation's pictures go in a folder of their own beside it.
     const savePicture = async (pname, data, mime) => {
@@ -1124,7 +1124,7 @@ export default function fileRoutes({ maxUploadBytes }) {
       if (type === 'docx') { const w = await docFromWord(buf, { savePicture }); content = w.doc; wordComments = w.comments || []; watermark = await watermarkOfWord(buf); layout = { ...(await layoutOfWord(buf)), ...(await pageOfWord(buf)) }; }
       else if (type === 'md' || type === 'markdown') content = docFromMarkdown(buf.toString('utf8'));
       else if (type === 'xlsx') content = await sheetFromExcel(buf);
-      else content = await deckFromPowerPoint(buf, { savePicture });
+      else { content = await deckFromPowerPoint(buf, { savePicture }); slideComments = commentsOfDeck(content); }
     } catch (e) { throw bad(`This file couldn't be read as ${type === 'docx' ? 'a Word document' : type === 'xlsx' ? 'an Excel workbook' : 'a PowerPoint presentation'}`); }
     const json = JSON.stringify(content);
     const id = insertFile({ owner: req.user.id, parentId, name, kind: OFFICE[type].kind, content: json, size: Buffer.byteLength(json) });
@@ -1137,6 +1137,14 @@ export default function fileRoutes({ maxUploadBytes }) {
         q('INSERT INTO file_comments (id, file_id, thread_id, author_id, body, anchor, created_at) VALUES (?, ?, ?, ?, ?, NULL, ?)')
           .run(uid(), id, c.id, req.user.id, signed(r), r.at || c.at || now());
       }
+    }
+    // A PowerPoint file's comments: threads on their slides, with their replies (and resolved when they were).
+    const signedPpt = (c) => (c.author ? `${c.text}\n\n— ${c.author} (in the PowerPoint file)` : c.text);
+    for (const c of slideComments) {
+      const tid = uid();
+      q('INSERT INTO file_comments (id, file_id, thread_id, author_id, body, anchor, resolved, resolved_by, created_at) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?)')
+        .run(tid, id, req.user.id, signedPpt(c), JSON.stringify({ slide: c.slideId }), c.resolved ? 1 : 0, c.resolved ? req.user.id : null, c.at || now());
+      for (const r of c.replies) q('INSERT INTO file_comments (id, file_id, thread_id, author_id, body, anchor, created_at) VALUES (?, ?, ?, ?, ?, NULL, ?)').run(uid(), id, tid, req.user.id, signedPpt(r), r.at || c.at || now());
     }
     // A Word file's page setup stays: paper, orientation, margins, header, footer, page numbers, watermark, columns, line numbers.
     if (type === 'docx') {
