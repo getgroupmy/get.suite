@@ -21,6 +21,7 @@ import * as twoFactor from './twofactor.js';
 import { buildIcs, parseIcsEvent, zoneOrUtc, contentLines } from './ics.js';
 import { remindersOf, setReminders } from './reminders.js';
 import { buildVcard, parseVcard } from './vcard.js';
+import { withPhoto, photoFromCard } from './contactphotos.js';
 import { MAIL_HOSTNAME } from './mail/config.js';
 import { sendTo } from './hub.js';
 
@@ -106,7 +107,7 @@ export function icsOf(e) {
   return buildIcs(outEvent(e), { method: null, uid: e.ical_uid || `${e.id}@${host()}`, sequence: e.sequence || 0, tz: e.tz, now: STAMP, overrides, organizer, attendees, alarms });
 }
 const PARTSTAT = { ACCEPTED: 'yes', TENTATIVE: 'maybe', DECLINED: 'no' };
-const vcfOf = (c) => buildVcard(c);
+const vcfOf = (c) => buildVcard(withPhoto(c));
 const ctag = (bodies) => `"${crypto.createHash('sha1').update(bodies.join('\u0000')).digest('hex').slice(0, 24)}"`;
 const repeatUntil = (e) => (e.rrule ? (e.rrule.until !== undefined ? e.rrule.until + (e.end - e.start) : null) : null);
 const touch = (ids) => sendTo([].concat(ids), { type: 'events-changed' });
@@ -318,6 +319,7 @@ export default function davRoutes() {
         const vals = [c.name, c.email, c.phone, c.company, c.title, c.address, c.website, c.notes, c.birthday, c.vcard_extra];
         if (row) q('UPDATE contacts SET name = ?, email = ?, phone = ?, company = ?, title = ?, address = ?, website = ?, notes = ?, birthday = ?, vcard_extra = ? WHERE id = ?').run(...vals, id);
         else q('INSERT INTO contacts (name, email, phone, company, title, address, website, notes, birthday, vcard_extra, id, owner_id, created_at, dav_name, vcard_uid) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(...vals, id, me, now(), at.name, c.uid);
+        photoFromCard(id, c); // the phone's photo (or none, when the card has none)
         const saved = q('SELECT * FROM contacts WHERE id = ?').get(id);
         res.setHeader('ETag', etagOf(vcfOf(saved)));
         return res.status(row ? 204 : 201).end();

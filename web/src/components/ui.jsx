@@ -145,8 +145,9 @@ export function ContextMenu({ x, y, items, onClose, label = 'Actions' }) {
   );
 }
 
-export function Avatar({ name = '?', size = 32, userId, email }) {
-  const photo = usePhoto(userId, email);
+export function Avatar({ name = '?', size = 32, userId, email, src }) {
+  const found = usePhoto(src ? undefined : userId, src ? undefined : email);
+  const photo = src || found;
   if (photo) return <img className="avatar photo" src={photo} alt="" width={size} height={size} style={{ width: size, height: size }} aria-hidden="true" />;
   const initials = name.split(/\s+/).filter(Boolean).slice(0, 2).map((s) => s[0]).join('').toUpperCase() || '?';
   return <span className="avatar" style={{ width: size, height: size, fontSize: size * 0.4, background: avatarColor(name) }} aria-hidden="true">{initials}</span>;

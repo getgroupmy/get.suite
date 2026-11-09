@@ -11,6 +11,7 @@ import { placeText, isoDay } from '../../components/workloc.js';
 import { statusLine } from '../../components/status.js';
 import { orgTree, chainOf } from '../../components/orgchart.js';
 import PersonCard from '../../components/PersonCard.jsx';
+import { photoBlob, photoUrl } from './photo.js';
 
 const FIELDS = [['name', 'Name'], ['email', 'Email'], ['phone', 'Phone'], ['company', 'Company'], ['title', 'Job title'], ['website', 'Website']];
 
@@ -93,7 +94,7 @@ export default function Contacts() {
           <tbody>
             {list.map((c) => (
               <tr key={c.id}>
-                <td className="name"><Avatar name={c.name} size={28} userId={tab === 'dir' ? c.id : undefined} email={c.email || c.username} /><span>{tab === 'dir' ? <button type="button" className="link-btn person-name" onClick={() => setCard(c.id)}>{c.name}</button> : c.name}{c.shared && tab === 'mine' ? <span className="muted"> · Shared with company</span> : null}{tab === 'company' && <span className="muted"> · Added by {c.owner_id === user.id ? 'you' : c.owner_name}</span>}{c.status && <span className="person-status" aria-label={`Status: ${statusLine(c.status)}`}> · {statusLine(c.status)}</span>}{tab === 'dir' && whereToday[c.id] && <span className="muted person-where" title="Working location today"> · {placeText(whereToday[c.id])} today</span>}</span></td>
+                <td className="name"><Avatar name={c.name} size={28} userId={tab === 'dir' ? c.id : undefined} email={c.email || c.username} src={tab !== 'dir' ? photoUrl(c) : undefined} /><span>{tab === 'dir' ? <button type="button" className="link-btn person-name" onClick={() => setCard(c.id)}>{c.name}</button> : c.name}{c.shared && tab === 'mine' ? <span className="muted"> · Shared with company</span> : null}{tab === 'company' && <span className="muted"> · Added by {c.owner_id === user.id ? 'you' : c.owner_name}</span>}{c.status && <span className="person-status" aria-label={`Status: ${statusLine(c.status)}`}> · {statusLine(c.status)}</span>}{tab === 'dir' && whereToday[c.id] && <span className="muted person-where" title="Working location today"> · {placeText(whereToday[c.id])} today</span>}</span></td>
                 <td className="hide-sm">{(c.email || c.username) ? <a href={`mailto:${c.email || c.username}`}>{c.email || c.username}</a> : <span className="muted">—</span>}</td>
                 <td className="hide-sm">{(c.phone || c.work_phone) ? <a href={`tel:${c.phone || c.work_phone}`}>{c.phone || c.work_phone}</a> : <span className="muted">—</span>}</td>
                 <td className="hide-sm muted">{own ? [c.title, c.company].filter(Boolean).join(' · ') || '—' : [c.job_title, c.department].filter(Boolean).join(' · ') || user.org_name}{own && c.website && <> · <a href={c.website} target="_blank" rel="noopener noreferrer">{c.website.replace(/^https?:\/\//, '')}</a></>}</td>
@@ -198,15 +199,37 @@ function OtherContacts({ filter, onAdded }) {
 function ContactDialog({ contact, orgName, onClose, onSaved }) {
   const [f, setF] = useState({ name: '', email: '', phone: '', company: '', notes: '', ...contact });
   const [error, setError] = useState('');
+  // The photo: unchanged (null), a new one picked ({ blob, url }), or taken away ('remove').
+  const [pic, setPic] = useState(null);
+  const picInput = useRef();
+  const shownPhoto = pic === 'remove' ? undefined : pic?.url || photoUrl(contact);
+  async function pickPhoto(file) {
+    if (!file) return;
+    try { const blob = await photoBlob(file); setPic({ blob, url: URL.createObjectURL(blob) }); }
+    catch { setError('That picture can’t be read. Try a JPEG or PNG.'); }
+  }
+  async function savePhoto(id) {
+    if (!pic) return;
+    const r = await fetch(`/api/contacts/${id}/photo`, pic === 'remove'
+      ? { method: 'DELETE', headers: { 'x-requested-with': 'nas-workspace' } }
+      : { method: 'PUT', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'image/jpeg' }, body: pic.blob });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'The photo couldn’t be saved');
+  }
   async function submit(e) {
     e.preventDefault();
     const body = { name: f.name, email: f.email || '', phone: f.phone || '', company: f.company || '', title: f.title || '', website: f.website || '', address: f.address || '', notes: f.notes || '', birthday: f.birthday || null, shared: !!f.shared };
-    try { if (contact.id) await patch(`/contacts/${contact.id}`, body); else await post('/contacts', body); onSaved(); }
+    try { const saved = contact.id ? await patch(`/contacts/${contact.id}`, body) : await post('/contacts', body); await savePhoto(saved.id || contact.id); onSaved(); }
     catch (err) { setError(err.message); }
   }
   return (
     <Modal title={contact.id ? 'Edit contact' : 'New contact'} onClose={onClose}>
       <form className="stack" onSubmit={submit}>
+        <div className="row contact-photo" style={{ gap: 12 }}>
+          <Avatar name={f.name || '?'} size={64} src={shownPhoto} />
+          <button type="button" className="btn small" onClick={() => picInput.current.click()}>{shownPhoto ? 'Change photo' : 'Add photo'}</button>
+          {shownPhoto && <button type="button" className="link-btn small" onClick={() => setPic('remove')}>Remove photo</button>}
+          <input ref={picInput} type="file" accept="image/*" hidden aria-label="Photo" onChange={(e) => { pickPhoto(e.target.files[0]); e.target.value = ''; }} />
+        </div>
         {FIELDS.map(([k, label], i) => (
           <label key={k} className="field"><span>{label}</span>
             <input autoFocus={i === 0} required={k === 'name'} type={k === 'email' ? 'email' : k === 'phone' ? 'tel' : 'text'} placeholder={k === 'website' ? 'example.com' : undefined} value={f[k] || ''} onChange={(e) => setF({ ...f, [k]: e.target.value })} />

@@ -220,3 +220,16 @@ test('reminders: set on the phone they show on the web, and the other way round'
   await dav('PUT', `${cal}REMIND-1.ics`, { body: body(''), headers: { 'content-type': 'text/calendar' } });
   assert.deepEqual((await ev()).reminders, [], 'removed on the phone');
 });
+
+test('contacts: a phone\'s photo shows on the web, and a web photo goes to the phone', async () => {
+  const book = `/dav/addressbooks/${me.id}/default/`;
+  const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==', 'base64');
+  const b64 = PNG.toString('base64');
+  const card = ['BEGIN:VCARD', 'VERSION:3.0', 'FN:Photo Phone', 'EMAIL:pp@example.com', `PHOTO;ENCODING=b;TYPE=PNG:${b64.slice(0, 40)}`, ` ${b64.slice(40)}`, 'UID:CARD-PHOTO', 'END:VCARD'].join('\r\n');
+  assert.equal((await dav('PUT', `${book}CARD-PHOTO.vcf`, { body: card })).status, 201);
+  const c = (await api('GET', '/api/contacts')).body.find((x) => x.vcard_uid === 'CARD-PHOTO');
+  assert.ok(c.photo_at, 'the photo arrived');
+  const back = (await dav('GET', `${book}CARD-PHOTO.vcf`)).text.replace(/\r\n[ \t]/g, '');
+  assert.equal((back.match(/^PHOTO/gm) || []).length, 1, 'one photo on the card');
+  assert.ok(back.includes(`PHOTO;ENCODING=b;TYPE=PNG:${b64}`));
+});

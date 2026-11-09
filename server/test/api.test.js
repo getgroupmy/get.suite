@@ -6450,3 +6450,38 @@ test('chat typing: the others in the conversation (or thread) hear it, at most e
     assert.equal((await sid('POST', `/api/chat/channels/${ch.id}/typing`, {})).status, 404, 'outsiders can\'t');
   } finally { ted.terminate(); out.terminate(); me.terminate(); }
 });
+
+test('contact photos: set, see, share, export as a vCard PHOTO, import one back, remove', async () => {
+  const kay = client(); await login(kay, 'kay@keepco.com');
+  const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==', 'base64');
+  const c = (await kay('POST', '/api/contacts', { name: 'Photo Person', email: 'photo@example.com' })).body;
+  assert.equal((await kay('GET', `/api/contacts/${c.id}/photo`)).status, 404, 'none yet');
+  assert.equal((await kay('PUT', `/api/contacts/${c.id}/photo`, Buffer.from('<svg/> not a picture at all'), { raw: true, headers: { 'content-type': 'image/svg+xml' } })).status, 400, 'pictures only');
+  const set = await kay('PUT', `/api/contacts/${c.id}/photo`, PNG, { raw: true, headers: { 'content-type': 'image/png' } });
+  assert.equal(set.status, 200);
+  assert.ok(set.body.photo_at > 0);
+  const got = await kay('GET', `/api/contacts/${c.id}/photo`, undefined, { binary: true });
+  assert.equal(got.headers.get('content-type'), 'image/png');
+  assert.ok(got.body.equals(PNG));
+  assert.ok((await kay('GET', '/api/contacts')).body.find((x) => x.id === c.id).photo_at, 'the list says it has one');
+  // Someone else in the company sees it only once the contact is shared.
+  await kay('POST', '/api/users', { local: 'phv', domain: 'keepco.com', name: 'Pat Viewer', password: 'password123' });
+  const pat = client(); await login(pat, 'phv@keepco.com');
+  assert.equal((await pat('GET', `/api/contacts/${c.id}/photo`)).status, 404);
+  assert.equal((await pat('PUT', `/api/contacts/${c.id}/photo`, PNG, { raw: true, headers: { 'content-type': 'image/png' } })).status, 404);
+  await kay('PATCH', `/api/contacts/${c.id}`, { shared: true });
+  assert.equal((await pat('GET', `/api/contacts/${c.id}/photo`)).status, 200);
+  // Exported as a PHOTO line; a card with a photo brings it in.
+  const vcf = (await kay('GET', '/api/contacts/export')).body;
+  assert.match(vcf, /PHOTO;ENCODING=b;TYPE=PNG:/);
+  const card = `BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Pic From Phone\r\nEMAIL:pic@example.com\r\nPHOTO;ENCODING=b;TYPE=PNG:${PNG.toString('base64')}\r\nEND:VCARD\r\n`;
+  assert.equal((await kay('POST', '/api/contacts/import', card, { raw: true, headers: { 'content-type': 'text/vcard' } })).body.added, 1);
+  const imported = (await kay('GET', '/api/contacts')).body.find((x) => x.name === 'Pic From Phone');
+  assert.ok(imported.photo_at, 'photo came with the card');
+  assert.ok((await kay('GET', `/api/contacts/${imported.id}/photo`, undefined, { binary: true })).body.equals(PNG));
+  assert.ok(!/PHOTO/.test(imported.vcard_extra || ''), 'not kept twice');
+  // Removing it.
+  assert.equal((await kay('DELETE', `/api/contacts/${c.id}/photo`)).status, 200);
+  assert.equal((await kay('GET', `/api/contacts/${c.id}/photo`)).status, 404);
+  assert.ok(!(await kay('GET', '/api/contacts')).body.find((x) => x.id === c.id).photo_at);
+});

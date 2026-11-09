@@ -7,6 +7,7 @@ import { canReach } from '../tenancy.js';
 import { birthdayOf, birthdaysBetween } from '../birthday.js';
 import { duplicateGroups, mergedFields } from '../contactmerge.js';
 import { otherContactsOf, matchOther, forgetOther } from '../othercontacts.js';
+import { photoOf, setPhoto, withPhoto, photoFromCard, MAX_PHOTO } from '../contactphotos.js';
 
 const FIELDS = { name: 200, email: 200, phone: 50, company: 200, title: 200, address: 500, website: 300, notes: 5000 };
 const COLS = [...Object.keys(FIELDS), 'birthday'];
@@ -59,12 +60,31 @@ export default function contactRoutes() {
 
   r.get('/', (req, res) => {
     if (req.query.scope === 'company') {
-      return res.json(q(`SELECT c.*, u.name AS owner_name, (c.owner_id = ? OR ?) AS can_edit FROM contacts c JOIN users u ON u.id = c.owner_id
-                         WHERE c.shared = 1 AND u.org_id = ? ORDER BY c.name COLLATE NOCASE`).all(req.user.id, req.user.is_admin ? 1 : 0, req.user.org_id)
+      return res.json(q(`SELECT c.*, u.name AS owner_name, (c.owner_id = ? OR ?) AS can_edit, p.updated_at AS photo_at FROM contacts c JOIN users u ON u.id = c.owner_id
+                         LEFT JOIN contact_photos p ON p.contact_id = c.id WHERE c.shared = 1 AND u.org_id = ? ORDER BY c.name COLLATE NOCASE`).all(req.user.id, req.user.is_admin ? 1 : 0, req.user.org_id)
         .map((c) => ({ ...c, can_edit: !!c.can_edit })));
     }
-    res.json(q('SELECT * FROM contacts WHERE owner_id = ? ORDER BY name COLLATE NOCASE').all(req.user.id));
+    res.json(q('SELECT c.*, p.updated_at AS photo_at FROM contacts c LEFT JOIN contact_photos p ON p.contact_id = c.id WHERE c.owner_id = ? ORDER BY c.name COLLATE NOCASE').all(req.user.id));
   });
+
+  // ---- photos ----
+  // Seen by whoever sees the contact: its owner, or everyone in the company for a shared one.
+  r.get('/:id/photo', (req, res) => {
+    const c = q('SELECT c.id, c.owner_id, c.shared, u.org_id FROM contacts c JOIN users u ON u.id = c.owner_id WHERE c.id = ?').get(req.params.id);
+    if (!c || !(c.owner_id === req.user.id || (c.shared && c.org_id === req.user.org_id))) throw notFound();
+    const p = photoOf(c.id);
+    if (!p) throw notFound('No photo');
+    res.setHeader('Content-Type', p.mime);
+    res.setHeader('Cache-Control', 'private, max-age=86400');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.send(Buffer.from(p.data));
+  });
+  r.put('/:id/photo', express.raw({ type: () => true, limit: MAX_PHOTO + 1024 }), (req, res) => {
+    const c = editable(req);
+    if (!Buffer.isBuffer(req.body) || !req.body.length) throw bad('Send the picture');
+    try { res.json({ photo_at: setPhoto(c.id, req.body) }); } catch (e) { throw bad(e.message); }
+  });
+  r.delete('/:id/photo', (req, res) => { setPhoto(editable(req).id, null); res.json({ ok: true }); });
 
   // Suggestions while typing an address in Mail: your contacts and your colleagues.
   // ---- groups ----
@@ -141,9 +161,11 @@ export default function contactRoutes() {
       const key = `${String(c.name).toLowerCase()}|${c.phone || ''}`;
       if ((email && emails.has(email)) || (c.uid && uids.has(c.uid)) || (!email && namePhone.has(key))) { skipped++; continue; } // already there
       const cut = (v, n) => (v ? String(v).slice(0, n) : null);
+      const newId = uid();
       q(`INSERT INTO contacts (id, owner_id, name, email, phone, company, title, address, website, notes, birthday, created_at, vcard_uid, vcard_extra) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-        .run(uid(), req.user.id, String(c.name).slice(0, 200), email, cut(c.phone, 50), cut(c.company, 200), cut(c.title, 200), cut(c.address, 500), cut(c.website, 300),
+        .run(newId, req.user.id, String(c.name).slice(0, 200), email, cut(c.phone, 50), cut(c.company, 200), cut(c.title, 200), cut(c.address, 500), cut(c.website, 300),
           cut(c.notes, 5000), c.birthday || null, t, c.uid || null, c.vcard_extra || null);
+      if (c.photo) photoFromCard(newId, c);
       if (email) emails.add(email);
       if (c.uid) uids.add(c.uid);
       namePhone.add(key);
@@ -179,7 +201,7 @@ export default function contactRoutes() {
     const csv = req.query.format === 'csv';
     res.setHeader('Content-Type', csv ? 'text/csv; charset=utf-8' : 'text/vcard; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="contacts.${csv ? 'csv' : 'vcf'}"`);
-    res.send(csv ? contactsToCsv(list) : contactsToVcf(list));
+    res.send(csv ? contactsToCsv(list) : contactsToVcf(list.map(withPhoto)));
   });
 
   // Contacts that look like the same person (same email, phone or name), to merge.

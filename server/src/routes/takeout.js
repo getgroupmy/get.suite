@@ -11,6 +11,7 @@ import { audit } from '../audit.js';
 import { forbidden, notFound } from '../util.js';
 import { exportCalendar } from '../calimport.js';
 import { contactsToVcf } from '../contactfiles.js';
+import { withPhoto } from '../contactphotos.js';
 import { wordFromDoc } from '../office/word.js';
 import { excelFromSheet } from '../office/excel.js';
 import { powerPointFromDeck } from '../office/powerpoint.js';
@@ -97,7 +98,7 @@ export default function takeoutRoutes() {
       } catch (e) { zip.file(`${where}.error.txt`, `This file couldn't be converted: ${e.message}`); }
     }
     zip.file('Calendar.ics', exportCalendar(me));
-    zip.file('Contacts.vcf', contactsToVcf(q('SELECT * FROM contacts WHERE owner_id = ? ORDER BY name COLLATE NOCASE').all(me)));
+    zip.file('Contacts.vcf', contactsToVcf(q('SELECT * FROM contacts WHERE owner_id = ? ORDER BY name COLLATE NOCASE').all(me).map(withPhoto)));
     zip.file('Tasks.csv', `﻿${tasksCsv(me)}\r\n`);
     zip.file('Notes.md', `# Notes\n\n${notesMarkdown(me)}`);
     zip.file('README.txt', [`Your Workspace data, ${new Date().toISOString().slice(0, 10)}`, '',
