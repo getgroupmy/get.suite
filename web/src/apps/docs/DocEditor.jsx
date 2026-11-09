@@ -33,6 +33,7 @@ import { ChartPick } from '../ChartLink.jsx';
 import { SignedPrintPage } from './Signatures.jsx';
 import { TaskList, TaskItem } from '@tiptap/extension-list';
 import { PageBreak } from './pagebreak.js';
+import { captureFormat, applyFormat, wordAt } from './paintformat.js';
 import { Footnote, footnotesOf, htmlWithFootnotes } from './footnote.js';
 import { Mention, mentionQuery, matchPeople } from './mention.js';
 import { DropChip, CHIP_PRESETS, CHIP_COLORS, cleanOptions } from './dropchip.js';
@@ -632,6 +633,26 @@ function Toolbar({ editor, onDropdown, onEquation, onCite, onSymbols, onComment,
     return () => { editor.off('selectionUpdate', f); editor.off('transaction', f); };
   }, [editor]);
 
+  // Paint format: { fmt, sticky } while the brush is on (one use, or until Esc after a double-click).
+  const [painter, setPainter] = useState(null);
+  useEffect(() => {
+    if (!painter) return undefined;
+    const dom = editor.view.dom;
+    dom.classList.add('painting');
+    const up = () => setTimeout(() => {
+      const { state } = editor;
+      const { from, to, empty } = state.selection;
+      const range = empty ? wordAt(state.doc, from) : { from, to };
+      if (!range) return;
+      editor.view.dispatch(applyFormat(state, painter.fmt, range.from, range.to));
+      if (!painter.sticky) setPainter(null);
+    }, 0);
+    const esc = (e) => { if (e.key === 'Escape') setPainter(null); };
+    dom.addEventListener('mouseup', up);
+    window.addEventListener('keydown', esc);
+    return () => { dom.classList.remove('painting'); dom.removeEventListener('mouseup', up); window.removeEventListener('keydown', esc); };
+  }, [painter, editor]);
+
   const c = () => editor.chain().focus();
   const B = ({ label, title, active, onClick, className = '' }) => (
     <button type="button" className={`tb ${active ? 'on' : ''} ${className}`} title={title} aria-label={title} aria-pressed={!!active}
@@ -650,6 +671,11 @@ function Toolbar({ editor, onDropdown, onEquation, onCite, onSymbols, onComment,
       }} />}
       <B label="↶" title="Undo (Ctrl+Z)" onClick={() => c().undo().run()} />
       <B label="↷" title="Redo (Ctrl+Y)" onClick={() => c().redo().run()} />
+      <button type="button" className={`tb ${painter ? 'on' : ''}`} aria-label="Paint format" aria-pressed={!!painter}
+        title={painter?.sticky ? 'Paint format is on: select text to give it this formatting (Esc to stop)' : 'Paint format: copy this formatting, then select or click text to apply it (double-click to keep it on)'}
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={(e) => { if (e.detail > 1) return; setPainter((p) => (p ? null : { fmt: captureFormat(editor.state), sticky: false })); }}
+        onDoubleClick={() => setPainter({ fmt: captureFormat(editor.state), sticky: true })}>🖌</button>
       <span className="sep" />
       <select aria-label="Text style" value={block} onChange={(e) => {
         const v = e.target.value;

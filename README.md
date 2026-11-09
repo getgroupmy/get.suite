@@ -197,6 +197,11 @@ Put a status, a review stage or a priority right in the text, like *Website: In 
 - Click a citation to change it (the list follows) or remove it; pointing at one shows its full reference. People who can only view can't change them.
 - Downloads keep both: Word (the list with a hanging indent and italic titles), Markdown and HTML. Search finds the sources' authors and titles.
 
+## Paint format (Docs)
+
+- **🖌 Paint format** in the toolbar copies the formatting where the cursor is: bold, italic, underline, strikethrough, colour, highlight, font and size, and the paragraph's style (heading level, alignment, line spacing). Then select text, or just click a word, and it takes that formatting (what was there goes; links and comments stay). The brush turns itself off after one use.
+- **Double-click** the brush to keep it on and paint several places in a row; **Esc** or the brush again turns it off. Copying from plain text makes text plain.
+
 ## Find and replace, word count, outline (Docs)
 
 - **Ctrl+F** finds text in the document: every match is highlighted, and Enter (Shift+Enter) goes to the next (previous) one. *Match case* and *Whole words* narrow it down. **Ctrl+H** (or *Replace…*) replaces the current match or all of them; replaced text keeps its formatting, and each replace is one step for Undo. Only the person searching sees the highlights; replacements reach everyone as they're made. Viewers can find but not replace.
