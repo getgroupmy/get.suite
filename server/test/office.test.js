@@ -571,6 +571,16 @@ test('newer statistics functions get Excel\'s prefix both ways; older ones stay 
   assert.equal(formulaFromExcel('=_xlfn.FORECAST.LINEAR(6,B1:B5,A1:A5)'), '=FORECAST.LINEAR(6,B1:B5,A1:A5)');
 });
 
+test('LET and LAMBDA in Excel files: _xlfn. on the functions, _xlpm. on the names, and back', () => {
+  const ours = '=LET(net, SUM(B1:B3), tax, net*0.2, IF(net>0, net+tax, "none"))';
+  const xl = '=_xlfn.LET(_xlpm.net, SUM(B1:B3), _xlpm.tax, _xlpm.net*0.2, IF(_xlpm.net>0, _xlpm.net+_xlpm.tax, "none"))';
+  assert.equal(formulaToExcel(ours), xl);
+  assert.equal(formulaFromExcel(xl), ours);
+  assert.equal(formulaToExcel('=BYROW(A1:B3, LAMBDA(row, SUM(row)*Rate))'), '=_xlfn.BYROW(A1:B3, _xlfn.LAMBDA(_xlpm.row, SUM(_xlpm.row)*Rate))', 'a named range is left alone');
+  assert.equal(formulaToExcel('=MAP(A1:A3, LAMBDA(v, "v is " & v))'), '=_xlfn.MAP(A1:A3, _xlfn.LAMBDA(_xlpm.v, "v is " & _xlpm.v))', 'text is left alone');
+  assert.equal(formulaToExcel('=SUM(Net)+Net!A1'), '=SUM(Net)+Net!A1', 'no LET: nothing changes');
+});
+
 test('date chips: the day in Word, Markdown and search (by its words or as 2026-11-09)', async () => {
   const { markdownFromDoc } = await import('../src/office/markdown.js');
   const { docText } = await import('../src/search.js');

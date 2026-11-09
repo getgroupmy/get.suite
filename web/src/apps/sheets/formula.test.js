@@ -424,3 +424,40 @@ test('more maths: MROUND, QUOTIENT, GCD, LCM, FACT, COMBIN, EVEN, ODD, ROWS, COL
     [9, -8, '#NUM!', -3, '#DIV/0!', 12, 60, 120, 15, '#NUM!', 2, -4, 3, 1, 4, 3, '#NUM!', 1]);
   assert.ok(Math.abs(g('A2') - 0.2) < 1e-12);
 });
+
+test('LET and LAMBDA: names in a formula, and MAP, BYROW, BYCOL, REDUCE, SCAN, MAKEARRAY', () => {
+  const g0 = createEvaluator({
+    A1: 1, A2: 2, A3: 3, B1: 10, B2: 20, B3: 30, E1: 'Tax', E2: 0.1,
+    C1: '=LET(net, SUM(B1:B3), tax, net*0.2, net+tax)',
+    C2: '=LET(x, 2, y, x*10, LET(x, 5, x+y))', // the inner x hides the outer one
+    C3: '=LET(rate, 0.5, rate*100) + Rate', // outside the LET, Rate is the named range again
+    C4: '=REDUCE(0, A1:A3, LAMBDA(total, v, total + v*v))',
+    C5: '=LAMBDA(x, x*2)',
+    C6: '=LET(x, 1)',
+    C7: '=MAP(A1:A3, B1:B3, LAMBDA(a, b, a))', // fills C7:C9
+    D1: '=MAP(A1:A3, LAMBDA(v, IF(v>1, v*100, "small")))', // fills D1:D3
+    F1: '=BYROW(A1:B3, LAMBDA(row, SUM(row)))', // F1:F3
+    G1: '=BYCOL(A1:B3, LAMBDA(col, MAX(col)))', // G1:H1
+    G2: '=SCAN(0, A1:A3, LAMBDA(acc, v, acc+v))', // G2:G4
+    I1: '=MAKEARRAY(2, 3, LAMBDA(r, c, r*10+c))', // I1:K2
+    I3: '=MAP(A1:A3, LAMBDA(a, b, a))', // a LAMBDA with the wrong number of names
+    I4: '=LET(A1, 5, A1)', // a cell address can't be a name
+    I5: '=LET(price, 4, qty, 3, MAP(A1:A1, LAMBDA(v, v + price*qty)))', // a LAMBDA sees the LET's names
+  }, { Rate: 'E2' });
+  const g = (r) => { const v = g0(r); return v?.error ?? v; };
+  assert.equal(g('C1'), 72);
+  assert.equal(g('C2'), 25);
+  assert.equal(g('C3'), 50.1);
+  assert.equal(g('C4'), 14);
+  assert.equal(g('C5'), '#VALUE!');
+  assert.equal(g('C6'), '#N/A');
+  assert.deepEqual(['C7', 'C8', 'C9'].map(g), [1, 2, 3]);
+  assert.deepEqual(['D1', 'D2', 'D3'].map(g), ['small', 200, 300]);
+  assert.deepEqual(['F1', 'F2', 'F3'].map(g), [11, 22, 33]);
+  assert.deepEqual(['G1', 'H1'].map(g), [3, 30]);
+  assert.deepEqual(['G2', 'G3', 'G4'].map(g), [1, 3, 6]);
+  assert.deepEqual(['I1', 'J1', 'K1', 'I2', 'J2', 'K2'].map(g), [11, 12, 13, 21, 22, 23]);
+  assert.equal(g('I3'), '#VALUE!');
+  assert.equal(g('I4'), '#NAME?');
+  assert.equal(g('I5'), 13);
+});

@@ -38,13 +38,42 @@ const numToExcel = (f) => {
 };
 
 // Excel writes functions newer than 2007 with a prefix ("_xlfn.XLOOKUP("); we keep plain names.
-const NEW_FUNCS = ['XLOOKUP', 'STDEV.S', 'STDEV.P', 'VAR.S', 'VAR.P', 'RANK.EQ', 'IFS', 'SWITCH', 'IFNA', 'TEXTJOIN', 'CONCAT', 'MAXIFS', 'MINIFS', 'DAYS', 'XMATCH', 'VSTACK', 'HSTACK', 'TAKE', 'DROP', 'ISOWEEKNUM', 'MODE.SNGL', 'PERCENTILE.INC', 'QUARTILE.INC', 'FORECAST.LINEAR'];
+const NEW_FUNCS = ['XLOOKUP', 'STDEV.S', 'STDEV.P', 'VAR.S', 'VAR.P', 'RANK.EQ', 'IFS', 'SWITCH', 'IFNA', 'TEXTJOIN', 'CONCAT', 'MAXIFS', 'MINIFS', 'DAYS', 'XMATCH', 'VSTACK', 'HSTACK', 'TAKE', 'DROP', 'ISOWEEKNUM', 'MODE.SNGL', 'PERCENTILE.INC', 'QUARTILE.INC', 'FORECAST.LINEAR', 'LET', 'LAMBDA', 'MAP', 'REDUCE', 'SCAN', 'BYROW', 'BYCOL', 'MAKEARRAY'];
 const NEW_RE = new RegExp(`("(?:[^"]|"")*")|(?<![A-Z0-9_.])(${NEW_FUNCS.map((n) => n.replace('.', '\\.')).join('|')})(?=\\()`, 'gi');
-export const formulaFromExcel = (f) => String(f).replace(/("(?:[^"]|"")*")|_xl(?:fn|ws)\./gi, (m, s) => s || '');
+export const formulaFromExcel = (f) => String(f).replace(/("(?:[^"]|"")*")|_xl(?:fn|ws|pm)\./gi, (m, s) => s || '');
 // The dynamic-array functions; FILTER and SORT also carry "_xlws." in the file.
 const ARRAY_FUNCS = { FILTER: '_xlfn._xlws.', SORT: '_xlfn._xlws.', UNIQUE: '_xlfn.', SEQUENCE: '_xlfn.' };
 const ARRAY_RE = new RegExp(`("(?:[^"]|"")*")|(?<![A-Z0-9_.])(${Object.keys(ARRAY_FUNCS).join('|')})(?=\\()`, 'gi');
-export const formulaToExcel = (f) => String(f).replace(NEW_RE, (m, s, name) => s || `_xlfn.${name.toUpperCase()}`)
+/**
+ * The names a formula gives with LET and LAMBDA (LET(x, 1, x+1), LAMBDA(row, SUM(row))), which Excel
+ * writes as _xlpm.x: every argument of LET at an odd place but the last, every LAMBDA argument but the last.
+ */
+function letNames(f) {
+  const names = new Set();
+  const re = /("(?:[^"]|"")*")|(?<![A-Z0-9_.])(LET|LAMBDA)\s*\(/gi;
+  let m;
+  while ((m = re.exec(f))) {
+    if (m[1]) continue;
+    const args = [];
+    let depth = 0, start = re.lastIndex, i = start;
+    for (; i < f.length; i++) {
+      const ch = f[i];
+      if (ch === '"') { i = f.indexOf('"', i + 1); while (f[i + 1] === '"') i = f.indexOf('"', i + 2); if (i < 0) break; continue; }
+      if (ch === '(' || ch === '{') depth++;
+      else if ((ch === ')' || ch === '}') && depth) depth--;
+      else if (ch === ')' || (ch === ',' && !depth)) { args.push(f.slice(start, i).trim()); start = i + 1; if (ch === ')') break; }
+    }
+    const isLet = m[2].toUpperCase() === 'LET';
+    args.slice(0, -1).forEach((a, k) => { if ((!isLet || k % 2 === 0) && /^[A-Z_][A-Z0-9_]*$/i.test(a)) names.add(a.toUpperCase()); });
+  }
+  return names;
+}
+const withParamPrefix = (f) => {
+  const names = letNames(f);
+  if (!names.size) return f;
+  return f.replace(/("(?:[^"]|"")*")|(?<![A-Z0-9_.!$'])([A-Z_][A-Z0-9_]*)(?![A-Z0-9_.(!])/gi, (m, s, name) => s || (names.has(name.toUpperCase()) ? `_xlpm.${name}` : name));
+};
+export const formulaToExcel = (f) => withParamPrefix(String(f)).replace(NEW_RE, (m, s, name) => s || `_xlfn.${name.toUpperCase()}`)
   .replace(ARRAY_RE, (m, s, name) => s || `${ARRAY_FUNCS[name.toUpperCase()]}${name.toUpperCase()}`);
 
 function cellText(cell) {

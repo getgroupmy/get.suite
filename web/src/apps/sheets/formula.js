@@ -324,7 +324,7 @@ function order(a, b) {
   return Number(a) - Number(b);
 }
 /** Functions that give back several cells, which spill into the cells beside and below. */
-const ARRAY_FUNCS = new Set(['FILTER', 'UNIQUE', 'SORT', 'SEQUENCE', 'TRANSPOSE', 'IMPORTRANGE', 'XLOOKUP', 'SPLIT', 'VSTACK', 'HSTACK', 'TAKE', 'DROP', 'CHOOSE', 'REGEXEXTRACT']);
+const ARRAY_FUNCS = new Set(['FILTER', 'UNIQUE', 'SORT', 'SEQUENCE', 'TRANSPOSE', 'IMPORTRANGE', 'XLOOKUP', 'SPLIT', 'VSTACK', 'HSTACK', 'TAKE', 'DROP', 'CHOOSE', 'REGEXEXTRACT', 'LET', 'MAP', 'BYROW', 'BYCOL', 'MAKEARRAY', 'REDUCE', 'SCAN']);
 
 // ---- helpers for regular expressions, times and cash flows
 /** A pattern from a formula (RE2-like: no lookbehind needed); a bad one, or one too long, is #VALUE!. */
@@ -765,8 +765,44 @@ const LAZY = {
   IFERROR: ([v, fallback]) => { try { return v(); } catch (e) { if (e instanceof FormulaError) return fallback ? fallback() : ''; throw e; } },
 };
 
+/**
+ * Functions that take a LAMBDA: MAP(range…, LAMBDA(v…, …)) for each cell; BYROW / BYCOL for each row or
+ * column; REDUCE(start, range, LAMBDA(total, v, …)) and SCAN (every step); MAKEARRAY(rows, cols, LAMBDA(r, c, …)).
+ */
+const LAMBDA_USERS = {
+  MAP: (args, { evaluate, lambdaArg }) => {
+    if (args.length < 2) err('#N/A');
+    const ranges = args.slice(0, -1).map(evaluate).map(shapeOf), f = lambdaArg(args[args.length - 1], ranges.length);
+    const { rows, cols } = ranges[0];
+    if (ranges.some((x) => x.rows !== rows || x.cols !== cols)) err('#VALUE!');
+    return grid(Array.from({ length: rows }, (_, r) => Array.from({ length: cols }, (_, c) => scalarOf(f(...ranges.map((x) => x.at(r, c) ?? null))))));
+  },
+  BYROW: ([range, l], { evaluate, lambdaArg }) => {
+    const rows = rowsOf(evaluate(range)), f = lambdaArg(l, 1);
+    return grid(rows.map((row) => { const a = grid([row]); return [scalarOf(f(a))]; }));
+  },
+  BYCOL: ([range, l], { evaluate, lambdaArg }) => {
+    const rows = rowsOf(evaluate(range)), f = lambdaArg(l, 1);
+    return grid([(rows[0] || []).map((_, c) => scalarOf(f(grid(rows.map((row) => [row[c]])))))]);
+  },
+  REDUCE: ([start, range, l], { evaluate, lambdaArg }) => {
+    const f = lambdaArg(l, 2);
+    return flat([evaluate(range)]).reduce((acc, v) => scalarOf(f(acc, v ?? null)), scalarOf(evaluate(start)));
+  },
+  SCAN: ([start, range, l], { evaluate, lambdaArg }) => {
+    const s = shapeOf(evaluate(range)), f = lambdaArg(l, 2);
+    let acc = scalarOf(evaluate(start));
+    return grid(Array.from({ length: s.rows }, (_, r) => Array.from({ length: s.cols }, (_, c) => (acc = scalarOf(f(acc, s.at(r, c) ?? null))))));
+  },
+  MAKEARRAY: ([rows, cols, l], { evaluate, lambdaArg }) => {
+    const nr = Math.trunc(toNum(scalarOf(evaluate(rows)))), nc = Math.trunc(toNum(scalarOf(evaluate(cols)))), f = lambdaArg(l, 2);
+    if (nr < 1 || nc < 1 || nr * nc > 10000) err('#VALUE!');
+    return grid(Array.from({ length: nr }, (_, r) => Array.from({ length: nc }, (_, c) => scalarOf(f(r + 1, c + 1)))));
+  },
+};
+
 /** Every function a formula can call. */
-export const FUNCTION_NAMES = [...Object.keys(FUNCS), ...Object.keys(LAZY), 'IMPORTRANGE', 'HYPERLINK', 'SPARKLINE', 'ROW', 'COLUMN', 'ROWS', 'COLUMNS'];
+export const FUNCTION_NAMES = [...Object.keys(FUNCS), ...Object.keys(LAZY), ...Object.keys(LAMBDA_USERS), 'LET', 'LAMBDA', 'IMPORTRANGE', 'HYPERLINK', 'SPARKLINE', 'ROW', 'COLUMN', 'ROWS', 'COLUMNS'];
 
 /** A link a cell may open: web addresses and email (mailto:), nothing else. */
 export function safeLink(v) {
@@ -870,6 +906,7 @@ export function createEvaluator(cells, names = null, book = null) {
         v = '';
       } else { const outer = here; here = key; try { v = evaluate(ast); } finally { here = outer; } }
       if (typeof v === 'number' && !Number.isFinite(v)) err('#NUM!');
+      if (typeof v === 'function') err('#VALUE!'); // a LAMBDA not given anything to work on
       if (Array.isArray(v)) v = spill(key, v);
       memo.set(key, v);
       return v;
@@ -934,7 +971,7 @@ export function createEvaluator(cells, names = null, book = null) {
         if (!other) err('#REF!');
         return other.named(n.v);
       }
-      case 'name': return namedValue(n.v);
+      case 'name': { for (let i = scopes.length - 1; i >= 0; i--) if (scopes[i].has(n.v)) return scopes[i].get(n.v); return namedValue(n.v); }
       case 'neg': { const v = evaluate(n.e); return Array.isArray(v) ? elementwise(v, null, (x) => -toNum(x)) : -toNum(v); }
       case 'call': {
         if (n.name === 'IMPORTRANGE') return importRange(n.args.map((a) => scalar(evaluate(a))));
@@ -946,6 +983,7 @@ export function createEvaluator(cells, names = null, book = null) {
           return (n.name === 'ROW' ? at.r : at.c) + 1;
         }
         if (n.name === 'ROWS' || n.name === 'COLUMNS') { const s = shapeOf(evaluate(n.args[0])); return n.name === 'ROWS' ? s.rows : s.cols; }
+        if (n.name === 'LET' || n.name === 'LAMBDA' || LAMBDA_USERS[n.name]) return withNames(n);
         if (LAZY[n.name]) return LAZY[n.name](n.args.map((a) => () => scalar(evaluate(a))));
         const f = FUNCS[n.name];
         if (!f) err('#NAME?');
@@ -959,6 +997,41 @@ export function createEvaluator(cells, names = null, book = null) {
       }
     }
     err('#ERROR!');
+  }
+
+  // ---- LET and LAMBDA ----
+  // Names given in a formula (LET's, a LAMBDA's parameters), innermost last; they hide named ranges.
+  let scopes = [];
+  const paramName = (a) => { if (a?.k !== 'name' || /^[A-Z]{1,3}\d+$/.test(a.v)) err('#NAME?'); return a.v; };
+  /** A LAMBDA as a value: called with values for its parameters, in the names that were there when it was made. */
+  function makeLambda(args) {
+    if (!args.length) err('#VALUE!');
+    const params = args.slice(0, -1).map(paramName), body = args[args.length - 1], closure = scopes;
+    const fn = (...vals) => {
+      if (vals.length !== params.length) err('#N/A');
+      const saved = scopes;
+      scopes = [...closure, new Map(params.map((p, i) => [p, vals[i]]))];
+      try { return evaluate(body); } finally { scopes = saved; }
+    };
+    fn.isLambda = true;
+    fn.arity = params.length;
+    return fn;
+  }
+  const lambdaArg = (a, arity) => { const f = evaluate(a); if (typeof f !== 'function' || !f.isLambda || f.arity !== arity) err('#VALUE!'); return f; };
+  function withNames(n) {
+    if (n.name === 'LAMBDA') return makeLambda(n.args);
+    if (n.name === 'LET') {
+      // LET(name1, value1, [name2, value2, …], result): each value can use the names before it.
+      if (n.args.length < 3 || n.args.length % 2 === 0) err('#N/A');
+      const saved = scopes;
+      const mine = new Map();
+      scopes = [...scopes, mine];
+      try {
+        for (let i = 0; i + 1 < n.args.length; i += 2) mine.set(paramName(n.args[i]), evaluate(n.args[i + 1]));
+        return evaluate(n.args[n.args.length - 1]);
+      } finally { scopes = saved; }
+    }
+    return LAMBDA_USERS[n.name](n.args, { evaluate, lambdaArg });
   }
 
   function operate(op, l, r) {
