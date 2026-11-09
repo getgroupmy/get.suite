@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { avatarColor } from './avatarcolor.js';
 import Icon from './Icon.jsx';
 import { usePhoto } from './photos.js';
 
@@ -148,9 +149,7 @@ export function Avatar({ name = '?', size = 32, userId, email }) {
   const photo = usePhoto(userId, email);
   if (photo) return <img className="avatar photo" src={photo} alt="" width={size} height={size} style={{ width: size, height: size }} aria-hidden="true" />;
   const initials = name.split(/\s+/).filter(Boolean).slice(0, 2).map((s) => s[0]).join('').toUpperCase() || '?';
-  let h = 0;
-  for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) % 360;
-  return <span className="avatar" style={{ width: size, height: size, fontSize: size * 0.4, background: `hsl(${h} 55% 45%)` }} aria-hidden="true">{initials}</span>;
+  return <span className="avatar" style={{ width: size, height: size, fontSize: size * 0.4, background: avatarColor(name) }} aria-hidden="true">{initials}</span>;
 }
 
 export function Empty({ icon, title, children }) {

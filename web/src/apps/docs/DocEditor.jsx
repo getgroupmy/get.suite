@@ -205,6 +205,8 @@ function SharedDoc({ file, setFile }) {
     ],
     editable: !readOnly,
     editorProps: {
+      // What screen readers call the page you type in.
+      attributes: { role: 'textbox', 'aria-multiline': 'true', 'aria-label': 'Document text' },
       // A key pressed right after a click (Enter, Backspace…) acts where the click put the cursor,
       // even if the browser hasn't told the editor about the new selection yet.
       handleKeyDown: (view, event) => { view.domObserver?.flush?.(); return mentionKeyRef.current?.(event) || chipKeyRef.current?.(event) || false; },
