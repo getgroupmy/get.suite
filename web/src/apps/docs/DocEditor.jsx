@@ -21,6 +21,7 @@ import { ShareDialog } from '../drive/Drive.jsx';
 import { EditorHeader } from '../editorCommon.jsx';
 import { CommentsPanel, useComments } from '../comments.jsx';
 import AltTextDialog from '../../components/AltTextDialog.jsx';
+import DrawPad from '../../components/DrawPad.jsx';
 import Icon from '../../components/Icon.jsx';
 import { FindReplace, countWords } from './findReplace.js';
 import { FindBar } from './FindBar.jsx';
@@ -188,6 +189,7 @@ function SharedDoc({ file, setFile }) {
   }, [provider, ydoc]);
 
   const addPicturesRef = useRef(null); // set below, once the editor is there
+  const [drawing, setDrawing] = useState(null); // { at }: the sketch pad is open, to insert there
   const mentionKeyRef = useRef(null); // the @-picker's keys, while it's open
   const chipKeyRef = useRef(null); // Enter or Space on a selected dropdown chip opens its choices
   const dateKeyRef = useRef(null); // and on a date chip, its calendar
@@ -340,6 +342,8 @@ function SharedDoc({ file, setFile }) {
         try { up = await uploadFile(f, file.parent_id || null); } catch { up = await uploadFile(f, null); }
         const node = { type: 'image', attrs: { fileId: up.id, alt: f.name.replace(/\.[a-z0-9]+$/i, '') } };
         if (at !== undefined) { editor.chain().focus().insertContentAt(at, node).run(); at = undefined; } else editor.chain().focus().insertContent(node).run();
+        // Typing goes on after the picture (left selected, the next key would replace it).
+        if (editor.state.selection.node?.type.name === 'image') editor.commands.setTextSelection(editor.state.selection.to);
       } catch (e) { toast(e.message, 'error'); }
     }
   };
@@ -489,7 +493,9 @@ function SharedDoc({ file, setFile }) {
           { label: 'Download as Markdown (.md)', icon: 'download', onClick: () => { window.location.href = `/api/files/${file.id}/export?format=md`; } },
         ]}
       />
-      {!readOnly && <Toolbar editor={editor} onDropdown={() => setChipEdit({ pos: null })} onEquation={() => setMathEdit({ pos: null })} onCite={() => setCiteEdit({ pos: null })} onSymbols={() => setSymbols(true)} onComment={startComment} onPictures={(files) => addPicturesRef.current(files)} onLinkFile={() => setLinkingFile(true)} onChart={() => setChartFrom({ step: 'file' })} />}
+      {!readOnly && <Toolbar editor={editor} onDropdown={() => setChipEdit({ pos: null })} onEquation={() => setMathEdit({ pos: null })} onCite={() => setCiteEdit({ pos: null })} onSymbols={() => setSymbols(true)} onComment={startComment} onPictures={(files) => addPicturesRef.current(files)} onLinkFile={() => setLinkingFile(true)} onChart={() => setChartFrom({ step: 'file' })} onDraw={() => setDrawing({ at: editor.state.selection.from })} />}
+      {drawing && <DrawPad title="Drawing" saveLabel="Insert" onClose={() => { setDrawing(null); refocus(); }}
+        onSave={(f) => addPicturesRef.current([new File([f], 'Drawing.png', { type: 'image/png' })], drawing.at)} />}
       {chartFrom?.step === 'file' && <DrivePicker title="Chart from a spreadsheet" accept={(x) => x.kind === 'sheet'} empty="No spreadsheets found." onClose={() => setChartFrom(null)} onPick={(f) => setChartFrom({ step: 'chart', file: f })} />}
       {chartFrom?.step === 'chart' && <ChartPick file={chartFrom.file} onClose={() => setChartFrom(null)}
         onPick={(ch) => { const f = chartFrom.file; setChartFrom(null); editor.chain().focus().insertSheetChart({ fileId: f.id, chartId: ch.id, title: ch.now.title, chartType: ch.now.chartType, data: JSON.stringify(ch.now.data) }).run(); }} />}
@@ -614,7 +620,7 @@ function withoutSuggestionsHtml(html) {
 
 const escapeHtml = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-function Toolbar({ editor, onDropdown, onEquation, onCite, onSymbols, onComment, onPictures, onLinkFile, onChart }) {
+function Toolbar({ editor, onDropdown, onEquation, onCite, onSymbols, onComment, onPictures, onLinkFile, onChart, onDraw }) {
   const [altEdit, setAltEdit] = useState(null); // { pos, alt } of the picture being described
   const pictureInput = useRef();
   const [, force] = useState(0);
@@ -704,6 +710,7 @@ function Toolbar({ editor, onDropdown, onEquation, onCite, onSymbols, onComment,
         </select></label>
       <span className="sep" />
       <button type="button" className="tb labelled" title="Insert a picture (or paste or drop one in)" aria-label="Insert picture" onMouseDown={(e) => e.preventDefault()} onClick={() => pictureInput.current.click()}><Icon name="image" size={18} /> Picture</button>
+      <button type="button" className="tb labelled" title="Drawing: sketch a diagram with lines, arrows, boxes and ellipses, put in as a picture" aria-label="Insert drawing" onMouseDown={(e) => e.preventDefault()} onClick={onDraw}>✎ Drawing</button>
       <input ref={pictureInput} type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden onChange={(e) => { onPictures([...e.target.files]); e.target.value = ''; }} />
       {editor.isActive('image') && <>
         <select className="tb-select" aria-label="Picture size" value={editor.getAttributes('image').width || ''} onChange={(e) => c().updateAttributes('image', { width: e.target.value || null }).run()}>
