@@ -2,9 +2,10 @@
 // and (if people report to you, or you're an admin and they report to nobody) approve or decline theirs.
 // Approved time off shows on the calendar as an all-day out-of-office event.
 import { useEffect, useState } from 'react';
-import { get, post, del } from '../../api.js';
+import { get, post, put, del } from '../../api.js';
 import { Modal, useToast } from '../../components/ui.jsx';
 import { localToday } from '../tasks/taskmath.js';
+import { balanceText } from './timeoffmath.js';
 
 const KINDS = [['vacation', 'Vacation'], ['sick', 'Sick leave'], ['personal', 'Personal'], ['other', 'Other']];
 const TZ = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -21,7 +22,11 @@ export default function TimeOff({ onClose, onChanged }) {
   const [f, setF] = useState(() => ({ start_date: localToday(), end_date: localToday(), kind: 'vacation', note: '' }));
   const [answers, setAnswers] = useState({});
   const [busy, setBusy] = useState(false);
-  const load = () => get('/time-off').then(setData).catch((e) => toast(e.message, 'error'));
+  const [tab, setTab] = useState('mine'); // mine | team
+  const [team, setTeam] = useState(null); // null: not loaded; false: nobody to show
+  const loadTeam = () => get(`/time-off/team`).then(setTeam).catch(() => setTeam(false));
+  useEffect(() => { loadTeam(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const load = () => { loadTeam(); return get('/time-off').then(setData).catch((e) => toast(e.message, 'error')); };
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const done = (msg) => { toast(msg); load(); onChanged?.(); };
   const ask = async (e) => {
@@ -43,6 +48,12 @@ export default function TimeOff({ onClose, onChanged }) {
   const decided = (data?.to_decide || []).filter((r) => r.status !== 'pending');
   return (
     <Modal wide title="Time off" onClose={onClose} footer={<button type="button" className="btn" onClick={onClose}>Done</button>}>
+      {team && team.people.length > 0 && (
+        <div className="tabs" role="tablist" aria-label="Whose time off" style={{ marginBottom: 12 }}>
+          {[['mine', 'Yours'], ['team', 'Team']].map(([k, label]) => <button key={k} type="button" role="tab" aria-selected={tab === k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{label}</button>)}
+        </div>
+      )}
+      {tab === 'team' && team ? <Team team={team} onChanged={loadTeam} /> : (
       <div className="stack">
         {waiting.length > 0 && (
           <section className="stack-tight" aria-label="Waiting for your answer">
@@ -52,6 +63,7 @@ export default function TimeOff({ onClose, onChanged }) {
                 <li key={r.id} className="stack-tight">
                   <div><strong>{r.name}</strong> · {r.kind_label}: {span(r)} <span className="muted small">({r.days} working day{r.days === 1 ? '' : 's'})</span></div>
                   {r.note && <div className="muted small">“{r.note}”</div>}
+                  {r.kind === 'vacation' && balanceText(r.balance) && <div className="muted small">{r.name.split(' ')[0]} has {balanceText(r.balance)}</div>}
                   <div className="row wrap" style={{ gap: 6 }}>
                     <input className="grow" aria-label={`Answer to ${r.name} (optional)`} placeholder="Answer (optional)" value={answers[r.id] || ''} onChange={(e) => setAnswers({ ...answers, [r.id]: e.target.value })} />
                     <button type="button" className="btn primary small" aria-label={`Approve ${r.name}'s time off`} onClick={() => decide(r, true)}>Approve</button>
@@ -70,6 +82,7 @@ export default function TimeOff({ onClose, onChanged }) {
             <label className="field"><span>Kind</span><select value={f.kind} onChange={set('kind')}>{KINDS.map(([k, n]) => <option key={k} value={k}>{n}</option>)}</select></label>
           </div>
           <label className="field"><span>Note (optional)</span><input value={f.note} maxLength={500} onChange={set('note')} placeholder="Family visit" /></label>
+          {balanceText(data?.balance) && <p className="small" role="status" style={{ margin: 0 }}>You have {balanceText(data.balance)}.</p>}
           <p className="muted small" style={{ margin: 0 }}>{data?.approvers ? 'Whoever you report to (or an admin) is asked; once approved it’s on your calendar as out of office.' : 'Nobody needs to approve it: it goes straight on your calendar as out of office.'}</p>
           <div className="row end"><button type="submit" className="btn primary" disabled={busy}>Ask</button></div>
         </form>
@@ -94,6 +107,43 @@ export default function TimeOff({ onClose, onChanged }) {
           </details>
         )}
       </div>
+      )}
     </Modal>
   );
+}
+
+/** The team: each person's vacation this year and their time off in the next three months; admins set allowances. */
+function Team({ team, onChanged }) {
+  const toast = useToast();
+  const [company, setCompany] = useState(team.company_days ?? '');
+  const setDays = async (url, days, msg) => { try { await put(url, { days: days === '' ? null : Number(days) }); toast(msg); onChanged(); } catch (e) { toast(e.message, 'error'); } };
+  return (
+    <div className="stack">
+      {team.can_set && (
+        <form className="row wrap" style={{ gap: 8, alignItems: 'flex-end' }} onSubmit={(e) => { e.preventDefault(); setDays('/time-off/allowance', company, company === '' ? 'No vacation limit' : `${company} vacation days a year for everyone`); }}>
+          <label className="field"><span>Vacation days a year (company)</span><input type="number" min="0" max="366" value={company} placeholder="No limit" onChange={(e) => setCompany(e.target.value)} style={{ width: 140 }} /></label>
+          <button type="submit" className="btn">Save</button>
+          <span className="muted small grow">Leave it empty for no limit. Anyone can have their own number below.</span>
+        </form>
+      )}
+      <table className="timeoff-team">
+        <thead><tr><th scope="col">Person</th><th scope="col">Vacation in {team.year}</th><th scope="col">Coming up</th>{team.can_set && <th scope="col">Days a year</th>}</tr></thead>
+        <tbody>
+          {team.people.map((p) => (
+            <tr key={p.id}>
+              <th scope="row">{p.name}</th>
+              <td>{p.balance.days === null ? <span className="muted">{p.balance.used} taken</span> : <>{Math.max(0, p.balance.left)} left <span className="muted small">of {p.balance.days} · {p.balance.used} taken{p.balance.pending ? ` · ${p.balance.pending} asked` : ''}</span></>}</td>
+              <td>{p.coming.length ? p.coming.map((c) => <div key={c.id} className="small">{c.kind_label}: {span(c)}{c.status === 'pending' ? ' (asked)' : ''}</div>) : <span className="muted small">—</span>}</td>
+              {team.can_set && <td><OwnDays p={p} onSave={(v) => setDays(`/time-off/allowance/${p.id}`, v, v === '' ? `${p.name}: the company's number` : `${p.name}: ${v} days a year`)} /></td>}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+function OwnDays({ p, onSave }) {
+  const [v, setV] = useState(p.own_days ?? '');
+  return <input type="number" min="0" max="366" aria-label={`Vacation days a year for ${p.name}`} placeholder="Company's" value={v} style={{ width: 110 }}
+    onChange={(e) => setV(e.target.value)} onBlur={() => { if (String(v) !== String(p.own_days ?? '')) onSave(v); }} onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }} />;
 }

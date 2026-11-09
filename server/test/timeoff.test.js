@@ -93,3 +93,43 @@ test('time off: asked, decided by the manager (or an admin), an out-of-office da
   assert.equal(solo.status, 'approved', 'the only admin, reporting to nobody');
   assert.ok(solo.event_id);
 });
+
+test('vacation allowance: days a year for the company or one person, what\'s left, and the team view', async () => {
+  const boss = client(), tom = client(), mia = client();
+  assert.equal((await boss('POST', '/api/auth/login', { username: 'bea@acme.com', password: 'password123' })).status, 200);
+  await tom('POST', '/api/auth/login', { username: 'tom@acme.com', password: 'password123' });
+  await mia('POST', '/api/auth/login', { username: 'mia@acme.com', password: 'password123' });
+  assert.equal((await tom('PUT', '/api/time-off/allowance', { days: 30 })).status, 403, 'admins only');
+  assert.equal((await boss('PUT', '/api/time-off/allowance', { days: 2.5 })).status, 400);
+  assert.deepEqual((await boss('PUT', '/api/time-off/allowance', { days: 10 })).body, { days: 10 });
+  // Tom: 10 days in 2027; 3 asked (pending) and 2 approved count.
+  const a1 = (await tom('POST', '/api/time-off', { start_date: '2027-03-01', end_date: '2027-03-03', tz: 'UTC' })).body; // Mon–Wed
+  const a2 = (await tom('POST', '/api/time-off', { start_date: '2027-04-01', end_date: '2027-04-02', tz: 'UTC' })).body; // Thu–Fri
+  await mia('POST', `/api/time-off/${a2.id}/decide`, { approve: true });
+  const team = (await mia('GET', '/api/time-off/team?year=2027')).body;
+  assert.deepEqual(team.people.map((p) => p.name), ['Tom Team'], 'Mia sees the people she decides for');
+  assert.deepEqual(team.people[0].balance, { year: 2027, days: 10, used: 2, pending: 3, left: 5 });
+  assert.equal(team.can_set, false);
+  // Over what's left: refused, saying how much is left. Sick leave doesn't count.
+  const over = await tom('POST', '/api/time-off', { start_date: '2027-05-03', end_date: '2027-05-10', tz: 'UTC' }); // 6 working days
+  assert.equal(over.status, 400);
+  assert.match(over.body.error, /That's 6 vacation days in 2027; you have 5 left/);
+  assert.equal((await tom('POST', '/api/time-off', { start_date: '2027-05-03', end_date: '2027-05-10', kind: 'sick', tz: 'UTC' })).status, 201);
+  // A request across New Year counts each year's days in that year.
+  const nye = (await tom('POST', '/api/time-off', { start_date: '2027-12-30', end_date: '2028-01-04', tz: 'UTC' })).body; // Thu, Fri | Mon, Tue
+  assert.equal(nye.days, 4);
+  assert.equal((await tom('GET', '/api/time-off')).body.to_decide.length, 0);
+  assert.deepEqual((await mia('GET', '/api/time-off')).body.to_decide.find((r) => r.id === nye.id).balance, { year: 2027, days: 10, used: 2, pending: 5, left: 3 });
+  // Cancelling gives days back; one person's own allowance wins over the company's.
+  await tom('DELETE', `/api/time-off/${a1.id}`);
+  assert.equal((await boss('PUT', `/api/time-off/allowance/${team.people[0].id}`, { days: 25 })).body.days, 25);
+  const all = (await boss('GET', '/api/time-off/team?year=2027')).body;
+  assert.equal(all.can_set, true);
+  assert.equal(all.company_days, 10);
+  const t = all.people.find((p) => p.name === 'Tom Team');
+  assert.deepEqual([t.own_days, t.balance.left], [25, 21]);
+  assert.ok(t.coming.length >= 0);
+  assert.equal((await boss('PUT', `/api/time-off/allowance/${team.people[0].id}`, { days: null })).body.days, 10, 'back to the company\'s');
+  assert.equal((await boss('PUT', '/api/time-off/allowance', { days: null })).body.days, null, 'no limit');
+  assert.equal((await tom('GET', '/api/time-off')).body.balance.left, null);
+});

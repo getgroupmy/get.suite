@@ -2207,3 +2207,6 @@ textarea.mono { font-family: ui-monospace, Consolas, monospace; }
 .timeoff-approved { font-weight: 600; }
 .timeoff-declined { color: var(--danger); }
 .timeoff-pending, .timeoff-cancelled { color: var(--muted); }
+.timeoff-team { width: 100%; border-collapse: collapse; }
+.timeoff-team th, .timeoff-team td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.timeoff-team thead th { font-size: .8rem; color: var(--muted); font-weight: 600; }
