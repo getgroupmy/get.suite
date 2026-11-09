@@ -36,6 +36,7 @@ import { ruleStyle } from './condformat.js';
 import { bandStyle } from './bands.js';
 import { copyFormats, paintFormats } from './paint.js';
 import { BandsDialog } from './SheetBands.jsx';
+import { ColumnStatsDialog } from './SheetStats.jsx';
 import { sheetPrintHtml, usedArea } from './sheetprint.js';
 import { printHtml } from '../mail/mailprint.js';
 import { useUndo, undoKey } from '../useUndo.js';
@@ -826,6 +827,7 @@ export default function SheetEditor() {
     { label: `Insert ${nc > 1 ? `${nc} columns` : '1 column'} left`, icon: 'plus', onClick: () => changeStructure({ axis: 'col', at: range.c1, count: nc }) },
     { label: `Insert ${nc > 1 ? `${nc} columns` : '1 column'} right`, icon: 'plus', onClick: () => changeStructure({ axis: 'col', at: range.c2 + 1, count: nc }) },
     { label: nc > 1 ? `Delete columns ${colName(range.c1)}–${colName(range.c2)}` : `Delete column ${colName(range.c1)}`, icon: 'trash', danger: true, onClick: () => changeStructure({ axis: 'col', at: range.c1, count: -nc }) },
+    { label: 'Column stats…', onClick: () => setDialog({ type: 'colstats', c: range.c1 }) },
   ];
   const sortItems = [
     { label: `Sort A → Z by column ${colName(sel.c)}`, onClick: () => quickSort(false) },
@@ -1152,6 +1154,12 @@ export default function SheetEditor() {
       {dialog?.type === 'sort' && (() => { const g = sortTarget(); return (
         <SortDialog initial={{ range: g, by: sel.c }} header={looksLikeHeader(g, evaluate)} value={evaluate} onSort={sortBy} onClose={() => { setDialog(null); gridRef.current?.focus(); }} />
       ); })()}
+      {dialog?.type === 'colstats' && (() => {
+        // How far the sheet's data goes (cells and formula spills), so empty rows below don't count.
+        const keys = [...Object.keys(cells).filter((k) => cells[k] !== '' && cells[k] != null), ...(evaluate.spilledKeys?.() || [])];
+        const used = usedArea(keys);
+        return <ColumnStatsDialog value={evaluate} startCol={dialog.c} lastRow={used ? used.r2 : 0} lastCol={Math.max(used ? used.c2 : 0, dialog.c)} onClose={() => { setDialog(null); gridRef.current?.focus(); }} />;
+      })()}
       {dialog?.type === 'bands' && (
         <BandsDialog bands={bands} defaultRange={rangeText(anchor ? range : sortTarget())} onClose={() => { setDialog(null); gridRef.current?.focus(); }}
           onSave={(next) => { writeSheet(() => ({ bands: next.length ? next : undefined })); setDialog(null); gridRef.current?.focus(); }} />
