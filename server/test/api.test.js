@@ -1453,6 +1453,37 @@ test('booking pages: free times around busy ones; booking puts it on the calenda
   assert.deepEqual((await a('GET', '/api/bookings')).body, []);
 });
 
+test('booking pages: a gap and a daily limit; the visitor cancels with their own link', async () => {
+  const a = client(), outsider = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'booker2', domain: 'acme.com', name: 'Ben Booker', password: 'password123' })).status, 201);
+  await login(a, 'booker2@acme.com');
+  assert.equal((await a('POST', '/api/bookings', { title: 'x', buffer_min: 7 })).status, 400);
+  assert.equal((await a('POST', '/api/bookings', { title: 'x', max_per_day: 50 })).status, 400);
+  const page = (await a('POST', '/api/bookings', { title: 'Demo', duration: 30, days: [0, 1, 2, 3, 4, 5, 6], from_min: 0, to_min: 1440, tz: 'UTC', notice_hours: 0, days_ahead: 3, buffer_min: 30, max_per_day: 1 })).body;
+  assert.deepEqual([page.buffer_min, page.max_per_day], [30, 1]);
+  const token = page.url.split('/b/')[1];
+  const days = (await outsider('GET', `/api/public/book/${token}`)).body.days;
+  const slot = days[1].slots[3];
+  const b = (await outsider('POST', `/api/public/book/${token}`, { start: slot, name: 'Cara Client', email: 'cara@example.org' })).body;
+  assert.match(b.cancel_url, /\/b\/cancel\/[\w-]+$/);
+  const ev = (await a('GET', `/api/events?from=${slot - 1}&to=${slot + 36e5}`)).body.find((e) => e.title === 'Demo: Cara Client');
+  assert.ok(ev.description.includes(b.cancel_url), 'the link is in the invitation');
+  const after = (await outsider('GET', `/api/public/book/${token}`)).body.days;
+  assert.ok(!after.some((d) => d.date === days[1].date), 'that day is full (one a day)');
+  // Cancelling: what it is, then it's off the calendar and the owner is told; the day is free again.
+  const ct = b.cancel_url.split('/b/cancel/')[1];
+  const info = (await outsider('GET', `/api/public/book/cancel/${ct}`)).body;
+  assert.deepEqual([info.title, info.owner.name, info.start, info.cancelled], ['Demo', 'Ben Booker', slot, false]);
+  assert.equal((await outsider('GET', '/api/public/book/cancel/not-a-real-one')).status, 404);
+  assert.equal((await outsider('POST', `/api/public/book/cancel/${ct}`)).status, 200);
+  assert.equal((await a('GET', `/api/events?from=${slot - 1}&to=${slot + 36e5}`)).body.some((e) => e.title === 'Demo: Cara Client'), false);
+  assert.ok(JSON.stringify((await a('GET', '/api/notifications')).body).includes('Cara Client cancelled “Demo”'));
+  assert.equal((await outsider('GET', `/api/public/book/cancel/${ct}`)).body.cancelled, true);
+  assert.equal((await outsider('POST', `/api/public/book/cancel/${ct}`)).body.already, true);
+  assert.ok((await outsider('GET', `/api/public/book/${token}`)).body.days.some((d) => d.date === days[1].date), 'bookable again');
+  assert.equal((await a('GET', '/api/bookings')).body[0].bookings, 0);
+});
+
 test('page setup: kept with a document, checked, and only for documents', async () => {
   const d = (await owner('POST', '/api/files/new', { kind: 'doc', name: 'Letterhead' })).body;
   assert.equal(d.page_setup, null);

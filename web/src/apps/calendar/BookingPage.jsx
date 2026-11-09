@@ -17,6 +17,35 @@ const longDay = (ms) => new Date(ms).toLocaleDateString([], { weekday: 'long', d
 const time = (ms) => new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 const localDay = (ms) => new Date(ms).toDateString();
 
+// The visitor's link to cancel a booking (/b/cancel/<secret>, in their invitation).
+export function CancelBooking({ token }) {
+  const [b, setB] = useState(null);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(false);
+  useEffect(() => { call('GET', `/cancel/${encodeURIComponent(token)}`).then(setB).catch((e) => setError(e.message)); }, [token]);
+  let body;
+  if (error && !b) body = <div className="link-msg" role="alert"><h1>Booking not found</h1><p className="muted">{error}</p></div>;
+  else if (!b) body = <p className="muted">Loading…</p>;
+  else body = (
+    <section className="invite-card stack" aria-live="polite">
+      <h1>{done || b.cancelled ? 'Booking cancelled' : 'Cancel your booking?'}</h1>
+      <p><strong>{b.title}</strong> with {b.owner.name}</p>
+      {b.start && <p>{longDay(b.start)}, {time(b.start)} – {time(b.end)}{zone && <span className="muted small"> · your time ({zone})</span>}</p>}
+      {done || b.cancelled ? <p className="muted">{b.owner.name} has been told, and the time is free again.</p>
+        : b.past ? <p className="muted">This booking has already started.</p>
+          : <div className="row"><button className="btn danger" disabled={busy} onClick={async () => { setBusy(true); try { await call('POST', `/cancel/${encodeURIComponent(token)}`); setDone(true); } catch (e) { setError(e.message); } setBusy(false); }}>Cancel booking</button></div>}
+      {error && <p className="error small" role="alert">{error}</p>}
+    </section>
+  );
+  return (
+    <div className="link-page">
+      <header className="link-head"><div className="brand"><span className="brand-mark">W</span><span className="brand-text">Workspace</span></div></header>
+      <main className="link-main">{body}</main>
+    </div>
+  );
+}
+
 export default function BookingPage({ token }) {
   const [page, setPage] = useState(null);
   const [error, setError] = useState('');
@@ -57,6 +86,7 @@ export default function BookingPage({ token }) {
         <p><strong>{done.title}</strong> with {done.owner.name}</p>
         <p>{longDay(done.start)}, {time(done.start)} – {time(done.end)}{zone && <span className="muted small"> · your time ({zone})</span>}</p>
         <p className="muted small">An invitation is on its way to {form.email}; add it to your calendar from there.</p>
+        {done.cancel_url && <p className="small">Can’t make it? <a href={done.cancel_url}>Cancel this booking</a> (the link is in the invitation too).</p>}
       </section>
     );
   } else {

@@ -32,6 +32,13 @@ q(`CREATE TABLE IF NOT EXISTS booking_pages (
   created_at INTEGER NOT NULL
 )`).run();
 q('CREATE TABLE IF NOT EXISTS bookings (page_id TEXT NOT NULL REFERENCES booking_pages(id) ON DELETE CASCADE, event_id TEXT NOT NULL, created_at INTEGER NOT NULL)').run();
+// A gap kept free around each booking, and at most this many bookings a day (0: no limit); and for
+// each booking, who made it and the secret in their link to cancel it.
+const cols = (t) => q(`PRAGMA table_info(${t})`).all().map((c) => c.name);
+if (!cols('booking_pages').includes('buffer_min')) q('ALTER TABLE booking_pages ADD COLUMN buffer_min INTEGER NOT NULL DEFAULT 0').run();
+if (!cols('booking_pages').includes('max_per_day')) q('ALTER TABLE booking_pages ADD COLUMN max_per_day INTEGER NOT NULL DEFAULT 0').run();
+for (const c of ['cancel_token', 'name', 'email']) if (!cols('bookings').includes(c)) q(`ALTER TABLE bookings ADD COLUMN ${c} TEXT`).run();
+if (!cols('bookings').includes('cancelled_at')) q('ALTER TABLE bookings ADD COLUMN cancelled_at INTEGER').run();
 
 const MAX_PAGES = 20;
 const EMAIL_RE = /^[^\s@<>"(),;:\\]+@[a-z0-9.-]+\.[a-z]{2,}$/i;
@@ -58,9 +65,14 @@ export function zonedTime(y, m, d, minutes, tz) {
 
 /**
  * The free start times: in each bookable day, every `duration` minutes from the start of the
- * bookable hours, not before `notice`, not overlapping anything busy. [{ date, slots: [ms] }].
+ * bookable hours, not before `notice`, not overlapping anything busy (nor within `buffer_min` of it),
+ * and none on a day that already has `max_per_day` bookings (`booked`: their start times).
+ * [{ date, slots: [ms] }].
  */
-export function freeSlots(page, busy, now = Date.now()) {
+export function freeSlots(page, busy, now = Date.now(), booked = []) {
+  const gap = (page.buffer_min || 0) * 6e4;
+  const perDay = new Map();
+  for (const t of booked) { const p = partsAt(t, page.tz); const k = `${p.y}-${p.m}-${p.d}`; perDay.set(k, (perDay.get(k) || 0) + 1); }
   const days = new Set(page.days);
   const today = partsAt(now, page.tz);
   const earliest = now + page.notice_hours * 36e5;
@@ -70,11 +82,12 @@ export function freeSlots(page, busy, now = Date.now()) {
     const base = new Date(Date.UTC(today.y, today.m, today.d + i));
     const y = base.getUTCFullYear(), m = base.getUTCMonth(), d = base.getUTCDate();
     if (!days.has(base.getUTCDay())) continue;
+    if (page.max_per_day && (perDay.get(`${y}-${m}-${d}`) || 0) >= page.max_per_day) continue;
     const slots = [];
     for (let min = page.from_min; min + page.duration <= page.to_min; min += page.duration) {
       const s = zonedTime(y, m, d, min, page.tz), e = s + step;
       if (s < earliest) continue;
-      if (busy.some((b) => b.start < e && b.end > s)) continue;
+      if (busy.some((b) => b.start < e + gap && b.end > s - gap)) continue;
       slots.push(s);
     }
     if (slots.length) out.push({ date: `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`, slots });
@@ -108,10 +121,13 @@ function readPage(b, current = {}) {
   if (!Number.isInteger(ahead) || ahead < 1 || ahead > 90) throw bad('Bookings can be 1 to 90 days ahead');
   const tz = zoneOrUtc(pick('tz') || 'UTC');
   const enabled = pick('enabled') === undefined ? 1 : pick('enabled') ? 1 : 0;
-  return { title, description, duration, days, from_min: fromMin, to_min: toMin, tz, notice_hours: notice, days_ahead: ahead, enabled };
+  const buffer = Number(pick('buffer_min') ?? 0), maxPerDay = Number(pick('max_per_day') ?? 0);
+  if (![0, 5, 10, 15, 30, 60].includes(buffer)) throw bad('Choose a gap of 0 to 60 minutes');
+  if (!Number.isInteger(maxPerDay) || maxPerDay < 0 || maxPerDay > 20) throw bad('At most 20 bookings a day');
+  return { title, description, duration, days, from_min: fromMin, to_min: toMin, tz, notice_hours: notice, days_ahead: ahead, enabled, buffer_min: buffer, max_per_day: maxPerDay };
 }
 const shapePage = (p, req) => ({ ...p, days: JSON.parse(p.days), enabled: !!p.enabled, url: `${baseUrl(req)}/b/${p.token}`,
-  bookings: q('SELECT COUNT(*) AS n FROM bookings WHERE page_id = ?').get(p.id).n });
+  bookings: q('SELECT COUNT(*) AS n FROM bookings WHERE page_id = ? AND cancelled_at IS NULL').get(p.id).n });
 
 export default function bookingRoutes() {
   const r = Router();
@@ -120,9 +136,9 @@ export default function bookingRoutes() {
     if (q('SELECT COUNT(*) AS n FROM booking_pages WHERE user_id = ?').get(req.user.id).n >= MAX_PAGES) throw bad('Too many booking pages');
     const p = readPage(req.body || {});
     const id = uid();
-    q(`INSERT INTO booking_pages (id, user_id, token, title, description, duration, days, from_min, to_min, tz, notice_hours, days_ahead, enabled, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, req.user.id, crypto.randomBytes(12).toString('base64url'), p.title, p.description, p.duration, JSON.stringify(p.days),
-      p.from_min, p.to_min, p.tz, p.notice_hours, p.days_ahead, p.enabled, Date.now());
+    q(`INSERT INTO booking_pages (id, user_id, token, title, description, duration, days, from_min, to_min, tz, notice_hours, days_ahead, enabled, created_at, buffer_min, max_per_day)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, req.user.id, crypto.randomBytes(12).toString('base64url'), p.title, p.description, p.duration, JSON.stringify(p.days),
+      p.from_min, p.to_min, p.tz, p.notice_hours, p.days_ahead, p.enabled, Date.now(), p.buffer_min, p.max_per_day);
     res.status(201).json(shapePage(q('SELECT * FROM booking_pages WHERE id = ?').get(id), req));
   });
   const mine = (req) => {
@@ -133,8 +149,8 @@ export default function bookingRoutes() {
   r.patch('/:id', (req, res) => {
     const cur = mine(req);
     const p = readPage(req.body || {}, { ...cur, days: JSON.parse(cur.days), enabled: !!cur.enabled });
-    q(`UPDATE booking_pages SET title = ?, description = ?, duration = ?, days = ?, from_min = ?, to_min = ?, tz = ?, notice_hours = ?, days_ahead = ?, enabled = ? WHERE id = ?`)
-      .run(p.title, p.description, p.duration, JSON.stringify(p.days), p.from_min, p.to_min, p.tz, p.notice_hours, p.days_ahead, p.enabled, cur.id);
+    q(`UPDATE booking_pages SET title = ?, description = ?, duration = ?, days = ?, from_min = ?, to_min = ?, tz = ?, notice_hours = ?, days_ahead = ?, enabled = ?, buffer_min = ?, max_per_day = ? WHERE id = ?`)
+      .run(p.title, p.description, p.duration, JSON.stringify(p.days), p.from_min, p.to_min, p.tz, p.notice_hours, p.days_ahead, p.enabled, p.buffer_min, p.max_per_day, cur.id);
     res.json(shapePage(q('SELECT * FROM booking_pages WHERE id = ?').get(cur.id), req));
   });
   r.delete('/:id', (req, res) => { q('DELETE FROM booking_pages WHERE id = ?').run(mine(req).id); res.json({ ok: true }); });
@@ -159,7 +175,33 @@ export function publicBookingRoutes() {
     if (!p || p.disabled || !p.enabled) throw new HttpError(404, 'This booking page is not available.');
     return { ...p, days: JSON.parse(p.days) };
   };
-  const slotsOf = (p, now = Date.now()) => freeSlots(p, busyOf(p.user_id, now, now + (p.days_ahead + 1) * DAY), now);
+  const bookedOf = (p, now) => q('SELECT e.start FROM bookings b JOIN events e ON e.id = b.event_id WHERE b.page_id = ? AND b.cancelled_at IS NULL AND e.start >= ?').all(p.id, now - DAY).map((x) => x.start);
+  const slotsOf = (p, now = Date.now()) => freeSlots(p, busyOf(p.user_id, now, now + (p.days_ahead + 1) * DAY), now, bookedOf(p, now));
+
+  // The visitor's link to cancel their booking: /b/cancel/<secret>. What it is, then cancelling it:
+  // it comes off the calendar and the owner is told.
+  const booking = (ct) => {
+    const b = q(`SELECT b.*, p.title AS page_title, p.tz, u.name AS owner_name, u.id AS owner_id, e.start, e.end
+                 FROM bookings b JOIN booking_pages p ON p.id = b.page_id JOIN users u ON u.id = p.user_id LEFT JOIN events e ON e.id = b.event_id
+                 WHERE b.cancel_token = ?`).get(String(ct || ''));
+    if (!b) throw new HttpError(404, 'This booking link is not valid.');
+    return b;
+  };
+  r.get('/cancel/:ct', (req, res) => {
+    const b = booking(req.params.ct);
+    res.json({ title: b.page_title, owner: { name: b.owner_name }, start: b.start, end: b.end, tz: b.tz, cancelled: !!b.cancelled_at || !b.start, past: !!b.start && b.start < Date.now() });
+  });
+  r.post('/cancel/:ct', (req, res) => {
+    const b = booking(req.params.ct);
+    if (b.cancelled_at || !b.start) return res.json({ ok: true, already: true });
+    if (b.start < Date.now()) throw bad('This booking has already started');
+    q('UPDATE bookings SET cancelled_at = ? WHERE cancel_token = ?').run(Date.now(), b.cancel_token);
+    q('DELETE FROM events WHERE id = ?').run(b.event_id);
+    touch([b.owner_id]);
+    const when = new Date(b.start).toLocaleString('en-GB', { timeZone: b.tz, weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+    bell([b.owner_id], { kind: 'booking', title: `${b.name || 'Someone'} cancelled “${b.page_title}”`, body: `${when} (${b.tz}) is free again`, link: '/calendar', actor: b.name || null });
+    res.json({ ok: true });
+  });
 
   r.get('/:token', (req, res) => {
     const p = find(req.params.token);
@@ -178,18 +220,20 @@ export function publicBookingRoutes() {
     const owner = q('SELECT * FROM users WHERE id = ?').get(p.user_id);
     const id = uid();
     const title = `${p.title}: ${name}`;
-    const description = [`Booked by ${name} <${email}> through “${p.title}”.`, note && `\n${note}`].filter(Boolean).join('\n');
+    const ct = crypto.randomBytes(18).toString('base64url');
+    const cancelUrl = `${baseUrl(req)}/b/cancel/${ct}`;
+    const description = [`Booked by ${name} <${email}> through “${p.title}”.`, note && `\n${note}`, `\nTo cancel this booking: ${cancelUrl}`].filter(Boolean).join('\n');
     q(`INSERT INTO events (id, owner_id, title, description, location, start, end, all_day, color, rrule, exdates, repeat_until, tz)
        VALUES (?, ?, ?, ?, NULL, ?, ?, 0, NULL, NULL, '[]', NULL, ?)`).run(id, owner.id, title, description, start, start + p.duration * 6e4, p.tz);
     const { added } = setOutside(id, [email]);
     q("UPDATE event_outside_guests SET status = 'yes', answered_at = ? WHERE event_id = ?").run(Date.now(), id);
-    q('INSERT INTO bookings (page_id, event_id, created_at) VALUES (?, ?, ?)').run(p.id, id, Date.now());
+    q('INSERT INTO bookings (page_id, event_id, created_at, cancel_token, name, email) VALUES (?, ?, ?, ?, ?, ?)').run(p.id, id, Date.now(), ct, name, email);
     const saved = outEvent(q('SELECT * FROM events WHERE id = ?').get(id));
     notifyOutside(owner, saved, added.map((g) => ({ ...g, status: 'yes' })), 'invite', { base: baseUrl(req), tz: p.tz });
     touch([owner.id]);
     sendTo([owner.id], { type: 'booking-made', title, start, page: p.title, by: name });
     bell([owner.id], { kind: 'booking', title: `${name} booked “${p.title}”`, body: new Date(start).toLocaleString('en-GB', { timeZone: p.tz, weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) + ` (${p.tz})`, link: '/calendar', actor: name });
-    res.status(201).json({ ok: true, title: p.title, start, end: start + p.duration * 6e4, tz: p.tz, owner: { name: p.owner_name } });
+    res.status(201).json({ ok: true, title: p.title, start, end: start + p.duration * 6e4, tz: p.tz, owner: { name: p.owner_name }, cancel_url: cancelUrl });
   });
   return r;
 }

@@ -18,7 +18,7 @@ import PublicLink from './apps/PublicLink.jsx';
 import InviteAnswer from './apps/calendar/InviteAnswer.jsx';
 import { SignPage } from './apps/docs/Signatures.jsx';
 const SignRoute = () => <SignPage token={useParams().token} />;
-import BookingPage from './apps/calendar/BookingPage.jsx';
+import BookingPage, { CancelBooking } from './apps/calendar/BookingPage.jsx';
 import { TwoStep } from './apps/Settings.jsx';
 import Drive from './apps/drive/Drive.jsx';
 import DocEditor from './apps/docs/DocEditor.jsx';
@@ -57,6 +57,8 @@ export default function App() {
   // Booking time from a booking link (no account needed).
   const booking = window.location.pathname.match(/^\/b\/([A-Za-z0-9_-]+)\/?$/);
   if (booking) return <BookingPage token={booking[1]} />;
+  const cancelling = window.location.pathname.match(/^\/b\/cancel\/([A-Za-z0-9_-]+)\/?$/);
+  if (cancelling) return <CancelBooking token={cancelling[1]} />;
   // Filling in a form (company forms ask you to sign in first).
   const form = window.location.pathname.match(/^\/f\/([A-Za-z0-9_-]+)\/?$/);
   if (form) return <FormGate token={form[1]} />;

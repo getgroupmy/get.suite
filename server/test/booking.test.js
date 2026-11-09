@@ -20,3 +20,18 @@ test('free slots: weekdays only, within the hours, after the notice, around busy
   assert.deepEqual(days[1].slots.map((t) => new Date(t).toISOString().slice(11, 16)), ['01:00', '03:00'], 'Monday 10:00 is busy');
   assert.equal(days.length, 5);
 });
+
+test('free slots: a gap kept around busy times, and a limit of bookings a day', () => {
+  const now = Date.parse('2026-11-06T01:30:00Z'); // Fri 9:30 in Kuala Lumpur
+  const busy = [{ start: Date.parse('2026-11-09T02:00:00Z'), end: Date.parse('2026-11-09T02:30:00Z') }]; // Mon 10:00–10:30
+  const mon = (p, booked = []) => freeSlots(p, busy, now, booked).find((d) => d.date === '2026-11-09')?.slots.map((t) => new Date(t).toISOString().slice(11, 16));
+  assert.deepEqual(mon({ ...page, buffer_min: 0 }), ['01:00', '03:00']);
+  assert.deepEqual(mon({ ...page, buffer_min: 30 }), ['03:00'], '9:00–10:00 ends right at 10:00: too close');
+  assert.deepEqual(mon({ ...page, buffer_min: 60 }), undefined, '11:00 starts only 30 minutes after: no times left on Monday');
+  const tue = Date.parse('2026-11-10T01:00:00Z');
+  const days = (p, booked) => freeSlots(p, [], now, booked).map((d) => d.date);
+  assert.ok(days({ ...page, max_per_day: 1 }, [tue]).includes('2026-11-09'));
+  assert.ok(!days({ ...page, max_per_day: 1 }, [tue]).includes('2026-11-10'), 'Tuesday has its one booking');
+  assert.ok(days({ ...page, max_per_day: 2 }, [tue]).includes('2026-11-10'));
+  assert.ok(days({ ...page, max_per_day: 0 }, [tue, tue, tue]).includes('2026-11-10'), '0: no limit');
+});

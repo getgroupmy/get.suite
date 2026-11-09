@@ -1352,7 +1352,7 @@ function BookingPagesDialog({ onClose }) {
   const [editing, setEditing] = useState(null);
   const load = () => get('/bookings').then(setPages).catch((e) => toast(e.message, 'error'));
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  const fresh = () => ({ title: 'Meeting', description: '', duration: 30, days: [1, 2, 3, 4, 5], from_min: 540, to_min: 1020, notice_hours: 4, days_ahead: 30, enabled: true });
+  const fresh = () => ({ title: 'Meeting', description: '', duration: 30, days: [1, 2, 3, 4, 5], from_min: 540, to_min: 1020, notice_hours: 4, days_ahead: 30, buffer_min: 0, max_per_day: 0, enabled: true });
   async function save(p) {
     try {
       const body = { ...p, tz: TZ };
@@ -1409,6 +1409,10 @@ function BookingForm({ page, onSave, onCancel }) {
           {[[0, 'None'], [1, '1 hour'], [4, '4 hours'], [12, '12 hours'], [24, '1 day'], [48, '2 days'], [168, '1 week']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
         <label className="field"><span>Up to this far ahead</span><select value={p.days_ahead} onChange={(e) => set('days_ahead', Number(e.target.value))}>
           {[[7, '1 week'], [14, '2 weeks'], [30, '30 days'], [60, '60 days'], [90, '90 days']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
+        <label className="field"><span>Gap before and after</span><select value={p.buffer_min ?? 0} onChange={(e) => set('buffer_min', Number(e.target.value))}>
+          {[[0, 'None'], [5, '5 minutes'], [10, '10 minutes'], [15, '15 minutes'], [30, '30 minutes'], [60, '1 hour']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
+        <label className="field"><span>Bookings a day</span><select value={p.max_per_day ?? 0} onChange={(e) => set('max_per_day', Number(e.target.value))}>
+          {[[0, 'No limit'], [1, 'At most 1'], [2, 'At most 2'], [3, 'At most 3'], [4, 'At most 4'], [5, 'At most 5'], [8, 'At most 8'], [10, 'At most 10']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
       </div>
       <label className="check"><input type="checkbox" checked={p.enabled} onChange={(e) => set('enabled', e.target.checked)} /> Taking bookings</label>
       <p className="muted small" style={{ margin: 0 }}>Hours are in your time zone ({TZ}). Visitors see the times in theirs.</p>
