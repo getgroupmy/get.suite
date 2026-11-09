@@ -106,7 +106,7 @@ Cookies switch to `Secure` automatically once traffic arrives over HTTPS through
 
 ## Accessibility
 
-Workspace is checked against WCAG 2 (levels A and AA) with axe-core on 29 screens (Mail (inbox, a message, writing, its settings), Drive, Docs, Sheets, Slides, Calendar, Chat, Tasks, Contacts, Notes, Forms, Meet, Home, Settings, Admin, the sign-in page and the main dialogs, in light and dark mode), with no problems found: everything can be reached by keyboard and has a name screen readers read out, and text stands out enough from its background (avatar initials included: each colour is made dark enough for its white letters).
+Pictures in documents and presentations can be given **Alt text** for screen readers. Workspace is checked against WCAG 2 (levels A and AA) with axe-core on 29 screens (Mail (inbox, a message, writing, its settings), Drive, Docs, Sheets, Slides, Calendar, Chat, Tasks, Contacts, Notes, Forms, Meet, Home, Settings, Admin, the sign-in page and the main dialogs, in light and dark mode), with no problems found: everything can be reached by keyboard and has a name screen readers read out, and text stands out enough from its background (avatar initials included: each colour is made dark enough for its white letters).
 
 ## Install as an app (phones and computers)
 
@@ -157,7 +157,7 @@ Switch **✎ Editing** to **💡 Suggesting** at the top of a document to propos
 ## Tables and pictures (Docs)
 
 - **Tables:** **Table** → *Insert table*, then Tab to move from cell to cell. The same menu adds and deletes rows and columns, turns the heading row on or off, and deletes the table.
-- **Pictures:** **Picture** to choose one, or paste or drop it into the document. It's saved in Drive next to the document (or in your Drive), and everyone who can open the document sees it, even without access to the picture file itself. Click a picture to make it smaller (a quarter, half or three quarters of the page width) or put it in the centre or on the right.
+- **Pictures:** **Picture** to choose one, or paste or drop it into the document. It's saved in Drive next to the document (or in your Drive), and everyone who can open the document sees it, even without access to the picture file itself. Click a picture to make it smaller (a quarter, half or three quarters of the page width) or put it in the centre or on the right. **Alt text** (with the picture selected) describes it for people who can't see it; screen readers read it out instead of the picture, and Word files carry it both ways (a new picture starts with its file name).
 - **Fonts and spacing:** the toolbar's font, size and spacing menus set the font (Arial, Georgia, Times New Roman, Verdana, Trebuchet MS, Courier New) and size of the selected text, and the line spacing (single, 1.15, 1.5, double) of the paragraphs the cursor is in. **Default** takes them off again. They're kept in the Word download.
 - **Colour:** the **A** and highlight buttons colour the selected text or mark it with a highlight.
 
@@ -352,6 +352,7 @@ In Drive, **New → Presentation**. Presentations are shared, versioned and save
 - **Ordering slides:** drag slides up and down the list on the left. **⊞ Grid view** shows every slide at once: drag them into order, Ctrl- or Shift-click to choose several and drag them together (they keep their order), or **Duplicate**, **Skip / show** or **Delete** them in one go. Double-click a slide (or Enter) to open it.
 - **On a slide:** add a **Text box**, a **Picture** (from your computer; it's saved in Drive next to the presentation) or a **Shape** (rectangle, rounded rectangle, ellipse, line or arrow; a line or arrow's **Direction** runs across, down, diagonally or backwards, and they're kept in PowerPoint files).
   - Drag to move, and drag the handles to resize. Pictures keep their shape; hold Shift to stretch them.
+  - **Alt text** in the toolbar (with a picture selected) describes the picture for screen readers (✓ once it has one). It's kept in PowerPoint files both ways.
   - Double-click text to type. Arrow keys nudge the selected item (Shift for bigger steps), and Delete removes it.
   - The toolbar sets text size, bold, italic, colour and alignment, shape colour, the slide's background, and front/back order. The ⋮ menu picks one of four themes.
 - **Import slides:** **⋮ → Import slides…** picks another presentation you can open (yours or shared with you), shows its slides, and puts the ones you tick after the current slide, with their text, shapes, tables, charts and speaker notes, in this presentation's theme. Their pictures are copied into your Drive (next to this presentation when you can add files there), so everyone who can open it sees them. A presentation whose owner turned off downloading and copying for viewers can't be imported from.

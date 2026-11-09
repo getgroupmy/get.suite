@@ -103,7 +103,11 @@ export async function deckFromPowerPoint(buffer, { savePicture }) {
         const data = target && await zip.file(target)?.async('nodebuffer');
         const ext = target ? path.posix.extname(target).slice(1).toLowerCase() : '';
         const mime = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', bmp: 'image/bmp', webp: 'image/webp' }[ext];
-        if (data && mime) items.push({ id: id(), type: 'image', fileId: await savePicture(path.posix.basename(target), data, mime), name: path.posix.basename(target), ...box });
+        // Its description for screen readers (PowerPoint's Alt Text), when it has one.
+        // (Some programs write the picture's own data or file path there instead: not a description.)
+        const raw = String(attr(deep(el, P, 'cNvPr')[0], 'descr') || '').replace(/\s+/g, ' ').trim();
+        const descr = /^(data:|[a-z]:\\|\/|file:|preencoded\.\w+$)/i.test(raw) ? '' : raw.slice(0, 500);
+        if (data && mime) items.push({ id: id(), type: 'image', fileId: await savePicture(path.posix.basename(target), data, mime), name: path.posix.basename(target), ...(descr && { alt: descr }), ...box });
         continue;
       }
       // A slide number field: the presentation numbers its slides (not a text box of its own).
@@ -224,7 +228,8 @@ export async function powerPointFromDeck(deck, { pictureData, title = 'Presentat
           ...(it.title && { showTitle: true, title: String(it.title), titleFontSize: 14 }) });
       } else if (it.type === 'image') {
         const pic = await pictureData?.(it.fileId);
-        if (pic) slide.addImage({ ...pos, data: `data:${pic.mime};base64,${pic.data.toString('base64')}` });
+        // Alt Text: its description (a blank one when it has none: left empty, the library would write a made-up file name).
+        if (pic) slide.addImage({ ...pos, data: `data:${pic.mime};base64,${pic.data.toString('base64')}`, altText: String(it.alt || ' ').slice(0, 500) });
       }
     }
   }

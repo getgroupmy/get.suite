@@ -147,6 +147,7 @@ test('PowerPoint: a real .pptx opens with its slides, boxes, text, shapes, pictu
   const deck = await deckFromPowerPoint(await p.write({ outputType: 'nodebuffer' }), { savePicture: async (name, data, mime) => { saved.push({ name, mime, size: data.length }); return 'pic1'; } });
   assert.equal(deck.slides.length, 2);
   const [title, sub] = deck.slides[0].items;
+  assert.equal(deck.slides[1].items.find((i) => i.type === 'image').alt, undefined, 'a description that is only the picture\'s data is left out');
   const r = (v) => Math.round(v);
   assert.deepEqual([title.text, title.bold, title.align, title.color, r(title.x), r(title.y), r(title.w)], ['Series A', true, 'center', '#1a73e8', 8, 27, 85]);
   assert.equal(title.size, 46, '44 pt on a 13.33 in slide');
@@ -163,7 +164,8 @@ test('PowerPoint: a real .pptx opens with its slides, boxes, text, shapes, pictu
 test('PowerPoint: a presentation saved as .pptx opens again the same', async () => {
   const deck = { theme: 'ocean', slides: [
     { id: 'a', notes: 'Welcome everyone.\nMention the Q3 numbers.', items: [{ id: 't', type: 'text', text: 'Hello', x: 10, y: 20, w: 50, h: 15, size: 44, bold: true, align: 'center' }, { id: 's', type: 'shape', shape: 'round', fill: 'accent', x: 60, y: 60, w: 20, h: 20 }] },
-    { id: 'b', bg: '#ffffff', items: [{ id: 'p', type: 'image', fileId: 'f1', x: 25, y: 25, w: 50, h: 50 }] },
+    { id: 'b', bg: '#ffffff', items: [{ id: 'p', type: 'image', fileId: 'f1', x: 25, y: 25, w: 50, h: 50, alt: 'Bar chart: sales doubled from 2025 to 2026', name: 'chart.png' },
+      { id: 'q', type: 'image', fileId: 'f2', x: 80, y: 5, w: 10, h: 10, name: 'logo.png' }] },
   ] };
   const buf = await powerPointFromDeck(deck, { pictureData: async () => ({ data: PNG, mime: 'image/png' }) });
   const back = await deckFromPowerPoint(buf, { savePicture: async () => 'new-pic' });
@@ -174,6 +176,10 @@ test('PowerPoint: a presentation saved as .pptx opens again the same', async () 
   assert.equal(back.slides[0].bg, '#0b57d0', 'theme background written out');
   assert.deepEqual(back.slides[0].items.find((i) => i.type === 'shape').shape, 'round');
   assert.equal(back.slides[1].items[0].fileId, 'new-pic');
+  assert.equal(back.slides[1].items[0].alt, 'Bar chart: sales doubled from 2025 to 2026', 'alt text both ways');
+  assert.equal(back.slides[1].items[1].alt, undefined, 'none stays none');
+  const xml = await (await (await import('jszip')).default.loadAsync(buf)).file('ppt/slides/slide2.xml').async('string');
+  assert.ok(!xml.includes('descr="data:'), 'the picture itself is never written as its description');
   assert.equal(back.slides[0].notes, 'Welcome everyone.\nMention the Q3 numbers.', 'speaker notes');
   assert.equal(back.slides[1].notes, undefined);
 });

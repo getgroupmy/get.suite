@@ -13,6 +13,7 @@ import DrivePicker from '../../components/DrivePicker.jsx';
 import { chartChanged } from './linkedchart.js';
 import { useChartNow, ChartPick, ChartBox } from '../ChartLink.jsx';
 import Icon from '../../components/Icon.jsx';
+import AltTextDialog from '../../components/AltTextDialog.jsx';
 import { ShareDialog } from '../drive/Drive.jsx';
 import { VersionHistory } from '../VersionHistory.jsx';
 import { EditorHeader } from '../editorCommon.jsx';
@@ -173,6 +174,7 @@ export default function SlidesEditor() {
   const [grid, setGrid] = useState(false);
   const [picked, setPicked] = useState(new Set()); // slides chosen in the grid (Ctrl/Shift-click)
   const [drag, setDrag] = useState(null); // { from: [indexes], at: drop position or null }
+  const [altEdit, setAltEdit] = useState(null); // the picture whose alt text is being written
   if (!deck) return <div className="editor-page"><EditorHeader icon="slides" file={null} status="saved" /></div>;
   const people = [...new Map(others.map((p) => [p.id, p])).values()].filter((p) => p.id !== user.id);
   const peers = new Map(others.filter((p) => p.id !== user.id && p.sel?.slide === slide.id && p.sel.item).map((p) => [p.sel.item, p]));
@@ -297,6 +299,12 @@ export default function SlidesEditor() {
             </select>
           )}
           {item?.type === 'chart' && <ChartUpdate item={item} onUpdate={(now) => setItem(now)} />}
+          {item?.type === 'image' && (
+            <button type="button" className={`tb labelled ${item.alt ? 'on' : ''}`} aria-label="Alt text" title={item.alt ? `Alt text: ${item.alt}` : 'Describe the picture for screen readers'} onClick={() => setAltEdit(item.id)}>Alt text{item.alt ? ' ✓' : ''}</button>
+          )}
+          {altEdit && item?.id === altEdit && (
+            <AltTextDialog value={item.alt} onClose={() => setAltEdit(null)} onSave={(alt) => { setItem({ alt: alt || undefined }); setAltEdit(null); }} />
+          )}
           {item && (
             <select className="tb-select" aria-label="Animation" title="How it comes in when presenting" value={item.anim || ''}
               onChange={(e) => setItem(animChange(deck.slides[slideIndex], item, e.target.value))}>
@@ -518,7 +526,7 @@ export function SlideView({ slide, theme, deckId, editable, selected, editing, o
         } else if (it.type === 'image') {
           // Through the deck (works for everyone who can open it, once saved); just after inserting,
           // before the save, the person who added it opens the picture file directly.
-          inner = <img src={`${pictureBase || `/api/files/${deckId}`}/pictures/${it.fileId}`} alt={it.name || ''} draggable={false}
+          inner = <img src={`${pictureBase || `/api/files/${deckId}`}/pictures/${it.fileId}`} alt={it.alt || it.name || ''} draggable={false}
             onError={(e) => { const direct = `/api/files/${it.fileId}/raw`; if (!e.currentTarget.src.endsWith(direct)) e.currentTarget.src = direct; }} />;
         } else if (it.type === 'table') {
           const typing = editable && editing === it.id;
@@ -553,7 +561,7 @@ export function SlideView({ slide, theme, deckId, editable, selected, editing, o
           <div key={it.id} className={`slide-item ${it.type} ${isSel ? 'sel' : ''} ${arriving}`} data-item={it.id} data-built={built !== undefined && at ? (notYet ? 'no' : 'yes') : undefined}
             style={{ ...(peers?.has(it.id) ? { ...pos, boxShadow: `0 0 0 ${isSel ? 4 : 2}px ${peers.get(it.id).color}` } : pos), ...(notYet && { visibility: 'hidden' }) }}
             title={peers?.has(it.id) ? `${peers.get(it.id).name} is here` : undefined}
-            aria-label={editable ? `${it.type === 'text' ? (it.text ? `Text: ${it.text.slice(0, 40)}` : PLACEHOLDER[it.role] || 'Text box') : it.type === 'image' ? 'Picture' : it.type === 'table' ? 'Table' : it.type === 'chart' ? `Chart: ${it.title || 'Untitled'}` : 'Shape'}` : undefined}
+            aria-label={editable ? `${it.type === 'text' ? (it.text ? `Text: ${it.text.slice(0, 40)}` : PLACEHOLDER[it.role] || 'Text box') : it.type === 'image' ? (it.alt ? `Picture: ${it.alt.slice(0, 80)}` : 'Picture') : it.type === 'table' ? 'Table' : it.type === 'chart' ? `Chart: ${it.title || 'Untitled'}` : 'Shape'}` : undefined}
             onPointerDown={editable ? (e) => startDrag(e, it) : undefined}
             onDoubleClick={editable && (it.type === 'text' || it.type === 'table') ? () => onEdit(it.id) : undefined}>
             {inner}

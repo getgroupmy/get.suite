@@ -20,6 +20,7 @@ import { PAPER, MARGINS, DEFAULT_SETUP, WATERMARKS, paperStyle, printCss } from 
 import { ShareDialog } from '../drive/Drive.jsx';
 import { EditorHeader } from '../editorCommon.jsx';
 import { CommentsPanel, useComments } from '../comments.jsx';
+import AltTextDialog from '../../components/AltTextDialog.jsx';
 import Icon from '../../components/Icon.jsx';
 import { FindReplace, countWords } from './findReplace.js';
 import { FindBar } from './FindBar.jsx';
@@ -614,6 +615,7 @@ function withoutSuggestionsHtml(html) {
 const escapeHtml = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 function Toolbar({ editor, onDropdown, onEquation, onCite, onSymbols, onComment, onPictures, onLinkFile, onChart }) {
+  const [altEdit, setAltEdit] = useState(null); // { pos, alt } of the picture being described
   const pictureInput = useRef();
   const [, force] = useState(0);
   const [open, setOpen] = useState(false); // phones: the toolbar folds away behind one button
@@ -635,6 +637,11 @@ function Toolbar({ editor, onDropdown, onEquation, onCite, onSymbols, onComment,
   return (
     <div className={`toolbar foldable ${open ? 'open' : ''}`} role="toolbar" aria-label="Formatting">
       <button type="button" className="tb tb-fold" aria-expanded={open} onMouseDown={(e) => e.preventDefault()} onClick={() => setOpen(!open)}>{open ? 'Hide formatting ▴' : 'Formatting ▾'}</button>
+      {altEdit && <AltTextDialog value={altEdit.alt} onClose={() => { setAltEdit(null); editor.commands.focus(); }} onSave={(alt) => {
+        const node = editor.state.doc.nodeAt(altEdit.pos);
+        if (node?.type.name === 'image') editor.view.dispatch(editor.state.tr.setNodeMarkup(altEdit.pos, undefined, { ...node.attrs, alt }));
+        setAltEdit(null); editor.commands.focus();
+      }} />}
       <B label="↶" title="Undo (Ctrl+Z)" onClick={() => c().undo().run()} />
       <B label="↷" title="Redo (Ctrl+Y)" onClick={() => c().redo().run()} />
       <span className="sep" />
@@ -705,6 +712,8 @@ function Toolbar({ editor, onDropdown, onEquation, onCite, onSymbols, onComment,
         {[['left', 'Picture on the left', '⯇'], ['center', 'Picture in the centre', '≡'], ['right', 'Picture on the right', '⯈']].map(([a, t, g]) => (
           <B key={a} label={g} title={t} active={(editor.getAttributes('image').align || 'left') === a} onClick={() => c().updateAttributes('image', { align: a === 'left' ? null : a }).run()} />
         ))}
+        <button type="button" className="tb labelled" aria-label="Alt text" title={editor.getAttributes('image').alt ? `Alt text: ${editor.getAttributes('image').alt}` : 'Describe the picture for screen readers'}
+          onMouseDown={(e) => e.preventDefault()} onClick={() => setAltEdit({ pos: editor.state.selection.from, alt: editor.getAttributes('image').alt })}>Alt text</button>
       </>}
       <Menu align="left" trigger={(p) => <button type="button" className="tb labelled" title="Table" aria-label="Table" onMouseDown={(e) => e.preventDefault()} {...p}><TableGlyph /> Table</button>} items={[
         { label: 'Insert table (3 × 3)', onClick: () => c().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run(), disabled: editor.isActive('table') },
