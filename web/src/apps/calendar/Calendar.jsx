@@ -12,7 +12,7 @@ import { useMailStatus } from '../../mailStatus.js';
 import { insights, hoursText } from './insights.js';
 import TimeOff, { waitingFor } from './TimeOff.jsx';
 import { timeIn, zoneName, cityOf } from '../../components/zones.js';
-import { printRange, daysFromTo, scheduleOf, DAY, VIEWS, startOfDay, visibleDays, shift, title, onDay, layoutDay, expandAll, occurrenceIndex, describeRule, daysBetween, moveTimes, resizeEnd, shiftWeekdays, snapMinutes, moveStart, weekdayInMonth, eventsPerDay } from './calmath.js';
+import { printRange, daysFromTo, scheduleOf, DAY, VIEWS, startOfDay, visibleDays, shift, title, onDay, layoutDay, expandAll, occurrenceIndex, describeRule, daysBetween, moveTimes, resizeEnd, shiftWeekdays, snapMinutes, moveStart, weekdayInMonth, eventsPerDay, isoWeek, daysShown } from './calmath.js';
 
 const OTHER_COLOURS = ['#e37400', '#8e24aa', '#0b8043', '#d93025', '#00796b', '#3949ab'];
 const COLORS = ['#1a73e8', '#0b8043', '#d50000', '#f4511e', '#8e24aa', '#616161'];
@@ -135,6 +135,13 @@ function Calendar({ acting = null, managed = [], onPick }) {
   const setView = (v) => { setViewState(v); try { localStorage.setItem('nw.calView', v); } catch { /* private window */ } };
 
   const days = useMemo(() => visibleDays(view, anchor), [view, anchor]);
+  // View options, remembered in this browser: weekends in the week and month views, and week numbers.
+  const flag = (k, dflt) => { try { const v = localStorage.getItem(k); return v === null ? dflt : v === '1'; } catch { return dflt; } };
+  const [weekends, setWeekendsState] = useState(() => flag('nw.calWeekends', true));
+  const [weekNums, setWeekNumsState] = useState(() => flag('nw.calWeekNums', false));
+  const keep = (k, set) => (on) => { set(on); try { localStorage.setItem(k, on ? '1' : '0'); } catch { /* private window */ } };
+  const setWeekends = keep('nw.calWeekends', setWeekendsState), setWeekNums = keep('nw.calWeekNums', setWeekNumsState);
+  const gridDays = useMemo(() => daysShown(view, days, weekends), [view, days, weekends]);
   // Other people's calendars (busy times only), chosen on this device.
   const [others, setOthersState] = useState(() => { try { return JSON.parse(localStorage.getItem('nw.calOthers') || '[]'); } catch { return []; } });
   const setOthers = (list) => { setOthersState(list); try { localStorage.setItem('nw.calOthers', JSON.stringify(list)); } catch { /* private window */ } };
@@ -325,6 +332,8 @@ function Calendar({ acting = null, managed = [], onPick }) {
         <Feeds onChanged={load} />
         <label className="check cal-show-tasks"><input type="checkbox" checked={showTasks} onChange={(e) => setShowTasks(e.target.checked)} /> Show tasks with due dates</label>
         <label className="check cal-show-tasks"><input type="checkbox" checked={showBirthdays} onChange={(e) => setShowBirthdays(e.target.checked)} /> Show contacts’ birthdays</label>
+        <label className="check cal-show-tasks"><input type="checkbox" checked={weekends} onChange={(e) => setWeekends(e.target.checked)} /> Show weekends</label>
+        <label className="check cal-show-tasks"><input type="checkbox" checked={weekNums} onChange={(e) => setWeekNums(e.target.checked)} /> Show week numbers</label>
         <form className="cal-search" role="search" onSubmit={(e) => { e.preventDefault(); runSearch(new FormData(e.currentTarget).get('q')); }}>
           <input name="q" type="search" placeholder="Search events" aria-label="Search events" onChange={(e) => { if (!e.target.value) setFound(null); }} />
         </form>
@@ -363,20 +372,21 @@ function Calendar({ acting = null, managed = [], onPick }) {
           <button className="btn" onClick={() => setAnchor(startOfDay(new Date()))}>Today</button>
           <button className="icon-btn" aria-label={`Previous ${unit}`} onClick={() => setAnchor(shift(view, anchor, -1))}><Icon name="left" /></button>
           <button className="icon-btn" aria-label={`Next ${unit}`} onClick={() => setAnchor(shift(view, anchor, 1))}><Icon name="right" /></button>
-          <h1 aria-live="polite">{title(view, anchor)}</h1>
+          <h1 aria-live="polite">{title(view, anchor)}{weekNums && (view === 'week' || view === 'day') && <span className="muted cal-weeknum"> · Week {isoWeek(view === 'week' ? gridDays[0] : anchor)}</span>}</h1>
           <div className="grow" />
           <div className="seg" role="radiogroup" aria-label="View">
             {VIEWS.map((v) => <button key={v} type="button" role="radio" aria-checked={view === v} className={view === v ? 'on' : ''} onClick={() => setView(v)}>{VIEW_NAMES[v]}</button>)}
           </div>
         </div>
         {view === 'month' ? (
-          <div className="month">
-            {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => <div key={d} className="dow">{d}</div>)}
-            {days.map((d) => {
+          <div className="month" style={weekends ? undefined : { gridTemplateColumns: 'repeat(5, minmax(0, 1fr))' }}>
+            {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].filter((_, i) => weekends || (i !== 0 && i !== 6)).map((d) => <div key={d} className="dow">{d}</div>)}
+            {gridDays.map((d, k) => {
               const list = onDay(shown, d).sort((a, b) => b.all_day - a.all_day || a.start - b.start);
               return (
                 <div key={d.toISOString()} data-day={d.getTime()} className={`day ${d.getMonth() !== anchor.getMonth() ? 'other' : ''} ${d.getTime() === today ? 'today' : ''}`}
                   onClick={drag.click((e) => e.target === e.currentTarget && newEvent(d))}>
+                  {weekNums && k % (weekends ? 7 : 5) === 0 && <span className="weeknum muted" title={`Week ${isoWeek(d)}`}>W{isoWeek(d)}</span>}
                   <button type="button" className="daynum" aria-label={`Open ${d.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}`} onClick={() => openDay(d)}>{d.getDate()}</button>
                   {list.slice(0, 3).map((ev) => (ev.task ? <TaskChip key={ev.key} ev={ev} onDone={taskDone} /> : ev.birthday ? <BirthdayChip key={ev.key} ev={ev} /> : ev.holiday ? <HolidayChip key={ev.key} ev={ev} /> : (
                     <button key={ev.key || ev.id} className={`chip ${ev.all_day ? 'allday' : ''} ${inviteClass(ev)} ${ev.dragging ? 'dragging' : ''}`} style={{ '--c': ev.color || COLORS[0] }}
@@ -394,7 +404,7 @@ function Calendar({ acting = null, managed = [], onPick }) {
         ) : view === 'schedule' ? (
           <Schedule days={days} events={shown} today={today} onOpen={setEditing} onTaskDone={taskDone} onDay={openDay} />
         ) : (
-          <TimeGrid days={days} events={shown} busy={busy} today={today} onOpen={setEditing} onNew={newEvent} onDay={view === 'week' ? openDay : null} drag={drag} onTaskDone={taskDone}
+          <TimeGrid days={gridDays} events={shown} busy={busy} today={today} onOpen={setEditing} onNew={newEvent} onDay={view === 'week' ? openDay : null} drag={drag} onTaskDone={taskDone}
             locations={locations} onLocation={(d, place) => (place === 'other' ? setOtherFor(d) : setLocation(d, place))} />
         )}
       </section>

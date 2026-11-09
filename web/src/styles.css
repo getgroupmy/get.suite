@@ -2250,3 +2250,6 @@ textarea.mono { font-family: ui-monospace, Consolas, monospace; }
 .year-day.busy-2 { background: color-mix(in srgb, var(--accent) 35%, transparent); }
 .year-day.busy-3 { background: color-mix(in srgb, var(--accent) 55%, transparent); font-weight: 600; }
 .year-day.today { background: var(--accent); color: #fff; font-weight: 700; }
+.month .day .weeknum { position: absolute; left: 4px; top: 4px; font-size: 10px; font-weight: 600; }
+.cal-weeknum { font-size: .7em; font-weight: 400; }
+.month .day { position: relative; }

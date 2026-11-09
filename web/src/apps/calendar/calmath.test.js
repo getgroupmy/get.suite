@@ -236,3 +236,16 @@ test('year view: every day of the year, a year at a time, and a count of events 
   assert.equal(counts.get(t(2, 1)), 1);
   assert.equal(counts.get(t(11, 31)), 1);
 });
+
+test('week numbers and hiding weekends', async () => {
+  const { isoWeek, daysShown, visibleDays } = await import('./calmath.js');
+  assert.equal(isoWeek(new Date(2026, 10, 9)), 46);
+  assert.equal(isoWeek(new Date(2027, 0, 1)), 53, '1 Jan 2027 is in week 53 of 2026');
+  assert.equal(isoWeek(new Date(2027, 0, 4)), 1);
+  assert.equal(isoWeek(new Date(2024, 11, 30)), 1, '30 Dec 2024 is in week 1 of 2025');
+  const week = visibleDays('week', new Date(2026, 10, 11));
+  assert.deepEqual(daysShown('week', week, false).map((d) => d.getDay()), [1, 2, 3, 4, 5]);
+  assert.equal(daysShown('week', week, true).length, 7);
+  assert.equal(daysShown('month', visibleDays('month', new Date(2026, 10, 1)), false).length, 30);
+  assert.equal(daysShown('day', [new Date(2026, 10, 14)], false).length, 1, 'a Saturday opened on its own still shows');
+});

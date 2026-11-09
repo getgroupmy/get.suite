@@ -340,3 +340,15 @@ export function eventsPerDay(events, days) {
   }
   return out;
 }
+
+/** The ISO week number of a day (weeks start on Monday; week 1 holds the year's first Thursday). */
+export function isoWeek(d) {
+  const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  t.setUTCDate(t.getUTCDate() + 4 - (t.getUTCDay() || 7));
+  return Math.ceil(((t - Date.UTC(t.getUTCFullYear(), 0, 1)) / 864e5 + 1) / 7);
+}
+
+/** The days a view shows: without Saturdays and Sundays in the week and month views when weekends are hidden. */
+export function daysShown(view, days, weekends = true) {
+  return weekends || (view !== 'week' && view !== 'month') ? days : days.filter((d) => d.getDay() !== 0 && d.getDay() !== 6);
+}
