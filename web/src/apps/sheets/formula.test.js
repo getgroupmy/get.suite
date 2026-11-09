@@ -534,3 +534,32 @@ test('date arithmetic: a date plus days, the days between two dates, times as fr
   assert.equal(serialDate(46335.25), '2026-11-09 06:00');
   assert.equal(serialDate(46335.000011574), '2026-11-09 00:00:01');
 });
+
+test('more functions: text before and after, splitting into a grid, reshaping, SORTBY, FREQUENCY, bases, XIRR', () => {
+  const g0 = createEvaluator({
+    A1: '=TEXTBEFORE("a-b-c", "-")', A2: '=TEXTAFTER("a-b-c", "-", -1)', A3: '=TEXTBEFORE("abc", "x", , , , "none")', A4: '=TEXTAFTER("Key: V", "KEY: ", 1, 1)', A5: '=TEXTBEFORE("abc", "x")',
+    A6: '=TEXTAFTER("a-b-c", "-", 2)', A7: '=TEXTBEFORE("a, b; c", R4:R5, 2)', R4: ', ', R5: '; ',
+    B1: '=TEXTSPLIT("a,b;c,d,1", ",", ";")', B5: '=TEXTSPLIT("x,,y", ",", , TRUE)',
+    F1: 1, F2: 2, F3: 3, F4: 4, F5: 5,
+    G1: '=WRAPROWS(F1:F5, 2)', X1: '=WRAPCOLS(F1:F5, 3, 0)',
+    K1: '=ROMAN(2026)', K2: '=DEC2BIN(-1)', K3: '=BIN2DEC("1111111111")', K4: '=HEX2DEC("ff")', K5: '=BASE(255, 16, 4)', K6: '=DEC2HEX(255, 4)', K7: '=XIRR(Q1:Q2, R1:R2)', K8: '=UNICODE("A")', K9: '=PERMUT(5, 2)', K10: '=UNICHAR(9731)', K11: '=DEC2BIN(600)', K12: '=ROMAN(4000)', K13: '=XNPV(0.1, Q1:Q2, R1:R2)',
+    L1: '=FREQUENCY(F1:F5, F2:F3)', M1: '=SORTBY(S1:S3, F1:F3, -1)', N1: '=CHOOSECOLS(G1:H3, -1)', N5: '=CHOOSEROWS(F1:F5, 2, -1)', N8: '=CHOOSEROWS(F1:F5, 9)',
+    Z1: '=TOROW(F1:F3)', T2: '=TOCOL(G1:H3, 2)', T9: '=FLATTEN(F1:F2, S1)', V1: '=EXPAND(F1, 2, 2, 0)', AC1: '=ROWS(RANDARRAY(3, 2))', AC2: '=AND(RANDARRAY(5, 1, 1, 6, TRUE) >= 1)',
+    Q1: -1000, Q2: 1100, R1: '2025-01-01', R2: '2026-01-01', S1: 'c', S2: 'b', S3: 'a',
+  });
+  const g = (k) => { const v = g0(k); return v && typeof v === 'object' && 'error' in v ? v.error : v; };
+  assert.deepEqual(['A1', 'A2', 'A3', 'A4', 'A5', 'A6', 'A7'].map(g), ['a', 'c', 'none', 'V', '#N/A', 'c', 'a, b']);
+  assert.deepEqual(['B1', 'C1', 'D1', 'B2', 'C2', 'D2', 'B5', 'C5'].map(g), ['a', 'b', '#N/A', 'c', 'd', 1, 'x', 'y']);
+  assert.deepEqual(['G1', 'H1', 'G2', 'H2', 'G3', 'H3'].map(g), [1, 2, 3, 4, 5, '#N/A']);
+  assert.deepEqual(['X1', 'X2', 'X3', 'Y1', 'Y2', 'Y3'].map(g), [1, 2, 3, 4, 5, 0]);
+  assert.deepEqual(['K1', 'K2', 'K3', 'K4', 'K5', 'K6', 'K8', 'K9', 'K10', 'K11', 'K12'].map(g), ['MMXXVI', '1111111111', -1, 255, '00FF', '00FF', 65, 20, '☃', '#NUM!', '#VALUE!']);
+  assert.ok(Math.abs(g('K7') - 0.1) < 1e-9, 'XIRR: 10% over exactly a year');
+  assert.ok(Math.abs(g('K13')) < 1e-9, 'XNPV at that rate is nothing');
+  assert.deepEqual(['L1', 'L2', 'L3'].map(g), [2, 1, 2]);
+  assert.deepEqual(['M1', 'M2', 'M3'].map(g), ['a', 'b', 'c']);
+  assert.deepEqual(['N1', 'N2', 'N3', 'N5', 'N6', 'N8'].map(g), [2, 4, '#N/A', 2, 5, '#VALUE!']);
+  assert.deepEqual(['Z1', 'AA1', 'AB1'].map(g), [1, 2, 3]);
+  assert.deepEqual(['T2', 'T3', 'T6', 'T7'].map(g), [1, 2, 5, null], 'TOCOL leaves out the #N/A');
+  assert.deepEqual(['T9', 'T10', 'T11'].map(g), [1, 2, 'c']);
+  assert.deepEqual(['V1', 'W1', 'V2', 'W2', 'AC1', 'AC2'].map(g), [1, 0, 0, 0, 3, true]);
+});

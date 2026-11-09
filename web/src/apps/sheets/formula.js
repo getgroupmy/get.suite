@@ -359,7 +359,7 @@ function order(a, b) {
   return Number(a) - Number(b);
 }
 /** Functions that give back several cells, which spill into the cells beside and below. */
-const ARRAY_FUNCS = new Set(['FILTER', 'UNIQUE', 'SORT', 'SEQUENCE', 'TRANSPOSE', 'IMPORTRANGE', 'XLOOKUP', 'SPLIT', 'VSTACK', 'HSTACK', 'TAKE', 'DROP', 'CHOOSE', 'REGEXEXTRACT', 'LET', 'MAP', 'BYROW', 'BYCOL', 'MAKEARRAY', 'REDUCE', 'SCAN']);
+const ARRAY_FUNCS = new Set(['TEXTSPLIT', 'CHOOSECOLS', 'CHOOSEROWS', 'WRAPROWS', 'WRAPCOLS', 'TOCOL', 'TOROW', 'FLATTEN', 'SORTBY', 'FREQUENCY', 'RANDARRAY', 'EXPAND', 'FILTER', 'UNIQUE', 'SORT', 'SEQUENCE', 'TRANSPOSE', 'IMPORTRANGE', 'XLOOKUP', 'SPLIT', 'VSTACK', 'HSTACK', 'TAKE', 'DROP', 'CHOOSE', 'REGEXEXTRACT', 'LET', 'MAP', 'BYROW', 'BYCOL', 'MAKEARRAY', 'REDUCE', 'SCAN']);
 
 // ---- helpers for regular expressions, times and cash flows
 /** A pattern from a formula (RE2-like: no lookbehind needed); a bad one, or one too long, is #VALUE!. */
@@ -411,7 +411,200 @@ function stack(arrays, across) {
   return grid(Array.from({ length: rows }, (_, r) => parts.flatMap((p) => p[r] || Array(p[0]?.length || 0).fill('#N/A'))));
 }
 
+// ---- helpers for reshaping arrays and for numbers in other bases
+const given = (v) => v !== undefined && v !== null;
+const isErrorText = (v) => typeof v === 'string' && /^#(N\/A|NULL!|DIV\/0!|VALUE!|REF!|NAME\?|NUM!|CALC!|SPILL!)$/.test(v);
+const MAX_CELLS = 10000;
+/** Picks rows (or columns) by number, 1 the first, -1 the last; out of range is #VALUE!. */
+function pick(list, which) {
+  const n = list.length;
+  return flat(which).map((w) => { const i = Math.trunc(toNum(w)); if (!i || Math.abs(i) > n) err('#VALUE!'); return list[i > 0 ? i - 1 : n + i]; });
+}
+/** A list of values cut into rows (or columns) of `count`, the last padded (#N/A unless given). */
+function wrap(vector, count, pad, byCols) {
+  const s = shapeOf(vector);
+  if (s.rows > 1 && s.cols > 1) err('#VALUE!');
+  const vals = flat([vector]);
+  const k = Math.trunc(toNum(count));
+  if (k < 1) err('#NUM!');
+  const lines = [];
+  for (let i = 0; i < vals.length; i += k) { const line = vals.slice(i, i + k); while (line.length < k) line.push(given(pad) ? pad : '#N/A'); lines.push(line); }
+  if (!lines.length) err('#VALUE!');
+  return grid(byCols ? lines[0].map((_, c) => lines.map((l) => l[c])) : lines);
+}
+/** All of an array's values in one line, row by row (or column by column), leaving out blanks (1), errors (2) or both (3). */
+function line(array, ignore, byCol) {
+  const rows = rowsOf(array);
+  const vals = byCol ? (rows[0] || []).flatMap((_, c) => rows.map((r) => r[c])) : rows.flat();
+  const how = Math.trunc(toNum(ignore ?? 0));
+  if (how < 0 || how > 3) err('#VALUE!');
+  const out = vals.filter((v) => !((how & 1) && (v === null || v === undefined || v === '')) && !((how & 2) && isErrorText(v)));
+  if (!out.length) err('#CALC!');
+  return out;
+}
+/** Where a delimiter (or any of several) is found in text, from the start or (instance < 0) the end. */
+function findDelim(text, delims, instance, anyCase) {
+  const ds = flat([delims]).map(toStr);
+  if (!ds.length || ds.some((d) => d === '')) err('#VALUE!');
+  const hay = anyCase ? text.toLowerCase() : text;
+  const hits = [];
+  for (let i = 0; i < text.length;) {
+    const d = ds.find((x) => hay.startsWith(anyCase ? x.toLowerCase() : x, i));
+    if (d) { hits.push([i, d.length]); i += d.length; } else i++;
+  }
+  const n = Math.trunc(toNum(instance ?? 1));
+  if (!n || Math.abs(n) > text.length) err('#VALUE!');
+  return (n > 0 ? hits[n - 1] : hits[hits.length + n]) || null;
+}
+/** Text split on any of several delimiters (exact, or ignoring case). */
+function splitOn(text, delims, anyCase) {
+  const ds = flat([delims]).map(toStr);
+  if (!ds.length || ds.some((d) => d === '')) err('#VALUE!');
+  const hay = anyCase ? text.toLowerCase() : text, needles = anyCase ? ds.map((d) => d.toLowerCase()) : ds;
+  const out = [];
+  let from = 0;
+  for (let i = 0; i < text.length;) {
+    const d = needles.find((x) => hay.startsWith(x, i));
+    if (d) { out.push(text.slice(from, i)); i += d.length; from = i; } else i++;
+  }
+  out.push(text.slice(from));
+  return out;
+}
+const asNumber = (x) => (x !== '' && /^\s*-?\d+(\.\d+)?(e[+-]?\d+)?\s*$/i.test(x) ? Number(x) : x);
+const DIGITS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+/** A whole number written in another base (2 to 36), at least `places` digits; negative numbers as 10-digit two's complement (as Excel's DEC2BIN etc.). */
+function toBase(v, radix, places, signedDigits = 0) {
+  let n = Math.trunc(toNum(v));
+  if (n < 0) {
+    if (!signedDigits) err('#NUM!');
+    const span = radix ** signedDigits;
+    if (n < -span / 2) err('#NUM!');
+    n += span;
+  } else if (signedDigits && n >= radix ** signedDigits / 2) err('#NUM!');
+  if (n > Number.MAX_SAFE_INTEGER) err('#NUM!');
+  const out = n.toString(radix).toUpperCase();
+  if (!given(places)) return out;
+  const p = Math.trunc(toNum(places));
+  if (p < out.length || p > 255) err('#NUM!');
+  return out.padStart(p, '0');
+}
+/** A number written in another base, back to a number; 10-digit values with the top digit set are negative (two's complement). */
+function fromBase(v, radix, signedDigits = 0) {
+  const t = toStr(v).trim().toUpperCase();
+  if (!t || t.length > (signedDigits || 255) || [...t].some((ch) => { const d = DIGITS.indexOf(ch); return d < 0 || d >= radix; })) err('#NUM!');
+  const n = parseInt(t, radix);
+  return signedDigits && t.length === signedDigits && n >= radix ** signedDigits / 2 ? n - radix ** signedDigits : n;
+}
+const ROMAN = [[1000, 'M'], [900, 'CM'], [500, 'D'], [400, 'CD'], [100, 'C'], [90, 'XC'], [50, 'L'], [40, 'XL'], [10, 'X'], [9, 'IX'], [5, 'V'], [4, 'IV'], [1, 'I']];
+const xnpv = (rate, flows, days) => flows.reduce((s, x, i) => s + x / (1 + rate) ** ((days[i] - days[0]) / 365), 0);
+
 const FUNCS = {
+  // Text before or after a delimiter (the nth one, or counting from the end when negative), and text cut into a grid.
+  TEXTBEFORE: ([text, delim, instance, mode, , ifNotFound]) => {
+    const t = toStr(scalarOf(text));
+    const hit = findDelim(t, delim, instance, toNum(mode ?? 0) === 1);
+    if (!hit) return given(ifNotFound) ? ifNotFound : notFound();
+    return t.slice(0, hit[0]);
+  },
+  TEXTAFTER: ([text, delim, instance, mode, , ifNotFound]) => {
+    const t = toStr(scalarOf(text));
+    const hit = findDelim(t, delim, instance, toNum(mode ?? 0) === 1);
+    if (!hit) return given(ifNotFound) ? ifNotFound : notFound();
+    return t.slice(hit[0] + hit[1]);
+  },
+  TEXTSPLIT: ([text, colDelim, rowDelim, ignoreEmpty, mode, pad]) => {
+    const t = toStr(scalarOf(text)), anyCase = toNum(mode ?? 0) === 1, skip = given(ignoreEmpty) && toBool(ignoreEmpty);
+    if (!given(colDelim) && !given(rowDelim)) err('#VALUE!');
+    let rows = given(rowDelim) ? splitOn(t, rowDelim, anyCase) : [t];
+    if (skip) rows = rows.filter((r) => r !== '');
+    let cells = rows.map((r) => (given(colDelim) ? splitOn(r, colDelim, anyCase) : [r]));
+    if (skip) cells = cells.map((r) => r.filter((x) => x !== ''));
+    cells = cells.filter((r) => r.length);
+    if (!cells.length) err('#CALC!');
+    const width = Math.max(...cells.map((r) => r.length));
+    if (width * cells.length > MAX_CELLS) err('#NUM!');
+    return grid(cells.map((r) => [...r.map(asNumber), ...Array(width - r.length).fill(given(pad) ? pad : '#N/A')]));
+  },
+  // Reshaping: chosen columns or rows, a list wrapped into rows or columns, everything in one column or row.
+  CHOOSECOLS: ([array, ...cols]) => {
+    if (!cols.length) err('#VALUE!');
+    const rows = rowsOf(array);
+    const idx = pick(rows[0].map((_, c) => c), cols);
+    return grid(rows.map((r) => idx.map((c) => r[c])));
+  },
+  CHOOSEROWS: ([array, ...rows]) => { if (!rows.length) err('#VALUE!'); return grid(pick(rowsOf(array), rows)); },
+  WRAPROWS: ([vector, count, pad]) => wrap(vector, count, pad, false),
+  WRAPCOLS: ([vector, count, pad]) => wrap(vector, count, pad, true),
+  TOCOL: ([array, ignore, byCol]) => grid(line(array, ignore, given(byCol) && toBool(byCol)).map((v) => [v])),
+  TOROW: ([array, ignore, byCol]) => grid([line(array, ignore, given(byCol) && toBool(byCol))]),
+  FLATTEN: (arrays) => grid(arrays.filter((a) => a !== undefined).flatMap((a) => rowsOf(a).flat()).map((v) => [v])),
+  EXPAND: ([array, rows, cols, pad]) => {
+    const g = rowsOf(array);
+    const r = given(rows) ? Math.trunc(toNum(rows)) : g.length, c = given(cols) ? Math.trunc(toNum(cols)) : g[0].length;
+    if (r < g.length || c < g[0].length) err('#VALUE!');
+    if (r * c > MAX_CELLS) err('#NUM!');
+    const fill = given(pad) ? pad : '#N/A';
+    return grid(Array.from({ length: r }, (_, i) => Array.from({ length: c }, (_, j) => (i < g.length && j < g[0].length ? g[i][j] : fill))));
+  },
+  // SORTBY(names, scores, -1): rows in the order of other ranges (each with 1 up, -1 down), ties keeping their order.
+  SORTBY: ([array, ...pairs]) => {
+    const rows = rowsOf(array);
+    if (!pairs.length) err('#VALUE!');
+    const keys = [];
+    for (let i = 0; i < pairs.length; i += 2) {
+      const by = flat([pairs[i]]);
+      if (by.length !== rows.length) err('#VALUE!');
+      const dir = given(pairs[i + 1]) ? toNum(pairs[i + 1]) : 1;
+      if (dir !== 1 && dir !== -1) err('#VALUE!');
+      keys.push([by, dir]);
+    }
+    return grid(rows.map((row, i) => i).sort((a, b) => { for (const [by, dir] of keys) { const o = order(by[a], by[b]); if (o) return dir * o; } return a - b; }).map((i) => rows[i]));
+  },
+  // FREQUENCY(scores, bins): how many values fall up to each bin (above the last one at the end); spills down.
+  FREQUENCY: ([data, bins]) => {
+    const d = nums([data]), b = nums([bins]);
+    const sorted = b.map((x, i) => [x, i]).sort((x, y) => x[0] - y[0]);
+    const counts = Array(b.length + 1).fill(0);
+    for (const x of d) { const at = sorted.find(([bin]) => x <= bin); counts[at ? at[1] : b.length] += 1; }
+    return grid(counts.map((n) => [n]));
+  },
+  RANDARRAY: ([rows, cols, min, max, whole]) => {
+    const r = given(rows) ? Math.trunc(toNum(rows)) : 1, c = given(cols) ? Math.trunc(toNum(cols)) : 1;
+    const lo = given(min) ? toNum(min) : 0, hi = given(max) ? toNum(max) : 1, ints = given(whole) && toBool(whole);
+    if (r < 1 || c < 1 || hi < lo) err('#VALUE!');
+    if (r * c > MAX_CELLS) err('#NUM!');
+    const one = () => (ints ? Math.ceil(lo) + Math.floor(Math.random() * (Math.floor(hi) - Math.ceil(lo) + 1)) : lo + Math.random() * (hi - lo));
+    return grid(Array.from({ length: r }, () => Array.from({ length: c }, one)));
+  },
+  // Numbers in other bases, Roman numerals and characters by their code.
+  BASE: ([v, radix, places]) => { const r = Math.trunc(toNum(radix)); if (r < 2 || r > 36 || toNum(v) < 0) err('#NUM!'); return toBase(v, r, places); },
+  DEC2BIN: ([v, places]) => { if (toNum(v) < -512 || toNum(v) > 511) err('#NUM!'); return toBase(v, 2, places, 10); },
+  DEC2OCT: ([v, places]) => toBase(v, 8, places, 10),
+  DEC2HEX: ([v, places]) => toBase(v, 16, places, 10),
+  BIN2DEC: ([v]) => fromBase(v, 2, 10),
+  OCT2DEC: ([v]) => fromBase(v, 8, 10),
+  HEX2DEC: ([v]) => fromBase(v, 16, 10),
+  ROMAN: ([v]) => {
+    let n = Math.trunc(toNum(v));
+    if (n < 0 || n > 3999) err('#VALUE!');
+    let out = '';
+    for (const [k, sym] of ROMAN) while (n >= k) { out += sym; n -= k; }
+    return out;
+  },
+  UNICODE: ([v]) => { const t = toStr(scalarOf(v)); if (!t) err('#VALUE!'); return t.codePointAt(0); },
+  UNICHAR: ([v]) => { const n = Math.trunc(toNum(v)); if (n < 1 || n > 0x10ffff || (n >= 0xd800 && n <= 0xdfff)) err('#VALUE!'); return String.fromCodePoint(n); },
+  PERMUT: ([n, k]) => { const a = Math.trunc(toNum(n)), b = Math.trunc(toNum(k)); if (a < 0 || b < 0 || b > a) err('#NUM!'); let p = 1; for (let i = 0; i < b; i++) p *= a - i; return p; },
+  // Cash flows on their own dates: XNPV and XIRR (a year of 365 days from the first date).
+  XNPV: ([rate, values, dates]) => {
+    const f = flat([values]), d = flat([dates]);
+    if (!f.length || f.length !== d.length) err('#NUM!');
+    return xnpv(toNum(rate), f.map(toNum), d.map((x) => toDate(x) / DAY_MS));
+  },
+  XIRR: ([values, dates, guess]) => {
+    const f = flat([values]).map(toNum), d = flat([dates]).map((x) => toDate(x) / DAY_MS);
+    if (f.length < 2 || f.length !== d.length || !f.some((x) => x > 0) || !f.some((x) => x < 0)) err('#NUM!');
+    return solve((r) => xnpv(r, f, d), given(guess) ? toNum(guess) : 0.1);
+  },
   FILTER: ([array, include, ifEmpty]) => {
     const rows = rowsOf(array), inc = shapeOf(include);
     let out;

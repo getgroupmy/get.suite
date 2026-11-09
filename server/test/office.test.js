@@ -329,6 +329,7 @@ test('PowerPoint: rotated boxes keep their angle both ways', async () => {
 test('Excel: newer functions carry the _xlfn. prefix in the file and lose it in Sheets', async () => {
   assert.equal(formulaToExcel('IFERROR(XLOOKUP(A1,B:B,C:C),"_xlfn.x")+STDEV.S(D1:D3)+SUM(E1)'), 'IFERROR(_xlfn.XLOOKUP(A1,B:B,C:C),"_xlfn.x")+_xlfn.STDEV.S(D1:D3)+SUM(E1)');
   assert.equal(formulaFromExcel('_xlfn.XLOOKUP(A1,B1:B3,C1:C3)&"_xlfn."'), 'XLOOKUP(A1,B1:B3,C1:C3)&"_xlfn."');
+  assert.equal(formulaToExcel('TEXTAFTER(A1,"@")&SORTBY(B1:B3,C1:C3,-1)&DEC2BIN(5)&ROMAN(9)'), '_xlfn.TEXTAFTER(A1,"@")&_xlfn.SORTBY(B1:B3,C1:C3,-1)&DEC2BIN(5)&ROMAN(9)');
   const data = { sheets: [{ name: 'S', cells: { A1: '1', B1: '=XLOOKUP(1,A1:A1,A1:A1)', B2: '=STDEV.P(A1:A2)' } }] };
   const ExcelJS = (await import('exceljs')).default;
   const wb = new ExcelJS.Workbook();
