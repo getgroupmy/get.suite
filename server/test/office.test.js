@@ -1023,3 +1023,21 @@ test('PowerPoint: triangles, diamonds, block arrows, chevrons, stars and callout
   assert.deepEqual(back.slides[0].items.map((i) => i.shape), kinds);
   assert.equal(back.slides[0].items.find((i) => i.shape === 'callout').text, 'Hello!');
 });
+
+test('PowerPoint: outlines on shapes and text boxes, and a text box\'s own colour, both ways', async () => {
+  const deck = { theme: 'light', slides: [{ id: 'a', items: [
+    { id: 'r', type: 'shape', shape: 'rect', fill: '#e8f0fe', outline: '#1a73e8', outlineW: 4, x: 5, y: 5, w: 30, h: 30 },
+    { id: 'e', type: 'shape', shape: 'ellipse', fill: 'accent', text: 'Go', outline: 'text', outlineW: 2, x: 40, y: 5, w: 20, h: 30 },
+    { id: 't', type: 'text', role: 'body', text: 'Boxed note', fill: '#fef7e0', outline: '#e37400', outlineW: 1, x: 5, y: 50, w: 40, h: 20, size: 24 },
+    { id: 'p', type: 'text', role: 'body', text: 'Plain', x: 50, y: 50, w: 40, h: 20, size: 24 },
+  ] }] };
+  const back = (await deckFromPowerPoint(await powerPointFromDeck(deck, {}), { savePicture: async () => 'x' })).slides[0].items;
+  const rect = back.find((i) => i.shape === 'rect');
+  assert.deepEqual([rect.type, rect.outline, rect.outlineW], ['shape', '#1a73e8', 4]);
+  const ell = back.find((i) => i.shape === 'ellipse');
+  assert.deepEqual([ell.text, ell.outline, ell.outlineW], ['Go', '#202124', 2]);
+  const boxed = back.find((i) => i.text === 'Boxed note');
+  assert.deepEqual([boxed.type, boxed.fill, boxed.outline, boxed.outlineW], ['text', '#fef7e0', '#e37400', 1], 'a filled text box stays a text box');
+  const plain = back.find((i) => i.text === 'Plain');
+  assert.deepEqual([plain.type, plain.fill, plain.outline], ['text', undefined, undefined]);
+});

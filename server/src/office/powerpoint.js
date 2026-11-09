@@ -13,6 +13,7 @@ const RELS = 'http://schemas.openxmlformats.org/package/2006/relationships';
 const THEMES = { light: { bg: '#ffffff', text: '#202124', accent: '#1a73e8' }, dark: { bg: '#202124', text: '#f1f3f4', accent: '#8ab4f8' }, ocean: { bg: '#0b57d0', text: '#ffffff', accent: '#ffd666' }, sand: { bg: '#f7f1e3', text: '#3c2f1e', accent: '#b5651d' } };
 // PowerPoint's shape names → Slides' (and back, for downloads).
 const SHAPES = { rect: 'rect', roundRect: 'round', ellipse: 'ellipse', triangle: 'triangle', diamond: 'diamond', rightArrow: 'arrowblock', chevron: 'chevron', star5: 'star', wedgeRoundRectCallout: 'callout' };
+export const OUTLINE_WIDTHS = [1, 2, 4, 6]; // points
 const PPT_SHAPES = Object.fromEntries(Object.entries(SHAPES).map(([ppt, ours]) => [ours, ppt]));
 
 const kids = (el, ns, local) => elements(el).filter((e) => e.ns === ns && e.local === local);
@@ -160,16 +161,24 @@ export async function deckFromPowerPoint(buffer, { savePicture }) {
         continue;
       }
       const fill = colorIn(kid(kid(el, P, 'spPr'), A, 'solidFill'));
+      // Its outline: a coloured line round it (the nearest of 1, 2, 4 or 6 points).
+      const ln = kid(kid(el, P, 'spPr'), A, 'ln');
+      const lineColor = ln && !kid(ln, A, 'noFill') && colorIn(kid(ln, A, 'solidFill'));
+      const pts = Number(attr(ln, 'w')) / 12700 || 1;
+      const edge = lineColor ? { outline: lineColor, outlineW: OUTLINE_WIDTHS.reduce((a, b) => (Math.abs(b - pts) < Math.abs(a - pts) ? b : a)) } : {};
       if (!content.trim()) {
-        if (SHAPES[geom] && fill) items.push(linked(el, { id: id(), type: 'shape', shape: SHAPES[geom], fill, ...box }));
+        if (SHAPES[geom] && fill) items.push(linked(el, { id: id(), type: 'shape', shape: SHAPES[geom], fill, ...edge, ...box }));
         continue;
       }
       const rPr = deep(el, A, 'rPr')[0] || deep(el, A, 'defRPr')[0];
       const pt = Number(attr(rPr, 'sz')) / 100 || 18;
       const algn = attr(deep(el, A, 'pPr')[0], 'algn');
-      // A filled rectangle, rounded rectangle or ellipse with words in it: a shape holding its text.
-      if (SHAPES[geom] && fill) {
-        items.push(linked(el, { id: id(), type: 'shape', shape: SHAPES[geom], fill, text: content, ...box,
+      // A filled shape with words in it: a shape holding its text. (A filled rectangle whose words start at
+      // the top, or one PowerPoint marks as a text box, is a text box with a colour behind it.)
+      const anchor = attr(deep(el, A, 'bodyPr')[0], 'anchor');
+      const textBox = attr(deep(el, P, 'cNvSpPr')[0], 'txBox') === '1' || (geom === 'rect' && anchor !== 'ctr' && anchor !== 'b');
+      if (SHAPES[geom] && fill && !textBox) {
+        items.push(linked(el, { id: id(), type: 'shape', shape: SHAPES[geom], fill, ...edge, text: content, ...box,
           size: Math.max(8, Math.round((pt / 72) * 1000 / widthIn)),
           ...(attr(rPr, 'b') === '1' && { bold: true }), ...(attr(rPr, 'i') === '1' && { italic: true }),
           ...(colorIn(kid(rPr, A, 'solidFill')) && { color: colorIn(kid(rPr, A, 'solidFill')) }),
@@ -183,6 +192,7 @@ export async function deckFromPowerPoint(buffer, { savePicture }) {
         ...(attr(rPr, 'b') === '1' && { bold: true }), ...(attr(rPr, 'i') === '1' && { italic: true }),
         ...(colorIn(kid(rPr, A, 'solidFill')) && { color: colorIn(kid(rPr, A, 'solidFill')) }),
         ...({ ctr: { align: 'center' }, r: { align: 'right' } }[algn] || {}),
+        ...(fill && { fill }), ...edge,
       }));
     }
     // Tables: each cell's text (the first row as headings when PowerPoint marks it so).
@@ -252,6 +262,8 @@ export async function powerPointFromDeck(deck, { pictureData, title = 'Presentat
   const Win = 13.333, Hin = 7.5;
   const theme = THEMES[deck.theme] || THEMES.light;
   const color = (v, fallback) => (v === 'accent' ? theme.accent : v === 'text' ? theme.text : v || fallback).replace('#', '').toUpperCase();
+  // An outline round a shape or text box: its colour and thickness in points.
+  const outline = (it) => (it.outline ? { line: { color: color(it.outline, theme.text), width: OUTLINE_WIDTHS.includes(it.outlineW) ? it.outlineW : 1 } } : {});
   for (const s of deck.slides || []) {
     const slide = pptx.addSlide();
     // A picture behind the slide, or its colour (also kept under the picture, for programs that skip it).
@@ -265,10 +277,11 @@ export async function powerPointFromDeck(deck, { pictureData, title = 'Presentat
       const pos = { x: (it.x / 100) * Win, y: (it.y / 100) * Hin, w: (it.w / 100) * Win, h: (it.h / 100) * Hin, ...(Number(it.rot) && { rotate: ((Number(it.rot) % 360) + 360) % 360 }) };
       if (it.type === 'text') {
         const look = { fontSize: Math.round((it.size || 24) * Win * 72 / 1000), bold: !!it.bold, italic: !!it.italic, color: color(it.color, theme.text), fontFace: 'Arial' };
+        const box = { ...(it.fill && { fill: { color: color(it.fill, theme.accent) } }), ...outline(it) }; // the box's own colour and outline, when it has them
         if (hyperlink) { // the whole text is the link
           const lines = String(it.text || '').split('\n');
-          slide.addText(lines.map((t, k) => ({ text: t, options: { ...look, hyperlink, breakLine: k < lines.length - 1 } })), { ...pos, align: it.align || 'left', valign: 'top', margin: 0 });
-        } else slide.addText(it.text || '', { ...pos, ...look, align: it.align || 'left', valign: 'top', margin: 0 });
+          slide.addText(lines.map((t, k) => ({ text: t, options: { ...look, hyperlink, breakLine: k < lines.length - 1 } })), { ...pos, ...box, align: it.align || 'left', valign: 'top', margin: 0 });
+        } else slide.addText(it.text || '', { ...pos, ...look, ...box, align: it.align || 'left', valign: 'top', margin: 0 });
       } else if (it.type === 'shape' && (it.shape === 'line' || it.shape === 'arrow')) {
         // A line from one side (or corner) of its box to the other; arrows end in a triangle.
         const d = it.dir || 'h';
@@ -277,7 +290,7 @@ export async function powerPointFromDeck(deck, { pictureData, title = 'Presentat
           line: { color: color(it.fill || 'text', theme.text), width: 3, ...(it.shape === 'arrow' && { endArrowType: 'triangle' }) } });
       } else if (it.type === 'shape') {
         const kind = pptx.ShapeType[PPT_SHAPES[it.shape]] || pptx.ShapeType.rect;
-        const look = { ...pos, ...(hyperlink && { hyperlink }), fill: { color: color(it.fill || 'accent', theme.accent) }, line: { type: 'none' } };
+        const look = { ...pos, ...(hyperlink && { hyperlink }), fill: { color: color(it.fill || 'accent', theme.accent) }, line: { type: 'none' }, ...outline(it) };
         // Text in the shape: centred in the middle, in the slide's background colour unless chosen.
         if (it.text) slide.addText(String(it.text), { ...look, shape: kind, fontSize: Math.round((it.size || 20) * Win * 72 / 1000), bold: !!it.bold, italic: !!it.italic, color: color(it.color, theme.bg), fontFace: 'Arial', align: it.align || 'center', valign: 'middle' });
         else slide.addShape(kind, look);

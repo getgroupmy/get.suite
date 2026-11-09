@@ -390,6 +390,23 @@ export default function SlidesEditor() {
               {FILLS.map(([v, n]) => <option key={n} value={v}>{n}</option>)}
             </select>
           )}
+          {item?.type === 'text' && (
+            <select className="tb-select" aria-label="Box colour" value={item.fill || ''} onChange={(e) => setItem({ fill: e.target.value || undefined })}>
+              <option value="">No box colour</option>
+              {FILLS.map(([v, n]) => <option key={n} value={v}>{`Box: ${n}`}</option>)}
+            </select>
+          )}
+          {outlineable(item) && <>
+            <select className="tb-select" aria-label="Outline" value={item.outline || ''} onChange={(e) => setItem({ outline: e.target.value || undefined, ...(!e.target.value && { outlineW: undefined }) })}>
+              <option value="">No outline</option>
+              {FILLS.map(([v, n]) => <option key={n} value={v}>{`Outline: ${n}`}</option>)}
+            </select>
+            {item.outline && (
+              <select className="tb-select" aria-label="Outline thickness" value={item.outlineW || 1} onChange={(e) => setItem({ outlineW: Number(e.target.value) })}>
+                {OUTLINE_WIDTHS.map((w) => <option key={w} value={w}>{w} pt</option>)}
+              </select>
+            )}
+          </>}
           {item?.type === 'chart' && <ChartUpdate item={item} onUpdate={(now) => setItem(now)} />}
           {item?.type === 'image' && (
             <button type="button" className={`tb labelled ${item.alt ? 'on' : ''}`} aria-label="Alt text" title={item.alt ? `Alt text: ${item.alt}` : 'Describe the picture for screen readers'} onClick={() => setAltEdit(item.id)}>Alt text{item.alt ? ' ✓' : ''}</button>
@@ -607,6 +624,11 @@ function ImportSlides({ from, onClose, onImport }) {
 const boxShape = (it) => it?.type === 'shape' && it.shape !== 'line' && it.shape !== 'arrow';
 const textSize = (it) => (it?.type === 'shape' ? 20 : 24);
 const textAlignOf = (it) => (it?.type === 'shape' ? 'center' : 'left');
+/** Shapes and text boxes that can have an outline (the cut-out shapes can't show one along their edge). */
+const outlineable = (it) => it?.type === 'text' || (it?.type === 'shape' && ['rect', 'round', 'ellipse'].includes(it.shape));
+const OUTLINE_WIDTHS = [1, 2, 4, 6]; // points, as PowerPoint
+/** The outline as CSS: a point is 1/960 of the slide's width (a 13.33-inch slide). */
+const outlineCss = (it, theme) => (it.outline ? { border: `calc(${OUTLINE_WIDTHS.includes(it.outlineW) ? it.outlineW : 1} * 100cqw / 960) solid ${colorOf(it.outline, theme, theme.text)}`, boxSizing: 'border-box' } : {});
 
 export function SlideView({ slide, theme, deckId, editable, selected, group = [], editing, onSelect, onEdit, onChange, onMoveMany, peers, built, number, pictureBase = null }) {
   // Animated boxes: where each comes in (1, 2…). Presenting (built set), the later ones aren't in yet.
@@ -685,7 +707,8 @@ export function SlideView({ slide, theme, deckId, editable, selected, group = []
         const isSel = editable && selected === it.id && !inGroup;
         let inner = null;
         if (it.type === 'text') {
-          const style = { fontSize: `calc(${it.size || 24} * 0.1cqw)`, fontWeight: it.bold ? 700 : 400, fontStyle: it.italic ? 'italic' : 'normal', textAlign: it.align || 'left', color: colorOf(it.color, theme, theme.text) };
+          const style = { fontSize: `calc(${it.size || 24} * 0.1cqw)`, fontWeight: it.bold ? 700 : 400, fontStyle: it.italic ? 'italic' : 'normal', textAlign: it.align || 'left', color: colorOf(it.color, theme, theme.text),
+            ...(it.fill && { background: colorOf(it.fill, theme, theme.accent), padding: '0.6cqw 0.8cqw', boxSizing: 'border-box' }), ...outlineCss(it, theme) };
           inner = editable && editing === it.id
             ? <textarea autoFocus className="slide-text editing" style={style} defaultValue={it.text} aria-label="Text"
                 onPointerDown={(e) => e.stopPropagation()}
@@ -732,7 +755,7 @@ export function SlideView({ slide, theme, deckId, editable, selected, group = []
               // Text in a box shape: centred, in the slide's background colour unless chosen (it sits on the shape's colour).
               const style = { fontSize: `calc(${it.size || textSize(it)} * 0.1cqw)`, fontWeight: it.bold ? 700 : 400, fontStyle: it.italic ? 'italic' : 'normal', textAlign: it.align || 'center', color: colorOf(it.color, theme, theme.bg) };
               return (
-                <div className={`slide-shape ${it.shape}`} style={{ background: colorOf(it.fill, theme, theme.accent) }}>
+                <div className={`slide-shape ${it.shape}`} style={{ background: colorOf(it.fill, theme, theme.accent), ...outlineCss(it, theme) }}>
                   {editable && editing === it.id
                     ? <textarea autoFocus className="slide-text shape-text editing" style={style} defaultValue={it.text || ''} aria-label="Text in the shape"
                         onPointerDown={(e) => e.stopPropagation()}
