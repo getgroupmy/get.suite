@@ -890,6 +890,45 @@ test('Office previews: Word, Excel and PowerPoint read without a copy; pictures 
   assert.match(bad.body.error, /couldn't be read/);
 });
 
+test('Compare documents: a document, Word or Markdown file as document content, for whoever may open it', async () => {
+  const { Document, Packer, Paragraph } = await import('docx');
+  const doc = (await owner('POST', '/api/files/new', { kind: 'doc', name: 'Contract v2' })).body;
+  const c = (await owner('GET', `/api/files/${doc.id}/content`)).body;
+  const para = (text) => ({ type: 'paragraph', content: [{ type: 'text', text }] });
+  assert.equal((await owner('PUT', `/api/files/${doc.id}/content`, { version: c.file.version, content: { type: 'doc', content: [para('The fee is 500.')] } })).status, 200);
+  const d = await owner('GET', `/api/files/${doc.id}/as-doc`);
+  assert.equal(d.status, 200, JSON.stringify(d.body));
+  assert.equal(d.body.name, 'Contract v2');
+  assert.match(JSON.stringify(d.body.content), /The fee is 500\./);
+
+  const up = async (name, buf) => (await owner('POST', `/api/files/upload?name=${encodeURIComponent(name)}`, buf, { raw: true })).body;
+  const word = await up('Contract v1.docx', await Packer.toBuffer(new Document({ sections: [{ children: [new Paragraph('The fee is 400.')] }] })));
+  const w = await owner('GET', `/api/files/${word.id}/as-doc`);
+  assert.equal(w.status, 200);
+  assert.equal(w.body.content.type, 'doc');
+  assert.match(JSON.stringify(w.body.content), /The fee is 400\./);
+  const md = await up('Notes.md', Buffer.from('# Terms\n\nPaid **monthly**.'));
+  const m = (await owner('GET', `/api/files/${md.id}/as-doc`)).body;
+  assert.equal(m.content.content[0].type, 'heading');
+  assert.match(JSON.stringify(m.content), /monthly/);
+
+  const files = (await owner('GET', '/api/files')).body.length;
+  const txt = await up('plain.txt', Buffer.from('hello'));
+  assert.equal((await owner('GET', `/api/files/${txt.id}/as-doc`)).status, 400, 'only documents');
+  const sheet = (await owner('POST', '/api/files/new', { kind: 'sheet', name: 'Numbers' })).body;
+  assert.equal((await owner('GET', `/api/files/${sheet.id}/as-doc`)).status, 400);
+  assert.equal((await owner('GET', '/api/files')).body.length, files + 2, 'nothing else is added to Drive');
+
+  // Only for people who may open it.
+  const other = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'comparer', domain: 'acme.com', name: 'Com Parer', password: 'password123' })).status, 201);
+  const oid = (await login(other, 'comparer@acme.com')).id;
+  assert.equal((await other('GET', `/api/files/${word.id}/as-doc`)).status, 404);
+  assert.equal((await other('GET', `/api/files/${doc.id}/as-doc`)).status, 404);
+  await owner('PUT', `/api/files/${doc.id}/shares`, { shares: [{ user_id: oid, role: 'viewer' }] });
+  assert.equal((await other('GET', `/api/files/${doc.id}/as-doc`)).status, 200, 'viewers may compare');
+});
+
 test('zip files: see inside, unpack into a folder next to it; view-only and broken zips refused', async () => {
   const JSZip = (await import('jszip')).default;
   const z = new JSZip(); z.file('Readme.txt', 'hello'); z.file('site/photos/a.jpg', 'jpg'); z.file('../../evil.txt', 'x'); z.file('__MACOSX/._Readme.txt', 'junk');

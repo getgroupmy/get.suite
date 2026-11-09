@@ -2356,3 +2356,10 @@ textarea.mono { font-family: ui-monospace, Consolas, monospace; }
 .cell-rot.rot-tiltup { transform: rotate(-45deg); }
 .cell-rot.rot-tiltdown { transform: rotate(45deg); }
 .grid td:has(> .cell-rot.rot-tiltup), .grid td:has(> .cell-rot.rot-tiltdown) { overflow: visible; }
+/* Compare documents (Docs) */
+.compare-body { max-height: 65vh; overflow: auto; background: var(--bg-soft, transparent); border-radius: 6px; }
+.compare-body .preview-paper { margin: 0 auto; }
+.compare-key { padding: 0 3px; border-radius: 2px; text-decoration: none; }
+ins.compare-key { background: color-mix(in srgb, #188038 18%, transparent); }
+del.compare-key { background: color-mix(in srgb, #d93025 14%, transparent); text-decoration: line-through; }
+.doc-changes .change-current { outline: 2px solid var(--accent, #1a73e8); outline-offset: 2px; }

@@ -143,6 +143,7 @@ function SharedDoc({ file, setFile }) {
   const toast = useToast();
   const [sharing, setSharing] = useState(false);
   const [history, setHistory] = useState(false);
+  const [comparing, setComparing] = useState(null); // null, { step: 'pick' } or { name, content }
   const [sendingItems, setSendingItems] = useState(false);
   // A link to another file in Drive, named after it. If people who can open this document can't
   // open that one, the owner is offered to share it with them (everyone else is told who can't).
@@ -526,6 +527,7 @@ function SharedDoc({ file, setFile }) {
           { label: 'Find and replace', icon: 'search', onClick: () => setFinding({ replace: !readOnly }) },
           ...(!readOnly ? [{ label: 'Page setup', icon: 'print', onClick: () => setPageSetupOpen(true) }] : []),
           { label: 'Version history', icon: 'clock', onClick: () => setHistory(true) },
+          { label: 'Compare documents', icon: 'doc', onClick: () => setComparing({ step: 'pick' }) },
           ...(!readOnly ? [{ label: 'Send action items to Tasks', icon: 'check', onClick: () => setSendingItems(true) }] : []),
           { label: 'Word count', icon: 'doc', onClick: () => setWordCount(true) },
           ...(!readOnly ? [{ label: 'Preferences', icon: 'settings', onClick: () => setPrefsOpen(true) }] : []),
@@ -616,6 +618,14 @@ function SharedDoc({ file, setFile }) {
           onClose={() => { if (pending) pending.onCancel(); setPanel(false); }} />}
       </div>
       {sharing && <ShareDialog file={file} onClose={() => setSharing(false)} />}
+      {comparing?.step === 'pick' && <DrivePicker title="Compare with…" empty="No documents found."
+        accept={(x) => x.id !== file.id && (x.kind === 'doc' || (x.kind === 'file' && /\.(docx|md|markdown)$/i.test(x.name)))}
+        onClose={() => { setComparing(null); refocus(); }}
+        onPick={async (f) => {
+          setComparing({ step: 'loading' });
+          try { setComparing(await get(`/files/${f.id}/as-doc`)); } catch (e) { setComparing(null); toast(e.message, 'error'); }
+        }} />}
+      {comparing?.content && <CompareDialog name={file.name} other={comparing} current={editor.getJSON()} onClose={() => { setComparing(null); refocus(); }} />}
       {sendingItems && <ActionItemsDialog fileId={file.id} doc={editor.getJSON()} onClose={() => setSendingItems(false)} />}
       {history && <VersionHistory file={file} canEdit={!readOnly} onClose={() => setHistory(false)} renderPreview={(content) => <DocPreview content={content} fileId={file.id} />} renderChanges={(content) => <DocChanges before={content} after={editor.getJSON()} />} />}
       {citeEdit && <CiteDialog source={citeEdit.pos != null ? editor.state.doc.nodeAt(citeEdit.pos)?.attrs : null} known={sourcesOf(editor.getJSON())}
@@ -1081,13 +1091,15 @@ function FootnoteList({ editor, readOnly }) {
   );
 }
 
+const words = (n) => `${n} word${n === 1 ? '' : 's'}`;
+
 /** What changed from an earlier version to now: added words green, removed ones struck through. */
-function DocChanges({ before, after }) {
+function DocChanges({ before, after, summary = (added, removed) => (added || removed ? `Since then: ${words(added)} added, ${removed} taken out.` : 'No changes to the text since then.') }) {
   const diff = useMemo(() => diffDocs(before, after), [before, after]);
   const { added, removed } = changeCount(diff);
   return (
     <div className="paper preview-paper doc-changes">
-      <p className="muted small changes-summary">{added || removed ? `Since then: ${added} word${added === 1 ? '' : 's'} added, ${removed} taken out.` : 'No changes to the text since then.'}</p>
+      <p className="muted small changes-summary" role="status">{summary(added, removed)}</p>
       {diff.map((b, i) => {
         const Tag = b.kind === 'heading' ? `h${Math.min(6, b.level || 2)}` : 'p';
         return (
@@ -1097,6 +1109,37 @@ function DocChanges({ before, after }) {
         );
       })}
     </div>
+  );
+}
+
+/** Compare documents: what's different in another document (or Word or Markdown file) from this one, or the other way round. */
+function CompareDialog({ name, other, current, onClose }) {
+  const [swapped, setSwapped] = useState(false);
+  const box = useRef(null);
+  const at = useRef(-1);
+  const [from, to] = swapped ? [other.name, name] : [name, other.name];
+  const next = (step) => {
+    const all = [...(box.current?.querySelectorAll('.change-add, .change-del, .change-edit') || [])];
+    if (!all.length) return;
+    at.current = (at.current + step + all.length) % all.length;
+    all.forEach((el, i) => el.classList.toggle('change-current', i === at.current));
+    all[at.current].scrollIntoView({ block: 'center', behavior: 'smooth' });
+  };
+  return (
+    <Modal wide title="Compare documents" onClose={onClose} footer={<>
+      <button type="button" className="btn" onClick={() => next(-1)}>↑ Previous change</button>
+      <button type="button" className="btn" onClick={() => next(1)}>↓ Next change</button>
+      <button type="button" className="btn primary" onClick={onClose}>Done</button>
+    </>}>
+      <p className="row small" style={{ flexWrap: 'wrap' }}>
+        <span>From <strong>{from}</strong> to <strong>{to}</strong>: <ins className="compare-key">added</ins> and <del className="compare-key">taken out</del>.</span>
+        <button type="button" className="btn small" onClick={() => { setSwapped(!swapped); at.current = -1; }}>⇄ Swap</button>
+      </p>
+      <div ref={box} className="compare-body">
+        <DocChanges key={String(swapped)} before={swapped ? other.content : current} after={swapped ? current : other.content}
+          summary={(a, r) => (a || r ? `${to} has ${words(a)} that ${from} doesn't, and leaves out ${words(r)}.` : 'The text of the two is the same.')} />
+      </div>
+    </Modal>
   );
 }
 

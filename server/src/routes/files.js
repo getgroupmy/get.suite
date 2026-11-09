@@ -799,6 +799,25 @@ export default function fileRoutes({ maxUploadBytes }) {
     res.sendFile(path.join(FILES_DIR, f.storage), { headers: { 'Cache-Control': 'private, max-age=0' } });
   });
 
+  // A document, or a Word or Markdown file, as a document's content (TipTap JSON), for Docs' "Compare
+  // documents": as it stands now, pending suggestions left out. Nothing is saved.
+  r.get('/:id/as-doc', async (req, res) => {
+    const f = loadFile(req.params.id, req.user);
+    if (f.kind === 'doc') {
+      saveNow(f.id); // what's being typed right now, too
+      const { content } = q('SELECT content FROM files WHERE id = ?').get(f.id);
+      return res.json({ name: f.name, content: withoutSuggestions(JSON.parse(content)) });
+    }
+    const type = f.kind === 'file' ? officeKind(f.name) : null;
+    if (type !== 'docx' && type !== 'md') throw bad('Only documents, Word files and Markdown files can be compared');
+    if (f.size > MAX_PREVIEW) throw bad('This file is too large to compare (20 MB at most)');
+    const buf = fs.readFileSync(path.join(FILES_DIR, f.storage));
+    let content;
+    try { content = type === 'docx' ? (await docFromWord(buf)).doc : docFromMarkdown(buf.toString('utf8')); }
+    catch { throw bad("This file couldn't be read"); }
+    res.json({ name: f.name, content });
+  });
+
   // A Word, Excel, PowerPoint or Markdown file as a read-only document, spreadsheet or presentation (nothing is saved).
   r.get('/:id/preview', async (req, res) => {
     const f = loadFile(req.params.id, req.user);
