@@ -79,6 +79,13 @@ function policyConf() {
     'auth_policy_report_after_auth = yes',
     'auth_policy_reject_on_fail = no',
     'auth_policy_server_timeout_msecs = 2000',
+    // New mail, told to the app as it's delivered (mail/rootfs/etc/dovecot/nw-push.lua), on the same
+    // internal address and key.
+    'plugin {',
+    '  push_notification_driver = lua:file=/etc/dovecot/nw-push.lua',
+    `  nw_push_url = ${AUTH_POLICY_URL.replace(/\/?$/, '/')}mail-new`,
+    `  nw_push_key = ${secret}`,
+    '}',
     '',
   ].join('\n');
 }

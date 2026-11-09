@@ -25,6 +25,7 @@ export const KINDS = [
   ['invite', 'Calendar invitations, answers and proposed times'], ['share', 'Files shared with you and access requests'],
   ['edit', 'Changes to files you follow'], ['chat', 'Chat reminders and scheduled messages'], ['booking', 'Booking page appointments'],
   ['form', 'Responses to your forms'], ['note', 'Note reminders'], ['followup', 'Emails that got no reply'], ['assign', 'Shared mailbox emails given to you'], ['security', 'Security alerts (admins)'], ['system', 'Server health (platform owner)'], ['signin', 'Sign-ins to your account from a new device'],
+  ['mail', 'New email (on devices with notifications on)'],
 ];
 if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'notify_off')) q('ALTER TABLE users ADD COLUMN notify_off TEXT').run();
 export const offFor = (userId) => { try { return JSON.parse(q('SELECT notify_off FROM users WHERE id = ?').get(userId)?.notify_off || '[]'); } catch { return []; } };

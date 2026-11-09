@@ -6,6 +6,7 @@ import http from 'node:http';
 import crypto from 'node:crypto';
 import { getSetting, setSetting } from '../mail/config.js';
 import { check, recordFailure } from './guard.js';
+import { handleMailNew } from '../mail/mailpush.js';
 
 export const POLICY_PORT = Number(process.env.AUTH_POLICY_PORT || 8081);
 
@@ -44,6 +45,13 @@ export function startPolicyServer(port = POLICY_PORT) {
     req.setEncoding('utf8');
     req.on('data', (c) => { raw += c; if (raw.length > 16384) req.destroy(); });
     req.on('end', () => {
+      // New mail, told by the mail server as it's delivered (mailpush.js): answered at once.
+      if (new URL(req.url, 'http://x').pathname === '/mail-new') {
+        let body = null; try { body = JSON.parse(raw || '{}'); } catch { /* ignored */ }
+        reply(204, {});
+        if (body) handleMailNew(body).catch((e) => console.error('[push] new mail:', e.message));
+        return;
+      }
       try {
         const command = new URL(req.url, 'http://x').searchParams.get('command');
         reply(200, handlePolicy(command, JSON.parse(raw || '{}')));

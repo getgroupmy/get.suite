@@ -1692,3 +1692,39 @@ test('booking reminders: the visitor is emailed the day before, once, with the l
   q('UPDATE bookings SET reminded_at = NULL WHERE page_id = ?').run(page.id);
   assert.equal(await sendBookingReminders(), 0);
 });
+
+test('new mail on phones: the mail server tells the app as it delivers, and the device gets it (encrypted)', async () => {
+  const https = await import('node:https');
+  const crypto = await import('node:crypto');
+  const { execFileSync } = await import('node:child_process');
+  const ece = (await import('module')).createRequire(import.meta.url)('http_ece');
+  // A stand-in push service, and a device's keys (as a browser makes them).
+  const certDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nw-mpush-'));
+  execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1', '-subj', '/CN=127.0.0.1', '-keyout', `${certDir}/k.pem`, '-out', `${certDir}/c.pem`], { stdio: 'ignore' });
+  const got = [];
+  const svc = https.createServer({ key: fs.readFileSync(`${certDir}/k.pem`), cert: fs.readFileSync(`${certDir}/c.pem`) }, (req, res) => { const parts = []; req.on('data', (c) => parts.push(c)); req.on('end', () => { got.push(Buffer.concat(parts)); res.statusCode = 201; res.end(); }); });
+  await new Promise((r) => svc.listen(0, '127.0.0.1', r));
+  const ecdh = crypto.createECDH('prime256v1'); ecdh.generateKeys();
+  const keys = { p256dh: ecdh.getPublicKey().toString('base64url'), auth: crypto.randomBytes(16).toString('base64url') };
+  process.env.PUSH_ANY_ENDPOINT = '1'; process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+  try {
+    assert.equal((await olivia('POST', '/api/push/subscribe', { endpoint: `https://127.0.0.1:${svc.address().port}/d1`, keys })).status, 200);
+    const t = nodemailer.createTransport({ host: process.env.MAIL_IMAP_HOST, port: 25, secure: false, ignoreTLS: true, name: 'test.acme.com' });
+    await t.sendMail({ from: '"Pat Partner" <pat@acme.com>', to: 'olivia@acme.com', subject: 'Contract signed', text: 'Done.' });
+    await eventually(() => got.length > 0, 20000);
+    const msg = JSON.parse(ece.decrypt(got[0], { version: 'aes128gcm', privateKey: ecdh, authSecret: keys.auth }).toString());
+    assert.equal(msg.title, 'Pat Partner');
+    assert.equal(msg.body, 'Contract signed');
+    assert.match(msg.link, /^\/mail\/INBOX\/\d+$/);
+    // Turned off in notification settings: nothing more.
+    await olivia('PUT', '/api/notifications/settings', { off: ['mail'] });
+    await t.sendMail({ from: 'pat@acme.com', to: 'olivia@acme.com', subject: 'Second', text: 'x' });
+    await eventually(async () => (await inbox(olivia, 'Second')).length, 20000);
+    await sleep(1500);
+    assert.equal(got.length, 1);
+    await olivia('PUT', '/api/notifications/settings', { off: [] });
+  } finally {
+    delete process.env.PUSH_ANY_ENDPOINT; delete process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+    svc.close();
+  }
+});
