@@ -6542,3 +6542,30 @@ test('forms: options with limited places fill up, and a full one can\'t be picke
   // Changing your own response keeps your place.
   assert.equal((await anon('PUT', `/api/public/forms/${f.token}/response/${first.body.edit_key}`, { answers: { slot: 'Morning', extras: ['Parking', 'Lunch'] } })).status, 200);
 });
+
+test('tasks: a list downloads as CSV, open tasks first, with steps and tags', async () => {
+  const kay = client(); await login(kay, 'kay@keepco.com');
+  const list = (await kay('POST', '/api/tasks/lists', { name: 'Launch, phase 1' })).body;
+  const a = (await kay('POST', `/api/tasks/lists/${list.id}/tasks`, { title: 'Write "copy"', due: '2026-12-01', notes: 'Short\nand sweet', tags: ['web'] })).body;
+  await kay('PATCH', `/api/tasks/tasks/${a.id}`, { important: true });
+  const withDraft = (await kay('POST', `/api/tasks/tasks/${a.id}/steps`, { title: 'Draft' })).body;
+  await kay('POST', `/api/tasks/tasks/${a.id}/steps`, { title: 'Review' });
+  await kay('PATCH', `/api/tasks/tasks/${a.id}/steps/${withDraft.steps[0].id}`, { done: true });
+  const b = (await kay('POST', `/api/tasks/lists/${list.id}/tasks`, { title: '=SUM(A1)' })).body;
+  await kay('PATCH', `/api/tasks/tasks/${b.id}`, { done: true });
+  const r = await kay('GET', `/api/tasks/lists/${list.id}/export.csv`);
+  assert.equal(r.status, 200);
+  assert.match(r.headers.get('content-type'), /text\/csv/);
+  assert.match(r.headers.get('content-disposition'), /Launch%2C%20phase%201\.csv/);
+  const lines = r.body.replace(/^\ufeff/, '').split('\r\n'); // fetch drops the UTF-8 mark (checked below)
+  assert.equal(lines[0], 'Task,Status,Due,Time,Start,Assigned to,Important,Tags,Steps done,Steps,Notes,Completed');
+  assert.ok(r.body.includes('"Write ""copy""",To do,2026-12-01,,,,Yes,#web,1/2,"[x] Draft\n[ ] Review","Short\nand sweet",'), r.body);
+  assert.ok(r.body.indexOf('Write') < r.body.indexOf('SUM'), 'open tasks first');
+  assert.ok(r.body.includes("'=SUM(A1),Done,"), 'a title that looks like a formula stays text');
+  const sid = client(); await login(sid, 'phv@keepco.com');
+  assert.equal((await sid('GET', `/api/tasks/lists/${list.id}/export.csv`)).status, 404, 'only people on the list');
+});
+test('tasks CSV starts with the UTF-8 mark Excel needs', async () => {
+  const { tasksCsv } = await import('../src/routes/tasks.js');
+  assert.ok(tasksCsv([]).startsWith('﻿Task,Status'));
+});

@@ -2,6 +2,8 @@
 // off, drag it into place, and open it for notes, a due date, who it's for, or another list.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
+import { printHtml } from '../mail/mailprint.js';
+import { listPrintHtml } from './listprint.js';
 import { get, post, patch, put, del, onLive, uploadFile } from '../../api.js';
 import DrivePicker, { openUrl } from '../../components/DrivePicker.jsx';
 import Icon from '../../components/Icon.jsx';
@@ -224,6 +226,8 @@ export default function Tasks() {
             <Menu trigger={(p) => <button type="button" className="icon-btn" aria-label="List actions" {...p}><Icon name="more" /></button>} items={[
               ...(list.mine ? [{ label: 'Rename list', icon: 'edit', onClick: () => setDialog('rename') }] : []),
               { label: 'Time report…', icon: 'clock', onClick: () => setDialog('time') },
+              { label: 'Download as CSV', icon: 'download', onClick: () => { window.location.href = `/api/tasks/lists/${list.id}/export.csv`; } },
+              { label: 'Print list', icon: 'print', onClick: () => printHtml(listPrintHtml(list.name, open, done)) },
               { label: 'Make a copy…', icon: 'copy', onClick: () => setDialog('copy') },
               ...(done.length ? [{ label: `Delete completed tasks (${done.length})`, icon: 'check', onClick: async () => { await del(`/tasks/lists/${list.id}/done`); loadTasks(); } }] : []),
               list.mine ? { label: 'Delete list', icon: 'trash', danger: true, onClick: () => setDialog('delete') } : { label: 'Leave list', icon: 'logout', onClick: () => setDialog('delete') },

@@ -92,6 +92,17 @@ export function tagsOf(input) {
   return out.length ? JSON.stringify(out) : null;
 }
 const MAX_STEPS = 100, MAX_ATTACHMENTS = 20;
+// A cell as a spreadsheet reads it: quoted when needed, and text that would start a formula made plain.
+const csvCell = (v) => { let s = String(v ?? ''); if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`; return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+/** Tasks as CSV rows: what each is, its state, dates, who it's for, its steps and tags. */
+export function tasksCsv(tasks) {
+  const head = ['Task', 'Status', 'Due', 'Time', 'Start', 'Assigned to', 'Important', 'Tags', 'Steps done', 'Steps', 'Notes', 'Completed'];
+  const status = (t) => (t.done ? 'Done' : t.started ? 'In progress' : 'To do');
+  const rows = tasks.map((t) => [t.title, status(t), t.due || '', t.due_time || '', t.start || '', t.assignee_name || '', t.important ? 'Yes' : '', (t.tags || []).map((x) => `#${x}`).join(' '),
+    t.steps.length ? `${t.steps.filter((x) => x.done).length}/${t.steps.length}` : '', t.steps.map((x) => `${x.done ? '[x]' : '[ ]'} ${x.title}`).join('\n'), t.notes || '',
+    t.done_at ? new Date(t.done_at).toISOString().slice(0, 10) : '']);
+  return `\ufeff${[head, ...rows].map((r) => r.map(csvCell).join(',')).join('\r\n')}\r\n`;
+}
 /** A task as one person sees it: each attachment says whether they can open it. */
 const shapeFor = (userId) => (t) => { const out = shape(t); out.attachments = out.attachments.map((a) => ({ ...a, can_open: !!roleFor(a.id, userId) })); return out; };
 
@@ -354,6 +365,15 @@ export default function taskRoutes() {
     else q('INSERT INTO task_list_views (user_id, list_id, sort) VALUES (?, ?, ?) ON CONFLICT(user_id, list_id) DO UPDATE SET sort = excluded.sort').run(req.user.id, list.id, sort);
     sendTo([req.user.id], { type: 'tasks-changed', list_id: list.id });
     res.json({ sort });
+  });
+
+  // The whole list as a spreadsheet (CSV, opens in Excel or Sheets): open tasks in order, then done ones.
+  r.get('/lists/:id/export.csv', (req, res) => {
+    const list = loadList(req.params.id, req.user);
+    const rows = q(`${TASK} WHERE t.list_id = ? ORDER BY t.done_at IS NOT NULL, CASE WHEN t.done_at IS NULL THEN t.position END, t.done_at DESC`).all(list.id).map(shape);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(`${list.name || 'Tasks'}.csv`)}`);
+    res.send(tasksCsv(rows));
   });
 
   r.get('/lists/:id/tasks', (req, res) => {
