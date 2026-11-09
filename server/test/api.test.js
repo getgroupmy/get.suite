@@ -6007,3 +6007,28 @@ test('shared drives: what anyone deletes there is in the trash of its editors, w
   await b('PATCH', `/api/files/${own.id}`, { trashed: true });
   assert.equal((await c('DELETE', `/api/files/${own.id}`)).status, 403);
 });
+
+test('shared drives for admins: every drive in the company, and adding yourself to look after one', async () => {
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'adr', domain: 'acme.com', name: 'Admin Drive Rae', password: 'password123' })).status, 201);
+  await login(a, 'adr@acme.com');
+  const drive = (await a('POST', '/api/files/drives', { name: 'Old projects' })).body;
+  await a('POST', '/api/files/upload?parent=' + drive.id + '&name=notes.txt', 'twelve bytes', { raw: true });
+  const list = (await owner('GET', '/api/orgs/current/drives')).body;
+  const row = list.find((d) => d.id === drive.id);
+  assert.deepEqual([row.name, row.owner_name, row.members, row.items, row.size, row.my_role], ['Old projects', 'Admin Drive Rae', 1, 1, 12, null]);
+  const g = client(); // another company's admin
+  assert.equal((await owner('POST', '/api/orgs', { name: 'Initech', domain: 'initech-drives.com', admin_name: 'Ida Admin', admin_local: 'ida', admin_password: 'password123' })).status, 201);
+  await login(g, 'ida@initech-drives.com');
+  const gl = await g('GET', '/api/orgs/current/drives'); assert.equal(gl.status, 200, JSON.stringify(gl.body));
+  assert.ok(!gl.body.some((d) => d.id === drive.id), 'not another company’s admin');
+  assert.equal((await g('POST', `/api/orgs/current/drives/${drive.id}/join`)).status, 404);
+  assert.equal((await a('GET', '/api/orgs/current/drives')).status, 403, 'not people who aren’t admins');
+  // The admin joins: an editor, who can manage its members; Rae is told.
+  assert.equal((await owner('POST', `/api/orgs/current/drives/${drive.id}/join`)).body.role, 'editor');
+  assert.equal((await owner('GET', '/api/orgs/current/drives')).body.find((d) => d.id === drive.id).my_role, 'editor');
+  assert.equal((await owner('PUT', `/api/files/${drive.id}/shares`, { shares: [{ user_id: (await owner('GET', '/api/auth/me')).body.user.id, role: 'editor' }] })).status, 200);
+  assert.ok(JSON.stringify((await a('GET', '/api/notifications')).body).includes('added themselves to the shared drive “Old projects”'));
+  assert.ok(JSON.stringify((await owner('GET', '/api/audit')).body).includes('drive.join'));
+  assert.equal((await a('POST', `/api/orgs/current/drives/${drive.id}/join`)).status, 403, 'Rae isn’t an admin');
+});

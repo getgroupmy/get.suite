@@ -16,6 +16,8 @@ import { requireAdmin, requireSuper } from '../auth.js';
 import { createOrg, addDomain, orgStorageUsed, blobsOwnedBy, removeBlobs } from '../tenancy.js';
 import { scheduleMailConfig } from '../mail/config.js';
 import { collectHealth } from '../health.js';
+import { roleFor, audienceFor, subtreeIds } from '../access.js';
+import { notify as bell } from '../notifications.js';
 import { backupDatabase, listBackups, backupPath } from '../backup.js';
 import { readQueue, requestQueueAction, MAIL_STATUS_DIR } from '../mail/queue.js';
 import { mailEnabled } from '../mail/config.js';
@@ -176,6 +178,30 @@ export default function orgRoutes() {
       FROM files f JOIN users u ON u.id = f.owner_id WHERE u.org_id = ? AND f.kind != 'folder' ORDER BY f.size + versions_size DESC LIMIT 25`).all(orgId)
       .map((f) => ({ ...f, trashed: !!f.trashed }));
     res.json({ used: orgStorageUsed(orgId), quota_mb: org.quota_mb || null, people, largest });
+  });
+
+  // Shared drives in the company (admins): who owns each, how many are in it, how big it is, and
+  // the admin's own access. An admin can add themselves as an editor, to look after a drive whose
+  // people have moved on; its owner is told.
+  const companyOf = (req) => (req.query.org_id && req.user.is_super ? String(req.query.org_id) : req.user.org_id);
+  r.get('/current/drives', requireAdmin, (req, res) => {
+    const drives = q(`SELECT f.id, f.name, f.owner_id, f.created_at, u.name AS owner_name FROM files f JOIN users u ON u.id = f.owner_id
+                      WHERE f.is_drive = 1 AND f.trashed = 0 AND u.org_id = ? ORDER BY f.name COLLATE NOCASE`).all(companyOf(req));
+    res.json(drives.map((d) => {
+      const ids = JSON.stringify(subtreeIds(d.id).filter((id) => id !== d.id));
+      const c = q("SELECT COUNT(*) AS n, COALESCE(SUM(size), 0) AS size FROM files WHERE trashed = 0 AND kind != 'folder' AND id IN (SELECT value FROM json_each(?))").get(ids);
+      return { ...d, members: audienceFor(d.id).length, items: c.n, size: c.size, my_role: roleFor(d.id, req.user.id) };
+    }));
+  });
+  r.post('/current/drives/:id/join', requireAdmin, (req, res) => {
+    const d = q('SELECT f.id, f.name, f.owner_id, u.org_id FROM files f JOIN users u ON u.id = f.owner_id WHERE f.id = ? AND f.is_drive = 1').get(req.params.id);
+    if (!d || (d.org_id !== req.user.org_id && !req.user.is_super)) throw notFound('Shared drive not found');
+    if (d.owner_id === req.user.id) throw bad('You own this shared drive');
+    q(`INSERT INTO shares (file_id, user_id, role, direct_role) VALUES (?, ?, 'editor', 'editor')
+       ON CONFLICT(file_id, user_id) DO UPDATE SET role = 'editor', direct_role = 'editor', expires_at = NULL`).run(d.id, req.user.id);
+    audit(req, 'drive.join', { org: d.org_id, target: d.name });
+    bell([d.owner_id], { kind: 'share', title: `${req.user.name} (an admin) added themselves to the shared drive “${d.name}”`, body: 'They can edit it and manage its members', link: `/drive/folder/${d.id}`, actor: req.user.name });
+    res.json({ ok: true, role: roleFor(d.id, req.user.id) });
   });
 
   // ---- platform owner: all companies ----
