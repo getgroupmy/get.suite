@@ -2253,3 +2253,4 @@ textarea.mono { font-family: ui-monospace, Consolas, monospace; }
 .month .day .weeknum { position: absolute; left: 4px; top: 4px; font-size: 10px; font-weight: 600; }
 .cal-weeknum { font-size: .7em; font-weight: 400; }
 .month .day { position: relative; }
+.icon-btn.star { font-size: 18px; line-height: 1; } .icon-btn.star.on { color: #f4b400; }

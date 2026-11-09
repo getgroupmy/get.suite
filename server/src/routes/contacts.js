@@ -27,6 +27,8 @@ const MAX_GROUPS = 200, MAX_MEMBERS = 500;
 // Company contacts: a contact its owner shares with everyone in their company (suppliers, clients, a
 // shared phone list). Others see it, and find it when writing mail; its owner (or an admin) changes it.
 if (!q('PRAGMA table_info(contacts)').all().some((c) => c.name === 'shared')) q('ALTER TABLE contacts ADD COLUMN shared INTEGER NOT NULL DEFAULT 0').run();
+// Starred: the people you deal with most, first in your contacts and in suggestions while writing mail.
+if (!q('PRAGMA table_info(contacts)').all().some((c) => c.name === 'starred')) q('ALTER TABLE contacts ADD COLUMN starred INTEGER NOT NULL DEFAULT 0').run();
 const EMAIL_RE = /^[^\s@<>"(),;:\\]+@[a-z0-9.-]+\.[a-z]{2,}$/i;
 const groupsOf = (userId) => q('SELECT id, name, members FROM contact_groups WHERE owner_id = ? ORDER BY name COLLATE NOCASE').all(userId).map((g) => ({ ...g, members: JSON.parse(g.members) }));
 function readMembers(list) {
@@ -65,7 +67,7 @@ export default function contactRoutes() {
                          LEFT JOIN contact_photos p ON p.contact_id = c.id WHERE c.shared = 1 AND u.org_id = ? ORDER BY c.name COLLATE NOCASE`).all(req.user.id, req.user.is_admin ? 1 : 0, req.user.org_id)
         .map((c) => ({ ...c, can_edit: !!c.can_edit })));
     }
-    res.json(q('SELECT c.*, p.updated_at AS photo_at FROM contacts c LEFT JOIN contact_photos p ON p.contact_id = c.id WHERE c.owner_id = ? ORDER BY c.name COLLATE NOCASE').all(req.user.id));
+    res.json(q('SELECT c.*, p.updated_at AS photo_at FROM contacts c LEFT JOIN contact_photos p ON p.contact_id = c.id WHERE c.owner_id = ? ORDER BY c.starred DESC, c.name COLLATE NOCASE').all(req.user.id).map((c) => ({ ...c, starred: !!c.starred })));
   });
 
   // ---- photos ----
@@ -142,15 +144,16 @@ export default function contactRoutes() {
     const starts = `${term.replace(/[%_\\]/g, (c) => `\\${c}`)}%`;
     const company = q(`SELECT c.name, c.email FROM contacts c JOIN users u ON u.id = c.owner_id WHERE c.shared = 1 AND u.org_id = ? AND c.owner_id != ? AND c.email IS NOT NULL AND c.email != ''
                     AND (LOWER(c.name) LIKE ? ESCAPE '\\' OR LOWER(c.email) LIKE ? ESCAPE '\\') ORDER BY c.name COLLATE NOCASE LIMIT 8`).all(req.user.org_id, req.user.id, like, like);
-    const mine = q(`SELECT name, email FROM contacts WHERE owner_id = ? AND email IS NOT NULL AND email != ''
+    const mine = q(`SELECT name, email, starred FROM contacts WHERE owner_id = ? AND email IS NOT NULL AND email != ''
                     AND (LOWER(name) LIKE ? ESCAPE '\\' OR LOWER(email) LIKE ? ESCAPE '\\')
-                    ORDER BY (LOWER(name) LIKE ? ESCAPE '\\' OR LOWER(email) LIKE ? ESCAPE '\\') DESC, name COLLATE NOCASE LIMIT 8`).all(req.user.id, like, like, starts, starts);
+                    ORDER BY starred DESC, (LOWER(name) LIKE ? ESCAPE '\\' OR LOWER(email) LIKE ? ESCAPE '\\') DESC, name COLLATE NOCASE LIMIT 8`).all(req.user.id, like, like, starts, starts);
     const others = matchOther(req.user.id, like);
     const people = q(`SELECT id, name, username AS email FROM users WHERE org_id = ? AND disabled = 0 AND id != ?
                       AND (LOWER(name) LIKE ? ESCAPE '\\' OR username LIKE ? ESCAPE '\\') ORDER BY name COLLATE NOCASE LIMIT 8`).all(req.user.org_id, req.user.id, like, like);
     const seen = new Set();
     const out = [];
-    for (const [list, kind] of [[people, 'colleague'], [mine, 'contact'], [company, 'contact'], [others, 'other']]) {
+    const starredMine = mine.filter((p) => p.starred), restMine = mine.filter((p) => !p.starred);
+    for (const [list, kind] of [[starredMine, 'contact'], [people, 'colleague'], [restMine, 'contact'], [company, 'contact'], [others, 'other']]) {
       for (const p of list) {
         const email = p.email.toLowerCase();
         if (seen.has(email) || (kind === 'colleague' && !canReach(req.user, p.id))) continue;
@@ -264,6 +267,10 @@ export default function contactRoutes() {
     const c = { ...existing, ...read(req.body, true) };
     q(`UPDATE contacts SET ${COLS.map((k) => `${k} = ?`).join(', ')} WHERE id = ?`).run(...COLS.map((k) => c[k] ?? null), c.id);
     if (req.body.shared !== undefined) q('UPDATE contacts SET shared = ? WHERE id = ?').run(req.body.shared ? 1 : 0, c.id);
+    if (req.body.starred !== undefined) {
+      if (existing.owner_id !== req.user.id) throw bad('Only its owner stars a contact');
+      q('UPDATE contacts SET starred = ? WHERE id = ?').run(req.body.starred ? 1 : 0, c.id);
+    }
     res.json(q('SELECT * FROM contacts WHERE id = ?').get(c.id));
   });
 

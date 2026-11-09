@@ -6499,3 +6499,19 @@ test('contact photos: set, see, share, export as a vCard PHOTO, import one back,
   assert.equal((await kay('GET', `/api/contacts/${c.id}/photo`)).status, 404);
   assert.ok(!(await kay('GET', '/api/contacts')).body.find((x) => x.id === c.id).photo_at);
 });
+
+test('starred contacts come first, in the list and in suggestions while writing mail', async () => {
+  const kay = client(); await login(kay, 'kay@keepco.com');
+  for (const [name, email] of [['Sam Aardvark', 'sam.a@example.com'], ['Sam Zebra', 'sam.z@example.com']]) await kay('POST', '/api/contacts', { name, email });
+  const z = (await kay('GET', '/api/contacts')).body.find((c) => c.name === 'Sam Zebra');
+  assert.equal(z.starred, false);
+  assert.deepEqual((await kay('GET', '/api/contacts/suggest?q=sam.')).body.map((x) => x.email).slice(0, 2), ['sam.a@example.com', 'sam.z@example.com']);
+  await kay('PATCH', `/api/contacts/${z.id}`, { starred: true });
+  const list = (await kay('GET', '/api/contacts')).body;
+  assert.equal(list[0].name, 'Sam Zebra');
+  assert.equal(list[0].starred, true);
+  assert.equal(list.find((c) => c.name === 'Sam Zebra').email, 'sam.z@example.com', 'nothing else changed');
+  assert.deepEqual((await kay('GET', '/api/contacts/suggest?q=sam.')).body.map((x) => x.email).slice(0, 2), ['sam.z@example.com', 'sam.a@example.com']);
+  await kay('PATCH', `/api/contacts/${z.id}`, { starred: false });
+  assert.notEqual((await kay('GET', '/api/contacts')).body[0].name, 'Sam Zebra');
+});
