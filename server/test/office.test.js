@@ -1204,3 +1204,25 @@ test('Excel: charts in an uploaded file come in as Sheets charts', async () => {
   assert.deepEqual(placeOf({ from: { col: 2, colOff: 0, row: 3, rowOff: 9525 * 4 }, to: { col: 6, colOff: 0, row: 13, rowOff: 0 } }, { A: 50 }, { 2: 40 }),
     { x: 46 + 50 + 100, y: 24 + (24 + 40 + 24) + 4, w: 400, h: 236 }, 'column A is 50 wide, row 2 is 40 high; the rest are the standard 100 and 24');
 });
+
+test('PowerPoint: charts in an uploaded presentation come in with their figures', async () => {
+  const { powerPointFromDeck, deckFromPowerPoint } = await import('../src/office/powerpoint.js');
+  const { chartDataFromXml } = await import('../src/office/xlsxcharts.js');
+  const data = { categories: ['Q1', 'Q2', 'Q3'], series: [{ name: 'North', values: [3, 4, null] }, { name: 'South', values: [2, 5, 6] }] };
+  const deck = { theme: 'light', slides: [{ id: 's1', items: [
+    { id: 'c', type: 'chart', x: 10, y: 20, w: 60, h: 50, title: 'Sales by quarter', chartType: 'stackedColumn', data },
+    { id: 'd', type: 'chart', x: 0, y: 0, w: 30, h: 30, chartType: 'doughnut', data: { categories: ['A', 'B'], series: [{ name: 'Share', values: [1, 3] }] } },
+  ] }] };
+  const back = await deckFromPowerPoint(await powerPointFromDeck(deck), { savePicture: async () => null });
+  const charts = back.slides[0].items.filter((i) => i.type === 'chart');
+  assert.equal(charts.length, 2);
+  assert.deepEqual([charts[0].chartType, charts[0].title, charts[1].chartType], ['stackedColumn', 'Sales by quarter', 'doughnut']);
+  assert.deepEqual(charts[0].data.categories, ['Q1', 'Q2', 'Q3']);
+  assert.deepEqual(charts[0].data.series.map((s) => s.name), ['North', 'South']);
+  assert.deepEqual(charts[0].data.series[1].values, [2, 5, 6]);
+  assert.ok(Math.abs(charts[0].x - 10) < 0.5 && Math.abs(charts[0].w - 60) < 0.5, 'where it was');
+  assert.equal(charts[0].fileId, undefined, 'not tied to a spreadsheet');
+  // Scatter: X values as the names.
+  const sc = chartDataFromXml('<c:scatterChart><c:ser><c:tx><c:v>W</c:v></c:tx><c:xVal><c:numRef><c:numCache><c:ptCount val="2"/><c:pt idx="0"><c:v>150</c:v></c:pt><c:pt idx="1"><c:v>160</c:v></c:pt></c:numCache></c:numRef></c:xVal><c:yVal><c:numRef><c:numCache><c:ptCount val="2"/><c:pt idx="0"><c:v>50</c:v></c:pt><c:pt idx="1"><c:v>58</c:v></c:pt></c:numCache></c:numRef></c:yVal></c:ser></c:scatterChart>');
+  assert.deepEqual(sc, { type: 'scatter', data: { categories: ['150', '160'], series: [{ name: 'W', values: [50, 58] }] } });
+});

@@ -407,7 +407,8 @@ export default function SlidesEditor() {
               </select>
             )}
           </>}
-          {item?.type === 'chart' && <ChartUpdate item={item} onUpdate={(now) => setItem(now)} />}
+          {item?.type === 'chart' && (item.fileId ? <ChartUpdate item={item} onUpdate={(now) => setItem(now)} />
+            : <span className="muted small" role="status" title="This chart came with a PowerPoint file: it keeps the figures it had there">Figures from PowerPoint</span>)}
           {item?.type === 'image' && (
             <button type="button" className={`tb labelled ${item.alt ? 'on' : ''}`} aria-label="Alt text" title={item.alt ? `Alt text: ${item.alt}` : 'Describe the picture for screen readers'} onClick={() => setAltEdit(item.id)}>Alt text{item.alt ? ' ✓' : ''}</button>
           )}

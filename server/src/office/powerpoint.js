@@ -5,6 +5,7 @@ import JSZip from 'jszip';
 import path from 'node:path';
 import PptxGenJS from 'pptxgenjs';
 import { parseXml, elements } from '../davxml.js';
+import { chartDataFromXml } from './xlsxcharts.js';
 
 const P = 'http://schemas.openxmlformats.org/presentationml/2006/main';
 const A = 'http://schemas.openxmlformats.org/drawingml/2006/main';
@@ -25,7 +26,9 @@ const id = () => Math.random().toString(36).slice(2, 10);
 const relsOf = async (zip, file) => {
   const x = await zip.file(path.posix.join(path.posix.dirname(file), '_rels', `${path.posix.basename(file)}.rels`))?.async('string');
   const doc = x && parseXml(x);
-  return new Map((doc ? kids(doc, RELS, 'Relationship') : []).map((r) => [attr(r, 'Id'), path.posix.normalize(path.posix.join(path.posix.dirname(file), attr(r, 'Target')))]));
+  // Targets are relative to the part, or from the package's root when they start with "/".
+  const where = (t) => (String(t || '').startsWith('/') ? String(t).slice(1) : path.posix.normalize(path.posix.join(path.posix.dirname(file), t)));
+  return new Map((doc ? kids(doc, RELS, 'Relationship') : []).map((r) => [attr(r, 'Id'), where(attr(r, 'Target'))]));
 };
 const colorIn = (el) => { const c = deep(el, A, 'srgbClr')[0]; return c ? `#${attr(c, 'val').toLowerCase()}` : null; };
 
@@ -208,10 +211,19 @@ export async function deckFromPowerPoint(buffer, { savePicture }) {
         ...(fill && { fill }), ...edge,
       }));
     }
-    // Tables: each cell's text (the first row as headings when PowerPoint marks it so).
+    // Tables: each cell's text (the first row as headings when PowerPoint marks it so). Charts: their
+    // own copy of the figures (a chart not tied to a spreadsheet here), of a kind Slides draws.
     for (const gf of deep(tree, P, 'graphicFrame')) {
       const tbl = deep(gf, A, 'tbl')[0];
       const xf = kid(gf, P, 'xfrm'), off = kid(xf, A, 'off'), ext = kid(xf, A, 'ext');
+      const chartRef = deep(gf, 'http://schemas.openxmlformats.org/drawingml/2006/chart', 'chart')[0];
+      const chartFile = chartRef && rels.get(rattr(chartRef, 'id'));
+      if (chartFile && off && ext) {
+        const c = chartDataFromXml(await zip.file(chartFile)?.async('string') || '');
+        if (c) items.push({ id: id(), type: 'chart', chartType: c.type, title: c.title || '', data: c.data,
+          x: (Number(attr(off, 'x')) / W) * 100, y: (Number(attr(off, 'y')) / H) * 100, w: (Number(attr(ext, 'cx')) / W) * 100, h: (Number(attr(ext, 'cy')) / H) * 100 });
+        continue;
+      }
       if (!tbl || !off || !ext) continue;
       const cells = kids(tbl, A, 'tr').map((tr) => kids(tr, A, 'tc').map((tc) => deep(tc, A, 'p').map((p) => deep(p, A, 't').map((t) => t.text).join('')).join('\n')));
       if (!cells.length || !cells[0].length) continue;

@@ -272,3 +272,43 @@ export async function chartsOfXlsx(buffer) {
   } catch { /* not a zip we can read: no charts */ }
   return out;
 }
+
+/**
+ * A chart's own copy of its figures (the caches PowerPoint and Excel keep in the chart part), for a
+ * chart that isn't tied to cells we have, such as one in a presentation: { type, title, data:
+ * { categories, series: [{ name, values }] } }, or null. Scatter charts keep X as the category names.
+ */
+export function chartDataFromXml(chartXmlText) {
+  const x = String(chartXmlText);
+  const type = chartKind(x);
+  if (!type) return null;
+  const pts = (block) => {
+    const out = [];
+    const count = Number(/<c:ptCount val="(\d+)"\/>/.exec(block || '')?.[1] || 0);
+    for (const m of String(block || '').matchAll(/<c:pt idx="(\d+)"[^>]*>\s*<c:v>([^<]*)<\/c:v>/g)) out[+m[1]] = unxml(m[2]);
+    return Array.from({ length: Math.max(count, out.length) }, (_, i) => out[i] ?? null);
+  };
+  const part = (ser, tag) => new RegExp(`<c:${tag}>([\\s\\S]*?)</c:${tag}>`).exec(ser)?.[1] || '';
+  const series = [];
+  let categories = [];
+  for (const m of x.matchAll(/<c:ser>([\s\S]*?)<\/c:ser>/g)) {
+    const ser = m[1];
+    const name = pts(part(ser, 'tx'))[0] ?? (/<c:tx>\s*<c:v>([^<]*)<\/c:v>/.exec(ser)?.[1] ? unxml(/<c:tx>\s*<c:v>([^<]*)<\/c:v>/.exec(ser)[1]) : `Series ${series.length + 1}`);
+    const cat = pts(part(ser, type === 'scatter' ? 'xVal' : 'cat'));
+    const vals = pts(part(ser, type === 'scatter' ? 'yVal' : 'val')).map((v) => (v === null || v === '' || Number.isNaN(Number(v)) ? null : Number(v)));
+    if (cat.length > categories.length) categories = cat;
+    series.push({ name: String(name).slice(0, 200), values: vals.slice(0, 500) });
+    if (series.length >= 8) break;
+  }
+  if (!series.length) return null;
+  const n = Math.max(categories.length, ...series.map((s) => s.values.length));
+  const title = [...(/<c:title>([\s\S]*?)<\/c:title>/.exec(x)?.[1] || '').matchAll(/<a:t>([^<]*)<\/a:t>/g)].map((t) => unxml(t[1])).join('').trim();
+  return {
+    type,
+    ...(title && { title: title.slice(0, 200) }),
+    data: {
+      categories: Array.from({ length: Math.min(n, 500) }, (_, i) => (categories[i] === null || categories[i] === undefined ? String(i + 1) : String(categories[i]).slice(0, 200))),
+      series: series.map((s) => ({ ...s, values: Array.from({ length: Math.min(n, 500) }, (_, i) => s.values[i] ?? null) })),
+    },
+  };
+}
