@@ -970,3 +970,22 @@ test('line numbers: numbered lines go to Word and come back from Word files', as
   assert.equal(readSetup({ lineNumbers: 'yes' }).lineNumbers, undefined, 'only true turns them on');
   assert.equal(readSetup({}).lineNumbers, undefined);
 });
+
+test('PowerPoint: a picture behind a slide goes out and comes back; a colour stays a colour', async () => {
+  const deck = { theme: 'light', slides: [
+    { id: 'a', bg: '#fde293', bgImage: 'bgpic', items: [{ id: 't', type: 'text', role: 'title', text: 'Welcome', x: 10, y: 10, w: 80, h: 20, size: 40 }] },
+    { id: 'b', bg: '#c4eed0', items: [] },
+    { id: 'c', bgImage: 'gone', items: [] },
+  ] };
+  const asked = [];
+  const buf = await powerPointFromDeck(deck, { pictureData: async (id) => { asked.push(id); return id === 'bgpic' ? { data: PNG, mime: 'image/png' } : null; } });
+  assert.deepEqual(asked, ['bgpic', 'gone']);
+  const saved = [];
+  const back = await deckFromPowerPoint(buf, { savePicture: async (name, data, mime) => { saved.push(mime); return `pic${saved.length}`; } });
+  assert.equal(back.slides[0].bgImage, 'pic1');
+  assert.deepEqual(saved, ['image/png']);
+  assert.equal(back.slides[0].items[0].text, 'Welcome', 'the slide\'s boxes are still there');
+  assert.equal(back.slides[1].bg, '#c4eed0');
+  assert.equal(back.slides[1].bgImage, undefined);
+  assert.equal(back.slides[2].bgImage, undefined, 'a picture that can\'t be read leaves the slide\'s colour');
+});

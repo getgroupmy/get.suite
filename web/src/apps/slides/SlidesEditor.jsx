@@ -63,6 +63,7 @@ export default function SlidesEditor() {
   const [pending, setPending] = useState(null);
   const deckRef = useRef(null);
   const pictureInput = useRef();
+  const backgroundInput = useRef();
   const readOnly = (file?.role === 'viewer' || file?.role === 'commenter') || !!file?.locked_at;
   const canComment = !!file && file.role !== 'viewer'; // commenters too, and on locked files
   const [status, setStatus] = useState('connecting');
@@ -221,6 +222,17 @@ export default function SlidesEditor() {
       let up;
       try { up = await uploadFile(f, file.parent_id || null); } catch { up = await uploadFile(f, null); }
       putVideo({ id: up.id, name: f.name });
+    } catch (e) { toast(e.message, 'error'); }
+  }
+  // A picture behind everything on the slide, filling it (PNG, JPEG or GIF: what PowerPoint takes as a background too).
+  const setBackground = (fileId) => change((d) => ({ ...d, slides: d.slides.map((s, i) => { if (i !== slideIndex) return s; const { bgImage, ...rest } = s; return fileId ? { ...rest, bgImage: fileId } : rest; }) }));
+  async function setBackgroundPicture(f) {
+    if (!f) return;
+    if (!/^image\/(png|jpeg|gif)$/.test(f.type)) return toast('Choose a PNG, JPEG or GIF picture', 'error');
+    try {
+      let up;
+      try { up = await uploadFile(f, file.parent_id || null); } catch { up = await uploadFile(f, null); }
+      setBackground(up.id);
     } catch (e) { toast(e.message, 'error'); }
   }
   async function insertPicture(f) {
@@ -410,6 +422,10 @@ export default function SlidesEditor() {
               {BACKGROUNDS.map(([v, n]) => <option key={n} value={v}>{n}</option>)}
             </select>
           )}
+          {!item && !multi && (slide.bgImage
+            ? <button type="button" className="tb" onClick={() => setBackground(null)}>Remove background picture</button>
+            : <button type="button" className="tb" title="A picture behind everything on this slide, filling it" onClick={() => backgroundInput.current.click()}>Background picture</button>)}
+          <input ref={backgroundInput} type="file" accept="image/png,image/jpeg,image/gif" hidden onChange={(e) => { setBackgroundPicture(e.target.files[0]); e.target.value = ''; }} />
           <div className="grow" />
           <button type="button" className={`btn small ${panel ? 'primary' : ''}`} aria-pressed={panel} title="Comments" onClick={() => { if (panel && pending) setPending(null); setPanel(!panel); }}>💬 Comments{openThreads ? ` (${openThreads})` : ''}</button>
           <button type="button" className="btn small" onClick={commentOnSlide}>Comment on this slide</button>
@@ -650,7 +666,7 @@ export function SlideView({ slide, theme, deckId, editable, selected, group = []
   }
 
   return (
-    <div ref={ref} className={`slide ${editable ? 'editable' : ''}`} style={{ background: slide.bg || theme.bg, color: theme.text }} role={editable ? 'group' : undefined} aria-label={editable ? 'Slide' : undefined}>
+    <div ref={ref} className={`slide ${editable ? 'editable' : ''} ${slide.bgImage ? 'has-bg-picture' : ''}`} style={{ background: slide.bgImage ? `url("${pictureBase || `/api/files/${deckId}`}/pictures/${slide.bgImage}") center / cover no-repeat, ${slide.bg || theme.bg}` : slide.bg || theme.bg, color: theme.text }} role={editable ? 'group' : undefined} aria-label={editable ? 'Slide' : undefined}>
       {slide.items.map((it) => {
         const box = live?.id === it.id ? live.box : live?.group?.includes(it.id) ? { ...it, x: it.x + live.dx, y: it.y + live.dy } : it;
         const pos = { left: `${box.x}%`, top: `${box.y}%`, width: `${box.w}%`, height: `${box.h}%`, ...(box.rot ? { transform: `rotate(${box.rot}deg)` } : {}) };

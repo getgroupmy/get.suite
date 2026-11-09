@@ -113,3 +113,18 @@ test('spreadsheets: cell notes are shared cell by cell', () => {
   applySheetJson(doc, { sheets: [{ name: 'S', cells: { A1: '1' } }] });
   assert.equal(jsonFromSheetDoc(doc).sheets[0].notes, undefined);
 });
+
+test('presentations: a background picture is shared, changed and taken away like the colour', () => {
+  const a = deckDocFromJson({ theme: 'light', slides: [{ id: 's', bg: '#fde293', bgImage: 'pic1', items: [] }] });
+  assert.equal(jsonFromDeckDoc(a).slides[0].bgImage, 'pic1');
+  const b = new Y.Doc();
+  Y.applyUpdate(b, Y.encodeStateAsUpdate(a));
+  const jb = jsonFromDeckDoc(b); jb.slides[0].bgImage = 'pic2';
+  applyDeckJson(b, jb);
+  Y.applyUpdate(a, Y.encodeStateAsUpdate(b));
+  assert.equal(jsonFromDeckDoc(a).slides[0].bgImage, 'pic2');
+  const ja = jsonFromDeckDoc(a); delete ja.slides[0].bgImage;
+  applyDeckJson(a, ja);
+  Y.applyUpdate(b, Y.encodeStateAsUpdate(a));
+  assert.deepEqual(jsonFromDeckDoc(b).slides[0], { id: 's', bg: '#fde293', items: [] });
+});

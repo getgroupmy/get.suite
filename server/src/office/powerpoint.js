@@ -1,5 +1,5 @@
 // PowerPoint files <-> Slides: slide by slide, text boxes (with size, bold, italic, colour,
-// alignment), rectangles, rounded rectangles and ellipses, pictures, and slide backgrounds, at their
+// alignment), rectangles, rounded rectangles and ellipses, pictures, and slide backgrounds (colours and pictures), at their
 // places on the slide. Boxes are kept in percent of the slide, as Slides does.
 import JSZip from 'jszip';
 import path from 'node:path';
@@ -188,7 +188,17 @@ export async function deckFromPowerPoint(buffer, { savePicture }) {
         header: attr(kid(tbl, A, 'tblPr'), 'firstRow') === '1' || kids(kids(tbl, A, 'tr')[0], A, 'tc').every((tc) => deep(tc, A, 'rPr').some((r) => attr(r, 'b') === '1')), size: Math.max(8, Math.round((pt / 72) * 1000 / widthIn)),
         x: (Number(attr(off, 'x')) / W) * 100, y: (Number(attr(off, 'y')) / H) * 100, w: (Number(attr(ext, 'cx')) / W) * 100, h: (Number(attr(ext, 'cy')) / H) * 100 });
     }
-    const bg = colorIn(deep(xml, P, 'bg')[0]);
+    const bgEl = deep(xml, P, 'bg')[0];
+    const bg = colorIn(bgEl);
+    // A picture behind the slide (a background fill with a picture).
+    let bgImage = null;
+    const bgEmbed = bgEl && rattr(deep(bgEl, A, 'blip')[0], 'embed');
+    const bgTarget = bgEmbed && rels.get(bgEmbed);
+    if (bgTarget) {
+      const data = await zip.file(bgTarget)?.async('nodebuffer');
+      const mime = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', bmp: 'image/bmp', webp: 'image/webp' }[path.posix.extname(bgTarget).slice(1).toLowerCase()];
+      if (data && mime) bgImage = await savePicture(path.posix.basename(bgTarget), data, mime);
+    }
     // Speaker notes: the body text of the slide's notes page.
     const notesFile = [...rels.values()].find((t) => t.includes('notesSlides/'));
     const notesXml = notesFile && parseXml(await zip.file(notesFile)?.async('string') || '');
@@ -201,7 +211,7 @@ export async function deckFromPowerPoint(buffer, { savePicture }) {
     const advance = advanceOf(attr(trEl, 'advTm')); // moves on by itself after so many seconds
     const transition = tr && ({ fade: 'fade', dissolve: 'fade', push: 'push', wipe: 'push', cover: 'push', pull: 'push', split: 'push', zoom: 'zoom', newsflash: 'zoom' }[tr] || 'fade');
     slideFiles.push(file);
-    slides.push({ id: id(), items, ...(bg && { bg }), ...(notes && { notes }), ...(transition && { transition }), ...(advance && { advance }), ...(skip && { skip: true }) });
+    slides.push({ id: id(), items, ...(bg && { bg }), ...(bgImage && { bgImage }), ...(notes && { notes }), ...(transition && { transition }), ...(advance && { advance }), ...(skip && { skip: true }) });
   }
   // Links to another slide: from its file to its id (a slide that didn't come in drops the link).
   for (const sl of slides) for (const it of sl.items) {
@@ -233,7 +243,9 @@ export async function powerPointFromDeck(deck, { pictureData, title = 'Presentat
   const color = (v, fallback) => (v === 'accent' ? theme.accent : v === 'text' ? theme.text : v || fallback).replace('#', '').toUpperCase();
   for (const s of deck.slides || []) {
     const slide = pptx.addSlide();
-    slide.background = { color: color(s.bg, theme.bg) };
+    // A picture behind the slide, or its colour (also kept under the picture, for programs that skip it).
+    const back = s.bgImage && await pictureData?.(s.bgImage);
+    slide.background = back && /^image\/(png|jpeg|gif)$/.test(back.mime) ? { data: `data:${back.mime};base64,${back.data.toString('base64')}` } : { color: color(s.bg, theme.bg) };
     if (s.notes) slide.addNotes(s.notes);
     if (numberShown(deck, (deck.slides || []).indexOf(s))) slide.slideNumber = { x: Win - 1.1, y: Hin - 0.55, w: 0.8, h: 0.35, fontSize: 12, color: color('text', theme.text), align: 'right', fontFace: 'Arial' };
     if (s.skip) slide.hidden = true; // (transitions and timings are added afterwards: withShowSettings)

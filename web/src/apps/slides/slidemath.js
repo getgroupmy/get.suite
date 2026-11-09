@@ -229,7 +229,7 @@ export function slideChanges(before, after) {
     }
     for (const p of o.items || []) if (!(s.items || []).some((it) => it.id === p.id)) details.push({ kind: 'del', what: boxName(p), was: textOf(p) });
     if ((o.notes || '') !== (s.notes || '')) details.push({ kind: 'edit', what: 'speaker notes', was: o.notes || '', now: s.notes || '' });
-    for (const k of ['bg', 'transition', 'skip']) if ((o[k] || '') !== (s[k] || '')) details.push({ kind: 'look', what: { bg: 'background', transition: 'transition', skip: 'skipping' }[k] });
+    for (const k of ['bg', 'bgImage', 'transition', 'skip']) if ((o[k] || '') !== (s[k] || '')) details.push({ kind: 'look', what: { bg: 'background', bgImage: 'background picture', transition: 'transition', skip: 'skipping' }[k] });
     const moved = oldAt.get(s.id) !== i;
     if (details.length || moved) out.push({ id: s.id, n: i + 1, was: oldAt.get(s.id) + 1, status: details.length ? 'changed' : 'moved', title: titleOf(s), details });
   });

@@ -310,7 +310,10 @@ export async function receiveUpload(req, orgId, maxUploadBytes, ownerId = null) 
 /** The Drive files a presentation or document shows as pictures (their ids). */
 export function picturesIn(kind, content) {
   const ids = new Set();
-  if (kind === 'slides') for (const sl of content.slides || []) for (const it of sl.items || []) { if ((it.type === 'image' || it.type === 'video') && it.fileId) ids.add(it.fileId); } // pictures and videos
+  if (kind === 'slides') for (const sl of content.slides || []) {
+    if (typeof sl.bgImage === 'string' && sl.bgImage) ids.add(sl.bgImage); // a picture behind the slide
+    for (const it of sl.items || []) { if ((it.type === 'image' || it.type === 'video') && it.fileId) ids.add(it.fileId); } // pictures and videos
+  }
   if (kind === 'doc') {
     const walk = (n) => { if (n?.type === 'image' && n.attrs?.fileId) ids.add(n.attrs.fileId); for (const c of n?.content || []) walk(c); };
     walk(content);
@@ -1039,7 +1042,7 @@ export default function fileRoutes({ maxUploadBytes }) {
       copied.set(f.id, insertFile({ owner: req.user.id, parentId, name: f.name, kind: 'file', mime: f.mime, size: f.size, storage, activity: { action: 'copy', details: { from: `${f.name} in ${src.name}` } } }));
     }
     const fresh = () => crypto.randomBytes(6).toString('base64url');
-    const slides = chosen.map((sl) => ({ ...JSON.parse(JSON.stringify(sl)), id: fresh(),
+    const slides = chosen.map(({ bgImage, ...sl }) => ({ ...JSON.parse(JSON.stringify(sl)), id: fresh(), ...(bgImage && copied.has(bgImage) && { bgImage: copied.get(bgImage) }),
       items: (sl.items || []).flatMap((it) => (it.type === 'image' && it.fileId && !copied.has(it.fileId) ? [] : [{ ...it, id: fresh(), ...(it.type === 'image' && it.fileId ? { fileId: copied.get(it.fileId) } : {}) }])) }));
     if (parentId && copied.size) notify(parentId, { type: 'files-changed', parent_id: parentId });
     res.json({ slides, theme: content.theme || null });

@@ -7069,3 +7069,21 @@ test('opening a Word file in two columns, or with numbered lines, keeps that in 
   const ln = (await owner('POST', `/api/files/${(await owner('POST', '/api/files/upload?name=Numbered.docx', numbered, { raw: true })).body.id}/open-as`)).body;
   assert.equal(ln.page_setup.lineNumbers, true, 'numbered lines stay numbered');
 });
+
+test('a picture behind a slide is shown to everyone who can open the presentation', async () => {
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  const pic = (await owner('POST', '/api/files/upload?name=backdrop.png', png, { raw: true })).body;
+  const other = (await owner('POST', '/api/files/upload?name=private.png', png, { raw: true })).body;
+  const deck = (await owner('POST', '/api/files/new', { kind: 'slides', name: 'Backdrop deck', content: { theme: 'light', slides: [{ id: 's1', bgImage: pic.id, items: [] }] } })).body;
+  const viewer = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'bgviewer', domain: 'acme.com', name: 'Bea Viewer', password: 'password123' })).status, 201);
+  const vid = (await login(viewer, 'bgviewer@acme.com')).id;
+  await owner('PUT', `/api/files/${deck.id}/shares`, { shares: [{ user_id: vid, role: 'viewer' }] });
+  const seen = await viewer('GET', `/api/files/${deck.id}/pictures/${pic.id}`);
+  assert.equal(seen.status, 200);
+  assert.equal(seen.headers.get('content-type'), 'image/png');
+  assert.equal((await viewer('GET', `/api/files/${deck.id}/pictures/${other.id}`)).status, 404, 'only pictures the presentation uses');
+  // In the PowerPoint download too.
+  const pptx = await owner('GET', `/api/files/${deck.id}/export`);
+  assert.equal(pptx.status, 200);
+});
