@@ -9,7 +9,7 @@ import { Avatar, useToast } from '../../components/ui.jsx';
 import { useAuth } from '../../App.jsx';
 import MeetBoard from './MeetBoard.jsx';
 import { Mesh } from './mesh.js';
-import { columnsFor, whoIsHere, elapsed, spotlightOf } from './meetmath.js';
+import { columnsFor, whoIsHere, elapsed, spotlightOf, loudness, speakingNow, SPEAKING_LEVEL } from './meetmath.js';
 import { MeetingRecorder } from './recorder.js';
 import { noPhotos } from '../../components/photos.js';
 
@@ -280,6 +280,14 @@ export default function MeetRoom({ guest = false, onSignIn }) {
   };
   const leave = async () => { if (recorder.current) await stopRecording(); mesh.current?.leave(); mesh.current = null; setStartedAt(0); setPhase('left'); setMessages([]); };
 
+  const m = mesh.current;
+  const peers = m ? [...m.peers.values()] : [];
+  const sharing = m?.state.screen;
+  // Everyone in the call (you first), who's shown big, and who's talking.
+  const tiles = [{ id: 'me', me: true, name: `${user.name} (you)`, userId: user.id, state: m?.state || {}, stream: sharing ? m.screen : local?.stream },
+    ...peers.map((p) => ({ id: p.id, name: p.user.name, userId: p.user.id, state: p.state, stream: p.stream, connecting: p.pc.connectionState !== 'connected' }))];
+  const spot = spotlightOf(tiles, pinned); // who is shown big (pinned, or presenting)
+  const speaking = useSpeaking(tiles);
   if (error) {
     return (
       <div className="meet-page meet-center">
@@ -333,7 +341,6 @@ export default function MeetRoom({ guest = false, onSignIn }) {
     );
   }
 
-  const m = mesh.current;
   if (m?.waiting) {
     return (
       <div className="meet-page meet-center">
@@ -343,11 +350,6 @@ export default function MeetRoom({ guest = false, onSignIn }) {
       </div>
     );
   }
-  const peers = m ? [...m.peers.values()] : [];
-  const sharing = m?.state.screen;
-  const tiles = [{ id: 'me', me: true, name: `${user.name} (you)`, userId: user.id, state: m?.state || {}, stream: sharing ? m.screen : local?.stream },
-    ...peers.map((p) => ({ id: p.id, name: p.user.name, userId: p.user.id, state: p.state, stream: p.stream, connecting: p.pc.connectionState !== 'connected' }))];
-  const spot = spotlightOf(tiles, pinned); // who is shown big (pinned, or presenting)
   const polls = m ? [...m.polls.values()] : [];
   const toVote = polls.filter((p) => !p.closed && p.mine === null).length;
   const sendChat = (e) => {
@@ -373,7 +375,7 @@ export default function MeetRoom({ guest = false, onSignIn }) {
             const videoOn = t.me ? (sharing || (t.state.cam && hasVideo)) : (t.state.screen || t.state.cam);
             const big = spot === t.id && !board;
             return (
-              <div key={t.id} className={`meet-tile ${t.state.hand ? 'hand' : ''} ${big ? 'big' : ''}`} data-name={t.name}>
+              <div key={t.id} className={`meet-tile ${t.state.hand ? 'hand' : ''} ${big ? 'big' : ''} ${speaking.has(t.id) && t.state.mic !== false ? 'speaking' : ''}`} data-name={t.name}>
                 {tiles.length > 1 && <button type="button" className={`meet-pin ${pinned === t.id ? 'on' : ''}`} aria-pressed={pinned === t.id}
                   aria-label={pinned === t.id ? `Unpin ${t.me ? 'yourself' : t.name}` : `Pin ${t.me ? 'yourself' : t.name}`} title={pinned === t.id ? 'Unpin' : 'Pin: show big (only for you)'}
                   onClick={() => setPinned(pinned === t.id ? null : t.id)}>📌</button>}
@@ -433,4 +435,43 @@ export default function MeetRoom({ guest = false, onSignIn }) {
 async function copyLink(code, toast) {
   const link = `${location.origin}/meet/${code}`;
   try { await navigator.clipboard.writeText(link); toast('Meeting link copied'); } catch { toast(link); }
+}
+
+/**
+ * Who is talking: each person's sound is measured a few times a second (in this browser, nothing is
+ * sent anywhere), and those loud enough get a ring around their video.
+ */
+function useSpeaking(tiles) {
+  const [speaking, setSpeaking] = useState(() => new Set());
+  const key = tiles.map((t) => `${t.id}:${t.stream?.id || ''}:${t.stream?.getAudioTracks().length || 0}`).join('|');
+  const tilesRef = useRef(tiles);
+  tilesRef.current = tiles;
+  useEffect(() => {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return undefined;
+    const ctx = new AC();
+    ctx.resume?.().catch(() => {});
+    const meters = [];
+    for (const t of tilesRef.current) {
+      if (!t.stream?.getAudioTracks().length) continue;
+      try {
+        const src = ctx.createMediaStreamSource(t.stream);
+        const an = ctx.createAnalyser();
+        an.fftSize = 512;
+        src.connect(an); // not to the speakers: only measured
+        meters.push({ id: t.id, an, buf: new Uint8Array(an.fftSize) });
+      } catch { /* a stream without sound */ }
+    }
+    const heard = {};
+    let last = '';
+    const timer = setInterval(() => {
+      const at = Date.now();
+      for (const m of meters) { m.an.getByteTimeDomainData(m.buf); if (loudness(m.buf) > SPEAKING_LEVEL) heard[m.id] = at; }
+      const now = speakingNow(heard, at);
+      const sig = [...now].sort().join(',');
+      if (sig !== last) { last = sig; setSpeaking(now); }
+    }, 150);
+    return () => { clearInterval(timer); ctx.close().catch(() => {}); };
+  }, [key]);
+  return speaking;
 }

@@ -31,3 +31,14 @@ test('spotlight: the pinned person, else whoever presents, else nobody', async (
   assert.equal(spotlightOf([{ ...me, state: { screen: true } }, kim], null), null, 'not your own screen');
   assert.equal(spotlightOf([me], 'me'), null, 'alone: no spotlight');
 });
+
+test('speaking: how loud, and who is talking (held briefly between words)', async () => {
+  const { loudness, speakingNow, SPEAKING_LEVEL } = await import('./meetmath.js');
+  assert.equal(loudness(new Uint8Array(64).fill(128)), 0, 'silence');
+  const loud = Uint8Array.from({ length: 64 }, (_, i) => (i % 2 ? 160 : 96));
+  assert.ok(loudness(loud) > SPEAKING_LEVEL);
+  assert.ok(loudness(Uint8Array.from({ length: 64 }, (_, i) => (i % 2 ? 129 : 127))) < SPEAKING_LEVEL, 'background hiss is not speech');
+  assert.equal(loudness(null), 0);
+  assert.deepEqual([...speakingNow({ a: 1000, b: 200 }, 1500)], ['a']);
+  assert.deepEqual([...speakingNow({ a: 1000 }, 1800)], [], 'quiet for long enough: no ring');
+});

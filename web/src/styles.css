@@ -2271,3 +2271,4 @@ textarea.mono { font-family: ui-monospace, Consolas, monospace; }
 .meet-pin { position: absolute; top: 6px; right: 6px; z-index: 2; border: 0; border-radius: 50%; width: 30px; height: 30px; background: rgba(0,0,0,.45); cursor: pointer; opacity: 0; font-size: 14px; }
 .meet-tile:hover .meet-pin, .meet-pin:focus-visible, .meet-pin.on { opacity: 1; }
 .meet-pin.on { background: var(--accent); }
+.meet-tile.speaking { box-shadow: 0 0 0 3px #34a853 inset, 0 0 0 2px #34a853; }

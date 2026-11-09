@@ -39,3 +39,20 @@ export function spotlightOf(tiles, pinned) {
   if (pinned && tiles.some((t) => t.id === pinned)) return pinned;
   return tiles.find((t) => !t.me && t.state?.screen)?.id || null;
 }
+
+/** How loud a slice of sound is (0–1), from an analyser's byte samples (128 = silence). */
+export function loudness(samples) {
+  if (!samples?.length) return 0;
+  let sum = 0;
+  for (const v of samples) { const x = (v - 128) / 128; sum += x * x; }
+  return Math.sqrt(sum / samples.length);
+}
+
+/**
+ * Who counts as speaking: loud enough now, or within the last `hold` ms (so the ring doesn't
+ * flicker between words). `heard` is { id: last time they were loud }; returns the ids speaking.
+ */
+export function speakingNow(heard, at, hold = 700) {
+  return new Set(Object.entries(heard).filter(([, t]) => at - t <= hold).map(([id]) => id));
+}
+export const SPEAKING_LEVEL = 0.04;
