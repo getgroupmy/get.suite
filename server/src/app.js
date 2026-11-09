@@ -18,6 +18,7 @@ import formRoutes, { publicFormRoutes } from './routes/forms.js';
 import { meetRoutes, publicMeetRoutes } from './meet.js';
 import { groupRoutes } from './groups.js';
 import noteRoutes from './routes/notes.js';
+import docPrefRoutes from './routes/docprefs.js';
 import approvalRoutes from './routes/approvals.js';
 import signatureRoutes, { publicSignRoutes } from './routes/signatures.js';
 import takeoutRoutes from './routes/takeout.js';
@@ -131,6 +132,7 @@ export function createApp({
   app.use('/api/meet', requireAuth, meetRoutes());
   app.use('/api/groups', requireAuth, groupRoutes());
   app.use('/api/notes', requireAuth, noteRoutes());
+  app.use('/api/doc-prefs', requireAuth, docPrefRoutes());
   app.use('/api/oauth', requireAuth, oidcApiRoutes());
   app.use('/api/approvals', requireAuth, approvalRoutes());
   app.use('/api/signatures', requireAuth, signatureRoutes());

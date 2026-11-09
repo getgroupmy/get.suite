@@ -25,6 +25,9 @@ import DrawPad from '../../components/DrawPad.jsx';
 import Icon from '../../components/Icon.jsx';
 import { FindReplace } from './findReplace.js';
 import { WordCountDialog, WordCounter, counterOn } from './WordCount.jsx';
+import { Autocorrect } from './autocorrect.js';
+import { DocPrefsDialog } from './DocPrefs.jsx';
+import { CASES, caseTransaction } from './textcase.js';
 import { FindBar } from './FindBar.jsx';
 import { Outline, goToHeading } from './Outline.jsx';
 import { headingsOf, headingForAnchor } from './outline.js';
@@ -196,9 +199,14 @@ function SharedDoc({ file, setFile }) {
   const mentionKeyRef = useRef(null); // the @-picker's keys, while it's open
   const chipKeyRef = useRef(null); // Enter or Space on a selected dropdown chip opens its choices
   const dateKeyRef = useRef(null); // and on a date chip, its calendar
+  // Your writing preferences (autocorrect, replacements), read by the editor as you type.
+  const prefsRef = useRef({ autocorrect: true, subs: [] });
+  const [prefsOpen, setPrefsOpen] = useState(false);
+  useEffect(() => { get('/doc-prefs').then((p) => { prefsRef.current = p; }).catch(() => {}); }, []);
   const editor = useEditor({
     extensions: [
       StarterKit.configure({ link: { openOnClick: false, autolink: true }, undoRedo: false }), // undo is per person, from Collaboration
+      Autocorrect.configure({ enabled: () => !!prefsRef.current.autocorrect, subs: () => prefsRef.current.subs }),
       TextAlign.configure({ types: ['heading', 'paragraph'] }),
       Placeholder.configure({ placeholder: 'Start typing…' }),
       Collaboration.configure({ document: ydoc }),
@@ -517,6 +525,7 @@ function SharedDoc({ file, setFile }) {
           { label: 'Version history', icon: 'clock', onClick: () => setHistory(true) },
           ...(!readOnly ? [{ label: 'Send action items to Tasks', icon: 'check', onClick: () => setSendingItems(true) }] : []),
           { label: 'Word count', icon: 'doc', onClick: () => setWordCount(true) },
+          ...(!readOnly ? [{ label: 'Preferences', icon: 'settings', onClick: () => setPrefsOpen(true) }] : []),
           '-',
           { label: 'Print / Save as PDF', icon: 'print', onClick: () => window.print() },
           { label: 'Download as HTML', icon: 'download', onClick: exportHtml },
@@ -636,6 +645,7 @@ function SharedDoc({ file, setFile }) {
           setChipEdit(null);
           refocus();
         }} />}
+      {prefsOpen && <DocPrefsDialog prefs={prefsRef.current} onSaved={(p) => { prefsRef.current = p; }} onClose={() => { setPrefsOpen(false); editor.view.focus(); }} />}
       {wordCount && <WordCountDialog editor={editor} live={liveCount} onLive={setLiveCount} onClose={() => { setWordCount(false); editor.view.focus(); }} />}
       {pageSetupOpen && <PageSetupDialog setup={file.page_setup} onClose={() => { setPageSetupOpen(false); editor.view.focus(); }}
         onSave={async (next) => { try { setFile(await patch(`/files/${file.id}`, { page_setup: next })); setPageSetupOpen(false); toast('Page setup saved'); } catch (e) { toast(e.message, 'error'); } }} />}
@@ -730,6 +740,11 @@ function Toolbar({ editor, onDropdown, onEquation, onCite, onSymbols, onComment,
           </select>
           <select aria-label="Line spacing" title="Line spacing" value={lh} onChange={(e) => c().setLineHeight(e.target.value || null).run()}>
             {LINE_HEIGHTS.map(([v, n]) => <option key={n} value={v}>{v ? `↕ ${n}` : '↕ Spacing'}</option>)}
+          </select>
+          <select aria-label="Capitalisation" title="Capitalisation of the selected text" value="" disabled={editor.state.selection.empty}
+            onChange={(e) => { const tr = e.target.value && caseTransaction(editor.state, e.target.value); if (tr) editor.view.dispatch(tr); editor.view.focus(); }}>
+            <option value="">Aa</option>
+            {CASES.map(([v, n]) => <option key={v} value={v}>{n}</option>)}
           </select>
         </>;
       })()}
