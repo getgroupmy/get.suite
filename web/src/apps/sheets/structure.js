@@ -4,6 +4,7 @@ import { colName, colIndex, cellKey, parseRef, shiftFormula, sheetPrefix } from 
 import { adjustHide } from './hide.js';
 import { adjustGroups } from './groups.js';
 import { adjustBands } from './bands.js';
+import { adjustRowHeights } from './rowheights.js';
 
 /**
  * A structural change: on `axis` ('row' | 'col'), `count` > 0 inserts that many before index `at`;
@@ -148,7 +149,7 @@ export function applyStructure(sheet, change) {
   const names = sheet.names && adjustNames(sheet.names, change);
   // Protected ranges move with their cells (whole-sheet ones stay); one whose cells all went goes too.
   const prot = sheet.protected && sheet.protected.flatMap((p) => { if (!p.range) return [p]; const range = adjustRange(p.range, change); return range ? [{ ...p, range }] : []; });
-  const out = { ...sheet, cells, colWidths, ...(sheet.formats && { formats }), ...(sheet.notes && { notes }), ...(sheet.charts && { charts }), ...(sheet.rules && { rules }), ...(sheet.validations && { validations }), ...(sheet.merges && { merges }) };
+  const out = { ...sheet, cells, colWidths, ...(sheet.rowHeights && { rowHeights: adjustRowHeights(sheet.rowHeights, change) }), ...(sheet.formats && { formats }), ...(sheet.notes && { notes }), ...(sheet.charts && { charts }), ...(sheet.rules && { rules }), ...(sheet.validations && { validations }), ...(sheet.merges && { merges }) };
   if (hide) out.hide = hide; else delete out.hide;
   const groups = adjustGroups(sheet.groups, change);
   if (groups) out.groups = groups; else delete out.groups;

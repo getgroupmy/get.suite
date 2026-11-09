@@ -179,6 +179,12 @@ export async function sheetFromExcel(buffer) {
       }
     }
     ws.columns?.forEach((col, i) => { if (col?.width && Math.abs(col.width - 8.43) > 0.5) colWidths[colName(i)] = Math.round(col.width * 7 + 5); });
+    // Rows set taller or shorter than Excel's standard 15 points (pixels here: points ÷ 0.75).
+    const rowHeights = {};
+    ws.eachRow({ includeEmpty: true }, (row, n) => {
+      if (n > 10000 || !row.height || Math.abs(row.height - 15) < 0.5) return;
+      rowHeights[String(n)] = Math.max(16, Math.min(600, Math.round(row.height / 0.75)));
+    });
     // Frozen panes: the rows above and the columns left of the split stay in view.
     const view = (ws.views || []).find((v) => v.state === 'frozen');
     const frozen = view && { rows: Math.min(50, Math.max(0, view.ySplit || 0)), cols: Math.min(26, Math.max(0, view.xSplit || 0)) };
@@ -209,7 +215,7 @@ export async function sheetFromExcel(buffer) {
       const ci = (l) => [...l].reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0) - 1;
       for (let r = a.r; r <= b.r; r++) for (let c = ci(a.c); c <= ci(b.c); c++) if (r !== a.r || c !== ci(a.c)) delete cells[`${colName(c)}${r}`];
     }
-    sheets.push({ _ws: ws.name, name: ws.name.slice(0, 30), cells, colWidths, ...(merges.length && { merges }), ...(rules.length && { rules }), ...(validations.length && { validations }), ...(filter && { filter }), ...(Object.keys(formats).length && { formats }), ...(frozen && (frozen.rows || frozen.cols) && { frozen }), ...(hide && { hide }), ...(groups.length && { groups }), ...(Object.keys(notes).length && { notes }) });
+    sheets.push({ _ws: ws.name, name: ws.name.slice(0, 30), cells, colWidths, ...(Object.keys(rowHeights).length && { rowHeights }), ...(merges.length && { merges }), ...(rules.length && { rules }), ...(validations.length && { validations }), ...(filter && { filter }), ...(Object.keys(formats).length && { formats }), ...(frozen && (frozen.rows || frozen.cols) && { frozen }), ...(hide && { hide }), ...(groups.length && { groups }), ...(Object.keys(notes).length && { notes }) });
   });
   // Named ranges ("Sales" = 'Sheet1'!$A$2:$A$10): on the sheet they point into.
   for (const d of wb.definedNames?.model || []) {
@@ -287,6 +293,7 @@ export async function excelFromSheet(data) {
     }
     for (const [key, text] of Object.entries(s.notes || {})) if (/^[A-Z]+\d+$/.test(key) && text) ws.getCell(key).note = String(text);
     for (const [col, px] of Object.entries(s.colWidths || {})) ws.getColumn(col).width = Math.max(2, Math.round((px - 5) / 7));
+    for (const [n, px] of Object.entries(s.rowHeights || {})) if (/^\d+$/.test(n) && Number(n) >= 1 && Number(n) <= 10000 && Number(px) > 0) ws.getRow(Number(n)).height = Math.round(Number(px) * 0.75 * 10) / 10; // pixels → points
     if (s.frozen?.rows || s.frozen?.cols) ws.views = [{ state: 'frozen', xSplit: s.frozen.cols || 0, ySplit: s.frozen.rows || 0 }];
     // Conditional formatting, in the order Sheets tries the rules (Excel's priority).
     (s.rules || []).forEach((r, i) => {

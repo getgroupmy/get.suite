@@ -25,6 +25,7 @@ import { buildPivot, pivotCells, sourceTable } from './pivot.js';
 import { RulesDialog } from './SheetRules.jsx';
 import { ValidationDialog, ChoicePicker } from './SheetValidation.jsx';
 import { CellPicture, PictureCellDialog } from './SheetPicture.jsx';
+import { heightOf, setHeights, MIN_H, MAX_H, DEFAULT_H } from './rowheights.js';
 import { validationAt, checkEntry, isTicked, withChoices, choicesFrom, chipColour } from './validation.js';
 import { hiddenRows, columnValues, adjustFilter, filterArea, columnFiltered } from './filter.js';
 import { describeCondition } from './filtercond.js';
@@ -150,6 +151,8 @@ export default function SheetEditor() {
   const frozen = { rows: sheet?.frozen?.rows || 0, cols: sheet?.frozen?.cols || 0 };
   const [resizing, setResizing] = useState(null); // { c, w } while a column edge is dragged
   const widthOf = (c) => (resizing?.c === c ? resizing.w : colWidths[colName(c)] ?? DEFAULT_W);
+  const [resizingRow, setResizingRow] = useState(null); // { r, h } while a row's bottom edge is dragged
+  const rowH = (r) => (resizingRow?.r === r ? resizingRow.h : heightOf(sheet?.rowHeights, r));
   // Frozen rows and columns stay put while scrolling: their offsets, measured from the grid.
   const [stick, setStick] = useState({ top: [], left: [] });
   useLayoutEffect(() => {
@@ -350,6 +353,21 @@ export default function SheetEditor() {
     const f = { rows: rowsN ?? (s.frozen?.rows || 0), cols: colsN ?? (s.frozen?.cols || 0) };
     return { frozen: f.rows || f.cols ? f : null };
   });
+  /** Rows a..b (0-based) to h pixels tall, or back to the standard height (h empty). */
+  const setRowHeight = (a, b, h) => writeSheet((sh) => ({ rowHeights: setHeights(sh.rowHeights, a, b, h) }));
+  /** Drag a row number's bottom edge to make the row taller or shorter; double-click for the standard height. */
+  const startRowResize = (r) => (e) => {
+    if (readOnly || e.button !== 0) return;
+    e.preventDefault(); e.stopPropagation();
+    const y0 = e.clientY, h0 = rowH(r) || e.currentTarget.parentElement.getBoundingClientRect().height;
+    const move = (ev) => setResizingRow({ r, h: Math.max(MIN_H, Math.min(MAX_H, h0 + ev.clientY - y0)) });
+    const up = (ev) => {
+      window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up);
+      setResizingRow(null);
+      if (Math.abs(ev.clientY - y0) > 1) setRowHeight(r, r, h0 + ev.clientY - y0);
+    };
+    window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
+  };
   /** Drag a column heading's right edge to resize it; double-click to fit its contents. */
   const startResize = (c) => (e) => {
     if (readOnly || e.button !== 0) return;
@@ -835,6 +853,8 @@ export default function SheetEditor() {
     { label: `Insert ${nr > 1 ? `${nr} rows` : '1 row'} above`, icon: 'plus', onClick: () => changeStructure({ axis: 'row', at: range.r1, count: nr }) },
     { label: `Insert ${nr > 1 ? `${nr} rows` : '1 row'} below`, icon: 'plus', onClick: () => changeStructure({ axis: 'row', at: range.r2 + 1, count: nr }) },
     { label: nr > 1 ? `Delete rows ${range.r1 + 1}–${range.r2 + 1}` : `Delete row ${range.r1 + 1}`, icon: 'trash', danger: true, onClick: () => changeStructure({ axis: 'row', at: range.r1, count: -nr }) },
+    { label: nr > 1 ? `Resize rows ${range.r1 + 1}–${range.r2 + 1}…` : `Resize row ${range.r1 + 1}…`, onClick: () => setDialog({ type: 'rowheight', a: range.r1, b: range.r2 }) },
+    ...(Array.from({ length: nr }, (_, i) => heightOf(sheet?.rowHeights, range.r1 + i)).some(Boolean) ? [{ label: 'Standard row height', onClick: () => setRowHeight(range.r1, range.r2, null) }] : []),
   ];
   const colItems = [
     { label: `Insert ${nc > 1 ? `${nc} columns` : '1 column'} left`, icon: 'plus', onClick: () => changeStructure({ axis: 'col', at: range.c1, count: nc }) },
@@ -987,12 +1007,14 @@ export default function SheetEditor() {
           </thead>
           <tbody>
             {Array.from({ length: rows }, (_, r) => (hidden.has(r) ? null : (
-              <tr key={r} className={hidden.has(r + 1) || hidden.has(r - 1) ? 'next-to-hidden' : undefined}>
+              <tr key={r} className={`${hidden.has(r + 1) || hidden.has(r - 1) ? 'next-to-hidden' : ''} ${rowH(r) ? 'sized' : ''}`} style={rowH(r) ? { height: rowH(r), '--rh': `${rowH(r) - 4}px` } : undefined}>
                 <th className={`${inGroup('row', r) ? 'grouped' : ''} ${r >= range.r1 && r <= range.r2 ? 'hl' : ''} ${r < frozen.rows ? 'frozen-r' : ''} ${r === frozen.rows - 1 ? 'freeze-edge-b' : ''}`}
                   style={r < frozen.rows ? { top: stick.top[r] } : undefined} onMouseDown={(e) => { if (e.button === 0) pickRow(r, e); }}
                   onContextMenu={(e) => { if (!(isWholeRows && r >= range.r1 && r <= range.r2)) pickRow(r, { shiftKey: false }); openMenu(e, 'row'); }}>{r + 1}
                   {groupToggle.row.has(r) && <GroupToggle group={groupToggle.row.get(r)} onToggle={readOnly ? null : () => flipGroup('row', groupToggle.row.get(r).from)} />}
-                  {unhideAt.row.has(r) && <UnhideButton run={unhideAt.row.get(r)} axis="row" onShow={readOnly ? null : (a, b) => hideSpan('row', a, b, true)} />}</th>
+                  {unhideAt.row.has(r) && <UnhideButton run={unhideAt.row.get(r)} axis="row" onShow={readOnly ? null : (a, b) => hideSpan('row', a, b, true)} />}
+                  {!readOnly && <span className="row-resize" role="separator" aria-orientation="horizontal" aria-label={`Resize row ${r + 1}`} title="Drag to resize, double-click for the standard height"
+                    onPointerDown={startRowResize(r)} onMouseDown={(e) => e.stopPropagation()} onDoubleClick={(e) => { e.stopPropagation(); setRowHeight(r, r, null); }} />}</th>
                 {Array.from({ length: cols }, (_, c) => {
                   const k = cellKey(c, r);
                   if (layout.covered.has(k)) return null; // drawn by its merge's top-left cell
@@ -1170,6 +1192,12 @@ export default function SheetEditor() {
       {dialog?.type === 'sort' && (() => { const g = sortTarget(); return (
         <SortDialog initial={{ range: g, by: sel.c }} header={looksLikeHeader(g, evaluate)} value={evaluate} onSort={sortBy} onClose={() => { setDialog(null); gridRef.current?.focus(); }} />
       ); })()}
+      {dialog?.type === 'rowheight' && (
+        <PromptModal title={dialog.a === dialog.b ? `Height of row ${dialog.a + 1}` : `Height of rows ${dialog.a + 1}–${dialog.b + 1}`} label={`Height in pixels (${MIN_H}–${MAX_H}; the standard is ${DEFAULT_H})`}
+          initial={String(heightOf(sheet?.rowHeights, dialog.a) || DEFAULT_H)}
+          onSubmit={(v) => { const n = Number(v); if (!Number.isFinite(n) || n < MIN_H || n > MAX_H) throw new Error(`Type a number from ${MIN_H} to ${MAX_H}`); setRowHeight(dialog.a, dialog.b, n); }}
+          onClose={() => { setDialog(null); gridRef.current?.focus(); }} />
+      )}
       {dialog?.type === 'picture' && (
         <PictureCellDialog cell={dialog.key} parentId={file.parent_id}
           onPick={(formula) => { writeCells({ [dialog.key]: formula }); setDialog(null); gridRef.current?.focus(); }}

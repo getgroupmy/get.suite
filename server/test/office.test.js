@@ -761,3 +761,18 @@ test('Excel: cell notes both ways (plain and rich-text notes), and found by sear
   assert.match(sheetText(data), /Ask the landlord/);
   assert.ok(docText);
 });
+
+test('Excel: row heights go out in points and come back in pixels', async () => {
+  const book = { sheets: [{ name: 'Sheet1', cells: { A1: 'Tall', A3: 'Short' }, rowHeights: { 1: 80, 3: 16, 7: 120 } }] };
+  const buf = await excelFromSheet(book);
+  const ExcelJS = (await import('exceljs')).default;
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(buf);
+  const ws = wb.getWorksheet('Sheet1');
+  assert.equal(ws.getRow(1).height, 60);
+  assert.equal(ws.getRow(7).height, 90, 'an empty row keeps its height too');
+  const back = await sheetFromExcel(buf);
+  assert.deepEqual(back.sheets[0].rowHeights, { 1: 80, 3: 16, 7: 120 });
+  const plain = await sheetFromExcel(await excelFromSheet({ sheets: [{ name: 'S', cells: { A1: 'x' } }] }));
+  assert.equal(plain.sheets[0].rowHeights, undefined, 'no heights when none were set');
+});

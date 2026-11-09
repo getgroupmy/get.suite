@@ -7,6 +7,7 @@ import { THEMES } from './slides/slidemath.js';
 import { bookEvaluator, cellKey, colName, display, parseRef } from './sheets/formula.js';
 import { formatNumber, cellStyle } from './sheets/cellformat.js';
 import { CellPicture } from './sheets/SheetPicture.jsx';
+import { heightOf } from './sheets/rowheights.js';
 
 export default function PublishedPage({ token }) {
   const [data, setData] = useState(null);
@@ -70,7 +71,7 @@ export function PublishedSheet({ book, base = null }) {
         <table className="pub-sheet">
           <thead><tr><th />{Array.from({ length: view.cols }, (_, c) => <th key={c} scope="col">{colName(c)}</th>)}</tr></thead>
           <tbody>{Array.from({ length: view.rows }, (_, r) => (
-            <tr key={r}><th scope="row">{r + 1}</th>{Array.from({ length: view.cols }, (_, c) => { const k = cellKey(c, r); return <td key={k} data-k={k} style={cellStyle(sheet.formats?.[k])}>{base && view.image(k) ? <CellPicture image={view.image(k)} base={base} label={`Picture in ${k}`} /> : view.value(k)}</td>; })}</tr>
+            <tr key={r} style={heightOf(sheet.rowHeights, r) ? { height: heightOf(sheet.rowHeights, r), '--rh': `${heightOf(sheet.rowHeights, r) - 4}px` } : undefined}><th scope="row">{r + 1}</th>{Array.from({ length: view.cols }, (_, c) => { const k = cellKey(c, r); return <td key={k} data-k={k} style={cellStyle(sheet.formats?.[k])}>{base && view.image(k) ? <CellPicture image={view.image(k)} base={base} label={`Picture in ${k}`} /> : view.value(k)}</td>; })}</tr>
           ))}</tbody>
         </table>
       </div>
