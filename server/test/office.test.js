@@ -1160,3 +1160,29 @@ test('PowerPoint: stacked, area, scatter and doughnut charts from spreadsheets',
   assert.match(all, /<c:scatterChart>/);
   assert.match(all, /<c:doughnutChart>/);
 });
+
+test('Excel: charts go into the download as real Excel charts over the sheet\'s cells', async () => {
+  const { chartLayout, chartXml } = await import('../src/office/xlsxcharts.js');
+  const cells = { A1: 'Month', B1: 'North', C1: 'South', A2: 'Jan', B2: '10', C2: '4', A3: 'Feb', B3: '=B2+2', C3: '5', E1: 'H', F1: 'W', E2: '150', F2: '50', E3: '160', F3: '58' };
+  const L = chartLayout('A1:C3', cells);
+  assert.deepEqual([L.headRow, L.labelCol, L.series.map((s) => s.name)], [true, true, ['North', 'South']]);
+  const bar = chartXml({ type: 'stackedBar', range: 'A1:C3', title: 'Sales & costs' }, 'Q1 data', cells);
+  assert.match(bar, /<c:barDir val="bar"\/><c:grouping val="stacked"\/>/);
+  assert.match(bar, /<c:f>'Q1 data'!\$B\$2:\$B\$3<\/c:f>/, 'series point at the cells');
+  assert.match(bar, /<c:f>'Q1 data'!\$A\$2:\$A\$3<\/c:f>/, 'categories from the first column');
+  assert.match(bar, /Sales &amp; costs/);
+  assert.match(chartXml({ type: 'scatter', range: 'E1:F3' }, 'S', cells), /<c:xVal><c:numRef><c:f>'S'!\$E\$2:\$E\$3<\/c:f>/);
+  assert.match(chartXml({ type: 'doughnut', range: 'A1:B3' }, 'S', cells), /<c:holeSize val="58"\/>/);
+  assert.equal(chartXml({ type: 'line', range: 'A1:A3' }, 'S', cells), null, 'no numbers: no chart');
+  // A whole workbook: the chart parts, the drawing, and a sheet that opens again (notes kept too).
+  const buf = await excelFromSheet({ sheets: [{ name: 'Q1 data', cells, notes: { A1: 'Months' }, charts: { a: { type: 'column', range: 'A1:C3', title: 'By month', x: 300, y: 40, w: 400, h: 250 }, b: { type: 'pie', range: 'A1:B3' } } }, { name: 'Other', cells: { A1: 'x' } }] });
+  const zip = await JSZip.loadAsync(buf);
+  assert.deepEqual(Object.keys(zip.files).filter((f) => /^xl\/(charts|drawings)\/[^/]+\.xml$/.test(f)).sort(), ['xl/charts/chart1.xml', 'xl/charts/chart2.xml', 'xl/drawings/drawing1.xml']);
+  const sheet = await zip.file('xl/worksheets/sheet1.xml').async('string');
+  assert.ok(sheet.indexOf('<drawing ') < sheet.indexOf('<legacyDrawing '), 'the drawing comes before the notes');
+  assert.match(await zip.file('[Content_Types].xml').async('string'), /\/xl\/charts\/chart2\.xml/);
+  assert.equal(await zip.file('xl/worksheets/sheet2.xml').async('string').then((x) => /<drawing /.test(x)), false);
+  const back = await sheetFromExcel(buf);
+  assert.equal(back.sheets[0].cells.A2, 'Jan');
+  assert.equal(back.sheets[0].notes?.A1, 'Months');
+});

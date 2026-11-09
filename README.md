@@ -396,7 +396,7 @@ Protections move with their cells when the owner (or someone allowed) inserts or
 - **On the sheet:** drag a chart by its title to move it, and drag its bottom-right corner to resize it. Double-click it (or use its ⋮ menu) to change it; the menu also deletes it.
 - **Reading it:** hover to see the exact numbers, and use **Show data** for the table behind the chart. Charts follow the cells, so they change as the numbers do.
 - **Together:** charts are shared live like the cells; viewers see them but can't change them. A pie or doughnut shows the first series and puts its smallest slices together as "Other" past six. Up to eight series are drawn.
-- Charts aren't included when you download the spreadsheet as Excel (.xlsx); the numbers are.
+- **In Excel:** **Download as Excel (.xlsx)** includes the charts as real Excel charts of the same kind, with their titles, placed where they are on the sheet. Their series point at the sheet's cells, so Excel redraws them when the numbers change there. (Charts in an uploaded Excel file aren't read in yet; its numbers are.)
 
 ## Slides
 

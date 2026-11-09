@@ -2,6 +2,7 @@
 // fill colours, alignment, number formats (number, currency, percent, decimals) and column widths.
 import ExcelJS from 'exceljs';
 import JSZip from 'jszip';
+import { withCharts } from './xlsxcharts.js';
 import path from 'node:path';
 import { meetsCondition, cleanCondition } from './filtercond.js';
 
@@ -367,7 +368,9 @@ export async function excelFromSheet(data) {
       try { wb.definedNames.add(`'${ws.name.replace(/'/g, "''")}'!${abs}`, name); } catch { /* not a name Excel takes */ }
     }
   });
-  return withFunctions(Buffer.from(await wb.xlsx.writeBuffer()), data.functions);
+  // Charts: added to the finished file (the library has none), with each sheet's name as written.
+  const named = (data.sheets || []).map((s, i) => ({ ...s, xlName: wb.worksheets[i]?.name || s.name }));
+  return withCharts(await withFunctions(Buffer.from(await wb.xlsx.writeBuffer()), data.functions), named);
 }
 
 // ---- named functions (⋮ → Named functions): Excel keeps them as defined names holding a LAMBDA,
