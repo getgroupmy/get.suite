@@ -119,6 +119,12 @@ export function cleanQuestions(list) {
       if (!out.options.length) out.options = ['Option 1'];
       if (raw?.shuffle) out.shuffle = true; // shown in a different order to each person
       if (raw?.other && (type === 'choice' || type === 'checkbox')) out.other = true; // an "Other…" choice people type themselves
+      // A picture for an option (choose between logos, products, rooms): { option: Drive picture id }.
+      if ((type === 'choice' || type === 'checkbox') && raw?.option_images && typeof raw.option_images === 'object') {
+        const imgs = {};
+        for (const o of out.options) { const id = raw.option_images[o]; if (typeof id === 'string' && /^[A-Za-z0-9_-]{4,64}$/.test(id)) imgs[o] = id; }
+        if (Object.keys(imgs).length) out.option_images = imgs;
+      }
       // Limits: how many people can pick an option (a session with 12 seats); a full option can't be chosen.
       if (raw?.limits && typeof raw.limits === 'object') {
         const lim = {};
@@ -386,7 +392,7 @@ const PICTURE_TYPES = /^image\/(png|jpeg|gif|webp)$/;
  */
 function sendPicture(form, picId, res, ownerSeesNew = null) {
   const pic = String(picId);
-  const used = form.questions.some((qu) => qu.image === pic);
+  const used = form.questions.some((qu) => qu.image === pic || Object.values(qu.option_images || {}).includes(pic));
   const file = q("SELECT * FROM files WHERE id = ? AND kind = 'file' AND trashed = 0").get(pic);
   const team = teamOf(form);
   if (!file || !PICTURE_TYPES.test(file.mime || '') || !team.includes(file.owner_id) || !(used || (ownerSeesNew && file.owner_id === ownerSeesNew))) throw notFound('Picture not found');

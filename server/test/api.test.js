@@ -3833,6 +3833,14 @@ test('forms: pictures on questions, seen by everyone who can fill the form in', 
   assert.equal((await anon('GET', `/api/public/forms/${f.token}/pictures/${unused.id}`)).status, 404, 'only pictures the form uses');
   assert.equal((await anon('GET', `/api/public/forms/${f.token}/pictures/${theirs.id}`)).status, 404, 'only pictures of the form’s owner or editors');
   assert.equal((await b('GET', `/api/forms/${f.id}/pictures/${pic.id}`)).status, 404, 'not their form');
+  // Pictures on options: kept for options that exist, served like question pictures.
+  const g = (await a('PUT', `/api/forms/${made.id}`, { questions: [
+    { id: 'q1', type: 'choice', title: 'Which logo?', options: ['Left', 'Right'], option_images: { Left: pic.id, Right: unused.id, Gone: pic.id, Bad: '../x' } },
+    { id: 'q2', type: 'dropdown', title: 'No pictures here', options: ['A'], option_images: { A: pic.id } },
+  ] })).body;
+  assert.deepEqual(g.questions[0].option_images, { Left: pic.id, Right: unused.id });
+  assert.equal(g.questions[1].option_images, undefined, 'only choice and tick-box questions');
+  assert.equal((await anon('GET', `/api/public/forms/${f.token}/pictures/${unused.id}`)).status, 200, 'now used by an option');
 });
 
 test('docs writing preferences: autocorrect and your own replacements, per person', async () => {

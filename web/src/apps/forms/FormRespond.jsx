@@ -219,7 +219,8 @@ export function Question({ q, token, value, onChange, missing }) {
               <label key={o} className={`${q.type === 'scale' ? 'form-scale-pick' : 'check'} ${full ? 'form-full' : ''}`}>
                 <input type={many ? 'checkbox' : 'radio'} name={q.id} value={o} checked={on} disabled={full}
                   onChange={(e) => { if (!many) setOtherOn(false); return many ? onChange(e.target.checked ? [...list, o] : list.filter((x) => x !== o)) : onChange(q.type === 'scale' ? Number(o) : o); }} />
-                <span>{o}{places !== undefined && <span className="muted small"> · {places === 0 ? 'Full' : `${places} ${places === 1 ? 'place' : 'places'} left`}</span>}</span>
+                <span className={q.option_images?.[o] ? 'form-option-pic' : undefined}>{q.option_images?.[o] && <img src={`/api/public/forms/${encodeURIComponent(token)}/pictures/${q.option_images[o]}`} alt="" loading="lazy" />}
+                  <span>{o}{places !== undefined && <span className="muted small"> · {places === 0 ? 'Full' : `${places} ${places === 1 ? 'place' : 'places'} left`}</span>}</span></span>
               </label>
             );
           })}

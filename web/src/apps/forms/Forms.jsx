@@ -262,10 +262,13 @@ function QuestionsTab({ form, edit }) {
                     const v = e.target.value;
                     // A limit follows its option when the option is renamed.
                     const limits = q.limits && q.limits[o] !== undefined ? Object.fromEntries(Object.entries(q.limits).map(([key, n]) => [key === o ? v : key, n])) : q.limits;
-                    change(i, { options: q.options.map((x, m) => (m === k ? v : x)), ...(limits !== q.limits && { limits }) });
+                    const option_images = q.option_images?.[o] ? Object.fromEntries(Object.entries(q.option_images).map(([key, id]) => [key === o ? v : key, id])) : q.option_images; // and its picture
+                    change(i, { options: q.options.map((x, m) => (m === k ? v : x)), ...(limits !== q.limits && { limits }), ...(option_images !== q.option_images && { option_images }) });
                   }} />
                   {q.limits && q.type !== 'scale' && <input type="number" className="form-limit" min={1} max={100000} placeholder="No limit" aria-label={`Places for option ${k + 1}`} title="How many people can choose it (empty: no limit)"
                     value={q.limits[o] ?? ''} onChange={(e) => { const n = Math.round(Number(e.target.value)); const next = { ...q.limits }; if (e.target.value === '' || !(n >= 1)) delete next[o]; else next[o] = n; change(i, { limits: next }); }} />}
+                  {(q.type === 'choice' || q.type === 'checkbox') && <OptionPicture q={q} option={o} label={`question ${i + 1}, option ${k + 1}`} formId={form.id}
+                    onChange={(id) => { const next = { ...(q.option_images || {}) }; if (id) next[o] = id; else delete next[o]; change(i, { option_images: Object.keys(next).length ? next : undefined }); }} />}
                   {q.options.length > 1 && <button type="button" className="icon-btn" aria-label={`Remove option ${k + 1}`} onClick={() => change(i, { options: q.options.filter((_, m) => m !== k) })}><Icon name="close" size={16} /></button>}
                 </li>
               ))}
@@ -584,5 +587,24 @@ function QuestionPicture({ q, n, formId, onChange }) {
         </div>
       </> : <button type="button" className="link-btn small" disabled={busy} onClick={() => input.current?.click()}>{busy ? 'Adding…' : '🖼 Add picture'}</button>}
     </div>
+  );
+}
+
+/** A picture for one option: a small thumbnail with × to take it off, or 🖼 to add one. */
+function OptionPicture({ q, option, label, formId, onChange }) {
+  const toast = useToast();
+  const input = useRef();
+  const id = q.option_images?.[option];
+  const pick = async (file) => {
+    if (!file) return;
+    if (!/^image\/(png|jpeg|gif|webp)$/.test(file.type)) { toast('Choose a picture (PNG, JPEG, GIF or WebP)', 'error'); return; }
+    try { onChange((await uploadFile(file, null)).id); } catch (e) { toast(e.message, 'error'); }
+  };
+  return (
+    <>
+      <input ref={input} type="file" accept="image/png,image/jpeg,image/gif,image/webp" hidden aria-label={`Picture for ${label}`} onChange={(e) => { pick(e.target.files?.[0]); e.target.value = ''; }} />
+      {id ? <span className="form-option-thumb"><img src={`/api/forms/${formId}/pictures/${id}`} alt="" /><button type="button" className="chip-x" aria-label={`Remove picture from ${label}`} onClick={() => onChange(null)}>×</button></span>
+        : <button type="button" className="icon-btn" aria-label={`Add a picture to ${label}`} title="Add a picture to this option" onClick={() => input.current?.click()}>🖼</button>}
+    </>
   );
 }

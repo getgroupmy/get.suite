@@ -2341,3 +2341,8 @@ textarea.mono { font-family: ui-monospace, Consolas, monospace; }
 .form-q-picture { display: block; max-width: 100%; max-height: 360px; border-radius: 6px; margin: 6px 0; }
 .form-q-picture-edit { display: grid; gap: 4px; justify-items: start; }
 .form-q-picture-edit .row { width: 100%; }
+.form-option-pic { display: inline-flex; flex-direction: column; gap: 4px; }
+.form-option-pic img { max-width: 220px; max-height: 160px; border-radius: 6px; border: 1px solid var(--border); }
+.form-option-thumb { position: relative; display: inline-block; }
+.form-option-thumb img { width: 40px; height: 30px; object-fit: cover; border-radius: 4px; border: 1px solid var(--border); display: block; }
+.form-option-thumb .chip-x { position: absolute; top: -8px; right: -8px; }
