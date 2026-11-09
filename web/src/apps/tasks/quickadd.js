@@ -29,6 +29,22 @@ function dayMonth(today, d, m) {
   return valid(y, m, d) ? `${y}-${pad(m)}-${pad(d)}` : null;
 }
 
+import { customRepeat, readCustom } from './taskmath.js';
+
+const DAY_WORDS = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
+const DAY_RE = '(?:sun|mon|tue|tues|wed|thu|thur|thurs|fri|sat)(?:day|nesday|rsday|urday|sday)?';
+/** "every 2 weeks", "every other month", "every mon and thu", "every 2 weeks on tuesday": a custom repeat, or null. */
+function customRepeatIn(s) {
+  const m = new RegExp(`\\bevery\\s+(?:(other|\\d{1,2})\\s+)?(day|week|month|year)s?(?:\\s+on\\s+(${DAY_RE}(?:\\s*(?:,|and|&)\\s*${DAY_RE})*))?\\b`, 'i').exec(s)
+    || new RegExp(`\\bevery\\s+(${DAY_RE}(?:\\s*(?:,|and|&)\\s*${DAY_RE})*)\\b`, 'i').exec(s);
+  if (!m) return null;
+  const daysOf = (t) => (t ? t.toLowerCase().match(/sun|mon|tue|wed|thu|fri|sat/g).map((d) => DAY_WORDS[d]) : []);
+  if (m.length === 2) return { match: m, repeat: customRepeat({ n: 1, unit: 'week', days: daysOf(m[1]) }) }; // "every mon and thu"
+  const n = m[1] ? (m[1].toLowerCase() === 'other' ? 2 : Number(m[1])) : 1;
+  if (n === 1 && !m[3]) return null; // plain ones: below
+  return { match: m, repeat: customRepeat({ n, unit: m[2].toLowerCase(), days: daysOf(m[3]) }) };
+}
+
 const REPEAT_WORDS = [
   [/\b(?:every\s+weekday|weekdays|every\s+work\s*day)\b/i, 'weekdays'],
   [/\b(?:every\s+day|daily)\b/i, 'daily'],
@@ -57,7 +73,9 @@ export function parseQuickAdd(input, { today, people = [] } = {}) {
   // Tags: "#client" (a word starting with a letter, so "issue #42" stays as it is).
   while (take(/\s#(\p{L}[\p{L}\p{N}_-]{0,29})(?=[\s,.]|$)/u, (m) => { const t = m[1].toLowerCase(); if (!out.tags.includes(t) && out.tags.length < 10) { out.tags.push(t); out.found.push({ kind: 'tag', text: `#${t}` }); } }));
   take(/\s!(?:important)?(?=\s)/i, () => { out.important = true; out.found.push({ kind: 'important', text: 'Important' }); });
-  for (const [re, v] of REPEAT_WORDS) if (take(re, () => { out.repeat = v; })) break;
+  const custom = customRepeatIn(s);
+  if (custom) { s = `${s.slice(0, custom.match.index)} ${s.slice(custom.match.index + custom.match[0].length)}`; out.repeat = custom.repeat; }
+  else for (const [re, v] of REPEAT_WORDS) if (take(re, () => { out.repeat = v; })) break;
 
   // A time: "at 3pm", "3:30 pm", "15:00", "at 9".
   take(/\s(?:at\s+)?(\d{1,2})(?::([0-5]\d))?\s*(am|pm)(?=[\s,.]|$)/i, (m) => {
@@ -99,7 +117,13 @@ export function parseQuickAdd(input, { today, people = [] } = {}) {
     assign(p);
   });
 
-  // A time or a repeat needs a day: today.
+  // A repeat on chosen weekdays starts on the first of them from today; a time or another repeat needs a day: today.
+  const onDays = readCustom(out.repeat)?.days;
+  if (!out.due && onDays?.length && today) {
+    const d = new Date(`${today}T00:00:00Z`);
+    while (!onDays.includes(d.getUTCDay())) d.setUTCDate(d.getUTCDate() + 1);
+    out.due = d.toISOString().slice(0, 10);
+  }
   if (!out.due && (out.due_time || out.repeat)) out.due = today;
   if (out.due) out.found.unshift({ kind: 'due', text: out.due });
   if (out.due_time) out.found.splice(1, 0, { kind: 'time', text: out.due_time });

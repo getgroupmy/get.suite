@@ -2,7 +2,7 @@
 // someone it's assigned to (a person on the list), and a place in the list you can drag it to.
 // Everyone on a list sees changes as they're made.
 import { addTimeRoutes } from '../tasktime.js';
-import { REPEATS, nextDue } from '../taskrepeat.js';
+import { cleanRepeat, nextDue } from '../taskrepeat.js';
 import express, { Router } from 'express';
 import { tasksFromCsv } from '../taskimport.js';
 import { q, tx } from '../db.js';
@@ -182,8 +182,9 @@ function dueTimeOf(v) {
 }
 function repeatOf(v) {
   if (v === null || v === '' || v === undefined) return null;
-  if (!REPEATS.includes(v)) throw bad('Repeat must be one of ' + REPEATS.join(', '));
-  return v;
+  const r = cleanRepeat(v);
+  if (!r) throw bad('Repeat must be daily, weekdays, weekly, monthly, yearly or a custom one (every N days, weeks, months or years)');
+  return r;
 }
 const todayOf = (v) => (typeof v === 'string' && DATE_RE.test(v) ? v : new Date().toISOString().slice(0, 10)); // the person's own date, if sent
 

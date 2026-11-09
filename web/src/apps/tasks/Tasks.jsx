@@ -10,7 +10,7 @@ import Icon from '../../components/Icon.jsx';
 import { groupPlanned } from './planned.js';
 import { Avatar, ConfirmModal, Empty, Menu, Modal, PromptModal, useToast } from '../../components/ui.jsx';
 import { useAuth } from '../../App.jsx';
-import { dueLabel, between, localToday, REPEATS, repeatText, SORTS, sortTasks } from './taskmath.js';
+import { dueLabel, between, localToday, REPEATS, repeatText, readCustom, customRepeat, WEEKDAYS, SORTS, sortTasks } from './taskmath.js';
 import { parseQuickAdd } from './quickadd.js';
 import { addDays, daysFrom, barOf, timelineRange, dragChange } from './timeline.js';
 
@@ -594,12 +594,7 @@ function TaskDetails({ task, tasks, lists, people, onChange, onClose, onDelete, 
             {!task.start && <span className="muted small">optional, for the timeline</span>}</span>
         </label>
       )}
-      <label className="field"><span>Repeat</span>
-        <select value={task.repeat || ''} onChange={(e) => onChange({ repeat: e.target.value || null, ...(!task.due && e.target.value && { due: localToday() }) })}>
-          {REPEATS.map(([v, n]) => <option key={v} value={v}>{n}</option>)}
-        </select>
-        {task.repeat && <span className="muted small">When you tick it off, the next one is added{task.due ? '' : ' (it needs a due date)'}.</span>}
-      </label>
+      <RepeatField task={task} onChange={onChange} />
       {people.length > 1 && (
         <label className="field"><span>Assigned to</span>
           <select value={task.assignee_id || ''} onChange={(e) => onChange({ assignee_id: e.target.value || null })}>
@@ -842,5 +837,49 @@ function CopyList({ list, onClose, onDone }) {
         <p className="muted small" style={{ margin: 0 }}>{start ? 'Due dates move so the earliest falls on this day, keeping the same gaps between them.' : 'Without a start day, the copy has no due dates.'}</p>
       </form>
     </Modal>
+  );
+}
+
+/** How a task repeats: the usual choices, or Custom… (every N days, weeks on chosen days, months or years). */
+function RepeatField({ task, onChange }) {
+  const custom = readCustom(task.repeat);
+  const [editing, setEditing] = useState(null); // { n, unit, days } while the custom repeat is being chosen
+  const set = (repeat) => onChange({ repeat: repeat || null, ...(!task.due && repeat && { due: localToday() }) });
+  const value = editing || custom ? 'custom' : task.repeat || '';
+  return (
+    <div className="field"><label htmlFor="task-repeat"><span>Repeat</span></label>
+      <select id="task-repeat" value={value} onChange={(e) => {
+        if (e.target.value === 'custom') setEditing(custom || { n: 2, unit: 'week', days: [] });
+        else { setEditing(null); set(e.target.value); }
+      }}>
+        {REPEATS.map(([v, n]) => <option key={v} value={v}>{n}</option>)}
+        <option value="custom">{custom ? repeatText(task.repeat) : 'Custom…'}</option>
+      </select>
+      {editing && (
+        <div className="repeat-custom stack-tight" role="group" aria-label="Custom repeat">
+          <div className="row" style={{ gap: 6 }}>
+            <span>Every</span>
+            <input type="number" min={1} max={99} aria-label="Repeat every" value={editing.n} onChange={(e) => setEditing({ ...editing, n: e.target.value })} style={{ width: 64 }} />
+            <select aria-label="Repeat unit" value={editing.unit} onChange={(e) => setEditing({ ...editing, unit: e.target.value })}>
+              {[['day', 'days'], ['week', 'weeks'], ['month', 'months'], ['year', 'years']].map(([v, n]) => <option key={v} value={v}>{n}</option>)}
+            </select>
+          </div>
+          {editing.unit === 'week' && (
+            <div className="row repeat-days" style={{ gap: 4 }} aria-label="On these days">
+              {[1, 2, 3, 4, 5, 6, 0].map((d) => (
+                <button key={d} type="button" aria-pressed={editing.days.includes(d)} className={`btn small ${editing.days.includes(d) ? 'primary' : ''}`}
+                  onClick={() => setEditing({ ...editing, days: editing.days.includes(d) ? editing.days.filter((x) => x !== d) : [...editing.days, d] })}>{WEEKDAYS[d]}</button>
+              ))}
+            </div>
+          )}
+          <div className="row" style={{ gap: 8 }}>
+            <button type="button" className="btn small primary" onClick={() => { set(customRepeat(editing)); setEditing(null); }}>Done</button>
+            <button type="button" className="link-btn small" onClick={() => setEditing(null)}>Cancel</button>
+            <span className="muted small">{repeatText(customRepeat(editing))}</span>
+          </div>
+        </div>
+      )}
+      {task.repeat && !editing && <span className="muted small">When you tick it off, the next one is added{task.due ? '' : ' (it needs a due date)'}.</span>}
+    </div>
   );
 }

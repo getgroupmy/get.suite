@@ -37,7 +37,33 @@ export function localToday(now = new Date()) {
 
 /** How a task can repeat, with what the picker and the list say. */
 export const REPEATS = [['', 'Does not repeat'], ['daily', 'Every day'], ['weekdays', 'Every weekday (Mon–Fri)'], ['weekly', 'Every week'], ['monthly', 'Every month'], ['yearly', 'Every year']];
-export const repeatText = (r) => ({ daily: 'Daily', weekdays: 'Weekdays', weekly: 'Weekly', monthly: 'Monthly', yearly: 'Yearly' }[r] || '');
+export const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const UNITS = { day: ['day', 'days'], week: ['week', 'weeks'], month: ['month', 'months'], year: ['year', 'years'] };
+
+/** A custom repeat ("every:2:week:1,4") as { n, unit, days }, or null for anything else. */
+export function readCustom(r) {
+  const m = /^every:(\d{1,2}):(day|week|month|year)(?::([0-6](?:,[0-6])*))?$/.exec(String(r || ''));
+  return m ? { n: Number(m[1]), unit: m[2], days: m[3] ? m[3].split(',').map(Number) : [] } : null;
+}
+
+/** The repeat for every n units (on some weekdays, for weeks), with plain ones by their simple names (as the server keeps them). */
+export function customRepeat({ n, unit, days = [] }) {
+  const k = Math.max(1, Math.min(99, Math.round(Number(n) || 1)));
+  const d = unit === 'week' ? [...new Set(days)].sort((a, b) => a - b) : [];
+  if (k === 1 && !d.length) return { day: 'daily', week: 'weekly', month: 'monthly', year: 'yearly' }[unit];
+  if (k === 1 && d.join() === '1,2,3,4,5') return 'weekdays';
+  return `every:${k}:${unit}${d.length ? `:${d.join(',')}` : ''}`;
+}
+
+/** "Daily", "Every 2 weeks on Mon, Thu", "Every 3 months". */
+export function repeatText(r) {
+  const plain = { daily: 'Daily', weekdays: 'Weekdays', weekly: 'Weekly', monthly: 'Monthly', yearly: 'Yearly' }[r];
+  if (plain) return plain;
+  const c = readCustom(r);
+  if (!c) return '';
+  const every = c.n === 1 ? `Every ${UNITS[c.unit][0]}` : `Every ${c.n} ${UNITS[c.unit][1]}`;
+  return c.days.length ? `${every} on ${c.days.map((d) => WEEKDAYS[d]).join(', ')}` : every;
+}
 
 export const SORTS = [['mine', 'My order'], ['due', 'Due date'], ['title', 'Title'], ['added', 'Recently added'], ['important', 'Starred first']];
 /** Open tasks in the chosen order (they arrive in "my order"; ties keep it). */

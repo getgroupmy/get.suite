@@ -1448,6 +1448,16 @@ test('tasks: repeating tasks come back when ticked off, and Undo takes the next 
   const tasks = async () => (await a('GET', `/api/tasks/lists/${list}/tasks`)).body;
   assert.equal((await a('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Bins', repeat: 'weekly' })).status, 400, 'needs a date');
   assert.equal((await a('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Bins', due: '2026-11-02', repeat: 'hourly' })).status, 400);
+  // Custom: every other week on Monday and Thursday (2026-11-09 is a Monday); plain ones are kept by their simple names.
+  assert.equal((await a('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Bad', due: '2026-11-09', repeat: 'every:0:day' })).status, 400);
+  const gym = (await a('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Gym', due: '2026-11-12', repeat: 'every:2:week:4,1' })).body;
+  assert.equal(gym.repeat, 'every:2:week:1,4');
+  assert.equal((await a('PATCH', `/api/tasks/tasks/${gym.id}`, { repeat: 'every:1:month' })).body.repeat, 'monthly');
+  await a('PATCH', `/api/tasks/tasks/${gym.id}`, { repeat: 'every:2:week:1,4' });
+  const gymDone = (await a('PATCH', `/api/tasks/tasks/${gym.id}`, { done: true, today: '2026-11-12' })).body;
+  const gymNext = (await a('GET', `/api/tasks/lists/${list}/tasks`)).body.find((t) => t.id === gymDone.next_id);
+  assert.deepEqual([gymNext.due, gymNext.repeat], ['2026-11-23', 'every:2:week:1,4'], 'Thursday → the Monday after next');
+  await a('DELETE', `/api/tasks/tasks/${gymNext.id}`); await a('DELETE', `/api/tasks/tasks/${gym.id}`);
   const bins = (await a('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Bins', notes: 'Green one', due: '2026-11-02', repeat: 'weekly' })).body;
   assert.equal(bins.repeat, 'weekly');
   // Ticked off late: the next is the first Monday from today on, with the same notes.

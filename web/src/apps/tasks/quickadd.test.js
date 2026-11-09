@@ -59,3 +59,22 @@ test('quick add: #tags', () => {
   assert.equal(n.title, 'Fix issue #42');
   assert.deepEqual(n.tags, []);
 });
+
+test('quick add: custom repeats', async () => {
+  const { repeatText } = await import('./taskmath.js');
+  const today = '2026-11-09'; // a Monday
+  const p = (s) => parseQuickAdd(s, { today });
+  assert.equal(p('Pay rent every 2 weeks').repeat, 'every:2:week');
+  assert.equal(p('Water ferns every other day').repeat, 'every:2:day');
+  assert.equal(p('Review budget every 3 months').repeat, 'every:3:month');
+  const gym = p('Gym every tue and thursday');
+  assert.deepEqual([gym.title, gym.repeat, gym.due], ['Gym', 'every:1:week:2,4', '2026-11-10'], 'starts on the first of those days');
+  const standup = p('Standup every 2 weeks on mon, wed');
+  assert.deepEqual([standup.title, standup.repeat, standup.due], ['Standup', 'every:2:week:1,3', '2026-11-09']);
+  assert.equal(p('Report every week').repeat, 'weekly', 'plain ones as before');
+  assert.equal(p('Timesheet every mon,tue,wed,thu,fri').repeat, 'weekdays');
+  assert.equal(repeatText('every:2:week:1,4'), 'Every 2 weeks on Mon, Thu');
+  assert.equal(repeatText('every:1:week:2,4'), 'Every week on Tue, Thu');
+  assert.equal(repeatText('every:3:month'), 'Every 3 months');
+  assert.equal(repeatText('monthly'), 'Monthly');
+});
