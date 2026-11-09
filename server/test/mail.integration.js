@@ -1633,3 +1633,31 @@ test('outgoing queue: mail that can’t go out is listed for the platform owner,
   }, 20000);
   assert.ok(JSON.stringify((await olivia('GET', '/api/audit')).body).includes('mail-queue.delete'));
 });
+
+test('large files as links: over 25 MB goes out as a download link, the rest attached; only your own files', async () => {
+  const big = (await olivia('POST', '/api/files/upload?name=Site%20video.mp4', Buffer.alloc(26 * 1024 * 1024, 7), { raw: true })).body;
+  const small = (await olivia('POST', '/api/files/upload?name=agenda.txt', 'Agenda', { raw: true })).body;
+  const tooBig = await olivia('POST', '/api/mail/send', { to: 'olivia@acme.com', subject: 'Too big', text: 'x', attachments: [big.id, small.id] });
+  assert.equal(tooBig.status, 400);
+  assert.match(tooBig.body.error, /send the large files as links/);
+  const r = await olivia('POST', '/api/mail/send', { to: 'olivia@acme.com', subject: 'Site video', text: 'Here it is.', html: '<p>Here it is.</p>', attachments: [big.id, small.id], linkAttachments: [big.id] });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  const msg = await eventually(async () => (await inbox(olivia, 'Site video'))[0]);
+  const full = (await olivia('GET', `/api/mail/messages/${msg.uid}?folder=INBOX`)).body;
+  assert.deepEqual(full.attachments.map((a) => a.filename), ['agenda.txt'], 'the small one attached');
+  const token = (full.text || '').match(/\/s\/([\w-]+)/)?.[1];
+  assert.ok(token, full.text);
+  assert.match(full.text, /Site video\.mp4 \(26\.0 MB\)/);
+  assert.match(full.html, /<a href="[^"]+\/s\/[\w-]+">Site video\.mp4<\/a>/);
+  const pub = await fetch(`${base}/api/public/links/${token}`).then((x) => x.json());
+  assert.equal(pub.name, 'Site video.mp4');
+  assert.ok(pub.expires_at > Date.now() + 29 * 864e5);
+  // Someone else's file, even shared with you, can't go out as a link.
+  const lee = client();
+  const leeId = (await olivia('POST', '/api/users', { local: 'linklee', domain: 'acme.com', name: 'Link Lee', password: 'password123' })).body.id;
+  assert.equal((await lee('POST', '/api/auth/login', { username: 'linklee@acme.com', password: 'password123' })).status, 200);
+  await olivia('PUT', `/api/files/${small.id}/shares`, { shares: [{ user_id: leeId, role: 'viewer' }] });
+  const notMine = await lee('POST', '/api/mail/send', { to: 'olivia@acme.com', subject: 'x', text: 'x', attachments: [small.id], linkAttachments: [small.id] });
+  assert.equal(notMine.status, 400);
+  assert.match(notMine.body.error, /isn’t yours/);
+});

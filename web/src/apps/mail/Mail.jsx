@@ -920,7 +920,7 @@ function Compose({ initial, shared = null, signatures = [], onClose, onSent, onD
   const pendingSend = useRef(null); // the send to do when the wait is over (or the page is left)
   useEffect(() => () => { pendingSend.current?.(); }, []); // leaving now sends straight away
   const [scheduling, setScheduling] = useState(false);
-  const payload = () => ({ ...f, html: f.text.trim() ? emailHtml(f.html) : '', attachments: files.map((x) => x.id), draftUid: draftUid.current, forwardOf: fwd, receipt, ...(followUp && { followUp: Number(followUp) }) });
+  const payload = () => ({ ...f, html: f.text.trim() ? emailHtml(f.html) : '', attachments: files.map((x) => x.id), linkAttachments: files.filter((x) => x.asLink).map((x) => x.id), draftUid: draftUid.current, forwardOf: fwd, receipt, ...(followUp && { followUp: Number(followUp) }) });
   const stopAutosave = async () => {
     closed.current = true;          // no more autosaves
     clearTimeout(timer.current);
@@ -995,7 +995,9 @@ function Compose({ initial, shared = null, signatures = [], onClose, onSent, onD
     }
   }
 
-  const total = files.reduce((s, x) => s + x.size, 0);
+  const total = files.filter((x) => !x.asLink).reduce((s, x) => s + x.size, 0); // what's attached; links don't count
+  const linkable = (x) => x.owner_id === user.id; // your own files can go as download links
+  const setAsLink = (id, on) => setFiles((list) => list.map((y) => (y.id === id ? { ...y, asLink: on } : y)));
   return (
     <div hidden={waiting}>
     <Modal wide title={initial.draftUid ? 'Draft' : initial.subject ? initial.subject : 'New message'} onClose={waiting ? () => {} : closeKeep}>
@@ -1037,13 +1039,21 @@ function Compose({ initial, shared = null, signatures = [], onClose, onSent, onD
         {(files.length > 0 || uploading > 0) && (
           <ul className="att-list">
             {files.map((x) => (
-              <li key={x.id} className="att"><Icon name="attach" size={18} /><span className="ellipsis">{x.name}</span><span className="muted small">{formatBytes(x.size)}</span>
+              <li key={x.id} className="att"><Icon name={x.asLink ? 'link' : 'attach'} size={18} /><span className="ellipsis">{x.name}</span><span className="muted small">{formatBytes(x.size)}</span>
+                {linkable(x) && <label className="check small" title="Send a download link (for 30 days) instead of attaching the file"><input type="checkbox" checked={!!x.asLink} onChange={(e) => setAsLink(x.id, e.target.checked)} aria-label={`Send ${x.name} as a link`} /> As a link</label>}
                 <button type="button" className="icon-btn" aria-label={`Remove ${x.name}`} onClick={() => setFiles(files.filter((y) => y.id !== x.id))}><Icon name="close" size={16} /></button></li>
             ))}
             {uploading > 0 && <li className="att muted">Uploading {uploading}…</li>}
           </ul>
         )}
-        {total > 25 * 1024 * 1024 && <p className="error small">Attachments are over 25 MB. Share a Drive link instead.</p>}
+        {total > 25 * 1024 * 1024 && (
+          <p className="error small row" style={{ gap: 8 }}>Attachments are over 25 MB.
+            {files.some((x) => !x.asLink && linkable(x))
+              ? <button type="button" className="link-btn" onClick={() => setFiles((list) => list.map((y) => (linkable(y) && y.size >= 1024 * 1024 ? { ...y, asLink: true } : y)))}>Send the large files as links</button>
+              : ' Share a Drive link instead.'}
+          </p>
+        )}
+        {files.some((x) => x.asLink) && <p className="muted small" style={{ margin: 0 }}>Files sent as links go out as download links at the end of the message, for 30 days; anyone with the message can open them. You can remove a link from the file’s Share window.</p>}
         <div className="row">
           <div className="split-btn">
             <button className="btn primary" disabled={busy || uploading > 0 || !f.to.trim() || total > 25 * 1024 * 1024}><Icon name="send" size={18} /> {busy ? 'Sending…' : 'Send'}</button>

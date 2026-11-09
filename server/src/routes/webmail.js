@@ -1,6 +1,7 @@
 import { companySignature, companySignatureFor } from '../mail/companysig.js';
 import { notify as notifyBell } from '../notifications.js';
 import { audit } from '../audit.js';
+import crypto from 'node:crypto';
 import { fillTemplate, mergeHtml, unknownPlaceholders } from '../mail/merge.js';
 import { Router } from 'express';
 import fs from 'node:fs';
@@ -264,6 +265,7 @@ export function startScheduledSending() {
   }, 20e3).unref();
 }
 const MAX_SEND_BYTES = 25 * 1024 * 1024;
+const LINK_DAYS = 30; // large files sent as links: how long the links last
 const ORDER = ['\\Inbox', '\\Drafts', '\\Sent', '\\Archive', '\\Junk', '\\Trash'];
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -1254,10 +1256,23 @@ export default function webmailRoutes() {
     const from = identities(req.user).find((i) => i.address === String(b.from || req.user.username).toLowerCase());
     if (!from) throw bad('You cannot send from that address');
 
+    // Large files as links: your own files, sent as a download link (a public link that lasts 30 days)
+    // instead of attached, so a message can carry more than 25 MB. Listed at the end of the message.
+    const asLinks = new Set(Array.isArray(b.linkAttachments) ? b.linkAttachments.map(String) : []);
+    const linked = [];
+    if (asLinks.size) {
+      if (!q('SELECT allow_links FROM orgs WHERE id = ?').get(req.user.org_id)?.allow_links) throw bad('Your company has turned off public links, so files can’t be sent as links');
+      for (const id of asLinks) {
+        const f = q("SELECT id, name, size, kind, trashed FROM files WHERE id = ?").get(id);
+        if (!f || f.kind !== 'file' || f.trashed || !roleFor(f.id, req.user.id)) throw bad('An attachment is not available');
+        if (roleFor(f.id, req.user.id) !== 'owner') throw bad(`“${f.name}” isn’t yours, so it can’t be sent as a link: attach it instead`);
+        linked.push(f);
+      }
+    }
     // Attachments: files from Drive the sender can open.
     let total = 0;
     const attachments = [];
-    for (const id of Array.isArray(b.attachments) ? b.attachments : []) {
+    for (const id of (Array.isArray(b.attachments) ? b.attachments : []).filter((x) => !asLinks.has(String(x)))) {
       const f = q("SELECT id, name, mime, size, storage, kind, no_download FROM files WHERE id = ?").get(id);
       if (!f || f.kind !== 'file' || !roleFor(f.id, req.user.id)) throw bad('An attachment is not available');
       if (!mayTakeAway(f, roleFor(f.id, req.user.id))) throw bad(`“${f.name}” can’t be sent: its owner has turned off downloading and copying for people who can only view it`);
@@ -1326,13 +1341,31 @@ export default function webmailRoutes() {
         attachments.push(...pics.values());
       }
     }
-    if (total > MAX_SEND_BYTES) throw bad('Attachments and pictures are larger than 25 MB in total');
+    if (total > MAX_SEND_BYTES) throw bad('Attachments and pictures are larger than 25 MB in total: send the large files as links');
+
+    // The links, made now that the message is going (so a failed check above leaves none behind).
+    let text = typeof b.text === 'string' ? b.text : '';
+    if (linked.length) {
+      const until = Date.now() + LINK_DAYS * 864e5;
+      const base = (process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '');
+      const items = linked.map((f) => {
+        const token = crypto.randomBytes(18).toString('base64url');
+        q(`INSERT INTO share_links (id, token, file_id, created_by, created_at, expires_at, mode) VALUES (?, ?, ?, ?, ?, ?, 'view')`).run(newId(), token, f.id, req.user.id, Date.now(), until);
+        return { name: f.name, size: f.size, url: `${base}/s/${token}` };
+      });
+      audit(req, 'link.create', { target: items.map((i) => i.name).join(', ').slice(0, 300), details: { by_email: true, expires: until } });
+      const day = new Date(until).toISOString().slice(0, 10);
+      const sizeOf = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
+      const escHtml = (x) => String(x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+      text += `\n\nFiles (download links, until ${day}):\n${items.map((i) => `- ${i.name} (${sizeOf(i.size)}): ${i.url}`).join('\n')}\n`;
+      if (html) html += `<div style="margin-top:16px;padding:12px;border:1px solid #dadce0;border-radius:8px"><div style="font-size:13px;color:#5f6368">Files (download links, until ${day})</div>${items.map((i) => `<div style="margin-top:6px">📎 <a href="${escHtml(i.url)}">${escHtml(i.name)}</a> <span style="color:#5f6368">(${sizeOf(i.size)})</span></div>`).join('')}</div>`;
+    }
 
     const mail = {
       from: { name: from.name, address: from.address },
       to, cc, bcc,
       subject: str(b.subject, { max: 998, name: 'Subject' }) || '',
-      text: typeof b.text === 'string' ? b.text : '',
+      text,
       ...(html && { html }),
       ...(b.inReplyTo && { inReplyTo: String(b.inReplyTo), references: [].concat(b.references || [], b.inReplyTo).map(String).slice(-20) }),
       ...(b.receipt && { headers: { 'Disposition-Notification-To': from.address } }), // ask for a read receipt
