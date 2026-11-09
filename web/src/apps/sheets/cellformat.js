@@ -1,12 +1,13 @@
 // Cell formatting for Sheets: how numbers show (the value itself never changes), and which style
 // keys a format may have. Formats live per sheet in `formats` ({ A1: { b, i, u, s (strikethrough), wrap, bd (borders: sides from "tblr"),
-// color, fill, align, num, dp, cur } }).
+// color, fill, align, va (vertical: top, middle or bottom), num, dp, cur } }).
 
 export const NUMBER_FORMATS = [['', 'Automatic'], ['number', 'Number'], ['currency', 'Currency'], ['percent', 'Percent'], ['date', 'Date']];
 /** How a date shows (fmt.ds), with an example. */
 export const DATE_STYLES = [['medium', '7 Nov 2026'], ['short', '07/11/2026'], ['long', 'Saturday, 7 November 2026'], ['iso', '2026-11-07'], ['month', 'Nov 2026']];
 export const CURRENCIES = ['MYR', 'USD', 'EUR', 'GBP', 'SGD', 'AUD', 'JPY', 'CNY', 'IDR', 'THB', 'INR'];
-const KEYS = ['b', 'i', 'u', 's', 'wrap', 'bd', 'color', 'fill', 'align', 'num', 'dp', 'cur', 'ds'];
+const KEYS = ['b', 'i', 'u', 's', 'wrap', 'bd', 'color', 'fill', 'align', 'va', 'num', 'dp', 'cur', 'ds'];
+export const VALIGNS = [['top', 'Top'], ['middle', 'Middle'], ['bottom', 'Bottom']];
 const COLOR_RE = /^#[0-9a-f]{6}$/i;
 
 /** Default decimals for a format (currency: the currency's own, e.g. none for yen). */
@@ -62,6 +63,7 @@ export function cellStyle(fmt) {
   if (fmt.color) s.color = fmt.color;
   if (fmt.fill) s.background = fmt.fill;
   if (fmt.align) s.textAlign = fmt.align;
+  if (fmt.va) s.verticalAlign = fmt.va;
   return s;
 }
 
@@ -73,6 +75,7 @@ export function mergeFormat(fmt, change) {
     if (v === null || v === undefined || v === false || v === '') delete out[k];
     else if ((k === 'color' || k === 'fill') && !COLOR_RE.test(v)) continue;
     else if (k === 'align' && !['left', 'center', 'right'].includes(v)) continue;
+    else if (k === 'va' && !VALIGNS.some(([x]) => x === v)) continue;
     else if (k === 'bd') { const sides = sideSet(v); if (sides) out.bd = sides; else delete out.bd; }
     else if (k === 'dp') out.dp = Math.max(0, Math.min(10, Math.round(v)));
     else out[k] = ['b', 'i', 'u', 's', 'wrap'].includes(k) ? 1 : v;

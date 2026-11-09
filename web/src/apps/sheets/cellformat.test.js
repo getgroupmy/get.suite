@@ -59,3 +59,10 @@ test('date formats: typed dates and date numbers, in each style', async () => {
   assert.deepEqual(mergeFormat({ num: 'date', ds: 'long' }, { num: 'number' }), { num: 'number' }, 'style goes with the date format');
   assert.deepEqual(mergeFormat(null, { num: 'date', ds: 'nope' }), { num: 'date' });
 });
+
+test('vertical alignment: top, middle or bottom of a taller row', () => {
+  assert.deepEqual(mergeFormat({}, { va: 'top' }), { va: 'top' });
+  assert.deepEqual(mergeFormat({ va: 'top' }, { va: 'sideways' }), { va: 'top' }, 'only known values');
+  assert.equal(mergeFormat({ va: 'bottom' }, { va: null }), null);
+  assert.deepEqual(cellStyle({ va: 'bottom', align: 'right' }), { textAlign: 'right', verticalAlign: 'bottom' });
+});

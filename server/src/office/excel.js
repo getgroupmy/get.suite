@@ -165,6 +165,7 @@ export async function sheetFromExcel(buffer) {
         const fill = cell.fill?.type === 'pattern' && cell.fill.pattern === 'solid' ? hex(cell.fill.fgColor?.argb) : null;
         if (fill && fill !== '#ffffff') f.fill = fill;
         if (['left', 'center', 'right'].includes(cell.alignment?.horizontal)) f.align = cell.alignment.horizontal;
+        if (['top', 'middle', 'bottom'].includes(cell.alignment?.vertical)) f.va = cell.alignment.vertical; // only when set in the file
         Object.assign(f, numFromExcel(cell.numFmt));
         if (Object.keys(f).length) formats[key] = f;
       });
@@ -266,7 +267,7 @@ export async function excelFromSheet(data) {
       const cell = ws.getCell(key);
       if (f.b || f.i || f.u || f.s || f.color) cell.font = { bold: !!f.b, italic: !!f.i, underline: !!f.u, strike: !!f.s, ...(f.color && { color: { argb: argb(f.color) } }) };
       if (f.fill) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: argb(f.fill) } };
-      if (f.align || f.wrap) cell.alignment = { ...(f.align && { horizontal: f.align }), ...(f.wrap && { wrapText: true }) };
+      if (f.align || f.wrap || f.va) cell.alignment = { ...(f.align && { horizontal: f.align }), ...(f.va && { vertical: f.va }), ...(f.wrap && { wrapText: true }) };
       if (f.bd) cell.border = Object.fromEntries([['t', 'top'], ['b', 'bottom'], ['l', 'left'], ['r', 'right']].filter(([k]) => f.bd.includes(k)).map(([, side]) => [side, { style: 'thin', color: { argb: 'FF000000' } }]));
       const nf = numToExcel(f);
       if (nf) cell.numFmt = nf;

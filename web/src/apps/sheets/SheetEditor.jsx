@@ -55,7 +55,7 @@ const SEL_COLORS = ['#1a73e8', '#d93025', '#188038', '#e37400', '#8430ce', '#007
 const colorFor = (id) => SEL_COLORS[[...String(id)].reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) >>> 0, 7) % SEL_COLORS.length];
 import { importBook, onImports, refreshImports } from './imports.js';
 import { createEvaluator, bookEvaluator, display, colName, cellKey, parseRef, shiftFormula, colIndex } from './formula.js';
-import { NUMBER_FORMATS, CURRENCIES, DATE_STYLES, BORDERS, borderFor, decimals, formatNumber, cellStyle, mergeFormat } from './cellformat.js';
+import { NUMBER_FORMATS, CURRENCIES, DATE_STYLES, BORDERS, borderFor, decimals, formatNumber, cellStyle, mergeFormat, VALIGNS } from './cellformat.js';
 
 const TEXT_COLORS = [['', 'Automatic'], ['#c5221f', 'Red'], ['#e37400', 'Orange'], ['#188038', 'Green'], ['#1a73e8', 'Blue'], ['#8430ce', 'Purple'], ['#5f6368', 'Grey']];
 const FILLS = [['', 'None'], ['#fce8e6', 'Light red'], ['#fef7e0', 'Light yellow'], ['#e6f4ea', 'Light green'], ['#e8f0fe', 'Light blue'], ['#f3e8fd', 'Light purple'], ['#f1f3f4', 'Light grey']];
@@ -1335,6 +1335,10 @@ function FormatBar({ painter, onPaint, fmt, onChange, onBorders, onMerge, merged
         <button key={a} type="button" className={`tb ${align === a ? 'on' : ''}`} aria-pressed={align === a} aria-label={label} title={label} onMouseDown={keep}
           onClick={() => onChange({ align: align === a ? null : a })}><AlignGlyph to={a} /></button>
       ))}
+      <select className="tb-select" aria-label="Vertical alignment" title="Vertical alignment: where the text sits in a taller row" value={fmt.va || ''} onMouseDown={keep} onChange={(e) => onChange({ va: e.target.value || null })}>
+        <option value="">↕ Middle</option>
+        {VALIGNS.filter(([v]) => v !== 'middle').map(([v, n]) => <option key={v} value={v}>{v === 'top' ? '⤒' : '⤓'} {n}</option>)}
+      </select>
       <Toggle k="wrap" label="Wrap text" title="Wrap text onto more lines in the cell">↵</Toggle>
       <button type="button" className={`tb ${merged ? 'on' : ''}`} aria-pressed={merged} aria-label={merged ? 'Unmerge cells' : 'Merge cells'} title={merged ? 'Unmerge cells' : 'Merge the selected cells into one'} onMouseDown={keep} onClick={onMerge}>⊞</button>
       <select className="tb-select" aria-label="Borders" title="Borders around the selected cells" value="" onChange={(e) => { if (e.target.value) onBorders(e.target.value); }}>
@@ -1361,7 +1365,7 @@ function FormatBar({ painter, onPaint, fmt, onChange, onBorders, onMerge, merged
       </>}
       <span className="sep" />
       <button type="button" className="tb" aria-label="Clear formatting" title="Clear formatting" onMouseDown={keep}
-        onClick={() => onChange({ b: null, i: null, u: null, s: null, wrap: null, bd: null, color: null, fill: null, align: null, num: null })}>Tx</button>
+        onClick={() => onChange({ b: null, i: null, u: null, s: null, wrap: null, bd: null, color: null, fill: null, align: null, va: null, num: null })}>Tx</button>
       <span className="sep" />
       <button type="button" className="tb labelled" aria-label="Conditional formatting" title="Colour cells by their value" onMouseDown={keep} onClick={onRules}><RulesGlyph /> Rules</button>
       <button type="button" className={`tb labelled ${filterOn ? 'on' : ''}`} aria-label={filterOn ? 'Remove filter' : 'Create a filter'} aria-pressed={filterOn} title={filterOn ? 'Remove the filter (shows every row)' : 'Filter rows by their values'} onMouseDown={keep} onClick={onFilter}><FilterGlyph /> Filter</button>

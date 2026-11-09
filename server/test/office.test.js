@@ -776,3 +776,13 @@ test('Excel: row heights go out in points and come back in pixels', async () => 
   const plain = await sheetFromExcel(await excelFromSheet({ sheets: [{ name: 'S', cells: { A1: 'x' } }] }));
   assert.equal(plain.sheets[0].rowHeights, undefined, 'no heights when none were set');
 });
+
+test('Excel: vertical alignment both ways', async () => {
+  const buf = await excelFromSheet({ sheets: [{ name: 'S', cells: { A1: 'up', B1: 'down', C1: 'plain' }, formats: { A1: { va: 'top' }, B1: { va: 'bottom', align: 'right' } } }] });
+  const ExcelJS = (await import('exceljs')).default;
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(buf);
+  assert.equal(wb.getWorksheet('S').getCell('A1').alignment.vertical, 'top');
+  const back = await sheetFromExcel(buf);
+  assert.deepEqual(back.sheets[0].formats, { A1: { va: 'top' }, B1: { va: 'bottom', align: 'right' } });
+});
