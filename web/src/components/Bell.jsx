@@ -122,7 +122,7 @@ function ThisDevice() {
       const { publicKey } = await get('/push');
       const reg = await navigator.serviceWorker.ready;
       const sub = (await reg.pushManager.getSubscription()) || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(publicKey) });
-      await post('/push/subscribe', sub.toJSON());
+      await post('/push/subscribe', { ...sub.toJSON(), tz: Intl.DateTimeFormat().resolvedOptions().timeZone });
       await post('/push/test');
       setState('on');
       toast('Notifications are on for this device');

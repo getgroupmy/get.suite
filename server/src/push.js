@@ -15,6 +15,8 @@ q(`CREATE TABLE IF NOT EXISTS push_subscriptions (
   created_at INTEGER NOT NULL,
   last_ok_at INTEGER
 )`).run();
+// The device's time zone (for "this morning" and due times of tasks, which are dates without one).
+if (!q('PRAGMA table_info(push_subscriptions)').all().some((c) => c.name === 'tz')) q('ALTER TABLE push_subscriptions ADD COLUMN tz TEXT').run();
 
 /** The server's own key pair (VAPID), made once and kept. */
 export function vapidKeys() {
@@ -34,14 +36,15 @@ function allowedEndpoint(endpoint) {
   return u.protocol === 'https:' && !u.port && SERVICES.some((h) => u.hostname === h || u.hostname.endsWith(`.${h}`));
 }
 /** Remember a device: { endpoint, keys: { p256dh, auth } } from the browser's PushManager. */
-export function subscribe(userId, sub, device = null) {
+export function subscribe(userId, sub, device = null, tz = null) {
   const endpoint = String(sub?.endpoint || '');
   const p256dh = String(sub?.keys?.p256dh || ''), auth = String(sub?.keys?.auth || '');
   if (!allowedEndpoint(endpoint) || endpoint.length > 1000) throw new Error('Not a push address');
   if (!/^[\w-]{20,200}$/.test(p256dh) || !/^[\w-]{10,100}$/.test(auth)) throw new Error('Not a push subscription');
-  q(`INSERT INTO push_subscriptions (endpoint, user_id, p256dh, auth, device, created_at) VALUES (?, ?, ?, ?, ?, ?)
-     ON CONFLICT(endpoint) DO UPDATE SET user_id = excluded.user_id, p256dh = excluded.p256dh, auth = excluded.auth, device = excluded.device`)
-    .run(endpoint, userId, p256dh, auth, device ? String(device).slice(0, 200) : null, Date.now());
+  const zone = tz && /^[A-Za-z_]+(\/[A-Za-z0-9_+-]+){0,2}$/.test(String(tz)) ? String(tz) : null;
+  q(`INSERT INTO push_subscriptions (endpoint, user_id, p256dh, auth, device, created_at, tz) VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(endpoint) DO UPDATE SET user_id = excluded.user_id, p256dh = excluded.p256dh, auth = excluded.auth, device = excluded.device, tz = COALESCE(excluded.tz, tz)`)
+    .run(endpoint, userId, p256dh, auth, device ? String(device).slice(0, 200) : null, Date.now(), zone);
 }
 export const unsubscribe = (userId, endpoint) => q('DELETE FROM push_subscriptions WHERE user_id = ? AND endpoint = ?').run(userId, String(endpoint || '')).changes;
 export const devicesOf = (userId) => q('SELECT endpoint, device, created_at, last_ok_at FROM push_subscriptions WHERE user_id = ? ORDER BY created_at').all(userId);

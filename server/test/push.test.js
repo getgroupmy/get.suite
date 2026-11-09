@@ -132,3 +132,32 @@ test('push: calendar reminders reach devices when they come due, repeating ones 
   // Tomorrow, the stand-up again.
   assert.equal(await sendDueReminderPushes(now + 864e5, { skipOnline: false }), 1);
 });
+
+test('push: tasks — the morning note from 9:00 in the phone’s time zone, and a timed task when it’s due', async () => {
+  process.env.PUSH_ANY_ENDPOINT = '1';
+  await import('../src/routes/tasks.js');
+  const { sendTaskPushes, zoneOf } = await import('../src/pushreminders.js');
+  q('DELETE FROM push_subscriptions').run();
+  answer = 201;
+  subscribe('pu', { endpoint, keys }, 'Pia phone', 'Asia/Kuala_Lumpur'); // UTC+8
+  assert.equal(zoneOf('pu'), 'Asia/Kuala_Lumpur');
+  subscribe('pu', { endpoint, keys }, null, 'not a zone; DROP');
+  assert.equal(zoneOf('pu'), 'Asia/Kuala_Lumpur', 'a bad zone is ignored; the one it had is kept');
+  q("INSERT INTO task_lists (id, owner_id, name, created_at) VALUES ('tl', 'pu', 'Mine', 0)").run();
+  const task = (id, title, due, time = null, done = null) => q('INSERT INTO tasks (id, list_id, title, due, due_time, position, done_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 0, ?, 0, 0)').run(id, 'tl', title, due, time, done);
+  task('t1', 'Send invoice', '2026-11-12');
+  task('t2', 'Call the bank', '2026-11-12', '10:30');
+  task('t3', 'Book flights', '2026-11-10');
+  task('t4', 'Done already', '2026-11-12', null, 1);
+  task('t5', 'Next week', '2026-11-19');
+  const at = (local) => Date.parse(`${local}+08:00`);
+  got = [];
+  assert.equal(await sendTaskPushes(at('2026-11-12T08:59:00'), { skipOnline: false }), 0, 'before 9 there');
+  assert.equal(await sendTaskPushes(at('2026-11-12T09:00:30'), { skipOnline: false }), 1);
+  assert.deepEqual([read(got[0]).title, read(got[0]).body], ['Tasks', '2 tasks are due today, and 1 is overdue']);
+  assert.equal(await sendTaskPushes(at('2026-11-12T09:30:00'), { skipOnline: false }), 0, 'once a day');
+  got = [];
+  assert.equal(await sendTaskPushes(at('2026-11-12T10:30:20'), { skipOnline: false }), 1);
+  assert.deepEqual([read(got[0]).title, read(got[0]).body], ['Call the bank', 'Due now']);
+  assert.equal(await sendTaskPushes(at('2026-11-12T10:31:00'), { skipOnline: false }), 0);
+});
