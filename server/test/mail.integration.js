@@ -1619,7 +1619,7 @@ test('outgoing queue: mail that can’t go out is listed for the platform owner,
   const waiting = await eventually(async () => {
     const r = (await olivia('GET', '/api/orgs/system/mail-queue')).body;
     return r.available && r.messages.find((m) => m.recipients.some((x) => x.address === 'client@[192.0.2.10]') && m.queue === 'deferred');
-  }, 30000);
+  }, 90000); // deferred only once Postfix's connection attempt times out (30 seconds), later when the queue is busy
   assert.equal(waiting.sender, 'olivia@acme.com');
   assert.match(waiting.recipients[0].reason, /192\.0\.2\.10/);
   const health = (await olivia('GET', '/api/orgs/system/health')).body;
