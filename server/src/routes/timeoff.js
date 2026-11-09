@@ -26,24 +26,36 @@ q(`CREATE TABLE IF NOT EXISTS time_off (
 if (!q('PRAGMA table_info(orgs)').all().some((c) => c.name === 'vacation_days')) q('ALTER TABLE orgs ADD COLUMN vacation_days INTEGER').run();
 if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'vacation_days')) q('ALTER TABLE users ADD COLUMN vacation_days INTEGER').run();
 
+// Company holidays (Time off → Team): days off for everyone, shown on everyone's calendar and not
+// counted as working days in time off.
+q(`CREATE TABLE IF NOT EXISTS company_holidays (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
+  date TEXT NOT NULL, name TEXT NOT NULL,
+  UNIQUE (org_id, date)
+)`).run();
+/** The company's holidays as a Set of YYYY-MM-DD. */
+export const holidaySet = (orgId) => new Set(q('SELECT date FROM company_holidays WHERE org_id = ?').all(orgId).map((h) => h.date));
+const orgOf = (userId) => q('SELECT org_id FROM users WHERE id = ?').get(userId)?.org_id;
+
 export const KINDS = { vacation: 'Vacation', sick: 'Sick leave', personal: 'Personal', other: 'Time off' };
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
-const validDate = (d) => DATE.test(d) && new Date(`${d}T00:00:00Z`).toISOString().slice(0, 10) === d;
+const validDate = (d) => DATE.test(d) && !Number.isNaN(Date.parse(`${d}T00:00:00Z`)) && new Date(`${d}T00:00:00Z`).toISOString().slice(0, 10) === d;
 
-/** Weekdays (Monday to Friday) from a to b, both included: how many working days a request takes. */
-export function workdays(a, b) {
+/** Weekdays (Monday to Friday) from a to b, both included, but not holidays: how many working days a request takes. */
+export function workdays(a, b, holidays = new Set()) {
   let n = 0;
   for (let t = Date.parse(`${a}T00:00:00Z`), end = Date.parse(`${b}T00:00:00Z`); t <= end; t += 864e5) {
     const wd = new Date(t).getUTCDay();
-    if (wd !== 0 && wd !== 6) n++;
+    if (wd !== 0 && wd !== 6 && !holidays.has(new Date(t).toISOString().slice(0, 10))) n++;
   }
   return n;
 }
 
 /** The working days of a..b that fall in `year`. */
-export function workdaysIn(a, b, year) {
+export function workdaysIn(a, b, year, holidays = new Set()) {
   const from = a > `${year}-01-01` ? a : `${year}-01-01`, to = b < `${year}-12-31` ? b : `${year}-12-31`;
-  return from > to ? 0 : workdays(from, to);
+  return from > to ? 0 : workdays(from, to, holidays);
 }
 /** Someone's vacation days a year (their own, else the company's), or null for no limit. */
 export function allowanceOf(userId) {
@@ -54,7 +66,8 @@ export function allowanceOf(userId) {
 export function balanceOf(userId, year) {
   const rows = q("SELECT start_date, end_date, status FROM time_off WHERE user_id = ? AND kind = 'vacation' AND status IN ('approved', 'pending') AND start_date <= ? AND end_date >= ?")
     .all(userId, `${year}-12-31`, `${year}-01-01`);
-  const sum = (st) => rows.filter((x) => x.status === st).reduce((n, x) => n + workdaysIn(x.start_date, x.end_date, year), 0);
+  const hol = holidaySet(orgOf(userId));
+  const sum = (st) => rows.filter((x) => x.status === st).reduce((n, x) => n + workdaysIn(x.start_date, x.end_date, year, hol), 0);
   const days = allowanceOf(userId), used = sum('approved'), pending = sum('pending');
   return { year, days, used, pending, left: days === null ? null : days - used - pending };
 }
@@ -76,7 +89,7 @@ function out(r) {
   const who = q('SELECT name, username FROM users WHERE id = ?').get(r.user_id);
   const by = r.decided_by ? q('SELECT name FROM users WHERE id = ?').get(r.decided_by)?.name : null;
   return { id: r.id, user_id: r.user_id, name: who?.name, username: who?.username, start_date: r.start_date, end_date: r.end_date, kind: r.kind, kind_label: KINDS[r.kind],
-    note: r.note, status: r.status, decided_by_name: by || null, decided_at: r.decided_at, answer: r.answer, days: workdays(r.start_date, r.end_date), created_at: r.created_at, event_id: r.event_id };
+    note: r.note, status: r.status, decided_by_name: by || null, decided_at: r.decided_at, answer: r.answer, days: workdays(r.start_date, r.end_date, holidaySet(orgOf(r.user_id))), created_at: r.created_at, event_id: r.event_id };
 }
 
 /** The all-day out-of-office event for approved time off (in the time zone it was asked in). */
@@ -121,6 +134,28 @@ export default function timeOffRoutes() {
     });
   });
 
+  // Company holidays: everyone sees them (for the calendar); admins add and remove them.
+  r.get('/holidays', (req, res) => {
+    const from = DATE.test(req.query.from || '') ? req.query.from : '0000-01-01', to = DATE.test(req.query.to || '') ? req.query.to : '9999-12-31';
+    res.json(q('SELECT id, date, name FROM company_holidays WHERE org_id = ? AND date >= ? AND date <= ? ORDER BY date').all(req.user.org_id, from, to));
+  });
+  r.post('/holidays', (req, res) => {
+    if (!req.user.is_admin) throw forbidden('Only admins set company holidays');
+    const date = String(req.body?.date || ''), name = String(req.body?.name || '').trim().slice(0, 100);
+    if (!validDate(date)) throw bad('Choose a day');
+    if (!name) throw bad('Give the holiday a name');
+    if (q('SELECT 1 FROM company_holidays WHERE org_id = ? AND date = ?').get(req.user.org_id, date)) throw bad('There is already a holiday that day');
+    if (q('SELECT COUNT(*) AS n FROM company_holidays WHERE org_id = ?').get(req.user.org_id).n >= 500) throw bad('Too many holidays; remove past ones first');
+    const id = uid();
+    q('INSERT INTO company_holidays (id, org_id, date, name) VALUES (?, ?, ?, ?)').run(id, req.user.org_id, date, name);
+    res.status(201).json({ id, date, name });
+  });
+  r.delete('/holidays/:id', (req, res) => {
+    if (!req.user.is_admin) throw forbidden('Only admins set company holidays');
+    if (!q('DELETE FROM company_holidays WHERE id = ? AND org_id = ?').run(String(req.params.id), req.user.org_id).changes) throw notFound('Holiday not found');
+    res.json({ ok: true });
+  });
+
   // Vacation allowance (admins): the company's days a year, or one person's (null: the company's).
   const days = (v) => {
     if (v === null || v === '' || v === undefined) return null;
@@ -145,7 +180,8 @@ export default function timeOffRoutes() {
     const { start_date: a, end_date: b = a, kind = 'vacation' } = req.body || {};
     if (!validDate(a) || !validDate(b)) throw bad('Choose the first and last day');
     if (b < a) throw bad('The last day is before the first');
-    if (workdays(a, b) === 0 && a === b && [0, 6].includes(new Date(`${a}T00:00:00Z`).getUTCDay())) throw bad('That day is a weekend');
+    const hol = holidaySet(req.user.org_id);
+    if (workdays(a, b, hol) === 0) throw bad(a === b ? 'That day isn’t a working day (a weekend or a company holiday)' : 'Those days aren’t working days (weekends or company holidays)');
     if ((Date.parse(b) - Date.parse(a)) / 864e5 > 92) throw bad('At most three months at a time');
     if (!KINDS[kind]) throw bad('Unknown kind of time off');
     const overlap = q("SELECT 1 FROM time_off WHERE user_id = ? AND status IN ('pending', 'approved') AND start_date <= ? AND end_date >= ?").get(req.user.id, b, a);
@@ -153,7 +189,7 @@ export default function timeOffRoutes() {
     // Vacation: within what's left of each year's allowance (approved and waiting both count).
     if (kind === 'vacation') {
       for (let y = Number(a.slice(0, 4)); y <= Number(b.slice(0, 4)); y++) {
-        const bal = balanceOf(req.user.id, y), want = workdaysIn(a, b, y);
+        const bal = balanceOf(req.user.id, y), want = workdaysIn(a, b, y, hol);
         if (bal.left !== null && want > bal.left) throw bad(`That's ${want} vacation day${want === 1 ? '' : 's'} in ${y}; you have ${Math.max(0, bal.left)} left`);
       }
     }
@@ -170,7 +206,7 @@ export default function timeOffRoutes() {
       }
     });
     if (approvers.length) {
-      notify(approvers, { kind: 'timeoff', title: `${req.user.name} asks for time off`, body: `${KINDS[kind]}: ${span(row)} (${workdays(a, b)} working day${workdays(a, b) === 1 ? '' : 's'})${note ? ` · ${note}` : ''}`, link: '/calendar?timeoff=1', actor: req.user.id });
+      notify(approvers, { kind: 'timeoff', title: `${req.user.name} asks for time off`, body: `${KINDS[kind]}: ${span(row)} (${workdays(a, b, hol)} working day${workdays(a, b, hol) === 1 ? '' : 's'})${note ? ` · ${note}` : ''}`, link: '/calendar?timeoff=1', actor: req.user.id });
     }
     res.status(201).json(out(q('SELECT * FROM time_off WHERE id = ?').get(row.id)));
   });

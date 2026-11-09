@@ -126,6 +126,7 @@ function Team({ team, onChanged }) {
           <span className="muted small grow">Leave it empty for no limit. Anyone can have their own number below.</span>
         </form>
       )}
+      {team.can_set && <Holidays year={team.year} />}
       <table className="timeoff-team">
         <thead><tr><th scope="col">Person</th><th scope="col">Vacation in {team.year}</th><th scope="col">Coming up</th>{team.can_set && <th scope="col">Days a year</th>}</tr></thead>
         <tbody>
@@ -140,6 +141,35 @@ function Team({ team, onChanged }) {
         </tbody>
       </table>
     </div>
+  );
+}
+/** Company holidays (admins): days off for everyone, on everyone's calendar, not counted in time off. */
+function Holidays({ year }) {
+  const toast = useToast();
+  const [list, setList] = useState(null);
+  const [f, setF] = useState({ date: '', name: '' });
+  const load = () => get(`/time-off/holidays?from=${year}-01-01&to=${year + 1}-12-31`).then(setList).catch(() => setList([]));
+  useEffect(() => { load(); }, [year]); // eslint-disable-line react-hooks/exhaustive-deps
+  const add = async (e) => {
+    e.preventDefault();
+    try { await post('/time-off/holidays', f); toast(`${f.name} added`); setF({ date: '', name: '' }); load(); } catch (err) { toast(err.message, 'error'); }
+  };
+  const remove = async (h) => { try { await del(`/time-off/holidays/${h.id}`); toast(`${h.name} removed`); load(); } catch (err) { toast(err.message, 'error'); } };
+  return (
+    <section className="stack-tight" aria-label="Company holidays">
+      <strong>Company holidays</strong>
+      <p className="muted small" style={{ margin: 0 }}>Days off for everyone: on everyone's calendar, and not counted as working days in time off.</p>
+      {list?.length ? (
+        <ul className="timeoff-list">
+          {list.map((h) => <li key={h.id} className="row" style={{ gap: 8 }}><span className="grow">{day(h.date)} · {h.name}</span><button type="button" className="btn small" aria-label={`Remove ${h.name}`} onClick={() => remove(h)}>Remove</button></li>)}
+        </ul>
+      ) : list && <p className="muted small" style={{ margin: 0 }}>None yet.</p>}
+      <form className="row wrap" style={{ gap: 8, alignItems: 'flex-end' }} onSubmit={add}>
+        <label className="field"><span>Holiday</span><input type="date" required value={f.date} onChange={(e) => setF({ ...f, date: e.target.value })} /></label>
+        <label className="field grow"><span>Name</span><input required maxLength={100} value={f.name} placeholder="New Year's Day" onChange={(e) => setF({ ...f, name: e.target.value })} /></label>
+        <button type="submit" className="btn">Add holiday</button>
+      </form>
+    </section>
   );
 }
 function OwnDays({ p, onSave }) {

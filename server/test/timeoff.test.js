@@ -133,3 +133,25 @@ test('vacation allowance: days a year for the company or one person, what\'s lef
   assert.equal((await boss('PUT', '/api/time-off/allowance', { days: null })).body.days, null, 'no limit');
   assert.equal((await tom('GET', '/api/time-off')).body.balance.left, null);
 });
+
+test('company holidays: on everyone\'s list, not working days in time off; admins only', async () => {
+  const boss = client(), tom = client();
+  await boss('POST', '/api/auth/login', { username: 'bea@acme.com', password: 'password123' });
+  await tom('POST', '/api/auth/login', { username: 'tom@acme.com', password: 'password123' });
+  assert.equal((await tom('POST', '/api/time-off/holidays', { date: '2027-11-22', name: 'Boxing Day (moved)' })).status, 403);
+  assert.equal((await boss('POST', '/api/time-off/holidays', { date: '2027-13-01', name: 'x' })).status, 400);
+  assert.equal((await boss('POST', '/api/time-off/holidays', { date: '2027-11-22' })).status, 400, 'a name');
+  const h = (await boss('POST', '/api/time-off/holidays', { date: '2027-11-22', name: 'Boxing Day (moved)' })).body;
+  await boss('POST', '/api/time-off/holidays', { date: '2027-11-23', name: 'Company day' });
+  assert.equal((await boss('POST', '/api/time-off/holidays', { date: '2027-11-22', name: 'Again' })).status, 400, 'one a day');
+  assert.deepEqual((await tom('GET', '/api/time-off/holidays?from=2027-11-01&to=2027-11-26')).body.map((x) => x.name), ['Boxing Day (moved)', 'Company day']);
+  // Mon 22 – Fri 26 Nov: 5 weekdays, 2 of them holidays.
+  const r = (await tom('POST', '/api/time-off', { start_date: '2027-11-22', end_date: '2027-11-26', kind: 'personal', tz: 'UTC' })).body;
+  assert.equal(r.days, 3);
+  const only = await tom('POST', '/api/time-off', { start_date: '2027-11-23', kind: 'sick', tz: 'UTC' });
+  assert.equal(only.status, 400, 'nothing but a holiday');
+  assert.match(only.body.error, /company holiday/);
+  assert.equal((await tom('DELETE', `/api/time-off/holidays/${h.id}`)).status, 403);
+  assert.equal((await boss('DELETE', `/api/time-off/holidays/${h.id}`)).status, 200);
+  assert.equal((await tom('GET', '/api/time-off')).body.mine.find((x) => x.id === r.id).days, 4, 'counted again once it is no holiday');
+});

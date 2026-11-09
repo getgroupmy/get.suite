@@ -1346,6 +1346,7 @@ button.rule-sample.on { outline: 2px solid var(--accent); outline-offset: 1px; }
 .task-steps-box form input { flex: 1; }
 /* Calendar: contacts' birthdays */
 .chip.birthday-chip { --c: #e37400; background: color-mix(in srgb, #e37400 14%, transparent); color: inherit; border: 0; text-align: left; cursor: pointer; }
+.chip.holiday-chip { background: color-mix(in srgb, var(--muted) 18%, transparent); color: inherit; border: 0; text-align: left; font-weight: 600; }
 /* Slides: transitions when presenting, and skipped slides in the list */
 .presenter-slide.tr-fade { animation: tr-fade .5s ease both; }
 .presenter-slide.tr-push { animation: tr-push .5s cubic-bezier(.2, .8, .2, 1) both; }

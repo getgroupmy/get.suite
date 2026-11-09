@@ -38,6 +38,15 @@ const birthdayItems = (list) => list.map((b) => {
   const start = new Date(y, m - 1, d).getTime();
   return { key: `bday:${b.contact_id}:${b.date}`, birthday: b, title: `🎂 ${b.name}${b.age ? ` (${b.age})` : ''}`, start, end: start + DAY - 1, all_day: 1 };
 });
+/** Company holidays as all-day items. */
+const holidayItems = (list) => list.map((h) => {
+  const [y, m, d] = h.date.split('-').map(Number);
+  const start = new Date(y, m - 1, d).getTime();
+  return { key: `hol:${h.id}`, holiday: h, title: `🏳 ${h.name}`, start, end: start + DAY - 1, all_day: 1 };
+});
+function HolidayChip({ ev }) {
+  return <span className="chip allday holiday-chip" title={`Company holiday: ${ev.holiday.name}`}>{ev.title}</span>;
+}
 function BirthdayChip({ ev }) {
   const navigate = useNavigate();
   return (
@@ -121,6 +130,7 @@ function Calendar({ acting = null, managed = [], onPick }) {
   const [showBirthdays, setShowBirthdaysState] = useState(savedBirthdays);
   const setShowBirthdays = (on) => { setShowBirthdaysState(on); try { localStorage.setItem('nw.calBirthdays', on ? '1' : '0'); } catch { /* private window */ } };
   const [birthdays, setBirthdays] = useState([]);
+  const [holidays, setHolidays] = useState([]); // the company's holidays in view
   const setShowTasks = (on) => { setShowTasksState(on); try { localStorage.setItem('nw.calTasks', on ? '1' : '0'); } catch { /* private window */ } };
   const setView = (v) => { setViewState(v); try { localStorage.setItem('nw.calView', v); } catch { /* private window */ } };
 
@@ -187,6 +197,11 @@ function Calendar({ acting = null, managed = [], onPick }) {
     const last = new Date(days[days.length - 1]);
     get(`/contacts/birthdays?from=${toDateInput(days[0].getTime())}&to=${toDateInput(last.getTime())}`).then(setBirthdays).catch(() => setBirthdays([]));
   }, [days, showBirthdays]);
+  const loadHolidays = useCallback(() => {
+    const last = new Date(days[days.length - 1]);
+    get(`/time-off/holidays?from=${toDateInput(days[0].getTime())}&to=${toDateInput(last.getTime())}`).then(setHolidays).catch(() => setHolidays([]));
+  }, [days]);
+  useEffect(() => { loadHolidays(); }, [loadHolidays]);
   useEffect(() => onLive((m) => { if (m.type === 'tasks-changed') loadTasks(); }), [loadTasks]);
   const taskDone = async (t) => {
     setTasks((list) => list.filter((x) => x.id !== t.id));
@@ -243,7 +258,7 @@ function Calendar({ acting = null, managed = [], onPick }) {
   const moving = drag.drag || pendingMove;
   const shown = useMemo(() => [...(moving
     ? events.map((e) => ((e.key || e.id) === (moving.ev.key || moving.ev.id) ? { ...e, start: moving.start, end: moving.end, dragging: true } : e))
-    : events), ...taskItems(tasks), ...birthdayItems(birthdays)], [events, moving, tasks, birthdays]);
+    : events), ...taskItems(tasks), ...birthdayItems(birthdays), ...holidayItems(holidays)], [events, moving, tasks, birthdays, holidays]);
 
   // Arrow keys move between periods in the week and day views (when nothing else has focus).
   useEffect(() => {
@@ -271,7 +286,7 @@ function Calendar({ acting = null, managed = [], onPick }) {
         <button className="btn new-btn" onClick={() => newEvent()}><Icon name="plus" /> Create</button>
         {!acting && <>
         <button type="button" className="subnav-item" onClick={() => setTimeOff(true)}><span aria-hidden="true" style={{ width: 24, textAlign: 'center' }}>🏖</span><span className="grow">Time off</span>{timeOffWaiting > 0 && <span className="timeoff-count" aria-label={`${timeOffWaiting} waiting for your answer`}>{timeOffWaiting}</span>}</button>
-        {timeOff && <TimeOff onClose={() => { setTimeOff(false); refreshTimeOff(); }} onChanged={() => { load(); refreshTimeOff(); }} />}
+        {timeOff && <TimeOff onClose={() => { setTimeOff(false); refreshTimeOff(); loadHolidays(); }} onChanged={() => { load(); refreshTimeOff(); loadHolidays(); }} />}
         <button type="button" className="subnav-item" onClick={() => { const d = startOfDay(new Date()).getTime(); setEditing({ title: 'Out of office', kind: 'ooo', start: d, end: d + DAY - 1, all_day: 1, color: '#5f6368', location: '', description: '' }); }}><span aria-hidden="true" style={{ width: 24, textAlign: 'center' }}>🌴</span><span className="grow">Out of office…</span></button>
         <button type="button" className="subnav-item" onClick={() => { const t = new Date(); t.setMinutes(0, 0, 0); t.setHours(t.getHours() + 1); setEditing({ title: 'Focus time', kind: 'focus', start: t.getTime(), end: t.getTime() + 2 * 36e5, all_day: 0, color: '#7b61ff', location: '', description: '' }); }}><span aria-hidden="true" style={{ width: 24, textAlign: 'center' }}>🎯</span><span className="grow">Focus time…</span></button>
         <button type="button" className="subnav-item" onClick={() => setInsightsOpen(true)}><span aria-hidden="true" style={{ width: 24, textAlign: 'center' }}>📊</span><span className="grow">Time insights</span></button>
@@ -363,7 +378,7 @@ function Calendar({ acting = null, managed = [], onPick }) {
                 <div key={d.toISOString()} data-day={d.getTime()} className={`day ${d.getMonth() !== anchor.getMonth() ? 'other' : ''} ${d.getTime() === today ? 'today' : ''}`}
                   onClick={drag.click((e) => e.target === e.currentTarget && newEvent(d))}>
                   <button type="button" className="daynum" aria-label={`Open ${d.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}`} onClick={() => openDay(d)}>{d.getDate()}</button>
-                  {list.slice(0, 3).map((ev) => (ev.task ? <TaskChip key={ev.key} ev={ev} onDone={taskDone} /> : ev.birthday ? <BirthdayChip key={ev.key} ev={ev} /> : (
+                  {list.slice(0, 3).map((ev) => (ev.task ? <TaskChip key={ev.key} ev={ev} onDone={taskDone} /> : ev.birthday ? <BirthdayChip key={ev.key} ev={ev} /> : ev.holiday ? <HolidayChip key={ev.key} ev={ev} /> : (
                     <button key={ev.key || ev.id} className={`chip ${ev.all_day ? 'allday' : ''} ${inviteClass(ev)} ${ev.dragging ? 'dragging' : ''}`} style={{ '--c': ev.color || COLORS[0] }}
                       onPointerDown={drag.dayHandler(ev, d)} onClick={drag.click(() => setEditing(ev))}>
                       {!ev.all_day && <span className="t">{fmtTime(ev.start)}</span>} {ev.title}{ev.rrule && <span className="rep" aria-label="(repeats)" title="Repeats"> ↻</span>}
@@ -416,7 +431,7 @@ function Schedule({ days, events, today, onOpen, onTaskDone, onDay: openDay }) {
           <ul className="schedule-items">
             {items.map((ev) => (
               <li key={ev.key || `${ev.id}:${ev.start}`}>
-                {ev.task ? <TaskChip ev={ev} onDone={onTaskDone} /> : ev.birthday ? <BirthdayChip ev={ev} /> : (
+                {ev.task ? <TaskChip ev={ev} onDone={onTaskDone} /> : ev.birthday ? <BirthdayChip ev={ev} /> : ev.holiday ? <HolidayChip ev={ev} /> : (
                   <button type="button" className={`schedule-item ${inviteClass(ev)}`} style={{ '--c': ev.color || COLORS[0] }} onClick={() => onOpen(ev)}>
                     <span className="dot" aria-hidden="true" />
                     <span className="when">{ev.all_day ? 'All day' : `${fmtTime(ev.start)} – ${fmtTime(ev.end)}`}</span>
@@ -538,7 +553,7 @@ function TimeGrid({ days, events, busy = [], today, onOpen, onNew, onDay: openDa
         <div className="tg-gutter small muted">all day</div>
         {days.map((d) => (
           <div key={d.getTime()} className="tg-allday-cell" data-day={d.getTime()}>
-            {onDay(events, d).filter((ev) => ev.all_day).map((ev) => (ev.task ? <TaskChip key={ev.key} ev={ev} onDone={onTaskDone} /> : ev.birthday ? <BirthdayChip key={ev.key} ev={ev} /> : (
+            {onDay(events, d).filter((ev) => ev.all_day).map((ev) => (ev.task ? <TaskChip key={ev.key} ev={ev} onDone={onTaskDone} /> : ev.birthday ? <BirthdayChip key={ev.key} ev={ev} /> : ev.holiday ? <HolidayChip key={ev.key} ev={ev} /> : (
               <button key={ev.key || ev.id} className={`chip allday ${inviteClass(ev)} ${ev.dragging ? 'dragging' : ''}`} style={{ '--c': ev.color || COLORS[0] }}
                 onPointerDown={drag.dayHandler(ev, d)} onClick={drag.click(() => onOpen(ev))}>{ev.title}{ev.rrule && <span aria-label="(repeats)"> ↻</span>}</button>
             )))}
