@@ -2165,3 +2165,17 @@ textarea.mono { font-family: ui-monospace, Consolas, monospace; }
   .editor-title input { width: min(480px, 60vw); }
   .save-status { white-space: nowrap; }
 }
+
+/* Mail on phones: the folders in the strip keep their names (their ⋮ menu after them, not over
+   them), and writing a message takes the whole screen. */
+@media (max-width: 700px) {
+  .mail .subnav { width: auto; } /* not the 200px column of narrower desktops */
+  .subnav .folder-row { display: flex; align-items: center; flex: none; position: static; }
+  .subnav .folder-row > .subnav-item { flex: none; min-width: auto; }
+  .subnav .folder-row .menu-wrap { position: static; }
+}
+@media (max-width: 600px) {
+  .modal-backdrop:has(.compose) { padding: 0; place-items: stretch; }
+  .modal.modal-wide:has(.compose) { width: 100vw; max-width: none; height: 100dvh; max-height: none; border-radius: 0; margin: 0; }
+  .compose-line > span { width: 48px; }
+}

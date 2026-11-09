@@ -32,13 +32,21 @@ export function useMailNotifications(enabled, { toast, openMessage }) {
     load();
     const onLocal = (e) => setUnread(e.detail);
     window.addEventListener('nw:unread', onLocal);
+    const batch = []; let batchTimer = null;
     const off = onLive((m) => {
       if (m.type === 'live-connected') load();
       if (m.type === 'mail-unread') setUnread(m.unseen);
       if (m.type === 'mail-new' && !isPaused()) {
         const who = m.from?.name || m.from?.address || 'someone';
         const where = m.folder && m.folder !== 'INBOX' ? ` in ${m.folder.split('/').join(' / ')}` : '';
-        toast(`New mail${where} from ${who}: ${m.subject || '(no subject)'}`);
+        // Several at once (a burst, or coming back online): one note, not a stack of them.
+        batch.push({ who, where, subject: m.subject || '(no subject)' });
+        clearTimeout(batchTimer);
+        batchTimer = setTimeout(() => {
+          const list = batch.splice(0);
+          if (list.length === 1) toast(`New mail${list[0].where} from ${list[0].who}: ${list[0].subject}`);
+          else toast(`${list.length} new emails, from ${[...new Set(list.map((x) => x.who))].slice(0, 3).join(', ')}${new Set(list.map((x) => x.who)).size > 3 ? ' and others' : ''}`);
+        }, 800);
         if (desktopOn() && document.hidden) {
           try {
             const n = new Notification(where ? `${who}${where}` : who, { body: m.subject || '(no subject)', tag: `mail-${m.folder}-${m.uid}`, icon: '/favicon.svg' });
@@ -47,7 +55,7 @@ export function useMailNotifications(enabled, { toast, openMessage }) {
         }
       }
     });
-    return () => { off(); window.removeEventListener('nw:unread', onLocal); };
+    return () => { off(); clearTimeout(batchTimer); window.removeEventListener('nw:unread', onLocal); };
   }, [enabled, toast, openMessage]);
 
   useEffect(() => {
