@@ -510,7 +510,7 @@ function SharedDoc({ file, setFile }) {
       <div className="doc-body">
         {outline && <Outline editor={editor} onClose={() => setOutline(false)} />}
         <div className="doc-scroll" onClick={(e) => e.target === e.currentTarget && editor.commands.focus('end')}>
-          <div className="paper" style={file.page_setup ? paperStyle(file.page_setup) : undefined}>
+          <div className={`paper ${file.page_setup?.pageless ? 'pageless' : ''}`} style={file.page_setup ? paperStyle(file.page_setup) : undefined}>
             {file.page_setup?.watermark && <div className="print-watermark" aria-hidden="true" />}
             {file.page_setup?.watermark && <span className="sr-only">Watermark: {file.page_setup.watermark}</span>}
             {file.page_setup?.header && <div className="paper-header" aria-hidden="true">{file.page_setup.header}</div>}
@@ -960,6 +960,10 @@ function PageSetupDialog({ setup, onClose, onSave }) {
     <Modal title="Page setup" onClose={onClose}
       footer={<><button type="button" className="btn" onClick={() => onSave(null)}>Reset</button><span className="grow" /><button type="button" className="btn" onClick={onClose}>Cancel</button><button type="button" className="btn primary" onClick={() => onSave(s)}>Save</button></>}>
       <div className="stack">
+        <div className="seg" role="radiogroup" aria-label="Format">
+          {[[false, 'Pages'], [true, 'Pageless']].map(([k, l]) => <button key={l} type="button" role="radio" aria-checked={!!s.pageless === k} className={!!s.pageless === k ? 'on' : ''} onClick={() => setS({ ...s, pageless: k })}>{l}</button>)}
+        </div>
+        {s.pageless && <p className="muted small" style={{ margin: 0 }}>On screen the document is one long sheet as wide as the window: good for wide tables and pictures. Printing, PDF and Word still use the paper below.</p>}
         <div className="row wrap" style={{ gap: 12 }}>
           <label className="field"><span>Paper size</span><select value={s.size} onChange={set('size')}>{Object.entries(PAPER).map(([k, [w, h, name]]) => <option key={k} value={k}>{name} ({w} × {h} mm)</option>)}</select></label>
           <label className="field"><span>Margins</span><select value={s.margin} onChange={set('margin')}>{Object.entries(MARGINS).map(([k, [, name]]) => <option key={k} value={k}>{name}</option>)}</select></label>

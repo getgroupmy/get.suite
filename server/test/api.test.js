@@ -1650,6 +1650,10 @@ test('page setup: kept with a document, checked, and only for documents', async 
   assert.deepEqual(set.body.page_setup, { size: 'letter', orientation: 'landscape', margin: 'wide', header: 'Acme Trading', footer: '', numbers: true, watermark: '' });
   assert.deepEqual((await owner('GET', `/api/files/${d.id}`)).body.page_setup.size, 'letter');
   assert.equal((await owner('PATCH', `/api/files/${d.id}`, { page_setup: { size: 'a3' } })).status, 400);
+  const pageless = await owner('PATCH', `/api/files/${d.id}`, { page_setup: { size: 'letter', pageless: true } });
+  assert.equal(pageless.body.page_setup.pageless, true, 'pageless is kept');
+  assert.equal(pageless.body.page_setup.size, 'letter', 'with its paper for printing');
+  assert.equal((await owner('PATCH', `/api/files/${d.id}`, { page_setup: { pageless: 'yes' } })).body.page_setup.pageless, undefined, 'only true turns it on');
   assert.equal((await owner('PATCH', `/api/files/${d.id}`, { page_setup: { header: 'x'.repeat(201) } })).status, 400);
   const s = (await owner('POST', '/api/files/new', { kind: 'sheet', name: 'Not a doc' })).body;
   assert.equal((await owner('PATCH', `/api/files/${s.id}`, { page_setup: {} })).status, 400);

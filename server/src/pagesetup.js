@@ -18,7 +18,8 @@ export function readSetup(v) {
   const text = (t, name) => { if (typeof t !== 'string') throw bad(`${name} must be text`); if (t.length > 200) throw bad(`${name} is too long`); return t.replace(/[\r\n]+/g, ' ').trim(); };
   const watermark = text(s.watermark ?? '', 'Watermark');
   if (watermark.length > MAX_WATERMARK) throw bad(`A watermark can be ${MAX_WATERMARK} characters at most`);
-  return { size: s.size, orientation: s.orientation, margin: s.margin, header: text(s.header, 'Header'), footer: text(s.footer, 'Footer'), numbers: !!s.numbers, watermark };
+  // pageless: on screen the document is one long sheet as wide as the window (printing and Word still use the paper).
+  return { size: s.size, orientation: s.orientation, margin: s.margin, header: text(s.header, 'Header'), footer: text(s.footer, 'Footer'), numbers: !!s.numbers, watermark, ...(s.pageless === true && { pageless: true }) };
 }
 
 /** Page width and height (mm) for a setup, turned for landscape. */

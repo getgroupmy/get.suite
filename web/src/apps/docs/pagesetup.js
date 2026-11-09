@@ -3,7 +3,7 @@
 
 export const PAPER = { a4: [210, 297, 'A4'], letter: [215.9, 279.4, 'Letter'], legal: [215.9, 355.6, 'Legal'], a5: [148, 210, 'A5'] }; // mm
 export const MARGINS = { normal: [25.4, 'Normal (2.54 cm)'], narrow: [12.7, 'Narrow (1.27 cm)'], wide: [38.1, 'Wide (3.81 cm)'] };
-export const DEFAULT_SETUP = { size: 'a4', orientation: 'portrait', margin: 'normal', header: '', footer: '', numbers: false, watermark: '' };
+export const DEFAULT_SETUP = { size: 'a4', orientation: 'portrait', margin: 'normal', header: '', footer: '', numbers: false, watermark: '', pageless: false };
 export const WATERMARKS = ['DRAFT', 'CONFIDENTIAL', 'DO NOT COPY', 'SAMPLE', 'INTERNAL'];
 
 const PX_PER_MM = 96 / 25.4;
@@ -18,6 +18,7 @@ export function pageMm(setup) {
 
 /** The paper on screen: its width, height and margins in pixels, and the watermark on every page's length of it. */
 export function paperStyle(setup) {
+  if (setup?.pageless) return { maxWidth: 'none', minHeight: 0, padding: '40px clamp(16px, 6vw, 96px)' }; // one long sheet across the window
   const [w, h] = pageMm(setup);
   const m = (MARGINS[full(setup).margin] || MARGINS.normal)[0];
   const mark = full(setup).watermark;

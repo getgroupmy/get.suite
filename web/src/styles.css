@@ -2233,3 +2233,4 @@ textarea.mono { font-family: ui-monospace, Consolas, monospace; }
 .typing-line { min-height: 18px; line-height: 18px; padding: 0 16px; font-style: italic; }
 .ProseMirror.painting { cursor: copy; }
 .grid-wrap.painting td { cursor: copy; }
+.paper.pageless { box-shadow: none; border-radius: 0; } .paper.pageless .page-break { opacity: .5; }

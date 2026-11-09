@@ -29,3 +29,10 @@ test('watermark: a faint diagonal picture on every page on screen and when print
   assert.match(printCssW({ watermark: 'DRAFT' }), /\.print-watermark \{ display: block !important; position: fixed;/);
   assert.doesNotMatch(printCssW({}), /print-watermark/);
 });
+
+test('pageless: one long sheet across the window, no page height or watermark on screen', () => {
+  const st = paperStyle({ size: 'a4', pageless: true, watermark: 'DRAFT' });
+  assert.equal(st.maxWidth, 'none');
+  assert.equal(st.minHeight, 0);
+  assert.equal(st.backgroundImage, undefined);
+});
