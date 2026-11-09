@@ -19,7 +19,7 @@ import {
   Math as WordMath, MathRun, Table as WordTable, TableRow as WordRow, TableCell as WordCell, WidthType, ShadingType, ImageRun, Header, Footer, PageNumber, PageOrientation, LineRuleType,
   Bookmark, InternalHyperlink, PageBreak, FootnoteReferenceRun,
 } from 'docx';
-import { Node } from '@tiptap/core';
+import { Node, Mark } from '@tiptap/core';
 import { pageMm, MARGINS } from '../pagesetup.js';
 
 // A picture is a Drive file, by id (as in web/src/apps/docs/DocEditor.jsx). Here it is read from
@@ -33,6 +33,10 @@ const DocImage = Image.extend({
   }),
   parseHTML: () => [{ tag: 'img' }],
 });
+// Superscript and subscript, as in web/src/apps/docs/scripts.js (a footnote marker is a <sup> too: not this).
+const scriptMark = (name, tag, other) => Mark.create({ name, excludes: other, parseHTML: () => [{ tag, getAttrs: (el) => (el.hasAttribute?.('data-footnote') ? false : null) }], renderHTML: () => [tag, 0] });
+const Superscript = scriptMark('superscript', 'sup', 'subscript');
+const Subscript = scriptMark('subscript', 'sub', 'superscript');
 // A footnote, as in web/src/apps/docs/footnote.js: a marker in the text carrying its note.
 const Footnote = Node.create({
   name: 'footnote', group: 'inline', inline: true, atom: true,
@@ -43,7 +47,7 @@ const Footnote = Node.create({
 // The same building blocks as the Docs editor.
 const EXTENSIONS = [
   StarterKit.configure({ link: { openOnClick: false } }), TextAlign.configure({ types: ['heading', 'paragraph'] }),
-  DocImage, Table, TableRow, TableHeader, TableCell, TextStyle, Color, BackgroundColor, Footnote,
+  DocImage, Table, TableRow, TableHeader, TableCell, TextStyle, Color, BackgroundColor, Footnote, Superscript, Subscript,
 ];
 const attr = (t) => t.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 const plain = (html) => html.replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
@@ -138,6 +142,7 @@ function runs(nodes = [], extra = {}) {
     const font = fontName(marks.textStyle?.fontFamily), size = halfPoints(marks.textStyle?.fontSize);
     const run = {
       text: n.text, bold: !!marks.bold, italics: !!marks.italic, strike: !!marks.strike, ...(marks.underline && { underline: {} }), ...(marks.code && { font: 'Consolas' }),
+      ...(marks.superscript && { superScript: true }), ...(marks.subscript && { subScript: true }),
       ...(color && { color }), ...(fill && { shading: { type: ShadingType.CLEAR, color: 'auto', fill } }), ...(font && { font }), ...(size && { size }), ...extra,
     };
     if (marks.link?.href) out.push(new ExternalHyperlink({ link: marks.link.href, children: [new TextRun({ ...run, style: 'Hyperlink' })] }));

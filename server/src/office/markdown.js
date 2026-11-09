@@ -28,6 +28,8 @@ function inline(nodes = [], notes) {
     const [, lead, core, trail] = /^(\s*)([\s\S]*?)(\s*)$/.exec(t);
     t = core;
     if (t) {
+      if (marks.has('superscript')) t = `<sup>${t}</sup>`; // Markdown has none of its own; most readers take the HTML
+      if (marks.has('subscript')) t = `<sub>${t}</sub>`;
       if (marks.has('strike')) t = `~~${t}~~`;
       if (marks.has('italic')) t = `*${t}*`;
       if (marks.has('bold')) t = `**${t}**`;
@@ -118,6 +120,7 @@ export function inlineFromMarkdown(s, notes = {}, marks = []) {
       i += m[0].length; continue;
     }
     if ((m = /^(\*\*|__)(?=\S)([\s\S]*?\S)\1/.exec(rest))) { flush(); out.push(...inlineFromMarkdown(m[2], notes, [...marks, 'bold'])); i += m[0].length; continue; }
+    if ((m = /^<(sup|sub)>([\s\S]*?)<\/\1>/i.exec(rest))) { flush(); out.push(...inlineFromMarkdown(m[2], notes, [...marks, m[1].toLowerCase() === 'sup' ? 'superscript' : 'subscript'])); i += m[0].length; continue; }
     if ((m = /^~~(?=\S)([\s\S]*?\S)~~/.exec(rest))) { flush(); out.push(...inlineFromMarkdown(m[1], notes, [...marks, 'strike'])); i += m[0].length; continue; }
     if ((m = /^([*_])(?=\S)([\s\S]*?\S)\1(?![*_\w])/.exec(rest)) && (s[i] === '*' || !/\w/.test(s[i - 1] || ''))) { flush(); out.push(...inlineFromMarkdown(m[2], notes, [...marks, 'italic'])); i += m[0].length; continue; }
     buf += s[i]; i++;

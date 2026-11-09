@@ -26,6 +26,7 @@ import Icon from '../../components/Icon.jsx';
 import { FindReplace } from './findReplace.js';
 import { WordCountDialog, WordCounter, counterOn } from './WordCount.jsx';
 import { Autocorrect } from './autocorrect.js';
+import { Superscript, Subscript } from './scripts.js';
 import { DocPrefsDialog } from './DocPrefs.jsx';
 import { CASES, caseTransaction } from './textcase.js';
 import { FindBar } from './FindBar.jsx';
@@ -207,6 +208,7 @@ function SharedDoc({ file, setFile }) {
     extensions: [
       StarterKit.configure({ link: { openOnClick: false, autolink: true }, undoRedo: false }), // undo is per person, from Collaboration
       Autocorrect.configure({ enabled: () => !!prefsRef.current.autocorrect, subs: () => prefsRef.current.subs }),
+      Superscript, Subscript,
       TextAlign.configure({ types: ['heading', 'paragraph'] }),
       Placeholder.configure({ placeholder: 'Start typing…' }),
       Collaboration.configure({ document: ydoc }),
@@ -753,6 +755,8 @@ function Toolbar({ editor, onDropdown, onEquation, onCite, onSymbols, onComment,
       <B label={<i>I</i>} title="Italic (Ctrl+I)" active={editor.isActive('italic')} onClick={() => c().toggleItalic().run()} />
       <B label={<u>U</u>} title="Underline (Ctrl+U)" active={editor.isActive('underline')} onClick={() => c().toggleUnderline().run()} />
       <B label={<s>S</s>} title="Strikethrough" active={editor.isActive('strike')} onClick={() => c().toggleStrike().run()} />
+      <B label={<span>x<sup>2</sup></span>} title="Superscript (Ctrl+.)" active={editor.isActive('superscript')} onClick={() => c().toggleMark('superscript').run()} />
+      <B label={<span>x<sub>2</sub></span>} title="Subscript (Ctrl+,)" active={editor.isActive('subscript')} onClick={() => c().toggleMark('subscript').run()} />
       <B label="</>" title="Inline code" active={editor.isActive('code')} onClick={() => c().toggleCode().run()} />
       <B label="🔗" title="Link" active={editor.isActive('link')} onClick={() => {
         if (editor.isActive('link')) return c().unsetLink().run();
@@ -1112,7 +1116,7 @@ export function DocPreview({ content, fileId, pictureBase = null }) {
     content,
     extensions: [
       StarterKit.configure({ link: { openOnClick: true } }), TextAlign.configure({ types: ['heading', 'paragraph'] }),
-      CommentMark, DocImage.configure({ docId: fileId, pictureBase }), Table, TableRow, TableHeader, TableCell,
+      CommentMark, DocImage.configure({ docId: fileId, pictureBase }), Table, TableRow, TableHeader, TableCell, Superscript, Subscript,
       TextStyle, Color, BackgroundColor, FontFamily, FontSize, LineHeight, TableOfContents, SheetChart, PageBreak, Footnote, Mention, DropChip, DateChip, MathInline, Citation, References, TaskList, TaskItem.configure({ nested: true }),
     ],
   }, [content]);

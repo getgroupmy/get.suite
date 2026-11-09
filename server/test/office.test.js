@@ -857,3 +857,19 @@ test('Excel: text rotation both ways', async () => {
   const back = await sheetFromExcel(buf);
   assert.deepEqual(back.sheets[0].formats, formats);
 });
+
+test('Word and Markdown: superscript and subscript go out and come back (footnotes stay footnotes)', async () => {
+  const { markdownFromDoc, docFromMarkdown } = await import('../src/office/markdown.js');
+  const run = (text, mark) => ({ type: 'text', text, ...(mark && { marks: [{ type: mark }] }) });
+  const doc = { type: 'doc', content: [{ type: 'paragraph', content: [run('E = mc'), run('2', 'superscript'), run(' and H'), run('2', 'subscript'), run('O'), { type: 'footnote', attrs: { note: 'Einstein, 1905' } }] }] };
+  const { doc: back } = await docFromWord(await wordFromDoc(doc, 'Physics'), {});
+  const texts = back.content[0].content;
+  const marked = (name) => texts.filter((n) => n.marks?.some((m) => m.type === name)).map((n) => n.text);
+  assert.deepEqual(marked('superscript'), ['2']);
+  assert.deepEqual(marked('subscript'), ['2']);
+  assert.ok(JSON.stringify(back).includes('"footnote"'), 'the footnote is still a footnote');
+  const md = markdownFromDoc(doc);
+  assert.match(md, /E = mc<sup>2<\/sup> and H<sub>2<\/sub>O/);
+  const fromMd = docFromMarkdown(md);
+  assert.ok(JSON.stringify(fromMd).includes('"superscript"') && JSON.stringify(fromMd).includes('"subscript"'));
+});
