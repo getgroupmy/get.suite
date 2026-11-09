@@ -2,6 +2,7 @@
 // fill colours, alignment, number formats (number, currency, percent, decimals) and column widths.
 import ExcelJS from 'exceljs';
 import JSZip from 'jszip';
+import crypto from 'node:crypto';
 import { withCharts, chartsOfXlsx, placeOf } from './xlsxcharts.js';
 import path from 'node:path';
 import { meetsCondition, cleanCondition } from './filtercond.js';
@@ -150,6 +151,18 @@ export async function threadedCommentsOfXlsx(buffer) {
   return out;
 }
 
+/** The thread in the old-style note Excel writes for a threaded comment ("[Threaded comment] … Comment: … Reply: …"), or null. */
+export function threadFromNote(text) {
+  const m = /^\[Threaded comment\][\s\S]*?\n\s*Comment:\s*\n([\s\S]*)$/.exec(String(text || ''));
+  if (!m) return null;
+  const parts = m[1].split(/\n(?=Reply(?: \([^)\n]*\))?:\s*\n)/);
+  const body = (t) => t.split('\n').map((l) => l.replace(/^ {4}/, '')).join('\n').trim();
+  const first = body(parts[0]);
+  if (!first) return null;
+  const replies = parts.slice(1).map((p) => { const r = /^Reply(?: \(([^)\n]*)\))?:\s*\n([\s\S]*)$/.exec(p); return r ? { author: (r[1] || '').slice(0, 100), text: body(r[2]), at: null } : null; }).filter((r) => r?.text);
+  return { author: '', text: first.slice(0, 4000), at: null, resolved: false, replies };
+}
+
 /** An Excel workbook (Buffer) as a Sheets spreadsheet. */
 /** A cell note's text (Excel keeps either plain text or rich-text runs), or ''. */
 export function noteText(note) {
@@ -202,6 +215,14 @@ export async function sheetFromExcel(buffer) {
     const cells = {}, formats = {}, colWidths = {};
     const notes = { ...(noteSheets.get(ws.name) || {}) }; // read from the file itself: ExcelJS loses notes on empty cells
     for (const t of threadSheets.get(ws.name) || []) delete notes[t.cell]; // the old-style copy of a comment thread
+    // An old-style copy whose thread is gone (a file saved again by a program that keeps only notes): the thread, from its text.
+    for (const [cell, text] of Object.entries(notes)) {
+      const t = threadFromNote(text);
+      if (!t) continue;
+      delete notes[cell];
+      if (!threadSheets.has(ws.name)) threadSheets.set(ws.name, []);
+      threadSheets.get(ws.name).push({ cell, ...t });
+    }
     const hideRows = [], hideCols = [];
     const outRows = new Map(), outCols = new Map(); // outlined (grouped) rows/columns → hidden?
     // Tables' structured references (Sales[Amount], [@Amount]) become plain ranges Sheets reads.
@@ -345,7 +366,12 @@ export function dateFormulaFormat(raw, cells = {}) {
   return null;
 }
 
-export async function excelFromSheet(data) {
+/**
+ * `comments`: the spreadsheet's open comment threads, [{ sheet (index), cell, author, at, text, replies }];
+ * each goes on its cell as an Excel (Microsoft 365) comment thread, with the old-style note Excel
+ * writes beside it for older versions and other programs.
+ */
+export async function excelFromSheet(data, { comments = [] } = {}) {
   const wb = new ExcelJS.Workbook();
   wb.creator = 'Workspace';
   for (const s of data.sheets || []) {
@@ -408,6 +434,12 @@ export async function excelFromSheet(data) {
       }
     }
     for (const [key, text] of Object.entries(s.notes || {})) if (/^[A-Z]+\d+$/.test(key) && text) ws.getCell(key).note = String(text);
+    // Comment threads: the old-style copy for older Excel (and LibreOffice), on cells without a note of their own.
+    for (const t of threadsFor(comments, wb.worksheets.length - 1, s)) {
+      if (s.notes?.[t.cell]) continue;
+      const lines = [t.text, ...t.replies.map((r) => `Reply${r.author ? ` (${r.author})` : ''}:\n    ${r.text}`)];
+      ws.getCell(t.cell).note = `[Threaded comment]\n\nYour version of Excel allows you to read this threaded comment; however, any edits to it will get removed if the file is opened in a newer version of Excel. Learn more: https://go.microsoft.com/fwlink/?linkid=870924\n\nComment:\n    ${lines.join('\n')}`;
+    }
     for (const [col, px] of Object.entries(s.colWidths || {})) ws.getColumn(col).width = Math.max(2, Math.round((px - 5) / 7));
     for (const [n, px] of Object.entries(s.rowHeights || {})) if (/^\d+$/.test(n) && Number(n) >= 1 && Number(n) <= 10000 && Number(px) > 0) ws.getRow(Number(n)).height = Math.round(Number(px) * 0.75 * 10) / 10; // pixels → points
     if (s.frozen?.rows || s.frozen?.cols) ws.views = [{ state: 'frozen', xSplit: s.frozen.cols || 0, ySplit: s.frozen.rows || 0 }];
@@ -459,7 +491,7 @@ export async function excelFromSheet(data) {
   });
   // Charts: added to the finished file (the library has none), with each sheet's name as written.
   const named = (data.sheets || []).map((s, i) => ({ ...s, xlName: wb.worksheets[i]?.name || s.name }));
-  return withCharts(await withTables(await withFunctions(Buffer.from(await wb.xlsx.writeBuffer()), data.functions), named), named);
+  return withThreads(await withCharts(await withTables(await withFunctions(Buffer.from(await wb.xlsx.writeBuffer()), data.functions), named), named), (data.sheets || []).map((s, i) => threadsFor(comments, i, s)));
 }
 
 // ---- named functions (⋮ → Named functions): Excel keeps them as defined names holding a LAMBDA,
@@ -699,6 +731,48 @@ async function withTables(buffer, sheets) {
     zip.file(sheetPath, x);
   }
   zip.file('[Content_Types].xml', types);
+  return zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
+}
+
+/** The open threads on one sheet's cells (sheet `i`), cleaned. */
+function threadsFor(comments, i, sheet) {
+  return (comments || []).filter((t) => (t.sheet || 0) === i && /^[A-Z]{1,3}\d{1,7}$/.test(t.cell || '') && t.text).slice(0, 1000)
+    .map((t) => ({ cell: t.cell, author: String(t.author || ''), at: t.at, text: String(t.text).slice(0, 4000), replies: (t.replies || []).slice(0, 100).map((r) => ({ author: String(r.author || ''), at: r.at, text: String(r.text || '').slice(0, 4000) })) }));
+}
+const guid = () => `{${crypto.randomUUID().toUpperCase()}}`;
+/** The workbook with Microsoft 365 comment threads (xl/threadedComments, xl/persons) for each sheet's threads. */
+async function withThreads(buffer, perSheet) {
+  if (!perSheet.some((l) => l.length)) return buffer;
+  const zip = await JSZip.loadAsync(buffer);
+  let types = await zip.file('[Content_Types].xml').async('string');
+  const people = new Map(); // name → id
+  const personId = (name) => { const n = name || 'Workspace'; if (!people.has(n)) people.set(n, guid()); return people.get(n); };
+  const stamp = (ms) => new Date(Number.isFinite(ms) ? ms : Date.now()).toISOString().replace(/Z$/, '').replace(/(\.\d{2})\d$/, '$1');
+  let no = 0;
+  const pending = []; // [sheet's relationships file, the relationship to add]
+  perSheet.forEach((list, i) => {
+    if (!list.length) return;
+    no += 1;
+    const items = [];
+    for (const t of list) {
+      const id = guid();
+      items.push(`<threadedComment ref="${t.cell}" dT="${stamp(t.at)}" personId="${personId(t.author)}" id="${id}"><text>${xmlText(t.text)}</text></threadedComment>`);
+      for (const r of t.replies) items.push(`<threadedComment ref="${t.cell}" dT="${stamp(r.at)}" personId="${personId(r.author)}" id="${guid()}" parentId="${id}"><text>${xmlText(r.text)}</text></threadedComment>`);
+    }
+    zip.file(`xl/threadedComments/threadedComment${no}.xml`, `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<ThreadedComments xmlns="http://schemas.microsoft.com/office/spreadsheetml/2018/threadedcomments" xmlns:x="http://schemas.openxmlformats.org/spreadsheetml/2006/main">${items.join('')}</ThreadedComments>`);
+    types = types.replace('</Types>', `<Override PartName="/xl/threadedComments/threadedComment${no}.xml" ContentType="application/vnd.ms-excel.threadedcomments+xml"/></Types>`);
+    const relsPath = `xl/worksheets/_rels/sheet${i + 1}.xml.rels`;
+    pending.push([relsPath, `<Relationship Id="rIdThreads${no}" Type="http://schemas.microsoft.com/office/2017/10/relationships/threadedComment" Target="../threadedComments/threadedComment${no}.xml"/>`]);
+  });
+  for (const [relsPath, rel] of pending) {
+    const old = zip.file(relsPath) ? await zip.file(relsPath).async('string') : '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>';
+    zip.file(relsPath, old.replace('</Relationships>', `${rel}</Relationships>`));
+  }
+  zip.file('xl/persons/person.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<personList xmlns="http://schemas.microsoft.com/office/spreadsheetml/2018/threadedcomments" xmlns:x="http://schemas.openxmlformats.org/spreadsheetml/2006/main">${[...people].map(([name, id]) => `<person displayName="${xmlText(name)}" id="${id}" userId="${xmlText(name)}" providerId="None"/>`).join('')}</personList>`);
+  types = types.replace('</Types>', '<Override PartName="/xl/persons/person.xml" ContentType="application/vnd.ms-excel.person+xml"/></Types>');
+  zip.file('[Content_Types].xml', types);
+  const wbRels = 'xl/_rels/workbook.xml.rels';
+  zip.file(wbRels, (await zip.file(wbRels).async('string')).replace('</Relationships>', '<Relationship Id="rIdPersons" Type="http://schemas.microsoft.com/office/2017/10/relationships/person" Target="persons/person.xml"/></Relationships>'));
   return zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
 }
 

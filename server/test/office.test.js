@@ -1495,3 +1495,31 @@ test('Excel: Microsoft 365 comment threads come in as Sheets comment threads, no
   ]);
   assert.equal(JSON.stringify(book).includes('final price'), false, 'not part of the spreadsheet itself');
 });
+
+test('Excel: comment threads go into the download, and come back as threads', async () => {
+  const { commentsOfBook } = await import('../src/office/excel.js');
+  const data = { sheets: [{ name: 'Prices', cells: { A1: 'Item', B2: '4' }, notes: { A1: 'Kept as a note' } }, { name: 'Other', cells: { C3: 'x' } }] };
+  const comments = [
+    { sheet: 0, cell: 'B2', author: 'Olivia Owner', at: Date.parse('2026-11-01T09:00:00Z'), text: 'Is this right? <check>', replies: [{ author: 'Kim Park', at: Date.parse('2026-11-01T10:00:00Z'), text: 'Yes' }] },
+    { sheet: 1, cell: 'C3', author: 'Kim Park', at: null, text: 'Other sheet', replies: [] },
+  ];
+  const buf = await excelFromSheet(data, { comments });
+  const zip = await JSZip.loadAsync(buf);
+  assert.match(await zip.file('xl/threadedComments/threadedComment1.xml').async('string'), /Is this right\? &lt;check&gt;/);
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(buf);
+  assert.match(wb.worksheets[0].getCell('B2').note?.texts?.map((t) => t.text).join('') || String(wb.worksheets[0].getCell('B2').note), /^\[Threaded comment\][\s\S]*Comment:\n {4}Is this right\? <check>\nReply \(Kim Park\):\n {4}Yes$/, 'the copy older versions show');
+  const back = await sheetFromExcel(buf);
+  assert.deepEqual(back.sheets[0].notes, { A1: 'Kept as a note' });
+  assert.deepEqual(commentsOfBook(back).map((c) => [c.sheet, c.cell, c.author, c.text, c.replies.map((r) => [r.author, r.text])]),
+    [[0, 'B2', 'Olivia Owner', 'Is this right? <check>', [['Kim Park', 'Yes']]], [1, 'C3', 'Kim Park', 'Other sheet', []]]);
+  assert.equal(commentsOfBook(back)[0].at, Date.parse('2026-11-01T09:00:00Z'));
+  assert.equal((await JSZip.loadAsync(await excelFromSheet(data))).file('xl/persons/person.xml'), null, 'none: no comment parts');
+});
+
+test('Excel: an old-style copy of a comment thread, on its own, comes in as the thread', async () => {
+  const { threadFromNote } = await import('../src/office/excel.js');
+  const head = '[Threaded comment]\n\nYour version of Excel allows you to read this threaded comment; however, any edits to it will get removed if the file is opened in a newer version of Excel. Learn more: https://go.microsoft.com/fwlink/?linkid=870924\n\nComment:\n';
+  assert.deepEqual(threadFromNote(`${head}    Is this right?\n    Two lines\nReply:\n    Yes\nReply (Kim Park):\n    Checked`), { author: '', text: 'Is this right?\nTwo lines', at: null, resolved: false, replies: [{ author: '', text: 'Yes', at: null }, { author: 'Kim Park', text: 'Checked', at: null }] });
+  assert.equal(threadFromNote('Just a note'), null);
+});
