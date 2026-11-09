@@ -7258,3 +7258,30 @@ test('Contacts: several at once (star, add to a group, delete); all checked firs
   assert.deepEqual(r.body, { deleted: 2 });
   assert.deepEqual((await a('GET', '/api/contacts')).body.map((c) => c.name), ['Ann Able']);
 });
+
+test('Forms: templates to start from, each a valid form with its settings', async () => {
+  const fa = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'tplmaker', domain: 'acme.com', name: 'Tess Template', password: 'password123' })).status, 201);
+  await login(fa, 'tplmaker@acme.com');
+  const { FORM_TEMPLATES } = await import('../src/formtemplates.js');
+  const list = (await fa('GET', '/api/forms/templates')).body;
+  assert.deepEqual(list.map((t) => t.id), FORM_TEMPLATES.map((t) => t.id));
+  assert.ok(list.every((t) => t.title && t.blurb && t.questions > 0));
+  for (const tpl of FORM_TEMPLATES) {
+    const r = await fa('POST', '/api/forms', { template: tpl.id });
+    assert.equal(r.status, 201, `${tpl.id}: ${JSON.stringify(r.body)}`);
+    const f = (await fa('GET', `/api/forms/${r.body.id}`)).body;
+    assert.equal(f.title, tpl.title);
+    assert.equal(f.description, tpl.description || '');
+    // Nothing in the template is dropped or changed by the checks every form goes through.
+    assert.deepEqual(f.questions.map((x) => [x.type, x.title, !!x.required]), tpl.questions.map((x) => [x.type, x.title, !!x.required]), tpl.id);
+    tpl.questions.forEach((x, i) => {
+      for (const k of ['options', 'answer', 'limits', 'check', 'max', 'rows', 'columns', 'other']) if (x[k] !== undefined) assert.deepEqual(f.questions[i][k], x[k], `${tpl.id} ${x.title} ${k}`);
+    });
+    assert.equal(f.quiz, !!tpl.settings?.quiz, tpl.id);
+    assert.equal(f.one_per_person, !!tpl.settings?.one_per_person, tpl.id);
+  }
+  const named = (await fa('POST', '/api/forms', { template: 'rsvp', title: 'Summer party' })).body;
+  assert.equal(named.title, 'Summer party', 'a title of your own wins');
+  assert.equal((await fa('POST', '/api/forms', { template: 'nope' })).status, 404);
+});

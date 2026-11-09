@@ -6,6 +6,7 @@ import { shownQuestions } from '../formpath.js';
 import { mailEnabled } from '../mail/config.js';
 import { smtpFor } from '../mail/imap.js';
 import { CHECKS, cleanCheck, checkProblem } from '../formcheck.js';
+import { templateList, templateById } from '../formtemplates.js';
 import { Router } from 'express';
 import crypto from 'node:crypto';
 import { q, tx } from '../db.js';
@@ -428,14 +429,27 @@ export default function formRoutes() {
       .all(req.user.id, req.user.id).map((f) => summaryRow(f, req.user.id)));
   });
 
+  // Forms to start from: the gallery under New form.
+  r.get('/templates', (req, res) => res.json(templateList()));
+
   r.post('/', (req, res) => {
     if (q('SELECT COUNT(*) AS n FROM forms WHERE owner_id = ?').get(req.user.id).n >= MAX_FORMS) throw bad(`You can have up to ${MAX_FORMS} forms`);
-    const title = str(req.body?.title ?? '', { max: 200 }) || 'Untitled form';
+    // From a template: its title, description, questions, message after sending and settings.
+    const tpl = req.body?.template ? templateById(String(req.body.template)) : null;
+    if (req.body?.template && !tpl) throw notFound('No such template');
+    const title = str(req.body?.title ?? '', { max: 200 }) || tpl?.title || 'Untitled form';
     const id = uid();
     const t = now();
-    const questions = cleanQuestions(req.body?.questions ?? [{ type: 'choice', title: '', options: ['Option 1'] }]);
-    q(`INSERT INTO forms (id, org_id, owner_id, token, title, questions, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(id, req.user.org_id, req.user.id, crypto.randomBytes(12).toString('base64url'), title, JSON.stringify(questions), t, t);
+    const questions = cleanQuestions(tpl ? tpl.questions : req.body?.questions ?? [{ type: 'choice', title: '', options: ['Option 1'] }]);
+    tx(() => {
+      q(`INSERT INTO forms (id, org_id, owner_id, token, title, questions, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(id, req.user.org_id, req.user.id, crypto.randomBytes(12).toString('base64url'), title, JSON.stringify(questions), t, t);
+      if (tpl) {
+        const st = tpl.settings || {};
+        q('UPDATE forms SET description = ?, confirmation = ?, quiz = ?, show_score = ?, one_per_person = ? WHERE id = ?')
+          .run(tpl.description || '', tpl.confirmation || '', st.quiz ? 1 : 0, st.show_score === false ? 0 : 1, st.one_per_person ? 1 : 0, id);
+      }
+    });
     res.status(201).json(ownForm(id, req.user));
   });
 

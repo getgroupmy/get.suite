@@ -23,12 +23,28 @@ function FormList() {
   const toast = useToast();
   const [forms, setForms] = useState(null);
   useEffect(() => { get('/forms').then(setForms).catch((e) => toast(e.message, 'error')); }, [toast]);
-  const create = async () => {
-    try { navigate(`/forms/${(await post('/forms', { title: 'Untitled form' })).id}`); } catch (e) { toast(e.message, 'error'); }
+  const [templates, setTemplates] = useState([]);
+  useEffect(() => { get('/forms/templates').then(setTemplates).catch(() => {}); }, []);
+  const create = async (template) => {
+    try { navigate(`/forms/${(await post('/forms', template ? { template } : { title: 'Untitled form' })).id}`); } catch (e) { toast(e.message, 'error'); }
   };
   return (
     <div className="page">
-      <div className="page-head"><h1 className="grow">Forms</h1><button type="button" className="btn primary" onClick={create}><Icon name="plus" size={18} /> New form</button></div>
+      <div className="page-head"><h1 className="grow">Forms</h1><button type="button" className="btn primary" onClick={() => create()}><Icon name="plus" size={18} /> New form</button></div>
+      {templates.length > 0 && (
+        <section className="form-gallery" aria-label="Start a new form">
+          <h2 className="small muted">Start a new form</h2>
+          <ul>
+            <li><button type="button" className="form-tpl blank" onClick={() => create()}><span className="form-tpl-mark" aria-hidden="true">＋</span><strong>Blank form</strong><span className="muted small">Your own questions</span></button></li>
+            {templates.map((t) => (
+              <li key={t.id}><button type="button" className="form-tpl" aria-label={`Start from the ${t.title} template`} onClick={() => create(t.id)}>
+                <span className="form-tpl-mark" aria-hidden="true">{{ event: '📅', feedback: '⭐', rsvp: '✉️', contact: '👤', job: '💼', quiz: '❓', timeoff: '🌴', order: '🛒' }[t.id] || '📝'}</span>
+                <strong>{t.title}</strong><span className="muted small">{t.blurb}</span>
+              </button></li>
+            ))}
+          </ul>
+        </section>
+      )}
       {forms === null ? <p className="muted">Loading…</p> : !forms.length ? (
         <Empty icon="form" title="No forms yet">Make a sign-up sheet, a survey or a quick poll, share its link and see the answers come in.</Empty>
       ) : (
