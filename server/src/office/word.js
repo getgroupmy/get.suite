@@ -89,6 +89,51 @@ function footnotesFromWord(html) {
   return rest.replace(/<sup><a href="#footnote-(\d+)" id="footnote-ref-\d+">\[\d+\]<\/a><\/sup>/g, (m, id) => `<sup data-footnote="" data-note="${attr(notes.get(id) ?? '')}"></sup>`);
 }
 
+// ---- alignment and colours: mammoth leaves them out of its HTML (and doesn't read text colour), so
+// they're marked in the file's XML first, with invisible markers it passes through as text, and
+// turned into styles the Docs editor reads afterwards.
+const MK = '\uE000', MK_END = '\uE001';
+const HIGHLIGHTS = { yellow: 'ffff00', green: '00ff00', cyan: '00ffff', magenta: 'ff00ff', blue: '0000ff', red: 'ff0000', darkBlue: '000080', darkCyan: '008080', darkGreen: '008000', darkMagenta: '800080', darkRed: '800000', darkYellow: '808000', darkGray: '808080', lightGray: 'c0c0c0', black: '000000', white: 'ffffff' };
+const WORD_ALIGN = { center: 'center', right: 'right', end: 'right', both: 'justify', distribute: 'justify' };
+const marker = (text) => `<w:r><w:t xml:space="preserve">${MK}${text}${MK_END}</w:t></w:r>`;
+/** document.xml with markers before aligned paragraphs' text and around coloured or highlighted runs. */
+export function markWordXml(xml) {
+  return String(xml)
+    .replace(/(<w:pPr>[\s\S]*?<\/w:pPr>)/g, (m, ppr) => {
+      const jc = /<w:jc w:val="([a-zA-Z]+)"\/>/.exec(ppr.replace(/<w:rPr>[\s\S]*?<\/w:rPr>/g, ''))?.[1];
+      return WORD_ALIGN[jc] ? `${ppr}${marker(`a:${WORD_ALIGN[jc]}`)}` : ppr;
+    })
+    .replace(/<w:r(?=[\s>])([^>]*)>((?:(?!<\/w:r>)[\s\S])*?)<\/w:r>/g, (m, attrs, inner) => {
+      const rpr = /^\s*<w:rPr>([\s\S]*?)<\/w:rPr>/.exec(inner)?.[1];
+      if (!rpr) return m;
+      const color = /<w:color\b[^>]*w:val="([0-9A-Fa-f]{6})"/.exec(rpr)?.[1]?.toLowerCase();
+      const hl = HIGHLIGHTS[/<w:highlight w:val="([a-zA-Z]+)"\/>/.exec(rpr)?.[1]] || /<w:shd\b[^>]*w:fill="([0-9A-Fa-f]{6})"/.exec(rpr)?.[1]?.toLowerCase();
+      const style = [color && color !== '000000' && `c:${color}`, hl && hl !== 'ffffff' && `h:${hl}`].filter(Boolean).join(';');
+      return style ? `${marker(`s:${style}`)}${m}${marker('/')}` : m;
+    });
+}
+/** The HTML mammoth made, with the markers turned into alignment and colour styles (and any left over removed). */
+export function unmarkWordHtml(html) {
+  const re = (s) => new RegExp(s.replace(/MK/g, MK).replace(/END/g, MK_END), 'g');
+  return String(html)
+    .replace(re('<(p|h[1-6])>MKa:(center|right|justify)END'), (m, tag, a) => `<${tag} style="text-align:${a}">`)
+    .replace(re('MKs:([^END]*)END'), (m, spec) => {
+      const css = spec.split(';').map((x) => (x.startsWith('c:') ? `color:#${x.slice(2)}` : x.startsWith('h:') ? `background-color:#${x.slice(2)}` : '')).filter(Boolean).join(';');
+      return `<span style="${css}">`;
+    })
+    .replace(re('MK/END'), '</span>')
+    .replace(re('MK[^END]*END'), '');
+}
+async function withMarks(buffer) {
+  try {
+    const zip = await JSZip.loadAsync(buffer);
+    const f = zip.file('word/document.xml');
+    if (!f) return buffer;
+    zip.file('word/document.xml', markWordXml(await f.async('string')));
+    return await zip.generateAsync({ type: 'nodebuffer' });
+  } catch { return buffer; }
+}
+
 /**
  * A Word file's content as a Docs document (JSON), plus any warnings about what didn't carry over.
  * `savePicture(name, data, mime)` keeps a picture as a Drive file and gives its id; without it,
@@ -96,7 +141,7 @@ function footnotesFromWord(html) {
  */
 export async function docFromWord(buffer, { savePicture } = {}) {
   let n = 0;
-  const { value: html, messages } = await mammoth.convertToHtml({ buffer }, {
+  const { value: marked, messages } = await mammoth.convertToHtml({ buffer: await withMarks(buffer) }, {
     convertImage: mammoth.images.imgElement(async (image) => {
       const mime = image.contentType || '';
       if (!savePicture || !/^image\/(png|jpeg|gif|bmp|webp)$/.test(mime)) return { src: '', alt: '[picture]' };
@@ -108,6 +153,7 @@ export async function docFromWord(buffer, { savePicture } = {}) {
     styleMap: ['p[style-name=\'Title\'] => h1:fresh', 'p[style-name=\'Subtitle\'] => h2:fresh', 'u => u'],
   });
   // A picture that couldn't be kept leaves a note instead of disappearing silently.
+  const html = unmarkWordHtml(marked);
   const withNotes = bookmarksFromWord(footnotesFromWord(html)).replace(/<img [^>]*alt="\[picture\]"[^>]*>/g, '<em>[picture]</em>');
   const doc = checklists(generateJSON(withNotes || '<p></p>', EXTENSIONS));
   return { doc, warnings: messages.filter((m) => m.type === 'warning').map((m) => m.message) };

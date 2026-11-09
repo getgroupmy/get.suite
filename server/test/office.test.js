@@ -1226,3 +1226,30 @@ test('PowerPoint: charts in an uploaded presentation come in with their figures'
   const sc = chartDataFromXml('<c:scatterChart><c:ser><c:tx><c:v>W</c:v></c:tx><c:xVal><c:numRef><c:numCache><c:ptCount val="2"/><c:pt idx="0"><c:v>150</c:v></c:pt><c:pt idx="1"><c:v>160</c:v></c:pt></c:numCache></c:numRef></c:xVal><c:yVal><c:numRef><c:numCache><c:ptCount val="2"/><c:pt idx="0"><c:v>50</c:v></c:pt><c:pt idx="1"><c:v>58</c:v></c:pt></c:numCache></c:numRef></c:yVal></c:ser></c:scatterChart>');
   assert.deepEqual(sc, { type: 'scatter', data: { categories: ['150', '160'], series: [{ name: 'W', values: [50, 58] }] } });
 });
+
+test('Word: paragraph alignment, text colours and highlights are read', async () => {
+  const file = new Document({ sections: [{ children: [
+    new Paragraph({ text: 'A centred title', heading: HeadingLevel.HEADING_2, alignment: AlignmentType.CENTER }),
+    new Paragraph({ text: 'Right aligned', alignment: AlignmentType.RIGHT }),
+    new Paragraph({ text: 'Justified text', alignment: AlignmentType.JUSTIFIED }),
+    new Paragraph({ children: [new TextRun('Plain, '), new TextRun({ text: 'red bold', color: 'C5221F', bold: true }), new TextRun(', '), new TextRun({ text: 'marked', highlight: 'yellow' }), new TextRun(' and '), new TextRun({ text: 'both', color: '1A73E8', shading: { type: 'clear', color: 'auto', fill: 'FCE8E6' } })] }),
+    new Paragraph({ children: [new TextRun({ text: 'Black is the default', color: '000000' })] }),
+  ] }] });
+  const { doc } = await docFromWord(await Packer.toBuffer(file));
+  const align = (n) => n.attrs?.textAlign;
+  assert.deepEqual([align(doc.content[0]), doc.content[0].type, align(doc.content[1]), align(doc.content[2])], ['center', 'heading', 'right', 'justify']);
+  assert.equal(text(doc.content[0]), 'A centred title', 'no marker left in the text');
+  const runs = doc.content[3].content;
+  assert.equal(text(doc.content[3]), 'Plain, red bold, marked and both');
+  const style = (t) => runs.find((r) => r.text === t)?.marks?.find((m) => m.type === 'textStyle')?.attrs;
+  assert.equal(style('red bold').color, '#c5221f');
+  assert.ok(runs.find((r) => r.text === 'red bold').marks.some((m) => m.type === 'bold'), 'bold kept');
+  assert.equal(style('marked').backgroundColor, '#ffff00');
+  assert.deepEqual([style('both').color, style('both').backgroundColor], ['#1a73e8', '#fce8e6']);
+  assert.equal(style('Plain, '), undefined);
+  assert.equal(doc.content[4].content[0].marks, undefined, 'black needs no colour');
+  // A Docs download opens again with its alignment and colours.
+  const back = (await docFromWord(await wordFromDoc(doc, 'Colours'))).doc;
+  assert.equal(back.content[1].attrs.textAlign, 'right');
+  assert.equal(back.content[3].content.find((r) => r.text === 'red bold').marks.find((m) => m.type === 'textStyle').attrs.color, '#c5221f');
+});
