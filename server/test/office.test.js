@@ -1169,6 +1169,33 @@ test('PowerPoint: stacked, area, scatter and doughnut charts from spreadsheets',
   assert.match(all, /<c:doughnutChart>/);
 });
 
+test('Excel and PowerPoint: histograms and waterfalls go as the columns they are drawn with', async () => {
+  const { chartXml } = await import('../src/office/xlsxcharts.js');
+  const cells = { A1: 'Step', B1: 'Cash', A2: 'Start', B2: '100', A3: 'Sales', B3: '50', A4: 'Costs', B4: '-80', D1: 'Height', D2: '151', D3: '158', D4: '162', D5: '175', D6: '188', E2: '=B2' };
+  const fall = chartXml({ type: 'waterfall', range: 'A1:B4', title: 'Cash' }, 'S', cells);
+  assert.match(fall, /<c:grouping val="stacked"\/>/);
+  const sers = [...fall.matchAll(/<c:ser>([\s\S]*?)<\/c:ser>/g)].map((m) => [/<c:tx><c:v>([^<]*)/.exec(m[1])[1], [...m[1].matchAll(/<c:val>[\s\S]*?<\/c:val>/g)][0][0].match(/<c:v>[^<]*/g).map((v) => Number(v.slice(5)))]);
+  assert.deepEqual(sers, [['Base', [0, 100, 70, 0]], ['Increase', [100, 50, 0, 0]], ['Decrease', [0, 0, 80, 0]], ['Total', [0, 0, 0, 70]]]);
+  assert.match(fall, /<c:ser><c:idx val="0"\/><c:order val="0"\/><c:tx><c:v>Base<\/c:v><\/c:tx><c:spPr><a:noFill\/>/, 'the base is not drawn');
+  assert.match(fall, /<c:pt idx="3"><c:v>Total<\/c:v>/);
+  const hist = chartXml({ type: 'histogram', range: 'D1:D6' }, 'S', cells);
+  assert.deepEqual([...hist.matchAll(/<c:pt idx="\d+"><c:v>([^<]*)<\/c:v>/g)].map((m) => m[1]), ['140–160', '160–180', '180–200', '2', '2', '1']);
+  assert.match(hist, /<c:gapWidth val="4"\/>/);
+  // A formula's value isn't known here: a column chart of the cells instead.
+  assert.match(chartXml({ type: 'waterfall', range: 'E1:E2' }, 'S', { ...cells, E1: 'X' }), /<c:numRef><c:f>'S'!\$E\$2:\$E\$2<\/c:f>/);
+  // PowerPoint: a waterfall's base is the slide's colour, so the pieces float.
+  const { powerPointFromDeck } = await import('../src/office/powerpoint.js');
+  const deck = { theme: 'light', slides: [{ id: 's', items: [{ id: 'c', type: 'chart', chartType: 'waterfall', x: 5, y: 5, w: 80, h: 80, data: { categories: ['Start', 'Sales', 'Costs'], series: [{ name: 'Cash', values: [100, 50, -80] }] } },
+    { id: 'h', type: 'chart', chartType: 'histogram', x: 5, y: 5, w: 40, h: 40, data: { categories: [], series: [{ name: 'Height', values: [151, 158, 162, 175, 188] }] } }] }] };
+  const zip = await JSZip.loadAsync(await powerPointFromDeck(deck));
+  const charts = await Promise.all(Object.keys(zip.files).filter((f) => /^ppt\/charts\/chart\d+\.xml$/.test(f)).sort().map((f) => zip.file(f).async('string')));
+  const w = charts.find((x) => /Increase/.test(x)), h = charts.find((x) => /Height \(count\)/.test(x));
+  assert.ok(w && h, 'both charts are there');
+  assert.match(w, /<c:grouping val="stacked"\/>/);
+  assert.match(w, /<c:v>Total<\/c:v>/);
+  assert.match(h, /<c:v>140–160<\/c:v>/);
+});
+
 test('Excel: charts go into the download as real Excel charts over the sheet\'s cells', async () => {
   const { chartLayout, chartXml } = await import('../src/office/xlsxcharts.js');
   const cells = { A1: 'Month', B1: 'North', C1: 'South', A2: 'Jan', B2: '10', C2: '4', A3: 'Feb', B3: '=B2+2', C3: '5', E1: 'H', F1: 'W', E2: '150', F2: '50', E3: '160', F3: '58' };

@@ -2,7 +2,7 @@
 // doughnut, with a tooltip on hover, a legend when there is more than one series, and a table view
 // of the numbers behind it.
 import { useState } from 'react';
-import { niceScale, shortNumber, pieSlices, stackedRuns, scatterOf, isStacked, isRound, isHorizontal } from './charts.js';
+import { niceScale, shortNumber, pieSlices, stackedRuns, scatterOf, isStacked, isRound, isHorizontal, histogramOf, waterfallOf } from './charts.js';
 
 const color = (i) => `var(--series-${(i % 8) + 1})`;
 const fmt = (v) => (v === null || v === undefined ? '–' : v.toLocaleString(undefined, { maximumFractionDigits: 6 }));
@@ -21,9 +21,13 @@ function barPath(x, y, w, h, r, end) {
 export default function ChartView({ type, data, width, height }) {
   const [hover, setHover] = useState(null); // { i, x, y }
   const [table, setTable] = useState(false);
+  // A histogram counts the numbers into ranges, and a waterfall adds them up: both are drawn as columns.
+  const hist = type === 'histogram' && !data.error ? histogramOf(data) : null;
+  const fall = type === 'waterfall' && !data.error ? waterfallOf(data) : null;
+  if (hist || fall) data = hist || fall;
   const { categories, series } = data;
   const scatter = type === 'scatter' && !data.error ? scatterOf(data) : null;
-  const legendItems = scatter ? (scatter.points.length > 1 ? scatter.points.map((s, i) => ({ name: s.name, slot: i })) : []) : isRound(type) ? pieSlices(data).map((s) => ({ name: `${s.name} · ${Math.round(s.share * 100)}%`, slot: s.slot })) : series.length > 1 ? series.map((s, i) => ({ name: s.name, slot: i })) : [];
+  const legendItems = scatter ? (scatter.points.length > 1 ? scatter.points.map((s, i) => ({ name: s.name, slot: i })) : []) : isRound(type) ? pieSlices(data).map((s) => ({ name: `${s.name} · ${Math.round(s.share * 100)}%`, slot: s.slot })) : fall ? [{ name: 'Increase', slot: 2 }, { name: 'Decrease', slot: 7 }, { name: 'Total', slot: 0 }] : hist ? [] : series.length > 1 ? series.map((s, i) => ({ name: s.name, slot: i })) : [];
   const legendH = legendItems.length ? 26 : 0;
   const h = Math.max(60, height - legendH - 24); // 24: the table/chart switch row
   const w = Math.max(80, width);
@@ -94,7 +98,7 @@ export default function ChartView({ type, data, width, height }) {
   } else {
     const stacked = isStacked(type);
     const runs = stacked ? stackedRuns(series, categories.length) : null;
-    const all = stacked ? runs.flat().filter(Boolean).flat() : series.flatMap((s) => s.values).filter((v) => v !== null);
+    const all = stacked ? runs.flat().filter(Boolean).flat() : fall ? fall.steps.flatMap((st) => [st.from, st.to]) : series.flatMap((s) => s.values).filter((v) => v !== null);
     const horiz = isHorizontal(type);
     const sc = niceScale(Math.min(...all), Math.max(...all), Math.max(2, Math.min(6, Math.floor((horiz ? w : h) / 50))));
     const n = Math.max(1, categories.length);
@@ -133,6 +137,20 @@ export default function ChartView({ type, data, width, height }) {
         );
       });
       if (hover) marks.unshift(<line key="x" x1={x(hover.i)} x2={x(hover.i)} y1={m.t} y2={m.t + ph} className="chart-cross" />);
+    } else if (fall) {
+      const thick = band * 0.62;
+      const slot = { up: 2, down: 7, total: 0 };
+      marks = fall.steps.map((st, i) => {
+        const at = catPos(i) + (band - thick) / 2;
+        const a = valPos(st.from), b = valPos(st.to);
+        const next = fall.steps[i + 1];
+        return (
+          <g key={i} opacity={hover && hover.i !== i ? 0.55 : 1}>
+            <rect x={at} y={Math.min(a, b)} width={thick} height={Math.max(1, Math.abs(b - a))} rx="2" fill={color(slot[st.kind])} />
+            {next && <line x1={at + thick} x2={catPos(i + 1) + (band - thick) / 2} y1={b} y2={b} className="chart-grid" strokeDasharray="3 2" />}
+          </g>
+        );
+      });
     } else if (stacked) {
       const thick = band * 0.62;
       marks = categories.map((_, i) => series.map((s, si) => {
@@ -146,7 +164,7 @@ export default function ChartView({ type, data, width, height }) {
       }));
     } else {
       const k = series.length;
-      const group = band * (k > 1 ? 0.8 : 0.7);
+      const group = band * (hist ? 0.96 : k > 1 ? 0.8 : 0.7); // a histogram's ranges touch
       const gap = k > 1 ? 2 : 0;
       const thick = Math.max(1, (group - gap * (k - 1)) / k);
       marks = categories.map((_, i) => series.map((s, si) => {
@@ -166,7 +184,9 @@ export default function ChartView({ type, data, width, height }) {
       : <rect key={i} x={catPos(i)} y={m.t} width={band} height={ph} fill="transparent" onMouseEnter={() => setHover({ i, x: catPos(i) + band / 2, y: m.t + 10 })} />));
     plot = <>{grid}{catLabels}{marks}<g onMouseLeave={() => setHover(null)}>{hits}</g></>;
     if (hover) {
-      const rows = series.map((s, si) => [si, `${series.length > 1 ? `${s.name}: ` : ''}${fmt(s.values[hover.i])}`]);
+      let rows = series.map((s, si) => [si, `${series.length > 1 ? `${s.name}: ` : ''}${fmt(s.values[hover.i])}`]);
+      if (fall) { const st = fall.steps[hover.i]; rows = st.kind === 'total' ? [[0, fmt(st.to)]] : [[st.kind === 'up' ? 2 : 7, `${st.to >= st.from ? '+' : '−'}${fmt(Math.abs(st.to - st.from))}`], [null, `Running total: ${fmt(st.to)}`]]; }
+      if (hist) { const [a, b] = hist.bins[hover.i]; rows = [[0, `${fmt(series[0].values[hover.i])} between ${fmt(a)} and ${fmt(b)}`]]; }
       if (stacked && series.length > 1) rows.push([null, `Total: ${fmt(series.reduce((t, s) => t + (s.values[hover.i] || 0), 0))}`]);
       tip = { x: hover.x, y: hover.y, title: categories[hover.i], rows };
     }

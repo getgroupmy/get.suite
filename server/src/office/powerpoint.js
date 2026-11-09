@@ -1,6 +1,7 @@
 // PowerPoint files <-> Slides: slide by slide, text boxes (with size, bold, italic, colour,
 // alignment), rectangles, rounded rectangles and ellipses, pictures, and slide backgrounds (colours and pictures), at their
 // places on the slide. Boxes are kept in percent of the slide, as Slides does.
+import { histogramOf, waterfallOf } from './chartshapes.js';
 import JSZip from 'jszip';
 import path from 'node:path';
 import PptxGenJS from 'pptxgenjs';
@@ -501,8 +502,22 @@ export async function powerPointFromDeck(deck, { pictureData, title = 'Presentat
         const labels = (it.data.categories || []).map(String);
         let series = (round ? it.data.series.slice(0, 1) : it.data.series).map((x) => ({ name: String(x.name || ''), labels, values: (x.values || []).map((v) => (typeof v === 'number' ? v : 0)) }));
         if (t === 'scatter') series = scatterSeries(it.data); // PowerPoint's scatter: the X values first, then each Y series
+        // A histogram goes as columns of its counts; a waterfall as stacked columns standing on a base
+        // the slide's own colour, so each piece floats where the running total is.
+        const shaped = t === 'histogram' ? histogramOf(it.data) : t === 'waterfall' ? waterfallOf(it.data) : null;
+        if (shaped && !shaped.error) {
+          if (t === 'histogram') series = [{ name: shaped.series[0].name, labels: shaped.categories, values: shaped.series[0].values }];
+          else {
+            const part = (kind) => shaped.steps.map((st) => (st.kind === kind ? Math.abs(st.to - st.from) : 0));
+            series = [{ name: 'Base', labels: shaped.categories, values: shaped.steps.map((st) => (st.kind === 'total' ? Math.min(0, st.to) : Math.min(st.from, st.to))) },
+              { name: 'Increase', labels: shaped.categories, values: part('up') }, { name: 'Decrease', labels: shaped.categories, values: part('down') },
+              { name: 'Total', labels: shaped.categories, values: shaped.steps.map((st) => (st.kind === 'total' ? Math.abs(st.to) : 0)) }];
+          }
+        }
         slide.addChart(pptx.ChartType[kind], series, { ...pos, barDir: t === 'bar' || t === 'stackedBar' ? 'bar' : 'col', ...((t === 'stackedColumn' || t === 'stackedBar') && { barGrouping: 'stacked' }),
-          ...(t === 'scatter' && { lineSize: 0, lineDataSymbolSize: 7 }), ...(t === 'doughnut' && { holeSize: 58 }), showLegend: series.length > (t === 'scatter' ? 2 : 1) || round, legendPos: 'b',
+          ...(t === 'scatter' && { lineSize: 0, lineDataSymbolSize: 7 }), ...(t === 'doughnut' && { holeSize: 58 }), ...(t === 'histogram' && { barGapWidthPct: 4 }),
+          ...(t === 'waterfall' && shaped && !shaped.error && { barGrouping: 'stacked', barGapWidthPct: 60, chartColors: [color(theme.bg, theme.bg), '1E8E3E', 'D93025', '1A73E8'] }),
+          showLegend: !shaped && (series.length > (t === 'scatter' ? 2 : 1) || round), legendPos: 'b',
           ...(it.title && { showTitle: true, title: String(it.title), titleFontSize: 14 }) });
       } else if (it.type === 'image') {
         const pic = await pictureData?.(it.fileId);

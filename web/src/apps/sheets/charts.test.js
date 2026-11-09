@@ -64,7 +64,7 @@ test('pie slices fold the smallest into Other', () => {
 
 test('more chart types: stacked pieces and scatter points', async () => {
   const { stackedRuns, scatterOf, CHART_TYPES, isStacked, isRound, isHorizontal } = await import('./charts.js');
-  assert.equal(CHART_TYPES.length, 9);
+  assert.equal(CHART_TYPES.length, 11);
   assert.deepEqual([isStacked('stackedBar'), isRound('doughnut'), isHorizontal('stackedBar'), isHorizontal('column')], [true, true, true, false]);
   const runs = stackedRuns([{ values: [10, -5, null] }, { values: [20, -3, 4] }, { values: [5, 2, 0] }], 3);
   assert.deepEqual(runs, [[[0, 10], [-5, 0], null], [[10, 30], [-8, -5], [0, 4]], [[30, 35], [0, 2], null]]);
@@ -74,4 +74,27 @@ test('more chart types: stacked pieces and scatter points', async () => {
   // Numeric row names are X; text names are 1, 2, 3.
   assert.deepEqual(scatterOf({ categories: ['2020', '2021'], series: [{ name: 'Sales', values: [5, 7] }] }).points[0].values, [[2020, 5], [2021, 7]]);
   assert.deepEqual(scatterOf({ categories: ['Ann', 'Bo'], series: [{ name: 'Score', values: [5, 7] }] }).points[0].values, [[1, 5], [2, 7]]);
+});
+
+test('histogram: numbers counted into round, equal ranges', async () => {
+  const { histogramOf } = await import('./charts.js');
+  const data = { categories: [], series: [{ name: 'Height', values: [151, 158, 160, 162, 165, 168, 171, 175, 179, 188, null] }] };
+  const h = histogramOf(data);
+  assert.deepEqual(h.bins, [[150, 160], [160, 170], [170, 180], [180, 190]]);
+  assert.deepEqual(h.series[0].values, [2, 4, 3, 1], 'on the line counts in the higher range');
+  assert.deepEqual(h.categories, ['150–160', '160–170', '170–180', '180–190']);
+  assert.equal(h.series[0].name, 'Height (count)');
+  assert.deepEqual(histogramOf(data, 2).series[0].values.reduce((a, b) => a + b), 10, 'every number is counted');
+  const same = histogramOf({ categories: [], series: [{ name: 'Series 1', values: [5, 5, 5] }] });
+  assert.equal(same.series[0].values.reduce((a, b) => a + b), 3);
+  assert.equal(same.series[0].name, 'Count');
+  assert.ok(histogramOf({ categories: [], series: [] }).error);
+});
+
+test('waterfall: changes add up, with a total at the end', async () => {
+  const { waterfallOf } = await import('./charts.js');
+  const w = waterfallOf({ categories: ['Start', 'Sales', 'Costs', 'Tax'], series: [{ name: 'Cash', values: [100, 50, -80, null] }] });
+  assert.deepEqual(w.categories, ['Start', 'Sales', 'Costs', 'Tax', 'Total']);
+  assert.deepEqual(w.steps, [{ from: 0, to: 100, kind: 'up' }, { from: 100, to: 150, kind: 'up' }, { from: 150, to: 70, kind: 'down' }, { from: 70, to: 70, kind: 'up' }, { from: 0, to: 70, kind: 'total' }]);
+  assert.deepEqual(w.series[0].values, [100, 50, -80, null, 70]);
 });

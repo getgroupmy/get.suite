@@ -1,6 +1,7 @@
 // Charts in Excel downloads: each chart on a sheet becomes a real Excel chart, placed where it sits
 // on the sheet, whose series point at the sheet's cells (so Excel redraws it when the numbers change).
 // The library that writes the workbook has no charts, so they're added to the finished file here.
+import { histogramOf, waterfallOf } from './chartshapes.js';
 import JSZip from 'jszip';
 const colName = (i) => { let s = ''; for (let n = i + 1; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + ((n - 1) % 26)) + s; return s; };
 const colIndex = (s) => [...s].reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0) - 1;
@@ -60,6 +61,27 @@ const AXES = '<c:axId val="500000001"/><c:axId val="500000002"/>';
 const catAx = (pos) => `<c:catAx><c:axId val="500000001"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="0"/><c:axPos val="${pos}"/><c:numFmt formatCode="General" sourceLinked="1"/><c:tickLblPos val="low"/><c:crossAx val="500000002"/><c:crosses val="autoZero"/><c:auto val="1"/><c:lblAlgn val="ctr"/><c:lblOffset val="100"/></c:catAx>`;
 const valAx = (id, cross, pos, grid = true) => `<c:valAx><c:axId val="${id}"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="0"/><c:axPos val="${pos}"/>${grid ? '<c:majorGridlines><c:spPr><a:ln w="9525"><a:solidFill><a:srgbClr val="E0E0E0"/></a:solidFill></a:ln></c:spPr></c:majorGridlines>' : ''}<c:numFmt formatCode="General" sourceLinked="1"/><c:tickLblPos val="nextTo"/><c:crossAx val="${cross}"/><c:crosses val="autoZero"/></c:valAx>`;
 
+/**
+ * A histogram's or waterfall's shape from the cells, when they're all plain numbers (a formula's value
+ * isn't known here: then it goes as a column chart of the cells instead). Null when it can't be worked out.
+ */
+function shapedChart(type, L, cells) {
+  const { g, labelCol, r0 } = L;
+  const rows = Math.max(0, g.r2 - r0 + 1);
+  const at = (c, r) => cells[`${colName(c)}${r + 1}`];
+  const list = type === 'waterfall' ? L.series.slice(0, 1) : L.series;
+  if (list.some((s) => Array.from({ length: rows }, (_, i) => at(s.col, r0 + i)).some((v) => typeof v === 'string' && v.startsWith('=')))) return null;
+  const num = (v) => (v === undefined || v === null || v === '' || Number.isNaN(Number(v)) ? null : Number(v));
+  let series = list.map((s) => ({ name: s.name, values: Array.from({ length: rows }, (_, i) => num(at(s.col, r0 + i))) }));
+  let categories = Array.from({ length: rows }, (_, i) => (labelCol ? String(at(g.c1, r0 + i) ?? '') : String(i + 1)));
+  // Rows empty all along at the end are left off, as the page does.
+  let n = rows;
+  while (n > 0 && series.every((s) => s.values[n - 1] === null) && (!labelCol || !categories[n - 1])) n--;
+  categories = categories.slice(0, n); series = series.map((s) => ({ ...s, values: s.values.slice(0, n) }));
+  const out = type === 'histogram' ? histogramOf({ categories, series }) : waterfallOf({ categories, series });
+  return out.error ? null : out;
+}
+
 /** A chart's XML (a chartSpace), or null when it has nothing to draw. */
 export function chartXml(chart, sheetName, cells) {
   const type = KINDS.has(chart.type) ? chart.type : 'column';
@@ -73,7 +95,25 @@ export function chartXml(chart, sheetName, cells) {
   const round = type === 'pie' || type === 'doughnut';
   const list = round ? L.series.slice(0, 1) : L.series;
   let plot;
-  if (type === 'scatter') {
+  const shaped = (chart.type === 'histogram' || chart.type === 'waterfall') && shapedChart(chart.type, L, cells);
+  if (shaped) {
+    // Worked out from the numbers (Excel 2007's charts have no histogram or waterfall): the figures go in
+    // the chart itself. A waterfall stands its pieces on a base with no fill.
+    const lit = (vals) => `<c:numLit><c:formatCode>General</c:formatCode><c:ptCount val="${vals.length}"/>${vals.map((v, k) => `<c:pt idx="${k}"><c:v>${v}</c:v></c:pt>`).join('')}</c:numLit>`;
+    const cats = `<c:cat><c:strLit><c:ptCount val="${shaped.categories.length}"/>${shaped.categories.map((c, k) => `<c:pt idx="${k}"><c:v>${xml(c)}</c:v></c:pt>`).join('')}</c:strLit></c:cat>`;
+    const ser = (i, name, vals, look) => `<c:ser><c:idx val="${i}"/><c:order val="${i}"/><c:tx><c:v>${xml(name)}</c:v></c:tx>${look}<c:invertIfNegative val="0"/>${cats}<c:val>${lit(vals)}</c:val></c:ser>`;
+    const solid = (hex) => `<c:spPr><a:solidFill><a:srgbClr val="${hex}"/></a:solidFill></c:spPr>`;
+    let sers;
+    if (chart.type === 'histogram') sers = ser(0, shaped.series[0].name, shaped.series[0].values, fill(0));
+    else {
+      const part = (kind) => shaped.steps.map((st) => (st.kind === kind ? Math.abs(st.to - st.from) : 0));
+      sers = ser(0, 'Base', shaped.steps.map((st) => (st.kind === 'total' ? Math.min(0, st.to) : Math.min(st.from, st.to))), '<c:spPr><a:noFill/><a:ln><a:noFill/></a:ln></c:spPr>')
+        + ser(1, 'Increase', part('up'), solid('1E8E3E')) + ser(2, 'Decrease', part('down'), solid('D93025'))
+        + ser(3, 'Total', shaped.steps.map((st) => (st.kind === 'total' ? Math.abs(st.to) : 0)), solid('1A73E8'));
+    }
+    const wf = chart.type === 'waterfall';
+    plot = `<c:barChart><c:barDir val="col"/><c:grouping val="${wf ? 'stacked' : 'clustered'}"/><c:varyColors val="0"/>${sers}<c:gapWidth val="${wf ? 60 : 4}"/>${wf ? '<c:overlap val="100"/>' : ''}${AXES}</c:barChart>${catAx('b')}${valAx(500000002, 500000001, 'l')}`;
+  } else if (type === 'scatter') {
     // X: the first column of numbers when the rows have no names; else the row names (or 1, 2, 3…).
     const xs = !labelCol && list.length > 1 ? list[0] : null;
     const ys = xs ? list.slice(1) : list;
@@ -96,7 +136,7 @@ export function chartXml(chart, sheetName, cells) {
     plot = `<c:barChart><c:barDir val="${horiz ? 'bar' : 'col'}"/><c:grouping val="${stacked ? 'stacked' : 'clustered'}"/><c:varyColors val="0"/>${sers}<c:gapWidth val="${stacked ? 60 : 80}"/>${stacked ? '<c:overlap val="100"/>' : ''}${AXES}</c:barChart>${catAx(horiz ? 'l' : 'b')}${valAx(500000002, 500000001, horiz ? 'b' : 'l')}`;
   }
   const title = chart.title ? `<c:title><c:tx><c:rich><a:bodyPr/><a:p><a:pPr><a:defRPr sz="1400" b="1"/></a:pPr><a:r><a:rPr lang="en-US" sz="1400" b="1"/><a:t>${xml(chart.title)}</a:t></a:r></a:p></c:rich></c:tx><c:overlay val="0"/></c:title><c:autoTitleDeleted val="0"/>` : '<c:autoTitleDeleted val="1"/>';
-  const legend = round || list.length > (type === 'scatter' && !labelCol && list.length > 1 ? 2 : 1) ? '<c:legend><c:legendPos val="b"/><c:overlay val="0"/></c:legend>' : '';
+  const legend = shaped ? '' : round || list.length > (type === 'scatter' && !labelCol && list.length > 1 ? 2 : 1) ? '<c:legend><c:legendPos val="b"/><c:overlay val="0"/></c:legend>' : '';
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><c:roundedCorners val="0"/><c:chart>${title}<c:plotArea><c:layout/>${plot}</c:plotArea>${legend}<c:plotVisOnly val="1"/><c:dispBlanksAs val="gap"/></c:chart></c:chartSpace>`;
 }

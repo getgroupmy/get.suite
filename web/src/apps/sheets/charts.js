@@ -2,7 +2,7 @@
 // drawing uses. Kept free of React so it can be tested on its own.
 import { parseRef, cellKey } from './formula.js';
 
-export const CHART_TYPES = [['column', 'Column'], ['stackedColumn', 'Stacked column'], ['bar', 'Bar'], ['stackedBar', 'Stacked bar'], ['line', 'Line'], ['area', 'Area'], ['scatter', 'Scatter'], ['pie', 'Pie'], ['doughnut', 'Doughnut']];
+export const CHART_TYPES = [['column', 'Column'], ['stackedColumn', 'Stacked column'], ['bar', 'Bar'], ['stackedBar', 'Stacked bar'], ['line', 'Line'], ['area', 'Area'], ['scatter', 'Scatter'], ['pie', 'Pie'], ['doughnut', 'Doughnut'], ['histogram', 'Histogram'], ['waterfall', 'Waterfall']];
 export const isStacked = (t) => t === 'stackedColumn' || t === 'stackedBar';
 export const isRound = (t) => t === 'pie' || t === 'doughnut';
 export const isHorizontal = (t) => t === 'bar' || t === 'stackedBar';
@@ -140,4 +140,39 @@ export function pieSlices(data) {
   const total = items.reduce((t, x) => t + x.value, 0);
   let a = 0;
   return items.map((x, slot) => { const start = a; a += x.value / total; return { ...x, slot, share: x.value / total, start, end: a }; });
+}
+
+/**
+ * A histogram: every number in the chart's series, counted into equal, round-numbered ranges
+ * (about √n of them, 3 to 30). { categories: ["0–10"…], series: [{ name, values: counts }], bins: [[from, to]…] }.
+ * A number on the line between two ranges counts in the higher one; the top range takes its upper end too.
+ */
+export function histogramOf(data, bucketCount) {
+  const vals = data.series.flatMap((s) => s.values).filter(isNum);
+  const name = data.series.length === 1 ? data.series[0].name : 'Count';
+  if (!vals.length) return { categories: [], series: [], bins: [], error: 'There are no numbers in these cells' };
+  const min = Math.min(...vals), max = Math.max(...vals);
+  const want = bucketCount || Math.max(3, Math.min(30, Math.ceil(Math.sqrt(vals.length))));
+  const sc = min === max ? { lo: Math.floor(min) - 0.5 * want, step: 1 } : niceScale(min, max, want, true);
+  const step = sc.step;
+  let n = Math.max(1, Math.ceil((max - sc.lo) / step - 1e-9));
+  if (sc.lo + n * step <= max - 1e-9 * step) n++;
+  const bins = Array.from({ length: n }, (_, k) => [+(sc.lo + k * step).toPrecision(12), +(sc.lo + (k + 1) * step).toPrecision(12)]);
+  const counts = bins.map(() => 0);
+  for (const v of vals) counts[Math.min(n - 1, Math.max(0, Math.floor((v - sc.lo) / step + 1e-9)))]++;
+  return { categories: bins.map(([a, b]) => `${shortNumber(a)}–${shortNumber(b)}`), series: [{ name: name === 'Series 1' ? 'Count' : `${name} (count)`, values: counts }], bins };
+}
+
+/**
+ * A waterfall: the first series as changes that add up, each bar floating from the running total
+ * before it to the one after, and a last bar for the total. { categories, series (the changes and
+ * the total, for the table), steps: [{ from, to, kind: 'up' | 'down' | 'total' }] }.
+ */
+export function waterfallOf(data) {
+  const s = data.series[0];
+  if (!s) return { categories: [], series: [], steps: [], error: 'There are no numbers in these cells' };
+  let at = 0;
+  const steps = s.values.map((v) => { const from = at; at += v ?? 0; return { from, to: at, kind: (v ?? 0) < 0 ? 'down' : 'up' }; });
+  steps.push({ from: 0, to: at, kind: 'total' });
+  return { categories: [...data.categories, 'Total'], series: [{ name: s.name, values: [...s.values, +at.toPrecision(15)] }], steps };
 }
