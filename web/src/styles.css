@@ -1741,6 +1741,11 @@ button.usage:hover .muted { color: var(--text); }
 .note-card:hover { box-shadow: 0 1px 6px rgba(0,0,0,.15); }
 .note-card[draggable=true] { cursor: grab; }
 .note-card.dragging { opacity: .4; }
+.note-checklist li.sub { padding-left: 24px; }
+.note-checklist.editing li.sub { padding-left: 28px; }
+.note-checklist .drag-handle { cursor: grab; color: var(--muted); user-select: none; padding: 0 2px; }
+.note-checklist li.dragging { opacity: .4; }
+.note-checklist-help { list-style: none; }
 .note-card h3 { margin: 0 24px 0 0; font-size: 15px; }
 .note-body { margin: 0; white-space: pre-wrap; font-size: 14px; }
 .note-open { cursor: pointer; display: flex; flex-direction: column; gap: 6px; min-height: 20px; }

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import { get, post, patch, put, del, onLive } from '../../api.js';
 import { moveTo, moveBy } from './order.js';
+import { indent, moveItem, moveItemTo, tick as tickItem, untickAll, dropTicked } from './checklist.js';
 import Icon from '../../components/Icon.jsx';
 import { Avatar, Empty, Menu, Modal, PromptModal, ConfirmModal, useToast } from '../../components/ui.jsx';
 import { quickTimes, reminderText } from './remind.js';
@@ -205,23 +206,33 @@ function Composer({ label, onMade }) {
 function ChecklistEdit({ items, onChange, autoFocus }) {
   const refs = useRef({});
   const [focusId, setFocusId] = useState(null);
+  const [dragId, setDragId] = useState(null);
   useEffect(() => { if (focusId) { refs.current[focusId]?.focus(); setFocusId(null); } }, [focusId]);
   const set = (id, patch) => onChange(items.map((i) => (i.id === id ? { ...i, ...patch } : i)));
+  const keep = (next, id) => { onChange(next); setFocusId(id); };
   return (
     <ul className="note-checklist editing">
       {items.map((it, k) => (
-        <li key={it.id} className={`row ${it.done ? 'done' : ''}`}>
-          <input type="checkbox" checked={it.done} aria-label={`Done: ${it.text || 'item'}`} onChange={(e) => set(it.id, { done: e.target.checked })} />
-          <input ref={(el) => { refs.current[it.id] = el; }} className="grow" aria-label={`List item ${k + 1}`} value={it.text} maxLength={1000} autoFocus={autoFocus && k === items.length - 1}
+        <li key={it.id} className={`row ${it.done ? 'done' : ''} ${it.indent ? 'sub' : ''} ${dragId === it.id ? 'dragging' : ''}`}
+          onDragOver={(e) => { if (dragId && dragId !== it.id) e.preventDefault(); }}
+          onDrop={(e) => { e.preventDefault(); if (dragId && dragId !== it.id) onChange(moveItemTo(items, dragId, it.id)); setDragId(null); }}>
+          <span className="drag-handle" draggable aria-hidden="true" title="Drag to move (or Alt+↑ / Alt+↓)"
+            onDragStart={(e) => { setDragId(it.id); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', it.id); }} onDragEnd={() => setDragId(null)}>⠿</span>
+          <input type="checkbox" checked={it.done} aria-label={`Done: ${it.text || 'item'}`} onChange={(e) => onChange(tickItem(items, it.id, e.target.checked))} />
+          <input ref={(el) => { refs.current[it.id] = el; }} className="grow" aria-label={`List item ${k + 1}${it.indent ? ' (sub-item)' : ''}`} value={it.text} maxLength={1000} autoFocus={autoFocus && k === items.length - 1}
             placeholder="List item" onChange={(e) => set(it.id, { text: e.target.value })}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') { e.preventDefault(); const n = newItem(); onChange([...items.slice(0, k + 1), n, ...items.slice(k + 1)]); setFocusId(n.id); }
-              if (e.key === 'Backspace' && !it.text && items.length > 1) { e.preventDefault(); onChange(items.filter((x) => x.id !== it.id)); setFocusId(items[k - 1]?.id || items[1]?.id); }
+              if (e.key === 'Enter') { e.preventDefault(); const n = { ...newItem(), ...(it.indent && { indent: 1 }) }; keep([...items.slice(0, k + 1), n, ...items.slice(k + 1)], n.id); }
+              else if (e.key === 'Backspace' && !it.text && it.indent) { e.preventDefault(); keep(indent(items, it.id, -1), it.id); }
+              else if (e.key === 'Backspace' && !it.text && items.length > 1) { e.preventDefault(); onChange(items.filter((x) => x.id !== it.id)); setFocusId(items[k - 1]?.id || items[1]?.id); }
+              else if (e.key === 'Tab' && (e.shiftKey ? it.indent : k > 0 && !it.indent)) { e.preventDefault(); keep(indent(items, it.id, e.shiftKey ? -1 : 1), it.id); }
+              else if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) { e.preventDefault(); keep(moveItem(items, it.id, e.key === 'ArrowUp' ? -1 : 1), it.id); }
             }} />
           <button type="button" className="icon-btn" aria-label={`Remove item ${k + 1}`} onClick={() => onChange(items.filter((x) => x.id !== it.id))}><Icon name="close" size={14} /></button>
         </li>
       ))}
       <li><button type="button" className="link-btn small" onClick={() => { const n = newItem(); onChange([...items, n]); setFocusId(n.id); }}>+ List item</button></li>
+      <li className="muted small note-checklist-help">Tab makes an item a sub-item; Alt+↑ and Alt+↓ move it.</li>
     </ul>
   );
 }
@@ -251,7 +262,7 @@ function NoteCard({ note: n, drag = {}, dragging, onMove, first, last, onOpen, o
   const items = n.items || [];
   const open = items.filter((i) => !i.done);
   const done = items.filter((i) => i.done);
-  const tick = (it) => onChange({ items: items.map((x) => (x.id === it.id ? { ...x, done: !x.done } : x)) });
+  const tick = (it) => onChange({ items: tickItem(items, it.id, !it.done) });
   return (
     <article className={`note-card ${dragging ? 'dragging' : ''}`} {...drag} style={n.color ? { background: n.color, color: '#202124' } : undefined} aria-label={n.title || (n.body || items.map((i) => i.text).join(', ')).slice(0, 60) || 'Note'}>
       <button type="button" className={`icon-btn note-pin ${n.pinned ? 'on' : ''}`} aria-pressed={n.pinned} aria-label={n.pinned ? 'Unpin note' : 'Pin note'} onClick={() => onChange({ pinned: !n.pinned })}>📌</button>
@@ -266,7 +277,7 @@ function NoteCard({ note: n, drag = {}, dragging, onMove, first, last, onOpen, o
       </div>
       {items.length > 0 && (
         <ul className="note-checklist">
-          {open.slice(0, 12).map((it) => <li key={it.id}><label className="check"><input type="checkbox" checked={false} onChange={() => tick(it)} /> <span>{it.text}</span></label></li>)}
+          {open.slice(0, 12).map((it) => <li key={it.id} className={it.indent ? 'sub' : undefined}><label className="check"><input type="checkbox" checked={false} onChange={() => tick(it)} /> <span>{it.text}</span></label></li>)}
           {open.length > 12 && <li className="muted small">+ {open.length - 12} more</li>}
           {done.length > 0 && <li className="muted small">{done.length} ticked {done.length === 1 ? 'item' : 'items'}</li>}
         </ul>
@@ -291,6 +302,7 @@ function NoteCard({ note: n, drag = {}, dragging, onMove, first, last, onOpen, o
         {n.mine && <button type="button" className="icon-btn" aria-label="Share note" title="Share with colleagues" onClick={onShare}><Icon name="share" size={18} /></button>}
         <Menu trigger={(p) => <button type="button" className="icon-btn" aria-label="More" {...p}><Icon name="more" size={18} /></button>} items={[
           ...(onMove ? [{ label: 'Move earlier', onClick: () => onMove(-1), disabled: first }, { label: 'Move later', onClick: () => onMove(1), disabled: last }] : []),
+          ...(done.length ? [{ label: 'Untick all items', onClick: () => onChange({ items: untickAll(items) }) }, { label: `Delete ticked items (${done.length})`, onClick: () => onChange({ items: dropTicked(items) }) }] : []),
           { label: 'Labels…', onClick: onLabel },
           { label: 'Make a copy', icon: 'copy', onClick: onCopy },
           { label: 'Copy to a document', icon: 'doc', onClick: onToDoc },

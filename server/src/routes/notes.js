@@ -68,11 +68,38 @@ const MAX_NOTES = 2000, MAX_ITEMS = 200, MAX_LABELS = 10;
 export function cleanItems(list) {
   if (list === null) return null;
   if (!Array.isArray(list)) throw bad('items must be a list');
-  return list.slice(0, MAX_ITEMS).map((it) => ({
+  return list.slice(0, MAX_ITEMS).map((it, i) => ({
     id: typeof it?.id === 'string' && /^[\w-]{1,40}$/.test(it.id) ? it.id : uid().slice(0, 12),
     text: String(it?.text ?? '').slice(0, 1000),
     done: !!it?.done,
+    ...(it?.indent && i > 0 && { indent: 1 }), // a sub-item of the item above (one level)
   }));
+}
+/** A checklist as a document's tick boxes: sub-items as a list inside the item above. */
+export function taskItems(items, para) {
+  const out = [];
+  for (const i of items) {
+    const node = { type: 'taskItem', attrs: { checked: !!i.done }, content: [para(i.text)] };
+    const last = out[out.length - 1];
+    if (i.indent && last) { if (last.content.length < 2) last.content.push({ type: 'taskList', content: [] }); last.content[1].content.push(node); } else out.push(node);
+  }
+  return out;
+}
+
+/**
+ * A checklist's unticked items as tasks: a main item with its unticked sub-items as the task's steps;
+ * an unticked sub-item of a ticked item is a task of its own.
+ */
+export function tasksFromItems(items) {
+  const out = [];
+  let parent = null; // the task being filled with steps
+  for (const it of items) {
+    const text = String(it.text || '').trim();
+    if (!it.indent) { parent = !it.done && text ? { title: text, steps: [] } : null; if (parent) out.push(parent); continue; }
+    if (it.done || !text) continue;
+    if (parent) parent.steps.push(text); else out.push({ title: text, steps: [] });
+  }
+  return out.map((t) => (t.steps.length ? t : t.title));
 }
 export function cleanLabels(list) {
   if (!Array.isArray(list)) throw bad('labels must be a list');
@@ -237,7 +264,7 @@ export default function noteRoutes() {
     const items = n.items ? JSON.parse(n.items) : null;
     const content = [
       ...(n.title ? [{ type: 'heading', attrs: { level: 1 }, content: [{ type: 'text', text: n.title }] }] : []),
-      ...(items ? (items.length ? [{ type: 'taskList', content: items.map((i) => ({ type: 'taskItem', attrs: { checked: i.done }, content: [para(i.text)] })) }] : [])
+      ...(items ? (items.length ? [{ type: 'taskList', content: taskItems(items, para) }] : [])
         : String(n.body || '').split('\n').map((line) => para(line))),
     ];
     const json = JSON.stringify({ type: 'doc', content: content.length ? content : [para('')] });
@@ -248,7 +275,7 @@ export default function noteRoutes() {
   // The checklist's unticked items (or the note itself) as tasks on your first list.
   r.post('/:id/tasks', (req, res) => {
     const n = load(req.params.id, req.user);
-    const items = n.items ? JSON.parse(n.items).filter((i) => !i.done && i.text.trim()).map((i) => i.text.trim()) : [];
+    const items = n.items ? tasksFromItems(JSON.parse(n.items)) : [];
     const titles = items.length ? items : [n.title || (n.body || '').split('\n')[0]].filter((x) => x && x.trim());
     if (!titles.length) throw bad('Nothing to add as a task');
     const list = myFirstList(req.user.id);

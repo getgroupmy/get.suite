@@ -3899,6 +3899,29 @@ test('notes: copy to a document or to tasks', async () => {
   assert.equal((await a('POST', `/api/notes/${text.id}/tasks`)).body.added, 1, 'a plain note becomes one task');
 });
 
+test('notes: checklists with sub-items, to a document and to tasks with steps', async () => {
+  const { tasksFromItems, cleanItems } = await import('../src/routes/notes.js');
+  assert.deepEqual(cleanItems([{ id: 'a', text: 'A', indent: 1 }, { id: 'b', text: 'B', indent: 7 }]).map((i) => i.indent), [undefined, 1], 'the first item is never a sub-item');
+  const it = (text, done, indent) => ({ id: text, text, done: !!done, ...(indent && { indent: 1 }) });
+  assert.deepEqual(tasksFromItems([it('Pack'), it('Socks', 0, 1), it('Charger', 1, 1), it('Book'), it('Train', 1), it('Seat', 0, 1), it('  ')]),
+    [{ title: 'Pack', steps: ['Socks'] }, 'Book', 'Seat'], 'unticked sub-items become steps; one under a ticked item stands alone');
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'ntsub', domain: 'acme.com', name: 'Sub Items', password: 'password123' })).status, 201);
+  await login(a, 'ntsub@acme.com');
+  const n = (await a('POST', '/api/notes', { title: 'Trip', items: [{ text: 'Pack' }, { text: 'Socks', indent: 1 }, { text: 'Passport', indent: 1, done: true }, { text: 'Taxi' }] })).body;
+  assert.deepEqual(n.items.map((i) => i.indent || 0), [0, 1, 1, 0]);
+  const d = (await a('POST', `/api/notes/${n.id}/doc`)).body;
+  const list = (await a('GET', `/api/files/${d.id}/content`)).body.content.content[1];
+  assert.equal(list.content.length, 2, 'two main items');
+  assert.deepEqual(list.content[0].content[1].content.map((x) => [x.attrs.checked, x.content[0].content[0].text]), [[false, 'Socks'], [true, 'Passport']], 'sub-items inside the first');
+  const t = (await a('POST', `/api/notes/${n.id}/tasks`)).body;
+  assert.equal(t.added, 2);
+  const tasks = (await a('GET', `/api/tasks/lists/${t.list.id}/tasks`)).body;
+  const pack = tasks.find((x) => x.title === 'Pack');
+  assert.deepEqual(pack.steps.map((x) => [x.title, x.done]), [['Socks', false]]);
+  assert.deepEqual(tasks.find((x) => x.title === 'Taxi').steps, []);
+});
+
 test('download your data: one zip with Drive, calendar, contacts, tasks and notes', async () => {
   const JSZip = (await import('jszip')).default;
   const a = client();

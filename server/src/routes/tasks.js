@@ -217,10 +217,15 @@ export function myFirstList(userId) {
   return q('SELECT * FROM task_lists WHERE owner_id = ? ORDER BY created_at LIMIT 1').get(userId);
 }
 /** Add tasks on top of a list, in the order given. Returns how many. */
+/** Add tasks on top of a list: each a title, or { title, steps: [titles] } for a task with steps. */
 export function addTasks(listId, userId, titles) {
   let top = (q('SELECT MIN(position) AS p FROM tasks WHERE list_id = ? AND done_at IS NULL').get(listId).p ?? 1) - titles.length;
   const t = now();
-  for (const title of titles) q('INSERT INTO tasks (id, list_id, title, position, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(uid(), listId, title.slice(0, 500), top++, userId, t, t);
+  for (const x of titles) {
+    const title = typeof x === 'string' ? x : x.title;
+    const steps = typeof x === 'object' && x.steps?.length ? JSON.stringify(x.steps.slice(0, 100).map((st) => ({ id: uid().slice(0, 8), title: String(st).slice(0, 500), done: false }))) : null;
+    q('INSERT INTO tasks (id, list_id, title, steps, position, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(uid(), listId, title.slice(0, 500), steps, top++, userId, t, t);
+  }
   return titles.length;
 }
 
