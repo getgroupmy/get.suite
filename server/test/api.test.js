@@ -7345,3 +7345,23 @@ test("Drive: a folder's size, with everything in it and the biggest files", asyn
   await login(other, 'nosizer@acme.com');
   assert.equal((await other('GET', `/api/files/${folder.id}/size`)).status, 404);
 });
+
+test('Chat: download a conversation, for people in it', async () => {
+  const a = client(), b = client(), c = client();
+  for (const [local, name] of [['convdla', 'Ex Ann'], ['convdlb', 'Ex Ben'], ['convdlc', 'Ex Cat']]) { const made = await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' }); assert.equal(made.status, 201, JSON.stringify(made.body)); }
+  await login(a, 'convdla@acme.com');
+  const bid = (await login(b, 'convdlb@acme.com')).id;
+  await login(c, 'convdlc@acme.com');
+  const dm = (await a('POST', '/api/chat/dm', { user_id: bid })).body.id;
+  const m = (await a('POST', `/api/chat/channels/${dm}/messages`, { body: 'Contract attached?' })).body;
+  await b('POST', `/api/chat/channels/${dm}/messages`, { body: 'Coming', parent_id: m.id });
+  const txt = await a('GET', `/api/chat/channels/${dm}/export?format=txt&tz=UTC`);
+  assert.equal(txt.status, 200);
+  assert.match(txt.headers.get('content-type'), /text\/plain/);
+  assert.match(txt.headers.get('content-disposition'), /attachment; filename\*=UTF-8''Conversation%20with%20Ex%20Ben\.txt/);
+  assert.match(txt.body, /Ex Ann:\n  Contract attached\?\n    ↳ \[.*\] Ex Ben:\n      Coming/);
+  const html = await b('GET', `/api/chat/channels/${dm}/export`);
+  assert.match(html.headers.get('content-type'), /text\/html/);
+  assert.match(html.body, /Conversation with Ex Ann/);
+  assert.equal((await c('GET', `/api/chat/channels/${dm}/export`)).status, 404, 'not in it');
+});

@@ -15,6 +15,7 @@ import { q, tx, FILES_DIR } from '../db.js';
 import { uid, now, str, bad, notFound, HttpError } from '../util.js';
 import { roleFor, mayTakeAway } from '../access.js';
 import { insertFile } from './files.js';
+import { conversationText, conversationHtml } from '../chatexport.js';
 import { listEmoji, addEmoji, removeEmoji, emojiImage, customName, hasEmoji, MAX_EMOJI } from '../chatemoji.js';
 
 // Where each person has read up to in each conversation (for unread counts), and emoji reactions.
@@ -577,6 +578,26 @@ export default function chatRoutes() {
       sendTo(new Set(ids), { type: 'channels-changed' });
     }
     res.json({ id: c.id });
+  });
+
+  // The whole conversation to keep: plain text (?format=txt) or a page (html), in the reader's time zone (?tz=).
+  r.get('/channels/:id/export', (req, res) => {
+    const c = loadChannel(req.params.id, req.user);
+    const rows = shape(q(`${MSG} WHERE m.channel_id = ? ORDER BY m.created_at`).all(c.id));
+    const kept = (m) => ({ who: m.user_name || m.bot || 'Someone', at: m.created_at, body: m.body || '', edited: !!m.edited_at,
+      files: (m.files || []).map((f) => f.name).filter(Boolean), poll: m.poll });
+    const replies = new Map();
+    for (const m of rows) if (m.parent_id) { if (!replies.has(m.parent_id)) replies.set(m.parent_id, []); replies.get(m.parent_id).push(kept(m)); }
+    const messages = rows.filter((m) => !m.parent_id).map((m) => ({ ...kept(m), replies: replies.get(m.id) || [] }));
+    const other = dmOther(c, req.user.id);
+    const title = c.dm_key ? `Conversation with ${other ? q('SELECT name FROM users WHERE id = ?').get(other)?.name || 'someone' : 'yourself'}` : `#${c.name}`;
+    const html = req.query.format !== 'txt';
+    const file = `${title.replace(/^#/, '').replace(/[^\p{L}\p{N} _-]+/gu, '').trim().slice(0, 80) || 'Conversation'}.${html ? 'html' : 'txt'}`;
+    res.setHeader('Content-Type', html ? 'text/html; charset=utf-8' : 'text/plain; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(file)}`);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    const opts = { tz: String(req.query.tz || 'UTC') };
+    res.send(html ? conversationHtml(title, messages, opts) : conversationText(title, messages, opts));
   });
 
   r.get('/channels/:id/messages', (req, res) => {
