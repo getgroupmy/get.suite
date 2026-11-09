@@ -2412,3 +2412,11 @@ img.custom-emoji { width: 1.35em; height: 1.35em; object-fit: contain; vertical-
 .custom-emoji-list { list-style: none; padding: 0; margin: 12px 0 0; display: flex; flex-direction: column; gap: 6px; max-height: 300px; overflow: auto; }
 .custom-emoji-list .row { gap: 8px; align-items: center; }
 .custom-emoji-list img.custom-emoji { width: 28px; height: 28px; }
+/* Ranking questions (Forms) */
+.form-rank { list-style: none; margin: 0 0 6px; padding: 0; display: flex; flex-direction: column; gap: 4px; max-width: 460px; }
+.form-rank-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); cursor: grab; }
+.form-rank-n { width: 22px; height: 22px; border-radius: 50%; background: var(--accent-soft, #e8f0fe); color: var(--accent-text, #1a73e8); font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; flex: none; }
+.form-rank-sum { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
+.form-rank-sum li > span { display: inline-block; }
+.form-rank-sum li { display: list-item; }
+.form-rank-sum li .grow { min-width: 120px; margin-right: 12px; }

@@ -147,6 +147,31 @@ export function Question({ q, token, value, onChange, missing }) {
   const err = problem ? <span className="error small" role="alert">{problem}</span> : missing && <span className="error small" role="alert">This question needs an answer</span>;
   const cls = `form-fill-q ${missing || problem ? 'missing' : ''}`;
   const label = `${q.title || 'Untitled question'}${q.required ? ' (required)' : ''}`;
+  if (q.type === 'rank') {
+    // Put the options in order with ↑ ↓ (or drag them). Untouched, it isn't answered yet: "Keep this order" answers as it is.
+    const list = Array.isArray(value) && value.length === order.length ? value : order;
+    const move = (k, d) => { const next = [...list]; [next[k], next[k + d]] = [next[k + d], next[k]]; onChange(next); };
+    return (
+      <fieldset id={`q-${q.id}`} className={cls} aria-label={label}>
+        <legend>{title}</legend>{help}
+        <p className="muted small" style={{ margin: '0 0 6px' }}>Put them in order, your first choice at the top.</p>
+        <ol className="form-rank" aria-label={`${q.title || 'Ranking'}: your order`}>
+          {list.map((o, k) => (
+            <li key={o} className="form-rank-item" draggable onDragStart={(e) => e.dataTransfer.setData('text/x-rank', String(k))}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={(e) => { e.preventDefault(); const from = Number(e.dataTransfer.getData('text/x-rank')); if (Number.isInteger(from) && from !== k) { const next = [...list]; const [it] = next.splice(from, 1); next.splice(k, 0, it); onChange(next); } }}>
+              <span className="form-rank-n" aria-hidden="true">{k + 1}</span>
+              <span className="grow">{o}</span>
+              <button type="button" className="icon-btn" aria-label={`Move ${o} up`} disabled={k === 0} onClick={() => move(k, -1)}>↑</button>
+              <button type="button" className="icon-btn" aria-label={`Move ${o} down`} disabled={k === list.length - 1} onClick={() => move(k, 1)}>↓</button>
+            </li>
+          ))}
+        </ol>
+        {!Array.isArray(value) && <button type="button" className="link-btn small" onClick={() => onChange([...list])}>Keep this order</button>}
+        {err}
+      </fieldset>
+    );
+  }
   if (q.type === 'file') return <FileQuestion q={q} token={token} value={value || []} onChange={onChange} title={title} help={help} err={err} cls={cls} label={label} />;
   if (q.type === 'rating') {
     // Stars (or hearts, or thumbs): pick how many; the ones up to the pick fill in.

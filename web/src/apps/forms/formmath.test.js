@@ -58,3 +58,16 @@ test('sections: pages, and where an answer leads (only forward)', async () => {
   assert.deepEqual(sectionsOf([{ id: 's', type: 'section' }, { id: 'q', type: 'short' }]).map((p) => p.id), ['s'], 'no empty first page');
   assert.equal(summarize(qs, []).length, 3, 'sections are not summarised');
 });
+
+test('rankings: kept when every option is there once; summed up by average place', async () => {
+  const { prefillFrom, summarize, rankSummary, retype } = await import('./formmath.js');
+  const q = { id: 'r', type: 'rank', title: 'Venues', options: ['A', 'B', 'C'] };
+  assert.deepEqual(prefillFrom([q], JSON.stringify({ r: ['C', 'A', 'B'] })), { r: ['C', 'A', 'B'] });
+  assert.deepEqual(prefillFrom([q], JSON.stringify({ r: ['C', 'A'] })), {});
+  const rs = [{ answers: { r: ['A', 'B', 'C'] } }, { answers: { r: ['B', 'A', 'C'] } }, { answers: { r: ['A', 'C', 'B'] } }];
+  assert.deepEqual(summarize([q], rs)[0].ranks, [
+    { label: 'A', average: 1.3, first: 2 }, { label: 'B', average: 2, first: 1 }, { label: 'C', average: 2.7, first: 0 },
+  ]);
+  assert.deepEqual(rankSummary(['A', 'B'], []), [{ label: 'A', average: null, first: 0 }, { label: 'B', average: null, first: 0 }]);
+  assert.equal(retype({ id: 'x', type: 'choice', options: ['Only'] }, 'rank').options.length, 2, 'two at least');
+});

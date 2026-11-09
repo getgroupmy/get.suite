@@ -61,11 +61,12 @@ for (const [col, type] of [['collect_email', 'INTEGER NOT NULL DEFAULT 0'], ['se
 }
 const MAX_EDITORS = 50;
 
-export const TYPES = ['short', 'paragraph', 'choice', 'checkbox', 'dropdown', 'scale', 'date', 'time', 'rating', 'file', 'grid', 'checkgrid', 'section'];
+export const TYPES = ['short', 'paragraph', 'choice', 'checkbox', 'dropdown', 'scale', 'date', 'time', 'rating', 'file', 'grid', 'checkgrid', 'rank', 'section'];
+const MAX_RANKED = 10; // options a ranking question can have
 // Grids: rows (the things asked about) by columns (the choices); one choice per row, or several (checkgrid).
 const GRIDS = new Set(['grid', 'checkgrid']);
 const MAX_ROWS = 30, MAX_COLUMNS = 20;
-const WITH_OPTIONS = new Set(['choice', 'checkbox', 'dropdown']);
+const WITH_OPTIONS = new Set(['choice', 'checkbox', 'dropdown', 'rank']); // rank: people put the options in order
 const MAX_QUESTIONS = 100;
 const MAX_OPTIONS = 50;
 const MAX_RESPONSES = 10000;
@@ -117,6 +118,7 @@ export function cleanQuestions(list) {
       const opts = (Array.isArray(raw?.options) ? raw.options : []).map((o) => String(o ?? '').trim().slice(0, 200)).filter(Boolean);
       out.options = [...new Set(opts)].slice(0, MAX_OPTIONS);
       if (!out.options.length) out.options = ['Option 1'];
+      if (type === 'rank') { out.options = out.options.slice(0, MAX_RANKED); if (out.options.length < 2) out.options.push(out.options[0] === 'Option 2' ? 'Option 1' : 'Option 2'); }
       if (raw?.shuffle) out.shuffle = true; // shown in a different order to each person
       if (raw?.other && (type === 'choice' || type === 'checkbox')) out.other = true; // an "Other…" choice people type themselves
       // A picture for an option (choose between logos, products, rooms): { option: Drive picture id }.
@@ -126,7 +128,7 @@ export function cleanQuestions(list) {
         if (Object.keys(imgs).length) out.option_images = imgs;
       }
       // Limits: how many people can pick an option (a session with 12 seats); a full option can't be chosen.
-      if (raw?.limits && typeof raw.limits === 'object') {
+      if (raw?.limits && typeof raw.limits === 'object' && type !== 'rank') {
         const lim = {};
         for (const o of out.options) { const n = Math.round(Number(raw.limits[o])); if (Number.isFinite(n) && n >= 1) lim[o] = Math.min(n, 100000); }
         if (Object.keys(lim).length) out.limits = lim;
@@ -240,6 +242,14 @@ export function checkAnswers(questions, answers) {
       const done = Object.keys(kept).length;
       if (qu.required && done && done < qu.rows.length) throw bad(`${name}: answer every row`);
       a = done ? kept : undefined;
+    } else if (qu.type === 'rank') {
+      // Every option once, first choice first.
+      if (a == null || a === '' || (Array.isArray(a) && !a.length)) a = undefined;
+      else {
+        if (!Array.isArray(a)) throw bad(`${name}: put the options in order`);
+        a = a.map(String);
+        if (a.length !== qu.options.length || new Set(a).size !== a.length || a.some((x) => !qu.options.includes(x))) throw bad(`${name}: put every option in order, once each`);
+      }
     } else if (qu.type === 'checkbox') {
       a = (Array.isArray(a) ? a : a == null || a === '' ? [] : [a]).map((x) => String(x).trim()).filter(Boolean);
       const others = [...new Set(a.filter((x) => !qu.options.includes(x)))];
@@ -289,7 +299,7 @@ export function responseTable(form, responses, { withPeople = form.audience === 
   // One column per question; a grid gets one per row, "Question [Row]".
   const cols = form.questions.filter((qu) => qu.type !== 'section').flatMap((qu) => (GRIDS.has(qu.type)
     ? qu.rows.map((row) => ({ title: `${qu.title || 'Untitled question'} [${row}]`, of: (ans) => ans[qu.id]?.[row] }))
-    : [{ title: qu.title || 'Untitled question', of: (ans) => ans[qu.id] }]));
+    : [{ title: qu.title || 'Untitled question', of: qu.type === 'rank' ? (ans) => ans[qu.id]?.map((o, k) => `${k + 1}. ${o}`) : (ans) => ans[qu.id] }]));
   const head = ['Submitted', ...(withPeople ? ['Name', 'Email'] : []), ...(emails ? ['Email'] : []), ...(quiz ? ['Score'] : []), ...cols.map((c) => c.title)];
   const rows = responses.map((r) => {
     const sc = quiz ? scoreOf(form.questions, r.answers) : null;

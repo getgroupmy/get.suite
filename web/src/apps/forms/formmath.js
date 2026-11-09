@@ -3,9 +3,10 @@
 export const TYPES = [
   ['short', 'Short answer'], ['paragraph', 'Paragraph'], ['choice', 'Multiple choice'], ['checkbox', 'Tick boxes'],
   ['dropdown', 'Dropdown'], ['scale', 'Linear scale'], ['rating', 'Rating'], ['date', 'Date'], ['time', 'Time'], ['file', 'File upload'],
-  ['grid', 'Multiple choice grid'], ['checkgrid', 'Tick box grid'],
+  ['grid', 'Multiple choice grid'], ['checkgrid', 'Tick box grid'], ['rank', 'Ranking'],
 ];
-export const HAS_OPTIONS = new Set(['choice', 'checkbox', 'dropdown']);
+export const HAS_OPTIONS = new Set(['choice', 'checkbox', 'dropdown', 'rank']); // rank: people put the options in order
+export const MAX_RANKED = 10;
 export const GRIDS = new Set(['grid', 'checkgrid']);
 
 export const newId = () => Math.random().toString(36).slice(2, 10);
@@ -15,6 +16,7 @@ export function retype(q, type) {
   const next = { id: q?.id || newId(), type, title: q?.title || '', required: !!q?.required };
   if (q?.help) next.help = q.help;
   if (HAS_OPTIONS.has(type)) next.options = q?.options?.length ? q.options : ['Option 1'];
+  if (type === 'rank') { next.options = next.options.slice(0, MAX_RANKED); if (next.options.length < 2) next.options = [...next.options, nextOption(next.options)]; }
   if (q?.other && (type === 'choice' || type === 'checkbox')) next.other = true;
   if (type === 'scale') Object.assign(next, { max: q?.max || 5, low: q?.low || '', high: q?.high || '' });
   if (type === 'file') next.max_files = q?.max_files || 1;
@@ -42,7 +44,10 @@ export function prefillFrom(questions, raw) {
   for (const q of questions || []) {
     const v = data[q.id];
     if (v === undefined || v === null || q.type === 'file' || q.type === 'section') continue;
-    if (q.type === 'checkbox') {
+    if (q.type === 'rank') {
+      const l = [v].flat().map(String);
+      if (l.length === q.options.length && new Set(l).size === l.length && l.every((x) => q.options.includes(x))) out[q.id] = l;
+    } else if (q.type === 'checkbox') {
       const all = [v].flat().map(String);
       const l = [...all.filter((x) => q.options.includes(x)), ...(q.other ? all.filter((x) => x && !q.options.includes(x)).slice(0, 1).map((x) => x.slice(0, 200)) : [])];
       if (l.length) out[q.id] = l;
@@ -81,7 +86,10 @@ export function summarize(questions, responses) {
   return questions.filter((q) => q.type !== 'section').map((q) => {
     const answers = responses.map((r) => r.answers?.[q.id]).filter((a) => a !== undefined && a !== '' && !(Array.isArray(a) && !a.length));
     const out = { id: q.id, title: q.title, type: q.type, answered: answers.length };
-    if (HAS_OPTIONS.has(q.type) || q.type === 'scale' || q.type === 'rating') {
+    if (q.type === 'rank') {
+      // Each option's average place (1 is first), best first, and how many put it first.
+      out.ranks = rankSummary(q.options || [], answers);
+    } else if (HAS_OPTIONS.has(q.type) || q.type === 'scale' || q.type === 'rating') {
       const keys = q.type === 'scale' || q.type === 'rating' ? Array.from({ length: q.max || 5 }, (_, i) => i + 1) : q.options || [];
       const counts = new Map(keys.map((k) => [String(k), 0]));
       for (const a of answers) for (const v of Array.isArray(a) ? a : [a]) if (counts.has(String(v))) counts.set(String(v), counts.get(String(v)) + 1);
@@ -149,3 +157,12 @@ export function pathOf(pages, answers) {
 
 /** The questions someone was shown (in the pages on their path). */
 export const shownQuestions = (questions, answers) => { const pages = sectionsOf(questions); return pathOf(pages, answers).flatMap((i) => pages[i].items); };
+
+/** A ranking's results: [{ label, average, first }] by average place (1 is best), then by how many put it first. */
+export function rankSummary(options, answers) {
+  const valid = answers.filter((a) => Array.isArray(a));
+  return options.map((o) => {
+    const places = valid.map((a) => a.indexOf(o)).filter((p) => p >= 0).map((p) => p + 1);
+    return { label: o, average: places.length ? Math.round((places.reduce((s, p) => s + p, 0) / places.length) * 10) / 10 : null, first: places.filter((p) => p === 1).length };
+  }).sort((a, b) => (a.average ?? Infinity) - (b.average ?? Infinity) || b.first - a.first);
+}

@@ -8,7 +8,7 @@ import { ConfirmModal, Empty, Menu, Modal, useToast } from '../../components/ui.
 import { Question } from './FormRespond.jsx';
 import { EmbedCode } from '../editorCommon.jsx';
 import { useAuth } from '../../App.jsx';
-import { TYPES, HAS_OPTIONS, GRIDS, prefillParam, newId, retype, nextOption, summarize, percent } from './formmath.js';
+import { TYPES, HAS_OPTIONS, GRIDS, MAX_RANKED, prefillParam, newId, retype, nextOption, summarize, percent } from './formmath.js';
 import { CHECKS, OPS, KIND_NAMES, cleanCheck } from './formcheck.js';
 
 export default function Forms() {
@@ -269,12 +269,12 @@ function QuestionsTab({ form, edit }) {
                     value={q.limits[o] ?? ''} onChange={(e) => { const n = Math.round(Number(e.target.value)); const next = { ...q.limits }; if (e.target.value === '' || !(n >= 1)) delete next[o]; else next[o] = n; change(i, { limits: next }); }} />}
                   {(q.type === 'choice' || q.type === 'checkbox') && <OptionPicture q={q} option={o} label={`question ${i + 1}, option ${k + 1}`} formId={form.id}
                     onChange={(id) => { const next = { ...(q.option_images || {}) }; if (id) next[o] = id; else delete next[o]; change(i, { option_images: Object.keys(next).length ? next : undefined }); }} />}
-                  {q.options.length > 1 && <button type="button" className="icon-btn" aria-label={`Remove option ${k + 1}`} onClick={() => change(i, { options: q.options.filter((_, m) => m !== k) })}><Icon name="close" size={16} /></button>}
+                  {q.options.length > (q.type === 'rank' ? 2 : 1) && <button type="button" className="icon-btn" aria-label={`Remove option ${k + 1}`} onClick={() => change(i, { options: q.options.filter((_, m) => m !== k) })}><Icon name="close" size={16} /></button>}
                 </li>
               ))}
               {q.other && <li className="row"><span className="form-option-mark" aria-hidden="true">{q.type === 'choice' ? '○' : '☐'}</span><span className="grow muted">Other…</span>
                 <button type="button" className="icon-btn" aria-label="Remove “Other”" onClick={() => change(i, { other: undefined })}><Icon name="close" size={16} /></button></li>}
-              {q.options.length < 50 && <li><button type="button" className="link-btn" onClick={() => change(i, { options: [...q.options, nextOption(q.options)] })}>Add option</button>
+              {q.options.length < (q.type === 'rank' ? MAX_RANKED : 50) && <li><button type="button" className="link-btn" onClick={() => change(i, { options: [...q.options, nextOption(q.options)] })}>Add option</button>
                 {(q.type === 'choice' || q.type === 'checkbox') && !q.other && <> or <button type="button" className="link-btn" onClick={() => change(i, { other: true })}>add “Other”</button></>}</li>}
             </ul>
           )}
@@ -332,7 +332,7 @@ function QuestionsTab({ form, edit }) {
           <div className="row form-q-foot">
             <label className="check grow"><input type="checkbox" checked={q.required} onChange={(e) => change(i, { required: e.target.checked })} /> Required</label>
             {HAS_OPTIONS.has(q.type) && <label className="check"><input type="checkbox" checked={!!q.shuffle} onChange={(e) => change(i, { shuffle: e.target.checked || undefined })} /> Shuffle option order</label>}
-            {HAS_OPTIONS.has(q.type) && <label className="check" title="For sign-ups: a session with 12 seats, a slot for one person. Full options can't be chosen."><input type="checkbox" checked={!!q.limits} onChange={(e) => change(i, { limits: e.target.checked ? {} : undefined })} /> Limit places per option</label>}
+            {HAS_OPTIONS.has(q.type) && q.type !== 'rank' && <label className="check" title="For sign-ups: a session with 12 seats, a slot for one person. Full options can't be chosen."><input type="checkbox" checked={!!q.limits} onChange={(e) => change(i, { limits: e.target.checked ? {} : undefined })} /> Limit places per option</label>}
             <button type="button" className="icon-btn" aria-label={`Move question ${i + 1} up`} disabled={i === 0} onClick={() => move(i, -1)}>↑</button>
             <button type="button" className="icon-btn" aria-label={`Move question ${i + 1} down`} disabled={i === qs.length - 1} onClick={() => move(i, 1)}>↓</button>
             <button type="button" className="icon-btn" aria-label={`Duplicate question ${i + 1}`} onClick={() => setQs([...qs.slice(0, i + 1), { ...q, id: newId() }, ...qs.slice(i + 1)])}><Icon name="copy" size={18} /></button>
@@ -436,12 +436,19 @@ function ResponsesTab({ form, responses, reload, setting, flush }) {
                     <span className="small nowrap">{b.count} ({percent(b.share)})</span></li>
                 ))}
               </ul>
+            ) : s.ranks ? (
+              <ol className="form-rank-sum" aria-label="Average places">
+                {s.ranks.map((r) => (
+                  <li key={r.label}><span className="grow">{r.label}</span>
+                    <span className="small nowrap">{r.average == null ? 'not ranked' : `average place ${r.average}`}{r.first ? ` · first for ${r.first}` : ''}</span></li>
+                ))}
+              </ol>
             ) : null}
             {s.others?.length ? (
               <details className="form-others"><summary className="small">What people typed for Other ({s.others.length})</summary>
                 <ul className="form-texts">{s.others.slice(0, 100).map((t, k) => <li key={k}>{t}</li>)}</ul></details>
             ) : null}
-            {s.bars || s.grid ? null : s.files ? (
+            {s.bars || s.grid || s.ranks ? null : s.files ? (
               <ul className="form-texts">{s.files.slice(0, 100).map((f) => <li key={f.file_id}><a href={`/api/forms/${form.id}/file/${f.file_id}`} target="_blank" rel="noopener noreferrer">📎 {f.name}</a></li>)}</ul>
             ) : (
               <ul className="form-texts">{s.texts.slice(0, 100).map((t, k) => <li key={k}>{t}</li>)}{s.texts.length > 100 && <li className="muted small">and {s.texts.length - 100} more (download the CSV for all of them)</li>}</ul>
@@ -458,7 +465,7 @@ function ResponsesTab({ form, responses, reload, setting, flush }) {
             {form.questions.filter((q) => q.type !== 'section').map((q) => {
               const a = one.answers[q.id];
               const mark = one.right && q.id in one.right ? (one.right[q.id] ? <span className="quiz-right" aria-label="right"> ✓</span> : <span className="quiz-wrong" aria-label="wrong"> ✗</span>) : null;
-              return <div key={q.id}><strong>{q.title || 'Untitled question'}</strong>{mark}<p className={a === undefined ? 'muted' : ''} style={{ margin: '4px 0 0', whiteSpace: 'pre-wrap' }}>{a === undefined ? 'No answer' : GRIDS.has(q.type) ? q.rows.filter((row) => a[row] !== undefined).map((row) => `${row}: ${[a[row]].flat().join(', ')}`).join('\n') : q.type === 'file' && Array.isArray(a) ? a.map((f, k) => <span key={f.file_id || k}>{k > 0 && ', '}<a href={`/api/forms/${form.id}/file/${f.file_id}`} target="_blank" rel="noopener noreferrer">📎 {f.name}</a></span>) : Array.isArray(a) ? a.join(', ') : String(a)}</p></div>;
+              return <div key={q.id}><strong>{q.title || 'Untitled question'}</strong>{mark}<p className={a === undefined ? 'muted' : ''} style={{ margin: '4px 0 0', whiteSpace: 'pre-wrap' }}>{a === undefined ? 'No answer' : GRIDS.has(q.type) ? q.rows.filter((row) => a[row] !== undefined).map((row) => `${row}: ${[a[row]].flat().join(', ')}`).join('\n') : q.type === 'file' && Array.isArray(a) ? a.map((f, k) => <span key={f.file_id || k}>{k > 0 && ', '}<a href={`/api/forms/${form.id}/file/${f.file_id}`} target="_blank" rel="noopener noreferrer">📎 {f.name}</a></span>) : q.type === 'rank' && Array.isArray(a) ? a.map((o, k) => `${k + 1}. ${o}`).join('\n') : Array.isArray(a) ? a.join(', ') : String(a)}</p></div>;
             })}
           </section>
         )}

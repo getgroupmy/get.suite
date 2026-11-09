@@ -7152,3 +7152,36 @@ test('Compare spreadsheets: a spreadsheet, Excel or CSV file as spreadsheet cont
   await login(outsider, 'sheetcmp@acme.com');
   assert.equal((await outsider('GET', `/api/files/${sheet.id}/as-sheet`)).status, 404);
 });
+
+test('Forms: ranking questions take every option once, in order; the CSV lists them numbered', async () => {
+  const fa = client(), rb = client();
+  for (const [local, name] of [['rankmaker', 'Rank Maker'], ['ranker', 'Ray Ranker']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(fa, 'rankmaker@acme.com');
+  await login(rb, 'ranker@acme.com');
+  const made = (await fa('POST', '/api/forms', { title: 'Offsite' })).body;
+  const many = Array.from({ length: 12 }, (_, i) => `Place ${i + 1}`);
+  const f = (await fa('PUT', `/api/forms/${made.id}`, { questions: [
+    { id: 'where', type: 'rank', title: 'Rank the venues', options: ['Lisbon', 'Porto', 'Faro', 'Lisbon'], required: true, shuffle: true, limits: { Lisbon: 3 } },
+    { id: 'big', type: 'rank', title: 'Too many', options: many },
+    { id: 'one', type: 'rank', title: 'Just one', options: ['Solo'] },
+  ] })).body;
+  const [where, big, one] = f.questions;
+  assert.deepEqual(where.options, ['Lisbon', 'Porto', 'Faro'], 'no repeats');
+  assert.equal(where.shuffle, true);
+  assert.equal(where.limits, undefined, 'places don\'t apply to a ranking');
+  assert.equal(big.options.length, 10, 'ten at most');
+  assert.equal(one.options.length, 2, 'two at least');
+
+  const send = (answers) => rb('POST', `/api/public/forms/${f.token}`, { answers });
+  assert.equal((await send({})).status, 400, 'required');
+  assert.equal((await send({ where: ['Lisbon', 'Porto'] })).status, 400, 'every option');
+  assert.equal((await send({ where: ['Lisbon', 'Lisbon', 'Faro'] })).status, 400, 'each once');
+  assert.equal((await send({ where: ['Lisbon', 'Porto', 'Madrid'] })).status, 400, 'only its options');
+  assert.equal((await send({ where: 'Lisbon' })).status, 400);
+  const ok = await send({ where: ['Faro', 'Lisbon', 'Porto'] });
+  assert.equal(ok.status, 201, JSON.stringify(ok.body));
+  const resp = (await fa('GET', `/api/forms/${f.id}/responses`)).body.responses;
+  assert.deepEqual(resp[0].answers.where, ['Faro', 'Lisbon', 'Porto']);
+  const csv = (await fa('GET', `/api/forms/${f.id}/responses.csv`)).body;
+  assert.match(csv, /1\. Faro; 2\. Lisbon; 3\. Porto/);
+});
