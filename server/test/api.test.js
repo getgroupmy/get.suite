@@ -7227,3 +7227,34 @@ test('Tasks: several at once (tick off, due date, star, move, delete); all check
   assert.deepEqual(r.body, { deleted: 2 });
   assert.deepEqual((await a('GET', `/api/tasks/lists/${other.id}/tasks`)).body, []);
 });
+
+test('Contacts: several at once (star, add to a group, delete); all checked first', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['cbatcha', 'Cara Batch'], ['cbatchb', 'Cole Other']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'cbatcha@acme.com');
+  await login(b, 'cbatchb@acme.com');
+  const add = async (who, name, email) => (await who('POST', '/api/contacts', { name, ...(email && { email }) })).body;
+  const ann = await add(a, 'Ann Able', 'ann@example.com'), ben = await add(a, 'Ben Best', 'ben@example.com'), cy = await add(a, 'Cy NoMail');
+  const theirs = await add(b, 'Private Person', 'pp@example.com');
+  const batch = (who, body) => who('POST', '/api/contacts/batch', body);
+
+  let r = await batch(a, { ids: [ann.id, ben.id], action: 'star' });
+  assert.deepEqual(r.body, { changed: 2 });
+  assert.deepEqual((await a('GET', '/api/contacts')).body.filter((c) => c.starred).map((c) => c.name).sort(), ['Ann Able', 'Ben Best']);
+  assert.equal((await batch(a, { ids: [ann.id, theirs.id], action: 'unstar' })).status, 404, 'someone else\'s contact');
+  assert.equal((await a('GET', '/api/contacts')).body.filter((c) => c.starred).length, 2, 'nothing changed');
+
+  const g = (await a('POST', '/api/contacts/groups', { name: 'Clients', members: [{ name: 'Ann Able', email: 'ann@example.com' }] })).body;
+  r = await batch(a, { ids: [ann.id, ben.id, cy.id], action: 'group', group_id: g.id });
+  assert.deepEqual(r.body, { added: 1, without_email: 1 }, 'Ann was already in it; Cy has no address');
+  assert.deepEqual((await a('GET', '/api/contacts/groups')).body.find((x) => x.id === g.id).members.map((m) => m.email), ['ann@example.com', 'ben@example.com']);
+  const theirGroup = (await b('POST', '/api/contacts/groups', { name: 'Mine', members: [] })).body;
+  assert.equal((await batch(a, { ids: [ann.id], action: 'group', group_id: theirGroup.id })).status, 404);
+
+  assert.equal((await batch(a, { ids: [ann.id], action: 'explode' })).status, 400);
+  assert.equal((await batch(a, { ids: [], action: 'delete' })).status, 400);
+  assert.equal((await batch(b, { ids: [ann.id], action: 'delete' })).status, 404);
+  r = await batch(a, { ids: [ben.id, cy.id], action: 'delete' });
+  assert.deepEqual(r.body, { deleted: 2 });
+  assert.deepEqual((await a('GET', '/api/contacts')).body.map((c) => c.name), ['Ann Able']);
+});

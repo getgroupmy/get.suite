@@ -270,12 +270,42 @@ export default function contactRoutes() {
   });
 
   // Yours, or (for an admin) one shared with the company.
-  const editable = (req) => {
-    const c = q('SELECT c.*, u.org_id FROM contacts c JOIN users u ON u.id = c.owner_id WHERE c.id = ?').get(req.params.id);
-    if (!c || !(c.owner_id === req.user.id || (c.shared && req.user.is_admin && c.org_id === req.user.org_id))) throw notFound();
+  const editableBy = (id, user) => {
+    const c = q('SELECT c.*, u.org_id FROM contacts c JOIN users u ON u.id = c.owner_id WHERE c.id = ?').get(String(id));
+    if (!c || !(c.owner_id === user.id || (c.shared && user.is_admin && c.org_id === user.org_id))) throw notFound();
     const { org_id, ...row } = c;
     return row;
   };
+  const editable = (req) => editableBy(req.params.id, req.user);
+
+  // Several contacts at once: star or unstar them, add them to one of your groups (their email
+  // addresses), or delete them. Each is checked first; if one can't be, none is changed.
+  r.post('/batch', (req, res) => {
+    const ids = [...new Set((Array.isArray(req.body?.ids) ? req.body.ids : []).map(String))];
+    if (!ids.length) throw bad('Choose some contacts');
+    if (ids.length > 1000) throw bad('1000 contacts at a time at most');
+    const action = String(req.body?.action || '');
+    const list = ids.map((id) => editableBy(id, req.user));
+    if (action === 'delete') {
+      tx(() => { for (const c of list) q('DELETE FROM contacts WHERE id = ?').run(c.id); });
+      return res.json({ deleted: list.length });
+    }
+    if (action === 'star' || action === 'unstar') {
+      if (list.some((c) => c.owner_id !== req.user.id)) throw bad('Only its owner stars a contact');
+      tx(() => { for (const c of list) q('UPDATE contacts SET starred = ? WHERE id = ?').run(action === 'star' ? 1 : 0, c.id); });
+      return res.json({ changed: list.length });
+    }
+    if (action === 'group') {
+      const g = q('SELECT * FROM contact_groups WHERE id = ? AND owner_id = ?').get(String(req.body?.group_id || ''), req.user.id);
+      if (!g) throw notFound('Group not found');
+      const withEmail = list.filter((c) => c.email && EMAIL_RE.test(String(c.email).toLowerCase()));
+      const before = JSON.parse(g.members);
+      const members = readMembers([...before, ...withEmail.map((c) => ({ name: c.name, email: c.email }))]);
+      q('UPDATE contact_groups SET members = ? WHERE id = ?').run(JSON.stringify(members), g.id);
+      return res.json({ added: members.length - before.length, without_email: list.length - withEmail.length });
+    }
+    throw bad('Unknown action');
+  });
   r.patch('/:id', (req, res) => {
     const existing = editable(req);
     const c = { ...existing, ...read(req.body, true) };

@@ -2424,3 +2424,8 @@ img.custom-emoji { width: 1.35em; height: 1.35em; object-fit: contain; vertical-
 .task-batch { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 12px; margin: 0 0 8px; border: 1px solid var(--accent, #1a73e8); border-radius: 10px; background: var(--accent-soft, #e8f0fe); position: sticky; top: 0; z-index: 3; }
 .task-batch input[type=date], .task-batch select { font-size: 13px; }
 .task .task-pick { accent-color: var(--accent, #1a73e8); }
+/* Several contacts at once */
+.contact-batch-cap { caption-side: top; text-align: left; }
+.contact-batch { padding: 8px 10px; margin-bottom: 6px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; border: 1px solid var(--accent, #1a73e8); border-radius: 10px; background: var(--accent-soft, #e8f0fe); }
+.files .pick-col { width: 32px; padding-right: 0; }
+.files tr.picked { background: var(--accent-soft, #e8f0fe); }

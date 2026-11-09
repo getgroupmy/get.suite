@@ -78,6 +78,19 @@ export default function Contacts() {
   const match = (c) => !filter || Object.values(c).some((v) => typeof v === 'string' && v.toLowerCase().includes(filter.toLowerCase()));
   const list = (tab === 'mine' ? (contacts || []) : tab === 'company' ? company : directory).filter(match);
   const own = tab === 'mine' || tab === 'company'; // address-book rows, not NAS users
+  // Several of your contacts at once: email them, add them to a group, star them, or delete them.
+  const [picked, setPicked] = useState(() => new Set());
+  const [myGroups, setMyGroups] = useState([]);
+  const [deletingMany, setDeletingMany] = useState(false);
+  useEffect(() => { setPicked(new Set()); if (tab === 'mine') get('/contacts/groups').then(setMyGroups).catch(() => {}); }, [tab]);
+  const selecting = tab === 'mine';
+  const chosen = (contacts || []).filter((c) => picked.has(c.id));
+  const pickOne = (id) => setPicked((s0) => { const s1 = new Set(s0); if (s1.has(id)) s1.delete(id); else s1.add(id); return s1; });
+  const allShown = list.length > 0 && list.every((c) => picked.has(c.id));
+  const nPeople = (n) => `${n} contact${n === 1 ? '' : 's'}`;
+  async function many(body, say) {
+    try { const r = await post('/contacts/batch', { ids: [...picked], ...body }); toast(say(r)); setPicked(new Set()); load(); } catch (e) { toast(e.message, 'error'); }
+  }
 
   async function message(person) {
     const { id } = await post('/chat/dm', { user_id: person.id });
@@ -112,10 +125,27 @@ export default function Contacts() {
       {tab === 'dir' && chart ? <OrgChart people={directory} filter={filter} onMessage={message} me={user.id} onOpen={setCard} /> : tab === 'groups' ? <Groups filter={filter} /> : tab === 'other' ? <OtherContacts filter={filter} onAdded={load} /> : tab === 'mine' && contacts?.length === 0 ? <Empty icon="person" title="No contacts yet">Add people you work with outside your NAS users.</Empty>
         : tab === 'company' && company.length === 0 ? <Empty icon="person" title="No company contacts yet">Contacts shared with everyone at {user.org_name} appear here. Tick “Share with everyone at {user.org_name}” on a contact to add it.</Empty> : (
         <table className="files">
-          <thead><tr><th>Name</th><th className="hide-sm">Email</th><th className="hide-sm">Phone</th><th className="hide-sm">Company</th><th aria-label="Actions" /></tr></thead>
+          {selecting && picked.size > 0 && (
+            <caption className="contact-batch-cap"><div className="contact-batch" role="toolbar" aria-label="Change the selected contacts">
+              <strong className="small" aria-live="polite">{picked.size} selected</strong>
+              <button type="button" className="btn small" disabled={!chosen.some((c) => c.email)} title="Write to everyone selected who has an email address"
+                onClick={() => navigate(`/mail?compose=${encodeURIComponent(chosen.filter((c) => c.email).map((c) => formatAddress({ name: c.name, email: c.email })).join(', '))}`)}><Icon name="mail" size={16} /> Email</button>
+              <select aria-label="Add the selected contacts to a group" value="" disabled={!myGroups.length} title={myGroups.length ? '' : 'Make a group first (Groups tab)'}
+                onChange={(e) => { const g = myGroups.find((x) => x.id === e.target.value); if (g) many({ action: 'group', group_id: g.id }, (r) => `${r.added} added to ${g.name}${r.without_email ? ` (${r.without_email} without an email address left out)` : ''}`); }}>
+                <option value="">Add to group…</option>
+                {myGroups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+              </select>
+              <button type="button" className="btn small" onClick={() => many({ action: 'star' }, (r) => `${nPeople(r.changed)} starred`)}>★ Star</button>
+              <button type="button" className="btn small" onClick={() => many({ action: 'unstar' }, (r) => `${nPeople(r.changed)} unstarred`)}>☆ Unstar</button>
+              <button type="button" className="btn small danger" onClick={() => setDeletingMany(true)}><Icon name="trash" size={16} /> Delete</button>
+              <button type="button" className="link-btn small" onClick={() => setPicked(new Set())}>Clear</button>
+            </div></caption>
+          )}
+          <thead><tr>{selecting && <th className="pick-col"><input type="checkbox" aria-label="Select all shown" checked={allShown} onChange={() => setPicked(allShown ? new Set() : new Set(list.map((c) => c.id)))} /></th>}<th>Name</th><th className="hide-sm">Email</th><th className="hide-sm">Phone</th><th className="hide-sm">Company</th><th aria-label="Actions" /></tr></thead>
           <tbody>
             {list.map((c) => (
-              <tr key={c.id}>
+              <tr key={c.id} className={picked.has(c.id) ? 'picked' : ''}>
+                {selecting && <td className="pick-col"><input type="checkbox" aria-label={`Select ${c.name}`} checked={picked.has(c.id)} onChange={() => pickOne(c.id)} /></td>}
                 <td className="name"><Avatar name={c.name} size={28} userId={tab === 'dir' ? c.id : undefined} email={c.email || c.username} src={tab !== 'dir' ? photoUrl(c) : undefined} /><span>{tab === 'dir' ? <button type="button" className="link-btn person-name" onClick={() => setCard(c.id)}>{c.name}</button> : c.name}{c.shared && tab === 'mine' ? <span className="muted"> · Shared with company</span> : null}{tab === 'company' && <span className="muted"> · Added by {c.owner_id === user.id ? 'you' : c.owner_name}</span>}{c.status && <span className="person-status" aria-label={`Status: ${statusLine(c.status)}`}> · {statusLine(c.status)}</span>}{tab === 'dir' && whereToday[c.id] && <span className="muted person-where" title="Working location today"> · {placeText(whereToday[c.id])} today</span>}</span></td>
                 <td className="hide-sm">{(c.email || c.username) ? <a href={`mailto:${c.email || c.username}`}>{c.email || c.username}</a> : <span className="muted">—</span>}
                   {c.more_emails?.map((m) => <div key={m.value} className="small"><a href={`mailto:${m.value}`}>{m.value}</a> <span className="muted">{TYPE_LABELS[m.type]}</span></div>)}</td>
@@ -142,6 +172,8 @@ export default function Contacts() {
       {merging && <DuplicatesDialog onClose={() => setMerging(false)} onMerged={load} />}
       {history && <Modal title={`With ${history.name}`} onClose={() => setHistory(null)} footer={<button type="button" className="btn" onClick={() => setHistory(null)}>Close</button>}><WithPerson email={history.email} onOpen={() => setHistory(null)} /></Modal>}
       {editing && <ContactDialog contact={editing} orgName={user.org_name} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />}
+      {deletingMany && <ConfirmModal title={`Delete ${nPeople(picked.size)}?`} confirm="Delete" message="They're deleted from your contacts (and from your phone on its next sync)." onClose={() => setDeletingMany(false)}
+        onConfirm={async () => { setDeletingMany(false); await many({ action: 'delete' }, (r) => `${nPeople(r.deleted)} deleted`); }} />}
       {deleting && <ConfirmModal title="Delete contact?" message={`Delete ${deleting.name}?`} onClose={() => setDeleting(null)}
         onConfirm={async () => { await del(`/contacts/${deleting.id}`); load(); }} />}
     </div>
