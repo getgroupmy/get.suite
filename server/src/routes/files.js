@@ -21,7 +21,7 @@ import { roleFor, atLeast, audienceFor, subtreeIds, mayTakeAway } from '../acces
 import { sendTo } from '../hub.js';
 import { canReach, checkQuota, orgStorageUsed, userStorageUsed } from '../tenancy.js';
 import { resetRoom, CO_EDITED, saveNow } from '../collab.js';
-import { docFromWord, wordFromDoc, watermarkOfWord, layoutOfWord } from '../office/word.js';
+import { docFromWord, wordFromDoc, watermarkOfWord, layoutOfWord, pageOfWord } from '../office/word.js';
 import { sheetFromExcel, excelFromSheet } from '../office/excel.js';
 import { deckFromPowerPoint, powerPointFromDeck } from '../office/powerpoint.js';
 import { officePreview, officeKind, MAX_PREVIEW } from '../office/preview.js';
@@ -1112,14 +1112,19 @@ export default function fileRoutes({ maxUploadBytes }) {
       return insertFile({ owner: req.user.id, parentId: folder, name: pname, kind: 'file', mime, size: data.length, storage });
     };
     try {
-      if (type === 'docx') { content = (await docFromWord(buf, { savePicture })).doc; watermark = await watermarkOfWord(buf); layout = await layoutOfWord(buf); }
+      if (type === 'docx') { content = (await docFromWord(buf, { savePicture })).doc; watermark = await watermarkOfWord(buf); layout = { ...(await layoutOfWord(buf)), ...(await pageOfWord(buf)) }; }
       else if (type === 'md' || type === 'markdown') content = docFromMarkdown(buf.toString('utf8'));
       else if (type === 'xlsx') content = await sheetFromExcel(buf);
       else content = await deckFromPowerPoint(buf, { savePicture });
     } catch (e) { throw bad(`This file couldn't be read as ${type === 'docx' ? 'a Word document' : type === 'xlsx' ? 'an Excel workbook' : 'a PowerPoint presentation'}`); }
     const json = JSON.stringify(content);
     const id = insertFile({ owner: req.user.id, parentId, name, kind: OFFICE[type].kind, content: json, size: Buffer.byteLength(json) });
-    if (watermark || layout.columns > 1 || layout.lineNumbers) q('UPDATE files SET page_setup = ? WHERE id = ?').run(JSON.stringify(readSetup({ watermark, ...layout })), id); // a Word file's watermark, columns and line numbers stay
+    // A Word file's page setup stays: paper, orientation, margins, header, footer, page numbers, watermark, columns, line numbers.
+    if (type === 'docx') {
+      const setup = readSetup({ watermark, ...layout });
+      const plain = JSON.stringify(readSetup({}));
+      if (JSON.stringify(setup) !== plain) q('UPDATE files SET page_setup = ? WHERE id = ?').run(JSON.stringify(setup), id);
+    }
     if (parentId) notify(parentId, { type: 'files-changed', parent_id: parentId });
     res.status(201).json(publicFile(loadFile(id, req.user)));
   });

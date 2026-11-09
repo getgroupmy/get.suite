@@ -1253,3 +1253,17 @@ test('Word: paragraph alignment, text colours and highlights are read', async ()
   assert.equal(back.content[1].attrs.textAlign, 'right');
   assert.equal(back.content[3].content.find((r) => r.text === 'red bold').marks.find((m) => m.type === 'textStyle').attrs.color, '#c5221f');
 });
+
+test('Word: the page setup (paper, orientation, margins, header, footer, page numbers) is read', async () => {
+  const { pageOfWord } = await import('../src/office/word.js');
+  const setup = { size: 'letter', orientation: 'landscape', margin: 'narrow', header: 'Acme — Confidential', footer: 'Board pack', numbers: true, watermark: '' };
+  const doc = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Hello' }] }] };
+  const page = await pageOfWord(await wordFromDoc(doc, 'Pack', { page: setup }));
+  assert.deepEqual(page, { orientation: 'landscape', size: 'letter', margin: 'narrow', header: 'Acme — Confidential', footer: 'Board pack', numbers: true });
+  const a5 = await pageOfWord(await wordFromDoc(doc, 'Note', { page: { ...setup, size: 'a5', orientation: 'portrait', margin: 'wide', header: '', footer: '', numbers: true } }));
+  assert.deepEqual([a5.size, a5.orientation, a5.margin, a5.footer, a5.numbers], ['a5', 'portrait', 'wide', '', true]);
+  // A plain document: A4 portrait with normal margins (Word's own default), no header or footer.
+  const plain = await pageOfWord(await Packer.toBuffer(new Document({ sections: [{ children: [new Paragraph('x')] }] })));
+  assert.deepEqual([plain.size, plain.orientation, plain.margin, plain.header, plain.footer], ['a4', 'portrait', 'normal', undefined, undefined]);
+  assert.deepEqual(await pageOfWord(Buffer.from('not a zip')), {});
+});

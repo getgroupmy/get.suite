@@ -1740,6 +1740,17 @@ test('page setup: kept with a document, checked, and only for documents', async 
   const up = (await owner('POST', '/api/files/upload?name=Draft%20contract.docx', docx.body, { raw: true })).body;
   const opened = (await owner('POST', `/api/files/${up.id}/open-as`)).body;
   assert.equal((await owner('GET', `/api/files/${opened.id}`)).body.page_setup.watermark, 'DRAFT');
+  // The whole page setup goes to Word and comes back when the file is opened again.
+  const full = { size: 'letter', orientation: 'landscape', margin: 'wide', header: 'Acme Ltd', footer: 'Private', numbers: true, watermark: '' };
+  await owner('PATCH', `/api/files/${d.id}`, { page_setup: full });
+  const again = await owner('GET', `/api/files/${d.id}/export`, undefined, { binary: true });
+  const up2 = (await owner('POST', '/api/files/upload?name=Letter.docx', again.body, { raw: true })).body;
+  const opened2 = (await owner('POST', `/api/files/${up2.id}/open-as`)).body;
+  assert.deepEqual((await owner('GET', `/api/files/${opened2.id}`)).body.page_setup, full);
+  // A plain Word file (A4, normal margins, nothing above or below) keeps the default: no setup stored.
+  const { Document, Packer, Paragraph } = await import('docx');
+  const plain = (await owner('POST', '/api/files/upload?name=Plain.docx', await Packer.toBuffer(new Document({ sections: [{ children: [new Paragraph('x')] }] })), { raw: true })).body;
+  assert.equal((await owner('GET', `/api/files/${(await owner('POST', `/api/files/${plain.id}/open-as`)).body.id}`)).body.page_setup, null);
 });
 
 test('contact groups: made, changed, suggested in Mail with everyone in them, only your own', async () => {

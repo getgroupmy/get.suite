@@ -22,7 +22,7 @@ import {
   Bookmark, InternalHyperlink, PageBreak, FootnoteReferenceRun,
 } from 'docx';
 import { Node, Mark } from '@tiptap/core';
-import { pageMm, MARGINS } from '../pagesetup.js';
+import { pageMm, MARGINS, PAPER } from '../pagesetup.js';
 
 // A picture is a Drive file, by id (as in web/src/apps/docs/DocEditor.jsx). Here it is read from
 // the <img src="pic:ID"> that opening a Word file makes.
@@ -278,6 +278,50 @@ export async function layoutOfWord(buffer) {
     const n = Number(/<w:cols\b[^>]*\bw:num="(\d+)"/.exec(sect)?.[1]);
     return { columns: n >= 2 ? Math.min(n, 3) : 1, lineNumbers: /<w:lnNumType\b/.test(sect) };
   } catch { return { columns: 1, lineNumbers: false }; }
+}
+
+/**
+ * A Word file's page setup, as Docs keeps it: the paper (A4, Letter, Legal or A5, whichever is
+ * nearest), portrait or landscape, margins (normal, narrow or wide, nearest), the default header's and
+ * footer's text, and whether the footer has the page number. Read from its last section (the document's own).
+ */
+export async function pageOfWord(buffer) {
+  const out = {};
+  try {
+    const zip = await JSZip.loadAsync(buffer);
+    const xml = await zip.file('word/document.xml')?.async('string');
+    const sect = (xml && [...xml.matchAll(/<w:sectPr\b[\s\S]*?<\/w:sectPr>/g)].pop()?.[0]) || '';
+    const mm = (twips) => (Number(twips) / 1440) * 25.4;
+    const sz = /<w:pgSz\b([^>]*)\/?>/.exec(sect)?.[1] || '';
+    const w = mm(/w:w="(\d+)"/.exec(sz)?.[1]), h = mm(/w:h="(\d+)"/.exec(sz)?.[1]);
+    if (w > 0 && h > 0) {
+      out.orientation = /w:orient="landscape"/.test(sz) || w > h ? 'landscape' : 'portrait';
+      const [a, b] = [Math.min(w, h), Math.max(w, h)];
+      const best = Object.entries(PAPER).map(([k, [pw, ph]]) => [k, Math.abs(pw - a) + Math.abs(ph - b)]).sort((x, y) => x[1] - y[1])[0];
+      if (best[1] < 12) out.size = best[0];
+    }
+    const left = mm(/<w:pgMar\b[^>]*\bw:left="(\d+)"/.exec(sect)?.[1]);
+    if (left > 0) out.margin = Object.entries(MARGINS).sort((x, y) => Math.abs(x[1] - left) - Math.abs(y[1] - left))[0][0];
+    // Header and footer: the default ones, by their relationships.
+    const rels = (await zip.file('word/_rels/document.xml.rels')?.async('string')) || '';
+    const partOf = (kind) => {
+      const rid = new RegExp(`<w:${kind}Reference\\b[^>]*w:type="default"[^>]*r:id="([^"]+)"|<w:${kind}Reference\\b[^>]*r:id="([^"]+)"[^>]*w:type="default"`).exec(sect);
+      const id = rid?.[1] || rid?.[2];
+      const target = id && new RegExp(`<Relationship\\b[^>]*Id="${id}"[^>]*Target="([^"]+)"|<Relationship\\b[^>]*Target="([^"]+)"[^>]*Id="${id}"`).exec(rels);
+      return target ? `word/${(target[1] || target[2]).replace(/^\/?word\//, '')}` : null;
+    };
+    const unx = (t) => t.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&');
+    const textOf = (part) => {
+      const noFields = part.replace(/<w:fldSimple\b[\s\S]*?<\/w:fldSimple>/g, '').replace(/<w:fldChar w:fldCharType="separate"\/>[\s\S]*?<w:fldChar w:fldCharType="end"\/>/g, '');
+      return unx([...noFields.matchAll(/<w:t(?:\s[^>]*)?>([^<]*)<\/w:t>/g)].map((m) => m[1]).join('')).replace(/\s+/g, ' ').trim().slice(0, 200);
+    };
+    const header = partOf('header'), footer = partOf('footer');
+    const hx = header && (await zip.file(header)?.async('string'));
+    const fx = footer && (await zip.file(footer)?.async('string'));
+    if (hx) out.header = textOf(hx);
+    if (fx) { out.footer = textOf(fx); out.numbers = /w:instr="\s*PAGE\b|<w:instrText[^>]*>\s*PAGE\b/.test(fx); }
+  } catch { /* not a Word file we can read: the defaults */ }
+  return out;
 }
 
 /** Word's page size, margins, header and footer (page number included) from the document's page setup. */
