@@ -159,3 +159,116 @@ export async function withCharts(buffer, sheets) {
   zip.file('[Content_Types].xml', types);
   return zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
 }
+
+// ---- reading charts from an Excel file (an upload, or one opened from Drive)
+const unxml = (s) => String(s ?? '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&');
+const attrOf = (tag, name) => { const m = new RegExp(`\\s${name.replace(':', '\\:')}="([^"]*)"`).exec(tag); return m ? unxml(m[1]) : null; };
+const posix = (dir, target) => {
+  const parts = `${dir}/${target}`.split('/');
+  const out = [];
+  for (const p of parts) { if (p === '..') out.pop(); else if (p && p !== '.') out.push(p); }
+  return out.join('/');
+};
+
+/** The kind of chart an Excel chart part is, as Sheets names it (or null for kinds it doesn't draw). */
+export function chartKind(chartXmlText) {
+  const x = String(chartXmlText);
+  const bar = /<c:bar(?:3D)?Chart>([\s\S]*?)<\/c:bar(?:3D)?Chart>/.exec(x);
+  if (bar) {
+    const horiz = /<c:barDir val="bar"\/>/.test(bar[1]), stacked = /<c:grouping val="(stacked|percentStacked)"\/>/.test(bar[1]);
+    return horiz ? (stacked ? 'stackedBar' : 'bar') : (stacked ? 'stackedColumn' : 'column');
+  }
+  if (/<c:line(?:3D)?Chart>/.test(x)) return 'line';
+  if (/<c:area(?:3D)?Chart>/.test(x)) return 'area';
+  if (/<c:scatterChart>/.test(x)) return 'scatter';
+  if (/<c:doughnutChart>/.test(x)) return 'doughnut';
+  if (/<c:(pie|pie3D|ofPie)Chart>/.test(x)) return 'pie';
+  return null;
+}
+
+/**
+ * What an Excel chart draws, as one range on its own sheet: the box around every reference its
+ * series use (names, categories, values), when they're all on `sheetName`. { type, title, range } or null.
+ */
+export function chartFromXml(chartXmlText, sheetName) {
+  const type = chartKind(chartXmlText);
+  if (!type) return null;
+  const refs = [...String(chartXmlText).matchAll(/<c:f>([^<]*)<\/c:f>/g)].map((m) => unxml(m[1]).trim());
+  let c1 = Infinity, r1 = Infinity, c2 = -1, r2 = -1;
+  for (const f of refs) {
+    const m = /^(?:'((?:[^']|'')+)'|([^'!]+))!\$?([A-Z]{1,3})\$?(\d+)(?::\$?([A-Z]{1,3})\$?(\d+))?$/i.exec(f);
+    if (!m) return null;
+    const sheet = m[1] !== undefined ? m[1].replace(/''/g, "'") : m[2];
+    if (sheet !== sheetName) return null; // a chart of another sheet's cells: not something Sheets keeps
+    const a = { c: colIndex(m[3].toUpperCase()), r: +m[4] - 1 }, b = m[5] ? { c: colIndex(m[5].toUpperCase()), r: +m[6] - 1 } : a;
+    c1 = Math.min(c1, a.c, b.c); r1 = Math.min(r1, a.r, b.r); c2 = Math.max(c2, a.c, b.c); r2 = Math.max(r2, a.r, b.r);
+  }
+  if (c2 < 0) return null;
+  const title = [...(/<c:title>([\s\S]*?)<\/c:title>/.exec(chartXmlText)?.[1] || '').matchAll(/<a:t>([^<]*)<\/a:t>/g)].map((m) => unxml(m[1])).join('').trim();
+  return { type, ...(title && { title: title.slice(0, 200) }), range: `${colName(c1)}${r1 + 1}:${colName(c2)}${r2 + 1}` };
+}
+
+/**
+ * Where a drawing puts each of its charts, and the chart parts: [{ chartPath, at }] where `at` is
+ * { from: { col, colOff, row, rowOff }, to?: {...}, ext?: { cx, cy }, pos?: { x, y } } in Excel's units.
+ */
+function anchorsOf(drawingXml) {
+  const out = [];
+  for (const m of String(drawingXml).matchAll(/<xdr:(twoCellAnchor|oneCellAnchor|absoluteAnchor)\b[^>]*>([\s\S]*?)<\/xdr:\1>/g)) {
+    const rid = /<c:chart\b[^>]*r:id="([^"]+)"/.exec(m[2])?.[1];
+    if (!rid) continue;
+    const marker = (tag) => {
+      const b = new RegExp(`<xdr:${tag}>([\\s\\S]*?)</xdr:${tag}>`).exec(m[2])?.[1];
+      if (!b) return null;
+      const n = (k) => Number(new RegExp(`<xdr:${k}>(-?\\d+)</xdr:${k}>`).exec(b)?.[1] || 0);
+      return { col: n('col'), colOff: n('colOff'), row: n('row'), rowOff: n('rowOff') };
+    };
+    const ext = /<xdr:ext\b[^>]*cx="(\d+)"[^>]*cy="(\d+)"/.exec(m[2]);
+    const pos = /<xdr:pos\b[^>]*x="(-?\d+)"[^>]*y="(-?\d+)"/.exec(m[2]);
+    out.push({ rid, at: { from: marker('from'), to: marker('to'), ...(ext && { ext: { cx: +ext[1], cy: +ext[2] } }), ...(pos && { pos: { x: +pos[1], y: +pos[2] } }) } });
+  }
+  return out;
+}
+
+/** An anchor in pixels on Sheets' grid (where charts are placed), from the sheet's column widths and row heights. */
+export function placeOf(at, colWidths = {}, rowHeights = {}, defaults = { w: 100, h: 24 }) {
+  const colX = (col) => { let x = 0; for (let c = 0; c < col; c++) x += colWidths[colName(c)] ?? defaults.w; return x; };
+  const rowY = (row) => { let y = 0; for (let r = 0; r < row; r++) y += rowHeights[String(r + 1)] ?? defaults.h; return y; };
+  const pt = (mk) => ({ x: colX(mk.col) + mk.colOff / EMU, y: rowY(mk.row) + mk.rowOff / EMU });
+  const a = at.pos ? { x: at.pos.x / EMU, y: at.pos.y / EMU } : at.from ? pt(at.from) : { x: 0, y: 0 };
+  const b = at.to ? pt(at.to) : at.ext ? { x: a.x + at.ext.cx / EMU, y: a.y + at.ext.cy / EMU } : { x: a.x + 480, y: a.y + 300 };
+  return { x: Math.round(a.x + GRID_LEFT), y: Math.round(a.y + GRID_TOP), w: Math.max(200, Math.round(b.x - a.x)), h: Math.max(150, Math.round(b.y - a.y)) };
+}
+
+/** The charts on each sheet of an Excel file: Map(sheet name → [{ type, title, range, at }]). */
+export async function chartsOfXlsx(buffer) {
+  const out = new Map();
+  try {
+    const zip = await JSZip.loadAsync(buffer);
+    const read = async (f) => (zip.file(f) ? zip.file(f).async('string') : '');
+    const rels = async (f) => {
+      const dir = f.slice(0, f.lastIndexOf('/'));
+      const xmlText = await read(`${dir}/_rels/${f.slice(f.lastIndexOf('/') + 1)}.rels`);
+      return [...xmlText.matchAll(/<Relationship\b[^>]*>/g)].map((m) => ({ id: attrOf(m[0], 'Id'), type: attrOf(m[0], 'Type') || '', target: attrOf(m[0], 'Target') || '' }))
+        .map((r) => ({ ...r, path: r.target.startsWith('/') ? r.target.slice(1) : posix(dir, r.target) }));
+    };
+    const book = await rels('xl/workbook.xml');
+    for (const m of (await read('xl/workbook.xml')).matchAll(/<sheet\b[^>]*>/g)) {
+      const name = attrOf(m[0], 'name') || '', rid = attrOf(m[0], 'r:id');
+      const sheetPath = book.find((r) => r.id === rid)?.path;
+      if (!sheetPath) continue;
+      const drawingPath = (await rels(sheetPath)).find((r) => /\/drawing$/.test(r.type))?.path;
+      if (!drawingPath) continue;
+      const drawRels = await rels(drawingPath);
+      const charts = [];
+      for (const { rid: crid, at } of anchorsOf(await read(drawingPath))) {
+        const chartPath = drawRels.find((r) => r.id === crid && /\/chart$/.test(r.type))?.path;
+        const c = chartPath && chartFromXml(await read(chartPath), name);
+        if (c) charts.push({ ...c, at });
+        if (charts.length >= 50) break;
+      }
+      if (charts.length) out.set(name, charts);
+    }
+  } catch { /* not a zip we can read: no charts */ }
+  return out;
+}

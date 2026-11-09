@@ -2,7 +2,7 @@
 // fill colours, alignment, number formats (number, currency, percent, decimals) and column widths.
 import ExcelJS from 'exceljs';
 import JSZip from 'jszip';
-import { withCharts } from './xlsxcharts.js';
+import { withCharts, chartsOfXlsx, placeOf } from './xlsxcharts.js';
 import path from 'node:path';
 import { meetsCondition, cleanCondition } from './filtercond.js';
 
@@ -232,6 +232,13 @@ export async function sheetFromExcel(buffer) {
     if (!s) continue;
     const a = `${m[3]}${m[4]}`.toUpperCase(), b = m[5] ? `${m[5]}${m[6]}`.toUpperCase() : a;
     (s.names ||= {})[d.name] = a === b ? a : `${a}:${b}`;
+  }
+  // Charts on the sheets: kept as Sheets charts of their cells, placed where they were.
+  const chartSheets = await chartsOfXlsx(buffer);
+  for (const s of sheets) {
+    const list = chartSheets.get(s._ws);
+    if (!list) continue;
+    s.charts = Object.fromEntries(list.map((c, i) => [`x${i + 1}`, { type: c.type, range: c.range, title: c.title || '', ...placeOf(c.at, s.colWidths, s.rowHeights) }]));
   }
   for (const s of sheets) delete s._ws;
   const functions = await functionsOfXlsx(buffer);

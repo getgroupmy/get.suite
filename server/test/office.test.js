@@ -1186,3 +1186,21 @@ test('Excel: charts go into the download as real Excel charts over the sheet\'s 
   assert.equal(back.sheets[0].cells.A2, 'Jan');
   assert.equal(back.sheets[0].notes?.A1, 'Months');
 });
+
+test('Excel: charts in an uploaded file come in as Sheets charts', async () => {
+  const { chartFromXml, chartKind, placeOf } = await import('../src/office/xlsxcharts.js');
+  const cells = { A1: 'Month', B1: 'North', C1: 'South', A2: 'Jan', B2: '10', C2: '4', A3: 'Feb', B3: '12', C3: '5' };
+  const charts = { a: { type: 'stackedBar', range: 'A1:C3', title: 'Sales', x: 300, y: 50, w: 400, h: 250 }, b: { type: 'doughnut', range: 'A1:B3', title: '', x: 60, y: 330, w: 300, h: 200 } };
+  const back = await sheetFromExcel(await excelFromSheet({ sheets: [{ name: 'Q1 data', cells, charts }] }));
+  assert.deepEqual(Object.values(back.sheets[0].charts), Object.values(charts), 'a download opens again with its charts as they were');
+  // Kinds Excel has, and charts of another sheet's cells (left out).
+  assert.equal(chartKind('<c:bar3DChart><c:barDir val="col"/><c:grouping val="percentStacked"/></c:bar3DChart>'), 'stackedColumn');
+  assert.equal(chartKind('<c:pie3DChart></c:pie3DChart>'), 'pie');
+  assert.equal(chartKind('<c:radarChart></c:radarChart>'), null);
+  const xml = (f) => `<c:chartSpace><c:chart><c:title><c:tx><c:rich><a:p><a:r><a:t>Costs &amp; more</a:t></a:r></a:p></c:rich></c:tx></c:title><c:plotArea><c:lineChart><c:ser><c:cat><c:strRef><c:f>${f}!$A$2:$A$9</c:f></c:strRef></c:cat><c:val><c:numRef><c:f>${f}!$D$2:$D$9</c:f></c:numRef></c:val></c:ser></c:lineChart></c:plotArea></c:chart></c:chartSpace>`;
+  assert.deepEqual(chartFromXml(xml('Data'), 'Data'), { type: 'line', title: 'Costs & more', range: 'A2:D9' });
+  assert.equal(chartFromXml(xml("'Other sheet'"), 'Data'), null);
+  // Anchored to cells: placed over the same cells on Sheets' grid.
+  assert.deepEqual(placeOf({ from: { col: 2, colOff: 0, row: 3, rowOff: 9525 * 4 }, to: { col: 6, colOff: 0, row: 13, rowOff: 0 } }, { A: 50 }, { 2: 40 }),
+    { x: 46 + 50 + 100, y: 24 + (24 + 40 + 24) + 4, w: 400, h: 236 }, 'column A is 50 wide, row 2 is 40 high; the rest are the standard 100 and 24');
+});
