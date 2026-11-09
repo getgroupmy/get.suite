@@ -6515,3 +6515,30 @@ test('starred contacts come first, in the list and in suggestions while writing 
   await kay('PATCH', `/api/contacts/${z.id}`, { starred: false });
   assert.notEqual((await kay('GET', '/api/contacts')).body[0].name, 'Sam Zebra');
 });
+
+test('forms: options with limited places fill up, and a full one can\'t be picked', async () => {
+  const kay = client(); await login(kay, 'kay@keepco.com');
+  const anon = client();
+  const f = (await kay('POST', '/api/forms', { title: 'Workshop sign-up', questions: [
+    { id: 'slot', type: 'choice', title: 'Session', required: true, options: ['Morning', 'Afternoon'], limits: { Morning: 2, Afternoon: 'x', Nope: 3 } },
+    { id: 'extras', type: 'checkbox', title: 'Extras', options: ['Lunch', 'Parking'], limits: { Parking: 1 } },
+  ] })).body;
+  await kay('PUT', `/api/forms/${f.id}`, { audience: 'public', allow_edit: true });
+  const saved = (await kay('GET', `/api/forms/${f.id}`)).body.questions;
+  assert.deepEqual(saved[0].limits, { Morning: 2 }, 'only whole numbers, only real options');
+  let pub = (await anon('GET', `/api/public/forms/${f.token}`)).body;
+  assert.deepEqual(pub.left, { slot: { Morning: 2 }, extras: { Parking: 1 } });
+  const send = (answers) => anon('POST', `/api/public/forms/${f.token}`, { answers });
+  const first = await send({ slot: 'Morning', extras: ['Parking'] });
+  assert.equal(first.status, 201);
+  assert.equal((await send({ slot: 'Morning', extras: ['Parking'] })).status, 409, 'parking is full');
+  assert.equal((await send({ slot: 'Morning', extras: ['Lunch'] })).status, 201);
+  const full = await send({ slot: 'Morning' });
+  assert.equal(full.status, 409);
+  assert.match(full.body.error, /“Morning” is full/);
+  assert.equal((await send({ slot: 'Afternoon' })).status, 201, 'no limit on the other one');
+  pub = (await anon('GET', `/api/public/forms/${f.token}`)).body;
+  assert.deepEqual(pub.left, { slot: { Morning: 0 }, extras: { Parking: 0 } });
+  // Changing your own response keeps your place.
+  assert.equal((await anon('PUT', `/api/public/forms/${f.token}/response/${first.body.edit_key}`, { answers: { slot: 'Morning', extras: ['Parking', 'Lunch'] } })).status, 200);
+});

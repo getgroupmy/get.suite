@@ -257,7 +257,14 @@ function QuestionsTab({ form, edit }) {
               {q.options.map((o, k) => (
                 <li key={k} className="row">
                   <span className="form-option-mark" aria-hidden="true">{q.type === 'choice' ? '○' : q.type === 'checkbox' ? '☐' : `${k + 1}.`}</span>
-                  <input className="grow" aria-label={`Question ${i + 1}, option ${k + 1}`} value={o} maxLength={200} onChange={(e) => change(i, { options: q.options.map((x, m) => (m === k ? e.target.value : x)) })} />
+                  <input className="grow" aria-label={`Question ${i + 1}, option ${k + 1}`} value={o} maxLength={200} onChange={(e) => {
+                    const v = e.target.value;
+                    // A limit follows its option when the option is renamed.
+                    const limits = q.limits && q.limits[o] !== undefined ? Object.fromEntries(Object.entries(q.limits).map(([key, n]) => [key === o ? v : key, n])) : q.limits;
+                    change(i, { options: q.options.map((x, m) => (m === k ? v : x)), ...(limits !== q.limits && { limits }) });
+                  }} />
+                  {q.limits && q.type !== 'scale' && <input type="number" className="form-limit" min={1} max={100000} placeholder="No limit" aria-label={`Places for option ${k + 1}`} title="How many people can choose it (empty: no limit)"
+                    value={q.limits[o] ?? ''} onChange={(e) => { const n = Math.round(Number(e.target.value)); const next = { ...q.limits }; if (e.target.value === '' || !(n >= 1)) delete next[o]; else next[o] = n; change(i, { limits: next }); }} />}
                   {q.options.length > 1 && <button type="button" className="icon-btn" aria-label={`Remove option ${k + 1}`} onClick={() => change(i, { options: q.options.filter((_, m) => m !== k) })}><Icon name="close" size={16} /></button>}
                 </li>
               ))}
@@ -321,6 +328,7 @@ function QuestionsTab({ form, edit }) {
           <div className="row form-q-foot">
             <label className="check grow"><input type="checkbox" checked={q.required} onChange={(e) => change(i, { required: e.target.checked })} /> Required</label>
             {HAS_OPTIONS.has(q.type) && <label className="check"><input type="checkbox" checked={!!q.shuffle} onChange={(e) => change(i, { shuffle: e.target.checked || undefined })} /> Shuffle option order</label>}
+            {HAS_OPTIONS.has(q.type) && <label className="check" title="For sign-ups: a session with 12 seats, a slot for one person. Full options can't be chosen."><input type="checkbox" checked={!!q.limits} onChange={(e) => change(i, { limits: e.target.checked ? {} : undefined })} /> Limit places per option</label>}
             <button type="button" className="icon-btn" aria-label={`Move question ${i + 1} up`} disabled={i === 0} onClick={() => move(i, -1)}>↑</button>
             <button type="button" className="icon-btn" aria-label={`Move question ${i + 1} down`} disabled={i === qs.length - 1} onClick={() => move(i, 1)}>↓</button>
             <button type="button" className="icon-btn" aria-label={`Duplicate question ${i + 1}`} onClick={() => setQs([...qs.slice(0, i + 1), { ...q, id: newId() }, ...qs.slice(i + 1)])}><Icon name="copy" size={18} /></button>

@@ -119,6 +119,12 @@ export function cleanQuestions(list) {
       if (!out.options.length) out.options = ['Option 1'];
       if (raw?.shuffle) out.shuffle = true; // shown in a different order to each person
       if (raw?.other && (type === 'choice' || type === 'checkbox')) out.other = true; // an "Other…" choice people type themselves
+      // Limits: how many people can pick an option (a session with 12 seats); a full option can't be chosen.
+      if (raw?.limits && typeof raw.limits === 'object') {
+        const lim = {};
+        for (const o of out.options) { const n = Math.round(Number(raw.limits[o])); if (Number.isFinite(n) && n >= 1) lim[o] = Math.min(n, 100000); }
+        if (Object.keys(lim).length) out.limits = lim;
+      }
     }
     if (GRIDS.has(type)) {
       const tidy = (l, max, dflt) => { const v = [...new Set((Array.isArray(l) ? l : []).map((o) => String(o ?? '').trim().slice(0, 200)).filter(Boolean))].slice(0, max); return v.length ? v : [dflt]; };
@@ -333,6 +339,28 @@ export function closedReason(f, t = Date.now(), count = null) {
   if (f.max_responses && (count ?? countOf(f.id)) >= f.max_responses) return 'full';
   return null;
 }
+/** For questions with option limits: how many places each limited option has left ({ qid: { option: n } }). */
+export function placesLeft(formId, questions, exceptResponseId = null) {
+  const limited = questions.filter((qu) => qu.limits);
+  if (!limited.length) return {};
+  const used = Object.fromEntries(limited.map((qu) => [qu.id, {}]));
+  for (const r of q('SELECT id, answers FROM form_responses WHERE form_id = ?').all(formId)) {
+    if (r.id === exceptResponseId) continue;
+    let a; try { a = JSON.parse(r.answers); } catch { continue; }
+    for (const qu of limited) for (const v of [].concat(a[qu.id] ?? [])) if (typeof v === 'string') used[qu.id][v] = (used[qu.id][v] || 0) + 1;
+  }
+  return Object.fromEntries(limited.map((qu) => [qu.id, Object.fromEntries(Object.entries(qu.limits).map(([o, n]) => [o, Math.max(0, n - (used[qu.id][o] || 0))]))]));
+}
+/** Refuse answers that pick an option with no places left. */
+function checkPlaces(formId, questions, answers, exceptResponseId = null, before = {}) {
+  const left = placesLeft(formId, questions, exceptResponseId);
+  for (const [qid, opts] of Object.entries(left)) {
+    for (const v of [].concat(answers[qid] ?? [])) {
+      if (opts[v] === 0 && ![].concat(before[qid] ?? []).includes(v)) throw new HttpError(409, `“${v}” is full: choose another`);
+    }
+  }
+}
+
 const CLOSED_TEXT = { closed: 'This form is no longer accepting responses', ended: 'This form closed', full: 'This form has all the responses it needs' };
 
 /** A form you own or edit (ownerOnly: you must own it). */
@@ -595,7 +623,8 @@ export function publicFormRoutes() {
     const mine = !!user && form.audience === 'org' && form.one_per_person && q('SELECT edit_key FROM form_responses WHERE form_id = ? AND user_id = ? ORDER BY created_at DESC').get(form.id, user.id);
     const answered = !!mine;
     const closed = closedReason(form);
-    res.json({ title: form.title, description: form.description, questions: withoutKey(form.questions), quiz: form.quiz, accepting: !closed, closed, closed_text: closed ? CLOSED_TEXT[closed] : null, audience: form.audience,
+    const left = placesLeft(form.id, form.questions);
+    res.json({ ...(Object.keys(left).length && { left }), title: form.title, description: form.description, questions: withoutKey(form.questions), quiz: form.quiz, accepting: !closed, closed, closed_text: closed ? CLOSED_TEXT[closed] : null, audience: form.audience,
       one_per_person: form.audience === 'org' && form.one_per_person, answered, org_name: f.org_name, allow_edit: form.allow_edit, collect_email: form.audience === 'public' && form.collect_email, send_copy: form.send_copy && mailEnabled(), ...(mine && form.allow_edit && mine.edit_key && { my_edit_key: mine.edit_key }),
       you: form.audience === 'org' ? { name: user.name, email: user.email } : null, is_owner: !!user && teamOf(form).includes(user.id) });
   });
@@ -655,6 +684,7 @@ export function publicFormRoutes() {
       if (form.audience === 'org' && form.one_per_person && q('SELECT 1 FROM form_responses WHERE form_id = ? AND user_id = ?').get(form.id, user.id)) {
         throw new HttpError(409, 'You have already filled in this form');
       }
+      checkPlaces(form.id, form.questions, answers);
       q('INSERT INTO form_responses (id, form_id, user_id, answers, created_at, edit_key, email) VALUES (?, ?, ?, ?, ?, ?, ?)')
         .run(id, form.id, form.audience === 'org' ? user.id : null, JSON.stringify(answers), now(), editKey, form.audience === 'public' ? email : null);
     });
@@ -693,7 +723,10 @@ export function publicFormRoutes() {
     for (const qu of form.questions) if (qu.type === 'file') delete incoming[qu.id];
     const answers = checkAnswers(asked, incoming);
     for (const qu of form.questions) if (qu.type === 'file' && old[qu.id]) answers[qu.id] = old[qu.id];
-    q('UPDATE form_responses SET answers = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(answers), now(), resp.id);
+    tx(() => {
+      checkPlaces(form.id, form.questions, answers, resp.id, old); // keeping their own place is fine
+      q('UPDATE form_responses SET answers = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(answers), now(), resp.id);
+    });
     try { addToLinkedSheet(form, resp.id, { changedRow: true }); } catch (e) { console.error('[forms] linked sheet:', e.message); }
     sendTo(teamOf(form), { type: 'form-response', form_id: form.id });
     if (form.notify) bell(teamOf(form).filter((x) => x !== user?.id), { kind: 'form', title: `A response to “${form.title}” was changed`, body: form.audience === 'org' ? `By ${user.name}` : null, link: `/forms/${form.id}?tab=responses`, actor: user?.id || null });

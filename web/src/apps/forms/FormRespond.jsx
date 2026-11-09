@@ -115,7 +115,7 @@ export default function FormRespond({ token, onSignIn }) {
           {pages[page]?.id && <div className="form-section-head"><h2>{pages[page].title || 'Untitled section'}</h2>{pages[page].help && <p className="muted" style={{ margin: 0 }}>{pages[page].help}</p>}</div>}
           {(pages[page]?.items || []).map((q) => (editing && q.type === 'file'
             ? <div key={q.id} className="form-fill-q"><span className="form-fill-title">{q.title || 'Untitled question'}</span><span className="muted small">{editing.files[q.id]?.length ? `Already sent: ${editing.files[q.id].join(', ')}` : 'No files were sent'} (files can't be changed)</span></div>
-            : <Question key={q.id} q={q} token={token} value={answers[q.id]} onChange={(v) => set(q.id, v)} missing={missing.includes(q.id)} />))}
+            : <Question key={q.id} q={form.left?.[q.id] ? { ...q, left: form.left[q.id] } : q} token={token} value={answers[q.id]} onChange={(v) => set(q.id, v)} missing={missing.includes(q.id)} />))}
           {sendError && <p className="error small" role="alert">{sendError}</p>}
           <div className="row">
             {trail.length > 1 && <button type="button" className="btn" onClick={() => { setTrail(trail.slice(0, -1)); setMissing([]); }}>Back</button>}
@@ -210,14 +210,18 @@ export function Question({ q, token, value, onChange, missing }) {
         <legend>{title}</legend>{help}
         <div className={q.type === 'scale' ? 'form-scale' : 'stack-tight'}>
           {q.type === 'scale' && q.low && <span className="muted small">{q.low}</span>}
-          {opts.map((o) => (
-            <label key={o} className={q.type === 'scale' ? 'form-scale-pick' : 'check'}>
-              <input type={many ? 'checkbox' : 'radio'} name={q.id} value={o}
-                checked={many ? list.includes(o) : String(value ?? '') === o}
-                onChange={(e) => { if (!many) setOtherOn(false); return many ? onChange(e.target.checked ? [...list, o] : list.filter((x) => x !== o)) : onChange(q.type === 'scale' ? Number(o) : o); }} />
-              <span>{o}</span>
-            </label>
-          ))}
+          {opts.map((o) => {
+            const on = many ? list.includes(o) : String(value ?? '') === o;
+            const places = q.left?.[o]; // limited options: how many places are left
+            const full = places === 0 && !on;
+            return (
+              <label key={o} className={`${q.type === 'scale' ? 'form-scale-pick' : 'check'} ${full ? 'form-full' : ''}`}>
+                <input type={many ? 'checkbox' : 'radio'} name={q.id} value={o} checked={on} disabled={full}
+                  onChange={(e) => { if (!many) setOtherOn(false); return many ? onChange(e.target.checked ? [...list, o] : list.filter((x) => x !== o)) : onChange(q.type === 'scale' ? Number(o) : o); }} />
+                <span>{o}{places !== undefined && <span className="muted small"> · {places === 0 ? 'Full' : `${places} ${places === 1 ? 'place' : 'places'} left`}</span>}</span>
+              </label>
+            );
+          })}
           {q.type === 'scale' && q.high && <span className="muted small">{q.high}</span>}
           {q.other && (
             <span className="check form-other">
@@ -240,7 +244,7 @@ export function Question({ q, token, value, onChange, missing }) {
       {q.type === 'paragraph' ? <textarea rows={4} maxLength={5000} aria-label={label} value={value || ''} onChange={(e) => onChange(e.target.value)} onBlur={() => setTouched(true)} />
         : q.type === 'dropdown' ? (
           <select aria-label={label} value={value || ''} onChange={(e) => onChange(e.target.value)}>
-            <option value="">Choose</option>{order.map((o) => <option key={o} value={o}>{o}</option>)}
+            <option value="">Choose</option>{order.map((o) => { const places = q.left?.[o]; return <option key={o} value={o} disabled={places === 0 && value !== o}>{o}{places !== undefined ? ` (${places === 0 ? 'full' : `${places} left`})` : ''}</option>; })}
           </select>
         ) : <input type={q.type === 'date' ? 'date' : q.type === 'time' ? 'time' : 'text'} inputMode={q.check?.kind === 'number' ? 'decimal' : q.check?.op === 'email' ? 'email' : undefined} maxLength={500} aria-label={label} value={value || ''} onChange={(e) => onChange(e.target.value)} onBlur={() => setTouched(true)} />}
       {err}
