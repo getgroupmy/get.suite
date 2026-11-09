@@ -1,6 +1,7 @@
 // Presentations: a slide list, a 16:9 canvas with text boxes, pictures and shapes you can move and
 // resize, a full-screen presenter, and printing (Save as PDF). Edited together live, like Docs and Sheets.
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { SlideFind } from './SlideFind.jsx';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 import { CommentsPanel, useComments } from '../comments.jsx';
 import { get, patch, post, uploadFile } from '../../api.js';
@@ -53,6 +54,7 @@ export default function SlidesEditor() {
   const [editing, setEditing] = useState(null);   // item id whose text is being typed
   const [presenting, setPresenting] = useState(null); // slide index, or null
   const [dialog, setDialog] = useState(null);
+  const [finding, setFinding] = useState(null); // the find bar: { replace, n }
   // Comments, each on a slide (by its id, so it follows the slide when slides move).
   const [params] = useSearchParams();
   const { threads } = useComments(file?.id);
@@ -174,6 +176,19 @@ export default function SlidesEditor() {
     setSelected(ids[0] || null); setAlso(ids.slice(1)); setEditing(null);
   }
 
+  // Ctrl+F finds, Ctrl+H replaces: anywhere, even while typing in a box.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || presenting !== null || document.querySelector('.modal-backdrop')) return;
+      const k = e.key.toLowerCase();
+      if (k !== 'f' && k !== 'h') return;
+      e.preventDefault();
+      setFinding((f) => ({ replace: k === 'h', n: (f?.n || 0) + 1 }));
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [presenting]);
+
   // The keys work wherever focus is (after a toolbar button too), except while typing in a field.
   const keyRef = useRef(null);
   keyRef.current = onCanvasKey;
@@ -279,6 +294,7 @@ export default function SlidesEditor() {
         )}
         menu={[
           { label: 'Present', icon: 'slides', onClick: () => setPresenting(slideIndex) },
+          { label: 'Find and replace', icon: 'search', onClick: () => setFinding((f) => ({ replace: !readOnly, n: (f?.n || 0) + 1 })) },
           { label: 'Version history', icon: 'clock', onClick: () => setDialog('history') },
           ...(!readOnly ? [{ label: 'Import slides…', icon: 'upload', onClick: () => setDialog({ type: 'import-file' }) }] : []),
           { label: 'Print or save as PDF', icon: 'print', onClick: () => {
@@ -431,6 +447,13 @@ export default function SlidesEditor() {
           </ol>
         </div>
       )}
+      {finding && !grid && <SlideFind key={finding.n} deck={deck} replacing={finding.replace} canEdit={!readOnly}
+        onGo={(m) => {
+          setCurrent(m.slide); setEditing(null); setSelected(m.notes ? null : m.item);
+          if (m.notes) requestAnimationFrame(() => document.querySelector('.slide-notes')?.scrollIntoView({ block: 'nearest' }));
+        }}
+        onReplace={(next, count) => { commit(next); toast(count === 1 ? 'Replaced 1' : `Replaced ${count}`); }}
+        onClose={() => setFinding(null)} />}
       <div className="slides-body" style={grid ? { display: 'none' } : undefined}>
         <ol className="slide-list" aria-label="Slides">
           {deck.slides.map((s, i) => (

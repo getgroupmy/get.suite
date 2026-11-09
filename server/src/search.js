@@ -44,7 +44,9 @@ export function sheetText(json) {
 
 /** A presentation's text boxes, slide by slide. */
 export function slidesText(json) {
-  return (json?.slides || []).map((s) => (s.items || []).map((it) => (it.type === 'text' ? it.text || '' : it.type === 'table' ? (it.cells || []).flat().join(' ') : '')).filter(Boolean).join('\n')).join('\n');
+  // Text boxes, tables, chart titles, picture descriptions and speaker notes.
+  const of = (it) => (it.type === 'text' ? it.text || '' : it.type === 'table' ? (it.cells || []).flat().join(' ') : it.type === 'chart' ? it.title || '' : it.type === 'image' ? it.alt || '' : '');
+  return (json?.slides || []).map((s) => [...(s.items || []).map(of), s.notes || ''].filter(Boolean).join('\n')).join('\n');
 }
 
 /** The words in one file (a row of `files`), or '' when there's nothing to read. */

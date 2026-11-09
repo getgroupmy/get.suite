@@ -2363,3 +2363,6 @@ textarea.mono { font-family: ui-monospace, Consolas, monospace; }
 ins.compare-key { background: color-mix(in srgb, #188038 18%, transparent); }
 del.compare-key { background: color-mix(in srgb, #d93025 14%, transparent); text-decoration: line-through; }
 .doc-changes .change-current { outline: 2px solid var(--accent, #1a73e8); outline-offset: 2px; }
+/* Find and replace (Slides) */
+.slide-find-where { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.slide-find-where mark { background: #f9ab00; color: #1f1f1f; border-radius: 2px; padding: 0 1px; }

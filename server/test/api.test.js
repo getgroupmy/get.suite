@@ -7042,3 +7042,12 @@ test('Sign in with Workspace: an app signs people out of Workspace too', async (
   assert.match(r.headers.get('location'), /^\/oauth\/signout/);
   assert.ok(me.id);
 });
+
+test('Drive search finds a presentation by its speaker notes, chart titles and picture descriptions', async () => {
+  const content = { slides: [{ id: 's1', items: [{ id: 't1', type: 'text', text: 'Launch plan' }, { id: 'c1', type: 'chart', title: 'Marmalade exports' }, { id: 'p1', type: 'image', alt: 'Lighthouse at dusk' }], notes: 'Thank the Quokka team' }] };
+  const deck = (await owner('POST', '/api/files/new', { kind: 'slides', name: 'Ideas deck', content })).body;
+  const { indexPending } = await import('../src/search.js');
+  while (await indexPending()) { /* until everything is indexed */ }
+  const find = async (words) => (await owner('GET', `/api/files?view=search&q=${encodeURIComponent(words)}`)).body.map((f) => f.id);
+  for (const words of ['quokka team', 'marmalade', 'lighthouse dusk', 'launch plan']) assert.ok((await find(words)).includes(deck.id), words);
+});
