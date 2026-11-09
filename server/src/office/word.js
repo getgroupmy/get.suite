@@ -234,6 +234,25 @@ export async function docFromWord(buffer, { savePicture } = {}) {
   const html = unmarkWordHtml(marked, (wid) => (wordComments.has(wid) ? commentId(wid) : null));
   const withNotes = bookmarksFromWord(footnotesFromWord(html)).replace(/<img [^>]*alt="\[picture\]"[^>]*>/g, '<em>[picture]</em>');
   const doc = checklists(generateJSON(withNotes || '<p></p>', EXTENSIONS));
+  // A deletion right before an insertion, by the same person at the same time, is one replacement (as Docs makes them).
+  const joinReplacements = (n) => {
+    const kids = n.content || [];
+    for (let i = 0; i + 1 < kids.length; i++) {
+      const del = kids[i].marks?.find((m) => m.type === 'suggestDelete');
+      if (!del) continue;
+      for (let j = i + 1; j < kids.length; j++) {
+        const ins = kids[j].marks?.find((m) => m.type === 'suggestInsert');
+        const sameDel = kids[j].marks?.find((m) => m.type === 'suggestDelete' && m.attrs.id === del.attrs.id);
+        if (sameDel) continue; // more of the same deletion (other formatting)
+        if (!ins || ins.attrs.name !== del.attrs.name || ins.attrs.at !== del.attrs.at) break;
+        const old = ins.attrs.id;
+        for (let k = j; k < kids.length; k++) { const m = kids[k].marks?.find((x) => x.type === 'suggestInsert' && x.attrs.id === old); if (!m) break; m.attrs.id = del.attrs.id; }
+        break;
+      }
+    }
+    kids.forEach(joinReplacements);
+  };
+  joinReplacements(doc);
   // The words each comment covers, now in the document (a comment whose words are gone is still kept, unanchored).
   const quotes = new Map();
   const walk = (n) => { if (n.type === 'text') for (const mk of n.marks || []) if (mk.type === 'comment') quotes.set(mk.attrs.id, (quotes.get(mk.attrs.id) || '') + n.text); (n.content || []).forEach(walk); };

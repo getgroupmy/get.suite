@@ -1544,4 +1544,6 @@ test('Word: suggestions go out as tracked changes, and tracked changes come in a
   assert.deepEqual(marksOf('March'), [['suggestDelete', 'Kim Park', at]]);
   assert.deepEqual(marksOf('April'), [['suggestInsert', 'Kim Park', at]]);
   assert.ok(p.find((n) => n.text === 'April').marks.some((m) => m.type === 'bold'), 'formatting kept');
+  const idOf = (t, type) => p.find((n) => n.text === t).marks.find((m) => m.type === type).attrs.id;
+  assert.equal(idOf('April', 'suggestInsert'), idOf('March', 'suggestDelete'), 'a deletion then an insertion is one replacement');
 });
