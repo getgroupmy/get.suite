@@ -1,8 +1,8 @@
 // Workspace as an installed app: this service worker only keeps the app itself (its page and its
 // script and style files) so it opens without a connection. Nothing from /api, mail, files or the
 // sync addresses is ever stored here: those always go to the server.
-const CACHE = 'workspace-app-v4';
-const SKIP = /^\/(api|dav|ws|s|b|i|f|p|meet-ws)(\/|$)/; // live data and public share pages
+const CACHE = 'workspace-app-v5';
+const SKIP = /^\/(api|dav|ws|s|b|i|f|p|c|meet-ws)(\/|$)/; // live data and public share pages
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(['/', '/manifest.webmanifest', '/favicon.svg'])).then(() => self.skipWaiting()));

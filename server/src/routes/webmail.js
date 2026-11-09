@@ -25,6 +25,8 @@ import { startImport, importOf } from '../mail/importer.js';
 import { insertFile, cleanName } from './files.js';
 import { checkQuota } from '../tenancy.js';
 import { recordSent } from '../othercontacts.js';
+import { confidentialRoutes, setCodeSender, newToken, noticeOf, keepConfidential, EXPIRY_DAYS } from '../mail/confidential.js';
+import { baseUrl as publicBase } from './calendar.js';
 import { parseMailQuery, allOf } from '../mail/searchquery.js';
 import { tabQuery, TABS, TO_PRIMARY, TO_UPDATES } from '../mail/tabs.js';
 import { receiptRequest, buildReceipt } from '../mail/receipt.js';
@@ -316,6 +318,13 @@ export default function webmailRoutes() {
   }));
 
   r.use((req, res, next) => (mailEnabled() ? next() : next(new HttpError(503, 'Email is not set up on this server'))));
+  // Confidential mode: codes for outside recipients come by email from the sender.
+  setCodeSender((to, { code, fromUser, subject }) => smtpFor(fromUser).sendMail({
+    from: { name: fromUser.name, address: fromUser.username }, to,
+    subject: `Your code to read “${String(subject || 'a confidential message').slice(0, 100)}”`,
+    text: `Your code is ${code}\n\nType it on the page to read the confidential message ${fromUser.name} sent you. It works for 10 minutes, once.`,
+  }));
+  r.use('/confidential', confidentialRoutes());
 
   // Unread mail in the Inbox of each shared mailbox you're in (for the Mailbox picker): [{ id, unseen }].
   r.get('/shared-unread', async (req, res) => {
@@ -1405,6 +1414,7 @@ export default function webmailRoutes() {
 
   r.post('/send', async (req, res) => {
     const b = req.body;
+    if (b.confidential && b.sendAt != null) throw bad('Confidential messages are sent straight away');
     // Later: the message is built now (attachments as they are now) and sent when it's due.
     if (b.sendAt !== undefined && b.sendAt !== null) {
       const at = Number(b.sendAt);
@@ -1425,6 +1435,20 @@ export default function webmailRoutes() {
       return res.status(201).json({ ok: true, scheduled: { id, send_at: at } });
     }
     if (b.followUp && !FOLLOW_UP_DAYS.includes(Number(b.followUp))) throw bad('Choose when to be reminded');
+    // Confidential: the message stays here; the email carries a link to it, readable until it expires.
+    if (b.confidential) {
+      const days = Number(b.confidential.days);
+      if (!EXPIRY_DAYS.includes(days)) throw bad('Choose how long it can be read');
+      if ((b.attachments || []).length || (b.linkAttachments || []).length || b.forwardOf?.asEml) throw bad('Confidential messages can’t carry attachments: share the files from Drive instead');
+      const token = newToken(), expiresAt = Date.now() + days * 864e5;
+      const notice = noticeOf({ fromName: req.user.name, subject: b.subject || '', link: `${publicBase(req)}/c/${token}`, expiresAt });
+      const cm = await buildMessage({ user: req.user, body: { ...b, text: notice.text, html: notice.html, attachments: [], linkAttachments: [], forwardOf: null } });
+      keepConfidential({ token, user: req.user, from: { name: req.user.name, address: String(b.from || req.user.username).toLowerCase() }, subject: b.subject || '', html: b.html || null, text: b.text || null, recipients: cm.all, days });
+      await deliver(req.user, cm.raw, cm.envelope, { replyTo: b.replyTo });
+      recordSent(req.user, cm.all);
+      if (b.draftUid) await deleteDraft(req.user, await specialOf(req.user, '\\Drafts').catch(() => null), Number(b.draftUid)).catch(() => {});
+      return res.json({ ok: true, recipients: cm.all.length, confidential: { token, expires_at: expiresAt } });
+    }
     const m = await buildMessage(req);
     await deliver(req.user, m.raw, m.envelope, { replyTo: b.replyTo });
     recordSent(req.user, m.all);

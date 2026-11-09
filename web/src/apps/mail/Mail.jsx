@@ -102,6 +102,7 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
   const [signatures, setSignatures] = useState([]);
   const [signatureOpen, setSignatureOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [confOpen, setConfOpen] = useState(false); // your confidential messages
   const [scheduled, setScheduled] = useState([]);
   const refreshRef = useRef(null);
   const [scheduledOpen, setScheduledOpen] = useState(false);
@@ -310,6 +311,8 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
         <button className="subnav-item" onClick={() => setFilters({})}><Icon name="settings" /><span className="grow">Filters</span></button>
         <button className="subnav-item" onClick={() => setSignatureOpen(true)}><Icon name="edit" /><span className="grow">Signature</span></button>
         <button className="subnav-item" onClick={() => setImportOpen(true)}><Icon name="download" /><span className="grow">Import mail</span></button>
+        {!shared && <button className="subnav-item" onClick={() => setConfOpen(true)}><Icon name="lock" /><span className="grow">Confidential messages</span></button>}
+        {confOpen && <ConfidentialList onClose={() => setConfOpen(false)} />}
         {desktopSupported() && (
           <button className="subnav-item" aria-pressed={desktop} onClick={async () => {
             if (desktop) { disableDesktop(); setDesktop(false); toast('Desktop notifications off'); return; }
@@ -819,6 +822,33 @@ function SenderContact({ from }) {
   );
 }
 
+/** Your confidential messages: who they went to, until when, how often they were opened; take one back. */
+function ConfidentialList({ onClose }) {
+  const toast = useToast();
+  const [list, setList] = useState(null);
+  const load = () => get('/mail/confidential').then(setList).catch((e) => toast(e.message, 'error'));
+  useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const STATE = { open: 'Readable', expired: 'Expired', revoked: 'Taken back' };
+  return (
+    <Modal wide title="Confidential messages" onClose={onClose} footer={<button type="button" className="btn" onClick={onClose}>Done</button>}>
+      <p className="muted small" style={{ marginTop: 0 }}>Messages you sent with 🔒 Confidential: their recipients read them on a page here until the date you chose. Take one back and nobody can read it any more.</p>
+      {!list ? <p className="muted">Loading…</p> : !list.length ? <p className="muted">None yet. Choose 🔒 Confidential when writing a message.</p> : (
+        <ul className="rule-list" aria-label="Confidential messages">
+          {list.map((m) => (
+            <li key={m.token}>
+              <span className="grow"><strong>{m.subject || '(No subject)'}</strong>
+                <span className="muted small"> · to {m.recipients.join(', ')} · {STATE[m.state]}{m.state === 'open' ? ` until ${new Date(m.expires_at).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' })}` : ''} · opened {m.opened} time{m.opened === 1 ? '' : 's'}</span></span>
+              {m.state === 'open' && <button type="button" className="btn small" aria-label={`Take back ${m.subject}`} onClick={async () => {
+                try { await post(`/mail/confidential/${m.token}/revoke`); toast('Taken back: nobody can read it now'); load(); } catch (e) { toast(e.message, 'error'); }
+              }}>Take back</button>}
+            </li>
+          ))}
+        </ul>
+      )}
+    </Modal>
+  );
+}
+
 /** HTML mail in a locked-down iframe: no scripts, no same-origin access, remote images blocked until asked. */
 function HtmlBody({ html, images, onShowImages }) {
   const ref = useRef();
@@ -854,6 +884,7 @@ function Compose({ initial, shared = null, signatures = [], onClose, onSent, onD
   const [showCc, setShowCc] = useState(!!(initial.cc || initial.bcc));
   const [receipt, setReceipt] = useState(false); // ask for a read receipt
   const [followUp, setFollowUp] = useState(''); // days: remind me if nobody replies by then
+  const [confidential, setConfidential] = useState(''); // days it can be read (the email carries a link, not the message)
   const [files, setFiles] = useState(initial.files || []);
   // Attachments carried over from a forwarded message (attached by the server from the original).
   const [fwd, setFwd] = useState(initial.forwardOf || null);
@@ -939,7 +970,7 @@ function Compose({ initial, shared = null, signatures = [], onClose, onSent, onD
   const pendingSend = useRef(null); // the send to do when the wait is over (or the page is left)
   useEffect(() => () => { pendingSend.current?.(); }, []); // leaving now sends straight away
   const [scheduling, setScheduling] = useState(false);
-  const payload = () => ({ ...f, html: f.text.trim() ? emailHtml(f.html) : '', attachments: files.map((x) => x.id), linkAttachments: files.filter((x) => x.asLink).map((x) => x.id), draftUid: draftUid.current, forwardOf: fwd, receipt, ...(followUp && { followUp: Number(followUp) }) });
+  const payload = () => ({ ...f, html: f.text.trim() ? emailHtml(f.html) : '', attachments: files.map((x) => x.id), linkAttachments: files.filter((x) => x.asLink).map((x) => x.id), draftUid: draftUid.current, forwardOf: fwd, receipt, ...(followUp && { followUp: Number(followUp) }), ...(confidential && { confidential: { days: Number(confidential) } }) });
   const stopAutosave = async () => {
     closed.current = true;          // no more autosaves
     clearTimeout(timer.current);
@@ -1082,6 +1113,10 @@ function Compose({ initial, shared = null, signatures = [], onClose, onSent, onD
           <button type="button" className="icon-btn" aria-label="Attach from computer" title="Attach from computer" onClick={() => fileInput.current.click()}><Icon name="attach" /></button>
           <button type="button" className="icon-btn" aria-label="Attach from Drive" title="Attach from Drive" onClick={() => setPicking(true)}><Icon name="folder" /></button>
           <label className="check small" title="The recipient's mail app may offer to tell you when they open it; they can say no"><input type="checkbox" checked={receipt} onChange={(e) => setReceipt(e.target.checked)} /> Read receipt</label>
+          {!shared && <select className={`small followup-pick ${confidential ? 'on' : ''}`} aria-label="Confidential" title="Confidential: the email carries a link to the message, readable by its recipients until the date you choose (and you can take it back); no attachments" value={confidential} onChange={(e) => setConfidential(e.target.value)}>
+            <option value="">Not confidential</option>
+            {[[1, '1 day'], [7, '1 week'], [30, '1 month'], [90, '3 months']].map(([d, t]) => <option key={d} value={d}>🔒 Confidential, {t}</option>)}
+          </select>}
           {!shared && <select className="small followup-pick" aria-label="Remind me if no reply" title="Get a notification if nobody has replied by then" value={followUp} onChange={(e) => setFollowUp(e.target.value)}>
             <option value="">No follow-up</option>
             {[[1, 'in 1 day'], [2, 'in 2 days'], [3, 'in 3 days'], [7, 'in a week'], [14, 'in 2 weeks']].map(([d, t]) => <option key={d} value={d}>⏰ No reply {t}</option>)}

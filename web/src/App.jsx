@@ -20,6 +20,7 @@ import InviteAnswer from './apps/calendar/InviteAnswer.jsx';
 import { SignPage } from './apps/docs/Signatures.jsx';
 const SignRoute = () => <SignPage token={useParams().token} />;
 import BookingPage, { CancelBooking } from './apps/calendar/BookingPage.jsx';
+import ConfidentialPage from './apps/mail/ConfidentialPage.jsx';
 import { TwoStep } from './apps/Settings.jsx';
 import Drive from './apps/drive/Drive.jsx';
 import DocEditor from './apps/docs/DocEditor.jsx';
@@ -60,6 +61,9 @@ export default function App() {
   if (booking) return <BookingPage token={booking[1]} />;
   const cancelling = window.location.pathname.match(/^\/b\/cancel\/([A-Za-z0-9_-]+)\/?$/);
   if (cancelling) return <CancelBooking token={cancelling[1]} />;
+  // A confidential message (Mail → 🔒): its recipients read it here.
+  const confidential = window.location.pathname.match(/^\/c\/([A-Za-z0-9_-]+)\/?$/);
+  if (confidential) return <ConfidentialGate token={confidential[1]} />;
   // Filling in a form (company forms ask you to sign in first).
   const form = window.location.pathname.match(/^\/f\/([A-Za-z0-9_-]+)\/?$/);
   if (form) return <FormGate token={form[1]} />;
@@ -73,6 +77,17 @@ export default function App() {
   const sign = window.location.pathname.match(/^\/sign\/([A-Za-z0-9_-]+)\/?$/);
   if (sign) return <SignPage token={sign[1]} />;
   return invite ? <InviteAnswer token={invite[1]} /> : <Workspace />;
+}
+
+/** A confidential message, or signing in to read it (colleagues), coming back to it after. */
+function ConfidentialGate({ token }) {
+  const [signIn, setSignIn] = useState(false);
+  if (!signIn) return <ConfidentialPage token={token} onSignIn={() => setSignIn(true)} />;
+  return (
+    <AuthCtx.Provider value={{ user: null, setUser: () => window.location.reload() }}>
+      <ToastProvider><Login /></ToastProvider>
+    </AuthCtx.Provider>
+  );
 }
 
 function FormGate({ token }) {

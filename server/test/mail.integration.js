@@ -1769,3 +1769,35 @@ test('inbox tabs: newsletters and automatic mail in Updates, people in Primary; 
   await tabby('PUT', '/api/mail/inbox-tabs', { on: true });
   assert.deepEqual((await tabby('GET', '/api/mail/inbox-tabs')).body, { on: true });
 });
+
+test('confidential mode: the email carries a link, not the message; readable by its recipients; taken back', async () => {
+  const subject = `Salaries ${Date.now()}`;
+  assert.equal((await olivia('POST', '/api/mail/send', { to: 'bob@acme.com', subject, html: '<p>Secret numbers</p>', text: 'Secret numbers', confidential: { days: 3 } })).status, 400, 'days from the list');
+  assert.equal((await olivia('POST', '/api/mail/send', { to: 'bob@acme.com', subject, text: 'x', confidential: { days: 7 }, sendAt: Date.now() + 36e5 })).status, 400, 'not scheduled');
+  const sent = await olivia('POST', '/api/mail/send', { to: 'bob@acme.com', cc: 'gina@globex.com', subject, html: '<p>Secret numbers</p>', text: 'Secret numbers', confidential: { days: 7 } });
+  assert.equal(sent.status, 200, JSON.stringify(sent.body));
+  const { token } = sent.body.confidential;
+  const got = await eventually(async () => (await inbox(bob, subject))[0]);
+  const msg = (await bob('GET', `/api/mail/messages/${got.uid}?folder=INBOX`)).body;
+  assert.ok(!JSON.stringify(msg).includes('Secret numbers'), 'the message itself never goes by email');
+  assert.match(msg.text, new RegExp(`/c/${token}`));
+  assert.match(msg.text, /Olivia Owner sent you a confidential message/);
+  // Bob (signed in) reads it; Gina (another company) isn't signed in as a recipient there, so she'd need a code.
+  const read = (await bob('GET', `/api/public/confidential/${token}`)).body;
+  assert.equal(read.html, '<p>Secret numbers</p>');
+  // A code by email to Gina, from Olivia.
+  assert.equal((await gina('POST', `/api/public/confidential/${token}/code`, { email: 'gina@globex.com' })).status, 200);
+  const codeMail = await eventually(async () => (await inbox(gina, 'Your code to read'))[0]);
+  const codeText = (await gina('GET', `/api/mail/messages/${codeMail.uid}?folder=INBOX`)).body.text;
+  const code = /Your code is (\d{6})/.exec(codeText)[1];
+  assert.equal((await gina('POST', `/api/public/confidential/${token}/open`, { email: 'gina@globex.com', code })).body.text, 'Secret numbers');
+  // Olivia's list; she takes it back; nobody can read it now.
+  const mine = (await olivia('GET', '/api/mail/confidential')).body.find((x) => x.token === token);
+  assert.deepEqual([mine.subject, mine.state, mine.opened, mine.recipients.sort()], [subject, 'open', 2, ['bob@acme.com', 'gina@globex.com']]);
+  assert.equal((await bob('POST', `/api/mail/confidential/${token}/revoke`)).status, 404, 'only the sender');
+  assert.equal((await olivia('POST', `/api/mail/confidential/${token}/revoke`)).body.state, 'revoked');
+  assert.equal((await bob('GET', `/api/public/confidential/${token}`)).status, 410);
+  // Attachments aren't sent confidentially.
+  const f = (await olivia('POST', '/api/files/upload?name=plan.txt', 'plan', { raw: true })).body;
+  assert.equal((await olivia('POST', '/api/mail/send', { to: 'bob@acme.com', subject: 'x', text: 'x', attachments: [f.id], confidential: { days: 7 } })).status, 400);
+});
