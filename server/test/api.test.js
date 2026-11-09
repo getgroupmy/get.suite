@@ -6722,3 +6722,29 @@ test('Sign in with Workspace: refresh tokens keep an app signed in; groups for r
   const actions = (log.entries || log.items || log).map((e) => e.action);
   assert.ok(actions.includes('oidc.app_added') && actions.includes('oidc.signin'));
 });
+
+test('Sign in with Workspace: an app can be kept to some groups', async () => {
+  const kay = client(); const me = await login(kay, 'kay@keepco.com');
+  const pat = client(); const patUser = await login(pat, 'phv@keepco.com');
+  const ops = (await kay('POST', '/api/groups', { name: 'Ops only' })).body;
+  await kay('PUT', `/api/groups/${ops.id}/members`, { user_ids: [me.id] });
+  assert.equal((await kay('POST', '/api/oauth/apps', { name: 'Bad', redirect_uris: ['https://x.example/cb'], allowed_groups: ['nope'] })).status, 400);
+  const app = (await kay('POST', '/api/oauth/apps', { name: 'Grafana ops', redirect_uris: ['https://g.example/cb'], allowed_groups: [ops.id] })).body;
+  assert.deepEqual(app.allowed_groups, [ops.id]);
+  const params = { client_id: app.client_id, redirect_uri: 'https://g.example/cb', scope: 'openid offline_access' };
+  assert.equal((await kay('POST', '/api/oauth/approve', params)).status, 200, 'in the group');
+  const no = await pat('GET', `/api/oauth/request?${new URLSearchParams(params)}`);
+  assert.equal(no.status, 403);
+  assert.match(no.body.error, /allowed to use Grafana ops/);
+  assert.equal((await pat('POST', '/api/oauth/approve', params)).status, 403);
+  // Leaving the group stops refreshing.
+  const code = new URL((await kay('POST', '/api/oauth/approve', params)).body.redirect).searchParams.get('code');
+  const token = (body) => fetch(`${base}/oauth/token`, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ client_id: app.client_id, client_secret: app.client_secret, ...body }) });
+  const t = await (await token({ grant_type: 'authorization_code', code, redirect_uri: params.redirect_uri })).json();
+  await kay('PUT', `/api/groups/${ops.id}/members`, { user_ids: [patUser.id] });
+  assert.equal((await token({ grant_type: 'refresh_token', refresh_token: t.refresh_token })).status, 400);
+  assert.equal((await fetch(`${base}/oauth/userinfo`, { headers: { authorization: `Bearer ${t.access_token}` } })).status, 401);
+  // Opening it to everyone again.
+  assert.deepEqual((await kay('PATCH', `/api/oauth/apps/${app.id}`, { allowed_groups: [] })).body.allowed_groups, []);
+  assert.equal((await kay('POST', '/api/oauth/approve', params)).status, 200);
+});

@@ -63,6 +63,16 @@ q(`CREATE TABLE IF NOT EXISTS oidc_keys (
   created_at INTEGER NOT NULL
 )`).run();
 
+// Who may use an app: everyone in the company, or only people in some of its groups (JSON [group ids]).
+if (!q('PRAGMA table_info(oidc_clients)').all().some((c) => c.name === 'allowed_groups')) q('ALTER TABLE oidc_clients ADD COLUMN allowed_groups TEXT').run();
+/** Whether someone may sign in to an app. */
+export function mayUse(c, user) {
+  if (!user || user.org_id !== c.org_id) return false;
+  const groups = c.allowed_groups ? JSON.parse(c.allowed_groups) : [];
+  if (!groups.length) return true;
+  return !!q('SELECT 1 FROM group_members WHERE user_id = ? AND group_id IN (SELECT value FROM json_each(?))').get(user.id, JSON.stringify(groups));
+}
+
 const CODE_TTL = 60e3, TOKEN_TTL = 3600e3, REFRESH_TTL = 30 * 864e5;
 const SCOPES = ['openid', 'profile', 'email', 'groups', 'offline_access'];
 const sha = (s) => crypto.createHash('sha256').update(String(s)).digest('hex');
@@ -104,7 +114,7 @@ export function cleanRedirect(u) {
 }
 
 const clientBy = (clientId) => q('SELECT * FROM oidc_clients WHERE client_id = ?').get(String(clientId || ''));
-const shapeClient = (c) => ({ id: c.id, name: c.name, client_id: c.client_id, redirect_uris: JSON.parse(c.redirect_uris), created_at: c.created_at, last_used_at: c.last_used_at });
+const shapeClient = (c) => ({ id: c.id, name: c.name, client_id: c.client_id, redirect_uris: JSON.parse(c.redirect_uris), allowed_groups: c.allowed_groups ? JSON.parse(c.allowed_groups) : [], created_at: c.created_at, last_used_at: c.last_used_at });
 
 /** What an app may learn about someone, by scope. */
 function claimsFor(user, scopes) {
@@ -174,7 +184,7 @@ export function oidcPublicRoutes() {
       if (old) q('DELETE FROM oidc_refresh WHERE token_hash = ?').run(old.token_hash); // used once
       const user = old && q('SELECT * FROM users WHERE id = ? AND disabled = 0').get(old.user_id);
       const granted = old && q('SELECT 1 FROM oidc_grants WHERE user_id = ? AND client_id = ?').get(old.user_id, c.client_id);
-      if (!old || old.client_id !== c.client_id || old.expires_at < Date.now() || !user || user.org_id !== c.org_id || !granted) return fail(400, 'invalid_grant', 'Sign in again');
+      if (!old || old.client_id !== c.client_id || old.expires_at < Date.now() || !user || !mayUse(c, user) || !granted) return fail(400, 'invalid_grant', 'Sign in again');
       return issue(user, old.scope, null);
     }
     if (req.body?.grant_type !== 'authorization_code') return fail(400, 'unsupported_grant_type');
@@ -188,7 +198,7 @@ export function oidcPublicRoutes() {
       if (!v || !ok) return fail(400, 'invalid_grant', 'code_verifier doesn’t match');
     }
     const user = q('SELECT * FROM users WHERE id = ? AND disabled = 0').get(row.user_id);
-    if (!user || user.org_id !== c.org_id) return fail(400, 'invalid_grant');
+    if (!user || !mayUse(c, user)) return fail(400, 'invalid_grant');
     issue(user, row.scope, row.nonce);
   });
 
@@ -197,7 +207,8 @@ export function oidcPublicRoutes() {
     const row = m && q('SELECT * FROM oidc_tokens WHERE token_hash = ?').get(sha(m[1].trim()));
     if (!row || row.expires_at < Date.now()) return res.status(401).set('WWW-Authenticate', 'Bearer error="invalid_token"').json({ error: 'invalid_token' });
     const user = q('SELECT * FROM users WHERE id = ? AND disabled = 0').get(row.user_id);
-    if (!user) return res.status(401).json({ error: 'invalid_token' });
+    const app = clientBy(row.client_id);
+    if (!user || !app || !mayUse(app, user)) return res.status(401).json({ error: 'invalid_token' });
     res.json(claimsFor(user, row.scope.split(' ')));
   };
   r.get('/oauth/userinfo', userinfo);
@@ -212,6 +223,7 @@ export function oidcApiRoutes() {
     const c = clientBy(src.client_id);
     if (!c || !JSON.parse(c.redirect_uris).includes(String(src.redirect_uri || ''))) throw notFound('This app isn’t registered in Workspace');
     if (c.org_id !== req.user.org_id) throw new HttpError(403, 'This app is for another company: sign in with an account there');
+    if (!mayUse(c, req.user)) throw new HttpError(403, `You aren’t one of the people allowed to use ${c.name}. Ask an administrator if you need it.`);
     return { c, scopes: scopesOf(src.scope) };
   };
   r.get('/request', (req, res) => {
@@ -263,18 +275,27 @@ export function oidcApiRoutes() {
     if (!name) throw bad('Give the app a name');
     const uris = readUris(req.body?.redirect_uris);
     if (q('SELECT COUNT(*) AS n FROM oidc_clients WHERE org_id = ?').get(req.user.org_id).n >= 50) throw bad('At most 50 apps');
+    const groups = readGroups(req, req.body?.allowed_groups);
     const id = uid(), clientId = `ws-${crypto.randomBytes(9).toString('base64url')}`, secret = crypto.randomBytes(30).toString('base64url');
-    q('INSERT INTO oidc_clients (id, org_id, name, client_id, secret_hash, redirect_uris, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(id, req.user.org_id, name, clientId, sha(secret), JSON.stringify(uris), req.user.id, now());
+    q('INSERT INTO oidc_clients (id, org_id, name, client_id, secret_hash, redirect_uris, allowed_groups, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, req.user.org_id, name, clientId, sha(secret), JSON.stringify(uris), groups.length ? JSON.stringify(groups) : null, req.user.id, now());
     audit(req, 'oidc.app_added', { target: name, details: { redirect_uris: uris } });
     res.status(201).json({ ...shapeClient(q('SELECT * FROM oidc_clients WHERE id = ?').get(id)), client_secret: secret }); // the secret is shown this once
   });
+  const readGroups = (req, list) => {
+    if (list === undefined || list === null) return [];
+    if (!Array.isArray(list)) throw bad('allowed_groups must be a list');
+    const ids = [...new Set(list.map(String))];
+    for (const id of ids) if (!q('SELECT 1 FROM groups WHERE id = ? AND org_id = ?').get(id, req.user.org_id)) throw bad('Unknown group');
+    return ids;
+  };
   const ownApp = (req) => { admin(req); const c = q('SELECT * FROM oidc_clients WHERE id = ? AND org_id = ?').get(req.params.id, req.user.org_id); if (!c) throw notFound('App not found'); return c; };
   r.patch('/apps/:id', (req, res) => {
     const c = ownApp(req);
     const name = req.body?.name !== undefined ? String(req.body.name).trim().slice(0, 100) || c.name : c.name;
     const uris = req.body?.redirect_uris !== undefined ? readUris(req.body.redirect_uris) : JSON.parse(c.redirect_uris);
-    q('UPDATE oidc_clients SET name = ?, redirect_uris = ? WHERE id = ?').run(name, JSON.stringify(uris), c.id);
+    const groups = req.body?.allowed_groups !== undefined ? readGroups(req, req.body.allowed_groups) : (c.allowed_groups ? JSON.parse(c.allowed_groups) : []);
+    q('UPDATE oidc_clients SET name = ?, redirect_uris = ?, allowed_groups = ? WHERE id = ?').run(name, JSON.stringify(uris), groups.length ? JSON.stringify(groups) : null, c.id);
     res.json(shapeClient(q('SELECT * FROM oidc_clients WHERE id = ?').get(c.id)));
   });
   r.post('/apps/:id/secret', (req, res) => { // a new secret (the old one stops working)
