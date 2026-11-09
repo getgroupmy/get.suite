@@ -58,7 +58,15 @@ function RuleForm({ rule, onSave, onCancel }) {
         </label>
         {needs && r.when === 'formula' && <label className="field grow"><span>Formula</span><input className="mono" value={r.value ?? ''} onChange={set('value')} placeholder="=$C2>100" /></label>}
         {needs && (r.when === 'top' || r.when === 'bottom') && <label className="field"><span>How many</span><input type="number" min={1} max={1000} value={r.value ?? ''} onChange={set('value')} /></label>}
-        {needs && !['formula', 'top', 'bottom'].includes(r.when) && <label className="field"><span>{r.when === 'between' ? 'From' : 'Value'}</span><input value={r.value ?? ''} onChange={set('value')} /></label>}
+        {needs && (r.when === 'dateBefore' || r.when === 'dateAfter') && (
+          <label className="field"><span>Date</span>
+            <span className="row" style={{ gap: 6 }}>
+              <input type={String(r.value).toLowerCase() === 'today' ? 'text' : 'date'} value={r.value ?? ''} onChange={set('value')} aria-label="Date" />
+              <label className="check small"><input type="checkbox" checked={String(r.value).toLowerCase() === 'today'} onChange={(e) => setR({ ...r, value: e.target.checked ? 'today' : '' })} /> Today</label>
+            </span>
+          </label>
+        )}
+        {needs && !['formula', 'top', 'bottom', 'dateBefore', 'dateAfter'].includes(r.when) && <label className="field"><span>{r.when === 'between' ? 'From' : 'Value'}</span><input value={r.value ?? ''} onChange={set('value')} /></label>}
         {r.when === 'between' && <label className="field"><span>To</span><input value={r.value2 ?? ''} onChange={set('value2')} /></label>}
       </div>
       {r.when === 'formula' && <p className="muted small" style={{ margin: 0 }}>Write it for the first cell of the range ({String(r.range || '').split(':')[0] || 'its top left cell'}); it moves along to each cell like a copied formula, and colours the cells where it's TRUE. Put $ before a column or row to keep it fixed: <code>=$C2&gt;100</code> colours a whole row by its C cell.</p>}

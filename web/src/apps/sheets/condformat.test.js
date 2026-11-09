@@ -88,3 +88,20 @@ test('colour scales shade each number between the smallest and largest', async (
   assert.deepEqual(scaleOf({ scale: ['red', 'x'] }), ['#f8696b', '#ffeb84', '#63be7b'], 'bad colours: the usual scale');
   assert.equal(describeRule({ range: 'B2:B9', when: 'scale', scale: ['#ffffff', '#63be7b'] }), 'B2:B9 · Colour scale: white to green');
 });
+
+test('date rules: today, the past, the next and past 7 days, this month, before and after', async () => {
+  const { matches, localToday, describeRule } = await import('./condformat.js');
+  const today = '2026-11-09';
+  const on = (when, v, value) => matches({ when, value }, v, { today });
+  assert.deepEqual(['2026-11-09', '2026-11-09 14:30', '2026-11-08', 'soon', 42].map((v) => on('dateToday', v)), [true, true, false, false, false]);
+  assert.deepEqual(['2026-11-08', '2025-01-01', '2026-11-09', '2026-11-10'].map((v) => on('datePast', v)), [true, true, false, false], 'overdue');
+  assert.deepEqual(['2026-11-09', '2026-11-16', '2026-11-17', '2026-11-08'].map((v) => on('dateNext7', v)), [true, true, false, false]);
+  assert.deepEqual(['2026-11-03', '2026-11-02', '2026-11-09', '2026-11-10'].map((v) => on('datePast7', v)), [true, false, true, false]);
+  assert.deepEqual(['2026-11-30', '2026-12-01', '2025-11-09'].map((v) => on('dateThisMonth', v)), [true, false, false]);
+  assert.deepEqual(['2026-11-30', '2026-12-01', '2026-12-02'].map((v) => on('dateBefore', v, '2026-12-01')), [true, false, false]);
+  assert.deepEqual(['2026-11-10', '2026-11-09'].map((v) => on('dateAfter', v, 'TODAY')), [true, false], '"today" moves with the day');
+  assert.equal(on('dateBefore', '2026-02-30', '2026-12-01'), false, 'not a real date');
+  assert.equal(on('dateBefore', '2026-11-01', 'next week'), false, 'a rule date that isn\'t one matches nothing');
+  assert.equal(localToday(new Date(2026, 0, 5)), '2026-01-05');
+  assert.equal(describeRule({ range: 'D2:D50', when: 'dateBefore', value: 'today' }), 'D2:D50 · Date is before today');
+});

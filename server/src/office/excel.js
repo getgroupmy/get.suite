@@ -485,6 +485,17 @@ function ruleToExcel(r) {
     const colours = Array.isArray(r.scale) && r.scale.length >= 2 && r.scale.length <= 3 && r.scale.every((c) => /^#[0-9a-f]{6}$/i.test(c)) ? r.scale : ['#f8696b', '#ffeb84', '#63be7b'];
     return { type: 'colorScale', cfvo: colours.length === 3 ? [{ type: 'min' }, { type: 'percentile', value: 50 }, { type: 'max' }] : [{ type: 'min' }, { type: 'max' }], color: colours.map((c) => ({ argb: argb(c) })) };
   }
+  // Dates: Excel's own "a date occurring" rules where it has one, formula rules otherwise.
+  const period = { dateToday: 'today', datePast7: 'last7Days', dateThisMonth: 'thisMonth' }[r.when];
+  if (period) return { type: 'timePeriod', timePeriod: period };
+  if (r.when === 'datePast') return { type: 'expression', formulae: [`AND(ISNUMBER(${cell}),${cell}<TODAY())`] };
+  if (r.when === 'dateNext7') return { type: 'expression', formulae: [`AND(ISNUMBER(${cell}),${cell}>=TODAY(),${cell}<=TODAY()+7)`] };
+  if (r.when === 'dateBefore' || r.when === 'dateAfter') {
+    const v = String(r.value ?? '').trim().toLowerCase();
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v);
+    const when = v === 'today' ? 'TODAY()' : m ? `DATE(${+m[1]},${+m[2]},${+m[3]})` : null;
+    return when ? { type: 'expression', formulae: [`AND(ISNUMBER(${cell}),${cell}${r.when === 'dateBefore' ? '<' : '>'}${when})`] } : null;
+  }
   // Rules over the whole range; duplicates and unique values as the formula Excel itself would use.
   if (r.when === 'top' || r.when === 'bottom') return { type: 'top10', rank: Math.max(1, Math.min(1000, Math.trunc(Number(r.value)) || 10)), ...(r.when === 'bottom' && { bottom: true }) };
   if (r.when === 'aboveAvg' || r.when === 'belowAvg') return { type: 'aboveAverage', ...(r.when === 'belowAvg' && { aboveAverage: false }) };
@@ -515,6 +526,7 @@ function ruleFromExcel(x) {
     const colours = (x.color || []).map((c) => hex(c?.argb)).filter(Boolean);
     return colours.length >= 2 && colours.length <= 3 ? { when: 'scale', scale: colours } : null;
   }
+  if (x.type === 'timePeriod') return { today: { when: 'dateToday' }, last7Days: { when: 'datePast7' }, thisMonth: { when: 'dateThisMonth' } }[x.timePeriod] || null;
   if (x.type === 'top10') return { when: x.bottom ? 'bottom' : 'top', value: String(x.percent ? 10 : (x.rank || 10)) };
   if (x.type === 'aboveAverage') return { when: x.aboveAverage === false ? 'belowAvg' : 'aboveAvg' };
   const raw = String(x.formulae?.[0] || '').trim();
@@ -529,6 +541,11 @@ function ruleFromExcel(x) {
   if (/^LEN\(TRIM\([A-Z]+\d+\)\)>0$/i.test(f)) return { when: 'notEmpty' };
   if (/^ISERROR\([A-Z]+\d+\)$/i.test(f)) return { when: 'error' };
   if (x.type === 'containsText' && x.text !== undefined) return { when: { notContains: 'notContains', beginsWith: 'starts' }[x.operator] || 'contains', value: String(x.text) };
+  if ((m = /^AND\(ISNUMBER\([A-Z]+\d+\),[A-Z]+\d+<TODAY\(\)\)$/i.exec(f))) return { when: 'datePast' };
+  if ((m = /^AND\(ISNUMBER\([A-Z]+\d+\),[A-Z]+\d+>=TODAY\(\),[A-Z]+\d+<=TODAY\(\)\+7\)$/i.exec(f))) return { when: 'dateNext7' };
+  if ((m = /^AND\(ISNUMBER\([A-Z]+\d+\),[A-Z]+\d+([<>])(?:TODAY\(\)|DATE\((\d+),(\d+),(\d+)\))\)$/i.exec(f))) {
+    return { when: m[1] === '<' ? 'dateBefore' : 'dateAfter', value: m[2] ? `${m[2]}-${m[3].padStart(2, '0')}-${m[4].padStart(2, '0')}` : 'today' };
+  }
   if ((m = /^AND\([A-Z]+\d+<>"",COUNTIF\([A-Z]+\d+:[A-Z]+\d+,[A-Z]+\d+\)(>1|=1)\)$/i.exec(f))) return { when: m[1] === '>1' ? 'duplicate' : 'unique' };
   if ((m = /^COUNTIF\([A-Z]+\d+:[A-Z]+\d+,[A-Z]+\d+\)(>1|=1)$/i.exec(f))) return { when: m[1] === '>1' ? 'duplicate' : 'unique' };
   // Any other formula rule: kept as a custom formula (with its $ signs).

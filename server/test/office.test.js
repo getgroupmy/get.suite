@@ -1094,3 +1094,22 @@ test('Excel: colour scales carry both ways', async () => {
   const xr = wb.worksheets[0].conditionalFormattings.flatMap((cf) => cf.rules);
   assert.deepEqual([xr[0].type, xr[0].cfvo.map((c) => c.type), xr[1].color.map((c) => c.argb)], ['colorScale', ['min', 'percentile', 'max'], ['FFFFFFFF', 'FF5A8AC6']]);
 });
+
+test('Excel: date rules carry both ways', async () => {
+  const rules = [
+    { id: 'a', range: 'D2:D50', when: 'dateToday', fill: '#e8f0fe' },
+    { id: 'b', range: 'D2:D50', when: 'datePast', fill: '#fce8e6' },
+    { id: 'c', range: 'D2:D50', when: 'dateNext7', fill: '#fef7e0' },
+    { id: 'd', range: 'D2:D50', when: 'datePast7', fill: '#f1f3f4' },
+    { id: 'e', range: 'D2:D50', when: 'dateThisMonth', fill: '#f3e8fd' },
+    { id: 'f', range: 'E2:E50', when: 'dateBefore', value: '2026-12-01', fill: '#e6f4ea' },
+    { id: 'g', range: 'E2:E50', when: 'dateAfter', value: 'today', fill: '#e6f4ea' },
+  ];
+  const buf = await excelFromSheet({ sheets: [{ name: 'S', rules, cells: { A1: 'x' } }] });
+  const back = await sheetFromExcel(buf);
+  assert.deepEqual(back.sheets[0].rules.map(({ id, ...r }) => r), rules.map(({ id, ...r }) => r));
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(buf);
+  const xr = wb.worksheets[0].conditionalFormattings.flatMap((cf) => cf.rules);
+  assert.deepEqual([xr[0].type, xr[0].timePeriod, xr[5].formulae[0]], ['timePeriod', 'today', 'AND(ISNUMBER(E2),E2<DATE(2026,12,1))']);
+});

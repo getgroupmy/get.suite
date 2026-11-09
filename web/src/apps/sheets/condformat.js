@@ -9,6 +9,8 @@ export const CONDITIONS = [
   ['contains', 'Text contains'], ['notContains', 'Text does not contain'], ['starts', 'Text starts with'],
   ['empty', 'Is empty'], ['notEmpty', 'Is not empty'], ['error', 'Is an error'],
   ['duplicate', 'Duplicate values'], ['unique', 'Unique values'], ['top', 'Top (how many)'], ['bottom', 'Bottom (how many)'],
+  ['dateToday', 'Date is today'], ['datePast', 'Date is in the past'], ['dateNext7', 'Date is in the next 7 days'], ['datePast7', 'Date is in the past 7 days'],
+  ['dateThisMonth', 'Date is in this month'], ['dateBefore', 'Date is before'], ['dateAfter', 'Date is after'],
   ['aboveAvg', 'Above average'], ['belowAvg', 'Below average'], ['formula', 'Custom formula is'], ['scale', 'Colour scale (shade by value)'],
 ];
 /** Colour scales: the smallest number gets the first colour, the largest the last (a middle one at the midpoint). */
@@ -35,7 +37,34 @@ export function scaleColour(colours, x, lo, hi) {
 }
 /** Dark text on light colours, light on dark, so a shaded cell stays readable. */
 const textOn = (bg) => { const [r, g, b] = [1, 3, 5].map((i) => parseInt(bg.slice(i, i + 2), 16)); return 0.299 * r + 0.587 * g + 0.114 * b < 140 ? '#ffffff' : null; };
-export const NEEDS_VALUE = new Set(['gt', 'gte', 'lt', 'lte', 'between', 'eq', 'ne', 'contains', 'notContains', 'starts', 'top', 'bottom', 'formula']);
+export const NEEDS_VALUE = new Set(['gt', 'gte', 'lt', 'lte', 'between', 'eq', 'ne', 'contains', 'notContains', 'starts', 'top', 'bottom', 'formula', 'dateBefore', 'dateAfter']);
+export const DATE_RULES = new Set(['dateToday', 'datePast', 'dateNext7', 'datePast7', 'dateThisMonth', 'dateBefore', 'dateAfter']);
+/** Today on this computer, as Sheets writes dates ("2026-11-09"). */
+export const localToday = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+/** A date written as text ("2026-11-09", with or without a time) as a day count, or null. */
+const dayOf = (v) => {
+  const m = typeof v === 'string' && /^(\d{4})-(\d{2})-(\d{2})(?:[ T]\d{2}:\d{2}(?::\d{2})?)?$/.exec(v.trim());
+  if (!m) return null;
+  const ms = Date.UTC(+m[1], +m[2] - 1, +m[3]);
+  return Number.isNaN(ms) || new Date(ms).getUTCDate() !== +m[3] ? null : ms / 864e5;
+};
+/** A date rule's own date: "2026-12-01", or "today". */
+export const ruleDate = (value, today) => (String(value ?? '').trim().toLowerCase() === 'today' ? dayOf(today) : dayOf(String(value ?? '').trim()));
+/** Does a date meet a date rule? Text that isn't a date never does. */
+function dateMatches(rule, v, today) {
+  const d = dayOf(v), t = dayOf(today);
+  if (d === null || t === null) return false;
+  switch (rule.when) {
+    case 'dateToday': return d === t;
+    case 'datePast': return d < t;
+    case 'dateNext7': return d >= t && d <= t + 7;
+    case 'datePast7': return d <= t && d >= t - 6;
+    case 'dateThisMonth': return String(v).slice(0, 7) === String(today).slice(0, 7);
+    case 'dateBefore': { const x = ruleDate(rule.value, today); return x !== null && d < x; }
+    case 'dateAfter': { const x = ruleDate(rule.value, today); return x !== null && d > x; }
+    default: return false;
+  }
+}
 /** Rules that look at every cell they apply to, not just the one being coloured. */
 export const WHOLE_RANGE = new Set(['duplicate', 'unique', 'top', 'bottom', 'aboveAvg', 'belowAvg', 'scale']);
 const MAX_RULE_CELLS = 50000;
@@ -90,6 +119,7 @@ export function matches(rule, v, ctx = {}) {
   if (rule.when === 'empty') return empty;
   if (rule.when === 'notEmpty') return !empty;
   if (empty) return false;
+  if (DATE_RULES.has(rule.when)) return dateMatches(rule, v, ctx.today || localToday());
   const a = num(rule.value), b = num(rule.value2), x = num(v);
   const st = ctx.stats;
   switch (rule.when) {
@@ -123,9 +153,10 @@ export function covers(rule, key) {
  * What the rules need from the sheet, worked out once per calculation: a cell's value (for rules over
  * a whole range) and a formula as if in a cell (for custom formula rules). Both are optional.
  */
-export function ruleContext(valueAt, formulaAt) {
+export function ruleContext(valueAt, formulaAt, today = localToday()) {
   const stats = new Map();
   return {
+    today,
     stats: (rule) => { if (!valueAt) return null; if (!stats.has(rule)) stats.set(rule, rangeStats(rule, valueAt)); return stats.get(rule); },
     formulaValue: (rule, key) => { if (!formulaAt) return null; const f = formulaFor(rule, key); return f ? formulaAt(f, key) : null; },
   };
@@ -142,7 +173,7 @@ export function ruleStyle(rules, key, value, context = null) {
       const fg = textOn(bg);
       return { background: bg, ...(fg && { color: fg }) };
     }
-    const ctx = r.when === 'formula' ? { formulaValue: context?.formulaValue(r, key) } : WHOLE_RANGE.has(r.when) ? { stats: context?.stats(r) } : undefined;
+    const ctx = r.when === 'formula' ? { formulaValue: context?.formulaValue(r, key) } : WHOLE_RANGE.has(r.when) ? { stats: context?.stats(r) } : { today: context?.today };
     if (!matches(r, value, ctx)) continue;
     return { ...(r.fill && { background: r.fill }), ...(r.color && { color: r.color }), ...(r.bold && { fontWeight: 700 }) };
   }
