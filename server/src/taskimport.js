@@ -1,0 +1,72 @@
+// Tasks from a spreadsheet (CSV): a list kept in Excel or Sheets, another to-do app's export, or a list
+// downloaded from Workspace itself. The first row names the columns; only a task column is needed.
+import { parseCsv } from './contactfiles.js';
+
+export const MAX_TASK_IMPORT = 1000;
+
+const COLUMNS = {
+  title: ['task', 'title', 'name', 'subject', 'task name', 'to do', 'todo'],
+  notes: ['notes', 'note', 'description', 'details', 'comments'],
+  due: ['due', 'due date', 'deadline', 'date', 'due on'],
+  time: ['time', 'due time'],
+  start: ['start', 'start date'],
+  tags: ['tags', 'tag', 'labels', 'label'],
+  status: ['status', 'state', 'done', 'completed?'],
+  completed: ['completed', 'completed on', 'done on', 'completion date'],
+  important: ['important', 'priority', 'starred', 'star'],
+  steps: ['steps', 'checklist', 'subtasks'],
+};
+
+const iso = (y, m, d) => {
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d ? `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}` : null;
+};
+
+/** A date written the usual ways (2026-12-01, 1/12/2026 day first unless it can't be, 1.12.2026, Dec 1 2026) → YYYY-MM-DD, or null. */
+export function dateOf(text) {
+  const s = String(text || '').trim();
+  if (!s) return null;
+  let m = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(s);
+  if (m) return iso(+m[1], +m[2], +m[3]);
+  m = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2}|\d{4})$/.exec(s);
+  if (m) {
+    let [a, b, y] = [+m[1], +m[2], +m[3]];
+    if (y < 100) y += 2000;
+    return b > 12 ? iso(y, a, b) : iso(y, b, a); // 12/25/2026 is December; otherwise day first
+  }
+  const t = Date.parse(s);
+  if (Number.isNaN(t)) return null;
+  const d = new Date(t);
+  return iso(d.getFullYear(), d.getMonth() + 1, d.getDate());
+}
+
+const timeOf = (text) => { const m = /^(\d{1,2}):(\d{2})/.exec(String(text || '').trim()); return m && +m[1] < 24 && +m[2] < 60 ? `${m[1].padStart(2, '0')}:${m[2]}` : null; };
+const yes = (text) => /^(yes|y|true|x|✓|☑|done|completed|complete|finished|high|★|1)$/i.test(String(text || '').trim());
+
+/** { tasks: [{ title, notes, due, due_time, start, tags, done, important, steps }], skipped } or { error }. */
+export function tasksFromCsv(text) {
+  const rows = parseCsv(text);
+  if (!rows.length) return { error: 'The file is empty' };
+  const head = rows[0].map((h) => h.trim().toLowerCase());
+  const col = Object.fromEntries(Object.entries(COLUMNS).map(([k, names]) => [k, names.map((n) => head.indexOf(n)).find((i) => i >= 0) ?? -1]));
+  if (col.title < 0) return { error: 'The first row must name the columns, with one called Task (or Title or Name)' };
+  const get = (r, k) => (col[k] >= 0 ? String(r[col[k]] ?? '').trim() : '');
+  const tasks = [];
+  let skipped = 0;
+  for (const r of rows.slice(1)) {
+    const title = get(r, 'title').slice(0, 500);
+    if (!title) { skipped++; continue; }
+    const status = get(r, 'status');
+    const tags = get(r, 'tags').split(/[\s,;]+/).map((x) => x.replace(/^#+/, '').toLowerCase()).filter((x) => /^\p{L}[\p{L}\p{N}_-]{0,29}$/u.test(x)).slice(0, 10);
+    const steps = get(r, 'steps').split(/\r?\n/).map((l) => /^\s*\[([ xX✓])\]\s*(.+)$/.exec(l) || (l.trim() ? [null, ' ', l.trim()] : null)).filter(Boolean)
+      .slice(0, 100).map(([, mark, t]) => ({ title: t.trim().slice(0, 500), done: mark !== ' ' }));
+    const due = dateOf(get(r, 'due'));
+    tasks.push({
+      title, notes: get(r, 'notes').slice(0, 10000) || null, due, due_time: due ? timeOf(get(r, 'time')) : null, start: dateOf(get(r, 'start')),
+      tags: [...new Set(tags)], done: yes(status) || /^done|completed$/i.test(status) || !!dateOf(get(r, 'completed')), important: yes(get(r, 'important')), steps,
+    });
+  }
+  if (!tasks.length) return { error: 'No tasks found: the Task column is empty' };
+  if (tasks.length > MAX_TASK_IMPORT) return { error: `At most ${MAX_TASK_IMPORT} tasks can be brought in at once` };
+  return { tasks, skipped };
+}

@@ -3,7 +3,8 @@
 // Everyone on a list sees changes as they're made.
 import { addTimeRoutes } from '../tasktime.js';
 import { REPEATS, nextDue } from '../taskrepeat.js';
-import { Router } from 'express';
+import express, { Router } from 'express';
+import { tasksFromCsv } from '../taskimport.js';
 import { q, tx } from '../db.js';
 import { uid, now, str, bad, notFound } from '../util.js';
 import { sendTo } from '../hub.js';
@@ -365,6 +366,27 @@ export default function taskRoutes() {
     else q('INSERT INTO task_list_views (user_id, list_id, sort) VALUES (?, ?, ?) ON CONFLICT(user_id, list_id) DO UPDATE SET sort = excluded.sort').run(req.user.id, list.id, sort);
     sendTo([req.user.id], { type: 'tasks-changed', list_id: list.id });
     res.json({ sort });
+  });
+
+  // Tasks from a spreadsheet (CSV) added to the end of the list, in the file's order; done ones as done.
+  r.post('/lists/:id/import', express.text({ type: () => true, limit: '5mb' }), (req, res) => {
+    const list = loadList(req.params.id, req.user);
+    const found = tasksFromCsv(req.body);
+    if (found.error) throw bad(found.error);
+    const have = q('SELECT COUNT(*) AS n FROM tasks WHERE list_id = ?').get(list.id).n;
+    if (have + found.tasks.length > MAX_TASKS) throw bad(`This list can hold ${MAX_TASKS} tasks; there's room for ${Math.max(0, MAX_TASKS - have)} more`);
+    let at = q('SELECT MAX(position) AS p FROM tasks WHERE list_id = ?').get(list.id).p ?? -1;
+    const t = now();
+    tx(() => {
+      for (const x of found.tasks) {
+        const steps = x.steps.length ? JSON.stringify(x.steps.map((st) => ({ id: uid(), title: st.title, done: st.done }))) : null;
+        q(`INSERT INTO tasks (id, list_id, title, notes, due, due_time, start, position, important, tags, steps, done_at, done_by, created_by, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+          .run(uid(), list.id, x.title, x.notes, x.due, x.due_time, x.start, ++at, x.important ? 1 : 0, x.tags.length ? JSON.stringify(x.tags) : null, steps, x.done ? t : null, x.done ? req.user.id : null, req.user.id, t, t);
+      }
+    });
+    changed(list);
+    res.json({ added: found.tasks.length, done: found.tasks.filter((x) => x.done).length, skipped: found.skipped });
   });
 
   // The whole list as a spreadsheet (CSV, opens in Excel or Sheets): open tasks in order, then done ones.

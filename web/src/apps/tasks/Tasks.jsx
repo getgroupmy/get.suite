@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { printHtml } from '../mail/mailprint.js';
 import { listPrintHtml } from './listprint.js';
-import { get, post, patch, put, del, onLive, uploadFile } from '../../api.js';
+import { get, post, patch, put, del, onLive, uploadFile, postText } from '../../api.js';
 import DrivePicker, { openUrl } from '../../components/DrivePicker.jsx';
 import Icon from '../../components/Icon.jsx';
 import { Avatar, ConfirmModal, Empty, Menu, Modal, PromptModal, useToast } from '../../components/ui.jsx';
@@ -53,6 +53,7 @@ export default function Tasks() {
   const [dragging, setDragging] = useState(null);
   const [dropAt, setDropAt] = useState(null); // index the dragged task would go before
   const addBox = useRef();
+  const importInput = useRef();
 
   const loadLists = useCallback(() => {
     get('/tasks/tags').then((r) => setTagList(r.tags)).catch(() => {});
@@ -222,10 +223,20 @@ export default function Tasks() {
             <Menu trigger={(p) => <button type="button" className="btn small" aria-label={`Sort: ${SORTS.find(([k]) => k === sortBy)[1]}`} title="Sort this list (just for you)" {...p}>⇅ {SORTS.find(([k]) => k === sortBy)[1]}</button>}
               items={SORTS.map(([k, label]) => ({ label: `${k === sortBy ? '✓ ' : ''}${label}`, onClick: () => setSort(k) }))} />
           )}
+          <input ref={importInput} type="file" accept=".csv,text/csv" hidden aria-label="Tasks file" onChange={async (e) => {
+            const file = e.target.files[0]; e.target.value = '';
+            if (!file || !list) return;
+            try {
+              const r = await postText(`/tasks/lists/${list.id}/import`, await file.text());
+              toast(`Added ${r.added} ${r.added === 1 ? 'task' : 'tasks'}${r.done ? ` (${r.done} already done)` : ''}${r.skipped ? `; ${r.skipped} rows without a task skipped` : ''}`);
+              loadTasks();
+            } catch (err) { toast(err.message, 'error'); }
+          }} />
           {list && (
             <Menu trigger={(p) => <button type="button" className="icon-btn" aria-label="List actions" {...p}><Icon name="more" /></button>} items={[
               ...(list.mine ? [{ label: 'Rename list', icon: 'edit', onClick: () => setDialog('rename') }] : []),
               { label: 'Time report…', icon: 'clock', onClick: () => setDialog('time') },
+              { label: 'Import from CSV…', icon: 'upload', onClick: () => importInput.current?.click() },
               { label: 'Download as CSV', icon: 'download', onClick: () => { window.location.href = `/api/tasks/lists/${list.id}/export.csv`; } },
               { label: 'Print list', icon: 'print', onClick: () => printHtml(listPrintHtml(list.name, open, done)) },
               { label: 'Make a copy…', icon: 'copy', onClick: () => setDialog('copy') },
