@@ -4,10 +4,11 @@
 // each other. `onChange` is called whenever something visible changes.
 
 export class Mesh {
-  constructor({ code, room = 0, onBreakout, guestName = '', stream, iceServers = [], mic = true, cam = true, onChange, onChat, onReact, onClosed, onMuted, onPoll, onQuestion }) {
-    Object.assign(this, { code, room, onBreakout, guestName, stream, iceServers, onChange, onChat, onReact, onClosed, onMuted, onPoll, onQuestion });
+  constructor({ code, room = 0, onBreakout, guestName = '', stream, iceServers = [], mic = true, cam = true, onChange, onChat, onReact, onClosed, onMuted, onPoll, onQuestion, onBoard }) {
+    Object.assign(this, { code, room, onBreakout, guestName, stream, iceServers, onChange, onChat, onReact, onClosed, onMuted, onPoll, onQuestion, onBoard });
     this.polls = new Map(); // the meeting's polls, by id
     this.questions = new Map(); // Q&A, by id
+    this.board = []; // the whiteboard's strokes, in order
     this.waiting = !!guestName; // a guest waits until someone in the meeting lets them in
     this.knocking = []; // guests waiting to be let in (shown to people from the meeting's company)
     this.state = { mic, cam, hand: false, screen: false };
@@ -46,6 +47,10 @@ export class Mesh {
   pollVote(id, option) { this.send({ type: 'poll-vote', id, option }); }
   pollClose(id) { this.send({ type: 'poll-close', id }); }
   remove(to) { this.send({ type: 'remove', to }); }
+  /** The whiteboard: draw a stroke, take back your last one, clear it for everyone. */
+  boardStroke(stroke) { this.send({ type: 'wb-stroke', stroke }); }
+  boardUndo() { this.send({ type: 'wb-undo' }); }
+  boardClear() { this.send({ type: 'wb-clear' }); }
   /** The host: open breakout rooms ({ peerId: room }), move someone (room 0: the main room), close them. */
   breakoutOpen(count, assign) { this.send({ type: 'breakout-open', count, assign }); }
   breakoutMove(to, room) { this.send({ type: 'breakout-move', to, room }); }
@@ -66,6 +71,7 @@ export class Mesh {
       this.knocking = m.knocking || [];
       for (const p of m.polls || []) this.polls.set(p.id, p);
       for (const x of m.questions || []) this.questions.set(x.id, x);
+      this.board = m.board || [];
       for (const p of m.peers) this.addPeer(p, { offer: true }); // the newcomer calls everyone
     } else if (m.type === 'joined') this.addPeer(m.peer, { offer: false }); // and they wait for the call
     else if (m.type === 'left') {
@@ -83,6 +89,9 @@ export class Mesh {
     else if (m.type === 'waiting' || m.type === 'admitted') { /* redraw */ }
     else if (m.type === 'question') { const isNew = !this.questions.has(m.question.id); this.questions.set(m.question.id, m.question); if (isNew) this.onQuestion?.(m.question); }
     else if (m.type === 'question-gone') this.questions.delete(m.id);
+    else if (m.type === 'wb-stroke') { this.board = [...this.board, m.stroke]; this.onBoard?.(m); }
+    else if (m.type === 'wb-remove') { this.board = this.board.filter((x) => x.id !== m.id); this.onBoard?.(m); }
+    else if (m.type === 'wb-clear') { this.board = []; this.onBoard?.(m); }
     else if (m.type === 'poll') { const isNew = !this.polls.has(m.poll.id); this.polls.set(m.poll.id, m.poll); if (isNew) this.onPoll?.(m.poll); }
     else if (m.type === 'muted') { this.setMic(false); this.onMuted?.(m.by); return; }
     else if (m.type === 'react') { this.onReact?.({ id: m.id === this.id ? 'me' : m.id, emoji: m.emoji }); return; }

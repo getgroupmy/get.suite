@@ -8,6 +8,7 @@ import crypto from 'node:crypto';
 import { WebSocketServer } from 'ws';
 import { q } from './db.js';
 import { now, str, notFound, forbidden } from './util.js';
+import { makeBoard } from './meetboard.js';
 
 q(`CREATE TABLE IF NOT EXISTS meetings (
   code TEXT PRIMARY KEY,
@@ -161,6 +162,8 @@ const wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 });
 const polls = new Map();
 // Q&A during a meeting (or a breakout room), while it lasts: key -> [{ id, by, by_name, text, at, votes: Set(userId), answered }]
 const questions = new Map();
+// The whiteboard of each meeting (or breakout room), while it lasts: key -> board (meetboard.js).
+const boards = new Map();
 const MAX_QUESTIONS = 200;
 const questionOut = (x, userId) => ({ id: x.id, by_name: x.by_name, mine: x.by === userId, text: x.text, at: x.at, votes: x.votes.size, voted: x.votes.has(userId), answered: x.answered });
 const pollOut = (p, userId) => ({ id: p.id, by: p.by, by_name: p.by_name, question: p.question, options: p.options, closed: p.closed,
@@ -260,6 +263,7 @@ function enterRoom(ws, req, code, m, user) {
     const toOthers = (payload) => { const d = JSON.stringify(payload); for (const [pid, p] of room) if (pid !== id && p.ws.readyState === 1) p.ws.send(d); };
     const toAll = (payload) => { const d = JSON.stringify(payload); for (const p of room.values()) if (p.ws.readyState === 1) p.ws.send(d); };
     ws.send(JSON.stringify({ type: 'welcome', id, peers: peopleIn(key), host: isHost, you: user.id, guest: !!user.guest, polls: (polls.get(key) || []).map((p) => pollOut(p, user.id)), questions: (questions.get(key) || []).map((x) => questionOut(x, user.id)),
+      board: boards.get(key)?.strokes || [],
       room: n, breakouts: b ? b.count : 0,
       admit: mayAdmit(m, user), knocking: mayAdmit(m, user) ? waitingList(code) : [] }));
     // Everyone gets a poll's results with their own vote in it.
@@ -381,6 +385,18 @@ function enterRoom(ws, req, code, m, user) {
         breakouts.delete(code);
         for (const k of keys) for (const p of rooms.get(k)?.values() ?? []) sendToRoom(p, 0, user.name);
         for (const p of rooms.get(code)?.values() ?? []) if (p.user.id === user.id && p.ws.readyState === 1) p.ws.send(JSON.stringify(breakoutSummary(code)));
+      } else if (msg?.type === 'wb-stroke') {
+        // The whiteboard: a stroke drawn (shown to everyone, the one who drew it included, in order).
+        if (!boards.has(key)) boards.set(key, makeBoard());
+        const s = boards.get(key).add(msg.stroke, id);
+        if (s) toAll({ type: 'wb-stroke', stroke: s, name: user.name });
+      } else if (msg?.type === 'wb-undo') {
+        const s = boards.get(key)?.undo(id);
+        if (s) toAll({ type: 'wb-remove', id: s.id });
+      } else if (msg?.type === 'wb-clear') {
+        if (!boards.get(key)?.strokes.length) return;
+        boards.get(key).clear();
+        toAll({ type: 'wb-clear', by: user.name });
       } else if (msg?.type === 'react') {
         const emoji = ['👍', '❤️', '😂', '😮', '👏', '🎉'].includes(msg.emoji) ? msg.emoji : null;
         if (emoji) toAll({ type: 'react', id, emoji });
@@ -389,7 +405,7 @@ function enterRoom(ws, req, code, m, user) {
     ws.on('close', () => {
       q('UPDATE meeting_attendance SET left_at = ? WHERE id = ? AND left_at IS NULL').run(now(), id);
       room.delete(id);
-      if (!room.size) { rooms.delete(key); polls.delete(key); questions.delete(key); } // polls last as long as the meeting (or the room)
+      if (!room.size) { rooms.delete(key); polls.delete(key); questions.delete(key); boards.delete(key); } // polls last as long as the meeting (or the room)
       if (breakouts.has(code)) {
         if (roomsOf(code).every((k) => !rooms.get(k)?.size)) breakouts.delete(code); // everyone has gone
         else summaryToHosts(code, m);

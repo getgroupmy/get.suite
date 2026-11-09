@@ -7,6 +7,7 @@ import { get } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
 import { Avatar, useToast } from '../../components/ui.jsx';
 import { useAuth } from '../../App.jsx';
+import MeetBoard from './MeetBoard.jsx';
 import { Mesh } from './mesh.js';
 import { columnsFor, whoIsHere, elapsed } from './meetmath.js';
 import { MeetingRecorder } from './recorder.js';
@@ -187,6 +188,10 @@ export default function MeetRoom({ guest = false, onSignIn }) {
   const [messages, setMessages] = useState([]);
   const [unread, setUnread] = useState(0);
   const [newQs, setNewQs] = useState(0); // questions asked while Q&A was closed
+  const [board, setBoard] = useState(false); // the whiteboard is open
+  const [boardNew, setBoardNew] = useState(0); // strokes others drew while it was closed
+  const boardRef = useRef(board);
+  boardRef.current = board;
   const [floating, setFloating] = useState([]); // reactions shown for a moment
   const [startedAt, setStartedAt] = useState(0);
   const [, tick] = useReducer((n) => n + 1, 0);
@@ -224,6 +229,11 @@ export default function MeetRoom({ guest = false, onSignIn }) {
         setTimeout(() => setFloating((list) => list.filter((x) => x.key !== key)), 3000);
       },
       onClosed: (reason) => { toast(reason, 'error'); setLeftWhy(reason); setPhase('left'); },
+      // The whiteboard: someone else drew while it's closed here; the first time, say who.
+      onBoard: (msg) => {
+        if (msg.type !== 'wb-stroke' || boardRef.current || msg.stroke.by === mesh.current?.id) return;
+        setBoardNew((n) => { if (!n) toast(`${msg.name} is drawing on the whiteboard`); return n + 1; });
+      },
       onQuestion: (x) => { if (panelRef.current !== 'qa' && !x.mine) setNewQs((n) => n + 1); },
       onPoll: (p) => { if (panelRef.current !== 'polls') toast(`${p.by_name} asked: ${p.question}`); },
       // Breakout rooms: off to another room (or back to the main one), keeping camera and microphone.
@@ -355,7 +365,8 @@ export default function MeetRoom({ guest = false, onSignIn }) {
       {m.room > 0 && !m.host && <div className="meet-room-banner" role="status">You’re in breakout Room {m.room}. The host will bring everyone back to the main room.</div>}
       <header className="meet-top"><strong className="grow">{info?.title || code}{m.room ? ` · Room ${m.room}` : ''}</strong><span className="muted small" aria-label="Time in the meeting">{elapsed(Date.now() - startedAt)}</span></header>
       <div className="meet-body">
-        <div ref={gridRef} className="meet-grid" style={{ gridTemplateColumns: `repeat(${columnsFor(tiles.length)}, 1fr)` }} aria-label="People in the meeting">
+        {board && <MeetBoard m={m} title={info?.title || code} canSave={!guest} onClose={() => setBoard(false)} />}
+        <div ref={gridRef} className={`meet-grid ${board ? 'with-board' : ''}`} style={{ gridTemplateColumns: `repeat(${columnsFor(tiles.length)}, 1fr)` }} aria-label="People in the meeting">
           {tiles.map((t) => {
             const videoOn = t.me ? (sharing || (t.state.cam && hasVideo)) : (t.state.screen || t.state.cam);
             return (
@@ -403,6 +414,7 @@ export default function MeetRoom({ guest = false, onSignIn }) {
         <button type="button" className={`meet-btn ${panel === 'chat' ? 'on' : ''}`} aria-label={unread ? `Chat, ${unread} new` : 'Chat'} onClick={() => { setPanel(panel === 'chat' ? null : 'chat'); setUnread(0); }}>💬{unread > 0 && <span className="nav-badge">{unread}</span>}</button>
         <button type="button" className={`meet-btn ${panel === 'qa' ? 'on' : ''}`} aria-label={newQs ? `Questions, ${newQs} new` : 'Questions'} onClick={() => { setPanel(panel === 'qa' ? null : 'qa'); setNewQs(0); }}>❓{newQs > 0 && <span className="nav-badge">{newQs}</span>}</button>
         <button type="button" className={`meet-btn ${panel === 'polls' ? 'on' : ''}`} aria-label={toVote ? `Polls, ${toVote} to answer` : 'Polls'} onClick={() => setPanel(panel === 'polls' ? null : 'polls')}>📊{toVote > 0 && <span className="nav-badge">{toVote}</span>}</button>
+        <button type="button" className={`meet-btn ${board ? 'on' : ''}`} aria-pressed={board} aria-label={boardNew && !board ? `Whiteboard, ${boardNew} new` : 'Whiteboard'} title="A whiteboard everyone in the meeting draws on" onClick={() => { setBoard(!board); setBoardNew(0); }}>🖍{boardNew > 0 && !board && <span className="nav-badge">{boardNew}</span>}</button>
         <button type="button" className={`meet-btn ${panel === 'people' ? 'on' : ''}`} aria-label="People" onClick={() => setPanel(panel === 'people' ? null : 'people')}>👥</button>
         {!guest && <button type="button" className={`meet-btn ${m.state.rec ? 'on rec' : ''}`} disabled={saving} aria-pressed={!!m.state.rec} aria-label={saving ? 'Saving the recording' : m.state.rec ? 'Stop recording' : 'Record the meeting'} title={m.state.rec ? 'Stop and save it to your Drive' : 'Record the meeting (saved to your Drive)'} onClick={m.state.rec ? stopRecording : startRecording}>{saving ? '…' : '⏺'}</button>}
         <button type="button" className="meet-btn" aria-label="Copy meeting link" onClick={() => copyLink(code, toast)}>🔗</button>

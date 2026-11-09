@@ -5480,6 +5480,55 @@ test('meet host controls: the host mutes someone or everyone, and removes someon
   } finally { host.terminate(); hal.terminate(); cass.terminate(); }
 });
 
+test('meet whiteboard: strokes to everyone in order, kept for newcomers, undo your own, clear; gone with the meeting', { timeout: 20000 }, async () => {
+  const { default: WS } = await import('ws');
+  const kay = client(); await login(kay, 'kay@keepco.com');
+  await kay('POST', '/api/users', { local: 'mwb', domain: 'keepco.com', name: 'Wendy Board', password: 'password123' });
+  const cookieOf = async (u) => (await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ username: u, password: 'password123' }) })).headers.get('set-cookie').split(';')[0];
+  const { code } = (await kay('POST', '/api/meet', { title: 'Sketching' })).body;
+  const open = (cookie) => new Promise((resolve, reject) => {
+    const ws = new WS(`${base.replace('http', 'ws')}/ws/meet/${code}`, { headers: { cookie } });
+    ws.msgs = [];
+    const t = setTimeout(() => reject(new Error('no welcome')), 5000);
+    ws.on('message', (d) => { const msg = JSON.parse(String(d)); ws.msgs.push(msg); if (msg.type === 'welcome') { clearTimeout(t); ws.me = msg; resolve(ws); } });
+    ws.on('error', reject);
+  });
+  const wait = () => new Promise((r) => setTimeout(r, 200));
+  const kc = await cookieOf('kay@keepco.com'), wc = await cookieOf('mwb@keepco.com');
+  const a = await open(kc);
+  const b = await open(wc);
+  let c;
+  try {
+    assert.deepEqual(a.me.board, []);
+    a.send(JSON.stringify({ type: 'wb-stroke', stroke: { id: 'kay-1', kind: 'box', color: '#1a73e8', size: 4, points: [[10, 10], [50, 50], [200, 100]] } }));
+    await wait();
+    b.send(JSON.stringify({ type: 'wb-stroke', stroke: { id: 'wen-1', kind: 'pen', points: [[1, 1], [2, 3]] } }));
+    b.send(JSON.stringify({ type: 'wb-stroke', stroke: { id: 'bad', kind: 'pen', points: [[1, 1]] } })); // not a stroke id
+    await wait();
+    a.send(JSON.stringify({ type: 'wb-stroke', stroke: { id: 'kay-2', kind: 'arrow', points: [[0, 0], [100, 100]] } }));
+    await wait();
+    const got = (ws) => ws.msgs.filter((m) => m.type === 'wb-stroke').map((m) => m.stroke.id);
+    assert.deepEqual(got(a), ['kay-1', 'wen-1', 'kay-2'], 'everyone, the one who drew it included, in order');
+    assert.deepEqual(got(b), got(a));
+    assert.deepEqual(a.msgs.find((m) => m.type === 'wb-stroke').stroke.points, [[10, 10], [200, 100]]);
+    assert.equal(b.msgs.find((m) => m.type === 'wb-stroke').name, 'Kay Keep');
+    // Someone joining later gets the board as it is.
+    c = await open(wc);
+    assert.deepEqual(c.me.board.map((s) => s.id), ['kay-1', 'wen-1', 'kay-2']);
+    // Undo: your own last stroke only.
+    b.send(JSON.stringify({ type: 'wb-undo' })); await wait();
+    assert.ok(a.msgs.some((m) => m.type === 'wb-remove' && m.id === 'wen-1'));
+    b.send(JSON.stringify({ type: 'wb-undo' })); await wait();
+    assert.equal(a.msgs.filter((m) => m.type === 'wb-remove').length, 1, 'nothing more of Wendy\'s');
+    a.send(JSON.stringify({ type: 'wb-clear' })); await wait();
+    assert.deepEqual(b.msgs.find((m) => m.type === 'wb-clear'), { type: 'wb-clear', by: 'Kay Keep' });
+  } finally { a.terminate(); b.terminate(); c?.terminate(); }
+  // Once everyone has left, the board goes with the meeting.
+  await wait();
+  const again = await open(kc);
+  try { assert.deepEqual(again.me.board, []); } finally { again.terminate(); }
+});
+
 test('meet polls: asked, voted once each (changeable), results to everyone, closed by whoever asked', { timeout: 20000 }, async () => {
   const { default: WS } = await import('ws');
   const kay = client(); await login(kay, 'kay@keepco.com');
