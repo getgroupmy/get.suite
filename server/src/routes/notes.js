@@ -240,6 +240,42 @@ export default function noteRoutes() {
     res.json(shape(after, req.user.id));
   });
 
+  // Several notes at once: a colour, pinned or not, archived or not, a label added, or to the trash
+  // (for one shared with you: taking yourself off it, as deleting it does). All are checked first.
+  r.post('/batch', (req, res) => {
+    const ids = [...new Set((Array.isArray(req.body?.ids) ? req.body.ids : []).map(String))];
+    if (!ids.length) throw bad('Choose some notes');
+    if (ids.length > 500) throw bad('500 notes at a time at most');
+    const notes = ids.map((id) => load(id, req.user));
+    if (req.body?.trash === true) {
+      const told = new Set(notes.flatMap((n) => team(n)));
+      tx(() => { for (const n of notes) {
+        if (n.owner_id !== req.user.id) q('DELETE FROM note_shares WHERE note_id = ? AND user_id = ?').run(n.id, req.user.id);
+        else q('UPDATE notes SET trashed_at = ?, pinned = 0 WHERE id = ?').run(now(), n.id);
+      } });
+      sendTo([...told], { type: 'notes-changed' });
+      return res.json({ trashed: notes.filter((n) => n.owner_id === req.user.id).length, left: notes.filter((n) => n.owner_id !== req.user.id).length });
+    }
+    const b = req.body?.change || {};
+    const set = {};
+    if (b.color !== undefined) { if (b.color && !COLORS.includes(b.color)) throw bad('Unknown colour'); set.color = b.color || null; }
+    if (b.pinned !== undefined) set.pinned = b.pinned ? 1 : 0;
+    if (b.archived !== undefined) { set.archived = b.archived ? 1 : 0; if (b.archived) set.pinned = 0; }
+    const label = b.label !== undefined ? cleanLabels([b.label])[0] : undefined;
+    if (b.label !== undefined && !label) throw bad('Name the label');
+    if (!Object.keys(set).length && !label) throw bad('Nothing to change');
+    const keys = Object.keys(set);
+    tx(() => { for (const n of notes) {
+      if (keys.length) q(`UPDATE notes SET ${keys.map((k) => `${k} = ?`).join(', ')}, updated_at = ?, updated_by = ? WHERE id = ?`).run(...keys.map((k) => set[k]), now(), req.user.id, n.id);
+      if (label) {
+        const had = JSON.parse(q('SELECT labels FROM notes WHERE id = ?').get(n.id).labels || '[]');
+        if (!had.includes(label)) q('UPDATE notes SET labels = ?, updated_at = ?, updated_by = ? WHERE id = ?').run(JSON.stringify(cleanLabels([...had, label])), now(), req.user.id, n.id);
+      }
+    } });
+    for (const n of notes) tell(q('SELECT * FROM notes WHERE id = ?').get(n.id));
+    res.json({ notes: notes.map((n) => shape(q('SELECT * FROM notes WHERE id = ?').get(n.id), req.user.id)) });
+  });
+
   // Make a copy (yours, not shared).
   r.post('/:id/copy', (req, res) => {
     const n = load(req.params.id, req.user);

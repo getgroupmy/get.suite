@@ -2437,3 +2437,10 @@ img.custom-emoji { width: 1.35em; height: 1.35em; object-fit: contain; vertical-
 .form-tpl:hover, .form-tpl:focus-visible { border-color: var(--accent, #1a73e8); background: var(--hover); }
 .form-tpl-mark { font-size: 22px; line-height: 1; }
 .form-tpl.blank .form-tpl-mark { color: var(--accent, #1a73e8); }
+/* Several notes at once */
+.notes-batch { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 12px; margin: 8px 0; border: 1px solid var(--accent, #1a73e8); border-radius: 10px; background: var(--accent-soft, #e8f0fe); position: sticky; top: 0; z-index: 3; }
+.note-card { position: relative; }
+.note-select { position: absolute; top: -8px; left: -8px; width: 24px; height: 24px; border-radius: 50%; border: 0; background: #202124; color: #fff; font-size: 13px; cursor: pointer; opacity: 0; z-index: 2; }
+.note-card:hover .note-select, .note-card.picking .note-select, .note-select:focus-visible { opacity: 0.6; }
+.note-card.picked .note-select { opacity: 1; background: var(--accent, #1a73e8); }
+.note-card.picked { outline: 2px solid var(--accent, #1a73e8); }

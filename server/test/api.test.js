@@ -7285,3 +7285,41 @@ test('Forms: templates to start from, each a valid form with its settings', asyn
   assert.equal(named.title, 'Summer party', 'a title of your own wins');
   assert.equal((await fa('POST', '/api/forms', { template: 'nope' })).status, 404);
 });
+
+test('Notes: several at once (colour, pin, archive, label, trash); all checked first', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['nbatcha', 'Nia Batch'], ['nbatchb', 'Nat Other']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  const aid = (await login(a, 'nbatcha@acme.com')).id;
+  const bid = (await login(b, 'nbatchb@acme.com')).id;
+  const add = async (who, title) => (await who('POST', '/api/notes', { title, body: 'x' })).body;
+  const n1 = await add(a, 'One'), n2 = await add(a, 'Two'), n3 = await add(a, 'Three');
+  const theirs = await add(b, 'Private');
+  const batch = (who, body) => who('POST', '/api/notes/batch', body);
+  const mine = async () => Object.fromEntries((await a('GET', '/api/notes')).body.map((n) => [n.title, n]));
+
+  let r = await batch(a, { ids: [n1.id, n2.id], change: { color: '#fff8b8', pinned: true, label: ' Ideas ' } });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  let m = await mine();
+  assert.deepEqual([m.One.color, m.One.pinned, m.One.labels], ['#fff8b8', true, ['Ideas']]);
+  assert.deepEqual([m.Two.color, m.Three.color ?? null], ['#fff8b8', null]);
+  r = await batch(a, { ids: [n1.id], change: { label: 'Ideas' } });
+  assert.deepEqual((await mine()).One.labels, ['Ideas'], 'no label twice');
+
+  assert.equal((await batch(a, { ids: [n1.id, theirs.id], change: { color: '#faafa8' } })).status, 404, 'someone else\'s note');
+  assert.equal((await mine()).One.color, '#fff8b8', 'nothing changed');
+  assert.equal((await batch(a, { ids: [n1.id], change: { color: 'hotpink' } })).status, 400);
+  assert.equal((await batch(a, { ids: [n1.id], change: {} })).status, 400);
+
+  r = await batch(a, { ids: [n1.id, n3.id], change: { archived: true } });
+  m = await mine();
+  assert.equal(m.One?.pinned ?? false, false, 'archiving unpins');
+
+  // To the trash: your own go there; one shared with you, you leave.
+  assert.equal((await b('PUT', `/api/notes/${theirs.id}/shares`, { user_ids: [aid] })).status, 200);
+  r = await batch(a, { ids: [n2.id, theirs.id], trash: true });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual(r.body, { trashed: 1, left: 1 });
+  const left = (await b('GET', '/api/notes')).body.find((n) => n.id === theirs.id);
+  assert.ok(left, 'the owner still has it');
+  assert.ok(bid);
+});

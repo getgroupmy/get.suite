@@ -104,7 +104,16 @@ export default function Notes() {
     onDragOver: (e) => { const d = (notes || []).find((x) => x.id === dragging); if (d && d.id !== n.id && !!d.pinned === !!n.pinned) e.preventDefault(); },
     onDrop: (e) => { e.preventDefault(); const d = (notes || []).find((x) => x.id === dragging); setDragging(null); if (d && d.id !== n.id && !!d.pinned === !!n.pinned) reorder(n.pinned ? 'pinned' : 'others', moveTo(groupOf(n), d.id, n.id)); },
   });
-  const card = (n) => <NoteCard key={n.id} note={n} drag={dragProps(n)} dragging={dragging === n.id}
+  // Several notes at once: pick them (the ✓ on a card), then pin, colour, label, archive or delete them together.
+  const [picked, setPicked] = useState(() => new Set());
+  const [newLabel, setNewLabel] = useState(false);
+  useEffect(() => { setPicked(new Set()); }, [where.archived, where.label, where.reminders, where.trash]);
+  const pickNote = (id) => setPicked((s0) => { const s1 = new Set(s0); if (s1.has(id)) s1.delete(id); else s1.add(id); return s1; });
+  const nNotes = (k) => `${k} note${k === 1 ? '' : 's'}`;
+  async function many(body, say) {
+    try { const r = await post('/notes/batch', { ids: [...picked], ...body }); toast(say(r)); setPicked(new Set()); load(); } catch (e) { toast(e.message, 'error'); }
+  }
+  const card = (n) => <NoteCard key={n.id} note={n} drag={dragProps(n)} dragging={dragging === n.id} picked={picked.has(n.id)} picking={picked.size > 0} onPick={() => pickNote(n.id)}
     onMove={sortable ? (by) => reorder(n.pinned ? 'pinned' : 'others', moveBy(groupOf(n), n.id, by)) : null}
     first={groupOf(n)[0] === n.id} last={groupOf(n).at(-1) === n.id} onOpen={() => setEditing(n.id)} onChange={(c) => change(n, c)} onArchive={() => archive(n, !n.archived)}
     onLabel={() => setLabelling(n)} onShare={() => setSharing(n)} onCopy={() => copy(n)} onDelete={() => (n.mine ? trash(n) : setDeleting(n))}
@@ -143,6 +152,27 @@ export default function Notes() {
         </> : notes === null ? null : !notes.length ? (
           <Empty icon={where.archived ? 'archive' : 'note'} title={search ? 'No matching notes' : where.reminders ? 'No reminders set' : where.archived ? 'Nothing archived' : where.label ? `No notes labelled “${where.label}”` : 'Notes you add appear here'} />
         ) : <>
+          {picked.size > 0 && (
+            <div className="notes-batch" role="toolbar" aria-label="Change the selected notes">
+              <strong className="small" aria-live="polite">{picked.size} selected</strong>
+              <button type="button" className="btn small" onClick={() => many({ change: { pinned: true } }, (r) => `${nNotes(r.notes.length)} pinned`)}>📌 Pin</button>
+              <button type="button" className="btn small" onClick={() => many({ change: { pinned: false } }, (r) => `${nNotes(r.notes.length)} unpinned`)}>Unpin</button>
+              <select aria-label="Colour for the selected notes" value="x" onChange={(e) => many({ change: { color: e.target.value || null } }, (r) => `${nNotes(r.notes.length)} coloured`)}>
+                <option value="x" disabled>Colour…</option>
+                {COLORS.map(([v, name]) => <option key={name} value={v}>{name}</option>)}
+              </select>
+              <select aria-label="Label the selected notes" value="" onChange={(e) => { if (e.target.value === '+new') setNewLabel(true); else if (e.target.value) many({ change: { label: e.target.value } }, (r) => `${nNotes(r.notes.length)} labelled ${e.target.value}`); }}>
+                <option value="">Label…</option>
+                {labels.map((l) => <option key={l} value={l}>{l}</option>)}
+                <option value="+new">New label…</option>
+              </select>
+              <button type="button" className="btn small" onClick={() => many({ change: { archived: !where.archived } }, (r) => `${nNotes(r.notes.length)} ${where.archived ? 'back in Notes' : 'archived'}`)}><Icon name="archive" size={16} /> {where.archived ? 'Unarchive' : 'Archive'}</button>
+              <button type="button" className="btn small danger" onClick={() => many({ trash: true }, (r) => [r.trashed && `${nNotes(r.trashed)} moved to the trash`, r.left && `left ${nNotes(r.left)} shared with you`].filter(Boolean).join('; '))}><Icon name="trash" size={16} /> Delete</button>
+              <button type="button" className="link-btn small" onClick={() => setPicked(new Set())}>Clear</button>
+            </div>
+          )}
+          {newLabel && <PromptModal title="New label" label="Label" confirm="Add" onClose={() => setNewLabel(false)}
+            onSubmit={async (name) => { setNewLabel(false); await many({ change: { label: name } }, (r) => `${nNotes(r.notes.length)} labelled ${name.trim()}`); }} />}
           {pinned.length > 0 && <><h2 className="notes-heading">Pinned</h2><div className="notes-grid" aria-label="Pinned notes">{pinned.map(card)}</div></>}
           {others.length > 0 && <>{pinned.length > 0 && <h2 className="notes-heading">Others</h2>}<div className="notes-grid" aria-label={where.archived ? 'Archived notes' : 'Notes'}>{others.map(card)}</div></>}
         </>}
@@ -258,15 +288,16 @@ function PickTime({ note, onPick, onClose }) {
   );
 }
 
-function NoteCard({ note: n, drag = {}, dragging, onMove, first, last, onOpen, onChange, onArchive, onLabel, onShare, onCopy, onDelete, onRemind, onToDoc, onToTasks }) {
+function NoteCard({ note: n, drag = {}, dragging, picked, picking, onPick, onMove, first, last, onOpen, onChange, onArchive, onLabel, onShare, onCopy, onDelete, onRemind, onToDoc, onToTasks }) {
   const items = n.items || [];
   const open = items.filter((i) => !i.done);
   const done = items.filter((i) => i.done);
   const tick = (it) => onChange({ items: tickItem(items, it.id, !it.done) });
   return (
-    <article className={`note-card ${dragging ? 'dragging' : ''}`} {...drag} style={n.color ? { background: n.color, color: '#202124' } : undefined} aria-label={n.title || (n.body || items.map((i) => i.text).join(', ')).slice(0, 60) || 'Note'}>
+    <article className={`note-card ${dragging ? 'dragging' : ''} ${picked ? 'picked' : ''} ${picking ? 'picking' : ''}`} {...drag} style={n.color ? { background: n.color, color: '#202124' } : undefined} aria-label={n.title || (n.body || items.map((i) => i.text).join(', ')).slice(0, 60) || 'Note'}>
+      {onPick && <button type="button" className="note-select" aria-pressed={!!picked} aria-label={`Select note: ${n.title || (n.body || items.map((i) => i.text).join(', ')).slice(0, 60) || 'Note'}`} onClick={onPick}>✓</button>}
       <button type="button" className={`icon-btn note-pin ${n.pinned ? 'on' : ''}`} aria-pressed={n.pinned} aria-label={n.pinned ? 'Unpin note' : 'Pin note'} onClick={() => onChange({ pinned: !n.pinned })}>📌</button>
-      <div className="note-open" role="button" tabIndex={0} onClick={onOpen} onKeyDown={(e) => { if (e.key === 'Enter') onOpen(); }}>
+      <div className="note-open" role="button" tabIndex={0} onClick={picking ? onPick : onOpen} onKeyDown={(e) => { if (e.key === 'Enter') (picking ? onPick : onOpen)(); }}>
         {n.pictures?.length > 0 && (
           <div className={`note-pictures n${Math.min(n.pictures.length, 3)}`}>
             {n.pictures.slice(0, 3).map((pid) => <img key={pid} src={`/api/notes/${n.id}/pictures/${pid}`} alt="" loading="lazy" />)}
