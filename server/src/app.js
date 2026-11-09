@@ -8,6 +8,7 @@ import userRoutes from './routes/users.js';
 import fileRoutes from './routes/files.js';
 import roomRoutes from './routes/rooms.js';
 import calendarRoutes, { publicInviteRoutes } from './routes/calendar.js';
+import timeOffRoutes from './routes/timeoff.js';
 import bookingRoutes, { publicBookingRoutes, freeBusyRoutes } from './routes/booking.js';
 import brandRoutes from './routes/brand.js';
 import announcementRoutes from './routes/announcements.js';
@@ -111,6 +112,7 @@ export function createApp({
   app.use('/api/links', requireAuth, linkRoutes());
   app.use('/api/comments', requireAuth, commentRoutes());
   app.use('/api/events', requireAuth, calendarRoutes());
+  app.use('/api/time-off', requireAuth, timeOffRoutes());
   app.use('/api/rooms', requireAuth, roomRoutes());
   app.use('/api/bookings', requireAuth, bookingRoutes());
   app.use('/api/freebusy', requireAuth, freeBusyRoutes());

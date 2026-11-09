@@ -23,7 +23,7 @@ const KEEP = 200;
 export const KINDS = [
   ['mention', 'Mentions in Chat and in documents'], ['comment', 'Mentions in comments on files'], ['task', 'Tasks given to you, and comments on tasks'],
   ['invite', 'Calendar invitations, answers and proposed times'], ['share', 'Files shared with you and access requests'],
-  ['edit', 'Changes to files you follow'], ['chat', 'Chat reminders and scheduled messages'], ['booking', 'Booking page appointments'],
+  ['edit', 'Changes to files you follow'], ['chat', 'Chat reminders and scheduled messages'], ['booking', 'Booking page appointments'], ['timeoff', 'Time off requests and answers'],
   ['form', 'Responses to your forms'], ['note', 'Note reminders'], ['followup', 'Emails that got no reply'], ['assign', 'Shared mailbox emails given to you'], ['security', 'Security alerts (admins)'], ['system', 'Server health (platform owner)'], ['signin', 'Sign-ins to your account from a new device'],
   ['mail', 'New email (on devices with notifications on)'], ['dm', 'Direct messages in Chat (on devices with notifications on)'],
 ];

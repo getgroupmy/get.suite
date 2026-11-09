@@ -1335,7 +1335,7 @@ button.rule-sample.on { outline: 2px solid var(--accent); outline-offset: 1px; }
 .msg.pinned { background: color-mix(in srgb, #f9ab00 8%, transparent); }
 .msg-pinned { margin-bottom: 2px; }
 /* Tasks: steps (a checklist inside a task) */
-.task-steps.all { color: var(--success, #188038); }
+.task-steps.all { color: #188038; }
 .task-steps-box ul.steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
 .task-steps-box li { display: flex; align-items: center; gap: 6px; }
 .task-steps-box li .icon-btn { width: 26px; height: 26px; opacity: .6; }
@@ -1385,7 +1385,7 @@ button.rule-sample.on { outline: 2px solid var(--accent); outline-offset: 1px; }
 .file-request .drop-zone.over, .file-request .drop-zone:hover { border-color: var(--accent); background: var(--accent-soft); }
 .request-sent { list-style: none; margin: 0; padding: 0; width: 100%; text-align: left; display: flex; flex-direction: column; gap: 4px; }
 .request-sent li { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 8px; background: var(--surface-2); }
-.request-sent li.ok .small { color: var(--success, #188038); }
+.request-sent li.ok .small { color: #188038; }
 .request-sent li.error .small { color: var(--danger); }
 /* Your status */
 .avatar-btn { position: relative; }
@@ -2200,3 +2200,10 @@ textarea.mono { font-family: ui-monospace, Consolas, monospace; }
 .meet-board .draw-pad { max-height: calc(100vh - 220px); object-fit: contain; }
 .meet-grid.with-board { flex: 0 0 200px; grid-template-columns: 1fr !important; grid-auto-rows: 120px; overflow: auto; }
 @media (max-width: 700px) { .meet-grid.with-board { flex: 0 0 auto; grid-auto-flow: column; grid-auto-columns: 140px; grid-auto-rows: 100px; } }
+/* Calendar: time off */
+.timeoff-count { background: var(--accent); color: var(--on-accent, #fff); border-radius: 10px; padding: 0 7px; font-size: .75rem; font-weight: 700; }
+.timeoff-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.timeoff-list > li { padding: 8px 0; border-bottom: 1px solid var(--border); }
+.timeoff-approved { font-weight: 600; }
+.timeoff-declined { color: var(--danger); }
+.timeoff-pending, .timeoff-cancelled { color: var(--muted); }

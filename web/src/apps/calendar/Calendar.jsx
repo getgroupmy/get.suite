@@ -10,6 +10,7 @@ import { Modal, useToast, Empty, Menu, PromptModal } from '../../components/ui.j
 import { PLACES, placeText, isoDay } from '../../components/workloc.js';
 import { useMailStatus } from '../../mailStatus.js';
 import { insights, hoursText } from './insights.js';
+import TimeOff, { waitingFor } from './TimeOff.jsx';
 import { timeIn, zoneName, cityOf } from '../../components/zones.js';
 import { printRange, daysFromTo, scheduleOf, DAY, VIEWS, startOfDay, visibleDays, shift, title, onDay, layoutDay, expandAll, occurrenceIndex, describeRule, daysBetween, moveTimes, resizeEnd, shiftWeekdays, snapMinutes, moveStart, weekdayInMonth } from './calmath.js';
 
@@ -79,6 +80,12 @@ function Calendar({ acting = null, managed = [], onPick }) {
   const [editing, setEditing] = useState(null);
   // "Create event" on an email comes here with the event to start from.
   const location = useLocation();
+  // Time off: the window (opened from the sidebar, or a notification's link), and how many wait for your answer.
+  const [timeOff, setTimeOff] = useState(() => new URLSearchParams(location.search).has('timeoff'));
+  const [timeOffWaiting, setTimeOffWaiting] = useState(0);
+  const refreshTimeOff = useCallback(() => get('/time-off').then((d) => setTimeOffWaiting(waitingFor(d))).catch(() => {}), []);
+  useEffect(() => { refreshTimeOff(); }, [refreshTimeOff]);
+  useEffect(() => { if (new URLSearchParams(location.search).has('timeoff')) setTimeOff(true); }, [location.search]);
   const navigateTo = useNavigate();
   // A result from the search box in the top bar: open that event.
   useEffect(() => {
@@ -263,6 +270,8 @@ function Calendar({ acting = null, managed = [], onPick }) {
         {acting && <div className="banner small" role="status"><strong>{acting.name}</strong>’s calendar: events you add, change or delete here are theirs (they’re told).</div>}
         <button className="btn new-btn" onClick={() => newEvent()}><Icon name="plus" /> Create</button>
         {!acting && <>
+        <button type="button" className="subnav-item" onClick={() => setTimeOff(true)}><span aria-hidden="true" style={{ width: 24, textAlign: 'center' }}>🏖</span><span className="grow">Time off</span>{timeOffWaiting > 0 && <span className="timeoff-count" aria-label={`${timeOffWaiting} waiting for your answer`}>{timeOffWaiting}</span>}</button>
+        {timeOff && <TimeOff onClose={() => { setTimeOff(false); refreshTimeOff(); }} onChanged={() => { load(); refreshTimeOff(); }} />}
         <button type="button" className="subnav-item" onClick={() => { const d = startOfDay(new Date()).getTime(); setEditing({ title: 'Out of office', kind: 'ooo', start: d, end: d + DAY - 1, all_day: 1, color: '#5f6368', location: '', description: '' }); }}><span aria-hidden="true" style={{ width: 24, textAlign: 'center' }}>🌴</span><span className="grow">Out of office…</span></button>
         <button type="button" className="subnav-item" onClick={() => { const t = new Date(); t.setMinutes(0, 0, 0); t.setHours(t.getHours() + 1); setEditing({ title: 'Focus time', kind: 'focus', start: t.getTime(), end: t.getTime() + 2 * 36e5, all_day: 0, color: '#7b61ff', location: '', description: '' }); }}><span aria-hidden="true" style={{ width: 24, textAlign: 'center' }}>🎯</span><span className="grow">Focus time…</span></button>
         <button type="button" className="subnav-item" onClick={() => setInsightsOpen(true)}><span aria-hidden="true" style={{ width: 24, textAlign: 'center' }}>📊</span><span className="grow">Time insights</span></button>
