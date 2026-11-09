@@ -9,16 +9,17 @@ export const SCHEDULE_DAYS = 28; // the schedule lists four weeks from the day i
 
 export const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
 /** The Sunday on or before d (weeks start on Sunday, as in the month view). */
-export const startOfWeek = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate() - d.getDay());
+/** The first day of d's week; weeks start on `ws` (0 Sunday, 1 Monday, 6 Saturday). */
+export const startOfWeek = (d, ws = 0) => new Date(d.getFullYear(), d.getMonth(), d.getDate() - ((d.getDay() - ws + 7) % 7));
 const addDays = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
 
 /** The days shown: 42 for the month grid, 7 for a week, 1 for a day. */
-export function visibleDays(view, anchor) {
+export function visibleDays(view, anchor, ws = 0) {
   if (view === 'day') return [startOfDay(anchor)];
   if (view === 'year') { const y = anchor.getFullYear(); const n = Math.round((new Date(y + 1, 0, 1) - new Date(y, 0, 1)) / 864e5); return Array.from({ length: n }, (_, i) => new Date(y, 0, 1 + i)); }
   if (view === 'schedule') return Array.from({ length: SCHEDULE_DAYS }, (_, i) => addDays(startOfDay(anchor), i));
-  if (view === 'week') { const s = startOfWeek(anchor); return Array.from({ length: 7 }, (_, i) => addDays(s, i)); }
-  const first = startOfWeek(new Date(anchor.getFullYear(), anchor.getMonth(), 1));
+  if (view === 'week') { const s = startOfWeek(anchor, ws); return Array.from({ length: 7 }, (_, i) => addDays(s, i)); }
+  const first = startOfWeek(new Date(anchor.getFullYear(), anchor.getMonth(), 1), ws);
   return Array.from({ length: 42 }, (_, i) => addDays(first, i));
 }
 
@@ -33,13 +34,13 @@ export function shift(view, anchor, dir) {
   return new Date(target.getFullYear(), target.getMonth(), Math.min(anchor.getDate(), last));
 }
 
-export function title(view, anchor, locale) {
+export function title(view, anchor, locale, ws = 0) {
   if (view === 'month') return anchor.toLocaleDateString(locale, { month: 'long', year: 'numeric' });
   if (view === 'year') return String(anchor.getFullYear());
   if (view === 'day') return anchor.toLocaleDateString(locale, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
   if (view === 'schedule') return new Intl.DateTimeFormat(locale, { month: 'short', day: 'numeric', year: 'numeric' }).formatRange(startOfDay(anchor), addDays(startOfDay(anchor), SCHEDULE_DAYS - 1));
   // formatRange writes ranges the local way, e.g. "Nov 1 – 7, 2026" or "Dec 27, 2026 – Jan 2, 2027".
-  return new Intl.DateTimeFormat(locale, { month: 'short', day: 'numeric', year: 'numeric' }).formatRange(startOfWeek(anchor), addDays(startOfWeek(anchor), 6));
+  return new Intl.DateTimeFormat(locale, { month: 'short', day: 'numeric', year: 'numeric' }).formatRange(startOfWeek(anchor, ws), addDays(startOfWeek(anchor, ws), 6));
 }
 
 /** Events touching a day [dayStart, dayStart + 1 day). Zero-length events count on their day. */
@@ -354,3 +355,6 @@ export function isoWeek(d) {
 export function daysShown(view, days, weekends = true) {
   return weekends || (view !== 'week' && view !== 'month') ? days : days.filter((d) => d.getDay() !== 0 && d.getDay() !== 6);
 }
+
+/** Weekday indexes (0 = Sunday) in the order a week starting on `ws` shows them. */
+export const weekOrder = (ws = 0) => Array.from({ length: 7 }, (_, i) => (ws + i) % 7);

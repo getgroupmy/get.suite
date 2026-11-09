@@ -12,7 +12,7 @@ import { useMailStatus } from '../../mailStatus.js';
 import { insights, hoursText } from './insights.js';
 import TimeOff, { waitingFor } from './TimeOff.jsx';
 import { timeIn, zoneName, cityOf } from '../../components/zones.js';
-import { printRange, daysFromTo, scheduleOf, DAY, VIEWS, startOfDay, visibleDays, shift, title, onDay, layoutDay, expandAll, occurrenceIndex, describeRule, daysBetween, moveTimes, resizeEnd, shiftWeekdays, snapMinutes, moveStart, weekdayInMonth, eventsPerDay, isoWeek, daysShown } from './calmath.js';
+import { printRange, daysFromTo, scheduleOf, DAY, VIEWS, startOfDay, visibleDays, shift, title, onDay, layoutDay, expandAll, occurrenceIndex, describeRule, daysBetween, moveTimes, resizeEnd, shiftWeekdays, snapMinutes, moveStart, weekdayInMonth, eventsPerDay, isoWeek, daysShown, weekOrder } from './calmath.js';
 
 const OTHER_COLOURS = ['#e37400', '#8e24aa', '#0b8043', '#d93025', '#00796b', '#3949ab'];
 const COLORS = ['#1a73e8', '#0b8043', '#d50000', '#f4511e', '#8e24aa', '#616161'];
@@ -134,7 +134,9 @@ function Calendar({ acting = null, managed = [], onPick }) {
   const setShowTasks = (on) => { setShowTasksState(on); try { localStorage.setItem('nw.calTasks', on ? '1' : '0'); } catch { /* private window */ } };
   const setView = (v) => { setViewState(v); try { localStorage.setItem('nw.calView', v); } catch { /* private window */ } };
 
-  const days = useMemo(() => visibleDays(view, anchor), [view, anchor]);
+  const [weekStart, setWeekStartState] = useState(() => { try { const v = Number(localStorage.getItem('nw.calWeekStart')); return [0, 1, 6].includes(v) ? v : 0; } catch { return 0; } });
+  const setWeekStart = (v) => { setWeekStartState(v); try { localStorage.setItem('nw.calWeekStart', String(v)); } catch { /* private window */ } };
+  const days = useMemo(() => visibleDays(view, anchor, weekStart), [view, anchor, weekStart]);
   // View options, remembered in this browser: weekends in the week and month views, and week numbers.
   const flag = (k, dflt) => { try { const v = localStorage.getItem(k); return v === null ? dflt : v === '1'; } catch { return dflt; } };
   const [weekends, setWeekendsState] = useState(() => flag('nw.calWeekends', true));
@@ -334,6 +336,11 @@ function Calendar({ acting = null, managed = [], onPick }) {
         <label className="check cal-show-tasks"><input type="checkbox" checked={showBirthdays} onChange={(e) => setShowBirthdays(e.target.checked)} /> Show contacts’ birthdays</label>
         <label className="check cal-show-tasks"><input type="checkbox" checked={weekends} onChange={(e) => setWeekends(e.target.checked)} /> Show weekends</label>
         <label className="check cal-show-tasks"><input type="checkbox" checked={weekNums} onChange={(e) => setWeekNums(e.target.checked)} /> Show week numbers</label>
+        <label className="row small cal-show-tasks" style={{ gap: 6 }}>Week starts on
+          <select value={weekStart} onChange={(e) => setWeekStart(Number(e.target.value))} aria-label="Week starts on">
+            <option value={0}>Sunday</option><option value={1}>Monday</option><option value={6}>Saturday</option>
+          </select>
+        </label>
         <form className="cal-search" role="search" onSubmit={(e) => { e.preventDefault(); runSearch(new FormData(e.currentTarget).get('q')); }}>
           <input name="q" type="search" placeholder="Search events" aria-label="Search events" onChange={(e) => { if (!e.target.value) setFound(null); }} />
         </form>
@@ -372,7 +379,7 @@ function Calendar({ acting = null, managed = [], onPick }) {
           <button className="btn" onClick={() => setAnchor(startOfDay(new Date()))}>Today</button>
           <button className="icon-btn" aria-label={`Previous ${unit}`} onClick={() => setAnchor(shift(view, anchor, -1))}><Icon name="left" /></button>
           <button className="icon-btn" aria-label={`Next ${unit}`} onClick={() => setAnchor(shift(view, anchor, 1))}><Icon name="right" /></button>
-          <h1 aria-live="polite">{title(view, anchor)}{weekNums && (view === 'week' || view === 'day') && <span className="muted cal-weeknum"> · Week {isoWeek(view === 'week' ? gridDays[0] : anchor)}</span>}</h1>
+          <h1 aria-live="polite">{title(view, anchor, undefined, weekStart)}{weekNums && (view === 'week' || view === 'day') && <span className="muted cal-weeknum"> · Week {isoWeek(view === 'week' ? gridDays[0] : anchor)}</span>}</h1>
           <div className="grow" />
           <div className="seg" role="radiogroup" aria-label="View">
             {VIEWS.map((v) => <button key={v} type="button" role="radio" aria-checked={view === v} className={view === v ? 'on' : ''} onClick={() => setView(v)}>{VIEW_NAMES[v]}</button>)}
@@ -380,7 +387,7 @@ function Calendar({ acting = null, managed = [], onPick }) {
         </div>
         {view === 'month' ? (
           <div className="month" style={weekends ? undefined : { gridTemplateColumns: 'repeat(5, minmax(0, 1fr))' }}>
-            {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].filter((_, i) => weekends || (i !== 0 && i !== 6)).map((d) => <div key={d} className="dow">{d}</div>)}
+            {weekOrder(weekStart).filter((i) => weekends || (i !== 0 && i !== 6)).map((i) => <div key={i} className="dow">{['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][i]}</div>)}
             {gridDays.map((d, k) => {
               const list = onDay(shown, d).sort((a, b) => b.all_day - a.all_day || a.start - b.start);
               return (
@@ -400,7 +407,7 @@ function Calendar({ acting = null, managed = [], onPick }) {
             })}
           </div>
         ) : view === 'year' ? (
-          <YearView year={anchor.getFullYear()} counts={eventsPerDay(shown, days)} today={today} onDay={openDay} />
+          <YearView year={anchor.getFullYear()} weekStart={weekStart} counts={eventsPerDay(shown, days)} today={today} onDay={openDay} />
         ) : view === 'schedule' ? (
           <Schedule days={days} events={shown} today={today} onOpen={setEditing} onTaskDone={taskDone} onDay={openDay} />
         ) : (
@@ -430,8 +437,8 @@ function Calendar({ acting = null, managed = [], onPick }) {
 /** Week / day view: an all-day row, then hours with timed events placed by their real times. */
 /** Four weeks as a list: each day with something on it, its events, tasks and birthdays in order. */
 /** Twelve small months; days with events are marked (darker for more), and a click opens the day. */
-function YearView({ year, counts, today, onDay }) {
-  const dows = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+function YearView({ year, weekStart = 0, counts, today, onDay }) {
+  const dows = weekOrder(weekStart).map((i) => 'SMTWTFS'[i]);
   return (
     <div className="year-view">
       {Array.from({ length: 12 }, (_, m) => {
@@ -442,7 +449,7 @@ function YearView({ year, counts, today, onDay }) {
             <h3>{first.toLocaleDateString([], { month: 'long' })}</h3>
             <div className="year-grid">
               {dows.map((d, i) => <span key={i} className="year-dow muted" aria-hidden="true">{d}</span>)}
-              {Array.from({ length: first.getDay() }, (_, i) => <span key={`b${i}`} />)}
+              {Array.from({ length: (first.getDay() - weekStart + 7) % 7 }, (_, i) => <span key={`b${i}`} />)}
               {Array.from({ length: n }, (_, i) => {
                 const d = new Date(year, m, i + 1);
                 const c = counts.get(d.getTime()) || 0;

@@ -249,3 +249,19 @@ test('week numbers and hiding weekends', async () => {
   assert.equal(daysShown('month', visibleDays('month', new Date(2026, 10, 1)), false).length, 30);
   assert.equal(daysShown('day', [new Date(2026, 10, 14)], false).length, 1, 'a Saturday opened on its own still shows');
 });
+
+test('weeks can start on Monday or Saturday', async () => {
+  const { visibleDays, startOfWeek, weekOrder, title } = await import('./calmath.js');
+  const wed = new Date(2026, 10, 11);
+  assert.equal(startOfWeek(wed).getDate(), 8, 'Sunday 8 November');
+  assert.equal(startOfWeek(wed, 1).getDate(), 9, 'Monday 9 November');
+  assert.equal(startOfWeek(wed, 6).getDate(), 7, 'Saturday 7 November');
+  assert.equal(startOfWeek(new Date(2026, 10, 8), 1).getDate(), 2, 'a Sunday belongs to the week before');
+  assert.deepEqual(visibleDays('week', wed, 1).map((d) => d.getDay()), [1, 2, 3, 4, 5, 6, 0]);
+  const month = visibleDays('month', new Date(2026, 10, 1), 1);
+  assert.equal(month[0].getDay(), 1);
+  assert.equal(month[0].getDate(), 26, 'Monday 26 October starts the grid for November 2026');
+  assert.deepEqual(weekOrder(1), [1, 2, 3, 4, 5, 6, 0]);
+  assert.deepEqual(weekOrder(6), [6, 0, 1, 2, 3, 4, 5]);
+  assert.match(title('week', wed, 'en-US', 1), /Nov 9/);
+});
