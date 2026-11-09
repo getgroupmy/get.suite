@@ -147,3 +147,24 @@ test('presenting on: past the last slide only when the presentation loops, to th
   assert.equal(advanceLabel(15), 'After 15 seconds');
   assert.equal(advanceLabel(60), 'After 1 minute');
 });
+
+test('smart guides: snapping to the slide centre and to other boxes', async () => {
+  const { snapBox } = await import('./slidemath.js');
+  // Centred on the slide: 39.5 + 20/2 = 49.5, within 1.2 of 50.
+  let r = snapBox({ x: 39.5, y: 10.4, w: 20, h: 10 }, []);
+  assert.equal(r.box.x, 40);
+  assert.equal(r.box.y, 10.4, 'nothing near on y');
+  assert.deepEqual(r.guides, [{ axis: 'x', at: 50 }]);
+  // Left edge to another box's left edge, top to its bottom.
+  r = snapBox({ x: 10.8, y: 41, w: 20, h: 10 }, [{ x: 10, y: 20, w: 30, h: 20.5 }]);
+  assert.equal(r.box.x, 10);
+  assert.equal(r.box.y, 40.5);
+  assert.ok(r.guides.some((g) => g.axis === 'x' && g.at === 10));
+  assert.ok(r.guides.some((g) => g.axis === 'y' && g.at === 40.5));
+  // Too far: unchanged, no guides.
+  r = snapBox({ x: 20, y: 20, w: 10, h: 10 }, [{ x: 60, y: 60, w: 10, h: 10 }]);
+  assert.deepEqual([r.box.x, r.box.y, r.guides.length], [20, 20, 0]);
+  // Right edge to the slide's edge.
+  r = snapBox({ x: 69, y: 5, w: 30, h: 10 }, []);
+  assert.equal(r.box.x, 70);
+});

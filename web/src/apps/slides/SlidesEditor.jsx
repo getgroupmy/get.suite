@@ -19,7 +19,7 @@ import { VersionHistory } from '../VersionHistory.jsx';
 import { EditorHeader } from '../editorCommon.jsx';
 import { useUndo, undoKey } from '../useUndo.js';
 import {
-  THEMES, LAYOUTS, numberShown, newId, clampBox, moveBox, resizeBox, addSlide, duplicateSlide, removeSlide, moveSlide, moveSlides, duplicateSlides, removeSlides,
+  THEMES, LAYOUTS, numberShown, newId, clampBox, moveBox, snapBox, resizeBox, addSlide, duplicateSlide, removeSlide, moveSlide, moveSlides, duplicateSlides, removeSlides,
   updateItem, addItem, removeItem, restack, pictureBox,
   TRANSITIONS, setSlide, stepSlide, firstShown, newTable, resizeTable, setCell,
   ANIMATIONS, builds, animChange, stepPresent, nextPresent, ADVANCES, advanceLabel, slideChanges } from './slidemath.js';
@@ -515,7 +515,10 @@ export function SlideView({ slide, theme, deckId, editable, selected, editing, o
       if (!moved && Math.hypot(m.clientX - x0, m.clientY - y0) < 3) return;
       moved = true;
       box = handle ? resizeBox(it, handle, dx, dy, m.shiftKey ? null : ratio) : moveBox(it, dx, dy);
-      setLive({ id: it.id, box });
+      // Moving: line up with the slide and the other boxes (Alt held: no snapping).
+      let guides = [];
+      if (!handle && !m.altKey) ({ box, guides } = snapBox(box, slide.items.filter((o) => o.id !== it.id)));
+      setLive({ id: it.id, box, guides });
     };
     const up = () => {
       window.removeEventListener('pointermove', move);
@@ -596,6 +599,7 @@ export function SlideView({ slide, theme, deckId, editable, selected, editing, o
           </div>
         );
       })}
+      {(live?.guides || []).map((g) => <span key={`${g.axis}${g.at}`} className={`slide-guide ${g.axis}`} aria-hidden="true" style={g.axis === 'x' ? { left: `${g.at}%` } : { top: `${g.at}%` }} />)}
       {number ? <span className="slide-number" aria-label={`Slide number ${number}`}>{number}</span> : null}
     </div>
   );

@@ -236,3 +236,36 @@ export function slideChanges(before, after) {
   old.forEach((o, i) => { if (!now.some((s) => s.id === o.id)) out.push({ id: o.id, n: i + 1, status: 'removed', title: titleOf(o), details: [] }); });
   return out;
 }
+
+/**
+ * Smart guides: while a box is dragged, its left, centre or right edge (and top, middle or bottom)
+ * snaps to the slide's edges and centre and to the other boxes' edges and centres when within `tol`
+ * percent. Gives the snapped box and the guide lines to draw: [{ axis: 'x' | 'y', at }].
+ */
+export function snapBox(box, others, tol = 1.2) {
+  const lines = (axis) => {
+    const out = [0, 50, 100];
+    for (const o of others) if (axis === 'x') out.push(o.x, o.x + o.w / 2, o.x + o.w); else out.push(o.y, o.y + o.h / 2, o.y + o.h);
+    return out;
+  };
+  const best = (start, size, targets) => {
+    let hit = null;
+    for (const [k, p] of [[0, start], [0.5, start + size / 2], [1, start + size]]) {
+      for (const t of targets) {
+        const d = Math.abs(t - p);
+        if (d <= tol && (!hit || d < hit.d)) hit = { d, start: t - k * size, at: t };
+      }
+    }
+    return hit;
+  };
+  const hx = best(box.x, box.w, lines('x')), hy = best(box.y, box.h, lines('y'));
+  const snapped = clampBox({ ...box, ...(hx && { x: hx.start }), ...(hy && { y: hy.start }) });
+  const guides = [];
+  // Every line the snapped box now touches (it can line up with several things at once).
+  for (const [axis, start, size] of [['x', snapped.x, snapped.w], ['y', snapped.y, snapped.h]]) {
+    if (!(axis === 'x' ? hx : hy)) continue;
+    const pts = [start, start + size / 2, start + size];
+    for (const t of new Set(lines(axis))) if (pts.some((p) => Math.abs(p - t) < 0.01)) guides.push({ axis, at: t });
+  }
+  return { box: snapped, guides };
+}

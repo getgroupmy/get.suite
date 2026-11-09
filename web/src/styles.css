@@ -2234,3 +2234,4 @@ textarea.mono { font-family: ui-monospace, Consolas, monospace; }
 .ProseMirror.painting { cursor: copy; }
 .grid-wrap.painting td { cursor: copy; }
 .paper.pageless { box-shadow: none; border-radius: 0; } .paper.pageless .page-break { opacity: .5; }
+.slide-guide { position: absolute; pointer-events: none; z-index: 50; background: #e8318a; } .slide-guide.x { top: 0; bottom: 0; width: 1px; } .slide-guide.y { left: 0; right: 0; height: 1px; }
