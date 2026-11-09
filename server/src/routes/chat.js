@@ -15,6 +15,7 @@ import { q, tx, FILES_DIR } from '../db.js';
 import { uid, now, str, bad, notFound, HttpError } from '../util.js';
 import { roleFor, mayTakeAway } from '../access.js';
 import { insertFile } from './files.js';
+import { listEmoji, addEmoji, removeEmoji, emojiImage, customName, hasEmoji, MAX_EMOJI } from '../chatemoji.js';
 
 // Where each person has read up to in each conversation (for unread counts), and emoji reactions.
 q(`CREATE TABLE IF NOT EXISTS channel_reads (
@@ -785,6 +786,27 @@ export default function chatRoutes() {
     res.json(msg);
   });
 
+  // Company emoji: the list, adding one (a small picture with a name), its picture, and taking one away.
+  r.get('/emoji', (req, res) => res.json(listEmoji(req.user.org_id)));
+  r.post('/emoji', express.raw({ type: () => true, limit: MAX_EMOJI + 1024 }), (req, res) => {
+    const name = addEmoji(req.user.org_id, req.user.id, req.query.name, Buffer.isBuffer(req.body) ? req.body : null);
+    sendTo(orgMemberIds(req.user.org_id), { type: 'chat-emoji-changed' });
+    res.status(201).json({ name });
+  });
+  r.get('/emoji/:name/image', (req, res) => {
+    const e = emojiImage(req.user.org_id, String(req.params.name));
+    if (!e) throw notFound('No such emoji');
+    res.setHeader('Content-Type', e.mime);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Cache-Control', 'private, max-age=3600');
+    res.end(e.data);
+  });
+  r.delete('/emoji/:name', (req, res) => {
+    if (!removeEmoji(req.user.org_id, req.user, String(req.params.name))) throw notFound('No such emoji');
+    sendTo(orgMemberIds(req.user.org_id), { type: 'chat-emoji-changed' });
+    res.json({ ok: true });
+  });
+
   // React with an emoji, or take your reaction back.
   r.post('/messages/:id/reactions', (req, res) => {
     const m = q('SELECT * FROM messages WHERE id = ?').get(req.params.id);
@@ -792,7 +814,8 @@ export default function chatRoutes() {
     const c = loadChannel(m.channel_id, req.user);
     readOnly(c);
     const emoji = String(req.body.emoji || '').trim();
-    if (!emoji || emoji.length > 16 || /[\s<>]/.test(emoji)) throw bad('Choose an emoji');
+    const own = customName(emoji); // a company emoji, :name:
+    if (!emoji || (own ? !hasEmoji(req.user.org_id, own) : emoji.length > 16 || /[\s<>]/.test(emoji))) throw bad('Choose an emoji');
     const had = q('DELETE FROM message_reactions WHERE message_id = ? AND user_id = ? AND emoji = ?').run(m.id, req.user.id, emoji).changes;
     if (!had) {
       if (q('SELECT COUNT(DISTINCT emoji) AS n FROM message_reactions WHERE message_id = ?').get(m.id).n >= 20) throw bad('That message has enough reactions');

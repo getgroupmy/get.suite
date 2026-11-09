@@ -7087,3 +7087,45 @@ test('a picture behind a slide is shown to everyone who can open the presentatio
   const pptx = await owner('GET', `/api/files/${deck.id}/export`);
   assert.equal(pptx.status, 200);
 });
+
+test('company emoji: add one, use it in messages and as a reaction; only your company sees it', async () => {
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  const add = (who, name, body = png) => who('POST', `/api/chat/emoji?name=${encodeURIComponent(name)}`, body, { raw: true });
+  const maker = client(), other = client();
+  for (const [local, name] of [['emojimaker', 'Em Maker'], ['emojifan', 'Em Fan']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(maker, 'emojimaker@acme.com');
+  await login(other, 'emojifan@acme.com');
+  const made = await add(maker, 'Ship It');
+  assert.equal(made.status, 201, JSON.stringify(made.body));
+  assert.equal(made.body.name, 'ship-it', 'names are tidied');
+  assert.equal((await add(maker, 'ship-it')).status, 400, 'taken');
+  assert.equal((await add(maker, 'x')).status, 400, 'too short');
+  assert.equal((await add(maker, 'nope', Buffer.from('<svg onload=alert(1)>'))).status, 400, 'pictures only');
+  assert.equal((await add(maker, 'huge', Buffer.concat([png, Buffer.alloc(130 * 1024)]))).status, 413, 'too big');
+  const list = (await owner('GET', '/api/chat/emoji')).body;
+  assert.deepEqual(list.map((e) => [e.name, e.created_by_name]), [['ship-it', 'Em Maker']]);
+  const pic = await owner('GET', '/api/chat/emoji/ship-it/image');
+  assert.equal(pic.status, 200);
+  assert.equal(pic.headers.get('content-type'), 'image/png');
+
+  // As a reaction (only ones that exist), and in a message.
+  const general = (await maker('GET', '/api/chat/channels')).body.channels.find((c) => c.name === 'general');
+  const m = (await maker('POST', `/api/chat/channels/${general.id}/messages`, { body: 'Released :ship-it:' })).body;
+  const reacted = await owner('POST', `/api/chat/messages/${m.id}/reactions`, { emoji: ':ship-it:' });
+  assert.equal(reacted.status, 200, JSON.stringify(reacted.body));
+  assert.deepEqual(reacted.body.reactions.map((r) => r.emoji), [':ship-it:']);
+  assert.equal((await owner('POST', `/api/chat/messages/${m.id}/reactions`, { emoji: ':no-such:' })).status, 400);
+
+  // Another company neither sees it nor can use it.
+  assert.equal((await owner('POST', '/api/orgs', { name: 'Emojico', domain: 'emojico.com', admin_name: 'Eve E', admin_local: 'eve', admin_password: 'password123' })).status, 201);
+  const eve = client();
+  await login(eve, 'eve@emojico.com');
+  assert.deepEqual((await eve('GET', '/api/chat/emoji')).body, []);
+  assert.equal((await eve('GET', '/api/chat/emoji/ship-it/image')).status, 404);
+  assert.equal((await eve('DELETE', '/api/chat/emoji/ship-it')).status, 404);
+
+  // Only whoever added it, or an admin, takes it away.
+  assert.equal((await other('DELETE', '/api/chat/emoji/ship-it')).status, 400);
+  assert.equal((await owner('DELETE', '/api/chat/emoji/ship-it')).status, 200, 'an admin can');
+  assert.deepEqual((await maker('GET', '/api/chat/emoji')).body, []);
+});

@@ -2404,3 +2404,11 @@ textarea.slide-text.shape-text { height: 100%; display: flex; }
 .slide .slide-shape.star { clip-path: polygon(50% 0, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%); padding: 30% 30% 25%; }
 .slide .slide-shape.callout { clip-path: polygon(0 4%, 2% 0, 98% 0, 100% 4%, 100% 71%, 98% 75%, 38% 75%, 18% 100%, 22% 75%, 2% 75%, 0 71%); position: relative; }
 .slide .slide-shape.callout > .shape-text { position: absolute; inset: 2cqw 2.5cqw 25% 2.5cqw; width: auto; height: auto; max-height: none; display: flex; align-items: center; justify-content: center; }
+/* Company emoji (Chat) */
+img.custom-emoji { width: 1.35em; height: 1.35em; object-fit: contain; vertical-align: -0.3em; }
+.emoji-grid img.custom-emoji { width: 24px; height: 24px; vertical-align: middle; }
+.emoji-add { align-self: flex-start; }
+.emoji-empty { margin: 4px 10px; }
+.custom-emoji-list { list-style: none; padding: 0; margin: 12px 0 0; display: flex; flex-direction: column; gap: 6px; max-height: 300px; overflow: auto; }
+.custom-emoji-list .row { gap: 8px; align-items: center; }
+.custom-emoji-list img.custom-emoji { width: 28px; height: 28px; }

@@ -1,6 +1,7 @@
 import FileViewer from '../../components/FileViewer.jsx';
 import { previewKind, stepPreview } from '../../components/viewkind.js';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { blocks, hasMarkup } from './markup.js';
 import { fileLinksIn } from './filelinks.js';
 import { statusLine, untilText } from '../../components/status.js';
@@ -9,6 +10,7 @@ import { get, post, put, patch, del, onLive, uploadFile, formatBytes } from '../
 import Icon from '../../components/Icon.jsx';
 import PersonCard from '../../components/PersonCard.jsx';
 import EmojiPicker from '../../components/EmojiPicker.jsx';
+import { useCompanyEmoji, imageUrl, splitEmoji, customName, reloadEmoji } from './companyemoji.js';
 import { Avatar, ConfirmModal, Empty, Menu, Modal, PromptModal, useToast } from '../../components/ui.jsx';
 import { whenText, laterChoices, ScheduleDialog } from '../../components/schedule.jsx';
 import { useAuth } from '../../App.jsx';
@@ -427,7 +429,7 @@ export default function Chat() {
             <div className="banner archived-banner">This channel is archived: it can be read but not written in.
               {canManage(current) && <button type="button" className="btn small" onClick={async () => { await patch(`/chat/channels/${current.id}`, { archived: false }); loadChannels(); }}>Unarchive</button>}</div>
           ) : <form className="composer" onSubmit={send} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { if (e.dataTransfer.files.length) { e.preventDefault(); attach([...e.dataTransfer.files]); } }}>
-            <EmojiPicker up className="icon-btn" onPick={insertEmoji} />
+            <ChatEmojiPicker up className="icon-btn" onPick={insertEmoji} />
             <button type="button" className="icon-btn" aria-label="Attach files" title="Attach files (or drop or paste them here)" onClick={() => fileInput.current.click()}><Icon name="attach" /></button>
             <VoiceRecorder onDone={(file) => attach([file])} />
             <button type="button" className="icon-btn" aria-label="Create a poll" title="Ask a question with options to vote on" onClick={() => setPollOpen(true)}>📊</button>
@@ -531,7 +533,7 @@ function Thread({ id, channelId, user, onClose }) {
       </div>
       {typing.line}
       <form className="composer" onSubmit={send}>
-        <EmojiPicker up className="icon-btn" onPick={(ch) => setText((v) => v + ch)} />
+        <ChatEmojiPicker up className="icon-btn" onPick={(ch) => setText((v) => v + ch)} />
         <textarea ref={box} rows={1} value={text} placeholder="Reply…" aria-label="Reply" onChange={(e) => { setText(e.target.value); mention.track(e.target.value, e.target.selectionStart); typing.onType(e.target.value); }}
           onKeyDown={(e) => { if (mention.keyDown(e)) return; if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) send(e); }} />
         {mention.list}
@@ -594,7 +596,7 @@ function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit
             {m.reactions.map((r) => {
               const mine = r.users.some((u) => u.id === user.id);
               return <button key={r.emoji} type="button" className={`reaction ${mine ? 'mine' : ''}`} aria-pressed={mine} title={r.users.map((u) => u.name).join(', ')}
-                aria-label={`${r.emoji} ${r.users.length}: ${r.users.map((u) => u.name).join(', ')}`} onClick={() => onReact(r.emoji)}>{r.emoji} {r.users.length}</button>;
+                aria-label={`${r.emoji} ${r.users.length}: ${r.users.map((u) => u.name).join(', ')}`} onClick={() => onReact(r.emoji)}><ReactionEmoji emoji={r.emoji} /> {r.users.length}</button>;
             })}
           </div>
         )}
@@ -608,7 +610,7 @@ function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit
       </div>
       <div className="msg-actions">
         {['👍', '❤️', '😂'].map((e) => <button key={e} type="button" className="icon-btn" aria-label={`React with ${e}`} onClick={() => onReact(e)}>{e}</button>)}
-        <EmojiPicker className="icon-btn" label="Add a reaction" onPick={(e) => onReact(e)} />
+        <ChatEmojiPicker className="icon-btn" label="Add a reaction" onPick={(e) => onReact(e)} />
         {onThread && <button type="button" className="icon-btn" aria-label="Reply in thread" title="Reply in thread" onClick={onThread}><Icon name="reply" size={16} /></button>}
         <Menu align="right" trigger={(p) => <button type="button" className="icon-btn" aria-label="Remind me about this" title="Remind me about this" {...p}><Icon name="clock" size={16} /></button>}
           items={[...soon.map(([label, at]) => ({ label: `${label} · ${whenText(at)}`, onClick: () => remind(at) })), '-', { label: 'Pick date and time…', icon: 'calendar', onClick: () => setPicking(true) }]} />
@@ -858,12 +860,85 @@ function groupWords(text, key) {
 }
 
 export function Linked({ text, me }) {
+  const own = useCompanyEmoji();
+  const known = new Set(own.map((e) => e.name));
+  // Plain words: the company's own emoji (:name:) as their pictures, @a-group words highlighted.
+  const words = (part, key) => (known.size && part.includes(':')
+    ? splitEmoji(part, known).map((x, n) => (typeof x === 'string' ? <span key={`${key}.${n}`}>{groupWords(x, `${key}.${n}`)}</span>
+      : <img key={`${key}.${n}`} className="custom-emoji" src={imageUrl(x.emoji)} alt={`:${x.emoji}:`} title={`:${x.emoji}:`} />))
+    : groupWords(part, key));
   return String(text).split(MENTION_RE).map((chunk, j) => (j % 2
     ? <span key={`m${j}`} className={`mention${me && chunk.slice(1).toLowerCase() === me.toLowerCase() ? ' me' : ''}`}>{chunk}</span>
     : chunk.split(LINK_RE).map((part, i) => {
-      if (i % 2 === 0) return groupWords(part, `${j}-${i}`);
+      if (i % 2 === 0) return words(part, `${j}-${i}`);
       return part.startsWith('/') ? <Link key={`${j}-${i}`} to={part}>{part}</Link> : <a key={`${j}-${i}`} href={part} target="_blank" rel="noopener noreferrer">{part}</a>;
     })));
+}
+
+/** A reaction's emoji: a company emoji as its picture. */
+function ReactionEmoji({ emoji }) {
+  const name = customName(emoji);
+  return name ? <img className="custom-emoji" src={imageUrl(name)} alt={emoji} /> : emoji;
+}
+
+/** The emoji picker in Chat: with the company's own emoji, and a way to add more. */
+function ChatEmojiPicker(props) {
+  const own = useCompanyEmoji();
+  const [managing, setManaging] = useState(false);
+  return (
+    <>
+      <EmojiPicker {...props} custom={own.map((e) => ({ name: e.name, img: imageUrl(e.name) }))} onAddCustom={() => setManaging(true)} />
+      {managing && createPortal(<CompanyEmojiDialog onClose={() => setManaging(false)} />, document.body) /* outside the message box's form */}
+    </>
+  );
+}
+
+/** Company emoji: add one (a name and a small picture), and see or remove the others. */
+function CompanyEmojiDialog({ onClose }) {
+  const { user } = useAuth();
+  const toast = useToast();
+  const own = useCompanyEmoji();
+  const [name, setName] = useState('');
+  const [picture, setPicture] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const fileRef = useRef(null);
+  const add = async (e) => {
+    e.preventDefault();
+    if (!picture) { toast('Choose a picture', 'error'); return; }
+    setBusy(true);
+    try {
+      const r = await fetch(`/api/chat/emoji?name=${encodeURIComponent(name)}`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace' }, body: picture });
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(r.status === 413 ? 'A picture of 128 KB at most' : body.error || 'Couldn’t add it');
+      toast(`:${body.name}: added`);
+      setName(''); setPicture(null); if (fileRef.current) fileRef.current.value = '';
+      await reloadEmoji();
+    } catch (err) { toast(err.message, 'error'); } finally { setBusy(false); }
+  };
+  const remove = async (n) => {
+    try { await del(`/chat/emoji/${encodeURIComponent(n)}`); toast(`:${n}: removed`); await reloadEmoji(); } catch (err) { toast(err.message, 'error'); }
+  };
+  return (
+    <Modal title="Company emoji" onClose={onClose} footer={<button type="button" className="btn primary" onClick={onClose}>Done</button>}>
+      <p className="muted small">Your company's own emoji, for everyone in it: type <code>:name:</code> in a message, or react with one.</p>
+      <form className="row wrap" style={{ gap: 8, alignItems: 'flex-end' }} onSubmit={add}>
+        <label className="field">Name<input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. ship-it" required /></label>
+        <label className="field">Picture (PNG, GIF, JPEG or WebP, 128 KB at most)<input ref={fileRef} type="file" accept="image/png,image/gif,image/jpeg,image/webp" onChange={(e) => setPicture(e.target.files[0] || null)} /></label>
+        <button type="submit" className="btn" disabled={busy}>Add</button>
+      </form>
+      {own.length ? (
+        <ul className="custom-emoji-list" aria-label="Company emoji">
+          {own.map((e) => (
+            <li key={e.name} className="row">
+              <img className="custom-emoji" src={imageUrl(e.name)} alt="" />
+              <span className="grow"><code>:{e.name}:</code> <span className="muted small">added by {e.created_by_name || 'someone'}</span></span>
+              {(e.created_by === user.id || user.is_admin) && <button type="button" className="btn small" aria-label={`Remove :${e.name}:`} onClick={() => remove(e.name)}>Remove</button>}
+            </li>
+          ))}
+        </ul>
+      ) : <p className="muted">No company emoji yet.</p>}
+    </Modal>
+  );
 }
 
 /** A message with a meeting link gets a Join button (opens in a new tab, so the chat stays open). */

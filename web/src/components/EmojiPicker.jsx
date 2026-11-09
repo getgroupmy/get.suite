@@ -11,9 +11,10 @@ const byChar = new Map(ALL_EMOJI.map((e) => [e.char, e]));
 /**
  * `onPick(char)` inserts it. `keepFocus` stops the button from taking focus (the Mail editor keeps
  * its selection); `beforePick` runs first (e.g. to put focus back in the editor). `up` opens the
- * popup above the button (for a message box at the bottom of the screen).
+ * popup above the button (for a message box at the bottom of the screen). `custom` ([{ name, img }]) adds
+ * the company's own emoji (picked as ":name:"), and `onAddCustom` a way to add more.
  */
-export default function EmojiPicker({ onPick, beforePick, keepFocus, up, className = 'tb', label = 'Insert emoji' }) {
+export default function EmojiPicker({ onPick, beforePick, keepFocus, up, className = 'tb', label = 'Insert emoji', custom = null, onAddCustom = null }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [tab, setTab] = useState(null); // group name or 'Recent'
@@ -22,11 +23,14 @@ export default function EmojiPicker({ onPick, beforePick, keepFocus, up, classNa
   const wrap = useRef(), pop = useRef(), grid = useRef(), search = useRef(), button = useRef();
 
   const current = tab ?? (recent.length ? 'Recent' : EMOJI_GROUPS[0][0]);
+  const own = useMemo(() => (custom || []).map((c) => ({ char: `:${c.name}:`, name: c.name, img: c.img })), [custom]);
   const list = useMemo(() => {
-    if (query.trim()) return searchEmoji(query);
-    if (current === 'Recent') return recent.map((c) => byChar.get(c)).filter(Boolean);
+    const words = query.trim().toLowerCase();
+    if (words) return [...own.filter((e) => e.name.includes(words.replace(/^:|:$/g, ''))), ...searchEmoji(query)];
+    if (current === 'Recent') return recent.map((c) => byChar.get(c) || own.find((e) => e.char === c)).filter(Boolean);
+    if (current === 'Company') return own;
     return ALL_EMOJI.filter((e) => e.group === current);
-  }, [query, current, recent]);
+  }, [query, current, recent, own]);
 
   useEffect(() => {
     if (!open) return;
@@ -75,8 +79,8 @@ export default function EmojiPicker({ onPick, beforePick, keepFocus, up, classNa
     else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); if (list[at]) pick(list[at]); }
   };
 
-  const tabs = [...(recent.length ? ['Recent'] : []), ...EMOJI_GROUPS.map(([g]) => g)];
-  const tabIcon = { Recent: '🕘', Smileys: '😀', People: '👋', 'Hearts and symbols': '❤️', 'Animals and nature': '🐶', 'Food and drink': '☕', 'Activities and travel': '✈️', Objects: '💡' };
+  const tabs = [...(recent.length ? ['Recent'] : []), ...(custom ? ['Company'] : []), ...EMOJI_GROUPS.map(([g]) => g)];
+  const tabIcon = { Recent: '🕘', Company: '🏢', Smileys: '😀', People: '👋', 'Hearts and symbols': '❤️', 'Animals and nature': '🐶', 'Food and drink': '☕', 'Activities and travel': '✈️', Objects: '💡' };
   const rows = [];
   for (let i = 0; i < list.length; i += COLS) rows.push(list.slice(i, i + COLS));
 
@@ -97,14 +101,18 @@ export default function EmojiPicker({ onPick, beforePick, keepFocus, up, classNa
             </div>
           )}
           <div className="emoji-head small muted" aria-live="polite">{query.trim() ? (list.length ? `${list.length} found` : 'No emoji found') : current}</div>
+          {onAddCustom && current === 'Company' && !query.trim() && (
+            <button type="button" className="btn small emoji-add" onMouseDown={(e) => e.preventDefault()} onClick={() => { close(false); onAddCustom(); }}>＋ Add emoji…</button>
+          )}
           <div className="emoji-grid" ref={grid} role="grid" aria-label={query.trim() ? 'Search results' : current}>
+            {current === 'Company' && !query.trim() && !own.length && <p className="small muted emoji-empty">No company emoji yet: add your own, such as a logo or a team mascot.</p>}
             {rows.map((row, r) => (
               <div role="row" key={r}>
                 {row.map((e, c) => {
                   const i = r * COLS + c;
                   return (
-                    <button key={e.char} type="button" role="gridcell" data-i={i} tabIndex={i === at ? 0 : -1} aria-label={e.name} title={e.name}
-                      onMouseDown={(ev) => ev.preventDefault()} onFocus={() => setAt(i)} onClick={() => pick(e)}>{e.char}</button>
+                    <button key={e.char} type="button" role="gridcell" data-i={i} tabIndex={i === at ? 0 : -1} aria-label={e.img ? e.char : e.name} title={e.img ? e.char : e.name}
+                      onMouseDown={(ev) => ev.preventDefault()} onFocus={() => setAt(i)} onClick={() => pick(e)}>{e.img ? <img src={e.img} alt="" className="custom-emoji" /> : e.char}</button>
                   );
                 })}
               </div>
