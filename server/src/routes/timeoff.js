@@ -167,6 +167,23 @@ export default function timeOffRoutes() {
     res.json({ date, out, holiday, waiting });
   });
 
+  // A year's time off as a spreadsheet (admins, for payroll): one row per approved request, with the
+  // working days it took in that year; ?all=1 adds waiting, declined and cancelled ones.
+  r.get('/report.csv', (req, res) => {
+    if (!req.user.is_admin) throw forbidden('Only admins download the time off report');
+    const year = Number(req.query.year) || new Date().getUTCFullYear();
+    const hol = holidaySet(req.user.org_id);
+    const rows = q(`SELECT t.*, u.name, u.username, d.name AS decided_by_name FROM time_off t JOIN users u ON u.id = t.user_id LEFT JOIN users d ON d.id = t.decided_by
+                    WHERE u.org_id = ? AND t.start_date <= ? AND t.end_date >= ? ${req.query.all ? '' : "AND t.status = 'approved'"} ORDER BY u.name, t.start_date`)
+      .all(req.user.org_id, `${year}-12-31`, `${year}-01-01`);
+    const cell = (v) => { const x = String(v ?? ''); const safe = /^[=+\-@\t\r]/.test(x) ? `'${x}` : x; return /[",\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe; };
+    const lines = [['Name', 'Email', 'Kind', 'First day', 'Last day', 'Part of the day', `Working days in ${year}`, 'Status', 'Decided by', 'Note']]
+      .concat(rows.map((t) => [t.name, t.username, KINDS[t.kind], t.start_date, t.end_date, t.half ? HALVES[t.half] : 'all day', daysOf(t, hol, year), t.status, t.decided_by_name || '', t.note || '']));
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="time-off-${year}.csv"`);
+    res.send(`\ufeff${lines.map((l) => l.map(cell).join(',')).join('\r\n')}\r\n`);
+  });
+
   // Company holidays: everyone sees them (for the calendar); admins add and remove them.
   r.get('/holidays', (req, res) => {
     const from = DATE.test(req.query.from || '') ? req.query.from : '0000-01-01', to = DATE.test(req.query.to || '') ? req.query.to : '9999-12-31';

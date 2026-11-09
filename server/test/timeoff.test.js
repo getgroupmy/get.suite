@@ -11,6 +11,7 @@ const { workdays } = await import('../src/routes/timeoff.js');
 let server, base;
 test.before(async () => { server = createApp().listen(0); await new Promise((r) => server.once('listening', r)); base = `http://127.0.0.1:${server.address().port}`; });
 test.after(() => server.close());
+const cookieOf = async (u) => (await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ username: u, password: 'password123' }) })).headers.get('set-cookie').split(';')[0];
 function client() {
   let cookie = '';
   return async (method, url, body) => {
@@ -207,4 +208,21 @@ test('half days: the morning or the afternoon of one day, half a day off the all
   assert.deepEqual([out.half, out.back], ['am', null]);
   assert.ok(before);
   await boss('PUT', '/api/time-off/allowance', { days: null });
+});
+
+test('the time off report: the year\'s approved time off as CSV, for admins', async () => {
+  const boss = client(), tom = client();
+  await boss('POST', '/api/auth/login', { username: 'bea@acme.com', password: 'password123' });
+  await tom('POST', '/api/auth/login', { username: 'tom@acme.com', password: 'password123' });
+  assert.equal((await tom('GET', '/api/time-off/report.csv?year=2027')).status, 403);
+  const csv = await (await fetch(`${base}/api/time-off/report.csv?year=2027`, { headers: { cookie: await cookieOf('bea@acme.com') } })).text();
+  const lines = csv.replace(/^﻿/, '').trim().split('\r\n');
+  assert.equal(lines[0], 'Name,Email,Kind,First day,Last day,Part of the day,Working days in 2027,Status,Decided by,Note');
+  assert.ok(lines.some((l) => l === 'Tom Team,tom@acme.com,Vacation,2027-04-01,2027-04-02,all day,2,approved,Mia Manager,'), lines.join('\n'));
+  assert.ok(lines.some((l) => l.startsWith('Tom Team,tom@acme.com,Vacation,2027-06-07,2027-06-07,morning,0.5,approved,Mia Manager,Dentist')));
+  assert.ok(lines.slice(1).every((l) => l.includes(',approved,')), 'approved only');
+  const all = await (await fetch(`${base}/api/time-off/report.csv?year=2027&all=1`, { headers: { cookie: await cookieOf('bea@acme.com') } })).text();
+  assert.ok(all.includes(',cancelled,') && all.includes(',pending,'));
+  // Across New Year: only that year's days.
+  assert.ok(all.split('\r\n').some((l) => l.includes('2027-12-30,2028-01-04,all day,2,')));
 });

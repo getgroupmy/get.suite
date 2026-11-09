@@ -129,6 +129,13 @@ function Team({ team, onChanged }) {
         </form>
       )}
       {team.can_set && <Holidays year={team.year} />}
+      {team.can_set && (
+        <p className="small" style={{ margin: 0 }}>
+          <a href={`/api/time-off/report.csv?year=${team.year}`} download>Download {team.year}'s time off (.csv)</a>
+          <span className="muted"> · approved time off with the working days each took, for payroll · </span>
+          <a href={`/api/time-off/report.csv?year=${team.year}&all=1`} download>with every request</a>
+        </p>
+      )}
       <table className="timeoff-team">
         <thead><tr><th scope="col">Person</th><th scope="col">Vacation in {team.year}</th><th scope="col">Coming up</th>{team.can_set && <th scope="col">Days a year</th>}</tr></thead>
         <tbody>
