@@ -7481,4 +7481,15 @@ test('Office files: comments in a Word file become comment threads on the docume
   assert.equal(threads[0].created_at, Date.parse('2026-10-01T10:00:00Z'));
   const content = JSON.stringify((await owner('GET', `/api/files/${opened.id}/content`)).body.content);
   assert.ok(content.includes(`"type":"comment","attrs":{"id":"${threads[0].id}"}`), 'its words are marked with the thread');
+  // A reply, then the Word download: the thread goes back as a Word comment, with the reply.
+  assert.equal((await owner('POST', `/api/comments/${opened.id}`, { body: 'Checked, it is right', thread_id: threads[0].id })).status, 201);
+  const { docFromWord } = await import('../src/office/word.js');
+  const out = await owner('GET', `/api/files/${opened.id}/export`, undefined, { binary: true });
+  const back = await docFromWord(out.body);
+  assert.equal(back.comments.length, 1);
+  assert.equal(back.comments[0].quote, '12 percent');
+  assert.match(back.comments[0].text, /^Can we check this figure\?\n\n— Jane Smith \(in the Word file\)\n.*: Checked, it is right$/);
+  // Resolved threads stay out.
+  assert.equal((await owner('PATCH', `/api/comments/${opened.id}/${threads[0].id}`, { resolved: true })).status, 200);
+  assert.deepEqual((await docFromWord((await owner('GET', `/api/files/${opened.id}/export`, undefined, { binary: true })).body)).comments, []);
 });

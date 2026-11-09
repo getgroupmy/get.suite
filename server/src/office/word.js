@@ -19,7 +19,7 @@ import { TextStyle, Color, BackgroundColor } from '@tiptap/extension-text-style'
 import {
   Document, Packer, Paragraph, TextRun, HeadingLevel, ExternalHyperlink, AlignmentType, LevelFormat, BorderStyle,
   Math as WordMath, MathRun, Table as WordTable, TableRow as WordRow, TableCell as WordCell, WidthType, ShadingType, ImageRun, Header, Footer, PageNumber, PageOrientation, LineRuleType,
-  Bookmark, InternalHyperlink, PageBreak, FootnoteReferenceRun,
+  Bookmark, InternalHyperlink, PageBreak, FootnoteReferenceRun, CommentRangeStart, CommentRangeEnd, CommentReference,
 } from 'docx';
 import { Node, Mark } from '@tiptap/core';
 import { pageMm, MARGINS, PAPER } from '../pagesetup.js';
@@ -229,6 +229,8 @@ const CHIP_FILLS = { grey: 'E8EAED', blue: 'D3E3FD', green: 'C4EED0', yellow: 'F
 
 // The notes of the document being written (wordFromDoc fills it as it meets footnote markers).
 let footnotes = null;
+// While writing: the comment threads going into the file (thread id → Word's comment number).
+let commentNos = null;
 // Its bookmarks' ids, so links to them become links inside the Word file.
 let bookmarkIds = new Set();
 // Its headings' anchors (#budget-costs) → their Word bookmarks (toc_1…).
@@ -244,7 +246,16 @@ const internalAnchor = (href) => {
 
 function runs(nodes = [], extra = {}) {
   const out = [];
+  // Comments: a range starts where a thread's words start and ends (with its reference) where they stop.
+  const open = new Set();
+  const comments = (n) => (commentNos ? (n.marks || []).filter((m) => m.type === 'comment' && commentNos.has(m.attrs?.id)).map((m) => commentNos.get(m.attrs.id)) : []);
+  const close = (keep = []) => {
+    for (const no of [...open]) if (!keep.includes(no)) { out.push(new CommentRangeEnd(no), new TextRun({ children: [new CommentReference(no)] })); open.delete(no); }
+  };
   for (const n of nodes) {
+    const here = n.type === 'text' ? comments(n) : [];
+    close(here);
+    for (const no of here) if (!open.has(no)) { out.push(new CommentRangeStart(no)); open.add(no); }
     if (n.type === 'hardBreak') { out.push(new TextRun({ break: 1 })); continue; }
     if (n.type === 'mention') { out.push(new TextRun({ text: `@${n.attrs?.name || ''}`, bold: true, color: '1A73E8' })); continue; }
     if (n.type === 'citation') { out.push(new TextRun({ text: inText(n.attrs), ...extra })); continue; }
@@ -272,6 +283,7 @@ function runs(nodes = [], extra = {}) {
     else if (marks.link?.href) out.push(new ExternalHyperlink({ link: marks.link.href, children: [new TextRun({ ...run, style: 'Hyperlink' })] }));
     else out.push(new TextRun(run));
   }
+  close();
   return out;
 }
 
@@ -408,7 +420,11 @@ function signaturePage(sig) {
   return out;
 }
 
-export async function wordFromDoc(doc, title = 'Document', { pictureData, page, signatures = null } = {}) {
+/**
+ * `comments`: the document's open threads, [{ id, author, at, text, replies: [{ author, at, text }] }];
+ * each becomes a Word comment on the words its thread marks (replies as further paragraphs).
+ */
+export async function wordFromDoc(doc, title = 'Document', { pictureData, page, signatures = null, comments = [] } = {}) {
   // Pictures first (reading them is asynchronous), then the document in one pass.
   const pictures = new Map();
   const collect = (n) => { if (n?.type === 'image' && n.attrs?.fileId) pictures.set(n.attrs.fileId, null); for (const c of n?.content || []) collect(c); };
@@ -516,15 +532,28 @@ export async function wordFromDoc(doc, title = 'Document', { pictureData, page, 
     }
   }
   footnotes = [];
+  // Only threads whose words are still in the document (Word needs somewhere to put them).
+  const marked = new Set();
+  const findMarks = (n) => { for (const m of n?.marks || []) if (m.type === 'comment') marked.add(m.attrs?.id); for (const c of n?.content || []) findMarks(c); };
+  findMarks(doc);
+  const wordComments = (comments || []).filter((c) => marked.has(c.id)).slice(0, 1000);
+  commentNos = new Map(wordComments.map((c, i) => [c.id, i]));
   bookmarkIds = new Set();
   headingAnchors = new Map(anchorsOf(contents).map((a, k) => [a, `toc_${k + 1}`]));
   (function find(n) { if (n?.type === 'bookmark' && BOOKMARK_ID.test(n.attrs?.id || '')) bookmarkIds.add(n.attrs.id); (n?.content || []).forEach(find); })(doc);
   let paras, notes;
-  try { paras = block(doc?.content); notes = footnotes; } finally { footnotes = null; bookmarkIds = new Set(); headingAnchors = new Map(); }
+  try { paras = block(doc?.content); notes = footnotes; } finally { footnotes = null; commentNos = null; bookmarkIds = new Set(); headingAnchors = new Map(); }
   if (signatures) paras.push(...signaturePage(signatures));
   const file = new Document({
     title,
     ...(notes.length && { footnotes: Object.fromEntries(notes.map((t, i) => [i + 1, { children: [new Paragraph(t)] }])) }),
+    ...(wordComments.length && { comments: { children: wordComments.map((c, i) => ({
+      id: i, author: String(c.author || 'Workspace').slice(0, 100), ...(c.at && { date: new Date(c.at) }),
+      children: [
+        ...String(c.text || '').split('\n').map((line) => new Paragraph(line)),
+        ...(c.replies || []).flatMap((r) => String(r.text || '').split('\n').map((line, k) => new Paragraph({ children: [...(k === 0 ? [new TextRun({ text: `${r.author || 'Reply'}: `, bold: true })] : []), new TextRun(line)] }))),
+      ],
+    })) } }),
     numbering: { config: [{ reference: 'numbers', levels: [0, 1, 2, 3].map((level) => ({ level, format: LevelFormat.DECIMAL, text: `%${level + 1}.`, alignment: AlignmentType.START, style: { paragraph: { indent: { left: 720 * (level + 1), hanging: 360 } } } })) }] },
     sections: [{ ...sectionSetup(page), children: paras.length ? paras : [new Paragraph('')] }],
   });

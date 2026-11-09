@@ -1313,3 +1313,26 @@ test('Word: comments come in on the words they were about', async () => {
   const plain = await docFromWord(await Packer.toBuffer(new Document({ sections: [{ children: [new Paragraph('x')] }] })));
   assert.deepEqual(plain.comments, []);
 });
+
+test('Word: open comment threads go into the download as Word comments', async () => {
+  const doc = { type: 'doc', content: [
+    { type: 'paragraph', content: [{ type: 'text', text: 'Revenue grew by ' }, { type: 'text', text: '12', marks: [{ type: 'comment', attrs: { id: 't1' } }] }, { type: 'text', text: ' percent', marks: [{ type: 'bold' }, { type: 'comment', attrs: { id: 't1' } }] }, { type: 'text', text: ' this year.' }] },
+    { type: 'paragraph', content: [{ type: 'text', text: 'Costs were flat.', marks: [{ type: 'comment', attrs: { id: 't2' } }] }] },
+  ] };
+  const comments = [
+    { id: 't1', author: 'Olivia Owner', at: Date.parse('2026-11-01T09:00:00Z'), text: 'Check this figure', replies: [{ author: 'Kim Park', text: 'Checked: it is right' }] },
+    { id: 't2', author: 'Kim Park', at: null, text: 'Fine', replies: [] },
+    { id: 'gone', author: 'X', text: 'On words no longer there', replies: [] },
+  ];
+  const buf = await wordFromDoc(doc, 'Report', { comments });
+  const back = await docFromWord(buf);
+  assert.deepEqual(back.comments.map((c) => [c.author, c.text, c.quote]), [
+    ['Olivia Owner', 'Check this figure\nKim Park: Checked: it is right', '12 percent'],
+    ['Kim Park', 'Fine', 'Costs were flat.'],
+  ]);
+  assert.equal(back.comments[0].at, Date.parse('2026-11-01T09:00:00Z'));
+  assert.equal(text(back.doc.content[0]), 'Revenue grew by 12 percent this year.', 'the text is as it was');
+  // Without threads, no comments part at all.
+  const zip = await (await import('jszip')).default.loadAsync(await wordFromDoc(doc, 'Report'));
+  assert.equal(zip.file('word/comments.xml'), null);
+});

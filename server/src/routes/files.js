@@ -76,6 +76,15 @@ q(`CREATE TABLE IF NOT EXISTS access_requests (
   UNIQUE (file_id, user_id)
 )`).run();
 const openLink = (f) => ({ folder: `/drive/folder/${f.id}`, doc: `/docs/${f.id}`, sheet: `/sheets/${f.id}`, slides: `/slides/${f.id}` }[f.kind] || '/drive/shared');
+/** A document's open comment threads, for its Word download: [{ id, author, at, text, replies }]. */
+function wordCommentsOf(fileId) {
+  const rows = q(`SELECT c.id, c.thread_id, c.body, c.created_at, u.name AS author FROM file_comments c LEFT JOIN users u ON u.id = c.author_id
+                  WHERE c.file_id = ? AND (c.thread_id IS NOT NULL OR c.resolved = 0) ORDER BY c.created_at`).all(fileId);
+  const threads = new Map();
+  for (const r of rows) if (!r.thread_id) threads.set(r.id, { id: r.id, author: r.author || 'Former user', at: r.created_at, text: r.body, replies: [] });
+  for (const r of rows) if (r.thread_id && threads.has(r.thread_id)) threads.get(r.thread_id).replies.push({ author: r.author || 'Former user', at: r.created_at, text: r.body });
+  return [...threads.values()];
+}
 const setupOf = (f) => { if (!f.page_setup || typeof f.page_setup === 'object') return f.page_setup || null; try { return JSON.parse(f.page_setup); } catch { return null; } };
 
 /** A column's letters: 0 → A, 26 → AA. */
@@ -533,7 +542,7 @@ export default function fileRoutes({ maxUploadBytes }) {
           if (!pic || !(/^image\//.test(pic.mime || '') || (f.kind === 'slides' && /^video\//.test(pic.mime || ''))) || !atLeast(roleFor(f.id, pic.owner_id), 'editor')) return null; // pictures, and videos on slides
           return { data: fs.readFileSync(path.join(FILES_DIR, pic.storage)), mime: pic.mime };
         };
-        const buf = f.kind === 'doc' ? await wordFromDoc(content, f.name, { pictureData, page: setupOf(f) }) : f.kind === 'sheet' ? await excelFromSheet(content) : await powerPointFromDeck(content, { title: f.name, pictureData });
+        const buf = f.kind === 'doc' ? await wordFromDoc(content, f.name, { pictureData, page: setupOf(f), comments: wordCommentsOf(f.id) }) : f.kind === 'sheet' ? await excelFromSheet(content) : await powerPointFromDeck(content, { title: f.name, pictureData });
         zip.file(e.path, buf);
       }
     }
@@ -1152,7 +1161,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     };
     let buf;
     if (type === 'md') buf = Buffer.from(markdownFromDoc(content), 'utf8');
-    else if (type === 'docx') buf = await wordFromDoc(content, f.name, { pictureData, page: setupOf(f), signatures: (await import('./signatures.js')).signedRecord(f.id) });
+    else if (type === 'docx') buf = await wordFromDoc(content, f.name, { pictureData, page: setupOf(f), comments: wordCommentsOf(f.id), signatures: (await import('./signatures.js')).signedRecord(f.id) });
     else if (type === 'xlsx') buf = await excelFromSheet(content);
     else buf = await powerPointFromDeck(content, { title: f.name, pictureData });
     res.setHeader('Content-Type', OFFICE[type].mime);
