@@ -994,8 +994,10 @@ function Compose({ initial, shared = null, signatures = [], onClose, onSent, onD
   };
   const reopen = () => { setWaiting(false); setBusy(false); closed.current = false; dirty.current = true; };
 
+  const archiveAfter = useRef(false); // Send & archive was pressed
   async function send(e) {
     e.preventDefault();
+    archiveAfter.current = e.nativeEvent?.submitter?.dataset?.archive === '1';
     // Only this form's own submit sends. Dialogs opened from the message (e.g. the link dialog) are
     // rendered elsewhere in the page, but React still passes their events up to here.
     if (e.target !== e.currentTarget) return;
@@ -1031,7 +1033,11 @@ function Compose({ initial, shared = null, signatures = [], onClose, onSent, onD
       pendingSend.current = null;
       try {
         const r = await post('/mail/send', body, { mailbox });
-        toast(`Sent to ${r.recipients} recipient${r.recipients === 1 ? '' : 's'}`);
+        // Send & archive: the message replied to leaves the inbox once the reply is on its way.
+        const archived = archiveAfter.current && body.replyTo?.uid
+          ? await post('/mail/messages/move', { folder: body.replyTo.folder, uids: [body.replyTo.uid], to: 'archive' }, { mailbox }).then(() => true, () => false)
+          : false;
+        toast(`Sent to ${r.recipients} recipient${r.recipients === 1 ? '' : 's'}${archived ? ' and archived' : ''}`);
         onSent();
       } catch (err) { toast(err.message, 'error'); reopen(); }
     };
@@ -1126,6 +1132,7 @@ function Compose({ initial, shared = null, signatures = [], onClose, onSent, onD
             {!shared && <Menu align="left" trigger={(p) => <button type="button" className="btn primary split-more" aria-label="Schedule for later" title="Schedule for later" disabled={busy || uploading > 0 || !f.to.trim() || total > 25 * 1024 * 1024} {...p}><Icon name="clock" size={16} /></button>}
               items={[...laterChoices().map(([label, at]) => ({ label: `${label} · ${whenText(at)}`, onClick: () => sendLater(at) })), '-', { label: 'Pick date and time…', icon: 'calendar', onClick: () => setScheduling(true) }]} />}
           </div>
+          {f.replyTo?.uid && !/archive/i.test(f.replyTo.folder || '') && <button className="btn" data-archive="1" title="Send, and archive the message you're replying to" disabled={busy || uploading > 0 || !f.to.trim() || total > 25 * 1024 * 1024}><Icon name="archive" size={16} /> Send &amp; archive</button>}
           <button type="button" className="icon-btn" aria-label="Attach from computer" title="Attach from computer" onClick={() => fileInput.current.click()}><Icon name="attach" /></button>
           <button type="button" className="icon-btn" aria-label="Attach from Drive" title="Attach from Drive" onClick={() => setPicking(true)}><Icon name="folder" /></button>
           <label className="check small" title="The recipient's mail app may offer to tell you when they open it; they can say no"><input type="checkbox" checked={receipt} onChange={(e) => setReceipt(e.target.checked)} /> Read receipt</label>
