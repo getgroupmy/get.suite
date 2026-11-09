@@ -36,3 +36,35 @@ test('the first matching rule for a cell wins', () => {
   assert.equal(describeRule({ range: 'A1:A5', when: 'between', value: '1', value2: '9' }), 'A1:A5 · Between 1 and 9');
   assert.equal(describeRule({ range: 'A1:A5', when: 'empty' }), 'A1:A5 · Is empty');
 });
+
+test('rules over the whole range: duplicates, unique, top and bottom, above and below average', async () => {
+  const { ruleStyle, ruleContext, rangeStats, formulaFor, describeRule } = await import('./condformat.js');
+  const { createEvaluator } = await import('./formula.js');
+  const ev = createEvaluator({ A1: 'pear', A2: 'Apple', A3: 'apple', A4: 'kiwi', B1: 10, B2: 40, B3: 20, B4: 40, B5: 5, C1: 'x', C2: 'done', C3: 'x', C4: 'done' });
+  const ctx = ruleContext(ev, ev.formulaAt);
+  const on = (when, range, key, value) => !!ruleStyle([{ id: 'r', range, when, value, fill: '#f00' }], key, ev(key), ctx);
+  assert.deepEqual(['A1', 'A2', 'A3', 'A4'].map((k) => on('duplicate', 'A1:A4', k)), [false, true, true, false], 'any case counts as the same');
+  assert.deepEqual(['A1', 'A2', 'A4', 'A5'].map((k) => on('unique', 'A1:A5', k)), [true, false, true, false], 'blanks are neither');
+  assert.deepEqual(['B1', 'B2', 'B3', 'B4', 'B5'].map((k) => on('top', 'B1:B5', k, '2')), [false, true, false, true, false]);
+  assert.deepEqual(['B1', 'B2', 'B3', 'B4', 'B5'].map((k) => on('bottom', 'B1:B5', k, '2')), [true, false, false, false, true]);
+  assert.deepEqual(['B1', 'B2', 'B3', 'B5'].map((k) => on('aboveAvg', 'B1:B5', k)), [false, true, false, false], 'average 23');
+  assert.deepEqual(['B1', 'B2', 'B3', 'B5'].map((k) => on('belowAvg', 'B1:B5', k)), [true, false, true, true]);
+  assert.equal(rangeStats({ range: 'B1:B5' }, ev).avg, 23);
+  assert.equal(describeRule({ range: 'B1:B5', when: 'top', value: '3' }), 'B1:B5 · Top 3');
+  // Without the sheet to look at (say, a rule list on its own), whole-range rules colour nothing.
+  assert.equal(ruleStyle([{ range: 'A1:A4', when: 'duplicate' }], 'A2', 'Apple'), null);
+});
+
+test('custom formula rules move along the range like a copied formula', async () => {
+  const { ruleStyle, ruleContext, formulaFor } = await import('./condformat.js');
+  const { createEvaluator } = await import('./formula.js');
+  const ev = createEvaluator({ A1: 'Ana', B1: 120, A2: 'Bo', B2: 80, A3: 'Cy', B3: 300, D1: 100 });
+  const ctx = ruleContext(ev, ev.formulaAt);
+  const rule = { id: 'f', range: 'A1:B3', when: 'formula', value: '=$B1>$D$1', fill: '#e6f4ea' };
+  assert.equal(formulaFor(rule, 'A2'), '=$B2>$D$1');
+  assert.equal(formulaFor(rule, 'B3'), '=$B3>$D$1');
+  assert.deepEqual(['A1', 'B1', 'A2', 'B2', 'A3', 'B3'].map((k) => !!ruleStyle([rule], k, ev(k), ctx)), [true, true, false, false, true, true], 'whole rows by their B cell');
+  assert.equal(!!ruleStyle([{ ...rule, value: 'ISEVEN(ROW())' }], 'A2', 'Bo', ctx), true, 'the = can be left off');
+  assert.equal(!!ruleStyle([{ ...rule, value: '=1/0' }], 'A1', 'Ana', ctx), false, 'an error colours nothing');
+  assert.equal(!!ruleStyle([{ ...rule, value: '=NOPE(' }], 'A1', 'Ana', ctx), false, 'nor does a broken formula');
+});

@@ -36,7 +36,7 @@ import { addGroup, removeGroups, toggleGroup, collapsedOn, toggleAt } from './gr
 import { FilterMenu } from './SheetFilter.jsx';
 import { SheetPreview, SheetChanges } from './SheetPreview.jsx';
 import { VersionHistory } from '../VersionHistory.jsx';
-import { ruleStyle } from './condformat.js';
+import { ruleStyle, ruleContext } from './condformat.js';
 import { bandStyle } from './bands.js';
 import { copyFormats, paintFormats } from './paint.js';
 import { BandsDialog } from './SheetBands.jsx';
@@ -184,6 +184,7 @@ export default function SheetEditor() {
     return () => { off(); clearInterval(t); window.removeEventListener('focus', refreshImports); };
   }, []);
   const evaluate = useMemo(() => (data?.sheets ? bookEvaluator(data.sheets, Math.min(active, data.sheets.length - 1), { book: importBook, depth: 0 }, data.functions) : createEvaluator(cells, names)), [data?.sheets, data?.functions, active, cells, names, importsAt]);
+  const ruleCtx = useMemo(() => ruleContext(evaluate, evaluate.formulaAt), [evaluate]); // for whole-range and custom formula rules
   // A cell's value on this sheet (sheet null) or another tab by name, for dropdowns taking their choices from a range.
   const valueOf = useMemo(() => {
     const others = new Map();
@@ -1050,7 +1051,7 @@ export default function SheetEditor() {
                   const fmt = formats[k];
                   const vd = validations.length ? validationAt(validations, k) : null;
                   return (
-                    <td key={k} data-k={k} {...spanProps} style={{ maxWidth: span ? undefined : widthOf(c), ...stickyStyle(c, r), ...bandStyle(bands, c, r, fmt), ...cellStyle(fmt), ...(fmt?.num === 'custom' && codeColour(v, fmt) && { color: codeColour(v, fmt) }), ...(rules.length && ruleStyle(rules, k, v)), ...(theirs.has(k) && { boxShadow: `${isSel ? 'inset 0 0 0 2px var(--accent), ' : ''}inset 0 0 0 ${isSel ? 4 : 2}px ${theirs.get(k).color}` }) }}
+                    <td key={k} data-k={k} {...spanProps} style={{ maxWidth: span ? undefined : widthOf(c), ...stickyStyle(c, r), ...bandStyle(bands, c, r, fmt), ...cellStyle(fmt), ...(fmt?.num === 'custom' && codeColour(v, fmt) && { color: codeColour(v, fmt) }), ...(rules.length && ruleStyle(rules, k, v, ruleCtx)), ...(theirs.has(k) && { boxShadow: `${isSel ? 'inset 0 0 0 2px var(--accent), ' : ''}inset 0 0 0 ${isSel ? 4 : 2}px ${theirs.get(k).color}` }) }}
                       title={notes[k] ? `Note: ${notes[k]}` : theirs.has(k) ? `${theirs.get(k).name} is here` : commented.has(k) ? 'Has comments' : spilledFrom ? `From the formula in ${spilledFrom}` : undefined}
                       className={`${frozenClass(c, r)} ${spilledFrom ? 'spilled' : ''} ${vd ? `has-${vd.type}` : ''} ${commented.has(k) ? 'commented' : ''} ${isSel ? 'sel' : ''} ${inRange(c, r) && anchor ? 'range' : ''} ${typeof v === 'number' ? 'num' : ''} ${isErr ? 'err' : ''} ${hits?.keys.has(k) ? (hits.current === k ? 'find-current' : 'find-hit') : ''} ${!readOnly && guardBoxes.length && guarded(c, r) ? 'guarded' : ''} ${inFill(c, r) ? 'fill-preview' : ''}`}
                       onContextMenu={(e) => { if (!inRange(c, r)) { setAnchor(null); setSel({ c, r }); } openMenu(e, 'cell'); }}
@@ -1170,7 +1171,7 @@ export default function SheetEditor() {
           setDialog(null);
           printHtml(sheetPrintHtml({
             title: `${file.name} - ${sheet.name}`, area, text: shown,
-            style: (k) => { const m = /^([A-Z]+)(\d+)$/.exec(k); return { ...(m && bandStyle(bands, colIndex(m[1]), Number(m[2]) - 1, formats[k])), ...cellStyle(formats[k]), ...(rules.length && ruleStyle(rules, k, evaluate(k))) }; },
+            style: (k) => { const m = /^([A-Z]+)(\d+)$/.exec(k); return { ...(m && bandStyle(bands, colIndex(m[1]), Number(m[2]) - 1, formats[k])), ...cellStyle(formats[k]), ...(rules.length && ruleStyle(rules, k, evaluate(k), ruleCtx)) }; },
             layout, hiddenRows: hidden, hiddenCols, width: widthOf, gridlines: o.gridlines, landscape: o.landscape, paper: o.paper,
           }));
         }} />

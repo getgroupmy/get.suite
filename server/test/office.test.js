@@ -1061,3 +1061,25 @@ test('Excel downloads of tables: values as they are (never formulas), dates and 
   assert.equal(ws.getRow(1).font.bold, true);
   assert.equal(ws.views[0].state, 'frozen');
 });
+
+test('Excel: duplicates, unique values, top and bottom, averages and custom formula rules carry both ways', async () => {
+  const rules = [
+    { id: 'a', range: 'A2:A20', when: 'duplicate', fill: '#fce8e6' },
+    { id: 'b', range: 'A2:A20', when: 'unique', fill: '#e6f4ea' },
+    { id: 'c', range: 'B2:B20', when: 'top', value: '3', fill: '#e6f4ea' },
+    { id: 'd', range: 'B2:B20', when: 'bottom', value: '2', fill: '#fce8e6' },
+    { id: 'e', range: 'B2:B20', when: 'aboveAvg', fill: '#e8f0fe' },
+    { id: 'f', range: 'B2:B20', when: 'belowAvg', fill: '#fef7e0' },
+    { id: 'g', range: 'A2:C20', when: 'formula', value: '=AND($C2="done",TEXTAFTER($A2,"@")<>"")', fill: '#f1f3f4' },
+  ];
+  const back = await sheetFromExcel(await excelFromSheet({ sheets: [{ name: 'S', rules, cells: { A1: 'x' } }] }));
+  assert.deepEqual(back.sheets[0].rules.map(({ id, ...r }) => r), rules.map(({ id, ...r }) => r));
+  // How Excel itself writes them in the file.
+  const ExcelJS = (await import('exceljs')).default;
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(await excelFromSheet({ sheets: [{ name: 'S', rules, cells: { A1: 'x' } }] }));
+  const xr = wb.worksheets[0].conditionalFormattings.flatMap((cf) => cf.rules);
+  assert.equal(xr[0].formulae[0], 'AND(A2<>"",COUNTIF($A$2:$A$20,A2)>1)');
+  assert.deepEqual([xr[2].type, xr[2].rank, xr[3].bottom, xr[5].aboveAverage], ['top10', 3, true, false]);
+  assert.equal(xr[6].formulae[0], 'AND($C2="done",_xlfn.TEXTAFTER($A2,"@")<>"")', 'newer functions get Excel\'s prefix');
+});

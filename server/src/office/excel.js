@@ -481,6 +481,14 @@ const quoted = (t) => `"${String(t ?? '').replace(/"/g, '""')}"`;
 function ruleToExcel(r) {
   if (OPS[r.when]) return { type: 'cellIs', operator: OPS[r.when], formulae: r.when === 'between' ? [formula(r.value), formula(r.value2)] : [formula(r.value)] };
   const cell = String(r.range).split(':')[0].replace(/\$/g, '');
+  // Rules over the whole range; duplicates and unique values as the formula Excel itself would use.
+  if (r.when === 'top' || r.when === 'bottom') return { type: 'top10', rank: Math.max(1, Math.min(1000, Math.trunc(Number(r.value)) || 10)), ...(r.when === 'bottom' && { bottom: true }) };
+  if (r.when === 'aboveAvg' || r.when === 'belowAvg') return { type: 'aboveAverage', ...(r.when === 'belowAvg' && { aboveAverage: false }) };
+  if (r.when === 'duplicate' || r.when === 'unique') {
+    const abs = String(r.range).replace(/\$/g, '').split(':').map((x) => x.replace(/^([A-Z]+)(\d+)$/i, '$$$1$$$2')).join(':');
+    return { type: 'expression', formulae: [`AND(${cell}<>"",COUNTIF(${abs},${cell})${r.when === 'duplicate' ? '>1' : '=1'})`] };
+  }
+  if (r.when === 'formula') { const f = String(r.value ?? '').trim().replace(/^=/, ''); return f ? { type: 'expression', formulae: [formulaToExcel(f)] } : null; }
   const f = {
     contains: `NOT(ISERROR(SEARCH(${quoted(r.value)},${cell})))`,
     notContains: `ISERROR(SEARCH(${quoted(r.value)},${cell}))`,
@@ -499,7 +507,10 @@ function ruleFromExcel(x) {
     if (!when) return null;
     return { when, value: unformula(x.formulae?.[0]), ...(when === 'between' && { value2: unformula(x.formulae?.[1]) }) };
   }
-  const f = String(x.formulae?.[0] || '').trim().replace(/\$(?=[A-Z0-9])/g, '');
+  if (x.type === 'top10') return { when: x.bottom ? 'bottom' : 'top', value: String(x.percent ? 10 : (x.rank || 10)) };
+  if (x.type === 'aboveAverage') return { when: x.aboveAverage === false ? 'belowAvg' : 'aboveAvg' };
+  const raw = String(x.formulae?.[0] || '').trim();
+  const f = raw.replace(/\$(?=[A-Z0-9])/g, '');
   const str = '"((?:[^"]|"")*)"';
   const un = (t) => t.replace(/""/g, '"');
   let m;
@@ -510,6 +521,10 @@ function ruleFromExcel(x) {
   if (/^LEN\(TRIM\([A-Z]+\d+\)\)>0$/i.test(f)) return { when: 'notEmpty' };
   if (/^ISERROR\([A-Z]+\d+\)$/i.test(f)) return { when: 'error' };
   if (x.type === 'containsText' && x.text !== undefined) return { when: { notContains: 'notContains', beginsWith: 'starts' }[x.operator] || 'contains', value: String(x.text) };
+  if ((m = /^AND\([A-Z]+\d+<>"",COUNTIF\([A-Z]+\d+:[A-Z]+\d+,[A-Z]+\d+\)(>1|=1)\)$/i.exec(f))) return { when: m[1] === '>1' ? 'duplicate' : 'unique' };
+  if ((m = /^COUNTIF\([A-Z]+\d+:[A-Z]+\d+,[A-Z]+\d+\)(>1|=1)$/i.exec(f))) return { when: m[1] === '>1' ? 'duplicate' : 'unique' };
+  // Any other formula rule: kept as a custom formula (with its $ signs).
+  if (x.type === 'expression' && raw) return { when: 'formula', value: `=${formulaFromExcel(raw)}` };
   return null;
 }
 

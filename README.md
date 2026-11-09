@@ -298,8 +298,10 @@ Select rows (or columns) by their headings, then **Group rows 2–4** in the rig
 ## Conditional formatting (Sheets)
 
 - **Rules** in the toolbar colours cells by their value: greater or less than, between, equal or not equal to, text that contains, doesn't contain or starts with something, empty or not, or an error. Pick a colour (and bold) and the cells it applies to; the selection is filled in for you.
+- **Looking at the whole range:** **Duplicate values** colours every value that comes more than once in the cells the rule covers (any case counts as the same: *Acme* and *acme*), **Unique values** the ones that come once; **Top** and **Bottom** colour the highest or lowest few numbers (ties at the edge included); **Above average** and **Below average** compare each number with the range's average. Blank cells are never coloured by these.
+- **Custom formula is:** any formula that's TRUE for the cells to colour, written for the first cell of the range and moved along to the others like a copied formula. `$` keeps a column or row fixed, so `=$C2="late"` over `A2:F50` colours whole rows whose C cell says *late*, `=B2>AVERAGE($B$2:$B$50)*1.5` picks out large values, and `=ISEVEN(ROW())` stripes the rows. A formula that gives an error colours nothing.
 - A sheet can have several rules. They're tried from the top, and the first that fits a cell colours it; the arrows change the order.
-- The colours follow the values as they change, for everyone editing. Rules move with their cells when rows or columns are inserted or deleted, and carry to and from Excel.
+- The colours follow the values as they change, for everyone editing. Rules move with their cells when rows or columns are inserted or deleted, and carry to and from Excel (duplicates and unique values as COUNTIF formula rules, top and bottom, above and below average as Excel's own, and any other formula rule from Excel as a custom formula).
 
 ## Pivot tables (Sheets)
 

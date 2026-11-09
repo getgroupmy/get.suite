@@ -46,7 +46,7 @@ function RuleForm({ rule, onSave, onCancel }) {
   const set = (k) => (e) => setR({ ...r, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value });
   const okRange = !!parseRange(r.range);
   const needs = NEEDS_VALUE.has(r.when);
-  const ok = okRange && (!needs || String(r.value ?? '').trim() !== '') && (r.when !== 'between' || String(r.value2 ?? '').trim() !== '');
+  const ok = okRange && (!needs || String(r.value ?? '').trim() !== '') && (!['top', 'bottom'].includes(r.when) || Number(r.value) >= 1) && (r.when !== 'between' || String(r.value2 ?? '').trim() !== '');
   return (
     <form className="stack" onSubmit={(e) => { e.preventDefault(); if (ok) onSave(r); }}>
       <label className="field"><span>Apply to cells</span><input value={r.range} onChange={set('range')} aria-invalid={!okRange} placeholder="B2:B20" /></label>
@@ -54,9 +54,12 @@ function RuleForm({ rule, onSave, onCancel }) {
         <label className="field"><span>When the value is</span>
           <select value={r.when} onChange={set('when')}>{CONDITIONS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
         </label>
-        {needs && <label className="field"><span>{r.when === 'between' ? 'From' : 'Value'}</span><input value={r.value ?? ''} onChange={set('value')} /></label>}
+        {needs && r.when === 'formula' && <label className="field grow"><span>Formula</span><input className="mono" value={r.value ?? ''} onChange={set('value')} placeholder="=$C2>100" /></label>}
+        {needs && (r.when === 'top' || r.when === 'bottom') && <label className="field"><span>How many</span><input type="number" min={1} max={1000} value={r.value ?? ''} onChange={set('value')} /></label>}
+        {needs && !['formula', 'top', 'bottom'].includes(r.when) && <label className="field"><span>{r.when === 'between' ? 'From' : 'Value'}</span><input value={r.value ?? ''} onChange={set('value')} /></label>}
         {r.when === 'between' && <label className="field"><span>To</span><input value={r.value2 ?? ''} onChange={set('value2')} /></label>}
       </div>
+      {r.when === 'formula' && <p className="muted small" style={{ margin: 0 }}>Write it for the first cell of the range ({String(r.range || '').split(':')[0] || 'its top left cell'}); it moves along to each cell like a copied formula, and colours the cells where it's TRUE. Put $ before a column or row to keep it fixed: <code>=$C2&gt;100</code> colours a whole row by its C cell.</p>}
       <fieldset className="rule-styles">
         <legend className="muted small">Format</legend>
         {STYLES.map(([fill, color, name]) => (

@@ -1435,6 +1435,17 @@ export function createEvaluator(cells, names = null, book = null) {
   get.spilledKeys = () => { if (pending === null) findSpills(); return [...spillFrom.keys()]; };
   get.named = namedValue;
   get.range = range;
+  /** A formula worked out as if it were in cell `key` (ROW() is that row): its value, or { error }. For custom formula rules. */
+  const tried = new Map();
+  get.formulaAt = (src, key) => {
+    const text = String(src).replace(/^=/, '');
+    try {
+      let ast = tried.get(text);
+      if (!ast) { ast = parse(text); if (tried.size < 500) tried.set(text, ast); }
+      const outer = here; here = key;
+      try { const v = evaluate(ast); return Array.isArray(v) ? (v.length ? v[0] : null) : v; } finally { here = outer; }
+    } catch (e) { if (e instanceof FormulaError) return { error: e.code }; throw e; }
+  };
   return get;
 }
 
