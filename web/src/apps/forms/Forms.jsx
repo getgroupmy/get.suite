@@ -410,6 +410,7 @@ function ResponsesTab({ form, responses, reload, setting, flush }) {
         <strong className="grow">{responses.length === 1 ? '1 response' : `${responses.length} responses`}</strong>
         <label className="check"><input type="checkbox" checked={form.accepting} onChange={(e) => setting({ accepting: e.target.checked })} /> Accepting responses</label>
         <a className="btn" href={`/api/forms/${form.id}/responses.csv`} download>Download CSV</a>
+        <a className="btn" href={`/api/forms/${form.id}/responses.xlsx`} download>Download Excel</a>
         {linked
           ? <span className="row linked-sheet"><a className="btn" href={`/sheets/${linked.id}`} target="_blank" rel="noreferrer"><Icon name="sheet" size={18} /> Linked spreadsheet</a>
             <button type="button" className="link-btn small" onClick={unlink}>Unlink</button></span>

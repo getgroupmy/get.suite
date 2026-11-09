@@ -266,6 +266,7 @@ export default function Tasks() {
               { label: 'Time report…', icon: 'clock', onClick: () => setDialog('time') },
               { label: 'Import from CSV…', icon: 'upload', onClick: () => importInput.current?.click() },
               { label: 'Download as CSV', icon: 'download', onClick: () => { window.location.href = `/api/tasks/lists/${list.id}/export.csv`; } },
+              { label: 'Download as Excel (.xlsx)', icon: 'download', onClick: () => { window.location.href = `/api/tasks/lists/${list.id}/export.xlsx`; } },
               { label: 'Print list', icon: 'print', onClick: () => printHtml(listPrintHtml(list.name, open, done)) },
               { label: 'Make a copy…', icon: 'copy', onClick: () => setDialog('copy') },
               ...(done.length ? [{ label: `Delete completed tasks (${done.length})`, icon: 'check', onClick: async () => { await del(`/tasks/lists/${list.id}/done`); loadTasks(); } }] : []),

@@ -1041,3 +1041,22 @@ test('PowerPoint: outlines on shapes and text boxes, and a text box\'s own colou
   const plain = back.find((i) => i.text === 'Plain');
   assert.deepEqual([plain.type, plain.fill, plain.outline], ['text', undefined, undefined]);
 });
+
+test('Excel downloads of tables: values as they are (never formulas), dates and numbers typed, heading frozen', async () => {
+  const ExcelJS = (await import('exceljs')).default;
+  const { excelFromTable } = await import('../src/office/excel.js');
+  const buf = await excelFromTable('Responses: Q1/Q2', [['Name', 'Due', 'Count', 'Note'], ['=cmd()', '2026-11-09', '12', 'two\nlines'], ['+SUM(A1)', '', '0012345678901234567', '']]);
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(buf);
+  const ws = wb.worksheets[0];
+  assert.equal(ws.name, 'Responses  Q1 Q2');
+  assert.equal(ws.getCell('A2').value, '=cmd()', 'text, not a formula');
+  assert.equal(ws.getCell('A2').formula, undefined);
+  assert.equal(ws.getCell('A3').value, '+SUM(A1)');
+  assert.ok(ws.getCell('B2').value instanceof Date);
+  assert.equal(ws.getCell('C2').value, 12);
+  assert.equal(ws.getCell('C3').value, '0012345678901234567', 'long digit strings stay text');
+  assert.equal(ws.getCell('D2').alignment.wrapText, true);
+  assert.equal(ws.getRow(1).font.bold, true);
+  assert.equal(ws.views[0].state, 'frozen');
+});

@@ -7,6 +7,7 @@ import { mailEnabled } from '../mail/config.js';
 import { smtpFor } from '../mail/imap.js';
 import { CHECKS, cleanCheck, checkProblem } from '../formcheck.js';
 import { templateList, templateById } from '../formtemplates.js';
+import { excelFromTable, sendXlsx } from '../office/excel.js';
 import { Router } from 'express';
 import crypto from 'node:crypto';
 import { q, tx } from '../db.js';
@@ -564,6 +565,11 @@ export default function formRoutes() {
     if (file.mime !== 'application/pdf') res.setHeader('Content-Security-Policy', "default-src 'none'; img-src 'self'; media-src 'self'; style-src 'unsafe-inline'");
     res.setHeader('Content-Disposition', `${inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(file.name)}`);
     res.sendFile(path.join(FILES_DIR, file.storage));
+  });
+
+  r.get('/:id/responses.xlsx', async (req, res) => {
+    const f = ownForm(req.params.id, req.user);
+    sendXlsx(res, `${f.title.replace(/[^\w .-]+/g, '').trim() || 'form'} responses.xlsx`, await excelFromTable('Responses', responseTable(f, responsesOf(f.id))));
   });
 
   r.get('/:id/responses.csv', (req, res) => {

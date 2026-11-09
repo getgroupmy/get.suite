@@ -512,3 +512,40 @@ function ruleFromExcel(x) {
   if (x.type === 'containsText' && x.text !== undefined) return { when: { notContains: 'notContains', beginsWith: 'starts' }[x.operator] || 'contains', value: String(x.text) };
   return null;
 }
+
+/**
+ * A table (a heading row, then rows) as an Excel workbook (Buffer), for downloads: every value as it
+ * is, so text starting with "=" stays text (never a formula); numbers and YYYY-MM-DD dates as such,
+ * the heading row bold, frozen and filterable, columns as wide as their contents (within reason).
+ */
+export async function excelFromTable(sheetName, table) {
+  const wb = new ExcelJS.Workbook();
+  wb.creator = 'Workspace';
+  const ws = wb.addWorksheet(String(sheetName || 'Sheet').replace(/[\\/?*[\]:]/g, ' ').slice(0, 31) || 'Sheet', { views: [{ state: 'frozen', ySplit: 1 }] });
+  const widths = [];
+  table.forEach((row, r) => row.forEach((raw, c) => {
+    const cell = ws.getCell(r + 1, c + 1);
+    if (typeof raw === 'number' && Number.isFinite(raw)) cell.value = raw;
+    else {
+      const v = String(raw ?? '');
+      if (r > 0 && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(`${v}T00:00:00Z`))) { cell.value = new Date(`${v}T00:00:00Z`); cell.numFmt = 'yyyy-mm-dd'; }
+      else if (r > 0 && /^-?\d+(\.\d+)?$/.test(v) && v.length < 15) cell.value = Number(v);
+      else cell.value = v; // text, written as text
+      if (v.includes('\n')) cell.alignment = { wrapText: true, vertical: 'top' };
+    }
+    widths[c] = Math.max(widths[c] || 8, Math.min(60, Math.max(...String(raw ?? '').split('\n').map((l) => l.length)) + 2));
+  }));
+  widths.forEach((w, c) => { ws.getColumn(c + 1).width = w; });
+  if (table.length) {
+    ws.getRow(1).font = { bold: true };
+    ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: Math.max(1, table[0].length) } };
+  }
+  return Buffer.from(await wb.xlsx.writeBuffer());
+}
+
+/** Send a workbook as a download. */
+export function sendXlsx(res, filename, buf) {
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
+  res.send(buf);
+}

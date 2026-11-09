@@ -7365,3 +7365,32 @@ test('Chat: download a conversation, for people in it', async () => {
   assert.match(html.body, /Conversation with Ex Ann/);
   assert.equal((await c('GET', `/api/chat/channels/${dm}/export`)).status, 404, 'not in it');
 });
+
+test('Excel downloads: form responses and a task list', async () => {
+  const ExcelJS = (await import('exceljs')).default;
+  const read = async (body) => { const wb = new ExcelJS.Workbook(); await wb.xlsx.load(Buffer.from(body)); return wb.worksheets[0]; };
+  const a = client(), b = client();
+  for (const [local, name] of [['xlsxa', 'Xl Ann'], ['xlsxb', 'Xl Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'xlsxa@acme.com');
+  await login(b, 'xlsxb@acme.com');
+  const f = (await a('PUT', `/api/forms/${(await a('POST', '/api/forms', { title: 'Lunch' })).body.id}`, { questions: [{ id: 'food', type: 'short', title: 'Food' }] })).body;
+  await b('POST', `/api/public/forms/${f.token}`, { answers: { food: '=HYPERLINK("x")' } });
+  const x = await a('GET', `/api/forms/${f.id}/responses.xlsx`, undefined, { binary: true });
+  assert.equal(x.status, 200);
+  assert.match(x.headers.get('content-type'), /spreadsheetml/);
+  assert.match(x.headers.get('content-disposition'), /Lunch%20responses\.xlsx/);
+  const ws = await read(x.body);
+  assert.deepEqual([ws.getCell('A1').value, ws.getCell('D1').value], ['Submitted', 'Food']);
+  assert.equal(ws.getCell('D2').value, '=HYPERLINK("x")', 'an answer is never a formula');
+  assert.equal((await b('GET', `/api/forms/${f.id}/responses.xlsx`)).status, 404, 'only its owner and editors');
+
+  const list = (await a('POST', '/api/tasks/lists', { name: 'Launch' })).body;
+  await a('POST', `/api/tasks/lists/${list.id}/tasks`, { title: 'Book venue', due: '2026-12-01' });
+  const t = await a('GET', `/api/tasks/lists/${list.id}/export.xlsx`, undefined, { binary: true });
+  assert.equal(t.status, 200);
+  const tw = await read(t.body);
+  assert.equal(tw.name, 'Launch');
+  assert.deepEqual([tw.getCell('A1').value, tw.getCell('A2').value], ['Task', 'Book venue']);
+  assert.ok(tw.getCell('C2').value instanceof Date, 'the due date as a date');
+  assert.equal((await b('GET', `/api/tasks/lists/${list.id}/export.xlsx`)).status, 404);
+});
