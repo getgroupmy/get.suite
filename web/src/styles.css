@@ -2276,3 +2276,8 @@ textarea.mono { font-family: ui-monospace, Consolas, monospace; }
 .consent-card { max-width: 440px; width: 100%; }
 .consent-card h1 { font-size: 22px; margin: 0; }
 .oidc-facts { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; margin: 0; } .oidc-facts dt { font-weight: 600; } .oidc-facts dd { margin: 0; }
+.home-apps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }
+.home-apps a { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 6px; border-radius: 10px; color: inherit; text-decoration: none; font-size: 13px; text-align: center; min-width: 0; }
+.home-apps a:hover { background: var(--hover); }
+.home-app-icon { width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; background: var(--accent); color: #fff; font-weight: 700; font-size: 18px; }
+.home-apps .ellipsis { max-width: 100%; }

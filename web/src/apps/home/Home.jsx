@@ -32,12 +32,13 @@ export default function Home() {
     const start = new Date(); start.setHours(0, 0, 0, 0);
     const from = start.getTime(), to = from + 864e5 - 1;
     const safe = (p, empty) => p.catch(() => empty);
-    const [events, due, channels, recent, notes, unread, approvals, where, signing, away] = await Promise.all([
+    const [events, due, channels, recent, notes, unread, approvals, where, signing, away, apps] = await Promise.all([
       safe(get(`/events?from=${from}&to=${to}`), []), safe(get(`/tasks/due?from=2000-01-01&to=${localToday()}`), []),
       safe(get('/chat/channels'), { channels: [] }), safe(get('/files?view=recent'), []), safe(get('/notes'), []),
       mail?.enabled ? safe(get('/mail/unread'), null) : Promise.resolve(null), safe(get('/approvals'), { waiting: [] }),
       safe(get(`/location?from=${localToday()}&to=${localToday()}`), { days: {} }), safe(get('/signatures'), { waiting: [] }),
       safe(get(`/time-off/out?date=${localToday()}`), { out: [], holiday: null, waiting: 0 }),
+      safe(get('/oauth/launcher'), []),
     ]);
     setData({
       events: expandAll(events, from, to).filter((e) => e.my_status !== 'no'),
@@ -50,6 +51,7 @@ export default function Home() {
       where: where.days?.[localToday()] || null,
       unread: unread?.unseen ?? null,
       away,
+      apps,
     });
   }, [mail?.enabled]);
   useEffect(() => { if (mail) load(); }, [load, mail]);
@@ -144,6 +146,17 @@ export default function Home() {
                   <li key={s.id}><Icon name="doc" size={16} />
                     <a className="grow home-item" href={s.link}>{s.title}</a>
                     <span className="muted small nowrap">{s.requested_by?.name}</span></li>
+                ))}
+              </ul>
+            </section>
+          )}
+          {data.apps.length > 0 && (
+            <section className="card home-card" aria-label="Company apps">
+              <h2><Icon name="apps" size={18} /> Company apps</h2>
+              <ul className="home-apps">
+                {data.apps.map((a) => (
+                  <li key={a.id}><a href={a.url} target="_blank" rel="noopener noreferrer" title={`Open ${a.name} (you sign in with Workspace)`}>
+                    <span className="home-app-icon" aria-hidden="true">{a.name.trim()[0]?.toUpperCase()}</span><span className="ellipsis">{a.name}</span></a></li>
                 ))}
               </ul>
             </section>

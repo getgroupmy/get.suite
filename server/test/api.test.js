@@ -6748,3 +6748,21 @@ test('Sign in with Workspace: an app can be kept to some groups', async () => {
   assert.deepEqual((await kay('PATCH', `/api/oauth/apps/${app.id}`, { allowed_groups: [] })).body.allowed_groups, []);
   assert.equal((await kay('POST', '/api/oauth/approve', params)).status, 200);
 });
+
+test('company apps on Home: the ones you may use that have an address', async () => {
+  const kay = client(); const me = await login(kay, 'kay@keepco.com');
+  const pat = client(); await login(pat, 'phv@keepco.com');
+  const grp = (await kay('POST', '/api/groups', { name: 'Finance only' })).body;
+  await kay('PUT', `/api/groups/${grp.id}/members`, { user_ids: [me.id] });
+  assert.equal((await kay('POST', '/api/oauth/apps', { name: 'X', redirect_uris: ['https://x.example/cb'], home_url: 'javascript:alert(1)' })).status, 400);
+  const books = (await kay('POST', '/api/oauth/apps', { name: 'Books', redirect_uris: ['https://books.example/cb'], home_url: 'https://books.example/', allowed_groups: [grp.id] })).body;
+  await kay('POST', '/api/oauth/apps', { name: 'Hidden', redirect_uris: ['https://h.example/cb'] });
+  const wiki = (await kay('POST', '/api/oauth/apps', { name: 'Atlas wiki', redirect_uris: ['https://wiki2.example/cb'] })).body;
+  await kay('PATCH', `/api/oauth/apps/${wiki.id}`, { home_url: 'https://wiki2.example' });
+  const mine = (await kay('GET', '/api/oauth/launcher')).body.map((a) => a.name);
+  assert.ok(mine.includes('Books') && mine.includes('Atlas wiki') && !mine.includes('Hidden'));
+  const theirs = (await pat('GET', '/api/oauth/launcher')).body;
+  assert.ok(theirs.some((a) => a.name === 'Atlas wiki' && a.url === 'https://wiki2.example/'));
+  assert.ok(!theirs.some((a) => a.name === 'Books'), 'only for its group');
+  assert.equal(books.home_url, 'https://books.example/');
+});

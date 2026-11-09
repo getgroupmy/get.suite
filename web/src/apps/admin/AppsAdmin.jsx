@@ -68,13 +68,14 @@ export default function AppsAdmin() {
 function AppDialog({ app, groups, onClose, onSave }) {
   const [name, setName] = useState(app?.name || '');
   const [uris, setUris] = useState((app?.redirect_uris || []).join('\n'));
+  const [home, setHome] = useState(app?.home_url || '');
   const [some, setSome] = useState(!!app?.allowed_groups?.length);
   const [chosen, setChosen] = useState(new Set(app?.allowed_groups || []));
   const [error, setError] = useState('');
   const submit = async (e) => {
     e.preventDefault();
     if (some && !chosen.size) { setError('Pick at least one group, or let everyone use it'); return; }
-    try { await onSave({ name, redirect_uris: uris.split(/\s+/).filter(Boolean), allowed_groups: some ? [...chosen] : [] }); } catch (err) { setError(err.message); }
+    try { await onSave({ name, redirect_uris: uris.split(/\s+/).filter(Boolean), allowed_groups: some ? [...chosen] : [], home_url: home.trim() || null }); } catch (err) { setError(err.message); }
   };
   const toggle = (id) => setChosen((c) => { const n = new Set(c); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   return (
@@ -83,6 +84,8 @@ function AppDialog({ app, groups, onClose, onSave }) {
         <label className="field"><span>Name (people see it when they sign in)</span><input autoFocus required value={name} onChange={(e) => setName(e.target.value)} placeholder="Company wiki" maxLength={100} /></label>
         <label className="field"><span>Redirect (callback) address, one per line — from the app's settings</span>
           <textarea rows={3} required value={uris} onChange={(e) => setUris(e.target.value)} placeholder="https://wiki.example.com/auth/callback" /></label>
+        <label className="field"><span>The app's address (optional: it then shows under Company apps on everyone's Home page)</span>
+          <input type="url" value={home} onChange={(e) => setHome(e.target.value)} placeholder="https://wiki.example.com" /></label>
         <fieldset className="stack-tight" style={{ border: 0, padding: 0, margin: 0 }}>
           <legend className="small" style={{ fontWeight: 600, marginBottom: 4 }}>Who can use it</legend>
           <label className="check"><input type="radio" name="who" checked={!some} onChange={() => setSome(false)} /> Everyone in the company</label>

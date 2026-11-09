@@ -65,6 +65,8 @@ q(`CREATE TABLE IF NOT EXISTS oidc_keys (
 
 // Who may use an app: everyone in the company, or only people in some of its groups (JSON [group ids]).
 if (!q('PRAGMA table_info(oidc_clients)').all().some((c) => c.name === 'allowed_groups')) q('ALTER TABLE oidc_clients ADD COLUMN allowed_groups TEXT').run();
+// The app's own address (its home page), for the apps on Workspace's Home page.
+if (!q('PRAGMA table_info(oidc_clients)').all().some((c) => c.name === 'home_url')) q('ALTER TABLE oidc_clients ADD COLUMN home_url TEXT').run();
 /** Whether someone may sign in to an app. */
 export function mayUse(c, user) {
   if (!user || user.org_id !== c.org_id) return false;
@@ -114,7 +116,7 @@ export function cleanRedirect(u) {
 }
 
 const clientBy = (clientId) => q('SELECT * FROM oidc_clients WHERE client_id = ?').get(String(clientId || ''));
-const shapeClient = (c) => ({ id: c.id, name: c.name, client_id: c.client_id, redirect_uris: JSON.parse(c.redirect_uris), allowed_groups: c.allowed_groups ? JSON.parse(c.allowed_groups) : [], created_at: c.created_at, last_used_at: c.last_used_at });
+const shapeClient = (c) => ({ id: c.id, name: c.name, client_id: c.client_id, redirect_uris: JSON.parse(c.redirect_uris), allowed_groups: c.allowed_groups ? JSON.parse(c.allowed_groups) : [], home_url: c.home_url || null, created_at: c.created_at, last_used_at: c.last_used_at });
 
 /** What an app may learn about someone, by scope. */
 function claimsFor(user, scopes) {
@@ -251,6 +253,12 @@ export function oidcApiRoutes() {
     res.json({ redirect: redirectWith(b.redirect_uri, { error: 'access_denied', state: b.state }) });
   });
 
+  // The company's apps you may use that have a home page, for the launcher on Home.
+  r.get('/launcher', (req, res) => {
+    res.json(q('SELECT * FROM oidc_clients WHERE org_id = ? AND home_url IS NOT NULL ORDER BY name COLLATE NOCASE').all(req.user.org_id)
+      .filter((c) => mayUse(c, req.user)).map((c) => ({ id: c.id, name: c.name, url: c.home_url })));
+  });
+
   // Apps you've let in (and taking that back).
   r.get('/grants', (req, res) => res.json(q(`SELECT g.client_id, g.scope, g.granted_at, c.name FROM oidc_grants g JOIN oidc_clients c ON c.client_id = g.client_id WHERE g.user_id = ? ORDER BY c.name`).all(req.user.id)));
   r.delete('/grants/:clientId', (req, res) => {
@@ -277,8 +285,8 @@ export function oidcApiRoutes() {
     if (q('SELECT COUNT(*) AS n FROM oidc_clients WHERE org_id = ?').get(req.user.org_id).n >= 50) throw bad('At most 50 apps');
     const groups = readGroups(req, req.body?.allowed_groups);
     const id = uid(), clientId = `ws-${crypto.randomBytes(9).toString('base64url')}`, secret = crypto.randomBytes(30).toString('base64url');
-    q('INSERT INTO oidc_clients (id, org_id, name, client_id, secret_hash, redirect_uris, allowed_groups, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(id, req.user.org_id, name, clientId, sha(secret), JSON.stringify(uris), groups.length ? JSON.stringify(groups) : null, req.user.id, now());
+    q('INSERT INTO oidc_clients (id, org_id, name, client_id, secret_hash, redirect_uris, allowed_groups, home_url, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, req.user.org_id, name, clientId, sha(secret), JSON.stringify(uris), groups.length ? JSON.stringify(groups) : null, readHome(req.body?.home_url), req.user.id, now());
     audit(req, 'oidc.app_added', { target: name, details: { redirect_uris: uris } });
     res.status(201).json({ ...shapeClient(q('SELECT * FROM oidc_clients WHERE id = ?').get(id)), client_secret: secret }); // the secret is shown this once
   });
@@ -289,13 +297,21 @@ export function oidcApiRoutes() {
     for (const id of ids) if (!q('SELECT 1 FROM groups WHERE id = ? AND org_id = ?').get(id, req.user.org_id)) throw bad('Unknown group');
     return ids;
   };
+  const readHome = (v) => {
+    if (v === undefined || v === null || String(v).trim() === '') return null;
+    let u;
+    try { u = new URL(String(v).trim()); } catch { throw bad('The app’s address must be a web address'); }
+    if (!/^https?:$/.test(u.protocol)) throw bad('The app’s address must start with https:// or http://');
+    return u.toString();
+  };
   const ownApp = (req) => { admin(req); const c = q('SELECT * FROM oidc_clients WHERE id = ? AND org_id = ?').get(req.params.id, req.user.org_id); if (!c) throw notFound('App not found'); return c; };
   r.patch('/apps/:id', (req, res) => {
     const c = ownApp(req);
     const name = req.body?.name !== undefined ? String(req.body.name).trim().slice(0, 100) || c.name : c.name;
     const uris = req.body?.redirect_uris !== undefined ? readUris(req.body.redirect_uris) : JSON.parse(c.redirect_uris);
     const groups = req.body?.allowed_groups !== undefined ? readGroups(req, req.body.allowed_groups) : (c.allowed_groups ? JSON.parse(c.allowed_groups) : []);
-    q('UPDATE oidc_clients SET name = ?, redirect_uris = ?, allowed_groups = ? WHERE id = ?').run(name, JSON.stringify(uris), groups.length ? JSON.stringify(groups) : null, c.id);
+    const home = req.body?.home_url !== undefined ? readHome(req.body.home_url) : c.home_url;
+    q('UPDATE oidc_clients SET name = ?, redirect_uris = ?, allowed_groups = ?, home_url = ? WHERE id = ?').run(name, JSON.stringify(uris), groups.length ? JSON.stringify(groups) : null, home, c.id);
     res.json(shapeClient(q('SELECT * FROM oidc_clients WHERE id = ?').get(c.id)));
   });
   r.post('/apps/:id/secret', (req, res) => { // a new secret (the old one stops working)
