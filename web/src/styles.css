@@ -1041,7 +1041,13 @@ kbd { display: inline-block; min-width: 1.4em; padding: 1px 5px; border: 1px sol
 .msg-actions { position: absolute; right: 12px; top: -14px; display: none; gap: 2px; padding: 2px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow); z-index: 2; }
 .msg-actions .icon-btn { width: 30px; height: 30px; font-size: 16px; }
 .msg:hover .msg-actions, .msg-actions:focus-within { display: flex; }
-@media (hover: none) { .msg-actions { position: static; display: flex; box-shadow: none; border: 0; background: none; } }
+/* Touch screens (no hover): a message's actions show when it's tapped, on their own line under it. */
+@media (hover: none) {
+  .msg { flex-wrap: wrap; }
+  .msg:focus { outline: none; }
+  .msg-actions { position: static; display: none; flex-basis: 100%; overflow-x: auto; box-shadow: none; border: 0; background: none; padding-left: 44px; }
+  .msg:focus-within .msg-actions { display: flex; }
+}
 .reactions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
 .reaction { border: 1px solid var(--border); background: var(--surface-2); border-radius: 12px; padding: 1px 8px; font: inherit; font-size: 13px; cursor: pointer; }
 .reaction.mine { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-text); }
@@ -2141,3 +2147,21 @@ textarea.mono { font-family: ui-monospace, Consolas, monospace; }
 
 /* No connection (main.jsx) */
 .offline-bar { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 1000; background: #202124; color: #fff; padding: 8px 16px; border-radius: 8px; font-size: 14px; box-shadow: 0 2px 8px rgba(0,0,0,.3); max-width: calc(100vw - 32px); }
+
+/* Phones: the chat composer's message box gets its own line, the buttons go under it. */
+@media (max-width: 600px) {
+  .composer { flex-wrap: wrap; border-radius: 16px; margin: 8px 10px 10px; padding: 6px 8px 6px 12px; }
+  .composer textarea { flex: 1 1 100%; min-width: 0; order: -1; }
+}
+
+/* The document toolbar on phones: folded behind one button, so the page has the room; unfolded it
+   wraps as usual (no scrolling strip, so its menus aren't cut off). */
+.toolbar .tb-fold { display: none; }
+@media (max-width: 600px) {
+  .toolbar.foldable { margin: 0 8px 6px; border-radius: 12px; }
+  .toolbar.foldable .tb-fold { display: inline-flex; width: auto; padding: 0 10px; font-size: 14px; }
+  .toolbar.foldable:not(.open) > :not(.tb-fold) { display: none !important; }
+  .editor-head { flex-wrap: wrap; min-height: 0; gap: 6px; padding: 6px 10px; }
+  .editor-title input { width: min(480px, 60vw); }
+  .save-status { white-space: nowrap; }
+}

@@ -515,7 +515,7 @@ function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit
   };
   const soon = [['In 20 minutes', Date.now() + 20 * 60e3], ['In 1 hour', Date.now() + 36e5], ...laterChoices()];
   return (
-    <div className={`msg ${grouped ? 'grouped' : ''} ${m.pinned_at ? 'pinned' : ''}`} data-mid={m.id}>
+    <div className={`msg ${grouped ? 'grouped' : ''} ${m.pinned_at ? 'pinned' : ''}`} data-mid={m.id} tabIndex={-1} /* tapped on a touch screen: shows its actions */>
       {grouped ? <span className="msg-gutter" /> : m.user_id ? <button type="button" className="avatar-btn" aria-label={`About ${m.user_name}`} onClick={() => setCard(true)}><Avatar name={m.user_name || 'Deleted user'} size={36} userId={m.user_id} /></button> : m.bot ? <span className="msg-bot-avatar" aria-hidden="true">🤖</span> : <Avatar name="Deleted user" size={36} />}
       {card && <PersonCard userId={m.user_id} onClose={() => setCard(false)} />}
       <div className="msg-body">

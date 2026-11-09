@@ -579,6 +579,7 @@ const escapeHtml = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt
 function Toolbar({ editor, onDropdown, onEquation, onCite, onSymbols, onComment, onPictures, onLinkFile, onChart }) {
   const pictureInput = useRef();
   const [, force] = useState(0);
+  const [open, setOpen] = useState(false); // phones: the toolbar folds away behind one button
   useEffect(() => {
     const f = () => force((n) => n + 1);
     editor.on('selectionUpdate', f);
@@ -595,7 +596,8 @@ function Toolbar({ editor, onDropdown, onEquation, onCite, onSymbols, onComment,
     : editor.isActive('heading', { level: 3 }) ? 'h3' : 'p';
 
   return (
-    <div className="toolbar" role="toolbar" aria-label="Formatting">
+    <div className={`toolbar foldable ${open ? 'open' : ''}`} role="toolbar" aria-label="Formatting">
+      <button type="button" className="tb tb-fold" aria-expanded={open} onMouseDown={(e) => e.preventDefault()} onClick={() => setOpen(!open)}>{open ? 'Hide formatting ▴' : 'Formatting ▾'}</button>
       <B label="↶" title="Undo (Ctrl+Z)" onClick={() => c().undo().run()} />
       <B label="↷" title="Redo (Ctrl+Y)" onClick={() => c().redo().run()} />
       <span className="sep" />
