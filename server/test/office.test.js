@@ -1326,10 +1326,13 @@ test('Word: open comment threads go into the download as Word comments', async (
   ];
   const buf = await wordFromDoc(doc, 'Report', { comments });
   const back = await docFromWord(buf);
-  assert.deepEqual(back.comments.map((c) => [c.author, c.text, c.quote]), [
-    ['Olivia Owner', 'Check this figure\nKim Park: Checked: it is right', '12 percent'],
-    ['Kim Park', 'Fine', 'Costs were flat.'],
-  ]);
+  assert.deepEqual(back.comments.map((c) => [c.author, c.text, c.quote, c.replies.map((r) => [r.author, r.text])]), [
+    ['Olivia Owner', 'Check this figure', '12 percent', [['Kim Park', 'Checked: it is right']]],
+    ['Kim Park', 'Fine', 'Costs were flat.', []],
+  ], 'the reply is a Word reply, and comes back as one');
+  // A resolved thread is marked done in Word, and comes back resolved.
+  const done = await docFromWord(await wordFromDoc(doc, 'Report', { comments: [{ ...comments[0], resolved: true }] }));
+  assert.equal(done.comments[0].resolved, true);
   assert.equal(back.comments[0].at, Date.parse('2026-11-01T09:00:00Z'));
   assert.equal(text(back.doc.content[0]), 'Revenue grew by 12 percent this year.', 'the text is as it was');
   // Without threads, no comments part at all.

@@ -7466,6 +7466,30 @@ test('forms: opening automatically at a set time', async () => {
   assert.equal((await own('PUT', `/api/forms/${f.id}`, { open_at: null })).body.open_at, null);
 });
 
+test('Office files: replies and resolved comments in a Word file', async () => {
+  const { Document, Packer, Paragraph, TextRun, CommentRangeStart, CommentRangeEnd, CommentReference } = await import('docx');
+  const docx = await Packer.toBuffer(new Document({
+    comments: { children: [
+      { id: 0, author: 'Jane Smith', date: new Date('2026-10-01T10:00:00Z'), children: [new Paragraph('Is this right?')] },
+      { id: 1, author: 'Raj Patel', date: new Date('2026-10-02T10:00:00Z'), parentId: 0, children: [new Paragraph('Yes, checked.')] },
+      { id: 2, author: 'Jane Smith', date: new Date('2026-10-03T10:00:00Z'), children: [new Paragraph('Old note')], resolved: true },
+    ] },
+    sections: [{ children: [new Paragraph({ children: [
+      new CommentRangeStart(0), new CommentRangeStart(1), new TextRun('Sales'), new CommentRangeEnd(0), new CommentRangeEnd(1), new TextRun({ children: [new CommentReference(0)] }), new TextRun({ children: [new CommentReference(1)] }),
+      new TextRun(' and '), new CommentRangeStart(2), new TextRun('costs'), new CommentRangeEnd(2), new TextRun({ children: [new CommentReference(2)] }),
+    ] })] }],
+  }));
+  const up = (await owner('POST', '/api/files/upload?name=Threads.docx', docx, { raw: true })).body;
+  const opened = (await owner('POST', `/api/files/${up.id}/open-as`)).body;
+  const all = (await owner('GET', `/api/comments/${opened.id}`)).body;
+  const top = all.filter((c) => !c.thread_id);
+  assert.equal(top.length, 2, 'the reply is not a thread of its own');
+  const sales = top.find((c) => c.anchor.quote === 'Sales');
+  assert.deepEqual(all.filter((c) => c.thread_id === sales.id).map((c) => c.body), ['Yes, checked.\n\n— Raj Patel (in the Word file)']);
+  assert.equal(top.find((c) => c.anchor.quote === 'costs').resolved, true);
+  assert.equal(sales.resolved, false);
+});
+
 test('Office files: comments in a Word file become comment threads on the document', async () => {
   const { Document, Packer, Paragraph, TextRun, CommentRangeStart, CommentRangeEnd, CommentReference } = await import('docx');
   const docx = await Packer.toBuffer(new Document({
@@ -7488,7 +7512,8 @@ test('Office files: comments in a Word file become comment threads on the docume
   const back = await docFromWord(out.body);
   assert.equal(back.comments.length, 1);
   assert.equal(back.comments[0].quote, '12 percent');
-  assert.match(back.comments[0].text, /^Can we check this figure\?\n\n— Jane Smith \(in the Word file\)\n.*: Checked, it is right$/);
+  assert.equal(back.comments[0].text, 'Can we check this figure?\n\n— Jane Smith (in the Word file)');
+  assert.deepEqual(back.comments[0].replies.map((r) => r.text), ['Checked, it is right'], 'the reply goes out as a Word reply');
   // Resolved threads stay out.
   assert.equal((await owner('PATCH', `/api/comments/${opened.id}/${threads[0].id}`, { resolved: true })).status, 200);
   assert.deepEqual((await docFromWord((await owner('GET', `/api/files/${opened.id}/export`, undefined, { binary: true })).body)).comments, []);

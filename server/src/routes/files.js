@@ -1129,10 +1129,14 @@ export default function fileRoutes({ maxUploadBytes }) {
     const json = JSON.stringify(content);
     const id = insertFile({ owner: req.user.id, parentId, name, kind: OFFICE[type].kind, content: json, size: Buffer.byteLength(json) });
     // A Word file's comments: threads on the same words, by whoever opened it, naming who wrote them in Word.
+    const signed = (c) => (c.author ? `${c.text}\n\n— ${c.author} (in the Word file)` : c.text);
     for (const c of wordComments) {
-      const body = c.author ? `${c.text}\n\n— ${c.author} (in the Word file)` : c.text;
-      q('INSERT INTO file_comments (id, file_id, thread_id, author_id, body, anchor, created_at) VALUES (?, ?, NULL, ?, ?, ?, ?)')
-        .run(c.id, id, req.user.id, body, JSON.stringify({ quote: c.quote || '' }), c.at || now());
+      q('INSERT INTO file_comments (id, file_id, thread_id, author_id, body, anchor, resolved, resolved_by, created_at) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?)')
+        .run(c.id, id, req.user.id, signed(c), JSON.stringify({ quote: c.quote || '' }), c.resolved ? 1 : 0, c.resolved ? req.user.id : null, c.at || now());
+      for (const r of c.replies || []) {
+        q('INSERT INTO file_comments (id, file_id, thread_id, author_id, body, anchor, created_at) VALUES (?, ?, ?, ?, ?, NULL, ?)')
+          .run(uid(), id, c.id, req.user.id, signed(r), r.at || c.at || now());
+      }
     }
     // A Word file's page setup stays: paper, orientation, margins, header, footer, page numbers, watermark, columns, line numbers.
     if (type === 'docx') {

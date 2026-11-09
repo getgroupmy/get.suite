@@ -147,10 +147,27 @@ export async function commentsOfWord(buffer) {
       const author = unx(/w:author="([^"]*)"/.exec(m[1])?.[1] || '').trim();
       const date = Date.parse(/w:date="([^"]*)"/.exec(m[1])?.[1] || '');
       const text = [...m[2].matchAll(/<w:p\b[\s\S]*?<\/w:p>/g)].map((p) => unx([...p[0].matchAll(/<w:t(?:\s[^>]*)?>([^<]*)<\/w:t>/g)].map((t) => t[1]).join(''))).join('\n').trim();
-      if (id && text) out.set(id, { author: author.slice(0, 100), text: text.slice(0, 5000), at: Number.isFinite(date) ? date : null });
+      const paraId = [...m[2].matchAll(/w14:paraId="([0-9A-Fa-f]+)"/g)].pop()?.[1]?.toUpperCase() || null;
+      if (id && text) out.set(id, { author: author.slice(0, 100), text: text.slice(0, 5000), at: Number.isFinite(date) ? date : null, paraId });
       if (out.size >= 500) break;
     }
+    // Replies and resolved threads (Word 2013 on): commentsExtended.xml links a comment's last paragraph to its parent's.
+    const ext = await (await JSZip.loadAsync(buffer)).file('word/commentsExtended.xml')?.async('string');
+    if (ext) {
+      const byPara = new Map([...out].filter(([, c]) => c.paraId).map(([wid, c]) => [c.paraId, wid]));
+      for (const e of ext.matchAll(/<w15:commentEx\b([^>]*)\/?>/g)) {
+        const pid = /w15:paraId="([0-9A-Fa-f]+)"/.exec(e[1])?.[1]?.toUpperCase();
+        const parent = /w15:paraIdParent="([0-9A-Fa-f]+)"/.exec(e[1])?.[1]?.toUpperCase();
+        const wid = pid && byPara.get(pid);
+        if (!wid) continue;
+        if (parent && byPara.has(parent) && byPara.get(parent) !== wid) out.get(wid).parent = byPara.get(parent);
+        if (/w15:done="1"/.test(e[1])) out.get(wid).done = true;
+      }
+      // A reply to a reply belongs to the same thread.
+      for (const c of out.values()) { let p = c.parent; for (let k = 0; p && out.get(p)?.parent && k < 50; k++) p = out.get(p).parent; if (p) c.parent = p; }
+    }
   } catch { /* none */ }
+  for (const c of out.values()) delete c.paraId;
   return out;
 }
 async function withMarks(buffer) {
@@ -185,7 +202,11 @@ export async function docFromWord(buffer, { savePicture } = {}) {
   // Word's comments: each becomes a thread (a new id), on the words it was about.
   const wordComments = await commentsOfWord(buffer);
   const ids = new Map();
-  const commentId = (wid) => { if (!ids.has(wid)) ids.set(wid, crypto.randomBytes(9).toString('base64url')); return ids.get(wid); };
+  const commentId = (wid) => {
+    const top = wordComments.get(wid)?.parent || wid; // a reply's words are its thread's
+    if (!ids.has(top)) ids.set(top, crypto.randomBytes(9).toString('base64url'));
+    return ids.get(top);
+  };
   const html = unmarkWordHtml(marked, (wid) => (wordComments.has(wid) ? commentId(wid) : null));
   const withNotes = bookmarksFromWord(footnotesFromWord(html)).replace(/<img [^>]*alt="\[picture\]"[^>]*>/g, '<em>[picture]</em>');
   const doc = checklists(generateJSON(withNotes || '<p></p>', EXTENSIONS));
@@ -193,7 +214,11 @@ export async function docFromWord(buffer, { savePicture } = {}) {
   const quotes = new Map();
   const walk = (n) => { if (n.type === 'text') for (const mk of n.marks || []) if (mk.type === 'comment') quotes.set(mk.attrs.id, (quotes.get(mk.attrs.id) || '') + n.text); (n.content || []).forEach(walk); };
   walk(doc);
-  const comments = [...wordComments].map(([wid, c]) => ({ id: commentId(wid), ...c, quote: (quotes.get(commentId(wid)) || '').slice(0, 500) }));
+  const comments = [...wordComments].filter(([, c]) => !c.parent).map(([wid, c]) => ({
+    id: commentId(wid), author: c.author, text: c.text, at: c.at, quote: (quotes.get(commentId(wid)) || '').slice(0, 500),
+    ...(c.done && { resolved: true }),
+    replies: [...wordComments.values()].filter((r) => r.parent === wid).map((r) => ({ author: r.author, text: r.text, at: r.at })),
+  }));
   return { doc, comments, warnings: messages.filter((m) => m.type === 'warning').map((m) => m.message) };
 }
 
@@ -248,7 +273,8 @@ function runs(nodes = [], extra = {}) {
   const out = [];
   // Comments: a range starts where a thread's words start and ends (with its reference) where they stop.
   const open = new Set();
-  const comments = (n) => (commentNos ? (n.marks || []).filter((m) => m.type === 'comment' && commentNos.has(m.attrs?.id)).map((m) => commentNos.get(m.attrs.id)) : []);
+  // A thread's number and its replies' (each a Word comment of its own, on the same words).
+  const comments = (n) => (commentNos ? (n.marks || []).filter((m) => m.type === 'comment' && commentNos.has(m.attrs?.id)).flatMap((m) => commentNos.get(m.attrs.id)) : []);
   const close = (keep = []) => {
     for (const no of [...open]) if (!keep.includes(no)) { out.push(new CommentRangeEnd(no), new TextRun({ children: [new CommentReference(no)] })); open.delete(no); }
   };
@@ -537,7 +563,16 @@ export async function wordFromDoc(doc, title = 'Document', { pictureData, page, 
   const findMarks = (n) => { for (const m of n?.marks || []) if (m.type === 'comment') marked.add(m.attrs?.id); for (const c of n?.content || []) findMarks(c); };
   findMarks(doc);
   const wordComments = (comments || []).filter((c) => marked.has(c.id)).slice(0, 1000);
-  commentNos = new Map(wordComments.map((c, i) => [c.id, i]));
+  // Word's comments: each thread, then its replies (pointing to it), numbered in that order.
+  const wordList = [];
+  commentNos = new Map();
+  for (const c of wordComments) {
+    const no = wordList.length;
+    wordList.push({ id: no, author: c.author, at: c.at, text: c.text, resolved: !!c.resolved });
+    const nos = [no];
+    for (const r of (c.replies || []).slice(0, 100)) { nos.push(wordList.length); wordList.push({ id: wordList.length, author: r.author, at: r.at, text: r.text, parentId: no }); }
+    commentNos.set(c.id, nos);
+  }
   bookmarkIds = new Set();
   headingAnchors = new Map(anchorsOf(contents).map((a, k) => [a, `toc_${k + 1}`]));
   (function find(n) { if (n?.type === 'bookmark' && BOOKMARK_ID.test(n.attrs?.id || '')) bookmarkIds.add(n.attrs.id); (n?.content || []).forEach(find); })(doc);
@@ -547,12 +582,10 @@ export async function wordFromDoc(doc, title = 'Document', { pictureData, page, 
   const file = new Document({
     title,
     ...(notes.length && { footnotes: Object.fromEntries(notes.map((t, i) => [i + 1, { children: [new Paragraph(t)] }])) }),
-    ...(wordComments.length && { comments: { children: wordComments.map((c, i) => ({
-      id: i, author: String(c.author || 'Workspace').slice(0, 100), ...(c.at && { date: new Date(c.at) }),
-      children: [
-        ...String(c.text || '').split('\n').map((line) => new Paragraph(line)),
-        ...(c.replies || []).flatMap((r) => String(r.text || '').split('\n').map((line, k) => new Paragraph({ children: [...(k === 0 ? [new TextRun({ text: `${r.author || 'Reply'}: `, bold: true })] : []), new TextRun(line)] }))),
-      ],
+    ...(wordList.length && { comments: { children: wordList.map((c) => ({
+      id: c.id, author: String(c.author || 'Workspace').slice(0, 100), ...(c.at && { date: new Date(c.at) }),
+      ...(c.parentId !== undefined && { parentId: c.parentId }), ...(c.resolved && { resolved: true }),
+      children: String(c.text || '').split('\n').map((line) => new Paragraph(line)),
     })) } }),
     numbering: { config: [{ reference: 'numbers', levels: [0, 1, 2, 3].map((level) => ({ level, format: LevelFormat.DECIMAL, text: `%${level + 1}.`, alignment: AlignmentType.START, style: { paragraph: { indent: { left: 720 * (level + 1), hanging: 360 } } } })) }] },
     sections: [{ ...sectionSetup(page), children: paras.length ? paras : [new Paragraph('')] }],
