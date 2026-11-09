@@ -123,6 +123,42 @@ const TRANSITION_XML = { fade: '<p:fade/>', push: '<p:push dir="u"/>', zoom: '<p
  * What PowerPoint's file writer leaves out: each slide's transition and automatic advance
  * (<p:transition advTm="…">, after the slide's colour mapping), and looping (<p:showPr loop="1">).
  */
+// ---- animations: PowerPoint's entrance effects ↔ Slides' (appear, fade, fly), one a click.
+const PRESETS = { 1: 'appear', 10: 'fade', 2: 'fly' };
+/** A slide's entrance effects (main sequence), in order: [{ spid, anim }]. Effects Slides doesn't have come in as a fade. */
+export function animationsOf(slideXml) {
+  const timing = /<p:timing>[\s\S]*<\/p:timing>/.exec(String(slideXml))?.[0];
+  if (!timing) return [];
+  const out = [];
+  const re = /<p:cTn\b([^>]*\bpresetClass="entr"[^>]*)>([\s\S]*?)<p:spTgt spid="(\d+)"/g;
+  for (let m; (m = re.exec(timing));) {
+    const preset = Number(/presetID="(\d+)"/.exec(m[1])?.[1]);
+    if (!out.some((o) => o.spid === m[3])) out.push({ spid: m[3], anim: PRESETS[preset] || 'fade' });
+  }
+  return out.slice(0, 100);
+}
+let ctnId = 2;
+const ctn = () => ++ctnId;
+const tgt = (spid) => `<p:tgtEl><p:spTgt spid="${spid}"/></p:tgtEl>`;
+const showIt = (spid) => `<p:set><p:cBhvr><p:cTn id="${ctn()}" dur="1" fill="hold"><p:stCondLst><p:cond delay="0"/></p:stCondLst></p:cTn>${tgt(spid)}<p:attrNameLst><p:attrName>style.visibility</p:attrName></p:attrNameLst></p:cBhvr><p:to><p:strVal val="visible"/></p:to></p:set>`;
+const EFFECT = {
+  appear: (spid) => showIt(spid),
+  fade: (spid) => `${showIt(spid)}<p:animEffect transition="in" filter="fade"><p:cBhvr><p:cTn id="${ctn()}" dur="500"/>${tgt(spid)}</p:cBhvr></p:animEffect>`,
+  fly: (spid) => `${showIt(spid)}${['ppt_x', 'ppt_y'].map((a) => `<p:anim calcmode="lin" valueType="num"><p:cBhvr additive="base"><p:cTn id="${ctn()}" dur="500" fill="hold"/>${tgt(spid)}<p:attrNameLst><p:attrName>${a}</p:attrName></p:attrNameLst></p:cBhvr><p:tavLst><p:tav tm="0"><p:val><p:strVal val="${a === 'ppt_x' ? '#ppt_x' : '1+#ppt_h/2'}"/></p:val></p:tav><p:tav tm="100000"><p:val><p:strVal val="#${a}"/></p:val></p:tav></p:tavLst></p:anim>`).join('')}`,
+};
+const PRESET_OF = { appear: [1, 0], fade: [10, 0], fly: [2, 4] }; // [presetID, presetSubtype (4: from the bottom)]
+/** A slide's animations as PowerPoint writes them: a click sequence of entrance effects. `builds`: [{ spid, anim, text }]. */
+export function timingXml(builds) {
+  ctnId = 2;
+  const clicks = builds.map((b) => {
+    const [preset, sub] = PRESET_OF[b.anim] || PRESET_OF.fade;
+    const outer = ctn(), mid = ctn(), eff = ctn();
+    return `<p:par><p:cTn id="${outer}" fill="hold"><p:stCondLst><p:cond delay="indefinite"/></p:stCondLst><p:childTnLst><p:par><p:cTn id="${mid}" fill="hold"><p:stCondLst><p:cond delay="0"/></p:stCondLst><p:childTnLst><p:par><p:cTn id="${eff}" presetID="${preset}" presetClass="entr" presetSubtype="${sub}" fill="hold" grpId="0" nodeType="clickEffect"><p:stCondLst><p:cond delay="0"/></p:stCondLst><p:childTnLst>${(EFFECT[b.anim] || EFFECT.fade)(b.spid)}</p:childTnLst></p:cTn></p:par></p:childTnLst></p:cTn></p:par></p:childTnLst></p:cTn></p:par>`;
+  }).join('');
+  const bld = builds.filter((b) => b.text).map((b) => `<p:bldP spid="${b.spid}" grpId="0" animBg="1"/>`).join('');
+  return `<p:timing><p:tnLst><p:par><p:cTn id="1" dur="indefinite" restart="never" nodeType="tmRoot"><p:childTnLst><p:seq concurrent="1" nextAc="seek"><p:cTn id="2" dur="indefinite" nodeType="mainSeq"><p:childTnLst>${clicks}</p:childTnLst></p:cTn><p:prevCondLst><p:cond evt="onPrev" delay="0"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond></p:prevCondLst><p:nextCondLst><p:cond evt="onNext" delay="0"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond></p:nextCondLst></p:seq></p:childTnLst></p:cTn></p:par></p:tnLst>${bld ? `<p:bldLst>${bld}</p:bldLst>` : ''}</p:timing>`;
+}
+
 const xmlEsc = (t) => String(t ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 /**
  * The file with comments on its slides, in PowerPoint's comment format that every version and
@@ -172,12 +208,25 @@ export async function withSlideComments(buffer, deck, threads) {
   return zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
 }
 
-async function withShowSettings(buffer, deck) {
+async function withShowSettings(buffer, deck, emitted = new Map()) {
   const slides = deck.slides || [];
-  if (!deck.loop && !slides.some((s) => s.transition || s.advance)) return buffer;
+  if (!deck.loop && !slides.some((s) => s.transition || s.advance || (s.items || []).some((it) => it.anim))) return buffer;
   const zip = await JSZip.loadAsync(buffer);
   for (let i = 0; i < slides.length; i++) {
     const s = slides[i];
+    // Animations: each box's shape id is the one in the same place among the slide's shapes.
+    const anims = (s.items || []).filter((it) => it.anim).sort((a, b) => (a.animAt || 0) - (b.animAt || 0));
+    if (anims.length) {
+      const file = `ppt/slides/slide${i + 1}.xml`;
+      const xml = await zip.file(file)?.async('string');
+      const shown = emitted.get(s) || [];
+      const ids = [...String(xml || '').matchAll(/<p:cNvPr id="(\d+)" name="([^"]*)"/g)].filter((m) => m[1] !== '1' && !/Placeholder/.test(m[2])).map((m) => m[1]);
+      const builds = anims.map((it) => { const k = shown.indexOf(it); return k >= 0 && ids[k] ? { spid: ids[k], anim: it.anim, text: it.type === 'text' || !!it.text } : null; }).filter(Boolean);
+      if (xml && builds.length) {
+        const timing = timingXml(builds);
+        zip.file(file, /<p:extLst>(?![\s\S]*<p:cSld)/.test(xml.split('</p:cSld>')[1] || '') ? xml.replace(/(<\/p:cSld>[\s\S]*?)(<p:extLst>)/, `$1${timing}$2`) : xml.replace('</p:sld>', `${timing}</p:sld>`));
+      }
+    }
     const secs = Number(s.advance) > 0 ? Math.min(3600, Math.round(Number(s.advance))) : 0;
     if (!s.transition && !secs) continue;
     const file = `ppt/slides/slide${i + 1}.xml`;
@@ -242,6 +291,8 @@ export async function deckFromPowerPoint(buffer, { savePicture }) {
     };
     const linked = (el, item) => { const l = linkOfEl(el); if (l) item.link = l; return item; };
     const tree = deep(xml, P, 'spTree')[0];
+    const spidOf = new Map(); // item → its shape id on the slide (for animations)
+    const pushFrom = (el, item) => { spidOf.set(item, attr(deep(el, P, 'cNvPr')[0], 'id')); items.push(item); };
     for (const el of deep(tree, P, 'sp').concat(deep(tree, P, 'cxnSp'), deep(tree, P, 'pic'))) { // shapes, connectors (lines, arrows), pictures
       const box = boxOf(el);
       if (!box) continue;
@@ -255,7 +306,7 @@ export async function deckFromPowerPoint(buffer, { savePicture }) {
         // (Some programs write the picture's own data or file path there instead: not a description.)
         const raw = String(attr(deep(el, P, 'cNvPr')[0], 'descr') || '').replace(/\s+/g, ' ').trim();
         const descr = /^(data:|[a-z]:\\|\/|file:|preencoded\.\w+$)/i.test(raw) ? '' : raw.slice(0, 500);
-        if (data && mime) items.push(linked(el, { id: id(), type: 'image', fileId: await savePicture(path.posix.basename(target), data, mime), name: path.posix.basename(target), ...(descr && { alt: descr }), ...box }));
+        if (data && mime) pushFrom(el, linked(el, { id: id(), type: 'image', fileId: await savePicture(path.posix.basename(target), data, mime), name: path.posix.basename(target), ...(descr && { alt: descr }), ...box }));
         continue;
       }
       // A slide number field: the presentation numbers its slides (not a text box of its own).
@@ -272,7 +323,7 @@ export async function deckFromPowerPoint(buffer, { savePicture }) {
         const flat = box.h < 0.5, tall = box.w < 0.5;
         const dir = flat ? (flipH ? 'hr' : 'h') : tall ? (flipV ? 'vr' : 'v') : flipV !== flipH ? 'u' : 'd';
         const lineColor = colorIn(kid(ln, A, 'solidFill'));
-        items.push({ id: id(), type: 'shape', shape: arrow ? 'arrow' : 'line', dir, fill: lineColor || 'text', ...box,
+        pushFrom(el, { id: id(), type: 'shape', shape: arrow ? 'arrow' : 'line', dir, fill: lineColor || 'text', ...box,
           ...(flat && { y: box.y - 4, h: 8 }), ...(tall && { x: box.x - 2, w: 4 }) });
         continue;
       }
@@ -283,7 +334,7 @@ export async function deckFromPowerPoint(buffer, { savePicture }) {
       const pts = Number(attr(ln, 'w')) / 12700 || 1;
       const edge = lineColor ? { outline: lineColor, outlineW: OUTLINE_WIDTHS.reduce((a, b) => (Math.abs(b - pts) < Math.abs(a - pts) ? b : a)) } : {};
       if (!content.trim()) {
-        if (SHAPES[geom] && fill) items.push(linked(el, { id: id(), type: 'shape', shape: SHAPES[geom], fill, ...edge, ...box }));
+        if (SHAPES[geom] && fill) pushFrom(el, linked(el, { id: id(), type: 'shape', shape: SHAPES[geom], fill, ...edge, ...box }));
         continue;
       }
       const rPr = deep(el, A, 'rPr')[0] || deep(el, A, 'defRPr')[0];
@@ -294,7 +345,7 @@ export async function deckFromPowerPoint(buffer, { savePicture }) {
       const anchor = attr(deep(el, A, 'bodyPr')[0], 'anchor');
       const textBox = attr(deep(el, P, 'cNvSpPr')[0], 'txBox') === '1' || (geom === 'rect' && anchor !== 'ctr' && anchor !== 'b');
       if (SHAPES[geom] && fill && !textBox) {
-        items.push(linked(el, { id: id(), type: 'shape', shape: SHAPES[geom], fill, ...edge, text: content, ...box,
+        pushFrom(el, linked(el, { id: id(), type: 'shape', shape: SHAPES[geom], fill, ...edge, text: content, ...box,
           size: Math.max(8, Math.round((pt / 72) * 1000 / widthIn)),
           ...(attr(rPr, 'b') === '1' && { bold: true }), ...(attr(rPr, 'i') === '1' && { italic: true }),
           ...(colorIn(kid(rPr, A, 'solidFill')) && { color: colorIn(kid(rPr, A, 'solidFill')) }),
@@ -302,7 +353,7 @@ export async function deckFromPowerPoint(buffer, { savePicture }) {
         continue;
       }
       const ph = attr(deep(el, P, 'ph')[0], 'type');
-      items.push(linked(el, {
+      pushFrom(el, linked(el, {
         id: id(), type: 'text', role: ph === 'title' || ph === 'ctrTitle' ? 'title' : ph === 'subTitle' ? 'subtitle' : 'body', text: content, ...box,
         size: Math.max(8, Math.round((pt / 72) * 1000 / widthIn)),
         ...(attr(rPr, 'b') === '1' && { bold: true }), ...(attr(rPr, 'i') === '1' && { italic: true }),
@@ -320,7 +371,7 @@ export async function deckFromPowerPoint(buffer, { savePicture }) {
       const chartFile = chartRef && rels.get(rattr(chartRef, 'id'));
       if (chartFile && off && ext) {
         const c = chartDataFromXml(await zip.file(chartFile)?.async('string') || '');
-        if (c) items.push({ id: id(), type: 'chart', chartType: c.type, title: c.title || '', data: c.data,
+        if (c) pushFrom(gf, { id: id(), type: 'chart', chartType: c.type, title: c.title || '', data: c.data,
           x: (Number(attr(off, 'x')) / W) * 100, y: (Number(attr(off, 'y')) / H) * 100, w: (Number(attr(ext, 'cx')) / W) * 100, h: (Number(attr(ext, 'cy')) / H) * 100 });
         continue;
       }
@@ -330,10 +381,16 @@ export async function deckFromPowerPoint(buffer, { savePicture }) {
       const cols = Math.max(...cells.map((r) => r.length));
       const rPr = deep(tbl, A, 'rPr')[0];
       const pt = Number(attr(rPr, 'sz')) / 100 || 14;
-      items.push({ id: id(), type: 'table', cells: cells.map((r) => [...r, ...Array(cols - r.length).fill('')]).slice(0, 20).map((r) => r.slice(0, 10)),
+      pushFrom(gf, { id: id(), type: 'table', cells: cells.map((r) => [...r, ...Array(cols - r.length).fill('')]).slice(0, 20).map((r) => r.slice(0, 10)),
         header: attr(kid(tbl, A, 'tblPr'), 'firstRow') === '1' || kids(kids(tbl, A, 'tr')[0], A, 'tc').every((tc) => deep(tc, A, 'rPr').some((r) => attr(r, 'b') === '1')), size: Math.max(8, Math.round((pt / 72) * 1000 / widthIn)),
         x: (Number(attr(off, 'x')) / W) * 100, y: (Number(attr(off, 'y')) / H) * 100, w: (Number(attr(ext, 'cx')) / W) * 100, h: (Number(attr(ext, 'cy')) / H) * 100 });
     }
+    // Animations: the entrance effects of the slide's click sequence, in order, as Slides' own.
+    const effects = animationsOf(await zip.file(file)?.async('string') || '');
+    effects.forEach((e, k) => {
+      const item = items.find((it) => spidOf.get(it) === e.spid && !it.anim);
+      if (item) Object.assign(item, { anim: e.anim, animAt: k + 1 });
+    });
     const bgEl = deep(xml, P, 'bg')[0];
     const bg = colorIn(bgEl);
     // A picture behind the slide (a background fill with a picture).
@@ -397,6 +454,7 @@ export async function powerPointFromDeck(deck, { pictureData, title = 'Presentat
   const color = (v, fallback) => (v === 'accent' ? theme.accent : v === 'text' ? theme.text : v || fallback).replace('#', '').toUpperCase();
   // An outline round a shape or text box: its colour and thickness in points.
   const outline = (it) => (it.outline ? { line: { color: color(it.outline, theme.text), width: OUTLINE_WIDTHS.includes(it.outlineW) ? it.outlineW : 1 } } : {});
+  const emitted = new Map(); // slide → its boxes that became shapes, in order
   for (const s of deck.slides || []) {
     const slide = pptx.addSlide();
     // A picture behind the slide, or its colour (also kept under the picture, for programs that skip it).
@@ -405,7 +463,10 @@ export async function powerPointFromDeck(deck, { pictureData, title = 'Presentat
     if (s.notes) slide.addNotes(s.notes);
     if (numberShown(deck, (deck.slides || []).indexOf(s))) slide.slideNumber = { x: Win - 1.1, y: Hin - 0.55, w: 0.8, h: 0.35, fontSize: 12, color: color('text', theme.text), align: 'right', fontFace: 'Arial' };
     if (s.skip) slide.hidden = true; // (transitions and timings are added afterwards: withShowSettings)
+    const shown = []; // the boxes that became shapes, in order (their shape ids follow it): for animations
+    emitted.set(s, shown);
     for (const it of s.items || []) {
+      const before = slide._slideObjects?.length ?? 0;
       const hyperlink = linkFor(it.link, deck.slides || []); // a web page or another slide, followed when presenting
       const pos = { x: (it.x / 100) * Win, y: (it.y / 100) * Hin, w: (it.w / 100) * Win, h: (it.h / 100) * Hin, ...(Number(it.rot) && { rotate: ((Number(it.rot) % 360) + 360) % 360 }) };
       if (it.type === 'text') {
@@ -455,7 +516,8 @@ export async function powerPointFromDeck(deck, { pictureData, title = 'Presentat
           slide.addMedia({ ...pos, type: 'video', data: `${vid.mime};base64,${vid.data.toString('base64')}`, extn });
         } else slide.addText(`▶ ${it.name || 'Video'}`, { ...pos, fontSize: 18, align: 'center', valign: 'middle', color: '5F6368', fill: { color: 'F1F3F4' } });
       }
+      if ((slide._slideObjects?.length ?? 0) > before) shown.push(it);
     }
   }
-  return withSlideComments(await withShowSettings(Buffer.from(await pptx.write({ outputType: 'nodebuffer' })), deck), deck, comments);
+  return withSlideComments(await withShowSettings(Buffer.from(await pptx.write({ outputType: 'nodebuffer' })), deck, emitted), deck, comments);
 }

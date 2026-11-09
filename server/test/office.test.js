@@ -1547,3 +1547,27 @@ test('Word: suggestions go out as tracked changes, and tracked changes come in a
   const idOf = (t, type) => p.find((n) => n.text === t).marks.find((m) => m.type === type).attrs.id;
   assert.equal(idOf('April', 'suggestInsert'), idOf('March', 'suggestDelete'), 'a deletion then an insertion is one replacement');
 });
+
+test('PowerPoint: animations go out as PowerPoint entrance effects and come back', async () => {
+  const { powerPointFromDeck, deckFromPowerPoint, animationsOf } = await import('../src/office/powerpoint.js');
+  const deck = { theme: 'light', numbers: true, slides: [{ id: 's1', transition: 'fade', items: [
+    { id: 't', type: 'text', x: 5, y: 5, w: 60, h: 10, text: 'Title' },
+    { id: 'a', type: 'text', x: 5, y: 20, w: 60, h: 10, text: 'First point', anim: 'fly', animAt: 2 },
+    { id: 'gone', type: 'chart', chartType: 'line', data: { categories: [], series: [] }, x: 0, y: 0, w: 10, h: 10, anim: 'fade', animAt: 5 },
+    { id: 'b', type: 'shape', shape: 'rect', fill: '#ff0000', x: 50, y: 50, w: 20, h: 20, anim: 'appear', animAt: 1 },
+    { id: 'c', type: 'text', x: 5, y: 35, w: 60, h: 10, text: 'Second point', anim: 'fade', animAt: 3 },
+  ] }, { id: 's2', items: [{ id: 'x', type: 'text', x: 5, y: 5, w: 60, h: 10, text: 'Still' }] }] };
+  const buf = await powerPointFromDeck(deck);
+  const zip = await JSZip.loadAsync(buf);
+  const xml = await zip.file('ppt/slides/slide1.xml').async('string');
+  assert.ok(xml.indexOf('<p:transition') < xml.indexOf('<p:timing>'), 'the transition comes before the timing, as PowerPoint orders them');
+  // Each effect points at the right shape: its text (or the rectangle's own geometry) is in that shape.
+  const shapes = Object.fromEntries([...xml.matchAll(/<p:sp>([\s\S]*?)<\/p:sp>/g)].map((m) => [/<p:cNvPr id="(\d+)"/.exec(m[1])?.[1], /<a:t>([^<]*)<\/a:t>/.exec(m[1])?.[1] || /prstGeom prst="(\w+)"/.exec(m[1])?.[1]]));
+  assert.deepEqual(animationsOf(xml).map((e) => [shapes[e.spid], e.anim]), [['rect', 'appear'], ['First point', 'fly'], ['Second point', 'fade']]);
+  assert.equal(/<p:timing>/.test(await zip.file('ppt/slides/slide2.xml').async('string')), false);
+  const back = await deckFromPowerPoint(buf, { savePicture: async () => null });
+  const got = back.slides[0].items.filter((it) => it.anim).sort((a, b) => a.animAt - b.animAt).map((it) => [it.text || it.shape, it.anim, it.animAt]);
+  assert.deepEqual(got, [['rect', 'appear', 1], ['First point', 'fly', 2], ['Second point', 'fade', 3]]);
+  // Effects Slides doesn't have come in as a fade.
+  assert.deepEqual(animationsOf('<p:timing><p:cTn id="5" presetID="53" presetClass="entr"><p:spTgt spid="7"/></p:cTn></p:timing>'), [{ spid: '7', anim: 'fade' }]);
+});
