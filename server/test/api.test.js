@@ -3788,6 +3788,33 @@ test('docs writing preferences: autocorrect and your own replacements, per perso
   assert.equal((await client()('GET', '/api/doc-prefs')).status, 401);
 });
 
+test('tasks: Planned gathers dated tasks for you from every list, soonest first', async () => {
+  const a = client(); const b = client();
+  const ids = {};
+  for (const [local, name] of [['pla', 'Pia Plan'], ['plb', 'Pat Plan']]) ids[local] = (await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).body.id;
+  await login(a, 'pla@acme.com'); await login(b, 'plb@acme.com');
+  const mine = (await a('GET', '/api/tasks/lists')).body.lists[0].id;
+  const shared = (await b('POST', '/api/tasks/lists', { name: 'Team' })).body.id;
+  await b('PUT', `/api/tasks/lists/${shared}/members`, { user_ids: [ids.pla] });
+  const add = async (who, list, body) => (await who('POST', `/api/tasks/lists/${list}/tasks`, body)).body;
+  await add(a, mine, { title: 'Undated' });
+  await add(a, mine, { title: 'Next month', due: '2026-12-15' });
+  await add(a, mine, { title: 'Last week', due: '2026-11-02' });
+  const today = await add(a, mine, { title: 'Today 3pm', due: '2026-11-09', due_time: '15:00' });
+  await add(a, mine, { title: 'Today 9am', due: '2026-11-09', due_time: '09:00' });
+  await add(b, shared, { title: 'Team, for nobody', due: '2026-11-10' });
+  await add(b, shared, { title: 'Team, for Pat', due: '2026-11-10', assignee_id: ids.plb });
+  await add(b, shared, { title: 'Team, for Pia', due: '2026-11-11', assignee_id: ids.pla });
+  const planned = (await a('GET', '/api/tasks/planned')).body;
+  assert.deepEqual(planned.map((t) => t.title), ['Last week', 'Today 9am', 'Today 3pm', 'Team, for nobody', 'Team, for Pia', 'Next month']);
+  assert.equal(planned.find((t) => t.title === 'Team, for Pia').list_name, 'Team');
+  assert.equal((await a('GET', '/api/tasks/lists?today=2026-11-09')).body.planned, 3, 'overdue and today');
+  assert.equal((await a('GET', '/api/tasks/lists?today=2026-11-10')).body.planned, 4);
+  await a('PATCH', `/api/tasks/tasks/${today.id}`, { done: true });
+  assert.ok(!(await a('GET', '/api/tasks/planned')).body.some((t) => t.id === today.id), 'done ones go');
+  assert.deepEqual((await b('GET', '/api/tasks/planned')).body.map((t) => t.title), ['Team, for Pat', 'Team, for nobody'], 'Pat: the team list, not Pia’s (same day: in the list’s order)');
+});
+
 test('notes: each person drags the cards into their own order', async () => {
   const a = client(); const b = client(); const c = client();
   const ids = {};

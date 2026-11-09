@@ -7,6 +7,7 @@ import { listPrintHtml } from './listprint.js';
 import { get, post, patch, put, del, onLive, uploadFile, postText } from '../../api.js';
 import DrivePicker, { openUrl } from '../../components/DrivePicker.jsx';
 import Icon from '../../components/Icon.jsx';
+import { groupPlanned } from './planned.js';
 import { Avatar, ConfirmModal, Empty, Menu, Modal, PromptModal, useToast } from '../../components/ui.jsx';
 import { useAuth } from '../../App.jsx';
 import { dueLabel, between, localToday, REPEATS, repeatText, SORTS, sortTasks } from './taskmath.js';
@@ -18,7 +19,8 @@ const waitingOn = (t, all) => (t.blocked_by?.length && !t.done ? (all || []).fil
 
 const ASSIGNED = 'assigned';
 const IMPORTANT = 'important'; // tasks marked ★ on any of your lists
-const VIRTUAL = { [ASSIGNED]: '/tasks/assigned', [IMPORTANT]: '/tasks/important' };
+const PLANNED = 'planned'; // open tasks with a due date, from every list, grouped by when
+const VIRTUAL = { [ASSIGNED]: '/tasks/assigned', [IMPORTANT]: '/tasks/important', [PLANNED]: '/tasks/planned' };
 
 export default function Tasks() {
   const { listId } = useParams();
@@ -30,6 +32,7 @@ export default function Tasks() {
   const [lists, setLists] = useState(null);
   const [assignedCount, setAssignedCount] = useState(0);
   const [importantCount, setImportantCount] = useState(0);
+  const [plannedCount, setPlannedCount] = useState(0); // due today or overdue
   // A tag's view (/tasks/tag:client): open tasks with that tag, from every list.
   const tagView = listId?.startsWith('tag:') ? listId.slice(4) : null;
   const virtual = !!VIRTUAL[listId] || !!tagView;
@@ -57,7 +60,7 @@ export default function Tasks() {
 
   const loadLists = useCallback(() => {
     get('/tasks/tags').then((r) => setTagList(r.tags)).catch(() => {});
-    return get('/tasks/lists').then((r) => { setLists(r.lists); setAssignedCount(r.assigned); setImportantCount(r.important || 0); }).catch((e) => toast(e.message, 'error'));
+    return get(`/tasks/lists?today=${localToday()}`).then((r) => { setLists(r.lists); setAssignedCount(r.assigned); setImportantCount(r.important || 0); setPlannedCount(r.planned || 0); }).catch((e) => toast(e.message, 'error'));
   }, [toast]);
   // Time spent per task on this list: { taskId: { minutes, running: [{ name }] } }.
   const [times, setTimes] = useState({});
@@ -160,7 +163,7 @@ export default function Tasks() {
   };
 
   if (lists === null) return null;
-  const heading = tagView ? `#${tagView}` : listId === ASSIGNED ? 'Assigned to me' : listId === IMPORTANT ? 'Important' : list?.name;
+  const heading = tagView ? `#${tagView}` : listId === ASSIGNED ? 'Assigned to me' : listId === IMPORTANT ? 'Important' : listId === PLANNED ? 'Planned' : list?.name;
   return (
     <div className="tasks-app">
       <aside className="subnav">
@@ -173,6 +176,9 @@ export default function Tasks() {
         </button>
         <button type="button" className={`subnav-item ${listId === IMPORTANT ? 'active' : ''}`} onClick={() => navigate(`/tasks/${IMPORTANT}`)}>
           <span className="nav-star" aria-hidden="true">★</span><span className="grow">Important</span>{importantCount > 0 && <span className="count">{importantCount}</span>}
+        </button>
+        <button type="button" className={`subnav-item ${listId === PLANNED ? 'active' : ''}`} onClick={() => navigate(`/tasks/${PLANNED}`)} title="Tasks with a due date, from all your lists">
+          <Icon name="calendar" /><span className="grow">Planned</span>{plannedCount > 0 && <span className="count" title="Due today or overdue">{plannedCount}</span>}
         </button>
         <div className="subnav-title row">Lists<div className="grow" /><button type="button" className="icon-btn" aria-label="New list" onClick={() => setDialog('new')}><Icon name="plus" size={18} /></button></div>
         {lists.map((l) => (
@@ -276,7 +282,17 @@ export default function Tasks() {
               update(t, t.done ? { done: false, started } : { started });
             }} />
         ) : open.length === 0 && done.length === 0 ? (
-          <Empty icon="check" title={tagView ? `Nothing open tagged #${tagView}` : listId === ASSIGNED ? 'Nothing assigned to you' : listId === IMPORTANT ? 'Nothing important' : 'No tasks yet'}>{listId === ASSIGNED ? 'Tasks people give you on shared lists show up here.' : listId === IMPORTANT ? 'Mark a task with ☆ and it shows up here, from every list.' : 'Type a task above and press Enter.'}</Empty>
+          <Empty icon="check" title={tagView ? `Nothing open tagged #${tagView}` : listId === ASSIGNED ? 'Nothing assigned to you' : listId === IMPORTANT ? 'Nothing important' : listId === PLANNED ? 'Nothing planned' : 'No tasks yet'}>{listId === ASSIGNED ? 'Tasks people give you on shared lists show up here.' : listId === IMPORTANT ? 'Mark a task with ☆ and it shows up here, from every list.' : listId === PLANNED ? 'Tasks with a due date show up here, from every list, by when they’re due.' : 'Type a task above and press Enter.'}</Empty>
+        ) : listId === PLANNED ? (
+          <div className="planned">
+            {groupPlanned((tasks || []).filter((t) => !t.done), localToday()).map((g) => (
+              <section key={g.key} className={`planned-group ${g.key}`} aria-label={g.label}>
+                <h3 className="planned-heading">{g.label} <span className="muted small">{g.tasks.length}</span></h3>
+                <ul className="task-list">{g.tasks.map(row)}</ul>
+              </section>
+            ))}
+            {open.length === 0 && <p className="muted tasks-alldone">All done 🎉</p>}
+          </div>
         ) : (
           <>
             <ul className="task-list" aria-label="Tasks" onDragOver={(e) => dragging && e.preventDefault()} onDrop={(e) => { if (dragging && dropAt === null) { e.preventDefault(); drop(open.length); } }}>

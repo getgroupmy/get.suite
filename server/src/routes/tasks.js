@@ -54,6 +54,9 @@ q(`CREATE TABLE IF NOT EXISTS task_list_views (
   PRIMARY KEY (user_id, list_id)
 )`).run();
 export const SORTS = ['mine', 'due', 'title', 'added', 'important'];
+/** What Planned shows (with the person's id three times): open, dated, on their lists, and theirs or nobody's. */
+const PLANNED = `t.done_at IS NULL AND t.due IS NOT NULL AND (l.owner_id = ? OR l.id IN (SELECT list_id FROM task_list_members WHERE user_id = ?))
+                 AND (t.assignee_id IS NULL OR t.assignee_id = ?)`;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 /** Everyone on a list: its owner and the people it's shared with. */
@@ -247,7 +250,10 @@ export default function taskRoutes() {
     const important = q(`SELECT COUNT(*) AS n FROM tasks t JOIN task_lists l ON l.id = t.list_id WHERE t.important = 1 AND t.done_at IS NULL
                          AND (l.owner_id = ? OR l.id IN (SELECT list_id FROM task_list_members WHERE user_id = ?))`).get(me, me).n;
     const sorts = new Map(q('SELECT list_id, sort FROM task_list_views WHERE user_id = ?').all(me).map((v) => [v.list_id, v.sort]));
-    res.json({ lists: lists.map((l) => ({ ...l, sort: sorts.get(l.id) || 'mine', mine: l.owner_id === me, members: members.filter((m) => m.list_id === l.id).map(({ list_id, ...p }) => p) })), assigned, important });
+    // Due today or overdue in Planned (today as the browser sees it, ?today=YYYY-MM-DD).
+    const today = dueOf(String(req.query.today || '')) || new Date().toISOString().slice(0, 10);
+    const planned = q(`SELECT COUNT(*) AS n FROM tasks t JOIN task_lists l ON l.id = t.list_id WHERE ${PLANNED} AND t.due <= ?`).get(me, me, me, today).n;
+    res.json({ lists: lists.map((l) => ({ ...l, sort: sorts.get(l.id) || 'mine', mine: l.owner_id === me, members: members.filter((m) => m.list_id === l.id).map(({ list_id, ...p }) => p) })), assigned, important, planned });
   });
 
   r.post('/lists', (req, res) => {
@@ -435,6 +441,13 @@ export default function taskRoutes() {
   // Tasks given to you, on any list: overdue and soonest first, those without a date last.
   r.get('/assigned', (req, res) => {
     res.json(q(`${TASK} WHERE t.assignee_id = ? AND t.done_at IS NULL ORDER BY t.due IS NULL, t.due, t.due_time IS NULL, t.due_time, t.position`).all(req.user.id).map(shape));
+  });
+
+  // Planned: open tasks with a due date on any of your lists that are for you (given to you, or to nobody),
+  // soonest first (the browser groups them: overdue, today, tomorrow, the next 7 days, later).
+  r.get('/planned', (req, res) => {
+    const me = req.user.id;
+    res.json(q(`${TASK} WHERE ${PLANNED} ORDER BY t.due, t.due_time IS NULL, t.due_time, t.position LIMIT 1000`).all(me, me, me).map(shape));
   });
 
   // Open tasks marked important on any of your lists: overdue and soonest first, those without a date last.

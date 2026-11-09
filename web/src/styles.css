@@ -2327,3 +2327,8 @@ textarea.mono { font-family: ui-monospace, Consolas, monospace; }
 /* Slides: boxes with a link */
 .slide-item .link-badge { position: absolute; top: -10px; left: -10px; font-size: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 50%; width: 20px; height: 20px; display: grid; place-items: center; pointer-events: none; }
 .presenter .slide-item[data-link] { cursor: pointer; }
+
+/* Tasks: Planned, grouped by when tasks are due */
+.planned-group { margin-bottom: 14px; }
+.planned-heading { font-size: 14px; margin: 8px 0 4px; }
+.planned-group.overdue .planned-heading { color: var(--danger); }
