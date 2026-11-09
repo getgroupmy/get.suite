@@ -1010,6 +1010,8 @@ Back up `docker/workspace/data` and `docker/workspace/mailboxes`. (`mail-config`
 
 **Restore…** next to a snapshot puts it back: type its date to confirm, and Workspace restarts with it (Docker starts it again by itself, thanks to `restart: unless-stopped`), so everything is as it was then: people, documents, calendars, contacts and chat. The page reloads when it's back, the platform owners get a notification, and it's in the activity log. The database as it was just before is kept among the snapshots (*workspace-…-before-restore-….db*), so a restore can itself be undone the same way. Uploaded files aren't in snapshots: ones added since stay in `data/files` but aren't listed, and ones deleted since can't come back (Hyper Backup covers those).
 
+**Uploaded files** (Admin → System → **Check files**) compares `data/files` with what Workspace lists: files nothing refers to, neither the database nor any kept snapshot (so restoring one still works), are **unused**, left over after a restore or a crash, and **Remove them** deletes them (files written in the last hour are left alone, as an upload may be finishing; it's in the activity log). Files Workspace lists that aren't on the NAS are shown as **missing**, by name and owner, to copy back from a Hyper Backup or delete in Drive.
+
 Point **Hyper Backup** at both folders, ideally to an off-site target. To restore, stop the project, copy the files back (replace `workspace.db` with a snapshot from `backups/` if needed) and start it again.
 
 ## Updating

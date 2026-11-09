@@ -20,6 +20,7 @@ import { roleFor, audienceFor, subtreeIds } from '../access.js';
 import { notify as bell } from '../notifications.js';
 import { backupDatabase, listBackups, backupPath } from '../backup.js';
 import { requestRestore } from '../restore.js';
+import { checkBlobs, removeUnused } from '../blobcheck.js';
 import { DATA_DIR } from '../db.js';
 import { readQueue, requestQueueAction, MAIL_STATUS_DIR } from '../mail/queue.js';
 import { mailEnabled } from '../mail/config.js';
@@ -229,6 +230,13 @@ export default function orgRoutes() {
     const name = path.basename(backupDatabase());
     audit(req, 'backup.create', { target: name });
     res.json(listBackups());
+  });
+  // Uploaded files against the database: unused ones (removable) and missing ones (blobcheck.js).
+  r.get('/system/files-check', (req, res) => { const { unused: { names, ...unused }, ...rest } = checkBlobs(); res.json({ ...rest, unused }); });
+  r.post('/system/files-check/clean', (req, res) => {
+    const done = removeUnused();
+    audit(req, 'files.clean', { details: done });
+    res.json(done);
   });
   // Put a snapshot back: the app stops, Docker starts it again, and the snapshot is in place before
   // the database opens (restore.js). { confirm: <the snapshot's name> }, so it's never by accident.

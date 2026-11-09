@@ -200,6 +200,17 @@ test('database snapshots: putting one back is for the platform owner, by name, c
   assert.ok(JSON.stringify((await owner('GET', '/api/audit')).body).includes('backup.restore'));
 });
 
+test('uploaded files check: for the platform owner; cleaning is in the activity log', async () => {
+  const c = (await owner('GET', '/api/orgs/system/files-check')).body;
+  assert.equal(typeof c.files, 'number');
+  assert.equal(c.unused.names, undefined, 'names stay on the server');
+  assert.equal(c.missing.count, 0);
+  assert.equal((await gina('GET', '/api/orgs/system/files-check')).status, 403);
+  assert.equal((await gina('POST', '/api/orgs/system/files-check/clean')).status, 403);
+  assert.deepEqual(Object.keys((await owner('POST', '/api/orgs/system/files-check/clean')).body).sort(), ['bytes', 'count']);
+  assert.ok(JSON.stringify((await owner('GET', '/api/audit')).body).includes('files.clean'));
+});
+
 test('storage quota is enforced per company', async () => {
   assert.equal((await gina('PATCH', '/api/orgs/current', { quota_mb: 1 })).status, 400, 'company admins cannot set quotas');
   await owner('PATCH', `/api/orgs/${globexId}`, { quota_mb: 1 });

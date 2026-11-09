@@ -43,6 +43,7 @@ export default function SystemAdmin() {
       </div>
       <MailQueue onChanged={load} />
       <Snapshots onTaken={load} />
+      <FilesCheck />
       <div className="card">
         <h3 style={{ marginTop: 0 }}>This server</h3>
         <dl className="health-facts">{facts.map(([k, v]) => <div key={k}><dt className="muted small">{k}</dt><dd>{v}</dd></div>)}</dl>
@@ -161,6 +162,46 @@ function MailQueue({ onChanged }) {
       )}
       {deleting && <ConfirmModal title="Delete this message?" message={`To ${deleting.recipients.map((r) => r.address).join(', ')}: it won’t be delivered, and the sender isn’t told.`}
         onConfirm={() => ask('delete', deleting.id, 'Deleting')} onClose={() => setDeleting(null)} />}
+    </div>
+  );
+}
+
+// Uploaded files on the NAS against the database: unused ones (left after a restore or a crash; not in
+// the database or any snapshot) can be removed, and missing ones (listed but not on disk) are shown.
+function FilesCheck() {
+  const toast = useToast();
+  const [c, setC] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const check = async () => { setBusy(true); try { setC(await get('/orgs/system/files-check')); } catch (e) { toast(e.message, 'error'); } finally { setBusy(false); } };
+  return (
+    <div className="card stack">
+      <div className="row"><h3 className="grow" style={{ margin: 0 }}>Uploaded files</h3>
+        <button className="btn" onClick={check} disabled={busy}><Icon name="search" /> {busy ? 'Checking…' : c ? 'Check again' : 'Check files'}</button></div>
+      <p className="muted small" style={{ margin: 0 }}>Compares the files in <code>data/files</code> with what Workspace lists: after restoring a snapshot (or a crash) some may be left over unused, and some listed ones may be gone.</p>
+      {c && (
+        <ul className="health-list" aria-label="Files check">
+          <li className="row"><span className="health-dot ok" aria-hidden="true" /><div className="grow">{c.files} files on the NAS, {formatBytes(c.bytes)}{c.kept_for_snapshots ? ` (${c.kept_for_snapshots} only for older snapshots, kept so restoring them works)` : ''}</div></li>
+          <li className="row" aria-label="Unused files">
+            <span className={`health-dot ${c.unused.count ? 'warn' : 'ok'}`} aria-hidden="true" />
+            <div className="grow">{c.unused.count ? `${c.unused.count} unused file${c.unused.count === 1 ? '' : 's'}, ${formatBytes(c.unused.bytes)}` : 'No unused files'}</div>
+            {c.unused.count > 0 && <button className="btn" onClick={() => setConfirming(true)}>Remove them</button>}
+          </li>
+          <li className="row" aria-label="Missing files">
+            <span className={`health-dot ${c.missing.count ? 'bad' : 'ok'}`} aria-hidden="true" />
+            <div className="grow">{c.missing.count ? `${c.missing.count} listed file${c.missing.count === 1 ? ' is' : 's are'} missing from the NAS and won't open` : 'No missing files'}
+              {c.missing.list.map((m) => <div key={m.id} className="muted small">{m.name}{m.owner ? ` (${m.owner})` : ''}</div>)}
+              {c.missing.count > c.missing.list.length && <div className="muted small">and {c.missing.count - c.missing.list.length} more</div>}
+              {c.missing.count > 0 && <div className="muted small">Copy them back from a Hyper Backup of <code>data/files</code> if you have one, or delete them in Drive.</div>}
+            </div>
+          </li>
+        </ul>
+      )}
+      {confirming && (
+        <ConfirmModal title="Remove unused files?" confirm="Remove" onClose={() => setConfirming(false)}
+          message={`${c.unused.count} file${c.unused.count === 1 ? '' : 's'} (${formatBytes(c.unused.bytes)}) that nothing in Workspace or its snapshots refers to are deleted from the NAS.`}
+          onConfirm={async () => { const r = await post('/orgs/system/files-check/clean'); toast(`Removed ${r.count} file${r.count === 1 ? '' : 's'} (${formatBytes(r.bytes)})`); await check(); }} />
+      )}
     </div>
   );
 }
