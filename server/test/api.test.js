@@ -1068,13 +1068,14 @@ test('contacts: import vCard and CSV files (duplicates skipped), export, and add
   const csv = await c('GET', '/api/contacts/export?format=csv');
   assert.match(csv.headers.get('content-disposition'), /contacts\.csv/);
   const text = csv.body;
-  assert.match(text, /^\uFEFF?Name,E-mail Address,Phone,Company,Notes,Birthday,Job Title,Address,Web Page\r\n/); // (the reader drops the byte-order mark)
+  assert.match(text, /^\uFEFF?Name,E-mail Address,Phone,Company,Notes,Birthday,Job Title,Address,Web Page,E-mail 2 - Type,E-mail 2 - Value\r\n/); // (the reader drops the byte-order mark)
+  assert.match(text, /,Work,mei@home\.example/, 'Mei’s second address from the Google file comes out as E-mail 2');
   assert.match(text, /"Tan, Mei Ling",meiling@example.com,\+60 12-345 6789,Globex,"Met at ""Expo""\nKL"/);
   const back = (await c('GET', '/api/contacts/export?format=vcf')).body;
   assert.equal((back.match(/BEGIN:VCARD/g) || []).length, 4);
 
   const sug = async (q) => (await c('GET', `/api/contacts/suggest?q=${encodeURIComponent(q)}`)).body;
-  assert.deepEqual((await sug('mei')).map((s) => [s.email, s.kind]), [['meiling@example.com', 'contact']]);
+  assert.deepEqual((await sug('mei')).map((s) => [s.email, s.kind]), [['meiling@example.com', 'contact'], ['mei@home.example', 'contact']], 'her second address too');
   const colleague = await sug('owner');
   assert.ok(colleague.some((s) => s.email === 'owner@acme.com' && s.kind === 'colleague'), 'colleagues too');
   assert.deepEqual(await sug(''), []);

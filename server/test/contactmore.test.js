@@ -28,3 +28,26 @@ test('on a card: lines in and out', () => {
   const back = parseVcard(buildVcard({ id: 'x', ...c }));
   assert.deepEqual([back.email, back.phone, back.more_emails, back.more_phones], [c.email, c.phone, c.more_emails, c.more_phones], 'the same after a round trip');
 });
+
+test('CSV: other addresses and numbers from Gmail and Outlook exports, and back out', async () => {
+  const { contactsFromCsv, contactsToCsv } = await import('../src/contactfiles.js');
+  const gmail = 'Name,Given Name,E-mail 1 - Type,E-mail 1 - Value,E-mail 2 - Type,E-mail 2 - Value,Phone 1 - Type,Phone 1 - Value,Phone 2 - Type,Phone 2 - Value\n'
+    + 'Kim Park,Kim,* Work,kim@acme.com,Home,kim@home.example ::: kim2@home.example,Mobile,+60 12 345,Work,+60 3 999\n';
+  const [g] = contactsFromCsv(gmail);
+  assert.deepEqual([g.email, g.phone], ['kim@acme.com', '+60 12 345']);
+  assert.deepEqual(g.more_emails, [{ type: 'home', value: 'kim@home.example' }, { type: 'home', value: 'kim2@home.example' }]);
+  assert.deepEqual(g.more_phones, [{ type: 'work', value: '+60 3 999' }]);
+  const outlook = 'First Name,Last Name,E-mail Address,E-mail 2 Address,Mobile Phone,Business Phone,Home Phone\nLena,Lark,lena@work.example,lena@home.example,+44 7700 900111,+44 20 7946 0000,\n';
+  const [o] = contactsFromCsv(outlook);
+  assert.deepEqual([o.name, o.email, o.phone], ['Lena Lark', 'lena@work.example', '+44 7700 900111']);
+  assert.deepEqual(o.more_emails, [{ type: 'other', value: 'lena@home.example' }]);
+  assert.deepEqual(o.more_phones, [{ type: 'work', value: '+44 20 7946 0000' }]);
+  const plain = contactsFromCsv('Name,Email,Phone\nBo,bo@x.com,123 456\n');
+  assert.deepEqual([plain[0].email, plain[0].phone, plain[0].more_emails, plain[0].more_phones], ['bo@x.com', '123 456', [], []]);
+  // Out as Gmail-style columns, and read back the same.
+  const csv = contactsToCsv([{ name: 'Kim Park', email: 'kim@acme.com', phone: '+60 12 345', more_emails: [{ type: 'home', value: 'kim@home.example' }], more_phones: '[{"type":"work","value":"+60 3 999"},{"type":"mobile","value":"+60 19 1"}]' }, { name: 'Bo', email: 'bo@x.com' }]);
+  assert.match(csv.split('\r\n')[0], /,E-mail 2 - Type,E-mail 2 - Value,Phone 2 - Type,Phone 2 - Value,Phone 3 - Type,Phone 3 - Value$/);
+  const [back] = contactsFromCsv(csv);
+  assert.deepEqual([back.email, back.phone, back.more_emails, back.more_phones], ['kim@acme.com', '+60 12 345', [{ type: 'home', value: 'kim@home.example' }], [{ type: 'work', value: '+60 3 999' }, { type: 'mobile', value: '+60 19 1' }]]);
+  assert.match(contactsToCsv([{ name: 'Ann' }]).split('\r\n')[0], /Web Page$/, 'no extra columns when nobody has more');
+});
