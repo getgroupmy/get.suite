@@ -300,11 +300,11 @@ export function scheduleOf(events, days) {
 }
 
 /** Printing: the days of a range ('week' = this week from Monday, 'month' = this calendar month, 'four' = four weeks from today). */
-export function printRange(kind, today = new Date()) {
+export function printRange(kind, today = new Date(), ws = 1) {
   const d = new Date(today.getFullYear(), today.getMonth(), today.getDate());
   if (kind === 'month') return { from: new Date(d.getFullYear(), d.getMonth(), 1), to: new Date(d.getFullYear(), d.getMonth() + 1, 0) };
   if (kind === 'four') return { from: d, to: new Date(d.getFullYear(), d.getMonth(), d.getDate() + 27) };
-  const back = (d.getDay() + 6) % 7; // Monday
+  const back = (d.getDay() - ws + 7) % 7; // to the week's first day (Monday unless chosen otherwise)
   const from = new Date(d.getFullYear(), d.getMonth(), d.getDate() - back);
   return { from, to: new Date(from.getFullYear(), from.getMonth(), from.getDate() + 6) };
 }

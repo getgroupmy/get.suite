@@ -265,3 +265,11 @@ test('weeks can start on Monday or Saturday', async () => {
   assert.deepEqual(weekOrder(6), [6, 0, 1, 2, 3, 4, 5]);
   assert.match(title('week', wed, 'en-US', 1), /Nov 9/);
 });
+
+test('printing "This week" starts on the chosen first day', async () => {
+  const { printRange } = await import('./calmath.js');
+  const wed = new Date(2026, 10, 11);
+  assert.equal(printRange('week', wed).from.getDate(), 9, 'Monday by default');
+  assert.equal(printRange('week', wed, 0).from.getDate(), 8, 'Sunday');
+  assert.equal(printRange('week', wed, 6).to.getDate(), 13, 'Saturday to Friday');
+});

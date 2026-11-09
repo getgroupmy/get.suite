@@ -417,7 +417,7 @@ function Calendar({ acting = null, managed = [], onPick }) {
       </section>
       {bookingOpen && <BookingPagesDialog onClose={() => setBookingOpen(false)} />}
       {hoursOpen && <WorkHoursDialog onClose={() => setHoursOpen(false)} />}
-      {printOpen && <PrintAgenda onClose={() => setPrintOpen(false)} />}
+      {printOpen && <PrintAgenda weekStart={weekStart} onClose={() => setPrintOpen(false)} />}
       {sharingOpen && <ShareCalendarDialog people={people.filter((p) => p.id !== me.id)} onClose={() => setSharingOpen(false)} />}
       {insightsOpen && <TimeInsights anchor={anchor} onClose={() => setInsightsOpen(false)} />}
       {otherFor && <PromptModal title="Working elsewhere" label="Where?" confirm="Save" onClose={() => setOtherFor(null)}
@@ -865,11 +865,11 @@ const fromHHMM = (v, end) => { const [h, m] = v.split(':').map(Number); const x 
 
 /** Your working hours: the days and times you work, kept to by Find a time (in your time zone). */
 /** Print or save as PDF: an agenda of a week, a month, four weeks or chosen dates, day by day. */
-function PrintAgenda({ onClose }) {
+function PrintAgenda({ onClose, weekStart = 1 }) {
   const [kind, setKind] = useState('week');
   const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  const [custom, setCustom] = useState(() => { const r = printRange('week'); return { from: iso(r.from), to: iso(r.to) }; });
-  const range = kind === 'custom' ? { from: new Date(`${custom.from}T00:00`), to: new Date(`${custom.to}T00:00`) } : printRange(kind);
+  const [custom, setCustom] = useState(() => { const r = printRange('week', new Date(), weekStart); return { from: iso(r.from), to: iso(r.to) }; });
+  const range = kind === 'custom' ? { from: new Date(`${custom.from}T00:00`), to: new Date(`${custom.to}T00:00`) } : printRange(kind, new Date(), weekStart);
   const [events, setEvents] = useState(null);
   const from = range.from.getTime(), to = range.to.getTime() + DAY;
   useEffect(() => {
