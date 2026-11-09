@@ -33,6 +33,8 @@ import { FilterMenu } from './SheetFilter.jsx';
 import { SheetPreview, SheetChanges } from './SheetPreview.jsx';
 import { VersionHistory } from '../VersionHistory.jsx';
 import { ruleStyle } from './condformat.js';
+import { bandStyle } from './bands.js';
+import { BandsDialog } from './SheetBands.jsx';
 import { sheetPrintHtml, usedArea } from './sheetprint.js';
 import { printHtml } from '../mail/mailprint.js';
 import { useUndo, undoKey } from '../useUndo.js';
@@ -48,7 +50,7 @@ import { fillCells, fillTarget, fillSources, selectionStats } from './fill.js';
 const SEL_COLORS = ['#1a73e8', '#d93025', '#188038', '#e37400', '#8430ce', '#00796b', '#c2185b', '#5f6368'];
 const colorFor = (id) => SEL_COLORS[[...String(id)].reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) >>> 0, 7) % SEL_COLORS.length];
 import { importBook, onImports, refreshImports } from './imports.js';
-import { createEvaluator, bookEvaluator, display, colName, cellKey, parseRef, shiftFormula } from './formula.js';
+import { createEvaluator, bookEvaluator, display, colName, cellKey, parseRef, shiftFormula, colIndex } from './formula.js';
 import { NUMBER_FORMATS, CURRENCIES, DATE_STYLES, BORDERS, borderFor, decimals, formatNumber, cellStyle, mergeFormat } from './cellformat.js';
 
 const TEXT_COLORS = [['', 'Automatic'], ['#c5221f', 'Red'], ['#e37400', 'Orange'], ['#188038', 'Green'], ['#1a73e8', 'Blue'], ['#8430ce', 'Purple'], ['#5f6368', 'Grey']];
@@ -137,6 +139,7 @@ export default function SheetEditor() {
   const charts = sheet?.charts || {};
   const colWidths = sheet?.colWidths || {};
   const rules = sheet?.rules || [];
+  const bands = sheet?.bands || [];
   const validations = sheet?.validations || [];
   const merges = useMemo(() => sheet?.merges || [], [sheet?.merges]);
   const layout = useMemo(() => mergeLayout(merges), [merges]);
@@ -806,6 +809,7 @@ export default function SheetEditor() {
     { label: `Sort Z → A by column ${colName(sel.c)}`, onClick: () => quickSort(true) },
     { label: 'Sort range…', onClick: () => setDialog({ type: 'sort' }) },
     '-',
+    { label: 'Alternating colours…', onClick: () => setDialog({ type: 'bands' }) },
     { label: 'Remove duplicates…', onClick: () => setDialog({ type: 'dedupe' }) },
     { label: 'Split text to columns…', onClick: () => setDialog({ type: 'split' }) },
     { label: 'Pivot table…', onClick: newPivot },
@@ -979,7 +983,7 @@ export default function SheetEditor() {
                   const fmt = formats[k];
                   const vd = validations.length ? validationAt(validations, k) : null;
                   return (
-                    <td key={k} data-k={k} {...spanProps} style={{ maxWidth: span ? undefined : widthOf(c), ...stickyStyle(c, r), ...cellStyle(fmt), ...(rules.length && ruleStyle(rules, k, v)), ...(theirs.has(k) && { boxShadow: `${isSel ? 'inset 0 0 0 2px var(--accent), ' : ''}inset 0 0 0 ${isSel ? 4 : 2}px ${theirs.get(k).color}` }) }}
+                    <td key={k} data-k={k} {...spanProps} style={{ maxWidth: span ? undefined : widthOf(c), ...stickyStyle(c, r), ...bandStyle(bands, c, r, fmt), ...cellStyle(fmt), ...(rules.length && ruleStyle(rules, k, v)), ...(theirs.has(k) && { boxShadow: `${isSel ? 'inset 0 0 0 2px var(--accent), ' : ''}inset 0 0 0 ${isSel ? 4 : 2}px ${theirs.get(k).color}` }) }}
                       title={notes[k] ? `Note: ${notes[k]}` : theirs.has(k) ? `${theirs.get(k).name} is here` : commented.has(k) ? 'Has comments' : spilledFrom ? `From the formula in ${spilledFrom}` : undefined}
                       className={`${frozenClass(c, r)} ${spilledFrom ? 'spilled' : ''} ${vd ? `has-${vd.type}` : ''} ${commented.has(k) ? 'commented' : ''} ${isSel ? 'sel' : ''} ${inRange(c, r) && anchor ? 'range' : ''} ${typeof v === 'number' ? 'num' : ''} ${isErr ? 'err' : ''} ${hits?.keys.has(k) ? (hits.current === k ? 'find-current' : 'find-hit') : ''} ${!readOnly && guardBoxes.length && guarded(c, r) ? 'guarded' : ''} ${inFill(c, r) ? 'fill-preview' : ''}`}
                       onContextMenu={(e) => { if (!inRange(c, r)) { setAnchor(null); setSel({ c, r }); } openMenu(e, 'cell'); }}
@@ -1096,7 +1100,7 @@ export default function SheetEditor() {
           setDialog(null);
           printHtml(sheetPrintHtml({
             title: `${file.name} - ${sheet.name}`, area, text: shown,
-            style: (k) => ({ ...cellStyle(formats[k]), ...(rules.length && ruleStyle(rules, k, evaluate(k))) }),
+            style: (k) => { const m = /^([A-Z]+)(\d+)$/.exec(k); return { ...(m && bandStyle(bands, colIndex(m[1]), Number(m[2]) - 1, formats[k])), ...cellStyle(formats[k]), ...(rules.length && ruleStyle(rules, k, evaluate(k))) }; },
             layout, hiddenRows: hidden, hiddenCols, width: widthOf, gridlines: o.gridlines, landscape: o.landscape, paper: o.paper,
           }));
         }} />
@@ -1125,6 +1129,10 @@ export default function SheetEditor() {
       {dialog?.type === 'sort' && (() => { const g = sortTarget(); return (
         <SortDialog initial={{ range: g, by: sel.c }} header={looksLikeHeader(g, evaluate)} value={evaluate} onSort={sortBy} onClose={() => { setDialog(null); gridRef.current?.focus(); }} />
       ); })()}
+      {dialog?.type === 'bands' && (
+        <BandsDialog bands={bands} defaultRange={rangeText(anchor ? range : sortTarget())} onClose={() => { setDialog(null); gridRef.current?.focus(); }}
+          onSave={(next) => { writeSheet(() => ({ bands: next.length ? next : undefined })); setDialog(null); gridRef.current?.focus(); }} />
+      )}
       {dialog?.type === 'dedupe' && (() => { const g = sortTarget(); return (
         <DedupeDialog range={g} header={looksLikeHeader(g, evaluate)} onClose={() => { setDialog(null); gridRef.current?.focus(); }} onRun={(o) => { setDialog(null); dedupe(g, o); }} />
       ); })()}

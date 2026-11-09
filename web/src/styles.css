@@ -2223,3 +2223,10 @@ textarea.mono { font-family: ui-monospace, Consolas, monospace; }
 .slide-video.editing { position: relative; pointer-events: none; }
 .slide-video.editing video { width: 100%; height: 100%; object-fit: contain; display: block; }
 .slide-video-play { position: absolute; inset: 0; display: grid; place-items: center; font-size: 3em; color: #fff; text-shadow: 0 2px 8px rgba(0,0,0,.6); }
+.band-styles { display: flex; gap: 8px; flex-wrap: wrap; }
+.band-style { display: flex; flex-direction: column; width: 44px; padding: 3px; border: 2px solid var(--border); border-radius: 6px; background: var(--surface); cursor: pointer; }
+.band-style span { height: 7px; border: 1px solid rgba(0,0,0,.06); }
+.band-style.on { border-color: var(--accent); }
+.band-preview { border: 1px solid var(--border); border-radius: 6px; overflow: hidden; width: 180px; }
+.band-preview div { padding: 3px 8px; font-size: 12px; }
+.band-colour input[type="color"] { width: 36px; height: 28px; padding: 2px; min-height: 0; cursor: pointer; }

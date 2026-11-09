@@ -275,6 +275,16 @@ test('Excel: rows a filter condition leaves out are hidden in the download', asy
   assert.deepEqual([2, 3, 4, 5].map((r) => !!wb.worksheets[0].getRow(r).hidden), [true, false, false, false], 'formula rows stay shown');
 });
 
+test('Excel: alternating colours become cell fills, a cell\'s own fill kept', async () => {
+  const data = { sheets: [{ name: 'S', cells: { A1: 'Item', B1: 'Cost', A2: 'Pens', A3: 'Desk', A4: 'Lamp' }, formats: { B3: { fill: '#ff0000' } }, bands: [{ id: 'b', range: 'A1:B4', header: true, footer: false, head: '#4a86e8', odd: '#ffffff', even: '#e8f0fe', foot: '#c6dafc' }] }] };
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(await excelFromSheet(data));
+  const ws = wb.worksheets[0];
+  const fill = (k) => ws.getCell(k).fill?.fgColor?.argb;
+  assert.deepEqual(['A1', 'A2', 'A3', 'B3', 'A4'].map(fill), ['FF4A86E8', 'FFFFFFFF', 'FFE8F0FE', 'FFFF0000', 'FFFFFFFF']);
+  assert.equal(ws.getCell('B1').font?.bold, true);
+});
+
 test('Excel: newer functions carry the _xlfn. prefix in the file and lose it in Sheets', async () => {
   assert.equal(formulaToExcel('IFERROR(XLOOKUP(A1,B:B,C:C),"_xlfn.x")+STDEV.S(D1:D3)+SUM(E1)'), 'IFERROR(_xlfn.XLOOKUP(A1,B:B,C:C),"_xlfn.x")+_xlfn.STDEV.S(D1:D3)+SUM(E1)');
   assert.equal(formulaFromExcel('_xlfn.XLOOKUP(A1,B1:B3,C1:C3)&"_xlfn."'), 'XLOOKUP(A1,B1:B3,C1:C3)&"_xlfn."');

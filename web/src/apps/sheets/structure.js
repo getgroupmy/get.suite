@@ -3,6 +3,7 @@
 import { colName, colIndex, cellKey, parseRef, shiftFormula, sheetPrefix } from './formula.js';
 import { adjustHide } from './hide.js';
 import { adjustGroups } from './groups.js';
+import { adjustBands } from './bands.js';
 
 /**
  * A structural change: on `axis` ('row' | 'col'), `count` > 0 inserts that many before index `at`;
@@ -130,6 +131,7 @@ export function applyStructure(sheet, change) {
   // Merges move and grow or shrink with their cells; one that's down to a single cell is no longer a merge.
   const merges = (sheet.merges || []).map((m) => adjustRange(m, change)).filter((m) => m && m.split(':')[0] !== m.split(':')[1]);
   const hide = adjustHide(sheet.hide, change);
+  const bands = adjustBands(sheet.bands, change);
   const names = sheet.names && adjustNames(sheet.names, change);
   // Protected ranges move with their cells (whole-sheet ones stay); one whose cells all went goes too.
   const prot = sheet.protected && sheet.protected.flatMap((p) => { if (!p.range) return [p]; const range = adjustRange(p.range, change); return range ? [{ ...p, range }] : []; });
@@ -139,6 +141,7 @@ export function applyStructure(sheet, change) {
   if (groups) out.groups = groups; else delete out.groups;
   if (names && Object.keys(names).length) out.names = names; else delete out.names;
   if (prot?.length) out.protected = prot; else delete out.protected;
+  if (bands) out.bands = bands; else delete out.bands;
   return out;
 }
 

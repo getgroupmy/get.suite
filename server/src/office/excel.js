@@ -265,6 +265,26 @@ export async function excelFromSheet(data) {
       const nf = numToExcel(f);
       if (nf) cell.numFmt = nf;
     }
+    // Alternating colours become each cell's fill (a cell's own fill wins), the heading row in bold.
+    for (const band of s.bands || []) {
+      const m = /^([A-Z]+)(\d+):([A-Z]+)(\d+)$/.exec(String(band.range || ''));
+      if (!m) continue;
+      const [c1, r1, c2, r2] = [colIndex(m[1]), Number(m[2]), colIndex(m[3]), Number(m[4])];
+      if (r2 - r1 > 5000 || c2 - c1 > 200) continue;
+      const hex = (v) => (/^#[0-9a-f]{6}$/i.test(v || '') ? v : null);
+      for (let r = r1; r <= r2; r++) {
+        const kind = band.header !== false && r === r1 ? 'head' : band.footer && r === r2 && r2 > r1 ? 'foot' : (r - r1 - (band.header !== false ? 1 : 0)) % 2 === 0 ? 'odd' : 'even';
+        const fill = hex(band[kind]);
+        if (!fill) continue;
+        for (let c = c1; c <= c2; c++) {
+          const key = `${colName(c)}${r}`;
+          if (s.formats?.[key]?.fill) continue;
+          const cell = ws.getCell(key);
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: argb(fill) } };
+          if (kind === 'head') cell.font = { ...(cell.font || {}), bold: true };
+        }
+      }
+    }
     for (const [key, text] of Object.entries(s.notes || {})) if (/^[A-Z]+\d+$/.test(key) && text) ws.getCell(key).note = String(text);
     for (const [col, px] of Object.entries(s.colWidths || {})) ws.getColumn(col).width = Math.max(2, Math.round((px - 5) / 7));
     if (s.frozen?.rows || s.frozen?.cols) ws.views = [{ state: 'frozen', xSplit: s.frozen.cols || 0, ySplit: s.frozen.rows || 0 }];
