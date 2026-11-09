@@ -134,6 +134,26 @@ export default function timeOffRoutes() {
     });
   });
 
+  // Who's out (Home): colleagues on approved time off on `date` (the kind is theirs to tell: just "out"),
+  // with the working day they're back; the company's holiday that day or the next one coming; and how
+  // many requests wait for your answer.
+  r.get('/out', (req, res) => {
+    const date = validDate(req.query.date || '') ? req.query.date : new Date().toISOString().slice(0, 10);
+    const hol = holidaySet(req.user.org_id);
+    const nextWorkday = (d) => {
+      let t = Date.parse(`${d}T00:00:00Z`) + 864e5;
+      for (let i = 0; i < 400; i++, t += 864e5) { const x = new Date(t), iso = x.toISOString().slice(0, 10); if (x.getUTCDay() !== 0 && x.getUTCDay() !== 6 && !hol.has(iso)) return iso; }
+      return null;
+    };
+    const out = q(`SELECT t.user_id, t.end_date, u.name FROM time_off t JOIN users u ON u.id = t.user_id
+                   WHERE u.org_id = ? AND u.disabled = 0 AND t.status = 'approved' AND t.start_date <= ? AND t.end_date >= ? AND t.user_id != ? ORDER BY u.name`)
+      .all(req.user.org_id, date, date, req.user.id).map((x) => ({ user_id: x.user_id, name: x.name, until: x.end_date, back: nextWorkday(x.end_date) }));
+    const holiday = q('SELECT id, date, name FROM company_holidays WHERE org_id = ? AND date >= ? ORDER BY date LIMIT 1').get(req.user.org_id, date) || null;
+    const waiting = q(`SELECT t.* FROM time_off t JOIN users u ON u.id = t.user_id WHERE u.org_id = ? AND t.status = 'pending' AND t.user_id != ?`).all(req.user.org_id, req.user.id)
+      .filter((t) => mayDecide(req.user, t)).length;
+    res.json({ date, out, holiday, waiting });
+  });
+
   // Company holidays: everyone sees them (for the calendar); admins add and remove them.
   r.get('/holidays', (req, res) => {
     const from = DATE.test(req.query.from || '') ? req.query.from : '0000-01-01', to = DATE.test(req.query.to || '') ? req.query.to : '9999-12-31';

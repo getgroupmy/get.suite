@@ -476,7 +476,7 @@ A shared drive belongs to a team (Marketing, Finance, a client project) rather t
 
 ## Home
 
-**Home** (at the top of the left bar) is the day at a glance: today's **events** (with **Now** on the one that's on, and **Join** for those with a video meeting), **tasks due** today and overdue, **unread** email and chat conversations, your **recent files** and **pinned notes**. Everything opens where it lives, and the page keeps itself up to date as things change. To open Workspace on Home instead of Drive, choose it under **Settings → Appearance → Open Workspace on** (kept with your account, on every device).
+**Home** (at the top of the left bar) is the day at a glance: today's **events** (with **Now** on the one that's on, and **Join** for those with a video meeting), **tasks due** today and overdue, **unread** email and chat conversations, your **recent files** and **pinned notes**, and **🏖 Who's out**: colleagues on approved time off today with the day they're back (not what kind of time off), time-off requests waiting for your answer, and the next company holiday. Everything opens where it lives, and the page keeps itself up to date as things change. To open Workspace on Home instead of Drive, choose it under **Settings → Appearance → Open Workspace on** (kept with your account, on every device).
 
 ## Search everything
 

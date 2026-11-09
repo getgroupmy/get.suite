@@ -155,3 +155,22 @@ test('company holidays: on everyone\'s list, not working days in time off; admin
   assert.equal((await boss('DELETE', `/api/time-off/holidays/${h.id}`)).status, 200);
   assert.equal((await tom('GET', '/api/time-off')).body.mine.find((x) => x.id === r.id).days, 4, 'counted again once it is no holiday');
 });
+
+test('who\'s out: colleagues on approved time off that day, back on the next working day; the next holiday', async () => {
+  const boss = client(), tom = client(), mia = client();
+  await boss('POST', '/api/auth/login', { username: 'bea@acme.com', password: 'password123' });
+  await tom('POST', '/api/auth/login', { username: 'tom@acme.com', password: 'password123' });
+  await mia('POST', '/api/auth/login', { username: 'mia@acme.com', password: 'password123' });
+  // Tom: Wed 6 – Fri 8 Oct 2027, approved; Mon 11 Oct is a holiday, so he's back Tue 12.
+  await boss('POST', '/api/time-off/holidays', { date: '2027-10-11', name: 'Harvest Day' });
+  const before = (await mia('GET', '/api/time-off/out?date=2027-10-07')).body.waiting;
+  const r = (await tom('POST', '/api/time-off', { start_date: '2027-10-06', end_date: '2027-10-08', kind: 'sick', tz: 'UTC' })).body;
+  assert.equal((await mia('GET', '/api/time-off/out?date=2027-10-07')).body.waiting, before + 1, 'one more waiting for Mia');
+  await mia('POST', `/api/time-off/${r.id}/decide`, { approve: true });
+  const seen = (await boss('GET', '/api/time-off/out?date=2027-10-07')).body;
+  assert.deepEqual(seen.out.map((x) => [x.name, x.until, x.back]), [['Tom Team', '2027-10-08', '2027-10-12']]);
+  assert.equal(seen.out[0].kind, undefined, 'not what kind of time off');
+  assert.deepEqual([seen.holiday.date, seen.holiday.name], ['2027-10-11', 'Harvest Day']);
+  assert.deepEqual((await tom('GET', '/api/time-off/out?date=2027-10-07')).body.out, [], 'not yourself');
+  assert.deepEqual((await boss('GET', '/api/time-off/out?date=2027-10-12')).body.out, [], 'back');
+});

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { get, onLive, formatDate } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
+import { Avatar } from '../../components/ui.jsx';
 import { useAuth } from '../../App.jsx';
 import { useMailStatus } from '../../mailStatus.js';
 import { expandAll } from '../calendar/calmath.js';
@@ -15,6 +16,13 @@ const time = (ms) => new Date(ms).toLocaleTimeString([], { hour: 'numeric', minu
 import { placeText } from '../../components/workloc.js';
 import { greeting } from './greeting.js';
 
+/** "tomorrow", "Mon 16 Nov" for a YYYY-MM-DD. */
+function dayText(d) {
+  const t = new Date(`${d}T00:00:00`), today = new Date(); today.setHours(0, 0, 0, 0);
+  const diff = Math.round((t - today) / 864e5);
+  return diff === 1 ? 'tomorrow' : t.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' });
+}
+
 export default function Home() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -24,11 +32,12 @@ export default function Home() {
     const start = new Date(); start.setHours(0, 0, 0, 0);
     const from = start.getTime(), to = from + 864e5 - 1;
     const safe = (p, empty) => p.catch(() => empty);
-    const [events, due, channels, recent, notes, unread, approvals, where, signing] = await Promise.all([
+    const [events, due, channels, recent, notes, unread, approvals, where, signing, away] = await Promise.all([
       safe(get(`/events?from=${from}&to=${to}`), []), safe(get(`/tasks/due?from=2000-01-01&to=${localToday()}`), []),
       safe(get('/chat/channels'), { channels: [] }), safe(get('/files?view=recent'), []), safe(get('/notes'), []),
       mail?.enabled ? safe(get('/mail/unread'), null) : Promise.resolve(null), safe(get('/approvals'), { waiting: [] }),
       safe(get(`/location?from=${localToday()}&to=${localToday()}`), { days: {} }), safe(get('/signatures'), { waiting: [] }),
+      safe(get(`/time-off/out?date=${localToday()}`), { out: [], holiday: null, waiting: 0 }),
     ]);
     setData({
       events: expandAll(events, from, to).filter((e) => e.my_status !== 'no'),
@@ -40,11 +49,12 @@ export default function Home() {
       signing: signing.waiting,
       where: where.days?.[localToday()] || null,
       unread: unread?.unseen ?? null,
+      away,
     });
   }, [mail?.enabled]);
   useEffect(() => { if (mail) load(); }, [load, mail]);
   useEffect(() => onLive((m) => {
-    if (['events-changed', 'tasks-changed', 'message', 'chat-read', 'notes-changed', 'files-changed', 'mail-new', 'mail-unread', 'approvals-changed', 'signatures-changed', 'location-changed', 'live-connected'].includes(m.type)) load();
+    if (['events-changed', 'tasks-changed', 'message', 'chat-read', 'notes-changed', 'files-changed', 'mail-new', 'mail-unread', 'approvals-changed', 'signatures-changed', 'location-changed', 'live-connected'].includes(m.type) || m.type === 'notification') load();
   }), [load]);
   useEffect(() => { document.title = 'Home'; return () => { document.title = 'Workspace'; }; }, []);
 
@@ -109,6 +119,20 @@ export default function Home() {
                     <Link className="grow home-item" to={FILE_LINK[a.file.kind]?.(a.file) || '/drive/approvals'}>{a.file.name}</Link>
                     <span className="muted small nowrap">{a.requested_by?.name}{a.due ? ` · by ${a.due}` : ''}</span></li>
                 ))}
+              </ul>
+            </section>
+          )}
+          {(data.away.out.length > 0 || data.away.holiday || data.away.waiting > 0) && (
+            <section className="card home-card" aria-label="Who's out">
+              <h2><Link to="/calendar?timeoff=1">🏖 Who's out</Link></h2>
+              <ul className="home-list">
+                {data.away.waiting > 0 && <li><Link className="grow home-item" to="/calendar?timeoff=1"><strong>{data.away.waiting} time-off request{data.away.waiting === 1 ? '' : 's'} waiting for your answer</strong></Link></li>}
+                {data.away.out.map((p) => (
+                  <li key={p.user_id}><Avatar name={p.name} userId={p.user_id} size={20} /><span className="grow home-item">{p.name}</span>
+                    <span className="muted small nowrap">{p.back ? `back ${dayText(p.back)}` : `out until ${dayText(p.until)}`}</span></li>
+                ))}
+                {data.away.out.length === 0 && data.away.waiting === 0 && <li className="muted small">Everyone's in today.</li>}
+                {data.away.holiday && <li className="small">🏳 {data.away.holiday.date === localToday() ? 'Today' : dayText(data.away.holiday.date)}: {data.away.holiday.name}</li>}
               </ul>
             </section>
           )}
