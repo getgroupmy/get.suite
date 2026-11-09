@@ -1,5 +1,6 @@
 // The notifications behind the bell: things that need you (a mention, a task given to you, an
 // invitation, something shared with you, a booking), kept so they're there when you come back.
+import { pushTo } from './push.js';
 import { q } from './db.js';
 import { uid } from './util.js';
 import { sendTo } from './hub.js';
@@ -46,6 +47,7 @@ export function notify(userIds, { kind, title, body = null, link = null, actor =
     // Only the latest are kept.
     q(`DELETE FROM notifications WHERE user_id = ? AND id NOT IN (SELECT id FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT ${KEEP})`).run(userId, userId);
     sendTo([userId], { type: 'notification', notification: shape(q('SELECT * FROM notifications WHERE id = ?').get(id)) });
+    pushTo(userId, { title, body, link, tag: kind }).catch((e) => console.error('[push]', e.message)); // phones and computers with it turned on
   }
 }
 

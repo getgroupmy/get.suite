@@ -1,7 +1,7 @@
 // Workspace as an installed app: this service worker only keeps the app itself (its page and its
 // script and style files) so it opens without a connection. Nothing from /api, mail, files or the
 // sync addresses is ever stored here: those always go to the server.
-const CACHE = 'workspace-app-v1';
+const CACHE = 'workspace-app-v2';
 const SKIP = /^\/(api|dav|ws|s|b|i|f|p|meet-ws)(\/|$)/; // live data and public share pages
 
 self.addEventListener('install', (e) => {
@@ -40,4 +40,23 @@ self.addEventListener('fetch', (e) => {
       return hit || fresh;
     }));
   }
+});
+
+// Notifications sent by the server (Web Push; see server/src/push.js): show them, and open the
+// place they're about when clicked (in an open Workspace window if there is one).
+self.addEventListener('push', (e) => {
+  let m = {};
+  try { m = e.data ? e.data.json() : {}; } catch { m = { title: e.data?.text() }; }
+  e.waitUntil(self.registration.showNotification(m.title || 'Workspace', {
+    body: m.body || '', tag: m.tag, renotify: !!m.tag, icon: '/icons/icon-192.png', badge: '/icons/icon-192.png', data: { link: m.link || '/' },
+  }));
+});
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  const link = new URL(e.notification.data?.link || '/', self.location.origin).href;
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((wins) => {
+    const w = wins.find((c) => c.url.startsWith(self.location.origin));
+    if (w) return w.focus().then(() => w.navigate(link)).catch(() => self.clients.openWindow(link));
+    return self.clients.openWindow(link);
+  }));
 });

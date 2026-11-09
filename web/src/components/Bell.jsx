@@ -88,8 +88,58 @@ function NotificationSettings({ onClose }) {
       <div className="stack">
         <p className="muted small" style={{ margin: 0 }}>What shows in the bell (and pops up, and on your desktop). Turned-off kinds aren't kept, so they won't appear later either.</p>
         {kinds?.map((k) => <label key={k.kind} className="check"><input type="checkbox" checked={k.on} onChange={() => toggle(k.kind)} /> {k.label}</label>)}
+        <ThisDevice />
         <div className="row end"><button type="button" className="btn primary" onClick={onClose}>Done</button></div>
       </div>
     </Modal>
+  );
+}
+
+// Base64url (the push service's key) as the bytes PushManager wants.
+const keyBytes = (b64) => Uint8Array.from(atob(b64.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - (b64.length % 4)) % 4)), (c) => c.charCodeAt(0));
+
+/**
+ * Notifications on this device, even with Workspace closed (phones with Workspace installed, and
+ * computers): turned on per device; needs HTTPS and the browser's permission.
+ */
+function ThisDevice() {
+  const toast = useToast();
+  const [state, setState] = useState('checking'); // checking | unsupported | blocked | off | on
+  const [busy, setBusy] = useState(false);
+  const supported = typeof window !== 'undefined' && window.isSecureContext && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+  const current = useCallback(async () => (await (await navigator.serviceWorker.ready).pushManager.getSubscription()), []);
+  useEffect(() => {
+    if (!supported) { setState('unsupported'); return; }
+    if (Notification.permission === 'denied') { setState('blocked'); return; }
+    current().then((s) => setState(s ? 'on' : 'off')).catch(() => setState('off'));
+  }, [supported, current]);
+  const turnOn = async () => {
+    setBusy(true);
+    try {
+      if ((await Notification.requestPermission()) !== 'granted') { setState('blocked'); return; }
+      const { publicKey } = await get('/push');
+      const reg = await navigator.serviceWorker.ready;
+      const sub = (await reg.pushManager.getSubscription()) || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(publicKey) });
+      await post('/push/subscribe', sub.toJSON());
+      await post('/push/test');
+      setState('on');
+      toast('Notifications are on for this device');
+    } catch (e) { toast(e.message || 'Couldn’t turn notifications on', 'error'); }
+    finally { setBusy(false); }
+  };
+  const turnOff = async () => {
+    setBusy(true);
+    try { const s = await current(); if (s) { await post('/push/unsubscribe', { endpoint: s.endpoint }); await s.unsubscribe(); } setState('off'); }
+    catch (e) { toast(e.message, 'error'); }
+    finally { setBusy(false); }
+  };
+  return (
+    <div className="stack" style={{ gap: 6, borderTop: '1px solid var(--border)', paddingTop: 12 }}>
+      <strong>On this device, even with Workspace closed</strong>
+      {state === 'unsupported' && <p className="muted small" style={{ margin: 0 }}>Not available here: it needs Workspace over HTTPS, and on iPhone and iPad, Workspace added to the Home Screen first (Share → Add to Home Screen).</p>}
+      {state === 'blocked' && <p className="muted small" style={{ margin: 0 }}>Notifications are blocked for Workspace in this browser. Allow them in the browser's site settings, then come back here.</p>}
+      {state === 'off' && <div className="row"><button type="button" className="btn" disabled={busy} onClick={turnOn}>Turn on notifications on this device</button></div>}
+      {state === 'on' && <div className="row"><span className="grow small">On: what lands in the bell reaches this device too (not while notifications are paused or in your quiet hours).</span><button type="button" className="btn" disabled={busy} onClick={turnOff}>Turn off</button></div>}
+    </div>
   );
 }

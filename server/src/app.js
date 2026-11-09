@@ -22,6 +22,7 @@ import locationRoutes from './routes/location.js';
 import contactRoutes from './routes/contacts.js';
 import taskRoutes from './routes/tasks.js';
 import notificationRoutes from './routes/notifications.js';
+import pushRoutes from './routes/push.js';
 import chatRoutes, { chatHookRoutes } from './routes/chat.js';
 import { publishRoutes, publicPublishRoutes } from './routes/publish.js';
 import { officePreviewRoutes } from './office/preview.js';
@@ -117,6 +118,7 @@ export function createApp({
   app.use('/api/chat', requireAuth, chatRoutes());
   app.use('/api/tasks', requireAuth, taskRoutes());
   app.use('/api/notifications', requireAuth, notificationRoutes());
+  app.use('/api/push', requireAuth, pushRoutes());
   app.use('/api/announcements', requireAuth, announcementRoutes());
   app.use('/api/forms', requireAuth, formRoutes());
   app.use('/api/meet', requireAuth, meetRoutes());

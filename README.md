@@ -114,6 +114,8 @@ Once Workspace is published over HTTPS (above), it can be installed like an app,
 
 It opens even without a connection, with a note at the bottom saying so; it reconnects by itself when the network is back (documents, spreadsheets and presentations you had open keep your changes meanwhile). Only the app itself is kept on the device: mail, files and everything else always come from the server and are never stored by it. Over plain HTTP on the local network it still works in the browser, just without installing or opening offline.
 
+**Notifications on your phone:** in the bell's **Notification settings**, **Turn on notifications on this device** (and allow them when the browser asks). From then on, what lands in your bell (mentions, tasks, invitations, shared files, bookings and the rest you've left on) also reaches that device, even with Workspace closed, until you **Turn off** there. Not while notifications are paused or in your quiet hours. On iPhone and iPad it needs Workspace added to the Home Screen first (iOS 16.4 or later). They go through the browser maker's push service (Apple, Google, Mozilla, Microsoft), encrypted so that the service can't read them; the NAS needs to reach the internet for that, and the server's signing key is made by itself on first use. A device that stops taking them (the app removed) is forgotten.
+
 ## Editing documents together
 
 Everyone who can edit a document, spreadsheet or presentation can work in it at the same time, like in Google Docs, Sheets and Slides.
