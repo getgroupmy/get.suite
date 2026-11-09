@@ -46,7 +46,7 @@ export default function Notes() {
   const [labelling, setLabelling] = useState(null);
   const [deleting, setDeleting] = useState(null);
   const load = useCallback(() => {
-    const qs = new URLSearchParams({ ...(where.archived && { archived: '1' }), ...(where.reminders && { reminders: '1' }), ...(where.label && { label: where.label }), ...(search.trim() && { q: search.trim() }) });
+    const qs = new URLSearchParams({ ...(where.trash && { trash: '1' }), ...(where.archived && { archived: '1' }), ...(where.reminders && { reminders: '1' }), ...(where.label && { label: where.label }), ...(search.trim() && { q: search.trim() }) });
     get(`/notes?${qs}`).then(setNotes).catch((e) => toast(e.message, 'error'));
     get('/notes/labels').then(setLabels).catch(() => {});
   }, [where, search, toast]);
@@ -71,13 +71,21 @@ export default function Notes() {
     await change(n, { archived: on });
     toast(on ? 'Note archived' : 'Note back from the archive', 'info', { action: { label: 'Undo', onClick: () => change(n, { archived: !on }) } });
   };
+  // Deleting your note puts it in the trash (with Undo); there it can be restored or deleted for good.
+  const trash = async (n) => {
+    try { await del(`/notes/${n.id}`); } catch (e) { toast(e.message, 'error'); return; }
+    load();
+    toast('Note moved to the trash', 'info', { action: { label: 'Undo', onClick: async () => { await post(`/notes/${n.id}/restore`); load(); } } });
+  };
+  const restore = async (n) => { try { await post(`/notes/${n.id}/restore`); toast('Note restored'); load(); } catch (e) { toast(e.message, 'error'); } };
+  const [forever, setForever] = useState(null); // a note (or 'all') to delete for good
   const copy = async (n) => { try { await post(`/notes/${n.id}/copy`); toast('Copy made'); load(); } catch (e) { toast(e.message, 'error'); } };
 
   const pinned = (notes || []).filter((n) => n.pinned);
   const others = (notes || []).filter((n) => !n.pinned);
   const current = notes?.find((n) => n.id === editing);
   const card = (n) => <NoteCard key={n.id} note={n} onOpen={() => setEditing(n.id)} onChange={(c) => change(n, c)} onArchive={() => archive(n, !n.archived)}
-    onLabel={() => setLabelling(n)} onShare={() => setSharing(n)} onCopy={() => copy(n)} onDelete={() => setDeleting(n)}
+    onLabel={() => setLabelling(n)} onShare={() => setSharing(n)} onCopy={() => copy(n)} onDelete={() => (n.mine ? trash(n) : setDeleting(n))}
     onToDoc={async () => { try { const d = await post(`/notes/${n.id}/doc`); toast('Copied to a new document in My Drive', 'info', { action: { label: 'Open', onClick: () => navigate(`/docs/${d.id}`) } }); } catch (e) { toast(e.message, 'error'); } }}
     onToTasks={async () => { try { const r = await post(`/notes/${n.id}/tasks`); toast(`${r.added === 1 ? '1 task' : `${r.added} tasks`} added to ${r.list.name}`, 'info', { action: { label: 'Open', onClick: () => navigate(`/tasks/${r.list.id}`) } }); } catch (e) { toast(e.message, 'error'); } }}
     onRemind={(t) => { if (t === 'pick') setPicking(n); else { change(n, { remind_at: t }); if (t) toast(`Reminder set for ${reminderText(t)}`); } }} />;
@@ -90,11 +98,27 @@ export default function Notes() {
           <button key={l} type="button" className={`subnav-item ${where.label === l ? 'active' : ''}`} onClick={() => setWhere({ archived: false, label: l, reminders: false })}><span className="note-label-icon" aria-hidden="true">🏷</span><span className="grow ellipsis">{l}</span></button>
         ))}
         <button type="button" className={`subnav-item ${where.archived ? 'active' : ''}`} onClick={() => setWhere({ archived: true, label: null, reminders: false })}><Icon name="archive" /><span className="grow">Archive</span></button>
+        <button type="button" className={`subnav-item ${where.trash ? 'active' : ''}`} onClick={() => setWhere({ archived: false, label: null, reminders: false, trash: true })}><Icon name="trash" /><span className="grow">Trash</span></button>
       </aside>
       <section className="notes-main">
         <div className="notes-search"><Icon name="search" size={18} /><input type="search" aria-label="Search notes" placeholder="Search notes" value={search} onChange={(e) => setSearch(e.target.value)} /></div>
-        {!where.archived && !where.reminders && <Composer label={where.label} onMade={load} />}
-        {notes === null ? null : !notes.length ? (
+        {!where.archived && !where.reminders && !where.trash && <Composer label={where.label} onMade={load} />}
+        {where.trash ? <>
+          <div className="row notes-trash-head"><p className="muted small grow" style={{ margin: 0 }}>Notes in the trash are deleted for good after 7 days.</p>
+            {notes?.length > 0 && <button type="button" className="btn small" onClick={() => setForever('all')}>Empty trash</button>}</div>
+          {notes && !notes.length ? <Empty icon="trash" title="The trash is empty" /> : (
+            <div className="notes-grid" aria-label="Deleted notes">{(notes || []).map((n) => (
+              <article key={n.id} className="note-card trashed" style={{ background: n.color || undefined }} aria-label={n.title || 'Note'}>
+                {n.title && <h3>{n.title}</h3>}
+                {n.items ? <ul className="note-items">{n.items.slice(0, 6).map((i) => <li key={i.id} className={i.done ? 'done' : ''}>{i.done ? '☑' : '☐'} {i.text}</li>)}</ul> : <p className="note-body">{n.body.slice(0, 300)}</p>}
+                <div className="row note-tools">
+                  <button type="button" className="btn small" onClick={() => restore(n)}>Restore</button>
+                  <button type="button" className="btn small danger" onClick={() => setForever(n)}>Delete forever</button>
+                </div>
+              </article>
+            ))}</div>
+          )}
+        </> : notes === null ? null : !notes.length ? (
           <Empty icon={where.archived ? 'archive' : 'note'} title={search ? 'No matching notes' : where.reminders ? 'No reminders set' : where.archived ? 'Nothing archived' : where.label ? `No notes labelled “${where.label}”` : 'Notes you add appear here'} />
         ) : <>
           {pinned.length > 0 && <><h2 className="notes-heading">Pinned</h2><div className="notes-grid" aria-label="Pinned notes">{pinned.map(card)}</div></>}
@@ -105,6 +129,8 @@ export default function Notes() {
       {sharing && <ShareNote note={sharing} onClose={() => { setSharing(null); load(); }} />}
       {labelling && <LabelNote note={labelling} all={labels} onSave={async (ls) => { await change(labelling, { labels: ls }); setLabelling(null); }} onClose={() => setLabelling(null)} />}
       {picking && <PickTime note={picking} onClose={() => setPicking(null)} onPick={(t) => { change(picking, { remind_at: t }); toast(`Reminder set for ${reminderText(t)}`); setPicking(null); }} />}
+      {forever && <ConfirmModal title={forever === 'all' ? 'Empty the trash?' : 'Delete this note for good?'} confirm="Delete forever" message="This can’t be undone."
+        onClose={() => setForever(null)} onConfirm={async () => { try { await del(forever === 'all' ? '/notes/trash' : `/notes/${forever.id}?forever=1`); } catch (e) { toast(e.message, 'error'); } setForever(null); load(); }} />}
       {deleting && <ConfirmModal title={deleting.mine ? 'Delete this note?' : 'Remove this note?'} confirm={deleting.mine ? 'Delete' : 'Remove'}
         message={deleting.mine ? (deleting.shared.length ? 'It goes for everyone it’s shared with too.' : 'This can’t be undone.') : 'It stays for its owner and the others it’s shared with.'}
         onClose={() => setDeleting(null)} onConfirm={async () => { await del(`/notes/${deleting.id}`); setDeleting(null); load(); }} />}

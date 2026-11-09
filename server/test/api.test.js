@@ -6595,3 +6595,38 @@ test('tasks: a CSV comes in at the end of a list; a downloaded list goes back in
   const sid = client(); await login(sid, 'phv@keepco.com');
   assert.equal((await sid('POST', `/api/tasks/lists/${list.id}/import`, csv, { raw: true, headers: { 'content-type': 'text/csv' } })).status, 404);
 });
+
+test('notes: deleting puts a note in the trash, to restore or delete for good; old ones go by themselves', async () => {
+  const kay = client(); await login(kay, 'kay@keepco.com');
+  const pat = client(); await login(pat, 'phv@keepco.com');
+  const patId = (await pat('GET', '/api/auth/me')).body.user.id;
+  const n = (await kay('POST', '/api/notes', { title: 'Trash me', body: 'x', remind_at: Date.now() + 60e3 })).body;
+  await kay('PATCH', `/api/notes/${n.id}`, { shared: [patId] }).catch(() => {});
+  const del = (await kay('DELETE', `/api/notes/${n.id}`)).body;
+  assert.deepEqual([del.deleted, del.trashed], [true, true]);
+  assert.ok(!(await kay('GET', '/api/notes')).body.some((x) => x.id === n.id), 'gone from the notes');
+  const trash = (await kay('GET', '/api/notes?trash=1')).body;
+  assert.equal(trash[0].id, n.id);
+  assert.ok(trash[0].trashed_at > 0);
+  assert.ok(!(await pat('GET', '/api/notes')).body.some((x) => x.id === n.id), 'and from theirs');
+  assert.equal((await pat('PATCH', `/api/notes/${n.id}`, { title: 'hi' })).status, 404);
+  // Restore: back as it was.
+  assert.equal((await kay('POST', `/api/notes/${n.id}/restore`)).body.trashed_at, null);
+  assert.ok((await kay('GET', '/api/notes')).body.some((x) => x.id === n.id));
+  assert.equal((await pat('POST', `/api/notes/${n.id}/restore`)).status, 404, 'only its owner');
+  // Deleting from the trash is for good.
+  await kay('DELETE', `/api/notes/${n.id}`);
+  assert.equal((await kay('DELETE', `/api/notes/${n.id}`)).body.trashed, false);
+  assert.equal((await kay('GET', '/api/notes?trash=1')).body.filter((x) => x.id === n.id).length, 0);
+  // Empty trash, and the clean-up after a week.
+  const a = (await kay('POST', '/api/notes', { title: 'A' })).body, b = (await kay('POST', '/api/notes', { title: 'B' })).body;
+  await kay('DELETE', `/api/notes/${a.id}`); await kay('DELETE', `/api/notes/${b.id}`);
+  const { purgeTrashedNotes, TRASH_DAYS } = await import('../src/routes/notes.js');
+  assert.equal(purgeTrashedNotes(Date.now()), 0, 'not yet');
+  assert.ok(purgeTrashedNotes(Date.now() + TRASH_DAYS * 864e5 + 1000) >= 2);
+  assert.ok(!(await kay('GET', '/api/notes?trash=1')).body.some((x) => x.id === a.id || x.id === b.id), 'a week on: gone');
+  const c = (await kay('POST', '/api/notes', { title: 'C' })).body;
+  await kay('DELETE', `/api/notes/${c.id}`);
+  assert.equal((await kay('DELETE', '/api/notes/trash')).body.deleted, 1);
+  assert.equal((await kay('GET', '/api/notes?trash=1')).body.length, 0);
+});

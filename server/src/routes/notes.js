@@ -69,10 +69,14 @@ export function cleanLabels(list) {
   return [...new Set(list.map((l) => String(l ?? '').trim().slice(0, 40)).filter(Boolean))].slice(0, MAX_LABELS);
 }
 
+// Trash: a deleted note waits here for its owner (restore it, or delete it for good) for TRASH_DAYS.
+if (!q('PRAGMA table_info(notes)').all().some((c) => c.name === 'trashed_at')) q('ALTER TABLE notes ADD COLUMN trashed_at INTEGER').run();
+export const TRASH_DAYS = 7;
+
 const team = (n) => [n.owner_id, ...q('SELECT user_id FROM note_shares WHERE note_id = ?').all(n.id).map((s) => s.user_id)];
 function shape(n, me) {
   return {
-    id: n.id, title: n.title, body: n.body, items: n.items ? JSON.parse(n.items) : null, color: n.color, pinned: !!n.pinned, archived: !!n.archived,
+    id: n.id, title: n.title, body: n.body, items: n.items ? JSON.parse(n.items) : null, color: n.color, pinned: !!n.pinned, archived: !!n.archived, trashed_at: n.trashed_at ?? null,
     labels: JSON.parse(n.labels || '[]'), remind_at: n.remind_at ?? null, pictures: picturesOf(n.id).map((p) => p.id), position: n.position, created_at: n.created_at, updated_at: n.updated_at, mine: n.owner_id === me,
     owner: q('SELECT id, name, username FROM users WHERE id = ?').get(n.owner_id),
     shared: q(`SELECT u.id, u.name, u.username FROM note_shares s JOIN users u ON u.id = s.user_id WHERE s.note_id = ? ORDER BY u.name`).all(n.id),
@@ -80,14 +84,14 @@ function shape(n, me) {
 }
 function load(id, user) {
   const n = q('SELECT * FROM notes WHERE id = ?').get(String(id));
-  if (!n || (n.owner_id !== user.id && !q('SELECT 1 FROM note_shares WHERE note_id = ? AND user_id = ?').get(n.id, user.id))) throw notFound('Note not found');
+  if (!n || (n.owner_id !== user.id && (n.trashed_at || !q('SELECT 1 FROM note_shares WHERE note_id = ? AND user_id = ?').get(n.id, user.id)))) throw notFound('Note not found');
   return n;
 }
 const tell = (n) => sendTo(team(n), { type: 'notes-changed' });
 
 /** Send the reminders that are due (to everyone on each note), then clear them. */
 export function remindNotesDue(at = now()) {
-  const due = q('SELECT * FROM notes WHERE remind_at IS NOT NULL AND remind_at <= ? ORDER BY remind_at LIMIT 100').all(at);
+  const due = q('SELECT * FROM notes WHERE remind_at IS NOT NULL AND remind_at <= ? AND trashed_at IS NULL ORDER BY remind_at LIMIT 100').all(at);
   for (const n of due) {
     q('UPDATE notes SET remind_at = NULL WHERE id = ?').run(n.id);
     const items = n.items ? JSON.parse(n.items).filter((i) => !i.done).map((i) => `☐ ${i.text}`).join('\n') : '';
@@ -96,7 +100,16 @@ export function remindNotesDue(at = now()) {
   }
   return due.length;
 }
-export function startNotesScheduler() { setInterval(() => { try { remindNotesDue(); } catch (e) { console.error('[notes] reminders:', e.message); } }, 15e3).unref(); }
+/** Notes in the trash longer than TRASH_DAYS go for good (with their pictures). */
+export function purgeTrashedNotes(at = now()) {
+  const old = q('SELECT id FROM notes WHERE trashed_at IS NOT NULL AND trashed_at <= ?').all(at - TRASH_DAYS * 864e5);
+  for (const n of old) { dropPictureFiles(q('SELECT storage FROM note_pictures WHERE note_id = ?').all(n.id)); q('DELETE FROM notes WHERE id = ?').run(n.id); }
+  return old.length;
+}
+export function startNotesScheduler() {
+  setInterval(() => { try { remindNotesDue(); } catch (e) { console.error('[notes] reminders:', e.message); } }, 15e3).unref();
+  setInterval(() => { try { purgeTrashedNotes(); } catch (e) { console.error('[notes] trash:', e.message); } }, 36e5).unref();
+}
 
 export default function noteRoutes() {
   const r = Router();
@@ -104,7 +117,10 @@ export default function noteRoutes() {
   // Yours and those shared with you: ?archived=1 for the archive, ?q= words to search, ?label= one label.
   r.get('/', (req, res) => {
     const archived = req.query.archived === '1' ? 1 : 0;
-    let rows = q(`SELECT n.* FROM notes n WHERE (n.owner_id = ? OR n.id IN (SELECT note_id FROM note_shares WHERE user_id = ?)) AND n.archived = ?
+    if (req.query.trash === '1') { // your deleted notes, most recent first
+      return res.json(q('SELECT * FROM notes WHERE owner_id = ? AND trashed_at IS NOT NULL ORDER BY trashed_at DESC').all(req.user.id).map((n) => shape(n, req.user.id)));
+    }
+    let rows = q(`SELECT n.* FROM notes n WHERE (n.owner_id = ? OR n.id IN (SELECT note_id FROM note_shares WHERE user_id = ?)) AND n.archived = ? AND n.trashed_at IS NULL
                   ORDER BY n.pinned DESC, n.position DESC`).all(req.user.id, req.user.id, archived);
     const words = String(req.query.q || '').toLowerCase().split(/\s+/).filter(Boolean);
     if (words.length) {
@@ -113,7 +129,7 @@ export default function noteRoutes() {
         return words.every((w) => text.includes(w));
       });
     }
-    if (req.query.reminders === '1') rows = q(`SELECT n.* FROM notes n WHERE (n.owner_id = ? OR n.id IN (SELECT note_id FROM note_shares WHERE user_id = ?)) AND n.remind_at IS NOT NULL
+    if (req.query.reminders === '1') rows = q(`SELECT n.* FROM notes n WHERE (n.owner_id = ? OR n.id IN (SELECT note_id FROM note_shares WHERE user_id = ?)) AND n.remind_at IS NOT NULL AND n.trashed_at IS NULL
                                                 ORDER BY n.remind_at`).all(req.user.id, req.user.id);
     if (req.query.label) rows = rows.filter((n) => JSON.parse(n.labels).includes(String(req.query.label)));
     res.json(rows.map((n) => shape(n, req.user.id)));
@@ -268,14 +284,33 @@ export default function noteRoutes() {
     res.json(shape(q('SELECT * FROM notes WHERE id = ?').get(n.id), req.user.id));
   });
 
-  // Delete (the owner), or take yourself off a note shared with you.
+  // Empty the trash: your deleted notes go for good.
+  r.delete('/trash', (req, res) => {
+    const list = q('SELECT id FROM notes WHERE owner_id = ? AND trashed_at IS NOT NULL').all(req.user.id);
+    for (const n of list) { dropPictureFiles(q('SELECT storage FROM note_pictures WHERE note_id = ?').all(n.id)); q('DELETE FROM notes WHERE id = ?').run(n.id); }
+    sendTo([req.user.id], { type: 'notes-changed' });
+    res.json({ ok: true, deleted: list.length });
+  });
+
+  // Delete (the owner): to the trash, or for good with ?forever=1 (or when it's already there).
+  // Someone it's shared with takes themselves off it instead.
   r.delete('/:id', (req, res) => {
     const n = load(req.params.id, req.user);
     const before = team(n);
-    if (n.owner_id === req.user.id) { dropPictureFiles(q('SELECT storage FROM note_pictures WHERE note_id = ?').all(n.id)); q('DELETE FROM notes WHERE id = ?').run(n.id); }
-    else q('DELETE FROM note_shares WHERE note_id = ? AND user_id = ?').run(n.id, req.user.id);
+    let trashed = false;
+    if (n.owner_id !== req.user.id) q('DELETE FROM note_shares WHERE note_id = ? AND user_id = ?').run(n.id, req.user.id);
+    else if (req.query.forever === '1' || n.trashed_at) { dropPictureFiles(q('SELECT storage FROM note_pictures WHERE note_id = ?').all(n.id)); q('DELETE FROM notes WHERE id = ?').run(n.id); }
+    else { q('UPDATE notes SET trashed_at = ?, pinned = 0 WHERE id = ?').run(now(), n.id); trashed = true; }
     sendTo(before, { type: 'notes-changed' });
-    res.json({ ok: true, deleted: n.owner_id === req.user.id });
+    res.json({ ok: true, deleted: n.owner_id === req.user.id, trashed });
+  });
+  // Back from the trash, as it was.
+  r.post('/:id/restore', (req, res) => {
+    const n = load(req.params.id, req.user);
+    if (n.owner_id !== req.user.id) throw notFound('Note not found');
+    q('UPDATE notes SET trashed_at = NULL, updated_at = ? WHERE id = ?').run(now(), n.id);
+    tell(n);
+    res.json(shape(q('SELECT * FROM notes WHERE id = ?').get(n.id), req.user.id));
   });
 
   return r;

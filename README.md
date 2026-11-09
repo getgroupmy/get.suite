@@ -1000,6 +1000,7 @@ Each entry shows who did it, what it was done to, the details and the IP address
 - **Drawing:** ✏️ on a card (or in an open note) opens a sketch pad: draw with the mouse, a pen or a finger (or drag out lines, arrows, boxes and ellipses), in six colours and four pen sizes, with an eraser, **Undo** and **Clear**. **Add to note** puts the drawing on the note as a picture, for everyone it's shared with.
 - **Reminders:** 🔔 on a card sets one (later today, tomorrow morning, next Monday, or **Pick a day and time…**). It shows on the card (× takes it off), **Reminders** on the left lists the notes that have one, soonest first, and when it's time a notification (and a desktop one, if those are on) reaches you and everyone the note is shared with, listing what's still unticked on a checklist. You can turn note reminders off in the bell's settings.
 - **Search notes** finds words in titles, text, checklist items and labels. **Archive** on the left has the archived ones.
+- **Trash:** deleting your note moves it to **Trash** (with **Undo**), where it stays for 7 days: **Restore** puts it back as it was, **Delete forever** (or **Empty trash**) removes it for good. While it's there, people it's shared with don't see it and its reminder doesn't go off.
 - **Share** (the person icon) gives colleagues in your company the note: they see it among their notes and can change it, and everyone sees changes as they're made. Only the owner can delete it or change who has it; the others can take it off their own list.
 
 ## Meet
