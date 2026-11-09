@@ -167,6 +167,14 @@ export function occurrenceStarts(ev, to) {
         if (!take(t)) { stop = true; break; }
       }
       if (stop) break;
+    } else if (r.freq === 'monthly' && r.nth) {
+      // Monthly on a weekday: the 1st–4th or the last (say) Monday of every month.
+      const m = at(first.getFullYear(), first.getMonth() + i * every, 1);
+      const day = nthWeekdayOf(m.getFullYear(), m.getMonth(), r.nth, r.wd);
+      const t = at(m.getFullYear(), m.getMonth(), day).getTime();
+      if (t >= to || (r.until !== undefined && t > r.until)) break;
+      if (t < ev.start) continue; // earlier in the first month
+      if (!take(t)) break;
     } else {
       // Monthly / yearly on the same date; months without that date (31st, 29 Feb) are skipped.
       const months = r.freq === 'monthly' ? i * every : i * 12 * every;
@@ -179,6 +187,27 @@ export function occurrenceStarts(ev, to) {
   }
   return out;
 }
+
+/** The day of the month that is the `nth` (1–4, or -1 for the last) weekday `wd` (0 = Sunday) of month `m` (0-based). */
+export function nthWeekdayOf(y, m, nth, wd) {
+  if (nth === -1) {
+    const last = new Date(Date.UTC(y, m + 1, 0));
+    return last.getUTCDate() - ((last.getUTCDay() - wd + 7) % 7);
+  }
+  const firstDow = new Date(Date.UTC(y, m, 1)).getUTCDay();
+  return 1 + ((wd - firstDow + 7) % 7) + (nth - 1) * 7;
+}
+
+/**
+ * Which weekday of its month a date is: { wd, nth (1–5), last (no more of that weekday in the month) }
+ * — for "Monthly on the second Monday" and "Monthly on the last Friday".
+ */
+export function weekdayInMonth(t) {
+  const d = new Date(t);
+  const daysInMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+  return { wd: d.getDay(), nth: Math.ceil(d.getDate() / 7), last: d.getDate() + 7 > daysInMonth };
+}
+const ORDINALS = { 1: 'first', 2: 'second', 3: 'third', 4: 'fourth', '-1': 'last' };
 
 /** The event's occurrences that touch [from, to), each a copy with its own start and end. */
 export function expand(ev, from, to) {
@@ -216,6 +245,7 @@ export function describeRule(r, start, locale) {
     const names = days.map((d) => new Date(2026, 10, 1 + d).toLocaleDateString(locale, { weekday: 'short' }));
     text += ` on ${days.join() === '1,2,3,4,5' ? 'weekdays' : names.join(', ')}`;
   }
+  if (r.freq === 'monthly' && r.nth) text += ` on the ${ORDINALS[r.nth]} ${new Date(2026, 10, 1 + r.wd).toLocaleDateString(locale, { weekday: 'long' })}`;
   if (r.count) text += `, ${r.count} times`;
   if (r.until !== undefined) text += `, until ${new Date(r.until).toLocaleDateString(locale, { day: 'numeric', month: 'short', year: 'numeric' })}`;
   return text;
@@ -240,8 +270,16 @@ export function resizeEnd(ev, minDelta, minMinutes = 15) {
   return { start: ev.start, end: Math.max(end, ev.start + minMinutes * 6e4) };
 }
 
-/** A weekly rule's weekdays after the series moves by `dayDelta` days (Mon/Wed moved a day later: Tue/Thu). */
-export function shiftWeekdays(rule, dayDelta) {
+/**
+ * A weekly rule's weekdays after the series moves by `dayDelta` days (Mon/Wed moved a day later: Tue/Thu);
+ * a monthly-on-a-weekday rule takes the weekday of `newStart`.
+ */
+export function shiftWeekdays(rule, dayDelta, newStart) {
+  // Monthly on a weekday follows the new date: moved to the third Tuesday, it's the third Tuesday.
+  if (rule?.freq === 'monthly' && rule.nth && newStart !== undefined && dayDelta) {
+    const w = weekdayInMonth(newStart);
+    return { ...rule, wd: w.wd, nth: (rule.nth === -1 && w.last) || w.nth > 4 ? -1 : w.nth };
+  }
   if (!rule || rule.freq !== 'weekly' || !rule.byday?.length || dayDelta % 7 === 0) return rule;
   return { ...rule, byday: [...new Set(rule.byday.map((d) => (((d + dayDelta) % 7) + 7) % 7))].sort() };
 }

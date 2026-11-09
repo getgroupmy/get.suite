@@ -140,3 +140,24 @@ test('reminders as VALARMs, both ways', () => {
   assert.match(ics, /BEGIN:VALARM\r\nACTION:DISPLAY\r\nDESCRIPTION:Call\r\nTRIGGER:-PT10M\r\nEND:VALARM/);
   assert.match(ics, /TRIGGER:-P1D/);
 });
+
+test('monthly on a weekday: BYDAY=2MO out, and in from Outlook (BYSETPOS) and phones', () => {
+  // The second Monday at 10:00 in Berlin (9 Nov 2026 = 09:00 UTC).
+  const s = Date.UTC(2026, 10, 9, 9);
+  const out = lines(buildIcs({ ...base, start: s, end: s + 36e5, rrule: { freq: 'monthly', nth: 2, wd: 1 } }, { ...who, tz: 'Europe/Berlin' }));
+  assert.ok(out.includes('RRULE:FREQ=MONTHLY;BYDAY=2MO'), out.join('\n'));
+  assert.ok(out.includes('DTSTART;TZID=Europe/Berlin:20261109T100000'));
+  const last = lines(buildIcs({ ...base, start: s, end: s + 36e5, rrule: { freq: 'monthly', nth: -1, wd: 5, interval: 3 } }, { ...who, tz: 'Europe/Berlin' }));
+  assert.ok(last.includes('RRULE:FREQ=MONTHLY;INTERVAL=3;BYDAY=-1FR'));
+  assert.ok(last.includes('DTSTART;TZID=Europe/Berlin:20261127T100000'), 'starts on the first one: the last Friday of November');
+  const read = (rule) => parseIcsEvent(cal('', `DTSTART;TZID=Europe/Berlin:20261109T100000\r\nDTEND;TZID=Europe/Berlin:20261109T110000\r\nRRULE:${rule}\r\n`), { tz: 'UTC' }).rrule;
+  assert.deepEqual(read('FREQ=MONTHLY;BYDAY=2MO'), { freq: 'monthly', nth: 2, wd: 1 });
+  assert.deepEqual(read('FREQ=MONTHLY;BYDAY=+2MO;COUNT=5'), { freq: 'monthly', nth: 2, wd: 1, count: 5 });
+  assert.deepEqual(read('FREQ=MONTHLY;INTERVAL=2;BYDAY=FR;BYSETPOS=-1'), { freq: 'monthly', interval: 2, nth: -1, wd: 5 });
+  assert.deepEqual(read('FREQ=MONTHLY;BYDAY=-1SU'), { freq: 'monthly', nth: -1, wd: 0 });
+  // Still not shown: the 5th, the second to last, several weekdays.
+  assert.equal(read('FREQ=MONTHLY;BYDAY=5MO'), null);
+  assert.equal(read('FREQ=MONTHLY;BYDAY=-2MO'), null);
+  assert.equal(read('FREQ=MONTHLY;BYDAY=1MO,3MO'), null);
+  assert.equal(read('FREQ=YEARLY;BYDAY=2MO;BYMONTH=5'), null);
+});

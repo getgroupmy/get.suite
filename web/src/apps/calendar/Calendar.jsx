@@ -11,7 +11,7 @@ import { PLACES, placeText, isoDay } from '../../components/workloc.js';
 import { useMailStatus } from '../../mailStatus.js';
 import { insights, hoursText } from './insights.js';
 import { timeIn, zoneName, cityOf } from '../../components/zones.js';
-import { printRange, daysFromTo, scheduleOf, DAY, VIEWS, startOfDay, visibleDays, shift, title, onDay, layoutDay, expandAll, occurrenceIndex, describeRule, daysBetween, moveTimes, resizeEnd, shiftWeekdays, snapMinutes, moveStart } from './calmath.js';
+import { printRange, daysFromTo, scheduleOf, DAY, VIEWS, startOfDay, visibleDays, shift, title, onDay, layoutDay, expandAll, occurrenceIndex, describeRule, daysBetween, moveTimes, resizeEnd, shiftWeekdays, snapMinutes, moveStart, weekdayInMonth } from './calmath.js';
 
 const OTHER_COLOURS = ['#e37400', '#8e24aa', '#0b8043', '#d93025', '#00796b', '#3949ab'];
 const COLORS = ['#1a73e8', '#0b8043', '#d50000', '#f4511e', '#8e24aa', '#616161'];
@@ -226,7 +226,7 @@ function Calendar({ acting = null, managed = [], onPick }) {
     if (!ev.rrule) setEvents((list) => list.map((e) => (keyOf(e) === keyOf(ev) ? { ...e, start, end } : e)));
     try {
       const dayDelta = daysBetween(new Date(ev.start), new Date(start));
-      const rule = shiftWeekdays(ev.rrule, dayDelta);
+      const rule = shiftWeekdays(ev.rrule, dayDelta, start);
       await applyEdit(ev, { start, end, ...(rule !== ev.rrule && { rrule: rule }) }, which);
       toast(start === ev.start ? `Now ends at ${fmtTime(end)}` : `Moved to ${new Date(start).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}${ev.all_day ? '' : `, ${fmtTime(start)}`}`);
     } catch (e) { toast(e.message, 'error'); }
@@ -728,9 +728,21 @@ function GuestList({ guests }) {
 }
 
 const WEEKDAY_LETTERS = Array.from({ length: 7 }, (_, d) => new Date(2026, 10, 1 + d)); // a Sunday-first week
+/**
+ * The menu's monthly choice that fits the start date: "on the second Monday" isn't offered for a
+ * fifth Monday, and "on the last Friday" only in the last week of the month.
+ */
+const monthlyChoice = (freq, start) => {
+  const w = weekdayInMonth(start);
+  if (freq === 'monthly-nth' && w.nth > 4) return 'monthly-last';
+  if (freq === 'monthly-last' && !w.last) return 'monthly-nth';
+  return freq;
+};
 const ruleFromForm = (r, start) => {
   if (r.freq === 'none') return null;
-  const out = { freq: r.freq };
+  const freq = monthlyChoice(r.freq, start);
+  const out = { freq: freq.startsWith('monthly') ? 'monthly' : freq };
+  if (freq !== 'monthly' && freq.startsWith('monthly')) { const w = weekdayInMonth(start); out.nth = freq === 'monthly-last' ? -1 : w.nth; out.wd = w.wd; }
   if (Number(r.interval) > 1) out.interval = Number(r.interval);
   if (r.freq === 'weekly') out.byday = r.byday.length ? r.byday : [new Date(start).getDay()];
   if (r.ends === 'on' && r.until) out.until = fromInputs(r.until, '23:59') + 59999;
@@ -949,7 +961,7 @@ function EventDialog({ event, onClose, onSaved, onDuplicate }) {
   const [autoReply, setAutoReply] = useState(false);
   const r0 = event.rrule;
   const [rep, setRep] = useState({
-    freq: r0?.freq || 'none', interval: r0?.interval || 1, byday: r0?.byday || [new Date(event.start).getDay()],
+    freq: r0?.nth ? (r0.nth === -1 ? 'monthly-last' : 'monthly-nth') : r0?.freq || 'none', interval: r0?.interval || 1, byday: r0?.byday || [new Date(event.start).getDay()],
     ends: r0?.until !== undefined ? 'on' : r0?.count ? 'after' : 'never',
     until: r0?.until !== undefined ? toDateInput(r0.until) : toDateInput(event.start + 30 * DAY), count: r0?.count || 10,
   });
@@ -1053,9 +1065,18 @@ function EventDialog({ event, onClose, onSaved, onDuplicate }) {
         <div className="repeat-box stack">
           <div className="row wrap">
             <label className="field"><span>Repeat</span>
-              <select value={rep.freq} onChange={setR('freq')} aria-label="Repeat">
+              <select value={monthlyChoice(rep.freq, read().start)} onChange={setR('freq')} aria-label="Repeat">
                 <option value="none">Does not repeat</option><option value="daily">Daily</option><option value="weekly">Weekly</option>
-                <option value="monthly">Monthly (same date)</option><option value="yearly">Yearly</option>
+                <option value="monthly">Monthly (same date)</option>
+                {(() => {
+                  // "Monthly on the second Monday", and "on the last Monday" in a month's last week.
+                  const start = read().start, w = weekdayInMonth(start);
+                  return <>
+                    {w.nth <= 4 && <option value="monthly-nth">{describeRule({ freq: 'monthly', nth: w.nth, wd: w.wd }, start)}</option>}
+                    {w.last && <option value="monthly-last">{describeRule({ freq: 'monthly', nth: -1, wd: w.wd }, start)}</option>}
+                  </>;
+                })()}
+                <option value="yearly">Yearly</option>
               </select></label>
             {rep.freq !== 'none' && <label className="field"><span>Every</span>
               <input type="number" min="1" max="99" value={rep.interval} onChange={setR('interval')} aria-label="Repeat every" style={{ width: 80 }} /></label>}

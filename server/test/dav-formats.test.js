@@ -34,8 +34,9 @@ test('repeat rules: supported ones are kept, others become one-off', () => {
   assert.equal(until.rrule.until, Date.UTC(2026, 10, 30, 23, 59, 59));
   assert.deepEqual(until.exdates, [Date.UTC(2026, 10, 5, 9), Date.UTC(2026, 10, 6, 9)]);
   assert.deepEqual(ev('FREQ=MONTHLY;BYMONTHDAY=2').rrule, { freq: 'monthly' });
-  assert.equal(ev('FREQ=MONTHLY;BYDAY=2MO').rrule, null, 'second Monday: not supported, one-off');
-  assert.equal(ev('FREQ=MONTHLY;BYSETPOS=-1;BYDAY=FR').rrule, null);
+  assert.deepEqual(ev('FREQ=MONTHLY;BYDAY=2MO').rrule, { freq: 'monthly', nth: 2, wd: 1 }, 'the second Monday');
+  assert.deepEqual(ev('FREQ=MONTHLY;BYSETPOS=-1;BYDAY=FR').rrule, { freq: 'monthly', nth: -1, wd: 5 }, 'the last Friday');
+  assert.equal(ev('FREQ=MONTHLY;BYDAY=5MO').rrule, null, 'the fifth Monday: not supported, one-off');
 });
 
 test('our own calendar files read back the same', () => {

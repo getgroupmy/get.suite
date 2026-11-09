@@ -64,7 +64,7 @@ const COLOR_RE = /^#[0-9a-f]{6}$/i;
 const FREQS = ['daily', 'weekly', 'monthly', 'yearly'];
 
 /**
- * A repeat rule: { freq, interval?, byday? (weekly: 0=Sun..6), until? (ms), count? }. The
+ * A repeat rule: { freq, interval?, byday? (weekly: 0=Sun..6), nth? + wd? (monthly: the 2nd Monday), until? (ms), count? }. The
  * browser works out the dates in the user's local time; the server only checks the rule.
  */
 function readRule(rule) {
@@ -79,6 +79,13 @@ function readRule(rule) {
     const days = [...new Set([].concat(rule.byday).map(Number))].sort();
     if (!days.length || days.some((d) => !Number.isInteger(d) || d < 0 || d > 6)) throw bad('Pick at least one weekday');
     out.byday = days;
+  }
+  // Monthly on a weekday: { nth: 1–4 or -1 (the last), wd: 0=Sun..6 }.
+  if (rule.nth !== undefined || rule.wd !== undefined) {
+    if (rule.freq !== 'monthly') throw bad('"The second Monday" only applies to monthly repeats');
+    const nth = Number(rule.nth), wd = Number(rule.wd);
+    if (![1, 2, 3, 4, -1].includes(nth) || !Number.isInteger(wd) || wd < 0 || wd > 6) throw bad('Pick a weekday of the month');
+    out.nth = nth; out.wd = wd;
   }
   if (rule.until !== undefined && rule.until !== null) out.until = int(rule.until, 'until');
   if (rule.count !== undefined && rule.count !== null) {

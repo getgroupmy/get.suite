@@ -107,12 +107,14 @@ export function fold(lines) {
  */
 function firstStart(e, zone) {
   const r = e.rrule;
-  if (!r || r.freq !== 'weekly' || !r.byday?.length) return e.start;
-  for (let i = 0; i < 7; i++) {
+  const weekly = r?.freq === 'weekly' && r.byday?.length, nth = r?.freq === 'monthly' && r.nth;
+  if (!weekly && !nth) return e.start;
+  for (let i = 0; i < (nth ? 62 : 7); i++) {
     const t = e.start + i * 864e5;
     // Whole days in wall-clock time: correct the step if the clocks changed in between.
     const fixed = t + (offsetAt(e.start, zone) - offsetAt(t, zone)) * 6e4;
-    if (r.byday.includes(parts(fixed, zone).wd)) return fixed;
+    const p = parts(fixed, zone);
+    if (weekly ? r.byday.includes(p.wd) : p.wd === r.wd && ruleDays(p.y, p.mo, `${r.nth}${DAYS[r.wd]}`).includes(p.d)) return fixed;
   }
   return e.start;
 }
@@ -139,6 +141,7 @@ export function buildIcs(e, { method = 'REQUEST', uid, sequence = 0, organizer, 
     const rule = [`FREQ=${r.freq.toUpperCase()}`];
     if (r.interval > 1) rule.push(`INTERVAL=${r.interval}`);
     if (r.freq === 'weekly' && r.byday?.length) rule.push(`BYDAY=${r.byday.map((d) => DAYS[d]).join(',')}`);
+    if (r.freq === 'monthly' && r.nth) rule.push(`BYDAY=${r.nth}${DAYS[r.wd]}`); // 2MO: the second Monday; -1FR: the last Friday
     if (r.until !== undefined) rule.push(`UNTIL=${e.all_day ? dateStamp(r.until, zone) : utcStamp(r.until)}`);
     if (r.count) rule.push(`COUNT=${r.count}`);
     lines.push(`RRULE:${rule.join(';')}`);
@@ -421,14 +424,19 @@ export function parseIcsEvent(text, { tz = 'UTC', resolver } = {}) {
     const freq = { DAILY: 'daily', WEEKLY: 'weekly', MONTHLY: 'monthly', YEARLY: 'yearly' }[p.FREQ];
     const days = p.BYDAY ? p.BYDAY.split(',') : [];
     const plainDays = days.every((d) => /^(SU|MO|TU|WE|TH|FR|SA)$/.test(d));
+    // Monthly on one weekday of the month: BYDAY=2MO, or BYDAY=MO;BYSETPOS=2 (Outlook), the 1st–4th or the last.
+    const nthDay = freq === 'monthly' && days.length === 1 && !p.BYMONTHDAY && !p.BYMONTH
+      && (/^([+-]?[1-4]|-1)(SU|MO|TU|WE|TH|FR|SA)$/.exec(days[0]) || (p.BYSETPOS && /^([1-4]|-1)$/.test(p.BYSETPOS) && /^(SU|MO|TU|WE|TH|FR|SA)$/.test(days[0]) && [null, p.BYSETPOS, days[0]]));
+    const nth = nthDay ? +nthDay[1] : 0;
     const startDay = new Date(start.ms + offsetAt(start.ms, out.tz) * 6e4).getUTCDate();
-    const supported = freq && plainDays && (!days.length || freq === 'weekly') && !p.BYSETPOS && !p.BYYEARDAY && !p.BYWEEKNO && !p.BYHOUR
+    const supported = nthDay ? !p.BYYEARDAY && !p.BYWEEKNO && !p.BYHOUR && (nth >= 1 || nth === -1) : freq && plainDays && (!days.length || freq === 'weekly') && !p.BYSETPOS && !p.BYYEARDAY && !p.BYWEEKNO && !p.BYHOUR
       && (!p.BYMONTHDAY || (freq !== 'daily' && freq !== 'weekly' && p.BYMONTHDAY.split(',').length === 1 && +p.BYMONTHDAY === startDay))
       && (!p.BYMONTH || freq === 'yearly');
     if (supported) {
       const rule = { freq };
       if (+p.INTERVAL > 1) rule.interval = Math.min(99, +p.INTERVAL);
-      if (days.length) rule.byday = [...new Set(days.map((d) => ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'].indexOf(d)))].sort();
+      if (nthDay) { rule.nth = nth; rule.wd = DAY_NAMES.indexOf(nthDay[2]); }
+      else if (days.length) rule.byday = [...new Set(days.map((d) => ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'].indexOf(d)))].sort();
       if (p.COUNT) rule.count = Math.max(1, Math.min(999, +p.COUNT));
       else if (p.UNTIL) { const u = parseWhen({ value: p.UNTIL, params: {} }, out.tz); if (u) rule.until = u.date ? u.ms + 864e5 - 1 : u.ms; }
       out.rrule = rule;

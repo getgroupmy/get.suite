@@ -190,3 +190,26 @@ test('moving the start keeps the length: a late-evening draft moved to 16:00 end
   const days = { startDate: '2026-11-08', startTime: '', endDate: '2026-11-10', endTime: '', all_day: true };
   assert.deepEqual(moveStart(days, { startDate: '2026-11-20' }), { ...days, startDate: '2026-11-20', endDate: '2026-11-22' });
 });
+
+import { nthWeekdayOf, weekdayInMonth } from './calmath.js';
+test('monthly on a weekday: the second Monday, the last Friday', () => {
+  assert.equal(nthWeekdayOf(2026, 10, 2, 1), 9); // Nov 2026: Mondays 2, 9, 16, 23, 30
+  assert.equal(nthWeekdayOf(2026, 10, -1, 1), 30);
+  assert.equal(nthWeekdayOf(2026, 1, -1, 5), 27); // Feb 2026's last Friday
+  assert.deepEqual(weekdayInMonth(new Date(2026, 10, 9, 10).getTime()), { wd: 1, nth: 2, last: false });
+  assert.deepEqual(weekdayInMonth(new Date(2026, 10, 30, 10).getTime()), { wd: 1, nth: 5, last: true });
+  assert.deepEqual(weekdayInMonth(new Date(2026, 10, 27, 10).getTime()), { wd: 5, nth: 4, last: true });
+  const second = { start: new Date(2026, 10, 9, 10).getTime(), end: new Date(2026, 10, 9, 11).getTime(), rrule: { freq: 'monthly', nth: 2, wd: 1 } };
+  assert.deepEqual(times(second, new Date(2027, 2, 1)), ['11/9 10:00', '12/14 10:00', '1/11 10:00', '2/8 10:00']);
+  const last = { start: new Date(2026, 10, 27, 16).getTime(), end: new Date(2026, 10, 27, 17).getTime(), rrule: { freq: 'monthly', nth: -1, wd: 5, interval: 2, count: 3 } };
+  assert.deepEqual(times(last, new Date(2028, 0, 1)), ['11/27 16:00', '1/29 16:00', '3/26 16:00']);
+  // A start that isn't itself one (the 3rd Monday asked from the 1st): the first one is that month's, if still to come.
+  const later = { start: new Date(2026, 10, 2, 9).getTime(), end: new Date(2026, 10, 2, 10).getTime(), rrule: { freq: 'monthly', nth: 3, wd: 1, count: 2 } };
+  assert.deepEqual(times(later, new Date(2027, 6, 1)), ['11/16 9:00', '12/21 9:00']);
+  assert.equal(describeRule(second.rrule, second.start, 'en-GB'), 'Monthly on the second Monday');
+  assert.equal(describeRule(last.rrule, last.start, 'en-GB'), 'Every 2 months on the last Friday, 3 times');
+  // Moved by dragging: it takes the new date's place in its month.
+  assert.deepEqual(shiftWeekdays(second.rrule, 8, new Date(2026, 10, 17, 10).getTime()), { freq: 'monthly', nth: 3, wd: 2 });
+  assert.deepEqual(shiftWeekdays(last.rrule, -1, new Date(2026, 10, 26, 16).getTime()), { freq: 'monthly', nth: -1, wd: 4, interval: 2, count: 3 });
+  assert.deepEqual(shiftWeekdays(second.rrule, 0, second.start), second.rrule);
+});
