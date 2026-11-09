@@ -2239,3 +2239,4 @@ textarea.mono { font-family: ui-monospace, Consolas, monospace; }
 .handle.rot::after { content: ''; position: absolute; left: 50%; top: 100%; width: 2px; height: 12px; background: var(--accent); transform: translateX(-50%); }
 .rot-field { display: inline-flex; align-items: center; gap: 2px; }
 .rot-field input { width: 52px; padding: 2px 4px; }
+.slide-item.in-group { outline: 2px solid var(--accent); outline-offset: 0; }

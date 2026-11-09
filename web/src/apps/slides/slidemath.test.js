@@ -179,3 +179,22 @@ test('rotation: angles from the handle, kept between -179 and 180', async () => 
   assert.equal(angleTo(0, 0, 10, -9, false), 48);
   assert.deepEqual([normAngle(370), normAngle(-190), normAngle(180), normAngle(-180), normAngle(NaN)], [10, 170, 180, 180, 0]);
 });
+
+test('several boxes: align, distribute and move together', async () => {
+  const { alignItems, distributeItems, moveItems } = await import('./slidemath.js');
+  const deck = { slides: [{ id: 's', items: [
+    { id: 'a', x: 10, y: 10, w: 20, h: 10 }, { id: 'b', x: 40, y: 30, w: 10, h: 10 }, { id: 'c', x: 70, y: 20, w: 20, h: 20 }, { id: 'z', x: 0, y: 80, w: 5, h: 5 }] }] };
+  const items = (d) => Object.fromEntries(d.slides[0].items.map((it) => [it.id, it]));
+  let d = alignItems(deck, 0, ['a', 'b', 'c'], 'left');
+  assert.deepEqual(['a', 'b', 'c', 'z'].map((k) => items(d)[k].x), [10, 10, 10, 0], 'others untouched');
+  d = alignItems(deck, 0, ['a', 'b', 'c'], 'bottom');
+  assert.deepEqual(['a', 'b', 'c'].map((k) => items(d)[k].y), [30, 30, 20]);
+  d = alignItems(deck, 0, ['a', 'c'], 'center');
+  assert.deepEqual([items(d).a.x, items(d).c.x], [40, 40]);
+  d = alignItems(deck, 0, ['a'], 'left');
+  assert.equal(d, deck, 'one box: nothing to line up');
+  d = distributeItems(deck, 0, ['a', 'b', 'c'], 'x'); // 10..90, boxes 50 wide → gaps of 15
+  assert.deepEqual(['a', 'b', 'c'].map((k) => items(d)[k].x), [10, 45, 70]);
+  d = moveItems(deck, 0, ['a', 'c'], 20, 5); // c would leave the slide past 10: stops at the edge
+  assert.deepEqual([items(d).a.x, items(d).c.x, items(d).a.y, items(d).b.x], [20, 80, 15, 40]);
+});

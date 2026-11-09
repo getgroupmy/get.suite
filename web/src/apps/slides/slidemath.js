@@ -284,3 +284,42 @@ export function angleTo(cx, cy, px, py, steps = true) {
   const deg = (Math.atan2(py - cy, px - cx) * 180) / Math.PI + 90;
   return normAngle(steps ? Math.round(deg / 15) * 15 : deg);
 }
+
+/** Line several boxes up: 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom' (to the group's own edges). */
+export function alignItems(deck, slideIndex, ids, how) {
+  const pick = new Set(ids);
+  const items = deck.slides[slideIndex].items.filter((it) => pick.has(it.id));
+  if (items.length < 2) return deck;
+  const left = Math.min(...items.map((b) => b.x)), right = Math.max(...items.map((b) => b.x + b.w));
+  const top = Math.min(...items.map((b) => b.y)), bottom = Math.max(...items.map((b) => b.y + b.h));
+  const place = (b) => ({
+    left: { x: left }, center: { x: (left + right) / 2 - b.w / 2 }, right: { x: right - b.w },
+    top: { y: top }, middle: { y: (top + bottom) / 2 - b.h / 2 }, bottom: { y: bottom - b.h },
+  }[how] || {});
+  return setSlide(deck, slideIndex, { items: deck.slides[slideIndex].items.map((it) => (pick.has(it.id) ? clampBox({ ...it, ...place(it) }) : it)) });
+}
+
+/** Space three or more boxes evenly between the first and last: axis 'x' (across) or 'y' (down). */
+export function distributeItems(deck, slideIndex, ids, axis) {
+  const pick = new Set(ids);
+  const [pos, size] = axis === 'y' ? ['y', 'h'] : ['x', 'w'];
+  const items = deck.slides[slideIndex].items.filter((it) => pick.has(it.id)).sort((a, b) => a[pos] - b[pos]);
+  if (items.length < 3) return deck;
+  const start = items[0][pos], end = items.at(-1)[pos] + items.at(-1)[size];
+  const gap = (end - start - items.reduce((n, b) => n + b[size], 0)) / (items.length - 1);
+  const at = new Map();
+  let p = start;
+  for (const b of items) { at.set(b.id, p); p += b[size] + gap; }
+  return setSlide(deck, slideIndex, { items: deck.slides[slideIndex].items.map((it) => (at.has(it.id) ? clampBox({ ...it, [pos]: at.get(it.id) }) : it)) });
+}
+
+/** Move several boxes together by (dx, dy), stopping where the first one would leave the slide. */
+export function moveItems(deck, slideIndex, ids, dx, dy) {
+  const pick = new Set(ids);
+  const items = deck.slides[slideIndex].items.filter((it) => pick.has(it.id));
+  if (!items.length) return deck;
+  const left = Math.min(...items.map((b) => b.x)), right = Math.max(...items.map((b) => b.x + b.w));
+  const top = Math.min(...items.map((b) => b.y)), bottom = Math.max(...items.map((b) => b.y + b.h));
+  const mx = Math.min(Math.max(dx, -left), 100 - right), my = Math.min(Math.max(dy, -top), 100 - bottom);
+  return setSlide(deck, slideIndex, { items: deck.slides[slideIndex].items.map((it) => (pick.has(it.id) ? { ...it, x: it.x + mx, y: it.y + my } : it)) });
+}

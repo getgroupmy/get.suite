@@ -19,7 +19,7 @@ import { VersionHistory } from '../VersionHistory.jsx';
 import { EditorHeader } from '../editorCommon.jsx';
 import { useUndo, undoKey } from '../useUndo.js';
 import {
-  THEMES, LAYOUTS, numberShown, newId, clampBox, moveBox, snapBox, angleTo, normAngle, resizeBox, addSlide, duplicateSlide, removeSlide, moveSlide, moveSlides, duplicateSlides, removeSlides,
+  THEMES, LAYOUTS, numberShown, newId, clampBox, moveBox, snapBox, angleTo, normAngle, alignItems, distributeItems, moveItems, resizeBox, addSlide, duplicateSlide, removeSlide, moveSlide, moveSlides, duplicateSlides, removeSlides,
   updateItem, addItem, removeItem, restack, pictureBox,
   TRANSITIONS, setSlide, stepSlide, firstShown, newTable, resizeTable, setCell,
   ANIMATIONS, builds, animChange, stepPresent, nextPresent, ADVANCES, advanceLabel, slideChanges } from './slidemath.js';
@@ -43,6 +43,8 @@ export default function SlidesEditor() {
   const [toolsOpen, setToolsOpen] = useState(false); // phones: the tools fold away behind one button
   const [current, setCurrent] = useState(0);
   const [selected, setSelected] = useState(null); // item id
+  const [also, setAlso] = useState([]); // more boxes chosen with Shift-click, moved and lined up together
+  useEffect(() => { if (!selected) setAlso([]); }, [selected]);
   const [editing, setEditing] = useState(null);   // item id whose text is being typed
   const [presenting, setPresenting] = useState(null); // slide index, or null
   const [dialog, setDialog] = useState(null);
@@ -96,7 +98,9 @@ export default function SlidesEditor() {
 
   const slideIndex = deck ? Math.min(current, deck.slides.length - 1) : 0;
   const slide = deck?.slides[slideIndex];
-  const item = slide?.items.find((it) => it.id === selected) || null;
+  const group = selected ? [selected, ...also].filter((gid) => slide?.items.some((it) => it.id === gid)) : [];
+  const multi = group.length > 1;
+  const item = multi ? null : slide?.items.find((it) => it.id === selected) || null;
   const theme = THEMES[deck?.theme] || THEMES.light;
   // The latest deck (a slide may have just been added or removed in this same click).
   const slideNumberOf = (slideId) => (deck ? deck.slides.findIndex((x) => x.id === slideId) : -1);
@@ -121,6 +125,14 @@ export default function SlidesEditor() {
     if (editing || readOnly) return;
     const u = undoKey(e);
     if (u) { e.preventDefault(); history[u](); return; }
+    if (multi) {
+      const step = e.shiftKey ? 5 : 1;
+      const nudge = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key];
+      if (nudge) { e.preventDefault(); change((d) => moveItems(d, slideIndex, group, ...nudge)); }
+      else if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); change((d) => group.reduce((acc, gid) => removeItem(acc, slideIndex, gid), d)); setSelected(null); }
+      else if (e.key === 'Escape') setSelected(null);
+      return;
+    }
     if (!item) {
       if (e.key === 'PageDown' || e.key === 'ArrowDown') { e.preventDefault(); goTo(slideIndex + 1); }
       if (e.key === 'PageUp' || e.key === 'ArrowUp') { e.preventDefault(); goTo(slideIndex - 1); }
@@ -336,7 +348,16 @@ export default function SlidesEditor() {
             <button type="button" className="tb" aria-label="Send to back" title="Send to back" onClick={() => change((d) => restack(d, slideIndex, item.id, -1))}>⤓</button>
             <button type="button" className="tb" aria-label="Delete" title="Delete (Del)" onClick={() => { change((d) => removeItem(d, slideIndex, item.id)); setSelected(null); }}><Icon name="trash" size={18} /></button>
           </>}
-          {!item && (
+          {multi && <>
+            <span className="muted small">{group.length} boxes</span>
+            {[['left', '⇤', 'Align left edges'], ['center', '⇹', 'Align centres (across)'], ['right', '⇥', 'Align right edges'], ['top', '⤒', 'Align top edges'], ['middle', '⇳', 'Align middles (down)'], ['bottom', '⤓', 'Align bottom edges']].map(([how, icon, label]) => (
+              <button key={how} type="button" className="tb" aria-label={label} title={label} onClick={() => change((d) => alignItems(d, slideIndex, group, how))}>{icon}</button>
+            ))}
+            <button type="button" className="tb" aria-label="Distribute across" title="Space evenly across (three or more)" disabled={group.length < 3} onClick={() => change((d) => distributeItems(d, slideIndex, group, 'x'))}>↔ Space</button>
+            <button type="button" className="tb" aria-label="Distribute down" title="Space evenly down (three or more)" disabled={group.length < 3} onClick={() => change((d) => distributeItems(d, slideIndex, group, 'y'))}>↕ Space</button>
+            <button type="button" className="tb" aria-label="Delete" title="Delete them (Del)" onClick={() => { change((d) => group.reduce((acc, gid) => removeItem(acc, slideIndex, gid), d)); setSelected(null); }}><Icon name="trash" size={18} /></button>
+          </>}
+          {!item && !multi && (
             <select className="tb-select" aria-label="Slide background" value={slide.bg || ''} onChange={(e) => change((d) => ({ ...d, slides: d.slides.map((s, i) => (i === slideIndex ? { ...s, bg: e.target.value || undefined } : s)) }))}>
               {BACKGROUNDS.map(([v, n]) => <option key={n} value={v}>{n}</option>)}
             </select>
@@ -404,8 +425,12 @@ export default function SlidesEditor() {
           ))}
         </ol>
         <div className="slide-stage" tabIndex={-1} onPointerDown={(e) => { if (e.target === e.currentTarget) { setSelected(null); setEditing(null); } }}>
-          <SlideView slide={slide} theme={theme} deckId={id} number={numberShown(deck, slideIndex) ? slideIndex + 1 : null} editable={!readOnly} selected={selected} editing={editing} peers={peers}
-            onSelect={(itemId) => { setSelected(itemId); if (itemId !== editing) setEditing(null); }}
+          <SlideView slide={slide} theme={theme} deckId={id} number={numberShown(deck, slideIndex) ? slideIndex + 1 : null} editable={!readOnly} selected={selected} group={group} editing={editing} peers={peers}
+            onSelect={(itemId, shift) => {
+              if (shift && selected && itemId !== selected) { setAlso((a) => (a.includes(itemId) ? a.filter((x) => x !== itemId) : [...a, itemId])); setEditing(null); return; }
+              setSelected(itemId); setAlso([]); if (itemId !== editing) setEditing(null);
+            }}
+            onMoveMany={(ids, dx, dy) => change((d) => moveItems(d, slideIndex, ids, dx, dy))}
             onEdit={setEditing}
             onChange={(itemId, c) => change((d) => updateItem(d, slideIndex, itemId, c))} />
           <p className="muted small slide-count">Slide {slideIndex + 1} of {deck.slides.length}</p>
@@ -497,7 +522,7 @@ function ImportSlides({ from, onClose, onImport }) {
   );
 }
 
-export function SlideView({ slide, theme, deckId, editable, selected, editing, onSelect, onEdit, onChange, peers, built, number, pictureBase = null }) {
+export function SlideView({ slide, theme, deckId, editable, selected, group = [], editing, onSelect, onEdit, onChange, onMoveMany, peers, built, number, pictureBase = null }) {
   // Animated boxes: where each comes in (1, 2…). Presenting (built set), the later ones aren't in yet.
   const buildAt = new Map(builds(slide).map((it, k) => [it.id, k + 1]));
   const ref = useRef();
@@ -506,6 +531,27 @@ export function SlideView({ slide, theme, deckId, editable, selected, editing, o
   function startDrag(e, it, handle = null) {
     if (!editable || e.button !== 0) return;
     e.stopPropagation();
+    if (!handle && e.shiftKey) { onSelect(it.id, true); return; } // Shift-click adds (or takes away) a box
+    if (!handle && group.length > 1 && group.includes(it.id)) { // dragging one of several moves them all
+      const rect = ref.current.getBoundingClientRect();
+      const mine = slide.items.filter((o) => group.includes(o.id));
+      const left = Math.min(...mine.map((b) => b.x)), right = Math.max(...mine.map((b) => b.x + b.w));
+      const top = Math.min(...mine.map((b) => b.y)), bottom = Math.max(...mine.map((b) => b.y + b.h));
+      const x0 = e.clientX, y0 = e.clientY;
+      let dx = 0, dy = 0;
+      const move = (m) => {
+        dx = Math.min(Math.max(((m.clientX - x0) / rect.width) * 100, -left), 100 - right);
+        dy = Math.min(Math.max(((m.clientY - y0) / rect.height) * 100, -top), 100 - bottom);
+        setLive({ group, dx, dy });
+      };
+      const up = () => {
+        window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up);
+        setLive(null);
+        if (dx || dy) onMoveMany(group, dx, dy);
+      };
+      window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
+      return;
+    }
     onSelect(it.id);
     if (editing === it.id && !handle) return; // typing: let the cursor move in the text
     const rect = ref.current.getBoundingClientRect();
@@ -547,9 +593,10 @@ export function SlideView({ slide, theme, deckId, editable, selected, editing, o
   return (
     <div ref={ref} className={`slide ${editable ? 'editable' : ''}`} style={{ background: slide.bg || theme.bg, color: theme.text }} role={editable ? 'group' : undefined} aria-label={editable ? 'Slide' : undefined}>
       {slide.items.map((it) => {
-        const box = live?.id === it.id ? live.box : it;
+        const box = live?.id === it.id ? live.box : live?.group?.includes(it.id) ? { ...it, x: it.x + live.dx, y: it.y + live.dy } : it;
         const pos = { left: `${box.x}%`, top: `${box.y}%`, width: `${box.w}%`, height: `${box.h}%`, ...(box.rot ? { transform: `rotate(${box.rot}deg)` } : {}) };
-        const isSel = editable && selected === it.id;
+        const inGroup = editable && group.length > 1 && group.includes(it.id);
+        const isSel = editable && selected === it.id && !inGroup;
         let inner = null;
         if (it.type === 'text') {
           const style = { fontSize: `calc(${it.size || 24} * 0.1cqw)`, fontWeight: it.bold ? 700 : 400, fontStyle: it.italic ? 'italic' : 'normal', textAlign: it.align || 'left', color: colorOf(it.color, theme, theme.text) };
@@ -601,7 +648,7 @@ export function SlideView({ slide, theme, deckId, editable, selected, editing, o
         const notYet = built !== undefined && at && at > built;
         const arriving = built !== undefined && at && at === built ? `anim-${it.anim}` : '';
         return (
-          <div key={it.id} className={`slide-item ${it.type} ${isSel ? 'sel' : ''} ${arriving}`} data-item={it.id} data-built={built !== undefined && at ? (notYet ? 'no' : 'yes') : undefined}
+          <div key={it.id} className={`slide-item ${it.type} ${isSel || inGroup ? 'sel' : ''} ${inGroup ? 'in-group' : ''} ${arriving}`} data-item={it.id} data-built={built !== undefined && at ? (notYet ? 'no' : 'yes') : undefined}
             style={{ ...(peers?.has(it.id) ? { ...pos, boxShadow: `0 0 0 ${isSel ? 4 : 2}px ${peers.get(it.id).color}` } : pos), ...(notYet && { visibility: 'hidden' }) }}
             title={peers?.has(it.id) ? `${peers.get(it.id).name} is here` : undefined}
             aria-label={editable ? `${it.type === 'text' ? (it.text ? `Text: ${it.text.slice(0, 40)}` : PLACEHOLDER[it.role] || 'Text box') : it.type === 'image' ? (it.alt ? `Picture: ${it.alt.slice(0, 80)}` : 'Picture') : it.type === 'video' ? `Video: ${it.name || ''}` : it.type === 'table' ? 'Table' : it.type === 'chart' ? `Chart: ${it.title || 'Untitled'}` : 'Shape'}` : undefined}
