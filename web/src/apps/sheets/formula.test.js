@@ -382,3 +382,45 @@ test('more functions: patterns, splitting, choosing, stacking, times, week numbe
   assert.equal(v('=COLUMN(D2)'), 4);
   assert.equal(v('=ROWS(F1:G4)&"x"&COLUMNS(F1:G4)'), '4x2');
 });
+
+test('more statistics: MODE, PERCENTILE, QUARTILE, CORREL, SLOPE, INTERCEPT, FORECAST, RSQ, GEOMEAN, AVERAGEA', () => {
+  // Sales (B) against advertising (A): y = 2x + 1, except one point.
+  const g0 = ev({
+    A1: 1, A2: 2, A3: 3, A4: 4, A5: 5, B1: 3, B2: 5, B3: 7, B4: 9, B5: 12, B6: 'n/a',
+    D1: 7, D2: 3, D3: 7, D4: 1, D5: 3, D6: 7,
+    C1: '=MODE(D1:D6)', C2: '=MODE.SNGL(A1:A5)', C3: '=PERCENTILE(A1:A5, 0.25)', C4: '=PERCENTILE.INC(D1:D6, 0.9)',
+    C5: '=QUARTILE(D1:D6, 2)', C6: '=QUARTILE.INC(A1:A5, 4)', C7: '=ROUND(CORREL(B1:B5, A1:A5), 4)', C8: '=ROUND(RSQ(B1:B5, A1:A5), 4)',
+    C9: '=SLOPE(B1:B5, A1:A5)', C10: '=ROUND(INTERCEPT(B1:B5, A1:A5), 4)', C11: '=FORECAST(10, B1:B5, A1:A5)', C12: '=FORECAST.LINEAR(6, B1:B5, A1:A5)',
+    C13: '=GEOMEAN(1, 4, 16)', C14: '=AVERAGEA(A1, TRUE, "x")', C15: '=PERCENTILE(A1:A5, 2)', C16: '=SLOPE(A1:A5, A1:A4)', C17: '=PEARSON(A1:A5, A1:A5)',
+  });
+  const g = (r) => { const v = g0(r); return v?.error ?? v; };
+  assert.equal(g('C1'), 7);
+  assert.equal(g('C2'), '#N/A', 'nothing repeats');
+  assert.equal(g('C3'), 2);
+  assert.equal(g('C4'), 7);
+  assert.equal(g('C5'), 5);
+  assert.equal(g('C6'), 5);
+  assert.equal(g('C7'), 0.9959);
+  assert.equal(g('C8'), 0.9918);
+  assert.equal(g('C9'), 2.2);
+  assert.equal(g('C10'), 0.6);
+  assert.ok(Math.abs(g('C11') - 22.6) < 1e-9);
+  assert.ok(Math.abs(g('C12') - 13.8) < 1e-9);
+  assert.ok(Math.abs(g('C13') - 4) < 1e-9);
+  assert.equal(g('C14'), 2 / 3, 'text counts as 0, TRUE as 1');
+  assert.equal(g('C15'), '#NUM!');
+  assert.equal(g('C16'), '#N/A', 'ranges of different sizes');
+  assert.ok(Math.abs(g('C17') - 1) < 1e-12);
+});
+
+test('more maths: MROUND, QUOTIENT, GCD, LCM, FACT, COMBIN, EVEN, ODD, ROWS, COLUMNS', () => {
+  const g0 = ev({
+    A1: '=MROUND(10, 3)', A2: '=MROUND(0.15, 0.1)', A3: '=MROUND(-7, -2)', A4: '=MROUND(5, -2)', A5: '=QUOTIENT(-7, 2)', A6: '=QUOTIENT(1, 0)',
+    A7: '=GCD(24, 36, 60)', A8: '=LCM(4, 6, 10)', A9: '=FACT(5)', A10: '=COMBIN(6, 2)', A11: '=COMBIN(2, 6)',
+    A12: '=EVEN(1.2)', A13: '=EVEN(-3)', A14: '=ODD(2)', A15: '=ODD(0)', A16: '=ROWS(B1:D4)', A17: '=COLUMNS(B1:D4)', A18: '=FACT(-1)', A19: '=ROWS(B2)',
+  });
+  const g = (r) => { const v = g0(r); return v?.error ?? v; };
+  assert.deepEqual(['A1', 'A3', 'A4', 'A5', 'A6', 'A7', 'A8', 'A9', 'A10', 'A11', 'A12', 'A13', 'A14', 'A15', 'A16', 'A17', 'A18', 'A19'].map(g),
+    [9, -8, '#NUM!', -3, '#DIV/0!', 12, 60, 120, 15, '#NUM!', 2, -4, 3, 1, 4, 3, '#NUM!', 1]);
+  assert.ok(Math.abs(g('A2') - 0.2) < 1e-12);
+});

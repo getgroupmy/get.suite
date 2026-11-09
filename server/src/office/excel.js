@@ -38,7 +38,7 @@ const numToExcel = (f) => {
 };
 
 // Excel writes functions newer than 2007 with a prefix ("_xlfn.XLOOKUP("); we keep plain names.
-const NEW_FUNCS = ['XLOOKUP', 'STDEV.S', 'STDEV.P', 'VAR.S', 'VAR.P', 'RANK.EQ', 'IFS', 'SWITCH', 'IFNA', 'TEXTJOIN', 'CONCAT', 'MAXIFS', 'MINIFS', 'DAYS', 'XMATCH', 'VSTACK', 'HSTACK', 'TAKE', 'DROP', 'ISOWEEKNUM'];
+const NEW_FUNCS = ['XLOOKUP', 'STDEV.S', 'STDEV.P', 'VAR.S', 'VAR.P', 'RANK.EQ', 'IFS', 'SWITCH', 'IFNA', 'TEXTJOIN', 'CONCAT', 'MAXIFS', 'MINIFS', 'DAYS', 'XMATCH', 'VSTACK', 'HSTACK', 'TAKE', 'DROP', 'ISOWEEKNUM', 'MODE.SNGL', 'PERCENTILE.INC', 'QUARTILE.INC', 'FORECAST.LINEAR'];
 const NEW_RE = new RegExp(`("(?:[^"]|"")*")|(?<![A-Z0-9_.])(${NEW_FUNCS.map((n) => n.replace('.', '\\.')).join('|')})(?=\\()`, 'gi');
 export const formulaFromExcel = (f) => String(f).replace(/("(?:[^"]|"")*")|_xl(?:fn|ws)\./gi, (m, s) => s || '');
 // The dynamic-array functions; FILTER and SORT also carry "_xlws." in the file.

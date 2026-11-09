@@ -226,6 +226,34 @@ function variance(a, sample) {
   const mean = n.reduce((s, x) => s + x, 0) / n.length;
   return n.reduce((s, x) => s + (x - mean) ** 2, 0) / (n.length - (sample ? 1 : 0));
 }
+/** Matching pairs of numbers from two ranges of the same size (cells empty or text in either are left out). */
+function pairs(ys, xs) {
+  const a = flat([ys]), b = flat([xs]);
+  if (a.length !== b.length) err('#N/A');
+  const out = [];
+  for (let i = 0; i < a.length; i++) if (typeof a[i] === 'number' && typeof b[i] === 'number') out.push([a[i], b[i]]);
+  return out;
+}
+/** Least-squares line through the pairs [y, x]: { slope, intercept, r }. */
+function fitLine(ys, xs) {
+  const p = pairs(ys, xs);
+  if (p.length < 2) err('#DIV/0!');
+  const my = p.reduce((s, [y]) => s + y, 0) / p.length, mx = p.reduce((s, [, x]) => s + x, 0) / p.length;
+  let sxy = 0, sxx = 0, syy = 0;
+  for (const [y, x] of p) { sxy += (x - mx) * (y - my); sxx += (x - mx) ** 2; syy += (y - my) ** 2; }
+  if (!sxx) err('#DIV/0!');
+  return { slope: sxy / sxx, intercept: my - (sxy / sxx) * mx, r: syy ? sxy / Math.sqrt(sxx * syy) : NaN };
+}
+/** The k-th (0–1) point through the sorted numbers, between neighbours as Excel's PERCENTILE.INC does. */
+function percentile(a, k) {
+  const n = nums([a]).sort((x, y) => x - y), p = toNum(k);
+  if (!n.length || p < 0 || p > 1) err('#NUM!');
+  const at = p * (n.length - 1), lo = Math.floor(at);
+  return lo + 1 < n.length ? n[lo] + (at - lo) * (n[lo + 1] - n[lo]) : n[lo];
+}
+const gcd2 = (a, b) => { a = Math.abs(a); b = Math.abs(b); while (b) [a, b] = [b, a % b]; return a; };
+const whole = (v) => { const n = Math.trunc(toNum(v)); if (n < 0) err('#NUM!'); return n; };
+const factorial = (n) => { if (n > 170) err('#NUM!'); let f = 1; for (let i = 2; i <= n; i++) f *= i; return f; };
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 /** TEXT(value, format): number patterns (0, 0.00, #,##0, 0%, with text around them) and dates (yyyy mm dd mmm mmmm ddd dddd). */
@@ -601,6 +629,37 @@ const FUNCS = {
   'VAR.S': (a) => variance(a, true),
   'VAR.P': (a) => variance(a, false),
   'VARP': (a) => variance(a, false),
+  // more statistics
+  MODE: (a) => {
+    const counts = new Map();
+    let best = null, most = 1;
+    for (const x of nums(a)) { const c = (counts.get(x) || 0) + 1; counts.set(x, c); if (c > most) { most = c; best = x; } }
+    if (best === null) err('#N/A'); // nothing repeats
+    return best;
+  },
+  'MODE.SNGL': (a) => FUNCS.MODE(a),
+  PERCENTILE: ([range, k]) => percentile(range, k),
+  'PERCENTILE.INC': ([range, k]) => percentile(range, k),
+  QUARTILE: ([range, q]) => { const n = Math.trunc(toNum(q)); if (n < 0 || n > 4) err('#NUM!'); return percentile(range, n / 4); },
+  'QUARTILE.INC': (a) => FUNCS.QUARTILE(a),
+  CORREL: ([ys, xs]) => { const { r } = fitLine(ys, xs); if (Number.isNaN(r)) err('#DIV/0!'); return r; },
+  PEARSON: (a) => FUNCS.CORREL(a),
+  RSQ: (a) => FUNCS.CORREL(a) ** 2,
+  SLOPE: ([ys, xs]) => fitLine(ys, xs).slope,
+  INTERCEPT: ([ys, xs]) => fitLine(ys, xs).intercept,
+  FORECAST: ([x, ys, xs]) => { const l = fitLine(ys, xs); return l.intercept + l.slope * toNum(x); },
+  'FORECAST.LINEAR': (a) => FUNCS.FORECAST(a),
+  GEOMEAN: (a) => { const n = nums(a); if (!n.length || n.some((x) => x <= 0)) err('#NUM!'); return Math.exp(n.reduce((s, x) => s + Math.log(x), 0) / n.length); },
+  AVERAGEA: (a) => { const v = flat(a).filter((x) => x !== null && x !== ''); if (!v.length) err('#DIV/0!'); return v.reduce((s, x) => s + (typeof x === 'number' ? x : x === true ? 1 : 0), 0) / v.length; },
+  // more whole-number maths
+  MROUND: ([v, m]) => { const x = toNum(v), step = toNum(m); if (!step) return 0; if (x * step < 0) err('#NUM!'); return Math.round(x / step + 1e-9) * step; }, // same signs: the quotient is never negative
+  QUOTIENT: ([a, b]) => { const d = toNum(b); if (!d) err('#DIV/0!'); return Math.trunc(toNum(a) / d); },
+  GCD: (a) => flat(a).map(whole).reduce(gcd2, 0),
+  LCM: (a) => flat(a).map(whole).reduce((l, n) => (l === 0 || n === 0 ? 0 : (l / gcd2(l, n)) * n), 1),
+  FACT: ([v]) => factorial(whole(v)),
+  COMBIN: ([n, k]) => { const a = whole(n), b = whole(k); if (b > a) err('#NUM!'); let c = 1; for (let i = 1; i <= b; i++) c = (c * (a - b + i)) / i; return Math.round(c); },
+  EVEN: ([v]) => { const x = toNum(v), up = Math.ceil(Math.abs(x) / 2) * 2; return Math.sign(x) * up; },
+  ODD: ([v]) => { const x = toNum(v); const a = Math.abs(x); let up = Math.ceil(a); if (up % 2 === 0) up += 1; return (x < 0 ? -1 : 1) * up; },
   RANK: ([x, range, order]) => { const v = toNum(x); const n = nums([range]); if (!n.includes(v)) err('#N/A'); return 1 + n.filter((y) => (order !== undefined && toNum(order) ? y < v : y > v)).length; },
   'RANK.EQ': (a) => FUNCS.RANK(a),
   SUMPRODUCT: (a) => {

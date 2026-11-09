@@ -558,6 +558,13 @@ test('dropdown chips: their choice in Word (shaded in its colour), Markdown and 
   assert.match(xml, /w:fill="E8EAED"[\s\S]*?Not started/, 'nothing picked yet is grey');
 });
 
+test('newer statistics functions get Excel\'s prefix both ways; older ones stay plain', () => {
+  assert.equal(formulaToExcel('=FORECAST.LINEAR(6,B1:B5,A1:A5)+PERCENTILE.INC(A1:A5,0.9)'), '=_xlfn.FORECAST.LINEAR(6,B1:B5,A1:A5)+_xlfn.PERCENTILE.INC(A1:A5,0.9)');
+  assert.equal(formulaToExcel('=MODE.SNGL(A1:A9)&QUARTILE.INC(A1:A9,1)'), '=_xlfn.MODE.SNGL(A1:A9)&_xlfn.QUARTILE.INC(A1:A9,1)');
+  assert.equal(formulaToExcel('=FORECAST(6,B1:B5,A1:A5)+MODE(A1:A9)+CORREL(A1:A5,B1:B5)+MROUND(A1,5)'), '=FORECAST(6,B1:B5,A1:A5)+MODE(A1:A9)+CORREL(A1:A5,B1:B5)+MROUND(A1,5)');
+  assert.equal(formulaFromExcel('=_xlfn.FORECAST.LINEAR(6,B1:B5,A1:A5)'), '=FORECAST.LINEAR(6,B1:B5,A1:A5)');
+});
+
 test('date chips: the day in Word, Markdown and search (by its words or as 2026-11-09)', async () => {
   const { markdownFromDoc } = await import('../src/office/markdown.js');
   const { docText } = await import('../src/search.js');
