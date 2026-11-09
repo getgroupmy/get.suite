@@ -6698,3 +6698,27 @@ test('Sign in with Workspace (OpenID Connect): an app gets a signed ID token and
   assert.equal((await kay('DELETE', `/api/oauth/apps/${app.id}`)).status, 200);
   assert.equal((await fetch(`${base}/oauth/authorize?${new URLSearchParams(params)}`, { redirect: 'manual' })).status, 400);
 });
+
+test('Sign in with Workspace: refresh tokens keep an app signed in; groups for roles; logged for admins', async () => {
+  const kay = client(); const me = await login(kay, 'kay@keepco.com');
+  const app = (await kay('POST', '/api/oauth/apps', { name: 'Grafana', redirect_uris: ['https://grafana.example/login/generic_oauth'] })).body;
+  const g = (await kay('POST', '/api/groups', { name: 'Ops admins' })).body;
+  assert.equal((await kay('PUT', `/api/groups/${g.id}/members`, { user_ids: [me.id] })).status, 200);
+  const params = { client_id: app.client_id, redirect_uri: 'https://grafana.example/login/generic_oauth', scope: 'openid email groups offline_access', state: 's' };
+  const code = new URL((await kay('POST', '/api/oauth/approve', params)).body.redirect).searchParams.get('code');
+  const token = (body) => fetch(`${base}/oauth/token`, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ client_id: app.client_id, client_secret: app.client_secret, ...body }) });
+  const first = await (await token({ grant_type: 'authorization_code', code, redirect_uri: params.redirect_uri })).json();
+  assert.ok(first.refresh_token, 'offline_access gives a refresh token');
+  const claims = JSON.parse(Buffer.from(first.id_token.split('.')[1], 'base64url'));
+  assert.ok(claims.groups.includes('Ops admins'), 'their groups, by name');
+  assert.equal(claims.email, 'kay@keepco.com');
+  const again = await (await token({ grant_type: 'refresh_token', refresh_token: first.refresh_token })).json();
+  assert.ok(again.access_token && again.refresh_token && again.refresh_token !== first.refresh_token, 'a fresh set');
+  assert.equal((await token({ grant_type: 'refresh_token', refresh_token: first.refresh_token })).status, 400, 'each refresh token works once');
+  // Taking the app back stops refreshing.
+  await kay('DELETE', `/api/oauth/grants/${app.client_id}`);
+  assert.equal((await token({ grant_type: 'refresh_token', refresh_token: again.refresh_token })).status, 400);
+  const log = (await kay('GET', '/api/audit')).body;
+  const actions = (log.entries || log.items || log).map((e) => e.action);
+  assert.ok(actions.includes('oidc.app_added') && actions.includes('oidc.signin'));
+});

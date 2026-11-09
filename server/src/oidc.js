@@ -10,6 +10,7 @@ import crypto from 'node:crypto';
 import express, { Router } from 'express';
 import { q } from './db.js';
 import { uid, now, bad, notFound, HttpError } from './util.js';
+import { audit } from './audit.js';
 
 q(`CREATE TABLE IF NOT EXISTS oidc_clients (
   id TEXT PRIMARY KEY,
@@ -40,6 +41,15 @@ q(`CREATE TABLE IF NOT EXISTS oidc_tokens (
   scope TEXT NOT NULL,
   expires_at INTEGER NOT NULL
 )`).run();
+// Refresh tokens (scope offline_access): the app stays signed in for up to REFRESH_TTL without
+// sending the person back; each use gives a new one and retires the old.
+q(`CREATE TABLE IF NOT EXISTS oidc_refresh (
+  token_hash TEXT PRIMARY KEY,
+  client_id TEXT NOT NULL,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  scope TEXT NOT NULL,
+  expires_at INTEGER NOT NULL
+)`).run();
 q(`CREATE TABLE IF NOT EXISTS oidc_grants (
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   client_id TEXT NOT NULL,
@@ -53,8 +63,8 @@ q(`CREATE TABLE IF NOT EXISTS oidc_keys (
   created_at INTEGER NOT NULL
 )`).run();
 
-const CODE_TTL = 60e3, TOKEN_TTL = 3600e3;
-const SCOPES = ['openid', 'profile', 'email'];
+const CODE_TTL = 60e3, TOKEN_TTL = 3600e3, REFRESH_TTL = 30 * 864e5;
+const SCOPES = ['openid', 'profile', 'email', 'groups', 'offline_access'];
 const sha = (s) => crypto.createHash('sha256').update(String(s)).digest('hex');
 const b64url = (buf) => Buffer.from(buf).toString('base64url');
 const issuerOf = (req) => process.env.PUBLIC_URL?.replace(/\/$/, '') || `${req.protocol}://${req.get('host')}`;
@@ -101,6 +111,8 @@ function claimsFor(user, scopes) {
   const out = { sub: user.id };
   if (scopes.includes('profile')) Object.assign(out, { name: user.name, preferred_username: user.username.split('@')[0] });
   if (scopes.includes('email')) Object.assign(out, { email: user.username, email_verified: true });
+  // Groups (Admin → Groups) by name, for apps that give roles by group (Grafana admins, wiki editors…).
+  if (scopes.includes('groups')) out.groups = q('SELECT g.name FROM groups g JOIN group_members m ON m.group_id = g.id WHERE m.user_id = ? AND g.org_id = ? ORDER BY g.name').all(user.id, user.org_id).map((g) => g.name);
   return out;
 }
 
@@ -111,9 +123,9 @@ export function oidcPublicRoutes() {
     const iss = issuerOf(req);
     res.json({
       issuer: iss, authorization_endpoint: `${iss}/oauth/authorize`, token_endpoint: `${iss}/oauth/token`, userinfo_endpoint: `${iss}/oauth/userinfo`, jwks_uri: `${iss}/oauth/jwks`,
-      response_types_supported: ['code'], grant_types_supported: ['authorization_code'], subject_types_supported: ['public'], id_token_signing_alg_values_supported: ['RS256'],
+      response_types_supported: ['code'], grant_types_supported: ['authorization_code', 'refresh_token'], subject_types_supported: ['public'], id_token_signing_alg_values_supported: ['RS256'],
       scopes_supported: SCOPES, token_endpoint_auth_methods_supported: ['client_secret_basic', 'client_secret_post'], code_challenge_methods_supported: ['S256', 'plain'],
-      claims_supported: ['sub', 'name', 'preferred_username', 'email', 'email_verified'],
+      claims_supported: ['sub', 'name', 'preferred_username', 'email', 'email_verified', 'groups'],
     });
   });
   r.get('/oauth/jwks', (req, res) => { signingKey(); res.json(jwks()); });
@@ -140,6 +152,31 @@ export function oidcPublicRoutes() {
     if (basic) { const [a, b] = Buffer.from(basic[1], 'base64').toString().split(':'); id = decodeURIComponent(a || ''); secret = decodeURIComponent(b || ''); }
     const c = clientBy(id);
     if (!c || !secret || sha(secret) !== c.secret_hash) return fail(401, 'invalid_client');
+    const issue = (user, scope, nonce) => {
+      const scopes = scope.split(' ');
+      const access = crypto.randomBytes(32).toString('base64url');
+      q('INSERT INTO oidc_tokens (token_hash, client_id, user_id, scope, expires_at) VALUES (?, ?, ?, ?, ?)').run(sha(access), c.client_id, user.id, scope, Date.now() + TOKEN_TTL);
+      q('DELETE FROM oidc_tokens WHERE expires_at < ?').run(Date.now());
+      q('DELETE FROM oidc_refresh WHERE expires_at < ?').run(Date.now());
+      q('UPDATE oidc_clients SET last_used_at = ? WHERE id = ?').run(now(), c.id);
+      let refresh = null;
+      if (scopes.includes('offline_access')) {
+        refresh = crypto.randomBytes(32).toString('base64url');
+        q('INSERT INTO oidc_refresh (token_hash, client_id, user_id, scope, expires_at) VALUES (?, ?, ?, ?, ?)').run(sha(refresh), c.client_id, user.id, scope, Date.now() + REFRESH_TTL);
+      }
+      const t = Math.floor(Date.now() / 1000);
+      const idToken = signJwt({ iss: issuerOf(req), aud: c.client_id, iat: t, exp: t + TOKEN_TTL / 1000, auth_time: t, ...(nonce && { nonce }), ...claimsFor(user, scopes) });
+      res.json({ access_token: access, token_type: 'Bearer', expires_in: TOKEN_TTL / 1000, id_token: idToken, scope, ...(refresh && { refresh_token: refresh }) });
+    };
+    if (req.body?.grant_type === 'refresh_token') {
+      // Still allowed (the grant not taken back, the person still active in the company): a fresh set.
+      const old = q('SELECT * FROM oidc_refresh WHERE token_hash = ?').get(sha(req.body?.refresh_token || ''));
+      if (old) q('DELETE FROM oidc_refresh WHERE token_hash = ?').run(old.token_hash); // used once
+      const user = old && q('SELECT * FROM users WHERE id = ? AND disabled = 0').get(old.user_id);
+      const granted = old && q('SELECT 1 FROM oidc_grants WHERE user_id = ? AND client_id = ?').get(old.user_id, c.client_id);
+      if (!old || old.client_id !== c.client_id || old.expires_at < Date.now() || !user || user.org_id !== c.org_id || !granted) return fail(400, 'invalid_grant', 'Sign in again');
+      return issue(user, old.scope, null);
+    }
     if (req.body?.grant_type !== 'authorization_code') return fail(400, 'unsupported_grant_type');
     const row = q('SELECT * FROM oidc_codes WHERE code_hash = ?').get(sha(req.body?.code || ''));
     if (row) q('DELETE FROM oidc_codes WHERE code_hash = ?').run(row.code_hash); // used once, whatever happens
@@ -152,14 +189,7 @@ export function oidcPublicRoutes() {
     }
     const user = q('SELECT * FROM users WHERE id = ? AND disabled = 0').get(row.user_id);
     if (!user || user.org_id !== c.org_id) return fail(400, 'invalid_grant');
-    const scopes = row.scope.split(' ');
-    const access = crypto.randomBytes(32).toString('base64url');
-    q('INSERT INTO oidc_tokens (token_hash, client_id, user_id, scope, expires_at) VALUES (?, ?, ?, ?, ?)').run(sha(access), c.client_id, user.id, row.scope, Date.now() + TOKEN_TTL);
-    q('DELETE FROM oidc_tokens WHERE expires_at < ?').run(Date.now());
-    q('UPDATE oidc_clients SET last_used_at = ? WHERE id = ?').run(now(), c.id);
-    const t = Math.floor(Date.now() / 1000);
-    const idToken = signJwt({ iss: issuerOf(req), aud: c.client_id, iat: t, exp: t + TOKEN_TTL / 1000, auth_time: t, ...(row.nonce && { nonce: row.nonce }), ...claimsFor(user, scopes) });
-    res.json({ access_token: access, token_type: 'Bearer', expires_in: TOKEN_TTL / 1000, id_token: idToken, scope: row.scope });
+    issue(user, row.scope, row.nonce);
   });
 
   const userinfo = (req, res) => {
@@ -197,6 +227,7 @@ export function oidcApiRoutes() {
     const code = crypto.randomBytes(24).toString('base64url');
     q('INSERT INTO oidc_codes (code_hash, client_id, user_id, redirect_uri, scope, nonce, challenge, challenge_method, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
       .run(sha(code), c.client_id, req.user.id, b.redirect_uri, scopes.join(' '), b.nonce ? String(b.nonce).slice(0, 500) : null, b.code_challenge ? String(b.code_challenge).slice(0, 200) : null, method, Date.now() + CODE_TTL);
+    audit(req, 'oidc.signin', { target: c.name });
     q(`INSERT INTO oidc_grants (user_id, client_id, scope, granted_at) VALUES (?, ?, ?, ?)
        ON CONFLICT(user_id, client_id) DO UPDATE SET scope = excluded.scope, granted_at = excluded.granted_at`).run(req.user.id, c.client_id, scopes.join(' '), now());
     q('DELETE FROM oidc_codes WHERE expires_at < ?').run(Date.now());
@@ -213,6 +244,7 @@ export function oidcApiRoutes() {
   r.delete('/grants/:clientId', (req, res) => {
     q('DELETE FROM oidc_grants WHERE user_id = ? AND client_id = ?').run(req.user.id, req.params.clientId);
     q('DELETE FROM oidc_tokens WHERE user_id = ? AND client_id = ?').run(req.user.id, req.params.clientId);
+    q('DELETE FROM oidc_refresh WHERE user_id = ? AND client_id = ?').run(req.user.id, req.params.clientId);
     res.json({ ok: true });
   });
 
@@ -234,6 +266,7 @@ export function oidcApiRoutes() {
     const id = uid(), clientId = `ws-${crypto.randomBytes(9).toString('base64url')}`, secret = crypto.randomBytes(30).toString('base64url');
     q('INSERT INTO oidc_clients (id, org_id, name, client_id, secret_hash, redirect_uris, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
       .run(id, req.user.org_id, name, clientId, sha(secret), JSON.stringify(uris), req.user.id, now());
+    audit(req, 'oidc.app_added', { target: name, details: { redirect_uris: uris } });
     res.status(201).json({ ...shapeClient(q('SELECT * FROM oidc_clients WHERE id = ?').get(id)), client_secret: secret }); // the secret is shown this once
   });
   const ownApp = (req) => { admin(req); const c = q('SELECT * FROM oidc_clients WHERE id = ? AND org_id = ?').get(req.params.id, req.user.org_id); if (!c) throw notFound('App not found'); return c; };
@@ -248,11 +281,13 @@ export function oidcApiRoutes() {
     const c = ownApp(req);
     const secret = crypto.randomBytes(30).toString('base64url');
     q('UPDATE oidc_clients SET secret_hash = ? WHERE id = ?').run(sha(secret), c.id);
+    audit(req, 'oidc.app_secret', { target: c.name });
     res.json({ client_secret: secret });
   });
   r.delete('/apps/:id', (req, res) => {
     const c = ownApp(req);
-    for (const t of ['oidc_codes', 'oidc_tokens', 'oidc_grants']) q(`DELETE FROM ${t} WHERE client_id = ?`).run(c.client_id);
+    for (const t of ['oidc_codes', 'oidc_tokens', 'oidc_refresh', 'oidc_grants']) q(`DELETE FROM ${t} WHERE client_id = ?`).run(c.client_id);
+    audit(req, 'oidc.app_removed', { target: c.name });
     q('DELETE FROM oidc_clients WHERE id = ?').run(c.id);
     res.json({ ok: true });
   });

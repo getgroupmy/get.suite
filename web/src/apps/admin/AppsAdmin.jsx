@@ -20,7 +20,7 @@ export default function AppsAdmin() {
         <p className="muted" style={{ margin: 0 }}>Let people sign in to the company's other apps (Nextcloud, Gitea, Grafana, a wiki…) with their Workspace account, using OpenID Connect. Add the app here, then put these in its OpenID Connect (or “OAuth2 / OIDC”) settings:</p>
         <dl className="oidc-facts">
           <dt>Issuer (discovery)</dt><dd><code>{issuer}</code> <button type="button" className="link-btn small" onClick={() => copy(issuer, 'Issuer')}>Copy</button><div className="muted small">{issuer}/.well-known/openid-configuration</div></dd>
-          <dt>Scopes</dt><dd><code>openid profile email</code></dd>
+          <dt>Scopes</dt><dd><code>openid profile email</code><div className="muted small">Add <code>groups</code> for the person's groups (to give roles by group) and <code>offline_access</code> to stay signed in (refresh tokens, 30 days).</div></dd>
         </dl>
       </div>
       <div className="row"><h2 className="grow" style={{ margin: 0, fontSize: 18 }}>Apps</h2><button type="button" className="btn primary" onClick={() => setAdding(true)}>Add app</button></div>
