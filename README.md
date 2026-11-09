@@ -106,7 +106,7 @@ Cookies switch to `Secure` automatically once traffic arrives over HTTPS through
 
 ## Accessibility
 
-Workspace is checked against WCAG 2 (levels A and AA) with axe-core on 24 screens (Drive, Docs, Sheets, Slides, Mail settings, Calendar, Chat, Tasks, Contacts, Notes, Forms, Meet, Home, Settings, Admin, the sign-in page and the main dialogs, in light and dark mode), with no problems found: everything can be reached by keyboard and has a name screen readers read out, and text stands out enough from its background (avatar initials included: each colour is made dark enough for its white letters).
+Workspace is checked against WCAG 2 (levels A and AA) with axe-core on 24 screens (Drive, Docs, Sheets, Slides, Calendar, Chat, Tasks, Contacts, Notes, Forms, Meet, Home, Settings, Admin, the sign-in page and the main dialogs, in light and dark mode; Mail itself not yet), with no problems found: everything can be reached by keyboard and has a name screen readers read out, and text stands out enough from its background (avatar initials included: each colour is made dark enough for its white letters).
 
 ## Install as an app (phones and computers)
 
