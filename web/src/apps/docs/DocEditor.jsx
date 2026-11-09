@@ -44,6 +44,8 @@ import { captureFormat, applyFormat, wordAt } from './paintformat.js';
 import { Footnote, footnotesOf, htmlWithFootnotes } from './footnote.js';
 import { NodeSelection } from '@tiptap/pm/state';
 import { LinkDialog } from './LinkDialog.jsx';
+import { measureLines } from './linenumbers.js';
+import { flushSync } from 'react-dom';
 import { BookmarkNode, bookmarksOf, bookmarkIdOf, bookmarkAnchor } from './bookmark.js';
 import { Mention, mentionQuery, matchPeople } from './mention.js';
 import { DropChip, CHIP_PRESETS, CHIP_COLORS, cleanOptions } from './dropchip.js';
@@ -148,6 +150,7 @@ function SharedDoc({ file, setFile }) {
   const [history, setHistory] = useState(false);
   const [bookmarking, setBookmarking] = useState(false);
   const [linking, setLinking] = useState(false); // the link box
+  const paperRef = useRef(null);
   const [comparing, setComparing] = useState(null); // null, { step: 'pick' } or { name, content }
   const [sendingItems, setSendingItems] = useState(false);
   // A link to another file in Drive, named after it. If people who can open this document can't
@@ -592,7 +595,8 @@ function SharedDoc({ file, setFile }) {
         {outline && <Outline editor={editor} fileId={file.id} onCopied={(m) => toast(m)} onClose={() => setOutline(false)} />}
         {liveCount && <WordCounter editor={editor} onOpen={() => setWordCount(true)} />}
         <div className="doc-scroll" onClick={(e) => e.target === e.currentTarget && editor.commands.focus('end')}>
-          <div className={`paper ${file.page_setup?.pageless ? 'pageless' : ''} ${columnsOf(file.page_setup) > 1 ? `cols-${columnsOf(file.page_setup)}` : ''}`} style={file.page_setup ? paperStyle(file.page_setup) : undefined}>
+          <div ref={paperRef} className={`paper ${file.page_setup?.pageless ? 'pageless' : ''} ${columnsOf(file.page_setup) > 1 ? `cols-${columnsOf(file.page_setup)}` : ''} ${file.page_setup?.lineNumbers ? 'line-numbered' : ''}`} style={file.page_setup ? paperStyle(file.page_setup) : undefined}>
+            {file.page_setup?.lineNumbers && <LineNumbers editor={editor} paperRef={paperRef} layout={JSON.stringify(file.page_setup)} />}
             {file.page_setup?.watermark && <div className="print-watermark" aria-hidden="true" />}
             {file.page_setup?.watermark && <span className="sr-only">Watermark: {file.page_setup.watermark}</span>}
             {file.page_setup?.header && <div className="paper-header" aria-hidden="true">{file.page_setup.header}</div>}
@@ -1079,6 +1083,7 @@ function PageSetupDialog({ setup, onClose, onSave }) {
         <label className="field"><span>Header (top of every page)</span><input value={s.header} maxLength={200} onChange={set('header')} placeholder="e.g. Acme Trading · Quarterly report" /></label>
         <label className="field"><span>Footer (bottom of every page)</span><input value={s.footer} maxLength={200} onChange={set('footer')} placeholder="e.g. Confidential" /></label>
         <label className="check"><input type="checkbox" checked={s.numbers} onChange={set('numbers')} /> Page numbers in the footer</label>
+        <label className="check"><input type="checkbox" checked={!!s.lineNumbers} onChange={set('lineNumbers')} /> Line numbers in the margin</label>
         <label className="field"><span>Watermark (faint, across every page)</span>
           <input value={s.watermark || ''} maxLength={40} list="watermark-choices" onChange={set('watermark')} placeholder="None, or e.g. DRAFT or CONFIDENTIAL" />
           <datalist id="watermark-choices">{WATERMARKS.map((w) => <option key={w} value={w} />)}</datalist>
@@ -1086,6 +1091,34 @@ function PageSetupDialog({ setup, onClose, onSave }) {
         <p className="muted small" style={{ margin: 0 }}>Used when printing or saving as PDF, and in the Word download. Everyone editing sees the same.</p>
       </div>
     </Modal>
+  );
+}
+
+/** Line numbers down the margin: every line of text, measured as laid out (again as the text, the window or the printed page changes). */
+function LineNumbers({ editor, paperRef, layout }) {
+  const [lines, setLines] = useState([]);
+  useEffect(() => {
+    if (!editor) return undefined;
+    let frame = 0;
+    const now = () => { const box = paperRef.current; if (box) flushSync(() => setLines(measureLines(editor.view.dom, box))); };
+    const soon = () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(now); };
+    soon();
+    editor.on('update', soon);
+    const ro = new ResizeObserver(soon);
+    ro.observe(editor.view.dom);
+    const print = window.matchMedia('print');
+    print.addEventListener('change', now); // straight away: the printed page is laid out next
+    window.addEventListener('beforeprint', now);
+    window.addEventListener('afterprint', soon);
+    return () => {
+      cancelAnimationFrame(frame); editor.off('update', soon); ro.disconnect();
+      print.removeEventListener('change', now); window.removeEventListener('beforeprint', now); window.removeEventListener('afterprint', soon);
+    };
+  }, [editor, paperRef, layout]);
+  return (
+    <div className="line-numbers" aria-hidden="true">
+      {lines.map((l) => <span key={l.n} style={{ top: l.top, left: l.left - 40, height: l.height, lineHeight: `${l.height}px` }}>{l.n}</span>)}
+    </div>
   );
 }
 

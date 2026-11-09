@@ -7052,7 +7052,7 @@ test('Drive search finds a presentation by its speaker notes, chart titles and p
   for (const words of ['quokka team', 'marmalade', 'lighthouse dusk', 'launch plan']) assert.ok((await find(words)).includes(deck.id), words);
 });
 
-test('opening a Word file in two columns keeps its columns in the page setup', async () => {
+test('opening a Word file in two columns, or with numbered lines, keeps that in the page setup', async () => {
   const { Document, Packer, Paragraph } = await import('docx');
   const buf = await Packer.toBuffer(new Document({ sections: [{ properties: { column: { count: 2, space: 708 } }, children: [new Paragraph('Two columns of news.')] }] }));
   const up = (await owner('POST', `/api/files/upload?name=${encodeURIComponent('Newsletter.docx')}`, buf, { raw: true })).body;
@@ -7065,4 +7065,7 @@ test('opening a Word file in two columns keeps its columns in the page setup', a
   const plain = await Packer.toBuffer(new Document({ sections: [{ children: [new Paragraph('One column.')] }] }));
   const one = (await owner('POST', `/api/files/${(await owner('POST', '/api/files/upload?name=Plain.docx', plain, { raw: true })).body.id}/open-as`)).body;
   assert.equal(one.page_setup?.columns, undefined, 'one column: nothing to keep');
+  const numbered = await Packer.toBuffer(new Document({ sections: [{ properties: { lineNumbers: { countBy: 1, restart: 'continuous' } }, children: [new Paragraph('Clause 1.')] }] }));
+  const ln = (await owner('POST', `/api/files/${(await owner('POST', '/api/files/upload?name=Numbered.docx', numbered, { raw: true })).body.id}/open-as`)).body;
+  assert.equal(ln.page_setup.lineNumbers, true, 'numbered lines stay numbered');
 });

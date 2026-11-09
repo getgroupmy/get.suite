@@ -1,5 +1,5 @@
 // A document's page setup: paper size, orientation, margins, a header and footer (with page
-// numbers), and text in columns, for printing and Word. Kept with the file as JSON; anything missing takes the default.
+// numbers), text in columns and line numbers, for printing and Word. Kept with the file as JSON; anything missing takes the default.
 import { bad } from './util.js';
 
 export const PAPER = { a4: [210, 297], letter: [215.9, 279.4], legal: [215.9, 355.6], a5: [148, 210] }; // mm
@@ -22,7 +22,7 @@ export function readSetup(v) {
   const columns = s.columns ?? 1;
   if (!Number.isInteger(columns) || columns < 1 || columns > MAX_COLUMNS) throw bad(`Columns: 1 to ${MAX_COLUMNS}`);
   // pageless: on screen the document is one long sheet as wide as the window (printing and Word still use the paper).
-  return { size: s.size, orientation: s.orientation, margin: s.margin, header: text(s.header, 'Header'), footer: text(s.footer, 'Footer'), numbers: !!s.numbers, watermark, ...(columns > 1 && { columns }), ...(s.pageless === true && { pageless: true }) };
+  return { size: s.size, orientation: s.orientation, margin: s.margin, header: text(s.header, 'Header'), footer: text(s.footer, 'Footer'), numbers: !!s.numbers, watermark, ...(columns > 1 && { columns }), ...(s.lineNumbers === true && { lineNumbers: true }), ...(s.pageless === true && { pageless: true }) };
 }
 
 /** Page width and height (mm) for a setup, turned for landscape. */

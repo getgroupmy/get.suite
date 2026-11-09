@@ -938,7 +938,8 @@ test('Word: links to a heading in the document become links inside the Word file
 
 test('columns: text in two or three columns goes to Word and comes back from Word files', async () => {
   const JSZip = (await import('jszip')).default;
-  const { columnsOfWord } = await import('../src/office/word.js');
+  const { layoutOfWord } = await import('../src/office/word.js');
+  const columnsOfWord = async (b) => (await layoutOfWord(b)).columns;
   const { readSetup } = await import('../src/pagesetup.js');
   const doc = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Newsletter.' }] }] };
   const buf = await wordFromDoc(doc, 'News', { page: readSetup({ columns: 2 }) });
@@ -953,4 +954,19 @@ test('columns: text in two or three columns goes to Word and comes back from Wor
   assert.equal(readSetup({ columns: 1 }).columns, undefined);
   assert.equal(readSetup({ columns: 3 }).columns, 3);
   for (const bad of [0, 4, 2.5, '2']) assert.throws(() => readSetup({ columns: bad }), /Columns: 1 to 3/);
+});
+
+test('line numbers: numbered lines go to Word and come back from Word files', async () => {
+  const JSZip = (await import('jszip')).default;
+  const { layoutOfWord } = await import('../src/office/word.js');
+  const { readSetup } = await import('../src/pagesetup.js');
+  const doc = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Clause one.' }] }] };
+  const buf = await wordFromDoc(doc, 'Contract', { page: readSetup({ lineNumbers: true, columns: 2 }) });
+  const xml = await (await JSZip.loadAsync(buf)).file('word/document.xml').async('string');
+  assert.match(xml, /<w:lnNumType [^>]*w:countBy="1"[^>]*w:restart="continuous"/);
+  assert.deepEqual(await layoutOfWord(buf), { columns: 2, lineNumbers: true });
+  assert.deepEqual(await layoutOfWord(await wordFromDoc(doc, 'C', { page: readSetup({}) })), { columns: 1, lineNumbers: false });
+  assert.equal(readSetup({ lineNumbers: true }).lineNumbers, true);
+  assert.equal(readSetup({ lineNumbers: 'yes' }).lineNumbers, undefined, 'only true turns them on');
+  assert.equal(readSetup({}).lineNumbers, undefined);
 });

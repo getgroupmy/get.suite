@@ -2385,3 +2385,10 @@ del.compare-key { background: color-mix(in srgb, #d93025 14%, transparent); text
 .paper.cols-2 .ProseMirror > *, .paper.cols-3 .ProseMirror > * { break-inside: avoid-column; }
 .paper.cols-2 .ProseMirror > :is(h1, h2, h3, h4), .paper.cols-3 .ProseMirror > :is(h1, h2, h3, h4) { break-after: avoid-column; }
 @media screen and (max-width: 700px) { .paper.cols-2 .ProseMirror, .paper.cols-3 .ProseMirror { column-count: 1; } }
+/* Line numbers (Docs, Page setup → Line numbers) */
+.paper.line-numbered { position: relative; }
+.line-numbers { position: absolute; inset: 0; pointer-events: none; user-select: none; }
+.line-numbers span { position: absolute; width: 28px; text-align: right; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+@media print { .line-numbers span { color: #666; } }
+/* The live word counter moves over when the outline is open beside it. */
+.doc-outline ~ .word-counter { left: 256px; }

@@ -223,14 +223,15 @@ export async function watermarkOfWord(buffer) {
   return '';
 }
 
-/** How many columns a Word file's text is in (1 to 3; its last section's, which is the document's own). */
-export async function columnsOfWord(buffer) {
+/** A Word file's text layout (its last section's, which is the document's own): how many columns
+ *  it's in (1 to 3), and whether its lines are numbered. */
+export async function layoutOfWord(buffer) {
   try {
     const xml = await (await JSZip.loadAsync(buffer)).file('word/document.xml')?.async('string');
-    const sect = xml && [...xml.matchAll(/<w:sectPr\b[\s\S]*?<\/w:sectPr>/g)].pop()?.[0];
-    const n = Number(sect && /<w:cols\b[^>]*\bw:num="(\d+)"/.exec(sect)?.[1]);
-    return n >= 2 ? Math.min(n, 3) : 1;
-  } catch { return 1; }
+    const sect = (xml && [...xml.matchAll(/<w:sectPr\b[\s\S]*?<\/w:sectPr>/g)].pop()?.[0]) || '';
+    const n = Number(/<w:cols\b[^>]*\bw:num="(\d+)"/.exec(sect)?.[1]);
+    return { columns: n >= 2 ? Math.min(n, 3) : 1, lineNumbers: /<w:lnNumType\b/.test(sect) };
+  } catch { return { columns: 1, lineNumbers: false }; }
 }
 
 /** Word's page size, margins, header and footer (page number included) from the document's page setup. */
@@ -247,6 +248,7 @@ function sectionSetup(setup) {
     properties: {
       page: { size: { width: twip(w), height: twip(h), orientation: setup.orientation === 'landscape' ? PageOrientation.LANDSCAPE : PageOrientation.PORTRAIT }, margin: { top: m, bottom: m, left: m, right: m } },
       ...(setup.columns > 1 && { column: { count: setup.columns, space: 720, equalWidth: true } }), // half an inch between
+      ...(setup.lineNumbers && { lineNumbers: { countBy: 1, restart: 'continuous' } }), // every line, numbered on through the document
     },
     // A watermark lives in the header (added to its first paragraph once the file is written: withWatermark).
     ...((setup.header || setup.watermark) && { headers: { default: new Header({ children: [line(setup.header, false)] }) } }),
