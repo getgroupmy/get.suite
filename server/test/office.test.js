@@ -1267,3 +1267,24 @@ test('Word: the page setup (paper, orientation, margins, header, footer, page nu
   assert.deepEqual([plain.size, plain.orientation, plain.margin, plain.header, plain.footer], ['a4', 'portrait', 'normal', undefined, undefined]);
   assert.deepEqual(await pageOfWord(Buffer.from('not a zip')), {});
 });
+
+test('Excel: links in cells come in as HYPERLINK formulas', async () => {
+  const { linkCell } = await import('../src/office/excel.js');
+  assert.equal(linkCell({ text: 'Say "hi"', hyperlink: 'https://example.com/orders?a=1&b=2' }), '=HYPERLINK("https://example.com/orders?a=1&b=2", "Say ""hi""")');
+  assert.equal(linkCell({ text: 'https://acme.com', hyperlink: 'https://acme.com' }), '=HYPERLINK("https://acme.com")');
+  assert.equal(linkCell({ text: 'Mail us', hyperlink: 'mailto:hi@acme.com' }), '=HYPERLINK("mailto:hi@acme.com", "Mail us")');
+  assert.equal(linkCell({ text: 'Totals', hyperlink: "#'Sheet 2'!A1" }), 'Totals', 'a place in the workbook keeps its text');
+  assert.equal(linkCell({ text: 'Run me', hyperlink: 'javascript:alert(1)' }), 'Run me');
+  assert.equal(linkCell({ text: { richText: [{ text: 'Rich ' }, { text: 'link' }] }, hyperlink: 'https://x.org' }), '=HYPERLINK("https://x.org", "Rich link")');
+  // A real workbook: the link opens again as a link, and goes back out as one.
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('Links');
+  ws.getCell('A1').value = { text: 'Our site', hyperlink: 'https://acme.com/' };
+  ws.getCell('A2').value = 'plain';
+  const back = await sheetFromExcel(Buffer.from(await wb.xlsx.writeBuffer()));
+  assert.equal(back.sheets[0].cells.A1, '=HYPERLINK("https://acme.com/", "Our site")');
+  assert.equal(back.sheets[0].cells.A2, 'plain');
+  const out = new ExcelJS.Workbook();
+  await out.xlsx.load(await excelFromSheet(back));
+  assert.equal(out.worksheets[0].getCell('A1').value.formula, 'HYPERLINK("https://acme.com/", "Our site")');
+});

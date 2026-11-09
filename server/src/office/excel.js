@@ -80,6 +80,19 @@ const withParamPrefix = (f) => {
 export const formulaToExcel = (f) => withParamPrefix(String(f)).replace(NEW_RE, (m, s, name) => s || `_xlfn.${name.toUpperCase()}`)
   .replace(ARRAY_RE, (m, s, name) => s || `${ARRAY_FUNCS[name.toUpperCase()]}${name.toUpperCase()}`);
 
+/**
+ * A cell with a link in Excel (not a formula): kept as =HYPERLINK("address", "text") when it goes to a
+ * web page or an email address, so it opens as a link in Sheets and goes back to Excel as one. Links
+ * to places inside the workbook, and anything else, keep just their text.
+ */
+export function linkCell(v) {
+  const text = typeof v.text === 'object' && v.text?.richText ? v.text.richText.map((r) => r.text).join('') : String(v.text ?? '');
+  const href = String(v.hyperlink || '').trim();
+  if (!/^(https?:\/\/|mailto:)[^\s"]+$/i.test(href) || href.length > 2000) return text;
+  const q = (t) => `"${t.replace(/"/g, '""')}"`;
+  return !text || text === href ? `=HYPERLINK(${q(href)})` : `=HYPERLINK(${q(href)}, ${q(text)})`;
+}
+
 function cellText(cell) {
   const v = cell.value;
   if (v === null || v === undefined) return null;
@@ -87,7 +100,7 @@ function cellText(cell) {
     if ('formula' in v || 'sharedFormula' in v) return `=${formulaFromExcel(v.formula || cell.formula)}`;
     if (v instanceof Date) return v.toISOString().slice(0, 10);
     if (v.richText) return v.richText.map((r) => r.text).join('');
-    if ('text' in v) return String(v.text); // hyperlink
+    if ('text' in v) return linkCell(v); // a link in the cell
     if ('error' in v) return String(v.error);
     if ('result' in v) return String(v.result);
     return null;
