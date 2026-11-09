@@ -28,7 +28,7 @@ import { ValidationDialog, ChoicePicker } from './SheetValidation.jsx';
 import { CellPicture, PictureCellDialog } from './SheetPicture.jsx';
 import { CustomFormatDialog } from './SheetNumFmt.jsx';
 import { heightOf, setHeights, MIN_H, MAX_H, DEFAULT_H } from './rowheights.js';
-import { validationAt, checkEntry, isTicked, withChoices, choicesFrom, chipColour } from './validation.js';
+import { validationAt, checkEntry, isTicked, withChoices, choicesFrom, chipColour, breaksRule, describeCheck } from './validation.js';
 import { hiddenRows, columnValues, adjustFilter, filterArea, columnFiltered } from './filter.js';
 import { describeCondition } from './filtercond.js';
 import { setHidden, anyHidden, hiddenRuns } from './hide.js';
@@ -620,22 +620,27 @@ export default function SheetEditor() {
     if (readOnly) return;
     const lock = protectionsAt(sheet, cellKey(sel.c, sel.r)).find((p) => !p.warn && !mayEdit(p, user.id, file.owner_id));
     if (lock) { toast(`This cell is protected${lock.desc ? ` (${lock.desc})` : ''}. Only some people can change it.`, 'error'); return; }
+    closing.current = false;
     setEditing(where);
     setDraft(initial ?? cells[cellKey(sel.c, sel.r)] ?? '');
   }
 
+  const closing = useRef(false); // set while the cell editor closes, so its blur doesn't save a second time
   /** Save what was typed. A value a strict dropdown doesn't allow: kept for fixing (keep) or dropped. */
   function commitEdit(dc = 0, dr = 0, keep = false) {
+    if (closing.current) return; // the editor is already closing (its blur comes after Enter or Escape)
     const key = cellKey(sel.c, sel.r);
     const check = checkEntry(withChoices(validationAt(validations, key), valueOf), draft);
     if (check.error) { toast(check.error, 'error'); if (!keep) cancelEdit(); return; }
+    if (check.warning) toast(`${check.warning}. It's kept, marked in red.`);
     writeCells({ [key]: check.value });
+    closing.current = true;
     setEditing(null);
     move(dc, dr);
     gridRef.current?.focus();
   }
 
-  function cancelEdit() { setEditing(null); gridRef.current?.focus(); }
+  function cancelEdit() { closing.current = true; setEditing(null); gridRef.current?.focus(); }
   /** Turn the filter on (over the selection, or the table around the cursor) or off. */
   const toggleFilter = () => {
     if (filter) { writeSheet(() => ({ filter: null })); toast('Filter removed: every row shows'); gridRef.current?.focus(); return; }
@@ -1050,10 +1055,11 @@ export default function SheetEditor() {
                   const isErr = v && typeof v === 'object';
                   const fmt = formats[k];
                   const vd = validations.length ? validationAt(validations, k) : null;
+                  const broken = vd?.type === 'rule' && breaksRule(vd, k, v, evaluate.formulaAt);
                   return (
                     <td key={k} data-k={k} {...spanProps} style={{ maxWidth: span ? undefined : widthOf(c), ...stickyStyle(c, r), ...bandStyle(bands, c, r, fmt), ...cellStyle(fmt), ...(fmt?.num === 'custom' && codeColour(v, fmt) && { color: codeColour(v, fmt) }), ...(rules.length && ruleStyle(rules, k, v, ruleCtx)), ...(theirs.has(k) && { boxShadow: `${isSel ? 'inset 0 0 0 2px var(--accent), ' : ''}inset 0 0 0 ${isSel ? 4 : 2}px ${theirs.get(k).color}` }) }}
-                      title={notes[k] ? `Note: ${notes[k]}` : theirs.has(k) ? `${theirs.get(k).name} is here` : commented.has(k) ? 'Has comments' : spilledFrom ? `From the formula in ${spilledFrom}` : undefined}
-                      className={`${frozenClass(c, r)} ${spilledFrom ? 'spilled' : ''} ${vd ? `has-${vd.type}` : ''} ${commented.has(k) ? 'commented' : ''} ${isSel ? 'sel' : ''} ${inRange(c, r) && anchor ? 'range' : ''} ${typeof v === 'number' ? 'num' : ''} ${isErr ? 'err' : ''} ${hits?.keys.has(k) ? (hits.current === k ? 'find-current' : 'find-hit') : ''} ${!readOnly && guardBoxes.length && guarded(c, r) ? 'guarded' : ''} ${inFill(c, r) ? 'fill-preview' : ''}`}
+                      title={broken ? `Not valid: ${vd.message || describeCheck(vd.check)}` : notes[k] ? `Note: ${notes[k]}` : theirs.has(k) ? `${theirs.get(k).name} is here` : commented.has(k) ? 'Has comments' : spilledFrom ? `From the formula in ${spilledFrom}` : undefined}
+                      className={`${frozenClass(c, r)} ${spilledFrom ? 'spilled' : ''} ${vd ? `has-${vd.type}` : ''} ${broken ? 'invalid' : ''} ${commented.has(k) ? 'commented' : ''} ${isSel ? 'sel' : ''} ${inRange(c, r) && anchor ? 'range' : ''} ${typeof v === 'number' ? 'num' : ''} ${isErr ? 'err' : ''} ${hits?.keys.has(k) ? (hits.current === k ? 'find-current' : 'find-hit') : ''} ${!readOnly && guardBoxes.length && guarded(c, r) ? 'guarded' : ''} ${inFill(c, r) ? 'fill-preview' : ''}`}
                       onContextMenu={(e) => { if (!inRange(c, r)) { setAnchor(null); setSel({ c, r }); } openMenu(e, 'cell'); }}
                       onMouseDown={(e) => {
                         if (e.button !== 0 && inRange(c, r)) return; // a right-click keeps the selection
@@ -1401,7 +1407,7 @@ function FormatBar({ sample, painter, onPaint, fmt, onChange, onBorders, onMerge
       <span className="sep" />
       <button type="button" className="tb labelled" aria-label="Conditional formatting" title="Colour cells by their value" onMouseDown={keep} onClick={onRules}><RulesGlyph /> Rules</button>
       <button type="button" className={`tb labelled ${filterOn ? 'on' : ''}`} aria-label={filterOn ? 'Remove filter' : 'Create a filter'} aria-pressed={filterOn} title={filterOn ? 'Remove the filter (shows every row)' : 'Filter rows by their values'} onMouseDown={keep} onClick={onFilter}><FilterGlyph /> Filter</button>
-      <button type="button" className="tb labelled" aria-label="Dropdowns and tick boxes" title="Dropdown lists and tick boxes in cells" onMouseDown={keep} onClick={onValidation}>▾ Dropdown</button>
+      <button type="button" className="tb labelled" aria-label="Data validation" title="Dropdowns, tick boxes and rules for what cells may hold" onMouseDown={keep} onClick={onValidation}>▾ Validation</button>
       <button type="button" className="tb labelled" aria-label="Sort range" title="Sort rows by a column" onMouseDown={keep} onClick={onSort}><SortGlyph /> Sort</button>
       <button type="button" className="tb labelled" aria-label="Insert chart" title="Chart of the selected cells" onMouseDown={keep} onClick={onChart}><Icon name="chart" size={18} /> Chart</button>
       <button type="button" className="tb labelled" aria-label="Pivot table" title="Summarise the table around the cursor on a new sheet" onMouseDown={keep} onClick={onPivot}>⊞ Pivot</button>

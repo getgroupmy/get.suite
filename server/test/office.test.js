@@ -222,6 +222,7 @@ test('Excel: a list taken from cells on the sheet, and split ranges', async () =
   assert.deepEqual(got.map(({ id, ...v }) => v), [
     { range: 'A1:A2', type: 'list', source: 'D1:D3', strict: true },
     { range: 'A4:A4', type: 'list', source: 'D1:D3', strict: true },
+    { range: 'B1:B1', type: 'rule', check: { kind: 'whole', op: 'between', a: '1', b: '' }, strict: true },
   ]);
   // On another tab too, and a TRUE/FALSE range on this sheet is still a tick box.
   const other = validationsFromExcel({ B2: { type: 'list', formulae: ["'Q1 data'!$A$2:$A$9"] }, C2: { type: 'list', formulae: ['$E$1:$E$2'] } }, { E1: 'TRUE', E2: 'FALSE' });
@@ -1121,4 +1122,24 @@ test('Excel: data bars carry both ways', async () => {
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(buf);
   assert.equal(wb.worksheets[0].conditionalFormattings[0].rules[0].type, 'dataBar');
+});
+
+test('Excel: validation rules (numbers, dates, text length, email, web, custom formula) carry both ways', async () => {
+  const validations = [
+    { id: 'a', range: 'B2:B20', type: 'rule', check: { kind: 'whole', op: 'between', a: '1', b: '99' }, strict: true, message: 'A quantity from 1 to 99' },
+    { id: 'b', range: 'C2:C20', type: 'rule', check: { kind: 'number', op: 'gte', a: '0' }, strict: false },
+    { id: 'c', range: 'D2:D20', type: 'rule', check: { kind: 'date', op: 'gt', a: '2026-01-01' }, strict: true },
+    { id: 'd', range: 'E2:E20', type: 'rule', check: { kind: 'length', op: 'lte', a: '10' }, strict: true },
+    { id: 'e', range: 'F2:F20', type: 'rule', check: { kind: 'email' }, strict: true },
+    { id: 'f', range: 'G2:G20', type: 'rule', check: { kind: 'url' }, strict: false },
+    { id: 'g', range: 'H2:H20', type: 'rule', check: { kind: 'formula', a: '=H2<=$I$1' }, strict: false },
+  ];
+  const buf = await excelFromSheet({ sheets: [{ name: 'S', validations, cells: { A1: 'x' } }] });
+  const back = (await sheetFromExcel(buf)).sheets[0].validations.map(({ id, ...v }) => v);
+  assert.deepEqual(back, validations.map(({ id, ...v }) => v));
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(buf);
+  const m = wb.worksheets[0].dataValidations.model;
+  assert.deepEqual([m.B2.type, m.B2.operator, m.B2.errorStyle, m.B2.error], ['whole', 'between', 'stop', 'A quantity from 1 to 99']);
+  assert.deepEqual([m.D5.type, new Date(m.D5.formulae[0]).toISOString().slice(0, 10), m.C2.errorStyle], ['date', '2026-01-01', 'warning']);
 });

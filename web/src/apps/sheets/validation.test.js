@@ -74,3 +74,39 @@ test('choices can have colours', async () => {
   assert.deepEqual(cleanColours({ Done: '#CEEAD6', Gone: '#ffffff', Bad: 'x' }, ['done']), { Done: '#ceead6' });
   assert.equal(cleanColours({}, ['a']), null);
 });
+
+test('rules: numbers, whole numbers, dates, text length, email and web addresses', async () => {
+  const { passes, checkEntry, breaksRule, describeCheck, describeValidation } = await import('./validation.js');
+  const n = { kind: 'number', op: 'between', a: '1', b: '10' };
+  assert.deepEqual(['5', '10', '1.5', '11', 'abc', 0, ''].map((x) => passes(n, x)), [true, true, true, false, false, false, true]);
+  assert.deepEqual(['3', '3.5'].map((x) => passes({ ...n, kind: 'whole' }, x)), [true, false]);
+  assert.deepEqual([5, 11].map((x) => passes({ kind: 'number', op: 'notBetween', a: '1', b: '10' }, x)), [false, true]);
+  assert.deepEqual([-1, 0, 1].map((x) => passes({ kind: 'number', op: 'gte', a: '0' }, x)), [false, true, true]);
+  assert.equal(passes({ kind: 'number', op: 'gt' }, '7'), true, 'no limit set: any number');
+  const d = { kind: 'date', op: 'gt', a: '2026-01-01' };
+  assert.deepEqual(['2026-01-02', '2026-01-01', '2025-12-31', 'soon', '2026-02-30'].map((x) => passes(d, x)), [true, false, false, false, false]);
+  assert.deepEqual(['2026-03-01', '2026-06-01'].map((x) => passes({ kind: 'date', op: 'between', a: '2026-02-01', b: '2026-04-30' }, x)), [true, false]);
+  assert.deepEqual(['abc', 'abcdef'].map((x) => passes({ kind: 'length', op: 'lte', a: '5' }, x)), [true, false]);
+  assert.deepEqual(['ana@acme.com', 'ana@acme', 'not an email'].map((x) => passes({ kind: 'email' }, x)), [true, false, false]);
+  assert.deepEqual(['https://acme.com/x', 'acme.com', 'acme'].map((x) => passes({ kind: 'url' }, x)), [true, true, false]);
+  // Typing into the cell.
+  const strict = { type: 'rule', check: n, strict: true };
+  assert.deepEqual(checkEntry(strict, '4'), { value: '4' });
+  assert.deepEqual(checkEntry(strict, '40'), { error: 'Enter a value that fits: number between 1 and 10' });
+  assert.deepEqual(checkEntry({ ...strict, message: 'A quantity from 1 to 10' }, '40'), { error: 'A quantity from 1 to 10' });
+  assert.deepEqual(checkEntry({ ...strict, strict: false }, '40'), { value: '40', warning: 'Enter a value that fits: number between 1 and 10' });
+  assert.deepEqual(checkEntry(strict, '=A1*100'), { value: '=A1*100' }, 'formulas are checked by their marks');
+  assert.equal(breaksRule({ ...strict, range: 'A1:A5' }, 'A2', 40), true);
+  assert.equal(breaksRule({ ...strict, range: 'A1:A5' }, 'A2', ''), false);
+  assert.equal(describeCheck({ kind: 'date', op: 'lte', a: '2026-12-31' }), 'Date on or before 2026-12-31');
+  assert.equal(describeValidation({ type: 'rule', check: { kind: 'email' }, strict: false }), 'Email address (other values marked)');
+});
+
+test('rules: a custom formula, moved along the range', async () => {
+  const { breaksRule } = await import('./validation.js');
+  const { createEvaluator } = await import('./formula.js');
+  const ev = createEvaluator({ B2: '2026-01-05', C2: '2026-01-10', B3: '2026-02-05', C3: '2026-01-10' });
+  const v = { type: 'rule', range: 'B2:B3', check: { kind: 'formula', a: '=B2<=C2' }, strict: false };
+  assert.equal(breaksRule(v, 'B2', ev('B2'), ev.formulaAt), false);
+  assert.equal(breaksRule(v, 'B3', ev('B3'), ev.formulaAt), true, 'starts after it ends');
+});

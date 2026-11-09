@@ -348,6 +348,7 @@ export async function excelFromSheet(data) {
     }
     // Dropdowns as Excel list validations; tick boxes as a TRUE/FALSE list (Excel has no tick box to write).
     for (const v of s.validations || []) {
+      if (v.type === 'rule') { const x = ruleValidationToExcel(v); if (x) ws.dataValidations.add(v.range, x); continue; }
       // Choices taken from cells: written as that range, so Excel's dropdown follows them too.
       const src = v.type === 'list' && sourceFormula(v.source);
       if (src) { ws.dataValidations.add(v.range, { type: 'list', allowBlank: true, formulae: [src], ...(v.strict && { showErrorMessage: true, errorStyle: 'stop' }) }); continue; }
@@ -430,13 +431,66 @@ export function sourceFormula(source) {
   return m ? `${m[1] ? `${m[1]}!` : ''}$${m[2].toUpperCase()}$${m[3]}:$${m[4].toUpperCase()}$${m[5]}` : null;
 }
 
+// ---- rule validations (numbers, dates, text length, email and web addresses, custom formulas), both ways
+const XL_OPS = { between: 'between', notBetween: 'notBetween', gt: 'greaterThan', gte: 'greaterThanOrEqual', lt: 'lessThan', lte: 'lessThanOrEqual', eq: 'equal', ne: 'notEqual' };
+// Excel's library writes date limits from Date objects (as day numbers in the file).
+const xlDate = (t) => { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(t || '').trim()); return m ? new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])) : null; };
+const xlNum = (t) => (String(t ?? '').trim() !== '' && !Number.isNaN(Number(t)) ? String(Number(t)) : null);
+function ruleValidationToExcel(v) {
+  const c = v.check || {};
+  const first = String(v.range).split(':')[0];
+  const base = { allowBlank: true, showErrorMessage: true, errorStyle: v.strict ? 'stop' : 'warning', ...(v.message && { error: String(v.message).slice(0, 255), errorTitle: 'Not valid' }) };
+  const custom = (f) => ({ type: 'custom', formulae: [f], ...base });
+  if (c.kind === 'email') return custom(`ISNUMBER(MATCH("*@?*.?*",${first},0))`);
+  if (c.kind === 'url') return custom(`OR(LEFT(${first},7)="http://",LEFT(${first},8)="https://",ISNUMBER(SEARCH(".",${first})))`);
+  if (c.kind === 'formula') { const f = String(c.a || '').trim().replace(/^=/, ''); return f ? custom(formulaToExcel(f)) : null; }
+  const conv = c.kind === 'date' ? xlDate : xlNum;
+  const a = conv(c.a), b = conv(c.b);
+  const between = /between/i.test(c.op);
+  if (!XL_OPS[c.op] || a === null || (between && b === null)) return null;
+  return { type: { number: 'decimal', whole: 'whole', date: 'date', length: 'textLength' }[c.kind] || 'decimal', operator: XL_OPS[c.op], formulae: between ? [a, b] : [a], ...base };
+}
+function ruleValidationFromExcel(x) {
+  const kind = { decimal: 'number', whole: 'whole', date: 'date', textLength: 'length' }[x.type];
+  const strict = x.errorStyle !== 'warning' && x.errorStyle !== 'information';
+  const extra = { strict, ...(x.error && { message: String(x.error).slice(0, 200) }) };
+  const un = (f) => {
+    const t = String(f ?? '').trim();
+    const d = /^DATE\((\d+),(\d+),(\d+)\)$/i.exec(t);
+    if (d) return `${d[1]}-${d[2].padStart(2, '0')}-${d[3].padStart(2, '0')}`;
+    if (f instanceof Date) return f.toISOString().slice(0, 10);
+    if (kind === 'date' && /^\d+(\.\d+)?$/.test(t)) return new Date(Date.UTC(1899, 11, 30) + Math.floor(Number(t)) * 864e5).toISOString().slice(0, 10);
+    return t;
+  };
+  if (kind) {
+    const op = Object.keys(XL_OPS).find((k) => XL_OPS[k] === (x.operator || 'between'));
+    if (!op) return null;
+    return { type: 'rule', check: { kind, op, a: un(x.formulae?.[0]), ...(/between/i.test(op) && { b: un(x.formulae?.[1]) }) }, ...extra };
+  }
+  if (x.type === 'custom' && x.formulae?.[0]) {
+    const f = String(x.formulae[0]).trim();
+    if (/^ISNUMBER\(MATCH\("\*@\?\*\.\?\*",[A-Z]+\d+,0\)\)$/i.test(f)) return { type: 'rule', check: { kind: 'email' }, ...extra };
+    if (/^OR\(LEFT\([A-Z]+\d+,7\)="http:\/\/",LEFT/i.test(f)) return { type: 'rule', check: { kind: 'url' }, ...extra };
+    return { type: 'rule', check: { kind: 'formula', a: `=${formulaFromExcel(f)}` }, strict: false };
+  }
+  return null;
+}
+
 // ---- data validation from Excel: list validations become dropdowns (a TRUE/FALSE list, a tick box).
 // Excel gives them cell by cell; cells with the same list in a column are joined back into ranges.
 export function validationsFromExcel(model, cells) {
   const byKind = new Map();
   for (const [addr, x] of Object.entries(model)) {
     const p = /^([A-Z]+)(\d+)$/.exec(String(addr).toUpperCase());
-    if (!p || x?.type !== 'list' || !x.formulae?.[0]) continue;
+    if (!p || !x?.formulae?.length || x.formulae[0] === null || x.formulae[0] === undefined || x.formulae[0] === "") continue;
+    if (x.type !== 'list') {
+      const def = ruleValidationFromExcel(x);
+      if (!def) continue;
+      const key = `${p[1]}|${JSON.stringify(def)}`;
+      if (!byKind.has(key)) byKind.set(key, { col: p[1], def, rows: [] });
+      byKind.get(key).rows.push(Number(p[2]));
+      continue;
+    }
     const f = String(x.formulae[0]).trim();
     let values, source = null;
     if (/^".*"$/.test(f)) values = f.slice(1, -1).split(',').map((t) => t.trim()).filter(Boolean);

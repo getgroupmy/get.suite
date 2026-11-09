@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Modal } from '../../components/ui.jsx';
 import Icon from '../../components/Icon.jsx';
 import { parseRange } from './charts.js';
-import { parseChoices, describeValidation, cleanSource, cleanColours, CHIP_COLOURS } from './validation.js';
+import { parseChoices, describeValidation, cleanSource, cleanColours, CHIP_COLOURS, RULE_KINDS, RULE_OPS, WITH_OP } from './validation.js';
 
 const newId = () => Math.random().toString(36).slice(2, 10);
 
@@ -20,12 +20,15 @@ export function ValidationDialog({ validations, defaultRange, existing, resolve,
     const values = fromRange ? [] : parseChoices(v.choices);
     const colors = cleanColours(v.colors, fromRange ? resolve(v.source) : values);
     const list = fromRange ? { source: cleanSource(v.source), strict: !!v.strict } : { values, strict: !!v.strict };
-    const clean = { id: v.id || newId(), range: v.range.toUpperCase().replace(/\s/g, ''), type: v.type, ...(v.type === 'list' && { ...list, ...(colors && { colors }) }) };
+    const check = v.check || {};
+    const rule = { check: { kind: check.kind || 'number', ...(WITH_OP.has(check.kind || 'number') && { op: check.op || 'between', a: String(check.a ?? '').trim(), ...(/between/i.test(check.op || 'between') && { b: String(check.b ?? '').trim() }) }), ...(check.kind === 'formula' && { a: String(check.a ?? '').trim() }) },
+      strict: !!v.strict, ...(String(v.message || '').trim() && { message: String(v.message).trim().slice(0, 200) }) };
+    const clean = { id: v.id || newId(), range: v.range.toUpperCase().replace(/\s/g, ''), type: v.type, ...(v.type === 'list' && { ...list, ...(colors && { colors }) }), ...(v.type === 'rule' && rule) };
     onChange(v.id ? validations.map((x) => (x.id === v.id ? clean : x)) : [...validations, clean]);
     setEditing(null);
   };
   return (
-    <Modal title="Dropdowns and tick boxes" onClose={onClose} wide>
+    <Modal title="Data validation" onClose={onClose} wide>
       {editing ? <ValidationForm initial={editing} existing={existing} resolve={resolve} onSave={save} onCancel={() => (validations.length ? setEditing(null) : onClose())} /> : (
         <div className="stack">
           <ul className="rule-list">
@@ -53,7 +56,13 @@ function ValidationForm({ initial, existing, resolve, onSave, onCancel }) {
   const fromRange = v.from === 'range';
   const okSource = !fromRange || !!cleanSource(v.source);
   const choices = fromRange ? (okSource ? resolve(v.source) : []) : parseChoices(v.choices);
-  const ok = okRange && (v.type === 'checkbox' || (okSource && (fromRange || choices.length > 0)));
+  const check = v.check || { kind: 'number', op: 'between' };
+  const setCheck = (k) => (e) => setV({ ...v, check: { ...check, [k]: e.target.value } });
+  const needsA = v.type === 'rule' && (WITH_OP.has(check.kind) || check.kind === 'formula');
+  const needsB = v.type === 'rule' && WITH_OP.has(check.kind) && /between/i.test(check.op || 'between');
+  const okRule = v.type !== 'rule' || ((!needsA || String(check.a ?? '').trim() !== '') && (!needsB || String(check.b ?? '').trim() !== ''));
+  const ok = okRange && okRule && (v.type !== 'list' || (okSource && (fromRange || choices.length > 0)));
+  const limitType = check.kind === 'date' ? 'date' : check.kind === 'formula' ? 'text' : 'number';
   const colourOf = (x) => Object.entries(v.colors || {}).find(([k]) => k.toLowerCase() === x.toLowerCase())?.[1] || '';
   const setColour = (x, hex) => {
     const rest = Object.fromEntries(Object.entries(v.colors || {}).filter(([k]) => k.toLowerCase() !== x.toLowerCase()));
@@ -63,8 +72,8 @@ function ValidationForm({ initial, existing, resolve, onSave, onCancel }) {
     <form className="stack" onSubmit={(e) => { e.preventDefault(); if (ok) onSave(v); }}>
       <label className="field"><span>Cells</span><input value={v.range} onChange={set('range')} aria-invalid={!okRange} placeholder="B2:B20" /></label>
       <div className="seg" role="radiogroup" aria-label="Kind">
-        {[['list', 'Dropdown'], ['checkbox', 'Tick box']].map(([k, l]) => (
-          <button key={k} type="button" role="radio" aria-checked={v.type === k} className={v.type === k ? 'on' : ''} onClick={() => setV({ ...v, type: k })}>{l}</button>
+        {[['list', 'Dropdown'], ['checkbox', 'Tick box'], ['rule', 'Rule']].map(([k, l]) => (
+          <button key={k} type="button" role="radio" aria-checked={v.type === k} className={v.type === k ? 'on' : ''} onClick={() => setV({ ...v, type: k, ...(k === 'rule' && !v.check && { check: { kind: 'number', op: 'between', a: '', b: '' }, strict: true }) })}>{l}</button>
         ))}
       </div>
       {v.type === 'list' ? <>
@@ -101,6 +110,27 @@ function ValidationForm({ initial, existing, resolve, onSave, onCancel }) {
           </details>
         )}
         <label className="check"><input type="checkbox" checked={!!v.strict} onChange={set('strict')} /> Only allow these choices</label>
+      </> : v.type === 'rule' ? <>
+        <div className="row wrap" style={{ gap: 10, alignItems: 'flex-end' }}>
+          <label className="field"><span>Allow</span>
+            <select value={check.kind} onChange={(e) => setV({ ...v, check: { ...check, kind: e.target.value, a: '', b: '' } })}>{RULE_KINDS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></label>
+          {WITH_OP.has(check.kind) && <label className="field"><span>That is</span>
+            <select value={check.op || 'between'} onChange={setCheck('op')}>{RULE_OPS.map(([k, l]) => <option key={k} value={k}>{check.kind === 'date' ? ({ gt: 'after', lt: 'before', gte: 'on or after', lte: 'on or before', eq: 'on', ne: 'not on' }[k] || l) : l}</option>)}</select></label>}
+          {needsA && <label className={`field ${check.kind === 'formula' ? 'grow' : ''}`}><span>{check.kind === 'formula' ? 'Formula' : needsB ? 'From' : 'Value'}</span>
+            <input type={limitType} className={check.kind === 'formula' ? 'mono' : ''} value={check.a ?? ''} onChange={setCheck('a')} placeholder={check.kind === 'formula' ? '=B2<=C2' : ''} /></label>}
+          {needsB && <label className="field"><span>To</span><input type={limitType} value={check.b ?? ''} onChange={setCheck('b')} /></label>}
+        </div>
+        {check.kind === 'length' && <p className="muted small" style={{ margin: 0 }}>How many characters the text has.</p>}
+        {check.kind === 'formula' && <p className="muted small" style={{ margin: 0 }}>Written for the first cell ({String(v.range || '').split(':')[0]}) and moved along to the others, like a copied formula. Cells where it isn't TRUE are marked in red.</p>}
+        <label className="field"><span>Message when a value doesn't fit (optional)</span>
+          <input value={v.message || ''} maxLength={200} onChange={set('message')} placeholder="e.g. A quantity from 1 to 99" /></label>
+        {check.kind !== 'formula' ? (
+          <fieldset className="stack-tight">
+            <legend className="muted small">When something else is typed</legend>
+            <label className="check"><input type="radio" name="strict" checked={!!v.strict} onChange={() => setV({ ...v, strict: true })} /> Refuse it</label>
+            <label className="check"><input type="radio" name="strict" checked={!v.strict} onChange={() => setV({ ...v, strict: false })} /> Keep it, with a warning, and mark the cell</label>
+          </fieldset>
+        ) : null}
       </> : <p className="muted small" style={{ margin: 0 }}>Each cell shows a box: ticked is TRUE, empty is FALSE. Formulas can count them, e.g. =COUNTIF(C2:C20, TRUE).</p>}
       <div className="row end">
         <button type="button" className="btn" onClick={onCancel}>Cancel</button>

@@ -3,7 +3,7 @@
 // or { id, range, type: "checkbox" }. Later entries win where ranges overlap. A dropdown can take its
 // choices from cells instead (`source: "Lists!A2:A20"` or "D2:D10" on the same sheet), so they stay in
 // step with that list, and give choices a colour (`colors: { Done: "#ceead6" }`) to show them as chips.
-import { covers } from './condformat.js';
+import { covers, formulaFor } from './condformat.js';
 import { colIndex, colName, display } from './formula.js';
 
 export const MAX_CHOICES = 200;
@@ -112,6 +112,11 @@ export function checkEntry(v, raw) {
     if (/^(false|no|0)$/i.test(text)) return { value: 'FALSE' };
     return { error: 'This cell is a tick box: TRUE or FALSE' };
   }
+  if (v.type === 'rule') {
+    if (v.check?.kind === 'formula' || passes(v.check, text)) return { value: raw };
+    const why = v.message || `Enter a value that fits: ${describeCheck(v.check).replace(/^./, (c) => c.toLowerCase())}`;
+    return v.strict ? { error: why } : { value: raw, warning: why };
+  }
   if (v.type === 'list') {
     const hit = (v.values || []).find((c) => c.toLowerCase() === text.toLowerCase());
     if (hit) return { value: hit };
@@ -120,12 +125,98 @@ export function checkEntry(v, raw) {
   return { value: raw };
 }
 
+// ---- rules: what a cell may hold, beyond a list of choices.
+// { type: 'rule', check: { kind, op, a, b }, strict, message }: kind is number, whole, date, length,
+// email, url or formula; op (for number, whole, date and length) is between, notBetween, gt, gte, lt,
+// lte, eq or ne. strict refuses other values as they're typed; otherwise they're kept and marked.
+export const RULE_KINDS = [
+  ['number', 'Number'], ['whole', 'Whole number'], ['date', 'Date'], ['length', 'Text length'],
+  ['email', 'Email address'], ['url', 'Web address'], ['formula', 'Custom formula is TRUE'],
+];
+export const RULE_OPS = [
+  ['between', 'between'], ['notBetween', 'not between'], ['gt', 'greater than'], ['gte', 'at least'],
+  ['lt', 'less than'], ['lte', 'at most'], ['eq', 'equal to'], ['ne', 'not equal to'],
+];
+export const WITH_OP = new Set(['number', 'whole', 'date', 'length']);
+const DATE_TEXT = /^(\d{4})-(\d{2})-(\d{2})(?:[ T]\d{2}:\d{2}(?::\d{2})?)?$/;
+const dayNumber = (t) => {
+  const m = DATE_TEXT.exec(String(t ?? '').trim());
+  if (!m) return null;
+  const ms = Date.UTC(+m[1], +m[2] - 1, +m[3]);
+  return new Date(ms).getUTCDate() === +m[3] ? ms / 864e5 : null;
+};
+const asNumber = (v) => (typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' && !Number.isNaN(Number(v.trim())) ? Number(v.trim()) : null);
+const compare = (op, x, a, b) => {
+  switch (op) {
+    case 'between': return x >= Math.min(a, b) && x <= Math.max(a, b);
+    case 'notBetween': return x < Math.min(a, b) || x > Math.max(a, b);
+    case 'gt': return x > a;
+    case 'gte': return x >= a;
+    case 'lt': return x < a;
+    case 'lte': return x <= a;
+    case 'eq': return x === a;
+    case 'ne': return x !== a;
+    default: return true;
+  }
+};
+const EMAIL = /^[^\s@<>"(),;:]+@[^\s@<>"(),;:]+\.[a-z]{2,}$/i;
+const URL_RE = /^(https?:\/\/)?[a-z0-9-]+(\.[a-z0-9-]+)+(:\d+)?(\/\S*)?$/i;
+/**
+ * Does a value pass a rule (not the custom formula kind, which needs the sheet)? Blank always passes.
+ * Bad limits (a date that isn't one) let everything through rather than refuse it all.
+ */
+export function passes(check, value) {
+  if (value === null || value === undefined || value === '') return true;
+  if (typeof value === 'object') return false; // an error
+  const { kind, op } = check || {};
+  if (kind === 'email') return EMAIL.test(String(value).trim());
+  if (kind === 'url') return URL_RE.test(String(value).trim());
+  if (kind === 'length') {
+    const a = asNumber(check.a), b = asNumber(check.b);
+    if (a === null || (/between/i.test(op) && b === null)) return true;
+    return compare(op, String(value).length, a, b);
+  }
+  if (kind === 'date') {
+    const x = dayNumber(value), a = dayNumber(check.a), b = dayNumber(check.b);
+    if (a === null || (/between/i.test(op) && b === null)) return x !== null;
+    return x !== null && compare(op, x, a, b);
+  }
+  if (kind === 'number' || kind === 'whole') {
+    const x = asNumber(value), a = asNumber(check.a), b = asNumber(check.b);
+    if (x === null || (kind === 'whole' && !Number.isInteger(x))) return false;
+    if (a === null || (/between/i.test(op) && b === null)) return true;
+    return compare(op, x, a, b);
+  }
+  return true;
+}
+/** Does a cell break its rule? `formulaAt(src, key)` works out a custom formula at the cell. */
+export function breaksRule(v, key, value, formulaAt) {
+  if (v?.type !== 'rule' || value === null || value === undefined || value === '') return false;
+  if (v.check?.kind === 'formula') {
+    if (!formulaAt) return false;
+    const f = formulaFor({ range: v.range, value: v.check.a }, key);
+    if (!f) return false;
+    const r = formulaAt(f, key);
+    return !(r === true || (typeof r === 'number' && r !== 0) || (typeof r === 'string' && r.toUpperCase() === 'TRUE'));
+  }
+  return !passes(v.check, value);
+}
+/** A rule in words: "Whole number between 1 and 10", "Date after 2026-01-01", "Email address". */
+export function describeCheck(check) {
+  const kind = RULE_KINDS.find(([k]) => k === check?.kind)?.[1] || 'Rule';
+  if (check?.kind === 'formula') return `Custom formula ${check.a || ''}`.trim();
+  if (!WITH_OP.has(check?.kind)) return kind;
+  const op = check.kind === 'date' ? { gt: 'after', lt: 'before', gte: 'on or after', lte: 'on or before', eq: 'on', ne: 'not on' }[check.op] || RULE_OPS.find(([k]) => k === check.op)?.[1] : RULE_OPS.find(([k]) => k === check.op)?.[1];
+  return `${kind} ${op || ''} ${check.a ?? ''}${/between/i.test(check.op) ? ` and ${check.b ?? ''}` : ''}`.replace(/\s+/g, ' ').trim();
+}
+
 /** Is a value ticked (for a tick-box cell)? */
 export const isTicked = (value) => value === true || (typeof value === 'string' && value.toUpperCase() === 'TRUE') || value === 1;
 
 /** "Dropdown: Open, Done" / "Tick box", for the list of validations. */
 export function describeValidation(v) {
   if (v.type === 'checkbox') return 'Tick box';
+  if (v.type === 'rule') return `${describeCheck(v.check)}${v.strict ? '' : ' (other values marked)'}`;
   if (v.source) return `Dropdown from ${v.source}${v.strict ? '' : ' (other values allowed)'}`;
   const vals = v.values || [];
   return `Dropdown: ${vals.slice(0, 5).join(', ')}${vals.length > 5 ? ` and ${vals.length - 5} more` : ''}${v.strict ? '' : ' (other values allowed)'}`;
