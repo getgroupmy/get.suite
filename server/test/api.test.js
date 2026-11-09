@@ -7465,3 +7465,20 @@ test('forms: opening automatically at a set time', async () => {
   assert.equal((await anon('POST', `/api/public/forms/${f.token}`, { answers: { q: 'Ana' } })).status, 201);
   assert.equal((await own('PUT', `/api/forms/${f.id}`, { open_at: null })).body.open_at, null);
 });
+
+test('Office files: comments in a Word file become comment threads on the document', async () => {
+  const { Document, Packer, Paragraph, TextRun, CommentRangeStart, CommentRangeEnd, CommentReference } = await import('docx');
+  const docx = await Packer.toBuffer(new Document({
+    comments: { children: [{ id: 0, author: 'Jane Smith', date: new Date('2026-10-01T10:00:00Z'), children: [new Paragraph('Can we check this figure?')] }] },
+    sections: [{ children: [new Paragraph({ children: [new TextRun('Revenue grew by '), new CommentRangeStart(0), new TextRun('12 percent'), new CommentRangeEnd(0), new TextRun({ children: [new CommentReference(0)] })] })] }],
+  }));
+  const up = (await owner('POST', '/api/files/upload?name=Reviewed.docx', docx, { raw: true })).body;
+  const opened = (await owner('POST', `/api/files/${up.id}/open-as`)).body;
+  const threads = (await owner('GET', `/api/comments/${opened.id}`)).body;
+  assert.equal(threads.length, 1);
+  assert.equal(threads[0].body, 'Can we check this figure?\n\n— Jane Smith (in the Word file)');
+  assert.deepEqual(threads[0].anchor, { quote: '12 percent' });
+  assert.equal(threads[0].created_at, Date.parse('2026-10-01T10:00:00Z'));
+  const content = JSON.stringify((await owner('GET', `/api/files/${opened.id}/content`)).body.content);
+  assert.ok(content.includes(`"type":"comment","attrs":{"id":"${threads[0].id}"}`), 'its words are marked with the thread');
+});

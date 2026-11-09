@@ -71,9 +71,16 @@ function bookmarksFromWord(html) {
     .replace(/<a href="#([^"]+)">/g, (m, name) => (wanted(name) ? `<a href="#bm-${idOf(name)}">` : m));
 }
 // The same building blocks as the Docs editor.
+// The text a comment is about, as in web/src/apps/docs/DocEditor.jsx (the thread's id).
+const CommentMark = Mark.create({
+  name: 'comment', inclusive: false, excludes: '',
+  addAttributes: () => ({ id: { default: null, parseHTML: (el) => el.getAttribute('data-comment'), renderHTML: (a) => ({ 'data-comment': a.id }) } }),
+  parseHTML: () => [{ tag: 'span[data-comment]' }],
+  renderHTML: ({ HTMLAttributes }) => ['span', HTMLAttributes, 0],
+});
 const EXTENSIONS = [
   StarterKit.configure({ link: { openOnClick: false } }), TextAlign.configure({ types: ['heading', 'paragraph'] }),
-  DocImage, Table, TableRow, TableHeader, TableCell, TextStyle, Color, BackgroundColor, Footnote, Superscript, Subscript, BookmarkNode,
+  DocImage, Table, TableRow, TableHeader, TableCell, TextStyle, Color, BackgroundColor, Footnote, Superscript, Subscript, BookmarkNode, CommentMark,
 ];
 const attr = (t) => t.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 const plain = (html) => html.replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
@@ -99,6 +106,9 @@ const marker = (text) => `<w:r><w:t xml:space="preserve">${MK}${text}${MK_END}</
 /** document.xml with markers before aligned paragraphs' text and around coloured or highlighted runs. */
 export function markWordXml(xml) {
   return String(xml)
+    // Comments: where each one's text starts and ends (its id kept, to find its words afterwards).
+    .replace(/<w:commentRangeStart w:id="(\d+)"\/>/g, (m, id) => `${m}${marker(`k:${id}`)}`)
+    .replace(/<w:commentRangeEnd w:id="(\d+)"\/>/g, (m, id) => `${marker(`/k:${id}`)}${m}`)
     .replace(/(<w:pPr>[\s\S]*?<\/w:pPr>)/g, (m, ppr) => {
       const jc = /<w:jc w:val="([a-zA-Z]+)"\/>/.exec(ppr.replace(/<w:rPr>[\s\S]*?<\/w:rPr>/g, ''))?.[1];
       return WORD_ALIGN[jc] ? `${ppr}${marker(`a:${WORD_ALIGN[jc]}`)}` : ppr;
@@ -113,9 +123,11 @@ export function markWordXml(xml) {
     });
 }
 /** The HTML mammoth made, with the markers turned into alignment and colour styles (and any left over removed). */
-export function unmarkWordHtml(html) {
+export function unmarkWordHtml(html, commentId = null) {
   const re = (s) => new RegExp(s.replace(/MK/g, MK).replace(/END/g, MK_END), 'g');
   return String(html)
+    .replace(re('MKk:(\\d+)END'), (m, id) => { if (!commentId) return ''; const c = commentId(id); return c ? `<span data-comment="${c}">` : '<span>'; })
+    .replace(re('MK/k:(\\d+)END'), () => (commentId ? '</span>' : ''))
     .replace(re('<(p|h[1-6])>MKa:(center|right|justify)END'), (m, tag, a) => `<${tag} style="text-align:${a}">`)
     .replace(re('MKs:([^END]*)END'), (m, spec) => {
       const css = spec.split(';').map((x) => (x.startsWith('c:') ? `color:#${x.slice(2)}` : x.startsWith('h:') ? `background-color:#${x.slice(2)}` : '')).filter(Boolean).join(';');
@@ -123,6 +135,23 @@ export function unmarkWordHtml(html) {
     })
     .replace(re('MK/END'), '</span>')
     .replace(re('MK[^END]*END'), '');
+}
+/** A Word file's comments: Map(Word's id → { author, text, at (ms, or null) }). */
+export async function commentsOfWord(buffer) {
+  const out = new Map();
+  try {
+    const xml = await (await JSZip.loadAsync(buffer)).file('word/comments.xml')?.async('string');
+    const unx = (t) => t.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&');
+    for (const m of String(xml || '').matchAll(/<w:comment\b([^>]*)>([\s\S]*?)<\/w:comment>/g)) {
+      const id = /w:id="(\d+)"/.exec(m[1])?.[1];
+      const author = unx(/w:author="([^"]*)"/.exec(m[1])?.[1] || '').trim();
+      const date = Date.parse(/w:date="([^"]*)"/.exec(m[1])?.[1] || '');
+      const text = [...m[2].matchAll(/<w:p\b[\s\S]*?<\/w:p>/g)].map((p) => unx([...p[0].matchAll(/<w:t(?:\s[^>]*)?>([^<]*)<\/w:t>/g)].map((t) => t[1]).join(''))).join('\n').trim();
+      if (id && text) out.set(id, { author: author.slice(0, 100), text: text.slice(0, 5000), at: Number.isFinite(date) ? date : null });
+      if (out.size >= 500) break;
+    }
+  } catch { /* none */ }
+  return out;
 }
 async function withMarks(buffer) {
   try {
@@ -153,10 +182,19 @@ export async function docFromWord(buffer, { savePicture } = {}) {
     styleMap: ['p[style-name=\'Title\'] => h1:fresh', 'p[style-name=\'Subtitle\'] => h2:fresh', 'u => u'],
   });
   // A picture that couldn't be kept leaves a note instead of disappearing silently.
-  const html = unmarkWordHtml(marked);
+  // Word's comments: each becomes a thread (a new id), on the words it was about.
+  const wordComments = await commentsOfWord(buffer);
+  const ids = new Map();
+  const commentId = (wid) => { if (!ids.has(wid)) ids.set(wid, crypto.randomBytes(9).toString('base64url')); return ids.get(wid); };
+  const html = unmarkWordHtml(marked, (wid) => (wordComments.has(wid) ? commentId(wid) : null));
   const withNotes = bookmarksFromWord(footnotesFromWord(html)).replace(/<img [^>]*alt="\[picture\]"[^>]*>/g, '<em>[picture]</em>');
   const doc = checklists(generateJSON(withNotes || '<p></p>', EXTENSIONS));
-  return { doc, warnings: messages.filter((m) => m.type === 'warning').map((m) => m.message) };
+  // The words each comment covers, now in the document (a comment whose words are gone is still kept, unanchored).
+  const quotes = new Map();
+  const walk = (n) => { if (n.type === 'text') for (const mk of n.marks || []) if (mk.type === 'comment') quotes.set(mk.attrs.id, (quotes.get(mk.attrs.id) || '') + n.text); (n.content || []).forEach(walk); };
+  walk(doc);
+  const comments = [...wordComments].map(([wid, c]) => ({ id: commentId(wid), ...c, quote: (quotes.get(commentId(wid)) || '').slice(0, 500) }));
+  return { doc, comments, warnings: messages.filter((m) => m.type === 'warning').map((m) => m.message) };
 }
 
 /** Paragraphs starting with a box (☐, or ☑ ☒ when ticked), one after another, become a checklist. */

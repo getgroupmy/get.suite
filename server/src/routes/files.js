@@ -1101,7 +1101,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     const parentId = f.parent_id && atLeast(roleFor(f.parent_id, req.user.id), 'editor') ? f.parent_id : null;
     const buf = fs.readFileSync(path.join(FILES_DIR, f.storage));
     const name = f.name.replace(/\.[a-z]+$/i, '');
-    let content, watermark = '', layout = { columns: 1, lineNumbers: false };
+    let content, watermark = '', layout = { columns: 1, lineNumbers: false }, wordComments = [];
     let folder = null;
     // The document's or presentation's pictures go in a folder of their own beside it.
     const savePicture = async (pname, data, mime) => {
@@ -1112,13 +1112,19 @@ export default function fileRoutes({ maxUploadBytes }) {
       return insertFile({ owner: req.user.id, parentId: folder, name: pname, kind: 'file', mime, size: data.length, storage });
     };
     try {
-      if (type === 'docx') { content = (await docFromWord(buf, { savePicture })).doc; watermark = await watermarkOfWord(buf); layout = { ...(await layoutOfWord(buf)), ...(await pageOfWord(buf)) }; }
+      if (type === 'docx') { const w = await docFromWord(buf, { savePicture }); content = w.doc; wordComments = w.comments || []; watermark = await watermarkOfWord(buf); layout = { ...(await layoutOfWord(buf)), ...(await pageOfWord(buf)) }; }
       else if (type === 'md' || type === 'markdown') content = docFromMarkdown(buf.toString('utf8'));
       else if (type === 'xlsx') content = await sheetFromExcel(buf);
       else content = await deckFromPowerPoint(buf, { savePicture });
     } catch (e) { throw bad(`This file couldn't be read as ${type === 'docx' ? 'a Word document' : type === 'xlsx' ? 'an Excel workbook' : 'a PowerPoint presentation'}`); }
     const json = JSON.stringify(content);
     const id = insertFile({ owner: req.user.id, parentId, name, kind: OFFICE[type].kind, content: json, size: Buffer.byteLength(json) });
+    // A Word file's comments: threads on the same words, by whoever opened it, naming who wrote them in Word.
+    for (const c of wordComments) {
+      const body = c.author ? `${c.text}\n\n— ${c.author} (in the Word file)` : c.text;
+      q('INSERT INTO file_comments (id, file_id, thread_id, author_id, body, anchor, created_at) VALUES (?, ?, NULL, ?, ?, ?, ?)')
+        .run(c.id, id, req.user.id, body, JSON.stringify({ quote: c.quote || '' }), c.at || now());
+    }
     // A Word file's page setup stays: paper, orientation, margins, header, footer, page numbers, watermark, columns, line numbers.
     if (type === 'docx') {
       const setup = readSetup({ watermark, ...layout });

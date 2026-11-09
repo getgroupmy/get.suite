@@ -1288,3 +1288,28 @@ test('Excel: links in cells come in as HYPERLINK formulas', async () => {
   await out.xlsx.load(await excelFromSheet(back));
   assert.equal(out.worksheets[0].getCell('A1').value.formula, 'HYPERLINK("https://acme.com/", "Our site")');
 });
+
+test('Word: comments come in on the words they were about', async () => {
+  const { CommentRangeStart, CommentRangeEnd, CommentReference } = await import('docx');
+  const file = new Document({
+    comments: { children: [
+      { id: 0, author: 'Jane Smith', date: new Date('2026-10-01T10:00:00Z'), children: [new Paragraph('Can we check this figure?')] },
+      { id: 1, author: 'Raj Patel', date: new Date('2026-10-02T09:30:00Z'), children: [new Paragraph('Agreed.'), new Paragraph('Second line.')] },
+    ] },
+    sections: [{ children: [
+      new Paragraph({ children: [new TextRun('Revenue grew by '), new CommentRangeStart(0), new TextRun({ text: '12 percent', bold: true }), new CommentRangeEnd(0), new TextRun({ children: [new CommentReference(0)] }), new TextRun(' this year.')] }),
+      new Paragraph({ children: [new CommentRangeStart(1), new TextRun('Costs were flat.'), new CommentRangeEnd(1), new TextRun({ children: [new CommentReference(1)] })] }),
+    ] }],
+  });
+  const { doc, comments } = await docFromWord(await Packer.toBuffer(file));
+  assert.equal(text(doc.content[0]), 'Revenue grew by 12 percent this year.');
+  assert.equal(comments.length, 2);
+  assert.deepEqual(comments.map((c) => [c.author, c.text, c.quote]), [['Jane Smith', 'Can we check this figure?', '12 percent'], ['Raj Patel', 'Agreed.\nSecond line.', 'Costs were flat.']]);
+  assert.equal(comments[0].at, Date.parse('2026-10-01T10:00:00Z'));
+  const marked = doc.content[0].content.find((n) => n.text === '12 percent');
+  assert.deepEqual(marked.marks.map((m) => m.type).sort(), ['bold', 'comment']);
+  assert.equal(marked.marks.find((m) => m.type === 'comment').attrs.id, comments[0].id);
+  // No comments: none, and nothing marked.
+  const plain = await docFromWord(await Packer.toBuffer(new Document({ sections: [{ children: [new Paragraph('x')] }] })));
+  assert.deepEqual(plain.comments, []);
+});
