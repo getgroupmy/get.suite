@@ -21,7 +21,7 @@ import { roleFor, atLeast, audienceFor, subtreeIds, mayTakeAway } from '../acces
 import { sendTo } from '../hub.js';
 import { canReach, checkQuota, orgStorageUsed, userStorageUsed } from '../tenancy.js';
 import { resetRoom, CO_EDITED, saveNow } from '../collab.js';
-import { docFromWord, wordFromDoc, watermarkOfWord } from '../office/word.js';
+import { docFromWord, wordFromDoc, watermarkOfWord, columnsOfWord } from '../office/word.js';
 import { sheetFromExcel, excelFromSheet } from '../office/excel.js';
 import { deckFromPowerPoint, powerPointFromDeck } from '../office/powerpoint.js';
 import { officePreview, officeKind, MAX_PREVIEW } from '../office/preview.js';
@@ -1055,7 +1055,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     const parentId = f.parent_id && atLeast(roleFor(f.parent_id, req.user.id), 'editor') ? f.parent_id : null;
     const buf = fs.readFileSync(path.join(FILES_DIR, f.storage));
     const name = f.name.replace(/\.[a-z]+$/i, '');
-    let content, watermark = '';
+    let content, watermark = '', columns = 1;
     let folder = null;
     // The document's or presentation's pictures go in a folder of their own beside it.
     const savePicture = async (pname, data, mime) => {
@@ -1066,14 +1066,14 @@ export default function fileRoutes({ maxUploadBytes }) {
       return insertFile({ owner: req.user.id, parentId: folder, name: pname, kind: 'file', mime, size: data.length, storage });
     };
     try {
-      if (type === 'docx') { content = (await docFromWord(buf, { savePicture })).doc; watermark = await watermarkOfWord(buf); }
+      if (type === 'docx') { content = (await docFromWord(buf, { savePicture })).doc; watermark = await watermarkOfWord(buf); columns = await columnsOfWord(buf); }
       else if (type === 'md' || type === 'markdown') content = docFromMarkdown(buf.toString('utf8'));
       else if (type === 'xlsx') content = await sheetFromExcel(buf);
       else content = await deckFromPowerPoint(buf, { savePicture });
     } catch (e) { throw bad(`This file couldn't be read as ${type === 'docx' ? 'a Word document' : type === 'xlsx' ? 'an Excel workbook' : 'a PowerPoint presentation'}`); }
     const json = JSON.stringify(content);
     const id = insertFile({ owner: req.user.id, parentId, name, kind: OFFICE[type].kind, content: json, size: Buffer.byteLength(json) });
-    if (watermark) q('UPDATE files SET page_setup = ? WHERE id = ?').run(JSON.stringify(readSetup({ watermark })), id); // a Word file's watermark stays
+    if (watermark || columns > 1) q('UPDATE files SET page_setup = ? WHERE id = ?').run(JSON.stringify(readSetup({ watermark, columns })), id); // a Word file's watermark and columns stay
     if (parentId) notify(parentId, { type: 'files-changed', parent_id: parentId });
     res.status(201).json(publicFile(loadFile(id, req.user)));
   });

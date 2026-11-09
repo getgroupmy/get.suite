@@ -2379,3 +2379,9 @@ del.compare-key { background: color-mix(in srgb, #d93025 14%, transparent); text
 .link-place { display: block; width: 100%; text-align: left; background: none; border: 0; padding: 6px 8px; color: inherit; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .link-place:hover, .link-place:focus-visible, .link-place.on { background: var(--hover, rgba(0,0,0,.06)); }
 .goal-found { margin: 8px 0 0; padding: 8px 10px; border-radius: 8px; background: color-mix(in srgb, #188038 12%, transparent); }
+/* Text in columns (Docs, Page setup → Columns), on screen and printed; half an inch between, as in Word */
+.paper.cols-2 .ProseMirror { column-count: 2; column-gap: 48px; }
+.paper.cols-3 .ProseMirror { column-count: 3; column-gap: 48px; }
+.paper.cols-2 .ProseMirror > *, .paper.cols-3 .ProseMirror > * { break-inside: avoid-column; }
+.paper.cols-2 .ProseMirror > :is(h1, h2, h3, h4), .paper.cols-3 .ProseMirror > :is(h1, h2, h3, h4) { break-after: avoid-column; }
+@media screen and (max-width: 700px) { .paper.cols-2 .ProseMirror, .paper.cols-3 .ProseMirror { column-count: 1; } }

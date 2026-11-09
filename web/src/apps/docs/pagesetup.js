@@ -3,7 +3,9 @@
 
 export const PAPER = { a4: [210, 297, 'A4'], letter: [215.9, 279.4, 'Letter'], legal: [215.9, 355.6, 'Legal'], a5: [148, 210, 'A5'] }; // mm
 export const MARGINS = { normal: [25.4, 'Normal (2.54 cm)'], narrow: [12.7, 'Narrow (1.27 cm)'], wide: [38.1, 'Wide (3.81 cm)'] };
-export const DEFAULT_SETUP = { size: 'a4', orientation: 'portrait', margin: 'normal', header: '', footer: '', numbers: false, watermark: '', pageless: false };
+export const DEFAULT_SETUP = { size: 'a4', orientation: 'portrait', margin: 'normal', header: '', footer: '', numbers: false, watermark: '', pageless: false, columns: 1 };
+/** Text in columns: how many (1 to 3) a setup asks for. */
+export const columnsOf = (setup) => (Number.isInteger(setup?.columns) && setup.columns >= 2 && setup.columns <= 3 ? setup.columns : 1);
 export const WATERMARKS = ['DRAFT', 'CONFIDENTIAL', 'DO NOT COPY', 'SAMPLE', 'INTERNAL'];
 
 const PX_PER_MM = 96 / 25.4;

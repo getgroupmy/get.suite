@@ -16,7 +16,7 @@ import { get, post, patch, put, uploadFile, onLive } from '../../api.js';
 import DrivePicker, { openUrl } from '../../components/DrivePicker.jsx';
 import { useAuth } from '../../App.jsx';
 import { useToast, Avatar, Menu, Modal } from '../../components/ui.jsx';
-import { PAPER, MARGINS, DEFAULT_SETUP, WATERMARKS, paperStyle, printCss } from './pagesetup.js';
+import { PAPER, MARGINS, DEFAULT_SETUP, WATERMARKS, paperStyle, printCss, columnsOf } from './pagesetup.js';
 import { ShareDialog } from '../drive/Drive.jsx';
 import { EditorHeader } from '../editorCommon.jsx';
 import { CommentsPanel, useComments } from '../comments.jsx';
@@ -592,7 +592,7 @@ function SharedDoc({ file, setFile }) {
         {outline && <Outline editor={editor} fileId={file.id} onCopied={(m) => toast(m)} onClose={() => setOutline(false)} />}
         {liveCount && <WordCounter editor={editor} onOpen={() => setWordCount(true)} />}
         <div className="doc-scroll" onClick={(e) => e.target === e.currentTarget && editor.commands.focus('end')}>
-          <div className={`paper ${file.page_setup?.pageless ? 'pageless' : ''}`} style={file.page_setup ? paperStyle(file.page_setup) : undefined}>
+          <div className={`paper ${file.page_setup?.pageless ? 'pageless' : ''} ${columnsOf(file.page_setup) > 1 ? `cols-${columnsOf(file.page_setup)}` : ''}`} style={file.page_setup ? paperStyle(file.page_setup) : undefined}>
             {file.page_setup?.watermark && <div className="print-watermark" aria-hidden="true" />}
             {file.page_setup?.watermark && <span className="sr-only">Watermark: {file.page_setup.watermark}</span>}
             {file.page_setup?.header && <div className="paper-header" aria-hidden="true">{file.page_setup.header}</div>}
@@ -1069,6 +1069,12 @@ function PageSetupDialog({ setup, onClose, onSave }) {
         </div>
         <div className="seg" role="radiogroup" aria-label="Orientation">
           {[['portrait', 'Portrait'], ['landscape', 'Landscape']].map(([k, l]) => <button key={k} type="button" role="radio" aria-checked={s.orientation === k} className={s.orientation === k ? 'on' : ''} onClick={() => setS({ ...s, orientation: k })}>{l}</button>)}
+        </div>
+        <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+          <span className="small">Columns</span>
+          <div className="seg" role="radiogroup" aria-label="Columns">
+            {[[1, 'One'], [2, 'Two'], [3, 'Three']].map(([k, l]) => <button key={k} type="button" role="radio" aria-checked={columnsOf(s) === k} className={columnsOf(s) === k ? 'on' : ''} onClick={() => setS({ ...s, columns: k })}>{l}</button>)}
+          </div>
         </div>
         <label className="field"><span>Header (top of every page)</span><input value={s.header} maxLength={200} onChange={set('header')} placeholder="e.g. Acme Trading · Quarterly report" /></label>
         <label className="field"><span>Footer (bottom of every page)</span><input value={s.footer} maxLength={200} onChange={set('footer')} placeholder="e.g. Confidential" /></label>

@@ -935,3 +935,22 @@ test('Word: links to a heading in the document become links inside the Word file
   assert.equal((xml.match(/w:anchor=/g) || []).length, 2, 'a link to no heading stays as it was');
   assert.match(xml, /<w:bookmarkStart [^>]*w:name="toc_3"/);
 });
+
+test('columns: text in two or three columns goes to Word and comes back from Word files', async () => {
+  const JSZip = (await import('jszip')).default;
+  const { columnsOfWord } = await import('../src/office/word.js');
+  const { readSetup } = await import('../src/pagesetup.js');
+  const doc = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Newsletter.' }] }] };
+  const buf = await wordFromDoc(doc, 'News', { page: readSetup({ columns: 2 }) });
+  const xml = await (await JSZip.loadAsync(buf)).file('word/document.xml').async('string');
+  assert.match(xml, /<w:cols [^>]*w:num="2"/);
+  assert.match(xml, /<w:cols [^>]*w:space="720"/);
+  assert.equal(await columnsOfWord(buf), 2);
+  assert.equal(await columnsOfWord(await wordFromDoc(doc, 'News', { page: readSetup({ columns: 3 }) })), 3);
+  assert.equal(await columnsOfWord(await wordFromDoc(doc, 'News', { page: readSetup({}) })), 1);
+  assert.equal(await columnsOfWord(Buffer.from('not a zip')), 1);
+  // Kept only when more than one; anything else refused.
+  assert.equal(readSetup({ columns: 1 }).columns, undefined);
+  assert.equal(readSetup({ columns: 3 }).columns, 3);
+  for (const bad of [0, 4, 2.5, '2']) assert.throws(() => readSetup({ columns: bad }), /Columns: 1 to 3/);
+});

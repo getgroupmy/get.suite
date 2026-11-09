@@ -36,3 +36,10 @@ test('pageless: one long sheet across the window, no page height or watermark on
   assert.equal(st.minHeight, 0);
   assert.equal(st.backgroundImage, undefined);
 });
+
+test('columns: 2 or 3 as asked, otherwise 1', async () => {
+  const { columnsOf } = await import('./pagesetup.js');
+  assert.equal(columnsOf({ columns: 2 }), 2);
+  assert.equal(columnsOf({ columns: 3 }), 3);
+  for (const s of [null, {}, { columns: 1 }, { columns: 4 }, { columns: '2' }, { columns: 2.5 }]) assert.equal(columnsOf(s), 1);
+});

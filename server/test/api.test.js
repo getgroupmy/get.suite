@@ -7051,3 +7051,18 @@ test('Drive search finds a presentation by its speaker notes, chart titles and p
   const find = async (words) => (await owner('GET', `/api/files?view=search&q=${encodeURIComponent(words)}`)).body.map((f) => f.id);
   for (const words of ['quokka team', 'marmalade', 'lighthouse dusk', 'launch plan']) assert.ok((await find(words)).includes(deck.id), words);
 });
+
+test('opening a Word file in two columns keeps its columns in the page setup', async () => {
+  const { Document, Packer, Paragraph } = await import('docx');
+  const buf = await Packer.toBuffer(new Document({ sections: [{ properties: { column: { count: 2, space: 708 } }, children: [new Paragraph('Two columns of news.')] }] }));
+  const up = (await owner('POST', `/api/files/upload?name=${encodeURIComponent('Newsletter.docx')}`, buf, { raw: true })).body;
+  const doc = (await owner('POST', `/api/files/${up.id}/open-as`)).body;
+  assert.equal(doc.page_setup.columns, 2);
+  const res = await owner('PATCH', `/api/files/${doc.id}`, { page_setup: { ...doc.page_setup, columns: 3 } });
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.equal(res.body.page_setup.columns, 3);
+  assert.equal((await owner('PATCH', `/api/files/${doc.id}`, { page_setup: { ...doc.page_setup, columns: 9 } })).status, 400);
+  const plain = await Packer.toBuffer(new Document({ sections: [{ children: [new Paragraph('One column.')] }] }));
+  const one = (await owner('POST', `/api/files/${(await owner('POST', '/api/files/upload?name=Plain.docx', plain, { raw: true })).body.id}/open-as`)).body;
+  assert.equal(one.page_setup?.columns, undefined, 'one column: nothing to keep');
+});
