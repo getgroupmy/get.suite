@@ -3806,6 +3806,35 @@ test('contacts: more than one email address and phone number, suggested in Mail 
   assert.deepEqual([JSON.parse(lifted.more_emails), JSON.parse(lifted.more_phones), lifted.vcard_extra], [[{ type: 'work', value: 'omar@b.example' }], [{ type: 'home', value: '+1 555 0199' }], 'X-KEEP:yes']);
 });
 
+test('forms: pictures on questions, seen by everyone who can fill the form in', async () => {
+  const a = client(); const b = client();
+  for (const [local, name] of [['fpica', 'Fay Picture'], ['fpicb', 'Fred Picture']]) { const r = await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' }); assert.equal(r.status, 201, JSON.stringify(r.body)); }
+  await login(a, 'fpica@acme.com'); await login(b, 'fpicb@acme.com');
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  const pic = (await a('POST', '/api/files/upload?name=chart.png', png, { raw: true })).body;
+  const unused = (await a('POST', '/api/files/upload?name=other.png', png, { raw: true })).body;
+  const theirs = (await b('POST', '/api/files/upload?name=theirs.png', png, { raw: true })).body;
+  const made = (await a('POST', '/api/forms', { title: 'Feedback' })).body;
+  assert.equal((await a('GET', `/api/forms/${made.id}/pictures/${pic.id}`)).status, 200, 'whoever added it sees it before saving');
+  const f = (await a('PUT', `/api/forms/${made.id}`, { audience: 'public', questions: [
+    { id: 'q1', type: 'choice', title: 'Which chart is clearer?', options: ['A', 'B'], image: pic.id, image_alt: '  Two bar charts side by side  ' },
+    { id: 'q2', type: 'short', title: 'Why?', image: '../etc/passwd' },
+    { id: 'q3', type: 'short', title: 'Theirs', image: theirs.id },
+  ] })).body;
+  assert.equal(f.questions[0].image, pic.id);
+  assert.equal(f.questions[0].image_alt, 'Two bar charts side by side');
+  assert.equal(f.questions[1].image, undefined, 'not a picture id');
+  const anon = client();
+  const shown = (await anon('GET', `/api/public/forms/${f.token}`)).body;
+  assert.equal(shown.questions[0].image, pic.id);
+  const got = await anon('GET', `/api/public/forms/${f.token}/pictures/${pic.id}`);
+  assert.equal(got.status, 200);
+  assert.match(got.headers.get('content-type'), /^image\/png/);
+  assert.equal((await anon('GET', `/api/public/forms/${f.token}/pictures/${unused.id}`)).status, 404, 'only pictures the form uses');
+  assert.equal((await anon('GET', `/api/public/forms/${f.token}/pictures/${theirs.id}`)).status, 404, 'only pictures of the form’s owner or editors');
+  assert.equal((await b('GET', `/api/forms/${f.id}/pictures/${pic.id}`)).status, 404, 'not their form');
+});
+
 test('docs writing preferences: autocorrect and your own replacements, per person', async () => {
   const { cleanPrefs } = await import('../src/routes/docprefs.js');
   assert.deepEqual(cleanPrefs({ autocorrect: 0, subs: [{ from: ' addr ', to: '12 High St' }, { from: 'two words', to: 'x' }, { from: 'addr', to: 'again' }, { from: 'empty', to: '' }] }),

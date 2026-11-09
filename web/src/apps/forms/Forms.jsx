@@ -2,7 +2,7 @@
 // (Questions, Responses, Settings). People fill it in at /f/<token> (FormRespond.jsx).
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
-import { get, post, put, del, onLive, formatDate } from '../../api.js';
+import { get, post, put, del, onLive, formatDate, uploadFile } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
 import { ConfirmModal, Empty, Menu, Modal, useToast } from '../../components/ui.jsx';
 import { Question } from './FormRespond.jsx';
@@ -252,6 +252,7 @@ function QuestionsTab({ form, edit }) {
             </select>
           </div>
           <input className="form-q-help" aria-label={`Help text for question ${i + 1}`} placeholder="Help text (optional)" value={q.help || ''} maxLength={1000} onChange={(e) => change(i, { help: e.target.value })} />
+          <QuestionPicture q={q} n={i + 1} formId={form.id} onChange={(patch) => change(i, patch)} />
           {HAS_OPTIONS.has(q.type) && (
             <ul className="form-options">
               {q.options.map((o, k) => (
@@ -554,6 +555,34 @@ function SettingsTab({ form, setForm, setting, orgName, allowLinks }) {
           }}>Get a new link</button></div>
         <p className="muted small" style={{ margin: 0 }}>A new link stops the old one working, if it went somewhere it shouldn't.</p>
       </div>
+    </div>
+  );
+}
+
+/** A picture with a question (a chart, a product, a floor plan): added from your computer, kept in your Drive. */
+function QuestionPicture({ q, n, formId, onChange }) {
+  const toast = useToast();
+  const input = useRef();
+  const [busy, setBusy] = useState(false);
+  const pick = async (file) => {
+    if (!file) return;
+    if (!/^image\/(png|jpeg|gif|webp)$/.test(file.type)) { toast('Choose a picture (PNG, JPEG, GIF or WebP)', 'error'); return; }
+    setBusy(true);
+    try { const up = await uploadFile(file, null); onChange({ image: up.id, image_alt: q.image_alt || file.name.replace(/\.[a-z0-9]+$/i, '') }); }
+    catch (e) { toast(e.message, 'error'); }
+    setBusy(false);
+  };
+  return (
+    <div className="form-q-picture-edit">
+      <input ref={input} type="file" accept="image/png,image/jpeg,image/gif,image/webp" hidden aria-label={`Picture for question ${n}`} onChange={(e) => { pick(e.target.files?.[0]); e.target.value = ''; }} />
+      {q.image ? <>
+        <img className="form-q-picture" src={`/api/forms/${formId}/pictures/${q.image}`} alt={q.image_alt || ''} />
+        <div className="row small" style={{ gap: 8 }}>
+          <input className="grow" aria-label={`Picture description for question ${n}`} placeholder="Describe the picture (for screen readers)" value={q.image_alt || ''} maxLength={300} onChange={(e) => onChange({ image_alt: e.target.value })} />
+          <button type="button" className="link-btn small" onClick={() => input.current?.click()}>Change</button>
+          <button type="button" className="link-btn small" onClick={() => onChange({ image: undefined, image_alt: undefined })}>Remove picture</button>
+        </div>
+      </> : <button type="button" className="link-btn small" disabled={busy} onClick={() => input.current?.click()}>{busy ? 'Adding…' : '🖼 Add picture'}</button>}
     </div>
   );
 }

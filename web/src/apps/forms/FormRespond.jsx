@@ -141,7 +141,8 @@ export function Question({ q, token, value, onChange, missing }) {
   // "Shuffle option order": each person gets their own order, kept while they fill the form in.
   const order = useMemo(() => (q.shuffle && q.options ? shuffled(q.options) : q.options), [q.shuffle, q.options]);
   const title = <>{q.title || 'Untitled question'}{q.required && <span className="req" aria-hidden="true"> *</span>}</>;
-  const help = q.help && <span className="muted small form-help">{q.help}</span>;
+  const picture = q.image && <img className="form-q-picture" src={`/api/public/forms/${encodeURIComponent(token)}/pictures/${q.image}`} alt={q.image_alt || ''} loading="lazy" />;
+  const help = (q.help || picture) && <>{q.help && <span className="muted small form-help">{q.help}</span>}{picture}</>;
   const problem = (touched || missing || q.type === 'checkbox') && checkProblem(q.check, value);
   const err = problem ? <span className="error small" role="alert">{problem}</span> : missing && <span className="error small" role="alert">This question needs an answer</span>;
   const cls = `form-fill-q ${missing || problem ? 'missing' : ''}`;

@@ -2336,3 +2336,8 @@ textarea.mono { font-family: ui-monospace, Consolas, monospace; }
 /* Contacts: other email addresses and phone numbers */
 .more-field { display: grid; gap: 6px; margin-top: 6px; }
 .more-field select { width: 96px; }
+
+/* Forms: a picture with a question */
+.form-q-picture { display: block; max-width: 100%; max-height: 360px; border-radius: 6px; margin: 6px 0; }
+.form-q-picture-edit { display: grid; gap: 4px; justify-items: start; }
+.form-q-picture-edit .row { width: 100%; }

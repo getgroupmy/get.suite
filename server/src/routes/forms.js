@@ -131,6 +131,12 @@ export function cleanQuestions(list) {
       out.rows = tidy(raw?.rows, MAX_ROWS, 'Row 1');
       out.columns = tidy(raw?.columns, MAX_COLUMNS, 'Column 1');
     }
+    // A picture shown with the question (a Drive picture of someone who can edit the form), with its description.
+    if (typeof raw?.image === 'string' && /^[A-Za-z0-9_-]{4,64}$/.test(raw.image)) {
+      out.image = raw.image;
+      const alt = String(raw?.image_alt ?? '').trim().slice(0, 300);
+      if (alt) out.image_alt = alt;
+    }
     if (type === 'section') { delete out.required; return out; } // a new page: its title and help only
     // Response validation; a rule that isn't finished yet (no number typed) is kept out until it is.
     if (CHECKS[type]) { try { const c = cleanCheck(type, raw?.check); if (c) out.check = c; } catch {} }
@@ -372,6 +378,23 @@ function ownForm(id, user, { ownerOnly = false } = {}) {
   return { ...parse(f), role: mine ? 'owner' : 'editor', editors: editorsOf(f.id), owner: { id: f.owner_id, name: f.owner_name, email: f.owner_email } };
 }
 const changed = (f, by) => sendTo(teamOf(f).filter((x) => x !== by), { type: 'form-changed', form_id: f.id });
+const PICTURE_TYPES = /^image\/(png|jpeg|gif|webp)$/;
+/**
+ * A picture on one of the form's questions, for whoever can open the form (people filling it in too):
+ * only pictures it uses, owned by its owner or an editor. `ownerSeesNew`: the person who just added one
+ * sees it before the form is saved with it.
+ */
+function sendPicture(form, picId, res, ownerSeesNew = null) {
+  const pic = String(picId);
+  const used = form.questions.some((qu) => qu.image === pic);
+  const file = q("SELECT * FROM files WHERE id = ? AND kind = 'file' AND trashed = 0").get(pic);
+  const team = teamOf(form);
+  if (!file || !PICTURE_TYPES.test(file.mime || '') || !team.includes(file.owner_id) || !(used || (ownerSeesNew && file.owner_id === ownerSeesNew))) throw notFound('Picture not found');
+  res.setHeader('Content-Type', file.mime);
+  res.setHeader('Content-Security-Policy', "default-src 'none'");
+  res.setHeader('Cache-Control', 'private, max-age=600');
+  res.sendFile(path.join(FILES_DIR, file.storage));
+}
 
 const summaryRow = (f, me) => {
   const responses = countOf(f.id);
@@ -399,6 +422,8 @@ export default function formRoutes() {
       .run(id, req.user.org_id, req.user.id, crypto.randomBytes(12).toString('base64url'), title, JSON.stringify(questions), t, t);
     res.status(201).json(ownForm(id, req.user));
   });
+
+  r.get('/:id/pictures/:pic', (req, res) => sendPicture(ownForm(req.params.id, req.user), req.params.pic, res, req.user.id));
 
   r.get('/:id', (req, res) => {
     const f = ownForm(req.params.id, req.user);
@@ -628,6 +653,8 @@ export function publicFormRoutes() {
       one_per_person: form.audience === 'org' && form.one_per_person, answered, org_name: f.org_name, allow_edit: form.allow_edit, collect_email: form.audience === 'public' && form.collect_email, send_copy: form.send_copy && mailEnabled(), ...(mine && form.allow_edit && mine.edit_key && { my_edit_key: mine.edit_key }),
       you: form.audience === 'org' ? { name: user.name, email: user.email } : null, is_owner: !!user && teamOf(form).includes(user.id) });
   });
+
+  r.get('/:token/pictures/:pic', (req, res) => { const { form } = openForm(req); sendPicture(form, req.params.pic, res); });
 
   // A file for a file upload question (?name=): kept until the response is sent. Returns { id, name, size }.
   r.post('/:token/upload', async (req, res) => {
