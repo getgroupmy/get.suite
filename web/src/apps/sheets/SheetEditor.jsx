@@ -24,6 +24,7 @@ import { PivotDialog } from './SheetPivot.jsx';
 import { buildPivot, pivotCells, sourceTable } from './pivot.js';
 import { RulesDialog } from './SheetRules.jsx';
 import { ValidationDialog, ChoicePicker } from './SheetValidation.jsx';
+import { CellPicture, PictureCellDialog } from './SheetPicture.jsx';
 import { validationAt, checkEntry, isTicked, withChoices, choicesFrom, chipColour } from './validation.js';
 import { hiddenRows, columnValues, adjustFilter, filterArea, columnFiltered } from './filter.js';
 import { describeCondition } from './filtercond.js';
@@ -877,6 +878,7 @@ export default function SheetEditor() {
   const noteItems = notes[selKey]
     ? [{ label: 'Edit note', icon: 'edit', onClick: () => editNote(selKey) }, { label: 'Delete note', icon: 'trash', onClick: () => saveNote(selKey, '') }]
     : [{ label: 'Insert note', icon: 'edit', onClick: () => editNote(selKey) }];
+  noteItems.push({ label: 'Insert picture in cell…', icon: 'image', onClick: () => setDialog({ type: 'picture', key: selKey }) });
   const pasteItems = PASTE_MODES.map(([mode, label]) => ({ label: `Paste special: ${label.toLowerCase()}`, onClick: () => pasteAs(mode), disabled: !clip.current }));
   const ctxItems = ctx?.kind === 'row' ? rowItems : ctx?.kind === 'col' ? [...colItems, '-', ...sortItems] : [...rowItems, '-', ...colItems, '-', ...pasteItems, '-', ...noteItems, '-', ...sortItems];
   /** Open the menu at the mouse, or (keyboard: the menu key, Shift+F10) at the selected cell. */
@@ -1035,6 +1037,7 @@ export default function SheetEditor() {
                       onDoubleClick={() => startEdit()}>
                       {vd?.type === 'checkbox'
                         ? <input type="checkbox" className="cell-check" tabIndex={-1} checked={isTicked(v)} disabled={readOnly} aria-label={`Tick ${k}`} onChange={() => toggleTick(k)} onDoubleClick={(e) => e.stopPropagation()} />
+                        : evaluate.imageOf?.(k) ? <CellPicture image={evaluate.imageOf(k)} base={`/api/files/${file.id}`} label={`Picture in ${k}`} />
                         : evaluate.sparkOf?.(k) ? <Sparkline spark={evaluate.sparkOf(k)} />
                         : evaluate.linkOf?.(k) ? <a className="cell-link" href={evaluate.linkOf(k)} target="_blank" rel="noopener noreferrer" title={evaluate.linkOf(k)} onDoubleClick={(e) => e.preventDefault()}>{formatNumber(v, fmt) ?? display(v)}</a>
                         : vd?.type === 'list' && chipColour(vd, display(v)) ? <span className="cell-chip" style={{ background: chipColour(vd, display(v)) }}>{formatNumber(v, fmt) ?? display(v)}</span>
@@ -1167,6 +1170,11 @@ export default function SheetEditor() {
       {dialog?.type === 'sort' && (() => { const g = sortTarget(); return (
         <SortDialog initial={{ range: g, by: sel.c }} header={looksLikeHeader(g, evaluate)} value={evaluate} onSort={sortBy} onClose={() => { setDialog(null); gridRef.current?.focus(); }} />
       ); })()}
+      {dialog?.type === 'picture' && (
+        <PictureCellDialog cell={dialog.key} parentId={file.parent_id}
+          onPick={(formula) => { writeCells({ [dialog.key]: formula }); setDialog(null); gridRef.current?.focus(); }}
+          onClose={() => { setDialog(null); gridRef.current?.focus(); }} />
+      )}
       {dialog?.type === 'colstats' && (() => {
         // How far the sheet's data goes (cells and formula spills), so empty rows below don't count.
         const keys = [...Object.keys(cells).filter((k) => cells[k] !== '' && cells[k] != null), ...(evaluate.spilledKeys?.() || [])];

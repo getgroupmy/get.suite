@@ -6,6 +6,7 @@ import { SlideView } from './slides/SlidesEditor.jsx';
 import { THEMES } from './slides/slidemath.js';
 import { bookEvaluator, cellKey, colName, display, parseRef } from './sheets/formula.js';
 import { formatNumber, cellStyle } from './sheets/cellformat.js';
+import { CellPicture } from './sheets/SheetPicture.jsx';
 
 export default function PublishedPage({ token }) {
   const [data, setData] = useState(null);
@@ -34,7 +35,7 @@ export default function PublishedPage({ token }) {
         {error ? <p className="error" role="alert">{error}</p> : !data ? <p className="muted">Loading…</p>
           : data.kind === 'doc' ? <DocPreview key={data.updated_at} content={data.content} pictureBase={base} />
           : data.kind === 'slides' ? <PublishedDeck deck={data.content} base={base} />
-          : <PublishedSheet book={data.content} />}
+          : <PublishedSheet book={data.content} base={base} />}
       </main>
     </div>
   );
@@ -50,7 +51,7 @@ export function PublishedDeck({ deck, base }) {
 }
 
 /** Each sheet's cells as a table (values worked out, formatted as in the spreadsheet). */
-export function PublishedSheet({ book }) {
+export function PublishedSheet({ book, base = null }) {
   const [at, setAt] = useState(0);
   const sheet = book.sheets[at] || { cells: {}, formats: {} };
   const view = useMemo(() => {
@@ -59,7 +60,8 @@ export function PublishedSheet({ book }) {
     for (const k of Object.keys(sheet.cells || {})) { const p = parseRef(k); if (p) { maxR = Math.max(maxR, p.r); maxC = Math.max(maxC, p.c); } }
     maxR = Math.min(maxR, 999); maxC = Math.min(maxC, 51);
     const value = (k) => { let v; try { v = evaluate(k); } catch (e) { v = { error: e.code || '#ERROR!' }; } return formatNumber(v, sheet.formats?.[k]) ?? display(v); };
-    return { rows: maxR + 1, cols: maxC + 1, value };
+    const image = (k) => { try { return evaluate.imageOf?.(k) || null; } catch { return null; } };
+    return { rows: maxR + 1, cols: maxC + 1, value, image };
   }, [sheet, book, at]);
   return (
     <div className="stack">
@@ -68,7 +70,7 @@ export function PublishedSheet({ book }) {
         <table className="pub-sheet">
           <thead><tr><th />{Array.from({ length: view.cols }, (_, c) => <th key={c} scope="col">{colName(c)}</th>)}</tr></thead>
           <tbody>{Array.from({ length: view.rows }, (_, r) => (
-            <tr key={r}><th scope="row">{r + 1}</th>{Array.from({ length: view.cols }, (_, c) => { const k = cellKey(c, r); return <td key={k} data-k={k} style={cellStyle(sheet.formats?.[k])}>{view.value(k)}</td>; })}</tr>
+            <tr key={r}><th scope="row">{r + 1}</th>{Array.from({ length: view.cols }, (_, c) => { const k = cellKey(c, r); return <td key={k} data-k={k} style={cellStyle(sheet.formats?.[k])}>{base && view.image(k) ? <CellPicture image={view.image(k)} base={base} label={`Picture in ${k}`} /> : view.value(k)}</td>; })}</tr>
           ))}</tbody>
         </table>
       </div>

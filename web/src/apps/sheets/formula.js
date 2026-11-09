@@ -820,12 +820,27 @@ export function namedFunctions(list) {
   }
   return out.size ? out : null;
 }
-const BUILTIN_SPECIAL = new Set(['IMPORTRANGE', 'HYPERLINK', 'SPARKLINE', 'ROW', 'COLUMN', 'ROWS', 'COLUMNS', 'LET', 'LAMBDA', 'TRUE', 'FALSE']);
+const BUILTIN_SPECIAL = new Set(['IMPORTRANGE', 'HYPERLINK', 'SPARKLINE', 'IMAGE', 'ROW', 'COLUMN', 'ROWS', 'COLUMNS', 'LET', 'LAMBDA', 'TRUE', 'FALSE']);
 
 /** Every function a formula can call. */
-export const FUNCTION_NAMES = [...Object.keys(FUNCS), ...Object.keys(LAZY), ...Object.keys(LAMBDA_USERS), 'LET', 'LAMBDA', 'IMPORTRANGE', 'HYPERLINK', 'SPARKLINE', 'ROW', 'COLUMN', 'ROWS', 'COLUMNS'];
+export const FUNCTION_NAMES = [...Object.keys(FUNCS), ...Object.keys(LAZY), ...Object.keys(LAMBDA_USERS), 'LET', 'LAMBDA', 'IMPORTRANGE', 'HYPERLINK', 'SPARKLINE', 'IMAGE', 'ROW', 'COLUMN', 'ROWS', 'COLUMNS'];
 
 /** A link a cell may open: web addresses and email (mailto:), nothing else. */
+/**
+ * The Drive picture an IMAGE formula shows: "drive:<file id>" (what Insert picture in cell writes).
+ * Only pictures kept in Workspace: a link to another site would have everyone's browser fetch it.
+ */
+export function pictureId(src) {
+  const m = /^drive:([A-Za-z0-9_-]{4,64})$/.exec(String(src ?? '').trim());
+  return m ? m[1] : null;
+}
+
+/** The IMAGE formula for a picture: mode 1 fits the cell, 2 stretches, 3 is the picture's own size, 4 is height × width. */
+export function imageFormula(id, mode = 1, h = 0, w = 0) {
+  const ref = `"drive:${id}"`;
+  return mode === 4 ? `=IMAGE(${ref}, 4, ${Math.round(h)}, ${Math.round(w)})` : mode === 1 ? `=IMAGE(${ref})` : `=IMAGE(${ref}, ${mode})`;
+}
+
 export function safeLink(v) {
   const t = String(v ?? '').trim();
   if (/^mailto:[^\s@]+@[^\s@]+$/i.test(t)) return t;
@@ -867,7 +882,7 @@ export function createEvaluator(cells, names = null, book = null) {
   const visiting = new Set();
   let here = null; // the cell being worked out (for ROW() and COLUMN())
   const asts = new Map();
-  const links = new Map(), sparks = new Map(); // HYPERLINK and SPARKLINE cells
+  const links = new Map(), sparks = new Map(), images = new Map(); // HYPERLINK, SPARKLINE and IMAGE cells
   // Spilling: a formula that gives back several cells (=SEQUENCE(5), =FILTER(…), =A1:A5*2) fills the
   // empty cells beside and below it. Those formulas are worked out first, so the cells they fill are
   // known; a cell they'd fill that has something in it shows #SPILL! in the formula's cell instead.
@@ -918,6 +933,15 @@ export function createEvaluator(cells, names = null, book = null) {
         if (!href) err('#VALUE!');
         links.set(key, href);
         v = label === undefined || label === null || label === '' ? href : label;
+      } else if (ast.k === 'call' && ast.name === 'IMAGE') { // a picture from Drive shown in the cell
+        const [src, mode, h, w] = ast.args.map((a) => scalar(evaluate(a)));
+        const id = pictureId(src);
+        const m = mode === undefined || mode === null || mode === '' ? 1 : Number(mode);
+        if (!id || ![1, 2, 3, 4].includes(m)) err('#VALUE!');
+        const size = m === 4 ? { h: Number(h), w: Number(w) } : null;
+        if (size && !(size.h > 0 && size.w > 0)) err('#VALUE!');
+        images.set(key, { id, mode: m, ...(size && { h: Math.min(size.h, 1000), w: Math.min(size.w, 1000) }) });
+        v = '';
       } else if (ast.k === 'call' && ast.name === 'SPARKLINE') { // a little chart drawn in the cell
         const [range, opts] = ast.args.map(evaluate);
         const values = (Array.isArray(range) ? range : [range]).map((x) => (typeof x === 'number' ? x : null));
@@ -1111,6 +1135,8 @@ export function createEvaluator(cells, names = null, book = null) {
   /** Where a HYPERLINK cell leads, and what a SPARKLINE cell draws ({ type, values }), once worked out. */
   get.linkOf = (key) => { get(key); return links.get(key) || null; };
   get.sparkOf = (key) => { get(key); return sparks.get(key) || null; };
+  /** The picture an IMAGE cell shows ({ id, mode, h, w }), once worked out. */
+  get.imageOf = (key) => { get(key); return images.get(key) || null; };
   get.spilledFrom = (key) => { if (pending === null) findSpills(); return spillFrom.get(key)?.anchor ?? null; };
   get.spilledKeys = () => { if (pending === null) findSpills(); return [...spillFrom.keys()]; };
   get.named = namedValue;

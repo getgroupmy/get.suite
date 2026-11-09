@@ -315,6 +315,12 @@ export function picturesIn(kind, content) {
     const walk = (n) => { if (n?.type === 'image' && n.attrs?.fileId) ids.add(n.attrs.fileId); for (const c of n?.content || []) walk(c); };
     walk(content);
   }
+  if (kind === 'sheet') { // =IMAGE("drive:<id>", …) in a cell
+    for (const sh of content.sheets || []) for (const v of Object.values(sh.cells || {})) {
+      if (typeof v !== 'string' || !/^=\s*IMAGE\s*\(/i.test(v)) continue;
+      for (const m of v.matchAll(/"drive:([A-Za-z0-9_-]{4,64})"/g)) ids.add(m[1]);
+    }
+  }
   return ids;
 }
 
@@ -970,11 +976,11 @@ export default function fileRoutes({ maxUploadBytes }) {
     res.json({ ok: true });
   });
 
-  // Pictures in a presentation: anyone who can open the deck sees them, even if the picture file
-  // itself isn't shared with them. Only pictures the deck uses, owned by someone who can edit it.
+  // Pictures in a presentation, document or spreadsheet: anyone who can open it sees them, even if the
+  // picture file itself isn't shared with them. Only pictures it uses, owned by someone who can edit it.
   r.get('/:id/pictures/:pic', (req, res) => {
     const deck = loadFile(req.params.id, req.user);
-    if (deck.kind !== 'slides' && deck.kind !== 'doc') throw notFound();
+    if (!['slides', 'doc', 'sheet'].includes(deck.kind)) throw notFound();
     const pic = String(req.params.pic);
     const { content } = q('SELECT content FROM files WHERE id = ?').get(deck.id);
     const used = picturesIn(deck.kind, JSON.parse(content || '{}')).has(pic)

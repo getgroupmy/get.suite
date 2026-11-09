@@ -311,10 +311,11 @@ A formula that gives back several values **spills** them into the empty cells be
 - **Times and weeks:** `TIME(14, 30, 0)`, `HOUR`, `MINUTE` and `SECOND` (of a number, or text like `"2:45 PM"`), `WEEKNUM` and `ISOWEEKNUM`.
 - **Cash flows:** `NPV(rate, flows)`, `IRR(flows)`, and a loan's `RATE` and `NPER`. Excel downloads keep the newer functions as Excel writes them.
 
-## Links and sparklines in cells (Sheets)
+## Links, sparklines and pictures in cells (Sheets)
 
 - **`=HYPERLINK("https://example.com/orders", "Orders")`** shows *Orders* in the cell as a link that opens the address in a new tab (the label is optional; an email address opens a new email). Only web addresses and email work; anything else shows `#VALUE!`. Excel downloads and uploads keep the formula.
 - **`=SPARKLINE(B2:M2)`** draws a small line chart of a range's numbers inside the cell (`=SPARKLINE(B2:M2, "column")` for columns, negative ones in red), handy beside a row of monthly figures. Cells without numbers are left as gaps.
+- **Pictures in cells:** right-click a cell → **Insert picture in cell…**, choose a size (*Fit the cell*, *Stretch to fill the cell*, *Its own size*, where the row grows to fit it, or a height and width in pixels), then **Upload from computer** (kept in your Drive, next to the spreadsheet) or **Choose from Drive**. The cell holds `=IMAGE("drive:…")` (with the size as `, 2`, `, 3` or `, 4, height, width`), so it can be copied, filled and sorted like any formula. Everyone who can open the spreadsheet sees the picture, also when it's published, even if the picture file itself isn't shared with them (as long as someone who can edit the spreadsheet owns it). Only pictures kept in Workspace can be shown: `=IMAGE()` of a web address gives `#VALUE!`, so nobody's browser is sent to another site. Excel downloads leave the cell empty.
 
 ## Other sheets in formulas (Sheets)
 

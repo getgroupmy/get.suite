@@ -493,3 +493,20 @@ test('named functions: defined once for the spreadsheet, used like any function,
   assert.equal(other('A2'), 10);
   assert.equal(bookEvaluator(sheets, 0)('C1')?.error, '#NAME?', 'without them: unknown');
 });
+
+test('IMAGE: a Drive picture in the cell, fitted, stretched, its own size or a set size', async () => {
+  const { pictureId, imageFormula } = await import('./formula.js');
+  const v = ev({ A1: 'drive:pic123', B1: '=IMAGE("drive:pic123")', B2: '=IMAGE(A1, 2)', B3: '=IMAGE("drive:pic123", 4, 80, 120)', B4: '=IMAGE("https://example.com/x.png")', B5: '=IMAGE("drive:pic123", 4, 0, 10)', B6: '=IMAGE("drive:pic123", 9)', B7: '=IMAGE("drive:pic123", 4, 5000, 20)' });
+  assert.equal(v('B1'), '');
+  assert.deepEqual(v.imageOf('B1'), { id: 'pic123', mode: 1 });
+  assert.deepEqual(v.imageOf('B2'), { id: 'pic123', mode: 2 });
+  assert.deepEqual(v.imageOf('B3'), { id: 'pic123', mode: 4, h: 80, w: 120 });
+  for (const k of ['B4', 'B5', 'B6']) { assert.deepEqual(v(k), { error: '#VALUE!' }, k); assert.equal(v.imageOf(k), null); }
+  assert.equal(v.imageOf('B7').h, 1000, 'at most 1000 pixels');
+  assert.equal(v.imageOf('A1'), null);
+  assert.equal(pictureId(' drive:abc_D-9 '), 'abc_D-9');
+  assert.equal(pictureId('drive:../x'), null);
+  assert.equal(imageFormula('abcd'), '=IMAGE("drive:abcd")');
+  assert.equal(imageFormula('abcd', 3), '=IMAGE("drive:abcd", 3)');
+  assert.equal(imageFormula('abcd', 4, 60.4, 90), '=IMAGE("drive:abcd", 4, 60, 90)');
+});

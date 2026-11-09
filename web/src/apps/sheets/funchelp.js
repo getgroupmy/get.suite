@@ -125,6 +125,7 @@ export const HELP = {
   INDEX: ['range, row, [column]', 'The cell at a row and column of a range'],
   HYPERLINK: ['address, [label]', 'A link: the cell shows the label and opens the web address (or email) when clicked'],
   SPARKLINE: ['range, ["line" or "column"]', 'A small chart of the numbers in a range, drawn in the cell'],
+  IMAGE: ['"drive:picture", [mode], [height], [width]', 'A picture from Drive in the cell: mode 1 fits the cell, 2 stretches it, 3 is its own size, 4 the height and width given (Insert picture in cell writes it)'],
   FILTER: ['range, include, [if_empty]', 'The rows (or columns) of a range where include is TRUE, e.g. FILTER(A2:C20, C2:C20>100); spills into the cells below'],
   UNIQUE: ['range', 'The range without repeated rows (any case counts as the same); spills'],
   SORT: ['range, [column], [order]', 'The range sorted by a column (1 = first), order 1 rising or -1 falling; spills'],

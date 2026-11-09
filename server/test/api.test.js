@@ -782,6 +782,28 @@ test('documents: pictures show for everyone who can open the document', async ()
   assert.equal((await viewer('GET', `/api/files/${pic.id}/raw`)).status, 404, 'the picture file itself is not shared');
 });
 
+test('spreadsheets: pictures in cells (IMAGE) show for everyone who can open the spreadsheet', async () => {
+  const { picturesIn } = await import('../src/routes/files.js');
+  assert.deepEqual([...picturesIn('sheet', { sheets: [{ cells: { A1: '=IMAGE("drive:abcd1234", 4, 60, 90)', A2: 'drive:zzzz9999', A3: '=CONCAT("drive:", "x")' } }, { cells: { B1: '=image( "drive:efgh5678" )' } }] })], ['abcd1234', 'efgh5678'], 'only IMAGE formulas');
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  const pic = (await owner('POST', '/api/files/upload?name=logo.png', png, { raw: true })).body;
+  const other = (await owner('POST', '/api/files/upload?name=other.png', png, { raw: true })).body;
+  const sheet = (await owner('POST', '/api/files/new', { kind: 'sheet', name: 'Products' })).body;
+  const viewer = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'sheetpics', domain: 'acme.com', name: 'Sheet Viewer', password: 'password123' })).status, 201);
+  const vid = (await login(viewer, 'sheetpics@acme.com')).id;
+  await owner('PUT', `/api/files/${sheet.id}/shares`, { shares: [{ user_id: vid, role: 'viewer' }] });
+  const at = `/api/files/${sheet.id}/pictures/${pic.id}`;
+  assert.equal((await viewer('GET', at)).status, 404, 'not before the spreadsheet uses it');
+  const cur = (await owner('GET', `/api/files/${sheet.id}/content`)).body;
+  const content = { sheets: [{ name: 'Sheet1', cells: { A1: 'Logo', B1: `=IMAGE("drive:${pic.id}")` } }] };
+  assert.equal((await owner('PUT', `/api/files/${sheet.id}/content`, { version: cur.file.version, content })).status, 200);
+  const got = await viewer('GET', at);
+  assert.equal(got.status, 200);
+  assert.match(got.headers.get('content-type'), /^image\/png/);
+  assert.equal((await viewer('GET', `/api/files/${sheet.id}/pictures/${other.id}`)).status, 404, 'only pictures the spreadsheet uses');
+});
+
 test('Office files: open Word, Excel and PowerPoint as Docs, Sheets and Slides, and download them back', async () => {
   const { Document, Packer, Paragraph, HeadingLevel } = await import('docx');
   const ExcelJS = (await import('exceljs')).default;
