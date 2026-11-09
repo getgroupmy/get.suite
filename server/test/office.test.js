@@ -161,6 +161,23 @@ test('PowerPoint: a real .pptx opens with its slides, boxes, text, shapes, pictu
   assert.equal(items2.find((i) => i.type === 'text').text, 'Revenue up 12%\nNew office opened');
 });
 
+test('PowerPoint: a video on a slide goes in as a playable video (too big: its name instead)', async () => {
+  const JSZip = (await import('jszip')).default;
+  const fakeMp4 = Buffer.concat([Buffer.from([0, 0, 0, 0x18]), Buffer.from('ftypmp42'), Buffer.alloc(2000, 7)]);
+  const deck = { theme: 'light', slides: [{ id: 'a', items: [
+    { id: 'v', type: 'video', fileId: 'vid1', name: 'demo.mp4', x: 10, y: 10, w: 60, h: 60 },
+    { id: 'w', type: 'video', fileId: 'gone', name: 'missing.mp4', x: 70, y: 70, w: 20, h: 20 },
+  ] }] };
+  const buf = await powerPointFromDeck(deck, { pictureData: async (id) => (id === 'vid1' ? { data: fakeMp4, mime: 'video/mp4' } : null) });
+  const zip = await JSZip.loadAsync(buf);
+  const media = Object.keys(zip.files).filter((n) => /^ppt\/media\/.+\.mp4$/.test(n));
+  assert.equal(media.length, 1, Object.keys(zip.files).join(' '));
+  assert.equal((await zip.file(media[0]).async('nodebuffer')).length, fakeMp4.length);
+  const xml = await zip.file('ppt/slides/slide1.xml').async('string');
+  assert.match(xml, /<a:videoFile /);
+  assert.match(xml, /▶ missing\.mp4/, 'a video that can\'t be had: its name');
+});
+
 test('PowerPoint: a presentation saved as .pptx opens again the same', async () => {
   const deck = { theme: 'ocean', slides: [
     { id: 'a', notes: 'Welcome everyone.\nMention the Q3 numbers.', items: [{ id: 't', type: 'text', text: 'Hello', x: 10, y: 20, w: 50, h: 15, size: 44, bold: true, align: 'center' }, { id: 's', type: 'shape', shape: 'round', fill: 'accent', x: 60, y: 60, w: 20, h: 20 }] },

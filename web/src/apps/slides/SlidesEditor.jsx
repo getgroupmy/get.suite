@@ -155,6 +155,19 @@ export default function SlidesEditor() {
     if (full.type === 'text') setEditing(full.id);
   }
 
+  // Videos: a Drive video (or one uploaded next to the presentation), 16:9, playing when presenting.
+  const videoInput = useRef(null);
+  const VIDEO_TYPES = /^video\/(mp4|webm|ogg|quicktime)$/;
+  const putVideo = (v) => insert({ type: 'video', fileId: v.id, name: v.name, ...pictureBox(16, 9) });
+  async function insertVideo(f) {
+    if (!f) return;
+    if (!VIDEO_TYPES.test(f.type)) return toast('Choose a video (MP4, WebM, Ogg or QuickTime)', 'error');
+    try {
+      let up;
+      try { up = await uploadFile(f, file.parent_id || null); } catch { up = await uploadFile(f, null); }
+      putVideo({ id: up.id, name: f.name });
+    } catch (e) { toast(e.message, 'error'); }
+  }
   async function insertPicture(f) {
     if (!f) return;
     if (!/^image\/(png|jpeg|gif|webp|avif|bmp)$/.test(f.type)) return toast('Choose a picture (PNG, JPEG, GIF or WebP)', 'error');
@@ -253,6 +266,11 @@ export default function SlidesEditor() {
           <span className="sep" />
           <button type="button" className="tb" onClick={() => insert({ type: 'text', role: 'body', x: 30, y: 40, w: 40, h: 14, text: '', size: 24 })}>Text box</button>
           <button type="button" className="tb" onClick={() => pictureInput.current.click()}>Picture</button>
+          <Menu align="left" trigger={(p) => <button type="button" className="tb" {...p}>Video</button>} items={[
+            { label: 'From Drive…', icon: 'folder', onClick: () => setDialog({ type: 'video-file' }) },
+            { label: 'Upload a video…', icon: 'upload', onClick: () => videoInput.current.click() },
+          ]} />
+          <input ref={videoInput} type="file" accept="video/mp4,video/webm,video/ogg,video/quicktime" hidden aria-label="Video file" onChange={(e) => { insertVideo(e.target.files[0]); e.target.value = ''; }} />
           <button type="button" className="tb" onClick={() => insert({ type: 'table', x: 15, y: 25, w: 70, h: 40, size: 18, header: true, cells: newTable(3, 3) })}>Table</button>
           <button type="button" className="tb" onClick={() => setDialog({ type: 'chart-file' })}>Chart</button>
           <Menu align="left" trigger={(p) => <button type="button" className="tb" {...p}>Shape ▾</button>} items={[
@@ -420,6 +438,8 @@ export default function SlidesEditor() {
           toast(`${r.slides.length === 1 ? '1 slide' : `${r.slides.length} slides`} imported from “${dialog.file.name}”`);
         } catch (e) { toast(e.message, 'error'); }
       }} />}
+      {dialog?.type === 'video-file' && <DrivePicker title="Video from Drive" accept={(x) => x.kind === 'file' && VIDEO_TYPES.test(x.mime || '')} empty="No videos found in your Drive."
+        onClose={() => setDialog(null)} onPick={(f) => { setDialog(null); putVideo(f); }} />}
       {dialog?.type === 'chart-file' && <DrivePicker title="Chart from a spreadsheet" accept={(x) => x.kind === 'sheet'} empty="No spreadsheets found."
         onClose={() => setDialog(null)} onPick={(x) => setDialog({ type: 'chart-pick', file: x })} />}
       {dialog?.type === 'chart-pick' && <ChartPick file={dialog.file} onClose={() => setDialog(null)}
@@ -528,6 +548,12 @@ export function SlideView({ slide, theme, deckId, editable, selected, editing, o
           // before the save, the person who added it opens the picture file directly.
           inner = <img src={`${pictureBase || `/api/files/${deckId}`}/pictures/${it.fileId}`} alt={it.alt || it.name || ''} draggable={false}
             onError={(e) => { const direct = `/api/files/${it.fileId}/raw`; if (!e.currentTarget.src.endsWith(direct)) e.currentTarget.src = direct; }} />;
+        } else if (it.type === 'video') {
+          // Editing: its first frame with ▶ (so the box can be moved); presenting or viewing: plays with its controls.
+          const src = `${pictureBase || `/api/files/${deckId}`}/pictures/${it.fileId}`;
+          inner = editable
+            ? <div className="slide-video editing"><video src={src} preload="metadata" muted aria-hidden="true" /><span className="slide-video-play" aria-hidden="true">▶</span></div>
+            : <video className="slide-video" src={src} controls preload="metadata" aria-label={`Video: ${it.name || ''}`} onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()} />;
         } else if (it.type === 'table') {
           const typing = editable && editing === it.id;
           inner = (
@@ -561,7 +587,7 @@ export function SlideView({ slide, theme, deckId, editable, selected, editing, o
           <div key={it.id} className={`slide-item ${it.type} ${isSel ? 'sel' : ''} ${arriving}`} data-item={it.id} data-built={built !== undefined && at ? (notYet ? 'no' : 'yes') : undefined}
             style={{ ...(peers?.has(it.id) ? { ...pos, boxShadow: `0 0 0 ${isSel ? 4 : 2}px ${peers.get(it.id).color}` } : pos), ...(notYet && { visibility: 'hidden' }) }}
             title={peers?.has(it.id) ? `${peers.get(it.id).name} is here` : undefined}
-            aria-label={editable ? `${it.type === 'text' ? (it.text ? `Text: ${it.text.slice(0, 40)}` : PLACEHOLDER[it.role] || 'Text box') : it.type === 'image' ? (it.alt ? `Picture: ${it.alt.slice(0, 80)}` : 'Picture') : it.type === 'table' ? 'Table' : it.type === 'chart' ? `Chart: ${it.title || 'Untitled'}` : 'Shape'}` : undefined}
+            aria-label={editable ? `${it.type === 'text' ? (it.text ? `Text: ${it.text.slice(0, 40)}` : PLACEHOLDER[it.role] || 'Text box') : it.type === 'image' ? (it.alt ? `Picture: ${it.alt.slice(0, 80)}` : 'Picture') : it.type === 'video' ? `Video: ${it.name || ''}` : it.type === 'table' ? 'Table' : it.type === 'chart' ? `Chart: ${it.title || 'Untitled'}` : 'Shape'}` : undefined}
             onPointerDown={editable ? (e) => startDrag(e, it) : undefined}
             onDoubleClick={editable && (it.type === 'text' || it.type === 'table') ? () => onEdit(it.id) : undefined}>
             {inner}

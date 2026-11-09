@@ -309,7 +309,7 @@ export async function receiveUpload(req, orgId, maxUploadBytes, ownerId = null) 
 /** The Drive files a presentation or document shows as pictures (their ids). */
 export function picturesIn(kind, content) {
   const ids = new Set();
-  if (kind === 'slides') for (const sl of content.slides || []) for (const it of sl.items || []) { if (it.type === 'image' && it.fileId) ids.add(it.fileId); }
+  if (kind === 'slides') for (const sl of content.slides || []) for (const it of sl.items || []) { if ((it.type === 'image' || it.type === 'video') && it.fileId) ids.add(it.fileId); } // pictures and videos
   if (kind === 'doc') {
     const walk = (n) => { if (n?.type === 'image' && n.attrs?.fileId) ids.add(n.attrs.fileId); for (const c of n?.content || []) walk(c); };
     walk(content);
@@ -516,7 +516,7 @@ export default function fileRoutes({ maxUploadBytes }) {
         const content = JSON.parse(f.content || '{}');
         const pictureData = async (fileId) => {
           const pic = q("SELECT * FROM files WHERE id = ? AND kind = 'file' AND trashed = 0").get(fileId);
-          if (!pic || !/^image\//.test(pic.mime || '') || !atLeast(roleFor(f.id, pic.owner_id), 'editor')) return null;
+          if (!pic || !(/^image\//.test(pic.mime || '') || (f.kind === 'slides' && /^video\//.test(pic.mime || ''))) || !atLeast(roleFor(f.id, pic.owner_id), 'editor')) return null; // pictures, and videos on slides
           return { data: fs.readFileSync(path.join(FILES_DIR, pic.storage)), mime: pic.mime };
         };
         const buf = f.kind === 'doc' ? await wordFromDoc(content, f.name, { pictureData, page: setupOf(f) }) : f.kind === 'sheet' ? await excelFromSheet(content) : await powerPointFromDeck(content, { title: f.name, pictureData });
@@ -980,7 +980,8 @@ export default function fileRoutes({ maxUploadBytes }) {
       // Just put in and not saved yet: the person who added it can see their own picture.
       || q("SELECT 1 FROM files WHERE id = ? AND owner_id = ?").get(pic, req.user.id);
     const f = used && q('SELECT * FROM files WHERE id = ? AND kind = ? AND trashed = 0').get(pic, 'file');
-    if (!f || !/^image\/(png|jpeg|gif|webp|avif|bmp)$/.test(f.mime || '') || !atLeast(roleFor(deck.id, f.owner_id), 'editor')) throw notFound('Picture not found');
+    const video = deck.kind === 'slides' && /^video\/(mp4|webm|ogg|quicktime)$/.test(f?.mime || ''); // a video on a slide (played from here, seeking included)
+    if (!f || !(video || /^image\/(png|jpeg|gif|webp|avif|bmp)$/.test(f.mime || '')) || !atLeast(roleFor(deck.id, f.owner_id), 'editor')) throw notFound('Picture not found');
     res.setHeader('Content-Type', f.mime);
     res.setHeader('Content-Security-Policy', "default-src 'none'");
     res.sendFile(path.join(FILES_DIR, f.storage), { headers: { 'Cache-Control': 'private, max-age=3600' } });
@@ -1063,7 +1064,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     // The same rule as showing pictures in the file: only pictures owned by someone who can edit it.
     const pictureData = async (fileId) => {
       const pic = q("SELECT * FROM files WHERE id = ? AND kind = 'file' AND trashed = 0").get(fileId);
-      if (!pic || !/^image\//.test(pic.mime || '') || !atLeast(roleFor(f.id, pic.owner_id), 'editor')) return null;
+      if (!pic || !(/^image\//.test(pic.mime || '') || (f.kind === 'slides' && /^video\//.test(pic.mime || ''))) || !atLeast(roleFor(f.id, pic.owner_id), 'editor')) return null; // pictures, and videos on slides
       return { data: fs.readFileSync(path.join(FILES_DIR, pic.storage)), mime: pic.mime };
     };
     let buf;

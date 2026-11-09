@@ -230,6 +230,13 @@ export async function powerPointFromDeck(deck, { pictureData, title = 'Presentat
         const pic = await pictureData?.(it.fileId);
         // Alt Text: its description (a blank one when it has none: left empty, the library would write a made-up file name).
         if (pic) slide.addImage({ ...pos, data: `data:${pic.mime};base64,${pic.data.toString('base64')}`, altText: String(it.alt || ' ').slice(0, 500) });
+      } else if (it.type === 'video') {
+        // A video plays in PowerPoint too (up to 100 MB; a bigger one is named instead, so the file stays manageable).
+        const vid = await pictureData?.(it.fileId);
+        if (vid && /^video\//.test(vid.mime) && vid.data.length <= 100 * 1024 * 1024) {
+          const extn = { 'video/quicktime': 'mov', 'video/mp4': 'mp4', 'video/webm': 'webm', 'video/ogg': 'ogv' }[vid.mime] || 'mp4';
+          slide.addMedia({ ...pos, type: 'video', data: `${vid.mime};base64,${vid.data.toString('base64')}`, extn });
+        } else slide.addText(`▶ ${it.name || 'Video'}`, { ...pos, fontSize: 18, align: 'center', valign: 'middle', color: '5F6368', fill: { color: 'F1F3F4' } });
       }
     }
   }

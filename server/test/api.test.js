@@ -5976,6 +5976,34 @@ test('tasks: tags (tidied, searched, gathered from every list you are on, carrie
   assert.deepEqual(r.tasks.map((t) => [t.id, t.tags]), [[done.next_id, ['client', 'sales']]]);
 });
 
+test('presentations: a video on a slide plays for everyone who can open the deck, with seeking', async () => {
+  const a = client(), v = client();
+  await owner('POST', '/api/users', { local: 'vidown', domain: 'acme.com', name: 'Vid Owner', password: 'password123' });
+  const vid = (await owner('POST', '/api/users', { local: 'vidview', domain: 'acme.com', name: 'Vid Viewer', password: 'password123' })).body.id;
+  await login(a, 'vidown@acme.com'); await login(v, 'vidview@acme.com');
+  const mp4 = Buffer.concat([Buffer.from([0, 0, 0, 0x18]), Buffer.from('ftypmp42'), Buffer.alloc(5000, 3)]);
+  const video = (await a('POST', '/api/files/upload?name=demo.mp4', mp4, { raw: true })).body;
+  const other = (await a('POST', '/api/files/upload?name=other.mp4', mp4, { raw: true })).body;
+  const deck = (await a('POST', '/api/files/new', { kind: 'slides', name: 'Launch' })).body;
+  const cur = (await a('GET', `/api/files/${deck.id}/content`)).body;
+  await a('PUT', `/api/files/${deck.id}/content`, { version: cur.file.version, content: { ...cur.content, slides: [{ id: 's1', items: [{ id: 'v', type: 'video', fileId: video.id, name: 'demo.mp4', x: 10, y: 10, w: 60, h: 50 }] }] } });
+  await a('PUT', `/api/files/${deck.id}/shares`, { shares: [{ user_id: vid, role: 'viewer' }] });
+  // The viewer can't open the video file itself, but can play it on the slide; part of it (seeking) too.
+  assert.equal((await v('GET', `/api/files/${video.id}`)).status, 404);
+  const whole = await v('GET', `/api/files/${deck.id}/pictures/${video.id}`, undefined, { binary: true });
+  assert.equal(whole.status, 200);
+  assert.equal(whole.headers.get('content-type'), 'video/mp4');
+  assert.equal(whole.body.length, mp4.length);
+  const part = await v('GET', `/api/files/${deck.id}/pictures/${video.id}`, undefined, { binary: true, headers: { range: 'bytes=100-199' } });
+  assert.equal(part.status, 206);
+  assert.equal(part.body.length, 100);
+  assert.equal((await v('GET', `/api/files/${deck.id}/pictures/${other.id}`)).status, 404, 'only videos the deck uses');
+  // In the PowerPoint download.
+  const pptx = await v('GET', `/api/files/${deck.id}/export`, undefined, { binary: true });
+  const JSZip = (await import('jszip')).default;
+  assert.ok(Object.keys((await JSZip.loadAsync(pptx.body)).files).some((n) => /^ppt\/media\/.+\.mp4$/.test(n)));
+});
+
 test('presentations: import slides from another one, with their pictures copied for the importer', async () => {
   const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
   const src = (await owner('POST', '/api/files/new', { kind: 'slides', name: 'Sales deck' })).body;

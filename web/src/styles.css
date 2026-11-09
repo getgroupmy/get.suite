@@ -2216,3 +2216,8 @@ textarea.mono { font-family: ui-monospace, Consolas, monospace; }
 /* Confidential messages: not printed, not selected */
 .confidential-body { user-select: none; -webkit-user-select: none; }
 @media print { .confidential-page { display: none !important; } }
+/* Slides: videos */
+.slide-video { width: 100%; height: 100%; object-fit: contain; background: #000; display: block; }
+.slide-video.editing { position: relative; pointer-events: none; }
+.slide-video.editing video { width: 100%; height: 100%; object-fit: contain; display: block; }
+.slide-video-play { position: absolute; inset: 0; display: grid; place-items: center; font-size: 3em; color: #fff; text-shadow: 0 2px 8px rgba(0,0,0,.6); }
