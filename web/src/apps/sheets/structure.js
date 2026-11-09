@@ -67,6 +67,15 @@ export function renameSheetRefs(raw, from, to) {
   return raw.replace(REF, (m, str, pre) => (str || !pre || prefixName(pre) !== String(from).toUpperCase() ? m : `${sheetPrefix(to)}!${m.slice(pre.length + 1)}`));
 }
 
+/** Where a dropdown's source range ("D2:D9", "Lists!A2:A9") is after a change (it stays put if all of it went). */
+export function moveSource(source, change, where) {
+  const n = adjustFormula(`=${source}`, change, where).slice(1);
+  return n.includes('#REF!') ? source : n;
+}
+
+/** A dropdown's source range after sheet `from` was renamed to `to`. */
+export const renameSource = (source, from, to) => renameSheetRefs(`=${source}`, from, to).slice(1);
+
 /** Every sheet's formulas after the sheet at `index` had a row/column change (references into it move). */
 export function adjustOtherSheets(sheets, index, change) {
   const changed = sheets[index]?.name;
@@ -75,7 +84,10 @@ export function adjustOtherSheets(sheets, index, change) {
     let touched = false;
     const cells = {};
     for (const [k, v] of Object.entries(s.cells || {})) { const n = adjustFormula(v, change, { here: s.name, changed }); if (n !== v) touched = true; cells[k] = n; }
-    return touched ? { ...s, cells } : s;
+    // Dropdowns on this sheet taking their choices from the changed one.
+    const validations = s.validations?.map((v) => (v.source?.includes('!') ? { ...v, source: moveSource(v.source, change, { here: s.name, changed }) } : v));
+    const moved = validations?.some((v, j) => v !== s.validations[j] && v.source !== s.validations[j].source);
+    return touched || moved ? { ...s, cells, ...(moved && { validations }) } : s;
   });
 }
 
@@ -127,7 +139,8 @@ export function applyStructure(sheet, change) {
   }
   for (const [id, ch] of Object.entries(sheet.charts || {})) { const range = adjustRange(ch.range, change); if (range) charts[id] = { ...ch, range }; }
   const rules = (sheet.rules || []).map((r) => ({ ...r, range: adjustRange(r.range, change) })).filter((r) => r.range);
-  const validations = (sheet.validations || []).map((v) => ({ ...v, range: adjustRange(v.range, change) })).filter((v) => v.range);
+  // A dropdown's list of choices on this same sheet moves with its cells too.
+  const validations = (sheet.validations || []).map((v) => ({ ...v, range: adjustRange(v.range, change), ...(v.source && { source: moveSource(v.source, change) }) })).filter((v) => v.range);
   // Merges move and grow or shrink with their cells; one that's down to a single cell is no longer a merge.
   const merges = (sheet.merges || []).map((m) => adjustRange(m, change)).filter((m) => m && m.split(':')[0] !== m.split(':')[1]);
   const hide = adjustHide(sheet.hide, change);

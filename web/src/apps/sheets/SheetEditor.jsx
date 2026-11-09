@@ -13,7 +13,7 @@ import { EditorHeader } from '../editorCommon.jsx';
 import { CommentsPanel, useComments } from '../comments.jsx';
 import { ChartCard, ChartDialog } from './SheetCharts.jsx';
 import { dataRegion, rangeText, parseRange } from './charts.js';
-import { applyStructure, adjustKey, sortRange, looksLikeHeader, adjustOtherSheets, renameSheetRefs } from './structure.js';
+import { applyStructure, adjustKey, sortRange, looksLikeHeader, adjustOtherSheets, renameSheetRefs, renameSource } from './structure.js';
 import { removeDuplicates, splitColumn } from './data.js';
 import { DedupeDialog, SplitDialog } from './SheetData.jsx';
 import { NamesDialog } from './SheetNames.jsx';
@@ -24,7 +24,7 @@ import { PivotDialog } from './SheetPivot.jsx';
 import { buildPivot, pivotCells, sourceTable } from './pivot.js';
 import { RulesDialog } from './SheetRules.jsx';
 import { ValidationDialog, ChoicePicker } from './SheetValidation.jsx';
-import { validationAt, checkEntry, isTicked } from './validation.js';
+import { validationAt, checkEntry, isTicked, withChoices, choicesFrom, chipColour } from './validation.js';
 import { hiddenRows, columnValues, adjustFilter, filterArea, columnFiltered } from './filter.js';
 import { describeCondition } from './filtercond.js';
 import { setHidden, anyHidden, hiddenRuns } from './hide.js';
@@ -176,6 +176,18 @@ export default function SheetEditor() {
     return () => { off(); clearInterval(t); window.removeEventListener('focus', refreshImports); };
   }, []);
   const evaluate = useMemo(() => (data?.sheets ? bookEvaluator(data.sheets, Math.min(active, data.sheets.length - 1), { book: importBook, depth: 0 }, data.functions) : createEvaluator(cells, names)), [data?.sheets, data?.functions, active, cells, names, importsAt]);
+  // A cell's value on this sheet (sheet null) or another tab by name, for dropdowns taking their choices from a range.
+  const valueOf = useMemo(() => {
+    const others = new Map();
+    return (name, key) => {
+      if (!name || !data?.sheets) return evaluate(key);
+      const i = data.sheets.findIndex((s) => String(s.name).toLowerCase() === String(name).toLowerCase());
+      if (i < 0) return null;
+      if (i === Math.min(active, data.sheets.length - 1)) return evaluate(key);
+      if (!others.has(i)) others.set(i, bookEvaluator(data.sheets, i, { book: importBook, depth: 0 }, data.functions));
+      return others.get(i)(key);
+    };
+  }, [evaluate, data?.sheets, data?.functions, active]);
   const { rows, cols } = useMemo(() => sheetSize(cells, evaluate.spilledKeys?.() || []), [cells, evaluate]);
   // The filter: which rows it hides, and where its headings are.
   const filter = sheet?.filter || null;
@@ -591,7 +603,7 @@ export default function SheetEditor() {
   /** Save what was typed. A value a strict dropdown doesn't allow: kept for fixing (keep) or dropped. */
   function commitEdit(dc = 0, dr = 0, keep = false) {
     const key = cellKey(sel.c, sel.r);
-    const check = checkEntry(validationAt(validations, key), draft);
+    const check = checkEntry(withChoices(validationAt(validations, key), valueOf), draft);
     if (check.error) { toast(check.error, 'error'); if (!keep) cancelEdit(); return; }
     writeCells({ [key]: check.value });
     setEditing(null);
@@ -1025,6 +1037,7 @@ export default function SheetEditor() {
                         ? <input type="checkbox" className="cell-check" tabIndex={-1} checked={isTicked(v)} disabled={readOnly} aria-label={`Tick ${k}`} onChange={() => toggleTick(k)} onDoubleClick={(e) => e.stopPropagation()} />
                         : evaluate.sparkOf?.(k) ? <Sparkline spark={evaluate.sparkOf(k)} />
                         : evaluate.linkOf?.(k) ? <a className="cell-link" href={evaluate.linkOf(k)} target="_blank" rel="noopener noreferrer" title={evaluate.linkOf(k)} onDoubleClick={(e) => e.preventDefault()}>{formatNumber(v, fmt) ?? display(v)}</a>
+                        : vd?.type === 'list' && chipColour(vd, display(v)) ? <span className="cell-chip" style={{ background: chipColour(vd, display(v)) }}>{formatNumber(v, fmt) ?? display(v)}</span>
                         : formatNumber(v, fmt) ?? display(v)}
                       {vd?.type === 'list' && !readOnly && (
                         <button type="button" className="cell-drop" tabIndex={-1} aria-label={`Choices for ${k}`}
@@ -1090,7 +1103,7 @@ export default function SheetEditor() {
           onChange={(next) => writeSheet(() => ({ rules: next.length ? next : null }))} onClose={() => { setDialog(null); gridRef.current?.focus(); }} />
       )}
       {dialog?.type === 'validation' && (
-        <ValidationDialog validations={validations} existing={existingValues}
+        <ValidationDialog validations={validations} existing={existingValues} resolve={(src) => choicesFrom(src, valueOf)}
           defaultRange={anchor ? rangeText(range) : rangeText({ c1: sel.c, c2: sel.c, r1: sel.r, r2: sel.r })}
           onChange={(next) => writeSheet(() => ({ validations: next.length ? next : null }))} onClose={() => { setDialog(null); gridRef.current?.focus(); }} />
       )}
@@ -1116,7 +1129,7 @@ export default function SheetEditor() {
         const td = gridRef.current?.querySelector(`[data-k="${picker.key}"]`);
         if (!vd || vd.type !== 'list' || !td) return null;
         const done = () => { setPicker(null); gridRef.current?.focus(); };
-        return <ChoicePicker anchor={td} values={vd.values || []} current={cells[picker.key] ?? ''} onClose={done} onPick={(x) => { writeCells({ [picker.key]: x }); done(); }} />;
+        return <ChoicePicker anchor={td} values={withChoices(vd, valueOf).values || []} current={cells[picker.key] ?? ''} onClose={done} onPick={(x) => { writeCells({ [picker.key]: x }); done(); }} />;
       })()}
       {dialog?.type === 'print' && (
         <PrintDialog hasSelection={range.c1 !== range.c2 || range.r1 !== range.r2} onClose={() => setDialog(null)} onPrint={(o) => {
@@ -1188,7 +1201,12 @@ export default function SheetEditor() {
             const old = cur.sheets[dialog.index].name;
             const fresh = name.slice(0, 50);
             // Pivot tables and formulas (Sheet1!A1) follow the sheet's new name.
-            const renamed = (s) => { const cells = {}; let n = 0; for (const [k, v] of Object.entries(s.cells || {})) { cells[k] = renameSheetRefs(v, old, fresh); if (cells[k] !== v) n++; } return n ? { ...s, cells } : s; };
+            const renamed = (s) => {
+              const cells = {}; let n = 0;
+              for (const [k, v] of Object.entries(s.cells || {})) { cells[k] = renameSheetRefs(v, old, fresh); if (cells[k] !== v) n++; }
+              const validations = s.validations?.map((v) => (v.source ? { ...v, source: renameSource(v.source, old, fresh) } : v)); // dropdowns follow too
+              return { ...s, ...(n && { cells }), ...(validations && { validations }) };
+            };
             commitData({ ...cur, sheets: cur.sheets.map((s0, i) => { const s = renamed(s0); return i === dialog.index ? { ...s, name: fresh } : s.pivot?.source === old ? { ...s, pivot: { ...s.pivot, source: fresh } } : s; }) });
           }} />
       )}

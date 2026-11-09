@@ -268,7 +268,9 @@ Select rows (or columns) by their headings, then **Group rows 2–4** in the rig
 - **Dropdown** in the toolbar turns the selected cells into a list of choices. It starts from the values already in those cells; add or change them one per line. The cells show an arrow: click it, or press **Alt+↓**, then pick with the mouse or the arrow keys and Enter.
 - **Only allow these choices** refuses anything else typed into the cells (with a note saying what's allowed); typing a choice in the wrong case is corrected. Turn it off to suggest values without enforcing them.
 - **Tick box** shows a box in each cell: click it or press Space. Ticked is TRUE, so formulas such as `=COUNTIF(C2:C20, TRUE)` count them.
-- They move with inserted and deleted rows and columns, are shared live, and are kept when downloading as Excel (tick boxes become a TRUE/FALSE list there). Dropdowns in an uploaded Excel file, including lists taken from cells on the sheet, come in as dropdowns.
+- **A range of cells** takes a dropdown's choices from cells instead, on the same tab (`D2:D10`) or another one (`Lists!A2:A20`). The dropdown follows the list: add, change or remove a choice there and every dropdown using it changes too, including what typing allows. Blank cells and repeats are left out. The range moves when rows or columns are added or removed around it, and follows a renamed tab.
+- **Colours** gives each choice a colour, so cells holding it show it as a coloured chip (for example, Done in green and Blocked in red).
+- They move with inserted and deleted rows and columns, are shared live, and are kept when downloading as Excel (tick boxes become a TRUE/FALSE list there; a dropdown from a range is written as that range, so Excel's dropdown follows it too, though the choice colours stay here). Dropdowns in an uploaded Excel file come in as dropdowns, and lists taken from cells, on the same sheet or another, stay linked to those cells.
 
 ## Cell notes (Sheets)
 

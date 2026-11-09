@@ -220,9 +220,35 @@ test('Excel: a list taken from cells on the sheet, and split ranges', async () =
   const list = { type: 'list', formulae: ['$D$1:$D$3'], showErrorMessage: true };
   const got = validationsFromExcel({ A1: list, A2: list, A4: list, B1: { type: 'whole', formulae: ['1'] } }, { D1: 'Low', D2: 'High', D3: 'Low' });
   assert.deepEqual(got.map(({ id, ...v }) => v), [
-    { range: 'A1:A2', type: 'list', values: ['Low', 'High'], strict: true },
-    { range: 'A4:A4', type: 'list', values: ['Low', 'High'], strict: true },
+    { range: 'A1:A2', type: 'list', source: 'D1:D3', strict: true },
+    { range: 'A4:A4', type: 'list', source: 'D1:D3', strict: true },
   ]);
+  // On another tab too, and a TRUE/FALSE range on this sheet is still a tick box.
+  const other = validationsFromExcel({ B2: { type: 'list', formulae: ["'Q1 data'!$A$2:$A$9"] }, C2: { type: 'list', formulae: ['$E$1:$E$2'] } }, { E1: 'TRUE', E2: 'FALSE' });
+  assert.deepEqual(other.map(({ id, ...v }) => v), [
+    { range: 'B2:B2', type: 'list', source: "'Q1 data'!A2:A9", strict: false },
+    { range: 'C2:C2', type: 'checkbox' },
+  ]);
+});
+
+test('Excel: a dropdown taking its choices from a range is written as that range, and read back', async () => {
+  const { sourceFormula } = await import('../src/office/excel.js');
+  assert.equal(sourceFormula('Lists!A2:A9'), 'Lists!$A$2:$A$9');
+  assert.equal(sourceFormula("'Q1 data'!b2:b5"), "'Q1 data'!$B$2:$B$5");
+  assert.equal(sourceFormula('D2:D9'), '$D$2:$D$9');
+  assert.equal(sourceFormula('nonsense'), null);
+  const book = { sheets: [
+    { name: 'Tasks', cells: { A1: 'Status', A2: 'Open' }, validations: [{ id: 'v1', range: 'A2:A20', type: 'list', source: 'Lists!A2:A4', strict: true, colors: { Open: '#ceead6' } }] },
+    { name: 'Lists', cells: { A1: 'Choices', A2: 'Open', A3: 'Done', A4: 'Later' } },
+  ] };
+  const buf = await excelFromSheet(book);
+  const ExcelJS = (await import('exceljs')).default;
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(buf);
+  const dv = wb.getWorksheet('Tasks').dataValidations.model;
+  assert.deepEqual(dv['A2:A20']?.formulae || dv.A2?.formulae, ['Lists!$A$2:$A$4']);
+  const back = await sheetFromExcel(buf);
+  assert.deepEqual(back.sheets[0].validations.map(({ id, ...v }) => v), [{ range: 'A2:A20', type: 'list', source: 'Lists!A2:A4', strict: true }]);
 });
 
 test('Word: the page setup goes into the .docx (size, orientation, margins, header, footer, page numbers)', async () => {

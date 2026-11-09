@@ -4,29 +4,36 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Modal } from '../../components/ui.jsx';
 import Icon from '../../components/Icon.jsx';
 import { parseRange } from './charts.js';
-import { parseChoices, describeValidation } from './validation.js';
+import { parseChoices, describeValidation, cleanSource, cleanColours, CHIP_COLOURS } from './validation.js';
 
 const newId = () => Math.random().toString(36).slice(2, 10);
 
-/** `existing(range)`: the distinct values already in those cells, to start a list from. */
-export function ValidationDialog({ validations, defaultRange, existing, onChange, onClose }) {
-  const fresh = () => ({ id: null, range: defaultRange, type: 'list', choices: existing(defaultRange).join('\n'), strict: true });
+/**
+ * `existing(range)`: the distinct values already in those cells, to start a list from.
+ * `resolve(source)`: the choices a range such as "Lists!A2:A20" gives now.
+ */
+export function ValidationDialog({ validations, defaultRange, existing, resolve, onChange, onClose }) {
+  const fresh = () => ({ id: null, range: defaultRange, type: 'list', from: 'typed', choices: existing(defaultRange).join('\n'), source: '', strict: true });
   const [editing, setEditing] = useState(validations.length ? null : fresh());
   const save = (v) => {
-    const clean = { id: v.id || newId(), range: v.range.toUpperCase().replace(/\s/g, ''), type: v.type, ...(v.type === 'list' && { values: parseChoices(v.choices), strict: !!v.strict }) };
+    const fromRange = v.from === 'range';
+    const values = fromRange ? [] : parseChoices(v.choices);
+    const colors = cleanColours(v.colors, fromRange ? resolve(v.source) : values);
+    const list = fromRange ? { source: cleanSource(v.source), strict: !!v.strict } : { values, strict: !!v.strict };
+    const clean = { id: v.id || newId(), range: v.range.toUpperCase().replace(/\s/g, ''), type: v.type, ...(v.type === 'list' && { ...list, ...(colors && { colors }) }) };
     onChange(v.id ? validations.map((x) => (x.id === v.id ? clean : x)) : [...validations, clean]);
     setEditing(null);
   };
   return (
     <Modal title="Dropdowns and tick boxes" onClose={onClose} wide>
-      {editing ? <ValidationForm initial={editing} existing={existing} onSave={save} onCancel={() => (validations.length ? setEditing(null) : onClose())} /> : (
+      {editing ? <ValidationForm initial={editing} existing={existing} resolve={resolve} onSave={save} onCancel={() => (validations.length ? setEditing(null) : onClose())} /> : (
         <div className="stack">
           <ul className="rule-list">
             {validations.map((v) => (
               <li key={v.id}>
                 <span className="rule-range">{v.range}</span>
                 <span className="grow">{describeValidation(v)}</span>
-                <button type="button" className="icon-btn" aria-label={`Change ${v.range}`} onClick={() => setEditing({ ...v, choices: (v.values || []).join('\n') })}><Icon name="edit" size={16} /></button>
+                <button type="button" className="icon-btn" aria-label={`Change ${v.range}`} onClick={() => setEditing({ ...v, from: v.source ? 'range' : 'typed', source: v.source || '', choices: (v.values || []).join('\n') })}><Icon name="edit" size={16} /></button>
                 <button type="button" className="icon-btn" aria-label={`Remove ${v.range}`} onClick={() => onChange(validations.filter((x) => x.id !== v.id))}><Icon name="trash" size={16} /></button>
               </li>
             ))}
@@ -39,12 +46,19 @@ export function ValidationDialog({ validations, defaultRange, existing, onChange
   );
 }
 
-function ValidationForm({ initial, existing, onSave, onCancel }) {
+function ValidationForm({ initial, existing, resolve, onSave, onCancel }) {
   const [v, setV] = useState(initial);
   const set = (k) => (e) => setV({ ...v, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value });
   const okRange = !!parseRange(v.range);
-  const choices = parseChoices(v.choices);
-  const ok = okRange && (v.type === 'checkbox' || choices.length > 0);
+  const fromRange = v.from === 'range';
+  const okSource = !fromRange || !!cleanSource(v.source);
+  const choices = fromRange ? (okSource ? resolve(v.source) : []) : parseChoices(v.choices);
+  const ok = okRange && (v.type === 'checkbox' || (okSource && (fromRange || choices.length > 0)));
+  const colourOf = (x) => Object.entries(v.colors || {}).find(([k]) => k.toLowerCase() === x.toLowerCase())?.[1] || '';
+  const setColour = (x, hex) => {
+    const rest = Object.fromEntries(Object.entries(v.colors || {}).filter(([k]) => k.toLowerCase() !== x.toLowerCase()));
+    setV({ ...v, colors: hex ? { ...rest, [x]: hex } : rest });
+  };
   return (
     <form className="stack" onSubmit={(e) => { e.preventDefault(); if (ok) onSave(v); }}>
       <label className="field"><span>Cells</span><input value={v.range} onChange={set('range')} aria-invalid={!okRange} placeholder="B2:B20" /></label>
@@ -54,12 +68,38 @@ function ValidationForm({ initial, existing, onSave, onCancel }) {
         ))}
       </div>
       {v.type === 'list' ? <>
-        <label className="field"><span>Choices (one per line, or separated by commas)</span>
-          <textarea rows={6} value={v.choices} onChange={set('choices')} placeholder={'Open\nIn progress\nDone'} /></label>
-        <div className="row wrap" style={{ gap: 12 }}>
-          <span className="muted small grow">{choices.length} choice{choices.length === 1 ? '' : 's'}</span>
-          {okRange && <button type="button" className="link-btn small" onClick={() => setV({ ...v, choices: existing(v.range).join('\n') })}>Use what's in the cells</button>}
+        <div className="seg" role="radiogroup" aria-label="Where the choices come from">
+          {[['typed', 'A list of items'], ['range', 'A range of cells']].map(([k, l]) => (
+            <button key={k} type="button" role="radio" aria-checked={(v.from || 'typed') === k} className={(v.from || 'typed') === k ? 'on' : ''} onClick={() => setV({ ...v, from: k })}>{l}</button>
+          ))}
         </div>
+        {fromRange ? <>
+          <label className="field"><span>Choices from the cells</span>
+            <input value={v.source} onChange={set('source')} aria-invalid={!!v.source && !okSource} placeholder="Lists!A2:A20" /></label>
+          <p className="muted small" style={{ margin: 0 }}>The dropdown follows those cells: change the list there and every dropdown changes with it. Another tab is written like Lists!A2:A20.</p>
+        </> : <label className="field"><span>Choices (one per line, or separated by commas)</span>
+          <textarea rows={6} value={v.choices} onChange={set('choices')} placeholder={'Open\nIn progress\nDone'} /></label>}
+        <div className="row wrap" style={{ gap: 12 }}>
+          <span className="muted small grow" data-choice-count>{choices.length} choice{choices.length === 1 ? '' : 's'}{fromRange && okSource && !choices.length ? ' (those cells are empty)' : ''}</span>
+          {okRange && !fromRange && <button type="button" className="link-btn small" onClick={() => setV({ ...v, choices: existing(v.range).join('\n') })}>Use what's in the cells</button>}
+        </div>
+        {choices.length > 0 && (
+          <details className="choice-colours" open={Object.keys(v.colors || {}).length > 0}>
+            <summary className="small">Colours</summary>
+            <ul>
+              {choices.slice(0, 30).map((x) => (
+                <li key={x} className="row" style={{ gap: 8 }}>
+                  <span className="cell-chip" style={{ background: colourOf(x) || 'transparent' }}>{x}</span>
+                  <select className="grow" value={colourOf(x)} onChange={(e) => setColour(x, e.target.value)} aria-label={`Colour for ${x}`}>
+                    <option value="">No colour</option>
+                    {CHIP_COLOURS.map((c) => <option key={c.hex} value={c.hex}>{c.name}</option>)}
+                  </select>
+                </li>
+              ))}
+            </ul>
+            {choices.length > 30 && <p className="muted small">The first 30 choices can have colours here.</p>}
+          </details>
+        )}
         <label className="check"><input type="checkbox" checked={!!v.strict} onChange={set('strict')} /> Only allow these choices</label>
       </> : <p className="muted small" style={{ margin: 0 }}>Each cell shows a box: ticked is TRUE, empty is FALSE. Formulas can count them, e.g. =COUNTIF(C2:C20, TRUE).</p>}
       <div className="row end">

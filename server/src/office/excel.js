@@ -315,6 +315,9 @@ export async function excelFromSheet(data) {
     }
     // Dropdowns as Excel list validations; tick boxes as a TRUE/FALSE list (Excel has no tick box to write).
     for (const v of s.validations || []) {
+      // Choices taken from cells: written as that range, so Excel's dropdown follows them too.
+      const src = v.type === 'list' && sourceFormula(v.source);
+      if (src) { ws.dataValidations.add(v.range, { type: 'list', allowBlank: true, formulae: [src], ...(v.strict && { showErrorMessage: true, errorStyle: 'stop' }) }); continue; }
       const values = v.type === 'checkbox' ? ['TRUE', 'FALSE'] : (v.values || []).filter((x) => !/[,"]/.test(x));
       const list = values.join(',');
       if (!values.length || list.length > 255) continue; // Excel's limit for a written-out list
@@ -388,6 +391,12 @@ export async function functionsOfXlsx(buffer) {
   return out;
 }
 
+/** A dropdown's source ("Lists!A2:A9", "D2:D9") as an Excel range formula: Lists!$A$2:$A$9. */
+export function sourceFormula(source) {
+  const m = /^(?:('(?:[^']|'')+'|[A-Za-z_][A-Za-z0-9_]*)!)?([A-Z]{1,3})(\d+):([A-Z]{1,3})(\d+)$/i.exec(String(source || '').trim());
+  return m ? `${m[1] ? `${m[1]}!` : ''}$${m[2].toUpperCase()}$${m[3]}:$${m[4].toUpperCase()}$${m[5]}` : null;
+}
+
 // ---- data validation from Excel: list validations become dropdowns (a TRUE/FALSE list, a tick box).
 // Excel gives them cell by cell; cells with the same list in a column are joined back into ranges.
 export function validationsFromExcel(model, cells) {
@@ -396,22 +405,25 @@ export function validationsFromExcel(model, cells) {
     const p = /^([A-Z]+)(\d+)$/.exec(String(addr).toUpperCase());
     if (!p || x?.type !== 'list' || !x.formulae?.[0]) continue;
     const f = String(x.formulae[0]).trim();
-    let values;
+    let values, source = null;
     if (/^".*"$/.test(f)) values = f.slice(1, -1).split(',').map((t) => t.trim()).filter(Boolean);
     else {
-      // A range of cells on this sheet holding the choices, like $D$1:$D$5.
-      const m = /^\$?([A-Z]+)\$?(\d+):\$?([A-Z]+)\$?(\d+)$/i.exec(f);
-      if (!m) continue;
-      values = [];
-      for (let c = colIndex(m[1].toUpperCase()); c <= colIndex(m[3].toUpperCase()); c++) for (let r = Number(m[2]); r <= Math.min(Number(m[4]), Number(m[2]) + 500); r++) {
+      // A range of cells holding the choices, like $D$1:$D$5 or Lists!$A$2:$A$9: the dropdown keeps
+      // following it. Ones on this sheet are read now as well, to tell a TRUE/FALSE tick box.
+      const s = /^(?:('(?:[^']|'')+'|[A-Z_][A-Z0-9_]*)!)?\$?([A-Z]+)\$?(\d+):\$?([A-Z]+)\$?(\d+)$/i.exec(f);
+      if (!s) continue;
+      source = `${s[1] ? `${s[1]}!` : ''}${s[2].toUpperCase()}${s[3]}:${s[4].toUpperCase()}${s[5]}`; // as Sheets writes it: D1:D5
+      const [, sheet, c1, r1, c2, r2] = s;
+      values = sheet ? null : [];
+      if (!sheet) for (let c = colIndex(c1.toUpperCase()); c <= colIndex(c2.toUpperCase()); c++) for (let r = Number(r1); r <= Math.min(Number(r2), Number(r1) + 500); r++) {
         const raw = cells[`${colName(c)}${r}`];
         if (raw !== undefined && raw !== '' && !String(raw).startsWith('=')) values.push(String(raw).trim());
       }
     }
-    values = [...new Set(values)].slice(0, 200);
-    if (!values.length) continue;
-    const checkbox = values.length === 2 && values.every((v) => /^(TRUE|FALSE)$/i.test(v)) && new Set(values.map((v) => v.toUpperCase())).size === 2;
-    const def = checkbox ? { type: 'checkbox' } : { type: 'list', values, strict: !!x.showErrorMessage && x.errorStyle !== 'information' && x.errorStyle !== 'warning' };
+    values = values && [...new Set(values)].slice(0, 200);
+    if (values && !values.length && !source) continue;
+    const checkbox = !!values && values.length === 2 && values.every((v) => /^(TRUE|FALSE)$/i.test(v)) && new Set(values.map((v) => v.toUpperCase())).size === 2;
+    const def = checkbox ? { type: 'checkbox' } : { type: 'list', ...(source ? { source } : { values }), strict: !!x.showErrorMessage && x.errorStyle !== 'information' && x.errorStyle !== 'warning' };
     const key = `${p[1]}|${JSON.stringify(def)}`;
     if (!byKind.has(key)) byKind.set(key, { col: p[1], def, rows: [] });
     byKind.get(key).rows.push(Number(p[2]));

@@ -82,3 +82,15 @@ test('cell notes stay with their cells when rows go in or out, and when sorting'
   assert.deepEqual(sorted.notes, { A2: 'about b', B1: 'beside a' });
   assert.equal(sortR({ cells: {} }, { c1: 0, c2: 0, r1: 0, r2: 0 }, 0, { value: () => '' }).notes, undefined);
 });
+
+test("a dropdown's source range moves with its cells, follows a renamed tab, and the tab's row changes", async () => {
+  const { moveSource, renameSource, adjustOtherSheets } = await import('./structure.js');
+  const sheet = { cells: {}, validations: [{ id: 'v', range: 'B2:B5', type: 'list', source: 'D2:D4' }, { id: 'w', range: 'C2:C5', type: 'list', source: 'Lists!A2:A4' }] };
+  const ins = applyStructure(sheet, { axis: 'row', at: 0, count: 1 });
+  assert.deepEqual(ins.validations.map((v) => v.source), ['D3:D5', 'Lists!A2:A4'], 'only the one on this sheet moves');
+  assert.equal(moveSource('D2:D4', { axis: 'row', at: 1, count: -3 }), 'D2:D4', 'all of it deleted: stays put');
+  assert.equal(renameSource('Lists!A2:A4', 'lists', 'Q1 data'), "'Q1 data'!A2:A4");
+  assert.equal(renameSource('D2:D4', 'Lists', 'X'), 'D2:D4');
+  const [, other] = adjustOtherSheets([{ name: 'Lists', cells: {} }, { name: 'Tasks', cells: {}, validations: [{ id: 'w', range: 'C2:C5', type: 'list', source: 'Lists!A2:A4' }] }], 0, { axis: 'row', at: 0, count: 2 });
+  assert.equal(other.validations[0].source, 'Lists!A4:A6');
+});
