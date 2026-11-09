@@ -323,3 +323,17 @@ export function moveItems(deck, slideIndex, ids, dx, dy) {
   const mx = Math.min(Math.max(dx, -left), 100 - right), my = Math.min(Math.max(dy, -top), 100 - bottom);
   return setSlide(deck, slideIndex, { items: deck.slides[slideIndex].items.map((it) => (pick.has(it.id) ? { ...it, x: it.x + mx, y: it.y + my } : it)) });
 }
+
+/**
+ * Paste copies of boxes onto a slide: new ids, and nudged down and right (2%) for as long as a box
+ * would land exactly on one already there, so a copy never hides behind its original.
+ * Gives the deck and the new boxes' ids.
+ */
+export function pasteItems(deck, slideIndex, items) {
+  const there = deck.slides[slideIndex].items;
+  const taken = (dx) => items.some((c) => there.some((o) => Math.abs(o.x - (c.x + dx)) < 0.01 && Math.abs(o.y - (c.y + dx)) < 0.01));
+  let shift = 0;
+  while (shift < 20 && taken(shift)) shift += 2;
+  const copies = items.map((c) => { const { anim, ...rest } = c; return clampBox({ ...JSON.parse(JSON.stringify(rest)), id: newId(), x: c.x + shift, y: c.y + shift }); });
+  return { deck: setSlide(deck, slideIndex, { items: [...there, ...copies] }), ids: copies.map((c) => c.id) };
+}

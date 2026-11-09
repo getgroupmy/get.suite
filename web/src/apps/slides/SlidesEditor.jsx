@@ -19,7 +19,7 @@ import { VersionHistory } from '../VersionHistory.jsx';
 import { EditorHeader } from '../editorCommon.jsx';
 import { useUndo, undoKey } from '../useUndo.js';
 import {
-  THEMES, LAYOUTS, numberShown, newId, clampBox, moveBox, snapBox, angleTo, normAngle, alignItems, distributeItems, moveItems, resizeBox, addSlide, duplicateSlide, removeSlide, moveSlide, moveSlides, duplicateSlides, removeSlides,
+  THEMES, LAYOUTS, numberShown, newId, clampBox, moveBox, snapBox, angleTo, normAngle, alignItems, distributeItems, moveItems, pasteItems, resizeBox, addSlide, duplicateSlide, removeSlide, moveSlide, moveSlides, duplicateSlides, removeSlides,
   updateItem, addItem, removeItem, restack, pictureBox,
   TRANSITIONS, setSlide, stepSlide, firstShown, newTable, resizeTable, setCell,
   ANIMATIONS, builds, animChange, stepPresent, nextPresent, ADVANCES, advanceLabel, slideChanges } from './slidemath.js';
@@ -32,6 +32,10 @@ const HANDLES = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
 const PEOPLE_COLORS = ['#1a73e8', '#d93025', '#188038', '#e37400', '#8430ce', '#00796b', '#c2185b', '#5f6368'];
 const colorFor = (id) => PEOPLE_COLORS[[...String(id)].reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) >>> 0, 7) % PEOPLE_COLORS.length];
 const PLACEHOLDER = { title: 'Click to add title', subtitle: 'Click to add subtitle', body: 'Click to add text' };
+
+// Boxes copied with Ctrl+C (or cut with Ctrl+X), for pasting on any slide of this presentation or,
+// apart from pictures and videos (kept with their own presentation), of another.
+let boxClipboard = null; // { deckId, items }
 
 export default function SlidesEditor() {
   const { id } = useParams();
@@ -125,6 +129,19 @@ export default function SlidesEditor() {
     if (editing || readOnly) return;
     const u = undoKey(e);
     if (u) { e.preventDefault(); history[u](); return; }
+    const mod = e.ctrlKey || e.metaKey;
+    const chosen = multi ? group : item ? [item.id] : [];
+    const key = e.key.toLowerCase();
+    if (mod && (key === 'c' || key === 'x' || key === 'd') && chosen.length) {
+      e.preventDefault();
+      const items = slide.items.filter((it) => chosen.includes(it.id));
+      if (key === 'd') { pasteBoxes(items); return; }
+      boxClipboard = { deckId: id, items: JSON.parse(JSON.stringify(items)) };
+      if (key === 'x') { change((d) => chosen.reduce((acc, gid) => removeItem(acc, slideIndex, gid), d)); setSelected(null); toast(chosen.length === 1 ? 'Cut 1 box' : `Cut ${chosen.length} boxes`); }
+      else toast(chosen.length === 1 ? 'Copied 1 box' : `Copied ${chosen.length} boxes`);
+      return;
+    }
+    if (mod && key === 'v' && boxClipboard) { e.preventDefault(); pasteBoxes(boxClipboard.items, boxClipboard.deckId); return; }
     if (multi) {
       const step = e.shiftKey ? 5 : 1;
       const nudge = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key];
@@ -144,6 +161,16 @@ export default function SlidesEditor() {
     else if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); change((d) => removeItem(d, slideIndex, item.id)); setSelected(null); }
     else if (e.key === 'Escape') setSelected(null);
     else if (e.key === 'Enter' && item.type === 'text') { e.preventDefault(); setEditing(item.id); }
+  }
+
+  /** Put copies of boxes on this slide and choose them. */
+  function pasteBoxes(items, fromDeck = id) {
+    const usable = fromDeck === id ? items : items.filter((it) => it.type !== 'image' && it.type !== 'video');
+    if (usable.length < items.length) toast('Pictures and videos stay with their own presentation: copy them from Drive instead', 'error');
+    if (!usable.length) return;
+    let ids = [];
+    change((d) => { const r = pasteItems(d, slideIndex, usable); ids = r.ids; return r.deck; });
+    setSelected(ids[0] || null); setAlso(ids.slice(1)); setEditing(null);
   }
 
   // The keys work wherever focus is (after a toolbar button too), except while typing in a field.

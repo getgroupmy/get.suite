@@ -198,3 +198,18 @@ test('several boxes: align, distribute and move together', async () => {
   d = moveItems(deck, 0, ['a', 'c'], 20, 5); // c would leave the slide past 10: stops at the edge
   assert.deepEqual([items(d).a.x, items(d).c.x, items(d).a.y, items(d).b.x], [20, 80, 15, 40]);
 });
+
+test('pasting copies of boxes: new ids, nudged off their originals', async () => {
+  const { pasteItems } = await import('./slidemath.js');
+  const a = { id: 'a', type: 'text', text: 'Hi', x: 10, y: 10, w: 20, h: 10, anim: 'fade' };
+  const deck = { slides: [{ id: 's1', items: [a] }, { id: 's2', items: [] }] };
+  let r = pasteItems(deck, 0, [a]);
+  const copy = r.deck.slides[0].items[1];
+  assert.equal(r.ids.length, 1);
+  assert.notEqual(copy.id, 'a');
+  assert.deepEqual([copy.x, copy.y, copy.text, copy.anim], [12, 12, 'Hi', undefined], 'nudged, without the animation');
+  r = pasteItems(r.deck, 0, [a]);
+  assert.deepEqual([r.deck.slides[0].items[2].x], [14], 'again: further along');
+  r = pasteItems(deck, 1, [a]);
+  assert.deepEqual([r.deck.slides[1].items[0].x, r.deck.slides[0].items.length], [10, 1], 'another slide: same place');
+});
