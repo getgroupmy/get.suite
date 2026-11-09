@@ -2,7 +2,41 @@
 // drawing uses. Kept free of React so it can be tested on its own.
 import { parseRef, cellKey } from './formula.js';
 
-export const CHART_TYPES = [['column', 'Column'], ['bar', 'Bar'], ['line', 'Line'], ['pie', 'Pie']];
+export const CHART_TYPES = [['column', 'Column'], ['stackedColumn', 'Stacked column'], ['bar', 'Bar'], ['stackedBar', 'Stacked bar'], ['line', 'Line'], ['area', 'Area'], ['scatter', 'Scatter'], ['pie', 'Pie'], ['doughnut', 'Doughnut']];
+export const isStacked = (t) => t === 'stackedColumn' || t === 'stackedBar';
+export const isRound = (t) => t === 'pie' || t === 'doughnut';
+export const isHorizontal = (t) => t === 'bar' || t === 'stackedBar';
+
+/**
+ * Stacked bars: for each series and category, where its piece starts and ends ([from, to], or null):
+ * positive values stack up from 0, negative ones down, in series order.
+ */
+export function stackedRuns(series, n) {
+  const out = series.map(() => Array(n).fill(null));
+  for (let i = 0; i < n; i++) {
+    let up = 0, down = 0;
+    series.forEach((s, si) => {
+      const v = s.values[i];
+      if (v === null || v === undefined || v === 0) return;
+      if (v > 0) { out[si][i] = [up, up + v]; up += v; } else { out[si][i] = [down + v, down]; down += v; }
+    });
+  }
+  return out;
+}
+
+/**
+ * A scatter chart's points: the X values come from the first column of numbers when the rows have
+ * no names (its other columns are the Y series), from numeric row names, or else 1, 2, 3….
+ * { xName, points: [{ name, values: [[x, y]…] }] } (rows missing either are left out).
+ */
+export function scatterOf(data) {
+  const numericNames = data.categories.length > 0 && data.categories.every((c) => c !== '' && !Number.isNaN(Number(c)));
+  const rowNumbers = data.categories.every((c, i) => c === String(i + 1));
+  let xs, ys, xName = '';
+  if (rowNumbers && data.series.length > 1) { xs = data.series[0].values; ys = data.series.slice(1); xName = data.series[0].name; }
+  else { xs = data.categories.map((c, i) => (numericNames ? Number(c) : i + 1)); ys = data.series; }
+  return { xName, points: ys.map((s) => ({ name: s.name, values: s.values.map((y, i) => [xs[i], y]).filter(([x, y]) => typeof x === 'number' && typeof y === 'number') })) };
+}
 export const MAX_SERIES = 8; // the palette has eight colours; more would need repeats
 export const MAX_POINTS = 500;
 export const PIE_SLICES = 6; // beyond this, the smallest slices are folded into "Other"
@@ -71,9 +105,9 @@ export function dataRegion(at, has) {
   return g;
 }
 
-/** Round axis ticks covering [min, max] (always including 0): { lo, hi, step, ticks }. */
-export function niceScale(min, max, count = 5) {
-  let lo = Math.min(0, min), hi = Math.max(0, max);
+/** Round axis ticks covering [min, max] (including 0 unless `fit`, for scatter axes): { lo, hi, step, ticks }. */
+export function niceScale(min, max, count = 5, fit = false) {
+  let lo = fit ? min : Math.min(0, min), hi = fit ? max : Math.max(0, max);
   if (lo === hi) hi = lo + 1;
   const raw = (hi - lo) / count;
   const mag = 10 ** Math.floor(Math.log10(raw));

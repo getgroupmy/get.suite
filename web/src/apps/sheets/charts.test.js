@@ -61,3 +61,17 @@ test('pie slices fold the smallest into Other', () => {
   assert.deepEqual(p.at(-1), { ...p.at(-1), name: 'Other', value: 5 });
   assert.ok(Math.abs(p.at(-1).end - 1) < 1e-9);
 });
+
+test('more chart types: stacked pieces and scatter points', async () => {
+  const { stackedRuns, scatterOf, CHART_TYPES, isStacked, isRound, isHorizontal } = await import('./charts.js');
+  assert.equal(CHART_TYPES.length, 9);
+  assert.deepEqual([isStacked('stackedBar'), isRound('doughnut'), isHorizontal('stackedBar'), isHorizontal('column')], [true, true, true, false]);
+  const runs = stackedRuns([{ values: [10, -5, null] }, { values: [20, -3, 4] }, { values: [5, 2, 0] }], 3);
+  assert.deepEqual(runs, [[[0, 10], [-5, 0], null], [[10, 30], [-8, -5], [0, 4]], [[30, 35], [0, 2], null]]);
+  // Rows without names: the first column of numbers is X.
+  const a = scatterOf({ categories: ['1', '2', '3'], series: [{ name: 'Height', values: [150, 160, null] }, { name: 'Weight', values: [50, 61, 70] }] });
+  assert.deepEqual(a, { xName: 'Height', points: [{ name: 'Weight', values: [[150, 50], [160, 61]] }] });
+  // Numeric row names are X; text names are 1, 2, 3.
+  assert.deepEqual(scatterOf({ categories: ['2020', '2021'], series: [{ name: 'Sales', values: [5, 7] }] }).points[0].values, [[2020, 5], [2021, 7]]);
+  assert.deepEqual(scatterOf({ categories: ['Ann', 'Bo'], series: [{ name: 'Score', values: [5, 7] }] }).points[0].values, [[1, 5], [2, 7]]);
+});

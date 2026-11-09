@@ -82,7 +82,7 @@ export function ChartDialog({ initial, value, onSave, onClose }) {
           </fieldset>
           <label className="field"><span>Cells</span><input value={range} onChange={(e) => setRange(e.target.value)} placeholder="A1:C10" aria-invalid={!ok} /></label>
           <label className="field"><span>Title</span><input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={120} placeholder="Optional" /></label>
-          <p className="muted small">The first row and column are used as names when they hold text.{type === 'pie' && ' A pie shows the first series.'}</p>
+          <p className="muted small">The first row and column are used as names when they hold text.{(type === 'pie' || type === 'doughnut') && ` A ${type} shows the first series.`}{type === 'scatter' && ' For a scatter, the first column of numbers is across (X) when the rows have no names, and the others go up (Y).'}</p>
           <button type="submit" hidden />
         </div>
         <div className="chart-preview" aria-label="Preview">

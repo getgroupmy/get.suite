@@ -1143,3 +1143,20 @@ test('Excel: validation rules (numbers, dates, text length, email, web, custom f
   assert.deepEqual([m.B2.type, m.B2.operator, m.B2.errorStyle, m.B2.error], ['whole', 'between', 'stop', 'A quantity from 1 to 99']);
   assert.deepEqual([m.D5.type, new Date(m.D5.formulae[0]).toISOString().slice(0, 10), m.C2.errorStyle], ['date', '2026-01-01', 'warning']);
 });
+
+test('PowerPoint: stacked, area, scatter and doughnut charts from spreadsheets', async () => {
+  const { powerPointFromDeck, scatterSeries } = await import('../src/office/powerpoint.js');
+  assert.deepEqual(scatterSeries({ categories: ['1', '2'], series: [{ name: 'H', values: [150, 160] }, { name: 'W', values: [50, null] }] }),
+    [{ name: 'H', values: [150, 160] }, { name: 'W', values: [50, 0] }]);
+  assert.deepEqual(scatterSeries({ categories: ['Ann', 'Bo'], series: [{ name: 'S', values: [5, 7] }] })[0].values, [1, 2]);
+  const data = { categories: ['Q1', 'Q2'], series: [{ name: 'North', values: [3, 4] }, { name: 'South', values: [2, 5] }] };
+  const items = ['stackedColumn', 'area', 'scatter', 'doughnut'].map((t, i) => ({ id: `c${i}`, type: 'chart', chartType: t, data, x: 0, y: 0, w: 80, h: 60 }));
+  const buf = await powerPointFromDeck({ theme: 'light', slides: items.map((it, i) => ({ id: `s${i}`, items: [it] })) });
+  const zip = await JSZip.loadAsync(buf);
+  const charts = await Promise.all(Object.keys(zip.files).filter((f) => /ppt\/charts\/chart\d+\.xml$/.test(f)).sort().map((f) => zip.file(f).async('string')));
+  const all = charts.join('\n');
+  assert.match(all, /<c:grouping val="stacked"\/>/);
+  assert.match(all, /<c:areaChart>/);
+  assert.match(all, /<c:scatterChart>/);
+  assert.match(all, /<c:doughnutChart>/);
+});

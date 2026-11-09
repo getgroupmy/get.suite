@@ -30,6 +30,19 @@ const relsOf = async (zip, file) => {
 const colorIn = (el) => { const c = deep(el, A, 'srgbClr')[0]; return c ? `#${attr(c, 'val').toLowerCase()}` : null; };
 
 /** A box's link as PowerPoint takes it: { url } for a web page (http, https or mailto), { slide: n } (1-based) for another slide. */
+/**
+ * A scatter chart's series for PowerPoint: the X values first, then each Y series (as Sheets draws
+ * it: X from the first column of numbers when the rows have no names, else numeric row names, else 1, 2, 3…).
+ */
+export function scatterSeries(data) {
+  const cats = (data?.categories || []).map(String), all = data?.series || [];
+  const rowNumbers = cats.every((c, i) => c === String(i + 1));
+  const numericNames = cats.length > 0 && cats.every((c) => c !== '' && !Number.isNaN(Number(c)));
+  const num = (v) => (typeof v === 'number' ? v : 0);
+  if (rowNumbers && all.length > 1) return [{ name: all[0].name || 'X', values: all[0].values.map(num) }, ...all.slice(1).map((x) => ({ name: String(x.name || ''), values: x.values.map(num) }))];
+  return [{ name: 'X', values: cats.map((c, i) => (numericNames ? Number(c) : i + 1)) }, ...all.map((x) => ({ name: String(x.name || ''), values: x.values.map(num) }))];
+}
+
 export function linkFor(link, slides) {
   if (!link) return null;
   if (link.slide !== undefined) { const n = slides.findIndex((x) => x.id === link.slide); return n >= 0 ? { slide: n + 1 } : null; }
@@ -301,10 +314,14 @@ export async function powerPointFromDeck(deck, { pictureData, title = 'Presentat
         slide.addTable(rows, { ...pos, colW: Array(it.cells[0].length).fill(pos.w / it.cells[0].length), border: { type: 'solid', pt: 1, color: color(null, theme.text) }, valign: 'middle', autoPage: false });
       } else if (it.type === 'chart' && it.data?.series?.length) {
         // A chart from a spreadsheet: a real PowerPoint chart, with the figures the slide keeps.
-        const kind = { column: pptx.ChartType.bar, bar: pptx.ChartType.bar, line: pptx.ChartType.line, pie: pptx.ChartType.pie }[it.chartType] || pptx.ChartType.bar;
+        const t = it.chartType;
+        const kind = { column: 'bar', stackedColumn: 'bar', bar: 'bar', stackedBar: 'bar', line: 'line', area: 'area', scatter: 'scatter', pie: 'pie', doughnut: 'doughnut' }[t] || 'bar';
+        const round = t === 'pie' || t === 'doughnut';
         const labels = (it.data.categories || []).map(String);
-        const series = (it.chartType === 'pie' ? it.data.series.slice(0, 1) : it.data.series).map((x) => ({ name: String(x.name || ''), labels, values: (x.values || []).map((v) => (typeof v === 'number' ? v : 0)) }));
-        slide.addChart(kind, series, { ...pos, barDir: it.chartType === 'bar' ? 'bar' : 'col', showLegend: series.length > 1 || it.chartType === 'pie', legendPos: 'b',
+        let series = (round ? it.data.series.slice(0, 1) : it.data.series).map((x) => ({ name: String(x.name || ''), labels, values: (x.values || []).map((v) => (typeof v === 'number' ? v : 0)) }));
+        if (t === 'scatter') series = scatterSeries(it.data); // PowerPoint's scatter: the X values first, then each Y series
+        slide.addChart(pptx.ChartType[kind], series, { ...pos, barDir: t === 'bar' || t === 'stackedBar' ? 'bar' : 'col', ...((t === 'stackedColumn' || t === 'stackedBar') && { barGrouping: 'stacked' }),
+          ...(t === 'scatter' && { lineSize: 0, lineDataSymbolSize: 7 }), ...(t === 'doughnut' && { holeSize: 58 }), showLegend: series.length > (t === 'scatter' ? 2 : 1) || round, legendPos: 'b',
           ...(it.title && { showTitle: true, title: String(it.title), titleFontSize: 14 }) });
       } else if (it.type === 'image') {
         const pic = await pictureData?.(it.fileId);

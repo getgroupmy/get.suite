@@ -1,7 +1,8 @@
-// Drawing a chart (SVG): column, bar, line and pie, with a tooltip on hover, a legend when there
-// is more than one series, and a table view of the numbers behind it.
+// Drawing a chart (SVG): column and bar (side by side or stacked), line, area, scatter, pie and
+// doughnut, with a tooltip on hover, a legend when there is more than one series, and a table view
+// of the numbers behind it.
 import { useState } from 'react';
-import { niceScale, shortNumber, pieSlices } from './charts.js';
+import { niceScale, shortNumber, pieSlices, stackedRuns, scatterOf, isStacked, isRound, isHorizontal } from './charts.js';
 
 const color = (i) => `var(--series-${(i % 8) + 1})`;
 const fmt = (v) => (v === null || v === undefined ? '–' : v.toLocaleString(undefined, { maximumFractionDigits: 6 }));
@@ -21,7 +22,8 @@ export default function ChartView({ type, data, width, height }) {
   const [hover, setHover] = useState(null); // { i, x, y }
   const [table, setTable] = useState(false);
   const { categories, series } = data;
-  const legendItems = type === 'pie' ? pieSlices(data).map((s) => ({ name: `${s.name} · ${Math.round(s.share * 100)}%`, slot: s.slot })) : series.length > 1 ? series.map((s, i) => ({ name: s.name, slot: i })) : [];
+  const scatter = type === 'scatter' && !data.error ? scatterOf(data) : null;
+  const legendItems = scatter ? (scatter.points.length > 1 ? scatter.points.map((s, i) => ({ name: s.name, slot: i })) : []) : isRound(type) ? pieSlices(data).map((s) => ({ name: `${s.name} · ${Math.round(s.share * 100)}%`, slot: s.slot })) : series.length > 1 ? series.map((s, i) => ({ name: s.name, slot: i })) : [];
   const legendH = legendItems.length ? 26 : 0;
   const h = Math.max(60, height - legendH - 24); // 24: the table/chart switch row
   const w = Math.max(80, width);
@@ -43,27 +45,59 @@ export default function ChartView({ type, data, width, height }) {
 
   let plot;
   let tip = null;
-  if (type === 'pie') {
+  if (isRound(type)) {
     const slices = pieSlices(data);
     const r = Math.max(10, Math.min(w, h) / 2 - 6), cx = w / 2, cy = h / 2;
+    const ri = type === 'doughnut' ? r * 0.58 : 0; // the hole
     const pt = (a, rr = r) => [cx + rr * Math.sin(a * 2 * Math.PI), cy - rr * Math.cos(a * 2 * Math.PI)];
+    const total = slices.reduce((t, s) => t + s.value, 0);
     plot = slices.map((s) => {
       const [x0, y0] = pt(s.start), [x1, y1] = pt(s.end);
-      const d = s.share >= 0.9999 ? `M${cx},${cy - r}A${r},${r} 0 1 1 ${cx - 0.01},${cy - r}Z` : `M${cx},${cy}L${x0},${y0}A${r},${r} 0 ${s.share > 0.5 ? 1 : 0} 1 ${x1},${y1}Z`;
-      const [lx, ly] = pt((s.start + s.end) / 2, r * 0.66);
+      const big = s.share > 0.5 ? 1 : 0;
+      let d;
+      if (ri) {
+        const [i0, j0] = pt(s.start, ri), [i1, j1] = pt(s.end, ri);
+        d = s.share >= 0.9999
+          ? `M${cx},${cy - r}A${r},${r} 0 1 1 ${cx - 0.01},${cy - r}ZM${cx},${cy - ri}A${ri},${ri} 0 1 0 ${cx + 0.01},${cy - ri}Z`
+          : `M${x0},${y0}A${r},${r} 0 ${big} 1 ${x1},${y1}L${i1},${j1}A${ri},${ri} 0 ${big} 0 ${i0},${j0}Z`;
+      } else d = s.share >= 0.9999 ? `M${cx},${cy - r}A${r},${r} 0 1 1 ${cx - 0.01},${cy - r}Z` : `M${cx},${cy}L${x0},${y0}A${r},${r} 0 ${big} 1 ${x1},${y1}Z`;
+      const [lx, ly] = pt((s.start + s.end) / 2, ri ? (r + ri) / 2 : r * 0.66);
       return (
         <g key={s.slot} onMouseEnter={() => setHover({ i: s.slot, x: lx, y: ly })} onMouseLeave={() => setHover(null)}>
-          <path d={d} fill={color(s.slot)} stroke="var(--surface)" strokeWidth="2" opacity={hover && hover.i !== s.slot ? 0.55 : 1} />
+          <path d={d} fill={color(s.slot)} fillRule="evenodd" stroke="var(--surface)" strokeWidth="2" opacity={hover && hover.i !== s.slot ? 0.55 : 1} />
           {s.share >= 0.08 && r > 50 && <text x={lx} y={ly} className="chart-slice-label" fill={`var(--series-ink-${(s.slot % 8) + 1})`} textAnchor="middle" dominantBaseline="central">{Math.round(s.share * 100)}%</text>}
         </g>
       );
     });
+    if (ri && r > 40) plot.push(<g key="total"><text x={cx} y={cy - 7} textAnchor="middle" className="chart-total">{shortNumber(total)}</text><text x={cx} y={cy + 11} textAnchor="middle" className="chart-tick">Total</text></g>);
     if (hover) { const s = slices[hover.i]; if (s) tip = { x: hover.x, y: hover.y, title: s.name, rows: [[null, `${fmt(s.value)} (${Math.round(s.share * 1000) / 10}%)`]] }; }
+  } else if (scatter) {
+    const xsAll = scatter.points.flatMap((p) => p.values.map(([x]) => x)), ysAll = scatter.points.flatMap((p) => p.values.map(([, y]) => y));
+    if (!ysAll.length) return <div className="chart-empty muted small">There are no points to show</div>;
+    // Both axes fit the points (they needn't start at 0), with a little room around them.
+    const pad = (lo, hi) => { const d = (hi - lo) * 0.05 || Math.abs(hi) * 0.1 || 1; return [lo - d, hi + d]; };
+    const sy = niceScale(...pad(Math.min(...ysAll), Math.max(...ysAll)), Math.max(2, Math.min(6, Math.floor(h / 50))), true);
+    const sx = niceScale(...pad(Math.min(...xsAll), Math.max(...xsAll)), Math.max(2, Math.min(8, Math.floor(w / 70))), true);
+    const valLabelW = Math.max(...sy.ticks.map((t) => shortNumber(t).length)) * 7 + 10;
+    const m = { l: valLabelW, r: 12, t: 8, b: 22 };
+    const pw = Math.max(10, w - m.l - m.r), ph = Math.max(10, h - m.t - m.b);
+    const X = (v) => m.l + ((v - sx.lo) / (sx.hi - sx.lo)) * pw, Y = (v) => m.t + ph - ((v - sy.lo) / (sy.hi - sy.lo)) * ph;
+    const grid = [
+      ...sy.ticks.map((t) => <g key={`y${t}`}><line x1={m.l} x2={m.l + pw} y1={Y(t)} y2={Y(t)} className={t === 0 ? 'chart-base' : 'chart-grid'} /><text x={m.l - 6} y={Y(t)} textAnchor="end" dominantBaseline="central" className="chart-tick">{shortNumber(t)}</text></g>),
+      ...sx.ticks.map((t) => <g key={`x${t}`}><line x1={X(t)} x2={X(t)} y1={m.t} y2={m.t + ph} className={t === 0 ? 'chart-base' : 'chart-grid'} /><text x={X(t)} y={m.t + ph + 15} textAnchor="middle" className="chart-tick">{shortNumber(t)}</text></g>),
+    ];
+    const dots = scatter.points.flatMap((p, si) => p.values.map(([x, y], k) => (
+      <circle key={`${si}-${k}`} cx={X(x)} cy={Y(y)} r={hover && hover.si === si && hover.k === k ? 6 : 4} fill={color(si)} fillOpacity="0.8" stroke="var(--surface)" strokeWidth="1"
+        onMouseEnter={() => setHover({ si, k, x: X(x), y: Y(y) - 8 })} onMouseLeave={() => setHover(null)} />)));
+    plot = <>{grid}{dots}</>;
+    if (hover) { const p = scatter.points[hover.si]; const [x, y] = p?.values[hover.k] || []; if (p) tip = { x: hover.x, y: hover.y, title: `${scatter.xName || 'X'}: ${fmt(x)}`, rows: [[hover.si, `${p.name}: ${fmt(y)}`]] }; }
   } else {
-    const all = series.flatMap((s) => s.values).filter((v) => v !== null);
-    const sc = niceScale(Math.min(...all), Math.max(...all), Math.max(2, Math.min(6, Math.floor((type === 'bar' ? w : h) / 50))));
+    const stacked = isStacked(type);
+    const runs = stacked ? stackedRuns(series, categories.length) : null;
+    const all = stacked ? runs.flat().filter(Boolean).flat() : series.flatMap((s) => s.values).filter((v) => v !== null);
+    const horiz = isHorizontal(type);
+    const sc = niceScale(Math.min(...all), Math.max(...all), Math.max(2, Math.min(6, Math.floor((horiz ? w : h) / 50))));
     const n = Math.max(1, categories.length);
-    const horiz = type === 'bar';
     const catLabelW = horiz ? Math.min(120, Math.max(24, ...categories.map((c) => c.length * 6.5))) : 0;
     const valLabelW = horiz ? 0 : Math.max(...sc.ticks.map((t) => shortNumber(t).length)) * 7 + 10;
     const m = { l: horiz ? catLabelW + 8 : valLabelW, r: 10, t: 8, b: 22 };
@@ -80,7 +114,7 @@ export default function ChartView({ type, data, width, height }) {
       ? <text key={i} x={m.l - 6} y={catPos(i) + band / 2} textAnchor="end" dominantBaseline="central" className="chart-tick">{clip(c, Math.floor(catLabelW / 6.5))}</text>
       : <text key={i} x={catPos(i) + band / 2} y={m.t + ph + 15} textAnchor="middle" className="chart-tick">{clip(c, Math.max(3, Math.floor((band * every) / 7)))}</text>));
     let marks;
-    if (type === 'line') {
+    if (type === 'line' || type === 'area') {
       const x = (i) => catPos(i) + band / 2;
       marks = series.map((s, si) => {
         const segs = [];
@@ -89,6 +123,8 @@ export default function ChartView({ type, data, width, height }) {
         if (cur.length) segs.push(cur);
         return (
           <g key={si}>
+            {type === 'area' && segs.filter((pts) => pts.length > 1).map((pts, k) => (
+              <polygon key={`a${k}`} points={[[pts[0][0], zero], ...pts, [pts[pts.length - 1][0], zero]].map((p) => p.join(',')).join(' ')} fill={color(si)} fillOpacity={series.length > 1 ? 0.22 : 0.3} stroke="none" />))}
             {segs.map((pts, k) => (pts.length > 1
               ? <polyline key={k} points={pts.map((p) => p.join(',')).join(' ')} fill="none" stroke={color(si)} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
               : <circle key={k} cx={pts[0][0]} cy={pts[0][1]} r="3" fill={color(si)} />))}
@@ -97,6 +133,17 @@ export default function ChartView({ type, data, width, height }) {
         );
       });
       if (hover) marks.unshift(<line key="x" x1={x(hover.i)} x2={x(hover.i)} y1={m.t} y2={m.t + ph} className="chart-cross" />);
+    } else if (stacked) {
+      const thick = band * 0.62;
+      marks = categories.map((_, i) => series.map((s, si) => {
+        const run = runs[si][i];
+        if (!run) return null;
+        const at = catPos(i) + (band - thick) / 2;
+        const a = valPos(run[0]), b = valPos(run[1]);
+        return horiz
+          ? <rect key={`${i}-${si}`} x={Math.min(a, b)} y={at} width={Math.max(1, Math.abs(b - a) - 1)} height={thick} fill={color(si)} opacity={hover && hover.i !== i ? 0.55 : 1} />
+          : <rect key={`${i}-${si}`} x={at} y={Math.min(a, b) + 1} width={thick} height={Math.max(1, Math.abs(b - a) - 1)} fill={color(si)} opacity={hover && hover.i !== i ? 0.55 : 1} />;
+      }));
     } else {
       const k = series.length;
       const group = band * (k > 1 ? 0.8 : 0.7);
@@ -118,7 +165,11 @@ export default function ChartView({ type, data, width, height }) {
       ? <rect key={i} x={m.l} y={catPos(i)} width={pw} height={band} fill="transparent" onMouseEnter={() => setHover({ i, x: m.l + pw / 2, y: catPos(i) + band / 2 })} />
       : <rect key={i} x={catPos(i)} y={m.t} width={band} height={ph} fill="transparent" onMouseEnter={() => setHover({ i, x: catPos(i) + band / 2, y: m.t + 10 })} />));
     plot = <>{grid}{catLabels}{marks}<g onMouseLeave={() => setHover(null)}>{hits}</g></>;
-    if (hover) tip = { x: hover.x, y: hover.y, title: categories[hover.i], rows: series.map((s, si) => [si, `${series.length > 1 ? `${s.name}: ` : ''}${fmt(s.values[hover.i])}`]) };
+    if (hover) {
+      const rows = series.map((s, si) => [si, `${series.length > 1 ? `${s.name}: ` : ''}${fmt(s.values[hover.i])}`]);
+      if (stacked && series.length > 1) rows.push([null, `Total: ${fmt(series.reduce((t, s) => t + (s.values[hover.i] || 0), 0))}`]);
+      tip = { x: hover.x, y: hover.y, title: categories[hover.i], rows };
+    }
   }
 
   return (
