@@ -43,7 +43,7 @@ Admin → Users can act on **several people at once**: tick them (or the box at 
 - **The list of people:** Admin → Users → **Export as CSV** downloads everyone in the company with their address, whether they're an administrator, active or disabled, two-step verification, Drive storage used, when the account was made and when it was last used. It opens in Excel or Sheets; names that look like formulas stay plain text. Exports show in the activity log.
 - **Reused addresses start empty:** when someone is deleted or renamed, their mailbox stays on the server under its old folder, and a new person who later gets that address gets a fresh, empty mailbox. (This applies to deletions from this version on.)
 - **Working across companies:** a user can share a file or folder, or start a direct message, with someone at another company by typing their **exact email address**. This works only while **both** companies allow external collaboration. If either admin switches it off, outside access ends immediately; switching it back on restores it. Shares show an "External · Company" badge.
-- **Quotas:** set per company by the platform owner (0 = unlimited).
+- **Quotas:** set per company by the platform owner (0 = unlimited). Within a company, an admin can also give one person a **Drive storage limit** (Admin → Users → ⋮ → **Drive storage limit**): their files, trash and older versions count, uploads and copies past it are refused with a message saying so, and they see it under **Storage** in Drive.
 
 When two people edit the same doc or sheet, changes are pushed live. If both edit at once, the second person sees a conflict banner ("load theirs" or "keep mine") instead of silently losing work.
 

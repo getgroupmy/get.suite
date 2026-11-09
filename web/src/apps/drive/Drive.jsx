@@ -993,10 +993,11 @@ function StorageDialog({ onClose, onChanged }) {
             <tr><th>Your files</th><td>{formatBytes(s.files)}</td></tr>
             <tr><th>Older versions</th><td>{formatBytes(s.versions)}</td></tr>
             <tr><th>In the trash</th><td>{formatBytes(s.trash)}{s.trash > 0 && <> <button type="button" className="link-btn small" onClick={act(() => post('/files/empty-trash'), 'Trash emptied')}>Empty trash</button></>}</td></tr>
-            <tr><th>Total</th><td><strong>{formatBytes(total)}</strong></td></tr>
+            <tr><th>Total</th><td><strong>{formatBytes(total)}</strong>{s.mine?.quota ? ` of ${formatBytes(s.mine.quota)} (your limit)` : ''}</td></tr>
             <tr><th>Your company</th><td>{formatBytes(s.company.used)}{s.company.quota ? ` of ${formatBytes(s.company.quota)}` : ''}</td></tr>
           </tbody>
         </table>
+        {s.mine?.quota && <div className="bar" aria-label="Your storage used"><div style={{ width: `${Math.min(100, (s.mine.used / s.mine.quota) * 100)}%` }} /></div>}
         {s.company.quota && <div className="bar" aria-label="Company storage used"><div style={{ width: `${Math.min(100, (s.company.used / s.company.quota) * 100)}%` }} /></div>}
         <strong>Largest items</strong>
         {!s.largest.length ? <p className="muted">Nothing stored yet.</p> : (

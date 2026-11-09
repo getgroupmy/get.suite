@@ -1047,7 +1047,7 @@ export default function webmailRoutes() {
     const wanted = Array.isArray(req.body.indexes) ? [...new Set(req.body.indexes.map(Number))] : all.map((_, i) => i);
     const picked = wanted.map((i) => all[i]);
     if (!picked.length || picked.some((a) => !a)) throw notFound('Attachment not found');
-    checkQuota(req.user.org_id, picked.reduce((n, a) => n + a.content.length, 0));
+    checkQuota(req.user.org_id, picked.reduce((n, a) => n + a.content.length, 0), req.user.id);
     let folderId = q("SELECT id FROM files WHERE owner_id = ? AND parent_id IS NULL AND kind = 'folder' AND name = 'Email attachments' AND trashed = 0").get(req.user.id)?.id;
     if (!folderId) folderId = insertFile({ owner: req.user.id, parentId: null, name: 'Email attachments', kind: 'folder' });
     const saved = [];

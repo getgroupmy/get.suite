@@ -102,12 +102,25 @@ function notePictureBytes(orgId) {
   return q('SELECT COALESCE(SUM(p.size), 0) AS n FROM note_pictures p JOIN notes n ON n.id = p.note_id JOIN users u ON u.id = n.owner_id WHERE u.org_id = ?').get(orgId).n;
 }
 
-/** Throw 413 if adding `bytes` would exceed the company's quota. */
-export function checkQuota(orgId, bytes) {
+// A person's own Drive storage limit (Admin → Users → Storage limit), in MB; null: just the company's.
+if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'drive_quota_mb')) q('ALTER TABLE users ADD COLUMN drive_quota_mb INTEGER').run();
+
+/** What a person's Drive takes: their files (trash included) and the earlier versions kept of them. */
+export function userStorageUsed(userId) {
+  return q('SELECT COALESCE(SUM(size), 0) AS n FROM files WHERE owner_id = ?').get(userId).n
+    + q('SELECT COALESCE(SUM(v.size), 0) AS n FROM file_versions v JOIN files f ON f.id = v.file_id WHERE f.owner_id = ?').get(userId).n;
+}
+
+/** Throw 413 if adding `bytes` would exceed the company's quota, or (given whose it is) that person's limit. */
+export function checkQuota(orgId, bytes, userId = null) {
   const org = orgSettings(orgId);
-  if (!org?.quota_mb) return;
-  if (orgStorageUsed(orgId) + bytes > org.quota_mb * 1024 * 1024) {
+  if (org?.quota_mb && orgStorageUsed(orgId) + bytes > org.quota_mb * 1024 * 1024) {
     throw new HttpError(413, `Your company's storage quota (${org.quota_mb} MB) is full`);
+  }
+  const limit = userId ? q('SELECT drive_quota_mb FROM users WHERE id = ?').get(userId)?.drive_quota_mb : null;
+  if (limit !== null && limit !== undefined && userStorageUsed(userId) + bytes > limit * 1024 * 1024) {
+    const who = q('SELECT name FROM users WHERE id = ?').get(userId)?.name;
+    throw new HttpError(413, `${who ? `${who}'s` : 'Your'} storage (${limit} MB) is full: delete some files or empty the trash, or ask an admin for more`);
   }
 }
 

@@ -304,8 +304,8 @@ export default function webdavRoutes({ maxUploadBytes }) {
           if (node.row.kind !== 'file') return res.status(405).end();
           if (!atLeast(node.role, 'editor')) return res.status(403).send('View only');
           if (q('SELECT locked_at FROM files WHERE id = ?').get(node.row.id)?.locked_at) { req.resume(); return res.status(423).send('Locked'); }
-          const owner = q('SELECT org_id FROM users WHERE id = ?').get(node.row.owner_id);
-          const { storage, size } = await receiveUpload(req, owner.org_id, maxUploadBytes);
+          const owner = q('SELECT id, org_id FROM users WHERE id = ?').get(node.row.owner_id);
+          const { storage, size } = await receiveUpload(req, owner.org_id, maxUploadBytes, owner.id);
           tx(() => {
             // Apps often write an empty file first and then the content: don't keep the empty one as a version.
             if (node.row.size > 0) snapshot(node.row.id);
@@ -322,7 +322,7 @@ export default function webdavRoutes({ maxUploadBytes }) {
         if (node.type !== 'missing' || !NAME_OK(node.name)) return res.status(409).end();
         const place = placeFor(user, node.parent);
         if (!place) return res.status(403).send('You can\'t add files here');
-        const { storage, size } = await receiveUpload(req, user.org_id, maxUploadBytes);
+        const { storage, size } = await receiveUpload(req, user.org_id, maxUploadBytes, user.id);
         const id = insertFile({ owner: place.owner, parentId: place.parentId, name: node.name, kind: 'file', mime: mimeFor(node.name), size, storage });
         changed([id]);
         res.setHeader('ETag', etag(q('SELECT * FROM files WHERE id = ?').get(id)));
@@ -395,7 +395,7 @@ export default function webdavRoutes({ maxUploadBytes }) {
         const shallow = req.get('depth') === '0';
         const total = node.row.kind === 'file' ? node.row.size
           : shallow ? 0 : q(`SELECT COALESCE(SUM(size), 0) AS n FROM files WHERE id IN (${subtreeIds(node.row.id).map(() => '?').join(',')}) AND kind = 'file' AND trashed = 0`).get(...subtreeIds(node.row.id)).n;
-        checkQuota(user.org_id, total);
+        checkQuota(user.org_id, total, user.id);
         if (target.type === 'item') q('UPDATE files SET trashed = 1, trashed_at = ?, updated_at = ? WHERE id = ?').run(now(), now(), target.row.id);
         const copy = (f, parentId, name) => {
           const keepProps = (id) => { q('INSERT INTO webdav_props (target, ns, name, value) SELECT ?, ns, name, value FROM webdav_props WHERE target = ?').run(id, f.id); return id; };

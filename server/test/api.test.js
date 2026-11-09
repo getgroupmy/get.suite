@@ -221,6 +221,32 @@ test('storage quota is enforced per company', async () => {
   assert.equal(orgs.find((o) => o.id === globexId).storage_used, 600 * 1024);
 });
 
+test('a person\'s own Drive storage limit, set by an admin: uploads and copies over it refused; their usage shown', async () => {
+  const sam = client(), other = client();
+  const samId = (await owner('POST', '/api/users', { local: 'quotasam', domain: 'acme.com', name: 'Sam Small', password: 'password123' })).body.id;
+  await owner('POST', '/api/users', { local: 'quotaoth', domain: 'acme.com', name: 'Oth Er', password: 'password123' });
+  await login(sam, 'quotasam@acme.com'); await login(other, 'quotaoth@acme.com');
+  assert.equal((await sam('PATCH', `/api/users/${samId}`, { drive_quota_mb: 100 })).status, 403, 'admins only');
+  assert.equal((await owner('PATCH', `/api/users/${samId}`, { drive_quota_mb: 0 })).status, 400);
+  assert.equal((await owner('PATCH', `/api/users/${samId}`, { drive_quota_mb: 1 })).status, 200);
+  assert.equal((await owner('GET', '/api/users')).body.find((u) => u.id === samId).drive_quota_mb, 1);
+  const chunk = Buffer.alloc(600 * 1024, 1);
+  const first = await sam('POST', '/api/files/upload?name=a.bin', chunk, { raw: true });
+  assert.equal(first.status, 201);
+  const second = await sam('POST', '/api/files/upload?name=b.bin', chunk, { raw: true });
+  assert.equal(second.status, 413);
+  assert.match(second.body.error, /storage \(1 MB\) is full/);
+  assert.equal((await sam('POST', `/api/files/${first.body.id}/copy`)).status, 413, 'a copy counts too');
+  assert.equal((await other('POST', '/api/files/upload?name=c.bin', chunk, { raw: true })).status, 201, 'others aren\'t limited by it');
+  const st = (await sam('GET', '/api/files/storage')).body;
+  assert.deepEqual([st.mine.used, st.mine.quota], [600 * 1024, 1024 * 1024]);
+  // Deleting for good frees it.
+  await sam('DELETE', `/api/files/${first.body.id}`);
+  assert.equal((await sam('POST', '/api/files/upload?name=b.bin', chunk, { raw: true })).status, 201);
+  assert.equal((await owner('PATCH', `/api/users/${samId}`, { drive_quota_mb: null })).status, 200);
+  assert.equal((await sam('GET', '/api/files/storage')).body.mine.quota, null);
+});
+
 test('domains: add, refuse removing last or in-use domain', async () => {
   assert.equal((await owner('POST', `/api/orgs/${globexId}/domains`, { name: 'acme.com' })).status, 400, 'belongs to Acme');
   const r = await owner('POST', `/api/orgs/${globexId}/domains`, { name: 'globex.net' });

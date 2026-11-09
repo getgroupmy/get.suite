@@ -297,7 +297,7 @@ export default function userRoutes() {
 
   r.get('/', (req, res) => {
     const orgId = targetOrg(req);
-    res.json(q(`SELECT u.id, u.username, u.name, u.is_admin, u.is_super, u.disabled, u.created_at, u.mail_quota_mb, u.last_active, u.job_title, u.department, u.work_phone, u.manager_id,
+    res.json(q(`SELECT u.id, u.username, u.name, u.is_admin, u.is_super, u.disabled, u.created_at, u.mail_quota_mb, u.drive_quota_mb, u.last_active, u.job_title, u.department, u.work_phone, u.manager_id,
                   (SELECT COALESCE(SUM(size), 0) FROM files f WHERE f.owner_id = u.id) AS storage_used,
                   (SELECT COUNT(*) FROM two_factor t WHERE t.user_id = u.id AND t.enabled = 1) AS two_factor
                 FROM users u WHERE u.org_id = ? ORDER BY u.name`).all(orgId));
@@ -453,7 +453,7 @@ export default function userRoutes() {
   r.patch('/:id', (req, res) => {
     const u = loadManagedUser(req);
     const self = u.id === req.user.id;
-    const { name, is_admin, disabled, password, mail_quota_mb, reset_two_factor } = req.body;
+    const { name, is_admin, disabled, password, mail_quota_mb, reset_two_factor, drive_quota_mb } = req.body;
     if (u.is_super && !req.user.is_super) throw forbidden('Only the platform owner can change this account');
     // A new address (another name, or another of the company's domains). Mail stays where it is.
     if (req.body.local !== undefined || req.body.domain !== undefined) {
@@ -492,13 +492,19 @@ export default function userRoutes() {
     saveProfile(u.id, profile);
     if (req.body.manager_id !== undefined) setManager(u, req.body.manager_id);
     if (Object.keys(profile).length || req.body.manager_id !== undefined) sendTo(orgMemberIds(u.org_id), { type: 'directory-changed' });
+    // Their own Drive storage limit in MB (null: only the company's).
+    if (drive_quota_mb !== undefined) {
+      const mb = drive_quota_mb === null || drive_quota_mb === '' ? null : Math.trunc(Number(drive_quota_mb));
+      if (mb !== null && (!Number.isFinite(mb) || mb < 1 || mb > 10_000_000)) throw bad('Storage limit: a number of MB from 1, or none');
+      q('UPDATE users SET drive_quota_mb = ? WHERE id = ?').run(mb, u.id);
+    }
     if (mail_quota_mb !== undefined) {
       const mb = Math.trunc(Number(mail_quota_mb));
       if (!Number.isFinite(mb) || mb < 0) throw bad('Mailbox size must be 0 (unlimited) or more');
       q('UPDATE users SET mail_quota_mb = ? WHERE id = ?').run(mb, u.id);
     }
     scheduleMailConfig();
-    const changed = Object.fromEntries(Object.entries({ name, is_admin, disabled, mail_quota_mb, reset_two_factor, ...profile, manager_id: req.body.manager_id, password: password !== undefined ? 'reset' : undefined,
+    const changed = Object.fromEntries(Object.entries({ name, is_admin, disabled, mail_quota_mb, drive_quota_mb, reset_two_factor, ...profile, manager_id: req.body.manager_id, password: password !== undefined ? 'reset' : undefined,
       address: req.body.local !== undefined || req.body.domain !== undefined ? q('SELECT username FROM users WHERE id = ?').get(u.id)?.username : undefined }).filter(([, v]) => v !== undefined));
     if (Object.keys(changed).length) audit(req, 'user.update', { org: u.org_id, target: u.username, details: changed });
     res.json({ ok: true });

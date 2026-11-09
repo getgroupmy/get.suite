@@ -18,7 +18,7 @@ import JSZip from 'jszip';
 import { uid, now, str, bad, forbidden, notFound, HttpError, mimeFor, isInlineSafe } from '../util.js';
 import { roleFor, atLeast, audienceFor, subtreeIds, mayTakeAway } from '../access.js';
 import { sendTo } from '../hub.js';
-import { canReach, checkQuota, orgStorageUsed } from '../tenancy.js';
+import { canReach, checkQuota, orgStorageUsed, userStorageUsed } from '../tenancy.js';
 import { resetRoom, CO_EDITED, saveNow } from '../collab.js';
 import { docFromWord, wordFromDoc, watermarkOfWord } from '../office/word.js';
 import { sheetFromExcel, excelFromSheet } from '../office/excel.js';
@@ -281,10 +281,10 @@ export function keepDriveFiles(userId, heirId = null, adminId = null) {
 const SUBTREE = 'WITH RECURSIVE t(id) AS (SELECT ? UNION SELECT f.id FROM files f JOIN t ON f.parent_id = t.id) SELECT id FROM t';
 
 /** Stream an upload into storage, within the size limit and the company's quota. */
-export async function receiveUpload(req, orgId, maxUploadBytes) {
+export async function receiveUpload(req, orgId, maxUploadBytes, ownerId = null) {
   const declared = Number(req.headers['content-length'] || 0);
   if (declared > maxUploadBytes) throw new HttpError(413, 'File is too large');
-  checkQuota(orgId, declared);
+  checkQuota(orgId, declared, ownerId);
   const storage = uid();
   const tmp = path.join(TMP_DIR, storage);
   let size = 0;
@@ -297,7 +297,7 @@ export async function receiveUpload(req, orgId, maxUploadBytes) {
   });
   try {
     await pipeline(req, limiter, fs.createWriteStream(tmp));
-    checkQuota(orgId, size); // Content-Length can be absent (chunked uploads)
+    checkQuota(orgId, size, ownerId); // Content-Length can be absent (chunked uploads)
     fs.renameSync(tmp, path.join(FILES_DIR, storage));
   } catch (e) {
     fs.rm(tmp, { force: true }, () => {});
@@ -580,6 +580,7 @@ export default function fileRoutes({ maxUploadBytes }) {
       trash: sum('SELECT COALESCE(SUM(size), 0) AS n FROM files WHERE owner_id = ? AND trashed = 1'),
       versions: sum('SELECT COALESCE(SUM(v.size), 0) AS n FROM file_versions v JOIN files f ON f.id = v.file_id WHERE f.owner_id = ?'),
       company: { used: orgStorageUsed(req.user.org_id), quota: org?.quota_mb ? org.quota_mb * 1024 * 1024 : null },
+      mine: (() => { const mb = q('SELECT drive_quota_mb FROM users WHERE id = ?').get(me)?.drive_quota_mb; return { used: userStorageUsed(me), quota: mb ? mb * 1024 * 1024 : null }; })(),
       largest,
     });
   });
@@ -635,7 +636,7 @@ export default function fileRoutes({ maxUploadBytes }) {
   r.post('/upload', async (req, res) => {
     const parentId = resolveParent(req.query.parent, req.user);
     const name = cleanName(String(req.query.name || ''));
-    const { storage, size } = await receiveUpload(req, req.user.org_id, maxUploadBytes);
+    const { storage, size } = await receiveUpload(req, req.user.org_id, maxUploadBytes, req.user.id);
     const id = insertFile({ owner: req.user.id, parentId, name, kind: 'file', mime: mimeFor(name), size, storage });
     if (parentId) notify(parentId, { type: 'files-changed', parent_id: parentId });
     res.status(201).json(publicFile(loadFile(id, req.user)));
@@ -743,7 +744,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     const row = q('SELECT f.*, u.org_id FROM files f JOIN users u ON u.id = f.owner_id WHERE f.id = ? AND f.template = 1 AND f.trashed = 0').get(String(req.params.id));
     if (!row || row.org_id !== req.user.org_id) throw notFound('Template not found');
     const parentId = resolveParent(req.body?.parent_id, req.user);
-    checkQuota(req.user.org_id, row.size || 0);
+    checkQuota(req.user.org_id, row.size || 0, req.user.id);
     const name = req.body?.name ? cleanName(req.body.name) : row.name;
     const id = insertFile({ owner: req.user.id, parentId, name, kind: row.kind, size: row.size, content: row.content, activity: { action: 'copy', details: { from: `the template ${row.name}` } } });
     if (parentId) notify(parentId, { type: 'files-changed', parent_id: parentId });
@@ -757,7 +758,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     const row = q('SELECT * FROM files WHERE id = ?').get(f.id);
     const parentId = req.body?.parent_id !== undefined ? resolveParent(req.body.parent_id, req.user)
       : row.parent_id && atLeast(roleFor(row.parent_id, req.user.id) || '', 'editor') ? row.parent_id : null;
-    checkQuota(req.user.org_id, row.size || 0);
+    checkQuota(req.user.org_id, row.size || 0, req.user.id);
     let storage = null;
     if (row.storage) { storage = uid(); fs.copyFileSync(path.join(FILES_DIR, row.storage), path.join(FILES_DIR, storage)); }
     const id = insertFile({ owner: req.user.id, parentId, name: `Copy of ${row.name}`, kind: row.kind, mime: row.mime, size: row.size, storage, content: row.content, activity: { action: 'copy', details: { from: row.name } } });
@@ -817,7 +818,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     try {
       done = await extractZip(fs.readFileSync(path.join(FILES_DIR, f.storage)), {
         rootName: f.name.replace(/\.zip$/i, '') || 'Unzipped', parentId,
-        checkSpace: (bytes) => checkQuota(req.user.org_id, bytes),
+        checkSpace: (bytes) => checkQuota(req.user.org_id, bytes, req.user.id),
         makeFolder: (name, parent) => insertFile({ owner, parentId: parent, name, kind: 'folder', activity: { action: 'create', details: { from: f.name } } }),
         makeFile: ({ name, parentId: parent, size, storage, mime }) => insertFile({ owner, parentId: parent, name, kind: 'file', mime, size, storage, activity: { action: 'upload', details: { from: f.name } } }),
       });
@@ -1002,7 +1003,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     const parentId = deck.parent_id && atLeast(roleFor(deck.parent_id, req.user.id) || '', 'editor') ? deck.parent_id : null;
     const copied = new Map(); // old picture id -> new
     const pics = [...picturesIn('slides', { slides: chosen })].map((pid) => q("SELECT * FROM files WHERE id = ? AND kind = 'file' AND trashed = 0").get(pid)).filter(Boolean);
-    checkQuota(req.user.org_id, pics.reduce((n, f) => n + (f.size || 0), 0));
+    checkQuota(req.user.org_id, pics.reduce((n, f) => n + (f.size || 0), 0), req.user.id);
     for (const f of pics) {
       // Only pictures this presentation could show (owned by someone who can edit it), like the deck does.
       if (!/^image\//.test(f.mime || '') || !atLeast(roleFor(src.id, f.owner_id) || '', 'editor')) continue;
@@ -1032,7 +1033,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     // The document's or presentation's pictures go in a folder of their own beside it.
     const savePicture = async (pname, data, mime) => {
       folder ??= insertFile({ owner: req.user.id, parentId, name: `${name} pictures`, kind: 'folder' });
-      checkQuota(req.user.org_id, data.length);
+      checkQuota(req.user.org_id, data.length, req.user.id);
       const storage = uid();
       fs.writeFileSync(path.join(FILES_DIR, storage), data);
       return insertFile({ owner: req.user.id, parentId: folder, name: pname, kind: 'file', mime, size: data.length, storage });
@@ -1092,8 +1093,8 @@ export default function fileRoutes({ maxUploadBytes }) {
     const f = loadFile(req.params.id, req.user, 'editor');
     if (f.kind !== 'file') throw bad('Only uploaded files take a new version this way');
     notLocked(f);
-    const owner = q('SELECT org_id FROM users WHERE id = ?').get(f.owner_id);
-    const { storage, size } = await receiveUpload(req, owner.org_id, maxUploadBytes);
+    const owner = q('SELECT id, org_id FROM users WHERE id = ?').get(f.owner_id);
+    const { storage, size } = await receiveUpload(req, owner.org_id, maxUploadBytes, owner.id);
     const name = req.query.name ? cleanName(String(req.query.name)) : f.name;
     tx(() => {
       snapshot(f.id);
@@ -1151,7 +1152,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     let storage = null;
     if (v.storage) {
       const owner = q('SELECT org_id FROM users WHERE id = ?').get(f.owner_id);
-      checkQuota(owner.org_id, v.size);
+      checkQuota(owner.org_id, v.size, f.owner_id);
       storage = uid();
       fs.copyFileSync(path.join(FILES_DIR, v.storage), path.join(FILES_DIR, storage));
     }

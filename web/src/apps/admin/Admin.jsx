@@ -181,7 +181,7 @@ function Users({ orgId, setOrgId }) {
             <td className="hide-sm muted">{u.username}</td>
             <td className="hide-sm">{u.is_super ? <span className="pill">Platform owner</span> : u.is_admin ? <span className="pill">Admin</span> : 'User'}
               {u.two_factor ? <span className="pill ok" title="Signs in with a password and a code from their phone">2-step</span> : null}</td>
-            <td className="hide-sm muted">{formatBytes(u.storage_used)}</td>
+            <td className="hide-sm muted">{formatBytes(u.storage_used)}{u.drive_quota_mb ? ` of ${formatBytes(u.drive_quota_mb * 1048576)}` : ''}</td>
             <td className="hide-sm muted">{u.mail_quota_mb ? formatBytes(u.mail_quota_mb * 1048576) : 'Unlimited'}</td>
             <td className="hide-sm muted" title={u.last_active ? new Date(u.last_active).toLocaleString() : undefined}>{lastActiveText(u.last_active)}</td>
             <td className="actions">
@@ -191,6 +191,7 @@ function Users({ orgId, setOrgId }) {
                   { label: 'Change email address', icon: 'mail', onClick: () => setDialog({ type: 'address', user: u }) },
                   { label: 'Job and manager', icon: 'person', onClick: () => setDialog({ type: 'job', user: u }) },
                   { label: 'Mailbox size', icon: 'mail', onClick: () => setDialog({ type: 'quota', user: u }) },
+                  { label: 'Drive storage limit', icon: 'folder', onClick: () => setDialog({ type: 'drivequota', user: u }) },
                   { label: 'Signed-in devices', icon: 'logout', onClick: () => setDialog({ type: 'devices', user: u }) },
                   u.two_factor && u.id !== me.id && { label: 'Reset two-step verification', icon: 'shield', onClick: () => setDialog({ type: 'reset2fa', user: u }) },
                   u.id !== me.id && !u.is_super && { label: u.is_admin ? 'Remove admin' : 'Make admin', icon: 'shield', onClick: act(() => patch(`/users/${u.id}`, { is_admin: !u.is_admin }), 'Role updated') },
@@ -219,6 +220,7 @@ function Users({ orgId, setOrgId }) {
     {dialog?.type === 'password' && <ResetPassword user={dialog.user} onClose={() => setDialog(null)} />}
     {dialog?.type === 'job' && <JobDialog user={dialog.user} people={users || []} onClose={() => setDialog(null)} onSaved={() => { setDialog(null); toast('Saved'); load(); }} />}
     {dialog?.type === 'address' && <ChangeAddress user={dialog.user} domains={domains} onClose={() => setDialog(null)} onSaved={(addr) => { setDialog(null); toast(`Address changed to ${addr}`); load(); }} />}
+    {dialog?.type === 'drivequota' && <DriveLimit user={dialog.user} onClose={() => setDialog(null)} onSaved={(mb) => { setDialog(null); toast(mb ? `${dialog.user.name} can store up to ${mb} MB` : `No limit of their own for ${dialog.user.name}`); load(); }} />}
     {dialog?.type === 'quota' && <MailboxSize user={dialog.user} onClose={() => setDialog(null)} onSaved={() => { setDialog(null); toast('Mailbox size updated'); load(); }} />}
     {dialog?.type === 'reset2fa' && (
       <ConfirmModal title={`Reset two-step verification for ${dialog.user.name}?`} confirm="Reset" danger={false}
@@ -736,6 +738,26 @@ function OrgPicker({ orgId, setOrgId }) {
     <select value={orgId} onChange={(e) => setOrgId(e.target.value)} aria-label="Company" style={{ alignSelf: 'flex-start' }}>
       {orgs.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
     </select>
+  );
+}
+
+/** A person's own Drive storage limit (empty: only the company's). */
+function DriveLimit({ user, onClose, onSaved }) {
+  const [mb, setMb] = useState(user.drive_quota_mb || '');
+  const [error, setError] = useState('');
+  return (
+    <Modal title={`Drive storage for ${user.name}`} onClose={onClose}>
+      <form className="stack" onSubmit={async (e) => {
+        e.preventDefault();
+        try { await patch(`/users/${user.id}`, { drive_quota_mb: mb === '' ? null : Number(mb) }); onSaved(mb === '' ? null : Number(mb)); } catch (err) { setError(err.message); }
+      }}>
+        <label className="field"><span>Most they can store, in MB (empty: no limit of their own)</span>
+          <input type="number" min="1" step="1" autoFocus value={mb} placeholder="No limit" onChange={(e) => setMb(e.target.value)} /></label>
+        <p className="muted small" style={{ margin: 0 }}>They use {formatBytes(user.storage_used)} now: their files, the trash and older versions. Once full, uploads and copies are refused until they free some space. The company's quota still applies.</p>
+        {error && <p className="error">{error}</p>}
+        <div className="row end"><button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn primary">Save</button></div>
+      </form>
+    </Modal>
   );
 }
 

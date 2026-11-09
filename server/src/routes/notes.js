@@ -240,8 +240,8 @@ export default function noteRoutes() {
     const mime = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
     if (!PICTURE_TYPES.includes(mime)) throw bad('Add a PNG, JPEG, GIF or WebP picture');
     if (picturesOf(n.id).length >= MAX_PICTURES) throw bad(`A note can have up to ${MAX_PICTURES} pictures`);
-    const owner = q('SELECT org_id FROM users WHERE id = ?').get(n.owner_id);
-    const { storage, size } = await receiveUpload(req, owner.org_id, MAX_PICTURE_BYTES).catch((e) => { throw e.status === 413 ? bad('Pictures can be up to 10 MB') : e; });
+    const owner = q('SELECT id, org_id FROM users WHERE id = ?').get(n.owner_id);
+    const { storage, size } = await receiveUpload(req, owner.org_id, MAX_PICTURE_BYTES, owner.id).catch((e) => { throw e.status === 413 ? bad('Pictures can be up to 10 MB') : e; });
     const id = uid();
     q('INSERT INTO note_pictures (id, note_id, storage, mime, size, added_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(id, n.id, storage, mime, size, req.user.id, now());
     q('UPDATE notes SET updated_at = ?, updated_by = ? WHERE id = ?').run(now(), req.user.id, n.id);
