@@ -210,7 +210,7 @@ function deliver(c, user, { body, files, poll, parent, forwarded = null }) {
     // Not for a muted conversation, nor for whoever was @mentioned (that notification already went).
     const muted = new Set(q('SELECT user_id FROM chat_mutes WHERE channel_id = ?').all(c.id).map((x) => x.user_id));
     for (const id of others.filter((x) => !muted.has(x) && !mentioned.includes(x) && !offFor(x).includes('dm'))) {
-      pushTo(id, { title: user.name || user.username, body: msg.body ? String(msg.body).slice(0, 200) : '📎 Sent a file', link: `/chat/${c.id}`, tag: `chat-${c.id}` }).catch(() => {});
+      pushTo(id, { title: user.name || user.username, body: msg.body ? String(msg.body).slice(0, 200) : '📎 Sent a file', link: `/chat/${c.id}`, tag: `chat-${c.id}`, private: { body: 'Sent you a message' } }).catch(() => {});
     }
   }
   if (parent) sendTo(audience(c), { type: 'message-updated', message: one(parent.id) }); // its reply count

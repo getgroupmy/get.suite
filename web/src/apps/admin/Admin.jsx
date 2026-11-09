@@ -479,6 +479,10 @@ function CompanySettings() {
           Let people make API tokens for their own scripts (Settings → API tokens). Each acts as its owner, can be read-only, and expires
         </label>
         <CompanyTokens />
+        <label className="check">
+          <input type="checkbox" checked={!!org.push_private} onChange={(e) => save({ push_private: e.target.checked }, e.target.checked ? 'Notifications on phones now hide what’s written' : 'Notifications on phones show what’s written again')} />
+          Keep what’s written off lock screens: notifications on phones and computers say who or what it’s from (“HR Team · New email”), not the subject or message
+        </label>
       </div>
       <CompanySignature org={org} save={save} />
       <div className="card stack">

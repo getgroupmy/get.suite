@@ -24,5 +24,6 @@ export async function handleMailNew(body) {
     body: one ? String(m.subject || '(No subject)') : list.map((x) => `${nameOf(x.from)}: ${x.subject || '(No subject)'}`).join('\n'),
     link: one && m.uid ? `/mail/${encodeURIComponent(folder)}/${Number(m.uid)}` : `/mail/${encodeURIComponent(folder)}`,
     tag: 'mail',
+    private: one ? { title: nameOf(m.from), body: 'New email' } : { title: `${list.length} new emails`, body: 'Open Workspace to read them' },
   });
 }

@@ -19,6 +19,8 @@ q(`CREATE TABLE IF NOT EXISTS push_subscriptions (
 if (!q('PRAGMA table_info(push_subscriptions)').all().some((c) => c.name === 'tz')) q('ALTER TABLE push_subscriptions ADD COLUMN tz TEXT').run();
 // The sign-in that turned them on: signed out there (or everywhere, or the account turned off), and
 // that device gets nothing more, since notifications carry what people wrote.
+// A company setting: notifications on phones say who or what it's from, not what's written (lock screens).
+if (!q('PRAGMA table_info(orgs)').all().some((c) => c.name === 'push_private')) q('ALTER TABLE orgs ADD COLUMN push_private INTEGER NOT NULL DEFAULT 0').run();
 if (!q('PRAGMA table_info(push_subscriptions)').all().some((c) => c.name === 'session')) q('ALTER TABLE push_subscriptions ADD COLUMN session TEXT').run();
 
 /** The server's own key pair (VAPID), made once and kept. */
@@ -70,6 +72,11 @@ export async function pushTo(userId, msg, { now = Date.now(), force = false, bas
   if (!force) {
     const u = q('SELECT paused_until FROM users WHERE id = ?').get(userId);
     if ((u?.paused_until && u.paused_until > now) || quietUntil(userId, now)) return 0;
+  }
+  // The company keeps what's written off lock screens: the message's own private version (who or what
+  // it's from), else just a nudge to open Workspace.
+  if (q('SELECT o.push_private FROM users u JOIN orgs o ON o.id = u.org_id WHERE u.id = ?').get(userId)?.push_private) {
+    msg = { ...msg, title: msg.private?.title ?? msg.title, body: msg.private?.body ?? 'Open Workspace to read it' };
   }
   const keys = vapidKeys();
   // With the number of unread notifications, for the app's icon (the app adds unread mail when it opens).

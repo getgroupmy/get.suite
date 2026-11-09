@@ -35,7 +35,7 @@ export async function sendDueReminderPushes(now = Date.now(), { skipOnline = tru
           if (at > now || at <= now - LATE) continue;
           const key = `${userId}:${row.id}@${occ.start}:${m}`;
           if (!q('INSERT OR IGNORE INTO push_reminders_sent (key, sent_at) VALUES (?, ?)').run(key, now).changes) continue;
-          await pushTo(userId, { title: row.title || '(No title)', body: [when(m), row.location].filter(Boolean).join(' · '), link: '/calendar', tag: `event-${row.id}` }, { now });
+          await pushTo(userId, { title: row.title || '(No title)', body: [when(m), row.location].filter(Boolean).join(' · '), link: '/calendar', tag: `event-${row.id}`, private: { title: 'Calendar reminder', body: when(m) } }, { now });
           sent++;
         }
       }
@@ -74,7 +74,8 @@ export async function sendTaskPushes(now = Date.now(), { skipOnline = true } = {
         const parts = [];
         if (today.length) parts.push(today.length === 1 ? `“${today[0].title}” is due today` : `${today.length} tasks are due today`);
         if (late.length) parts.push(`${late.length} ${late.length === 1 ? 'is' : 'are'} overdue`);
-        await pushTo(userId, { title: 'Tasks', body: parts.join(', and '), link: '/tasks', tag: 'tasks' }, { now });
+        const counts = [today.length && `${today.length} due today`, late.length && `${late.length} overdue`].filter(Boolean).join(', ');
+        await pushTo(userId, { title: 'Tasks', body: parts.join(', and '), link: '/tasks', tag: 'tasks', private: { body: counts } }, { now });
         sent++;
       }
     }
@@ -83,7 +84,7 @@ export async function sendTaskPushes(now = Date.now(), { skipOnline = true } = {
       const [y, m, d] = t.due.split('-').map(Number), [hh, mm] = t.due_time.split(':').map(Number);
       const at = zonedToUtc(y, m, d, hh, mm, 0, tz); // (months from 1)
       if (at > now || at <= now - LATE || !once(`${userId}:task:${t.id}:${at}`)) continue;
-      await pushTo(userId, { title: t.title, body: 'Due now', link: '/tasks', tag: `task-${t.id}` }, { now });
+      await pushTo(userId, { title: t.title, body: 'Due now', link: '/tasks', tag: `task-${t.id}`, private: { title: 'A task is due now', body: '' } }, { now });
       sent++;
     }
   }

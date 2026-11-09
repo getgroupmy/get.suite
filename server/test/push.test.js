@@ -191,3 +191,25 @@ test('push: signed out on that device (or everywhere), or the account turned off
   subscribe('pu', { endpoint, keys }, 'Script', null, null);
   assert.deepEqual(devicesOf('pu'), []);
 });
+
+test('push: a company that keeps what’s written off lock screens: who or what it’s from only', async () => {
+  process.env.PUSH_ANY_ENDPOINT = '1';
+  q('DELETE FROM push_subscriptions').run();
+  answer = 201;
+  subscribe('pu', { endpoint, keys }, 'Pia phone', null, signedIn('pu'));
+  q("UPDATE orgs SET push_private = 1 WHERE id = 'po'").run();
+  try {
+    got = [];
+    notify(['pu'], { kind: 'mention', title: 'Kim mentioned you in “Plan”', body: 'Salary figures for Q4 attached', link: '/docs/1' });
+    for (let i = 0; i < 50 && !got.length; i++) await new Promise((r) => setTimeout(r, 20));
+    assert.deepEqual([read(got[0]).title, read(got[0]).body], ['Kim mentioned you in “Plan”', 'Open Workspace to read it']);
+    const { handleMailNew } = await import('../src/mail/mailpush.js');
+    got = [];
+    await handleMailNew({ user: 'p@push.test', messages: [{ folder: 'INBOX', uid: 7, from: '"HR Team" <hr@push.test>', subject: 'Your dismissal letter' }] });
+    assert.deepEqual([read(got[0]).title, read(got[0]).body], ['HR Team', 'New email']);
+    assert.ok(!JSON.stringify(read(got[0])).includes('dismissal'));
+    got = [];
+    await pushTo('pu', { title: 'Board meeting: merger', body: 'In 10 minutes · Room 4', private: { title: 'Calendar reminder', body: 'In 10 minutes' } }, { force: true });
+    assert.deepEqual([read(got[0]).title, read(got[0]).body], ['Calendar reminder', 'In 10 minutes']);
+  } finally { q("UPDATE orgs SET push_private = 0 WHERE id = 'po'").run(); }
+});
