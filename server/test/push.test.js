@@ -54,7 +54,7 @@ test('push: a notification reaches the device, encrypted, signed with the server
   assert.equal(got.length, 1);
   assert.equal(got[0].headers['content-encoding'], 'aes128gcm');
   assert.match(got[0].headers.authorization, new RegExp(`^vapid t=.+, k=${vapidKeys().publicKey}$`));
-  assert.deepEqual(read(got[0]), { title: 'Kim mentioned you in “Plan”', body: 'Can you check the figures?', link: '/docs/123', tag: 'mention' });
+  assert.deepEqual(read(got[0]), { title: 'Kim mentioned you in “Plan”', body: 'Can you check the figures?', link: '/docs/123', tag: 'mention', badge: 1 }, 'with the unread count for the icon');
   // Notifications paused: nothing goes out (unless it's the test one).
   q('UPDATE users SET paused_until = ? WHERE id = ?').run(Date.now() + 36e5, 'pu');
   got = [];

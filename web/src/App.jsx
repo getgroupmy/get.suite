@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { setBadgePart } from './appbadge.js';
 import { BrowserRouter, Routes, Route, Navigate, NavLink, useNavigate, useParams } from 'react-router';
 import { get, post, patch, startLive, stopLive, onLive, idleMs } from './api.js';
 import { useMailStatus } from './mailStatus.js';
@@ -216,6 +217,7 @@ function Shell() {
   const toast = useToast();
   const openMessage = useCallback((folder, uid) => navigate(`/mail/${encodeURIComponent(folder)}/${uid}`), [navigate]);
   const unread = useMailNotifications(!!mail?.enabled, { toast, openMessage });
+  useEffect(() => { setBadgePart('mail', unread); }, [unread]); // on the app's icon, with notifications
   const openCalendar = useCallback(() => navigate('/calendar'), [navigate]);
   useEventReminders(true, { toast, openCalendar });
   useTaskReminders({ toast, navigate });

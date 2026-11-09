@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { get, post, put, onLive } from '../api.js';
 import Icon from './Icon.jsx';
+import { setBadgePart } from '../appbadge.js';
 import { Modal, useToast } from './ui.jsx';
 
 const ICONS = { mention: 'chat', comment: 'chat', task: 'check', invite: 'calendar', share: 'share', booking: 'calendar', edit: 'edit', chat: 'chat', form: 'form' };
@@ -21,6 +22,7 @@ export function ago(ms, now = Date.now()) {
 export default function Bell() {
   const navigate = useNavigate();
   const [data, setData] = useState({ items: [], unread: 0 });
+  useEffect(() => { setBadgePart('bell', data.unread); }, [data.unread]); // on the app's icon, with unread mail
   const [open, setOpen] = useState(false);
   const [settings, setSettings] = useState(false);
   const box = useRef();

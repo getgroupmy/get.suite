@@ -1,7 +1,7 @@
 // Workspace as an installed app: this service worker only keeps the app itself (its page and its
 // script and style files) so it opens without a connection. Nothing from /api, mail, files or the
 // sync addresses is ever stored here: those always go to the server.
-const CACHE = 'workspace-app-v3';
+const CACHE = 'workspace-app-v4';
 const SKIP = /^\/(api|dav|ws|s|b|i|f|p|meet-ws)(\/|$)/; // live data and public share pages
 
 self.addEventListener('install', (e) => {
@@ -69,6 +69,7 @@ self.addEventListener('fetch', (e) => {
 self.addEventListener('push', (e) => {
   let m = {};
   try { m = e.data ? e.data.json() : {}; } catch { m = { title: e.data?.text() }; }
+  if (Number.isFinite(m.badge) && self.navigator.setAppBadge) { try { (m.badge ? self.navigator.setAppBadge(m.badge) : self.navigator.clearAppBadge()).catch(() => {}); } catch { /* not supported */ } }
   e.waitUntil(self.registration.showNotification(m.title || 'Workspace', {
     body: m.body || '', tag: m.tag, renotify: !!m.tag, icon: '/icons/icon-192.png', badge: '/icons/icon-192.png', data: { link: m.link || '/' },
   }));
