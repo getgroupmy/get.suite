@@ -7043,13 +7043,13 @@ test('Sign in with Workspace: an app signs people out of Workspace too', async (
   assert.ok(me.id);
 });
 
-test('Drive search finds a presentation by its speaker notes, chart titles and picture descriptions', async () => {
-  const content = { slides: [{ id: 's1', items: [{ id: 't1', type: 'text', text: 'Launch plan' }, { id: 'c1', type: 'chart', title: 'Marmalade exports' }, { id: 'p1', type: 'image', alt: 'Lighthouse at dusk' }], notes: 'Thank the Quokka team' }] };
+test('Drive search finds a presentation by its speaker notes, chart titles, picture descriptions and text in shapes', async () => {
+  const content = { slides: [{ id: 's1', items: [{ id: 't1', type: 'text', text: 'Launch plan' }, { id: 'c1', type: 'chart', title: 'Marmalade exports' }, { id: 'p1', type: 'image', alt: 'Lighthouse at dusk' }, { id: 'sh', type: 'shape', shape: 'rect', fill: 'accent', text: 'Wombat roadmap' }], notes: 'Thank the Quokka team' }] };
   const deck = (await owner('POST', '/api/files/new', { kind: 'slides', name: 'Ideas deck', content })).body;
   const { indexPending } = await import('../src/search.js');
   while (await indexPending()) { /* until everything is indexed */ }
   const find = async (words) => (await owner('GET', `/api/files?view=search&q=${encodeURIComponent(words)}`)).body.map((f) => f.id);
-  for (const words of ['quokka team', 'marmalade', 'lighthouse dusk', 'launch plan']) assert.ok((await find(words)).includes(deck.id), words);
+  for (const words of ['quokka team', 'marmalade', 'lighthouse dusk', 'launch plan', 'wombat roadmap']) assert.ok((await find(words)).includes(deck.id), words);
 });
 
 test('opening a Word file in two columns, or with numbered lines, keeps that in the page setup', async () => {

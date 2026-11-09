@@ -44,8 +44,8 @@ export function sheetText(json) {
 
 /** A presentation's text boxes, slide by slide. */
 export function slidesText(json) {
-  // Text boxes, tables, chart titles, picture descriptions and speaker notes.
-  const of = (it) => (it.type === 'text' ? it.text || '' : it.type === 'table' ? (it.cells || []).flat().join(' ') : it.type === 'chart' ? it.title || '' : it.type === 'image' ? it.alt || '' : '');
+  // Text boxes, text in shapes, tables, chart titles, picture descriptions and speaker notes.
+  const of = (it) => (it.type === 'text' || it.type === 'shape' ? it.text || '' : it.type === 'table' ? (it.cells || []).flat().join(' ') : it.type === 'chart' ? it.title || '' : it.type === 'image' ? it.alt || '' : '');
   return (json?.slides || []).map((s) => [...(s.items || []).map(of), s.notes || ''].filter(Boolean).join('\n')).join('\n');
 }
 

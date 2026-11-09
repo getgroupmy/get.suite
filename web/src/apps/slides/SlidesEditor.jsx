@@ -164,7 +164,7 @@ export default function SlidesEditor() {
     if (nudge) { e.preventDefault(); change((d) => updateItem(d, slideIndex, item.id, (it) => moveBox(it, ...nudge))); }
     else if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); change((d) => removeItem(d, slideIndex, item.id)); setSelected(null); }
     else if (e.key === 'Escape') setSelected(null);
-    else if (e.key === 'Enter' && item.type === 'text') { e.preventDefault(); setEditing(item.id); }
+    else if (e.key === 'Enter' && (item.type === 'text' || boxShape(item))) { e.preventDefault(); setEditing(item.id); }
   }
 
   /** Put copies of boxes on this slide and choose them. */
@@ -350,9 +350,9 @@ export default function SlidesEditor() {
           ]} />
           <input ref={pictureInput} type="file" accept="image/*" hidden onChange={(e) => { insertPicture(e.target.files[0]); e.target.value = ''; }} />
           <span className="sep" />
-          {item?.type === 'text' && <>
-            <select className="tb-select" aria-label="Text size" value={item.size || 24} onChange={(e) => setItem({ size: Number(e.target.value) })}>
-              {[...new Set([...SIZES, item.size || 24])].sort((a, b) => a - b).map((s) => <option key={s} value={s}>{s}</option>)}
+          {(item?.type === 'text' || boxShape(item)) && <>
+            <select className="tb-select" aria-label="Text size" value={item.size || textSize(item)} onChange={(e) => setItem({ size: Number(e.target.value) })}>
+              {[...new Set([...SIZES, item.size || textSize(item)])].sort((a, b) => a - b).map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
             <button type="button" className={`tb ${item.bold ? 'on' : ''}`} aria-pressed={!!item.bold} aria-label="Bold" onClick={() => setItem({ bold: !item.bold })}><b>B</b></button>
             <button type="button" className={`tb ${item.italic ? 'on' : ''}`} aria-pressed={!!item.italic} aria-label="Italic" onClick={() => setItem({ italic: !item.italic })}><i>I</i></button>
@@ -360,7 +360,7 @@ export default function SlidesEditor() {
               {TEXT_COLORS.map(([v, n]) => <option key={n} value={v}>{n}</option>)}
             </select>
             {['left', 'center', 'right'].map((a) => (
-              <button key={a} type="button" className={`tb ${(item.align || 'left') === a ? 'on' : ''}`} aria-pressed={(item.align || 'left') === a}
+              <button key={a} type="button" className={`tb ${(item.align || textAlignOf(item)) === a ? 'on' : ''}`} aria-pressed={(item.align || textAlignOf(item)) === a}
                 aria-label={{ left: 'Align left', center: 'Centre', right: 'Align right' }[a]} onClick={() => setItem({ align: a })}>{{ left: '⯇', center: '≡', right: '⯈' }[a]}</button>
             ))}
           </>}
@@ -597,6 +597,11 @@ function ImportSlides({ from, onClose, onImport }) {
   );
 }
 
+/** A rectangle, rounded rectangle or ellipse: shapes that can hold text (not lines or arrows). */
+const boxShape = (it) => it?.type === 'shape' && it.shape !== 'line' && it.shape !== 'arrow';
+const textSize = (it) => (it?.type === 'shape' ? 20 : 24);
+const textAlignOf = (it) => (it?.type === 'shape' ? 'center' : 'left');
+
 export function SlideView({ slide, theme, deckId, editable, selected, group = [], editing, onSelect, onEdit, onChange, onMoveMany, peers, built, number, pictureBase = null }) {
   // Animated boxes: where each comes in (1, 2…). Presenting (built set), the later ones aren't in yet.
   const buildAt = new Map(builds(slide).map((it, k) => [it.id, k + 1]));
@@ -717,7 +722,21 @@ export function SlideView({ slide, theme, deckId, editable, selected, group = []
         } else if (it.type === 'shape') {
           inner = it.shape === 'line' || it.shape === 'arrow'
             ? <LineShape arrow={it.shape === 'arrow'} dir={it.dir || 'h'} color={colorOf(it.fill, theme, theme.accent)} />
-            : <div className={`slide-shape ${it.shape}`} style={{ background: colorOf(it.fill, theme, theme.accent) }} />;
+            : (() => {
+              // Text in a box shape: centred, in the slide's background colour unless chosen (it sits on the shape's colour).
+              const style = { fontSize: `calc(${it.size || textSize(it)} * 0.1cqw)`, fontWeight: it.bold ? 700 : 400, fontStyle: it.italic ? 'italic' : 'normal', textAlign: it.align || 'center', color: colorOf(it.color, theme, theme.bg) };
+              return (
+                <div className={`slide-shape ${it.shape}`} style={{ background: colorOf(it.fill, theme, theme.accent) }}>
+                  {editable && editing === it.id
+                    ? <textarea autoFocus className="slide-text shape-text editing" style={style} defaultValue={it.text || ''} aria-label="Text in the shape"
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); e.currentTarget.blur(); } }}
+                        onChange={(e) => onChange(it.id, { text: e.target.value || undefined })}
+                        onBlur={() => onEdit(null)} />
+                    : it.text ? <div className="slide-text shape-text" style={style}>{it.text}</div> : null}
+                </div>
+              );
+            })();
         }
         const at = buildAt.get(it.id);
         const notYet = built !== undefined && at && at > built;
@@ -726,10 +745,10 @@ export function SlideView({ slide, theme, deckId, editable, selected, group = []
           <div key={it.id} className={`slide-item ${it.type} ${isSel || inGroup ? 'sel' : ''} ${inGroup ? 'in-group' : ''} ${arriving}`} data-item={it.id} data-built={built !== undefined && at ? (notYet ? 'no' : 'yes') : undefined}
             style={{ ...(peers?.has(it.id) ? { ...pos, boxShadow: `0 0 0 ${isSel ? 4 : 2}px ${peers.get(it.id).color}` } : pos), ...(notYet && { visibility: 'hidden' }) }}
             title={peers?.has(it.id) ? `${peers.get(it.id).name} is here` : undefined}
-            aria-label={editable ? `${it.type === 'text' ? (it.text ? `Text: ${it.text.slice(0, 40)}` : PLACEHOLDER[it.role] || 'Text box') : it.type === 'image' ? (it.alt ? `Picture: ${it.alt.slice(0, 80)}` : 'Picture') : it.type === 'video' ? `Video: ${it.name || ''}` : it.type === 'table' ? 'Table' : it.type === 'chart' ? `Chart: ${it.title || 'Untitled'}` : 'Shape'}` : undefined}
+            aria-label={editable ? `${it.type === 'text' ? (it.text ? `Text: ${it.text.slice(0, 40)}` : PLACEHOLDER[it.role] || 'Text box') : boxShape(it) && it.text ? `Shape: ${it.text.slice(0, 40)}` : it.type === 'image' ? (it.alt ? `Picture: ${it.alt.slice(0, 80)}` : 'Picture') : it.type === 'video' ? `Video: ${it.name || ''}` : it.type === 'table' ? 'Table' : it.type === 'chart' ? `Chart: ${it.title || 'Untitled'}` : 'Shape'}` : undefined}
             data-link={!editable && it.link ? '1' : undefined}
             onPointerDown={editable ? (e) => startDrag(e, it) : undefined}
-            onDoubleClick={editable && (it.type === 'text' || it.type === 'table') ? () => onEdit(it.id) : undefined}>
+            onDoubleClick={editable && (it.type === 'text' || it.type === 'table' || boxShape(it)) ? () => onEdit(it.id) : undefined}>
             {inner}
             {editable && it.link && <span className="link-badge" title="Has a link (followed when presenting)" aria-hidden="true">🔗</span>}
             {editable && at && <span className="anim-badge" title={`Comes in on click ${at} (${it.anim})`} aria-hidden="true">{at}</span>}

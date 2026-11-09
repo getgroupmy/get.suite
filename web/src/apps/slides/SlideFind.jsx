@@ -45,7 +45,8 @@ export function SlideFind({ deck, replacing, canEdit, onGo, onReplace, onClose }
     else if (e.key === 'Enter' && e.target.name === 'replace') { e.preventDefault(); if (e.ctrlKey || e.metaKey) replaceAll(); else replaceOne(); }
   };
   const bad = regex && term ? error || findPattern(term, { regex: true }).error : null;
-  const where = m && (m.notes ? 'Speaker notes' : m.cell ? `Table, row ${m.cell[0] + 1}` : 'Text');
+  const kind = m && !m.notes && !m.cell && deck.slides[m.slide]?.items.find((x) => x.id === m.item)?.type;
+  const where = m && (m.notes ? 'Speaker notes' : m.cell ? `Table, row ${m.cell[0] + 1}` : kind === 'shape' ? 'Shape' : 'Text');
   const ctx = m && contextOf(m);
   return (
     <div className="find-bar slide-find" role="search" aria-label="Find in presentation" onKeyDown={key}>

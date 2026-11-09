@@ -2392,3 +2392,7 @@ del.compare-key { background: color-mix(in srgb, #d93025 14%, transparent); text
 @media print { .line-numbers span { color: #666; } }
 /* The live word counter moves over when the outline is open beside it. */
 .doc-outline ~ .word-counter { left: 256px; }
+/* Text in a shape (Slides): centred in the box, in the middle */
+.slide-shape:not(.line):not(.arrow) { display: flex; align-items: center; justify-content: center; padding: 3cqw 2.5cqw; box-sizing: border-box; overflow: hidden; }
+.slide-text.shape-text { height: auto; max-height: 100%; background: transparent; border: 0; resize: none; outline: none; }
+textarea.slide-text.shape-text { height: 100%; display: flex; }

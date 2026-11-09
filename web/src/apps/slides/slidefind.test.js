@@ -54,3 +54,11 @@ test('context around a match', () => {
   const m = findInDeck(deck, 'twice').matches[0];
   assert.deepEqual(contextOf(m, 8), { before: '…n sales ', match: 'twice', after: ': sales!' });
 });
+
+test('text in shapes is found and replaced; lines without text are not', () => {
+  const d = { slides: [{ id: 's', items: [{ id: 'sh', type: 'shape', shape: 'rect', text: 'Sales up' }, { id: 'ln', type: 'shape', shape: 'line' }] }] };
+  const m = findInDeck(d, 'sales').matches;
+  assert.deepEqual(m.map((x) => x.item), ['sh']);
+  assert.equal(replaceInDeck(d, m, 'Revenue').slides[0].items[0].text, 'Revenue up');
+  assert.equal(replaceInDeck(d, findInDeck(d, 'Sales up').matches, '').slides[0].items[0].text, undefined, 'a shape left without text has none');
+});

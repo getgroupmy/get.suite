@@ -165,6 +165,15 @@ export async function deckFromPowerPoint(buffer, { savePicture }) {
       const rPr = deep(el, A, 'rPr')[0] || deep(el, A, 'defRPr')[0];
       const pt = Number(attr(rPr, 'sz')) / 100 || 18;
       const algn = attr(deep(el, A, 'pPr')[0], 'algn');
+      // A filled rectangle, rounded rectangle or ellipse with words in it: a shape holding its text.
+      if (SHAPES[geom] && fill) {
+        items.push(linked(el, { id: id(), type: 'shape', shape: SHAPES[geom], fill, text: content, ...box,
+          size: Math.max(8, Math.round((pt / 72) * 1000 / widthIn)),
+          ...(attr(rPr, 'b') === '1' && { bold: true }), ...(attr(rPr, 'i') === '1' && { italic: true }),
+          ...(colorIn(kid(rPr, A, 'solidFill')) && { color: colorIn(kid(rPr, A, 'solidFill')) }),
+          ...({ l: { align: 'left' }, r: { align: 'right' } }[algn] || {}) }));
+        continue;
+      }
       const ph = attr(deep(el, P, 'ph')[0], 'type');
       items.push(linked(el, {
         id: id(), type: 'text', role: ph === 'title' || ph === 'ctrTitle' ? 'title' : ph === 'subTitle' ? 'subtitle' : 'body', text: content, ...box,
@@ -265,7 +274,11 @@ export async function powerPointFromDeck(deck, { pictureData, title = 'Presentat
         slide.addShape(pptx.ShapeType.line, { ...at, flipH: d === 'hr', flipV: d === 'u' || d === 'vr',
           line: { color: color(it.fill || 'text', theme.text), width: 3, ...(it.shape === 'arrow' && { endArrowType: 'triangle' }) } });
       } else if (it.type === 'shape') {
-        slide.addShape({ rect: pptx.ShapeType.rect, round: pptx.ShapeType.roundRect, ellipse: pptx.ShapeType.ellipse }[it.shape] || pptx.ShapeType.rect, { ...pos, ...(hyperlink && { hyperlink }), fill: { color: color(it.fill || 'accent', theme.accent) }, line: { type: 'none' } });
+        const kind = { rect: pptx.ShapeType.rect, round: pptx.ShapeType.roundRect, ellipse: pptx.ShapeType.ellipse }[it.shape] || pptx.ShapeType.rect;
+        const look = { ...pos, ...(hyperlink && { hyperlink }), fill: { color: color(it.fill || 'accent', theme.accent) }, line: { type: 'none' } };
+        // Text in the shape: centred in the middle, in the slide's background colour unless chosen.
+        if (it.text) slide.addText(String(it.text), { ...look, shape: kind, fontSize: Math.round((it.size || 20) * Win * 72 / 1000), bold: !!it.bold, italic: !!it.italic, color: color(it.color, theme.bg), fontFace: 'Arial', align: it.align || 'center', valign: 'middle' });
+        else slide.addShape(kind, look);
       } else if (it.type === 'table' && it.cells?.length) {
         const fontSize = Math.round((it.size || 18) * Win * 72 / 1000);
         const rows = it.cells.map((r, ri) => r.map((text) => ({ text: String(text ?? ''), options: { fontSize, color: color(null, theme.text), fontFace: 'Arial',

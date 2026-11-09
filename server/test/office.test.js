@@ -989,3 +989,25 @@ test('PowerPoint: a picture behind a slide goes out and comes back; a colour sta
   assert.equal(back.slides[1].bgImage, undefined);
   assert.equal(back.slides[2].bgImage, undefined, 'a picture that can\'t be read leaves the slide\'s colour');
 });
+
+test('PowerPoint: text in a shape goes out in the shape and comes back in it', async () => {
+  const deck = { theme: 'light', slides: [{ id: 'a', items: [
+    { id: 's1', type: 'shape', shape: 'round', fill: '#188038', text: 'Step 1\nPlan', size: 24, bold: true, x: 10, y: 20, w: 30, h: 20 },
+    { id: 's2', type: 'shape', shape: 'ellipse', fill: 'accent', x: 50, y: 20, w: 20, h: 20 },
+    { id: 's3', type: 'shape', shape: 'rect', fill: '#fde293', text: 'Note', color: '#202124', align: 'left', x: 10, y: 60, w: 30, h: 10 },
+  ] }] };
+  const back = await deckFromPowerPoint(await powerPointFromDeck(deck, {}), { savePicture: async () => 'x' });
+  const items = back.slides[0].items;
+  const round = items.find((i) => i.shape === 'round');
+  assert.equal(round.type, 'shape');
+  assert.equal(round.text, 'Step 1\nPlan');
+  assert.equal(round.fill, '#188038');
+  assert.equal(round.bold, true);
+  assert.ok(Math.abs(round.size - 24) <= 1, String(round.size));
+  assert.equal(round.align, undefined, 'centred, as shapes are');
+  const plain = items.find((i) => i.shape === 'ellipse');
+  assert.equal(plain.text, undefined);
+  const note = items.find((i) => i.shape === 'rect');
+  assert.deepEqual([note.text, note.color, note.align], ['Note', '#202124', 'left']);
+  assert.equal(items.filter((i) => i.type === 'text').length, 0, 'no stray text boxes');
+});

@@ -7,7 +7,7 @@ export function placesOf(deck) {
   const out = [];
   (deck?.slides || []).forEach((s, slide) => {
     for (const it of s.items || []) {
-      if (it.type === 'text' && it.text) out.push({ slide, item: it.id, cell: null, notes: false, text: it.text });
+      if ((it.type === 'text' || it.type === 'shape') && it.text) out.push({ slide, item: it.id, cell: null, notes: false, text: it.text });
       else if (it.type === 'table') (it.cells || []).forEach((row, r) => row.forEach((v, c) => { if (v) out.push({ slide, item: it.id, cell: [r, c], notes: false, text: String(v) }); }));
     }
     if (s.notes) out.push({ slide, item: null, cell: null, notes: true, text: s.notes });
@@ -50,9 +50,9 @@ export function replaceInDeck(deck, matches, replace, regex = false) {
     slides: deck.slides.map((s, slide) => {
       if (!touched.has(slide)) return s;
       const items = (s.items || []).map((it) => {
-        if (it.type === 'text' && it.text) {
+        if ((it.type === 'text' || it.type === 'shape') && it.text) {
           const next = swap(it.text, { slide, item: it.id, cell: null, notes: false });
-          return next === it.text ? it : { ...it, text: next };
+          return next === it.text ? it : { ...it, text: next || (it.type === 'shape' ? undefined : '') };
         }
         if (it.type === 'table') {
           let changed = false;
