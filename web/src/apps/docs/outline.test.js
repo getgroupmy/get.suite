@@ -26,3 +26,16 @@ test('outline: the heading the cursor is under', () => {
   assert.equal(currentHeading(h, doc.content.size), 2);
   assert.equal(currentHeading([], 5), -1);
 });
+
+test('heading anchors: readable, unique, found again', async () => {
+  const { slugOf, anchorsOf, headingForAnchor } = await import('./outline.js');
+  assert.equal(slugOf('Q3 Results!'), 'q3-results');
+  assert.equal(slugOf('Café & Crème'), 'cafe-creme');
+  assert.equal(slugOf('???'), 'section');
+  const hs = [{ text: 'Intro', pos: 0 }, { text: 'Budget', pos: 10 }, { text: 'Intro', pos: 20 }];
+  assert.deepEqual(anchorsOf(hs), ['intro', 'budget', 'intro-2']);
+  assert.equal(headingForAnchor(hs, '#intro-2').pos, 20);
+  assert.equal(headingForAnchor(hs, '#Budget').pos, 10);
+  assert.equal(headingForAnchor(hs, '#nope'), null);
+  assert.equal(headingForAnchor(hs, ''), null);
+});

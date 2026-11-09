@@ -210,6 +210,7 @@ Put a status, a review stage or a priority right in the text, like *Website: In 
 - **Pageless:** **Page setup → Pageless** shows the document as one long sheet as wide as the window, without page edges: handy for wide tables, pictures and notes nobody prints. Everyone editing sees it. Printing, PDF and the Word download still use the paper size and margins; **Pages** brings the pages back.
 - **Watermark:** **Page setup → Watermark** puts faint grey text such as *DRAFT* or *CONFIDENTIAL* (up to 40 characters; common ones are suggested) diagonally across every page: on screen, when printed or saved as PDF, and as a real Word watermark in the Word download. Everyone editing sees it at once. A Word file with a watermark keeps it when opened as a document. Clear the box to take it off.
 - **Outline:** the list button next to Comments opens the document's headings down the left, indented by level. Click one to go there; the heading you're in is marked, and headings anyone adds show up as they type. It stays open on that computer until you close it.
+- **Links to a heading:** hover over a heading in the outline and click 🔗 to copy a link to it (the document's address ending in, say, *#budget-costs*). Whoever opens it (and can open the document) lands on that heading.
 
 ## Comments and @mentions (Docs, Sheets, Slides, Drive files)
 

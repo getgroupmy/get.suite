@@ -25,7 +25,8 @@ import DrawPad from '../../components/DrawPad.jsx';
 import Icon from '../../components/Icon.jsx';
 import { FindReplace, countWords } from './findReplace.js';
 import { FindBar } from './FindBar.jsx';
-import { Outline } from './Outline.jsx';
+import { Outline, goToHeading } from './Outline.jsx';
+import { headingsOf, headingForAnchor } from './outline.js';
 import { ActionItemsDialog } from './ActionItems.jsx';
 import { TableOfContents, htmlWithContents } from './toc.js';
 import { SheetChart } from './sheetchart.jsx';
@@ -351,7 +352,13 @@ function SharedDoc({ file, setFile }) {
 
   useEffect(() => {
     if (!editor || readOnly) return;
-    const focusOnce = (synced) => { if (synced) { editor.commands.focus('start'); provider.off('sync', focusOnce); } };
+    const focusOnce = (synced) => {
+      if (!synced) return;
+      provider.off('sync', focusOnce);
+      // Opened from a link to a heading: start there instead of at the top.
+      const h = window.location.hash && headingForAnchor(headingsOf(editor.state.doc), window.location.hash);
+      if (h) goToHeading(editor, h); else editor.commands.focus('start');
+    };
     if (provider.synced) focusOnce(true); else provider.on('sync', focusOnce);
     return () => provider.off('sync', focusOnce);
   }, [editor, provider, readOnly]);
@@ -445,6 +452,20 @@ function SharedDoc({ file, setFile }) {
   const lit = [...open.map((t) => t.id), ...(pending ? [pending.id] : [])];
   const highlight = `${lit.map((id) => `.paper [data-comment="${id}"]`).join(',') || '.none'}{background:rgba(251,188,4,.28);border-bottom:2px solid rgba(251,188,4,.9);cursor:pointer}${active ? `.paper [data-comment="${active}"]{background:rgba(251,188,4,.55)}` : ''}`;
 
+  // Opened from a link to a heading (/docs/…#budget): go there once the document's text has arrived.
+  useEffect(() => {
+    if (!editor || !window.location.hash) return undefined;
+    let done = false;
+    const tryGo = () => {
+      if (done) return;
+      const h = headingForAnchor(headingsOf(editor.state.doc), window.location.hash);
+      if (h) { done = true; goToHeading(editor, h); }
+    };
+    tryGo();
+    editor.on('update', tryGo);
+    const stop = setTimeout(() => { done = true; }, 15000);
+    return () => { editor.off('update', tryGo); clearTimeout(stop); };
+  }, [editor]);
   if (!editor) return null;
   // The same person in two tabs shows once.
   const people = [...new Map(others.map((p) => [p.id, p])).values()].filter((p) => p.id !== user.id);
@@ -508,7 +529,7 @@ function SharedDoc({ file, setFile }) {
       {readOnly && <div className="banner">{file.locked_at ? 'Locked.' : file.role === 'commenter' ? 'You can comment, not edit.' : 'View only.'} {!file.locked_at && `Ask ${file.owner_name} for edit access.`}</div>}
       {finding && <FindBar key={finding.n} editor={editor} replacing={finding.replace} canEdit={!readOnly} onClose={() => { editor.view.focus(); setFinding(null); }} />} {/* focus back first, so it doesn't go with the bar */}
       <div className="doc-body">
-        {outline && <Outline editor={editor} onClose={() => setOutline(false)} />}
+        {outline && <Outline editor={editor} fileId={file.id} onCopied={(m) => toast(m)} onClose={() => setOutline(false)} />}
         <div className="doc-scroll" onClick={(e) => e.target === e.currentTarget && editor.commands.focus('end')}>
           <div className={`paper ${file.page_setup?.pageless ? 'pageless' : ''}`} style={file.page_setup ? paperStyle(file.page_setup) : undefined}>
             {file.page_setup?.watermark && <div className="print-watermark" aria-hidden="true" />}

@@ -2254,3 +2254,5 @@ textarea.mono { font-family: ui-monospace, Consolas, monospace; }
 .cal-weeknum { font-size: .7em; font-weight: 400; }
 .month .day { position: relative; }
 .icon-btn.star { font-size: 18px; line-height: 1; } .icon-btn.star.on { color: #f4b400; }
+.doc-outline li { display: flex; align-items: center; } .doc-outline li > button:first-child { flex: 1; min-width: 0; } .outline-link { border: 0; background: none; cursor: pointer; opacity: 0; font-size: 12px; padding: 2px 4px; } .doc-outline li:hover .outline-link, .outline-link:focus-visible { opacity: .8; }
+.doc-outline .outline-link { width: auto; flex: none; margin: 0; }
