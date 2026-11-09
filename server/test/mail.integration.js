@@ -1661,3 +1661,34 @@ test('large files as links: over 25 MB goes out as a download link, the rest att
   assert.equal(notMine.status, 400);
   assert.match(notMine.body.error, /isn’t yours/);
 });
+
+test('booking reminders: the visitor is emailed the day before, once, with the link to change or cancel', async () => {
+  const { sendBookingReminders } = await import('../src/routes/booking.js');
+  const { q } = await import('../src/db.js');
+  q('UPDATE bookings SET reminded_at = 1 WHERE reminded_at IS NULL').run(); // earlier tests' bookings aren't this test's
+  const page = (await olivia('POST', '/api/bookings', { title: 'Site visit', duration: 60, days: [0, 1, 2, 3, 4, 5, 6], from_min: 0, to_min: 1440, tz: 'UTC', notice_hours: 0, days_ahead: 3 })).body;
+  assert.equal(page.remind, true, 'on unless turned off');
+  const token = page.url.split('/b/')[1];
+  const slots = (await fetch(`${base}/api/public/book/${token}`).then((x) => x.json())).days.flatMap((d) => d.slots);
+  const book = (start, name) => fetch(`${base}/api/public/book/${token}`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-requested-with': 'nas-workspace' }, body: JSON.stringify({ start, name, email: 'olivia@acme.com' }) }).then((x) => x.json());
+  // Booked this afternoon for this evening: no reminder (it was booked less than 12 hours before).
+  const soon = slots.find((t) => t > Date.now() + 5 * 3600e3);
+  assert.ok((await book(soon, 'Sam Soon')).cancel_url);
+  assert.equal(await sendBookingReminders(), 0, 'booked just now for a few hours away: no reminder');
+  // The visitor here is a mailbox on this server, so the reminder can be read back.
+  const start = slots.find((t) => t > Date.now() + 20 * 3600e3);
+  const b = await book(start, 'Vic Visitor');
+  assert.ok(b.cancel_url);
+  assert.equal(await sendBookingReminders(start - 30 * 3600e3), 0, 'not yet: more than a day ahead');
+  assert.equal(await sendBookingReminders(), 1);
+  assert.equal(await sendBookingReminders(), 0, 'once');
+  const msg = await eventually(async () => (await inbox(olivia, 'Reminder: Site visit'))[0]);
+  const full = (await olivia('GET', `/api/mail/messages/${msg.uid}?folder=INBOX`)).body;
+  assert.match(full.subject, /^Reminder: Site visit with Olivia Owner, /);
+  assert.match(full.text, /Hello Vic Visitor,/);
+  assert.ok(full.text.includes(b.cancel_url), full.text);
+  // A page with reminders turned off sends none.
+  await olivia('PATCH', `/api/bookings/${page.id}`, { remind: false });
+  q('UPDATE bookings SET reminded_at = NULL WHERE page_id = ?').run(page.id);
+  assert.equal(await sendBookingReminders(), 0);
+});

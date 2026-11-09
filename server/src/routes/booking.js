@@ -14,6 +14,8 @@ import { hoursOf, withinHours, hoursText } from '../workhours.js';
 import { expand } from '../calmath.js';
 import { seesDetails, sharesOf, setShares } from '../calshare.js';
 import { notifyOutside, setOutside, touch, baseUrl, outEvent } from './calendar.js';
+import { mailEnabled } from '../mail/config.js';
+import { smtpFor } from '../mail/imap.js';
 
 q(`CREATE TABLE IF NOT EXISTS booking_pages (
   id TEXT PRIMARY KEY,
@@ -39,6 +41,11 @@ if (!cols('booking_pages').includes('buffer_min')) q('ALTER TABLE booking_pages 
 if (!cols('booking_pages').includes('max_per_day')) q('ALTER TABLE booking_pages ADD COLUMN max_per_day INTEGER NOT NULL DEFAULT 0').run();
 for (const c of ['cancel_token', 'name', 'email']) if (!cols('bookings').includes(c)) q(`ALTER TABLE bookings ADD COLUMN ${c} TEXT`).run();
 if (!cols('bookings').includes('cancelled_at')) q('ALTER TABLE bookings ADD COLUMN cancelled_at INTEGER').run();
+// Reminders: a page can email its visitors the day before (on unless turned off); when each was sent,
+// and the address Workspace had when it was booked (for the link in the reminder).
+if (!cols('booking_pages').includes('remind')) q('ALTER TABLE booking_pages ADD COLUMN remind INTEGER NOT NULL DEFAULT 1').run();
+if (!cols('bookings').includes('reminded_at')) q('ALTER TABLE bookings ADD COLUMN reminded_at INTEGER').run();
+if (!cols('bookings').includes('link_base')) q('ALTER TABLE bookings ADD COLUMN link_base TEXT').run();
 
 const MAX_PAGES = 20;
 const EMAIL_RE = /^[^\s@<>"(),;:\\]+@[a-z0-9.-]+\.[a-z]{2,}$/i;
@@ -124,9 +131,10 @@ function readPage(b, current = {}) {
   const buffer = Number(pick('buffer_min') ?? 0), maxPerDay = Number(pick('max_per_day') ?? 0);
   if (![0, 5, 10, 15, 30, 60].includes(buffer)) throw bad('Choose a gap of 0 to 60 minutes');
   if (!Number.isInteger(maxPerDay) || maxPerDay < 0 || maxPerDay > 20) throw bad('At most 20 bookings a day');
-  return { title, description, duration, days, from_min: fromMin, to_min: toMin, tz, notice_hours: notice, days_ahead: ahead, enabled, buffer_min: buffer, max_per_day: maxPerDay };
+  const remind = pick('remind') === undefined ? 1 : pick('remind') ? 1 : 0;
+  return { title, description, duration, days, from_min: fromMin, to_min: toMin, tz, notice_hours: notice, days_ahead: ahead, enabled, buffer_min: buffer, max_per_day: maxPerDay, remind };
 }
-const shapePage = (p, req) => ({ ...p, days: JSON.parse(p.days), enabled: !!p.enabled, url: `${baseUrl(req)}/b/${p.token}`,
+const shapePage = (p, req) => ({ ...p, days: JSON.parse(p.days), enabled: !!p.enabled, remind: !!p.remind, url: `${baseUrl(req)}/b/${p.token}`,
   bookings: q('SELECT COUNT(*) AS n FROM bookings WHERE page_id = ? AND cancelled_at IS NULL').get(p.id).n });
 
 export default function bookingRoutes() {
@@ -136,9 +144,9 @@ export default function bookingRoutes() {
     if (q('SELECT COUNT(*) AS n FROM booking_pages WHERE user_id = ?').get(req.user.id).n >= MAX_PAGES) throw bad('Too many booking pages');
     const p = readPage(req.body || {});
     const id = uid();
-    q(`INSERT INTO booking_pages (id, user_id, token, title, description, duration, days, from_min, to_min, tz, notice_hours, days_ahead, enabled, created_at, buffer_min, max_per_day)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, req.user.id, crypto.randomBytes(12).toString('base64url'), p.title, p.description, p.duration, JSON.stringify(p.days),
-      p.from_min, p.to_min, p.tz, p.notice_hours, p.days_ahead, p.enabled, Date.now(), p.buffer_min, p.max_per_day);
+    q(`INSERT INTO booking_pages (id, user_id, token, title, description, duration, days, from_min, to_min, tz, notice_hours, days_ahead, enabled, created_at, buffer_min, max_per_day, remind)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, req.user.id, crypto.randomBytes(12).toString('base64url'), p.title, p.description, p.duration, JSON.stringify(p.days),
+      p.from_min, p.to_min, p.tz, p.notice_hours, p.days_ahead, p.enabled, Date.now(), p.buffer_min, p.max_per_day, p.remind);
     res.status(201).json(shapePage(q('SELECT * FROM booking_pages WHERE id = ?').get(id), req));
   });
   const mine = (req) => {
@@ -149,8 +157,8 @@ export default function bookingRoutes() {
   r.patch('/:id', (req, res) => {
     const cur = mine(req);
     const p = readPage(req.body || {}, { ...cur, days: JSON.parse(cur.days), enabled: !!cur.enabled });
-    q(`UPDATE booking_pages SET title = ?, description = ?, duration = ?, days = ?, from_min = ?, to_min = ?, tz = ?, notice_hours = ?, days_ahead = ?, enabled = ?, buffer_min = ?, max_per_day = ? WHERE id = ?`)
-      .run(p.title, p.description, p.duration, JSON.stringify(p.days), p.from_min, p.to_min, p.tz, p.notice_hours, p.days_ahead, p.enabled, p.buffer_min, p.max_per_day, cur.id);
+    q(`UPDATE booking_pages SET title = ?, description = ?, duration = ?, days = ?, from_min = ?, to_min = ?, tz = ?, notice_hours = ?, days_ahead = ?, enabled = ?, buffer_min = ?, max_per_day = ?, remind = ? WHERE id = ?`)
+      .run(p.title, p.description, p.duration, JSON.stringify(p.days), p.from_min, p.to_min, p.tz, p.notice_hours, p.days_ahead, p.enabled, p.buffer_min, p.max_per_day, p.remind, cur.id);
     res.json(shapePage(q('SELECT * FROM booking_pages WHERE id = ?').get(cur.id), req));
   });
   r.delete('/:id', (req, res) => { q('DELETE FROM booking_pages WHERE id = ?').run(mine(req).id); res.json({ ok: true }); });
@@ -165,6 +173,35 @@ function limit(ip) {
   if (list.length >= 10) throw new HttpError(429, 'Too many bookings from here. Try again later.');
   list.push(now);
   recent.set(ip, list);
+}
+
+/**
+ * Reminder emails to visitors, about a day before: for bookings on pages that send them, starting
+ * in the next 24 hours (but not within the hour), made at least 12 hours before they start (no
+ * reminder for one booked this afternoon for tomorrow morning), once each. From the owner's address,
+ * with the booking's time in the page's time zone and the link to change or cancel it.
+ */
+export async function sendBookingReminders(now = Date.now()) {
+  if (!mailEnabled()) return 0;
+  const due = q(`SELECT b.*, p.title AS page_title, p.tz, p.user_id, e.start, e.end FROM bookings b
+                 JOIN booking_pages p ON p.id = b.page_id JOIN events e ON e.id = b.event_id JOIN users u ON u.id = p.user_id
+                 WHERE p.remind = 1 AND u.disabled = 0 AND b.cancelled_at IS NULL AND b.reminded_at IS NULL AND b.email IS NOT NULL
+                   AND e.start > ? AND e.start <= ? AND b.created_at <= e.start - 12 * 3600000`).all(now + 36e5, now + DAY);
+  let sent = 0;
+  for (const b of due) {
+    q('UPDATE bookings SET reminded_at = ? WHERE cancel_token = ?').run(now, b.cancel_token); // once, even if sending fails
+    const owner = q('SELECT * FROM users WHERE id = ?').get(b.user_id);
+    const fmtTime = (t) => new Date(t).toLocaleString('en-GB', { timeZone: b.tz, weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
+    const until = new Date(b.end).toLocaleTimeString('en-GB', { timeZone: b.tz, hour: '2-digit', minute: '2-digit' });
+    const link = b.link_base ? `${b.link_base}/b/cancel/${b.cancel_token}` : null;
+    const text = [`Hello ${b.name || ''},`.replace(' ,', ','), '', `This is a reminder of your booking with ${owner.name}:`, '', b.page_title, `${fmtTime(b.start)} – ${until} (${b.tz})`,
+      ...(link ? ['', `To change the time or cancel: ${link}`] : []), '', `— ${owner.name}`].join('\n');
+    try {
+      await smtpFor(owner).sendMail({ from: { name: owner.name, address: owner.username }, to: b.email, subject: `Reminder: ${b.page_title} with ${owner.name}, ${fmtTime(b.start)}`, text });
+      sent++;
+    } catch (e) { console.error('[booking] reminder failed:', e.message); }
+  }
+  return sent;
 }
 
 export function publicBookingRoutes() {
@@ -251,7 +288,7 @@ export function publicBookingRoutes() {
        VALUES (?, ?, ?, ?, NULL, ?, ?, 0, NULL, NULL, '[]', NULL, ?)`).run(id, owner.id, title, description, start, start + p.duration * 6e4, p.tz);
     const { added } = setOutside(id, [email]);
     q("UPDATE event_outside_guests SET status = 'yes', answered_at = ? WHERE event_id = ?").run(Date.now(), id);
-    q('INSERT INTO bookings (page_id, event_id, created_at, cancel_token, name, email) VALUES (?, ?, ?, ?, ?, ?)').run(p.id, id, Date.now(), ct, name, email);
+    q('INSERT INTO bookings (page_id, event_id, created_at, cancel_token, name, email, link_base) VALUES (?, ?, ?, ?, ?, ?, ?)').run(p.id, id, Date.now(), ct, name, email, baseUrl(req));
     const saved = outEvent(q('SELECT * FROM events WHERE id = ?').get(id));
     notifyOutside(owner, saved, added.map((g) => ({ ...g, status: 'yes' })), 'invite', { base: baseUrl(req), tz: p.tz });
     touch([owner.id]);

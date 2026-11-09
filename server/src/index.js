@@ -22,6 +22,7 @@ import { emptyOldTrash } from './routes/files.js';
 import { purgeOldChat } from './routes/chat.js';
 import { refreshDueFeeds } from './calfeeds.js';
 import { sendDueDigests } from './digest.js';
+import { sendBookingReminders } from './routes/booking.js';
 import { sendChatEmails } from './chatmail.js';
 
 const port = Number(process.env.PORT || 8080);
@@ -48,6 +49,7 @@ setInterval(() => { try { purgeOldChat(); } catch (e) { console.error('[chat] ke
 setTimeout(() => { try { purgeOldChat(); } catch {} }, 90e3).unref();
 setInterval(() => sendChatEmails().catch((e) => console.error('[chat] email:', e.message)), 5 * 60e3).unref(); // unread mentions and direct messages
 setInterval(() => sendDueDigests().catch((e) => console.error('[digest]', e.message)), 5 * 60e3).unref(); // morning summaries
+setInterval(() => sendBookingReminders().catch((e) => console.error('[booking] reminders:', e.message)), 10 * 60e3).unref(); // visitors, the day before
 setInterval(() => refreshDueFeeds().catch((e) => console.error('[calendar] feeds:', e.message)), 15 * 60e3).unref(); // subscribed calendars, every few hours each
 if (mailEnabled()) { startPolicyServer(); startMailNotifications(); startRsvpWatcher(); }
 
