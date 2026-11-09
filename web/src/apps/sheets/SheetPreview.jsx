@@ -25,23 +25,23 @@ export function SheetPreview({ content }) {
 }
 
 /** What changed since an earlier version: each sheet's cells typed in, changed or cleared. */
-export function SheetChanges({ before, after }) {
+export function SheetChanges({ before, after, labels = ['Then', 'Now'], summary = null, sheetWords = { added: 'new sheet', removed: 'deleted', was: (n) => `was ${n}` } }) {
   const changes = useMemo(() => sheetChanges(before, after), [before, after]);
   const totals = changeTotals(changes);
   const shown = changes.filter((s) => s.status !== 'same' || s.cells.length);
   const text = (v) => (v === '' ? <span className="muted">(empty)</span> : v);
   return (
     <div className="sheet-changes">
-      <p className="muted small changes-summary">{shown.length ? `Since then: ${totals.cells} cell${totals.cells === 1 ? '' : 's'} changed${totals.sheets ? `, ${totals.sheets} sheet${totals.sheets === 1 ? '' : 's'} added, renamed or deleted` : ''}.` : 'No changes since then.'}</p>
+      <p className="muted small changes-summary" role="status">{summary ? summary(totals, shown.length) : shown.length ? `Since then: ${totals.cells} cell${totals.cells === 1 ? '' : 's'} changed${totals.sheets ? `, ${totals.sheets} sheet${totals.sheets === 1 ? '' : 's'} added, renamed or deleted` : ''}.` : 'No changes since then.'}</p>
       {shown.map((s) => (
         <section key={`${s.status}-${s.name}`} aria-label={`Changes in ${s.name}`}>
           <h4 style={{ margin: '12px 0 4px' }}>{s.name}
-            {s.status === 'added' && <span className="pill change-pill-add"> new sheet</span>}
-            {s.status === 'removed' && <span className="pill change-pill-del"> deleted</span>}
-            {s.status === 'renamed' && <span className="muted small"> (was {s.was})</span>}</h4>
+            {s.status === 'added' && <span className="pill change-pill-add"> {sheetWords.added}</span>}
+            {s.status === 'removed' && <span className="pill change-pill-del"> {sheetWords.removed}</span>}
+            {s.status === 'renamed' && <span className="muted small"> ({sheetWords.was(s.was)})</span>}</h4>
           {s.status !== 'removed' && s.cells.length > 0 && (
             <table className="grid-preview changes-table">
-              <thead><tr><th>Cell</th><th>Then</th><th>Now</th></tr></thead>
+              <thead><tr><th>Cell</th><th>{labels[0]}</th><th>{labels[1]}</th></tr></thead>
               <tbody>{s.cells.slice(0, 300).map((c) => (
                 <tr key={c.key} className={`change-${c.kind}`}><th>{c.key}</th><td>{c.kind === 'add' ? text('') : <del>{c.was}</del>}</td><td>{c.kind === 'del' ? text('') : <ins>{c.now}</ins>}</td></tr>
               ))}</tbody>

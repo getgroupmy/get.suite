@@ -7,7 +7,7 @@ import { cleanMore } from './contactmore.js';
 export const MAX_IMPORT = 5000;
 
 /** CSV text → rows of fields (quoted fields may hold commas, quotes and new lines). Semicolons work as separators too. */
-export function parseCsv(text) {
+export function parseCsv(text, { keepEmpty = false } = {}) {
   const src = String(text || '').replace(/^﻿/, '');
   const firstLine = src.split(/\r?\n/, 1)[0] || '';
   const sep = (firstLine.match(/;/g) || []).length > (firstLine.match(/,/g) || []).length ? ';' : ',';
@@ -27,7 +27,7 @@ export function parseCsv(text) {
     } else field += ch;
   }
   if (field || row.length) { row.push(field); rows.push(row); }
-  return rows.filter((r) => r.some((f) => f.trim()));
+  return keepEmpty ? rows : rows.filter((r) => r.some((f) => f.trim())); // keepEmpty: blank rows stay, so row numbers do
 }
 
 // Column names in the exports people have, lower case: the first one found is used.

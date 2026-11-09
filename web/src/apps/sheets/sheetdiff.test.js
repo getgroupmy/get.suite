@@ -19,3 +19,14 @@ test('spreadsheet changes: cells typed, changed and cleared; sheets added, renam
   assert.deepEqual(grown[3].cells, [{ key: 'B1', was: '', now: 'hi', kind: 'add' }]);
   assert.deepEqual(sheetChanges(after, after).every((s) => s.status === 'same' && !s.cells.length), true);
 });
+
+test('comparing results: formulas become what they come to, so a CSV export matches', async () => {
+  const { asValues } = await import('./sheetdiff.js');
+  const { bookEvaluator, display } = await import('./formula.js');
+  const book = { sheets: [{ name: 'Costs', cells: { A1: 'Rent', B1: '1200', B2: '300', B3: '=SUM(B1:B2)' } }] };
+  const csv = { sheets: [{ name: 'Costs', cells: { A1: 'Rent', B1: '1200', B2: '300', B3: '1500' } }] };
+  const ev = (sheets, i) => bookEvaluator(sheets, i);
+  assert.deepEqual(asValues(book, ev, display).sheets[0].cells.B3, '1500');
+  assert.equal(changeTotals(sheetChanges(asValues(book, ev, display), csv)).cells, 0, 'the same results');
+  assert.equal(changeTotals(sheetChanges(book, csv)).cells, 1, 'as typed, the formula differs');
+});

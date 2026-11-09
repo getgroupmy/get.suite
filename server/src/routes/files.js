@@ -27,6 +27,7 @@ import { deckFromPowerPoint, powerPointFromDeck } from '../office/powerpoint.js'
 import { officePreview, officeKind, MAX_PREVIEW } from '../office/preview.js';
 import { zipEntries, extractZip } from '../zipfiles.js';
 import { markdownFromDoc, docFromMarkdown } from '../office/markdown.js';
+import { parseCsv } from '../contactfiles.js';
 import { brokenProtections } from '../sheetprotect.js';
 
 // Office files that open as Docs, Sheets and Slides (and download back in the same format).
@@ -76,6 +77,9 @@ q(`CREATE TABLE IF NOT EXISTS access_requests (
 )`).run();
 const openLink = (f) => ({ folder: `/drive/folder/${f.id}`, doc: `/docs/${f.id}`, sheet: `/sheets/${f.id}`, slides: `/slides/${f.id}` }[f.kind] || '/drive/shared');
 const setupOf = (f) => { if (!f.page_setup || typeof f.page_setup === 'object') return f.page_setup || null; try { return JSON.parse(f.page_setup); } catch { return null; } };
+
+/** A column's letters: 0 → A, 26 → AA. */
+const colLetters = (i) => { let s = ''; for (i += 1; i > 0; i = Math.floor((i - 1) / 26)) s = String.fromCharCode(65 + ((i - 1) % 26)) + s; return s; };
 
 export function cleanName(name) {
   const n = str(name, { required: true, name: 'Name', max: 255 });
@@ -818,6 +822,30 @@ export default function fileRoutes({ maxUploadBytes }) {
     let content;
     try { content = type === 'docx' ? (await docFromWord(buf)).doc : docFromMarkdown(buf.toString('utf8')); }
     catch { throw bad("This file couldn't be read"); }
+    res.json({ name: f.name, content });
+  });
+
+  // A spreadsheet, or an Excel or CSV file, as a spreadsheet's content, for Sheets' "Compare
+  // spreadsheets": as it stands now. Nothing is saved.
+  r.get('/:id/as-sheet', async (req, res) => {
+    const f = loadFile(req.params.id, req.user);
+    if (f.kind === 'sheet') {
+      saveNow(f.id); // what's being typed right now, too
+      const { content } = q('SELECT content FROM files WHERE id = ?').get(f.id);
+      return res.json({ name: f.name, content: JSON.parse(content) });
+    }
+    const csv = f.kind === 'file' && /\.csv$/i.test(f.name);
+    if (!csv && !(f.kind === 'file' && /\.xlsx$/i.test(f.name))) throw bad('Only spreadsheets, Excel files and CSV files can be compared');
+    if (f.size > MAX_PREVIEW) throw bad('This file is too large to compare (20 MB at most)');
+    const buf = fs.readFileSync(path.join(FILES_DIR, f.storage));
+    let content;
+    try {
+      if (csv) {
+        const cells = {};
+        parseCsv(buf.toString('utf8'), { keepEmpty: true }).slice(0, 20000).forEach((row, r) => row.slice(0, 200).forEach((v, c) => { if (v !== '') cells[`${colLetters(c)}${r + 1}`] = v; }));
+        content = { sheets: [{ name: f.name.replace(/\.csv$/i, '').slice(0, 100) || 'Sheet1', cells }] };
+      } else content = await sheetFromExcel(buf);
+    } catch { throw bad("This file couldn't be read"); }
     res.json({ name: f.name, content });
   });
 

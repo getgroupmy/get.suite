@@ -2,6 +2,7 @@ import { pasteSpecial, PASTE_MODES } from './paste.js';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 import { get, patch } from '../../api.js';
+import DrivePicker from '../../components/DrivePicker.jsx';
 import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
 import { jsonFromSheetDoc, applySheetJson } from '../collabsync.js';
@@ -56,6 +57,7 @@ const SEL_COLORS = ['#1a73e8', '#d93025', '#188038', '#e37400', '#8430ce', '#007
 const colorFor = (id) => SEL_COLORS[[...String(id)].reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) >>> 0, 7) % SEL_COLORS.length];
 import { importBook, onImports, refreshImports } from './imports.js';
 import { GoalSeekDialog } from './SheetGoalSeek.jsx';
+import { CompareSheets } from './SheetCompare.jsx';
 import { createEvaluator, bookEvaluator, display, colName, cellKey, parseRef, shiftFormula, colIndex } from './formula.js';
 import { NUMBER_FORMATS, CURRENCIES, DATE_STYLES, BORDERS, borderFor, decimals, formatNumber, cellStyle, mergeFormat, VALIGNS, ROTATIONS, codeColour } from './cellformat.js';
 
@@ -947,6 +949,7 @@ export default function SheetEditor() {
           { label: 'Protected sheets and ranges', icon: 'lock', onClick: () => setDialog({ type: 'protect', initial: selText }) },
           mail?.enabled && { label: 'Mail merge…', icon: 'mail', onClick: () => setDialog({ type: 'mailmerge' }) },
           { label: 'Version history', icon: 'clock', onClick: () => setDialog({ type: 'history' }) },
+          { label: 'Compare spreadsheets', icon: 'sheet', onClick: () => setDialog({ type: 'compare-pick' }) },
           { label: 'Print or save as PDF', icon: 'print', onClick: () => setDialog({ type: 'print' }) },
           { label: 'Download as Excel (.xlsx)', icon: 'download', onClick: () => { window.location.href = `/api/files/${id}/export`; } },
           { label: 'Download sheet as CSV', icon: 'download', onClick: exportCsv },
@@ -1207,6 +1210,14 @@ export default function SheetEditor() {
           onPick={(formula) => { writeCells({ [dialog.key]: formula }); setDialog(null); gridRef.current?.focus(); }}
           onClose={() => { setDialog(null); gridRef.current?.focus(); }} />
       )}
+      {dialog?.type === 'compare-pick' && <DrivePicker title="Compare with…" empty="No spreadsheets found."
+        accept={(x) => x.id !== file.id && (x.kind === 'sheet' || (x.kind === 'file' && /\.(xlsx|csv)$/i.test(x.name)))}
+        onClose={() => { setDialog(null); gridRef.current?.focus(); }}
+        onPick={async (f) => {
+          setDialog({ type: 'compare-loading' });
+          try { setDialog({ type: 'compare', other: await get(`/files/${f.id}/as-sheet`) }); } catch (e) { setDialog(null); toast(e.message, 'error'); }
+        }} />}
+      {dialog?.type === 'compare' && <CompareSheets name={file.name} other={dialog.other} current={dataRef.current} onClose={() => { setDialog(null); gridRef.current?.focus(); }} />}
       {dialog?.type === 'goalseek' && (
         <GoalSeekDialog sheets={data.sheets || [{ name: 'Sheet1', cells, names }]} index={data.sheets ? Math.min(active, data.sheets.length - 1) : 0} imports={{ book: importBook, depth: 0 }} functions={data.functions}
           setCell={typeof cells[selKey] === 'string' && cells[selKey].startsWith('=') ? selKey : ''}

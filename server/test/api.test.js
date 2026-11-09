@@ -7129,3 +7129,26 @@ test('company emoji: add one, use it in messages and as a reaction; only your co
   assert.equal((await owner('DELETE', '/api/chat/emoji/ship-it')).status, 200, 'an admin can');
   assert.deepEqual((await maker('GET', '/api/chat/emoji')).body, []);
 });
+
+test('Compare spreadsheets: a spreadsheet, Excel or CSV file as spreadsheet content, for whoever may open it', async () => {
+  const ExcelJS = (await import('exceljs')).default;
+  const sheet = (await owner('POST', '/api/files/new', { kind: 'sheet', name: 'Budget v2', content: { sheets: [{ name: 'Costs', cells: { A1: 'Rent', B1: '1200' } }] } })).body;
+  const s = await owner('GET', `/api/files/${sheet.id}/as-sheet`);
+  assert.equal(s.status, 200, JSON.stringify(s.body));
+  assert.deepEqual([s.body.name, s.body.content.sheets[0].cells.B1], ['Budget v2', '1200']);
+
+  const up = async (name, buf) => (await owner('POST', `/api/files/upload?name=${encodeURIComponent(name)}`, buf, { raw: true })).body;
+  const wb = new ExcelJS.Workbook(); const ws = wb.addWorksheet('Costs'); ws.getCell('A1').value = 'Rent'; ws.getCell('B1').value = 1100;
+  const x = (await owner('GET', `/api/files/${(await up('Budget v1.xlsx', Buffer.from(await wb.xlsx.writeBuffer()))).id}/as-sheet`)).body;
+  assert.equal(x.content.sheets[0].name, 'Costs');
+  assert.equal(Number(x.content.sheets[0].cells.B1), 1100);
+  const c = (await owner('GET', `/api/files/${(await up('export.csv', Buffer.from('Item,Cost\n\n"Rent, office",1300\n'))).id}/as-sheet`)).body;
+  assert.deepEqual(c.content.sheets[0], { name: 'export', cells: { A1: 'Item', B1: 'Cost', A3: 'Rent, office', B3: '1300' } }, 'blank rows keep their place');
+
+  const doc = (await owner('POST', '/api/files/new', { kind: 'doc', name: 'Notes' })).body;
+  assert.equal((await owner('GET', `/api/files/${doc.id}/as-sheet`)).status, 400);
+  const outsider = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'sheetcmp', domain: 'acme.com', name: 'Sheet Cmp', password: 'password123' })).status, 201);
+  await login(outsider, 'sheetcmp@acme.com');
+  assert.equal((await outsider('GET', `/api/files/${sheet.id}/as-sheet`)).status, 404);
+});

@@ -37,3 +37,18 @@ export const changeTotals = (changes) => ({
   cells: changes.reduce((n, s) => n + (s.status === 'removed' ? 0 : s.cells.length), 0),
   sheets: changes.filter((s) => s.status !== 'same').length,
 });
+
+/** A spreadsheet with each formula replaced by what it comes to (as shown), for comparing results
+ *  with a file that has none (a CSV, or an export). `evaluatorFor(sheets, i)` works a sheet out. */
+export function asValues(content, evaluatorFor, show) {
+  const sheets = content?.sheets || [];
+  return { ...content, sheets: sheets.map((s, i) => {
+    const value = evaluatorFor(sheets, i);
+    const cells = {};
+    for (const [k, raw] of Object.entries(s.cells || {})) {
+      const v = typeof raw === 'string' && raw.startsWith('=') ? show(value(k)) : raw;
+      if (v !== '' && v != null) cells[k] = v;
+    }
+    return { ...s, cells };
+  }) };
+}
