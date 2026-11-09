@@ -316,9 +316,10 @@ export default function davRoutes() {
         const c = parseVcard(req.body);
         if (c.error) return res.status(415).send(c.error);
         const id = row?.id || uid();
-        const vals = [c.name, c.email, c.phone, c.company, c.title, c.address, c.website, c.notes, c.birthday, c.vcard_extra];
-        if (row) q('UPDATE contacts SET name = ?, email = ?, phone = ?, company = ?, title = ?, address = ?, website = ?, notes = ?, birthday = ?, vcard_extra = ? WHERE id = ?').run(...vals, id);
-        else q('INSERT INTO contacts (name, email, phone, company, title, address, website, notes, birthday, vcard_extra, id, owner_id, created_at, dav_name, vcard_uid) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(...vals, id, me, now(), at.name, c.uid);
+        const vals = [c.name, c.email, c.phone, c.company, c.title, c.address, c.website, c.notes, c.birthday, c.vcard_extra,
+          c.more_emails?.length ? JSON.stringify(c.more_emails) : null, c.more_phones?.length ? JSON.stringify(c.more_phones) : null]; // other addresses and numbers too
+        if (row) q('UPDATE contacts SET name = ?, email = ?, phone = ?, company = ?, title = ?, address = ?, website = ?, notes = ?, birthday = ?, vcard_extra = ?, more_emails = ?, more_phones = ? WHERE id = ?').run(...vals, id);
+        else q('INSERT INTO contacts (name, email, phone, company, title, address, website, notes, birthday, vcard_extra, more_emails, more_phones, id, owner_id, created_at, dav_name, vcard_uid) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(...vals, id, me, now(), at.name, c.uid);
         photoFromCard(id, c); // the phone's photo (or none, when the card has none)
         const saved = q('SELECT * FROM contacts WHERE id = ?').get(id);
         res.setHeader('ETag', etagOf(vcfOf(saved)));

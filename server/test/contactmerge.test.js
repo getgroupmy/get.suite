@@ -17,7 +17,7 @@ test('duplicates: by email, phone (spacing and prefix ignored) or name, chained'
   assert.deepEqual(duplicateGroups([{ id: 'x', name: 'A' }, { id: 'y', name: 'B' }]), []);
 });
 
-test('merging fills the gaps, keeps what differs in the notes, joins notes', () => {
+test('merging fills the gaps, adds other addresses and numbers, notes what else differs, joins notes', () => {
   const keep = { name: 'Kim Park', email: 'kim@acme.com', phone: null, company: 'Acme', notes: 'Met at expo' };
   const others = [
     { name: 'K. Park', email: 'KIM@acme.com', phone: '+44 7700 900123', company: 'Acme Ltd', birthday: '1990-05-01', notes: 'Likes tea' },
@@ -28,6 +28,12 @@ test('merging fills the gaps, keeps what differs in the notes, joins notes', () 
   assert.equal(m.email, 'kim@acme.com');
   assert.equal(m.phone, '+44 7700 900123');
   assert.equal(m.birthday, '1990-05-01');
-  assert.equal(m.notes, 'Met at expo\nLikes tea\nAlso company: Acme Ltd\nAlso email: kim.park@gmail.com');
+  assert.equal(m.notes, 'Met at expo\nLikes tea\nAlso company: Acme Ltd');
+  assert.deepEqual(m.more_emails, [{ type: 'other', value: 'kim.park@gmail.com' }], 'the other address goes on its list');
+  assert.deepEqual(m.more_phones, [], 'the same number written another way is not added');
+  const m2 = mergedFields({ name: 'A', email: 'a@x.co', more_emails: [{ type: 'home', value: 'a@home.co' }] }, [{ name: 'A', email: 'a@y.co', phone: '+1 555 0100', more_phones: [{ type: 'work', value: '+1 555 0199' }] }]);
+  assert.deepEqual(m2.more_emails, [{ type: 'home', value: 'a@home.co' }, { type: 'other', value: 'a@y.co' }]);
+  assert.equal(m2.phone, '+1 555 0100');
+  assert.deepEqual(m2.more_phones, [{ type: 'work', value: '+1 555 0199' }]);
   assert.equal(mergedFields({ name: 'A' }, [{ name: 'a' }]).notes, null);
 });

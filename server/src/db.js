@@ -243,6 +243,8 @@ if (!hasColumn('events', 'recur_id')) db.exec('ALTER TABLE events ADD COLUMN rec
 if (!hasColumn('contacts', 'dav_name')) db.exec('ALTER TABLE contacts ADD COLUMN dav_name TEXT');
 if (!hasColumn('contacts', 'vcard_uid')) db.exec('ALTER TABLE contacts ADD COLUMN vcard_uid TEXT');
 if (!hasColumn('contacts', 'vcard_extra')) db.exec('ALTER TABLE contacts ADD COLUMN vcard_extra TEXT');
+if (!hasColumn('contacts', 'more_emails')) db.exec('ALTER TABLE contacts ADD COLUMN more_emails TEXT'); // other addresses: JSON [{ type, value }] (contactmore.js)
+if (!hasColumn('contacts', 'more_phones')) db.exec('ALTER TABLE contacts ADD COLUMN more_phones TEXT'); // other numbers
 for (const col of ['title', 'address', 'website']) if (!hasColumn('contacts', col)) db.exec(`ALTER TABLE contacts ADD COLUMN ${col} TEXT`); // job title, postal address, web page
 if (!hasColumn('contacts', 'birthday')) db.exec('ALTER TABLE contacts ADD COLUMN birthday TEXT'); // YYYY-MM-DD, or --MM-DD without the year
 // Where each mailbox lives on the mail server. Null: the usual /var/vmail/<domain>/<name>. A renamed

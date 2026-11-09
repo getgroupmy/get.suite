@@ -56,8 +56,10 @@ test('contact cards: fields Workspace shows, everything else kept', () => {
     'BDAY:1990-04-01', 'NOTE:Met at the trade fair\\, Penang', 'UID:5D3A-11', 'END:VCARD'].join('\r\n');
   const c = parseVcard(card);
   assert.deepEqual([c.uid, c.name, c.email, c.phone, c.company, c.notes], ['5D3A-11', 'Mei Ling Tan', 'meiling@home.example', '+60 12-345 6789', 'Harbour Logistics', 'Met at the trade fair, Penang']);
-  assert.match(c.vcard_extra, /mei@harbour\.example/);
-  assert.match(c.vcard_extra, /\+60 4-123 4567/);
+  // The other address and number are shown too (not just kept on the card).
+  assert.deepEqual(c.more_emails, [{ type: 'work', value: 'mei@harbour.example' }]);
+  assert.deepEqual(c.more_phones, [{ type: 'work', value: '+60 4-123 4567' }]);
+  assert.doesNotMatch(c.vcard_extra, /EMAIL|TEL/);
   assert.match(c.vcard_extra, /item1\.ADR/);
   assert.equal(c.birthday, '1990-04-01');
   assert.doesNotMatch(c.vcard_extra, /BDAY/);

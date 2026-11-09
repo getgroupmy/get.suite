@@ -14,6 +14,28 @@ import PersonCard from '../../components/PersonCard.jsx';
 import { photoBlob, photoUrl } from './photo.js';
 
 const FIELDS = [['name', 'Name'], ['email', 'Email'], ['phone', 'Phone'], ['company', 'Company'], ['title', 'Job title'], ['website', 'Website']];
+const TYPE_LABELS = { work: 'Work', home: 'Home', mobile: 'Mobile', other: 'Other' };
+const MORE_TYPES = { emails: ['work', 'home', 'other'], phones: ['mobile', 'work', 'home', 'other'] };
+
+/** Other email addresses or phone numbers of a contact, each with a label; "+ Add …" adds a row. */
+function MoreField({ kind, list, onChange }) {
+  const one = kind === 'emails' ? 'email' : 'phone';
+  const set = (i, patch) => onChange(list.map((x, k) => (k === i ? { ...x, ...patch } : x)));
+  return (
+    <div className="more-field">
+      {list.map((x, i) => (
+        <div key={i} className="row" style={{ gap: 6 }}>
+          <select aria-label={`Label for ${one} ${i + 2}`} value={x.type} onChange={(e) => set(i, { type: e.target.value })}>
+            {MORE_TYPES[kind].map((t) => <option key={t} value={t}>{TYPE_LABELS[t]}</option>)}
+          </select>
+          <input className="grow" type={kind === 'emails' ? 'email' : 'tel'} aria-label={`${kind === 'emails' ? 'Email' : 'Phone'} ${i + 2}`} value={x.value} onChange={(e) => set(i, { value: e.target.value })} />
+          <button type="button" className="icon-btn" aria-label={`Remove ${one} ${i + 2}`} onClick={() => onChange(list.filter((_, k) => k !== i))}><Icon name="close" size={16} /></button>
+        </div>
+      ))}
+      {list.length < 10 && <button type="button" className="link-btn small" onClick={() => onChange([...list, { type: kind === 'emails' ? 'home' : 'work', value: '' }])}>+ Add {kind === 'emails' ? 'another email' : 'another phone'}</button>}
+    </div>
+  );
+}
 
 export default function Contacts() {
   const [history, setHistory] = useState(null); // a contact whose emails and meetings are shown
@@ -95,8 +117,10 @@ export default function Contacts() {
             {list.map((c) => (
               <tr key={c.id}>
                 <td className="name"><Avatar name={c.name} size={28} userId={tab === 'dir' ? c.id : undefined} email={c.email || c.username} src={tab !== 'dir' ? photoUrl(c) : undefined} /><span>{tab === 'dir' ? <button type="button" className="link-btn person-name" onClick={() => setCard(c.id)}>{c.name}</button> : c.name}{c.shared && tab === 'mine' ? <span className="muted"> · Shared with company</span> : null}{tab === 'company' && <span className="muted"> · Added by {c.owner_id === user.id ? 'you' : c.owner_name}</span>}{c.status && <span className="person-status" aria-label={`Status: ${statusLine(c.status)}`}> · {statusLine(c.status)}</span>}{tab === 'dir' && whereToday[c.id] && <span className="muted person-where" title="Working location today"> · {placeText(whereToday[c.id])} today</span>}</span></td>
-                <td className="hide-sm">{(c.email || c.username) ? <a href={`mailto:${c.email || c.username}`}>{c.email || c.username}</a> : <span className="muted">—</span>}</td>
-                <td className="hide-sm">{(c.phone || c.work_phone) ? <a href={`tel:${c.phone || c.work_phone}`}>{c.phone || c.work_phone}</a> : <span className="muted">—</span>}</td>
+                <td className="hide-sm">{(c.email || c.username) ? <a href={`mailto:${c.email || c.username}`}>{c.email || c.username}</a> : <span className="muted">—</span>}
+                  {c.more_emails?.map((m) => <div key={m.value} className="small"><a href={`mailto:${m.value}`}>{m.value}</a> <span className="muted">{TYPE_LABELS[m.type]}</span></div>)}</td>
+                <td className="hide-sm">{(c.phone || c.work_phone) ? <a href={`tel:${c.phone || c.work_phone}`}>{c.phone || c.work_phone}</a> : <span className="muted">—</span>}
+                  {c.more_phones?.map((m) => <div key={m.value} className="small"><a href={`tel:${m.value}`}>{m.value}</a> <span className="muted">{TYPE_LABELS[m.type]}</span></div>)}</td>
                 <td className="hide-sm muted">{own ? [c.title, c.company].filter(Boolean).join(' · ') || '—' : [c.job_title, c.department].filter(Boolean).join(' · ') || user.org_name}{own && c.website && <> · <a href={c.website} target="_blank" rel="noopener noreferrer">{c.website.replace(/^https?:\/\//, '')}</a></>}</td>
                 <td className="actions">
                   {own ? (tab === 'mine' || c.can_edit) && <>
@@ -140,12 +164,12 @@ function DuplicatesDialog({ onClose, onMerged }) {
       find();
     } catch (e) { toast(e.message, 'error'); }
   };
-  const line = (c) => [c.email, c.phone, [c.title, c.company].filter(Boolean).join(' · ')].filter(Boolean).join(' · ') || 'No details';
+  const line = (c) => [c.email, ...(c.more_emails || []).map((m) => m.value), c.phone, ...(c.more_phones || []).map((m) => m.value), [c.title, c.company].filter(Boolean).join(' · ')].filter(Boolean).join(' · ') || 'No details';
   return (
     <Modal wide title="Merge duplicates" onClose={onClose} footer={<button className="btn" onClick={onClose}>Close</button>}>
       {groups === null ? <p className="muted">Looking…</p> : !groups.length ? <p className="muted">No duplicates: no two contacts share an email address, phone number or name.</p> : (
         <div className="stack">
-          <p className="muted small" style={{ margin: 0 }}>These contacts share an email address, phone number or name. Merging keeps the one you choose, fills in what it's missing from the others, and adds anything different (another email or phone) to its notes. The others are deleted.</p>
+          <p className="muted small" style={{ margin: 0 }}>These contacts share an email address, phone number or name. Merging keeps the one you choose, fills in what it's missing from the others, adds their other email addresses and phone numbers to it, and notes anything else that differs. The others are deleted.</p>
           {groups.map((g, i) => (
             <fieldset key={g.map((c) => c.id).join()} className="dup-group" aria-label={`Duplicates of ${g[0].name}`}>
               {g.map((c) => (
@@ -219,7 +243,8 @@ function ContactDialog({ contact, orgName, onClose, onSaved }) {
   }
   async function submit(e) {
     e.preventDefault();
-    const body = { name: f.name, email: f.email || '', phone: f.phone || '', company: f.company || '', title: f.title || '', website: f.website || '', address: f.address || '', notes: f.notes || '', birthday: f.birthday || null, shared: !!f.shared };
+    const body = { name: f.name, email: f.email || '', phone: f.phone || '', company: f.company || '', title: f.title || '', website: f.website || '', address: f.address || '', notes: f.notes || '', birthday: f.birthday || null, shared: !!f.shared,
+      more_emails: (f.more_emails || []).filter((x) => x.value.trim()), more_phones: (f.more_phones || []).filter((x) => x.value.trim()) };
     try { const saved = contact.id ? await patch(`/contacts/${contact.id}`, body) : await post('/contacts', body); await savePhoto(saved.id || contact.id); onSaved(); }
     catch (err) { setError(err.message); }
   }
@@ -233,9 +258,12 @@ function ContactDialog({ contact, orgName, onClose, onSaved }) {
           <input ref={picInput} type="file" accept="image/*" hidden aria-label="Photo" onChange={(e) => { pickPhoto(e.target.files[0]); e.target.value = ''; }} />
         </div>
         {FIELDS.map(([k, label], i) => (
-          <label key={k} className="field"><span>{label}</span>
-            <input autoFocus={i === 0} required={k === 'name'} type={k === 'email' ? 'email' : k === 'phone' ? 'tel' : 'text'} placeholder={k === 'website' ? 'example.com' : undefined} value={f[k] || ''} onChange={(e) => setF({ ...f, [k]: e.target.value })} />
-          </label>
+          <div key={k} className="stack-tight">
+            <label className="field"><span>{label}</span>
+              <input autoFocus={i === 0} required={k === 'name'} type={k === 'email' ? 'email' : k === 'phone' ? 'tel' : 'text'} placeholder={k === 'website' ? 'example.com' : undefined} value={f[k] || ''} onChange={(e) => setF({ ...f, [k]: e.target.value })} />
+            </label>
+            {(k === 'email' || k === 'phone') && <MoreField kind={`${k}s`} list={f[`more_${k}s`] || []} onChange={(l) => setF({ ...f, [`more_${k}s`]: l })} />}
+          </div>
         ))}
         <label className="field"><span>Address</span><textarea rows={3} value={f.address || ''} onChange={(e) => setF({ ...f, address: e.target.value })} /></label>
         <BirthdayField value={f.birthday || ''} onChange={(birthday) => setF({ ...f, birthday })} />

@@ -2332,3 +2332,7 @@ textarea.mono { font-family: ui-monospace, Consolas, monospace; }
 .planned-group { margin-bottom: 14px; }
 .planned-heading { font-size: 14px; margin: 8px 0 4px; }
 .planned-group.overdue .planned-heading { color: var(--danger); }
+
+/* Contacts: other email addresses and phone numbers */
+.more-field { display: grid; gap: 6px; margin-top: 6px; }
+.more-field select { width: 96px; }

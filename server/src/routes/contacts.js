@@ -9,6 +9,9 @@ import { birthdayOf, birthdaysBetween } from '../birthday.js';
 import { duplicateGroups, mergedFields } from '../contactmerge.js';
 import { otherContactsOf, matchOther, forgetOther } from '../othercontacts.js';
 import { photoOf, setPhoto, withPhoto, photoFromCard, MAX_PHOTO } from '../contactphotos.js';
+import { cleanMore, withMore, liftCardMore } from '../contactmore.js';
+
+liftCardMore(); // cards synced before kept their other addresses and numbers inside the raw card
 
 const FIELDS = { name: 200, email: 200, phone: 50, company: 200, title: 200, address: 500, website: 300, notes: 5000 };
 const COLS = [...Object.keys(FIELDS), 'birthday'];
@@ -55,6 +58,11 @@ function read(body, partial) {
   if (!partial || body.birthday !== undefined) {
     try { out.birthday = birthdayOf(body.birthday, { strict: true }); } catch (e) { throw bad(e.message); }
   }
+  // Other email addresses and phone numbers: [{ type, value }] (work, home, mobile, other).
+  for (const k of ['emails', 'phones']) {
+    if (body[`more_${k}`] === undefined) continue;
+    try { out[`more_${k}`] = JSON.stringify(cleanMore(body[`more_${k}`], k, { strict: true, main: k === 'emails' ? body.email : body.phone })); } catch (e) { throw bad(e.message); }
+  }
   return out;
 }
 
@@ -65,9 +73,9 @@ export default function contactRoutes() {
     if (req.query.scope === 'company') {
       return res.json(q(`SELECT c.*, u.name AS owner_name, (c.owner_id = ? OR ?) AS can_edit, p.updated_at AS photo_at FROM contacts c JOIN users u ON u.id = c.owner_id
                          LEFT JOIN contact_photos p ON p.contact_id = c.id WHERE c.shared = 1 AND u.org_id = ? ORDER BY c.name COLLATE NOCASE`).all(req.user.id, req.user.is_admin ? 1 : 0, req.user.org_id)
-        .map((c) => ({ ...c, can_edit: !!c.can_edit })));
+        .map((c) => withMore({ ...c, can_edit: !!c.can_edit })));
     }
-    res.json(q('SELECT c.*, p.updated_at AS photo_at FROM contacts c LEFT JOIN contact_photos p ON p.contact_id = c.id WHERE c.owner_id = ? ORDER BY c.starred DESC, c.name COLLATE NOCASE').all(req.user.id).map((c) => ({ ...c, starred: !!c.starred })));
+    res.json(q('SELECT c.*, p.updated_at AS photo_at FROM contacts c LEFT JOIN contact_photos p ON p.contact_id = c.id WHERE c.owner_id = ? ORDER BY c.starred DESC, c.name COLLATE NOCASE').all(req.user.id).map((c) => withMore({ ...c, starred: !!c.starred })));
   });
 
   // ---- photos ----
@@ -147,6 +155,11 @@ export default function contactRoutes() {
     const mine = q(`SELECT name, email, starred FROM contacts WHERE owner_id = ? AND email IS NOT NULL AND email != ''
                     AND (LOWER(name) LIKE ? ESCAPE '\\' OR LOWER(email) LIKE ? ESCAPE '\\')
                     ORDER BY starred DESC, (LOWER(name) LIKE ? ESCAPE '\\' OR LOWER(email) LIKE ? ESCAPE '\\') DESC, name COLLATE NOCASE LIMIT 8`).all(req.user.id, like, like, starts, starts);
+    // Your contacts' other addresses (a work and a home one): each is a suggestion of its own.
+    const extra = q(`SELECT name, more_emails, starred FROM contacts WHERE owner_id = ? AND more_emails IS NOT NULL AND more_emails != '[]'
+                     AND (LOWER(name) LIKE ? ESCAPE '\\' OR LOWER(more_emails) LIKE ? ESCAPE '\\') LIMIT 20`).all(req.user.id, like, like)
+      .flatMap((c) => cleanMore(c.more_emails, 'emails').filter((e) => c.name.toLowerCase().includes(term) || e.value.includes(term)).map((e) => ({ name: c.name, email: e.value, starred: c.starred })));
+    mine.push(...extra);
     const others = matchOther(req.user.id, like);
     const people = q(`SELECT id, name, username AS email FROM users WHERE org_id = ? AND disabled = 0 AND id != ?
                       AND (LOWER(name) LIKE ? ESCAPE '\\' OR username LIKE ? ESCAPE '\\') ORDER BY name COLLATE NOCASE LIMIT 8`).all(req.user.org_id, req.user.id, like, like);
@@ -181,9 +194,10 @@ export default function contactRoutes() {
       if ((email && emails.has(email)) || (c.uid && uids.has(c.uid)) || (!email && namePhone.has(key))) { skipped++; continue; } // already there
       const cut = (v, n) => (v ? String(v).slice(0, n) : null);
       const newId = uid();
-      q(`INSERT INTO contacts (id, owner_id, name, email, phone, company, title, address, website, notes, birthday, created_at, vcard_uid, vcard_extra) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      q(`INSERT INTO contacts (id, owner_id, name, email, phone, company, title, address, website, notes, birthday, created_at, vcard_uid, vcard_extra, more_emails, more_phones) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
         .run(newId, req.user.id, String(c.name).slice(0, 200), email, cut(c.phone, 50), cut(c.company, 200), cut(c.title, 200), cut(c.address, 500), cut(c.website, 300),
-          cut(c.notes, 5000), c.birthday || null, t, c.uid || null, c.vcard_extra || null);
+          cut(c.notes, 5000), c.birthday || null, t, c.uid || null, c.vcard_extra || null,
+          c.more_emails?.length ? JSON.stringify(c.more_emails) : null, c.more_phones?.length ? JSON.stringify(c.more_phones) : null);
       if (c.photo) photoFromCard(newId, c);
       if (email) emails.add(email);
       if (c.uid) uids.add(c.uid);
@@ -241,18 +255,18 @@ export default function contactRoutes() {
     const others = rows.filter((x) => x.id !== keepId);
     const m = mergedFields(keep, others);
     tx(() => {
-      q(`UPDATE contacts SET ${COLS.map((k) => `${k} = ?`).join(', ')} WHERE id = ?`).run(...COLS.map((k) => m[k] ?? null), keep.id);
+      q(`UPDATE contacts SET ${COLS.map((k) => `${k} = ?`).join(', ')}, more_emails = ?, more_phones = ? WHERE id = ?`).run(...COLS.map((k) => m[k] ?? null), JSON.stringify(m.more_emails), JSON.stringify(m.more_phones), keep.id);
       for (const o of others) q('DELETE FROM contacts WHERE id = ?').run(o.id);
     });
-    res.json(q('SELECT * FROM contacts WHERE id = ?').get(keep.id));
+    res.json(withMore(q('SELECT * FROM contacts WHERE id = ?').get(keep.id)));
   });
 
   r.post('/', (req, res) => {
     const c = read(req.body, false);
     const id = uid();
-    q(`INSERT INTO contacts (id, owner_id, ${COLS.join(', ')}, created_at, shared) VALUES (?, ?, ${COLS.map(() => '?').join(', ')}, ?, ?)`)
-      .run(id, req.user.id, ...COLS.map((k) => c[k] ?? null), now(), req.body.shared ? 1 : 0);
-    res.status(201).json(q('SELECT * FROM contacts WHERE id = ?').get(id));
+    q(`INSERT INTO contacts (id, owner_id, ${COLS.join(', ')}, created_at, shared, more_emails, more_phones) VALUES (?, ?, ${COLS.map(() => '?').join(', ')}, ?, ?, ?, ?)`)
+      .run(id, req.user.id, ...COLS.map((k) => c[k] ?? null), now(), req.body.shared ? 1 : 0, c.more_emails ?? null, c.more_phones ?? null);
+    res.status(201).json(withMore(q('SELECT * FROM contacts WHERE id = ?').get(id)));
   });
 
   // Yours, or (for an admin) one shared with the company.
@@ -266,12 +280,13 @@ export default function contactRoutes() {
     const existing = editable(req);
     const c = { ...existing, ...read(req.body, true) };
     q(`UPDATE contacts SET ${COLS.map((k) => `${k} = ?`).join(', ')} WHERE id = ?`).run(...COLS.map((k) => c[k] ?? null), c.id);
+    for (const k of ['more_emails', 'more_phones']) if (c[k] !== undefined && req.body[k] !== undefined) q(`UPDATE contacts SET ${k} = ? WHERE id = ?`).run(c[k], c.id);
     if (req.body.shared !== undefined) q('UPDATE contacts SET shared = ? WHERE id = ?').run(req.body.shared ? 1 : 0, c.id);
     if (req.body.starred !== undefined) {
       if (existing.owner_id !== req.user.id) throw bad('Only its owner stars a contact');
       q('UPDATE contacts SET starred = ? WHERE id = ?').run(req.body.starred ? 1 : 0, c.id);
     }
-    res.json(q('SELECT * FROM contacts WHERE id = ?').get(c.id));
+    res.json(withMore(q('SELECT * FROM contacts WHERE id = ?').get(c.id)));
   });
 
   r.delete('/:id', (req, res) => {

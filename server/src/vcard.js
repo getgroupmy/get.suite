@@ -3,6 +3,7 @@
 // numbers, a photo) is kept as it came, so syncing never drops it.
 import { birthdayOf } from './birthday.js';
 import { contentLines, unescapeText, escapeText, fold } from './ics.js';
+import { cleanMore, moreToLines, typeOf } from './contactmore.js';
 
 const KNOWN = new Set(['BEGIN', 'END', 'VERSION', 'UID', 'FN', 'N', 'ORG', 'NOTE', 'PRODID', 'REV', 'BDAY', 'TITLE', 'URL']);
 const PHOTO_TYPES = { 'image/jpeg': 'JPEG', 'image/png': 'PNG', 'image/webp': 'WEBP', 'image/gif': 'GIF' };
@@ -29,7 +30,9 @@ export function buildVcard(c) {
 
   if (c.website) lines.push(`URL:${c.website}`);
   if (c.birthday) lines.push(`BDAY${c.birthday.startsWith('--') ? ';X-APPLE-OMIT-YEAR=1604' : ''}:${c.birthday.startsWith('--') ? `1604${c.birthday.slice(1)}` : c.birthday}`); // phones read a year; Apple's 1604 means none
-  let extra = String(c.vcard_extra || '').split(/\r?\n/).filter(Boolean);
+  // Other addresses and numbers, from the lists (lines a card came with for them aren't kept twice).
+  lines.push(...moreToLines(c.more_emails, c.more_phones));
+  let extra = String(c.vcard_extra || '').split(/\r?\n/).filter(Boolean).filter((l) => !/^([\w-]+\.)?(EMAIL|TEL)[;:]/i.test(l));
   // The photo kept in Workspace (when there is one) replaces any the card came with.
   if (c.photo?.length) { extra = extra.filter((l) => !isPhotoLine(l)); lines.push(`PHOTO;ENCODING=b;TYPE=${PHOTO_TYPES[c.photo_type] || 'JPEG'}:${Buffer.from(c.photo).toString('base64')}`); }
   // The address: the phone's own line when it still says the same, else one written from the text.
@@ -73,12 +76,14 @@ export function parseVcard(text) {
     const b64 = m ? m[1] : /^(b|base64)$/i.test(ph.params.ENCODING || '') ? v : null;
     if (b64) { const buf = Buffer.from(b64.replace(/\s+/g, ''), 'base64'); if (buf.length) photo = buf; }
   }
+  // Each line's name and parameters as written ("TEL;TYPE=WORK;TYPE=VOICE"), to read its type from.
+  const headOf = new Map(lines.map((l, i) => [l, String(unfolded[i] || '').split(':')[0]]));
   // Keep every line Workspace doesn't model (raw, as it came), except the email/number it shows.
   const extra = [];
   let size = 0;
   for (const [i, line] of unfolded.entries()) {
     const l = lines[i];
-    if (!l || KNOWN.has(l.name) || l === email || l === tel || (photo && l === ph)) continue; // the address line stays as it came too
+    if (!l || KNOWN.has(l.name) || emails.includes(l) || tels.includes(l) || (photo && l === ph)) continue; // emails and numbers: in the lists; the address line stays as it came
     if ((size += line.length) > MAX_EXTRA) break;
     extra.push(line);
   }
@@ -94,6 +99,9 @@ export function parseVcard(text) {
     website: (get('URL')?.value || '').trim().slice(0, 300) || null,
     birthday: birthdayOf(get('BDAY')?.value),
     vcard_extra: extra.join('\n') || null,
+    // The other addresses and numbers (the shown ones are email and phone).
+    more_emails: cleanMore(emails.filter((l) => l !== email).map((l) => ({ type: typeOf(headOf.get(l), 'emails'), value: l.value })), 'emails', { main: email?.value }),
+    more_phones: cleanMore(tels.filter((l) => l !== tel).map((l) => ({ type: typeOf(headOf.get(l), 'phones'), value: l.value })), 'phones', { main: tel?.value }),
     ...(photo && { photo }),
   };
 }

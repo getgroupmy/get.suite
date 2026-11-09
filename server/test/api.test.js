@@ -2052,7 +2052,8 @@ test('contacts: duplicates found by email, phone or name; merging keeps one with
   assert.equal(m.name, 'Kim Park');
   assert.equal(m.phone, '+44 7700 900123');
   assert.equal(m.birthday, '1990-05-01');
-  assert.equal(m.notes, 'Met at expo\nAlso email: kim.park@gmail.example');
+  assert.equal(m.notes, 'Met at expo');
+  assert.deepEqual(m.more_emails, [{ type: 'other', value: 'kim.park@gmail.example' }], 'the other address is kept as another email');
   const left = (await a('GET', '/api/contacts')).body.map((c) => c.name).sort();
   assert.deepEqual(left, ['Kim Park', 'Somebody Else']);
   assert.deepEqual((await a('GET', '/api/contacts/duplicates')).body, []);
@@ -3770,6 +3771,38 @@ test('notes: write, check off, pin, label, archive, search and share', async () 
   assert.equal((await b('DELETE', `/api/notes/${n2.id}`)).body.deleted, false, 'they leave it');
   assert.equal((await a('GET', '/api/notes')).body.some((n) => n.id === n2.id), true, 'still there for the owner');
   assert.equal((await a('DELETE', `/api/notes/${n2.id}`)).body.deleted, true);
+});
+
+test('contacts: more than one email address and phone number, suggested in Mail and on the card', async () => {
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'cmore', domain: 'acme.com', name: 'Cy More', password: 'password123' })).status, 201);
+  await login(a, 'cmore@acme.com');
+  assert.equal((await a('POST', '/api/contacts', { name: 'Bad', more_emails: [{ value: 'nope' }] })).status, 400);
+  const c = (await a('POST', '/api/contacts', { name: 'Lena Lark', email: 'lena@work.example', phone: '+60 12 111', more_emails: [{ type: 'home', value: 'Lena@Home.Example' }], more_phones: [{ type: 'work', value: '+60 3 222' }] })).body;
+  assert.deepEqual(c.more_emails, [{ type: 'home', value: 'lena@home.example' }]);
+  assert.deepEqual(c.more_phones, [{ type: 'work', value: '+60 3 222' }]);
+  const listed = (await a('GET', '/api/contacts')).body.find((x) => x.id === c.id);
+  assert.deepEqual(listed.more_emails, c.more_emails, 'as lists in the contacts list');
+  const sug = (await a('GET', '/api/contacts/suggest?q=lena')).body.map((x) => x.email);
+  assert.ok(sug.includes('lena@work.example') && sug.includes('lena@home.example'), JSON.stringify(sug));
+  assert.ok((await a('GET', '/api/contacts/suggest?q=home.ex')).body.some((x) => x.email === 'lena@home.example' && x.name === 'Lena Lark'));
+  const changed = (await a('PATCH', `/api/contacts/${c.id}`, { more_phones: [] })).body;
+  assert.deepEqual(changed.more_phones, []);
+  assert.deepEqual(changed.more_emails, c.more_emails, 'the other list stays');
+  // In and out as vCards.
+  const vcf = (await a('GET', '/api/contacts/export?format=vcf')).body;
+  assert.match(vcf, /EMAIL;TYPE=INTERNET,HOME:lena@home.example/);
+  const imp = (await a('POST', '/api/contacts/import', 'BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Omar Oak\r\nEMAIL:omar@a.example\r\nEMAIL;TYPE=WORK:omar@b.example\r\nTEL;TYPE=CELL:+1 555 0100\r\nTEL;TYPE=HOME:+1 555 0199\r\nEND:VCARD\r\n', { raw: true })).body;
+  assert.equal(imp.added, 1);
+  const omar = (await a('GET', '/api/contacts')).body.find((x) => x.name === 'Omar Oak');
+  assert.deepEqual([omar.email, omar.more_emails, omar.phone, omar.more_phones], ['omar@a.example', [{ type: 'work', value: 'omar@b.example' }], '+1 555 0100', [{ type: 'home', value: '+1 555 0199' }]]);
+  // Cards synced before this kept them inside the raw card: they're brought out once.
+  const { q } = await import('../src/db.js');
+  const { liftCardMore } = await import('../src/contactmore.js');
+  q('UPDATE contacts SET more_emails = NULL, more_phones = NULL, vcard_extra = ? WHERE id = ?').run('EMAIL;TYPE=WORK:omar@b.example\nX-KEEP:yes\nTEL;TYPE=HOME:+1 555 0199', omar.id);
+  assert.ok(liftCardMore() >= 1);
+  const lifted = q('SELECT more_emails, more_phones, vcard_extra FROM contacts WHERE id = ?').get(omar.id);
+  assert.deepEqual([JSON.parse(lifted.more_emails), JSON.parse(lifted.more_phones), lifted.vcard_extra], [[{ type: 'work', value: 'omar@b.example' }], [{ type: 'home', value: '+1 555 0199' }], 'X-KEEP:yes']);
 });
 
 test('docs writing preferences: autocorrect and your own replacements, per person', async () => {
