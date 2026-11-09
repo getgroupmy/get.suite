@@ -229,15 +229,30 @@ function Users({ orgId, setOrgId }) {
       <ConfirmModal title={`Delete ${dialog.user.name}?`} confirm="Delete user"
         message={`This permanently deletes ${dialog.user.username}, their ${dialog.heir ? '' : `files (${formatBytes(dialog.user.storage_used)}), `}calendar, contacts and messages. Consider disabling the account instead.`}
         onClose={() => setDialog(null)} onConfirm={async () => {
-          const r = await del(`/users/${dialog.user.id}${dialog.heir ? `?transfer_to=${dialog.heir}` : ''}`);
+          const qs = new URLSearchParams({ ...(dialog.heir && { transfer_to: dialog.heir }), ...(dialog.mailTo && { mail_to: dialog.mailTo }), ...(dialog.eventsTo && { events_to: dialog.eventsTo }) });
+          const r = await del(`/users/${dialog.user.id}${qs.toString() ? `?${qs}` : ''}`);
           const given = dialog.heir && r.files_moved ? `; ${r.files_moved} file${r.files_moved === 1 ? '' : 's'} given to ${users.find((x) => x.id === dialog.heir)?.name}` : '';
           const kept = r.drive_items_kept ? `; ${r.drive_items_kept} item${r.drive_items_kept === 1 ? '' : 's'} kept in shared drives` : '';
-          toast(`User deleted${given}${kept}`); load();
+          const mail = r.mail_to ? `; their email now goes to ${r.mail_to}` : '';
+          const meetings = dialog.eventsTo && r.meetings_moved ? `; ${r.meetings_moved} meeting${r.meetings_moved === 1 ? '' : 's'} given to ${users.find((x) => x.id === dialog.eventsTo)?.name}` : '';
+          toast(`User deleted${given}${kept}${mail}${meetings}`); load();
         }}>
         <label className="field"><span>Their Drive files</span>
           <select value={dialog.heir || ''} onChange={(e) => setDialog({ ...dialog, heir: e.target.value || null })}>
             <option value="">Delete them too</option>
             {(users || []).filter((x) => x.id !== dialog.user.id && !x.disabled).map((x) => <option key={x.id} value={x.id}>Give them to {x.name}</option>)}
+          </select>
+        </label>
+        <label className="field"><span>Email sent to {dialog.user.username} from now on</span>
+          <select value={dialog.mailTo || ''} onChange={(e) => setDialog({ ...dialog, mailTo: e.target.value || null })}>
+            <option value="">Bounce it (the address stops working)</option>
+            {(users || []).filter((x) => x.id !== dialog.user.id && !x.disabled).map((x) => <option key={x.id} value={x.id}>Send it to {x.name}</option>)}
+          </select>
+        </label>
+        <label className="field"><span>Upcoming meetings they organise</span>
+          <select value={dialog.eventsTo || ''} onChange={(e) => setDialog({ ...dialog, eventsTo: e.target.value || null })}>
+            <option value="">Cancel them</option>
+            {(users || []).filter((x) => x.id !== dialog.user.id && !x.disabled).map((x) => <option key={x.id} value={x.id}>{x.name} organises them</option>)}
           </select>
         </label>
         <p className="muted small" style={{ margin: 0 }}>What they added to shared drives stays there either way. A shared drive they own goes to one of its editors (or to whoever gets their files, or to you).</p>

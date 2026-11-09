@@ -515,6 +515,15 @@ export default function userRoutes() {
       heir = q('SELECT id, name, org_id, disabled FROM users WHERE id = ?').get(String(req.query.transfer_to));
       if (!heir || heir.disabled || heir.org_id !== u.org_id || heir.id === u.id) throw bad('Choose someone else in the same company to give their files to');
     }
+    // Their email from now on, and the meetings they organise, can go to a colleague too.
+    const colleague = (id, what) => {
+      if (!id) return null;
+      const c = q('SELECT id, name, username, org_id, disabled FROM users WHERE id = ?').get(String(id));
+      if (!c || c.disabled || c.org_id !== u.org_id || c.id === u.id) throw bad(`Choose someone else in the same company to give their ${what} to`);
+      return c;
+    };
+    const mailHeir = colleague(req.query.mail_to, 'email');
+    const eventsHeir = colleague(req.query.events_to, 'meetings');
     const kept = keepDriveFiles(u.id, heir?.id, req.user.id); // what they added to shared drives stays there
     const blobs = tx(() => {
       let moved = 0;
@@ -528,19 +537,32 @@ export default function userRoutes() {
         q('DELETE FROM shares WHERE user_id = ? AND file_id IN (SELECT id FROM files WHERE owner_id = ?)').run(heir.id, heir.id);
       }
       req.moved = moved;
+      // Upcoming meetings they organise (and repeating ones still going): the colleague becomes the organiser,
+      // keeping the guests; past ones go with the account.
+      if (eventsHeir) {
+        const t = Date.now();
+        const ids = q(`SELECT id FROM events WHERE owner_id = ? AND (end > ? OR (rrule IS NOT NULL AND (repeat_until IS NULL OR repeat_until > ?)))`).all(u.id, t, t).map((e) => e.id);
+        for (const id of ids) {
+          q('UPDATE events SET owner_id = ? WHERE id = ?').run(eventsHeir.id, id);
+          q('DELETE FROM event_guests WHERE event_id = ? AND user_id = ?').run(id, eventsHeir.id); // the organiser isn't their own guest
+        }
+        req.eventsMoved = ids.length;
+      }
       const list = blobsOwnedBy('?', u.id);
       q('UPDATE domains SET catchall = NULL WHERE catchall = (SELECT username FROM users WHERE id = ?)').run(u.id);
       // Their mail stays on the mail server; whoever gets this address next starts with an empty mailbox.
       retireMailHome(q('SELECT username, mail_home FROM users WHERE id = ?').get(u.id));
       q('DELETE FROM users WHERE id = ?').run(u.id);
+      // Their address keeps working, into the colleague's inbox.
+      if (mailHeir) q('INSERT INTO aliases (id, org_id, address, targets, created_at) VALUES (?, ?, ?, ?, ?)').run(uid(), u.org_id, u.username, mailHeir.username, Date.now());
       fs.rmSync(photoFile(u.id), { force: true });
       return list;
     });
     removeBlobs(blobs);
     syncCompanyGroupAliases(u.org_id); // their groups' email addresses no longer include them
     scheduleMailConfig();
-    audit(req, 'user.delete', { org: u.org_id, target: u.username, ...(heir && { details: { files_to: heir.name, items: req.moved } }) });
-    res.json({ ok: true, files_moved: req.moved || 0, drive_items_kept: kept });
+    audit(req, 'user.delete', { org: u.org_id, target: u.username, details: { ...(heir && { files_to: heir.name, items: req.moved }), ...(mailHeir && { mail_to: mailHeir.username }), ...(eventsHeir && { meetings_to: eventsHeir.name, meetings: req.eventsMoved }) } });
+    res.json({ ok: true, files_moved: req.moved || 0, drive_items_kept: kept, mail_to: mailHeir?.username || null, meetings_moved: req.eventsMoved || 0 });
   });
 
   return r;

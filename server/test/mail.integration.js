@@ -1801,3 +1801,22 @@ test('confidential mode: the email carries a link, not the message; readable by 
   const f = (await olivia('POST', '/api/files/upload?name=plan.txt', 'plan', { raw: true })).body;
   assert.equal((await olivia('POST', '/api/mail/send', { to: 'bob@acme.com', subject: 'x', text: 'x', attachments: [f.id], confidential: { days: 7 } })).status, 400);
 });
+
+test('when someone leaves, mail to their address arrives in the colleague\'s inbox', async () => {
+  const id = (await olivia('POST', '/api/users', { local: 'leaving', domain: 'acme.com', name: 'Lee Leaving', password: 'password123' })).body.id;
+  const lee = client();
+  await lee('POST', '/api/auth/login', { username: 'leaving@acme.com', password: 'password123' });
+  await eventually(async () => (await lee('GET', '/api/mail/folders')).status === 200);
+  const me = (await olivia('GET', '/api/auth/me')).body;
+  const del = await olivia('DELETE', `/api/users/${id}?mail_to=${me.user?.id || me.id}`);
+  assert.equal(del.body.mail_to, 'olivia@acme.com');
+  // Once the mail server has the change (it reads it every couple of seconds): no mailbox, an alias.
+  const live = (f) => { try { return fs.readFileSync(path.join('/run/nw/postfix', f), 'utf8'); } catch { return fs.readFileSync(path.join(process.env.MAIL_CONFIG_DIR, 'postfix', f), 'utf8'); } };
+  await eventually(() => /^leaving@acme\.com olivia@acme\.com$/m.test(live('aliases')) && !/^leaving@acme\.com\s/m.test(live('mailboxes')), 20000);
+  await new Promise((r) => setTimeout(r, 3000)); // and Postfix has reloaded them
+  const t = nodemailer.createTransport({ host: process.env.MAIL_IMAP_HOST, port: 25, secure: false, ignoreTLS: true, name: 'test.acme.com' });
+  const subject = `For Lee ${Date.now()}`;
+  await eventually(async () => { try { await t.sendMail({ from: 'Client <client@globex.com>', to: 'leaving@acme.com', subject, text: 'Is Lee still there?' }); return true; } catch { return false; } }, 30000);
+  const got = await eventually(async () => (await inbox(olivia, subject))[0], 30000);
+  assert.ok(got);
+});

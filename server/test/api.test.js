@@ -2847,6 +2847,38 @@ test('transfer ownership: give a folder to a colleague; give a leaving person’
   assert.equal((await owner('DELETE', `/api/users/${aid}?transfer_to=${aid}`)).status, 400);
 });
 
+test('when someone leaves: their email goes to a colleague, and the meetings they organise too', async () => {
+  const { q } = await import('../src/db.js');
+  const lea = client(), max = client(), guest = client();
+  for (const [c, local, name] of [[lea, 'leaver', 'Lea Leaving'], [max, 'heir', 'Max Heir'], [guest, 'mguest', 'Gus Guest']]) {
+    assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+    await login(c, `${local}@acme.com`);
+  }
+  const leaId = (await lea('GET', '/api/auth/me')).body.user?.id || (await lea('GET', '/api/auth/me')).body.id;
+  const maxId = (await max('GET', '/api/auth/me')).body.user?.id || (await max('GET', '/api/auth/me')).body.id;
+  const day = 864e5, t = Date.now();
+  const past = (await lea('POST', '/api/events', { title: 'Old review', start: t - 3 * day, end: t - 3 * day + 36e5 })).body;
+  const soon = (await lea('POST', '/api/events', { title: 'Client handover', start: t + day, end: t + day + 36e5, guests: ['mguest@acme.com', 'heir@acme.com'] })).body;
+  const weekly = (await lea('POST', '/api/events', { title: 'Team sync', start: t - 14 * day, end: t - 14 * day + 18e5, rrule: { freq: 'weekly' } })).body;
+  assert.equal((await owner('DELETE', `/api/users/${leaId}?mail_to=${leaId}`)).status, 400, 'not to themselves');
+  const del = await owner('DELETE', `/api/users/${leaId}?mail_to=${maxId}&events_to=${maxId}`);
+  assert.equal(del.status, 200, JSON.stringify(del.body));
+  assert.deepEqual([del.body.mail_to, del.body.meetings_moved], ['heir@acme.com', 2]);
+  // Their address is now an alias to Max.
+  assert.equal(q('SELECT targets FROM aliases WHERE address = ?').get('leaver@acme.com').targets, 'heir@acme.com');
+  // Max organises the upcoming ones (not a guest of his own meeting), with the other guests kept; the past one went.
+  const evs = (await max('GET', `/api/events?from=${t - 20 * day}&to=${t + 10 * day}`)).body;
+  const mine = (id) => evs.find((e) => e.id === id);
+  assert.equal(mine(soon.id).role, 'organizer');
+  assert.deepEqual(mine(soon.id).guests.map((g) => g.email), ['mguest@acme.com']);
+  assert.equal(mine(weekly.id).role, 'organizer');
+  assert.equal(q('SELECT 1 FROM events WHERE id = ?').get(past.id), undefined);
+  // Gus still has the invitation, now from Max.
+  assert.ok((await guest('GET', `/api/events?from=${t}&to=${t + 2 * day}`)).body.some((e) => e.id === soon.id));
+  const log = JSON.stringify((await owner('GET', '/api/audit?limit=20')).body);
+  assert.match(log, /heir@acme\.com/);
+});
+
 test('pause notifications: until a time; colleagues see it; stopping early', async () => {
   const a = client(), b = client();
   for (const [local, name] of [['pza', 'Pause Ann'], ['pzb', 'Pause Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
