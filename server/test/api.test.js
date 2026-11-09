@@ -184,6 +184,22 @@ test('mail queue: for the platform owner, and only where the mail server reports
   assert.equal((await gina('POST', '/api/orgs/system/mail-queue', { op: 'flush' })).status, 403);
 });
 
+test('database snapshots: putting one back is for the platform owner, by name, confirmed', async () => {
+  process.env.NW_RESTORE_EXIT = '0'; // the test server keeps running
+  const today = `workspace-${new Date().toISOString().slice(0, 10)}.db`;
+  await owner('POST', '/api/orgs/system/backups');
+  assert.equal((await owner('POST', '/api/orgs/system/backups/workspace-1999-01-01.db/restore', { confirm: 'workspace-1999-01-01.db' })).status, 404);
+  assert.equal((await owner('POST', `/api/orgs/system/backups/${today}/restore`, {})).status, 400, 'not without confirming');
+  assert.equal((await gina('POST', `/api/orgs/system/backups/${today}/restore`, { confirm: today })).status, 403);
+  const r = await owner('POST', `/api/orgs/system/backups/${today}/restore`, { confirm: today });
+  assert.deepEqual(r.body, { ok: true, restarting: false });
+  const { DATA_DIR } = await import('../src/db.js');
+  const note = path.join(DATA_DIR, 'restore-pending.json');
+  assert.equal(JSON.parse(fs.readFileSync(note, 'utf8')).name, today);
+  fs.rmSync(note); // not for this test run's next start
+  assert.ok(JSON.stringify((await owner('GET', '/api/audit')).body).includes('backup.restore'));
+});
+
 test('storage quota is enforced per company', async () => {
   assert.equal((await gina('PATCH', '/api/orgs/current', { quota_mb: 1 })).status, 400, 'company admins cannot set quotas');
   await owner('PATCH', `/api/orgs/${globexId}`, { quota_mb: 1 });

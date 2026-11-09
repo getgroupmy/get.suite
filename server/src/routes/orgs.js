@@ -19,6 +19,8 @@ import { collectHealth } from '../health.js';
 import { roleFor, audienceFor, subtreeIds } from '../access.js';
 import { notify as bell } from '../notifications.js';
 import { backupDatabase, listBackups, backupPath } from '../backup.js';
+import { requestRestore } from '../restore.js';
+import { DATA_DIR } from '../db.js';
 import { readQueue, requestQueueAction, MAIL_STATUS_DIR } from '../mail/queue.js';
 import { mailEnabled } from '../mail/config.js';
 
@@ -227,6 +229,18 @@ export default function orgRoutes() {
     const name = path.basename(backupDatabase());
     audit(req, 'backup.create', { target: name });
     res.json(listBackups());
+  });
+  // Put a snapshot back: the app stops, Docker starts it again, and the snapshot is in place before
+  // the database opens (restore.js). { confirm: <the snapshot's name> }, so it's never by accident.
+  r.post('/system/backups/:name/restore', (req, res) => {
+    const name = req.params.name;
+    if (!backupPath(name)) throw notFound('No such snapshot');
+    if (req.body?.confirm !== name) throw bad('Confirm with the snapshot’s name');
+    requestRestore(DATA_DIR, name, { id: req.user.id, name: req.user.name });
+    audit(req, 'backup.restore', { target: name }); // kept in the copy of the database as it was
+    const restart = process.env.NW_RESTORE_EXIT !== '0';
+    res.on('finish', () => { if (restart) setTimeout(() => process.kill(process.pid, 'SIGTERM'), 300); });
+    res.json({ ok: true, restarting: restart });
   });
   r.get('/system/backups/:name', (req, res) => {
     const f = backupPath(req.params.name);

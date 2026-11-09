@@ -2,12 +2,15 @@ import { DatabaseSync } from 'node:sqlite';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { applyPendingRestore } from './restore.js';
 
 export const DATA_DIR = path.resolve(process.env.DATA_DIR || './data');
 export const FILES_DIR = path.join(DATA_DIR, 'files');
 export const TMP_DIR = path.join(DATA_DIR, 'tmp');
 for (const d of [DATA_DIR, FILES_DIR, TMP_DIR]) fs.mkdirSync(d, { recursive: true });
 
+// A snapshot asked to be put back (Admin → System) goes in place before the database is opened.
+export const restored = process.env.DB_PATH ? null : applyPendingRestore(DATA_DIR);
 export const db = new DatabaseSync(process.env.DB_PATH || path.join(DATA_DIR, 'workspace.db'));
 db.exec(`
 PRAGMA journal_mode = WAL;

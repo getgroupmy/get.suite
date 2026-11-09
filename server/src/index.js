@@ -1,7 +1,9 @@
 import http from 'node:http';
 import { createApp } from './app.js';
 import { attachHub } from './hub.js';
-import { db, q, DATA_DIR } from './db.js';
+import { db, q, DATA_DIR, restored } from './db.js';
+import { audit } from './audit.js';
+import { notify } from './notifications.js';
 import { scheduleBackups } from './backup.js';
 import { scheduleHealthChecks } from './health.js';
 import { mailEnabled } from './mail/config.js';
@@ -32,6 +34,12 @@ attachHub(server);
 setInterval(() => q('DELETE FROM sessions WHERE expires_at < ?').run(Date.now()), 3600e3).unref();
 scheduleHealthChecks(); // the platform owners hear about problems (disk, snapshots, mail, certificate)
 scheduleBackups();
+// Just put a snapshot back (Admin → System): say so in the activity log and to the platform owners.
+if (restored) {
+  audit(null, 'backup.restore', { target: restored.name, details: { kept: restored.kept, by: restored.by?.name || null }, org: null, actor: null });
+  notify(q('SELECT id FROM users WHERE is_super = 1 AND disabled = 0').all().map((u) => u.id), { kind: 'system', title: `The database was restored from ${restored.name}`,
+    body: `As asked by ${restored.by?.name || 'a platform owner'}. The database as it was is kept as ${restored.kept}.`, link: '/admin?tab=system', actor: null });
+}
 setInterval(() => purgeAuthLog(), 3600e3).unref();
 setInterval(() => purgeAudit(), 6 * 3600e3).unref(); // activity older than AUDIT_DAYS
 setInterval(() => emptyOldTrash(), 3600e3).unref(); // Drive: trash older than each company keeps it

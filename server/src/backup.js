@@ -20,7 +20,7 @@ export function backupDatabase({ keep = 7, date = new Date() } = {}) {
   return target;
 }
 
-const SNAPSHOT = /^workspace-\d{4}-\d{2}-\d{2}\.db$/;
+import { SNAPSHOT_NAME as SNAPSHOT } from './restore.js'; // daily ones, and the copies kept by a restore
 /** The snapshots kept, newest first: { name, size, at }. */
 export function listBackups(dir = BACKUP_DIR) {
   let names = [];

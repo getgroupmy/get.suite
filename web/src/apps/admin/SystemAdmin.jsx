@@ -57,6 +57,18 @@ function Snapshots({ onTaken }) {
   const toast = useToast();
   const [list, setList] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [restoring, setRestoring] = useState(null); // the snapshot asked about
+  const [typed, setTyped] = useState('');
+  const [restarting, setRestarting] = useState(false);
+  // Back after the restart: reload, which signs in again if the snapshot is from before this sign-in.
+  useEffect(() => {
+    if (!restarting) return undefined;
+    let gone = false;
+    const t = setInterval(async () => {
+      try { const r = await fetch('/api/auth/status', { cache: 'no-store' }); if (r.ok && gone) window.location.reload(); if (!r.ok) gone = true; } catch { gone = true; }
+    }, 1500);
+    return () => clearInterval(t);
+  }, [restarting]);
   useEffect(() => { get('/orgs/system/backups').then(setList).catch((e) => toast(e.message, 'error')); }, [toast]);
   const take = async () => {
     setBusy(true);
@@ -67,6 +79,7 @@ function Snapshots({ onTaken }) {
       <div className="row"><h3 className="grow" style={{ margin: 0 }}>Database snapshots</h3>
         <button className="btn" onClick={take} disabled={busy}><Icon name="restore" /> {busy ? 'Taking…' : 'Take a snapshot now'}</button></div>
       <p className="muted small" style={{ margin: 0 }}>One is written every day and the last 7 are kept, in <code>data/backups</code>. Each holds companies, people, documents, calendars, contacts and chat (not uploaded files or mail), including passwords’ hashes and mail-signing keys: keep downloaded copies somewhere safe. Taking one today replaces today’s.</p>
+      {restarting && <div className="banner" role="status">Restoring {restarting}: Workspace is restarting with it, which takes a minute. This page reloads when it's back.</div>}
       {list === null ? <p className="muted">Loading…</p> : !list.length ? <p className="muted" style={{ margin: 0 }}>None yet.</p> : (
         <ul className="health-list" aria-label="Snapshots">
           {list.map((b) => (
@@ -74,9 +87,23 @@ function Snapshots({ onTaken }) {
               <Icon name="file" />
               <div className="grow">{b.name}<div className="muted small">{new Date(b.at).toLocaleString()} · {formatBytes(b.size)}</div></div>
               <a className="btn" href={`/api/orgs/system/backups/${encodeURIComponent(b.name)}`} download aria-label={`Download ${b.name}`}><Icon name="download" /> Download</a>
+              <button className="btn" onClick={() => { setTyped(''); setRestoring(b); }} aria-label={`Restore ${b.name}`}>Restore…</button>
             </li>
           ))}
         </ul>
+      )}
+      {restoring && (
+        <ConfirmModal title={`Restore ${restoring.name}?`} confirm="Restore and restart" onClose={() => setRestoring(null)}
+          message={`Everything goes back to how it was on ${new Date(restoring.at).toLocaleString()}: changes since then to people, documents, calendars, contacts and chat are undone, and everyone may need to sign in again. Files uploaded since stay on the NAS but aren't listed; files deleted since can't come back. The database as it is now is kept as a snapshot, so this can be undone.`}
+          onConfirm={async () => {
+            const date = restoring.name.match(/\d{4}-\d{2}-\d{2}/)[0];
+            if (typed.trim() !== date) throw new Error(`Type ${date} to confirm`);
+            const r = await post(`/orgs/system/backups/${encodeURIComponent(restoring.name)}/restore`, { confirm: restoring.name });
+            if (r.restarting) setRestarting(restoring.name); else toast('The snapshot goes back in place the next time Workspace starts');
+          }}>
+          <label className="field"><span>Type the snapshot’s date ({restoring.name.match(/\d{4}-\d{2}-\d{2}/)[0]}) to confirm</span>
+            <input value={typed} onChange={(e) => setTyped(e.target.value)} autoComplete="off" /></label>
+        </ConfirmModal>
       )}
     </div>
   );
