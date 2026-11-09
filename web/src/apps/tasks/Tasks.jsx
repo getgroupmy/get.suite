@@ -224,6 +224,7 @@ export default function Tasks() {
             <Menu trigger={(p) => <button type="button" className="icon-btn" aria-label="List actions" {...p}><Icon name="more" /></button>} items={[
               ...(list.mine ? [{ label: 'Rename list', icon: 'edit', onClick: () => setDialog('rename') }] : []),
               { label: 'Time report…', icon: 'clock', onClick: () => setDialog('time') },
+              { label: 'Make a copy…', icon: 'copy', onClick: () => setDialog('copy') },
               ...(done.length ? [{ label: `Delete completed tasks (${done.length})`, icon: 'check', onClick: async () => { await del(`/tasks/lists/${list.id}/done`); loadTasks(); } }] : []),
               list.mine ? { label: 'Delete list', icon: 'trash', danger: true, onClick: () => setDialog('delete') } : { label: 'Leave list', icon: 'logout', onClick: () => setDialog('delete') },
             ]} />
@@ -286,6 +287,7 @@ export default function Tasks() {
       {dialog === 'rename' && list && <PromptModal title="Rename list" label="List name" initial={list.name} confirm="Rename" onClose={() => setDialog(null)}
         onSubmit={async (name) => { await patch(`/tasks/lists/${list.id}`, { name }); loadLists(); }} />}
       {dialog === 'time' && list && <TimeReport list={list} onClose={() => setDialog(null)} />}
+      {dialog === 'copy' && list && <CopyList list={list} onClose={() => setDialog(null)} onDone={async (r) => { setDialog(null); await loadLists(); navigate(`/tasks/${r.id}`); }} />}
       {dialog === 'share' && list && <ShareList list={list} me={user} onClose={() => setDialog(null)} onSaved={() => { setDialog(null); loadLists(); }} />}
       {dialog === 'delete' && list && (
         <ConfirmModal title={list.mine ? `Delete “${list.name}”?` : `Leave “${list.name}”?`} confirm={list.mine ? 'Delete list' : 'Leave'}
@@ -782,5 +784,32 @@ function TaskTags({ task, onChange }) {
           onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); add(); } }} onBlur={add} />
       </div>
     </div>
+  );
+}
+
+/** A copy of a list, to use it again (an onboarding checklist, month-end): its open tasks, due dates moved to a new start. */
+function CopyList({ list, onClose, onDone }) {
+  const toast = useToast();
+  const [name, setName] = useState(`${list.name} (copy)`);
+  const [start, setStart] = useState('');
+  const [busy, setBusy] = useState(false);
+  const go = async (e) => {
+    e.preventDefault(); setBusy(true);
+    try {
+      const r = await post(`/tasks/lists/${list.id}/copy`, { name, ...(start && { start }) });
+      toast(`${r.tasks} task${r.tasks === 1 ? '' : 's'} copied to “${r.name}”`);
+      onDone(r);
+    } catch (err) { toast(err.message, 'error'); setBusy(false); }
+  };
+  return (
+    <Modal title="Make a copy" onClose={onClose}
+      footer={<><span className="grow" /><button type="button" className="btn" onClick={onClose}>Cancel</button><button type="submit" form="copy-list" className="btn primary" disabled={busy || !name.trim()}>Make a copy</button></>}>
+      <form id="copy-list" className="stack" onSubmit={go}>
+        <p className="muted small" style={{ margin: 0 }}>The open tasks, with their notes, steps (unticked), tags, stars, files and what they wait on. Not who they're for, comments or time.</p>
+        <label className="field"><span>Name of the copy</span><input value={name} maxLength={100} onChange={(e) => setName(e.target.value)} autoFocus /></label>
+        <label className="field"><span>Start on (optional)</span><input type="date" value={start} onChange={(e) => setStart(e.target.value)} /></label>
+        <p className="muted small" style={{ margin: 0 }}>{start ? 'Due dates move so the earliest falls on this day, keeping the same gaps between them.' : 'Without a start day, the copy has no due dates.'}</p>
+      </form>
+    </Modal>
   );
 }

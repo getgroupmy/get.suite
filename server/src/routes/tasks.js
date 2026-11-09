@@ -241,6 +241,38 @@ export default function taskRoutes() {
     res.status(201).json({ id });
   });
 
+  // A copy of a list (a checklist used again: onboarding, month-end): its open tasks with their notes,
+  // steps (unticked), tags, stars, links, files and what they wait on; not who they're for, nor comments
+  // or time. { name, start: YYYY-MM-DD }: with a start, due dates (and start days) move by as many days as
+  // it takes for the earliest to fall on that day; without, they're left off.
+  r.post('/lists/:id/copy', (req, res) => {
+    const list = loadList(req.params.id, req.user);
+    if (q('SELECT COUNT(*) AS n FROM task_lists WHERE owner_id = ?').get(req.user.id).n >= MAX_LISTS) throw bad('Too many lists');
+    const name = str(req.body?.name || `${list.name} (copy)`, { required: true, name: 'List name', max: 100 });
+    const start = req.body?.start ? String(req.body.start) : null;
+    if (start && (!/^\d{4}-\d{2}-\d{2}$/.test(start) || Number.isNaN(Date.parse(`${start}T00:00:00Z`)))) throw bad('Choose a day to start from');
+    const tasks = q('SELECT * FROM tasks WHERE list_id = ? AND done_at IS NULL ORDER BY position').all(list.id);
+    const dates = tasks.flatMap((t) => [t.due, t.start]).filter(Boolean).sort();
+    const shift = start && dates.length ? Math.round((Date.parse(`${start}T00:00:00Z`) - Date.parse(`${dates[0]}T00:00:00Z`)) / 864e5) : 0;
+    const moved = (d) => (d && start ? new Date(Date.parse(`${d}T00:00:00Z`) + shift * 864e5).toISOString().slice(0, 10) : null);
+    const id = uid(), t = now();
+    const ids = new Map(tasks.map((x) => [x.id, uid()]));
+    tx(() => {
+      q('INSERT INTO task_lists (id, owner_id, name, created_at) VALUES (?, ?, ?, ?)').run(id, req.user.id, name, t);
+      for (const x of tasks) {
+        let steps = null;
+        try { steps = x.steps ? JSON.stringify(JSON.parse(x.steps).map((st) => ({ ...st, id: uid().slice(0, 8), done: false }))) : null; } catch { steps = null; }
+        let blocked = null;
+        try { const b = JSON.parse(x.blocked_by || '[]').map((o) => ids.get(o)).filter(Boolean); blocked = b.length ? JSON.stringify(b) : null; } catch { blocked = null; }
+        q(`INSERT INTO tasks (id, list_id, title, notes, due, due_time, start, position, repeat, steps, important, link_url, link_label, attachments, blocked_by, tags, created_by, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+          .run(ids.get(x.id), id, x.title, x.notes, moved(x.due), start && x.due ? x.due_time : null, moved(x.start), x.position, x.repeat, steps, x.important, x.link_url, x.link_label, x.attachments, blocked, x.tags, req.user.id, t, t);
+      }
+    });
+    sendTo([req.user.id], { type: 'tasks-changed', list_id: id });
+    res.status(201).json({ id, name, tasks: tasks.length, shift_days: shift });
+  });
+
   r.patch('/lists/:id', (req, res) => {
     const list = loadList(req.params.id, req.user, { own: true });
     q('UPDATE task_lists SET name = ? WHERE id = ?').run(str(req.body.name, { required: true, name: 'List name', max: 100 }), list.id);

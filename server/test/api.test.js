@@ -1354,6 +1354,43 @@ test('tasks: lists, ordering, due dates, done, sharing and assigning', async () 
   assert.equal((await a('GET', `/api/tasks/lists/${list}/tasks`)).status, 404);
 });
 
+test('tasks: a list copied for reuse: open tasks with their steps unticked and links between them, dates moved to a new start', async () => {
+  const { q } = await import('../src/db.js');
+  const a = client(), b = client();
+  for (const [c, local, name] of [[a, 'copyann', 'Copy Ann'], [b, 'copyben', 'Copy Ben']]) {
+    assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+    await login(c, `${local}@acme.com`);
+  }
+  const list = (await a('POST', '/api/tasks/lists', { name: 'Onboarding: Sam' })).body.id;
+  const add = async (title, extra = {}) => (await a('POST', `/api/tasks/lists/${list}/tasks`, { title, at: 'end', ...extra })).body;
+  const laptop = await add('Order laptop', { due: '2026-03-02' });
+  const accounts = await add('Create accounts', { due: '2026-03-04', tags: ['it'] });
+  const welcome = await add('Welcome lunch', { due: '2026-03-09' });
+  const old = await add('Old done task');
+  q('UPDATE tasks SET steps = ?, blocked_by = ?, important = 1, assignee_id = (SELECT id FROM users WHERE username = ?) WHERE id = ?')
+    .run(JSON.stringify([{ id: 's1', title: 'Email', done: true }, { id: 's2', title: 'Drive', done: false }]), JSON.stringify([laptop.id]), 'copyann@acme.com', accounts.id);
+  await a('PATCH', `/api/tasks/tasks/${old.id}`, { done: true });
+  assert.equal((await b('POST', `/api/tasks/lists/${list}/copy`, {})).status, 404, 'only lists you can see');
+  assert.equal((await a('POST', `/api/tasks/lists/${list}/copy`, { start: 'soon' })).status, 400);
+  const copy = await a('POST', `/api/tasks/lists/${list}/copy`, { name: 'Onboarding: Kim', start: '2026-12-07' });
+  assert.equal(copy.status, 201, JSON.stringify(copy.body));
+  assert.deepEqual([copy.body.tasks, copy.body.shift_days], [3, 280]);
+  const tasks = (await a('GET', `/api/tasks/lists/${copy.body.id}/tasks`)).body;
+  const by = (t) => tasks.find((x) => x.title === t);
+  assert.deepEqual(tasks.map((t) => t.title).sort(), ['Create accounts', 'Order laptop', 'Welcome lunch'], 'open tasks only');
+  assert.deepEqual([by('Order laptop').due, by('Create accounts').due, by('Welcome lunch').due], ['2026-12-07', '2026-12-09', '2026-12-14'], 'the same gaps from the new start');
+  const acc = by('Create accounts');
+  assert.deepEqual(acc.steps.map((st) => [st.title, st.done]), [['Email', false], ['Drive', false]]);
+  assert.deepEqual(acc.blocked_by, [by('Order laptop').id], 'waits on the copy, not the original');
+  assert.deepEqual([acc.tags, !!acc.important, acc.assignee_id ?? null], [['it'], true, null], 'not who it was for');
+  assert.ok(!tasks.some((t) => t.id === laptop.id || t.id === welcome.id));
+  assert.equal((await a('GET', '/api/tasks/lists')).body.lists.find((l) => l.id === copy.body.id).name, 'Onboarding: Kim');
+  // Without a start day: no dates.
+  const plain = (await a('POST', `/api/tasks/lists/${list}/copy`, {})).body;
+  assert.equal(plain.name, 'Onboarding: Sam (copy)');
+  assert.ok((await a('GET', `/api/tasks/lists/${plain.id}/tasks`)).body.every((t) => !t.due));
+});
+
 test('tasks: repeating tasks come back when ticked off, and Undo takes the next one away', async () => {
   const a = client();
   assert.equal((await owner('POST', '/api/users', { local: 'taskr', domain: 'acme.com', name: 'Task Rep', password: 'password123' })).status, 201);
