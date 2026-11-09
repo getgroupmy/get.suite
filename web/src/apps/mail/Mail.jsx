@@ -103,6 +103,7 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
   const [signatureOpen, setSignatureOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [confOpen, setConfOpen] = useState(false); // your confidential messages
+  const [subsOpen, setSubsOpen] = useState(false); // newsletters and lists in the Inbox
   const [scheduled, setScheduled] = useState([]);
   const refreshRef = useRef(null);
   const [scheduledOpen, setScheduledOpen] = useState(false);
@@ -328,6 +329,8 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
         <button className="subnav-item" onClick={() => setImportOpen(true)}><Icon name="download" /><span className="grow">Import mail</span></button>
         {!shared && <button className="subnav-item" onClick={() => setConfOpen(true)}><Icon name="lock" /><span className="grow">Confidential messages</span></button>}
         {confOpen && <ConfidentialList onClose={() => setConfOpen(false)} />}
+        {!shared && <button className="subnav-item" onClick={() => setSubsOpen(true)}><Icon name="markunread" /><span className="grow">Manage subscriptions</span></button>}
+        {subsOpen && <Subscriptions onClose={() => { setSubsOpen(false); refresh(); }} />}
         {desktopSupported() && (
           <button className="subnav-item" aria-pressed={desktop} onClick={async () => {
             if (desktop) { disableDesktop(); setDesktop(false); toast('Desktop notifications off'); return; }
@@ -839,6 +842,44 @@ function SenderContact({ from }) {
 }
 
 /** Your confidential messages: who they went to, until when, how often they were opened; take one back. */
+/** Every newsletter and list in the Inbox (last 6 months) by sender, to leave in one click and clear out. */
+function Subscriptions({ onClose }) {
+  const toast = useToast();
+  const [list, setList] = useState(null);
+  const [done, setDone] = useState({}); // address → what happened
+  const load = () => get('/mail/subscriptions').then(setList).catch((e) => toast(e.message, 'error'));
+  useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const leave = async (g) => {
+    if (g.how === 'web') { window.open(g.url, '_blank', 'noopener'); setDone((d) => ({ ...d, [g.address]: 'Opened their page' })); return; }
+    try {
+      const r = await post(`/mail/messages/${g.uid}/unsubscribe`, { folder: 'INBOX' });
+      setDone((d) => ({ ...d, [g.address]: r.how === 'email' ? 'Unsubscribe email sent' : 'Unsubscribed' }));
+    } catch (e) { toast(e.message, 'error'); }
+  };
+  const archiveAll = async (g) => {
+    try { await post('/mail/messages/move', { folder: 'INBOX', uids: g.uids, to: 'archive' }); toast(`${g.uids.length} ${g.uids.length === 1 ? 'message' : 'messages'} from ${g.name || g.address} archived`); load(); }
+    catch (e) { toast(e.message, 'error'); }
+  };
+  return (
+    <Modal wide title="Manage subscriptions" onClose={onClose} footer={<button type="button" className="btn" onClick={onClose}>Done</button>}>
+      <p className="muted small" style={{ marginTop: 0 }}>Newsletters and mailing lists in your Inbox from the last six months, the busiest first. <strong>Unsubscribe</strong> asks the sender to stop (in one click where they allow it); <strong>Archive all</strong> clears their mail out of your Inbox.</p>
+      {!list ? <p className="muted">Looking through your Inbox…</p> : !list.length ? <p className="muted">No newsletters or mailing lists in your Inbox.</p> : (
+        <ul className="rule-list" aria-label="Subscriptions">
+          {list.map((g) => (
+            <li key={g.address}>
+              <span className="grow"><strong>{g.name || g.address}</strong>
+                <span className="muted small"> · {g.address} · {g.count} {g.count === 1 ? 'email' : 'emails'}, the latest {new Date(g.last_at).toLocaleDateString([], { day: 'numeric', month: 'short' })}</span></span>
+              {done[g.address] ? <span className="pill ok">{done[g.address]}</span>
+                : <button type="button" className="btn small" aria-label={`Unsubscribe from ${g.name || g.address}`} onClick={() => leave(g)}>{g.how === 'web' ? 'Unsubscribe ↗' : 'Unsubscribe'}</button>}
+              <button type="button" className="btn small" aria-label={`Archive all from ${g.name || g.address}`} onClick={() => archiveAll(g)}>Archive all</button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Modal>
+  );
+}
+
 function ConfidentialList({ onClose }) {
   const toast = useToast();
   const [list, setList] = useState(null);

@@ -1072,6 +1072,20 @@ test('mark all as read: every unread message in a folder', async () => {
   assert.equal((await olivia('POST', '/api/mail/messages/read-all', { folder: 'INBOX' })).body.marked, 0);
 });
 
+test('manage subscriptions: lists in the Inbox by sender, most frequent first', async () => {
+  const t = nodemailer.createTransport({ host: process.env.MAIL_IMAP_HOST, port: 25, secure: false, ignoreTLS: true, name: 'test.acme.com' });
+  for (const n of [1, 2, 3]) await t.sendMail({ from: 'Daily Digest <digest@acme.com>', to: 'olivia@acme.com', subject: `Digest ${n}`, text: 'x', headers: { 'List-Unsubscribe': '<mailto:olivia@acme.com?subject=Leave%20digest>' } });
+  await t.sendMail({ from: 'Promo <promo@acme.com>', to: 'olivia@acme.com', subject: 'Promo 1', text: 'x', headers: { 'List-Unsubscribe': '<https://promo.example/out>', 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' } });
+  await t.sendMail({ from: 'A Person <person@acme.com>', to: 'olivia@acme.com', subject: 'Not a list', text: 'x' });
+  await eventually(async () => (await inbox(olivia)).filter((m) => /^(Digest \d|Promo 1|Not a list)$/.test(m.subject)).length === 5, 20000);
+  const subs = (await olivia('GET', '/api/mail/subscriptions')).body;
+  const digest = subs.find((g) => g.address === 'digest@acme.com');
+  assert.deepEqual([digest.count, digest.how, digest.name, digest.uids.length], [3, 'email', 'Daily Digest', 3]);
+  assert.equal(subs.find((g) => g.address === 'promo@acme.com').how, 'one-click');
+  assert.ok(!subs.some((g) => g.address === 'person@acme.com'), 'people aren\'t lists');
+  assert.ok(subs.indexOf(digest) < subs.findIndex((g) => g.address === 'promo@acme.com'), 'most frequent first');
+});
+
 test('unsubscribe: a list with a mailto gets an email from you; one-click to the NAS’s own network is refused', async () => {
   const t = nodemailer.createTransport({ host: process.env.MAIL_IMAP_HOST, port: 25, secure: false, ignoreTLS: true, name: 'test.acme.com' });
   // The list's unsubscribe address is a mailbox here, so the email can be seen arriving.

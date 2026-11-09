@@ -20,6 +20,7 @@ import { sharedMailboxesFor, sharedMailboxFor, assignmentsOf, notesOf, noteCount
 import { followedFolders, setFollowed, MAX_FOLLOWED } from '../mail/notify.js';
 import { forwardHtml } from '../mail/forwardhtml.js';
 import { unsubscribeOptions, oneClickUnsubscribe } from '../mail/unsubscribe.js';
+import { groupSubscriptions } from '../mail/subscriptions.js';
 import { baseSubject, shareSomeone } from '../mail/thread.js';
 import { startImport, importOf } from '../mail/importer.js';
 import { insertFile, cleanName } from './files.js';
@@ -997,6 +998,21 @@ export default function webmailRoutes() {
   // Importing mail from another account: start one, and how the latest is going.
   r.post('/import', async (req, res) => res.status(201).json(await startImport(req.user, req.body || {})));
   r.get('/import', (req, res) => res.json(importOf(req.user.id)));
+
+  // Manage subscriptions: the newsletters and lists in your Inbox (last 180 days), by sender.
+  r.get('/subscriptions', async (req, res) => {
+    const since = new Date(Date.now() - 180 * 864e5);
+    const list = await withFolder(req.user, 'INBOX', async (c) => {
+      const uids = ((await c.search({ since, header: { 'list-unsubscribe': true } }, { uid: true })) || []).slice(-3000);
+      if (!uids.length) return [];
+      const out = [];
+      for await (const m of c.fetch(uids, { uid: true, envelope: true, headers: ['list-unsubscribe', 'list-unsubscribe-post'] }, { uid: true })) {
+        out.push({ uid: m.uid, from: m.envelope?.from?.[0], date: m.envelope?.date, headers: m.headers?.toString() || '' });
+      }
+      return out;
+    });
+    res.json(groupSubscriptions(list));
+  });
 
   // Unsubscribe from the list a message came from: a one-click request to the list's web address,
   // or else an email to its unsubscribe address, sent from you.
