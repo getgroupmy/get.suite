@@ -87,6 +87,13 @@ export function cleanName(name) {
 // (add and remove members, rename it), and what's in it stays when the person who added it leaves.
 if (!q('PRAGMA table_info(files)').all().some((c) => c.name === 'is_drive')) q('ALTER TABLE files ADD COLUMN is_drive INTEGER NOT NULL DEFAULT 0').run();
 
+/** The shared drive a file is in (its top folder, when that is a shared drive), or null. */
+function driveOf(fileId) {
+  let cur = q('SELECT id, parent_id, is_drive, name FROM files WHERE id = ?').get(fileId);
+  for (let d = 0; cur?.parent_id && d < 64; d++) cur = q('SELECT id, parent_id, is_drive, name FROM files WHERE id = ?').get(cur.parent_id);
+  return cur?.is_drive && cur.id !== fileId ? cur : null;
+}
+
 /** A file whose sharing you may change: yours, or a shared drive you can edit. */
 function loadManaged(id, user) {
   const f = loadFile(id, user);
@@ -417,6 +424,15 @@ export default function fileRoutes({ maxUploadBytes }) {
       const days = q('SELECT o.trash_days FROM orgs o JOIN users u ON u.org_id = o.id WHERE u.id = ?').get(me)?.trash_days ?? 30;
       rows = q(`SELECT ${COLS} ${FROM} WHERE f.owner_id = ? AND f.trashed = 1 ORDER BY f.trashed_at DESC, f.updated_at DESC`)
         .all(me).map((f) => ({ ...publicFile(f, 'owner'), ...(days > 0 && { deletes_at: (f.trashed_at || f.updated_at) + days * 864e5 }) }));
+      // And what anyone deleted in the shared drives you can edit: the drive's editors restore it or delete it for good.
+      const mineIds = new Set(rows.map((f) => f.id));
+      for (const d of q('SELECT id, name FROM files WHERE is_drive = 1 AND trashed = 0').all()) {
+        if (!atLeast(roleFor(d.id, me), 'editor')) continue;
+        const inside = q(`SELECT ${COLS} ${FROM} WHERE f.trashed = 1 AND f.id IN (SELECT value FROM json_each(?)) ORDER BY f.trashed_at DESC`).all(JSON.stringify(subtreeIds(d.id).filter((id) => id !== d.id)));
+        for (const f of inside) if (!mineIds.has(f.id)) rows.push({ ...publicFile(f, f.owner_id === me ? 'owner' : 'editor'), drive_name: d.name, ...(days > 0 && { deletes_at: (f.trashed_at || f.updated_at) + days * 864e5 }) });
+        for (const f of rows) if (mineIds.has(f.id) && inside.some((x) => x.id === f.id)) f.drive_name = d.name;
+      }
+      rows.sort((a, b) => (b.trashed_at || 0) - (a.trashed_at || 0));
     } else if (view === 'search') {
       // By name, or by the words inside (documents, spreadsheets, presentations, text and Office files).
       const term = `%${String(req.query.q || '').replace(/[%_\\]/g, (c) => '\\' + c)}%`;
@@ -936,7 +952,9 @@ export default function fileRoutes({ maxUploadBytes }) {
   });
 
   r.delete('/:id', (req, res) => {
-    const f = loadFile(req.params.id, req.user, 'owner');
+    // Yours, or (deleted already) anything in a shared drive you can edit.
+    const f = loadFile(req.params.id, req.user, 'editor');
+    if (f.role !== 'owner' && !(f.trashed && driveOf(f.id))) throw forbidden('You need owner access');
     const audience = audienceFor(f.id);
     tx(() => permanentlyDelete(f.id));
     audit(req, 'file.delete', { target: f.name });

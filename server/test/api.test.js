@@ -2652,11 +2652,11 @@ test('task time: a timer per person, time added by hand, totals, a report and CS
   assert.equal((await a('DELETE', `/api/tasks/time/${bens.id}`)).status, 404, 'only your own');
 
   // The report: per person and task; CSV for Excel.
-  const day = new Date().toISOString().slice(0, 10);
-  const rep = (await a('GET', `/api/tasks/lists/${list}/time-report?from=${day}&to=${day}`)).body;
+  const day = new Date().toISOString().slice(0, 10), since = new Date(Date.now() - 864e5).toISOString().slice(0, 10); // from yesterday: just after midnight, 25 minutes ago was yesterday
+  const rep = (await a('GET', `/api/tasks/lists/${list}/time-report?from=${since}&to=${day}`)).body;
   assert.deepEqual(rep.lines.map((l) => [l.person, l.task, l.minutes]), [['Time Ann', 'Design', 25], ['Time Ann', 'Build', rep.lines[1].minutes], ['Time Ben', 'Design', 90]]);
   assert.equal(rep.total, 115 + rep.lines[1].minutes);
-  const csv = await a('GET', `/api/tasks/lists/${list}/time-report?from=${day}&to=${day}&format=csv`);
+  const csv = await a('GET', `/api/tasks/lists/${list}/time-report?from=${since}&to=${day}&format=csv`);
   assert.match(csv.headers.get('content-type'), /text\/csv/);
   assert.match(csv.body, /Time Ben,Design,90,1\.50/);
   assert.equal((await a('GET', `/api/tasks/lists/${list}/time-report?from=2026-12-01&to=2026-11-01`)).status, 400);
@@ -5975,4 +5975,35 @@ test('shared drives: an owner leaving with no editor and no heir leaves the driv
   assert.equal((await b('GET', `/api/files/${report.id}`)).body.role, 'viewer', 'Ben still reads it');
   await owner('DELETE', `/api/users/${(await c('GET', '/api/auth/me')).body.user.id}`);
   assert.equal((await owner('GET', `/api/files/${lonely.id}`)).status, 404);
+});
+
+test('shared drives: what anyone deletes there is in the trash of its editors, who restore it or delete it for good', async () => {
+  const a = client(), b = client(), c = client();
+  for (const [local, name] of [['tda', 'Trash Ann'], ['tdb', 'Trash Ben'], ['tdc', 'Trash Cat']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'tda@acme.com');
+  const bid = (await login(b, 'tdb@acme.com')).id, cid = (await login(c, 'tdc@acme.com')).id;
+  const drive = (await a('POST', '/api/files/drives', { name: 'Sales' })).body;
+  await a('PUT', `/api/files/${drive.id}/shares`, { shares: [{ user_id: bid, role: 'editor' }, { user_id: cid, role: 'viewer' }] });
+  const deck = (await a('POST', '/api/files/new', { kind: 'slides', name: 'Pitch', parent_id: drive.id })).body;
+  const plan = (await a('POST', '/api/files/new', { kind: 'doc', name: 'Plan', parent_id: drive.id })).body;
+  // Ben deletes Ann's deck: it's in his trash (and Ann's), marked with the drive; not in Cat's (a viewer).
+  assert.equal((await b('PATCH', `/api/files/${deck.id}`, { trashed: true })).status, 200);
+  const bens = (await b('GET', '/api/files?view=trash')).body;
+  assert.deepEqual(bens.map((f) => [f.name, f.drive_name, f.role]), [['Pitch', 'Sales', 'editor']]);
+  assert.ok(bens[0].deletes_at > Date.now());
+  assert.deepEqual((await a('GET', '/api/files?view=trash')).body.map((f) => [f.name, f.drive_name]), [['Pitch', 'Sales']]);
+  assert.deepEqual((await c('GET', '/api/files?view=trash')).body, []);
+  // Ben restores it; then deletes the plan and deletes it for good. A viewer can't.
+  assert.equal((await b('PATCH', `/api/files/${deck.id}`, { trashed: false })).status, 200);
+  assert.equal((await a('GET', `/api/files/${deck.id}`)).body.trashed, 0);
+  assert.equal((await b('DELETE', `/api/files/${plan.id}`)).status, 403, 'not while it’s in the drive');
+  await b('PATCH', `/api/files/${plan.id}`, { trashed: true });
+  assert.equal((await c('DELETE', `/api/files/${plan.id}`)).status, 403);
+  assert.equal((await b('DELETE', `/api/files/${plan.id}`)).status, 200);
+  assert.equal((await a('GET', `/api/files/${plan.id}`)).status, 404);
+  // Something of Ben's own outside a drive is still only his.
+  const own = (await b('POST', '/api/files/new', { kind: 'doc', name: 'Mine' })).body;
+  await b('PUT', `/api/files/${own.id}/shares`, { shares: [{ user_id: cid, role: 'editor' }] });
+  await b('PATCH', `/api/files/${own.id}`, { trashed: true });
+  assert.equal((await c('DELETE', `/api/files/${own.id}`)).status, 403);
 });
