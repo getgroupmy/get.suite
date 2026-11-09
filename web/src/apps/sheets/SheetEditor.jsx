@@ -34,6 +34,7 @@ import { SheetPreview, SheetChanges } from './SheetPreview.jsx';
 import { VersionHistory } from '../VersionHistory.jsx';
 import { ruleStyle } from './condformat.js';
 import { bandStyle } from './bands.js';
+import { copyFormats, paintFormats } from './paint.js';
 import { BandsDialog } from './SheetBands.jsx';
 import { sheetPrintHtml, usedArea } from './sheetprint.js';
 import { printHtml } from '../mail/mailprint.js';
@@ -253,6 +254,27 @@ export default function SheetEditor() {
     });
     commitData({ ...cur, sheets });
   }
+
+  // Paint format: { pattern, sticky } while the brush is on; the next selection made with the mouse
+  // takes the copied formatting (once, or until Esc after a double-click).
+  const [painter, setPainter] = useState(null);
+  const rangeRef = useRef(null);
+  const startPaint = (sticky) => setPainter({ pattern: copyFormats(sheet?.formats, range), sticky });
+  useEffect(() => {
+    if (!painter) return undefined;
+    const up = () => setTimeout(() => {
+      const target = rangeRef.current;
+      if (!target || readOnly) return;
+      const cur = dataRef.current;
+      commitData({ ...cur, sheets: cur.sheets.map((sh, i) => (i === active ? { ...sh, formats: paintFormats(sh.formats, target, painter.pattern) } : sh)) });
+      if (!painter.sticky) setPainter(null);
+    }, 0);
+    const esc = (e) => { if (e.key === 'Escape') setPainter(null); };
+    const grid = gridRef.current;
+    grid?.addEventListener('mouseup', up);
+    window.addEventListener('keydown', esc);
+    return () => { grid?.removeEventListener('mouseup', up); window.removeEventListener('keydown', esc); };
+  }, [painter, active, readOnly]);
 
   /** Merge the selected cells (keeping the top-left value), or unmerge what the selection touches. */
   function toggleMerge() {
@@ -478,6 +500,7 @@ export default function SheetEditor() {
   const range = growToMerges(merges, anchor ? {
     c1: Math.min(anchor.c, sel.c), c2: Math.max(anchor.c, sel.c), r1: Math.min(anchor.r, sel.r), r2: Math.max(anchor.r, sel.r),
   } : { c1: sel.c, c2: sel.c, r1: sel.r, r2: sel.r });
+  rangeRef.current = range;
   const inRange = (c, r) => c >= range.c1 && c <= range.c2 && r >= range.r1 && r <= range.r2;
 
   // Filling: the fill handle (the square at the selection's corner) dragged over cells, or Ctrl+D / Ctrl+R.
@@ -900,7 +923,7 @@ export default function SheetEditor() {
           {!readOnly && <button type="button" className="btn small" onClick={editPivot}>Edit pivot table</button>}
         </div>
       )}
-      {!readOnly && <FormatBar fmt={formats[selKey] || {}} onChange={(change) => { writeFormats(change); gridRef.current?.focus(); }}
+      {!readOnly && <FormatBar painter={painter} onPaint={(sticky) => (painter && !sticky ? setPainter(null) : startPaint(sticky))} fmt={formats[selKey] || {}} onChange={(change) => { writeFormats(change); gridRef.current?.focus(); }}
         onMerge={() => { toggleMerge(); gridRef.current?.focus(); }} merged={!!mergeAt(merges, sel.c, sel.r)}
         onBorders={(kind) => { writeFormats((k, c, r, f) => ({ bd: borderFor(kind, range, c, r, f?.bd) })); gridRef.current?.focus(); }} onComment={startComment} onChart={newChart} onSort={() => setDialog({ type: 'sort' })} onRules={() => setDialog({ type: 'rules' })} onValidation={() => setDialog({ type: 'validation' })} onPivot={newPivot} filterOn={!!filter} onFilter={toggleFilter} history={history} />}
       {finding && sheet && (
@@ -930,7 +953,7 @@ export default function SheetEditor() {
         {editing === 'bar' && assist.popup}
       </div>
       <div className="sheet-body">
-      <div className="grid-wrap" ref={gridRef} onContextMenu={(e) => { if (e.target === e.currentTarget) openMenu(e, 'cell'); }} tabIndex={0} onKeyDown={onGridKey} onCopy={onCopy} onCut={onCut} onPaste={onPaste}>
+      <div className={`grid-wrap ${painter ? 'painting' : ''}`} ref={gridRef} onContextMenu={(e) => { if (e.target === e.currentTarget) openMenu(e, 'cell'); }} tabIndex={0} onKeyDown={onGridKey} onCopy={onCopy} onCut={onCut} onPaste={onPaste}>
         <table className="grid" role="grid" aria-label={sheet.name}>
           <thead>
             <tr><th className="corner" />{Array.from({ length: cols }, (_, c) => (
@@ -1216,7 +1239,7 @@ function NoteEditor({ at, onSave, onClose }) {
   );
 }
 
-function FormatBar({ fmt, onChange, onBorders, onMerge, merged, onComment, onChart, onSort, onRules, onValidation, onPivot, filterOn, onFilter, history }) {
+function FormatBar({ painter, onPaint, fmt, onChange, onBorders, onMerge, merged, onComment, onChart, onSort, onRules, onValidation, onPivot, filterOn, onFilter, history }) {
   const keep = (e) => e.preventDefault(); // buttons don't take focus from the grid
   const Toggle = ({ k, label, title, children }) => (
     <button type="button" className={`tb ${fmt[k] ? 'on' : ''}`} aria-pressed={!!fmt[k]} aria-label={label} title={title} onMouseDown={keep} onClick={() => onChange({ [k]: !fmt[k] })}>{children}</button>
@@ -1228,6 +1251,9 @@ function FormatBar({ fmt, onChange, onBorders, onMerge, merged, onComment, onCha
       <button type="button" className="tb tb-fold" aria-expanded={open} onMouseDown={keep} onClick={() => setOpen(!open)}>{open ? 'Hide formatting ▴' : 'Formatting ▾'}</button>
       <button type="button" className="tb" aria-label="Undo" title="Undo (Ctrl+Z)" disabled={!history.canUndo} onMouseDown={keep} onClick={history.undo}>↶</button>
       <button type="button" className="tb" aria-label="Redo" title="Redo (Ctrl+Y)" disabled={!history.canRedo} onMouseDown={keep} onClick={history.redo}>↷</button>
+      <button type="button" className={`tb ${painter ? 'on' : ''}`} aria-label="Paint format" aria-pressed={!!painter} onMouseDown={keep}
+        title={painter?.sticky ? 'Paint format is on: select cells to give them this formatting (Esc to stop)' : 'Paint format: copy the selected cells’ formatting, then select cells to apply it (double-click to keep it on)'}
+        onClick={(e) => { if (e.detail <= 1) onPaint(false); }} onDoubleClick={() => onPaint(true)}>🖌</button>
       <span className="sep" />
       <Toggle k="b" label="Bold" title="Bold (Ctrl+B)"><b>B</b></Toggle>
       <Toggle k="i" label="Italic" title="Italic (Ctrl+I)"><i>I</i></Toggle>

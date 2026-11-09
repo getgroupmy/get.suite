@@ -197,7 +197,7 @@ Put a status, a review stage or a priority right in the text, like *Website: In 
 - Click a citation to change it (the list follows) or remove it; pointing at one shows its full reference. People who can only view can't change them.
 - Downloads keep both: Word (the list with a hanging indent and italic titles), Markdown and HTML. Search finds the sources' authors and titles.
 
-## Paint format (Docs)
+## Paint format (Docs; Sheets has one too)
 
 - **🖌 Paint format** in the toolbar copies the formatting where the cursor is: bold, italic, underline, strikethrough, colour, highlight, font and size, and the paragraph's style (heading level, alignment, line spacing). Then select text, or just click a word, and it takes that formatting (what was there goes; links and comments stay). The brush turns itself off after one use.
 - **Double-click** the brush to keep it on and paint several places in a row; **Esc** or the brush again turns it off. Copying from plain text makes text plain.
@@ -237,6 +237,7 @@ Select rows (or columns) by their headings, then **Group rows 2–4** in the rig
 
 ## Filling and selection totals (Sheets)
 
+- **Paint format:** **🖌** in the toolbar copies the selected cells' formatting (bold, colours, fill, borders, alignment, number format…); then select cells, or click one, and they take it, replacing what they had. Copying a block of cells repeats it across a bigger selection. Double-click the brush to paint several places, then **Esc**. Undo puts it back.
 - **Paste special:** after copying cells in a spreadsheet, right-click where they should go → **Paste special: values only** (what the cells showed, so formulas become their results; also **Ctrl+Shift+V**), **formatting only** (the look without the values), or **transposed** (rows become columns, with formulas moved to match). A normal paste (Ctrl+V) still brings formulas and formatting.
 - **Fill handle:** the small square at the corner of the selection. Drag it down, up, left or right to carry the selected cells on: numbers with a steady step keep stepping (1, 2 → 3, 4; 10, 20 → 30), text ending in a number counts on (*Item 1* → *Item 2*), weekdays, months and quarters go round (*Mon* → *Tue*, *Nov, Dec* → *Jan*), and formulas move their references as with copy and paste. A single number, or anything else, repeats. Filled cells take the formatting of the cells they continue, and a fill that would reach into a protected range is refused as a whole.
 - **Ctrl+D / Ctrl+R** fill the selection down (or right) from its first row (column); on a single cell they copy the one above (or to the left).
