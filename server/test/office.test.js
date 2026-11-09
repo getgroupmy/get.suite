@@ -1461,3 +1461,37 @@ test('Excel: alternating colours go out as Excel tables when they can, and come 
   assert.equal(back.sheets[0].cells.B4, '=SUM(B2:B3)');
   assert.equal(back.sheets[0].formats?.A3, undefined, 'the stripes come back as the band, not as cell colours');
 });
+
+/** A workbook with Microsoft 365 threaded comments on Sheet1 (and the old-style notes Excel writes beside them). */
+async function withThreadedComments(buf) {
+  const zip = await JSZip.loadAsync(buf);
+  zip.file('xl/persons/person.xml', '<personList xmlns="http://schemas.microsoft.com/office/spreadsheetml/2018/threadedcomments"><person displayName="Jane Smith" id="{P1}" userId="jane" providerId="None"/><person displayName="Raj &amp; Co" id="{P2}" userId="raj" providerId="None"/></personList>');
+  zip.file('xl/threadedComments/threadedComment1.xml', `<ThreadedComments xmlns="http://schemas.microsoft.com/office/spreadsheetml/2018/threadedcomments">
+    <threadedComment ref="B2" dT="2026-10-01T10:00:00.00" personId="{P1}" id="{C1}"><text>Is this the final price?</text></threadedComment>
+    <threadedComment ref="B2" dT="2026-10-01T11:00:00.00" personId="{P2}" id="{C2}" parentId="{C1}"><text>Yes, agreed &lt;today&gt;</text></threadedComment>
+    <threadedComment ref="A3" dT="2026-10-02T09:00:00.00" personId="{P2}" id="{C3}" done="1"><text>Typo fixed</text></threadedComment>
+  </ThreadedComments>`);
+  const rels = 'xl/worksheets/_rels/sheet1.xml.rels';
+  const old = zip.file(rels) ? await zip.file(rels).async('string') : '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>';
+  zip.file(rels, old.replace('</Relationships>', '<Relationship Id="rIdTc" Type="http://schemas.microsoft.com/office/2017/10/relationships/threadedComment" Target="../threadedComments/threadedComment1.xml"/></Relationships>'));
+  const wbRels = 'xl/_rels/workbook.xml.rels';
+  zip.file(wbRels, (await zip.file(wbRels).async('string')).replace('</Relationships>', '<Relationship Id="rIdPeople" Type="http://schemas.microsoft.com/office/2017/10/relationships/person" Target="persons/person.xml"/></Relationships>'));
+  return zip.generateAsync({ type: 'nodebuffer' });
+}
+
+test('Excel: Microsoft 365 comment threads come in as Sheets comment threads, not as notes', async () => {
+  const { commentsOfBook } = await import('../src/office/excel.js');
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('Prices');
+  ws.getCell('A2').value = 'Pens'; ws.getCell('B2').value = 4; ws.getCell('A3').value = 'Pads';
+  // Excel's copy for older versions, and a real note elsewhere.
+  ws.getCell('B2').note = '[Threaded comment]\n\nYour version of Excel allows you to read this threaded comment; however, any edits to it will get removed if the file is opened in a newer version of Excel.\n\nComment:\n    Is this the final price?';
+  ws.getCell('A2').note = 'Our usual supplier';
+  const book = await sheetFromExcel(await withThreadedComments(Buffer.from(await wb.xlsx.writeBuffer())));
+  assert.deepEqual(book.sheets[0].notes, { A2: 'Our usual supplier' }, 'the old-style copy is left out; real notes stay');
+  assert.deepEqual(commentsOfBook(book).map((c) => [c.sheet, c.cell, c.author, c.text, c.resolved, c.replies.map((r) => [r.author, r.text])]), [
+    [0, 'B2', 'Jane Smith', 'Is this the final price?', false, [['Raj & Co', 'Yes, agreed <today>']]],
+    [0, 'A3', 'Raj & Co', 'Typo fixed', true, []],
+  ]);
+  assert.equal(JSON.stringify(book).includes('final price'), false, 'not part of the spreadsheet itself');
+});

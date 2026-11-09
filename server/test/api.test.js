@@ -7550,3 +7550,19 @@ test('Office files: slide comment threads go into the PowerPoint download', asyn
   const cs = commentsOfDeck(back);
   assert.deepEqual(cs.map((c) => [back.slides.findIndex((s) => s.id === c.slideId), c.text, c.replies.map((r) => r.text)]), [[1, 'Add the market size', ['Done']]], 'resolved ones stay out');
 });
+
+test('Office files: comment threads in an Excel file become comment threads on their cells', async () => {
+  const ExcelJS = (await import('exceljs')).default;
+  const JSZip = (await import('jszip')).default;
+  const wb = new ExcelJS.Workbook();
+  wb.addWorksheet('Notes'); wb.addWorksheet('Prices').getCell('C4').value = 12;
+  const zip = await JSZip.loadAsync(Buffer.from(await wb.xlsx.writeBuffer()));
+  zip.file('xl/persons/person.xml', '<personList xmlns="http://schemas.microsoft.com/office/spreadsheetml/2018/threadedcomments"><person displayName="Jane Smith" id="{P1}"/></personList>');
+  zip.file('xl/threadedComments/threadedComment1.xml', '<ThreadedComments xmlns="http://schemas.microsoft.com/office/spreadsheetml/2018/threadedcomments"><threadedComment ref="C4" dT="2026-10-01T10:00:00.00" personId="{P1}" id="{C1}"><text>Too high?</text></threadedComment></ThreadedComments>');
+  zip.file('xl/worksheets/_rels/sheet2.xml.rels', '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdTc" Type="http://schemas.microsoft.com/office/2017/10/relationships/threadedComment" Target="../threadedComments/threadedComment1.xml"/></Relationships>');
+  zip.file('xl/_rels/workbook.xml.rels', (await zip.file('xl/_rels/workbook.xml.rels').async('string')).replace('</Relationships>', '<Relationship Id="rIdP" Type="http://schemas.microsoft.com/office/2017/10/relationships/person" Target="persons/person.xml"/></Relationships>'));
+  const up = (await owner('POST', '/api/files/upload?name=Prices.xlsx', await zip.generateAsync({ type: 'nodebuffer' }), { raw: true })).body;
+  const opened = (await owner('POST', `/api/files/${up.id}/open-as`)).body;
+  const threads = (await owner('GET', `/api/comments/${opened.id}`)).body;
+  assert.deepEqual(threads.map((t) => [t.body, t.anchor]), [['Too high?\n\n— Jane Smith (in the Excel file)', { sheet: 1, cell: 'C4' }]]);
+});

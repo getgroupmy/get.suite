@@ -109,6 +109,47 @@ function cellText(cell) {
   return String(v);
 }
 
+// ---- Excel's threaded comments (Microsoft 365): a conversation on a cell, with replies and a resolved state.
+// Excel also writes each as an old-style note for older versions ("[Threaded comment] Your version of Excel…");
+// those notes are left out, and the conversations come in as Sheets comment threads.
+const sheetComments = new WeakMap(); // spreadsheet → [{ sheet (index), cell, author, text, at, resolved, replies }]
+/** The comment threads an Excel file had (see sheetFromExcel). */
+export const commentsOfBook = (book) => sheetComments.get(book) || [];
+export async function threadedCommentsOfXlsx(buffer) {
+  const out = new Map(); // sheet name → threads
+  try {
+    const zip = await JSZip.loadAsync(buffer);
+    const read = async (f) => (zip.file(f) ? zip.file(f).async('string') : '');
+    const rels = async (f) => {
+      const dir = f.slice(0, f.lastIndexOf('/'));
+      const x = await read(`${dir}/_rels/${f.slice(f.lastIndexOf('/') + 1)}.rels`);
+      return [...x.matchAll(/<Relationship\b[^>]*>/g)].map((m) => ({ id: attrOf(m[0], 'Id'), type: attrOf(m[0], 'Type') || '', target: attrOf(m[0], 'Target') || '' }))
+        .map((r) => ({ ...r, path: r.target.startsWith('/') ? r.target.slice(1) : path.posix.normalize(`${dir}/${r.target}`) }));
+    };
+    const book = await rels('xl/workbook.xml');
+    const people = new Map();
+    for (const r of book.filter((x) => /\/person$/.test(x.type))) {
+      for (const m of (await read(r.path)).matchAll(/<person\b([^>]*)\/?>/g)) people.set(attrOf(m[0], 'id'), unxml(attrOf(m[0], 'displayName') || ''));
+    }
+    for (const m of (await read('xl/workbook.xml')).matchAll(/<sheet\b[^>]*>/g)) {
+      const name = unxml(attrOf(m[0], 'name') || ''), rid = attrOf(m[0], 'r:id');
+      const sheetPath = book.find((r) => r.id === rid)?.path;
+      if (!sheetPath) continue;
+      const tc = (await rels(sheetPath)).find((r) => /\/threadedComment$/.test(r.type))?.path;
+      if (!tc) continue;
+      const all = [...(await read(tc)).matchAll(/<threadedComment\b([^>]*)>([\s\S]*?)<\/threadedComment>/g)].map((c) => ({
+        id: attrOf(`<x ${c[1]}>`, 'id'), parent: attrOf(`<x ${c[1]}>`, 'parentId'), cell: (attrOf(`<x ${c[1]}>`, 'ref') || '').toUpperCase(),
+        author: (people.get(attrOf(`<x ${c[1]}>`, 'personId')) || '').slice(0, 100), at: Date.parse(attrOf(`<x ${c[1]}>`, 'dT') || '') || null,
+        resolved: attrOf(`<x ${c[1]}>`, 'done') === '1', text: unxml((/<text>([\s\S]*?)<\/text>/.exec(c[2]) || [])[1] || '').trim().slice(0, 4000),
+      })).filter((c) => /^[A-Z]{1,3}\d+$/.test(c.cell) && c.text);
+      const threads = all.filter((c) => !c.parent).map((c) => ({ cell: c.cell, author: c.author, text: c.text, at: c.at, resolved: c.resolved,
+        replies: all.filter((r) => r.parent === c.id).map((r) => ({ author: r.author, text: r.text, at: r.at })) }));
+      if (threads.length) out.set(name, threads.slice(0, 1000));
+    }
+  } catch { /* none */ }
+  return out;
+}
+
 /** An Excel workbook (Buffer) as a Sheets spreadsheet. */
 /** A cell note's text (Excel keeps either plain text or rich-text runs), or ''. */
 export function noteText(note) {
@@ -155,10 +196,12 @@ export async function sheetFromExcel(buffer) {
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(buffer);
   const noteSheets = await notesOfXlsx(buffer);
+  const threadSheets = await threadedCommentsOfXlsx(buffer);
   const sheets = [];
   wb.eachSheet((ws) => {
     const cells = {}, formats = {}, colWidths = {};
-    const notes = noteSheets.get(ws.name) || {}; // read from the file itself: ExcelJS loses notes on empty cells
+    const notes = { ...(noteSheets.get(ws.name) || {}) }; // read from the file itself: ExcelJS loses notes on empty cells
+    for (const t of threadSheets.get(ws.name) || []) delete notes[t.cell]; // the old-style copy of a comment thread
     const hideRows = [], hideCols = [];
     const outRows = new Map(), outCols = new Map(); // outlined (grouped) rows/columns → hidden?
     // Tables' structured references (Sales[Amount], [@Amount]) become plain ranges Sheets reads.
@@ -274,9 +317,12 @@ export async function sheetFromExcel(buffer) {
     if (!list) continue;
     s.charts = Object.fromEntries(list.map((c, i) => [`x${i + 1}`, { type: c.type, range: c.range, title: c.title || '', ...placeOf(c.at, s.colWidths, s.rowHeights) }]));
   }
+  const threads = sheets.flatMap((s, i) => (threadSheets.get(s._ws) || []).map((t) => ({ sheet: i, ...t })));
   for (const s of sheets) delete s._ws;
   const functions = await functionsOfXlsx(buffer);
-  return { sheets: sheets.length ? sheets : [{ name: 'Sheet1', cells: {}, colWidths: {} }], ...(functions.length && { functions }) };
+  const book = { sheets: sheets.length ? sheets : [{ name: 'Sheet1', cells: {}, colWidths: {} }], ...(functions.length && { functions }) };
+  if (threads.length) sheetComments.set(book, threads);
+  return book;
 }
 
 /** A Sheets spreadsheet as an Excel workbook (Buffer). Formulas are written as formulas. */
