@@ -2444,3 +2444,4 @@ img.custom-emoji { width: 1.35em; height: 1.35em; object-fit: contain; vertical-
 .note-card:hover .note-select, .note-card.picking .note-select, .note-select:focus-visible { opacity: 0.6; }
 .note-card.picked .note-select { opacity: 1; background: var(--accent, #1a73e8); }
 .note-card.picked { outline: 2px solid var(--accent, #1a73e8); }
+.folder-biggest ul { margin: 4px 0 0; padding-left: 18px; }

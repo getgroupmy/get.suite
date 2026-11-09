@@ -490,7 +490,7 @@ Your Workspace calendar and contacts sync with the phone's own Calendar and Cont
 
 ## File details (Drive)
 
-**Details** in a file's or folder's ⋮ menu shows what it is, its size, owner, when it was made and last changed (and by whom), and who has access; for a document also its length (*1,240 words · 6 min read*). Anyone who can edit it can add a **description** there, which search also finds, and give a folder a **colour**, shown on its icon in the list.
+**Details** in a file's or folder's ⋮ menu shows what it is, its size (for a folder: everything in it, sub-folders too, with how many files and folders that is and its biggest files, not counting the trash), owner, when it was made and last changed (and by whom), and who has access; for a document also its length (*1,240 words · 6 min read*). Anyone who can edit it can add a **description** there, which search also finds, and give a folder a **colour**, shown on its icon in the list.
 
 **Who has seen it:** for files, the owner and editors also see in **Details** who has opened it (in its editor, or the file itself in Drive) and when they last did, with how many times (openings within ten minutes count once). Only people who can still open it are listed, and not you. Viewers and commenters don't see the list. Anyone can hide their own openings in **Settings → Who has seen it** (which also forgets the ones kept so far), and an admin can turn it off for the whole company in **Admin → Company settings → Who has seen files**.
 

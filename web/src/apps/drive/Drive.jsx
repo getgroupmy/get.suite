@@ -13,6 +13,7 @@ import ZipContents from '../ZipContents.jsx';
 import ScanDialog from './ScanDialog.jsx';
 import SharedInDialog from './SharedInDialog.jsx';
 import { readShared } from '../../shareinbox.js';
+import { openUrl } from '../../components/DrivePicker.jsx';
 
 function useDriveRoute() {
   const { pathname } = useLocation();
@@ -836,6 +837,25 @@ function Preview({ file, onClose, onOpenAs, comment = null }) {
 const FOLDER_COLOURS = ['#5f6368', '#1a73e8', '#0b8043', '#d93025', '#e37400', '#f6bf26', '#8e24aa', '#00796b'];
 
 /** A file's details: what it is, whose, when it changed, who has it, a description, and (folders) a colour. */
+/** How big a folder is (everything in it, sub-folders too), and the biggest files in it. */
+function FolderSize({ id }) {
+  const [s, setS] = useState(null);
+  useEffect(() => { get(`/files/${id}/size`).then(setS).catch(() => setS({ error: true })); }, [id]);
+  if (!s) return '…';
+  if (s.error) return '—';
+  const n = (k, one) => `${k.toLocaleString()} ${one}${k === 1 ? '' : 's'}`;
+  return (
+    <>
+      <span>{formatBytes(s.size)} · {n(s.files, 'file')}{s.folders ? `, ${n(s.folders, 'folder')}` : ''}</span>
+      {s.biggest.length > 1 && (
+        <details className="folder-biggest"><summary className="small">Biggest files</summary>
+          <ul className="small">{s.biggest.map((b) => <li key={b.id}><a href={openUrl(b)} target={b.kind === 'file' ? '_blank' : undefined} rel="noopener noreferrer">{b.name}</a> <span className="muted">{formatBytes(b.size)}</span></li>)}</ul>
+        </details>
+      )}
+    </>
+  );
+}
+
 function DetailsDialog({ file, onClose, onChanged }) {
   const toast = useToast();
   const [f, setF] = useState(file);
@@ -852,7 +872,7 @@ function DetailsDialog({ file, onClose, onChanged }) {
         <div className="row" style={{ gap: 10 }}><Icon name={fileIcon(f)} size={32} className={`ft ft-${fileIcon(f)}`} style={f.color ? { color: f.color } : undefined} /><strong className="grow" style={{ overflowWrap: 'anywhere' }}>{f.name}</strong></div>
         <dl className="details-list">
           <dt>Type</dt><dd>{kind}</dd>
-          {f.kind !== 'folder' && <><dt>Size</dt><dd>{formatBytes(f.size)}</dd></>}
+          {f.kind !== 'folder' ? <><dt>Size</dt><dd>{formatBytes(f.size)}</dd></> : <><dt>Size</dt><dd><FolderSize id={f.id} /></dd></>}
           <dt>Owner</dt><dd>{f.owner_name}{f.role === 'owner' ? ' (you)' : ''}</dd>
           <dt>Modified</dt><dd>{when(f.updated_at)}{f.updated_by_name ? ` by ${f.updated_by_name}` : ''}</dd>
           <dt>Created</dt><dd>{when(f.created_at)}</dd>

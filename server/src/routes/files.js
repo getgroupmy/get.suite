@@ -725,6 +725,21 @@ export default function fileRoutes({ maxUploadBytes }) {
     res.json(publicFile(f));
   });
 
+  // How big a folder is: everything in it, sub-folders too (not what's in the trash), how many files
+  // and folders that is, and the biggest files in it.
+  r.get('/:id/size', (req, res) => {
+    const f = loadFile(req.params.id, req.user);
+    if (f.kind !== 'folder') throw bad('Only folders have contents');
+    const inside = `WITH RECURSIVE t(id) AS (SELECT id FROM files WHERE parent_id = ? AND trashed = 0
+                      UNION SELECT f.id FROM files f JOIN t ON f.parent_id = t.id WHERE f.trashed = 0)`;
+    const sum = q(`${inside} SELECT COALESCE(SUM(CASE WHEN f.kind != 'folder' THEN f.size END), 0) AS size,
+                     COUNT(CASE WHEN f.kind != 'folder' THEN 1 END) AS files, COUNT(CASE WHEN f.kind = 'folder' THEN 1 END) AS folders
+                   FROM files f JOIN t ON t.id = f.id`).get(f.id);
+    const biggest = q(`${inside} SELECT f.id, f.name, f.kind, f.size FROM files f JOIN t ON t.id = f.id
+                       WHERE f.kind != 'folder' AND f.size > 0 ORDER BY f.size DESC LIMIT 5`).all(f.id);
+    res.json({ ...sum, biggest });
+  });
+
   // Who has opened it (people with access, their last time and how many times): for its owner and editors.
   r.get('/:id/viewers', (req, res) => {
     const f = loadFile(req.params.id, req.user, 'editor');

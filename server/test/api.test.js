@@ -7323,3 +7323,25 @@ test('Notes: several at once (colour, pin, archive, label, trash); all checked f
   assert.ok(left, 'the owner still has it');
   assert.ok(bid);
 });
+
+test("Drive: a folder's size, with everything in it and the biggest files", async () => {
+  const fs2 = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'sizer', domain: 'acme.com', name: 'Sy Sizer', password: 'password123' })).status, 201);
+  await login(fs2, 'sizer@acme.com');
+  const folder = (await fs2('POST', '/api/files/folder', { name: 'Project' })).body;
+  const sub = (await fs2('POST', '/api/files/folder', { name: 'Assets', parent_id: folder.id })).body;
+  const up = async (name, n, parent) => (await fs2('POST', `/api/files/upload?name=${encodeURIComponent(name)}&parent=${parent}`, Buffer.alloc(n, 1), { raw: true })).body;
+  await up('a.bin', 1000, folder.id);
+  await up('big.bin', 5000, sub.id);
+  const gone = await up('old.bin', 9000, folder.id);
+  await fs2('DELETE', `/api/files/${gone.id}`); // to the trash
+  const r = await fs2('GET', `/api/files/${folder.id}/size`);
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual([r.body.size, r.body.files, r.body.folders], [6000, 2, 1]);
+  assert.deepEqual(r.body.biggest.map((b) => b.name), ['big.bin', 'a.bin']);
+  assert.equal((await fs2('GET', `/api/files/${r.body.biggest[0].id}/size`)).status, 400, 'files have no contents');
+  const other = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'nosizer', domain: 'acme.com', name: 'No Sizer', password: 'password123' })).status, 201);
+  await login(other, 'nosizer@acme.com');
+  assert.equal((await other('GET', `/api/files/${folder.id}/size`)).status, 404);
+});
