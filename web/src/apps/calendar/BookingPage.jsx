@@ -17,24 +17,67 @@ const longDay = (ms) => new Date(ms).toLocaleDateString([], { weekday: 'long', d
 const time = (ms) => new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 const localDay = (ms) => new Date(ms).toDateString();
 
+/** Free times grouped by the visitor's own day: day tabs, then the times on the chosen day. */
+function SlotPicker({ days: list, onPick }) {
+  const [day, setDay] = useState(null);
+  const byDay = new Map();
+  for (const t of (list || []).flatMap((d) => d.slots)) {
+    const k = localDay(t);
+    if (!byDay.has(k)) byDay.set(k, []);
+    byDay.get(k).push(t);
+  }
+  const days = [...byDay.entries()];
+  const chosen = day && byDay.has(day) ? day : days[0]?.[0];
+  if (!days.length) return <p>There are no other free times in the next few weeks.</p>;
+  return <>
+    <div className="booking-days" role="tablist" aria-label="Days">
+      {days.map(([k, l]) => (
+        <button key={k} type="button" role="tab" aria-selected={k === chosen} className={k === chosen ? 'on' : ''} onClick={() => setDay(k)}>
+          {dayName(l[0])}<span className="muted small">{l.length} free</span>
+        </button>
+      ))}
+    </div>
+    <div className="booking-slots" role="group" aria-label={`Times on ${chosen ? longDay(byDay.get(chosen)[0]) : ''}`}>
+      {(byDay.get(chosen) || []).map((t) => <button key={t} type="button" className="btn" onClick={() => onPick(t)}>{time(t)}</button>)}
+    </div>
+    <p className="muted small" style={{ margin: 0 }}>Times are in your time zone{zone ? ` (${zone})` : ''}.</p>
+  </>;
+}
+
 // The visitor's link to cancel a booking (/b/cancel/<secret>, in their invitation).
 export function CancelBooking({ token }) {
   const [b, setB] = useState(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
-  useEffect(() => { call('GET', `/cancel/${encodeURIComponent(token)}`).then(setB).catch((e) => setError(e.message)); }, [token]);
+  const [moving, setMoving] = useState(false); // picking another time
+  const [moved, setMoved] = useState(null);
+  const load = () => call('GET', `/cancel/${encodeURIComponent(token)}`).then(setB).catch((e) => setError(e.message));
+  useEffect(() => { load(); }, [token]); // eslint-disable-line react-hooks/exhaustive-deps
+  const moveTo = async (t) => {
+    setBusy(true); setError('');
+    try { const r = await call('POST', `/cancel/${encodeURIComponent(token)}/move`, { start: t }); setMoved(r); setMoving(false); await load(); }
+    catch (e) { setError(e.message); if (e.status === 409) load(); }
+    setBusy(false);
+  };
   let body;
   if (error && !b) body = <div className="link-msg" role="alert"><h1>Booking not found</h1><p className="muted">{error}</p></div>;
   else if (!b) body = <p className="muted">Loading…</p>;
   else body = (
     <section className="invite-card stack" aria-live="polite">
-      <h1>{done || b.cancelled ? 'Booking cancelled' : 'Cancel your booking?'}</h1>
+      <h1>{done || b.cancelled ? 'Booking cancelled' : moved ? 'Booking moved' : moving ? 'Pick another time' : 'Your booking'}</h1>
       <p><strong>{b.title}</strong> with {b.owner.name}</p>
       {b.start && <p>{longDay(b.start)}, {time(b.start)} – {time(b.end)}{zone && <span className="muted small"> · your time ({zone})</span>}</p>}
+      {moved && !moving && <p className="muted">{b.owner.name} has been told, and an updated invitation is on its way.</p>}
       {done || b.cancelled ? <p className="muted">{b.owner.name} has been told, and the time is free again.</p>
         : b.past ? <p className="muted">This booking has already started.</p>
-          : <div className="row"><button className="btn danger" disabled={busy} onClick={async () => { setBusy(true); try { await call('POST', `/cancel/${encodeURIComponent(token)}`); setDone(true); } catch (e) { setError(e.message); } setBusy(false); }}>Cancel booking</button></div>}
+          : moving ? <>
+            <SlotPicker days={(b.days || []).map((d) => ({ ...d, slots: d.slots.filter((t) => t !== b.start) }))} onPick={moveTo} />
+            <div className="row"><button type="button" className="link-btn" onClick={() => setMoving(false)}>Keep the current time</button></div>
+          </> : <div className="row">
+            {b.days && <button className="btn" disabled={busy} onClick={() => setMoving(true)}>Pick another time</button>}
+            <button className="btn danger" disabled={busy} onClick={async () => { setBusy(true); try { await call('POST', `/cancel/${encodeURIComponent(token)}`); setDone(true); } catch (e) { setError(e.message); } setBusy(false); }}>Cancel booking</button>
+          </div>}
       {error && <p className="error small" role="alert">{error}</p>}
     </section>
   );
@@ -86,7 +129,7 @@ export default function BookingPage({ token }) {
         <p><strong>{done.title}</strong> with {done.owner.name}</p>
         <p>{longDay(done.start)}, {time(done.start)} – {time(done.end)}{zone && <span className="muted small"> · your time ({zone})</span>}</p>
         <p className="muted small">An invitation is on its way to {form.email}; add it to your calendar from there.</p>
-        {done.cancel_url && <p className="small">Can’t make it? <a href={done.cancel_url}>Cancel this booking</a> (the link is in the invitation too).</p>}
+        {done.cancel_url && <p className="small">Can’t make it? <a href={done.cancel_url}>Change or cancel this booking</a> (the link is in the invitation too).</p>}
       </section>
     );
   } else {

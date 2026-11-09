@@ -99,10 +99,10 @@ export function freeSlots(page, busy, now = Date.now(), booked = []) {
  * The owner's busy times between two moments: their events and invitations not declined (all-day ones
  * don't block, except being out of office). Out-of-office times are marked { ooo: true }.
  */
-function busyOf(userId, from, to, details = false) {
+function busyOf(userId, from, to, details = false, except = null) {
   const rows = q(`SELECT e.* FROM events e WHERE (e.owner_id = ? OR e.id IN (SELECT event_id FROM event_guests WHERE user_id = ? AND status != 'no'))
                   AND (e.all_day = 0 OR (e.kind = 'ooo' AND e.owner_id = ?)) AND e.start < ? AND (e.end > ? OR (e.rrule IS NOT NULL AND (e.repeat_until IS NULL OR e.repeat_until > ?)))`).all(userId, userId, userId, to, from, from);
-  return rows.flatMap((r) => expand(outEvent(r), from, to).map((e) => ({ start: e.start, end: e.end, ...(r.kind === 'ooo' && { ooo: true }),
+  return rows.filter((r) => r.id !== except).flatMap((r) => expand(outEvent(r), from, to).map((e) => ({ start: e.start, end: e.end, ...(r.kind === 'ooo' && { ooo: true }),
     ...(details && { title: r.title || '(No title)', ...(r.location && { location: r.location }) }) }))); // shared with you: what it is
 }
 
@@ -175,8 +175,10 @@ export function publicBookingRoutes() {
     if (!p || p.disabled || !p.enabled) throw new HttpError(404, 'This booking page is not available.');
     return { ...p, days: JSON.parse(p.days) };
   };
-  const bookedOf = (p, now) => q('SELECT e.start FROM bookings b JOIN events e ON e.id = b.event_id WHERE b.page_id = ? AND b.cancelled_at IS NULL AND e.start >= ?').all(p.id, now - DAY).map((x) => x.start);
-  const slotsOf = (p, now = Date.now()) => freeSlots(p, busyOf(p.user_id, now, now + (p.days_ahead + 1) * DAY), now, bookedOf(p, now));
+  // `except`: a booking being moved, which doesn't stand in its own way.
+  const bookedOf = (p, now, except) => q('SELECT e.id, e.start FROM bookings b JOIN events e ON e.id = b.event_id WHERE b.page_id = ? AND b.cancelled_at IS NULL AND e.start >= ?').all(p.id, now - DAY).filter((x) => x.id !== except).map((x) => x.start);
+  const slotsOf = (p, now = Date.now(), except = null) => freeSlots(p, busyOf(p.user_id, now, now + (p.days_ahead + 1) * DAY, false, except), now, bookedOf(p, now, except));
+  const pageOf = (b) => { const p = q('SELECT b.*, u.disabled FROM booking_pages b JOIN users u ON u.id = b.user_id WHERE b.id = ?').get(b.page_id); return p && !p.disabled && p.enabled ? { ...p, days: JSON.parse(p.days) } : null; };
 
   // The visitor's link to cancel their booking: /b/cancel/<secret>. What it is, then cancelling it:
   // it comes off the calendar and the owner is told.
@@ -189,7 +191,29 @@ export function publicBookingRoutes() {
   };
   r.get('/cancel/:ct', (req, res) => {
     const b = booking(req.params.ct);
-    res.json({ title: b.page_title, owner: { name: b.owner_name }, start: b.start, end: b.end, tz: b.tz, cancelled: !!b.cancelled_at || !b.start, past: !!b.start && b.start < Date.now() });
+    const cancelled = !!b.cancelled_at || !b.start, past = !!b.start && b.start < Date.now();
+    const p = !cancelled && !past ? pageOf(b) : null; // other times to move to, while the page takes bookings
+    res.json({ title: b.page_title, owner: { name: b.owner_name }, start: b.start, end: b.end, tz: b.tz, cancelled, past, ...(p && { duration: p.duration, days: slotsOf(p, Date.now(), b.event_id) }) });
+  });
+  // Moving it to another free time: the calendar event moves, the visitor gets the updated
+  // invitation, and the owner is told.
+  r.post('/cancel/:ct/move', (req, res) => {
+    const b = booking(req.params.ct);
+    if (b.cancelled_at || !b.start) throw bad('This booking was cancelled');
+    if (b.start < Date.now()) throw bad('This booking has already started');
+    const p = pageOf(b);
+    if (!p) throw new HttpError(404, 'This booking page is no longer taking bookings');
+    const start = Number(req.body?.start);
+    if (!slotsOf(p, Date.now(), b.event_id).some((d) => d.slots.includes(start))) throw new HttpError(409, 'That time has just been taken. Pick another.');
+    limit(req.ip);
+    q('UPDATE events SET start = ?, end = ?, sequence = sequence + 1 WHERE id = ?').run(start, start + p.duration * 6e4, b.event_id);
+    const owner = q('SELECT * FROM users WHERE id = ?').get(b.owner_id);
+    const saved = outEvent(q('SELECT * FROM events WHERE id = ?').get(b.event_id));
+    notifyOutside(owner, saved, q('SELECT * FROM event_outside_guests WHERE event_id = ?').all(b.event_id), 'update', { base: baseUrl(req), tz: p.tz });
+    touch([owner.id]);
+    const when = (t) => new Date(t).toLocaleString('en-GB', { timeZone: p.tz, weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+    bell([owner.id], { kind: 'booking', title: `${b.name || 'Someone'} moved “${b.page_title}”`, body: `From ${when(b.start)} to ${when(start)} (${p.tz})`, link: '/calendar', actor: b.name || null });
+    res.json({ ok: true, start, end: start + p.duration * 6e4 });
   });
   r.post('/cancel/:ct', (req, res) => {
     const b = booking(req.params.ct);
@@ -222,7 +246,7 @@ export function publicBookingRoutes() {
     const title = `${p.title}: ${name}`;
     const ct = crypto.randomBytes(18).toString('base64url');
     const cancelUrl = `${baseUrl(req)}/b/cancel/${ct}`;
-    const description = [`Booked by ${name} <${email}> through “${p.title}”.`, note && `\n${note}`, `\nTo cancel this booking: ${cancelUrl}`].filter(Boolean).join('\n');
+    const description = [`Booked by ${name} <${email}> through “${p.title}”.`, note && `\n${note}`, `\nTo change or cancel this booking: ${cancelUrl}`].filter(Boolean).join('\n');
     q(`INSERT INTO events (id, owner_id, title, description, location, start, end, all_day, color, rrule, exdates, repeat_until, tz)
        VALUES (?, ?, ?, ?, NULL, ?, ?, 0, NULL, NULL, '[]', NULL, ?)`).run(id, owner.id, title, description, start, start + p.duration * 6e4, p.tz);
     const { added } = setOutside(id, [email]);

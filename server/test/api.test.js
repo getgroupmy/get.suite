@@ -1475,12 +1475,24 @@ test('booking pages: a gap and a daily limit; the visitor cancels with their own
   const info = (await outsider('GET', `/api/public/book/cancel/${ct}`)).body;
   assert.deepEqual([info.title, info.owner.name, info.start, info.cancelled], ['Demo', 'Ben Booker', slot, false]);
   assert.equal((await outsider('GET', '/api/public/book/cancel/not-a-real-one')).status, 404);
+  // First, moving it: the free times offered include its own; a taken or made-up time is refused.
+  const offered = info.days.flatMap((d) => d.slots);
+  assert.ok(offered.includes(slot), 'its own time is still offered');
+  const later = info.days[2].slots[5];
+  assert.equal((await outsider('POST', `/api/public/book/cancel/${ct}/move`, { start: later + 60000 })).status, 409);
+  const moved = await outsider('POST', `/api/public/book/cancel/${ct}/move`, { start: later });
+  assert.equal(moved.status, 200, JSON.stringify(moved.body));
+  const ev2 = (await a('GET', `/api/events?from=${later - 1}&to=${later + 36e5}`)).body.find((e) => e.title === 'Demo: Cara Client');
+  assert.deepEqual([ev2?.start, ev2?.end], [later, later + 30 * 6e4]);
+  assert.ok(JSON.stringify((await a('GET', '/api/notifications')).body).includes('Cara Client moved “Demo”'));
+  assert.equal((await outsider('GET', `/api/public/book/cancel/${ct}`)).body.start, later);
+  assert.ok((await outsider('GET', `/api/public/book/${token}`)).body.days.some((d) => d.date === days[1].date), 'its old day is free again');
   assert.equal((await outsider('POST', `/api/public/book/cancel/${ct}`)).status, 200);
-  assert.equal((await a('GET', `/api/events?from=${slot - 1}&to=${slot + 36e5}`)).body.some((e) => e.title === 'Demo: Cara Client'), false);
+  assert.equal((await a('GET', `/api/events?from=${later - 1}&to=${later + 36e5}`)).body.some((e) => e.title === 'Demo: Cara Client'), false);
   assert.ok(JSON.stringify((await a('GET', '/api/notifications')).body).includes('Cara Client cancelled “Demo”'));
   assert.equal((await outsider('GET', `/api/public/book/cancel/${ct}`)).body.cancelled, true);
   assert.equal((await outsider('POST', `/api/public/book/cancel/${ct}`)).body.already, true);
-  assert.ok((await outsider('GET', `/api/public/book/${token}`)).body.days.some((d) => d.date === days[1].date), 'bookable again');
+  assert.ok((await outsider('GET', `/api/public/book/${token}`)).body.days.some((d) => d.date === days[2].date), 'bookable again');
   assert.equal((await a('GET', '/api/bookings')).body[0].bookings, 0);
 });
 
