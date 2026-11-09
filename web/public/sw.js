@@ -1,7 +1,7 @@
 // Workspace as an installed app: this service worker only keeps the app itself (its page and its
 // script and style files) so it opens without a connection. Nothing from /api, mail, files or the
 // sync addresses is ever stored here: those always go to the server.
-const CACHE = 'workspace-app-v2';
+const CACHE = 'workspace-app-v3';
 const SKIP = /^\/(api|dav|ws|s|b|i|f|p|meet-ws)(\/|$)/; // live data and public share pages
 
 self.addEventListener('install', (e) => {
@@ -12,8 +12,30 @@ self.addEventListener('activate', (e) => {
   e.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim()));
 });
 
+// Shared to Workspace from another app (manifest share_target): kept on this device for Drive to
+// offer saving (see src/shareinbox.js), never sent anywhere by this. Then Drive opens.
+function keepShared(v) {
+  return new Promise((resolve, reject) => {
+    const r = indexedDB.open('nw-share', 1);
+    r.onupgradeneeded = () => r.result.createObjectStore('pending');
+    r.onerror = () => reject(r.error);
+    r.onsuccess = () => { const t = r.result.transaction('pending', 'readwrite'); t.objectStore('pending').put(v, 'last'); t.oncomplete = resolve; t.onerror = () => reject(t.error); };
+  });
+}
+
 self.addEventListener('fetch', (e) => {
   const req = e.request;
+  if (req.method === 'POST' && new URL(req.url).pathname === '/share-target') {
+    e.respondWith((async () => {
+      try {
+        const fd = await req.formData();
+        const files = fd.getAll('files').filter((f) => f && typeof f === 'object' && f.size > 0);
+        await keepShared({ files, title: String(fd.get('title') || ''), text: String(fd.get('text') || ''), url: String(fd.get('url') || ''), at: Date.now() });
+      } catch { /* nothing kept: Drive just opens */ }
+      return Response.redirect('/drive?shared=1', 303);
+    })());
+    return;
+  }
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
   if (url.origin !== self.location.origin || SKIP.test(url.pathname)) return;

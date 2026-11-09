@@ -8,14 +8,59 @@
   "background_color": "#ffffff",
   "theme_color": "#1a73e8",
   "icons": [
-    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "/icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
   ],
   "shortcuts": [
-    { "name": "Mail", "url": "/mail" },
-    { "name": "Calendar", "url": "/calendar" },
-    { "name": "Drive", "url": "/drive" },
-    { "name": "Chat", "url": "/chat" }
-  ]
+    {
+      "name": "Mail",
+      "url": "/mail"
+    },
+    {
+      "name": "Calendar",
+      "url": "/calendar"
+    },
+    {
+      "name": "Drive",
+      "url": "/drive"
+    },
+    {
+      "name": "Chat",
+      "url": "/chat"
+    }
+  ],
+  "share_target": {
+    "action": "/share-target",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url",
+      "files": [
+        {
+          "name": "files",
+          "accept": [
+            "*/*"
+          ]
+        }
+      ]
+    }
+  }
 }

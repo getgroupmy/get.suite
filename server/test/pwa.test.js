@@ -19,6 +19,8 @@ test('installable app: the manifest names real icons of the right sizes', () => 
     const [w, h] = [png.readUInt32BE(16), png.readUInt32BE(20)];
     assert.equal(`${w}x${h}`, i.sizes, i.src);
   }
+  // In the phone's Share menu: files (and links) come to /share-target, which the service worker keeps on the device.
+  assert.deepEqual([m.share_target.action, m.share_target.method, m.share_target.enctype, m.share_target.params.files[0].name], ['/share-target', 'POST', 'multipart/form-data', 'files']);
   const sw = fs.readFileSync(path.join(PUB, 'sw.js'), 'utf8');
   assert.match(sw, /SKIP = .*api\|dav/, 'live data is never kept by the service worker');
 });
@@ -41,5 +43,9 @@ test('installable app: the service worker and manifest are served fresh, the app
     assert.equal(m.headers.get('cache-control'), 'no-cache');
     assert.match((await fetch(`${base}/assets/app-abc123.js`)).headers.get('cache-control'), /immutable/);
     assert.equal((await fetch(`${base}/icons/icon-192.png`)).headers.get('content-type'), 'image/png');
+    // Shared before the service worker runs: nothing is read or kept, Drive just opens.
+    const fd = new FormData(); fd.append('files', new Blob(['x']), 'a.txt');
+    const st = await fetch(`${base}/share-target`, { method: 'POST', body: fd, redirect: 'manual' });
+    assert.deepEqual([st.status, st.headers.get('location')], [303, '/drive']);
   } finally { server.close(); }
 });

@@ -11,6 +11,8 @@ import { CommentsPanel, useComments } from '../comments.jsx';
 import OfficePreview from '../OfficePreview.jsx';
 import ZipContents from '../ZipContents.jsx';
 import ScanDialog from './ScanDialog.jsx';
+import SharedInDialog from './SharedInDialog.jsx';
+import { readShared } from '../../shareinbox.js';
 
 function useDriveRoute() {
   const { pathname } = useLocation();
@@ -143,6 +145,13 @@ export default function Drive() {
   useEffect(() => onLive((m) => { if (m.type === 'access-requests' || m.type === 'live-connected') loadRequests(); }), [loadRequests]);
   const [searchParams, setSearchParams] = useSearchParams();
   useEffect(() => { if (searchParams.get('requests')) { setRequestsOpen(true); setSearchParams({}, { replace: true }); } }, [searchParams, setSearchParams]);
+  // /drive?shared=1: something was shared to Workspace from another app (see public/sw.js).
+  const [sharedIn, setSharedIn] = useState(null);
+  useEffect(() => {
+    if (!searchParams.get('shared')) return;
+    setSearchParams({}, { replace: true });
+    readShared().then((v) => { if (v) setSharedIn(v); });
+  }, [searchParams, setSearchParams]);
   // /drive?preview=<file id>&comment=<id>: a file's preview (e.g. from a comment notification).
   useEffect(() => {
     const id = searchParams.get('preview');
@@ -429,6 +438,7 @@ export default function Drive() {
         <PromptModal title="New shared drive" label="Name" initial="" confirm="Create" onClose={() => { setDialog(madeDrive.current ? { type: 'share', file: madeDrive.current } : null); madeDrive.current = null; }}
           onSubmit={async (name) => { const d = await post('/files/drives', { name }); madeDrive.current = d; navigate(`/drive/folder/${d.id}`); }} />
       )}
+      {sharedIn && <SharedInDialog shared={sharedIn} onClose={() => setSharedIn(null)} onSaved={(parent) => { setSharedIn(null); if (parent) navigate(`/drive/folder/${parent}`); else load(); }} />}
       {dialog?.type === 'scan' && <ScanDialog onClose={() => setDialog(null)} onDone={(file) => { setDialog(null); startUploads([file]); }} />}
       {dialog?.type === 'storage' && <StorageDialog onClose={() => setDialog(null)} onChanged={load} />}
       {dialog?.type === 'transfer' && <TransferDialog file={dialog.file} onClose={() => setDialog(null)} onDone={load} />}

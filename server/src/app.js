@@ -132,6 +132,10 @@ export function createApp({
   // Share-link pages: keep them out of search engines.
   app.use(['/s/', '/i/', '/f/'], (req, res, next) => { res.setHeader('X-Robots-Tag', 'noindex, nofollow'); next(); });
 
+  // Shared to Workspace from another app, before its service worker is running (it normally takes
+  // these: public/sw.js): nothing is read or kept here, Drive just opens.
+  app.post('/share-target', (req, res) => res.redirect(303, '/drive'));
+
   // Web app (built React bundle) with SPA fallback.
   if (publicDir && fs.existsSync(publicDir)) {
     publicDir = path.resolve(publicDir);
