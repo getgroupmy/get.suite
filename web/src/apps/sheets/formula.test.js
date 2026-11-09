@@ -579,3 +579,9 @@ test('OFFSET and INDIRECT: references worked out as the formula runs', () => {
   // A loop through INDIRECT is still caught.
   assert.equal(createEvaluator({ A1: '=INDIRECT("A1")' })('A1').error, '#CIRC!');
 });
+
+test('SUBTOTAL: a total by number', () => {
+  const g = createEvaluator({ A1: 10, A2: 20, A3: 'x', A4: 30, B1: '=SUBTOTAL(9, A1:A4)', B2: '=SUBTOTAL(109, A1:A4)', B3: '=SUBTOTAL(1, A1:A4)', B4: '=SUBTOTAL(3, A1:A4)', B5: '=SUBTOTAL(4, A1:A2, A4)', B6: '=SUBTOTAL(12, A1:A4)' });
+  assert.deepEqual(['B1', 'B2', 'B3', 'B4', 'B5'].map(g), [60, 60, 20, 4, 30]);
+  assert.equal(g('B6').error, '#VALUE!');
+});

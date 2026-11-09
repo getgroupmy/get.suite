@@ -858,6 +858,14 @@ const FUNCS = {
   'VAR.S': (a) => variance(a, true),
   'VAR.P': (a) => variance(a, false),
   'VARP': (a) => variance(a, false),
+  // SUBTOTAL(9, B2:B20): one of eleven totals by number (1 AVERAGE, 2 COUNT, 3 COUNTA, 4 MAX, 5 MIN, 6 PRODUCT,
+  // 7 STDEV, 8 STDEVP, 9 SUM, 10 VAR, 11 VARP), as Excel's table total rows write it; 101–111 are the same here.
+  SUBTOTAL: ([fn, ...refs]) => {
+    const n = Math.trunc(toNum(fn)) % 100;
+    const name = ['AVERAGE', 'COUNT', 'COUNTA', 'MAX', 'MIN', 'PRODUCT', 'STDEV', 'STDEVP', 'SUM', 'VAR', 'VARP'][n - 1];
+    if (!name || !refs.length) err('#VALUE!');
+    return FUNCS[name](refs);
+  },
   // more statistics
   MODE: (a) => {
     const counts = new Map();

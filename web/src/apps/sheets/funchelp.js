@@ -10,6 +10,7 @@ export const HELP = {
   COUNT: ['value1, [value2, …]', 'How many cells hold numbers'],
   COUNTA: ['value1, [value2, …]', 'How many cells are not empty'],
   COUNTBLANK: ['range', 'How many cells are empty'],
+  SUBTOTAL: ['function_number, range1, [range2, …]', 'A total by number: 9 sums, 1 averages, 2 counts, 4 the largest, 5 the smallest…'],
   PRODUCT: ['value1, [value2, …]', 'Multiplies the numbers together'],
   SUMPRODUCT: ['range1, [range2, …]', 'Multiplies matching cells of the ranges and adds the results'],
   LARGE: ['range, k', 'The k-th largest number'],

@@ -161,12 +161,15 @@ export async function sheetFromExcel(buffer) {
     const notes = noteSheets.get(ws.name) || {}; // read from the file itself: ExcelJS loses notes on empty cells
     const hideRows = [], hideCols = [];
     const outRows = new Map(), outCols = new Map(); // outlined (grouped) rows/columns → hidden?
+    // Tables' structured references (Sales[Amount], [@Amount]) become plain ranges Sheets reads.
+    const tableRefs = Object.values(ws.tables || {}).map((t) => tableShape(t.table || t)).filter(Boolean);
     ws.eachRow({ includeEmpty: true }, (row, r) => {
       if (row.outlineLevel > 0 && r <= 10000) outRows.set(r - 1, !!row.hidden);
       else if (row.hidden && r <= 10000) hideRows.push(r - 1);
       row.eachCell({ includeEmpty: true }, (cell, c) => {
         const key = `${colName(c - 1)}${r}`;
-        const t = cellText(cell);
+        let t = cellText(cell);
+        if (tableRefs.length && typeof t === 'string' && t.startsWith('=') && t.includes('[')) t = `=${plainTableRefs(t.slice(1), tableRefs, r, c - 1)}`;
         if (t !== null && t !== '') cells[key] = t;
         const f = {};
         if (cell.font?.bold) f.b = 1;
@@ -221,6 +224,7 @@ export async function sheetFromExcel(buffer) {
     }
     rules.sort((a, b) => a._p - b._p).forEach((r) => delete r._p);
     const validations = validationsFromExcel(ws.dataValidations?.model || {}, cells);
+    const bands = Object.values(ws.tables || {}).map((t, i) => bandFromTable(t.table || t, i + 1)).filter(Boolean).slice(0, 50);
     // An AutoFilter comes in as the sheet's filter (which values were hidden isn't kept).
     const af = typeof ws.autoFilter === 'string' ? ws.autoFilter : ws.autoFilter?.from && ws.autoFilter?.to ? `${ws.autoFilter.from}:${ws.autoFilter.to}` : null;
     const filter = af && /^[A-Z]+\d+:[A-Z]+\d+$/i.test(af) ? { range: af.toUpperCase(), hidden: {} } : null;
@@ -235,7 +239,7 @@ export async function sheetFromExcel(buffer) {
       const ci = (l) => [...l].reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0) - 1;
       for (let r = a.r; r <= b.r; r++) for (let c = ci(a.c); c <= ci(b.c); c++) if (r !== a.r || c !== ci(a.c)) delete cells[`${colName(c)}${r}`];
     }
-    sheets.push({ _ws: ws.name, name: ws.name.slice(0, 30), cells, colWidths, ...(Object.keys(rowHeights).length && { rowHeights }), ...(merges.length && { merges }), ...(rules.length && { rules }), ...(validations.length && { validations }), ...(filter && { filter }), ...(Object.keys(formats).length && { formats }), ...(frozen && (frozen.rows || frozen.cols) && { frozen }), ...(hide && { hide }), ...(groups.length && { groups }), ...(Object.keys(notes).length && { notes }) });
+    sheets.push({ _ws: ws.name, name: ws.name.slice(0, 30), cells, colWidths, ...(Object.keys(rowHeights).length && { rowHeights }), ...(merges.length && { merges }), ...(rules.length && { rules }), ...(validations.length && { validations }), ...(bands.length && { bands }), ...(filter && { filter }), ...(Object.keys(formats).length && { formats }), ...(frozen && (frozen.rows || frozen.cols) && { frozen }), ...(hide && { hide }), ...(groups.length && { groups }), ...(Object.keys(notes).length && { notes }) });
   });
   // Named ranges ("Sales" = 'Sheet1'!$A$2:$A$10): on the sheet they point into.
   for (const d of wb.definedNames?.model || []) {
@@ -547,6 +551,85 @@ export function validationsFromExcel(model, cells) {
     flush();
   }
   return out.slice(0, 500);
+}
+
+// ---- Excel tables (Insert → Table) as Sheets' alternating colours. Excel's built-in table styles go
+// round seven theme colours (Light1–21, Medium1–28, Dark1–11); each is matched to the nearest band colours.
+const BAND_COLOURS = {
+  grey: { head: '#5f6368', odd: '#ffffff', even: '#f1f3f4', foot: '#dadce0' },
+  blue: { head: '#4a86e8', odd: '#ffffff', even: '#e8f0fe', foot: '#c6dafc' },
+  orange: { head: '#f6911e', odd: '#ffffff', even: '#feefe3', foot: '#fcd5b2' },
+  teal: { head: '#16a2b8', odd: '#ffffff', even: '#e4f7fb', foot: '#b9e6ee' },
+  green: { head: '#34a853', odd: '#ffffff', even: '#e6f4ea', foot: '#bfe3c8' },
+};
+const THEME_CYCLE = ['grey', 'blue', 'orange', 'grey', 'orange', 'teal', 'green']; // dark 1, accents 1–6
+/** A table's name, columns (names in order) and box, from Excel's table model: for its structured references. */
+export function tableShape(t) {
+  const m = /^([A-Z]{1,3})(\d+):([A-Z]{1,3})(\d+)$/.exec(String(t?.tableRef || t?.ref || '').toUpperCase());
+  if (!m || !t.name) return null;
+  const c1 = colIndex(m[1]), c2 = colIndex(m[3]), r1 = +m[2], r2 = +m[4];
+  const columns = (t.columns || []).map((c) => String(c.name ?? ''));
+  return { name: String(t.name), columns, c1, c2, r1, r2, header: t.headerRow !== false, totals: !!t.totalsRow };
+}
+/**
+ * A formula's structured references to tables written as ranges: Sales[Amount] is that column's
+ * data, Sales[[#Totals],[Amount]] its total, Sales[@Amount] (or [@Amount] inside the table) the
+ * cell on this row, Sales[#All] / [#Data] / [#Headers] / [#Totals] the parts, Sales[[A]:[B]] several columns.
+ * `row` is the cell's row (1-based), `col` its column (0-based). Anything else is left as it was.
+ */
+export function plainTableRefs(formula, tables, row, col) {
+  const unq = (n) => String(n).replace(/^\[|\]$/g, '').replace(/'(.)/g, '$1').trim().toLowerCase();
+  const range = (t, a, b, ra, rb) => (a === b && ra === rb ? `${colName(a)}${ra}` : `${colName(a)}${ra}:${colName(b)}${rb}`);
+  const resolve = (t, spec) => {
+    const dataTop = t.r1 + (t.header ? 1 : 0), dataBottom = t.r2 - (t.totals ? 1 : 0);
+    let rows = [dataTop, dataBottom], c1 = t.c1, c2 = t.c2;
+    const parts = spec.trim() === '' ? [] : (/^\[/.test(spec.trim()) ? [...spec.matchAll(/\[((?:[^\[\]']|'.)*)\]/g)].map((m) => m[1]) : [spec]);
+    const cols = [];
+    for (let p of parts) {
+      p = p.trim();
+      const low = p.toLowerCase();
+      if (low === '#all') rows = [t.r1, t.r2];
+      else if (low === '#data') rows = [dataTop, dataBottom];
+      else if (low === '#headers') rows = [t.r1, t.r1];
+      else if (low === '#totals') rows = [t.r2, t.r2];
+      else if (low === '#this row' || p === '@') rows = [row, row];
+      else if (p.startsWith('@')) { rows = [row, row]; cols.push(unq(p.slice(1))); }
+      else cols.push(unq(p));
+    }
+    // [[A]:[B]] comes as parts "A" and ":" joined in the text: handled by the caller passing both names.
+    if (cols.length) {
+      const idx = cols.map((n) => t.columns.findIndex((x) => x.toLowerCase() === n));
+      if (idx.some((i) => i < 0)) return null;
+      c1 = t.c1 + Math.min(...idx); c2 = t.c1 + Math.max(...idx);
+    }
+    return range(t, c1, c2, rows[0], rows[1]);
+  };
+  const here = tables.find((t) => row >= t.r1 && row <= t.r2 && col >= t.c1 && col <= t.c2);
+  let out = String(formula);
+  // Table[...] (the brackets may nest one level: Table[[#Totals],[Amount]], Table[[A]:[B]]).
+  for (const t of tables) {
+    const re = new RegExp(`("(?:[^"]|"")*")|(?<![A-Za-z0-9_.])${t.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\[((?:[^\\[\\]]|\\[[^\\]]*\\])*)\\]`, 'gi');
+    out = out.replace(re, (m, str, spec) => { if (str) return str; const r = resolve(t, spec.replace(/\]\s*:\s*\[/g, '],[')); return r ?? m; });
+  }
+  // Inside a table: [@Amount], [@[Unit price]], [Amount] on their own.
+  if (here) {
+    out = out.replace(/("(?:[^"]|"")*")|(?<![A-Za-z0-9_\]])\[(@?(?:\[[^\]]*\]|[^\[\]]+))\]/g, (m, str, spec) => {
+      if (str) return str;
+      const r = resolve(here, spec.startsWith('@') ? `[@${unq(spec.slice(1))}]` : `[${spec}]`);
+      return r ?? m;
+    });
+  }
+  return out;
+}
+
+/** A table's band (range, heading and total rows, colours), from Excel's table model. */
+export function bandFromTable(t, n = 1) {
+  const ref = String(t?.tableRef || t?.ref || '').toUpperCase();
+  if (!/^[A-Z]{1,3}\d+:[A-Z]{1,3}\d+$/.test(ref)) return null;
+  const m = /^TableStyle(Light|Medium|Dark)(\d+)$/i.exec(t.style?.theme || '');
+  const colours = BAND_COLOURS[m ? THEME_CYCLE[(Number(m[2]) - 1) % 7] : 'blue'];
+  const stripes = t.style?.showRowStripes !== false;
+  return { id: `t${n}`, range: ref, header: t.headerRow !== false, footer: !!t.totalsRow, ...colours, ...(!stripes && { even: colours.odd }) };
 }
 
 // ---- conditional formatting, both ways

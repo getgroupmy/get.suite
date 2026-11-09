@@ -1397,3 +1397,42 @@ test('PowerPoint: open comment threads go into the download on their slides', as
   const zip = await JSZip.loadAsync(await powerPointFromDeck(deck));
   assert.equal(zip.file('ppt/commentAuthors.xml'), null, 'none: no comment parts');
 });
+
+test('Excel: tables come in as alternating colours', async () => {
+  const { bandFromTable } = await import('../src/office/excel.js');
+  assert.deepEqual(bandFromTable({ tableRef: 'b2:d10', style: { theme: 'TableStyleMedium7', showRowStripes: true }, headerRow: true, totalsRow: true }, 3),
+    { id: 't3', range: 'B2:D10', header: true, footer: true, head: '#34a853', odd: '#ffffff', even: '#e6f4ea', foot: '#bfe3c8' });
+  assert.equal(bandFromTable({ tableRef: 'A1:B4', style: { theme: 'TableStyleLight9' } }).head, '#4a86e8', 'Light9 is the blue one');
+  assert.equal(bandFromTable({ tableRef: 'A1:B4', style: { theme: 'TableStyleMedium2', showRowStripes: false } }).even, '#ffffff', 'no stripes: one colour');
+  assert.equal(bandFromTable({ tableRef: 'nope' }), null);
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('Sales');
+  ws.addTable({ name: 'Sales', ref: 'B2', headerRow: true, totalsRow: true, style: { theme: 'TableStyleMedium3', showRowStripes: true },
+    columns: [{ name: 'Region', totalsRowLabel: 'Total' }, { name: 'Amount', totalsRowFunction: 'sum' }], rows: [['North', 10], ['South', 20]] });
+  const back = await sheetFromExcel(Buffer.from(await wb.xlsx.writeBuffer()));
+  assert.deepEqual(back.sheets[0].bands, [{ id: 't1', range: 'B2:C5', header: true, footer: true, head: '#f6911e', odd: '#ffffff', even: '#feefe3', foot: '#fcd5b2' }]);
+  assert.equal(back.sheets[0].cells.B3, 'North');
+});
+
+test('Excel: a table\'s structured references become ranges, so its total row works', async () => {
+  const { plainTableRefs, tableShape } = await import('../src/office/excel.js');
+  const t = [tableShape({ name: 'Sales', tableRef: 'A1:C6', headerRow: true, totalsRow: true, columns: [{ name: 'Region' }, { name: 'Unit price' }, { name: 'Amount' }] })];
+  const cases = [
+    ['SUBTOTAL(109,Sales[Amount])', 6, 2, 'SUBTOTAL(109,C2:C5)'],
+    ['SUM(sales[[#Totals],[Amount]])', 8, 4, 'SUM(C6)'],
+    ['[@Amount]*2', 3, 2, 'C3*2'],
+    ['Sales[@[Unit price]]*[@Amount]', 4, 2, 'B4*C4'],
+    ['[@[Unit price]]+[Amount]', 4, 1, 'B4+C2:C5'],
+    ['SUM(Sales[[Unit price]:[Amount]])', 9, 0, 'SUM(B2:C5)'],
+    ['COUNTA(Sales[#All])', 9, 0, 'COUNTA(A1:C6)'],
+    ['"Sales[Amount]"&Sales[#Headers]', 9, 0, '"Sales[Amount]"&A1:C1'],
+    ['Other[x]+[@Amount]', 9, 5, 'Other[x]+[@Amount]'],
+  ];
+  for (const [f, r, c, want] of cases) assert.equal(plainTableRefs(f, t, r, c), want, f);
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('S');
+  ws.addTable({ name: 'Sales', ref: 'A1', headerRow: true, totalsRow: true, style: { theme: 'TableStyleMedium2' },
+    columns: [{ name: 'Region', totalsRowLabel: 'Total' }, { name: 'Amount', totalsRowFunction: 'sum' }], rows: [['North', 10], ['South', 20]] });
+  const back = await sheetFromExcel(Buffer.from(await wb.xlsx.writeBuffer()));
+  assert.equal(back.sheets[0].cells.B4, '=SUBTOTAL(109,B2:B3)');
+});
