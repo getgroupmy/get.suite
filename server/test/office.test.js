@@ -1113,3 +1113,12 @@ test('Excel: date rules carry both ways', async () => {
   const xr = wb.worksheets[0].conditionalFormattings.flatMap((cf) => cf.rules);
   assert.deepEqual([xr[0].type, xr[0].timePeriod, xr[5].formulae[0]], ['timePeriod', 'today', 'AND(ISNUMBER(E2),E2<DATE(2026,12,1))']);
 });
+
+test('Excel: data bars carry both ways', async () => {
+  const rules = [{ id: 'a', range: 'B2:B20', when: 'bars', bar: '#63be7b' }];
+  const buf = await excelFromSheet({ sheets: [{ name: 'S', rules, cells: { A1: 'x' } }] });
+  assert.deepEqual((await sheetFromExcel(buf)).sheets[0].rules.map(({ id, ...r }) => r), [{ range: 'B2:B20', when: 'bars', bar: '#63be7b' }]);
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(buf);
+  assert.equal(wb.worksheets[0].conditionalFormattings[0].rules[0].type, 'dataBar');
+});

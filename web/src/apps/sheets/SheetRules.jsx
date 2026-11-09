@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { Modal } from '../../components/ui.jsx';
 import Icon from '../../components/Icon.jsx';
-import { CONDITIONS, NEEDS_VALUE, STYLES, SCALES, scaleOf, describeRule } from './condformat.js';
+import { CONDITIONS, NEEDS_VALUE, STYLES, SCALES, BARS, scaleOf, barOf, describeRule } from './condformat.js';
 import { parseRange } from './charts.js';
 
 const newId = () => Math.random().toString(36).slice(2, 10);
@@ -12,7 +12,8 @@ export function RulesDialog({ rules, defaultRange, onChange, onClose }) {
   const [editing, setEditing] = useState(rules.length ? null : { id: null, range: defaultRange, when: 'gt', value: '', value2: '', fill: STYLES[1][0], color: STYLES[1][1], bold: false });
   const save = (r) => {
     const clean = { ...r, range: r.range.toUpperCase().replace(/\s/g, ''), ...(NEEDS_VALUE.has(r.when) ? {} : { value: undefined, value2: undefined }), ...(r.when === 'between' ? {} : { value2: undefined }),
-      ...(r.when === 'scale' ? { scale: scaleOf(r), fill: undefined, color: undefined, bold: undefined } : { scale: undefined }) };
+      ...(r.when === 'scale' ? { scale: scaleOf(r), fill: undefined, color: undefined, bold: undefined } : { scale: undefined }),
+      ...(r.when === 'bars' ? { bar: barOf(r), fill: undefined, color: undefined, bold: undefined } : { bar: undefined }) };
     onChange(r.id ? rules.map((x) => (x.id === r.id ? clean : x)) : [...rules, { ...clean, id: newId() }]);
     setEditing(null);
   };
@@ -25,7 +26,8 @@ export function RulesDialog({ rules, defaultRange, onChange, onClose }) {
           <ol className="rule-list">
             {rules.map((r, i) => (
               <li key={r.id}>
-                {r.when === 'scale' ? <span className="rule-sample" aria-hidden="true" style={{ background: `linear-gradient(to right, ${scaleOf(r).join(', ')})` }}>123</span>
+                {r.when === 'bars' ? <span className="rule-sample" aria-hidden="true" style={{ backgroundImage: `linear-gradient(to right, ${barOf(r)}aa 65%, transparent 65%)` }}>123</span>
+                  : r.when === 'scale' ? <span className="rule-sample" aria-hidden="true" style={{ background: `linear-gradient(to right, ${scaleOf(r).join(', ')})` }}>123</span>
                   : <span className="rule-sample" style={{ background: r.fill || 'transparent', color: r.color || 'inherit', fontWeight: r.bold ? 700 : 400 }}>123</span>}
                 <span className="grow">{describeRule(r)}</span>
                 <button type="button" className="icon-btn" aria-label={`Try earlier: ${describeRule(r)}`} disabled={i === 0} onClick={() => move(i, -1)}>↑</button>
@@ -70,7 +72,15 @@ function RuleForm({ rule, onSave, onCancel }) {
         {r.when === 'between' && <label className="field"><span>To</span><input value={r.value2 ?? ''} onChange={set('value2')} /></label>}
       </div>
       {r.when === 'formula' && <p className="muted small" style={{ margin: 0 }}>Write it for the first cell of the range ({String(r.range || '').split(':')[0] || 'its top left cell'}); it moves along to each cell like a copied formula, and colours the cells where it's TRUE. Put $ before a column or row to keep it fixed: <code>=$C2&gt;100</code> colours a whole row by its C cell.</p>}
-      {r.when === 'scale' ? (
+      {r.when === 'bars' ? (
+        <fieldset className="rule-styles">
+          <legend className="muted small">Bar colour</legend>
+          {BARS.map(([name, colour]) => (
+            <button key={name} type="button" className={`rule-sample ${barOf(r) === colour ? 'on' : ''}`} aria-pressed={barOf(r) === colour} aria-label={name}
+              style={{ backgroundImage: `linear-gradient(to right, ${colour}aa 65%, transparent 65%)` }} onClick={() => setR({ ...r, bar: colour })}>123</button>
+          ))}
+        </fieldset>
+      ) : r.when === 'scale' ? (
         <fieldset className="rule-styles">
           <legend className="muted small">Colours (smallest number to largest)</legend>
           {SCALES.map(([name, colours]) => (

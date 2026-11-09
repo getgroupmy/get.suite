@@ -105,3 +105,19 @@ test('date rules: today, the past, the next and past 7 days, this month, before 
   assert.equal(localToday(new Date(2026, 0, 5)), '2026-01-05');
   assert.equal(describeRule({ range: 'D2:D50', when: 'dateBefore', value: 'today' }), 'D2:D50 · Date is before today');
 });
+
+test('data bars: a bar as long as the number, from 0 to the largest', async () => {
+  const { ruleStyle, ruleContext, barLength, describeRule } = await import('./condformat.js');
+  const { createEvaluator } = await import('./formula.js');
+  assert.equal(barLength(50, 10, 100), 50);
+  assert.equal(barLength(100, 10, 100), 100);
+  assert.equal(barLength(0, 0, 100), 2, 'always a sliver');
+  assert.equal(barLength(-5, -10, 10), 25, 'negatives: from the smallest');
+  assert.equal(barLength(7, 7, 7), 100);
+  const ev = createEvaluator({ A1: 25, A2: 100, A3: 'x' });
+  const ctx = ruleContext(ev, ev.formulaAt);
+  const rule = { id: 'b', range: 'A1:A3', when: 'bars', bar: '#63be7b' };
+  assert.deepEqual(ruleStyle([rule], 'A1', 25, ctx), { backgroundImage: 'linear-gradient(to right, #63be7baa 25%, transparent 25%)' });
+  assert.equal(ruleStyle([rule], 'A3', 'x', ctx), null);
+  assert.equal(describeRule(rule), 'A1:A3 · Data bars: green');
+});

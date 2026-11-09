@@ -11,7 +11,7 @@ export const CONDITIONS = [
   ['duplicate', 'Duplicate values'], ['unique', 'Unique values'], ['top', 'Top (how many)'], ['bottom', 'Bottom (how many)'],
   ['dateToday', 'Date is today'], ['datePast', 'Date is in the past'], ['dateNext7', 'Date is in the next 7 days'], ['datePast7', 'Date is in the past 7 days'],
   ['dateThisMonth', 'Date is in this month'], ['dateBefore', 'Date is before'], ['dateAfter', 'Date is after'],
-  ['aboveAvg', 'Above average'], ['belowAvg', 'Below average'], ['formula', 'Custom formula is'], ['scale', 'Colour scale (shade by value)'],
+  ['aboveAvg', 'Above average'], ['belowAvg', 'Below average'], ['formula', 'Custom formula is'], ['scale', 'Colour scale (shade by value)'], ['bars', 'Data bars (a bar by value)'],
 ];
 /** Colour scales: the smallest number gets the first colour, the largest the last (a middle one at the midpoint). */
 export const SCALES = [
@@ -23,6 +23,15 @@ export const SCALES = [
   ['Blue, white, red', ['#5a8ac6', '#ffffff', '#f8696b']],
 ];
 const HEX = /^#[0-9a-f]{6}$/i;
+/** Data bar colours. */
+export const BARS = [['Blue', '#638ec6'], ['Green', '#63be7b'], ['Red', '#f8696b'], ['Orange', '#ffb628'], ['Purple', '#8e7cc3']];
+export const barOf = (rule) => (HEX.test(rule.bar || '') ? rule.bar.toLowerCase() : BARS[0][1]);
+/** How long a number's bar is (2 to 100, as a percentage of the cell): from 0 (or the smallest, when it's below 0) to the largest. */
+export function barLength(x, lo, hi) {
+  const from = Math.min(0, lo), to = Math.max(0, hi);
+  if (to === from) return 100;
+  return Math.max(2, Math.min(100, Math.round(((x - from) / (to - from)) * 1000) / 10));
+}
 /** A rule's scale colours, cleaned: two or three #rrggbb colours (the first scale when not). */
 export const scaleOf = (rule) => (Array.isArray(rule.scale) && rule.scale.length >= 2 && rule.scale.length <= 3 && rule.scale.every((c) => HEX.test(c)) ? rule.scale : SCALES[0][1]);
 const mix = (a, b, t) => {
@@ -66,7 +75,7 @@ function dateMatches(rule, v, today) {
   }
 }
 /** Rules that look at every cell they apply to, not just the one being coloured. */
-export const WHOLE_RANGE = new Set(['duplicate', 'unique', 'top', 'bottom', 'aboveAvg', 'belowAvg', 'scale']);
+export const WHOLE_RANGE = new Set(['duplicate', 'unique', 'top', 'bottom', 'aboveAvg', 'belowAvg', 'scale', 'bars']);
 const MAX_RULE_CELLS = 50000;
 export const STYLES = [
   ['#e6f4ea', '#137333', 'Green'], ['#fce8e6', '#c5221f', 'Red'], ['#fef7e0', '#b06000', 'Yellow'], ['#e8f0fe', '#1967d2', 'Blue'], ['#f3e8fd', '#8430ce', 'Purple'], ['#f1f3f4', '#3c4043', 'Grey'],
@@ -166,6 +175,12 @@ export function ruleContext(valueAt, formulaAt, today = localToday()) {
 export function ruleStyle(rules, key, value, context = null) {
   for (const r of rules || []) {
     if (!covers(r, key)) continue;
+    if (r.when === 'bars') {
+      const st = context?.stats(r), x = num(value);
+      if (!st || x === null || typeof value === 'object' || value === '' || !st.numbers.length) continue;
+      const w = barLength(x, st.numbers[st.numbers.length - 1], st.numbers[0]);
+      return { backgroundImage: `linear-gradient(to right, ${barOf(r)}aa ${w}%, transparent ${w}%)` };
+    }
     if (r.when === 'scale') {
       const st = context?.stats(r), x = num(value);
       if (!st || x === null || typeof value === 'object' || value === '' || !st.numbers.length) continue;
@@ -183,6 +198,7 @@ export function ruleStyle(rules, key, value, context = null) {
 /** A rule in words: "B2:B20 · Greater than 100". */
 export function describeRule(r) {
   const what = CONDITIONS.find(([k]) => k === r.when)?.[1] || r.when;
+  if (r.when === 'bars') return `${r.range} · Data bars: ${(BARS.find(([, c]) => c === barOf(r))?.[0] || 'own colour').toLowerCase()}`;
   if (r.when === 'scale') return `${r.range} · Colour scale${(() => { const n = SCALES.find(([, c]) => c.join() === scaleOf(r).join()); return n ? `: ${n[0].toLowerCase()}` : ''; })()}`;
   if (r.when === 'top' || r.when === 'bottom') return `${r.range} · ${r.when === 'top' ? 'Top' : 'Bottom'} ${r.value ?? ''}`;
   return `${r.range} · ${what}${NEEDS_VALUE.has(r.when) ? ` ${r.value ?? ''}${r.when === 'between' ? ` and ${r.value2 ?? ''}` : ''}` : ''}`;

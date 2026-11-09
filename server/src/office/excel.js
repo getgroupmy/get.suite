@@ -481,6 +481,7 @@ const quoted = (t) => `"${String(t ?? '').replace(/"/g, '""')}"`;
 function ruleToExcel(r) {
   if (OPS[r.when]) return { type: 'cellIs', operator: OPS[r.when], formulae: r.when === 'between' ? [formula(r.value), formula(r.value2)] : [formula(r.value)] };
   const cell = String(r.range).split(':')[0].replace(/\$/g, '');
+  if (r.when === 'bars') return { type: 'dataBar', cfvo: [{ type: 'min' }, { type: 'max' }], color: { argb: argb(/^#[0-9a-f]{6}$/i.test(r.bar || '') ? r.bar : '#638ec6') } };
   if (r.when === 'scale') {
     const colours = Array.isArray(r.scale) && r.scale.length >= 2 && r.scale.length <= 3 && r.scale.every((c) => /^#[0-9a-f]{6}$/i.test(c)) ? r.scale : ['#f8696b', '#ffeb84', '#63be7b'];
     return { type: 'colorScale', cfvo: colours.length === 3 ? [{ type: 'min' }, { type: 'percentile', value: 50 }, { type: 'max' }] : [{ type: 'min' }, { type: 'max' }], color: colours.map((c) => ({ argb: argb(c) })) };
@@ -522,6 +523,7 @@ function ruleFromExcel(x) {
     if (!when) return null;
     return { when, value: unformula(x.formulae?.[0]), ...(when === 'between' && { value2: unformula(x.formulae?.[1]) }) };
   }
+  if (x.type === 'dataBar') { const c = hex((Array.isArray(x.color) ? x.color[0] : x.color)?.argb); return { when: 'bars', bar: c || '#638ec6' }; }
   if (x.type === 'colorScale') {
     const colours = (x.color || []).map((c) => hex(c?.argb)).filter(Boolean);
     return colours.length >= 2 && colours.length <= 3 ? { when: 'scale', scale: colours } : null;
