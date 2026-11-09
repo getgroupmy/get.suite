@@ -410,10 +410,16 @@ export default function fileRoutes({ maxUploadBytes }) {
         .all(org, me, org, org).map((f) => ({ ...publicFile(f), role: f.owner_id === me ? 'owner' : roleFor(f.id, me) })).filter((f) => f.role)
         .map((f) => ({ ...f, members: audienceFor(f.id).length }));
     } else if (view === 'recent') {
-      rows = q(`SELECT ${COLS}, CASE WHEN f.owner_id = ? THEN 'owner' ELSE COALESCE(s.role, f.org_role) END AS role ${FROM}
-                LEFT JOIN shares s ON s.file_id = f.id AND s.user_id = ?
-                WHERE (f.owner_id = ? OR s.user_id IS NOT NULL OR (f.org_role IS NOT NULL AND u.org_id = ?)) AND f.kind != 'folder' AND f.trashed = 0 AND ${REACHABLE}
-                ORDER BY f.updated_at DESC LIMIT 50`).all(me, me, me, org, org, org);
+      // Yours, and what you can open through sharing: shared with you or your company, and anything
+      // inside folders and shared drives shared that way (a colleague's new file in the team drive).
+      rows = q(`WITH RECURSIVE acc(id) AS (
+                  SELECT s2.file_id FROM shares s2 JOIN files f1 ON f1.id = s2.file_id WHERE s2.user_id = ? AND f1.trashed = 0
+                  UNION SELECT f2.id FROM files f2 JOIN users u2 ON u2.id = f2.owner_id WHERE f2.org_role IS NOT NULL AND u2.org_id = ? AND f2.trashed = 0
+                  UNION SELECT f3.id FROM files f3 JOIN acc ON f3.parent_id = acc.id WHERE f3.trashed = 0)
+                SELECT ${COLS} ${FROM}
+                WHERE (f.owner_id = ? OR f.id IN (SELECT id FROM acc)) AND f.kind != 'folder' AND f.trashed = 0 AND ${REACHABLE}
+                ORDER BY f.updated_at DESC LIMIT 80`).all(me, org, me, org, org)
+        .map((f) => ({ ...f, role: f.owner_id === me ? 'owner' : roleFor(f.id, me) })).filter((f) => f.role).slice(0, 50); // a trashed folder above, or sharing switched off between companies
     } else if (view === 'starred') {
       rows = q(`SELECT ${COLS}, CASE WHEN f.owner_id = ? THEN 'owner' ELSE NULL END AS role ${FROM}
                 JOIN file_stars st ON st.file_id = f.id AND st.user_id = ?

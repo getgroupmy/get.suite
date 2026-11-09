@@ -6032,3 +6032,28 @@ test('shared drives for admins: every drive in the company, and adding yourself 
   assert.ok(JSON.stringify((await owner('GET', '/api/audit')).body).includes('drive.join'));
   assert.equal((await a('POST', `/api/orgs/current/drives/${drive.id}/join`)).status, 403, 'Rae isn’t an admin');
 });
+
+test('recent: colleagues’ new work in shared drives and shared folders shows too, not what you can’t open', async () => {
+  const a = client(), b = client(), c = client();
+  for (const [local, name] of [['rca', 'Recent Ann'], ['rcb', 'Recent Ben'], ['rcc', 'Recent Cat']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'rca@acme.com');
+  const bid = (await login(b, 'rcb@acme.com')).id;
+  await login(c, 'rcc@acme.com');
+  const drive = (await a('POST', '/api/files/drives', { name: 'Ops' })).body;
+  const folder = (await a('POST', '/api/files/folder', { name: 'Shared folder' })).body;
+  await a('PUT', `/api/files/${drive.id}/shares`, { shares: [{ user_id: bid, role: 'viewer' }] });
+  await a('PUT', `/api/files/${folder.id}/shares`, { shares: [{ user_id: bid, role: 'editor' }] });
+  const inDrive = (await a('POST', '/api/files/new', { kind: 'sheet', name: 'Rota', parent_id: drive.id })).body;
+  const sub = (await a('POST', '/api/files/folder', { name: 'Deep', parent_id: folder.id })).body;
+  const deep = (await a('POST', '/api/files/new', { kind: 'doc', name: 'Minutes', parent_id: sub.id })).body;
+  const own = (await b('POST', '/api/files/new', { kind: 'doc', name: 'Ben notes' })).body;
+  const names = async (who) => (await who('GET', '/api/files?view=recent')).body.map((f) => f.name);
+  const bens = await names(b);
+  for (const n of ['Rota', 'Minutes', 'Ben notes']) assert.ok(bens.includes(n), n);
+  assert.equal((await b('GET', '/api/files?view=recent')).body.find((f) => f.id === inDrive.id).role, 'viewer');
+  assert.ok(!(await names(c)).some((n) => ['Rota', 'Minutes', 'Ben notes'].includes(n)), 'Cat is in neither');
+  // Trashing the folder above takes what's in it off Ben's list.
+  await a('PATCH', `/api/files/${sub.id}`, { trashed: true });
+  assert.ok(!(await names(b)).includes('Minutes'));
+  void deep; void own;
+});
