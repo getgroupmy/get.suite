@@ -1416,7 +1416,7 @@ function BookingPagesDialog({ onClose }) {
           <ul className="rule-list">
             {(pages || []).map((p) => (
               <li key={p.id}>
-                <span className="grow"><strong>{p.title}</strong> <span className="muted small">· {p.duration} min · {p.days.map((d) => WEEKDAYS[d]).join(', ')} {hhmm(p.from_min)}–{hhmm(p.to_min)}{p.bookings ? ` · ${p.bookings} booked` : ''}{p.enabled ? '' : ' · off'}</span></span>
+                <span className="grow"><strong>{p.title}</strong> <span className="muted small">· {p.duration} min · {p.days.map((d) => WEEKDAYS[d]).join(', ')} {hhmm(p.from_min)}–{hhmm(p.to_min)}{p.host_names?.length ? ` · with ${p.host_names.join(', ')}` : ''}{p.bookings ? ` · ${p.bookings} booked` : ''}{p.enabled ? '' : ' · off'}</span></span>
                 <button type="button" className="btn small" onClick={() => copy(p)}>Copy link</button>
                 <a className="btn small" href={p.url} target="_blank" rel="noreferrer">Open</a>
                 <button type="button" className="icon-btn" aria-label={`Change ${p.title}`} onClick={() => setEditing(p)}><Icon name="edit" size={16} /></button>
@@ -1428,6 +1428,27 @@ function BookingPagesDialog({ onClose }) {
         </div>
       )}
     </Modal>
+  );
+}
+
+/** Colleagues who also take bookings from the page (round robin). */
+function CoHosts({ value, onChange }) {
+  const { user } = useAuth();
+  const [people, setPeople] = useState([]);
+  const [q, setQ] = useState('');
+  useEffect(() => { get('/users/directory').then((l) => setPeople(l.filter((x) => x.id !== user.id))).catch(() => {}); }, [user.id]);
+  const chosen = people.filter((x) => value.includes(x.id));
+  const matches = q.trim() ? people.filter((x) => !value.includes(x.id) && `${x.name} ${x.username}`.toLowerCase().includes(q.trim().toLowerCase())).slice(0, 5) : [];
+  return (
+    <fieldset className="stack" style={{ gap: 6 }}><legend className="small muted">Also take bookings (shared by a team: each booking goes to whoever is free, the one with the fewest)</legend>
+      {chosen.length > 0 && <ul className="cohost-chips" aria-label="Co-hosts">{chosen.map((x) => (
+        <li key={x.id} className="cohost-chip">{x.name} <button type="button" className="icon-btn" aria-label={`Remove ${x.name}`} onClick={() => onChange(value.filter((id) => id !== x.id))}><Icon name="close" size={14} /></button></li>
+      ))}</ul>}
+      {value.length < 10 && <input aria-label="Add a co-host" placeholder="Add a colleague…" value={q} onChange={(e) => setQ(e.target.value)} />}
+      {matches.length > 0 && <ul className="rule-list" aria-label="Colleagues to add">{matches.map((x) => (
+        <li key={x.id}><button type="button" className="link-btn" onClick={() => { onChange([...value, x.id]); setQ(''); }}>{x.name} <span className="muted small">{x.username}</span></button></li>
+      ))}</ul>}
+    </fieldset>
   );
 }
 
@@ -1459,6 +1480,7 @@ function BookingForm({ page, onSave, onCancel }) {
         <label className="field"><span>Bookings a day</span><select value={p.max_per_day ?? 0} onChange={(e) => set('max_per_day', Number(e.target.value))}>
           {[[0, 'No limit'], [1, 'At most 1'], [2, 'At most 2'], [3, 'At most 3'], [4, 'At most 4'], [5, 'At most 5'], [8, 'At most 8'], [10, 'At most 10']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
       </div>
+      <CoHosts value={p.hosts || []} onChange={(v) => set('hosts', v)} />
       <label className="check"><input type="checkbox" checked={p.enabled} onChange={(e) => set('enabled', e.target.checked)} /> Taking bookings</label>
       <label className="check"><input type="checkbox" checked={p.remind !== false} onChange={(e) => set('remind', e.target.checked)} /> Email visitors a reminder the day before</label>
       <fieldset className="stack" style={{ gap: 6 }}><legend className="small muted">Questions for visitors (besides name and email)</legend>

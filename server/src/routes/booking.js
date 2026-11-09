@@ -47,9 +47,28 @@ if (!cols('booking_pages').includes('remind')) q('ALTER TABLE booking_pages ADD 
 // Questions the visitor answers when booking (their phone number, company…): [{ label, required }].
 if (!cols('booking_pages').includes('questions')) q("ALTER TABLE booking_pages ADD COLUMN questions TEXT NOT NULL DEFAULT '[]'").run();
 if (!cols('bookings').includes('reminded_at')) q('ALTER TABLE bookings ADD COLUMN reminded_at INTEGER').run();
+// Co-hosts (round robin): colleagues who also take bookings from the page ([user id]); each booking goes
+// to a host who is free then, the one with the fewest bookings from the page.
+if (!cols('booking_pages').includes('hosts')) q("ALTER TABLE booking_pages ADD COLUMN hosts TEXT NOT NULL DEFAULT '[]'").run();
 if (!cols('bookings').includes('link_base')) q('ALTER TABLE bookings ADD COLUMN link_base TEXT').run();
 
 const MAX_PAGES = 20;
+const MAX_HOSTS = 10;
+/** Everyone who takes bookings from a page: its owner, then its co-hosts (active, in the same company). */
+export function hostsOf(p) {
+  const owner = q('SELECT id, name, org_id FROM users WHERE id = ?').get(p.user_id);
+  let extra = [];
+  try { extra = JSON.parse(p.hosts || '[]'); } catch { /* none */ }
+  const co = extra.filter((id) => id !== p.user_id).map((id) => q('SELECT id, name, org_id FROM users WHERE id = ? AND disabled = 0').get(id)).filter((u) => u && u.org_id === owner?.org_id);
+  return [...(owner ? [owner] : []), ...co];
+}
+/** Free start times of several hosts together: a time is free if any of them is ({ host free → [ms] } too). */
+export function mergeSlots(lists) {
+  const byDate = new Map();
+  for (const list of lists) for (const d of list) { const set = byDate.get(d.date) || new Set(); d.slots.forEach((t) => set.add(t)); byDate.set(d.date, set); }
+  return [...byDate.entries()].sort(([a], [b]) => (a < b ? -1 : 1)).map(([date, set]) => ({ date, slots: [...set].sort((a, b) => a - b) }));
+}
+const namesText = (names) => (names.length <= 1 ? names[0] || '' : `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}`);
 const EMAIL_RE = /^[^\s@<>"(),;:\\]+@[a-z0-9.-]+\.[a-z]{2,}$/i;
 const DAY = 864e5;
 
@@ -134,13 +153,26 @@ function readPage(b, current = {}) {
   if (![0, 5, 10, 15, 30, 60].includes(buffer)) throw bad('Choose a gap of 0 to 60 minutes');
   if (!Number.isInteger(maxPerDay) || maxPerDay < 0 || maxPerDay > 20) throw bad('At most 20 bookings a day');
   const remind = pick('remind') === undefined ? 1 : pick('remind') ? 1 : 0;
+  const hostIds = pick('hosts') ?? [];
+  if (!Array.isArray(hostIds) || hostIds.length > MAX_HOSTS) throw bad(`At most ${MAX_HOSTS} co-hosts`);
+  const hosts = [...new Set(hostIds.map(String))];
   const qs = pick('questions') ?? [];
   if (!Array.isArray(qs) || qs.length > 5) throw bad('At most 5 questions');
   const questions = qs.map((x) => ({ label: str(x?.label, { required: true, name: 'Question', max: 100 }), required: !!x?.required }));
-  return { title, description, duration, days, from_min: fromMin, to_min: toMin, tz, notice_hours: notice, days_ahead: ahead, enabled, buffer_min: buffer, max_per_day: maxPerDay, remind, questions };
+  return { title, description, duration, days, from_min: fromMin, to_min: toMin, tz, notice_hours: notice, days_ahead: ahead, enabled, buffer_min: buffer, max_per_day: maxPerDay, remind, questions, hosts };
 }
-const shapePage = (p, req) => ({ ...p, days: JSON.parse(p.days), questions: JSON.parse(p.questions || '[]'), enabled: !!p.enabled, remind: !!p.remind, url: `${baseUrl(req)}/b/${p.token}`,
+const shapePage = (p, req) => ({ ...p, days: JSON.parse(p.days), questions: JSON.parse(p.questions || '[]'), hosts: JSON.parse(p.hosts || '[]'),
+  host_names: hostsOf(p).slice(1).map((u) => u.name), enabled: !!p.enabled, remind: !!p.remind, url: `${baseUrl(req)}/b/${p.token}`,
   bookings: q('SELECT COUNT(*) AS n FROM bookings WHERE page_id = ? AND cancelled_at IS NULL').get(p.id).n });
+
+/** Co-hosts asked for: colleagues in your company (not you). */
+function checkHosts(user, ids) {
+  return ids.filter((id) => id !== user.id).map((id) => {
+    const u = q('SELECT id, org_id, disabled FROM users WHERE id = ?').get(id);
+    if (!u || u.org_id !== user.org_id || u.disabled) throw bad('Co-hosts must be colleagues in your company');
+    return u.id;
+  });
+}
 
 export default function bookingRoutes() {
   const r = Router();
@@ -152,7 +184,7 @@ export default function bookingRoutes() {
     q(`INSERT INTO booking_pages (id, user_id, token, title, description, duration, days, from_min, to_min, tz, notice_hours, days_ahead, enabled, created_at, buffer_min, max_per_day, remind)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, req.user.id, crypto.randomBytes(12).toString('base64url'), p.title, p.description, p.duration, JSON.stringify(p.days),
       p.from_min, p.to_min, p.tz, p.notice_hours, p.days_ahead, p.enabled, Date.now(), p.buffer_min, p.max_per_day, p.remind);
-    q('UPDATE booking_pages SET questions = ? WHERE id = ?').run(JSON.stringify(p.questions), id);
+    q('UPDATE booking_pages SET questions = ?, hosts = ? WHERE id = ?').run(JSON.stringify(p.questions), JSON.stringify(checkHosts(req.user, p.hosts)), id);
     res.status(201).json(shapePage(q('SELECT * FROM booking_pages WHERE id = ?').get(id), req));
   });
   const mine = (req) => {
@@ -162,8 +194,8 @@ export default function bookingRoutes() {
   };
   r.patch('/:id', (req, res) => {
     const cur = mine(req);
-    const p = readPage(req.body || {}, { ...cur, days: JSON.parse(cur.days), questions: JSON.parse(cur.questions || '[]'), enabled: !!cur.enabled });
-    q('UPDATE booking_pages SET questions = ? WHERE id = ?').run(JSON.stringify(p.questions), cur.id);
+    const p = readPage(req.body || {}, { ...cur, days: JSON.parse(cur.days), questions: JSON.parse(cur.questions || '[]'), hosts: JSON.parse(cur.hosts || '[]'), enabled: !!cur.enabled });
+    q('UPDATE booking_pages SET questions = ?, hosts = ? WHERE id = ?').run(JSON.stringify(p.questions), JSON.stringify(checkHosts(req.user, p.hosts)), cur.id);
     q(`UPDATE booking_pages SET title = ?, description = ?, duration = ?, days = ?, from_min = ?, to_min = ?, tz = ?, notice_hours = ?, days_ahead = ?, enabled = ?, buffer_min = ?, max_per_day = ?, remind = ? WHERE id = ?`)
       .run(p.title, p.description, p.duration, JSON.stringify(p.days), p.from_min, p.to_min, p.tz, p.notice_hours, p.days_ahead, p.enabled, p.buffer_min, p.max_per_day, p.remind, cur.id);
     res.json(shapePage(q('SELECT * FROM booking_pages WHERE id = ?').get(cur.id), req));
@@ -190,8 +222,8 @@ function limit(ip) {
  */
 export async function sendBookingReminders(now = Date.now()) {
   if (!mailEnabled()) return 0;
-  const due = q(`SELECT b.*, p.title AS page_title, p.tz, p.user_id, e.start, e.end FROM bookings b
-                 JOIN booking_pages p ON p.id = b.page_id JOIN events e ON e.id = b.event_id JOIN users u ON u.id = p.user_id
+  const due = q(`SELECT b.*, p.title AS page_title, p.tz, e.owner_id AS user_id, e.start, e.end FROM bookings b
+                 JOIN booking_pages p ON p.id = b.page_id JOIN events e ON e.id = b.event_id JOIN users u ON u.id = e.owner_id
                  WHERE p.remind = 1 AND u.disabled = 0 AND b.cancelled_at IS NULL AND b.reminded_at IS NULL AND b.email IS NOT NULL
                    AND e.start > ? AND e.start <= ? AND b.created_at <= e.start - 12 * 3600000`).all(now + 36e5, now + DAY);
   let sent = 0;
@@ -221,14 +253,22 @@ export function publicBookingRoutes() {
   };
   // `except`: a booking being moved, which doesn't stand in its own way.
   const bookedOf = (p, now, except) => q('SELECT e.id, e.start FROM bookings b JOIN events e ON e.id = b.event_id WHERE b.page_id = ? AND b.cancelled_at IS NULL AND e.start >= ?').all(p.id, now - DAY).filter((x) => x.id !== except).map((x) => x.start);
-  const slotsOf = (p, now = Date.now(), except = null) => freeSlots(p, busyOf(p.user_id, now, now + (p.days_ahead + 1) * DAY, false, except), now, bookedOf(p, now, except));
+  // One host's free times, or (no host given) any host's.
+  const hostSlots = (p, hostId, now, except) => freeSlots(p, busyOf(hostId, now, now + (p.days_ahead + 1) * DAY, false, except), now, bookedOf(p, now, except));
+  const slotsOf = (p, now = Date.now(), except = null, hostId = null) => (hostId ? hostSlots(p, hostId, now, except) : mergeSlots(hostsOf(p).map((h) => hostSlots(p, h.id, now, except))));
+  /** Who takes a booking at `start`: a host free then, the one with the fewest bookings from the page. */
+  const hostFor = (p, start) => {
+    const free = hostsOf(p).filter((h) => hostSlots(p, h.id, Date.now(), null).some((d) => d.slots.includes(start)));
+    const load = (h) => q('SELECT COUNT(*) AS n FROM bookings b JOIN events e ON e.id = b.event_id WHERE b.page_id = ? AND b.cancelled_at IS NULL AND e.owner_id = ?').get(p.id, h.id).n;
+    return free.sort((a, b) => load(a) - load(b))[0] || null;
+  };
   const pageOf = (b) => { const p = q('SELECT b.*, u.disabled FROM booking_pages b JOIN users u ON u.id = b.user_id WHERE b.id = ?').get(b.page_id); return p && !p.disabled && p.enabled ? { ...p, days: JSON.parse(p.days) } : null; };
 
   // The visitor's link to cancel their booking: /b/cancel/<secret>. What it is, then cancelling it:
   // it comes off the calendar and the owner is told.
   const booking = (ct) => {
-    const b = q(`SELECT b.*, p.title AS page_title, p.tz, u.name AS owner_name, u.id AS owner_id, e.start, e.end
-                 FROM bookings b JOIN booking_pages p ON p.id = b.page_id JOIN users u ON u.id = p.user_id LEFT JOIN events e ON e.id = b.event_id
+    const b = q(`SELECT b.*, p.title AS page_title, p.tz, COALESCE(h.name, u.name) AS owner_name, COALESCE(h.id, u.id) AS owner_id, e.start, e.end
+                 FROM bookings b JOIN booking_pages p ON p.id = b.page_id JOIN users u ON u.id = p.user_id LEFT JOIN events e ON e.id = b.event_id LEFT JOIN users h ON h.id = e.owner_id
                  WHERE b.cancel_token = ?`).get(String(ct || ''));
     if (!b) throw new HttpError(404, 'This booking link is not valid.');
     return b;
@@ -237,7 +277,7 @@ export function publicBookingRoutes() {
     const b = booking(req.params.ct);
     const cancelled = !!b.cancelled_at || !b.start, past = !!b.start && b.start < Date.now();
     const p = !cancelled && !past ? pageOf(b) : null; // other times to move to, while the page takes bookings
-    res.json({ title: b.page_title, owner: { name: b.owner_name }, start: b.start, end: b.end, tz: b.tz, cancelled, past, ...(p && { duration: p.duration, days: slotsOf(p, Date.now(), b.event_id) }) });
+    res.json({ title: b.page_title, owner: { name: b.owner_name }, start: b.start, end: b.end, tz: b.tz, cancelled, past, ...(p && { duration: p.duration, days: slotsOf(p, Date.now(), b.event_id, b.owner_id) }) });
   });
   // Moving it to another free time: the calendar event moves, the visitor gets the updated
   // invitation, and the owner is told.
@@ -248,7 +288,7 @@ export function publicBookingRoutes() {
     const p = pageOf(b);
     if (!p) throw new HttpError(404, 'This booking page is no longer taking bookings');
     const start = Number(req.body?.start);
-    if (!slotsOf(p, Date.now(), b.event_id).some((d) => d.slots.includes(start))) throw new HttpError(409, 'That time has just been taken. Pick another.');
+    if (!slotsOf(p, Date.now(), b.event_id, b.owner_id).some((d) => d.slots.includes(start))) throw new HttpError(409, 'That time has just been taken. Pick another.'); // with the same host
     limit(req.ip);
     q('UPDATE events SET start = ?, end = ?, sequence = sequence + 1 WHERE id = ?').run(start, start + p.duration * 6e4, b.event_id);
     const owner = q('SELECT * FROM users WHERE id = ?').get(b.owner_id);
@@ -273,7 +313,7 @@ export function publicBookingRoutes() {
 
   r.get('/:token', (req, res) => {
     const p = find(req.params.token);
-    res.json({ title: p.title, description: p.description, duration: p.duration, tz: p.tz, owner: { name: p.owner_name }, questions: JSON.parse(p.questions || '[]'), days: slotsOf(p) });
+    res.json({ title: p.title, description: p.description, duration: p.duration, tz: p.tz, owner: { name: namesText(hostsOf(p).map((h) => h.name)) }, questions: JSON.parse(p.questions || '[]'), days: slotsOf(p) });
   });
 
   r.post('/:token', (req, res) => {
@@ -290,9 +330,10 @@ export function publicBookingRoutes() {
       if (x.required && !a.trim()) throw bad(`Please answer “${x.label}”`);
       return a.trim() ? `${x.label}: ${a.trim()}` : null;
     }).filter(Boolean);
-    if (!slotsOf(p).some((d) => d.slots.includes(start))) throw new HttpError(409, 'That time has just been taken. Pick another.');
+    const host = slotsOf(p).some((d) => d.slots.includes(start)) && hostFor(p, start);
+    if (!host) throw new HttpError(409, 'That time has just been taken. Pick another.');
     limit(req.ip);
-    const owner = q('SELECT * FROM users WHERE id = ?').get(p.user_id);
+    const owner = q('SELECT * FROM users WHERE id = ?').get(host.id); // the booking goes on this host's calendar
     const id = uid();
     const title = `${p.title}: ${name}`;
     const ct = crypto.randomBytes(18).toString('base64url');
@@ -308,7 +349,7 @@ export function publicBookingRoutes() {
     touch([owner.id]);
     sendTo([owner.id], { type: 'booking-made', title, start, page: p.title, by: name });
     bell([owner.id], { kind: 'booking', title: `${name} booked “${p.title}”`, body: new Date(start).toLocaleString('en-GB', { timeZone: p.tz, weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) + ` (${p.tz})`, link: '/calendar', actor: name });
-    res.status(201).json({ ok: true, title: p.title, start, end: start + p.duration * 6e4, tz: p.tz, owner: { name: p.owner_name }, cancel_url: cancelUrl });
+    res.status(201).json({ ok: true, title: p.title, start, end: start + p.duration * 6e4, tz: p.tz, owner: { name: owner.name }, cancel_url: cancelUrl });
   });
   return r;
 }

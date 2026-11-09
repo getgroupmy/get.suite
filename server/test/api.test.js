@@ -1461,6 +1461,57 @@ test('booking pages: free times around busy ones; booking puts it on the calenda
   assert.deepEqual((await a('GET', '/api/bookings')).body, []);
 });
 
+test('booking pages with co-hosts: free when anyone is, booked with a free host who has the fewest, kept with them when moved', async () => {
+  const lead = client(), sam = client(), tia = client(), outsider = client();
+  for (const [c, local, name] of [[lead, 'rrlead', 'Rae Lead'], [sam, 'rrsam', 'Sam Sales'], [tia, 'rrtia', 'Tia Sales']]) {
+    assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+    await login(c, `${local}@acme.com`);
+  }
+  const dir = (await lead('GET', '/api/users/directory')).body;
+  const idOf = (u) => dir.find((x) => x.username === u).id;
+  const tomorrow = Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate() + 1);
+  const outsiderId = (await gina('GET', '/api/auth/me')).body?.id || 'nope';
+  assert.equal((await lead('POST', '/api/bookings', { title: 'Demo', hosts: [outsiderId], tz: 'UTC' })).status, 400, 'colleagues only');
+  // Bookable 09:00–10:00 tomorrow, half an hour each: two times.
+  const page = (await lead('POST', '/api/bookings', { title: 'Sales demo', duration: 30, days: [0, 1, 2, 3, 4, 5, 6], from_min: 540, to_min: 600, tz: 'UTC', notice_hours: 0, days_ahead: 3, hosts: [idOf('rrsam@acme.com'), idOf('rrtia@acme.com')] })).body;
+  assert.deepEqual(page.host_names, ['Sam Sales', 'Tia Sales']);
+  const token = page.url.split('/b/')[1];
+  const nine = tomorrow + 9 * 36e5, half = nine + 18e5;
+  // Rae is busy at 9: still free, as Sam and Tia aren't.
+  await lead('POST', '/api/events', { title: 'Busy', start: nine, end: half });
+  const pub = (await outsider('GET', `/api/public/book/${token}`)).body;
+  assert.equal(pub.owner.name, 'Rae Lead, Sam Sales or Tia Sales');
+  const slots = () => outsider('GET', `/api/public/book/${token}`).then((r) => r.body.days.flatMap((d) => d.slots).filter((t) => t >= tomorrow && t < tomorrow + 864e5));
+  assert.deepEqual(await slots(), [nine, half]);
+  // Three bookings at 9: Sam, then Tia (fewest), then nobody is free.
+  const book = (who) => outsider('POST', `/api/public/book/${token}`, { start: nine, name: who, email: `${who.toLowerCase()}@example.org` });
+  const b1 = await book('Ann');
+  assert.equal(b1.status, 201, JSON.stringify(b1.body));
+  const b2 = await book('Ben');
+  const hostOf = (b) => b.body.owner.name;
+  assert.deepEqual([hostOf(b1), hostOf(b2)].sort(), ['Sam Sales', 'Tia Sales'], 'one each, not Rae (busy)');
+  assert.equal((await book('Cy')).status, 409, 'everyone busy at 9');
+  assert.deepEqual(await slots(), [half]);
+  // On the host's own calendar, and the host is told.
+  const samHas = (await sam('GET', `/api/events?from=${nine - 1}&to=${half}`)).body.some((e) => e.title.startsWith('Sales demo:'));
+  const tiaHas = (await tia('GET', `/api/events?from=${nine - 1}&to=${half}`)).body.some((e) => e.title.startsWith('Sales demo:'));
+  assert.ok(samHas && tiaHas);
+  assert.ok((await sam('GET', '/api/notifications')).body.items.some((n) => n.kind === 'booking'));
+  assert.ok(!(await lead('GET', `/api/events?from=${nine - 1}&to=${half}`)).body.some((e) => e.title.startsWith('Sales demo:')));
+  // The visitor's link shows their host, and moving keeps the same host (only their free times).
+  const ct = b1.body.cancel_url.split('/b/cancel/')[1];
+  const view = (await outsider('GET', `/api/public/book/cancel/${ct}`)).body;
+  assert.equal(view.owner.name, hostOf(b1));
+  assert.ok(view.days.flatMap((d) => d.slots).includes(half));
+  const moved = await outsider('POST', `/api/public/book/cancel/${ct}/move`, { start: half });
+  assert.equal(moved.status, 200, JSON.stringify(moved.body));
+  const hostClient = hostOf(b1) === 'Sam Sales' ? sam : tia;
+  assert.ok((await hostClient('GET', `/api/events?from=${half - 1}&to=${half + 36e5}`)).body.some((e) => e.start === half && e.title === 'Sales demo: Ann'));
+  // Cancelled: the host is told.
+  assert.equal((await outsider('POST', `/api/public/book/cancel/${ct}`)).status, 200);
+  assert.ok((await hostClient('GET', '/api/notifications')).body.items.some((n) => n.title === 'Ann cancelled “Sales demo”'));
+});
+
 test('booking pages: a gap and a daily limit; the visitor cancels with their own link', async () => {
   const a = client(), outsider = client();
   assert.equal((await owner('POST', '/api/users', { local: 'booker2', domain: 'acme.com', name: 'Ben Booker', password: 'password123' })).status, 201);
