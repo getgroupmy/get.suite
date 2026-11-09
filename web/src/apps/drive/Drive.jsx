@@ -10,6 +10,7 @@ import { SignaturesView } from '../docs/Signatures.jsx';
 import { CommentsPanel, useComments } from '../comments.jsx';
 import OfficePreview from '../OfficePreview.jsx';
 import ZipContents from '../ZipContents.jsx';
+import ScanDialog from './ScanDialog.jsx';
 
 function useDriveRoute() {
   const { pathname } = useLocation();
@@ -287,6 +288,7 @@ export default function Drive() {
           '-',
           { label: 'Upload files', icon: 'upload', onClick: () => fileInput.current.click() },
           { label: 'Upload folder', icon: 'folder', onClick: () => folderInput.current.click() },
+          { label: 'Scan to PDF…', icon: 'pdf', onClick: () => setDialog({ type: 'scan' }) },
           '-',
           { label: 'Document', icon: 'doc', onClick: () => create('doc') },
           { label: 'Spreadsheet', icon: 'sheet', onClick: () => create('sheet') },
@@ -427,6 +429,7 @@ export default function Drive() {
         <PromptModal title="New shared drive" label="Name" initial="" confirm="Create" onClose={() => { setDialog(madeDrive.current ? { type: 'share', file: madeDrive.current } : null); madeDrive.current = null; }}
           onSubmit={async (name) => { const d = await post('/files/drives', { name }); madeDrive.current = d; navigate(`/drive/folder/${d.id}`); }} />
       )}
+      {dialog?.type === 'scan' && <ScanDialog onClose={() => setDialog(null)} onDone={(file) => { setDialog(null); startUploads([file]); }} />}
       {dialog?.type === 'storage' && <StorageDialog onClose={() => setDialog(null)} onChanged={load} />}
       {dialog?.type === 'transfer' && <TransferDialog file={dialog.file} onClose={() => setDialog(null)} onDone={load} />}
       {dialog?.type === 'rename' && (
