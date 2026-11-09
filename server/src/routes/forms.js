@@ -58,7 +58,7 @@ q(`CREATE TABLE IF NOT EXISTS form_editors (
 )`).run();
 // allow_edit: people can change their response afterwards, with the private link they get on sending it.
 // collect_email: "anyone with the link" forms ask for an email address; send_copy: people get their answers by email.
-for (const [col, type] of [['collect_email', 'INTEGER NOT NULL DEFAULT 0'], ['send_copy', 'INTEGER NOT NULL DEFAULT 0'], ['allow_edit', 'INTEGER NOT NULL DEFAULT 0'], ['close_at', 'INTEGER'], ['max_responses', 'INTEGER'], ['quiz', 'INTEGER NOT NULL DEFAULT 0'], ['show_score', 'INTEGER NOT NULL DEFAULT 1']]) {
+for (const [col, type] of [['collect_email', 'INTEGER NOT NULL DEFAULT 0'], ['send_copy', 'INTEGER NOT NULL DEFAULT 0'], ['allow_edit', 'INTEGER NOT NULL DEFAULT 0'], ['close_at', 'INTEGER'], ['open_at', 'INTEGER'], ['max_responses', 'INTEGER'], ['quiz', 'INTEGER NOT NULL DEFAULT 0'], ['show_score', 'INTEGER NOT NULL DEFAULT 1']]) {
   if (!q('PRAGMA table_info(forms)').all().some((c) => c.name === col)) q(`ALTER TABLE forms ADD COLUMN ${col} ${type}`).run();
 }
 const MAX_EDITORS = 50;
@@ -365,6 +365,7 @@ export const teamOf = (f) => [f.owner_id, ...editorsOf(f.id).map((u) => u.id)];
 /** Why a form isn't taking answers right now, or null when it is. */
 export function closedReason(f, t = Date.now(), count = null) {
   if (!f.accepting) return 'closed';
+  if (f.open_at && f.open_at > t) return 'notyet'; // opens by itself later
   if (f.close_at && f.close_at <= t) return 'ended';
   if (f.max_responses && (count ?? countOf(f.id)) >= f.max_responses) return 'full';
   return null;
@@ -391,7 +392,7 @@ function checkPlaces(formId, questions, answers, exceptResponseId = null, before
   }
 }
 
-const CLOSED_TEXT = { closed: 'This form is no longer accepting responses', ended: 'This form closed', full: 'This form has all the responses it needs' };
+const CLOSED_TEXT = { notyet: 'This form isn\'t open yet', closed: 'This form is no longer accepting responses', ended: 'This form closed', full: 'This form has all the responses it needs' };
 
 /** A form you own or edit (ownerOnly: you must own it). */
 function ownForm(id, user, { ownerOnly = false } = {}) {
@@ -495,17 +496,20 @@ export default function formRoutes() {
       collect_email: 'collect_email' in b ? !!b.collect_email : f.collect_email,
       send_copy: 'send_copy' in b ? !!b.send_copy : f.send_copy,
       close_at: 'close_at' in b ? (b.close_at == null || b.close_at === '' ? null : Number(b.close_at)) : f.close_at,
+      open_at: 'open_at' in b ? (b.open_at == null || b.open_at === '' ? null : Number(b.open_at)) : f.open_at,
       max_responses: 'max_responses' in b ? (b.max_responses == null || b.max_responses === '' ? null : Number(b.max_responses)) : f.max_responses,
     };
     if (next.close_at !== null && (!Number.isFinite(next.close_at) || next.close_at < 0)) throw bad('close_at must be a time');
+    if (next.open_at !== null && (!Number.isFinite(next.open_at) || next.open_at < 0)) throw bad('open_at must be a time');
+    if (next.open_at !== null && next.close_at !== null && next.open_at >= next.close_at) throw bad('The form has to open before it closes');
     if (next.max_responses !== null && (!Number.isInteger(next.max_responses) || next.max_responses < 1 || next.max_responses > MAX_RESPONSES)) {
       throw bad(`The response limit must be from 1 to ${MAX_RESPONSES}`);
     }
     if (next.audience === 'public' && f.audience !== 'public' && !req.user.allow_links) throw forbidden('Your company has turned off links for people outside it');
     q(`UPDATE forms SET title = ?, description = ?, questions = ?, audience = ?, accepting = ?, one_per_person = ?, confirmation = ?, notify = ?,
-       close_at = ?, max_responses = ?, quiz = ?, show_score = ?, allow_edit = ?, collect_email = ?, send_copy = ?, updated_at = ? WHERE id = ?`)
+       close_at = ?, open_at = ?, max_responses = ?, quiz = ?, show_score = ?, allow_edit = ?, collect_email = ?, send_copy = ?, updated_at = ? WHERE id = ?`)
       .run(next.title, next.description, JSON.stringify(next.questions), next.audience, next.accepting ? 1 : 0, next.one_per_person ? 1 : 0, next.confirmation, next.notify ? 1 : 0,
-        next.close_at, next.max_responses, next.quiz ? 1 : 0, next.show_score ? 1 : 0, next.allow_edit ? 1 : 0, next.collect_email ? 1 : 0, next.send_copy ? 1 : 0, now(), f.id);
+        next.close_at, next.open_at, next.max_responses, next.quiz ? 1 : 0, next.show_score ? 1 : 0, next.allow_edit ? 1 : 0, next.collect_email ? 1 : 0, next.send_copy ? 1 : 0, now(), f.id);
     changed(f, req.user.id);
     const out = ownForm(f.id, req.user);
     res.json({ ...out, responses: countOf(f.id), closed: closedReason(out) });
@@ -726,7 +730,7 @@ export function publicFormRoutes() {
     const answered = !!mine;
     const closed = closedReason(form);
     const left = placesLeft(form.id, form.questions);
-    res.json({ ...(Object.keys(left).length && { left }), title: form.title, description: form.description, questions: withoutKey(form.questions), quiz: form.quiz, accepting: !closed, closed, closed_text: closed ? CLOSED_TEXT[closed] : null, audience: form.audience,
+    res.json({ ...(Object.keys(left).length && { left }), title: form.title, description: form.description, questions: withoutKey(form.questions), quiz: form.quiz, accepting: !closed, closed, closed_text: closed ? CLOSED_TEXT[closed] : null, ...(closed === 'notyet' && { opens_at: form.open_at }), audience: form.audience,
       one_per_person: form.audience === 'org' && form.one_per_person, answered, org_name: f.org_name, allow_edit: form.allow_edit, collect_email: form.audience === 'public' && form.collect_email, send_copy: form.send_copy && mailEnabled(), ...(mine && form.allow_edit && mine.edit_key && { my_edit_key: mine.edit_key }),
       you: form.audience === 'org' ? { name: user.name, email: user.email } : null, is_owner: !!user && teamOf(form).includes(user.id) });
   });

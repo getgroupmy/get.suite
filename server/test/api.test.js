@@ -7426,3 +7426,31 @@ test('forms: email me each response, for each person on the team', async () => {
   // Sending a response still works (no email here).
   assert.equal((await other('POST', `/api/public/forms/${f.token}`, { answers: {} })).status, 201);
 });
+
+test('forms: opening automatically at a set time', async () => {
+  const own = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'opn', domain: 'acme.com', name: 'Opal Owner', password: 'password123' })).status, 201);
+  await login(own, 'opn@acme.com');
+  const f = (await own('POST', '/api/forms', { title: 'Course sign-up', questions: [{ id: 'q', type: 'short', title: 'Name' }] })).body;
+  await own('PUT', `/api/forms/${f.id}`, { audience: 'public' });
+  const later = Date.now() + 3600e3;
+  const set = (await own('PUT', `/api/forms/${f.id}`, { open_at: later })).body;
+  assert.equal(set.open_at, later);
+  assert.equal(set.closed, 'notyet');
+  assert.equal((await own('GET', '/api/forms')).body.find((x) => x.id === f.id).closed, 'notyet', 'the list says so too');
+  const anon = client();
+  const pub = (await anon('GET', `/api/public/forms/${f.token}`)).body;
+  assert.deepEqual([pub.accepting, pub.closed, pub.opens_at, pub.closed_text], [false, 'notyet', later, "This form isn't open yet"]);
+  const early = await anon('POST', `/api/public/forms/${f.token}`, { answers: { q: 'Ana' } });
+  assert.equal(early.status, 409);
+  assert.match(early.body.error, /isn't open yet/);
+  // Opening has to come before closing.
+  assert.equal((await own('PUT', `/api/forms/${f.id}`, { close_at: later - 60e3 })).status, 400);
+  assert.equal((await own('PUT', `/api/forms/${f.id}`, { open_at: 'soon' })).status, 400);
+  // Once the time has come (here: set in the past), it takes answers.
+  assert.equal((await own('PUT', `/api/forms/${f.id}`, { open_at: Date.now() - 1000, close_at: later })).body.closed, null);
+  const pub2 = (await anon('GET', `/api/public/forms/${f.token}`)).body;
+  assert.deepEqual([pub2.accepting, pub2.opens_at], [true, undefined]);
+  assert.equal((await anon('POST', `/api/public/forms/${f.token}`, { answers: { q: 'Ana' } })).status, 201);
+  assert.equal((await own('PUT', `/api/forms/${f.id}`, { open_at: null })).body.open_at, null);
+});

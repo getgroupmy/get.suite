@@ -56,7 +56,7 @@ function FormList() {
                 <span className="grow"><span className="form-row-title">{f.title}</span>
                   <span className="muted small">{f.responses === 1 ? '1 response' : `${f.responses} responses`}{f.last_response ? ` · last ${formatDate(f.last_response)}` : ''}</span></span>
                 {f.owner_name && <span className="tag">Shared by {f.owner_name}</span>}
-                {f.closed && <span className="tag">{f.closed === 'full' ? 'Full' : 'Closed'}</span>}
+                {f.closed && <span className="tag">{f.closed === 'full' ? 'Full' : f.closed === 'notyet' ? 'Opens later' : 'Closed'}</span>}
                 {f.audience === 'public' && <span className="tag">Anyone with the link</span>}
                 <span className="muted small nowrap">Edited {formatDate(f.updated_at)}</span>
               </button>
@@ -500,6 +500,7 @@ const whenText = (ms) => new Date(ms).toLocaleString([], { weekday: 'short', day
 /** Why the form isn't taking answers, in words for its owner (or null). */
 function closedNote(form) {
   if (!form.accepting) return 'This form is closed: people who open the link are told it isn\'t accepting responses.';
+  if (form.open_at && form.open_at > Date.now()) return `This form opens on ${whenText(form.open_at)}. Until then, people who open the link are told when it opens.`;
   if (form.close_at && form.close_at <= Date.now()) return `This form closed on ${whenText(form.close_at)}. Change or clear the closing time in Settings to open it again.`;
   if (form.max_responses && (form.responses ?? 0) >= form.max_responses) return `This form has reached its limit of ${form.max_responses} responses. Raise or clear the limit in Settings to take more.`;
   return null;
@@ -573,6 +574,8 @@ function SettingsTab({ form, setForm, setting, orgName, allowLinks }) {
         {form.quiz && <p className="muted small" style={{ margin: 0 }}>Set the right answers under each question on the Questions tab. People filling it in never see them.</p>}
       </fieldset>
       <div className="row wrap form-limits">
+        <label className="field"><span>Open automatically on</span>
+          <input type="datetime-local" value={form.open_at ? localInput(form.open_at) : ''} onChange={(e) => setting({ open_at: e.target.value ? new Date(e.target.value).getTime() : null })} /></label>
         <label className="field"><span>Close automatically on</span>
           <input type="datetime-local" value={form.close_at ? localInput(form.close_at) : ''} onChange={(e) => setting({ close_at: e.target.value ? new Date(e.target.value).getTime() : null })} /></label>
         <label className="field"><span>Stop after this many responses</span>

@@ -43,6 +43,13 @@ export default function FormRespond({ token, onSignIn }) {
     if (pre && !editing) setAnswers((a) => ({ ...prefillFrom(f.questions, pre), ...a }));
   }).catch((e) => setError({ status: e.status, message: e.message }));
   useEffect(() => { load(); }, [token]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A form that opens later: the page opens it by itself when the time comes (if it's left open).
+  useEffect(() => {
+    const wait = form?.opens_at ? form.opens_at - Date.now() + 500 : null;
+    if (wait === null || wait > 864e5) return undefined;
+    const t = setTimeout(load, Math.max(0, wait));
+    return () => clearTimeout(t);
+  }, [form?.opens_at]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { document.title = form?.title || 'Form'; }, [form?.title]);
 
   const set = (id, v) => { setAnswers((a) => ({ ...a, [id]: v })); setMissing((m) => m.filter((x) => x !== id)); };
@@ -98,7 +105,7 @@ export default function FormRespond({ token, onSignIn }) {
         <h1>{form.title}</h1>
         {form.description && <p className="form-desc">{form.description}</p>}
         {form.you && <p className="muted small" style={{ margin: 0 }}>Signed in as {form.you.name} ({form.you.email}). Your name is recorded with your answers.</p>}
-        {closed ? <p role="status"><strong>{form.answered && form.accepting ? 'You have already filled in this form.' : `${form.closed_text || 'This form is no longer accepting responses'}.`}</strong>
+        {closed ? <p role="status"><strong>{form.answered && form.accepting ? 'You have already filled in this form.' : form.closed === 'notyet' && form.opens_at ? `This form opens on ${new Date(form.opens_at).toLocaleString([], { weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit' })}. Come back then.` : `${form.closed_text || 'This form is no longer accepting responses'}.`}</strong>
           {form.answered && form.accepting && form.my_edit_key && <> <a href={`/f/${encodeURIComponent(token)}?edit=${encodeURIComponent(form.my_edit_key)}`}>Change your response</a></>}</p> : editing && !editing.loaded ? <p className="muted">Loading your response…</p> : <>
           {form.collect_email && !editing && page === 0 && (
             <label id="q-email" className={`field form-fill-q ${emailMissing ? 'missing' : ''}`}>
