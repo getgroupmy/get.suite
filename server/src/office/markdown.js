@@ -2,7 +2,7 @@
 // lists, strikethrough, footnotes), and a .md file opened as a document. Underline, colours and
 // highlight have no Markdown, so they're left out; pictures become their names.
 import { chartTable } from './sheetchart.js';
-import { chipText } from './chiptext.js';
+import { chipText, dateText } from './chiptext.js';
 import { inText, reference, sourcesOf } from './cite.js';
 
 // ---- document → Markdown ----
@@ -16,6 +16,7 @@ function inline(nodes = [], notes) {
     if (n.type === 'mention') { out += `@${escapeText(n.attrs?.name || '')}`; continue; }
     if (n.type === 'citation') { out += escapeText(inText(n.attrs)); continue; }
     if (n.type === 'math') { const l = String(n.attrs?.latex || '').replace(/\s+/g, ' ').trim(); if (l) out += `$${l}$`; continue; }
+    if (n.type === 'datechip') { out += escapeText(dateText(n.attrs?.date)); continue; }
     if (n.type === 'dropchip') { out += `**${escapeText(chipText(n.attrs))}**`; continue; }
     if (n.type === 'footnote') { notes.push(n.attrs?.note || ''); out += `[^${notes.length}]`; continue; }
     if (n.type === 'image') { out += n.attrs?.alt || n.attrs?.title || ''; continue; }

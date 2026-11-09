@@ -558,6 +558,21 @@ test('dropdown chips: their choice in Word (shaded in its colour), Markdown and 
   assert.match(xml, /w:fill="E8EAED"[\s\S]*?Not started/, 'nothing picked yet is grey');
 });
 
+test('date chips: the day in Word, Markdown and search (by its words or as 2026-11-09)', async () => {
+  const { markdownFromDoc } = await import('../src/office/markdown.js');
+  const { docText } = await import('../src/search.js');
+  const JSZip = (await import('jszip')).default;
+  const doc = { type: 'doc', content: [{ type: 'paragraph', content: [
+    { type: 'text', text: 'Due ' }, { type: 'datechip', attrs: { date: '2026-11-09' } },
+    { type: 'text', text: ', review ' }, { type: 'datechip', attrs: { date: '2027-01-31' } }, { type: 'text', text: ', then ' }, { type: 'datechip', attrs: { date: 'soon' } },
+  ] }] };
+  assert.equal(markdownFromDoc(doc).trim(), 'Due 9 Nov 2026, review 31 Jan 2027, then No date');
+  assert.match(docText(doc), /Due +9 Nov 2026 2026-11-09/);
+  const xml = await (await JSZip.loadAsync(await wordFromDoc(doc, 'Dates'))).file('word/document.xml').async('string');
+  assert.match(xml, /<w:t[^>]*>9 Nov 2026<\/w:t>/);
+  assert.match(xml, /31 Jan 2027/);
+});
+
 test('equations: an equation in Word, its LaTeX in search', async () => {
   const { docText } = await import('../src/search.js');
   const JSZip = (await import('jszip')).default;

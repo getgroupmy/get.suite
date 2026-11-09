@@ -34,6 +34,7 @@ import { PageBreak } from './pagebreak.js';
 import { Footnote, footnotesOf, htmlWithFootnotes } from './footnote.js';
 import { Mention, mentionQuery, matchPeople } from './mention.js';
 import { DropChip, CHIP_PRESETS, CHIP_COLORS, cleanOptions } from './dropchip.js';
+import { DateChip, matchDates, dateText, isDate, isoDay } from './datechip.js';
 import { MathInline, mathHtml, mathError, MAX_LATEX } from './math.js';
 import { Citation, References, htmlWithReferences } from './citation.js';
 import { CITE_FIELDS, cleanSource, inText, sourcesOf, sourceKey } from './cite.js';
@@ -188,6 +189,7 @@ function SharedDoc({ file, setFile }) {
   const addPicturesRef = useRef(null); // set below, once the editor is there
   const mentionKeyRef = useRef(null); // the @-picker's keys, while it's open
   const chipKeyRef = useRef(null); // Enter or Space on a selected dropdown chip opens its choices
+  const dateKeyRef = useRef(null); // and on a date chip, its calendar
   const editor = useEditor({
     extensions: [
       StarterKit.configure({ link: { openOnClick: false, autolink: true }, undoRedo: false }), // undo is per person, from Collaboration
@@ -201,7 +203,7 @@ function SharedDoc({ file, setFile }) {
       Table.configure({ resizable: false }), TableRow, TableHeader, TableCell,
       TextStyle, Color, BackgroundColor, FontFamily, FontSize, LineHeight, TableOfContents, SheetChart,
       SuggestInsert, SuggestDelete, SuggestMode,
-      PageBreak, Footnote, Mention, DropChip, MathInline, Citation, References, TaskList, TaskItem.configure({ nested: true }), // checklists: everyone sees the ticks live; viewers can't tick
+      PageBreak, Footnote, Mention, DropChip, DateChip, MathInline, Citation, References, TaskList, TaskItem.configure({ nested: true }), // checklists: everyone sees the ticks live; viewers can't tick
     ],
     editable: !readOnly,
     editorProps: {
@@ -209,7 +211,7 @@ function SharedDoc({ file, setFile }) {
       attributes: { role: 'textbox', 'aria-multiline': 'true', 'aria-label': 'Document text' },
       // A key pressed right after a click (Enter, Backspace…) acts where the click put the cursor,
       // even if the browser hasn't told the editor about the new selection yet.
-      handleKeyDown: (view, event) => { view.domObserver?.flush?.(); return mentionKeyRef.current?.(event) || chipKeyRef.current?.(event) || false; },
+      handleKeyDown: (view, event) => { view.domObserver?.flush?.(); return mentionKeyRef.current?.(event) || chipKeyRef.current?.(event) || dateKeyRef.current?.(event) || false; },
       // Pictures pasted or dropped in go to Drive and into the document.
       handlePaste: (view, event) => {
         const files = [...(event.clipboardData?.files || [])].filter((f) => PICTURE_TYPES.test(f.type));
@@ -241,7 +243,7 @@ function SharedDoc({ file, setFile }) {
       if (!sel.empty || !sel.$from.parent.isTextblock) { setMention(null); return; }
       const before = sel.$from.parent.textBetween(0, sel.$from.parentOffset, undefined, '\ufffc');
       const m = mentionQuery(before, sel.from);
-      const list = m ? matchPeople(colleagues, m.query) : [];
+      const list = m ? [...matchDates(m.query), ...matchPeople(colleagues, m.query)] : []; // @today, @tomorrow, @date, then people
       if (!m || !list.length) { setMention(null); return; }
       const c = view.coordsAtPos(sel.from);
       setMention((old) => ({ ...m, list, left: c.left, top: c.bottom + 4, pick: old && old.from === m.from ? Math.min(old.pick, list.length - 1) : 0 }));
@@ -253,6 +255,11 @@ function SharedDoc({ file, setFile }) {
   const pickMention = async (p) => {
     const m = mention;
     setMention(null);
+    if (p.kind === 'date') {
+      editor.chain().focus().deleteRange({ from: m.from, to: editor.state.selection.from }).insertDateChip(p.date).run();
+      if (p.pick) setTimeout(() => openDate(m.from), 0); // "@date": straight to its calendar
+      return;
+    }
     editor.chain().focus().deleteRange({ from: m.from, to: editor.state.selection.from })
       .insertContent([{ type: 'mention', attrs: { id: p.id, name: p.name, email: p.username } }, { type: 'text', text: ' ' }]).run();
     try {
@@ -293,6 +300,22 @@ function SharedDoc({ file, setFile }) {
     const node = editor.state.doc.nodeAt(pos);
     if (node?.type.name !== 'dropchip') return;
     editor.view.dispatch(editor.state.tr.setNodeMarkup(pos, undefined, { ...node.attrs, ...attrs }));
+  };
+  // Date chips: clicking one (or Enter on it) shows a calendar; the day picked is everyone's.
+  const [dateMenu, setDateMenu] = useState(null); // { pos, left, top }
+  const openDate = (pos) => {
+    if (readOnly || editor.state.doc.nodeAt(pos)?.type.name !== 'datechip') return;
+    const r = editor.view.nodeDOM(pos)?.getBoundingClientRect?.();
+    if (r) setDateMenu({ pos, left: r.left, top: r.bottom + 4 });
+  };
+  const setDate = (pos, date) => {
+    const node = editor.state.doc.nodeAt(pos);
+    if (node?.type.name === 'datechip' && isDate(date)) editor.view.dispatch(editor.state.tr.setNodeMarkup(pos, undefined, { ...node.attrs, date }));
+  };
+  dateKeyRef.current = (e) => {
+    const sel = editor?.state.selection;
+    if ((e.key === 'Enter' || e.key === ' ') && sel?.node?.type.name === 'datechip') { e.preventDefault(); openDate(sel.from); return true; }
+    return false;
   };
   chipKeyRef.current = (e) => {
     const sel = editor?.state.selection;
@@ -486,19 +509,31 @@ function SharedDoc({ file, setFile }) {
             <EditorContent editor={editor} onClick={(e) => {
               const sup = e.target.closest?.('sup[data-footnote]'); if (sup) focusFootnote(e.currentTarget, sup);
               const chip = e.target.closest?.('[data-dropchip]'); if (chip) { const at = chipAt(chip); if (at != null) openChip(at); }
+              const day = e.target.closest?.('.doc-date'); if (day) { const at = nodeAtDom(day, 'datechip'); if (at != null) openDate(at); }
               const ct = e.target.closest?.('[data-cite]'); if (ct && !readOnly) { const at = nodeAtDom(ct, 'citation'); if (at != null) setCiteEdit({ pos: at }); }
               const eq = e.target.closest?.('[data-math]'); if (eq && !readOnly) { const at = nodeAtDom(eq, 'math'); if (at != null) setMathEdit({ pos: at }); }
             }} />
             {chipMenu && <ChipMenu node={editor.state.doc.nodeAt(chipMenu.pos)} at={chipMenu} onClose={() => { setChipMenu(null); editor.view.focus(); }}
               onPick={(value) => { setChip(chipMenu.pos, { value }); setChipMenu(null); const after = chipMenu.pos + 1; editor.chain().focus().setTextSelection(after + (editor.state.doc.textBetween(after, Math.min(after + 1, editor.state.doc.content.size)) === ' ' ? 1 : 0)).run(); }}
               onEdit={() => { setChipEdit({ pos: chipMenu.pos }); setChipMenu(null); }} />}
+            {dateMenu && <DateMenu node={editor.state.doc.nodeAt(dateMenu.pos)} at={dateMenu}
+              onPick={(date) => setDate(dateMenu.pos, date)}
+              onClose={() => {
+                const after = dateMenu.pos + 1, size = editor.state.doc.content.size; // after the chip and its space
+                setDateMenu(null);
+                editor.chain().focus().setTextSelection(Math.min(size, after + (editor.state.doc.textBetween(after, Math.min(after + 1, size)) === ' ' ? 1 : 0))).run();
+              }} />}
             {mention && (
               <ul className="mention-list doc-mention-list" role="listbox" aria-label="People to mention" style={{ position: 'fixed', left: mention.left, top: mention.top }}>
-                {mention.list.map((p, i) => (
+                {mention.list.map((p, i) => (p.kind === 'date' ? (
+                  <li key={p.id} role="option" aria-selected={i === mention.pick} className={i === mention.pick ? 'on' : ''} onMouseDown={(e) => { e.preventDefault(); pickMention(p); }}>
+                    <Icon name="calendar" size={20} /> {p.label} {!p.pick && <span className="muted small">{dateText(p.date)}</span>}
+                  </li>
+                ) : (
                   <li key={p.id} role="option" aria-selected={i === mention.pick} className={i === mention.pick ? 'on' : ''} onMouseDown={(e) => { e.preventDefault(); pickMention(p); }}>
                     <Avatar name={p.name} size={20} userId={p.id} /> {p.name} <span className="muted small">{p.username}</span>
                   </li>
-                ))}
+                )))}
               </ul>
             )}
             <FootnoteList editor={editor} readOnly={readOnly} />
@@ -697,6 +732,8 @@ function Toolbar({ editor, onDropdown, onEquation, onCite, onSymbols, onComment,
         '-',
         { label: 'Your own choices…', onClick: onDropdown },
       ]} />
+      <button type="button" className="tb labelled" title="Date: today's date as a chip; click it to pick another day (or type @today, @tomorrow or @date)" aria-label="Insert date"
+        onMouseDown={(e) => e.preventDefault()} onClick={() => c().insertDateChip(isoDay()).run()}><Icon name="calendar" size={18} /> Date</button>
       <button type="button" className="tb labelled" title="Page break: what follows starts a new page when printed or downloaded (Ctrl+Enter)" aria-label="Insert page break"
         onMouseDown={(e) => e.preventDefault()} onClick={() => c().setPageBreak().run()}>⤓ Page break</button>
       <button type="button" className="tb labelled" title="Footnote: a numbered note at the end of the document, for a source or an aside" aria-label="Insert footnote"
@@ -790,6 +827,30 @@ function SymbolDialog({ onPick, onClose }) {
         <p className="muted small" style={{ margin: 0 }}>Click a character to put it in where the cursor is; the window stays open for more.</p>
       </div>
     </Modal>
+  );
+}
+
+/** A date chip's calendar, under the chip: another day, or today or tomorrow in one click. */
+function DateMenu({ node, at, onPick, onClose }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    ref.current?.querySelector('input')?.focus();
+    const away = (e) => { if (!ref.current?.contains(e.target)) onClose(); };
+    document.addEventListener('mousedown', away);
+    return () => document.removeEventListener('mousedown', away);
+  }, []);
+  if (!node || node.type.name !== 'datechip') return null;
+  return (
+    <div ref={ref} className="chip-menu date-menu" role="dialog" aria-label="Change the date" style={{ position: 'fixed', left: at.left, top: at.top }}
+      onKeyDown={(e) => { if (e.key === 'Escape' || (e.key === 'Enter' && e.target.tagName === 'INPUT')) { e.preventDefault(); onClose(); } }}>
+      <label className="field"><span>Date</span><input type="date" defaultValue={node.attrs.date || ''} onChange={(e) => onPick(e.target.value)} /></label>
+      <div className="row" style={{ gap: 6 }}>
+        <button type="button" className="btn small" onClick={() => { onPick(isoDay()); onClose(); }}>Today</button>
+        <button type="button" className="btn small" onClick={() => { onPick(isoDay(new Date(), 1)); onClose(); }}>Tomorrow</button>
+        <span className="grow" />
+        <button type="button" className="btn small primary" onClick={onClose}>Done</button>
+      </div>
+    </div>
   );
 }
 
@@ -959,7 +1020,7 @@ export function DocPreview({ content, fileId, pictureBase = null }) {
     extensions: [
       StarterKit.configure({ link: { openOnClick: true } }), TextAlign.configure({ types: ['heading', 'paragraph'] }),
       CommentMark, DocImage.configure({ docId: fileId, pictureBase }), Table, TableRow, TableHeader, TableCell,
-      TextStyle, Color, BackgroundColor, FontFamily, FontSize, LineHeight, TableOfContents, SheetChart, PageBreak, Footnote, Mention, DropChip, MathInline, Citation, References, TaskList, TaskItem.configure({ nested: true }),
+      TextStyle, Color, BackgroundColor, FontFamily, FontSize, LineHeight, TableOfContents, SheetChart, PageBreak, Footnote, Mention, DropChip, DateChip, MathInline, Citation, References, TaskList, TaskItem.configure({ nested: true }),
     ],
   }, [content]);
   return <div className="paper preview-paper"><EditorContent editor={editor} /></div>;

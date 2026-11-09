@@ -2049,6 +2049,13 @@ tr.shortcut-row.broken .name-text { color: var(--muted, #777); font-style: itali
 .doc-chip.chip-red { background: #fad2cf; color: #a50e0e; }
 .doc-chip.chip-purple { background: #e9d7fe; color: #5b2a9e; }
 .ProseMirror-selectednode.doc-chip, .doc-chip.ProseMirror-selectednode { outline: 2px solid var(--accent); outline-offset: 1px; }
+.doc-date { display: inline-block; border-radius: 10px; padding: 0 8px; font-size: 0.9em; font-weight: 500; line-height: 1.5; white-space: nowrap; cursor: pointer; user-select: none;
+  background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); }
+.doc-date::before { content: '📅 '; font-size: .85em; }
+.doc-date.when-past { background: color-mix(in srgb, var(--danger) 12%, transparent); color: var(--danger); }
+.ProseMirror-selectednode.doc-date { outline: 2px solid var(--accent); }
+.date-menu { padding: 10px; gap: 8px; min-width: 240px; }
+@media print { .doc-date { background: none; color: inherit; padding: 0; } .doc-date::before { content: none; } }
 .chip-menu { z-index: 60; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,.18); padding: 4px; min-width: 180px; display: flex; flex-direction: column; outline: none; }
 .chip-menu hr { border: 0; border-top: 1px solid var(--border); margin: 4px 0; width: 100%; }
 .chip-opt { display: flex; align-items: center; justify-content: space-between; gap: 8px; background: none; border: 0; padding: 6px 8px; border-radius: 6px; text-align: left; color: inherit; font: inherit; cursor: pointer; }
