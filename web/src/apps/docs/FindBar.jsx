@@ -1,6 +1,6 @@
 // The find-and-replace bar above a document (Ctrl+F to find, Ctrl+H to replace).
 import { useEffect, useRef, useState } from 'react';
-import { findKey } from './findReplace.js';
+import { findKey, findPattern, replacementFor } from './findReplace.js';
 import Icon from '../../components/Icon.jsx';
 
 export function FindBar({ editor, replacing, canEdit, onClose }) {
@@ -8,6 +8,7 @@ export function FindBar({ editor, replacing, canEdit, onClose }) {
   const [replace, setReplace] = useState('');
   const [matchCase, setMatchCase] = useState(false);
   const [wholeWord, setWholeWord] = useState(false);
+  const [regex, setRegex] = useState(false);
   const [showReplace, setShowReplace] = useState(replacing && canEdit);
   const [, refresh] = useState(0);
   const input = useRef();
@@ -15,7 +16,7 @@ export function FindBar({ editor, replacing, canEdit, onClose }) {
 
   useEffect(() => { setShowReplace((r) => r || (replacing && canEdit)); input.current?.select(); }, [replacing, canEdit]);
   // Keep the highlights in step with what's typed here (and with the document as others edit it).
-  useEffect(() => { editor.view.dispatch(editor.state.tr.setMeta(findKey, { term, options: { matchCase, wholeWord }, current: 0 })); }, [editor, term, matchCase, wholeWord]);
+  useEffect(() => { editor.view.dispatch(editor.state.tr.setMeta(findKey, { term, options: { matchCase, wholeWord, regex }, current: 0 })); }, [editor, term, matchCase, wholeWord, regex]);
   useEffect(() => {
     const f = () => refresh((n) => n + 1);
     editor.on('transaction', f);
@@ -46,7 +47,8 @@ export function FindBar({ editor, replacing, canEdit, onClose }) {
     if (!m) return;
     ownStep();
     const { tr, doc } = editor.state;
-    if (replace) tr.replaceWith(m.from, m.to, editor.schema.text(replace, doc.resolve(m.from).marksAcross(doc.resolve(m.to)) || [])); // keeps its formatting
+    const text = replacementFor(replace, m, regex);
+    if (text) tr.replaceWith(m.from, m.to, editor.schema.text(text, doc.resolve(m.from).marksAcross(doc.resolve(m.to)) || [])); // keeps its formatting
     else tr.delete(m.from, m.to);
     editor.view.dispatch(tr);
     show(current); // the next one moves into its place
@@ -58,7 +60,8 @@ export function FindBar({ editor, replacing, canEdit, onClose }) {
     ownStep();
     const tr = editor.state.tr;
     for (const m of [...matches].reverse()) {
-      if (replace) tr.replaceWith(m.from, m.to, editor.schema.text(replace, editor.state.doc.resolve(m.from).marksAcross(editor.state.doc.resolve(m.to)) || []));
+      const text = replacementFor(replace, m, regex);
+      if (text) tr.replaceWith(m.from, m.to, editor.schema.text(text, editor.state.doc.resolve(m.from).marksAcross(editor.state.doc.resolve(m.to)) || []));
       else tr.delete(m.from, m.to);
     }
     editor.view.dispatch(tr);
@@ -69,21 +72,23 @@ export function FindBar({ editor, replacing, canEdit, onClose }) {
     else if (e.key === 'Enter' && e.target.name === 'replace') { e.preventDefault(); if (e.ctrlKey || e.metaKey) replaceAll(); else replaceOne(); }
   };
   const n = state.matches.length;
+  const bad = regex && term ? findPattern(term, { regex: true }).error : null;
   return (
     <div className="find-bar" role="search" aria-label="Find in document" onKeyDown={key}>
       <div className="row">
         <input ref={input} autoFocus aria-label="Find" placeholder="Find in document" value={term} onChange={(e) => setTerm(e.target.value)} />
-        <span className="muted small find-count" aria-live="polite">{term ? (n ? `${state.current + 1} of ${n}` : 'No results') : ''}</span>
+        <span className={`small find-count ${bad ? 'error' : 'muted'}`} aria-live="polite">{bad || (term ? (n ? `${state.current + 1} of ${n}` : 'No results') : '')}</span>
         <button type="button" className="icon-btn" aria-label="Previous match" disabled={!n} onClick={() => show(state.current - 1)}><Icon name="left" size={18} /></button>
         <button type="button" className="icon-btn" aria-label="Next match" disabled={!n} onClick={() => show(state.current + 1)}><Icon name="right" size={18} /></button>
         <label className="check small"><input type="checkbox" checked={matchCase} onChange={(e) => setMatchCase(e.target.checked)} /> Match case</label>
         <label className="check small"><input type="checkbox" checked={wholeWord} onChange={(e) => setWholeWord(e.target.checked)} /> Whole words</label>
+        <label className="check small" title="Search with a pattern, e.g. \d{4}-\d{2}-\d{2} or (\w+)@(\w+); replace with $1, $2… for its parts"><input type="checkbox" checked={regex} onChange={(e) => setRegex(e.target.checked)} /> Regular expression</label>
         {canEdit && !showReplace && <button type="button" className="btn small" onClick={() => setShowReplace(true)}>Replace…</button>}
         <button type="button" className="icon-btn" aria-label="Close find" onClick={onClose}><Icon name="close" size={18} /></button>
       </div>
       {showReplace && (
         <div className="row">
-          <input name="replace" aria-label="Replace with" placeholder="Replace with" value={replace} onChange={(e) => setReplace(e.target.value)} />
+          <input name="replace" aria-label="Replace with" placeholder={regex ? 'Replace with ($1, $2… for the parts)' : 'Replace with'} value={replace} onChange={(e) => setReplace(e.target.value)} />
           <button type="button" className="btn small" disabled={!n} onClick={replaceOne}>Replace</button>
           <button type="button" className="btn small" disabled={!n} onClick={replaceAll}>Replace all</button>
         </div>

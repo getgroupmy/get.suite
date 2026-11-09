@@ -30,3 +30,18 @@ test('word count', () => {
   assert.deepEqual(countWords(doc(['Hello, world — it’s 2026.'], ['Second line'])), { words: 6, characters: 31 });
   assert.deepEqual(countWords(doc([])), { words: 0, characters: 0 });
 });
+
+test('regular expressions: patterns, groups in replacements, bad patterns', async () => {
+  const { findPattern, replacementFor } = await import('./findReplace.js');
+  const d = doc(['Invoices INV-2041 and inv-17, paid 2026-11-09.'], ['Call +60 12 345']);
+  assert.deepEqual(texts(d, findMatches(d, 'INV-\\d+', { regex: true })), ['INV-2041', 'inv-17'], 'any case by default');
+  assert.deepEqual(texts(d, findMatches(d, 'INV-\\d+', { regex: true, matchCase: true })), ['INV-2041']);
+  assert.deepEqual(texts(d, findMatches(d, 'paid|call', { regex: true, wholeWord: true })), ['paid', 'Call'], 'alternatives stay whole words');
+  const [date] = findMatches(d, '(\\d{4})-(\\d{2})-(\\d{2})', { regex: true });
+  assert.equal(replacementFor('$3/$2/$1 ($&, $$5)', date, true), '09/11/2026 (2026-11-09, $5)');
+  assert.equal(replacementFor('$1', date, false), '$1', 'plain text: as typed');
+  assert.equal(findPattern('(unclosed', { regex: true }).error, 'That isn’t a valid regular expression');
+  assert.deepEqual(findMatches(d, '(unclosed', { regex: true }), []);
+  assert.deepEqual(texts(d, findMatches(d, 'a.d', {})), [], 'without the option, . is a dot');
+  assert.deepEqual(findMatches(d, '\\b', { regex: true }), [], 'empty matches are left out');
+});

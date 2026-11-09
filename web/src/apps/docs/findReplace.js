@@ -9,12 +9,34 @@ export const findKey = new PluginKey('find');
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /**
- * Where `term` occurs in the document: [{ from, to }]. Matches stay inside one block (paragraph,
- * heading, cell); `matchCase` and `wholeWord` work as in other editors.
+ * The pattern for what's searched: { re } or { error } when a regular expression isn't valid.
+ * With `regex` the term is a regular expression (JavaScript's, with Unicode); otherwise plain text.
  */
-export function findMatches(doc, term, { matchCase = false, wholeWord = false } = {}) {
+export function findPattern(term, { matchCase = false, wholeWord = false, regex = false } = {}) {
+  const body = regex ? term : escapeRe(term);
+  try {
+    const re = new RegExp(`${wholeWord ? '(?<![\\p{L}\\p{N}_])(?:' : ''}${body}${wholeWord ? ')(?![\\p{L}\\p{N}_])' : ''}`, `gu${matchCase ? '' : 'i'}`);
+    return { re };
+  } catch {
+    return { error: 'That isn’t a valid regular expression' };
+  }
+}
+
+/** What replaces a match: the text as typed, or with a regular expression $1…$9 (its groups), $& (the whole match) and $$ ($). */
+export function replacementFor(replace, match, regex) {
+  if (!regex) return replace;
+  const g = match.groups || [];
+  return String(replace).replace(/\$(\$|&|[1-9])/g, (_, k) => (k === '$' ? '$' : k === '&' ? g[0] ?? '' : g[Number(k)] ?? ''));
+}
+
+/**
+ * Where `term` occurs in the document: [{ from, to, groups }]. Matches stay inside one block (paragraph,
+ * heading, cell); `matchCase`, `wholeWord` and `regex` work as in other editors.
+ */
+export function findMatches(doc, term, options = {}) {
   if (!term) return [];
-  const re = new RegExp(`${wholeWord ? '(?<![\\p{L}\\p{N}_])' : ''}${escapeRe(term)}${wholeWord ? '(?![\\p{L}\\p{N}_])' : ''}`, `gu${matchCase ? '' : 'i'}`);
+  const { re } = findPattern(term, options);
+  if (!re) return [];
   const out = [];
   doc.descendants((node, pos) => {
     if (!node.isTextblock) return true;
@@ -27,7 +49,8 @@ export function findMatches(doc, term, { matchCase = false, wholeWord = false } 
     });
     for (const m of text.matchAll(re)) {
       if (!m[0].length || m[0].includes('￼')) continue;
-      out.push({ from: at[m.index], to: at[m.index + m[0].length - 1] + 1 });
+      if (out.length >= 5000) break;
+      out.push({ from: at[m.index], to: at[m.index + m[0].length - 1] + 1, ...(options.regex && { groups: [...m] }) });
     }
     return false;
   });
