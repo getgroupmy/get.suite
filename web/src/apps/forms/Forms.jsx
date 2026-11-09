@@ -542,6 +542,7 @@ function Editors({ form, setForm }) {
 
 function SettingsTab({ form, setForm, setting, orgName, allowLinks }) {
   const toast = useToast();
+  const { user: me } = useAuth();
   const [confirmation, setConfirmation] = useState(form.confirmation);
   const [limit, setLimit] = useState(form.max_responses ? String(form.max_responses) : '');
   useEffect(() => { setLimit(form.max_responses ? String(form.max_responses) : ''); }, [form.max_responses]);
@@ -559,6 +560,12 @@ function SettingsTab({ form, setForm, setting, orgName, allowLinks }) {
       <label className="check"><input type="checkbox" checked={!!form.send_copy} onChange={(e) => setting({ send_copy: e.target.checked })} /> Send people a copy of their answers by email{form.audience === 'public' ? ' (needs email addresses collected)' : ''}</label>
       <label className="check"><input type="checkbox" checked={!!form.allow_edit} onChange={(e) => setting({ allow_edit: e.target.checked })} /> Let people change their response after sending it (they get a private link to it)</label>
       <label className="check"><input type="checkbox" checked={form.notify} onChange={(e) => setting({ notify: e.target.checked })} /> Notify me of each new response</label>
+      {form.mail && <label className="check"><input type="checkbox" checked={!!form.email_me} onChange={async (e) => {
+          const on = e.target.checked;
+          setForm((f) => ({ ...f, email_me: on }));
+          try { await put(`/forms/${form.id}/email-me`, { on }); toast(on ? `Each new response will be emailed to ${me?.username || 'you'}` : 'No more response emails'); }
+          catch (err) { setForm((f) => ({ ...f, email_me: !on })); toast(err.message, 'error'); }
+        }} /> Email me each response, with the answers (just for you)</label>}
       <fieldset className="stack-tight">
         <legend>Quiz</legend>
         <label className="check"><input type="checkbox" checked={form.quiz} onChange={(e) => setting({ quiz: e.target.checked })} /> Make this a quiz (give answers points, and score each response)</label>

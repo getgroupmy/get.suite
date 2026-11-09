@@ -62,6 +62,12 @@ for (const [col, type] of [['collect_email', 'INTEGER NOT NULL DEFAULT 0'], ['se
   if (!q('PRAGMA table_info(forms)').all().some((c) => c.name === col)) q(`ALTER TABLE forms ADD COLUMN ${col} ${type}`).run();
 }
 const MAX_EDITORS = 50;
+// People on a form's team who get an email for each new response (each chooses for themselves).
+q(`CREATE TABLE IF NOT EXISTS form_email_me (
+  form_id TEXT NOT NULL REFERENCES forms(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  PRIMARY KEY (form_id, user_id)
+)`).run();
 
 export const TYPES = ['short', 'paragraph', 'choice', 'checkbox', 'dropdown', 'scale', 'date', 'time', 'rating', 'file', 'grid', 'checkgrid', 'rank', 'section'];
 const MAX_RANKED = 10; // options a ranking question can have
@@ -393,7 +399,8 @@ function ownForm(id, user, { ownerOnly = false } = {}) {
   const mine = f && f.owner_id === user.id;
   if (!f || (!mine && !q('SELECT 1 FROM form_editors WHERE form_id = ? AND user_id = ?').get(f.id, user.id))) throw notFound('Form not found');
   if (ownerOnly && !mine) throw forbidden('Only the owner can do that');
-  return { ...parse(f), role: mine ? 'owner' : 'editor', editors: editorsOf(f.id), owner: { id: f.owner_id, name: f.owner_name, email: f.owner_email } };
+  return { ...parse(f), role: mine ? 'owner' : 'editor', editors: editorsOf(f.id), owner: { id: f.owner_id, name: f.owner_name, email: f.owner_email },
+    email_me: !!q('SELECT 1 FROM form_email_me WHERE form_id = ? AND user_id = ?').get(f.id, user.id), mail: mailEnabled() };
 }
 const changed = (f, by) => sendTo(teamOf(f).filter((x) => x !== by), { type: 'form-changed', form_id: f.id });
 const PICTURE_TYPES = /^image\/(png|jpeg|gif|webp)$/;
@@ -460,6 +467,14 @@ export default function formRoutes() {
     const f = ownForm(req.params.id, req.user);
     const responses = countOf(f.id);
     res.json({ ...f, responses, closed: closedReason(f, Date.now(), responses), linked_sheet: linkedSheetOf(f) });
+  });
+
+  // "Email me each response": for the owner and each editor, for themselves.
+  r.put('/:id/email-me', (req, res) => {
+    const f = ownForm(req.params.id, req.user);
+    if (req.body?.on) q('INSERT OR IGNORE INTO form_email_me (form_id, user_id) VALUES (?, ?)').run(f.id, req.user.id);
+    else q('DELETE FROM form_email_me WHERE form_id = ? AND user_id = ?').run(f.id, req.user.id);
+    res.json({ email_me: !!req.body?.on });
   });
 
   r.put('/:id', (req, res) => {
@@ -542,6 +557,7 @@ export default function formRoutes() {
     const f = ownForm(req.params.id, req.user);
     if (f.role !== 'owner' && req.params.userId !== req.user.id) throw forbidden('Only the owner can do that');
     q('DELETE FROM form_editors WHERE form_id = ? AND user_id = ?').run(f.id, req.params.userId);
+    q('DELETE FROM form_email_me WHERE form_id = ? AND user_id = ?').run(f.id, req.params.userId);
     sendTo([req.params.userId], { type: 'form-changed', form_id: f.id, removed: true });
     changed(f, req.user.id);
     res.json(editorsOf(f.id));
@@ -664,6 +680,31 @@ export function answersText(questions, answers) {
   }
   return lines.join('\n').replace(/^\n+/, '');
 }
+/** The email a form's owner or editor gets for a new response: { subject, text }. */
+export function responseEmail(form, answers, { who = null, email = null, score = null, link = '' } = {}) {
+  const from = who || email;
+  return {
+    subject: `New response to “${form.title}”${from ? ` from ${from}` : ''}`,
+    text: [`A new response to “${form.title}”${who ? ` from ${who}` : email ? ` (${email})` : ''}:`, '', answersText(form.questions, answers),
+      ...(score ? ['', `Score: ${score.score} / ${score.max}`] : []),
+      ...(link ? ['', `All responses: ${link}`] : []),
+      '', 'You get these because you turned on “Email me each response” in the form\'s settings.'].join('\n'),
+  };
+}
+/** Email each team member who asked for it about a new response (not whoever sent it). */
+function emailTeam(form, answers, { by = null, who = null, email = null, link = '' } = {}) {
+  if (!mailEnabled()) return;
+  const team = new Set(teamOf(form));
+  const people = q('SELECT u.id, u.username, u.name FROM form_email_me m JOIN users u ON u.id = m.user_id WHERE m.form_id = ? AND u.disabled = 0').all(form.id)
+    .filter((u) => team.has(u.id) && u.id !== by);
+  if (!people.length) return;
+  const score = form.quiz ? scoreOf(form.questions, answers) : null;
+  const { subject, text } = responseEmail(form, answers, { who, email, score, link });
+  for (const u of people) {
+    smtpFor(u).sendMail({ from: { name: 'Workspace Forms', address: u.username }, to: u.username, subject, text })
+      .catch((e) => console.error('[forms] response email:', e.message));
+  }
+}
 /** Email someone their answers, from the form's owner (when this server has email). */
 function sendCopy(form, to, answers, result, editLink) {
   if (!mailEnabled()) return;
@@ -758,6 +799,7 @@ export function publicFormRoutes() {
       bell(team.filter((x) => x !== user?.id), { kind: 'form', title: `New response to “${form.title}”`, body: form.audience === 'org' ? `From ${user.name}` : null, link: `/forms/${form.id}?tab=responses`, actor: user?.id || null });
     }
     const result = form.quiz && form.show_score ? scoreOf(form.questions, answers) : null;
+    emailTeam(form, answers, { by: user?.id || null, who, email: form.audience === 'public' ? email : null, link: `${baseUrlOf(req)}/forms/${form.id}?tab=responses` });
     if (form.send_copy && email) sendCopy(form, email, answers, result, editKey ? `${baseUrlOf(req)}/f/${form.token}?edit=${editKey}` : null);
     res.status(201).json({ ok: true, confirmation: form.confirmation || '', ...(editKey && { edit_key: editKey }), ...(form.send_copy && email && mailEnabled() && { copy_to: email }), ...(result && { score: result.score, max: result.max, right: result.right }) });
   });

@@ -7394,3 +7394,35 @@ test('Excel downloads: form responses and a task list', async () => {
   assert.ok(tw.getCell('C2').value instanceof Date, 'the due date as a date');
   assert.equal((await b('GET', `/api/tasks/lists/${list.id}/export.xlsx`)).status, 404);
 });
+
+test('forms: email me each response, for each person on the team', async () => {
+  const { responseEmail } = await import('../src/routes/forms.js');
+  const form = { title: 'Lunch', questions: [{ id: 'a', type: 'short', title: 'Name' }, { id: 'b', type: 'choice', title: 'Food', options: ['Pizza'] }] };
+  const m = responseEmail(form, { a: 'Ana', b: 'Pizza' }, { who: 'Ana Lee', score: { score: 1, max: 2 }, link: 'https://x/forms/1?tab=responses' });
+  assert.equal(m.subject, 'New response to “Lunch” from Ana Lee');
+  assert.match(m.text, /^A new response to “Lunch” from Ana Lee:\n\nName: Ana\nFood: Pizza\n\nScore: 1 \/ 2\n\nAll responses: https:\/\/x\/forms\/1\?tab=responses\n/);
+  const anon = responseEmail(form, { a: 'Bo' }, { email: 'bo@example.com' });
+  assert.equal(anon.subject, 'New response to “Lunch” from bo@example.com');
+  assert.match(anon.text, /^A new response to “Lunch” \(bo@example\.com\):/);
+  assert.equal(responseEmail(form, {}).subject, 'New response to “Lunch”');
+
+  const own = client(); const ed = client(); const other = client();
+  for (const [local, name] of [['emo', 'Em Owner'], ['eme', 'Em Editor'], ['emx', 'Em Other']]) {
+    assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  }
+  await login(own, 'emo@acme.com'); await login(ed, 'eme@acme.com'); await login(other, 'emx@acme.com');
+  const f = (await own('POST', '/api/forms', { title: 'Ideas' })).body;
+  await own('POST', `/api/forms/${f.id}/editors`, { email: 'eme@acme.com' });
+  assert.equal((await own('GET', `/api/forms/${f.id}`)).body.email_me, false);
+  assert.equal((await own('GET', `/api/forms/${f.id}`)).body.mail, false, 'this server has no email');
+  assert.deepEqual((await own('PUT', `/api/forms/${f.id}/email-me`, { on: true })).body, { email_me: true });
+  assert.equal((await own('GET', `/api/forms/${f.id}`)).body.email_me, true);
+  assert.equal((await ed('GET', `/api/forms/${f.id}`)).body.email_me, false, 'each person chooses for themselves');
+  await ed('PUT', `/api/forms/${f.id}/email-me`, { on: true });
+  assert.equal((await ed('GET', `/api/forms/${f.id}`)).body.email_me, true);
+  await ed('PUT', `/api/forms/${f.id}/email-me`, { on: false });
+  assert.equal((await ed('GET', `/api/forms/${f.id}`)).body.email_me, false);
+  assert.equal((await other('PUT', `/api/forms/${f.id}/email-me`, { on: true })).status, 404, 'only the team');
+  // Sending a response still works (no email here).
+  assert.equal((await other('POST', `/api/public/forms/${f.token}`, { answers: {} })).status, 201);
+});
