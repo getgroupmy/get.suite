@@ -510,3 +510,27 @@ test('IMAGE: a Drive picture in the cell, fitted, stretched, its own size or a s
   assert.equal(imageFormula('abcd', 3), '=IMAGE("drive:abcd", 3)');
   assert.equal(imageFormula('abcd', 4, 60.4, 90), '=IMAGE("drive:abcd", 4, 60, 90)');
 });
+
+test('date arithmetic: a date plus days, the days between two dates, times as fractions of a day', async () => {
+  const { dateSerial, serialDate } = await import('./formula.js');
+  const v = ev({ A1: '2026-11-09', A2: '=DATE(2026,11,1)', B1: '=A1+7', B2: '=7+A1', B3: '=A1-A2', B4: '=A1-30', B5: '=A1+0.5', B6: '="2026-11-09 18:00"-A1',
+    B7: '=MAX(A1,A2,"2026-12-25")', B8: '=MIN(A1:A2)', B9: '=A1+A2', B10: '=A1+"soon"', B11: '=A1>A2', B12: '=DAYS(A1+14,A1)', B13: '=MAX(A1,5)', B14: '="2026-12-31"+1' });
+  assert.equal(v('B1'), '2026-11-16');
+  assert.equal(v('B2'), '2026-11-16');
+  assert.equal(v('B3'), 8);
+  assert.equal(v('B4'), '2026-10-10');
+  assert.equal(v('B5'), '2026-11-09 12:00');
+  assert.equal(v('B6'), 0.75);
+  assert.equal(v('B7'), '2026-12-25', 'the latest date');
+  assert.equal(v('B8'), '2026-11-01');
+  assert.deepEqual(v('B9'), { error: '#VALUE!' }, 'two dates do not add up');
+  assert.deepEqual(v('B10'), { error: '#VALUE!' });
+  assert.equal(v('B11'), true);
+  assert.equal(v('B12'), 14);
+  assert.equal(v('B13'), 5, 'mixed with numbers: numbers only, as before');
+  assert.equal(v('B14'), '2027-01-01');
+  assert.equal(dateSerial('2026-11-09'), 46335);
+  assert.equal(dateSerial('9 Nov'), null);
+  assert.equal(serialDate(46335.25), '2026-11-09 06:00');
+  assert.equal(serialDate(46335.000011574), '2026-11-09 00:00:01');
+});

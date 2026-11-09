@@ -217,6 +217,41 @@ function toDate(v) {
   return Date.UTC(+m[1], +m[2] - 1, +m[3]);
 }
 const dateText = (ms) => new Date(ms).toISOString().slice(0, 10);
+/** When every value given (leaving out empty cells) is a date: their day numbers, for MIN and MAX of dates. */
+function onlyDates(args) {
+  const vals = args.flat(Infinity).filter((v) => v !== null && v !== undefined && v !== '');
+  if (!vals.length || vals.some((v) => typeof v !== 'string')) return null;
+  const d = vals.map(dateSerial);
+  return d.every((x) => x !== null) ? d : null;
+}
+
+// ---- date arithmetic: dates are kept as text ("2026-11-09", or "2026-11-09 14:30" with a time), and
+// work like day numbers in + and -: a date plus 7 is a week later, one date minus another is the days between.
+const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?$/;
+/** A date written as text, as a day number (with the time as a fraction), or null when it isn't one. */
+export function dateSerial(v) {
+  const m = typeof v === 'string' && DATE_RE.exec(v.trim());
+  if (!m) return null;
+  const ms = Date.UTC(+m[1], +m[2] - 1, +m[3], +(m[4] || 0), +(m[5] || 0), +(m[6] || 0));
+  return Number.isNaN(ms) ? null : (ms - EXCEL_EPOCH) / DAY_MS;
+}
+/** A day number back as a date ("2026-11-16"), with the time when it has one ("2026-11-09 14:30"). */
+export function serialDate(n) {
+  const ms = Math.round((n * DAY_MS + EXCEL_EPOCH) / 1000) * 1000;
+  if (!Number.isFinite(ms) || n < -693593 || n > 2958465) err('#NUM!');
+  const iso = new Date(ms).toISOString();
+  const time = iso.slice(11, 19);
+  return time === '00:00:00' ? iso.slice(0, 10) : `${iso.slice(0, 10)} ${time.endsWith(':00') ? time.slice(0, 5) : time}`;
+}
+/** + and - when a date is involved: a date (date ± days), the days between (date − date), or null (not dates). */
+function dateMath(op, l, r) {
+  const a = dateSerial(l), b = dateSerial(r);
+  if (a === null && b === null) return null;
+  if (op === '+') { if (a !== null && b !== null) err('#VALUE!'); return serialDate((a ?? toNum(l)) + (b ?? toNum(r))); }
+  if (a !== null && b !== null) return Math.round((a - b) * 1e9) / 1e9; // days between (a fraction with times)
+  if (a !== null) return serialDate(a - toNum(r));
+  return toNum(l) - b; // a number minus a date: just numbers
+}
 const roundTo = (v, d, how) => { const f = 10 ** toNum(d ?? 0); const x = toNum(v) * f; return how(Math.abs(x) + 1e-9 * (how === Math.floor ? 1 : -1)) * Math.sign(x) / f; };
 
 // ---- helpers for statistics, TEXT, working days and loans
@@ -411,8 +446,8 @@ const FUNCS = {
   },
   SUM: (a) => nums(a).reduce((s, n) => s + n, 0),
   AVERAGE: (a) => { const n = nums(a); if (!n.length) err('#DIV/0!'); return n.reduce((s, x) => s + x, 0) / n.length; },
-  MIN: (a) => { const n = nums(a); return n.length ? Math.min(...n) : 0; },
-  MAX: (a) => { const n = nums(a); return n.length ? Math.max(...n) : 0; },
+  MIN: (a) => { const d = onlyDates(a); if (d) return serialDate(Math.min(...d)); const n = nums(a); return n.length ? Math.min(...n) : 0; },
+  MAX: (a) => { const d = onlyDates(a); if (d) return serialDate(Math.max(...d)); const n = nums(a); return n.length ? Math.max(...n) : 0; },
   MEDIAN: (a) => {
     const n = nums(a).sort((x, y) => x - y);
     if (!n.length) err('#NUM!');
@@ -1096,8 +1131,8 @@ export function createEvaluator(cells, names = null, book = null) {
 
   function operate(op, l, r) {
     switch (op) {
-      case '+': return toNum(l) + toNum(r);
-      case '-': return toNum(l) - toNum(r);
+      case '+': return dateMath('+', l, r) ?? toNum(l) + toNum(r);
+      case '-': return dateMath('-', l, r) ?? toNum(l) - toNum(r);
       case '*': return toNum(l) * toNum(r);
       case '/': { const d = toNum(r); if (d === 0) err('#DIV/0!'); return toNum(l) / d; }
       case '^': return toNum(l) ** toNum(r);

@@ -235,6 +235,25 @@ export async function sheetFromExcel(buffer) {
 }
 
 /** A Sheets spreadsheet as an Excel workbook (Buffer). Formulas are written as formulas. */
+/**
+ * The date format for a formula that clearly gives a date (Excel would otherwise show its day number):
+ * DATE, TODAY, EDATE, EOMONTH, WORKDAY or DATEVALUE, or a date cell, plus or minus some days. NOW and
+ * fractions of a day give a time too. Null for anything else (a cell's own format still wins).
+ */
+export function dateFormulaFormat(raw, cells = {}) {
+  const f = String(raw).replace(/^=/, '').trim();
+  const m = /^(.+?)(?:\s*([+-])\s*(\d+(?:\.\d+)?))?$/.exec(f);
+  if (!m) return null;
+  const base = m[1].trim(), frac = m[3] && !Number.isInteger(Number(m[3]));
+  let date = /^(TODAY|DATE|EDATE|EOMONTH|WORKDAY|WORKDAY\.INTL|DATEVALUE)\(.*\)$/i.test(base) && !/\)\s*[-+*/&]/.test(base.replace(/\([^()]*\)/g, '()'));
+  let time = /^NOW\(\s*\)$/i.test(base);
+  const ref = /^\$?([A-Z]{1,3})\$?(\d+)$/i.exec(base);
+  if (ref && m[2]) { const v = String(cells[`${ref[1].toUpperCase()}${ref[2]}`] ?? ''); if (/^\d{4}-\d{2}-\d{2}$/.test(v)) date = true; if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(v)) time = true; }
+  if (time) return 'yyyy-mm-dd hh:mm';
+  if (date) return frac ? 'yyyy-mm-dd hh:mm' : 'yyyy-mm-dd';
+  return null;
+}
+
 export async function excelFromSheet(data) {
   const wb = new ExcelJS.Workbook();
   wb.creator = 'Workspace';
@@ -243,7 +262,7 @@ export async function excelFromSheet(data) {
     for (const [key, raw] of Object.entries(s.cells || {})) {
       const cell = ws.getCell(key);
       const v = String(raw);
-      if (v.startsWith('=')) cell.value = { formula: formulaToExcel(v.slice(1)) };
+      if (v.startsWith('=')) { cell.value = { formula: formulaToExcel(v.slice(1)) }; const df = dateFormulaFormat(v, s.cells); if (df) cell.numFmt = df; }
       else if (v !== '' && !Number.isNaN(Number(v)) && /^[-+]?(\d|\.\d)/.test(v.trim())) cell.value = Number(v);
       else if (/^(TRUE|FALSE)$/i.test(v)) cell.value = /^TRUE$/i.test(v);
       else if (/^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(`${v}T00:00:00Z`))) { cell.value = new Date(`${v}T00:00:00Z`); cell.numFmt = 'yyyy-mm-dd'; } // a real date in Excel

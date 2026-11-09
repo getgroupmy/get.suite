@@ -799,3 +799,25 @@ test('Excel: custom number formats go out as written and come back', async () =>
   assert.deepEqual(back.sheets[0].formats.B1, { num: 'percent', dp: 1 }, 'familiar ones stay familiar');
   assert.deepEqual(back.sheets[0].formats.C1, { num: 'custom', code: 'hh:mm' }, 'a time is no longer lost');
 });
+
+test('Excel: formulas that give a date get a date format', async () => {
+  const { dateFormulaFormat } = await import('../src/office/excel.js');
+  const cells = { A1: '2026-11-09', A2: '5', A3: '2026-11-09 08:00' };
+  assert.equal(dateFormulaFormat('=A1+7', cells), 'yyyy-mm-dd');
+  assert.equal(dateFormulaFormat('=A1-0.5', cells), 'yyyy-mm-dd hh:mm');
+  assert.equal(dateFormulaFormat('=A3+1', cells), 'yyyy-mm-dd hh:mm');
+  assert.equal(dateFormulaFormat('=A2+7', cells), null, 'a number cell');
+  assert.equal(dateFormulaFormat('=TODAY()+1'), 'yyyy-mm-dd');
+  assert.equal(dateFormulaFormat('=EDATE(A1, 3)'), 'yyyy-mm-dd');
+  assert.equal(dateFormulaFormat('=DATE(YEAR(A1), 1, 1)'), 'yyyy-mm-dd');
+  assert.equal(dateFormulaFormat('=NOW()'), 'yyyy-mm-dd hh:mm');
+  assert.equal(dateFormulaFormat('=TODAY()-A1'), null, 'days between: a number');
+  assert.equal(dateFormulaFormat('=DAYS(A1, TODAY())'), null);
+  assert.equal(dateFormulaFormat('=SUM(A1:A3)'), null);
+  const buf = await excelFromSheet({ sheets: [{ name: 'S', cells: { A1: '2026-11-09', B1: '=A1+7', C1: '=A1+7' }, formats: { C1: { num: 'custom', code: 'd mmm' } } }] });
+  const ExcelJS = (await import('exceljs')).default;
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(buf);
+  assert.equal(wb.getWorksheet('S').getCell('B1').numFmt, 'yyyy-mm-dd');
+  assert.equal(wb.getWorksheet('S').getCell('C1').numFmt, 'd mmm', 'the cell’s own format wins');
+});
