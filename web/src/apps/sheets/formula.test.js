@@ -563,3 +563,19 @@ test('more functions: text before and after, splitting into a grid, reshaping, S
   assert.deepEqual(['T9', 'T10', 'T11'].map(g), [1, 2, 'c']);
   assert.deepEqual(['V1', 'W1', 'V2', 'W2', 'AC1', 'AC2'].map(g), [1, 0, 0, 0, 3, true]);
 });
+
+test('OFFSET and INDIRECT: references worked out as the formula runs', () => {
+  const g0 = createEvaluator({ A1: 1, A2: 2, A3: 3, A4: 4, B1: 10, B2: 20, B3: 30, B4: 40,
+    D1: '=OFFSET(A1, 2, 1)', D2: '=SUM(OFFSET(A1, 0, 0, 3))', D3: '=SUM(OFFSET(A1:A2, 1, 1))', D4: '=INDIRECT("B" & 4)', D5: '=SUM(INDIRECT("A1:A4"))',
+    D6: '=INDIRECT("R2C2", FALSE)', D7: '=ROW(OFFSET(A1, 3, 0))', D8: '=OFFSET(A1, -1, 0)', D9: '=INDIRECT("nope")', D10: '=SUM(OFFSET(A4, 0, 0, -2, 1))',
+    D11: '=SUM(INDIRECT("Prices"))', D12: '=SUM(OFFSET(B1, 0, 0, COUNT(B1:B10)))', D13: '=SUM(OFFSET(INDIRECT("A1"), 1, 0, 2))', D14: '=OFFSET(A1, 0, 0, 0)',
+    D15: '=INDIRECT("$B$3")', F1: '=OFFSET(A1, 0, 0, 2, 2)' }, { Prices: 'B1:B2' });
+  const g = (k) => { const v = g0(k); return v && typeof v === 'object' && 'error' in v ? v.error : v; };
+  assert.deepEqual(['D1', 'D2', 'D3', 'D4', 'D5', 'D6', 'D7', 'D8', 'D9', 'D10', 'D11', 'D12', 'D13', 'D14', 'D15'].map(g), [30, 6, 50, 40, 10, 20, 4, '#REF!', '#REF!', 7, 30, 100, 5, '#REF!', 30]);
+  assert.deepEqual(['F1', 'G1', 'F2', 'G2'].map(g), [1, 10, 2, 20], 'a block spills');
+  const b = bookEvaluator([{ name: 'Main', cells: { A1: '=INDIRECT("Data!B2")', A2: "=SUM(INDIRECT(\"'Q1 data'!A1:A2\"))", A3: '=OFFSET(Data!A1, 1, 1)', A4: '=INDIRECT("Nowhere!A1")' } },
+    { name: 'Data', cells: { B2: 7 } }, { name: 'Q1 data', cells: { A1: 5, A2: 6 } }], 0);
+  assert.deepEqual([b('A1'), b('A2'), b('A3'), b('A4')?.error], [7, 11, 7, '#REF!']);
+  // A loop through INDIRECT is still caught.
+  assert.equal(createEvaluator({ A1: '=INDIRECT("A1")' })('A1').error, '#CIRC!');
+});

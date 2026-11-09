@@ -359,7 +359,7 @@ function order(a, b) {
   return Number(a) - Number(b);
 }
 /** Functions that give back several cells, which spill into the cells beside and below. */
-const ARRAY_FUNCS = new Set(['TEXTSPLIT', 'CHOOSECOLS', 'CHOOSEROWS', 'WRAPROWS', 'WRAPCOLS', 'TOCOL', 'TOROW', 'FLATTEN', 'SORTBY', 'FREQUENCY', 'RANDARRAY', 'EXPAND', 'FILTER', 'UNIQUE', 'SORT', 'SEQUENCE', 'TRANSPOSE', 'IMPORTRANGE', 'XLOOKUP', 'SPLIT', 'VSTACK', 'HSTACK', 'TAKE', 'DROP', 'CHOOSE', 'REGEXEXTRACT', 'LET', 'MAP', 'BYROW', 'BYCOL', 'MAKEARRAY', 'REDUCE', 'SCAN']);
+const ARRAY_FUNCS = new Set(['OFFSET', 'INDIRECT', 'TEXTSPLIT', 'CHOOSECOLS', 'CHOOSEROWS', 'WRAPROWS', 'WRAPCOLS', 'TOCOL', 'TOROW', 'FLATTEN', 'SORTBY', 'FREQUENCY', 'RANDARRAY', 'EXPAND', 'FILTER', 'UNIQUE', 'SORT', 'SEQUENCE', 'TRANSPOSE', 'IMPORTRANGE', 'XLOOKUP', 'SPLIT', 'VSTACK', 'HSTACK', 'TAKE', 'DROP', 'CHOOSE', 'REGEXEXTRACT', 'LET', 'MAP', 'BYROW', 'BYCOL', 'MAKEARRAY', 'REDUCE', 'SCAN']);
 
 // ---- helpers for regular expressions, times and cash flows
 /** A pattern from a formula (RE2-like: no lookbehind needed); a bad one, or one too long, is #VALUE!. */
@@ -415,6 +415,7 @@ function stack(arrays, across) {
 const given = (v) => v !== undefined && v !== null;
 const isErrorText = (v) => typeof v === 'string' && /^#(N\/A|NULL!|DIV\/0!|VALUE!|REF!|NAME\?|NUM!|CALC!|SPILL!)$/.test(v);
 const MAX_CELLS = 10000;
+const MAX_REF_CELLS = 100000; // the most cells OFFSET or INDIRECT can point at
 /** Picks rows (or columns) by number, 1 the first, -1 the last; out of range is #VALUE!. */
 function pick(list, which) {
   const n = list.length;
@@ -1048,10 +1049,10 @@ export function namedFunctions(list) {
   }
   return out.size ? out : null;
 }
-const BUILTIN_SPECIAL = new Set(['IMPORTRANGE', 'HYPERLINK', 'SPARKLINE', 'IMAGE', 'ROW', 'COLUMN', 'ROWS', 'COLUMNS', 'LET', 'LAMBDA', 'TRUE', 'FALSE']);
+const BUILTIN_SPECIAL = new Set(['OFFSET', 'INDIRECT', 'IMPORTRANGE', 'HYPERLINK', 'SPARKLINE', 'IMAGE', 'ROW', 'COLUMN', 'ROWS', 'COLUMNS', 'LET', 'LAMBDA', 'TRUE', 'FALSE']);
 
 /** Every function a formula can call. */
-export const FUNCTION_NAMES = [...Object.keys(FUNCS), ...Object.keys(LAZY), ...Object.keys(LAMBDA_USERS), 'LET', 'LAMBDA', 'IMPORTRANGE', 'HYPERLINK', 'SPARKLINE', 'IMAGE', 'ROW', 'COLUMN', 'ROWS', 'COLUMNS'];
+export const FUNCTION_NAMES = [...Object.keys(FUNCS), ...Object.keys(LAZY), ...Object.keys(LAMBDA_USERS), 'OFFSET', 'INDIRECT', 'LET', 'LAMBDA', 'IMPORTRANGE', 'HYPERLINK', 'SPARKLINE', 'IMAGE', 'ROW', 'COLUMN', 'ROWS', 'COLUMNS'];
 
 /** A link a cell may open: web addresses and email (mailto:), nothing else. */
 /**
@@ -1227,6 +1228,70 @@ export function createEvaluator(cells, names = null, book = null) {
     return out;
   }
 
+  // ---- OFFSET and INDIRECT: references worked out as the formula runs ----
+  /** Where a reference points: { sheet (null for this one), a, b } with a the top left corner. */
+  function refOf(node) {
+    const box = (sheet, a, b) => { if (!a || !b) err('#REF!'); return { sheet, a: { r: Math.min(a.r, b.r), c: Math.min(a.c, b.c) }, b: { r: Math.max(a.r, b.r), c: Math.max(a.c, b.c) } }; };
+    switch (node?.k) {
+      case 'ref': return box(null, node.ref, node.ref);
+      case 'range': return box(null, node.a, node.b);
+      case 'xref': return box(node.sheet, node.a, node.b);
+      case 'name': {
+        const t = named.get(node.v);
+        if (!t) err(scopes.some((sc) => sc.has(node.v)) ? '#VALUE!' : '#NAME?');
+        return box(null, parseRef(t[0]), parseRef(t[t.length - 1]));
+      }
+      case 'call':
+        if (node.name === 'OFFSET') return offsetRef(node.args);
+        if (node.name === 'INDIRECT') return indirectRef(node.args);
+        return err('#VALUE!');
+      default: return err('#VALUE!');
+    }
+  }
+  /** OFFSET(start, rows, columns, [height], [width]): a reference moved down and across, and resized. */
+  function offsetRef(args) {
+    if (args.length < 3 || args.length > 5) err('#N/A');
+    const base = refOf(args[0]);
+    const num = (a, dflt) => { if (!a || a.k === 'empty') return dflt; const v = scalar(evaluate(a)); return v === null || v === undefined || v === '' ? dflt : Math.trunc(toNum(v)); };
+    const dr = num(args[1], 0), dc = num(args[2], 0);
+    const h = num(args[3], base.b.r - base.a.r + 1), w = num(args[4], base.b.c - base.a.c + 1);
+    if (!h || !w) err('#REF!');
+    const top = base.a.r + dr + (h < 0 ? h + 1 : 0), left = base.a.c + dc + (w < 0 ? w + 1 : 0);
+    if (top < 0 || left < 0) err('#REF!');
+    if (Math.abs(h) * Math.abs(w) > MAX_REF_CELLS) err('#NUM!');
+    return { sheet: base.sheet, a: { r: top, c: left }, b: { r: top + Math.abs(h) - 1, c: left + Math.abs(w) - 1 } };
+  }
+  /** INDIRECT("B3"), INDIRECT("Sheet2!A1:A9"), INDIRECT("Prices"), INDIRECT("R2C3", FALSE): a reference written as text. */
+  function indirectRef(args) {
+    if (!args.length || args.length > 2) err('#N/A');
+    const text = toStr(scalar(evaluate(args[0]))).trim();
+    const a1 = !args[1] || args[1].k === 'empty' ? true : toBool(scalar(evaluate(args[1])));
+    const m = /^(?:'((?:[^']|'')+)'|([A-Z_][A-Z0-9_ .]*))!(.+)$/i.exec(text);
+    const sheet = m ? (m[1] !== undefined ? m[1].replace(/''/g, "'") : m[2]) : null;
+    const where = (m ? m[3] : text).replace(/\s+/g, '');
+    const one = (t) => {
+      if (a1) return parseRef(t);
+      const rc = /^R(\d+)C(\d+)$/i.exec(t);
+      return rc && +rc[1] > 0 && +rc[2] > 0 ? { r: +rc[1] - 1, c: +rc[2] - 1 } : null;
+    };
+    const [x, y = x] = where.split(':');
+    const a = one(x), b = one(y);
+    if (a && b) {
+      if ((Math.abs(a.r - b.r) + 1) * (Math.abs(a.c - b.c) + 1) > MAX_REF_CELLS) err('#NUM!');
+      return refOf({ k: sheet ? 'xref' : 'range', sheet, a, b });
+    }
+    if (!sheet && a1 && /^[A-Z_][A-Z0-9_]*$/i.test(where) && named.has(where.toUpperCase())) return refOf({ k: 'name', v: where.toUpperCase() });
+    return err('#REF!');
+  }
+  /** The value(s) at a reference from refOf. */
+  function readRef({ sheet, a, b }) {
+    const single = a.r === b.r && a.c === b.c;
+    if (sheet === null) return single ? valueOf(cellKey(a.c, a.r)) : range(a, b);
+    const other = book && sheetEvaluator(book, sheet);
+    if (!other) err('#REF!');
+    return single ? other.cell(cellKey(a.c, a.r)) : other.range(a, b);
+  }
+
   function evaluate(n) {
     switch (n.k) {
       case 'num': case 'str': case 'bool': return n.v;
@@ -1248,10 +1313,11 @@ export function createEvaluator(cells, names = null, book = null) {
       case 'neg': { const v = evaluate(n.e); return Array.isArray(v) ? elementwise(v, null, (x) => -toNum(x)) : -toNum(v); }
       case 'call': {
         if (n.name === 'IMPORTRANGE') return importRange(n.args.map((a) => scalar(evaluate(a))));
+        if (n.name === 'OFFSET' || n.name === 'INDIRECT') return readRef(refOf(n));
         // Where cells are: ROW()/COLUMN() of this cell, or of a reference (a range gives its first); ROWS/COLUMNS count a range.
         if (n.name === 'ROW' || n.name === 'COLUMN') {
           const a = n.args[0];
-          const at = !a || a.k === 'empty' ? (here ? parseRef(here) : err('#VALUE!')) : a.k === 'ref' ? a.ref : a.k === 'range' || (a.k === 'xref') ? { r: Math.min(a.a.r, a.b.r), c: Math.min(a.a.c, a.b.c) } : err('#VALUE!');
+          const at = !a || a.k === 'empty' ? (here ? parseRef(here) : err('#VALUE!')) : a.k === 'call' && (a.name === 'OFFSET' || a.name === 'INDIRECT') ? refOf(a).a : a.k === 'ref' ? a.ref : a.k === 'range' || (a.k === 'xref') ? { r: Math.min(a.a.r, a.b.r), c: Math.min(a.a.c, a.b.c) } : err('#VALUE!');
           if (!at) err('#REF!');
           return (n.name === 'ROW' ? at.r : at.c) + 1;
         }

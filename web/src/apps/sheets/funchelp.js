@@ -127,6 +127,8 @@ export const HELP = {
   SORTBY: ['range, by_range1, [order1], [by_range2, order2, …]', 'Rows sorted by other ranges (1 up, -1 down); spills'],
   FREQUENCY: ['data, bins', 'How many values fall up to each bin, and above the last; spills'],
   RANDARRAY: ['[rows], [columns], [min], [max], [whole_number]', 'Random numbers; spills'],
+  OFFSET: ['start, rows, columns, [height], [width]', 'The cells a number of rows down and columns across from start (and that big)'],
+  INDIRECT: ['reference_text, [a1_style]', 'The cells a piece of text names: INDIRECT("B" & 3), INDIRECT("Sheet2!A1:A9")'],
   VSTACK: ['range1, [range2, …]', 'Ranges put together one above the other; spills'],
   HSTACK: ['range1, [range2, …]', 'Ranges put together side by side; spills'],
   TAKE: ['range, rows, [columns]', 'The first rows (and columns) of a range, or the last ones when negative; spills'],
