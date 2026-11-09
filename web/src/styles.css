@@ -2272,3 +2272,7 @@ textarea.mono { font-family: ui-monospace, Consolas, monospace; }
 .meet-tile:hover .meet-pin, .meet-pin:focus-visible, .meet-pin.on { opacity: 1; }
 .meet-pin.on { background: var(--accent); }
 .meet-tile.speaking { box-shadow: 0 0 0 3px #34a853 inset, 0 0 0 2px #34a853; }
+.consent-page { min-height: 100vh; display: grid; place-items: center; padding: 16px; background: var(--bg); }
+.consent-card { max-width: 440px; width: 100%; }
+.consent-card h1 { font-size: 22px; margin: 0; }
+.oidc-facts { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; margin: 0; } .oidc-facts dt { font-weight: 600; } .oidc-facts dd { margin: 0; }

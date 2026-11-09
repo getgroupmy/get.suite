@@ -6630,3 +6630,71 @@ test('notes: deleting puts a note in the trash, to restore or delete for good; o
   assert.equal((await kay('DELETE', '/api/notes/trash')).body.deleted, 1);
   assert.equal((await kay('GET', '/api/notes?trash=1')).body.length, 0);
 });
+
+test('Sign in with Workspace (OpenID Connect): an app gets a signed ID token and user info', async () => {
+  const crypto = await import('node:crypto');
+  const kay = client(); const me = await login(kay, 'kay@keepco.com');
+  const discovery = await (await fetch(`${base}/.well-known/openid-configuration`)).json();
+  assert.equal(discovery.issuer, base);
+  assert.equal(discovery.token_endpoint, `${base}/oauth/token`);
+  // Only admins register apps; a redirect address must be https (or on this network).
+  const pat = client(); await login(pat, 'phv@keepco.com');
+  assert.equal((await pat('POST', '/api/oauth/apps', { name: 'X', redirect_uris: ['https://x.example/cb'] })).status, 403);
+  assert.equal((await kay('POST', '/api/oauth/apps', { name: 'Wiki', redirect_uris: ['http://evil.example/cb'] })).status, 400);
+  const app = (await kay('POST', '/api/oauth/apps', { name: 'Wiki', redirect_uris: ['https://wiki.example/callback'] })).body;
+  assert.match(app.client_id, /^ws-/);
+  assert.ok(app.client_secret.length > 30);
+  assert.equal((await kay('GET', '/api/oauth/apps')).body[0].client_secret, undefined, 'the secret is shown once');
+  // The app sends the person to /oauth/authorize: Workspace's own page asks them.
+  const verifier = crypto.randomBytes(32).toString('base64url');
+  const challenge = crypto.createHash('sha256').update(verifier).digest('base64url');
+  const params = { response_type: 'code', client_id: app.client_id, redirect_uri: 'https://wiki.example/callback', scope: 'openid profile email', state: 'xyz', nonce: 'n-1', code_challenge: challenge, code_challenge_method: 'S256' };
+  const auth = await fetch(`${base}/oauth/authorize?${new URLSearchParams(params)}`, { redirect: 'manual' });
+  assert.equal(auth.status, 302);
+  assert.match(auth.headers.get('location'), /^\/oauth\/consent\?/);
+  const bad = await fetch(`${base}/oauth/authorize?${new URLSearchParams({ ...params, redirect_uri: 'https://evil.example/cb' })}`, { redirect: 'manual' });
+  assert.equal(bad.status, 400, 'never sent to an address the admin didn\'t register');
+  const ask = (await kay('GET', `/api/oauth/request?${new URLSearchParams(params)}`)).body;
+  assert.deepEqual([ask.app, ask.scopes, ask.granted, ask.host], ['Wiki', ['openid', 'profile', 'email'], false, 'wiki.example']);
+  const ok = (await kay('POST', '/api/oauth/approve', params)).body;
+  const back = new URL(ok.redirect);
+  assert.equal(back.origin + back.pathname, 'https://wiki.example/callback');
+  assert.equal(back.searchParams.get('state'), 'xyz');
+  const code = back.searchParams.get('code');
+  assert.equal((await kay('GET', `/api/oauth/request?${new URLSearchParams(params)}`)).body.granted, true, 'remembered');
+  // The app swaps the code (with its secret and the PKCE verifier).
+  const token = (body, headers = {}) => fetch(`${base}/oauth/token`, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', ...headers }, body: new URLSearchParams(body) });
+  const basicAuth = { authorization: `Basic ${Buffer.from(`${app.client_id}:${app.client_secret}`).toString('base64')}` };
+  assert.equal((await token({ grant_type: 'authorization_code', code, redirect_uri: params.redirect_uri, code_verifier: 'wrong' }, basicAuth)).status, 400, 'PKCE checked');
+  const r2 = (await kay('POST', '/api/oauth/approve', params)).body;
+  const code2 = new URL(r2.redirect).searchParams.get('code');
+  assert.equal((await token({ grant_type: 'authorization_code', code: code2, redirect_uri: params.redirect_uri, code_verifier: verifier, client_id: app.client_id, client_secret: 'nope' })).status, 401);
+  const r3 = (await kay('POST', '/api/oauth/approve', params)).body;
+  const code3 = new URL(r3.redirect).searchParams.get('code');
+  const res = await token({ grant_type: 'authorization_code', code: code3, redirect_uri: params.redirect_uri, code_verifier: verifier }, basicAuth);
+  assert.equal(res.status, 200);
+  const tok = await res.json();
+  assert.equal(tok.token_type, 'Bearer');
+  assert.equal((await token({ grant_type: 'authorization_code', code: code3, redirect_uri: params.redirect_uri, code_verifier: verifier }, basicAuth)).status, 400, 'a code works once');
+  // The ID token is signed with a key from /oauth/jwks.
+  const [h, p, sig] = tok.id_token.split('.');
+  const header = JSON.parse(Buffer.from(h, 'base64url')), claims = JSON.parse(Buffer.from(p, 'base64url'));
+  const { keys } = await (await fetch(`${base}/oauth/jwks`)).json();
+  const pub = crypto.createPublicKey({ key: keys.find((k) => k.kid === header.kid), format: 'jwk' });
+  assert.ok(crypto.verify('sha256', Buffer.from(`${h}.${p}`), pub, Buffer.from(sig, 'base64url')), 'signature checks out');
+  assert.deepEqual([claims.iss, claims.aud, claims.sub, claims.email, claims.name, claims.nonce], [base, app.client_id, me.id, 'kay@keepco.com', 'Kay Keep', 'n-1']);
+  const info = await (await fetch(`${base}/oauth/userinfo`, { headers: { authorization: `Bearer ${tok.access_token}` } })).json();
+  assert.deepEqual([info.sub, info.email, info.preferred_username], [me.id, 'kay@keepco.com', 'kay']);
+  assert.equal((await fetch(`${base}/oauth/userinfo`, { headers: { authorization: 'Bearer nope' } })).status, 401);
+  // Someone from another company can't use this company's app.
+  const other = client();
+  const made = await owner('POST', '/api/orgs', { name: 'Othercorp', domain: 'othercorp.com', admin_name: 'Oz Other', admin_local: 'oz', admin_password: 'password123' });
+  assert.equal(made.status, 201, JSON.stringify(made.body));
+  await login(other, 'oz@othercorp.com');
+  assert.equal((await other('POST', '/api/oauth/approve', params)).status, 403);
+  // Taking it back stops the token; deleting the app stops everything.
+  await kay('DELETE', `/api/oauth/grants/${app.client_id}`);
+  assert.equal((await fetch(`${base}/oauth/userinfo`, { headers: { authorization: `Bearer ${tok.access_token}` } })).status, 401);
+  assert.equal((await kay('DELETE', `/api/oauth/apps/${app.id}`)).status, 200);
+  assert.equal((await fetch(`${base}/oauth/authorize?${new URLSearchParams(params)}`, { redirect: 'manual' })).status, 400);
+});

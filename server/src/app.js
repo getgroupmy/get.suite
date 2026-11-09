@@ -1,3 +1,4 @@
+import { oidcPublicRoutes, oidcApiRoutes } from './oidc.js';
 import express from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -75,6 +76,8 @@ export function createApp({
   app.use('/dav', davRoutes());
   // Chat webhooks: scripts post with only the secret address (no session, so outside /api and its CSRF check).
   app.use('/hooks/chat', chatHookRoutes());
+  // "Sign in with Workspace" (OpenID Connect): the endpoints other apps call (oidc.js).
+  app.use(oidcPublicRoutes());
   // Apps given only the server name ask the root first.
   app.use((req, res, next) => (req.path === '/' && (req.method === 'PROPFIND' || req.method === 'REPORT') ? res.redirect(301, '/dav/') : next()));
 
@@ -128,6 +131,7 @@ export function createApp({
   app.use('/api/meet', requireAuth, meetRoutes());
   app.use('/api/groups', requireAuth, groupRoutes());
   app.use('/api/notes', requireAuth, noteRoutes());
+  app.use('/api/oauth', requireAuth, oidcApiRoutes());
   app.use('/api/approvals', requireAuth, approvalRoutes());
   app.use('/api/signatures', requireAuth, signatureRoutes());
   app.use('/api/takeout', requireAuth, takeoutRoutes());

@@ -58,6 +58,7 @@ export default function Settings() {
       <MailApps />
       <MailDelegates />
       <Devices />
+      <SignInApps />
       <WorkLocation />
       <SecondZone />
       <Profile />
@@ -513,6 +514,29 @@ const ago = (ms) => {
 };
 
 /** Where you're signed in on the web, with sign-out per device. */
+/** Other apps (registered by an admin) you've let sign you in with Workspace; taking one back signs you out of it. */
+function SignInApps() {
+  const toast = useToast();
+  const [list, setList] = useState(null);
+  const load = () => get('/oauth/grants').then(setList).catch(() => setList([]));
+  useEffect(() => { load(); }, []);
+  if (!list?.length) return null;
+  return (
+    <section className="card stack" aria-labelledby="signin-apps-h">
+      <h2 id="signin-apps-h">Apps you sign in to</h2>
+      <p className="muted small">Your company's other apps that you've let sign you in with Workspace. Removing one signs you out of it; it asks again next time.</p>
+      <ul className="device-list" aria-label="Apps you sign in to">
+        {list.map((g) => (
+          <li key={g.client_id}>
+            <span className="grow"><strong>{g.name}</strong><span className="muted small"> · allowed {new Date(g.granted_at).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' })}</span></span>
+            <button type="button" className="btn small" aria-label={`Remove ${g.name}`} onClick={async () => { try { await api('DELETE', `/oauth/grants/${g.client_id}`); toast(`${g.name} removed`); load(); } catch (e) { toast(e.message, 'error'); } }}>Remove</button>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 function Devices() {
   const toast = useToast();
   const [list, setList] = useState(null);

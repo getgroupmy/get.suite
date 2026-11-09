@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import OAuthConsent from './apps/oauth/Consent.jsx';
 import { setBadgePart } from './appbadge.js';
 import { BrowserRouter, Routes, Route, Navigate, NavLink, useNavigate, useParams } from 'react-router';
 import { get, post, patch, startLive, stopLive, onLive, idleMs } from './api.js';
@@ -151,6 +152,7 @@ function Workspace() {
               <Route path="/slides/:id/presenter" element={<PresenterView />} />
               <Route path="/slides/:id" element={<SlidesEditor />} />
               <Route path="/meet/:code" element={<MeetRoom />} />
+              <Route path="/oauth/consent" element={<OAuthConsent />} />
               <Route path="*" element={<Shell />} />
             </Routes>
           </BrowserRouter>

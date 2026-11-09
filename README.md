@@ -867,6 +867,15 @@ Settings → **Signed-in devices** lists every browser where you're signed in: w
 - Mail apps aren't listed (they don't keep a web session). Use a mail-app password to control those.
 - Sessions from before this version show as "Browser" without details until they next sign in.
 
+## Sign in with Workspace (other apps)
+
+Let people sign in to the company's other apps (Nextcloud, Gitea, Grafana, Outline, a wiki, anything with an **OpenID Connect** or "OAuth2 / OIDC" sign-in option) with their Workspace account.
+
+- **Setting up an app:** Admin → **Apps** → **Add app**: its name and the redirect (callback) address from the app's settings. You get a **client ID** and **client secret** (copy the secret then: it isn't shown again; **New secret** makes another and stops the old one). In the app, give the **issuer** shown on that page (the app finds the rest at `/.well-known/openid-configuration`), the client ID and secret, and the scopes `openid profile email`.
+- **Signing in:** the app sends people to Workspace (to sign in first if they aren't); the first time, Workspace asks **Allow** or **Cancel**, saying what the app will see (their name and email address, never their password, mail or files). After that it signs them straight in. Only people in your company can sign in to your company's apps.
+- **For the app:** the authorization-code flow (with PKCE when the app uses it), an ID token signed with RS256 (keys at `/oauth/jwks`), and `/oauth/userinfo`. Codes work once, within a minute; access tokens last an hour.
+- **Taking it back:** everyone sees the apps they've allowed in **Settings → Apps you sign in to** and can remove one (it asks again next time). An admin removing an app stops it for everyone.
+
 ## API tokens (scripts)
 
 Your own scripts and tools can use the same API as the web app, as you: a nightly backup that downloads a folder, a scanner that uploads into Drive, a report that reads a spreadsheet.

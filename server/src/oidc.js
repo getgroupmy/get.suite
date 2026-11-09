@@ -1,0 +1,261 @@
+// "Sign in with Workspace": an OpenID Connect provider, so other apps a company runs (Nextcloud,
+// Gitea, Grafana, a wiki…) can let people sign in with their Workspace account.
+//
+// An admin registers each app (its name and the addresses it may send people back to) and gets a
+// client ID and secret to put in that app. The authorization-code flow is used (with PKCE when the
+// app sends it): the app sends the person to /oauth/authorize, they say yes once (Workspace remembers),
+// the app swaps the code for an ID token (RS256, keys at /oauth/jwks) and can ask /oauth/userinfo.
+// Only people in the company that registered the app can sign in to it.
+import crypto from 'node:crypto';
+import express, { Router } from 'express';
+import { q } from './db.js';
+import { uid, now, bad, notFound, HttpError } from './util.js';
+
+q(`CREATE TABLE IF NOT EXISTS oidc_clients (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  client_id TEXT NOT NULL UNIQUE,
+  secret_hash TEXT NOT NULL,
+  redirect_uris TEXT NOT NULL,          -- JSON ["https://cloud.example.com/apps/oidc/callback"]
+  created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+  created_at INTEGER NOT NULL,
+  last_used_at INTEGER
+)`).run();
+q(`CREATE TABLE IF NOT EXISTS oidc_codes (
+  code_hash TEXT PRIMARY KEY,
+  client_id TEXT NOT NULL,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  redirect_uri TEXT NOT NULL,
+  scope TEXT NOT NULL,
+  nonce TEXT,
+  challenge TEXT,
+  challenge_method TEXT,
+  expires_at INTEGER NOT NULL
+)`).run();
+q(`CREATE TABLE IF NOT EXISTS oidc_tokens (
+  token_hash TEXT PRIMARY KEY,
+  client_id TEXT NOT NULL,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  scope TEXT NOT NULL,
+  expires_at INTEGER NOT NULL
+)`).run();
+q(`CREATE TABLE IF NOT EXISTS oidc_grants (
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  client_id TEXT NOT NULL,
+  scope TEXT NOT NULL,
+  granted_at INTEGER NOT NULL,
+  PRIMARY KEY (user_id, client_id)
+)`).run();
+q(`CREATE TABLE IF NOT EXISTS oidc_keys (
+  kid TEXT PRIMARY KEY,
+  private_pem TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+)`).run();
+
+const CODE_TTL = 60e3, TOKEN_TTL = 3600e3;
+const SCOPES = ['openid', 'profile', 'email'];
+const sha = (s) => crypto.createHash('sha256').update(String(s)).digest('hex');
+const b64url = (buf) => Buffer.from(buf).toString('base64url');
+const issuerOf = (req) => process.env.PUBLIC_URL?.replace(/\/$/, '') || `${req.protocol}://${req.get('host')}`;
+
+/** The signing key (made once, kept in the database). */
+function signingKey() {
+  let row = q('SELECT * FROM oidc_keys ORDER BY created_at DESC LIMIT 1').get();
+  if (!row) {
+    const { privateKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
+    row = { kid: crypto.randomBytes(8).toString('hex'), private_pem: privateKey.export({ type: 'pkcs8', format: 'pem' }), created_at: now() };
+    q('INSERT INTO oidc_keys (kid, private_pem, created_at) VALUES (?, ?, ?)').run(row.kid, row.private_pem, row.created_at);
+  }
+  return { kid: row.kid, key: crypto.createPrivateKey(row.private_pem) };
+}
+export function jwks() {
+  return { keys: q('SELECT * FROM oidc_keys ORDER BY created_at DESC').all().map((r) => ({ ...crypto.createPublicKey(r.private_pem).export({ format: 'jwk' }), kid: r.kid, use: 'sig', alg: 'RS256' })) };
+}
+/** A signed JWT (RS256). */
+export function signJwt(payload) {
+  const { kid, key } = signingKey();
+  const head = b64url(JSON.stringify({ alg: 'RS256', typ: 'JWT', kid }));
+  const body = b64url(JSON.stringify(payload));
+  return `${head}.${body}.${b64url(crypto.sign('sha256', Buffer.from(`${head}.${body}`), key))}`;
+}
+
+/** Scopes asked for, of the ones Workspace gives (openid always). */
+export const scopesOf = (scope) => ['openid', ...String(scope || '').split(/\s+/).filter((s) => SCOPES.includes(s) && s !== 'openid')].filter((s, i, a) => a.indexOf(s) === i);
+
+/** A redirect address an admin may register: https (or http on this machine / the local network), no fragment. */
+export function cleanRedirect(u) {
+  let url;
+  try { url = new URL(String(u).trim()); } catch { throw bad(`Not a web address: ${u}`); }
+  const local = /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)|\.local$/.test(url.hostname);
+  if (url.protocol !== 'https:' && !(url.protocol === 'http:' && local)) throw bad(`Use an https:// address (http only for this network): ${u}`);
+  if (url.hash) throw bad(`No # part in a redirect address: ${u}`);
+  return url.toString();
+}
+
+const clientBy = (clientId) => q('SELECT * FROM oidc_clients WHERE client_id = ?').get(String(clientId || ''));
+const shapeClient = (c) => ({ id: c.id, name: c.name, client_id: c.client_id, redirect_uris: JSON.parse(c.redirect_uris), created_at: c.created_at, last_used_at: c.last_used_at });
+
+/** What an app may learn about someone, by scope. */
+function claimsFor(user, scopes) {
+  const out = { sub: user.id };
+  if (scopes.includes('profile')) Object.assign(out, { name: user.name, preferred_username: user.username.split('@')[0] });
+  if (scopes.includes('email')) Object.assign(out, { email: user.username, email_verified: true });
+  return out;
+}
+
+/** The endpoints other apps call (outside /api: no session, no browser header). */
+export function oidcPublicRoutes() {
+  const r = Router();
+  r.get('/.well-known/openid-configuration', (req, res) => {
+    const iss = issuerOf(req);
+    res.json({
+      issuer: iss, authorization_endpoint: `${iss}/oauth/authorize`, token_endpoint: `${iss}/oauth/token`, userinfo_endpoint: `${iss}/oauth/userinfo`, jwks_uri: `${iss}/oauth/jwks`,
+      response_types_supported: ['code'], grant_types_supported: ['authorization_code'], subject_types_supported: ['public'], id_token_signing_alg_values_supported: ['RS256'],
+      scopes_supported: SCOPES, token_endpoint_auth_methods_supported: ['client_secret_basic', 'client_secret_post'], code_challenge_methods_supported: ['S256', 'plain'],
+      claims_supported: ['sub', 'name', 'preferred_username', 'email', 'email_verified'],
+    });
+  });
+  r.get('/oauth/jwks', (req, res) => { signingKey(); res.json(jwks()); });
+
+  // The app sends the person here. A wrong client or return address is shown, never redirected to.
+  r.get('/oauth/authorize', (req, res) => {
+    const c = clientBy(req.query.client_id);
+    const redirect = String(req.query.redirect_uri || '');
+    if (!c || !JSON.parse(c.redirect_uris).includes(redirect)) return res.status(400).type('text').send('This sign-in link isn’t right: the app or its return address isn’t registered in Workspace.');
+    const back = (params) => { const u = new URL(redirect); for (const [k, v] of Object.entries(params)) if (v) u.searchParams.set(k, v); return res.redirect(302, u.toString()); };
+    if (req.query.response_type !== 'code') return back({ error: 'unsupported_response_type', state: req.query.state });
+    if (!String(req.query.scope || '').split(/\s+/).includes('openid')) return back({ error: 'invalid_scope', error_description: 'openid is needed', state: req.query.state });
+    // The person says yes (or signs in first) on Workspace's own page, which carries on from here.
+    const qs = new URLSearchParams(Object.fromEntries(['client_id', 'redirect_uri', 'scope', 'state', 'nonce', 'code_challenge', 'code_challenge_method'].filter((k) => req.query[k]).map((k) => [k, String(req.query[k])])));
+    res.redirect(302, `/oauth/consent?${qs}`);
+  });
+
+  // The app swaps the code for tokens.
+  r.post('/oauth/token', express.urlencoded({ extended: false, limit: '20kb' }), express.json({ limit: '20kb' }), (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    const fail = (status, error, description) => res.status(status).json({ error, ...(description && { error_description: description }) });
+    let id = req.body?.client_id, secret = req.body?.client_secret;
+    const basic = /^Basic\s+(.+)$/i.exec(req.get('authorization') || '');
+    if (basic) { const [a, b] = Buffer.from(basic[1], 'base64').toString().split(':'); id = decodeURIComponent(a || ''); secret = decodeURIComponent(b || ''); }
+    const c = clientBy(id);
+    if (!c || !secret || sha(secret) !== c.secret_hash) return fail(401, 'invalid_client');
+    if (req.body?.grant_type !== 'authorization_code') return fail(400, 'unsupported_grant_type');
+    const row = q('SELECT * FROM oidc_codes WHERE code_hash = ?').get(sha(req.body?.code || ''));
+    if (row) q('DELETE FROM oidc_codes WHERE code_hash = ?').run(row.code_hash); // used once, whatever happens
+    if (!row || row.client_id !== c.client_id || row.expires_at < Date.now()) return fail(400, 'invalid_grant', 'The code is wrong, used or expired');
+    if (row.redirect_uri !== String(req.body?.redirect_uri || '')) return fail(400, 'invalid_grant', 'redirect_uri doesn’t match');
+    if (row.challenge) {
+      const v = String(req.body?.code_verifier || '');
+      const ok = row.challenge_method === 'S256' ? b64url(crypto.createHash('sha256').update(v).digest()) === row.challenge : v === row.challenge;
+      if (!v || !ok) return fail(400, 'invalid_grant', 'code_verifier doesn’t match');
+    }
+    const user = q('SELECT * FROM users WHERE id = ? AND disabled = 0').get(row.user_id);
+    if (!user || user.org_id !== c.org_id) return fail(400, 'invalid_grant');
+    const scopes = row.scope.split(' ');
+    const access = crypto.randomBytes(32).toString('base64url');
+    q('INSERT INTO oidc_tokens (token_hash, client_id, user_id, scope, expires_at) VALUES (?, ?, ?, ?, ?)').run(sha(access), c.client_id, user.id, row.scope, Date.now() + TOKEN_TTL);
+    q('DELETE FROM oidc_tokens WHERE expires_at < ?').run(Date.now());
+    q('UPDATE oidc_clients SET last_used_at = ? WHERE id = ?').run(now(), c.id);
+    const t = Math.floor(Date.now() / 1000);
+    const idToken = signJwt({ iss: issuerOf(req), aud: c.client_id, iat: t, exp: t + TOKEN_TTL / 1000, auth_time: t, ...(row.nonce && { nonce: row.nonce }), ...claimsFor(user, scopes) });
+    res.json({ access_token: access, token_type: 'Bearer', expires_in: TOKEN_TTL / 1000, id_token: idToken, scope: row.scope });
+  });
+
+  const userinfo = (req, res) => {
+    const m = /^Bearer\s+(.+)$/i.exec(req.get('authorization') || '');
+    const row = m && q('SELECT * FROM oidc_tokens WHERE token_hash = ?').get(sha(m[1].trim()));
+    if (!row || row.expires_at < Date.now()) return res.status(401).set('WWW-Authenticate', 'Bearer error="invalid_token"').json({ error: 'invalid_token' });
+    const user = q('SELECT * FROM users WHERE id = ? AND disabled = 0').get(row.user_id);
+    if (!user) return res.status(401).json({ error: 'invalid_token' });
+    res.json(claimsFor(user, row.scope.split(' ')));
+  };
+  r.get('/oauth/userinfo', userinfo);
+  r.post('/oauth/userinfo', userinfo);
+  return r;
+}
+
+/** The consent page's calls, and admins' list of apps (under /api/oauth, signed in). */
+export function oidcApiRoutes() {
+  const r = Router();
+  const loadRequest = (req, src) => {
+    const c = clientBy(src.client_id);
+    if (!c || !JSON.parse(c.redirect_uris).includes(String(src.redirect_uri || ''))) throw notFound('This app isn’t registered in Workspace');
+    if (c.org_id !== req.user.org_id) throw new HttpError(403, 'This app is for another company: sign in with an account there');
+    return { c, scopes: scopesOf(src.scope) };
+  };
+  r.get('/request', (req, res) => {
+    const { c, scopes } = loadRequest(req, req.query);
+    const g = q('SELECT scope FROM oidc_grants WHERE user_id = ? AND client_id = ?').get(req.user.id, c.client_id);
+    res.json({ app: c.name, scopes, granted: !!g && scopes.every((s) => g.scope.split(' ').includes(s)), host: new URL(String(req.query.redirect_uri)).host });
+  });
+  const redirectWith = (uri, params) => { const u = new URL(uri); for (const [k, v] of Object.entries(params)) if (v) u.searchParams.set(k, String(v)); return u.toString(); };
+  r.post('/approve', (req, res) => {
+    const b = req.body || {};
+    const { c, scopes } = loadRequest(req, b);
+    const method = b.code_challenge ? (b.code_challenge_method === 'plain' ? 'plain' : 'S256') : null;
+    const code = crypto.randomBytes(24).toString('base64url');
+    q('INSERT INTO oidc_codes (code_hash, client_id, user_id, redirect_uri, scope, nonce, challenge, challenge_method, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(sha(code), c.client_id, req.user.id, b.redirect_uri, scopes.join(' '), b.nonce ? String(b.nonce).slice(0, 500) : null, b.code_challenge ? String(b.code_challenge).slice(0, 200) : null, method, Date.now() + CODE_TTL);
+    q(`INSERT INTO oidc_grants (user_id, client_id, scope, granted_at) VALUES (?, ?, ?, ?)
+       ON CONFLICT(user_id, client_id) DO UPDATE SET scope = excluded.scope, granted_at = excluded.granted_at`).run(req.user.id, c.client_id, scopes.join(' '), now());
+    q('DELETE FROM oidc_codes WHERE expires_at < ?').run(Date.now());
+    res.json({ redirect: redirectWith(b.redirect_uri, { code, state: b.state }) });
+  });
+  r.post('/deny', (req, res) => {
+    const b = req.body || {};
+    loadRequest(req, b);
+    res.json({ redirect: redirectWith(b.redirect_uri, { error: 'access_denied', state: b.state }) });
+  });
+
+  // Apps you've let in (and taking that back).
+  r.get('/grants', (req, res) => res.json(q(`SELECT g.client_id, g.scope, g.granted_at, c.name FROM oidc_grants g JOIN oidc_clients c ON c.client_id = g.client_id WHERE g.user_id = ? ORDER BY c.name`).all(req.user.id)));
+  r.delete('/grants/:clientId', (req, res) => {
+    q('DELETE FROM oidc_grants WHERE user_id = ? AND client_id = ?').run(req.user.id, req.params.clientId);
+    q('DELETE FROM oidc_tokens WHERE user_id = ? AND client_id = ?').run(req.user.id, req.params.clientId);
+    res.json({ ok: true });
+  });
+
+  // ---- admins: the company's apps ----
+  const admin = (req) => { if (!req.user.is_admin) throw new HttpError(403, 'Only administrators manage apps'); };
+  const readUris = (list) => {
+    const uris = [...new Set((Array.isArray(list) ? list : String(list || '').split(/\s+/)).map((u) => String(u).trim()).filter(Boolean).map(cleanRedirect))];
+    if (!uris.length) throw bad('Give the address the app sends people back to (its redirect or callback URL)');
+    if (uris.length > 10) throw bad('At most 10 addresses');
+    return uris;
+  };
+  r.get('/apps', (req, res) => { admin(req); res.json(q('SELECT * FROM oidc_clients WHERE org_id = ? ORDER BY name').all(req.user.org_id).map(shapeClient)); });
+  r.post('/apps', (req, res) => {
+    admin(req);
+    const name = String(req.body?.name || '').trim().slice(0, 100);
+    if (!name) throw bad('Give the app a name');
+    const uris = readUris(req.body?.redirect_uris);
+    if (q('SELECT COUNT(*) AS n FROM oidc_clients WHERE org_id = ?').get(req.user.org_id).n >= 50) throw bad('At most 50 apps');
+    const id = uid(), clientId = `ws-${crypto.randomBytes(9).toString('base64url')}`, secret = crypto.randomBytes(30).toString('base64url');
+    q('INSERT INTO oidc_clients (id, org_id, name, client_id, secret_hash, redirect_uris, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, req.user.org_id, name, clientId, sha(secret), JSON.stringify(uris), req.user.id, now());
+    res.status(201).json({ ...shapeClient(q('SELECT * FROM oidc_clients WHERE id = ?').get(id)), client_secret: secret }); // the secret is shown this once
+  });
+  const ownApp = (req) => { admin(req); const c = q('SELECT * FROM oidc_clients WHERE id = ? AND org_id = ?').get(req.params.id, req.user.org_id); if (!c) throw notFound('App not found'); return c; };
+  r.patch('/apps/:id', (req, res) => {
+    const c = ownApp(req);
+    const name = req.body?.name !== undefined ? String(req.body.name).trim().slice(0, 100) || c.name : c.name;
+    const uris = req.body?.redirect_uris !== undefined ? readUris(req.body.redirect_uris) : JSON.parse(c.redirect_uris);
+    q('UPDATE oidc_clients SET name = ?, redirect_uris = ? WHERE id = ?').run(name, JSON.stringify(uris), c.id);
+    res.json(shapeClient(q('SELECT * FROM oidc_clients WHERE id = ?').get(c.id)));
+  });
+  r.post('/apps/:id/secret', (req, res) => { // a new secret (the old one stops working)
+    const c = ownApp(req);
+    const secret = crypto.randomBytes(30).toString('base64url');
+    q('UPDATE oidc_clients SET secret_hash = ? WHERE id = ?').run(sha(secret), c.id);
+    res.json({ client_secret: secret });
+  });
+  r.delete('/apps/:id', (req, res) => {
+    const c = ownApp(req);
+    for (const t of ['oidc_codes', 'oidc_tokens', 'oidc_grants']) q(`DELETE FROM ${t} WHERE client_id = ?`).run(c.client_id);
+    q('DELETE FROM oidc_clients WHERE id = ?').run(c.id);
+    res.json({ ok: true });
+  });
+  return r;
+}
+
