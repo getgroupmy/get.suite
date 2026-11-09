@@ -2156,11 +2156,11 @@ textarea.mono { font-family: ui-monospace, Consolas, monospace; }
 
 /* The document toolbar on phones: folded behind one button, so the page has the room; unfolded it
    wraps as usual (no scrolling strip, so its menus aren't cut off). */
-.toolbar .tb-fold { display: none; }
+.tb-fold { display: none !important; }
 @media (max-width: 600px) {
   .toolbar.foldable { margin: 0 8px 6px; border-radius: 12px; }
-  .toolbar.foldable .tb-fold { display: inline-flex; width: auto; padding: 0 10px; font-size: 14px; }
-  .toolbar.foldable:not(.open) > :not(.tb-fold) { display: none !important; }
+  .foldable .tb-fold { display: inline-flex !important; width: auto; padding: 0 10px; font-size: 14px; }
+  .foldable:not(.open) > :not(.tb-fold) { display: none !important; }
   .editor-head { flex-wrap: wrap; min-height: 0; gap: 6px; padding: 6px 10px; }
   .editor-title input { width: min(480px, 60vw); }
   .save-status { white-space: nowrap; }

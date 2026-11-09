@@ -1199,8 +1199,10 @@ function FormatBar({ fmt, onChange, onBorders, onMerge, merged, onComment, onCha
     <button type="button" className={`tb ${fmt[k] ? 'on' : ''}`} aria-pressed={!!fmt[k]} aria-label={label} title={title} onMouseDown={keep} onClick={() => onChange({ [k]: !fmt[k] })}>{children}</button>
   );
   const align = fmt.align || 'auto';
+  const [open, setOpen] = useState(false); // phones: the toolbar folds away behind one button
   return (
-    <div className="sheet-toolbar" role="toolbar" aria-label="Cell formatting">
+    <div className={`sheet-toolbar foldable ${open ? 'open' : ''}`} role="toolbar" aria-label="Cell formatting">
+      <button type="button" className="tb tb-fold" aria-expanded={open} onMouseDown={keep} onClick={() => setOpen(!open)}>{open ? 'Hide formatting ▴' : 'Formatting ▾'}</button>
       <button type="button" className="tb" aria-label="Undo" title="Undo (Ctrl+Z)" disabled={!history.canUndo} onMouseDown={keep} onClick={history.undo}>↶</button>
       <button type="button" className="tb" aria-label="Redo" title="Redo (Ctrl+Y)" disabled={!history.canRedo} onMouseDown={keep} onClick={history.redo}>↷</button>
       <span className="sep" />

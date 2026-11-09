@@ -39,6 +39,7 @@ export default function SlidesEditor() {
   const { user } = useAuth();
   const [file, setFile] = useState(null);
   const [deck, setDeck] = useState(null);
+  const [toolsOpen, setToolsOpen] = useState(false); // phones: the tools fold away behind one button
   const [current, setCurrent] = useState(0);
   const [selected, setSelected] = useState(null); // item id
   const [editing, setEditing] = useState(null);   // item id whose text is being typed
@@ -240,7 +241,8 @@ export default function SlidesEditor() {
       {status === 'offline' && <div className="banner warn">You're offline. Keep editing: your changes are kept here and sync when the connection is back.</div>}
       {readOnly && <div className="banner">{file.locked_at ? 'Locked.' : file.role === 'commenter' ? 'You can comment, not edit.' : 'View only.'} {!file.locked_at && `Ask ${file.owner_name} for edit access.`}</div>}
       {!readOnly && (
-        <div className="slides-toolbar" role="toolbar" aria-label="Slide tools">
+        <div className={`slides-toolbar foldable ${toolsOpen ? 'open' : ''}`} role="toolbar" aria-label="Slide tools">
+          <button type="button" className="tb tb-fold" aria-expanded={toolsOpen} onClick={() => setToolsOpen(!toolsOpen)}>{toolsOpen ? 'Hide tools ▴' : 'Tools ▾'}</button>
           <button type="button" className="tb" aria-label="Undo" title="Undo (Ctrl+Z)" disabled={!history.canUndo} onClick={history.undo}>↶</button>
           <button type="button" className="tb" aria-label="Redo" title="Redo (Ctrl+Y)" disabled={!history.canRedo} onClick={history.redo}>↷</button>
           <span className="sep" />
