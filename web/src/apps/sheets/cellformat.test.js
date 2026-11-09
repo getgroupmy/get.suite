@@ -77,3 +77,9 @@ test('custom number formats: a code of your own', async () => {
   assert.equal(mergeFormat({}, { num: 'custom', code: '' }), null, 'no code: nothing');
   assert.deepEqual(mergeFormat(fmt, { num: 'number' }), { num: 'number' }, 'another format drops the code');
 });
+
+test('text rotation: only the known ways, cleared like the rest', () => {
+  assert.deepEqual(mergeFormat({}, { rot: 'up' }), { rot: 'up' });
+  assert.deepEqual(mergeFormat({ rot: 'up' }, { rot: 'sideways' }), { rot: 'up' });
+  assert.equal(mergeFormat({ rot: 'tiltup' }, { rot: null }), null);
+});

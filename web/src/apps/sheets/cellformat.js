@@ -1,13 +1,15 @@
 // Cell formatting for Sheets: how numbers show (the value itself never changes), and which style
 // keys a format may have. Formats live per sheet in `formats` ({ A1: { b, i, u, s (strikethrough), wrap, bd (borders: sides from "tblr"),
-// color, fill, align, va (vertical: top, middle or bottom), num, dp, cur, code (num 'custom': a format code, numfmt.js) } }).
+// color, fill, align, va (vertical: top, middle or bottom), rot (text rotation: ROTATIONS), num, dp, cur, code (num 'custom': a format code, numfmt.js) } }).
 import { formatCode, cleanCode } from './numfmt.js';
 
 export const NUMBER_FORMATS = [['', 'Automatic'], ['number', 'Number'], ['currency', 'Currency'], ['percent', 'Percent'], ['date', 'Date'], ['custom', 'Custom…']];
 /** How a date shows (fmt.ds), with an example. */
 export const DATE_STYLES = [['medium', '7 Nov 2026'], ['short', '07/11/2026'], ['long', 'Saturday, 7 November 2026'], ['iso', '2026-11-07'], ['month', 'Nov 2026']];
 export const CURRENCIES = ['MYR', 'USD', 'EUR', 'GBP', 'SGD', 'AUD', 'JPY', 'CNY', 'IDR', 'THB', 'INR'];
-const KEYS = ['b', 'i', 'u', 's', 'wrap', 'bd', 'color', 'fill', 'align', 'va', 'num', 'dp', 'cur', 'ds', 'code'];
+const KEYS = ['b', 'i', 'u', 's', 'wrap', 'bd', 'color', 'fill', 'align', 'va', 'rot', 'num', 'dp', 'cur', 'ds', 'code'];
+/** Text rotation: tilted 45° up or down, turned 90° up or down, or letters stacked one under another. */
+export const ROTATIONS = [['tiltup', 'Tilt up'], ['tiltdown', 'Tilt down'], ['up', 'Rotate up'], ['down', 'Rotate down'], ['stack', 'Stack vertically']];
 export const VALIGNS = [['top', 'Top'], ['middle', 'Middle'], ['bottom', 'Bottom']];
 const COLOR_RE = /^#[0-9a-f]{6}$/i;
 
@@ -83,6 +85,7 @@ export function mergeFormat(fmt, change) {
     else if ((k === 'color' || k === 'fill') && !COLOR_RE.test(v)) continue;
     else if (k === 'align' && !['left', 'center', 'right'].includes(v)) continue;
     else if (k === 'va' && !VALIGNS.some(([x]) => x === v)) continue;
+    else if (k === 'rot' && !ROTATIONS.some(([x]) => x === v)) continue;
     else if (k === 'bd') { const sides = sideSet(v); if (sides) out.bd = sides; else delete out.bd; }
     else if (k === 'dp') out.dp = Math.max(0, Math.min(10, Math.round(v)));
     else if (k === 'code') { const c = cleanCode(v); if (c) out.code = c; else delete out.code; }

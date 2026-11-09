@@ -2346,3 +2346,13 @@ textarea.mono { font-family: ui-monospace, Consolas, monospace; }
 .form-option-thumb { position: relative; display: inline-block; }
 .form-option-thumb img { width: 40px; height: 30px; object-fit: cover; border-radius: 4px; border: 1px solid var(--border); display: block; }
 .form-option-thumb .chip-x { position: absolute; top: -8px; right: -8px; }
+
+/* Sheets: text rotation. Turned and stacked text makes its row taller; tilted text leans over its neighbours. */
+.cell-rot { display: inline-block; white-space: nowrap; }
+.cell-rot.rot-up { writing-mode: vertical-rl; transform: rotate(180deg); }
+.cell-rot.rot-down { writing-mode: vertical-rl; }
+.cell-rot.rot-stack { writing-mode: vertical-rl; text-orientation: upright; letter-spacing: -1px; }
+.cell-rot.rot-tiltup, .cell-rot.rot-tiltdown { padding: 0.6em 0; }
+.cell-rot.rot-tiltup { transform: rotate(-45deg); }
+.cell-rot.rot-tiltdown { transform: rotate(45deg); }
+.grid td:has(> .cell-rot.rot-tiltup), .grid td:has(> .cell-rot.rot-tiltdown) { overflow: visible; }

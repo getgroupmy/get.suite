@@ -168,6 +168,9 @@ export async function sheetFromExcel(buffer) {
         if (fill && fill !== '#ffffff') f.fill = fill;
         if (['left', 'center', 'right'].includes(cell.alignment?.horizontal)) f.align = cell.alignment.horizontal;
         if (['top', 'middle', 'bottom'].includes(cell.alignment?.vertical)) f.va = cell.alignment.vertical; // only when set in the file
+        const tr = cell.alignment?.textRotation; // degrees (-90…90; 91–180 as written by some programs: below the line), or 'vertical'
+        const rot = tr === 'vertical' || tr === 255 ? 'stack' : tr === 90 ? 'up' : tr === -90 || tr === 180 ? 'down' : (tr > 0 && tr < 90) ? 'tiltup' : ((tr < 0 && tr > -90) || (tr > 90 && tr < 180)) ? 'tiltdown' : null;
+        if (rot) f.rot = rot;
         Object.assign(f, numFromExcel(cell.numFmt));
         if (Object.keys(f).length) formats[key] = f;
       });
@@ -288,7 +291,8 @@ export async function excelFromSheet(data) {
       const cell = ws.getCell(key);
       if (f.b || f.i || f.u || f.s || f.color) cell.font = { bold: !!f.b, italic: !!f.i, underline: !!f.u, strike: !!f.s, ...(f.color && { color: { argb: argb(f.color) } }) };
       if (f.fill) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: argb(f.fill) } };
-      if (f.align || f.wrap || f.va) cell.alignment = { ...(f.align && { horizontal: f.align }), ...(f.va && { vertical: f.va }), ...(f.wrap && { wrapText: true }) };
+      const textRotation = { up: 90, down: -90, tiltup: 45, tiltdown: -45, stack: 'vertical' }[f.rot];
+      if (f.align || f.wrap || f.va || textRotation !== undefined) cell.alignment = { ...(f.align && { horizontal: f.align }), ...(f.va && { vertical: f.va }), ...(f.wrap && { wrapText: true }), ...(textRotation !== undefined && { textRotation }) };
       if (f.bd) cell.border = Object.fromEntries([['t', 'top'], ['b', 'bottom'], ['l', 'left'], ['r', 'right']].filter(([k]) => f.bd.includes(k)).map(([, side]) => [side, { style: 'thin', color: { argb: 'FF000000' } }]));
       const nf = numToExcel(f);
       if (nf) cell.numFmt = nf;

@@ -846,3 +846,14 @@ test('PowerPoint: links on boxes (a web page or another slide) go out and come b
   assert.deepEqual(one.items.find((x) => x.type === 'shape').link, { slide: two.id }, 'to the second slide, by its new id');
   assert.equal(one.items.find((x) => x.text === 'Plain').link, undefined);
 });
+
+test('Excel: text rotation both ways', async () => {
+  const formats = { A1: { rot: 'up' }, B1: { rot: 'down' }, C1: { rot: 'tiltup' }, D1: { rot: 'tiltdown' }, E1: { rot: 'stack' } };
+  const buf = await excelFromSheet({ sheets: [{ name: 'S', cells: { A1: 'Up', B1: 'Down', C1: 'Tilt', D1: 'Tilt', E1: 'Stack' }, formats }] });
+  const ExcelJS = (await import('exceljs')).default;
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(buf);
+  assert.equal(wb.getWorksheet('S').getCell('C1').alignment.textRotation, 45);
+  const back = await sheetFromExcel(buf);
+  assert.deepEqual(back.sheets[0].formats, formats);
+});
