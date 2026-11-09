@@ -634,9 +634,29 @@ export default function chatRoutes() {
     res.status(201).json(deliver(c, req.user, { body: note, files, poll: null, parent: null, forwarded }));
   });
 
+  const lastTyping = new Map(); // "user:channel:thread" → when they were last said to be typing there
   r.post('/channels/:id/messages', (req, res) => {
     const c = writable(req.params.id, req.user);
-    res.status(201).json(deliver(c, req.user, readMessage(c, req.user, req.body)));
+    const m = readMessage(c, req.user, req.body);
+    lastTyping.delete(`${req.user.id}:${c.id}:${m.parent?.id || ''}`); // the next keystroke is news again
+    res.status(201).json(deliver(c, req.user, m));
+  });
+
+  // "Kim is typing…": passed on to the others in the conversation (or thread) as it happens; nothing
+  // is stored. At most one every 2 seconds per person and place; { stop: true } clears it at once.
+  r.post('/channels/:id/typing', (req, res) => {
+    const c = writable(req.params.id, req.user);
+    const parentId = req.body?.parent_id ? String(req.body.parent_id) : null;
+    if (parentId && !q('SELECT 1 FROM messages WHERE id = ? AND channel_id = ?').get(parentId, c.id)) throw notFound('Message not found');
+    const stop = !!req.body?.stop;
+    const key = `${req.user.id}:${c.id}:${parentId || ''}`;
+    const t = Date.now();
+    if (!stop && t - (lastTyping.get(key) || 0) < 2000) return res.status(204).end();
+    if (stop) lastTyping.delete(key); else lastTyping.set(key, t);
+    if (lastTyping.size > 5000) lastTyping.clear();
+    const others = [...audience(c)].filter((id) => id !== req.user.id);
+    sendTo(others, { type: 'chat-typing', channel_id: c.id, parent_id: parentId, user_id: req.user.id, name: req.user.name || req.user.username, stop });
+    res.status(204).end();
   });
 
   // ---- scheduled messages: written now, sent at a chosen time (as if typed then) ----

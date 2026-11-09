@@ -6408,3 +6408,41 @@ test('recent: colleagues’ new work in shared drives and shared folders shows t
   assert.ok(!(await names(b)).includes('Minutes'));
   void deep; void own;
 });
+
+test('chat typing: the others in the conversation (or thread) hear it, at most every 2 seconds; stop clears it', { timeout: 20000 }, async () => {
+  const { default: WS } = await import('ws');
+  const kay = client(); await login(kay, 'kay@keepco.com');
+  for (const [local, name] of [['typa', 'Tia Typer'], ['typb', 'Ted Reader'], ['typc', 'Out Sider']]) await kay('POST', '/api/users', { local, domain: 'keepco.com', name, password: 'password123' });
+  const tia = client(); await login(tia, 'typa@keepco.com');
+  const cookieOf = async (u) => (await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ username: u, password: 'password123' }) })).headers.get('set-cookie').split(';')[0];
+  const live = (cookie) => new Promise((resolve, reject) => {
+    const ws = new WS(`${base.replace('http', 'ws')}/ws`, { headers: { cookie } });
+    ws.msgs = [];
+    ws.on('message', (d) => ws.msgs.push(JSON.parse(String(d))));
+    ws.on('open', () => resolve(ws)); ws.on('error', reject);
+  });
+  const ted = await live(await cookieOf('typb@keepco.com'));
+  const out = await live(await cookieOf('typc@keepco.com'));
+  const me = await live(await cookieOf('typa@keepco.com'));
+  const wait = () => new Promise((r) => setTimeout(r, 200));
+  const typing = (ws) => ws.msgs.filter((m) => m.type === 'chat-typing');
+  try {
+    const ids = Object.fromEntries((await kay('GET', '/api/users/directory')).body.map((u) => [u.username, u.id]));
+    const ch = (await tia('POST', '/api/chat/channels', { name: 'typing-room', private: true, members: [ids['typb@keepco.com']] })).body;
+    assert.equal((await tia('POST', `/api/chat/channels/${ch.id}/typing`, {})).status, 204);
+    await wait();
+    assert.deepEqual(typing(ted).map(({ channel_id, parent_id, user_id, name, stop }) => ({ channel_id, parent_id, user_id, name, stop })), [{ channel_id: ch.id, parent_id: null, user_id: ids['typa@keepco.com'], name: 'Tia Typer', stop: false }]);
+    assert.equal(typing(out).length, 0, 'not in the private channel');
+    assert.equal(typing(me).length, 0, 'not to yourself');
+    await tia('POST', `/api/chat/channels/${ch.id}/typing`, {}); await wait();
+    assert.equal(typing(ted).length, 1, 'too soon: dropped');
+    await tia('POST', `/api/chat/channels/${ch.id}/typing`, { stop: true }); await wait();
+    assert.equal(typing(ted).at(-1).stop, true);
+    const msg = (await tia('POST', `/api/chat/channels/${ch.id}/messages`, { body: 'hello' })).body;
+    await tia('POST', `/api/chat/channels/${ch.id}/typing`, { parent_id: msg.id }); await wait();
+    assert.equal(typing(ted).at(-1).parent_id, msg.id);
+    assert.equal((await tia('POST', `/api/chat/channels/${ch.id}/typing`, { parent_id: 'nope' })).status, 404);
+    const sid = client(); await login(sid, 'typc@keepco.com');
+    assert.equal((await sid('POST', `/api/chat/channels/${ch.id}/typing`, {})).status, 404, 'outsiders can\'t');
+  } finally { ted.terminate(); out.terminate(); me.terminate(); }
+});

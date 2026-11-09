@@ -15,6 +15,43 @@ import { useAuth } from '../../App.jsx';
 import { useMentions, MENTION_RE, GROUP_WORD_RE, knownGroupWords } from '../../components/mentions.jsx';
 import { addToTasksWithToast, titleFromText } from '../tasks/addtask.js';
 import { isPaused } from '../../pause.js';
+import { noteTyping, typingIn, typingText } from './typing.js';
+
+/**
+ * "Kim is typing…": tells the others while you type here (at most every 2.5 seconds; clearing the
+ * box says you stopped), and gives the line to show for the others typing here.
+ */
+function useTyping(channelId, parentId, meId) {
+  const [state, setState] = useState({});
+  const [, setTick] = useState(0);
+  const last = useRef(0);
+  useEffect(() => onLive((m) => {
+    if (m.type === 'chat-typing') setState((s) => noteTyping(s, m));
+    else if (m.type === 'message' && m.message.user_id !== meId) setState((s) => noteTyping(s, { channel_id: m.message.channel_id, parent_id: m.message.parent_id, user_id: m.message.user_id, stop: true }));
+  }), [meId]);
+  const names = channelId ? typingIn(state, channelId, parentId) : [];
+  useEffect(() => { // fade out when the signs stop coming
+    if (!names.length) return undefined;
+    const t = setInterval(() => setTick((n) => n + 1), 1000);
+    return () => clearInterval(t);
+  }, [names.length]);
+  useEffect(() => { last.current = 0; }, [channelId, parentId]);
+  const onType = (text) => {
+    if (!channelId) return;
+    const t = Date.now();
+    if (text.trim()) {
+      if (t - last.current < 2500) return;
+      last.current = t;
+      post(`/chat/channels/${channelId}/typing`, { parent_id: parentId || undefined }).catch(() => {});
+    } else if (last.current) {
+      last.current = 0;
+      post(`/chat/channels/${channelId}/typing`, { parent_id: parentId || undefined, stop: true }).catch(() => {});
+    }
+  };
+  const sent = () => { last.current = 0; };
+  const line = <div className="typing-line muted small" aria-live="polite">{typingText(names)}</div>;
+  return { line, onType, sent };
+}
 
 export default function Chat() {
   const { channelId } = useParams();
@@ -51,6 +88,7 @@ export default function Chat() {
   const [unread, setUnread] = useState({});
   const [mentioned, setMentioned] = useState({}); // conversations where someone @mentioned you since you read them
   const mention = useMentions(box, text, setText, { groups: true });
+  const typing = useTyping(channelId, null, user.id);
   const [forwarding, setForwarding] = useState(null); // the message being forwarded
   const [threadId, setThreadId] = useState(null); // the message whose thread is open beside the conversation
   const [dialog, setDialog] = useState(false);
@@ -214,7 +252,7 @@ export default function Chat() {
     const body = text.trim();
     if ((!body && !files.length) || uploading) return;
     const sending = files;
-    setText(''); setFiles([]);
+    setText(''); setFiles([]); typing.sent();
     stick.current = true;
     try {
       const msg = await post(`/chat/channels/${channelId}/messages`, { body, files: sending.map((f) => f.id) });
@@ -382,6 +420,7 @@ export default function Chat() {
               {uploading > 0 && <li className="muted">Uploading {uploading}…</li>}
             </ul>
           )}
+          {typing.line}
           {!current.archived_at && current.can_post === false ? (
             <div className="banner archived-banner" role="note">📣 Only {(current.posters || []).map((id) => people.find((p) => p.id === id)?.name).filter(Boolean).join(', ') || 'some people'} (and admins) start conversations here. Reply in a thread to join in.</div>
           ) : current.archived_at ? (
@@ -394,7 +433,7 @@ export default function Chat() {
             <button type="button" className="icon-btn" aria-label="Create a poll" title="Ask a question with options to vote on" onClick={() => setPollOpen(true)}>📊</button>
             <button type="button" className="icon-btn" aria-label="Start a video meeting" title="Start a video meeting and share its link here" onClick={startMeeting}><Icon name="video" /></button>
             <input ref={fileInput} type="file" multiple hidden aria-label="Files to attach" onChange={(e) => { attach([...e.target.files]); e.target.value = ''; }} />
-            <textarea ref={box} rows={1} value={text} placeholder={`Message ${title}`} aria-label="Message" title="*bold*  _italic_  ~strike~  `code`  ```code block```  > quote" onChange={(e) => { setText(e.target.value); mention.track(e.target.value, e.target.selectionStart); }}
+            <textarea ref={box} rows={1} value={text} placeholder={`Message ${title}`} aria-label="Message" title="*bold*  _italic_  ~strike~  `code`  ```code block```  > quote" onChange={(e) => { setText(e.target.value); mention.track(e.target.value, e.target.selectionStart); typing.onType(e.target.value); }}
               onPaste={(e) => { const pasted = [...(e.clipboardData?.files || [])]; if (pasted.length) { e.preventDefault(); attach(pasted); } }}
               onKeyDown={(e) => { if (mention.keyDown(e)) return; if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) send(e); }} />
             {mention.list}
@@ -441,6 +480,7 @@ function Thread({ id, channelId, user, onClose }) {
   const end = useRef();
   const box = useRef();
   const mention = useMentions(box, text, setText, { groups: true });
+  const typing = useTyping(channelId, id, user.id);
   useEffect(() => {
     get(`/chat/messages/${id}/replies`).then((t) => { setParent(t.message); setReplies(t.replies); }).catch((e) => { toast(e.message, 'error'); onClose(); });
     box.current?.focus();
@@ -471,7 +511,7 @@ function Thread({ id, channelId, user, onClose }) {
     e.preventDefault();
     const body = text.trim();
     if (!body) return;
-    setText('');
+    setText(''); typing.sent();
     try { const msg = await post(`/chat/channels/${channelId}/messages`, { body, parent_id: id }); setReplies((list) => (list.some((x) => x.id === msg.id) ? list : [...list, msg])); checkLinkAccess(channelId, body, toast, user.org_name); }
     catch (err) { toast(err.message, 'error'); setText(body); }
   }
@@ -489,9 +529,10 @@ function Thread({ id, channelId, user, onClose }) {
         {replies.map((m, i) => item(m, i > 0 && replies[i - 1].user_id === m.user_id && m.created_at - replies[i - 1].created_at < 5 * 60e3))}
         <div ref={end} />
       </div>
+      {typing.line}
       <form className="composer" onSubmit={send}>
         <EmojiPicker up className="icon-btn" onPick={(ch) => setText((v) => v + ch)} />
-        <textarea ref={box} rows={1} value={text} placeholder="Reply…" aria-label="Reply" onChange={(e) => { setText(e.target.value); mention.track(e.target.value, e.target.selectionStart); }}
+        <textarea ref={box} rows={1} value={text} placeholder="Reply…" aria-label="Reply" onChange={(e) => { setText(e.target.value); mention.track(e.target.value, e.target.selectionStart); typing.onType(e.target.value); }}
           onKeyDown={(e) => { if (mention.keyDown(e)) return; if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) send(e); }} />
         {mention.list}
         <button className="icon-btn send" aria-label="Send reply" disabled={!text.trim()}><Icon name="send" /></button>

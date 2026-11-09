@@ -2230,3 +2230,4 @@ textarea.mono { font-family: ui-monospace, Consolas, monospace; }
 .band-preview { border: 1px solid var(--border); border-radius: 6px; overflow: hidden; width: 180px; }
 .band-preview div { padding: 3px 8px; font-size: 12px; }
 .band-colour input[type="color"] { width: 36px; height: 28px; padding: 2px; min-height: 0; cursor: pointer; }
+.typing-line { min-height: 18px; line-height: 18px; padding: 0 16px; font-style: italic; }
