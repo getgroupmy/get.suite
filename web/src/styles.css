@@ -2235,3 +2235,7 @@ textarea.mono { font-family: ui-monospace, Consolas, monospace; }
 .grid-wrap.painting td { cursor: copy; }
 .paper.pageless { box-shadow: none; border-radius: 0; } .paper.pageless .page-break { opacity: .5; }
 .slide-guide { position: absolute; pointer-events: none; z-index: 50; background: #e8318a; } .slide-guide.x { top: 0; bottom: 0; width: 1px; } .slide-guide.y { left: 0; right: 0; height: 1px; }
+.handle.rot { left: 50%; top: -22px; border-radius: 50%; cursor: grab; }
+.handle.rot::after { content: ''; position: absolute; left: 50%; top: 100%; width: 2px; height: 12px; background: var(--accent); transform: translateX(-50%); }
+.rot-field { display: inline-flex; align-items: center; gap: 2px; }
+.rot-field input { width: 52px; padding: 2px 4px; }

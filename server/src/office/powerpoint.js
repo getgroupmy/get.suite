@@ -90,7 +90,9 @@ export async function deckFromPowerPoint(buffer, { savePicture }) {
       if (!xf) { const ph = deep(el, P, 'ph')[0]; if (ph) xf = layoutBoxes.get(`${attr(ph, 'type') || 'body'}:${attr(ph, 'idx') || ''}`) || [...layoutBoxes.entries()].find(([k]) => k.startsWith(`${attr(ph, 'type') || 'body'}:`))?.[1]; }
       const off = kid(xf, A, 'off'), ext = kid(xf, A, 'ext');
       if (!off || !ext) return null;
-      return { x: (Number(attr(off, 'x')) / W) * 100, y: (Number(attr(off, 'y')) / H) * 100, w: (Number(attr(ext, 'cx')) / W) * 100, h: (Number(attr(ext, 'cy')) / H) * 100 };
+      let rot = Math.round(Number(attr(xf, 'rot')) / 60000) || 0; // turned (in 60000ths of a degree)
+      rot = ((rot % 360) + 540) % 360 - 180; if (rot === -180) rot = 180;
+      return { x: (Number(attr(off, 'x')) / W) * 100, y: (Number(attr(off, 'y')) / H) * 100, w: (Number(attr(ext, 'cx')) / W) * 100, h: (Number(attr(ext, 'cy')) / H) * 100, ...(rot && { rot }) };
     };
     const items = [];
     const tree = deep(xml, P, 'spTree')[0];
@@ -202,7 +204,7 @@ export async function powerPointFromDeck(deck, { pictureData, title = 'Presentat
     if (numberShown(deck, (deck.slides || []).indexOf(s))) slide.slideNumber = { x: Win - 1.1, y: Hin - 0.55, w: 0.8, h: 0.35, fontSize: 12, color: color('text', theme.text), align: 'right', fontFace: 'Arial' };
     if (s.skip) slide.hidden = true; // (transitions and timings are added afterwards: withShowSettings)
     for (const it of s.items || []) {
-      const pos = { x: (it.x / 100) * Win, y: (it.y / 100) * Hin, w: (it.w / 100) * Win, h: (it.h / 100) * Hin };
+      const pos = { x: (it.x / 100) * Win, y: (it.y / 100) * Hin, w: (it.w / 100) * Win, h: (it.h / 100) * Hin, ...(Number(it.rot) && { rotate: ((Number(it.rot) % 360) + 360) % 360 }) };
       if (it.type === 'text') {
         slide.addText(it.text || '', { ...pos, fontSize: Math.round((it.size || 24) * Win * 72 / 1000), bold: !!it.bold, italic: !!it.italic,
           color: color(it.color, theme.text), align: it.align || 'left', valign: 'top', margin: 0, fontFace: 'Arial' });

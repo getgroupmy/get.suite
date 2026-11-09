@@ -285,6 +285,21 @@ test('Excel: alternating colours become cell fills, a cell\'s own fill kept', as
   assert.equal(ws.getCell('B1').font?.bold, true);
 });
 
+test('PowerPoint: rotated boxes keep their angle both ways', async () => {
+  const deck = { theme: 'light', slides: [{ id: 's', items: [
+    { id: 'a', type: 'text', text: 'Tilted', x: 10, y: 10, w: 30, h: 10, rot: 45 },
+    { id: 'b', type: 'shape', shape: 'rect', fill: '#ff0000', x: 50, y: 50, w: 10, h: 10, rot: -30 },
+    { id: 'c', type: 'text', text: 'Straight', x: 10, y: 60, w: 30, h: 10 }] }] };
+  const buf = await powerPointFromDeck(deck, {});
+  const xml = await (await (await import('jszip')).default.loadAsync(buf)).file('ppt/slides/slide1.xml').async('string');
+  assert.match(xml, /rot="2700000"/, '45° in 60000ths');
+  assert.match(xml, /rot="19800000"/, '-30° written as 330°');
+  const items = (await deckFromPowerPoint(buf, { savePicture: async () => 'x' })).slides[0].items;
+  assert.equal(items.find((i) => i.text === 'Tilted').rot, 45);
+  assert.equal(items.find((i) => i.type === 'shape').rot, -30);
+  assert.equal(items.find((i) => i.text === 'Straight').rot, undefined);
+});
+
 test('Excel: newer functions carry the _xlfn. prefix in the file and lose it in Sheets', async () => {
   assert.equal(formulaToExcel('IFERROR(XLOOKUP(A1,B:B,C:C),"_xlfn.x")+STDEV.S(D1:D3)+SUM(E1)'), 'IFERROR(_xlfn.XLOOKUP(A1,B:B,C:C),"_xlfn.x")+_xlfn.STDEV.S(D1:D3)+SUM(E1)');
   assert.equal(formulaFromExcel('_xlfn.XLOOKUP(A1,B1:B3,C1:C3)&"_xlfn."'), 'XLOOKUP(A1,B1:B3,C1:C3)&"_xlfn."');

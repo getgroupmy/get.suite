@@ -168,3 +168,14 @@ test('smart guides: snapping to the slide centre and to other boxes', async () =
   r = snapBox({ x: 69, y: 5, w: 30, h: 10 }, []);
   assert.equal(r.box.x, 70);
 });
+
+test('rotation: angles from the handle, kept between -179 and 180', async () => {
+  const { angleTo, normAngle } = await import('./slidemath.js');
+  assert.equal(angleTo(0, 0, 0, -10), 0, 'straight up: upright');
+  assert.equal(angleTo(0, 0, 10, 0), 90, 'to the right');
+  assert.equal(angleTo(0, 0, 0, 10), 180);
+  assert.equal(angleTo(0, 0, -10, 0), -90);
+  assert.equal(angleTo(0, 0, 10, -9), 45, 'snaps to 15° steps');
+  assert.equal(angleTo(0, 0, 10, -9, false), 48);
+  assert.deepEqual([normAngle(370), normAngle(-190), normAngle(180), normAngle(-180), normAngle(NaN)], [10, 170, 180, 180, 0]);
+});

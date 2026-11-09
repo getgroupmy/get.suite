@@ -269,3 +269,18 @@ export function snapBox(box, others, tol = 1.2) {
   }
   return { box: snapped, guides };
 }
+
+/** An angle as kept on a box: whole degrees from -179 to 180 (0 = upright). */
+export function normAngle(deg) {
+  if (!Number.isFinite(deg)) return 0;
+  let a = Math.round(deg) % 360;
+  if (a > 180) a -= 360;
+  if (a <= -180) a += 360;
+  return a;
+}
+
+/** The rotation that points a box's top at (px, py) from its centre (cx, cy); in 15° steps when `steps`. */
+export function angleTo(cx, cy, px, py, steps = true) {
+  const deg = (Math.atan2(py - cy, px - cx) * 180) / Math.PI + 90;
+  return normAngle(steps ? Math.round(deg / 15) * 15 : deg);
+}

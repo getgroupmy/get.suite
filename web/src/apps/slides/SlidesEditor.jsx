@@ -19,7 +19,7 @@ import { VersionHistory } from '../VersionHistory.jsx';
 import { EditorHeader } from '../editorCommon.jsx';
 import { useUndo, undoKey } from '../useUndo.js';
 import {
-  THEMES, LAYOUTS, numberShown, newId, clampBox, moveBox, snapBox, resizeBox, addSlide, duplicateSlide, removeSlide, moveSlide, moveSlides, duplicateSlides, removeSlides,
+  THEMES, LAYOUTS, numberShown, newId, clampBox, moveBox, snapBox, angleTo, normAngle, resizeBox, addSlide, duplicateSlide, removeSlide, moveSlide, moveSlides, duplicateSlides, removeSlides,
   updateItem, addItem, removeItem, restack, pictureBox,
   TRANSITIONS, setSlide, stepSlide, firstShown, newTable, resizeTable, setCell,
   ANIMATIONS, builds, animChange, stepPresent, nextPresent, ADVANCES, advanceLabel, slideChanges } from './slidemath.js';
@@ -330,6 +330,8 @@ export default function SlidesEditor() {
             </select>
           )}
           {item && <>
+            <label className="tb rot-field" title="Rotation in degrees">⟳<input type="number" aria-label="Rotation" min={-360} max={360} step={15} value={item.rot || 0}
+              onChange={(e) => { const rot = normAngle(Number(e.target.value)); change((d) => updateItem(d, slideIndex, item.id, rot ? { rot } : { rot: undefined })); }} />°</label>
             <button type="button" className="tb" aria-label="Bring to front" title="Bring to front" onClick={() => change((d) => restack(d, slideIndex, item.id, 1))}>⤒</button>
             <button type="button" className="tb" aria-label="Send to back" title="Send to back" onClick={() => change((d) => restack(d, slideIndex, item.id, -1))}>⤓</button>
             <button type="button" className="tb" aria-label="Delete" title="Delete (Del)" onClick={() => { change((d) => removeItem(d, slideIndex, item.id)); setSelected(null); }}><Icon name="trash" size={18} /></button>
@@ -508,6 +510,18 @@ export function SlideView({ slide, theme, deckId, editable, selected, editing, o
     if (editing === it.id && !handle) return; // typing: let the cursor move in the text
     const rect = ref.current.getBoundingClientRect();
     const x0 = e.clientX, y0 = e.clientY;
+    if (handle === 'rot') { // turning it round its centre (in 15° steps; Shift for any angle)
+      const cx = rect.left + ((it.x + it.w / 2) / 100) * rect.width, cy = rect.top + ((it.y + it.h / 2) / 100) * rect.height;
+      let rot = it.rot || 0;
+      const turn = (m) => { rot = angleTo(cx, cy, m.clientX, m.clientY, !m.shiftKey); setLive({ id: it.id, box: { ...it, rot } }); };
+      const done = () => {
+        window.removeEventListener('pointermove', turn); window.removeEventListener('pointerup', done);
+        setLive(null);
+        if (rot !== (it.rot || 0)) onChange(it.id, { rot });
+      };
+      window.addEventListener('pointermove', turn); window.addEventListener('pointerup', done);
+      return;
+    }
     const ratio = it.type === 'image' ? it.w / it.h : null;
     let box = null, moved = false;
     const move = (m) => {
@@ -534,7 +548,7 @@ export function SlideView({ slide, theme, deckId, editable, selected, editing, o
     <div ref={ref} className={`slide ${editable ? 'editable' : ''}`} style={{ background: slide.bg || theme.bg, color: theme.text }} role={editable ? 'group' : undefined} aria-label={editable ? 'Slide' : undefined}>
       {slide.items.map((it) => {
         const box = live?.id === it.id ? live.box : it;
-        const pos = { left: `${box.x}%`, top: `${box.y}%`, width: `${box.w}%`, height: `${box.h}%` };
+        const pos = { left: `${box.x}%`, top: `${box.y}%`, width: `${box.w}%`, height: `${box.h}%`, ...(box.rot ? { transform: `rotate(${box.rot}deg)` } : {}) };
         const isSel = editable && selected === it.id;
         let inner = null;
         if (it.type === 'text') {
@@ -596,6 +610,7 @@ export function SlideView({ slide, theme, deckId, editable, selected, editing, o
             {inner}
             {editable && at && <span className="anim-badge" title={`Comes in on click ${at} (${it.anim})`} aria-hidden="true">{at}</span>}
             {isSel && editing !== it.id && HANDLES.map((h) => <span key={h} className={`handle ${h}`} aria-hidden="true" onPointerDown={(e) => startDrag(e, it, h)} />)}
+            {isSel && editing !== it.id && <span className="handle rot" title="Drag to rotate (Shift: any angle)" aria-hidden="true" onPointerDown={(e) => startDrag(e, it, 'rot')} />}
           </div>
         );
       })}
