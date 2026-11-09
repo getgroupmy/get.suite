@@ -20,7 +20,7 @@ export const SuggestInsert = Mark.create({
   name: 'suggestInsert',
   inclusive: false,
   addAttributes: attrs,
-  parseHTML: () => [{ tag: 'ins[data-sugg]' }],
+  parseHTML: () => [{ tag: 'ins[data-sugg]', priority: 100 }],
   renderHTML: ({ HTMLAttributes }) => ['ins', { ...HTMLAttributes, class: 'sugg-ins' }, 0],
 });
 
@@ -29,7 +29,7 @@ export const SuggestDelete = Mark.create({
   name: 'suggestDelete',
   inclusive: false,
   addAttributes: attrs,
-  parseHTML: () => [{ tag: 'del[data-sugg]' }],
+  parseHTML: () => [{ tag: 'del[data-sugg]', priority: 100 }], // before Strike's own <del>
   renderHTML: ({ HTMLAttributes }) => ['del', { ...HTMLAttributes, class: 'sugg-del' }, 0],
 });
 

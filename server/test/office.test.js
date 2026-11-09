@@ -1523,3 +1523,25 @@ test('Excel: an old-style copy of a comment thread, on its own, comes in as the 
   assert.deepEqual(threadFromNote(`${head}    Is this right?\n    Two lines\nReply:\n    Yes\nReply (Kim Park):\n    Checked`), { author: '', text: 'Is this right?\nTwo lines', at: null, resolved: false, replies: [{ author: '', text: 'Yes', at: null }, { author: 'Kim Park', text: 'Checked', at: null }] });
   assert.equal(threadFromNote('Just a note'), null);
 });
+
+test('Word: suggestions go out as tracked changes, and tracked changes come in as suggestions', async () => {
+  const at = Date.parse('2026-11-02T08:30:00Z');
+  const sugg = (type, id, name) => ({ type, attrs: { id, by: 'u1', name, at } });
+  const doc = { type: 'doc', content: [{ type: 'paragraph', content: [
+    { type: 'text', text: 'The meeting is in ' },
+    { type: 'text', text: 'March', marks: [sugg('suggestDelete', 's1', 'Kim Park')] },
+    { type: 'text', text: 'April', marks: [{ type: 'bold' }, sugg('suggestInsert', 's1', 'Kim Park')] },
+    { type: 'text', text: ' at the office.' },
+  ] }] };
+  const buf = await wordFromDoc(doc, 'Plan');
+  const xml = await (await JSZip.loadAsync(buf)).file('word/document.xml').async('string');
+  assert.match(xml, /<w:del w:id="\d+" w:author="Kim Park" w:date="2026-11-02T08:30:00Z">[\s\S]*<w:delText[^>]*>March<\/w:delText>/);
+  assert.match(xml, /<w:ins w:id="\d+" w:author="Kim Park" w:date="2026-11-02T08:30:00Z">[\s\S]*<w:b\/>[\s\S]*April/);
+  const { doc: back } = await docFromWord(buf);
+  const p = back.content[0].content;
+  assert.equal(text(back.content[0]), 'The meeting is in MarchApril at the office.');
+  const marksOf = (t) => p.find((n) => n.text === t).marks.map((m) => [m.type, m.attrs?.name, m.attrs?.at]).filter(([k]) => k.startsWith('suggest'));
+  assert.deepEqual(marksOf('March'), [['suggestDelete', 'Kim Park', at]]);
+  assert.deepEqual(marksOf('April'), [['suggestInsert', 'Kim Park', at]]);
+  assert.ok(p.find((n) => n.text === 'April').marks.some((m) => m.type === 'bold'), 'formatting kept');
+});

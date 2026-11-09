@@ -19,7 +19,7 @@ import { TextStyle, Color, BackgroundColor } from '@tiptap/extension-text-style'
 import {
   Document, Packer, Paragraph, TextRun, HeadingLevel, ExternalHyperlink, AlignmentType, LevelFormat, BorderStyle,
   Math as WordMath, MathRun, Table as WordTable, TableRow as WordRow, TableCell as WordCell, WidthType, ShadingType, ImageRun, Header, Footer, PageNumber, PageOrientation, LineRuleType,
-  Bookmark, InternalHyperlink, PageBreak, FootnoteReferenceRun, CommentRangeStart, CommentRangeEnd, CommentReference,
+  Bookmark, InternalHyperlink, PageBreak, FootnoteReferenceRun, CommentRangeStart, CommentRangeEnd, CommentReference, InsertedTextRun, DeletedTextRun,
 } from 'docx';
 import { Node, Mark } from '@tiptap/core';
 import { pageMm, MARGINS, PAPER } from '../pagesetup.js';
@@ -71,6 +71,13 @@ function bookmarksFromWord(html) {
     .replace(/<a href="#([^"]+)">/g, (m, name) => (wanted(name) ? `<a href="#bm-${idOf(name)}">` : m));
 }
 // The same building blocks as the Docs editor.
+// Suggestions (Docs' suggesting mode), as in web/src/apps/docs/suggest.js: Word's tracked changes.
+const suggAttrs = () => ({
+  id: { default: null, parseHTML: (el) => el.getAttribute('data-sugg') }, by: { default: null, parseHTML: (el) => el.getAttribute('data-by') },
+  name: { default: '', parseHTML: (el) => el.getAttribute('data-name') || '' }, at: { default: 0, parseHTML: (el) => Number(el.getAttribute('data-at')) || 0 },
+});
+const SuggestInsert = Mark.create({ name: 'suggestInsert', inclusive: false, addAttributes: suggAttrs, parseHTML: () => [{ tag: 'ins[data-sugg]', priority: 100 }], renderHTML: ({ HTMLAttributes }) => ['ins', HTMLAttributes, 0] });
+const SuggestDelete = Mark.create({ name: 'suggestDelete', inclusive: false, addAttributes: suggAttrs, parseHTML: () => [{ tag: 'del[data-sugg]', priority: 100 }], renderHTML: ({ HTMLAttributes }) => ['del', HTMLAttributes, 0] });
 // The text a comment is about, as in web/src/apps/docs/DocEditor.jsx (the thread's id).
 const CommentMark = Mark.create({
   name: 'comment', inclusive: false, excludes: '',
@@ -80,7 +87,7 @@ const CommentMark = Mark.create({
 });
 const EXTENSIONS = [
   StarterKit.configure({ link: { openOnClick: false } }), TextAlign.configure({ types: ['heading', 'paragraph'] }),
-  DocImage, Table, TableRow, TableHeader, TableCell, TextStyle, Color, BackgroundColor, Footnote, Superscript, Subscript, BookmarkNode, CommentMark,
+  DocImage, Table, TableRow, TableHeader, TableCell, TextStyle, Color, BackgroundColor, Footnote, Superscript, Subscript, BookmarkNode, CommentMark, SuggestInsert, SuggestDelete,
 ];
 const attr = (t) => t.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 const plain = (html) => html.replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
@@ -105,7 +112,12 @@ const WORD_ALIGN = { center: 'center', right: 'right', end: 'right', both: 'just
 const marker = (text) => `<w:r><w:t xml:space="preserve">${MK}${text}${MK_END}</w:t></w:r>`;
 /** document.xml with markers before aligned paragraphs' text and around coloured or highlighted runs. */
 export function markWordXml(xml) {
+  // Tracked changes (not the self-closing ones Word puts on paragraph marks): who and when, kept as markers;
+  // deleted text (w:delText, which the converter leaves out) made ordinary text inside them.
+  const who = (attrs) => encodeURIComponent(JSON.stringify({ id: /w:id="(\d+)"/.exec(attrs)?.[1] || '', name: /w:author="([^"]*)"/.exec(attrs)?.[1] || '', at: /w:date="([^"]*)"/.exec(attrs)?.[1] || '' }));
   return String(xml)
+    .replace(/<w:ins\b([^>]*[^/])>([\s\S]*?)<\/w:ins>/g, (m, attrs, inner) => `${marker(`i:${who(attrs)}`)}${inner}${marker('/i')}`)
+    .replace(/<w:del\b([^>]*[^/])>([\s\S]*?)<\/w:del>/g, (m, attrs, inner) => `${marker(`d:${who(attrs)}`)}${inner.replace(/<w:delText\b/g, '<w:t').replace(/<\/w:delText>/g, '</w:t>')}${marker('/d')}`)
     // Comments: where each one's text starts and ends (its id kept, to find its words afterwards).
     .replace(/<w:commentRangeStart w:id="(\d+)"\/>/g, (m, id) => `${m}${marker(`k:${id}`)}`)
     .replace(/<w:commentRangeEnd w:id="(\d+)"\/>/g, (m, id) => `${marker(`/k:${id}`)}${m}`)
@@ -125,7 +137,19 @@ export function markWordXml(xml) {
 /** The HTML mammoth made, with the markers turned into alignment and colour styles (and any left over removed). */
 export function unmarkWordHtml(html, commentId = null) {
   const re = (s) => new RegExp(s.replace(/MK/g, MK).replace(/END/g, MK_END), 'g');
+  const sugg = (tag) => (m, k, payload) => {
+    let w = {};
+    try { w = JSON.parse(decodeURIComponent(payload)); } catch { /* none */ }
+    const name = String(w.name || '').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').slice(0, 100);
+    const at = Date.parse(w.at || '') || 0;
+    return `<${tag} data-sugg="w${String(w.id).replace(/\D/g, '')}-${k}" data-name="${attr(name)}" data-at="${at}">`;
+  };
+  let n = 0;
   return String(html)
+    .replace(re('MKi:([^END]*)END'), (m, p) => sugg('ins')(m, ++n, p))
+    .replace(re('MK/iEND'), '</ins>')
+    .replace(re('MKd:([^END]*)END'), (m, p) => sugg('del')(m, ++n, p))
+    .replace(re('MK/dEND'), '</del>')
     .replace(re('MKk:(\\d+)END'), (m, id) => { if (!commentId) return ''; const c = commentId(id); return c ? `<span data-comment="${c}">` : '<span>'; })
     .replace(re('MK/k:(\\d+)END'), () => (commentId ? '</span>' : ''))
     .replace(re('<(p|h[1-6])>MKa:(center|right|justify)END'), (m, tag, a) => `<${tag} style="text-align:${a}">`)
@@ -254,6 +278,7 @@ const CHIP_FILLS = { grey: 'E8EAED', blue: 'D3E3FD', green: 'C4EED0', yellow: 'F
 
 // The notes of the document being written (wordFromDoc fills it as it meets footnote markers).
 let footnotes = null;
+let revisionNo = 0; // tracked changes' numbers while writing
 // While writing: the comment threads going into the file (thread id → Word's comment number).
 let commentNos = null;
 // Its bookmarks' ids, so links to them become links inside the Word file.
@@ -305,6 +330,13 @@ function runs(nodes = [], extra = {}) {
       ...(marks.superscript && { superScript: true }), ...(marks.subscript && { subScript: true }),
       ...(color && { color }), ...(fill && { shading: { type: ShadingType.CLEAR, color: 'auto', fill } }), ...(font && { font }), ...(size && { size }), ...extra,
     };
+    // A pending suggestion: a Word tracked change (an insertion, or a deletion) by whoever suggested it.
+    if (marks.suggestInsert || marks.suggestDelete) {
+      const sg = marks.suggestInsert || marks.suggestDelete;
+      const change = { ...run, id: ++revisionNo, author: String(sg.name || 'Workspace').slice(0, 100), date: new Date(sg.at || Date.now()).toISOString().replace(/\.\d+Z$/, 'Z') };
+      out.push(marks.suggestInsert ? new InsertedTextRun(change) : new DeletedTextRun(change));
+      continue;
+    }
     if (marks.link?.href && internalAnchor(marks.link.href)) out.push(new InternalHyperlink({ anchor: internalAnchor(marks.link.href), children: [new TextRun({ ...run, style: 'Hyperlink' })] }));
     else if (marks.link?.href) out.push(new ExternalHyperlink({ link: marks.link.href, children: [new TextRun({ ...run, style: 'Hyperlink' })] }));
     else out.push(new TextRun(run));

@@ -7566,3 +7566,24 @@ test('Office files: comment threads in an Excel file become comment threads on t
   const threads = (await owner('GET', `/api/comments/${opened.id}`)).body;
   assert.deepEqual(threads.map((t) => [t.body, t.anchor]), [['Too high?\n\n— Jane Smith (in the Excel file)', { sheet: 1, cell: 'C4' }]]);
 });
+
+test('Office files: suggestions go into the Word download as tracked changes (the Markdown one stays without)', async () => {
+  const at = Date.parse('2026-11-02T08:30:00Z');
+  const s = (type) => ({ type, attrs: { id: 's1', by: null, name: 'Kim Park', at } });
+  const content = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Meet in ' }, { type: 'text', text: 'March', marks: [s('suggestDelete')] }, { type: 'text', text: 'April', marks: [s('suggestInsert')] }] }] };
+  const d = (await owner('POST', '/api/files/new', { kind: 'doc', name: 'Plan', content })).body;
+  const docx = await owner('GET', `/api/files/${d.id}/export`, undefined, { binary: true });
+  const JSZip = (await import('jszip')).default;
+  const xml = await (await JSZip.loadAsync(docx.body)).file('word/document.xml').async('string');
+  assert.match(xml, /<w:ins [^>]*w:author="Kim Park"/);
+  assert.match(xml, /<w:delText[^>]*>March<\/w:delText>/);
+  const md = await owner('GET', `/api/files/${d.id}/export?format=md`, undefined, { raw: true });
+  assert.match(String(md.body), /Meet in March/);
+  assert.doesNotMatch(String(md.body), /April/);
+  // Opened again: the tracked changes are suggestions to accept or reject.
+  const up = (await owner('POST', '/api/files/upload?name=Plan%20tracked.docx', docx.body, { raw: true })).body;
+  const opened = (await owner('POST', `/api/files/${up.id}/open-as`)).body;
+  const back = JSON.stringify((await owner('GET', `/api/files/${opened.id}/content`)).body.content);
+  assert.match(back, /"type":"suggestDelete","attrs":\{"id":"w\d+-\d+","by":null,"name":"Kim Park","at":1793608200000\}\}\],"text":"March"/);
+  assert.match(back, /"type":"suggestInsert"[^\]]*\],"text":"April"/);
+});
