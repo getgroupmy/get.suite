@@ -887,3 +887,36 @@ test('Word: indented paragraphs and headings keep their indent', async () => {
   assert.match(paraOf('Indented heading'), /<w:ind w:left="720"/);
   assert.doesNotMatch(paraOf('At the margin'), /<w:ind /);
 });
+
+test('Word: bookmarks and links to them go out as Word bookmarks and internal links, and come back', async () => {
+  const JSZipLib = (await import('jszip')).default;
+  const link = (text, href) => ({ type: 'text', text, marks: [{ type: 'link', attrs: { href } }] });
+  const doc = { type: 'doc', content: [
+    { type: 'paragraph', content: [{ type: 'text', text: 'See ' }, link('the terms', 'https://ws.example/docs/abc#bm-terms123'), { type: 'text', text: ' or ' }, link('elsewhere', 'https://example.com/#bm-zzzzzz99')] },
+    { type: 'paragraph', content: [{ type: 'bookmark', attrs: { id: 'terms123' } }, { type: 'text', text: 'Terms: pay in 30 days.' }] },
+    { type: 'paragraph', content: [{ type: 'bookmark', attrs: { id: 'bad id!' } }, { type: 'text', text: 'End.' }] },
+  ] };
+  const buf = await wordFromDoc(doc, 'Contract');
+  const xml = await (await JSZipLib.loadAsync(buf)).file('word/document.xml').async('string');
+  assert.match(xml, /<w:bookmarkStart [^>]*w:name="bm_terms123"/);
+  assert.match(xml, /<w:hyperlink [^>]*w:anchor="bm_terms123"/, 'a link to a bookmark in this document stays inside it');
+  assert.equal((xml.match(/w:bookmarkStart [^>]*w:name="bm_/g) || []).length, 1, 'only good ids');
+  const { doc: back } = await docFromWord(buf);
+  const flat = JSON.stringify(back);
+  assert.match(flat, /"type":"bookmark","attrs":\{"id":"terms123"\}/);
+  assert.match(flat, /"href":"#bm-terms123"/);
+  assert.match(flat, /"href":"https:\/\/example.com\/#bm-zzzzzz99"/, 'other sites\' links are left alone');
+
+  // Word's own bookmarks (named by people) come in too; Word's housekeeping ones don't.
+  const { Document, Packer, Paragraph, Bookmark, InternalHyperlink, TextRun } = await import('docx');
+  const w = new Document({ sections: [{ children: [
+    new Paragraph({ children: [new InternalHyperlink({ anchor: 'Appendix', children: [new TextRun('Go')] })] }),
+    new Paragraph({ children: [new Bookmark({ id: 'Appendix', children: [new TextRun('Appendix A')] }), new Bookmark({ id: '_GoBack', children: [] })] }),
+  ] }] });
+  const { doc: theirs } = await docFromWord(await Packer.toBuffer(w));
+  const marks = [];
+  (function find(n) { if (n.type === 'bookmark') marks.push(n.attrs.id); (n.content || []).forEach(find); })(theirs);
+  assert.equal(marks.length, 1, JSON.stringify(theirs));
+  assert.match(marks[0], /^w[0-9a-f]{9}$/);
+  assert.match(JSON.stringify(theirs), new RegExp(`"href":"#bm-${marks[0]}"`));
+});

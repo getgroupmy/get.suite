@@ -2366,3 +2366,11 @@ del.compare-key { background: color-mix(in srgb, #d93025 14%, transparent); text
 /* Find and replace (Slides) */
 .slide-find-where { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .slide-find-where mark { background: #f9ab00; color: #1f1f1f; border-radius: 2px; padding: 0 1px; }
+/* Bookmarks (Docs) */
+.doc-bookmark { display: inline-block; width: 0; position: relative; }
+.doc-bookmark::before { content: "🔖"; position: absolute; left: -2px; top: -0.9em; font-size: 0.7em; opacity: 0.75; cursor: default; }
+.ProseMirror-selectednode.doc-bookmark::before { outline: 2px solid var(--accent, #1a73e8); border-radius: 2px; opacity: 1; }
+.bookmark-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; }
+.bookmark-list .row { gap: 6px; align-items: center; }
+.bookmark-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+@media print { .doc-bookmark::before { content: none; } }

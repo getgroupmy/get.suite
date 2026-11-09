@@ -2,6 +2,7 @@
 // italic, underline, links, tables, pictures) and TipTap's own parser makes it a document, so it
 // opens exactly like one typed in Docs. Saving: the document is written back as a .docx, with its
 // tables, pictures and text colours.
+import crypto from 'node:crypto';
 import mammoth from 'mammoth';
 import JSZip from 'jszip';
 import { chartTable } from './sheetchart.js';
@@ -44,10 +45,34 @@ const Footnote = Node.create({
   parseHTML: () => [{ tag: 'sup[data-footnote]' }],
   renderHTML: ({ HTMLAttributes }) => ['sup', { ...HTMLAttributes, 'data-footnote': '' }],
 });
+// A bookmark, as in web/src/apps/docs/bookmark.js: a marker a link can point to (#bm-<id>).
+const BOOKMARK_ID = /^[a-z0-9]{6,16}$/;
+const BookmarkNode = Node.create({
+  name: 'bookmark', group: 'inline', inline: true, atom: true,
+  addAttributes: () => ({ id: { default: null, parseHTML: (el) => (BOOKMARK_ID.test(el.getAttribute('data-bookmark') || '') ? el.getAttribute('data-bookmark') : null) } }),
+  parseHTML: () => [{ tag: 'span[data-bookmark]' }],
+  renderHTML: ({ node }) => ['span', { 'data-bookmark': node.attrs.id }],
+});
+/** Word's bookmarks (mammoth makes them <a id="…">) as Docs bookmarks, and links to them as #bm-… links.
+ *  Ours come back with their own ids; Word's own get one made from their name (_Toc… and _GoBack are Word's housekeeping). */
+function bookmarksFromWord(html) {
+  const ids = new Map();
+  const idOf = (name) => {
+    if (!ids.has(name)) {
+      const ours = /^bm_([a-z0-9]{6,16})$/.exec(name);
+      ids.set(name, ours ? ours[1] : `w${crypto.createHash('sha1').update(name).digest('hex').slice(0, 9)}`);
+    }
+    return ids.get(name);
+  };
+  const wanted = (name) => !/^_/.test(name);
+  return html
+    .replace(/<a id="([^"]+)"><\/a>/g, (m, name) => (wanted(name) ? `<span data-bookmark="${idOf(name)}"></span>` : ''))
+    .replace(/<a href="#([^"]+)">/g, (m, name) => (wanted(name) ? `<a href="#bm-${idOf(name)}">` : m));
+}
 // The same building blocks as the Docs editor.
 const EXTENSIONS = [
   StarterKit.configure({ link: { openOnClick: false } }), TextAlign.configure({ types: ['heading', 'paragraph'] }),
-  DocImage, Table, TableRow, TableHeader, TableCell, TextStyle, Color, BackgroundColor, Footnote, Superscript, Subscript,
+  DocImage, Table, TableRow, TableHeader, TableCell, TextStyle, Color, BackgroundColor, Footnote, Superscript, Subscript, BookmarkNode,
 ];
 const attr = (t) => t.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 const plain = (html) => html.replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
@@ -82,7 +107,7 @@ export async function docFromWord(buffer, { savePicture } = {}) {
     styleMap: ['p[style-name=\'Title\'] => h1:fresh', 'p[style-name=\'Subtitle\'] => h2:fresh', 'u => u'],
   });
   // A picture that couldn't be kept leaves a note instead of disappearing silently.
-  const withNotes = footnotesFromWord(html).replace(/<img [^>]*alt="\[picture\]"[^>]*>/g, '<em>[picture]</em>');
+  const withNotes = bookmarksFromWord(footnotesFromWord(html)).replace(/<img [^>]*alt="\[picture\]"[^>]*>/g, '<em>[picture]</em>');
   const doc = checklists(generateJSON(withNotes || '<p></p>', EXTENSIONS));
   return { doc, warnings: messages.filter((m) => m.type === 'warning').map((m) => m.message) };
 }
@@ -119,6 +144,9 @@ const CHIP_FILLS = { grey: 'E8EAED', blue: 'D3E3FD', green: 'C4EED0', yellow: 'F
 
 // The notes of the document being written (wordFromDoc fills it as it meets footnote markers).
 let footnotes = null;
+// Its bookmarks' ids, so links to them become links inside the Word file.
+let bookmarkIds = new Set();
+const bookmarkLinked = (href) => { const m = /#bm-([a-z0-9]{6,16})$/.exec(String(href || '')); return m && bookmarkIds.has(m[1]) ? m[1] : null; };
 
 function runs(nodes = [], extra = {}) {
   const out = [];
@@ -129,6 +157,7 @@ function runs(nodes = [], extra = {}) {
     if (n.type === 'math') { const l = String(n.attrs?.latex || '').trim(); if (l) out.push(new WordMath({ children: [new MathRun(l)] })); continue; }
     if (n.type === 'datechip') { out.push(new TextRun({ text: dateText(n.attrs?.date), color: '1A73E8', underline: {} })); continue; }
     if (n.type === 'dropchip') { const fill = CHIP_FILLS[(n.attrs?.options || []).find((o) => o?.label === n.attrs?.value)?.color] || 'E8EAED'; out.push(new TextRun({ text: ` ${chipText(n.attrs)} `, bold: true, shading: { type: ShadingType.CLEAR, color: 'auto', fill } })); continue; }
+    if (n.type === 'bookmark') { if (BOOKMARK_ID.test(n.attrs?.id || '')) out.push(new Bookmark({ id: `bm_${n.attrs.id}`, children: [] })); continue; }
     if (n.type === 'footnote' && footnotes) {
       const id = footnotes.length + 1;
       footnotes.push(n.attrs?.note || '');
@@ -145,7 +174,8 @@ function runs(nodes = [], extra = {}) {
       ...(marks.superscript && { superScript: true }), ...(marks.subscript && { subScript: true }),
       ...(color && { color }), ...(fill && { shading: { type: ShadingType.CLEAR, color: 'auto', fill } }), ...(font && { font }), ...(size && { size }), ...extra,
     };
-    if (marks.link?.href) out.push(new ExternalHyperlink({ link: marks.link.href, children: [new TextRun({ ...run, style: 'Hyperlink' })] }));
+    if (marks.link?.href && bookmarkLinked(marks.link.href)) out.push(new InternalHyperlink({ anchor: `bm_${bookmarkLinked(marks.link.href)}`, children: [new TextRun({ ...run, style: 'Hyperlink' })] }));
+    else if (marks.link?.href) out.push(new ExternalHyperlink({ link: marks.link.href, children: [new TextRun({ ...run, style: 'Hyperlink' })] }));
     else out.push(new TextRun(run));
   }
   return out;
@@ -333,8 +363,10 @@ export async function wordFromDoc(doc, title = 'Document', { pictureData, page, 
     }
   }
   footnotes = [];
+  bookmarkIds = new Set();
+  (function find(n) { if (n?.type === 'bookmark' && BOOKMARK_ID.test(n.attrs?.id || '')) bookmarkIds.add(n.attrs.id); (n?.content || []).forEach(find); })(doc);
   let paras, notes;
-  try { paras = block(doc?.content); notes = footnotes; } finally { footnotes = null; }
+  try { paras = block(doc?.content); notes = footnotes; } finally { footnotes = null; bookmarkIds = new Set(); }
   if (signatures) paras.push(...signaturePage(signatures));
   const file = new Document({
     title,

@@ -42,6 +42,8 @@ import { TaskList, TaskItem } from '@tiptap/extension-list';
 import { PageBreak } from './pagebreak.js';
 import { captureFormat, applyFormat, wordAt } from './paintformat.js';
 import { Footnote, footnotesOf, htmlWithFootnotes } from './footnote.js';
+import { NodeSelection } from '@tiptap/pm/state';
+import { BookmarkNode, bookmarksOf, bookmarkIdOf, bookmarkAnchor } from './bookmark.js';
 import { Mention, mentionQuery, matchPeople } from './mention.js';
 import { DropChip, CHIP_PRESETS, CHIP_COLORS, cleanOptions } from './dropchip.js';
 import { DateChip, matchDates, dateText, isDate, isoDay } from './datechip.js';
@@ -143,6 +145,7 @@ function SharedDoc({ file, setFile }) {
   const toast = useToast();
   const [sharing, setSharing] = useState(false);
   const [history, setHistory] = useState(false);
+  const [bookmarking, setBookmarking] = useState(false);
   const [comparing, setComparing] = useState(null); // null, { step: 'pick' } or { name, content }
   const [sendingItems, setSendingItems] = useState(false);
   // A link to another file in Drive, named after it. If people who can open this document can't
@@ -221,7 +224,7 @@ function SharedDoc({ file, setFile }) {
       Table.configure({ resizable: false }), TableRow, TableHeader, TableCell,
       TextStyle, Color, BackgroundColor, FontFamily, FontSize, LineHeight, TableOfContents, SheetChart,
       SuggestInsert, SuggestDelete, SuggestMode,
-      PageBreak, Footnote, Mention, DropChip, DateChip, MathInline, Citation, References, TaskList, TaskItem.configure({ nested: true }), // checklists: everyone sees the ticks live; viewers can't tick
+      PageBreak, Footnote, BookmarkNode, Mention, DropChip, DateChip, MathInline, Citation, References, TaskList, TaskItem.configure({ nested: true }), // checklists: everyone sees the ticks live; viewers can't tick
     ],
     editable: !readOnly,
     editorProps: {
@@ -370,7 +373,7 @@ function SharedDoc({ file, setFile }) {
       provider.off('sync', focusOnce);
       // Opened from a link to a heading: start there instead of at the top.
       const h = window.location.hash && headingForAnchor(headingsOf(editor.state.doc), window.location.hash);
-      if (h) goToHeading(editor, h); else editor.commands.focus('start');
+      if (h) goToHeading(editor, h); else if (!goToBookmark(editor, bookmarkIdOf(window.location.hash))) editor.commands.focus('start');
     };
     if (provider.synced) focusOnce(true); else provider.on('sync', focusOnce);
     return () => provider.off('sync', focusOnce);
@@ -481,11 +484,22 @@ function SharedDoc({ file, setFile }) {
       if (done) return;
       const h = headingForAnchor(headingsOf(editor.state.doc), window.location.hash);
       if (h) { done = true; goToHeading(editor, h); }
+      else if (goToBookmark(editor, bookmarkIdOf(window.location.hash))) done = true;
     };
     tryGo();
     editor.on('update', tryGo);
     const stop = setTimeout(() => { done = true; }, 15000);
     return () => { editor.off('update', tryGo); clearTimeout(stop); };
+  }, [editor]);
+  // A link to a place in this same document (Ctrl+click, or the address changed by hand) goes there.
+  useEffect(() => {
+    if (!editor) return undefined;
+    const go = () => {
+      const h = headingForAnchor(headingsOf(editor.state.doc), window.location.hash);
+      if (h) goToHeading(editor, h); else goToBookmark(editor, bookmarkIdOf(window.location.hash));
+    };
+    window.addEventListener('hashchange', go);
+    return () => window.removeEventListener('hashchange', go);
   }, [editor]);
   if (!editor) return null;
   // The same person in two tabs shows once.
@@ -528,6 +542,7 @@ function SharedDoc({ file, setFile }) {
           ...(!readOnly ? [{ label: 'Page setup', icon: 'print', onClick: () => setPageSetupOpen(true) }] : []),
           { label: 'Version history', icon: 'clock', onClick: () => setHistory(true) },
           { label: 'Compare documents', icon: 'doc', onClick: () => setComparing({ step: 'pick' }) },
+          { label: 'Bookmarks', icon: 'link', onClick: () => setBookmarking(true) },
           ...(!readOnly ? [{ label: 'Send action items to Tasks', icon: 'check', onClick: () => setSendingItems(true) }] : []),
           { label: 'Word count', icon: 'doc', onClick: () => setWordCount(true) },
           ...(!readOnly ? [{ label: 'Preferences', icon: 'settings', onClick: () => setPrefsOpen(true) }] : []),
@@ -625,6 +640,7 @@ function SharedDoc({ file, setFile }) {
           setComparing({ step: 'loading' });
           try { setComparing(await get(`/files/${f.id}/as-doc`)); } catch (e) { setComparing(null); toast(e.message, 'error'); }
         }} />}
+      {bookmarking && <BookmarksDialog editor={editor} canEdit={!readOnly} onClose={() => { setBookmarking(false); refocus(); }} />}
       {comparing?.content && <CompareDialog name={file.name} other={comparing} current={editor.getJSON()} onClose={() => { setComparing(null); refocus(); }} />}
       {sendingItems && <ActionItemsDialog fileId={file.id} doc={editor.getJSON()} onClose={() => setSendingItems(false)} />}
       {history && <VersionHistory file={file} canEdit={!readOnly} onClose={() => setHistory(false)} renderPreview={(content) => <DocPreview content={content} fileId={file.id} />} renderChanges={(content) => <DocChanges before={content} after={editor.getJSON()} />} />}
@@ -1112,6 +1128,59 @@ function DocChanges({ before, after, summary = (added, removed) => (added || rem
   );
 }
 
+/** Go to a bookmark (by id): it's chosen and scrolled into view. False when the document has none by that id. */
+function goToBookmark(editor, id) {
+  const b = id && bookmarksOf(editor.state.doc).find((x) => x.id === id);
+  if (!b) return false;
+  const { view } = editor;
+  if (editor.isEditable) { view.dispatch(view.state.tr.setSelection(NodeSelection.create(view.state.doc, b.pos))); view.focus(); }
+  const el = view.nodeDOM(b.pos);
+  if (el?.scrollIntoView) requestAnimationFrame(() => el.scrollIntoView({ block: 'center' }));
+  return true;
+}
+
+const bookmarkLink = (id) => `${window.location.origin}${window.location.pathname}#${bookmarkAnchor(id)}`;
+
+/** Bookmarks: add one where the cursor is (its link is copied), and go to, copy a link to, or remove the others. */
+function BookmarksDialog({ editor, canEdit, onClose }) {
+  const toast = useToast();
+  const at = useRef(editor.state.selection.from);
+  const [, refresh] = useState(0);
+  useEffect(() => { const f = () => refresh((n) => n + 1); editor.on('update', f); return () => editor.off('update', f); }, [editor]);
+  const marks = bookmarksOf(editor.state.doc);
+  const copy = async (id, done) => {
+    const url = bookmarkLink(id);
+    try { await navigator.clipboard.writeText(url); toast(done || 'Link to the bookmark copied'); } catch { window.prompt('Copy this link', url); }
+  };
+  const add = () => {
+    let id = null;
+    editor.chain().setTextSelection(Math.min(at.current, editor.state.doc.content.size - 1)).command(({ tr, commands }) => { const ok = commands.insertBookmark(); id = tr.getMeta('bookmark'); return ok; }).run();
+    if (id) copy(id, 'Bookmark added: link copied');
+  };
+  const remove = (id) => {
+    const b = bookmarksOf(editor.state.doc).find((x) => x.id === id);
+    if (b) editor.view.dispatch(editor.state.tr.delete(b.pos, b.pos + 1));
+  };
+  return (
+    <Modal title="Bookmarks" onClose={onClose} footer={<button type="button" className="btn primary" onClick={onClose}>Done</button>}>
+      <p className="muted small">A bookmark marks a place in the document. Its link opens the document right there, for anyone who can open it.</p>
+      {canEdit && <p><button type="button" className="btn" onClick={add}>+ Add a bookmark where the cursor is</button></p>}
+      {!marks.length ? <p className="muted">No bookmarks yet.</p> : (
+        <ul className="bookmark-list" aria-label="Bookmarks in this document">
+          {marks.map((b, i) => (
+            <li key={b.id} className="row">
+              <span className="grow bookmark-text">🔖 {b.text || <span className="muted">(an empty line)</span>}</span>
+              <button type="button" className="btn small" aria-label={`Go to bookmark ${i + 1}`} onClick={() => { onClose(); setTimeout(() => goToBookmark(editor, b.id), 0); }}>Go to</button>
+              <button type="button" className="btn small" aria-label={`Copy link to bookmark ${i + 1}`} onClick={() => copy(b.id)}>Copy link</button>
+              {canEdit && <button type="button" className="btn small" aria-label={`Remove bookmark ${i + 1}`} onClick={() => remove(b.id)}>Remove</button>}
+            </li>
+          ))}
+        </ul>
+      )}
+    </Modal>
+  );
+}
+
 /** Compare documents: what's different in another document (or Word or Markdown file) from this one, or the other way round. */
 function CompareDialog({ name, other, current, onClose }) {
   const [swapped, setSwapped] = useState(false);
@@ -1163,7 +1232,7 @@ export function DocPreview({ content, fileId, pictureBase = null }) {
     extensions: [
       StarterKit.configure({ link: { openOnClick: true } }), TextAlign.configure({ types: ['heading', 'paragraph'] }),
       CommentMark, DocImage.configure({ docId: fileId, pictureBase }), Table, TableRow, TableHeader, TableCell, Superscript, Subscript, Indent,
-      TextStyle, Color, BackgroundColor, FontFamily, FontSize, LineHeight, TableOfContents, SheetChart, PageBreak, Footnote, Mention, DropChip, DateChip, MathInline, Citation, References, TaskList, TaskItem.configure({ nested: true }),
+      TextStyle, Color, BackgroundColor, FontFamily, FontSize, LineHeight, TableOfContents, SheetChart, PageBreak, Footnote, BookmarkNode, Mention, DropChip, DateChip, MathInline, Citation, References, TaskList, TaskItem.configure({ nested: true }),
     ],
   }, [content]);
   return <div className="paper preview-paper"><EditorContent editor={editor} /></div>;
