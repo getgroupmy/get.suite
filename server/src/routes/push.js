@@ -4,7 +4,7 @@ import { Router } from 'express';
 import { vapidKeys, subscribe, unsubscribe, devicesOf, pushTo } from '../push.js';
 import { bad } from '../util.js';
 import crypto from 'node:crypto';
-import { describeDevice } from '../auth.js';
+import { describeDevice, tokenFromReq } from '../auth.js';
 import { q } from '../db.js';
 
 // A device in the list: named from its browser, by a short id (not its push address).
@@ -23,7 +23,9 @@ export default function pushRoutes() {
     res.json({ removed: q('DELETE FROM push_subscriptions WHERE user_id = ? AND endpoint = ?').run(req.user.id, d.endpoint).changes });
   });
   r.post('/subscribe', (req, res) => {
-    try { subscribe(req.user.id, req.body, req.get('user-agent'), req.body?.tz); } catch (e) { throw bad(e.message); }
+    const session = tokenFromReq(req);
+    if (!session) throw bad('Turn notifications on from Workspace in the browser, signed in');
+    try { subscribe(req.user.id, req.body, req.get('user-agent'), req.body?.tz, session); } catch (e) { throw bad(e.message); }
     res.json({ ok: true });
   });
   r.post('/unsubscribe', (req, res) => res.json({ removed: unsubscribe(req.user.id, req.body?.endpoint) }));

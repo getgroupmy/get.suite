@@ -33,6 +33,8 @@ const read = (g) => JSON.parse(ece.decrypt(g.body, { version: 'aes128gcm', priva
 
 q("INSERT INTO orgs (id, name, created_at) VALUES ('po', 'Push Co', 0)").run();
 q("INSERT INTO users (id, org_id, username, name, password_hash, created_at) VALUES ('pu', 'po', 'p@push.test', 'Pia', 'x', 0)").run();
+// A signed-in session (devices only get notifications while the sign-in that turned them on lasts).
+const signedIn = (userId) => { const t = `tok-${Math.random()}`; q('INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)').run(t, userId, Date.now() + 864e5); return t; };
 
 test('push: only the browser makers’ services are taken as addresses', () => {
   delete process.env.PUSH_ANY_ENDPOINT;
@@ -47,7 +49,7 @@ test('push: only the browser makers’ services are taken as addresses', () => {
 
 test('push: a notification reaches the device, encrypted, signed with the server’s key; quiet when paused; a gone device is forgotten', async () => {
   process.env.PUSH_ANY_ENDPOINT = '1';
-  subscribe('pu', { endpoint, keys }, 'Test phone');
+  subscribe('pu', { endpoint, keys }, 'Test phone', null, signedIn('pu'));
   assert.equal(devicesOf('pu')[0].device, 'Test phone');
   notify(['pu'], { kind: 'mention', title: 'Kim mentioned you in “Plan”', body: 'Can you check the figures?', link: '/docs/123' });
   for (let i = 0; i < 50 && !got.length; i++) await new Promise((r) => setTimeout(r, 20));
@@ -85,7 +87,7 @@ test('push: a direct message in Chat reaches the other person’s devices; once 
     const call = (method, url, body) => fetch(`${base}${url}`, { method, headers: { cookie: dan, 'content-type': 'application/json', 'x-requested-with': 'nas-workspace' }, body: body && JSON.stringify(body) }).then((r) => r.json());
     q('DELETE FROM push_subscriptions').run();
     answer = 201;
-    subscribe('db', { endpoint, keys }, 'Deb phone');
+    subscribe('db', { endpoint, keys }, 'Deb phone', null, signedIn('db'));
     const ch = await call('POST', '/api/chat/dm', { user_id: 'db' });
     got = [];
     await call('POST', `/api/chat/channels/${ch.id}/messages`, { body: 'Are you coming to the 3pm?' });
@@ -119,7 +121,7 @@ test('push: calendar reminders reach devices when they come due, repeating ones 
   const { sendDueReminderPushes } = await import('../src/pushreminders.js');
   q('DELETE FROM push_subscriptions').run();
   answer = 201;
-  subscribe('pu', { endpoint, keys }, 'Pia phone');
+  subscribe('pu', { endpoint, keys }, 'Pia phone', null, signedIn('pu'));
   const now = Date.parse('2026-11-10T08:50:00Z');
   const ev = (id, start, opts = {}) => q(`INSERT INTO events (id, owner_id, title, location, start, end, all_day, rrule, exdates, tz) VALUES (?, ?, ?, ?, ?, ?, 0, ?, '[]', 'UTC')`)
     .run(id, opts.owner || 'pu', opts.title || id, opts.location || null, start, start + 36e5, opts.rrule ? JSON.stringify(opts.rrule) : null);
@@ -144,9 +146,10 @@ test('push: tasks — the morning note from 9:00 in the phone’s time zone, and
   const { sendTaskPushes, zoneOf } = await import('../src/pushreminders.js');
   q('DELETE FROM push_subscriptions').run();
   answer = 201;
-  subscribe('pu', { endpoint, keys }, 'Pia phone', 'Asia/Kuala_Lumpur'); // UTC+8
+  const piaSession = signedIn('pu');
+  subscribe('pu', { endpoint, keys }, 'Pia phone', 'Asia/Kuala_Lumpur', piaSession); // UTC+8
   assert.equal(zoneOf('pu'), 'Asia/Kuala_Lumpur');
-  subscribe('pu', { endpoint, keys }, null, 'not a zone; DROP');
+  subscribe('pu', { endpoint, keys }, null, 'not a zone; DROP', piaSession);
   assert.equal(zoneOf('pu'), 'Asia/Kuala_Lumpur', 'a bad zone is ignored; the one it had is kept');
   q("INSERT INTO task_lists (id, owner_id, name, created_at) VALUES ('tl', 'pu', 'Mine', 0)").run();
   const task = (id, title, due, time = null, done = null) => q('INSERT INTO tasks (id, list_id, title, due, due_time, position, done_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 0, ?, 0, 0)').run(id, 'tl', title, due, time, done);
@@ -165,4 +168,26 @@ test('push: tasks — the morning note from 9:00 in the phone’s time zone, and
   assert.equal(await sendTaskPushes(at('2026-11-12T10:30:20'), { skipOnline: false }), 1);
   assert.deepEqual([read(got[0]).title, read(got[0]).body], ['Call the bank', 'Due now']);
   assert.equal(await sendTaskPushes(at('2026-11-12T10:31:00'), { skipOnline: false }), 0);
+});
+
+test('push: signed out on that device (or everywhere), or the account turned off: nothing more goes to it', async () => {
+  process.env.PUSH_ANY_ENDPOINT = '1';
+  q('DELETE FROM push_subscriptions').run();
+  answer = 201;
+  const s1 = signedIn('pu');
+  subscribe('pu', { endpoint, keys }, 'Pia phone', null, s1);
+  got = [];
+  assert.equal(await pushTo('pu', { title: 'One' }, { force: true }), 1);
+  // The account turned off: nothing (and the device is kept, for if it's turned on again).
+  q('UPDATE users SET disabled = 1 WHERE id = ?').run('pu');
+  assert.equal(await pushTo('pu', { title: 'Two' }, { force: true }), 0);
+  q('UPDATE users SET disabled = 0 WHERE id = ?').run('pu');
+  // Signed out on that phone (the lost phone, signed out from Settings → Devices): forgotten.
+  q('DELETE FROM sessions WHERE token = ?').run(s1);
+  assert.equal(await pushTo('pu', { title: 'Three' }, { force: true }), 0);
+  assert.deepEqual(devicesOf('pu'), []);
+  assert.equal(got.length, 1, 'only the first went out');
+  // No sign-in at all (a script with an API token): not taken.
+  subscribe('pu', { endpoint, keys }, 'Script', null, null);
+  assert.deepEqual(devicesOf('pu'), []);
 });
