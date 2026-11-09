@@ -1,3 +1,5 @@
+import { pushTo } from '../push.js';
+import { offFor } from '../notifications.js';
 import { previewMime, previewHeaders } from '../mail/preview.js';
 import { officePreview, MAX_PREVIEW } from '../office/preview.js';
 import { zipEntries } from '../zipfiles.js';
@@ -200,8 +202,17 @@ function deliver(c, user, { body, files, poll, parent, forwarded = null }) {
   q('INSERT INTO channel_reads (channel_id, user_id, read_at) VALUES (?, ?, ?) ON CONFLICT(channel_id, user_id) DO UPDATE SET read_at = excluded.read_at').run(c.id, user.id, now());
   const msg = one(id);
   sendTo(audience(c), { type: 'message', message: msg });
-  notifyMentions(c, user, msg);
-  if (c.dm_key) queueChatEmail(c.dm_key.split(':').filter((x) => x !== user.id), msg.id); // direct messages too
+  const mentioned = notifyMentions(c, user, msg) || [];
+  if (c.dm_key) {
+    const others = c.dm_key.split(':').filter((x) => x !== user.id);
+    queueChatEmail(others, msg.id); // direct messages too
+    // On phones and computers with Workspace notifications on (not the bell: Chat counts them itself).
+    // Not for a muted conversation, nor for whoever was @mentioned (that notification already went).
+    const muted = new Set(q('SELECT user_id FROM chat_mutes WHERE channel_id = ?').all(c.id).map((x) => x.user_id));
+    for (const id of others.filter((x) => !muted.has(x) && !mentioned.includes(x) && !offFor(x).includes('dm'))) {
+      pushTo(id, { title: user.name || user.username, body: msg.body ? String(msg.body).slice(0, 200) : '📎 Sent a file', link: `/chat/${c.id}`, tag: `chat-${c.id}` }).catch(() => {});
+    }
+  }
   if (parent) sendTo(audience(c), { type: 'message-updated', message: one(parent.id) }); // its reply count
   addPreview(c, msg);
   return msg;
@@ -331,7 +342,7 @@ function notifyMentions(c, from, msg) {
   const body = String(msg.body);
   const names = [...new Set([...body.matchAll(MENTION_RE)].map((m) => m[1].toLowerCase()))].slice(0, 50);
   const words = [...new Set([...body.matchAll(GROUP_MENTION_RE)].map((m) => m[1].toLowerCase()))].slice(0, 20);
-  if (!names.length && !words.length) return;
+  if (!names.length && !words.length) return [];
   const inIt = new Set(audience(c));
   const people = new Set(q(`SELECT id FROM users WHERE LOWER(username) IN (SELECT value FROM json_each(?)) AND disabled = 0`).all(JSON.stringify(names)).map((u) => u.id));
   if (words.length && !c.dm_key) {
@@ -346,6 +357,7 @@ function notifyMentions(c, from, msg) {
   queueChatEmail(ids, msg.id);
   if (ids.length) notify(ids, { kind: 'mention', title: `${from.name || from.username} mentioned you in ${c.dm_key ? 'a message' : `#${c.name}`}`, body: String(msg.body).slice(0, 200), link: `/chat/${c.id}`, actor: from.name });
   if (ids.length) sendTo(ids, { type: 'chat-mention', channel_id: c.id, message_id: msg.id, parent_id: msg.parent_id, from: from.name || from.username, text: String(msg.body).slice(0, 140) });
+  return ids;
 }
 
 /** People from your own company (ids), for a private channel. */

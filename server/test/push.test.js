@@ -66,3 +66,44 @@ test('push: a notification reaches the device, encrypted, signed with the server
   assert.equal(await pushTo('pu', { title: 'x' }), 0);
   assert.deepEqual(devicesOf('pu'), []);
 });
+
+test('push: a direct message in Chat reaches the other person’s devices; once if it mentions them; not when muted', async () => {
+  process.env.PUSH_ANY_ENDPOINT = '1';
+  const { hashPassword } = await import('../src/auth.js');
+  const { createApp } = await import('../src/app.js');
+  const httpMod = await import('node:http');
+  const server = httpMod.createServer(createApp({}));
+  await new Promise((r) => server.listen(0, r));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  try {
+    for (const [id, user, name] of [['da', 'dan@push.test', 'Dan Doe'], ['db', 'deb@push.test', 'Deb Day']]) {
+      q('INSERT INTO users (id, org_id, username, name, password_hash, created_at) VALUES (?, ?, ?, ?, ?, 0)').run(id, 'po', user, name, hashPassword('password123'));
+    }
+    q("INSERT OR IGNORE INTO domains (name, org_id, created_at) VALUES ('push.test', 'po', 0)").run();
+    const login = async (u) => (await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-requested-with': 'nas-workspace' }, body: JSON.stringify({ username: u, password: 'password123' }) })).headers.get('set-cookie').split(';')[0];
+    const dan = await login('dan@push.test');
+    const call = (method, url, body) => fetch(`${base}${url}`, { method, headers: { cookie: dan, 'content-type': 'application/json', 'x-requested-with': 'nas-workspace' }, body: body && JSON.stringify(body) }).then((r) => r.json());
+    q('DELETE FROM push_subscriptions').run();
+    answer = 201;
+    subscribe('db', { endpoint, keys }, 'Deb phone');
+    const ch = await call('POST', '/api/chat/dm', { user_id: 'db' });
+    got = [];
+    await call('POST', `/api/chat/channels/${ch.id}/messages`, { body: 'Are you coming to the 3pm?' });
+    for (let i = 0; i < 50 && !got.length; i++) await new Promise((r) => setTimeout(r, 20));
+    assert.deepEqual(read(got[0]).title, 'Dan Doe');
+    assert.equal(read(got[0]).body, 'Are you coming to the 3pm?');
+    assert.equal(read(got[0]).link, `/chat/${ch.id}`);
+    // Mentioned: one notification (the mention), not two.
+    got = [];
+    await call('POST', `/api/chat/channels/${ch.id}/messages`, { body: '@deb@push.test the room changed' });
+    await new Promise((r) => setTimeout(r, 400));
+    assert.equal(got.length, 1);
+    assert.match(read(got[0]).title, /mentioned you/);
+    // Muted by Deb: nothing.
+    q('INSERT INTO chat_mutes (channel_id, user_id) VALUES (?, ?)').run(ch.id, 'db');
+    got = [];
+    await call('POST', `/api/chat/channels/${ch.id}/messages`, { body: 'ok?' });
+    await new Promise((r) => setTimeout(r, 400));
+    assert.equal(got.length, 0);
+  } finally { server.close(); }
+});
