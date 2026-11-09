@@ -2,7 +2,7 @@
 // laying out timed events side by side in the week/day grid.
 
 export const DAY = 864e5;
-export const VIEWS = ['month', 'week', 'day', 'schedule'];
+export const VIEWS = ['month', 'week', 'day', 'year', 'schedule'];
 export const SCHEDULE_DAYS = 28; // the schedule lists four weeks from the day it starts
 
 export const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
@@ -13,6 +13,7 @@ const addDays = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + 
 /** The days shown: 42 for the month grid, 7 for a week, 1 for a day. */
 export function visibleDays(view, anchor) {
   if (view === 'day') return [startOfDay(anchor)];
+  if (view === 'year') { const y = anchor.getFullYear(); const n = Math.round((new Date(y + 1, 0, 1) - new Date(y, 0, 1)) / 864e5); return Array.from({ length: n }, (_, i) => new Date(y, 0, 1 + i)); }
   if (view === 'schedule') return Array.from({ length: SCHEDULE_DAYS }, (_, i) => addDays(startOfDay(anchor), i));
   if (view === 'week') { const s = startOfWeek(anchor); return Array.from({ length: 7 }, (_, i) => addDays(s, i)); }
   const first = startOfWeek(new Date(anchor.getFullYear(), anchor.getMonth(), 1));
@@ -22,6 +23,7 @@ export function visibleDays(view, anchor) {
 /** Move by one month / week / day (dir = 1 or -1). Months keep the day where possible. */
 export function shift(view, anchor, dir) {
   if (view === 'day') return addDays(anchor, dir);
+  if (view === 'year') { const y = anchor.getFullYear() + dir; return new Date(y, anchor.getMonth(), Math.min(anchor.getDate(), new Date(y, anchor.getMonth() + 1, 0).getDate())); }
   if (view === 'schedule') return addDays(anchor, SCHEDULE_DAYS * dir);
   if (view === 'week') return addDays(anchor, 7 * dir);
   const target = new Date(anchor.getFullYear(), anchor.getMonth() + dir, 1);
@@ -31,6 +33,7 @@ export function shift(view, anchor, dir) {
 
 export function title(view, anchor, locale) {
   if (view === 'month') return anchor.toLocaleDateString(locale, { month: 'long', year: 'numeric' });
+  if (view === 'year') return String(anchor.getFullYear());
   if (view === 'day') return anchor.toLocaleDateString(locale, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
   if (view === 'schedule') return new Intl.DateTimeFormat(locale, { month: 'short', day: 'numeric', year: 'numeric' }).formatRange(startOfDay(anchor), addDays(startOfDay(anchor), SCHEDULE_DAYS - 1));
   // formatRange writes ranges the local way, e.g. "Nov 1 – 7, 2026" or "Dec 27, 2026 – Jan 2, 2027".
@@ -323,4 +326,17 @@ export function moveStart(form, change) {
   const end = new Date(ns + Math.max(0, oldEnd - oldStart));
   const pad = (n) => String(n).padStart(2, '0');
   return { ...next, endDate: `${end.getFullYear()}-${pad(end.getMonth() + 1)}-${pad(end.getDate())}`, ...(!form.all_day && { endTime: `${pad(end.getHours())}:${pad(end.getMinutes())}` }) };
+}
+
+/** For the year view: how many events touch each day, by the day's start time (local midnight). */
+export function eventsPerDay(events, days) {
+  const out = new Map();
+  if (!days.length) return out;
+  const first = days[0].getTime(), last = addDays(days.at(-1), 1).getTime();
+  for (const ev of events) {
+    let d = startOfDay(new Date(Math.max(ev.start, first)));
+    const end = Math.min(ev.end > ev.start ? ev.end : ev.start + 1, last);
+    for (let k = 0; d.getTime() < end && k < 400; k++, d = addDays(d, 1)) out.set(d.getTime(), (out.get(d.getTime()) || 0) + 1);
+  }
+  return out;
 }

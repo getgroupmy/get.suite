@@ -12,7 +12,7 @@ import { useMailStatus } from '../../mailStatus.js';
 import { insights, hoursText } from './insights.js';
 import TimeOff, { waitingFor } from './TimeOff.jsx';
 import { timeIn, zoneName, cityOf } from '../../components/zones.js';
-import { printRange, daysFromTo, scheduleOf, DAY, VIEWS, startOfDay, visibleDays, shift, title, onDay, layoutDay, expandAll, occurrenceIndex, describeRule, daysBetween, moveTimes, resizeEnd, shiftWeekdays, snapMinutes, moveStart, weekdayInMonth } from './calmath.js';
+import { printRange, daysFromTo, scheduleOf, DAY, VIEWS, startOfDay, visibleDays, shift, title, onDay, layoutDay, expandAll, occurrenceIndex, describeRule, daysBetween, moveTimes, resizeEnd, shiftWeekdays, snapMinutes, moveStart, weekdayInMonth, eventsPerDay } from './calmath.js';
 
 const OTHER_COLOURS = ['#e37400', '#8e24aa', '#0b8043', '#d93025', '#00796b', '#3949ab'];
 const COLORS = ['#1a73e8', '#0b8043', '#d50000', '#f4511e', '#8e24aa', '#616161'];
@@ -22,7 +22,7 @@ const toDateInput = (ms) => { const d = new Date(ms); return `${d.getFullYear()}
 const toTimeInput = (ms) => { const d = new Date(ms); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
 const fromInputs = (date, time = '00:00') => new Date(`${date}T${time}`).getTime();
 const fmtTime = (ms) => new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-const VIEW_NAMES = { month: 'Month', week: 'Week', day: 'Day', schedule: 'Schedule' };
+const VIEW_NAMES = { year: 'Year', month: 'Month', week: 'Week', day: 'Day', schedule: 'Schedule' };
 const savedTasks = () => { try { return localStorage.getItem('nw.calTasks') !== '0'; } catch { return true; } };
 /** Open tasks with a due date, as all-day items (they can't be dragged; ticking one off completes it). */
 const taskItems = (tasks) => tasks.map((t) => {
@@ -230,7 +230,7 @@ function Calendar({ acting = null, managed = [], onPick }) {
 
   const today = startOfDay(new Date()).getTime();
   const upcoming = upcomingList.filter((e) => e.end >= Date.now()).slice(0, 8);
-  const unit = view === 'day' ? 'day' : view === 'week' ? 'week' : 'month';
+  const unit = view === 'day' ? 'day' : view === 'week' ? 'week' : view === 'year' ? 'year' : 'month';
 
   function newEvent(day, minutes) {
     const base = day ? new Date(day) : new Date();
@@ -389,6 +389,8 @@ function Calendar({ acting = null, managed = [], onPick }) {
               );
             })}
           </div>
+        ) : view === 'year' ? (
+          <YearView year={anchor.getFullYear()} counts={eventsPerDay(shown, days)} today={today} onDay={openDay} />
         ) : view === 'schedule' ? (
           <Schedule days={days} events={shown} today={today} onOpen={setEditing} onTaskDone={taskDone} onDay={openDay} />
         ) : (
@@ -417,6 +419,37 @@ function Calendar({ acting = null, managed = [], onPick }) {
 
 /** Week / day view: an all-day row, then hours with timed events placed by their real times. */
 /** Four weeks as a list: each day with something on it, its events, tasks and birthdays in order. */
+/** Twelve small months; days with events are marked (darker for more), and a click opens the day. */
+function YearView({ year, counts, today, onDay }) {
+  const dows = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+  return (
+    <div className="year-view">
+      {Array.from({ length: 12 }, (_, m) => {
+        const first = new Date(year, m, 1);
+        const n = new Date(year, m + 1, 0).getDate();
+        return (
+          <section key={m} className="year-month" aria-label={first.toLocaleDateString([], { month: 'long', year: 'numeric' })}>
+            <h3>{first.toLocaleDateString([], { month: 'long' })}</h3>
+            <div className="year-grid">
+              {dows.map((d, i) => <span key={i} className="year-dow muted" aria-hidden="true">{d}</span>)}
+              {Array.from({ length: first.getDay() }, (_, i) => <span key={`b${i}`} />)}
+              {Array.from({ length: n }, (_, i) => {
+                const d = new Date(year, m, i + 1);
+                const c = counts.get(d.getTime()) || 0;
+                return (
+                  <button key={i} type="button" className={`year-day ${c ? `busy busy-${Math.min(c, 3)}` : ''} ${d.getTime() === today ? 'today' : ''}`}
+                    aria-label={`${d.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}${c ? `, ${c} ${c === 1 ? 'event' : 'events'}` : ''}`}
+                    title={c ? `${c} ${c === 1 ? 'event' : 'events'}` : undefined} onClick={() => onDay(d)}>{i + 1}</button>
+                );
+              })}
+            </div>
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
 function Schedule({ days, events, today, onOpen, onTaskDone, onDay: openDay }) {
   const list = scheduleOf(events, days);
   if (!list.length) return <Empty icon="calendar" title="Nothing scheduled">Nothing in these four weeks. The arrows move to the next four.</Empty>;

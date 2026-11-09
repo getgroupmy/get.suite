@@ -2240,3 +2240,13 @@ textarea.mono { font-family: ui-monospace, Consolas, monospace; }
 .rot-field { display: inline-flex; align-items: center; gap: 2px; }
 .rot-field input { width: 52px; padding: 2px 4px; }
 .slide-item.in-group { outline: 2px solid var(--accent); outline-offset: 0; }
+.year-view { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 18px 24px; padding: 12px 16px 24px; overflow: auto; }
+.year-month h3 { margin: 0 0 6px; font-size: 14px; font-weight: 600; }
+.year-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; text-align: center; }
+.year-dow { font-size: 11px; padding: 2px 0; }
+.year-day { border: 0; background: none; color: inherit; font: inherit; font-size: 12px; aspect-ratio: 1; border-radius: 50%; cursor: pointer; padding: 0; }
+.year-day:hover { background: var(--hover); }
+.year-day.busy-1 { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.year-day.busy-2 { background: color-mix(in srgb, var(--accent) 35%, transparent); }
+.year-day.busy-3 { background: color-mix(in srgb, var(--accent) 55%, transparent); font-weight: 600; }
+.year-day.today { background: var(--accent); color: #fff; font-weight: 700; }

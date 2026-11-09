@@ -213,3 +213,26 @@ test('monthly on a weekday: the second Monday, the last Friday', () => {
   assert.deepEqual(shiftWeekdays(last.rrule, -1, new Date(2026, 10, 26, 16).getTime()), { freq: 'monthly', nth: -1, wd: 4, interval: 2, count: 3 });
   assert.deepEqual(shiftWeekdays(second.rrule, 0, second.start), second.rrule);
 });
+
+test('year view: every day of the year, a year at a time, and a count of events per day', async () => {
+  const { visibleDays, shift, title, eventsPerDay } = await import('./calmath.js');
+  const days = visibleDays('year', new Date(2028, 5, 15));
+  assert.equal(days.length, 366, 'a leap year');
+  assert.equal(days[0].getTime(), new Date(2028, 0, 1).getTime());
+  assert.equal(days.at(-1).getTime(), new Date(2028, 11, 31).getTime());
+  assert.equal(visibleDays('year', new Date(2027, 0, 1)).length, 365);
+  assert.equal(shift('year', new Date(2028, 1, 29), 1).getTime(), new Date(2029, 1, 28).getTime(), '29 Feb to 28 Feb');
+  assert.equal(title('year', new Date(2027, 3, 1)), '2027');
+  const t = (m, d, h = 0) => new Date(2027, m, d, h).getTime();
+  const counts = eventsPerDay([
+    { start: t(0, 5, 9), end: t(0, 5, 10) },
+    { start: t(0, 5, 0), end: t(0, 8, 0) }, // all day 5, 6 and 7 January
+    { start: t(2, 1, 9), end: t(2, 1, 9) }, // no length: still its day
+    { start: t(11, 31, 22), end: new Date(2028, 0, 2).getTime() }, // runs past the year: cut off
+  ], visibleDays('year', new Date(2027, 0, 1)));
+  assert.equal(counts.get(t(0, 5)), 2);
+  assert.equal(counts.get(t(0, 7)), 1);
+  assert.equal(counts.get(t(0, 8)), undefined);
+  assert.equal(counts.get(t(2, 1)), 1);
+  assert.equal(counts.get(t(11, 31)), 1);
+});
