@@ -7185,3 +7185,45 @@ test('Forms: ranking questions take every option once, in order; the CSV lists t
   const csv = (await fa('GET', `/api/forms/${f.id}/responses.csv`)).body;
   assert.match(csv, /1\. Faro; 2\. Lisbon; 3\. Porto/);
 });
+
+test('Tasks: several at once (tick off, due date, star, move, delete); all checked first', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['batcha', 'Bea Batch'], ['batchb', 'Bo Other']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'batcha@acme.com');
+  await login(b, 'batchb@acme.com');
+  const list = (await a('POST', '/api/tasks/lists', { name: 'Launch' })).body;
+  const other = (await a('POST', '/api/tasks/lists', { name: 'Later' })).body;
+  const add = async (title, extra = {}) => (await a('POST', `/api/tasks/lists/${list.id}/tasks`, { title, ...extra })).body;
+  const t1 = await add('Write copy'), t2 = await add('Design'), t3 = await add('Weekly report', { due: '2026-11-09', repeat: 'weekly' });
+  const batch = (who, body) => who('POST', '/api/tasks/tasks/batch', body);
+
+  let r = await batch(a, { ids: [t1.id, t2.id], change: { due: '2026-12-01', important: true } });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual(r.body.tasks.map((t) => [t.due, !!t.important]), [['2026-12-01', true], ['2026-12-01', true]]);
+
+  // One that can't be changed stops them all: someone else's task, or a repeating one losing its date (it stops repeating: allowed).
+  const hers = (await b('POST', '/api/tasks/lists', { name: 'Mine' })).body;
+  const theirs = (await b('POST', `/api/tasks/lists/${hers.id}/tasks`, { title: 'Private' })).body;
+  r = await batch(a, { ids: [t1.id, theirs.id], change: { due: '2027-01-01' } });
+  assert.equal(r.status, 404);
+  assert.equal((await a('GET', `/api/tasks/lists/${list.id}/tasks`)).body.find((t) => t.id === t1.id).due, '2026-12-01', 'nothing changed');
+  assert.equal((await batch(a, { ids: [t1.id], change: { due: 'soon' } })).status, 400);
+  assert.equal((await batch(a, { ids: [t1.id], change: { title: 'Sneaky' } })).status, 400, 'only the batch changes');
+  assert.equal((await batch(a, { ids: [], change: { done: true } })).status, 400);
+
+  // Ticking off a repeating task brings the next one, as one at a time does.
+  r = await batch(a, { ids: [t2.id, t3.id], change: { done: true } });
+  assert.equal(r.status, 200);
+  const now = (await a('GET', `/api/tasks/lists/${list.id}/tasks`)).body;
+  assert.equal(now.filter((t) => t.title === 'Weekly report').length, 2, 'the next weekly report');
+  assert.ok(now.find((t) => t.id === t2.id).done);
+
+  // Move to another list, then delete.
+  r = await batch(a, { ids: [t1.id, t2.id], change: { list_id: other.id } });
+  assert.equal(r.status, 200);
+  assert.deepEqual((await a('GET', `/api/tasks/lists/${other.id}/tasks`)).body.map((t) => t.title).sort(), ['Design', 'Write copy']);
+  assert.equal((await batch(b, { ids: [t1.id], delete: true })).status, 404, 'not theirs');
+  r = await batch(a, { ids: [t1.id, t2.id], delete: true });
+  assert.deepEqual(r.body, { deleted: 2 });
+  assert.deepEqual((await a('GET', `/api/tasks/lists/${other.id}/tasks`)).body, []);
+});

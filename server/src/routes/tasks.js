@@ -526,11 +526,13 @@ export default function taskRoutes() {
     res.json({ made, already, skipped });
   });
 
-  r.patch('/tasks/:id', (req, res) => {
-    const task = q('SELECT * FROM tasks WHERE id = ?').get(req.params.id);
+  // Changing a task: first what would change (checked, nothing written), then doing it. Several tasks
+  // at once (POST /tasks/batch) check them all before changing any.
+  function planUpdate(taskId, b, user) {
+    const task = q('SELECT * FROM tasks WHERE id = ?').get(taskId);
     if (!task) throw notFound('Task not found');
-    let list = loadList(task.list_id, req.user);
-    const b = req.body || {};
+    const list = loadList(task.list_id, user);
+    const req = { user }; // (the checks below are written for a request)
     const set = {};
     if (b.list_id !== undefined && b.list_id !== task.list_id) { // move to another of your lists
       const to = loadList(String(b.list_id), req.user);
@@ -565,6 +567,10 @@ export default function taskRoutes() {
     }
     if (b.position !== undefined) { if (!Number.isFinite(Number(b.position))) throw bad('Bad position'); set.position = Number(b.position); }
     if (b.done === false && task.done_at && b.position === undefined) set.position = (q('SELECT MIN(position) AS p FROM tasks WHERE list_id = ? AND done_at IS NULL').get(target.id).p ?? 1) - 1; // back on top
+    return { task, list, target, set };
+  }
+  function applyUpdate({ task, list, target, set }, b, user) {
+    const req = { user };
     const keys = Object.keys(set);
     tx(() => {
       if (keys.length) q(`UPDATE tasks SET ${keys.map((k) => `${k} = ?`).join(', ')}, updated_at = ? WHERE id = ?`).run(...keys.map((k) => set[k]), now(), task.id);
@@ -600,7 +606,30 @@ export default function taskRoutes() {
     }
     const next = shape(q(`${TASK} WHERE t.id = ?`).get(task.id));
     if (set.assignee_id && set.assignee_id !== task.assignee_id) notifyAssigned(next, req.user);
-    res.json(next);
+    return next;
+  }
+  r.patch('/tasks/:id', (req, res) => {
+    const b = req.body || {};
+    res.json(applyUpdate(planUpdate(req.params.id, b, req.user), b, req.user));
+  });
+
+  // Several tasks at once: tick off (or bring back), a due date (or none), important or not, another list,
+  // someone to do them, or delete them. Every task is checked first; if one can't be changed, none is.
+  const BATCH_KEYS = ['done', 'due', 'important', 'list_id', 'assignee_id'];
+  r.post('/tasks/batch', (req, res) => {
+    const ids = [...new Set((Array.isArray(req.body?.ids) ? req.body.ids : []).map(String))];
+    if (!ids.length) throw bad('Choose some tasks');
+    if (ids.length > 500) throw bad('500 tasks at a time at most');
+    if (req.body?.delete === true) {
+      const found = ids.map((id) => { const t = q('SELECT * FROM tasks WHERE id = ?').get(id); if (!t) throw notFound('Task not found'); return { t, list: loadList(t.list_id, req.user) }; });
+      tx(() => { for (const { t, list } of found) { q('DELETE FROM tasks WHERE id = ?').run(t.id); unblockFrom(list.id, t.id); } });
+      for (const list of new Map(found.map(({ list }) => [list.id, list])).values()) changed(list);
+      return res.json({ deleted: found.length });
+    }
+    const b = Object.fromEntries(Object.entries(req.body?.change || {}).filter(([k]) => BATCH_KEYS.includes(k)));
+    if (!Object.keys(b).length) throw bad('Nothing to change');
+    const plans = ids.map((id) => planUpdate(id, b, req.user));
+    res.json({ tasks: plans.map((p) => applyUpdate(p, b, req.user)) });
   });
 
   // A task's checklist: add a step, change one (title, done, or its place), or remove one.

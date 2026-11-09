@@ -47,6 +47,23 @@ export default function Tasks() {
     try { setFound({ q: qs, list: await get(`/tasks/search?q=${encodeURIComponent(qs)}`) }); } catch (e) { toast(e.message, 'error'); }
   };
   const [showDone, setShowDone] = useState(false);
+  const [selecting, setSelecting] = useState(false); // choosing several tasks to change at once
+  const [picked, setPicked] = useState(() => new Set());
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  useEffect(() => { setSelecting(false); setPicked(new Set()); }, [listId]);
+  const pick = (id) => setPicked((s0) => { const s1 = new Set(s0); if (s1.has(id)) s1.delete(id); else s1.add(id); return s1; });
+  const stopSelecting = () => { setSelecting(false); setPicked(new Set()); };
+  /** Change the chosen tasks together (or delete them): all or none. */
+  async function batch(body, done) {
+    try {
+      const ids = [...picked];
+      await post('/tasks/tasks/batch', { ids, ...body });
+      toast(done(ids.length));
+      setPicked(new Set());
+      loadTasks();
+    } catch (e) { toast(e.message, 'error'); }
+  }
+  const nTasks = (n) => `${n} task${n === 1 ? '' : 's'}`;
   // List or board, remembered for each list in this browser.
   const viewKey = `tasks-view:${listId}`;
   const [view, setViewState] = useState('list');
@@ -136,8 +153,9 @@ export default function Tasks() {
         onDragEnd={() => { setDragging(null); setDropAt(null); }}
         onDragOver={(e) => { if (!dragging || t.done) return; e.preventDefault(); const r = e.currentTarget.getBoundingClientRect(); setDropAt(e.clientY < r.top + r.height / 2 ? i : i + 1); }}
         onDrop={(e) => { if (!dragging) return; e.preventDefault(); drop(dropAt ?? i); }}>
-        <input type="checkbox" checked={t.done} aria-label={`Done: ${t.title}`} onChange={() => toggle(t)} />
-        <button type="button" className="task-main" onClick={() => (virtual ? navigate(`/tasks/${t.list_id}?task=${t.id}`) : show(t.id === openId ? null : t.id))}>
+        {selecting && <input type="checkbox" className="task-pick" checked={picked.has(t.id)} aria-label={`Select: ${t.title}`} onChange={() => pick(t.id)} />}
+        {!selecting && <input type="checkbox" checked={t.done} aria-label={`Done: ${t.title}`} onChange={() => toggle(t)} />}
+        <button type="button" className="task-main" onClick={() => (selecting ? pick(t.id) : virtual ? navigate(`/tasks/${t.list_id}?task=${t.id}`) : show(t.id === openId ? null : t.id))}>
           <span className="task-title">{t.title}</span>
           <span className="task-meta">
             {virtual && <span className="muted small">{t.list_name}</span>}
@@ -225,6 +243,10 @@ export default function Tasks() {
               <button type="button" role="tab" aria-selected={view === 'timeline'} className={view === 'timeline' ? 'on' : ''} onClick={() => setView('timeline')}>Timeline</button>
             </div>
           )}
+          {((list && view === 'list') || virtual) && (tasks || []).length > 0 && (
+            <button type="button" className={`btn small ${selecting ? 'primary' : ''}`} aria-pressed={selecting} onClick={() => (selecting ? stopSelecting() : setSelecting(true))}
+              title="Choose several tasks to change at once">{selecting ? 'Done selecting' : 'Select'}</button>
+          )}
           {list && view === 'list' && (
             <Menu trigger={(p) => <button type="button" className="btn small" aria-label={`Sort: ${SORTS.find(([k]) => k === sortBy)[1]}`} title="Sort this list (just for you)" {...p}>⇅ {SORTS.find(([k]) => k === sortBy)[1]}</button>}
               items={SORTS.map(([k, label]) => ({ label: `${k === sortBy ? '✓ ' : ''}${label}`, onClick: () => setSort(k) }))} />
@@ -271,6 +293,26 @@ export default function Tasks() {
             <button type="button" className="link-btn small" onClick={() => { setAsTyped(!asTyped); addBox.current?.focus(); }}>{asTyped ? 'Read dates again' : 'Keep as typed'}</button>
           </div>
         )}
+        {selecting && (
+          <div className="task-batch" role="toolbar" aria-label="Change the selected tasks">
+            <strong className="small" aria-live="polite">{picked.size} selected</strong>
+            <button type="button" className="link-btn small" onClick={() => setPicked(new Set(picked.size === open.length ? [] : open.map((t) => t.id)))}>{picked.size === open.length && open.length ? 'Select none' : 'Select all'}</button>
+            <span className="grow" />
+            <button type="button" className="btn small" disabled={!picked.size} onClick={() => batch({ change: { done: true } }, (n) => `${nTasks(n)} done`)}>✓ Mark done</button>
+            <label className="small row" style={{ gap: 4 }}>Due
+              <input type="date" aria-label="Due date for the selected tasks" disabled={!picked.size} onChange={(e) => e.target.value && batch({ change: { due: e.target.value } }, (n) => `${nTasks(n)} due ${dueLabel(e.target.value, new Date()).text}`)} />
+            </label>
+            <button type="button" className="btn small" disabled={!picked.size} onClick={() => batch({ change: { due: null } }, (n) => `${nTasks(n)}: no due date`)}>No date</button>
+            <button type="button" className="btn small" disabled={!picked.size} onClick={() => batch({ change: { important: true } }, (n) => `${nTasks(n)} marked important`)}>★ Important</button>
+            <select aria-label="Move the selected tasks to" value="" disabled={!picked.size} onChange={(e) => { const to = e.target.value; if (to) batch({ change: { list_id: to } }, (n) => `${nTasks(n)} moved to ${lists.find((l) => l.id === to)?.name}`); }}>
+              <option value="">Move to…</option>
+              {(lists || []).filter((l) => l.id !== listId).map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+            </select>
+            <button type="button" className="btn small danger" disabled={!picked.size} onClick={() => setConfirmDelete(true)}><Icon name="trash" size={16} /> Delete</button>
+          </div>
+        )}
+        {confirmDelete && <ConfirmModal title={`Delete ${nTasks(picked.size)}?`} confirm="Delete" message="They go for everyone on their lists." onClose={() => setConfirmDelete(false)}
+          onConfirm={async () => { setConfirmDelete(false); await batch({ delete: true }, (n) => `${nTasks(n)} deleted`); }} />}
         {tasks === null ? null : list && view === 'timeline' ? (
           <Timeline open={open} openId={openId} onOpen={(t) => show(t.id === openId ? null : t.id)} onChange={(t, c) => update(t, c)} />
         ) : list && view === 'board' ? (
