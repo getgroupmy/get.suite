@@ -920,3 +920,18 @@ test('Word: bookmarks and links to them go out as Word bookmarks and internal li
   assert.match(marks[0], /^w[0-9a-f]{9}$/);
   assert.match(JSON.stringify(theirs), new RegExp(`"href":"#bm-${marks[0]}"`));
 });
+
+test('Word: links to a heading in the document become links inside the Word file', async () => {
+  const JSZipLib = (await import('jszip')).default;
+  const link = (text, href) => ({ type: 'text', text, marks: [{ type: 'link', attrs: { href } }] });
+  const h = (text) => ({ type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text }] });
+  const doc = { type: 'doc', content: [
+    { type: 'paragraph', content: [link('costs', '#budget-costs'), { type: 'text', text: ' ' }, link('second notes', '#notes-2'), { type: 'text', text: ' ' }, link('nowhere', '#missing')] },
+    h('Budget & Costs'), h('Notes'), h('Notes'),
+  ] };
+  const xml = await (await JSZipLib.loadAsync(await wordFromDoc(doc, 'Plan'))).file('word/document.xml').async('string');
+  assert.match(xml, /<w:hyperlink [^>]*w:anchor="toc_1"/);
+  assert.match(xml, /<w:hyperlink [^>]*w:anchor="toc_3"/, 'the second "Notes"');
+  assert.equal((xml.match(/w:anchor=/g) || []).length, 2, 'a link to no heading stays as it was');
+  assert.match(xml, /<w:bookmarkStart [^>]*w:name="toc_3"/);
+});

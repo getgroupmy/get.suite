@@ -2374,3 +2374,7 @@ del.compare-key { background: color-mix(in srgb, #d93025 14%, transparent); text
 .bookmark-list .row { gap: 6px; align-items: center; }
 .bookmark-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 @media print { .doc-bookmark::before { content: none; } }
+/* Link box (Docs) */
+.link-places ul { list-style: none; margin: 0; padding: 0; max-height: 240px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
+.link-place { display: block; width: 100%; text-align: left; background: none; border: 0; padding: 6px 8px; color: inherit; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.link-place:hover, .link-place:focus-visible, .link-place.on { background: var(--hover, rgba(0,0,0,.06)); }

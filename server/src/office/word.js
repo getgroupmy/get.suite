@@ -4,6 +4,7 @@
 // tables, pictures and text colours.
 import crypto from 'node:crypto';
 import mammoth from 'mammoth';
+import { anchorsOf } from './anchors.js';
 import JSZip from 'jszip';
 import { chartTable } from './sheetchart.js';
 import { chipText, dateText } from './chiptext.js';
@@ -146,7 +147,16 @@ const CHIP_FILLS = { grey: 'E8EAED', blue: 'D3E3FD', green: 'C4EED0', yellow: 'F
 let footnotes = null;
 // Its bookmarks' ids, so links to them become links inside the Word file.
 let bookmarkIds = new Set();
-const bookmarkLinked = (href) => { const m = /#bm-([a-z0-9]{6,16})$/.exec(String(href || '')); return m && bookmarkIds.has(m[1]) ? m[1] : null; };
+// Its headings' anchors (#budget-costs) → their Word bookmarks (toc_1…).
+let headingAnchors = new Map();
+/** The Word bookmark a link to a place in this document goes to (a bookmark, or a heading by its #anchor), or null. */
+const internalAnchor = (href) => {
+  const h = String(href || '');
+  const m = /#bm-([a-z0-9]{6,16})$/.exec(h);
+  if (m) return bookmarkIds.has(m[1]) ? `bm_${m[1]}` : null;
+  if (!h.startsWith('#')) return null;
+  try { return headingAnchors.get(decodeURIComponent(h.slice(1)).toLowerCase()) || null; } catch { return null; }
+};
 
 function runs(nodes = [], extra = {}) {
   const out = [];
@@ -174,7 +184,7 @@ function runs(nodes = [], extra = {}) {
       ...(marks.superscript && { superScript: true }), ...(marks.subscript && { subScript: true }),
       ...(color && { color }), ...(fill && { shading: { type: ShadingType.CLEAR, color: 'auto', fill } }), ...(font && { font }), ...(size && { size }), ...extra,
     };
-    if (marks.link?.href && bookmarkLinked(marks.link.href)) out.push(new InternalHyperlink({ anchor: `bm_${bookmarkLinked(marks.link.href)}`, children: [new TextRun({ ...run, style: 'Hyperlink' })] }));
+    if (marks.link?.href && internalAnchor(marks.link.href)) out.push(new InternalHyperlink({ anchor: internalAnchor(marks.link.href), children: [new TextRun({ ...run, style: 'Hyperlink' })] }));
     else if (marks.link?.href) out.push(new ExternalHyperlink({ link: marks.link.href, children: [new TextRun({ ...run, style: 'Hyperlink' })] }));
     else out.push(new TextRun(run));
   }
@@ -364,9 +374,10 @@ export async function wordFromDoc(doc, title = 'Document', { pictureData, page, 
   }
   footnotes = [];
   bookmarkIds = new Set();
+  headingAnchors = new Map(anchorsOf(contents).map((a, k) => [a, `toc_${k + 1}`]));
   (function find(n) { if (n?.type === 'bookmark' && BOOKMARK_ID.test(n.attrs?.id || '')) bookmarkIds.add(n.attrs.id); (n?.content || []).forEach(find); })(doc);
   let paras, notes;
-  try { paras = block(doc?.content); notes = footnotes; } finally { footnotes = null; bookmarkIds = new Set(); }
+  try { paras = block(doc?.content); notes = footnotes; } finally { footnotes = null; bookmarkIds = new Set(); headingAnchors = new Map(); }
   if (signatures) paras.push(...signaturePage(signatures));
   const file = new Document({
     title,

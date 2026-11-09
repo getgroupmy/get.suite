@@ -43,6 +43,7 @@ import { PageBreak } from './pagebreak.js';
 import { captureFormat, applyFormat, wordAt } from './paintformat.js';
 import { Footnote, footnotesOf, htmlWithFootnotes } from './footnote.js';
 import { NodeSelection } from '@tiptap/pm/state';
+import { LinkDialog } from './LinkDialog.jsx';
 import { BookmarkNode, bookmarksOf, bookmarkIdOf, bookmarkAnchor } from './bookmark.js';
 import { Mention, mentionQuery, matchPeople } from './mention.js';
 import { DropChip, CHIP_PRESETS, CHIP_COLORS, cleanOptions } from './dropchip.js';
@@ -146,6 +147,7 @@ function SharedDoc({ file, setFile }) {
   const [sharing, setSharing] = useState(false);
   const [history, setHistory] = useState(false);
   const [bookmarking, setBookmarking] = useState(false);
+  const [linking, setLinking] = useState(false); // the link box
   const [comparing, setComparing] = useState(null); // null, { step: 'pick' } or { name, content }
   const [sendingItems, setSendingItems] = useState(false);
   // A link to another file in Drive, named after it. If people who can open this document can't
@@ -174,6 +176,8 @@ function SharedDoc({ file, setFile }) {
   const [status, setStatus] = useState('connecting');
   const [others, setOthers] = useState([]);
   const readOnly = (file.role === 'viewer' || file.role === 'commenter') || !!file?.locked_at;
+  const readOnlyRef = useRef(readOnly);
+  readOnlyRef.current = readOnly;
   const canComment = !!file && file.role !== 'viewer'; // commenters too, and on locked files
 
   // One shared document per open editor; the provider keeps it in step with the server.
@@ -233,6 +237,18 @@ function SharedDoc({ file, setFile }) {
       // A key pressed right after a click (Enter, Backspace…) acts where the click put the cursor,
       // even if the browser hasn't told the editor about the new selection yet.
       handleKeyDown: (view, event) => { view.domObserver?.flush?.(); return mentionKeyRef.current?.(event) || chipKeyRef.current?.(event) || dateKeyRef.current?.(event) || false; },
+      // Links open with Ctrl+click while editing, or a plain click when reading; a link to a place in this document goes there.
+      handleClick: (view, pos, event) => {
+        const a = event.target?.closest?.('a[href]');
+        if (!a || !(readOnlyRef.current || event.ctrlKey || event.metaKey)) return false;
+        const href = a.getAttribute('href');
+        event.preventDefault();
+        if (href.startsWith('#')) {
+          if (window.location.hash === href) window.dispatchEvent(new HashChangeEvent('hashchange'));
+          else window.location.hash = href;
+        } else window.open(href, '_blank', 'noopener');
+        return true;
+      },
       // Pictures pasted or dropped in go to Drive and into the document.
       handlePaste: (view, event) => {
         const files = [...(event.clipboardData?.files || [])].filter((f) => PICTURE_TYPES.test(f.type));
@@ -430,6 +446,12 @@ function SharedDoc({ file, setFile }) {
         setWordCount(true);
         return;
       }
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && k === 'k' && !readOnlyRef.current) { // Insert link, as in Google Docs
+        if (document.querySelector('.modal-backdrop')) return;
+        e.preventDefault();
+        setLinking(true);
+        return;
+      }
       if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || (k !== 'f' && k !== 'h')) return;
       if (document.querySelector('.modal-backdrop')) return;
       e.preventDefault();
@@ -553,7 +575,7 @@ function SharedDoc({ file, setFile }) {
           { label: 'Download as Markdown (.md)', icon: 'download', onClick: () => { window.location.href = `/api/files/${file.id}/export?format=md`; } },
         ]}
       />
-      {!readOnly && <Toolbar editor={editor} onDropdown={() => setChipEdit({ pos: null })} onEquation={() => setMathEdit({ pos: null })} onCite={() => setCiteEdit({ pos: null })} onSymbols={() => setSymbols(true)} onComment={startComment} onPictures={(files) => addPicturesRef.current(files)} onLinkFile={() => setLinkingFile(true)} onChart={() => setChartFrom({ step: 'file' })} onDraw={() => setDrawing({ at: editor.state.selection.from })} />}
+      {!readOnly && <Toolbar editor={editor} onDropdown={() => setChipEdit({ pos: null })} onEquation={() => setMathEdit({ pos: null })} onCite={() => setCiteEdit({ pos: null })} onSymbols={() => setSymbols(true)} onComment={startComment} onPictures={(files) => addPicturesRef.current(files)} onLinkFile={() => setLinkingFile(true)} onLink={() => setLinking(true)} onChart={() => setChartFrom({ step: 'file' })} onDraw={() => setDrawing({ at: editor.state.selection.from })} />}
       {drawing && <DrawPad title="Drawing" saveLabel="Insert" onClose={() => { setDrawing(null); refocus(); }}
         onSave={(f) => addPicturesRef.current([new File([f], 'Drawing.png', { type: 'image/png' })], drawing.at)} />}
       {chartFrom?.step === 'file' && <DrivePicker title="Chart from a spreadsheet" accept={(x) => x.kind === 'sheet'} empty="No spreadsheets found." onClose={() => setChartFrom(null)} onPick={(f) => setChartFrom({ step: 'chart', file: f })} />}
@@ -640,6 +662,7 @@ function SharedDoc({ file, setFile }) {
           setComparing({ step: 'loading' });
           try { setComparing(await get(`/files/${f.id}/as-doc`)); } catch (e) { setComparing(null); toast(e.message, 'error'); }
         }} />}
+      {linking && <LinkDialog editor={editor} onClose={() => { setLinking(false); refocus(); }} />}
       {bookmarking && <BookmarksDialog editor={editor} canEdit={!readOnly} onClose={() => { setBookmarking(false); refocus(); }} />}
       {comparing?.content && <CompareDialog name={file.name} other={comparing} current={editor.getJSON()} onClose={() => { setComparing(null); refocus(); }} />}
       {sendingItems && <ActionItemsDialog fileId={file.id} doc={editor.getJSON()} onClose={() => setSendingItems(false)} />}
@@ -692,7 +715,7 @@ function withoutSuggestionsHtml(html) {
 
 const escapeHtml = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-function Toolbar({ editor, onDropdown, onEquation, onCite, onSymbols, onComment, onPictures, onLinkFile, onChart, onDraw }) {
+function Toolbar({ editor, onDropdown, onEquation, onCite, onSymbols, onComment, onPictures, onLinkFile, onLink, onChart, onDraw }) {
   const [altEdit, setAltEdit] = useState(null); // { pos, alt } of the picture being described
   const pictureInput = useRef();
   const [, force] = useState(0);
@@ -787,11 +810,7 @@ function Toolbar({ editor, onDropdown, onEquation, onCite, onSymbols, onComment,
       <B label="⇤" title="Decrease indent (Ctrl+[)" onClick={() => c().decreaseIndent().run()} />
       <B label="⇥" title="Increase indent (Ctrl+])" onClick={() => c().increaseIndent().run()} />
       <B label="</>" title="Inline code" active={editor.isActive('code')} onClick={() => c().toggleCode().run()} />
-      <B label="🔗" title="Link" active={editor.isActive('link')} onClick={() => {
-        if (editor.isActive('link')) return c().unsetLink().run();
-        const url = window.prompt('Link URL');
-        if (url && /^(https?:|mailto:|\/)/i.test(url)) c().extendMarkRange('link').setLink({ href: url }).run();
-      }} />
+      <B label="🔗" title="Link (Ctrl+K)" active={editor.isActive('link')} onClick={onLink} />
       <B label="📄" title="Link to a file in Drive" onClick={onLinkFile} />
       <span className="sep" />
       <B label="⯇" title="Align left" active={editor.isActive({ textAlign: 'left' })} onClick={() => c().setTextAlign('left').run()} />
