@@ -856,6 +856,7 @@ function DetailsDialog({ file, onClose, onChanged }) {
           <dt>Owner</dt><dd>{f.owner_name}{f.role === 'owner' ? ' (you)' : ''}</dd>
           <dt>Modified</dt><dd>{when(f.updated_at)}{f.updated_by_name ? ` by ${f.updated_by_name}` : ''}</dd>
           <dt>Created</dt><dd>{when(f.created_at)}</dd>
+          {f.kind === 'doc' && <><dt>Length</dt><dd><DocLength fileId={f.id} /></dd></>}
           <dt>Access</dt><dd>{f.role === 'owner' ? (shares === null ? '…' : shares.length ? shares.map((s) => `${s.name} (${s.role === 'editor' ? 'can edit' : s.role === 'commenter' ? 'can comment' : 'can view'})`).join(', ') : 'Only you') : `You can ${f.role === 'editor' ? 'edit' : 'view'}`}</dd>
         </dl>
         <label className="field"><span>Description</span>
@@ -1111,6 +1112,15 @@ function activityText(a) {
     case 'approval': return d.asked ? `${who} asked ${d.asked.join(', ')} to approve it` : `${who} ${d.decision === 'approved' ? 'approved' : 'rejected'} it${d.comment ? `: “${d.comment}”` : ''}`;
     default: return `${who}: ${a.action}`;
   }
+}
+
+/** "1,240 words · 6 min read" for a document in Details. */
+function DocLength({ fileId }) {
+  const [c, setC] = useState(null);
+  useEffect(() => { get(`/files/${fileId}/length`).then(setC).catch(() => setC(false)); }, [fileId]);
+  if (c === null) return '…';
+  if (!c) return '—';
+  return `${c.words.toLocaleString('en-GB')} ${c.words === 1 ? 'word' : 'words'}${c.minutes ? ` · ${c.minutes} min read` : ''}`;
 }
 
 /** What happened to a file, newest first (a few, then all). */

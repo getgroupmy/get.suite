@@ -12,7 +12,8 @@ import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { Transform } from 'node:stream';
 import { q, tx, FILES_DIR, TMP_DIR } from '../db.js';
-import { contentMatches, indexSoon } from '../search.js';
+import { contentMatches, indexSoon, docText } from '../search.js';
+import { countText, readingMinutes } from '../wordcount.js';
 import { readSetup } from '../pagesetup.js';
 import JSZip from 'jszip';
 import { uid, now, str, bad, forbidden, notFound, HttpError, mimeFor, isInlineSafe } from '../util.js';
@@ -1186,6 +1187,16 @@ export default function fileRoutes({ maxUploadBytes }) {
     q('DELETE FROM file_versions WHERE id = ?').run(v.id);
     if (v.storage) fs.rm(path.join(FILES_DIR, v.storage), { force: true }, () => {});
     res.json({ ok: true });
+  });
+
+  // How long a document is (for Details): words, characters, paragraphs and minutes to read, as Docs counts them.
+  r.get('/:id/length', (req, res) => {
+    const f = loadFile(req.params.id, req.user);
+    if (f.kind !== 'doc') throw bad('Only documents have a word count');
+    saveNow(f.id); // what's being typed right now counts too
+    const stored = JSON.parse(q('SELECT content FROM files WHERE id = ?').get(f.id).content || '{}');
+    const c = countText(docText(withoutSuggestions(stored))); // pending suggestions aren't in it yet
+    res.json({ ...c, minutes: readingMinutes(c.words) });
   });
 
   // What happened to it, newest first (anyone who can open it sees this).

@@ -23,7 +23,8 @@ import { CommentsPanel, useComments } from '../comments.jsx';
 import AltTextDialog from '../../components/AltTextDialog.jsx';
 import DrawPad from '../../components/DrawPad.jsx';
 import Icon from '../../components/Icon.jsx';
-import { FindReplace, countWords } from './findReplace.js';
+import { FindReplace } from './findReplace.js';
+import { WordCountDialog, WordCounter, counterOn } from './WordCount.jsx';
 import { FindBar } from './FindBar.jsx';
 import { Outline, goToHeading } from './Outline.jsx';
 import { headingsOf, headingForAnchor } from './outline.js';
@@ -399,6 +400,8 @@ function SharedDoc({ file, setFile }) {
   const [pending, setPending] = useState(null);
   const [finding, setFinding] = useState(null); // { replace, n }
   const [pageSetupOpen, setPageSetupOpen] = useState(false);
+  const [wordCount, setWordCount] = useState(false);
+  const [liveCount, setLiveCount] = useState(counterOn);
   // Someone changed the page setup: the paper follows.
   useEffect(() => onLive((m) => { if (m.type === 'page-setup' && m.id === file.id) setFile((f) => ({ ...f, page_setup: m.page_setup })); }), [file.id]);
   const [outline, setOutlineState] = useState(() => { try { return localStorage.getItem('nw-doc-outline') === '1'; } catch { return false; } });
@@ -406,6 +409,12 @@ function SharedDoc({ file, setFile }) {
   useEffect(() => {
     const onKey = (e) => {
       const k = e.key.toLowerCase();
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && k === 'c') { // Word count, as in Google Docs
+        if (document.querySelector('.modal-backdrop')) return;
+        e.preventDefault();
+        setWordCount(true);
+        return;
+      }
       if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || (k !== 'f' && k !== 'h')) return;
       if (document.querySelector('.modal-backdrop')) return;
       e.preventDefault();
@@ -507,7 +516,7 @@ function SharedDoc({ file, setFile }) {
           ...(!readOnly ? [{ label: 'Page setup', icon: 'print', onClick: () => setPageSetupOpen(true) }] : []),
           { label: 'Version history', icon: 'clock', onClick: () => setHistory(true) },
           ...(!readOnly ? [{ label: 'Send action items to Tasks', icon: 'check', onClick: () => setSendingItems(true) }] : []),
-          { label: 'Word count', icon: 'doc', onClick: () => { const c = countWords(editor.state.doc); toast(`${c.words.toLocaleString()} ${c.words === 1 ? 'word' : 'words'}, ${c.characters.toLocaleString()} characters (without spaces)`); } },
+          { label: 'Word count', icon: 'doc', onClick: () => setWordCount(true) },
           '-',
           { label: 'Print / Save as PDF', icon: 'print', onClick: () => window.print() },
           { label: 'Download as HTML', icon: 'download', onClick: exportHtml },
@@ -530,6 +539,7 @@ function SharedDoc({ file, setFile }) {
       {finding && <FindBar key={finding.n} editor={editor} replacing={finding.replace} canEdit={!readOnly} onClose={() => { editor.view.focus(); setFinding(null); }} />} {/* focus back first, so it doesn't go with the bar */}
       <div className="doc-body">
         {outline && <Outline editor={editor} fileId={file.id} onCopied={(m) => toast(m)} onClose={() => setOutline(false)} />}
+        {liveCount && <WordCounter editor={editor} onOpen={() => setWordCount(true)} />}
         <div className="doc-scroll" onClick={(e) => e.target === e.currentTarget && editor.commands.focus('end')}>
           <div className={`paper ${file.page_setup?.pageless ? 'pageless' : ''}`} style={file.page_setup ? paperStyle(file.page_setup) : undefined}>
             {file.page_setup?.watermark && <div className="print-watermark" aria-hidden="true" />}
@@ -626,6 +636,7 @@ function SharedDoc({ file, setFile }) {
           setChipEdit(null);
           refocus();
         }} />}
+      {wordCount && <WordCountDialog editor={editor} live={liveCount} onLive={setLiveCount} onClose={() => { setWordCount(false); editor.view.focus(); }} />}
       {pageSetupOpen && <PageSetupDialog setup={file.page_setup} onClose={() => { setPageSetupOpen(false); editor.view.focus(); }}
         onSave={async (next) => { try { setFile(await patch(`/files/${file.id}`, { page_setup: next })); setPageSetupOpen(false); toast('Page setup saved'); } catch (e) { toast(e.message, 'error'); } }} />}
     </div>

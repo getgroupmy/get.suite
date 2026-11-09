@@ -865,6 +865,14 @@ textarea.slide-text.editing { resize: none; border: 0; padding: 0; margin: 0; ba
 /* ---------- comments ---------- */
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 .doc-body, .sheet-body { flex: 1; display: flex; min-height: 0; }
+.doc-body { position: relative; }
+.word-counter { position: absolute; left: 16px; bottom: 12px; z-index: 5; padding: 6px 12px; border: 1px solid var(--border); border-radius: 16px; background: var(--surface); color: var(--text); box-shadow: var(--shadow); font-size: 13px; cursor: pointer; }
+.word-counter:hover { background: var(--hover); }
+.word-count { width: 100%; border-collapse: collapse; font-size: 14px; }
+.word-count th, .word-count td { padding: 6px 4px; border-bottom: 1px solid var(--border); text-align: right; font-weight: 400; }
+.word-count th[scope=row] { text-align: left; }
+.word-count thead th { color: var(--muted); font-size: 12px; }
+@media print { .word-counter { display: none; } }
 .doc-body > .doc-scroll, .sheet-body > .grid-wrap { min-width: 0; }
 .comments-panel { width: 320px; flex: none; overflow: auto; border-left: 1px solid var(--border); background: var(--surface); padding: 12px; display: flex; flex-direction: column; gap: 10px; }
 .comments-head h2 { font-size: 16px; margin: 0; }

@@ -1994,6 +1994,13 @@ test('drive activity: who made, edited, renamed, moved, shared, trashed and rest
   assert.deepEqual(find('share'), { added: ['Act Ben (can edit)'], removed: [] });
   assert.ok(list.every((x) => x.at > 0));
   assert.equal((await c('GET', `/api/files/${doc.id}/activity`)).status, 404, 'not shared with them');
+  // Details also tell a document's length.
+  const now = (await b('GET', `/api/files/${doc.id}`)).body;
+  const para = (text) => ({ type: 'paragraph', content: [{ type: 'text', text }] });
+  await b('PUT', `/api/files/${doc.id}/content`, { version: now.version, content: { type: 'doc', content: [{ type: 'heading', attrs: { level: 1 }, content: [{ type: 'text', text: 'Plan for 2027' }] }, { type: 'paragraph' }, para('It’s short — e-mail me.')] } });
+  assert.deepEqual((await b('GET', `/api/files/${doc.id}/length`)).body, { words: 7, characters: 36, noSpaces: 30, paragraphs: 2, minutes: 1 });
+  assert.equal((await c('GET', `/api/files/${doc.id}/length`)).status, 404, 'not for people it isn’t shared with');
+  assert.equal((await a('GET', `/api/files/${folder.id}/length`)).status, 400, 'documents only');
   // A copy and an upload say so.
   const copy = (await b('POST', `/api/files/${doc.id}/copy`, {})).body;
   assert.deepEqual((await b('GET', `/api/files/${copy.id}/activity`)).body.map((x) => [x.action, x.details]), [['copy', { from: 'Plan 2027' }]]);
