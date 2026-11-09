@@ -1,6 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readInvite, replyIcs, calendarPartOf } from '../src/mail/invite.js';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'nw-invite-')); // a database of its own
+const { readInvite, replyIcs, calendarPartOf } = await import('../src/mail/invite.js');
 
 const ICS = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Microsoft Corporation//Outlook 16.0//EN', 'METHOD:REQUEST', 'BEGIN:VEVENT',
   'UID:040000008200E00074C5B7101A82E008@outlook.example', 'SEQUENCE:2', 'DTSTAMP:20261101T090000Z',
@@ -46,8 +50,9 @@ test('a guest\'s emailed answer (METHOD:REPLY) goes on your event, once', async 
   const r = readReply(reply);
   assert.deepEqual(r, { uid: 'ev123@mail.test', email: 'pat@out.example', name: 'Pat Out', answer: 'no' });
   assert.equal(readReply(ICS), null, 'an invitation is not an answer');
-  const org = q("SELECT id FROM users LIMIT 1").get();
-  if (!org) return; // (the unit run has no users; the mail integration test covers it end to end)
+  q("INSERT INTO orgs (id, name, created_at) VALUES ('io', 'Invite Co', 0)").run();
+  q("INSERT INTO users (id, org_id, username, name, password_hash, created_at) VALUES ('iu', 'io', 'iu@mail.test', 'Ida', 'x', 0)").run();
+  const org = { id: 'iu' };
   q("INSERT OR IGNORE INTO events (id, owner_id, title, start, end, all_day, exdates) VALUES ('ev123', ?, 'Review', 0, 1, 0, '[]')").run(org.id);
   q("INSERT OR IGNORE INTO event_outside_guests (event_id, email, token) VALUES ('ev123', 'pat@out.example', 'tok-ev123')").run();
   assert.equal(applyReply(org.id, r, 'mail.test').changed, true);
