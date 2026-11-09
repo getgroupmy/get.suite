@@ -1496,6 +1496,31 @@ test('booking pages: a gap and a daily limit; the visitor cancels with their own
   assert.equal((await a('GET', '/api/bookings')).body[0].bookings, 0);
 });
 
+test('booking pages: questions for the visitor; required ones must be answered; answers go in the event', async () => {
+  const a = client(), outsider = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'booker3', domain: 'acme.com', name: 'Bo Booker', password: 'password123' })).status, 201);
+  await login(a, 'booker3@acme.com');
+  assert.equal((await a('POST', '/api/bookings', { title: 'x', questions: Array.from({ length: 6 }, () => ({ label: 'Q' })) })).status, 400, 'at most 5');
+  assert.equal((await a('POST', '/api/bookings', { title: 'x', questions: [{ label: '' }] })).status, 400);
+  const page = (await a('POST', '/api/bookings', { title: 'Consult', duration: 30, days: [0, 1, 2, 3, 4, 5, 6], from_min: 0, to_min: 1440, tz: 'UTC', notice_hours: 0, days_ahead: 2,
+    questions: [{ label: 'Phone number', required: true }, { label: 'Company' }] })).body;
+  assert.deepEqual(page.questions, [{ label: 'Phone number', required: true }, { label: 'Company', required: false }]);
+  const token = page.url.split('/b/')[1];
+  const pub = (await outsider('GET', `/api/public/book/${token}`)).body;
+  assert.deepEqual(pub.questions.map((x) => x.label), ['Phone number', 'Company']);
+  const slot = pub.days[1].slots[0];
+  const missing = await outsider('POST', `/api/public/book/${token}`, { start: slot, name: 'Quinn', email: 'quinn@example.org', answers: ['', 'Initech'] });
+  assert.equal(missing.status, 400);
+  assert.match(missing.body.error, /Please answer “Phone number”/);
+  assert.equal((await outsider('POST', `/api/public/book/${token}`, { start: slot, name: 'Quinn', email: 'quinn@example.org', answers: ['+44 20 7946 0000'] })).status, 201, 'optional left out');
+  const ev = (await a('GET', `/api/events?from=${slot - 1}&to=${slot + 36e5}`)).body.find((e) => e.title === 'Consult: Quinn');
+  assert.match(ev.description, /Phone number: \+44 20 7946 0000/);
+  assert.doesNotMatch(ev.description, /Company:/);
+  // Changing the questions later keeps the rest of the page.
+  const changed = (await a('PATCH', `/api/bookings/${page.id}`, { questions: [] })).body;
+  assert.deepEqual([changed.questions, changed.title, changed.duration], [[], 'Consult', 30]);
+});
+
 test('page setup: kept with a document, checked, and only for documents', async () => {
   const d = (await owner('POST', '/api/files/new', { kind: 'doc', name: 'Letterhead' })).body;
   assert.equal(d.page_setup, null);

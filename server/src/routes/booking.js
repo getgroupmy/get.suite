@@ -44,6 +44,8 @@ if (!cols('bookings').includes('cancelled_at')) q('ALTER TABLE bookings ADD COLU
 // Reminders: a page can email its visitors the day before (on unless turned off); when each was sent,
 // and the address Workspace had when it was booked (for the link in the reminder).
 if (!cols('booking_pages').includes('remind')) q('ALTER TABLE booking_pages ADD COLUMN remind INTEGER NOT NULL DEFAULT 1').run();
+// Questions the visitor answers when booking (their phone number, company…): [{ label, required }].
+if (!cols('booking_pages').includes('questions')) q("ALTER TABLE booking_pages ADD COLUMN questions TEXT NOT NULL DEFAULT '[]'").run();
 if (!cols('bookings').includes('reminded_at')) q('ALTER TABLE bookings ADD COLUMN reminded_at INTEGER').run();
 if (!cols('bookings').includes('link_base')) q('ALTER TABLE bookings ADD COLUMN link_base TEXT').run();
 
@@ -132,9 +134,12 @@ function readPage(b, current = {}) {
   if (![0, 5, 10, 15, 30, 60].includes(buffer)) throw bad('Choose a gap of 0 to 60 minutes');
   if (!Number.isInteger(maxPerDay) || maxPerDay < 0 || maxPerDay > 20) throw bad('At most 20 bookings a day');
   const remind = pick('remind') === undefined ? 1 : pick('remind') ? 1 : 0;
-  return { title, description, duration, days, from_min: fromMin, to_min: toMin, tz, notice_hours: notice, days_ahead: ahead, enabled, buffer_min: buffer, max_per_day: maxPerDay, remind };
+  const qs = pick('questions') ?? [];
+  if (!Array.isArray(qs) || qs.length > 5) throw bad('At most 5 questions');
+  const questions = qs.map((x) => ({ label: str(x?.label, { required: true, name: 'Question', max: 100 }), required: !!x?.required }));
+  return { title, description, duration, days, from_min: fromMin, to_min: toMin, tz, notice_hours: notice, days_ahead: ahead, enabled, buffer_min: buffer, max_per_day: maxPerDay, remind, questions };
 }
-const shapePage = (p, req) => ({ ...p, days: JSON.parse(p.days), enabled: !!p.enabled, remind: !!p.remind, url: `${baseUrl(req)}/b/${p.token}`,
+const shapePage = (p, req) => ({ ...p, days: JSON.parse(p.days), questions: JSON.parse(p.questions || '[]'), enabled: !!p.enabled, remind: !!p.remind, url: `${baseUrl(req)}/b/${p.token}`,
   bookings: q('SELECT COUNT(*) AS n FROM bookings WHERE page_id = ? AND cancelled_at IS NULL').get(p.id).n });
 
 export default function bookingRoutes() {
@@ -147,6 +152,7 @@ export default function bookingRoutes() {
     q(`INSERT INTO booking_pages (id, user_id, token, title, description, duration, days, from_min, to_min, tz, notice_hours, days_ahead, enabled, created_at, buffer_min, max_per_day, remind)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, req.user.id, crypto.randomBytes(12).toString('base64url'), p.title, p.description, p.duration, JSON.stringify(p.days),
       p.from_min, p.to_min, p.tz, p.notice_hours, p.days_ahead, p.enabled, Date.now(), p.buffer_min, p.max_per_day, p.remind);
+    q('UPDATE booking_pages SET questions = ? WHERE id = ?').run(JSON.stringify(p.questions), id);
     res.status(201).json(shapePage(q('SELECT * FROM booking_pages WHERE id = ?').get(id), req));
   });
   const mine = (req) => {
@@ -156,7 +162,8 @@ export default function bookingRoutes() {
   };
   r.patch('/:id', (req, res) => {
     const cur = mine(req);
-    const p = readPage(req.body || {}, { ...cur, days: JSON.parse(cur.days), enabled: !!cur.enabled });
+    const p = readPage(req.body || {}, { ...cur, days: JSON.parse(cur.days), questions: JSON.parse(cur.questions || '[]'), enabled: !!cur.enabled });
+    q('UPDATE booking_pages SET questions = ? WHERE id = ?').run(JSON.stringify(p.questions), cur.id);
     q(`UPDATE booking_pages SET title = ?, description = ?, duration = ?, days = ?, from_min = ?, to_min = ?, tz = ?, notice_hours = ?, days_ahead = ?, enabled = ?, buffer_min = ?, max_per_day = ?, remind = ? WHERE id = ?`)
       .run(p.title, p.description, p.duration, JSON.stringify(p.days), p.from_min, p.to_min, p.tz, p.notice_hours, p.days_ahead, p.enabled, p.buffer_min, p.max_per_day, p.remind, cur.id);
     res.json(shapePage(q('SELECT * FROM booking_pages WHERE id = ?').get(cur.id), req));
@@ -266,7 +273,7 @@ export function publicBookingRoutes() {
 
   r.get('/:token', (req, res) => {
     const p = find(req.params.token);
-    res.json({ title: p.title, description: p.description, duration: p.duration, tz: p.tz, owner: { name: p.owner_name }, days: slotsOf(p) });
+    res.json({ title: p.title, description: p.description, duration: p.duration, tz: p.tz, owner: { name: p.owner_name }, questions: JSON.parse(p.questions || '[]'), days: slotsOf(p) });
   });
 
   r.post('/:token', (req, res) => {
@@ -276,6 +283,13 @@ export function publicBookingRoutes() {
     const email = String(req.body?.email || '').trim().toLowerCase();
     if (!EMAIL_RE.test(email) || email.length > 200) throw bad('Enter your email address');
     const note = str(req.body?.note ?? '', { max: 1000 }) || '';
+    // The page's questions, answered in order.
+    const given = Array.isArray(req.body?.answers) ? req.body.answers : [];
+    const answers = JSON.parse(p.questions || '[]').map((x, i) => {
+      const a = str(given[i] ?? '', { max: 500 }) || '';
+      if (x.required && !a.trim()) throw bad(`Please answer “${x.label}”`);
+      return a.trim() ? `${x.label}: ${a.trim()}` : null;
+    }).filter(Boolean);
     if (!slotsOf(p).some((d) => d.slots.includes(start))) throw new HttpError(409, 'That time has just been taken. Pick another.');
     limit(req.ip);
     const owner = q('SELECT * FROM users WHERE id = ?').get(p.user_id);
@@ -283,7 +297,7 @@ export function publicBookingRoutes() {
     const title = `${p.title}: ${name}`;
     const ct = crypto.randomBytes(18).toString('base64url');
     const cancelUrl = `${baseUrl(req)}/b/cancel/${ct}`;
-    const description = [`Booked by ${name} <${email}> through “${p.title}”.`, note && `\n${note}`, `\nTo change or cancel this booking: ${cancelUrl}`].filter(Boolean).join('\n');
+    const description = [`Booked by ${name} <${email}> through “${p.title}”.`, answers.length && `\n${answers.join('\n')}`, note && `\n${note}`, `\nTo change or cancel this booking: ${cancelUrl}`].filter(Boolean).join('\n');
     q(`INSERT INTO events (id, owner_id, title, description, location, start, end, all_day, color, rrule, exdates, repeat_until, tz)
        VALUES (?, ?, ?, ?, NULL, ?, ?, 0, NULL, NULL, '[]', NULL, ?)`).run(id, owner.id, title, description, start, start + p.duration * 6e4, p.tz);
     const { added } = setOutside(id, [email]);

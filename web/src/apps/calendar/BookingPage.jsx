@@ -95,6 +95,7 @@ export default function BookingPage({ token }) {
   const [day, setDay] = useState(null);
   const [slot, setSlot] = useState(null);
   const [form, setForm] = useState({ name: '', email: '', note: '' });
+  const [answers, setAnswers] = useState([]); // the page's own questions
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(null);
   const load = () => call('GET', `/${encodeURIComponent(token)}`).then((p) => { setPage(p); setError(''); }).catch((e) => setError(e.message));
@@ -114,7 +115,7 @@ export default function BookingPage({ token }) {
   async function book(e) {
     e.preventDefault();
     setBusy(true); setError('');
-    try { setDone(await call('POST', `/${encodeURIComponent(token)}`, { start: slot, ...form })); }
+    try { setDone(await call('POST', `/${encodeURIComponent(token)}`, { start: slot, ...form, answers: (page.questions || []).map((_, i) => answers[i] || '') })); }
     catch (err) { setError(err.message); if (err.status === 409) { setSlot(null); load(); } }
     setBusy(false);
   }
@@ -155,6 +156,10 @@ export default function BookingPage({ token }) {
             <p style={{ margin: 0 }}><strong>{longDay(slot)}, {time(slot)} – {time(slot + page.duration * 6e4)}</strong> · <button type="button" className="link-btn" onClick={() => setSlot(null)}>change</button></p>
             <label className="field"><span>Your name</span><input required autoComplete="name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>
             <label className="field"><span>Your email</span><input required type="email" autoComplete="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></label>
+            {(page.questions || []).map((x, i) => (
+              <label key={i} className="field"><span>{x.label}{x.required ? '' : ' (optional)'}</span>
+                <input required={x.required} maxLength={500} value={answers[i] || ''} onChange={(e) => { const a = [...answers]; a[i] = e.target.value; setAnswers(a); }} /></label>
+            ))}
             <label className="field"><span>Anything to add (optional)</span><textarea rows={3} value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} /></label>
             <div className="row"><button className="btn primary" disabled={busy}>{busy ? 'Booking…' : 'Book'}</button></div>
           </form>

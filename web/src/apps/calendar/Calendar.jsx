@@ -1352,10 +1352,10 @@ function BookingPagesDialog({ onClose }) {
   const [editing, setEditing] = useState(null);
   const load = () => get('/bookings').then(setPages).catch((e) => toast(e.message, 'error'));
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  const fresh = () => ({ title: 'Meeting', description: '', duration: 30, days: [1, 2, 3, 4, 5], from_min: 540, to_min: 1020, notice_hours: 4, days_ahead: 30, buffer_min: 0, max_per_day: 0, remind: true, enabled: true });
+  const fresh = () => ({ title: 'Meeting', description: '', duration: 30, days: [1, 2, 3, 4, 5], from_min: 540, to_min: 1020, notice_hours: 4, days_ahead: 30, buffer_min: 0, max_per_day: 0, remind: true, questions: [], enabled: true });
   async function save(p) {
     try {
-      const body = { ...p, tz: TZ };
+      const body = { ...p, tz: TZ, questions: (p.questions || []).filter((x) => x.label.trim()) }; // blank ones left out
       if (p.id) await patch(`/bookings/${p.id}`, body); else await post('/bookings', body);
       toast(p.id ? 'Booking page saved' : 'Booking page made: copy its link to share it');
       setEditing(null); load();
@@ -1416,6 +1416,18 @@ function BookingForm({ page, onSave, onCancel }) {
       </div>
       <label className="check"><input type="checkbox" checked={p.enabled} onChange={(e) => set('enabled', e.target.checked)} /> Taking bookings</label>
       <label className="check"><input type="checkbox" checked={p.remind !== false} onChange={(e) => set('remind', e.target.checked)} /> Email visitors a reminder the day before</label>
+      <fieldset className="stack" style={{ gap: 6 }}><legend className="small muted">Questions for visitors (besides name and email)</legend>
+        {(p.questions || []).map((x, i) => (
+          <div key={i} className="row" style={{ gap: 8 }}>
+            <input className="grow" aria-label={`Question ${i + 1}`} placeholder="e.g. Phone number" maxLength={100} value={x.label}
+              onChange={(e) => set('questions', p.questions.map((y, j) => (j === i ? { ...y, label: e.target.value } : y)))} />
+            <label className="check small"><input type="checkbox" checked={!!x.required} aria-label={`Question ${i + 1} is required`}
+              onChange={(e) => set('questions', p.questions.map((y, j) => (j === i ? { ...y, required: e.target.checked } : y)))} /> Required</label>
+            <button type="button" className="icon-btn" aria-label={`Remove question ${i + 1}`} onClick={() => set('questions', p.questions.filter((_, j) => j !== i))}><Icon name="close" size={16} /></button>
+          </div>
+        ))}
+        {(p.questions || []).length < 5 && <div><button type="button" className="link-btn small" onClick={() => set('questions', [...(p.questions || []), { label: '', required: false }])}>+ Add a question</button></div>}
+      </fieldset>
       <p className="muted small" style={{ margin: 0 }}>Hours are in your time zone ({TZ}). Visitors see the times in theirs.</p>
       {!ok && <p className="error small" style={{ margin: 0 }}>Pick at least one day, with hours long enough for one booking.</p>}
       <div className="row end">
