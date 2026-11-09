@@ -345,6 +345,12 @@ export default function SlidesEditor() {
             { label: 'Rectangle', onClick: () => insert({ type: 'shape', shape: 'rect', x: 35, y: 35, w: 30, h: 30, fill: 'accent' }) },
             { label: 'Rounded rectangle', onClick: () => insert({ type: 'shape', shape: 'round', x: 35, y: 35, w: 30, h: 30, fill: 'accent' }) },
             { label: 'Ellipse', onClick: () => insert({ type: 'shape', shape: 'ellipse', x: 40, y: 30, w: 20, h: 36, fill: 'accent' }) },
+            { label: 'Triangle', onClick: () => insert({ type: 'shape', shape: 'triangle', x: 38, y: 30, w: 24, h: 36, fill: 'accent' }) },
+            { label: 'Diamond', onClick: () => insert({ type: 'shape', shape: 'diamond', x: 38, y: 28, w: 24, h: 40, fill: 'accent' }) },
+            { label: 'Block arrow', onClick: () => insert({ type: 'shape', shape: 'arrowblock', x: 33, y: 38, w: 34, h: 22, fill: 'accent' }) },
+            { label: 'Chevron', onClick: () => insert({ type: 'shape', shape: 'chevron', x: 38, y: 36, w: 24, h: 26, fill: 'accent' }) },
+            { label: 'Star', onClick: () => insert({ type: 'shape', shape: 'star', x: 38, y: 28, w: 24, h: 42, fill: 'accent' }) },
+            { label: 'Speech bubble', onClick: () => insert({ type: 'shape', shape: 'callout', x: 33, y: 28, w: 34, h: 34, fill: 'accent' }) },
             { label: 'Line', onClick: () => insert({ type: 'shape', shape: 'line', dir: 'h', x: 30, y: 46, w: 40, h: 8, fill: 'text' }) },
             { label: 'Arrow', onClick: () => insert({ type: 'shape', shape: 'arrow', dir: 'h', x: 30, y: 46, w: 40, h: 8, fill: 'accent' }) },
           ]} />

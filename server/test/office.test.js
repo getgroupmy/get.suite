@@ -1011,3 +1011,15 @@ test('PowerPoint: text in a shape goes out in the shape and comes back in it', a
   assert.deepEqual([note.text, note.color, note.align], ['Note', '#202124', 'left']);
   assert.equal(items.filter((i) => i.type === 'text').length, 0, 'no stray text boxes');
 });
+
+test('PowerPoint: triangles, diamonds, block arrows, chevrons, stars and callouts both ways', async () => {
+  const kinds = ['triangle', 'diamond', 'arrowblock', 'chevron', 'star', 'callout'];
+  const deck = { theme: 'light', slides: [{ id: 'a', items: kinds.map((shape, i) => ({ id: `s${i}`, type: 'shape', shape, fill: '#188038', x: 5 + i * 15, y: 20, w: 12, h: 20, ...(shape === 'callout' && { text: 'Hello!' }) })) }] };
+  const buf = await powerPointFromDeck(deck, {});
+  const JSZip = (await import('jszip')).default;
+  const xml = await (await JSZip.loadAsync(buf)).file('ppt/slides/slide1.xml').async('string');
+  for (const p of ['triangle', 'diamond', 'rightArrow', 'chevron', 'star5', 'wedgeRoundRectCallout']) assert.match(xml, new RegExp(`prst="${p}"`), p);
+  const back = await deckFromPowerPoint(buf, { savePicture: async () => 'x' });
+  assert.deepEqual(back.slides[0].items.map((i) => i.shape), kinds);
+  assert.equal(back.slides[0].items.find((i) => i.shape === 'callout').text, 'Hello!');
+});

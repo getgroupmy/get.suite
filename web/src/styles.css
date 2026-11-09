@@ -2396,3 +2396,11 @@ del.compare-key { background: color-mix(in srgb, #d93025 14%, transparent); text
 .slide-shape:not(.line):not(.arrow) { display: flex; align-items: center; justify-content: center; padding: 3cqw 2.5cqw; box-sizing: border-box; overflow: hidden; }
 .slide-text.shape-text { height: auto; max-height: 100%; background: transparent; border: 0; resize: none; outline: none; }
 textarea.slide-text.shape-text { height: 100%; display: flex; }
+/* More shapes (Slides), drawn by their outline; text stays in the solid part */
+.slide .slide-shape.triangle { clip-path: polygon(50% 0, 100% 100%, 0 100%); padding: 40% 22% 6%; }
+.slide .slide-shape.diamond { clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); padding: 20% 22%; }
+.slide .slide-shape.arrowblock { clip-path: polygon(0 25%, 65% 25%, 65% 0, 100% 50%, 65% 100%, 65% 75%, 0 75%); padding: 0 30% 0 4%; }
+.slide .slide-shape.chevron { clip-path: polygon(0 0, 75% 0, 100% 50%, 75% 100%, 0 100%, 25% 50%); padding: 0 22% 0 28%; }
+.slide .slide-shape.star { clip-path: polygon(50% 0, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%); padding: 30% 30% 25%; }
+.slide .slide-shape.callout { clip-path: polygon(0 4%, 2% 0, 98% 0, 100% 4%, 100% 71%, 98% 75%, 38% 75%, 18% 100%, 22% 75%, 2% 75%, 0 71%); position: relative; }
+.slide .slide-shape.callout > .shape-text { position: absolute; inset: 2cqw 2.5cqw 25% 2.5cqw; width: auto; height: auto; max-height: none; display: flex; align-items: center; justify-content: center; }

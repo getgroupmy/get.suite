@@ -11,7 +11,9 @@ const A = 'http://schemas.openxmlformats.org/drawingml/2006/main';
 const R = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
 const RELS = 'http://schemas.openxmlformats.org/package/2006/relationships';
 const THEMES = { light: { bg: '#ffffff', text: '#202124', accent: '#1a73e8' }, dark: { bg: '#202124', text: '#f1f3f4', accent: '#8ab4f8' }, ocean: { bg: '#0b57d0', text: '#ffffff', accent: '#ffd666' }, sand: { bg: '#f7f1e3', text: '#3c2f1e', accent: '#b5651d' } };
-const SHAPES = { rect: 'rect', roundRect: 'round', ellipse: 'ellipse' };
+// PowerPoint's shape names → Slides' (and back, for downloads).
+const SHAPES = { rect: 'rect', roundRect: 'round', ellipse: 'ellipse', triangle: 'triangle', diamond: 'diamond', rightArrow: 'arrowblock', chevron: 'chevron', star5: 'star', wedgeRoundRectCallout: 'callout' };
+const PPT_SHAPES = Object.fromEntries(Object.entries(SHAPES).map(([ppt, ours]) => [ours, ppt]));
 
 const kids = (el, ns, local) => elements(el).filter((e) => e.ns === ns && e.local === local);
 const kid = (el, ns, local) => kids(el, ns, local)[0];
@@ -274,7 +276,7 @@ export async function powerPointFromDeck(deck, { pictureData, title = 'Presentat
         slide.addShape(pptx.ShapeType.line, { ...at, flipH: d === 'hr', flipV: d === 'u' || d === 'vr',
           line: { color: color(it.fill || 'text', theme.text), width: 3, ...(it.shape === 'arrow' && { endArrowType: 'triangle' }) } });
       } else if (it.type === 'shape') {
-        const kind = { rect: pptx.ShapeType.rect, round: pptx.ShapeType.roundRect, ellipse: pptx.ShapeType.ellipse }[it.shape] || pptx.ShapeType.rect;
+        const kind = pptx.ShapeType[PPT_SHAPES[it.shape]] || pptx.ShapeType.rect;
         const look = { ...pos, ...(hyperlink && { hyperlink }), fill: { color: color(it.fill || 'accent', theme.accent) }, line: { type: 'none' } };
         // Text in the shape: centred in the middle, in the slide's background colour unless chosen.
         if (it.text) slide.addText(String(it.text), { ...look, shape: kind, fontSize: Math.round((it.size || 20) * Win * 72 / 1000), bold: !!it.bold, italic: !!it.italic, color: color(it.color, theme.bg), fontFace: 'Arial', align: it.align || 'center', valign: 'middle' });
