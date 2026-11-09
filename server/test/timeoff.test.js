@@ -174,3 +174,37 @@ test('who\'s out: colleagues on approved time off that day, back on the next wor
   assert.deepEqual((await tom('GET', '/api/time-off/out?date=2027-10-07')).body.out, [], 'not yourself');
   assert.deepEqual((await boss('GET', '/api/time-off/out?date=2027-10-12')).body.out, [], 'back');
 });
+
+test('half days: the morning or the afternoon of one day, half a day off the allowance', async () => {
+  const boss = client(), tom = client(), mia = client();
+  await boss('POST', '/api/auth/login', { username: 'bea@acme.com', password: 'password123' });
+  await tom('POST', '/api/auth/login', { username: 'tom@acme.com', password: 'password123' });
+  await mia('POST', '/api/auth/login', { username: 'mia@acme.com', password: 'password123' });
+  await boss('PUT', '/api/time-off/allowance', { days: 10 });
+  assert.equal((await tom('POST', '/api/time-off', { start_date: '2027-06-07', end_date: '2027-06-08', half: 'am' })).status, 400, 'one day only');
+  assert.equal((await tom('POST', '/api/time-off', { start_date: '2027-06-07', half: 'noon' })).status, 400);
+  const before = (await tom('GET', '/api/time-off')).body; // this year's balance isn't 2027's; check via the team view
+  const bal = async () => (await mia('GET', '/api/time-off/team?year=2027')).body.people.find((p) => p.name === 'Tom Team').balance;
+  const b0 = await bal();
+  const am = await tom('POST', '/api/time-off', { start_date: '2027-06-07', half: 'am', note: 'Dentist', tz: 'Europe/Berlin' }); // a Monday
+  assert.equal(am.status, 201, JSON.stringify(am.body));
+  assert.deepEqual([am.body.days, am.body.half], [0.5, 'am']);
+  assert.match((await mia('GET', '/api/notifications')).body.items[0].body, /Vacation: Mon 7 Jun \(morning\) \(half a working day\) · Dentist/);
+  // The afternoon of the same day is fine; the whole day isn't.
+  assert.equal((await tom('POST', '/api/time-off', { start_date: '2027-06-07', tz: 'Europe/Berlin' })).status, 400);
+  const pm = (await tom('POST', '/api/time-off', { start_date: '2027-06-07', half: 'pm', kind: 'personal', tz: 'Europe/Berlin' })).body;
+  assert.equal(pm.days, 0.5);
+  assert.equal((await tom('POST', '/api/time-off', { start_date: '2027-06-07', half: 'am', kind: 'sick' })).status, 400, 'the morning twice');
+  assert.equal((await bal()).pending - b0.pending, 0.5, 'half a vacation day (personal time off isn\'t vacation)');
+  // Approved: a timed out-of-office event, midnight to noon in Berlin.
+  const ok = (await mia('POST', `/api/time-off/${am.body.id}/decide`, { approve: true })).body;
+  const ev = (await tom('GET', `/api/events?from=${Date.UTC(2027, 5, 6)}&to=${Date.UTC(2027, 5, 9)}`)).body.find((e) => e.id === ok.event_id);
+  assert.deepEqual([ev.title, ev.all_day, ev.kind, ev.start, ev.end], ['Vacation (morning)', 0, 'ooo', Date.UTC(2027, 5, 6, 22), Date.UTC(2027, 5, 7, 10)]);
+  const after = await bal();
+  assert.equal(after.used - b0.used, 0.5);
+  // Who's out that day: Tom, for the morning.
+  const out = (await boss('GET', '/api/time-off/out?date=2027-06-07')).body.out.find((x) => x.name === 'Tom Team');
+  assert.deepEqual([out.half, out.back], ['am', null]);
+  assert.ok(before);
+  await boss('PUT', '/api/time-off/allowance', { days: null });
+});

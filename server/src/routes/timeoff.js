@@ -38,6 +38,10 @@ q(`CREATE TABLE IF NOT EXISTS company_holidays (
 export const holidaySet = (orgId) => new Set(q('SELECT date FROM company_holidays WHERE org_id = ?').all(orgId).map((h) => h.date));
 const orgOf = (userId) => q('SELECT org_id FROM users WHERE id = ?').get(userId)?.org_id;
 
+// Half a day: 'am' (the morning) or 'pm' (the afternoon) of a one-day request; null for whole days.
+if (!q('PRAGMA table_info(time_off)').all().some((c) => c.name === 'half')) q('ALTER TABLE time_off ADD COLUMN half TEXT').run();
+export const HALVES = { am: 'morning', pm: 'afternoon' };
+
 export const KINDS = { vacation: 'Vacation', sick: 'Sick leave', personal: 'Personal', other: 'Time off' };
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const validDate = (d) => DATE.test(d) && !Number.isNaN(Date.parse(`${d}T00:00:00Z`)) && new Date(`${d}T00:00:00Z`).toISOString().slice(0, 10) === d;
@@ -57,6 +61,14 @@ export function workdaysIn(a, b, year, holidays = new Set()) {
   const from = a > `${year}-01-01` ? a : `${year}-01-01`, to = b < `${year}-12-31` ? b : `${year}-12-31`;
   return from > to ? 0 : workdays(from, to, holidays);
 }
+/** The working days a request takes (in `year`, if given): half a day for a half-day one. */
+export function daysOf(t, holidays = new Set(), year = null) {
+  if (t.half) return (year === null || Number(t.start_date.slice(0, 4)) === year) && workdays(t.start_date, t.start_date, holidays) ? 0.5 : 0;
+  return year === null ? workdays(t.start_date, t.end_date, holidays) : workdaysIn(t.start_date, t.end_date, year, holidays);
+}
+/** "3 working days", "1 working day", "half a working day". */
+export const daysText = (n) => (n === 0.5 ? 'half a working day' : `${n} working day${n === 1 ? '' : 's'}`);
+
 /** Someone's vacation days a year (their own, else the company's), or null for no limit. */
 export function allowanceOf(userId) {
   const u = q('SELECT u.vacation_days AS own, o.vacation_days AS org FROM users u JOIN orgs o ON o.id = u.org_id WHERE u.id = ?').get(userId);
@@ -64,10 +76,10 @@ export function allowanceOf(userId) {
 }
 /** Their vacation in a year: { year, days (allowance or null), used (approved), pending, left }. */
 export function balanceOf(userId, year) {
-  const rows = q("SELECT start_date, end_date, status FROM time_off WHERE user_id = ? AND kind = 'vacation' AND status IN ('approved', 'pending') AND start_date <= ? AND end_date >= ?")
+  const rows = q("SELECT start_date, end_date, status, half FROM time_off WHERE user_id = ? AND kind = 'vacation' AND status IN ('approved', 'pending') AND start_date <= ? AND end_date >= ?")
     .all(userId, `${year}-12-31`, `${year}-01-01`);
   const hol = holidaySet(orgOf(userId));
-  const sum = (st) => rows.filter((x) => x.status === st).reduce((n, x) => n + workdaysIn(x.start_date, x.end_date, year, hol), 0);
+  const sum = (st) => rows.filter((x) => x.status === st).reduce((n, x) => n + daysOf(x, hol, year), 0);
   const days = allowanceOf(userId), used = sum('approved'), pending = sum('pending');
   return { year, days, used, pending, left: days === null ? null : days - used - pending };
 }
@@ -83,24 +95,25 @@ export function approversOf(userId) {
 
 const mayDecide = (approver, r) => approversOf(r.user_id).includes(approver.id);
 const fmt = (d) => new Date(`${d}T00:00:00Z`).toLocaleDateString('en-GB', { timeZone: 'UTC', weekday: 'short', day: 'numeric', month: 'short' });
-export const span = (r) => (r.start_date === r.end_date ? fmt(r.start_date) : `${fmt(r.start_date)} – ${fmt(r.end_date)}`);
+export const span = (r) => (r.start_date === r.end_date ? `${fmt(r.start_date)}${r.half ? ` (${HALVES[r.half]})` : ''}` : `${fmt(r.start_date)} – ${fmt(r.end_date)}`);
 
 function out(r) {
   const who = q('SELECT name, username FROM users WHERE id = ?').get(r.user_id);
   const by = r.decided_by ? q('SELECT name FROM users WHERE id = ?').get(r.decided_by)?.name : null;
-  return { id: r.id, user_id: r.user_id, name: who?.name, username: who?.username, start_date: r.start_date, end_date: r.end_date, kind: r.kind, kind_label: KINDS[r.kind],
-    note: r.note, status: r.status, decided_by_name: by || null, decided_at: r.decided_at, answer: r.answer, days: workdays(r.start_date, r.end_date, holidaySet(orgOf(r.user_id))), created_at: r.created_at, event_id: r.event_id };
+  return { id: r.id, user_id: r.user_id, name: who?.name, username: who?.username, start_date: r.start_date, end_date: r.end_date, half: r.half || null, kind: r.kind, kind_label: KINDS[r.kind],
+    note: r.note, status: r.status, decided_by_name: by || null, decided_at: r.decided_at, answer: r.answer, days: daysOf(r, holidaySet(orgOf(r.user_id))), created_at: r.created_at, event_id: r.event_id };
 }
 
 /** The all-day out-of-office event for approved time off (in the time zone it was asked in). */
 function addEvent(r) {
   const [y0, m0, d0] = r.start_date.split('-').map(Number), [y1, m1, d1] = r.end_date.split('-').map(Number);
   const tz = zoneOrUtc(r.tz);
-  const start = fromWallClock(y0, m0 - 1, d0, 0, 0, 0, 0, tz);
-  const end = fromWallClock(y1, m1 - 1, d1 + 1, 0, 0, 0, 0, tz) - 1;
+  // Half a day: the morning (until noon) or the afternoon (from noon), as a timed event.
+  const start = fromWallClock(y0, m0 - 1, d0, r.half === 'pm' ? 12 : 0, 0, 0, 0, tz);
+  const end = r.half === 'am' ? fromWallClock(y0, m0 - 1, d0, 12, 0, 0, 0, tz) : fromWallClock(y1, m1 - 1, d1 + 1, 0, 0, 0, 0, tz) - 1;
   const id = uid();
-  q(`INSERT INTO events (id, owner_id, title, description, start, end, all_day, exdates, tz, kind) VALUES (?, ?, ?, ?, ?, ?, 1, '[]', ?, 'ooo')`)
-    .run(id, r.user_id, KINDS[r.kind], r.note || null, start, end, tz);
+  q(`INSERT INTO events (id, owner_id, title, description, start, end, all_day, exdates, tz, kind) VALUES (?, ?, ?, ?, ?, ?, ?, '[]', ?, 'ooo')`)
+    .run(id, r.user_id, r.half ? `${KINDS[r.kind]} (${HALVES[r.half]})` : KINDS[r.kind], r.note || null, start, end, r.half ? 0 : 1, tz);
   return id;
 }
 
@@ -145,9 +158,9 @@ export default function timeOffRoutes() {
       for (let i = 0; i < 400; i++, t += 864e5) { const x = new Date(t), iso = x.toISOString().slice(0, 10); if (x.getUTCDay() !== 0 && x.getUTCDay() !== 6 && !hol.has(iso)) return iso; }
       return null;
     };
-    const out = q(`SELECT t.user_id, t.end_date, u.name FROM time_off t JOIN users u ON u.id = t.user_id
+    const out = q(`SELECT t.user_id, t.end_date, t.half, u.name FROM time_off t JOIN users u ON u.id = t.user_id
                    WHERE u.org_id = ? AND u.disabled = 0 AND t.status = 'approved' AND t.start_date <= ? AND t.end_date >= ? AND t.user_id != ? ORDER BY u.name`)
-      .all(req.user.org_id, date, date, req.user.id).map((x) => ({ user_id: x.user_id, name: x.name, until: x.end_date, back: nextWorkday(x.end_date) }));
+      .all(req.user.org_id, date, date, req.user.id).map((x) => ({ user_id: x.user_id, name: x.name, until: x.end_date, half: x.half || null, back: x.half ? null : nextWorkday(x.end_date) }));
     const holiday = q('SELECT id, date, name FROM company_holidays WHERE org_id = ? AND date >= ? ORDER BY date LIMIT 1').get(req.user.org_id, date) || null;
     const waiting = q(`SELECT t.* FROM time_off t JOIN users u ON u.id = t.user_id WHERE u.org_id = ? AND t.status = 'pending' AND t.user_id != ?`).all(req.user.org_id, req.user.id)
       .filter((t) => mayDecide(req.user, t)).length;
@@ -198,27 +211,32 @@ export default function timeOffRoutes() {
 
   r.post('/', (req, res) => {
     const { start_date: a, end_date: b = a, kind = 'vacation' } = req.body || {};
+    const half = req.body?.half ? String(req.body.half) : null;
+    if (half && !HALVES[half]) throw bad('Half a day: the morning or the afternoon');
+    if (half && a !== b) throw bad('Half a day is for one day');
     if (!validDate(a) || !validDate(b)) throw bad('Choose the first and last day');
     if (b < a) throw bad('The last day is before the first');
     const hol = holidaySet(req.user.org_id);
     if (workdays(a, b, hol) === 0) throw bad(a === b ? 'That day isn’t a working day (a weekend or a company holiday)' : 'Those days aren’t working days (weekends or company holidays)');
     if ((Date.parse(b) - Date.parse(a)) / 864e5 > 92) throw bad('At most three months at a time');
     if (!KINDS[kind]) throw bad('Unknown kind of time off');
-    const overlap = q("SELECT 1 FROM time_off WHERE user_id = ? AND status IN ('pending', 'approved') AND start_date <= ? AND end_date >= ?").get(req.user.id, b, a);
+    // Overlapping time off; the morning and the afternoon of the same day don't overlap.
+    const overlap = q("SELECT half FROM time_off WHERE user_id = ? AND status IN ('pending', 'approved') AND start_date <= ? AND end_date >= ?").all(req.user.id, b, a)
+      .some((x) => !(half && x.half && x.half !== half));
     if (overlap) throw bad('You already asked for time off on some of these days');
     // Vacation: within what's left of each year's allowance (approved and waiting both count).
     if (kind === 'vacation') {
       for (let y = Number(a.slice(0, 4)); y <= Number(b.slice(0, 4)); y++) {
-        const bal = balanceOf(req.user.id, y), want = workdaysIn(a, b, y, hol);
+        const bal = balanceOf(req.user.id, y), want = daysOf({ start_date: a, end_date: b, half }, hol, y);
         if (bal.left !== null && want > bal.left) throw bad(`That's ${want} vacation day${want === 1 ? '' : 's'} in ${y}; you have ${Math.max(0, bal.left)} left`);
       }
     }
     const note = String(req.body.note || '').trim().slice(0, 500) || null;
-    const row = { id: uid(), user_id: req.user.id, start_date: a, end_date: b, tz: zoneOrUtc(req.body.tz), kind, note, status: 'pending', created_at: Date.now() };
+    const row = { id: uid(), user_id: req.user.id, start_date: a, end_date: b, half, tz: zoneOrUtc(req.body.tz), kind, note, status: 'pending', created_at: Date.now() };
     const approvers = approversOf(req.user.id);
     tx(() => {
-      q('INSERT INTO time_off (id, user_id, start_date, end_date, tz, kind, note, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-        .run(row.id, row.user_id, a, b, row.tz, kind, note, 'pending', row.created_at);
+      q('INSERT INTO time_off (id, user_id, start_date, end_date, half, tz, kind, note, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        .run(row.id, row.user_id, a, b, half, row.tz, kind, note, 'pending', row.created_at);
       // Nobody to ask (a company of one): it's approved straight away.
       if (!approvers.length) {
         const ev = addEvent(row);
@@ -226,7 +244,7 @@ export default function timeOffRoutes() {
       }
     });
     if (approvers.length) {
-      notify(approvers, { kind: 'timeoff', title: `${req.user.name} asks for time off`, body: `${KINDS[kind]}: ${span(row)} (${workdays(a, b, hol)} working day${workdays(a, b, hol) === 1 ? '' : 's'})${note ? ` · ${note}` : ''}`, link: '/calendar?timeoff=1', actor: req.user.id });
+      notify(approvers, { kind: 'timeoff', title: `${req.user.name} asks for time off`, body: `${KINDS[kind]}: ${span(row)} (${daysText(daysOf(row, hol))})${note ? ` · ${note}` : ''}`, link: '/calendar?timeoff=1', actor: req.user.id });
     }
     res.status(201).json(out(q('SELECT * FROM time_off WHERE id = ?').get(row.id)));
   });

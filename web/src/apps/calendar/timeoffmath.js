@@ -6,3 +6,7 @@ export function balanceText(b) {
   return `${Math.max(0, b.left)} of ${b.days} vacation day${b.days === 1 ? '' : 's'} left in ${b.year}${b.pending ? ` (${b.pending} waiting for an answer)` : ''}`;
 }
 
+
+/** "3 working days", "1 working day", "half a working day". */
+export const daysText = (n) => (n === 0.5 ? 'half a working day' : `${n} working day${n === 1 ? '' : 's'}`);
+export const HALVES = { am: 'morning', pm: 'afternoon' };

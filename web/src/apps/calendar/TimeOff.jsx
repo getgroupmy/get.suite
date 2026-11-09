@@ -5,12 +5,12 @@ import { useEffect, useState } from 'react';
 import { get, post, put, del } from '../../api.js';
 import { Modal, useToast } from '../../components/ui.jsx';
 import { localToday } from '../tasks/taskmath.js';
-import { balanceText } from './timeoffmath.js';
+import { balanceText, daysText, HALVES } from './timeoffmath.js';
 
 const KINDS = [['vacation', 'Vacation'], ['sick', 'Sick leave'], ['personal', 'Personal'], ['other', 'Other']];
 const TZ = Intl.DateTimeFormat().resolvedOptions().timeZone;
 const day = (d) => new Date(`${d}T00:00:00Z`).toLocaleDateString([], { timeZone: 'UTC', weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
-const span = (r) => (r.start_date === r.end_date ? day(r.start_date) : `${day(r.start_date)} – ${day(r.end_date)}`);
+const span = (r) => (r.start_date === r.end_date ? `${day(r.start_date)}${r.half ? ` (${HALVES[r.half]})` : ''}` : `${day(r.start_date)} – ${day(r.end_date)}`);
 const STATUS = { pending: 'Waiting for an answer', approved: 'Approved', declined: 'Declined', cancelled: 'Cancelled' };
 
 /** How many requests wait for this person's answer (for the sidebar's badge). */
@@ -19,7 +19,7 @@ export const waitingFor = (data) => (data?.to_decide || []).filter((r) => r.stat
 export default function TimeOff({ onClose, onChanged }) {
   const toast = useToast();
   const [data, setData] = useState(null);
-  const [f, setF] = useState(() => ({ start_date: localToday(), end_date: localToday(), kind: 'vacation', note: '' }));
+  const [f, setF] = useState(() => ({ start_date: localToday(), end_date: localToday(), kind: 'vacation', note: '', half: '' }));
   const [answers, setAnswers] = useState({});
   const [busy, setBusy] = useState(false);
   const [tab, setTab] = useState('mine'); // mine | team
@@ -33,7 +33,7 @@ export default function TimeOff({ onClose, onChanged }) {
     e.preventDefault();
     setBusy(true);
     try {
-      const r = await post('/time-off', { ...f, tz: TZ });
+      const r = await post('/time-off', { ...f, half: f.start_date === f.end_date ? f.half || null : null, tz: TZ });
       done(r.status === 'approved' ? 'Time off added to your calendar' : 'Asked for time off');
       setF({ ...f, note: '' });
     } catch (err) { toast(err.message, 'error'); }
@@ -61,7 +61,7 @@ export default function TimeOff({ onClose, onChanged }) {
             <ul className="timeoff-list">
               {waiting.map((r) => (
                 <li key={r.id} className="stack-tight">
-                  <div><strong>{r.name}</strong> · {r.kind_label}: {span(r)} <span className="muted small">({r.days} working day{r.days === 1 ? '' : 's'})</span></div>
+                  <div><strong>{r.name}</strong> · {r.kind_label}: {span(r)} <span className="muted small">({daysText(r.days)})</span></div>
                   {r.note && <div className="muted small">“{r.note}”</div>}
                   {r.kind === 'vacation' && balanceText(r.balance) && <div className="muted small">{r.name.split(' ')[0]} has {balanceText(r.balance)}</div>}
                   <div className="row wrap" style={{ gap: 6 }}>
@@ -79,6 +79,8 @@ export default function TimeOff({ onClose, onChanged }) {
           <div className="row wrap" style={{ gap: 8 }}>
             <label className="field"><span>First day</span><input type="date" required value={f.start_date} onChange={set('start_date')} /></label>
             <label className="field"><span>Last day</span><input type="date" required min={f.start_date} value={f.end_date} onChange={set('end_date')} /></label>
+            {f.start_date === f.end_date && <label className="field"><span>Part of the day</span><select value={f.half} onChange={set('half')}>
+              <option value="">All day</option><option value="am">Morning</option><option value="pm">Afternoon</option></select></label>}
             <label className="field"><span>Kind</span><select value={f.kind} onChange={set('kind')}>{KINDS.map(([k, n]) => <option key={k} value={k}>{n}</option>)}</select></label>
           </div>
           <label className="field"><span>Note (optional)</span><input value={f.note} maxLength={500} onChange={set('note')} placeholder="Family visit" /></label>
@@ -92,7 +94,7 @@ export default function TimeOff({ onClose, onChanged }) {
             <ul className="timeoff-list">
               {data.mine.map((r) => (
                 <li key={r.id} className="row wrap" style={{ gap: 8 }}>
-                  <span className="grow">{r.kind_label}: {span(r)} <span className="muted small">({r.days} working day{r.days === 1 ? '' : 's'})</span>
+                  <span className="grow">{r.kind_label}: {span(r)} <span className="muted small">({daysText(r.days)})</span>
                     <br /><span className={`small timeoff-${r.status}`}>{STATUS[r.status]}{r.decided_by_name && r.status !== 'cancelled' ? ` by ${r.decided_by_name}` : ''}{r.answer ? `: “${r.answer}”` : ''}</span></span>
                   {['pending', 'approved'].includes(r.status) && r.end_date >= localToday() && <button type="button" className="btn small" aria-label={`Cancel time off ${span(r)}`} onClick={() => cancel(r)}>Cancel</button>}
                 </li>
