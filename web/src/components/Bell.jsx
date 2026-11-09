@@ -108,6 +108,17 @@ function ThisDevice() {
   const toast = useToast();
   const [state, setState] = useState('checking'); // checking | unsupported | blocked | off | on
   const [busy, setBusy] = useState(false);
+  const [devices, setDevices] = useState([]); // all your devices with notifications on
+  const loadDevices = useCallback(async () => {
+    let mine = '';
+    try { if ('serviceWorker' in navigator) mine = (await (await navigator.serviceWorker.getRegistration())?.pushManager.getSubscription())?.endpoint || ''; } catch { /* none */ }
+    get(`/push${mine ? `?endpoint=${encodeURIComponent(mine)}` : ''}`).then((r) => setDevices(r.devices)).catch(() => {});
+  }, []);
+  useEffect(() => { loadDevices(); }, [loadDevices, state]);
+  const removeDevice = async (d) => {
+    if (d.this_device) return turnOff();
+    try { await post('/push/remove', { id: d.id }); toast(`Notifications stopped on ${d.name}`); loadDevices(); } catch (e) { toast(e.message, 'error'); }
+  };
   const supported = typeof window !== 'undefined' && window.isSecureContext && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
   const current = useCallback(async () => (await (await navigator.serviceWorker.ready).pushManager.getSubscription()), []);
   useEffect(() => {
@@ -142,6 +153,17 @@ function ThisDevice() {
       {state === 'blocked' && <p className="muted small" style={{ margin: 0 }}>Notifications are blocked for Workspace in this browser. Allow them in the browser's site settings, then come back here.</p>}
       {state === 'off' && <div className="row"><button type="button" className="btn" disabled={busy} onClick={turnOn}>Turn on notifications on this device</button></div>}
       {state === 'on' && <div className="row"><span className="grow small">On: what lands in the bell reaches this device too (not while notifications are paused or in your quiet hours).</span><button type="button" className="btn" disabled={busy} onClick={turnOff}>Turn off</button></div>}
+      {devices.length > 0 && (
+        <ul className="share-list" aria-label="Devices with notifications on">
+          {devices.map((d) => (
+            <li key={d.id} aria-label={d.name}>
+              <span className="grow"><strong>{d.name}</strong>{d.this_device && <span className="muted small"> · this device</span>}
+                <span className="muted small" style={{ display: 'block' }}>On since {new Date(d.created_at).toLocaleDateString()}{d.last_ok_at ? ` · last notified ${ago(d.last_ok_at)}` : ''}</span></span>
+              <button type="button" className="link-btn small" onClick={() => removeDevice(d)} aria-label={`Stop notifications on ${d.name}${d.this_device ? ' (this device)' : ''}`}>Remove</button>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

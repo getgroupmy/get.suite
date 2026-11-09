@@ -105,6 +105,11 @@ test('push: a direct message in Chat reaches the other person’s devices; once 
     await call('POST', `/api/chat/channels/${ch.id}/messages`, { body: 'ok?' });
     await new Promise((r) => setTimeout(r, 400));
     assert.equal(got.length, 0);
+    // Deb's device can't be removed by Dan, even knowing its id; it isn't in his list.
+    const debsId = crypto.createHash('sha256').update(endpoint).digest('base64url').slice(0, 16);
+    assert.deepEqual((await call('GET', '/api/push')).devices, []);
+    assert.equal((await call('POST', '/api/push/remove', { id: debsId })).error, 'No such device');
+    assert.equal(devicesOf('db').length, 1);
   } finally { server.close(); }
 });
 
