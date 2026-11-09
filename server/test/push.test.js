@@ -107,3 +107,28 @@ test('push: a direct message in Chat reaches the other person’s devices; once 
     assert.equal(got.length, 0);
   } finally { server.close(); }
 });
+
+test('push: calendar reminders reach devices when they come due, repeating ones too, once each; not declined events', async () => {
+  process.env.PUSH_ANY_ENDPOINT = '1';
+  await import('../src/routes/calendar.js');
+  const { sendDueReminderPushes } = await import('../src/pushreminders.js');
+  q('DELETE FROM push_subscriptions').run();
+  answer = 201;
+  subscribe('pu', { endpoint, keys }, 'Pia phone');
+  const now = Date.parse('2026-11-10T08:50:00Z');
+  const ev = (id, start, opts = {}) => q(`INSERT INTO events (id, owner_id, title, location, start, end, all_day, rrule, exdates, tz) VALUES (?, ?, ?, ?, ?, ?, 0, ?, '[]', 'UTC')`)
+    .run(id, opts.owner || 'pu', opts.title || id, opts.location || null, start, start + 36e5, opts.rrule ? JSON.stringify(opts.rrule) : null);
+  ev('standup', Date.parse('2026-11-02T09:00:00Z'), { title: 'Stand-up', rrule: { freq: 'daily' } }); // a week ago, every day
+  ev('review', Date.parse('2026-11-10T09:00:00Z'), { title: 'Design review', location: 'Room 4' });
+  ev('later', Date.parse('2026-11-10T15:00:00Z'), { title: 'Later today' });
+  ev('declined', Date.parse('2026-11-10T09:00:00Z'), { owner: 'db', title: 'Not going' });
+  q("INSERT INTO event_guests (event_id, user_id, status) VALUES ('declined', 'pu', 'no')").run();
+  for (const [e, m] of [['standup', 10], ['review', 10], ['later', 10], ['declined', 10], ['review', 60]]) q('INSERT INTO event_reminders (event_id, user_id, minutes) VALUES (?, ?, ?)').run(e, 'pu', m);
+  got = [];
+  assert.equal(await sendDueReminderPushes(now, { skipOnline: false }), 2, 'today’s stand-up and the review, 10 minutes before');
+  const titles = got.map(read).map((m) => `${m.title} | ${m.body}`).sort();
+  assert.deepEqual(titles, ['Design review | In 10 minutes · Room 4', 'Stand-up | In 10 minutes']);
+  assert.equal(await sendDueReminderPushes(now + 60e3, { skipOnline: false }), 0, 'once each');
+  // Tomorrow, the stand-up again.
+  assert.equal(await sendDueReminderPushes(now + 864e5, { skipOnline: false }), 1);
+});
