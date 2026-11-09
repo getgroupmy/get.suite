@@ -1,12 +1,13 @@
 // Cell formatting for Sheets: how numbers show (the value itself never changes), and which style
 // keys a format may have. Formats live per sheet in `formats` ({ A1: { b, i, u, s (strikethrough), wrap, bd (borders: sides from "tblr"),
-// color, fill, align, va (vertical: top, middle or bottom), num, dp, cur } }).
+// color, fill, align, va (vertical: top, middle or bottom), num, dp, cur, code (num 'custom': a format code, numfmt.js) } }).
+import { formatCode, cleanCode } from './numfmt.js';
 
-export const NUMBER_FORMATS = [['', 'Automatic'], ['number', 'Number'], ['currency', 'Currency'], ['percent', 'Percent'], ['date', 'Date']];
+export const NUMBER_FORMATS = [['', 'Automatic'], ['number', 'Number'], ['currency', 'Currency'], ['percent', 'Percent'], ['date', 'Date'], ['custom', 'Custom…']];
 /** How a date shows (fmt.ds), with an example. */
 export const DATE_STYLES = [['medium', '7 Nov 2026'], ['short', '07/11/2026'], ['long', 'Saturday, 7 November 2026'], ['iso', '2026-11-07'], ['month', 'Nov 2026']];
 export const CURRENCIES = ['MYR', 'USD', 'EUR', 'GBP', 'SGD', 'AUD', 'JPY', 'CNY', 'IDR', 'THB', 'INR'];
-const KEYS = ['b', 'i', 'u', 's', 'wrap', 'bd', 'color', 'fill', 'align', 'va', 'num', 'dp', 'cur', 'ds'];
+const KEYS = ['b', 'i', 'u', 's', 'wrap', 'bd', 'color', 'fill', 'align', 'va', 'num', 'dp', 'cur', 'ds', 'code'];
 export const VALIGNS = [['top', 'Top'], ['middle', 'Middle'], ['bottom', 'Bottom']];
 const COLOR_RE = /^#[0-9a-f]{6}$/i;
 
@@ -42,6 +43,7 @@ export function formatDate(v, style = 'medium', locale) {
 }
 
 export function formatNumber(v, fmt, locale) {
+  if (fmt?.num === 'custom') return fmt.code ? formatCode(v, fmt.code)?.text ?? null : null;
   if (fmt?.num === 'date') return formatDate(v, fmt.ds, locale);
   if (typeof v !== 'number' || !Number.isFinite(v) || !fmt?.num) return null;
   const dp = Math.max(0, Math.min(10, decimals(fmt)));
@@ -49,6 +51,11 @@ export function formatNumber(v, fmt, locale) {
   if (fmt.num === 'currency') return new Intl.NumberFormat(locale, { ...opts, style: 'currency', currency: fmt.cur || 'MYR' }).format(v);
   if (fmt.num === 'percent') return new Intl.NumberFormat(locale, { ...opts, style: 'percent' }).format(v);
   return new Intl.NumberFormat(locale, { ...opts, useGrouping: true }).format(v);
+}
+
+/** The colour a custom format gives this value ([Red] in its code), or null. */
+export function codeColour(v, fmt) {
+  return fmt?.num === 'custom' && fmt.code ? formatCode(v, fmt.code)?.colour || null : null;
 }
 
 /** Inline styles for a formatted cell. */
@@ -78,8 +85,10 @@ export function mergeFormat(fmt, change) {
     else if (k === 'va' && !VALIGNS.some(([x]) => x === v)) continue;
     else if (k === 'bd') { const sides = sideSet(v); if (sides) out.bd = sides; else delete out.bd; }
     else if (k === 'dp') out.dp = Math.max(0, Math.min(10, Math.round(v)));
+    else if (k === 'code') { const c = cleanCode(v); if (c) out.code = c; else delete out.code; }
     else out[k] = ['b', 'i', 'u', 's', 'wrap'].includes(k) ? 1 : v;
   }
+  if (out.num !== 'custom') delete out.code; else { delete out.dp; delete out.cur; delete out.ds; if (!out.code) delete out.num; }
   if (!out.num) { delete out.dp; delete out.cur; }
   if (out.num !== 'date') delete out.ds; else { delete out.dp; delete out.cur; if (out.ds && !DATE_STYLES.some(([k]) => k === out.ds)) delete out.ds; }
   return Object.keys(out).length ? out : null;

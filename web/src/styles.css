@@ -2310,3 +2310,11 @@ textarea.mono { font-family: ui-monospace, Consolas, monospace; }
 .home-apps a:hover { background: var(--hover); }
 .home-app-icon { width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; background: var(--accent); color: #fff; font-weight: 700; font-size: 18px; }
 .home-apps .ellipsis { max-width: 100%; }
+
+/* Sheets: the Custom number format window */
+.numfmt-preview { padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); }
+.numfmt-preview output { font-size: 18px; margin-left: 8px; }
+.numfmt-examples { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 6px; max-height: 260px; overflow: auto; }
+.numfmt-example { width: 100%; display: flex; justify-content: space-between; gap: 8px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); cursor: pointer; text-align: left; }
+.numfmt-example:hover, .numfmt-example.on { border-color: var(--accent); background: var(--accent-soft); }
+.numfmt-example code { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

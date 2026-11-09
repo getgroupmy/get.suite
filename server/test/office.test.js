@@ -786,3 +786,16 @@ test('Excel: vertical alignment both ways', async () => {
   const back = await sheetFromExcel(buf);
   assert.deepEqual(back.sheets[0].formats, { A1: { va: 'top' }, B1: { va: 'bottom', align: 'right' } });
 });
+
+test('Excel: custom number formats go out as written and come back', async () => {
+  const code = '#,##0;[Red](#,##0);"Nil"';
+  const buf = await excelFromSheet({ sheets: [{ name: 'S', cells: { A1: '-5', B1: '0.25', C1: '46335.5' }, formats: { A1: { num: 'custom', code }, B1: { num: 'percent', dp: 1 }, C1: { num: 'custom', code: 'hh:mm' } } }] });
+  const ExcelJS = (await import('exceljs')).default;
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(buf);
+  assert.equal(wb.getWorksheet('S').getCell('A1').numFmt, code);
+  const back = await sheetFromExcel(buf);
+  assert.deepEqual(back.sheets[0].formats.A1, { num: 'custom', code });
+  assert.deepEqual(back.sheets[0].formats.B1, { num: 'percent', dp: 1 }, 'familiar ones stay familiar');
+  assert.deepEqual(back.sheets[0].formats.C1, { num: 'custom', code: 'hh:mm' }, 'a time is no longer lost');
+});

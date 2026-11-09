@@ -25,6 +25,7 @@ import { buildPivot, pivotCells, sourceTable } from './pivot.js';
 import { RulesDialog } from './SheetRules.jsx';
 import { ValidationDialog, ChoicePicker } from './SheetValidation.jsx';
 import { CellPicture, PictureCellDialog } from './SheetPicture.jsx';
+import { CustomFormatDialog } from './SheetNumFmt.jsx';
 import { heightOf, setHeights, MIN_H, MAX_H, DEFAULT_H } from './rowheights.js';
 import { validationAt, checkEntry, isTicked, withChoices, choicesFrom, chipColour } from './validation.js';
 import { hiddenRows, columnValues, adjustFilter, filterArea, columnFiltered } from './filter.js';
@@ -55,7 +56,7 @@ const SEL_COLORS = ['#1a73e8', '#d93025', '#188038', '#e37400', '#8430ce', '#007
 const colorFor = (id) => SEL_COLORS[[...String(id)].reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) >>> 0, 7) % SEL_COLORS.length];
 import { importBook, onImports, refreshImports } from './imports.js';
 import { createEvaluator, bookEvaluator, display, colName, cellKey, parseRef, shiftFormula, colIndex } from './formula.js';
-import { NUMBER_FORMATS, CURRENCIES, DATE_STYLES, BORDERS, borderFor, decimals, formatNumber, cellStyle, mergeFormat, VALIGNS } from './cellformat.js';
+import { NUMBER_FORMATS, CURRENCIES, DATE_STYLES, BORDERS, borderFor, decimals, formatNumber, cellStyle, mergeFormat, VALIGNS, codeColour } from './cellformat.js';
 
 const TEXT_COLORS = [['', 'Automatic'], ['#c5221f', 'Red'], ['#e37400', 'Orange'], ['#188038', 'Green'], ['#1a73e8', 'Blue'], ['#8430ce', 'Purple'], ['#5f6368', 'Grey']];
 const FILLS = [['', 'None'], ['#fce8e6', 'Light red'], ['#fef7e0', 'Light yellow'], ['#e6f4ea', 'Light green'], ['#e8f0fe', 'Light blue'], ['#f3e8fd', 'Light purple'], ['#f1f3f4', 'Light grey']];
@@ -959,7 +960,7 @@ export default function SheetEditor() {
           {!readOnly && <button type="button" className="btn small" onClick={editPivot}>Edit pivot table</button>}
         </div>
       )}
-      {!readOnly && <FormatBar painter={painter} onPaint={(sticky) => (painter && !sticky ? setPainter(null) : startPaint(sticky))} fmt={formats[selKey] || {}} onChange={(change) => { writeFormats(change); gridRef.current?.focus(); }}
+      {!readOnly && <FormatBar sample={evaluate(selKey)} painter={painter} onPaint={(sticky) => (painter && !sticky ? setPainter(null) : startPaint(sticky))} fmt={formats[selKey] || {}} onChange={(change) => { writeFormats(change); gridRef.current?.focus(); }}
         onMerge={() => { toggleMerge(); gridRef.current?.focus(); }} merged={!!mergeAt(merges, sel.c, sel.r)}
         onBorders={(kind) => { writeFormats((k, c, r, f) => ({ bd: borderFor(kind, range, c, r, f?.bd) })); gridRef.current?.focus(); }} onComment={startComment} onChart={newChart} onSort={() => setDialog({ type: 'sort' })} onRules={() => setDialog({ type: 'rules' })} onValidation={() => setDialog({ type: 'validation' })} onPivot={newPivot} filterOn={!!filter} onFilter={toggleFilter} history={history} />}
       {finding && sheet && (
@@ -1044,7 +1045,7 @@ export default function SheetEditor() {
                   const fmt = formats[k];
                   const vd = validations.length ? validationAt(validations, k) : null;
                   return (
-                    <td key={k} data-k={k} {...spanProps} style={{ maxWidth: span ? undefined : widthOf(c), ...stickyStyle(c, r), ...bandStyle(bands, c, r, fmt), ...cellStyle(fmt), ...(rules.length && ruleStyle(rules, k, v)), ...(theirs.has(k) && { boxShadow: `${isSel ? 'inset 0 0 0 2px var(--accent), ' : ''}inset 0 0 0 ${isSel ? 4 : 2}px ${theirs.get(k).color}` }) }}
+                    <td key={k} data-k={k} {...spanProps} style={{ maxWidth: span ? undefined : widthOf(c), ...stickyStyle(c, r), ...bandStyle(bands, c, r, fmt), ...cellStyle(fmt), ...(fmt?.num === 'custom' && codeColour(v, fmt) && { color: codeColour(v, fmt) }), ...(rules.length && ruleStyle(rules, k, v)), ...(theirs.has(k) && { boxShadow: `${isSel ? 'inset 0 0 0 2px var(--accent), ' : ''}inset 0 0 0 ${isSel ? 4 : 2}px ${theirs.get(k).color}` }) }}
                       title={notes[k] ? `Note: ${notes[k]}` : theirs.has(k) ? `${theirs.get(k).name} is here` : commented.has(k) ? 'Has comments' : spilledFrom ? `From the formula in ${spilledFrom}` : undefined}
                       className={`${frozenClass(c, r)} ${spilledFrom ? 'spilled' : ''} ${vd ? `has-${vd.type}` : ''} ${commented.has(k) ? 'commented' : ''} ${isSel ? 'sel' : ''} ${inRange(c, r) && anchor ? 'range' : ''} ${typeof v === 'number' ? 'num' : ''} ${isErr ? 'err' : ''} ${hits?.keys.has(k) ? (hits.current === k ? 'find-current' : 'find-hit') : ''} ${!readOnly && guardBoxes.length && guarded(c, r) ? 'guarded' : ''} ${inFill(c, r) ? 'fill-preview' : ''}`}
                       onContextMenu={(e) => { if (!inRange(c, r)) { setAnchor(null); setSel({ c, r }); } openMenu(e, 'cell'); }}
@@ -1301,13 +1302,14 @@ function NoteEditor({ at, onSave, onClose }) {
   );
 }
 
-function FormatBar({ painter, onPaint, fmt, onChange, onBorders, onMerge, merged, onComment, onChart, onSort, onRules, onValidation, onPivot, filterOn, onFilter, history }) {
+function FormatBar({ sample, painter, onPaint, fmt, onChange, onBorders, onMerge, merged, onComment, onChart, onSort, onRules, onValidation, onPivot, filterOn, onFilter, history }) {
   const keep = (e) => e.preventDefault(); // buttons don't take focus from the grid
   const Toggle = ({ k, label, title, children }) => (
     <button type="button" className={`tb ${fmt[k] ? 'on' : ''}`} aria-pressed={!!fmt[k]} aria-label={label} title={title} onMouseDown={keep} onClick={() => onChange({ [k]: !fmt[k] })}>{children}</button>
   );
   const align = fmt.align || 'auto';
   const [open, setOpen] = useState(false); // phones: the toolbar folds away behind one button
+  const [customOpen, setCustomOpen] = useState(false); // the Custom number format window
   return (
     <div className={`sheet-toolbar foldable ${open ? 'open' : ''}`} role="toolbar" aria-label="Cell formatting">
       <button type="button" className="tb tb-fold" aria-expanded={open} onMouseDown={keep} onClick={() => setOpen(!open)}>{open ? 'Hide formatting ▴' : 'Formatting ▾'}</button>
@@ -1346,7 +1348,9 @@ function FormatBar({ painter, onPaint, fmt, onChange, onBorders, onMerge, merged
         {BORDERS.map(([v, n]) => <option key={v} value={v}>{n}</option>)}
       </select>
       <span className="sep" />
-      <select className="tb-select" aria-label="Number format" title="Number format" value={fmt.num || ''} onChange={(e) => onChange({ num: e.target.value, dp: null })}>
+      {customOpen && <CustomFormatDialog initial={fmt.code} sample={sample} onClose={() => setCustomOpen(false)} onSave={(code) => { setCustomOpen(false); onChange({ num: 'custom', code, dp: null }); }} />}
+      {fmt.num === 'custom' && <button type="button" className="tb" aria-label="Edit format code" title={`Format code: ${fmt.code}`} onMouseDown={keep} onClick={() => setCustomOpen(true)}>✎</button>}
+      <select className="tb-select" aria-label="Number format" title="Number format" value={fmt.num || ''} onChange={(e) => (e.target.value === 'custom' ? setCustomOpen(true) : onChange({ num: e.target.value, dp: null }))}>
         {NUMBER_FORMATS.map(([v, n]) => <option key={v} value={v}>{n}</option>)}
       </select>
       {fmt.num === 'currency' && (

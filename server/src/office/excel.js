@@ -26,8 +26,9 @@ export function numFromExcel(fmt) {
   const iso = /\[\$([A-Z]{3})\]/.exec(main) || /"([A-Z]{3})"/.exec(main);
   const sign = CURRENCY_SIGNS.find(([s]) => main.includes(s) || main.includes(`[$${s}`));
   if (iso || sign) return { num: 'currency', cur: iso ? iso[1] : sign[1], dp };
-  if (/#,##0|0\.0|^0$/.test(main)) return { num: 'number', dp };
-  return {};
+  if (/^(#,##0|0)(\.0+)?$/.test(main.trim()) && !fmt.includes(';')) return { num: 'number', dp };
+  // Anything else (sections, colours, text, scaling…) is kept as the code itself.
+  return { num: 'custom', code: String(fmt).slice(0, 120) };
 }
 const numToExcel = (f) => {
   const dec = f.dp === 0 ? '' : `.${'0'.repeat(f.dp ?? 2)}`;
@@ -35,6 +36,7 @@ const numToExcel = (f) => {
   if (f.num === 'percent') return `0${f.dp ? `.${'0'.repeat(f.dp)}` : ''}%`;
   if (f.num === 'currency') return `[$${f.cur || 'MYR'}] #,##0${f.dp === undefined ? '.00' : dec}`;
   if (f.num === 'number') return `#,##0${f.dp === undefined ? '.00' : dec}`;
+  if (f.num === 'custom' && typeof f.code === 'string' && f.code.trim()) return f.code.slice(0, 120); // a custom code, as written
   return undefined;
 };
 

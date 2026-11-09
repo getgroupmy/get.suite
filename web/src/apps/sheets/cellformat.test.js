@@ -66,3 +66,14 @@ test('vertical alignment: top, middle or bottom of a taller row', () => {
   assert.equal(mergeFormat({ va: 'bottom' }, { va: null }), null);
   assert.deepEqual(cellStyle({ va: 'bottom', align: 'right' }), { textAlign: 'right', verticalAlign: 'bottom' });
 });
+
+test('custom number formats: a code of your own', async () => {
+  const { codeColour } = await import('./cellformat.js');
+  const fmt = mergeFormat({ dp: 2, cur: 'USD', num: 'currency' }, { num: 'custom', code: ' #,##0;[Red](#,##0) ' });
+  assert.deepEqual(fmt, { num: 'custom', code: '#,##0;[Red](#,##0)' }, 'decimals and currency go; the code is trimmed');
+  assert.equal(formatNumber(-1500, fmt), '(1,500)');
+  assert.equal(codeColour(-1500, fmt), '#d93025');
+  assert.equal(codeColour(1500, fmt), null);
+  assert.equal(mergeFormat({}, { num: 'custom', code: '' }), null, 'no code: nothing');
+  assert.deepEqual(mergeFormat(fmt, { num: 'number' }), { num: 'number' }, 'another format drops the code');
+});
