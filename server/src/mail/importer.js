@@ -6,7 +6,11 @@
 import { ImapFlow } from 'imapflow';
 import dns from 'node:dns/promises';
 import net from 'node:net';
-import { q } from '../db.js';
+import fs from 'node:fs';
+import path from 'node:path';
+import { q, FILES_DIR } from '../db.js';
+import { roleFor, atLeast } from '../access.js';
+import { readMbox, countMbox, flagsOf } from './mbox.js';
 import { uid as newId, now, bad, HttpError } from '../util.js';
 import { sendTo } from '../hub.js';
 import { ownConnection } from './imap.js';
@@ -114,6 +118,71 @@ async function run(user, id, remote) {
     update({ status: 'failed', error: String(e.message || e).slice(0, 300), finished_at: now() });
   } finally {
     try { await remote.logout(); } catch {}
+    try { await local?.logout(); } catch {}
+  }
+}
+
+// ---- importing an .mbox file from Drive (Gmail's Takeout, Thunderbird, Apple Mail, Workspace's own
+// download): its messages go into a folder named after the file (Inbox, Sent, Drafts and Archive go
+// into those), with their dates, read and starred as the file says. Messages already in that folder
+// (the same Message-ID) are skipped, so it can be run again.
+const SPECIAL_NAMES = { inbox: 'INBOX', sent: '\\Sent', 'sent mail': '\\Sent', 'sent items': '\\Sent', drafts: '\\Drafts', archive: '\\Archive' };
+
+/** The folder an .mbox file goes into, from its name ("Acme.mbox" → "Acme"; "Inbox.mbox" → the Inbox). */
+export function folderForMbox(name, ours = []) {
+  const base = String(name || '').replace(/\.mbox$/i, '').replace(/[\r\n\t]/g, ' ').replace(/[/\\]/g, '-').trim().slice(0, 80) || 'Imported';
+  const special = SPECIAL_NAMES[base.toLowerCase()];
+  if (special === 'INBOX') return 'INBOX';
+  if (special) return ours.find((b) => b.specialUse === special)?.path || base;
+  return base;
+}
+
+export async function startMboxImport(user, { file_id: fileId }) {
+  if (running.has(user.id)) throw bad('An import is already running');
+  const f = q("SELECT * FROM files WHERE id = ? AND kind = 'file' AND trashed = 0").get(String(fileId || ''));
+  if (!f || !atLeast(roleFor(f.id, user.id) || '', 'viewer')) throw new HttpError(404, 'File not found');
+  if (!/\.mbox$/i.test(f.name) && !/mbox/i.test(f.mime || '')) throw bad('Choose an .mbox file (Gmail’s Takeout, Thunderbird or Apple Mail give one)');
+  const file = path.join(FILES_DIR, f.storage);
+  const id = newId();
+  q('INSERT INTO mail_imports (id, user_id, host, username, status, started_at) VALUES (?, ?, ?, ?, ?, ?)').run(id, user.id, 'file', f.name, 'running', now());
+  running.set(user.id, id);
+  runMbox(user, id, file, f.name).catch(() => {}).finally(() => running.delete(user.id));
+  return importOf(user.id);
+}
+
+async function runMbox(user, id, file, name) {
+  const update = (set) => {
+    const keys = Object.keys(set);
+    q(`UPDATE mail_imports SET ${keys.map((k) => `${k} = ?`).join(', ')} WHERE id = ?`).run(...keys.map((k) => set[k]), id);
+    sendTo([user.id], { type: 'mail-import', import: importOf(user.id) });
+  };
+  let local;
+  try {
+    update({ total: await countMbox(fs.createReadStream(file)) });
+    local = await ownConnection(user);
+    const ours = await local.list();
+    const target = folderForMbox(name, ours);
+    if (!ours.some((x) => x.path === target)) await local.mailboxCreate(target).catch(() => {});
+    update({ folder: target });
+    const have = new Set();
+    const lock = await local.getMailboxLock(target);
+    try {
+      if (local.mailbox.exists) for await (const m of local.fetch('1:*', { envelope: true })) if (m.envelope?.messageId) have.add(m.envelope.messageId);
+    } finally { lock.release(); }
+    let copied = 0, skipped = 0;
+    for await (const m of readMbox(fs.createReadStream(file, { highWaterMark: 256 * 1024 }))) {
+      const messageId = /^Message-ID:[ \t]*(<[^>\r\n]+>)/im.exec(m.source.subarray(0, 64 * 1024).toString('latin1').split(/\r\n\r\n/)[0])?.[1];
+      if (messageId && have.has(messageId)) { skipped++; continue; }
+      try { await local.append(target, m.source, flagsOf(m.source), m.date || undefined); }
+      catch { skipped++; continue; } // one the mail server won't take (too big, broken): the rest still go in
+      if (messageId) have.add(messageId);
+      copied++;
+      if (copied % 20 === 0) update({ copied, skipped });
+    }
+    update({ copied, skipped, status: 'done', folder: null, finished_at: now() });
+  } catch (e) {
+    update({ status: 'failed', error: String(e.message || e).slice(0, 300), finished_at: now() });
+  } finally {
     try { await local?.logout(); } catch {}
   }
 }

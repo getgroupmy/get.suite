@@ -23,7 +23,7 @@ import { forwardHtml } from '../mail/forwardhtml.js';
 import { unsubscribeOptions, oneClickUnsubscribe } from '../mail/unsubscribe.js';
 import { groupSubscriptions } from '../mail/subscriptions.js';
 import { baseSubject, shareSomeone } from '../mail/thread.js';
-import { startImport, importOf } from '../mail/importer.js';
+import { startImport, startMboxImport, importOf } from '../mail/importer.js';
 import { insertFile, cleanName } from './files.js';
 import { checkQuota } from '../tenancy.js';
 import { recordSent } from '../othercontacts.js';
@@ -999,6 +999,7 @@ export default function webmailRoutes() {
   // Importing mail from another account: start one, and how the latest is going.
   r.post('/import', async (req, res) => res.status(201).json(await startImport(req.user, req.body || {})));
   r.get('/import', (req, res) => res.json(importOf(req.user.id)));
+  r.post('/import-mbox', async (req, res) => res.status(201).json(await startMboxImport(req.user, req.body || {})));
 
   // Manage subscriptions: the newsletters and lists in your Inbox (last 180 days), by sender.
   r.get('/subscriptions', async (req, res) => {

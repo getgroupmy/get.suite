@@ -1897,3 +1897,32 @@ test('download your data: email comes as an .mbox file per folder (also for an a
   assert.equal(g.status, 200);
   assert.ok(Object.keys((await JSZip.loadAsync(g.body)).files).includes('Mail/Inbox.mbox'));
 });
+
+test('import an .mbox file from Drive: into a folder named after it, with dates, read and starred; again skips what is there', async () => {
+  const { mboxEntry } = await import('../src/mail/mbox.js');
+  const tag = `Mbox${Date.now()}`;
+  const file = Buffer.concat([
+    mboxEntry(`From: Old Friend <old@example.org>\r\nTo: olivia@acme.com\r\nSubject: ${tag} one\r\nMessage-ID: <${tag}-1@example.org>\r\nDate: Mon, 05 Jan 2015 10:00:00 +0000\r\n\r\nFrom the old days.\r\n`, { from: 'old@example.org', date: new Date(Date.UTC(2015, 0, 5, 10)) }),
+    mboxEntry(`From: Old Friend <old@example.org>\r\nTo: olivia@acme.com\r\nSubject: ${tag} two\r\nMessage-ID: <${tag}-2@example.org>\r\nStatus: O\r\nX-Status: F\r\n\r\nUnread and starred.\r\n`, { from: 'old@example.org', date: new Date(Date.UTC(2016, 5, 1)) }),
+  ]);
+  const up = await olivia('POST', '/api/files/upload?name=Old%20account.mbox', file, { raw: true, headers: { 'content-type': 'application/octet-stream' } });
+  assert.equal(up.status, 201, JSON.stringify(up.body));
+  const notMbox = (await olivia('POST', '/api/files/new', { kind: 'doc', name: 'Notes' })).body.id;
+  assert.equal((await olivia('POST', '/api/mail/import-mbox', { file_id: notMbox })).status, 404, 'a file, not a document');
+  assert.equal((await gina('POST', '/api/mail/import-mbox', { file_id: up.body.id })).status, 404, 'only a file you can open');
+  const started = await olivia('POST', '/api/mail/import-mbox', { file_id: up.body.id });
+  assert.equal(started.status, 201, JSON.stringify(started.body));
+  const done = await eventually(async () => { const j = (await olivia('GET', '/api/mail/import')).body; return j?.status !== 'running' && j; }, 60000);
+  assert.deepEqual([done.status, done.total, done.copied, done.skipped, done.username], ['done', 2, 2, 0, 'Old account.mbox']);
+  const list = (await olivia('GET', `/api/mail/messages?folder=${encodeURIComponent('Old account')}`)).body.messages;
+  const one = list.find((m) => m.subject === `${tag} one`), two = list.find((m) => m.subject === `${tag} two`);
+  assert.ok(one && two, JSON.stringify(list.map((m) => m.subject)));
+  assert.equal(new Date(one.date).getUTCFullYear(), 2015, 'its own date');
+  assert.deepEqual([one.seen, one.flagged, two.seen, two.flagged], [true, false, false, true]);
+  const body = (await olivia('GET', `/api/mail/messages/${one.uid}?folder=${encodeURIComponent('Old account')}`)).body;
+  assert.match(body.text, /^From the old days\./m, 'the escaped From line comes back as it was');
+  // Again: nothing new.
+  await olivia('POST', '/api/mail/import-mbox', { file_id: up.body.id });
+  const again = await eventually(async () => { const j = (await olivia('GET', '/api/mail/import')).body; return j?.status !== 'running' && j; }, 60000);
+  assert.deepEqual([again.copied, again.skipped], [0, 2]);
+});

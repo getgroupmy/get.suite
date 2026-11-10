@@ -74,3 +74,80 @@ export async function mailboxCounts(user) {
     return { messages };
   } finally { await client.logout().catch(() => {}); }
 }
+
+// ---- reading .mbox files (importing into Mail): mboxrd and the older mboxo, as Gmail, Thunderbird,
+// Apple Mail and Workspace's own download write them.
+
+/**
+ * The messages in an .mbox stream, one at a time: { source (CRLF line endings, as mail servers want),
+ * date (from the "From " line, or null) }. A message starts at a "From " line at the very start or
+ * after an empty line; ">From " lines inside lose one ">".
+ */
+export async function* readMbox(stream) {
+  let buf = '', lines = [], date = null, started = false, prevBlank = true;
+  const flush = function* () {
+    if (!started) return;
+    while (lines.length && lines[lines.length - 1] === '') lines.pop(); // the blank line before the next "From "
+    if (lines.length) yield { source: Buffer.from(`${lines.join('\r\n')}\r\n`, 'latin1'), date };
+    lines = [];
+  };
+  const line = function* (l) {
+    if (l.startsWith('From ') && prevBlank) {
+      yield* flush();
+      started = true;
+      date = dateOfFromLine(l);
+      prevBlank = false;
+      return;
+    }
+    if (started) lines.push(l.replace(/^>(>*From )/, '$1'));
+    prevBlank = l === '';
+  };
+  for await (const chunk of stream) {
+    buf += Buffer.isBuffer(chunk) ? chunk.toString('latin1') : String(chunk);
+    let i;
+    while ((i = buf.indexOf('\n')) >= 0) {
+      yield* line(buf.slice(0, i).replace(/\r$/, ''));
+      buf = buf.slice(i + 1);
+    }
+  }
+  if (buf) yield* line(buf.replace(/\r$/, ''));
+  yield* flush();
+}
+
+/** The date on a "From sender Mon Nov  9 08:05:03 2026" line (taken as UTC), or null. */
+export function dateOfFromLine(l) {
+  const m = /(\w{3}) +(\d{1,2}) +(\d{2}):(\d{2}):(\d{2}) +(\d{4})\s*$/.exec(l.replace(/ [+-]\d{4}$/, ''));
+  if (!m) return null;
+  const mon = MONTHS.indexOf(m[1]);
+  if (mon < 0) return null;
+  const d = new Date(Date.UTC(+m[6], mon, +m[2], +m[3], +m[4], +m[5]));
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/** How many messages an .mbox stream holds (for progress), without keeping them. */
+export async function countMbox(stream) {
+  let n = 0, prevBlank = true, buf = '';
+  for await (const chunk of stream) {
+    buf += chunk.toString('latin1');
+    const parts = buf.split('\n');
+    buf = parts.pop();
+    for (const p of parts) { const l = p.replace(/\r$/, ''); if (prevBlank && l.startsWith('From ')) n++; prevBlank = l === ''; }
+  }
+  if (prevBlank && buf.startsWith('From ')) n++;
+  return n;
+}
+
+/**
+ * The flags an imported message gets: read unless its headers say otherwise (Status without R,
+ * Gmail's "Unread" label), and starred when X-Status has F or Gmail labels it Starred.
+ */
+export function flagsOf(source) {
+  const head = source.subarray(0, Math.min(source.length, 64 * 1024)).toString('latin1').split(/\r?\n\r?\n/)[0].replace(/\r?\n[ \t]+/g, ' ');
+  const header = (name) => new RegExp(`^${name}:[ \\t]*(.*)$`, 'im').exec(head)?.[1]?.trim() ?? null;
+  const status = header('Status'), xstatus = header('X-Status'), labels = (header('X-Gmail-Labels') || '').split(',').map((s) => s.trim().toLowerCase());
+  const unread = labels.includes('unread') || (status !== null && !status.includes('R'));
+  const flags = unread ? [] : ['\\Seen'];
+  if ((xstatus || '').includes('F') || labels.includes('starred')) flags.push('\\Flagged');
+  if ((xstatus || '').includes('A')) flags.push('\\Answered');
+  return flags;
+}

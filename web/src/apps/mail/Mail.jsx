@@ -786,6 +786,19 @@ function ImportMail({ onClose, onDone }) {
     try { setJob(await post('/mail/import', f)); setF((x) => ({ ...x, password: '' })); } catch (err) { setError(err.message); } finally { setBusy(false); }
   };
   const runningNow = job?.status === 'running';
+  // From an .mbox file (Gmail's Takeout, Thunderbird, Apple Mail): uploaded to Drive first, or picked there.
+  const [picking, setPicking] = useState(false);
+  const fileInput = useRef();
+  const fromFile = async (fileId) => {
+    setError(''); setBusy(true);
+    try { setJob(await post('/mail/import-mbox', { file_id: fileId })); } catch (err) { setError(err.message); } finally { setBusy(false); }
+  };
+  const uploadMbox = async (file) => {
+    if (!file) return;
+    if (!/\.mbox$/i.test(file.name)) { setError('Choose an .mbox file'); return; }
+    setError(''); setBusy(true);
+    try { const up = await uploadFile(file, null); await fromFile(up.id); } catch (err) { setError(err.message); setBusy(false); }
+  };
   return (
     <Modal title="Import mail" onClose={onClose} footer={<button type="button" className="btn" onClick={onClose}>{runningNow ? 'Close (it carries on)' : 'Close'}</button>}>
       <div className="stack">
@@ -814,6 +827,18 @@ function ImportMail({ onClose, onDone }) {
             <div className="row end"><button className="btn primary" disabled={busy}>{busy ? 'Connecting…' : 'Start importing'}</button></div>
           </form>
         )}
+        {!runningNow && (
+          <fieldset className="stack import-mbox">
+            <legend>Or from an .mbox file</legend>
+            <p className="muted small" style={{ margin: 0 }}>Gmail's Takeout, Thunderbird, Apple Mail and Workspace's own <em>Download your data</em> give your mail as .mbox files. Its messages go into a folder named after the file (<em>Inbox.mbox</em> into the Inbox, <em>Sent.mbox</em> into Sent), with their dates and what's read and starred. An uploaded file is kept in your Drive.</p>
+            <div className="row" style={{ gap: 8 }}>
+              <button type="button" className="btn" disabled={busy} onClick={() => fileInput.current.click()}>Upload an .mbox file…</button>
+              <button type="button" className="btn" disabled={busy} onClick={() => setPicking(true)}>Choose from Drive…</button>
+              <input ref={fileInput} type="file" accept=".mbox,application/mbox" hidden aria-label="An .mbox file" onChange={(e) => { uploadMbox(e.target.files[0]); e.target.value = ''; }} />
+            </div>
+          </fieldset>
+        )}
+        {picking && <DrivePicker title="Import an .mbox file" accept={(x) => x.kind === 'file' && /\.mbox$/i.test(x.name)} empty="No .mbox files found. Upload one first." onClose={() => setPicking(false)} onPick={(x) => { setPicking(false); fromFile(x.id); }} />}
       </div>
     </Modal>
   );
