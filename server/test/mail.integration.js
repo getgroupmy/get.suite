@@ -1792,7 +1792,15 @@ test('inbox tabs: newsletters and automatic mail in Updates, people in Primary; 
   assert.deepEqual((await tabby('GET', '/api/mail/inbox-tabs')).body, { on: true });
 });
 
+
+/** Bob is disabled and his password changed early on ('phones and Outlook…'): tests later on that need him active and signed in call this. */
+async function bobBack() {
+  await olivia('PATCH', `/api/users/${bobId}`, { disabled: false, password: 'password123' });
+  await eventually(async () => (await bob('POST', '/api/auth/login', { username: 'bob@acme.com', password: 'password123' })).status === 200);
+}
+
 test('confidential mode: the email carries a link, not the message; readable by its recipients; taken back', async () => {
+  await bobBack();
   const subject = `Salaries ${Date.now()}`;
   assert.equal((await olivia('POST', '/api/mail/send', { to: 'bob@acme.com', subject, html: '<p>Secret numbers</p>', text: 'Secret numbers', confidential: { days: 3 } })).status, 400, 'days from the list');
   assert.equal((await olivia('POST', '/api/mail/send', { to: 'bob@acme.com', subject, text: 'x', confidential: { days: 7 }, sendAt: Date.now() + 36e5 })).status, 400, 'not scheduled');
@@ -1844,6 +1852,7 @@ test('when someone leaves, mail to their address arrives in the colleague\'s inb
 });
 
 test('saved searches: kept with their folder, unread matches counted by the mail server, renamed, removed', async () => {
+  await bobBack();
   assert.equal((await olivia('POST', '/api/mail/searches', { query: '' })).status, 400);
   assert.equal((await olivia('POST', '/api/mail/searches', { query: 'before:yesterdayish' })).status, 400, 'a search that can\'t be read');
   const tag = `Inv${Date.now()}`;
