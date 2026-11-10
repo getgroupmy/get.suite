@@ -2417,6 +2417,11 @@ textarea.mono { font-family: ui-monospace, Consolas, monospace; }
 /* Tasks: Planned, grouped by when tasks are due */
 .planned-group { margin-bottom: 14px; }
 .planned-heading { font-size: 14px; margin: 8px 0 4px; }
+.task-section { margin-top: 14px; }
+.task-section-head { border-bottom: 1px solid var(--border); padding: 2px 0; }
+.task-section-head h3 { font-size: 14px; margin: 0; }
+.task-section-empty { padding: 8px 12px; list-style: none; }
+.task-add-section { margin-top: 10px; }
 .planned-group.overdue .planned-heading { color: var(--danger); }
 
 /* Contacts: other email addresses and phone numbers */

@@ -9205,6 +9205,48 @@ test('tasks: duplicate a task, and skip one time of a repeating task', async () 
   assert.equal((await c('POST', `/api/tasks/tasks/${t.id}/skip`, {})).status, 404);
 });
 
+test('tasks: sections split a list into parts', async () => {
+  const a = client(), c = client();
+  for (const [local, name] of [['tseca', 'Sec Ann'], ['tsecc', 'Sec Cat']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'tseca@acme.com'); await login(c, 'tsecc@acme.com');
+  const list = (await a('POST', '/api/tasks/lists', { name: 'Launch' })).body.id;
+  const other = (await a('POST', '/api/tasks/lists', { name: 'Elsewhere' })).body.id;
+  const s1 = await a('POST', `/api/tasks/lists/${list}/sections`, { name: 'This week' });
+  assert.equal(s1.status, 201);
+  const s2 = (await a('POST', `/api/tasks/lists/${list}/sections`, { name: 'Later' })).body;
+  assert.equal((await a('POST', `/api/tasks/lists/${list}/sections`, { name: ' ' })).status, 400);
+  assert.equal((await c('POST', `/api/tasks/lists/${list}/sections`, { name: 'Mine' })).status, 404);
+  assert.deepEqual((await a('GET', `/api/tasks/lists/${list}/sections`)).body.map((x) => x.name), ['This week', 'Later']);
+  // A task added into a section, and one moved into one.
+  const t1 = (await a('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Write post', section_id: s1.body.id })).body;
+  assert.equal(t1.section_id, s1.body.id);
+  const t2 = (await a('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Plan party' })).body;
+  assert.equal(t2.section_id, null);
+  assert.equal((await a('PATCH', `/api/tasks/tasks/${t2.id}`, { section_id: s2.id })).body.section_id, s2.id);
+  const elsewhereSec = (await a('POST', `/api/tasks/lists/${other}/sections`, { name: 'Other' })).body;
+  assert.equal((await a('PATCH', `/api/tasks/tasks/${t2.id}`, { section_id: elsewhereSec.id })).status, 400, 'a section on another list');
+  // Rename and reorder.
+  assert.equal((await a('PATCH', `/api/tasks/sections/${s2.id}`, { name: 'Next month', position: 0 })).body.name, 'Next month');
+  assert.deepEqual((await a('GET', `/api/tasks/lists/${list}/sections`)).body.map((x) => x.name), ['Next month', 'This week']);
+  // Duplicates keep it; copies of the list get their own sections.
+  assert.equal((await a('POST', `/api/tasks/tasks/${t1.id}/duplicate`)).body.section_id, s1.body.id);
+  const copy = (await a('POST', `/api/tasks/lists/${list}/copy`, { name: 'Launch 2' })).body.id;
+  const copySecs = (await a('GET', `/api/tasks/lists/${copy}/sections`)).body;
+  assert.deepEqual(copySecs.map((x) => x.name), ['Next month', 'This week']);
+  const copied = (await a('GET', `/api/tasks/lists/${copy}/tasks`)).body;
+  assert.equal(copied.find((x) => x.title === 'Plan party').section_id, copySecs[0].id);
+  // Moving to another list leaves the section behind.
+  const t3 = (await a('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Move me', section_id: s1.body.id })).body;
+  assert.equal((await a('PATCH', `/api/tasks/tasks/${t3.id}`, { list_id: other })).body.section_id, null);
+  // Deleting a section keeps its tasks (under none); with tasks=1 they go too.
+  await a('DELETE', `/api/tasks/sections/${s2.id}`);
+  assert.equal((await a('GET', `/api/tasks/lists/${list}/tasks`)).body.find((x) => x.id === t2.id).section_id, null);
+  await a('DELETE', `/api/tasks/sections/${s1.body.id}?tasks=1`);
+  const left = (await a('GET', `/api/tasks/lists/${list}/tasks`)).body.map((x) => x.title);
+  assert.deepEqual(left, ['Plan party']);
+  assert.equal((await c('DELETE', `/api/tasks/sections/${elsewhereSec.id}`)).status, 404);
+});
+
 test('tasks: a repeating task can stop repeating after a day', async () => {
   const a = client(), c = client();
   for (const [local, name] of [['truna', 'Until Ann'], ['trunc', 'Until Cat']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);

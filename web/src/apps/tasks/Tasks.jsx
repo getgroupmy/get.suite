@@ -92,10 +92,13 @@ export default function Tasks() {
   }, [toast, loadMyDay]);
   // Time spent per task on this list: { taskId: { minutes, running: [{ name }] } }.
   const [times, setTimes] = useState({});
+  const [sections, setSections] = useState([]); // headings splitting this list into parts, in order
+  const [sectionEdit, setSectionEdit] = useState(null); // { add: true } | { rename: section } | { remove: section } | { addTask: section }
+  const [dropSec, setDropSec] = useState(undefined); // the section a dragged task would land in
   const loadTasks = useCallback(() => {
     if (!listId) return Promise.resolve();
-    if (!VIRTUAL[listId] && !listId.startsWith('tag:')) get(`/tasks/lists/${listId}/time`).then(setTimes).catch(() => setTimes({}));
-    else setTimes({});
+    if (!VIRTUAL[listId] && !listId.startsWith('tag:')) { get(`/tasks/lists/${listId}/time`).then(setTimes).catch(() => setTimes({})); get(`/tasks/lists/${listId}/sections`).then(setSections).catch(() => setSections([])); }
+    else { setTimes({}); setSections([]); }
     if (listId.startsWith('tag:')) return get(`/tasks/tags?tag=${encodeURIComponent(listId.slice(4))}`).then((r) => setTasks(r.tasks)).catch((e) => toast(e.message, 'error'));
     if (listId === MYDAY) get(`/tasks/myday/suggestions?today=${localToday()}`).then(setSuggested).catch(() => setSuggested([]));
     return get(listId === MYDAY ? `/tasks/myday?today=${localToday()}` : VIRTUAL[listId] || `/tasks/lists/${listId}/tasks`).then(setTasks).catch((e) => { toast(e.message, 'error'); navigate('/tasks', { replace: true }); });
@@ -112,7 +115,10 @@ export default function Tasks() {
   const list = lists?.find((l) => l.id === listId);
   const people = list ? [{ id: list.owner_id, name: list.owner_name }, ...list.members] : [];
   const sortBy = list?.sort || 'mine';
-  const open = sortTasks((tasks || []).filter((t) => !t.done), sortBy);
+  const sorted = sortTasks((tasks || []).filter((t) => !t.done), sortBy);
+  // With sections, tasks under none come first, then each section's in turn (each in the list's order).
+  const secIndex = (t) => { const k = sections.findIndex((x) => x.id === t.section_id); return k; };
+  const open = !virtual && sections.length ? sorted.map((t, k) => [t, k]).sort((x, y) => secIndex(x[0]) - secIndex(y[0]) || x[1] - y[1]).map(([t]) => t) : sorted;
   const setSort = async (sort) => {
     setLists((ls) => ls.map((l) => (l.id === list.id ? { ...l, sort } : l)));
     try { await put(`/tasks/lists/${list.id}/sort`, { sort }); } catch (e) { toast(e.message, 'error'); loadLists(); }
@@ -144,16 +150,25 @@ export default function Tasks() {
     try { await post(`/tasks/lists/${list.id}/tasks`, body); loadTasks(); loadLists(); }
     catch (err) { toast(err.message, 'error'); setTitle(text); }
   }
-  function drop(index) {
+  function drop(index, intoSection = dropSec) {
     const t = open.find((x) => x.id === dragging);
-    setDragging(null); setDropAt(null);
+    setDragging(null); setDropAt(null); setDropSec(undefined);
     if (!t) return;
+    const section = sections.length && intoSection !== undefined ? intoSection : t.section_id || null;
+    const moved = (section || null) !== (t.section_id || null);
     const rest = open.filter((x) => x.id !== t.id);
     const at = Math.min(index - (open.indexOf(t) < index ? 1 : 0), rest.length);
-    if (rest[at - 1]?.id === open[open.indexOf(t) - 1]?.id && rest[at]?.id === open[open.indexOf(t) + 1]?.id) return; // same place
+    if (!moved && rest[at - 1]?.id === open[open.indexOf(t) - 1]?.id && rest[at]?.id === open[open.indexOf(t) + 1]?.id) return; // same place
     const position = between(rest[at - 1]?.position, rest[at]?.position);
-    setTasks((all) => [...rest.slice(0, at), { ...t, position }, ...rest.slice(at), ...done]);
-    update(t, { position });
+    setTasks((all) => [...rest.slice(0, at), { ...t, position, section_id: section }, ...rest.slice(at), ...done]);
+    update(t, moved ? { position, section_id: section } : { position });
+  }
+  /** Drop a dragged task into a section with nothing in it (or under no section): at its end. */
+  function dropInto(section) {
+    const t = open.find((x) => x.id === dragging);
+    setDragging(null); setDropAt(null); setDropSec(undefined);
+    if (!t || (t.section_id || null) === section) return;
+    update(t, { section_id: section, position: Math.max(0, ...open.map((x) => x.position)) + 1 });
   }
 
   const row = (t, i) => {
@@ -163,8 +178,8 @@ export default function Tasks() {
       <li key={t.id} className={`task ${t.done ? 'done' : ''} ${t.id === openId ? 'open' : ''} ${dropAt === i && dragging ? 'drop-before' : ''}`}
         draggable={!t.done && !virtual && sortBy === 'mine'} onDragStart={(e) => { setDragging(t.id); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', t.title); }}
         onDragEnd={() => { setDragging(null); setDropAt(null); }}
-        onDragOver={(e) => { if (!dragging || t.done) return; e.preventDefault(); const r = e.currentTarget.getBoundingClientRect(); setDropAt(e.clientY < r.top + r.height / 2 ? i : i + 1); }}
-        onDrop={(e) => { if (!dragging) return; e.preventDefault(); drop(dropAt ?? i); }}>
+        onDragOver={(e) => { if (!dragging || t.done) return; e.preventDefault(); e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setDropAt(e.clientY < r.top + r.height / 2 ? i : i + 1); setDropSec(t.section_id || null); }}
+        onDrop={(e) => { if (!dragging) return; e.preventDefault(); e.stopPropagation(); drop(dropAt ?? i, t.section_id || null); }}>
         {selecting && <input type="checkbox" className="task-pick" checked={picked.has(t.id)} aria-label={`Select: ${t.title}`} onChange={() => pick(t.id)} />}
         {!selecting && <input type="checkbox" checked={t.done} aria-label={`Done: ${t.title}`} onChange={() => toggle(t)} />}
         <button type="button" className="task-main" onClick={() => (selecting ? pick(t.id) : virtual ? navigate(`/tasks/${t.list_id}?task=${t.id}`) : show(t.id === openId ? null : t.id))}>
@@ -353,10 +368,39 @@ export default function Tasks() {
           </div>
         ) : (
           <>
-            <ul className="task-list" aria-label="Tasks" onDragOver={(e) => dragging && e.preventDefault()} onDrop={(e) => { if (dragging && dropAt === null) { e.preventDefault(); drop(open.length); } }}>
-              {open.map(row)}
-              {dragging && dropAt === open.length && <li className="drop-end" aria-hidden="true" />}
-            </ul>
+            {!sections.length ? (
+              <ul className="task-list" aria-label="Tasks" onDragOver={(e) => dragging && e.preventDefault()} onDrop={(e) => { if (dragging && dropAt === null) { e.preventDefault(); drop(open.length); } }}>
+                {open.map(row)}
+                {dragging && dropAt === open.length && <li className="drop-end" aria-hidden="true" />}
+              </ul>
+            ) : <>
+              <ul className="task-list" aria-label="Tasks" onDragOver={(e) => dragging && e.preventDefault()} onDrop={(e) => { if (dragging) { e.preventDefault(); dropInto(null); } }}>
+                {open.map((t, i) => (!t.section_id || secIndex(t) < 0 ? row(t, i) : null))}
+              </ul>
+              {sections.map((sec, k) => {
+                const mine = open.map((t, i) => [t, i]).filter(([t]) => t.section_id === sec.id);
+                const moveSec = (d) => { const o = sections[k + d]; if (!o) return; const after = sections[k + d + d]; const position = d < 0 ? between(after?.position, o.position) : between(o.position, after?.position); patch(`/tasks/sections/${sec.id}`, { position }).then(loadTasks).catch((e) => toast(e.message, 'error')); };
+                return (
+                  <section key={sec.id} className="task-section" aria-label={`Section ${sec.name}`}>
+                    <div className="task-section-head row">
+                      <h3 className="grow">{sec.name} <span className="muted small">{mine.length}</span></h3>
+                      <Menu align="right" trigger={(p) => <button type="button" className="icon-btn" aria-label={`Section actions: ${sec.name}`} {...p}><Icon name="more" size={18} /></button>} items={[
+                        { label: 'Add a task here…', icon: 'plus', onClick: () => setSectionEdit({ addTask: sec }) },
+                        { label: 'Rename section…', icon: 'edit', onClick: () => setSectionEdit({ rename: sec }) },
+                        ...(k > 0 ? [{ label: 'Move section up', onClick: () => moveSec(-1) }] : []),
+                        ...(k < sections.length - 1 ? [{ label: 'Move section down', onClick: () => moveSec(1) }] : []),
+                        { label: 'Delete section…', icon: 'trash', danger: true, onClick: () => setSectionEdit({ remove: sec }) },
+                      ]} />
+                    </div>
+                    <ul className="task-list" aria-label={`Tasks in ${sec.name}`} onDragOver={(e) => dragging && e.preventDefault()} onDrop={(e) => { if (dragging) { e.preventDefault(); dropInto(sec.id); } }}>
+                      {mine.map(([t, i]) => row(t, i))}
+                      {!mine.length && <li className="task-section-empty muted small">{dragging ? 'Drop here' : 'Nothing here yet: drag tasks in, or ⋯ → Add a task here'}</li>}
+                    </ul>
+                  </section>
+                );
+              })}
+            </>}
+            {list && view === 'list' && <button type="button" className="link-btn small task-add-section" onClick={() => setSectionEdit({ add: true })}>+ Add section</button>}
             {open.length === 0 && <p className="muted tasks-alldone">All done 🎉</p>}
             {done.length > 0 && (
               <>
@@ -386,7 +430,7 @@ export default function Tasks() {
           </section>
         )}
       </section>
-      {current && list && <TaskDetails key={current.id} task={current} inMyDay={myDay.some((x) => x.id === current.id)} onMyDay={(on) => toMyDay(current, on)} tasks={tasks} lists={lists} people={people} onChange={(c) => update(current, c)} onClose={() => show(null)}
+      {current && list && <TaskDetails key={current.id} task={current} sections={sections} inMyDay={myDay.some((x) => x.id === current.id)} onMyDay={(on) => toMyDay(current, on)} tasks={tasks} lists={lists} people={people} onChange={(c) => update(current, c)} onClose={() => show(null)}
         onReplaced={(next) => setTasks((all) => all && all.map((x) => (x.id === next.id ? next : x)))}
         onDelete={async () => { show(null); try { await del(`/tasks/tasks/${current.id}`); toast('Task deleted'); loadTasks(); } catch (e) { toast(e.message, 'error'); } }}
         onMove={async (to) => { show(null); if (await update(current, { list_id: to })) toast(`Moved to ${lists.find((l) => l.id === to)?.name}`); }} />}
@@ -394,6 +438,20 @@ export default function Tasks() {
         onSubmit={async (name) => { const r = await post('/tasks/lists', { name }); await loadLists(); navigate(`/tasks/${r.id}`); }} />}
       {dialog === 'rename' && list && <PromptModal title="Rename list" label="List name" initial={list.name} confirm="Rename" onClose={() => setDialog(null)}
         onSubmit={async (name) => { await patch(`/tasks/lists/${list.id}`, { name }); loadLists(); }} />}
+      {sectionEdit?.add && list && <PromptModal title="New section" label="Section name" confirm="Add" message="A heading that splits the list into parts, such as This week or Later."
+        onClose={() => setSectionEdit(null)} onSubmit={async (name) => { await post(`/tasks/lists/${list.id}/sections`, { name }); loadTasks(); }} />}
+      {sectionEdit?.rename && <PromptModal title="Rename section" label="Section name" initial={sectionEdit.rename.name} confirm="Rename"
+        onClose={() => setSectionEdit(null)} onSubmit={async (name) => { await patch(`/tasks/sections/${sectionEdit.rename.id}`, { name }); loadTasks(); }} />}
+      {sectionEdit?.addTask && list && <PromptModal title={`Add a task to ${sectionEdit.addTask.name}`} label="Task" confirm="Add"
+        onClose={() => setSectionEdit(null)} onSubmit={async (text) => { await post(`/tasks/lists/${list.id}/tasks`, { title: text, section_id: sectionEdit.addTask.id, at: 'end' }); loadTasks(); loadLists(); }} />}
+      {sectionEdit?.remove && (() => {
+        const n = (tasks || []).filter((t) => t.section_id === sectionEdit.remove.id).length;
+        return <ConfirmModal title={`Delete the section “${sectionEdit.remove.name}”?`} confirm={n ? 'Delete section, keep tasks' : 'Delete section'} danger={false}
+          message={n ? `Its ${n} task${n === 1 ? '' : 's'} stay on the list, under no section.` : 'It has no tasks.'}
+          onClose={() => setSectionEdit(null)} onConfirm={async () => { await del(`/tasks/sections/${sectionEdit.remove.id}`); loadTasks(); }}>
+          {n > 0 && <button type="button" className="link-btn small danger" onClick={async () => { await del(`/tasks/sections/${sectionEdit.remove.id}?tasks=1`); setSectionEdit(null); loadTasks(); loadLists(); }}>Delete the section and its {n} task{n === 1 ? '' : 's'}</button>}
+        </ConfirmModal>;
+      })()}
       {dialog === 'time' && list && <TimeReport list={list} onClose={() => setDialog(null)} />}
       {dialog === 'look' && list && <ListLook list={list} onClose={() => setDialog(null)} onSaved={() => { setDialog(null); loadLists(); }} />}
       {dialog === 'copy' && list && <CopyList list={list} onClose={() => setDialog(null)} onDone={async (r) => { setDialog(null); await loadLists(); navigate(`/tasks/${r.id}`); }} />}
@@ -708,7 +766,7 @@ function ListLook({ list, onClose, onSaved }) {
   );
 }
 
-function TaskDetails({ task, tasks, lists, people, onChange, onClose, onDelete, onMove, onReplaced, inMyDay, onMyDay }) {
+function TaskDetails({ task, tasks, lists, sections = [], people, onChange, onClose, onDelete, onMove, onReplaced, inMyDay, onMyDay }) {
   const [title, setTitle] = useState(task.title);
   const [notes, setNotes] = useState(task.notes || '');
   useEffect(() => { setTitle(task.title); }, [task.title]);
@@ -766,6 +824,14 @@ function TaskDetails({ task, tasks, lists, people, onChange, onClose, onDelete, 
           <select value={task.assignee_id || ''} onChange={(e) => onChange({ assignee_id: e.target.value || null })}>
             <option value="">Nobody</option>
             {people.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        </label>
+      )}
+      {sections.length > 0 && (
+        <label className="field"><span>Section</span>
+          <select value={task.section_id || ''} onChange={(e) => onChange({ section_id: e.target.value || null })}>
+            <option value="">No section</option>
+            {sections.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
           </select>
         </label>
       )}
