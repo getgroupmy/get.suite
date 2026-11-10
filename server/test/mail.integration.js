@@ -1733,8 +1733,9 @@ test('new mail on phones: the mail server tells the app as it delivers, and the 
     assert.equal((await olivia('POST', '/api/push/subscribe', { endpoint: `https://127.0.0.1:${svc.address().port}/d1`, keys })).status, 200);
     const t = nodemailer.createTransport({ host: process.env.MAIL_IMAP_HOST, port: 25, secure: false, ignoreTLS: true, name: 'test.acme.com' });
     await t.sendMail({ from: '"Pat Partner" <pat@acme.com>', to: 'olivia@acme.com', subject: 'Contract signed', text: 'Done.' });
-    await eventually(() => got.length > 0, 20000);
-    const msg = JSON.parse(ece.decrypt(got[0], { version: 'aes128gcm', privateKey: ecdh, authSecret: keys.auth }).toString());
+    // (A push for mail from an earlier test can arrive first: look for this one.)
+    const open = (b) => JSON.parse(ece.decrypt(b, { version: 'aes128gcm', privateKey: ecdh, authSecret: keys.auth }).toString());
+    const msg = await eventually(() => got.map(open).find((m) => m.body === 'Contract signed'), 20000);
     assert.equal(msg.title, 'Pat Partner');
     assert.equal(msg.body, 'Contract signed');
     assert.match(msg.link, /^\/mail\/INBOX\/\d+$/);
@@ -1743,7 +1744,7 @@ test('new mail on phones: the mail server tells the app as it delivers, and the 
     await t.sendMail({ from: 'pat@acme.com', to: 'olivia@acme.com', subject: 'Second', text: 'x' });
     await eventually(async () => (await inbox(olivia, 'Second')).length, 20000);
     await sleep(1500);
-    assert.equal(got.length, 1);
+    assert.ok(!got.map(open).some((m) => m.body === 'Second'), 'no push once mail notifications are off');
     await olivia('PUT', '/api/notifications/settings', { off: [] });
   } finally {
     delete process.env.PUSH_ANY_ENDPOINT; delete process.env.NODE_TLS_REJECT_UNAUTHORIZED;
