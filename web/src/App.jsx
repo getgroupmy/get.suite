@@ -14,7 +14,7 @@ import GlobalSearch from './components/GlobalSearch.jsx';
 import Announcements from './components/Announcements.jsx';
 import BrandMark from './components/BrandMark.jsx';
 import { applyAccent } from './theme.js';
-import { Avatar, Menu, ToastProvider, useToast } from './components/ui.jsx';
+import { Avatar, Menu, ToastProvider, useToast, DataCheckHost } from './components/ui.jsx';
 import Login, { ResetPassword } from './apps/Login.jsx';
 import PublishedPage from './apps/PublishedPage.jsx';
 import PublicLink from './apps/PublicLink.jsx';
@@ -146,6 +146,7 @@ function Workspace() {
           : <Login needsSetup={state.needsSetup} canReset={!!state.can_reset} />) : state.user.needs_two_factor ? <RequiredTwoStep /> : state.user.must_change_password ? <RequiredPassword /> : (
           <BrowserRouter>
             <ShortcutsHelp />
+            <DataCheckHost />
             <Routes>
               <Route path="/docs/:id" element={<DocEditor />} />
               <Route path="/access/:id" element={<RequestAccess />} />

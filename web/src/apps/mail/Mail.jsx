@@ -7,7 +7,7 @@ import { desktopSupported, desktopOn, enableDesktop, disableDesktop } from '../.
 import Icon from '../../components/Icon.jsx';
 import EmojiPicker from '../../components/EmojiPicker.jsx';
 import AddressInput from '../../components/AddressInput.jsx';
-import { Avatar, ConfirmModal, Empty, Menu, Modal, PromptModal, useToast } from '../../components/ui.jsx';
+import { Avatar, ConfirmModal, Empty, Menu, Modal, PromptModal, useToast, withDataCheck } from '../../components/ui.jsx';
 import { whenText, laterChoices, ScheduleDialog } from '../../components/schedule.jsx';
 import { useAuth } from '../../App.jsx';
 import { useEditor, EditorContent, Node as TiptapNode, Extension, mergeAttributes } from '@tiptap/react';
@@ -1090,7 +1090,8 @@ function Compose({ initial, shared = null, signatures = [], onClose, onSent, onD
     try {
       for (const g of gaps.filter((x) => x.can_share)) {
         const now = await get(`/files/${g.id}/shares`);
-        await put(`/files/${g.id}/shares`, { shares: [...now.map((x) => ({ user_id: x.user_id, role: x.role })), ...g.people.map((p) => ({ user_id: p.id, role: 'viewer' }))] });
+        const done = await withDataCheck((more) => put(`/files/${g.id}/shares`, { shares: [...now.map((x) => ({ user_id: x.user_id, role: x.role })), ...g.people.map((p) => ({ user_id: p.id, role: 'viewer' }))], ...more }));
+        if (done === undefined) { toast(`“${g.name}” wasn’t shared: the message wasn’t sent either`, 'info'); return; }
       }
     } catch (err) { toast(err.message, 'error'); return; }
     reallySend();

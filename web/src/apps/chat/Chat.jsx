@@ -11,7 +11,7 @@ import Icon from '../../components/Icon.jsx';
 import PersonCard from '../../components/PersonCard.jsx';
 import EmojiPicker from '../../components/EmojiPicker.jsx';
 import { useCompanyEmoji, imageUrl, splitEmoji, customName, reloadEmoji } from './companyemoji.js';
-import { Avatar, ConfirmModal, Empty, Menu, Modal, PromptModal, useToast } from '../../components/ui.jsx';
+import { Avatar, ConfirmModal, Empty, Menu, Modal, PromptModal, useToast, withDataCheck } from '../../components/ui.jsx';
 import { whenText, laterChoices, ScheduleDialog } from '../../components/schedule.jsx';
 import { useAuth } from '../../App.jsx';
 import { useMentions, MENTION_RE, GROUP_WORD_RE, knownGroupWords } from '../../components/mentions.jsx';
@@ -648,7 +648,7 @@ async function checkLinkAccess(channelId, body, toast, orgName) {
       ? { label: `Share with everyone at ${orgName}`, run: () => put(`/files/${id}/company`, { role: 'viewer' }), done: `Everyone at ${orgName} can view “${file.name}”` }
       : { label: 'Share with them', run: async () => {
         const now = await get(`/files/${id}/shares`);
-        await put(`/files/${id}/shares`, { shares: [...now.map((x) => ({ user_id: x.user_id, role: x.role })), ...gap.people.map((p) => ({ user_id: p.id, role: 'viewer' }))] });
+        if (await withDataCheck((more) => put(`/files/${id}/shares`, { shares: [...now.map((x) => ({ user_id: x.user_id, role: x.role })), ...gap.people.map((p) => ({ user_id: p.id, role: 'viewer' }))], ...more })) === undefined) throw new Error(`“${file.name}” wasn’t shared`);
       }, done: `Shared “${file.name}” with ${who} (can view)` };
     toast(`${who} can't open “${file.name}”`, 'info', { duration: 15000, action: { label: share.label, onClick: () => share.run().then(() => toast(share.done)).catch((e) => toast(e.message, 'error')) } });
   }

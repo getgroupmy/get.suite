@@ -18,7 +18,7 @@ import { WebsocketProvider } from 'y-websocket';
 import { get, post, patch, put, uploadFile, onLive } from '../../api.js';
 import DrivePicker, { openUrl } from '../../components/DrivePicker.jsx';
 import { useAuth } from '../../App.jsx';
-import { useToast, Avatar, Menu, Modal } from '../../components/ui.jsx';
+import { useToast, Avatar, Menu, Modal, withDataCheck } from '../../components/ui.jsx';
 import { PAPER, MARGINS, DEFAULT_SETUP, WATERMARKS, paperStyle, printCss, columnsOf } from './pagesetup.js';
 import { ShareDialog } from '../drive/Drive.jsx';
 import { EditorHeader } from '../editorCommon.jsx';
@@ -173,7 +173,7 @@ function SharedDoc({ file, setFile }) {
       toast(`${names} can't open “${f.name}”`, 'info', { duration: 15000, action: { label: 'Share with them', onClick: async () => {
         try {
           const now = await get(`/files/${f.id}/shares`);
-          await put(`/files/${f.id}/shares`, { shares: [...now.map((x) => ({ user_id: x.user_id, role: x.role })), ...gap.people.map((p) => ({ user_id: p.id, role: 'viewer' }))] });
+          if (await withDataCheck((more) => put(`/files/${f.id}/shares`, { shares: [...now.map((x) => ({ user_id: x.user_id, role: x.role })), ...gap.people.map((p) => ({ user_id: p.id, role: 'viewer' }))], ...more })) === undefined) return;
           toast(`Shared “${f.name}” with ${names} (can view)`);
         } catch (e) { toast(e.message, 'error'); }
       } } });
@@ -313,7 +313,7 @@ function SharedDoc({ file, setFile }) {
         toast(`${p.name} can't open this document`, 'info', { duration: 15000, action: { label: 'Share with them', onClick: async () => {
           try {
             const now = await get(`/files/${file.id}/shares`);
-            await put(`/files/${file.id}/shares`, { shares: [...now.map((x) => ({ user_id: x.user_id, role: x.role })), { user_id: p.id, role: 'editor' }] });
+            if (await withDataCheck((more) => put(`/files/${file.id}/shares`, { shares: [...now.map((x) => ({ user_id: x.user_id, role: x.role })), { user_id: p.id, role: 'editor' }], ...more })) === undefined) return;
             await post(`/files/${file.id}/mention`, { user_id: p.id });
             toast(`Shared with ${p.name} (can edit), and they were told`);
           } catch (e) { toast(e.message, 'error'); }

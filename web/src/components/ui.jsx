@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { avatarColor } from './avatarcolor.js';
 import Icon from './Icon.jsx';
 import { usePhoto } from './photos.js';
@@ -214,4 +215,29 @@ export function useDataCheck() {
     </Modal>
   );
   return [modal, run];
+}
+
+// The same question from anywhere (a toast's button, a loop over files): one prompt, mounted once in App.
+let askHost = null;
+/** Mount once near the root: shows the data protection question withDataCheck asks. */
+export function DataCheckHost() {
+  const [ask, setAsk] = useState(null);
+  useEffect(() => { askHost = setAsk; return () => { if (askHost === setAsk) askHost = null; }; }, []);
+  if (!ask) return null;
+  const answer = (ok) => { setAsk(null); ask.answer(ok); };
+  // On top of whatever asked (Compose, a toast's page): at the end of the page.
+  return createPortal(
+    <Modal title="Check before sharing" onClose={() => answer(false)}
+      footer={<><button type="button" className="btn" onClick={() => answer(false)}>Don’t share</button><button type="button" className="btn primary" onClick={() => answer(true)}>Share anyway</button></>}>
+      <p style={{ margin: 0 }} role="alert">{ask.text}</p>
+      <p className="muted small">Your company asks you to check before this leaves the company. If you share it anyway, that’s recorded.</p>
+    </Modal>, document.body);
+}
+/** call({}) and, if a data protection rule warns, ask (DataCheckHost) and call({ dlpConfirmed: true }); undefined if they said no. */
+export async function withDataCheck(call) {
+  try { return await call({}); } catch (e) {
+    if (e.status !== 409 || !e.data?.dlp || !askHost) throw e;
+    const ok = await new Promise((answer) => askHost({ text: e.message, answer }));
+    return ok ? call({ dlpConfirmed: true }) : undefined;
+  }
 }
