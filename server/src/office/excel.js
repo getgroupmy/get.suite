@@ -14,8 +14,9 @@ const hex = (argb) => (argb && /^[0-9A-F]{8}$/i.test(argb) ? `#${argb.slice(2).t
 const argb = (h) => `FF${h.replace('#', '').toUpperCase()}`;
 const CURRENCY_SIGNS = [['RM', 'MYR'], ['$', 'USD'], ['€', 'EUR'], ['£', 'GBP'], ['S$', 'SGD'], ['¥', 'JPY'], ['₹', 'INR']];
 
-/** Excel number format -> Sheets format bits ({ num, dp, cur }) or {}. */
 const MULTI = 'Several choices', MULTI_STRICT = 'Several choices (only these)'; // marks a several-choices dropdown in Excel
+
+/** Excel number format -> Sheets format bits ({ num, dp, cur }) or {}. */
 export function numFromExcel(fmt) {
   if (!fmt || fmt === 'General' || fmt === '@') return {};
   const main = fmt.split(';')[0];
