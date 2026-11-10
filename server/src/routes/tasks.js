@@ -153,6 +153,8 @@ export function tasksTable(tasks) {
   const rows = tasks.map((t) => [t.title, status(t), t.due || '', t.due_time || '', t.start || '', t.assignee_name || '', t.important ? 'Yes' : '', (t.tags || []).map((x) => `#${x}`).join(' '),
     t.steps.length ? `${t.steps.filter((x) => x.done).length}/${t.steps.length}` : '', t.steps.map((x) => `${x.done ? '[x]' : '[ ]'} ${x.title}`).join('\n'), t.notes || '',
     t.done_at ? new Date(t.done_at).toISOString().slice(0, 10) : '']);
+  // A list with sections says which each task is in (after Task, so the file reads in its parts).
+  if (tasks.some((t) => t.section_name)) return [[head[0], 'Section', ...head.slice(1)], ...rows.map((r, i) => [r[0], tasks[i].section_name || '', ...r.slice(1)])];
   return [head, ...rows];
 }
 export const tasksCsv = (tasks) => `\ufeff${tasksTable(tasks).map((r) => r.map(csvCell).join(',')).join('\r\n')}\r\n`;
@@ -548,28 +550,47 @@ export default function taskRoutes() {
     if (have + found.tasks.length > MAX_TASKS) throw bad(`This list can hold ${MAX_TASKS} tasks; there's room for ${Math.max(0, MAX_TASKS - have)} more`);
     let at = q('SELECT MAX(position) AS p FROM tasks WHERE list_id = ?').get(list.id).p ?? -1;
     const t = now();
+    // Sections named in the file: the list's own (whatever the capitals), or new ones at the end.
+    const secs = sectionsOf(list.id);
+    const wanted = [...new Set(found.tasks.map((x) => x.section).filter(Boolean))];
+    const fresh = wanted.filter((n) => !secs.some((x) => x.name.toLowerCase() === n.toLowerCase()));
+    if (secs.length + fresh.length > MAX_SECTIONS) throw bad(`A list can have ${MAX_SECTIONS} sections`);
     tx(() => {
+      let pos = secs.length ? Math.max(...secs.map((x) => x.position)) : 0;
+      for (const n of fresh) { const sid = uid(); q('INSERT INTO task_sections (id, list_id, name, position, created_at) VALUES (?, ?, ?, ?, ?)').run(sid, list.id, n, ++pos, t); secs.push({ id: sid, name: n }); }
+      const secId = (n) => (n ? secs.find((x) => x.name.toLowerCase() === n.toLowerCase())?.id || null : null);
       for (const x of found.tasks) {
         const steps = x.steps.length ? JSON.stringify(x.steps.map((st) => ({ id: uid(), title: st.title, done: st.done }))) : null;
+        const tid = uid();
         q(`INSERT INTO tasks (id, list_id, title, notes, due, due_time, start, position, important, tags, steps, done_at, done_by, created_by, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-          .run(uid(), list.id, x.title, x.notes, x.due, x.due_time, x.start, ++at, x.important ? 1 : 0, x.tags.length ? JSON.stringify(x.tags) : null, steps, x.done ? t : null, x.done ? req.user.id : null, req.user.id, t, t);
+          .run(tid, list.id, x.title, x.notes, x.due, x.due_time, x.start, ++at, x.important ? 1 : 0, x.tags.length ? JSON.stringify(x.tags) : null, steps, x.done ? t : null, x.done ? req.user.id : null, req.user.id, t, t);
+        if (x.section) q('UPDATE tasks SET section_id = ? WHERE id = ?').run(secId(x.section), tid);
       }
     });
     changed(list);
     res.json({ added: found.tasks.length, done: found.tasks.filter((x) => x.done).length, skipped: found.skipped });
   });
 
+  /** Tasks with their section's name; open ones in the list's order section by section (none first), then done ones. */
+  function withSectionNames(listId, rows) {
+    const secs = sectionsOf(listId);
+    if (!secs.length) return rows;
+    const at = new Map(secs.map((x, i) => [x.id, i]));
+    const named = rows.map((t) => ({ ...t, section_name: secs[at.get(t.section_id)]?.name || '' }));
+    const rank = (t) => (t.done ? 1e6 : at.has(t.section_id) ? at.get(t.section_id) + 1 : 0);
+    return named.map((t, i) => [t, i]).sort((a, b) => rank(a[0]) - rank(b[0]) || a[1] - b[1]).map(([t]) => t);
+  }
   // The whole list as a spreadsheet (CSV, opens in Excel or Sheets): open tasks in order, then done ones.
   r.get('/lists/:id/export.xlsx', async (req, res) => {
     const list = loadList(req.params.id, req.user);
-    const rows = q(`${TASK} WHERE t.list_id = ? ORDER BY t.done_at IS NOT NULL, CASE WHEN t.done_at IS NULL THEN t.position END, t.done_at DESC`).all(list.id).map(shape);
+    const rows = withSectionNames(list.id, q(`${TASK} WHERE t.list_id = ? ORDER BY t.done_at IS NOT NULL, CASE WHEN t.done_at IS NULL THEN t.position END, t.done_at DESC`).all(list.id).map(shape));
     sendXlsx(res, `${list.name || 'Tasks'}.xlsx`, await excelFromTable(list.name || 'Tasks', tasksTable(rows)));
   });
 
   r.get('/lists/:id/export.csv', (req, res) => {
     const list = loadList(req.params.id, req.user);
-    const rows = q(`${TASK} WHERE t.list_id = ? ORDER BY t.done_at IS NOT NULL, CASE WHEN t.done_at IS NULL THEN t.position END, t.done_at DESC`).all(list.id).map(shape);
+    const rows = withSectionNames(list.id, q(`${TASK} WHERE t.list_id = ? ORDER BY t.done_at IS NOT NULL, CASE WHEN t.done_at IS NULL THEN t.position END, t.done_at DESC`).all(list.id).map(shape));
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(`${list.name || 'Tasks'}.csv`)}`);
     res.send(tasksCsv(rows));

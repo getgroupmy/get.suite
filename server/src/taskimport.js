@@ -15,6 +15,7 @@ const COLUMNS = {
   completed: ['completed', 'completed on', 'done on', 'completion date'],
   important: ['important', 'priority', 'starred', 'star'],
   steps: ['steps', 'checklist', 'subtasks'],
+  section: ['section', 'heading', 'group'],
 };
 
 const iso = (y, m, d) => {
@@ -43,7 +44,7 @@ export function dateOf(text) {
 const timeOf = (text) => { const m = /^(\d{1,2}):(\d{2})/.exec(String(text || '').trim()); return m && +m[1] < 24 && +m[2] < 60 ? `${m[1].padStart(2, '0')}:${m[2]}` : null; };
 const yes = (text) => /^(yes|y|true|x|✓|☑|done|completed|complete|finished|high|★|1)$/i.test(String(text || '').trim());
 
-/** { tasks: [{ title, notes, due, due_time, start, tags, done, important, steps }], skipped } or { error }. */
+/** { tasks: [{ title, notes, due, due_time, start, section, tags, done, important, steps }], skipped } or { error }. */
 export function tasksFromCsv(text) {
   const rows = parseCsv(text);
   if (!rows.length) return { error: 'The file is empty' };
@@ -63,6 +64,7 @@ export function tasksFromCsv(text) {
     const due = dateOf(get(r, 'due'));
     tasks.push({
       title, notes: get(r, 'notes').slice(0, 10000) || null, due, due_time: due ? timeOf(get(r, 'time')) : null, start: dateOf(get(r, 'start')),
+      section: get(r, 'section').replace(/\s+/g, ' ').slice(0, 100) || null,
       tags: [...new Set(tags)], done: yes(status) || /^done|completed$/i.test(status) || !!dateOf(get(r, 'completed')), important: yes(get(r, 'important')), steps,
     });
   }

@@ -9438,6 +9438,32 @@ test('tasks: sections split a list into parts', async () => {
   assert.equal((await c('DELETE', `/api/tasks/sections/${elsewhereSec.id}`)).status, 404);
 });
 
+test('tasks: sections go out in the CSV download and come back in an import', async () => {
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'tscv', domain: 'acme.com', name: 'Csv Sec', password: 'password123' })).status, 201);
+  await login(a, 'tscv@acme.com');
+  const list = (await a('POST', '/api/tasks/lists', { name: 'Trip' })).body.id;
+  const before = await a('GET', `/api/tasks/lists/${list}/export.csv`);
+  await a('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Loose' });
+  assert.ok(!String(before.body).includes('Section'), 'no column without sections');
+  const sec = (await a('POST', `/api/tasks/lists/${list}/sections`, { name: 'Packing' })).body;
+  await a('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Pack socks', section_id: sec.id, at: 'end' });
+  await a('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Book taxi' }); // on top, under no section
+  const csv = String((await a('GET', `/api/tasks/lists/${list}/export.csv`)).body).replace(/^\ufeff/, '').split('\r\n');
+  assert.equal(csv[0].split(',').slice(0, 3).join(','), 'Task,Section,Status');
+  assert.deepEqual(csv.slice(1, 4).map((l) => l.split(',').slice(0, 2).join(',')), ['Book taxi,', 'Loose,', 'Pack socks,Packing'], 'no section first, then each section');
+  // Import into another list: sections made (or matched whatever the capitals).
+  const other = (await a('POST', '/api/tasks/lists', { name: 'Trip 2' })).body.id;
+  await a('POST', `/api/tasks/lists/${other}/sections`, { name: 'packing' });
+  const r = await a('POST', `/api/tasks/lists/${other}/import`, 'Task,Section\r\nSocks,Packing\r\nPassport,Papers\r\nSnacks,\r\n', { raw: true, headers: { 'content-type': 'text/csv' } });
+  assert.equal(r.body.added, 3);
+  const secs = (await a('GET', `/api/tasks/lists/${other}/sections`)).body;
+  assert.deepEqual(secs.map((x) => x.name), ['packing', 'Papers']);
+  const tasks = (await a('GET', `/api/tasks/lists/${other}/tasks`)).body;
+  const secOf = (title) => secs.find((x) => x.id === tasks.find((t) => t.title === title).section_id)?.name || null;
+  assert.deepEqual(['Socks', 'Passport', 'Snacks'].map(secOf), ['packing', 'Papers', null]);
+});
+
 test('tasks: fold a section away, each person their own', async () => {
   const a = client(), b = client();
   for (const [local, name] of [['tfoa', 'Fold Ann'], ['tfob', 'Fold Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
