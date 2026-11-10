@@ -2715,3 +2715,5 @@ input.fv-name { background: #202124; color: #fff; border: 1px solid #5f6368; bor
 .answer-feedback .field { margin-top: 4px; }
 .quiz-feedback { display: block; margin: 2px 0 6px 1.4em; font-size: .9em; color: var(--muted, #5f6368); white-space: pre-wrap; }
 .quiz-feedback.wrong { color: var(--danger); }
+
+.task-clash { flex-basis: 100%; margin: 2px 0 0; color: var(--danger); }

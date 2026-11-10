@@ -553,6 +553,58 @@ export const formatMinutes = (min) => { const h = Math.floor(min / 60), m = Math
 const dayOf = (ms) => new Date(ms).toLocaleDateString([], { day: 'numeric', month: 'short' });
 
 /** Time spent on a task: your timer, time added by hand, and everyone's entries (yours can be removed). */
+/** Schedule time: a block on your own calendar for working on the task (warned when it clashes with something). */
+const pad2 = (n) => String(n).padStart(2, '0');
+const localInput = (ms) => { const d = new Date(ms); return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`; };
+const blockText = (b) => `${new Date(b.start).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' })}, ${new Date(b.start).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} – ${new Date(b.end).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
+function TaskSchedule({ task }) {
+  const toast = useToast();
+  const [blocks, setBlocks] = useState([]);
+  const [form, setForm] = useState(null); // { at: 'YYYY-MM-DDTHH:MM', minutes }
+  const [clash, setClash] = useState([]);
+  const load = useCallback(() => get(`/tasks/tasks/${task.id}/blocks`).then((r) => setBlocks(r.blocks)).catch(() => {}), [task.id]);
+  useEffect(() => { load(); }, [load]);
+  const startMs = form ? new Date(form.at).getTime() : NaN;
+  useEffect(() => {
+    if (!form || !Number.isFinite(startMs)) { setClash([]); return undefined; }
+    const t = setTimeout(() => get(`/tasks/tasks/${task.id}/blocks?start=${startMs}&end=${startMs + form.minutes * 60000}`).then((r) => setClash(r.clashes || [])).catch(() => {}), 250);
+    return () => clearTimeout(t);
+  }, [form, startMs, task.id]);
+  const open = () => {
+    const next = new Date(); next.setMinutes(0, 0, 0); next.setHours(next.getHours() + 1);
+    setForm({ at: localInput(next.getTime()), minutes: 60 });
+  };
+  const book = async (e) => {
+    e.preventDefault();
+    try {
+      const r = await post(`/tasks/tasks/${task.id}/blocks`, { start: startMs, end: startMs + form.minutes * 60000, tz: Intl.DateTimeFormat().resolvedOptions().timeZone });
+      setForm(null); load();
+      toast(`On your calendar: ${blockText(r.event)}${r.clashes.length ? ` (clashes with ${r.clashes.map((x) => x.title).join(', ')})` : ''}`);
+    } catch (err) { toast(err.message, 'error'); }
+  };
+  return (
+    <section className="field task-schedule" aria-label="Schedule time">
+      <span>Schedule time</span>
+      {blocks.length > 0 && (
+        <ul className="plain-list" aria-label="Time booked on your calendar">
+          {blocks.map((b) => <li key={b.id} className="small"><Link to={`/calendar?event=${b.id}`}>📅 {blockText(b)}</Link></li>)}
+        </ul>
+      )}
+      {!form ? <div><button type="button" className="link-btn small" onClick={open}>+ Book time on my calendar</button></div> : (
+        <form className="row wrap" style={{ gap: 6 }} onSubmit={book}>
+          <input type="datetime-local" aria-label="Starts" value={form.at} required onChange={(e) => setForm({ ...form, at: e.target.value })} />
+          <select aria-label="For how long" value={form.minutes} onChange={(e) => setForm({ ...form, minutes: Number(e.target.value) })}>
+            {[15, 30, 45, 60, 90, 120, 180, 240].map((m) => <option key={m} value={m}>{m < 60 ? `${m} min` : `${m / 60} h`}</option>)}
+          </select>
+          <button className="btn small primary" disabled={!Number.isFinite(startMs)}>Book</button>
+          <button type="button" className="btn small" onClick={() => setForm(null)}>Cancel</button>
+          {clash.length > 0 && <p className="small task-clash" role="status">⚠ Clashes with {clash.map((x) => x.title).join(', ')}</p>}
+        </form>
+      )}
+    </section>
+  );
+}
+
 function TaskTime({ task }) {
   const { user } = useAuth();
   const toast = useToast();
@@ -667,6 +719,7 @@ function TaskDetails({ task, tasks, lists, people, onChange, onClose, onDelete, 
       <WaitingOn task={task} tasks={tasks} onReplaced={onReplaced} />
       <TaskTags task={task} onChange={onChange} />
       <TaskTime task={task} />
+      <TaskSchedule task={task} />
       <label className="field"><span>Due</span>
         <span className="row"><input type="date" value={task.due || ''} onChange={(e) => onChange({ due: e.target.value || null })} />
           {task.due && <input type="time" aria-label="Time" title="Due time (optional)" value={task.due_time || ''} onChange={(e) => onChange({ due_time: e.target.value || null })} />}

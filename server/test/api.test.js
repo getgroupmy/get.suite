@@ -9039,3 +9039,32 @@ test('forms: the emailed copy of a quiz response has each question’s mark and 
   assert.match(text, /To change your answers: https:\/\/ws\/f\/x\?edit=k$/);
   assert.doesNotMatch(copyText({ title: 'Quiz', questions }, answers, null, null), /score|✗/, 'no score shown: no marks');
 });
+
+test('tasks: schedule time for a task on your calendar, with a link back and a warning about clashes', async () => {
+  const a = client(), c = client();
+  for (const [local, name] of [['tba', 'Tb Ann'], ['tbc', 'Tb Cat']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'tba@acme.com'); await login(c, 'tbc@acme.com');
+  const list = (await a('POST', '/api/tasks/lists', { name: 'Tb list' })).body.id;
+  const t = (await a('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Write the report' })).body;
+  const at = Date.now() + 2 * 864e5 - (Date.now() % 36e5);
+  await a('POST', '/api/events', { title: 'Team meeting', start: at + 30 * 60e3, end: at + 90 * 60e3 });
+  await a('POST', '/api/events', { title: 'Lunch (free)', start: at, end: at + 36e5, show_as: 'free' });
+  // Checking first: the meeting clashes, the free one doesn't.
+  const check = (await a('GET', `/api/tasks/tasks/${t.id}/blocks?start=${at}&end=${at + 36e5}`)).body;
+  assert.deepEqual(check.clashes.map((x) => x.title), ['Team meeting']);
+  assert.deepEqual(check.blocks, []);
+  const made = await a('POST', `/api/tasks/tasks/${t.id}/blocks`, { start: at, end: at + 36e5, tz: 'Europe/London' });
+  assert.equal(made.status, 201);
+  assert.equal(made.body.event.title, '✓ Write the report');
+  assert.deepEqual(made.body.clashes.map((x) => x.title), ['Team meeting'], 'booked anyway, with a warning');
+  const ev = (await a('GET', `/api/events?from=${at - 1}&to=${at + 36e5 + 1}`)).body.find((e) => e.id === made.body.event.id);
+  assert.equal(ev.task_id, t.id);
+  assert.match(ev.description, new RegExp(`/tasks/${list}\\?task=${t.id}`));
+  assert.deepEqual((await a('GET', `/api/tasks/tasks/${t.id}/blocks`)).body.blocks.map((b) => b.start), [at]);
+  // Its own block isn't a clash for another one right after.
+  assert.deepEqual((await a('GET', `/api/tasks/tasks/${t.id}/blocks?start=${at}&end=${at + 36e5}`)).body.clashes.map((x) => x.title), ['Team meeting']);
+  // Checks.
+  assert.equal((await a('POST', `/api/tasks/tasks/${t.id}/blocks`, { start: at, end: at })).status, 400);
+  assert.equal((await a('POST', `/api/tasks/tasks/${t.id}/blocks`, { start: at, end: at + 9 * 36e5 })).status, 400, 'at most 8 hours');
+  assert.equal((await c('POST', `/api/tasks/tasks/${t.id}/blocks`, { start: at, end: at + 36e5 })).status, 404, 'only people on the list');
+});

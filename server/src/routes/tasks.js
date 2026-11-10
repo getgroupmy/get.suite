@@ -14,6 +14,7 @@ import { canReach } from '../tenancy.js';
 import { audienceFor, roleFor, atLeast } from '../access.js';
 import { recordActivity } from '../fileactivity.js';
 import { insertFile } from './files.js';
+import { scheduleTask, blocksOf, clashes } from '../taskblocks.js';
 
 q(`CREATE TABLE IF NOT EXISTS task_lists (
   id TEXT PRIMARY KEY,
@@ -367,6 +368,18 @@ export default function taskRoutes() {
       comments: t.comments,
     });
   });
+  // Time blocks on your calendar for working on a task: your coming ones, a check for clashes, and booking one.
+  r.get('/tasks/:id/blocks', (req, res) => {
+    const { task } = taskFor(req);
+    const start = Number(req.query.start), end = Number(req.query.end);
+    res.json({ blocks: blocksOf(req.user.id, task.id), ...(Number.isFinite(start) && Number.isFinite(end) && end > start && { clashes: clashes(req.user.id, start, end, task.id) }) });
+  });
+  r.post('/tasks/:id/blocks', (req, res) => {
+    const { task } = taskFor(req);
+    const base = (process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '');
+    res.status(201).json(scheduleTask(req.user, task, { ...req.body, link: `${base}/tasks/${task.list_id}?task=${task.id}` }));
+  });
+
   r.get('/tasks/:id/comments', (req, res) => {
     const { task } = taskFor(req);
     res.json(q(`SELECT k.id, k.body, k.created_at, k.author_id, u.name AS author_name FROM task_comments k LEFT JOIN users u ON u.id = k.author_id
