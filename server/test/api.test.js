@@ -7694,3 +7694,36 @@ test('encrypted delivery (MTA-STS): per domain; its records, its policy file, an
     await owner('PATCH', '/api/mail-admin/domains/acme.com', { mta_sts: 'off' });
   }
 });
+
+test('forms: the automatic reminder is due a day before closing, once, again after a new closing date', async () => {
+  const { sendDueFormReminders } = await import('../src/routes/forms.js');
+  const { q } = await import('../src/db.js');
+  const f = (await owner('POST', '/api/forms', { title: 'Reminded' })).body;
+  const fid = f.id || f.form?.id;
+  const close = Date.now() + 12 * 3600e3;
+  const put = await owner('PUT', `/api/forms/${fid}`, { auto_remind: true, close_at: close });
+  assert.equal(put.status, 200, JSON.stringify(put.body));
+  assert.equal(put.body.auto_remind, true);
+  q('UPDATE forms SET invite_base = ? WHERE id = ?').run('https://ws.example', fid);
+  q('INSERT INTO form_invites (form_id, email, sent_at) VALUES (?, ?, ?)').run(fid, 'waiting@example.org', Date.now());
+  await sendDueFormReminders(Date.now() - 2 * 864e5);
+  assert.equal(q('SELECT auto_reminded_at FROM forms WHERE id = ?').get(fid).auto_reminded_at, null, 'not yet: it closes in more than a day');
+  await sendDueFormReminders();
+  const once = q('SELECT auto_reminded_at FROM forms WHERE id = ?').get(fid).auto_reminded_at;
+  assert.ok(once, 'picked up (no email on this test server, so nothing is sent)');
+  await sendDueFormReminders(Date.now() + 1000);
+  assert.equal(q('SELECT auto_reminded_at FROM forms WHERE id = ?').get(fid).auto_reminded_at, once, 'only once');
+  await owner('PUT', `/api/forms/${fid}`, { close_at: close + 3600e3 });
+  assert.equal(q('SELECT auto_reminded_at FROM forms WHERE id = ?').get(fid).auto_reminded_at, null, 'a new closing date: it can go again');
+  assert.equal((await owner('POST', `/api/forms/${fid}/send`, { to: 'a@example.org' })).status, 400, 'no email on this server');
+});
+
+test('form invitations: a company group or alias address reaches each of its people', async () => {
+  const { expandAddresses } = await import('../src/routes/forms.js');
+  const { q } = await import('../src/db.js');
+  const org = q("SELECT org_id FROM users WHERE username = 'owner@acme.com'").get()?.org_id || q('SELECT id FROM orgs LIMIT 1').get().id;
+  q("INSERT OR REPLACE INTO aliases (id, org_id, address, targets, created_at) VALUES ('t-team', ?, 'team-x@acme.test', 'kim@acme.test,lee@acme.test', 0)").run(org);
+  assert.deepEqual(expandAddresses(['team-x@acme.test', 'kim@acme.test', 'out@example.org'], org).sort(), ['kim@acme.test', 'lee@acme.test', 'out@example.org']);
+  assert.deepEqual(expandAddresses(['team-x@acme.test'], 'another-org'), ['team-x@acme.test'], 'only the sender\'s own company\'s groups');
+  q("DELETE FROM aliases WHERE id = 't-team'").run();
+});

@@ -140,7 +140,7 @@ function FormEditor({ id }) {
   return (
     <div className="page form-editor">
       {prefill && <PrefillModal form={form} onClose={() => setPrefill(false)} />}
-      {sending && <SendForm form={form} link={linkOf(form.token)} onClose={() => setSending(false)} />}
+      {sending && <SendForm form={form} link={linkOf(form.token)} setting={setting} onClose={() => setSending(false)} />}
       {embedOpen && (
         <Modal title="Embed in a website" onClose={() => setEmbedOpen(false)} footer={<button type="button" className="btn" onClick={() => setEmbedOpen(false)}>Close</button>}>
           <p className="muted small" style={{ marginTop: 0 }}>Put this form on your own web page: paste the code into the page's HTML. {form.audience === 'org' ? 'This form is for people at your company, who need to be signed in; for a page anyone visits, choose “Anyone with the link” in Settings.' : 'Answers arrive here as usual.'}</p>
@@ -651,7 +651,7 @@ function OptionPicture({ q, option, label, formId, onChange }) {
  * Send: by email from you (with who has answered so far, and a reminder for the rest), or the link with
  * a QR code to print or show (people scan it with their phone's camera).
  */
-function SendForm({ form, link, onClose }) {
+function SendForm({ form, link, setting, onClose }) {
   const toast = useToast();
   const [tab, setTab] = useState(form.mail ? 'email' : 'link');
   const [to, setTo] = useState('');
@@ -688,8 +688,12 @@ function SendForm({ form, link, onClose }) {
           <label className="field"><span>Message (optional)</span><textarea rows={3} value={message} maxLength={2000} onChange={(e) => setMessage(e.target.value)} placeholder={`I've invited you to fill in "${form.title}".`} /></label>
           {form.audience === 'org' && <p className="muted small" style={{ margin: 0 }}>This form is for people at your company (they sign in to fill it in). To ask people outside, set <em>Who can fill it in</em> to anyone with the link.</p>}
           {form.audience === 'public' && !form.collect_email && <p className="muted small" style={{ margin: 0 }}>To see who of them has answered, turn on <em>Collect email addresses</em> in Settings.</p>}
+          <p className="muted small" style={{ margin: 0 }}>A group's address (like <em>team@</em>) sends it to each person in the group, so you can see who of them has answered.</p>
           <div className="row end"><button className="btn primary" disabled={busy || !to.trim()}>{busy ? 'Sending…' : 'Send'}</button></div>
         </form>
+        <label className="check"><input type="checkbox" checked={!!form.auto_remind} disabled={!form.close_at} onChange={(e) => setting({ auto_remind: e.target.checked })} />
+          Remind those who haven't answered a day before it closes{form.close_at ? ` (${new Date(form.close_at - 864e5).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })})` : ''}</label>
+        {!form.close_at && <p className="muted small" style={{ margin: 0 }}>Set <em>Close automatically on</em> in Settings to use this.</p>}
         {invites?.length > 0 && <>
           <div className="row"><strong className="grow">Sent to {invites.length} · {invites.length - waiting} answered</strong>
             {waiting > 0 && <button type="button" className="btn small" disabled={busy} onClick={remind}>Remind {waiting} who haven't answered</button>}</div>

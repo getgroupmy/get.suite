@@ -2002,3 +2002,11 @@ test('forms: sent by email, who has answered, and a reminder to the others', asy
   await eventually(async () => (await inbox(gina, `Reminder: ${title}`))[0], 30000);
   assert.ok((await olivia('GET', `/api/forms/${fid}/invites`)).body.find((i) => i.email === 'gina@globex.com').reminded_at);
 });
+
+test('forms: sent to a group\'s address, each person in it is invited and counted', async () => {
+  const fid = ((await olivia('POST', '/api/forms', { title: `Group survey ${Date.now()}` })).body);
+  const id = fid.id || fid.form?.id;
+  const sent = await olivia('POST', `/api/forms/${id}/send`, { to: 'sales@acme.com' });
+  assert.equal(sent.status, 200, JSON.stringify(sent.body));
+  assert.deepEqual(sent.body.invites.map((i) => i.email).sort(), ['bob@acme.com', 'olivia@acme.com']);
+});

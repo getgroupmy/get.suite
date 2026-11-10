@@ -1,3 +1,4 @@
+import { sendDueFormReminders } from './routes/forms.js';
 import http from 'node:http';
 import { createApp } from './app.js';
 import { attachHub } from './hub.js';
@@ -51,6 +52,7 @@ setTimeout(() => { try { purgeOldChat(); } catch {} }, 90e3).unref();
 setInterval(() => sendChatEmails().catch((e) => console.error('[chat] email:', e.message)), 5 * 60e3).unref(); // unread mentions and direct messages
 setInterval(() => sendDueDigests().catch((e) => console.error('[digest]', e.message)), 5 * 60e3).unref(); // morning summaries
 setInterval(() => sendDueReminderPushes().then(() => sendTaskPushes()).catch((e) => console.error('[push] reminders:', e.message)), 60e3).unref(); // calendar and task reminders on devices
+setInterval(() => sendDueFormReminders().catch((e) => console.error('[forms] reminders:', e.message)), 10 * 60e3).unref(); // forms that close within a day
 setInterval(() => sendBookingReminders().catch((e) => console.error('[booking] reminders:', e.message)), 10 * 60e3).unref(); // visitors, the day before
 setInterval(() => refreshDueFeeds().catch((e) => console.error('[calendar] feeds:', e.message)), 15 * 60e3).unref(); // subscribed calendars, every few hours each
 if (mailEnabled()) { startPolicyServer(); startMailNotifications(); startRsvpWatcher(); }

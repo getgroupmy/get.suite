@@ -71,8 +71,63 @@ export function inviteStatus(form, invites, responses) {
   return invites.map((i) => ({ email: i.email, sent_at: i.sent_at, reminded_at: i.reminded_at || null, answered: answered.has(i.email) }))
     .sort((a, b) => a.answered - b.answered || a.email.localeCompare(b.email));
 }
+// auto_remind: a reminder goes by itself a day before the form closes; invite_base: the address the
+// form's link was sent with (so the automatic reminder can link to it too).
+for (const [col, type] of [['auto_remind', 'INTEGER NOT NULL DEFAULT 0'], ['auto_reminded_at', 'INTEGER'], ['invite_base', 'TEXT']]) {
+  if (!q('PRAGMA table_info(forms)').all().some((c) => c.name === col)) q(`ALTER TABLE forms ADD COLUMN ${col} ${type}`).run();
+}
+
+/**
+ * The people an address list reaches: a company group's or alias's address (one of the sender's
+ * company) becomes the people in it, so each of them is sent the form and counted on their own.
+ */
+export function expandAddresses(emails, orgId) {
+  const out = new Set();
+  for (const e of emails) {
+    const alias = q('SELECT targets FROM aliases WHERE address = ? AND org_id = ?').get(e, orgId);
+    if (alias) for (const t of String(alias.targets || '').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean)) out.add(t);
+    else out.add(e);
+  }
+  return [...out];
+}
+
+/** Send a form (or a reminder about it) from `user` to each address. Gives the addresses it couldn't send to. */
+async function sendFormMail(user, base, form, emails, { message, reminder } = {}) {
+  if (!mailEnabled()) throw bad('This server has no email');
+  const link = `${base}/f/${form.token}`;
+  const subject = reminder ? `Reminder: ${form.title}` : form.title;
+  const lines = [message || (reminder ? `${user.name} is still waiting for your answers to "${form.title}".` : `${user.name} has invited you to fill in "${form.title}".`), '', `Fill it in: ${link}`];
+  if (form.close_at) lines.push('', `It closes ${new Date(form.close_at).toUTCString().replace(/:\d\d GMT$/, ' UTC')}.`);
+  const failed = [];
+  for (const to of emails) {
+    try { await smtpFor(user).sendMail({ from: { name: user.name, address: user.username }, to, subject, text: lines.join('\n') }); }
+    catch { failed.push(to); }
+  }
+  return failed;
+}
+
 const invitesOf = (form) => inviteStatus(form, q('SELECT email, sent_at, reminded_at FROM form_invites WHERE form_id = ?').all(form.id),
   q('SELECT r.email, u.username AS user_email FROM form_responses r LEFT JOIN users u ON u.id = r.user_id WHERE r.form_id = ?').all(form.id));
+
+/**
+ * The automatic reminder: on forms with it turned on that close within a day and are still taking
+ * answers, those sent the form who haven't answered get a reminder from its owner, once.
+ */
+export async function sendDueFormReminders(at = Date.now()) {
+  const due = q(`SELECT f.*, u.id AS uid FROM forms f JOIN users u ON u.id = f.owner_id
+                 WHERE f.auto_remind = 1 AND f.auto_reminded_at IS NULL AND f.accepting = 1 AND f.close_at IS NOT NULL AND f.close_at > ? AND f.close_at <= ? AND f.invite_base IS NOT NULL`).all(at, at + 864e5);
+  let n = 0;
+  for (const f of due) {
+    const owner = q('SELECT * FROM users WHERE id = ? AND disabled = 0').get(f.uid);
+    const waiting = invitesOf(f).filter((i) => !i.answered).map((i) => i.email);
+    q('UPDATE forms SET auto_reminded_at = ? WHERE id = ?').run(at, f.id); // once, whatever happens
+    if (!owner || !waiting.length || !mailEnabled()) continue;
+    const failed = await sendFormMail(owner, f.invite_base, parse(f), waiting, { reminder: true }).catch(() => waiting);
+    for (const e of waiting.filter((x) => !failed.includes(x))) q('UPDATE form_invites SET reminded_at = ? WHERE form_id = ? AND email = ?').run(at, f.id, e);
+    n += waiting.length - failed.length;
+  }
+  return n;
+}
 
 // Colleagues who can edit a form and read its responses with the owner.
 q(`CREATE TABLE IF NOT EXISTS form_editors (
@@ -320,7 +375,7 @@ const csvCell = (v) => {
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 };
 
-const parse = (f) => ({ ...f, questions: JSON.parse(f.questions || '[]'), accepting: !!f.accepting, one_per_person: !!f.one_per_person, notify: !!f.notify, quiz: !!f.quiz, show_score: !!f.show_score, allow_edit: !!f.allow_edit, collect_email: !!f.collect_email, send_copy: !!f.send_copy });
+const parse = (f) => ({ ...f, questions: JSON.parse(f.questions || '[]'), accepting: !!f.accepting, one_per_person: !!f.one_per_person, notify: !!f.notify, quiz: !!f.quiz, show_score: !!f.show_score, allow_edit: !!f.allow_edit, collect_email: !!f.collect_email, send_copy: !!f.send_copy, auto_remind: !!f.auto_remind });
 const responsesOf = (formId) => q(`SELECT r.id, r.answers, r.created_at, r.updated_at, r.email, u.name AS user_name, u.username AS user_email
                                    FROM form_responses r LEFT JOIN users u ON u.id = r.user_id WHERE r.form_id = ? ORDER BY r.created_at`).all(formId)
   .map((r) => ({ id: r.id, created_at: r.created_at, ...(r.updated_at && { updated_at: r.updated_at }), ...(r.email && { email: r.email }), user: r.user_email ? { name: r.user_name, email: r.user_email } : null, answers: JSON.parse(r.answers) }));
@@ -522,6 +577,7 @@ export default function formRoutes() {
       send_copy: 'send_copy' in b ? !!b.send_copy : f.send_copy,
       close_at: 'close_at' in b ? (b.close_at == null || b.close_at === '' ? null : Number(b.close_at)) : f.close_at,
       open_at: 'open_at' in b ? (b.open_at == null || b.open_at === '' ? null : Number(b.open_at)) : f.open_at,
+      auto_remind: 'auto_remind' in b ? !!b.auto_remind : !!f.auto_remind,
       max_responses: 'max_responses' in b ? (b.max_responses == null || b.max_responses === '' ? null : Number(b.max_responses)) : f.max_responses,
     };
     if (next.close_at !== null && (!Number.isFinite(next.close_at) || next.close_at < 0)) throw bad('close_at must be a time');
@@ -532,9 +588,11 @@ export default function formRoutes() {
     }
     if (next.audience === 'public' && f.audience !== 'public' && !req.user.allow_links) throw forbidden('Your company has turned off links for people outside it');
     q(`UPDATE forms SET title = ?, description = ?, questions = ?, audience = ?, accepting = ?, one_per_person = ?, confirmation = ?, notify = ?,
-       close_at = ?, open_at = ?, max_responses = ?, quiz = ?, show_score = ?, allow_edit = ?, collect_email = ?, send_copy = ?, updated_at = ? WHERE id = ?`)
+       close_at = ?, open_at = ?, max_responses = ?, quiz = ?, show_score = ?, allow_edit = ?, collect_email = ?, send_copy = ?, auto_remind = ?,
+       auto_reminded_at = CASE WHEN ? THEN NULL ELSE auto_reminded_at END, updated_at = ? WHERE id = ?`)
       .run(next.title, next.description, JSON.stringify(next.questions), next.audience, next.accepting ? 1 : 0, next.one_per_person ? 1 : 0, next.confirmation, next.notify ? 1 : 0,
-        next.close_at, next.open_at, next.max_responses, next.quiz ? 1 : 0, next.show_score ? 1 : 0, next.allow_edit ? 1 : 0, next.collect_email ? 1 : 0, next.send_copy ? 1 : 0, now(), f.id);
+        next.close_at, next.open_at, next.max_responses, next.quiz ? 1 : 0, next.show_score ? 1 : 0, next.allow_edit ? 1 : 0, next.collect_email ? 1 : 0, next.send_copy ? 1 : 0, next.auto_remind ? 1 : 0,
+        next.close_at !== f.close_at ? 1 : 0, now(), f.id); // a new closing date: the automatic reminder can go again
     changed(f, req.user.id);
     const out = ownForm(f.id, req.user);
     res.json({ ...out, responses: countOf(f.id), closed: closedReason(out) });
@@ -543,26 +601,17 @@ export default function formRoutes() {
   // Send the form by email (from you), and see who of them has answered.
   r.get('/:id/invites', (req, res) => res.json(invitesOf(ownForm(req.params.id, req.user))));
   const EMAIL = /^[^\s@<>,;"]+@[^\s@<>,;"]+\.[^\s@<>,;"]+$/;
-  const sendInvites = async (req, form, emails, { message, reminder }) => {
-    if (!mailEnabled()) throw bad('This server has no email');
-    const link = `${baseUrlOf(req)}/f/${form.token}`;
-    const subject = reminder ? `Reminder: ${form.title}` : form.title;
-    const lines = [message || (reminder ? `${req.user.name} is still waiting for your answers to "${form.title}".` : `${req.user.name} has invited you to fill in "${form.title}".`), '', `Fill it in: ${link}`];
-    if (form.close_at) lines.push('', `It closes ${new Date(form.close_at).toUTCString().replace(/:\d\d GMT$/, ' UTC')}.`);
-    const failed = [];
-    for (const to of emails) {
-      try { await smtpFor(req.user).sendMail({ from: { name: req.user.name, address: req.user.username }, to, subject, text: lines.join('\n') }); }
-      catch { failed.push(to); }
-    }
-    return failed;
-  };
+  const sendInvites = (req, form, emails, opts) => sendFormMail(req.user, baseUrlOf(req), form, emails, opts);
   r.post('/:id/send', async (req, res) => {
     const form = ownForm(req.params.id, req.user);
-    const emails = [...new Set(String(req.body?.to || '').split(/[\s,;]+/).map((x) => x.trim().toLowerCase()).filter(Boolean))];
-    if (!emails.length) throw bad('Add at least one email address');
-    if (emails.length > 200) throw bad('At most 200 people at a time');
-    const wrong = emails.find((e) => !EMAIL.test(e));
+    const typed = [...new Set(String(req.body?.to || '').split(/[\s,;]+/).map((x) => x.trim().toLowerCase()).filter(Boolean))];
+    if (!typed.length) throw bad('Add at least one email address');
+    if (typed.length > 200) throw bad('At most 200 people at a time');
+    const wrong = typed.find((e) => !EMAIL.test(e));
     if (wrong) throw bad(`“${wrong}” isn't an email address`);
+    const emails = expandAddresses(typed, req.user.org_id); // a group's address: each of its people
+    if (emails.length > 500) throw bad('That reaches more than 500 people');
+    q('UPDATE forms SET invite_base = ? WHERE id = ?').run(baseUrlOf(req), form.id);
     if (!form.accepting) throw bad('The form isn\'t accepting responses: turn that on first');
     const message = str(req.body?.message ?? '', { name: 'Message', max: 2000 }) || null;
     const failed = await sendInvites(req, form, emails, { message });

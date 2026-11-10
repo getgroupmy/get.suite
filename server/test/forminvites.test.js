@@ -7,3 +7,4 @@ test('form invitations: who has answered, by account or by the email they gave; 
   const responses = [{ user_email: 'kim@acme.com', email: null }, { user_email: null, email: 'Pat@Example.org' }];
   assert.deepEqual(inviteStatus({}, invites, responses).map((i) => [i.email, i.answered, i.reminded_at]), [['lee@acme.com', false, null], ['kim@acme.com', true, null], ['pat@example.org', true, 5]]);
 });
+
