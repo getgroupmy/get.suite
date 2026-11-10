@@ -1,5 +1,5 @@
 import { withoutSuggestions } from '../office/suggestions.js';
-import { combine, extract, parsePages, pageCount, typeOf, stamp } from '../pdftools.js';
+import { combine, extract, parsePages, pageCount, typeOf, stamp, organize, MAX_PAGES as MAX_PDF_PAGES } from '../pdftools.js';
 import { filesFor, fileRulesStop } from '../dlp.js';
 import crypto from 'node:crypto';
 import { sync as syncShares, setFileGroups, groupsOf } from '../groups.js';
@@ -746,6 +746,46 @@ export default function fileRoutes({ maxUploadBytes }) {
     const out = savePdf(req, Buffer.from(bytes), String(req.body.name || '').trim() || `${f.name.replace(/\.pdf$/i, '')} (signed)`, placeFor(req, f));
     audit(req, 'pdf.sign', { target: out.name, details: { from: f.name, items: items.length } });
     res.status(201).json(out);
+  });
+
+  // Organise pages: { pages: [{ page (0-based), rotate }], as: 'version' | 'copy', name? }: reorder, turn and
+  // leave out pages, saved as a new version of the PDF (editors; the old one is in its history) or a copy.
+  r.post('/:id/pdf/organize', async (req, res) => {
+    const asVersion = req.body?.as === 'version';
+    const f = asVersion ? loadFile(req.params.id, req.user, 'editor') : pdfPart(req.params.id, req.user).f;
+    if (typeOf(f) !== 'pdf' || f.kind !== 'file') throw bad('That isn’t a PDF');
+    if (asVersion) notLocked(f);
+    const buf = fs.readFileSync(path.join(FILES_DIR, f.storage));
+    let count;
+    try { count = await pageCount(buf); } catch { throw bad(`“${f.name}” couldn’t be read`); }
+    const list = Array.isArray(req.body?.pages) ? req.body.pages : [];
+    if (!list.length) throw bad('Keep at least one page');
+    if (list.length > MAX_PDF_PAGES) throw bad(`At most ${MAX_PDF_PAGES} pages`);
+    const pages = list.map((x) => {
+      const page = Math.trunc(Number(x?.page)), rotate = Number(x?.rotate || 0);
+      if (!(page >= 0 && page < count)) throw bad(`This PDF has ${count} pages`);
+      if (![0, 90, 180, 270].includes(rotate)) throw bad('Turn by 90, 180 or 270 degrees');
+      return { page, rotate };
+    });
+    let bytes;
+    try { bytes = Buffer.from(await organize(buf, pages)); } catch { throw bad(`“${f.name}” couldn’t be changed (is it password-protected?)`); }
+    if (!asVersion) {
+      const out = savePdf(req, bytes, String(req.body.name || '').trim() || `${f.name.replace(/\.pdf$/i, '')} (reorganised)`, placeFor(req, f));
+      audit(req, 'pdf.organize', { target: out.name, details: { from: f.name, pages: pages.length } });
+      return res.status(201).json(out);
+    }
+    const owner = q('SELECT id, org_id FROM users WHERE id = ?').get(f.owner_id);
+    checkQuota(owner.org_id, bytes.length, owner.id);
+    const storage = uid();
+    fs.writeFileSync(path.join(FILES_DIR, storage), bytes);
+    tx(() => {
+      snapshot(f.id);
+      q('UPDATE files SET storage = ?, size = ?, version = version + 1, updated_at = ?, updated_by = ? WHERE id = ?').run(storage, bytes.length, now(), req.user.id, f.id);
+    });
+    recordActivity(f.id, req.user.id, 'edit');
+    notify(f.id, { type: 'files-changed', parent_id: f.parent_id });
+    audit(req, 'pdf.organize', { target: f.name, details: { pages: pages.length, version: true } });
+    res.json(publicFile(loadFile(f.id, req.user)));
   });
 
   // Raw streaming upload: POST /upload?parent=&name=  (body = file bytes)

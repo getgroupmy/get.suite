@@ -96,3 +96,15 @@ export async function stamp(bytes, items) {
   }
   return doc.save();
 }
+
+/** A new PDF with pages picked, in order, each turned on its own: [{ page (0-based), rotate (0, 90, 180, 270) }]. */
+export async function organize(bytes, list) {
+  const src = await PDFDocument.load(bytes);
+  const out = await PDFDocument.create();
+  const copied = await out.copyPages(src, list.map((x) => x.page));
+  copied.forEach((page, i) => {
+    if (list[i].rotate) page.setRotation(degrees((page.getRotation().angle + list[i].rotate) % 360));
+    out.addPage(page);
+  });
+  return out.save();
+}

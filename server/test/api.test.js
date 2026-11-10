@@ -7971,3 +7971,30 @@ test('PDF fill & sign: pictures stamped on pages make a signed copy; bad input r
   assert.deepEqual(out.getPages().map((p) => p.node.Resources()?.lookup(PDFName.of('XObject'))?.keys().length || 0), [0, 2]);
   assert.equal((await owner('POST', `/api/files/${f.id}/pdf/sign`, { items: [{ page: 0, x: 0, y: 0, w: 0.1, h: 0.1, png }] })).status, 404, 'not theirs');
 });
+
+test('PDF organise pages: reorder, turn, leave out; as a copy or a new version (the old one kept)', async () => {
+  const { PDFDocument } = await import('pdf-lib');
+  const d = await PDFDocument.create(); for (let i = 0; i < 4; i++) d.addPage([100 + i, 200]);
+  const hal = client(), viewer = client();
+  for (const [local, name] of [['pdfhal', 'Pdf Hal'], ['pdfvic', 'Pdf Vic']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(hal, 'pdfhal@acme.com'); await login(viewer, 'pdfvic@acme.com');
+  const f = (await hal('POST', '/api/files/upload?name=Scan.pdf', Buffer.from(await d.save()), { raw: true, headers: { 'content-type': 'application/octet-stream' } })).body;
+  const widths = async (id, who = hal) => (await PDFDocument.load((await who('GET', `/api/files/${id}/raw`, undefined, { binary: true })).body)).getPages().map((p) => [Math.round(p.getWidth()), p.getRotation().angle]);
+  assert.equal((await hal('POST', `/api/files/${f.id}/pdf/organize`, { pages: [] })).status, 400);
+  assert.match((await hal('POST', `/api/files/${f.id}/pdf/organize`, { pages: [{ page: 9 }] })).body.error, /has 4 pages/);
+  const copy = await hal('POST', `/api/files/${f.id}/pdf/organize`, { pages: [{ page: 3 }, { page: 0, rotate: 90 }], as: 'copy' });
+  assert.equal(copy.status, 201);
+  assert.equal(copy.body.name, 'Scan (reorganised).pdf');
+  assert.deepEqual(await widths(copy.body.id), [[103, 0], [100, 90]]);
+  // As a new version: the same file, one more version; the old pages are in its history.
+  const v = await hal('POST', `/api/files/${f.id}/pdf/organize`, { pages: [{ page: 1 }, { page: 2, rotate: 180 }], as: 'version' });
+  assert.equal(v.status, 200, JSON.stringify(v.body));
+  assert.equal(v.body.id, f.id);
+  assert.deepEqual(await widths(f.id), [[101, 0], [102, 180]]);
+  const versions = (await hal('GET', `/api/files/${f.id}/versions`)).body;
+  assert.ok((versions.versions || versions).length >= 1, JSON.stringify(versions).slice(0, 200));
+  // A viewer can make a copy, not a new version.
+  await hal('PUT', `/api/files/${f.id}/shares`, { shares: [{ user_id: (await viewer('GET', '/api/auth/me')).body.user.id, role: 'viewer' }] });
+  assert.equal((await viewer('POST', `/api/files/${f.id}/pdf/organize`, { pages: [{ page: 0 }], as: 'version' })).status, 403);
+  assert.equal((await viewer('POST', `/api/files/${f.id}/pdf/organize`, { pages: [{ page: 0 }], as: 'copy' })).status, 201);
+});
