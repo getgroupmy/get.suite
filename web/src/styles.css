@@ -845,13 +845,26 @@ textarea.slide-text.editing { resize: none; border: 0; padding: 0; margin: 0; ba
   .slide-stage { padding: 12px; }
 }
 /* Printing a presentation (only then: body.printing-deck): just the slides, on landscape pages. */
-@page deck { size: landscape; margin: 0; }
 @media print {
   body.printing-deck * { visibility: hidden; }
   body.printing-deck .print-deck, body.printing-deck .print-deck * { visibility: visible; }
-  body.printing-deck .print-deck { display: block; position: absolute; left: 0; top: 0; width: 100%; page: deck; }
+  body.printing-deck .print-deck { display: block; position: absolute; left: 0; top: 0; width: 100%; }
   .print-slide { width: 100%; break-after: page; }
   .print-slide .slide { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  /* Notes and handouts: portrait pages with the title and page number at the top. */
+  .print-deck.portrait .slide { -webkit-print-color-adjust: exact; print-color-adjust: exact; border: 0.5pt solid #bbb; }
+  .print-page { break-after: page; height: 271mm; display: flex; flex-direction: column; gap: 6mm; color: #202124; font-size: 11pt; }
+  .print-page-head { display: flex; justify-content: space-between; font-size: 9pt; color: #5f6368; border-bottom: 0.5pt solid #ccc; padding-bottom: 2mm; }
+  .print-notes { white-space: pre-wrap; line-height: 1.5; }
+  .print-notes p { margin: 2mm 0 0; }
+  .print-handout { flex: 1; display: grid; gap: 8mm; }
+  .layout-h2 .print-handout { grid-template-rows: 1fr 1fr; align-items: center; padding: 0 12mm; }
+  .layout-h3 .print-handout-item { display: grid; grid-template-columns: 55% 1fr; gap: 8mm; align-items: center; }
+  .layout-h6 .print-handout { grid-template-columns: 1fr 1fr; align-content: start; }
+  .print-handout-slide { position: relative; }
+  .print-handout-no { position: absolute; left: -5mm; top: 0; font-size: 8pt; color: #5f6368; }
+  .print-lines { display: grid; gap: 7mm; }
+  .print-lines i { display: block; border-bottom: 0.5pt solid #999; }
 }
 
 /* ---- co-editing ---- */

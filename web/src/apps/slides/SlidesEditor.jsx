@@ -25,6 +25,7 @@ import {
   TRANSITIONS, setSlide, stepSlide, firstShown, newTable, resizeTable, setCell,
   ANIMATIONS, builds, animChange, stepPresent, nextPresent, ADVANCES, advanceLabel, slideChanges } from './slidemath.js';
 import { cleanLink, linkTarget, linkLabel, slideTitle, dropLinksTo } from './slidelinks.js';
+import { PRINT_LAYOUTS, printPages, isPortrait } from './printlayout.js';
 
 const SIZES = [12, 14, 16, 18, 20, 24, 28, 32, 36, 40, 44, 54, 64, 72, 96];
 const TEXT_COLORS = [['', 'Theme text'], ['accent', 'Theme accent'], ['#202124', 'Black'], ['#ffffff', 'White'], ['#c5221f', 'Red'], ['#e37400', 'Orange'], ['#188038', 'Green'], ['#1a73e8', 'Blue'], ['#8430ce', 'Purple']];
@@ -55,6 +56,7 @@ export default function SlidesEditor() {
   const [presenting, setPresenting] = useState(null); // slide index, or null
   const [dialog, setDialog] = useState(null);
   const [finding, setFinding] = useState(null); // the find bar: { replace, n }
+  const [printing, setPrinting] = useState(null); // the print dialog (true), then what's printed: { layout, skipHidden }
   // Comments, each on a slide (by its id, so it follows the slide when slides move).
   const [params] = useSearchParams();
   const { threads } = useComments(file?.id);
@@ -309,13 +311,7 @@ export default function SlidesEditor() {
           { label: 'Find and replace', icon: 'search', onClick: () => setFinding((f) => ({ replace: !readOnly, n: (f?.n || 0) + 1 })) },
           { label: 'Version history', icon: 'clock', onClick: () => setDialog('history') },
           ...(!readOnly ? [{ label: 'Import slides…', icon: 'upload', onClick: () => setDialog({ type: 'import-file' }) }] : []),
-          { label: 'Print or save as PDF', icon: 'print', onClick: () => {
-            document.body.classList.add('printing-deck'); // the print styles show just the slides
-            const done = () => { document.body.classList.remove('printing-deck'); window.removeEventListener('afterprint', done); };
-            window.addEventListener('afterprint', done);
-            window.print();
-            setTimeout(done, 1000);
-          } },
+          { label: 'Print or save as PDF…', icon: 'print', onClick: () => setPrinting(true) },
           { label: 'Download as PowerPoint (.pptx)', icon: 'download', onClick: () => { window.location.href = `/api/files/${id}/export`; } },
           { label: 'Download as OpenDocument (.odp)', icon: 'download', onClick: () => { window.location.href = `/api/files/${id}/export?format=odp`; } },
           ...(!readOnly ? ['-', { label: `Loop: start again after the last slide${deck.loop ? ' ✓' : ''}`, onClick: () => change((d) => { const { loop, ...rest } = d; return loop ? rest : { ...rest, loop: true }; }) }, ...[[null, 'Slide numbers: off'], [true, 'Slide numbers: every slide'], ['skip-first', 'Slide numbers: all but the first']].map(([v, label]) => ({ label: `${label}${(deck.numbers || null) === v ? ' ✓' : ''}`, onClick: () => change((d) => { const { numbers, ...rest } = d; return v ? { ...rest, numbers: v } : rest; }) })),
@@ -542,9 +538,18 @@ export default function SlidesEditor() {
           onShow={showThread} labelOf={slideLabel} onClose={() => { setPending(null); setPanel(false); }} />}
       </div>
 
-      <div className="print-deck" aria-hidden="true">
-        {deck.slides.map((s, i) => <div key={s.id} className="print-slide"><SlideView slide={s} theme={theme} deckId={id} number={numberShown(deck, i) ? i + 1 : null} /></div>)}
-      </div>
+      <PrintDeck deck={deck} theme={theme} deckId={id} title={file.name} how={printing && printing !== true ? printing : { layout: 'slides', skipHidden: true }} />
+      {printing === true && <PrintDialog deck={deck} onClose={() => setPrinting(null)} onPrint={(how) => {
+        setPrinting(how);
+        document.body.classList.add('printing-deck'); // the print styles show just the slides
+        // The paper's way round, for this print only (a named @page doesn't reach the absolutely placed pages).
+        const size = document.createElement('style');
+        size.textContent = isPortrait(how.layout) ? '@page { size: A4 portrait; margin: 13mm; }' : '@page { size: landscape; margin: 0; }';
+        document.head.appendChild(size);
+        const done = () => { document.body.classList.remove('printing-deck'); size.remove(); window.removeEventListener('afterprint', done); setPrinting(null); };
+        window.addEventListener('afterprint', done);
+        setTimeout(() => { window.print(); setTimeout(done, 1000); }, 60); // once the pages are laid out
+      }} />}
       {presenting !== null && <Presenter deck={deck} theme={theme} deckId={id} start={presenting} onClose={(i) => { setPresenting(null); goTo(i); }} />}
       {dialog === 'share' && <ShareDialog file={file} onClose={() => setDialog(null)} />}
       {dialog?.type === 'theme' && <ThemeDialog deck={deck} deckId={id} slide={slide} parentId={file.parent_id || null}
@@ -635,6 +640,53 @@ const outlineable = (it) => it?.type === 'text' || (it?.type === 'shape' && ['re
 const OUTLINE_WIDTHS = [1, 2, 4, 6]; // points, as PowerPoint
 /** The outline as CSS: a point is 1/960 of the slide's width (a 13.33-inch slide). */
 const outlineCss = (it, theme) => (it.outline ? { border: `calc(${OUTLINE_WIDTHS.includes(it.outlineW) ? it.outlineW : 1} * 100cqw / 960) solid ${colorOf(it.outline, theme, theme.text)}`, boxSizing: 'border-box' } : {});
+
+/** Printing: what to print (one slide per page, with notes, or handouts) and whether skipped slides go too. */
+function PrintDialog({ deck, onClose, onPrint }) {
+  const [layout, setLayout] = useState('slides');
+  const [skipHidden, setSkipHidden] = useState(true);
+  const skipped = deck.slides.filter((s) => s.skip).length;
+  const pages = printPages(deck.slides, { layout, skipHidden }).length;
+  return (
+    <Modal title="Print or save as PDF" onClose={onClose} footer={<><button type="button" className="btn" onClick={onClose}>Cancel</button>
+      <button type="button" className="btn primary" disabled={!pages} onClick={() => onPrint({ layout, skipHidden })}>Print…</button></>}>
+      <fieldset className="stack" style={{ border: 0, padding: 0, margin: 0 }}>
+        <legend className="muted small">Print</legend>
+        {PRINT_LAYOUTS.map(([v, label]) => <label key={v} className="check"><input type="radio" name="print-layout" checked={layout === v} onChange={() => setLayout(v)} /> {label}</label>)}
+      </fieldset>
+      {skipped > 0 && <label className="check"><input type="checkbox" checked={!skipHidden} onChange={(e) => setSkipHidden(!e.target.checked)} /> Include skipped slides ({skipped})</label>}
+      <p className="muted small" role="status">{pages} page{pages === 1 ? '' : 's'}, {isPortrait(layout) ? 'portrait' : 'landscape'}. Choose “Save as PDF” in the print dialog for a PDF.</p>
+    </Modal>
+  );
+}
+
+/** The pages printed (hidden on screen): slides, slides with their notes, or handouts with the title and page numbers. */
+function PrintDeck({ deck, theme, deckId, title, how }) {
+  const pages = printPages(deck.slides, how);
+  const slideOf = (x) => <SlideView slide={x.slide} theme={theme} deckId={deckId} number={numberShown(deck, x.number - 1) ? x.number : null} />;
+  if (how.layout === 'slides') return <div className="print-deck" aria-hidden="true">{pages.map(([x]) => <div key={x.slide.id} className="print-slide">{slideOf(x)}</div>)}</div>;
+  return (
+    <div className={`print-deck portrait layout-${how.layout}`} aria-hidden="true">
+      {pages.map((page, p) => (
+        <div key={p} className="print-page">
+          <div className="print-page-head"><span>{title}</span><span>{p + 1} / {pages.length}</span></div>
+          {how.layout === 'notes' ? (
+            <>{slideOf(page[0])}<div className="print-notes"><strong>Slide {page[0].number}</strong>{page[0].slide.notes ? <p>{page[0].slide.notes}</p> : <p className="muted">No speaker notes</p>}</div></>
+          ) : (
+            <div className="print-handout">
+              {page.map((x) => (
+                <div key={x.slide.id} className="print-handout-item">
+                  <div className="print-handout-slide">{slideOf(x)}<span className="print-handout-no">{x.number}</span></div>
+                  {how.layout === 'h3' && <div className="print-lines" aria-hidden="true">{Array.from({ length: 7 }, (_, k) => <i key={k} />)}</div>}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export function SlideView({ slide, theme, deckId, editable, selected, group = [], editing, onSelect, onEdit, onChange, onMoveMany, peers, built, number, pictureBase = null }) {
   // Animated boxes: where each comes in (1, 2…). Presenting (built set), the later ones aren't in yet.
