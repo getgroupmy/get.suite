@@ -121,6 +121,15 @@ function loadChannel(id, user) {
   return c;
 }
 
+// Public channels someone has left: they no longer show in that person's list or count as unread, until
+// they join again (Browse channels, or by writing in it).
+q(`CREATE TABLE IF NOT EXISTS chat_left (
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+  left_at INTEGER NOT NULL,
+  PRIMARY KEY (user_id, channel_id)
+)`).run();
+
 q(`CREATE TABLE IF NOT EXISTS chat_drafts (
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
@@ -456,6 +465,7 @@ export default function chatRoutes() {
                       (SELECT COUNT(*) FROM channel_members cm WHERE cm.channel_id = c.id) AS member_count,
                       EXISTS (SELECT 1 FROM chat_mutes mu WHERE mu.channel_id = c.id AND mu.user_id = ?) AS muted,
                       (SELECT st.starred_at FROM chat_stars st WHERE st.channel_id = c.id AND st.user_id = ?) AS starred_at,
+                      EXISTS (SELECT 1 FROM chat_left lf WHERE lf.channel_id = c.id AND lf.user_id = ?) AS has_left,
                       (SELECT MAX(created_at) FROM messages m WHERE m.channel_id = c.id) AS last_at,
                       (SELECT u.name FROM channel_members cm JOIN users u ON u.id = cm.user_id
                         WHERE cm.channel_id = c.id AND cm.user_id != ? LIMIT 1) AS dm_name,
@@ -473,8 +483,9 @@ export default function chatRoutes() {
                     FROM channels c
                     WHERE (c.dm_key IS NULL AND c.private = 0 AND c.org_id = ?)
                        OR EXISTS (SELECT 1 FROM channel_members cm WHERE cm.channel_id = c.id AND cm.user_id = ?)
-                    ORDER BY c.dm_key IS NOT NULL, c.archived_at IS NOT NULL, c.name`).all(me, me, me, me, me, req.user.org_id, me, me, me, me, me, `@${req.user.username}`, req.user.org_id, me);
-    res.json({ channels: rows.map((c) => ({ ...c, muted: !!c.muted, starred: !!c.starred_at, posters: postersOf(c), can_post: mayPost(c, req.user, null) })), online: onlineUserIds() });
+                    ORDER BY c.dm_key IS NOT NULL, c.archived_at IS NOT NULL, c.name`).all(me, me, me, me, me, me, req.user.org_id, me, me, me, me, me, `@${req.user.username}`, req.user.org_id, me);
+    res.json({ channels: rows.map(({ has_left: hasLeft, ...c }) => ({ ...c, muted: !!c.muted, starred: !!c.starred_at, posters: postersOf(c), can_post: mayPost(c, req.user, null),
+      ...(hasLeft && { left: true, unread: 0, mentions: 0 }) })), online: onlineUserIds() });
   });
 
   r.post('/channels', (req, res) => {
@@ -724,6 +735,7 @@ export default function chatRoutes() {
   const lastTyping = new Map(); // "user:channel:thread" → when they were last said to be typing there
   r.post('/channels/:id/messages', (req, res) => {
     const c = writable(req.params.id, req.user);
+    q('DELETE FROM chat_left WHERE user_id = ? AND channel_id = ?').run(req.user.id, c.id); // writing in it joins it again
     const m = readMessage(c, req.user, req.body);
     lastTyping.delete(`${req.user.id}:${c.id}:${m.parent?.id || ''}`); // the next keystroke is news again
     const out = deliver(c, req.user, m);
@@ -817,6 +829,20 @@ export default function chatRoutes() {
 
   // Mute a conversation for yourself (or unmute it).
   // Star a conversation (or { starred: false } to unstar it): yours alone, on every device.
+  // Leave a public channel ({ left: false } joins it again). Not #general, private channels (use Members) or direct messages.
+  r.post('/channels/:id/leave', (req, res) => {
+    const c = loadChannel(req.params.id, req.user);
+    if (c.dm_key || c.private) throw bad('Only public channels can be left this way');
+    if (c.name === 'general' && !c.created_by) throw bad('Everyone stays in #general');
+    if (req.body?.left === false) q('DELETE FROM chat_left WHERE user_id = ? AND channel_id = ?').run(req.user.id, c.id);
+    else {
+      q('INSERT OR IGNORE INTO chat_left (user_id, channel_id, left_at) VALUES (?, ?, ?)').run(req.user.id, c.id, now());
+      q('DELETE FROM chat_stars WHERE user_id = ? AND channel_id = ?').run(req.user.id, c.id);
+    }
+    sendTo([req.user.id], { type: 'chat-read', channel_id: c.id });
+    res.json({ left: req.body?.left !== false });
+  });
+
   r.post('/channels/:id/star', (req, res) => {
     const c = loadChannel(req.params.id, req.user);
     if (req.body?.starred === false) q('DELETE FROM chat_stars WHERE channel_id = ? AND user_id = ?').run(c.id, req.user.id);

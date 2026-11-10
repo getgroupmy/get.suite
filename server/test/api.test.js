@@ -9262,3 +9262,34 @@ test('Drive suggestions: files for your next meeting, changed by others, opened 
   await b('PATCH', `/api/files/${mine.id}`, { trashed: true });
   assert.ok(!(await b('GET', '/api/files/suggested')).body.some((f) => f.id === mine.id));
 });
+
+test('chat: leave a public channel (no unread from it) and join it again; not #general or private ones', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['clva', 'Lv Ann'], ['clvb', 'Lv Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'clva@acme.com');
+  const bid = (await login(b, 'clvb@acme.com')).id;
+  const ch = (await a('POST', '/api/chat/channels', { name: 'lv-random' })).body.id;
+  const mine = async () => (await b('GET', '/api/chat/channels')).body.channels.find((c) => c.id === ch);
+  await a('POST', `/api/chat/channels/${ch}/messages`, { body: 'Cake in the kitchen' });
+  assert.equal((await mine()).unread, 1);
+  await b('POST', `/api/chat/channels/${ch}/star`, { starred: true });
+  assert.deepEqual((await b('POST', `/api/chat/channels/${ch}/leave`)).body, { left: true });
+  await a('POST', `/api/chat/channels/${ch}/messages`, { body: 'More cake' });
+  let c = await mine();
+  assert.deepEqual([c.left, c.unread, c.mentions, c.starred], [true, 0, 0, false], 'still listed (to join again), but quiet');
+  // Join again from Browse channels.
+  await b('POST', `/api/chat/channels/${ch}/leave`, { left: false });
+  c = await mine();
+  assert.equal(c.left, undefined); assert.equal(c.unread, 2);
+  // Writing in it after leaving joins it again too.
+  await b('POST', `/api/chat/channels/${ch}/leave`);
+  await b('POST', `/api/chat/channels/${ch}/messages`, { body: 'Saved me a slice?' });
+  assert.equal((await mine()).left, undefined);
+  // Not #general, a private channel, or a direct message.
+  const general = (await b('GET', '/api/chat/channels')).body.channels.find((x) => x.name === 'general').id;
+  assert.equal((await b('POST', `/api/chat/channels/${general}/leave`)).status, 400);
+  const priv = (await a('POST', '/api/chat/channels', { name: 'lv-secret', private: true, members: [bid] })).body.id;
+  assert.equal((await b('POST', `/api/chat/channels/${priv}/leave`)).status, 400);
+  const dm = (await a('POST', '/api/chat/dm', { user_id: bid })).body.id;
+  assert.equal((await b('POST', `/api/chat/channels/${dm}/leave`)).status, 400);
+});

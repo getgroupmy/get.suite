@@ -343,7 +343,12 @@ export default function Chat() {
     navigate(`/chat/${id}`);
   }
 
-  const publicChannels = channels.filter((c) => !c.dm_key && !c.archived_at);
+  const publicChannels = channels.filter((c) => !c.dm_key && !c.archived_at && !c.left);
+  const leftChannels = channels.filter((c) => !c.dm_key && !c.archived_at && c.left); // public channels you left: in Browse channels
+  const [browsing, setBrowsing] = useState(false);
+  const leave = async (c, left = true) => {
+    try { await post(`/chat/channels/${c.id}/leave`, { left }); await loadChannels(); toast(left ? `You left #${c.name}: Browse channels joins it again` : `Joined #${c.name}`); if (left && c.id === channelId) navigate('/chat'); } catch (e) { toast(e.message, 'error'); }
+  };
   const archivedChannels = channels.filter((c) => !c.dm_key && c.archived_at);
   const [showArchived, setShowArchived] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -377,6 +382,7 @@ export default function Chat() {
         </>}
         <div className="subnav-title row">Channels<div className="grow" /><button className="icon-btn" aria-label="New channel" onClick={() => setDialog(true)}><Icon name="plus" size={18} /></button></div>
         {[...publicChannels, ...(showArchived ? archivedChannels : [])].filter((c) => !c.starred).map(channelRow)}
+        {leftChannels.length > 0 && <button type="button" className="link-btn small archived-toggle" onClick={() => setBrowsing(true)}>Browse channels ({leftChannels.length})</button>}
         {archivedChannels.length > 0 && <button type="button" className="link-btn small archived-toggle" aria-expanded={showArchived} onClick={() => setShowArchived(!showArchived)}>{showArchived ? 'Hide' : 'Show'} archived ({archivedChannels.length})</button>}
         <div className="subnav-title">Direct messages</div>
         {dms.filter((c) => !c.starred).map(dmRow)}
@@ -388,6 +394,21 @@ export default function Chat() {
           {user.allow_external && <option value="__email__">Someone at another company…</option>}
         </select>
       </aside>
+      {browsing && (
+        <Modal title="Browse channels" onClose={() => setBrowsing(false)} footer={<button type="button" className="btn" onClick={() => setBrowsing(false)}>Close</button>}>
+          <p className="muted small" style={{ marginTop: 0 }}>Public channels you've left. Join one to have it back in your list.</p>
+          <ul className="plain-list" aria-label="Channels you left">
+            {leftChannels.map((c) => (
+              <li key={c.id} className="row" style={{ gap: 8, padding: '4px 0' }}>
+                <span className="grow"><strong># {c.name}</strong>{c.topic && <span className="muted small"> · {c.topic}</span>}</span>
+                <button type="button" className="btn small" onClick={() => { setBrowsing(false); navigate(`/chat/${c.id}`); }}>Look</button>
+                <button type="button" className="btn small primary" aria-label={`Join #${c.name}`} onClick={() => leave(c, false)}>Join</button>
+              </li>
+            ))}
+            {!leftChannels.length && <li className="muted small">You're in every public channel.</li>}
+          </ul>
+        </Modal>
+      )}
       <section className="chat-main">
         {savedOpen && !search ? (
           <div className="chat-results">
@@ -430,6 +451,9 @@ export default function Chat() {
               {!current.dm_key && (current.topic ? <p className="chat-topic muted small" title={current.topic}>{current.topic}</p> : !current.archived_at && <button type="button" className="link-btn small" onClick={() => setSettingsOpen(true)}>Add a topic</button>)}
             </div>
             {!current.dm_key && <span className="muted small">{current.private ? `${current.member_count} member${current.member_count === 1 ? '' : 's'}` : 'Everyone'}</span>}
+            {!current.dm_key && !current.private && !(current.name === 'general' && !current.created_by) && (current.left
+              ? <button type="button" className="btn small primary" onClick={() => leave(current, false)}>Join channel</button>
+              : <button type="button" className="btn small" title="Leave this channel: it goes from your list and stops counting as unread" onClick={() => leave(current)}>Leave</button>)}
             <button type="button" className={`btn small chat-star ${current.starred ? 'on' : ''}`} aria-pressed={!!current.starred} aria-label={current.starred ? 'Unstar conversation' : 'Star conversation'}
               title={current.starred ? 'Starred: kept at the top of your list. Click to unstar.' : 'Star: keep it at the top of your list'}
               onClick={async () => { try { await post(`/chat/channels/${current.id}/star`, { starred: !current.starred }); await loadChannels(); toast(current.starred ? 'Unstarred' : 'Starred: it’s at the top of your list'); } catch (e) { toast(e.message, 'error'); } }}>{current.starred ? '★' : '☆'}</button>
