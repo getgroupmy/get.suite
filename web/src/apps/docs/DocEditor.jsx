@@ -638,6 +638,7 @@ function SharedDoc({ file, setFile }) {
           { label: 'Download as Word (.docx)', icon: 'download', onClick: () => { window.location.href = `/api/files/${file.id}/export`; } },
           { label: 'Download as OpenDocument (.odt)', icon: 'download', onClick: () => { window.location.href = `/api/files/${file.id}/export?format=odt`; } },
           { label: 'Download as Markdown (.md)', icon: 'download', onClick: () => { window.location.href = `/api/files/${file.id}/export?format=md`; } },
+          { label: 'Download as e-book (.epub)', icon: 'download', onClick: () => { window.location.href = `/api/files/${file.id}/export?format=epub`; } },
         ]}
       />
       {!readOnly && <Toolbar editor={editor} onDropdown={() => setChipEdit({ pos: null })} onEquation={() => setMathEdit({ pos: null })} onCite={() => setCiteEdit({ pos: null })} onSymbols={() => setSymbols(true)} onComment={startComment} onPictures={(files) => addPicturesRef.current(files)} onLinkFile={() => setLinkingFile(true)} onLink={() => setLinking(true)} onChart={() => setChartFrom({ step: 'file' })} onDraw={() => setDrawing({ at: editor.state.selection.from })} />}

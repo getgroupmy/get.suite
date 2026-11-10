@@ -8303,3 +8303,20 @@ test('cell edit history in a spreadsheet: who changed a cell, to what, from what
   const d = (await owner('POST', '/api/files/new', { kind: 'doc', name: 'Not a sheet' })).body;
   assert.equal((await owner('GET', `/api/files/${d.id}/cell-history?cell=A1`)).status, 400);
 });
+
+test('a document downloads as an e-book (.epub), with its owner as author; e-books aren\'t opened as documents', async () => {
+  const d = (await owner('POST', '/api/files/new', { kind: 'doc', name: 'Handbook' })).body;
+  const c = (await owner('GET', `/api/files/${d.id}/content`)).body;
+  await owner('PUT', `/api/files/${d.id}/content`, { version: c.file.version, content: { type: 'doc', content: [{ type: 'heading', attrs: { level: 1 }, content: [{ type: 'text', text: 'Welcome' }] }, { type: 'paragraph', content: [{ type: 'text', text: 'Read me first.' }] }] } });
+  const out = await owner('GET', `/api/files/${d.id}/export?format=epub`, undefined, { binary: true });
+  assert.equal(out.status, 200);
+  assert.equal(out.headers.get('content-type'), 'application/epub+zip');
+  assert.match(out.headers.get('content-disposition'), /Handbook\.epub/);
+  const JSZip = (await import('jszip')).default;
+  const zip = await JSZip.loadAsync(out.body);
+  assert.match(await zip.file('OEBPS/content.opf').async('string'), /<dc:creator>Olivia Owner<\/dc:creator>/);
+  assert.match(await zip.file('OEBPS/chapter1.xhtml').async('string'), /<h1>Welcome<\/h1>\s*<p>Read me first\.<\/p>/);
+  assert.equal((await owner('POST', `/api/files/${d.id}/export-copy`, { format: 'epub' })).body.name, 'Handbook.epub', 'attachable to an email');
+  const up = (await owner('POST', '/api/files/upload?name=Novel.epub', out.body, { raw: true })).body;
+  assert.equal((await owner('POST', `/api/files/${up.id}/open-as`)).status, 400);
+});

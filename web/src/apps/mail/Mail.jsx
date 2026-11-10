@@ -965,7 +965,7 @@ const FIELDS = ['from', 'to', 'cc', 'bcc', 'subject', 'text', 'html', 'inReplyTo
 
 // Attaching a document, spreadsheet or presentation: as which kind of file (a copy as it is now, kept in Email attachments).
 const ATTACH_AS = {
-  doc: [['docx', 'Word (.docx)'], ['odt', 'OpenDocument (.odt)'], ['md', 'Markdown (.md)']],
+  doc: [['docx', 'Word (.docx)'], ['odt', 'OpenDocument (.odt)'], ['md', 'Markdown (.md)'], ['epub', 'E-book (.epub)']],
   sheet: [['xlsx', 'Excel (.xlsx)'], ['ods', 'OpenDocument (.ods)']],
   slides: [['pptx', 'PowerPoint (.pptx)'], ['odp', 'OpenDocument (.odp)']],
 };

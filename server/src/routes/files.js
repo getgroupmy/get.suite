@@ -32,6 +32,7 @@ import { odtFromDoc, docFromOdt, ODT_MIME } from '../office/odt.js';
 import { odsFromSheet, sheetFromOds, ODS_MIME } from '../office/ods.js';
 import { odpFromDeck, deckFromOdp, ODP_MIME } from '../office/odp.js';
 import { cellHistory } from '../office/cellhistory.js';
+import { epubFromDoc, EPUB_MIME } from '../office/epub.js';
 import { zipEntries, extractZip } from '../zipfiles.js';
 import { markdownFromDoc, docFromMarkdown } from '../office/markdown.js';
 import { parseCsv } from '../contactfiles.js';
@@ -1335,6 +1336,7 @@ export default function fileRoutes({ maxUploadBytes }) {
       return { data: fs.readFileSync(path.join(FILES_DIR, pic.storage)), mime: pic.mime };
     };
     if (type === 'md') return Buffer.from(markdownFromDoc(content), 'utf8');
+    if (type === 'epub') return epubFromDoc(content, f.name, { pictureData, author: q('SELECT name FROM users WHERE id = ?').get(f.owner_id)?.name || '' });
     if (type === 'odt') return odtFromDoc(content, f.name, { pictureData });
     if (type === 'ods') return odsFromSheet(content);
     if (type === 'odp') return odpFromDeck(content, { pictureData, title: f.name });
@@ -1343,7 +1345,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     return powerPointFromDeck(content, { title: f.name, pictureData, comments: slideCommentsOf(f.id) });
   };
   // Which types each kind can be had as (the first is the usual one).
-  const EXPORT_TYPES = { doc: ['docx', 'odt', 'md'], sheet: ['xlsx', 'ods'], slides: ['pptx', 'odp'] };
+  const EXPORT_TYPES = { doc: ['docx', 'odt', 'md', 'epub'], sheet: ['xlsx', 'ods'], slides: ['pptx', 'odp'] };
   const exportType = (f, format) => (EXPORT_TYPES[f.kind]?.includes(format) ? format : EXPORT_AS[f.kind]);
 
   // Download a document, spreadsheet or presentation as Word, Excel or PowerPoint (or OpenDocument, Markdown).
@@ -1353,7 +1355,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     if (!EXPORT_AS[f.kind]) throw bad('Only documents, spreadsheets and presentations can be downloaded this way');
     const type = exportType(f, req.query.format);
     const buf = await exportedAs(f, type);
-    res.setHeader('Content-Type', OFFICE[type].mime);
+    res.setHeader('Content-Type', type === 'epub' ? EPUB_MIME : OFFICE[type].mime); // (an e-book only goes out: it isn't opened as a document)
     res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(`${f.name}.${type}`)}`);
     res.send(buf);
   });
@@ -1371,7 +1373,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     if (!folderId) folderId = insertFile({ owner: req.user.id, parentId: null, name: 'Email attachments', kind: 'folder' });
     const storage = uid();
     fs.writeFileSync(path.join(FILES_DIR, storage), buf);
-    const name = cleanName(`${f.name}.${type}`), mime = OFFICE[type].mime.split(';')[0];
+    const name = cleanName(`${f.name}.${type}`), mime = (type === 'epub' ? EPUB_MIME : OFFICE[type].mime).split(';')[0];
     // Attached before: the same file, as it is now (the earlier copy kept as a version), so it keeps its name.
     const before = q("SELECT id FROM files WHERE owner_id = ? AND parent_id = ? AND kind = 'file' AND name = ? AND trashed = 0").get(req.user.id, folderId, name);
     let id = before?.id;
