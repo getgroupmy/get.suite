@@ -26,6 +26,7 @@ import {
   ANIMATIONS, builds, animChange, stepPresent, nextPresent, ADVANCES, advanceLabel, slideChanges } from './slidemath.js';
 import { cleanLink, linkTarget, linkLabel, slideTitle, dropLinksTo } from './slidelinks.js';
 import { PRINT_LAYOUTS, printPages, isPortrait } from './printlayout.js';
+import { slideFileName, zipStored } from './slideimages.js';
 
 const SIZES = [12, 14, 16, 18, 20, 24, 28, 32, 36, 40, 44, 54, 64, 72, 96];
 const TEXT_COLORS = [['', 'Theme text'], ['accent', 'Theme accent'], ['#202124', 'Black'], ['#ffffff', 'White'], ['#c5221f', 'Red'], ['#e37400', 'Orange'], ['#188038', 'Green'], ['#1a73e8', 'Blue'], ['#8430ce', 'Purple']];
@@ -56,6 +57,7 @@ export default function SlidesEditor() {
   const [presenting, setPresenting] = useState(null); // slide index, or null
   const [dialog, setDialog] = useState(null);
   const [finding, setFinding] = useState(null); // the find bar: { replace, n }
+  const [snapping, setSnapping] = useState(null); // slides being turned into pictures: { indexes, all }
   const [printing, setPrinting] = useState(null); // the print dialog (true), then what's printed: { layout, skipHidden }
   // Comments, each on a slide (by its id, so it follows the slide when slides move).
   const [params] = useSearchParams();
@@ -312,6 +314,8 @@ export default function SlidesEditor() {
           { label: 'Version history', icon: 'clock', onClick: () => setDialog('history') },
           ...(!readOnly ? [{ label: 'Import slides…', icon: 'upload', onClick: () => setDialog({ type: 'import-file' }) }] : []),
           { label: 'Print or save as PDF…', icon: 'print', onClick: () => setPrinting(true) },
+          { label: 'Download this slide as a picture (.png)', icon: 'image', onClick: () => setSnapping({ indexes: [slideIndex], all: false }) },
+          { label: 'Download all slides as pictures (.zip)', icon: 'image', onClick: () => setSnapping({ indexes: deck.slides.map((_, i) => i), all: true }) },
           { label: 'Download as PowerPoint (.pptx)', icon: 'download', onClick: () => { window.location.href = `/api/files/${id}/export`; } },
           { label: 'Download as OpenDocument (.odp)', icon: 'download', onClick: () => { window.location.href = `/api/files/${id}/export?format=odp`; } },
           ...(!readOnly ? ['-', { label: `Loop: start again after the last slide${deck.loop ? ' ✓' : ''}`, onClick: () => change((d) => { const { loop, ...rest } = d; return loop ? rest : { ...rest, loop: true }; }) }, ...[[null, 'Slide numbers: off'], [true, 'Slide numbers: every slide'], ['skip-first', 'Slide numbers: all but the first']].map(([v, label]) => ({ label: `${label}${(deck.numbers || null) === v ? ' ✓' : ''}`, onClick: () => change((d) => { const { numbers, ...rest } = d; return v ? { ...rest, numbers: v } : rest; }) })),
@@ -538,6 +542,7 @@ export default function SlidesEditor() {
           onShow={showThread} labelOf={slideLabel} onClose={() => { setPending(null); setPanel(false); }} />}
       </div>
 
+      {snapping && <SlideSnaps deck={deck} theme={theme} deckId={id} title={file.name} job={snapping} onDone={(err) => { setSnapping(null); if (err) toast(err, 'error'); }} />}
       <PrintDeck deck={deck} theme={theme} deckId={id} title={file.name} how={printing && printing !== true ? printing : { layout: 'slides', skipHidden: true }} />
       {printing === true && <PrintDialog deck={deck} onClose={() => setPrinting(null)} onPrint={(how) => {
         setPrinting(how);
@@ -640,6 +645,40 @@ const outlineable = (it) => it?.type === 'text' || (it?.type === 'shape' && ['re
 const OUTLINE_WIDTHS = [1, 2, 4, 6]; // points, as PowerPoint
 /** The outline as CSS: a point is 1/960 of the slide's width (a 13.33-inch slide). */
 const outlineCss = (it, theme) => (it.outline ? { border: `calc(${OUTLINE_WIDTHS.includes(it.outlineW) ? it.outlineW : 1} * 100cqw / 960) solid ${colorOf(it.outline, theme, theme.text)}`, boxSizing: 'border-box' } : {});
+
+/** Slides as pictures: drawn off-screen at 1600 × 900, then saved as a .png (one) or a .zip of them (all). */
+function SlideSnaps({ deck, theme, deckId, title, job, onDone }) {
+  const box = useRef();
+  const toast = useToast();
+  useEffect(() => {
+    let gone = false;
+    (async () => {
+      try {
+        if (job.all) toast(`Making pictures of ${job.indexes.length} slides…`, 'info');
+        const { toBlob } = await import('html-to-image');
+        await document.fonts?.ready;
+        const files = [];
+        for (const i of job.indexes) {
+          const el = box.current?.querySelector(`[data-snap="${i}"] .slide`);
+          if (!el || gone) return;
+          const blob = await toBlob(el, { width: 1600, height: 900, pixelRatio: 1, cacheBust: false });
+          files.push({ name: slideFileName(title, i + 1, deck.slides.length), bytes: new Uint8Array(await blob.arrayBuffer()) });
+        }
+        if (gone) return;
+        const save = (data, name, type) => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([data], { type })); a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 10000); };
+        if (job.all) save(zipStored(files), `${slideFileName(title, 0, 1).replace(/ - 0\.png$/, '')} slides.zip`, 'application/zip');
+        else save(files[0].bytes, files[0].name, 'image/png');
+        onDone();
+      } catch (e) { if (!gone) onDone(`Couldn't make the picture: ${e.message || e}`); }
+    })();
+    return () => { gone = true; };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <div ref={box} className="slide-snaps" aria-hidden="true">
+      {job.indexes.map((i) => <div key={deck.slides[i].id} data-snap={i} style={{ width: 1600 }}><SlideView slide={deck.slides[i]} theme={theme} deckId={deckId} number={numberShown(deck, i) ? i + 1 : null} /></div>)}
+    </div>
+  );
+}
 
 /** Printing: what to print (one slide per page, with notes, or handouts) and whether skipped slides go too. */
 function PrintDialog({ deck, onClose, onPrint }) {
