@@ -1,4 +1,4 @@
-// Lint for bugs, not style: names that aren't defined, unreachable code, duplicate keys and the like.
+// Lint for bugs, not style: names that aren't defined, unreachable code, duplicate keys, variables set but never used.
 import globals from 'globals';
 
 export default [
@@ -10,6 +10,7 @@ export default [
     rules: {
       'no-undef': 'error', 'no-unreachable': 'error', 'no-dupe-keys': 'error', 'no-dupe-args': 'error', 'no-dupe-else-if': 'error',
       'no-self-assign': 'error', 'no-unsafe-finally': 'error', 'no-const-assign': 'error', 'no-func-assign': 'error', 'no-import-assign': 'error', 'valid-typeof': 'error',
+      'no-unused-vars': ['error', { args: 'none', caughtErrors: 'none', ignoreRestSiblings: true, varsIgnorePattern: '^_' }],
     },
   },
 ];

@@ -29,7 +29,7 @@ import { CellPicture, PictureCellDialog } from './SheetPicture.jsx';
 import { CustomFormatDialog } from './SheetNumFmt.jsx';
 import { heightOf, setHeights, MIN_H, MAX_H, DEFAULT_H } from './rowheights.js';
 import { validationAt, checkEntry, isTicked, withChoices, choicesFrom, chipColour, breaksRule, describeCheck } from './validation.js';
-import { hiddenRows, columnValues, adjustFilter, filterArea, columnFiltered, slicerAsFilter, adjustSlicers, sheetHiddenRows } from './filter.js';
+import { columnValues, adjustFilter, filterArea, columnFiltered, slicerAsFilter, adjustSlicers, sheetHiddenRows } from './filter.js';
 import { SlicerCard } from './SheetSlicer.jsx';
 import { describeCondition } from './filtercond.js';
 import { setHidden, anyHidden, hiddenRuns } from './hide.js';

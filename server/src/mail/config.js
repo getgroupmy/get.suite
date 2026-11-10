@@ -7,7 +7,7 @@ import crypto from 'node:crypto';
 import { q } from '../db.js';
 import { dovecotHash } from './crypt.js';
 import { userSieve } from './sieve.js';
-import { allSharedMailboxes, membersOf as sharedMembers } from './shared.js';
+import { allSharedMailboxes } from './shared.js';
 
 // Emptying Trash and Junk by themselves (a company setting, in days; 0: never).
 for (const col of ['mail_trash_days', 'mail_junk_days']) {

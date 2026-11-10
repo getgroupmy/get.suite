@@ -13,7 +13,6 @@ import { recordActivity } from './fileactivity.js';
 import { Router } from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
-import crypto from 'node:crypto';
 import { q, tx, FILES_DIR } from './db.js';
 import { uid, now, HttpError, mimeFor } from './util.js';
 import { roleFor, atLeast, audienceFor, subtreeIds, mayTakeAway } from './access.js';

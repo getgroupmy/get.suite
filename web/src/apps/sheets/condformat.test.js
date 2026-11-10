@@ -38,7 +38,7 @@ test('the first matching rule for a cell wins', () => {
 });
 
 test('rules over the whole range: duplicates, unique, top and bottom, above and below average', async () => {
-  const { ruleStyle, ruleContext, rangeStats, formulaFor, describeRule } = await import('./condformat.js');
+  const { ruleStyle, ruleContext, rangeStats, describeRule } = await import('./condformat.js');
   const { createEvaluator } = await import('./formula.js');
   const ev = createEvaluator({ A1: 'pear', A2: 'Apple', A3: 'apple', A4: 'kiwi', B1: 10, B2: 40, B3: 20, B4: 40, B5: 5, C1: 'x', C2: 'done', C3: 'x', C4: 'done' });
   const ctx = ruleContext(ev, ev.formulaAt);

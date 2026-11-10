@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createEvaluator, colName, colIndex, shiftFormula, display, bookEvaluator, importFileId, safeLink } from './formula.js';
+import { createEvaluator, colName, colIndex, shiftFormula, display, bookEvaluator, importFileId } from './formula.js';
 
 const ev = (cells) => createEvaluator(cells);
 

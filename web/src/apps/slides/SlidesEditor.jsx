@@ -20,7 +20,7 @@ import { VersionHistory } from '../VersionHistory.jsx';
 import { EditorHeader } from '../editorCommon.jsx';
 import { useUndo, undoKey } from '../useUndo.js';
 import {
-  THEMES, themeOf, masterOn, THEME_FONTS, CORNERS, cleanCustom, cleanMaster, LAYOUTS, numberShown, newId, clampBox, moveBox, snapBox, angleTo, normAngle, alignItems, distributeItems, moveItems, pasteItems, resizeBox, addSlide, duplicateSlide, removeSlide, moveSlide, moveSlides, duplicateSlides, removeSlides,
+  THEMES, themeOf, masterOn, THEME_FONTS, CORNERS, cleanCustom, cleanMaster, LAYOUTS, numberShown, newId, moveBox, snapBox, angleTo, normAngle, alignItems, distributeItems, moveItems, pasteItems, resizeBox, addSlide, duplicateSlide, removeSlide, moveSlide, moveSlides, duplicateSlides, removeSlides,
   updateItem, addItem, removeItem, restack, pictureBox,
   TRANSITIONS, setSlide, stepSlide, firstShown, newTable, resizeTable, setCell,
   ANIMATIONS, builds, animChange, stepPresent, nextPresent, ADVANCES, advanceLabel, slideChanges } from './slidemath.js';

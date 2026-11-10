@@ -81,12 +81,12 @@ async function imapLogin(user, pass) {
 const inbox = async (c, q = '') => (await c('GET', `/api/mail/messages?folder=INBOX${q ? `&q=${encodeURIComponent(q)}` : ''}`)).body.messages || [];
 
 const olivia = client(), bob = client(), gina = client();
-let globexId, bobId, salesId;
+let bobId, salesId;
 
 test('set up two companies, users and an alias', async () => {
   await olivia('POST', '/api/auth/setup', { org_name: 'Acme', domain: 'acme.com', name: 'Olivia Owner', local: 'olivia', password: 'password123' });
   bobId = (await olivia('POST', '/api/users', { local: 'bob', domain: 'acme.com', name: 'Bob Builder', password: 'password123' })).body.id;
-  globexId = (await olivia('POST', '/api/orgs', { name: 'Globex', domain: 'globex.com', admin_name: 'Gina Globex', admin_local: 'gina', admin_password: 'password123' })).body.id;
+  assert.ok((await olivia('POST', '/api/orgs', { name: 'Globex', domain: 'globex.com', admin_name: 'Gina Globex', admin_local: 'gina', admin_password: 'password123' })).body.id, 'the company was made');
   const a = await olivia('POST', '/api/mail-admin/aliases', { local: 'sales', domain: 'acme.com', targets: 'olivia@acme.com, bob@acme.com' });
   assert.equal(a.status, 201, JSON.stringify(a.body));
   salesId = a.body.id;
@@ -1624,7 +1624,7 @@ test('delegation: a colleague reads and answers someone’s mail as them (Sender
   // Reading Olivia's inbox; Eve can't; per-person things and team-mailbox extras aren't there.
   await olivia('POST', '/api/mail/send', { to: 'olivia@acme.com', subject: 'Board pack for Thursday', text: 'Attached soon.' });
   const as = { headers: { 'x-mailbox': `d:${oliviaId}` } };
-  const msg = await eventually(async () => (await dana('GET', '/api/mail/messages?folder=INBOX', undefined, as)).body.messages?.find((m) => m.subject === 'Board pack for Thursday'), 20000);
+  await eventually(async () => (await dana('GET', '/api/mail/messages?folder=INBOX', undefined, as)).body.messages?.find((m) => m.subject === 'Board pack for Thursday'), 20000);
   assert.ok(!(await inbox(dana)).some((m) => m.subject === 'Board pack for Thursday'), 'not in Dana’s own inbox');
   assert.equal((await eve('GET', '/api/mail/messages?folder=INBOX', undefined, { headers: { 'x-mailbox': `d:${oliviaId}` } })).status, 404);
   assert.equal((await dana('GET', '/api/mail/rules', undefined, as)).status, 400);

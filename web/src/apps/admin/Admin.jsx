@@ -126,7 +126,6 @@ function Users({ orgId, setOrgId }) {
   const { user: me } = useAuth();
   const [users, setUsers] = useState(null);
   const [inactiveOnly, setInactiveOnly] = useState(false);
-  const [orgs, setOrgs] = useState([]);
   const [domains, setDomains] = useState([]);
   const [dialog, setDialog] = useState(null);
   const qs = orgId !== me.org_id ? `?org_id=${orgId}` : '';
@@ -134,7 +133,7 @@ function Users({ orgId, setOrgId }) {
   const load = useCallback(() => get(`/users${qs}`).then(setUsers).catch((e) => toast(e.message, 'error')), [qs, toast]);
   useEffect(() => { setUsers(null); load(); }, [load]);
   useEffect(() => {
-    if (me.is_super) get('/orgs').then((list) => { setOrgs(list); setDomains(list.find((o) => o.id === orgId)?.domains || []); });
+    if (me.is_super) get('/orgs').then((list) => { setDomains(list.find((o) => o.id === orgId)?.domains || []); });
     else get('/orgs/current').then((o) => setDomains(o.domains));
   }, [me.is_super, orgId]);
 

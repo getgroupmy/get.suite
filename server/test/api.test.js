@@ -683,7 +683,7 @@ test('version history: new uploads, editing sessions, restore, delete, quota', a
   assert.equal(old.content[0].content[0].text, 'Draft three');
   const { q } = await import('../src/db.js');
   q('UPDATE files SET updated_at = updated_at - 11 * 60000 WHERE id = ?').run(doc.id);
-  v = await save(other, v, 'Otto, later');
+  await save(other, v, 'Otto, later');
   assert.equal((await me('GET', `/api/files/${doc.id}/versions`)).body.length, 2, 'after a pause');
   await me('POST', `/api/files/${doc.id}/versions/${list[0].id}/restore`);
   assert.equal((await me('GET', `/api/files/${doc.id}/content`)).body.content.content[0].content[0].text, 'Draft three');
@@ -5523,7 +5523,7 @@ test('forms: a linked spreadsheet gets each response as it arrives, and changed 
 
 test('signatures: a document sent for signing is locked; each signer signs on their own link', async () => {
   const kay = client(); await login(kay, 'kay@keepco.com');
-  const sb = await kay('POST', '/api/users', { local: 'sgb', domain: 'keepco.com', name: 'Sid Signer', password: 'password123' });
+  assert.equal((await kay('POST', '/api/users', { local: 'sgb', domain: 'keepco.com', name: 'Sid Signer', password: 'password123' })).status, 201);
   const sid = client(); await login(sid, 'sgb@keepco.com');
   const doc = (await kay('POST', '/api/files/new', { kind: 'doc', name: 'Lease', content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Rent is 1000 a month.' }] }] } })).body;
   const sheet = (await kay('POST', '/api/files/new', { kind: 'sheet', name: 'Not a doc' })).body;
@@ -5809,7 +5809,7 @@ test('view only: viewers can\'t download, export, copy, zip or attach a file the
 
 test('meetings with someone: your events they\'re invited to, theirs you\'re invited to; past and upcoming', async () => {
   const kay = client(); await login(kay, 'kay@keepco.com');
-  const mw = await kay('POST', '/api/users', { local: 'mwith', domain: 'keepco.com', name: 'Mo With', password: 'password123' });
+  assert.equal((await kay('POST', '/api/users', { local: 'mwith', domain: 'keepco.com', name: 'Mo With', password: 'password123' })).status, 201);
   const mo = client(); await login(mo, 'mwith@keepco.com');
   const day = 864e5, t = Date.now();
   await kay('POST', '/api/events', { title: 'Kickoff with Mo', start: t - 10 * day, end: t - 10 * day + 36e5, guests: ['mwith@keepco.com'], tz: 'UTC' });

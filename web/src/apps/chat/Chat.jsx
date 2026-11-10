@@ -57,7 +57,7 @@ function useTyping(channelId, parentId, meId) {
 
 export default function Chat() {
   const { channelId } = useParams();
-  const [params, setParams] = useSearchParams();
+  const [params] = useSearchParams();
   const jumpTo = params.get('msg'); // a message to show (from search), with its thread if it's a reply
   const jumpThread = params.get('thread');
   const [search, setSearch] = useState(null); // { q, results }
