@@ -12,6 +12,7 @@ import { trashContact, trashOf, restoreContact, purgeTrash, sweepContactTrash, T
 import { photoOf, setPhoto, withPhoto, photoFromCard, MAX_PHOTO } from '../contactphotos.js';
 import { cleanMore, withMore, liftCardMore } from '../contactmore.js';
 import { cleanDates, cleanCustom, datesBetween } from '../contactfields.js';
+import { buildVcard } from '../vcard.js';
 
 liftCardMore(); // cards synced before kept their other addresses and numbers inside the raw card
 
@@ -290,6 +291,19 @@ export default function contactRoutes() {
     res.setHeader('Content-Type', csv ? 'text/csv; charset=utf-8' : 'text/vcard; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="contacts.${csv ? 'csv' : 'vcf'}"`);
     res.send(csv ? contactsToCsv(list) : contactsToVcf(list.map(withPhoto)));
+  });
+
+  // One contact as a vCard to pass on (to a phone, by email, or as a QR code): what it says without your
+  // notes, dates or photo. ?download=1 sends it as a .vcf file; otherwise the text, for a QR code.
+  r.get('/:id/vcard', (req, res) => {
+    const card = contactCard(req.params.id, req.user);
+    const text = buildVcard({ ...card, id: req.params.id });
+    res.setHeader('Content-Type', 'text/vcard; charset=utf-8');
+    if (req.query.download === '1') {
+      const name = (card.name || 'contact').replace(/[^\p{L}\p{N} ._-]+/gu, '').trim().slice(0, 80) || 'contact';
+      res.setHeader('Content-Disposition', `attachment; filename="contact.vcf"; filename*=UTF-8''${encodeURIComponent(name)}.vcf`);
+    }
+    res.send(text);
   });
 
   // Contacts that look like the same person (same email, phone or name), to merge.

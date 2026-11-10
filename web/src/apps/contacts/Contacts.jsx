@@ -12,6 +12,7 @@ import { statusLine } from '../../components/status.js';
 import { orgTree, chainOf } from '../../components/orgchart.js';
 import PersonCard from '../../components/PersonCard.jsx';
 import { photoBlob, photoUrl } from './photo.js';
+import QRCode from 'qrcode';
 
 const FIELDS = [['name', 'Name'], ['email', 'Email'], ['phone', 'Phone'], ['company', 'Company'], ['title', 'Job title'], ['website', 'Website']];
 const TYPE_LABELS = { work: 'Work', home: 'Home', mobile: 'Mobile', other: 'Other' };
@@ -40,6 +41,7 @@ function MoreField({ kind, list, onChange }) {
 
 export default function Contacts() {
   const [sending, setSending] = useState(null); // a contact being sent in Chat
+  const [qr, setQr] = useState(null); // a contact shown as a QR code to scan with a phone
   const [history, setHistory] = useState(null); // a contact whose emails and meetings are shown
   const toast = useToast();
   const navigate = useNavigate();
@@ -161,11 +163,13 @@ export default function Contacts() {
                   {c.more_phones?.map((m) => <div key={m.value} className="small"><a href={`tel:${m.value}`}>{m.value}</a> <span className="muted">{TYPE_LABELS[m.type]}</span></div>)}</td>
                 <td className="hide-sm muted">{own && (c.custom_fields?.length > 0 || c.dates?.length > 0) && <div className="small contact-extra">{[...(c.custom_fields || []).map((x) => `${x.label}: ${x.value}`), ...(c.dates || []).map((x) => `${x.label}: ${x.date.startsWith('--') ? x.date.slice(2) : x.date}`)].join(' · ')}</div>}{own ? [c.title, c.company].filter(Boolean).join(' · ') || '—' : [c.job_title, c.department].filter(Boolean).join(' · ') || user.org_name}{own && c.website && <> · <a href={c.website} target="_blank" rel="noopener noreferrer">{c.website.replace(/^https?:\/\//, '')}</a></>}</td>
                 <td className="actions">
+                  {own && tab !== 'mine' && !c.can_edit && <button className="icon-btn contact-qr" aria-label={`QR code for ${c.name}`} title="QR code: scan it with a phone's camera to add the contact, or download it as a vCard" onClick={() => setQr(c)}>▦</button>}
                   {own && tab !== 'mine' && !c.can_edit && <button className="icon-btn" aria-label={`Send ${c.name} in Chat`} title="Send in Chat: colleagues can add it to their contacts" onClick={() => setSending(c)}><Icon name="share" size={18} /></button>}
                   {own ? (tab === 'mine' || c.can_edit) && <>
                     {tab === 'mine' && <button className={`icon-btn star ${c.starred ? 'on' : ''}`} aria-pressed={!!c.starred} aria-label={c.starred ? `Unstar ${c.name}` : `Star ${c.name}`} title={c.starred ? 'Starred: first in your contacts and when writing mail' : 'Star: keep them first in your contacts and when writing mail'}
                       onClick={async () => { try { await patch(`/contacts/${c.id}`, { starred: !c.starred }); load(); } catch (e) { toast(e.message, 'error'); } }}>{c.starred ? '★' : '☆'}</button>}
                     {c.email && <button className="icon-btn" aria-label={`History with ${c.name}`} title="Emails and meetings with them" onClick={() => setHistory(c)}><Icon name="clock" size={18} /></button>}
+                    <button className="icon-btn contact-qr" aria-label={`QR code for ${c.name}`} title="QR code: scan it with a phone's camera to add the contact, or download it as a vCard" onClick={() => setQr(c)}>▦</button>
                     <button className="icon-btn" aria-label={`Send ${c.name} in Chat`} title="Send in Chat: colleagues can add it to their contacts" onClick={() => setSending(c)}><Icon name="share" size={18} /></button>
                     <button className="icon-btn" aria-label={`Edit ${c.name}`} onClick={() => setEditing(c)}><Icon name="edit" size={18} /></button>
                     <button className="icon-btn" aria-label={`Delete ${c.name}`} onClick={() => setDeleting(c)}><Icon name="trash" size={18} /></button>
@@ -182,6 +186,7 @@ export default function Contacts() {
       {card && <PersonCard userId={card} onClose={() => setCard(null)} />}
       {merging && <DuplicatesDialog onClose={() => setMerging(false)} onMerged={load} />}
       {history && <Modal title={`With ${history.name}`} onClose={() => setHistory(null)} footer={<button type="button" className="btn" onClick={() => setHistory(null)}>Close</button>}><WithPerson email={history.email} onOpen={() => setHistory(null)} /></Modal>}
+      {qr && <ContactQr contact={qr} onClose={() => setQr(null)} />}
       {sending && <SendContact contact={sending} onClose={() => setSending(null)} />}
       {editing && <ContactDialog contact={editing} orgName={user.org_name} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />}
       {deletingMany && <ConfirmModal title={`Delete ${nPeople(picked.size)}?`} confirm="Delete" message="They go to Trash for 30 days (and off your phone on its next sync)." onClose={() => setDeletingMany(false)}
@@ -521,6 +526,31 @@ function OrgChart({ people, filter, onMessage, me, onOpen }) {
 }
 
 /** Send a contact into a Chat conversation (a channel or a direct message), with a note if you like. */
+/** A contact as a QR code (a vCard: scan it with a phone's camera to add it), and as a .vcf to download. */
+function ContactQr({ contact, onClose }) {
+  const [img, setImg] = useState('');
+  const [error, setError] = useState('');
+  useEffect(() => {
+    fetch(`/api/contacts/${contact.id}/vcard`, { credentials: 'same-origin', headers: { 'x-requested-with': 'nas-workspace' } })
+      .then((r) => (r.ok ? r.text() : Promise.reject(new Error('Couldn’t get the contact'))))
+      .then((text) => QRCode.toDataURL(text, { margin: 1, width: 320, errorCorrectionLevel: 'L' }))
+      .then(setImg).catch((e) => setError(/too big|big to/i.test(e.message) ? 'There’s too much on this contact for a QR code: download the vCard instead.' : e.message));
+  }, [contact.id]);
+  return (
+    <Modal title={`QR code for ${contact.name}`} onClose={onClose}>
+      <div className="stack contact-qr-box">
+        <p className="muted small" style={{ margin: 0 }}>Point a phone’s camera at it to add {contact.name} to its contacts. It holds the name, email addresses, phone numbers, company, job title, address and website; notes and dates stay with you.</p>
+        {img && <img src={img} alt={`QR code with ${contact.name}’s contact card`} width={240} height={240} />}
+        {error && <p className="error">{error}</p>}
+        <div className="row end">
+          <a className="btn" href={`/api/contacts/${contact.id}/vcard?download=1`} download>Download vCard (.vcf)</a>
+          <button type="button" className="btn primary" onClick={onClose}>Done</button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 function SendContact({ contact, onClose }) {
   const toast = useToast();
   const navigate = useNavigate();

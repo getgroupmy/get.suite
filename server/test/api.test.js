@@ -9205,6 +9205,25 @@ test('tasks: duplicate a task, and skip one time of a repeating task', async () 
   assert.equal((await c('POST', `/api/tasks/tasks/${t.id}/skip`, {})).status, 404);
 });
 
+test('contacts: one contact as a vCard, for a file or a QR code', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['cvqa', 'Cvq Ann'], ['cvqb', 'Cvq Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'cvqa@acme.com'); await login(b, 'cvqb@acme.com');
+  const c = (await a('POST', '/api/contacts', { name: 'Rita Moreno', email: 'rita@moreno.example', phone: '+44 20 7946 0000', company: 'Moreno Ltd', title: 'Buyer', notes: 'Owes us a call', website: 'moreno.example' })).body;
+  const r = await a('GET', `/api/contacts/${c.id}/vcard`);
+  assert.equal(r.status, 200);
+  const text = typeof r.body === 'string' ? r.body : r.text;
+  assert.match(text, /^BEGIN:VCARD/);
+  for (const bit of ['FN:Rita Moreno', 'EMAIL;TYPE=INTERNET:rita@moreno.example', 'TEL;TYPE=CELL:+44 20 7946 0000', 'ORG:Moreno Ltd', 'TITLE:Buyer', 'URL:https://moreno.example']) assert.ok(text.includes(bit), bit);
+  assert.ok(!text.includes('Owes us'), 'your notes stay with you');
+  const dl = await a('GET', `/api/contacts/${c.id}/vcard?download=1`);
+  assert.match(dl.headers.get('content-disposition'), /attachment.*Rita%20Moreno\.vcf/);
+  // Someone else's: only when it's shared with the company.
+  assert.equal((await b('GET', `/api/contacts/${c.id}/vcard`)).status, 404);
+  await a('PATCH', `/api/contacts/${c.id}`, { shared: true });
+  assert.equal((await b('GET', `/api/contacts/${c.id}/vcard`)).status, 200);
+});
+
 test('tasks: sections split a list into parts', async () => {
   const a = client(), c = client();
   for (const [local, name] of [['tseca', 'Sec Ann'], ['tsecc', 'Sec Cat']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
