@@ -2651,3 +2651,4 @@ input.fv-name { background: #202124; color: #fff; border: 1px solid #5f6368; bor
 /* Mail: the quoted history under a reply, folded away */
 .quote-toggle { display: inline-block; margin: 4px 0 8px; padding: 0 10px; height: 20px; line-height: 18px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); color: var(--muted); font-size: 14px; letter-spacing: 1px; cursor: pointer; }
 .quote-toggle:hover, .quote-toggle[aria-expanded="true"] { background: var(--accent-soft); color: var(--accent-text); }
+.chat-star.on { color: #f9ab00; border-color: #f9ab00; }

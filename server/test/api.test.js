@@ -8597,3 +8597,22 @@ test('notes: version history — kept when someone else edits, or after a quiet 
   assert.equal((await c('GET', `/api/notes/${n.id}/versions`)).status, 404);
   assert.equal((await c('POST', `/api/notes/${n.id}/versions/${first.id}/restore`)).status, 404);
 });
+
+test('chat: starred conversations are each person’s own; star and unstar; not ones you can’t see', async () => {
+  const a = client(), b = client(), x = client();
+  for (const [local, name] of [['stca', 'Cs Ann'], ['stcb', 'Cs Ben'], ['stcx', 'Cs Xavi']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'stca@acme.com');
+  const bid = (await login(b, 'stcb@acme.com')).id;
+  await login(x, 'stcx@acme.com');
+  const dm = (await a('POST', '/api/chat/dm', { user_id: bid })).body.id;
+  const starredOf = async (cl) => (await cl('GET', '/api/chat/channels')).body.channels.filter((c) => c.starred).map((c) => c.id);
+  assert.deepEqual(await starredOf(a), []);
+  assert.deepEqual((await a('POST', `/api/chat/channels/${dm}/star`, {})).body, { starred: true });
+  assert.deepEqual(await starredOf(a), [dm]);
+  assert.deepEqual(await starredOf(b), [], 'only for Ann');
+  assert.equal((await x('POST', `/api/chat/channels/${dm}/star`, {})).status, 404, 'not a conversation Xavi is in');
+  await a('POST', `/api/chat/channels/${dm}/star`, {}); // again: still once
+  assert.deepEqual(await starredOf(a), [dm]);
+  assert.deepEqual((await a('POST', `/api/chat/channels/${dm}/star`, { starred: false })).body, { starred: false });
+  assert.deepEqual(await starredOf(a), []);
+});

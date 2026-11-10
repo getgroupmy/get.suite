@@ -62,6 +62,14 @@ q(`CREATE TABLE IF NOT EXISTS message_reactions (
 )`).run();
 const MAX_FILES = 10, MAX_PINS = 50;
 // Muted conversations: no unread count in the app bar (mentions still count), for each person.
+// Starred conversations: each person's own, kept at the top of their list (in the order starred).
+q(`CREATE TABLE IF NOT EXISTS chat_stars (
+  channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  starred_at INTEGER NOT NULL,
+  PRIMARY KEY (channel_id, user_id)
+)`).run();
+const MAX_STARS = 50;
 q(`CREATE TABLE IF NOT EXISTS chat_mutes (
   channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -444,6 +452,7 @@ export default function chatRoutes() {
     const rows = q(`SELECT c.id, c.name, c.dm_key, c.private, c.topic, c.archived_at, c.created_by, c.posters,
                       (SELECT COUNT(*) FROM channel_members cm WHERE cm.channel_id = c.id) AS member_count,
                       EXISTS (SELECT 1 FROM chat_mutes mu WHERE mu.channel_id = c.id AND mu.user_id = ?) AS muted,
+                      (SELECT st.starred_at FROM chat_stars st WHERE st.channel_id = c.id AND st.user_id = ?) AS starred_at,
                       (SELECT MAX(created_at) FROM messages m WHERE m.channel_id = c.id) AS last_at,
                       (SELECT u.name FROM channel_members cm JOIN users u ON u.id = cm.user_id
                         WHERE cm.channel_id = c.id AND cm.user_id != ? LIMIT 1) AS dm_name,
@@ -461,8 +470,8 @@ export default function chatRoutes() {
                     FROM channels c
                     WHERE (c.dm_key IS NULL AND c.private = 0 AND c.org_id = ?)
                        OR EXISTS (SELECT 1 FROM channel_members cm WHERE cm.channel_id = c.id AND cm.user_id = ?)
-                    ORDER BY c.dm_key IS NOT NULL, c.archived_at IS NOT NULL, c.name`).all(me, me, me, me, req.user.org_id, me, me, me, me, me, `@${req.user.username}`, req.user.org_id, me);
-    res.json({ channels: rows.map((c) => ({ ...c, muted: !!c.muted, posters: postersOf(c), can_post: mayPost(c, req.user, null) })), online: onlineUserIds() });
+                    ORDER BY c.dm_key IS NOT NULL, c.archived_at IS NOT NULL, c.name`).all(me, me, me, me, me, req.user.org_id, me, me, me, me, me, `@${req.user.username}`, req.user.org_id, me);
+    res.json({ channels: rows.map((c) => ({ ...c, muted: !!c.muted, starred: !!c.starred_at, posters: postersOf(c), can_post: mayPost(c, req.user, null) })), online: onlineUserIds() });
   });
 
   r.post('/channels', (req, res) => {
@@ -767,6 +776,19 @@ export default function chatRoutes() {
   });
 
   // Mute a conversation for yourself (or unmute it).
+  // Star a conversation (or { starred: false } to unstar it): yours alone, on every device.
+  r.post('/channels/:id/star', (req, res) => {
+    const c = loadChannel(req.params.id, req.user);
+    if (req.body?.starred === false) q('DELETE FROM chat_stars WHERE channel_id = ? AND user_id = ?').run(c.id, req.user.id);
+    else {
+      if (!q('SELECT 1 FROM chat_stars WHERE channel_id = ? AND user_id = ?').get(c.id, req.user.id)
+        && q('SELECT COUNT(*) AS n FROM chat_stars WHERE user_id = ?').get(req.user.id).n >= MAX_STARS) throw bad(`At most ${MAX_STARS} starred conversations`);
+      q('INSERT OR IGNORE INTO chat_stars (channel_id, user_id, starred_at) VALUES (?, ?, ?)').run(c.id, req.user.id, now());
+    }
+    sendTo([req.user.id], { type: 'channels-changed' });
+    res.json({ starred: req.body?.starred !== false });
+  });
+
   r.post('/channels/:id/mute', (req, res) => {
     const c = loadChannel(req.params.id, req.user);
     if (req.body.muted === false) q('DELETE FROM chat_mutes WHERE channel_id = ? AND user_id = ?').run(c.id, req.user.id);
