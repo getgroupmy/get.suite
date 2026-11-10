@@ -77,3 +77,39 @@ export function splitColumn(sheet, range, sep = 'auto') {
   });
   return { cells, columns, overwritten, sep: use };
 }
+
+/** Text with spaces at its ends removed and runs of spaces inside made one (tabs and non-breaking spaces too). */
+export const trimText = (s) => String(s).replace(/[ \t ]+/g, ' ').replace(/ *\n */g, '\n').trim();
+
+/** Text in another case: 'upper', 'lower', 'title' (Each Word Capitalised) or 'sentence' (the first letter of each sentence). */
+export function changeCase(s, how) {
+  const t = String(s);
+  if (how === 'upper') return t.toLocaleUpperCase();
+  if (how === 'lower') return t.toLocaleLowerCase();
+  if (how === 'title') {
+    return t.toLocaleLowerCase().replace(/(^|[\s\-/("“‘])(\p{L})/gu, (m, a, b) => a + b.toLocaleUpperCase())
+      .replace(/(^|[\s\-/("“‘])(\p{L})['’](\p{L})/gu, (m, a, b, c) => `${a}${b}${m[a.length + 1]}${c.toLocaleUpperCase()}`); // O'Neil, D'Arcy (not John'S)
+  }
+  if (how === 'sentence') return t.toLocaleLowerCase().replace(/(^\s*|[.!?]\s+|\n\s*)(\p{L})/gu, (m, a, b) => a + b.toLocaleUpperCase());
+  return t;
+}
+
+/**
+ * Change the text cells of a range with fn (formulas, numbers and empty cells left alone).
+ * Returns { cells, changed }.
+ */
+export function mapText(sheet, range, fn) {
+  const cells = { ...(sheet.cells || {}) };
+  let changed = 0;
+  for (let r = range.r1; r <= range.r2; r++) {
+    for (let c = range.c1; c <= range.c2; c++) {
+      const k = cellKey(c, r), v = cells[k];
+      if (typeof v !== 'string' || v === '' || v.startsWith('=')) continue;
+      const next = fn(v);
+      if (next === v) continue;
+      if (next === '') delete cells[k]; else cells[k] = next;
+      changed++;
+    }
+  }
+  return { cells, changed };
+}

@@ -15,7 +15,7 @@ import { CommentsPanel, useComments } from '../comments.jsx';
 import { ChartCard, ChartDialog } from './SheetCharts.jsx';
 import { dataRegion, rangeText, parseRange } from './charts.js';
 import { applyStructure, adjustKey, sortRange, looksLikeHeader, adjustOtherSheets, renameSheetRefs, renameSource } from './structure.js';
-import { removeDuplicates, splitColumn } from './data.js';
+import { removeDuplicates, splitColumn, trimText, changeCase, mapText } from './data.js';
 import { DedupeDialog, SplitDialog } from './SheetData.jsx';
 import { NamesDialog } from './SheetNames.jsx';
 import { FunctionsDialog } from './SheetFunctions.jsx';
@@ -468,6 +468,15 @@ export default function SheetEditor() {
     toast(out.removed ? `Removed ${out.removed} duplicate row${out.removed === 1 ? '' : 's'}; ${out.kept} left` : 'No duplicate rows');
     gridRef.current?.focus();
   }
+  /** Trim whitespace, change case: on the text cells of the selection (or the table around the cell). */
+  function tidyText(fn, done, none) {
+    if (readOnly) return;
+    const g = sortTarget(), cur = dataRef.current;
+    const out = mapText(cur.sheets[active], g, fn);
+    if (out.changed) commitData({ ...cur, sheets: cur.sheets.map((s, i) => (i === active ? { ...s, cells: out.cells } : s)) });
+    toast(out.changed ? done(out.changed) : none);
+    gridRef.current?.focus();
+  }
   function split(g, { sep }) {
     if (readOnly) return;
     const cur = dataRef.current;
@@ -912,6 +921,8 @@ export default function SheetEditor() {
     '-',
     { label: 'Alternating colours…', onClick: () => setDialog({ type: 'bands' }) },
     { label: 'Remove duplicates…', onClick: () => setDialog({ type: 'dedupe' }) },
+    { label: 'Trim whitespace', onClick: () => tidyText((v) => trimText(v), (n) => `Trimmed whitespace in ${n} cell${n === 1 ? '' : 's'}`, 'No extra spaces found') },
+    { label: 'Change case…', onClick: () => setDialog({ type: 'case' }) },
     { label: 'Split text to columns…', onClick: () => setDialog({ type: 'split' }) },
     { label: 'Pivot table…', onClick: newPivot },
     { label: 'Name this range…', onClick: () => setDialog({ type: 'names', initial: selText }) },
@@ -1287,6 +1298,16 @@ export default function SheetEditor() {
       {dialog?.type === 'bands' && (
         <BandsDialog bands={bands} takenNames={[...(data?.sheets || []).flatMap((s, i) => (s.bands || []).filter((b) => b.name).map((b) => b.name)), ...Object.keys(names || {})]} defaultRange={rangeText(anchor ? range : sortTarget())} onClose={() => { setDialog(null); gridRef.current?.focus(); }}
           onSave={(next) => { writeSheet(() => ({ bands: next.length ? next : undefined })); setDialog(null); gridRef.current?.focus(); }} />
+      )}
+      {dialog?.type === 'case' && (
+        <Modal title="Change case" onClose={() => { setDialog(null); gridRef.current?.focus(); }}>
+          <p className="muted small" style={{ marginTop: 0 }}>For the text in {anchor ? 'the selected cells' : 'the table around the cell'}; formulas and numbers stay as they are.</p>
+          <div className="row wrap">
+            {[['upper', 'UPPER CASE'], ['lower', 'lower case'], ['title', 'Title Case'], ['sentence', 'Sentence case']].map(([how, label]) => (
+              <button key={how} type="button" className="btn" onClick={() => { setDialog(null); tidyText((v) => changeCase(v, how), (n) => `Changed ${n} cell${n === 1 ? '' : 's'} to ${label}`, 'Nothing to change'); }}>{label}</button>
+            ))}
+          </div>
+        </Modal>
       )}
       {dialog?.type === 'dedupe' && (() => { const g = sortTarget(); return (
         <DedupeDialog range={g} header={looksLikeHeader(g, evaluate)} onClose={() => { setDialog(null); gridRef.current?.focus(); }} onRun={(o) => { setDialog(null); dedupe(g, o); }} />
