@@ -37,10 +37,14 @@ function PictureButton({ noteId, onAdded, label = 'Insert picture' }) {
 }
 const newItem = (text = '') => ({ id: Math.random().toString(36).slice(2, 10), text, done: false });
 
+const LABEL_COLORS = [['#d93025', 'Red'], ['#e8710a', 'Orange'], ['#f9ab00', 'Yellow'], ['#188038', 'Green'], ['#12b5cb', 'Teal'], ['#1a73e8', 'Blue'], ['#9334e6', 'Purple'], ['#e52592', 'Pink'], ['#5f6368', 'Grey']];
+
 export default function Notes() {
   const toast = useToast();
   const [notes, setNotes] = useState(null);
   const [labels, setLabels] = useState([]);
+  const [labelColors, setLabelColors] = useState({}); // your colour for each label
+  const setLabelColor = async (label, color) => { try { await put('/notes/label-colors', { label, color }); setLabelColors((c) => { const n = { ...c }; if (color) n[label] = color; else delete n[label]; return n; }); } catch (e) { toast(e.message, 'error'); } };
   const [where, setWhere] = useState({ archived: false, label: null, reminders: false });
   const [picking, setPicking] = useState(null); // a note whose reminder time is being picked
   const [search, setSearch] = useState('');
@@ -53,6 +57,7 @@ export default function Notes() {
     const qs = new URLSearchParams({ ...(where.trash && { trash: '1' }), ...(where.archived && { archived: '1' }), ...(where.reminders && { reminders: '1' }), ...(where.label && { label: where.label }), ...(search.trim() && { q: search.trim() }) });
     get(`/notes?${qs}`).then(setNotes).catch((e) => toast(e.message, 'error'));
     get('/notes/labels').then(setLabels).catch(() => {});
+    get('/notes/label-colors').then(setLabelColors).catch(() => {});
   }, [where, search, toast]);
   useEffect(() => { const t = setTimeout(load, search ? 250 : 0); return () => clearTimeout(t); }, [load, search]);
   useEffect(() => onLive((m) => { if (m.type === 'notes-changed' || m.type === 'live-connected') load(); }), [load]);
@@ -127,7 +132,7 @@ export default function Notes() {
   async function many(body, say) {
     try { const r = await post('/notes/batch', { ids: [...picked], ...body }); toast(say(r)); setPicked(new Set()); load(); } catch (e) { toast(e.message, 'error'); }
   }
-  const card = (n) => <NoteCard key={n.id} note={n} drag={dragProps(n)} dragging={dragging === n.id} picked={picked.has(n.id)} picking={picked.size > 0} onPick={() => pickNote(n.id)}
+  const card = (n) => <NoteCard key={n.id} labelColors={labelColors} note={n} drag={dragProps(n)} dragging={dragging === n.id} picked={picked.has(n.id)} picking={picked.size > 0} onPick={() => pickNote(n.id)}
     onMove={sortable ? (by) => reorder(n.pinned ? 'pinned' : 'others', moveBy(groupOf(n), n.id, by)) : null}
     first={groupOf(n)[0] === n.id} last={groupOf(n).at(-1) === n.id} onOpen={() => setEditing(n.id)} onChange={(c) => change(n, c)} onArchive={() => archive(n, !n.archived)}
     onLabel={() => setLabelling(n)} onShare={() => setSharing(n)} onHistory={() => setHistory(n)} onCopy={() => copy(n)} onDelete={() => (n.mine ? trash(n) : setDeleting(n))}
@@ -140,7 +145,11 @@ export default function Notes() {
         <button type="button" className={`subnav-item ${!where.archived && !where.label && !where.reminders ? 'active' : ''}`} onClick={() => setWhere({ archived: false, label: null, reminders: false })}><Icon name="note" /><span className="grow">Notes</span></button>
         <button type="button" className={`subnav-item ${where.reminders ? 'active' : ''}`} onClick={() => setWhere({ archived: false, label: null, reminders: true })}><Icon name="bell" /><span className="grow">Reminders</span></button>
         {labels.map((l) => (
-          <button key={l} type="button" className={`subnav-item ${where.label === l ? 'active' : ''}`} onClick={() => setWhere({ archived: false, label: l, reminders: false })}><span className="note-label-icon" aria-hidden="true">🏷</span><span className="grow ellipsis">{l}</span></button>
+          <div key={l} className="note-label-row">
+          <button type="button" className={`subnav-item ${where.label === l ? 'active' : ''}`} onClick={() => setWhere({ archived: false, label: l, reminders: false })}>{labelColors[l] ? <span className="note-label-dot" style={{ background: labelColors[l] }} aria-hidden="true" /> : <span className="note-label-icon" aria-hidden="true">🏷</span>}<span className="grow ellipsis">{l}</span></button>
+          <Menu align="right" trigger={(p) => <button type="button" className="icon-btn note-label-color" aria-label={`Colour for label ${l}`} title="Label colour" {...p}>●</button>}
+            items={[...LABEL_COLORS.map(([c, name]) => ({ label: `${labelColors[l] === c ? '✓ ' : ''}${name}`, onClick: () => setLabelColor(l, c) })), '-', { label: 'No colour', onClick: () => setLabelColor(l, null) }]} />
+          </div>
         ))}
         <button type="button" className={`subnav-item ${where.archived ? 'active' : ''}`} onClick={() => setWhere({ archived: true, label: null, reminders: false })}><Icon name="archive" /><span className="grow">Archive</span></button>
         <button type="button" className={`subnav-item ${where.trash ? 'active' : ''}`} onClick={() => setWhere({ archived: false, label: null, reminders: false, trash: true })}><Icon name="trash" /><span className="grow">Trash</span></button>
@@ -303,7 +312,7 @@ function PickTime({ note, onPick, onClose }) {
   );
 }
 
-function NoteCard({ note: n, drag = {}, dragging, picked, picking, onPick, onMove, first, last, onOpen, onChange, onArchive, onLabel, onShare, onCopy, onDelete, onRemind, onToDoc, onToTasks, onHistory }) {
+function NoteCard({ labelColors = {}, note: n, drag = {}, dragging, picked, picking, onPick, onMove, first, last, onOpen, onChange, onArchive, onLabel, onShare, onCopy, onDelete, onRemind, onToDoc, onToTasks, onHistory }) {
   const toast = useToast();
   const items = n.items || [];
   const open = items.filter((i) => !i.done);
@@ -332,7 +341,7 @@ function NoteCard({ note: n, drag = {}, dragging, picked, picking, onPick, onMov
       {(n.labels.length > 0 || n.shared.length > 0 || !n.mine || n.remind_at) && (
         <div className="note-chips">
           {n.remind_at && <span className={`note-chip remind ${n.remind_at < Date.now() ? 'past' : ''}`}>⏰ {reminderText(n.remind_at)}<button type="button" className="chip-x" aria-label="Remove reminder" onClick={() => onRemind(null)}>×</button></span>}
-          {n.labels.map((l) => <span key={l} className="note-chip">{l}</span>)}
+          {n.labels.map((l) => <span key={l} className={`note-chip ${labelColors[l] ? 'coloured' : ''}`} style={labelColors[l] ? { '--lc': labelColors[l] } : undefined}>{l}</span>)}
           {!n.mine && <span title={`Shared by ${n.owner?.name}`}><Avatar name={n.owner?.name} size={22} userId={n.owner?.id} /></span>}
           {n.shared.filter((u) => n.mine || u.id !== n.owner?.id).slice(0, 4).map((u) => <span key={u.id} title={u.name}><Avatar name={u.name} size={22} userId={u.id} /></span>)}
         </div>

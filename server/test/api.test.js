@@ -9318,3 +9318,20 @@ test('task lists: a colour and an emoji, shown with their tasks elsewhere too', 
   const off = (await a('GET', '/api/tasks/lists')).body.lists.find((l) => l.id === list);
   assert.deepEqual([off.color, off.emoji], [null, null]);
 });
+
+test('notes: label colours, each person’s own', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['nlca', 'Nlc Ann'], ['nlcb', 'Nlc Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'nlca@acme.com'); await login(b, 'nlcb@acme.com');
+  assert.deepEqual((await a('GET', '/api/notes/label-colors')).body, {});
+  assert.deepEqual((await a('PUT', '/api/notes/label-colors', { label: 'Work', color: '#1a73e8' })).body, { label: 'Work', color: '#1a73e8' });
+  await a('PUT', '/api/notes/label-colors', { label: 'Home', color: '#188038' });
+  assert.deepEqual((await a('GET', '/api/notes/label-colors')).body, { Work: '#1a73e8', Home: '#188038' });
+  await a('PUT', '/api/notes/label-colors', { label: 'Work', color: '#d93025' });
+  assert.equal((await a('GET', '/api/notes/label-colors')).body.Work, '#d93025', 'changed');
+  assert.deepEqual((await b('GET', '/api/notes/label-colors')).body, {}, 'yours alone');
+  await a('PUT', '/api/notes/label-colors', { label: 'Home', color: null });
+  assert.deepEqual((await a('GET', '/api/notes/label-colors')).body, { Work: '#d93025' }, 'taken off');
+  assert.equal((await a('PUT', '/api/notes/label-colors', { label: 'Work', color: '#abcdef' })).status, 400);
+  assert.equal((await a('PUT', '/api/notes/label-colors', { color: '#1a73e8' })).status, 400);
+});

@@ -63,6 +63,13 @@ function dropPictureFiles(rows) { for (const p of rows) fs.rm(path.join(FILES_DI
 
 export const COLORS = ['#faafa8', '#f39f76', '#fff8b8', '#e2f6d3', '#b4ddd3', '#d4e4ed', '#aeccdc', '#d3bfdb', '#f6e2dd', '#e9e3d4', '#efeff1'];
 const MAX_NOTES = 2000, MAX_ITEMS = 200, MAX_LABELS = 10;
+q(`CREATE TABLE IF NOT EXISTS note_label_colors (
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  label TEXT NOT NULL,
+  color TEXT NOT NULL,
+  PRIMARY KEY (user_id, label)
+)`).run();
+export const LABEL_COLORS = ['#d93025', '#e8710a', '#f9ab00', '#188038', '#12b5cb', '#1a73e8', '#9334e6', '#e52592', '#5f6368'];
 
 /** Tidy a checklist from the client. */
 export function cleanItems(list) {
@@ -240,6 +247,20 @@ export default function noteRoutes() {
   });
 
   // Every label you use (on your notes and those shared with you), for the sidebar.
+  // Label colours, your own (a shared note's labels show in your colours for you): { label: colour }.
+  r.get('/label-colors', (req, res) => {
+    res.json(Object.fromEntries(q('SELECT label, color FROM note_label_colors WHERE user_id = ?').all(req.user.id).map((r) => [r.label, r.color])));
+  });
+  r.put('/label-colors', (req, res) => {
+    const label = str(req.body?.label, { required: true, max: 50, name: 'Label' });
+    const color = req.body?.color || null;
+    if (color && !LABEL_COLORS.includes(color)) throw bad('Choose one of the colours');
+    if (color) q('INSERT INTO note_label_colors (user_id, label, color) VALUES (?, ?, ?) ON CONFLICT(user_id, label) DO UPDATE SET color = excluded.color').run(req.user.id, label, color);
+    else q('DELETE FROM note_label_colors WHERE user_id = ? AND label = ?').run(req.user.id, label);
+    sendTo([req.user.id], { type: 'notes-changed' });
+    res.json({ label, color });
+  });
+
   r.get('/labels', (req, res) => {
     const all = new Set();
     for (const n of q('SELECT labels FROM notes WHERE owner_id = ? OR id IN (SELECT note_id FROM note_shares WHERE user_id = ?)').all(req.user.id, req.user.id)) {

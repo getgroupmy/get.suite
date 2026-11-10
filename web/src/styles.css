@@ -2755,3 +2755,10 @@ input.fv-name { background: #202124; color: #fff; border: 1px solid #5f6368; bor
 .swatch.none { background: var(--surface-2); color: var(--muted); }
 .emoji-pick { width: 34px; height: 34px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); cursor: pointer; font-size: 18px; }
 .emoji-pick.on { border-color: var(--accent); background: var(--accent-soft); }
+
+.note-label-row { display: flex; align-items: center; }
+.note-label-row > .subnav-item { flex: 1; min-width: 0; }
+.note-label-color { opacity: 0; font-size: 12px; }
+.note-label-row:hover .note-label-color, .note-label-color:focus-visible, .note-label-color[aria-expanded="true"] { opacity: .7; }
+.note-label-dot { display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin: 0 6px; }
+.note-chip.coloured { background: color-mix(in srgb, var(--lc) 18%, transparent); border-color: var(--lc); color: inherit; }
