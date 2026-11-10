@@ -66,6 +66,22 @@ const COLS = `f.id, f.is_drive, f.no_download, f.locked_by, f.locked_at, (SELECT
 const FROM = `FROM files f JOIN users u ON u.id = f.owner_id LEFT JOIN users ub ON ub.id = f.updated_by`;
 // Owner is in my company, or both companies currently allow external collaboration.
 const REACHABLE = `(u.org_id = ? OR (SELECT MIN(allow_external) FROM orgs WHERE id IN (u.org_id, ?)) = 1)`;
+/**
+ * Folders' sizes: what everything inside adds up to (files, documents and the rest, at any depth; not
+ * what's in the trash, unless the folder itself is), and how many files that is. Map id → { folder_size, folder_files }.
+ */
+export function folderSizes(ids, trashed = false) {
+  const out = new Map();
+  if (!ids.length) return out;
+  const rows = q(`WITH RECURSIVE inside(top, id) AS (
+      SELECT f.id, f.id FROM files f WHERE f.id IN (${ids.map(() => '?').join(',')})
+      UNION ALL SELECT inside.top, c.id FROM files c JOIN inside ON c.parent_id = inside.id WHERE ${trashed ? '1' : 'c.trashed = 0'})
+    SELECT inside.top AS id, COALESCE(SUM(CASE WHEN x.kind != 'folder' THEN x.size ELSE 0 END), 0) AS bytes, SUM(x.kind != 'folder') AS files
+    FROM inside JOIN files x ON x.id = inside.id WHERE inside.id != inside.top GROUP BY inside.top`).all(...ids);
+  for (const id of ids) out.set(id, { folder_size: 0, folder_files: 0 });
+  for (const r of rows) out.set(r.id, { folder_size: r.bytes || 0, folder_files: r.files || 0 });
+  return out;
+}
 const ORDER = `ORDER BY (f.kind = 'folder') DESC, f.name COLLATE NOCASE`;
 
 const EMPTY = {
@@ -522,7 +538,8 @@ export default function fileRoutes({ maxUploadBytes }) {
     if (view === 'mine' && !req.query.noshortcuts) rows = [...rows, ...shortcutsIn(req.query.parent || null, req.user)];
     // Your stars on what's listed.
     const starred = new Set(q('SELECT file_id FROM file_stars WHERE user_id = ? AND file_id IN (SELECT value FROM json_each(?))').all(me, JSON.stringify(rows.map((f) => f.id))).map((x) => x.file_id));
-    res.json(rows.map((f) => (starred.has(f.id) ? { ...f, starred: true } : f)));
+    const sizes = folderSizes(rows.filter((f) => f.kind === 'folder').map((f) => f.id), view === 'trash');
+    res.json(rows.map((f) => ({ ...f, ...(starred.has(f.id) && { starred: true }), ...(sizes.has(f.id) && sizes.get(f.id)) })));
   });
 
   // Download several files and folders as one .zip; documents, spreadsheets and presentations as

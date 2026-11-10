@@ -442,7 +442,7 @@ export default function Drive() {
                   <span className="tile-thumb">{isPicture(f) && !f.broken ? <img src={`/api/files/${f.id}/raw`} alt="" loading="lazy" draggable={false} />
                     : <Icon name={fileIcon(f)} size={48} className={`ft ft-${fileIcon(f)}`} style={f.color ? { color: f.color } : undefined} />}</span>
                   <span className="tile-name"><Icon name={fileIcon(f)} size={16} className={`ft ft-${fileIcon(f)}`} style={f.color ? { color: f.color } : undefined} />{f.shortcut_id && <span aria-label="Shortcut">↪</span>}<span className="ellipsis">{f.name}</span></span>
-                  <span className="tile-meta muted small">{route.view === 'trash' ? goesIn(f.deletes_at) : formatDate(f.updated_at)}{f.kind !== 'folder' && f.size ? ` · ${formatBytes(f.size)}` : ''}</span>
+                  <span className="tile-meta muted small">{route.view === 'trash' ? goesIn(f.deletes_at) : formatDate(f.updated_at)}{f.kind !== 'folder' && f.size ? ` · ${formatBytes(f.size)}` : ''}{f.kind === 'folder' && f.folder_files !== undefined ? ` · ${f.folder_files ? `${f.folder_files} file${f.folder_files === 1 ? '' : 's'}, ${formatBytes(f.folder_size)}` : 'empty'}` : ''}</span>
                 </button>
                 {!f.shortcut_id && <input type="checkbox" className="tile-check" aria-label={`Select ${f.name}`} checked={checked.has(f.id)} onChange={() => toggleCheck(f.id)} />}
                 <Menu trigger={(p) => <button className="icon-btn tile-menu" aria-label={`Actions for ${f.name}`} {...p}><Icon name="more" /></button>} items={itemMenu(f)} />
@@ -467,7 +467,7 @@ export default function Drive() {
                   <td className="name"><Icon name={fileIcon(f)} className={`ft ft-${fileIcon(f)}`} style={f.color ? { color: f.color } : undefined} /><span className="name-text">{f.name}{f.match && <MatchText text={f.match} />}{f.drive_name && <span className="muted small"> · in {f.drive_name}</span>}</span>{f.starred && <Icon name="star" size={14} className="star-mark" title="Starred" />}{f.locked_at && <span className="lock-mark" title={`Locked by ${f.locked_by_name}`} aria-label="Locked"><Icon name="lock" size={14} /></span>}</td>
                   <td className="hide-sm muted">{f.owner_id === user.id ? 'me' : f.owner_name}</td>
                   <td className="hide-sm muted">{route.view === 'trash' ? (f.kept ? <span title="Your company is keeping it (a legal hold)">Kept</span> : goesIn(f.deletes_at)) : formatDate(f.updated_at)}</td>
-                  <td className="hide-sm muted">{f.kind === 'folder' ? '—' : formatBytes(f.size)}</td>
+                  <td className="hide-sm muted">{f.kind === 'folder' ? (f.folder_size === undefined ? '—' : <span title={`${f.folder_files} file${f.folder_files === 1 ? '' : 's'} inside`}>{f.folder_files ? formatBytes(f.folder_size) : 'Empty'}</span>) : formatBytes(f.size)}</td>
                   <td className="actions">
                     <Menu trigger={(p) => <button className="icon-btn" aria-label={`Actions for ${f.name}`} {...p}><Icon name="more" /></button>} items={itemMenu(f)} />
                   </td>

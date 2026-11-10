@@ -8641,3 +8641,23 @@ test('my templates: your own documents to start from; only yours, only your file
   assert.equal((await a('PUT', `/api/files/${doc.id}/my-template`, { template: false })).body.template, 0);
   assert.ok(!(await a('GET', '/api/files/templates')).body.some((t) => t.id === doc.id));
 });
+
+test('drive: folders show what’s inside them adds up to, at any depth, trash left out', async () => {
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'fsza', domain: 'acme.com', name: 'Fsz Ann', password: 'password123' })).status, 201);
+  await login(a, 'fsza@acme.com');
+  const top = (await a('POST', '/api/files/folder', { name: 'Projects' })).body;
+  const sub = (await a('POST', '/api/files/folder', { name: 'Acme', parent_id: top.id })).body;
+  await a('POST', '/api/files/folder', { name: 'Empty' });
+  await a('POST', `/api/files/upload?parent=${top.id}&name=a.txt`, 'x'.repeat(1000), { raw: true });
+  await a('POST', `/api/files/upload?parent=${sub.id}&name=b.txt`, 'y'.repeat(2500), { raw: true });
+  const gone = (await a('POST', `/api/files/upload?parent=${sub.id}&name=c.txt`, 'z'.repeat(7000), { raw: true })).body;
+  await a('PATCH', `/api/files/${gone.id}`, { trashed: true });
+  const list = (await a('GET', '/api/files')).body;
+  const p = list.find((f) => f.name === 'Projects'), e = list.find((f) => f.name === 'Empty');
+  assert.deepEqual([p.folder_size, p.folder_files], [3500, 2], 'the trashed file left out');
+  assert.deepEqual([e.folder_size, e.folder_files], [0, 0]);
+  const inside = (await a('GET', `/api/files?parent=${top.id}`)).body.find((f) => f.name === 'Acme');
+  assert.deepEqual([inside.folder_size, inside.folder_files], [2500, 1]);
+  assert.equal(list.find((f) => f.kind !== 'folder')?.folder_size, undefined, 'only folders');
+});

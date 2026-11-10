@@ -22,3 +22,8 @@ test('drive sort: folders first; by name with numbers counted, by modified or si
   assert.ok(!isPicture({ kind: 'file', mime: 'image/svg+xml' }), 'no SVG thumbnails (they can carry scripts)');
   assert.ok(!isPicture({ kind: 'folder', mime: 'image/png' }));
 });
+
+test('drive sort: folders by what they hold, among themselves (still first)', () => {
+  const l = [{ name: 'Small', kind: 'folder', folder_size: 10 }, { name: 'Big', kind: 'folder', folder_size: 900 }, { name: 'f', kind: 'file', size: 5000 }];
+  assert.deepEqual(sortFiles(l, { sort: 'size', desc: true }).map((f) => f.name), ['Big', 'Small', 'f']);
+});
