@@ -182,7 +182,7 @@ export default function Tasks() {
             {times[t.id]?.minutes > 0 && <span className="muted small task-time" title="Time spent">⏱ {formatMinutes(times[t.id].minutes)}</span>}
             {t.comments > 0 && <span className="muted small task-comments" title={`${t.comments} comment${t.comments === 1 ? '' : 's'}`}>💬 {t.comments}</span>}
             {t.tags?.map((tag) => <span key={tag} className="pill tag">#{tag}</span>)}
-            {t.repeat && !t.done && <span className="muted small task-repeat" title={`Repeats: ${repeatText(t.repeat).toLowerCase()}`}>⟳ {repeatText(t.repeat)}</span>}
+            {t.repeat && !t.done && <span className="muted small task-repeat" title={`Repeats: ${repeatText(t.repeat).toLowerCase()}${t.repeat_until ? `, until ${t.repeat_until}` : ''}`}>⟳ {repeatText(t.repeat)}</span>}
           </span>
         </button>
         {t.assignee_name && <span title={`For ${t.assignee_name}`}><Avatar name={t.assignee_name} size={24} userId={t.assignee_id} /></span>}
@@ -1016,6 +1016,13 @@ function CopyList({ list, onClose, onDone }) {
   );
 }
 
+/** A first end day for a repeating task: three months after it's due. */
+function untilDefault(task) {
+  const d = new Date(`${task.due || localToday()}T12:00:00Z`);
+  d.setUTCMonth(d.getUTCMonth() + 3);
+  return d.toISOString().slice(0, 10);
+}
+
 /** How a task repeats: the usual choices, or Custom… (every N days, weeks on chosen days, months or years). */
 function RepeatField({ task, onChange }) {
   const custom = readCustom(task.repeat);
@@ -1055,7 +1062,17 @@ function RepeatField({ task, onChange }) {
           </div>
         </div>
       )}
-      {task.repeat && !editing && <span className="muted small">When you tick it off, the next one is added{task.due ? '' : ' (it needs a due date)'}.</span>}
+      {task.repeat && !editing && <span className="muted small">When you tick it off, the next one is added{task.due ? '' : ' (it needs a due date)'}{task.repeat_until ? `, until ${new Date(`${task.repeat_until}T12:00:00`).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}` : ''}.</span>}
+      {task.repeat && !editing && (
+        <div className="row repeat-until" style={{ gap: 6 }}>
+          <label className="row" style={{ gap: 6 }}>
+            <input type="checkbox" checked={!!task.repeat_until} onChange={(e) => onChange({ repeat_until: e.target.checked ? untilDefault(task) : null })} />
+            <span>Stop repeating after</span>
+          </label>
+          {task.repeat_until && <input type="date" aria-label="Last day it repeats" value={task.repeat_until} min={task.due || undefined}
+            onChange={(e) => e.target.value && onChange({ repeat_until: e.target.value })} />}
+        </div>
+      )}
     </div>
   );
 }

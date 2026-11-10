@@ -9205,6 +9205,41 @@ test('tasks: duplicate a task, and skip one time of a repeating task', async () 
   assert.equal((await c('POST', `/api/tasks/tasks/${t.id}/skip`, {})).status, 404);
 });
 
+test('tasks: a repeating task can stop repeating after a day', async () => {
+  const a = client(), c = client();
+  for (const [local, name] of [['truna', 'Until Ann'], ['trunc', 'Until Cat']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'truna@acme.com'); await login(c, 'trunc@acme.com');
+  const list = (await a('POST', '/api/tasks/lists', { name: 'Until list' })).body.id;
+  const t = (await a('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Water plants', due: '2026-11-02', repeat: 'weekly' })).body;
+  const patch = (id, b) => a('PATCH', `/api/tasks/tasks/${id}`, b);
+  assert.equal((await patch(t.id, { repeat_until: '2026-11-01' })).status, 400, 'not before it is due');
+  assert.equal((await patch(t.id, { repeat_until: 'soon' })).status, 400);
+  assert.equal((await c('PATCH', `/api/tasks/tasks/${t.id}`, { repeat_until: '2026-11-20' })).status, 404);
+  assert.equal((await patch(t.id, { repeat_until: '2026-11-20' })).body.repeat_until, '2026-11-20');
+  const tasks = async () => (await a('GET', `/api/tasks/lists/${list}/tasks`)).body;
+  // Ticking off: the next ones come while they fall on or before the end, carrying the end along.
+  await patch(t.id, { done: true, today: '2026-11-02' });
+  let next = (await tasks()).find((x) => !x.done);
+  assert.deepEqual([next.due, next.repeat_until], ['2026-11-09', '2026-11-20']);
+  // Skipping a time: to the 16th; after that there's no next time before the end.
+  next = (await a('POST', `/api/tasks/tasks/${next.id}/skip`, { today: '2026-11-09' })).body;
+  assert.equal(next.due, '2026-11-16');
+  const sk = await a('POST', `/api/tasks/tasks/${next.id}/skip`, { today: '2026-11-09' });
+  assert.equal(sk.status, 400);
+  assert.match(sk.body.error, /last time/);
+  // The last one ticked off: nothing new comes.
+  await patch(next.id, { done: true, today: '2026-11-16' });
+  assert.equal((await tasks()).filter((x) => !x.done).length, 0, 'it stopped repeating');
+  // Duplicates keep it; no longer repeating clears it; it needs a repeat.
+  const d = (await a('POST', `/api/tasks/tasks/${t.id}/duplicate`)).body;
+  assert.equal(d.repeat_until, '2026-11-20');
+  const off = (await patch(d.id, { repeat: null })).body;
+  assert.deepEqual([off.repeat, off.repeat_until], [null, null]);
+  assert.equal((await patch(d.id, { repeat_until: '2026-12-01' })).status, 400, 'only a repeating task can end');
+  assert.equal((await patch(d.id, { repeat: 'daily', repeat_until: '2026-12-01' })).body.repeat_until, '2026-12-01');
+  assert.equal((await patch(d.id, { repeat_until: null })).body.repeat_until, null, 'repeats again for good');
+});
+
 test('numbered headings go into the Markdown, OpenDocument and e-book downloads too', async () => {
   const { withHeadingNumbers } = await import('../src/pagesetup.js');
   const h = (level, text) => ({ type: 'heading', attrs: { level }, content: [{ type: 'text', text }] });
