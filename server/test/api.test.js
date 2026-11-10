@@ -9224,3 +9224,33 @@ test('numbered headings go into the Markdown, OpenDocument and e-book downloads 
   const JSZip = (await import('jszip')).default;
   assert.match(await (await JSZip.loadAsync(odt.body)).file('content.xml').async('string'), /1\.1 Scope/);
 });
+
+test('Drive suggestions: files for your next meeting, changed by others, opened by you — only ones you can open', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['sga', 'Sg Ann'], ['sgb', 'Sg Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'sga@acme.com');
+  const bid = (await login(b, 'sgb@acme.com')).id;
+  assert.deepEqual((await b('GET', '/api/files/suggested')).body, []);
+  // Ann's agenda, attached to a meeting with Ben in two hours.
+  const agenda = (await a('POST', '/api/files/new', { kind: 'doc', name: 'Sg agenda' })).body;
+  const t = Date.now() + 2 * 36e5;
+  const ev = await a('POST', '/api/events', { title: 'Sg review', start: t, end: t + 36e5, guests: ['sgb@acme.com'], attachments: [agenda.id] });
+  assert.equal(ev.status, 201, JSON.stringify(ev.body));
+  // A sheet Ann shares with Ben and then changes.
+  const sheet = (await a('POST', '/api/files/new', { kind: 'sheet', name: 'Sg budget' })).body;
+  await a('PUT', `/api/files/${sheet.id}/shares`, { shares: [{ user_id: bid, role: 'editor' }] });
+  const cur = (await a('GET', `/api/files/${sheet.id}/content`)).body;
+  await a('PUT', `/api/files/${sheet.id}/content`, { version: cur.file.version, content: { sheets: [{ name: 'Sheet1', cells: { A1: 'x' } }] } });
+  // A file Ben opened himself.
+  const mine = (await b('POST', '/api/files/upload?name=sg-notes.txt', Buffer.from('notes'), { raw: true })).body;
+  await b('GET', `/api/files/${mine.id}/raw`, undefined, { raw: true });
+  // A file Ann didn't share: never suggested to Ben.
+  await a('POST', '/api/files/new', { kind: 'doc', name: 'Sg private' });
+  const got = (await b('GET', '/api/files/suggested')).body;
+  assert.deepEqual(got.map((f) => [f.name, f.reason.kind]), [['Sg agenda', 'meeting'], ['Sg budget', 'edited'], ['sg-notes.txt', 'opened']]);
+  assert.equal(got[0].reason.title, 'Sg review');
+  assert.equal(got[1].reason.by, 'Sg Ann');
+  // Trashed: gone.
+  await b('PATCH', `/api/files/${mine.id}`, { trashed: true });
+  assert.ok(!(await b('GET', '/api/files/suggested')).body.some((f) => f.id === mine.id));
+});

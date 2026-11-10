@@ -591,6 +591,7 @@ Your Workspace calendar and contacts sync with the phone's own Calendar and Cont
 
 ## Working with files (Drive)
 
+- **Suggested:** the top of **My Drive** shows a few files you're likely to want next, each saying why: attached to a meeting of yours in the next day (*For “Design review” at 2:00 PM*), changed by someone else this week (*Kim Park changed it today*), or opened by you lately. Only files you can open; **▾ Suggested** hides them (remembered in this browser).
 - **Folder sizes:** a folder's **Size** is what everything inside it adds up to, at any depth (hover for how many files), or *Empty*; the grid shows it too, and sorting by size goes by it. Files in the trash aren't counted.
 - **Sorting and grid:** click **Name**, **Modified** or **Size** at the top of the list to sort by it (again for the other way round; newest and largest come first to start with). Folders always stay first, and numbers in names count as numbers (*Report 2* before *Report 10*). The buttons at the top right switch between the list and a **grid** of tiles, with a small picture of each photo and a **Sort by** menu; ticking, dragging onto folders, double-clicking to open and the ⋮ menu work the same. Your choice is kept for you on the server, so it's the same on every computer. Recent stays newest first, and search results best match first, until you sort them.
 - **Stars:** ⋮ → *Add star* on anything you want to find again; **Starred** in the sidebar lists them. Stars are your own.

@@ -17,6 +17,7 @@ import { q, tx, FILES_DIR, TMP_DIR } from '../db.js';
 import { contentMatches, indexSoon, docText } from '../search.js';
 import { countText, readingMinutes } from '../wordcount.js';
 import { readSetup, withHeadingNumbers } from '../pagesetup.js';
+import { suggestedFor } from '../suggested.js';
 import JSZip from 'jszip';
 import { uid, now, str, bad, forbidden, notFound, HttpError, mimeFor, isInlineSafe } from '../util.js';
 import { keepIfHeld, onHold } from '../hold.js';
@@ -442,6 +443,9 @@ export default function fileRoutes({ maxUploadBytes }) {
   r.use((req, res, next) => { if (req.method !== 'GET') res.on('finish', () => { if (res.statusCode < 300) indexSoon(); }); next(); });
 
   // List: ?view=mine|shared|recent|trash|search & parent= & q= (search: & type= & owner=me|others & modified=days)
+  // Suggested files at the top of My Drive (suggested.js).
+  r.get('/suggested', (req, res) => res.json(suggestedFor(req.user.id)));
+
   r.get('/', (req, res) => {
     const me = req.user.id;
     const org = req.user.org_id;

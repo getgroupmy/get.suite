@@ -40,6 +40,38 @@ export function openPath(f) {
   return null;
 }
 
+/** Why a file is suggested: "For Design review at 2:00 PM", "Kim Park changed it today", "You opened it yesterday". */
+export function reasonText(r, now = Date.now()) {
+  const when = (t) => { const d = Math.floor((new Date(now).setHours(0, 0, 0, 0) - new Date(t).setHours(0, 0, 0, 0)) / 864e5); return d <= 0 ? 'today' : d === 1 ? 'yesterday' : `${d} days ago`; };
+  if (r.kind === 'meeting') return `For “${r.title}” at ${new Date(r.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
+  if (r.kind === 'edited') return `${r.by} changed it ${when(r.at)}`;
+  return `You opened it ${when(r.at)}`;
+}
+
+/** Suggested files at the top of My Drive (hidden or shown again with the arrow; kept in this browser). */
+function Suggested({ onOpen }) {
+  const [list, setList] = useState([]);
+  const [shut, setShut] = useState(() => { try { return localStorage.getItem('nw-suggested-shut') === '1'; } catch { return false; } });
+  useEffect(() => { get('/files/suggested').then(setList).catch(() => setList([])); }, []);
+  if (!list.length) return null;
+  const toggle = () => { setShut(!shut); try { localStorage.setItem('nw-suggested-shut', shut ? '0' : '1'); } catch { /* not kept */ } };
+  return (
+    <section className="drive-suggested" aria-label="Suggested">
+      <button type="button" className="link-btn small suggested-head" aria-expanded={!shut} onClick={toggle}>{shut ? '▸' : '▾'} Suggested</button>
+      {!shut && (
+        <ul className="suggested-cards">
+          {list.map((f) => (
+            <li key={f.id}><button type="button" className="suggested-card" onClick={() => onOpen(f)} title={f.name}>
+              <Icon name={f.kind === 'file' ? 'file' : f.kind} size={22} className={`ft ft-${f.kind}`} />
+              <span className="grow"><strong className="ellipsis">{f.name}</strong><span className="muted small ellipsis">{reasonText(f.reason)}</span></span>
+            </button></li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 /** Search filters: [param, label, [[value, name]...]]. */
 const FILTERS = [
   ['type', 'Type', [['', 'Any type'], ['doc', 'Documents'], ['sheet', 'Spreadsheets'], ['slides', 'Presentations'], ['pdf', 'PDFs'], ['image', 'Pictures'], ['video', 'Videos'], ['audio', 'Audio'], ['archive', 'Archives (.zip)'], ['folder', 'Folders']]],
@@ -392,6 +424,7 @@ export default function Drive() {
             </div>
           )}
         </div>
+        {route.view === 'mine' && !route.folderId && <Suggested onOpen={open} />}
         {route.view === 'search' && (
           <div className="search-filters" role="group" aria-label="Filters">
             {FILTERS.map(([k, label, options]) => (
