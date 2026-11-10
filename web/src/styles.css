@@ -2530,3 +2530,5 @@ img.custom-emoji { width: 1.35em; height: 1.35em; object-fit: contain; vertical-
 .pdf-box-c3 { border-color: #d93025; background: rgba(217, 48, 37, .08); } .pdf-box-c3 .pdf-box-label { color: #d93025; }
 .pdf-box-c4 { border-color: #e37400; background: rgba(227, 116, 0, .08); } .pdf-box-c4 .pdf-box-label { color: #e37400; }
 .pdf-boxes-pages { max-height: 62vh; overflow: auto; background: var(--bg-alt, #f1f3f4); border-radius: 8px; }
+.contact-more { border: 0; padding: 0; margin: 0; }
+.contact-more legend { padding: 0; margin-bottom: 4px; color: var(--muted); }

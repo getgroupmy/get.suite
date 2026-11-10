@@ -151,7 +151,7 @@ export default function Contacts() {
                   {c.more_emails?.map((m) => <div key={m.value} className="small"><a href={`mailto:${m.value}`}>{m.value}</a> <span className="muted">{TYPE_LABELS[m.type]}</span></div>)}</td>
                 <td className="hide-sm">{(c.phone || c.work_phone) ? <a href={`tel:${c.phone || c.work_phone}`}>{c.phone || c.work_phone}</a> : <span className="muted">—</span>}
                   {c.more_phones?.map((m) => <div key={m.value} className="small"><a href={`tel:${m.value}`}>{m.value}</a> <span className="muted">{TYPE_LABELS[m.type]}</span></div>)}</td>
-                <td className="hide-sm muted">{own ? [c.title, c.company].filter(Boolean).join(' · ') || '—' : [c.job_title, c.department].filter(Boolean).join(' · ') || user.org_name}{own && c.website && <> · <a href={c.website} target="_blank" rel="noopener noreferrer">{c.website.replace(/^https?:\/\//, '')}</a></>}</td>
+                <td className="hide-sm muted">{own && (c.custom_fields?.length > 0 || c.dates?.length > 0) && <div className="small contact-extra">{[...(c.custom_fields || []).map((x) => `${x.label}: ${x.value}`), ...(c.dates || []).map((x) => `${x.label}: ${x.date.startsWith('--') ? x.date.slice(2) : x.date}`)].join(' · ')}</div>}{own ? [c.title, c.company].filter(Boolean).join(' · ') || '—' : [c.job_title, c.department].filter(Boolean).join(' · ') || user.org_name}{own && c.website && <> · <a href={c.website} target="_blank" rel="noopener noreferrer">{c.website.replace(/^https?:\/\//, '')}</a></>}</td>
                 <td className="actions">
                   {own ? (tab === 'mine' || c.can_edit) && <>
                     {tab === 'mine' && <button className={`icon-btn star ${c.starred ? 'on' : ''}`} aria-pressed={!!c.starred} aria-label={c.starred ? `Unstar ${c.name}` : `Star ${c.name}`} title={c.starred ? 'Starred: first in your contacts and when writing mail' : 'Star: keep them first in your contacts and when writing mail'}
@@ -276,7 +276,8 @@ function ContactDialog({ contact, orgName, onClose, onSaved }) {
   async function submit(e) {
     e.preventDefault();
     const body = { name: f.name, email: f.email || '', phone: f.phone || '', company: f.company || '', title: f.title || '', website: f.website || '', address: f.address || '', notes: f.notes || '', birthday: f.birthday || null, shared: !!f.shared,
-      more_emails: (f.more_emails || []).filter((x) => x.value.trim()), more_phones: (f.more_phones || []).filter((x) => x.value.trim()) };
+      more_emails: (f.more_emails || []).filter((x) => x.value.trim()), more_phones: (f.more_phones || []).filter((x) => x.value.trim()),
+      dates: (f.dates || []).filter((x) => x.date), custom_fields: (f.custom_fields || []).filter((x) => x.label.trim() || x.value.trim()) };
     try { const saved = contact.id ? await patch(`/contacts/${contact.id}`, body) : await post('/contacts', body); await savePhoto(saved.id || contact.id); onSaved(); }
     catch (err) { setError(err.message); }
   }
@@ -299,6 +300,8 @@ function ContactDialog({ contact, orgName, onClose, onSaved }) {
         ))}
         <label className="field"><span>Address</span><textarea rows={3} value={f.address || ''} onChange={(e) => setF({ ...f, address: e.target.value })} /></label>
         <BirthdayField value={f.birthday || ''} onChange={(birthday) => setF({ ...f, birthday })} />
+        <DatesField list={f.dates || []} onChange={(dates) => setF({ ...f, dates })} />
+        <CustomFields list={f.custom_fields || []} onChange={(custom_fields) => setF({ ...f, custom_fields })} />
         <label className="field"><span>Notes</span><textarea rows={3} value={f.notes || ''} onChange={(e) => setF({ ...f, notes: e.target.value })} /></label>
         <label className="check"><input type="checkbox" checked={!!f.shared} onChange={(e) => setF({ ...f, shared: e.target.checked })} /> Share with everyone at {orgName}</label>
         {error && <p className="error">{error}</p>}
@@ -323,6 +326,45 @@ function BirthdayField({ value, onChange }) {
         {value && <button type="button" className="link-btn small" onClick={() => onChange('')}>Clear</button>}
       </span>
     </div>
+  );
+}
+
+const DATE_LABELS = ['Anniversary', 'Work anniversary', 'Other'];
+/** Other dates: a label (Anniversary, or your own) and a date, with or without the year; up to ten. */
+function DatesField({ list, onChange }) {
+  const set = (i, patch) => onChange(list.map((x, k) => (k === i ? { ...x, ...patch } : x)));
+  return (
+    <fieldset className="stack-tight contact-more"><legend className="small">Other dates</legend>
+      {list.map((d, i) => {
+        const noYear = d.date.startsWith('--'), shown = noYear ? `2000${d.date.slice(1)}` : d.date;
+        return (
+          <div key={i} className="row wrap" style={{ gap: 6 }}>
+            <input aria-label={`Date ${i + 1} label`} list="date-labels" value={d.label} maxLength={40} onChange={(e) => set(i, { label: e.target.value })} style={{ width: 128 }} />
+            <input aria-label={`Date ${i + 1}`} type="date" value={shown} min="1850-01-01" max="2200-12-31" onChange={(e) => set(i, { date: e.target.value ? (noYear ? `--${e.target.value.slice(5)}` : e.target.value) : '' })} />
+            <label className="check small"><input type="checkbox" checked={noYear} disabled={!d.date} onChange={(e) => set(i, { date: e.target.checked ? `--${shown.slice(5)}` : shown })} /> Year not known</label>
+            <button type="button" className="icon-btn" aria-label={`Remove date ${i + 1}`} onClick={() => onChange(list.filter((_, k) => k !== i))}>×</button>
+          </div>
+        );
+      })}
+      <datalist id="date-labels">{DATE_LABELS.map((l) => <option key={l} value={l} />)}</datalist>
+      {list.length < 10 && <div><button type="button" className="link-btn small" onClick={() => onChange([...list, { label: 'Anniversary', date: '' }])}>+ Add a date</button></div>}
+    </fieldset>
+  );
+}
+/** Fields of your own: a label and a value (a customer number, a parking space); up to ten. */
+function CustomFields({ list, onChange }) {
+  const set = (i, patch) => onChange(list.map((x, k) => (k === i ? { ...x, ...patch } : x)));
+  return (
+    <fieldset className="stack-tight contact-more"><legend className="small">Fields of your own</legend>
+      {list.map((c, i) => (
+        <div key={i} className="row wrap" style={{ gap: 6 }}>
+          <input aria-label={`Field ${i + 1} label`} placeholder="Label" value={c.label} maxLength={40} onChange={(e) => set(i, { label: e.target.value })} style={{ width: 128 }} />
+          <input aria-label={`Field ${i + 1} value`} placeholder="Value" value={c.value} maxLength={500} onChange={(e) => set(i, { value: e.target.value })} className="grow" />
+          <button type="button" className="icon-btn" aria-label={`Remove field ${i + 1}`} onClick={() => onChange(list.filter((_, k) => k !== i))}>×</button>
+        </div>
+      ))}
+      {list.length < 10 && <div><button type="button" className="link-btn small" onClick={() => onChange([...list, { label: '', value: '' }])}>+ Add a field</button></div>}
+    </fieldset>
   );
 }
 

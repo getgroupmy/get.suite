@@ -1,6 +1,7 @@
 // Contact files people bring from elsewhere: vCard (.vcf, one or many cards, from phones, Outlook,
 // Gmail, iCloud) and CSV (Gmail's and Outlook's exports, or a simple name/email sheet).
 import { birthdayOf } from './birthday.js';
+import { cleanDates, cleanCustom } from './contactfields.js';
 import { parseVcard, buildVcard } from './vcard.js';
 import { cleanMore } from './contactmore.js';
 
@@ -96,7 +97,11 @@ export function contactsFromCsv(text) {
     const email = all.emails.find((e) => /@/.test(e.value))?.value.toLowerCase() || null;
     const phone = all.phones[0]?.value || null;
     const name = name0 || email || '';
-    return { name, email, phone, company: v(r, 'company') || null, notes: v(r, 'notes') || null, birthday: birthdayOf(v(r, 'birthday')), title: v(r, 'title') || null, address: v(r, 'address') || null, website: v(r, 'website') || null,
+    // Gmail's "Event 1 - Type / Value" and "Custom Field 1 - Type / Value" columns.
+    const pairs = (prefix) => names.flatMap((n, i) => { const m = new RegExp(`^${prefix} (\\d+) - value$`).exec(n); if (!m) return []; const t = names.indexOf(`${prefix} ${m[1]} - type`); return [{ label: t >= 0 ? String(r[t] ?? '') : '', value: String(r[i] ?? '').trim() }]; }).filter((x) => x.value);
+    const dates = cleanDates(pairs('event').map((x) => ({ label: x.label, date: x.value })));
+    const custom = cleanCustom(pairs('custom field'));
+    return { dates, custom_fields: custom, name, email, phone, company: v(r, 'company') || null, notes: v(r, 'notes') || null, birthday: birthdayOf(v(r, 'birthday')), title: v(r, 'title') || null, address: v(r, 'address') || null, website: v(r, 'website') || null,
       more_emails: cleanMore(all.emails, 'emails', { main: email }), more_phones: cleanMore(all.phones.slice(1), 'phones', { main: phone }) };
   }).filter((c) => c.name);
 }
@@ -122,13 +127,19 @@ export function contactsToCsv(list) {
   // Other addresses and numbers as Gmail writes them ("E-mail 2 - Type", "E-mail 2 - Value"…), as many as the most anyone has.
   const more = list.map((c) => ({ e: cleanMore(c.more_emails, 'emails'), p: cleanMore(c.more_phones, 'phones') }));
   const ne = Math.max(0, ...more.map((m) => m.e.length)), np = Math.max(0, ...more.map((m) => m.p.length));
+  const ev = list.map((c) => cleanDates(c.dates)), cf = list.map((c) => cleanCustom(c.custom_fields));
+  const nd = Math.max(0, ...ev.map((x) => x.length)), nf = Math.max(0, ...cf.map((x) => x.length));
   const label = (t) => ({ work: 'Work', home: 'Home', mobile: 'Mobile', other: 'Other' })[t] || 'Other';
   const head = ['Name', 'E-mail Address', 'Phone', 'Company', 'Notes', 'Birthday', 'Job Title', 'Address', 'Web Page',
     ...Array.from({ length: ne }, (_, i) => [`E-mail ${i + 2} - Type`, `E-mail ${i + 2} - Value`]).flat(),
-    ...Array.from({ length: np }, (_, i) => [`Phone ${i + 2} - Type`, `Phone ${i + 2} - Value`]).flat()];
+    ...Array.from({ length: np }, (_, i) => [`Phone ${i + 2} - Type`, `Phone ${i + 2} - Value`]).flat(),
+    ...Array.from({ length: nd }, (_, i) => [`Event ${i + 1} - Type`, `Event ${i + 1} - Value`]).flat(),
+    ...Array.from({ length: nf }, (_, i) => [`Custom Field ${i + 1} - Type`, `Custom Field ${i + 1} - Value`]).flat()];
   const rows = [head, ...list.map((c, k) => [c.name, c.email, c.phone, c.company, c.notes, c.birthday, c.title, c.address, c.website,
     ...Array.from({ length: ne }, (_, i) => (more[k].e[i] ? [label(more[k].e[i].type), more[k].e[i].value] : ['', ''])).flat(),
-    ...Array.from({ length: np }, (_, i) => (more[k].p[i] ? [label(more[k].p[i].type), more[k].p[i].value] : ['', ''])).flat()])];
+    ...Array.from({ length: np }, (_, i) => (more[k].p[i] ? [label(more[k].p[i].type), more[k].p[i].value] : ['', ''])).flat(),
+    ...Array.from({ length: nd }, (_, i) => (ev[k][i] ? [ev[k][i].label, ev[k][i].date] : ['', ''])).flat(),
+    ...Array.from({ length: nf }, (_, i) => (cf[k][i] ? [cf[k][i].label, cf[k][i].value] : ['', ''])).flat()])];
   return `﻿${rows.map((r) => r.map(csvField).join(',')).join('\r\n')}\r\n`;
 }
 export const contactsToVcf = (list) => list.map((c) => buildVcard(c)).join('');

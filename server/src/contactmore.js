@@ -3,6 +3,7 @@
 // labelled work, home, mobile (phones) or other. On a vCard they're EMAIL and TEL lines with a TYPE.
 import { q } from './db.js';
 import { contentLines } from './ics.js';
+import { cleanDates, cleanCustom } from './contactfields.js';
 
 export const EMAIL_TYPES = ['work', 'home', 'other'];
 export const PHONE_TYPES = ['mobile', 'work', 'home', 'other'];
@@ -67,7 +68,7 @@ export function moreToLines(emails, phones) {
 }
 
 /** A contact row for the browser: the lists as arrays. */
-export const withMore = (c) => (c ? { ...c, more_emails: cleanMore(c.more_emails, 'emails'), more_phones: cleanMore(c.more_phones, 'phones') } : c);
+export const withMore = (c) => (c ? { ...c, more_emails: cleanMore(c.more_emails, 'emails'), more_phones: cleanMore(c.more_phones, 'phones'), dates: cleanDates(c.dates), custom_fields: cleanCustom(c.custom_fields) } : c);
 
 /**
  * Cards synced from phones before this kept their other addresses and numbers inside the raw card:

@@ -10,6 +10,7 @@ import { duplicateGroups, mergedFields } from '../contactmerge.js';
 import { otherContactsOf, matchOther, forgetOther } from '../othercontacts.js';
 import { photoOf, setPhoto, withPhoto, photoFromCard, MAX_PHOTO } from '../contactphotos.js';
 import { cleanMore, withMore, liftCardMore } from '../contactmore.js';
+import { cleanDates, cleanCustom, datesBetween } from '../contactfields.js';
 
 liftCardMore(); // cards synced before kept their other addresses and numbers inside the raw card
 
@@ -58,6 +59,9 @@ function read(body, partial) {
   if (!partial || body.birthday !== undefined) {
     try { out.birthday = birthdayOf(body.birthday, { strict: true }); } catch (e) { throw bad(e.message); }
   }
+  // Other dates ([{ label, date }]) and fields of your own ([{ label, value }]).
+  if (body.dates !== undefined) { try { out.dates = JSON.stringify(cleanDates(body.dates, { strict: true })); } catch (e) { throw bad(e.message); } }
+  if (body.custom_fields !== undefined) { try { out.custom_fields = JSON.stringify(cleanCustom(body.custom_fields, { strict: true })); } catch (e) { throw bad(e.message); } }
   // Other email addresses and phone numbers: [{ type, value }] (work, home, mobile, other).
   for (const k of ['emails', 'phones']) {
     if (body[`more_${k}`] === undefined) continue;
@@ -198,6 +202,7 @@ export default function contactRoutes() {
         .run(newId, req.user.id, String(c.name).slice(0, 200), email, cut(c.phone, 50), cut(c.company, 200), cut(c.title, 200), cut(c.address, 500), cut(c.website, 300),
           cut(c.notes, 5000), c.birthday || null, t, c.uid || null, c.vcard_extra || null,
           c.more_emails?.length ? JSON.stringify(c.more_emails) : null, c.more_phones?.length ? JSON.stringify(c.more_phones) : null);
+      if (c.dates?.length || c.custom_fields?.length) q('UPDATE contacts SET dates = ?, custom_fields = ? WHERE id = ?').run(c.dates?.length ? JSON.stringify(c.dates) : null, c.custom_fields?.length ? JSON.stringify(c.custom_fields) : null, newId);
       if (c.photo) photoFromCard(newId, c);
       if (email) emails.add(email);
       if (c.uid) uids.add(c.uid);
@@ -222,8 +227,10 @@ export default function contactRoutes() {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || to < from) throw bad('from and to are required');
     if (Date.parse(to) - Date.parse(from) > 400 * 864e5) throw bad('At most a year at a time');
     const out = [];
-    for (const c of q('SELECT id, name, birthday FROM contacts WHERE owner_id = ? AND birthday IS NOT NULL').all(req.user.id)) {
+    for (const c of q('SELECT id, name, birthday, dates FROM contacts WHERE owner_id = ? AND (birthday IS NOT NULL OR dates IS NOT NULL)').all(req.user.id)) {
       for (const b of birthdaysBetween(c.birthday, from, to)) out.push({ contact_id: c.id, name: c.name, ...b });
+      // Their other dates too (an anniversary…): { label, years } instead of an age.
+      for (const d of datesBetween(c.dates, from, to, birthdaysBetween)) out.push({ contact_id: c.id, name: c.name, date: d.date, label: d.label, years: d.years });
     }
     res.json(out.sort((a, b) => a.date.localeCompare(b.date) || a.name.localeCompare(b.name)));
   });
@@ -266,6 +273,7 @@ export default function contactRoutes() {
     const id = uid();
     q(`INSERT INTO contacts (id, owner_id, ${COLS.join(', ')}, created_at, shared, more_emails, more_phones) VALUES (?, ?, ${COLS.map(() => '?').join(', ')}, ?, ?, ?, ?)`)
       .run(id, req.user.id, ...COLS.map((k) => c[k] ?? null), now(), req.body.shared ? 1 : 0, c.more_emails ?? null, c.more_phones ?? null);
+    if (c.dates !== undefined || c.custom_fields !== undefined) q('UPDATE contacts SET dates = ?, custom_fields = ? WHERE id = ?').run(c.dates ?? null, c.custom_fields ?? null, id);
     res.status(201).json(withMore(q('SELECT * FROM contacts WHERE id = ?').get(id)));
   });
 
@@ -310,7 +318,7 @@ export default function contactRoutes() {
     const existing = editable(req);
     const c = { ...existing, ...read(req.body, true) };
     q(`UPDATE contacts SET ${COLS.map((k) => `${k} = ?`).join(', ')} WHERE id = ?`).run(...COLS.map((k) => c[k] ?? null), c.id);
-    for (const k of ['more_emails', 'more_phones']) if (c[k] !== undefined && req.body[k] !== undefined) q(`UPDATE contacts SET ${k} = ? WHERE id = ?`).run(c[k], c.id);
+    for (const k of ['more_emails', 'more_phones', 'dates', 'custom_fields']) if (c[k] !== undefined && req.body[k] !== undefined) q(`UPDATE contacts SET ${k} = ? WHERE id = ?`).run(c[k], c.id);
     if (req.body.shared !== undefined) q('UPDATE contacts SET shared = ? WHERE id = ?').run(req.body.shared ? 1 : 0, c.id);
     if (req.body.starred !== undefined) {
       if (existing.owner_id !== req.user.id) throw bad('Only its owner stars a contact');

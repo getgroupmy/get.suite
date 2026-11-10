@@ -324,3 +324,16 @@ test('calendars colleagues share: on the phone too, read-only unless you may mak
   await k('PUT', `/api/events/calendars/${see.id}/members`, { members: [] });
   assert.equal((await dav('PROPFIND', `/dav/calendars/${me.id}/${see.id}/`, { depth: 0 })).status, 404);
 });
+
+test('contacts: dates and fields of your own sync with phones both ways', async () => {
+  const card = ['BEGIN:VCARD', 'VERSION:3.0', 'UID:DATES-1', 'FN:Dee Dates', 'item1.X-ABDATE:2012-08-08', 'item1.X-ABLabel:_$!<Anniversary>!$_', 'X-WORKSPACE-FIELD;LABEL="Locker":42', 'END:VCARD'].join('\r\n');
+  assert.equal((await dav('PUT', `/dav/addressbooks/${me.id}/default/dates-1.vcf`, { body: card, headers: { 'content-type': 'text/vcard' } })).status, 201);
+  const mine = (await api('GET', '/api/contacts')).body.find((c) => c.name === 'Dee Dates');
+  assert.deepEqual(mine.dates, [{ label: 'Anniversary', date: '2012-08-08' }]);
+  assert.deepEqual(mine.custom_fields, [{ label: 'Locker', value: '42' }]);
+  await api('PATCH', `/api/contacts/${mine.id}`, { dates: [{ label: 'Anniversary', date: '2012-08-09' }] });
+  const back = (await dav('GET', `/dav/addressbooks/${me.id}/default/dates-1.vcf`)).text;
+  assert.match(back, /X-ABDATE:2012-08-09/);
+  assert.doesNotMatch(back, /2012-08-08/, 'the old date isn’t kept beside it');
+  assert.match(back, /X-WORKSPACE-FIELD;LABEL="Locker":42/);
+});

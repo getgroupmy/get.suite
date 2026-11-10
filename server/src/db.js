@@ -389,3 +389,6 @@ db.exec(`CREATE TABLE IF NOT EXISTS dlp_rules (
   enabled INTEGER NOT NULL DEFAULT 1,
   created_at INTEGER NOT NULL
 )`);
+// More on a contact: dates besides the birthday and fields of your own (contactfields.js).
+if (!hasColumn('contacts', 'dates')) db.exec('ALTER TABLE contacts ADD COLUMN dates TEXT');
+if (!hasColumn('contacts', 'custom_fields')) db.exec('ALTER TABLE contacts ADD COLUMN custom_fields TEXT');

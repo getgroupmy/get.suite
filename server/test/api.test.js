@@ -8076,3 +8076,21 @@ test('PDF signature boxes: the sender places them per signer; signatures and dat
   assert.ok(fonts(0) >= 1, 'the date is written');
   assert.ok(fonts(1) >= 1, 'the typed signature is written');
 });
+
+test('contact dates and fields of your own: saved, checked, on the calendar with birthdays', async () => {
+  const nia = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'cfnia', domain: 'acme.com', name: 'Nia Fields', password: 'password123' })).status, 201);
+  await login(nia, 'cfnia@acme.com');
+  assert.match((await nia('POST', '/api/contacts', { name: 'Bad', dates: [{ label: 'Wedding', date: '2015-02-30' }] })).body.error, /needs a date/);
+  assert.match((await nia('POST', '/api/contacts', { name: 'Bad', custom_fields: [{ label: '', value: 'x' }] })).body.error, /needs a label/);
+  const c = (await nia('POST', '/api/contacts', { name: 'Ann Lee', dates: [{ label: 'Anniversary', date: '2015-06-20' }, { label: 'Started', date: '--11-12' }], custom_fields: [{ label: 'Customer no.', value: '4711' }] })).body;
+  assert.deepEqual(c.dates, [{ label: 'Anniversary', date: '2015-06-20' }, { label: 'Started', date: '--11-12' }]);
+  assert.deepEqual(c.custom_fields, [{ label: 'Customer no.', value: '4711' }]);
+  const changed = (await nia('PATCH', `/api/contacts/${c.id}`, { custom_fields: [{ label: 'Customer no.', value: '4712' }, { label: 'Parking', value: 'B12' }] })).body;
+  assert.deepEqual(changed.custom_fields.map((f) => f.value), ['4712', 'B12']);
+  assert.equal(changed.dates.length, 2, 'dates untouched when not sent');
+  const cal = (await nia('GET', '/api/contacts/birthdays?from=2026-06-01&to=2026-11-30')).body;
+  assert.deepEqual(cal.map((x) => [x.date, x.label, x.years]), [['2026-06-20', 'Anniversary', 11], ['2026-11-12', 'Started', null]]);
+  const vcf = (await nia('GET', '/api/contacts/export?format=vcf')).body;
+  assert.match(String(vcf), /X-ABDATE:2015-06-20/);
+});

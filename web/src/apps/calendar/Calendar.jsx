@@ -36,7 +36,9 @@ const savedBirthdays = () => { try { return localStorage.getItem('nw.calBirthday
 const birthdayItems = (list) => list.map((b) => {
   const [y, m, d] = b.date.split('-').map(Number);
   const start = new Date(y, m - 1, d).getTime();
-  return { key: `bday:${b.contact_id}:${b.date}`, birthday: b, title: `🎂 ${b.name}${b.age ? ` (${b.age})` : ''}`, start, end: start + DAY - 1, all_day: 1 };
+  // Their other dates (an anniversary…) come with a label, and the years since when the year is known.
+  const title = b.label ? `🗓 ${b.label}: ${b.name}${b.years ? ` (${b.years})` : ''}` : `🎂 ${b.name}${b.age ? ` (${b.age})` : ''}`;
+  return { key: `bday:${b.contact_id}:${b.date}:${b.label || ''}`, birthday: b, title, start, end: start + DAY - 1, all_day: 1 };
 });
 /** Company holidays as all-day items. */
 const holidayItems = (list) => list.map((h) => {
@@ -50,7 +52,7 @@ function HolidayChip({ ev }) {
 function BirthdayChip({ ev }) {
   const navigate = useNavigate();
   return (
-    <button type="button" className="chip allday birthday-chip" title={`${ev.birthday.name}'s birthday${ev.birthday.age ? ` · turns ${ev.birthday.age}` : ''}`}
+    <button type="button" className="chip allday birthday-chip" title={ev.birthday.label ? `${ev.birthday.label}: ${ev.birthday.name}${ev.birthday.years ? ` · ${ev.birthday.years} years` : ''}` : `${ev.birthday.name}'s birthday${ev.birthday.age ? ` · turns ${ev.birthday.age}` : ''}`}
       onClick={(e) => { e.stopPropagation(); navigate(`/contacts?q=${encodeURIComponent(ev.birthday.name)}`); }}>{ev.title}</button>
   );
 }
@@ -342,7 +344,7 @@ function Calendar({ acting = null, managed = [], onPick }) {
         {others.length > 0 && view !== 'week' && view !== 'day' && <p className="muted small" style={{ margin: '4px 12px' }}>Their busy times (and rooms' bookings) show in the week and day views.</p>}
         <Feeds onChanged={load} />
         <label className="check cal-show-tasks"><input type="checkbox" checked={showTasks} onChange={(e) => setShowTasks(e.target.checked)} /> Show tasks with due dates</label>
-        <label className="check cal-show-tasks"><input type="checkbox" checked={showBirthdays} onChange={(e) => setShowBirthdays(e.target.checked)} /> Show contacts’ birthdays</label>
+        <label className="check cal-show-tasks"><input type="checkbox" checked={showBirthdays} onChange={(e) => setShowBirthdays(e.target.checked)} /> Show contacts’ birthdays and dates</label>
         <label className="check cal-show-tasks"><input type="checkbox" checked={weekends} onChange={(e) => setWeekends(e.target.checked)} /> Show weekends</label>
         <label className="check cal-show-tasks"><input type="checkbox" checked={weekNums} onChange={(e) => setWeekNums(e.target.checked)} /> Show week numbers</label>
         <label className="row small cal-show-tasks" style={{ gap: 6 }}>Week starts on
