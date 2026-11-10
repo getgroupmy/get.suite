@@ -233,3 +233,52 @@ test('contacts: a phone\'s photo shows on the web, and a web photo goes to the p
   assert.equal((back.match(/^PHOTO/gm) || []).length, 1, 'one photo on the card');
   assert.ok(back.includes(`PHOTO;ENCODING=b;TYPE=PNG:${b64}`));
 });
+
+test('calendars of your own: each is a calendar on the phone, with its name, colour and events', async () => {
+  const fam = (await api('POST', '/api/events/calendars', { name: 'Family & friends', color: '#8e24aa' })).body;
+  const t = Date.UTC(2026, 11, 5, 9);
+  const play = (await api('POST', '/api/events', { title: 'School play', start: t, end: t + 3600e3, calendar_id: fam.id, color: '#8e24aa' })).body;
+  const work = (await api('POST', '/api/events', { title: 'Quarterly review', start: t, end: t + 3600e3 })).body;
+  // The home lists the main calendar and Family, each with its name and colour.
+  const home = await dav('PROPFIND', `/dav/calendars/${me.id}/`, { depth: 1, body: propfind('<d:displayname/><d:resourcetype/><x:calendar-color xmlns:x="http://apple.com/ns/ical/"/>') });
+  assert.ok(home.text.includes(`/dav/calendars/${me.id}/${fam.id}/`));
+  assert.ok(home.text.includes('<d:displayname>Family &amp; friends</d:displayname>'));
+  assert.ok(home.text.includes('#8E24AAFF'));
+  // Each calendar has just its own events.
+  const famList = await dav('PROPFIND', `/dav/calendars/${me.id}/${fam.id}/`, { depth: 1 });
+  assert.ok(famList.text.includes(`${play.id}.ics`));
+  assert.ok(!famList.text.includes(`${work.id}.ics`));
+  const mainList = await dav('PROPFIND', `/dav/calendars/${me.id}/default/`, { depth: 1 });
+  assert.ok(mainList.text.includes(`${work.id}.ics`));
+  assert.ok(!mainList.text.includes(`${play.id}.ics`));
+  assert.equal((await dav('GET', `/dav/calendars/${me.id}/default/${play.id}.ics`)).status, 404, 'not in the main calendar');
+  assert.match((await dav('GET', `/dav/calendars/${me.id}/${fam.id}/${play.id}.ics`)).text, /SUMMARY:School play/);
+  const report = await dav('REPORT', `/dav/calendars/${me.id}/${fam.id}/`, { depth: 1, body: '<?xml version="1.0"?><c:calendar-query xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav"><d:prop><d:getetag/><c:calendar-data/></d:prop></c:calendar-query>' });
+  assert.ok(report.text.includes('School play') && !report.text.includes('Quarterly review'));
+  assert.equal((await dav('PROPFIND', `/dav/calendars/${me.id}/nope/`, { depth: 0 })).status, 404);
+
+  // An event made on the phone in Family goes in Family, in its colour.
+  const ev = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'BEGIN:VEVENT', 'UID:FAM-PHONE-1', 'DTSTART:20261206T100000Z', 'DTEND:20261206T110000Z', 'SUMMARY:Grandma visit', 'END:VEVENT', 'END:VCALENDAR'].join('\r\n');
+  assert.equal((await dav('PUT', `/dav/calendars/${me.id}/${fam.id}/fam-phone-1.ics`, { body: ev, headers: { 'content-type': 'text/calendar', 'if-none-match': '*' } })).status, 201);
+  const day = (await api('GET', `/api/events?from=${Date.UTC(2026, 11, 6)}&to=${Date.UTC(2026, 11, 7)}`)).body.find((e) => e.title === 'Grandma visit');
+  assert.deepEqual([day.calendar_id, day.color], [fam.id, '#8e24aa']);
+  // Moving it to the main calendar on the phone: put there with the same UID, then deleted from Family.
+  assert.equal((await dav('PUT', `/dav/calendars/${me.id}/default/moved.ics`, { body: ev, headers: { 'content-type': 'text/calendar', 'if-none-match': '*' } })).status, 201);
+  assert.equal((await dav('DELETE', `/dav/calendars/${me.id}/${fam.id}/fam-phone-1.ics`)).status, 404, 'already moved');
+  const moved = (await api('GET', `/api/events?from=${Date.UTC(2026, 11, 6)}&to=${Date.UTC(2026, 11, 7)}`)).body.filter((e) => e.title === 'Grandma visit');
+  assert.equal(moved.length, 1, 'one event, not a copy');
+  assert.deepEqual([moved[0].id, moved[0].calendar_id, moved[0].color], [day.id, null, null]);
+
+  // Renaming and recolouring it on the phone is kept; its events in the old colour follow.
+  const pp = '<?xml version="1.0"?><d:propertyupdate xmlns:d="DAV:" xmlns:x="http://apple.com/ns/ical/"><d:set><d:prop><d:displayname>Home</d:displayname><x:calendar-color>#0B8043FF</x:calendar-color></d:prop></d:set></d:propertyupdate>';
+  assert.equal((await dav('PROPPATCH', `/dav/calendars/${me.id}/${fam.id}/`, { body: pp })).status, 207);
+  const cals = (await api('GET', '/api/events/calendars')).body;
+  assert.deepEqual([cals[0].name, cals[0].color], ['Home', '#0b8043']);
+  assert.equal((await api('GET', `/api/events?from=${t - 1}&to=${t + 1}`)).body.find((e) => e.title === 'School play').color, '#0b8043');
+  // The main calendar's name stays; new calendars are made in Workspace.
+  await dav('PROPPATCH', `/dav/calendars/${me.id}/default/`, { body: pp });
+  assert.ok((await dav('PROPFIND', `/dav/calendars/${me.id}/default/`, { depth: 0, body: propfind('<d:displayname/>') })).text.includes('<d:displayname>Workspace</d:displayname>'));
+  assert.equal((await dav('MKCALENDAR', `/dav/calendars/${me.id}/new-one/`)).status, 403);
+  // Someone else's calendar id isn't reachable.
+  assert.equal((await dav('PROPFIND', `/dav/calendars/${other.id}/${fam.id}/`, { depth: 0 })).status, 403);
+});
