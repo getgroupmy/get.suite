@@ -259,6 +259,15 @@ export default function userRoutes() {
     res.json({ zones });
   });
 
+  // Mail: what opens after you archive, delete, move or snooze the message you're reading:
+  // { advance: 'newer' | 'older' | 'list' } (the next newer one, the next older one, or back to the list).
+  r.put('/me/mail-advance', (req, res) => {
+    const a = req.body?.advance;
+    if (!['newer', 'older', 'list'].includes(a)) throw bad('Choose newer, older or list');
+    q('UPDATE users SET mail_advance = ? WHERE id = ?').run(a === 'list' ? null : a, req.user.id);
+    res.json({ advance: a });
+  });
+
   // Convert Office, OpenDocument and Markdown files you upload in Drive: { on: true | false }.
   r.put('/me/convert-uploads', (req, res) => {
     const on = !!req.body?.on;

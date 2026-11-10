@@ -9142,3 +9142,15 @@ test('notes: show and hide tick boxes (text ⇄ checklist), kept in the version 
   assert.ok((await a('GET', `/api/notes/${n.id}/versions`)).body.length >= 1, 'the earlier one kept');
   assert.equal((await a('POST', `/api/notes/${n.id}/convert`, { to: 'other' })).status, 400);
 });
+
+test('mail: what opens after archiving the open message (newer, older, or back to the list), per person', async () => {
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'madv', domain: 'acme.com', name: 'Ma Dv', password: 'password123' })).status, 201);
+  await login(a, 'madv@acme.com');
+  assert.equal((await a('GET', '/api/auth/me')).body.user.mail_advance, 'list', 'back to the list by default');
+  assert.deepEqual((await a('PUT', '/api/users/me/mail-advance', { advance: 'older' })).body, { advance: 'older' });
+  assert.equal((await a('GET', '/api/auth/me')).body.user.mail_advance, 'older');
+  assert.equal((await a('PUT', '/api/users/me/mail-advance', { advance: 'sideways' })).status, 400);
+  await a('PUT', '/api/users/me/mail-advance', { advance: 'list' });
+  assert.equal((await a('GET', '/api/auth/me')).body.user.mail_advance, 'list');
+});

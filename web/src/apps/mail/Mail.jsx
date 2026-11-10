@@ -19,7 +19,7 @@ import { TextStyle, Color, BackgroundColor, FontSize, FontFamily } from '@tiptap
 import { useMailStatus } from '../../mailStatus.js';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
-import { mailKey, stepMessage } from './mailkeys.js';
+import { mailKey, stepMessage, afterRemoval } from './mailkeys.js';
 import { printMessage } from './mailprint.js';
 import { previewKind, stepPreview } from '../../components/viewkind.js';
 import FileViewer from '../../components/FileViewer.jsx';
@@ -488,7 +488,7 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
       <section className="mail-reader">
         {openUid ? (
           <Reader key={`${folder}:${openUid}`} shared={shared} folder={folder} uid={openUid} special={special} onSnoozeCustom={(uids) => setSnoozing(uids)} labels={labels} onNewLabel={() => setLabelDialog({})}
-            onClose={() => go(folder)} onOpen={(f, u) => go(f, u)} onChanged={refresh} act={act} onCompose={(init) => setCompose(withSignature(init, 'reply'))}
+            onClose={() => go(folder)} onRemoved={() => go(folder, special === '\\Drafts' ? null : afterRemoval(shown, openUid, user?.mail_advance))} onOpen={(f, u) => go(f, u)} onChanged={refresh} act={act} onCompose={(init) => setCompose(withSignature(init, 'reply'))}
             onFilter={(from) => setFilters({ startWith: { name: `From ${from}`, enabled: true, match: 'all', conditions: [{ field: 'from', op: 'contains', value: from }], actions: { stop: true } } })} />
         ) : <Empty icon="mail" title="No message selected" />}
       </section>
@@ -628,7 +628,7 @@ function FollowUpBanner({ messageId }) {
   );
 }
 
-function Reader({ shared = null, folder, uid, special, onClose, onOpen, onChanged, act, onCompose, onFilter, onSnoozeCustom, labels = [], onNewLabel }) {
+function Reader({ shared = null, folder, uid, special, onClose, onRemoved, onOpen, onChanged, act, onCompose, onFilter, onSnoozeCustom, labels = [], onNewLabel }) {
   const mailStatus = useMailStatus();
   const toast = useToast();
   const navigate = useNavigate();
@@ -663,7 +663,8 @@ function Reader({ shared = null, folder, uid, special, onClose, onOpen, onChange
   const thread = { inReplyTo: m.messageId, references: m.references, replyTo: { folder, uid }, from: replyFrom };
   const replyTo = m.replyTo.length ? m.replyTo : m.from ? [m.from] : [];
   const others = [...m.to, ...m.cc].filter((a) => !mine.includes(a.address) && a.address !== user.username && !replyTo.some((r) => r.address === a.address));
-  const done = async (p, b, msg) => { if (await act(p, { uids: [uid], ...b }, msg)) onClose(); };
+  // Done with it: back to the list, or (when it has gone from here) to the next one, by your setting.
+  const done = async (p, b, msg) => { if (await act(p, { uids: [uid], ...b }, msg)) (p === 'flags' ? onClose : onRemoved || onClose)(); };
   // Mute: replies in this conversation skip the Inbox from now on; this message goes to Archive.
   const mute = async () => {
     try {

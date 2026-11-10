@@ -35,3 +35,16 @@ export function pickMatches(items, typed) {
   const hits = items.filter((it) => norm(it.name).includes(q));
   return [...hits.filter((it) => norm(it.name).startsWith(q)), ...hits.filter((it) => !norm(it.name).startsWith(q))];
 }
+
+/**
+ * After the open message is archived, deleted, moved or snoozed: which to open instead, by your setting
+ * ('newer': the one above it in the list, 'older': the one below, 'list': none, back to the list).
+ * Null when there's none that way.
+ */
+export function afterRemoval(list, uid, mode) {
+  if (!list?.length || (mode !== 'newer' && mode !== 'older')) return null;
+  const i = list.findIndex((m) => m.uid === uid);
+  if (i < 0) return null;
+  const j = mode === 'older' ? i + 1 : i - 1;
+  return j >= 0 && j < list.length ? list[j].uid : null;
+}

@@ -57,6 +57,7 @@ export default function Settings() {
       <TwoStep />
       <MailApps />
       <MailDelegates />
+      <MailAdvance />
       <Devices />
       <SignInApps />
       <WorkLocation />
@@ -330,6 +331,29 @@ function Profile() {
       </div>
       <div className="row end"><button className="btn primary">Save</button></div>
     </form>
+  );
+}
+
+/** Mail: what opens after archiving, deleting, moving or snoozing the message you're reading. */
+function MailAdvance() {
+  const toast = useToast();
+  const { user, setUser } = useAuth();
+  const [now, setNow] = useState(user.mail_advance || 'list');
+  const set = async (advance) => {
+    const was = now;
+    setNow(advance);
+    try { await put('/users/me/mail-advance', { advance }); setUser({ ...user, mail_advance: advance }); toast('Saved'); } catch (e) { setNow(was); toast(e.message, 'error'); }
+  };
+  return (
+    <section className="card stack" aria-labelledby="madv-h">
+      <h2 id="madv-h">After archiving or deleting an email</h2>
+      <p className="muted small" style={{ margin: 0 }}>What Mail opens after you archive, delete, move or snooze the message you're reading.</p>
+      <div className="stack" role="radiogroup" aria-labelledby="madv-h">
+        <label className="check"><input type="radio" name="mail-advance" checked={now === 'list'} onChange={() => set('list')} /> Go back to the list</label>
+        <label className="check"><input type="radio" name="mail-advance" checked={now === 'newer'} onChange={() => set('newer')} /> Open the next newer message</label>
+        <label className="check"><input type="radio" name="mail-advance" checked={now === 'older'} onChange={() => set('older')} /> Open the next older message</label>
+      </div>
+    </section>
   );
 }
 

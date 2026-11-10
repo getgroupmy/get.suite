@@ -33,3 +33,14 @@ test('v and l pick a folder or a label, typing narrows the choices', () => {
   assert.equal(pickMatches(items, '  ').length, 4);
   assert.deepEqual(pickMatches(items, 'zzz'), []);
 });
+
+test('after archiving the open message: the newer or older one, or none', async () => {
+  const { afterRemoval } = await import('./mailkeys.js');
+  const list = [{ uid: 9 }, { uid: 7 }, { uid: 4 }]; // newest first
+  assert.equal(afterRemoval(list, 7, 'older'), 4);
+  assert.equal(afterRemoval(list, 7, 'newer'), 9);
+  assert.equal(afterRemoval(list, 4, 'older'), null, 'none older: back to the list');
+  assert.equal(afterRemoval(list, 9, 'newer'), null);
+  assert.equal(afterRemoval(list, 7, 'list'), null);
+  assert.equal(afterRemoval(list, 5, 'older'), null, 'not in the list');
+});
