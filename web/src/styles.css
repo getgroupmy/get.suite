@@ -2726,3 +2726,12 @@ input.fv-name { background: #202124; color: #fff; border: 1px solid #5f6368; bor
 .comment-reactions .reaction-add { font-size: 15px; opacity: .6; }
 .comment-reactions .reaction-add:hover { opacity: 1; }
 .reaction-quick { display: inline-flex; gap: 2px; }
+
+/* Numbered headings (page setup): 1, 1.1, 1.1.1, as in the Word download (server/src/pagesetup.js headingLabels). */
+.heading-numbers .ProseMirror { counter-reset: h1 h2 h3; }
+.heading-numbers .ProseMirror h1 { counter-increment: h1; counter-reset: h2 h3; }
+.heading-numbers .ProseMirror h2 { counter-increment: h2; counter-reset: h3; }
+.heading-numbers .ProseMirror h3 { counter-increment: h3; }
+.heading-numbers .ProseMirror h1::before { content: counter(h1) " "; }
+.heading-numbers .ProseMirror h2::before { content: counter(h1) "." counter(h2) " "; }
+.heading-numbers .ProseMirror h3::before { content: counter(h1) "." counter(h2) "." counter(h3) " "; }

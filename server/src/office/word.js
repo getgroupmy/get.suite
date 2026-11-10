@@ -2,6 +2,7 @@
 // italic, underline, links, tables, pictures) and TipTap's own parser makes it a document, so it
 // opens exactly like one typed in Docs. Saving: the document is written back as a .docx, with its
 // tables, pictures and text colours.
+import { headingLabels } from '../pagesetup.js';
 import { flattenTabs } from './doctabs.js';
 import crypto from 'node:crypto';
 import mammoth from 'mammoth';
@@ -514,18 +515,23 @@ export async function wordFromDoc(doc, title = 'Document', { pictureData, page, 
   // A table of contents lists the headings (with text) as links to bookmarks on them.
   const textOf = (n) => (n.text ?? (n.content || []).map(textOf).join(''));
   const contents = [];
+  // Numbered headings (page setup): each heading's label, as the editor shows it.
+  const levels = [];
+  const labelsAt = () => headingLabels(levels)[levels.length - 1];
   const gather = (n) => {
-    if (n.type === 'heading') { const text = textOf(n).trim(); if (text) contents.push({ level: n.attrs?.level || 1, text }); return; }
+    if (n.type === 'heading') { const text = textOf(n).trim(); levels.push(n.attrs?.level || 1); if (text) contents.push({ level: n.attrs?.level || 1, text, label: page?.headingNumbers ? labelsAt() : null }); return; }
     if (n.type !== 'paragraph') for (const c of n.content || []) gather(c);
   };
   gather(doc || {});
   const top = Math.min(...contents.map((h) => h.level));
   let headingNo = 0;
+  const allLabels = headingLabels(levels);
+  let headingAt = 0;
   const contentsBlock = () => [
     new Paragraph({ children: [new TextRun({ text: 'Contents', bold: true })], spacing: { after: 120 } }),
     ...contents.map((h, k) => new Paragraph({
       indent: { left: 360 * (h.level - top) },
-      children: [new InternalHyperlink({ anchor: `toc_${k + 1}`, children: [new TextRun({ text: h.text, style: 'Hyperlink' })] })],
+      children: [new InternalHyperlink({ anchor: `toc_${k + 1}`, children: [new TextRun({ text: h.label ? `${h.label} ${h.text}` : h.text, style: 'Hyperlink' })] })],
     })),
     new Paragraph(''),
   ];
@@ -575,7 +581,7 @@ export async function wordFromDoc(doc, title = 'Document', { pictureData, page, 
       // Indented paragraphs: half an inch (720 twentieths of a point) a step, as in Docs.
       const indent = Number(n.attrs?.indent) > 0 ? { indent: { left: 720 * Math.min(8, Math.round(n.attrs.indent)) } } : {};
       if (n.type === 'paragraph') paras.push(new Paragraph({ children: runs(n.content), alignment: align, ...spacing(n.attrs?.lineHeight), ...indent, ...ctx.para }));
-      else if (n.type === 'heading') paras.push(new Paragraph({ children: textOf(n).trim() ? [new Bookmark({ id: `toc_${++headingNo}`, children: runs(n.content) })] : runs(n.content), heading: HEADINGS[n.attrs?.level] || HeadingLevel.HEADING_1, alignment: align, ...spacing(n.attrs?.lineHeight), ...indent }));
+      else if (n.type === 'heading') paras.push(new Paragraph({ children: (() => { const label = page?.headingNumbers ? allLabels[headingAt++] : null; const r = [...(label ? [new TextRun(`${label} `)] : []), ...runs(n.content)]; return textOf(n).trim() ? [new Bookmark({ id: `toc_${++headingNo}`, children: r })] : r; })(), heading: HEADINGS[n.attrs?.level] || HeadingLevel.HEADING_1, alignment: align, ...spacing(n.attrs?.lineHeight), ...indent }));
       else if (n.type === 'bulletList' || n.type === 'orderedList') {
         const level = (ctx.level ?? -1) + 1;
         for (const li of n.content || []) walk(li.content, { level, para: n.type === 'bulletList' ? { bullet: { level } } : { numbering: { reference: 'numbers', level } } });

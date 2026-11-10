@@ -668,7 +668,7 @@ function SharedDoc({ file, setFile }) {
             {ZOOMS.map((z) => <option key={z} value={z}>{z}%</option>)}
           </select></label>
         <div className="doc-scroll" onClick={(e) => e.target === e.currentTarget && editor.commands.focus('end')}>
-          <div ref={paperRef} className={`paper with-tabs ${file.page_setup?.pageless ? 'pageless' : ''} ${columnsOf(file.page_setup) > 1 ? `cols-${columnsOf(file.page_setup)}` : ''} ${file.page_setup?.lineNumbers ? 'line-numbered' : ''}`} style={{ ...(file.page_setup ? paperStyle(file.page_setup) : {}), ...(look.zoom !== 100 && { zoom: look.zoom / 100 }) }} spellCheck={look.spellcheck}>
+          <div ref={paperRef} className={`paper with-tabs ${file.page_setup?.pageless ? 'pageless' : ''} ${columnsOf(file.page_setup) > 1 ? `cols-${columnsOf(file.page_setup)}` : ''} ${file.page_setup?.lineNumbers ? 'line-numbered' : ''} ${file.page_setup?.headingNumbers ? 'heading-numbers' : ''}`} style={{ ...(file.page_setup ? paperStyle(file.page_setup) : {}), ...(look.zoom !== 100 && { zoom: look.zoom / 100 }) }} spellCheck={look.spellcheck}>
             {file.page_setup?.lineNumbers && <LineNumbers editor={editor} paperRef={paperRef} layout={JSON.stringify(file.page_setup)} />}
             {file.page_setup?.watermark && <div className="print-watermark" aria-hidden="true" />}
             {file.page_setup?.watermark && <span className="sr-only">Watermark: {file.page_setup.watermark}</span>}
@@ -1166,6 +1166,7 @@ function PageSetupDialog({ setup, onClose, onSave }) {
         <label className="field"><span>Footer (bottom of every page)</span><input value={s.footer} maxLength={200} onChange={set('footer')} placeholder="e.g. Confidential" /></label>
         <label className="check"><input type="checkbox" checked={s.numbers} onChange={set('numbers')} /> Page numbers in the footer</label>
         <label className="check"><input type="checkbox" checked={!!s.lineNumbers} onChange={set('lineNumbers')} /> Line numbers in the margin</label>
+        <label className="check"><input type="checkbox" checked={!!s.headingNumbers} onChange={set('headingNumbers')} /> Number the headings (1, 1.1, 1.1.1)</label>
         <label className="field"><span>Watermark (faint, across every page)</span>
           <input value={s.watermark || ''} maxLength={40} list="watermark-choices" onChange={set('watermark')} placeholder="None, or e.g. DRAFT or CONFIDENTIAL" />
           <datalist id="watermark-choices">{WATERMARKS.map((w) => <option key={w} value={w} />)}</datalist>

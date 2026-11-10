@@ -1797,3 +1797,20 @@ test('Excel: a dropdown with several choices per cell only suggests in Excel (it
   const loose = (await sheetFromExcel(await excelFromSheet(data))).sheets[0].validations.find((v) => v.range.startsWith('A2'));
   assert.deepEqual([loose.multi, loose.strict], [true, false]);
 });
+
+test('numbered headings: 1, 1.1, 1.1.1 in the page setup, written into Word', async () => {
+  const { headingLabels, readSetup } = await import('../src/pagesetup.js');
+  assert.deepEqual(headingLabels([1, 2, 2, 3, 1, 3, 4, 2]), ['1', '1.1', '1.2', '1.2.1', '2', '2.0.1', null, '2.1']);
+  assert.deepEqual(headingLabels([2, 2, 1]), ['0.1', '0.2', '1'], 'before any first-level heading');
+  assert.equal(readSetup({ headingNumbers: true }).headingNumbers, true);
+  assert.equal(readSetup({ headingNumbers: 'yes' }).headingNumbers, undefined);
+  const h = (level, text) => ({ type: 'heading', attrs: { level }, content: [{ type: 'text', text }] });
+  const doc = { type: 'doc', content: [h(1, 'Introduction'), { type: 'paragraph', content: [{ type: 'text', text: 'Hello' }] }, h(2, 'Scope'), h(1, 'Costs')] };
+  const JSZip = (await import('jszip')).default;
+  const xmlOf = async (page) => (await JSZip.loadAsync(await wordFromDoc(doc, 'Plan', { page }))).file('word/document.xml').async('string');
+  const plain = (x) => x.replace(/<[^>]+>/g, '');
+  const numbered = plain(await xmlOf(readSetup({ headingNumbers: true })));
+  assert.match(numbered, /1 Introduction/); assert.match(numbered, /1\.1 Scope/); assert.match(numbered, /2 Costs/);
+  const off = plain(await xmlOf(readSetup({})));
+  assert.doesNotMatch(off, /1 Introduction/);
+});
