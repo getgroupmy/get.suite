@@ -3906,16 +3906,16 @@ test('forms: pictures on questions, seen by everyone who can fill the form in', 
 test('docs writing preferences: autocorrect and your own replacements, per person', async () => {
   const { cleanPrefs } = await import('../src/routes/docprefs.js');
   assert.deepEqual(cleanPrefs({ autocorrect: 0, subs: [{ from: ' addr ', to: '12 High St' }, { from: 'two words', to: 'x' }, { from: 'addr', to: 'again' }, { from: 'empty', to: '' }] }),
-    { autocorrect: true, subs: [{ from: 'addr', to: '12 High St' }] }, 'only false turns it off; no spaces, repeats or empty ones');
+    { autocorrect: true, subs: [{ from: 'addr', to: '12 High St' }], zoom: 100, spellcheck: true }, 'only false turns it off; no spaces, repeats or empty ones');
   const a = client(); const b = client();
   for (const local of ['dpa', 'dpb']) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name: local, password: 'password123' })).status, 201);
   await login(a, 'dpa@acme.com'); await login(b, 'dpb@acme.com');
-  assert.deepEqual((await a('GET', '/api/doc-prefs')).body, { autocorrect: true, subs: [] }, 'on by default');
+  assert.deepEqual((await a('GET', '/api/doc-prefs')).body, { autocorrect: true, subs: [], zoom: 100, spellcheck: true }, 'on by default');
   const saved = (await a('PUT', '/api/doc-prefs', { subs: [{ from: 'sig', to: 'Kind regards, Ann' }] })).body;
-  assert.deepEqual(saved, { autocorrect: true, subs: [{ from: 'sig', to: 'Kind regards, Ann' }] });
+  assert.deepEqual(saved, { autocorrect: true, subs: [{ from: 'sig', to: 'Kind regards, Ann' }], zoom: 100, spellcheck: true });
   assert.equal((await a('PUT', '/api/doc-prefs', { autocorrect: false })).body.subs.length, 1, 'changing one keeps the other');
   assert.deepEqual((await a('GET', '/api/doc-prefs')).body.autocorrect, false);
-  assert.deepEqual((await b('GET', '/api/doc-prefs')).body, { autocorrect: true, subs: [] }, 'everyone has their own');
+  assert.deepEqual((await b('GET', '/api/doc-prefs')).body, { autocorrect: true, subs: [], zoom: 100, spellcheck: true }, 'everyone has their own');
   assert.equal((await client()('GET', '/api/doc-prefs')).status, 401);
 });
 
@@ -8911,4 +8911,22 @@ test('slides Q&A: the presenter starts it, colleagues ask and upvote, the presen
   assert.equal((await c('POST', `/api/slide-qa/${s.code}/questions`, { body: 'Late' })).status, 400);
   assert.equal((await a('GET', `/api/slide-qa/decks/${deck.id}`)).body, null);
   assert.notEqual((await a('POST', `/api/slide-qa/decks/${deck.id}/start`)).body.code, s.code, 'a new one next time');
+});
+
+test('docs zoom and spell check: kept per person, only the sizes offered', async () => {
+  const { cleanPrefs, ZOOMS } = await import('../src/routes/docprefs.js');
+  assert.ok(ZOOMS.includes(50) && ZOOMS.includes(200));
+  assert.equal(cleanPrefs({ zoom: 125 }).zoom, 125);
+  assert.equal(cleanPrefs({ zoom: '150' }).zoom, 150);
+  assert.equal(cleanPrefs({ zoom: 133 }).zoom, 100, 'not offered: back to 100%');
+  assert.equal(cleanPrefs({ zoom: 5000 }).zoom, 100);
+  assert.equal(cleanPrefs({ spellcheck: 0 }).spellcheck, true, 'only false turns it off');
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'dzoom', domain: 'acme.com', name: 'Dz', password: 'password123' })).status, 201);
+  await login(a, 'dzoom@acme.com');
+  await a('PUT', '/api/doc-prefs', { subs: [{ from: 'brb', to: 'be right back' }] });
+  const p = (await a('PUT', '/api/doc-prefs', { zoom: 150, spellcheck: false })).body;
+  assert.deepEqual([p.zoom, p.spellcheck, p.subs.length], [150, false, 1], 'the rest kept');
+  assert.deepEqual([(await a('GET', '/api/doc-prefs')).body.zoom, (await a('GET', '/api/doc-prefs')).body.spellcheck], [150, false]);
+  assert.equal((await a('PUT', '/api/doc-prefs', { autocorrect: false })).body.zoom, 150, 'changing autocorrect keeps the zoom');
 });

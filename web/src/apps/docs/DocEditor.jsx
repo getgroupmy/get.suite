@@ -135,6 +135,8 @@ const colorFor = (id) => CARET_COLORS[[...String(id)].reduce((a, ch) => (a * 31 
  * A document everyone with access edits together: changes go to the others as you type and merge
  * (Yjs), with each person's cursor shown. The server keeps and saves the shared document.
  */
+const ZOOMS = [50, 75, 90, 100, 110, 125, 150, 200];
+
 export default function DocEditor() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -224,7 +226,10 @@ function SharedDoc({ file, setFile }) {
   // Your writing preferences (autocorrect, replacements), read by the editor as you type.
   const prefsRef = useRef({ autocorrect: true, subs: [] });
   const [prefsOpen, setPrefsOpen] = useState(false);
-  useEffect(() => { get('/doc-prefs').then((p) => { prefsRef.current = p; }).catch(() => {}); }, []);
+  // How documents are shown for you (kept with your account): the zoom, and spell check's underlines.
+  const [look, setLook] = useState({ zoom: 100, spellcheck: true });
+  useEffect(() => { get('/doc-prefs').then((p) => { prefsRef.current = p; setLook({ zoom: p.zoom || 100, spellcheck: p.spellcheck !== false }); }).catch(() => {}); }, []);
+  const setZoom = (zoom) => { setLook((l) => ({ ...l, zoom })); put('/doc-prefs', { zoom }).then((p) => { prefsRef.current = p; }).catch(() => {}); };
   const editor = useEditor({
     extensions: [
       StarterKit.configure({ link: { openOnClick: false, autolink: true }, undoRedo: false, document: false }), // undo is per person, from Collaboration
@@ -658,8 +663,12 @@ function SharedDoc({ file, setFile }) {
         {tabsShown && <DocTabs editor={editor} canEdit={!readOnly} fileId={file.id} onCopied={(m) => toast(m)} onClose={() => setTabsPanel(false)} />}
         {outline && <Outline editor={editor} fileId={file.id} onCopied={(m) => toast(m)} onClose={() => setOutline(false)} />}
         {liveCount && <WordCounter editor={editor} onOpen={() => setWordCount(true)} />}
+        <label className="doc-zoom" title="Zoom (kept for you, in every document)"><span className="sr-only">Zoom</span>
+          <select aria-label="Zoom" value={look.zoom} onChange={(e) => setZoom(Number(e.target.value))}>
+            {ZOOMS.map((z) => <option key={z} value={z}>{z}%</option>)}
+          </select></label>
         <div className="doc-scroll" onClick={(e) => e.target === e.currentTarget && editor.commands.focus('end')}>
-          <div ref={paperRef} className={`paper with-tabs ${file.page_setup?.pageless ? 'pageless' : ''} ${columnsOf(file.page_setup) > 1 ? `cols-${columnsOf(file.page_setup)}` : ''} ${file.page_setup?.lineNumbers ? 'line-numbered' : ''}`} style={file.page_setup ? paperStyle(file.page_setup) : undefined}>
+          <div ref={paperRef} className={`paper with-tabs ${file.page_setup?.pageless ? 'pageless' : ''} ${columnsOf(file.page_setup) > 1 ? `cols-${columnsOf(file.page_setup)}` : ''} ${file.page_setup?.lineNumbers ? 'line-numbered' : ''}`} style={{ ...(file.page_setup ? paperStyle(file.page_setup) : {}), ...(look.zoom !== 100 && { zoom: look.zoom / 100 }) }} spellCheck={look.spellcheck}>
             {file.page_setup?.lineNumbers && <LineNumbers editor={editor} paperRef={paperRef} layout={JSON.stringify(file.page_setup)} />}
             {file.page_setup?.watermark && <div className="print-watermark" aria-hidden="true" />}
             {file.page_setup?.watermark && <span className="sr-only">Watermark: {file.page_setup.watermark}</span>}
@@ -774,7 +783,7 @@ function SharedDoc({ file, setFile }) {
           setChipEdit(null);
           refocus();
         }} />}
-      {prefsOpen && <DocPrefsDialog prefs={prefsRef.current} onSaved={(p) => { prefsRef.current = p; }} onClose={() => { setPrefsOpen(false); editor.view.focus(); }} />}
+      {prefsOpen && <DocPrefsDialog prefs={prefsRef.current} onSaved={(p) => { prefsRef.current = p; setLook({ zoom: p.zoom || 100, spellcheck: p.spellcheck !== false }); }} onClose={() => { setPrefsOpen(false); editor.view.focus(); }} />}
       {wordCount && <WordCountDialog editor={editor} live={liveCount} onLive={setLiveCount} onClose={() => { setWordCount(false); editor.view.focus(); }} />}
       {pageSetupOpen && <PageSetupDialog setup={file.page_setup} onClose={() => { setPageSetupOpen(false); editor.view.focus(); }}
         onSave={async (next) => { try { setFile(await patch(`/files/${file.id}`, { page_setup: next })); setPageSetupOpen(false); toast('Page setup saved'); } catch (e) { toast(e.message, 'error'); } }} />}

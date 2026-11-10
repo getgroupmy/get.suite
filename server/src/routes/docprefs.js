@@ -1,5 +1,6 @@
 // Writing preferences for Docs, kept per person so they follow you between devices: whether typing is
-// autocorrected (smart quotes, dashes, arrows, ©, ½…) and your own replacements ("addr" → your address).
+// autocorrected (smart quotes, dashes, arrows, ©, ½…) and your own replacements ("addr" → your address),
+// how big documents are shown (zoom), and whether misspelt words are underlined.
 import { Router } from 'express';
 import { q } from '../db.js';
 import { bad } from '../util.js';
@@ -7,9 +8,11 @@ import { bad } from '../util.js';
 if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'doc_prefs')) q('ALTER TABLE users ADD COLUMN doc_prefs TEXT').run();
 
 export const MAX_SUBS = 100;
-const DEFAULTS = { autocorrect: true, subs: [] };
+export const ZOOMS = [50, 75, 90, 100, 110, 125, 150, 200];
+const DEFAULTS = { autocorrect: true, subs: [], zoom: 100, spellcheck: true };
 
-/** Preferences as stored: autocorrect on or off, and up to 100 replacements { from, to } (from: 1–40 characters, no spaces). */
+/** Preferences as stored: autocorrect on or off, up to 100 replacements { from, to } (from: 1–40 characters, no
+ *  spaces), the zoom (one of ZOOMS, in %) and spell check on or off. */
 export function cleanPrefs(p) {
   const subs = [];
   const seen = new Set();
@@ -20,7 +23,8 @@ export function cleanPrefs(p) {
     subs.push({ from, to });
     if (subs.length >= MAX_SUBS) break;
   }
-  return { autocorrect: p?.autocorrect !== false, subs };
+  const zoom = ZOOMS.includes(Number(p?.zoom)) ? Number(p.zoom) : 100;
+  return { autocorrect: p?.autocorrect !== false, subs, zoom, spellcheck: p?.spellcheck !== false };
 }
 
 export const prefsOf = (userId) => {

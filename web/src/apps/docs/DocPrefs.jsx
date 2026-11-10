@@ -1,4 +1,4 @@
-// Tools → Preferences (Docs): autocorrect while typing, and your own replacements. Kept on the server
+// Tools → Preferences (Docs): spell check, autocorrect while typing, and your own replacements. Kept on the server
 // for you, so they follow you to other devices.
 import { useState } from 'react';
 import { Modal, useToast } from '../../components/ui.jsx';
@@ -8,6 +8,7 @@ import { BUILT_IN } from './autocorrect.js';
 export function DocPrefsDialog({ prefs, onSaved, onClose }) {
   const toast = useToast();
   const [on, setOn] = useState(prefs.autocorrect);
+  const [spell, setSpell] = useState(prefs.spellcheck !== false);
   const [subs, setSubs] = useState(prefs.subs.length ? prefs.subs : []);
   const [from, setFrom] = useState(''), [to, setTo] = useState('');
   const add = () => {
@@ -17,12 +18,14 @@ export function DocPrefsDialog({ prefs, onSaved, onClose }) {
     setFrom(''); setTo('');
   };
   const save = async () => {
-    try { const p = await put('/doc-prefs', { autocorrect: on, subs }); onSaved(p); toast('Preferences saved'); onClose(); } catch (e) { toast(e.message, 'error'); }
+    try { const p = await put('/doc-prefs', { autocorrect: on, subs, spellcheck: spell }); onSaved(p); toast('Preferences saved'); onClose(); } catch (e) { toast(e.message, 'error'); }
   };
   return (
     <Modal title="Preferences" onClose={onClose} wide
       footer={<><button type="button" className="btn" onClick={onClose}>Cancel</button><button type="button" className="btn primary" onClick={save}>Save</button></>}>
       <div className="stack">
+        <label className="check"><input type="checkbox" checked={spell} onChange={(e) => setSpell(e.target.checked)} /> Underline misspelt words (spell check)</label>
+        <p className="muted small" style={{ margin: 0 }}>Your browser checks the spelling, in its own languages; right-click an underlined word for suggestions.</p>
         <label className="check"><input type="checkbox" checked={on} onChange={(e) => setOn(e.target.checked)} /> Autocorrect while typing</label>
         <p className="muted small" style={{ margin: 0 }}>
           Curly quotes, and {BUILT_IN.map(([a, b]) => `${a} → ${b}`).join(', ')}. Press Backspace straight after a change to keep what you typed.

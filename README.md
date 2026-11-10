@@ -145,6 +145,11 @@ Everyone who can edit a document, spreadsheet or presentation can work in it at 
 - **Sheets** works the same way, cell by cell: two people changing different cells at once both keep their change, and the same cell keeps the later change. Each person's selected cell is outlined in their colour. Formats, column widths and new sheets are shared too.
 - **Slides** too: slides and the boxes on them merge one by one, so two people working on different boxes (or slides) both keep their changes; the same box keeps the later change. Each person's selected box is outlined in their colour.
 
+## Zoom and spell check (Docs)
+
+- **Zoom:** the box at the bottom right of a document shows it smaller or bigger (50% to 200%), for a small laptop screen or a big monitor. It's kept with your account, so every document opens at that size for you, on any device. It's only how you see it: others see their own size, and printing and downloads aren't affected. People who can only view a document can zoom too.
+- **Spell check:** misspelt words are underlined by your browser, in its own languages (right-click one for suggestions). **⋮ → Preferences → Underline misspelt words** turns it off for you, in every document.
+
 ## Tabs (Docs)
 
 - **⋮ → Add tab** splits a document into tabs, each with its own pages (chapters of a handbook, a tab per meeting, *Plan* and *Budget*): what was there becomes *Tab 1*, and a new tab opens to write in. The **Tabs** panel beside the document lists them (▤ in the header shows or hides it); click one to open it, or **＋** to add another (up to 50).
