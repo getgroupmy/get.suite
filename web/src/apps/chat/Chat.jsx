@@ -391,6 +391,8 @@ export default function Chat() {
           <input name="q" type="search" placeholder="Search messages" aria-label="Search messages" onChange={(e) => { if (!e.target.value) setSearch(null); }} />
         </form>
         <button type="button" className={`subnav-item ${savedOpen ? 'active' : ''}`} onClick={() => { setSearch(null); setSavedOpen(true); }}><span className="hash" aria-hidden="true">🔖</span><span className="grow">Saved</span>{saved.length > 0 && <span className="count">{saved.length}</span>}</button>
+        {Object.values(unread).some((n) => n > 0) && <button type="button" className="link-btn small chat-read-all" title="Mark every conversation as read"
+          onClick={async () => { try { const r = await post('/chat/read-all', {}); await loadChannels(); toast(`Marked ${r.conversations} conversation${r.conversations === 1 ? '' : 's'} as read`); } catch (e) { toast(e.message, 'error'); } }}>✓ Mark all as read</button>}
         {starred.length > 0 && <>
           <div className="subnav-title">Starred</div>
           <div role="list" aria-label="Starred conversations">{starred.map((c) => <div role="listitem" key={c.id}>{c.dm_key ? dmRow(c) : channelRow(c)}</div>)}</div>

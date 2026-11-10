@@ -927,6 +927,22 @@ export default function chatRoutes() {
 
   // Read up to now: unread counts go back to zero (on your other devices too). In a direct message
   // the other person sees "Seen" under what they sent, unless either of you has read receipts off.
+  // Mark everything read: every conversation you see (channels, private ones you're in, direct messages).
+  r.post('/read-all', (req, res) => {
+    const me = req.user.id, t = now();
+    const ids = q(`SELECT c.id FROM channels c WHERE ((c.dm_key IS NULL AND c.private = 0 AND c.org_id = ?)
+                     OR EXISTS (SELECT 1 FROM channel_members cm WHERE cm.channel_id = c.id AND cm.user_id = ?))
+                     AND EXISTS (SELECT 1 FROM messages m WHERE m.channel_id = c.id AND m.created_at > COALESCE((SELECT read_at FROM channel_reads r WHERE r.channel_id = c.id AND r.user_id = ?), 0))`)
+      .all(req.user.org_id, me, me).map((x) => x.id);
+    tx(() => { for (const id of ids) q('INSERT INTO channel_reads (channel_id, user_id, read_at) VALUES (?, ?, ?) ON CONFLICT(channel_id, user_id) DO UPDATE SET read_at = MAX(read_at, excluded.read_at)').run(id, me, t); });
+    for (const id of ids) {
+      sendTo([me], { type: 'chat-read', channel_id: id });
+      const other = dmOther(q('SELECT * FROM channels WHERE id = ?').get(id), me);
+      if (other && receiptsOn(me) && receiptsOn(other)) sendTo([other], { type: 'chat-seen', channel_id: id, by: me, read_at: t });
+    }
+    res.json({ conversations: ids.length });
+  });
+
   r.post('/channels/:id/read', (req, res) => {
     const c = loadChannel(req.params.id, req.user);
     const t = now();

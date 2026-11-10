@@ -8725,6 +8725,27 @@ test('drive: rename, merge and delete a label of your own', async () => {
   assert.equal((await b('GET', '/api/files/labels')).body.length, 1);
 });
 
+test('chat: mark everything read at once', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['cmra', 'Cmr Ann'], ['cmrb', 'Cmr Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  const aid = (await login(a, 'cmra@acme.com')).id;
+  await login(b, 'cmrb@acme.com');
+  const dm = (await b('POST', '/api/chat/dm', { user_id: aid })).body.id;
+  const ch = (await b('POST', '/api/chat/channels', { name: 'cmr-news' })).body.id;
+  await b('POST', `/api/chat/channels/${dm}/messages`, { body: 'Hi Ann' });
+  await b('POST', `/api/chat/channels/${ch}/messages`, { body: 'News' });
+  await b('POST', `/api/chat/channels/${ch}/messages`, { body: 'More news' });
+  const unread = async (cl) => Object.fromEntries((await cl('GET', '/api/chat/channels')).body.channels.filter((c) => [dm, ch].includes(c.id)).map((c) => [c.id === dm ? 'dm' : 'ch', c.unread]));
+  assert.deepEqual(await unread(a), { dm: 1, ch: 2 });
+  const r = await a('POST', '/api/chat/read-all', {});
+  assert.ok(r.body.conversations >= 2);
+  assert.deepEqual(await unread(a), { dm: 0, ch: 0 });
+  // New ones after count again.
+  await b('POST', `/api/chat/channels/${ch}/messages`, { body: 'Later news' });
+  assert.deepEqual(await unread(a), { dm: 0, ch: 1 });
+  assert.equal((await a('POST', '/api/chat/read-all', {})).body.conversations, 1);
+});
+
 test('chat: sections of your own in the conversation list', async () => {
   const a = client(), b = client(), x = client();
   for (const [local, name] of [['csea', 'Cse Ann'], ['cseb', 'Cse Ben'], ['csex', 'Cse Xavi']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
