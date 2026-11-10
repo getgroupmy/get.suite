@@ -74,6 +74,7 @@ function Suggested({ onOpen }) {
 }
 
 /** Search filters: [param, label, [[value, name]...]]. */
+const LABEL_COLORS = [['#d93025', 'Red'], ['#e8710a', 'Orange'], ['#f9ab00', 'Yellow'], ['#188038', 'Green'], ['#12b5cb', 'Teal'], ['#1a73e8', 'Blue'], ['#9334e6', 'Purple'], ['#e52592', 'Pink'], ['#5f6368', 'Grey']];
 const FILTERS = [
   ['type', 'Type', [['', 'Any type'], ['doc', 'Documents'], ['sheet', 'Spreadsheets'], ['slides', 'Presentations'], ['pdf', 'PDFs'], ['image', 'Pictures'], ['video', 'Videos'], ['audio', 'Audio'], ['archive', 'Archives (.zip)'], ['folder', 'Folders']]],
   ['owner', 'Owner', [['', 'Anyone'], ['me', 'Owned by me'], ['others', 'Not owned by me']]],
@@ -120,6 +121,8 @@ export default function Drive() {
   const [myLabels, setMyLabels] = useState([]);
   const loadLabels = useCallback(() => get('/files/labels').then(setMyLabels).catch(() => {}), []);
   useEffect(() => { loadLabels(); }, [loadLabels]);
+  const labelColor = (name) => myLabels.find((l) => l.name === name)?.color;
+  const setLabelColor = async (label, color) => { try { await put('/files/labels/color', { label, color }); loadLabels(); } catch (e) { toast(e.message, 'error'); } };
 
   const load = useCallback(async () => {
     if (route.view === 'approvals' || route.view === 'signatures') { setFiles([]); return; } // their own lists (Approvals.jsx, Signatures.jsx)
@@ -389,9 +392,10 @@ export default function Drive() {
         {myLabels.map((l) => (
           <div key={l.name} className="drive-label-row">
             <NavLink to={`/drive/label/${encodeURIComponent(l.name)}`} className="subnav-item" aria-label={`Label ${l.name}, ${l.count}`}>
-              <span aria-hidden="true" style={{ width: 24, textAlign: 'center' }}>🏷</span><span className="grow ellipsis">{l.name}</span><span className="count">{l.count}</span></NavLink>
+              {l.color ? <span className="drive-label-dot" style={{ background: l.color }} aria-hidden="true" /> : <span aria-hidden="true" style={{ width: 24, textAlign: 'center' }}>🏷</span>}<span className="grow ellipsis">{l.name}</span><span className="count">{l.count}</span></NavLink>
             <Menu align="right" trigger={(p) => <button type="button" className="icon-btn drive-label-menu" aria-label={`Edit label ${l.name}`} title="Rename or delete" {...p}><Icon name="more" size={16} /></button>}
-              items={[{ label: 'Rename label…', onClick: () => setDialog({ type: 'label-rename', label: l.name }) }, { label: 'Delete label', danger: true, onClick: () => setDialog({ type: 'label-delete', label: l.name }) }]} />
+              items={[...LABEL_COLORS.map(([c, name]) => ({ label: `${l.color === c ? '✓ ' : ''}${name}`, onClick: () => setLabelColor(l.name, c) })), { label: 'No colour', onClick: () => setLabelColor(l.name, null) }, '-',
+                { label: 'Rename label…', onClick: () => setDialog({ type: 'label-rename', label: l.name }) }, { label: 'Delete label', danger: true, onClick: () => setDialog({ type: 'label-delete', label: l.name }) }]} />
           </div>
         ))}
         {requests.length > 0 && <button type="button" className="subnav-item" onClick={() => setRequestsOpen(true)}><Icon name="lock" /><span className="grow">Access requests</span><span className="count">{requests.length}</span></button>}
@@ -515,7 +519,7 @@ export default function Drive() {
                   onClick={(e) => { if (e.shiftKey || e.metaKey || e.ctrlKey) toggleCheck(f.id); else setSelected(f.id); }} onDoubleClick={() => route.view !== 'trash' && open(f)}
                   onKeyDown={(e) => { if (e.key === 'Enter' && route.view !== 'trash') open(f); if (e.key === ' ' && e.target === e.currentTarget) { e.preventDefault(); toggleCheck(f.id); } }}>
                   <td className="check-col" onClick={(e) => e.stopPropagation()}><input type="checkbox" aria-label={`Select ${f.name}`} checked={checked.has(f.id)} onChange={() => toggleCheck(f.id)} /></td>
-                  <td className="name"><Icon name={fileIcon(f)} className={`ft ft-${fileIcon(f)}`} style={f.color ? { color: f.color } : undefined} /><span className="name-text">{f.name}{f.match && <MatchText text={f.match} />}{f.drive_name && <span className="muted small"> · in {f.drive_name}</span>}{f.labels?.map((l) => <span key={l} className="file-label">{l}</span>)}</span>{f.starred && <Icon name="star" size={14} className="star-mark" title="Starred" />}{f.locked_at && <span className="lock-mark" title={`Locked by ${f.locked_by_name}`} aria-label="Locked"><Icon name="lock" size={14} /></span>}</td>
+                  <td className="name"><Icon name={fileIcon(f)} className={`ft ft-${fileIcon(f)}`} style={f.color ? { color: f.color } : undefined} /><span className="name-text">{f.name}{f.match && <MatchText text={f.match} />}{f.drive_name && <span className="muted small"> · in {f.drive_name}</span>}{f.labels?.map((l) => <span key={l} className={`file-label ${labelColor(l) ? 'coloured' : ''}`} style={labelColor(l) ? { '--lc': labelColor(l) } : undefined}>{l}</span>)}</span>{f.starred && <Icon name="star" size={14} className="star-mark" title="Starred" />}{f.locked_at && <span className="lock-mark" title={`Locked by ${f.locked_by_name}`} aria-label="Locked"><Icon name="lock" size={14} /></span>}</td>
                   <td className="hide-sm muted">{f.owner_id === user.id ? 'me' : f.owner_name}</td>
                   <td className="hide-sm muted">{route.view === 'trash' ? (f.kept ? <span title="Your company is keeping it (a legal hold)">Kept</span> : goesIn(f.deletes_at)) : formatDate(f.updated_at)}</td>
                   <td className="hide-sm muted">{f.kind === 'folder' ? (f.folder_size === undefined ? '—' : <span title={`${f.folder_files} file${f.folder_files === 1 ? '' : 's'} inside`}>{f.folder_files ? formatBytes(f.folder_size) : 'Empty'}</span>) : formatBytes(f.size)}</td>

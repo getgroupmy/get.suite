@@ -388,6 +388,14 @@ q(`CREATE TABLE IF NOT EXISTS file_labels (
   PRIMARY KEY (user_id, file_id, label)
 )`).run();
 export const MAX_FILE_LABELS = 10;
+// A colour for each of your labels (yours alone), from the same set as Notes.
+q(`CREATE TABLE IF NOT EXISTS file_label_colors (
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  label TEXT NOT NULL,
+  color TEXT NOT NULL,
+  PRIMARY KEY (user_id, label)
+)`).run();
+export const FILE_LABEL_COLORS = ['#d93025', '#e8710a', '#f9ab00', '#188038', '#12b5cb', '#1a73e8', '#9334e6', '#e52592', '#5f6368'];
 /** Labels as kept: trimmed, at most 30 characters, no repeats (whatever the capitals), at most MAX_FILE_LABELS. */
 export function cleanFileLabels(list) {
   if (!Array.isArray(list)) throw bad('labels must be a list');
@@ -589,6 +597,11 @@ export default function fileRoutes({ maxUploadBytes }) {
         if (!same) q('INSERT INTO file_labels (user_id, file_id, label) VALUES (?, ?, ?)').run(req.user.id, id, to);
       }
     });
+    if (from !== to) {
+      const c = q('SELECT color FROM file_label_colors WHERE user_id = ? AND label = ?').get(req.user.id, from);
+      if (c) q('INSERT INTO file_label_colors (user_id, label, color) VALUES (?, ?, ?) ON CONFLICT(user_id, label) DO NOTHING').run(req.user.id, to, c.color);
+      q('DELETE FROM file_label_colors WHERE user_id = ? AND label = ?').run(req.user.id, from);
+    }
     res.json({ label: to, files: files.length });
   });
   // Add one label to several files at once ({ ids, label }); each keeps its others. All or none.
@@ -616,6 +629,7 @@ export default function fileRoutes({ maxUploadBytes }) {
   r.post('/labels/delete', (req, res) => {
     const label = String(req.body?.label || '');
     const n = q('DELETE FROM file_labels WHERE user_id = ? AND label = ?').run(req.user.id, label).changes;
+    q('DELETE FROM file_label_colors WHERE user_id = ? AND label = ?').run(req.user.id, label);
     res.json({ files: n });
   });
 
@@ -624,7 +638,17 @@ export default function fileRoutes({ maxUploadBytes }) {
       .filter((x) => roleFor(x.file_id, req.user.id));
     const counts = new Map();
     for (const x of rows) counts.set(x.label, (counts.get(x.label) || 0) + 1);
-    res.json([...counts].map(([name, count]) => ({ name, count })).sort((a, b) => a.name.localeCompare(b.name)));
+    const colors = new Map(q('SELECT label, color FROM file_label_colors WHERE user_id = ?').all(req.user.id).map((x) => [x.label, x.color]));
+    res.json([...counts].map(([name, count]) => ({ name, count, ...(colors.has(name) && { color: colors.get(name) }) })).sort((a, b) => a.name.localeCompare(b.name)));
+  });
+  r.put('/labels/color', (req, res) => {
+    const label = String(req.body?.label || '');
+    const color = req.body?.color || null;
+    if (!label) throw bad('Which label?');
+    if (color && !FILE_LABEL_COLORS.includes(color)) throw bad('Choose one of the colours');
+    if (color) q('INSERT INTO file_label_colors (user_id, label, color) VALUES (?, ?, ?) ON CONFLICT(user_id, label) DO UPDATE SET color = excluded.color').run(req.user.id, label, color);
+    else q('DELETE FROM file_label_colors WHERE user_id = ? AND label = ?').run(req.user.id, label);
+    res.json({ label, color });
   });
 
   // Download several files and folders as one .zip; documents, spreadsheets and presentations as

@@ -8706,7 +8706,14 @@ test('drive: rename, merge and delete a label of your own', async () => {
   await a('PUT', `/api/files/${f1.id}/labels`, { labels: ['Invoces', 'Taxes'] });
   await a('PUT', `/api/files/${f2.id}/labels`, { labels: ['Invoces'] });
   await b('PUT', `/api/files/${g.id}/labels`, { labels: ['Invoces'] });
+  // A colour of your own for a label; it goes with a rename.
+  assert.deepEqual((await a('PUT', '/api/files/labels/color', { label: 'Invoces', color: '#188038' })).body, { label: 'Invoces', color: '#188038' });
+  assert.equal((await a('PUT', '/api/files/labels/color', { label: 'Invoces', color: '#123456' })).status, 400);
+  assert.equal((await a('GET', '/api/files/labels')).body.find((l) => l.name === 'Invoces').color, '#188038');
+  assert.equal((await b('GET', '/api/files/labels')).body[0].color, undefined, 'Ben’s own');
   assert.deepEqual((await a('POST', '/api/files/labels/rename', { from: 'Invoces', to: ' Invoices ' })).body, { label: 'Invoices', files: 2 });
+  assert.equal((await a('GET', '/api/files/labels')).body.find((l) => l.name === 'Invoices').color, '#188038', 'the colour went with it');
+  await a('PUT', '/api/files/labels/color', { label: 'Invoices', color: null });
   assert.deepEqual((await a('GET', '/api/files/labels')).body, [{ name: 'Invoices', count: 2 }, { name: 'Taxes', count: 1 }]);
   assert.deepEqual((await b('GET', '/api/files/labels')).body, [{ name: 'Invoces', count: 1 }], 'Ben’s are his own');
   // Into one that's there: merged, no doubles.
