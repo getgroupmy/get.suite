@@ -71,12 +71,15 @@ export default function Chat() {
   const [pins, setPins] = useState([]); // this conversation's pinned messages
   const [pinsOpen, setPinsOpen] = useState(false);
   const [text, setText] = useState('');
+  const keepDraftRef = useRef(null);
+  // Changes made for you (an emoji, a completed @mention) are kept in the draft as typing is.
+  const setTextKept = useCallback((v) => setText((prev) => { const next = typeof v === 'function' ? v(prev) : v; keepDraftRef.current?.(next); return next; }), []);
   const box = useRef();
   // Put the emoji where the cursor was in the message box.
   const insertEmoji = (ch) => {
     const t = box.current;
     const from = t?.selectionStart ?? text.length, to = t?.selectionEnd ?? text.length;
-    setText((v) => v.slice(0, from) + ch + v.slice(to));
+    setTextKept((v) => v.slice(0, from) + ch + v.slice(to));
     caret.current = from + ch.length;
   };
   // Back in the message box, just after the emoji, as soon as it's on screen.
@@ -89,7 +92,7 @@ export default function Chat() {
   }, [text]);
   const [unread, setUnread] = useState({});
   const [mentioned, setMentioned] = useState({}); // conversations where someone @mentioned you since you read them
-  const mention = useMentions(box, text, setText, { groups: true });
+  const mention = useMentions(box, text, setTextKept, { groups: true });
   const typing = useTyping(channelId, null, user.id);
   const [forwarding, setForwarding] = useState(null); // the message being forwarded
   const [threadId, setThreadId] = useState(null); // the message whose thread is open beside the conversation
@@ -104,6 +107,55 @@ export default function Chat() {
   });
   const channelIdRef = useRef(channelId);
   channelIdRef.current = channelId;
+  // Drafts: what's typed and not sent, per conversation, kept on the server (so your other devices have it).
+  const [drafts, setDrafts] = useState({}); // channel id → text
+  const [draftsReady, setDraftsReady] = useState(false);
+  const draftsRef = useRef({});
+  const clientId = useRef(Math.random().toString(36).slice(2, 12)).current;
+  const pendingDraft = useRef(null); // { cid, body } not yet saved
+  const draftTimer = useRef(null);
+  const putDraft = useCallback((cid, body) => {
+    draftsRef.current = { ...draftsRef.current, [cid]: body.trim() ? body : '' };
+    setDrafts(draftsRef.current);
+    put(`/chat/channels/${cid}/draft`, { body, client: clientId }).catch(() => {});
+  }, [clientId]);
+  const flushDraft = useCallback(() => {
+    clearTimeout(draftTimer.current);
+    const p = pendingDraft.current;
+    pendingDraft.current = null;
+    if (p && (draftsRef.current[p.cid] || '') !== (p.body.trim() ? p.body : '')) putDraft(p.cid, p.body);
+  }, [putDraft]);
+  const keepDraft = (body) => {
+    if (!channelId) return;
+    if (pendingDraft.current && pendingDraft.current.cid !== channelId) flushDraft();
+    pendingDraft.current = { cid: channelId, body };
+    clearTimeout(draftTimer.current);
+    draftTimer.current = setTimeout(flushDraft, 700);
+  };
+  keepDraftRef.current = keepDraft;
+  const dropDraft = (cid) => { clearTimeout(draftTimer.current); pendingDraft.current = null; draftsRef.current = { ...draftsRef.current, [cid]: '' }; setDrafts(draftsRef.current); };
+  useEffect(() => {
+    get('/chat/drafts').then((all) => { draftsRef.current = Object.fromEntries(Object.entries(all).map(([k, v]) => [k, v.body])); setDrafts(draftsRef.current); }).catch(() => {}).finally(() => setDraftsReady(true));
+    return () => flushDraft();
+  }, [flushDraft]);
+  useEffect(() => {
+    const away = () => flushDraft();
+    window.addEventListener('pagehide', away);
+    return () => window.removeEventListener('pagehide', away);
+  }, [flushDraft]);
+  // Opening a conversation puts its draft in the box (saving the last one's first).
+  useEffect(() => {
+    if (!channelId || !draftsReady) return;
+    flushDraft();
+    setText(draftsRef.current[channelId] || '');
+  }, [channelId, draftsReady, flushDraft]);
+  // Changed on another device: kept here too (and shown, if it's this conversation and you're not typing).
+  useEffect(() => onLive((m) => {
+    if (m.type !== 'chat-draft' || m.from === clientId) return;
+    draftsRef.current = { ...draftsRef.current, [m.channel_id]: m.body || '' };
+    setDrafts(draftsRef.current);
+    if (m.channel_id === channelIdRef.current && document.activeElement !== box.current && pendingDraft.current?.cid !== m.channel_id) setText(m.body || '');
+  }), [clientId]);
   // Reading a conversation marks it read (also for your other tabs and devices).
   const markRead = (id) => { if (id && !document.hidden) post(`/chat/channels/${id}/read`).catch(() => {}); };
   useEffect(() => {
@@ -243,7 +295,7 @@ export default function Chat() {
     if ((!body && !files.length) || uploading) return;
     try {
       await post(`/chat/channels/${channelId}/scheduled`, { body, files: files.map((f) => f.id), send_at: at });
-      setText(''); setFiles([]);
+      setText(''); setFiles([]); keepDraft('');
       toast(`Scheduled for ${whenText(at)}`);
       loadScheduled();
     } catch (err) { toast(err.message, 'error'); }
@@ -254,13 +306,13 @@ export default function Chat() {
     const body = text.trim();
     if ((!body && !files.length) || uploading) return;
     const sending = files;
-    setText(''); setFiles([]); typing.sent();
+    setText(''); setFiles([]); typing.sent(); dropDraft(channelId); // sending clears the draft (the server too)
     stick.current = true;
     try {
       const msg = await post(`/chat/channels/${channelId}/messages`, { body, files: sending.map((f) => f.id) });
       setMessages((list) => (list.some((x) => x.id === msg.id) ? list : [...list, msg]));
       checkLinkAccess(channelId, body, toast, user.org_name);
-    } catch (err) { toast(err.message, 'error'); setText(body); setFiles(sending); }
+    } catch (err) { toast(err.message, 'error'); setText(body); keepDraft(body); setFiles(sending); }
   }
 
   const [editingId, setEditingId] = useState(null);
@@ -309,14 +361,14 @@ export default function Chat() {
         <div className="subnav-title row">Channels<div className="grow" /><button className="icon-btn" aria-label="New channel" onClick={() => setDialog(true)}><Icon name="plus" size={18} /></button></div>
         {[...publicChannels, ...(showArchived ? archivedChannels : [])].map((c) => (
           <button key={c.id} className={`subnav-item ${c.id === channelId ? 'active' : ''} ${c.archived_at ? 'archived' : ''} ${c.muted ? 'muted' : ''}`} onClick={() => navigate(`/chat/${c.id}`)}>
-            <span className="hash" aria-label={c.private ? 'Private channel' : undefined}>{c.private ? '🔒' : '#'}</span><span className="grow ellipsis">{c.name}</span>{c.muted && <span className="muted-mark" aria-label="Muted" title="Muted">🔕</span>}{mentioned[c.id] && <span className="badge at" aria-label="You were mentioned">@</span>}{unread[c.id] > 0 && <span className={`badge ${c.muted ? 'quiet' : ''}`}>{unread[c.id]}</span>}
+            <span className="hash" aria-label={c.private ? 'Private channel' : undefined}>{c.private ? '🔒' : '#'}</span><span className="grow ellipsis">{c.name}</span>{drafts[c.id] && c.id !== channelId && <span className="draft-mark" aria-label="Draft" title={`Draft: ${drafts[c.id].slice(0, 80)}`}>✏️</span>}{c.muted && <span className="muted-mark" aria-label="Muted" title="Muted">🔕</span>}{mentioned[c.id] && <span className="badge at" aria-label="You were mentioned">@</span>}{unread[c.id] > 0 && <span className={`badge ${c.muted ? 'quiet' : ''}`}>{unread[c.id]}</span>}
           </button>
         ))}
         {archivedChannels.length > 0 && <button type="button" className="link-btn small archived-toggle" aria-expanded={showArchived} onClick={() => setShowArchived(!showArchived)}>{showArchived ? 'Hide' : 'Show'} archived ({archivedChannels.length})</button>}
         <div className="subnav-title">Direct messages</div>
         {dms.map((c) => (
           <button key={c.id} className={`subnav-item ${c.id === channelId ? 'active' : ''} ${c.muted ? 'muted' : ''}`} onClick={() => navigate(`/chat/${c.id}`)}>
-            <Avatar name={c.dm_name || user.name} size={20} userId={c.dm_user_id || user.id} /><span className="grow ellipsis">{c.dm_name || 'Notes to self'}{c.dm_org && <span className="muted small"> · {c.dm_org}</span>}{statusFor(c.dm_user_id) && <span className="dm-status" title={statusLine(statusFor(c.dm_user_id))}> {statusFor(c.dm_user_id).emoji || '💬'}</span>}{pausedFor(c.dm_user_id) && <span className="dm-status" aria-label="Notifications paused" title={`Notifications paused until ${whenText(pausedFor(c.dm_user_id))}`}> 🔕</span>}</span>{c.muted && <span className="muted-mark" aria-label="Muted" title="Muted">🔕</span>}{mentioned[c.id] && <span className="badge at" aria-label="You were mentioned">@</span>}{unread[c.id] > 0 && <span className={`badge ${c.muted ? 'quiet' : ''}`}>{unread[c.id]}</span>}
+            <Avatar name={c.dm_name || user.name} size={20} userId={c.dm_user_id || user.id} /><span className="grow ellipsis">{c.dm_name || 'Notes to self'}{c.dm_org && <span className="muted small"> · {c.dm_org}</span>}{statusFor(c.dm_user_id) && <span className="dm-status" title={statusLine(statusFor(c.dm_user_id))}> {statusFor(c.dm_user_id).emoji || '💬'}</span>}{pausedFor(c.dm_user_id) && <span className="dm-status" aria-label="Notifications paused" title={`Notifications paused until ${whenText(pausedFor(c.dm_user_id))}`}> 🔕</span>}</span>{drafts[c.id] && c.id !== channelId && <span className="draft-mark" aria-label="Draft" title={`Draft: ${drafts[c.id].slice(0, 80)}`}>✏️</span>}{c.muted && <span className="muted-mark" aria-label="Muted" title="Muted">🔕</span>}{mentioned[c.id] && <span className="badge at" aria-label="You were mentioned">@</span>}{unread[c.id] > 0 && <span className={`badge ${c.muted ? 'quiet' : ''}`}>{unread[c.id]}</span>}
           </button>
         ))}
         <select className="dm-pick" value="" aria-label="Start a direct message" onChange={(e) => {
@@ -439,7 +491,7 @@ export default function Chat() {
             <button type="button" className="icon-btn" aria-label="Create a poll" title="Ask a question with options to vote on" onClick={() => setPollOpen(true)}>📊</button>
             <button type="button" className="icon-btn" aria-label="Start a video meeting" title="Start a video meeting and share its link here" onClick={startMeeting}><Icon name="video" /></button>
             <input ref={fileInput} type="file" multiple hidden aria-label="Files to attach" onChange={(e) => { attach([...e.target.files]); e.target.value = ''; }} />
-            <textarea ref={box} rows={1} value={text} placeholder={`Message ${title}`} aria-label="Message" title="*bold*  _italic_  ~strike~  `code`  ```code block```  > quote" onChange={(e) => { setText(e.target.value); mention.track(e.target.value, e.target.selectionStart); typing.onType(e.target.value); }}
+            <textarea ref={box} rows={1} value={text} placeholder={`Message ${title}`} aria-label="Message" title="*bold*  _italic_  ~strike~  `code`  ```code block```  > quote" onChange={(e) => { setText(e.target.value); keepDraft(e.target.value); mention.track(e.target.value, e.target.selectionStart); typing.onType(e.target.value); }}
               onPaste={(e) => { const pasted = [...(e.clipboardData?.files || [])]; if (pasted.length) { e.preventDefault(); attach(pasted); } }}
               onKeyDown={(e) => { if (mention.keyDown(e)) return; if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) send(e); }} />
             {mention.list}

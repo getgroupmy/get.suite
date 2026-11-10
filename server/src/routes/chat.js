@@ -112,6 +112,19 @@ function loadChannel(id, user) {
   return c;
 }
 
+q(`CREATE TABLE IF NOT EXISTS chat_drafts (
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+  body TEXT NOT NULL,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (user_id, channel_id)
+)`).run();
+const MAX_DRAFT = 20000;
+/** Forget someone's draft in a conversation, and tell their other devices. */
+function clearDraft(userId, channelId, from = '') {
+  if (q('DELETE FROM chat_drafts WHERE user_id = ? AND channel_id = ?').run(userId, channelId).changes) sendTo([userId], { type: 'chat-draft', channel_id: channelId, body: '', from });
+}
+
 const membersOf = (c) => q('SELECT user_id FROM channel_members WHERE channel_id = ?').all(c.id).map((r) => r.user_id);
 // Read receipts in direct messages: users.hide_reads = 1 turns them off (both ways).
 if (!q('PRAGMA table_info(users)').all().some((x) => x.name === 'hide_reads')) q('ALTER TABLE users ADD COLUMN hide_reads INTEGER NOT NULL DEFAULT 0').run();
@@ -664,7 +677,31 @@ export default function chatRoutes() {
     const c = writable(req.params.id, req.user);
     const m = readMessage(c, req.user, req.body);
     lastTyping.delete(`${req.user.id}:${c.id}:${m.parent?.id || ''}`); // the next keystroke is news again
-    res.status(201).json(deliver(c, req.user, m));
+    const out = deliver(c, req.user, m);
+    if (!m.parent) clearDraft(req.user.id, c.id); // sent: the draft has gone out
+    res.status(201).json(out);
+  });
+
+  // Drafts: what you've typed in a conversation and not sent, kept per person and conversation on the
+  // server, so it's there on your other devices too (and they're told as it changes). Sending clears it.
+  r.get('/drafts', (req, res) => {
+    const out = {};
+    for (const d of q('SELECT channel_id, body, updated_at FROM chat_drafts WHERE user_id = ? ORDER BY updated_at DESC').all(req.user.id)) {
+      try { loadChannel(d.channel_id, req.user); out[d.channel_id] = { body: d.body, updated_at: d.updated_at }; } catch { /* no longer in it */ }
+    }
+    res.json(out);
+  });
+  r.put('/channels/:id/draft', (req, res) => {
+    const c = loadChannel(req.params.id, req.user);
+    const body = String(req.body?.body ?? '');
+    if (body.length > MAX_DRAFT) throw bad(`A draft can be at most ${MAX_DRAFT} characters`);
+    const at = Date.now();
+    if (body.trim()) {
+      q(`INSERT INTO chat_drafts (user_id, channel_id, body, updated_at) VALUES (?, ?, ?, ?)
+         ON CONFLICT(user_id, channel_id) DO UPDATE SET body = excluded.body, updated_at = excluded.updated_at`).run(req.user.id, c.id, body, at);
+      sendTo([req.user.id], { type: 'chat-draft', channel_id: c.id, body, updated_at: at, from: String(req.body?.client || '').slice(0, 40) });
+    } else clearDraft(req.user.id, c.id, String(req.body?.client || '').slice(0, 40));
+    res.json({ channel_id: c.id, body: body.trim() ? body : '', updated_at: at });
   });
 
   // "Kim is typing…": passed on to the others in the conversation (or thread) as it happens; nothing

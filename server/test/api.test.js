@@ -8411,3 +8411,29 @@ test('mail: forwarding all mail — the Sieve block, confirmation codes, and com
     q('DELETE FROM mail_rules WHERE user_id = ?').run(u.id);
   }
 });
+
+test('chat drafts: kept per person and conversation, on every device; sending clears it; not for conversations you can’t see', async () => {
+  const a = client(), a2 = client(), b = client(), x = client();
+  for (const [local, name] of [['dra', 'Draft Ann'], ['drb', 'Draft Ben'], ['drx', 'Draft Xavi']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'dra@acme.com'); await login(a2, 'dra@acme.com');
+  const bid = (await login(b, 'drb@acme.com')).id;
+  await login(x, 'drx@acme.com');
+  const dm = (await a('POST', '/api/chat/dm', { user_id: bid })).body.id;
+  assert.deepEqual((await a('GET', '/api/chat/drafts')).body, {});
+  const saved = (await a('PUT', `/api/chat/channels/${dm}/draft`, { body: 'Half a thought…' })).body;
+  assert.equal(saved.body, 'Half a thought…');
+  assert.equal((await a2('GET', '/api/chat/drafts')).body[dm].body, 'Half a thought…', 'on the other device too');
+  assert.deepEqual((await b('GET', '/api/chat/drafts')).body, {}, 'only yours');
+  assert.equal((await x('PUT', `/api/chat/channels/${dm}/draft`, { body: 'sneaky' })).status, 404, 'not in a conversation you can’t see');
+  assert.equal((await a('PUT', `/api/chat/channels/${dm}/draft`, { body: 'x'.repeat(20001) })).status, 400);
+  // A thread reply doesn't clear the conversation's draft; sending in it does.
+  const first = (await b('POST', `/api/chat/channels/${dm}/messages`, { body: 'Hi' })).body.id;
+  await a('POST', `/api/chat/channels/${dm}/messages`, { body: 'In a thread', parent_id: first });
+  assert.equal((await a('GET', '/api/chat/drafts')).body[dm]?.body, 'Half a thought…');
+  await a('POST', `/api/chat/channels/${dm}/messages`, { body: 'Half a thought, finished' });
+  assert.deepEqual((await a('GET', '/api/chat/drafts')).body, {}, 'sent: gone');
+  // Emptying it removes it.
+  await a('PUT', `/api/chat/channels/${dm}/draft`, { body: 'again' });
+  await a('PUT', `/api/chat/channels/${dm}/draft`, { body: '   ' });
+  assert.deepEqual((await a('GET', '/api/chat/drafts')).body, {});
+});
