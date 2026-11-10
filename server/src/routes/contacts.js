@@ -71,6 +71,31 @@ function read(body, partial) {
   return out;
 }
 
+// ---- sending a contact in Chat ----
+/** What a contact you can see (yours, or one shared with your company) says, to pass on: no notes or dates. */
+export function contactCard(id, user) {
+  const c = q('SELECT c.*, u.org_id FROM contacts c JOIN users u ON u.id = c.owner_id WHERE c.id = ?').get(String(id || ''));
+  if (!c || !(c.owner_id === user.id || (c.shared && c.org_id === user.org_id))) throw notFound('Contact not found');
+  const m = withMore(c);
+  const card = { name: c.name };
+  for (const k of ['email', 'phone', 'company', 'title', 'address', 'website']) if (c[k]) card[k] = c[k];
+  if (m.more_emails?.length) card.more_emails = m.more_emails;
+  if (m.more_phones?.length) card.more_phones = m.more_phones;
+  return card;
+}
+/** Adds a passed-on contact to someone's own contacts (checked as if they'd typed it). An existing contact
+ *  of theirs with the same email address is kept instead: { id, existing: true }. */
+export function addContactFrom(user, card) {
+  const email = String(card?.email || '').trim().toLowerCase();
+  const had = email && q('SELECT id FROM contacts WHERE owner_id = ? AND LOWER(email) = ?').get(user.id, email);
+  if (had) return { id: had.id, existing: true };
+  const c = read({ ...card, notes: undefined }, false);
+  const id = uid();
+  q(`INSERT INTO contacts (id, owner_id, ${COLS.join(', ')}, created_at, shared, more_emails, more_phones) VALUES (?, ?, ${COLS.map(() => '?').join(', ')}, ?, 0, ?, ?)`)
+    .run(id, user.id, ...COLS.map((k) => c[k] ?? null), now(), c.more_emails ?? null, c.more_phones ?? null);
+  return { id, existing: false };
+}
+
 export default function contactRoutes() {
   const r = Router();
 

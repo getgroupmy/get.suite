@@ -654,6 +654,7 @@ function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit
             <FileCards text={m.forwarded.body} />
           </blockquote>
         )}
+        {m.contact && <ContactInMessage m={m} />}
         {!editing && <FileCards text={m.body} />}
         {!editing && <MessageCards text={m.body} self={m.id} />}
         {!editing && <TaskCards text={m.body} />}
@@ -893,6 +894,33 @@ function FileCards({ text }) {
           </Link>
         );
       })}
+    </div>
+  );
+}
+
+/** A contact sent in a message: its details, and Add to my contacts. */
+function ContactInMessage({ m }) {
+  const toast = useToast();
+  const navigate = useNavigate();
+  const k = m.contact;
+  const [saved, setSaved] = useState(false);
+  const save = async () => {
+    try {
+      const r = await post(`/chat/messages/${m.id}/contact/save`);
+      setSaved(true);
+      toast(r.existing ? `${k.name} is already in your contacts` : `${k.name} added to your contacts`, 'info', { action: { label: 'Open Contacts', onClick: () => navigate('/contacts') } });
+    } catch (e) { toast(e.message, 'error'); }
+  };
+  const emails = [k.email, ...(k.more_emails || []).map((x) => x.value)].filter(Boolean);
+  const phones = [k.phone, ...(k.more_phones || []).map((x) => x.value)].filter(Boolean);
+  return (
+    <div className="msg-card contact-card" role="group" aria-label={`Contact: ${k.name}`}>
+      <span className="msg-card-meta"><Avatar name={k.name} size={28} /> <span className="stack-tight"><strong>{k.name}</strong>{(k.title || k.company) && <span className="muted small">{[k.title, k.company].filter(Boolean).join(' · ')}</span>}</span></span>
+      {emails.map((e) => <a key={e} className="small" href={`mailto:${e}`}>{e}</a>)}
+      {phones.map((p) => <a key={p} className="small" href={`tel:${p}`}>{p}</a>)}
+      {k.address && <span className="small muted">{k.address}</span>}
+      {k.website && <a className="small" href={k.website} target="_blank" rel="noopener noreferrer">{k.website.replace(/^https?:\/\//, '')}</a>}
+      <button type="button" className="btn small form-card-go" disabled={saved} onClick={save}>{saved ? '✓ In your contacts' : 'Add to my contacts'}</button>
     </div>
   );
 }

@@ -8806,3 +8806,34 @@ test('form links: whether you have responded, and how many responses for the for
   const mine = (await a('GET', `/api/public/forms/${f.token}`)).body;
   assert.equal(mine.responses, 1); assert.equal(mine.responded, false);
 });
+
+test('chat: send a contact; others add it to their own contacts (once)', async () => {
+  const a = client(), b = client(), c = client();
+  for (const [local, name] of [['scca', 'Sc Ann'], ['sccb', 'Sc Ben'], ['sccc', 'Sc Cat']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'scca@acme.com');
+  const bid = (await login(b, 'sccb@acme.com')).id;
+  await login(c, 'sccc@acme.com');
+  const k = (await a('POST', '/api/contacts', { name: 'Pat Plumber', email: 'pat@plumb.example', phone: '+60 3 1234', company: 'Plumb Co', notes: 'Owes us money',
+    more_phones: [{ type: 'mobile', value: '+60 12 999' }] })).body;
+  const dm = (await a('POST', '/api/chat/dm', { user_id: bid })).body.id;
+  const sent = await a('POST', `/api/chat/channels/${dm}/contact`, { contact_id: k.id, body: 'Our plumber' });
+  assert.equal(sent.status, 201);
+  assert.equal(sent.body.contact.name, 'Pat Plumber');
+  assert.equal(sent.body.contact.notes, undefined, 'notes stay private');
+  assert.equal(sent.body.contact.more_phones[0].value, '+60 12 999');
+  const seen = (await b('GET', `/api/chat/channels/${dm}/messages`)).body.find((m) => m.id === sent.body.id);
+  assert.equal(seen.contact.company, 'Plumb Co');
+  // Ben adds it; a second time keeps the one he has.
+  const saved = await b('POST', `/api/chat/messages/${sent.body.id}/contact/save`);
+  assert.equal(saved.status, 201); assert.equal(saved.body.existing, false);
+  const mine = (await b('GET', '/api/contacts')).body.find((x) => x.id === saved.body.id);
+  assert.equal(mine.name, 'Pat Plumber'); assert.equal(mine.phone, '+60 3 1234'); assert.equal(mine.notes, null);
+  assert.equal((await b('POST', `/api/chat/messages/${sent.body.id}/contact/save`)).body.existing, true);
+  // Only people in the conversation; only contacts you can see; only messages with one.
+  assert.equal((await c('POST', `/api/chat/messages/${sent.body.id}/contact/save`)).status, 404);
+  assert.equal((await c('POST', `/api/chat/channels/${dm}/contact`, { contact_id: k.id })).status, 404);
+  const general = (await c('GET', '/api/chat/channels')).body.channels.find((x) => x.name === 'general').id;
+  assert.equal((await c('POST', `/api/chat/channels/${general}/contact`, { contact_id: k.id })).status, 404, 'not Cat’s contact');
+  const plain = (await a('POST', `/api/chat/channels/${dm}/messages`, { body: 'hi' })).body;
+  assert.equal((await b('POST', `/api/chat/messages/${plain.id}/contact/save`)).status, 400);
+});

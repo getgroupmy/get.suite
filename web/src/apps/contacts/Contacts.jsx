@@ -39,6 +39,7 @@ function MoreField({ kind, list, onChange }) {
 }
 
 export default function Contacts() {
+  const [sending, setSending] = useState(null); // a contact being sent in Chat
   const [history, setHistory] = useState(null); // a contact whose emails and meetings are shown
   const toast = useToast();
   const navigate = useNavigate();
@@ -164,6 +165,7 @@ export default function Contacts() {
                     {tab === 'mine' && <button className={`icon-btn star ${c.starred ? 'on' : ''}`} aria-pressed={!!c.starred} aria-label={c.starred ? `Unstar ${c.name}` : `Star ${c.name}`} title={c.starred ? 'Starred: first in your contacts and when writing mail' : 'Star: keep them first in your contacts and when writing mail'}
                       onClick={async () => { try { await patch(`/contacts/${c.id}`, { starred: !c.starred }); load(); } catch (e) { toast(e.message, 'error'); } }}>{c.starred ? '★' : '☆'}</button>}
                     {c.email && <button className="icon-btn" aria-label={`History with ${c.name}`} title="Emails and meetings with them" onClick={() => setHistory(c)}><Icon name="clock" size={18} /></button>}
+                    <button className="icon-btn" aria-label={`Send ${c.name} in Chat`} title="Send in Chat: colleagues can add it to their contacts" onClick={() => setSending(c)}><Icon name="share" size={18} /></button>
                     <button className="icon-btn" aria-label={`Edit ${c.name}`} onClick={() => setEditing(c)}><Icon name="edit" size={18} /></button>
                     <button className="icon-btn" aria-label={`Delete ${c.name}`} onClick={() => setDeleting(c)}><Icon name="trash" size={18} /></button>
                   </> : c.id !== user.id && (
@@ -178,6 +180,7 @@ export default function Contacts() {
       {card && <PersonCard userId={card} onClose={() => setCard(null)} />}
       {merging && <DuplicatesDialog onClose={() => setMerging(false)} onMerged={load} />}
       {history && <Modal title={`With ${history.name}`} onClose={() => setHistory(null)} footer={<button type="button" className="btn" onClick={() => setHistory(null)}>Close</button>}><WithPerson email={history.email} onOpen={() => setHistory(null)} /></Modal>}
+      {sending && <SendContact contact={sending} onClose={() => setSending(null)} />}
       {editing && <ContactDialog contact={editing} orgName={user.org_name} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />}
       {deletingMany && <ConfirmModal title={`Delete ${nPeople(picked.size)}?`} confirm="Delete" message="They go to Trash for 30 days (and off your phone on its next sync)." onClose={() => setDeletingMany(false)}
         onConfirm={async () => {
@@ -513,4 +516,45 @@ function OrgChart({ people, filter, onMessage, me, onOpen }) {
     </li>
   );
   return <ul className="org-chart" aria-label="Org chart">{tree.map(node)}</ul>;
+}
+
+/** Send a contact into a Chat conversation (a channel or a direct message), with a note if you like. */
+function SendContact({ contact, onClose }) {
+  const toast = useToast();
+  const navigate = useNavigate();
+  const [convs, setConvs] = useState(null);
+  const [to, setTo] = useState('');
+  const [note, setNote] = useState('');
+  const [error, setError] = useState('');
+  useEffect(() => {
+    get('/chat/channels').then((d) => {
+      const open = (d.channels || []).filter((c) => !c.archived_at);
+      setConvs(open);
+      setTo((open.find((c) => c.dm_key && c.dm_name) || open[0])?.id || '');
+    }).catch((e) => setError(e.message));
+  }, []);
+  const name = (c) => (c.dm_key ? `${c.dm_name || 'Notes to self'}${c.dm_org ? ` (${c.dm_org})` : ''}` : `# ${c.name}`);
+  async function submit(e) {
+    e.preventDefault();
+    try {
+      await post(`/chat/channels/${to}/contact`, { contact_id: contact.id, body: note });
+      onClose();
+      toast(`${contact.name} sent to ${name(convs.find((c) => c.id === to))}`, 'info', { action: { label: 'Open', onClick: () => navigate(`/chat/${to}`) } });
+    } catch (err) { setError(err.message); }
+  }
+  return (
+    <Modal title={`Send ${contact.name} in Chat`} onClose={onClose}>
+      <form className="stack" onSubmit={submit}>
+        <p className="muted small" style={{ margin: 0 }}>Everyone in the conversation sees the name, email addresses, phone numbers, company, job title, address and website, and can add them to their own contacts. Notes and dates stay with you.</p>
+        <label className="field"><span>To</span>
+          <select value={to} onChange={(e) => setTo(e.target.value)} required disabled={!convs}>
+            {(convs || []).map((c) => <option key={c.id} value={c.id}>{name(c)}</option>)}
+          </select>
+        </label>
+        <label className="field"><span>Add a message (optional)</span><textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} maxLength={8000} /></label>
+        {error && <p className="error">{error}</p>}
+        <div className="row end"><button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn primary" disabled={!to}>Send</button></div>
+      </form>
+    </Modal>
+  );
 }

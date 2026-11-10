@@ -19,6 +19,7 @@ import { roleFor, mayTakeAway } from '../access.js';
 import { insertFile } from './files.js';
 import { conversationText, conversationHtml } from '../chatexport.js';
 import { listEmoji, addEmoji, removeEmoji, emojiImage, customName, hasEmoji, MAX_EMOJI } from '../chatemoji.js';
+import { contactCard, addContactFrom } from './contacts.js';
 
 // Where each person has read up to in each conversation (for unread counts), and emoji reactions.
 q(`CREATE TABLE IF NOT EXISTS channel_reads (
@@ -155,7 +156,7 @@ function dmOpen(c, user) {
 
 // Each message with its thread: how many replies, when the last came, and who replied (first few).
 if (!q('PRAGMA table_info(messages)').all().some((c) => c.name === 'preview')) q('ALTER TABLE messages ADD COLUMN preview TEXT').run(); // a link's title and description (linkpreview.js)
-const MSG = `SELECT m.id, m.channel_id, m.user_id, m.bot, m.body, m.created_at, m.edited_at, m.files, m.parent_id, m.pinned_at, m.poll, m.forwarded, m.preview, u.name AS user_name, (SELECT pu.name FROM users pu WHERE pu.id = m.pinned_by) AS pinned_by_name,
+const MSG = `SELECT m.id, m.channel_id, m.user_id, m.bot, m.body, m.created_at, m.edited_at, m.files, m.parent_id, m.pinned_at, m.poll, m.forwarded, m.preview, m.contact, u.name AS user_name, (SELECT pu.name FROM users pu WHERE pu.id = m.pinned_by) AS pinned_by_name,
                (SELECT COUNT(*) FROM messages t WHERE t.parent_id = m.id) AS reply_count,
                (SELECT MAX(t.created_at) FROM messages t WHERE t.parent_id = m.id) AS last_reply_at,
                (SELECT json_group_array(name) FROM (SELECT DISTINCT tu.name FROM messages t JOIN users tu ON tu.id = t.user_id
@@ -184,7 +185,7 @@ function shape(rows) {
       if (!e) byEmoji.push(e = { emoji: r.emoji, users: [] });
       e.users.push({ id: r.user_id, name: r.name || 'Someone' });
     }
-    return { ...m, files: m.files ? JSON.parse(m.files) : [], reactions: byEmoji, repliers: m.repliers ? JSON.parse(m.repliers) : [], poll, forwarded: m.forwarded ? JSON.parse(m.forwarded) : null, preview: m.preview ? JSON.parse(m.preview) : null };
+    return { ...m, files: m.files ? JSON.parse(m.files) : [], reactions: byEmoji, repliers: m.repliers ? JSON.parse(m.repliers) : [], poll, forwarded: m.forwarded ? JSON.parse(m.forwarded) : null, preview: m.preview ? JSON.parse(m.preview) : null, contact: m.contact ? JSON.parse(m.contact) : null };
   });
 }
 const one = (id) => shape([q(`${MSG} WHERE m.id = ?`).get(id)].filter(Boolean))[0];
@@ -221,10 +222,10 @@ function readMessage(c, user, input) {
 }
 
 /** Post a message: saved, shown to everyone in the conversation, mentions told. */
-function deliver(c, user, { body, files, poll, parent, forwarded = null }) {
+function deliver(c, user, { body, files, poll, parent, forwarded = null, contact = null }) {
   if (!mayPost(c, user, parent)) throw new HttpError(403, 'Only some people post in this channel; you can reply in threads');
   const id = uid();
-  q('INSERT INTO messages (id, channel_id, user_id, body, created_at, files, parent_id, poll, forwarded) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(id, c.id, user.id, body, now(), files.length ? JSON.stringify(files) : null, parent?.id ?? null, poll ? JSON.stringify(poll) : null, forwarded ? JSON.stringify(forwarded) : null);
+  q('INSERT INTO messages (id, channel_id, user_id, body, created_at, files, parent_id, poll, forwarded, contact) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(id, c.id, user.id, body, now(), files.length ? JSON.stringify(files) : null, parent?.id ?? null, poll ? JSON.stringify(poll) : null, forwarded ? JSON.stringify(forwarded) : null, contact ? JSON.stringify(contact) : null);
   q('INSERT INTO channel_reads (channel_id, user_id, read_at) VALUES (?, ?, ?) ON CONFLICT(channel_id, user_id) DO UPDATE SET read_at = excluded.read_at').run(c.id, user.id, now());
   const msg = one(id);
   sendTo(audience(c), { type: 'message', message: msg });
@@ -236,7 +237,7 @@ function deliver(c, user, { body, files, poll, parent, forwarded = null }) {
     // Not for a muted conversation, nor for whoever was @mentioned (that notification already went).
     const muted = new Set(q('SELECT user_id FROM chat_mutes WHERE channel_id = ?').all(c.id).map((x) => x.user_id));
     for (const id of others.filter((x) => !muted.has(x) && !mentioned.includes(x) && !offFor(x).includes('dm'))) {
-      pushTo(id, { title: user.name || user.username, body: msg.body ? String(msg.body).slice(0, 200) : '📎 Sent a file', link: `/chat/${c.id}`, tag: `chat-${c.id}`, private: { body: 'Sent you a message' } }).catch(() => {});
+      pushTo(id, { title: user.name || user.username, body: msg.body ? String(msg.body).slice(0, 200) : msg.contact ? `👤 Sent a contact: ${msg.contact.name}` : '📎 Sent a file', link: `/chat/${c.id}`, tag: `chat-${c.id}`, private: { body: 'Sent you a message' } }).catch(() => {});
     }
   }
   if (parent) sendTo(audience(c), { type: 'message-updated', message: one(parent.id) }); // its reply count
@@ -398,6 +399,8 @@ function colleagues(user, list) {
 // Incoming webhooks: a secret address that posts into a channel, for scripts, monitoring, a build server…
 // Messages it posts have no person: messages.bot holds the webhook's name.
 if (!q('PRAGMA table_info(messages)').all().some((c) => c.name === 'bot')) q('ALTER TABLE messages ADD COLUMN bot TEXT').run();
+// A contact passed on in a message (what it said when sent: name, addresses, numbers…), JSON.
+if (!q('PRAGMA table_info(messages)').all().some((c) => c.name === 'contact')) q('ALTER TABLE messages ADD COLUMN contact TEXT').run();
 q(`CREATE TABLE IF NOT EXISTS chat_webhooks (
   id TEXT PRIMARY KEY,
   channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
@@ -699,6 +702,22 @@ export default function chatRoutes() {
     const forwarded = earlier || { name: src.author || 'Deleted user', where: from.dm_key || from.private ? null : from.name, at: src.created_at, body: src.body || '' };
     const files = src.files ? JSON.parse(src.files) : [];
     res.status(201).json(deliver(c, req.user, { body: note, files, poll: null, parent: null, forwarded }));
+  });
+
+  // Send one of your contacts (or a company contact) into a conversation, with a note if you like. Everyone
+  // there sees a card and can add it to their own contacts.
+  r.post('/channels/:id/contact', (req, res) => {
+    const c = writable(req.params.id, req.user);
+    const contact = contactCard(req.body.contact_id, req.user);
+    const body = str(req.body.body, { max: 8000, name: 'Message' }) || '';
+    res.status(201).json(deliver(c, req.user, { body, files: [], poll: null, parent: null, contact }));
+  });
+  r.post('/messages/:id/contact/save', (req, res) => {
+    const m = q('SELECT id, channel_id, contact FROM messages WHERE id = ?').get(req.params.id);
+    if (!m) throw notFound('Message not found');
+    loadChannel(m.channel_id, req.user);
+    if (!m.contact) throw bad('There is no contact in this message');
+    res.status(201).json(addContactFrom(req.user, JSON.parse(m.contact)));
   });
 
   const lastTyping = new Map(); // "user:channel:thread" → when they were last said to be typing there
