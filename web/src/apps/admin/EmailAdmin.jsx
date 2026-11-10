@@ -18,6 +18,7 @@ export default function EmailAdmin({ orgId, orgPicker }) {
       {orgPicker}
       {user.is_super && <HostCheck />}
       <Domains qs={qs} />
+      <MailReports qs={qs} />
       <Aliases qs={qs} orgId={orgId} />
       <SharedMailboxes qs={qs} orgId={orgId} />
       <MailApps hostname={status.hostname} />
@@ -294,5 +295,46 @@ function SharedDialog({ box, domains, people, orgId, onClose, onSaved }) {
         <div className="row end"><button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn primary">Save</button></div>
       </form>
     </Modal>
+  );
+}
+
+/**
+ * DMARC and TLS reports that big mail providers send to postmaster@ (which reaches the admins): read
+ * from your own mailbox on request, and added up per domain.
+ */
+function MailReports({ qs }) {
+  const toast = useToast();
+  const [data, setData] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const read = async () => {
+    setBusy(true);
+    try { setData(await get(`/mail-admin/reports${qs}`)); } catch (e) { toast(e.message, 'error'); } finally { setBusy(false); }
+  };
+  const pct = (a, b) => (b ? `${Math.round((a / b) * 1000) / 10}%` : '–');
+  const day = (t) => (t ? new Date(t).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) : '');
+  const REASONS = { 'certificate-expired': 'The certificate had expired', 'certificate-host-mismatch': 'The certificate is for another name', 'certificate-not-trusted': 'The certificate isn\'t trusted', 'starttls-not-supported': 'No encryption offered', 'validation-failure': 'The policy didn\'t match', 'sts-policy-fetch-error': 'The policy file couldn\'t be fetched', 'sts-policy-invalid': 'The policy file isn\'t valid', 'sts-webpki-invalid': 'The policy site\'s certificate isn\'t valid' };
+  return (
+    <div className="card stack" aria-labelledby="reports-h">
+      <div className="row">
+        <h2 id="reports-h" className="grow">Reports from other mail servers</h2>
+        <button className="btn small" onClick={read} disabled={busy}>{busy ? 'Reading…' : data ? 'Read again' : 'Read reports'}</button>
+      </div>
+      <p className="muted small" style={{ margin: 0 }}>Google, Microsoft, Yahoo and others send postmaster@ a daily report for each domain: <strong>DMARC</strong> (which servers sent mail as your domain, and whether it passed SPF and DKIM) and <strong>TLS</strong> (whether mail to you came in encrypted). They arrive in your inbox as attachments; this reads the last 30 days of them and adds them up.</p>
+      {data && !data.domains.length && <p className="muted">No reports found in your Inbox or Archive from the last 30 days. They start arriving a day or two after the DMARC record (and, for TLS, the encrypted delivery records) are in place.</p>}
+      {data?.domains.map((d) => (
+        <section key={d.domain} className="stack" aria-label={`Reports for ${d.domain}`}>
+          <h3 style={{ margin: '8px 0 0' }}>{d.domain} <span className="muted small">{day(d.from)} – {day(d.to)}</span></h3>
+          {d.dmarc.messages > 0 && <>
+            <p style={{ margin: 0 }}><strong>DMARC:</strong> {d.dmarc.messages.toLocaleString()} messages reported by {d.dmarc.reporters.join(', ')} · {pct(d.dmarc.pass, d.dmarc.messages)} passed{d.dmarc.fail ? <>, <span className="error">{d.dmarc.fail.toLocaleString()} failed</span></> : ''} (policy: {d.dmarc.policy})</p>
+            <table className="files"><thead><tr><th>Sending server</th><th>Messages</th><th>Passed</th><th className="hide-sm">DKIM</th><th className="hide-sm">SPF</th><th>Receivers did</th></tr></thead>
+              <tbody>{d.dmarc.sources.map((s) => (
+                <tr key={s.ip}><td><code>{s.ip}</code></td><td>{s.messages.toLocaleString()}</td><td className={s.fail ? 'error' : ''}>{pct(s.pass, s.messages)}</td><td className="hide-sm">{pct(s.dkim, s.messages)}</td><td className="hide-sm">{pct(s.spf, s.messages)}</td>
+                  <td>{s.rejected ? `rejected ${s.rejected}` : s.quarantined ? `sent ${s.quarantined} to spam` : 'delivered'}</td></tr>))}</tbody></table>
+            {d.dmarc.fail > 0 && <p className="muted small" style={{ margin: 0 }}>A server that fails is either sending for you without being set up (a newsletter or billing service: add it to SPF and give it a DKIM key) or someone pretending to be you.</p>}
+          </>}
+          {(d.tls.success + d.tls.failure) > 0 && <p style={{ margin: 0 }}><strong>TLS:</strong> {(d.tls.success + d.tls.failure).toLocaleString()} connections reported by {d.tls.reporters.join(', ')} · {pct(d.tls.success, d.tls.success + d.tls.failure)} encrypted{d.tls.failure ? <> · <span className="error">{d.tls.failure} failed: {d.tls.reasons.map((r) => `${REASONS[r.result] || r.result} (${r.count})`).join(', ')}</span></> : ''}</p>}
+        </section>
+      ))}
+    </div>
   );
 }

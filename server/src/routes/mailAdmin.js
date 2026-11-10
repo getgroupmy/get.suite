@@ -7,6 +7,7 @@ import { requireAdmin, requireSuper } from '../auth.js';
 import { validDomain } from '../tenancy.js';
 import { isSharedAddress, membersOf as sharedMembers } from '../mail/shared.js';
 import { mailEnabled, MAIL_HOSTNAME, ensureDkim, DKIM_SELECTOR, scheduleMailConfig } from '../mail/config.js';
+import { readReports } from '../mail/reports.js';
 
 const EMAIL_RE = /^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i;
 const LOCAL_RE = /^[a-z0-9](?:[a-z0-9._+-]{0,62}[a-z0-9])?$/;
@@ -154,6 +155,16 @@ export default function mailAdminRoutes() {
     scheduleMailConfig();
     audit(req, 'domain.update', { org: orgId, target: name, details: { catchall: target } });
     res.json({ name, catchall: target });
+  });
+
+  // DMARC and TLS reports sent to postmaster@ (which reaches the admins): read from this admin's own
+  // mailbox, last 30 days, and shown for the company's domains.
+  r.get('/reports', async (req, res) => {
+    if (!mailEnabled()) throw bad('This server has no email');
+    const orgId = targetOrg(req);
+    const mine = new Set(q('SELECT name FROM domains WHERE org_id = ?').all(orgId).map((d) => d.name));
+    const got = await readReports(req.user, { days: Math.min(Math.max(Number(req.query.days) || 30, 1), 90) });
+    res.json({ ...got, domains: got.domains.filter((d) => mine.has(d.domain)) });
   });
 
   r.get('/domains/:name/check', async (req, res) => {

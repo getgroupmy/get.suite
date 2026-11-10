@@ -1927,3 +1927,20 @@ test('import an .mbox file from Drive: into a folder named after it, with dates,
   const again = await eventually(async () => { const j = (await olivia('GET', '/api/mail/import')).body; return j?.status !== 'running' && j; }, 60000);
   assert.deepEqual([again.copied, again.skipped], [0, 2]);
 });
+
+test('DMARC and TLS reports sent to postmaster@ are read and added up for the admin', async () => {
+  const zlib = await import('node:zlib');
+  const { DMARC, TLS } = await import('./fixtures/reports.js');
+  const t = nodemailer.createTransport({ host: process.env.MAIL_IMAP_HOST, port: 25, secure: false, ignoreTLS: true, name: 'test.example.org' });
+  await t.sendMail({ from: 'noreply-dmarc-support@google.com', to: 'postmaster@acme.com', subject: 'Report domain: acme.com Submitter: google.com Report-ID: 123456',
+    text: 'This is an aggregate report.', attachments: [{ filename: 'google.com!acme.com!1762646400!1762732799.xml.gz', content: zlib.gzipSync(Buffer.from(DMARC)), contentType: 'application/gzip' }] });
+  await t.sendMail({ from: 'tlsrpt-noreply@microsoft.com', to: 'postmaster@acme.com', subject: 'Report Domain: acme.com Submitter: microsoft.com',
+    text: 'TLS report', attachments: [{ filename: 'microsoft.com!acme.com!1762646400!1762732799!abc.json.gz', content: zlib.gzipSync(Buffer.from(TLS)), contentType: 'application/tlsrpt+gzip' }] });
+  const got = await eventually(async () => {
+    const r = (await olivia('GET', '/api/mail-admin/reports')).body;
+    return r.domains?.find((d) => d.domain === 'acme.com' && d.dmarc.messages && d.tls.success) && r;
+  }, 30000);
+  const acme = got.domains.find((d) => d.domain === 'acme.com');
+  assert.deepEqual([acme.dmarc.messages, acme.dmarc.fail, acme.dmarc.reporters, acme.tls.failure], [50, 3, ['google.com'], 2]);
+  assert.equal((await gina('GET', '/api/mail-admin/reports')).body.domains.some((d) => d.domain === 'acme.com'), false, 'another company sees only its own domains');
+});
