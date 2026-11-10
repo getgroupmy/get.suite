@@ -662,7 +662,7 @@ function SharedDoc({ file, setFile }) {
       <div className="doc-body">
         {tabsShown && <DocTabs editor={editor} canEdit={!readOnly} fileId={file.id} onCopied={(m) => toast(m)} onClose={() => setTabsPanel(false)} />}
         {outline && <Outline editor={editor} fileId={file.id} onCopied={(m) => toast(m)} onClose={() => setOutline(false)} />}
-        {liveCount && <WordCounter editor={editor} onOpen={() => setWordCount(true)} />}
+        {(liveCount || file.page_setup?.wordGoal) && <WordCounter editor={editor} goal={file.page_setup?.wordGoal || null} onOpen={() => setWordCount(true)} />}
         <label className="doc-zoom" title="Zoom (kept for you, in every document)"><span className="sr-only">Zoom</span>
           <select aria-label="Zoom" value={look.zoom} onChange={(e) => setZoom(Number(e.target.value))}>
             {ZOOMS.map((z) => <option key={z} value={z}>{z}%</option>)}
@@ -784,7 +784,8 @@ function SharedDoc({ file, setFile }) {
           refocus();
         }} />}
       {prefsOpen && <DocPrefsDialog prefs={prefsRef.current} onSaved={(p) => { prefsRef.current = p; setLook({ zoom: p.zoom || 100, spellcheck: p.spellcheck !== false }); }} onClose={() => { setPrefsOpen(false); editor.view.focus(); }} />}
-      {wordCount && <WordCountDialog editor={editor} live={liveCount} onLive={setLiveCount} onClose={() => { setWordCount(false); editor.view.focus(); }} />}
+      {wordCount && <WordCountDialog editor={editor} live={liveCount} onLive={setLiveCount} onClose={() => { setWordCount(false); editor.view.focus(); }}
+        goal={file.page_setup?.wordGoal || null} onGoal={readOnly ? null : async (wordGoal) => { try { setFile(await patch(`/files/${file.id}`, { page_setup: { ...(file.page_setup || {}), wordGoal } })); toast(wordGoal ? `Goal: ${wordGoal.toLocaleString('en-GB')} words` : 'Goal removed'); } catch (e) { toast(e.message, 'error'); } }} />}
       {pageSetupOpen && <PageSetupDialog setup={file.page_setup} onClose={() => { setPageSetupOpen(false); editor.view.focus(); }}
         onSave={async (next) => { try { setFile(await patch(`/files/${file.id}`, { page_setup: next })); setPageSetupOpen(false); toast('Page setup saved'); } catch (e) { toast(e.message, 'error'); } }} />}
     </div>

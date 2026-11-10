@@ -1814,3 +1814,11 @@ test('numbered headings: 1, 1.1, 1.1.1 in the page setup, written into Word', as
   const off = plain(await xmlOf(readSetup({})));
   assert.doesNotMatch(off, /1 Introduction/);
 });
+
+test('page setup: a word count goal (a whole number, or none)', async () => {
+  const { readSetup } = await import('../src/pagesetup.js');
+  assert.equal(readSetup({ wordGoal: 1500 }).wordGoal, 1500);
+  assert.equal(readSetup({ wordGoal: null }).wordGoal, undefined);
+  assert.equal(readSetup({}).wordGoal, undefined);
+  for (const bad of [0, -5, 2.5, '100', 2000000]) assert.throws(() => readSetup({ wordGoal: bad }), /word count goal/);
+});

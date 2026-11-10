@@ -21,8 +21,10 @@ export function readSetup(v) {
   if (watermark.length > MAX_WATERMARK) throw bad(`A watermark can be ${MAX_WATERMARK} characters at most`);
   const columns = s.columns ?? 1;
   if (!Number.isInteger(columns) || columns < 1 || columns > MAX_COLUMNS) throw bad(`Columns: 1 to ${MAX_COLUMNS}`);
+  const goal = s.wordGoal ?? null; // a word count goal for the document (shown as you type)
+  if (goal !== null && (!Number.isInteger(goal) || goal < 1 || goal > 1000000)) throw bad('A word count goal is a whole number from 1 to 1,000,000');
   // pageless: on screen the document is one long sheet as wide as the window (printing and Word still use the paper).
-  return { size: s.size, orientation: s.orientation, margin: s.margin, header: text(s.header, 'Header'), footer: text(s.footer, 'Footer'), numbers: !!s.numbers, watermark, ...(columns > 1 && { columns }), ...(s.lineNumbers === true && { lineNumbers: true }), ...(s.pageless === true && { pageless: true }), ...(s.headingNumbers === true && { headingNumbers: true }) };
+  return { size: s.size, orientation: s.orientation, margin: s.margin, header: text(s.header, 'Header'), footer: text(s.footer, 'Footer'), numbers: !!s.numbers, watermark, ...(columns > 1 && { columns }), ...(s.lineNumbers === true && { lineNumbers: true }), ...(s.pageless === true && { pageless: true }), ...(s.headingNumbers === true && { headingNumbers: true }), ...(goal && { wordGoal: goal }) };
 }
 
 /** Page width and height (mm) for a setup, turned for landscape. */

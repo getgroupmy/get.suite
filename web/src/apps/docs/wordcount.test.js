@@ -31,3 +31,10 @@ test('reading time and the counter', () => {
   assert.equal(counterText({ words: 1 }), '1 word');
   assert.equal(counterText({ words: 1340 }, { words: 12 }), '12 of 1,340 words');
 });
+
+test('word count goal: progress and done', async () => {
+  const { goalProgress } = await import('./wordcount.js');
+  assert.deepEqual(goalProgress(350, 1000), { text: '350 / 1,000 words', pct: 35, done: false });
+  assert.deepEqual(goalProgress(1020, 1000), { text: '✓ 1,020 / 1,000 words', pct: 100, done: true });
+  assert.equal(goalProgress(0, 500).pct, 0);
+});

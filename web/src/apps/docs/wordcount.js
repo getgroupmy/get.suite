@@ -42,3 +42,11 @@ export function counterText(all, part) {
   const n = (x) => x.toLocaleString('en-GB');
   return part ? `${n(part.words)} of ${n(all.words)} ${all.words === 1 ? 'word' : 'words'}` : `${n(all.words)} ${all.words === 1 ? 'word' : 'words'}`;
 }
+
+/** Progress towards a word count goal: { text: "350 / 1,000 words", pct: 35, done } ("✓" once it's reached). */
+export function goalProgress(words, goal) {
+  const n = (x) => x.toLocaleString('en-GB');
+  const pct = Math.min(100, Math.floor((words / goal) * 100));
+  const done = words >= goal;
+  return { text: `${done ? '✓ ' : ''}${n(words)} / ${n(goal)} words`, pct, done };
+}
