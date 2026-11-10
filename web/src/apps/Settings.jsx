@@ -472,7 +472,7 @@ function MailApps() {
         <dt>Password</dt><dd>{st.appPassword ? 'your mail-app password (your account password no longer works in apps)'
           : st.twoFactor ? 'create a mail-app password below: with two-step verification on, your account password doesn\'t work in apps' : 'your account password'}</dd>
       </dl>
-      <p className="muted small">iPhone and iPad: Settings → Calendar → Accounts → Add Account → Other → Add CalDAV Account (and Contacts → Add CardDAV Account). Android: the free DAVx⁵ app, "Login with URL and user name". Your own calendars (Calendar → My calendars) show as separate calendars there, in their colours; events you add to one on the phone go in it, and renaming or recolouring one there is kept.</p>
+      <p className="muted small">iPhone and iPad: Settings → Calendar → Accounts → Add Account → Other → Add CalDAV Account (and Contacts → Add CardDAV Account). Android: the free DAVx⁵ app, "Login with URL and user name". Your own calendars (Calendar → My calendars) show as separate calendars there, in their colours; events you add to one on the phone go in it, and renaming or recolouring one there is kept. Calendars colleagues share with you are there too: read-only, or changeable if they let you make changes.</p>
       <p className="muted small">Drive on a computer: on a Mac, Finder → Go → Connect to Server, and enter the Drive address. On Windows, File Explorer → This PC → Map network drive → "Connect to a website…", and enter the Drive address. Files you save there are in Drive straight away; saving over one keeps the old version.</p>
       {step === 'show' ? <>
         <p><strong>Your mail-app password:</strong> enter it in your mail apps instead of your account password. It's shown only once.</p>

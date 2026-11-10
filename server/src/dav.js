@@ -25,6 +25,8 @@ import { buildVcard, parseVcard } from './vcard.js';
 import { withPhoto, photoFromCard } from './contactphotos.js';
 import { MAIL_HOSTNAME } from './mail/config.js';
 import { sendTo } from './hub.js';
+import { notify as bell } from './notifications.js';
+import { peopleOf } from './mycalendars.js';
 
 const NS = 'xmlns:d="DAV:" xmlns:cal="urn:ietf:params:xml:ns:caldav" xmlns:card="urn:ietf:params:xml:ns:carddav" xmlns:cs="http://calendarserver.org/ns/" xmlns:ic="http://apple.com/ns/ical/"';
 const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -97,6 +99,11 @@ const eventsOf = (userId, calId = null) => (calId
   UNION ALL SELECT e.*, g.status AS my_status, ? AS for_user FROM events e JOIN event_guests g ON g.event_id = e.id WHERE g.user_id = ? AND g.status != 'no'
   ORDER BY start`).all(userId, userId, userId, userId));
 const ownCalendars = (userId) => q('SELECT * FROM user_calendars WHERE owner_id = ? ORDER BY created_at, name').all(userId);
+// Calendars colleagues share with you: on the phone too, read-only unless you may make changes.
+const SHARED = `SELECT c.*, 1 AS shared, s.can_edit, u.name AS owner_name FROM user_calendar_shares s JOIN user_calendars c ON c.id = s.calendar_id
+  JOIN users u ON u.id = c.owner_id WHERE s.user_id = ? AND u.disabled = 0`;
+const sharedCalendars = (userId) => q(`${SHARED} ORDER BY c.name`).all(userId);
+const readOnly = (cal) => !!cal?.shared && !cal.can_edit;
 const collOf = (calId) => calId || 'default';
 const contactsOf = (userId) => q('SELECT * FROM contacts WHERE owner_id = ? ORDER BY name').all(userId);
 const eventName = (e) => e.dav_name || `${e.id}.ics`;
@@ -174,9 +181,9 @@ export default function davRoutes() {
     };
   }
   const calendarProps = (req, events, cal = null) => ({
-    'd:resourcetype': '<d:collection/><cal:calendar/>', 'd:displayname': esc(cal ? cal.name : 'Workspace'),
+    'd:resourcetype': '<d:collection/><cal:calendar/>', 'd:displayname': esc(cal ? (cal.shared ? `${cal.name} (${cal.owner_name})` : cal.name) : 'Workspace'),
     'cal:supported-calendar-component-set': '<cal:comp name="VEVENT"/>', 'cs:getctag': esc(ctag(events.map(icsOf))),
-    'd:current-user-privilege-set': privileges, 'ic:calendar-color': `${cal ? cal.color.toUpperCase() : '#1a73e8'}FF`, 'd:owner': `<d:href>${P(req, 'principals', req.davUser.id)}</d:href>`,
+    'd:current-user-privilege-set': readOnly(cal) ? '<d:privilege><d:read/></d:privilege>' : privileges, 'ic:calendar-color': `${cal ? cal.color.toUpperCase() : '#1a73e8'}FF`, 'd:owner': `<d:href>${P(req, 'principals', req.davUser.id)}</d:href>`,
     'cal:calendar-timezone': undefined,
   });
   const bookProps = (req, contacts) => ({
@@ -199,7 +206,8 @@ export default function davRoutes() {
     if (area === 'principals' && parts.length === 2) return { kind: 'principal' };
     if ((area === 'calendars' || area === 'addressbooks') && parts.length === 2) return { kind: 'home', area };
     // A calendar: the main one ("default") or one of your own by its id.
-    const cal = area === 'calendars' && coll && coll !== 'default' ? q('SELECT * FROM user_calendars WHERE id = ? AND owner_id = ?').get(coll, me) : null;
+    const cal = area === 'calendars' && coll && coll !== 'default'
+      ? q('SELECT * FROM user_calendars WHERE id = ? AND owner_id = ?').get(coll, me) || q(`${SHARED} AND c.id = ?`).get(me, coll) : null;
     if (area === 'calendars' && coll && coll !== 'default' && !cal) return { kind: 'none' };
     if (area === 'calendars' && parts.length === 3) return { kind: 'calendar', cal };
     if (area === 'addressbooks' && coll === 'default' && parts.length === 3) return { kind: 'book' };
@@ -229,11 +237,12 @@ export default function davRoutes() {
             if (at.area === 'calendars') {
               add(P(req, 'calendars', me, 'default'), calendarProps(req, eventsOf(me)));
               for (const c of ownCalendars(me)) add(P(req, 'calendars', me, c.id), calendarProps(req, eventsOf(me, c.id), c));
+              for (const c of sharedCalendars(me)) add(P(req, 'calendars', me, c.id), calendarProps(req, eventsOf(c.owner_id, c.id), c));
             }
             else add(P(req, 'addressbooks', me, 'default'), bookProps(req, contactsOf(me)));
           }
         } else if (at.kind === 'calendar') {
-          const events = eventsOf(me, at.cal?.id);
+          const events = eventsOf(at.cal?.owner_id ?? me, at.cal?.id);
           const coll = P(req, 'calendars', me, collOf(at.cal?.id));
           add(coll, calendarProps(req, events, at.cal));
           if (depth(req)) for (const e of events) add(`${coll}${encodeURIComponent(eventName(e))}`, itemProps(icsOf(e), 'text/calendar; charset=utf-8; component=vevent'));
@@ -242,7 +251,7 @@ export default function davRoutes() {
           add(P(req, 'addressbooks', me, 'default'), bookProps(req, contacts));
           if (depth(req)) for (const c of contacts) add(`${P(req, 'addressbooks', me, 'default')}${encodeURIComponent(contactName(c))}`, itemProps(vcfOf(c), 'text/vcard; charset=utf-8'));
         } else if (at.kind === 'event' || at.kind === 'contact') {
-          const row = at.kind === 'event' ? findEvent(me, at.name, at.cal) : findContact(me, at.name);
+          const row = at.kind === 'event' ? findEvent(at.cal?.owner_id ?? me, at.name, at.cal) : findContact(me, at.name);
           if (!row) return res.status(404).end();
           add(req.baseUrl + req.path, at.kind === 'event' ? itemProps(icsOf(row), 'text/calendar; charset=utf-8') : itemProps(vcfOf(row), 'text/vcard; charset=utf-8'));
         } else return res.status(404).end();
@@ -253,7 +262,7 @@ export default function davRoutes() {
         if (at.kind !== 'calendar' && at.kind !== 'book') return res.status(404).end();
         const cal = at.kind === 'calendar';
         const coll = P(req, cal ? 'calendars' : 'addressbooks', me, cal ? collOf(at.cal?.id) : 'default');
-        const rows = cal ? eventsOf(me, at.cal?.id) : contactsOf(me);
+        const rows = cal ? eventsOf(at.cal?.owner_id ?? me, at.cal?.id) : contactsOf(me);
         const byHref = new Map(rows.map((x) => [`${coll}${encodeURIComponent(cal ? eventName(x) : contactName(x))}`, x]));
         const body = String(req.body || '');
         const withData = /calendar-data|address-data/.test(body) ? (cal ? 'cal' : 'card') : null;
@@ -274,7 +283,7 @@ export default function davRoutes() {
 
       if (m === 'GET' || m === 'HEAD') {
         if (at.kind !== 'event' && at.kind !== 'contact') return res.status(at.kind === 'none' ? 404 : 200).type('text/plain').send(m === 'HEAD' ? '' : 'Workspace calendar and contacts sync. Add this address to your phone\'s Calendar or Contacts account settings.');
-        const row = at.kind === 'event' ? findEvent(me, at.name, at.cal) : findContact(me, at.name);
+        const row = at.kind === 'event' ? findEvent(at.cal?.owner_id ?? me, at.name, at.cal) : findContact(me, at.name);
         if (!row) return res.status(404).end();
         const body = at.kind === 'event' ? icsOf(row) : vcfOf(row);
         res.setHeader('ETag', etagOf(body));
@@ -284,8 +293,12 @@ export default function davRoutes() {
       if (m === 'PUT' || m === 'DELETE') {
         if (at.kind !== 'event' && at.kind !== 'contact') return res.status(405).end();
         if (!/^[\w.@+-]{1,200}$/.test(at.name)) return res.status(400).send('Unusable name');
+        if (readOnly(at.cal)) return res.status(403).send(`${at.cal.owner_name} shares this calendar for you to see, not change`);
         const isEvent = at.kind === 'event';
-        const row = isEvent ? findEvent(me, at.name, at.cal) : findContact(me, at.name);
+        // In a colleague's calendar you may change: the event is theirs, and they're told.
+        const actor = at.cal?.owner_id ?? me;
+        const tell = (what, title) => { if (actor !== me) bell([actor], { kind: 'invite', title: `${req.davUser.name} ${what} ${title ? `“${title}”` : 'an event'} in ${at.cal.name}`, body: null, link: '/calendar', actor: req.davUser.name }); };
+        const row = isEvent ? findEvent(at.cal?.owner_id ?? me, at.name, at.cal) : findContact(me, at.name);
         const current = row ? etagOf(isEvent ? icsOf(row) : vcfOf(row)) : null;
         // Conditional requests: don't overwrite a change made elsewhere in the meantime.
         const ifMatch = req.get('if-match'), ifNone = req.get('if-none-match');
@@ -299,7 +312,7 @@ export default function davRoutes() {
           // Removing an invitation from the phone declines it; it stays the organiser's event.
           if (invite) { q("UPDATE event_guests SET status = 'no' WHERE event_id = ? AND user_id = ?").run(row.id, me); touch([me, row.owner_id]); return res.status(204).end(); }
           q(`DELETE FROM ${isEvent ? 'events' : 'contacts'} WHERE id = ?`).run(row.id);
-          if (isEvent) { q('DELETE FROM events WHERE recur_parent = ? AND owner_id = ?').run(row.id, me); touch(me); }
+          if (isEvent) { q('DELETE FROM events WHERE recur_parent = ? AND owner_id = ?').run(row.id, actor); touch([me, actor, ...peopleOf(at.cal?.id)]); tell('deleted', row.title); }
           return res.status(204).end();
         }
         if (invite) {
@@ -309,7 +322,7 @@ export default function davRoutes() {
           if (status) { q('UPDATE event_guests SET status = ? WHERE event_id = ? AND user_id = ?').run(status, row.id, me); touch([me, row.owner_id]); }
           const theirs = parseIcsEvent(req.body, { tz: row.tz || 'UTC' }); // a guest's own reminders
           if (!theirs.error) { setReminders(row.id, me, theirs.reminders); touch([me]); }
-          const saved = findEvent(me, at.name, at.cal);
+          const saved = findEvent(at.cal?.owner_id ?? me, at.name, at.cal);
           if (saved) res.setHeader('ETag', etagOf(icsOf(saved)));
           return res.status(204).end();
         }
@@ -318,24 +331,25 @@ export default function davRoutes() {
           const e = parseIcsEvent(req.body, { tz: row?.tz || 'UTC' });
           if (e.error) return res.status(415).send(e.error);
           // The same event put in another calendar on the phone: it moves there (with its guests and history).
-          const elsewhere = !row && e.uid ? q('SELECT * FROM events WHERE owner_id = ? AND ical_uid = ? AND recur_parent IS NULL AND calendar_id IS NOT ?').get(me, e.uid, at.cal?.id ?? null) : null;
+          const elsewhere = !row && e.uid && actor === me ? q('SELECT * FROM events WHERE owner_id = ? AND ical_uid = ? AND recur_parent IS NULL AND calendar_id IS NOT ?').get(me, e.uid, at.cal?.id ?? null) : null;
           if (elsewhere) {
             q('UPDATE events SET calendar_id = ?, dav_name = ? WHERE id = ?').run(at.cal?.id ?? null, at.name, elsewhere.id);
             q('UPDATE events SET calendar_id = ? WHERE recur_parent = ? AND owner_id = ?').run(at.cal?.id ?? null, elsewhere.id, me);
             // It takes the new calendar's colour unless it had one of its own.
             const was = elsewhere.calendar_id ? q('SELECT color FROM user_calendars WHERE id = ?').get(elsewhere.calendar_id)?.color : null;
             if (!elsewhere.color || (was && elsewhere.color.toLowerCase() === was.toLowerCase())) q('UPDATE events SET color = ? WHERE id = ?').run(at.cal?.color ?? null, elsewhere.id);
-          } else if (!row && e.uid && q('SELECT 1 FROM events WHERE owner_id = ? AND ical_uid = ?').get(me, e.uid)) return res.status(409).send('An event with this UID already exists');
+          } else if (!row && e.uid && q('SELECT 1 FROM events WHERE owner_id = ? AND ical_uid = ?').get(actor, e.uid)) return res.status(409).send('An event with this UID already exists');
           const known = row || elsewhere;
           const id = known?.id || uid();
           const vals = [e.title, e.description, e.location, e.start, e.end, e.all_day, e.rrule ? JSON.stringify(e.rrule) : null, JSON.stringify(e.exdates || []), repeatUntil(e), zoneOrUtc(e.tz)];
           if (known) q('UPDATE events SET title = ?, description = ?, location = ?, start = ?, end = ?, all_day = ?, rrule = ?, exdates = ?, repeat_until = ?, tz = ?, sequence = sequence + 1 WHERE id = ?').run(...vals, id);
           else q(`INSERT INTO events (title, description, location, start, end, all_day, rrule, exdates, repeat_until, tz, id, owner_id, dav_name, ical_uid, color, calendar_id)
-                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(...vals, id, me, at.name, e.uid, at.cal?.color ?? null, at.cal?.id ?? null);
-          syncOverrides(id, e, me);
-          setReminders(id, me, e.reminders);
-          touch(me);
-          const saved = q('SELECT *, NULL AS my_status, ? AS for_user FROM events WHERE id = ?').get(me, id);
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(...vals, id, actor, at.name, e.uid, at.cal?.color ?? null, at.cal?.id ?? null);
+          syncOverrides(id, e, actor);
+          if (actor === me) setReminders(id, me, e.reminders); // a colleague's reminders on their events stay theirs
+          touch([me, actor, ...peopleOf(at.cal?.id)]);
+          tell(known ? 'changed' : 'added', e.title);
+          const saved = q('SELECT *, NULL AS my_status, ? AS for_user FROM events WHERE id = ?').get(actor, id);
           res.setHeader('ETag', etagOf(icsOf(saved)));
           return res.status(row ? 204 : 201).end();
         }
@@ -356,7 +370,7 @@ export default function davRoutes() {
         // A calendar of your own renamed or recoloured on the phone is kept; the main calendar's and
         // the address book's names and colours aren't. New calendars are made in Workspace.
         if (m === 'PROPPATCH') {
-          if (at.kind === 'calendar' && at.cal) {
+          if (at.kind === 'calendar' && at.cal && !at.cal.shared) {
             const body = String(req.body || '');
             const name = /<(?:\w+:)?displayname[^>]*>([^<]*)<\//.exec(body)?.[1]?.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim().slice(0, 60);
             const color = /<(?:\w+:)?calendar-color[^>]*>\s*(#[0-9a-f]{6})(?:[0-9a-f]{2})?\s*<\//i.exec(body)?.[1]?.toLowerCase();

@@ -282,3 +282,45 @@ test('calendars of your own: each is a calendar on the phone, with its name, col
   // Someone else's calendar id isn't reachable.
   assert.equal((await dav('PROPFIND', `/dav/calendars/${other.id}/${fam.id}/`, { depth: 0 })).status, 403);
 });
+
+test('calendars colleagues share: on the phone too, read-only unless you may make changes', async () => {
+  // Kim shares two calendars with Pat: one to see, one to change.
+  const kim = { cookie: '' };
+  const login = await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ username: 'kim@acme.com', password: 'password123' }) });
+  kim.cookie = login.headers.get('set-cookie').split(';')[0];
+  const k = async (method, url, body) => { const r = await fetch(base + url, { method, headers: { 'x-requested-with': 'nas-workspace', cookie: kim.cookie, ...(body && { 'content-type': 'application/json' }) }, body: body && JSON.stringify(body) }); return { status: r.status, body: await r.json().catch(() => null) }; };
+  const see = (await k('POST', '/api/events/calendars', { name: 'Kim travel', color: '#d50000' })).body;
+  const edit = (await k('POST', '/api/events/calendars', { name: 'Rota', color: '#616161' })).body;
+  const t = Date.UTC(2026, 11, 8, 9);
+  const trip = (await k('POST', '/api/events', { title: 'Kim in Paris', start: t, end: t + 3600e3, calendar_id: see.id, color: '#d50000' })).body;
+  await k('PUT', `/api/events/calendars/${see.id}/members`, { members: [{ id: me.id, can_edit: false }] });
+  await k('PUT', `/api/events/calendars/${edit.id}/members`, { members: [{ id: me.id, can_edit: true }] });
+
+  const home = await dav('PROPFIND', `/dav/calendars/${me.id}/`, { depth: 1, body: propfind('<d:displayname/><d:current-user-privilege-set/>') });
+  assert.ok(home.text.includes(`/dav/calendars/${me.id}/${see.id}/`));
+  assert.ok(home.text.includes('<d:displayname>Kim travel (Kim)</d:displayname>'));
+  const seeProps = await dav('PROPFIND', `/dav/calendars/${me.id}/${see.id}/`, { depth: 0, body: propfind('<d:current-user-privilege-set/>') });
+  assert.ok(!seeProps.text.includes('<d:write/>'), 'read-only');
+  assert.ok((await dav('PROPFIND', `/dav/calendars/${me.id}/${edit.id}/`, { depth: 0, body: propfind('<d:current-user-privilege-set/>') })).text.includes('<d:write/>'));
+  const list = await dav('PROPFIND', `/dav/calendars/${me.id}/${see.id}/`, { depth: 1 });
+  assert.ok(list.text.includes(`${trip.id}.ics`));
+  assert.match((await dav('GET', `/dav/calendars/${me.id}/${see.id}/${trip.id}.ics`)).text, /SUMMARY:Kim in Paris/);
+  // Read-only: no changes from the phone.
+  const ev = (uidv, title) => ['BEGIN:VCALENDAR', 'VERSION:2.0', 'BEGIN:VEVENT', `UID:${uidv}`, 'DTSTART:20261209T080000Z', 'DTEND:20261209T090000Z', `SUMMARY:${title}`, 'END:VEVENT', 'END:VCALENDAR'].join('\r\n');
+  assert.equal((await dav('PUT', `/dav/calendars/${me.id}/${see.id}/x.ics`, { body: ev('X-1', 'Nope'), headers: { 'content-type': 'text/calendar' } })).status, 403);
+  assert.equal((await dav('DELETE', `/dav/calendars/${me.id}/${see.id}/${trip.id}.ics`)).status, 403);
+  // The one Pat may change: an event added on the phone is Kim's, in Rota, and Kim is told.
+  assert.equal((await dav('PUT', `/dav/calendars/${me.id}/${edit.id}/shift.ics`, { body: ev('SHIFT-1', 'Pat on call'), headers: { 'content-type': 'text/calendar', 'if-none-match': '*' } })).status, 201);
+  const kims = (await k('GET', `/api/events?from=${Date.UTC(2026, 11, 9)}&to=${Date.UTC(2026, 11, 10)}`)).body.find((e) => e.title === 'Pat on call');
+  assert.deepEqual([kims.role, kims.calendar_id, kims.color], ['organizer', edit.id, '#616161']);
+  assert.ok(JSON.stringify((await k('GET', '/api/notifications')).body).includes('Pat Phone added “Pat on call” in Rota'));
+  assert.equal((await dav('DELETE', `/dav/calendars/${me.id}/${edit.id}/shift.ics`)).status, 204);
+  assert.equal((await k('GET', `/api/events?from=${Date.UTC(2026, 11, 9)}&to=${Date.UTC(2026, 11, 10)}`)).body.filter((e) => e.title === 'Pat on call').length, 0);
+  // Renaming from the phone isn't Pat's to do.
+  const pp = '<?xml version="1.0"?><d:propertyupdate xmlns:d="DAV:"><d:set><d:prop><d:displayname>Mine</d:displayname></d:prop></d:set></d:propertyupdate>';
+  await dav('PROPPATCH', `/dav/calendars/${me.id}/${edit.id}/`, { body: pp });
+  assert.equal((await k('GET', '/api/events/calendars')).body.find((c) => c.id === edit.id).name, 'Rota');
+  // Unshared: gone from the phone.
+  await k('PUT', `/api/events/calendars/${see.id}/members`, { members: [] });
+  assert.equal((await dav('PROPFIND', `/dav/calendars/${me.id}/${see.id}/`, { depth: 0 })).status, 404);
+});
