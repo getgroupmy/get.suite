@@ -181,6 +181,7 @@ export default function Drive() {
     if (!items.length) return;
     setUploads((u) => [...u, ...items]);
     const folders = new Map(); // "a/b" → folder id
+    let converted = 0;
     for (const it of items) {
       try {
         let into = parentId;
@@ -189,12 +190,15 @@ export default function Drive() {
           if (!folders.has(key)) folders.set(key, (await post('/files/folder-path', { parent_id: parentId, path: it.dir })).id);
           into = folders.get(key);
         }
-        await uploadFile(it.file, into, (p) => setUploads((u) => u.map((x) => (x.id === it.id ? { ...x, progress: p } : x))));
+        const rec = await uploadFile(it.file, into, (p) => setUploads((u) => u.map((x) => (x.id === it.id ? { ...x, progress: p } : x))), { convert: true });
+        if (rec?.converted_from) converted++;
+        if (rec?.convert_error) toast(`${it.file.name} was uploaded as it is: ${rec.convert_error}`, 'info');
         setUploads((u) => u.map((x) => (x.id === it.id ? { ...x, progress: 1, done: true } : x)));
       } catch (e) {
         setUploads((u) => u.map((x) => (x.id === it.id ? { ...x, error: e.message } : x)));
       }
     }
+    if (converted) toast(`${converted === 1 ? '1 file' : `${converted} files`} converted to ${converted === 1 ? 'a document, spreadsheet or presentation' : 'documents, spreadsheets and presentations'} (the original${converted === 1 ? ' is' : 's are'} in the trash)`);
     load();
   }
 

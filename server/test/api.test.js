@@ -8243,3 +8243,35 @@ test('file format choice: zip downloads and your data as Microsoft Office or Ope
   const { docFromOdt } = await import('../src/office/odt.js');
   assert.equal((await docFromOdt(await zip.file('Drive/Notes.odt').async('nodebuffer'))).doc.type, 'doc', 'a real OpenDocument file');
 });
+
+test('convert uploads: Office, OpenDocument and Markdown files uploaded in Drive become documents (when chosen)', async () => {
+  const me = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'converter', domain: 'acme.com', name: 'Connie Vert', password: 'password123' })).status, 201);
+  await login(me, 'converter@acme.com');
+  assert.equal((await me('GET', '/api/auth/me')).body.user.convert_uploads, false, 'off to start with');
+  const { Document, Packer, Paragraph } = await import('docx');
+  const docx = await Packer.toBuffer(new Document({ sections: [{ children: [new Paragraph('Meeting at noon')] }] }));
+  const folder = (await me('POST', '/api/files/folder', { name: 'Inbox scans' })).body;
+  // Off: a file, as before (and with ?convert=auto too).
+  const plain = (await me('POST', `/api/files/upload?name=Agenda.docx&parent=${folder.id}&convert=auto`, docx, { raw: true })).body;
+  assert.deepEqual([plain.kind, plain.name], ['file', 'Agenda.docx']);
+  assert.deepEqual((await me('PUT', '/api/users/me/convert-uploads', { on: true })).body, { convert_uploads: true });
+  assert.equal((await me('GET', '/api/auth/me')).body.user.convert_uploads, true);
+  // On: a document in the same folder; the uploaded file in the trash.
+  const up = await me('POST', `/api/files/upload?name=Minutes.docx&parent=${folder.id}&convert=auto`, docx, { raw: true });
+  assert.equal(up.status, 201);
+  assert.deepEqual([up.body.kind, up.body.name, up.body.parent_id, up.body.converted_from], ['doc', 'Minutes', folder.id, 'Minutes.docx']);
+  assert.match(JSON.stringify((await me('GET', `/api/files/${up.body.id}/content`)).body.content), /Meeting at noon/);
+  const trash = (await me('GET', '/api/files?view=trash')).body;
+  assert.ok(trash.some((f) => f.name === 'Minutes.docx'), 'the original kept in the trash');
+  const md = (await me('POST', `/api/files/upload?name=Notes.md&convert=auto`, Buffer.from('# Notes\n\n- one\n- two'), { raw: true })).body;
+  assert.deepEqual([md.kind, md.name], ['doc', 'Notes']);
+  // Only Drive's own uploads (?convert=auto): attachments and the like stay files. Other kinds stay files.
+  assert.equal((await me('POST', '/api/files/upload?name=Report.docx', docx, { raw: true })).body.kind, 'file');
+  assert.equal((await me('POST', '/api/files/upload?name=photo.png&convert=auto', Buffer.from('png'), { raw: true })).body.kind, 'file');
+  // One that can't be read: kept as it came, and said why.
+  const bad = (await me('POST', '/api/files/upload?name=Broken.xlsx&convert=auto', Buffer.from('not a workbook'), { raw: true })).body;
+  assert.deepEqual([bad.kind, bad.name], ['file', 'Broken.xlsx']);
+  assert.match(bad.convert_error, /couldn't be read as an Excel workbook/);
+  assert.equal((await me('PUT', '/api/users/me/convert-uploads', { on: false })).body.convert_uploads, false);
+});

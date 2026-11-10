@@ -16,6 +16,8 @@ if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'must_change_pas
 if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'second_tz')) q('ALTER TABLE users ADD COLUMN second_tz TEXT').run();
 // The kind of files documents, spreadsheets and presentations download as when there's no choice to make (a .zip, your data): 'office' (Word, Excel, PowerPoint; the default) or 'odf' (OpenDocument).
 if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'file_format')) q('ALTER TABLE users ADD COLUMN file_format TEXT').run();
+// Word, Excel, PowerPoint, OpenDocument and Markdown files uploaded in Drive become documents, spreadsheets and presentations (1), or stay files (0, the default).
+if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'convert_uploads')) q('ALTER TABLE users ADD COLUMN convert_uploads INTEGER NOT NULL DEFAULT 0').run();
 
 const SESSION_DAYS = 30;
 export const COOKIE = 'nw_sid';
@@ -81,7 +83,7 @@ export const idleOf = (req) => { const v = Number(req.get?.('x-user-idle')); ret
  */
 export function userFromToken(token, { idleMs = null } = {}) {
   if (!token) return null;
-  const row = q(`SELECT u.id, u.username, u.name, u.is_admin, u.is_super, u.disabled, u.org_id, u.start_page, u.second_tz, u.file_format, u.must_change_password, u.recovery_email, COALESCE(u.password_set_at, u.created_at) AS password_set_at, o.pw_max_days,
+  const row = q(`SELECT u.id, u.username, u.name, u.is_admin, u.is_super, u.disabled, u.org_id, u.start_page, u.second_tz, u.file_format, u.convert_uploads, u.must_change_password, u.recovery_email, COALESCE(u.password_set_at, u.created_at) AS password_set_at, o.pw_max_days,
                         o.name AS org_name, o.allow_external, o.allow_links, o.require_2fa, o.accent AS org_accent, o.logo AS org_logo, s.expires_at, s.last_seen, s.created_at AS session_at, o.session_idle_min, o.session_max_hours,
                         (SELECT enabled FROM two_factor t WHERE t.user_id = u.id) AS tf_enabled
                  FROM sessions s JOIN users u ON u.id = s.user_id JOIN orgs o ON o.id = u.org_id
@@ -106,7 +108,7 @@ export function userFromToken(token, { idleMs = null } = {}) {
   return userOf(row);
 }
 
-const USER_COLUMNS = `u.id, u.username, u.name, u.is_admin, u.is_super, u.disabled, u.org_id, u.start_page, u.second_tz, u.file_format, u.must_change_password, u.recovery_email, COALESCE(u.password_set_at, u.created_at) AS password_set_at, o.pw_max_days,
+const USER_COLUMNS = `u.id, u.username, u.name, u.is_admin, u.is_super, u.disabled, u.org_id, u.start_page, u.second_tz, u.file_format, u.convert_uploads, u.must_change_password, u.recovery_email, COALESCE(u.password_set_at, u.created_at) AS password_set_at, o.pw_max_days,
   o.name AS org_name, o.allow_external, o.allow_links, o.require_2fa, o.accent AS org_accent, o.logo AS org_logo, o.session_idle_min, (SELECT enabled FROM two_factor t WHERE t.user_id = u.id) AS tf_enabled`;
 
 /** The person an API token acts for (see apitokens.js), as requireAuth gives it, with req.apiToken set. */
@@ -140,6 +142,7 @@ function userOf(row) {
     start_page: row.start_page === 'home' ? 'home' : 'drive',
     second_tz: row.second_tz || null,
     file_format: row.file_format === 'odf' ? 'odf' : 'office',
+    convert_uploads: !!row.convert_uploads,
     recovery_email: row.recovery_email || null, // a personal address for "Forgot password?"
     session_idle_min: row.session_idle_min || 0,
   };

@@ -59,8 +59,9 @@ export async function postText(url, text) {
 }
 
 /** Upload one file with progress. Resolves to the created file record. */
-export function uploadFile(file, parentId, onProgress) {
-  const qs = new URLSearchParams({ name: file.name, ...(parentId && { parent: parentId }) });
+/** Upload a file to Drive. `convert`: Drive's own uploads, which become documents etc. for people who chose that in Settings. */
+export function uploadFile(file, parentId, onProgress, { convert = false } = {}) {
+  const qs = new URLSearchParams({ name: file.name, ...(parentId && { parent: parentId }), ...(convert && { convert: 'auto' }) });
   return uploadTo(`/api/files/upload?${qs}`, file, onProgress);
 }
 

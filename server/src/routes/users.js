@@ -201,6 +201,13 @@ export default function userRoutes() {
     res.json({ file_format: format });
   });
 
+  // Convert Office, OpenDocument and Markdown files you upload in Drive: { on: true | false }.
+  r.put('/me/convert-uploads', (req, res) => {
+    const on = !!req.body?.on;
+    q('UPDATE users SET convert_uploads = ? WHERE id = ?').run(on ? 1 : 0, req.user.id);
+    res.json({ convert_uploads: on });
+  });
+
   // Where Workspace opens for you: { page: 'drive' | 'home' }.
   // Your own job title, department and phone ({ job_title, department, work_phone }).
   r.put('/me/profile', (req, res) => {

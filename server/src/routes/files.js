@@ -793,6 +793,20 @@ export default function fileRoutes({ maxUploadBytes }) {
     const name = cleanName(String(req.query.name || ''));
     const { storage, size } = await receiveUpload(req, req.user.org_id, maxUploadBytes, req.user.id);
     const id = insertFile({ owner: req.user.id, parentId, name, kind: 'file', mime: mimeFor(name), size, storage });
+    // Uploaded in Drive (?convert=auto) by someone who chose to convert uploads: a Word, Excel, PowerPoint,
+    // OpenDocument or Markdown file becomes a document, spreadsheet or presentation; the file goes to the trash.
+    if (req.query.convert === 'auto' && officeType(name) && size <= MAX_CONVERT && q('SELECT convert_uploads FROM users WHERE id = ?').get(req.user.id)?.convert_uploads) {
+      try {
+        const made = await convertOffice(loadFile(id, req.user), req.user);
+        q('UPDATE files SET trashed = 1, trashed_at = ?, updated_at = ? WHERE id = ?').run(now(), now(), id);
+        recordActivity(id, req.user.id, 'trash');
+        if (parentId) notify(parentId, { type: 'files-changed', parent_id: parentId });
+        return res.status(201).json({ ...publicFile(loadFile(made, req.user)), converted_from: name });
+      } catch (e) {
+        if (parentId) notify(parentId, { type: 'files-changed', parent_id: parentId });
+        return res.status(201).json({ ...publicFile(loadFile(id, req.user)), convert_error: e.message }); // kept as it came
+      }
+    }
     if (parentId) notify(parentId, { type: 'files-changed', parent_id: parentId });
     res.status(201).json(publicFile(loadFile(id, req.user)));
   });
@@ -1237,8 +1251,9 @@ export default function fileRoutes({ maxUploadBytes }) {
 
   // Open a Word, Excel or PowerPoint file as a Docs, Sheets or Slides copy, next to it if you can
   // add files there (otherwise in your Drive). The original stays as it is.
-  r.post('/:id/open-as', async (req, res) => {
-    const f = loadFile(req.params.id, req.user);
+  /** A Word, Excel, PowerPoint, OpenDocument or Markdown file f as a new document, spreadsheet or presentation for user: its id. */
+  const convertOffice = async (f, user) => {
+    const req = { user }; // (as the route had it)
     const type = f.kind === 'file' && officeType(f.name);
     if (!type) throw bad('Only Word (.docx), OpenDocument (.odt, .ods, .odp), Excel (.xlsx), PowerPoint (.pptx) and Markdown (.md) files can be opened this way');
     if (f.size > MAX_CONVERT) throw bad('This file is too large to convert (50 MB at most)');
@@ -1299,6 +1314,10 @@ export default function fileRoutes({ maxUploadBytes }) {
       if (JSON.stringify(setup) !== plain) q('UPDATE files SET page_setup = ? WHERE id = ?').run(JSON.stringify(setup), id);
     }
     if (parentId) notify(parentId, { type: 'files-changed', parent_id: parentId });
+    return id;
+  };
+  r.post('/:id/open-as', async (req, res) => {
+    const id = await convertOffice(loadFile(req.params.id, req.user), req.user);
     res.status(201).json(publicFile(loadFile(id, req.user)));
   });
 

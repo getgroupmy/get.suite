@@ -351,7 +351,22 @@ function FileFormat() {
         <label className="check"><input type="radio" name="file-format" checked={now === 'office'} onChange={() => set('office')} /> Microsoft Office: Word (.docx), Excel (.xlsx), PowerPoint (.pptx)</label>
         <label className="check"><input type="radio" name="file-format" checked={now === 'odf'} onChange={() => set('odf')} /> OpenDocument: .odt, .ods, .odp (LibreOffice and others)</label>
       </div>
+      <ConvertUploads />
     </section>
+  );
+}
+
+/** Uploads in Drive: Word, Excel, PowerPoint, OpenDocument and Markdown files become documents, spreadsheets and presentations. */
+function ConvertUploads() {
+  const toast = useToast();
+  const { user, setUser } = useAuth();
+  const [on, setOn] = useState(!!user.convert_uploads);
+  const set = async (v) => {
+    setOn(v);
+    try { await put('/users/me/convert-uploads', { on: v }); setUser({ ...user, convert_uploads: v }); toast(v ? 'Office files you upload will become documents, spreadsheets and presentations' : 'Office files you upload will stay as they are'); } catch (e) { setOn(!v); toast(e.message, 'error'); }
+  };
+  return (
+    <label className="check"><input type="checkbox" checked={on} onChange={(e) => set(e.target.checked)} /> Convert uploads: Word, Excel, PowerPoint, OpenDocument and Markdown files I upload in Drive become documents, spreadsheets and presentations (the uploaded file goes to the trash)</label>
   );
 }
 
