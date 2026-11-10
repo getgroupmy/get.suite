@@ -635,6 +635,8 @@ function Reader({ shared = null, folder, uid, special, onClose, onOpen, onChange
   const { user } = useAuth();
   const [m, setM] = useState(null);
   const [images, setImages] = useState(false);
+  const [wholeQuote, setWholeQuote] = useState(false); // the quoted history under a reply, unfolded
+  useEffect(() => { setWholeQuote(false); }, [uid]);
   const [blocking, setBlocking] = useState(false);
   const [unsubscribing, setUnsubscribing] = useState(false);
   const [muted, setMuted] = useState(null); // its conversation is muted: the entry's id
@@ -780,7 +782,15 @@ function Reader({ shared = null, folder, uid, special, onClose, onOpen, onChange
           <button type="button" className="btn small" onClick={() => answerReceipt(false)}>Not now</button>
         </div>
       )}
-      {m.html ? <HtmlBody html={m.html} images={images} onShowImages={() => setImages(true)} /> : <pre className="mail-text">{m.text}</pre>}
+      {(() => {
+        const fold = m.trimmed && !wholeQuote;
+        const body = m.html ? <HtmlBody html={fold && m.trimmed.html !== null ? m.trimmed.html : m.html} images={images} onShowImages={() => setImages(true)} />
+          : <pre className="mail-text">{fold && m.trimmed.text !== null ? m.trimmed.text : m.text}</pre>;
+        return <>{body}{m.trimmed && (
+          <button type="button" className="quote-toggle" aria-expanded={wholeQuote} aria-label={wholeQuote ? 'Hide quoted text' : 'Show quoted text'}
+            title={wholeQuote ? 'Hide the earlier messages quoted in this one' : 'Show the earlier messages quoted in this one'} onClick={() => setWholeQuote(!wholeQuote)}>•••</button>
+        )}</>;
+      })()}
       {m.attachments.length > 0 && (
         <ul className="att-list">
           {m.attachments.map((a) => (

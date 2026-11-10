@@ -38,6 +38,7 @@ import { mimeFor } from '../util.js';
 import { previewMime, previewHeaders } from '../mail/preview.js';
 import { officePreview } from '../office/preview.js';
 import { originalSummary } from '../mail/original.js';
+import { splitHtmlQuote, splitTextQuote } from '../mail/quotesplit.js';
 import { describeForwarding, rowOf, recentSends, newCode, hashCode, cleanAddress, forwardingAllowed, checkCode, KEEP_CHOICES, CODE_DAYS, MAX_SENDS_PER_DAY } from '../mail/forwarding.js';
 import { emlView } from '../mail/emlview.js';
 import { zipEntries } from '../zipfiles.js';
@@ -901,6 +902,12 @@ export default function webmailRoutes() {
       sentBy: (() => { const sn = addrList(p.headers?.get('sender'))[0]; const fr = addrList(p.from)[0]; return sn && sn.address && sn.address !== fr?.address ? sn : null; })(),
       messageId: p.messageId || null, references: [].concat(p.references || []),
       html: p.html || null, text: p.text || '', textAsHtml: p.textAsHtml || '',
+      // The new part of a reply, without the quoted history under it (shown folded away), or null.
+      trimmed: (() => {
+        const h = p.html ? splitHtmlQuote(p.html) : null, t = splitTextQuote(p.text || '');
+        if (p.html ? !h.quoted : !t.quoted) return null;
+        return { html: h?.quoted ? h.main : null, text: t.quoted ? t.main : null };
+      })(),
       flagged: flags.has('\\Flagged'),
       labels: (() => { const kw = new Map(labelsOf(req.user.id).map((l) => [l.keyword.toLowerCase(), l.id])); return [...flags].map((f) => kw.get(String(f).toLowerCase())).filter(Boolean); })(),
       spam: /yes/i.test(String(p.headers.get('x-spam') || '')),
