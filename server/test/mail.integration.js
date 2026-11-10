@@ -1975,3 +1975,30 @@ test('delivery in Sent: the sender sees each recipient delivered (from the mail 
   assert.deepEqual(d.recipients.map((x) => x.to), ['bob@acme.com', 'gina@globex.com']);
   assert.equal((await gina('GET', `/api/mail/delivery?message_id=${encodeURIComponent(sent.messageId)}`)).body.recipients, null, 'a recipient doesn\'t see it');
 });
+
+test('forms: sent by email, who has answered, and a reminder to the others', async () => {
+  const title = `Team survey ${Date.now()}`;
+  const form = (await olivia('POST', '/api/forms', { title })).body;
+  const fid = form.id || form.form?.id;
+  assert.ok(fid, JSON.stringify(form));
+  assert.equal((await olivia('POST', `/api/forms/${fid}/send`, { to: 'not-an-address' })).status, 400);
+  const sent = await olivia('POST', `/api/forms/${fid}/send`, { to: 'gina@globex.com, bob@acme.com', message: 'Two minutes, please.' });
+  assert.equal(sent.status, 200, JSON.stringify(sent.body));
+  assert.equal(sent.body.sent, 2);
+  const mail = await eventually(async () => (await inbox(gina, title))[0], 30000);
+  const body = (await gina('GET', `/api/mail/messages/${mail.uid}?folder=INBOX`)).body;
+  assert.match(body.text, /Two minutes, please\./);
+  assert.match(body.text, /\/f\/[\w-]+/);
+  assert.deepEqual((await olivia('GET', `/api/forms/${fid}/invites`)).body.map((i) => [i.email, i.answered]), [['bob@acme.com', false], ['gina@globex.com', false]]);
+  // Bob answers (a company form: by his account); the reminder goes to Gina only.
+  const token = /\/f\/([\w-]+)/.exec(body.text)[1];
+  await bobBack();
+  const answered = await bob('POST', `/api/public/forms/${token}`, { answers: {} });
+  assert.ok(answered.status < 300, JSON.stringify(answered.body));
+  const after = (await olivia('GET', `/api/forms/${fid}/invites`)).body;
+  assert.deepEqual(after.map((i) => [i.email, i.answered]), [['gina@globex.com', false], ['bob@acme.com', true]]);
+  const rem = (await olivia('POST', `/api/forms/${fid}/remind`)).body;
+  assert.equal(rem.sent, 1);
+  await eventually(async () => (await inbox(gina, `Reminder: ${title}`))[0], 30000);
+  assert.ok((await olivia('GET', `/api/forms/${fid}/invites`)).body.find((i) => i.email === 'gina@globex.com').reminded_at);
+});

@@ -49,6 +49,31 @@ q('CREATE INDEX IF NOT EXISTS form_responses_form ON form_responses(form_id, cre
 for (const [col, type] of [['edit_key', 'TEXT'], ['updated_at', 'INTEGER'], ['email', 'TEXT']]) {
   if (!q('PRAGMA table_info(form_responses)').all().some((c) => c.name === col)) q(`ALTER TABLE form_responses ADD COLUMN ${col} ${type}`).run();
 }
+// People the form was sent to by email (Send → Email), to see who hasn't answered and remind them.
+q(`CREATE TABLE IF NOT EXISTS form_invites (
+  form_id TEXT NOT NULL REFERENCES forms(id) ON DELETE CASCADE,
+  email TEXT NOT NULL,
+  sent_at INTEGER NOT NULL,
+  reminded_at INTEGER,
+  PRIMARY KEY (form_id, email)
+)`).run();
+
+/**
+ * Who of those it was sent to has answered: on a company form, by their account; on a form for anyone
+ * with the link, by the email address they gave (Collect email addresses). [{ email, sent_at, reminded_at, answered }].
+ */
+export function inviteStatus(form, invites, responses) {
+  const answered = new Set();
+  for (const r of responses) {
+    if (r.user_email) answered.add(String(r.user_email).toLowerCase());
+    if (r.email) answered.add(String(r.email).toLowerCase());
+  }
+  return invites.map((i) => ({ email: i.email, sent_at: i.sent_at, reminded_at: i.reminded_at || null, answered: answered.has(i.email) }))
+    .sort((a, b) => a.answered - b.answered || a.email.localeCompare(b.email));
+}
+const invitesOf = (form) => inviteStatus(form, q('SELECT email, sent_at, reminded_at FROM form_invites WHERE form_id = ?').all(form.id),
+  q('SELECT r.email, u.username AS user_email FROM form_responses r LEFT JOIN users u ON u.id = r.user_id WHERE r.form_id = ?').all(form.id));
+
 // Colleagues who can edit a form and read its responses with the owner.
 q(`CREATE TABLE IF NOT EXISTS form_editors (
   form_id TEXT NOT NULL REFERENCES forms(id) ON DELETE CASCADE,
@@ -513,6 +538,48 @@ export default function formRoutes() {
     changed(f, req.user.id);
     const out = ownForm(f.id, req.user);
     res.json({ ...out, responses: countOf(f.id), closed: closedReason(out) });
+  });
+
+  // Send the form by email (from you), and see who of them has answered.
+  r.get('/:id/invites', (req, res) => res.json(invitesOf(ownForm(req.params.id, req.user))));
+  const EMAIL = /^[^\s@<>,;"]+@[^\s@<>,;"]+\.[^\s@<>,;"]+$/;
+  const sendInvites = async (req, form, emails, { message, reminder }) => {
+    if (!mailEnabled()) throw bad('This server has no email');
+    const link = `${baseUrlOf(req)}/f/${form.token}`;
+    const subject = reminder ? `Reminder: ${form.title}` : form.title;
+    const lines = [message || (reminder ? `${req.user.name} is still waiting for your answers to "${form.title}".` : `${req.user.name} has invited you to fill in "${form.title}".`), '', `Fill it in: ${link}`];
+    if (form.close_at) lines.push('', `It closes ${new Date(form.close_at).toUTCString().replace(/:\d\d GMT$/, ' UTC')}.`);
+    const failed = [];
+    for (const to of emails) {
+      try { await smtpFor(req.user).sendMail({ from: { name: req.user.name, address: req.user.username }, to, subject, text: lines.join('\n') }); }
+      catch { failed.push(to); }
+    }
+    return failed;
+  };
+  r.post('/:id/send', async (req, res) => {
+    const form = ownForm(req.params.id, req.user);
+    const emails = [...new Set(String(req.body?.to || '').split(/[\s,;]+/).map((x) => x.trim().toLowerCase()).filter(Boolean))];
+    if (!emails.length) throw bad('Add at least one email address');
+    if (emails.length > 200) throw bad('At most 200 people at a time');
+    const wrong = emails.find((e) => !EMAIL.test(e));
+    if (wrong) throw bad(`“${wrong}” isn't an email address`);
+    if (!form.accepting) throw bad('The form isn\'t accepting responses: turn that on first');
+    const message = str(req.body?.message ?? '', { name: 'Message', max: 2000 }) || null;
+    const failed = await sendInvites(req, form, emails, { message });
+    const t = now();
+    for (const e of emails.filter((x) => !failed.includes(x))) q('INSERT INTO form_invites (form_id, email, sent_at) VALUES (?, ?, ?) ON CONFLICT(form_id, email) DO UPDATE SET sent_at = excluded.sent_at').run(form.id, e, t);
+    res.json({ sent: emails.length - failed.length, failed, invites: invitesOf(form) });
+  });
+  // A reminder to those it was sent to who haven't answered yet.
+  r.post('/:id/remind', async (req, res) => {
+    const form = ownForm(req.params.id, req.user);
+    if (!form.accepting) throw bad('The form isn\'t accepting responses');
+    const waiting = invitesOf(form).filter((i) => !i.answered).map((i) => i.email);
+    if (!waiting.length) return res.json({ sent: 0, failed: [], invites: invitesOf(form) });
+    const failed = await sendInvites(req, form, waiting, { reminder: true, message: str(req.body?.message ?? '', { name: 'Message', max: 2000 }) || null });
+    const t = now();
+    for (const e of waiting.filter((x) => !failed.includes(x))) q('UPDATE form_invites SET reminded_at = ? WHERE form_id = ? AND email = ?').run(t, form.id, e);
+    res.json({ sent: waiting.length - failed.length, failed, invites: invitesOf(form) });
   });
 
   r.post('/:id/copy', (req, res) => {

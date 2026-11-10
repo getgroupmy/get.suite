@@ -8,6 +8,7 @@ import { ConfirmModal, Empty, Menu, Modal, useToast } from '../../components/ui.
 import { Question } from './FormRespond.jsx';
 import { EmbedCode } from '../editorCommon.jsx';
 import { useAuth } from '../../App.jsx';
+import QRCode from 'qrcode';
 import { TYPES, HAS_OPTIONS, GRIDS, MAX_RANKED, prefillParam, newId, retype, nextOption, summarize, percent } from './formmath.js';
 import { CHECKS, OPS, KIND_NAMES, cleanCheck } from './formcheck.js';
 
@@ -80,6 +81,7 @@ function FormEditor({ id }) {
   const [status, setStatus] = useState('');
   const [confirm, setConfirm] = useState(false);
   const [prefill, setPrefill] = useState(false); // the "Get pre-filled link" window
+  const [sending, setSending] = useState(false); // the Send window: by email, or the link and its QR code
   const [embedOpen, setEmbedOpen] = useState(false);
   const [responses, setResponses] = useState(null);
   const pending = useRef(null); // edits not yet saved
@@ -138,6 +140,7 @@ function FormEditor({ id }) {
   return (
     <div className="page form-editor">
       {prefill && <PrefillModal form={form} onClose={() => setPrefill(false)} />}
+      {sending && <SendForm form={form} link={linkOf(form.token)} onClose={() => setSending(false)} />}
       {embedOpen && (
         <Modal title="Embed in a website" onClose={() => setEmbedOpen(false)} footer={<button type="button" className="btn" onClick={() => setEmbedOpen(false)}>Close</button>}>
           <p className="muted small" style={{ marginTop: 0 }}>Put this form on your own web page: paste the code into the page's HTML. {form.audience === 'org' ? 'This form is for people at your company, who need to be signed in; for a page anyone visits, choose “Anyone with the link” in Settings.' : 'Answers arrive here as usual.'}</p>
@@ -148,6 +151,7 @@ function FormEditor({ id }) {
         <button type="button" className="icon-btn" aria-label="All forms" onClick={() => navigate('/forms')}><Icon name="back" /></button>
         <input className="form-title-input grow" aria-label="Form title" value={form.title} maxLength={200} onChange={(e) => edit({ title: e.target.value })} />
         <span className="muted small nowrap" aria-live="polite">{status}</span>
+        <button type="button" className="btn primary" onClick={async () => { await flush(); setSending(true); }}><Icon name="send" size={18} /> Send</button>
         <button type="button" className="btn" onClick={copyLink}><Icon name="link" size={18} /> Copy link</button>
         <a className="btn" href={`/f/${form.token}`} target="_blank" rel="noreferrer">Preview</a>
         <Menu trigger={(p) => <button className="icon-btn" aria-label="More" {...p}><Icon name="more" /></button>} items={[
@@ -640,5 +644,70 @@ function OptionPicture({ q, option, label, formId, onChange }) {
       {id ? <span className="form-option-thumb"><img src={`/api/forms/${formId}/pictures/${id}`} alt="" /><button type="button" className="chip-x" aria-label={`Remove picture from ${label}`} onClick={() => onChange(null)}>×</button></span>
         : <button type="button" className="icon-btn" aria-label={`Add a picture to ${label}`} title="Add a picture to this option" onClick={() => input.current?.click()}>🖼</button>}
     </>
+  );
+}
+
+/**
+ * Send: by email from you (with who has answered so far, and a reminder for the rest), or the link with
+ * a QR code to print or show (people scan it with their phone's camera).
+ */
+function SendForm({ form, link, onClose }) {
+  const toast = useToast();
+  const [tab, setTab] = useState(form.mail ? 'email' : 'link');
+  const [to, setTo] = useState('');
+  const [message, setMessage] = useState('');
+  const [invites, setInvites] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [qr, setQr] = useState('');
+  useEffect(() => { get(`/forms/${form.id}/invites`).then(setInvites).catch(() => setInvites([])); }, [form.id]);
+  useEffect(() => { QRCode.toDataURL(link, { margin: 1, width: 320 }).then(setQr).catch(() => {}); }, [link]);
+  const done = (r, what) => {
+    setInvites(r.invites);
+    toast(r.failed.length ? `${what} ${r.sent}; couldn't send to ${r.failed.join(', ')}` : `${what} ${r.sent} ${r.sent === 1 ? 'person' : 'people'}`, r.failed.length ? 'error' : undefined);
+  };
+  const send = async (e) => {
+    e.preventDefault();
+    setBusy(true);
+    try { done(await post(`/forms/${form.id}/send`, { to, message }), 'Sent to'); setTo(''); } catch (err) { toast(err.message, 'error'); } finally { setBusy(false); }
+  };
+  const remind = async () => {
+    setBusy(true);
+    try { done(await post(`/forms/${form.id}/remind`, {}), 'Reminded'); } catch (err) { toast(err.message, 'error'); } finally { setBusy(false); }
+  };
+  const waiting = invites?.filter((i) => !i.answered).length || 0;
+  const day = (t) => new Date(t).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+  return (
+    <Modal title="Send form" onClose={onClose} wide footer={<button type="button" className="btn" onClick={onClose}>Close</button>}>
+      <div className="row" role="tablist" style={{ gap: 6, marginBottom: 10 }}>
+        <button type="button" role="tab" aria-selected={tab === 'email'} className={`btn small ${tab === 'email' ? 'primary' : ''}`} onClick={() => setTab('email')}>Email</button>
+        <button type="button" role="tab" aria-selected={tab === 'link'} className={`btn small ${tab === 'link' ? 'primary' : ''}`} onClick={() => setTab('link')}>Link and QR code</button>
+      </div>
+      {tab === 'email' && (!form.mail ? <p className="muted">This server has no email: share the link instead.</p> : <div className="stack">
+        <form className="stack" onSubmit={send}>
+          <label className="field"><span>To</span><textarea rows={2} value={to} onChange={(e) => setTo(e.target.value)} placeholder="kim@acme.com, team@acme.com, client@example.org" /></label>
+          <label className="field"><span>Message (optional)</span><textarea rows={3} value={message} maxLength={2000} onChange={(e) => setMessage(e.target.value)} placeholder={`I've invited you to fill in "${form.title}".`} /></label>
+          {form.audience === 'org' && <p className="muted small" style={{ margin: 0 }}>This form is for people at your company (they sign in to fill it in). To ask people outside, set <em>Who can fill it in</em> to anyone with the link.</p>}
+          {form.audience === 'public' && !form.collect_email && <p className="muted small" style={{ margin: 0 }}>To see who of them has answered, turn on <em>Collect email addresses</em> in Settings.</p>}
+          <div className="row end"><button className="btn primary" disabled={busy || !to.trim()}>{busy ? 'Sending…' : 'Send'}</button></div>
+        </form>
+        {invites?.length > 0 && <>
+          <div className="row"><strong className="grow">Sent to {invites.length} · {invites.length - waiting} answered</strong>
+            {waiting > 0 && <button type="button" className="btn small" disabled={busy} onClick={remind}>Remind {waiting} who haven't answered</button>}</div>
+          <ul className="invite-list" aria-label="Sent to">
+            {invites.map((i) => <li key={i.email}><span className={`pill ${i.answered ? 'ok' : 'warn'}`}>{i.answered ? 'Answered' : 'Waiting'}</span> {i.email}
+              <span className="muted small"> · sent {day(i.sent_at)}{i.reminded_at ? `, reminded ${day(i.reminded_at)}` : ''}</span></li>)}
+          </ul>
+        </>}
+      </div>)}
+      {tab === 'link' && <div className="stack" style={{ alignItems: 'center' }}>
+        <code style={{ wordBreak: 'break-all' }}>{link}</code>
+        {qr && <img src={qr} alt={`QR code for ${link}`} width={240} height={240} />}
+        <div className="row" style={{ gap: 8 }}>
+          <button type="button" className="btn" onClick={async () => { try { await navigator.clipboard.writeText(link); toast('Link copied'); } catch { toast(link); } }}>Copy link</button>
+          {qr && <a className="btn" href={qr} download={`${form.title || 'form'} QR code.png`}>Download QR code</a>}
+        </div>
+        <p className="muted small" style={{ margin: 0 }}>Print the QR code on a poster or show it on a screen: people point their phone's camera at it to open the form.</p>
+      </div>}
+    </Modal>
   );
 }
