@@ -10,6 +10,7 @@ export const MIN_W = 240, MIN_H = 180;
 /** One chart on the sheet. `onChange(next)` is called once a move or resize ends. */
 export function ChartCard({ chart, value, skipRow, canEdit, onChange, onEdit, onDelete }) {
   const [live, setLive] = useState(null); // position/size while dragging
+  const [snap, setSnap] = useState(false); // making its picture
   const drag = useRef(null);
   const box = { x: chart.x, y: chart.y, w: chart.w, h: chart.h, ...live };
   const data = chartData(chart.range, value, skipRow);
@@ -47,17 +48,47 @@ export function ChartCard({ chart, value, skipRow, canEdit, onChange, onEdit, on
       onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()} onDoubleClick={(e) => { e.stopPropagation(); if (canEdit) onEdit(); }}>
       <header className={`chart-head ${canEdit ? 'movable' : ''}`} onPointerDown={start('move')} onPointerMove={move} onPointerUp={end} onPointerCancel={end}>
         <h3 title={chart.title}>{chart.title || <span className="muted">Untitled chart</span>}</h3>
-        {canEdit && (
-          <Menu trigger={(p) => <button type="button" className="icon-btn chart-menu" aria-label={`Options for chart ${chart.title || ''}`.trim()} {...p}>⋮</button>} items={[
-            { label: 'Edit chart', icon: 'edit', onClick: onEdit },
-            { label: 'Delete chart', icon: 'trash', danger: true, onClick: onDelete },
-          ]} />
-        )}
+        <Menu trigger={(p) => <button type="button" className="icon-btn chart-menu" aria-label={`Options for chart ${chart.title || ''}`.trim()} {...p}>⋮</button>} items={[
+          canEdit && { label: 'Edit chart', icon: 'edit', onClick: onEdit },
+          { label: 'Download as a picture (.png)', icon: 'image', onClick: () => setSnap(true) },
+          canEdit && { label: 'Delete chart', icon: 'trash', danger: true, onClick: onDelete },
+        ].filter(Boolean)} />
       </header>
       {data.note && <p className="muted small chart-note">{data.note}</p>}
       <ChartView type={chart.type} data={data} width={box.w - 20} height={box.h - 44 - (data.note ? 18 : 0)} />
+      {snap && <ChartSnap chart={chart} data={data} onDone={() => setSnap(false)} />}
       {canEdit && <span className="chart-resize" aria-hidden="true" onPointerDown={start('size')} onPointerMove={move} onPointerUp={end} onPointerCancel={end} />}
     </section>
+  );
+}
+
+/** A chart's picture: drawn off-screen at 1200 × 700 in the light colours (with its title), saved as a .png. */
+function ChartSnap({ chart, data, onDone }) {
+  const ref = useRef();
+  useEffect(() => {
+    let gone = false;
+    (async () => {
+      try {
+        const { toBlob } = await import('html-to-image');
+        await document.fonts?.ready;
+        if (gone || !ref.current) return;
+        const blob = await toBlob(ref.current, { width: 1200, height: 700, pixelRatio: 1, backgroundColor: '#ffffff', filter: (n) => !n.classList?.contains('chart-switch') }); // not the "Show data" button
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `${String(chart.title || 'Chart').replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').trim() || 'Chart'}.png`;
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+      } finally { if (!gone) onDone(); }
+    })();
+    return () => { gone = true; };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <div className="chart-snap-wrap" aria-hidden="true">
+      <div ref={ref} className="chart-snap" style={{ width: 1200, height: 700 }}>
+        {chart.title && <h3>{chart.title}</h3>}
+        <ChartView type={chart.type} data={data} width={1160} height={chart.title ? 620 : 660} />
+      </div>
+    </div>
   );
 }
 
