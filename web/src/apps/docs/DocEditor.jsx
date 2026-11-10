@@ -636,6 +636,7 @@ function SharedDoc({ file, setFile }) {
           { label: 'Print / Save as PDF', icon: 'print', onClick: () => window.print() },
           { label: 'Download as HTML', icon: 'download', onClick: exportHtml },
           { label: 'Download as Word (.docx)', icon: 'download', onClick: () => { window.location.href = `/api/files/${file.id}/export`; } },
+          { label: 'Download as OpenDocument (.odt)', icon: 'download', onClick: () => { window.location.href = `/api/files/${file.id}/export?format=odt`; } },
           { label: 'Download as Markdown (.md)', icon: 'download', onClick: () => { window.location.href = `/api/files/${file.id}/export?format=md`; } },
         ]}
       />
@@ -731,7 +732,7 @@ function SharedDoc({ file, setFile }) {
       </div>
       {sharing && <ShareDialog file={file} onClose={() => setSharing(false)} />}
       {comparing?.step === 'pick' && <DrivePicker title="Compare with…" empty="No documents found."
-        accept={(x) => x.id !== file.id && (x.kind === 'doc' || (x.kind === 'file' && /\.(docx|md|markdown)$/i.test(x.name)))}
+        accept={(x) => x.id !== file.id && (x.kind === 'doc' || (x.kind === 'file' && /\.(docx|odt|md|markdown)$/i.test(x.name)))}
         onClose={() => { setComparing(null); refocus(); }}
         onPick={async (f) => {
           setComparing({ step: 'loading' });

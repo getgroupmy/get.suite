@@ -5,7 +5,7 @@ const KINDS = {
   text: ['txt', 'log', 'csv', 'md'],
   video: ['mp4', 'webm'],
   audio: ['mp3', 'wav', 'ogg', 'm4a', 'flac', 'weba', 'opus'],
-  office: ['docx', 'xlsx', 'pptx'],
+  office: ['docx', 'odt', 'xlsx', 'pptx'],
   zip: ['zip'], // a list of what's inside // converted on the server and shown as Docs, Sheets or Slides would
 };
 const BY_EXT = Object.fromEntries(Object.entries(KINDS).flatMap(([k, exts]) => exts.map((e) => [e, k])));

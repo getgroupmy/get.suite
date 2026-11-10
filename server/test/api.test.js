@@ -8094,3 +8094,37 @@ test('contact dates and fields of your own: saved, checked, on the calendar with
   const vcf = (await nia('GET', '/api/contacts/export?format=vcf')).body;
   assert.match(String(vcf), /X-ABDATE:2015-06-20/);
 });
+
+test('OpenDocument: a document downloads as .odt; an .odt file previews, compares and opens as a document', async () => {
+  const d = (await owner('POST', '/api/files/new', { kind: 'doc', name: 'Minutes' })).body;
+  const c = (await owner('GET', `/api/files/${d.id}/content`)).body;
+  const content = { type: 'doc', content: [{ type: 'heading', attrs: { level: 1 }, content: [{ type: 'text', text: 'Minutes' }] }, { type: 'paragraph', content: [{ type: 'text', text: 'We agreed on ' }, { type: 'text', text: 'Friday', marks: [{ type: 'bold' }] }] }] };
+  assert.equal((await owner('PUT', `/api/files/${d.id}/content`, { version: c.file.version, content })).status, 200);
+  const out = await owner('GET', `/api/files/${d.id}/export?format=odt`, undefined, { binary: true });
+  assert.equal(out.status, 200);
+  assert.equal(out.headers.get('content-type'), 'application/vnd.oasis.opendocument.text');
+  assert.match(out.headers.get('content-disposition'), /Minutes\.odt/);
+  assert.equal(out.body.subarray(30, 38).toString(), 'mimetype');
+  // Back in as an uploaded file: a preview, something to compare with, and a document of its own.
+  const up = (await owner('POST', '/api/files/upload?name=Minutes%20(LibreOffice).odt', out.body, { raw: true })).body;
+  const pv = await owner('GET', `/api/files/${up.id}/preview`);
+  assert.equal(pv.status, 200, JSON.stringify(pv.body));
+  assert.equal(pv.body.kind, 'doc');
+  assert.match(JSON.stringify(pv.body.content), /"marks":\[\{"type":"bold"\}\],"text":"Friday"/);
+  assert.match(JSON.stringify((await owner('GET', `/api/files/${up.id}/as-doc`)).body.content), /We agreed on/);
+  const opened = await owner('POST', `/api/files/${up.id}/open-as`);
+  assert.equal(opened.status, 201, JSON.stringify(opened.body));
+  assert.equal(opened.body.kind, 'doc');
+  assert.equal(opened.body.name, 'Minutes (LibreOffice)');
+  const back = (await owner('GET', `/api/files/${opened.body.id}/content`)).body.content;
+  assert.equal(back.content[0].type, 'heading');
+  assert.equal(back.content[1].content[1].text, 'Friday');
+  // Not a real one: said plainly.
+  const junk = (await owner('POST', '/api/files/upload?name=Broken.odt', Buffer.from('not a zip'), { raw: true })).body;
+  const no = await owner('POST', `/api/files/${junk.id}/open-as`);
+  assert.equal(no.status, 400);
+  assert.match(no.body.error, /OpenDocument text file/);
+  // Spreadsheets and presentations don't download as .odt.
+  const s = (await owner('POST', '/api/files/new', { kind: 'sheet', name: 'Figures' })).body;
+  assert.match((await owner('GET', `/api/files/${s.id}/export?format=odt`, undefined, { binary: true })).headers.get('content-disposition'), /Figures\.xlsx/);
+});

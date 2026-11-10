@@ -28,6 +28,7 @@ import { docFromWord, wordFromDoc, watermarkOfWord, layoutOfWord, pageOfWord } f
 import { sheetFromExcel, excelFromSheet, commentsOfBook } from '../office/excel.js';
 import { deckFromPowerPoint, powerPointFromDeck, commentsOfDeck } from '../office/powerpoint.js';
 import { officePreview, officeKind, MAX_PREVIEW } from '../office/preview.js';
+import { odtFromDoc, docFromOdt, ODT_MIME } from '../office/odt.js';
 import { zipEntries, extractZip } from '../zipfiles.js';
 import { markdownFromDoc, docFromMarkdown } from '../office/markdown.js';
 import { parseCsv } from '../contactfiles.js';
@@ -38,6 +39,7 @@ const OFFICE = {
   docx: { kind: 'doc', mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' },
   xlsx: { kind: 'sheet', mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' },
   pptx: { kind: 'slides', mime: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' },
+  odt: { kind: 'doc', mime: ODT_MIME },
   md: { kind: 'doc', mime: 'text/markdown; charset=utf-8' },
   markdown: { kind: 'doc', mime: 'text/markdown; charset=utf-8' },
 };
@@ -974,11 +976,11 @@ export default function fileRoutes({ maxUploadBytes }) {
       return res.json({ name: f.name, content: withoutSuggestions(JSON.parse(content)) });
     }
     const type = f.kind === 'file' ? officeKind(f.name) : null;
-    if (type !== 'docx' && type !== 'md') throw bad('Only documents, Word files and Markdown files can be compared');
+    if (type !== 'docx' && type !== 'md' && type !== 'odt') throw bad('Only documents, Word, OpenDocument and Markdown files can be compared');
     if (f.size > MAX_PREVIEW) throw bad('This file is too large to compare (20 MB at most)');
     const buf = fs.readFileSync(path.join(FILES_DIR, f.storage));
     let content;
-    try { content = type === 'docx' ? (await docFromWord(buf)).doc : docFromMarkdown(buf.toString('utf8')); }
+    try { content = type === 'docx' ? (await docFromWord(buf)).doc : type === 'odt' ? (await docFromOdt(buf)).doc : docFromMarkdown(buf.toString('utf8')); }
     catch { throw bad("This file couldn't be read"); }
     res.json({ name: f.name, content });
   });
@@ -1240,7 +1242,7 @@ export default function fileRoutes({ maxUploadBytes }) {
   r.post('/:id/open-as', async (req, res) => {
     const f = loadFile(req.params.id, req.user);
     const type = f.kind === 'file' && officeType(f.name);
-    if (!type) throw bad('Only Word (.docx), Excel (.xlsx), PowerPoint (.pptx) and Markdown (.md) files can be opened this way');
+    if (!type) throw bad('Only Word (.docx), OpenDocument text (.odt), Excel (.xlsx), PowerPoint (.pptx) and Markdown (.md) files can be opened this way');
     if (f.size > MAX_CONVERT) throw bad('This file is too large to convert (50 MB at most)');
     const parentId = f.parent_id && atLeast(roleFor(f.parent_id, req.user.id), 'editor') ? f.parent_id : null;
     const buf = fs.readFileSync(path.join(FILES_DIR, f.storage));
@@ -1257,10 +1259,11 @@ export default function fileRoutes({ maxUploadBytes }) {
     };
     try {
       if (type === 'docx') { const w = await docFromWord(buf, { savePicture }); content = w.doc; wordComments = w.comments || []; watermark = await watermarkOfWord(buf); layout = { ...(await layoutOfWord(buf)), ...(await pageOfWord(buf)) }; }
+      else if (type === 'odt') content = (await docFromOdt(buf, { savePicture })).doc;
       else if (type === 'md' || type === 'markdown') content = docFromMarkdown(buf.toString('utf8'));
       else if (type === 'xlsx') { content = await sheetFromExcel(buf); sheetThreads = commentsOfBook(content); }
       else { content = await deckFromPowerPoint(buf, { savePicture }); slideComments = commentsOfDeck(content); }
-    } catch (e) { throw bad(`This file couldn't be read as ${type === 'docx' ? 'a Word document' : type === 'xlsx' ? 'an Excel workbook' : 'a PowerPoint presentation'}`); }
+    } catch (e) { throw bad(`This file couldn't be read as ${type === 'odt' ? 'an OpenDocument text file' : type === 'docx' ? 'a Word document' : type === 'xlsx' ? 'an Excel workbook' : 'a PowerPoint presentation'}`); }
     const json = JSON.stringify(content);
     const id = insertFile({ owner: req.user.id, parentId, name, kind: OFFICE[type].kind, content: json, size: Buffer.byteLength(json) });
     // A Word file's comments: threads on the same words, by whoever opened it, naming who wrote them in Word.
@@ -1303,7 +1306,7 @@ export default function fileRoutes({ maxUploadBytes }) {
   r.get('/:id/export', async (req, res) => {
     const f = loadFile(req.params.id, req.user);
     if (!mayTakeAway(f, f.role)) throw forbidden(NO_TAKING);
-    const type = req.query.format === 'md' && f.kind === 'doc' ? 'md' : EXPORT_AS[f.kind];
+    const type = (req.query.format === 'md' || req.query.format === 'odt') && f.kind === 'doc' ? req.query.format : EXPORT_AS[f.kind];
     if (!type) throw bad('Only documents, spreadsheets and presentations can be downloaded this way');
     saveNow(f.id); // what's being typed right now goes in too
     const stored = JSON.parse(q('SELECT content FROM files WHERE id = ?').get(f.id).content || '{}');
@@ -1317,6 +1320,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     };
     let buf;
     if (type === 'md') buf = Buffer.from(markdownFromDoc(content), 'utf8');
+    else if (type === 'odt') buf = await odtFromDoc(content, f.name, { pictureData });
     else if (type === 'docx') buf = await wordFromDoc(content, f.name, { pictureData, page: setupOf(f), comments: wordCommentsOf(f.id), signatures: (await import('./signatures.js')).signedRecord(f.id) });
     else if (type === 'xlsx') buf = await excelFromSheet(content, { comments: cellCommentsOf(f.id) });
     else buf = await powerPointFromDeck(content, { title: f.name, pictureData, comments: slideCommentsOf(f.id) });

@@ -839,7 +839,7 @@ function ShortcutRow({ f, me, selected, onSelect, onOpen, menu }) {
 export function officeAs(f) {
   if (f.kind !== 'file') return null;
   const ext = (/\.([a-z]+)$/i.exec(f.name) || [])[1]?.toLowerCase();
-  return { docx: { what: 'document', icon: 'doc' }, md: { what: 'document', icon: 'doc' }, markdown: { what: 'document', icon: 'doc' }, xlsx: { what: 'spreadsheet', icon: 'sheet' }, pptx: { what: 'presentation', icon: 'slides' } }[ext] || null;
+  return { docx: { what: 'document', icon: 'doc' }, odt: { what: 'document', icon: 'doc' }, md: { what: 'document', icon: 'doc' }, markdown: { what: 'document', icon: 'doc' }, xlsx: { what: 'spreadsheet', icon: 'sheet' }, pptx: { what: 'presentation', icon: 'slides' } }[ext] || null;
 }
 
 function Preview({ file, onClose, onOpenAs, comment = null }) {

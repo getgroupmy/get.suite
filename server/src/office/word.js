@@ -658,3 +658,6 @@ export async function wordFromDoc(doc, title = 'Document', { pictureData, page, 
   const buf = await Packer.toBuffer(file);
   return page?.watermark ? withWatermark(buf, page.watermark) : buf;
 }
+
+/** A document from HTML (as the Word import makes it), for other importers (OpenDocument). */
+export function docFromHtml(html) { return checklists(generateJSON(html || '<p></p>', EXTENSIONS)); }
