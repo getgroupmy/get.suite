@@ -8711,3 +8711,31 @@ test('chat message links: a quoted preview for people who can read the conversat
   assert.equal((await g('GET', `/api/chat/messages/${m1.id}/preview`)).status, 404);
   assert.equal((await c('GET', '/api/chat/messages/nope123/preview')).status, 404);
 });
+
+test('task links: a card for people on the list, and nobody else', async () => {
+  const a = client(), b = client(), c = client();
+  for (const [local, name] of [['tlpa', 'Tl Ann'], ['tlpb', 'Tl Ben'], ['tlpc', 'Tl Cat']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'tlpa@acme.com');
+  const bid = (await login(b, 'tlpb@acme.com')).id;
+  await login(c, 'tlpc@acme.com');
+  const list = (await a('POST', '/api/tasks/lists', { name: 'Tl Launch' })).body.id;
+  await a('PUT', `/api/tasks/lists/${list}/members`, { user_ids: [bid] });
+  const t = (await a('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Book venue', due: '2026-12-01', assignee_id: bid })).body;
+  await a('PATCH', `/api/tasks/tasks/${t.id}`, { important: true });
+  const s1 = (await a('POST', `/api/tasks/tasks/${t.id}/steps`, { title: 'Call' })).body;
+  await a('POST', `/api/tasks/tasks/${t.id}/steps`, { title: 'Pay' });
+  const sid = (s1.steps || []).find((x) => x.title === 'Call')?.id;
+  assert.equal((await a('PATCH', `/api/tasks/tasks/${t.id}/steps/${sid}`, { done: true })).status, 200);
+  await b('POST', `/api/tasks/tasks/${t.id}/comments`, { body: 'On it' });
+  const p = await b('GET', `/api/tasks/tasks/${t.id}/preview`);
+  assert.equal(p.status, 200);
+  assert.deepEqual({ ...p.body, id: undefined }, { id: undefined, list_id: list, list_name: 'Tl Launch', title: 'Book venue', done: false, started: false, important: true,
+    due: '2026-12-01', due_time: null, assignee_name: 'Tl Ben', steps: p.body.steps, comments: 1 });
+  assert.deepEqual(p.body.steps, { done: 1, total: 2 });
+  // Done shows as done.
+  await a('PATCH', `/api/tasks/tasks/${t.id}`, { done: true });
+  assert.equal((await a('GET', `/api/tasks/tasks/${t.id}/preview`)).body.done, true);
+  // Not on the list: nothing, not even that it exists.
+  assert.equal((await c('GET', `/api/tasks/tasks/${t.id}/preview`)).status, 404);
+  assert.equal((await c('GET', '/api/tasks/tasks/nope123/preview')).status, 404);
+});

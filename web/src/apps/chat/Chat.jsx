@@ -3,7 +3,8 @@ import { previewKind, stepPreview } from '../../components/viewkind.js';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { blocks, hasMarkup } from './markup.js';
-import { fileLinksIn, messageLinksIn, messageLink } from './filelinks.js';
+import { fileLinksIn, messageLinksIn, messageLink, taskLinksIn } from './filelinks.js';
+import { dueLabel } from '../tasks/taskmath.js';
 import { statusLine, untilText } from '../../components/status.js';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { get, post, put, patch, del, onLive, uploadFile, formatBytes } from '../../api.js';
@@ -655,6 +656,7 @@ function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit
         )}
         {!editing && <FileCards text={m.body} />}
         {!editing && <MessageCards text={m.body} self={m.id} />}
+        {!editing && <TaskCards text={m.body} />}
         {!editing && m.preview && (
           <a className="link-preview" href={m.preview.url} target="_blank" rel="noopener noreferrer" aria-label={`Link: ${m.preview.title}`}>
             <span className="link-site small muted">{m.preview.site}</span>
@@ -921,6 +923,43 @@ function MessageCards({ text, self }) {
             <span className="msg-card-meta small"><Avatar name={x.user_name} size={18} userId={x.user_id} /> <strong>{x.user_name}</strong> <span className="muted">in {x.where} · {timeOrDay(x.created_at)}{x.parent_id ? ' · in a thread' : ''}</span></span>
             {x.poll ? <span className="small">📊 {x.poll}</span> : x.body ? <span className="msg-card-text small">{x.body}</span> : null}
             {x.files > 0 && <span className="muted small">📎 {x.files === 1 ? '1 file' : `${x.files} files`}</span>}
+          </Link>
+        );
+      })}
+    </div>
+  );
+}
+
+// What each linked task is, fetched once per page (false: you're not on its list, or it's gone).
+const taskInfo = new Map();
+const taskOf = (id) => {
+  if (!taskInfo.has(id)) taskInfo.set(id, get(`/tasks/tasks/${id}/preview`).catch(() => false));
+  return taskInfo.get(id);
+};
+
+/** Links to tasks in a message, shown as cards: done or not, the list, who it's for, when it's due. */
+function TaskCards({ text }) {
+  const links = taskLinksIn(text);
+  const [info, setInfo] = useState({});
+  useEffect(() => {
+    let alive = true;
+    for (const l of links) taskOf(l.id).then((x) => { if (alive) setInfo((s) => ({ ...s, [l.id]: x })); });
+    return () => { alive = false; };
+  }, [text]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!links.length) return null;
+  return (
+    <div className="msg-cards">
+      {links.map((l) => {
+        const x = info[l.id];
+        if (x === undefined) return null;
+        if (!x) return <div key={l.id} className="msg-card none" role="note"><Icon name="lock" size={18} /> <span className="muted small">A task you can’t see (it’s on a list you’re not on, or it was deleted)</span></div>;
+        const due = x.due && !x.done ? dueLabel(x.due, new Date(), x.due_time) : null;
+        const status = x.done ? 'Done' : x.started ? 'In progress' : 'To do';
+        return (
+          <Link key={l.id} className={`msg-card task-card ${x.done ? 'done' : ''}`} to={`/tasks/${x.list_id}?task=${x.id}`} aria-label={`Task: ${x.title} (${status})`}>
+            <span className="msg-card-meta"><span aria-hidden="true">{x.done ? '✅' : '☐'}</span> <strong>{x.title}</strong>{x.important && <span aria-label="Important"> ★</span>}</span>
+            <span className="muted small">{[status, x.list_name, x.assignee_name && `for ${x.assignee_name}`, x.steps && `☑ ${x.steps.done}/${x.steps.total}`, x.comments > 0 && `💬 ${x.comments}`].filter(Boolean).join(' · ')}
+              {due && <> · <span className={due.tone === 'late' ? 'task-card-late' : ''}>Due {due.text}</span></>}</span>
           </Link>
         );
       })}

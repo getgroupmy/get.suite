@@ -22,3 +22,13 @@ test('message links: relative or on this server, with the thread, each once', as
   const back = messageLinksIn(messageLink({ channel_id: 'chan123', id: 'msg456', parent_id: 'par789' }, 'https://ws.example'), 'ws.example');
   assert.deepEqual(back, [{ channel: 'chan123', id: 'msg456', thread: 'par789' }], 'what is copied is understood');
 });
+
+test('task links: relative or on this server, each once, at most three', async () => {
+  const { taskLinksIn, taskLink } = await import('./filelinks.js');
+  assert.deepEqual(taskLinksIn('do https://ws.example/tasks/list123?task=task456 now', 'ws.example'), [{ list: 'list123', id: 'task456' }]);
+  assert.deepEqual(taskLinksIn('/tasks/list123?task=task456 /tasks/list123?task=task456', 'h'), [{ list: 'list123', id: 'task456' }]);
+  assert.deepEqual(taskLinksIn('https://other.example/tasks/list123?task=task456', 'ws.example'), [], 'another server');
+  assert.deepEqual(taskLinksIn('/tasks/planned /tasks/list123', 'h'), [], 'not a task');
+  assert.equal(taskLink({ list_id: 'list123', id: 'task456' }, 'https://ws'), 'https://ws/tasks/list123?task=task456');
+  assert.equal(taskLinksIn('/tasks/assigned?task=task456', 'h').length, 1, 'any list in the address; the task decides');
+});

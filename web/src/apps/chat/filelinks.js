@@ -35,3 +35,20 @@ export function messageLinksIn(text, host = typeof window !== 'undefined' ? wind
 /** The address of a message, to copy and paste somewhere else (a reply in a thread opens the thread). */
 export const messageLink = (m, origin = typeof window !== 'undefined' ? window.location.origin : '') =>
   `${origin}/chat/${m.channel_id}?msg=${m.id}${m.parent_id ? `&thread=${m.parent_id}` : ''}`;
+
+// Links to tasks ("/tasks/<list>?task=<task>", relative or on this server), for task cards: [{ list, id }], at most three.
+const TASK_RE = /(?:^|[\s(<"'])(?:https?:\/\/([^\s/<>"']+))?\/tasks\/([\w-]{6,})\?task=([\w-]{6,})/g;
+
+export function taskLinksIn(text, host = typeof window !== 'undefined' ? window.location.host : '') {
+  const out = [];
+  for (const m of String(text || '').matchAll(TASK_RE)) {
+    if (m[1] && m[1] !== host) continue;
+    if (out.some((x) => x.id === m[3])) continue;
+    out.push({ list: m[2], id: m[3] });
+    if (out.length === 3) break;
+  }
+  return out;
+}
+
+/** The address of a task, to copy and paste in a message, an email or a document. */
+export const taskLink = (t, origin = typeof window !== 'undefined' ? window.location.origin : '') => `${origin}/tasks/${t.list_id}?task=${t.id}`;

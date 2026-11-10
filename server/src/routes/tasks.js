@@ -343,6 +343,18 @@ export default function taskRoutes() {
     return { task: t, list: loadList(t.list_id, req.user) };
   };
   addTimeRoutes(r, { taskFor, loadList, changed }); // time spent on tasks (tasktime.js)
+  // A link to a task, pasted in Chat: what it is, for a card. Only for people on its list (404 otherwise, as for the link).
+  r.get('/tasks/:id/preview', (req, res) => {
+    const { task: t } = taskFor(req);
+    const steps = t.steps ? JSON.parse(t.steps) : [];
+    res.json({
+      id: t.id, list_id: t.list_id, list_name: t.list_name, title: t.title,
+      done: !!t.done_at, started: !!t.started && !t.done_at, important: !!t.important,
+      due: t.due || null, due_time: t.due_time || null, assignee_name: t.assignee_name || null,
+      steps: steps.length ? { done: steps.filter((x) => x.done).length, total: steps.length } : null,
+      comments: t.comments,
+    });
+  });
   r.get('/tasks/:id/comments', (req, res) => {
     const { task } = taskFor(req);
     res.json(q(`SELECT k.id, k.body, k.created_at, k.author_id, u.name AS author_name FROM task_comments k LEFT JOIN users u ON u.id = k.author_id

@@ -12,6 +12,7 @@ import { Avatar, ConfirmModal, Empty, Menu, Modal, PromptModal, useToast } from 
 import { useAuth } from '../../App.jsx';
 import { dueLabel, between, localToday, REPEATS, repeatText, readCustom, customRepeat, WEEKDAYS, SORTS, sortTasks } from './taskmath.js';
 import { parseQuickAdd } from './quickadd.js';
+import { taskLink } from '../chat/filelinks.js';
 import { addDays, daysFrom, barOf, timelineRange, dragChange } from './timeline.js';
 
 /** The open tasks a task still waits on (from the tasks on its list). */
@@ -604,10 +605,17 @@ function TaskDetails({ task, tasks, lists, people, onChange, onClose, onDelete, 
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
+  const toast = useToast();
+  const copyLink = async () => {
+    const url = taskLink(task);
+    try { await navigator.clipboard.writeText(url); toast('Link to the task copied: people on this list can open it'); } catch { toast(url); }
+  };
   const saveTitle = () => { const t = title.trim(); if (!t) setTitle(task.title); else if (t !== task.title) onChange({ title: t }); };
   return (
     <aside className="task-details" aria-label="Task details">
-      <div className="row"><strong className="grow">Details</strong><button type="button" className="icon-btn" aria-label="Close details" onClick={onClose}><Icon name="close" /></button></div>
+      <div className="row"><strong className="grow">Details</strong>
+        <button type="button" className="icon-btn" aria-label="Copy link to task" title="Copy link to task (paste it in Chat, an email or a document)" onClick={copyLink}><Icon name="link" /></button>
+        <button type="button" className="icon-btn" aria-label="Close details" onClick={onClose}><Icon name="close" /></button></div>
       <label className="field"><span>Task</span>
         <input value={title} onChange={(e) => setTitle(e.target.value)} onBlur={saveTitle} onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }} maxLength={500} />
       </label>
