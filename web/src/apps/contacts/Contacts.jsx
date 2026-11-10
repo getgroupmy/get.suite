@@ -51,6 +51,7 @@ export default function Contacts() {
   const [contacts, setContacts] = useState(null);
   const [directory, setDirectory] = useState([]);
   const [params] = useSearchParams();
+  useEffect(() => { if (params.get('tab') === 'touch') setTab('touch'); }, [params]); // from the bell or Home, even when already here
   const [filter, setFilter] = useState(params.get('q') || ''); // ?q= from a birthday on the calendar
   const [editing, setEditing] = useState(null);
   const [deleting, setDeleting] = useState(null);

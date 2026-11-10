@@ -8753,6 +8753,20 @@ test('contacts: keep in touch — how often, who is due, and writing to them cou
   q('UPDATE contacts SET last_contact = ? WHERE id = ?').run(Date.now() - 31 * 864e5, rita.id);
   const due = (await a('GET', '/api/contacts/keep-in-touch')).body;
   assert.deepEqual(due.map((c) => c.name), ['Rita Moreno']);
+  // The bell: once, for those you've been in touch with before (Bo is fine; never-contacted ones don't ping).
+  const { notifyDueTouches } = await import('../src/routes/contacts.js');
+  const never = (await a('POST', '/api/contacts', { name: 'Never Met' })).body;
+  await a('PATCH', `/api/contacts/${never.id}`, { touch_days: 7 });
+  notifyDueTouches();
+  const bells = async () => (await a('GET', '/api/notifications')).body.items.filter((n) => n.kind === 'touch');
+  assert.deepEqual((await bells()).map((n) => [n.title, n.link]), [['Time to catch up with Rita Moreno', '/contacts?tab=touch']]);
+  notifyDueTouches();
+  assert.equal((await bells()).length, 1, 'not again for the same time');
+  await a('POST', `/api/contacts/${rita.id}/contacted`, {});
+  q('UPDATE contacts SET last_contact = ? WHERE id = ?').run(Date.now() - 31 * 864e5, rita.id);
+  notifyDueTouches();
+  assert.equal((await bells()).length, 2, 'due again later: told again');
+  await a('PATCH', `/api/contacts/${never.id}`, { touch_days: null });
   await a('PATCH', `/api/contacts/${rita.id}`, { touch_days: null });
   assert.deepEqual((await a('GET', '/api/contacts/keep-in-touch')).body, []);
   assert.equal((await b('POST', `/api/contacts/${rita.id}/contacted`, {})).status, 404);

@@ -5,6 +5,7 @@ import { uid, now, str, notFound, bad } from '../util.js';
 import { contactsFromFile, contactsToCsv, contactsToVcf, MAX_IMPORT } from '../contactfiles.js';
 import { canReach, orgMemberIds } from '../tenancy.js';
 import { sendTo } from '../hub.js';
+import { notify } from '../notifications.js';
 import { birthdayOf, birthdaysBetween } from '../birthday.js';
 import { duplicateGroups, mergedFields } from '../contactmerge.js';
 import { otherContactsOf, matchOther, forgetOther } from '../othercontacts.js';
@@ -20,6 +21,24 @@ for (const [col, type] of [['touch_days', 'INTEGER'], ['last_contact', 'INTEGER'
 export const TOUCH_DAYS = [7, 14, 30, 60, 90, 180, 365];
 /** When you're due to be in touch again (ms), or null for no reminder. Never in touch: due now. */
 export const touchDue = (c) => (c.touch_days ? (c.last_contact || 0) + c.touch_days * 864e5 : null);
+if (!q('PRAGMA table_info(contacts)').all().some((c) => c.name === 'touch_notified')) q('ALTER TABLE contacts ADD COLUMN touch_notified INTEGER').run();
+/**
+ * A bell notification, once, when someone you've been in touch with before is due again: one for each
+ * person with any newly due ("Time to catch up with Rita Moreno", "… and 2 others"). Returns how many sent.
+ */
+export function notifyDueTouches(at = Date.now()) {
+  const due = q('SELECT id, owner_id, name, touch_days, last_contact, touch_notified FROM contacts WHERE touch_days IS NOT NULL AND last_contact IS NOT NULL').all()
+    .map((c) => ({ ...c, due: touchDue(c) })).filter((c) => c.due <= at && !(c.touch_notified >= c.due));
+  const byOwner = new Map();
+  for (const c of due) byOwner.set(c.owner_id, [...(byOwner.get(c.owner_id) || []), c]);
+  for (const [owner, list] of byOwner) {
+    list.sort((a, b) => a.due - b.due);
+    const more = list.length - 1;
+    notify([owner], { kind: 'touch', title: `Time to catch up with ${list[0].name}${more ? ` and ${more} other${more === 1 ? '' : 's'}` : ''}`, body: 'It’s been longer than you wanted.', link: '/contacts?tab=touch' });
+    for (const c of list) q('UPDATE contacts SET touch_notified = ? WHERE id = ?').run(c.due, c.id);
+  }
+  return byOwner.size;
+}
 liftCardMore(); // cards synced before kept their other addresses and numbers inside the raw card
 
 const FIELDS = { name: 200, email: 200, phone: 50, company: 200, title: 200, address: 500, website: 300, notes: 5000 };

@@ -21,6 +21,7 @@ import { startShareExpiry } from './shareexpiry.js';
 import { purgeAudit } from './audit.js';
 import { emptyOldTrash } from './routes/files.js';
 import { purgeOldChat } from './routes/chat.js';
+import { notifyDueTouches } from './routes/contacts.js';
 import { refreshDueFeeds } from './calfeeds.js';
 import { sendDueDigests } from './digest.js';
 import { sendBookingReminders } from './routes/booking.js';
@@ -44,6 +45,7 @@ if (restored) {
     body: `As asked by ${restored.by?.name || 'a platform owner'}. The database as it was is kept as ${restored.kept}.`, link: '/admin?tab=system', actor: null });
 }
 setInterval(() => purgeAuthLog(), 3600e3).unref();
+setInterval(() => { try { notifyDueTouches(); } catch (e) { console.error('[contacts] keep in touch:', e.message); } }, 3600e3).unref(); // contacts due to be in touch with
 setInterval(() => purgeAudit(), 6 * 3600e3).unref(); // activity older than AUDIT_DAYS
 setInterval(() => emptyOldTrash(), 3600e3).unref(); // Drive: trash older than each company keeps it
 setTimeout(() => emptyOldTrash(), 60e3).unref();
