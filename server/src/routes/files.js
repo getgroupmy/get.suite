@@ -546,6 +546,7 @@ export default function fileRoutes({ maxUploadBytes }) {
       const days = Number(req.query.modified);
       if (req.query.modified && !(days > 0)) throw bad('Bad date filter');
       if (days > 0) { extra.push('f.updated_at >= ?'); args.push(Date.now() - days * 864e5); }
+      if (req.query.label) { extra.push('f.id IN (SELECT file_id FROM file_labels WHERE user_id = ? AND label = ?)'); args.push(me, String(req.query.label)); } // one of your labels
       // Yours, what's shared with you or your company, and everything inside folders shared that way.
       rows = q(`WITH RECURSIVE acc(id) AS (
                   SELECT s2.file_id FROM shares s2 JOIN files f1 ON f1.id = s2.file_id WHERE s2.user_id = ? AND f1.trashed = 0

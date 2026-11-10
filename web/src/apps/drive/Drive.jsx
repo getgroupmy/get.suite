@@ -78,6 +78,7 @@ const FILTERS = [
   ['type', 'Type', [['', 'Any type'], ['doc', 'Documents'], ['sheet', 'Spreadsheets'], ['slides', 'Presentations'], ['pdf', 'PDFs'], ['image', 'Pictures'], ['video', 'Videos'], ['audio', 'Audio'], ['archive', 'Archives (.zip)'], ['folder', 'Folders']]],
   ['owner', 'Owner', [['', 'Anyone'], ['me', 'Owned by me'], ['others', 'Not owned by me']]],
   ['modified', 'Modified', [['', 'Any time'], ['1', 'Today'], ['7', 'Last 7 days'], ['30', 'Last 30 days'], ['365', 'Last year']]],
+  ['label', 'Label', null], // your own labels (filled in from them)
 ];
 
 /** When something in the trash goes for good: "in 12 days", "tomorrow", or "never" when the company keeps the trash. */
@@ -443,7 +444,7 @@ export default function Drive() {
         {route.view === 'mine' && !route.folderId && <Suggested onOpen={open} />}
         {route.view === 'search' && (
           <div className="search-filters" role="group" aria-label="Filters">
-            {FILTERS.map(([k, label, options]) => (
+            {FILTERS.filter(([k]) => k !== 'label' || myLabels.length || route.filters.label).map(([k, label, given]) => [k, label, given || [['', 'Any label'], ...[...new Set([...myLabels.map((l) => l.name), ...(route.filters.label ? [route.filters.label] : [])])].map((n) => [n, n])]]).map(([k, label, options]) => (
               <select key={k} aria-label={label} className={route.filters[k] ? 'on' : ''} value={route.filters[k]} onChange={(e) => setFilter(k, e.target.value)}>
                 {options.map(([v, name]) => <option key={v} value={v}>{name}</option>)}
               </select>

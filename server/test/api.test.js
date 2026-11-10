@@ -8677,6 +8677,11 @@ test('drive: labels of your own on files and folders', async () => {
   assert.deepEqual(await inLabel(a, 'Taxes 2026'), ['March invoice', 'Tax sums']);
   assert.deepEqual((await a('GET', '/api/files')).body.find((f) => f.id === doc.id).labels, ['Invoices', 'Taxes 2026'], 'shown on the file in lists');
   assert.equal((await a('PUT', `/api/files/${doc.id}/labels`, { labels: Array.from({ length: 11 }, (_, i) => `L${i}`) })).status, 400);
+  // Search, narrowed to a label.
+  const found = async (qs) => (await a('GET', `/api/files?view=search&${qs}`)).body.map((f) => f.name).sort();
+  assert.deepEqual(await found('q=ar'), ['March invoice']);
+  assert.deepEqual(await found(`q=a&label=${encodeURIComponent('Taxes 2026')}`), ['March invoice', 'Tax sums']);
+  assert.deepEqual(await found(`q=a&label=${encodeURIComponent('Invoices')}`), ['March invoice']);
   // Someone it's shared with labels it their own way; someone else can't.
   assert.ok((await a('PUT', `/api/files/${doc.id}/shares`, { shares: [{ user_id: bid, role: 'viewer' }] })).status < 300);
   assert.deepEqual((await b('PUT', `/api/files/${doc.id}/labels`, { labels: ['From Ann'] })).body, { labels: ['From Ann'] });
