@@ -8661,3 +8661,15 @@ test('drive: folders show what’s inside them adds up to, at any depth, trash l
   assert.deepEqual([inside.folder_size, inside.folder_files], [2500, 1]);
   assert.equal(list.find((f) => f.kind !== 'folder')?.folder_size, undefined, 'only folders');
 });
+
+test('world clock: the time zones each person picks, checked and kept in order, no repeats', async () => {
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'wcla', domain: 'acme.com', name: 'Wc Ann', password: 'password123' })).status, 201);
+  await login(a, 'wcla@acme.com');
+  assert.deepEqual((await a('GET', '/api/auth/me')).body.user.world_clocks, []);
+  assert.deepEqual((await a('PUT', '/api/users/me/world-clocks', { zones: ['Asia/Tokyo', 'America/New_York', 'Asia/Tokyo'] })).body.zones, ['Asia/Tokyo', 'America/New_York']);
+  assert.deepEqual((await a('GET', '/api/auth/me')).body.user.world_clocks, ['Asia/Tokyo', 'America/New_York']);
+  assert.equal((await a('PUT', '/api/users/me/world-clocks', { zones: ['Mars/Olympus'] })).status, 400);
+  assert.equal((await a('PUT', '/api/users/me/world-clocks', { zones: Array(9).fill('UTC') })).status, 400);
+  assert.deepEqual((await a('PUT', '/api/users/me/world-clocks', { zones: [] })).body.zones, []);
+});

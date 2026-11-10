@@ -1,3 +1,4 @@
+import WorldClock from './WorldClock.jsx';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import { createPortal } from 'react-dom';
@@ -365,6 +366,7 @@ function Calendar({ acting = null, managed = [], onPick }) {
             <option value={0}>Sunday</option><option value={1}>Monday</option><option value={6}>Saturday</option>
           </select>
         </label>
+        <WorldClock />
         <form className="cal-search" role="search" onSubmit={(e) => { e.preventDefault(); runSearch(new FormData(e.currentTarget).get('q')); }}>
           <input name="q" type="search" placeholder="Search events" aria-label="Search events" onChange={(e) => { if (!e.target.value) setFound(null); }} />
         </form>

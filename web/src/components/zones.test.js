@@ -1,12 +1,17 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { timeIn, zoneName, cityOf, allZones } from './zones.js';
+import { clockLine, offsetMinutes } from './zones.js';
 
-test('time in another zone', () => {
-  const noonUtc = Date.UTC(2026, 10, 9, 12, 0);
-  assert.match(timeIn(noonUtc, 'Asia/Tokyo'), /^9\s?PM$|^21$/);
-  assert.match(timeIn(noonUtc, 'Asia/Kolkata'), /5:30/);
-  assert.match(zoneName('Asia/Kolkata', noonUtc), /GMT\+5:30|IST/);
-  assert.equal(cityOf('Asia/Kuala_Lumpur'), 'Kuala Lumpur');
-  assert.ok(allZones().includes('Asia/Tokyo'));
+test('world clock lines: the time there, whether it is tomorrow or yesterday, and the difference', () => {
+  const t = Date.UTC(2026, 10, 10, 20, 0); // 20:00 UTC on 10 Nov
+  assert.equal(offsetMinutes('Asia/Kolkata', t), 330);
+  assert.equal(offsetMinutes('America/New_York', t), -300);
+  const tokyo = clockLine('Asia/Tokyo', t, 'Europe/London');
+  assert.deepEqual([tokyo.city, tokyo.day, tokyo.diff], ['Tokyo', 'tomorrow', '+9 h']);
+  assert.match(tokyo.time, /5:00/);
+  const ny = clockLine('America/New_York', t, 'Europe/London');
+  assert.deepEqual([ny.day, ny.diff], ['', '−5 h']);
+  assert.deepEqual([clockLine('Asia/Kolkata', t, 'UTC').diff, clockLine('Asia/Kolkata', t, 'UTC').day], ['+5:30 h', 'tomorrow']);
+  assert.equal(clockLine('Europe/London', t, 'UTC').diff, 'same time');
+  assert.equal(clockLine('Pacific/Honolulu', Date.UTC(2026, 10, 10, 5), 'UTC').day, 'yesterday');
 });

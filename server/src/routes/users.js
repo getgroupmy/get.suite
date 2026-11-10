@@ -244,6 +244,21 @@ export default function userRoutes() {
     res.json(list);
   });
 
+  // Calendar's world clock: the time zones to show, in order ({ zones: ['Asia/Tokyo', …] }, at most 8).
+  r.put('/me/world-clocks', (req, res) => {
+    const list = Array.isArray(req.body?.zones) ? req.body.zones.map(String) : null;
+    if (!list) throw bad('Give a list of time zones');
+    if (list.length > 8) throw bad('At most 8 clocks');
+    const zones = [];
+    for (const z of list) {
+      let real;
+      try { real = new Intl.DateTimeFormat('en-US', { timeZone: z }).resolvedOptions().timeZone; } catch { throw bad(`“${z}” isn’t a time zone`); }
+      if (!zones.includes(real)) zones.push(real);
+    }
+    q('UPDATE users SET world_clocks = ? WHERE id = ?').run(zones.length ? JSON.stringify(zones) : null, req.user.id);
+    res.json({ zones });
+  });
+
   // Convert Office, OpenDocument and Markdown files you upload in Drive: { on: true | false }.
   r.put('/me/convert-uploads', (req, res) => {
     const on = !!req.body?.on;
