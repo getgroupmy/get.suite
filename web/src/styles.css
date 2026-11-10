@@ -2592,3 +2592,13 @@ p.doc-email-fields { margin: 0; }
 .eml-text { white-space: pre-wrap; border-top: 1px solid var(--border); padding-top: 10px; line-height: 1.5; }
 .eml-attachments { list-style: none; margin: 0; padding: 8px 0 0; border-top: 1px solid var(--border); display: grid; gap: 4px; }
 .eml-attachments li { display: flex; align-items: center; gap: 8px; }
+/* Sheets: filter views — a dark bar, and dark column headings while one is open (only on this screen). */
+.fv-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 6px 12px; background: #3c4043; color: #fff; }
+.fv-bar .muted { color: #dadce0; }
+.fv-tag { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: #dadce0; }
+.fv-name { font-weight: 600; }
+input.fv-name { background: #202124; color: #fff; border: 1px solid #5f6368; border-radius: 4px; padding: 3px 6px; min-width: 160px; }
+.fv-actions { margin-left: auto; display: flex; gap: 6px; }
+.grid-wrap.fv-on .grid th { background: #5f6368; color: #fff; }
+.grid-wrap.fv-on td:has(> .filter-btn) { background: #e8eaed; }
+.fv-list { list-style: none; padding: 0; margin: 0 0 8px; display: grid; gap: 6px; }

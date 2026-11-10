@@ -292,6 +292,12 @@ Select rows (or columns) by their headings, then **Group rows 2–4** in the rig
 - Rows added below the table are filtered too, and a row whose value changes to a hidden one goes as it changes. **Filter** again removes it, showing every row.
 - Downloading as Excel keeps it as an AutoFilter with those rows hidden (conditions included); an Excel file's AutoFilter comes in as a filter.
 
+## Filter views (Sheets)
+
+- **Filter views** in the ⋮ menu lists the sheet's views and makes a **New filter view** (over the sheet's filter range if it has one, else the selection or the table around the cursor). A view filters like a filter (the ▾ buttons, ticked values, conditions), but the rows it hides are hidden **only on your screen**: everyone else, and the sheet's own filter, are untouched. While one is open, a dark bar shows its name and the column headings turn dark.
+- Views are saved with the sheet (*Filter 1*, *Filter 2*…; type in the bar to rename one), so colleagues open the same view from **Filter views**, and changes to it are kept for everyone who opens it. **Copy link** gives a link that opens the spreadsheet with the view on; **Delete** removes it; **✕ Close** shows every row again. Views move with inserted and deleted rows and columns, and changing one isn't a change to protected cells.
+- People who can only view (or comment) can still filter: they get a **temporary filter view**, only on their screen and not saved, from **New temporary filter view**, from changing a saved view, or from the ▾ buttons of the sheet's own filter.
+
 ## Tables (Sheets)
 
 Give alternating colours a name and they become a **table** formulas can use by its columns' headings, as in Excel.

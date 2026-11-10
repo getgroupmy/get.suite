@@ -39,7 +39,7 @@ export function protectionsAt(sheet, key) {
 }
 
 const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
-const withoutList = (s) => { const { protected: _p, ...rest } = s || {}; return rest; };
+const withoutList = (s) => { const { protected: _p, views: _v, ...rest } = s || {}; return rest; }; // filter views change no data
 
 /** Does a change to `sheet` touch anything inside the box? */
 function touched(before, after, box) {

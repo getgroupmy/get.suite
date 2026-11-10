@@ -39,6 +39,7 @@ test('protected ranges: whole sheets, warnings, and the shared form keeps them',
   assert.equal(brokenProtections(b, { sheets: [{ ...b.sheets[0], colWidths: { A: 200 } }, b.sheets[1]] }, 'bob', 'owner').length, 1);
   assert.equal(brokenProtections(b, { sheets: [{ ...b.sheets[0], name: 'Renamed' }, b.sheets[1]] }, 'bob', 'owner').length, 1);
   assert.equal(brokenProtections(b, { sheets: [b.sheets[0], { name: 'Free', cells: { A1: 'ok' } }] }, 'bob', 'owner').length, 0);
+  assert.equal(brokenProtections(b, { sheets: [{ ...b.sheets[0], views: { v: { name: 'Filter 1', range: 'A1:B9', hidden: {} } } }, b.sheets[1]] }, 'bob', 'owner').length, 0, 'a filter view changes no data');
   const warn = { sheets: [{ name: 'S', cells: { A1: '1' }, protected: [{ ...P, warn: true }] }] };
   const changed = { sheets: [{ ...warn.sheets[0], cells: { A1: '2' } }] };
   assert.equal(brokenProtections(warn, changed, 'bob', 'owner').length, 0, 'the server lets warnings through');

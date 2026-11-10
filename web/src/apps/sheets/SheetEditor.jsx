@@ -32,6 +32,7 @@ import { validationAt, checkEntry, isTicked, withChoices, choicesFrom, chipColou
 import { columnValues, adjustFilter, filterArea, columnFiltered, slicerAsFilter, adjustSlicers, sheetHiddenRows } from './filter.js';
 import { SlicerCard } from './SheetSlicer.jsx';
 import { describeCondition } from './filtercond.js';
+import { nextViewName, cleanViewName, adjustViews, viewSheet, viewList, viewLink } from './views.js';
 import { setHidden, anyHidden, hiddenRuns } from './hide.js';
 import { addGroup, removeGroups, toggleGroup, collapsedOn, toggleAt } from './groups.js';
 import { FilterMenu } from './SheetFilter.jsx';
@@ -201,7 +202,20 @@ export default function SheetEditor() {
   }, [evaluate, data?.sheets, data?.functions, active]);
   const { rows, cols } = useMemo(() => sheetSize(cells, evaluate.spilledKeys?.() || []), [cells, evaluate]);
   // The filter: which rows it hides, and where its headings are.
-  const filter = sheet?.filter || null;
+  const sheetFilter = sheet?.filter || null;
+  // A filter view open on this screen only: { id } for a saved one, { temp, sheet } for a temporary one.
+  const [fv, setFv] = useState(() => (params.get('fv') ? { id: params.get('fv') } : null));
+  const fvSeen = useRef(false);
+  const viewFilter = fv ? (fv.temp || sheet?.views?.[fv.id] || null) : null;
+  const filter = fv ? viewFilter : sheetFilter; // what the ▾ buttons and hidden rows follow
+  useEffect(() => {
+    if (!data || !fv) return;
+    if (fv.temp) { if (fv.sheet !== active) setFv(null); return; }
+    const at = viewSheet(data.sheets, fv.id);
+    if (at < 0) { setFv(null); toast(fvSeen.current ? 'The filter view was deleted' : 'That filter view no longer exists', fvSeen.current ? undefined : 'error'); return; }
+    if (!fvSeen.current) { fvSeen.current = true; if (at !== active) setActive(at); return; }
+    if (at !== active) setFv(null);
+  }, [data, active, fv]); // eslint-disable-line react-hooks/exhaustive-deps
   const hide = sheet?.hide || null; // rows and columns hidden by hand
   const groups = sheet?.groups || null; // grouped rows and columns (collapsed ones are hidden too)
   const slicers = sheet?.slicers || {};
@@ -433,7 +447,7 @@ export default function SheetEditor() {
     if (readOnly) return;
     const cur = dataRef.current;
     // References to this sheet from the others move too.
-    commitData({ ...cur, sheets: adjustOtherSheets(cur.sheets, active, change).map((s, i) => (i === active ? { ...applyStructure(s, change), ...(s.filter && { filter: adjustFilter(s.filter, change) }), ...(s.slicers && { slicers: adjustSlicers(s.slicers, change) }) } : s)) });
+    commitData({ ...cur, sheets: adjustOtherSheets(cur.sheets, active, change).map((s, i) => (i === active ? { ...applyStructure(s, change), ...(s.filter && { filter: adjustFilter(s.filter, change) }), ...(s.slicers && { slicers: adjustSlicers(s.slicers, change) }), ...(s.views && { views: adjustViews(s.views, change) }) } : s)) });
     // Comments move with their cell; a deleted cell's thread is marked as such.
     for (const t of threads) {
       if ((t.anchor?.sheet || 0) !== active || !t.anchor?.cell || t.anchor.gone) continue;
@@ -670,6 +684,7 @@ export default function SheetEditor() {
   function cancelEdit() { closing.current = true; setEditing(null); gridRef.current?.focus(); }
   /** Turn the filter on (over the selection, or the table around the cursor) or off. */
   const toggleFilter = () => {
+    if (fv) { toast('Close the filter view to change the sheet’s own filter', 'error'); return; }
     if (filter) { writeSheet(() => ({ filter: null })); toast('Filter removed: every row shows'); gridRef.current?.focus(); return; }
     const g = anchor ? range : dataRegion(sel, (c, r) => cells[cellKey(c, r)] !== undefined && cells[cellKey(c, r)] !== '');
     if (g.r2 <= g.r1) { toast('Select a table with headings in its first row', 'error'); return; }
@@ -688,6 +703,40 @@ export default function SheetEditor() {
     const id = (crypto.randomUUID?.() || `${Date.now()}${Math.random()}`).replace(/[^\w]/g, '').slice(0, 20);
     writeSheet((s) => ({ slicers: { ...(s.slicers || {}), [id]: { range: rangeText(g), col, hidden: [], x: Math.round(x), y: Math.round(y) } } }));
     toast(`Slicer added for ${display(evaluate(`${col}${g.r1 + 1}`)) || `column ${col}`}: click it to choose what to show`);
+    gridRef.current?.focus();
+  };
+  /** Change the filter being shown: the open filter view's, or the sheet's own. */
+  const writeFilter = (fn) => {
+    if (fv?.temp) { setFv((v) => ({ ...v, temp: fn(v.temp) })); return; }
+    if (fv?.id) {
+      if (readOnly) { setFv({ temp: fn(viewFilter), sheet: active }); toast('Your changes make a temporary filter view, only for you'); return; }
+      writeSheet((s) => (s.views?.[fv.id] ? { views: { ...s.views, [fv.id]: fn(s.views[fv.id]) } } : {}));
+      return;
+    }
+    if (readOnly) { fvSeen.current = true; setFv({ temp: { name: 'Temporary filter view', ...fn(sheetFilter) }, sheet: active }); toast('You can’t change the sheet’s filter, so this is a temporary filter view, only for you'); return; }
+    writeSheet((s) => ({ filter: fn(s.filter) }));
+  };
+  /** Open a new filter view over the sheet's filter range, the selection, or the table around the cursor. */
+  const newView = () => {
+    const g = sheetFilter ? parseRange(sheetFilter.range) : anchor ? range : dataRegion(sel, (c, r) => cells[cellKey(c, r)] !== undefined && cells[cellKey(c, r)] !== '');
+    if (!g || g.r2 <= g.r1) { toast('Select a table with headings in its first row', 'error'); return false; }
+    const base = { range: rangeText(g), hidden: {} };
+    fvSeen.current = true;
+    if (readOnly) { setFv({ temp: { name: 'Temporary filter view', ...base }, sheet: active }); toast('A temporary filter view: only you see it, and it isn’t saved'); return true; }
+    const vid = (crypto.randomUUID?.() || `${Date.now()}${Math.random()}`).replace(/[^\w]/g, '').slice(0, 20);
+    writeSheet((s) => ({ views: { ...(s.views || {}), [vid]: { name: nextViewName(s.views), ...base } } }));
+    setFv({ id: vid });
+    return true;
+  };
+  const openView = (vid) => { fvSeen.current = true; setFilterMenu(null); setFv({ id: vid }); gridRef.current?.focus(); };
+  const closeView = () => { setFilterMenu(null); setFv(null); gridRef.current?.focus(); };
+  const renameView = (name) => { const n = cleanViewName(name); if (n && fv?.id && n !== viewFilter?.name) writeFilter((v) => ({ ...v, name: n })); };
+  const deleteView = () => {
+    const vid = fv?.id;
+    if (!vid) return;
+    setFv(null);
+    writeSheet((s) => { const all = { ...(s.views || {}) }; delete all[vid]; return { views: all }; });
+    toast('Filter view deleted');
     gridRef.current?.focus();
   };
   const writeSlicer = (id, next) => writeSheet((s) => { const all = { ...(s.slicers || {}) }; if (next) all[id] = next; else delete all[id]; return { slicers: all }; });
@@ -994,6 +1043,7 @@ export default function SheetEditor() {
         </>}
         menu={[
           { label: 'Find and replace', icon: 'search', onClick: () => setFinding({ replace: !readOnly, n: 1 }) },
+          { label: 'Filter views', icon: 'search', onClick: () => setDialog({ type: 'views' }) },
           { label: 'Named ranges', icon: 'link', onClick: () => setDialog({ type: 'names', initial: selText }) },
           { label: 'Named functions', icon: 'edit', onClick: () => setDialog({ type: 'functions' }) },
           !readOnly && { label: 'Goal seek…', icon: 'search', onClick: () => setDialog({ type: 'goalseek' }) },
@@ -1019,12 +1069,27 @@ export default function SheetEditor() {
       )}
       {!readOnly && <FormatBar sample={evaluate(selKey)} painter={painter} onPaint={(sticky) => (painter && !sticky ? setPainter(null) : startPaint(sticky))} fmt={formats[selKey] || {}} onChange={(change) => { writeFormats(change); gridRef.current?.focus(); }}
         onMerge={() => { toggleMerge(); gridRef.current?.focus(); }} merged={!!mergeAt(merges, sel.c, sel.r)}
-        onBorders={(kind) => { writeFormats((k, c, r, f) => ({ bd: borderFor(kind, range, c, r, f?.bd) })); gridRef.current?.focus(); }} onComment={startComment} onChart={newChart} onSort={() => setDialog({ type: 'sort' })} onRules={() => setDialog({ type: 'rules' })} onValidation={() => setDialog({ type: 'validation' })} onPivot={newPivot} filterOn={!!filter} onFilter={toggleFilter} onSlicer={newSlicer} history={history} />}
+        onBorders={(kind) => { writeFormats((k, c, r, f) => ({ bd: borderFor(kind, range, c, r, f?.bd) })); gridRef.current?.focus(); }} onComment={startComment} onChart={newChart} onSort={() => setDialog({ type: 'sort' })} onRules={() => setDialog({ type: 'rules' })} onValidation={() => setDialog({ type: 'validation' })} onPivot={newPivot} filterOn={!!sheetFilter} onFilter={toggleFilter} onSlicer={newSlicer} history={history} />}
       {finding && sheet && (
         <SheetFind key={`${active}-${finding.n}`} cells={cells} shown={shown} hidden={hidden} replacing={finding.replace} canEdit={!readOnly}
           onGo={(m) => { setAnchor(null); setSel({ c: m.c, r: m.r }); requestAnimationFrame(() => gridRef.current?.querySelector(`[data-k="${m.key}"]`)?.scrollIntoView({ block: 'nearest', inline: 'nearest' })); }}
           onHits={setHits} onWrite={(u) => { history.ownStep(); writeCells(u); history.ownStep(); }} onDone={(t) => toast(t)}
           onClose={() => { setFinding(null); gridRef.current?.focus(); }} />
+      )}
+      {fv && viewFilter && (
+        <div className="fv-bar" role="region" aria-label="Filter view">
+          <span className="fv-tag">Filter view</span>
+          {fv.id && !readOnly
+            ? <input key={`${fv.id}:${viewFilter.name}`} className="fv-name" aria-label="Filter view name" defaultValue={viewFilter.name} maxLength={60}
+              onBlur={(e) => renameView(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); if (e.key === 'Escape') { e.target.value = viewFilter.name; gridRef.current?.focus(); } }} />
+            : <strong className="fv-name">{viewFilter.name}</strong>}
+          <span className="muted small">{viewFilter.range} · rows it hides are hidden only for you{fv.temp ? '; not saved' : ''}</span>
+          <span className="fv-actions">
+            {fv.id && <button type="button" className="btn small" onClick={() => { navigator.clipboard?.writeText(viewLink(window.location.origin, id, fv.id)).then(() => toast('Link copied: it opens the spreadsheet with this filter view'), () => toast('Couldn’t copy the link', 'error')); }}>Copy link</button>}
+            {fv.id && !readOnly && <button type="button" className="btn small" onClick={deleteView}>Delete</button>}
+            <button type="button" className="btn small" aria-label="Close filter view" onClick={closeView}>✕ Close</button>
+          </span>
+        </div>
       )}
       <div className="formula-bar">
         <input className="cell-name" aria-label="Name box" value={nameBox ?? selName ?? selText} onFocus={(e) => { setNameBox(selName ?? selText); requestAnimationFrame(() => e.target.select()); }}
@@ -1047,7 +1112,7 @@ export default function SheetEditor() {
         {editing === 'bar' && assist.popup}
       </div>
       <div className="sheet-body">
-      <div className={`grid-wrap ${painter ? 'painting' : ''}`} ref={gridRef} onContextMenu={(e) => { if (e.target === e.currentTarget) openMenu(e, 'cell'); }} tabIndex={0} onKeyDown={onGridKey} onCopy={onCopy} onCut={onCut} onPaste={onPaste}>
+      <div className={`grid-wrap ${painter ? 'painting' : ''} ${fv && viewFilter ? 'fv-on' : ''}`} ref={gridRef} onContextMenu={(e) => { if (e.target === e.currentTarget) openMenu(e, 'cell'); }} tabIndex={0} onKeyDown={onGridKey} onCopy={onCopy} onCut={onCut} onPaste={onPaste}>
         <table className="grid" role="grid" aria-label={sheet.name}>
           <thead>
             <tr><th className="corner" />{Array.from({ length: cols }, (_, c) => (
@@ -1202,6 +1267,19 @@ export default function SheetEditor() {
           defaultRange={anchor ? rangeText(range) : rangeText({ c1: sel.c, c2: sel.c, r1: sel.r, r2: sel.r })}
           onChange={(next) => writeSheet(() => ({ validations: next.length ? next : null }))} onClose={() => { setDialog(null); gridRef.current?.focus(); }} />
       )}
+      {dialog?.type === 'views' && (
+        <Modal title="Filter views" onClose={() => { setDialog(null); gridRef.current?.focus(); }}
+          footer={<button type="button" className="btn primary" onClick={() => { if (newView()) setDialog(null); }}>{readOnly ? 'New temporary filter view' : 'New filter view'}</button>}>
+          <p className="muted small" style={{ marginTop: 0 }}>A filter view hides rows only on your screen, so others aren't affected. {readOnly ? 'You can’t edit this spreadsheet, so yours are temporary: they aren’t saved.' : 'Views are saved with the sheet, for everyone to open.'}</p>
+          {viewList(sheet?.views).length ? (
+            <ul className="fv-list">
+              {viewList(sheet?.views).map(([vid, v]) => (
+                <li key={vid}><button type="button" className="link-btn" onClick={() => { setDialog(null); openView(vid); }}>{v.name}</button> <span className="muted small">{v.range}</span>{fv?.id === vid && <span className="muted small"> · open</span>}</li>
+              ))}
+            </ul>
+          ) : <p className="muted">This sheet has no filter views yet.</p>}
+        </Modal>
+      )}
       {filterMenu && fArea && (() => {
         const td = gridRef.current?.querySelector(`[data-k="${cellKey(filterMenu.c, fArea.r1)}"]`);
         if (!td) return null;
@@ -1209,11 +1287,11 @@ export default function SheetEditor() {
         const done = () => { setFilterMenu(null); gridRef.current?.focus(); };
         return <FilterMenu anchor={td} column={col} values={columnValues(filter, cells, evaluate, filterMenu.c)} hidden={filter.hidden?.[col] || []} cond={filter.cond?.[col]} onClose={done}
           onApply={(list, cond) => {
-            writeSheet((s) => {
-              const conds = { ...(s.filter?.cond || {}) };
+            writeFilter((f) => {
+              const conds = { ...(f?.cond || {}) };
               if (cond) conds[col] = cond; else delete conds[col];
-              const { cond: _old, ...rest } = s.filter || {};
-              return { filter: { ...rest, hidden: { ...(s.filter?.hidden || {}), [col]: list }, ...(Object.keys(conds).length && { cond: conds }) } };
+              const { cond: _old, ...rest } = f || {};
+              return { ...rest, hidden: { ...(f?.hidden || {}), [col]: list }, ...(Object.keys(conds).length && { cond: conds }) };
             });
             done();
           }}

@@ -145,6 +145,23 @@ test('spreadsheets: slicers are kept, and two people changing different slicers 
   assert.equal(jsonFromSheetDoc(doc).sheets[0].slicers, undefined, 'none left: none kept');
 });
 
+test('spreadsheets: filter views are kept, and two people changing different views both keep their change', () => {
+  const a = { name: 'North', range: 'A1:C9', hidden: {} }, b = { name: 'Late', range: 'A1:C9', hidden: {} };
+  const doc = sheetDocFromJson({ sheets: [{ name: 'S', cells: { A1: 'Region' }, views: { a, b } }] });
+  assert.deepEqual(jsonFromSheetDoc(doc).sheets[0].views, { a, b });
+  const other = new Y.Doc();
+  Y.applyUpdate(other, Y.encodeStateAsUpdate(doc));
+  const mine = jsonFromSheetDoc(doc), theirs = jsonFromSheetDoc(other);
+  applySheetJson(doc, { sheets: [{ ...mine.sheets[0], views: { a: { ...a, hidden: { A: ['South'] } }, b } }] });
+  applySheetJson(other, { sheets: [{ ...theirs.sheets[0], views: { a, b: { ...b, name: 'Overdue' } } }] });
+  Y.applyUpdate(doc, Y.encodeStateAsUpdate(other));
+  const got = jsonFromSheetDoc(doc).sheets[0].views;
+  assert.deepEqual([got.a.hidden, got.b.name], [{ A: ['South'] }, 'Overdue']);
+  assert.equal(jsonFromSheetDoc(doc).sheets[0].filter, undefined, 'the sheet\'s own filter is untouched');
+  applySheetJson(doc, { sheets: [{ ...jsonFromSheetDoc(doc).sheets[0], views: {} }] });
+  assert.equal(jsonFromSheetDoc(doc).sheets[0].views, undefined, 'none left: none kept');
+});
+
 test('presentations: their own theme and master (logo, footer) are kept and changed', () => {
   const custom = { bg: '#102030', text: '#ffffff', accent: '#ff8800', font: 'Georgia' }, master = { logo: 'abc', corner: 'br', footer: 'Acme' };
   const doc = deckDocFromJson({ theme: 'custom', custom, master, slides: [{ id: 's1', items: [] }] });

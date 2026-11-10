@@ -58,7 +58,7 @@ export function jsonFromDoc(doc, field = 'default') {
 
 // ---- spreadsheets: a list of sheets, each with cells, column widths, formats and charts as maps, so two
 // people changing different cells at once both keep their change (the same cell: the later wins).
-const SHEET_MAPS = ['cells', 'colWidths', 'rowHeights', 'formats', 'charts', 'notes', 'slicers']; // charts: id → { type, range, title, x, y, w, h }; notes: cell → text; rowHeights: row number → pixels
+const SHEET_MAPS = ['cells', 'colWidths', 'rowHeights', 'formats', 'charts', 'notes', 'slicers', 'views']; // charts: id → { type, range, title, x, y, w, h }; notes: cell → text; rowHeights: row number → pixels; views: id → filter view
 
 /** Make a Y.Map for one sheet from its JSON. */
 function sheetMap(sheet) {
@@ -107,7 +107,7 @@ export function jsonFromSheetDoc(doc) {
     if (m.get('protected')?.length) s.protected = m.get('protected');
     if (m.get('bands')?.length) s.bands = m.get('bands');
     for (const k of SHEET_MAPS) { const inner = m.get(k); s[k] = inner ? inner.toJSON() : {}; }
-    for (const k of ['rowHeights', 'formats', 'charts', 'notes', 'slicers']) if (!Object.keys(s[k]).length) delete s[k];
+    for (const k of ['rowHeights', 'formats', 'charts', 'notes', 'slicers', 'views']) if (!Object.keys(s[k]).length) delete s[k];
     return s;
   }), ...(doc.getMap('book').get('functions')?.length && { functions: doc.getMap('book').get('functions') }) };
 }
