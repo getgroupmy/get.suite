@@ -3,6 +3,8 @@
 // most lately. Only files you can still open; at most 8.
 import { q } from './db.js';
 import { roleFor } from './access.js';
+import { expand } from './calmath.js';
+import { outEvent } from './routes/calendar.js';
 
 const DAY = 864e5;
 export const MAX_SUGGESTED = 8;
@@ -11,9 +13,16 @@ export function suggestedFor(userId, t = Date.now()) {
   const out = new Map(); // file id -> reason
   const add = (id, reason) => { if (!out.has(id) && out.size < MAX_SUGGESTED * 3) out.set(id, reason); };
   // 1. Attached to a meeting of yours in the next 24 hours (yours, or one you haven't said no to).
-  const meetings = q(`SELECT e.id, e.title, e.start, e.attachments FROM events e LEFT JOIN event_guests g ON g.event_id = e.id AND g.user_id = ?
-                      WHERE (e.owner_id = ? OR (g.user_id IS NOT NULL AND g.status != 'no')) AND e.attachments IS NOT NULL AND e.start >= ? AND e.start < ? AND e.rrule IS NULL
-                      ORDER BY e.start LIMIT 20`).all(userId, userId, t - 3600e3, t + DAY);
+  // Repeating ones by their next time in that window.
+  const rows = q(`SELECT e.* FROM events e LEFT JOIN event_guests g ON g.event_id = e.id AND g.user_id = ?
+                  WHERE (e.owner_id = ? OR (g.user_id IS NOT NULL AND g.status != 'no')) AND e.attachments IS NOT NULL AND e.recur_parent IS NULL AND e.start < ?
+                    AND (e.start >= ? OR (e.rrule IS NOT NULL AND (e.repeat_until IS NULL OR e.repeat_until >= ?)))
+                  LIMIT 200`).all(userId, userId, t + DAY, t - 3600e3, t - 3600e3);
+  const meetings = rows.map((r) => {
+    if (!r.rrule) return r;
+    const next = expand(outEvent(r), t - 3600e3, t + DAY).find((o) => o.start >= t - 3600e3 && o.start < t + DAY);
+    return next ? { ...r, start: next.start } : null;
+  }).filter((m) => m && m.start >= t - 3600e3 && m.start < t + DAY).sort((a, b) => a.start - b.start).slice(0, 20);
   for (const m of meetings) {
     let list = [];
     try { list = JSON.parse(m.attachments) || []; } catch { /* none */ }

@@ -9250,6 +9250,14 @@ test('Drive suggestions: files for your next meeting, changed by others, opened 
   assert.deepEqual(got.map((f) => [f.name, f.reason.kind]), [['Sg agenda', 'meeting'], ['Sg budget', 'edited'], ['sg-notes.txt', 'opened']]);
   assert.equal(got[0].reason.title, 'Sg review');
   assert.equal(got[1].reason.by, 'Sg Ann');
+  // A weekly meeting that started weeks ago, next on in a few hours, counts too.
+  const minutes = (await a('POST', '/api/files/new', { kind: 'doc', name: 'Sg weekly minutes' })).body;
+  const first = t + 3600e3 - 21 * 864e5;
+  const wk = await a('POST', '/api/events', { title: 'Sg weekly', start: first, end: first + 36e5, rrule: { freq: 'weekly' }, guests: ['sgb@acme.com'], attachments: [minutes.id] });
+  assert.equal(wk.status, 201, JSON.stringify(wk.body));
+  const weekly = (await b('GET', '/api/files/suggested')).body.find((f) => f.id === minutes.id);
+  assert.equal(weekly?.reason.title, 'Sg weekly');
+  assert.equal(weekly.reason.at, t + 3600e3, 'its next time');
   // Trashed: gone.
   await b('PATCH', `/api/files/${mine.id}`, { trashed: true });
   assert.ok(!(await b('GET', '/api/files/suggested')).body.some((f) => f.id === mine.id));
