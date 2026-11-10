@@ -332,6 +332,9 @@ test('Excel: newer functions carry the _xlfn. prefix in the file and lose it in 
   assert.equal(formulaToExcel('IFERROR(XLOOKUP(A1,B:B,C:C),"_xlfn.x")+STDEV.S(D1:D3)+SUM(E1)'), 'IFERROR(_xlfn.XLOOKUP(A1,B:B,C:C),"_xlfn.x")+_xlfn.STDEV.S(D1:D3)+SUM(E1)');
   assert.equal(formulaFromExcel('_xlfn.XLOOKUP(A1,B1:B3,C1:C3)&"_xlfn."'), 'XLOOKUP(A1,B1:B3,C1:C3)&"_xlfn."');
   assert.equal(formulaToExcel('TEXTAFTER(A1,"@")&SORTBY(B1:B3,C1:C3,-1)&DEC2BIN(5)&ROMAN(9)'), '_xlfn.TEXTAFTER(A1,"@")&_xlfn.SORTBY(B1:B3,C1:C3,-1)&DEC2BIN(5)&ROMAN(9)');
+  // Statistics and other functions Excel added after 2007; the old names (NORMDIST, TDIST) stay plain.
+  assert.equal(formulaToExcel('NORM.S.INV(0.975)+T.DIST.2T(2,10)+NORMDIST(1,0,1,TRUE)+TDIST(2,10,2)+FORMULATEXT(A1)'), '_xlfn.NORM.S.INV(0.975)+_xlfn.T.DIST.2T(2,10)+NORMDIST(1,0,1,TRUE)+TDIST(2,10,2)+_xlfn.FORMULATEXT(A1)');
+  assert.equal(formulaFromExcel('_xlfn.T.DIST.2T(2,10)'), 'T.DIST.2T(2,10)');
   const data = { sheets: [{ name: 'S', cells: { A1: '1', B1: '=XLOOKUP(1,A1:A1,A1:A1)', B2: '=STDEV.P(A1:A2)' } }] };
   const ExcelJS = (await import('exceljs')).default;
   const wb = new ExcelJS.Workbook();

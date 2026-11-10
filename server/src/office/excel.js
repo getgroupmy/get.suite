@@ -43,8 +43,11 @@ const numToExcel = (f) => {
 };
 
 // Excel writes functions newer than 2007 with a prefix ("_xlfn.XLOOKUP("); we keep plain names.
-const NEW_FUNCS = ['XLOOKUP', 'STDEV.S', 'STDEV.P', 'VAR.S', 'VAR.P', 'RANK.EQ', 'IFS', 'SWITCH', 'IFNA', 'TEXTJOIN', 'CONCAT', 'MAXIFS', 'MINIFS', 'DAYS', 'XMATCH', 'VSTACK', 'HSTACK', 'TAKE', 'DROP', 'ISOWEEKNUM', 'MODE.SNGL', 'PERCENTILE.INC', 'QUARTILE.INC', 'FORECAST.LINEAR', 'LET', 'LAMBDA', 'MAP', 'REDUCE', 'SCAN', 'BYROW', 'BYCOL', 'MAKEARRAY', 'TEXTBEFORE', 'TEXTAFTER', 'TEXTSPLIT', 'CHOOSECOLS', 'CHOOSEROWS', 'WRAPROWS', 'WRAPCOLS', 'TOCOL', 'TOROW', 'EXPAND', 'SORTBY', 'RANDARRAY', 'UNICODE', 'UNICHAR', 'BASE', ];
-const NEW_RE = new RegExp(`("(?:[^"]|"")*")|(?<![A-Z0-9_.])(${NEW_FUNCS.map((n) => n.replace('.', '\\.')).join('|')})(?=\\()`, 'gi');
+const NEW_FUNCS = ['XLOOKUP', 'STDEV.S', 'STDEV.P', 'VAR.S', 'VAR.P', 'RANK.EQ', 'IFS', 'SWITCH', 'IFNA', 'TEXTJOIN', 'CONCAT', 'MAXIFS', 'MINIFS', 'DAYS', 'XMATCH', 'VSTACK', 'HSTACK', 'TAKE', 'DROP', 'ISOWEEKNUM', 'MODE.SNGL', 'PERCENTILE.INC', 'QUARTILE.INC', 'FORECAST.LINEAR', 'LET', 'LAMBDA', 'MAP', 'REDUCE', 'SCAN', 'BYROW', 'BYCOL', 'MAKEARRAY', 'TEXTBEFORE', 'TEXTAFTER', 'TEXTSPLIT', 'CHOOSECOLS', 'CHOOSEROWS', 'WRAPROWS', 'WRAPCOLS', 'TOCOL', 'TOROW', 'EXPAND', 'SORTBY', 'RANDARRAY', 'UNICODE', 'UNICHAR', 'BASE',
+  'NORM.DIST', 'NORM.S.DIST', 'NORM.INV', 'NORM.S.INV', 'T.DIST', 'T.DIST.RT', 'T.DIST.2T', 'T.INV', 'T.INV.2T', 'T.TEST', 'CHISQ.DIST', 'CHISQ.DIST.RT',
+  'CHISQ.TEST', 'CONFIDENCE.NORM', 'CONFIDENCE.T', 'Z.TEST', 'COVARIANCE.P', 'COVARIANCE.S', 'BINOM.DIST', 'POISSON.DIST', 'EXPON.DIST', 'PERCENTRANK.INC',
+  'ARABIC', 'DECIMAL', 'ENCODEURL', 'ISFORMULA', 'FORMULATEXT'];
+const NEW_RE = new RegExp(`("(?:[^"]|"")*")|(?<![A-Z0-9_.])(${NEW_FUNCS.map((n) => n.replaceAll('.', '\\.')).join('|')})(?=\\()`, 'gi');
 export const formulaFromExcel = (f) => String(f).replace(/("(?:[^"]|"")*")|_xl(?:fn|ws|pm)\./gi, (m, s) => s || '');
 // The dynamic-array functions; FILTER and SORT also carry "_xlws." in the file.
 const ARRAY_FUNCS = { FILTER: '_xlfn._xlws.', SORT: '_xlfn._xlws.', UNIQUE: '_xlfn.', SEQUENCE: '_xlfn.' };

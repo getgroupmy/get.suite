@@ -24,9 +24,9 @@ test('the word being typed and the function the caret is inside', () => {
 });
 
 test('suggestions start with what is typed, shortest first', () => {
-  assert.deepEqual(suggest('COUN', FUNCTION_NAMES), ['COUNT', 'COUNTA', 'COUNTIF', 'COUNTIFS', 'COUNTBLANK', 'COUNTUNIQUE']);
+  assert.deepEqual(suggest('COUN', FUNCTION_NAMES), ['COUNT', 'COUNTA', 'COUNTIF', 'COUNTIFS', 'COUNTBLANK', 'COUNTUNIQUE', 'COUNTUNIQUEIFS']);
   assert.deepEqual(suggest('stdev.', FUNCTION_NAMES), ['STDEV.P', 'STDEV.S']);
-  assert.deepEqual(suggest('SUM', FUNCTION_NAMES, 2), ['SUMIF', 'SUMIFS']);
+  assert.deepEqual(suggest('SUM', FUNCTION_NAMES, 3), ['SUMIF', 'SUMSQ', 'SUMIFS']);
   assert.deepEqual(suggest('', FUNCTION_NAMES), []);
 });
 
