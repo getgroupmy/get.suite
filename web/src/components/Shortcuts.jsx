@@ -37,7 +37,7 @@ export const SHORTCUTS = {
   ] },
   mail: { title: 'Mail', keys: [
     ['C', 'Write a new message'], ['/', 'Search mail'], ['J / K', 'Older or newer message'], ['U', 'Back to the list'],
-    ['R / A / F', 'Reply, reply all, forward'], ['E', 'Archive'], ['#', 'Delete'], ['S', 'Star or unstar'], ['Shift+U', 'Mark unread'],
+    ['R / A / F', 'Reply, reply all, forward'], ['E', 'Archive'], ['#', 'Delete'], ['S', 'Star or unstar'], ['Shift+U', 'Mark unread'], ['V', 'Move to a folder'], ['L', 'Put a label on'],
     [`${mod}+K`, 'Add a link while writing'], [`${mod}+] / ${mod}+[`, 'Indent or outdent'],
     [`${mod}+B / ${mod}+I / ${mod}+U`, 'Bold, italic, underline'],
   ] },

@@ -26,6 +26,7 @@ import FileViewer from '../../components/FileViewer.jsx';
 import { textToHtml, docToText, emailHtml, isEmptyDoc, linkHref } from './richtext.js';
 import { FiltersDialog } from './Filters.jsx';
 import { ForwardingDialog } from './Forwarding.jsx';
+import { MovePicker } from './MovePicker.jsx';
 import DrivePicker from '../../components/DrivePicker.jsx';
 import { parseAddresses } from '../../components/addresses.js';
 import { fileLinksIn } from '../chat/filelinks.js';
@@ -206,7 +207,8 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
 
   // Keyboard shortcuts (see mailkeys.js); the open message's buttons do the work, so they behave the same.
   const keyState = useRef();
-  keyState.current = { data, openUid, special, folder, compose, go, openDraft: (uid) => openDraft(uid), newMessage: () => setCompose(withSignature({}, 'new')) };
+  const [picking, setPicking] = useState(null); // V / L: { kind: 'move' | 'label', uids }
+  keyState.current = { data, openUid, special, folder, compose, go, checked, labels, shared, setPicking, openDraft: (uid) => openDraft(uid), newMessage: () => setCompose(withSignature({}, 'new')) };
   useEffect(() => {
     const onKey = (e) => {
       const action = mailKey(e);
@@ -226,6 +228,11 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
           return;
         }
         case 'list': if (st.openUid) { e.preventDefault(); st.go(st.folder); } return;
+        case 'moveTo': case 'labelAs': { // the ticked messages, or the open one
+          const uids = st.checked.size ? [...st.checked] : st.openUid ? [st.openUid] : [];
+          if (!uids.length || st.special === '\\Drafts' || (action === 'labelAs' && (st.shared || !st.labels.length))) return;
+          e.preventDefault(); st.setPicking({ kind: action === 'moveTo' ? 'move' : 'label', uids }); return;
+        }
         case 'reply': target = byText('Reply'); break;
         case 'replyAll': target = byText('Reply all') || byText('Reply'); break;
         case 'forward': target = byText('Forward'); break;
@@ -493,6 +500,19 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
         <ConfirmModal title={`Delete label “${labelDialog.name}”?`} confirm="Delete label" message="It comes off every message that has it. The messages themselves stay."
           onClose={() => setLabelDialog(null)} onConfirm={async () => { await del(`/mail/labels/${labelDialog.id}`); if (labelId === labelDialog.id) setSearch({}); setLabelDialog(null); loadLabels(); refresh(); }} />
       )}
+      {picking && <MovePicker title={picking.kind === 'move' ? (picking.uids.length === 1 ? 'Move to' : `Move ${picking.uids.length} messages to`) : 'Label as'}
+        items={picking.kind === 'move'
+          ? folders.filter((f) => f.path !== folder && f.specialUse !== '\\Drafts' && f.path !== SNOOZED).map((f) => ({ key: f.path, name: f.name }))
+          : labels.map((l) => ({ key: l.id, name: l.name, dot: l.color }))}
+        onClose={() => setPicking(null)}
+        onPick={async (it) => {
+          const { kind, uids } = picking;
+          setPicking(null);
+          const ok = kind === 'move'
+            ? await act('move', { uids, to: it.key }, `${uids.length === 1 ? 'Moved' : `Moved ${uids.length} messages`} to ${it.name}`)
+            : await act('labels', { uids, add: [it.key] }, `Labelled ${it.name}`);
+          if (ok && kind === 'move' && uids.includes(openUid)) go(folder); // the open message has gone from here
+        }} />}
       {snoozing && <ScheduleDialog title="Snooze until" confirm="Snooze" withinYear note={(at) => `It comes back to your Inbox ${whenText(at)}.`}
         onClose={() => setSnoozing(null)} onPick={async (at) => { const uids = snoozing; setSnoozing(null); if (await act('snooze', { uids, until: at }, `Snoozed until ${whenText(at)}`) && uids.includes(openUid)) go(folder); }} />}
       {scheduledOpen && <ScheduledDialog list={scheduled} onClose={() => setScheduledOpen(false)} onChanged={() => { loadScheduled(); refresh(); }} />}

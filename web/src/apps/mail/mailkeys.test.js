@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mailKey, stepMessage } from './mailkeys.js';
+import { mailKey, stepMessage, pickMatches } from './mailkeys.js';
 
 const ev = (key, extra = {}) => ({ key, target: { tagName: 'BODY' }, ...extra });
 
@@ -22,4 +22,14 @@ test('j and k move through the list', () => {
   assert.equal(stepMessage(list, 3, 'next'), null);
   assert.equal(stepMessage(list, null, 'next'), 9);
   assert.equal(stepMessage([], null, 'next'), null);
+});
+
+test('v and l pick a folder or a label, typing narrows the choices', () => {
+  assert.equal(mailKey(ev('v')), 'moveTo');
+  assert.equal(mailKey(ev('l')), 'labelAs');
+  const items = [{ name: 'Archive' }, { name: 'Clients/Acme' }, { name: 'Café receipts' }, { name: 'Accounts' }];
+  assert.deepEqual(pickMatches(items, 'ac').map((x) => x.name), ['Accounts', 'Clients/Acme']);
+  assert.deepEqual(pickMatches(items, 'CAFE').map((x) => x.name), ['Café receipts']);
+  assert.equal(pickMatches(items, '  ').length, 4);
+  assert.deepEqual(pickMatches(items, 'zzz'), []);
 });

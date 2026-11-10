@@ -130,3 +130,22 @@ cat "${dir}/calls"
     assert.match(second, /"done":43/);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('starting: a pid file left by a process that is gone is cleared; a live one is kept', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nw-mailpid-'));
+  try {
+    const out = execFileSync('bash', ['-c', `
+set -euo pipefail
+export NW_MAIL_FUNCTIONS_ONLY=1 NW_CONFIG_DIR=${dir}/src NW_STATUS_DIR=${dir}/status NW_TLS_DIR=${dir}/tls NW_LIVE_DIR=${dir}/live NW_TLS_LIVE_DIR=${dir}/tls-live MAIL_HOSTNAME=mail.test
+source ${JSON.stringify(ENTRYPOINT)}
+log() { :; }
+echo 999999 > ${dir}/gone.pid; clear_stale_pid ${dir}/gone.pid dovecot
+echo $$ > ${dir}/other.pid; clear_stale_pid ${dir}/other.pid dovecot     # a live process, but not Dovecot
+echo junk > ${dir}/junk.pid; clear_stale_pid ${dir}/junk.pid dovecot
+sleep 5 & echo " $! " > ${dir}/live.pid; clear_stale_pid ${dir}/live.pid sleep; kill $! || true
+clear_stale_pid ${dir}/none.pid dovecot
+for f in gone other junk live; do [[ -f ${dir}/$f.pid ]] && echo "$f kept" || echo "$f removed"; done
+`], { encoding: 'utf8' });
+    assert.deepEqual(out.trim().split('\n'), ['gone removed', 'other removed', 'junk removed', 'live kept']);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});

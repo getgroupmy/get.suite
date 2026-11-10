@@ -122,6 +122,18 @@ run_queue_actions() {
   mkdir -p "$STATUS"; echo "$QUEUE_DONE" > "$STATUS/queue.done"
 }
 
+# A pid file left behind by a process that's gone (a crash, a killed container) stops the service
+# from starting ("Dovecot is already running"): it's removed when that number isn't the service.
+clear_stale_pid() {
+  local file=$1 name=$2 pid
+  [[ -f $file ]] || return 0
+  pid=$(cat "$file" 2>/dev/null || true)
+  pid=${pid//[[:space:]]/}
+  if [[ ! $pid =~ ^[0-9]+$ ]] || [[ "$(ps -p "$pid" -o comm= 2>/dev/null)" != "$name" ]]; then
+    rm -f "$file"; log "Removed a stale $name pid file"
+  fi
+}
+
 stop_all() {
   log "Stopping"
   postfix stop >/dev/null 2>&1 || true
@@ -150,6 +162,8 @@ sync_tls
 sync_config
 last=$(fp_all); last_postfix=$(fp_postfix); last_dovecot=$(fp_dovecot); last_rspamd=$(fp_rspamd)
 
+clear_stale_pid /run/dovecot/master.pid dovecot
+clear_stale_pid /run/rspamd/rspamd.pid rspamd
 rspamd -f -u _rspamd -g _rspamd &
 dovecot
 postfix start-fg &   # foreground mode: the container runs as long as Postfix does
