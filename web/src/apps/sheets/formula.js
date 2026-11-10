@@ -363,7 +363,7 @@ function order(a, b) {
   return Number(a) - Number(b);
 }
 /** Functions that give back several cells, which spill into the cells beside and below. */
-const ARRAY_FUNCS = new Set(['OFFSET', 'INDIRECT', 'TEXTSPLIT', 'CHOOSECOLS', 'CHOOSEROWS', 'WRAPROWS', 'WRAPCOLS', 'TOCOL', 'TOROW', 'FLATTEN', 'SORTBY', 'FREQUENCY', 'RANDARRAY', 'EXPAND', 'FILTER', 'UNIQUE', 'SORT', 'SEQUENCE', 'TRANSPOSE', 'IMPORTRANGE', 'QUERY', 'XLOOKUP', 'SPLIT', 'VSTACK', 'HSTACK', 'TAKE', 'DROP', 'CHOOSE', 'REGEXEXTRACT', 'LET', 'MAP', 'BYROW', 'BYCOL', 'MAKEARRAY', 'REDUCE', 'SCAN']);
+const ARRAY_FUNCS = new Set(['OFFSET', 'INDIRECT', 'TEXTSPLIT', 'CHOOSECOLS', 'CHOOSEROWS', 'WRAPROWS', 'WRAPCOLS', 'TOCOL', 'TOROW', 'FLATTEN', 'SORTBY', 'FREQUENCY', 'RANDARRAY', 'EXPAND', 'FILTER', 'UNIQUE', 'SORT', 'SEQUENCE', 'TRANSPOSE', 'IMPORTRANGE', 'IMPORTDATA', 'IMPORTHTML', 'QUERY', 'XLOOKUP', 'SPLIT', 'VSTACK', 'HSTACK', 'TAKE', 'DROP', 'CHOOSE', 'REGEXEXTRACT', 'LET', 'MAP', 'BYROW', 'BYCOL', 'MAKEARRAY', 'REDUCE', 'SCAN']);
 
 // ---- helpers for regular expressions, times and cash flows
 /** A pattern from a formula (RE2-like: no lookbehind needed); a bad one, or one too long, is #VALUE!. */
@@ -1061,10 +1061,10 @@ export function namedFunctions(list) {
   }
   return out.size ? out : null;
 }
-const BUILTIN_SPECIAL = new Set(['OFFSET', 'INDIRECT', 'IMPORTRANGE', 'QUERY', 'HYPERLINK', 'SPARKLINE', 'IMAGE', 'ROW', 'COLUMN', 'ROWS', 'COLUMNS', 'LET', 'LAMBDA', 'TRUE', 'FALSE']);
+const BUILTIN_SPECIAL = new Set(['OFFSET', 'INDIRECT', 'IMPORTRANGE', 'IMPORTDATA', 'IMPORTHTML', 'QUERY', 'HYPERLINK', 'SPARKLINE', 'IMAGE', 'ROW', 'COLUMN', 'ROWS', 'COLUMNS', 'LET', 'LAMBDA', 'TRUE', 'FALSE']);
 
 /** Every function a formula can call. */
-export const FUNCTION_NAMES = [...Object.keys(FUNCS), ...Object.keys(LAZY), ...Object.keys(LAMBDA_USERS), 'OFFSET', 'INDIRECT', 'LET', 'LAMBDA', 'IMPORTRANGE', 'QUERY', 'HYPERLINK', 'SPARKLINE', 'IMAGE', 'ROW', 'COLUMN', 'ROWS', 'COLUMNS'];
+export const FUNCTION_NAMES = [...Object.keys(FUNCS), ...Object.keys(LAZY), ...Object.keys(LAMBDA_USERS), 'OFFSET', 'INDIRECT', 'LET', 'LAMBDA', 'IMPORTRANGE', 'IMPORTDATA', 'IMPORTHTML', 'QUERY', 'HYPERLINK', 'SPARKLINE', 'IMAGE', 'ROW', 'COLUMN', 'ROWS', 'COLUMNS'];
 
 /** A link a cell may open: web addresses and email (mailto:), nothing else. */
 /**
@@ -1325,6 +1325,7 @@ export function createEvaluator(cells, names = null, book = null) {
       case 'neg': { const v = evaluate(n.e); return Array.isArray(v) ? elementwise(v, null, (x) => -toNum(x)) : -toNum(v); }
       case 'call': {
         if (n.name === 'IMPORTRANGE') return importRange(n.args.map((a) => scalar(evaluate(a))));
+        if (n.name === 'IMPORTDATA' || n.name === 'IMPORTHTML') return importWebPage(n.name, n.args.map((a) => scalar(evaluate(a))));
         if (n.name === 'QUERY') {
           // Columns go by their letters on the sheet, so where the range starts matters.
           const a = n.args[0];
@@ -1442,6 +1443,29 @@ export function createEvaluator(cells, names = null, book = null) {
     const ev = bookEvaluator(src.sheets, index, { book: imports.book, depth: (imports.depth || 0) + 1 });
     if (!m[4]) return ev.cell(cellKey(a.c, a.r));
     return ev.range(a, b);
+  }
+
+  // IMPORTDATA("https://…/data.csv") and IMPORTHTML("https://…", "table" | "list", n): a page on the
+  // internet, fetched by the server; book.imports.web(url, type, n) -> { rows } | { error } | null while loading.
+  function importWebPage(name, [url, query, index]) {
+    const fetchWeb = book?.imports?.web;
+    if (!fetchWeb) err('#N/A');
+    const u = toStr(url).trim();
+    if (!/^https?:\/\/\S+$/i.test(u)) throw new FormulaError('#VALUE!', 'Give a web address starting with https:// or http://');
+    let type = 'data', n = 1;
+    if (name === 'IMPORTHTML') {
+      type = toStr(query).trim().toLowerCase();
+      if (type !== 'table' && type !== 'list') throw new FormulaError('#VALUE!', 'IMPORTHTML takes "table" or "list"');
+      n = index === undefined || index === null ? 1 : Math.trunc(toNum(index));
+      if (n < 1) throw new FormulaError('#VALUE!', 'Which table or list: a number from 1');
+    }
+    const got = fetchWeb(u, type, n);
+    if (!got) err('#LOADING');
+    if (got.error) throw new FormulaError('#N/A', got.error);
+    const rows = got.rows || [];
+    const width = Math.max(1, ...rows.map((row) => row.length));
+    const full = rows.map((row) => Array.from({ length: width }, (_, c) => row[c] ?? null));
+    return full.length === 1 && width === 1 ? full[0][0] : grid(full);
   }
 
   const get = function get(key) {

@@ -149,6 +149,8 @@ export const HELP = {
   SEQUENCE: ['rows, [columns], [start], [step]', 'Numbers counting up: SEQUENCE(5) is 1 to 5 down a column; spills'],
   TRANSPOSE: ['range', 'The range turned on its side: rows become columns; spills'],
   QUERY: ['data, "select A, sum(C) where B = \'North\' group by A", [headers]', 'Picks, filters, groups and sorts the rows of a range with a query: select, where, group by, pivot, order by, limit, offset and label; columns go by their letters. Spills, headings first'],
+  IMPORTDATA: ['url', 'A CSV or TSV file on the internet, e.g. IMPORTDATA("https://example.com/prices.csv"); spills into the cells below and beside; fetched again every few minutes'],
+  IMPORTHTML: ['url, "table" | "list", [index]', 'A table or list on a web page (index 1 is the first), e.g. IMPORTHTML("https://example.com/rates", "table", 1); spills'],
   IMPORTRANGE: ['spreadsheet_link, "Sheet1!A1:C10"', 'Cells from another spreadsheet you can open (its link or id); a range spills, or use it in SUM, VLOOKUP and the like'],
   // text
   CONCAT: ['text1, [text2, …]', 'Joins text together'],

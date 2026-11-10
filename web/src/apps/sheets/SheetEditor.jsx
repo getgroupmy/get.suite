@@ -56,7 +56,7 @@ import { fillCells, fillTarget, fillSources, selectionStats } from './fill.js';
 
 const SEL_COLORS = ['#1a73e8', '#d93025', '#188038', '#e37400', '#8430ce', '#00796b', '#c2185b', '#5f6368'];
 const colorFor = (id) => SEL_COLORS[[...String(id)].reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) >>> 0, 7) % SEL_COLORS.length];
-import { importBook, onImports, refreshImports } from './imports.js';
+import { importBook, importWeb, onImports, refreshImports, refreshWeb } from './imports.js';
 import { GoalSeekDialog } from './SheetGoalSeek.jsx';
 import { CompareSheets } from './SheetCompare.jsx';
 import { createEvaluator, bookEvaluator, display, colName, cellKey, parseRef, shiftFormula, colIndex } from './formula.js';
@@ -181,10 +181,11 @@ export default function SheetEditor() {
   useEffect(() => {
     const off = onImports(() => setImportsAt((n) => n + 1));
     const t = setInterval(refreshImports, 60000);
+    const w = setInterval(refreshWeb, 5 * 60000); // IMPORTDATA / IMPORTHTML: pages on the internet, every 5 minutes
     window.addEventListener('focus', refreshImports); // back from the other spreadsheet: its latest
-    return () => { off(); clearInterval(t); window.removeEventListener('focus', refreshImports); };
+    return () => { off(); clearInterval(t); clearInterval(w); window.removeEventListener('focus', refreshImports); };
   }, []);
-  const evaluate = useMemo(() => (data?.sheets ? bookEvaluator(data.sheets, Math.min(active, data.sheets.length - 1), { book: importBook, depth: 0 }, data.functions) : createEvaluator(cells, names)), [data?.sheets, data?.functions, active, cells, names, importsAt]);
+  const evaluate = useMemo(() => (data?.sheets ? bookEvaluator(data.sheets, Math.min(active, data.sheets.length - 1), { book: importBook, web: importWeb, depth: 0 }, data.functions) : createEvaluator(cells, names)), [data?.sheets, data?.functions, active, cells, names, importsAt]);
   const ruleCtx = useMemo(() => ruleContext(evaluate, evaluate.formulaAt), [evaluate]); // for whole-range and custom formula rules
   // A cell's value on this sheet (sheet null) or another tab by name, for dropdowns taking their choices from a range.
   const valueOf = useMemo(() => {
@@ -194,7 +195,7 @@ export default function SheetEditor() {
       const i = data.sheets.findIndex((s) => String(s.name).toLowerCase() === String(name).toLowerCase());
       if (i < 0) return null;
       if (i === Math.min(active, data.sheets.length - 1)) return evaluate(key);
-      if (!others.has(i)) others.set(i, bookEvaluator(data.sheets, i, { book: importBook, depth: 0 }, data.functions));
+      if (!others.has(i)) others.set(i, bookEvaluator(data.sheets, i, { book: importBook, web: importWeb, depth: 0 }, data.functions));
       return others.get(i)(key);
     };
   }, [evaluate, data?.sheets, data?.functions, active]);
@@ -1253,7 +1254,7 @@ export default function SheetEditor() {
         }} />}
       {dialog?.type === 'compare' && <CompareSheets name={file.name} other={dialog.other} current={dataRef.current} onClose={() => { setDialog(null); gridRef.current?.focus(); }} />}
       {dialog?.type === 'goalseek' && (
-        <GoalSeekDialog sheets={data.sheets || [{ name: 'Sheet1', cells, names }]} index={data.sheets ? Math.min(active, data.sheets.length - 1) : 0} imports={{ book: importBook, depth: 0 }} functions={data.functions}
+        <GoalSeekDialog sheets={data.sheets || [{ name: 'Sheet1', cells, names }]} index={data.sheets ? Math.min(active, data.sheets.length - 1) : 0} imports={{ book: importBook, web: importWeb, depth: 0 }} functions={data.functions}
           setCell={typeof cells[selKey] === 'string' && cells[selKey].startsWith('=') ? selKey : ''}
           onClose={() => { setDialog(null); gridRef.current?.focus(); }}
           onKeep={(key, value) => {

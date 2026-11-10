@@ -373,6 +373,14 @@ A formula that gives back several values **spills** them into the empty cells be
 - **`=SPARKLINE(B2:M2)`** draws a small line chart of a range's numbers inside the cell (`=SPARKLINE(B2:M2, "column")` for columns, negative ones in red), handy beside a row of monthly figures. Cells without numbers are left as gaps.
 - **Pictures in cells:** right-click a cell → **Insert picture in cell…**, choose a size (*Fit the cell*, *Stretch to fill the cell*, *Its own size*, where the row grows to fit it, or a height and width in pixels), then **Upload from computer** (kept in your Drive, next to the spreadsheet) or **Choose from Drive**. The cell holds `=IMAGE("drive:…")` (with the size as `, 2`, `, 3` or `, 4, height, width`), so it can be copied, filled and sorted like any formula. Everyone who can open the spreadsheet sees the picture, also when it's published, even if the picture file itself isn't shared with them (as long as someone who can edit the spreadsheet owns it). Only pictures kept in Workspace can be shown: `=IMAGE()` of a web address gives `#VALUE!`, so nobody's browser is sent to another site. Excel downloads leave the cell empty.
 
+## Data from the web (Sheets)
+
+- **`=IMPORTDATA("https://…/prices.csv")`** brings a CSV (or TSV) file on the internet into the sheet: it spills into the cells below and beside, numbers as numbers (*1,250.50* too), quoted fields with commas or line breaks kept whole.
+- **`=IMPORTHTML("https://…", "table", 1)`** brings in a table from a web page (1 is the first table on the page, counted in page order), and **`"list"`** a bulleted or numbered list, as one column. A cell spanning columns repeats its text across them.
+- Use them like any range: `=SUM(IMPORTHTML(…))`, `=QUERY(IMPORTDATA(…), "select …")`. While a page loads the cell shows *#LOADING*; if it can't be had, *#N/A*, and selecting the cell says why (*The page answered 404*, *The page has 2 tables*).
+- **How:** this server fetches the page (browsers can't read other sites for a page), keeps it for 5 minutes and fetches it again every 5 minutes while the spreadsheet is open. Pages up to 5 MB and 10,000 rows. Addresses on private networks (this server, your NAS, other machines at the office) are refused, so a formula can't be used to look inside your network.
+- In Excel, which has no IMPORTDATA or IMPORTHTML, these cells show an error.
+
 ## Other sheets in formulas (Sheets)
 
 A formula can use cells on another sheet of the same spreadsheet: `=Data!A1*2`, or `=SUM('Q1 data'!B2:B9)` when the sheet's name has spaces or other characters (quote it, and double any ' in it). Sheet names match whatever the case.

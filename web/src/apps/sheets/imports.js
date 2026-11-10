@@ -39,3 +39,33 @@ export function onImports(fn) {
 export function refreshImports() {
   for (const id of used) load(id);
 }
+
+// IMPORTDATA / IMPORTHTML: pages on the internet, fetched by the server (/api/sheets-web), kept here
+// for the page and fetched again with the spreadsheets above (the server keeps each for 5 minutes).
+const web = new Map(); // key -> { rows } | { error }
+const webLoading = new Set();
+const webUsed = new Set();
+async function loadWeb(key) {
+  if (webLoading.has(key)) return;
+  webLoading.add(key);
+  const [url, type, index] = JSON.parse(key);
+  try {
+    const r = await get(`/sheets-web?${new URLSearchParams({ url, type, index: String(index) })}`);
+    web.set(key, { rows: r.rows });
+  } catch (e) {
+    web.set(key, { error: e.message || 'Couldn\'t load that page' });
+  } finally {
+    webLoading.delete(key);
+    tell();
+  }
+}
+/** For bookEvaluator: a page's rows ({ rows } or { error }), or null while it loads (starting that). */
+export const importWeb = (url, type = 'data', index = 1) => {
+  const key = JSON.stringify([String(url), type, index]);
+  webUsed.add(key);
+  if (!web.has(key)) { loadWeb(key); return null; }
+  return web.get(key);
+};
+export function refreshWeb() {
+  for (const key of webUsed) loadWeb(key);
+}

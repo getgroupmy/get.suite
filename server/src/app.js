@@ -1,3 +1,4 @@
+import webImportRoutes from './routes/webimport.js';
 import { oidcPublicRoutes, oidcApiRoutes } from './oidc.js';
 import express from 'express';
 import fs from 'node:fs';
@@ -135,6 +136,7 @@ export function createApp({
   app.use('/api/doc-prefs', requireAuth, docPrefRoutes());
   app.use('/api/oauth', requireAuth, oidcApiRoutes());
   app.use('/api/approvals', requireAuth, approvalRoutes());
+  app.use('/api/sheets-web', requireAuth, webImportRoutes()); // IMPORTDATA / IMPORTHTML
   app.use('/api/signatures', requireAuth, signatureRoutes());
   app.use('/api/takeout', requireAuth, takeoutRoutes());
   app.use('/api/location', requireAuth, locationRoutes());

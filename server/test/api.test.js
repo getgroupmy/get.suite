@@ -7637,3 +7637,15 @@ test('legal hold: nothing of theirs is deleted for good until it is lifted', asy
   assert.equal((await held('DELETE', `/api/files/${doc}`)).status, 200);
   assert.equal((await adm('DELETE', `/api/users/${pat.id}`)).status, 200);
 });
+
+test('sheets web import (IMPORTDATA / IMPORTHTML): signed in only; checked; private addresses refused', async () => {
+  const anon = client();
+  assert.equal((await anon('GET', '/api/sheets-web?url=https://example.com/a.csv')).status, 401);
+  assert.equal((await owner('GET', '/api/sheets-web?url=')).status, 400);
+  assert.equal((await owner('GET', '/api/sheets-web?url=https://example.com/&type=div')).status, 400);
+  assert.equal((await owner('GET', '/api/sheets-web?url=https://example.com/&type=table&index=0')).status, 400);
+  const priv = await owner('GET', `/api/sheets-web?url=${encodeURIComponent('http://127.0.0.1:9/x.csv')}`);
+  assert.equal(priv.status, 400);
+  assert.match(priv.body.error, /private network/);
+  assert.match((await owner('GET', `/api/sheets-web?url=${encodeURIComponent('file:///etc/passwd')}`)).body.error, /Only http and https/);
+});

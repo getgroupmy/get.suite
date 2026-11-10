@@ -585,3 +585,29 @@ test('SUBTOTAL: a total by number', () => {
   assert.deepEqual(['B1', 'B2', 'B3', 'B4', 'B5'].map(g), [60, 60, 20, 4, 30]);
   assert.equal(g('B6').error, '#VALUE!');
 });
+
+test('IMPORTDATA and IMPORTHTML: a page\'s rows spill; loading, errors and checks', async () => {
+  const { bookEvaluator } = await import('./formula.js');
+  const pages = {
+    '["https://example.com/p.csv","data",1]': { rows: [['Item', 'Price'], ['Tea', 3], ['Cake']] },
+    '["https://example.com/r","table",2]': { rows: [['EUR', 0.92]] },
+    '["https://example.com/one","list",1]': { rows: [['Only']] },
+    '["https://example.com/gone","data",1]': { error: 'The page answered 404' },
+  };
+  const asked = [];
+  const web = (url, type, index) => { const k = JSON.stringify([url, type, index]); asked.push(k); return pages[k] ?? null; };
+  const sheets = [{ name: 'S', cells: {
+    A1: '=IMPORTDATA("https://example.com/p.csv")', E1: '=IMPORTHTML("https://example.com/r", "table", 2)', H1: '=IMPORTHTML("https://example.com/one", "list")',
+    I1: '=IMPORTDATA("https://example.com/gone")', J1: '=IMPORTDATA("https://example.com/later.csv")', K1: '=IMPORTDATA("ftp://x")', L1: '=IMPORTHTML("https://example.com/r", "div")',
+    M1: '=SUM(IMPORTDATA("https://example.com/p.csv"))',
+  } }];
+  const v = bookEvaluator(sheets, 0, { book: () => null, web, depth: 0 });
+  assert.deepEqual([v('A1'), v('B1'), v('A2'), v('B2'), v('A3'), v('B3')], ['Item', 'Price', 'Tea', 3, 'Cake', null]);
+  assert.deepEqual([v('E1'), v('F1')], ['EUR', 0.92]);
+  assert.equal(v('H1'), 'Only', 'one value comes back as a value');
+  assert.deepEqual(v('I1'), { error: '#N/A', why: 'The page answered 404' });
+  assert.deepEqual(v('J1'), { error: '#LOADING' });
+  assert.match(v('K1').why, /web address/);
+  assert.match(v('L1').why, /"table" or "list"/);
+  assert.equal(v('M1'), 3);
+});
