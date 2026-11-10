@@ -2775,5 +2775,9 @@ input.fv-name { background: #202124; color: #fff; border: 1px solid #5f6368; bor
 .note-label-row > .subnav-item { flex: 1; min-width: 0; }
 .note-label-color { opacity: 0; font-size: 12px; }
 .note-label-row:hover .note-label-color, .note-label-color:focus-visible, .note-label-color[aria-expanded="true"] { opacity: .7; }
+.drive-label-row { display: flex; align-items: center; }
+.drive-label-row > .subnav-item { flex: 1; min-width: 0; }
+.drive-label-menu { opacity: 0; }
+.drive-label-row:hover .drive-label-menu, .drive-label-menu:focus-visible, .drive-label-menu[aria-expanded="true"] { opacity: .7; }
 .note-label-dot { display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin: 0 6px; }
 .note-chip.coloured { background: color-mix(in srgb, var(--lc) 18%, transparent); border-color: var(--lc); color: inherit; }

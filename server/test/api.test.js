@@ -8690,6 +8690,28 @@ test('drive: labels of your own on files and folders', async () => {
   assert.deepEqual((await a('GET', '/api/files/labels')).body, []);
 });
 
+test('drive: rename, merge and delete a label of your own', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['dlra', 'Dlr Ann'], ['dlrb', 'Dlr Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'dlra@acme.com'); await login(b, 'dlrb@acme.com');
+  const f1 = (await a('POST', '/api/files/new', { kind: 'doc', name: 'One' })).body;
+  const f2 = (await a('POST', '/api/files/new', { kind: 'doc', name: 'Two' })).body;
+  const g = (await b('POST', '/api/files/new', { kind: 'doc', name: 'Bens' })).body;
+  await a('PUT', `/api/files/${f1.id}/labels`, { labels: ['Invoces', 'Taxes'] });
+  await a('PUT', `/api/files/${f2.id}/labels`, { labels: ['Invoces'] });
+  await b('PUT', `/api/files/${g.id}/labels`, { labels: ['Invoces'] });
+  assert.deepEqual((await a('POST', '/api/files/labels/rename', { from: 'Invoces', to: ' Invoices ' })).body, { label: 'Invoices', files: 2 });
+  assert.deepEqual((await a('GET', '/api/files/labels')).body, [{ name: 'Invoices', count: 2 }, { name: 'Taxes', count: 1 }]);
+  assert.deepEqual((await b('GET', '/api/files/labels')).body, [{ name: 'Invoces', count: 1 }], 'Ben’s are his own');
+  // Into one that's there: merged, no doubles.
+  await a('POST', '/api/files/labels/rename', { from: 'Taxes', to: 'invoices' });
+  assert.deepEqual((await a('GET', '/api/files/labels')).body, [{ name: 'Invoices', count: 2 }]);
+  assert.equal((await a('POST', '/api/files/labels/rename', { from: 'Invoices', to: '' })).status, 400);
+  assert.deepEqual((await a('POST', '/api/files/labels/delete', { label: 'Invoices' })).body, { files: 2 });
+  assert.deepEqual((await a('GET', '/api/files/labels')).body, []);
+  assert.equal((await b('GET', '/api/files/labels')).body.length, 1);
+});
+
 test('chat: sections of your own in the conversation list', async () => {
   const a = client(), b = client(), x = client();
   for (const [local, name] of [['csea', 'Cse Ann'], ['cseb', 'Cse Ben'], ['csex', 'Cse Xavi']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);

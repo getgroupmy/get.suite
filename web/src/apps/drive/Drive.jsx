@@ -386,8 +386,12 @@ export default function Drive() {
         <NavLink to="/drive/trash" className="subnav-item"><Icon name="trash" />Trash</NavLink>
         {myLabels.length > 0 && <div className="subnav-title">Labels</div>}
         {myLabels.map((l) => (
-          <NavLink key={l.name} to={`/drive/label/${encodeURIComponent(l.name)}`} className="subnav-item" aria-label={`Label ${l.name}, ${l.count}`}>
-            <span aria-hidden="true" style={{ width: 24, textAlign: 'center' }}>🏷</span><span className="grow ellipsis">{l.name}</span><span className="count">{l.count}</span></NavLink>
+          <div key={l.name} className="drive-label-row">
+            <NavLink to={`/drive/label/${encodeURIComponent(l.name)}`} className="subnav-item" aria-label={`Label ${l.name}, ${l.count}`}>
+              <span aria-hidden="true" style={{ width: 24, textAlign: 'center' }}>🏷</span><span className="grow ellipsis">{l.name}</span><span className="count">{l.count}</span></NavLink>
+            <Menu align="right" trigger={(p) => <button type="button" className="icon-btn drive-label-menu" aria-label={`Edit label ${l.name}`} title="Rename or delete" {...p}><Icon name="more" size={16} /></button>}
+              items={[{ label: 'Rename label…', onClick: () => setDialog({ type: 'label-rename', label: l.name }) }, { label: 'Delete label', danger: true, onClick: () => setDialog({ type: 'label-delete', label: l.name }) }]} />
+          </div>
         ))}
         {requests.length > 0 && <button type="button" className="subnav-item" onClick={() => setRequestsOpen(true)}><Icon name="lock" /><span className="grow">Access requests</span><span className="count">{requests.length}</span></button>}
         {usage && (
@@ -580,6 +584,18 @@ export default function Drive() {
           navigate(openPath(f));
         } catch (e) { toast(e.message, 'error'); }
       }} />}
+      {dialog?.type === 'label-rename' && <PromptModal title="Rename label" label="Label name" initial={dialog.label} confirm="Rename" message="On all your files with it. A name you already use joins the two."
+        onClose={() => setDialog(null)} onSubmit={async (to) => {
+          const r = await post('/files/labels/rename', { from: dialog.label, to });
+          await loadLabels();
+          if (route.view === 'label' && route.label === dialog.label) navigate(`/drive/label/${encodeURIComponent(r.label)}`, { replace: true }); else load();
+        }} />}
+      {dialog?.type === 'label-delete' && <ConfirmModal title={`Delete the label “${dialog.label}”?`} confirm="Delete label" message="It comes off all your files. The files stay where they are."
+        onClose={() => setDialog(null)} onConfirm={async () => {
+          await post('/files/labels/delete', { label: dialog.label });
+          await loadLabels();
+          if (route.view === 'label' && route.label === dialog.label) navigate('/drive', { replace: true }); else load();
+        }} />}
       {dialog?.type === 'labels' && <LabelsDialog file={dialog.file} all={myLabels.map((l) => l.name)} onClose={() => setDialog(null)} onSaved={() => { setDialog(null); load(); loadLabels(); }} />}
       {dialog?.type === 'details' && <DetailsDialog file={dialog.file} onClose={() => setDialog(null)} onChanged={load} />}
       {dialog?.type === 'versions' && <VersionsDialog file={dialog.file} onClose={() => setDialog(null)} onChanged={load} />}

@@ -575,6 +575,27 @@ export default function fileRoutes({ maxUploadBytes }) {
   });
 
   // Your labels, with how many of your files (that you can still open, not in the trash) have each.
+  // Rename one of your labels everywhere ({ from, to }; to one you already use merges them), or delete it ({ label }).
+  r.post('/labels/rename', (req, res) => {
+    const from = String(req.body?.from || '');
+    const [to] = cleanFileLabels([req.body?.to]);
+    if (!from || !to) throw bad('Give the label a name');
+    const files = q('SELECT file_id FROM file_labels WHERE user_id = ? AND label = ?').all(req.user.id, from).map((x) => x.file_id);
+    tx(() => {
+      for (const id of files) {
+        q('DELETE FROM file_labels WHERE user_id = ? AND file_id = ? AND label = ?').run(req.user.id, id, from);
+        const same = q('SELECT label FROM file_labels WHERE user_id = ? AND file_id = ? AND LOWER(label) = LOWER(?)').get(req.user.id, id, to);
+        if (!same) q('INSERT INTO file_labels (user_id, file_id, label) VALUES (?, ?, ?)').run(req.user.id, id, to);
+      }
+    });
+    res.json({ label: to, files: files.length });
+  });
+  r.post('/labels/delete', (req, res) => {
+    const label = String(req.body?.label || '');
+    const n = q('DELETE FROM file_labels WHERE user_id = ? AND label = ?').run(req.user.id, label).changes;
+    res.json({ files: n });
+  });
+
   r.get('/labels', (req, res) => {
     const rows = q(`SELECT fl.label, fl.file_id FROM file_labels fl JOIN files f ON f.id = fl.file_id WHERE fl.user_id = ? AND f.trashed = 0`).all(req.user.id)
       .filter((x) => roleFor(x.file_id, req.user.id));
