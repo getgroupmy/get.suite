@@ -1,6 +1,7 @@
 // The find-and-replace bar above a document (Ctrl+F to find, Ctrl+H to replace).
 import { useEffect, useRef, useState } from 'react';
 import { findKey, findPattern, replacementFor } from './findReplace.js';
+import { revealTabAt } from './doctabsext.js';
 import Icon from '../../components/Icon.jsx';
 
 export function FindBar({ editor, replacing, canEdit, onClose }) {
@@ -16,7 +17,11 @@ export function FindBar({ editor, replacing, canEdit, onClose }) {
 
   useEffect(() => { setShowReplace((r) => r || (replacing && canEdit)); input.current?.select(); }, [replacing, canEdit]);
   // Keep the highlights in step with what's typed here (and with the document as others edit it).
-  useEffect(() => { editor.view.dispatch(editor.state.tr.setMeta(findKey, { term, options: { matchCase, wholeWord, regex }, current: 0 })); }, [editor, term, matchCase, wholeWord, regex]);
+  useEffect(() => {
+    editor.view.dispatch(editor.state.tr.setMeta(findKey, { term, options: { matchCase, wholeWord, regex }, current: 0 }));
+    const first = findKey.getState(editor.state)?.matches?.[0];
+    if (first) revealTabAt(editor, first.from);
+  }, [editor, term, matchCase, wholeWord, regex]);
   useEffect(() => {
     const f = () => refresh((n) => n + 1);
     editor.on('transaction', f);
@@ -37,6 +42,7 @@ export function FindBar({ editor, replacing, canEdit, onClose }) {
     if (!matches.length) return;
     const n = (i + matches.length) % matches.length;
     editor.view.dispatch(editor.state.tr.setMeta(findKey, { current: n }));
+    revealTabAt(editor, matches[n].from); // a match in another tab opens that tab
     requestAnimationFrame(() => editor.view.dom.querySelector('.find-match.current')?.scrollIntoView({ block: 'center' }));
   };
   // Each replace is its own step for Undo, not merged with typing or another replace just before it.

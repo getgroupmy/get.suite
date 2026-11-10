@@ -1,6 +1,7 @@
 // Markdown both ways for Docs: a document (TipTap JSON) as Markdown (GitHub style: tables, task
 // lists, strikethrough, footnotes), and a .md file opened as a document. Underline, colours and
 // highlight have no Markdown, so they're left out; pictures become their names.
+import { flattenTabs } from './doctabs.js';
 import { chartTable } from './sheetchart.js';
 import { chipText, dateText } from './chiptext.js';
 import { inText, reference, sourcesOf } from './cite.js';
@@ -88,6 +89,7 @@ function blocks(nodes = [], notes, indent = '') {
 }
 
 export function markdownFromDoc(doc) {
+  doc = flattenTabs(doc);
   const notes = [];
   blocks.doc = doc; // the references list needs the whole document's citations
   const body = blocks(doc?.content, notes).join('\n\n');

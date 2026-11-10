@@ -145,6 +145,13 @@ Everyone who can edit a document, spreadsheet or presentation can work in it at 
 - **Sheets** works the same way, cell by cell: two people changing different cells at once both keep their change, and the same cell keeps the later change. Each person's selected cell is outlined in their colour. Formats, column widths and new sheets are shared too.
 - **Slides** too: slides and the boxes on them merge one by one, so two people working on different boxes (or slides) both keep their changes; the same box keeps the later change. Each person's selected box is outlined in their colour.
 
+## Tabs (Docs)
+
+- **⋮ → Add tab** splits a document into tabs, each with its own pages (chapters of a handbook, a tab per meeting, *Plan* and *Budget*): what was there becomes *Tab 1*, and a new tab opens to write in. The **Tabs** panel beside the document lists them (▤ in the header shows or hides it); click one to open it, or **＋** to add another (up to 50).
+- **A tab's ⋮** renames it, duplicates it (with everything in it), moves it up or down, or deletes it (Undo or version history brings it back). With one tab left, the document goes back to having none.
+- **One document:** everyone sees the same tabs and edits them together live; which tab is open is each person's own. Comments, suggestions, find and replace, word count, version history and search cover every tab. **Find** opens the tab with the match, and moving the cursor past the end of a tab (or following a link to a heading in another) opens that tab.
+- **Downloads and printing:** Word, Markdown, HTML and printing (or saving as PDF) have every tab, one after the other, each starting on a new page under its name as a heading. Previews and earlier versions show every tab under its name.
+
 ## Suggesting (Docs)
 
 Switch **✎ Editing** to **💡 Suggesting** at the top of a document to propose changes instead of making them, like track changes in Word:

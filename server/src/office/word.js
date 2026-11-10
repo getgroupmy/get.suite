@@ -2,6 +2,7 @@
 // italic, underline, links, tables, pictures) and TipTap's own parser makes it a document, so it
 // opens exactly like one typed in Docs. Saving: the document is written back as a .docx, with its
 // tables, pictures and text colours.
+import { flattenTabs } from './doctabs.js';
 import crypto from 'node:crypto';
 import mammoth from 'mammoth';
 import { anchorsOf } from './anchors.js';
@@ -502,6 +503,7 @@ function signaturePage(sig) {
  * each becomes a Word comment on the words its thread marks (replies as further paragraphs).
  */
 export async function wordFromDoc(doc, title = 'Document', { pictureData, page, signatures = null, comments = [] } = {}) {
+  doc = flattenTabs(doc); // tabs one after another, each from a new page under its name
   // Pictures first (reading them is asynchronous), then the document in one pass.
   const pictures = new Map();
   const collect = (n) => { if (n?.type === 'image' && n.attrs?.fileId) pictures.set(n.attrs.fileId, null); for (const c of n?.content || []) collect(c); };

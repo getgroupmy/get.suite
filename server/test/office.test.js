@@ -571,6 +571,23 @@ test('Docs: a chart from Sheets is its title and a table of its figures in Word 
   assert.match(xml, /<w:tbl>/);
 });
 
+test('Docs with tabs: Word and Markdown downloads have every tab, each under its name from a new page', async () => {
+  const { markdownFromDoc } = await import('../src/office/markdown.js');
+  const p = (text) => ({ type: 'paragraph', content: [{ type: 'text', text }] });
+  const doc = { type: 'doc', content: [
+    { type: 'docTab', attrs: { id: 'a', title: 'Plan' }, content: [p('First things')] },
+    { type: 'docTab', attrs: { id: 'b', title: 'Budget' }, content: [p('Second things')] },
+  ] };
+  const zip = await JSZip.loadAsync(await wordFromDoc(doc, 'Tabs'));
+  const xml = await zip.file('word/document.xml').async('string');
+  const order = ['Plan', 'First things', '<w:br w:type="page"/>', 'Budget', 'Second things'].map((t) => xml.indexOf(t));
+  assert.ok(order.every((x, i) => x > 0 && (i === 0 || x > order[i - 1])), JSON.stringify(order));
+  assert.match(xml, /<w:pStyle w:val="Heading1"\/>[\s\S]*?Plan/);
+  const md = markdownFromDoc(doc);
+  const at = ['# Plan', 'First things', '# Budget', 'Second things'].map((t) => md.indexOf(t));
+  assert.ok(at.every((x, k) => x >= 0 && (k === 0 || x > at[k - 1])), md);
+});
+
 test('Excel: QUERY formulas (quotes and all) go to Excel and back as written', async () => {
   const q = '=QUERY(A1:C9, "select A, sum(C) where B = \'North\' and C > 0 group by A label sum(C) \'Total\'", 1)';
   const back = await sheetFromExcel(await excelFromSheet({ sheets: [{ name: 'Data', cells: { A1: 'Rep', E1: q, F1: '=SUM(QUERY(A2:C9, "select C"))' } }] }));

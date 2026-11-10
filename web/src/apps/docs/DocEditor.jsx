@@ -2,6 +2,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 import { useEditor, EditorContent, Mark } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
+import { TabbedDocument, DocTab, addTab } from './doctabsext.js';
+import { DocTabs, useTabs } from './DocTabs.jsx';
+import { htmlWithTabTitles } from './doctabs.js';
 import TextAlign from '@tiptap/extension-text-align';
 import Placeholder from '@tiptap/extension-placeholder';
 import Image from '@tiptap/extension-image';
@@ -218,7 +221,8 @@ function SharedDoc({ file, setFile }) {
   useEffect(() => { get('/doc-prefs').then((p) => { prefsRef.current = p; }).catch(() => {}); }, []);
   const editor = useEditor({
     extensions: [
-      StarterKit.configure({ link: { openOnClick: false, autolink: true }, undoRedo: false }), // undo is per person, from Collaboration
+      StarterKit.configure({ link: { openOnClick: false, autolink: true }, undoRedo: false, document: false }), // undo is per person, from Collaboration
+      TabbedDocument, DocTab, // tabs (doctabs.js)
       Autocorrect.configure({ enabled: () => !!prefsRef.current.autocorrect, subs: () => prefsRef.current.subs }),
       Superscript, Subscript, Indent,
       TextAlign.configure({ types: ['heading', 'paragraph'] }),
@@ -399,7 +403,7 @@ function SharedDoc({ file, setFile }) {
   }, [editor, provider, readOnly]);
 
   function exportHtml() {
-    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(file.name)}</title></head><body>${htmlWithFootnotes(htmlWithReferences(htmlWithContents(withoutSuggestionsHtml(editor.getHTML()), editor.state.doc), editor.getJSON()))}</body></html>`;
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(file.name)}</title></head><body>${htmlWithTabTitles(htmlWithFootnotes(htmlWithReferences(htmlWithContents(withoutSuggestionsHtml(editor.getHTML()), editor.state.doc), editor.getJSON())))}</body></html>`;
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
     a.download = `${file.name}.html`;
@@ -438,6 +442,10 @@ function SharedDoc({ file, setFile }) {
   const [liveCount, setLiveCount] = useState(counterOn);
   // Someone changed the page setup: the paper follows.
   useEffect(() => onLive((m) => { if (m.type === 'page-setup' && m.id === file.id) setFile((f) => ({ ...f, page_setup: m.page_setup })); }), [file.id]);
+  // Tabs: the panel shows by itself in a document that has tabs; the ▤ button shows or hides it.
+  const { tabs: docTabs } = useTabs(editor);
+  const [tabsPanel, setTabsPanel] = useState(null);
+  const tabsShown = tabsPanel ?? docTabs.length > 0;
   const [outline, setOutlineState] = useState(() => { try { return localStorage.getItem('nw-doc-outline') === '1'; } catch { return false; } });
   const setOutline = (on) => { setOutlineState(on); try { localStorage.setItem('nw-doc-outline', on ? '1' : '0'); } catch { /* private window */ } };
   useEffect(() => {
@@ -537,6 +545,9 @@ function SharedDoc({ file, setFile }) {
         onRename={async (name) => setFile(await patch(`/files/${file.id}`, { name }))}
         onShare={() => setSharing(true)}
         extra={<>
+          <button type="button" className={`btn small ${tabsShown ? 'primary' : ''}`} aria-pressed={tabsShown} onClick={() => setTabsPanel(!tabsShown)} title="Tabs">
+            <span aria-hidden="true">▤</span><span className="sr-only">Tabs</span>
+          </button>
           <button type="button" className={`btn small ${outline ? 'primary' : ''}`} aria-pressed={outline} onClick={() => setOutline(!outline)} title="Outline">
             <Icon name="menu" size={16} /><span className="sr-only">Outline</span>
           </button>
@@ -564,7 +575,7 @@ function SharedDoc({ file, setFile }) {
         </>}
         menu={[
           { label: 'Find and replace', icon: 'search', onClick: () => setFinding({ replace: !readOnly }) },
-          ...(!readOnly ? [{ label: 'Page setup', icon: 'print', onClick: () => setPageSetupOpen(true) }] : []),
+          ...(!readOnly ? [{ label: 'Page setup', icon: 'print', onClick: () => setPageSetupOpen(true) }, { label: 'Add tab', icon: 'plus', onClick: () => { addTab(editor); setTabsPanel(true); } }] : []),
           { label: 'Version history', icon: 'clock', onClick: () => setHistory(true) },
           { label: 'Compare documents', icon: 'doc', onClick: () => setComparing({ step: 'pick' }) },
           { label: 'Bookmarks', icon: 'link', onClick: () => setBookmarking(true) },
@@ -592,10 +603,11 @@ function SharedDoc({ file, setFile }) {
       {readOnly && <div className="banner">{file.locked_at ? 'Locked.' : file.role === 'commenter' ? 'You can comment, not edit.' : 'View only.'} {!file.locked_at && `Ask ${file.owner_name} for edit access.`}</div>}
       {finding && <FindBar key={finding.n} editor={editor} replacing={finding.replace} canEdit={!readOnly} onClose={() => { editor.view.focus(); setFinding(null); }} />} {/* focus back first, so it doesn't go with the bar */}
       <div className="doc-body">
+        {tabsShown && <DocTabs editor={editor} canEdit={!readOnly} onClose={() => setTabsPanel(false)} />}
         {outline && <Outline editor={editor} fileId={file.id} onCopied={(m) => toast(m)} onClose={() => setOutline(false)} />}
         {liveCount && <WordCounter editor={editor} onOpen={() => setWordCount(true)} />}
         <div className="doc-scroll" onClick={(e) => e.target === e.currentTarget && editor.commands.focus('end')}>
-          <div ref={paperRef} className={`paper ${file.page_setup?.pageless ? 'pageless' : ''} ${columnsOf(file.page_setup) > 1 ? `cols-${columnsOf(file.page_setup)}` : ''} ${file.page_setup?.lineNumbers ? 'line-numbered' : ''}`} style={file.page_setup ? paperStyle(file.page_setup) : undefined}>
+          <div ref={paperRef} className={`paper with-tabs ${file.page_setup?.pageless ? 'pageless' : ''} ${columnsOf(file.page_setup) > 1 ? `cols-${columnsOf(file.page_setup)}` : ''} ${file.page_setup?.lineNumbers ? 'line-numbered' : ''}`} style={file.page_setup ? paperStyle(file.page_setup) : undefined}>
             {file.page_setup?.lineNumbers && <LineNumbers editor={editor} paperRef={paperRef} layout={JSON.stringify(file.page_setup)} />}
             {file.page_setup?.watermark && <div className="print-watermark" aria-hidden="true" />}
             {file.page_setup?.watermark && <span className="sr-only">Watermark: {file.page_setup.watermark}</span>}
@@ -1288,7 +1300,7 @@ export function DocPreview({ content, fileId, pictureBase = null }) {
     editable: false,
     content,
     extensions: [
-      StarterKit.configure({ link: { openOnClick: true } }), TextAlign.configure({ types: ['heading', 'paragraph'] }),
+      StarterKit.configure({ link: { openOnClick: true }, document: false }), TabbedDocument, DocTab, TextAlign.configure({ types: ['heading', 'paragraph'] }),
       CommentMark, DocImage.configure({ docId: fileId, pictureBase }), Table, TableRow, TableHeader, TableCell, Superscript, Subscript, Indent,
       TextStyle, Color, BackgroundColor, FontFamily, FontSize, LineHeight, TableOfContents, SheetChart, PageBreak, Footnote, BookmarkNode, Mention, DropChip, DateChip, MathInline, Citation, References, TaskList, TaskItem.configure({ nested: true }),
     ],

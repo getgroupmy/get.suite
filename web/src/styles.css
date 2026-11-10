@@ -2471,3 +2471,20 @@ img.custom-emoji { width: 1.35em; height: 1.35em; object-fit: contain; vertical-
 .note-card.picked .note-select { opacity: 1; background: var(--accent, #1a73e8); }
 .note-card.picked { outline: 2px solid var(--accent, #1a73e8); }
 .folder-biggest ul { margin: 4px 0 0; padding-left: 18px; }
+
+/* Document tabs (Docs): only the open tab shows in the editor; a preview shows them all, each under its name. */
+.paper.with-tabs .ProseMirror > section.doc-tab:not(.active-tab) { display: none; }
+.preview-paper section.doc-tab::before { content: attr(data-tab-title); display: block; font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; border-bottom: 1px solid var(--border); margin: 18px 0 8px; padding-bottom: 4px; }
+.doc-tabs { width: 210px; flex: none; border-right: 1px solid var(--border); padding: 10px 8px; overflow-y: auto; background: var(--surface); }
+.doc-tabs-head { display: flex; align-items: center; gap: 4px; padding: 0 4px 8px; }
+.doc-tabs-head strong { flex: 1; }
+.doc-tabs ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.doc-tabs li { display: flex; align-items: center; border-radius: 6px; }
+.doc-tabs li.on { background: var(--accent-soft); }
+.doc-tabs li.on .doc-tab-name { color: var(--accent-text); font-weight: 600; }
+.doc-tab-name { flex: 1; min-width: 0; text-align: left; border: 0; background: none; padding: 7px 8px; border-radius: 6px; cursor: pointer; font: inherit; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.doc-tabs li:not(.on):hover { background: var(--hover); }
+.doc-tab-more { width: 26px; height: 26px; opacity: .6; }
+.doc-tabs li:hover .doc-tab-more, .doc-tab-more:focus-visible { opacity: 1; }
+@media (max-width: 720px) { .doc-tabs { width: 150px; } }
+@media print { .doc-tabs { display: none; } .paper.with-tabs .ProseMirror > section.doc-tab { display: block !important; } .paper.with-tabs .ProseMirror > section.doc-tab + section.doc-tab { break-before: page; } }
