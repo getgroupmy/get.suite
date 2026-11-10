@@ -16,7 +16,7 @@ import { Transform } from 'node:stream';
 import { q, tx, FILES_DIR, TMP_DIR } from '../db.js';
 import { contentMatches, indexSoon, docText } from '../search.js';
 import { countText, readingMinutes } from '../wordcount.js';
-import { readSetup } from '../pagesetup.js';
+import { readSetup, withHeadingNumbers } from '../pagesetup.js';
 import JSZip from 'jszip';
 import { uid, now, str, bad, forbidden, notFound, HttpError, mimeFor, isInlineSafe } from '../util.js';
 import { keepIfHeld, onHold } from '../hold.js';
@@ -1373,9 +1373,11 @@ export default function fileRoutes({ maxUploadBytes }) {
       if (!pic || !(/^image\//.test(pic.mime || '') || (f.kind === 'slides' && (/^video\//.test(pic.mime || '') || SLIDE_AUDIO.test(pic.mime || '')))) || !atLeast(roleFor(f.id, pic.owner_id), 'editor')) return null; // pictures, and videos and sound on slides
       return { data: fs.readFileSync(path.join(FILES_DIR, pic.storage)), mime: pic.mime };
     };
-    if (type === 'md') return Buffer.from(markdownFromDoc(content), 'utf8');
-    if (type === 'epub') return epubFromDoc(content, f.name, { pictureData, author: q('SELECT name FROM users WHERE id = ?').get(f.owner_id)?.name || '' });
-    if (type === 'odt') return odtFromDoc(content, f.name, { pictureData });
+    // Numbered headings (page setup): written into the text where the format has no numbering of its own.
+    const numbered = f.kind === 'doc' && setupOf(f)?.headingNumbers ? withHeadingNumbers(content) : content;
+    if (type === 'md') return Buffer.from(markdownFromDoc(numbered), 'utf8');
+    if (type === 'epub') return epubFromDoc(numbered, f.name, { pictureData, author: q('SELECT name FROM users WHERE id = ?').get(f.owner_id)?.name || '' });
+    if (type === 'odt') return odtFromDoc(numbered, f.name, { pictureData });
     if (type === 'ods') return odsFromSheet(content);
     if (type === 'odp') return odpFromDeck(content, { pictureData, title: f.name });
     if (type === 'docx') return wordFromDoc(content, f.name, { pictureData, page: setupOf(f), comments: wordCommentsOf(f.id), signatures: (await import('./signatures.js')).signedRecord(f.id) });

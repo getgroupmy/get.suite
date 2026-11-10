@@ -45,3 +45,16 @@ export function headingLabels(levels) {
     return n.slice(1, lv + 1).join('.');
   });
 }
+
+/** The document with its headings' numbers written in (for downloads that have no numbering of their own: OpenDocument, Markdown, e-book). */
+export function withHeadingNumbers(doc) {
+  const levels = [];
+  (function walk(n) { if (n?.type === 'heading') levels.push(n.attrs?.level || 1); else for (const c of n?.content || []) walk(c); })(doc);
+  const labels = headingLabels(levels);
+  let k = 0;
+  const map = (n) => {
+    if (n?.type === 'heading') { const label = labels[k++]; return label ? { ...n, content: [{ type: 'text', text: `${label} ` }, ...(n.content || [])] } : n; }
+    return n?.content ? { ...n, content: n.content.map(map) } : n;
+  };
+  return map(doc);
+}

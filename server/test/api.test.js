@@ -9204,3 +9204,23 @@ test('tasks: duplicate a task, and skip one time of a repeating task', async () 
   assert.equal((await c('POST', `/api/tasks/tasks/${t.id}/duplicate`)).status, 404);
   assert.equal((await c('POST', `/api/tasks/tasks/${t.id}/skip`, {})).status, 404);
 });
+
+test('numbered headings go into the Markdown, OpenDocument and e-book downloads too', async () => {
+  const { withHeadingNumbers } = await import('../src/pagesetup.js');
+  const h = (level, text) => ({ type: 'heading', attrs: { level }, content: [{ type: 'text', text }] });
+  const doc = { type: 'doc', content: [h(1, 'Introduction'), { type: 'paragraph', content: [{ type: 'text', text: 'Hi' }] }, h(2, 'Scope'), h(4, 'Detail'), h(1, 'Costs')] };
+  const out = withHeadingNumbers(doc);
+  assert.deepEqual(out.content.filter((n) => n.type === 'heading').map((n) => n.content.map((c) => c.text).join('')), ['1 Introduction', '1.1 Scope', 'Detail', '2 Costs']);
+  assert.equal(doc.content[0].content.length, 1, 'the original is left as it was');
+  const d = (await owner('POST', '/api/files/new', { kind: 'doc', name: 'Numbered' })).body;
+  const cur = (await owner('GET', `/api/files/${d.id}/content`)).body;
+  await owner('PUT', `/api/files/${d.id}/content`, { version: cur.file.version, content: doc });
+  const md = async () => String((await owner('GET', `/api/files/${d.id}/export?format=md`, undefined, { raw: true })).body);
+  assert.match(await md(), /^# Introduction$/m, 'off: as written');
+  assert.equal((await owner('PATCH', `/api/files/${d.id}`, { page_setup: { headingNumbers: true } })).status, 200);
+  assert.match(await md(), /^# 1 Introduction$/m);
+  assert.match(await md(), /^## 1\.1 Scope$/m);
+  const odt = await owner('GET', `/api/files/${d.id}/export?format=odt`, undefined, { binary: true });
+  const JSZip = (await import('jszip')).default;
+  assert.match(await (await JSZip.loadAsync(odt.body)).file('content.xml').async('string'), /1\.1 Scope/);
+});
