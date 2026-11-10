@@ -72,6 +72,23 @@ export function typeOf(f) {
 }
 
 /**
+ * A box given as fractions of the page as it's seen (from its top left), in the page's own coordinates:
+ * { x, y (where its bottom-left corner as seen lands), w, h (in points), rot (the turn to draw it with) }.
+ */
+export function placeOn(page, { x: fx, y: fy, w: fw, h: fh }) {
+  const { width: W, height: H } = page.getSize(); // unrotated
+  const rot = ((page.getRotation().angle % 360) + 360) % 360;
+  const [dw, dh] = rot % 180 ? [H, W] : [W, H]; // the page as it's seen
+  const x = fx * dw, y = fy * dh, w = fw * dw, h = fh * dh;
+  let px, py;
+  if (rot === 0) { px = x; py = H - y - h; }
+  else if (rot === 90) { px = y + h; py = x; }
+  else if (rot === 180) { px = W - x; py = y + h; }
+  else { px = W - y - h; py = H - x; }
+  return { x: px, y: py, w, h, rot };
+}
+
+/**
  * Stamp pictures onto pages (fill & sign): items [{ page (0-based), x, y, w, h (fractions of the page as seen,
  * from its top left), png (bytes) }]. Pages turned by the PDF itself (/Rotate) are handled too.
  */
@@ -82,17 +99,8 @@ export async function stamp(bytes, items) {
     const page = pages[it.page];
     if (!page) throw new Error(`There is no page ${it.page + 1}`);
     const img = await doc.embedPng(it.png);
-    const { width: W, height: H } = page.getSize(); // unrotated
-    const rot = ((page.getRotation().angle % 360) + 360) % 360;
-    const [dw, dh] = rot % 180 ? [H, W] : [W, H]; // the page as it's seen
-    const x = it.x * dw, y = it.y * dh, w = it.w * dw, h = it.h * dh; // seen from the top left
-    // Where the picture's bottom-left corner (as seen) lands in the page's own coordinates, and its turn.
-    let px, py;
-    if (rot === 0) { px = x; py = H - y - h; }
-    else if (rot === 90) { px = y + h; py = x; }
-    else if (rot === 180) { px = W - x; py = y + h; }
-    else { px = W - y - h; py = H - x; }
-    page.drawImage(img, { x: px, y: py, width: w, height: h, rotate: degrees(rot) });
+    const at = placeOn(page, it);
+    page.drawImage(img, { x: at.x, y: at.y, width: at.w, height: at.h, rotate: degrees(at.rot) });
   }
   return doc.save();
 }
@@ -138,6 +146,39 @@ export async function withSignaturesPage(bytes, { title, hash, signers }) {
     y -= 60;
     page.drawText(latin(`${s.name} <${s.email}>`), { x: M, y, size: 10.5, font: bold }); y -= 14;
     page.drawText(latin(`Signed ${new Date(s.signed_at).toUTCString()}${s.ip ? ` from ${s.ip}` : ''}${s.image ? ' (drawn)' : ' (typed)'}`), { x: M, y, size: 9, font, color: rgb(0.3, 0.3, 0.3) }); y -= 24;
+  }
+  return doc.save();
+}
+
+/**
+ * Signers' boxes filled in: fields [{ email, page, x, y, w, h, type: 'signature' | 'date' }] and signers by email
+ * ({ name, image, signed_at }). A drawn signature is fitted into its box; a typed one is written in italics; a date
+ * box gets the day they signed.
+ */
+export async function fillFields(bytes, fields, signers) {
+  const doc = await PDFDocument.load(bytes);
+  const pages = doc.getPages();
+  const italic = await doc.embedFont(StandardFonts.TimesRomanItalic), plain = await doc.embedFont(StandardFonts.Helvetica);
+  const ink = rgb(0.1, 0.14, 0.49);
+  for (const f of fields) {
+    const s = signers[f.email], page = pages[f.page];
+    if (!s || !page) continue;
+    const at = placeOn(page, f);
+    // Within the box (as seen): offsets along its turned axes.
+    const along = (dx, dy) => { const r = (at.rot * Math.PI) / 180; return { x: at.x + dx * Math.cos(r) - dy * Math.sin(r), y: at.y + dx * Math.sin(r) + dy * Math.cos(r) }; };
+    if (f.type === 'date') {
+      const text = latin(new Date(s.signed_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }));
+      const size = Math.min(at.h * 0.7, (at.w / Math.max(plain.widthOfTextAtSize(text, 10), 1)) * 10);
+      page.drawText(text, { ...along(0, (at.h - size) / 2 + size * 0.2), size, font: plain, color: ink, rotate: degrees(at.rot) });
+    } else if (s.image) {
+      const img = await doc.embedPng(Buffer.from(String(s.image).split(',')[1] || '', 'base64'));
+      const scale = Math.min(at.w / img.width, at.h / img.height), w = img.width * scale, h = img.height * scale;
+      page.drawImage(img, { ...along((at.w - w) / 2, (at.h - h) / 2), width: w, height: h, rotate: degrees(at.rot) });
+    } else {
+      const text = latin(s.name);
+      const size = Math.min(at.h * 0.8, (at.w / Math.max(italic.widthOfTextAtSize(text, 10), 1)) * 10);
+      page.drawText(text, { ...along(0, (at.h - size) / 2 + size * 0.25), size, font: italic, color: ink, rotate: degrees(at.rot) });
+    }
   }
   return doc.save();
 }

@@ -8039,3 +8039,40 @@ test('PDF sent for signature: signers see the PDF as sent; when all have signed,
   const bell = JSON.stringify((await ida('GET', '/api/notifications')).body);
   assert.ok(bell.includes('Everyone has signed “Lease.pdf”') && bell.includes('/drive/signatures'));
 });
+
+test('PDF signature boxes: the sender places them per signer; signatures and dates are drawn in them', async () => {
+  const { PDFDocument, PDFName } = await import('pdf-lib');
+  const d = await PDFDocument.create(); d.addPage([595, 842]); d.addPage([595, 842]);
+  const lia = client(), mo = client();
+  for (const [local, name] of [['boxlia', 'Lia Sender'], ['boxmo', 'Mo Signer']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(lia, 'boxlia@acme.com'); await login(mo, 'boxmo@acme.com');
+  const f = (await lia('POST', '/api/files/upload?name=Offer.pdf', Buffer.from(await d.save()), { raw: true, headers: { 'content-type': 'application/octet-stream' } })).body;
+  const send = (fields) => lia('POST', '/api/signatures', { file_id: f.id, signers: ['boxmo@acme.com', 'boxlia@acme.com'], fields });
+  assert.match((await send([{ email: 'someone@else.com', page: 0, x: 0.1, y: 0.1, w: 0.3, h: 0.05 }])).body.error, /isn’t one of the signers/);
+  assert.match((await send([{ email: 'boxmo@acme.com', page: 5, x: 0.1, y: 0.1, w: 0.3, h: 0.05 }])).body.error, /has 2 pages/);
+  assert.match((await send([{ email: 'boxmo@acme.com', page: 0, x: 1.5, y: 0.1, w: 0.3, h: 0.05 }])).body.error, /off the page/);
+  const sent = await send([
+    { email: 'boxmo@acme.com', page: 0, x: 0.55, y: 0.8, w: 0.35, h: 0.06, type: 'signature' },
+    { email: 'boxmo@acme.com', page: 0, x: 0.55, y: 0.87, w: 0.25, h: 0.025, type: 'date' },
+    { email: 'boxlia@acme.com', page: 1, x: 0.1, y: 0.8, w: 0.35, h: 0.06, type: 'signature' },
+  ]);
+  assert.equal(sent.status, 201, JSON.stringify(sent.body));
+  assert.equal(sent.body.boxes, 3);
+  const tokenOf = async (who) => (await who('GET', '/api/signatures')).body.waiting[0].link.split('/').pop();
+  const moTok = await tokenOf(mo), liaTok = await tokenOf(lia);
+  const pub = await fetch(`${base}/api/public/sign/${moTok}`).then((r) => r.json());
+  assert.deepEqual(pub.my_boxes.map((b) => [b.page, b.type]), [[0, 'signature'], [0, 'date']], 'Mo sees only his boxes');
+  const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAYAAAD0In+KAAAAEUlEQVR4nGP4z8DwHwQZGBgAOe4F+3cjr+0AAAAASUVORK5CYII=';
+  const signAs = (tok, body) => fetch(`${base}/api/public/sign/${tok}`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-requested-with': 'nas-workspace' }, body: JSON.stringify(body) }).then((r) => r.json());
+  await signAs(moTok, { name: 'Mo Signer', image: png, agree: true });
+  assert.equal((await signAs(liaTok, { name: 'Lia Sender', image: null, agree: true })).status, 'complete');
+  const done = (await lia('GET', '/api/signatures')).body.sent.find((x) => x.file_id === f.id);
+  const out = await PDFDocument.load((await lia('GET', `/api/files/${done.signed_file_id}/raw`, undefined, { binary: true })).body);
+  assert.equal(out.getPageCount(), 3);
+  // Page 1 carries Mo's drawn signature (a picture); page 2 Lia's typed one (text); then the Signatures page.
+  const pics = (i) => out.getPages()[i].node.Resources()?.lookup(PDFName.of('XObject'))?.keys().length || 0;
+  const fonts = (i) => out.getPages()[i].node.Resources()?.lookup(PDFName.of('Font'))?.keys().length || 0;
+  assert.equal(pics(0), 1);
+  assert.ok(fonts(0) >= 1, 'the date is written');
+  assert.ok(fonts(1) >= 1, 'the typed signature is written');
+});

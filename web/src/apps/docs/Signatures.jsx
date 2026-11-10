@@ -7,6 +7,7 @@ import AddressInput from '../../components/AddressInput.jsx';
 import { DocPreview } from './DocEditor.jsx';
 
 const PdfPages = lazy(() => import('../drive/PdfPages.jsx')); // pdf.js only for PDFs
+const PdfBoxesDialog = lazy(() => import('../drive/PdfBoxes.jsx'));
 
 const when = (t) => new Date(t).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
 const api = async (method, url, body) => {
@@ -23,10 +24,14 @@ export function SendForSignature({ file, onClose }) {
   const [message, setMessage] = useState('');
   const [inOrder, setInOrder] = useState(false);
   const [busy, setBusy] = useState(false);
-  const emails = to.split(/[,;\s]+/).map((x) => x.replace(/^.*<|>$/g, '').trim()).filter((x) => x.includes('@'));
+  const [fields, setFields] = useState([]); // a PDF's boxes: where each signer signs
+  const [placing, setPlacing] = useState(false);
+  const isPdf = file.kind === 'file' && /\.pdf$/i.test(file.name || '');
+  const emails = to.split(/[,;\s]+/).map((x) => x.replace(/^.*<|>$/g, '').trim().toLowerCase()).filter((x) => x.includes('@'));
+  const usable = fields.filter((f) => emails.includes(f.email));
   const send = async () => {
     setBusy(true);
-    try { await post('/signatures', { file_id: file.id, signers: emails, message, in_order: inOrder }); toast(`Sent to ${emails.length} ${emails.length === 1 ? 'person' : 'people'} to sign`); onClose(true); }
+    try { await post('/signatures', { file_id: file.id, signers: emails, message, in_order: inOrder, ...(isPdf && usable.length && { fields: usable }) }); toast(`Sent to ${emails.length} ${emails.length === 1 ? 'person' : 'people'} to sign`); onClose(true); }
     catch (e) { toast(e.message, 'error'); setBusy(false); }
   };
   return (
@@ -38,7 +43,12 @@ export function SendForSignature({ file, onClose }) {
         <label className="field"><span>Signers (in order)</span><AddressInput label="Signers" value={to} onChange={setTo} placeholder="Names or email addresses" /></label>
         <label className="check small"><input type="checkbox" checked={inOrder} onChange={(e) => setInOrder(e.target.checked)} /> One after another, in this order (each is asked once the one before has signed)</label>
         <label className="field"><span>Message</span><textarea rows={3} value={message} maxLength={1000} onChange={(e) => setMessage(e.target.value)} placeholder="Please sign by Friday" /></label>
+        {isPdf && <div className="row wrap">
+          <button type="button" className="btn small" disabled={!emails.length} onClick={() => setPlacing(true)}>Place where they sign…</button>
+          <span className="muted small">{usable.length ? `${usable.length} box${usable.length === 1 ? '' : 'es'} placed: their signatures and dates go there (and on a page at the end)` : 'Optional: otherwise signatures go on a page at the end'}</span>
+        </div>}
       </div>
+      {placing && <Suspense fallback={null}><PdfBoxesDialog file={file} signers={emails} fields={usable} onClose={() => setPlacing(false)} onSave={(f) => { setFields(f); setPlacing(false); }} /></Suspense>}
     </Modal>
   );
 }
@@ -143,7 +153,7 @@ export function SignPage({ token }) {
         <p className="muted">{d.requested_by ? `${d.requested_by} has asked you (${d.me.email}) to sign this document.` : `For ${d.me.email} to sign.`}{d.message && <><br />“{d.message}”</>}</p>
         <p className="small">{d.signers.map((x) => `${x.name || x.email}${x.signed ? ' ✓' : ''}`).join(' · ')}</p>
       </header>
-      {d.content?.pdf ? <Suspense fallback={<p className="muted">Opening the PDF…</p>}><PdfPages url={`/api/public/sign/${token}/pdf`} /></Suspense> : <DocPreview content={d.content} />}
+      {d.content?.pdf ? <Suspense fallback={<p className="muted">Opening the PDF…</p>}><PdfPages url={`/api/public/sign/${token}/pdf`} boxes={(d.me.signed_at || d.status !== 'pending' ? [] : d.my_boxes || []).map((b, i) => ({ ...b, key: `b${i}`, label: b.type === 'date' ? 'Date (filled in when you sign)' : 'Your signature goes here', className: 'mine' }))} /></Suspense> : <DocPreview content={d.content} />}
       <section className="sign-box card stack" aria-label="Sign">
         {d.me.signed_at ? (
           <p role="status"><strong>You signed this</strong> as {d.me.name} on {when(d.me.signed_at)}.{d.status === 'complete' ? ' Everyone has signed.' : ' The others are still to sign.'}</p>

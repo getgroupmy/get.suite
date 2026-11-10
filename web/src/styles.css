@@ -2519,3 +2519,14 @@ img.custom-emoji { width: 1.35em; height: 1.35em; object-fit: contain; vertical-
 .pdf-thumb-tools { gap: 2px; }
 .pdf-pages { display: grid; gap: 14px; justify-items: center; padding: 12px 0; }
 .pdf-pages-page { background: #fff; box-shadow: 0 1px 4px rgba(0, 0, 0, .2); }
+.pdf-pages-wrap { position: relative; }
+.pdf-pages-wrap.placing { cursor: crosshair; }
+.pdf-box { position: absolute; border: 2px dashed #1a73e8; background: rgba(26, 115, 232, .08); border-radius: 4px; cursor: move; touch-action: none; }
+.pdf-box-label { position: absolute; left: 4px; top: 50%; transform: translateY(-50%); font-size: 11px; color: #1a73e8; white-space: nowrap; overflow: hidden; max-width: calc(100% - 8px); pointer-events: none; }
+.pdf-box.mine { border-color: #f9ab00; background: rgba(249, 171, 0, .15); cursor: default; }
+.pdf-box.mine .pdf-box-label { color: #b06000; font-weight: 600; }
+.pdf-box-c1 { border-color: #188038; background: rgba(24, 128, 56, .08); } .pdf-box-c1 .pdf-box-label { color: #188038; }
+.pdf-box-c2 { border-color: #9334e6; background: rgba(147, 52, 230, .08); } .pdf-box-c2 .pdf-box-label { color: #9334e6; }
+.pdf-box-c3 { border-color: #d93025; background: rgba(217, 48, 37, .08); } .pdf-box-c3 .pdf-box-label { color: #d93025; }
+.pdf-box-c4 { border-color: #e37400; background: rgba(227, 116, 0, .08); } .pdf-box-c4 .pdf-box-label { color: #e37400; }
+.pdf-boxes-pages { max-height: 62vh; overflow: auto; background: var(--bg-alt, #f1f3f4); border-radius: 8px; }

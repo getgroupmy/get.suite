@@ -18,7 +18,7 @@ import { saveNow } from '../collab.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { FILES_DIR } from '../db.js';
-import { typeOf, withSignaturesPage } from '../pdftools.js';
+import { typeOf, withSignaturesPage, fillFields, pageCount } from '../pdftools.js';
 
 // A PDF sent for signature: its content is { pdf: <storage of a frozen copy> }, and its hash that of the bytes.
 const pdfOf = (content) => { try { const c = JSON.parse(content || '{}'); return c.pdf ? c.pdf : null; } catch { return null; } };
@@ -32,7 +32,10 @@ async function saveSignedPdf(r) {
   const by = q('SELECT * FROM users WHERE id = ?').get(r.requested_by);
   if (!frozen || !f || !by) return null;
   const signers = q('SELECT name, email, signed_at, ip, image FROM sign_signers WHERE request_id = ? ORDER BY position').all(r.id);
-  const bytes = Buffer.from(await withSignaturesPage(fs.readFileSync(path.join(FILES_DIR, frozen)), { title: r.title, hash: r.hash, signers }));
+  let pdf = fs.readFileSync(path.join(FILES_DIR, frozen));
+  const fields = r.fields ? JSON.parse(r.fields) : [];
+  if (fields.length) pdf = Buffer.from(await fillFields(pdf, fields, Object.fromEntries(signers.map((x) => [x.email.toLowerCase(), x]))));
+  const bytes = Buffer.from(await withSignaturesPage(pdf, { title: r.title, hash: r.hash, signers }));
   const { insertFile } = await import('./files.js');
   const storage = uid();
   fs.writeFileSync(path.join(FILES_DIR, storage), bytes);
@@ -74,6 +77,8 @@ for (const [col, type] of [['declined_by', 'TEXT'], ['decline_reason', 'TEXT']])
   if (!q('PRAGMA table_info(sign_requests)').all().some((c) => c.name === col)) q(`ALTER TABLE sign_requests ADD COLUMN ${col} ${type}`).run();
 }
 // in_order: signers sign one after another, each asked once the one before has signed.
+// A PDF's boxes for each signer: [{ email, page, x, y, w, h, type: 'signature' | 'date' }] (fractions of the page).
+if (!q('PRAGMA table_info(sign_requests)').all().some((c) => c.name === 'fields')) q('ALTER TABLE sign_requests ADD COLUMN fields TEXT').run();
 if (!q('PRAGMA table_info(sign_requests)').all().some((c) => c.name === 'signed_file_id')) q('ALTER TABLE sign_requests ADD COLUMN signed_file_id TEXT').run();
 if (!q('PRAGMA table_info(sign_requests)').all().some((c) => c.name === 'in_order')) q('ALTER TABLE sign_requests ADD COLUMN in_order INTEGER NOT NULL DEFAULT 0').run();
 
@@ -105,7 +110,7 @@ export function describe(r, { forUser = null } = {}) {
   const curHash = isPdf ? (file?.storage ? sha(fs.readFileSync(path.join(FILES_DIR, file.storage))) : '') : sha(file?.content || '{}');
   return { id: r.id, file_id: r.file_id, title: r.title, message: r.message, status: r.status, hash: r.hash, created_at: r.created_at, completed_at: r.completed_at, requested_by: by,
     changed_since: curHash !== r.hash, // the document isn't what was signed any more
-    pdf: isPdf, signed_file_id: r.signed_file_id || null,
+    pdf: isPdf, signed_file_id: r.signed_file_id || null, boxes: r.fields ? JSON.parse(r.fields).length : 0,
     in_order: !!r.in_order, declined_by: r.declined_by || null, decline_reason: r.decline_reason || null,
     signers: signers.map(({ token, ...s }) => ({ ...s, ...(forUser && s.user_id === forUser && !s.signed_at && r.status === 'pending' && turnOf(r).some((t) => t.token === token) && { my_link: `/sign/${token}` }) })) };
 }
@@ -177,9 +182,26 @@ export default function signatureRoutes() {
       if (!u && !mailEnabled()) throw bad(`${email} isn't on this server, and email is off, so they couldn't be sent the link`);
       return { email, user: u || null, token: crypto.randomBytes(18).toString('base64url') };
     });
-    let content, hash;
+    let content, hash, fields = null;
     if (isPdf) { // a frozen copy of the PDF as sent: what's signed, whatever happens to the file
       const bytes = fs.readFileSync(path.join(FILES_DIR, f.storage));
+      // Where each signer signs (optional): boxes on the pages, each for one of the signers.
+      const given = Array.isArray(req.body?.fields) ? req.body.fields : [];
+      if (given.length > 100) throw bad('At most 100 boxes');
+      if (given.length) {
+        let pages;
+        try { pages = await pageCount(bytes); } catch { throw bad('This PDF couldn’t be read'); }
+        const frac = (v) => { const n = Number(v); if (!Number.isFinite(n) || n < 0 || n > 1) throw bad('A box is off the page'); return n; };
+        fields = given.map((b) => {
+          const email = String(b?.email || '').trim().toLowerCase();
+          if (!emails.includes(email)) throw bad(`A box is for ${email || 'nobody'}, who isn’t one of the signers`);
+          const page = Math.trunc(Number(b.page));
+          if (!(page >= 0 && page < pages)) throw bad(`This PDF has ${pages} pages`);
+          const box = { email, page, x: frac(b.x), y: frac(b.y), w: frac(b.w), h: frac(b.h), type: b.type === 'date' ? 'date' : 'signature' };
+          if (!(box.w > 0.01 && box.h > 0.005)) throw bad('A box is too small');
+          return box;
+        });
+      }
       const copy = uid();
       fs.writeFileSync(path.join(FILES_DIR, copy), bytes);
       content = JSON.stringify({ pdf: copy });
@@ -191,8 +213,8 @@ export default function signatureRoutes() {
     }
     const id = uid(), t = now();
     tx(() => {
-      q('INSERT INTO sign_requests (id, file_id, requested_by, title, message, content, hash, created_at, in_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-        .run(id, f.id, req.user.id, f.name, str(req.body?.message ?? '', { max: 1000 }) || '', content, hash, t, req.body?.in_order ? 1 : 0);
+      q('INSERT INTO sign_requests (id, file_id, requested_by, title, message, content, hash, created_at, in_order, fields) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        .run(id, f.id, req.user.id, f.name, str(req.body?.message ?? '', { max: 1000 }) || '', content, hash, t, req.body?.in_order ? 1 : 0, fields?.length ? JSON.stringify(fields) : null);
       people.forEach((p, i) => q('INSERT INTO sign_signers (request_id, email, user_id, token, position) VALUES (?, ?, ?, ?, ?)').run(id, p.email, p.user?.id || null, p.token, i));
       q('UPDATE files SET locked_by = ?, locked_at = ? WHERE id = ?').run(req.user.id, t, f.id);
     });
@@ -226,13 +248,14 @@ export default function signatureRoutes() {
 export function publicSignRoutes() {
   const r = Router();
   const find = (token) => {
-    const s = q(`SELECT s.*, r.id AS rid, r.title, r.message, r.content, r.hash, r.status, r.requested_by, r.file_id, r.in_order, r.declined_by, r.decline_reason, u.name AS by_name
+    const s = q(`SELECT s.*, r.id AS rid, r.title, r.message, r.content, r.hash, r.status, r.fields, r.requested_by, r.file_id, r.in_order, r.declined_by, r.decline_reason, u.name AS by_name
                  FROM sign_signers s JOIN sign_requests r ON r.id = s.request_id LEFT JOIN users u ON u.id = r.requested_by WHERE s.token = ?`).get(String(token));
     if (!s || s.status === 'cancelled') throw notFound('This signing link is no longer valid');
     return s;
   };
   const shown = (s) => ({
     title: s.title, message: s.message, requested_by: s.by_name, status: s.status, hash: s.hash, content: pdfOf(s.content) ? { pdf: true } : JSON.parse(s.content),
+    my_boxes: s.fields ? JSON.parse(s.fields).filter((b) => b.email === String(s.email).toLowerCase()).map(({ email, ...b }) => b) : [],
     me: { email: s.email, signed_at: s.signed_at, name: s.name },
     in_order: !!s.in_order, declined_by: s.declined_by || null, decline_reason: s.decline_reason || null,
     waiting_for: s.status === 'pending' && !s.signed_at && !turnOf({ id: s.rid, in_order: s.in_order }).some((t) => t.token === s.token)
