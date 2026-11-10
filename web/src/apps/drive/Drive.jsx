@@ -460,6 +460,7 @@ export default function Drive() {
             </> : <>
               <button className="btn small" onClick={() => zip(picked.map((f) => f.id))}><Icon name="download" size={16} /> Download</button>
               <button className="btn small" onClick={() => bulk((f) => put(`/files/${f.id}/star`, { starred: true }), (n) => `Starred ${n}`)}><Icon name="star" size={16} /> Star</button>
+              <button className="btn small" onClick={() => setDialog({ type: 'bulk-label', files: picked })}><span aria-hidden="true">🏷</span> Label…</button>
               {picked.every(pdfPart) && <button className="btn small" onClick={() => setDialog({ type: 'pdf-combine', files: picked })}><Icon name="pdf" size={16} /> Combine into PDF</button>}
               {picked.every((f) => f.role === 'owner' || f.role === 'editor') && <>
                 <button className="btn small" onClick={() => setDialog({ type: 'move', files: picked })}><Icon name="move" size={16} /> Move</button>
@@ -585,6 +586,13 @@ export default function Drive() {
           navigate(openPath(f));
         } catch (e) { toast(e.message, 'error'); }
       }} />}
+      {dialog?.type === 'bulk-label' && <PromptModal title={`Label ${dialog.files.length} item${dialog.files.length === 1 ? '' : 's'}`} label="Label" confirm="Add label"
+        message={myLabels.length ? `Yours so far: ${myLabels.map((l) => l.name).join(', ')}. Their other labels stay.` : 'A label of your own, to find them again from the left.'}
+        onClose={() => setDialog(null)} onSubmit={async (label) => {
+          const r = await post('/files/labels/add', { ids: dialog.files.map((f) => f.id), label });
+          toast(`Labelled ${dialog.files.length} “${r.label}”`);
+          setChecked(new Set()); await loadLabels(); load();
+        }} />}
       {dialog?.type === 'label-rename' && <PromptModal title="Rename label" label="Label name" initial={dialog.label} confirm="Rename" message="On all your files with it. A name you already use joins the two."
         onClose={() => setDialog(null)} onSubmit={async (to) => {
           const r = await post('/files/labels/rename', { from: dialog.label, to });

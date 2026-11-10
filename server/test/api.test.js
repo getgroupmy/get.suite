@@ -8712,7 +8712,15 @@ test('drive: rename, merge and delete a label of your own', async () => {
   await a('POST', '/api/files/labels/rename', { from: 'Taxes', to: 'invoices' });
   assert.deepEqual((await a('GET', '/api/files/labels')).body, [{ name: 'Invoices', count: 2 }]);
   assert.equal((await a('POST', '/api/files/labels/rename', { from: 'Invoices', to: '' })).status, 400);
-  assert.deepEqual((await a('POST', '/api/files/labels/delete', { label: 'Invoices' })).body, { files: 2 });
+  // Several at once: kept as already written, not twice; someone else's file isn't reachable.
+  const f3 = (await a('POST', '/api/files/new', { kind: 'doc', name: 'Three' })).body;
+  assert.deepEqual((await a('POST', '/api/files/labels/add', { ids: [f1.id, f2.id, f3.id], label: 'INVOICES' })).body, { label: 'Invoices', added: 1 });
+  assert.deepEqual((await a('GET', '/api/files/labels')).body, [{ name: 'Invoices', count: 3 }]);
+  assert.equal((await a('POST', '/api/files/labels/add', { ids: [f3.id, g.id], label: 'Mine' })).status, 404, 'all or none');
+  assert.deepEqual((await a('GET', '/api/files/labels')).body, [{ name: 'Invoices', count: 3 }]);
+  assert.equal((await a('POST', '/api/files/labels/add', { ids: [], label: 'X' })).status, 400);
+  await a('PUT', `/api/files/${f3.id}/labels`, { labels: ['Invoices'] });
+  assert.deepEqual((await a('POST', '/api/files/labels/delete', { label: 'Invoices' })).body, { files: 3 });
   assert.deepEqual((await a('GET', '/api/files/labels')).body, []);
   assert.equal((await b('GET', '/api/files/labels')).body.length, 1);
 });

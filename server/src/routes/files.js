@@ -591,6 +591,28 @@ export default function fileRoutes({ maxUploadBytes }) {
     });
     res.json({ label: to, files: files.length });
   });
+  // Add one label to several files at once ({ ids, label }); each keeps its others. All or none.
+  r.post('/labels/add', (req, res) => {
+    const ids = Array.isArray(req.body?.ids) ? [...new Set(req.body.ids.map(String))] : [];
+    if (!ids.length || ids.length > 500) throw bad('Pick up to 500 files');
+    const [label] = cleanFileLabels([req.body?.label]);
+    if (!label) throw bad('Give the label a name');
+    const files = ids.map((id) => loadFile(id, req.user));
+    for (const f of files) {
+      const have = q('SELECT label FROM file_labels WHERE user_id = ? AND file_id = ?').all(req.user.id, f.id).map((x) => x.label);
+      if (!have.some((l) => l.toLowerCase() === label.toLowerCase()) && have.length >= MAX_FILE_LABELS) throw bad(`“${f.name}” already has ${MAX_FILE_LABELS} labels`);
+    }
+    // A name you already use (whatever the capitals) is used as you wrote it before.
+    const known = q('SELECT label FROM file_labels WHERE user_id = ? AND LOWER(label) = LOWER(?) LIMIT 1').get(req.user.id, label)?.label || label;
+    let added = 0;
+    tx(() => {
+      for (const f of files) {
+        if (q('SELECT 1 FROM file_labels WHERE user_id = ? AND file_id = ? AND LOWER(label) = LOWER(?)').get(req.user.id, f.id, known)) continue;
+        q('INSERT INTO file_labels (user_id, file_id, label) VALUES (?, ?, ?)').run(req.user.id, f.id, known); added++;
+      }
+    });
+    res.json({ label: known, added });
+  });
   r.post('/labels/delete', (req, res) => {
     const label = String(req.body?.label || '');
     const n = q('DELETE FROM file_labels WHERE user_id = ? AND label = ?').run(req.user.id, label).changes;
