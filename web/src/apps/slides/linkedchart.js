@@ -3,6 +3,7 @@
 // is offered "Update" once its figures have changed.
 import { bookEvaluator } from '../sheets/formula.js';
 import { chartData } from '../sheets/charts.js';
+import { sheetHiddenRows } from '../sheets/filter.js';
 
 /** The charts in a spreadsheet's content: [{ id, title, type, sheet }]. */
 export function chartsIn(content) {
@@ -16,7 +17,9 @@ export function chartNow(content, chartId, imports = null) {
   if (i < 0) return null;
   const c = sheets[i].charts[chartId];
   const value = bookEvaluator(sheets, i, imports);
-  const d = chartData(c.range, value);
+  // Rows the spreadsheet hides (a filter, a slicer, Hide row) are left out, as on the sheet.
+  const hidden = sheetHiddenRows(sheets[i], value);
+  const d = chartData(c.range, value, (r) => hidden.has(r));
   return { title: c.title || '', chartType: c.type || 'column', data: { categories: d.categories, series: d.series, ...(d.error && { error: d.error }) } };
 }
 

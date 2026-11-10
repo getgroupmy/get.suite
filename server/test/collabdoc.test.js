@@ -144,3 +144,14 @@ test('spreadsheets: slicers are kept, and two people changing different slicers 
   applySheetJson(doc, { sheets: [{ ...jsonFromSheetDoc(doc).sheets[0], slicers: {} }] });
   assert.equal(jsonFromSheetDoc(doc).sheets[0].slicers, undefined, 'none left: none kept');
 });
+
+test('presentations: their own theme and master (logo, footer) are kept and changed', () => {
+  const custom = { bg: '#102030', text: '#ffffff', accent: '#ff8800', font: 'Georgia' }, master = { logo: 'abc', corner: 'br', footer: 'Acme' };
+  const doc = deckDocFromJson({ theme: 'custom', custom, master, slides: [{ id: 's1', items: [] }] });
+  const json = jsonFromDeckDoc(doc);
+  assert.deepEqual([json.theme, json.custom, json.master], ['custom', custom, master]);
+  applyDeckJson(doc, { ...json, master: { ...master, footer: 'Acme Trading' } });
+  assert.equal(jsonFromDeckDoc(doc).master.footer, 'Acme Trading');
+  applyDeckJson(doc, { ...jsonFromDeckDoc(doc), master: undefined });
+  assert.equal(jsonFromDeckDoc(doc).master, undefined);
+});

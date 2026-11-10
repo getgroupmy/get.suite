@@ -7,6 +7,7 @@ import { parseRange, rangeText } from './charts.js';
 import { cellKey, colName, colIndex, display } from './formula.js';
 import { adjustRange, adjustKey } from './structure.js';
 import { meetsCondition, cleanCondition } from './filtercond.js';
+import { collapsedOn } from './groups.js';
 
 /** How a value shows in the filter's list ("" for an empty cell). */
 export const filterLabel = (v) => (v === null || v === undefined || v === '' ? '' : display(v));
@@ -109,4 +110,14 @@ export function slicerSummary(s, values) {
   if (shown.length === values.length) return 'All';
   if (shown.length === 1) return shown[0].label || '(Blanks)';
   return `${shown.length} of ${values.length}`;
+}
+
+/** Every row a sheet hides: by its filter, its slicers, Hide row, or a collapsed group. */
+export function sheetHiddenRows(sheet, value) {
+  const cells = sheet?.cells || {};
+  const h = hiddenRows(sheet?.filter, cells, value);
+  for (const r of slicerHiddenRows(sheet?.slicers, cells, value)) h.add(r);
+  for (const r of sheet?.hide?.rows || []) h.add(r);
+  for (const r of collapsedOn(sheet?.groups, 'row')) h.add(r);
+  return h;
 }

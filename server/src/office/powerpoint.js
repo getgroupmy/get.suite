@@ -439,6 +439,39 @@ export async function deckFromPowerPoint(buffer, { savePicture }) {
  * A Slides presentation as a PowerPoint file (Buffer). `pictureData(fileId)` gives a picture's
  * bytes and type ({ data, mime }) or null.
  */
+/** The colours (and font) a presentation is drawn in: a named theme, or its own (theme: 'custom'). */
+const THEME_FONTS = ['Arial', 'Georgia', 'Times New Roman', 'Verdana', 'Trebuchet MS', 'Courier New'];
+export function themeOfDeck(deck) {
+  const base = THEMES[deck?.theme] || THEMES.light;
+  if (deck?.theme !== 'custom' || !deck.custom) return base;
+  const col = (v, d) => (/^#[0-9a-f]{6}$/i.test(String(v || '')) ? String(v) : d);
+  const c = deck.custom;
+  return { bg: col(c.bg, base.bg), text: col(c.text, base.text), accent: col(c.accent, base.accent), ...(THEME_FONTS.includes(c.font) && { font: c.font }) };
+}
+/** The logo and footer on every slide ({ logo, corner, footer, skipFirst }), or null. */
+export function masterOfDeck(deck) {
+  const m = deck?.master;
+  if (!m || typeof m !== 'object') return null;
+  const logo = typeof m.logo === 'string' && /^[\w-]{1,64}$/.test(m.logo) ? m.logo : null;
+  const footer = typeof m.footer === 'string' ? m.footer.replace(/\s+/g, ' ').trim().slice(0, 120) : '';
+  if (!logo && !footer) return null;
+  return { logo, corner: ['tl', 'tr', 'bl', 'br'].includes(m.corner) ? m.corner : 'tr', footer, skipFirst: !!m.skipFirst };
+}
+/** A PNG, JPEG or GIF's size in pixels ({ w, h }), or null. */
+function imageSize(b) {
+  if (b.length > 24 && b.readUInt32BE(0) === 0x89504e47) return { w: b.readUInt32BE(16), h: b.readUInt32BE(20) };
+  if (b.length > 10 && b.toString('latin1', 0, 3) === 'GIF') return { w: b.readUInt16LE(6), h: b.readUInt16LE(8) };
+  if (b[0] === 0xff && b[1] === 0xd8) {
+    for (let i = 2; i + 9 < b.length;) {
+      if (b[i] !== 0xff) return null;
+      const marker = b[i + 1], len = b.readUInt16BE(i + 2);
+      if (marker >= 0xc0 && marker <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(marker)) return { h: b.readUInt16BE(i + 5), w: b.readUInt16BE(i + 7) };
+      i += 2 + len;
+    }
+  }
+  return null;
+}
+
 /** Does slide i show its number? deck.numbers: true (every slide) or 'skip-first' (all but the title slide). */
 export const numberShown = (deck, i) => !!deck?.numbers && !(deck.numbers === 'skip-first' && i === 0);
 
@@ -451,7 +484,10 @@ export async function powerPointFromDeck(deck, { pictureData, title = 'Presentat
   pptx.layout = 'LAYOUT_WIDE'; // 13.33 × 7.5 in, 16:9 like Slides
   pptx.title = title;
   const Win = 13.333, Hin = 7.5;
-  const theme = THEMES[deck.theme] || THEMES.light;
+  const theme = themeOfDeck(deck);
+  const FONT = theme.font || 'Arial';
+  const master = masterOfDeck(deck);
+  const logo = master?.logo ? await pictureData?.(master.logo) : null;
   const color = (v, fallback) => (v === 'accent' ? theme.accent : v === 'text' ? theme.text : v || fallback).replace('#', '').toUpperCase();
   // An outline round a shape or text box: its colour and thickness in points.
   const outline = (it) => (it.outline ? { line: { color: color(it.outline, theme.text), width: OUTLINE_WIDTHS.includes(it.outlineW) ? it.outlineW : 1 } } : {});
@@ -462,16 +498,17 @@ export async function powerPointFromDeck(deck, { pictureData, title = 'Presentat
     const back = s.bgImage && await pictureData?.(s.bgImage);
     slide.background = back && /^image\/(png|jpeg|gif)$/.test(back.mime) ? { data: `data:${back.mime};base64,${back.data.toString('base64')}` } : { color: color(s.bg, theme.bg) };
     if (s.notes) slide.addNotes(s.notes);
-    if (numberShown(deck, (deck.slides || []).indexOf(s))) slide.slideNumber = { x: Win - 1.1, y: Hin - 0.55, w: 0.8, h: 0.35, fontSize: 12, color: color('text', theme.text), align: 'right', fontFace: 'Arial' };
+    if (numberShown(deck, (deck.slides || []).indexOf(s))) slide.slideNumber = { x: Win - 1.1, y: Hin - 0.55, w: 0.8, h: 0.35, fontSize: 12, color: color('text', theme.text), align: 'right', fontFace: FONT };
     if (s.skip) slide.hidden = true; // (transitions and timings are added afterwards: withShowSettings)
     const shown = []; // the boxes that became shapes, in order (their shape ids follow it): for animations
     emitted.set(s, shown);
+    const withMaster = master && !(master.skipFirst && s === deck.slides[0]);
     for (const it of s.items || []) {
       const before = slide._slideObjects?.length ?? 0;
       const hyperlink = linkFor(it.link, deck.slides || []); // a web page or another slide, followed when presenting
       const pos = { x: (it.x / 100) * Win, y: (it.y / 100) * Hin, w: (it.w / 100) * Win, h: (it.h / 100) * Hin, ...(Number(it.rot) && { rotate: ((Number(it.rot) % 360) + 360) % 360 }) };
       if (it.type === 'text') {
-        const look = { fontSize: Math.round((it.size || 24) * Win * 72 / 1000), bold: !!it.bold, italic: !!it.italic, color: color(it.color, theme.text), fontFace: 'Arial' };
+        const look = { fontSize: Math.round((it.size || 24) * Win * 72 / 1000), bold: !!it.bold, italic: !!it.italic, color: color(it.color, theme.text), fontFace: FONT };
         const box = { ...(it.fill && { fill: { color: color(it.fill, theme.accent) } }), ...outline(it) }; // the box's own colour and outline, when it has them
         if (hyperlink) { // the whole text is the link
           const lines = String(it.text || '').split('\n');
@@ -487,11 +524,11 @@ export async function powerPointFromDeck(deck, { pictureData, title = 'Presentat
         const kind = pptx.ShapeType[PPT_SHAPES[it.shape]] || pptx.ShapeType.rect;
         const look = { ...pos, ...(hyperlink && { hyperlink }), fill: { color: color(it.fill || 'accent', theme.accent) }, line: { type: 'none' }, ...outline(it) };
         // Text in the shape: centred in the middle, in the slide's background colour unless chosen.
-        if (it.text) slide.addText(String(it.text), { ...look, shape: kind, fontSize: Math.round((it.size || 20) * Win * 72 / 1000), bold: !!it.bold, italic: !!it.italic, color: color(it.color, theme.bg), fontFace: 'Arial', align: it.align || 'center', valign: 'middle' });
+        if (it.text) slide.addText(String(it.text), { ...look, shape: kind, fontSize: Math.round((it.size || 20) * Win * 72 / 1000), bold: !!it.bold, italic: !!it.italic, color: color(it.color, theme.bg), fontFace: FONT, align: it.align || 'center', valign: 'middle' });
         else slide.addShape(kind, look);
       } else if (it.type === 'table' && it.cells?.length) {
         const fontSize = Math.round((it.size || 18) * Win * 72 / 1000);
-        const rows = it.cells.map((r, ri) => r.map((text) => ({ text: String(text ?? ''), options: { fontSize, color: color(null, theme.text), fontFace: 'Arial',
+        const rows = it.cells.map((r, ri) => r.map((text) => ({ text: String(text ?? ''), options: { fontSize, color: color(null, theme.text), fontFace: FONT,
           ...(it.header && ri === 0 && { bold: true, fill: { color: color('accent', theme.accent) }, color: color(theme.bg, theme.bg) }) } })));
         slide.addTable(rows, { ...pos, colW: Array(it.cells[0].length).fill(pos.w / it.cells[0].length), border: { type: 'solid', pt: 1, color: color(null, theme.text) }, valign: 'middle', autoPage: false });
       } else if (it.type === 'chart' && it.data?.series?.length) {
@@ -533,6 +570,16 @@ export async function powerPointFromDeck(deck, { pictureData, title = 'Presentat
       }
       if ((slide._slideObjects?.length ?? 0) > before) shown.push(it);
     }
+    // The master's logo and footer, last (on top, and after the boxes, so animations still find theirs).
+    if (withMaster && logo && /^image\/(png|jpeg|gif)$/.test(logo.mime)) {
+      const size = imageSize(logo.data);
+      const maxW = 0.14 * Win, maxH = 0.11 * Hin;
+      const k = size ? Math.min(maxW / size.w, maxH / size.h) : 1;
+      const w = size ? size.w * k : maxW, h = size ? size.h * k : maxH;
+      const right = master.corner?.[1] !== 'l', bottom = master.corner?.[0] === 'b';
+      slide.addImage({ data: `data:${logo.mime};base64,${logo.data.toString('base64')}`, x: right ? Win * 0.975 - w : Win * 0.025, y: bottom ? Hin * 0.97 - h : Hin * 0.03, w, h, altText: 'Logo' });
+    }
+    if (withMaster && master.footer) slide.addText(master.footer, { x: Win * (master.logo && master.corner === 'bl' ? 0.18 : 0.025), y: Hin - 0.55, w: Win * 0.6, h: 0.35, fontSize: 11, color: color('text', theme.text), fontFace: FONT, transparency: 30, valign: 'middle', margin: 0 });
   }
   return withSlideComments(await withShowSettings(Buffer.from(await pptx.write({ outputType: 'nodebuffer' })), deck, emitted), deck, comments);
 }

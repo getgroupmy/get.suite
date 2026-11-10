@@ -1591,6 +1591,29 @@ test('Word: suggestions go out as tracked changes, and tracked changes come in a
   assert.equal(idOf('April', 'suggestInsert'), idOf('March', 'suggestDelete'), 'a deletion then an insertion is one replacement');
 });
 
+test('PowerPoint: a presentation\'s own theme, font, logo and footer go into the download', async () => {
+  const { powerPointFromDeck, animationsOf } = await import('../src/office/powerpoint.js');
+  const { picturesIn } = await import('../src/routes/files.js');
+  const deck = { theme: 'custom', custom: { bg: '#102030', text: '#fafafa', accent: '#ff8800', font: 'Georgia' }, master: { logo: 'logo1', corner: 'br', footer: 'Acme · Confidential', skipFirst: true },
+    slides: [{ id: 's1', items: [{ id: 't', type: 'text', x: 5, y: 5, w: 60, h: 10, text: 'Welcome' }] },
+      { id: 's2', items: [{ id: 'a', type: 'text', x: 5, y: 20, w: 60, h: 10, text: 'Point', anim: 'fade', animAt: 1 }, { id: 'f', type: 'shape', shape: 'rect', x: 50, y: 50, w: 10, h: 10, fill: 'accent' }] }] };
+  assert.deepEqual([...picturesIn('slides', deck)], ['logo1'], 'viewers may see the logo');
+  const asked = [];
+  const zip = await JSZip.loadAsync(await powerPointFromDeck(deck, { pictureData: async (id) => { asked.push(id); return { data: PNG, mime: 'image/png' }; } }));
+  assert.deepEqual(asked, ['logo1']);
+  const [one, two] = await Promise.all(['ppt/slides/slide1.xml', 'ppt/slides/slide2.xml'].map((f) => zip.file(f).async('string')));
+  assert.match(one, /<a:srgbClr val="102030"\/>/, 'the background');
+  assert.match(one, /typeface="Georgia"/);
+  assert.match(one, /FAFAFA/i);
+  assert.ok(!/Confidential/.test(one) && !/<p:pic>/.test(one), 'not on the first slide');
+  assert.match(two, /Acme · Confidential/);
+  assert.match(two, /<p:pic>/);
+  assert.match(two, /FF8800/i, 'the accent colour on the shape');
+  // The animation still points at its own box, not at the logo or footer.
+  const shapes = Object.fromEntries([...two.matchAll(/<p:sp>([\s\S]*?)<\/p:sp>/g)].map((m) => [/<p:cNvPr id="(\d+)"/.exec(m[1])?.[1], /<a:t>([^<]*)<\/a:t>/.exec(m[1])?.[1]]));
+  assert.deepEqual(animationsOf(two).map((e) => shapes[e.spid]), ['Point']);
+});
+
 test('PowerPoint: animations go out as PowerPoint entrance effects and come back', async () => {
   const { powerPointFromDeck, deckFromPowerPoint, animationsOf } = await import('../src/office/powerpoint.js');
   const deck = { theme: 'light', numbers: true, slides: [{ id: 's1', transition: 'fade', items: [

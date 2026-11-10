@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { DocPreview } from './docs/DocEditor.jsx';
 import { SlideView } from './slides/SlidesEditor.jsx';
-import { THEMES } from './slides/slidemath.js';
+import { themeOf } from './slides/slidemath.js';
 import { bookEvaluator, cellKey, colName, display, parseRef } from './sheets/formula.js';
 import { formatNumber, cellStyle } from './sheets/cellformat.js';
 import { CellPicture } from './sheets/SheetPicture.jsx';
@@ -43,7 +43,7 @@ export default function PublishedPage({ token }) {
 }
 
 export function PublishedDeck({ deck, base }) {
-  const theme = THEMES[deck.theme] || THEMES.light;
+  const theme = themeOf(deck);
   return (
     <ol className="pub-slides" aria-label="Slides">
       {(deck.slides || []).map((s, i) => <li key={s.id} aria-label={`Slide ${i + 1}`}><SlideView slide={s} theme={theme} deckId={null} pictureBase={base} number={deck.numbers && !(deck.numbers === 'skip-first' && i === 0) ? i + 1 : null} /></li>)}

@@ -6,6 +6,36 @@ export const THEMES = {
   ocean: { name: 'Ocean', bg: '#0b57d0', text: '#ffffff', accent: '#ffd666' },
   sand: { name: 'Sand', bg: '#f7f1e3', text: '#3c2f1e', accent: '#b5651d' },
 };
+// A presentation's own theme (theme: 'custom'): its colours and font, as { bg, text, accent, font }.
+export const THEME_FONTS = ['Arial', 'Georgia', 'Times New Roman', 'Verdana', 'Trebuchet MS', 'Courier New'];
+const HEX = /^#[0-9a-f]{6}$/i;
+export function cleanCustom(c, base = THEMES.light) {
+  const col = (v, d) => (HEX.test(String(v || '')) ? String(v).toLowerCase() : d);
+  return { bg: col(c?.bg, base.bg), text: col(c?.text, base.text), accent: col(c?.accent, base.accent), ...(THEME_FONTS.includes(c?.font) && { font: c.font }) };
+}
+// What goes on every slide (a master): a logo in a corner and a line of footer text, optionally not
+// on the first slide. { logo: fileId, corner: 'tl' | 'tr' | 'bl' | 'br', footer, skipFirst }.
+export const CORNERS = [['tr', 'Top right'], ['tl', 'Top left'], ['br', 'Bottom right'], ['bl', 'Bottom left']];
+export function cleanMaster(m) {
+  if (!m || typeof m !== 'object') return null;
+  const logo = typeof m.logo === 'string' && /^[\w-]{1,64}$/.test(m.logo) ? m.logo : null;
+  const footer = typeof m.footer === 'string' ? m.footer.replace(/\s+/g, ' ').trim().slice(0, 120) : '';
+  if (!logo && !footer) return null;
+  return { ...(logo && { logo, corner: CORNERS.some(([k]) => k === m.corner) ? m.corner : 'tr' }), ...(footer && { footer }), ...(m.skipFirst && { skipFirst: true }) };
+}
+/**
+ * The theme a presentation's slides are drawn with: one of THEMES, or its own colours and font; with
+ * its master (logo and footer) and which slide is first (a master can leave that one out).
+ */
+export function themeOf(deck) {
+  const base = THEMES[deck?.theme] || THEMES.light;
+  const t = deck?.theme === 'custom' && deck.custom ? { name: 'Custom', ...cleanCustom(deck.custom) } : base;
+  const master = cleanMaster(deck?.master);
+  return master ? { ...t, master, firstId: deck?.slides?.[0]?.id } : t;
+}
+/** Whether a slide shows the master's logo and footer. */
+export const masterOn = (theme, slide) => !!theme?.master && !(theme.master.skipFirst && slide?.id === theme.firstId);
+
 export const MIN = 3; // smallest box, in percent of the slide
 export const newId = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
 

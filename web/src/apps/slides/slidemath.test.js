@@ -213,3 +213,15 @@ test('pasting copies of boxes: new ids, nudged off their originals', async () =>
   r = pasteItems(deck, 1, [a]);
   assert.deepEqual([r.deck.slides[1].items[0].x, r.deck.slides[0].items.length], [10, 1], 'another slide: same place');
 });
+
+test('themes: a presentation\'s own colours and font, and its master', async () => {
+  const { themeOf, masterOn, cleanMaster } = await import('./slidemath.js');
+  assert.equal(themeOf({ theme: 'dark' }).bg, '#202124');
+  assert.equal(themeOf({ theme: 'nope' }).name, 'Light');
+  const t = themeOf({ theme: 'custom', custom: { bg: '#FF0000', text: 'red', accent: '#00ff00', font: 'Comic Sans' }, master: { logo: 'abc', footer: ' Acme ', skipFirst: true }, slides: [{ id: 'a' }, { id: 'b' }] });
+  assert.deepEqual([t.bg, t.text, t.accent, t.font], ['#ff0000', '#202124', '#00ff00', undefined], 'colours checked; only the listed fonts');
+  assert.deepEqual(t.master, { logo: 'abc', corner: 'tr', footer: 'Acme', skipFirst: true });
+  assert.deepEqual([masterOn(t, { id: 'a' }), masterOn(t, { id: 'b' })], [false, true]);
+  assert.equal(themeOf({ theme: 'custom', slides: [] }).name, 'Light', 'custom with no colours: the light theme');
+  assert.equal(cleanMaster({ logo: '../x', footer: '   ' }), null);
+});

@@ -100,7 +100,7 @@ export function applySheetJson(doc, next) {
 // ---- presentations: slide order, and each slide's boxes by id, so different boxes (or slides)
 // changed at once both stay; the same box keeps the later change.
 const SLIDE_KEYS = ['bg', 'bgImage', 'notes', 'transition', 'skip', 'advance']; // bgImage: a picture behind the slide; advance: seconds before moving on by itself
-const DECK_KEYS = ['numbers', 'loop']; // slide numbers (true or 'skip-first'); start again after the last slide
+const DECK_KEYS = ['numbers', 'loop', 'custom', 'master']; // slide numbers (true or 'skip-first'); start again after the last slide; its own theme { bg, text, accent, font }; a logo and footer on every slide
 function slideMap(slide) {
   const m = new Y.Map();
   for (const k of SLIDE_KEYS) if (slide[k]) m.set(k, slide[k]); // background, speaker notes, transition, skipped when presenting
@@ -148,7 +148,7 @@ export function applyDeckJson(doc, next) {
   doc.transact(() => {
     const deck = doc.getMap('deck');
     if (deck.get('theme') !== next.theme) deck.set('theme', next.theme);
-    for (const k of DECK_KEYS) if ((deck.get(k) || null) !== (next[k] || null)) { if (next[k]) deck.set(k, next[k]); else deck.delete(k); }
+    for (const k of DECK_KEYS) if (!same(deck.get(k) || null, next[k] || null)) { if (next[k]) deck.set(k, next[k]); else deck.delete(k); }
     const all = doc.getMap('slides');
     const want = next.slides || [];
     for (const id of [...all.keys()]) if (!want.some((s) => s.id === id)) all.delete(id);

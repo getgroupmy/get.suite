@@ -25,3 +25,10 @@ test('the charts in a spreadsheet, and one as it is now (formulas from other she
   assert.equal(chartChanged(item, chartNow(moved, 'c1')), true);
   assert.equal(chartChanged(item, null), false, 'gone or not readable: nothing to update');
 });
+
+test('a linked chart leaves out the rows the spreadsheet hides (slicer, filter, Hide row)', () => {
+  const sheet = { name: 'S', cells: { A1: 'Rep', B1: 'Sales', A2: 'Ana', B2: '10', A3: 'Ben', B3: '4', A4: 'Cleo', B4: '7', A5: 'Dev', B5: '5' },
+    charts: { k: { type: 'column', range: 'A1:B5', title: 'Sales' } },
+    slicers: { s: { range: 'A1:B5', col: 'A', hidden: ['Ben'] } }, filter: { range: 'A1:B5', hidden: { A: ['Dev'] } }, hide: { rows: [3] } };
+  assert.deepEqual(chartNow({ sheets: [sheet] }, 'k').data.categories, ['Ana']);
+});

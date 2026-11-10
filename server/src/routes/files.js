@@ -331,6 +331,7 @@ export async function receiveUpload(req, orgId, maxUploadBytes, ownerId = null) 
 /** The Drive files a presentation or document shows as pictures (their ids). */
 export function picturesIn(kind, content) {
   const ids = new Set();
+  if (kind === 'slides' && typeof content.master?.logo === 'string' && content.master.logo) ids.add(content.master.logo); // the logo on every slide
   if (kind === 'slides') for (const sl of content.slides || []) {
     if (typeof sl.bgImage === 'string' && sl.bgImage) ids.add(sl.bgImage); // a picture behind the slide
     for (const it of sl.items || []) { if ((it.type === 'image' || it.type === 'video') && it.fileId) ids.add(it.fileId); } // pictures and videos

@@ -20,7 +20,7 @@ import { VersionHistory } from '../VersionHistory.jsx';
 import { EditorHeader } from '../editorCommon.jsx';
 import { useUndo, undoKey } from '../useUndo.js';
 import {
-  THEMES, LAYOUTS, numberShown, newId, clampBox, moveBox, snapBox, angleTo, normAngle, alignItems, distributeItems, moveItems, pasteItems, resizeBox, addSlide, duplicateSlide, removeSlide, moveSlide, moveSlides, duplicateSlides, removeSlides,
+  THEMES, themeOf, masterOn, THEME_FONTS, CORNERS, cleanCustom, cleanMaster, LAYOUTS, numberShown, newId, clampBox, moveBox, snapBox, angleTo, normAngle, alignItems, distributeItems, moveItems, pasteItems, resizeBox, addSlide, duplicateSlide, removeSlide, moveSlide, moveSlides, duplicateSlides, removeSlides,
   updateItem, addItem, removeItem, restack, pictureBox,
   TRANSITIONS, setSlide, stepSlide, firstShown, newTable, resizeTable, setCell,
   ANIMATIONS, builds, animChange, stepPresent, nextPresent, ADVANCES, advanceLabel, slideChanges } from './slidemath.js';
@@ -109,7 +109,7 @@ export default function SlidesEditor() {
   const group = selected ? [selected, ...also].filter((gid) => slide?.items.some((it) => it.id === gid)) : [];
   const multi = group.length > 1;
   const item = multi ? null : slide?.items.find((it) => it.id === selected) || null;
-  const theme = THEMES[deck?.theme] || THEMES.light;
+  const theme = themeOf(deck);
   // The latest deck (a slide may have just been added or removed in this same click).
   const slideNumberOf = (slideId) => (deck ? deck.slides.findIndex((x) => x.id === slideId) : -1);
   const slideLabel = (t) => { const n = slideNumberOf(t.anchor?.slide); return n < 0 ? 'A deleted slide' : `Slide ${n + 1}`; };
@@ -318,7 +318,8 @@ export default function SlidesEditor() {
           } },
           { label: 'Download as PowerPoint (.pptx)', icon: 'download', onClick: () => { window.location.href = `/api/files/${id}/export`; } },
           ...(!readOnly ? ['-', { label: `Loop: start again after the last slide${deck.loop ? ' ✓' : ''}`, onClick: () => change((d) => { const { loop, ...rest } = d; return loop ? rest : { ...rest, loop: true }; }) }, ...[[null, 'Slide numbers: off'], [true, 'Slide numbers: every slide'], ['skip-first', 'Slide numbers: all but the first']].map(([v, label]) => ({ label: `${label}${(deck.numbers || null) === v ? ' ✓' : ''}`, onClick: () => change((d) => { const { numbers, ...rest } = d; return v ? { ...rest, numbers: v } : rest; }) })),
-            '-', ...Object.entries(THEMES).map(([k, t]) => ({ label: `Theme: ${t.name}${deck.theme === k ? ' ✓' : ''}`, onClick: () => change((d) => ({ ...d, theme: k })) }))] : []),
+            '-', ...Object.entries(THEMES).map(([k, t]) => ({ label: `Theme: ${t.name}${deck.theme === k ? ' ✓' : ''}`, onClick: () => change((d) => ({ ...d, theme: k })) })),
+            { label: `Theme and logo…${deck.theme === 'custom' || deck.master ? ' ✓' : ''}`, icon: 'edit', onClick: () => setDialog({ type: 'theme' }) }] : []),
         ]}
       />
       {status === 'offline' && <div className="banner warn">You're offline. Keep editing: your changes are kept here and sync when the connection is back.</div>}
@@ -545,8 +546,11 @@ export default function SlidesEditor() {
       </div>
       {presenting !== null && <Presenter deck={deck} theme={theme} deckId={id} start={presenting} onClose={(i) => { setPresenting(null); goTo(i); }} />}
       {dialog === 'share' && <ShareDialog file={file} onClose={() => setDialog(null)} />}
+      {dialog?.type === 'theme' && <ThemeDialog deck={deck} deckId={id} slide={slide} parentId={file.parent_id || null}
+        onSave={({ custom, master }) => { change((d) => { const { master: _, ...rest } = d; return { ...rest, ...(custom && { theme: 'custom', custom }), ...(master && { master }) }; }); setDialog(null); }}
+        onClose={() => setDialog(null)} />}
       {dialog === 'history' && <VersionHistory file={file} canEdit={!readOnly} onClose={() => setDialog(null)} renderPreview={(content) => (
-        <div className="deck-preview">{(content?.slides || []).map((sl, n) => <div key={sl.id || n} className="deck-preview-slide"><span className="muted small">{n + 1}</span><SlideView slide={sl} theme={THEMES[content.theme] || THEMES.light} deckId={file.id} /></div>)}</div>
+        <div className="deck-preview">{(content?.slides || []).map((sl, n) => <div key={sl.id || n} className="deck-preview-slide"><span className="muted small">{n + 1}</span><SlideView slide={sl} theme={themeOf(content)} deckId={file.id} /></div>)}</div>
       )} renderChanges={(content) => <SlideChanges before={content} after={deckRef.current} theme={theme} deckId={file.id} />} />}
       {dialog?.type === 'import-file' && <DrivePicker title="Import slides from a presentation" accept={(x) => x.kind === 'slides' && x.id !== id} empty="No other presentations found."
         onClose={() => setDialog(null)} onPick={(x) => setDialog({ type: 'import-pick', file: x })} />}
@@ -611,7 +615,7 @@ function ImportSlides({ from, onClose, onImport }) {
           {slides.map((sl, n) => (
             <label key={sl.id} className={`deck-preview-slide import-slide ${chosen.has(sl.id) ? 'on' : ''}`}>
               <span className="row small"><input type="checkbox" checked={chosen.has(sl.id)} onChange={() => toggle(sl.id)} aria-label={`Slide ${n + 1}`} /> {n + 1}</span>
-              <SlideView slide={sl} theme={THEMES[src.theme] || THEMES.light} deckId={from.id} />
+              <SlideView slide={sl} theme={themeOf(src)} deckId={from.id} />
             </label>
           ))}
         </div>
@@ -700,7 +704,7 @@ export function SlideView({ slide, theme, deckId, editable, selected, group = []
   }
 
   return (
-    <div ref={ref} className={`slide ${editable ? 'editable' : ''} ${slide.bgImage ? 'has-bg-picture' : ''}`} style={{ background: slide.bgImage ? `url("${pictureBase || `/api/files/${deckId}`}/pictures/${slide.bgImage}") center / cover no-repeat, ${slide.bg || theme.bg}` : slide.bg || theme.bg, color: theme.text }} role={editable ? 'group' : undefined} aria-label={editable ? 'Slide' : undefined}>
+    <div ref={ref} className={`slide ${editable ? 'editable' : ''} ${slide.bgImage ? 'has-bg-picture' : ''}`} style={{ background: slide.bgImage ? `url("${pictureBase || `/api/files/${deckId}`}/pictures/${slide.bgImage}") center / cover no-repeat, ${slide.bg || theme.bg}` : slide.bg || theme.bg, color: theme.text, ...(theme.font && { fontFamily: `"${theme.font}", sans-serif` }) }} role={editable ? 'group' : undefined} aria-label={editable ? 'Slide' : undefined}>
       {slide.items.map((it) => {
         const box = live?.id === it.id ? live.box : live?.group?.includes(it.id) ? { ...it, x: it.x + live.dx, y: it.y + live.dy } : it;
         const pos = { left: `${box.x}%`, top: `${box.y}%`, width: `${box.w}%`, height: `${box.h}%`, ...(box.rot ? { transform: `rotate(${box.rot}deg)` } : {}) };
@@ -788,8 +792,72 @@ export function SlideView({ slide, theme, deckId, editable, selected, group = []
         );
       })}
       {(live?.guides || []).map((g) => <span key={`${g.axis}${g.at}`} className={`slide-guide ${g.axis}`} aria-hidden="true" style={g.axis === 'x' ? { left: `${g.at}%` } : { top: `${g.at}%` }} />)}
+      {masterOn(theme, slide) && <MasterMarks master={theme.master} src={(pid) => `${pictureBase || `/api/files/${deckId}`}/pictures/${pid}`} />}
       {number ? <span className="slide-number" aria-label={`Slide number ${number}`}>{number}</span> : null}
     </div>
+  );
+}
+
+/** The master's logo and footer, on top of a slide (they can't be selected or moved there). */
+function MasterMarks({ master, src }) {
+  return <>
+    {master.logo && <img className={`slide-logo ${master.corner || 'tr'}`} src={src(master.logo)} alt="Logo" draggable={false} />}
+    {master.footer && <span className="slide-footer">{master.footer}</span>}
+  </>;
+}
+
+/** Theme and logo: the presentation's own colours and font, and a logo and footer on every slide. */
+function ThemeDialog({ deck, deckId, slide, parentId, onSave, onClose }) {
+  const toast = useToast();
+  const now = themeOf(deck);
+  const [c, setC] = useState(() => cleanCustom(now));
+  const [m, setM] = useState(() => ({ corner: 'tr', footer: '', skipFirst: false, ...(deck.master || {}) }));
+  const [busy, setBusy] = useState(false);
+  const pick = useRef();
+  const preview = { ...cleanCustom(c), master: cleanMaster(m), firstId: deck.slides[0]?.id };
+  async function upload(f) {
+    if (!f) return;
+    if (!/^image\/(png|jpeg|gif|webp)$/.test(f.type)) return toast('Choose a PNG, JPEG, GIF or WebP picture', 'error');
+    setBusy(true);
+    try {
+      let up;
+      try { up = await uploadFile(f, parentId); } catch { up = await uploadFile(f, null); }
+      setM((x) => ({ ...x, logo: up.id }));
+    } catch (e) { toast(e.message, 'error'); } finally { setBusy(false); }
+  }
+  const colour = (k, label) => <label className="field theme-colour"><span>{label}</span><input type="color" value={c[k]} onChange={(e) => setC({ ...c, [k]: e.target.value })} /></label>;
+  return (
+    <Modal title="Theme and logo" onClose={onClose} wide footer={<>
+      <button type="button" className="btn" onClick={onClose}>Cancel</button>
+      <button type="button" className="btn primary" disabled={busy} onClick={() => onSave({ custom: cleanCustom(c), master: cleanMaster(m) })}>Save</button>
+    </>}>
+      <div className="theme-dialog">
+        <div className="theme-form">
+          <fieldset><legend>Colours and font</legend>
+            <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+              {Object.entries(THEMES).map(([k, t]) => <button key={k} type="button" className="btn small" title={`Start from ${t.name}`} onClick={() => setC({ ...cleanCustom(t), ...(c.font && { font: c.font }) })}><span className="theme-swatch" style={{ background: t.bg, color: t.text, borderColor: t.accent }}>Aa</span> {t.name}</button>)}
+            </div>
+            <div className="row" style={{ gap: 12, flexWrap: 'wrap' }}>{colour('bg', 'Background')}{colour('text', 'Text')}{colour('accent', 'Accent')}</div>
+            <label className="field"><span>Font</span>
+              <select value={c.font || ''} onChange={(e) => setC({ ...c, font: e.target.value || undefined })}>
+                <option value="">The app's font</option>
+                {THEME_FONTS.map((f) => <option key={f} value={f} style={{ fontFamily: f }}>{f}</option>)}
+              </select></label>
+          </fieldset>
+          <fieldset><legend>On every slide</legend>
+            <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+              {m.logo ? <><img className="theme-logo-thumb" src={`/api/files/${deckId}/pictures/${m.logo}`} alt="Logo" /><button type="button" className="btn small" onClick={() => setM({ ...m, logo: undefined })}>Remove logo</button></>
+                : <button type="button" className="btn small" disabled={busy} onClick={() => pick.current.click()}>{busy ? 'Uploading…' : 'Add a logo…'}</button>}
+              <input ref={pick} type="file" accept="image/png,image/jpeg,image/gif,image/webp" hidden onChange={(e) => { upload(e.target.files[0]); e.target.value = ''; }} />
+              {m.logo && <select aria-label="Logo corner" value={m.corner} onChange={(e) => setM({ ...m, corner: e.target.value })}>{CORNERS.map(([k, n]) => <option key={k} value={k}>{n}</option>)}</select>}
+            </div>
+            <label className="field"><span>Footer</span><input value={m.footer || ''} maxLength={120} placeholder="Acme Trading · Confidential" onChange={(e) => setM({ ...m, footer: e.target.value })} /></label>
+            <label className="check"><input type="checkbox" checked={!!m.skipFirst} onChange={(e) => setM({ ...m, skipFirst: e.target.checked })} /> Not on the first slide</label>
+          </fieldset>
+        </div>
+        <div className="theme-preview" aria-label="Preview">{slide && <SlideView slide={slide} theme={preview} deckId={deckId} />}</div>
+      </div>
+    </Modal>
   );
 }
 

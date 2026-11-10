@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router';
 import { SlideView } from './SlidesEditor.jsx';
-import { THEMES, stepSlide, numberShown } from './slidemath.js';
+import { themeOf, stepSlide, numberShown } from './slidemath.js';
 
 const clock = (ms) => { const s = Math.floor(ms / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
 
@@ -49,7 +49,7 @@ export default function PresenterView() {
 
   if (ended) return <div className="presenter-view ended"><p>The presentation has ended.</p><button type="button" className="btn" onClick={() => window.close()}>Close this window</button></div>;
   if (!deck) return <div className="presenter-view ended"><p className="muted">Waiting for the presentation… Start it from the presentation’s window.</p></div>;
-  const theme = THEMES[deck.theme] || THEMES.light;
+  const theme = themeOf(deck);
   const slide = deck.slides[i], next = stepSlide(deck, i, 1) !== i ? deck.slides[stepSlide(deck, i, 1)] : null; // skipped slides aren't next
   return (
     <div className="presenter-view">

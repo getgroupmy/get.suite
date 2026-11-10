@@ -29,7 +29,7 @@ import { CellPicture, PictureCellDialog } from './SheetPicture.jsx';
 import { CustomFormatDialog } from './SheetNumFmt.jsx';
 import { heightOf, setHeights, MIN_H, MAX_H, DEFAULT_H } from './rowheights.js';
 import { validationAt, checkEntry, isTicked, withChoices, choicesFrom, chipColour, breaksRule, describeCheck } from './validation.js';
-import { hiddenRows, columnValues, adjustFilter, filterArea, columnFiltered, slicerHiddenRows, slicerAsFilter, adjustSlicers } from './filter.js';
+import { hiddenRows, columnValues, adjustFilter, filterArea, columnFiltered, slicerAsFilter, adjustSlicers, sheetHiddenRows } from './filter.js';
 import { SlicerCard } from './SheetSlicer.jsx';
 import { describeCondition } from './filtercond.js';
 import { setHidden, anyHidden, hiddenRuns } from './hide.js';
@@ -204,7 +204,7 @@ export default function SheetEditor() {
   const hide = sheet?.hide || null; // rows and columns hidden by hand
   const groups = sheet?.groups || null; // grouped rows and columns (collapsed ones are hidden too)
   const slicers = sheet?.slicers || {};
-  const hidden = useMemo(() => { const h = hiddenRows(filter, cells, evaluate); for (const r of slicerHiddenRows(slicers, cells, evaluate)) h.add(r); for (const r of hide?.rows || []) h.add(r); for (const r of collapsedOn(groups, 'row')) h.add(r); return h; }, [filter, slicers, cells, evaluate, hide, groups]);
+  const hidden = useMemo(() => sheetHiddenRows({ cells, filter, slicers, hide, groups }, evaluate), [filter, slicers, cells, evaluate, hide, groups]);
   const hiddenCols = useMemo(() => new Set([...(hide?.cols || []), ...collapsedOn(groups, 'col')]), [hide, groups]);
   const groupToggle = useMemo(() => ({ row: toggleAt(groups, 'row'), col: toggleAt(groups, 'col') }), [groups]);
   const inGroup = (axis, i) => (groups || []).some((g) => g.axis === axis && i >= g.from && i <= g.to);

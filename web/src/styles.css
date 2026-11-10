@@ -2052,6 +2052,19 @@ tr.shortcut-row.broken .name-text { color: var(--muted, #777); font-style: itali
 .import-slide { cursor: pointer; border: 2px solid transparent; border-radius: 6px; padding: 4px; } .import-slide.on { border-color: var(--accent, #1a73e8); }
 /* Slides: slide numbers and the laser pointer */
 .slide-number { position: absolute; right: 2.5%; bottom: 3%; font-size: 2.2cqw; opacity: .7; pointer-events: none; }
+.slide-logo { position: absolute; max-width: 14%; max-height: 11%; object-fit: contain; pointer-events: none; z-index: 1; }
+.slide-logo.tr { right: 2.5%; top: 3%; } .slide-logo.tl { left: 2.5%; top: 3%; }
+.slide-logo.br { right: 2.5%; bottom: 3%; } .slide-logo.bl { left: 2.5%; bottom: 3%; }
+.slide-footer { position: absolute; left: 2.5%; right: 20%; bottom: 3%; font-size: 1.6cqw; opacity: .7; pointer-events: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.slide-logo.bl ~ .slide-footer { left: 18%; }
+.theme-dialog { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 18px; align-items: start; }
+.theme-dialog fieldset { border: 0; padding: 0; margin: 0 0 14px; display: flex; flex-direction: column; gap: 10px; }
+.theme-dialog legend { font-weight: 600; margin-bottom: 6px; }
+.theme-colour input[type=color] { width: 56px; height: 32px; padding: 2px; }
+.theme-swatch { display: inline-block; border: 2px solid; border-radius: 4px; padding: 0 4px; font-weight: 700; }
+.theme-logo-thumb { max-height: 36px; max-width: 120px; object-fit: contain; border: 1px solid var(--border); border-radius: 4px; padding: 2px; }
+.theme-preview { container-type: inline-size; }
+@media (max-width: 720px) { .theme-dialog { grid-template-columns: 1fr; } }
 .presenter.lasering { cursor: none; }
 .laser-dot { position: fixed; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%; background: #ff1744; box-shadow: 0 0 12px 4px rgba(255, 23, 68, .7); pointer-events: none; z-index: 10; }
 
