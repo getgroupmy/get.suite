@@ -9059,6 +9059,7 @@ test('tasks: schedule time for a task on your calendar, with a link back and a w
   assert.deepEqual(made.body.clashes.map((x) => x.title), ['Team meeting'], 'booked anyway, with a warning');
   const ev = (await a('GET', `/api/events?from=${at - 1}&to=${at + 36e5 + 1}`)).body.find((e) => e.id === made.body.event.id);
   assert.equal(ev.task_id, t.id);
+  assert.deepEqual(ev.task, { id: t.id, list_id: list, title: 'Write the report', done: false }, 'the event knows its task, for Open task');
   assert.match(ev.description, new RegExp(`/tasks/${list}\\?task=${t.id}`));
   assert.deepEqual((await a('GET', `/api/tasks/tasks/${t.id}/blocks`)).body.blocks.map((b) => b.start), [at]);
   // Its own block isn't a clash for another one right after.

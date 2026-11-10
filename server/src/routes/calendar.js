@@ -347,6 +347,12 @@ function awayReply(req, ev, tz) {
   return v;
 }
 
+/** The task a time block is for (from Tasks → Schedule time), if it's still there and on one of your lists. */
+function taskOfBlock(taskId, userId) {
+  const t = q(`SELECT t.id, t.list_id, t.title, t.done_at FROM tasks t JOIN task_lists l ON l.id = t.list_id
+               WHERE t.id = ? AND (l.owner_id = ? OR l.id IN (SELECT list_id FROM task_list_members WHERE user_id = ?))`).get(taskId, userId, userId);
+  return t ? { id: t.id, list_id: t.list_id, title: t.title, done: !!t.done_at } : null;
+}
 export const touch = (ids) => sendTo([...new Set(ids)], { type: 'events-changed' });
 
 /**
@@ -479,6 +485,7 @@ export default function calendarRoutes() {
       const { my_status, my_note, organizer_name, organizer_email, ...ev } = row;
       const out = outEvent(ev);
       return { ...out, attachments: attachmentsFor(out, req.user.id), role: mine ? 'organizer' : 'guest', guests: allGuests(row.id), rooms: roomsOf(row.id), reminders: reminders.get(row.id) || [],
+        ...(mine && row.task_id && { task: taskOfBlock(row.task_id, req.user.id) }),
         ...(mine ? {} : { my_status, my_note: my_note || null, organizer: { name: organizer_name, email: organizer_email } }) };
     }), ...sharedEvents(req.user.id, from, to), ...(req.query.feeds === '0' ? [] : feedEvents(req.user.id, from, to))]);
   });

@@ -1,6 +1,6 @@
 import WorldClock from './WorldClock.jsx';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router';
+import { Link, useLocation, useNavigate } from 'react-router';
 import { createPortal } from 'react-dom';
 import { useAuth } from '../../App.jsx';
 import { get, post, put, patch, del, onLive, postText, setCalendarOwner } from '../../api.js';
@@ -1317,6 +1317,7 @@ function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate }) {
             onDuplicate({ title: body.title, location: body.location, description: body.description, color: body.color, all_day: f.all_day ? 1 : 0, start, end,
               guests: body.guests.map((email) => ({ email })), reminders: body.reminders, duplicateOf: event.title, calendar_id: f.calendar_id });
           }}>Duplicate</button>}
+          {event.task && <Link className="btn" to={`/tasks/${event.task.list_id}?task=${event.task.id}`} title={`The task this time is for: ${event.task.title}`}>{event.task.done ? '✅' : '☐'} Open task</Link>}
           {event.id && <CopyEventLink event={event} className="btn" />}
           {event.id && <a className="btn" href={`/api/events/${event.id}/ics`} download title="A calendar file of this event, for Outlook, Apple or Google Calendar, or to pass on">Download (.ics)</a>}
           <div className="grow" />
