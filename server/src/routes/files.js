@@ -30,6 +30,7 @@ import { deckFromPowerPoint, powerPointFromDeck, commentsOfDeck } from '../offic
 import { officePreview, officeKind, MAX_PREVIEW } from '../office/preview.js';
 import { odtFromDoc, docFromOdt, ODT_MIME } from '../office/odt.js';
 import { odsFromSheet, sheetFromOds, ODS_MIME } from '../office/ods.js';
+import { odpFromDeck, deckFromOdp, ODP_MIME } from '../office/odp.js';
 import { zipEntries, extractZip } from '../zipfiles.js';
 import { markdownFromDoc, docFromMarkdown } from '../office/markdown.js';
 import { parseCsv } from '../contactfiles.js';
@@ -42,6 +43,7 @@ const OFFICE = {
   pptx: { kind: 'slides', mime: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' },
   odt: { kind: 'doc', mime: ODT_MIME },
   ods: { kind: 'sheet', mime: ODS_MIME },
+  odp: { kind: 'slides', mime: ODP_MIME },
   md: { kind: 'doc', mime: 'text/markdown; charset=utf-8' },
   markdown: { kind: 'doc', mime: 'text/markdown; charset=utf-8' },
 };
@@ -1245,7 +1247,7 @@ export default function fileRoutes({ maxUploadBytes }) {
   r.post('/:id/open-as', async (req, res) => {
     const f = loadFile(req.params.id, req.user);
     const type = f.kind === 'file' && officeType(f.name);
-    if (!type) throw bad('Only Word (.docx), OpenDocument text (.odt) and spreadsheet (.ods), Excel (.xlsx), PowerPoint (.pptx) and Markdown (.md) files can be opened this way');
+    if (!type) throw bad('Only Word (.docx), OpenDocument (.odt, .ods, .odp), Excel (.xlsx), PowerPoint (.pptx) and Markdown (.md) files can be opened this way');
     if (f.size > MAX_CONVERT) throw bad('This file is too large to convert (50 MB at most)');
     const parentId = f.parent_id && atLeast(roleFor(f.parent_id, req.user.id), 'editor') ? f.parent_id : null;
     const buf = fs.readFileSync(path.join(FILES_DIR, f.storage));
@@ -1266,8 +1268,9 @@ export default function fileRoutes({ maxUploadBytes }) {
       else if (type === 'md' || type === 'markdown') content = docFromMarkdown(buf.toString('utf8'));
       else if (type === 'xlsx') { content = await sheetFromExcel(buf); sheetThreads = commentsOfBook(content); }
       else if (type === 'ods') content = await sheetFromOds(buf);
+      else if (type === 'odp') content = await deckFromOdp(buf, { savePicture });
       else { content = await deckFromPowerPoint(buf, { savePicture }); slideComments = commentsOfDeck(content); }
-    } catch (e) { throw bad(`This file couldn't be read as ${type === 'odt' ? 'an OpenDocument text file' : type === 'ods' ? 'an OpenDocument spreadsheet' : type === 'docx' ? 'a Word document' : type === 'xlsx' ? 'an Excel workbook' : 'a PowerPoint presentation'}`); }
+    } catch (e) { throw bad(`This file couldn't be read as ${type === 'odt' ? 'an OpenDocument text file' : type === 'ods' ? 'an OpenDocument spreadsheet' : type === 'odp' ? 'an OpenDocument presentation' : type === 'docx' ? 'a Word document' : type === 'xlsx' ? 'an Excel workbook' : 'a PowerPoint presentation'}`); }
     const json = JSON.stringify(content);
     const id = insertFile({ owner: req.user.id, parentId, name, kind: OFFICE[type].kind, content: json, size: Buffer.byteLength(json) });
     // A Word file's comments: threads on the same words, by whoever opened it, naming who wrote them in Word.
@@ -1310,7 +1313,7 @@ export default function fileRoutes({ maxUploadBytes }) {
   r.get('/:id/export', async (req, res) => {
     const f = loadFile(req.params.id, req.user);
     if (!mayTakeAway(f, f.role)) throw forbidden(NO_TAKING);
-    const type = (req.query.format === 'md' || req.query.format === 'odt') && f.kind === 'doc' ? req.query.format : req.query.format === 'ods' && f.kind === 'sheet' ? 'ods' : EXPORT_AS[f.kind];
+    const type = (req.query.format === 'md' || req.query.format === 'odt') && f.kind === 'doc' ? req.query.format : req.query.format === 'ods' && f.kind === 'sheet' ? 'ods' : req.query.format === 'odp' && f.kind === 'slides' ? 'odp' : EXPORT_AS[f.kind];
     if (!type) throw bad('Only documents, spreadsheets and presentations can be downloaded this way');
     saveNow(f.id); // what's being typed right now goes in too
     const stored = JSON.parse(q('SELECT content FROM files WHERE id = ?').get(f.id).content || '{}');
@@ -1326,6 +1329,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     if (type === 'md') buf = Buffer.from(markdownFromDoc(content), 'utf8');
     else if (type === 'odt') buf = await odtFromDoc(content, f.name, { pictureData });
     else if (type === 'ods') buf = await odsFromSheet(content);
+    else if (type === 'odp') buf = await odpFromDeck(content, { pictureData, title: f.name });
     else if (type === 'docx') buf = await wordFromDoc(content, f.name, { pictureData, page: setupOf(f), comments: wordCommentsOf(f.id), signatures: (await import('./signatures.js')).signedRecord(f.id) });
     else if (type === 'xlsx') buf = await excelFromSheet(content, { comments: cellCommentsOf(f.id) });
     else buf = await powerPointFromDeck(content, { title: f.name, pictureData, comments: slideCommentsOf(f.id) });

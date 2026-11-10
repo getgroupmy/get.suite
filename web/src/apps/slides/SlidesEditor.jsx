@@ -317,6 +317,7 @@ export default function SlidesEditor() {
             setTimeout(done, 1000);
           } },
           { label: 'Download as PowerPoint (.pptx)', icon: 'download', onClick: () => { window.location.href = `/api/files/${id}/export`; } },
+          { label: 'Download as OpenDocument (.odp)', icon: 'download', onClick: () => { window.location.href = `/api/files/${id}/export?format=odp`; } },
           ...(!readOnly ? ['-', { label: `Loop: start again after the last slide${deck.loop ? ' ✓' : ''}`, onClick: () => change((d) => { const { loop, ...rest } = d; return loop ? rest : { ...rest, loop: true }; }) }, ...[[null, 'Slide numbers: off'], [true, 'Slide numbers: every slide'], ['skip-first', 'Slide numbers: all but the first']].map(([v, label]) => ({ label: `${label}${(deck.numbers || null) === v ? ' ✓' : ''}`, onClick: () => change((d) => { const { numbers, ...rest } = d; return v ? { ...rest, numbers: v } : rest; }) })),
             '-', ...Object.entries(THEMES).map(([k, t]) => ({ label: `Theme: ${t.name}${deck.theme === k ? ' ✓' : ''}`, onClick: () => change((d) => ({ ...d, theme: k })) })),
             { label: `Theme and logo…${deck.theme === 'custom' || deck.master ? ' ✓' : ''}`, icon: 'edit', onClick: () => setDialog({ type: 'theme' }) }] : []),

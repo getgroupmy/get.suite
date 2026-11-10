@@ -8155,3 +8155,28 @@ test('OpenDocument: a spreadsheet downloads as .ods; an .ods file previews, comp
   const d = (await owner('POST', '/api/files/new', { kind: 'doc', name: 'Memo' })).body;
   assert.match((await owner('GET', `/api/files/${d.id}/export?format=ods`, undefined, { binary: true })).headers.get('content-disposition'), /Memo\.docx/);
 });
+
+test('OpenDocument: a presentation downloads as .odp; an .odp file previews and opens as a presentation', async () => {
+  const k = (await owner('POST', '/api/files/new', { kind: 'slides', name: 'Kickoff talk' })).body;
+  const c = (await owner('GET', `/api/files/${k.id}/content`)).body;
+  const content = { theme: 'light', slides: [{ id: 's1', notes: 'Welcome everyone', items: [{ id: 't', type: 'text', x: 10, y: 10, w: 80, h: 20, text: 'Kickoff', size: 50, bold: true }] }, { id: 's2', items: [{ id: 'r', type: 'shape', shape: 'round', x: 20, y: 20, w: 30, h: 30, fill: '#ff0000', text: 'Go' }] }] };
+  assert.equal((await owner('PUT', `/api/files/${k.id}/content`, { version: c.file.version, content })).status, 200);
+  const out = await owner('GET', `/api/files/${k.id}/export?format=odp`, undefined, { binary: true });
+  assert.equal(out.status, 200);
+  assert.equal(out.headers.get('content-type'), 'application/vnd.oasis.opendocument.presentation');
+  assert.match(out.headers.get('content-disposition'), /Kickoff%20talk\.odp/);
+  const up = (await owner('POST', '/api/files/upload?name=Kickoff%20talk%20(Impress).odp', out.body, { raw: true })).body;
+  const pv = await owner('GET', `/api/files/${up.id}/preview`);
+  assert.equal(pv.status, 200, JSON.stringify(pv.body));
+  assert.equal(pv.body.kind, 'slides');
+  assert.equal(pv.body.content.slides.length, 2);
+  const opened = await owner('POST', `/api/files/${up.id}/open-as`);
+  assert.equal(opened.status, 201, JSON.stringify(opened.body));
+  assert.deepEqual([opened.body.kind, opened.body.name], ['slides', 'Kickoff talk (Impress)']);
+  const back = (await owner('GET', `/api/files/${opened.body.id}/content`)).body.content;
+  assert.equal(back.slides[0].notes, 'Welcome everyone');
+  assert.deepEqual([back.slides[0].items[0].text, back.slides[0].items[0].bold], ['Kickoff', true]);
+  assert.deepEqual([back.slides[1].items[0].shape, back.slides[1].items[0].fill, back.slides[1].items[0].text], ['round', '#ff0000', 'Go']);
+  const junk = (await owner('POST', '/api/files/upload?name=Broken.odp', Buffer.from('nope'), { raw: true })).body;
+  assert.match((await owner('POST', `/api/files/${junk.id}/open-as`)).body.error, /OpenDocument presentation/);
+});
