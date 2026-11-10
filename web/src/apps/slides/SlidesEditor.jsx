@@ -10,6 +10,7 @@ import { WebsocketProvider } from 'y-websocket';
 import { jsonFromDeckDoc, applyDeckJson } from '../collabsync.js';
 import { useAuth } from '../../App.jsx';
 import { useToast, Menu, ConfirmModal, Avatar, Modal } from '../../components/ui.jsx';
+import { QaPanel } from './SlideQa.jsx';
 import DrivePicker from '../../components/DrivePicker.jsx';
 import { chartChanged } from './linkedchart.js';
 import { useChartNow, ChartPick, ChartBox } from '../ChartLink.jsx';
@@ -1014,6 +1015,13 @@ function Presenter({ deck, theme, deckId, start, onClose }) {
   const setI = (v) => setAt((cur) => { const n = typeof v === 'function' ? v(cur.i) : v; return n === cur.i ? cur : { i: n, b: 0 }; });
   const step = (dir) => setAt((cur) => (dir > 0 ? nextPresent(deck, cur) : stepPresent(deck, cur, dir)));
   const [notes, setNotes] = useState(false);
+  // Audience Q&A: started (or the one already running) with ❓; the panel shows the link and the questions.
+  const [qa, setQa] = useState(null);
+  const toastQa = useToast();
+  const toggleQa = async () => {
+    if (qa) { setQa(null); return; }
+    try { setQa((await post(`/slide-qa/decks/${deckId}/start`)).code); } catch (e) { toastQa(e.message, 'error'); }
+  };
   // Slides that move on by themselves (P pauses and resumes); moving on yourself starts the wait again.
   const [paused, setPaused] = useState(false);
   const wait = deck.slides[at.i]?.advance || 0;
@@ -1084,8 +1092,10 @@ function Presenter({ deck, theme, deckId, start, onClose }) {
         {wait > 0 && <button type="button" aria-label={paused ? 'Resume moving on by itself' : 'Pause moving on by itself'} aria-pressed={paused} title={`${paused ? 'Paused' : `Moves on after ${wait} s`} (P)`} onClick={() => setPaused((v) => !v)}>{paused ? '▶' : '⏸'}</button>}
         {deck.loop && <span className="muted small" title="Starts again after the last slide">⟳</span>}
         <button type="button" aria-label={laser ? 'Turn off the laser pointer' : 'Laser pointer'} aria-pressed={!!laser} title="Laser pointer (L)" onClick={() => setLaser((v) => (v ? null : { x: -100, y: -100 }))}>●</button>
+        <button type="button" aria-label={qa ? 'Hide audience questions' : 'Audience questions'} aria-pressed={!!qa} title="Audience Q&A: people at your company ask and upvote questions at a link" onClick={toggleQa}>❓</button>
         <button type="button" aria-label="End presentation" onClick={() => onClose(i)}>✕</button>
       </div>
+      {qa && <QaPanel code={qa} onHide={() => setQa(null)} onEnded={() => setTimeout(() => setQa(null), 1500)} />}
     </div>
   );
 }

@@ -1,3 +1,4 @@
+import slideQaRoutes from './routes/slideqa.js';
 import webImportRoutes from './routes/webimport.js';
 import { oidcPublicRoutes, oidcApiRoutes } from './oidc.js';
 import express from 'express';
@@ -143,6 +144,7 @@ export function createApp({
   app.use('/api/meet', requireAuth, meetRoutes());
   app.use('/api/groups', requireAuth, groupRoutes());
   app.use('/api/notes', requireAuth, noteRoutes());
+  app.use('/api/slide-qa', requireAuth, slideQaRoutes());
   app.use('/api/doc-prefs', requireAuth, docPrefRoutes());
   app.use('/api/oauth', requireAuth, oidcApiRoutes());
   app.use('/api/approvals', requireAuth, approvalRoutes());

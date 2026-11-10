@@ -4,6 +4,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router';
 import { SlideView } from './SlidesEditor.jsx';
+import { QaPanel } from './SlideQa.jsx';
+import { get } from '../../api.js';
 import { themeOf, stepSlide, numberShown } from './slidemath.js';
 
 const clock = (ms) => { const s = Math.floor(ms / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
@@ -34,6 +36,14 @@ export default function PresenterView() {
     return () => { clearInterval(t); c.close(); };
   }, [id]);
 
+  // Audience Q&A running for this presentation (started from the presenting screen): its questions here too.
+  const [qaCode, setQaCode] = useState(null);
+  useEffect(() => {
+    const look = () => get(`/slide-qa/decks/${id}`).then((s) => setQaCode(s?.code || null)).catch(() => {});
+    look();
+    const t = setInterval(look, 5000);
+    return () => clearInterval(t);
+  }, [id]);
   const last = (deck?.slides.length || 1) - 1;
   const go = (n) => { const to = Math.max(0, Math.min(last, n)); setI(to); ch.current?.postMessage({ type: 'go', i: to }); };
   useEffect(() => {
@@ -67,6 +77,7 @@ export default function PresenterView() {
             {next ? <SlideView slide={next} theme={theme} deckId={id} /> : <div className="pv-end muted">End of presentation</div>}
           </section>
           <section className="pv-notes" aria-label="Speaker notes">{slide?.notes || <span className="muted">No notes for this slide</span>}</section>
+          {qaCode && <QaPanel key={qaCode} code={qaCode} onEnded={() => setQaCode(null)} />}
         </aside>
       </div>
       <footer className="row">

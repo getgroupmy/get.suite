@@ -30,6 +30,7 @@ import RequestAccess from './apps/RequestAccess.jsx';
 import SheetEditor from './apps/sheets/SheetEditor.jsx';
 import SlidesEditor from './apps/slides/SlidesEditor.jsx';
 import PresenterView from './apps/slides/PresenterView.jsx';
+import { QaPage } from './apps/slides/SlideQa.jsx';
 import { ShortcutsHelp } from './components/Shortcuts.jsx';
 import { StatusDialog, useMyStatus } from './components/StatusDialog.jsx';
 import { statusLine } from './components/status.js';
@@ -153,6 +154,7 @@ function Workspace() {
               <Route path="/sheets/:id" element={<SheetEditor />} />
               <Route path="/slides/:id/presenter" element={<PresenterView />} />
               <Route path="/slides/:id" element={<SlidesEditor />} />
+              <Route path="/qa/:code" element={<QaPage />} />
               <Route path="/meet/:code" element={<MeetRoom />} />
               <Route path="/oauth/consent" element={<OAuthConsent />} />
               <Route path="/oauth/signout" element={<OAuthSignOut />} />

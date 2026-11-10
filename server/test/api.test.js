@@ -8866,3 +8866,49 @@ test('presentations: sound on a slide plays for everyone who can open the deck, 
   assert.equal(odp.status, 200);
   assert.match(await (await JSZip.loadAsync(odp.body)).file('content.xml').async('string'), /🔊 intro\.mp3/);
 });
+
+test('slides Q&A: the presenter starts it, colleagues ask and upvote, the presenter marks answered', async () => {
+  const a = client(), b = client(), c = client();
+  for (const [local, name] of [['qaa', 'Qa Ann'], ['qab', 'Qa Ben'], ['qac', 'Qa Cat']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'qaa@acme.com');
+  const bid = (await login(b, 'qab@acme.com')).id;
+  await login(c, 'qac@acme.com');
+  const deck = (await a('POST', '/api/files/new', { kind: 'slides', name: 'All hands' })).body;
+  assert.equal((await a('GET', `/api/slide-qa/decks/${deck.id}`)).body, null);
+  await a('PUT', `/api/files/${deck.id}/shares`, { shares: [{ user_id: bid, role: 'viewer' }] });
+  assert.equal((await b('POST', `/api/slide-qa/decks/${deck.id}/start`)).status, 403, 'viewers don’t run it');
+  const s = (await a('POST', `/api/slide-qa/decks/${deck.id}/start`)).body;
+  assert.match(s.code, /^[a-z2-9]{6}$/);
+  assert.equal(s.runs, true); assert.equal(s.title, 'All hands');
+  assert.equal((await a('POST', `/api/slide-qa/decks/${deck.id}/start`)).body.code, s.code, 'the same one while it runs');
+  // Cat (not shared the deck) can join with the code.
+  const seen = (await c('GET', `/api/slide-qa/${s.code.toUpperCase()}`)).body;
+  assert.equal(seen.open, true); assert.equal(seen.runs, false); assert.equal(seen.presenter, 'Qa Ann');
+  await c('POST', `/api/slide-qa/${s.code}/questions`, { body: 'When is the offsite?' });
+  const after = (await b('POST', `/api/slide-qa/${s.code}/questions`, { body: 'Bonus this year?', anonymous: true })).body;
+  const bonus = after.questions.find((x) => x.body === 'Bonus this year?');
+  assert.equal(bonus.who, null, 'anonymous'); assert.equal(bonus.mine, true);
+  assert.equal((await b('POST', `/api/slide-qa/questions/${bonus.id}/vote`)).status, 400, 'not your own');
+  let v = (await c('POST', `/api/slide-qa/questions/${bonus.id}/vote`)).body;
+  v = (await a('POST', `/api/slide-qa/questions/${bonus.id}/vote`)).body;
+  assert.deepEqual(v.questions.map((x) => [x.body, x.votes, x.who]), [['Bonus this year?', 2, null], ['When is the offsite?', 0, 'Qa Cat']], 'most upvoted first');
+  assert.equal((await c('POST', `/api/slide-qa/questions/${bonus.id}/vote`, { on: false })).body.questions[0].votes, 1, 'taken back');
+  // Answered goes to the bottom; only the presenter marks it.
+  assert.equal((await c('POST', `/api/slide-qa/questions/${bonus.id}/answered`)).status, 403);
+  v = (await a('POST', `/api/slide-qa/questions/${bonus.id}/answered`)).body;
+  assert.deepEqual(v.questions.map((x) => [x.body, x.answered]), [['When is the offsite?', false], ['Bonus this year?', true]]);
+  // Taking a question away: whoever asked, or the presenter.
+  const offsite = v.questions[0].id;
+  assert.equal((await b('DELETE', `/api/slide-qa/questions/${offsite}`)).status, 403);
+  assert.equal((await c('DELETE', `/api/slide-qa/questions/${offsite}`)).status, 200);
+  // Another company never sees it; ended, no more questions.
+  const g = client();
+  assert.equal((await owner('POST', '/api/orgs', { name: 'Qa Co', domain: 'qaco.com', admin_name: 'Qa Gus', admin_local: 'gus', admin_password: 'password123' })).status, 201);
+  await login(g, 'gus@qaco.com');
+  assert.equal((await g('GET', `/api/slide-qa/${s.code}`)).status, 404);
+  assert.equal((await c('POST', `/api/slide-qa/${s.code}/end`)).status, 403);
+  assert.equal((await a('POST', `/api/slide-qa/${s.code}/end`)).body.open, false);
+  assert.equal((await c('POST', `/api/slide-qa/${s.code}/questions`, { body: 'Late' })).status, 400);
+  assert.equal((await a('GET', `/api/slide-qa/decks/${deck.id}`)).body, null);
+  assert.notEqual((await a('POST', `/api/slide-qa/decks/${deck.id}/start`)).body.code, s.code, 'a new one next time');
+});
