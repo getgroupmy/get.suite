@@ -8320,3 +8320,30 @@ test('a document downloads as an e-book (.epub), with its owner as author; e-boo
   const up = (await owner('POST', '/api/files/upload?name=Novel.epub', out.body, { raw: true })).body;
   assert.equal((await owner('POST', `/api/files/${up.id}/open-as`)).status, 400);
 });
+
+test('one event as a calendar file (.ics): for its organiser and guests; others get nothing', async () => {
+  const guest = client(), other = client();
+  for (const [c, local] of [[guest, 'icsguest'], [other, 'icsother']]) {
+    assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name: local === 'icsguest' ? 'Gus Guest' : 'Otto Other', password: 'password123' })).status, 201);
+    await login(c, `${local}@acme.com`);
+  }
+  const start = Date.UTC(2027, 2, 15, 9, 0), end = Date.UTC(2027, 2, 15, 10, 30);
+  const ev = await owner('POST', '/api/events', { title: 'Budget review: Q1', location: 'Room 4', description: 'Bring the figures', start, end, tz: 'Europe/Berlin', guests: ['icsguest@acme.com'] });
+  assert.equal(ev.status, 201, JSON.stringify(ev.body));
+  const r = await owner('GET', `/api/events/${ev.body.id}/ics`);
+  assert.equal(r.status, 200);
+  assert.match(r.headers.get('content-type'), /text\/calendar/);
+  assert.match(r.headers.get('content-disposition'), /Budget%20review%20%20Q1\.ics|Budget%20review_%20Q1\.ics|Budget%20review%20Q1\.ics/);
+  const ics = r.body.replace(/\r\n[ \t]/g, ''); // long lines are folded
+  assert.match(ics, /BEGIN:VCALENDAR[\s\S]*METHOD:PUBLISH[\s\S]*BEGIN:VEVENT/);
+  assert.match(ics, /SUMMARY:Budget review: Q1/);
+  assert.match(ics, /LOCATION:Room 4/);
+  assert.match(ics, /ORGANIZER;CN="Olivia Owner":mailto:owner@acme\.com/);
+  assert.match(ics, /ATTENDEE[^:]*:mailto:icsguest@acme\.com/);
+  const { parseIcsEvent } = await import('../src/ics.js');
+  const back = parseIcsEvent(ics);
+  assert.deepEqual([back.title, back.start, back.end], ['Budget review: Q1', start, end], 'the same times when read back');
+  assert.equal((await guest('GET', `/api/events/${ev.body.id}/ics`)).status, 200, 'a guest can');
+  assert.equal((await other('GET', `/api/events/${ev.body.id}/ics`)).status, 404, 'someone else cannot');
+  assert.equal((await owner('GET', '/api/events/nope/ics')).status, 404);
+});

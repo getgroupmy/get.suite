@@ -1,5 +1,5 @@
 import { userById } from '../auth.js';
-import { canEditCalendar } from '../calshare.js';
+import { canEditCalendar, seesDetails } from '../calshare.js';
 import { audit } from '../audit.js';
 import { notify as bell } from '../notifications.js';
 import { Router } from 'express';
@@ -698,6 +698,26 @@ export default function calendarRoutes() {
 
   // Meeting notes: the organizer makes a document for the event (or gets the one already made). It's
   // attached to the event, and colleagues invited can edit it.
+  // One event as a calendar file (.ics), for adding it to another calendar app or passing it on: for its
+  // organiser, its guests, and people who can see its calendar (shared, or the owner's details).
+  r.get('/:id/ics', (req, res) => {
+    const row = q('SELECT * FROM events WHERE id = ?').get(req.params.id);
+    const me = req.user.id;
+    const may = row && (row.owner_id === me || q('SELECT 1 FROM event_guests WHERE event_id = ? AND user_id = ?').get(row.id, me)
+      || (row.calendar_id && q('SELECT 1 FROM user_calendar_shares WHERE calendar_id = ? AND user_id = ?').get(row.calendar_id, me))
+      || (!row.calendar_id && seesDetails(row.owner_id, me)));
+    if (!may) throw notFound();
+    const e = outEvent(row);
+    const overrides = e.rrule ? q('SELECT * FROM events WHERE recur_parent = ? ORDER BY recur_id').all(e.id).map((o) => ({ ...o, recurrenceId: o.recur_id })) : [];
+    const organizer = q('SELECT name, username AS email FROM users WHERE id = ?').get(row.owner_id);
+    const attendees = [...guestsOf(e.id).map((g) => ({ name: g.name, email: g.email || g.username, status: g.status })), ...outsideOf(e.id).map((o) => ({ email: o.email, status: o.status }))];
+    const ics = buildIcs(e, { method: 'PUBLISH', uid: row.ical_uid || icsUid(e), sequence: row.sequence || 0, tz: row.tz, overrides, organizer, attendees: attendees.filter((a) => a.email) });
+    res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
+    const name = `${String(row.title || 'Event').replace(/[\\/:*?"<>|\u0000-\u001f]/g, ' ').trim().slice(0, 80) || 'Event'}.ics`;
+    res.setHeader('Content-Disposition', `attachment; filename="event.ics"; filename*=UTF-8''${encodeURIComponent(name)}`);
+    res.send(ics);
+  });
+
   r.post('/:id/notes', (req, res) => {
     const row = q('SELECT * FROM events WHERE id = ? AND owner_id = ?').get(req.params.id, req.user.id);
     if (!row) throw notFound();
