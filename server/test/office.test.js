@@ -1474,11 +1474,11 @@ test('Excel: tables come in as alternating colours', async () => {
   ws.addTable({ name: 'Sales', ref: 'B2', headerRow: true, totalsRow: true, style: { theme: 'TableStyleMedium3', showRowStripes: true },
     columns: [{ name: 'Region', totalsRowLabel: 'Total' }, { name: 'Amount', totalsRowFunction: 'sum' }], rows: [['North', 10], ['South', 20]] });
   const back = await sheetFromExcel(Buffer.from(await wb.xlsx.writeBuffer()));
-  assert.deepEqual(back.sheets[0].bands, [{ id: 't1', range: 'B2:C5', header: true, footer: true, head: '#f6911e', odd: '#ffffff', even: '#feefe3', foot: '#fcd5b2' }]);
+  assert.deepEqual(back.sheets[0].bands, [{ id: 't1', range: 'B2:C5', header: true, footer: true, head: '#f6911e', odd: '#ffffff', even: '#feefe3', foot: '#fcd5b2', name: 'Sales' }]);
   assert.equal(back.sheets[0].cells.B3, 'North');
 });
 
-test('Excel: a table\'s structured references become ranges, so its total row works', async () => {
+test('Excel: a table\'s structured references are kept with its name (or become ranges), so its total row works', async () => {
   const { plainTableRefs, tableShape } = await import('../src/office/excel.js');
   const t = [tableShape({ name: 'Sales', tableRef: 'A1:C6', headerRow: true, totalsRow: true, columns: [{ name: 'Region' }, { name: 'Unit price' }, { name: 'Amount' }] })];
   const cases = [
@@ -1498,7 +1498,18 @@ test('Excel: a table\'s structured references become ranges, so its total row wo
   ws.addTable({ name: 'Sales', ref: 'A1', headerRow: true, totalsRow: true, style: { theme: 'TableStyleMedium2' },
     columns: [{ name: 'Region', totalsRowLabel: 'Total' }, { name: 'Amount', totalsRowFunction: 'sum' }], rows: [['North', 10], ['South', 20]] });
   const back = await sheetFromExcel(Buffer.from(await wb.xlsx.writeBuffer()));
-  assert.equal(back.sheets[0].cells.B4, '=SUBTOTAL(109,B2:B3)');
+  // The table keeps its name, so its total row keeps its structured reference, and works here.
+  assert.equal(back.sheets[0].bands[0].name, 'Sales');
+  assert.equal(back.sheets[0].cells.B4, '=SUBTOTAL(109,Sales[Amount])');
+  const { bookEvaluator } = await import('../../web/src/apps/sheets/formula.js');
+  assert.equal(bookEvaluator(back.sheets, 0)('B4'), 30);
+  // A table whose name can't be used here (like a cell) gets ranges, as before.
+  const wb2 = new ExcelJS.Workbook();
+  wb2.addWorksheet('S').addTable({ name: 'AB12', ref: 'A1', headerRow: true, totalsRow: true, style: { theme: 'TableStyleMedium2' },
+    columns: [{ name: 'Region', totalsRowLabel: 'Total' }, { name: 'Amount', totalsRowFunction: 'sum' }], rows: [['North', 10], ['South', 20]] });
+  const back2 = await sheetFromExcel(Buffer.from(await wb2.xlsx.writeBuffer()));
+  assert.equal(back2.sheets[0].cells.B4, '=SUBTOTAL(109,B2:B3)');
+  assert.equal(back2.sheets[0].bands[0].name, undefined);
 });
 
 test('Excel: alternating colours go out as Excel tables when they can, and come back', async () => {
@@ -1520,7 +1531,7 @@ test('Excel: alternating colours go out as Excel tables when they can, and come 
   assert.equal(wb.worksheets[0].getCell('D1').fill?.fgColor?.argb, 'FF4A86E8', 'the band that can\'t be a table is painted as before');
   assert.equal(wb.worksheets[0].getCell('A3').fill?.fgColor?.argb, 'FFE6F4EA', 'painted too, for programs that don\'t draw table styles');
   const back = await sheetFromExcel(buf);
-  assert.deepEqual(back.sheets[0].bands.map(({ id, ...b }) => b), [{ range: 'A1:B4', header: true, footer: true, head: '#34a853', odd: '#ffffff', even: '#e6f4ea', foot: '#bfe3c8' }]);
+  assert.deepEqual(back.sheets[0].bands.map(({ id, ...b }) => b), [{ range: 'A1:B4', header: true, footer: true, head: '#34a853', odd: '#ffffff', even: '#e6f4ea', foot: '#bfe3c8', name: 'Table1' }]);
   assert.equal(back.sheets[0].cells.B4, '=SUM(B2:B3)');
   assert.equal(back.sheets[0].formats?.A3, undefined, 'the stripes come back as the band, not as cell colours');
 });

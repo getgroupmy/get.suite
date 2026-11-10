@@ -237,7 +237,9 @@ export async function sheetFromExcel(buffer) {
       row.eachCell({ includeEmpty: true }, (cell, c) => {
         const key = `${colName(c - 1)}${r}`;
         let t = cellText(cell);
-        if (tableRefs.length && typeof t === 'string' && t.startsWith('=') && t.includes('[')) t = `=${plainTableRefs(t.slice(1), tableRefs, r, c - 1)}`;
+        // Kept as written when every reference resolves to a table that keeps its name here (so they go on
+        // following the table as it grows); otherwise written as plain ranges.
+        if (tableRefs.length && typeof t === 'string' && t.startsWith('=') && t.includes('[')) { const plain = `=${plainTableRefs(t.slice(1), tableRefs, r, c - 1)}`; if (plain.includes('[') || !tableRefs.every((x) => usableTableName(x.name))) t = plain; }
         if (t !== null && t !== '') cells[key] = t;
         const f = {};
         if (cell.font?.bold) f.b = 1;
@@ -796,6 +798,8 @@ async function withThreads(buffer, perSheet) {
   return zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
 }
 
+/** An Excel table's name as a table name here (letters, digits, _ and ., not like a cell). */
+const usableTableName = (n) => typeof n === 'string' && /^[A-Za-z_][A-Za-z0-9_.]{0,39}$/.test(n) && !/^[A-Za-z]{1,3}\d+$/.test(n);
 /** Whether a table has a heading row. Excel leaves headerRowCount out when there is one (the default), which the
  *  library reads as none; a table with a heading row has a filter on it, one without doesn't. */
 const hasHeader = (t) => t.headerRow === true || !!t.autoFilterRef || (t.headerRow !== false && t.headerRowCount !== 0);
@@ -865,7 +869,7 @@ export function bandFromTable(t, n = 1) {
   const m = /^TableStyle(Light|Medium|Dark)(\d+)$/i.exec(t.style?.theme || '');
   const colours = BAND_COLOURS[m ? THEME_CYCLE[(Number(m[2]) - 1) % 7] : 'blue'];
   const stripes = t.style?.showRowStripes !== false;
-  const band = { id: `t${n}`, range: ref, header: hasHeader(t), footer: !!t.totalsRow, ...colours, ...(!stripes && { even: colours.odd }) };
+  const band = { id: `t${n}`, range: ref, header: hasHeader(t), footer: !!t.totalsRow, ...colours, ...(!stripes && { even: colours.odd }), ...(usableTableName(t.name) && { name: String(t.name) }) };
   if (!m) Object.defineProperty(band, '_unstyled', { value: true }); // no known style: colours may come from its cells
   return band;
 }

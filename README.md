@@ -295,7 +295,7 @@ Give alternating colours a name and they become a **table** formulas can use by 
 - **Make one:** right-click in the data → **Alternating colours…** → **Table name** (*Sales*: letters, digits, _ and ., not like a cell, and not used by another table or named range).
 - **Use it:** `=SUM(Sales[Qty])` (that column's data), `=SUMPRODUCT(Sales[Unit price], Sales[Qty])`, `[@Qty]*[@[Unit price]]` on a row of the table (or in a column of formulas just beside it), `Sales[#All]`, `Sales[#Data]`, `Sales[#Headers]`, `Sales[#Totals]` (the footer row), `Sales[[Unit price]:[Qty]]` for several columns, and `Sales` alone for all its data. Other sheets can use it too.
 - **It grows:** rows typed straight under a table belong to it (unless it has a footer row), so `=SUM(Sales[Qty])` takes in new orders without changing the formula.
-- **Excel:** in an Excel download the table keeps its name, and formulas are written with plain ranges so they work there as they are. Excel tables opened here become alternating colours with their ranges (as before).
+- **Excel:** an Excel file's tables open as tables here, with their names and their formulas as written (`=SUM(Orders[Qty])` keeps following the table as rows are added); a reference that can't be worked out here is written as a range instead. In an Excel download a table keeps its name, and formulas are written with plain ranges so they work there as they are.
 
 ## Slicers (Sheets)
 
