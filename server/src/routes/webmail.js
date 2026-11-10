@@ -39,6 +39,7 @@ import { previewMime, previewHeaders } from '../mail/preview.js';
 import { officePreview } from '../office/preview.js';
 import { originalSummary } from '../mail/original.js';
 import { splitHtmlQuote, splitTextQuote } from '../mail/quotesplit.js';
+import { attachmentsZip, safeName } from '../mail/attzip.js';
 import { describeForwarding, rowOf, recentSends, newCode, hashCode, cleanAddress, forwardingAllowed, checkCode, KEEP_CHOICES, CODE_DAYS, MAX_SENDS_PER_DAY } from '../mail/forwarding.js';
 import { emlView } from '../mail/emlview.js';
 import { zipEntries } from '../zipfiles.js';
@@ -1146,6 +1147,19 @@ export default function webmailRoutes() {
     res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(a.filename || 'attachment')}`);
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.end(a.content);
+  });
+
+  // All the attachments of a message in one .zip, named after the subject.
+  r.get('/messages/:uid/attachments.zip', async (req, res) => {
+    const { parsed } = await loadMessage(req.user, String(req.query.folder || 'INBOX'), Number(req.params.uid), false);
+    const list = parsed.attachments.filter((x) => !x.related);
+    if (!list.length) throw notFound('This message has no attachments');
+    const buf = await attachmentsZip(list);
+    const name = `${safeName(parsed.subject, 'Attachments')} (attachments).zip`;
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="attachments.zip"; filename*=UTF-8''${encodeURIComponent(name)}`);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.end(buf);
   });
 
   // A Word, Excel or PowerPoint attachment as a read-only document, spreadsheet or presentation.

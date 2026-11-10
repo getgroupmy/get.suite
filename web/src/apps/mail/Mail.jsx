@@ -799,6 +799,7 @@ function Reader({ shared = null, folder, uid, special, onClose, onOpen, onChange
               <Icon name="attach" size={18} /><span className="ellipsis">{a.filename}</span><span className="muted small">{formatBytes(a.size)}</span>
             </a><button type="button" className="icon-btn" aria-label={`Save ${a.filename} to Drive`} title="Save to Drive" onClick={() => saveToDrive([a.index])}><Icon name="folder" size={16} /></button></li>
           ))}
+          {m.attachments.length > 1 && <li><a className="btn small" href={`/api/mail/messages/${uid}/attachments.zip?folder=${enc(folder)}${mailboxParam()}`} download>Download all (.zip)</a></li>}
           {m.attachments.length > 1 && <li><button type="button" className="btn small" onClick={() => saveToDrive(null)}>Save all to Drive</button></li>}
         </ul>
       )}
