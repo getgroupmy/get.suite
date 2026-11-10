@@ -649,6 +649,13 @@ export async function powerPointFromDeck(deck, { pictureData, title = 'Presentat
           const extn = { 'video/quicktime': 'mov', 'video/mp4': 'mp4', 'video/webm': 'webm', 'video/ogg': 'ogv' }[vid.mime] || 'mp4';
           slide.addMedia({ ...pos, type: 'video', data: `${vid.mime};base64,${vid.data.toString('base64')}`, extn });
         } else slide.addText(`▶ ${it.name || 'Video'}`, { ...pos, fontSize: 18, align: 'center', valign: 'middle', color: '5F6368', fill: { color: 'F1F3F4' } });
+      } else if (it.type === 'audio') {
+        // Sound plays in PowerPoint too (up to 50 MB; a bigger one is named instead).
+        const snd = await pictureData?.(it.fileId);
+        if (snd && /^audio\//.test(snd.mime) && snd.data.length <= 50 * 1024 * 1024) {
+          const extn = { 'audio/mpeg': 'mp3', 'audio/mp4': 'm4a', 'audio/aac': 'm4a', 'audio/x-m4a': 'm4a', 'audio/wav': 'wav', 'audio/x-wav': 'wav', 'audio/wave': 'wav', 'audio/ogg': 'ogg', 'audio/webm': 'webm' }[snd.mime] || 'mp3';
+          slide.addMedia({ ...pos, type: 'audio', data: `${snd.mime};base64,${snd.data.toString('base64')}`, extn });
+        } else slide.addText(`🔊 ${it.name || 'Sound'}`, { ...pos, fontSize: 14, align: 'center', valign: 'middle', color: '5F6368', fill: { color: 'F1F3F4' } });
       }
       if ((slide._slideObjects?.length ?? 0) > before) shown.push(it);
     }

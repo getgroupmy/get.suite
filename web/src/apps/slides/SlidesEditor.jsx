@@ -177,8 +177,8 @@ export default function SlidesEditor() {
 
   /** Put copies of boxes on this slide and choose them. */
   function pasteBoxes(items, fromDeck = id) {
-    const usable = fromDeck === id ? items : items.filter((it) => it.type !== 'image' && it.type !== 'video');
-    if (usable.length < items.length) toast('Pictures and videos stay with their own presentation: copy them from Drive instead', 'error');
+    const usable = fromDeck === id ? items : items.filter((it) => it.type !== 'image' && it.type !== 'video' && it.type !== 'audio');
+    if (usable.length < items.length) toast('Pictures, videos and sound stay with their own presentation: copy them from Drive instead', 'error');
     if (!usable.length) return;
     let ids = [];
     change((d) => { const r = pasteItems(d, slideIndex, usable); ids = r.ids; return r.deck; });
@@ -230,6 +230,20 @@ export default function SlidesEditor() {
       let up;
       try { up = await uploadFile(f, file.parent_id || null); } catch { up = await uploadFile(f, null); }
       putVideo({ id: up.id, name: f.name });
+    } catch (e) { toast(e.message, 'error'); }
+  }
+  // Sound: a Drive audio file (or one uploaded next to the presentation), a small box with 🔊; it plays with
+  // its controls when presenting, or by itself as the slide shows when "Play by itself" is on.
+  const audioInput = useRef(null);
+  const AUDIO_TYPES = /^audio\/(mpeg|mp4|aac|x-m4a|wav|x-wav|wave|ogg|webm)$/;
+  const putAudio = (a) => insert({ type: 'audio', fileId: a.id, name: a.name, x: 82, y: 80, w: 14, h: 12 });
+  async function insertAudio(f) {
+    if (!f) return;
+    if (!AUDIO_TYPES.test(f.type)) return toast('Choose a sound file (MP3, M4A, WAV, Ogg or WebM)', 'error');
+    try {
+      let up;
+      try { up = await uploadFile(f, file.parent_id || null); } catch { up = await uploadFile(f, null); }
+      putAudio({ id: up.id, name: f.name });
     } catch (e) { toast(e.message, 'error'); }
   }
   // A picture behind everything on the slide, filling it (PNG, JPEG or GIF: what PowerPoint takes as a background too).
@@ -345,6 +359,11 @@ export default function SlidesEditor() {
             { label: 'Upload a video…', icon: 'upload', onClick: () => videoInput.current.click() },
           ]} />
           <input ref={videoInput} type="file" accept="video/mp4,video/webm,video/ogg,video/quicktime" hidden aria-label="Video file" onChange={(e) => { insertVideo(e.target.files[0]); e.target.value = ''; }} />
+          <Menu align="left" trigger={(p) => <button type="button" className="tb" {...p}>Audio</button>} items={[
+            { label: 'From Drive…', icon: 'folder', onClick: () => setDialog({ type: 'audio-file' }) },
+            { label: 'Upload a sound…', icon: 'upload', onClick: () => audioInput.current.click() },
+          ]} />
+          <input ref={audioInput} type="file" accept="audio/mpeg,audio/mp4,audio/aac,audio/x-m4a,audio/wav,audio/ogg,audio/webm,.mp3,.m4a,.wav,.ogg,.weba" hidden aria-label="Sound file" onChange={(e) => { insertAudio(e.target.files[0]); e.target.value = ''; }} />
           <button type="button" className="tb" onClick={() => insert({ type: 'table', x: 15, y: 25, w: 70, h: 40, size: 18, header: true, cells: newTable(3, 3) })}>Table</button>
           <button type="button" className="tb" onClick={() => setDialog({ type: 'chart-file' })}>Chart</button>
           <Menu align="left" trigger={(p) => <button type="button" className="tb" {...p}>Shape ▾</button>} items={[
@@ -427,7 +446,12 @@ export default function SlidesEditor() {
               {ANIMATIONS.map(([v, n]) => <option key={v} value={v}>{v ? `Animation: ${n}` : 'No animation'}</option>)}
             </select>
           )}
-          {item && item.type !== 'video' && (
+          {item?.type === 'audio' && (
+            <label className="tb labelled" title="Start the sound by itself when this slide shows while presenting (it stops when the slide changes)">
+              <input type="checkbox" checked={!!item.autoplay} onChange={(e) => setItem({ autoplay: e.target.checked || undefined })} /> Play by itself
+            </label>
+          )}
+          {item && item.type !== 'video' && item.type !== 'audio' && (
             <button type="button" className={`tb labelled ${item.link ? 'on' : ''}`} aria-label="Link" title={item.link ? `Link: ${linkLabel(deck, item.link)}` : 'Link to a web page or another slide (followed when presenting)'}
               onClick={() => setDialog({ type: 'link', id: item.id })}>🔗 Link{item.link ? ' ✓' : ''}</button>
           )}
@@ -583,6 +607,8 @@ export default function SlidesEditor() {
           toast(`${r.slides.length === 1 ? '1 slide' : `${r.slides.length} slides`} imported from “${dialog.file.name}”`);
         } catch (e) { toast(e.message, 'error'); }
       }} />}
+      {dialog?.type === 'audio-file' && <DrivePicker title="Sound from Drive" accept={(x) => x.kind === 'file' && AUDIO_TYPES.test(x.mime || '')} empty="No sound files found in your Drive."
+        onClose={() => setDialog(null)} onPick={(f) => { setDialog(null); putAudio(f); }} />}
       {dialog?.type === 'video-file' && <DrivePicker title="Video from Drive" accept={(x) => x.kind === 'file' && VIDEO_TYPES.test(x.mime || '')} empty="No videos found in your Drive."
         onClose={() => setDialog(null)} onPick={(f) => { setDialog(null); putVideo(f); }} />}
       {dialog?.type === 'chart-file' && <DrivePicker title="Chart from a spreadsheet" accept={(x) => x.kind === 'sheet'} empty="No spreadsheets found."
@@ -735,7 +761,7 @@ function PrintDeck({ deck, theme, deckId, title, how }) {
   );
 }
 
-export function SlideView({ slide, theme, deckId, editable, selected, group = [], editing, onSelect, onEdit, onChange, onMoveMany, peers, built, number, pictureBase = null }) {
+export function SlideView({ slide, theme, deckId, editable, selected, group = [], editing, onSelect, onEdit, onChange, onMoveMany, peers, built, number, pictureBase = null, playing = false }) {
   // Animated boxes: where each comes in (1, 2…). Presenting (built set), the later ones aren't in yet.
   const buildAt = new Map(builds(slide).map((it, k) => [it.id, k + 1]));
   const ref = useRef();
@@ -832,6 +858,12 @@ export function SlideView({ slide, theme, deckId, editable, selected, group = []
           inner = editable
             ? <div className="slide-video editing"><video src={src} preload="metadata" muted aria-hidden="true" /><span className="slide-video-play" aria-hidden="true">▶</span></div>
             : <video className="slide-video" src={src} controls preload="metadata" aria-label={`Video: ${it.name || ''}`} onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()} />;
+        } else if (it.type === 'audio') {
+          // Editing: 🔊 and its name (a box to move); presenting or viewing: the player (by itself when presenting, if asked).
+          const src = `${pictureBase || `/api/files/${deckId}`}/pictures/${it.fileId}`;
+          inner = editable
+            ? <div className="slide-audio editing"><span aria-hidden="true">🔊</span><span className="slide-audio-name">{it.name || 'Sound'}{it.autoplay ? ' · plays by itself' : ''}</span></div>
+            : <div className="slide-audio"><audio src={src} controls preload="metadata" autoPlay={playing && !!it.autoplay} aria-label={`Sound: ${it.name || ''}`} onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()} /></div>;
         } else if (it.type === 'table') {
           const typing = editable && editing === it.id;
           inner = (
@@ -879,7 +911,7 @@ export function SlideView({ slide, theme, deckId, editable, selected, group = []
           <div key={it.id} className={`slide-item ${it.type} ${isSel || inGroup ? 'sel' : ''} ${inGroup ? 'in-group' : ''} ${arriving}`} data-item={it.id} data-built={built !== undefined && at ? (notYet ? 'no' : 'yes') : undefined}
             style={{ ...(peers?.has(it.id) ? { ...pos, boxShadow: `0 0 0 ${isSel ? 4 : 2}px ${peers.get(it.id).color}` } : pos), ...(notYet && { visibility: 'hidden' }) }}
             title={peers?.has(it.id) ? `${peers.get(it.id).name} is here` : undefined}
-            aria-label={editable ? `${it.type === 'text' ? (it.text ? `Text: ${it.text.slice(0, 40)}` : PLACEHOLDER[it.role] || 'Text box') : boxShape(it) && it.text ? `Shape: ${it.text.slice(0, 40)}` : it.type === 'image' ? (it.alt ? `Picture: ${it.alt.slice(0, 80)}` : 'Picture') : it.type === 'video' ? `Video: ${it.name || ''}` : it.type === 'table' ? 'Table' : it.type === 'chart' ? `Chart: ${it.title || 'Untitled'}` : 'Shape'}` : undefined}
+            aria-label={editable ? `${it.type === 'text' ? (it.text ? `Text: ${it.text.slice(0, 40)}` : PLACEHOLDER[it.role] || 'Text box') : boxShape(it) && it.text ? `Shape: ${it.text.slice(0, 40)}` : it.type === 'image' ? (it.alt ? `Picture: ${it.alt.slice(0, 80)}` : 'Picture') : it.type === 'video' ? `Video: ${it.name || ''}` : it.type === 'audio' ? `Sound: ${it.name || ''}` : it.type === 'table' ? 'Table' : it.type === 'chart' ? `Chart: ${it.title || 'Untitled'}` : 'Shape'}` : undefined}
             data-link={!editable && it.link ? '1' : undefined}
             onPointerDown={editable ? (e) => startDrag(e, it) : undefined}
             onDoubleClick={editable && (it.type === 'text' || it.type === 'table' || boxShape(it)) ? () => onEdit(it.id) : undefined}>
@@ -1043,7 +1075,7 @@ function Presenter({ deck, theme, deckId, start, onClose }) {
       }}
       onPointerMove={(e) => { if (laser) setLaser({ x: e.clientX, y: e.clientY }); }}>
       {laser && <span className="laser-dot" role="img" aria-label="Laser pointer" style={{ left: laser.x, top: laser.y }} />}
-      <div key={i} className={`presenter-slide ${deck.slides[i]?.transition ? `tr-${deck.slides[i].transition}` : ''}`}><SlideView slide={deck.slides[i]} theme={theme} deckId={deckId} built={at.b} number={numberShown(deck, i) ? i + 1 : null} /></div>
+      <div key={i} className={`presenter-slide ${deck.slides[i]?.transition ? `tr-${deck.slides[i].transition}` : ''}`}><SlideView slide={deck.slides[i]} theme={theme} deckId={deckId} built={at.b} number={numberShown(deck, i) ? i + 1 : null} playing /></div>
       {notes && <div className="presenter-notes" onClick={(e) => e.stopPropagation()}>{deck.slides[i]?.notes || <span className="muted">No notes for this slide</span>}</div>}
       <div className="presenter-bar" onClick={(e) => e.stopPropagation()}>
         <button type="button" aria-label="Previous slide" disabled={stepSlide(deck, i, -1) === i && at.b === 0} onClick={() => step(-1)}>‹</button>

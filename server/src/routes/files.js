@@ -357,12 +357,14 @@ export async function receiveUpload(req, orgId, maxUploadBytes, ownerId = null) 
 }
 
 /** The Drive files a presentation or document shows as pictures (their ids). */
+/** Sound that can go on a slide: MP3, M4A/AAC, WAV, Ogg/Opus and WebM audio. */
+export const SLIDE_AUDIO = /^audio\/(mpeg|mp4|aac|x-m4a|wav|x-wav|wave|ogg|webm)$/;
 export function picturesIn(kind, content) {
   const ids = new Set();
   if (kind === 'slides' && typeof content.master?.logo === 'string' && content.master.logo) ids.add(content.master.logo); // the logo on every slide
   if (kind === 'slides') for (const sl of content.slides || []) {
     if (typeof sl.bgImage === 'string' && sl.bgImage) ids.add(sl.bgImage); // a picture behind the slide
-    for (const it of sl.items || []) { if ((it.type === 'image' || it.type === 'video') && it.fileId) ids.add(it.fileId); } // pictures and videos
+    for (const it of sl.items || []) { if ((it.type === 'image' || it.type === 'video' || it.type === 'audio') && it.fileId) ids.add(it.fileId); } // pictures, videos and sound
   }
   if (kind === 'doc') {
     const walk = (n) => { if (n?.type === 'image' && n.attrs?.fileId) ids.add(n.attrs.fileId); for (const c of n?.content || []) walk(c); };
@@ -1248,7 +1250,7 @@ export default function fileRoutes({ maxUploadBytes }) {
       // Just put in and not saved yet: the person who added it can see their own picture.
       || q("SELECT 1 FROM files WHERE id = ? AND owner_id = ?").get(pic, req.user.id);
     const f = used && q('SELECT * FROM files WHERE id = ? AND kind = ? AND trashed = 0').get(pic, 'file');
-    const video = deck.kind === 'slides' && /^video\/(mp4|webm|ogg|quicktime)$/.test(f?.mime || ''); // a video on a slide (played from here, seeking included)
+    const video = deck.kind === 'slides' && (/^video\/(mp4|webm|ogg|quicktime)$/.test(f?.mime || '') || SLIDE_AUDIO.test(f?.mime || '')); // a video or sound on a slide (played from here, seeking included)
     if (!f || !(video || /^image\/(png|jpeg|gif|webp|avif|bmp)$/.test(f.mime || '')) || !atLeast(roleFor(deck.id, f.owner_id), 'editor')) throw notFound('Picture not found');
     res.setHeader('Content-Type', f.mime);
     res.setHeader('Content-Security-Policy', "default-src 'none'");
@@ -1368,7 +1370,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     // The same rule as showing pictures in the file: only pictures owned by someone who can edit it.
     const pictureData = async (fileId) => {
       const pic = q("SELECT * FROM files WHERE id = ? AND kind = 'file' AND trashed = 0").get(fileId);
-      if (!pic || !(/^image\//.test(pic.mime || '') || (f.kind === 'slides' && /^video\//.test(pic.mime || ''))) || !atLeast(roleFor(f.id, pic.owner_id), 'editor')) return null; // pictures, and videos on slides
+      if (!pic || !(/^image\//.test(pic.mime || '') || (f.kind === 'slides' && (/^video\//.test(pic.mime || '') || SLIDE_AUDIO.test(pic.mime || '')))) || !atLeast(roleFor(f.id, pic.owner_id), 'editor')) return null; // pictures, and videos and sound on slides
       return { data: fs.readFileSync(path.join(FILES_DIR, pic.storage)), mime: pic.mime };
     };
     if (type === 'md') return Buffer.from(markdownFromDoc(content), 'utf8');

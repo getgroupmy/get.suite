@@ -125,8 +125,8 @@ export async function odpFromDeck(deck, { pictureData, title = 'Presentation' } 
         if (!p) continue;
         const img = `<draw:frame draw:style-name="${graphic(it, {})}" ${place(it)}><draw:image xlink:href="${p}" xlink:type="simple" xlink:show="embed" xlink:actuate="onLoad"/>${it.alt ? `<svg:title>${x(it.alt)}</svg:title>` : ''}</draw:frame>`;
         items += href ? `<draw:a xlink:type="simple" xlink:href="${x(href)}">${img}</draw:a>` : img;
-      } else if (it.type === 'video') {
-        items += `<draw:frame draw:style-name="${graphic(it, { fill: '#f1f3f4', valign: 'middle' })}" ${place(it)}><draw:text-box>${paras(`▶ ${it.name || 'Video'}`, textStyle({ size: 18, color: '#5f6368' }, '#5f6368', 18), paraStyle('center'))}</draw:text-box></draw:frame>`;
+      } else if (it.type === 'video' || it.type === 'audio') {
+        items += `<draw:frame draw:style-name="${graphic(it, { fill: '#f1f3f4', valign: 'middle' })}" ${place(it)}><draw:text-box>${paras(`${it.type === 'audio' ? '🔊' : '▶'} ${it.name || (it.type === 'audio' ? 'Sound' : 'Video')}`, textStyle({ size: 18, color: '#5f6368' }, '#5f6368', 18), paraStyle('center'))}</draw:text-box></draw:frame>`;
       }
     }
     if (pieces.length) pieces[pieces.length - 1].end = items.length;

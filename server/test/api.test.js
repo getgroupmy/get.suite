@@ -8837,3 +8837,32 @@ test('chat: send a contact; others add it to their own contacts (once)', async (
   const plain = (await a('POST', `/api/chat/channels/${dm}/messages`, { body: 'hi' })).body;
   assert.equal((await b('POST', `/api/chat/messages/${plain.id}/contact/save`)).status, 400);
 });
+
+test('presentations: sound on a slide plays for everyone who can open the deck, and goes into PowerPoint', async () => {
+  const a = client(), v = client();
+  await owner('POST', '/api/users', { local: 'sndown', domain: 'acme.com', name: 'Snd Owner', password: 'password123' });
+  const vid = (await owner('POST', '/api/users', { local: 'sndview', domain: 'acme.com', name: 'Snd Viewer', password: 'password123' })).body.id;
+  await login(a, 'sndown@acme.com'); await login(v, 'sndview@acme.com');
+  const mp3 = Buffer.concat([Buffer.from('ID3'), Buffer.from([3, 0, 0, 0, 0, 0, 0]), Buffer.alloc(4000, 7)]);
+  const sound = (await a('POST', '/api/files/upload?name=intro.mp3', mp3, { raw: true })).body;
+  assert.equal(sound.mime, 'audio/mpeg');
+  const unused = (await a('POST', '/api/files/upload?name=other.mp3', mp3, { raw: true })).body;
+  const deck = (await a('POST', '/api/files/new', { kind: 'slides', name: 'Narrated' })).body;
+  const cur = (await a('GET', `/api/files/${deck.id}/content`)).body;
+  await a('PUT', `/api/files/${deck.id}/content`, { version: cur.file.version, content: { ...cur.content, slides: [{ id: 's1', items: [{ id: 'au', type: 'audio', fileId: sound.id, name: 'intro.mp3', autoplay: true, x: 80, y: 80, w: 8, h: 10 }] }] } });
+  await a('PUT', `/api/files/${deck.id}/shares`, { shares: [{ user_id: vid, role: 'viewer' }] });
+  assert.equal((await v('GET', `/api/files/${sound.id}`)).status, 404, 'not the file itself');
+  const whole = await v('GET', `/api/files/${deck.id}/pictures/${sound.id}`, undefined, { binary: true });
+  assert.equal(whole.status, 200);
+  assert.equal(whole.headers.get('content-type'), 'audio/mpeg');
+  assert.equal(whole.body.length, mp3.length);
+  const part = await v('GET', `/api/files/${deck.id}/pictures/${sound.id}`, undefined, { binary: true, headers: { range: 'bytes=0-99' } });
+  assert.equal(part.status, 206);
+  assert.equal((await v('GET', `/api/files/${deck.id}/pictures/${unused.id}`)).status, 404, 'only sound the deck uses');
+  const JSZip = (await import('jszip')).default;
+  const pptx = await v('GET', `/api/files/${deck.id}/export`, undefined, { binary: true });
+  assert.ok(Object.keys((await JSZip.loadAsync(pptx.body)).files).some((n) => /^ppt\/media\/.+\.mp3$/.test(n)), 'a real sound in PowerPoint');
+  const odp = await v('GET', `/api/files/${deck.id}/export?format=odp`, undefined, { binary: true });
+  assert.equal(odp.status, 200);
+  assert.match(await (await JSZip.loadAsync(odp.body)).file('content.xml').async('string'), /🔊 intro\.mp3/);
+});
