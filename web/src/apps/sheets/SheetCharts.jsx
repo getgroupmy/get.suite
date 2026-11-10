@@ -8,7 +8,7 @@ import { Modal, Menu } from '../../components/ui.jsx';
 export const MIN_W = 240, MIN_H = 180;
 
 /** One chart on the sheet. `onChange(next)` is called once a move or resize ends. */
-export function ChartCard({ chart, value, skipRow, canEdit, onChange, onEdit, onDelete }) {
+export function ChartCard({ chart, value, skipRow, canEdit, onChange, onEdit, onDelete, zoom = 1 }) {
   const [live, setLive] = useState(null); // position/size while dragging
   const [snap, setSnap] = useState(false); // making its picture
   const drag = useRef(null);
@@ -25,7 +25,7 @@ export function ChartCard({ chart, value, skipRow, canEdit, onChange, onEdit, on
   const move = (e) => {
     const d = drag.current;
     if (!d) return;
-    const dx = e.clientX - d.sx, dy = e.clientY - d.sy;
+    const dx = (e.clientX - d.sx) / zoom, dy = (e.clientY - d.sy) / zoom; // screen distance → the grid's own (zoomed) size
     setLive(d.mode === 'move'
       ? { x: Math.max(0, d.from.x + dx), y: Math.max(0, d.from.y + dy) }
       : { w: Math.max(MIN_W, d.from.w + dx), h: Math.max(MIN_H, d.from.h + dy) });

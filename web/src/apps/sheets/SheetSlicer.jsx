@@ -5,7 +5,7 @@ import { FilterMenu } from './SheetFilter.jsx';
 import { Menu } from '../../components/ui.jsx';
 import { slicerSummary } from './filter.js';
 
-export function SlicerCard({ slicer, heading, values, headings, canEdit, onChange, onDelete }) {
+export function SlicerCard({ slicer, heading, values, headings, canEdit, onChange, onDelete, zoom = 1 }) {
   const [menu, setMenu] = useState(null);
   const [live, setLive] = useState(null);
   const drag = useRef(null);
@@ -21,7 +21,7 @@ export function SlicerCard({ slicer, heading, values, headings, canEdit, onChang
   const move = (e) => {
     const d = drag.current;
     if (!d || !canEdit) return;
-    const dx = e.clientX - d.sx, dy = e.clientY - d.sy;
+    const dx = (e.clientX - d.sx) / zoom, dy = (e.clientY - d.sy) / zoom;
     if (!d.moved && Math.hypot(dx, dy) < 4) return;
     d.moved = true;
     setLive({ x: Math.max(0, slicer.x + dx), y: Math.max(0, slicer.y + dy) });

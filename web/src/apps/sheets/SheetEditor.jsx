@@ -1233,7 +1233,7 @@ export default function SheetEditor() {
         {handleAt && <span className="fill-handle" style={{ left: handleAt.left, top: handleAt.top }} onMouseDown={startFill} title="Drag to fill (Ctrl+D fills down, Ctrl+R right)" aria-hidden="true" />}
         <div className="chart-layer">
           {Object.entries(charts).map(([cid, ch]) => (
-            <ChartCard key={cid} chart={ch} value={evaluate} skipRow={(r) => hidden.has(r)} canEdit={!readOnly}
+            <ChartCard key={cid} zoom={zoom / 100} chart={ch} value={evaluate} skipRow={(r) => hidden.has(r)} canEdit={!readOnly}
               onChange={(next) => writeChart(cid, next)}
               onEdit={() => setDialog({ type: 'chart', chart: { ...ch, id: cid } })}
               onDelete={() => writeChart(cid, null)} />
@@ -1243,7 +1243,7 @@ export default function SheetEditor() {
             if (!g) return null;
             const headings = Array.from({ length: g.c2 - g.c1 + 1 }, (_, i) => ({ col: colName(g.c1 + i), name: display(evaluate(cellKey(g.c1 + i, g.r1))) }));
             return (
-              <SlicerCard key={id} slicer={sl} heading={headings.find((h) => h.col === sl.col)?.name || `Column ${sl.col}`} headings={headings} canEdit={!readOnly}
+              <SlicerCard key={id} zoom={zoom / 100} slicer={sl} heading={headings.find((h) => h.col === sl.col)?.name || `Column ${sl.col}`} headings={headings} canEdit={!readOnly}
                 values={columnValues(slicerAsFilter(sl), cells, evaluate, colIndex(sl.col))}
                 onChange={(next) => writeSlicer(id, next)} onDelete={() => writeSlicer(id, null)} />
             );
