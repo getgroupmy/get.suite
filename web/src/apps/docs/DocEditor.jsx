@@ -29,6 +29,7 @@ import Icon from '../../components/Icon.jsx';
 import { FindReplace } from './findReplace.js';
 import { WordCountDialog, WordCounter, counterOn } from './WordCount.jsx';
 import { Autocorrect } from './autocorrect.js';
+import { sortTransaction } from './sortlines.js';
 import { Superscript, Subscript } from './scripts.js';
 import { Indent } from './indent.js';
 import { DocPrefsDialog } from './DocPrefs.jsx';
@@ -879,6 +880,12 @@ function Toolbar({ editor, onDropdown, onEquation, onCite, onSymbols, onComment,
           </select>
           <select aria-label="Line spacing" title="Line spacing" value={lh} onChange={(e) => c().setLineHeight(e.target.value || null).run()}>
             {LINE_HEIGHTS.map(([v, n]) => <option key={n} value={v}>{v ? `↕ ${n}` : '↕ Spacing'}</option>)}
+          </select>
+          <select aria-label="Sort lines" title="Sort the selected paragraphs or list items" value="" disabled={editor.state.selection.empty}
+            onChange={(e) => { const tr = e.target.value && sortTransaction(editor.state, e.target.value === 'desc'); if (tr) editor.view.dispatch(tr); editor.view.focus(); }}>
+            <option value="">⇅</option>
+            <option value="asc">Sort A → Z</option>
+            <option value="desc">Sort Z → A</option>
           </select>
           <select aria-label="Capitalisation" title="Capitalisation of the selected text" value="" disabled={editor.state.selection.empty}
             onChange={(e) => { const tr = e.target.value && caseTransaction(editor.state, e.target.value); if (tr) editor.view.dispatch(tr); editor.view.focus(); }}>
