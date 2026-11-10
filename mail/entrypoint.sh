@@ -133,6 +133,10 @@ if [[ ${NW_MAIL_FUNCTIONS_ONLY:-} == 1 ]]; then trap - TERM INT; return 0; fi
 
 log "Starting mail server for $HOSTNAME_FQDN"
 postconf -e "myhostname = $HOSTNAME_FQDN"
+# Postfix's log goes to a file the app reads too (Admin → Email → Email log), and is shown on the console.
+mkdir -p "$STATUS"
+postconf -e "maillog_file = $STATUS/maillog" "maillog_file_compressor = gzip"
+touch "$STATUS/maillog"; chmod 644 "$STATUS/maillog"
 echo "$HOSTNAME_FQDN" > /etc/mailname
 echo "hostname = $HOSTNAME_FQDN" > /etc/dovecot/hostname.conf   # used in auto-reply Message-IDs
 mkdir -p /var/vmail /run/dovecot /run/rspamd /var/lib/rspamd
@@ -145,7 +149,17 @@ last=$(fp_all); last_postfix=$(fp_postfix); last_dovecot=$(fp_dovecot); last_rsp
 
 rspamd -f -u _rspamd -g _rspamd &
 dovecot
-postfix start-fg &   # foreground mode keeps Postfix logs on the container console
+postfix start-fg &   # foreground mode: the container runs as long as Postfix does
+tail -n0 -F "$STATUS/maillog" 2>/dev/null &   # Postfix's log on the container console, as before
+
+# The log file kept to about 20 MB: Postfix starts a new one, and the newest two old ones are kept (gzipped).
+rotate_maillog() {
+  local size; size=$(stat -c %s "$STATUS/maillog" 2>/dev/null || echo 0)
+  (( size > 20 * 1024 * 1024 )) || return 0
+  postfix logrotate >/dev/null 2>&1 || return 0
+  ls -1t "$STATUS"/maillog.*.gz 2>/dev/null | tail -n +3 | xargs -r rm -f
+  chmod 644 "$STATUS"/maillog* 2>/dev/null || true
+}
 
 running() { postfix status >/dev/null 2>&1 && pgrep -x dovecot >/dev/null && pgrep -x rspamd >/dev/null; }
 # A cold start can take a while on a small NAS (Rspamd compiles its rules first), so wait up to 2 minutes.
@@ -165,7 +179,8 @@ while true; do
   fi
   run_queue_actions || true
   write_queue_status || true
-  postfix status >/dev/null 2>&1 || { log "postfix died"; exit 1; }
+  rotate_maillog || true
+  pgrep -x master >/dev/null || { log "postfix died"; exit 1; }   # (not "postfix status": that writes to the mail log each time)
   pgrep -x dovecot >/dev/null || { log "dovecot died"; exit 1; }
   pgrep -x rspamd >/dev/null || { log "rspamd died"; exit 1; }
 done

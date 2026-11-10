@@ -8,6 +8,7 @@ import { validDomain } from '../tenancy.js';
 import { isSharedAddress, membersOf as sharedMembers } from '../mail/shared.js';
 import { mailEnabled, MAIL_HOSTNAME, ensureDkim, DKIM_SELECTOR, scheduleMailConfig } from '../mail/config.js';
 import { readReports } from '../mail/reports.js';
+import { parseMaillog, readMaillog, messagesFor } from '../mail/maillog.js';
 
 const EMAIL_RE = /^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i;
 const LOCAL_RE = /^[a-z0-9](?:[a-z0-9._+-]{0,62}[a-z0-9])?$/;
@@ -165,6 +166,19 @@ export default function mailAdminRoutes() {
     const mine = new Set(q('SELECT name FROM domains WHERE org_id = ?').all(orgId).map((d) => d.name));
     const got = await readReports(req.user, { days: Math.min(Math.max(Number(req.query.days) || 30, 1), 90) });
     res.json({ ...got, domains: got.domains.filter((d) => mine.has(d.domain)) });
+  });
+
+  // The email log: what happened to mail sent from or to the company's domains (Postfix's log, read
+  // from the status folder the mail container shares). ?q= an address or Message-ID, ?status=, ?days=.
+  r.get('/log', (req, res) => {
+    if (!mailEnabled()) throw bad('This server has no email');
+    const orgId = targetOrg(req);
+    const text = readMaillog();
+    if (text === null) return res.json({ available: false, messages: [] });
+    const domains = new Set(q('SELECT name FROM domains WHERE org_id = ?').all(orgId).map((d) => d.name));
+    const days = Math.min(Math.max(Number(req.query.days) || 7, 1), 30);
+    const status = ['delivered', 'waiting', 'bounced', 'refused'].includes(req.query.status) ? req.query.status : '';
+    res.json({ available: true, messages: messagesFor(parseMaillog(text), domains, { q: String(req.query.q || '').slice(0, 200), status, since: Date.now() - days * 864e5 }) });
   });
 
   r.get('/domains/:name/check', async (req, res) => {

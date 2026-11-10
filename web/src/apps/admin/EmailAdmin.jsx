@@ -19,6 +19,7 @@ export default function EmailAdmin({ orgId, orgPicker }) {
       {user.is_super && <HostCheck />}
       <Domains qs={qs} />
       <MailReports qs={qs} />
+      <EmailLog qs={qs} />
       <Aliases qs={qs} orgId={orgId} />
       <SharedMailboxes qs={qs} orgId={orgId} />
       <MailApps hostname={status.hostname} />
@@ -335,6 +336,52 @@ function MailReports({ qs }) {
           {(d.tls.success + d.tls.failure) > 0 && <p style={{ margin: 0 }}><strong>TLS:</strong> {(d.tls.success + d.tls.failure).toLocaleString()} connections reported by {d.tls.reporters.join(', ')} · {pct(d.tls.success, d.tls.success + d.tls.failure)} encrypted{d.tls.failure ? <> · <span className="error">{d.tls.failure} failed: {d.tls.reasons.map((r) => `${REASONS[r.result] || r.result} (${r.count})`).join(', ')}</span></> : ''}</p>}
         </section>
       ))}
+    </div>
+  );
+}
+
+/** The email log: what happened to mail sent from or to the company's domains, from the mail server's log. */
+function EmailLog({ qs }) {
+  const toast = useToast();
+  const [term, setTerm] = useState('');
+  const [status, setStatus] = useState('');
+  const [days, setDays] = useState(7);
+  const [data, setData] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const search = async (e) => {
+    e?.preventDefault();
+    setBusy(true);
+    const p = new URLSearchParams(qs.replace(/^\?/, ''));
+    p.set('q', term.trim()); p.set('status', status); p.set('days', String(days));
+    try { setData(await get(`/mail-admin/log?${p}`)); } catch (err) { toast(err.message, 'error'); } finally { setBusy(false); }
+  };
+  const LABEL = { delivered: 'Delivered', waiting: 'Waiting to retry', bounced: 'Bounced', refused: 'Refused' };
+  const when = (t) => new Date(t).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  return (
+    <div className="card stack" aria-labelledby="maillog-h">
+      <h2 id="maillog-h" style={{ margin: 0 }}>Email log</h2>
+      <p className="muted small" style={{ margin: 0 }}>Find out what happened to a message sent from or to your domains: delivered, waiting to retry, bounced, or refused when it arrived, with what the other mail server said. From the mail server's own log (the last week or more, depending on how busy it is).</p>
+      <form className="row wrap" onSubmit={search} style={{ gap: 8, alignItems: 'end' }}>
+        <label className="field grow" style={{ minWidth: 220 }}><span>Address or Message-ID</span><input value={term} onChange={(e) => setTerm(e.target.value)} placeholder="client@example.org" /></label>
+        <label className="field"><span>What happened</span>
+          <select value={status} onChange={(e) => setStatus(e.target.value)}><option value="">Anything</option>{Object.entries(LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
+        <label className="field"><span>In the last</span>
+          <select value={days} onChange={(e) => setDays(Number(e.target.value))}><option value={1}>day</option><option value={7}>week</option><option value={30}>30 days</option></select></label>
+        <button className="btn primary" disabled={busy}>{busy ? 'Searching…' : 'Search'}</button>
+      </form>
+      {data && !data.available && <p className="muted">The mail server's log isn't available here yet (it's written by the mail container from this version on).</p>}
+      {data?.available && (data.messages.length === 0 ? <p className="muted">Nothing found.</p> : (
+        <table className="files mail-log" aria-label="Email log">
+          <thead><tr><th>When</th><th>From</th><th>To</th><th>What happened</th></tr></thead>
+          <tbody>{data.messages.flatMap((m, i) => m.recipients.map((r, k) => (
+            <tr key={`${i}-${k}`}>
+              <td className="muted small nowrap">{when(r.at || m.at)}</td>
+              <td className="ellipsis" title={m.messageId ? `Message-ID: ${m.messageId}` : undefined}>{m.from || <span className="muted">(none)</span>}</td>
+              <td className="ellipsis">{r.to}{r.origTo && r.origTo !== r.to ? <span className="muted small"> (sent to {r.origTo})</span> : null}</td>
+              <td><span className={`pill ${r.status === 'delivered' ? 'ok' : r.status === 'waiting' ? 'warn' : 'ext'}`}>{LABEL[r.status] || r.status}</span>{r.tries > 1 ? <span className="muted small"> after {r.tries} tries</span> : null}
+                {r.response && <div className="muted small mail-log-why">{r.response}</div>}</td>
+            </tr>)))}</tbody>
+        </table>))}
     </div>
   );
 }

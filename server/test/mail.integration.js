@@ -1944,3 +1944,21 @@ test('DMARC and TLS reports sent to postmaster@ are read and added up for the ad
   assert.deepEqual([acme.dmarc.messages, acme.dmarc.fail, acme.dmarc.reporters, acme.tls.failure], [50, 3, ['google.com'], 2]);
   assert.equal((await gina('GET', '/api/mail-admin/reports')).body.domains.some((d) => d.domain === 'acme.com'), false, 'another company sees only its own domains');
 });
+
+test('email log: an admin finds what happened to mail for the company, and only theirs', async () => {
+  const subject = `Logged ${Date.now()}`;
+  assert.equal((await gina('POST', '/api/mail/send', { to: 'olivia@acme.com', subject, text: 'x' })).status, 200);
+  await eventually(async () => (await inbox(olivia, subject))[0], 30000);
+  const found = await eventually(async () => {
+    const r = (await olivia('GET', '/api/mail-admin/log?q=gina@globex.com&days=1')).body;
+    return r.available && r.messages.find((m) => m.recipients.some((x) => x.to === 'olivia@acme.com' && x.status === 'delivered')) && r;
+  }, 20000);
+  assert.ok(found.messages.every((m) => m.from === 'gina@globex.com' || m.recipients.some((x) => x.to.includes('gina@globex.com'))));
+  // Refused at the door: an address that doesn't exist.
+  const t = nodemailer.createTransport({ host: process.env.MAIL_IMAP_HOST, port: 25, secure: false, ignoreTLS: true, name: 'test.example.org' });
+  await assert.rejects(t.sendMail({ from: 'someone@acme.com', to: 'no-such-person@acme.com', subject: 'x', text: 'x' }));
+  const refused = await eventually(async () => (await olivia('GET', '/api/mail-admin/log?status=refused&q=no-such-person')).body.messages[0], 20000);
+  assert.match(refused.recipients[0].response, /User unknown/);
+  // Another company doesn't see acme.com's refusals.
+  assert.equal((await gina('GET', '/api/mail-admin/log?q=no-such-person')).body.messages.length, 0);
+});
