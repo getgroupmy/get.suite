@@ -1,9 +1,12 @@
 // Download your data: everything you own in one .zip, in formats other programs open. Drive (with its
 // folders; documents, spreadsheets and presentations as Word, Excel and PowerPoint), your calendar
-// (.ics), contacts (.vcf), tasks (CSV) and notes (Markdown). Mounted at /api/takeout.
+// (.ics), contacts (.vcf), tasks (CSV), notes (Markdown) and email (an .mbox file per folder). Mounted at /api/takeout.
 import { Router } from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
+import { mailEnabled } from '../mail/config.js';
+import { writeMailbox, mailboxCounts } from '../mail/mbox.js';
 import JSZip from 'jszip';
 import { q, FILES_DIR } from '../db.js';
 import { bad } from '../util.js';
@@ -47,8 +50,9 @@ export function notesMarkdown(userId) {
 export default function takeoutRoutes() {
   const r = Router();
   // What's in it, before downloading.
-  r.get('/summary', (req, res) => {
-    const me = whose(req).id;
+  r.get('/summary', async (req, res) => {
+    const who = whose(req);
+    const me = who.id;
     const n = (sql) => q(sql).get(me).n;
     res.json({
       files: n("SELECT COUNT(*) AS n FROM files WHERE owner_id = ? AND trashed = 0 AND kind != 'folder'"),
@@ -57,6 +61,8 @@ export default function takeoutRoutes() {
       contacts: n('SELECT COUNT(*) AS n FROM contacts WHERE owner_id = ?'),
       tasks: n('SELECT COUNT(*) AS n FROM tasks t JOIN task_lists l ON l.id = t.list_id WHERE l.owner_id = ?'),
       notes: n('SELECT COUNT(*) AS n FROM notes WHERE owner_id = ?'),
+      // Email (null when this server has none, or the mail server can't be reached just now).
+      mail: mailEnabled() ? (await mailboxCounts(who).catch(() => null))?.messages ?? null : null,
     });
   });
 
@@ -97,6 +103,19 @@ export default function takeoutRoutes() {
         zip.file(where, buf);
       } catch (e) { zip.file(`${where}.error.txt`, `This file couldn't be converted: ${e.message}`); }
     }
+    // Email: each folder as an .mbox file, written to a temporary folder first (removed once sent).
+    let mailNote = 'Email: this server has no email.';
+    let tmp = null;
+    if (mailEnabled()) {
+      tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'takeout-'));
+      try {
+        const boxes = await writeMailbox(who, tmp, { maxBytes: MAX_BYTES - bytes });
+        for (const b of boxes) zip.file(unique(`Mail/${b.name}`), fs.createReadStream(b.file), { binary: true });
+        mailNote = `Mail/         your email, a file for each folder (${boxes.reduce((n, b) => n + b.messages, 0)} messages), for Thunderbird, Apple Mail or another mail program`;
+      } catch (e) {
+        mailNote = e.tooLarge ? 'Email: too large to include here; copy it with a mail app (see Settings).' : 'Email: the mail server couldn\'t be reached, so it isn\'t included. Try again later, or copy it with a mail app (see Settings).';
+      }
+    }
     zip.file('Calendar.ics', exportCalendar(me));
     zip.file('Contacts.vcf', contactsToVcf(q('SELECT * FROM contacts WHERE owner_id = ? ORDER BY name COLLATE NOCASE').all(me).map(withPhoto)));
     zip.file('Tasks.csv', `﻿${tasksCsv(me)}\r\n`);
@@ -106,11 +125,12 @@ export default function takeoutRoutes() {
       'Calendar.ics  your events, for Outlook, Google Calendar or Apple Calendar',
       'Contacts.vcf  your contacts, for phones, Outlook, Gmail or Apple Contacts',
       'Tasks.csv     your task lists, for a spreadsheet',
-      'Notes.md      your notes', '', 'Email stays on the mail server: use a mail app (see Settings) to copy it.'].join('\r\n'));
+      'Notes.md      your notes', mailNote].join('\r\n'));
     audit(req, 'data.export', { target: who.username });
     const name = `Workspace data${who.id === req.user.id ? '' : ` ${who.username}`} ${new Date().toISOString().slice(0, 10)}.zip`;
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(name)}`);
+    if (tmp) res.on('close', () => fs.rm(tmp, { recursive: true, force: true }, () => {}));
     zip.generateNodeStream({ type: 'nodebuffer', streamFiles: true, compression: 'STORE' }).on('error', (err) => res.destroy(err)).pipe(res);
   });
   return r;

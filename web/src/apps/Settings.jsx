@@ -387,8 +387,8 @@ function YourData() {
   return (
     <section className="card stack" aria-labelledby="yourdata-h">
       <h2 id="yourdata-h">Download your data</h2>
-      <p className="muted small" style={{ margin: 0 }}>One .zip with everything you own: your Drive with its folders (documents as Word, spreadsheets as Excel, presentations as PowerPoint), your calendar (.ics), contacts (.vcf), tasks (a spreadsheet) and notes. Email stays on the mail server; a mail app can copy it (see above).</p>
-      {sum && <p className="small" style={{ margin: 0 }}>{n(sum.files, 'file', 'files')} ({formatBytes(sum.bytes)} of uploads) · {n(sum.events, 'event', 'events')} · {n(sum.contacts, 'contact', 'contacts')} · {n(sum.tasks, 'task', 'tasks')} · {n(sum.notes, 'note', 'notes')}</p>}
+      <p className="muted small" style={{ margin: 0 }}>One .zip with everything you own: your Drive with its folders (documents as Word, spreadsheets as Excel, presentations as PowerPoint), your calendar (.ics), contacts (.vcf), tasks (a spreadsheet), notes, and your email (an .mbox file for each folder, which Thunderbird, Apple Mail and most mail programs open).</p>
+      {sum && <p className="small" style={{ margin: 0 }}>{n(sum.files, 'file', 'files')} ({formatBytes(sum.bytes)} of uploads) · {n(sum.events, 'event', 'events')} · {n(sum.contacts, 'contact', 'contacts')} · {n(sum.tasks, 'task', 'tasks')} · {n(sum.notes, 'note', 'notes')}{sum.mail != null && <> · {n(sum.mail, 'email', 'emails')}</>}</p>}
       <div><a className="btn" href="/api/takeout" download><Icon name="download" size={18} /> Download your data (.zip)</a></div>
     </section>
   );

@@ -1874,3 +1874,26 @@ test('saved searches: kept with their folder, unread matches counted by the mail
   assert.equal((await olivia('DELETE', `/api/mail/searches/${saved.body.id}`)).status, 200);
   assert.equal(await count(), undefined);
 });
+
+test('download your data: email comes as an .mbox file per folder (also for an admin downloading someone\'s)', async () => {
+  const JSZip = (await import('jszip')).default;
+  const subject = `Takeout ${Date.now()}`;
+  assert.equal((await gina('POST', '/api/mail/send', { to: 'olivia@acme.com', subject, text: 'From the start of the year, prices go up.\nSee you.' })).status, 200);
+  await eventually(async () => (await inbox(olivia, subject))[0], 30000);
+  const sum = (await olivia('GET', '/api/takeout/summary')).body;
+  assert.ok(sum.mail >= 1, JSON.stringify(sum));
+  const r = await olivia('GET', '/api/takeout');
+  assert.equal(r.status, 200);
+  const zip = await JSZip.loadAsync(r.body);
+  const names = Object.keys(zip.files);
+  assert.ok(names.includes('Mail/Inbox.mbox') && names.includes('Mail/Sent.mbox'), names.join(', '));
+  const box = await zip.file('Mail/Inbox.mbox').async('string');
+  assert.match(box, /^From \S+@\S+ \w{3} \w{3} [ \d]\d \d\d:\d\d:\d\d \d{4}\n/, 'starts with a From line');
+  assert.ok(box.includes(`Subject: ${subject}`));
+  assert.match(box, /^>From the start of the year/m, 'a From line in the text is escaped');
+  assert.match(await zip.file('README.txt').async('string'), /Mail\/ +your email, a file for each folder \(\d+ messages\)/);
+  // An admin downloading a colleague's data gets their mail too.
+  const g = await olivia('GET', `/api/takeout?user=${bobId}`);
+  assert.equal(g.status, 200);
+  assert.ok(Object.keys((await JSZip.loadAsync(g.body)).files).includes('Mail/Inbox.mbox'));
+});
