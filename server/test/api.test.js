@@ -8673,3 +8673,41 @@ test('world clock: the time zones each person picks, checked and kept in order, 
   assert.equal((await a('PUT', '/api/users/me/world-clocks', { zones: Array(9).fill('UTC') })).status, 400);
   assert.deepEqual((await a('PUT', '/api/users/me/world-clocks', { zones: [] })).body.zones, []);
 });
+
+test('chat message links: a quoted preview for people who can read the conversation, and nobody else', async () => {
+  const a = client(), b = client(), c = client();
+  for (const [local, name] of [['mlpa', 'Ml Ann'], ['mlpb', 'Ml Ben'], ['mlpc', 'Ml Cat']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'mlpa@acme.com');
+  const bid = (await login(b, 'mlpb@acme.com')).id;
+  await login(c, 'mlpc@acme.com');
+  const pub = (await a('POST', '/api/chat/channels', { name: 'ml-launch' })).body.id;
+  const m1 = (await a('POST', `/api/chat/channels/${pub}/messages`, { body: `Launch is on Friday. ${'x'.repeat(400)}` })).body;
+  const p = await c('GET', `/api/chat/messages/${m1.id}/preview`);
+  assert.equal(p.status, 200);
+  assert.equal(p.body.user_name, 'Ml Ann');
+  assert.equal(p.body.where, '#ml-launch');
+  assert.equal(p.body.channel_id, pub);
+  assert.equal(p.body.parent_id, null);
+  assert.ok(p.body.body.startsWith('Launch is on Friday.') && p.body.body.length === 301 && p.body.body.endsWith('…'), 'the start of it');
+  // A reply in a thread says which thread.
+  const r1 = (await c('POST', `/api/chat/channels/${pub}/messages`, { body: 'Great', parent_id: m1.id })).body;
+  assert.equal((await a('GET', `/api/chat/messages/${r1.id}/preview`)).body.parent_id, m1.id);
+  // A private channel: members see it (without its name); others don't learn it exists.
+  const priv = (await a('POST', '/api/chat/channels', { name: 'ml-secret', private: true, members: [bid] })).body.id;
+  const m2 = (await a('POST', `/api/chat/channels/${priv}/messages`, { body: 'Budget is 40k' })).body;
+  const pb = await b('GET', `/api/chat/messages/${m2.id}/preview`);
+  assert.equal(pb.status, 200);
+  assert.equal(pb.body.where, 'a private channel');
+  assert.equal((await c('GET', `/api/chat/messages/${m2.id}/preview`)).status, 404);
+  // A direct message too.
+  const dm = (await a('POST', '/api/chat/dm', { user_id: bid })).body.id;
+  const m3 = (await a('POST', `/api/chat/channels/${dm}/messages`, { body: 'Just us' })).body;
+  assert.equal((await b('GET', `/api/chat/messages/${m3.id}/preview`)).body.where, 'a direct message');
+  assert.equal((await c('GET', `/api/chat/messages/${m3.id}/preview`)).status, 404);
+  // Another company never sees a public channel's message; a missing one is 404 too.
+  const g = client();
+  assert.equal((await owner('POST', '/api/orgs', { name: 'Mlp Co', domain: 'mlpco.com', admin_name: 'Ml Gus', admin_local: 'gus', admin_password: 'password123' })).status, 201);
+  await login(g, 'gus@mlpco.com');
+  assert.equal((await g('GET', `/api/chat/messages/${m1.id}/preview`)).status, 404);
+  assert.equal((await c('GET', '/api/chat/messages/nope123/preview')).status, 404);
+});

@@ -1565,6 +1565,12 @@ img.avatar.photo { object-fit: cover; border-radius: 50%; display: inline-block;
 .guest-chips li.room-taken { border-color: var(--danger, #d93025); color: var(--danger, #d93025); }
 /* Chat: cards for linked Workspace files */
 .file-cards { display: grid; gap: 6px; margin-top: 6px; max-width: 420px; }
+.msg-cards { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; max-width: 560px; }
+.msg-card { display: flex; flex-direction: column; gap: 4px; padding: 8px 12px; border-left: 3px solid var(--accent, #1a73e8); border-radius: 6px; background: var(--surface-2, var(--surface)); color: var(--text); text-decoration: none; }
+.msg-card:hover { background: var(--hover, var(--surface)); }
+.msg-card.none { flex-direction: row; align-items: center; border-left-color: var(--border); }
+.msg-card-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.msg-card-text { white-space: pre-wrap; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; }
 .file-card { display: flex; gap: 10px; align-items: center; padding: 8px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text); text-decoration: none; }
 .file-card:hover { border-color: var(--accent); }
 .file-card .grow { display: grid; min-width: 0; }

@@ -657,6 +657,26 @@ export default function chatRoutes() {
     res.json(rows.map((r) => ({ ...r, where: r.dm_key ? (r.dm_name || 'Notes to self') : `#${r.channel_name}`, private: !!r.private, dm_key: undefined, dm_name: undefined })));
   });
 
+  // A link to a message, pasted in a conversation: who wrote it, where, when and the start of it, for a
+  // quoted card. Only for people who can read that conversation (anyone else gets 404, as for the link).
+  // As when forwarding, a public channel's name is shown; a direct message or private channel says so instead.
+  r.get('/messages/:id/preview', (req, res) => {
+    const m = q('SELECT m.*, u.name AS user_name FROM messages m LEFT JOIN users u ON u.id = m.user_id WHERE m.id = ?').get(req.params.id);
+    if (!m) throw notFound('Message not found');
+    const c = loadChannel(m.channel_id, req.user);
+    const files = m.files ? JSON.parse(m.files) : [];
+    let poll = null;
+    try { poll = m.poll ? JSON.parse(m.poll).question || null : null; } catch { /* not a poll */ }
+    const body = m.body || (m.forwarded ? (() => { try { return JSON.parse(m.forwarded).body || ''; } catch { return ''; } })() : '');
+    res.json({
+      id: m.id, channel_id: m.channel_id, parent_id: m.parent_id || null,
+      user_id: m.user_id, user_name: m.user_name || m.bot || 'Deleted user',
+      where: c.dm_key ? 'a direct message' : c.private ? 'a private channel' : `#${c.name}`,
+      body: body.length > 300 ? `${body.slice(0, 300)}…` : body, files: files.length, poll,
+      created_at: m.created_at, edited: !!m.edited_at,
+    });
+  });
+
   // A thread: the message and its replies, oldest first.
   r.get('/messages/:id/replies', (req, res) => {
     const m = q('SELECT * FROM messages WHERE id = ?').get(req.params.id);

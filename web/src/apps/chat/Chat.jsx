@@ -3,7 +3,7 @@ import { previewKind, stepPreview } from '../../components/viewkind.js';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { blocks, hasMarkup } from './markup.js';
-import { fileLinksIn } from './filelinks.js';
+import { fileLinksIn, messageLinksIn, messageLink } from './filelinks.js';
 import { statusLine, untilText } from '../../components/status.js';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { get, post, put, patch, del, onLive, uploadFile, formatBytes } from '../../api.js';
@@ -620,6 +620,10 @@ function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit
     title: titleFromText(m.body) || (m.poll ? m.poll.question : 'Chat message'),
     link: { url: `/chat/${m.channel_id}?msg=${m.id}${m.parent_id ? `&thread=${m.parent_id}` : ''}`, label: `Chat message from ${m.user_name || 'someone'}` },
   });
+  const copyLink = async () => {
+    const url = messageLink(m);
+    try { await navigator.clipboard.writeText(url); toast('Link to the message copied: paste it in a conversation, an email or a document'); } catch { toast(url); }
+  };
   const remind = async (at) => {
     try { await post(`/chat/messages/${m.id}/remind`, { at }); toast(at ? `I'll remind you ${whenText(at)}` : 'Reminder removed'); } catch (e) { toast(e.message, 'error'); }
   };
@@ -650,6 +654,7 @@ function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit
           </blockquote>
         )}
         {!editing && <FileCards text={m.body} />}
+        {!editing && <MessageCards text={m.body} self={m.id} />}
         {!editing && m.preview && (
           <a className="link-preview" href={m.preview.url} target="_blank" rel="noopener noreferrer" aria-label={`Link: ${m.preview.title}`}>
             <span className="link-site small muted">{m.preview.site}</span>
@@ -684,6 +689,7 @@ function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit
         {onSave && <button type="button" className={`icon-btn ${saved ? 'on' : ''}`} aria-pressed={!!saved} aria-label={saved ? 'Remove from Saved' : 'Save for later'} title={saved ? 'Saved (click to remove)' : 'Save for later'} onClick={() => onSave(!saved)}>🔖</button>}
         {onMarkUnread && m.user_id !== user.id && <button type="button" className="icon-btn" aria-label="Mark unread from here" title="Mark unread from here" onClick={onMarkUnread}><Icon name="markunread" size={16} /></button>}
         {onForward && <button type="button" className="icon-btn" aria-label="Forward" title="Forward to another conversation" onClick={onForward}><Icon name="forward" size={16} /></button>}
+        <button type="button" className="icon-btn" aria-label="Copy link to message" title="Copy link to message" onClick={copyLink}><Icon name="link" size={16} /></button>
         <button type="button" className="icon-btn" aria-label="Add to Tasks" title="Add to Tasks" onClick={toTask}><Icon name="check" size={16} /></button>
         {onPin && !m.parent_id && <button type="button" className="icon-btn" aria-label={m.pinned_at ? 'Unpin message' : 'Pin message'} title={m.pinned_at ? 'Unpin' : 'Pin to the conversation'} onClick={onPin}>📌</button>}
         {m.user_id === user.id && !m.poll && <button type="button" className="icon-btn" aria-label="Edit message" onClick={onStartEdit}><Icon name="edit" size={16} /></button>}
@@ -879,6 +885,42 @@ function FileCards({ text }) {
           <Link key={l.id} className="file-card" to={OPEN[f.kind]?.(f.id) || `/drive`} aria-label={`${KIND_NAME[f.kind] || 'File'}: ${f.name}`}>
             <Icon name={f.kind === 'folder' ? 'folder' : f.kind} size={22} className={`ft ft-${f.kind}`} />
             <span className="grow"><strong>{f.name}</strong><span className="muted small">{KIND_NAME[f.kind] || 'File'} · {f.owner_name}{f.role === 'viewer' ? ' · you can view' : f.role === 'editor' ? ' · you can edit' : ''}</span></span>
+          </Link>
+        );
+      })}
+    </div>
+  );
+}
+
+// What each linked message is, fetched once per page (false: you can't read it, or it's gone).
+const msgInfo = new Map();
+const msgOf = (id) => {
+  if (!msgInfo.has(id)) msgInfo.set(id, get(`/chat/messages/${id}/preview`).catch(() => false));
+  return msgInfo.get(id);
+};
+
+/** Links to chat messages in a message, shown quoted: who wrote it, where and when, and the start of it. */
+function MessageCards({ text, self }) {
+  const links = messageLinksIn(text).filter((l) => l.id !== self);
+  const [info, setInfo] = useState({});
+  useEffect(() => {
+    let alive = true;
+    for (const l of links) msgOf(l.id).then((x) => { if (alive) setInfo((s) => ({ ...s, [l.id]: x })); });
+    return () => { alive = false; };
+  }, [text]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!links.length) return null;
+  return (
+    <div className="msg-cards">
+      {links.map((l) => {
+        const x = info[l.id];
+        if (x === undefined) return null;
+        if (!x) return <div key={l.id} className="msg-card none" role="note"><Icon name="lock" size={18} /> <span className="muted small">A message you can’t see (it’s in a conversation you’re not in, or it was deleted)</span></div>;
+        const to = `/chat/${x.channel_id}?msg=${x.id}${x.parent_id ? `&thread=${x.parent_id}` : ''}`;
+        return (
+          <Link key={l.id} className="msg-card" to={to} aria-label={`Message from ${x.user_name} in ${x.where}`}>
+            <span className="msg-card-meta small"><Avatar name={x.user_name} size={18} userId={x.user_id} /> <strong>{x.user_name}</strong> <span className="muted">in {x.where} · {timeOrDay(x.created_at)}{x.parent_id ? ' · in a thread' : ''}</span></span>
+            {x.poll ? <span className="small">📊 {x.poll}</span> : x.body ? <span className="msg-card-text small">{x.body}</span> : null}
+            {x.files > 0 && <span className="muted small">📎 {x.files === 1 ? '1 file' : `${x.files} files`}</span>}
           </Link>
         );
       })}
