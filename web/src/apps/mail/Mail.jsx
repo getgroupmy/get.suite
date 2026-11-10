@@ -585,6 +585,7 @@ function Reader({ shared = null, folder, uid, special, onClose, onOpen, onChange
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [folder, uid]);
   const [viewing, setViewing] = useState(null); // the index of the attachment open in the viewer
+  const [original, setOriginal] = useState(false); // Show original (before the early return below: hooks always in the same order)
   if (!m) return <p className="muted mail-note">Loading…</p>;
 
   // The original's body for a reply or forward. HTML mail keeps its basic formatting and embedded
@@ -633,6 +634,10 @@ function Reader({ shared = null, folder, uid, special, onClose, onOpen, onChange
         <button className="icon-btn" aria-label="Delete" title="Delete" onClick={() => done('delete', {}, special === '\\Trash' ? 'Deleted forever' : 'Moved to Trash')}><Icon name="trash" /></button>
         <button className="icon-btn" aria-label="Mark unread" title="Mark unread" onClick={() => done('flags', { seen: false })}><Icon name="markunread" /></button>
         <button className="icon-btn" aria-label="Print" title="Print (or save as PDF)" onClick={() => printMessage(m, { images })}><Icon name="print" /></button>
+        <Menu align="left" trigger={(p) => <button type="button" className="icon-btn" aria-label="More for this message" title="More" {...p}><Icon name="more" /></button>} items={[
+          { label: 'Show original', icon: 'search', onClick: () => setOriginal(true) },
+          { label: 'Download message (.eml)', icon: 'download', onClick: () => { window.location.href = `/api/mail/messages/${uid}/eml?folder=${enc(folder)}${mailboxParam()}`; } },
+        ]} />
         <button className="icon-btn" aria-label="Create event" title="Create an event from this email" onClick={() => navigate('/calendar', { state: { newEvent: eventFromEmail(m, [user.username, ...mine]) } })}><Icon name="calendar" /></button>
         <button className="icon-btn" aria-label="Add to Tasks" title="Add to Tasks" onClick={() => addToTasksWithToast(toast, navigate, { title: m.subject || '(no subject)', link: { url: mailLink({ ...m, folder, uid }), label: `Email from ${m.from ? who(m.from) : 'unknown sender'}` } })}><Icon name="check" /></button>
         {!shared && <Menu align="left" trigger={(p) => <button type="button" className="icon-btn" aria-label="Labels" title="Labels" {...p}><LabelGlyph /></button>} items={[
@@ -729,6 +734,7 @@ function Reader({ shared = null, folder, uid, special, onClose, onOpen, onChange
       {viewing !== null && m.attachments[viewing] && <FileViewer items={m.attachments.map((x) => ({ ...x, key: x.index }))} at={viewing}
         urls={{ view: (x) => attUrl(x, true), download: (x) => attUrl(x), office: (x) => `/mail/messages/${uid}/attachments/${x.index}/preview?folder=${enc(folder)}`, zip: (x) => `/mail/messages/${uid}/attachments/${x.index}/zip?folder=${enc(folder)}` }}
         onStep={(dir) => setViewing(stepPreview(m.attachments, viewing, dir))} onSave={(x) => saveToDrive([x.index])} onClose={() => setViewing(null)} />}
+      {original && <OriginalDialog uid={uid} folder={folder} onClose={() => setOriginal(false)} />}
       <div className="row wrap reader-reply">
         <button className="btn" onClick={async () => onCompose({ to: list(replyTo), subject: reSubject('Re:'), html: await quoted(), ...thread })}><Icon name="reply" size={18} /> Reply</button>
         {others.length > 0 && <button className="btn" onClick={async () => onCompose({ to: list(replyTo), cc: list(others), subject: reSubject('Re:'), html: await quoted(), ...thread })}><Icon name="replyall" size={18} /> Reply all</button>}
@@ -969,6 +975,42 @@ const ATTACH_AS = {
   sheet: [['xlsx', 'Excel (.xlsx)'], ['ods', 'OpenDocument (.ods)']],
   slides: [['pptx', 'PowerPoint (.pptx)'], ['odp', 'OpenDocument (.odp)']],
 };
+/** "Show original": what the message's headers say (who sent it and how it was checked, the servers it passed through) and the headers themselves. */
+function OriginalDialog({ uid, folder, onClose }) {
+  const toast = useToast();
+  const [o, setO] = useState(null);
+  useEffect(() => { get(`/mail/messages/${uid}/original?folder=${encodeURIComponent(folder)}`).then(setO).catch((e) => { toast(e.message, 'error'); onClose(); }); }, [uid, folder]); // eslint-disable-line react-hooks/exhaustive-deps
+  const verdict = (v) => (v ? <span className={`auth-${['pass', 'none', 'neutral'].includes(v) ? v : 'fail'}`}>{v.toUpperCase()}</span> : <span className="muted">not checked</span>);
+  const secs = (ms) => (ms == null ? '' : ms < 1000 ? 'under a second' : `${Math.round(ms / 1000)} s`);
+  return (
+    <Modal wide title="Original message" onClose={onClose} footer={<>
+      <a className="btn" href={`/api/mail/messages/${uid}/eml?folder=${encodeURIComponent(folder)}${mailboxParam()}`}>Download message (.eml)</a>
+      <button type="button" className="btn" onClick={() => { navigator.clipboard?.writeText(o?.headers || '').then(() => toast('Headers copied'), () => {}); }} disabled={!o}>Copy headers</button>
+      <button type="button" className="btn primary" onClick={onClose}>Close</button></>}>
+      {!o ? <p className="muted">Loading…</p> : (
+        <div className="stack">
+          <table className="original-summary"><tbody>
+            <tr><th scope="row">Message ID</th><td><code>{o.messageId || '—'}</code></td></tr>
+            <tr><th scope="row">Written</th><td>{o.date ? new Date(o.date).toLocaleString() : '—'}</td></tr>
+            <tr><th scope="row">From</th><td>{o.from || '—'}</td></tr>
+            <tr><th scope="row">To</th><td>{o.to || '—'}</td></tr>
+            <tr><th scope="row">SPF</th><td>{verdict(o.spf)}</td></tr>
+            <tr><th scope="row">DKIM</th><td>{verdict(o.dkim)}</td></tr>
+            <tr><th scope="row">DMARC</th><td>{verdict(o.dmarc)}</td></tr>
+          </tbody></table>
+          {o.hops.length > 0 && (
+            <div><h3 className="small" style={{ margin: '4px 0' }}>The way it came</h3>
+              <ol className="original-hops">{o.hops.map((h, i) => <li key={i}>{h.from || '?'} → {h.by || '?'}{h.at ? <span className="muted small"> · {new Date(h.at).toLocaleString()}{h.delay != null ? ` (${secs(h.delay)} later)` : ''}</span> : null}</li>)}</ol>
+            </div>
+          )}
+          <label className="field"><span>Headers ({Math.round(o.size / 1024) || 1} KB message)</span>
+            <textarea readOnly rows={14} className="original-headers" value={o.headers} aria-label="Headers" /></label>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
 function AttachAs({ file, onClose, onDone, onLink }) {
   const toast = useToast();
   const { user } = useAuth();

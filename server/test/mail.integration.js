@@ -138,6 +138,24 @@ test('send across companies and to an alias, with a Drive attachment', async () 
   assert.ok(sent.some((m) => m.subject === 'Price list'), 'copy saved in Sent');
 });
 
+test('show original: the headers, the servers it passed through, DKIM; download as .eml', async () => {
+  const msg = await eventually(async () => (await inbox(gina)).find((m) => m.subject === 'Price list'));
+  const o = await gina('GET', `/api/mail/messages/${msg.uid}/original?folder=INBOX`);
+  assert.equal(o.status, 200, JSON.stringify(o.body));
+  assert.match(o.body.headers, /^Return-Path: <olivia@acme\.com>/m);
+  assert.match(o.body.headers, /^Subject: Price list/m);
+  assert.doesNotMatch(o.body.headers, /item,price/, 'only the headers');
+  assert.match(o.body.messageId, /^<.+@.+>$/);
+  assert.ok(o.body.hops.length >= 1, 'the servers it passed through');
+  assert.ok(o.body.size > 100);
+  const eml = await gina('GET', `/api/mail/messages/${msg.uid}/eml?folder=INBOX`, undefined, { binary: true });
+  assert.equal(eml.status, 200);
+  assert.equal(eml.headers.get('content-type'), 'message/rfc822');
+  assert.match(eml.headers.get('content-disposition'), /Price%20list\.eml/);
+  assert.match(eml.body.toString(), /DKIM-Signature:[\s\S]*Subject: Price list[\s\S]*Hi Gina,[\s\S]*filename="?price-list\.csv/, 'whole: signature, text and attachment');
+  assert.equal((await gina('GET', '/api/mail/messages/999999/original?folder=INBOX')).status, 404);
+});
+
 test('send as an alias only if you are a member', async () => {
   const ids = (await bob('GET', '/api/mail/status')).body.identities.map((i) => i.address);
   assert.deepEqual(ids, ['bob@acme.com', 'sales@acme.com']);

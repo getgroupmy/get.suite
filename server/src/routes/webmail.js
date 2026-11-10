@@ -37,6 +37,7 @@ import { receiptRequest, buildReceipt } from '../mail/receipt.js';
 import { mimeFor } from '../util.js';
 import { previewMime, previewHeaders } from '../mail/preview.js';
 import { officePreview } from '../office/preview.js';
+import { originalSummary } from '../mail/original.js';
 import { zipEntries } from '../zipfiles.js';
 import { calendarPartOf, readInvite, replyIcs, eventForInvite, saveInvite, readReply } from '../mail/invite.js';
 import { recordReply } from '../mail/invitereply.js';
@@ -1089,6 +1090,25 @@ export default function webmailRoutes() {
 
   // A picture embedded in a received message, shown while writing a reply or forward. Only the
   // picture types mail apps display (never SVG), with nothing else allowed to load.
+  // "Show original": the message's headers and what they say (checks, servers, times), and the whole message as an .eml file.
+  const rawMessage = (req) => withFolder(req.user, String(req.query.folder || 'INBOX'), async (client) => {
+    const msg = await client.fetchOne(String(Number(req.params.uid)), { source: true, envelope: true }, { uid: true });
+    if (!msg?.source) throw notFound('Message not found');
+    return msg;
+  });
+  r.get('/messages/:uid/original', async (req, res) => {
+    const msg = await rawMessage(req);
+    res.json({ ...originalSummary(msg.source), size: msg.source.length });
+  });
+  r.get('/messages/:uid/eml', async (req, res) => {
+    const msg = await rawMessage(req);
+    const name = `${String(msg.envelope?.subject || 'message').replace(/[\\/:*?"<>|\r\n\u0000-\u001f]+/g, ' ').trim().slice(0, 80) || 'message'}.eml`;
+    res.setHeader('Content-Type', 'message/rfc822');
+    res.setHeader('Content-Disposition', `attachment; filename="message.eml"; filename*=UTF-8''${encodeURIComponent(name)}`);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.end(msg.source);
+  });
+
   r.get('/messages/:uid/pictures/:n', async (req, res) => {
     const { parsed } = await loadMessage(req.user, String(req.query.folder || 'INBOX'), Number(req.params.uid), false);
     const a = parsed.attachments[Number(req.params.n)];

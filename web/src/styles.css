@@ -2577,3 +2577,10 @@ p.doc-email-fields { margin: 0; }
   --series-1: #2a78d6; --series-2: #eb6834; --series-3: #1baf7a; --series-4: #eda100; --series-5: #e87ba4; --series-6: #008300; --series-7: #6250d6; --series-8: #e34948;
   --series-ink-1: #fff; --series-ink-2: #1f1f1f; --series-ink-3: #1f1f1f; --series-ink-4: #1f1f1f; --series-ink-5: #1f1f1f; --series-ink-6: #fff; --series-ink-7: #fff; --series-ink-8: #1f1f1f; }
 .chart-snap h3 { margin: 0 0 8px; font-size: 22px; font-weight: 600; }
+.original-summary { border-collapse: collapse; }
+.original-summary th { text-align: left; font-weight: 500; color: var(--muted); padding: 3px 16px 3px 0; vertical-align: top; }
+.original-summary td { padding: 3px 0; word-break: break-all; }
+.auth-pass { color: #188038; font-weight: 600; }
+.auth-fail { color: var(--danger); font-weight: 600; }
+.original-hops { margin: 0; padding-left: 20px; }
+.original-headers { font-family: ui-monospace, Consolas, monospace; font-size: 12px; width: 100%; white-space: pre; }
