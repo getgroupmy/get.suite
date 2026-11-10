@@ -846,9 +846,13 @@ export function publicFormRoutes() {
     const answered = !!mine;
     const closed = closedReason(form);
     const left = placesLeft(form.id, form.questions);
+    const team = !!user && teamOf(form).includes(user.id);
     res.json({ ...(Object.keys(left).length && { left }), title: form.title, description: form.description, questions: withoutKey(form.questions), quiz: form.quiz, accepting: !closed, closed, closed_text: closed ? CLOSED_TEXT[closed] : null, ...(closed === 'notyet' && { opens_at: form.open_at }), audience: form.audience,
       one_per_person: form.audience === 'org' && form.one_per_person, answered, org_name: f.org_name, allow_edit: form.allow_edit, collect_email: form.audience === 'public' && form.collect_email, send_copy: form.send_copy && mailEnabled(), ...(mine && form.allow_edit && mine.edit_key && { my_edit_key: mine.edit_key }),
-      you: form.audience === 'org' ? { name: user.name, email: user.email } : null, is_owner: !!user && teamOf(form).includes(user.id) });
+      you: form.audience === 'org' ? { name: user.name, email: user.email } : null, is_owner: team,
+      // For a card when the link is pasted in Chat: whether you've sent a response, and (for its team) how many came.
+      responded: !!user && !!q('SELECT 1 FROM form_responses WHERE form_id = ? AND user_id = ?').get(form.id, user.id),
+      ...(team && { responses: q('SELECT COUNT(*) AS n FROM form_responses WHERE form_id = ?').get(form.id).n }) });
   });
 
   r.get('/:token/pictures/:pic', (req, res) => { const { form } = openForm(req); sendPicture(form, req.params.pic, res); });

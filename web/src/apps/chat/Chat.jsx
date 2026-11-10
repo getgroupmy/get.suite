@@ -3,7 +3,7 @@ import { previewKind, stepPreview } from '../../components/viewkind.js';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { blocks, hasMarkup } from './markup.js';
-import { fileLinksIn, messageLinksIn, messageLink, taskLinksIn, eventLinksIn, noteLinksIn } from './filelinks.js';
+import { fileLinksIn, messageLinksIn, messageLink, taskLinksIn, eventLinksIn, noteLinksIn, formLinksIn } from './filelinks.js';
 import { dueLabel } from '../tasks/taskmath.js';
 import { statusLine, untilText } from '../../components/status.js';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
@@ -659,6 +659,7 @@ function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit
         {!editing && <TaskCards text={m.body} />}
         {!editing && <EventCards text={m.body} />}
         {!editing && <NoteCards text={m.body} />}
+        {!editing && <FormCards text={m.body} />}
         {!editing && m.preview && (
           <a className="link-preview" href={m.preview.url} target="_blank" rel="noopener noreferrer" aria-label={`Link: ${m.preview.title}`}>
             <span className="link-site small muted">{m.preview.site}</span>
@@ -1050,6 +1051,44 @@ function NoteCards({ text }) {
             ) : x.body ? <span className="msg-card-text small">{x.body}</span> : null}
             <span className="muted small">{[x.mine ? 'Your note' : `${x.owner_name}’s note`, x.items && `${x.items.done}/${x.items.total} done`, x.pictures > 0 && `🖼 ${x.pictures}`, x.archived && 'Archived'].filter(Boolean).join(' · ')}</span>
           </Link>
+        );
+      })}
+    </div>
+  );
+}
+
+// What each linked form is, fetched once per page (false: gone, closed to links, or not for you).
+const formInfo = new Map();
+const formOf = (token) => {
+  if (!formInfo.has(token)) formInfo.set(token, get(`/public/forms/${token}`).catch(() => false));
+  return formInfo.get(token);
+};
+
+/** Links to forms in a message, shown as cards: the form, whether it's open, and whether you've answered. */
+function FormCards({ text }) {
+  const links = formLinksIn(text);
+  const [info, setInfo] = useState({});
+  useEffect(() => {
+    let alive = true;
+    for (const l of links) formOf(l.token).then((x) => { if (alive) setInfo((s) => ({ ...s, [l.token]: x })); });
+    return () => { alive = false; };
+  }, [text]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!links.length) return null;
+  return (
+    <div className="msg-cards">
+      {links.map((l) => {
+        const x = info[l.token];
+        if (x === undefined) return null;
+        if (!x) return <div key={l.token} className="msg-card none" role="note"><Icon name="lock" size={18} /> <span className="muted small">A form you can’t open (it’s for people at another company, or it was deleted)</span></div>;
+        const n = (x.questions || []).filter((qu) => qu.type !== 'section').length;
+        const state = x.accepting ? (x.responded ? '✓ You’ve responded' : 'Open') : (x.closed_text || 'Closed');
+        return (
+          <a key={l.token} className="msg-card form-card" href={`/f/${l.token}`} target="_blank" rel="noopener noreferrer" aria-label={`Form: ${x.title}`}>
+            <span className="msg-card-meta"><Icon name="form" size={18} /> <strong>{x.title}</strong>{x.quiz && <span className="pill small">Quiz</span>}</span>
+            {x.description && <span className="msg-card-text small">{x.description.length > 200 ? `${x.description.slice(0, 200)}…` : x.description}</span>}
+            <span className="muted small">{[state, `${n} ${n === 1 ? 'question' : 'questions'}`, x.is_owner && x.responses !== undefined && `${x.responses} ${x.responses === 1 ? 'response' : 'responses'}`].filter(Boolean).join(' · ')}</span>
+            {x.accepting && !(x.responded && x.one_per_person) && <span className="btn small primary form-card-go">{x.responded ? 'Respond again' : 'Fill in'}</span>}
+          </a>
         );
       })}
     </div>

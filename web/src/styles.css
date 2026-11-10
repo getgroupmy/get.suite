@@ -1574,6 +1574,7 @@ img.avatar.photo { object-fit: cover; border-radius: 50%; display: inline-block;
 .msg-card-list { display: flex; flex-direction: column; gap: 2px; }
 .msg-card-list .done { text-decoration: line-through; opacity: .7; }
 .msg-note[style] .muted { color: #3c4043; }
+.form-card-go { align-self: flex-start; margin-top: 2px; }
 .msg-card-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .msg-card-text { white-space: pre-wrap; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; }
 .file-card { display: flex; gap: 10px; align-items: center; padding: 8px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text); text-decoration: none; }

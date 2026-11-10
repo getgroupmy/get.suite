@@ -51,3 +51,10 @@ test('note links: on this server, each once', async () => {
   assert.deepEqual(noteLinksIn('/notes /notes?note=ab', 'h'), []);
   assert.deepEqual(noteLinksIn(noteLink({ id: 'note123' }, 'https://ws.example'), 'ws.example'), [{ id: 'note123' }]);
 });
+
+test('form links: /f/<token> on this server, each once', async () => {
+  const { formLinksIn } = await import('./filelinks.js');
+  assert.deepEqual(formLinksIn('fill in https://ws.example/f/AbC_dEf-123456 please, and /f/AbC_dEf-123456', 'ws.example'), [{ token: 'AbC_dEf-123456' }]);
+  assert.deepEqual(formLinksIn('https://other.example/f/AbC_dEf-123456', 'ws.example'), []);
+  assert.deepEqual(formLinksIn('/f/short /f/AbC_dEf-123456/pictures/x', 'h'), [], 'too short, or a picture in it');
+});

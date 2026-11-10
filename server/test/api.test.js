@@ -8789,3 +8789,20 @@ test('note links: a card for the owner and the people it is shared with, and nob
   await a('DELETE', `/api/notes/${text.id}`);
   assert.equal((await a('GET', `/api/notes/${text.id}/preview`)).status, 404);
 });
+
+test('form links: whether you have responded, and how many responses for the form’s team', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['flpa', 'Fl Ann'], ['flpb', 'Fl Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'flpa@acme.com'); await login(b, 'flpb@acme.com');
+  const made = (await a('POST', '/api/forms', { title: 'Offsite dates' })).body;
+  const f = (await a('PUT', `/api/forms/${made.id}`, { questions: [{ id: 'd', type: 'choice', title: 'Which week?', options: ['1', '2'] }] })).body;
+  let seen = (await b('GET', `/api/public/forms/${f.token}`)).body;
+  assert.equal(seen.responded, false); assert.equal(seen.is_owner, false); assert.equal(seen.responses, undefined, 'only the team sees how many');
+  assert.equal((await a('GET', `/api/public/forms/${f.token}`)).body.responses, 0);
+  assert.equal((await b('POST', `/api/public/forms/${f.token}`, { answers: { d: '2' } })).status, 201);
+  seen = (await b('GET', `/api/public/forms/${f.token}`)).body;
+  assert.equal(seen.responded, true, 'answered (even when more than one is allowed)');
+  assert.equal(seen.answered, false, 'not one each, so it can be filled in again');
+  const mine = (await a('GET', `/api/public/forms/${f.token}`)).body;
+  assert.equal(mine.responses, 1); assert.equal(mine.responded, false);
+});

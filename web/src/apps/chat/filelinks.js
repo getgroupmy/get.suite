@@ -89,3 +89,17 @@ export function noteLinksIn(text, host = typeof window !== 'undefined' ? window.
 
 /** The address of a note. */
 export const noteLink = (n, origin = typeof window !== 'undefined' ? window.location.origin : '') => `${origin}/notes?note=${n.id}`;
+
+// Links to forms ("/f/<token>", relative or on this server): [{ token }], each once, at most three.
+const FORM_RE = /(?:^|[\s(<"'])(?:https?:\/\/([^\s/<>"']+))?\/f\/([\w-]{8,})(?![\w/-])/g;
+
+export function formLinksIn(text, host = typeof window !== 'undefined' ? window.location.host : '') {
+  const out = [];
+  for (const m of String(text || '').matchAll(FORM_RE)) {
+    if (m[1] && m[1] !== host) continue;
+    if (out.some((x) => x.token === m[2])) continue;
+    out.push({ token: m[2] });
+    if (out.length === 3) break;
+  }
+  return out;
+}
