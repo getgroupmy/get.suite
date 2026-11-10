@@ -383,7 +383,9 @@ export default function Tasks() {
                 return (
                   <section key={sec.id} className="task-section" aria-label={`Section ${sec.name}`}>
                     <div className="task-section-head row">
-                      <h3 className="grow">{sec.name} <span className="muted small">{mine.length}</span></h3>
+                      <h3 className="grow"><button type="button" className="link-btn task-section-fold" aria-expanded={!sec.folded} title={sec.folded ? 'Show its tasks' : 'Fold it away (just for you)'}
+                        onClick={() => { const folded = !sec.folded; setSections((all) => all.map((x) => (x.id === sec.id ? { ...x, folded } : x))); put(`/tasks/sections/${sec.id}/folded`, { folded }).catch((e) => { toast(e.message, 'error'); loadTasks(); }); }}>
+                        {sec.folded ? '▸' : '▾'} {sec.name}</button> <span className="muted small">{mine.length}</span></h3>
                       <Menu align="right" trigger={(p) => <button type="button" className="icon-btn" aria-label={`Section actions: ${sec.name}`} {...p}><Icon name="more" size={18} /></button>} items={[
                         { label: 'Add a task here…', icon: 'plus', onClick: () => setSectionEdit({ addTask: sec }) },
                         { label: 'Rename section…', icon: 'edit', onClick: () => setSectionEdit({ rename: sec }) },
@@ -392,10 +394,10 @@ export default function Tasks() {
                         { label: 'Delete section…', icon: 'trash', danger: true, onClick: () => setSectionEdit({ remove: sec }) },
                       ]} />
                     </div>
-                    <ul className="task-list" aria-label={`Tasks in ${sec.name}`} onDragOver={(e) => dragging && e.preventDefault()} onDrop={(e) => { if (dragging) { e.preventDefault(); dropInto(sec.id); } }}>
+                    {!sec.folded && <ul className="task-list" aria-label={`Tasks in ${sec.name}`} onDragOver={(e) => dragging && e.preventDefault()} onDrop={(e) => { if (dragging) { e.preventDefault(); dropInto(sec.id); } }}>
                       {mine.map(([t, i]) => row(t, i))}
                       {!mine.length && <li className="task-section-empty muted small">{dragging ? 'Drop here' : 'Nothing here yet: drag tasks in, or ⋯ → Add a task here'}</li>}
-                    </ul>
+                    </ul>}
                   </section>
                 );
               })}

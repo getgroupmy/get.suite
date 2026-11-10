@@ -9311,6 +9311,24 @@ test('tasks: sections split a list into parts', async () => {
   assert.equal((await c('DELETE', `/api/tasks/sections/${elsewhereSec.id}`)).status, 404);
 });
 
+test('tasks: fold a section away, each person their own', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['tfoa', 'Fold Ann'], ['tfob', 'Fold Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'tfoa@acme.com'); await login(b, 'tfob@acme.com');
+  const benId = (await b('GET', '/api/auth/me')).body.user.id;
+  const list = (await a('POST', '/api/tasks/lists', { name: 'Folding' })).body.id;
+  await a('PUT', `/api/tasks/lists/${list}/members`, { user_ids: [benId] });
+  const sec = (await a('POST', `/api/tasks/lists/${list}/sections`, { name: 'Later' })).body;
+  assert.equal(sec.folded, false);
+  assert.deepEqual((await a('PUT', `/api/tasks/sections/${sec.id}/folded`, { folded: true })).body, { folded: true });
+  assert.equal((await a('GET', `/api/tasks/lists/${list}/sections`)).body[0].folded, true);
+  assert.equal((await b('GET', `/api/tasks/lists/${list}/sections`)).body[0].folded, false, 'Ben’s own choice');
+  await a('PUT', `/api/tasks/sections/${sec.id}/folded`, { folded: false });
+  assert.equal((await a('GET', `/api/tasks/lists/${list}/sections`)).body[0].folded, false);
+  const outsider = client(); await login(outsider, 'tseca@acme.com');
+  assert.equal((await outsider('PUT', `/api/tasks/sections/${sec.id}/folded`, { folded: true })).status, 404);
+});
+
 test('tasks: a repeating task can stop repeating after a day', async () => {
   const a = client(), c = client();
   for (const [local, name] of [['truna', 'Until Ann'], ['trunc', 'Until Cat']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);

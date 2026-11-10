@@ -104,7 +104,14 @@ q(`CREATE TABLE IF NOT EXISTS task_sections (
   created_at INTEGER NOT NULL
 )`).run();
 export const MAX_SECTIONS = 30;
-const sectionsOf = (listId) => q('SELECT id, name, position FROM task_sections WHERE list_id = ? ORDER BY position').all(listId);
+// Sections each person has folded away (their own choice, on every device).
+q(`CREATE TABLE IF NOT EXISTS task_section_folded (
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  section_id TEXT NOT NULL REFERENCES task_sections(id) ON DELETE CASCADE,
+  PRIMARY KEY (user_id, section_id)
+)`).run();
+const sectionsOf = (listId, userId = null) => q(`SELECT s.id, s.name, s.position, EXISTS (SELECT 1 FROM task_section_folded f WHERE f.section_id = s.id AND f.user_id = ?) AS folded
+  FROM task_sections s WHERE s.list_id = ? ORDER BY s.position`).all(userId, listId).map((x) => ({ ...x, folded: !!x.folded }));
 /** A section id for a task on this list ('' or null for none); one from another list is refused. */
 function sectionOn(listId, v) {
   if (v === null || v === '' || v === undefined) return null;
@@ -474,7 +481,15 @@ export default function taskRoutes() {
   });
 
   // How you sort a list: your order (drag), by due date, by title, newest first, or starred first.
-  r.get('/lists/:id/sections', (req, res) => res.json(sectionsOf(loadList(req.params.id, req.user).id)));
+  r.get('/lists/:id/sections', (req, res) => res.json(sectionsOf(loadList(req.params.id, req.user).id, req.user.id)));
+  // Fold a section away (or open it again): yours alone.
+  r.put('/sections/:id/folded', (req, res) => {
+    const { sec, list } = sectionFor(req);
+    if (req.body?.folded) q('INSERT OR IGNORE INTO task_section_folded (user_id, section_id) VALUES (?, ?)').run(req.user.id, sec.id);
+    else q('DELETE FROM task_section_folded WHERE user_id = ? AND section_id = ?').run(req.user.id, sec.id);
+    sendTo([req.user.id], { type: 'tasks-changed', list_id: list.id });
+    res.json({ folded: !!req.body?.folded });
+  });
   r.post('/lists/:id/sections', (req, res) => {
     const list = loadList(req.params.id, req.user);
     const name = str(req.body?.name, { required: true, name: 'Section name', max: 100 });
@@ -483,7 +498,7 @@ export default function taskRoutes() {
     const position = (q('SELECT MAX(position) AS p FROM task_sections WHERE list_id = ?').get(list.id).p ?? 0) + 1;
     q('INSERT INTO task_sections (id, list_id, name, position, created_at) VALUES (?, ?, ?, ?, ?)').run(id, list.id, name, position, now());
     changed(list);
-    res.status(201).json({ id, name, position });
+    res.status(201).json({ id, name, position, folded: false });
   });
   const sectionFor = (req) => {
     const sec = q('SELECT * FROM task_sections WHERE id = ?').get(req.params.id);
@@ -499,7 +514,7 @@ export default function taskRoutes() {
     const keys = Object.keys(set);
     if (keys.length) q(`UPDATE task_sections SET ${keys.map((k) => `${k} = ?`).join(', ')} WHERE id = ?`).run(...keys.map((k) => set[k]), sec.id);
     changed(list);
-    res.json(q('SELECT id, name, position FROM task_sections WHERE id = ?').get(sec.id));
+    res.json(sectionsOf(list.id, req.user.id).find((x) => x.id === sec.id));
   });
   // Delete a section: its tasks stay on the list, under no section (or, with { tasks: true }, go too).
   r.delete('/sections/:id', (req, res) => {
@@ -508,6 +523,7 @@ export default function taskRoutes() {
     tx(() => {
       if (withTasks) { for (const t of q('SELECT id FROM tasks WHERE section_id = ?').all(sec.id)) { unblockFrom(list.id, t.id); q('DELETE FROM tasks WHERE id = ?').run(t.id); } }
       else q('UPDATE tasks SET section_id = NULL WHERE section_id = ?').run(sec.id);
+      q('DELETE FROM task_section_folded WHERE section_id = ?').run(sec.id);
       q('DELETE FROM task_sections WHERE id = ?').run(sec.id);
     });
     changed(list);
