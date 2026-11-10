@@ -8219,3 +8219,27 @@ test('attaching a document, spreadsheet or presentation to an email: a copy as W
   assert.equal(theirs.status, 201);
   assert.notEqual(theirs.body.parent_id, folder.id, 'in their own Email attachments');
 });
+
+test('file format choice: zip downloads and your data as Microsoft Office or OpenDocument', async () => {
+  const me = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'odfuser', domain: 'acme.com', name: 'Odette Format', password: 'password123' })).status, 201);
+  await login(me, 'odfuser@acme.com');
+  assert.equal((await me('GET', '/api/auth/me')).body.user.file_format, 'office', 'Microsoft Office to start with');
+  const d = (await me('POST', '/api/files/new', { kind: 'doc', name: 'Notes' })).body;
+  const s = (await me('POST', '/api/files/new', { kind: 'sheet', name: 'Sums' })).body;
+  const k = (await me('POST', '/api/files/new', { kind: 'slides', name: 'Talk' })).body;
+  const JSZip = (await import('jszip')).default;
+  const names = async (url) => Object.keys((await JSZip.loadAsync((await me('GET', url, undefined, { binary: true })).body)).files).filter((n) => !n.endsWith('/')).sort();
+  const ids = [d.id, s.id, k.id].join(',');
+  assert.deepEqual(await names(`/api/files/zip?ids=${ids}`), ['Notes.docx', 'Sums.xlsx', 'Talk.pptx']);
+  assert.deepEqual(await names(`/api/files/zip?ids=${ids}&format=odf`), ['Notes.odt', 'Sums.ods', 'Talk.odp'], 'asked for once');
+  assert.equal((await me('PUT', '/api/users/me/file-format', { format: 'pdf' })).status, 400);
+  assert.deepEqual((await me('PUT', '/api/users/me/file-format', { format: 'odf' })).body, { file_format: 'odf' });
+  assert.equal((await me('GET', '/api/auth/me')).body.user.file_format, 'odf');
+  assert.deepEqual(await names(`/api/files/zip?ids=${ids}`), ['Notes.odt', 'Sums.ods', 'Talk.odp'], 'the choice kept');
+  const zip = await JSZip.loadAsync((await me('GET', '/api/takeout', undefined, { binary: true })).body);
+  assert.deepEqual(Object.keys(zip.files).filter((n) => /^Drive\/.+\.\w+$/.test(n)).sort(), ['Drive/Notes.odt', 'Drive/Sums.ods', 'Drive/Talk.odp']);
+  assert.match(await zip.file('README.txt').async('string'), /as OpenDocument: \.odt, \.ods, \.odp/);
+  const { docFromOdt } = await import('../src/office/odt.js');
+  assert.equal((await docFromOdt(await zip.file('Drive/Notes.odt').async('nodebuffer'))).doc.type, 'doc', 'a real OpenDocument file');
+});

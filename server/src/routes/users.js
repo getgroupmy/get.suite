@@ -193,6 +193,14 @@ export default function userRoutes() {
     res.json({ second_tz: tz });
   });
 
+  // What documents, spreadsheets and presentations download as in a .zip or your data: { format: 'office' | 'odf' }.
+  r.put('/me/file-format', (req, res) => {
+    const format = req.body?.format;
+    if (format !== 'office' && format !== 'odf') throw bad('Choose Microsoft Office or OpenDocument');
+    q('UPDATE users SET file_format = ? WHERE id = ?').run(format, req.user.id);
+    res.json({ file_format: format });
+  });
+
   // Where Workspace opens for you: { page: 'drive' | 'home' }.
   // Your own job title, department and phone ({ job_title, department, work_phone }).
   r.put('/me/profile', (req, res) => {

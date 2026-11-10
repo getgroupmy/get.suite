@@ -971,8 +971,10 @@ const ATTACH_AS = {
 };
 function AttachAs({ file, onClose, onDone }) {
   const toast = useToast();
+  const { user } = useAuth();
   const choices = ATTACH_AS[file.kind] || [];
-  const [format, setFormat] = useState(choices[0]?.[0]);
+  // Your usual kind first (Settings → File format for downloads).
+  const [format, setFormat] = useState((user.file_format === 'odf' && choices.find(([v]) => v.startsWith('od'))?.[0]) || choices[0]?.[0]);
   const [busy, setBusy] = useState(false);
   const go = async () => {
     setBusy(true);

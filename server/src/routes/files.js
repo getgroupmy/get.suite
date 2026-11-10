@@ -523,13 +523,15 @@ export default function fileRoutes({ maxUploadBytes }) {
   });
 
   // Download several files and folders as one .zip; documents, spreadsheets and presentations as
-  // Word, Excel and PowerPoint files. Only what you can open, and not what's in the bin.
+  // Word, Excel and PowerPoint files (or OpenDocument). Only what you can open, and not what's in the bin.
   r.get('/zip', async (req, res) => {
     const ids = String(req.query.ids || '').split(',').filter(Boolean).slice(0, 500);
     if (!ids.length) throw bad('Choose files to download');
     const entries = [];
     let total = 0;
     const used = new Set();
+    // Documents, spreadsheets and presentations as Word, Excel and PowerPoint, or OpenDocument (?format=odf, or your choice in Settings).
+    const odf = (req.query.format || q('SELECT file_format FROM users WHERE id = ?').get(req.user.id)?.file_format) === 'odf';
     const unique = (p) => { let n = p, i = 1; while (used.has(n.toLowerCase())) { const dot = p.lastIndexOf('.'); n = dot > p.lastIndexOf('/') ? `${p.slice(0, dot)} (${i})${p.slice(dot)}` : `${p} (${i})`; i++; } used.add(n.toLowerCase()); return n; };
     const safe = (name) => String(name).replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').trim() || 'untitled';
     const add = (f, dir) => {
@@ -542,7 +544,7 @@ export default function fileRoutes({ maxUploadBytes }) {
       }
       if (!mayTakeAway(f, roleFor(f.id, req.user.id))) return; // view only: left out
       if (f.kind === 'file') { total += f.size || 0; if (total > MAX_ZIP_BYTES) throw bad('More than 2 GB: download fewer files at a time'); }
-      const ext = { doc: '.docx', sheet: '.xlsx', slides: '.pptx' }[f.kind] || '';
+      const ext = (odf ? { doc: '.odt', sheet: '.ods', slides: '.odp' } : { doc: '.docx', sheet: '.xlsx', slides: '.pptx' })[f.kind] || '';
       entries.push({ f, path: unique(`${dir}${safe(f.name)}${ext && !f.name.toLowerCase().endsWith(ext) ? ext : ''}`) });
     };
     for (const id of ids) {
@@ -555,16 +557,7 @@ export default function fileRoutes({ maxUploadBytes }) {
       if (e.folder) { zip.folder(e.path); continue; }
       const { f } = e;
       if (f.kind === 'file') zip.file(e.path, fs.createReadStream(path.join(FILES_DIR, f.storage)), { binary: true });
-      else {
-        const content = JSON.parse(f.content || '{}');
-        const pictureData = async (fileId) => {
-          const pic = q("SELECT * FROM files WHERE id = ? AND kind = 'file' AND trashed = 0").get(fileId);
-          if (!pic || !(/^image\//.test(pic.mime || '') || (f.kind === 'slides' && /^video\//.test(pic.mime || ''))) || !atLeast(roleFor(f.id, pic.owner_id), 'editor')) return null; // pictures, and videos on slides
-          return { data: fs.readFileSync(path.join(FILES_DIR, pic.storage)), mime: pic.mime };
-        };
-        const buf = f.kind === 'doc' ? await wordFromDoc(content, f.name, { pictureData, page: setupOf(f), comments: wordCommentsOf(f.id) }) : f.kind === 'sheet' ? await excelFromSheet(content, { comments: cellCommentsOf(f.id) }) : await powerPointFromDeck(content, { title: f.name, pictureData, comments: slideCommentsOf(f.id) });
-        zip.file(e.path, buf);
-      }
+      else zip.file(e.path, await exportedAs(q('SELECT * FROM files WHERE id = ?').get(f.id), odf ? { doc: 'odt', sheet: 'ods', slides: 'odp' }[f.kind] : EXPORT_AS[f.kind]));
     }
     const one = ids.length === 1 ? q('SELECT name FROM files WHERE id = ?').get(ids[0])?.name : null;
     const name = `${one ? safe(one) : 'Workspace files'}.zip`;

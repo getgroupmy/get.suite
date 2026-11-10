@@ -61,6 +61,7 @@ export default function Settings() {
       <SignInApps />
       <WorkLocation />
       <SecondZone />
+      <FileFormat />
       <Profile />
       <ViewHistory />
       <ReadReceipts />
@@ -329,6 +330,28 @@ function Profile() {
       </div>
       <div className="row end"><button className="btn primary">Save</button></div>
     </form>
+  );
+}
+
+/** What documents, spreadsheets and presentations download as when there's no menu to choose from: a .zip from Drive, your data. */
+function FileFormat() {
+  const toast = useToast();
+  const { user, setUser } = useAuth();
+  const [now, setNow] = useState(user.file_format === 'odf' ? 'odf' : 'office'); // shown chosen straight away
+  const set = async (format) => {
+    const was = now;
+    setNow(format);
+    try { await put('/users/me/file-format', { format }); setUser({ ...user, file_format: format }); toast(format === 'odf' ? 'Files will download as OpenDocument' : 'Files will download as Word, Excel and PowerPoint'); } catch (e) { setNow(was); toast(e.message, 'error'); }
+  };
+  return (
+    <section className="card stack" aria-labelledby="ff-h">
+      <h2 id="ff-h">File format for downloads</h2>
+      <p className="muted small" style={{ margin: 0 }}>What documents, spreadsheets and presentations become in a .zip from Drive, in <strong>Download your data</strong>, and first in the list when you attach one to an email. Each editor's ⋮ menu still offers every kind.</p>
+      <div className="stack" role="radiogroup" aria-labelledby="ff-h">
+        <label className="check"><input type="radio" name="file-format" checked={now === 'office'} onChange={() => set('office')} /> Microsoft Office: Word (.docx), Excel (.xlsx), PowerPoint (.pptx)</label>
+        <label className="check"><input type="radio" name="file-format" checked={now === 'odf'} onChange={() => set('odf')} /> OpenDocument: .odt, .ods, .odp (LibreOffice and others)</label>
+      </div>
+    </section>
   );
 }
 

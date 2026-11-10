@@ -1,5 +1,5 @@
 // Download your data: everything you own in one .zip, in formats other programs open. Drive (with its
-// folders; documents, spreadsheets and presentations as Word, Excel and PowerPoint), your calendar
+// folders; documents, spreadsheets and presentations as Word, Excel and PowerPoint, or OpenDocument), your calendar
 // (.ics), contacts (.vcf), tasks (CSV), notes (Markdown) and email (an .mbox file per folder). Mounted at /api/takeout.
 import { Router } from 'express';
 import fs from 'node:fs';
@@ -16,6 +16,9 @@ import { exportCalendar } from '../calimport.js';
 import { contactsToVcf } from '../contactfiles.js';
 import { withPhoto } from '../contactphotos.js';
 import { wordFromDoc } from '../office/word.js';
+import { odtFromDoc } from '../office/odt.js';
+import { odsFromSheet } from '../office/ods.js';
+import { odpFromDeck } from '../office/odp.js';
 import { excelFromSheet } from '../office/excel.js';
 import { powerPointFromDeck } from '../office/powerpoint.js';
 import { withoutSuggestions } from '../office/suggestions.js';
@@ -87,9 +90,11 @@ export default function takeoutRoutes() {
     const mine = q('SELECT * FROM files WHERE owner_id = ? AND trashed = 0').all(me);
     const byId = new Map(mine.map((f) => [f.id, f]));
     const pathOf = (f) => { const parts = []; let cur = f; for (let i = 0; cur && i < 64; i++) { parts.unshift(safe(cur.name)); cur = byId.get(cur.parent_id); } return parts.join('/'); };
+    // Documents, spreadsheets and presentations as Word, Excel and PowerPoint, or OpenDocument (?format=odf, or the choice in Settings).
+    const odf = (req.query.format || q('SELECT file_format FROM users WHERE id = ?').get(req.user.id)?.file_format) === 'odf';
     for (const f of mine) {
       if (f.kind === 'folder') { zip.folder(`Drive/${pathOf(f)}`); continue; }
-      const ext = { doc: '.docx', sheet: '.xlsx', slides: '.pptx' }[f.kind] || '';
+      const ext = (odf ? { doc: '.odt', sheet: '.ods', slides: '.odp' } : { doc: '.docx', sheet: '.xlsx', slides: '.pptx' })[f.kind] || '';
       const where = unique(`Drive/${pathOf(f)}${ext && !f.name.toLowerCase().endsWith(ext) ? ext : ''}`);
       if (f.kind === 'file') { if (f.storage) zip.file(where, fs.createReadStream(path.join(FILES_DIR, f.storage)), { binary: true }); continue; }
       const content = JSON.parse(f.content || '{}');
@@ -98,8 +103,10 @@ export default function takeoutRoutes() {
         return pic && /^image\//.test(pic.mime || '') && pic.owner_id === me ? { data: fs.readFileSync(path.join(FILES_DIR, pic.storage)), mime: pic.mime } : null;
       };
       try {
-        const buf = f.kind === 'doc' ? await wordFromDoc(withoutSuggestions(content), f.name, { pictureData })
-          : f.kind === 'sheet' ? await excelFromSheet(content) : await powerPointFromDeck(content, { title: f.name, pictureData });
+        const buf = odf
+          ? (f.kind === 'doc' ? await odtFromDoc(withoutSuggestions(content), f.name, { pictureData }) : f.kind === 'sheet' ? await odsFromSheet(content) : await odpFromDeck(content, { title: f.name, pictureData }))
+          : f.kind === 'doc' ? await wordFromDoc(withoutSuggestions(content), f.name, { pictureData })
+            : f.kind === 'sheet' ? await excelFromSheet(content) : await powerPointFromDeck(content, { title: f.name, pictureData });
         zip.file(where, buf);
       } catch (e) { zip.file(`${where}.error.txt`, `This file couldn't be converted: ${e.message}`); }
     }
@@ -121,7 +128,7 @@ export default function takeoutRoutes() {
     zip.file('Tasks.csv', `﻿${tasksCsv(me)}\r\n`);
     zip.file('Notes.md', `# Notes\n\n${notesMarkdown(me)}`);
     zip.file('README.txt', [`Your Workspace data, ${new Date().toISOString().slice(0, 10)}`, '',
-      'Drive/        your files and folders (documents as Word, spreadsheets as Excel, presentations as PowerPoint)',
+      `Drive/        your files and folders (${odf ? 'documents, spreadsheets and presentations as OpenDocument: .odt, .ods, .odp, for LibreOffice and others' : 'documents as Word, spreadsheets as Excel, presentations as PowerPoint'})`,
       'Calendar.ics  your events, for Outlook, Google Calendar or Apple Calendar',
       'Contacts.vcf  your contacts, for phones, Outlook, Gmail or Apple Contacts',
       'Tasks.csv     your task lists, for a spreadsheet',
