@@ -543,6 +543,14 @@ function CompanySettings() {
         ))}
         <p className="muted small" style={{ margin: 0 }}>For everyone's mailbox in your company: mail that has been in Trash (or Junk) that long is deleted for good by the mail server, also when it's read on a phone or in Outlook. It frees the space it took.</p>
       </div>
+      <div className="card stack" aria-labelledby="mailfwd-h">
+        <h2 id="mailfwd-h">Automatic forwarding</h2>
+        <label className="check">
+          <input type="checkbox" checked={org.allow_forwarding !== false} onChange={(e) => save({ allow_forwarding: e.target.checked }, e.target.checked ? 'People may forward their mail outside the company' : 'Mail is now only forwarded within the company')} />
+          Let people forward their mail automatically to addresses outside the company
+        </label>
+        <p className="muted small" style={{ margin: 0 }}>Turned off, Mail → Forwarding and filters only send copies to your company's own domains, and forwarding already set up to anywhere else stops at once (it starts again if you turn this back on). Every forwarding address has to confirm with a code first, and turning forwarding on or off is in the activity log.</p>
+      </div>
       <div className="card stack" aria-labelledby="sess-h">
         <h2 id="sess-h">Sign-in sessions</h2>
         <label className="field" style={{ maxWidth: 320 }}><span>Sign out after no activity for</span>

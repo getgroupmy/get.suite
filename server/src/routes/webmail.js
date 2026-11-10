@@ -38,6 +38,7 @@ import { mimeFor } from '../util.js';
 import { previewMime, previewHeaders } from '../mail/preview.js';
 import { officePreview } from '../office/preview.js';
 import { originalSummary } from '../mail/original.js';
+import { describeForwarding, rowOf, recentSends, newCode, hashCode, cleanAddress, forwardingAllowed, checkCode, KEEP_CHOICES, CODE_DAYS, MAX_SENDS_PER_DAY } from '../mail/forwarding.js';
 import { emlView } from '../mail/emlview.js';
 import { zipEntries } from '../zipfiles.js';
 import { calendarPartOf, readInvite, replyIcs, eventForInvite, saveInvite, readReply } from '../mail/invite.js';
@@ -529,6 +530,11 @@ export default function webmailRoutes() {
 
   r.put('/rules', (req, res) => {
     const rules = normalizeRules(req.body.rules);
+    // A company that keeps mail inside: no new copies to outside addresses (ones already there are left
+    // alone so other changes still save; the mail server doesn't send them anyway, see mail/config.js).
+    const before = new Set(JSON.parse(q('SELECT rules FROM mail_rules WHERE user_id = ?').get(req.user.id)?.rules || '[]').map((x) => x.actions?.forwardTo).filter(Boolean));
+    const outside = rules.find((x) => x.actions.forwardTo && !before.has(x.actions.forwardTo) && !forwardingAllowed(req.user.org_id, x.actions.forwardTo));
+    if (outside) throw new HttpError(403, `${outside.name}: your company only allows forwarding to its own addresses`);
     q(`INSERT INTO mail_rules (user_id, rules, updated_at) VALUES (?, ?, ?)
        ON CONFLICT(user_id) DO UPDATE SET rules = excluded.rules, updated_at = excluded.updated_at`)
       .run(req.user.id, JSON.stringify(rules), Date.now());
@@ -1230,6 +1236,84 @@ export default function webmailRoutes() {
     q('UPDATE users SET plus_folders = ? WHERE id = ?').run(req.body?.on ? 1 : 0, req.user.id);
     scheduleMailConfig();
     res.json({ on: !!req.body?.on, example: req.user.username.replace('@', '+receipts@') });
+  });
+
+  // Automatic forwarding (mail/forwarding.js): the address gets a code by email; once it's typed here,
+  // a copy of all incoming mail goes there, and your own copy is kept, marked read, archived or binned.
+  r.get('/forwarding', (req, res) => res.json(describeForwarding(req.user)));
+  const sendForwardCode = async (req, address) => {
+    const row = rowOf(req.user.id);
+    const sends = recentSends(row);
+    if (sends.length >= MAX_SENDS_PER_DAY) throw new HttpError(429, 'Too many codes sent today: try again tomorrow');
+    const code = newCode();
+    const text = [`${req.user.name} (${req.user.username}) asked for all of their incoming email to be forwarded to this address (${address}).`, '',
+      `Confirmation code: ${code}`, '', `To allow it, they type this code in Workspace (Mail → Forwarding). It works for ${CODE_DAYS} days.`,
+      'If you don’t know them, or don’t want their email, ignore this message: nothing will be forwarded.'].join('\n');
+    try {
+      await smtpFor(req.user).sendMail({ from: { name: req.user.name, address: req.user.username }, to: address, subject: `Confirm forwarding of ${req.user.name}’s email`, text });
+    } catch (e) {
+      console.error('[mail] forwarding code failed:', e.message);
+      throw new HttpError(502, 'The confirmation code couldn’t be sent: try again in a moment');
+    }
+    const keep = row?.keep || 'inbox';
+    q(`INSERT INTO mail_forwarding (user_id, address, code_hash, code_sent_at, tries, confirmed, enabled, keep, sends) VALUES (?, ?, ?, ?, 0, 0, 0, ?, ?)
+       ON CONFLICT(user_id) DO UPDATE SET address = excluded.address, code_hash = excluded.code_hash, code_sent_at = excluded.code_sent_at, tries = 0, confirmed = 0, enabled = 0, sends = excluded.sends`)
+      .run(req.user.id, address, hashCode(code), Date.now(), keep, JSON.stringify([...sends, Date.now()]));
+  };
+  r.put('/forwarding', async (req, res) => {
+    const address = cleanAddress(req.body?.address);
+    if (!address) throw bad('Enter the email address to forward to');
+    if (address === req.user.username.toLowerCase()) throw bad('That’s your own address');
+    if (!forwardingAllowed(req.user.org_id, address)) throw new HttpError(403, 'Your company only allows forwarding to its own addresses');
+    const row = rowOf(req.user.id);
+    if (!(row?.confirmed && row.address === address)) {
+      const wasOn = !!row?.enabled;
+      await sendForwardCode(req, address);
+      if (wasOn) scheduleMailConfig(); // forwarding to the old address stops at once
+      audit(req, 'mail.forwarding_requested', { target: address });
+    }
+    res.json(describeForwarding(req.user));
+  });
+  r.post('/forwarding/resend', async (req, res) => {
+    const row = rowOf(req.user.id);
+    if (!row || row.confirmed) throw bad('There is no address waiting to be confirmed');
+    if (!forwardingAllowed(req.user.org_id, row.address)) throw new HttpError(403, 'Your company only allows forwarding to its own addresses');
+    await sendForwardCode(req, row.address);
+    res.json(describeForwarding(req.user));
+  });
+  r.post('/forwarding/confirm', (req, res) => {
+    const row = rowOf(req.user.id);
+    if (!row || row.confirmed) throw bad('There is no address waiting to be confirmed');
+    const result = checkCode(row, req.body?.code);
+    if (result === 'locked') throw new HttpError(429, 'Too many wrong codes: send a new one');
+    if (result === 'expired') throw bad('That code has expired: send a new one');
+    if (result === 'wrong') { q('UPDATE mail_forwarding SET tries = tries + 1 WHERE user_id = ?').run(req.user.id); throw bad('That code isn’t right'); }
+    q('UPDATE mail_forwarding SET confirmed = 1, enabled = 1, code_hash = NULL, tries = 0 WHERE user_id = ?').run(req.user.id);
+    scheduleMailConfig();
+    audit(req, 'mail.forwarding_on', { target: row.address });
+    res.json(describeForwarding(req.user));
+  });
+  r.patch('/forwarding', (req, res) => {
+    const row = rowOf(req.user.id);
+    if (!row) throw bad('Add an address to forward to first');
+    if (req.body?.keep !== undefined) {
+      if (!KEEP_CHOICES.includes(req.body.keep)) throw bad('Keep your copy in the Inbox, mark it read, archive it or put it in the Trash');
+      q('UPDATE mail_forwarding SET keep = ? WHERE user_id = ?').run(req.body.keep, req.user.id);
+    }
+    if (req.body?.enabled !== undefined) {
+      if (req.body.enabled && !row.confirmed) throw bad('Confirm the address first, with the code sent to it');
+      if (req.body.enabled && !forwardingAllowed(req.user.org_id, row.address)) throw new HttpError(403, 'Your company only allows forwarding to its own addresses');
+      q('UPDATE mail_forwarding SET enabled = ? WHERE user_id = ?').run(req.body.enabled ? 1 : 0, req.user.id);
+      audit(req, req.body.enabled ? 'mail.forwarding_on' : 'mail.forwarding_off', { target: row.address });
+    }
+    scheduleMailConfig();
+    res.json(describeForwarding(req.user));
+  });
+  r.delete('/forwarding', (req, res) => {
+    const row = rowOf(req.user.id);
+    q('DELETE FROM mail_forwarding WHERE user_id = ?').run(req.user.id);
+    if (row) { scheduleMailConfig(); audit(req, 'mail.forwarding_off', { target: row.address }); }
+    res.json(describeForwarding(req.user));
   });
 
   // Muted conversations: { message_id, references, subject } of a message in it. From then on, replies

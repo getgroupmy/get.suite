@@ -1,5 +1,6 @@
 // Generates the mail server's tables from the database and writes them to
 // MAIL_CONFIG_DIR, which the mail container watches (see mail/entrypoint.sh).
+import { activeForwarding, insideCompany } from './forwarding.js';
 import '../hold.js'; // users.legal_hold (no automatic emptying of Trash and Junk)
 import fs from 'node:fs';
 import path from 'node:path';
@@ -157,11 +158,16 @@ export function buildMailConfig() {
   const ruleSets = new Map(q('SELECT user_id, rules FROM mail_rules').all().map((r) => [r.user_id, JSON.parse(r.rules)]));
   const muted = new Map();
   for (const m of q('SELECT user_id, ids FROM mail_muted ORDER BY created_at').all()) muted.set(m.user_id, [...(muted.get(m.user_id) || []), ...JSON.parse(m.ids)]);
+  const forwards = activeForwarding();
+  const outsideOk = new Map(q('SELECT id, allow_forwarding FROM orgs').all().map((o) => [o.id, !!o.allow_forwarding]));
   for (const u of users) {
     if (u.disabled) continue;
     const v = vacations.get(u.id);
+    // A company that keeps mail inside: filters don't forward copies outside either.
+    const rules = (ruleSets.get(u.id) || []).map((r) => (r.actions?.forwardTo && outsideOk.get(u.org_id) === false && !insideCompany(u.org_id, r.actions.forwardTo)
+      ? { ...r, actions: { ...r.actions, forwardTo: null } } : r));
     const addresses = [u.username, ...[...aliasMap].filter(([, t]) => t.includes(u.username)).map(([a]) => a)];
-    const script = userSieve({ username: u.username, rules: ruleSets.get(u.id) || [], muted: [...new Set(muted.get(u.id) || [])], plusFolders: !!u.plus_folders, vacation: v ? { ...v, name: u.name, addresses } : null });
+    const script = userSieve({ username: u.username, rules, forward: forwards.get(u.id) || null, muted: [...new Set(muted.get(u.id) || [])], plusFolders: !!u.plus_folders, vacation: v ? { ...v, name: u.name, addresses } : null });
     if (script) files[`sieve/${u.username}.sieve`] = script;
   }
   // Shared mailboxes with an automatic reply: Sieve's vacation reply, once a day per sender.

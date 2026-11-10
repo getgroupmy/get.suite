@@ -25,6 +25,7 @@ import { previewKind, stepPreview } from '../../components/viewkind.js';
 import FileViewer from '../../components/FileViewer.jsx';
 import { textToHtml, docToText, emailHtml, isEmptyDoc, linkHref } from './richtext.js';
 import { FiltersDialog } from './Filters.jsx';
+import { ForwardingDialog } from './Forwarding.jsx';
 import DrivePicker from '../../components/DrivePicker.jsx';
 import { parseAddresses } from '../../components/addresses.js';
 import { fileLinksIn } from '../chat/filelinks.js';
@@ -97,6 +98,8 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
   const [checked, setChecked] = useState(new Set());
   const [vacation, setVacation] = useState(null);
   const [vacationOpen, setVacationOpen] = useState(false);
+  const [forwarding, setForwarding] = useState(null);
+  const [forwardingOpen, setForwardingOpen] = useState(false);
   const [filters, setFilters] = useState(null); // null | { startWith?: rule }
   const [newFolder, setNewFolder] = useState(false);
   const [folderDialog, setFolderDialog] = useState(null);
@@ -144,6 +147,7 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
     return { ...out, html: (init.html || '').replace(/^<p><\/p>/, `<p></p>${block}`) };
   };
   useEffect(() => { get('/mail/vacation').then(setVacation).catch(() => {}); }, []);
+  useEffect(() => { get('/mail/forwarding').then(setForwarding).catch(() => {}); }, []);
 
   const loadFolders = useCallback(() => get('/mail/folders').then(setFolders).catch((e) => setError(e.message)), []);
   // Saved searches in the sidebar, with how many unread match (refreshed with the folders).
@@ -335,6 +339,7 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
           <Icon name="clock" /><span className="grow">Vacation reply</span>{vacation?.enabled && <span className="pill">{vacation.active ? 'On' : 'Scheduled'}</span>}
         </button>
         <button className="subnav-item" onClick={() => setFilters({})}><Icon name="settings" /><span className="grow">Filters</span></button>
+        {!shared && <button className="subnav-item" onClick={() => setForwardingOpen(true)}><Icon name="forward" /><span className="grow">Forwarding</span>{forwarding?.enabled && !forwarding.blocked && <span className="pill">On</span>}</button>}
         <button className="subnav-item" onClick={() => setSignatureOpen(true)}><Icon name="edit" /><span className="grow">Signature</span></button>
         <button className="subnav-item" onClick={() => setImportOpen(true)}><Icon name="download" /><span className="grow">Import mail</span></button>
         {!shared && <button className="subnav-item" onClick={() => setConfOpen(true)}><Icon name="lock" /><span className="grow">Confidential messages</span></button>}
@@ -485,6 +490,7 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
             loadFolders();
           }} />
       )}
+      {forwardingOpen && <ForwardingDialog onClose={() => setForwardingOpen(false)} onChanged={setForwarding} />}
       {vacationOpen && <VacationDialog onClose={() => setVacationOpen(false)} onSaved={(v) => { setVacation(v); setVacationOpen(false); }} />}
     </div>
   );

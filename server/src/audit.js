@@ -18,6 +18,7 @@ q(`CREATE TABLE IF NOT EXISTS audit_log (
 q('CREATE INDEX IF NOT EXISTS audit_log_org ON audit_log(org_id, at)').run();
 
 export const ACTIONS = {
+  'mail.forwarding_requested': 'Asked to forward their mail (code sent)', 'mail.forwarding_on': 'Turned on forwarding of their mail', 'mail.forwarding_off': 'Turned off forwarding of their mail',
   'sign-in': 'Signed in', 'sign-in.failed': 'Failed sign-in', 'sign-out': 'Signed out',
   'password.change': 'Changed their password', '2fa.on': 'Turned on two-step verification', '2fa.off': 'Turned off two-step verification',
   'session.revoke': 'Signed out a device', 'mail-app.create': 'Made a mail-app password', 'mail-app.remove': 'Removed the mail-app password',

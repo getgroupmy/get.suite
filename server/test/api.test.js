@@ -8359,3 +8359,55 @@ test('an email saved in Drive (.eml) can be read in the viewer: who, when, subje
   const outsider = client();
   assert.equal((await outsider('GET', `/api/files/${up.id}/eml`)).status, 401);
 });
+
+test('mail: forwarding all mail — the Sieve block, confirmation codes, and companies that keep mail inside', async () => {
+  const { userSieve } = await import('../src/mail/sieve.js');
+  const f = await import('../src/mail/forwarding.js');
+  const { buildMailConfig } = await import('../src/mail/config.js');
+  const { q } = await import('../src/db.js');
+  const s = (keep) => userSieve({ username: 'k@x.com', forward: { address: 'me@home.example', keep } });
+  assert.match(s('inbox'), /# Forwarding all mail to me@home\.example\nredirect :copy "me@home\.example";\n/);
+  assert.ok(!/fileinto |addflag /.test(s('inbox')), 'your copy stays in the Inbox, as it is');
+  assert.match(s('read'), /redirect :copy "me@home\.example";\naddflag "\\\\Seen";/);
+  assert.match(s('archive'), /fileinto :create "Archive";\nset "done" "1";/);
+  assert.match(s('trash'), /addflag "\\\\Seen";\nfileinto :create "Trash";\nset "done" "1";/);
+  const muted = userSieve({ username: 'k@x.com', forward: { address: 'a@b.cd', keep: 'archive' }, muted: ['<t@x>'] });
+  assert.ok(muted.indexOf('redirect :copy') < muted.indexOf('# Muted'), 'forwarding comes before everything else');
+  // Codes: right, wrong, expired, too many tries.
+  const row = { code_hash: f.hashCode('123456'), code_sent_at: Date.now(), tries: 0 };
+  assert.equal(f.checkCode(row, '123 456'), 'ok');
+  assert.equal(f.checkCode(row, '654321'), 'wrong');
+  assert.equal(f.checkCode({ ...row, code_sent_at: Date.now() - (f.CODE_DAYS + 1) * 86400000 }, '123456'), 'expired');
+  assert.equal(f.checkCode({ ...row, tries: f.MAX_TRIES }, '123456'), 'locked');
+  assert.equal(f.checkCode({ ...row, code_hash: null }, '123456'), 'expired');
+  assert.match(f.newCode(), /^\d{6}$/);
+  assert.equal(f.cleanAddress(' Me@Home.Example '), 'me@home.example');
+  assert.equal(f.cleanAddress('Me <me@home.example>'), null);
+  assert.equal(f.recentSends({ sends: JSON.stringify([Date.now() - 2 * 86400000, Date.now() - 1000]) }).length, 1);
+  // Inside or outside the company, and the config the mail server gets.
+  const u = q(`SELECT u.id, u.org_id, u.username FROM users u WHERE EXISTS (SELECT 1 FROM domains d WHERE d.org_id = u.org_id) AND u.disabled = 0 LIMIT 1`).get();
+  const domain = q('SELECT name FROM domains WHERE org_id = ?').get(u.org_id).name;
+  assert.ok(f.insideCompany(u.org_id, `x@${domain}`));
+  assert.ok(!f.insideCompany(u.org_id, 'x@elsewhere.example'));
+  q(`INSERT INTO mail_forwarding (user_id, address, confirmed, enabled, keep) VALUES (?, 'me@elsewhere.example', 1, 1, 'archive')`).run(u.id);
+  q('INSERT OR REPLACE INTO mail_rules (user_id, rules, updated_at) VALUES (?, ?, 0)').run(u.id, JSON.stringify([{ name: 'Copy', enabled: true, match: 'all', conditions: [{ field: 'subject', op: 'contains', value: 'x' }], actions: { forwardTo: 'boss@elsewhere.example', star: true, stop: true } }]));
+  try {
+    let sieve = buildMailConfig()[`sieve/${u.username}.sieve`];
+    assert.match(sieve, /redirect :copy "me@elsewhere\.example";\nfileinto :create "Archive";/);
+    assert.match(sieve, /redirect :copy "boss@elsewhere\.example";/);
+    q('UPDATE orgs SET allow_forwarding = 0 WHERE id = ?').run(u.org_id);
+    assert.ok(!f.forwardingAllowed(u.org_id, 'me@elsewhere.example'));
+    assert.ok(f.forwardingAllowed(u.org_id, `me@${domain}`));
+    sieve = buildMailConfig()[`sieve/${u.username}.sieve`];
+    assert.ok(!/elsewhere/.test(sieve), 'nothing goes outside: neither forwarding nor filters’ copies');
+    assert.match(sieve, /addflag "\\\\Flagged";/, 'the filter still stars');
+    q('UPDATE mail_forwarding SET address = ? WHERE user_id = ?').run(`me2@${domain}`, u.id);
+    assert.match(buildMailConfig()[`sieve/${u.username}.sieve`], new RegExp(`redirect :copy "me2@${domain.replace(/\./g, '\\.')}";`), 'inside the company is fine');
+    q('UPDATE mail_forwarding SET enabled = 0 WHERE user_id = ?').run(u.id);
+    assert.ok(!/me2@/.test(buildMailConfig()[`sieve/${u.username}.sieve`]), 'turned off: no forwarding');
+  } finally {
+    q('UPDATE orgs SET allow_forwarding = 1 WHERE id = ?').run(u.org_id);
+    q('DELETE FROM mail_forwarding WHERE user_id = ?').run(u.id);
+    q('DELETE FROM mail_rules WHERE user_id = ?').run(u.id);
+  }
+});

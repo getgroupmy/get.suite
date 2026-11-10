@@ -2057,3 +2057,50 @@ test('data protection rules: a card number to outside is stopped; protected word
     await olivia('DELETE', `/api/dlp/rules/${words.id}`);
   }
 });
+
+test('forwarding: the address confirms with a code; then all mail goes there too, and your copy is kept, archived…; companies can keep it inside', async () => {
+  const t = nodemailer.createTransport({ host: process.env.MAIL_IMAP_HOST, port: 25, secure: false, ignoreTLS: true, name: 'test.acme.com' });
+  assert.equal((await olivia('GET', '/api/mail/forwarding')).body.address, null);
+  assert.equal((await olivia('PUT', '/api/mail/forwarding', { address: 'olivia@acme.com' })).status, 400, 'not to yourself');
+  // Forward to Gina (another company on this server): a code goes to her.
+  const asked = (await olivia('PUT', '/api/mail/forwarding', { address: 'Gina@Globex.com' })).body;
+  assert.deepEqual([asked.address, asked.confirmed, asked.enabled], ['gina@globex.com', false, false]);
+  const codeMail = await eventually(async () => (await inbox(gina, 'Confirm forwarding'))[0]);
+  const text = (await gina('GET', `/api/mail/messages/${codeMail.uid}?folder=INBOX`)).body.text;
+  assert.match(text, /Olivia Owner \(olivia@acme\.com\) asked for all of their incoming email to be forwarded/);
+  const code = /Confirmation code: (\d{6})/.exec(text)[1];
+  // Nothing is forwarded before it's confirmed.
+  assert.ok(!fs.readFileSync('/run/nw/sieve/olivia@acme.com.sieve', 'utf8').includes('redirect :copy "gina@globex.com"'));
+  assert.equal((await olivia('PATCH', '/api/mail/forwarding', { enabled: true })).status, 400, 'not before confirming');
+  const wrong = String((Number(code) + 1) % 1000000).padStart(6, '0');
+  assert.equal((await olivia('POST', '/api/mail/forwarding/confirm', { code: wrong })).status, 400);
+  const on = (await olivia('POST', '/api/mail/forwarding/confirm', { code })).body;
+  assert.deepEqual([on.confirmed, on.enabled, on.keep], [true, true, 'inbox']);
+  await eventually(() => fs.readFileSync('/run/nw/sieve/olivia@acme.com.sieve', 'utf8').includes('redirect :copy "gina@globex.com"'), 15000);
+  await t.sendMail({ from: 'Client <client@acme.com>', to: 'olivia@acme.com', subject: 'Forward me one', text: 'x' });
+  await eventually(async () => (await inbox(gina)).some((m) => m.subject === 'Forward me one'), 20000);
+  await eventually(async () => (await inbox(olivia)).some((m) => m.subject === 'Forward me one'), 20000);
+  // Archive her copy.
+  assert.equal((await olivia('PATCH', '/api/mail/forwarding', { keep: 'archive' })).body.keep, 'archive');
+  await eventually(() => fs.readFileSync('/run/nw/sieve/olivia@acme.com.sieve', 'utf8').includes('fileinto :create "Archive";\nset "done"'), 15000);
+  await t.sendMail({ from: 'Client <client@acme.com>', to: 'olivia@acme.com', subject: 'Forward me two', text: 'x' });
+  await eventually(async () => (await inbox(gina)).some((m) => m.subject === 'Forward me two'), 20000);
+  await eventually(async () => (await olivia('GET', '/api/mail/messages?folder=Archive')).body.messages?.some((m) => m.subject === 'Forward me two'), 20000);
+  assert.ok(!(await inbox(olivia)).some((m) => m.subject === 'Forward me two'), 'not in her Inbox');
+  // The company keeps mail inside: forwarding to Globex stops, and new outside addresses are refused.
+  await olivia('PATCH', '/api/orgs/current', { allow_forwarding: false });
+  const blocked = (await olivia('GET', '/api/mail/forwarding')).body;
+  assert.deepEqual([blocked.blocked, blocked.allowed_outside], [true, false]);
+  await eventually(() => !fs.readFileSync('/run/nw/sieve/olivia@acme.com.sieve', 'utf8').includes('gina@globex.com'), 15000);
+  assert.equal((await olivia('PUT', '/api/mail/forwarding', { address: 'someone@globex.com' })).status, 403);
+  const rule = { name: 'Copy out', enabled: true, match: 'all', conditions: [{ field: 'subject', op: 'contains', value: 'x' }], actions: { forwardTo: 'gina@globex.com' } };
+  assert.equal((await olivia('PUT', '/api/mail/rules', { rules: [rule] })).status, 403, 'filters can’t copy outside either');
+  await olivia('PATCH', '/api/orgs/current', { allow_forwarding: true });
+  // Off, and removed; the activity log has it.
+  assert.equal((await olivia('PATCH', '/api/mail/forwarding', { enabled: false })).body.enabled, false);
+  assert.equal((await olivia('DELETE', '/api/mail/forwarding')).body.address, null);
+  await eventually(() => { try { return !fs.readFileSync('/run/nw/sieve/olivia@acme.com.sieve', 'utf8').includes('redirect'); } catch { return true; } }, 15000);
+  const log = (await olivia('GET', '/api/audit?limit=50')).body;
+  const actions = (log.entries || log).map((e) => e.action);
+  assert.ok(actions.includes('mail.forwarding_on') && actions.includes('mail.forwarding_requested'), actions.join(','));
+});
