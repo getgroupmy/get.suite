@@ -9092,3 +9092,30 @@ test('chat: send a company contact (view only) or a colleague’s card', async (
   assert.equal((await b('POST', `/api/chat/messages/${m3.id}/contact/save`)).body.existing, false);
   assert.ok((await b('GET', '/api/contacts')).body.some((c) => c.email === 'scda@acme.com' && c.title === 'Buyer'));
 });
+
+test('comments: emoji reactions, one of each per person, for anyone who can comment', async () => {
+  const a = client(), b = client(), v = client();
+  for (const [local, name] of [['cra', 'Cr Ann'], ['crb', 'Cr Ben'], ['crv', 'Cr Vic']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'cra@acme.com');
+  const bid = (await login(b, 'crb@acme.com')).id;
+  const vid = (await login(v, 'crv@acme.com')).id;
+  const doc = (await a('POST', '/api/files/new', { kind: 'doc', name: 'Cr plan' })).body;
+  await a('PUT', `/api/files/${doc.id}/shares`, { shares: [{ user_id: bid, role: 'commenter' }, { user_id: vid, role: 'viewer' }] });
+  const c = (await a('POST', `/api/comments/${doc.id}`, { body: 'Shall we ship Friday?', anchor: { quote: 'ship' }, id: 'cr-thread-1' })).body.comment;
+  let r = (await b('POST', `/api/comments/${doc.id}/${c.id}/reactions`, { emoji: '👍' })).body;
+  assert.deepEqual(r.reactions, [{ emoji: '👍', users: [{ id: bid, name: 'Cr Ben' }] }]);
+  r = (await a('POST', `/api/comments/${doc.id}/${c.id}/reactions`, { emoji: '👍' })).body;
+  r = (await a('POST', `/api/comments/${doc.id}/${c.id}/reactions`, { emoji: '🎉' })).body;
+  assert.deepEqual(r.reactions.map((x) => [x.emoji, x.users.map((u) => u.name)]), [['👍', ['Cr Ben', 'Cr Ann']], ['🎉', ['Cr Ann']]]);
+  // The same again takes it back.
+  r = (await b('POST', `/api/comments/${doc.id}/${c.id}/reactions`, { emoji: '👍' })).body;
+  assert.deepEqual(r.reactions[0].users.map((u) => u.name), ['Cr Ann']);
+  // In the list everyone reads; viewers can't react; only emoji.
+  assert.equal((await v('GET', `/api/comments/${doc.id}`)).body[0].reactions.length, 2);
+  assert.equal((await v('POST', `/api/comments/${doc.id}/${c.id}/reactions`, { emoji: '👍' })).status, 403);
+  assert.equal((await b('POST', `/api/comments/${doc.id}/${c.id}/reactions`, { emoji: 'lol' })).status, 400);
+  assert.equal((await b('POST', `/api/comments/${doc.id}/nope/reactions`, { emoji: '👍' })).status, 404);
+  // Deleting the comment takes its reactions too.
+  await a('DELETE', `/api/comments/${doc.id}/${c.id}`);
+  assert.deepEqual((await a('GET', `/api/comments/${doc.id}`)).body, []);
+});

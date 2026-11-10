@@ -2721,3 +2721,8 @@ input.fv-name { background: #202124; color: #fff; border: 1px solid #5f6368; bor
 .cell-chips { display: inline-flex; flex-wrap: nowrap; gap: 3px; overflow: hidden; max-width: 100%; }
 .cell-chip.plain { background: var(--surface-2); }
 .choice-box { font-size: 1.05em; }
+
+.comment-reactions { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin: 2px 0 4px; }
+.comment-reactions .reaction-add { font-size: 15px; opacity: .6; }
+.comment-reactions .reaction-add:hover { opacity: 1; }
+.reaction-quick { display: inline-flex; gap: 2px; }

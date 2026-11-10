@@ -5,6 +5,7 @@ import { get, post, patch, del, onLive, formatDate } from '../api.js';
 import { Avatar, useToast } from '../components/ui.jsx';
 import Icon from '../components/Icon.jsx';
 import { useMentions } from '../components/mentions.jsx';
+import { useAuth } from '../App.jsx';
 
 /** Comments of a file, kept up to date live. */
 export function useComments(fileId) {
@@ -29,6 +30,29 @@ function MentionBox({ value, onChange, onSubmit, placeholder, autoFocus, label }
           if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); onSubmit(); }
         }} />
       {mention.list}
+    </div>
+  );
+}
+
+const QUICK = ['👍', '❤️', '🎉', '👀', '✅', '😂'];
+/** Reactions under a comment: click one to add yours or take it back; ☺ offers a few. */
+function Reactions({ fileId, c, canReact }) {
+  const { user } = useAuth();
+  const toast = useToast();
+  const [picking, setPicking] = useState(false);
+  const react = async (emoji) => { setPicking(false); try { await post(`/comments/${fileId}/${c.id}/reactions`, { emoji }); } catch (e) { toast(e.message, 'error'); } };
+  const list = c.reactions || [];
+  if (!list.length && !canReact) return null;
+  return (
+    <div className="comment-reactions" onClick={(e) => e.stopPropagation()}>
+      {list.map((r) => {
+        const mine = r.users.some((u) => u.id === user?.id);
+        return <button key={r.emoji} type="button" className={`reaction ${mine ? 'mine' : ''}`} aria-pressed={mine} disabled={!canReact}
+          aria-label={`${r.emoji} ${r.users.length}: ${r.users.map((u) => u.name).join(', ')}`} title={r.users.map((u) => u.name).join(', ')} onClick={() => react(r.emoji)}>{r.emoji} {r.users.length}</button>;
+      })}
+      {canReact && (picking
+        ? <span className="reaction-quick" role="group" aria-label="Pick a reaction">{QUICK.map((e) => <button key={e} type="button" className="icon-btn" aria-label={`React with ${e}`} onClick={() => react(e)}>{e}</button>)}</span>
+        : <button type="button" className="icon-btn reaction-add" aria-label="Add a reaction" title="Add a reaction" onClick={() => setPicking(true)}>☺</button>)}
     </div>
   );
 }
@@ -97,6 +121,7 @@ export function CommentsPanel({ fileId, threads, canEdit, active, setActive, pen
                 <div className="row comment-meta"><Avatar name={c.author_name || '?'} size={24} /><strong className="grow">{c.author_name || 'Someone'}</strong><span className="muted small">{formatDate(c.created_at)}</span>
                   {canEdit && <button type="button" className="icon-btn" aria-label={`Delete comment by ${c.author_name}`} onClick={async (e) => { e.stopPropagation(); await del(`/comments/${fileId}/${c.id}`); if (c.id === t.id) onDeleted?.(t); }}><Icon name="trash" size={16} /></button>}</div>
                 <Body text={c.body} />
+                <Reactions fileId={fileId} c={c} canReact={canEdit} />
               </div>
             ))}
             {t.assignee_name && <p className={`small comment-assigned ${t.resolved ? 'muted' : ''}`}>☑ Assigned to {t.assignee_name}{t.resolved ? ' · done' : ''}</p>}

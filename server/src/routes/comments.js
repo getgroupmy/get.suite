@@ -28,6 +28,16 @@ q('CREATE INDEX IF NOT EXISTS file_comments_file ON file_comments(file_id, creat
 // Assigned comments: a thread given to someone becomes a task on their list (linked back), ticked off when it's resolved.
 for (const c of ['assignee_id TEXT', 'task_id TEXT']) if (!q('PRAGMA table_info(file_comments)').all().some((x) => x.name === c.split(' ')[0])) q(`ALTER TABLE file_comments ADD COLUMN ${c}`).run();
 
+// Emoji reactions on comments (👍 instead of a "Thanks!" reply): one of each emoji per person.
+q(`CREATE TABLE IF NOT EXISTS file_comment_reactions (
+  comment_id TEXT NOT NULL REFERENCES file_comments(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  emoji TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (comment_id, user_id, emoji)
+)`).run();
+export const MAX_REACTION_KINDS = 20; // different emoji on one comment
+
 const KINDS = ['doc', 'sheet', 'slides', 'file'];
 const APP = { doc: 'docs', sheet: 'sheets', slides: 'slides' };
 /** Where a comment opens: in its editor, or (an uploaded file) in Drive's preview. */
@@ -60,9 +70,25 @@ function readAnchor(kind, a) {
   return { sheet: Number.isInteger(a.sheet) && a.sheet >= 0 ? a.sheet : 0, cell, ...(a.gone && { gone: true }) }; // gone: its cell was deleted
 }
 const shown = (c) => ({ ...c, anchor: c.anchor ? JSON.parse(c.anchor) : null, resolved: !!c.resolved });
-const listOf = (fileId) => q(`SELECT c.*, u.name AS author_name, u.username AS author_email, r.name AS resolved_by_name, a.name AS assignee_name
-                             FROM file_comments c LEFT JOIN users u ON u.id = c.author_id LEFT JOIN users r ON r.id = c.resolved_by LEFT JOIN users a ON a.id = c.assignee_id
-                             WHERE c.file_id = ? ORDER BY c.created_at`).all(fileId).map(shown);
+/** Reactions on a file's comments: commentId → [{ emoji, users: [{ id, name }] }], in the order first used. */
+function reactionsOf(fileId) {
+  const out = new Map();
+  for (const r of q(`SELECT x.comment_id, x.emoji, x.user_id, u.name FROM file_comment_reactions x JOIN file_comments c ON c.id = x.comment_id
+                     LEFT JOIN users u ON u.id = x.user_id WHERE c.file_id = ? ORDER BY x.created_at`).all(fileId)) {
+    if (!out.has(r.comment_id)) out.set(r.comment_id, []);
+    const list = out.get(r.comment_id);
+    let e = list.find((x) => x.emoji === r.emoji);
+    if (!e) list.push(e = { emoji: r.emoji, users: [] });
+    e.users.push({ id: r.user_id, name: r.name || 'Someone' });
+  }
+  return out;
+}
+const listOf = (fileId) => {
+  const reactions = reactionsOf(fileId);
+  return q(`SELECT c.*, u.name AS author_name, u.username AS author_email, r.name AS resolved_by_name, a.name AS assignee_name
+            FROM file_comments c LEFT JOIN users u ON u.id = c.author_id LEFT JOIN users r ON r.id = c.resolved_by LEFT JOIN users a ON a.id = c.assignee_id
+            WHERE c.file_id = ? ORDER BY c.created_at`).all(fileId).map((c) => ({ ...shown(c), reactions: reactions.get(c.id) || [] }));
+};
 const changed = (fileId) => sendTo(audienceFor(fileId), { type: 'comments-changed', id: fileId });
 
 /** A thread given to someone: a task on their first list, linked to the comment, and a notification. */
@@ -145,6 +171,24 @@ export default function commentRoutes() {
       if (c.thread_id) throw bad('Resolve the thread, not a reply');
       q('UPDATE file_comments SET resolved = ?, resolved_by = ? WHERE id = ?').run(req.body.resolved ? 1 : 0, req.body.resolved ? req.user.id : null, c.id);
       if (c.task_id) taskDone(c.task_id, !!req.body.resolved); // its task is ticked off (or back on)
+    }
+    changed(f.id);
+    res.json(listOf(f.id).find((x) => x.id === c.id));
+  });
+
+  // React to a comment with an emoji, or take your reaction back (the same emoji again): anyone who can comment.
+  r.post('/:fileId/:id/reactions', (req, res) => {
+    const f = loadFile(req.params.fileId, req.user, 'commenter');
+    const c = q('SELECT id FROM file_comments WHERE id = ? AND file_id = ?').get(req.params.id, f.id);
+    if (!c) throw notFound();
+    const emoji = String(req.body?.emoji || '').trim();
+    if (!emoji || emoji.length > 16 || /\s/.test(emoji) || /[\p{L}\p{N}]/u.test(emoji)) throw bad('Choose an emoji');
+    const had = q('SELECT 1 FROM file_comment_reactions WHERE comment_id = ? AND user_id = ? AND emoji = ?').get(c.id, req.user.id, emoji);
+    if (had) q('DELETE FROM file_comment_reactions WHERE comment_id = ? AND user_id = ? AND emoji = ?').run(c.id, req.user.id, emoji);
+    else {
+      const kinds = q('SELECT COUNT(DISTINCT emoji) AS n, SUM(emoji = ?) AS mine FROM file_comment_reactions WHERE comment_id = ?').get(emoji, c.id);
+      if (!kinds.mine && kinds.n >= MAX_REACTION_KINDS) throw bad('This comment has enough different reactions');
+      q('INSERT INTO file_comment_reactions (comment_id, user_id, emoji, created_at) VALUES (?, ?, ?, ?)').run(c.id, req.user.id, emoji, now());
     }
     changed(f.id);
     res.json(listOf(f.id).find((x) => x.id === c.id));
