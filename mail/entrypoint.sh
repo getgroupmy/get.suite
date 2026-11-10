@@ -164,6 +164,8 @@ last=$(fp_all); last_postfix=$(fp_postfix); last_dovecot=$(fp_dovecot); last_rsp
 
 clear_stale_pid /run/dovecot/master.pid dovecot
 clear_stale_pid /run/rspamd/rspamd.pid rspamd
+# Postfix too: its master.pid holding a number some other process now has makes "postfix start" say it's already running.
+clear_stale_pid "$(postconf -h queue_directory 2>/dev/null || echo /var/spool/postfix)/pid/master.pid" master
 rspamd -f -u _rspamd -g _rspamd &
 dovecot
 postfix start-fg &   # foreground mode: the container runs as long as Postfix does

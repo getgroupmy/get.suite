@@ -147,5 +147,8 @@ clear_stale_pid ${dir}/none.pid dovecot
 for f in gone other junk live; do [[ -f ${dir}/$f.pid ]] && echo "$f kept" || echo "$f removed"; done
 `], { encoding: 'utf8' });
     assert.deepEqual(out.trim().split('\n'), ['gone removed', 'other removed', 'junk removed', 'live kept']);
+    // Done at start for each service, Postfix's master too (its pid number is often another process's after a restart).
+    const src = fs.readFileSync(ENTRYPOINT, 'utf8');
+    for (const name of ['dovecot', 'rspamd', 'master']) assert.match(src, new RegExp(`^clear_stale_pid .+ ${name}$`, 'm'), name);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
