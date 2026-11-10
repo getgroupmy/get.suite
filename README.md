@@ -1001,6 +1001,14 @@ Once ports 465, 587 and 993 are open, bots will start guessing passwords within 
 
 **Admin → Announcements** puts a short notice at the top of every page for everyone in the company: an office closure, a maintenance window, a new policy. Give it the text (up to 300 characters), an optional link (a page in the suite like `/drive`, or an `https://` address), a style (**Info** or **Warning**, which is amber) and, if you like, an end date after which it disappears by itself. It shows up straight away for everyone signed in. Each person can dismiss it with the × and it stays gone for them. **Showing now** lists what's up, with how many people have dismissed each one, and **Take down** removes one for everyone. Posting and taking down are recorded in the activity log.
 
+## Legal hold (admins)
+
+When the company has to keep someone's data (a dispute, an audit, an investigation), **Admin → Users → ⋮ → Put on legal hold…** keeps everything of theirs from being deleted for good until the hold is lifted. Say why (*Supplier dispute, case 2026-14*); it's recorded, with who did it and when, and shown when you point at the **On hold** label beside their name. They aren't told.
+
+- **What it stops:** the company's clean-ups skip them (Drive's trash after so many days, **Keeping chat**, and the automatic emptying of their Mail Trash and Junk), and deleting for good is refused, with the reason given: *Delete forever* and *Empty trash* in Drive, deleting a file's versions, deleting their Chat messages (or a thread they replied in), and deleting mail for good from Trash or Junk in Mail. Their account can't be deleted. In the Drive trash their files say **Kept** instead of when they go.
+- **What it doesn't stop:** moving things to the trash (which keeps them), editing, or mail apps on phones and Outlook deleting mail themselves; download their data with **Download their data (.zip)** at the start if that matters. Files in shared drives are kept when the person on hold created them.
+- **Lift legal hold** (same menu) puts everything back to normal; both are in the activity log.
+
 ## Activity log
 
 **Admin → Activity** shows each company's admins what happened in their company, newest first:

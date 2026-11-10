@@ -13,6 +13,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { q, tx, FILES_DIR } from '../db.js';
 import { uid, now, str, bad, notFound, HttpError } from '../util.js';
+import { keepIfHeld } from '../hold.js';
 import { roleFor, mayTakeAway } from '../access.js';
 import { insertFile } from './files.js';
 import { conversationText, conversationHtml } from '../chatexport.js';
@@ -37,7 +38,8 @@ export function purgeOldChat(at = Date.now()) {
   for (const o of q('SELECT id, chat_days FROM orgs WHERE chat_days > 0').all()) {
     const cutoff = at - o.chat_days * 864e5;
     const old = q(`SELECT m.id FROM messages m JOIN channels c ON c.id = m.channel_id
-                   WHERE m.created_at < ? AND (c.org_id = ? OR (c.dm_key IS NOT NULL AND EXISTS (
+                   WHERE m.created_at < ? AND NOT EXISTS (SELECT 1 FROM users h WHERE h.id = m.user_id AND h.legal_hold = 1)
+                     AND NOT EXISTS (SELECT 1 FROM messages r JOIN users h ON h.id = r.user_id WHERE r.parent_id = m.id AND h.legal_hold = 1) AND (c.org_id = ? OR (c.dm_key IS NOT NULL AND EXISTS (
                      SELECT 1 FROM channel_members cm JOIN users u ON u.id = cm.user_id WHERE cm.channel_id = c.id AND u.org_id = ?)))
                    LIMIT 5000`).all(cutoff, o.id, o.id).map((r) => r.id);
     if (!old.length) continue;
@@ -998,6 +1000,8 @@ export default function chatRoutes() {
     const c = loadChannel(m.channel_id, req.user);
     const moderator = req.user.is_admin && !c.dm_key; // company admins moderate their own channels
     if (m.user_id !== req.user.id && !moderator) throw notFound();
+    keepIfHeld(m.user_id, 'This message');
+    for (const r of q('SELECT DISTINCT user_id FROM messages WHERE parent_id = ?').all(m.id)) keepIfHeld(r.user_id, 'Its thread');
     q('DELETE FROM messages WHERE id = ? OR parent_id = ?').run(m.id, m.id); // a thread goes with its message
     sendTo(audience(c), { type: 'message-deleted', id: m.id, channel_id: m.channel_id, parent_id: m.parent_id });
     if (m.parent_id) { const p = one(m.parent_id); if (p) sendTo(audience(c), { type: 'message-updated', message: p }); }

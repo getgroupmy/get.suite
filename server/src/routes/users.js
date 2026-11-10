@@ -11,6 +11,7 @@ import { DATA_DIR } from '../db.js';
 import { orgMemberIds } from '../tenancy.js';
 import { q, tx } from '../db.js';
 import { str, bad, notFound, forbidden } from '../util.js';
+import { setHold, keepIfHeld } from '../hold.js';
 import { requireAdmin, validatePassword, hashPassword, newUserRow, sessionId, describeDevice, destroySession, tokenFromReq } from '../auth.js';
 import { validAddress, canReach, blobsOwnedBy, removeBlobs, mailHomeOf, retireMailHome } from '../tenancy.js';
 import { uid } from '../util.js';
@@ -297,7 +298,7 @@ export default function userRoutes() {
 
   r.get('/', (req, res) => {
     const orgId = targetOrg(req);
-    res.json(q(`SELECT u.id, u.username, u.name, u.is_admin, u.is_super, u.disabled, u.created_at, u.mail_quota_mb, u.drive_quota_mb, u.last_active, u.job_title, u.department, u.work_phone, u.manager_id,
+    res.json(q(`SELECT u.id, u.username, u.name, u.is_admin, u.is_super, u.disabled, u.created_at, u.legal_hold, u.hold_note, u.hold_at, (SELECT name FROM users b WHERE b.id = u.hold_by) AS hold_by_name, u.mail_quota_mb, u.drive_quota_mb, u.last_active, u.job_title, u.department, u.work_phone, u.manager_id,
                   (SELECT COALESCE(SUM(size), 0) FROM files f WHERE f.owner_id = u.id) AS storage_used,
                   (SELECT COUNT(*) FROM two_factor t WHERE t.user_id = u.id AND t.enabled = 1) AS two_factor
                 FROM users u WHERE u.org_id = ? ORDER BY u.name`).all(orgId));
@@ -498,6 +499,14 @@ export default function userRoutes() {
       if (mb !== null && (!Number.isFinite(mb) || mb < 1 || mb > 10_000_000)) throw bad('Storage limit: a number of MB from 1, or none');
       q('UPDATE users SET drive_quota_mb = ? WHERE id = ?').run(mb, u.id);
     }
+    // Legal hold: nothing of theirs is deleted for good until it's lifted (hold.js). A note says why.
+    let hold;
+    if (req.body.legal_hold !== undefined) {
+      hold = !!req.body.legal_hold;
+      const note = hold ? str(req.body.hold_note ?? '', { name: 'Reason', max: 300 }) || null : null;
+      setHold(u.id, hold, { note, by: req.user.id });
+      audit(req, hold ? 'user.hold' : 'user.release', { org: u.org_id, target: u.username, details: note ? { reason: note } : undefined });
+    }
     if (mail_quota_mb !== undefined) {
       const mb = Math.trunc(Number(mail_quota_mb));
       if (!Number.isFinite(mb) || mb < 0) throw bad('Mailbox size must be 0 (unlimited) or more');
@@ -515,6 +524,7 @@ export default function userRoutes() {
     const u = loadManagedUser(req);
     if (u.id === req.user.id) throw bad('You cannot delete yourself');
     if (u.is_super) throw bad('The platform owner account cannot be deleted');
+    keepIfHeld(u.id, `The account ${u.username}`);
     // Their Drive can go to a colleague first (into a "Files from …" folder), instead of being deleted.
     let heir = null;
     if (req.query.transfer_to) {

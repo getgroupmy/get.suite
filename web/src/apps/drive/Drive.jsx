@@ -403,7 +403,7 @@ export default function Drive() {
                   <td className="check-col" onClick={(e) => e.stopPropagation()}><input type="checkbox" aria-label={`Select ${f.name}`} checked={checked.has(f.id)} onChange={() => toggleCheck(f.id)} /></td>
                   <td className="name"><Icon name={fileIcon(f)} className={`ft ft-${fileIcon(f)}`} style={f.color ? { color: f.color } : undefined} /><span className="name-text">{f.name}{f.match && <MatchText text={f.match} />}{f.drive_name && <span className="muted small"> · in {f.drive_name}</span>}</span>{f.starred && <Icon name="star" size={14} className="star-mark" title="Starred" />}{f.locked_at && <span className="lock-mark" title={`Locked by ${f.locked_by_name}`} aria-label="Locked"><Icon name="lock" size={14} /></span>}</td>
                   <td className="hide-sm muted">{f.owner_id === user.id ? 'me' : f.owner_name}</td>
-                  <td className="hide-sm muted">{route.view === 'trash' ? goesIn(f.deletes_at) : formatDate(f.updated_at)}</td>
+                  <td className="hide-sm muted">{route.view === 'trash' ? (f.kept ? <span title="Your company is keeping it (a legal hold)">Kept</span> : goesIn(f.deletes_at)) : formatDate(f.updated_at)}</td>
                   <td className="hide-sm muted">{f.kind === 'folder' ? '—' : formatBytes(f.size)}</td>
                   <td className="actions">
                     <Menu trigger={(p) => <button className="icon-btn" aria-label={`Actions for ${f.name}`} {...p}><Icon name="more" /></button>} items={itemMenu(f)} />

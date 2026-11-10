@@ -17,6 +17,7 @@ import { countText, readingMinutes } from '../wordcount.js';
 import { readSetup } from '../pagesetup.js';
 import JSZip from 'jszip';
 import { uid, now, str, bad, forbidden, notFound, HttpError, mimeFor, isInlineSafe } from '../util.js';
+import { keepIfHeld, onHold } from '../hold.js';
 import { roleFor, atLeast, audienceFor, subtreeIds, mayTakeAway } from '../access.js';
 import { sendTo } from '../hub.js';
 import { canReach, checkQuota, orgStorageUsed, userStorageUsed } from '../tenancy.js';
@@ -213,7 +214,7 @@ export function insertFile({ owner, parentId, name, kind, mime = null, size = 0,
 /** Delete for good what has been in the trash longer than its company keeps it. Returns how many went. */
 export function emptyOldTrash(at = now()) {
   const old = q(`SELECT f.id FROM files f JOIN users u ON u.id = f.owner_id JOIN orgs o ON o.id = u.org_id
-                 WHERE f.trashed = 1 AND o.trash_days > 0 AND COALESCE(f.trashed_at, f.updated_at) < ? - o.trash_days * 86400000`).all(at);
+                 WHERE f.trashed = 1 AND o.trash_days > 0 AND u.legal_hold = 0 AND COALESCE(f.trashed_at, f.updated_at) < ? - o.trash_days * 86400000`).all(at);
   tx(() => { for (const { id } of old) if (q('SELECT 1 FROM files WHERE id = ?').get(id)) permanentlyDelete(id); });
   return old.length;
 }
@@ -460,14 +461,16 @@ export default function fileRoutes({ maxUploadBytes }) {
     } else if (view === 'trash') {
       // With when each goes for good, when the company empties the trash after a while.
       const days = q('SELECT o.trash_days FROM orgs o JOIN users u ON u.org_id = o.id WHERE u.id = ?').get(me)?.trash_days ?? 30;
+      // Its owner on legal hold: kept until that's lifted.
+      const goesFor = (f) => (onHold(f.owner_id) ? { kept: true } : days > 0 ? { deletes_at: (f.trashed_at || f.updated_at) + days * 864e5 } : {});
       rows = q(`SELECT ${COLS} ${FROM} WHERE f.owner_id = ? AND f.trashed = 1 ORDER BY f.trashed_at DESC, f.updated_at DESC`)
-        .all(me).map((f) => ({ ...publicFile(f, 'owner'), ...(days > 0 && { deletes_at: (f.trashed_at || f.updated_at) + days * 864e5 }) }));
+        .all(me).map((f) => ({ ...publicFile(f, 'owner'), ...goesFor(f) }));
       // And what anyone deleted in the shared drives you can edit: the drive's editors restore it or delete it for good.
       const mineIds = new Set(rows.map((f) => f.id));
       for (const d of q('SELECT id, name FROM files WHERE is_drive = 1 AND trashed = 0').all()) {
         if (!atLeast(roleFor(d.id, me), 'editor')) continue;
         const inside = q(`SELECT ${COLS} ${FROM} WHERE f.trashed = 1 AND f.id IN (SELECT value FROM json_each(?)) ORDER BY f.trashed_at DESC`).all(JSON.stringify(subtreeIds(d.id).filter((id) => id !== d.id)));
-        for (const f of inside) if (!mineIds.has(f.id)) rows.push({ ...publicFile(f, f.owner_id === me ? 'owner' : 'editor'), drive_name: d.name, ...(days > 0 && { deletes_at: (f.trashed_at || f.updated_at) + days * 864e5 }) });
+        for (const f of inside) if (!mineIds.has(f.id)) rows.push({ ...publicFile(f, f.owner_id === me ? 'owner' : 'editor'), drive_name: d.name, ...goesFor(f) });
         for (const f of rows) if (mineIds.has(f.id) && inside.some((x) => x.id === f.id)) f.drive_name = d.name;
       }
       rows.sort((a, b) => (b.trashed_at || 0) - (a.trashed_at || 0));
@@ -675,6 +678,7 @@ export default function fileRoutes({ maxUploadBytes }) {
   });
 
   r.post('/empty-trash', (req, res) => {
+    keepIfHeld(req.user.id, 'Your trash');
     const ids = q('SELECT id FROM files WHERE owner_id = ? AND trashed = 1').all(req.user.id);
     tx(() => { for (const { id } of ids) permanentlyDelete(id); });
     if (ids.length) audit(req, 'trash.empty', { details: { items: ids.length } });
@@ -1052,6 +1056,7 @@ export default function fileRoutes({ maxUploadBytes }) {
     // Yours, or (deleted already) anything in a shared drive you can edit.
     const f = loadFile(req.params.id, req.user, 'editor');
     if (f.role !== 'owner' && !(f.trashed && driveOf(f.id))) throw forbidden('You need owner access');
+    keepIfHeld(f.owner_id, `“${f.name}”`);
     const audience = audienceFor(f.id);
     tx(() => permanentlyDelete(f.id));
     audit(req, 'file.delete', { target: f.name });
@@ -1296,6 +1301,7 @@ export default function fileRoutes({ maxUploadBytes }) {
   // Free up space: all of a file's older versions go (named ones too). The file itself stays.
   r.delete('/:id/versions', (req, res) => {
     const f = loadFile(req.params.id, req.user, 'owner');
+    keepIfHeld(f.owner_id, 'Its versions');
     const list = q('SELECT id, size, storage FROM file_versions WHERE file_id = ?').all(f.id);
     q('DELETE FROM file_versions WHERE file_id = ?').run(f.id);
     for (const v of list) if (v.storage) fs.rm(path.join(FILES_DIR, v.storage), { force: true }, () => {});
@@ -1304,6 +1310,7 @@ export default function fileRoutes({ maxUploadBytes }) {
 
   r.delete('/:id/versions/:vid', (req, res) => {
     const f = loadFile(req.params.id, req.user, 'owner');
+    keepIfHeld(f.owner_id, 'This version');
     const v = versionOf(f, req.params.vid);
     q('DELETE FROM file_versions WHERE id = ?').run(v.id);
     if (v.storage) fs.rm(path.join(FILES_DIR, v.storage), { force: true }, () => {});

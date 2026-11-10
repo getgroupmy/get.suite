@@ -1416,6 +1416,14 @@ test('emptying Trash and Junk by themselves: the company setting reaches Dovecot
   const fields = () => execFileSync('doveadm', ['user', 'olivia@acme.com'], { encoding: 'utf8' });
   await eventually(async () => /namespace\/inbox\/mailbox\/Trash\/autoexpunge\s+30d/.test(fields()) && /namespace\/inbox\/mailbox\/Junk\/autoexpunge\s+7d/.test(fields()), 30000);
   // (Dovecot then expunges mail saved in those folders longer ago than that, when the mailbox is used.)
+  // Someone on legal hold: their Trash and Junk aren't emptied, and they can't delete mail for good.
+  const me = (await olivia('GET', '/api/users')).body.find((u) => u.username === 'olivia@acme.com');
+  assert.equal((await olivia('PATCH', `/api/users/${me.id}`, { legal_hold: true, hold_note: 'Audit' })).status, 200);
+  await eventually(async () => !/autoexpunge/.test(fields()), 30000);
+  const gone = await olivia('POST', '/api/mail/messages/delete', { folder: 'Trash', uids: [999999] });
+  assert.equal(gone.status, 409);
+  assert.equal((await olivia('PATCH', `/api/users/${me.id}`, { legal_hold: false })).status, 200);
+  await eventually(async () => /Trash\/autoexpunge\s+30d/.test(fields()), 30000);
   await olivia('PATCH', '/api/orgs/current', { mail_trash_days: 0, mail_junk_days: 0 });
   await eventually(async () => !/autoexpunge/.test(fields()), 30000);
 });

@@ -12,6 +12,7 @@ import addressparser from 'nodemailer/lib/addressparser/index.js';
 import { q, FILES_DIR, DATA_DIR } from '../db.js';
 import { sendTo } from '../hub.js';
 import { str, bad, notFound, HttpError, uid as newId, now } from '../util.js';
+import { keepIfHeld } from '../hold.js';
 import { roleFor, mayTakeAway } from '../access.js';
 import { mailEnabled, scheduleMailConfig, MAIL_HOSTNAME } from '../mail/config.js';
 import { withClient, withFolder, smtpFor } from '../mail/imap.js';
@@ -1256,6 +1257,7 @@ export default function webmailRoutes() {
     const uids = uidList(req.body.uids).join(',');
     const trash = await specialOf(req.user, '\\Trash');
     const junk = await specialOf(req.user, '\\Junk');
+    if (!trash || folder === trash || folder === junk) keepIfHeld(req.user.id, 'Mail');
     if (!trash || folder === trash || folder === junk) await withFolder(req.user, folder, (c) => c.messageDelete(uids, { uid: true }));
     else await withFolder(req.user, folder, (c) => c.messageMove(uids, trash, { uid: true }));
     forgetSnoozes(req.user, folder, uids);

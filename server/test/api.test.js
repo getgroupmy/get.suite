@@ -7587,3 +7587,53 @@ test('Office files: suggestions go into the Word download as tracked changes (th
   assert.match(back, /"type":"suggestDelete","attrs":\{"id":"w\d+-\d+","by":null,"name":"Kim Park","at":1793608200000\}\}\],"text":"March"/);
   assert.match(back, /"type":"suggestInsert"[^\]]*\],"text":"April"/);
 });
+
+test('legal hold: nothing of theirs is deleted for good until it is lifted', async () => {
+  const { emptyOldTrash } = await import('../src/routes/files.js');
+  const { purgeOldChat } = await import('../src/routes/chat.js');
+  const { q } = await import('../src/db.js');
+  const adm = client(), held = client();
+  assert.equal((await owner('POST', '/api/orgs', { name: 'Holdco', domain: 'holdco.com', admin_name: 'Hal Admin', admin_local: 'hal', admin_password: 'password123' })).status, 201);
+  await login(adm, 'hal@holdco.com');
+  const pat = (await adm('POST', '/api/users', { local: 'pat', domain: 'holdco.com', name: 'Pat Held', password: 'password123' })).body;
+  await login(held, 'pat@holdco.com');
+  const doc = (await held('POST', '/api/files/new', { kind: 'doc', name: 'Contract notes' })).body.id;
+  const other = (await held('POST', '/api/files/new', { kind: 'doc', name: 'Old memo' })).body.id;
+  for (const id of [doc, other]) await held('PATCH', `/api/files/${id}`, { trashed: true });
+  // Put on hold, with why; only admins can, and it's on the list and in the activity log.
+  assert.equal((await held('PATCH', `/api/users/${pat.id}`, { legal_hold: true })).status, 403);
+  assert.equal((await adm('PATCH', `/api/users/${pat.id}`, { legal_hold: true, hold_note: 'Supplier dispute' })).status, 200);
+  const row = (await adm('GET', '/api/users')).body.find((u) => u.id === pat.id);
+  assert.deepEqual([row.legal_hold, row.hold_note, row.hold_by_name], [1, 'Supplier dispute', 'Hal Admin']);
+  assert.ok(q("SELECT 1 FROM audit_log WHERE action = 'user.hold'").get());
+  // Deleting for good is refused: one file, the trash, the account; the trash isn't emptied by itself.
+  const one = await held('DELETE', `/api/files/${doc}`);
+  assert.equal(one.status, 409);
+  assert.match(one.body.error, /legal hold/);
+  assert.equal((await held('POST', '/api/files/empty-trash')).status, 409);
+  assert.equal((await adm('DELETE', `/api/users/${pat.id}`)).status, 409);
+  q('UPDATE files SET trashed_at = ? WHERE id IN (?, ?)').run(Date.now() - 400 * 864e5, doc, other);
+  emptyOldTrash();
+  assert.ok(q('SELECT 1 FROM files WHERE id = ?').get(doc), 'kept in the trash');
+  const listed = (await held('GET', '/api/files?view=trash')).body;
+  assert.deepEqual([(listed.files || listed).find((f) => f.id === doc)].map((f) => [f.kept, f.deletes_at]), [[true, undefined]], 'the trash says it is kept');
+  // Chat: their messages outlive the company's keeping period, and can't be deleted.
+  assert.equal((await adm('PATCH', '/api/orgs/current', { chat_days: 30 })).status, 200);
+  const ch = (await adm('POST', '/api/chat/channels', { name: 'deals' })).body;
+  const chId = ch.id || ch.channel?.id;
+  await held('POST', `/api/chat/channels/${chId}/join`).catch(() => {});
+  const mine = (await held('POST', `/api/chat/channels/${chId}/messages`, { body: 'We agreed 40 units' })).body;
+  const theirs = (await adm('POST', `/api/chat/channels/${chId}/messages`, { body: 'Lunch?' })).body;
+  const mineId = mine.id || mine.message?.id, theirsId = theirs.id || theirs.message?.id;
+  assert.ok(mineId, JSON.stringify(mine));
+  q('UPDATE messages SET created_at = ? WHERE id IN (?, ?)').run(Date.now() - 60 * 864e5, mineId, theirsId);
+  purgeOldChat();
+  assert.ok(q('SELECT 1 FROM messages WHERE id = ?').get(mineId), 'theirs is kept');
+  assert.equal(q('SELECT 1 FROM messages WHERE id = ?').get(theirsId), undefined, 'others go as usual');
+  assert.equal((await held('DELETE', `/api/chat/messages/${mineId}`)).status, 409);
+  // Lifted: everything works again.
+  assert.equal((await adm('PATCH', `/api/users/${pat.id}`, { legal_hold: false })).status, 200);
+  assert.equal((await adm('GET', '/api/users')).body.find((u) => u.id === pat.id).legal_hold, 0);
+  assert.equal((await held('DELETE', `/api/files/${doc}`)).status, 200);
+  assert.equal((await adm('DELETE', `/api/users/${pat.id}`)).status, 200);
+});

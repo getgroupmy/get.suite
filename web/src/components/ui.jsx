@@ -30,7 +30,7 @@ export function Modal({ title, onClose, children, footer, wide }) {
 }
 
 /** Ask for a single line of text. */
-export function PromptModal({ title, label, initial = '', confirm = 'Save', onSubmit, onClose }) {
+export function PromptModal({ title, label, initial = '', confirm = 'Save', onSubmit, onClose, message }) {
   const [value, setValue] = useState(initial);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -51,6 +51,7 @@ export function PromptModal({ title, label, initial = '', confirm = 'Save', onSu
   return (
     <Modal title={title} onClose={onClose}>
       <form onSubmit={submit} className="stack">
+        {message && <p>{message}</p>}
         <label className="field"><span>{label}</span><input ref={ref} value={value} onChange={(e) => setValue(e.target.value)} /></label>
         {error && <p className="error">{error}</p>}
         <div className="row end">

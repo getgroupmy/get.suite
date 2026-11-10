@@ -1,5 +1,6 @@
 // Generates the mail server's tables from the database and writes them to
 // MAIL_CONFIG_DIR, which the mail container watches (see mail/entrypoint.sh).
+import '../hold.js'; // users.legal_hold (no automatic emptying of Trash and Junk)
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -96,7 +97,7 @@ const splitTargets = (s) => s.split(',').map((t) => t.trim().toLowerCase()).filt
 export function buildMailConfig() {
   const domains = q('SELECT name, org_id, catchall FROM domains ORDER BY name').all();
   if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'plus_folders')) q('ALTER TABLE users ADD COLUMN plus_folders INTEGER NOT NULL DEFAULT 0').run(); // you+name@ into the folder "name"
-  const users = q(`SELECT u.id, u.org_id, u.plus_folders, u.username, u.name, u.mail_hash, u.mail_app_hash, u.mail_quota_mb, u.mail_home, u.disabled, u.is_admin, o.mail_trash_days, o.mail_junk_days
+  const users = q(`SELECT u.id, u.org_id, u.plus_folders, u.username, u.name, u.mail_hash, u.mail_app_hash, u.mail_quota_mb, u.mail_home, u.disabled, u.legal_hold, u.is_admin, o.mail_trash_days, o.mail_junk_days
                    FROM users u LEFT JOIN orgs o ON o.id = u.org_id ORDER BY u.username`).all();
   const aliases = q('SELECT org_id, address, targets FROM aliases ORDER BY address').all();
   const shared = allSharedMailboxes();
@@ -138,8 +139,9 @@ export function buildMailConfig() {
       // Someone renamed (or given a fresh folder) keeps their mail in their own folder.
       if (u.mail_home) extra.push(`userdb_mail=maildir:${u.mail_home}/Maildir`);
       // The company empties Trash and Junk by itself after so many days (Dovecot's autoexpunge).
-      if (u.mail_trash_days > 0) extra.push(`userdb_namespace/inbox/mailbox/Trash/autoexpunge=${u.mail_trash_days}d`);
-      if (u.mail_junk_days > 0) extra.push(`userdb_namespace/inbox/mailbox/Junk/autoexpunge=${u.mail_junk_days}d`);
+      // Not for someone on legal hold: their mail is kept (hold.js).
+      if (u.mail_trash_days > 0 && !u.legal_hold) extra.push(`userdb_namespace/inbox/mailbox/Trash/autoexpunge=${u.mail_trash_days}d`);
+      if (u.mail_junk_days > 0 && !u.legal_hold) extra.push(`userdb_namespace/inbox/mailbox/Junk/autoexpunge=${u.mail_junk_days}d`);
       return `${u.username}:${pass}::::${u.mail_home || ''}::${extra.join(' ')}`; // user:pass:uid:gid:gecos:home:shell:extra
     }),
     // Shared mailboxes: a password that never matches, so only webmail's login (for a member) opens them.

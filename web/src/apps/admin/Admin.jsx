@@ -182,7 +182,8 @@ function Users({ orgId, setOrgId }) {
             <td className="name"><Avatar name={u.name} size={28} userId={u.id} /><span>{u.name}{u.disabled ? ' (disabled)' : ''}</span></td>
             <td className="hide-sm muted">{u.username}</td>
             <td className="hide-sm">{u.is_super ? <span className="pill">Platform owner</span> : u.is_admin ? <span className="pill">Admin</span> : 'User'}
-              {u.two_factor ? <span className="pill ok" title="Signs in with a password and a code from their phone">2-step</span> : null}</td>
+              {u.two_factor ? <span className="pill ok" title="Signs in with a password and a code from their phone">2-step</span> : null}
+              {u.legal_hold ? <span className="pill warn" title={`Legal hold${u.hold_note ? `: ${u.hold_note}` : ''}${u.hold_by_name ? ` (by ${u.hold_by_name}` : ''}${u.hold_at ? `${u.hold_by_name ? ', ' : ' ('}${new Date(u.hold_at).toLocaleDateString()})` : u.hold_by_name ? ')' : ''}. Nothing of theirs is deleted for good.`}>On hold</span> : null}</td>
             <td className="hide-sm muted">{formatBytes(u.storage_used)}{u.drive_quota_mb ? ` of ${formatBytes(u.drive_quota_mb * 1048576)}` : ''}</td>
             <td className="hide-sm muted">{u.mail_quota_mb ? formatBytes(u.mail_quota_mb * 1048576) : 'Unlimited'}</td>
             <td className="hide-sm muted" title={u.last_active ? new Date(u.last_active).toLocaleString() : undefined}>{lastActiveText(u.last_active)}</td>
@@ -198,6 +199,9 @@ function Users({ orgId, setOrgId }) {
                   u.two_factor && u.id !== me.id && { label: 'Reset two-step verification', icon: 'shield', onClick: () => setDialog({ type: 'reset2fa', user: u }) },
                   u.id !== me.id && !u.is_super && { label: u.is_admin ? 'Remove admin' : 'Make admin', icon: 'shield', onClick: act(() => patch(`/users/${u.id}`, { is_admin: !u.is_admin }), 'Role updated') },
                   u.id !== me.id && !u.is_super && { label: u.disabled ? 'Enable account' : 'Disable account', icon: 'logout', onClick: act(() => patch(`/users/${u.id}`, { disabled: !u.disabled }), u.disabled ? 'Account enabled' : 'Account disabled') },
+                  !u.is_super && (u.legal_hold
+                    ? { label: 'Lift legal hold', icon: 'shield', onClick: () => setDialog({ type: 'release', user: u }) }
+                    : { label: 'Put on legal hold…', icon: 'shield', onClick: () => setDialog({ type: 'hold', user: u }) }),
                   { label: 'Download their data (.zip)', icon: 'download', onClick: () => { window.location.href = `/api/takeout?user=${encodeURIComponent(u.id)}`; } },
                   u.id !== me.id && !u.is_super && '-',
                   u.id !== me.id && !u.is_super && { label: 'Delete user and their files', icon: 'trash', danger: true, onClick: () => setDialog({ type: 'delete', user: u }) },
@@ -224,6 +228,12 @@ function Users({ orgId, setOrgId }) {
     {dialog?.type === 'address' && <ChangeAddress user={dialog.user} domains={domains} onClose={() => setDialog(null)} onSaved={(addr) => { setDialog(null); toast(`Address changed to ${addr}`); load(); }} />}
     {dialog?.type === 'drivequota' && <DriveLimit user={dialog.user} onClose={() => setDialog(null)} onSaved={(mb) => { setDialog(null); toast(mb ? `${dialog.user.name} can store up to ${mb} MB` : `No limit of their own for ${dialog.user.name}`); load(); }} />}
     {dialog?.type === 'quota' && <MailboxSize user={dialog.user} onClose={() => setDialog(null)} onSaved={() => { setDialog(null); toast('Mailbox size updated'); load(); }} />}
+    {dialog?.type === 'hold' && <PromptModal title={`Put ${dialog.user.name} on legal hold`} label="Why (for the record)" confirm="Put on hold"
+      message={`While ${dialog.user.name} is on hold, nothing of theirs is deleted for good: not their Drive trash, Chat messages or the mail in their Trash and Junk when the company's clean-ups run, and not by them or anyone else deleting it for good. Their account can't be deleted. They can still move things to the trash, which keeps them. They aren't told.`}
+      onClose={() => setDialog(null)} onSubmit={async (v) => { await patch(`/users/${dialog.user.id}`, { legal_hold: true, hold_note: v }); setDialog(null); toast(`${dialog.user.name} is on legal hold`); load(); }} />}
+    {dialog?.type === 'release' && <ConfirmModal title={`Lift the legal hold on ${dialog.user.name}?`} confirm="Lift hold" danger={false}
+      message={`${dialog.user.hold_note ? `On hold for: ${dialog.user.hold_note}. ` : ''}Once lifted, their trash and old messages are cleaned up as usual again, and things can be deleted for good.`}
+      onClose={() => setDialog(null)} onConfirm={async () => { await patch(`/users/${dialog.user.id}`, { legal_hold: false }); toast('Legal hold lifted'); load(); }} />}
     {dialog?.type === 'reset2fa' && (
       <ConfirmModal title={`Reset two-step verification for ${dialog.user.name}?`} confirm="Reset" danger={false}
         message={`Use this when ${dialog.user.name} has lost their phone. They can then sign in with just their password, and should set two-step verification up again in Settings. They are signed out everywhere now. Only do this once you're sure it's really them asking.`}
