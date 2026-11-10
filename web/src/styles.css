@@ -175,6 +175,8 @@ button:focus-visible, a:focus-visible, [tabindex]:focus-visible { outline: 2px s
 .subnav { width: 240px; flex: none; padding: 8px 12px 16px 4px; display: flex; flex-direction: column; gap: 2px; overflow-y: auto; }
 .file-label { display: inline-block; margin: 2px 4px 0 0; font-size: 11px; line-height: 16px; padding: 0 7px; border-radius: 9px; background: var(--accent-soft); color: var(--accent-text); }
 .chat-read-all { align-self: flex-start; margin: 2px 12px 4px; }
+.keep-in-touch { list-style: none; padding: 0; margin: 0; max-width: 760px; }
+.keep-in-touch li { gap: 10px; padding: 8px 4px; border-bottom: 1px solid var(--border); }
 .chat-section-empty { padding: 2px 12px; margin: 0; }
 .chat-section-pick { max-width: 140px; }
 .subnav-title { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; padding: 16px 12px 6px; }

@@ -14,6 +14,12 @@ import { cleanMore, withMore, liftCardMore } from '../contactmore.js';
 import { cleanDates, cleanCustom, datesBetween } from '../contactfields.js';
 import { buildVcard } from '../vcard.js';
 
+// Keep in touch: how often (days) you mean to be in touch with someone, and when you last were (sending them
+// email counts, or Mark as contacted).
+for (const [col, type] of [['touch_days', 'INTEGER'], ['last_contact', 'INTEGER']]) if (!q('PRAGMA table_info(contacts)').all().some((c) => c.name === col)) q(`ALTER TABLE contacts ADD COLUMN ${col} ${type}`).run();
+export const TOUCH_DAYS = [7, 14, 30, 60, 90, 180, 365];
+/** When you're due to be in touch again (ms), or null for no reminder. Never in touch: due now. */
+export const touchDue = (c) => (c.touch_days ? (c.last_contact || 0) + c.touch_days * 864e5 : null);
 liftCardMore(); // cards synced before kept their other addresses and numbers inside the raw card
 
 const FIELDS = { name: 200, email: 200, phone: 50, company: 200, title: 200, address: 500, website: 300, notes: 5000 };
@@ -271,6 +277,20 @@ export default function contactRoutes() {
   });
 
   // Your contacts' birthdays between two dates (YYYY-MM-DD, at most a year and a bit apart), for the calendar.
+  // Who you're due to be in touch with: most overdue first, with when you last were.
+  r.get('/keep-in-touch', (req, res) => {
+    const at = Date.now();
+    res.json(q('SELECT id, name, email, phone, touch_days, last_contact FROM contacts WHERE owner_id = ? AND touch_days IS NOT NULL').all(req.user.id)
+      .map((c) => ({ ...c, due_at: touchDue(c) })).filter((c) => c.due_at <= at).sort((a, b) => a.due_at - b.due_at || a.name.localeCompare(b.name)));
+  });
+  // Mark that you've been in touch (a call, a meeting): the clock starts again.
+  r.post('/:id/contacted', (req, res) => {
+    const c = editable(req);
+    if (c.owner_id !== req.user.id) throw bad('Only its owner keeps in touch');
+    q('UPDATE contacts SET last_contact = ? WHERE id = ?').run(Date.now(), c.id);
+    res.json(withMore(q('SELECT * FROM contacts WHERE id = ?').get(c.id)));
+  });
+
   r.get('/birthdays', (req, res) => {
     const from = String(req.query.from || ''), to = String(req.query.to || '');
     if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || to < from) throw bad('from and to are required');
@@ -383,6 +403,12 @@ export default function contactRoutes() {
     q(`UPDATE contacts SET ${COLS.map((k) => `${k} = ?`).join(', ')} WHERE id = ?`).run(...COLS.map((k) => c[k] ?? null), c.id);
     for (const k of ['more_emails', 'more_phones', 'dates', 'custom_fields']) if (c[k] !== undefined && req.body[k] !== undefined) q(`UPDATE contacts SET ${k} = ? WHERE id = ?`).run(c[k], c.id);
     if (req.body.shared !== undefined) q('UPDATE contacts SET shared = ? WHERE id = ?').run(req.body.shared ? 1 : 0, c.id);
+    if (req.body.touch_days !== undefined) {
+      if (existing.owner_id !== req.user.id) throw bad('Only its owner keeps in touch');
+      const d = req.body.touch_days === null || req.body.touch_days === '' ? null : Number(req.body.touch_days);
+      if (d !== null && !TOUCH_DAYS.includes(d)) throw bad('Every week, 2 weeks, month, 2 months, 3 months, 6 months or year');
+      q('UPDATE contacts SET touch_days = ? WHERE id = ?').run(d, c.id);
+    }
     if (req.body.starred !== undefined) {
       if (existing.owner_id !== req.user.id) throw bad('Only its owner stars a contact');
       q('UPDATE contacts SET starred = ? WHERE id = ?').run(req.body.starred ? 1 : 0, c.id);

@@ -126,13 +126,14 @@ export default function Contacts() {
           <button role="tab" aria-selected={tab === 'dir'} className={tab === 'dir' ? 'on' : ''} onClick={() => setTab('dir')}>Directory</button>
           <button role="tab" aria-selected={tab === 'company'} className={tab === 'company' ? 'on' : ''} onClick={() => setTab('company')}>Company</button>
           <button role="tab" aria-selected={tab === 'other'} className={tab === 'other' ? 'on' : ''} onClick={() => setTab('other')}>Other contacts</button>
+          <button role="tab" aria-selected={tab === 'touch'} className={tab === 'touch' ? 'on' : ''} onClick={() => setTab('touch')}>Keep in touch</button>
           <button role="tab" aria-selected={tab === 'groups'} className={tab === 'groups' ? 'on' : ''} onClick={() => setTab('groups')}>Groups</button>
           <button role="tab" aria-selected={tab === 'trash'} className={tab === 'trash' ? 'on' : ''} onClick={() => setTab('trash')}>Trash</button>
         </div>
         <input className="filter" placeholder="Filter" aria-label="Filter contacts" value={filter} onChange={(e) => setFilter(e.target.value)} />
         {tab === 'dir' && <button type="button" className={`btn small ${chart ? 'primary' : ''}`} aria-pressed={chart} onClick={() => setChart(!chart)}>Org chart</button>}
       </div>
-      {tab === 'dir' && chart ? <OrgChart people={directory} filter={filter} onMessage={message} me={user.id} onOpen={setCard} /> : tab === 'groups' ? <Groups filter={filter} /> : tab === 'trash' ? <ContactsTrash filter={filter} onRestored={load} /> : tab === 'other' ? <OtherContacts filter={filter} onAdded={load} /> : tab === 'mine' && contacts?.length === 0 ? <Empty icon="person" title="No contacts yet">Add people you work with outside your NAS users.</Empty>
+      {tab === 'dir' && chart ? <OrgChart people={directory} filter={filter} onMessage={message} me={user.id} onOpen={setCard} /> : tab === 'groups' ? <Groups filter={filter} /> : tab === 'touch' ? <KeepInTouch filter={filter} /> : tab === 'trash' ? <ContactsTrash filter={filter} onRestored={load} /> : tab === 'other' ? <OtherContacts filter={filter} onAdded={load} /> : tab === 'mine' && contacts?.length === 0 ? <Empty icon="person" title="No contacts yet">Add people you work with outside your NAS users.</Empty>
         : tab === 'company' && company.length === 0 ? <Empty icon="person" title="No company contacts yet">Contacts shared with everyone at {user.org_name} appear here. Tick “Share with everyone at {user.org_name}” on a contact to add it.</Empty> : (
         <table className="files">
           {selecting && picked.size > 0 && (
@@ -325,7 +326,41 @@ function OtherContacts({ filter, onAdded }) {
   );
 }
 
+const TOUCH = [['', 'No reminder'], [7, 'Every week'], [14, 'Every 2 weeks'], [30, 'Every month'], [60, 'Every 2 months'], [90, 'Every 3 months'], [180, 'Every 6 months'], [365, 'Every year']];
+/** "today", "3 days ago", "5 weeks ago", "never". */
+export function sinceText(at, now = Date.now()) {
+  if (!at) return 'never';
+  const d = Math.floor((now - at) / 864e5);
+  return d < 1 ? 'today' : d === 1 ? 'yesterday' : d < 14 ? `${d} days ago` : d < 60 ? `${Math.round(d / 7)} weeks ago` : `${Math.round(d / 30)} months ago`;
+}
+
+/** Who you're due to be in touch with (most overdue first): write to them, or mark that you've been in touch. */
+function KeepInTouch({ filter }) {
+  const toast = useToast();
+  const navigate = useNavigate();
+  const [list, setList] = useState(null);
+  const load = () => get('/contacts/keep-in-touch').then(setList).catch((e) => toast(e.message, 'error'));
+  useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!list) return null;
+  const shown = list.filter((c) => !filter || `${c.name} ${c.email || ''}`.toLowerCase().includes(filter.toLowerCase()));
+  if (!list.length) return <Empty icon="person" title="Nobody to catch up with">Choose how often to keep in touch in a contact's window (Edit → Keep in touch). When it's been longer, they show up here.</Empty>;
+  return (
+    <ul className="keep-in-touch" aria-label="Keep in touch">
+      {shown.map((c) => (
+        <li key={c.id} className="row">
+          <Avatar name={c.name} size={32} email={c.email} />
+          <span className="grow"><strong>{c.name}</strong><div className="muted small">Last in touch: {sinceText(c.last_contact)} · {TOUCH.find(([v]) => v === c.touch_days)?.[1].toLowerCase()}</div></span>
+          {c.email && <button type="button" className="btn small" onClick={() => navigate(`/mail?compose=${encodeURIComponent(c.email)}`)}><Icon name="mail" size={16} /> Email</button>}
+          <button type="button" className="btn small" aria-label={`In touch with ${c.name}`} title="You've talked another way (a call, a meeting): start the clock again"
+            onClick={async () => { try { await post(`/contacts/${c.id}/contacted`, {}); toast(`Noted: in touch with ${c.name}`); load(); } catch (e) { toast(e.message, 'error'); } }}>✓ In touch</button>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function ContactDialog({ contact, orgName, onClose, onSaved }) {
+  const { user } = useAuth();
   const [f, setF] = useState({ name: '', email: '', phone: '', company: '', notes: '', ...contact });
   const [error, setError] = useState('');
   // The photo: unchanged (null), a new one picked ({ blob, url }), or taken away ('remove').
@@ -349,7 +384,12 @@ function ContactDialog({ contact, orgName, onClose, onSaved }) {
     const body = { name: f.name, email: f.email || '', phone: f.phone || '', company: f.company || '', title: f.title || '', website: f.website || '', address: f.address || '', notes: f.notes || '', birthday: f.birthday || null, shared: !!f.shared,
       more_emails: (f.more_emails || []).filter((x) => x.value.trim()), more_phones: (f.more_phones || []).filter((x) => x.value.trim()),
       dates: (f.dates || []).filter((x) => x.date), custom_fields: (f.custom_fields || []).filter((x) => x.label.trim() || x.value.trim()) };
-    try { const saved = contact.id ? await patch(`/contacts/${contact.id}`, body) : await post('/contacts', body); await savePhoto(saved.id || contact.id); onSaved(); }
+    const mine = !contact.id || contact.owner_id === user.id;
+    try {
+      const saved = contact.id ? await patch(`/contacts/${contact.id}`, { ...body, ...(mine && { touch_days: f.touch_days || null }) }) : await post('/contacts', body);
+      if (!contact.id && f.touch_days) await patch(`/contacts/${saved.id}`, { touch_days: f.touch_days });
+      await savePhoto(saved.id || contact.id); onSaved();
+    }
     catch (err) { setError(err.message); }
   }
   return (
@@ -374,6 +414,11 @@ function ContactDialog({ contact, orgName, onClose, onSaved }) {
         <DatesField list={f.dates || []} onChange={(dates) => setF({ ...f, dates })} />
         <CustomFields list={f.custom_fields || []} onChange={(custom_fields) => setF({ ...f, custom_fields })} />
         <label className="field"><span>Notes</span><textarea rows={3} value={f.notes || ''} onChange={(e) => setF({ ...f, notes: e.target.value })} /></label>
+        {(!contact.id || contact.owner_id === user.id) && <label className="field"><span>Keep in touch</span>
+          <select value={f.touch_days || ''} onChange={(e) => setF({ ...f, touch_days: e.target.value ? Number(e.target.value) : null })}>
+            {TOUCH.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </select>
+          <span className="muted small">Shows them under Keep in touch when it's been longer than this. Sending them email counts.</span></label>}
         <label className="check"><input type="checkbox" checked={!!f.shared} onChange={(e) => setF({ ...f, shared: e.target.checked })} /> Share with everyone at {orgName}</label>
         {error && <p className="error">{error}</p>}
         <div className="row end"><button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn primary">Save</button></div>

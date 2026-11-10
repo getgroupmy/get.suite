@@ -17,6 +17,7 @@ export function recordSent(user, addresses, at = Date.now()) {
   for (const a of addresses) {
     const email = String(a?.address || '').trim().toLowerCase();
     if (!email || email.length > 254 || email === String(user.username).toLowerCase()) continue;
+    q('UPDATE contacts SET last_contact = ? WHERE owner_id = ? AND LOWER(email) = ?').run(at, user.id, email); // Keep in touch: writing to them counts
     if (q('SELECT 1 FROM users WHERE LOWER(username) = ? AND org_id = ?').get(email, user.org_id)) continue; // a colleague
     const name = String(a.name || '').trim().slice(0, 200) || null;
     q(`INSERT INTO other_contacts (owner_id, email, name, times, last_at) VALUES (?, ?, ?, 1, ?)

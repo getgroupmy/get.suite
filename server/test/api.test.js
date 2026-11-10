@@ -8725,6 +8725,38 @@ test('drive: rename, merge and delete a label of your own', async () => {
   assert.equal((await b('GET', '/api/files/labels')).body.length, 1);
 });
 
+test('contacts: keep in touch — how often, who is due, and writing to them counts', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['kita', 'Kit Ann'], ['kitb', 'Kit Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  const ann = await login(a, 'kita@acme.com'); await login(b, 'kitb@acme.com');
+  const rita = (await a('POST', '/api/contacts', { name: 'Rita Moreno', email: 'Rita@moreno.example' })).body;
+  const bo = (await a('POST', '/api/contacts', { name: 'Bo Chan', email: 'bo@chan.example' })).body;
+  await a('POST', '/api/contacts', { name: 'No Reminder' });
+  assert.deepEqual((await a('GET', '/api/contacts/keep-in-touch')).body, []);
+  assert.equal((await a('PATCH', `/api/contacts/${rita.id}`, { touch_days: 30 })).body.touch_days, 30);
+  await a('PATCH', `/api/contacts/${bo.id}`, { touch_days: 7 });
+  assert.equal((await a('PATCH', `/api/contacts/${bo.id}`, { touch_days: 3 })).status, 400);
+  assert.equal((await b('PATCH', `/api/contacts/${bo.id}`, { touch_days: 7 })).status, 404);
+  // Never in touch: both due now.
+  assert.deepEqual((await a('GET', '/api/contacts/keep-in-touch')).body.map((c) => c.name).sort(), ['Bo Chan', 'Rita Moreno']);
+  // Marked as contacted: Bo isn't due for a week.
+  const marked = (await a('POST', `/api/contacts/${bo.id}/contacted`, {})).body;
+  assert.ok(Date.now() - marked.last_contact < 5000);
+  assert.deepEqual((await a('GET', '/api/contacts/keep-in-touch')).body.map((c) => c.name), ['Rita Moreno']);
+  // Sending Rita email counts (whatever the capitals).
+  const { recordSent } = await import('../src/othercontacts.js');
+  recordSent({ id: ann.id, username: 'kita@acme.com', org_id: (await a('GET', '/api/auth/me')).body.user.org_id }, [{ address: 'rita@MORENO.example', name: 'Rita' }]);
+  assert.deepEqual((await a('GET', '/api/contacts/keep-in-touch')).body, []);
+  // Long ago: due again.
+  const { q } = await import('../src/db.js');
+  q('UPDATE contacts SET last_contact = ? WHERE id = ?').run(Date.now() - 31 * 864e5, rita.id);
+  const due = (await a('GET', '/api/contacts/keep-in-touch')).body;
+  assert.deepEqual(due.map((c) => c.name), ['Rita Moreno']);
+  await a('PATCH', `/api/contacts/${rita.id}`, { touch_days: null });
+  assert.deepEqual((await a('GET', '/api/contacts/keep-in-touch')).body, []);
+  assert.equal((await b('POST', `/api/contacts/${rita.id}/contacted`, {})).status, 404);
+});
+
 test('calendar: event templates, each person’s own', async () => {
   const a = client(), b = client();
   for (const [local, name] of [['etpa', 'Etp Ann'], ['etpb', 'Etp Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
