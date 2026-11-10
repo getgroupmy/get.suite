@@ -380,6 +380,25 @@ export function picturesIn(kind, content) {
   return ids;
 }
 
+// Labels of your own on files and folders ("Invoices", "Taxes 2026"): each person's, shown only to them.
+q(`CREATE TABLE IF NOT EXISTS file_labels (
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  file_id TEXT NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+  label TEXT NOT NULL,
+  PRIMARY KEY (user_id, file_id, label)
+)`).run();
+export const MAX_FILE_LABELS = 10;
+/** Labels as kept: trimmed, at most 30 characters, no repeats (whatever the capitals), at most MAX_FILE_LABELS. */
+export function cleanFileLabels(list) {
+  if (!Array.isArray(list)) throw bad('labels must be a list');
+  const out = [];
+  for (const l of list) {
+    const t = String(l ?? '').replace(/\s+/g, ' ').trim().slice(0, 30);
+    if (t && !out.some((x) => x.toLowerCase() === t.toLowerCase())) out.push(t);
+  }
+  if (out.length > MAX_FILE_LABELS) throw bad(`At most ${MAX_FILE_LABELS} labels on a file`);
+  return out;
+}
 q(`CREATE TABLE IF NOT EXISTS file_stars (
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   file_id TEXT NOT NULL REFERENCES files(id) ON DELETE CASCADE,
@@ -491,6 +510,11 @@ export default function fileRoutes({ maxUploadBytes }) {
                 JOIN file_stars st ON st.file_id = f.id AND st.user_id = ?
                 WHERE f.trashed = 0 ${ORDER}`).all(me, me)
         .map((f) => ({ ...f, role: roleFor(f.id, me) })).filter((f) => f.role); // only what you can still open
+    } else if (view === 'label') {
+      // Your files and folders with this label (that you can still open).
+      rows = q(`SELECT ${COLS} ${FROM} JOIN file_labels fl ON fl.file_id = f.id AND fl.user_id = ? AND fl.label = ?
+                WHERE f.trashed = 0 ${ORDER}`).all(me, String(req.query.label || ''))
+        .map((f) => ({ ...f, role: f.owner_id === me ? 'owner' : roleFor(f.id, me) })).filter((f) => f.role);
     } else if (view === 'trash') {
       // With when each goes for good, when the company empties the trash after a while.
       const days = q('SELECT o.trash_days FROM orgs o JOIN users u ON u.org_id = o.id WHERE u.id = ?').get(me)?.trash_days ?? 30;
@@ -545,7 +569,18 @@ export default function fileRoutes({ maxUploadBytes }) {
     // Your stars on what's listed.
     const starred = new Set(q('SELECT file_id FROM file_stars WHERE user_id = ? AND file_id IN (SELECT value FROM json_each(?))').all(me, JSON.stringify(rows.map((f) => f.id))).map((x) => x.file_id));
     const sizes = folderSizes(rows.filter((f) => f.kind === 'folder').map((f) => f.id), view === 'trash');
-    res.json(rows.map((f) => ({ ...f, ...(starred.has(f.id) && { starred: true }), ...(sizes.has(f.id) && sizes.get(f.id)) })));
+    const labels = new Map();
+    for (const x of q('SELECT file_id, label FROM file_labels WHERE user_id = ? AND file_id IN (SELECT value FROM json_each(?)) ORDER BY label COLLATE NOCASE').all(me, JSON.stringify(rows.map((f) => f.id)))) labels.set(x.file_id, [...(labels.get(x.file_id) || []), x.label]);
+    res.json(rows.map((f) => ({ ...f, ...(starred.has(f.id) && { starred: true }), ...(labels.has(f.id) && { labels: labels.get(f.id) }), ...(sizes.has(f.id) && sizes.get(f.id)) })));
+  });
+
+  // Your labels, with how many of your files (that you can still open, not in the trash) have each.
+  r.get('/labels', (req, res) => {
+    const rows = q(`SELECT fl.label, fl.file_id FROM file_labels fl JOIN files f ON f.id = fl.file_id WHERE fl.user_id = ? AND f.trashed = 0`).all(req.user.id)
+      .filter((x) => roleFor(x.file_id, req.user.id));
+    const counts = new Map();
+    for (const x of rows) counts.set(x.label, (counts.get(x.label) || 0) + 1);
+    res.json([...counts].map(([name, count]) => ({ name, count })).sort((a, b) => a.name.localeCompare(b.name)));
   });
 
   // Download several files and folders as one .zip; documents, spreadsheets and presentations as
@@ -932,6 +967,16 @@ export default function fileRoutes({ maxUploadBytes }) {
                 WHERE v.file_id = ? AND u.disabled = 0 AND u.hide_views = 0 ORDER BY v.last_at DESC LIMIT 200`).all(f.id).filter((v) => roleFor(f.id, v.id)) });
   });
 
+  // Your labels on a file or folder: { labels: [...] } replaces them (an empty list takes them all off).
+  r.put('/:id/labels', (req, res) => {
+    const f = loadFile(req.params.id, req.user);
+    const labels = cleanFileLabels(req.body?.labels);
+    tx(() => {
+      q('DELETE FROM file_labels WHERE user_id = ? AND file_id = ?').run(req.user.id, f.id);
+      for (const l of labels) q('INSERT INTO file_labels (user_id, file_id, label) VALUES (?, ?, ?)').run(req.user.id, f.id, l);
+    });
+    res.json({ labels });
+  });
   // Star a file or folder (for you only), or take the star away.
   r.put('/:id/star', (req, res) => {
     const f = loadFile(req.params.id, req.user);

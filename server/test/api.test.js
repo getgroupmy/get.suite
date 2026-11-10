@@ -8662,6 +8662,34 @@ test('chat: starred conversations are each person’s own; star and unstar; not 
   assert.deepEqual(await starredOf(a), []);
 });
 
+test('drive: labels of your own on files and folders', async () => {
+  const a = client(), b = client(), x = client();
+  for (const [local, name] of [['dlba', 'Dl Ann'], ['dlbb', 'Dl Ben'], ['dlbx', 'Dl Xavi']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'dlba@acme.com');
+  const bid = (await login(b, 'dlbb@acme.com')).id;
+  await login(x, 'dlbx@acme.com');
+  const doc = (await a('POST', '/api/files/new', { kind: 'doc', name: 'March invoice' })).body;
+  const sheet = (await a('POST', '/api/files/new', { kind: 'sheet', name: 'Tax sums' })).body;
+  assert.deepEqual((await a('PUT', `/api/files/${doc.id}/labels`, { labels: [' Invoices ', 'invoices', 'Taxes 2026'] })).body, { labels: ['Invoices', 'Taxes 2026'] }, 'tidied, no repeats');
+  await a('PUT', `/api/files/${sheet.id}/labels`, { labels: ['Taxes 2026'] });
+  assert.deepEqual((await a('GET', '/api/files/labels')).body, [{ name: 'Invoices', count: 1 }, { name: 'Taxes 2026', count: 2 }]);
+  const inLabel = async (cl, l) => (await cl('GET', `/api/files?view=label&label=${encodeURIComponent(l)}`)).body.map((f) => f.name).sort();
+  assert.deepEqual(await inLabel(a, 'Taxes 2026'), ['March invoice', 'Tax sums']);
+  assert.deepEqual((await a('GET', '/api/files')).body.find((f) => f.id === doc.id).labels, ['Invoices', 'Taxes 2026'], 'shown on the file in lists');
+  assert.equal((await a('PUT', `/api/files/${doc.id}/labels`, { labels: Array.from({ length: 11 }, (_, i) => `L${i}`) })).status, 400);
+  // Someone it's shared with labels it their own way; someone else can't.
+  assert.ok((await a('PUT', `/api/files/${doc.id}/shares`, { shares: [{ user_id: bid, role: 'viewer' }] })).status < 300);
+  assert.deepEqual((await b('PUT', `/api/files/${doc.id}/labels`, { labels: ['From Ann'] })).body, { labels: ['From Ann'] });
+  assert.deepEqual((await b('GET', '/api/files/labels')).body, [{ name: 'From Ann', count: 1 }]);
+  assert.deepEqual((await a('GET', '/api/files/labels')).body.map((l) => l.name), ['Invoices', 'Taxes 2026'], 'Ann’s are unchanged');
+  assert.equal((await x('PUT', `/api/files/${doc.id}/labels`, { labels: ['Mine'] })).status, 404);
+  // Trashed files leave the counts; an empty list takes them off.
+  await a('DELETE', `/api/files/${sheet.id}`);
+  assert.deepEqual((await a('GET', '/api/files/labels')).body, [{ name: 'Invoices', count: 1 }, { name: 'Taxes 2026', count: 1 }]);
+  await a('PUT', `/api/files/${doc.id}/labels`, { labels: [] });
+  assert.deepEqual((await a('GET', '/api/files/labels')).body, []);
+});
+
 test('chat: sections of your own in the conversation list', async () => {
   const a = client(), b = client(), x = client();
   for (const [local, name] of [['csea', 'Cse Ann'], ['cseb', 'Cse Ben'], ['csex', 'Cse Xavi']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);

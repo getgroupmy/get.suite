@@ -25,6 +25,7 @@ function useDriveRoute() {
   const parts = pathname.replace(/^\/drive\/?/, '').split('/');
   if (parts[0] === 'folder' && parts[1]) return { view: 'mine', folderId: parts[1] };
   if (['drives', 'shared', 'recent', 'starred', 'trash', 'approvals', 'signatures'].includes(parts[0])) return { view: parts[0] };
+  if (parts[0] === 'label' && parts[1]) return { view: 'label', label: decodeURIComponent(parts[1]) };
   if (parts[0] === 'search') return { view: 'search', q: params.get('q') || '', filters: Object.fromEntries(FILTERS.map(([k]) => [k, params.get(k) || ''])) };
   return { view: 'mine', folderId: null };
 }
@@ -113,7 +114,11 @@ export default function Drive() {
   const madeDrive = useRef(null); // a shared drive just made: its members are asked for next
 
   const filterQuery = route.filters ? FILTERS.filter(([k]) => route.filters[k]).map(([k]) => `&${k}=${encodeURIComponent(route.filters[k])}`).join('') : '';
-  const key = `${route.view}:${route.folderId || ''}:${route.q || ''}:${filterQuery}`;
+  const key = `${route.view}:${route.folderId || ''}:${route.q || ''}:${filterQuery}:${route.label || ''}`;
+  // Your labels (with how many files have each), for the sidebar.
+  const [myLabels, setMyLabels] = useState([]);
+  const loadLabels = useCallback(() => get('/files/labels').then(setMyLabels).catch(() => {}), []);
+  useEffect(() => { loadLabels(); }, [loadLabels]);
 
   const load = useCallback(async () => {
     if (route.view === 'approvals' || route.view === 'signatures') { setFiles([]); return; } // their own lists (Approvals.jsx, Signatures.jsx)
@@ -121,6 +126,7 @@ export default function Drive() {
       let url = `/files?view=${route.view}`;
       if (route.folderId) url += `&parent=${route.folderId}`;
       if (route.view === 'search') url += `&q=${encodeURIComponent(route.q)}${filterQuery}`;
+      if (route.view === 'label') url += `&label=${encodeURIComponent(route.label)}`;
       const [list, path, f] = await Promise.all([
         get(url),
         route.folderId ? get(`/files/${route.folderId}/path`) : [],
@@ -311,6 +317,7 @@ export default function Drive() {
         onClick: async () => { try { await put(`/files/${f.id}/template`, { template: !f.template }); toast(f.template ? 'No longer a company template' : 'Everyone in your company can now start from it (New → From a template)'); load(); } catch (e) { toast(e.message, 'error'); } } },
       f.owner_id === user.id && ['doc', 'sheet', 'slides'].includes(f.kind) && f.template !== 1 && { label: f.template === 2 ? 'Remove from my templates' : 'Use as my template', icon: 'copy',
         onClick: async () => { try { await put(`/files/${f.id}/my-template`, { template: f.template !== 2 }); toast(f.template === 2 ? 'Removed from your templates' : 'Added to your templates: New → From a template'); load(); } catch (e) { toast(e.message, 'error'); } } },
+      { label: 'Labels…', icon: 'edit', onClick: () => setDialog({ type: 'labels', file: f }) },
       { label: f.starred ? 'Remove star' : 'Add star', icon: f.starred ? 'star' : 'staroutline', onClick: act(() => put(`/files/${f.id}/star`, { starred: !f.starred }), f.starred ? 'Star removed' : 'Starred') },
       { label: 'Change notifications on/off', icon: 'bell', onClick: async () => {
         try { const now = (await get(`/files/${f.id}/watch`)).watching; await put(`/files/${f.id}/watch`, { on: !now }); toast(now ? `No more notifications about “${f.name}”` : `You’ll get a notification when someone else changes “${f.name}”`); } catch (e) { toast(e.message, 'error'); }
@@ -345,7 +352,7 @@ export default function Drive() {
       <button type="button" className="th-sort" onClick={() => sortBy(key)} title={`Sort by ${label.toLowerCase()}`}>{label}{look.sort === key && <span aria-hidden="true"> {look.desc ? '↓' : '↑'}</span>}</button>
     </th>
   );
-  const title = route.view === 'search' ? (route.q ? `Search results for “${route.q}”` : 'Search') : TITLES[route.view];
+  const title = route.view === 'label' ? `🏷 ${route.label}` : route.view === 'search' ? (route.q ? `Search results for “${route.q}”` : 'Search') : TITLES[route.view];
   const setFilter = (k, v) => {
     const p = new URLSearchParams({ q: route.q });
     for (const [f] of FILTERS) { const val = f === k ? v : route.filters[f]; if (val) p.set(f, val); }
@@ -377,6 +384,11 @@ export default function Drive() {
         <NavLink to="/drive/approvals" className="subnav-item"><Icon name="check" /><span className="grow">Approvals</span>{waitingCount > 0 && <span className="count" aria-label={`${waitingCount} waiting for you`}>{waitingCount}</span>}</NavLink>
         <NavLink to="/drive/signatures" className="subnav-item"><span aria-hidden="true" style={{ width: 24, textAlign: 'center' }}>✍️</span><span className="grow">Signatures</span>{signCount > 0 && <span className="count" aria-label={`${signCount} waiting for your signature`}>{signCount}</span>}</NavLink>
         <NavLink to="/drive/trash" className="subnav-item"><Icon name="trash" />Trash</NavLink>
+        {myLabels.length > 0 && <div className="subnav-title">Labels</div>}
+        {myLabels.map((l) => (
+          <NavLink key={l.name} to={`/drive/label/${encodeURIComponent(l.name)}`} className="subnav-item" aria-label={`Label ${l.name}, ${l.count}`}>
+            <span aria-hidden="true" style={{ width: 24, textAlign: 'center' }}>🏷</span><span className="grow ellipsis">{l.name}</span><span className="count">{l.count}</span></NavLink>
+        ))}
         {requests.length > 0 && <button type="button" className="subnav-item" onClick={() => setRequestsOpen(true)}><Icon name="lock" /><span className="grow">Access requests</span><span className="count">{requests.length}</span></button>}
         {usage && (
           <button type="button" className="usage" aria-label="Storage" title="See what takes up space" onClick={() => setDialog({ type: 'storage' })}>
@@ -497,7 +509,7 @@ export default function Drive() {
                   onClick={(e) => { if (e.shiftKey || e.metaKey || e.ctrlKey) toggleCheck(f.id); else setSelected(f.id); }} onDoubleClick={() => route.view !== 'trash' && open(f)}
                   onKeyDown={(e) => { if (e.key === 'Enter' && route.view !== 'trash') open(f); if (e.key === ' ' && e.target === e.currentTarget) { e.preventDefault(); toggleCheck(f.id); } }}>
                   <td className="check-col" onClick={(e) => e.stopPropagation()}><input type="checkbox" aria-label={`Select ${f.name}`} checked={checked.has(f.id)} onChange={() => toggleCheck(f.id)} /></td>
-                  <td className="name"><Icon name={fileIcon(f)} className={`ft ft-${fileIcon(f)}`} style={f.color ? { color: f.color } : undefined} /><span className="name-text">{f.name}{f.match && <MatchText text={f.match} />}{f.drive_name && <span className="muted small"> · in {f.drive_name}</span>}</span>{f.starred && <Icon name="star" size={14} className="star-mark" title="Starred" />}{f.locked_at && <span className="lock-mark" title={`Locked by ${f.locked_by_name}`} aria-label="Locked"><Icon name="lock" size={14} /></span>}</td>
+                  <td className="name"><Icon name={fileIcon(f)} className={`ft ft-${fileIcon(f)}`} style={f.color ? { color: f.color } : undefined} /><span className="name-text">{f.name}{f.match && <MatchText text={f.match} />}{f.drive_name && <span className="muted small"> · in {f.drive_name}</span>}{f.labels?.map((l) => <span key={l} className="file-label">{l}</span>)}</span>{f.starred && <Icon name="star" size={14} className="star-mark" title="Starred" />}{f.locked_at && <span className="lock-mark" title={`Locked by ${f.locked_by_name}`} aria-label="Locked"><Icon name="lock" size={14} /></span>}</td>
                   <td className="hide-sm muted">{f.owner_id === user.id ? 'me' : f.owner_name}</td>
                   <td className="hide-sm muted">{route.view === 'trash' ? (f.kept ? <span title="Your company is keeping it (a legal hold)">Kept</span> : goesIn(f.deletes_at)) : formatDate(f.updated_at)}</td>
                   <td className="hide-sm muted">{f.kind === 'folder' ? (f.folder_size === undefined ? '—' : <span title={`${f.folder_files} file${f.folder_files === 1 ? '' : 's'} inside`}>{f.folder_files ? formatBytes(f.folder_size) : 'Empty'}</span>) : formatBytes(f.size)}</td>
@@ -568,6 +580,7 @@ export default function Drive() {
           navigate(openPath(f));
         } catch (e) { toast(e.message, 'error'); }
       }} />}
+      {dialog?.type === 'labels' && <LabelsDialog file={dialog.file} all={myLabels.map((l) => l.name)} onClose={() => setDialog(null)} onSaved={() => { setDialog(null); load(); loadLabels(); }} />}
       {dialog?.type === 'details' && <DetailsDialog file={dialog.file} onClose={() => setDialog(null)} onChanged={load} />}
       {dialog?.type === 'versions' && <VersionsDialog file={dialog.file} onClose={() => setDialog(null)} onChanged={load} />}
       <input ref={versionInput} type="file" hidden aria-hidden="true" tabIndex={-1} onChange={(e) => { uploadNewVersion(e.target.files[0]); e.target.value = ''; }} />
@@ -1025,6 +1038,38 @@ function FolderSize({ id }) {
         </details>
       )}
     </>
+  );
+}
+
+/** Your labels on a file or folder: tick the ones you use, or type a new one. Only you see them. */
+function LabelsDialog({ file, all, onClose, onSaved }) {
+  const toast = useToast();
+  const [chosen, setChosen] = useState(() => new Set(file.labels || []));
+  const [names, setNames] = useState(() => [...new Set([...all, ...(file.labels || [])])].sort((a, b) => a.localeCompare(b)));
+  const [fresh, setFresh] = useState('');
+  const add = (e) => {
+    e.preventDefault();
+    const t = fresh.replace(/\s+/g, ' ').trim().slice(0, 30);
+    if (!t) return;
+    const known = names.find((n) => n.toLowerCase() === t.toLowerCase()) || t;
+    if (!names.includes(known)) setNames((n) => [...n, known].sort((a, b) => a.localeCompare(b)));
+    setChosen((c) => new Set([...c, known]));
+    setFresh('');
+  };
+  const save = async () => {
+    try { await put(`/files/${file.id}/labels`, { labels: [...chosen] }); onSaved(); } catch (e) { toast(e.message, 'error'); }
+  };
+  return (
+    <Modal title={`Labels: ${file.name}`} onClose={onClose} footer={<><button type="button" className="btn" onClick={onClose}>Cancel</button><button type="button" className="btn primary" onClick={save}>Save</button></>}>
+      <p className="muted small" style={{ marginTop: 0 }}>Your own labels, to find things again from the left. Only you see them.</p>
+      <div className="stack-tight">
+        {names.map((n) => <label key={n} className="row" style={{ gap: 6 }}><input type="checkbox" checked={chosen.has(n)} onChange={() => setChosen((c) => { const x = new Set(c); if (x.has(n)) x.delete(n); else x.add(n); return x; })} /> {n}</label>)}
+      </div>
+      <form className="row" style={{ gap: 6, marginTop: 10 }} onSubmit={add}>
+        <input className="grow" aria-label="New label" placeholder="New label" maxLength={30} value={fresh} onChange={(e) => setFresh(e.target.value)} />
+        <button className="btn small" disabled={!fresh.trim()}>Add</button>
+      </form>
+    </Modal>
   );
 }
 
