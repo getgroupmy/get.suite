@@ -132,6 +132,12 @@ test('contacts: a phone adds a card; the web edits it; nothing on the card is lo
   assert.match(mg.text, /FN:From the web/);
   assert.equal((await dav('DELETE', `${book}CARD-1.vcf`)).status, 204);
   assert.ok(!(await api('GET', '/api/contacts')).body.some((x) => x.vcard_uid === 'CARD-1'));
+  // Deleted on the phone: still in Contacts → Trash, and put back from there it's on the phone again.
+  const binned = (await api('GET', '/api/contacts/trash')).body.contacts;
+  assert.equal(binned.length, 1);
+  assert.equal((await api('POST', `/api/contacts/trash/${binned[0].id}/restore`)).status, 200);
+  const again = await dav('PROPFIND', book, { depth: 1, body: '<d:propfind xmlns:d="DAV:"><d:prop><d:getetag/></d:prop></d:propfind>' });
+  assert.ok(again.text.includes(`${book}CARD-1.vcf`), 'the same card name on the phone');
 });
 
 test('two-step verification: the account password stops working here; the mail-app password works', async () => {

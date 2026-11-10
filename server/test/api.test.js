@@ -8437,3 +8437,38 @@ test('chat drafts: kept per person and conversation, on every device; sending cl
   await a('PUT', `/api/chat/channels/${dm}/draft`, { body: '   ' });
   assert.deepEqual((await a('GET', '/api/chat/drafts')).body, {});
 });
+
+test('contacts trash: deleted contacts are kept (with their photo) and can be put back as they were; for good after 30 days', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['ctra', 'Trash Ann'], ['ctrb', 'Trash Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'ctra@acme.com'); await login(b, 'ctrb@acme.com');
+  const c = (await a('POST', '/api/contacts', { name: 'Pat Plumber', email: 'pat@plumb.example', phone: '0123 456', notes: 'Fixed the boiler', birthday: '1980-04-02' })).body;
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  assert.equal((await a('PUT', `/api/contacts/${c.id}/photo`, png, { raw: true })).status, 200);
+  const g = (await a('POST', '/api/contacts/groups', { name: 'Trades', members: [{ name: 'Pat Plumber', email: 'pat@plumb.example' }] })).body;
+  assert.equal((await a('DELETE', `/api/contacts/${c.id}`)).body.trash_days, 30);
+  assert.ok(!(await a('GET', '/api/contacts')).body.some((x) => x.id === c.id), 'gone from the list');
+  const trash = (await a('GET', '/api/contacts/trash')).body;
+  assert.equal(trash.days, 30);
+  assert.deepEqual(trash.contacts.map((t) => [t.name, t.email, t.has_photo, t.mine]), [['Pat Plumber', 'pat@plumb.example', true, true]]);
+  assert.deepEqual((await b('GET', '/api/contacts/trash')).body.contacts, [], 'only yours');
+  assert.equal((await b('POST', `/api/contacts/trash/${c.id}/restore`)).status, 404);
+  // Put back: the same id, every field, the photo; the group still has them.
+  const back = (await a('POST', `/api/contacts/trash/${c.id}/restore`)).body;
+  assert.deepEqual([back.id, back.name, back.phone, back.notes, back.birthday], [c.id, 'Pat Plumber', '0123 456', 'Fixed the boiler', '1980-04-02']);
+  assert.equal((await a('GET', `/api/contacts/${c.id}/photo`)).status, 200);
+  assert.deepEqual((await a('GET', '/api/contacts/trash')).body.contacts, []);
+  assert.equal((await a('GET', '/api/contacts/groups')).body.find((x) => x.id === g.id).members.length, 1);
+  // Several at once go to the trash too; delete one for good, then empty it.
+  const d = (await a('POST', '/api/contacts', { name: 'Dee Decorator' })).body;
+  assert.equal((await a('POST', '/api/contacts/batch', { ids: [c.id, d.id], action: 'delete' })).body.deleted, 2);
+  assert.equal((await a('GET', '/api/contacts/trash')).body.contacts.length, 2);
+  assert.equal((await a('DELETE', `/api/contacts/trash/${d.id}`)).status, 200);
+  assert.deepEqual((await a('GET', '/api/contacts/trash')).body.contacts.map((t) => t.name), ['Pat Plumber']);
+  // Older than 30 days: gone by itself.
+  const { q } = await import('../src/db.js');
+  q('UPDATE contacts_trash SET deleted_at = ? WHERE id = ?').run(Date.now() - 31 * 86400000, c.id);
+  assert.deepEqual((await a('GET', '/api/contacts/trash')).body.contacts, []);
+  assert.equal((await a('POST', `/api/contacts/trash/${c.id}/restore`)).status, 404);
+  assert.equal((await a('DELETE', '/api/contacts/trash')).body.deleted, 0);
+});

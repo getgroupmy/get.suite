@@ -15,6 +15,7 @@ import { photoBlob, photoUrl } from './photo.js';
 
 const FIELDS = [['name', 'Name'], ['email', 'Email'], ['phone', 'Phone'], ['company', 'Company'], ['title', 'Job title'], ['website', 'Website']];
 const TYPE_LABELS = { work: 'Work', home: 'Home', mobile: 'Mobile', other: 'Other' };
+const nPeople = (n) => `${n} contact${n === 1 ? '' : 's'}`;
 const MORE_TYPES = { emails: ['work', 'home', 'other'], phones: ['mobile', 'work', 'home', 'other'] };
 
 /** Other email addresses or phone numbers of a contact, each with a label; "+ Add …" adds a row. */
@@ -87,7 +88,12 @@ export default function Contacts() {
   const chosen = (contacts || []).filter((c) => picked.has(c.id));
   const pickOne = (id) => setPicked((s0) => { const s1 = new Set(s0); if (s1.has(id)) s1.delete(id); else s1.add(id); return s1; });
   const allShown = list.length > 0 && list.every((c) => picked.has(c.id));
-  const nPeople = (n) => `${n} contact${n === 1 ? '' : 's'}`;
+  /** Undo a delete: the contacts come back from the trash as they were. */
+  async function putBack(ids) {
+    try { for (const id of ids) await post(`/contacts/trash/${id}/restore`); toast(ids.length === 1 ? 'Contact put back' : `${nPeople(ids.length)} put back`); load(); }
+    catch (e) { toast(e.message, 'error'); load(); }
+  }
+
   async function many(body, say) {
     try { const r = await post('/contacts/batch', { ids: [...picked], ...body }); toast(say(r)); setPicked(new Set()); load(); } catch (e) { toast(e.message, 'error'); }
   }
@@ -118,11 +124,12 @@ export default function Contacts() {
           <button role="tab" aria-selected={tab === 'company'} className={tab === 'company' ? 'on' : ''} onClick={() => setTab('company')}>Company</button>
           <button role="tab" aria-selected={tab === 'other'} className={tab === 'other' ? 'on' : ''} onClick={() => setTab('other')}>Other contacts</button>
           <button role="tab" aria-selected={tab === 'groups'} className={tab === 'groups' ? 'on' : ''} onClick={() => setTab('groups')}>Groups</button>
+          <button role="tab" aria-selected={tab === 'trash'} className={tab === 'trash' ? 'on' : ''} onClick={() => setTab('trash')}>Trash</button>
         </div>
         <input className="filter" placeholder="Filter" aria-label="Filter contacts" value={filter} onChange={(e) => setFilter(e.target.value)} />
         {tab === 'dir' && <button type="button" className={`btn small ${chart ? 'primary' : ''}`} aria-pressed={chart} onClick={() => setChart(!chart)}>Org chart</button>}
       </div>
-      {tab === 'dir' && chart ? <OrgChart people={directory} filter={filter} onMessage={message} me={user.id} onOpen={setCard} /> : tab === 'groups' ? <Groups filter={filter} /> : tab === 'other' ? <OtherContacts filter={filter} onAdded={load} /> : tab === 'mine' && contacts?.length === 0 ? <Empty icon="person" title="No contacts yet">Add people you work with outside your NAS users.</Empty>
+      {tab === 'dir' && chart ? <OrgChart people={directory} filter={filter} onMessage={message} me={user.id} onOpen={setCard} /> : tab === 'groups' ? <Groups filter={filter} /> : tab === 'trash' ? <ContactsTrash filter={filter} onRestored={load} /> : tab === 'other' ? <OtherContacts filter={filter} onAdded={load} /> : tab === 'mine' && contacts?.length === 0 ? <Empty icon="person" title="No contacts yet">Add people you work with outside your NAS users.</Empty>
         : tab === 'company' && company.length === 0 ? <Empty icon="person" title="No company contacts yet">Contacts shared with everyone at {user.org_name} appear here. Tick “Share with everyone at {user.org_name}” on a contact to add it.</Empty> : (
         <table className="files">
           {selecting && picked.size > 0 && (
@@ -172,10 +179,22 @@ export default function Contacts() {
       {merging && <DuplicatesDialog onClose={() => setMerging(false)} onMerged={load} />}
       {history && <Modal title={`With ${history.name}`} onClose={() => setHistory(null)} footer={<button type="button" className="btn" onClick={() => setHistory(null)}>Close</button>}><WithPerson email={history.email} onOpen={() => setHistory(null)} /></Modal>}
       {editing && <ContactDialog contact={editing} orgName={user.org_name} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />}
-      {deletingMany && <ConfirmModal title={`Delete ${nPeople(picked.size)}?`} confirm="Delete" message="They're deleted from your contacts (and from your phone on its next sync)." onClose={() => setDeletingMany(false)}
-        onConfirm={async () => { setDeletingMany(false); await many({ action: 'delete' }, (r) => `${nPeople(r.deleted)} deleted`); }} />}
-      {deleting && <ConfirmModal title="Delete contact?" message={`Delete ${deleting.name}?`} onClose={() => setDeleting(null)}
-        onConfirm={async () => { await del(`/contacts/${deleting.id}`); load(); }} />}
+      {deletingMany && <ConfirmModal title={`Delete ${nPeople(picked.size)}?`} confirm="Delete" message="They go to Trash for 30 days (and off your phone on its next sync)." onClose={() => setDeletingMany(false)}
+        onConfirm={async () => {
+          setDeletingMany(false);
+          const ids = [...picked];
+          try {
+            const r = await post('/contacts/batch', { ids, action: 'delete' });
+            setPicked(new Set()); load();
+            toast(`${nPeople(r.deleted)} moved to Trash`, 'info', { action: { label: 'Undo', onClick: () => putBack(ids) } });
+          } catch (e) { toast(e.message, 'error'); }
+        }} />}
+      {deleting && <ConfirmModal title="Delete contact?" message={`Delete ${deleting.name}? It goes to Trash for 30 days.`} onClose={() => setDeleting(null)}
+        onConfirm={async () => {
+          const c = deleting;
+          try { await del(`/contacts/${c.id}`); load(); toast(`${c.name} moved to Trash`, 'info', { action: { label: 'Undo', onClick: () => putBack([c.id]) } }); }
+          catch (e) { toast(e.message, 'error'); }
+        }} />}
     </div>
   );
 }
@@ -221,6 +240,48 @@ function DuplicatesDialog({ onClose, onMerged }) {
 }
 
 /** People you've emailed who aren't in your contacts: add them, or forget them. */
+/** Deleted contacts, kept 30 days: put one back, or delete it (or everything) for good. */
+function ContactsTrash({ filter, onRestored }) {
+  const toast = useToast();
+  const [data, setData] = useState(null);
+  const [emptying, setEmptying] = useState(false);
+  const load = () => get('/contacts/trash').then(setData).catch((e) => toast(e.message, 'error'));
+  useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!data) return null;
+  if (!data.contacts.length) return <Empty icon="trash" title="Trash is empty">Contacts you delete (here or on your phone) stay here for {data.days} days, so you can put them back.</Empty>;
+  const f = filter.toLowerCase();
+  const shown = data.contacts.filter((c) => !f || [c.name, c.email, c.phone, c.company].some((v) => (v || '').toLowerCase().includes(f)));
+  const daysLeft = (c) => Math.max(1, Math.ceil((c.gone_at - Date.now()) / 86400000));
+  const restore = async (c) => { try { await post(`/contacts/trash/${c.id}/restore`); toast(`${c.name} put back`); load(); onRestored(); } catch (e) { toast(e.message, 'error'); } };
+  const forget = async (c) => { try { await del(`/contacts/trash/${c.id}`); toast(`${c.name} deleted for good`); load(); } catch (e) { toast(e.message, 'error'); } };
+  return (
+    <>
+      <div className="row" style={{ margin: '0 0 8px' }}>
+        <span className="muted small grow">Deleted contacts are kept {data.days} days, then deleted for good.</span>
+        <button type="button" className="btn small" onClick={() => setEmptying(true)}>Empty trash</button>
+      </div>
+      <table className="files">
+        <thead><tr><th>Name</th><th className="hide-sm">Email</th><th className="hide-sm">Deleted</th><th aria-label="Actions" /></tr></thead>
+        <tbody>
+          {shown.map((c) => (
+            <tr key={c.id}>
+              <td className="name"><Avatar name={c.name} size={28} email={c.email} /><span>{c.name}{!c.mine && <span className="muted"> · company contact</span>}</span></td>
+              <td className="hide-sm">{c.email || c.phone || ''}</td>
+              <td className="hide-sm muted">{new Date(c.deleted_at).toLocaleDateString()} · gone in {daysLeft(c)} {daysLeft(c) === 1 ? 'day' : 'days'}</td>
+              <td className="actions">
+                <button className="btn small" onClick={() => restore(c)}>Restore</button>
+                <button className="icon-btn" aria-label={`Delete ${c.name} for good`} title="Delete for good" onClick={() => forget(c)}><Icon name="trash" size={18} /></button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {emptying && <ConfirmModal title="Empty trash?" confirm="Delete for good" message={`${nPeople(data.contacts.length)} will be deleted for good. This can't be undone.`} onClose={() => setEmptying(false)}
+        onConfirm={async () => { setEmptying(false); try { const r = await del('/contacts/trash'); toast(`${nPeople(r.deleted)} deleted for good`); load(); } catch (e) { toast(e.message, 'error'); } }} />}
+    </>
+  );
+}
+
 function OtherContacts({ filter, onAdded }) {
   const toast = useToast();
   const [list, setList] = useState(null);

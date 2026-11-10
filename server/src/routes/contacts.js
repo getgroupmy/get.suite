@@ -8,6 +8,7 @@ import { sendTo } from '../hub.js';
 import { birthdayOf, birthdaysBetween } from '../birthday.js';
 import { duplicateGroups, mergedFields } from '../contactmerge.js';
 import { otherContactsOf, matchOther, forgetOther } from '../othercontacts.js';
+import { trashContact, trashOf, restoreContact, purgeTrash, sweepContactTrash, TRASH_DAYS } from '../contacttrash.js';
 import { photoOf, setPhoto, withPhoto, photoFromCard, MAX_PHOTO } from '../contactphotos.js';
 import { cleanMore, withMore, liftCardMore } from '../contactmore.js';
 import { cleanDates, cleanCustom, datesBetween } from '../contactfields.js';
@@ -72,6 +73,16 @@ function read(body, partial) {
 
 export default function contactRoutes() {
   const r = Router();
+
+  // Trash: deleted contacts, kept TRASH_DAYS days (contacttrash.js).
+  r.get('/trash', (req, res) => { sweepContactTrash(); res.json({ days: TRASH_DAYS, contacts: trashOf(req.user.id) }); });
+  r.post('/trash/:id/restore', (req, res) => {
+    const id = restoreContact(String(req.params.id), req.user.id);
+    if (!id) throw notFound('Not in your trash');
+    res.json(withMore(q('SELECT * FROM contacts WHERE id = ?').get(id)));
+  });
+  r.delete('/trash/:id', (req, res) => { if (!purgeTrash(req.user.id, String(req.params.id))) throw notFound('Not in your trash'); res.json({ ok: true }); });
+  r.delete('/trash', (req, res) => res.json({ deleted: purgeTrash(req.user.id) }));
 
   r.get('/', (req, res) => {
     if (req.query.scope === 'company') {
@@ -295,7 +306,7 @@ export default function contactRoutes() {
     const action = String(req.body?.action || '');
     const list = ids.map((id) => editableBy(id, req.user));
     if (action === 'delete') {
-      tx(() => { for (const c of list) q('DELETE FROM contacts WHERE id = ?').run(c.id); });
+      for (const c of list) trashContact(c.id, req.user.id); // each one atomic (all were checked above)
       return res.json({ deleted: list.length });
     }
     if (action === 'star' || action === 'unstar') {
@@ -328,8 +339,8 @@ export default function contactRoutes() {
   });
 
   r.delete('/:id', (req, res) => {
-    q('DELETE FROM contacts WHERE id = ?').run(editable(req).id);
-    res.json({ ok: true });
+    trashContact(editable(req).id, req.user.id);
+    res.json({ ok: true, trash_days: TRASH_DAYS });
   });
 
   return r;

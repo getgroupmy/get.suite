@@ -11,6 +11,7 @@
 // Signing in: email address and password over HTTPS (Basic). With two-step verification on, only
 // the mail-app password works here, so a phone never gets around the second step. Wrong passwords
 // count towards sign-in protection like any other sign-in.
+import { trashContact } from './contacttrash.js';
 import express, { Router } from 'express';
 import crypto from 'node:crypto';
 import { q } from './db.js';
@@ -311,7 +312,8 @@ export default function davRoutes() {
           if (!row) return res.status(404).end();
           // Removing an invitation from the phone declines it; it stays the organiser's event.
           if (invite) { q("UPDATE event_guests SET status = 'no' WHERE event_id = ? AND user_id = ?").run(row.id, me); touch([me, row.owner_id]); return res.status(204).end(); }
-          q(`DELETE FROM ${isEvent ? 'events' : 'contacts'} WHERE id = ?`).run(row.id);
+          if (isEvent) q('DELETE FROM events WHERE id = ?').run(row.id);
+          else trashContact(row.id, me); // a contact deleted on the phone can still be put back in Contacts → Trash
           if (isEvent) { q('DELETE FROM events WHERE recur_parent = ? AND owner_id = ?').run(row.id, actor); touch([me, actor, ...peopleOf(at.cal?.id)]); tell('deleted', row.title); }
           return res.status(204).end();
         }
