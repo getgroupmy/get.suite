@@ -29,7 +29,7 @@ test('a list downloaded from Workspace comes back the same', () => {
   ]);
   const { tasks, skipped } = tasksFromCsv(csv);
   assert.equal(skipped, 0);
-  assert.deepEqual(tasks[0], { title: 'Write copy', notes: 'Short\nand sweet', due: '2026-12-01', due_time: '09:30', start: '2026-11-20', tags: ['web', 'q4'], done: false, important: true,
+  assert.deepEqual(tasks[0], { title: 'Write copy', notes: 'Short\nand sweet', due: '2026-12-01', due_time: '09:30', start: '2026-11-20', section: null, tags: ['web', 'q4'], done: false, important: true,
     steps: [{ title: 'Draft', done: true }, { title: 'Review', done: false }] });
   assert.equal(tasks[1].done, true);
 });
