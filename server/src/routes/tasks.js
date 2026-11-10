@@ -368,6 +368,36 @@ export default function taskRoutes() {
       comments: t.comments,
     });
   });
+  // Duplicate a task: a copy just below it, not done, with its notes, steps (unticked), due date, start, repeat,
+  // who it's for, star, tags, link and files; not its comments, time or what waits on it.
+  r.post('/tasks/:id/duplicate', (req, res) => {
+    const { task, list } = taskFor(req);
+    if (q('SELECT COUNT(*) AS n FROM tasks WHERE list_id = ?').get(list.id).n >= MAX_TASKS) throw bad('This list is full');
+    const below = q('SELECT MIN(position) AS p FROM tasks WHERE list_id = ? AND done_at IS NULL AND position > ?').get(list.id, task.position).p;
+    const position = below === null ? task.position + 1 : (task.position + below) / 2;
+    const id = uid(), t = now();
+    const steps = task.steps ? JSON.stringify(JSON.parse(task.steps).map((x) => ({ ...x, id: uid(), done: false }))) : null;
+    q(`INSERT INTO tasks (id, list_id, title, notes, due, due_time, start, assignee_id, position, repeat, steps, important, link_url, link_label, attachments, tags, created_by, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(id, list.id, task.title, task.notes, task.due, task.due_time, task.start, task.assignee_id, position, task.repeat, steps, task.important ? 1 : 0, task.link_url, task.link_label, task.attachments, task.tags, req.user.id, t, t);
+    changed(list);
+    res.status(201).json(shape(q(`${TASK} WHERE t.id = ?`).get(id)));
+  });
+  // Skip this time: a repeating task moves on to its next date without being ticked off (missed ones skipped too).
+  r.post('/tasks/:id/skip', (req, res) => {
+    const { task, list } = taskFor(req);
+    if (!task.repeat || !task.due) throw bad('Only a repeating task with a due date can skip a time');
+    if (task.done_at) throw bad('It’s done already');
+    const today = todayOf(req.body?.today);
+    const after = shiftDay(task.due, 1);
+    const due = nextDue(task.due, task.repeat, after > today ? after : today);
+    if (!due) throw bad('There is no next time');
+    const start = task.start ? shiftDay(due, -daysBetween(task.start, task.due)) : null;
+    q('UPDATE tasks SET due = ?, start = ?, updated_at = ? WHERE id = ?').run(due, start, now(), task.id);
+    changed(list);
+    res.json(shape(q(`${TASK} WHERE t.id = ?`).get(task.id)));
+  });
+
   // Time blocks on your calendar for working on a task: your coming ones, a check for clashes, and booking one.
   r.get('/tasks/:id/blocks', (req, res) => {
     const { task } = taskFor(req);

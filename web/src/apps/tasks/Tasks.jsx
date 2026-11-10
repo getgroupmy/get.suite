@@ -750,7 +750,17 @@ function TaskDetails({ task, tasks, lists, people, onChange, onClose, onDelete, 
       )}
       <p className="muted small">Added by {task.created_by_name || 'someone'} · {new Date(task.created_at).toLocaleDateString([], { dateStyle: 'medium' })}{task.done && ` · done ${new Date(task.done_at).toLocaleDateString([], { dateStyle: 'medium' })}`}</p>
       <TaskComments task={task} />
-      <div className="row"><button type="button" className="btn danger" onClick={onDelete}><Icon name="trash" size={16} /> Delete task</button></div>
+      <div className="row wrap" style={{ gap: 8 }}>
+        {task.repeat && task.due && !task.done && (
+          <button type="button" className="btn" title="Move it to its next date without ticking it off" onClick={async () => {
+            try { const t = await post(`/tasks/tasks/${task.id}/skip`, { today: localToday() }); onReplaced(t); toast(`Skipped: next due ${dueLabel(t.due, new Date(), t.due_time).text}`); } catch (e) { toast(e.message, 'error'); }
+          }}>⏭ Skip this time</button>
+        )}
+        <button type="button" className="btn" onClick={async () => {
+          try { await post(`/tasks/tasks/${task.id}/duplicate`); toast('Duplicated: the copy is just below'); } catch (e) { toast(e.message, 'error'); }
+        }}><Icon name="copy" size={16} /> Duplicate</button>
+        <button type="button" className="btn danger" onClick={onDelete}><Icon name="trash" size={16} /> Delete task</button>
+      </div>
     </aside>
   );
 }

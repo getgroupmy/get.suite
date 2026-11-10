@@ -9173,3 +9173,34 @@ test('calendar settings: default length, speedy meetings and default reminders, 
   assert.deepEqual((await a('GET', '/api/auth/me')).body.user.cal_prefs, { length: 30, speedy: true, reminders: [5, 1440] });
   assert.deepEqual((await a('PUT', '/api/users/me/calendar-prefs', { reset: true })).body, { length: 60, speedy: false, reminders: [10] });
 });
+
+test('tasks: duplicate a task, and skip one time of a repeating task', async () => {
+  const a = client(), c = client();
+  for (const [local, name] of [['tdupa', 'Dup Ann'], ['tdupc', 'Dup Cat']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'tdupa@acme.com'); await login(c, 'tdupc@acme.com');
+  const list = (await a('POST', '/api/tasks/lists', { name: 'Dup list' })).body.id;
+  const add = async (title, extra = {}) => (await a('POST', `/api/tasks/lists/${list}/tasks`, { title, ...extra })).body;
+  const other = await add('Other');
+  const t = await add('Weekly report', { due: '2026-11-09', notes: 'Send to the board', repeat: 'weekly', important: true });
+  await a('POST', `/api/tasks/tasks/${t.id}/steps`, { title: 'Collect numbers' });
+  const s1 = (await a('GET', `/api/tasks/lists/${list}/tasks`)).body.find((x) => x.id === t.id).steps[0];
+  await a('PATCH', `/api/tasks/tasks/${t.id}/steps/${s1.id}`, { done: true });
+  // Duplicate: just below, same details, steps unticked.
+  const d = await a('POST', `/api/tasks/tasks/${t.id}/duplicate`);
+  assert.equal(d.status, 201);
+  assert.deepEqual([d.body.title, d.body.notes, d.body.due, d.body.important, d.body.done], ['Weekly report', 'Send to the board', '2026-11-09', true, false]);
+  assert.deepEqual(d.body.steps.map((x) => [x.title, x.done]), [['Collect numbers', false]]);
+  assert.notEqual(d.body.steps[0].id, s1.id);
+  const order = (await a('GET', `/api/tasks/lists/${list}/tasks`)).body.filter((x) => !x.done).map((x) => x.id);
+  assert.deepEqual(order, [t.id, d.body.id, other.id], 'right below the original');
+  // Skip this time: the next date, not ticked off; days already missed are skipped too.
+  let sk = (await a('POST', `/api/tasks/tasks/${t.id}/skip`, { today: '2026-11-10' })).body;
+  assert.deepEqual([sk.due, sk.done], ['2026-11-16', false]);
+  sk = (await a('POST', `/api/tasks/tasks/${t.id}/skip`, { today: '2026-11-10' })).body;
+  assert.equal(sk.due, '2026-11-23', 'skipping again goes a week further');
+  sk = (await a('POST', `/api/tasks/tasks/${d.body.id}/skip`, { today: '2026-12-01' })).body;
+  assert.equal(sk.due, '2026-12-07', 'missed weeks are skipped');
+  assert.equal((await a('POST', `/api/tasks/tasks/${other.id}/skip`, { today: '2026-11-10' })).status, 400, 'not repeating');
+  assert.equal((await c('POST', `/api/tasks/tasks/${t.id}/duplicate`)).status, 404);
+  assert.equal((await c('POST', `/api/tasks/tasks/${t.id}/skip`, {})).status, 404);
+});
