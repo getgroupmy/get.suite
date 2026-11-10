@@ -9119,3 +9119,26 @@ test('comments: emoji reactions, one of each per person, for anyone who can comm
   await a('DELETE', `/api/comments/${doc.id}/${c.id}`);
   assert.deepEqual((await a('GET', `/api/comments/${doc.id}`)).body, []);
 });
+
+test('notes: show and hide tick boxes (text ⇄ checklist), kept in the version history', async () => {
+  const { textToItems, itemsToText } = await import('../src/routes/notes.js');
+  const items = textToItems('Packing\n- Passport\n  * Visa copy\n[x] Tickets\n✓ Charger\n\n1. Snacks');
+  assert.deepEqual(items.map(({ id, ...i }) => i), [
+    { text: 'Packing', done: false }, { text: 'Passport', done: false }, { text: 'Visa copy', done: false, indent: 1 },
+    { text: 'Tickets', done: true }, { text: 'Charger', done: true }, { text: 'Snacks', done: false }]);
+  assert.equal(itemsToText(items), 'Packing\nPassport\n  Visa copy\n✓ Tickets\n✓ Charger\nSnacks');
+  assert.deepEqual(textToItems(itemsToText(items)).map(({ id, ...i }) => i), items.map(({ id, ...i }) => i), 'and back');
+  assert.equal(textToItems('  starts indented')[0].indent, undefined, 'the first can’t be a sub-item');
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'ncva', domain: 'acme.com', name: 'Ncv Ann', password: 'password123' })).status, 201);
+  await login(a, 'ncva@acme.com');
+  const n = (await a('POST', '/api/notes', { title: 'Trip', body: 'Passport\nTickets' })).body;
+  const c = (await a('POST', `/api/notes/${n.id}/convert`, { to: 'checklist' })).body;
+  assert.deepEqual([c.body, c.items.map((i) => i.text)], ['', ['Passport', 'Tickets']]);
+  assert.equal((await a('POST', `/api/notes/${n.id}/convert`, { to: 'checklist' })).status, 400, 'already');
+  await a('PATCH', `/api/notes/${n.id}`, { items: c.items.map((i, k) => ({ ...i, done: k === 1 })) });
+  const t = (await a('POST', `/api/notes/${n.id}/convert`, { to: 'text' })).body;
+  assert.deepEqual([t.items, t.body], [null, 'Passport\n✓ Tickets']);
+  assert.ok((await a('GET', `/api/notes/${n.id}/versions`)).body.length >= 1, 'the earlier one kept');
+  assert.equal((await a('POST', `/api/notes/${n.id}/convert`, { to: 'other' })).status, 400);
+});

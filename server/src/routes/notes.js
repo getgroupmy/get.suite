@@ -75,6 +75,27 @@ export function cleanItems(list) {
     ...(it?.indent && i > 0 && { indent: 1 }), // a sub-item of the item above (one level)
   }));
 }
+/**
+ * Text → checklist (Show tick boxes): a line per item, blank lines left out. Bullets ("- ", "* ", "• ", "1. ")
+ * and "[ ]" go; "[x]" or "✓ " makes it ticked; an indented line is a sub-item of the one above.
+ */
+export function textToItems(body) {
+  const out = [];
+  for (const raw of String(body || '').split(/\r?\n/)) {
+    if (!raw.trim()) continue;
+    const indent = /^(\t| {2,})/.test(raw) && out.length > 0;
+    let t = raw.trim().replace(/^([-*•]|\d+[.)])\s+/, '');
+    let done = false;
+    const box = /^\[( |x|X)\]\s*/.exec(t);
+    if (box) { done = box[1] !== ' '; t = t.slice(box[0].length); } else if (/^✓\s*/.test(t)) { done = true; t = t.replace(/^✓\s*/, ''); }
+    out.push({ id: uid().slice(0, 12), text: t.slice(0, 1000), done, ...(indent && { indent: 1 }) });
+    if (out.length >= MAX_ITEMS) break;
+  }
+  return out;
+}
+/** Checklist → text (Hide tick boxes): a line per item, ticked ones as "✓ …", sub-items indented. */
+export const itemsToText = (items) => (items || []).map((i) => `${i.indent ? '  ' : ''}${i.done ? '✓ ' : ''}${i.text}`).join('\n');
+
 /** A checklist as a document's tick boxes: sub-items as a list inside the item above. */
 export function taskItems(items, para) {
   const out = [];
@@ -267,6 +288,22 @@ export default function noteRoutes() {
     const keys = Object.keys(set);
     if (keys.length) versionBefore(n, req.user.id, set);
     if (keys.length) q(`UPDATE notes SET ${keys.map((k) => `${k} = ?`).join(', ')}, updated_at = ?, updated_by = ? WHERE id = ?`).run(...keys.map((k) => set[k]), now(), req.user.id, n.id);
+    const after = q('SELECT * FROM notes WHERE id = ?').get(n.id);
+    tell(after);
+    res.json(shape(after, req.user.id));
+  });
+
+  // Show tick boxes (text → checklist) or Hide tick boxes (checklist → text). Kept in the version history.
+  r.post('/:id/convert', (req, res) => {
+    const n = load(req.params.id, req.user);
+    if (n.trashed_at) throw bad('Restore the note first');
+    const to = req.body?.to;
+    let set;
+    if (to === 'checklist') { if (n.items) throw bad('It’s a checklist already'); set = { items: JSON.stringify(textToItems(n.body)), body: '' }; }
+    else if (to === 'text') { if (!n.items) throw bad('It’s text already'); set = { items: null, body: itemsToText(JSON.parse(n.items)).slice(0, 20000) }; }
+    else throw bad('Convert to checklist or text');
+    versionBefore(n, req.user.id, set);
+    q('UPDATE notes SET items = ?, body = ?, updated_at = ?, updated_by = ? WHERE id = ?').run(set.items, set.body, now(), req.user.id, n.id);
     const after = q('SELECT * FROM notes WHERE id = ?').get(n.id);
     tell(after);
     res.json(shape(after, req.user.id));
