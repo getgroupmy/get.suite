@@ -1319,6 +1319,8 @@ cd server && npm install && npm run dev        # API on :8080 (data in server/da
 cd web && npm install && npm run dev           # UI on :5173, proxies /api and /ws to :8080
 cd server && npm test                          # API tests
 cd web && npm test                             # formula engine tests
+cd web && npm run lint                         # bugs a linter finds (hooks out of order, undefined names…); also run by both test suites
+cd server && npm run lint
 ```
 
 The mail integration test runs the app against a real Postfix, Dovecot and Rspamd. On Ubuntu 24.04, install `postfix dovecot-imapd dovecot-lmtpd dovecot-sieve rspamd`, apply the build steps from `mail/Dockerfile`, start `mail/entrypoint.sh` as root, then run:

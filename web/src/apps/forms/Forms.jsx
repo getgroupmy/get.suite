@@ -393,9 +393,9 @@ function ResponsesTab({ form, responses, reload, setting, flush }) {
   const [view, setView] = useState('summary');
   const [at, setAt] = useState(0);
   const [clear, setClear] = useState(false);
-  if (!responses) return <p className="muted">Loading…</p>;
   const [linked, setLinked] = useState(form.linked_sheet || null);
   useEffect(() => { setLinked(form.linked_sheet || null); }, [form.linked_sheet]);
+  if (!responses) return <p className="muted">Loading…</p>; // (after the hooks: they run in the same order every time)
   const linkSheet = async () => {
     await flush();
     try { const r = await post(`/forms/${form.id}/sheet`, { link: true }); setLinked({ id: r.id }); toast('Linked: each new response is added to the spreadsheet'); window.open(`/sheets/${r.id}`, '_blank', 'noopener'); } catch (e) { toast(e.message, 'error'); }
