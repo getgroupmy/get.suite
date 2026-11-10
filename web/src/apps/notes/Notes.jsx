@@ -54,11 +54,14 @@ export default function Notes() {
   const [labelling, setLabelling] = useState(null);
   const [labelEdit, setLabelEdit] = useState(null); // { rename: label } or { remove: label }
   const [deleting, setDeleting] = useState(null);
+  const [view, setView] = useState('grid'); // grid of cards, or one column (list): your choice, on every device
+  const switchView = async () => { const next = view === 'grid' ? 'list' : 'grid'; setView(next); try { await put('/notes/view', { view: next }); } catch (e) { toast(e.message, 'error'); } };
   const load = useCallback(() => {
     const qs = new URLSearchParams({ ...(where.trash && { trash: '1' }), ...(where.archived && { archived: '1' }), ...(where.reminders && { reminders: '1' }), ...(where.label && { label: where.label }), ...(search.trim() && { q: search.trim() }) });
     get(`/notes?${qs}`).then(setNotes).catch((e) => toast(e.message, 'error'));
     get('/notes/labels').then(setLabels).catch(() => {});
     get('/notes/label-colors').then(setLabelColors).catch(() => {});
+    get('/notes/view').then((r) => setView(r.view)).catch(() => {});
   }, [where, search, toast]);
   useEffect(() => { const t = setTimeout(load, search ? 250 : 0); return () => clearTimeout(t); }, [load, search]);
   useEffect(() => onLive((m) => { if (m.type === 'notes-changed' || m.type === 'live-connected') load(); }), [load]);
@@ -156,13 +159,14 @@ export default function Notes() {
         <button type="button" className={`subnav-item ${where.trash ? 'active' : ''}`} onClick={() => setWhere({ archived: false, label: null, reminders: false, trash: true })}><Icon name="trash" /><span className="grow">Trash</span></button>
       </aside>
       <section className="notes-main">
-        <div className="notes-search"><Icon name="search" size={18} /><input type="search" aria-label="Search notes" placeholder="Search notes" value={search} onChange={(e) => setSearch(e.target.value)} /></div>
+        <div className="row notes-top"><div className="notes-search"><Icon name="search" size={18} /><input type="search" aria-label="Search notes" placeholder="Search notes" value={search} onChange={(e) => setSearch(e.target.value)} /></div>
+          <button type="button" className="icon-btn notes-view" aria-label={view === 'grid' ? 'List view' : 'Grid view'} title={view === 'grid' ? 'Show notes in one column' : 'Show notes as a grid'} onClick={switchView}>{view === 'grid' ? '☰' : '▦'}</button></div>
         {!where.archived && !where.reminders && !where.trash && <Composer label={where.label} onMade={load} />}
         {where.trash ? <>
           <div className="row notes-trash-head"><p className="muted small grow" style={{ margin: 0 }}>Notes in the trash are deleted for good after 7 days.</p>
             {notes?.length > 0 && <button type="button" className="btn small" onClick={() => setForever('all')}>Empty trash</button>}</div>
           {notes && !notes.length ? <Empty icon="trash" title="The trash is empty" /> : (
-            <div className="notes-grid" aria-label="Deleted notes">{(notes || []).map((n) => (
+            <div className={`notes-grid ${view === 'list' ? 'list' : ''}`} aria-label="Deleted notes">{(notes || []).map((n) => (
               <article key={n.id} className="note-card trashed" style={{ background: n.color || undefined }} aria-label={n.title || 'Note'}>
                 {n.title && <h3>{n.title}</h3>}
                 {n.items ? <ul className="note-items">{n.items.slice(0, 6).map((i) => <li key={i.id} className={i.done ? 'done' : ''}>{i.done ? '☑' : '☐'} {i.text}</li>)}</ul> : <p className="note-body">{n.body.slice(0, 300)}</p>}
@@ -197,8 +201,8 @@ export default function Notes() {
           )}
           {newLabel && <PromptModal title="New label" label="Label" confirm="Add" onClose={() => setNewLabel(false)}
             onSubmit={async (name) => { setNewLabel(false); await many({ change: { label: name } }, (r) => `${nNotes(r.notes.length)} labelled ${name.trim()}`); }} />}
-          {pinned.length > 0 && <><h2 className="notes-heading">Pinned</h2><div className="notes-grid" aria-label="Pinned notes">{pinned.map(card)}</div></>}
-          {others.length > 0 && <>{pinned.length > 0 && <h2 className="notes-heading">Others</h2>}<div className="notes-grid" aria-label={where.archived ? 'Archived notes' : 'Notes'}>{others.map(card)}</div></>}
+          {pinned.length > 0 && <><h2 className="notes-heading">Pinned</h2><div className={`notes-grid ${view === 'list' ? 'list' : ''}`} aria-label="Pinned notes">{pinned.map(card)}</div></>}
+          {others.length > 0 && <>{pinned.length > 0 && <h2 className="notes-heading">Others</h2>}<div className={`notes-grid ${view === 'list' ? 'list' : ''}`} aria-label={where.archived ? 'Archived notes' : 'Notes'}>{others.map(card)}</div></>}
         </>}
       </section>
       {current && <NoteEditor key={current.id} note={current} onClose={() => { setEditing(null); load(); }} />}

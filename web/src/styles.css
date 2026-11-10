@@ -1808,7 +1808,12 @@ button.usage:hover .muted { color: var(--text); }
 .note-composer input[aria-label="Title"], .note-editor input[aria-label="Title"] { font-weight: 600; font-size: 16px; }
 .notes-heading { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 8px 4px -4px; }
 .notes-grid { columns: 240px; column-gap: 14px; }
-.note-card { break-inside: avoid; margin: 0 0 14px; border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px 4px; position: relative; background: var(--surface); display: flex; flex-direction: column; gap: 6px; overflow-wrap: anywhere; }
+.notes-grid.list { columns: auto; max-width: 600px; margin: 0 auto; }
+.notes-grid.list .note-card { margin-bottom: 10px; }
+.notes-top { justify-content: center; gap: 8px; }
+.notes-top .notes-search { flex: 1; }
+/* Cards are inline blocks (so never split between columns): an absolutely placed button inside a card stops Chrome spreading cards that avoid breaks into columns. */
+.note-card { break-inside: auto; width: 100%; vertical-align: top; margin: 0 0 14px; border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px 4px; position: relative; background: var(--surface); display: inline-flex; flex-direction: column; gap: 6px; overflow-wrap: anywhere; }
 .note-card:hover { box-shadow: 0 1px 6px rgba(0,0,0,.15); }
 .note-card[draggable=true] { cursor: grab; }
 .note-card.dragging { opacity: .4; }

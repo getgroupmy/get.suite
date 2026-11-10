@@ -134,6 +134,13 @@ export function cleanLabels(list) {
   return [...new Set(list.map((l) => String(l ?? '').trim().slice(0, 40)).filter(Boolean))].slice(0, MAX_LABELS);
 }
 
+// How each person shows their notes: cards in a grid, or one column (a list).
+q(`CREATE TABLE IF NOT EXISTS note_prefs (
+  user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  view TEXT NOT NULL DEFAULT 'grid'
+)`).run();
+export const NOTE_VIEWS = ['grid', 'list'];
+
 // Trash: a deleted note waits here for its owner (restore it, or delete it for good) for TRASH_DAYS.
 if (!q('PRAGMA table_info(notes)').all().some((c) => c.name === 'trashed_at')) q('ALTER TABLE notes ADD COLUMN trashed_at INTEGER').run();
 export const TRASH_DAYS = 7;
@@ -294,6 +301,15 @@ export default function noteRoutes() {
     const notes = relabel(req.user, label, (ls) => ls.filter((l) => l !== label));
     q('DELETE FROM note_label_colors WHERE user_id = ? AND label = ?').run(req.user.id, label);
     res.json({ notes });
+  });
+
+  r.get('/view', (req, res) => res.json({ view: q('SELECT view FROM note_prefs WHERE user_id = ?').get(req.user.id)?.view || 'grid' }));
+  r.put('/view', (req, res) => {
+    const view = String(req.body?.view || '');
+    if (!NOTE_VIEWS.includes(view)) throw bad('Grid or list');
+    q('INSERT INTO note_prefs (user_id, view) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET view = excluded.view').run(req.user.id, view);
+    sendTo([req.user.id], { type: 'notes-changed' });
+    res.json({ view });
   });
 
   r.get('/labels', (req, res) => {
