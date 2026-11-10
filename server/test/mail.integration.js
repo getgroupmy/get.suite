@@ -183,13 +183,25 @@ test('flag, archive, delete to trash, delete forever', async () => {
   const after1 = (await inbox(gina)).find((x) => x.uid === m.uid);
   assert.equal(after1.flagged, true);
   assert.equal(after1.seen, false);
-  await gina('POST', '/api/mail/messages/move', { folder: 'INBOX', uids: [m.uid], to: 'archive' });
+  // Archive, then Undo: the answer says where it went (its new uid), and moving it back puts it in the Inbox.
+  const arch = (await gina('POST', '/api/mail/messages/move', { folder: 'INBOX', uids: [m.uid], to: 'archive' })).body;
+  assert.equal(arch.moved.folder, 'Archive');
+  assert.equal(arch.moved.uids.length, 1);
+  assert.equal((await gina('GET', '/api/mail/messages?folder=Archive')).body.messages[0].uid, arch.moved.uids[0]);
+  const back = (await gina('POST', '/api/mail/messages/move', { folder: arch.moved.folder, uids: arch.moved.uids, to: 'INBOX' })).body;
+  assert.equal(back.moved.folder, 'INBOX');
+  const again = (await inbox(gina)).find((x) => x.subject === 'From sales');
+  assert.ok(again && again.flagged, 'back in the Inbox, flags kept');
+  await gina('POST', '/api/mail/messages/move', { folder: 'INBOX', uids: [again.uid], to: 'archive' });
   const archived = (await gina('GET', '/api/mail/messages?folder=Archive')).body.messages;
   assert.equal(archived.length, 1);
-  await gina('POST', '/api/mail/messages/delete', { folder: 'Archive', uids: [archived[0].uid] });
+  const del = (await gina('POST', '/api/mail/messages/delete', { folder: 'Archive', uids: [archived[0].uid] })).body;
+  assert.equal(del.moved.folder, 'Trash');
   const trash = (await gina('GET', '/api/mail/messages?folder=Trash')).body.messages;
   assert.equal(trash.length, 1);
-  await gina('POST', '/api/mail/messages/delete', { folder: 'Trash', uids: [trash[0].uid] });
+  assert.equal(trash[0].uid, del.moved.uids[0]);
+  const forever = (await gina('POST', '/api/mail/messages/delete', { folder: 'Trash', uids: [trash[0].uid] })).body;
+  assert.equal(forever.moved, null, 'deleted for good: nothing to undo');
   assert.equal((await gina('GET', '/api/mail/messages?folder=Trash')).body.messages.length, 0);
 });
 

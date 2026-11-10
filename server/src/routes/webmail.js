@@ -1350,6 +1350,11 @@ export default function webmailRoutes() {
     res.json({ muted: false });
   });
 
+  /** Where moved messages went: { folder, uids } (their uids there, from the server's UIDPLUS answer), for Undo. */
+  const movedTo = (folder, result) => {
+    const uids = [...(result?.uidMap?.values?.() || [])];
+    return uids.length ? { folder, uids } : null;
+  };
   // Move to another folder; `to` may be a path or a special folder: inbox, archive, junk, trash.
   r.post('/messages/move', async (req, res) => {
     const folder = String(req.body.folder || 'INBOX');
@@ -1358,9 +1363,9 @@ export default function webmailRoutes() {
     const target = special === 'INBOX' ? 'INBOX' : special ? await specialOf(req.user, special) : str(req.body.to, { required: true, name: 'to' });
     if (!target) throw bad('Target folder not found');
     if (target === folder) return res.json({ ok: true });
-    await withFolder(req.user, folder, (c) => c.messageMove(uids, target, { uid: true }));
+    const result = await withFolder(req.user, folder, (c) => c.messageMove(uids, target, { uid: true }));
     forgetSnoozes(req.user, folder, uids);
-    res.json({ ok: true });
+    res.json({ ok: true, moved: movedTo(target, result) });
   });
 
   // Snooze until a time: into the Snoozed folder (made if needed), back to the Inbox when due.
@@ -1405,11 +1410,12 @@ export default function webmailRoutes() {
     const uids = uidList(req.body.uids).join(',');
     const trash = await specialOf(req.user, '\\Trash');
     const junk = await specialOf(req.user, '\\Junk');
-    if (!trash || folder === trash || folder === junk) keepIfHeld(req.user.id, 'Mail');
-    if (!trash || folder === trash || folder === junk) await withFolder(req.user, folder, (c) => c.messageDelete(uids, { uid: true }));
-    else await withFolder(req.user, folder, (c) => c.messageMove(uids, trash, { uid: true }));
+    const forGood = !trash || folder === trash || folder === junk;
+    let moved = null; // to Trash: where it went, for Undo (gone for good: nothing to undo)
+    if (forGood) { keepIfHeld(req.user.id, 'Mail'); await withFolder(req.user, folder, (c) => c.messageDelete(uids, { uid: true })); }
+    else moved = movedTo(trash, await withFolder(req.user, folder, (c) => c.messageMove(uids, trash, { uid: true })));
     forgetSnoozes(req.user, folder, uids);
-    res.json({ ok: true });
+    res.json({ ok: true, moved });
   });
 
   // ---- drafts (stored in the IMAP Drafts folder, so phones and Outlook see them too) ----

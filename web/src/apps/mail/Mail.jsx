@@ -242,8 +242,17 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
   }, []);
 
   async function act(path, body, msg) {
-    try { await post(`/mail/messages/${path}`, { folder, ...body }); if (msg) toast(msg); setChecked(new Set()); refresh(); return true; }
-    catch (e) { toast(e.message, 'error'); return false; }
+    try {
+      const from = folder;
+      const r = await post(`/mail/messages/${path}`, { folder: from, ...body });
+      // Moved somewhere (archived, binned, to Junk or a folder): Undo puts it back where it was.
+      const undo = r?.moved?.uids?.length ? { label: 'Undo', onClick: async () => {
+        try { await post('/mail/messages/move', { folder: r.moved.folder, uids: r.moved.uids, to: from }); toast(r.moved.uids.length === 1 ? 'Put back' : `Put back ${r.moved.uids.length} messages`); refresh(); }
+        catch (e) { toast(e.message, 'error'); }
+      } } : null;
+      if (msg) toast(msg, 'info', undo ? { action: undo } : {});
+      setChecked(new Set()); refresh(); return true;
+    } catch (e) { toast(e.message, 'error'); return false; }
   }
 
   const [show, setShow] = useState('all'); // in a shared mailbox: all, given to me, not done
