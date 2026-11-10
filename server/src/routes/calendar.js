@@ -20,7 +20,7 @@ import { roleFor, audienceFor } from '../access.js';
 import { recordActivity } from '../fileactivity.js';
 import { meetingFor } from '../meet.js';
 import { addFeed, feedsOf, feedOf, feedEvents, refreshFeed } from '../calfeeds.js';
-import { calendarsOf, ownCalendar, calendarFor, addCalendar, changeCalendar, eventsIn } from '../mycalendars.js';
+import { calendarsOf, ownCalendar, calendarFor, addCalendar, changeCalendar, eventsIn, shareOf, setMembers, peopleOf, membersOf } from '../mycalendars.js';
 import { insertFile } from './files.js';
 import { notesContent, notesName } from '../meetingnotes.js';
 import { setVacation, vacationForAway } from '../mail/vacation.js';
@@ -382,6 +382,42 @@ function removeEvent(req, ev) {
   touch([req.user.id, ...guests.map((g) => g.id)]);
 }
 
+/**
+ * A colleague's calendar shared with you to make changes in: from here on the request is theirs (as when
+ * managing someone's calendar), and they're told what you did. False when it isn't shared that way.
+ */
+function actAsSharer(req, calId) {
+  const s = calId && shareOf(req.user.id, calId);
+  if (!s || !s.can_edit) return false;
+  const owner = userById(s.owner_id);
+  if (!owner || owner.disabled) return false;
+  const by = req.user;
+  req.sharedEditor = by;
+  req.user = owner;
+  delete req.body?.reminders; // yours stay yours; theirs aren't replaced
+  const calName = q('SELECT name FROM user_calendars WHERE id = ?').get(calId)?.name;
+  const what = req.method === 'POST' ? 'added' : req.method === 'DELETE' ? 'deleted' : 'changed';
+  const title = req.method === 'DELETE' || !req.body?.title ? q('SELECT title FROM events WHERE id = ?').get(req.params.id || '')?.title : req.body.title;
+  req.res.on('finish', () => {
+    if (req.res.statusCode >= 300) return;
+    bell([owner.id], { kind: 'invite', title: `${by.name} ${what} ${title ? `“${title}”` : 'an event'} in ${calName || 'your calendar'}`, body: null, link: '/calendar', actor: by.name });
+    audit(req, `calendar.${what}_shared`, { target: `${owner.username}: ${title || ''}`, actor: by, org: by.org_id });
+  });
+  return true;
+}
+/** Events in calendars colleagues share with you (role 'shared'; can_edit when you may change them). */
+function sharedEvents(userId, from, to) {
+  const rows = q(`SELECT e.*, s.can_edit AS share_edit, o.name AS organizer_name, o.username AS organizer_email FROM events e
+    JOIN user_calendar_shares s ON s.calendar_id = e.calendar_id AND s.user_id = ? JOIN users o ON o.id = e.owner_id
+    WHERE e.owner_id != ? AND o.disabled = 0 AND e.start < ? AND (e.end >= ? OR (e.rrule IS NOT NULL AND (e.repeat_until IS NULL OR e.repeat_until >= ?)))
+    AND NOT EXISTS (SELECT 1 FROM event_guests g WHERE g.event_id = e.id AND g.user_id = ?) ORDER BY e.start`).all(userId, userId, to, from, from, userId);
+  return rows.map(({ share_edit, organizer_name, organizer_email, ...row }) => {
+    const ev = outEvent(row);
+    return { ...ev, attachments: attachmentsFor(ev, userId), role: 'shared', can_edit: !!share_edit, guests: allGuests(ev.id), rooms: roomsOf(ev.id), reminders: [], organizer: { name: organizer_name, email: organizer_email } };
+  });
+}
+const ownsCalendar = (userId, calId) => !!q('SELECT 1 FROM user_calendars WHERE id = ? AND owner_id = ?').get(String(calId || ''), userId);
+
 export default function calendarRoutes() {
   const r = Router();
 
@@ -429,7 +465,7 @@ export default function calendarRoutes() {
       const out = outEvent(ev);
       return { ...out, attachments: attachmentsFor(out, req.user.id), role: mine ? 'organizer' : 'guest', guests: allGuests(row.id), rooms: roomsOf(row.id), reminders: reminders.get(row.id) || [],
         ...(mine ? {} : { my_status, my_note: my_note || null, organizer: { name: organizer_name, email: organizer_email } }) };
-    }), ...(req.query.feeds === '0' ? [] : feedEvents(req.user.id, from, to))]);
+    }), ...sharedEvents(req.user.id, from, to), ...(req.query.feeds === '0' ? [] : feedEvents(req.user.id, from, to))]);
   });
 
   // Calendars you subscribe to by address (read-only): list, add { url, name?, color? }, refresh, rename/recolour, remove.
@@ -462,9 +498,37 @@ export default function calendarRoutes() {
   // delete (with its events, or ?keep=1 to move them to your main calendar).
   r.get('/calendars', (req, res) => res.json(calendarsOf(req.user.id)));
   r.post('/calendars', (req, res) => { const c = addCalendar(req.user.id, req.body || {}); touch([req.user.id]); res.status(201).json(c); });
-  r.patch('/calendars/:id', (req, res) => { const c = changeCalendar(req.user.id, req.params.id, req.body || {}); touch([req.user.id]); res.json(c); });
+  r.patch('/calendars/:id', (req, res) => {
+    // Someone else's, shared with you: only whether you see it is yours to change.
+    if (!ownsCalendar(req.user.id, req.params.id) && shareOf(req.user.id, req.params.id)) {
+      if (req.body?.hidden !== undefined) q('UPDATE user_calendar_shares SET hidden = ? WHERE calendar_id = ? AND user_id = ?').run(req.body.hidden ? 1 : 0, req.params.id, req.user.id);
+      touch([req.user.id]);
+      return res.json(calendarsOf(req.user.id).find((c) => c.id === req.params.id));
+    }
+    const c = changeCalendar(req.user.id, req.params.id, req.body || {});
+    touch([req.user.id, ...membersOf(c.id).map((m) => m.id)]);
+    res.json(c);
+  });
+  // Share it: the whole list of colleagues ([{ id, can_edit }]). New ones are told.
+  r.put('/calendars/:id/members', (req, res) => {
+    const { calendar, added, removed } = setMembers(req.user.id, req.params.id, req.body?.members, (id) => {
+      const u = userById(id);
+      return !!u && !u.disabled && u.org_id === req.user.org_id;
+    });
+    if (added.length) bell(added, { kind: 'invite', title: `${req.user.name} shared the calendar “${calendar.name}” with you`, body: 'It’s under My calendars → Shared with me', link: '/calendar', actor: req.user.name });
+    touch([req.user.id, ...added, ...removed]);
+    res.json(calendarsOf(req.user.id).find((c) => c.id === calendar.id));
+  });
   r.delete('/calendars/:id', (req, res) => {
+    // Someone else's, shared with you: take it off your list.
+    if (!ownsCalendar(req.user.id, req.params.id) && shareOf(req.user.id, req.params.id)) {
+      q('DELETE FROM user_calendar_shares WHERE calendar_id = ? AND user_id = ?').run(req.params.id, req.user.id);
+      touch([req.user.id]);
+      return res.json({ ok: true, left: true });
+    }
     const c = ownCalendar(req.user.id, req.params.id);
+    const members = membersOf(c.id).map((m) => m.id);
+    res.on('finish', () => touch(members));
     const events = eventsIn(req.user.id, c.id);
     if (req.query.keep === '1') q('UPDATE events SET calendar_id = NULL WHERE calendar_id = ? AND owner_id = ?').run(c.id, req.user.id);
     else for (const ev of events) removeEvent(req, ev);
@@ -541,6 +605,7 @@ export default function calendarRoutes() {
   });
 
   r.post('/', (req, res) => {
+    if (req.body?.calendar_id && !ownsCalendar(req.user.id, req.body.calendar_id)) actAsSharer(req, req.body.calendar_id); // a colleague's, shared to change
     const e = readEvent(req.body);
     // Check the guests before saving anything, so a refused invitation leaves no event behind.
     const guests = req.body.guests !== undefined && !SPECIAL.includes(e.kind) ? readGuests(req.user, req.body.guests) : null;
@@ -570,15 +635,20 @@ export default function calendarRoutes() {
       touch(added.map((g) => g.id));
     }
     if (req.body.rooms !== undefined && !SPECIAL.includes(e.kind)) setRooms(req.user, q('SELECT * FROM events WHERE id = ?').get(id), req.body.rooms);
-    touch([req.user.id]); // your other tabs (and their reminders) see it too
+    touch([req.user.id, ...peopleOf(calendarId)]); // your other tabs (and their reminders) see it too, and whoever shares its calendar
     const made = outEvent(q('SELECT * FROM events WHERE id = ?').get(id));
     const autoReply = awayReply(req, made, tz);
     res.status(201).json({ ...made, attachments: attachmentsFor(made, req.user.id), role: 'organizer', guests: allGuests(id), rooms: roomsOf(id), reminders, ...(autoReply && { auto_reply: autoReply }) });
   });
 
   r.patch('/:id', (req, res) => {
-    const existing = q('SELECT * FROM events WHERE id = ? AND owner_id = ?').get(req.params.id, req.user.id);
+    let existing = q('SELECT * FROM events WHERE id = ? AND owner_id = ?').get(req.params.id, req.user.id);
+    if (!existing) { // in a colleague's calendar shared with you to change
+      const ev = q('SELECT * FROM events WHERE id = ?').get(req.params.id);
+      if (ev?.calendar_id && actAsSharer(req, ev.calendar_id)) existing = ev;
+    }
     if (!existing) throw notFound();
+    if (req.sharedEditor && req.body.calendar_id !== undefined && req.body.calendar_id !== existing.calendar_id) throw bad('Only its owner can move it to another calendar');
     const before = outEvent(existing);
     const e = readEvent(req.body, before);
     const guests = req.body.guests !== undefined ? readGuests(req.user, SPECIAL.includes(e.kind) ? [] : req.body.guests) : null; // before changing anything
@@ -618,7 +688,7 @@ export default function calendarRoutes() {
     // Colleagues see the change in their calendar at once; an email tells them it happened.
     if (changed) notify(req.user, saved, guestsOf(e.id).filter((g) => !added.some((a) => a.id === g.id)).map((g) => ({ username: g.email, name: g.name })), 'update', tz, baseUrl(req));
     notifyOutside(req.user, saved, outside.removed, 'cancel', opts);
-    touch([req.user.id, ...guestsOf(e.id).map((g) => g.id), ...removed]);
+    touch([req.user.id, ...guestsOf(e.id).map((g) => g.id), ...removed, ...peopleOf(existing.calendar_id), ...peopleOf(q('SELECT calendar_id FROM events WHERE id = ?').get(e.id)?.calendar_id)]);
     // Rooms: as asked, or (when the time changed) the same ones checked again.
     if (req.body.rooms !== undefined || (changed && roomsOf(e.id).length)) setRooms(req.user, q('SELECT * FROM events WHERE id = ?').get(e.id), req.body.rooms ?? roomsOf(e.id).map((x) => x.id));
     if (attachments && !guests) shareAttachments(req.user, e.id);
@@ -663,9 +733,12 @@ export default function calendarRoutes() {
   });
 
   r.delete('/:id', (req, res) => {
-    const ev = q('SELECT * FROM events WHERE id = ? AND owner_id = ?').get(req.params.id, req.user.id);
+    let ev = q('SELECT * FROM events WHERE id = ? AND owner_id = ?').get(req.params.id, req.user.id);
+    if (!ev) { const other = q('SELECT * FROM events WHERE id = ?').get(req.params.id); if (other?.calendar_id && actAsSharer(req, other.calendar_id)) ev = other; }
     if (!ev) throw notFound();
+    const people = peopleOf(ev.calendar_id);
     removeEvent(req, ev);
+    touch(people);
     res.json({ ok: true });
   });
 

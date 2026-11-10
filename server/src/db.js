@@ -367,3 +367,12 @@ db.exec(`CREATE TABLE IF NOT EXISTS user_calendars (
   created_at INTEGER NOT NULL
 )`);
 if (!hasColumn('events', 'calendar_id')) db.exec('ALTER TABLE events ADD COLUMN calendar_id TEXT');
+// A calendar of your own shared with colleagues: they see its events, or can also change them.
+db.exec(`CREATE TABLE IF NOT EXISTS user_calendar_shares (
+  calendar_id TEXT NOT NULL REFERENCES user_calendars(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  can_edit INTEGER NOT NULL DEFAULT 0,
+  hidden INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (calendar_id, user_id)
+)`);

@@ -7737,7 +7737,7 @@ test('calendars of your own: add, rename, recolour (events follow), hide, move e
   assert.equal((await a('POST', '/api/events/calendars', { name: '  ' })).status, 400);
   assert.equal((await a('POST', '/api/events/calendars', { name: 'Family', color: 'red' })).status, 400);
   const fam = (await a('POST', '/api/events/calendars', { name: 'Family', color: '#8E24AA' })).body;
-  assert.deepEqual({ ...fam, id: undefined }, { id: undefined, name: 'Family', color: '#8e24aa', hidden: false, events: 0 });
+  assert.deepEqual({ ...fam, id: undefined }, { id: undefined, name: 'Family', color: '#8e24aa', hidden: false, events: 0, members: [] });
   assert.equal((await a('POST', '/api/events/calendars', { name: 'family' })).status, 400, 'names are unique (any case)');
   const proj = (await a('POST', '/api/events/calendars', { name: 'Project X', color: '#0b8043' })).body;
 
@@ -7793,4 +7793,59 @@ test('calendars of your own: add, rename, recolour (events follow), hide, move e
   assert.deepEqual(left, ['Budget review']);
   assert.deepEqual((await a('GET', '/api/events/calendars')).body, []);
   assert.equal(school.id && own.id && true, true);
+});
+
+test('sharing a calendar of your own: colleagues see its events, or change them too; hiding and leaving', async () => {
+  const a = client(), b = client(), c = client();
+  const ids = {};
+  for (const [local, name] of [['sha', 'Sha Ann'], ['shb', 'Shb Ben'], ['shc', 'Shc Cat']]) {
+    const r = await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' });
+    assert.equal(r.status, 201);
+    ids[local] = r.body.id;
+  }
+  await login(a, 'sha@acme.com'); await login(b, 'shb@acme.com'); await login(c, 'shc@acme.com');
+  const team = (await a('POST', '/api/events/calendars', { name: 'Team holidays', color: '#0b8043' })).body;
+  const t = Date.UTC(2026, 11, 14, 9);
+  const hol = (await a('POST', '/api/events', { title: 'Ann away', start: t, end: t + 3600e3, calendar_id: team.id, color: '#0b8043' })).body;
+  await a('POST', '/api/events', { title: 'Private dentist', start: t, end: t + 3600e3 }); // main calendar: not shared
+  // Only the owner shares; only with people at the company.
+  assert.equal((await b('PUT', `/api/events/calendars/${team.id}/members`, { members: [{ id: ids.shc }] })).status, 404);
+  assert.equal((await a('PUT', `/api/events/calendars/${team.id}/members`, { members: [{ id: ginaId }] })).status, 400);
+  const shared = (await a('PUT', `/api/events/calendars/${team.id}/members`, { members: [{ id: ids.shb, can_edit: false }, { id: ids.shc, can_edit: true }] })).body;
+  assert.deepEqual(shared.members.map((m) => [m.email, m.can_edit]), [['shb@acme.com', false], ['shc@acme.com', true]]);
+  const bell = (await b('GET', '/api/notifications')).body;
+  assert.ok(JSON.stringify(bell).includes('shared the calendar “Team holidays” with you'));
+
+  // Ben sees it under his calendars and its events (not Ann's main calendar).
+  const bens = (await b('GET', '/api/events/calendars')).body;
+  assert.deepEqual(bens.map((x) => [x.name, x.shared, x.can_edit, x.owner.name]), [['Team holidays', true, false, 'Sha Ann']]);
+  const seen = (await b('GET', `/api/events?from=${t - 864e5}&to=${t + 864e5}`)).body;
+  assert.deepEqual(seen.map((e) => [e.title, e.role, e.can_edit]), [['Ann away', 'shared', false]]);
+  // Ben can't change it; Cat can, and Ann is told.
+  assert.equal((await b('PATCH', `/api/events/${hol.id}`, { title: 'Hacked' })).status, 404);
+  assert.equal((await b('DELETE', `/api/events/${hol.id}`)).status, 404);
+  assert.equal((await b('POST', '/api/events', { title: 'Nope', start: t, end: t + 1, calendar_id: team.id })).status, 404);
+  const ch = await c('PATCH', `/api/events/${hol.id}`, { title: 'Ann away (all day)', calendar_id: team.id, reminders: [] });
+  assert.equal(ch.status, 200, JSON.stringify(ch.body));
+  assert.equal((await c('PATCH', `/api/events/${hol.id}`, { calendar_id: null })).status, 400, 'only the owner moves it to another calendar');
+  const added = await c('POST', '/api/events', { title: 'Cat away', start: t + 864e5, end: t + 864e5 + 3600e3, calendar_id: team.id, color: '#0b8043' });
+  assert.equal(added.status, 201, JSON.stringify(added.body));
+  const annSees = (await a('GET', `/api/events?from=${t - 864e5}&to=${t + 2 * 864e5}`)).body.filter((e) => e.calendar_id === team.id);
+  assert.deepEqual(annSees.map((e) => [e.title, e.role]).sort(), [['Ann away (all day)', 'organizer'], ['Cat away', 'organizer']], 'Cat\'s event is Ann\'s, in her calendar');
+  const annBell = JSON.stringify((await a('GET', '/api/notifications')).body);
+  assert.ok(annBell.includes('Shc Cat changed “Ann away (all day)” in Team holidays'), annBell);
+  assert.ok(annBell.includes('Shc Cat added “Cat away” in Team holidays'));
+  assert.equal((await c('DELETE', `/api/events/${added.body.id}`)).status, 200);
+
+  // Ben hides it (only for him), then leaves it; Ann still has it.
+  const hid = (await b('PATCH', `/api/events/calendars/${team.id}`, { hidden: true, name: 'Mine now' })).body;
+  assert.deepEqual([hid.name, hid.hidden], ['Team holidays', true]);
+  assert.equal((await a('GET', '/api/events/calendars')).body.find((x) => x.id === team.id).hidden, false);
+  assert.deepEqual((await b('DELETE', `/api/events/calendars/${team.id}`)).body, { ok: true, left: true });
+  assert.deepEqual((await b('GET', '/api/events/calendars')).body, []);
+  assert.deepEqual((await b('GET', `/api/events?from=${t - 864e5}&to=${t + 864e5}`)).body, []);
+  assert.deepEqual((await a('GET', '/api/events/calendars')).body.find((x) => x.id === team.id).members.map((m) => m.email), ['shc@acme.com']);
+  // Ann deletes the calendar: it's gone for Cat too.
+  await a('DELETE', `/api/events/calendars/${team.id}`);
+  assert.deepEqual((await c('GET', '/api/events/calendars')).body, []);
 });

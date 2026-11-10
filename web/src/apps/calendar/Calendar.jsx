@@ -194,7 +194,7 @@ function Calendar({ acting = null, managed = [], onPick }) {
     const to = days[days.length - 1].getTime() + DAY;
     // Repeating events come back once; each occurrence is worked out here, in local time.
     const hidden = new Set(hiddenKey ? hiddenKey.split(',') : []);
-    const shown = (list) => list.filter((e) => !(e.role === 'organizer' && e.calendar_id && hidden.has(e.calendar_id)));
+    const shown = (list) => list.filter((e) => !((e.role === 'organizer' || e.role === 'shared') && e.calendar_id && hidden.has(e.calendar_id)));
     get(`/events?from=${from}&to=${to}`).then((list) => setEvents(expandAll(shown(list), from, to))).catch((e) => toast(e.message, 'error'));
     const now = Date.now();
     get(`/events?from=${now}&to=${now + 30 * DAY}`).then((list) => setUpcoming(expandAll(shown(list), now, now + 30 * DAY))).catch(() => {});
@@ -314,7 +314,7 @@ function Calendar({ acting = null, managed = [], onPick }) {
         <input ref={importInput} type="file" accept=".ics,text/calendar" hidden aria-label="Calendar file to import" onChange={(e) => { importIcs(e.target.files[0]); e.target.value = ''; }} />
         <a className="subnav-item" href="/api/events/export" download><Icon name="download" /><span className="grow">Export (.ics)</span></a>
         </>}
-        {!acting && <MyCalendars calendars={myCals} me={me} onChanged={() => { loadCals(); load(); }} onImport={importIcs}
+        {!acting && <MyCalendars calendars={myCals} me={me} people={people.filter((p) => p.id !== me.id)} onChanged={() => { loadCals(); load(); }} onImport={importIcs}
           onToggle={(c, hidden) => { setMyCals((l) => l.map((x) => (x.id === c.id ? { ...x, hidden } : x))); patch(`/events/calendars/${c.id}`, { hidden }).catch((e) => { toast(e.message, 'error'); loadCals(); }); }} />}
         <div className="subnav-title">Other calendars</div>
         {others.map((o) => (
@@ -431,9 +431,9 @@ function Calendar({ acting = null, managed = [], onPick }) {
       {insightsOpen && <TimeInsights anchor={anchor} onClose={() => setInsightsOpen(false)} />}
       {otherFor && <PromptModal title="Working elsewhere" label="Where?" confirm="Save" onClose={() => setOtherFor(null)}
         onSubmit={async (where) => { await setLocation(otherFor, 'other', where.trim() || null); setOtherFor(null); }} />}
-      {editing && (editing.role === 'feed' ? <FeedEventDialog event={editing} onClose={() => setEditing(null)} /> : editing.role === 'guest'
+      {editing && (editing.role === 'feed' || (editing.role === 'shared' && !editing.can_edit) ? <FeedEventDialog event={editing} calendar={myCals.find((c) => c.id === editing.calendar_id)} onClose={() => setEditing(null)} /> : editing.role === 'guest'
         ? <InvitationDialog event={editing} onClose={() => setEditing(null)} onAnswered={() => { setEditing(null); load(); }} />
-        : <EventDialog key={editing.id ? `${editing.id}:${editing.start}` : `new:${editing.duplicateOf || ''}:${editing.start}`} event={editing} calendars={myCals} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); loadCals(); }}
+        : <EventDialog key={editing.id ? `${editing.id}:${editing.start}` : `new:${editing.duplicateOf || ''}:${editing.start}`} event={editing} calendars={editing.role === 'shared' ? [] : myCals.filter((c) => !c.shared || c.can_edit)} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); loadCals(); }}
           onDuplicate={(copy) => { setEditing(copy); toast('Duplicated: change what you need, then Save'); }} />)}
       {pendingMove && (
         <ScopeDialog title="Move repeating event" confirm="Move" onClose={() => setPendingMove(null)}
@@ -1249,7 +1249,7 @@ function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate }) {
               setF({ ...f, calendar_id: to, color: f.color === colourOf(f.calendar_id) ? colourOf(to) : f.color });
             }}>
               <option value="">My calendar</option>
-              {calendars.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              {calendars.map((c) => <option key={c.id} value={c.id}>{c.shared ? `${c.name} (${c.owner.name})` : c.name}</option>)}
             </select>
           </label>
         )}
@@ -1334,10 +1334,12 @@ async function applyEdit(event, body, which) {
  * change its name and colour, download it, import a file into it, or delete it (with its events, or
  * keeping them in your main calendar); + to add one.
  */
-function MyCalendars({ calendars, me, onChanged, onImport, onToggle }) {
+function MyCalendars({ calendars: all, me, people = [], onChanged, onImport, onToggle }) {
   const toast = useToast();
+  const calendars = all.filter((c) => !c.shared), theirs = all.filter((c) => c.shared);
   const [editing, setEditing] = useState(null); // {} for a new one, or the calendar
   const [deleting, setDeleting] = useState(null);
+  const [sharing, setSharing] = useState(null);
   const importFor = useRef(null);
   const fileInput = useRef(null);
   const run = async (fn, ok) => { try { await fn(); if (ok) toast(ok); onChanged(); } catch (e) { toast(e.message, 'error'); } };
@@ -1356,6 +1358,7 @@ function MyCalendars({ calendars, me, onChanged, onImport, onToggle }) {
             </label>
             <Menu trigger={(p) => <button type="button" className="icon-btn" aria-label={`Options for ${c.name}`} {...p}><Icon name="more" size={16} /></button>} items={[
               { label: 'Name and colour…', icon: 'edit', onClick: () => setEditing(c) },
+              { label: 'Share…', icon: 'share', onClick: () => setSharing(c) },
               { label: 'Import into it (.ics)…', icon: 'upload', onClick: () => { importFor.current = c.id; fileInput.current.click(); } },
               { label: 'Download (.ics)', icon: 'download', onClick: () => { const a = document.createElement('a'); a.href = `/api/events/export?calendar=${c.id}`; a.download = `${c.name}.ics`; a.click(); } },
               { label: 'Delete…', icon: 'trash', danger: true, onClick: () => setDeleting(c) },
@@ -1363,6 +1366,23 @@ function MyCalendars({ calendars, me, onChanged, onImport, onToggle }) {
           </li>
         ))}
       </ul>
+      {theirs.length > 0 && <>
+        <div className="row"><span className="muted small grow" style={{ padding: '0 12px' }}>Shared with me</span></div>
+        <ul className="cal-feed-list" aria-label="Calendars shared with me">
+          {theirs.map((c) => (
+            <li key={c.id} className="row" title={`${c.owner.name}’s calendar${c.can_edit ? ': you can make changes' : ''}`}>
+              <label className="check grow small" style={{ minWidth: 0 }}>
+                <input type="checkbox" checked={!c.hidden} aria-label={`Show ${c.name}`} style={{ accentColor: c.color }} onChange={(e) => onToggle(c, !e.target.checked)} />
+                <span className="ellipsis">{c.name} <span className="muted">· {c.owner.name}</span></span>
+              </label>
+              <Menu trigger={(p) => <button type="button" className="icon-btn" aria-label={`Options for ${c.name}`} {...p}><Icon name="more" size={16} /></button>} items={[
+                { label: 'Remove from my list', icon: 'close', onClick: () => run(() => del(`/events/calendars/${c.id}`), `${c.name} is off your list`) },
+              ]} />
+            </li>
+          ))}
+        </ul>
+      </>}
+      {sharing && <ShareOneCalendar calendar={calendars.find((c) => c.id === sharing.id) || sharing} people={people} onClose={() => setSharing(null)} onChanged={onChanged} />}
       <input ref={fileInput} type="file" accept=".ics,text/calendar" hidden aria-label="Calendar file to import into this calendar"
         onChange={async (e) => { const file = e.target.files[0]; e.target.value = ''; await onImport(file, importFor.current); onChanged(); }} />
       {editing && <CalendarForm calendar={editing} onClose={() => setEditing(null)}
@@ -1376,6 +1396,45 @@ function MyCalendars({ calendars, me, onChanged, onImport, onToggle }) {
         </Modal>
       )}
     </div>
+  );
+}
+
+/** Who a calendar of your own is shared with: colleagues who see its events, or can also change them. */
+function ShareOneCalendar({ calendar, people, onClose, onChanged }) {
+  const toast = useToast();
+  const [members, setMembers] = useState(calendar.members || []);
+  const save = async (next) => {
+    const before = members;
+    setMembers(next);
+    try { await put(`/events/calendars/${calendar.id}/members`, { members: next.map((m) => ({ id: m.id, can_edit: m.can_edit })) }); onChanged(); }
+    catch (e) { setMembers(before); toast(e.message, 'error'); }
+  };
+  const left = people.filter((p) => !members.some((m) => m.id === p.id));
+  return (
+    <Modal title={`Share “${calendar.name}”`} onClose={onClose} footer={<button type="button" className="btn primary" onClick={onClose}>Done</button>}>
+      <div className="stack">
+        <p className="muted small" style={{ margin: 0 }}>Colleagues you add see this calendar under <strong>Shared with me</strong> in their Calendar, with its events. Only this calendar: your others stay yours. Those who can make changes add, change and delete its events (you're told).</p>
+        {members.length > 0 ? (
+          <ul className="plain stack" aria-label="Shared with" style={{ gap: 6 }}>
+            {members.map((m) => (
+              <li key={m.id} className="row">
+                <span className="grow ellipsis">{m.name} <span className="muted small">{m.email}</span></span>
+                <select aria-label={`What ${m.name} can do`} value={m.can_edit ? 'edit' : 'see'} onChange={(e) => save(members.map((x) => (x.id === m.id ? { ...x, can_edit: e.target.value === 'edit' } : x)))}>
+                  <option value="see">See events</option><option value="edit">Make changes</option>
+                </select>
+                <button type="button" className="icon-btn" aria-label={`Stop sharing with ${m.name}`} onClick={() => save(members.filter((x) => x.id !== m.id))}><Icon name="close" size={16} /></button>
+              </li>
+            ))}
+          </ul>
+        ) : <p className="muted small" style={{ margin: 0 }}>Not shared with anyone yet.</p>}
+        {left.length > 0 && (
+          <select className="dm-pick" value="" aria-label="Share with a colleague" onChange={(e) => { const p = people.find((x) => x.id === e.target.value); if (p) save([...members, { id: p.id, name: p.name, email: p.email || p.username || '', can_edit: false }]); }}>
+            <option value="">+ Share with a colleague…</option>
+            {left.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        )}
+      </div>
+    </Modal>
   );
 }
 
@@ -1446,14 +1505,16 @@ function Feeds({ onChanged }) {
 }
 
 /** An event from a subscribed calendar: shown, not changed. */
-function FeedEventDialog({ event, onClose }) {
+function FeedEventDialog({ event, calendar, onClose }) {
   return (
     <Modal title={event.title} onClose={onClose}>
       <div className="stack">
         <p style={{ margin: 0 }}>{whenLabel(event)}{event.rrule && <><br /><span className="muted small">{describeRule(event.rrule, event.seriesStart ?? event.start)}</span></>}</p>
         {event.location && <p style={{ margin: 0 }}><span className="muted">Where:</span> {event.location}</p>}
         {event.description && <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{event.description}</p>}
-        <p className="muted small" style={{ margin: 0 }}><span className="cal-feed-dot" style={{ background: event.color }} aria-hidden="true" /> From {event.feed?.name}, a calendar you subscribe to (it can't be changed here).</p>
+        {event.role === 'shared'
+          ? <p className="muted small" style={{ margin: 0 }}><span className="cal-feed-dot" style={{ background: event.color }} aria-hidden="true" /> In {calendar?.name || 'a calendar'}, which {event.organizer?.name || 'a colleague'} shares with you to see (only they can change it).</p>
+          : <p className="muted small" style={{ margin: 0 }}><span className="cal-feed-dot" style={{ background: event.color }} aria-hidden="true" /> From {event.feed?.name}, a calendar you subscribe to (it can't be changed here).</p>}
       </div>
     </Modal>
   );

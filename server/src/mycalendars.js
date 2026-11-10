@@ -7,9 +7,21 @@ import { uid, bad, notFound } from './util.js';
 
 export const MAX_CALENDARS = 20;
 const COLOR_RE = /^#[0-9a-f]{6}$/i;
-const out = (c) => ({ id: c.id, name: c.name, color: c.color, hidden: !!c.hidden, events: q('SELECT COUNT(*) AS n FROM events WHERE calendar_id = ? AND owner_id = ? AND recur_parent IS NULL').get(c.id, c.owner_id).n });
+const out = (c) => ({ id: c.id, name: c.name, color: c.color, hidden: !!c.hidden, events: q('SELECT COUNT(*) AS n FROM events WHERE calendar_id = ? AND owner_id = ? AND recur_parent IS NULL').get(c.id, c.owner_id).n, members: membersOf(c.id) });
 
-export const calendarsOf = (userId) => q('SELECT * FROM user_calendars WHERE owner_id = ? ORDER BY created_at, name').all(userId).map(out);
+/** Who a calendar is shared with: [{ id, name, email, can_edit }]. */
+export const membersOf = (calId) => q(`SELECT u.id, u.name, u.username AS email, s.can_edit FROM user_calendar_shares s JOIN users u ON u.id = s.user_id
+  WHERE s.calendar_id = ? ORDER BY u.name`).all(calId).map((m) => ({ ...m, can_edit: !!m.can_edit }));
+/** Calendars colleagues share with you: { id, name, color, hidden, shared: true, can_edit, owner: { id, name } }. */
+export const sharedWith = (userId) => q(`SELECT c.id, c.name, c.color, s.hidden, s.can_edit, u.id AS owner_id, u.name AS owner_name FROM user_calendar_shares s
+  JOIN user_calendars c ON c.id = s.calendar_id JOIN users u ON u.id = c.owner_id WHERE s.user_id = ? AND u.disabled = 0 ORDER BY c.name`).all(userId)
+  .map((c) => ({ id: c.id, name: c.name, color: c.color, hidden: !!c.hidden, shared: true, can_edit: !!c.can_edit, owner: { id: c.owner_id, name: c.owner_name } }));
+/** Your share of someone's calendar ({ calendar_id, can_edit, owner_id }), or null. */
+export const shareOf = (userId, calId) => q('SELECT s.calendar_id, s.can_edit, c.owner_id FROM user_calendar_shares s JOIN user_calendars c ON c.id = s.calendar_id WHERE s.user_id = ? AND s.calendar_id = ?').get(userId, String(calId || '')) || null;
+/** Everyone a calendar's events reach: its owner and its members. */
+export const peopleOf = (calId) => (calId ? q('SELECT owner_id AS id FROM user_calendars WHERE id = ? UNION SELECT user_id FROM user_calendar_shares WHERE calendar_id = ?').all(calId, calId).map((r) => r.id) : []);
+
+export const calendarsOf = (userId) => [...q('SELECT * FROM user_calendars WHERE owner_id = ? ORDER BY created_at, name').all(userId).map(out), ...sharedWith(userId)];
 export function ownCalendar(userId, id) {
   const c = q('SELECT * FROM user_calendars WHERE id = ? AND owner_id = ?').get(String(id || ''), userId);
   if (!c) throw notFound('Calendar not found');
@@ -49,6 +61,30 @@ export function changeCalendar(userId, id, body = {}) {
   }
   if (body.hidden !== undefined) q('UPDATE user_calendars SET hidden = ? WHERE id = ?').run(body.hidden ? 1 : 0, c.id);
   return out(ownCalendar(userId, c.id));
+}
+
+/**
+ * Share a calendar with colleagues ([{ id, can_edit }]; the whole list): `canShareWith(id)` says who may be added.
+ * Gives { added: [ids] } so they can be told.
+ */
+export function setMembers(userId, calId, list, canShareWith) {
+  const c = ownCalendar(userId, calId);
+  if (!Array.isArray(list)) throw bad('members must be a list');
+  if (list.length > 100) throw bad('At most 100 people');
+  const want = new Map();
+  for (const m of list) {
+    const id = String(m?.id || '');
+    if (!id || id === userId) continue;
+    if (!canShareWith(id)) throw bad('You can only share with people at your company');
+    want.set(id, !!m.can_edit);
+  }
+  const before = new Set(q('SELECT user_id FROM user_calendar_shares WHERE calendar_id = ?').all(c.id).map((r) => r.user_id));
+  for (const id of before) if (!want.has(id)) q('DELETE FROM user_calendar_shares WHERE calendar_id = ? AND user_id = ?').run(c.id, id);
+  for (const [id, edit] of want) {
+    if (before.has(id)) q('UPDATE user_calendar_shares SET can_edit = ? WHERE calendar_id = ? AND user_id = ?').run(edit ? 1 : 0, c.id, id);
+    else q('INSERT INTO user_calendar_shares (calendar_id, user_id, can_edit, hidden, created_at) VALUES (?, ?, ?, 0, ?)').run(c.id, id, edit ? 1 : 0, Date.now());
+  }
+  return { calendar: c, added: [...want.keys()].filter((id) => !before.has(id)), removed: [...before].filter((id) => !want.has(id)) };
 }
 
 /** The calendar's events (series, not their changed occurrences, which go with them). */
