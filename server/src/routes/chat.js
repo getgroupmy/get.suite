@@ -2,6 +2,7 @@ import { pushTo } from '../push.js';
 import { offFor } from '../notifications.js';
 import { previewMime, previewHeaders } from '../mail/preview.js';
 import { officePreview, MAX_PREVIEW } from '../office/preview.js';
+import { emlView } from '../mail/emlview.js';
 import { zipEntries } from '../zipfiles.js';
 import { notify } from '../notifications.js';
 import { firstLink, previewFor } from '../linkpreview.js';
@@ -986,6 +987,12 @@ export default function chatRoutes() {
     const f = messageFile(req);
     if (!/\.zip$/i.test(f.name)) throw bad('Not a zip file');
     res.json(await zipEntries(fs.readFileSync(path.join(FILES_DIR, f.storage))));
+  });
+
+  r.get('/messages/:id/files/:fileId/eml', async (req, res) => {
+    const f = messageFile(req);
+    if (!/\.eml$/i.test(f.name)) throw bad('Not an email');
+    res.json(await emlView(fs.readFileSync(path.join(FILES_DIR, f.storage))));
   });
 
   // The Drive folder files you attach from your computer go to ("Chat files", made when first needed).

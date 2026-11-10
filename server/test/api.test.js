@@ -8347,3 +8347,15 @@ test('one event as a calendar file (.ics): for its organiser and guests; others 
   assert.equal((await other('GET', `/api/events/${ev.body.id}/ics`)).status, 404, 'someone else cannot');
   assert.equal((await owner('GET', '/api/events/nope/ics')).status, 404);
 });
+
+test('an email saved in Drive (.eml) can be read in the viewer: who, when, subject, text, attachments', async () => {
+  const raw = ['From: Bob <bob@sender.example>', 'To: owner@acme.com', 'Subject: Quote for the roof', 'Date: Tue, 10 Nov 2026 09:00:00 +0000', 'MIME-Version: 1.0', 'Content-Type: text/plain; charset=utf-8', '', 'The roof costs 4,000.'].join('\r\n');
+  const up = (await owner('POST', '/api/files/upload?name=Roof%20quote.eml', Buffer.from(raw), { raw: true })).body;
+  const v = await owner('GET', `/api/files/${up.id}/eml`);
+  assert.equal(v.status, 200, JSON.stringify(v.body));
+  assert.deepEqual([v.body.from.address, v.body.subject, v.body.text.trim(), v.body.attachments], ['bob@sender.example', 'Quote for the roof', 'The roof costs 4,000.', []]);
+  const txt = (await owner('POST', '/api/files/upload?name=notes.txt', 'hello', { raw: true })).body;
+  assert.equal((await owner('GET', `/api/files/${txt.id}/eml`)).status, 400, 'only emails');
+  const outsider = client();
+  assert.equal((await outsider('GET', `/api/files/${up.id}/eml`)).status, 401);
+});

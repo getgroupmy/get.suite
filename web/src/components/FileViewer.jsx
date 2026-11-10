@@ -8,6 +8,7 @@ import { Modal } from './ui.jsx';
 import Icon from './Icon.jsx';
 import OfficePreview from '../apps/OfficePreview.jsx';
 import ZipContents from '../apps/ZipContents.jsx';
+import EmlContents from '../apps/EmlContents.jsx';
 import { previewKind } from './viewkind.js';
 
 export default function FileViewer({ items, at, urls, onStep, onSave = null, onClose }) {
@@ -25,6 +26,7 @@ export default function FileViewer({ items, at, urls, onStep, onSave = null, onC
   });
   const src = urls.view(a);
   const body = kind === 'zip' ? <ZipContents url={urls.zip(a)} />
+    : kind === 'eml' ? <EmlContents url={urls.eml(a)} />
     : kind === 'office' ? <OfficePreview url={urls.office(a)} />
     : kind === 'picture' ? <img src={src} alt={a.filename} className="preview-media" />
     : kind === 'video' ? <video src={src} controls className="preview-media" />

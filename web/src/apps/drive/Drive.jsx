@@ -12,6 +12,7 @@ import { SignaturesView, SendForSignature } from '../docs/Signatures.jsx';
 import { CommentsPanel, useComments } from '../comments.jsx';
 import OfficePreview from '../OfficePreview.jsx';
 import ZipContents from '../ZipContents.jsx';
+import EmlContents from '../EmlContents.jsx';
 import ScanDialog from './ScanDialog.jsx';
 import SharedInDialog from './SharedInDialog.jsx';
 import { readShared } from '../../shareinbox.js';
@@ -891,6 +892,7 @@ function Preview({ file, onClose, onOpenAs, comment = null }) {
   else if (m === 'application/pdf' || m.startsWith('text/')) body = <iframe src={src} title={file.name} className="preview-frame" />;
   else if (officeAs(file)) body = <OfficePreview url={`/files/${file.id}/preview`} />;
   else if (isZip) body = <ZipContents url={`/files/${file.id}/zip`} />;
+  else if (/\.eml$/i.test(file.name)) body = <EmlContents url={`/files/${file.id}/eml`} />;
   else body = <Empty icon="file" title="No preview available">Download the file to open it on your device.</Empty>;
   return (
     <Modal wide title={file.name} onClose={onClose} footer={<>

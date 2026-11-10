@@ -6,11 +6,12 @@ const KINDS = {
   video: ['mp4', 'webm'],
   audio: ['mp3', 'wav', 'ogg', 'm4a', 'flac', 'weba', 'opus'],
   office: ['docx', 'odt', 'xlsx', 'ods', 'pptx', 'odp'],
+  eml: ['eml'], // an email, shown as text
   zip: ['zip'], // a list of what's inside // converted on the server and shown as Docs, Sheets or Slides would
 };
 const BY_EXT = Object.fromEntries(Object.entries(KINDS).flatMap(([k, exts]) => exts.map((e) => [e, k])));
 
-/** 'picture' | 'pdf' | 'text' | 'video' | 'audio' | 'office' | 'zip', or null for attachments that only download. */
+/** 'picture' | 'pdf' | 'text' | 'video' | 'audio' | 'office' | 'eml' | 'zip', or null for attachments that only download. */
 export function previewKind(filename) {
   const m = /\.([a-z0-9]+)$/i.exec(String(filename || ''));
   return (m && BY_EXT[m[1].toLowerCase()]) || null;

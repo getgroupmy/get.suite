@@ -33,6 +33,7 @@ import { odsFromSheet, sheetFromOds, ODS_MIME } from '../office/ods.js';
 import { odpFromDeck, deckFromOdp, ODP_MIME } from '../office/odp.js';
 import { cellHistory } from '../office/cellhistory.js';
 import { epubFromDoc, EPUB_MIME } from '../office/epub.js';
+import { emlView } from '../mail/emlview.js';
 import { zipEntries, extractZip } from '../zipfiles.js';
 import { markdownFromDoc, docFromMarkdown } from '../office/markdown.js';
 import { parseCsv } from '../contactfiles.js';
@@ -1038,6 +1039,12 @@ export default function fileRoutes({ maxUploadBytes }) {
     const f = loadFile(req.params.id, req.user);
     if (!isZip(f)) throw bad('Not a zip file');
     res.json(await zipEntries(fs.readFileSync(path.join(FILES_DIR, f.storage))));
+  });
+  // An email saved in Drive (.eml): who, when, subject, text and what's attached.
+  r.get('/:id/eml', async (req, res) => {
+    const f = loadFile(req.params.id, req.user);
+    if (f.kind !== 'file' || !/\.eml$/i.test(f.name)) throw bad('Not an email');
+    res.json(await emlView(fs.readFileSync(path.join(FILES_DIR, f.storage))));
   });
   r.post('/:id/extract', async (req, res) => {
     const f = loadFile(req.params.id, req.user);

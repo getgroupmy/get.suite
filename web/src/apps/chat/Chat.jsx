@@ -1206,7 +1206,7 @@ function MessageFiles({ m }) {
         ? <a key={f.id} href={at(f)} target="_blank" rel="noreferrer" className="msg-pic" onClick={(e) => open(e, f)}><img src={at(f)} alt={f.name} loading="lazy" /></a>
         : <a key={f.id} className="msg-file" href={at(f, '?download')} title={previewKind(f.name) ? 'Open (Shift+click to download)' : 'Download'} onClick={(e) => open(e, f)}><Icon name="attach" size={16} /> {f.name} <span className="muted small">{formatBytes(f.size)}</span></a>))}
       {viewing !== null && items[viewing] && <FileViewer items={items} at={viewing}
-        urls={{ view: (f) => at(f, '?view'), download: (f) => at(f, '?download'), office: (f) => `/chat/messages/${m.id}/files/${f.id}/preview`, zip: (f) => `/chat/messages/${m.id}/files/${f.id}/zip` }}
+        urls={{ view: (f) => at(f, '?view'), download: (f) => at(f, '?download'), office: (f) => `/chat/messages/${m.id}/files/${f.id}/preview`, zip: (f) => `/chat/messages/${m.id}/files/${f.id}/zip`, eml: (f) => `/chat/messages/${m.id}/files/${f.id}/eml` }}
         onStep={(dir) => setViewing(stepPreview(items, viewing, dir))} onClose={() => setViewing(null)} />}
     </div>
   );

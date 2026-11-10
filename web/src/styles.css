@@ -2584,3 +2584,11 @@ p.doc-email-fields { margin: 0; }
 .auth-fail { color: var(--danger); font-weight: 600; }
 .original-hops { margin: 0; padding-left: 20px; }
 .original-headers { font-family: ui-monospace, Consolas, monospace; font-size: 12px; width: 100%; white-space: pre; }
+.eml-contents { display: grid; gap: 10px; max-height: 70vh; overflow: auto; }
+.eml-subject { margin: 0; font-size: 18px; }
+.eml-head { display: grid; grid-template-columns: auto 1fr; gap: 2px 14px; margin: 0; font-size: 13px; }
+.eml-head dt { color: var(--muted); }
+.eml-head dd { margin: 0; word-break: break-word; }
+.eml-text { white-space: pre-wrap; border-top: 1px solid var(--border); padding-top: 10px; line-height: 1.5; }
+.eml-attachments { list-style: none; margin: 0; padding: 8px 0 0; border-top: 1px solid var(--border); display: grid; gap: 4px; }
+.eml-attachments li { display: flex; align-items: center; gap: 8px; }

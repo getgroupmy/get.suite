@@ -38,6 +38,7 @@ import { mimeFor } from '../util.js';
 import { previewMime, previewHeaders } from '../mail/preview.js';
 import { officePreview } from '../office/preview.js';
 import { originalSummary } from '../mail/original.js';
+import { emlView } from '../mail/emlview.js';
 import { zipEntries } from '../zipfiles.js';
 import { calendarPartOf, readInvite, replyIcs, eventForInvite, saveInvite, readReply } from '../mail/invite.js';
 import { recordReply } from '../mail/invitereply.js';
@@ -1149,6 +1150,15 @@ export default function webmailRoutes() {
     if (!a) throw notFound('Attachment not found');
     if (!/\.zip$/i.test(a.filename || '')) throw bad('Not a zip file');
     res.json(await zipEntries(a.content));
+  });
+
+  // An attached email (.eml, or a forwarded message/rfc822 part): who, when, subject, text and what's attached.
+  r.get('/messages/:uid/attachments/:index/eml', async (req, res) => {
+    const { parsed } = await loadMessage(req.user, String(req.query.folder || 'INBOX'), Number(req.params.uid), false);
+    const a = parsed.attachments.filter((x) => !x.related)[Number(req.params.index)];
+    if (!a) throw notFound('Attachment not found');
+    if (!/\.eml$/i.test(a.filename || '') && a.contentType !== 'message/rfc822') throw bad('Not an email');
+    res.json(await emlView(a.content));
   });
 
   // Save attachments to Drive, in an "Email attachments" folder (made when first needed): all of them, or the ones asked.

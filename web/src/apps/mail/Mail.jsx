@@ -732,7 +732,7 @@ function Reader({ shared = null, folder, uid, special, onClose, onOpen, onChange
         </ul>
       )}
       {viewing !== null && m.attachments[viewing] && <FileViewer items={m.attachments.map((x) => ({ ...x, key: x.index }))} at={viewing}
-        urls={{ view: (x) => attUrl(x, true), download: (x) => attUrl(x), office: (x) => `/mail/messages/${uid}/attachments/${x.index}/preview?folder=${enc(folder)}`, zip: (x) => `/mail/messages/${uid}/attachments/${x.index}/zip?folder=${enc(folder)}` }}
+        urls={{ view: (x) => attUrl(x, true), download: (x) => attUrl(x), office: (x) => `/mail/messages/${uid}/attachments/${x.index}/preview?folder=${enc(folder)}`, zip: (x) => `/mail/messages/${uid}/attachments/${x.index}/zip?folder=${enc(folder)}`, eml: (x) => `/mail/messages/${uid}/attachments/${x.index}/eml?folder=${enc(folder)}` }}
         onStep={(dir) => setViewing(stepPreview(m.attachments, viewing, dir))} onSave={(x) => saveToDrive([x.index])} onClose={() => setViewing(null)} />}
       {original && <OriginalDialog uid={uid} folder={folder} onClose={() => setOriginal(false)} />}
       <div className="row wrap reader-reply">
