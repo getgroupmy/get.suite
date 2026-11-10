@@ -8542,3 +8542,20 @@ test('home layout: each person orders and hides Home’s cards; new cards appear
   assert.deepEqual(homeLayout('{"order":["notes","gone","notes"],"hidden":"x"}').order[0], 'notes', 'unknown and repeated ones dropped');
   assert.deepEqual((await a('PUT', '/api/users/me/home-layout', { reset: true })).body, { order: HOME_CARDS, hidden: [] });
 });
+
+test('recent searches: newest first, no repeats (whatever the capitals), at most 8, yours only; one or all forgotten', async () => {
+  const a = client(), a2 = client(), b = client();
+  for (const [local, name] of [['rsa', 'Rs Ann'], ['rsb', 'Rs Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'rsa@acme.com'); await login(a2, 'rsa@acme.com'); await login(b, 'rsb@acme.com');
+  assert.deepEqual((await a('GET', '/api/users/me/recent-searches')).body, []);
+  for (const t of ['budget', 'Penang  lease', 'BUDGET']) await a('POST', '/api/users/me/recent-searches', { q: t });
+  assert.deepEqual((await a2('GET', '/api/users/me/recent-searches')).body, ['BUDGET', 'Penang lease'], 'on the other computer too; spaces tidied');
+  assert.deepEqual((await b('GET', '/api/users/me/recent-searches')).body, []);
+  assert.equal((await a('POST', '/api/users/me/recent-searches', { q: 'x' })).status, 400);
+  for (let i = 0; i < 10; i++) await a('POST', '/api/users/me/recent-searches', { q: `term ${i}` });
+  const list = (await a('GET', '/api/users/me/recent-searches')).body;
+  assert.equal(list.length, 8);
+  assert.equal(list[0], 'term 9');
+  assert.deepEqual((await a('DELETE', `/api/users/me/recent-searches?q=${encodeURIComponent('TERM 9')}`)).body[0], 'term 8');
+  assert.deepEqual((await a('DELETE', '/api/users/me/recent-searches')).body, []);
+});

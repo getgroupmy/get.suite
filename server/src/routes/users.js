@@ -226,6 +226,24 @@ export default function userRoutes() {
     res.json(next);
   });
 
+  // Your recent searches in the top bar (newest first, at most 8, the same on every computer).
+  if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'recent_searches')) q('ALTER TABLE users ADD COLUMN recent_searches TEXT').run();
+  const recentOf = (id) => { try { return JSON.parse(q('SELECT recent_searches FROM users WHERE id = ?').get(id)?.recent_searches || '[]'); } catch { return []; } };
+  r.get('/me/recent-searches', (req, res) => res.json(recentOf(req.user.id)));
+  r.post('/me/recent-searches', (req, res) => {
+    const text = String(req.body?.q ?? '').replace(/\s+/g, ' ').trim().slice(0, 200);
+    if (text.length < 2) throw bad('Search for at least two letters');
+    const list = [text, ...recentOf(req.user.id).filter((x) => x.toLowerCase() !== text.toLowerCase())].slice(0, 8);
+    q('UPDATE users SET recent_searches = ? WHERE id = ?').run(JSON.stringify(list), req.user.id);
+    res.json(list);
+  });
+  r.delete('/me/recent-searches', (req, res) => {
+    const one = req.query.q !== undefined ? String(req.query.q).toLowerCase() : null;
+    const list = one === null ? [] : recentOf(req.user.id).filter((x) => x.toLowerCase() !== one);
+    q('UPDATE users SET recent_searches = ? WHERE id = ?').run(list.length ? JSON.stringify(list) : null, req.user.id);
+    res.json(list);
+  });
+
   // Convert Office, OpenDocument and Markdown files you upload in Drive: { on: true | false }.
   r.put('/me/convert-uploads', (req, res) => {
     const on = !!req.body?.on;
