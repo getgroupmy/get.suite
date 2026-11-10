@@ -9407,6 +9407,15 @@ test('tasks: sections split a list into parts', async () => {
   assert.equal((await a('PATCH', `/api/tasks/tasks/${t2.id}`, { section_id: s2.id })).body.section_id, s2.id);
   const elsewhereSec = (await a('POST', `/api/tasks/lists/${other}/sections`, { name: 'Other' })).body;
   assert.equal((await a('PATCH', `/api/tasks/tasks/${t2.id}`, { section_id: elsewhereSec.id })).status, 400, 'a section on another list');
+  // Several at once (all on this list, or none).
+  const t4 = (await a('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Batch one' })).body;
+  const t5 = (await a('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Batch two' })).body;
+  const moved = (await a('POST', '/api/tasks/tasks/batch', { ids: [t4.id, t5.id], change: { section_id: s2.id } })).body.tasks;
+  assert.deepEqual(moved.map((t) => t.section_id), [s2.id, s2.id]);
+  assert.equal((await a('POST', '/api/tasks/tasks/batch', { ids: [t4.id], change: { section_id: elsewhereSec.id } })).status, 400);
+  await a('POST', '/api/tasks/tasks/batch', { ids: [t4.id, t5.id], change: { section_id: null } });
+  assert.equal((await a('GET', `/api/tasks/lists/${list}/tasks`)).body.find((x) => x.id === t5.id).section_id, null);
+  await a('POST', '/api/tasks/tasks/batch', { ids: [t4.id, t5.id], delete: true });
   // Rename and reorder.
   assert.equal((await a('PATCH', `/api/tasks/sections/${s2.id}`, { name: 'Next month', position: 0 })).body.name, 'Next month');
   assert.deepEqual((await a('GET', `/api/tasks/lists/${list}/sections`)).body.map((x) => x.name), ['Next month', 'This week']);
