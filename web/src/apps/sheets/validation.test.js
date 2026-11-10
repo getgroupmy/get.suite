@@ -110,3 +110,17 @@ test('rules: a custom formula, moved along the range', async () => {
   assert.equal(breaksRule(v, 'B2', ev('B2'), ev.formulaAt), false);
   assert.equal(breaksRule(v, 'B3', ev('B3'), ev.formulaAt), true, 'starts after it ends');
 });
+
+test('dropdowns with several choices: kept as "A, B", typed ones checked one by one', async () => {
+  const { splitMulti, toggleChoice, chipsOf, checkEntry } = await import('./validation.js');
+  assert.deepEqual(splitMulti(' Design ,Marketing,, '), ['Design', 'Marketing']);
+  assert.equal(toggleChoice('', 'Design'), 'Design');
+  assert.equal(toggleChoice('Design', 'Marketing'), 'Design, Marketing');
+  assert.equal(toggleChoice('Design, Marketing', 'design'), 'Marketing', 'any case takes it out');
+  const v = { type: 'list', multi: true, strict: true, values: ['Design', 'Marketing', 'Sales'], colors: { Design: '#cfe2ff' } };
+  assert.deepEqual(chipsOf(v, 'Design, Sales'), [{ text: 'Design', color: '#cfe2ff' }, { text: 'Sales', color: null }]);
+  assert.deepEqual(checkEntry(v, 'sales, design, Sales'), { value: 'Sales, Design' }, 'spelled as the choices, no repeats');
+  assert.match(checkEntry(v, 'Design, Legal').error, /Not a choice: Legal/);
+  assert.deepEqual(checkEntry({ ...v, strict: false }, 'Design, Legal'), { value: 'Design, Legal' });
+  assert.deepEqual(checkEntry({ type: 'list', values: ['A', 'B'], strict: true }, 'a'), { value: 'A' }, 'one choice as before');
+});

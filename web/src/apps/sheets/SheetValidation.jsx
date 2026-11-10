@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Modal } from '../../components/ui.jsx';
 import Icon from '../../components/Icon.jsx';
 import { parseRange } from './charts.js';
-import { parseChoices, describeValidation, cleanSource, cleanColours, CHIP_COLOURS, RULE_KINDS, RULE_OPS, WITH_OP } from './validation.js';
+import { parseChoices, describeValidation, cleanSource, cleanColours, CHIP_COLOURS, RULE_KINDS, RULE_OPS, WITH_OP, splitMulti, toggleChoice } from './validation.js';
 
 const newId = () => Math.random().toString(36).slice(2, 10);
 
@@ -19,7 +19,7 @@ export function ValidationDialog({ validations, defaultRange, existing, resolve,
     const fromRange = v.from === 'range';
     const values = fromRange ? [] : parseChoices(v.choices);
     const colors = cleanColours(v.colors, fromRange ? resolve(v.source) : values);
-    const list = fromRange ? { source: cleanSource(v.source), strict: !!v.strict } : { values, strict: !!v.strict };
+    const list = { ...(fromRange ? { source: cleanSource(v.source) } : { values }), strict: !!v.strict, ...(v.multi && { multi: true }) };
     const check = v.check || {};
     const rule = { check: { kind: check.kind || 'number', ...(WITH_OP.has(check.kind || 'number') && { op: check.op || 'between', a: String(check.a ?? '').trim(), ...(/between/i.test(check.op || 'between') && { b: String(check.b ?? '').trim() }) }), ...(check.kind === 'formula' && { a: String(check.a ?? '').trim() }) },
       strict: !!v.strict, ...(String(v.message || '').trim() && { message: String(v.message).trim().slice(0, 200) }) };
@@ -110,6 +110,7 @@ function ValidationForm({ initial, existing, resolve, onSave, onCancel }) {
           </details>
         )}
         <label className="check"><input type="checkbox" checked={!!v.strict} onChange={set('strict')} /> Only allow these choices</label>
+        <label className="check"><input type="checkbox" checked={!!v.multi} onChange={set('multi')} /> Allow several choices in a cell</label>
       </> : v.type === 'rule' ? <>
         <div className="row wrap" style={{ gap: 10, alignItems: 'flex-end' }}>
           <label className="field"><span>Allow</span>
@@ -141,7 +142,7 @@ function ValidationForm({ initial, existing, resolve, onSave, onCancel }) {
 }
 
 /** The choices under a dropdown cell: arrow keys and Enter, or type to narrow; Escape closes. */
-export function ChoicePicker({ anchor, values, current, onPick, onClose }) {
+export function ChoicePicker({ anchor, values, current, onPick, onClose, multi = false }) {
   const [filter, setFilter] = useState('');
   const [at, setAt] = useState(Math.max(0, values.findIndex((x) => x === current)));
   const box = useRef();
@@ -157,7 +158,10 @@ export function ChoicePicker({ anchor, values, current, onPick, onClose }) {
     return () => document.removeEventListener('mousedown', away);
   }, [onClose]);
   const shown = values.filter((x) => x.toLowerCase().includes(filter.toLowerCase()));
-  const pick = (x) => onPick(x);
+  // Several choices: a click adds or takes away one, and the list stays open; one choice: picks and closes.
+  const chosen = multi ? splitMulti(current).map((x) => x.toLowerCase()) : [];
+  const isOn = (x) => (multi ? chosen.includes(x.toLowerCase()) : x === current);
+  const pick = (x) => onPick(multi && x !== '' ? toggleChoice(current, x) : x, multi && x !== '');
   return (
     <div ref={box} className="choice-picker" style={pos || { visibility: 'hidden' }}>
       {values.length > 8 && <input autoFocus value={filter} placeholder="Find" aria-label="Find a choice" onChange={(e) => { setFilter(e.target.value); setAt(0); }}
@@ -165,8 +169,8 @@ export function ChoicePicker({ anchor, values, current, onPick, onClose }) {
       <ul role="listbox" aria-label="Choices" tabIndex={-1} autoFocus={values.length <= 8} ref={(el) => { if (el && values.length <= 8) el.focus(); }} onKeyDown={(e) => keys(e)}>
         {current && <li role="option" aria-selected={false} className="clear" onMouseDown={(e) => { e.preventDefault(); pick(''); }}>Clear</li>}
         {shown.map((x, i) => (
-          <li key={x} role="option" aria-selected={i === at} className={`${i === at ? 'on' : ''} ${x === current ? 'current' : ''}`} onMouseDown={(e) => { e.preventDefault(); pick(x); }}>
-            {x === current && <span aria-hidden="true">✓ </span>}{x}
+          <li key={x} role="option" aria-selected={i === at} aria-checked={multi ? isOn(x) : undefined} className={`${i === at ? 'on' : ''} ${isOn(x) ? 'current' : ''}`} onMouseDown={(e) => { e.preventDefault(); pick(x); }}>
+            {multi ? <span aria-hidden="true" className="choice-box">{isOn(x) ? '☑' : '☐'} </span> : isOn(x) && <span aria-hidden="true">✓ </span>}{x}
           </li>
         ))}
         {!shown.length && <li className="muted">No match</li>}

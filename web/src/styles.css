@@ -2717,3 +2717,7 @@ input.fv-name { background: #202124; color: #fff; border: 1px solid #5f6368; bor
 .quiz-feedback.wrong { color: var(--danger); }
 
 .task-clash { flex-basis: 100%; margin: 2px 0 0; color: var(--danger); }
+
+.cell-chips { display: inline-flex; flex-wrap: nowrap; gap: 3px; overflow: hidden; max-width: 100%; }
+.cell-chip.plain { background: var(--surface-2); }
+.choice-box { font-size: 1.05em; }

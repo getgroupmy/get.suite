@@ -30,7 +30,7 @@ import { ValidationDialog, ChoicePicker } from './SheetValidation.jsx';
 import { CellPicture, PictureCellDialog } from './SheetPicture.jsx';
 import { CustomFormatDialog } from './SheetNumFmt.jsx';
 import { heightOf, setHeights, MIN_H, MAX_H, DEFAULT_H } from './rowheights.js';
-import { validationAt, checkEntry, isTicked, withChoices, choicesFrom, chipColour, breaksRule, describeCheck } from './validation.js';
+import { validationAt, checkEntry, isTicked, withChoices, choicesFrom, chipColour, chipsOf, breaksRule, describeCheck } from './validation.js';
 import { columnValues, adjustFilter, filterArea, columnFiltered, slicerAsFilter, adjustSlicers, sheetHiddenRows } from './filter.js';
 import { SlicerCard } from './SheetSlicer.jsx';
 import { describeCondition } from './filtercond.js';
@@ -1209,6 +1209,7 @@ export default function SheetEditor() {
                         : evaluate.imageOf?.(k) ? <CellPicture image={evaluate.imageOf(k)} base={`/api/files/${file.id}`} label={`Picture in ${k}`} />
                         : evaluate.sparkOf?.(k) ? <Sparkline spark={evaluate.sparkOf(k)} />
                         : evaluate.linkOf?.(k) ? <a className="cell-link" href={evaluate.linkOf(k)} target="_blank" rel="noopener noreferrer" title={evaluate.linkOf(k)} onDoubleClick={(e) => e.preventDefault()}>{formatNumber(v, fmt) ?? display(v)}</a>
+                        : vd?.type === 'list' && vd.multi && display(v) ? <span className="cell-chips">{chipsOf(vd, display(v)).map((x, i) => <span key={i} className={`cell-chip ${x.color ? '' : 'plain'}`} style={x.color ? { background: x.color } : undefined}>{x.text}</span>)}</span>
                         : vd?.type === 'list' && chipColour(vd, display(v)) ? <span className="cell-chip" style={{ background: chipColour(vd, display(v)) }}>{formatNumber(v, fmt) ?? display(v)}</span>
                         : fmt?.rot ? <span className={`cell-rot rot-${fmt.rot}`}>{formatNumber(v, fmt) ?? display(v)}</span>
                         : formatNumber(v, fmt) ?? display(v)}
@@ -1330,7 +1331,7 @@ export default function SheetEditor() {
         const td = gridRef.current?.querySelector(`[data-k="${picker.key}"]`);
         if (!vd || vd.type !== 'list' || !td) return null;
         const done = () => { setPicker(null); gridRef.current?.focus(); };
-        return <ChoicePicker anchor={td} values={withChoices(vd, valueOf).values || []} current={cells[picker.key] ?? ''} onClose={done} onPick={(x) => { writeCells({ [picker.key]: x }); done(); }} />;
+        return <ChoicePicker anchor={td} values={withChoices(vd, valueOf).values || []} current={cells[picker.key] ?? ''} onClose={done} multi={!!vd.multi} onPick={(x, keepOpen) => { writeCells({ [picker.key]: x }); if (!keepOpen) done(); }} />;
       })()}
       {dialog?.type === 'print' && (
         <PrintDialog hasSelection={range.c1 !== range.c2 || range.r1 !== range.r2} onClose={() => setDialog(null)} onPrint={(o) => {

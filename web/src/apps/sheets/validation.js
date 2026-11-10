@@ -104,6 +104,18 @@ export function parseChoices(text) {
  * What typing `raw` into a cell with validation `v` should store: { value } (possibly corrected to
  * the choice's own spelling) or { error } when a strict list doesn't have it. Empty and formulas pass.
  */
+// ---- several choices in a cell (multi): kept as "Design, Marketing", in the order picked.
+/** The choices in a cell of a several-choices dropdown. */
+export const splitMulti = (value) => String(value ?? '').split(',').map((x) => x.trim()).filter(Boolean);
+/** The cell's value with `choice` added, or taken out if it was there (any case). */
+export function toggleChoice(current, choice) {
+  const parts = splitMulti(current);
+  const has = parts.some((x) => x.toLowerCase() === String(choice).toLowerCase());
+  return (has ? parts.filter((x) => x.toLowerCase() !== String(choice).toLowerCase()) : [...parts, choice]).join(', ');
+}
+/** Each choice in a several-choices cell with its colour (null when it has none), for chips. */
+export const chipsOf = (v, value) => splitMulti(value).map((text) => ({ text, color: chipColour(v, text) }));
+
 export function checkEntry(v, raw) {
   if (!v || raw === '' || raw == null || String(raw).startsWith('=')) return { value: raw };
   const text = String(raw).trim();
@@ -116,6 +128,15 @@ export function checkEntry(v, raw) {
     if (v.check?.kind === 'formula' || passes(v.check, text)) return { value: raw };
     const why = v.message || `Enter a value that fits: ${describeCheck(v.check).replace(/^./, (c) => c.toLowerCase())}`;
     return v.strict ? { error: why } : { value: raw, warning: why };
+  }
+  if (v.type === 'list' && v.multi) {
+    const out = [], wrong = [];
+    for (const part of splitMulti(text)) {
+      const hit = (v.values || []).find((c) => c.toLowerCase() === part.toLowerCase());
+      if (hit) { if (!out.includes(hit)) out.push(hit); } else { wrong.push(part); out.push(part); }
+    }
+    if (wrong.length && v.strict) return { error: `Not a choice: ${wrong.join(', ')}. Choose from: ${(v.values || []).slice(0, 8).join(', ')}${(v.values || []).length > 8 ? '…' : ''}` };
+    return { value: out.join(', ') };
   }
   if (v.type === 'list') {
     const hit = (v.values || []).find((c) => c.toLowerCase() === text.toLowerCase());
@@ -217,7 +238,8 @@ export const isTicked = (value) => value === true || (typeof value === 'string' 
 export function describeValidation(v) {
   if (v.type === 'checkbox') return 'Tick box';
   if (v.type === 'rule') return `${describeCheck(v.check)}${v.strict ? '' : ' (other values marked)'}`;
-  if (v.source) return `Dropdown from ${v.source}${v.strict ? '' : ' (other values allowed)'}`;
+  const several = v.multi ? ', several choices per cell' : '';
+  if (v.source) return `Dropdown from ${v.source}${several}${v.strict ? '' : ' (other values allowed)'}`;
   const vals = v.values || [];
-  return `Dropdown: ${vals.slice(0, 5).join(', ')}${vals.length > 5 ? ` and ${vals.length - 5} more` : ''}${v.strict ? '' : ' (other values allowed)'}`;
+  return `Dropdown: ${vals.slice(0, 5).join(', ')}${vals.length > 5 ? ` and ${vals.length - 5} more` : ''}${several}${v.strict ? '' : ' (other values allowed)'}`;
 }

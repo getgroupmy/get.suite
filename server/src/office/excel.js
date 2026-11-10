@@ -495,11 +495,11 @@ export async function excelFromSheet(data, { comments = [] } = {}) {
       if (v.type === 'rule') { const x = ruleValidationToExcel(v); if (x) ws.dataValidations.add(v.range, x); continue; }
       // Choices taken from cells: written as that range, so Excel's dropdown follows them too.
       const src = v.type === 'list' && sourceFormula(v.source);
-      if (src) { ws.dataValidations.add(v.range, { type: 'list', allowBlank: true, formulae: [src], ...(v.strict && { showErrorMessage: true, errorStyle: 'stop' }) }); continue; }
+      if (src) { ws.dataValidations.add(v.range, { type: 'list', allowBlank: true, formulae: [src], ...(v.strict && !v.multi && { showErrorMessage: true, errorStyle: 'stop' }) }); continue; }
       const values = v.type === 'checkbox' ? ['TRUE', 'FALSE'] : (v.values || []).filter((x) => !/[,"]/.test(x));
       const list = values.join(',');
       if (!values.length || list.length > 255) continue; // Excel's limit for a written-out list
-      ws.dataValidations.add(v.range, { type: 'list', allowBlank: true, formulae: [`"${list}"`], ...((v.strict || v.type === 'checkbox') && { showErrorMessage: true, errorStyle: 'stop' }) });
+      ws.dataValidations.add(v.range, { type: 'list', allowBlank: true, formulae: [`"${list}"`], ...(((v.strict && !v.multi) || v.type === 'checkbox') && { showErrorMessage: true, errorStyle: 'stop' }) }); // several choices ("A, B"): Excel's list takes one, so it only suggests
     }
   }
   if (!wb.worksheets.length) wb.addWorksheet('Sheet1');

@@ -1773,3 +1773,19 @@ test('PowerPoint: grouped boxes go out as a group and come back as one; a scaled
   // The tree's children, as the export sees them.
   assert.deepEqual(treeChildren('<p:spTree><a/><b x="1"><c/></b><d></d></p:spTree>').length, 3);
 });
+
+test('Excel: a dropdown with several choices per cell only suggests in Excel (its list takes one value)', async () => {
+  const data = { sheets: [{ name: 'Team', cells: { A1: 'Skills', A2: 'Design, Sales' }, validations: [
+    { id: 'm', range: 'A2:A20', type: 'list', values: ['Design', 'Marketing', 'Sales'], strict: true, multi: true },
+    { id: 's', range: 'B2:B20', type: 'list', values: ['Yes', 'No'], strict: true },
+  ] }] };
+  const ExcelJS = (await import('exceljs')).default;
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(await excelFromSheet(data));
+  const dv = wb.worksheets[0].dataValidations.model;
+  const multi = Object.entries(dv).find(([k]) => k.startsWith('A2'))[1];
+  const single = Object.entries(dv).find(([k]) => k.startsWith('B2'))[1];
+  assert.ok(!multi.showErrorMessage, 'several choices: not refused in Excel');
+  assert.equal(single.showErrorMessage, true, 'one choice: still refused');
+  assert.equal(wb.worksheets[0].getCell('A2').value, 'Design, Sales');
+});
