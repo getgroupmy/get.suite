@@ -101,7 +101,9 @@ export default function Chat() {
   const scroller = useRef();
   const stick = useRef(true);
 
-  const loadChannels = () => get('/chat/channels').then(({ channels, online }) => {
+  const [sections, setSections] = useState([]); // your own sections of the list, in order
+  const [sectionEdit, setSectionEdit] = useState(null); // { add: channelId|true } | { rename: section } | { remove: section }
+  const loadChannels = () => get('/chat/sections').then(setSections).catch(() => {}).then(() => get('/chat/channels')).then(({ channels, online }) => {
     setChannels(channels); setOnline(online);
     setUnread(Object.fromEntries(channels.map((c) => [c.id, c.id === channelIdRef.current ? 0 : c.unread || 0])));
     setMentioned(Object.fromEntries(channels.map((c) => [c.id, c.id !== channelIdRef.current && c.mentions > 0])));
@@ -366,6 +368,19 @@ export default function Chat() {
   );
   // Starred conversations (yours alone) sit above the others, in the order you starred them.
   const starred = channels.filter((c) => c.starred && !c.archived_at).sort((x, y) => (x.starred_at || 0) - (y.starred_at || 0));
+  // Your sections: their conversations (not starred, archived or left ones), between Starred and Channels.
+  const inSection = (c) => !!c.section_id && sections.some((x) => x.id === c.section_id) && !c.archived_at && !c.left;
+  const moveSection = async (k, d) => {
+    const o = sections[k + d]; if (!o) return;
+    const after = sections[k + d + d];
+    const mid = (a0, b0) => (a0 === undefined ? b0 - 1 : b0 === undefined ? a0 + 1 : (a0 + b0) / 2);
+    const position = d < 0 ? mid(after?.position, o.position) : mid(o.position, after?.position);
+    try { await patch(`/chat/sections/${sections[k].id}`, { position }); loadChannels(); } catch (e) { toast(e.message, 'error'); }
+  };
+  const putInSection = async (c, sectionId) => {
+    if (sectionId === '__new__') { setSectionEdit({ add: c.id }); return; }
+    try { await put(`/chat/channels/${c.id}/section`, { section_id: sectionId || null }); await loadChannels(); } catch (e) { toast(e.message, 'error'); }
+  };
   const title = current ? (current.dm_key ? (current.dm_name || 'Notes to self') + (current.dm_org ? ` (${current.dm_org})` : '') : `# ${current.name}`) : '';
 
   return (
@@ -380,12 +395,29 @@ export default function Chat() {
           <div className="subnav-title">Starred</div>
           <div role="list" aria-label="Starred conversations">{starred.map((c) => <div role="listitem" key={c.id}>{c.dm_key ? dmRow(c) : channelRow(c)}</div>)}</div>
         </>}
+        {sections.map((sec, k) => {
+          const items = channels.filter((c) => c.section_id === sec.id && inSection(c) && !c.starred);
+          return (
+            <div key={sec.id} className="chat-section">
+              <div className="subnav-title row"><span className="grow ellipsis">{sec.name}</span>
+                <Menu align="right" trigger={(p) => <button type="button" className="icon-btn" aria-label={`Section actions: ${sec.name}`} {...p}><Icon name="more" size={16} /></button>} items={[
+                  { label: 'Rename section…', onClick: () => setSectionEdit({ rename: sec }) },
+                  ...(k > 0 ? [{ label: 'Move up', onClick: () => moveSection(k, -1) }] : []),
+                  ...(k < sections.length - 1 ? [{ label: 'Move down', onClick: () => moveSection(k, 1) }] : []),
+                  { label: 'Delete section', danger: true, onClick: () => setSectionEdit({ remove: sec }) },
+                ]} />
+              </div>
+              <div role="list" aria-label={`Section ${sec.name}`}>{items.map((c) => <div role="listitem" key={c.id}>{c.dm_key ? dmRow(c) : channelRow(c)}</div>)}
+                {!items.length && <p className="muted small chat-section-empty">Empty: put a conversation here from its Section menu at the top.</p>}</div>
+            </div>
+          );
+        })}
         <div className="subnav-title row">Channels<div className="grow" /><button className="icon-btn" aria-label="New channel" onClick={() => setDialog(true)}><Icon name="plus" size={18} /></button></div>
-        {[...publicChannels, ...(showArchived ? archivedChannels : [])].filter((c) => !c.starred).map(channelRow)}
+        {[...publicChannels, ...(showArchived ? archivedChannels : [])].filter((c) => !c.starred && !inSection(c)).map(channelRow)}
         {leftChannels.length > 0 && <button type="button" className="link-btn small archived-toggle" onClick={() => setBrowsing(true)}>Browse channels ({leftChannels.length})</button>}
         {archivedChannels.length > 0 && <button type="button" className="link-btn small archived-toggle" aria-expanded={showArchived} onClick={() => setShowArchived(!showArchived)}>{showArchived ? 'Hide' : 'Show'} archived ({archivedChannels.length})</button>}
         <div className="subnav-title">Direct messages</div>
-        {dms.filter((c) => !c.starred).map(dmRow)}
+        {dms.filter((c) => !c.starred && !inSection(c)).map(dmRow)}
         <select className="dm-pick" value="" aria-label="Start a direct message" onChange={(e) => {
           if (e.target.value === '__email__') setDialog('email'); else if (e.target.value) openDm(e.target.value);
         }}>
@@ -394,6 +426,13 @@ export default function Chat() {
           {user.allow_external && <option value="__email__">Someone at another company…</option>}
         </select>
       </aside>
+      {sectionEdit?.add && <PromptModal title="New section" label="Section name" confirm="Add" message="A heading of your own in the conversation list (only you see it)."
+        onClose={() => setSectionEdit(null)} onSubmit={async (name) => { await post('/chat/sections', { name, ...(sectionEdit.add !== true && { channel_id: sectionEdit.add }) }); await loadChannels(); }} />}
+      {sectionEdit?.rename && <PromptModal title="Rename section" label="Section name" initial={sectionEdit.rename.name} confirm="Rename"
+        onClose={() => setSectionEdit(null)} onSubmit={async (name) => { await patch(`/chat/sections/${sectionEdit.rename.id}`, { name }); await loadChannels(); }} />}
+      {sectionEdit?.remove && <ConfirmModal title={`Delete the section “${sectionEdit.remove.name}”?`} confirm="Delete section" danger={false}
+        message="Its conversations go back to Channels and Direct messages. Nothing is deleted from them."
+        onClose={() => setSectionEdit(null)} onConfirm={async () => { await del(`/chat/sections/${sectionEdit.remove.id}`); await loadChannels(); }} />}
       {browsing && (
         <Modal title="Browse channels" onClose={() => setBrowsing(false)} footer={<button type="button" className="btn" onClick={() => setBrowsing(false)}>Close</button>}>
           <p className="muted small" style={{ marginTop: 0 }}>Public channels you've left. Join one to have it back in your list.</p>
@@ -454,6 +493,11 @@ export default function Chat() {
             {!current.dm_key && !current.private && !(current.name === 'general' && !current.created_by) && (current.left
               ? <button type="button" className="btn small primary" onClick={() => leave(current, false)}>Join channel</button>
               : <button type="button" className="btn small" title="Leave this channel: it goes from your list and stops counting as unread" onClick={() => leave(current)}>Leave</button>)}
+            {!current.archived_at && !current.left && <select className="chat-section-pick" aria-label="Section" title="Keep this conversation in a section of your own, in your list" value={current.section_id && sections.some((x) => x.id === current.section_id) ? current.section_id : ''} onChange={(e) => putInSection(current, e.target.value)}>
+              <option value="">{sections.length ? 'No section' : 'Section…'}</option>
+              {sections.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+              <option value="__new__">New section…</option>
+            </select>}
             <button type="button" className={`btn small chat-star ${current.starred ? 'on' : ''}`} aria-pressed={!!current.starred} aria-label={current.starred ? 'Unstar conversation' : 'Star conversation'}
               title={current.starred ? 'Starred: kept at the top of your list. Click to unstar.' : 'Star: keep it at the top of your list'}
               onClick={async () => { try { await post(`/chat/channels/${current.id}/star`, { starred: !current.starred }); await loadChannels(); toast(current.starred ? 'Unstarred' : 'Starred: it’s at the top of your list'); } catch (e) { toast(e.message, 'error'); } }}>{current.starred ? '★' : '☆'}</button>

@@ -71,6 +71,22 @@ q(`CREATE TABLE IF NOT EXISTS chat_stars (
   PRIMARY KEY (channel_id, user_id)
 )`).run();
 const MAX_STARS = 50;
+// Sections of your own in the conversation list ("Clients", "Projects"): each person's, holding any of
+// their conversations (a conversation is in one section at most).
+q(`CREATE TABLE IF NOT EXISTS chat_sections (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  position REAL NOT NULL,
+  created_at INTEGER NOT NULL
+)`).run();
+q(`CREATE TABLE IF NOT EXISTS chat_section_items (
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+  section_id TEXT NOT NULL REFERENCES chat_sections(id) ON DELETE CASCADE,
+  PRIMARY KEY (user_id, channel_id)
+)`).run();
+export const MAX_CHAT_SECTIONS = 20;
 q(`CREATE TABLE IF NOT EXISTS chat_mutes (
   channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -484,7 +500,8 @@ export default function chatRoutes() {
                     WHERE (c.dm_key IS NULL AND c.private = 0 AND c.org_id = ?)
                        OR EXISTS (SELECT 1 FROM channel_members cm WHERE cm.channel_id = c.id AND cm.user_id = ?)
                     ORDER BY c.dm_key IS NOT NULL, c.archived_at IS NOT NULL, c.name`).all(me, me, me, me, me, me, req.user.org_id, me, me, me, me, me, `@${req.user.username}`, req.user.org_id, me);
-    res.json({ channels: rows.map(({ has_left: hasLeft, ...c }) => ({ ...c, muted: !!c.muted, starred: !!c.starred_at, posters: postersOf(c), can_post: mayPost(c, req.user, null),
+    const inSection = new Map(q('SELECT channel_id, section_id FROM chat_section_items WHERE user_id = ?').all(me).map((x) => [x.channel_id, x.section_id]));
+    res.json({ channels: rows.map(({ has_left: hasLeft, ...c }) => ({ ...c, muted: !!c.muted, starred: !!c.starred_at, section_id: inSection.get(c.id) || null, posters: postersOf(c), can_post: mayPost(c, req.user, null),
       ...(hasLeft && { left: true, unread: 0, mentions: 0 }) })), online: onlineUserIds() });
   });
 
@@ -841,6 +858,51 @@ export default function chatRoutes() {
     }
     sendTo([req.user.id], { type: 'chat-read', channel_id: c.id });
     res.json({ left: req.body?.left !== false });
+  });
+
+  // Your sections in the conversation list.
+  const mySection = (req) => {
+    const s0 = q('SELECT * FROM chat_sections WHERE id = ? AND user_id = ?').get(String(req.params.id), req.user.id);
+    if (!s0) throw notFound('Section not found');
+    return s0;
+  };
+  const sectionsChanged = (req) => sendTo([req.user.id], { type: 'channels-changed' });
+  r.get('/sections', (req, res) => res.json(q('SELECT id, name, position FROM chat_sections WHERE user_id = ? ORDER BY position').all(req.user.id)));
+  r.post('/sections', (req, res) => {
+    const name = str(req.body?.name, { required: true, name: 'Section name', max: 60 });
+    if (q('SELECT COUNT(*) AS n FROM chat_sections WHERE user_id = ?').get(req.user.id).n >= MAX_CHAT_SECTIONS) throw bad(`At most ${MAX_CHAT_SECTIONS} sections`);
+    const id = uid(), position = (q('SELECT MAX(position) AS p FROM chat_sections WHERE user_id = ?').get(req.user.id).p ?? 0) + 1;
+    q('INSERT INTO chat_sections (id, user_id, name, position, created_at) VALUES (?, ?, ?, ?, ?)').run(id, req.user.id, name, position, now());
+    // { channel_id }: put that conversation straight into it.
+    if (req.body?.channel_id) { const c = loadChannel(String(req.body.channel_id), req.user); q('INSERT OR REPLACE INTO chat_section_items (user_id, channel_id, section_id) VALUES (?, ?, ?)').run(req.user.id, c.id, id); }
+    sectionsChanged(req);
+    res.status(201).json({ id, name, position });
+  });
+  r.patch('/sections/:id', (req, res) => {
+    const sec = mySection(req);
+    const name = req.body?.name !== undefined ? str(req.body.name, { required: true, name: 'Section name', max: 60 }) : sec.name;
+    let position = sec.position;
+    if (req.body?.position !== undefined) { position = Number(req.body.position); if (!Number.isFinite(position)) throw bad('Bad position'); }
+    q('UPDATE chat_sections SET name = ?, position = ? WHERE id = ?').run(name, position, sec.id);
+    sectionsChanged(req);
+    res.json({ id: sec.id, name, position });
+  });
+  // Delete a section: its conversations go back to Channels and Direct messages.
+  r.delete('/sections/:id', (req, res) => {
+    const sec = mySection(req);
+    tx(() => { q('DELETE FROM chat_section_items WHERE section_id = ?').run(sec.id); q('DELETE FROM chat_sections WHERE id = ?').run(sec.id); });
+    sectionsChanged(req);
+    res.json({ ok: true });
+  });
+  // Put a conversation in one of your sections ({ section_id }, or null to take it out).
+  r.put('/channels/:id/section', (req, res) => {
+    const c = loadChannel(req.params.id, req.user);
+    const to = req.body?.section_id ? String(req.body.section_id) : null;
+    if (to && !q('SELECT 1 FROM chat_sections WHERE id = ? AND user_id = ?').get(to, req.user.id)) throw bad('That section isn’t yours');
+    if (to) q('INSERT OR REPLACE INTO chat_section_items (user_id, channel_id, section_id) VALUES (?, ?, ?)').run(req.user.id, c.id, to);
+    else q('DELETE FROM chat_section_items WHERE user_id = ? AND channel_id = ?').run(req.user.id, c.id);
+    sectionsChanged(req);
+    res.json({ section_id: to });
   });
 
   r.post('/channels/:id/star', (req, res) => {

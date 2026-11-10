@@ -8662,6 +8662,40 @@ test('chat: starred conversations are each person’s own; star and unstar; not 
   assert.deepEqual(await starredOf(a), []);
 });
 
+test('chat: sections of your own in the conversation list', async () => {
+  const a = client(), b = client(), x = client();
+  for (const [local, name] of [['csea', 'Cse Ann'], ['cseb', 'Cse Ben'], ['csex', 'Cse Xavi']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'csea@acme.com');
+  const bid = (await login(b, 'cseb@acme.com')).id;
+  await login(x, 'csex@acme.com');
+  const dm = (await a('POST', '/api/chat/dm', { user_id: bid })).body.id;
+  const general = (await a('GET', '/api/chat/channels')).body.channels.find((c) => c.name === 'general').id;
+  const sec = await a('POST', '/api/chat/sections', { name: 'Clients', channel_id: dm });
+  assert.equal(sec.status, 201);
+  const other = (await a('POST', '/api/chat/sections', { name: 'Projects' })).body;
+  assert.equal((await a('POST', '/api/chat/sections', { name: '' })).status, 400);
+  const sectionOf = async (cl, id) => (await cl('GET', '/api/chat/channels')).body.channels.find((c) => c.id === id).section_id;
+  assert.equal(await sectionOf(a, dm), sec.body.id, 'made with the conversation in it');
+  assert.equal(await sectionOf(b, dm), null, 'Ben’s list is his own');
+  await a('PUT', `/api/chat/channels/${general}/section`, { section_id: other.id });
+  assert.equal(await sectionOf(a, general), other.id);
+  await a('PUT', `/api/chat/channels/${general}/section`, { section_id: sec.body.id });
+  assert.equal(await sectionOf(a, general), sec.body.id, 'in one section at a time');
+  assert.equal((await b('PUT', `/api/chat/channels/${dm}/section`, { section_id: sec.body.id })).status, 400, 'not Ben’s section');
+  assert.equal((await x('PUT', `/api/chat/channels/${dm}/section`, { section_id: null })).status, 404, 'not Xavi’s conversation');
+  // Rename and reorder.
+  await a('PATCH', `/api/chat/sections/${other.id}`, { name: 'Work', position: 0 });
+  assert.deepEqual((await a('GET', '/api/chat/sections')).body.map((s) => s.name), ['Work', 'Clients']);
+  assert.deepEqual((await b('GET', '/api/chat/sections')).body, []);
+  assert.equal((await b('PATCH', `/api/chat/sections/${other.id}`, { name: 'Mine' })).status, 404);
+  // Take one out; delete the section: the rest go back.
+  await a('PUT', `/api/chat/channels/${general}/section`, { section_id: null });
+  assert.equal(await sectionOf(a, general), null);
+  await a('DELETE', `/api/chat/sections/${sec.body.id}`);
+  assert.equal(await sectionOf(a, dm), null);
+  assert.deepEqual((await a('GET', '/api/chat/sections')).body.map((s) => s.name), ['Work']);
+});
+
 test('my templates: your own documents to start from; only yours, only your files, and not over a company template', async () => {
   const a = client(), b = client();
   for (const [local, name] of [['mytpa', 'Mt Ann'], ['mytpb', 'Mt Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
