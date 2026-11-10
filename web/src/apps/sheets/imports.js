@@ -48,9 +48,9 @@ const webUsed = new Set();
 async function loadWeb(key) {
   if (webLoading.has(key)) return;
   webLoading.add(key);
-  const [url, type, index] = JSON.parse(key);
+  const [url, type, index, extra] = JSON.parse(key);
   try {
-    const r = await get(`/sheets-web?${new URLSearchParams({ url, type, index: String(index) })}`);
+    const r = await get(`/sheets-web?${new URLSearchParams({ url, type, index: String(index), ...(extra || {}) })}`);
     web.set(key, { rows: r.rows });
   } catch (e) {
     web.set(key, { error: e.message || 'Couldn\'t load that page' });
@@ -60,8 +60,8 @@ async function loadWeb(key) {
   }
 }
 /** For bookEvaluator: a page's rows ({ rows } or { error }), or null while it loads (starting that). */
-export const importWeb = (url, type = 'data', index = 1) => {
-  const key = JSON.stringify([String(url), type, index]);
+export const importWeb = (url, type = 'data', index = 1, extra = null) => {
+  const key = JSON.stringify(extra ? [String(url), type, index, extra] : [String(url), type, index]);
   webUsed.add(key);
   if (!web.has(key)) { loadWeb(key); return null; }
   return web.get(key);

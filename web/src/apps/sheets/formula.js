@@ -363,7 +363,7 @@ function order(a, b) {
   return Number(a) - Number(b);
 }
 /** Functions that give back several cells, which spill into the cells beside and below. */
-const ARRAY_FUNCS = new Set(['OFFSET', 'INDIRECT', 'TEXTSPLIT', 'CHOOSECOLS', 'CHOOSEROWS', 'WRAPROWS', 'WRAPCOLS', 'TOCOL', 'TOROW', 'FLATTEN', 'SORTBY', 'FREQUENCY', 'RANDARRAY', 'EXPAND', 'FILTER', 'UNIQUE', 'SORT', 'SEQUENCE', 'TRANSPOSE', 'IMPORTRANGE', 'IMPORTDATA', 'IMPORTHTML', 'QUERY', 'XLOOKUP', 'SPLIT', 'VSTACK', 'HSTACK', 'TAKE', 'DROP', 'CHOOSE', 'REGEXEXTRACT', 'LET', 'MAP', 'BYROW', 'BYCOL', 'MAKEARRAY', 'REDUCE', 'SCAN']);
+const ARRAY_FUNCS = new Set(['OFFSET', 'INDIRECT', 'TEXTSPLIT', 'CHOOSECOLS', 'CHOOSEROWS', 'WRAPROWS', 'WRAPCOLS', 'TOCOL', 'TOROW', 'FLATTEN', 'SORTBY', 'FREQUENCY', 'RANDARRAY', 'EXPAND', 'FILTER', 'UNIQUE', 'SORT', 'SEQUENCE', 'TRANSPOSE', 'IMPORTRANGE', 'IMPORTDATA', 'IMPORTHTML', 'IMPORTFEED', 'QUERY', 'XLOOKUP', 'SPLIT', 'VSTACK', 'HSTACK', 'TAKE', 'DROP', 'CHOOSE', 'REGEXEXTRACT', 'LET', 'MAP', 'BYROW', 'BYCOL', 'MAKEARRAY', 'REDUCE', 'SCAN']);
 
 // ---- helpers for regular expressions, times and cash flows
 /** A pattern from a formula (RE2-like: no lookbehind needed); a bad one, or one too long, is #VALUE!. */
@@ -1061,10 +1061,10 @@ export function namedFunctions(list) {
   }
   return out.size ? out : null;
 }
-const BUILTIN_SPECIAL = new Set(['OFFSET', 'INDIRECT', 'IMPORTRANGE', 'IMPORTDATA', 'IMPORTHTML', 'QUERY', 'HYPERLINK', 'SPARKLINE', 'IMAGE', 'ROW', 'COLUMN', 'ROWS', 'COLUMNS', 'LET', 'LAMBDA', 'TRUE', 'FALSE']);
+const BUILTIN_SPECIAL = new Set(['OFFSET', 'INDIRECT', 'IMPORTRANGE', 'IMPORTDATA', 'IMPORTHTML', 'IMPORTFEED', 'QUERY', 'HYPERLINK', 'SPARKLINE', 'IMAGE', 'ROW', 'COLUMN', 'ROWS', 'COLUMNS', 'LET', 'LAMBDA', 'TRUE', 'FALSE']);
 
 /** Every function a formula can call. */
-export const FUNCTION_NAMES = [...Object.keys(FUNCS), ...Object.keys(LAZY), ...Object.keys(LAMBDA_USERS), 'OFFSET', 'INDIRECT', 'LET', 'LAMBDA', 'IMPORTRANGE', 'IMPORTDATA', 'IMPORTHTML', 'QUERY', 'HYPERLINK', 'SPARKLINE', 'IMAGE', 'ROW', 'COLUMN', 'ROWS', 'COLUMNS'];
+export const FUNCTION_NAMES = [...Object.keys(FUNCS), ...Object.keys(LAZY), ...Object.keys(LAMBDA_USERS), 'OFFSET', 'INDIRECT', 'LET', 'LAMBDA', 'IMPORTRANGE', 'IMPORTDATA', 'IMPORTHTML', 'IMPORTFEED', 'QUERY', 'HYPERLINK', 'SPARKLINE', 'IMAGE', 'ROW', 'COLUMN', 'ROWS', 'COLUMNS'];
 
 /** A link a cell may open: web addresses and email (mailto:), nothing else. */
 /**
@@ -1325,7 +1325,7 @@ export function createEvaluator(cells, names = null, book = null) {
       case 'neg': { const v = evaluate(n.e); return Array.isArray(v) ? elementwise(v, null, (x) => -toNum(x)) : -toNum(v); }
       case 'call': {
         if (n.name === 'IMPORTRANGE') return importRange(n.args.map((a) => scalar(evaluate(a))));
-        if (n.name === 'IMPORTDATA' || n.name === 'IMPORTHTML') return importWebPage(n.name, n.args.map((a) => scalar(evaluate(a))));
+        if (n.name === 'IMPORTDATA' || n.name === 'IMPORTHTML' || n.name === 'IMPORTFEED') return importWebPage(n.name, n.args.map((a) => scalar(evaluate(a))));
         if (n.name === 'QUERY') {
           // Columns go by their letters on the sheet, so where the range starts matters.
           const a = n.args[0];
@@ -1447,19 +1447,27 @@ export function createEvaluator(cells, names = null, book = null) {
 
   // IMPORTDATA("https://…/data.csv") and IMPORTHTML("https://…", "table" | "list", n): a page on the
   // internet, fetched by the server; book.imports.web(url, type, n) -> { rows } | { error } | null while loading.
-  function importWebPage(name, [url, query, index]) {
+  function importWebPage(name, [url, query, index, more]) {
+    const [query0, index0, more0] = [query, index, more];
     const fetchWeb = book?.imports?.web;
     if (!fetchWeb) err('#N/A');
     const u = toStr(url).trim();
     if (!/^https?:\/\/\S+$/i.test(u)) throw new FormulaError('#VALUE!', 'Give a web address starting with https:// or http://');
-    let type = 'data', n = 1;
-    if (name === 'IMPORTHTML') {
+    let type = 'data', n = 1, extra = null;
+    if (name === 'IMPORTFEED') {
+      // IMPORTFEED(url, [query], [headers], [num_items]): an RSS or Atom feed's items (or the feed itself).
+      type = 'feed';
+      const [query, headers, num] = [query0, index0, more0];
+      const howMany = num === undefined || num === null ? 20 : Math.trunc(toNum(num));
+      if (howMany < 1 || howMany > 200) throw new FormulaError('#VALUE!', 'How many items: 1 to 200');
+      extra = { query: query === undefined || query === null || query === '' ? 'items' : toStr(query).trim().toLowerCase(), headers: headers !== undefined && headers !== null && toBool(headers) ? '1' : '0', num: String(howMany) };
+    } else if (name === 'IMPORTHTML') {
       type = toStr(query).trim().toLowerCase();
       if (type !== 'table' && type !== 'list') throw new FormulaError('#VALUE!', 'IMPORTHTML takes "table" or "list"');
       n = index === undefined || index === null ? 1 : Math.trunc(toNum(index));
       if (n < 1) throw new FormulaError('#VALUE!', 'Which table or list: a number from 1');
     }
-    const got = fetchWeb(u, type, n);
+    const got = extra ? fetchWeb(u, type, n, extra) : fetchWeb(u, type, n);
     if (!got) err('#LOADING');
     if (got.error) throw new FormulaError('#N/A', got.error);
     const rows = got.rows || [];

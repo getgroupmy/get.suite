@@ -377,9 +377,10 @@ A formula that gives back several values **spills** them into the empty cells be
 
 - **`=IMPORTDATA("https://…/prices.csv")`** brings a CSV (or TSV) file on the internet into the sheet: it spills into the cells below and beside, numbers as numbers (*1,250.50* too), quoted fields with commas or line breaks kept whole.
 - **`=IMPORTHTML("https://…", "table", 1)`** brings in a table from a web page (1 is the first table on the page, counted in page order), and **`"list"`** a bulleted or numbered list, as one column. A cell spanning columns repeats its text across them.
+- **`=IMPORTFEED("https://…/feed")`** lists a news feed's items (RSS or Atom): title, link, date and summary, newest feeds' HTML turned into plain text. `"items title"` (or `url`, `created`, `summary`, `author`) gives one column; `"feed"` (or `"feed title"`…) the feed itself. The third argument TRUE adds a heading row, the fourth says how many items (20 unless said, up to 200): `=IMPORTFEED("https://…/feed", "items title", TRUE, 10)`.
 - Use them like any range: `=SUM(IMPORTHTML(…))`, `=QUERY(IMPORTDATA(…), "select …")`. While a page loads the cell shows *#LOADING*; if it can't be had, *#N/A*, and selecting the cell says why (*The page answered 404*, *The page has 2 tables*).
 - **How:** this server fetches the page (browsers can't read other sites for a page), keeps it for 5 minutes and fetches it again every 5 minutes while the spreadsheet is open. Pages up to 5 MB and 10,000 rows. Addresses on private networks (this server, your NAS, other machines at the office) are refused, so a formula can't be used to look inside your network.
-- In Excel, which has no IMPORTDATA or IMPORTHTML, these cells show an error.
+- In Excel, which has no IMPORTDATA, IMPORTHTML or IMPORTFEED, these cells show an error.
 
 ## Other sheets in formulas (Sheets)
 

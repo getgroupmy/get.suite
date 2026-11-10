@@ -38,3 +38,19 @@ test('fetching: private addresses refused; redirects followed; size checked', as
   assert.deepEqual([got.text, got.type], ['a,b\n1,2\n', 'text/csv']);
   await assert.rejects(fetchPage(`${base}/big`, { allowPrivate: true }), /larger than 5 MB/);
 });
+
+test('IMPORTFEED: RSS and Atom items, one field, the feed itself, headers and how many', async () => {
+  const { feedRows } = await import('../src/routes/webimport.js');
+  const rss = `<?xml version="1.0"?><rss version="2.0"><channel><title>Acme news</title><link>https://acme.com</link><description>From the shop</description>
+    <item><title>Spring opening</title><link>https://acme.com/1</link><pubDate>Mon, 09 Nov 2026 08:00:00 GMT</pubDate><description><![CDATA[<p>Doors open at <b>9</b></p>]]></description></item>
+    <item><title>New hours</title><link>https://acme.com/2</link><pubDate>Tue, 10 Nov 2026 08:00:00 GMT</pubDate><description>Later on Fridays</description></item></channel></rss>`;
+  assert.deepEqual(feedRows(rss), [['Spring opening', 'https://acme.com/1', '2026-11-09 08:00', 'Doors open at 9'], ['New hours', 'https://acme.com/2', '2026-11-10 08:00', 'Later on Fridays']]);
+  assert.deepEqual(feedRows(rss, { query: 'items title', headers: true, num: 1 }), [['Title'], ['Spring opening']]);
+  assert.deepEqual(feedRows(rss, { query: 'feed' }), [['Acme news', 'https://acme.com', 'From the shop']]);
+  assert.deepEqual(feedRows(rss, { query: 'feed title' }), [['Acme news']]);
+  const atom = `<feed xmlns="http://www.w3.org/2005/Atom"><title>Blog</title><link href="https://blog.example/"/><entry><title>Hello</title><link href="https://blog.example/hello"/><updated>2026-11-01T10:30:00Z</updated><summary>First post</summary><author><name>Kim</name></author></entry></feed>`;
+  assert.deepEqual(feedRows(atom, { headers: true }), [['Title', 'URL', 'Date Created', 'Summary'], ['Hello', 'https://blog.example/hello', '2026-11-01 10:30', 'First post']]);
+  assert.deepEqual(feedRows(atom, { query: 'items author' }), [['Kim']]);
+  assert.throws(() => feedRows('<html><body>x</body></html>'), /isn't an RSS or Atom feed/);
+  assert.throws(() => feedRows(rss, { query: 'items colour' }), /IMPORTFEED/);
+});

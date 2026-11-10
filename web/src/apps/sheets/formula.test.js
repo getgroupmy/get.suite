@@ -611,3 +611,14 @@ test('IMPORTDATA and IMPORTHTML: a page\'s rows spill; loading, errors and check
   assert.match(v('L1').why, /"table" or "list"/);
   assert.equal(v('M1'), 3);
 });
+
+test('IMPORTFEED: asks for the feed with its query, headers and how many', async () => {
+  const { bookEvaluator } = await import('./formula.js');
+  const asked = [];
+  const web = (url, type, index, extra) => { asked.push([url, type, extra]); return { rows: [['Title'], ['Spring opening']] }; };
+  const v = bookEvaluator([{ name: 'S', cells: { A1: '=IMPORTFEED("https://acme.com/feed", "items title", TRUE, 5)', C1: '=IMPORTFEED("https://acme.com/feed")', E1: '=IMPORTFEED("https://acme.com/feed", , , 500)' } }], 0, { book: () => null, web, depth: 0 });
+  assert.deepEqual([v('A1'), v('A2')], ['Title', 'Spring opening']);
+  v('C1');
+  assert.deepEqual(asked.slice(0, 2), [['https://acme.com/feed', 'feed', { query: 'items title', headers: '1', num: '5' }], ['https://acme.com/feed', 'feed', { query: 'items', headers: '0', num: '20' }]]);
+  assert.match(v('E1').why, /1 to 200/);
+});

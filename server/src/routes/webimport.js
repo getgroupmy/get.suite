@@ -2,7 +2,8 @@
 // or a web page with tables or lists) for the spreadsheet, as only the server can (browsers block
 // reading other sites). Addresses on private networks are refused (checked at connection time, so a
 // name can't change in between), pages are kept for 5 minutes, and anything over 5 MB is refused.
-// Mounted at /api/sheets-web: GET ?url=…&type=data|table|list&index=n → { rows: [[…]] }.
+// Mounted at /api/sheets-web: GET ?url=…&type=data|table|list|feed&index=n → { rows: [[…]] }.
+// IMPORTFEED (RSS or Atom) also takes query=items|items title|feed|…, headers=1 and num=n.
 import { Router } from 'express';
 import http from 'node:http';
 import https from 'node:https';
@@ -101,6 +102,38 @@ export function htmlTable(html, n) {
   });
 }
 
+const FEED_FIELDS = { title: 'Title', url: 'URL', created: 'Date Created', summary: 'Summary', author: 'Author' };
+/**
+ * An RSS or Atom feed as rows, like Google Sheets' IMPORTFEED: query "items" (each item's title, url,
+ * date and summary), "items title" (or url, created, summary, author) for one of those, "feed" (the
+ * feed's title, url and description) or "feed title" and the like. `headers` adds a row of names.
+ */
+export function feedRows(xml, { query = 'items', headers = false, num = 20 } = {}) {
+  const doc = parseDocument(xml, { xmlMode: true });
+  const find = (name, nodes) => DomUtils.findOne((e) => e.name?.toLowerCase().replace(/^[a-z]+:/, '') === name, nodes, true);
+  const findIn = (el, ...names) => { for (const n of names) { const f = (el.children || []).find((c) => c.type === 'tag' && c.name.toLowerCase().replace(/^[a-z]+:/, '') === n); if (f) return f; } return null; };
+  // A feed's text can itself be HTML (a description in CDATA): its text, without the tags.
+  const plain = (t) => (/<[a-z!/]/i.test(t) ? DomUtils.textContent(parseDocument(t)) : t);
+  const text = (el) => (el ? plain(DomUtils.textContent(el)).replace(/\s+/g, ' ').trim() : '');
+  const link = (el) => { const l = findIn(el, 'link'); return l ? (l.attribs?.href || text(l)) : ''; };
+  const root = find('channel', doc.children) || find('feed', doc.children);
+  if (!root) throw fail('That address isn\'t an RSS or Atom feed');
+  const items = (root.name.toLowerCase().endsWith('channel') ? DomUtils.getElementsByTagName('item', doc.children, true) : (root.children || []).filter((c) => c.type === 'tag' && c.name.toLowerCase().replace(/^[a-z]+:/, '') === 'entry'))
+    .slice(0, Math.max(1, Math.min(Number(num) || 20, 200)));
+  const created = (el) => { const t = text(findIn(el, 'pubdate', 'published', 'updated', 'date')); const d = t ? new Date(t) : null; return d && !Number.isNaN(d.getTime()) ? d.toISOString().replace('T', ' ').slice(0, 16) : t || null; };
+  const fieldOf = (el, f) => ({ title: () => text(findIn(el, 'title')), url: () => link(el), created: () => created(el), summary: () => text(findIn(el, 'description', 'summary', 'content', 'subtitle')), author: () => text(findIn(el, 'author', 'creator')) }[f]());
+  const [what, field] = String(query || 'items').trim().toLowerCase().split(/\s+/);
+  if (what === 'feed') {
+    if (field && !['title', 'url', 'summary', 'description'].includes(field)) throw fail('IMPORTFEED: "feed title", "feed url" or "feed description"');
+    const f = field === 'description' ? 'summary' : field;
+    if (f) return [[cellValue(fieldOf(root, f))]];
+    return [...(headers ? [['Title', 'URL', 'Description']] : []), [fieldOf(root, 'title'), fieldOf(root, 'url'), fieldOf(root, 'summary')].map(cellValue)];
+  }
+  if (what !== 'items' || (field && !FEED_FIELDS[field])) throw fail('IMPORTFEED: "items", or "items title" (url, created, summary, author)');
+  const fields = field ? [field] : ['title', 'url', 'created', 'summary'];
+  return [...(headers ? [fields.map((f) => FEED_FIELDS[f])] : []), ...items.map((el) => fields.map((f) => { const v = fieldOf(el, f); return f === 'created' ? v : cellValue(v); }))];
+}
+
 /** The page's nth list (ul or ol) as one column of its items. */
 export function htmlList(html, n) {
   const lists = DomUtils.getElements({ tag_name: (name) => name === 'ul' || name === 'ol' }, parseDocument(html).children, true);
@@ -125,14 +158,15 @@ export default function webImportRoutes() {
     const type = String(req.query.type || 'data');
     const index = Math.trunc(Number(req.query.index || 1));
     if (!url || url.length > 2000) throw fail('Give a web address');
-    if (!['data', 'table', 'list'].includes(type)) throw fail('IMPORTHTML takes "table" or "list"');
+    if (!['data', 'table', 'list', 'feed'].includes(type)) throw fail('IMPORTHTML takes "table" or "list"');
     if (!(index >= 1 && index <= 1000)) throw fail('Which table or list: a number from 1');
     const { text, type: mime } = await page(url);
     let rows;
     if (type === 'data') {
       if (/text\/html/i.test(mime) || /^\s*<(!doctype|html)/i.test(text)) throw fail('That address is a web page, not CSV or TSV data: use IMPORTHTML for its tables');
       rows = parseDelimited(text, /tab-separated/i.test(mime) || /\.tsv(\?|$)/i.test(url) ? '\t' : ',');
-    } else rows = type === 'table' ? htmlTable(text, index) : htmlList(text, index);
+    } else if (type === 'feed') rows = feedRows(text, { query: String(req.query.query || 'items'), headers: req.query.headers === '1', num: Number(req.query.num || 20) });
+    else rows = type === 'table' ? htmlTable(text, index) : htmlList(text, index);
     while (rows.length && rows[rows.length - 1].every((v) => v === null)) rows.pop();
     if (!rows.length) throw fail('There\'s nothing in it to import');
     res.json({ rows });
