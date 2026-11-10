@@ -87,6 +87,11 @@ function Calendar({ acting = null, managed = [], onPick }) {
   const [anchor, setAnchor] = useState(() => startOfDay(new Date()));
   const [events, setEvents] = useState([]);
   const [editing, setEditing] = useState(null);
+  // Your own calendars besides the main one; the hidden ones' events stay off the views.
+  const [myCals, setMyCals] = useState([]);
+  const loadCals = useCallback(() => { if (acting) { setMyCals([]); return; } get('/events/calendars').then(setMyCals).catch(() => {}); }, [acting]);
+  useEffect(() => { loadCals(); }, [loadCals]);
+  const hiddenKey = myCals.filter((c) => c.hidden).map((c) => c.id).join(',');
   // "Create event" on an email comes here with the event to start from.
   const location = useLocation();
   // Time off: the window (opened from the sidebar, or a notification's link), and how many wait for your answer.
@@ -117,10 +122,10 @@ function Calendar({ acting = null, managed = [], onPick }) {
   const [printOpen, setPrintOpen] = useState(false);
   // Import a calendar file from Google Calendar, Outlook or Apple Calendar.
   const importInput = useRef();
-  const importIcs = async (file) => {
+  const importIcs = async (file, calendar = null) => {
     if (!file) return;
     try {
-      const r = await postText(`/events/import?tz=${encodeURIComponent(TZ)}`, await file.text());
+      const r = await postText(`/events/import?tz=${encodeURIComponent(TZ)}${calendar ? `&calendar=${calendar}` : ''}`, await file.text());
       toast([`${r.added} event${r.added === 1 ? '' : 's'} imported`, r.skipped && `${r.skipped} already here`, r.failed && `${r.failed} couldn’t be read`].filter(Boolean).join(', '));
       load();
     } catch (e) { toast(e.message, 'error'); }
@@ -188,13 +193,15 @@ function Calendar({ acting = null, managed = [], onPick }) {
     const from = days[0].getTime();
     const to = days[days.length - 1].getTime() + DAY;
     // Repeating events come back once; each occurrence is worked out here, in local time.
-    get(`/events?from=${from}&to=${to}`).then((list) => setEvents(expandAll(list, from, to))).catch((e) => toast(e.message, 'error'));
+    const hidden = new Set(hiddenKey ? hiddenKey.split(',') : []);
+    const shown = (list) => list.filter((e) => !(e.role === 'organizer' && e.calendar_id && hidden.has(e.calendar_id)));
+    get(`/events?from=${from}&to=${to}`).then((list) => setEvents(expandAll(shown(list), from, to))).catch((e) => toast(e.message, 'error'));
     const now = Date.now();
-    get(`/events?from=${now}&to=${now + 30 * DAY}`).then((list) => setUpcoming(expandAll(list, now, now + 30 * DAY))).catch(() => {});
-  }, [days, toast]);
+    get(`/events?from=${now}&to=${now + 30 * DAY}`).then((list) => setUpcoming(expandAll(shown(list), now, now + 30 * DAY))).catch(() => {});
+  }, [days, toast, hiddenKey]);
   useEffect(load, [load]);
   // Someone changed an event you organise or are invited to.
-  useEffect(() => onLive((m) => { if (m.type === 'events-changed') load(); }), [load]);
+  useEffect(() => onLive((m) => { if (m.type === 'events-changed') { load(); loadCals(); } }), [load, loadCals]);
   const loadTasks = useCallback(() => {
     if (!showTasks) { setTasks([]); return; }
     const last = new Date(days[days.length - 1]);
@@ -307,6 +314,8 @@ function Calendar({ acting = null, managed = [], onPick }) {
         <input ref={importInput} type="file" accept=".ics,text/calendar" hidden aria-label="Calendar file to import" onChange={(e) => { importIcs(e.target.files[0]); e.target.value = ''; }} />
         <a className="subnav-item" href="/api/events/export" download><Icon name="download" /><span className="grow">Export (.ics)</span></a>
         </>}
+        {!acting && <MyCalendars calendars={myCals} me={me} onChanged={() => { loadCals(); load(); }} onImport={importIcs}
+          onToggle={(c, hidden) => { setMyCals((l) => l.map((x) => (x.id === c.id ? { ...x, hidden } : x))); patch(`/events/calendars/${c.id}`, { hidden }).catch((e) => { toast(e.message, 'error'); loadCals(); }); }} />}
         <div className="subnav-title">Other calendars</div>
         {others.map((o) => (
           <div key={o.id} className="row other-cal"><span className="dot" style={{ background: o.color }} /><span className="grow ellipsis small">{o.name}</span>
@@ -424,7 +433,7 @@ function Calendar({ acting = null, managed = [], onPick }) {
         onSubmit={async (where) => { await setLocation(otherFor, 'other', where.trim() || null); setOtherFor(null); }} />}
       {editing && (editing.role === 'feed' ? <FeedEventDialog event={editing} onClose={() => setEditing(null)} /> : editing.role === 'guest'
         ? <InvitationDialog event={editing} onClose={() => setEditing(null)} onAnswered={() => { setEditing(null); load(); }} />
-        : <EventDialog key={editing.id ? `${editing.id}:${editing.start}` : `new:${editing.duplicateOf || ''}:${editing.start}`} event={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }}
+        : <EventDialog key={editing.id ? `${editing.id}:${editing.start}` : `new:${editing.duplicateOf || ''}:${editing.start}`} event={editing} calendars={myCals} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); loadCals(); }}
           onDuplicate={(copy) => { setEditing(copy); toast('Duplicated: change what you need, then Save'); }} />)}
       {pendingMove && (
         <ScopeDialog title="Move repeating event" confirm="Move" onClose={() => setPendingMove(null)}
@@ -1020,11 +1029,11 @@ function FindATime({ guests, directory, minutes, onPick }) {
   );
 }
 
-function EventDialog({ event, onClose, onSaved, onDuplicate }) {
+function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate }) {
   const toast = useToast();
   const recurring = !!(event.id && event.rrule);
   const [f, setF] = useState({
-    title: event.title, location: event.location || '', description: event.description || '', color: event.color || COLORS[0],
+    title: event.title, location: event.location || '', description: event.description || '', color: event.color || COLORS[0], calendar_id: event.calendar_id || null,
     all_day: !!event.all_day, ooo: event.kind === 'ooo', focus: event.kind === 'focus',
     startDate: toDateInput(event.start), startTime: toTimeInput(event.start),
     endDate: toDateInput(event.end), endTime: toTimeInput(event.end),
@@ -1086,7 +1095,7 @@ function EventDialog({ event, onClose, onSaved, onDuplicate }) {
     const start = f.all_day ? fromInputs(f.startDate) : fromInputs(f.startDate, f.startTime);
     const end = f.all_day ? fromInputs(f.endDate) + DAY - 1 : fromInputs(f.endDate, f.endTime);
     const all = guestInput.trim() ? [...new Set([...guests, ...guestInput.split(/[\s,;]+/).map((x) => x.trim().toLowerCase()).filter((x) => x.includes('@'))])] : guests;
-    return { start, end, body: { title: f.title, location: special ? '' : f.location, description: f.description, color: f.color, all_day: f.all_day, start, end, rrule: ruleFromForm(rep, start),
+    return { start, end, body: { title: f.title, location: special ? '' : f.location, description: f.description, color: f.color, all_day: f.all_day, start, end, ...(calendars.length || event.calendar_id ? { calendar_id: f.calendar_id } : {}), rrule: ruleFromForm(rep, start),
       guests: special ? [] : all, reminders, tz: TZ, attachments: attachments.map((a) => a.id), kind: f.ooo ? 'ooo' : f.focus ? 'focus' : null, meet_code: special ? null : meet, ...(event.id && !event.rooms?.length && !roomIds.length ? {} : { rooms: special ? [] : roomIds }) } };
   };
 
@@ -1231,8 +1240,21 @@ function EventDialog({ event, onClose, onSaved, onDuplicate }) {
         )}
         {pickingFile && <DrivePicker title="Attach to the event" accept={(x) => x.kind !== 'folder'} onClose={() => setPickingFile(false)}
           onPick={(x) => { if (!attachments.some((a) => a.id === x.id)) setAttachments([...attachments, { id: x.id, name: x.name, kind: x.kind, can_open: true }]); setPickingFile(false); }} />}
+        {calendars.length > 0 && !special && (
+          <label className="field"><span>Calendar</span>
+            <select aria-label="Calendar" value={f.calendar_id || ''} onChange={(e) => {
+              // The event takes the calendar's colour, unless it was given one of its own.
+              const colourOf = (id) => calendars.find((c) => c.id === id)?.color || COLORS[0];
+              const to = e.target.value || null;
+              setF({ ...f, calendar_id: to, color: f.color === colourOf(f.calendar_id) ? colourOf(to) : f.color });
+            }}>
+              <option value="">My calendar</option>
+              {calendars.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </label>
+        )}
         <div className="colors" role="radiogroup" aria-label="Color">
-          {COLORS.map((c) => (
+          {(COLORS.includes(f.color) ? COLORS : [...COLORS, f.color]).map((c) => (
             <button type="button" key={c} role="radio" aria-checked={f.color === c} aria-label={c} className={`swatch ${f.color === c ? 'on' : ''}`} style={{ background: c }} onClick={() => setF({ ...f, color: c })} />
           ))}
         </div>
@@ -1243,7 +1265,7 @@ function EventDialog({ event, onClose, onSaved, onDuplicate }) {
             // The new event starts where this one (or this occurrence) is; it doesn't repeat, and it's yours to change before saving.
             const { start, end, body } = read();
             onDuplicate({ title: body.title, location: body.location, description: body.description, color: body.color, all_day: f.all_day ? 1 : 0, start, end,
-              guests: body.guests.map((email) => ({ email })), reminders: body.reminders, duplicateOf: event.title });
+              guests: body.guests.map((email) => ({ email })), reminders: body.reminders, duplicateOf: event.title, calendar_id: f.calendar_id });
           }}>Duplicate</button>}
           <div className="grow" />
           <button type="button" className="btn" onClick={onClose}>Cancel</button>
@@ -1307,6 +1329,74 @@ async function applyEdit(event, body, which) {
  * all-day row); `timeHandler` moves by days and 15-minute steps, or changes the end ('resize').
  * Escape cancels. A drag never counts as a click.
  */
+/**
+ * Your own calendars besides the main one, in the sidebar: tick to show or hide each one's events; ⋮ to
+ * change its name and colour, download it, import a file into it, or delete it (with its events, or
+ * keeping them in your main calendar); + to add one.
+ */
+function MyCalendars({ calendars, me, onChanged, onImport, onToggle }) {
+  const toast = useToast();
+  const [editing, setEditing] = useState(null); // {} for a new one, or the calendar
+  const [deleting, setDeleting] = useState(null);
+  const importFor = useRef(null);
+  const fileInput = useRef(null);
+  const run = async (fn, ok) => { try { await fn(); if (ok) toast(ok); onChanged(); } catch (e) { toast(e.message, 'error'); } };
+  return (
+    <div className="cal-feeds my-cals">
+      <div className="row"><span className="muted small grow" style={{ padding: '0 12px' }}>My calendars</span>
+        <button type="button" className="icon-btn" aria-label="Add a calendar" title="A calendar of your own: Personal, Family, a project…" onClick={() => setEditing({})}><Icon name="plus" size={16} /></button></div>
+      <ul className="cal-feed-list" aria-label="My calendars">
+        <li className="row"><span className="cal-feed-dot" style={{ background: COLORS[0] }} aria-hidden="true" /><span className="grow ellipsis small">{me?.name || 'My calendar'}</span></li>
+        {calendars.map((c) => (
+          <li key={c.id} className="row">
+            <label className="check grow small" style={{ minWidth: 0 }}>
+              <input type="checkbox" checked={!c.hidden} aria-label={`Show ${c.name}`} style={{ accentColor: c.color }}
+                onChange={(e) => onToggle(c, !e.target.checked)} />
+              <span className="ellipsis">{c.name}</span>
+            </label>
+            <Menu trigger={(p) => <button type="button" className="icon-btn" aria-label={`Options for ${c.name}`} {...p}><Icon name="more" size={16} /></button>} items={[
+              { label: 'Name and colour…', icon: 'edit', onClick: () => setEditing(c) },
+              { label: 'Import into it (.ics)…', icon: 'upload', onClick: () => { importFor.current = c.id; fileInput.current.click(); } },
+              { label: 'Download (.ics)', icon: 'download', onClick: () => { const a = document.createElement('a'); a.href = `/api/events/export?calendar=${c.id}`; a.download = `${c.name}.ics`; a.click(); } },
+              { label: 'Delete…', icon: 'trash', danger: true, onClick: () => setDeleting(c) },
+            ]} />
+          </li>
+        ))}
+      </ul>
+      <input ref={fileInput} type="file" accept=".ics,text/calendar" hidden aria-label="Calendar file to import into this calendar"
+        onChange={async (e) => { const file = e.target.files[0]; e.target.value = ''; await onImport(file, importFor.current); onChanged(); }} />
+      {editing && <CalendarForm calendar={editing} onClose={() => setEditing(null)}
+        onSave={(body) => run(async () => { if (editing.id) await patch(`/events/calendars/${editing.id}`, body); else await post('/events/calendars', body); setEditing(null); }, editing.id ? null : `Added “${body.name}”`)} />}
+      {deleting && (
+        <Modal title={`Delete ${deleting.name}?`} onClose={() => setDeleting(null)}
+          footer={<><button type="button" className="btn" onClick={() => setDeleting(null)}>Cancel</button>
+            <button type="button" className="btn" onClick={() => run(async () => { await del(`/events/calendars/${deleting.id}?keep=1`); setDeleting(null); }, `Deleted ${deleting.name}; its events are in your main calendar`)}>Keep its events</button>
+            <button type="button" className="btn danger" onClick={() => run(async () => { await del(`/events/calendars/${deleting.id}`); setDeleting(null); }, `Deleted ${deleting.name} and its events`)}>Delete with its events</button></>}>
+          <p style={{ margin: 0 }}>{deleting.events ? <>It has {deleting.events} event{deleting.events === 1 ? '' : 's'}. Delete them too (guests are told they’re cancelled), or keep them in your main calendar?</> : 'It has no events.'}</p>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+/** A calendar's name and colour, for a new one or a change. */
+function CalendarForm({ calendar, onSave, onClose }) {
+  const [name, setName] = useState(calendar.name || '');
+  const [color, setColor] = useState(calendar.color || COLORS[1]);
+  return (
+    <Modal title={calendar.id ? 'Calendar' : 'New calendar'} onClose={onClose}>
+      <form className="stack" onSubmit={(e) => { e.preventDefault(); if (name.trim()) onSave({ name: name.trim(), color }); }}>
+        <label className="field"><span>Name</span><input value={name} onChange={(e) => setName(e.target.value)} maxLength={60} required autoFocus placeholder="Personal, Family, a project…" /></label>
+        <div className="colors" role="radiogroup" aria-label="Calendar colour">
+          {COLORS.map((c) => <button type="button" key={c} role="radio" aria-checked={color === c} aria-label={c} className={`swatch ${color === c ? 'on' : ''}`} style={{ background: c }} onClick={() => setColor(c)} />)}
+        </div>
+        {calendar.id && <p className="muted small" style={{ margin: 0 }}>Its events in its old colour take the new one; events you gave a colour of their own keep it.</p>}
+        <div className="row end"><button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn primary">{calendar.id ? 'Save' : 'Add calendar'}</button></div>
+      </form>
+    </Modal>
+  );
+}
+
 /** Calendars you subscribe to by address: listed in the sidebar, with refresh and remove; add one by its address. */
 function Feeds({ onChanged }) {
   const toast = useToast();

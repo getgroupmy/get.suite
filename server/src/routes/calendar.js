@@ -20,6 +20,7 @@ import { roleFor, audienceFor } from '../access.js';
 import { recordActivity } from '../fileactivity.js';
 import { meetingFor } from '../meet.js';
 import { addFeed, feedsOf, feedOf, feedEvents, refreshFeed } from '../calfeeds.js';
+import { calendarsOf, ownCalendar, calendarFor, addCalendar, changeCalendar, eventsIn } from '../mycalendars.js';
 import { insertFile } from './files.js';
 import { notesContent, notesName } from '../meetingnotes.js';
 import { setVacation, vacationForAway } from '../mail/vacation.js';
@@ -369,6 +370,18 @@ export function focusUntil(userId, t = Date.now()) {
   return until;
 }
 
+/** Delete one of your events (a series with its changed occurrences); its guests are told it's cancelled. */
+function removeEvent(req, ev) {
+  const guests = guestsOf(ev.id);
+  const outside = outsideOf(ev.id);
+  const gone = { ...outEvent(ev), sequence: ev.sequence + 1 };
+  notifyOutside(req.user, gone, outside, 'cancel', { base: baseUrl(req), tz: req.query.tz || ev.tz }); // before the guest list goes
+  q('DELETE FROM events WHERE id = ?').run(ev.id);
+  q('DELETE FROM events WHERE recur_parent = ? AND owner_id = ?').run(ev.id, req.user.id); // its changed occurrences go with the series
+  notify(req.user, outEvent(ev), guests.map((g) => ({ username: g.email, name: g.name })), 'cancel', req.query.tz, baseUrl(req));
+  touch([req.user.id, ...guests.map((g) => g.id)]);
+}
+
 export default function calendarRoutes() {
   const r = Router();
 
@@ -445,6 +458,21 @@ export default function calendarRoutes() {
       past: items.filter((e) => e.end < t).sort((x, y) => y.start - x.start).slice(0, 5),
     });
   });
+  // Your own calendars besides the main one: list, add { name, color }, change { name?, color?, hidden? },
+  // delete (with its events, or ?keep=1 to move them to your main calendar).
+  r.get('/calendars', (req, res) => res.json(calendarsOf(req.user.id)));
+  r.post('/calendars', (req, res) => { const c = addCalendar(req.user.id, req.body || {}); touch([req.user.id]); res.status(201).json(c); });
+  r.patch('/calendars/:id', (req, res) => { const c = changeCalendar(req.user.id, req.params.id, req.body || {}); touch([req.user.id]); res.json(c); });
+  r.delete('/calendars/:id', (req, res) => {
+    const c = ownCalendar(req.user.id, req.params.id);
+    const events = eventsIn(req.user.id, c.id);
+    if (req.query.keep === '1') q('UPDATE events SET calendar_id = NULL WHERE calendar_id = ? AND owner_id = ?').run(c.id, req.user.id);
+    else for (const ev of events) removeEvent(req, ev);
+    q('DELETE FROM events WHERE calendar_id = ? AND owner_id = ?').run(c.id, req.user.id); // changed occurrences left over
+    q('DELETE FROM user_calendars WHERE id = ?').run(c.id);
+    touch([req.user.id]);
+    res.json({ ok: true, events: events.length, kept: req.query.keep === '1' });
+  });
   r.get('/feeds', (req, res) => res.json(feedsOf(req.user.id)));
   r.post('/feeds', async (req, res) => res.status(201).json(await addFeed(req.user.id, req.body || {})));
   r.post('/feeds/:id/refresh', async (req, res) => {
@@ -496,7 +524,8 @@ export default function calendarRoutes() {
 
   // A calendar file (.ics) from another calendar app: its events are added to yours.
   r.post('/import', express.text({ type: () => true, limit: '20mb' }), (req, res) => {
-    const r2 = importCalendar(req.user.id, req.body, String(req.query.tz || 'UTC'));
+    const cal = req.query.calendar ? ownCalendar(req.user.id, req.query.calendar) : null;
+    const r2 = importCalendar(req.user.id, req.body, String(req.query.tz || 'UTC'), cal?.id ?? null, cal?.color ?? null);
     if (r2.error) throw bad(r2.error);
     if (r2.added) touch([req.user.id]);
     res.json(r2);
@@ -504,8 +533,11 @@ export default function calendarRoutes() {
   // Your own events as one calendar file.
   r.get('/export', (req, res) => {
     res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
-    res.setHeader('Content-Disposition', 'attachment; filename="calendar.ics"');
-    res.send(exportCalendar(req.user.id));
+    // ?calendar=<id> (or main) downloads just that one.
+    const which = req.query.calendar === 'main' ? { id: null, name: req.user.name } : req.query.calendar ? ownCalendar(req.user.id, req.query.calendar) : undefined;
+    const file = which ? `${String(which.name).replace(/[^\p{L}\p{N} ._-]+/gu, '').trim() || 'calendar'}.ics` : 'calendar.ics';
+    res.setHeader('Content-Disposition', `attachment; filename="calendar.ics"; filename*=UTF-8''${encodeURIComponent(file)}`);
+    res.send(exportCalendar(req.user.id, which));
   });
 
   r.post('/', (req, res) => {
@@ -519,12 +551,14 @@ export default function calendarRoutes() {
     const of = req.body.recurrence_of;
     const parent = of && !e.rrule ? q('SELECT id FROM events WHERE id = ? AND owner_id = ? AND rrule IS NOT NULL').get(String(of.id || ''), req.user.id) : null;
     e.meet_code = SPECIAL.includes(e.kind) ? null : readMeet(req.body, req.user);
+    const calendarId = calendarFor(req.user.id, req.body.calendar_id ?? (parent ? q('SELECT calendar_id FROM events WHERE id = ?').get(parent.id).calendar_id : null));
     q(`INSERT INTO events (id, owner_id, title, description, location, start, end, all_day, color, rrule, exdates, repeat_until, tz, recur_parent, recur_id, kind, meet_code)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(id, req.user.id, e.title, e.description ?? null, e.location ?? null, e.start, e.end, e.all_day ?? 0, e.color ?? null,
         e.rrule ? JSON.stringify(e.rrule) : null, JSON.stringify(e.exdates || []), repeatUntil(e), tz, parent?.id ?? null, parent ? int(of.occurrence, 'occurrence') : null, e.kind ?? null, e.meet_code);
     const reminders = setReminders(id, req.user.id, req.body.reminders);
     if (attachments.length) q('UPDATE events SET attachments = ? WHERE id = ?').run(JSON.stringify(attachments), id);
+    if (calendarId) q('UPDATE events SET calendar_id = ? WHERE id = ?').run(calendarId, id);
     if (guests) {
       const { added } = setGuests(id, guests.inside);
       const outside = setOutside(id, guests.outside);
@@ -558,6 +592,10 @@ export default function calendarRoutes() {
       .run(e.title, e.description, e.location, e.start, e.end, e.all_day, e.color, e.rrule ? JSON.stringify(e.rrule) : null, JSON.stringify(e.exdates || []), repeatUntil(e),
         tz, changed ? 1 : 0, e.kind ?? null, e.meet_code, e.id);
     if (attachments) q('UPDATE events SET attachments = ? WHERE id = ?').run(attachments.length ? JSON.stringify(attachments) : null, e.id);
+    if (req.body.calendar_id !== undefined) { // moving it to another of your calendars (its changed occurrences go along)
+      const to = calendarFor(req.user.id, req.body.calendar_id);
+      q('UPDATE events SET calendar_id = ? WHERE (id = ? OR recur_parent = ?) AND owner_id = ?').run(to, e.id, e.id, req.user.id);
+    }
     const saved = outEvent(q('SELECT * FROM events WHERE id = ?').get(e.id));
     if (req.body.reminders !== undefined) setReminders(e.id, req.user.id, req.body.reminders);
     let removed = [];
@@ -627,14 +665,7 @@ export default function calendarRoutes() {
   r.delete('/:id', (req, res) => {
     const ev = q('SELECT * FROM events WHERE id = ? AND owner_id = ?').get(req.params.id, req.user.id);
     if (!ev) throw notFound();
-    const guests = guestsOf(ev.id);
-    const outside = outsideOf(ev.id);
-    const gone = { ...outEvent(ev), sequence: ev.sequence + 1 };
-    notifyOutside(req.user, gone, outside, 'cancel', { base: baseUrl(req), tz: req.query.tz || ev.tz }); // before the guest list goes
-    q('DELETE FROM events WHERE id = ?').run(ev.id);
-    q('DELETE FROM events WHERE recur_parent = ? AND owner_id = ?').run(ev.id, req.user.id); // its changed occurrences go with the series
-    notify(req.user, outEvent(ev), guests.map((g) => ({ username: g.email, name: g.name })), 'cancel', req.query.tz, baseUrl(req));
-    touch([req.user.id, ...guests.map((g) => g.id)]);
+    removeEvent(req, ev);
     res.json({ ok: true });
   });
 

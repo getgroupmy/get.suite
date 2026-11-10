@@ -7727,3 +7727,70 @@ test('form invitations: a company group or alias address reaches each of its peo
   assert.deepEqual(expandAddresses(['team-x@acme.test'], 'another-org'), ['team-x@acme.test'], 'only the sender\'s own company\'s groups');
   q("DELETE FROM aliases WHERE id = 't-team'").run();
 });
+
+test('calendars of your own: add, rename, recolour (events follow), hide, move events, import/export, delete', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['cala', 'Cal Ann'], ['calb', 'Cal Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'cala@acme.com');
+  await login(b, 'calb@acme.com');
+  assert.deepEqual((await a('GET', '/api/events/calendars')).body, []);
+  assert.equal((await a('POST', '/api/events/calendars', { name: '  ' })).status, 400);
+  assert.equal((await a('POST', '/api/events/calendars', { name: 'Family', color: 'red' })).status, 400);
+  const fam = (await a('POST', '/api/events/calendars', { name: 'Family', color: '#8E24AA' })).body;
+  assert.deepEqual({ ...fam, id: undefined }, { id: undefined, name: 'Family', color: '#8e24aa', hidden: false, events: 0 });
+  assert.equal((await a('POST', '/api/events/calendars', { name: 'family' })).status, 400, 'names are unique (any case)');
+  const proj = (await a('POST', '/api/events/calendars', { name: 'Project X', color: '#0b8043' })).body;
+
+  const t = Date.UTC(2026, 11, 3, 10);
+  const mk = (body) => a('POST', '/api/events', { start: t, end: t + 3600e3, ...body });
+  const school = (await mk({ title: 'School play', calendar_id: fam.id, color: '#8e24aa' })).body;
+  assert.equal(school.calendar_id, fam.id);
+  const own = (await mk({ title: 'Dentist', calendar_id: fam.id, color: '#d50000' })).body; // its own colour
+  const main = (await mk({ title: 'Budget review' })).body;
+  assert.equal(main.calendar_id, null);
+  // Someone else's calendar can't be used.
+  const bens = (await b('POST', '/api/events/calendars', { name: 'Ben' })).body;
+  assert.equal((await mk({ title: 'Sneaky', calendar_id: bens.id })).status, 404);
+  assert.equal((await a('PATCH', `/api/events/calendars/${bens.id}`, { name: 'Mine' })).status, 404);
+
+  // Recolouring: events still in the old colour follow; Dentist keeps its own.
+  const re = (await a('PATCH', `/api/events/calendars/${fam.id}`, { name: 'Home', color: '#F4511E', hidden: true })).body;
+  assert.deepEqual([re.name, re.color, re.hidden, re.events], ['Home', '#f4511e', true, 2]);
+  const list = (await a('GET', `/api/events?from=${t - 864e5}&to=${t + 864e5}`)).body;
+  const by = (title) => list.find((e) => e.title === title);
+  assert.equal(by('School play').color, '#f4511e');
+  assert.equal(by('Dentist').color, '#d50000');
+  assert.equal(by('Dentist').calendar_id, fam.id, 'hidden calendars still come back: the browser hides them');
+
+  // Moving an event to another calendar, and back to the main one.
+  assert.equal((await a('PATCH', `/api/events/${main.id}`, { calendar_id: proj.id })).body.calendar_id, proj.id);
+  assert.equal((await a('PATCH', `/api/events/${main.id}`, { calendar_id: null })).body.calendar_id, null);
+  assert.equal((await a('PATCH', `/api/events/${main.id}`, { calendar_id: bens.id })).status, 404);
+
+  // Download one calendar; import into one.
+  const ics = (await a('GET', `/api/events/export?calendar=${fam.id}`)).body;
+  assert.match(ics, /X-WR-CALNAME:Home/);
+  assert.match(ics, /SUMMARY:School play/);
+  assert.doesNotMatch(ics, /Budget review/);
+  const mainIcs = (await a('GET', '/api/events/export?calendar=main')).body;
+  assert.match(mainIcs, /Budget review/);
+  assert.doesNotMatch(mainIcs, /School play/);
+  const file = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'BEGIN:VEVENT', 'UID:proj-1@example', 'DTSTART:20261210T090000Z', 'DTEND:20261210T100000Z', 'SUMMARY:Kick-off', 'END:VEVENT', 'END:VCALENDAR', ''].join('\r\n');
+  const imp = await a('POST', `/api/events/import?calendar=${proj.id}`, file, { raw: true, headers: { 'content-type': 'text/calendar' } });
+  assert.deepEqual(imp.body, { added: 1, skipped: 0, failed: 0 });
+  const kick = (await a('GET', `/api/events?from=${Date.UTC(2026, 11, 10)}&to=${Date.UTC(2026, 11, 11)}`)).body.find((e) => e.title === 'Kick-off');
+  assert.deepEqual([kick.calendar_id, kick.color], [proj.id, '#0b8043']);
+  assert.equal((await a('POST', `/api/events/import?calendar=${bens.id}`, file, { raw: true, headers: { 'content-type': 'text/calendar' } })).status, 404);
+
+  // Delete: Project X's events move to the main calendar (keep=1); Home's are deleted with it.
+  const del1 = (await a('DELETE', `/api/events/calendars/${proj.id}?keep=1`)).body;
+  assert.deepEqual(del1, { ok: true, events: 1, kept: true });
+  const after1 = (await a('GET', `/api/events?from=${Date.UTC(2026, 11, 10)}&to=${Date.UTC(2026, 11, 11)}`)).body.find((e) => e.title === 'Kick-off');
+  assert.equal(after1.calendar_id, null);
+  const del2 = (await a('DELETE', `/api/events/calendars/${fam.id}`)).body;
+  assert.deepEqual(del2, { ok: true, events: 2, kept: false });
+  const left = (await a('GET', `/api/events?from=${t - 864e5}&to=${t + 864e5}`)).body.map((e) => e.title);
+  assert.deepEqual(left, ['Budget review']);
+  assert.deepEqual((await a('GET', '/api/events/calendars')).body, []);
+  assert.equal(school.id && own.id && true, true);
+});

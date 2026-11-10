@@ -356,3 +356,14 @@ db.exec(`INSERT OR IGNORE INTO identity_signatures (user_id, address, html, on_n
          SELECT s.user_id, u.username, s.html, s.on_new, s.on_reply, s.updated_at
          FROM mail_signatures s JOIN users u ON u.id = s.user_id`);
 db.exec('DELETE FROM mail_signatures');
+
+// Calendars of your own besides your main one (Personal, a project…): events can be put in one.
+db.exec(`CREATE TABLE IF NOT EXISTS user_calendars (
+  id TEXT PRIMARY KEY,
+  owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  color TEXT NOT NULL,
+  hidden INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL
+)`);
+if (!hasColumn('events', 'calendar_id')) db.exec('ALTER TABLE events ADD COLUMN calendar_id TEXT');

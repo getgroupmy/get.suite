@@ -26,7 +26,7 @@ export function splitCalendar(text) {
 const repeatUntil = (e) => (e.rrule ? (e.rrule.until !== undefined ? e.rrule.until + (e.end - e.start) : null) : null);
 
 /** Add the file's events to this person's calendar: { added, skipped, failed }. */
-export function importCalendar(userId, text, tz = 'UTC') {
+export function importCalendar(userId, text, tz = 'UTC', calendarId = null, color = null) {
   if (!/BEGIN:VCALENDAR/i.test(String(text || ''))) return { error: 'This isn’t a calendar file (.ics)' };
   const parts = splitCalendar(text);
   if (parts.length > MAX_IMPORT) return { error: `At most ${MAX_IMPORT} events can be imported at once` };
@@ -37,9 +37,9 @@ export function importCalendar(userId, text, tz = 'UTC') {
       if (e.error) { failed++; continue; }
       if (e.uid && q('SELECT 1 FROM events WHERE owner_id = ? AND ical_uid = ?').get(userId, e.uid)) { skipped++; continue; }
       const id = uid();
-      q(`INSERT INTO events (title, description, location, start, end, all_day, rrule, exdates, repeat_until, tz, id, owner_id, ical_uid, color)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`)
-        .run(e.title, e.description, e.location, e.start, e.end, e.all_day, e.rrule ? JSON.stringify(e.rrule) : null, JSON.stringify(e.exdates || []), repeatUntil(e), zoneOrUtc(e.tz), id, userId, e.uid);
+      q(`INSERT INTO events (title, description, location, start, end, all_day, rrule, exdates, repeat_until, tz, id, owner_id, ical_uid, color, calendar_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(e.title, e.description, e.location, e.start, e.end, e.all_day, e.rrule ? JSON.stringify(e.rrule) : null, JSON.stringify(e.exdates || []), repeatUntil(e), zoneOrUtc(e.tz), id, userId, e.uid, color, calendarId);
       syncOverrides(id, e, userId);
       setReminders(id, userId, e.reminders);
       added++;
@@ -48,9 +48,11 @@ export function importCalendar(userId, text, tz = 'UTC') {
   return { added, skipped, failed };
 }
 
-/** All your own events (not invitations) as one calendar file. */
-export function exportCalendar(userId) {
-  const events = q('SELECT *, NULL AS my_status, ? AS for_user FROM events WHERE owner_id = ? AND recur_parent IS NULL ORDER BY start').all(userId, userId);
+/** All your own events (not invitations) as one calendar file; or one of your calendars' ({ id, name }; null id: the main one). */
+export function exportCalendar(userId, only) {
+  const events = only === undefined
+    ? q('SELECT *, NULL AS my_status, ? AS for_user FROM events WHERE owner_id = ? AND recur_parent IS NULL ORDER BY start').all(userId, userId)
+    : q('SELECT *, NULL AS my_status, ? AS for_user FROM events WHERE owner_id = ? AND recur_parent IS NULL AND calendar_id IS ? ORDER BY start').all(userId, userId, only.id);
   const zones = new Map();
   const bodies = [];
   for (const e of events) {
@@ -61,6 +63,6 @@ export function exportCalendar(userId) {
     }
     bodies.push(...(one.match(/BEGIN:VEVENT[\s\S]*?END:VEVENT/g) || []));
   }
-  return ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Workspace//Calendar//EN', 'CALSCALE:GREGORIAN', 'X-WR-CALNAME:Workspace', ...zones.values(), ...bodies, 'END:VCALENDAR', '']
+  return ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Workspace//Calendar//EN', 'CALSCALE:GREGORIAN', `X-WR-CALNAME:${String(only?.name || 'Workspace').replace(/[\\;,]/g, (c) => `\\${c}`).replace(/[\r\n]+/g, ' ')}`, ...zones.values(), ...bodies, 'END:VCALENDAR', '']
     .join('\r\n').replace(/\u0000/g, '\r\n ');
 }
