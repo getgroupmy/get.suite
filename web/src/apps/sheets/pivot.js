@@ -33,6 +33,58 @@ function summarise(list, fn) {
 }
 const tidy = (v) => (typeof v === 'number' ? Number(v.toPrecision(12)) : v);
 
+export const GROUPS = [['', 'Each value'], ['month', 'By month'], ['quarter', 'By quarter'], ['year', 'By year']];
+const DATE = /^(\d{4})-(\d{2})-(\d{2})/;
+/** A date (text "2026-11-09") grouped: "2026-11", "2026 Q4" or 2026; other values as they are. */
+export function groupKey(v, group) {
+  const m = group && DATE.exec(String(v ?? ''));
+  if (!m) return keyOf(v);
+  if (group === 'month') return `${m[1]}-${m[2]}`;
+  if (group === 'quarter') return `${m[1]} Q${Math.ceil(Number(m[2]) / 3)}`;
+  return Number(m[1]);
+}
+
+/**
+ * The full pivot: like buildPivot, plus several values side by side (values: [{ col, fn }], with no
+ * column split), rows grouped by month, quarter or year (group), rows left out by a filter
+ * ({ col, hide: [keys] }), each value as a share of its grand total (show: 'percent'), and rows sorted
+ * by the first value (sort: 'desc' | 'asc'; otherwise by their names). Returns { grid, percentCols }.
+ */
+export function buildPivotTable(table, spec) {
+  const { rows, cols = null, group = null, filter = null, show = 'value', sort = 'label' } = spec;
+  const values = spec.values?.length ? spec.values : [{ col: spec.value ?? null, fn: spec.fn || 'sum' }];
+  const [head = [], ...rest] = table;
+  const kept = filter && filter.hide?.length ? rest.filter((r) => !filter.hide.includes(keyOf(r[filter.col]))) : rest;
+  // Grouping: the row column's values turned into their month, quarter or year before summarising.
+  const data = group ? kept.map((r) => r.map((v, c) => (c === rows ? groupKey(v, group) : v))) : kept;
+  const one = (v) => buildPivot([head, ...data], { rows, cols: values.length > 1 ? null : cols, value: v.col, fn: v.fn });
+  let grid;
+  if (values.length === 1) grid = one(values[0]);
+  else {
+    // Side by side: the first column's row names, then each value's column.
+    const parts = values.map(one);
+    grid = parts[0].map((row, r) => [row[0], ...parts.map((p) => p[r][1])]);
+  }
+  if (show === 'percent') {
+    const totals = grid[grid.length - 1];
+    grid = grid.map((row, r) => (r === 0 ? row : row.map((v, c) => (c === 0 || typeof v !== 'number' || !totals[c] ? v : tidy(v / totals[c])))));
+  }
+  if (sort === 'desc' || sort === 'asc') {
+    const body = grid.slice(1, -1);
+    const at = values.length > 1 || cols === null ? 1 : grid[0].length - 1; // the first value, or the row total
+    body.sort((a, b) => ((typeof a[at] === 'number' ? a[at] : -Infinity) - (typeof b[at] === 'number' ? b[at] : -Infinity)) * (sort === 'desc' ? -1 : 1));
+    grid = [grid[0], ...body, grid[grid.length - 1]];
+  }
+  return { grid, percent: show === 'percent' };
+}
+
+/** A column's different values (as a filter lists them), with how often each comes. */
+export function valuesOf(table, col) {
+  const counts = new Map();
+  for (const r of table.slice(1)) { if (!r.some((v) => v !== '' && v != null)) continue; const k = keyOf(r[col]); counts.set(k, (counts.get(k) || 0) + 1); }
+  return [...counts].sort((a, b) => compareKeys(a[0], b[0])).map(([key, count]) => ({ key, count }));
+}
+
 /**
  * table: [headings, ...rows] (what the cells show). spec: { rows, cols, value, fn } with column numbers
  * within the table (cols and value may be null: no split; count rows). Returns a grid (array of rows).
@@ -68,15 +120,18 @@ export function buildPivot(table, { rows, cols = null, value = null, fn = 'sum' 
   return out;
 }
 
-/** The grid as sheet cells (raw text, like typed in) and formats (headings and totals bold). */
-export function pivotCells(grid) {
+/** The grid as sheet cells (raw text, like typed in) and formats (headings and totals bold; shares as percentages). */
+export function pivotCells(grid, { percent = false } = {}) {
   const cells = {};
   const formats = {};
   grid.forEach((row, r) => row.forEach((v, c) => {
     if (v === '' || v === null || v === undefined) return;
     const k = cellKey(c, r);
     cells[k] = typeof v === 'number' ? String(v) : String(v).startsWith('=') ? ` ${v}` : String(v); // text is never run as a formula
-    if (r === 0 || c === 0 || r === grid.length - 1 || c === row.length - 1) formats[k] = { b: true };
+    const f = {};
+    if (r === 0 || c === 0 || r === grid.length - 1 || c === row.length - 1) f.b = true;
+    if (percent && r > 0 && c > 0 && typeof v === 'number') { f.num = 'percent'; f.dp = 1; }
+    if (Object.keys(f).length) formats[k] = f;
   }));
   return { cells, formats };
 }

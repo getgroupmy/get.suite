@@ -329,6 +329,10 @@ Select rows (or columns) by their headings, then **Group rows 2–4** in the rig
 **⊞ Pivot** in the toolbar (or right-click → **Pivot table…**) summarises the table around the cursor on a new sheet, **Pivot table 1**:
 
 - **Rows:** one for each value of a column (e.g. *Region*); **Columns** (optional): one for each value of another (e.g. *Product*); **Values:** the **sum**, **count**, **average**, **minimum** or **maximum** of a column, or a count of rows. Each row and column has a total, and there's a grand total. Blank values are grouped as *(blank)*; numbers sort before text.
+- **Several values** (**+ Add a value**, up to five) sit side by side: *Sum of Sales* and *Count of rows*, say (without a column split).
+- **Dates grouped:** **Dates in it → By month / By quarter / By year** groups the row column's dates (*2026-01*, *2026 Q1*, *2026*); anything that isn't a date stays as it is.
+- **Filter:** **Only rows where** a column, then untick the values to leave out (*Product*: everything but *Coffee*).
+- **Show as % of the grand total** (each value its share, as a percentage) and **Order rows** by name or by the first value, largest or smallest first.
 - It **updates by itself** when the data changes, including rows added below the table, for everyone with the spreadsheet open. **Edit pivot table** at the top of its sheet changes what it shows.
 - Its cells can't be typed in (they come from the data). Renaming the data sheet keeps it working. Excel downloads have its values.
 

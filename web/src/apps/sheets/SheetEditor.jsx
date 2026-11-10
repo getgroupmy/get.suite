@@ -22,7 +22,7 @@ import { FunctionsDialog } from './SheetFunctions.jsx';
 import { targetOf, cleanTarget } from './names.js';
 import { SortDialog } from './SheetSort.jsx';
 import { PivotDialog } from './SheetPivot.jsx';
-import { buildPivot, pivotCells, sourceTable } from './pivot.js';
+import { buildPivotTable, pivotCells, sourceTable } from './pivot.js';
 import { RulesDialog } from './SheetRules.jsx';
 import { ValidationDialog, ChoicePicker } from './SheetValidation.jsx';
 import { CellPicture, PictureCellDialog } from './SheetPicture.jsx';
@@ -496,8 +496,14 @@ export default function SheetEditor() {
       for (const k of Object.keys(src.cells || {})) { const p = parseRef(k); if (p && p.c >= s.pivot.c1 && p.c <= s.pivot.c2) last = Math.max(last, p.r); }
       const shown = (k) => { const v = ev(k); return v && typeof v === 'object' ? '' : v ?? ''; };
       const rel = (c) => (c === null || c === undefined ? null : c - s.pivot.c1);
-      const grid = buildPivot(sourceTable(s.pivot, shown, last), { rows: rel(s.pivot.rows), cols: rel(s.pivot.cols), value: rel(s.pivot.value), fn: s.pivot.fn });
-      const { cells: pc, formats: pf } = pivotCells(grid);
+      const p = s.pivot;
+      const { grid, percent } = buildPivotTable(sourceTable(p, shown, last), {
+        rows: rel(p.rows), cols: rel(p.cols), value: rel(p.value), fn: p.fn,
+        ...(p.values?.length && { values: p.values.map((v) => ({ col: rel(v.col), fn: v.fn })) }),
+        group: p.group || null, show: p.show || 'value', sort: p.sort || 'label',
+        ...(p.filter?.hide?.length && { filter: { col: rel(p.filter.col), hide: p.filter.hide } }),
+      });
+      const { cells: pc, formats: pf } = pivotCells(grid, { percent });
       if (JSON.stringify(pc) === JSON.stringify(s.cells || {}) && JSON.stringify(pf) === JSON.stringify(s.formats || {})) return s;
       changed = true;
       return { ...s, cells: pc, formats: pf };
@@ -527,6 +533,15 @@ export default function SheetEditor() {
     if (sheet.pivot) { toast('Pick the data on another sheet first', 'error'); return; }
     const spec = { source: sheet.name, c1: g.c1, c2: g.c2, r1: g.r1, rows: g.c1, cols: null, value: g.c2 > g.c1 ? g.c2 : null, fn: 'sum' };
     setDialog({ type: 'pivot', spec, headings: pivotHeadings(sheet, spec), index: null });
+  }
+  /** The pivot's data as it shows (for the filter's list of values). */
+  function pivotSource(spec) {
+    const src = dataRef.current.sheets.find((x) => x.name === spec.source);
+    if (!src) return [];
+    const ev = createEvaluator(src.cells || {}, src.names);
+    let last = spec.r1;
+    for (const k of Object.keys(src.cells || {})) { const p = parseRef(k); if (p && p.c >= spec.c1 && p.c <= spec.c2) last = Math.max(last, p.r); }
+    return sourceTable(spec, (k) => { const v = ev(k); return v && typeof v === 'object' ? '' : v ?? ''; }, last);
   }
   function editPivot() {
     const src = data.sheets.find((x) => x.name === sheet.pivot.source);
@@ -1285,7 +1300,7 @@ export default function SheetEditor() {
       {dialog?.type === 'share' && <ShareDialog file={file} onClose={() => setDialog(null)} />}
       {dialog?.type === 'history' && <VersionHistory file={file} canEdit={!readOnly} onClose={() => setDialog(null)} renderPreview={(content) => <SheetPreview content={content} />} renderChanges={(content) => <SheetChanges before={content} after={dataRef.current} />} />}
       {dialog?.type === 'pivot' && (
-        <PivotDialog headings={dialog.headings} spec={dialog.spec} editing={dialog.index !== null}
+        <PivotDialog headings={dialog.headings} spec={dialog.spec} editing={dialog.index !== null} table={pivotSource(dialog.spec)}
           source={`${dialog.spec.source}!${colName(dialog.spec.c1)}${dialog.spec.r1 + 1}:${colName(dialog.spec.c2)}`}
           onSave={(spec) => savePivot(spec, { index: dialog.index })} onClose={() => { setDialog(null); gridRef.current?.focus(); }} />
       )}

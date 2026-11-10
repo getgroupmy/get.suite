@@ -155,3 +155,11 @@ test('presentations: their own theme and master (logo, footer) are kept and chan
   applyDeckJson(doc, { ...jsonFromDeckDoc(doc), master: undefined });
   assert.equal(jsonFromDeckDoc(doc).master, undefined);
 });
+
+test('spreadsheets: a pivot\'s settings are kept whole (several values, grouping, filter, shares, order)', () => {
+  const pivot = { source: 'Data', c1: 0, c2: 3, r1: 0, rows: 3, cols: null, value: 2, fn: 'sum', values: [{ col: 2, fn: 'sum' }, { col: null, fn: 'count' }], group: 'month', filter: { col: 1, hide: ['Coffee'] }, show: 'percent', sort: 'desc' };
+  const doc = sheetDocFromJson({ sheets: [{ name: 'Data', cells: {} }, { name: 'Pivot table 1', cells: {}, pivot }] });
+  assert.deepEqual(jsonFromSheetDoc(doc).sheets[1].pivot, pivot);
+  applySheetJson(doc, { sheets: [{ name: 'Data', cells: {} }, { name: 'Pivot table 1', cells: {}, pivot: { ...pivot, show: 'value' } }] });
+  assert.equal(jsonFromSheetDoc(doc).sheets[1].pivot.show, 'value');
+});

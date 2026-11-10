@@ -51,3 +51,25 @@ test('sourceTable reads the columns down to the last row', () => {
   const vals = { A1: 'h', B1: 'v', A2: 'x', B2: 1, A3: 'y', B3: 2 };
   assert.deepEqual(sourceTable({ c1: 0, c2: 1, r1: 0 }, (k) => vals[k] ?? '', 2), [['h', 'v'], ['x', 1], ['y', 2]]);
 });
+
+test('pivot: several values side by side, a filter, shares of the total, sorted by value', async () => {
+  const { buildPivotTable, valuesOf, pivotCells } = await import('./pivot.js');
+  const t = [['Region', 'Product', 'Sales'], ['North', 'Tea', 10], ['South', 'Tea', 5], ['North', 'Coffee', 7], ['East', 'Tea', 30], ['North', 'Tea', 3]];
+  assert.deepEqual(buildPivotTable(t, { rows: 0, values: [{ col: 2, fn: 'sum' }, { col: null, fn: 'count' }] }).grid,
+    [['Region', 'Sum of Sales', 'Count of rows'], ['East', 30, 1], ['North', 20, 3], ['South', 5, 1], ['Grand total', 55, 5]]);
+  assert.deepEqual(buildPivotTable(t, { rows: 0, value: 2, fn: 'sum', filter: { col: 1, hide: ['Coffee'] }, sort: 'desc' }).grid,
+    [['Region', 'Sum of Sales'], ['East', 30], ['North', 13], ['South', 5], ['Grand total', 48]]);
+  const pct = buildPivotTable(t, { rows: 0, value: 2, fn: 'sum', show: 'percent', sort: 'asc' });
+  assert.deepEqual(pct.grid, [['Region', 'Sum of Sales'], ['South', 0.0909090909091], ['North', 0.363636363636], ['East', 0.545454545455], ['Grand total', 1]]);
+  assert.deepEqual(pivotCells(pct.grid, { percent: true }).formats.B2, { b: true, num: 'percent', dp: 1 });
+  assert.deepEqual(valuesOf(t, 1), [{ key: 'Coffee', count: 1 }, { key: 'Tea', count: 4 }]);
+});
+
+test('pivot: dates grouped by month, quarter or year', async () => {
+  const { buildPivotTable, groupKey } = await import('./pivot.js');
+  const t = [['Date', 'Sales'], ['2026-01-15', 10], ['2026-02-03', 5], ['2026-04-20', 7], ['2025-12-31', 1], ['not a date', 2]];
+  assert.deepEqual(buildPivotTable(t, { rows: 0, value: 1, fn: 'sum', group: 'month' }).grid.map((r) => r[0]), ['Date', '2025-12', '2026-01', '2026-02', '2026-04', 'not a date', 'Grand total']);
+  assert.deepEqual(buildPivotTable(t, { rows: 0, value: 1, fn: 'sum', group: 'quarter' }).grid.slice(1, -1), [['2025 Q4', 1], ['2026 Q1', 15], ['2026 Q2', 7], ['not a date', 2]]);
+  assert.deepEqual(buildPivotTable(t, { rows: 0, value: 1, fn: 'sum', group: 'year' }).grid.slice(1, 3), [[2025, 1], [2026, 22]]);
+  assert.equal(groupKey('2026-11-09 14:30', 'month'), '2026-11');
+});
