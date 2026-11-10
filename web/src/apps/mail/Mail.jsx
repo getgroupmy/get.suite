@@ -969,7 +969,7 @@ const ATTACH_AS = {
   sheet: [['xlsx', 'Excel (.xlsx)'], ['ods', 'OpenDocument (.ods)']],
   slides: [['pptx', 'PowerPoint (.pptx)'], ['odp', 'OpenDocument (.odp)']],
 };
-function AttachAs({ file, onClose, onDone }) {
+function AttachAs({ file, onClose, onDone, onLink }) {
   const toast = useToast();
   const { user } = useAuth();
   const choices = ATTACH_AS[file.kind] || [];
@@ -977,16 +977,20 @@ function AttachAs({ file, onClose, onDone }) {
   const [format, setFormat] = useState((user.file_format === 'odf' && choices.find(([v]) => v.startsWith('od'))?.[0]) || choices[0]?.[0]);
   const [busy, setBusy] = useState(false);
   const go = async () => {
+    if (format === 'link') { onLink(file); return; }
     setBusy(true);
     try { onDone(await post(`/files/${file.id}/export-copy`, { format })); } catch (e) { toast(e.message, 'error'); setBusy(false); }
   };
   return (
-    <Modal title={`Attach “${file.name}”`} onClose={onClose} footer={<><button type="button" className="btn" onClick={onClose}>Cancel</button><button type="button" className="btn primary" disabled={busy} onClick={go}>{busy ? 'Attaching…' : 'Attach'}</button></>}>
+    <Modal title={`Attach “${file.name}”`} onClose={onClose} footer={<><button type="button" className="btn" onClick={onClose}>Cancel</button><button type="button" className="btn primary" disabled={busy} onClick={go}>{busy ? 'Attaching…' : format === 'link' ? 'Insert link' : 'Attach'}</button></>}>
       <fieldset className="stack" style={{ border: 0, padding: 0, margin: 0 }}>
         <legend className="muted small">Attach it as</legend>
         {choices.map(([v, label]) => <label key={v} className="check"><input type="radio" name="attach-as" value={v} checked={format === v} onChange={() => setFormat(v)} /> {label}</label>)}
+        <label className="check"><input type="radio" name="attach-as" value="link" checked={format === 'link'} onChange={() => setFormat('link')} /> A link to it (in the message)</label>
       </fieldset>
-      <p className="muted small">A copy as it is now goes with the email (and into your Email attachments folder). Later changes to the {file.kind === 'sheet' ? 'spreadsheet' : file.kind === 'slides' ? 'presentation' : 'document'} aren't in it.</p>
+      <p className="muted small">{format === 'link'
+        ? 'Colleagues open it in Workspace and always see the latest version. If some of them can’t open it, you’re asked about sharing it when you send.'
+        : `A copy as it is now goes with the email (and into your Email attachments folder). Later changes to the ${file.kind === 'sheet' ? 'spreadsheet' : file.kind === 'slides' ? 'presentation' : 'document'} aren't in it.`}</p>
     </Modal>
   );
 }
@@ -1275,7 +1279,13 @@ function Compose({ initial, shared = null, signatures = [], onClose, onSent, onD
       {templateDialog === 'manage' && <TemplatesDialog templates={templates} onClose={() => setTemplateDialog(null)} onChanged={loadTemplates} />}
       {picking && <DrivePicker empty="No files found." accept={(x) => x.kind !== 'folder'} onClose={() => setPicking(false)}
         onPick={(file) => { setPicking(false); if (file.kind !== 'file') { setConverting(file); return; } if (!files.some((x) => x.id === file.id)) setFiles([...files, file]); }} />}
-      {converting && <AttachAs file={converting} onClose={() => setConverting(null)} onDone={(rec) => { setConverting(null); setFiles((x) => [...x, rec]); }} />}
+      {converting && <AttachAs file={converting} onClose={() => setConverting(null)} onDone={(rec) => { setConverting(null); setFiles((x) => [...x, rec]); }}
+        onLink={(fl) => {
+          setConverting(null);
+          const path = { doc: 'docs', sheet: 'sheets', slides: 'slides' }[fl.kind];
+          const icon = { doc: '📄', sheet: '📊', slides: '📽' }[fl.kind] || '';
+          editorRef.current?.chain().focus().insertContent([{ type: 'text', text: `${icon} ` }, { type: 'text', text: fl.name, marks: [{ type: 'link', attrs: { href: `${window.location.origin}/${path}/${fl.id}` } }] }, { type: 'text', text: ' ' }]).run();
+        }} />}
     </Modal>
     {scheduling && <ScheduleDialog onClose={() => setScheduling(false)} onPick={(at) => { setScheduling(false); sendLater(at); }} />}
     {dlpWarn && (
