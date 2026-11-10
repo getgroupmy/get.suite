@@ -332,6 +332,7 @@ function runs(nodes = [], extra = {}) {
     if (n.type === 'citation') { out.push(new TextRun({ text: inText(n.attrs), ...extra })); continue; }
     if (n.type === 'math') { const l = String(n.attrs?.latex || '').trim(); if (l) out.push(new WordMath({ children: [new MathRun(l)] })); continue; }
     if (n.type === 'datechip') { out.push(new TextRun({ text: dateText(n.attrs?.date), color: '1A73E8', underline: {} })); continue; }
+    if (n.type === 'filechip') { out.push(new TextRun({ text: n.attrs?.name || '', color: '1A73E8', underline: {} })); continue; }
     if (n.type === 'dropchip') { const fill = CHIP_FILLS[(n.attrs?.options || []).find((o) => o?.label === n.attrs?.value)?.color] || 'E8EAED'; out.push(new TextRun({ text: ` ${chipText(n.attrs)} `, bold: true, shading: { type: ShadingType.CLEAR, color: 'auto', fill } })); continue; }
     if (n.type === 'bookmark') { if (BOOKMARK_ID.test(n.attrs?.id || '')) out.push(new Bookmark({ id: `bm_${n.attrs.id}`, children: [] })); continue; }
     if (n.type === 'footnote' && footnotes) {

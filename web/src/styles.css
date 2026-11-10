@@ -2114,6 +2114,11 @@ tr.shortcut-row.broken .name-text { color: var(--muted, #777); font-style: itali
 .ProseMirror-selectednode.doc-date { outline: 2px solid var(--accent); }
 .date-menu { padding: 10px; gap: 8px; min-width: 240px; }
 @media print { .doc-date { background: none; color: inherit; padding: 0; } .doc-date::before { content: none; } }
+.doc-filechip { display: inline-block; border-radius: 10px; padding: 0 8px; font-size: 0.9em; font-weight: 500; line-height: 1.5; white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom;
+  background: var(--surface-2, color-mix(in srgb, var(--text) 7%, transparent)); color: var(--text); text-decoration: none; cursor: pointer; border: 1px solid var(--border); }
+.doc-filechip:hover { border-color: var(--accent); color: var(--accent); }
+.ProseMirror-selectednode.doc-filechip { outline: 2px solid var(--accent); }
+@media print { .doc-filechip { background: none; border: 0; padding: 0; text-decoration: underline; } }
 .chip-menu { z-index: 60; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,.18); padding: 4px; min-width: 180px; display: flex; flex-direction: column; outline: none; }
 .chip-menu hr { border: 0; border-top: 1px solid var(--border); margin: 4px 0; width: 100%; }
 .chip-opt { display: flex; align-items: center; justify-content: space-between; gap: 8px; background: none; border: 0; padding: 6px 8px; border-radius: 6px; text-align: left; color: inherit; font: inherit; cursor: pointer; }

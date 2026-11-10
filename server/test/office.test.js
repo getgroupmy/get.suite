@@ -721,6 +721,20 @@ test('date chips: the day in Word, Markdown and search (by its words or as 2026-
   assert.match(xml, /31 Jan 2027/);
 });
 
+test('file chips: the file\'s name in Word, Markdown and search', async () => {
+  const { markdownFromDoc } = await import('../src/office/markdown.js');
+  const { docText } = await import('../src/search.js');
+  const JSZip = (await import('jszip')).default;
+  const doc = { type: 'doc', content: [{ type: 'paragraph', content: [
+    { type: 'text', text: 'See ' }, { type: 'filechip', attrs: { id: 'f1', name: 'Budget 2027', kind: 'sheet', mime: '' } }, { type: 'text', text: ' and ' }, { type: 'filechip', attrs: { id: 'f2', name: 'Plan_v2.pdf', kind: 'file', mime: 'application/pdf' } },
+  ] }] };
+  assert.equal(markdownFromDoc(doc).trim(), 'See Budget 2027 and Plan\\_v2.pdf');
+  assert.match(docText(doc), /See +Budget 2027 +and +Plan_v2\.pdf/);
+  const xml = await (await JSZip.loadAsync(await wordFromDoc(doc, 'Files'))).file('word/document.xml').async('string');
+  assert.match(xml, /<w:t[^>]*>Budget 2027<\/w:t>/);
+  assert.match(xml, /Plan_v2\.pdf/);
+});
+
 test('equations: an equation in Word, its LaTeX in search', async () => {
   const { docText } = await import('../src/search.js');
   const JSZip = (await import('jszip')).default;

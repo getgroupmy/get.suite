@@ -53,6 +53,7 @@ import { BookmarkNode, bookmarksOf, bookmarkIdOf, bookmarkAnchor } from './bookm
 import { Mention, mentionQuery, matchPeople } from './mention.js';
 import { DropChip, CHIP_PRESETS, CHIP_COLORS, cleanOptions } from './dropchip.js';
 import { DateChip, matchDates, dateText, isDate, isoDay } from './datechip.js';
+import { FileChip, matchFiles, fileIcon } from './filechip.js';
 import { MathInline, mathHtml, mathError, MAX_LATEX } from './math.js';
 import { Citation, References, htmlWithReferences } from './citation.js';
 import { CITE_FIELDS, cleanSource, inText, sourcesOf, sourceKey } from './cite.js';
@@ -235,7 +236,7 @@ function SharedDoc({ file, setFile }) {
       Table.configure({ resizable: false }), TableRow, TableHeader, TableCell,
       TextStyle, Color, BackgroundColor, FontFamily, FontSize, LineHeight, TableOfContents, SheetChart,
       SuggestInsert, SuggestDelete, SuggestMode,
-      PageBreak, Footnote, BookmarkNode, Mention, DropChip, DateChip, MathInline, Citation, References, TaskList, TaskItem.configure({ nested: true }), // checklists: everyone sees the ticks live; viewers can't tick
+      PageBreak, Footnote, BookmarkNode, Mention, DropChip, DateChip, FileChip, MathInline, Citation, References, TaskList, TaskItem.configure({ nested: true }), // checklists: everyone sees the ticks live; viewers can't tick
     ],
     editable: !readOnly,
     editorProps: {
@@ -247,6 +248,7 @@ function SharedDoc({ file, setFile }) {
       // Links open with Ctrl+click while editing, or a plain click when reading; a link to a place in this document goes there.
       handleClick: (view, pos, event) => {
         const a = event.target?.closest?.('a[href]');
+        if (a?.classList.contains('doc-filechip')) return false; // opened by its own click, below
         if (!a || !(readOnlyRef.current || event.ctrlKey || event.metaKey)) return false;
         const href = a.getAttribute('href');
         event.preventDefault();
@@ -279,6 +281,16 @@ function SharedDoc({ file, setFile }) {
   const [mention, setMention] = useState(null); // { from, query, left, top, list, pick }
   const [colleagues, setColleagues] = useState([]);
   useEffect(() => { if (!readOnly) get('/users/directory').then((l) => setColleagues(l.filter((p) => p.id !== user.id))).catch(() => {}); }, [readOnly, user.id]);
+  // …and files from Drive whose name has what's typed (looked up as you type, after two letters).
+  const [fileQuery, setFileQuery] = useState('');
+  const [foundFiles, setFoundFiles] = useState({ q: '', list: [] });
+  useEffect(() => {
+    const q = fileQuery.trim();
+    if (q.length < 2) return undefined;
+    let gone = false;
+    const t = setTimeout(() => get(`/files?view=search&q=${encodeURIComponent(q)}`).then((list) => { if (!gone) setFoundFiles({ q, list }); }).catch(() => {}), 200);
+    return () => { gone = true; clearTimeout(t); };
+  }, [fileQuery]);
   useEffect(() => {
     if (!editor || readOnly) return undefined;
     const check = () => {
@@ -287,18 +299,25 @@ function SharedDoc({ file, setFile }) {
       if (!sel.empty || !sel.$from.parent.isTextblock) { setMention(null); return; }
       const before = sel.$from.parent.textBetween(0, sel.$from.parentOffset, undefined, '\ufffc');
       const m = mentionQuery(before, sel.from);
-      const list = m ? [...matchDates(m.query), ...matchPeople(colleagues, m.query)] : []; // @today, @tomorrow, @date, then people
+      setFileQuery(m ? m.query : '');
+      const files = m && foundFiles.q && m.query.toLowerCase().startsWith(foundFiles.q.toLowerCase()) ? matchFiles(foundFiles.list, m.query, { exclude: file.id }) : [];
+      const list = m ? [...matchDates(m.query), ...matchPeople(colleagues, m.query), ...files] : []; // @today, @tomorrow, @date, then people, then files
       if (!m || !list.length) { setMention(null); return; }
       const c = view.coordsAtPos(sel.from);
       setMention((old) => ({ ...m, list, left: c.left, top: c.bottom + 4, pick: old && old.from === m.from ? Math.min(old.pick, list.length - 1) : 0 }));
     };
     editor.on('selectionUpdate', check);
     editor.on('update', check);
+    if (editor.isFocused) check(); // files found since the last keypress
     return () => { editor.off('selectionUpdate', check); editor.off('update', check); };
-  }, [editor, readOnly, colleagues]);
+  }, [editor, readOnly, colleagues, foundFiles, file.id]);
   const pickMention = async (p) => {
     const m = mention;
     setMention(null);
+    if (p.kind === 'file') {
+      editor.chain().focus().deleteRange({ from: m.from, to: editor.state.selection.from }).insertFileChip(p.file).run();
+      return;
+    }
     if (p.kind === 'date') {
       editor.chain().focus().deleteRange({ from: m.from, to: editor.state.selection.from }).insertDateChip(p.date).run();
       if (p.pick) setTimeout(() => openDate(m.from), 0); // "@date": straight to its calendar
@@ -616,6 +635,7 @@ function SharedDoc({ file, setFile }) {
             {file.page_setup?.header && <div className="paper-header" aria-hidden="true">{file.page_setup.header}</div>}
             <EditorContent editor={editor} onClick={(e) => {
               const sup = e.target.closest?.('sup[data-footnote]'); if (sup) focusFootnote(e.currentTarget, sup);
+              const fc = e.target.closest?.('a.doc-filechip'); if (fc) { e.preventDefault(); window.open(fc.getAttribute('href'), '_blank', 'noopener'); } // a file chip opens the file with a click
               const chip = e.target.closest?.('[data-dropchip]'); if (chip) { const at = chipAt(chip); if (at != null) openChip(at); }
               const day = e.target.closest?.('.doc-date'); if (day) { const at = nodeAtDom(day, 'datechip'); if (at != null) openDate(at); }
               const ct = e.target.closest?.('[data-cite]'); if (ct && !readOnly) { const at = nodeAtDom(ct, 'citation'); if (at != null) setCiteEdit({ pos: at }); }
@@ -632,8 +652,12 @@ function SharedDoc({ file, setFile }) {
                 editor.chain().focus().setTextSelection(Math.min(size, after + (editor.state.doc.textBetween(after, Math.min(after + 1, size)) === ' ' ? 1 : 0))).run();
               }} />}
             {mention && (
-              <ul className="mention-list doc-mention-list" role="listbox" aria-label="People to mention" style={{ position: 'fixed', left: mention.left, top: mention.top }}>
-                {mention.list.map((p, i) => (p.kind === 'date' ? (
+              <ul className="mention-list doc-mention-list" role="listbox" aria-label="People, dates and files" style={{ position: 'fixed', left: mention.left, top: mention.top }}>
+                {mention.list.map((p, i) => (p.kind === 'file' ? (
+                  <li key={p.id} role="option" aria-selected={i === mention.pick} className={i === mention.pick ? 'on' : ''} onMouseDown={(e) => { e.preventDefault(); pickMention(p); }}>
+                    <span aria-hidden="true" style={{ width: 20, textAlign: 'center' }}>{fileIcon(p.file.kind, p.file.mime, p.file.name)}</span> {p.file.name} <span className="muted small">{p.file.kind === 'folder' ? 'Folder' : 'File'}</span>
+                  </li>
+                ) : p.kind === 'date' ? (
                   <li key={p.id} role="option" aria-selected={i === mention.pick} className={i === mention.pick ? 'on' : ''} onMouseDown={(e) => { e.preventDefault(); pickMention(p); }}>
                     <Icon name="calendar" size={20} /> {p.label} {!p.pick && <span className="muted small">{dateText(p.date)}</span>}
                   </li>
@@ -1304,7 +1328,7 @@ export function DocPreview({ content, fileId, pictureBase = null }) {
     extensions: [
       StarterKit.configure({ link: { openOnClick: true }, document: false }), TabbedDocument, DocTab, TextAlign.configure({ types: ['heading', 'paragraph'] }),
       CommentMark, DocImage.configure({ docId: fileId, pictureBase }), Table, TableRow, TableHeader, TableCell, Superscript, Subscript, Indent,
-      TextStyle, Color, BackgroundColor, FontFamily, FontSize, LineHeight, TableOfContents, SheetChart, PageBreak, Footnote, BookmarkNode, Mention, DropChip, DateChip, MathInline, Citation, References, TaskList, TaskItem.configure({ nested: true }),
+      TextStyle, Color, BackgroundColor, FontFamily, FontSize, LineHeight, TableOfContents, SheetChart, PageBreak, Footnote, BookmarkNode, Mention, DropChip, DateChip, FileChip, MathInline, Citation, References, TaskList, TaskItem.configure({ nested: true }),
     ],
   }, [content]);
   return <div className="paper preview-paper"><EditorContent editor={editor} /></div>;

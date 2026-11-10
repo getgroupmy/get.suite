@@ -18,6 +18,7 @@ function inline(nodes = [], notes) {
     if (n.type === 'citation') { out += escapeText(inText(n.attrs)); continue; }
     if (n.type === 'math') { const l = String(n.attrs?.latex || '').replace(/\s+/g, ' ').trim(); if (l) out += `$${l}$`; continue; }
     if (n.type === 'datechip') { out += escapeText(dateText(n.attrs?.date)); continue; }
+    if (n.type === 'filechip') { out += escapeText(n.attrs?.name || ''); continue; }
     if (n.type === 'dropchip') { out += `**${escapeText(chipText(n.attrs))}**`; continue; }
     if (n.type === 'footnote') { notes.push(n.attrs?.note || ''); out += `[^${notes.length}]`; continue; }
     if (n.type === 'image') { out += n.attrs?.alt || n.attrs?.title || ''; continue; }
