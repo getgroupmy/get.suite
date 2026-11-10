@@ -55,3 +55,19 @@ test('email log: read from the current file and the two newest older ones', () =
   fs.writeFileSync(path.join(dir, 'maillog'), 'NOW\n');
   assert.equal(readMaillog(dir), 'OLDER\nOLD\nNOW\n');
 });
+
+test('delivery of a message I sent: each recipient\'s latest outcome; nobody else\'s mail', async () => {
+  const { deliveryOf } = await import('../src/mail/maillog.js');
+  const log = `Nov 10 09:00:00 mail postfix/cleanup[1]: AAA111: message-id=<quote-7@acme.com>
+Nov 10 09:00:00 mail postfix/qmgr[2]: AAA111: from=<olivia@acme.com>, size=900, nrcpt=3 (queue active)
+Nov 10 09:00:01 mail postfix/lmtp[3]: AAA111: to=<kim@acme.com>, orig_to=<sales@acme.com>, relay=mail.acme.com[private/dovecot-lmtp], delay=0.1, dsn=2.0.0, status=sent (250 2.0.0 <kim@acme.com> Saved)
+Nov 10 09:00:02 mail postfix/smtp[4]: AAA111: to=<buyer@example.org>, relay=mx.example.org[203.0.113.5]:25, delay=1, dsn=2.0.0, status=sent (250 2.0.0 OK)
+Nov 10 09:00:03 mail postfix/smtp[4]: AAA111: to=<old@gone.example>, relay=none, delay=3, dsn=4.4.1, status=deferred (connect to gone.example: Connection timed out)
+Nov 10 09:30:03 mail postfix/smtp[4]: AAA111: to=<old@gone.example>, relay=none, delay=1803, dsn=4.4.1, status=deferred (connect to gone.example: Connection timed out)
+`;
+  const ms = parseMaillog(log, new Date(new Date().getFullYear(), 10, 10, 10).getTime());
+  assert.deepEqual(deliveryOf(ms, '<quote-7@acme.com>', ['olivia@acme.com']).map((r) => [r.to, r.reached, r.status, r.tries]), [
+    ['buyer@example.org', undefined, 'delivered', 1], ['old@gone.example', undefined, 'waiting', 2], ['sales@acme.com', 'kim@acme.com', 'delivered', 1]]);
+  assert.equal(deliveryOf(ms, 'quote-7@acme.com', ['kim@acme.com']), null, 'only the sender sees it');
+  assert.equal(deliveryOf(ms, 'other@acme.com', ['olivia@acme.com']), null);
+});

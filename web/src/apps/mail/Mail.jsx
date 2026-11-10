@@ -696,6 +696,7 @@ function Reader({ shared = null, folder, uid, special, onClose, onOpen, onChange
       </div>
       <FollowUpBanner messageId={m.messageId} />
       {m.invite && <InviteCard invite={m.invite} uid={uid} folder={folder} onChange={(invite) => setM({ ...m, invite })} />}
+      {special === '\\Sent' && !shared && m.messageId && <DeliveryStatus messageId={m.messageId} />}
       {m.receipt && (
         <div className="banner receipt-ask" role="region" aria-label="Read receipt">
           <span className="grow">{who(m.from)} asked to be told when you've opened this message.</span>
@@ -2466,5 +2467,37 @@ function InternalNotes({ messageId, onChanged }) {
         <button className="btn small" disabled={!text.trim()}>Add note</button>
       </form>
     </section>
+  );
+}
+
+/**
+ * In Sent: whether a message was delivered to each recipient (from the mail server's log): ✓ Delivered,
+ * waiting to retry or bounced, with what the receiving server said. Says nothing when it isn't in the log.
+ */
+function DeliveryStatus({ messageId }) {
+  const [d, setD] = useState(null);
+  useEffect(() => {
+    let live = true;
+    get(`/mail/delivery?message_id=${encodeURIComponent(messageId)}`).then((r) => { if (live) setD(r); }).catch(() => {});
+    return () => { live = false; };
+  }, [messageId]);
+  if (!d?.recipients?.length) return null;
+  const LABEL = { delivered: 'Delivered', waiting: 'Waiting to retry', bounced: 'Not delivered', refused: 'Refused' };
+  const when = (t) => (t ? new Date(t).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '');
+  const all = d.recipients.every((r) => r.status === 'delivered');
+  return (
+    <details className={`delivery ${all ? 'ok' : 'attention'}`} open={!all} aria-label="Delivery">
+      <summary>{all ? `✓ Delivered to ${d.recipients.length === 1 ? d.recipients[0].to : `all ${d.recipients.length} recipients`}` : `Delivery: ${d.recipients.filter((r) => r.status !== 'delivered').length} not delivered yet`}</summary>
+      <ul>
+        {d.recipients.map((r) => (
+          <li key={r.to}>
+            <span className={`pill ${r.status === 'delivered' ? 'ok' : r.status === 'waiting' ? 'warn' : 'ext'}`}>{LABEL[r.status] || r.status}</span> {r.to}
+            {r.reached && <span className="muted small"> (reached {r.reached})</span>}
+            <span className="muted small"> · {when(r.at)}{r.tries > 1 ? ` · ${r.tries} tries` : ''}</span>
+            {r.status !== 'delivered' && r.response && <div className="muted small">{r.response}{r.status === 'waiting' ? ' — the mail server keeps trying for up to 5 days.' : ''}</div>}
+          </li>
+        ))}
+      </ul>
+    </details>
   );
 }

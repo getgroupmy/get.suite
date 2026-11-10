@@ -95,3 +95,22 @@ export function messagesFor(messages, domains, { q = '', status = '', since = 0,
   }
   return res;
 }
+
+/**
+ * What happened to one message, for the person who sent it: every recipient's latest outcome, from
+ * the log entries with that Message-ID sent from one of `fromAddresses`. Null when it isn't in the log.
+ */
+export function deliveryOf(messages, messageId, fromAddresses) {
+  const id = String(messageId || '').replace(/^<|>$/g, '').trim();
+  if (!id) return null;
+  const mine = new Set([...fromAddresses].map((a) => String(a).toLowerCase()));
+  const entries = messages.filter((m) => m.messageId === id && m.from && mine.has(m.from));
+  if (!entries.length) return null;
+  const byTo = new Map();
+  for (const m of entries) for (const r of m.recipients) {
+    const key = r.origTo || r.to;
+    const had = byTo.get(key);
+    if (!had || (r.at || 0) >= (had.at || 0)) byTo.set(key, { to: key, ...(r.origTo && r.origTo !== r.to && { reached: r.to }), status: r.status, response: r.response, at: r.at, tries: r.tries });
+  }
+  return [...byTo.values()].sort((a, b) => a.to.localeCompare(b.to));
+}

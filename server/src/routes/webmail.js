@@ -13,6 +13,7 @@ import { q, FILES_DIR, DATA_DIR } from '../db.js';
 import { sendTo } from '../hub.js';
 import { str, bad, notFound, HttpError, uid as newId, now } from '../util.js';
 import { keepIfHeld } from '../hold.js';
+import { parseMaillog, readMaillog, deliveryOf } from '../mail/maillog.js';
 import { roleFor, mayTakeAway } from '../access.js';
 import { mailEnabled, scheduleMailConfig, MAIL_HOSTNAME } from '../mail/config.js';
 import { withClient, withFolder, smtpFor } from '../mail/imap.js';
@@ -848,6 +849,14 @@ export default function webmailRoutes() {
       return { parsed: await simpleParser(msg.source, parseOptions), flags: msg.flags };
     });
   }
+
+  // Was a message I sent delivered? From the mail server's log, by its Message-ID (only mail sent from
+  // one of my own addresses). { available, recipients: [{ to, reached?, status, response, at, tries }] | null }.
+  r.get('/delivery', (req, res) => {
+    const text = readMaillog();
+    if (text === null) return res.json({ available: false, recipients: null });
+    res.json({ available: true, recipients: deliveryOf(parseMaillog(text), String(req.query.message_id || '').slice(0, 300), identities(req.user).map((i) => i.address)) });
+  });
 
   r.get('/messages/:uid', async (req, res) => {
     const folder = String(req.query.folder || 'INBOX');

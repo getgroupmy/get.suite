@@ -1962,3 +1962,16 @@ test('email log: an admin finds what happened to mail for the company, and only 
   // Another company doesn't see acme.com's refusals.
   assert.equal((await gina('GET', '/api/mail-admin/log?q=no-such-person')).body.messages.length, 0);
 });
+
+test('delivery in Sent: the sender sees each recipient delivered (from the mail server log); nobody else', async () => {
+  const subject = `Delivered? ${Date.now()}`;
+  assert.equal((await olivia('POST', '/api/mail/send', { to: 'gina@globex.com', cc: 'bob@acme.com', subject, text: 'x' })).status, 200);
+  const sent = await eventually(async () => ((await olivia('GET', `/api/mail/messages?folder=Sent&q=${encodeURIComponent(subject)}`)).body.messages || [])[0], 30000);
+  assert.ok(sent.messageId);
+  const d = await eventually(async () => {
+    const r = (await olivia('GET', `/api/mail/delivery?message_id=${encodeURIComponent(sent.messageId)}`)).body;
+    return r.recipients?.length === 2 && r.recipients.every((x) => x.status === 'delivered') && r;
+  }, 30000);
+  assert.deepEqual(d.recipients.map((x) => x.to), ['bob@acme.com', 'gina@globex.com']);
+  assert.equal((await gina('GET', `/api/mail/delivery?message_id=${encodeURIComponent(sent.messageId)}`)).body.recipients, null, 'a recipient doesn\'t see it');
+});

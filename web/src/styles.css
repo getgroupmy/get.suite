@@ -2491,3 +2491,9 @@ img.custom-emoji { width: 1.35em; height: 1.35em; object-fit: contain; vertical-
 
 .mail-log td { vertical-align: top; }
 .mail-log .mail-log-why { margin-top: 3px; overflow-wrap: anywhere; max-width: 460px; }
+
+.delivery { margin: 6px 0 10px; font-size: 13px; }
+.delivery summary { cursor: pointer; color: var(--muted); }
+.delivery.ok summary { color: var(--ok, #188038); }
+.delivery.attention summary { color: var(--warn-text, #b06000); font-weight: 600; }
+.delivery ul { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
