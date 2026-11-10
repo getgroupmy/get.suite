@@ -9028,3 +9028,14 @@ test('forms quizzes: answer feedback, shown after submitting (never before), for
   const quiet = (await b('POST', `/api/public/forms/${f.token}`, { answers: { cap: 'Paris' } })).body;
   assert.equal(quiet.feedback, undefined);
 });
+
+test('forms: the emailed copy of a quiz response has each question’s mark and feedback', async () => {
+  const { copyText, scoreOf, cleanQuestions } = await import('../src/routes/forms.js');
+  const questions = cleanQuestions([{ id: 'cap', type: 'short', title: 'Capital of France?', answer: 'Paris', feedback: { wrong: 'It’s Paris.' } },
+    { id: 'n', type: 'short', title: 'Your name' }]);
+  const answers = { cap: 'Lyon', n: 'Ann' };
+  const text = copyText({ title: 'Quiz', questions }, answers, scoreOf(questions, answers), 'https://ws/f/x?edit=k');
+  assert.match(text, /Your score: 0 \/ 1\n✗ Capital of France\? — It’s Paris\./);
+  assert.match(text, /To change your answers: https:\/\/ws\/f\/x\?edit=k$/);
+  assert.doesNotMatch(copyText({ title: 'Quiz', questions }, answers, null, null), /score|✗/, 'no score shown: no marks');
+});

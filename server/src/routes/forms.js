@@ -835,12 +835,19 @@ function emailTeam(form, answers, { by = null, who = null, email = null, link = 
   }
 }
 /** Email someone their answers, from the form's owner (when this server has email). */
+/** The text of someone's copy of their response: their answers, their score (with each question's ✓ or ✗ and
+ *  its feedback, for a quiz showing scores) and the link to change it. */
+export function copyText(form, answers, result, editLink) {
+  const marks = result ? form.questions.filter((qu) => qu.id in (result.right || {}))
+    .map((qu) => `${result.right[qu.id] ? '✓' : '✗'} ${qu.title || 'Untitled question'}${result.feedback?.[qu.id] ? ` — ${result.feedback[qu.id]}` : ''}`) : [];
+  return [`Thanks for filling in “${form.title}”. Here's what you sent:`, '', answersText(form.questions, answers),
+    ...(result ? ['', `Your score: ${result.score} / ${result.max}`, ...marks] : []),
+    ...(editLink ? ['', `To change your answers: ${editLink}`] : [])].join('\n');
+}
 function sendCopy(form, to, answers, result, editLink) {
   if (!mailEnabled()) return;
   const owner = q('SELECT id, username, name FROM users WHERE id = ?').get(form.owner_id);
-  const text = [`Thanks for filling in “${form.title}”. Here's what you sent:`, '', answersText(form.questions, answers),
-    ...(result ? ['', `Your score: ${result.score} / ${result.max}`] : []),
-    ...(editLink ? ['', `To change your answers: ${editLink}`] : [])].join('\n');
+  const text = copyText(form, answers, result, editLink);
   smtpFor(owner).sendMail({ from: { name: owner.name, address: owner.username }, to, subject: `Your response to “${form.title}”`, text })
     .catch((e) => console.error('[forms] copy of a response:', e.message));
 }
