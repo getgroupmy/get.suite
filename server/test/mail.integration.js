@@ -2010,3 +2010,30 @@ test('forms: sent to a group\'s address, each person in it is invited and counte
   assert.equal(sent.status, 200, JSON.stringify(sent.body));
   assert.deepEqual(sent.body.invites.map((i) => i.email).sort(), ['bob@acme.com', 'olivia@acme.com']);
 });
+
+test('data protection rules: a card number to outside is stopped; protected words ask first, then go', async () => {
+  const card = (await olivia('POST', '/api/dlp/rules', { name: 'Card numbers', detector: 'card', action: 'block', scope: 'outside' })).body;
+  const words = (await olivia('POST', '/api/dlp/rules', { name: 'Falcon', detector: 'words', words: 'Project Falcon', action: 'warn', scope: 'all' })).body;
+  assert.ok(card.id && words.id, JSON.stringify([card, words]));
+  try {
+    const stamp = Date.now();
+    const out = await olivia('POST', '/api/mail/send', { to: 'gina@globex.com', subject: `Pay ${stamp}`, text: 'Card 4111 1111 1111 1111' });
+    assert.equal(out.status, 400);
+    assert.match(out.body.error, /credit card number/);
+    // Inside the company the outside-only rule doesn't apply.
+    await bobBack();
+    assert.equal((await olivia('POST', '/api/mail/send', { to: 'bob@acme.com', subject: `Pay inside ${stamp}`, text: 'Card 4111 1111 1111 1111' })).status, 200);
+    // A warning: 409 with what was found, then sent when confirmed.
+    const warn = await olivia('POST', '/api/mail/send', { to: 'gina@globex.com', subject: `Falcon ${stamp}`, html: '<p>Project <b>Falcon</b> is on</p>' });
+    assert.equal(warn.status, 409);
+    assert.equal(warn.body.dlp.warn[0].rule.name, 'Falcon');
+    assert.equal((await olivia('POST', '/api/mail/send', { to: 'gina@globex.com', subject: `Falcon ${stamp}`, html: '<p>Project <b>Falcon</b> is on</p>', dlpConfirmed: true })).status, 200);
+    await eventually(async () => (await inbox(gina, `Falcon ${stamp}`))[0], 30000);
+    assert.equal((await inbox(gina, `Pay ${stamp}`)).length, 0, 'the blocked one never arrived');
+    const log = (await olivia('GET', '/api/audit?limit=50')).body;
+    assert.ok(JSON.stringify(log).includes('dlp.blocked') && JSON.stringify(log).includes('dlp.sent_anyway'));
+  } finally {
+    await olivia('DELETE', `/api/dlp/rules/${card.id}`);
+    await olivia('DELETE', `/api/dlp/rules/${words.id}`);
+  }
+});

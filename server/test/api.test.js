@@ -7849,3 +7849,26 @@ test('sharing a calendar of your own: colleagues see its events, or change them 
   await a('DELETE', `/api/events/calendars/${team.id}`);
   assert.deepEqual((await c('GET', '/api/events/calendars')).body, []);
 });
+
+test('data protection rules: admins add, try, change and delete them', async () => {
+  const { q } = await import('../src/db.js');
+  const dan = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'dlpdan', domain: 'acme.com', name: 'Dlp Dan', password: 'password123' })).status, 201);
+  await login(dan, 'dlpdan@acme.com');
+  assert.equal((await dan('GET', '/api/dlp/rules')).status, 403, 'admins only');
+  const cards = (await owner('POST', '/api/dlp/rules', { name: 'Card numbers', detector: 'card', action: 'block', scope: 'outside' })).body;
+  assert.equal(cards.action, 'block');
+  const words = (await owner('POST', '/api/dlp/rules', { name: 'Falcon', detector: 'words', words: 'Project Falcon', action: 'warn', scope: 'all' })).body;
+  assert.equal((await owner('POST', '/api/dlp/rules', { name: 'Bad', detector: 'pattern', pattern: '(a+)+$' })).status, 400);
+  assert.deepEqual((await owner('POST', '/api/dlp/test', { rule: { name: 't', detector: 'card' }, text: 'card 4111 1111 1111 1111' })).body, { found: ['…1111'] });
+  assert.deepEqual((await owner('GET', '/api/dlp/rules')).body.map((r) => r.name), ['Card numbers', 'Falcon']);
+
+  // Switched off, changed, deleted (sending itself is tested with real mail in mail.integration.js).
+  assert.equal((await owner('PATCH', `/api/dlp/rules/${cards.id}`, { enabled: false })).body.enabled, false);
+  assert.equal((await owner('PATCH', `/api/dlp/rules/${words.id}`, { words: ['Falcon', 'Orion'] })).body.words.length, 2);
+  assert.equal((await dan('PATCH', `/api/dlp/rules/${words.id}`, { enabled: false })).status, 403);
+  assert.ok(q("SELECT 1 FROM audit_log WHERE action = 'dlp.rule_add'").get());
+  await owner('DELETE', `/api/dlp/rules/${cards.id}`);
+  await owner('DELETE', `/api/dlp/rules/${words.id}`);
+  assert.deepEqual((await owner('GET', '/api/dlp/rules')).body, []);
+});

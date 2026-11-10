@@ -1050,6 +1050,10 @@ function Compose({ initial, shared = null, signatures = [], onClose, onSent, onD
   // Undo send: the window steps aside for a few seconds before the message really goes.
   const [waiting, setWaiting] = useState(false);
   const [accessGaps, setAccessGaps] = useState(null); // linked files some recipients can't open
+  // A company data protection rule that warns: what it found, and whether the sender said to send anyway.
+  const [dlpWarn, setDlpWarn] = useState(null); // { text, at }
+  const dlpOk = useRef(false);
+  const dlpStop = (err, at = null) => { if (err.status !== 409 || !err.data?.dlp) return false; reopen(); setDlpWarn({ text: err.message, at }); return true; };
   const pendingSend = useRef(null); // the send to do when the wait is over (or the page is left)
   useEffect(() => () => { pendingSend.current?.(); }, []); // leaving now sends straight away
   const [scheduling, setScheduling] = useState(false);
@@ -1094,7 +1098,7 @@ function Compose({ initial, shared = null, signatures = [], onClose, onSent, onD
   async function reallySend() {
     setBusy(true);
     await stopAutosave();
-    const body = payload();
+    const body = { ...payload(), ...(dlpOk.current && { dlpConfirmed: true }) };
     const mailbox = currentSharedMailbox(); // as it is now: leaving Mail (or switching mailbox) during the wait still sends from here
     const go = async () => {
       pendingSend.current = null;
@@ -1106,7 +1110,7 @@ function Compose({ initial, shared = null, signatures = [], onClose, onSent, onD
           : false;
         toast(`Sent to ${r.recipients} recipient${r.recipients === 1 ? '' : 's'}${archived ? ' and archived' : ''}`);
         onSent();
-      } catch (err) { toast(err.message, 'error'); reopen(); }
+      } catch (err) { if (!dlpStop(err)) { toast(err.message, 'error'); reopen(); } }
     };
     pendingSend.current = go;
     setWaiting(true);
@@ -1119,10 +1123,10 @@ function Compose({ initial, shared = null, signatures = [], onClose, onSent, onD
     setBusy(true);
     await stopAutosave();
     try {
-      const r = await post('/mail/send', { ...payload(), sendAt: at });
+      const r = await post('/mail/send', { ...payload(), sendAt: at, ...(dlpOk.current && { dlpConfirmed: true }) });
       toast(`Will be sent ${whenText(at)}`, 'info', { action: { label: 'Undo', onClick: () => del(`/mail/scheduled/${r.scheduled.id}`).then(() => { toast('Not sent: it’s back in Drafts'); onDraftsChanged?.(); }).catch((err) => toast(err.message, 'error')) } });
       onSent();
-    } catch (err) { toast(err.message, 'error'); reopen(); }
+    } catch (err) { if (!dlpStop(err, at)) { toast(err.message, 'error'); reopen(); } }
   }
 
   async function upload(list) {
@@ -1232,6 +1236,18 @@ function Compose({ initial, shared = null, signatures = [], onClose, onSent, onD
       {picking && <DrivePicker empty="No files found. (Docs and Sheets can't be attached yet; download them first.)" onClose={() => setPicking(false)} onPick={(file) => { if (!files.some((x) => x.id === file.id)) setFiles([...files, file]); setPicking(false); }} />}
     </Modal>
     {scheduling && <ScheduleDialog onClose={() => setScheduling(false)} onPick={(at) => { setScheduling(false); sendLater(at); }} />}
+    {dlpWarn && (
+      <Modal title="Check before sending" onClose={() => setDlpWarn(null)}>
+        <div className="stack">
+          <p style={{ margin: 0 }} role="alert">{dlpWarn.text}</p>
+          <p className="muted small" style={{ margin: 0 }}>Your company asks you to check messages like this before they go. If you send it anyway, that’s recorded.</p>
+          <div className="row end">
+            <button type="button" className="btn" onClick={() => setDlpWarn(null)}>Edit message</button>
+            <button type="button" className="btn primary" onClick={() => { const at = dlpWarn.at; dlpOk.current = true; setDlpWarn(null); if (at) sendLater(at); else reallySend(); }}>Send anyway</button>
+          </div>
+        </div>
+      </Modal>
+    )}
     {accessGaps && (
       <Modal title="Some recipients can't open a linked file" onClose={() => setAccessGaps(null)}>
         <div className="stack">

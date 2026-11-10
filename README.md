@@ -1044,6 +1044,16 @@ Once ports 465, 587 and 993 are open, bots will start guessing passwords within 
 
 **Admin → Announcements** puts a short notice at the top of every page for everyone in the company: an office closure, a maintenance window, a new policy. Give it the text (up to 300 characters), an optional link (a page in the suite like `/drive`, or an `https://` address), a style (**Info** or **Warning**, which is amber) and, if you like, an end date after which it disappears by itself. It shows up straight away for everyone signed in. Each person can dismiss it with the × and it stays gone for them. **Showing now** lists what's up, with how many people have dismissed each one, and **Take down** removes one for everyone. Posting and taking down are recorded in the activity log.
 
+## Data protection (admins)
+
+**Admin → Data protection** sets rules for what may not leave the company by email, so card numbers, bank details or a confidential project's name aren't sent out by mistake.
+
+- **What a rule looks for:** **credit card numbers** or **bank account numbers (IBAN)** (only ones with valid check digits, so order numbers, dates and phone numbers don't trip them), **words or phrases** (whole words, any capitals: *Project Falcon, payroll*), or **a pattern of your own** (a regular expression, such as a national ID number's shape; patterns that would be slow to check are refused).
+- **When:** sent to **people outside the company** (the usual choice: colleagues can still email each other) or to **anyone**.
+- **Then:** **Warn** asks the sender to check (*Check before sending*, with what was found, the numbers shown only by their last four characters); they can **Edit message** or **Send anyway**. **Block** stops the message, says why, and leaves it open to change. Blocks and sends after a warning are recorded in **Activity**.
+- It looks at the subject and the message of email sent from Workspace: replies, forwards, scheduled and confidential messages and mail merges (with the values filled in). **Try** in a rule's window checks it on some text first. Rules can be switched off without deleting them.
+- Mail sent from phone and computer mail apps (IMAP/SMTP) and files' contents aren't checked.
+
 ## Legal hold (admins)
 
 When the company has to keep someone's data (a dispute, an audit, an investigation), **Admin → Users → ⋮ → Put on legal hold…** keeps everything of theirs from being deleted for good until the hold is lifted. Say why (*Supplier dispute, case 2026-14*); it's recorded, with who did it and when, and shown when you point at the **On hold** label beside their name. They aren't told.

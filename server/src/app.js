@@ -35,6 +35,7 @@ import { apiTokenRoutes, bearerOf } from './apitokens.js';
 import orgRoutes from './routes/orgs.js';
 import mailAdminRoutes, { mtaStsPolicy } from './routes/mailAdmin.js';
 import webmailRoutes from './routes/webmail.js';
+import dlpRoutes from './routes/dlp.js';
 import securityRoutes from './routes/security.js';
 import { linkRoutes, publicLinkRoutes } from './routes/links.js';
 import davRoutes from './dav.js';
@@ -119,6 +120,7 @@ export function createApp({
   app.use('/api/mail-admin', requireAuth, mailAdminRoutes());
   app.use('/api/mail', requireAuth, webmailRoutes());
   app.use('/api/security', requireAuth, securityRoutes());
+  app.use('/api/dlp', requireAuth, dlpRoutes());
   app.use('/api/audit', requireAuth, auditRoutes());
   app.use('/api/files', requireAuth, fileRoutes({ maxUploadBytes }));
   app.use('/api/publish', requireAuth, publishRoutes());

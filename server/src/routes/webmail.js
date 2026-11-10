@@ -13,6 +13,7 @@ import { q, FILES_DIR, DATA_DIR } from '../db.js';
 import { sendTo } from '../hub.js';
 import { str, bad, notFound, HttpError, uid as newId, now } from '../util.js';
 import { keepIfHeld } from '../hold.js';
+import { checkMessage, describeHits } from '../dlp.js';
 import { parseMaillog, readMaillog, deliveryOf } from '../mail/maillog.js';
 import { roleFor, mayTakeAway } from '../access.js';
 import { mailEnabled, scheduleMailConfig, MAIL_HOSTNAME } from '../mail/config.js';
@@ -294,6 +295,29 @@ function identities(user) {
     if (a.targets.split(',').includes(user.username)) out.push({ address: a.address, name: user.name });
   }
   return out;
+}
+
+/**
+ * Data protection rules (Admin → Data protection) for a message about to go: a rule that blocks stops it
+ * (400); one that warns stops it with 409 and what it found until the sender confirms (confirmed: true),
+ * which is logged. Gives true when the response has been sent.
+ */
+function dataRulesStop(req, res, { recipients, subject, text, html, confirmed }) {
+  const ours = new Set(q('SELECT name FROM domains WHERE org_id = ?').all(req.user.org_id).map((d) => d.name.toLowerCase()));
+  const outside = recipients.some((a) => !ours.has(String(a).split('@')[1]?.toLowerCase()));
+  const hits = checkMessage(req.user.org_id, { subject, text, html }, outside);
+  const target = String(subject || '').slice(0, 120) || '(no subject)';
+  if (hits.block.length) {
+    audit(req, 'dlp.blocked', { target, details: { rules: hits.block.map((h) => h.rule.name), recipients: recipients.length } });
+    res.status(400).json({ error: `This message can’t be sent: it contains ${describeHits(hits.block)}. Your company doesn’t allow that${outside ? ' outside the company' : ''}.`, dlp: { block: hits.block } });
+    return true;
+  }
+  if (hits.warn.length && !confirmed) {
+    res.status(409).json({ error: `This message contains ${describeHits(hits.warn)}.`, dlp: { warn: hits.warn } });
+    return true;
+  }
+  if (hits.warn.length) audit(req, 'dlp.sent_anyway', { target, details: { rules: hits.warn.map((h) => h.rule.name), recipients: recipients.length } });
+  return false;
 }
 
 function parseRecipients(value, label) {
@@ -1482,6 +1506,8 @@ export default function webmailRoutes() {
 
   r.post('/send', async (req, res) => {
     const b = req.body;
+    const recipients = ['to', 'cc', 'bcc'].flatMap((k) => { try { return parseRecipients(b[k], k).map((a) => a.address); } catch { return []; } });
+    if (dataRulesStop(req, res, { recipients, subject: b.subject, text: b.text, html: b.html, confirmed: b.dlpConfirmed === true })) return;
     if (b.confidential && b.sendAt != null) throw bad('Confidential messages are sent straight away');
     // Later: the message is built now (attachments as they are now) and sent when it's due.
     if (b.sendAt !== undefined && b.sendAt !== null) {
@@ -1540,6 +1566,9 @@ export default function webmailRoutes() {
     const unknown = unknownPlaceholders(subject, text, Array.isArray(b.columns) ? b.columns.map(String) : []);
     if (unknown.length) throw bad(`No column called ${unknown.map((u) => `“${u}”`).join(', ')}`);
     const list = b.test ? [{ email: req.user.username, fields: rows[0].fields }] : rows;
+    // The rules look at the message as written and at the values filled into it.
+    const filled = rows.slice(0, MAX_MERGE).map((r) => Object.values(r?.fields || {}).join(' ')).join('\n');
+    if (dataRulesStop(req, res, { recipients: list.map((r) => String(r?.email || '').toLowerCase()), subject, text: `${text}\n${filled}`, confirmed: b.dlpConfirmed === true })) return;
     const sent = [], failed = [];
     for (const row of list) {
       const email = String(row?.email || '').trim().toLowerCase();

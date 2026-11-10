@@ -376,3 +376,16 @@ db.exec(`CREATE TABLE IF NOT EXISTS user_calendar_shares (
   created_at INTEGER NOT NULL,
   PRIMARY KEY (calendar_id, user_id)
 )`);
+// Data protection rules: what may not leave the company by email (dlp.js).
+db.exec(`CREATE TABLE IF NOT EXISTS dlp_rules (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  detector TEXT NOT NULL,
+  words TEXT,
+  pattern TEXT,
+  action TEXT NOT NULL DEFAULT 'warn',
+  scope TEXT NOT NULL DEFAULT 'outside',
+  enabled INTEGER NOT NULL DEFAULT 1,
+  created_at INTEGER NOT NULL
+)`);

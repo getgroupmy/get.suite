@@ -8,6 +8,7 @@ import GroupsAdmin from './GroupsAdmin.jsx';
 import { useAuth } from '../../App.jsx';
 import EmailAdmin from './EmailAdmin.jsx';
 import SecurityAdmin from './SecurityAdmin.jsx';
+import DataProtectionAdmin from './DataProtectionAdmin.jsx';
 import ActivityAdmin from './ActivityAdmin.jsx';
 import StorageAdmin from './StorageAdmin.jsx';
 import ReportsAdmin from './ReportsAdmin.jsx';
@@ -21,7 +22,7 @@ export default function Admin() {
   const [tab, setTab] = useState(() => new URLSearchParams(window.location.search).get('tab') || 'users'); // ?tab=activity (from a security alert)
   const [orgId, setOrgId] = useState(user.org_id); // which company the Users tab shows
   const mail = useMailStatus();
-  const tabs = [['users', 'Users'], ...(mail?.enabled ? [['email', 'Email']] : []), ['company', 'Company settings'], ['groups', 'Groups'], ['announcements', 'Announcements'], ['activity', 'Activity'], ['reports', 'Reports'], ['storage', 'Storage'], ['drives', 'Shared drives'], ['apps', 'Apps'], ...(user.is_super ? [['companies', 'All companies'], ['security', 'Security'], ['system', 'System']] : [])];
+  const tabs = [['users', 'Users'], ...(mail?.enabled ? [['email', 'Email'], ['dlp', 'Data protection']] : []), ['company', 'Company settings'], ['groups', 'Groups'], ['announcements', 'Announcements'], ['activity', 'Activity'], ['reports', 'Reports'], ['storage', 'Storage'], ['drives', 'Shared drives'], ['apps', 'Apps'], ...(user.is_super ? [['companies', 'All companies'], ['security', 'Security'], ['system', 'System']] : [])];
 
   return (
     <div className="page">
@@ -34,6 +35,7 @@ export default function Admin() {
       {tab === 'users' && <Users orgId={orgId} setOrgId={setOrgId} />}
       {tab === 'email' && <EmailAdmin orgId={orgId} orgPicker={user.is_super ? <OrgPicker orgId={orgId} setOrgId={setOrgId} /> : null} />}
       {tab === 'company' && <CompanySettings />}
+      {tab === 'dlp' && <DataProtectionAdmin />}
       {tab === 'groups' && <GroupsAdmin />}
       {tab === 'announcements' && <AnnouncementsAdmin />}
       {tab === 'activity' && <ActivityAdmin orgId={orgId} orgPicker={user.is_super ? <OrgPicker orgId={orgId} setOrgId={setOrgId} /> : null} />}
