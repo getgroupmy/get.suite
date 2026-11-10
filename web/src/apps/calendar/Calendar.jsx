@@ -6,6 +6,7 @@ import { useAuth } from '../../App.jsx';
 import { get, post, put, patch, del, onLive, postText, setCalendarOwner } from '../../api.js';
 import { localToday } from '../tasks/taskmath.js';
 import { eventLink } from '../chat/filelinks.js';
+import { LENGTHS, DEFAULT_CAL_PREFS, newEventMinutes, lengthLabel } from './calprefs.js';
 import Icon from '../../components/Icon.jsx';
 import DrivePicker, { openUrl } from '../../components/DrivePicker.jsx';
 import { Modal, useToast, Empty, Menu, PromptModal } from '../../components/ui.jsx';
@@ -148,6 +149,7 @@ function Calendar({ acting = null, managed = [], onPick }) {
   const [showTasks, setShowTasksState] = useState(savedTasks);
   const [bookingOpen, setBookingOpen] = useState(false);
   const [hoursOpen, setHoursOpen] = useState(false);
+  const [prefsOpen, setPrefsOpen] = useState(false);
   const [sharingOpen, setSharingOpen] = useState(false);
   const [printOpen, setPrintOpen] = useState(false);
   // Import a calendar file from Google Calendar, Outlook or Apple Calendar.
@@ -283,7 +285,8 @@ function Calendar({ acting = null, managed = [], onPick }) {
     const start = day
       ? new Date(base.getFullYear(), base.getMonth(), base.getDate(), 0, minutes ?? 9 * 60)
       : new Date(Math.ceil(Date.now() / 18e5) * 18e5);
-    setEditing({ title: '', start: start.getTime(), end: start.getTime() + 36e5, all_day: 0, color: COLORS[0], location: '', description: '' });
+    // As long as your Calendar settings say (a little shorter with speedy meetings).
+    setEditing({ title: '', start: start.getTime(), end: start.getTime() + newEventMinutes(me?.cal_prefs || DEFAULT_CAL_PREFS) * 60e3, all_day: 0, color: COLORS[0], location: '', description: '' });
   }
   const openDay = (d) => { setAnchor(startOfDay(d)); setView('day'); };
 
@@ -338,6 +341,7 @@ function Calendar({ acting = null, managed = [], onPick }) {
         <button type="button" className="subnav-item" onClick={() => setInsightsOpen(true)}><span aria-hidden="true" style={{ width: 24, textAlign: 'center' }}>📊</span><span className="grow">Time insights</span></button>
         <button type="button" className="subnav-item" onClick={() => setBookingOpen(true)}><Icon name="link" /><span className="grow">Booking pages</span></button>
         <button type="button" className="subnav-item" onClick={() => setHoursOpen(true)}><Icon name="clock" /><span className="grow">Working hours</span></button>
+        <button type="button" className="subnav-item" onClick={() => setPrefsOpen(true)}><Icon name="settings" /><span className="grow">Calendar settings</span></button>
         <button type="button" className="subnav-item" onClick={() => setSharingOpen(true)}><Icon name="share" /><span className="grow">Share my calendar</span></button>
         <button type="button" className="subnav-item" onClick={() => setPrintOpen(true)}><Icon name="print" /><span className="grow">Print or save as PDF</span></button>
         <button type="button" className="subnav-item" onClick={() => importInput.current.click()}><Icon name="upload" /><span className="grow">Import (.ics)</span></button>
@@ -457,6 +461,7 @@ function Calendar({ acting = null, managed = [], onPick }) {
       </section>
       {bookingOpen && <BookingPagesDialog onClose={() => setBookingOpen(false)} />}
       {hoursOpen && <WorkHoursDialog onClose={() => setHoursOpen(false)} />}
+      {prefsOpen && <CalPrefsDialog onClose={() => setPrefsOpen(false)} />}
       {printOpen && <PrintAgenda weekStart={weekStart} onClose={() => setPrintOpen(false)} />}
       {sharingOpen && <ShareCalendarDialog people={people.filter((p) => p.id !== me.id)} onClose={() => setSharingOpen(false)} />}
       {insightsOpen && <TimeInsights anchor={anchor} onClose={() => setInsightsOpen(false)} />}
@@ -699,6 +704,31 @@ export const reminderLabel = (m) => REMINDER_CHOICES.find(([v]) => v === m)?.[1]
   || (m % 1440 === 0 ? `${m / 1440} days before` : m % 60 === 0 ? `${m / 60} hours before` : `${m} minutes before`);
 
 /** The reminders of one event: a choice per reminder, and a button to add another (up to five). */
+/** Calendar settings: a new event's length, speedy meetings, and the reminders it starts with. */
+function CalPrefsDialog({ onClose }) {
+  const toast = useToast();
+  const { user, setUser } = useAuth();
+  const [p, setP] = useState(user?.cal_prefs || DEFAULT_CAL_PREFS);
+  const save = async () => {
+    try { const saved = await put('/users/me/calendar-prefs', p); setUser({ ...user, cal_prefs: saved }); toast('Calendar settings saved'); onClose(); } catch (e) { toast(e.message, 'error'); }
+  };
+  const mins = newEventMinutes(p);
+  return (
+    <Modal title="Calendar settings" onClose={onClose} footer={<><button type="button" className="btn" onClick={onClose}>Cancel</button><button type="button" className="btn primary" onClick={save}>Save</button></>}>
+      <div className="stack">
+        <label className="field"><span>Default event length</span>
+          <select value={p.length} onChange={(e) => setP({ ...p, length: Number(e.target.value) })}>
+            {LENGTHS.map((m) => <option key={m} value={m}>{lengthLabel(m)}</option>)}
+          </select></label>
+        <label className="check"><input type="checkbox" checked={!!p.speedy} onChange={(e) => setP({ ...p, speedy: e.target.checked })} /> Speedy meetings</label>
+        <p className="muted small" style={{ margin: 0 }}>Meetings of 30 minutes end 5 minutes early, and those of an hour or more 10 minutes early, leaving a gap before the next one. New events now last {mins === p.length ? lengthLabel(mins) : `${mins} minutes`}.</p>
+        <span className="small"><strong>Reminders</strong> on a new event (you can still change them on each one):</span>
+        <RemindersField value={p.reminders} onChange={(reminders) => setP({ ...p, reminders })} />
+      </div>
+    </Modal>
+  );
+}
+
 function RemindersField({ value, onChange }) {
   const set = (i, m) => onChange([...new Set(value.map((x, j) => (j === i ? m : x)))].sort((a, b) => a - b));
   return (
@@ -1094,7 +1124,8 @@ function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate }) {
   const [guests, setGuests] = useState((event.guests || []).map((g) => g.email));
   const [roomIds, setRoomIds] = useState((event.rooms || []).map((r) => r.id));
   // New timed events remind you 10 minutes before, as in other calendars.
-  const [reminders, setReminders] = useState(event.reminders ?? (event.id || event.all_day ? [] : [10]));
+  const { user: you } = useAuth();
+  const [reminders, setReminders] = useState(event.reminders ?? (event.id || event.all_day ? [] : (you?.cal_prefs || DEFAULT_CAL_PREFS).reminders));
   const [meet, setMeet] = useState(event.meet_code || null);
   const addMeet = async () => {
     try { setMeet((await post('/meet', { title: f.title })).code); } catch (e) { toast(e.message, 'error'); }
@@ -1640,7 +1671,6 @@ function useEventDrag(onDrop) {
 }
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-const LENGTHS = [15, 20, 30, 45, 60, 90, 120];
 const hhmm = (min) => `${pad(Math.floor(min / 60))}:${pad(min % 60)}`;
 const fromHhmm = (v) => { const [h, m] = String(v).split(':').map(Number); return h * 60 + (m || 0); };
 

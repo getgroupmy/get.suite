@@ -1,3 +1,4 @@
+import { cleanCalPrefs } from '../calprefs.js';
 import { syncCompanyGroupAliases } from '../groups.js';
 import { mailEnabled } from '../mail/config.js';
 import { digestFor, sendDigest } from '../digest.js';
@@ -257,6 +258,13 @@ export default function userRoutes() {
     }
     q('UPDATE users SET world_clocks = ? WHERE id = ?').run(zones.length ? JSON.stringify(zones) : null, req.user.id);
     res.json({ zones });
+  });
+
+  // Calendar settings: { length, speedy, reminders } (calprefs.js); { reset: true } goes back to the defaults.
+  r.put('/me/calendar-prefs', (req, res) => {
+    const p = req.body?.reset ? null : cleanCalPrefs(req.body || {});
+    q('UPDATE users SET cal_prefs = ? WHERE id = ?').run(p ? JSON.stringify(p) : null, req.user.id);
+    res.json(p || cleanCalPrefs(null));
   });
 
   // Mail: what opens after you archive, delete, move or snooze the message you're reading:

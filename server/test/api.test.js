@@ -9154,3 +9154,22 @@ test('mail: what opens after archiving the open message (newer, older, or back t
   await a('PUT', '/api/users/me/mail-advance', { advance: 'list' });
   assert.equal((await a('GET', '/api/auth/me')).body.user.mail_advance, 'list');
 });
+
+test('calendar settings: default length, speedy meetings and default reminders, per person', async () => {
+  const { cleanCalPrefs, newEventMinutes } = await import('../src/calprefs.js');
+  assert.deepEqual(cleanCalPrefs(null), { length: 60, speedy: false, reminders: [10] });
+  assert.deepEqual(cleanCalPrefs({ length: 33, speedy: 1, reminders: [30, 10, 10, -5, 99999, 'x'] }), { length: 60, speedy: true, reminders: [10, 30] });
+  assert.deepEqual(cleanCalPrefs({ reminders: [] }).reminders, [], 'none is allowed');
+  assert.equal(newEventMinutes({ length: 30, speedy: true }), 25);
+  assert.equal(newEventMinutes({ length: 60, speedy: true }), 50);
+  assert.equal(newEventMinutes({ length: 90, speedy: true }), 80);
+  assert.equal(newEventMinutes({ length: 20, speedy: true }), 20, 'too short to end early');
+  assert.equal(newEventMinutes({ length: 45, speedy: false }), 45);
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'calp', domain: 'acme.com', name: 'Cal P', password: 'password123' })).status, 201);
+  await login(a, 'calp@acme.com');
+  assert.deepEqual((await a('GET', '/api/auth/me')).body.user.cal_prefs, { length: 60, speedy: false, reminders: [10] });
+  assert.deepEqual((await a('PUT', '/api/users/me/calendar-prefs', { length: 30, speedy: true, reminders: [5, 1440] })).body, { length: 30, speedy: true, reminders: [5, 1440] });
+  assert.deepEqual((await a('GET', '/api/auth/me')).body.user.cal_prefs, { length: 30, speedy: true, reminders: [5, 1440] });
+  assert.deepEqual((await a('PUT', '/api/users/me/calendar-prefs', { reset: true })).body, { length: 60, speedy: false, reminders: [10] });
+});
