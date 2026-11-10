@@ -5,6 +5,7 @@ import { Router } from 'express';
 import crypto from 'node:crypto';
 import { docFromWord } from './word.js';
 import { docFromOdt } from './odt.js';
+import { sheetFromOds } from './ods.js';
 import { sheetFromExcel } from './excel.js';
 import { deckFromPowerPoint } from './powerpoint.js';
 import { docFromMarkdown } from './markdown.js';
@@ -15,10 +16,10 @@ const KEEP_MS = 15 * 60e3;
 const MAX_KEPT = 50;
 const kept = new Map(); // token -> { userId, pictures: Map(id -> { data, mime }), at }
 
-/** 'docx' | 'odt' | 'xlsx' | 'pptx' | 'md' for a file name that can be previewed this way, else null. */
+/** 'docx' | 'odt' | 'xlsx' | 'ods' | 'pptx' | 'md' for a file name that can be previewed this way, else null. */
 export function officeKind(filename) {
   const ext = (/\.([a-z]+)$/i.exec(String(filename || '')) || [])[1]?.toLowerCase();
-  return ext === 'markdown' ? 'md' : ['docx', 'odt', 'xlsx', 'pptx', 'md'].includes(ext) ? ext : null;
+  return ext === 'markdown' ? 'md' : ['docx', 'odt', 'xlsx', 'ods', 'pptx', 'md'].includes(ext) ? ext : null;
 }
 
 function forget() {
@@ -43,6 +44,7 @@ export async function officePreview(buf, filename, userId) {
     else if (type === 'odt') { kind = 'doc'; content = (await docFromOdt(buf, { savePicture })).doc; }
     else if (type === 'md') { kind = 'doc'; content = docFromMarkdown(buf.toString('utf8')); }
     else if (type === 'xlsx') { kind = 'sheet'; content = await sheetFromExcel(buf); }
+    else if (type === 'ods') { kind = 'sheet'; content = await sheetFromOds(buf); }
     else { kind = 'slides'; content = await deckFromPowerPoint(buf, { savePicture }); }
   } catch { throw bad("This file couldn't be read, so there's no preview: download it instead"); }
   forget();

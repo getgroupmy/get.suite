@@ -991,6 +991,7 @@ export default function SheetEditor() {
           { label: 'Compare spreadsheets', icon: 'sheet', onClick: () => setDialog({ type: 'compare-pick' }) },
           { label: 'Print or save as PDF', icon: 'print', onClick: () => setDialog({ type: 'print' }) },
           { label: 'Download as Excel (.xlsx)', icon: 'download', onClick: () => { window.location.href = `/api/files/${id}/export`; } },
+          { label: 'Download as OpenDocument (.ods)', icon: 'download', onClick: () => { window.location.href = `/api/files/${id}/export?format=ods`; } },
           { label: 'Download sheet as CSV', icon: 'download', onClick: exportCsv },
           !readOnly && { label: 'Import CSV as new sheet', icon: 'upload', onClick: importCsv },
         ]}
@@ -1261,7 +1262,7 @@ export default function SheetEditor() {
           onClose={() => { setDialog(null); gridRef.current?.focus(); }} />
       )}
       {dialog?.type === 'compare-pick' && <DrivePicker title="Compare with…" empty="No spreadsheets found."
-        accept={(x) => x.id !== file.id && (x.kind === 'sheet' || (x.kind === 'file' && /\.(xlsx|csv)$/i.test(x.name)))}
+        accept={(x) => x.id !== file.id && (x.kind === 'sheet' || (x.kind === 'file' && /\.(xlsx|ods|csv)$/i.test(x.name)))}
         onClose={() => { setDialog(null); gridRef.current?.focus(); }}
         onPick={async (f) => {
           setDialog({ type: 'compare-loading' });

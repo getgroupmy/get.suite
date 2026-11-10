@@ -8128,3 +8128,30 @@ test('OpenDocument: a document downloads as .odt; an .odt file previews, compare
   const s = (await owner('POST', '/api/files/new', { kind: 'sheet', name: 'Figures' })).body;
   assert.match((await owner('GET', `/api/files/${s.id}/export?format=odt`, undefined, { binary: true })).headers.get('content-disposition'), /Figures\.xlsx/);
 });
+
+test('OpenDocument: a spreadsheet downloads as .ods; an .ods file previews, compares and opens as a spreadsheet', async () => {
+  const s = (await owner('POST', '/api/files/new', { kind: 'sheet', name: 'Rent budget' })).body;
+  const c = (await owner('GET', `/api/files/${s.id}/content`)).body;
+  const content = { sheets: [{ name: 'Q1', cells: { A1: 'Rent', B1: '1200', A2: 'Total', B2: '=SUM(B1:B1)' }, formats: { A2: { b: 1 } } }] };
+  assert.equal((await owner('PUT', `/api/files/${s.id}/content`, { version: c.file.version, content })).status, 200);
+  const out = await owner('GET', `/api/files/${s.id}/export?format=ods`, undefined, { binary: true });
+  assert.equal(out.status, 200);
+  assert.equal(out.headers.get('content-type'), 'application/vnd.oasis.opendocument.spreadsheet');
+  assert.match(out.headers.get('content-disposition'), /Rent%20budget\.ods/);
+  const up = (await owner('POST', '/api/files/upload?name=Budget%20(Calc).ods', out.body, { raw: true })).body;
+  const pv = await owner('GET', `/api/files/${up.id}/preview`);
+  assert.equal(pv.status, 200, JSON.stringify(pv.body));
+  assert.deepEqual([pv.body.kind, pv.body.content.sheets[0].name, pv.body.content.sheets[0].cells.B2], ['sheet', 'Q1', '=SUM(B1:B1)']);
+  assert.equal((await owner('GET', `/api/files/${up.id}/as-sheet`)).body.content.sheets[0].cells.A1, 'Rent');
+  const opened = await owner('POST', `/api/files/${up.id}/open-as`);
+  assert.equal(opened.status, 201, JSON.stringify(opened.body));
+  assert.deepEqual([opened.body.kind, opened.body.name], ['sheet', 'Budget (Calc)']);
+  const back = (await owner('GET', `/api/files/${opened.body.id}/content`)).body.content.sheets[0];
+  assert.deepEqual(back.cells, content.sheets[0].cells);
+  assert.deepEqual(back.formats, { A2: { b: 1 } });
+  const junk = (await owner('POST', '/api/files/upload?name=Broken.ods', Buffer.from('nope'), { raw: true })).body;
+  assert.match((await owner('POST', `/api/files/${junk.id}/open-as`)).body.error, /OpenDocument spreadsheet/);
+  // Documents don't download as .ods.
+  const d = (await owner('POST', '/api/files/new', { kind: 'doc', name: 'Memo' })).body;
+  assert.match((await owner('GET', `/api/files/${d.id}/export?format=ods`, undefined, { binary: true })).headers.get('content-disposition'), /Memo\.docx/);
+});
