@@ -273,6 +273,21 @@ export default function noteRoutes() {
   });
 
   // Version history: newest first, with who saved each; restoring one keeps the current text first.
+  // A link to a note, pasted in Chat: what it says (the start of it, or the first items of a checklist), for a
+  // card. Only for its owner and the people it's shared with; a note in the trash counts as gone.
+  r.get('/:id/preview', (req, res) => {
+    const n = load(req.params.id, req.user);
+    if (n.trashed_at) throw notFound('Note not found');
+    const items = n.items ? JSON.parse(n.items) : null;
+    const body = n.body || '';
+    res.json({
+      id: n.id, title: n.title || '', color: n.color || null, archived: !!n.archived, mine: n.owner_id === req.user.id,
+      owner_name: q('SELECT name FROM users WHERE id = ?').get(n.owner_id)?.name || null,
+      body: items ? null : (body.length > 300 ? `${body.slice(0, 300)}…` : body),
+      items: items ? { done: items.filter((i) => i.done).length, total: items.length, first: items.slice(0, 5).map((i) => ({ text: String(i.text || '').slice(0, 120), done: !!i.done })) } : null,
+      pictures: picturesOf(n.id).length, updated_at: n.updated_at,
+    });
+  });
   r.get('/:id/versions', (req, res) => {
     const n = load(req.params.id, req.user);
     const names = new Map();

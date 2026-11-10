@@ -72,3 +72,20 @@ export function eventLinksIn(text, host = typeof window !== 'undefined' ? window
 /** The address of an event (for a repeating one, of this time of it). */
 export const eventLink = (e, origin = typeof window !== 'undefined' ? window.location.origin : '') =>
   `${origin}/calendar?event=${e.id}${e.rrule ? `&at=${e.start}` : ''}`;
+
+// Links to notes ("/notes?note=<id>", relative or on this server): [{ id }], each once, at most three.
+const NOTE_RE = /(?:^|[\s(<"'])(?:https?:\/\/([^\s/<>"']+))?\/notes\?note=([\w-]{6,})/g;
+
+export function noteLinksIn(text, host = typeof window !== 'undefined' ? window.location.host : '') {
+  const out = [];
+  for (const m of String(text || '').matchAll(NOTE_RE)) {
+    if (m[1] && m[1] !== host) continue;
+    if (out.some((x) => x.id === m[2])) continue;
+    out.push({ id: m[2] });
+    if (out.length === 3) break;
+  }
+  return out;
+}
+
+/** The address of a note. */
+export const noteLink = (n, origin = typeof window !== 'undefined' ? window.location.origin : '') => `${origin}/notes?note=${n.id}`;

@@ -5,6 +5,7 @@ import { useLocation, useNavigate } from 'react-router';
 import { get, post, patch, put, del, onLive } from '../../api.js';
 import { moveTo, moveBy } from './order.js';
 import { indent, moveItem, moveItemTo, tick as tickItem, untickAll, dropTicked } from './checklist.js';
+import { noteLink } from '../chat/filelinks.js';
 import Icon from '../../components/Icon.jsx';
 import { Avatar, Empty, Menu, Modal, PromptModal, ConfirmModal, useToast } from '../../components/ui.jsx';
 import { quickTimes, reminderText } from './remind.js';
@@ -64,6 +65,18 @@ export default function Notes() {
     navigate(location.pathname, { replace: true, state: null });
     get('/notes').then((list) => { if (!list.some((n) => n.id === id)) setWhere({ archived: true, label: null, reminders: false }); setEditing(id); }).catch(() => {});
   }, [location.state]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // A link to a note (/notes?note=<id>): open it (among the archived ones if it's there).
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const id = params.get('note');
+    if (!id) return;
+    navigate(location.pathname, { replace: true });
+    get('/notes').then((list) => {
+      if (list.some((n) => n.id === id)) { setEditing(id); return; }
+      return get(`/notes/${encodeURIComponent(id)}/preview`).then(() => { setWhere({ archived: true, label: null, reminders: false }); setEditing(id); });
+    }).catch(() => toast('That note isn’t one of yours or shared with you (or it was deleted)', 'error'));
+  }, [location.search]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const change = async (n, changes) => {
     setNotes((list) => list.map((x) => (x.id === n.id ? { ...x, ...changes } : x)));
@@ -291,6 +304,7 @@ function PickTime({ note, onPick, onClose }) {
 }
 
 function NoteCard({ note: n, drag = {}, dragging, picked, picking, onPick, onMove, first, last, onOpen, onChange, onArchive, onLabel, onShare, onCopy, onDelete, onRemind, onToDoc, onToTasks, onHistory }) {
+  const toast = useToast();
   const items = n.items || [];
   const open = items.filter((i) => !i.done);
   const done = items.filter((i) => i.done);
@@ -337,6 +351,7 @@ function NoteCard({ note: n, drag = {}, dragging, picked, picking, onPick, onMov
           ...(onMove ? [{ label: 'Move earlier', onClick: () => onMove(-1), disabled: first }, { label: 'Move later', onClick: () => onMove(1), disabled: last }] : []),
           ...(done.length ? [{ label: 'Untick all items', onClick: () => onChange({ items: untickAll(items) }) }, { label: `Delete ticked items (${done.length})`, onClick: () => onChange({ items: dropTicked(items) }) }] : []),
           { label: 'Labels…', onClick: onLabel },
+          { label: 'Copy link', icon: 'link', onClick: async () => { const url = noteLink(n); try { await navigator.clipboard.writeText(url); toast('Link to the note copied: people it’s shared with can open it'); } catch { toast(url); } } },
           { label: 'Make a copy', icon: 'copy', onClick: onCopy },
           { label: 'Version history', icon: 'clock', onClick: onHistory },
           { label: 'Copy to a document', icon: 'doc', onClick: onToDoc },

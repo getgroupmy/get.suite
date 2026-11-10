@@ -3,7 +3,7 @@ import { previewKind, stepPreview } from '../../components/viewkind.js';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { blocks, hasMarkup } from './markup.js';
-import { fileLinksIn, messageLinksIn, messageLink, taskLinksIn, eventLinksIn } from './filelinks.js';
+import { fileLinksIn, messageLinksIn, messageLink, taskLinksIn, eventLinksIn, noteLinksIn } from './filelinks.js';
 import { dueLabel } from '../tasks/taskmath.js';
 import { statusLine, untilText } from '../../components/status.js';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
@@ -658,6 +658,7 @@ function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit
         {!editing && <MessageCards text={m.body} self={m.id} />}
         {!editing && <TaskCards text={m.body} />}
         {!editing && <EventCards text={m.body} />}
+        {!editing && <NoteCards text={m.body} />}
         {!editing && m.preview && (
           <a className="link-preview" href={m.preview.url} target="_blank" rel="noopener noreferrer" aria-label={`Link: ${m.preview.title}`}>
             <span className="link-site small muted">{m.preview.site}</span>
@@ -1008,6 +1009,46 @@ function EventCards({ text }) {
             <span className="msg-card-meta"><Icon name="calendar" size={18} /> <strong>{x.title}</strong>{x.repeats && <span className="muted small" title="Repeats">↻</span>}</span>
             <span className="small">{eventWhen(start, end, x.all_day)}{x.location ? ` · ${x.location}` : ''}</span>
             <span className="muted small">{[answer, x.guests > 0 && `${x.guests} ${x.guests === 1 ? 'guest' : 'guests'}${x.yes ? `, ${x.yes} going` : ''}`].filter(Boolean).join(' · ')}</span>
+          </Link>
+        );
+      })}
+    </div>
+  );
+}
+
+// What each linked note is, fetched once per page (false: not yours or shared with you, or deleted).
+const noteInfo = new Map();
+const noteOf = (id) => {
+  if (!noteInfo.has(id)) noteInfo.set(id, get(`/notes/${id}/preview`).catch(() => false));
+  return noteInfo.get(id);
+};
+
+/** Links to notes in a message, shown as small note cards in the note's colour. */
+function NoteCards({ text }) {
+  const links = noteLinksIn(text);
+  const [info, setInfo] = useState({});
+  useEffect(() => {
+    let alive = true;
+    for (const l of links) noteOf(l.id).then((x) => { if (alive) setInfo((s) => ({ ...s, [l.id]: x })); });
+    return () => { alive = false; };
+  }, [text]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!links.length) return null;
+  return (
+    <div className="msg-cards">
+      {links.map((l) => {
+        const x = info[l.id];
+        if (x === undefined) return null;
+        if (!x) return <div key={l.id} className="msg-card none" role="note"><Icon name="lock" size={18} /> <span className="muted small">A note you can’t see (it isn’t shared with you, or it was deleted)</span></div>;
+        return (
+          <Link key={l.id} className="msg-card msg-note" style={x.color ? { background: x.color, color: '#202124', borderLeftColor: '#5f6368' } : undefined} to={`/notes?note=${x.id}`} aria-label={`Note: ${x.title || 'Untitled note'}`}>
+            <span className="msg-card-meta"><Icon name="note" size={18} /> <strong>{x.title || 'Untitled note'}</strong></span>
+            {x.items ? (
+              <span className="small msg-card-list">
+                {x.items.first.map((it, i) => <span key={i} className={it.done ? 'done' : ''}>{it.done ? '☑' : '☐'} {it.text}</span>)}
+                {x.items.total > x.items.first.length && <span className="muted">+ {x.items.total - x.items.first.length} more</span>}
+              </span>
+            ) : x.body ? <span className="msg-card-text small">{x.body}</span> : null}
+            <span className="muted small">{[x.mine ? 'Your note' : `${x.owner_name}’s note`, x.items && `${x.items.done}/${x.items.total} done`, x.pictures > 0 && `🖼 ${x.pictures}`, x.archived && 'Archived'].filter(Boolean).join(' · ')}</span>
           </Link>
         );
       })}

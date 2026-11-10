@@ -43,3 +43,11 @@ test('event links: with the time of a repeating one, on this server only', async
   assert.equal(eventLink({ id: 'e1', start: 5, rrule: null }, 'https://ws'), 'https://ws/calendar?event=e1');
   assert.equal(eventLink({ id: 'e1', start: 1764752400000, rrule: { freq: 'weekly' } }, 'https://ws'), 'https://ws/calendar?event=e1&at=1764752400000');
 });
+
+test('note links: on this server, each once', async () => {
+  const { noteLinksIn, noteLink } = await import('./filelinks.js');
+  assert.deepEqual(noteLinksIn('list: https://ws.example/notes?note=note123 and /notes?note=note123', 'ws.example'), [{ id: 'note123' }]);
+  assert.deepEqual(noteLinksIn('https://other.example/notes?note=note123', 'ws.example'), []);
+  assert.deepEqual(noteLinksIn('/notes /notes?note=ab', 'h'), []);
+  assert.deepEqual(noteLinksIn(noteLink({ id: 'note123' }, 'https://ws.example'), 'ws.example'), [{ id: 'note123' }]);
+});

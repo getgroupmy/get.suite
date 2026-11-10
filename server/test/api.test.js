@@ -8764,3 +8764,28 @@ test('event links: a card for the organiser, guests and people who can see the c
   assert.equal((await c('GET', `/api/events/${ev.id}/ics`)).status, 404);
   assert.equal((await b('GET', `/api/events/${ev.id}/ics`)).status, 200);
 });
+
+test('note links: a card for the owner and the people it is shared with, and nobody else', async () => {
+  const a = client(), b = client(), c = client();
+  for (const [local, name] of [['nlpa', 'Nl Ann'], ['nlpb', 'Nl Ben'], ['nlpc', 'Nl Cat']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'nlpa@acme.com');
+  const bid = (await login(b, 'nlpb@acme.com')).id;
+  await login(c, 'nlpc@acme.com');
+  const list = (await a('POST', '/api/notes', { title: 'Packing', items: [1, 2, 3, 4, 5, 6].map((i) => ({ text: `Item ${i}`, done: i === 1 })), color: '#fff8b8' })).body;
+  const text = (await a('POST', '/api/notes', { title: '', body: `Door code 4321. ${'z'.repeat(400)}` })).body;
+  await a('PUT', `/api/notes/${list.id}/shares`, { user_ids: [bid] });
+  const pa = (await a('GET', `/api/notes/${list.id}/preview`)).body;
+  assert.equal(pa.title, 'Packing'); assert.equal(pa.mine, true); assert.equal(pa.body, null);
+  assert.equal(pa.items.total, 6); assert.equal(pa.items.done, 1); assert.equal(pa.items.first.length, 5);
+  assert.deepEqual(pa.items.first[0], { text: 'Item 1', done: true });
+  const pb = await b('GET', `/api/notes/${list.id}/preview`);
+  assert.equal(pb.status, 200); assert.equal(pb.body.owner_name, 'Nl Ann'); assert.equal(pb.body.mine, false);
+  const pt = (await a('GET', `/api/notes/${text.id}/preview`)).body;
+  assert.ok(pt.body.startsWith('Door code 4321.') && pt.body.length === 301 && pt.items === null);
+  // Not shared: nothing.
+  assert.equal((await b('GET', `/api/notes/${text.id}/preview`)).status, 404);
+  assert.equal((await c('GET', `/api/notes/${list.id}/preview`)).status, 404);
+  // In the trash: gone, for the owner too.
+  await a('DELETE', `/api/notes/${text.id}`);
+  assert.equal((await a('GET', `/api/notes/${text.id}/preview`)).status, 404);
+});
