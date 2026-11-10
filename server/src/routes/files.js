@@ -1,4 +1,5 @@
 import { withoutSuggestions } from '../office/suggestions.js';
+import { combine, extract, parsePages, pageCount, typeOf } from '../pdftools.js';
 import { filesFor, fileRulesStop } from '../dlp.js';
 import crypto from 'node:crypto';
 import { sync as syncShares, setFileGroups, groupsOf } from '../groups.js';
@@ -666,6 +667,62 @@ export default function fileRoutes({ maxUploadBytes }) {
     const id = insertFile({ owner: req.user.id, parentId, name, kind, content, size: Buffer.byteLength(content) });
     if (parentId) notify(parentId, { type: 'files-changed', parent_id: parentId });
     res.status(201).json(publicFile(loadFile(id, req.user)));
+  });
+
+  // PDF tools. Combine: { ids: [PDFs and PNG/JPEG pictures, in order], name?, parent_id? } → one new PDF.
+  // Extract: { pages: '1-3, 5', rotate?: 90 | 180 | 270, name? } → a new PDF of those pages. The originals stay as they are.
+  const pdfPart = (id, user) => {
+    const f = loadFile(id, user);
+    const type = f.kind === 'file' && f.storage ? typeOf(f) : null;
+    if (!type) throw bad(`“${f.name}” isn’t a PDF or a PNG or JPEG picture`);
+    if (!mayTakeAway(f, f.role)) throw forbidden(`“${f.name}” can’t be copied: its owner turned off downloading`);
+    if (f.size > 100 * 1024 * 1024) throw bad(`“${f.name}” is too big (100 MB at most)`);
+    return { f, type };
+  };
+  const savePdf = (req, bytes, name, parentId) => {
+    checkQuota(req.user.org_id, bytes.length, req.user.id);
+    const storage = uid();
+    fs.writeFileSync(path.join(FILES_DIR, storage), bytes);
+    const id = insertFile({ owner: req.user.id, parentId, name: cleanName(/\.pdf$/i.test(name) ? name : `${name}.pdf`), kind: 'file', mime: 'application/pdf', size: bytes.length, storage });
+    if (parentId) notify(parentId, { type: 'files-changed', parent_id: parentId });
+    sendTo([req.user.id], { type: 'files-changed', parent_id: parentId });
+    return publicFile(loadFile(id, req.user));
+  };
+  /** Next to the first file when you can add there, else in your own Drive (or the folder asked for). */
+  const placeFor = (req, f) => (req.body?.parent_id !== undefined ? resolveParent(req.body.parent_id, req.user) : f.parent_id && atLeast(roleFor(f.parent_id, req.user.id) || '', 'editor') ? f.parent_id : null);
+  r.post('/pdf/combine', async (req, res) => {
+    const ids = Array.isArray(req.body?.ids) ? [...new Set(req.body.ids.map(String))] : [];
+    if (ids.length < 1 || ids.length > 50) throw bad('Choose between 1 and 50 files');
+    const parts = ids.map((id) => pdfPart(id, req.user));
+    if (parts.reduce((n, p) => n + p.f.size, 0) > 300 * 1024 * 1024) throw bad('Together they’re too big (300 MB at most)');
+    let bytes;
+    try { bytes = await combine(parts.map((p) => ({ bytes: fs.readFileSync(path.join(FILES_DIR, p.f.storage)), type: p.type, name: p.f.name }))); } catch (e) { throw bad(e.message); }
+    const first = parts[0].f;
+    const out = savePdf(req, Buffer.from(bytes), String(req.body.name || '').trim() || `${first.name.replace(/\.[a-z0-9]+$/i, '')} (combined)`, placeFor(req, first));
+    audit(req, 'pdf.combine', { target: out.name, details: { from: parts.map((p) => p.f.name) } });
+    res.status(201).json(out);
+  });
+  r.get('/:id/pdf/pages', async (req, res) => {
+    const { f, type } = pdfPart(req.params.id, req.user);
+    if (type !== 'pdf') throw bad('That isn’t a PDF');
+    try { res.json({ pages: await pageCount(fs.readFileSync(path.join(FILES_DIR, f.storage))) }); } catch { throw bad(`“${f.name}” couldn’t be read`); }
+  });
+  r.post('/:id/pdf/extract', async (req, res) => {
+    const { f, type } = pdfPart(req.params.id, req.user);
+    if (type !== 'pdf') throw bad('That isn’t a PDF');
+    const turn = Number(req.body?.rotate || 0);
+    if (![0, 90, 180, 270].includes(turn)) throw bad('Turn by 90, 180 or 270 degrees');
+    const buf = fs.readFileSync(path.join(FILES_DIR, f.storage));
+    let count;
+    try { count = await pageCount(buf); } catch { throw bad(`“${f.name}” couldn’t be read`); }
+    const want = parsePages(req.body?.pages, count);
+    if (want.error) throw bad(want.error);
+    let bytes;
+    try { bytes = await extract(buf, want.pages, turn); } catch { throw bad(`“${f.name}” couldn’t be read (is it password-protected?)`); }
+    const base = f.name.replace(/\.pdf$/i, '');
+    const out = savePdf(req, Buffer.from(bytes), String(req.body.name || '').trim() || `${base} (pages ${String(req.body.pages).replace(/\s+/g, '')})`, placeFor(req, f));
+    audit(req, 'pdf.extract', { target: out.name, details: { from: f.name, pages: want.pages.length } });
+    res.status(201).json(out);
   });
 
   // Raw streaming upload: POST /upload?parent=&name=  (body = file bytes)

@@ -270,6 +270,7 @@ export default function Drive() {
       f.role === 'owner' && f.owner_id === user.id && { label: 'Transfer ownership…', icon: 'person', onClick: () => setDialog({ type: 'transfer', file: f }) },
       canEdit && { label: 'Rename', icon: 'edit', onClick: () => setDialog({ type: 'rename', file: f }) },
       canEdit && { label: 'Move to…', icon: 'move', onClick: () => setDialog({ type: 'move', files: [f] }) },
+      pdfPart(f) === 'pdf' && !viewOnly(f) && { label: 'Extract pages…', icon: 'pdf', onClick: () => setDialog({ type: 'pdf-extract', files: [f] }) },
       f.kind !== 'folder' && !viewOnly(f) && { label: 'Make a copy', icon: 'copy', onClick: act(() => post(`/files/${f.id}/copy`), 'Copy made') },
       { label: 'Add shortcut to Drive…', icon: 'link', onClick: () => setDialog({ type: 'shortcut', files: [f] }) },
       f.kind !== 'folder' && '-',
@@ -369,6 +370,7 @@ export default function Drive() {
             </> : <>
               <button className="btn small" onClick={() => zip(picked.map((f) => f.id))}><Icon name="download" size={16} /> Download</button>
               <button className="btn small" onClick={() => bulk((f) => put(`/files/${f.id}/star`, { starred: true }), (n) => `Starred ${n}`)}><Icon name="star" size={16} /> Star</button>
+              {picked.every(pdfPart) && <button className="btn small" onClick={() => setDialog({ type: 'pdf-combine', files: picked })}><Icon name="pdf" size={16} /> Combine into PDF</button>}
               {picked.every((f) => f.role === 'owner' || f.role === 'editor') && <>
                 <button className="btn small" onClick={() => setDialog({ type: 'move', files: picked })}><Icon name="move" size={16} /> Move</button>
                 <button className="btn small danger" onClick={() => bulk((f) => patch(`/files/${f.id}`, { trashed: true }), (n) => `Moved ${n} to trash`)}><Icon name="trash" size={16} /> Trash</button>
@@ -458,6 +460,8 @@ export default function Drive() {
       {dialog?.type === 'share' && <ShareDialog file={dialog.file} onClose={() => setDialog(null)} />}
       {dialog?.type === 'approval' && <RequestApproval file={dialog.file} onClose={() => setDialog(null)} />}
       {dialog?.type === 'move' && <MoveDialog files={dialog.files} onClose={() => setDialog(null)} onMoved={() => { setChecked(new Set()); load(); }} />}
+      {dialog?.type === 'pdf-combine' && <PdfCombineDialog files={dialog.files} onClose={() => setDialog(null)} onDone={() => { setDialog(null); setChecked(new Set()); load(); }} />}
+      {dialog?.type === 'pdf-extract' && <PdfExtractDialog file={dialog.files[0]} onClose={() => setDialog(null)} onDone={() => { setDialog(null); load(); }} />}
       {dialog?.type === 'shortcut' && <MoveDialog shortcut files={dialog.files} onClose={() => setDialog(null)} onMoved={() => load()} />}
       {dialog?.type === 'preview' && <Preview file={dialog.file} comment={dialog.comment} onClose={() => setDialog(null)} onOpenAs={() => { setDialog(null); openAs(dialog.file); }} />}
       {requestsOpen && <AccessRequests list={requests} onClose={() => setRequestsOpen(false)} onChanged={() => { loadRequests(); load(); }} />}
@@ -490,6 +494,70 @@ function NoDownload({ file }) {
     <label className="check small" style={{ marginTop: 8 }}>
       <input type="checkbox" checked={!off} onChange={(e) => flip(e.target.checked)} /> Viewers and commenters can download, print and copy
     </label>
+  );
+}
+
+/** For the PDF tools: 'pdf', 'png' or 'jpg' for files they take (and may be copied), else null. */
+function pdfPart(f) {
+  if (f.kind !== 'file' || viewOnly(f)) return null;
+  const n = String(f.name || '').toLowerCase(), m = String(f.mime || '').toLowerCase();
+  return m === 'application/pdf' || n.endsWith('.pdf') ? 'pdf' : m === 'image/png' || n.endsWith('.png') ? 'png' : m === 'image/jpeg' || /\.jpe?g$/.test(n) ? 'jpg' : null;
+}
+
+/** Combine PDFs and pictures into one new PDF, in the order chosen here. */
+function PdfCombineDialog({ files, onClose, onDone }) {
+  const toast = useToast();
+  const [order, setOrder] = useState(files);
+  const [name, setName] = useState(`${files[0].name.replace(/\.[a-z0-9]+$/i, '')} (combined)`);
+  const [busy, setBusy] = useState(false);
+  const move = (i, d) => { const next = [...order]; [next[i], next[i + d]] = [next[i + d], next[i]]; setOrder(next); };
+  const go = async () => {
+    setBusy(true);
+    try { const r = await post('/files/pdf/combine', { ids: order.map((f) => f.id), name }); toast(`Made “${r.name}”`); onDone(r); }
+    catch (e) { toast(e.message, 'error'); setBusy(false); }
+  };
+  return (
+    <Modal title="Combine into one PDF" onClose={onClose} footer={<><button type="button" className="btn" onClick={onClose}>Cancel</button><button type="button" className="btn primary" disabled={busy || !name.trim()} onClick={go}>{busy ? 'Combining…' : 'Combine'}</button></>}>
+      <div className="stack">
+        <p className="muted small" style={{ margin: 0 }}>PDFs keep their pages; each picture gets a page of its own. The new PDF goes next to the first file; these stay as they are.</p>
+        <ol className="pdf-order" aria-label="Order">
+          {order.map((f, i) => (
+            <li key={f.id} className="row">
+              <span className="grow ellipsis">{f.name}</span>
+              <button type="button" className="icon-btn" aria-label={`Move ${f.name} up`} disabled={i === 0} onClick={() => move(i, -1)}>↑</button>
+              <button type="button" className="icon-btn" aria-label={`Move ${f.name} down`} disabled={i === order.length - 1} onClick={() => move(i, 1)}>↓</button>
+            </li>
+          ))}
+        </ol>
+        <label className="field"><span>Name of the new PDF</span><input value={name} onChange={(e) => setName(e.target.value)} maxLength={200} /></label>
+      </div>
+    </Modal>
+  );
+}
+
+/** Take some pages of a PDF out into a new one (turned, if you like). */
+function PdfExtractDialog({ file, onClose, onDone }) {
+  const toast = useToast();
+  const [count, setCount] = useState(null);
+  const [pages, setPages] = useState('');
+  const [rotate, setRotate] = useState('0');
+  const [name, setName] = useState('');
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { get(`/files/${file.id}/pdf/pages`).then((r) => { setCount(r.pages); setPages(r.pages > 1 ? `1-${r.pages}` : '1'); }).catch((e) => { toast(e.message, 'error'); onClose(); }); }, [file.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const go = async () => {
+    setBusy(true);
+    try { const r = await post(`/files/${file.id}/pdf/extract`, { pages, rotate: Number(rotate), ...(name.trim() && { name: name.trim() }) }); toast(`Made “${r.name}”`); onDone(r); }
+    catch (e) { toast(e.message, 'error'); setBusy(false); }
+  };
+  return (
+    <Modal title={`Extract pages from “${file.name}”`} onClose={onClose} footer={<><button type="button" className="btn" onClick={onClose}>Cancel</button><button type="button" className="btn primary" disabled={busy || count === null} onClick={go}>{busy ? 'Making…' : 'Make new PDF'}</button></>}>
+      <div className="stack">
+        <p className="muted small" style={{ margin: 0 }}>{count === null ? 'Counting pages…' : `It has ${count} page${count === 1 ? '' : 's'}.`} The pages you list go into a new PDF in that order, next to this one, which stays as it is.</p>
+        <label className="field"><span>Pages (like 1-3, 5, 8-)</span><input value={pages} onChange={(e) => setPages(e.target.value)} /></label>
+        <label className="field"><span>Turn them</span><select value={rotate} onChange={(e) => setRotate(e.target.value)}><option value="0">No</option><option value="90">A quarter turn clockwise</option><option value="180">Upside down</option><option value="270">A quarter turn anticlockwise</option></select></label>
+        <label className="field"><span>Name of the new PDF (optional)</span><input value={name} onChange={(e) => setName(e.target.value)} maxLength={200} placeholder={`${file.name.replace(/\.pdf$/i, '')} (pages …)`} /></label>
+      </div>
+    </Modal>
   );
 }
 

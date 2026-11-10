@@ -7919,3 +7919,35 @@ test('data protection rules for files: public links, publishing and sharing outs
     await owner('DELETE', `/api/dlp/rules/${falcon.id}`);
   }
 });
+
+test('PDF tools: combine PDFs and pictures into one; extract pages; the originals stay', async () => {
+  const { PDFDocument } = await import('pdf-lib');
+  const pdf = async (n, base) => { const d = await PDFDocument.create(); for (let i = 0; i < n; i++) d.addPage([base + i, 200]); return Buffer.from(await d.save()); };
+  const fay = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'pdffay', domain: 'acme.com', name: 'Pdf Fay', password: 'password123' })).status, 201);
+  await login(fay, 'pdffay@acme.com');
+  const folder = (await fay('POST', '/api/files/folder', { name: 'Contracts' })).body;
+  const up = async (name, bytes) => (await fay('POST', `/api/files/upload?name=${encodeURIComponent(name)}&parent=${folder.id}`, bytes, { raw: true, headers: { 'content-type': 'application/octet-stream' } })).body;
+  const a = await up('Contract.pdf', await pdf(2, 100));
+  const b = await up('Annex.pdf', await pdf(3, 300));
+  const png = await up('Signature.png', Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAYAAAD0In+KAAAAEUlEQVR4nGP4z8DwHwQZGBgAOe4F+3cjr+0AAAAASUVORK5CYII=', 'base64'));
+  const txt = await up('notes.txt', Buffer.from('hello'));
+  assert.equal((await fay('POST', '/api/files/pdf/combine', { ids: [a.id, txt.id] })).status, 400, 'only PDFs and pictures');
+  const made = await fay('POST', '/api/files/pdf/combine', { ids: [a.id, png.id, b.id] });
+  assert.equal(made.status, 201, JSON.stringify(made.body));
+  assert.equal(made.body.name, 'Contract (combined).pdf');
+  assert.equal(made.body.parent_id, folder.id, 'next to the first file');
+  const bytes = (await fay('GET', `/api/files/${made.body.id}/raw`, undefined, { binary: true })).body;
+  assert.equal((await PDFDocument.load(bytes)).getPageCount(), 6);
+  // Pages out of one, renamed, turned.
+  assert.deepEqual((await fay('GET', `/api/files/${b.id}/pdf/pages`)).body, { pages: 3 });
+  assert.match((await fay('POST', `/api/files/${b.id}/pdf/extract`, { pages: '4' })).body.error, /has 3 pages/);
+  const ex = await fay('POST', `/api/files/${b.id}/pdf/extract`, { pages: '3, 1', rotate: 90, name: 'Annex short' });
+  assert.equal(ex.status, 201, JSON.stringify(ex.body));
+  assert.equal(ex.body.name, 'Annex short.pdf');
+  const exPdf = await PDFDocument.load((await fay('GET', `/api/files/${ex.body.id}/raw`, undefined, { binary: true })).body);
+  assert.deepEqual(exPdf.getPages().map((p) => [Math.round(p.getWidth()), p.getRotation().angle]), [[302, 90], [300, 90]]);
+  assert.equal((await PDFDocument.load((await fay('GET', `/api/files/${b.id}/raw`, undefined, { binary: true })).body)).getPageCount(), 3, 'the original is unchanged');
+  // Someone without access can't use it.
+  assert.equal((await owner('POST', '/api/files/pdf/combine', { ids: [a.id] })).status, 404);
+});

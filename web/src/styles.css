@@ -2501,3 +2501,4 @@ img.custom-emoji { width: 1.35em; height: 1.35em; object-fit: contain; vertical-
 .pivot-values, .pivot-filter { border: 0; padding: 0; margin: 0; }
 .pivot-filter { list-style: none; max-height: 180px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
 .pill.danger { background: color-mix(in srgb, var(--danger) 14%, transparent); color: var(--danger); font-weight: 500; }
+.pdf-order { margin: 0; padding-left: 22px; display: grid; gap: 4px; max-height: 320px; overflow: auto; }
