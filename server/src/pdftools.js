@@ -1,6 +1,6 @@
 // PDF tools in Drive: several PDFs and pictures combined into one PDF, and chosen pages of a PDF
 // taken out into a new one (pdf-lib, all in this process). Nothing is changed in the originals.
-import { PDFDocument, degrees } from 'pdf-lib';
+import { PDFDocument, degrees, StandardFonts, rgb } from 'pdf-lib';
 
 export const MAX_PAGES = 2000;
 
@@ -107,4 +107,37 @@ export async function organize(bytes, list) {
     out.addPage(page);
   });
   return out.save();
+}
+
+/** Text the standard PDF fonts can write (Latin-1); anything else becomes '?'. */
+const latin = (s) => String(s ?? '').replace(/[^\x20-\x7e\xa0-\xff]/g, '?');
+/**
+ * The PDF with a Signatures page (or more) added at the end: for each signer their signature (drawn picture,
+ * or the name in italics when typed), name, email, when and from where, and the fingerprint of the PDF signed.
+ */
+export async function withSignaturesPage(bytes, { title, hash, signers }) {
+  const doc = await PDFDocument.load(bytes);
+  const font = await doc.embedFont(StandardFonts.Helvetica), bold = await doc.embedFont(StandardFonts.HelveticaBold), italic = await doc.embedFont(StandardFonts.TimesRomanItalic);
+  const [W, H] = [595.28, 841.89], M = 56;
+  let page = null, y = 0;
+  const newPage = () => {
+    page = doc.addPage([W, H]); y = H - M;
+    page.drawText('Signatures', { x: M, y: y - 18, size: 20, font: bold }); y -= 44;
+    page.drawText(latin(title).slice(0, 90), { x: M, y, size: 11, font }); y -= 16;
+    page.drawText(`Fingerprint (SHA-256) of the PDF signed: ${hash}`, { x: M, y, size: 7.5, font, color: rgb(0.35, 0.35, 0.35) }); y -= 28;
+  };
+  newPage();
+  for (const s of signers) {
+    if (y < M + 110) newPage();
+    page.drawLine({ start: { x: M, y }, end: { x: W - M, y }, thickness: 0.5, color: rgb(0.8, 0.8, 0.8) }); y -= 14;
+    if (s.image) {
+      const img = await doc.embedPng(Buffer.from(String(s.image).split(',')[1] || '', 'base64'));
+      const ratio = img.width / img.height, w = Math.min(ratio * 46, 220), h = w / ratio; // 46 high, or narrower when very wide
+      page.drawImage(img, { x: M, y: y - h, width: w, height: h });
+    } else page.drawText(latin(s.name), { x: M, y: y - 34, size: 26, font: italic, color: rgb(0.1, 0.14, 0.49) });
+    y -= 60;
+    page.drawText(latin(`${s.name} <${s.email}>`), { x: M, y, size: 10.5, font: bold }); y -= 14;
+    page.drawText(latin(`Signed ${new Date(s.signed_at).toUTCString()}${s.ip ? ` from ${s.ip}` : ''}${s.image ? ' (drawn)' : ' (typed)'}`), { x: M, y, size: 9, font, color: rgb(0.3, 0.3, 0.3) }); y -= 24;
+  }
+  return doc.save();
 }

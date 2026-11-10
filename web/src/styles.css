@@ -2517,3 +2517,5 @@ img.custom-emoji { width: 1.35em; height: 1.35em; object-fit: contain; vertical-
 .pdf-thumb-frame { display: grid; place-items: center; }
 .pdf-thumb canvas { background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, .25); transition: transform .15s; }
 .pdf-thumb-tools { gap: 2px; }
+.pdf-pages { display: grid; gap: 14px; justify-items: center; padding: 12px 0; }
+.pdf-pages-page { background: #fff; box-shadow: 0 1px 4px rgba(0, 0, 0, .2); }

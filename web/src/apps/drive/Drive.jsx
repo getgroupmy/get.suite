@@ -8,7 +8,7 @@ import Icon, { fileIcon } from '../../components/Icon.jsx';
 import { Menu, Modal, PromptModal, ConfirmModal, Empty, useToast, Avatar, useDataCheck } from '../../components/ui.jsx';
 import { useAuth } from '../../App.jsx';
 import { ApprovalsView, RequestApproval } from './Approvals.jsx';
-import { SignaturesView } from '../docs/Signatures.jsx';
+import { SignaturesView, SendForSignature } from '../docs/Signatures.jsx';
 import { CommentsPanel, useComments } from '../comments.jsx';
 import OfficePreview from '../OfficePreview.jsx';
 import ZipContents from '../ZipContents.jsx';
@@ -272,6 +272,7 @@ export default function Drive() {
       f.role === 'owner' && f.owner_id === user.id && { label: 'Transfer ownership…', icon: 'person', onClick: () => setDialog({ type: 'transfer', file: f }) },
       canEdit && { label: 'Rename', icon: 'edit', onClick: () => setDialog({ type: 'rename', file: f }) },
       canEdit && { label: 'Move to…', icon: 'move', onClick: () => setDialog({ type: 'move', files: [f] }) },
+      pdfPart(f) === 'pdf' && ['owner', 'editor'].includes(f.role) && !f.locked_at && { label: 'Send for signature…', icon: 'send', onClick: () => setDialog({ type: 'pdf-send-sign', files: [f] }) },
       pdfPart(f) === 'pdf' && { label: 'Fill & sign…', icon: 'edit', onClick: () => setDialog({ type: 'pdf-sign', files: [f] }) },
       pdfPart(f) === 'pdf' && { label: 'Organise pages…', icon: 'pdf', onClick: () => setDialog({ type: 'pdf-organize', files: [f] }) },
       pdfPart(f) === 'pdf' && !viewOnly(f) && { label: 'Extract pages…', icon: 'pdf', onClick: () => setDialog({ type: 'pdf-extract', files: [f] }) },
@@ -467,6 +468,7 @@ export default function Drive() {
       {dialog?.type === 'pdf-combine' && <PdfCombineDialog files={dialog.files} onClose={() => setDialog(null)} onDone={() => { setDialog(null); setChecked(new Set()); load(); }} />}
       {dialog?.type === 'pdf-sign' && <Suspense fallback={null}><PdfSignDialog file={dialog.files[0]} onClose={() => setDialog(null)} onDone={() => { setDialog(null); load(); }} /></Suspense>}
       {dialog?.type === 'pdf-organize' && <Suspense fallback={null}><PdfOrganizeDialog file={dialog.files[0]} canEdit={['owner', 'editor'].includes(dialog.files[0].role) && !dialog.files[0].locked_at} onClose={() => setDialog(null)} onDone={() => { setDialog(null); load(); }} /></Suspense>}
+      {dialog?.type === 'pdf-send-sign' && <SendForSignature file={dialog.files[0]} onClose={(sent) => { setDialog(null); if (sent) load(); }} />}
       {dialog?.type === 'pdf-extract' && <PdfExtractDialog file={dialog.files[0]} onClose={() => setDialog(null)} onDone={() => { setDialog(null); load(); }} />}
       {dialog?.type === 'shortcut' && <MoveDialog shortcut files={dialog.files} onClose={() => setDialog(null)} onMoved={() => load()} />}
       {dialog?.type === 'preview' && <Preview file={dialog.file} comment={dialog.comment} onClose={() => setDialog(null)} onOpenAs={() => { setDialog(null); openAs(dialog.file); }} />}

@@ -7998,3 +7998,44 @@ test('PDF organise pages: reorder, turn, leave out; as a copy or a new version (
   assert.equal((await viewer('POST', `/api/files/${f.id}/pdf/organize`, { pages: [{ page: 0 }], as: 'version' })).status, 403);
   assert.equal((await viewer('POST', `/api/files/${f.id}/pdf/organize`, { pages: [{ page: 0 }], as: 'copy' })).status, 201);
 });
+
+test('PDF sent for signature: signers see the PDF as sent; when all have signed, a signed copy with a Signatures page', async () => {
+  const { PDFDocument } = await import('pdf-lib');
+  const d = await PDFDocument.create(); d.addPage([595, 842]); d.addPage([595, 842]);
+  const ida = client(), jon = client(), kai = client();
+  for (const [local, name] of [['sigida', 'Ida Sender'], ['sigjon', 'Jon Signer'], ['sigkai', 'Kai Signer']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(ida, 'sigida@acme.com'); await login(jon, 'sigjon@acme.com'); await login(kai, 'sigkai@acme.com');
+  const f = (await ida('POST', '/api/files/upload?name=Lease.pdf', Buffer.from(await d.save()), { raw: true, headers: { 'content-type': 'application/octet-stream' } })).body;
+  const txt = (await ida('POST', '/api/files/upload?name=notes.txt', 'hi', { raw: true, headers: { 'content-type': 'text/plain' } })).body;
+  assert.match((await ida('POST', '/api/signatures', { file_id: txt.id, signers: ['sigjon@acme.com'] })).body.error, /documents and PDFs/);
+  const sent = await ida('POST', '/api/signatures', { file_id: f.id, signers: ['sigjon@acme.com', 'sigkai@acme.com'], in_order: true, message: 'Please sign the lease' });
+  assert.equal(sent.status, 201, JSON.stringify(sent.body));
+  assert.equal(sent.body.pdf, true);
+  assert.equal((await ida('GET', `/api/files/${f.id}`)).body.locked_at > 0, true, 'locked while it is out');
+  const link = async (who) => (await who('GET', '/api/signatures')).body.waiting[0]?.link;
+  const jonLink = await link(jon);
+  assert.ok(jonLink);
+  assert.equal(await link(kai), undefined, 'in order: Kai waits');
+  const token = jonLink.split('/').pop();
+  const pub = (await fetch(`${base}/api/public/sign/${token}`).then((r) => r.json()));
+  assert.deepEqual(pub.content, { pdf: true });
+  const pdfBytes = Buffer.from(await (await fetch(`${base}/api/public/sign/${token}/pdf`)).arrayBuffer());
+  assert.equal((await PDFDocument.load(pdfBytes)).getPageCount(), 2, 'the PDF as sent, through the private link');
+  const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAYAAAD0In+KAAAAEUlEQVR4nGP4z8DwHwQZGBgAOe4F+3cjr+0AAAAASUVORK5CYII=';
+  const signAs = (tok, body) => fetch(`${base}/api/public/sign/${tok}`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-requested-with': 'nas-workspace' }, body: JSON.stringify(body) }).then(async (r) => ({ status: r.status, body: await r.json() }));
+  assert.equal((await signAs(token, { name: 'Jon Signer', image: png, agree: true })).status, 200);
+  const kaiTok = (await link(kai)).split('/').pop();
+  const done = await signAs(kaiTok, { name: 'Kai Signer', image: null, agree: true });
+  assert.equal(done.body.status, 'complete');
+  // The signed copy: beside the original, owned by the sender, the PDF's pages plus a Signatures page.
+  const mine = (await ida('GET', '/api/signatures')).body.sent[0];
+  assert.equal(mine.status, 'complete');
+  assert.ok(mine.signed_file_id);
+  const signed = (await ida('GET', `/api/files/${mine.signed_file_id}`)).body;
+  assert.equal(signed.name, 'Lease (signed).pdf');
+  const out = await PDFDocument.load((await ida('GET', `/api/files/${mine.signed_file_id}/raw`, undefined, { binary: true })).body);
+  assert.equal(out.getPageCount(), 3);
+  assert.equal(mine.changed_since, false);
+  const bell = JSON.stringify((await ida('GET', '/api/notifications')).body);
+  assert.ok(bell.includes('Everyone has signed “Lease.pdf”') && bell.includes('/drive/signatures'));
+});

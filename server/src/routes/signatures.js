@@ -15,6 +15,33 @@ import { recordActivity } from '../fileactivity.js';
 import { mailEnabled } from '../mail/config.js';
 import { smtpFor } from '../mail/imap.js';
 import { saveNow } from '../collab.js';
+import fs from 'node:fs';
+import path from 'node:path';
+import { FILES_DIR } from '../db.js';
+import { typeOf, withSignaturesPage } from '../pdftools.js';
+
+// A PDF sent for signature: its content is { pdf: <storage of a frozen copy> }, and its hash that of the bytes.
+const pdfOf = (content) => { try { const c = JSON.parse(content || '{}'); return c.pdf ? c.pdf : null; } catch { return null; } };
+const sha = (b) => crypto.createHash('sha256').update(b).digest('hex');
+/** Where the people on it open the file: the document, or for a PDF Drive's Signatures. */
+const linkTo = (fileId) => (q('SELECT kind FROM files WHERE id = ?').get(fileId)?.kind === 'doc' ? `/docs/${fileId}` : '/drive/signatures');
+/** Once everyone has signed a PDF: "… (signed).pdf" beside it, with a Signatures page at the end. */
+async function saveSignedPdf(r) {
+  const frozen = pdfOf(r.content);
+  const f = q('SELECT * FROM files WHERE id = ?').get(r.file_id);
+  const by = q('SELECT * FROM users WHERE id = ?').get(r.requested_by);
+  if (!frozen || !f || !by) return null;
+  const signers = q('SELECT name, email, signed_at, ip, image FROM sign_signers WHERE request_id = ? ORDER BY position').all(r.id);
+  const bytes = Buffer.from(await withSignaturesPage(fs.readFileSync(path.join(FILES_DIR, frozen)), { title: r.title, hash: r.hash, signers }));
+  const { insertFile } = await import('./files.js');
+  const storage = uid();
+  fs.writeFileSync(path.join(FILES_DIR, storage), bytes);
+  const parentId = f.parent_id && atLeast(roleFor(f.parent_id, by.id) || '', 'editor') ? f.parent_id : null;
+  const id = insertFile({ owner: by.id, parentId, name: `${f.name.replace(/\.pdf$/i, '')} (signed).pdf`, kind: 'file', mime: 'application/pdf', size: bytes.length, storage });
+  q('UPDATE sign_requests SET signed_file_id = ? WHERE id = ?').run(id, r.id);
+  sendTo([by.id], { type: 'files-changed', parent_id: parentId });
+  return id;
+}
 
 q(`CREATE TABLE IF NOT EXISTS sign_requests (
   id TEXT PRIMARY KEY,
@@ -47,6 +74,7 @@ for (const [col, type] of [['declined_by', 'TEXT'], ['decline_reason', 'TEXT']])
   if (!q('PRAGMA table_info(sign_requests)').all().some((c) => c.name === col)) q(`ALTER TABLE sign_requests ADD COLUMN ${col} ${type}`).run();
 }
 // in_order: signers sign one after another, each asked once the one before has signed.
+if (!q('PRAGMA table_info(sign_requests)').all().some((c) => c.name === 'signed_file_id')) q('ALTER TABLE sign_requests ADD COLUMN signed_file_id TEXT').run();
 if (!q('PRAGMA table_info(sign_requests)').all().some((c) => c.name === 'in_order')) q('ALTER TABLE sign_requests ADD COLUMN in_order INTEGER NOT NULL DEFAULT 0').run();
 
 /** Whose turn it is: everyone still to sign, or (in order) just the first of them. */
@@ -72,9 +100,12 @@ export function describe(r, { forUser = null } = {}) {
   if (!r) return null;
   const signers = q('SELECT email, user_id, signed_at, name, image, ip, token FROM sign_signers WHERE request_id = ? ORDER BY position').all(r.id);
   const by = q('SELECT id, name, username FROM users WHERE id = ?').get(r.requested_by);
-  const cur = q('SELECT content FROM files WHERE id = ?').get(r.file_id)?.content || '{}';
+  const file = q('SELECT content, storage FROM files WHERE id = ?').get(r.file_id);
+  const isPdf = !!pdfOf(r.content);
+  const curHash = isPdf ? (file?.storage ? sha(fs.readFileSync(path.join(FILES_DIR, file.storage))) : '') : sha(file?.content || '{}');
   return { id: r.id, file_id: r.file_id, title: r.title, message: r.message, status: r.status, hash: r.hash, created_at: r.created_at, completed_at: r.completed_at, requested_by: by,
-    changed_since: crypto.createHash('sha256').update(cur).digest('hex') !== r.hash, // the document isn't what was signed any more
+    changed_since: curHash !== r.hash, // the document isn't what was signed any more
+    pdf: isPdf, signed_file_id: r.signed_file_id || null,
     in_order: !!r.in_order, declined_by: r.declined_by || null, decline_reason: r.decline_reason || null,
     signers: signers.map(({ token, ...s }) => ({ ...s, ...(forUser && s.user_id === forUser && !s.signed_at && r.status === 'pending' && turnOf(r).some((t) => t.token === token) && { my_link: `/sign/${token}` }) })) };
 }
@@ -129,7 +160,8 @@ export default function signatureRoutes() {
     const f = q('SELECT * FROM files WHERE id = ? AND trashed = 0').get(String(req.body?.file_id || ''));
     const role = f && roleFor(f.id, req.user.id);
     if (!role) throw notFound('File not found');
-    if (f.kind !== 'doc') throw bad('Only documents can be sent for signature');
+    const isPdf = f.kind === 'file' && typeOf(f) === 'pdf' && f.storage;
+    if (f.kind !== 'doc' && !isPdf) throw bad('Only documents and PDFs can be sent for signature');
     if (!atLeast(role, 'editor')) throw forbidden('Only people who can edit the document can send it for signature');
     if (q("SELECT 1 FROM sign_requests WHERE file_id = ? AND status = 'pending'").get(f.id)) throw bad('It is already out for signature. Cancel that first.');
     if (f.locked_at) throw new HttpError(423, 'The document is locked. Unlock it before sending it for signature.');
@@ -145,12 +177,22 @@ export default function signatureRoutes() {
       if (!u && !mailEnabled()) throw bad(`${email} isn't on this server, and email is off, so they couldn't be sent the link`);
       return { email, user: u || null, token: crypto.randomBytes(18).toString('base64url') };
     });
-    saveNow(f.id); // what's being edited right now is what gets signed
-    const content = q('SELECT content FROM files WHERE id = ?').get(f.id).content || '{}';
+    let content, hash;
+    if (isPdf) { // a frozen copy of the PDF as sent: what's signed, whatever happens to the file
+      const bytes = fs.readFileSync(path.join(FILES_DIR, f.storage));
+      const copy = uid();
+      fs.writeFileSync(path.join(FILES_DIR, copy), bytes);
+      content = JSON.stringify({ pdf: copy });
+      hash = sha(bytes);
+    } else {
+      saveNow(f.id); // what's being edited right now is what gets signed
+      content = q('SELECT content FROM files WHERE id = ?').get(f.id).content || '{}';
+      hash = sha(content);
+    }
     const id = uid(), t = now();
     tx(() => {
       q('INSERT INTO sign_requests (id, file_id, requested_by, title, message, content, hash, created_at, in_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-        .run(id, f.id, req.user.id, f.name, str(req.body?.message ?? '', { max: 1000 }) || '', content, crypto.createHash('sha256').update(content).digest('hex'), t, req.body?.in_order ? 1 : 0);
+        .run(id, f.id, req.user.id, f.name, str(req.body?.message ?? '', { max: 1000 }) || '', content, hash, t, req.body?.in_order ? 1 : 0);
       people.forEach((p, i) => q('INSERT INTO sign_signers (request_id, email, user_id, token, position) VALUES (?, ?, ?, ?, ?)').run(id, p.email, p.user?.id || null, p.token, i));
       q('UPDATE files SET locked_by = ?, locked_at = ? WHERE id = ?').run(req.user.id, t, f.id);
     });
@@ -190,7 +232,7 @@ export function publicSignRoutes() {
     return s;
   };
   const shown = (s) => ({
-    title: s.title, message: s.message, requested_by: s.by_name, status: s.status, hash: s.hash, content: JSON.parse(s.content),
+    title: s.title, message: s.message, requested_by: s.by_name, status: s.status, hash: s.hash, content: pdfOf(s.content) ? { pdf: true } : JSON.parse(s.content),
     me: { email: s.email, signed_at: s.signed_at, name: s.name },
     in_order: !!s.in_order, declined_by: s.declined_by || null, decline_reason: s.decline_reason || null,
     waiting_for: s.status === 'pending' && !s.signed_at && !turnOf({ id: s.rid, in_order: s.in_order }).some((t) => t.token === s.token)
@@ -198,6 +240,13 @@ export function publicSignRoutes() {
     signers: q('SELECT email, name, signed_at FROM sign_signers WHERE request_id = ? ORDER BY position').all(s.rid).map((x) => ({ name: x.name, email: x.email, signed: !!x.signed_at })),
   });
   r.get('/:token', (req, res) => res.json(shown(find(req.params.token))));
+  // A PDF as it was sent, for the signing page to show.
+  r.get('/:token/pdf', (req, res) => {
+    const frozen = pdfOf(find(req.params.token).content);
+    if (!frozen) throw notFound('Not a PDF');
+    res.type('application/pdf').setHeader('Cache-Control', 'private, no-store');
+    res.sendFile(path.join(FILES_DIR, frozen));
+  });
   // Sign: { name, image (a PNG data URL, or null for a typed signature), agree: true }.
   r.post('/:token', async (req, res) => {
     const s = find(req.params.token);
@@ -215,12 +264,15 @@ export function publicSignRoutes() {
       done = !q('SELECT 1 FROM sign_signers WHERE request_id = ? AND signed_at IS NULL').get(s.request_id);
       if (done) q("UPDATE sign_requests SET status = 'complete', completed_at = ? WHERE id = ?").run(t, s.request_id);
     });
-    const reqRow = q('SELECT * FROM sign_requests WHERE id = ?').get(s.request_id);
+    let reqRow = q('SELECT * FROM sign_requests WHERE id = ?').get(s.request_id);
+    if (done && pdfOf(reqRow.content)) { try { await saveSignedPdf(reqRow); } catch (e) { console.error('[sign] signed PDF:', e.message); } reqRow = q('SELECT * FROM sign_requests WHERE id = ?').get(s.request_id); }
     const requester = s.requested_by && q('SELECT * FROM users WHERE id = ?').get(s.requested_by);
     if (!done && reqRow.in_order && requester) for (const p of turnOf(reqRow)) await askToSign(requester, reqRow, p, baseUrl(req)); // the next one's turn
     if (s.requested_by) {
-      bell([s.requested_by], { kind: 'share', title: done ? `Everyone has signed “${s.title}”` : `${name} signed “${s.title}”`, body: null, link: `/docs/${s.file_id}`, actor: name });
-      if (done && requester) await mailSigner(requester, requester.username, `Signed by everyone: ${s.title}`, `Everyone has signed “${s.title}”.\n\nThe document is locked, with the signatures, in Workspace: ${baseUrl(req)}/docs/${s.file_id}`);
+      bell([s.requested_by], { kind: 'share', title: done ? `Everyone has signed “${s.title}”` : `${name} signed “${s.title}”`, body: null, link: linkTo(s.file_id), actor: name });
+      if (done && requester) await mailSigner(requester, requester.username, `Signed by everyone: ${s.title}`, reqRow.signed_file_id
+        ? `Everyone has signed “${s.title}”.\n\nThe signed PDF, with a page of signatures at the end, is in your Drive: ${baseUrl(req)}/drive/signatures`
+        : `Everyone has signed “${s.title}”.\n\nThe document is locked, with the signatures, in Workspace: ${baseUrl(req)}/docs/${s.file_id}`);
     }
     tell(reqRow);
     res.json(shown(find(req.params.token)));
@@ -238,9 +290,9 @@ export function publicSignRoutes() {
     });
     const reqRow = q('SELECT * FROM sign_requests WHERE id = ?').get(s.rid);
     if (s.requested_by) {
-      bell([s.requested_by], { kind: 'share', title: `${who} declined to sign “${s.title}”`, body: reason, link: `/docs/${s.file_id}`, actor: who });
+      bell([s.requested_by], { kind: 'share', title: `${who} declined to sign “${s.title}”`, body: reason, link: linkTo(s.file_id), actor: who });
       const requester = q('SELECT * FROM users WHERE id = ?').get(s.requested_by);
-      if (requester) await mailSigner(requester, requester.username, `Declined: ${s.title}`, `${who} (${s.email}) declined to sign “${s.title}”.${reason ? `\n\nTheir reason: ${reason}` : ''}\n\nThe document is unlocked again: ${baseUrl(req)}/docs/${s.file_id}`);
+      if (requester) await mailSigner(requester, requester.username, `Declined: ${s.title}`, `${who} (${s.email}) declined to sign “${s.title}”.${reason ? `\n\nTheir reason: ${reason}` : ''}\n\nThe document is unlocked again: ${baseUrl(req)}${linkTo(s.file_id)}`);
     }
     sendTo(new Set(peopleOf(reqRow)), { type: 'file-locked', id: s.file_id, locked_at: null, by_name: who });
     tell(reqRow);

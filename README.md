@@ -618,7 +618,7 @@ Ask colleagues to sign off a file (a contract, a press release, a budget): **Req
 
 ## Signatures (Docs)
 
-Get a document signed (a contract, a lease, a consent form): **⋮ → Send for signature…** in the document, add the signers (colleagues, or anyone by email when this server has email and your company allows links for people outside it) and a message.
+Get a document or a PDF signed (a contract, a lease, a consent form): **⋮ → Send for signature…** in the document (or on the PDF in Drive), add the signers (colleagues, or anyone by email when this server has email and your company allows links for people outside it) and a message.
 
 - Each signer gets a private link (colleagues also a notification; everyone an email from you, when email is on). It opens the document **exactly as it was sent**, with nothing else of yours, and no account is needed. They type their name, then **draw** their signature (mouse, pen or finger) or **type** it, tick that they agree to sign electronically, and **Sign**.
 - **In order:** tick **One after another, in this order** to have them sign in turn: only the first is asked at first, and each next person is asked (notification and email) once the one before has signed. Someone who opens their link early is told whose turn it is; **Remind** only reminds whoever's turn it is.
@@ -628,6 +628,7 @@ Get a document signed (a contract, a lease, a consent form): **⋮ → Send for 
 - **Declining:** a signer who won't sign chooses **Decline to sign…** and can say why. The request stops there, the document is unlocked, and whoever sent it is told (notification and email) with the reason, which the banner shows too; fix the document and send it again.
 - **Drive → Signatures** lists what's **waiting for your signature** (with **Sign**; the count shows beside it, and **Home** shows them too) and what you've **sent for signature**: how many have signed, who it's waiting for, and **Remind**, which sends those still to sign a reminder (notification and email; at most once an hour).
 - Pictures in the document only show on the signing page for signers the document is also shared with.
+- **PDFs too:** a PDF's ⋮ menu in Drive has **Send for signature…**, the same way (signers, a message, in order or not, reminders, declining). Signers see the PDF itself on their signing page, exactly as it was sent (a frozen copy is kept, with its fingerprint). When everyone has signed, **… (signed).pdf** appears beside it in the sender's Drive: the PDF with a **Signatures** page at the end (each signature, drawn or typed, with name, email, time, address and the fingerprint), and **Drive → Signatures** links to it.
 
 ## Locking a file (Drive)
 

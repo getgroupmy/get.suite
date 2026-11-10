@@ -1,10 +1,12 @@
 // Signatures: sending a document out for signing, the banner on it while it's out (and once it's
 // signed), and the signing page each signer opens from their private link (no account needed).
-import { useEffect, useRef, useState } from 'react';
+import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { get, post, onLive } from '../../api.js';
 import { Modal, useToast } from '../../components/ui.jsx';
 import AddressInput from '../../components/AddressInput.jsx';
 import { DocPreview } from './DocEditor.jsx';
+
+const PdfPages = lazy(() => import('../drive/PdfPages.jsx')); // pdf.js only for PDFs
 
 const when = (t) => new Date(t).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
 const api = async (method, url, body) => {
@@ -141,7 +143,7 @@ export function SignPage({ token }) {
         <p className="muted">{d.requested_by ? `${d.requested_by} has asked you (${d.me.email}) to sign this document.` : `For ${d.me.email} to sign.`}{d.message && <><br />“{d.message}”</>}</p>
         <p className="small">{d.signers.map((x) => `${x.name || x.email}${x.signed ? ' ✓' : ''}`).join(' · ')}</p>
       </header>
-      <DocPreview content={d.content} />
+      {d.content?.pdf ? <Suspense fallback={<p className="muted">Opening the PDF…</p>}><PdfPages url={`/api/public/sign/${token}/pdf`} /></Suspense> : <DocPreview content={d.content} />}
       <section className="sign-box card stack" aria-label="Sign">
         {d.me.signed_at ? (
           <p role="status"><strong>You signed this</strong> as {d.me.name} on {when(d.me.signed_at)}.{d.status === 'complete' ? ' Everyone has signed.' : ' The others are still to sign.'}</p>
@@ -194,11 +196,11 @@ export function SignaturesView() {
       </section>
       <section aria-label="Sent for signature">
         <h2 className="small">Sent for signature</h2>
-        {!d.sent.length ? <p className="muted small">Documents you send for signature (⋮ → Send for signature… in a document) are listed here.</p> : (
+        {!d.sent.length ? <p className="muted small">Documents and PDFs you send for signature (⋮ → Send for signature… in a document, or on a PDF in Drive) are listed here.</p> : (
           <ul className="approval-list">{d.sent.map((s) => {
             const n = s.signers.filter((x) => x.signed_at).length;
             return (
-              <li key={s.id} className="row"><span className="grow"><a href={`/docs/${s.file_id}`}><strong>{s.title}</strong></a> <span className="muted small">{s.status === 'complete' ? `signed by everyone · ${when(s.completed_at)}` : `${n} of ${s.signers.length} signed · waiting for ${s.signers.filter((x) => !x.signed_at).map((x) => x.name || x.email).join(', ')}`}</span></span>
+              <li key={s.id} className="row"><span className="grow"><a href={s.pdf ? `/api/files/${s.signed_file_id || s.file_id}/raw` : `/docs/${s.file_id}`} {...(s.pdf && { target: '_blank', rel: 'noreferrer' })}><strong>{s.pdf && s.signed_file_id ? `${s.title.replace(/\.pdf$/i, '')} (signed).pdf` : s.title}</strong></a> <span className="muted small">{s.status === 'complete' ? `signed by everyone · ${when(s.completed_at)}` : `${n} of ${s.signers.length} signed · waiting for ${s.signers.filter((x) => !x.signed_at).map((x) => x.name || x.email).join(', ')}`}</span></span>
                 {s.status === 'pending' && <button type="button" className="btn small" onClick={() => remind(s)}>Remind</button>}</li>
             );
           })}</ul>
