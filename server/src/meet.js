@@ -170,6 +170,9 @@ const pollOut = (p, userId) => ({ id: p.id, by: p.by, by_name: p.by_name, questi
   counts: p.options.map((_, i) => [...p.votes.values()].filter((v) => v === i).length), mine: p.votes.has(userId) ? p.votes.get(userId) : null, voters: p.votes.size });
 // People the host removed from a meeting can't come back into it (until the server restarts).
 const removed = new Map(); // code -> Set(user id)
+// A meeting the host has locked: nobody new comes in (guests can't ask), but those who were in it when it was
+// locked can come back (a dropped connection, a breakout room). code -> Set(user id). Open again when it empties.
+const locks = new Map();
 // Whether guests without an account may ask to join the company's meetings (Admin → Company settings).
 if (!q('PRAGMA table_info(orgs)').all().some((c) => c.name === 'meet_guests')) q('ALTER TABLE orgs ADD COLUMN meet_guests INTEGER NOT NULL DEFAULT 1').run();
 
@@ -208,6 +211,7 @@ export function handleGuestUpgrade(req, socket, head) {
   const name = guestName(new URL(req.url, 'http://x').searchParams.get('name'));
   if (!m || !guestsAllowed(m.org_id) || !name) { socket.write('HTTP/1.1 404 Not Found\r\n\r\n'); return socket.destroy(); }
   wss.handleUpgrade(req, socket, head, (ws) => {
+    if (locks.has(code)) { ws.close(4005, 'The host has locked this meeting: nobody new can join'); return; }
     if (!waiting.has(code)) waiting.set(code, new Map());
     const line = waiting.get(code);
     if (line.size >= MAX_WAITING) { ws.close(4001, 'Too many people are waiting to join. Try again in a little while.'); return; }
@@ -256,6 +260,7 @@ function enterRoom(ws, req, code, m, user) {
     let room = rooms.get(key);
     if (room && room.size >= MAX_PEOPLE) { ws.close(4001, 'This meeting is full'); return; }
     if (removed.get(code)?.has(user.id)) { ws.close(4003, 'The host removed you from this meeting'); return; }
+    if (locks.has(code) && !isHost && !locks.get(code).has(user.id)) { ws.close(4005, 'The host has locked this meeting: nobody new can join'); return; }
     if (!room) rooms.set(key, (room = new Map()));
     const id = crypto.randomBytes(8).toString('hex');
     const asked = new URL(req.url, 'http://x').searchParams; // how they come in: ?mic=0&cam=0
@@ -264,7 +269,7 @@ function enterRoom(ws, req, code, m, user) {
     const toAll = (payload) => { const d = JSON.stringify(payload); for (const p of room.values()) if (p.ws.readyState === 1) p.ws.send(d); };
     ws.send(JSON.stringify({ type: 'welcome', id, peers: peopleIn(key), host: isHost, you: user.id, guest: !!user.guest, polls: (polls.get(key) || []).map((p) => pollOut(p, user.id)), questions: (questions.get(key) || []).map((x) => questionOut(x, user.id)),
       board: boards.get(key)?.strokes || [],
-      room: n, breakouts: b ? b.count : 0,
+      room: n, breakouts: b ? b.count : 0, locked: locks.has(code),
       admit: mayAdmit(m, user), knocking: mayAdmit(m, user) ? waitingList(code) : [] }));
     // Everyone gets a poll's results with their own vote in it.
     const questionToAll = (x) => { for (const q2 of room.values()) if (q2.ws.readyState === 1) q2.ws.send(JSON.stringify({ type: 'question', question: questionOut(x, q2.user.id) })); };
@@ -343,6 +348,16 @@ function enterRoom(ws, req, code, m, user) {
           p.votes.set(user.id, i); // one vote each; voting again changes it
         }
         pollToAll(p);
+      } else if (msg?.type === 'lock' && isHost) {
+        // The host locks the meeting (or opens it again): everyone in every room is told; guests waiting are turned away.
+        if (msg.on) {
+          locks.set(code, new Set(everyoneIn(code).map((p) => p.user.id)));
+          for (const g of waiting.get(code)?.values() ?? []) { try { g.ws.close(4005, 'The host has locked this meeting: nobody new can join'); } catch { /* gone */ } }
+          waiting.delete(code);
+          knockToAdmitters(code, m);
+        } else locks.delete(code);
+        const d = JSON.stringify({ type: 'locked', on: !!msg.on, by: user.name });
+        for (const k of roomsOf(code)) for (const p of rooms.get(k)?.values() ?? []) if (p.ws.readyState === 1) p.ws.send(d);
       } else if ((msg?.type === 'admit' || msg?.type === 'deny') && mayAdmit(m, user)) {
         // Someone from the company lets a waiting guest in, or turns them away.
         const line = waiting.get(code);
@@ -406,6 +421,7 @@ function enterRoom(ws, req, code, m, user) {
       q('UPDATE meeting_attendance SET left_at = ? WHERE id = ? AND left_at IS NULL').run(now(), id);
       room.delete(id);
       if (!room.size) { rooms.delete(key); polls.delete(key); questions.delete(key); boards.delete(key); } // polls last as long as the meeting (or the room)
+      if (roomsOf(code).every((k) => !rooms.get(k)?.size)) locks.delete(code); // everyone has gone: open again
       if (breakouts.has(code)) {
         if (roomsOf(code).every((k) => !rooms.get(k)?.size)) breakouts.delete(code); // everyone has gone
         else summaryToHosts(code, m);

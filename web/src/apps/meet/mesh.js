@@ -4,8 +4,8 @@
 // each other. `onChange` is called whenever something visible changes.
 
 export class Mesh {
-  constructor({ code, room = 0, onBreakout, guestName = '', stream, iceServers = [], mic = true, cam = true, onChange, onChat, onReact, onClosed, onMuted, onPoll, onQuestion, onBoard }) {
-    Object.assign(this, { code, room, onBreakout, guestName, stream, iceServers, onChange, onChat, onReact, onClosed, onMuted, onPoll, onQuestion, onBoard });
+  constructor({ code, room = 0, onBreakout, guestName = '', stream, iceServers = [], mic = true, cam = true, onChange, onChat, onReact, onClosed, onMuted, onPoll, onQuestion, onBoard, onLocked }) {
+    Object.assign(this, { code, room, onBreakout, guestName, stream, iceServers, onChange, onChat, onReact, onClosed, onMuted, onPoll, onQuestion, onBoard, onLocked });
     this.polls = new Map(); // the meeting's polls, by id
     this.questions = new Map(); // Q&A, by id
     this.board = []; // the whiteboard's strokes, in order
@@ -55,6 +55,8 @@ export class Mesh {
   breakoutOpen(count, assign) { this.send({ type: 'breakout-open', count, assign }); }
   breakoutMove(to, room) { this.send({ type: 'breakout-move', to, room }); }
   breakoutClose() { this.send({ type: 'breakout-close' }); }
+  /** The host: lock the meeting so nobody new can join (those in it can come back), or open it again. */
+  lock(on) { this.send({ type: 'lock', on: !!on }); }
   /** Let a waiting guest in, or not. */
   admit(id) { this.send({ type: 'admit', id }); }
   deny(id) { this.send({ type: 'deny', id }); }
@@ -67,6 +69,7 @@ export class Mesh {
       this.waiting = false;
       this.room = m.room || 0; // 0: the main room
       this.breakoutCount = m.breakouts || 0;
+      this.locked = !!m.locked; // the host has locked it: nobody new can join
       this.mayAdmit = !!m.admit; // people from the meeting's company let guests in
       this.knocking = m.knocking || [];
       for (const p of m.polls || []) this.polls.set(p.id, p);
@@ -93,6 +96,7 @@ export class Mesh {
     else if (m.type === 'wb-remove') { this.board = this.board.filter((x) => x.id !== m.id); this.onBoard?.(m); }
     else if (m.type === 'wb-clear') { this.board = []; this.onBoard?.(m); }
     else if (m.type === 'poll') { const isNew = !this.polls.has(m.poll.id); this.polls.set(m.poll.id, m.poll); if (isNew) this.onPoll?.(m.poll); }
+    else if (m.type === 'locked') { this.locked = !!m.on; this.onLocked?.(m); }
     else if (m.type === 'muted') { this.setMic(false); this.onMuted?.(m.by); return; }
     else if (m.type === 'react') { this.onReact?.({ id: m.id === this.id ? 'me' : m.id, emoji: m.emoji }); return; }
     this.onChange?.();

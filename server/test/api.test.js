@@ -5897,6 +5897,49 @@ test('meet host controls: the host mutes someone or everyone, and removes someon
   } finally { host.terminate(); hal.terminate(); cass.terminate(); }
 });
 
+test('meet lock: the host locks a meeting, nobody new comes in, those inside can come back; unlock', { timeout: 20000 }, async () => {
+  const { default: WS } = await import('ws');
+  const kay = client(); await login(kay, 'kay@keepco.com');
+  for (const [local, name] of [['mlb', 'Lia Lock'], ['mlc', 'Cy Late']]) await kay('POST', '/api/users', { local, domain: 'keepco.com', name, password: 'password123' });
+  const cookieOf = async (u) => (await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ username: u, password: 'password123' }) })).headers.get('set-cookie').split(';')[0];
+  const { code } = (await kay('POST', '/api/meet', { title: 'Locked' })).body;
+  const open = (cookie) => new Promise((resolve, reject) => {
+    const ws = new WS(`${base.replace('http', 'ws')}/ws/meet/${code}`, { headers: { cookie } });
+    ws.msgs = [];
+    const t = setTimeout(() => reject(new Error('no welcome')), 5000);
+    ws.on('message', (d) => { const msg = JSON.parse(String(d)); ws.msgs.push(msg); if (msg.type === 'welcome') { clearTimeout(t); ws.me = msg; resolve(ws); } });
+    ws.on('close', (c, why) => { ws.closed = [c, String(why)]; clearTimeout(t); reject(new Error(`closed ${c} ${why}`)); });
+    ws.on('error', reject);
+  });
+  const wait = () => new Promise((r) => setTimeout(r, 200));
+  const hostCookie = await cookieOf('kay@keepco.com'), liaCookie = await cookieOf('mlb@keepco.com'), cyCookie = await cookieOf('mlc@keepco.com');
+  const host = await open(hostCookie);
+  let lia = await open(liaCookie);
+  const more = [];
+  try {
+    assert.equal(host.me.locked, false);
+    lia.send(JSON.stringify({ type: 'lock', on: true })); await wait();
+    assert.ok(!host.msgs.some((m) => m.type === 'locked'), 'only the host can');
+    host.send(JSON.stringify({ type: 'lock', on: true })); await wait();
+    assert.deepEqual(lia.msgs.find((m) => m.type === 'locked'), { type: 'locked', on: true, by: 'Kay Keep' });
+    await assert.rejects(open(cyCookie), /4005.*locked/, 'nobody new');
+    // Lia drops and comes back: she was in it.
+    lia.terminate(); await wait();
+    lia = await open(liaCookie);
+    assert.equal(lia.me.locked, true);
+    // Open again: Cy can join.
+    host.send(JSON.stringify({ type: 'lock', on: false })); await wait();
+    assert.ok(lia.msgs.some((m) => m.type === 'locked' && m.on === false));
+    more.push(await open(cyCookie));
+    // Locked again, then everyone leaves: the next meeting there starts open.
+    host.send(JSON.stringify({ type: 'lock', on: true })); await wait();
+    host.terminate(); lia.terminate(); more[0].terminate(); await wait();
+    const again = await open(cyCookie);
+    more.push(again);
+    assert.equal(again.me.locked, false);
+  } finally { host.terminate(); lia.terminate(); for (const w of more) w.terminate(); }
+});
+
 test('meet whiteboard: strokes to everyone in order, kept for newcomers, undo your own, clear; gone with the meeting', { timeout: 20000 }, async () => {
   const { default: WS } = await import('ws');
   const kay = client(); await login(kay, 'kay@keepco.com');

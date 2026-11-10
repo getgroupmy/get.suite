@@ -230,6 +230,7 @@ export default function MeetRoom({ guest = false, onSignIn }) {
         setTimeout(() => setFloating((list) => list.filter((x) => x.key !== key)), 3000);
       },
       onClosed: (reason) => { toast(reason, 'error'); setLeftWhy(reason); setPhase('left'); },
+      onLocked: (l) => toast(l.on ? `${l.by === user?.name ? 'You' : l.by} locked the meeting: nobody new can join` : `${l.by === user?.name ? 'You' : l.by} opened the meeting again`),
       // The whiteboard: someone else drew while it's closed here; the first time, say who.
       onBoard: (msg) => {
         if (msg.type !== 'wb-stroke' || boardRef.current || msg.stroke.by === mesh.current?.id) return;
@@ -300,7 +301,7 @@ export default function MeetRoom({ guest = false, onSignIn }) {
   if (phase === 'left') {
     return (
       <div className="meet-page meet-center">
-        <div className="meet-card stack"><h1>{/removed you/.test(leftWhy) ? 'You were removed from the meeting' : /let you in/.test(leftWhy) ? 'You weren’t let in' : 'You left the meeting'}</h1>
+        <div className="meet-card stack"><h1>{/removed you/.test(leftWhy) ? 'You were removed from the meeting' : /let you in/.test(leftWhy) ? 'You weren’t let in' : /locked/.test(leftWhy) ? 'The meeting is locked' : 'You left the meeting'}</h1>
           {leftWhy && <p className="muted" role="status" style={{ margin: 0 }}>{leftWhy}</p>}
           <div className="row">{!/removed you/.test(leftWhy) && <button type="button" className="btn primary" onClick={() => { setLeftWhy(''); setLocal(null); setPhase('lobby'); openDevices().then(setLocal); }}>Rejoin</button>}
             {!guest && <button type="button" className="btn" onClick={() => navigate('/meet')}>Back to Meet</button>}</div></div>
@@ -401,6 +402,9 @@ export default function MeetRoom({ guest = false, onSignIn }) {
             </> : panel === 'polls' ? <MeetPolls m={m} user={user} polls={polls} /> : panel === 'qa' ? <MeetQA m={m} /> : (<>
               {m.host && !guest && <Breakouts m={m} goToRoom={goToRoom} />}
               <ul className="meet-people">
+                {m.host && <li className="row"><span className="grow muted small">{m.locked ? '🔒 Locked: nobody new can join. Those here can come back if they drop out.' : 'Lock the meeting to stop anyone new from joining.'}</span>
+                  <button type="button" className="btn small" aria-pressed={!!m.locked} onClick={() => m.lock(!m.locked)}>{m.locked ? '🔓 Unlock meeting' : '🔒 Lock meeting'}</button></li>}
+                {!m.host && m.locked && <li className="muted small">🔒 The host has locked the meeting: nobody new can join.</li>}
                 {m.host && tiles.length > 1 && <li className="row"><span className="grow muted small">You started this meeting.</span><button type="button" className="btn small" onClick={() => { m.mute('all'); toast('Everyone else is muted'); }}>Mute everyone</button></li>}
                 {tiles.map((t) => <li key={t.id} className="row"><Avatar name={t.name} userId={t.userId} size={28} /><span className="grow">{t.name}</span>{t.state.hand && '✋'}{t.state.mic === false && '🔇'}
                   {m.host && !t.me && <>
