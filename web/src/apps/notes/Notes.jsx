@@ -45,6 +45,7 @@ export default function Notes() {
   const [search, setSearch] = useState('');
   const [editing, setEditing] = useState(null); // note id
   const [sharing, setSharing] = useState(null);
+  const [history, setHistory] = useState(null); // a note whose earlier versions are shown
   const [labelling, setLabelling] = useState(null);
   const [deleting, setDeleting] = useState(null);
   const load = useCallback(() => {
@@ -116,7 +117,7 @@ export default function Notes() {
   const card = (n) => <NoteCard key={n.id} note={n} drag={dragProps(n)} dragging={dragging === n.id} picked={picked.has(n.id)} picking={picked.size > 0} onPick={() => pickNote(n.id)}
     onMove={sortable ? (by) => reorder(n.pinned ? 'pinned' : 'others', moveBy(groupOf(n), n.id, by)) : null}
     first={groupOf(n)[0] === n.id} last={groupOf(n).at(-1) === n.id} onOpen={() => setEditing(n.id)} onChange={(c) => change(n, c)} onArchive={() => archive(n, !n.archived)}
-    onLabel={() => setLabelling(n)} onShare={() => setSharing(n)} onCopy={() => copy(n)} onDelete={() => (n.mine ? trash(n) : setDeleting(n))}
+    onLabel={() => setLabelling(n)} onShare={() => setSharing(n)} onHistory={() => setHistory(n)} onCopy={() => copy(n)} onDelete={() => (n.mine ? trash(n) : setDeleting(n))}
     onToDoc={async () => { try { const d = await post(`/notes/${n.id}/doc`); toast('Copied to a new document in My Drive', 'info', { action: { label: 'Open', onClick: () => navigate(`/docs/${d.id}`) } }); } catch (e) { toast(e.message, 'error'); } }}
     onToTasks={async () => { try { const r = await post(`/notes/${n.id}/tasks`); toast(`${r.added === 1 ? '1 task' : `${r.added} tasks`} added to ${r.list.name}`, 'info', { action: { label: 'Open', onClick: () => navigate(`/tasks/${r.list.id}`) } }); } catch (e) { toast(e.message, 'error'); } }}
     onRemind={(t) => { if (t === 'pick') setPicking(n); else { change(n, { remind_at: t }); if (t) toast(`Reminder set for ${reminderText(t)}`); } }} />;
@@ -178,6 +179,7 @@ export default function Notes() {
         </>}
       </section>
       {current && <NoteEditor key={current.id} note={current} onClose={() => { setEditing(null); load(); }} />}
+ {history && <NoteHistory note={history} onClose={() => setHistory(null)} onRestored={() => { setHistory(null); load(); toast('Earlier version restored (what was there is kept in the history)'); }} />}
       {sharing && <ShareNote note={sharing} onClose={() => { setSharing(null); load(); }} />}
       {labelling && <LabelNote note={labelling} all={labels} onSave={async (ls) => { await change(labelling, { labels: ls }); setLabelling(null); }} onClose={() => setLabelling(null)} />}
       {picking && <PickTime note={picking} onClose={() => setPicking(null)} onPick={(t) => { change(picking, { remind_at: t }); toast(`Reminder set for ${reminderText(t)}`); setPicking(null); }} />}
@@ -288,7 +290,7 @@ function PickTime({ note, onPick, onClose }) {
   );
 }
 
-function NoteCard({ note: n, drag = {}, dragging, picked, picking, onPick, onMove, first, last, onOpen, onChange, onArchive, onLabel, onShare, onCopy, onDelete, onRemind, onToDoc, onToTasks }) {
+function NoteCard({ note: n, drag = {}, dragging, picked, picking, onPick, onMove, first, last, onOpen, onChange, onArchive, onLabel, onShare, onCopy, onDelete, onRemind, onToDoc, onToTasks, onHistory }) {
   const items = n.items || [];
   const open = items.filter((i) => !i.done);
   const done = items.filter((i) => i.done);
@@ -336,6 +338,7 @@ function NoteCard({ note: n, drag = {}, dragging, picked, picking, onPick, onMov
           ...(done.length ? [{ label: 'Untick all items', onClick: () => onChange({ items: untickAll(items) }) }, { label: `Delete ticked items (${done.length})`, onClick: () => onChange({ items: dropTicked(items) }) }] : []),
           { label: 'Labels…', onClick: onLabel },
           { label: 'Make a copy', icon: 'copy', onClick: onCopy },
+          { label: 'Version history', icon: 'clock', onClick: onHistory },
           { label: 'Copy to a document', icon: 'doc', onClick: onToDoc },
           { label: n.items?.length ? 'Copy unticked items to Tasks' : 'Copy to Tasks', icon: 'check', onClick: onToTasks },
           { label: n.mine ? 'Delete note' : 'Remove from my notes', icon: 'trash', onClick: onDelete },
@@ -408,6 +411,35 @@ function LabelNote({ note, all, onSave, onClose }) {
         {names.map((l) => <label key={l} className="check"><input type="checkbox" checked={chosen.has(l)} onChange={(e) => { const n = new Set(chosen); e.target.checked ? n.add(l) : n.delete(l); setChosen(n); }} /> {l}</label>)}
         <div><button type="button" className="link-btn" onClick={() => setAdding(true)}>+ New label</button></div>
       </div>
+    </Modal>
+  );
+}
+
+/** Earlier versions of a note: pick one to see it, Restore puts it back. */
+function NoteHistory({ note, onClose, onRestored }) {
+  const toast = useToast();
+  const [list, setList] = useState(null);
+  const [pick, setPick] = useState(0);
+  useEffect(() => { get(`/notes/${note.id}/versions`).then(setList).catch((e) => { toast(e.message, 'error'); setList([]); }); }, [note.id, toast]);
+  const v = list?.[pick];
+  const when = (t) => new Date(t).toLocaleString([], { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
+  return (
+    <Modal wide title={`Version history: ${note.title || 'Untitled note'}`} onClose={onClose}
+      footer={v && <button type="button" className="btn primary" onClick={async () => { try { await post(`/notes/${note.id}/versions/${v.id}/restore`); onRestored(); } catch (e) { toast(e.message, 'error'); } }}>Restore this version</button>}>
+      {list === null ? <p className="muted">Loading…</p> : !list.length ? <p className="muted">No earlier versions yet. A version is kept when someone else changes the note, or when you come back to it after a while.</p> : (
+        <div className="note-history">
+          <ul className="note-versions" aria-label="Versions">
+            {list.map((x, i) => (
+              <li key={x.id}><button type="button" className={i === pick ? 'on' : ''} aria-pressed={i === pick} onClick={() => setPick(i)}>
+                <strong>{when(x.saved_at)}</strong><span className="muted small">{x.saved_by}</span></button></li>
+            ))}
+          </ul>
+          <article className="note-version-preview" aria-label="This version">
+            {v.title && <h3 style={{ marginTop: 0 }}>{v.title}</h3>}
+            {v.items ? <ul className="note-version-items">{v.items.map((it) => <li key={it.id}>{it.done ? '☑' : '☐'} {it.text}</li>)}</ul> : <p style={{ whiteSpace: 'pre-wrap' }}>{v.body}</p>}
+          </article>
+        </div>
+      )}
     </Modal>
   );
 }

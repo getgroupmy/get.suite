@@ -126,6 +126,37 @@ function load(id, user) {
 }
 const tell = (n) => sendTo(team(n), { type: 'notes-changed' });
 
+// Version history: what a note said before, kept when someone else edits it, or after 10 minutes'
+// quiet (so a burst of typing is one version). At most MAX_VERSIONS per note; restoring keeps the
+// current text as a version too.
+q(`CREATE TABLE IF NOT EXISTS note_versions (
+  id TEXT PRIMARY KEY,
+  note_id TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+  title TEXT NOT NULL DEFAULT '',
+  body TEXT NOT NULL DEFAULT '',
+  items TEXT,
+  saved_at INTEGER NOT NULL,
+  saved_by TEXT
+)`).run();
+export const MAX_VERSIONS = 50;
+export const QUIET_MS = 10 * 60e3;
+const sameContent = (a, b) => (a.title || '') === (b.title || '') && (a.body || '') === (b.body || '') && (a.items || null) === (b.items || null);
+/** Keep the note as it is now as a version (unless the newest version is the same). */
+function keepVersion(n) {
+  if (!n.title && !n.body && !(n.items && JSON.parse(n.items).length)) return; // nothing written yet
+  const last = q('SELECT * FROM note_versions WHERE note_id = ? ORDER BY saved_at DESC LIMIT 1').get(n.id);
+  if (last && sameContent(last, n)) return;
+  q('INSERT INTO note_versions (id, note_id, title, body, items, saved_at, saved_by) VALUES (?, ?, ?, ?, ?, ?, ?)').run(uid(), n.id, n.title || '', n.body || '', n.items || null, n.updated_at, n.updated_by || n.owner_id);
+  q('DELETE FROM note_versions WHERE note_id = ? AND id NOT IN (SELECT id FROM note_versions WHERE note_id = ? ORDER BY saved_at DESC LIMIT ?)').run(n.id, n.id, MAX_VERSIONS);
+}
+/** Before an edit by `userId` changes the text: keep what was there, when it's someone else's or has rested a while. */
+function versionBefore(n, userId, set, t = now()) {
+  const changes = ['title', 'body', 'items'].some((k) => set[k] !== undefined && (set[k] ?? null) !== (n[k] ?? null));
+  if (!changes) return;
+  const last = q('SELECT saved_at FROM note_versions WHERE note_id = ? ORDER BY saved_at DESC LIMIT 1').get(n.id);
+  if ((n.updated_by || n.owner_id) !== userId || t - n.updated_at >= QUIET_MS || !last) keepVersion(n);
+}
+
 /** Send the reminders that are due (to everyone on each note), then clear them. */
 export function remindNotesDue(at = now()) {
   const due = q('SELECT * FROM notes WHERE remind_at IS NOT NULL AND remind_at <= ? AND trashed_at IS NULL ORDER BY remind_at LIMIT 100').all(at);
@@ -234,7 +265,27 @@ export default function noteRoutes() {
       }
     }
     const keys = Object.keys(set);
+    if (keys.length) versionBefore(n, req.user.id, set);
     if (keys.length) q(`UPDATE notes SET ${keys.map((k) => `${k} = ?`).join(', ')}, updated_at = ?, updated_by = ? WHERE id = ?`).run(...keys.map((k) => set[k]), now(), req.user.id, n.id);
+    const after = q('SELECT * FROM notes WHERE id = ?').get(n.id);
+    tell(after);
+    res.json(shape(after, req.user.id));
+  });
+
+  // Version history: newest first, with who saved each; restoring one keeps the current text first.
+  r.get('/:id/versions', (req, res) => {
+    const n = load(req.params.id, req.user);
+    const names = new Map();
+    const nameOf = (id) => { if (!names.has(id)) names.set(id, q('SELECT name FROM users WHERE id = ?').get(id)?.name || 'Someone'); return names.get(id); };
+    res.json(q('SELECT * FROM note_versions WHERE note_id = ? ORDER BY saved_at DESC').all(n.id).filter((v) => !sameContent(v, n))
+      .map((v) => ({ id: v.id, title: v.title, body: v.body, items: v.items ? JSON.parse(v.items) : null, saved_at: v.saved_at, saved_by: nameOf(v.saved_by) })));
+  });
+  r.post('/:id/versions/:vid/restore', (req, res) => {
+    const n = load(req.params.id, req.user);
+    const v = q('SELECT * FROM note_versions WHERE id = ? AND note_id = ?').get(req.params.vid, n.id);
+    if (!v) throw notFound('Version not found');
+    keepVersion(n);
+    q('UPDATE notes SET title = ?, body = ?, items = ?, updated_at = ?, updated_by = ? WHERE id = ?').run(v.title, v.body, v.items, now(), req.user.id, n.id);
     const after = q('SELECT * FROM notes WHERE id = ?').get(n.id);
     tell(after);
     res.json(shape(after, req.user.id));

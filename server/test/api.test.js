@@ -8559,3 +8559,41 @@ test('recent searches: newest first, no repeats (whatever the capitals), at most
   assert.deepEqual((await a('DELETE', `/api/users/me/recent-searches?q=${encodeURIComponent('TERM 9')}`)).body[0], 'term 8');
   assert.deepEqual((await a('DELETE', '/api/users/me/recent-searches')).body, []);
 });
+
+test('notes: version history — kept when someone else edits, or after a quiet spell; restore keeps the current text too', async () => {
+  const a = client(), b = client();
+  const ids = {};
+  for (const [local, name] of [['nva', 'Nv Ann'], ['nvb', 'Nv Ben']]) ids[local] = (await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).body.id;
+  await login(a, 'nva@acme.com'); await login(b, 'nvb@acme.com');
+  const n = (await a('POST', '/api/notes', { title: 'Packing', body: 'tent' })).body;
+  await a('PATCH', `/api/notes/${n.id}`, { body: 'tent, stove' });
+  await a('PATCH', `/api/notes/${n.id}`, { body: 'tent, stove, map' }); // one burst of typing
+  assert.deepEqual((await a('GET', `/api/notes/${n.id}/versions`)).body.map((v) => v.body), ['tent'], 'the text before the burst');
+  // Someone else edits: what Ann had is kept, with her name.
+  await a('PUT', `/api/notes/${n.id}/shares`, { user_ids: [ids.nvb] });
+  await b('PATCH', `/api/notes/${n.id}`, { body: 'stove only' });
+  let versions = (await b('GET', `/api/notes/${n.id}/versions`)).body;
+  assert.deepEqual(versions.map((v) => [v.body, v.saved_by]), [['tent, stove, map', 'Nv Ann'], ['tent', 'Nv Ann']]);
+  // A quiet spell, then Ben again: kept again.
+  const { q } = await import('../src/db.js');
+  q('UPDATE notes SET updated_at = updated_at - ? WHERE id = ?').run(11 * 60e3, n.id);
+  q('UPDATE note_versions SET saved_at = saved_at - ? WHERE note_id = ?').run(11 * 60e3, n.id); // (everything 11 minutes ago)
+  await b('PATCH', `/api/notes/${n.id}`, { body: 'stove and torch' });
+  versions = (await a('GET', `/api/notes/${n.id}/versions`)).body;
+  assert.equal(versions[0].body, 'stove only');
+  assert.equal(versions.length, 3);
+  // Colour or pin changes don't make versions.
+  await a('PATCH', `/api/notes/${n.id}`, { color: '#fff475', pinned: true });
+  assert.equal((await a('GET', `/api/notes/${n.id}/versions`)).body.length, 3);
+  // Restore the first: its text is back, and what was there is a version now.
+  const first = versions.at(-1);
+  const back = (await a('POST', `/api/notes/${n.id}/versions/${first.id}/restore`)).body;
+  assert.equal(back.body, 'tent');
+  assert.equal((await a('GET', `/api/notes/${n.id}/versions`)).body[0].body, 'stove and torch');
+  // Only people with the note.
+  const c = client();
+  await owner('POST', '/api/users', { local: 'nvc', domain: 'acme.com', name: 'Nv Cat', password: 'password123' });
+  await login(c, 'nvc@acme.com');
+  assert.equal((await c('GET', `/api/notes/${n.id}/versions`)).status, 404);
+  assert.equal((await c('POST', `/api/notes/${n.id}/versions/${first.id}/restore`)).status, 404);
+});

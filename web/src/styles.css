@@ -2640,3 +2640,11 @@ input.fv-name { background: #202124; color: #fff; border: 1px solid #5f6368; bor
 .customize-cards { list-style: none; padding: 0; margin: 0; display: grid; gap: 4px; }
 .customize-cards li { display: flex; align-items: center; gap: 6px; padding: 4px 6px; border-radius: 8px; }
 .customize-cards li:hover { background: var(--surface-2); }
+/* Notes: version history */
+.note-history { display: grid; grid-template-columns: 200px 1fr; gap: 16px; min-height: 240px; }
+.note-versions { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; align-content: start; max-height: 50vh; overflow: auto; }
+.note-versions button { display: flex; flex-direction: column; align-items: flex-start; width: 100%; padding: 8px 10px; border: 0; border-radius: 8px; background: none; color: inherit; cursor: pointer; font: inherit; text-align: left; }
+.note-versions button.on { background: var(--accent-soft); color: var(--accent-text); }
+.note-version-preview { border: 1px solid var(--border); border-radius: 12px; padding: 14px; overflow: auto; max-height: 50vh; }
+.note-version-items { list-style: none; padding: 0; margin: 0; display: grid; gap: 4px; }
+@media (max-width: 640px) { .note-history { grid-template-columns: 1fr; } }
