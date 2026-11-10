@@ -1284,7 +1284,7 @@ export default function SheetEditor() {
         return <ColumnStatsDialog value={evaluate} startCol={dialog.c} lastRow={used ? used.r2 : 0} lastCol={Math.max(used ? used.c2 : 0, dialog.c)} onClose={() => { setDialog(null); gridRef.current?.focus(); }} />;
       })()}
       {dialog?.type === 'bands' && (
-        <BandsDialog bands={bands} defaultRange={rangeText(anchor ? range : sortTarget())} onClose={() => { setDialog(null); gridRef.current?.focus(); }}
+        <BandsDialog bands={bands} takenNames={[...(data?.sheets || []).flatMap((s, i) => (s.bands || []).filter((b) => b.name).map((b) => b.name)), ...Object.keys(names || {})]} defaultRange={rangeText(anchor ? range : sortTarget())} onClose={() => { setDialog(null); gridRef.current?.focus(); }}
           onSave={(next) => { writeSheet(() => ({ bands: next.length ? next : undefined })); setDialog(null); gridRef.current?.focus(); }} />
       )}
       {dialog?.type === 'dedupe' && (() => { const g = sortTarget(); return (

@@ -4,14 +4,19 @@ import { useState } from 'react';
 import { Modal } from '../../components/ui.jsx';
 import { BAND_STYLES, cleanBand, overlaps, textOn } from './bands.js';
 import { parseRange } from './charts.js';
+import { TABLE_NAME_RE, looksLikeCell } from './tablerefs.js';
 
-export function BandsDialog({ bands, defaultRange, onSave, onClose }) {
+export function BandsDialog({ bands, defaultRange, takenNames = [], onSave, onClose }) {
   const existing = (bands || []).find((b) => overlaps(b.range, defaultRange));
   const [band, setBand] = useState(() => existing || cleanBand({ range: defaultRange, ...BAND_STYLES[0], header: true }));
   const set = (patch) => setBand((b) => ({ ...b, ...patch }));
   const valid = !!parseRange(band.range);
   const clash = valid && (bands || []).some((b) => b.id !== band.id && overlaps(b.range, band.range));
   const others = (bands || []).filter((b) => b.id !== band.id);
+  // A name makes it a table: Sales[Amount] in formulas. Unique in the spreadsheet, and not like a cell.
+  const name = (band.name || '').trim();
+  const nameProblem = !name ? null : !TABLE_NAME_RE.test(name) ? 'Use letters, digits, _ and . (starting with a letter), no spaces'
+    : looksLikeCell(name) ? 'That looks like a cell (A1)' : takenNames.some((n) => n.toLowerCase() === name.toLowerCase() && n !== existing?.name) ? 'Another table or named range has that name' : null;
   const save = () => { const b = cleanBand(band); if (b) onSave([...others, b]); };
   const rows = [band.header && ['head', 'Heading'], ['odd', 'Colour 1'], ['even', 'Colour 2'], band.footer && ['foot', 'Footer']].filter(Boolean);
   return (
@@ -19,7 +24,7 @@ export function BandsDialog({ bands, defaultRange, onSave, onClose }) {
       footer={<>
         {existing && <button type="button" className="btn danger" style={{ marginRight: 'auto' }} onClick={() => onSave(others)}>Remove alternating colours</button>}
         <button type="button" className="btn" onClick={onClose}>Cancel</button>
-        <button type="button" className="btn primary" disabled={!valid || clash} onClick={save}>Done</button>
+        <button type="button" className="btn primary" disabled={!valid || clash || !!nameProblem} onClick={save}>Done</button>
       </>}>
       <div className="stack">
         <label className="field">Apply to range
@@ -27,6 +32,11 @@ export function BandsDialog({ bands, defaultRange, onSave, onClose }) {
         </label>
         {!valid && <p className="error small" style={{ margin: 0 }}>Type a range such as A1:D20.</p>}
         {clash && <p className="error small" style={{ margin: 0 }}>That range overlaps other alternating colours.</p>}
+        <label className="field">Table name (optional)
+          <input value={band.name || ''} onChange={(e) => set({ name: e.target.value })} placeholder="Sales" aria-invalid={!!nameProblem} maxLength={40} />
+        </label>
+        {nameProblem ? <p className="error small" style={{ margin: 0 }}>{nameProblem}</p>
+          : name && <p className="muted small" style={{ margin: 0 }}>Formulas can use it by its columns’ headings: <code>=SUM({name}[{'Amount'}])</code>, <code>[@Amount]</code> on a row. Rows typed straight under it belong to it.</p>}
         <div className="row" style={{ gap: 16 }}>
           <label className="check"><input type="checkbox" checked={band.header} onChange={(e) => set({ header: e.target.checked })} /> Heading row</label>
           <label className="check"><input type="checkbox" checked={band.footer} onChange={(e) => set({ footer: e.target.checked })} /> Footer row</label>

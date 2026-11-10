@@ -1,6 +1,7 @@
 // Excel files <-> Sheets: every worksheet, with values and formulas, bold/italic/underline, text and
 // fill colours, alignment, number formats (number, currency, percent, decimals) and column widths.
 import ExcelJS from 'exceljs';
+import { tablesOf, plainTableRefs as rangesForTables } from './tablerefs.js';
 import JSZip from 'jszip';
 import crypto from 'node:crypto';
 import { withCharts, chartsOfXlsx, placeOf } from './xlsxcharts.js';
@@ -377,9 +378,12 @@ export function dateFormulaFormat(raw, cells = {}) {
 export async function excelFromSheet(data, { comments = [] } = {}) {
   const wb = new ExcelJS.Workbook();
   wb.creator = 'Workspace';
+  const tables = tablesOf(data.sheets); // structured references (Sales[Amount]) go to Excel as plain ranges
   for (const s of data.sheets || []) {
     const ws = wb.addWorksheet((s.name || 'Sheet').replace(/[\\/?*[\]:]/g, ' ').slice(0, 31) || 'Sheet');
-    for (const [key, raw] of Object.entries(s.cells || {})) {
+    for (const [key, raw0] of Object.entries(s.cells || {})) {
+      const at = tables.length && typeof raw0 === 'string' && raw0.startsWith('=') && /^([A-Z]+)(\d+)$/.exec(key);
+      const raw = at ? `=${rangesForTables(raw0.slice(1), tables, +at[2], colIndex(at[1]), s.name)}` : raw0;
       const cell = ws.getCell(key);
       const v = String(raw);
       if (v.startsWith('=')) { cell.value = { formula: formulaToExcel(v.slice(1)) }; const df = dateFormulaFormat(v, s.cells); if (df) cell.numFmt = df; }
@@ -696,7 +700,7 @@ export function tableOfBand(band, sheet, n = 1) {
   }
   const inside = (ref) => { const k = /^([A-Z]+)(\d+)/.exec(ref); return k && colIndex(k[1]) >= c1 && colIndex(k[1]) <= c2 && +k[2] >= r1 && +k[2] <= r2; };
   if ((sheet.merges || []).some((mg) => String(mg).split(':').some(inside))) return null;
-  return { name: `Table${n}`, ref: band.range, columns, style, totals: !!band.footer, stripes: String(band.even || '').toLowerCase() !== String(band.odd || '').toLowerCase() };
+  return { name: band.name || `Table${n}`, ref: band.range, columns, style, totals: !!band.footer, stripes: String(band.even || '').toLowerCase() !== String(band.odd || '').toLowerCase() };
 }
 /** The workbook with each sheet's bands that can be tables written as Excel tables (tables can't overlap). */
 async function withTables(buffer, sheets) {
@@ -709,7 +713,7 @@ async function withTables(buffer, sheets) {
       const box = [colIndex(/[A-Z]+/.exec(a)[0]), +/\d+/.exec(a)[0], colIndex(/[A-Z]+/.exec(b)[0]), +/\d+/.exec(b)[0]];
       if (taken.some((x) => !(box[2] < x[0] || box[0] > x[2] || box[3] < x[1] || box[1] > x[3]))) return false;
       taken.push(box);
-      t.name = `Table${++n}`;
+      ++n; if (!/^[A-Za-z_][A-Za-z0-9_.]*$/.test(t.name) || /^Table\d+$/.test(t.name)) t.name = `Table${n}`; // its own name when it has one
       return true;
     });
   });

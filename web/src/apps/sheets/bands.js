@@ -33,6 +33,8 @@ export function cleanBand(b) {
     id: String(b.id || Math.random().toString(36).slice(2, 10)).slice(0, 20),
     range: String(b.range).toUpperCase().replace(/\$/g, ''),
     header: b.header !== false, footer: !!b.footer,
+    // A name makes it a table formulas can use (Sales[Amount]): see tablerefs.js.
+    ...(typeof b.name === 'string' && /^[A-Za-z_][A-Za-z0-9_.]{0,39}$/.test(b.name.trim()) && !/^[A-Za-z]{1,3}\d+$/.test(b.name.trim()) && { name: b.name.trim() }),
     head: colour('head'), odd: colour('odd'), even: colour('even'), foot: colour('foot'),
   };
 }

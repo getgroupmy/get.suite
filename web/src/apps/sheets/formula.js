@@ -1,6 +1,7 @@
 // Small spreadsheet formula engine: arithmetic, comparisons, text, cell refs, ranges, common functions.
 
 import { runQuery, QueryError } from './query.js';
+import { tablesOf, plainTableRefs } from './tablerefs.js';
 import { normCdf, normPdf, normInv, tCdf, tPdf, tInv, chiCdf, chiPdf, binomPmf, binomCdf, poissonPmf, poissonCdf, tTest, interestPart, capitalPart, ddb, db, yearFrac, parseDateText, parseTimeText } from './statmath.js';
 
 export class FormulaError extends Error {
@@ -1380,8 +1381,16 @@ export function literal(raw) {
  * Build an evaluator over a sheet's raw cells ({ "A1": "=SUM(B1:B3)" }).
  * Returns get(key) -> value (number | string | boolean | null) or { error: '#CODE' }.
  */
-export function createEvaluator(cells, names = null, book = null) {
+export function createEvaluator(cells, names = null, book = null, sheetName = null) {
   const memo = new Map();
+  // Tables' structured references (Sales[Amount], [@Amount]) as ranges, worked out with the tables as they are now.
+  const tables = book ? (book.tables ??= tablesOf(book.sheets)) : [];
+  const source = (key, raw) => {
+    const f = raw.slice(1);
+    if (!tables.length) return f;
+    const at = parseRef(key);
+    return at ? plainTableRefs(f, tables, at.r + 1, at.c, sheetName) : f;
+  };
   // The other sheets (for Sheet2!A1): { sheets: [{ name, cells, names }], open: Map(name -> evaluator) }, shared by them all.
   // Named ranges: { Tax: 'B1', Sales: 'A2:A10' }, matched whatever the case.
   const named = new Map(Object.entries(names || {}).map(([k, v]) => [k.toUpperCase(), String(v).toUpperCase().split(':')]));
@@ -1400,7 +1409,7 @@ export function createEvaluator(cells, names = null, book = null) {
     pending = [];
     for (const [k, raw] of Object.entries(cells)) {
       if (typeof raw !== 'string' || !raw.startsWith('=')) continue;
-      try { const ast = asts.get(k) || parse(raw.slice(1)); asts.set(k, ast); if (mayArray(ast)) pending.push(k); } catch { /* shows its error when asked */ }
+      try { const ast = asts.get(k) || parse(source(k, raw)); asts.set(k, ast); if (mayArray(ast)) pending.push(k); } catch { /* shows its error when asked */ }
     }
     runPending();
     pending = [];
@@ -1431,7 +1440,7 @@ export function createEvaluator(cells, names = null, book = null) {
     visiting.add(key);
     try {
       let ast = asts.get(key);
-      if (!ast) { ast = parse(raw.slice(1)); asts.set(key, ast); }
+      if (!ast) { ast = parse(source(key, raw)); asts.set(key, ast); }
       let v;
       if (ast.k === 'call' && ast.name === 'HYPERLINK') { // a link: the cell shows its label, and opens it
         const [url, label] = ast.args.map((a) => scalar(evaluate(a)));
@@ -1806,7 +1815,7 @@ function sheetEvaluator(book, name) {
   const key = String(name).toUpperCase();
   if (!book.open.has(key)) {
     const s = book.sheets.find((x) => String(x.name).toUpperCase() === key);
-    book.open.set(key, s ? createEvaluator(s.cells || {}, s.names, book) : null);
+    book.open.set(key, s ? createEvaluator(s.cells || {}, s.names, book, s.name) : null);
   }
   return book.open.get(key);
 }
@@ -1816,7 +1825,7 @@ export function bookEvaluator(sheets, index, imports = null, functions = null) {
   const book = { sheets: sheets || [], open: new Map(), imports, functions: namedFunctions(functions) };
   const s = book.sheets[index];
   if (!s) return createEvaluator({}, null, book);
-  const ev = createEvaluator(s.cells || {}, s.names, book);
+  const ev = createEvaluator(s.cells || {}, s.names, book, s.name);
   book.open.set(String(s.name).toUpperCase(), ev); // the same one, so loops across sheets are caught
   return ev;
 }

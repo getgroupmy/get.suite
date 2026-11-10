@@ -288,6 +288,15 @@ Select rows (or columns) by their headings, then **Group rows 2–4** in the rig
 - Rows added below the table are filtered too, and a row whose value changes to a hidden one goes as it changes. **Filter** again removes it, showing every row.
 - Downloading as Excel keeps it as an AutoFilter with those rows hidden (conditions included); an Excel file's AutoFilter comes in as a filter.
 
+## Tables (Sheets)
+
+Give alternating colours a name and they become a **table** formulas can use by its columns' headings, as in Excel.
+
+- **Make one:** right-click in the data → **Alternating colours…** → **Table name** (*Sales*: letters, digits, _ and ., not like a cell, and not used by another table or named range).
+- **Use it:** `=SUM(Sales[Qty])` (that column's data), `=SUMPRODUCT(Sales[Unit price], Sales[Qty])`, `[@Qty]*[@[Unit price]]` on a row of the table (or in a column of formulas just beside it), `Sales[#All]`, `Sales[#Data]`, `Sales[#Headers]`, `Sales[#Totals]` (the footer row), `Sales[[Unit price]:[Qty]]` for several columns, and `Sales` alone for all its data. Other sheets can use it too.
+- **It grows:** rows typed straight under a table belong to it (unless it has a footer row), so `=SUM(Sales[Qty])` takes in new orders without changing the formula.
+- **Excel:** in an Excel download the table keeps its name, and formulas are written with plain ranges so they work there as they are. Excel tables opened here become alternating colours with their ranges (as before).
+
 ## Slicers (Sheets)
 
 - **Slicer** in the toolbar puts a control on the sheet that filters the table around the cursor by the cursor's column: a chip with the column's heading and what it shows (*Region · All*). It goes beside the table's top right; drag it anywhere.

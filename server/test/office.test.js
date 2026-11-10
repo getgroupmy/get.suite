@@ -1657,3 +1657,19 @@ test('PowerPoint: animations go out as PowerPoint entrance effects and come back
   // Effects Slides doesn't have come in as a fade.
   assert.deepEqual(animationsOf('<p:timing><p:cTn id="5" presetID="53" presetClass="entr"><p:spTgt spid="7"/></p:cTn></p:timing>'), [{ spid: '7', anim: 'fade' }]);
 });
+
+test('Excel download: a named table keeps its name; structured references go as plain ranges', async () => {
+  const JSZip = (await import('jszip')).default;
+  const data = { sheets: [
+    { name: 'Data', cells: { A1: 'Item', B1: 'Qty', A2: 'Tea', B2: '10', A3: 'Cake', B3: '4', C2: '=[@Qty]*2', D1: '=SUM(Sales[Qty])' }, bands: [{ id: 'b', range: 'A1:B3', name: 'Sales', header: true, head: '#4a86e8', odd: '#ffffff', even: '#e8f0fe' }] },
+    { name: 'Report', cells: { A1: '=SUM(Sales[Qty])' } },
+  ] };
+  const zip = await JSZip.loadAsync(await excelFromSheet(data));
+  const s1 = await zip.file('xl/worksheets/sheet1.xml').async('string');
+  const s2 = await zip.file('xl/worksheets/sheet2.xml').async('string');
+  assert.match(s1, /<f>B2\*2<\/f>/);
+  assert.match(s1, /<f>SUM\(B2:B3\)<\/f>/);
+  assert.match(s2, /<f>SUM\(Data!B2:B3\)<\/f>/);
+  const table = await zip.file('xl/tables/table1.xml').async('string');
+  assert.match(table, /name="Sales" displayName="Sales"/);
+});
