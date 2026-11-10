@@ -53,7 +53,7 @@ import { BookmarkNode, bookmarksOf, bookmarkIdOf, bookmarkAnchor } from './bookm
 import { Mention, mentionQuery, matchPeople } from './mention.js';
 import { DropChip, CHIP_PRESETS, CHIP_COLORS, cleanOptions } from './dropchip.js';
 import { DateChip, matchDates, dateText, isDate, isoDay } from './datechip.js';
-import { FileChip, matchFiles, fileIcon } from './filechip.js';
+import { FileChip, matchFiles, fileIcon, fileUrl } from './filechip.js';
 import { MathInline, mathHtml, mathError, MAX_LATEX } from './math.js';
 import { Citation, References, htmlWithReferences } from './citation.js';
 import { CITE_FIELDS, cleanSource, inText, sourcesOf, sourceKey } from './cite.js';
@@ -212,6 +212,7 @@ function SharedDoc({ file, setFile }) {
   }, [provider, ydoc]);
 
   const addPicturesRef = useRef(null); // set below, once the editor is there
+  const pastedLinkRef = useRef(null); // a pasted link to a file, made a chip once it's looked up
   const [drawing, setDrawing] = useState(null); // { at }: the sketch pad is open, to insert there
   const mentionKeyRef = useRef(null); // the @-picker's keys, while it's open
   const chipKeyRef = useRef(null); // Enter or Space on a selected dropdown chip opens its choices
@@ -261,7 +262,16 @@ function SharedDoc({ file, setFile }) {
       // Pictures pasted or dropped in go to Drive and into the document.
       handlePaste: (view, event) => {
         const files = [...(event.clipboardData?.files || [])].filter((f) => PICTURE_TYPES.test(f.type));
-        if (!files.length) return false;
+        if (!files.length) {
+          // A link to a file here, on its own: it goes in as the link, then becomes the file's chip.
+          const text = event.clipboardData?.getData('text/plain') || '', link = fileUrl(text);
+          if (!link || !view.state.selection.$from.parent.isTextblock) return false;
+          event.preventDefault();
+          const url = text.trim(), from = view.state.selection.from;
+          view.dispatch(view.state.tr.insertText(url).scrollIntoView());
+          pastedLinkRef.current?.(link, from, url);
+          return true;
+        }
         event.preventDefault();
         addPicturesRef.current?.(files);
         return true;
@@ -394,6 +404,14 @@ function SharedDoc({ file, setFile }) {
   };
 
   // Pictures: uploaded next to the document (or to your Drive), then put in at the cursor.
+  pastedLinkRef.current = async (link, from, url) => {
+    if (link.id === file.id) return; // this document's own link stays a link
+    let f;
+    try { f = await get(`/files/${encodeURIComponent(link.id)}`); } catch { return; } // can't open it: left as the link
+    const to = from + url.length;
+    if (!editor || editor.isDestroyed || to > editor.state.doc.content.size || editor.state.doc.textBetween(from, to) !== url) return; // changed meanwhile
+    editor.chain().insertContentAt({ from, to }, [{ type: 'filechip', attrs: { id: f.id, name: f.name, kind: f.kind || 'file', mime: f.mime || '' } }]).run();
+  };
   addPicturesRef.current = async (files, at) => {
     for (const f of files) {
       if (!PICTURE_TYPES.test(f.type)) { toast('Choose a picture (PNG, JPEG, GIF or WebP)', 'error'); continue; }

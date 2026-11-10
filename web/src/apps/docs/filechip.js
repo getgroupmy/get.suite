@@ -59,3 +59,15 @@ export const FileChip = Node.create({
     };
   },
 });
+
+const KIND = { docs: 'doc', sheets: 'sheet', slides: 'slides', 'drive/folder': 'folder' };
+/**
+ * A pasted link to a file on this server (and nothing else): "https://this-server/docs/abc", "/sheets/xyz",
+ * a folder's "/drive/folder/…" or a preview's "/drive?preview=…" → { id, kind }, or null.
+ */
+export function fileUrl(text, host = typeof window !== 'undefined' ? window.location.host : '') {
+  const t = String(text || '').trim();
+  const m = /^(?:https?:\/\/([^\s/?#]+))?\/(?:(docs|sheets|slides|drive\/folder)\/([\w-]{6,})\/?|drive\/?\?(?:[^#\s]*&)?preview=([\w-]{6,}))(?:[?#][^\s]*)?$/.exec(t);
+  if (!m || (m[1] && m[1] !== host)) return null;
+  return m[3] ? { id: m[3], kind: KIND[m[2]] } : { id: m[4], kind: 'file' };
+}
