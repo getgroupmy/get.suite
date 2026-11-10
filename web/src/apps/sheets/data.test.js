@@ -38,3 +38,20 @@ test('split text to columns: detected or chosen separator, trimmed, over the cel
   assert.equal(detectSeparator(['a;b', 'c;d', 'e,f']), ';');
   assert.equal(detectSeparator(['a\tb,c']), '\t');
 });
+
+test('randomise rows: every row once, cells and formats together, formulas shifted, header kept', async () => {
+  const { shuffleRows } = await import('./data.js');
+  const sheet = { cells: { A1: 'Name', B1: 'Score', A2: 'Ann', B2: '1', A3: 'Ben', B3: '=B2+1', A4: 'Cy', B4: '3', C2: 'outside' }, formats: { A2: { bold: true } } };
+  let n = 0; const seq = [0.1, 0.9, 0.5]; const random = () => seq[n++ % seq.length];
+  const out = shuffleRows(sheet, { r1: 0, r2: 3, c1: 0, c2: 1 }, { header: true, random });
+  assert.equal(out.rows, 3);
+  assert.equal(out.cells.A1, 'Name', 'header stays');
+  const names = ['A2', 'A3', 'A4'].map((k) => out.cells[k]);
+  assert.deepEqual([...names].sort(), ['Ann', 'Ben', 'Cy']);
+  assert.notDeepEqual(names, ['Ann', 'Ben', 'Cy']);
+  const annRow = names.indexOf('Ann') + 2;
+  assert.deepEqual(out.formats[`A${annRow}`], { bold: true }, 'format moves with its row');
+  const benRow = names.indexOf('Ben') + 2;
+  assert.equal(out.cells[`B${benRow}`], `=B${benRow - 1}+1`, 'formula shifted like a moved row');
+  assert.equal(out.cells.C2, 'outside', 'outside the range left alone');
+});

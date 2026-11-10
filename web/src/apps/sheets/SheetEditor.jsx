@@ -15,7 +15,7 @@ import { CommentsPanel, useComments } from '../comments.jsx';
 import { ChartCard, ChartDialog } from './SheetCharts.jsx';
 import { dataRegion, rangeText, parseRange } from './charts.js';
 import { applyStructure, adjustKey, sortRange, looksLikeHeader, adjustOtherSheets, renameSheetRefs, renameSource } from './structure.js';
-import { removeDuplicates, splitColumn, trimText, changeCase, mapText } from './data.js';
+import { removeDuplicates, splitColumn, trimText, changeCase, mapText, shuffleRows } from './data.js';
 import { fixSpaces, fixSpelling } from './cleanup.js';
 import { CleanupDialog } from './SheetCleanup.jsx';
 import { DedupeDialog, SplitDialog } from './SheetData.jsx';
@@ -491,6 +491,17 @@ export default function SheetEditor() {
     const out = removeDuplicates(cur.sheets[active], g, { header, value: evaluate });
     if (out.removed) commitData({ ...cur, sheets: cur.sheets.map((s, i) => (i === active ? { ...s, cells: out.cells, formats: out.formats } : s)) });
     toast(out.removed ? `Removed ${out.removed} duplicate row${out.removed === 1 ? '' : 's'}; ${out.kept} left` : 'No duplicate rows');
+    gridRef.current?.focus();
+  }
+  /** Randomise rows: the selection's rows (or the table around the cell) in a random order; a header row stays. */
+  function shuffle() {
+    if (readOnly) return;
+    const g = sortTarget(), cur = dataRef.current;
+    const header = g.r2 > g.r1 && looksLikeHeader(g, evaluate);
+    const out = shuffleRows(cur.sheets[active], g, { header });
+    if (out.rows < 2) { toast('Select two rows or more to shuffle'); return; }
+    commitData({ ...cur, sheets: cur.sheets.map((s0, i) => (i === active ? { ...s0, cells: out.cells, formats: out.formats } : s0)) });
+    toast(`Shuffled ${out.rows} rows${header ? ' (the header stays)' : ''}`);
     gridRef.current?.focus();
   }
   /** Trim whitespace, change case: on the text cells of the selection (or the table around the cell). */
@@ -992,6 +1003,7 @@ export default function SheetEditor() {
     { label: 'Alternating colours…', onClick: () => setDialog({ type: 'bands' }) },
     { label: 'Cleanup suggestions…', onClick: () => setDialog({ type: 'cleanup', range: sortTarget() }) },
     { label: 'Remove duplicates…', onClick: () => setDialog({ type: 'dedupe' }) },
+    { label: 'Randomise rows', onClick: shuffle },
     { label: 'Trim whitespace', onClick: () => tidyText((v) => trimText(v), (n) => `Trimmed whitespace in ${n} cell${n === 1 ? '' : 's'}`, 'No extra spaces found') },
     { label: 'Change case…', onClick: () => setDialog({ type: 'case' }) },
     { label: 'Split text to columns…', onClick: () => setDialog({ type: 'split' }) },

@@ -37,6 +37,29 @@ export function removeDuplicates(sheet, range, { header = false, value }) {
   return { cells, formats, removed, kept: keep.filter((r) => [...Array(range.c2 - range.c1 + 1)].some((_, j) => same(value(cellKey(range.c1 + j, r))) !== '')).length };
 }
 
+/**
+ * Randomise rows: the range's rows in a random order (each row's cells and formats moving together, formulas
+ * shifted with them). A header row stays at the top. `random` is Math.random unless given (for tests).
+ * Returns { cells, formats, rows } (how many rows were shuffled).
+ */
+export function shuffleRows(sheet, range, { header = false, random = Math.random } = {}) {
+  const r1 = header ? range.r1 + 1 : range.r1;
+  const order = [];
+  for (let r = r1; r <= range.r2; r++) order.push(r);
+  for (let i = order.length - 1; i > 0; i--) { const j = Math.floor(random() * (i + 1)); [order[i], order[j]] = [order[j], order[i]]; }
+  const cells = { ...(sheet.cells || {}) }, formats = { ...(sheet.formats || {}) };
+  const old = sheet.cells || {}, oldF = sheet.formats || {};
+  order.forEach((from, i) => {
+    const to = r1 + i;
+    for (let c = range.c1; c <= range.c2; c++) {
+      const k = cellKey(c, to), src = cellKey(c, from);
+      if (old[src] === undefined || old[src] === '') delete cells[k]; else cells[k] = shiftFormula(old[src], 0, to - from);
+      if (oldF[src]) formats[k] = oldF[src]; else delete formats[k];
+    }
+  });
+  return { cells, formats, rows: order.length };
+}
+
 export const SEPARATORS = [['auto', 'Detect automatically'], [',', 'Comma'], [';', 'Semicolon'], ['\t', 'Tab'], [' ', 'Space'], ['|', 'Vertical bar']];
 
 /** The separator a column's text seems to use: the first of tab, semicolon, comma, | or space found in most rows. */
