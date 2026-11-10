@@ -15,6 +15,7 @@ const argb = (h) => `FF${h.replace('#', '').toUpperCase()}`;
 const CURRENCY_SIGNS = [['RM', 'MYR'], ['$', 'USD'], ['€', 'EUR'], ['£', 'GBP'], ['S$', 'SGD'], ['¥', 'JPY'], ['₹', 'INR']];
 
 /** Excel number format -> Sheets format bits ({ num, dp, cur }) or {}. */
+const MULTI = 'Several choices', MULTI_STRICT = 'Several choices (only these)'; // marks a several-choices dropdown in Excel
 export function numFromExcel(fmt) {
   if (!fmt || fmt === 'General' || fmt === '@') return {};
   const main = fmt.split(';')[0];
@@ -491,15 +492,18 @@ export async function excelFromSheet(data, { comments = [] } = {}) {
       }
     }
     // Dropdowns as Excel list validations; tick boxes as a TRUE/FALSE list (Excel has no tick box to write).
+    // Several choices per cell: Excel's list takes one value, so it only suggests there; an input message says
+    // so, and marks it (with whether only the choices are allowed) for coming back as several choices.
+    const several = (v) => (v.type === 'list' && v.multi ? { showInputMessage: true, promptTitle: v.strict ? MULTI_STRICT : MULTI, prompt: 'Pick one or more of the choices, separated by commas' } : {});
     for (const v of s.validations || []) {
       if (v.type === 'rule') { const x = ruleValidationToExcel(v); if (x) ws.dataValidations.add(v.range, x); continue; }
       // Choices taken from cells: written as that range, so Excel's dropdown follows them too.
       const src = v.type === 'list' && sourceFormula(v.source);
-      if (src) { ws.dataValidations.add(v.range, { type: 'list', allowBlank: true, formulae: [src], ...(v.strict && !v.multi && { showErrorMessage: true, errorStyle: 'stop' }) }); continue; }
+      if (src) { ws.dataValidations.add(v.range, { type: 'list', allowBlank: true, formulae: [src], ...(v.strict && !v.multi && { showErrorMessage: true, errorStyle: 'stop' }), ...several(v) }); continue; }
       const values = v.type === 'checkbox' ? ['TRUE', 'FALSE'] : (v.values || []).filter((x) => !/[,"]/.test(x));
       const list = values.join(',');
       if (!values.length || list.length > 255) continue; // Excel's limit for a written-out list
-      ws.dataValidations.add(v.range, { type: 'list', allowBlank: true, formulae: [`"${list}"`], ...(((v.strict && !v.multi) || v.type === 'checkbox') && { showErrorMessage: true, errorStyle: 'stop' }) }); // several choices ("A, B"): Excel's list takes one, so it only suggests
+      ws.dataValidations.add(v.range, { type: 'list', allowBlank: true, formulae: [`"${list}"`], ...(((v.strict && !v.multi) || v.type === 'checkbox') && { showErrorMessage: true, errorStyle: 'stop' }), ...several(v) }); // several choices ("A, B"): Excel's list takes one, so it only suggests
     }
   }
   if (!wb.worksheets.length) wb.addWorksheet('Sheet1');
@@ -656,7 +660,9 @@ export function validationsFromExcel(model, cells) {
     values = values && [...new Set(values)].slice(0, 200);
     if (values && !values.length && !source) continue;
     const checkbox = !!values && values.length === 2 && values.every((v) => /^(TRUE|FALSE)$/i.test(v)) && new Set(values.map((v) => v.toUpperCase())).size === 2;
-    const def = checkbox ? { type: 'checkbox' } : { type: 'list', ...(source ? { source } : { values }), strict: !!x.showErrorMessage && x.errorStyle !== 'information' && x.errorStyle !== 'warning' };
+    const multi = x.promptTitle === MULTI || x.promptTitle === MULTI_STRICT;
+    const def = checkbox ? { type: 'checkbox' } : { type: 'list', ...(source ? { source } : { values }),
+      strict: multi ? x.promptTitle === MULTI_STRICT : !!x.showErrorMessage && x.errorStyle !== 'information' && x.errorStyle !== 'warning', ...(multi && { multi: true }) };
     const key = `${p[1]}|${JSON.stringify(def)}`;
     if (!byKind.has(key)) byKind.set(key, { col: p[1], def, rows: [] });
     byKind.get(key).rows.push(Number(p[2]));

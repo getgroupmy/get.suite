@@ -1788,4 +1788,12 @@ test('Excel: a dropdown with several choices per cell only suggests in Excel (it
   assert.ok(!multi.showErrorMessage, 'several choices: not refused in Excel');
   assert.equal(single.showErrorMessage, true, 'one choice: still refused');
   assert.equal(wb.worksheets[0].getCell('A2').value, 'Design, Sales');
+  assert.equal(multi.promptTitle, 'Several choices (only these)', 'says so in Excel');
+  // And back: several choices again, still only the choices.
+  const back = (await sheetFromExcel(await excelFromSheet(data))).sheets[0].validations.map(({ id, ...v }) => v);
+  assert.deepEqual(back.find((v) => v.range.startsWith('A2')), { range: 'A2:A20', type: 'list', values: ['Design', 'Marketing', 'Sales'], strict: true, multi: true });
+  assert.equal(back.find((v) => v.range.startsWith('B2')).multi, undefined);
+  data.sheets[0].validations[0].strict = false;
+  const loose = (await sheetFromExcel(await excelFromSheet(data))).sheets[0].validations.find((v) => v.range.startsWith('A2'));
+  assert.deepEqual([loose.multi, loose.strict], [true, false]);
 });
