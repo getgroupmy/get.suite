@@ -2610,3 +2610,7 @@ input.fv-name { background: #202124; color: #fff; border: 1px solid #5f6368; bor
 .move-picker { list-style: none; margin: 10px 0 0; padding: 0; max-height: 320px; overflow: auto; display: grid; gap: 2px; }
 .move-picker button { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 10px; border: 0; border-radius: 8px; background: none; color: inherit; text-align: left; cursor: pointer; font: inherit; }
 .move-picker button.on { background: var(--accent-soft); color: var(--accent-text); }
+/* Sheets: cleanup suggestions */
+.cleanup-list { list-style: none; padding: 0; margin: 12px 0 0; display: grid; gap: 8px; }
+.cleanup-list li { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; }
+.cleanup-none { color: var(--ok, #188038); font-weight: 500; }

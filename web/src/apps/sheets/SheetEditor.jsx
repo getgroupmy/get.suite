@@ -16,6 +16,8 @@ import { ChartCard, ChartDialog } from './SheetCharts.jsx';
 import { dataRegion, rangeText, parseRange } from './charts.js';
 import { applyStructure, adjustKey, sortRange, looksLikeHeader, adjustOtherSheets, renameSheetRefs, renameSource } from './structure.js';
 import { removeDuplicates, splitColumn, trimText, changeCase, mapText } from './data.js';
+import { fixSpaces, fixSpelling } from './cleanup.js';
+import { CleanupDialog } from './SheetCleanup.jsx';
 import { DedupeDialog, SplitDialog } from './SheetData.jsx';
 import { NamesDialog } from './SheetNames.jsx';
 import { FunctionsDialog } from './SheetFunctions.jsx';
@@ -490,6 +492,15 @@ export default function SheetEditor() {
     if (out.changed) commitData({ ...cur, sheets: cur.sheets.map((s, i) => (i === active ? { ...s, cells: out.cells } : s)) });
     toast(out.changed ? done(out.changed) : none);
     gridRef.current?.focus();
+  }
+  /** A cleanup suggestion's fix (cleanup.js), on the range the panel looks at. */
+  function fixCleanup(g, s, header) {
+    if (readOnly) return;
+    if (s.kind === 'duplicates') { dedupe(g, { header }); return; }
+    const cur = dataRef.current;
+    const out = s.kind === 'spaces' ? fixSpaces(cur.sheets[active], g, { header }) : fixSpelling(cur.sheets[active], g, s, { header });
+    if (out.changed) commitData({ ...cur, sheets: cur.sheets.map((x, i) => (i === active ? { ...x, cells: out.cells } : x)) });
+    toast(s.kind === 'spaces' ? `Tidied the spaces in ${out.changed} cell${out.changed === 1 ? '' : 's'}` : `Column ${s.col}: ${out.changed} cell${out.changed === 1 ? '' : 's'} made the same`);
   }
   function split(g, { sep }) {
     if (readOnly) return;
@@ -969,6 +980,7 @@ export default function SheetEditor() {
     { label: 'Sort range…', onClick: () => setDialog({ type: 'sort' }) },
     '-',
     { label: 'Alternating colours…', onClick: () => setDialog({ type: 'bands' }) },
+    { label: 'Cleanup suggestions…', onClick: () => setDialog({ type: 'cleanup', range: sortTarget() }) },
     { label: 'Remove duplicates…', onClick: () => setDialog({ type: 'dedupe' }) },
     { label: 'Trim whitespace', onClick: () => tidyText((v) => trimText(v), (n) => `Trimmed whitespace in ${n} cell${n === 1 ? '' : 's'}`, 'No extra spaces found') },
     { label: 'Change case…', onClick: () => setDialog({ type: 'case' }) },
@@ -1389,6 +1401,10 @@ export default function SheetEditor() {
             ))}
           </div>
         </Modal>
+      )}
+      {dialog?.type === 'cleanup' && sheet && (
+        <CleanupDialog sheet={sheet} range={dialog.range} value={evaluate} readOnly={readOnly}
+          onFix={(sug, header) => fixCleanup(dialog.range, sug, header)} onClose={() => { setDialog(null); gridRef.current?.focus(); }} />
       )}
       {dialog?.type === 'dedupe' && (() => { const g = sortTarget(); return (
         <DedupeDialog range={g} header={looksLikeHeader(g, evaluate)} onClose={() => { setDialog(null); gridRef.current?.focus(); }} onRun={(o) => { setDialog(null); dedupe(g, o); }} />
