@@ -963,6 +963,32 @@ function HtmlBody({ html, images, onShowImages }) {
 
 const FIELDS = ['from', 'to', 'cc', 'bcc', 'subject', 'text', 'html', 'inReplyTo', 'references', 'replyTo'];
 
+// Attaching a document, spreadsheet or presentation: as which kind of file (a copy as it is now, kept in Email attachments).
+const ATTACH_AS = {
+  doc: [['docx', 'Word (.docx)'], ['odt', 'OpenDocument (.odt)'], ['md', 'Markdown (.md)']],
+  sheet: [['xlsx', 'Excel (.xlsx)'], ['ods', 'OpenDocument (.ods)']],
+  slides: [['pptx', 'PowerPoint (.pptx)'], ['odp', 'OpenDocument (.odp)']],
+};
+function AttachAs({ file, onClose, onDone }) {
+  const toast = useToast();
+  const choices = ATTACH_AS[file.kind] || [];
+  const [format, setFormat] = useState(choices[0]?.[0]);
+  const [busy, setBusy] = useState(false);
+  const go = async () => {
+    setBusy(true);
+    try { onDone(await post(`/files/${file.id}/export-copy`, { format })); } catch (e) { toast(e.message, 'error'); setBusy(false); }
+  };
+  return (
+    <Modal title={`Attach “${file.name}”`} onClose={onClose} footer={<><button type="button" className="btn" onClick={onClose}>Cancel</button><button type="button" className="btn primary" disabled={busy} onClick={go}>{busy ? 'Attaching…' : 'Attach'}</button></>}>
+      <fieldset className="stack" style={{ border: 0, padding: 0, margin: 0 }}>
+        <legend className="muted small">Attach it as</legend>
+        {choices.map(([v, label]) => <label key={v} className="check"><input type="radio" name="attach-as" value={v} checked={format === v} onChange={() => setFormat(v)} /> {label}</label>)}
+      </fieldset>
+      <p className="muted small">A copy as it is now goes with the email (and into your Email attachments folder). Later changes to the {file.kind === 'sheet' ? 'spreadsheet' : file.kind === 'slides' ? 'presentation' : 'document'} aren't in it.</p>
+    </Modal>
+  );
+}
+
 function Compose({ initial, shared = null, signatures = [], onClose, onSent, onDraftsChanged }) {
   const editorRef = useRef(null);
   const toast = useToast();
@@ -1035,6 +1061,7 @@ function Compose({ initial, shared = null, signatures = [], onClose, onSent, onD
     onClose();
   }
   const [picking, setPicking] = useState(false);
+  const [converting, setConverting] = useState(null); // a document, spreadsheet or presentation picked to attach: which kind of file?
   const [templates, setTemplates] = useState([]);
   const [templateDialog, setTemplateDialog] = useState(null); // 'save' | 'manage'
   const loadTemplates = () => get('/mail/templates').then(setTemplates).catch(() => {});
@@ -1244,7 +1271,9 @@ function Compose({ initial, shared = null, signatures = [], onClose, onSent, onD
       {templateDialog === 'save' && <PromptModal title="Save as template" label="Template name" initial={f.subject} confirm="Save" onClose={() => setTemplateDialog(null)}
         onSubmit={async (name) => { await post('/mail/templates', { name, subject: f.subject, html: bodyHtml() }); toast(`Template “${name.trim()}” saved`); loadTemplates(); }} />}
       {templateDialog === 'manage' && <TemplatesDialog templates={templates} onClose={() => setTemplateDialog(null)} onChanged={loadTemplates} />}
-      {picking && <DrivePicker empty="No files found. (Docs and Sheets can't be attached yet; download them first.)" onClose={() => setPicking(false)} onPick={(file) => { if (!files.some((x) => x.id === file.id)) setFiles([...files, file]); setPicking(false); }} />}
+      {picking && <DrivePicker empty="No files found." accept={(x) => x.kind !== 'folder'} onClose={() => setPicking(false)}
+        onPick={(file) => { setPicking(false); if (file.kind !== 'file') { setConverting(file); return; } if (!files.some((x) => x.id === file.id)) setFiles([...files, file]); }} />}
+      {converting && <AttachAs file={converting} onClose={() => setConverting(null)} onDone={(rec) => { setConverting(null); setFiles((x) => [...x, rec]); }} />}
     </Modal>
     {scheduling && <ScheduleDialog onClose={() => setScheduling(false)} onPick={(at) => { setScheduling(false); sendLater(at); }} />}
     {dlpWarn && (

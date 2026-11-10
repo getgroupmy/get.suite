@@ -8180,3 +8180,42 @@ test('OpenDocument: a presentation downloads as .odp; an .odp file previews and 
   const junk = (await owner('POST', '/api/files/upload?name=Broken.odp', Buffer.from('nope'), { raw: true })).body;
   assert.match((await owner('POST', `/api/files/${junk.id}/open-as`)).body.error, /OpenDocument presentation/);
 });
+
+test('attaching a document, spreadsheet or presentation to an email: a copy as Word, OpenDocument… in Email attachments', async () => {
+  const d = (await owner('POST', '/api/files/new', { kind: 'doc', name: 'Mailed offer letter' })).body;
+  const c = (await owner('GET', `/api/files/${d.id}/content`)).body;
+  await owner('PUT', `/api/files/${d.id}/content`, { version: c.file.version, content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Dear Sam' }] }] } });
+  const word = await owner('POST', `/api/files/${d.id}/export-copy`, {});
+  assert.equal(word.status, 201, JSON.stringify(word.body));
+  assert.deepEqual([word.body.kind, word.body.name, word.body.mime], ['file', 'Mailed offer letter.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document']);
+  const folder = (await owner('GET', `/api/files/${word.body.parent_id}`)).body;
+  assert.deepEqual([folder.name, folder.parent_id], ['Email attachments', null]);
+  const odt = (await owner('POST', `/api/files/${d.id}/export-copy`, { format: 'odt' })).body;
+  assert.equal(odt.name, 'Mailed offer letter.odt');
+  assert.equal(odt.parent_id, folder.id, 'the same folder');
+  const { docFromOdt } = await import('../src/office/odt.js');
+  const bytes = (await owner("GET", `/api/files/${odt.id}/raw`, undefined, { binary: true })).body;
+  assert.match(JSON.stringify((await docFromOdt(bytes)).doc), /Dear Sam/);
+  assert.equal((await owner('POST', `/api/files/${d.id}/export-copy`, { format: 'md' })).body.name, 'Mailed offer letter.md');
+  const again = (await owner('POST', `/api/files/${d.id}/export-copy`, { format: 'ods' })).body;
+  assert.equal(again.name, 'Mailed offer letter.docx', 'a format it can\'t be: the usual one');
+  assert.equal(again.id, word.body.id, 'attached again: the same file, so the name stays as it is');
+  assert.equal((await owner('GET', `/api/files/${again.id}/versions`)).body.length, 1, 'the earlier copy kept as a version');
+  const s = (await owner('POST', '/api/files/new', { kind: 'sheet', name: 'Mailed price list' })).body;
+  assert.equal((await owner('POST', `/api/files/${s.id}/export-copy`, { format: 'ods' })).body.name, 'Mailed price list.ods');
+  const k = (await owner('POST', '/api/files/new', { kind: 'slides', name: 'Mailed pitch' })).body;
+  assert.equal((await owner('POST', `/api/files/${k.id}/export-copy`, { format: 'odp' })).body.name, 'Mailed pitch.odp');
+  // Not folders or uploaded files; not for someone who may only view a file with downloading turned off.
+  assert.equal((await owner('POST', `/api/files/${folder.id}/export-copy`, {})).status, 400);
+  assert.equal((await owner('POST', `/api/files/${odt.id}/export-copy`, {})).status, 400);
+  const reader = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'mailreader', domain: 'acme.com', name: 'Mail Reader', password: 'password123' })).status, 201);
+  const rid = (await login(reader, 'mailreader@acme.com')).id;
+  await owner('PUT', `/api/files/${d.id}/shares`, { shares: [{ user_id: rid, role: 'viewer' }] });
+  await owner('PATCH', `/api/files/${d.id}`, { no_download: true });
+  assert.equal((await reader('POST', `/api/files/${d.id}/export-copy`, {})).status, 403);
+  await owner('PATCH', `/api/files/${d.id}`, { no_download: false });
+  const theirs = await reader('POST', `/api/files/${d.id}/export-copy`, {});
+  assert.equal(theirs.status, 201);
+  assert.notEqual(theirs.body.parent_id, folder.id, 'in their own Email attachments');
+});

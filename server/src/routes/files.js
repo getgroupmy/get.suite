@@ -1309,12 +1309,8 @@ export default function fileRoutes({ maxUploadBytes }) {
     res.status(201).json(publicFile(loadFile(id, req.user)));
   });
 
-  // Download a document, spreadsheet or presentation as Word, Excel or PowerPoint.
-  r.get('/:id/export', async (req, res) => {
-    const f = loadFile(req.params.id, req.user);
-    if (!mayTakeAway(f, f.role)) throw forbidden(NO_TAKING);
-    const type = (req.query.format === 'md' || req.query.format === 'odt') && f.kind === 'doc' ? req.query.format : req.query.format === 'ods' && f.kind === 'sheet' ? 'ods' : req.query.format === 'odp' && f.kind === 'slides' ? 'odp' : EXPORT_AS[f.kind];
-    if (!type) throw bad('Only documents, spreadsheets and presentations can be downloaded this way');
+  /** A document, spreadsheet or presentation as a file of the given type (docx, odt, md, xlsx, ods, pptx, odp), as it stands now. */
+  const exportedAs = async (f, type) => {
     saveNow(f.id); // what's being typed right now goes in too
     const stored = JSON.parse(q('SELECT content FROM files WHERE id = ?').get(f.id).content || '{}');
     // Pending suggestions aren't in it yet; a Word download carries them as tracked changes.
@@ -1325,17 +1321,55 @@ export default function fileRoutes({ maxUploadBytes }) {
       if (!pic || !(/^image\//.test(pic.mime || '') || (f.kind === 'slides' && /^video\//.test(pic.mime || ''))) || !atLeast(roleFor(f.id, pic.owner_id), 'editor')) return null; // pictures, and videos on slides
       return { data: fs.readFileSync(path.join(FILES_DIR, pic.storage)), mime: pic.mime };
     };
-    let buf;
-    if (type === 'md') buf = Buffer.from(markdownFromDoc(content), 'utf8');
-    else if (type === 'odt') buf = await odtFromDoc(content, f.name, { pictureData });
-    else if (type === 'ods') buf = await odsFromSheet(content);
-    else if (type === 'odp') buf = await odpFromDeck(content, { pictureData, title: f.name });
-    else if (type === 'docx') buf = await wordFromDoc(content, f.name, { pictureData, page: setupOf(f), comments: wordCommentsOf(f.id), signatures: (await import('./signatures.js')).signedRecord(f.id) });
-    else if (type === 'xlsx') buf = await excelFromSheet(content, { comments: cellCommentsOf(f.id) });
-    else buf = await powerPointFromDeck(content, { title: f.name, pictureData, comments: slideCommentsOf(f.id) });
+    if (type === 'md') return Buffer.from(markdownFromDoc(content), 'utf8');
+    if (type === 'odt') return odtFromDoc(content, f.name, { pictureData });
+    if (type === 'ods') return odsFromSheet(content);
+    if (type === 'odp') return odpFromDeck(content, { pictureData, title: f.name });
+    if (type === 'docx') return wordFromDoc(content, f.name, { pictureData, page: setupOf(f), comments: wordCommentsOf(f.id), signatures: (await import('./signatures.js')).signedRecord(f.id) });
+    if (type === 'xlsx') return excelFromSheet(content, { comments: cellCommentsOf(f.id) });
+    return powerPointFromDeck(content, { title: f.name, pictureData, comments: slideCommentsOf(f.id) });
+  };
+  // Which types each kind can be had as (the first is the usual one).
+  const EXPORT_TYPES = { doc: ['docx', 'odt', 'md'], sheet: ['xlsx', 'ods'], slides: ['pptx', 'odp'] };
+  const exportType = (f, format) => (EXPORT_TYPES[f.kind]?.includes(format) ? format : EXPORT_AS[f.kind]);
+
+  // Download a document, spreadsheet or presentation as Word, Excel or PowerPoint (or OpenDocument, Markdown).
+  r.get('/:id/export', async (req, res) => {
+    const f = loadFile(req.params.id, req.user);
+    if (!mayTakeAway(f, f.role)) throw forbidden(NO_TAKING);
+    if (!EXPORT_AS[f.kind]) throw bad('Only documents, spreadsheets and presentations can be downloaded this way');
+    const type = exportType(f, req.query.format);
+    const buf = await exportedAs(f, type);
     res.setHeader('Content-Type', OFFICE[type].mime);
     res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(`${f.name}.${type}`)}`);
     res.send(buf);
+  });
+
+  // A copy of a document, spreadsheet or presentation as a file (Word, OpenDocument…), to attach to an email:
+  // saved in your "Email attachments" folder, as it stands now. The original stays as it is.
+  r.post('/:id/export-copy', async (req, res) => {
+    const f = loadFile(req.params.id, req.user);
+    if (!mayTakeAway(f, f.role)) throw forbidden(NO_TAKING);
+    if (!EXPORT_AS[f.kind]) throw bad('Only documents, spreadsheets and presentations can be attached this way');
+    const type = exportType(f, req.body?.format);
+    const buf = await exportedAs(f, type);
+    checkQuota(req.user.org_id, buf.length, req.user.id);
+    let folderId = q("SELECT id FROM files WHERE owner_id = ? AND parent_id IS NULL AND kind = 'folder' AND name = 'Email attachments' AND trashed = 0").get(req.user.id)?.id;
+    if (!folderId) folderId = insertFile({ owner: req.user.id, parentId: null, name: 'Email attachments', kind: 'folder' });
+    const storage = uid();
+    fs.writeFileSync(path.join(FILES_DIR, storage), buf);
+    const name = cleanName(`${f.name}.${type}`), mime = OFFICE[type].mime.split(';')[0];
+    // Attached before: the same file, as it is now (the earlier copy kept as a version), so it keeps its name.
+    const before = q("SELECT id FROM files WHERE owner_id = ? AND parent_id = ? AND kind = 'file' AND name = ? AND trashed = 0").get(req.user.id, folderId, name);
+    let id = before?.id;
+    if (id) {
+      tx(() => {
+        snapshot(id);
+        q('UPDATE files SET storage = ?, size = ?, mime = ?, version = version + 1, updated_at = ?, updated_by = ? WHERE id = ?').run(storage, buf.length, mime, now(), req.user.id, id);
+      });
+    } else id = insertFile({ owner: req.user.id, parentId: folderId, name, kind: 'file', mime, size: buf.length, storage, activity: { action: 'copy', details: { from: f.name } } });
+    notify(folderId, { type: 'files-changed', parent_id: folderId });
+    res.status(201).json(publicFile(loadFile(id, req.user)));
   });
 
   // ---- version history ----
