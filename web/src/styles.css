@@ -2634,3 +2634,9 @@ input.fv-name { background: #202124; color: #fff; border: 1px solid #5f6368; bor
 .tile-meta { padding: 2px 10px 8px; }
 .tile-check { position: absolute; top: 8px; left: 8px; }
 .tile-menu { position: absolute; top: 4px; right: 4px; background: var(--surface); }
+/* Home: cards you've hidden, the Customize button and window */
+.home-grid > [hidden] { display: none !important; }
+.home-customize { float: right; }
+.customize-cards { list-style: none; padding: 0; margin: 0; display: grid; gap: 4px; }
+.customize-cards li { display: flex; align-items: center; gap: 6px; padding: 4px 6px; border-radius: 8px; }
+.customize-cards li:hover { background: var(--surface-2); }

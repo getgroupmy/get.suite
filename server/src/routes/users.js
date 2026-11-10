@@ -12,7 +12,7 @@ import { orgMemberIds } from '../tenancy.js';
 import { q, tx } from '../db.js';
 import { str, bad, notFound, forbidden } from '../util.js';
 import { setHold, keepIfHeld } from '../hold.js';
-import { requireAdmin, validatePassword, hashPassword, newUserRow, sessionId, describeDevice, destroySession, tokenFromReq, driveView } from '../auth.js';
+import { requireAdmin, validatePassword, hashPassword, newUserRow, sessionId, describeDevice, destroySession, tokenFromReq, driveView, homeLayout, HOME_CARDS } from '../auth.js';
 import { validAddress, canReach, blobsOwnedBy, removeBlobs, mailHomeOf, retireMailHome } from '../tenancy.js';
 import { uid } from '../util.js';
 import { planImport, readablePassword, usersCsv } from '../userimport.js';
@@ -209,6 +209,20 @@ export default function userRoutes() {
     const cur = driveView(q('SELECT drive_view FROM users WHERE id = ?').get(req.user.id)?.drive_view);
     const next = driveView({ ...cur, ...(b.sort !== undefined && { sort: b.sort }), ...(b.desc !== undefined && { desc: !!b.desc }), ...(b.layout !== undefined && { layout: b.layout }) });
     q('UPDATE users SET drive_view = ? WHERE id = ?').run(JSON.stringify(next), req.user.id);
+    res.json(next);
+  });
+
+  // Home's cards: their order and which are hidden ({ order: [cards], hidden: [cards] }); { reset: true } goes back to the usual.
+  r.put('/me/home-layout', (req, res) => {
+    const b = req.body || {};
+    if (b.reset) { q('UPDATE users SET home_layout = NULL WHERE id = ?').run(req.user.id); return res.json(homeLayout(null)); }
+    const known = (list) => Array.isArray(list) && list.every((k) => HOME_CARDS.includes(k));
+    if (b.order !== undefined && !known(b.order)) throw bad('Unknown card in the order');
+    if (b.hidden !== undefined && !known(b.hidden)) throw bad('Unknown card to hide');
+    const cur = homeLayout(q('SELECT home_layout FROM users WHERE id = ?').get(req.user.id)?.home_layout);
+    const next = homeLayout({ order: b.order ?? cur.order, hidden: b.hidden ?? cur.hidden });
+    if (next.hidden.length === HOME_CARDS.length) throw bad('Keep at least one card on Home');
+    q('UPDATE users SET home_layout = ? WHERE id = ?').run(JSON.stringify(next), req.user.id);
     res.json(next);
   });
 

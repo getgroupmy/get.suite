@@ -19,6 +19,16 @@ if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'file_format')) 
 // How Drive lists files for this person: JSON { sort: 'name' | 'modified' | 'size', desc, layout: 'list' | 'grid' }.
 if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'drive_view')) q('ALTER TABLE users ADD COLUMN drive_view TEXT').run();
 const DRIVE_SORTS = ['name', 'modified', 'size'];
+// Home's cards, in their usual order; someone's own order and hidden ones in users.home_layout (JSON).
+export const HOME_CARDS = ['events', 'tasks', 'unread', 'approvals', 'out', 'signing', 'apps', 'recent', 'notes'];
+if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'home_layout')) q('ALTER TABLE users ADD COLUMN home_layout TEXT').run();
+/** Someone's Home: { order: every card once (theirs first, any new ones after), hidden: [cards] }. */
+export function homeLayout(v) {
+  let o = {};
+  try { o = typeof v === 'string' ? JSON.parse(v) : v || {}; } catch { o = {}; }
+  const mine = (Array.isArray(o?.order) ? o.order : []).filter((k, i, a) => HOME_CARDS.includes(k) && a.indexOf(k) === i);
+  return { order: [...mine, ...HOME_CARDS.filter((k) => !mine.includes(k))], hidden: HOME_CARDS.filter((k) => Array.isArray(o?.hidden) && o.hidden.includes(k)) };
+}
 /** Someone's Drive view, tidied: { sort, desc, layout } (name, A→Z, list when not chosen). */
 export function driveView(v) {
   let o = {};
@@ -92,7 +102,7 @@ export const idleOf = (req) => { const v = Number(req.get?.('x-user-idle')); ret
  */
 export function userFromToken(token, { idleMs = null } = {}) {
   if (!token) return null;
-  const row = q(`SELECT u.id, u.username, u.name, u.is_admin, u.is_super, u.disabled, u.org_id, u.start_page, u.second_tz, u.file_format, u.drive_view, u.convert_uploads, u.must_change_password, u.recovery_email, COALESCE(u.password_set_at, u.created_at) AS password_set_at, o.pw_max_days,
+  const row = q(`SELECT u.id, u.username, u.name, u.is_admin, u.is_super, u.disabled, u.org_id, u.start_page, u.second_tz, u.file_format, u.drive_view, u.home_layout, u.convert_uploads, u.must_change_password, u.recovery_email, COALESCE(u.password_set_at, u.created_at) AS password_set_at, o.pw_max_days,
                         o.name AS org_name, o.allow_external, o.allow_links, o.require_2fa, o.accent AS org_accent, o.logo AS org_logo, s.expires_at, s.last_seen, s.created_at AS session_at, o.session_idle_min, o.session_max_hours,
                         (SELECT enabled FROM two_factor t WHERE t.user_id = u.id) AS tf_enabled
                  FROM sessions s JOIN users u ON u.id = s.user_id JOIN orgs o ON o.id = u.org_id
@@ -117,7 +127,7 @@ export function userFromToken(token, { idleMs = null } = {}) {
   return userOf(row);
 }
 
-const USER_COLUMNS = `u.id, u.username, u.name, u.is_admin, u.is_super, u.disabled, u.org_id, u.start_page, u.second_tz, u.file_format, u.drive_view, u.convert_uploads, u.must_change_password, u.recovery_email, COALESCE(u.password_set_at, u.created_at) AS password_set_at, o.pw_max_days,
+const USER_COLUMNS = `u.id, u.username, u.name, u.is_admin, u.is_super, u.disabled, u.org_id, u.start_page, u.second_tz, u.file_format, u.drive_view, u.home_layout, u.convert_uploads, u.must_change_password, u.recovery_email, COALESCE(u.password_set_at, u.created_at) AS password_set_at, o.pw_max_days,
   o.name AS org_name, o.allow_external, o.allow_links, o.require_2fa, o.accent AS org_accent, o.logo AS org_logo, o.session_idle_min, (SELECT enabled FROM two_factor t WHERE t.user_id = u.id) AS tf_enabled`;
 
 /** The person an API token acts for (see apitokens.js), as requireAuth gives it, with req.apiToken set. */
@@ -152,6 +162,7 @@ function userOf(row) {
     second_tz: row.second_tz || null,
     file_format: row.file_format === 'odf' ? 'odf' : 'office',
     drive_view: driveView(row.drive_view),
+    home_layout: homeLayout(row.home_layout),
     convert_uploads: !!row.convert_uploads,
     recovery_email: row.recovery_email || null, // a personal address for "Forgot password?"
     session_idle_min: row.session_idle_min || 0,

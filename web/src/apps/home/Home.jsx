@@ -2,9 +2,9 @@
 // worked on lately and your pinned notes, each linking to where it lives. It updates as things change.
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
-import { get, onLive, formatDate } from '../../api.js';
+import { get, put, onLive, formatDate } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
-import { Avatar } from '../../components/ui.jsx';
+import { Avatar, Modal } from '../../components/ui.jsx';
 import { useAuth } from '../../App.jsx';
 import { useMailStatus } from '../../mailStatus.js';
 import { expandAll } from '../calendar/calmath.js';
@@ -23,8 +23,21 @@ function dayText(d) {
   return diff === 1 ? 'tomorrow' : t.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' });
 }
 
+/** Home's cards, by key, as the Customize window names them. */
+export const CARD_NAMES = { events: "Today's events", tasks: 'Tasks due', unread: 'Unread', approvals: 'Waiting for your approval', out: "Who's out",
+  signing: 'Waiting for your signature', apps: 'Company apps', recent: 'Recent files', notes: 'Pinned notes' };
+const DEFAULT_LAYOUT = { order: Object.keys(CARD_NAMES), hidden: [] };
+
 export default function Home() {
-  const { user } = useAuth();
+  const { user, setUser } = useAuth();
+  const [layout, setLayout] = useState(() => user.home_layout || DEFAULT_LAYOUT);
+  const [customizing, setCustomizing] = useState(false);
+  // Each card takes its place in your order (CSS order in the grid), or stays out when hidden.
+  const cardProps = (key) => ({ style: { order: Math.max(0, layout.order.indexOf(key)) }, hidden: layout.hidden.includes(key), 'data-card': key });
+  const saveLayout = async (next) => {
+    setLayout(next);
+    try { const saved = await put('/users/me/home-layout', next.reset ? { reset: true } : { order: next.order, hidden: next.hidden }); setLayout(saved); setUser?.({ ...user, home_layout: saved }); } catch { /* kept here */ }
+  };
   const navigate = useNavigate();
   const mail = useMailStatus();
   const [data, setData] = useState(null);
@@ -65,12 +78,13 @@ export default function Home() {
   return (
     <div className="page home">
       <div className="home-hello">
+        <button type="button" className="btn small home-customize" onClick={() => setCustomizing(true)}><Icon name="settings" size={16} /> Customize</button>
         <h1>{greeting()}, {first}</h1>
         <p className="muted" style={{ margin: 0 }}>{new Date().toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}{data?.where && ` · ${placeText(data.where)} today`}</p>
       </div>
       {!data ? <p className="muted">Loading…</p> : (
         <div className="home-grid">
-          <section className="card home-card" aria-label="Today's events">
+          <section className="card home-card" aria-label="Today's events" {...cardProps('events')}>
             <h2><Link to="/calendar"><Icon name="calendar" size={18} /> Today</Link></h2>
             {!data.events.length ? <p className="muted small">Nothing on your calendar today.</p> : (
               <ul className="home-list">
@@ -89,7 +103,7 @@ export default function Home() {
               </ul>
             )}
           </section>
-          <section className="card home-card" aria-label="Tasks due">
+          <section className="card home-card" aria-label="Tasks due" {...cardProps('tasks')}>
             <h2><Link to="/tasks"><Icon name="check" size={18} /> Tasks due</Link></h2>
             {!data.due.length ? <p className="muted small">Nothing due today. 🎉</p> : (
               <ul className="home-list">
@@ -101,7 +115,7 @@ export default function Home() {
               </ul>
             )}
           </section>
-          <section className="card home-card" aria-label="Unread">
+          <section className="card home-card" aria-label="Unread" {...cardProps('unread')}>
             <h2><Icon name="bell" size={18} /> Unread</h2>
             <ul className="home-list">
               {mail?.enabled && <li><Icon name="mail" size={16} /><Link className="grow home-item" to="/mail">{data.unread ? `${data.unread} unread ${data.unread === 1 ? 'email' : 'emails'}` : 'No unread email'}</Link></li>}
@@ -113,7 +127,7 @@ export default function Home() {
             </ul>
           </section>
           {data.approvals.length > 0 && (
-            <section className="card home-card" aria-label="Waiting for your approval">
+            <section className="card home-card" aria-label="Waiting for your approval" {...cardProps('approvals')}>
               <h2><Link to="/drive/approvals"><Icon name="check" size={18} /> Waiting for your approval</Link></h2>
               <ul className="home-list">
                 {data.approvals.slice(0, 6).map((a) => (
@@ -125,7 +139,7 @@ export default function Home() {
             </section>
           )}
           {(data.away.out.length > 0 || data.away.holiday || data.away.waiting > 0) && (
-            <section className="card home-card" aria-label="Who's out">
+            <section className="card home-card" aria-label="Who's out" {...cardProps('out')}>
               <h2><Link to="/calendar?timeoff=1">🏖 Who's out</Link></h2>
               <ul className="home-list">
                 {data.away.waiting > 0 && <li><Link className="grow home-item" to="/calendar?timeoff=1"><strong>{data.away.waiting} time-off request{data.away.waiting === 1 ? '' : 's'} waiting for your answer</strong></Link></li>}
@@ -139,7 +153,7 @@ export default function Home() {
             </section>
           )}
           {data.signing?.length > 0 && (
-            <section className="card home-card" aria-label="Waiting for your signature">
+            <section className="card home-card" aria-label="Waiting for your signature" {...cardProps('signing')}>
               <h2><Link to="/drive/signatures">✍️ Waiting for your signature</Link></h2>
               <ul className="home-list">
                 {data.signing.slice(0, 6).map((s) => (
@@ -151,7 +165,7 @@ export default function Home() {
             </section>
           )}
           {data.apps.length > 0 && (
-            <section className="card home-card" aria-label="Company apps">
+            <section className="card home-card" aria-label="Company apps" {...cardProps('apps')}>
               <h2><Icon name="apps" size={18} /> Company apps</h2>
               <ul className="home-apps">
                 {data.apps.map((a) => (
@@ -161,7 +175,7 @@ export default function Home() {
               </ul>
             </section>
           )}
-          <section className="card home-card" aria-label="Recent files">
+          <section className="card home-card" aria-label="Recent files" {...cardProps('recent')}>
             <h2><Link to="/drive/recent"><Icon name="folder" size={18} /> Recent files</Link></h2>
             {!data.recent.length ? <p className="muted small">Files you open or change show up here.</p> : (
               <ul className="home-list">
@@ -173,7 +187,7 @@ export default function Home() {
             )}
           </section>
           {data.notes.length > 0 && (
-            <section className="card home-card" aria-label="Pinned notes">
+            <section className="card home-card" aria-label="Pinned notes" {...cardProps('notes')}>
               <h2><Link to="/notes"><Icon name="note" size={18} /> Pinned notes</Link></h2>
               <div className="home-notes">
                 {data.notes.map((n) => (
@@ -187,6 +201,32 @@ export default function Home() {
           )}
         </div>
       )}
+      {customizing && <CustomizeHome layout={layout} onChange={saveLayout} onClose={() => setCustomizing(false)} />}
     </div>
+  );
+}
+
+/** Tick the cards to show on Home, and move them up or down. */
+function CustomizeHome({ layout, onChange, onClose }) {
+  const move = (i, d) => { const order = [...layout.order]; [order[i], order[i + d]] = [order[i + d], order[i]]; onChange({ ...layout, order }); };
+  const shownCount = layout.order.length - layout.hidden.length;
+  return (
+    <Modal title="Customize Home" onClose={onClose}
+      footer={<><button type="button" className="btn" onClick={() => onChange({ ...DEFAULT_LAYOUT, reset: true })}>Reset</button><button type="button" className="btn primary" onClick={onClose}>Done</button></>}>
+      <p className="muted small" style={{ marginTop: 0 }}>Choose what Home shows, and in what order. Some cards only appear when there's something in them.</p>
+      <ul className="customize-cards">
+        {layout.order.map((key, i) => {
+          const on = !layout.hidden.includes(key);
+          return (
+            <li key={key}>
+              <label className="check grow"><input type="checkbox" checked={on} disabled={on && shownCount === 1}
+                onChange={() => onChange({ ...layout, hidden: on ? [...layout.hidden, key] : layout.hidden.filter((k) => k !== key) })} /> {CARD_NAMES[key]}</label>
+              <button type="button" className="icon-btn" aria-label={`Move ${CARD_NAMES[key]} up`} disabled={i === 0} onClick={() => move(i, -1)}>↑</button>
+              <button type="button" className="icon-btn" aria-label={`Move ${CARD_NAMES[key]} down`} disabled={i === layout.order.length - 1} onClick={() => move(i, 1)}>↓</button>
+            </li>
+          );
+        })}
+      </ul>
+    </Modal>
   );
 }

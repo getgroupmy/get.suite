@@ -8525,3 +8525,20 @@ test('drive view: how Drive lists files (sort, order, list or grid) is kept per 
   assert.equal((await a('PUT', '/api/users/me/drive-view', { sort: 'colour' })).status, 400);
   assert.equal((await a('PUT', '/api/users/me/drive-view', { layout: 'tiles' })).status, 400);
 });
+
+test('home layout: each person orders and hides Home’s cards; new cards appear at the end; reset', async () => {
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'hla', domain: 'acme.com', name: 'Hl Ann', password: 'password123' })).status, 201);
+  await login(a, 'hla@acme.com');
+  const { HOME_CARDS, homeLayout } = await import('../src/auth.js');
+  assert.deepEqual((await a('GET', '/api/auth/me')).body.user.home_layout, { order: HOME_CARDS, hidden: [] });
+  const set = (await a('PUT', '/api/users/me/home-layout', { order: ['notes', 'events'], hidden: ['apps', 'out'] })).body;
+  assert.deepEqual(set.order.slice(0, 3), ['notes', 'events', 'tasks'], 'the rest after, in their usual order');
+  assert.equal(set.order.length, HOME_CARDS.length);
+  assert.deepEqual(set.hidden, ['out', 'apps']);
+  assert.deepEqual((await a('GET', '/api/auth/me')).body.user.home_layout, set);
+  assert.equal((await a('PUT', '/api/users/me/home-layout', { hidden: ['weather'] })).status, 400);
+  assert.equal((await a('PUT', '/api/users/me/home-layout', { hidden: HOME_CARDS })).status, 400, 'at least one card');
+  assert.deepEqual(homeLayout('{"order":["notes","gone","notes"],"hidden":"x"}').order[0], 'notes', 'unknown and repeated ones dropped');
+  assert.deepEqual((await a('PUT', '/api/users/me/home-layout', { reset: true })).body, { order: HOME_CARDS, hidden: [] });
+});
