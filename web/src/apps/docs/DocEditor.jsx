@@ -54,6 +54,7 @@ import { Mention, mentionQuery, matchPeople } from './mention.js';
 import { DropChip, CHIP_PRESETS, CHIP_COLORS, cleanOptions } from './dropchip.js';
 import { DateChip, matchDates, dateText, isDate, isoDay } from './datechip.js';
 import { FileChip, matchFiles, fileIcon, fileUrl } from './filechip.js';
+import { EmailDraft, matchBlocks } from './emaildraft.jsx';
 import { MathInline, mathHtml, mathError, MAX_LATEX } from './math.js';
 import { Citation, References, htmlWithReferences } from './citation.js';
 import { CITE_FIELDS, cleanSource, inText, sourcesOf, sourceKey } from './cite.js';
@@ -237,7 +238,7 @@ function SharedDoc({ file, setFile }) {
       Table.configure({ resizable: false }), TableRow, TableHeader, TableCell,
       TextStyle, Color, BackgroundColor, FontFamily, FontSize, LineHeight, TableOfContents, SheetChart,
       SuggestInsert, SuggestDelete, SuggestMode,
-      PageBreak, Footnote, BookmarkNode, Mention, DropChip, DateChip, FileChip, MathInline, Citation, References, TaskList, TaskItem.configure({ nested: true }), // checklists: everyone sees the ticks live; viewers can't tick
+      PageBreak, Footnote, BookmarkNode, Mention, DropChip, DateChip, FileChip, EmailDraft, MathInline, Citation, References, TaskList, TaskItem.configure({ nested: true }), // checklists: everyone sees the ticks live; viewers can't tick
     ],
     editable: !readOnly,
     editorProps: {
@@ -311,7 +312,7 @@ function SharedDoc({ file, setFile }) {
       const m = mentionQuery(before, sel.from);
       setFileQuery(m ? m.query : '');
       const files = m && foundFiles.q && m.query.toLowerCase().startsWith(foundFiles.q.toLowerCase()) ? matchFiles(foundFiles.list, m.query, { exclude: file.id }) : [];
-      const list = m ? [...matchDates(m.query), ...matchPeople(colleagues, m.query), ...files] : []; // @today, @tomorrow, @date, then people, then files
+      const list = m ? [...matchDates(m.query), ...matchBlocks(m.query), ...matchPeople(colleagues, m.query), ...files] : []; // @today, @tomorrow, @date, @email, then people, then files
       if (!m || !list.length) { setMention(null); return; }
       const c = view.coordsAtPos(sel.from);
       setMention((old) => ({ ...m, list, left: c.left, top: c.bottom + 4, pick: old && old.from === m.from ? Math.min(old.pick, list.length - 1) : 0 }));
@@ -324,6 +325,12 @@ function SharedDoc({ file, setFile }) {
   const pickMention = async (p) => {
     const m = mention;
     setMention(null);
+    if (p.kind === 'block') { // an email draft, with the cursor in its body
+      editor.chain().focus().deleteRange({ from: m.from, to: editor.state.selection.from }).insertEmailDraft().run();
+      const $p = editor.state.selection.$from, after = $p.before($p.depth), draft = editor.state.doc.resolve(after).nodeBefore;
+      if (draft?.type.name === 'emailDraft') editor.commands.setTextSelection(after - draft.nodeSize + 2);
+      return;
+    }
     if (p.kind === 'file') {
       editor.chain().focus().deleteRange({ from: m.from, to: editor.state.selection.from }).insertFileChip(p.file).run();
       return;
@@ -671,7 +678,11 @@ function SharedDoc({ file, setFile }) {
               }} />}
             {mention && (
               <ul className="mention-list doc-mention-list" role="listbox" aria-label="People, dates and files" style={{ position: 'fixed', left: mention.left, top: mention.top }}>
-                {mention.list.map((p, i) => (p.kind === 'file' ? (
+                {mention.list.map((p, i) => (p.kind === 'block' ? (
+                  <li key={p.id} role="option" aria-selected={i === mention.pick} className={i === mention.pick ? 'on' : ''} onMouseDown={(e) => { e.preventDefault(); pickMention(p); }}>
+                    <span aria-hidden="true" style={{ width: 20, textAlign: 'center' }}>✉</span> {p.label} <span className="muted small">Building block</span>
+                  </li>
+                ) : p.kind === 'file' ? (
                   <li key={p.id} role="option" aria-selected={i === mention.pick} className={i === mention.pick ? 'on' : ''} onMouseDown={(e) => { e.preventDefault(); pickMention(p); }}>
                     <span aria-hidden="true" style={{ width: 20, textAlign: 'center' }}>{fileIcon(p.file.kind, p.file.mime, p.file.name)}</span> {p.file.name} <span className="muted small">{p.file.kind === 'folder' ? 'Folder' : 'File'}</span>
                   </li>
@@ -1346,7 +1357,7 @@ export function DocPreview({ content, fileId, pictureBase = null }) {
     extensions: [
       StarterKit.configure({ link: { openOnClick: true }, document: false }), TabbedDocument, DocTab, TextAlign.configure({ types: ['heading', 'paragraph'] }),
       CommentMark, DocImage.configure({ docId: fileId, pictureBase }), Table, TableRow, TableHeader, TableCell, Superscript, Subscript, Indent,
-      TextStyle, Color, BackgroundColor, FontFamily, FontSize, LineHeight, TableOfContents, SheetChart, PageBreak, Footnote, BookmarkNode, Mention, DropChip, DateChip, FileChip, MathInline, Citation, References, TaskList, TaskItem.configure({ nested: true }),
+      TextStyle, Color, BackgroundColor, FontFamily, FontSize, LineHeight, TableOfContents, SheetChart, PageBreak, Footnote, BookmarkNode, Mention, DropChip, DateChip, FileChip, EmailDraft, MathInline, Citation, References, TaskList, TaskItem.configure({ nested: true }),
     ],
   }, [content]);
   return <div className="paper preview-paper"><EditorContent editor={editor} /></div>;

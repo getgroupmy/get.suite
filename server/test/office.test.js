@@ -735,6 +735,22 @@ test('file chips: the file\'s name in Word, Markdown and search', async () => {
   assert.match(xml, /Plan_v2\.pdf/);
 });
 
+test('email drafts: fields then text in Word and Markdown; found by who it\'s to and the subject', async () => {
+  const { markdownFromDoc } = await import('../src/office/markdown.js');
+  const { docText } = await import('../src/search.js');
+  const JSZip = (await import('jszip')).default;
+  const doc = { type: 'doc', content: [
+    { type: 'paragraph', content: [{ type: 'text', text: 'Draft below.' }] },
+    { type: 'emailDraft', attrs: { to: 'kim@acme.com', cc: '', subject: 'Q3 figures' }, content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Hi Kim, the figures are in.' }] }] },
+  ] };
+  assert.equal(markdownFromDoc(doc).trim(), 'Draft below.\n\n**To:** kim@acme.com  \n**Subject:** Q3 figures\n\nHi Kim, the figures are in.');
+  assert.match(docText(doc), /kim@acme\.com +Q3 figures/);
+  assert.match(docText(doc), /Hi Kim, the figures are in\./);
+  const xml = await (await JSZip.loadAsync(await wordFromDoc(doc, 'Mail'))).file('word/document.xml').async('string');
+  assert.match(xml, /Subject: <\/w:t>[\s\S]*?Q3 figures[\s\S]*Hi Kim, the figures are in\./);
+  assert.doesNotMatch(xml, />Cc: </, 'no empty Cc');
+});
+
 test('equations: an equation in Word, its LaTeX in search', async () => {
   const { docText } = await import('../src/search.js');
   const JSZip = (await import('jszip')).default;

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { closeHistory } from '@tiptap/pm/history';
+import { DRAFT_KEY } from '../docs/emaildraftmsg.js';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 import { api, get, post, put, del, onLive, uploadFile, formatBytes, formatDate, setSharedMailbox, currentSharedMailbox, mailboxParam } from '../../api.js';
 import { desktopSupported, desktopOn, enableDesktop, disableDesktop } from '../../mailNotify.js';
@@ -113,6 +114,15 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
     [loadScheduled]);
   const { user } = useAuth();
   useEffect(() => { get('/mail/signatures').then(setSignatures).catch(() => {}); }, []);
+  // Opened with an email drafted in a document (/mail?compose_doc=1; the message waits in this browser's storage).
+  useEffect(() => {
+    if (search.get('compose_doc') === null) return;
+    let d = null;
+    try { d = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null'); localStorage.removeItem(DRAFT_KEY); } catch { /* storage off */ }
+    if (d) setCompose(withSignature({ to: d.to || '', cc: d.cc || '', subject: d.subject || '', html: d.html || '' }, 'new'));
+    const next = new URLSearchParams(search); next.delete('compose_doc'); setSearch(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search.get('compose_doc')]);
   // Opened to write to someone (/mail?compose=addresses, e.g. from a contact group).
   useEffect(() => {
     const to = search.get('compose');
@@ -130,7 +140,7 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
     const block = signatureBlock(sigs, from, kind);
     const out = { ...init, from, kind };
     if (!block) return out;
-    if (kind === 'new') return { ...out, html: `<p></p>${block}` };
+    if (kind === 'new') return { ...out, html: `${init.html || '<p></p>'}${block}` };
     return { ...out, html: (init.html || '').replace(/^<p><\/p>/, `<p></p>${block}`) };
   };
   useEffect(() => { get('/mail/vacation').then(setVacation).catch(() => {}); }, []);

@@ -75,6 +75,11 @@ function blocks(nodes = [], notes, indent = '') {
       const esc = (x) => x.replace(/\|/g, '\\|');
       out.push([`**${title}**`, ...(rows.length ? ['', `| ${rows[0].map(esc).join(' | ')} |`, `|${' --- |'.repeat(rows[0].length)}`, ...rows.slice(1).map((r) => `| ${r.map(esc).join(' | ')} |`)] : [])].join('\n'));
     }
+    else if (t === 'emailDraft') { // an email written in the document: its fields, then its text
+      const a = n.attrs || {};
+      const head = [['To', a.to], ['Cc', a.cc], ['Subject', a.subject]].filter(([k, v]) => v || k !== 'Cc').map(([k, v]) => `**${k}:** ${escapeText(String(v || ''))}`);
+      out.push(head.join('  \n'), ...blocks(n.content, notes, indent));
+    }
     else if (t === 'table') {
       const rows = (n.content || []).map((r) => (r.content || []).map((c) => cell(c, notes)));
       if (!rows.length) continue;

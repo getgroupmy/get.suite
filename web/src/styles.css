@@ -2537,3 +2537,17 @@ img.custom-emoji { width: 1.35em; height: 1.35em; object-fit: contain; vertical-
 .pdf-boxes-pages { max-height: 62vh; overflow: auto; background: var(--bg-alt, #f1f3f4); border-radius: 8px; }
 .contact-more { border: 0; padding: 0; margin: 0; }
 .contact-more legend { padding: 0; margin-bottom: 4px; color: var(--muted); }
+/* Email drafts in Docs */
+.doc-email { border: 1px solid var(--border); border-radius: 10px; margin: 12px 0; background: var(--surface, transparent); }
+.doc-email-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--border); background: var(--surface-2); border-radius: 10px 10px 0 0; user-select: none; }
+.doc-email-title { font-weight: 600; font-size: .9em; }
+.doc-email-fields { display: grid; padding: 4px 12px; border-bottom: 1px solid var(--border); font-size: .92em; }
+.doc-email-line { display: flex; align-items: center; gap: 8px; border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent); }
+.doc-email-line:last-child { border-bottom: 0; }
+.doc-email-line span { width: 56px; color: var(--muted); }
+.doc-email-line input { flex: 1; border: 0; background: transparent; padding: 6px 0; font: inherit; color: inherit; min-width: 0; }
+.doc-email-line input:focus { outline: none; }
+.doc-email-line:focus-within span { color: var(--accent); }
+.doc-email-body { padding: 4px 12px; }
+p.doc-email-fields { margin: 0; }
+@media print { .doc-email-head .btn { display: none; } }

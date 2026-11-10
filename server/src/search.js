@@ -29,6 +29,7 @@ export function docText(doc) {
     if (n.type === 'dropchip') out.push(` ${chipText(n.attrs)} `);
     if (n.type === 'datechip') out.push(` ${dateText(n.attrs?.date)} ${n.attrs?.date || ''} `); // found by "9 Nov" or "2026-11-09"
     if (n.type === 'filechip') out.push(` ${n.attrs?.name || ''} `);
+    if (n.type === 'emailDraft') out.push(` ${n.attrs?.to || ''} ${n.attrs?.cc || ''} ${n.attrs?.subject || ''}\n`); // found by who it's to and its subject
     if (n.type === 'math') out.push(` ${n.attrs?.latex || ''} `);
     if (n.type === 'citation') out.push(` ${n.attrs?.author || ''} ${n.attrs?.title || ''} `);
     for (const c of n.content || []) walk(c);

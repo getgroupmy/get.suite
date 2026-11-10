@@ -606,6 +606,12 @@ export async function wordFromDoc(doc, title = 'Document', { pictureData, page, 
         }
         paras.push(new Paragraph(''));
       }
+      else if (n.type === 'emailDraft') { // an email written in the document: its fields, then its text
+        const a = n.attrs || {};
+        for (const [k, v] of [['To', a.to], ['Cc', a.cc], ['Subject', a.subject]]) if (v || k !== 'Cc') paras.push(new Paragraph({ children: [new TextRun({ text: `${k}: `, bold: true, color: '5F6368' }), new TextRun(String(v || ''))] }));
+        walk(n.content, ctx);
+        paras.push(new Paragraph(''));
+      }
       else if (n.type === 'pageBreak') paras.push(new Paragraph({ children: [new PageBreak()] }));
       else if (n.type === 'table') { paras.push(table(n)); paras.push(new Paragraph('')); }
       else if (n.content) walk(n.content, ctx);
