@@ -92,7 +92,10 @@ reload_changed() {
 
 # The outgoing queue, for Admin → System: what's waiting (postqueue -j, one JSON object a line),
 # headed by when it was read and the last request of the app's that was carried out.
-QUEUE_DONE=0
+# The last request carried out, kept across restarts: reported as 0 after a restart, the app would
+# number its next request 1, at or below what was already done, and it would never run.
+QUEUE_DONE=$(cat "$STATUS/queue.done" 2>/dev/null || echo 0)
+[[ $QUEUE_DONE =~ ^[0-9]+$ ]] || QUEUE_DONE=0
 write_queue_status() {
   mkdir -p "$STATUS"
   local tmp="$STATUS/queue.jsonl.tmp"
