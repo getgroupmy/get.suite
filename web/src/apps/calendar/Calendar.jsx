@@ -422,7 +422,7 @@ function Calendar({ acting = null, managed = [], onPick }) {
                   {list.slice(0, 3).map((ev) => (ev.task ? <TaskChip key={ev.key} ev={ev} onDone={taskDone} /> : ev.birthday ? <BirthdayChip key={ev.key} ev={ev} /> : ev.holiday ? <HolidayChip key={ev.key} ev={ev} /> : (
                     <button key={ev.key || ev.id} className={`chip ${ev.all_day ? 'allday' : ''} ${inviteClass(ev)} ${ev.dragging ? 'dragging' : ''}`} style={{ '--c': ev.color || COLORS[0] }}
                       onPointerDown={drag.dayHandler(ev, d)} onClick={drag.click(() => setEditing(ev))}>
-                      {!ev.all_day && <span className="t">{fmtTime(ev.start)}</span>} {ev.title}{ev.rrule && <span className="rep" aria-label="(repeats)" title="Repeats"> ↻</span>}
+                      {!ev.all_day && <span className="t">{fmtTime(ev.start)}</span>} {ev.title}{ev.rrule && <span className="rep" aria-label="(repeats)" title="Repeats"> ↻</span>}{ev.private ? <span className="rep" aria-label="(private)" title="Private: people who see your calendar see only “Busy”"> 🔒</span> : null}
                     </button>
                   )))}
                   {list.length > 3 && <button type="button" className="more small muted link-btn" onClick={() => openDay(d)}>+{list.length - 3} more</button>}
@@ -509,7 +509,7 @@ function Schedule({ days, events, today, onOpen, onTaskDone, onDay: openDay }) {
                   <button type="button" className={`schedule-item ${inviteClass(ev)}`} style={{ '--c': ev.color || COLORS[0] }} onClick={() => onOpen(ev)}>
                     <span className="dot" aria-hidden="true" />
                     <span className="when">{ev.all_day ? 'All day' : `${fmtTime(ev.start)} – ${fmtTime(ev.end)}`}</span>
-                    <span className="what">{ev.title}{ev.rrule && <span className="rep" aria-label="(repeats)" title="Repeats"> ↻</span>}{ev.location && <span className="muted small"> · {ev.location}</span>}</span>
+                    <span className="what">{ev.title}{ev.rrule && <span className="rep" aria-label="(repeats)" title="Repeats"> ↻</span>}{ev.private ? <span className="rep" aria-label="(private)" title="Private: people who see your calendar see only “Busy”"> 🔒</span> : null}{ev.location && <span className="muted small"> · {ev.location}</span>}</span>
                   </button>
                 )}
               </li>
@@ -1051,6 +1051,7 @@ function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate }) {
   const [f, setF] = useState({
     title: event.title, location: event.location || '', description: event.description || '', color: event.color || COLORS[0], calendar_id: event.calendar_id || null,
     all_day: !!event.all_day, ooo: event.kind === 'ooo', focus: event.kind === 'focus',
+    show_as: event.show_as === 'free' ? 'free' : 'busy', private: !!event.private,
     startDate: toDateInput(event.start), startTime: toTimeInput(event.start),
     endDate: toDateInput(event.end), endTime: toTimeInput(event.end),
   });
@@ -1112,7 +1113,7 @@ function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate }) {
     const end = f.all_day ? fromInputs(f.endDate) + DAY - 1 : fromInputs(f.endDate, f.endTime);
     const all = guestInput.trim() ? [...new Set([...guests, ...guestInput.split(/[\s,;]+/).map((x) => x.trim().toLowerCase()).filter((x) => x.includes('@'))])] : guests;
     return { start, end, body: { title: f.title, location: special ? '' : f.location, description: f.description, color: f.color, all_day: f.all_day, start, end, ...(calendars.length || event.calendar_id ? { calendar_id: f.calendar_id } : {}), rrule: ruleFromForm(rep, start),
-      guests: special ? [] : all, reminders, tz: TZ, attachments: attachments.map((a) => a.id), kind: f.ooo ? 'ooo' : f.focus ? 'focus' : null, meet_code: special ? null : meet, ...(event.id && !event.rooms?.length && !roomIds.length ? {} : { rooms: special ? [] : roomIds }) } };
+      guests: special ? [] : all, reminders, tz: TZ, attachments: attachments.map((a) => a.id), kind: f.ooo ? 'ooo' : f.focus ? 'focus' : null, show_as: f.ooo ? 'busy' : f.show_as, private: f.private, meet_code: special ? null : meet, ...(event.id && !event.rooms?.length && !roomIds.length ? {} : { rooms: special ? [] : roomIds }) } };
   };
 
   async function save(which) {
@@ -1147,6 +1148,13 @@ function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate }) {
         <div className="row wrap" style={{ gap: 16 }}>
           <label className="check"><input type="checkbox" checked={f.ooo} onChange={(e) => setF({ ...f, ooo: e.target.checked, focus: false })} /> Out of office</label>
           <label className="check"><input type="checkbox" checked={f.focus} onChange={(e) => setF({ ...f, focus: e.target.checked, ooo: false })} /> Focus time</label>
+        </div>
+        <div className="row wrap" style={{ gap: 16 }}>
+          {!f.ooo && <label className="row" style={{ gap: 6 }}><span className="small">Show me as</span>
+            <select aria-label="Show me as" value={f.show_as} onChange={set('show_as')} title="Free: colleagues, booking pages and Find a time don't count this as busy">
+              <option value="busy">Busy</option><option value="free">Free</option>
+            </select></label>}
+          <label className="check" title="People who can see your calendar's details see only that you're busy"><input type="checkbox" checked={f.private} onChange={set('private')} /> Private</label>
         </div>
         {f.focus && <p className="muted small" style={{ margin: 0 }}>While it lasts, new invitations for this time are declined for you and notifications are paused (they still arrive in the bell).</p>}
         {f.ooo && <p className="muted small" style={{ margin: 0 }}>While you're away, new invitations for this time are declined for you, and whoever sent them sees the description below as your message. Colleagues see you as out of office.</p>}

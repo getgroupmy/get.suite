@@ -111,6 +111,15 @@ function readMeet(body, user, existing = null) {
   return String(body.meet_code);
 }
 
+// Show as free (doesn't block your time for colleagues, booking pages or finding a time) and private
+// (people your calendar is shared with to look at see only that you're busy, not what it is).
+for (const [col, type] of [['show_as', 'TEXT'], ['private', 'INTEGER NOT NULL DEFAULT 0']]) {
+  if (!q('PRAGMA table_info(events)').all().some((c) => c.name === col)) q(`ALTER TABLE events ADD COLUMN ${col} ${type}`).run();
+}
+
+/** A private event as people who may only look at the calendar see it: busy, nothing more. */
+export const maskPrivate = (ev) => ({ ...ev, title: 'Busy', description: null, location: null, attachments: [], guests: [], rooms: [], meet_code: null, notes_id: null, private: 1, masked: true });
+
 function readEvent(body, existing = {}) {
   const e = { ...existing };
   if (body.title !== undefined || !existing.id) e.title = str(body.title, { required: true, name: 'Title', max: 200 });
@@ -129,6 +138,11 @@ function readEvent(body, existing = {}) {
     e.kind = body.kind || null;
   }
   if (body.exdates !== undefined) e.exdates = readExdates(body.exdates);
+  if (body.show_as !== undefined) {
+    if (!['busy', 'free'].includes(body.show_as)) throw bad('Show as busy or free');
+    e.show_as = body.show_as === 'free' ? 'free' : null;
+  }
+  if (body.private !== undefined) e.private = body.private ? 1 : 0;
   if (e.end < e.start) throw bad('End must be after start');
   if (e.rrule?.until !== undefined && e.rrule.until < e.start) throw bad('The repeat ends before the event starts');
   return e;
@@ -347,7 +361,7 @@ export function calendarStatus(userId, t = Date.now()) {
   let best = null;
   const rank = { ooo: 3, focus: 2, meeting: 1 };
   for (const r of rows) {
-    const kind = r.kind === 'ooo' ? 'ooo' : r.kind === 'focus' ? 'focus' : r.all_day ? null
+    const kind = r.kind === 'ooo' ? 'ooo' : r.kind === 'focus' ? 'focus' : r.all_day || r.show_as === 'free' ? null
       : (r.owner_id !== userId || q('SELECT 1 FROM event_guests WHERE event_id = ? AND user_id != ? AND COALESCE(status, \'\') != \'no\'').get(r.id, userId)
         || q('SELECT 1 FROM event_outside_guests WHERE event_id = ?').get(r.id)) ? 'meeting' : null;
     if (!kind) continue;
@@ -413,7 +427,8 @@ function sharedEvents(userId, from, to) {
     AND NOT EXISTS (SELECT 1 FROM event_guests g WHERE g.event_id = e.id AND g.user_id = ?) ORDER BY e.start`).all(userId, userId, to, from, from, userId);
   return rows.map(({ share_edit, organizer_name, organizer_email, ...row }) => {
     const ev = outEvent(row);
-    return { ...ev, attachments: attachmentsFor(ev, userId), role: 'shared', can_edit: !!share_edit, guests: allGuests(ev.id), rooms: roomsOf(ev.id), reminders: [], organizer: { name: organizer_name, email: organizer_email } };
+    const full = { ...ev, attachments: attachmentsFor(ev, userId), role: 'shared', can_edit: !!share_edit, guests: allGuests(ev.id), rooms: roomsOf(ev.id), reminders: [], organizer: { name: organizer_name, email: organizer_email } };
+    return row.private && !share_edit ? maskPrivate(full) : full; // shared to look at: a private one is just "Busy"
   });
 }
 const ownsCalendar = (userId, calId) => !!q('SELECT 1 FROM user_calendars WHERE id = ? AND owner_id = ?').get(String(calId || ''), userId);
@@ -624,6 +639,7 @@ export default function calendarRoutes() {
     const reminders = setReminders(id, req.user.id, req.body.reminders);
     if (attachments.length) q('UPDATE events SET attachments = ? WHERE id = ?').run(JSON.stringify(attachments), id);
     if (calendarId) q('UPDATE events SET calendar_id = ? WHERE id = ?').run(calendarId, id);
+    if (e.show_as || e.private) q('UPDATE events SET show_as = ?, private = ? WHERE id = ?').run(e.show_as ?? null, e.private ?? 0, id);
     if (guests) {
       const { added } = setGuests(id, guests.inside);
       const outside = setOutside(id, guests.outside);
@@ -662,6 +678,7 @@ export default function calendarRoutes() {
       .run(e.title, e.description, e.location, e.start, e.end, e.all_day, e.color, e.rrule ? JSON.stringify(e.rrule) : null, JSON.stringify(e.exdates || []), repeatUntil(e),
         tz, changed ? 1 : 0, e.kind ?? null, e.meet_code, e.id);
     if (attachments) q('UPDATE events SET attachments = ? WHERE id = ?').run(attachments.length ? JSON.stringify(attachments) : null, e.id);
+    if (req.body.show_as !== undefined || req.body.private !== undefined) q('UPDATE events SET show_as = ?, private = ? WHERE id = ?').run(e.show_as ?? null, e.private ?? 0, e.id);
     if (req.body.calendar_id !== undefined) { // moving it to another of your calendars (its changed occurrences go along)
       const to = calendarFor(req.user.id, req.body.calendar_id);
       q('UPDATE events SET calendar_id = ? WHERE (id = ? OR recur_parent = ?) AND owner_id = ?').run(to, e.id, e.id, req.user.id);
@@ -707,6 +724,9 @@ export default function calendarRoutes() {
       || (row.calendar_id && q('SELECT 1 FROM user_calendar_shares WHERE calendar_id = ? AND user_id = ?').get(row.calendar_id, me))
       || (!row.calendar_id && seesDetails(row.owner_id, me)));
     if (!may) throw notFound();
+    // A private event, for someone who may only look at the calendar: no file (it would say what it is).
+    if (row.private && row.owner_id !== me && !q('SELECT 1 FROM event_guests WHERE event_id = ? AND user_id = ?').get(row.id, me)
+      && !(row.calendar_id ? q('SELECT 1 FROM user_calendar_shares WHERE calendar_id = ? AND user_id = ? AND can_edit = 1').get(row.calendar_id, me) : canEditCalendar(row.owner_id, me))) throw notFound();
     const e = outEvent(row);
     const overrides = e.rrule ? q('SELECT * FROM events WHERE recur_parent = ? ORDER BY recur_id').all(e.id).map((o) => ({ ...o, recurrenceId: o.recur_id })) : [];
     const organizer = q('SELECT name, username AS email FROM users WHERE id = ?').get(row.owner_id);

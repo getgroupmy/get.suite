@@ -8472,3 +8472,43 @@ test('contacts trash: deleted contacts are kept (with their photo) and can be pu
   assert.equal((await a('POST', `/api/contacts/trash/${c.id}/restore`)).status, 404);
   assert.equal((await a('DELETE', '/api/contacts/trash')).body.deleted, 0);
 });
+
+test('calendar: events shown as free don’t block time; private events are only "Busy" to people who just look', async () => {
+  const a = client(), b = client(), c = client();
+  const ids = {};
+  for (const [local, name] of [['frpa', 'Frp Ann'], ['frpb', 'Frp Ben'], ['frpc', 'Frp Cat']]) ids[local] = (await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).body.id;
+  await login(a, 'frpa@acme.com'); await login(b, 'frpb@acme.com'); await login(c, 'frpc@acme.com');
+  const t = Date.UTC(2026, 11, 15, 9);
+  const free = (await a('POST', '/api/events', { title: 'Read the news', start: t, end: t + 3600e3, show_as: 'free' })).body;
+  const priv = (await a('POST', '/api/events', { title: 'Doctor', location: 'Clinic', description: 'Bring results', start: t + 2 * 3600e3, end: t + 3 * 3600e3, private: true })).body;
+  assert.deepEqual([free.show_as, priv.private], ['free', 1]);
+  assert.equal((await a('POST', '/api/events', { title: 'x', start: t, end: t + 1, show_as: 'maybe' })).status, 400);
+  // Ben sees Ann's details (Share my calendar); Cat only her busy times.
+  await a('PUT', '/api/freebusy/shares', { users: [ids.frpb] });
+  const fb = async (cl) => (await cl('GET', `/api/freebusy?users=${ids.frpa}&from=${t - 3600e3}&to=${t + 5 * 3600e3}`)).body[ids.frpa].busy;
+  const forBen = await fb(b);
+  assert.equal(forBen.length, 1, 'the free one doesn’t count as busy');
+  assert.deepEqual([forBen[0].start, forBen[0].title, forBen[0].location, forBen[0].private], [t + 2 * 3600e3, 'Busy', undefined, true]);
+  assert.deepEqual((await fb(c)).map((x) => [x.start, x.title]), [[t + 2 * 3600e3, undefined]]);
+  // A calendar of hers shared to look at: the private event there is "Busy", with nothing else; one who may change it sees it all.
+  const team = (await a('POST', '/api/events/calendars', { name: 'Team', color: '#0b8043' })).body;
+  const inTeam = (await a('POST', '/api/events', { title: 'Interview: J. Smith', location: 'Room 2', start: t, end: t + 3600e3, calendar_id: team.id, private: true })).body;
+  await a('PUT', `/api/events/calendars/${team.id}/members`, { members: [{ id: ids.frpb }, { id: ids.frpc, can_edit: true }] });
+  const seen = async (cl) => (await cl('GET', `/api/events?from=${t - 3600e3}&to=${t + 5 * 3600e3}`)).body.find((e) => e.id === inTeam.id);
+  const ben = await seen(b);
+  assert.deepEqual([ben.title, ben.location, ben.description, ben.masked], ['Busy', null, null, true]);
+  assert.equal((await seen(c)).title, 'Interview: J. Smith', 'an editor sees what it is');
+  assert.equal((await b('GET', `/api/events/${inTeam.id}/ics`)).status, 404, 'no file that would say what it is');
+  assert.equal((await c('GET', `/api/events/${inTeam.id}/ics`)).status, 200);
+  // Calendar files say it: TRANSP and CLASS, and reading one keeps them.
+  const own = await a('GET', `/api/events/${priv.id}/ics`);
+  assert.match(own.body, /CLASS:PRIVATE/);
+  assert.match((await a('GET', `/api/events/${free.id}/ics`)).body, /TRANSP:TRANSPARENT/);
+  const { parseIcsEvent } = await import('../src/ics.js');
+  const parsed = parseIcsEvent('BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nUID:x\r\nDTSTART:20261215T090000Z\r\nDTEND:20261215T100000Z\r\nSUMMARY:Gym\r\nTRANSP:TRANSPARENT\r\nCLASS:PRIVATE\r\nEND:VEVENT\r\nEND:VCALENDAR');
+  assert.deepEqual([parsed.show_as, parsed.private], ['free', 1]);
+  // Back to busy and public.
+  const changed = (await a('PATCH', `/api/events/${free.id}`, { show_as: 'busy', private: false })).body;
+  assert.deepEqual([changed.show_as, changed.private], [null, 0]);
+  assert.equal((await fb(c)).length, 3, 'now busy too (with the doctor and the interview)');
+});

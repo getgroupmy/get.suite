@@ -105,6 +105,9 @@ const SHARED = `SELECT c.*, 1 AS shared, s.can_edit, u.name AS owner_name FROM u
   JOIN users u ON u.id = c.owner_id WHERE s.user_id = ? AND u.disabled = 0`;
 const sharedCalendars = (userId) => q(`${SHARED} ORDER BY c.name`).all(userId);
 const readOnly = (cal) => !!cal?.shared && !cal.can_edit;
+// Shared with you to look at: a private event is only "Busy" on your phone too.
+const maskRow = (e) => (e?.private ? { ...e, title: 'Busy', description: null, location: null, meet_code: null, attachments: null } : e);
+const viewOf = (cal, rows) => (readOnly(cal) ? rows.map(maskRow) : rows);
 const collOf = (calId) => calId || 'default';
 const contactsOf = (userId) => q('SELECT * FROM contacts WHERE owner_id = ? ORDER BY name').all(userId);
 const eventName = (e) => e.dav_name || `${e.id}.ics`;
@@ -238,12 +241,12 @@ export default function davRoutes() {
             if (at.area === 'calendars') {
               add(P(req, 'calendars', me, 'default'), calendarProps(req, eventsOf(me)));
               for (const c of ownCalendars(me)) add(P(req, 'calendars', me, c.id), calendarProps(req, eventsOf(me, c.id), c));
-              for (const c of sharedCalendars(me)) add(P(req, 'calendars', me, c.id), calendarProps(req, eventsOf(c.owner_id, c.id), c));
+              for (const c of sharedCalendars(me)) add(P(req, 'calendars', me, c.id), calendarProps(req, viewOf(c, eventsOf(c.owner_id, c.id)), c));
             }
             else add(P(req, 'addressbooks', me, 'default'), bookProps(req, contactsOf(me)));
           }
         } else if (at.kind === 'calendar') {
-          const events = eventsOf(at.cal?.owner_id ?? me, at.cal?.id);
+          const events = viewOf(at.cal, eventsOf(at.cal?.owner_id ?? me, at.cal?.id));
           const coll = P(req, 'calendars', me, collOf(at.cal?.id));
           add(coll, calendarProps(req, events, at.cal));
           if (depth(req)) for (const e of events) add(`${coll}${encodeURIComponent(eventName(e))}`, itemProps(icsOf(e), 'text/calendar; charset=utf-8; component=vevent'));
@@ -254,7 +257,7 @@ export default function davRoutes() {
         } else if (at.kind === 'event' || at.kind === 'contact') {
           const row = at.kind === 'event' ? findEvent(at.cal?.owner_id ?? me, at.name, at.cal) : findContact(me, at.name);
           if (!row) return res.status(404).end();
-          add(req.baseUrl + req.path, at.kind === 'event' ? itemProps(icsOf(row), 'text/calendar; charset=utf-8') : itemProps(vcfOf(row), 'text/vcard; charset=utf-8'));
+          add(req.baseUrl + req.path, at.kind === 'event' ? itemProps(icsOf(readOnly(at.cal) ? maskRow(row) : row), 'text/calendar; charset=utf-8') : itemProps(vcfOf(row), 'text/vcard; charset=utf-8'));
         } else return res.status(404).end();
         return send(res, multistatus(out));
       }
@@ -263,7 +266,7 @@ export default function davRoutes() {
         if (at.kind !== 'calendar' && at.kind !== 'book') return res.status(404).end();
         const cal = at.kind === 'calendar';
         const coll = P(req, cal ? 'calendars' : 'addressbooks', me, cal ? collOf(at.cal?.id) : 'default');
-        const rows = cal ? eventsOf(at.cal?.owner_id ?? me, at.cal?.id) : contactsOf(me);
+        const rows = cal ? viewOf(at.cal, eventsOf(at.cal?.owner_id ?? me, at.cal?.id)) : contactsOf(me);
         const byHref = new Map(rows.map((x) => [`${coll}${encodeURIComponent(cal ? eventName(x) : contactName(x))}`, x]));
         const body = String(req.body || '');
         const withData = /calendar-data|address-data/.test(body) ? (cal ? 'cal' : 'card') : null;
@@ -286,7 +289,7 @@ export default function davRoutes() {
         if (at.kind !== 'event' && at.kind !== 'contact') return res.status(at.kind === 'none' ? 404 : 200).type('text/plain').send(m === 'HEAD' ? '' : 'Workspace calendar and contacts sync. Add this address to your phone\'s Calendar or Contacts account settings.');
         const row = at.kind === 'event' ? findEvent(at.cal?.owner_id ?? me, at.name, at.cal) : findContact(me, at.name);
         if (!row) return res.status(404).end();
-        const body = at.kind === 'event' ? icsOf(row) : vcfOf(row);
+        const body = at.kind === 'event' ? icsOf(readOnly(at.cal) ? maskRow(row) : row) : vcfOf(row);
         res.setHeader('ETag', etagOf(body));
         return res.type(at.kind === 'event' ? 'text/calendar; charset=utf-8' : 'text/vcard; charset=utf-8').send(m === 'HEAD' ? '' : body);
       }
@@ -347,6 +350,7 @@ export default function davRoutes() {
           if (known) q('UPDATE events SET title = ?, description = ?, location = ?, start = ?, end = ?, all_day = ?, rrule = ?, exdates = ?, repeat_until = ?, tz = ?, sequence = sequence + 1 WHERE id = ?').run(...vals, id);
           else q(`INSERT INTO events (title, description, location, start, end, all_day, rrule, exdates, repeat_until, tz, id, owner_id, dav_name, ical_uid, color, calendar_id)
                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(...vals, id, actor, at.name, e.uid, at.cal?.color ?? null, at.cal?.id ?? null);
+          q('UPDATE events SET show_as = ?, private = ? WHERE id = ?').run(e.show_as, e.private, id); // Free/Busy and Private, as set on the phone
           syncOverrides(id, e, actor);
           if (actor === me) setReminders(id, me, e.reminders); // a colleague's reminders on their events stay theirs
           touch([me, actor, ...peopleOf(at.cal?.id)]);

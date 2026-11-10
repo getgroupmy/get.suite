@@ -130,8 +130,9 @@ export function freeSlots(page, busy, now = Date.now(), booked = []) {
 function busyOf(userId, from, to, details = false, except = null) {
   const rows = q(`SELECT e.* FROM events e WHERE (e.owner_id = ? OR e.id IN (SELECT event_id FROM event_guests WHERE user_id = ? AND status != 'no'))
                   AND (e.all_day = 0 OR (e.kind = 'ooo' AND e.owner_id = ?)) AND e.start < ? AND (e.end > ? OR (e.rrule IS NOT NULL AND (e.repeat_until IS NULL OR e.repeat_until > ?)))`).all(userId, userId, userId, to, from, from);
-  return rows.filter((r) => r.id !== except).flatMap((r) => expand(outEvent(r), from, to).map((e) => ({ start: e.start, end: e.end, ...(r.kind === 'ooo' && { ooo: true }),
-    ...(details && { title: r.title || '(No title)', ...(r.location && { location: r.location }) }) }))); // shared with you: what it is
+  // Events shown as free don't block anything; a private one shows only as busy, even to people who see details.
+  return rows.filter((r) => r.id !== except && r.show_as !== 'free').flatMap((r) => expand(outEvent(r), from, to).map((e) => ({ start: e.start, end: e.end, ...(r.kind === 'ooo' && { ooo: true }),
+    ...(details && !r.private && { title: r.title || '(No title)', ...(r.location && { location: r.location }) }), ...(details && r.private && { title: 'Busy', private: true }) }))); // shared with you: what it is
 }
 
 function readPage(b, current = {}) {

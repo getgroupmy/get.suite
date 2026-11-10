@@ -157,7 +157,8 @@ export function buildIcs(e, { method = 'REQUEST', uid, sequence = 0, organizer, 
   for (const a of attendees) {
     lines.push(`ATTENDEE;CN=${param(a.name || a.email)};ROLE=REQ-PARTICIPANT;PARTSTAT=${PARTSTAT[a.status] || 'NEEDS-ACTION'};RSVP=TRUE:mailto:${a.email}`);
   }
-  lines.push(`STATUS:${method === 'CANCEL' ? 'CANCELLED' : 'CONFIRMED'}`, 'TRANSP:OPAQUE');
+  lines.push(`STATUS:${method === 'CANCEL' ? 'CANCELLED' : 'CONFIRMED'}`, `TRANSP:${e.show_as === 'free' ? 'TRANSPARENT' : 'OPAQUE'}`);
+  if (e.private) lines.push('CLASS:PRIVATE');
   // Reminders, so the phone reminds too.
   for (const m of alarms) lines.push('BEGIN:VALARM', 'ACTION:DISPLAY', `DESCRIPTION:${escapeText(e.title)}`, `TRIGGER:${beforeStart(m)}`, 'END:VALARM');
   lines.push('END:VEVENT');
@@ -417,6 +418,8 @@ export function parseIcsEvent(text, { tz = 'UTC', resolver } = {}) {
     location: unescapeText(get('LOCATION')?.value || '').slice(0, 300) || null,
     description: unescapeText(get('DESCRIPTION')?.value || '').slice(0, 5000) || null,
     start: start.ms, end: endMs, all_day: allDay ? 1 : 0, tz: allDay ? tz : ianaOf(startL.params.TZID, start.ms), rrule: null, exdates: [],
+    show_as: /^TRANSPARENT$/i.test(get('TRANSP')?.value?.trim() || '') ? 'free' : null,
+    private: /^(PRIVATE|CONFIDENTIAL)$/i.test(get('CLASS')?.value?.trim() || '') ? 1 : 0,
   };
   const rr = get('RRULE');
   if (rr) {
