@@ -52,6 +52,7 @@ export default function Notes() {
   const [sharing, setSharing] = useState(null);
   const [history, setHistory] = useState(null); // a note whose earlier versions are shown
   const [labelling, setLabelling] = useState(null);
+  const [labelEdit, setLabelEdit] = useState(null); // { rename: label } or { remove: label }
   const [deleting, setDeleting] = useState(null);
   const load = useCallback(() => {
     const qs = new URLSearchParams({ ...(where.trash && { trash: '1' }), ...(where.archived && { archived: '1' }), ...(where.reminders && { reminders: '1' }), ...(where.label && { label: where.label }), ...(search.trim() && { q: search.trim() }) });
@@ -147,8 +148,8 @@ export default function Notes() {
         {labels.map((l) => (
           <div key={l} className="note-label-row">
           <button type="button" className={`subnav-item ${where.label === l ? 'active' : ''}`} onClick={() => setWhere({ archived: false, label: l, reminders: false })}>{labelColors[l] ? <span className="note-label-dot" style={{ background: labelColors[l] }} aria-hidden="true" /> : <span className="note-label-icon" aria-hidden="true">🏷</span>}<span className="grow ellipsis">{l}</span></button>
-          <Menu align="right" trigger={(p) => <button type="button" className="icon-btn note-label-color" aria-label={`Colour for label ${l}`} title="Label colour" {...p}>●</button>}
-            items={[...LABEL_COLORS.map(([c, name]) => ({ label: `${labelColors[l] === c ? '✓ ' : ''}${name}`, onClick: () => setLabelColor(l, c) })), '-', { label: 'No colour', onClick: () => setLabelColor(l, null) }]} />
+          <Menu align="right" trigger={(p) => <button type="button" className="icon-btn note-label-color" aria-label={`Edit label ${l}`} title="Colour, rename or delete" {...p}>●</button>}
+            items={[...LABEL_COLORS.map(([c, name]) => ({ label: `${labelColors[l] === c ? '✓ ' : ''}${name}`, onClick: () => setLabelColor(l, c) })), '-', { label: 'No colour', onClick: () => setLabelColor(l, null) }, '-', { label: 'Rename label…', onClick: () => setLabelEdit({ rename: l }) }, { label: 'Delete label', danger: true, onClick: () => setLabelEdit({ remove: l }) }]} />
           </div>
         ))}
         <button type="button" className={`subnav-item ${where.archived ? 'active' : ''}`} onClick={() => setWhere({ archived: true, label: null, reminders: false })}><Icon name="archive" /><span className="grow">Archive</span></button>
@@ -205,6 +206,23 @@ export default function Notes() {
       {sharing && <ShareNote note={sharing} onClose={() => { setSharing(null); load(); }} />}
       {labelling && <LabelNote note={labelling} all={labels} onSave={async (ls) => { await change(labelling, { labels: ls }); setLabelling(null); }} onClose={() => setLabelling(null)} />}
       {picking && <PickTime note={picking} onClose={() => setPicking(null)} onPick={(t) => { change(picking, { remind_at: t }); toast(`Reminder set for ${reminderText(t)}`); setPicking(null); }} />}
+      {labelEdit?.rename && <PromptModal title="Rename label" label="Label name" initial={labelEdit.rename} confirm="Rename"
+        message="On every note with it, yours and those shared with you. A name you already use joins the two."
+        onClose={() => setLabelEdit(null)} onSubmit={async (to) => {
+          const from = labelEdit.rename;
+          await post('/notes/labels/rename', { from, to });
+          setLabelEdit(null);
+          if (where.label === from) setWhere((w) => ({ ...w, label: to.trim() }));
+          load();
+        }} />}
+      {labelEdit?.remove && <ConfirmModal title={`Delete the label “${labelEdit.remove}”?`} confirm="Delete label"
+        message="It comes off every note with it, yours and those shared with you. The notes stay."
+        onClose={() => setLabelEdit(null)} onConfirm={async () => {
+          const label = labelEdit.remove;
+          await post('/notes/labels/delete', { label });
+          if (where.label === label) setWhere({ archived: false, label: null, reminders: false });
+          load();
+        }} />}
       {forever && <ConfirmModal title={forever === 'all' ? 'Empty the trash?' : 'Delete this note for good?'} confirm="Delete forever" message="This can’t be undone."
         onClose={() => setForever(null)} onConfirm={async () => { try { await del(forever === 'all' ? '/notes/trash' : `/notes/${forever.id}?forever=1`); } catch (e) { toast(e.message, 'error'); } setForever(null); load(); }} />}
       {deleting && <ConfirmModal title={deleting.mine ? 'Delete this note?' : 'Remove this note?'} confirm={deleting.mine ? 'Delete' : 'Remove'}

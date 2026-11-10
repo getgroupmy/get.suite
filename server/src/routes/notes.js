@@ -261,6 +261,41 @@ export default function noteRoutes() {
     res.json({ label, color });
   });
 
+  // Rename a label ({ from, to }; to an existing one merges them) or delete it ({ label }) on every note you
+  // see: yours and those shared with you (their people see the change too). Your colour goes with the name.
+  const relabel = (user, from, fn) => {
+    const rows = q(`SELECT id, labels FROM notes WHERE (owner_id = ? OR (trashed_at IS NULL AND id IN (SELECT note_id FROM note_shares WHERE user_id = ?)))`).all(user.id, user.id)
+      .filter((n) => JSON.parse(n.labels || '[]').includes(from));
+    const people = new Set([user.id]);
+    tx(() => {
+      for (const n of rows) {
+        q('UPDATE notes SET labels = ? WHERE id = ?').run(JSON.stringify(cleanLabels(fn(JSON.parse(n.labels || '[]')))), n.id);
+        const o = q('SELECT owner_id FROM notes WHERE id = ?').get(n.id); people.add(o.owner_id);
+        for (const s of q('SELECT user_id FROM note_shares WHERE note_id = ?').all(n.id)) people.add(s.user_id);
+      }
+    });
+    sendTo([...people], { type: 'notes-changed' });
+    return rows.length;
+  };
+  r.post('/labels/rename', (req, res) => {
+    const from = str(req.body?.from, { required: true, max: 50, name: 'Label' });
+    const to = str(req.body?.to, { required: true, max: 40, name: 'New name' }).trim();
+    if (!to) throw bad('Give the label a name');
+    const notes = from === to ? 0 : relabel(req.user, from, (ls) => ls.map((l) => (l === from ? to : l)));
+    if (from !== to) {
+      const c = q('SELECT color FROM note_label_colors WHERE user_id = ? AND label = ?').get(req.user.id, from);
+      if (c) q('INSERT INTO note_label_colors (user_id, label, color) VALUES (?, ?, ?) ON CONFLICT(user_id, label) DO NOTHING').run(req.user.id, to, c.color);
+      q('DELETE FROM note_label_colors WHERE user_id = ? AND label = ?').run(req.user.id, from);
+    }
+    res.json({ label: to, notes });
+  });
+  r.post('/labels/delete', (req, res) => {
+    const label = str(req.body?.label, { required: true, max: 50, name: 'Label' });
+    const notes = relabel(req.user, label, (ls) => ls.filter((l) => l !== label));
+    q('DELETE FROM note_label_colors WHERE user_id = ? AND label = ?').run(req.user.id, label);
+    res.json({ notes });
+  });
+
   r.get('/labels', (req, res) => {
     const all = new Set();
     for (const n of q('SELECT labels FROM notes WHERE owner_id = ? OR id IN (SELECT note_id FROM note_shares WHERE user_id = ?)').all(req.user.id, req.user.id)) {

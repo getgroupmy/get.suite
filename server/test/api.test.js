@@ -9354,6 +9354,37 @@ test('task lists: a colour and an emoji, shown with their tasks elsewhere too', 
   assert.deepEqual([off.color, off.emoji], [null, null]);
 });
 
+test('notes: rename, merge and delete a label everywhere', async () => {
+  const a = client(), b = client(), c = client();
+  for (const [local, name] of [['nrla', 'Nrl Ann'], ['nrlb', 'Nrl Ben'], ['nrlc', 'Nrl Cat']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'nrla@acme.com'); await login(b, 'nrlb@acme.com'); await login(c, 'nrlc@acme.com');
+  const n1 = (await a('POST', '/api/notes', { title: 'One', labels: ['Wrok', 'Home'] })).body;
+  const n2 = (await a('POST', '/api/notes', { title: 'Two', labels: ['Wrok'] })).body;
+  const n3 = (await b('POST', '/api/notes', { title: 'Bens', labels: ['Wrok'] })).body;
+  const n4 = (await c('POST', '/api/notes', { title: 'Cats', labels: ['Wrok'] })).body; // not shared with Ann: left alone
+  assert.equal((await b('PUT', `/api/notes/${n3.id}/shares`, { user_ids: [(await a('GET', '/api/auth/me')).body.user.id] })).status < 300, true);
+  await a('PUT', '/api/notes/label-colors', { label: 'Wrok', color: '#1a73e8' });
+  const r = await a('POST', '/api/notes/labels/rename', { from: 'Wrok', to: 'Work' });
+  assert.deepEqual(r.body, { label: 'Work', notes: 3 }, 'her two and the one shared with her');
+  assert.deepEqual((await a('GET', '/api/notes/labels')).body, ['Home', 'Work']);
+  assert.deepEqual((await b('GET', '/api/notes/labels')).body, ['Work'], 'the shared note changed for Ben too');
+  assert.deepEqual((await c('GET', '/api/notes/labels')).body, ['Wrok'], 'someone else’s own notes are theirs');
+  assert.deepEqual((await a('GET', '/api/notes/label-colors')).body, { Work: '#1a73e8' }, 'the colour goes with it');
+  // Renaming to one that exists merges them, without doubles.
+  await a('POST', '/api/notes/labels/rename', { from: 'Home', to: 'Work' });
+  const mine = (await a('GET', '/api/notes')).body;
+  const labelsOf = (id) => (Array.isArray(mine) ? mine : mine.notes).find((n) => n.id === id).labels;
+  assert.deepEqual(labelsOf(n1.id), ['Work']);
+  assert.equal((await a('POST', '/api/notes/labels/rename', { from: 'Work', to: '  ' })).status, 400);
+  // Delete: off every note, colour too; the notes stay.
+  assert.equal((await a('POST', '/api/notes/labels/delete', { label: 'Work' })).body.notes, 3);
+  assert.deepEqual((await a('GET', '/api/notes/labels')).body, []);
+  assert.deepEqual((await a('GET', '/api/notes/label-colors')).body, {});
+  assert.equal((await a('GET', `/api/notes/${n2.id}/preview`)).status, 200, 'the note is still there');
+  assert.deepEqual((await c('GET', '/api/notes/labels')).body, ['Wrok']);
+  void n4;
+});
+
 test('notes: label colours, each person’s own', async () => {
   const a = client(), b = client();
   for (const [local, name] of [['nlca', 'Nlc Ann'], ['nlcb', 'Nlc Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
