@@ -59,6 +59,15 @@ function Domains({ qs }) {
       toast(r.catchall ? `Mail to unknown addresses @${name} now goes to ${r.catchall}` : `Catch-all for ${name} turned off`);
     } catch (e) { toast(e.message, 'error'); }
   }
+  // Encrypted delivery (MTA-STS): the records change, and an earlier check no longer applies.
+  async function setMtaSts(name, mode) {
+    try {
+      const r = await patch(`/mail-admin/domains/${encodeURIComponent(name)}${qs}`, { mta_sts: mode });
+      setDomains((list) => list.map((d) => (d.name === name ? { ...d, mta_sts: r.mta_sts, records: r.records } : d)));
+      setChecks((c) => ({ ...c, [name]: null }));
+      toast(mode === 'off' ? `Encrypted delivery for ${name} turned off` : `Encrypted delivery for ${name}: ${mode === 'enforce' ? 'required' : 'testing'}. Add the new records below.`);
+    } catch (e) { toast(e.message, 'error'); }
+  }
   async function check(name) {
     setChecks((c) => ({ ...c, [name]: 'loading' }));
     try { const r = await get(`/mail-admin/domains/${encodeURIComponent(name)}/check${qs}`); setChecks((c) => ({ ...c, [name]: r })); }
@@ -84,6 +93,16 @@ function Domains({ qs }) {
             </select>
           </label>
           <p className="muted small" style={{ margin: 0, flex: '1 1 240px' }}>Handy for typos and old addresses, but catch-alls attract extra spam. Real mailboxes and aliases are not affected.</p>
+        </div>
+        <div className="row wrap catchall">
+          <label className="field" style={{ flex: '0 1 360px' }}><span>Encrypted delivery (MTA-STS)</span>
+            <select value={d.mta_sts || 'off'} onChange={(e) => setMtaSts(d.name, e.target.value)} aria-label={`Encrypted delivery for ${d.name}`}>
+              <option value="off">Off</option>
+              <option value="testing">Testing: senders report problems, and still deliver</option>
+              <option value="enforce">Required: senders only deliver over an encrypted connection</option>
+            </select>
+          </label>
+          <p className="muted small" style={{ margin: 0, flex: '1 1 240px' }}>Other mail servers learn that mail to @{d.name} must reach this server encrypted, so it can't be read or redirected on the way. Start with <em>Testing</em> for a week: TLS reports come to postmaster@{d.name}. It needs the extra records below, and <code>mta-sts.{d.name}</code> on this server's HTTPS certificate.</p>
         </div>
         <p className="muted small" style={{ margin: 0 }}>Add these records at the company that hosts DNS for {d.name}. Changes can take up to an hour to show.</p>
         <div className="dns-table" role="table" aria-label={`DNS records for ${d.name}`}>

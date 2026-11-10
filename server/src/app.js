@@ -33,7 +33,7 @@ import { publishRoutes, publicPublishRoutes } from './routes/publish.js';
 import { officePreviewRoutes } from './office/preview.js';
 import { apiTokenRoutes, bearerOf } from './apitokens.js';
 import orgRoutes from './routes/orgs.js';
-import mailAdminRoutes from './routes/mailAdmin.js';
+import mailAdminRoutes, { mtaStsPolicy } from './routes/mailAdmin.js';
 import webmailRoutes from './routes/webmail.js';
 import securityRoutes from './routes/security.js';
 import { linkRoutes, publicLinkRoutes } from './routes/links.js';
@@ -74,6 +74,14 @@ export function createApp({
 
   // Phone sync (CalDAV/CardDAV). Apps look for these well-known addresses first.
   for (const w of ['/.well-known/caldav', '/.well-known/carddav']) app.all(w, (req, res) => res.redirect(301, '/dav/'));
+  // MTA-STS: other mail servers fetch https://mta-sts.<domain>/.well-known/mta-sts.txt to learn that mail
+  // for the domain must come over an encrypted connection (Admin → Email turns it on per domain).
+  app.get('/.well-known/mta-sts.txt', (req, res) => {
+    const host = String(req.hostname || '').toLowerCase();
+    const policy = host.startsWith('mta-sts.') && mtaStsPolicy(host.slice('mta-sts.'.length));
+    if (!policy) return res.status(404).type('text/plain').send('No MTA-STS policy here\n');
+    res.type('text/plain').set('Cache-Control', 'max-age=3600').send(policy);
+  });
   app.use('/dav/files', webdavRoutes({ maxUploadBytes })); // Drive as a network drive
   app.use('/dav', davRoutes());
   // Chat webhooks: scripts post with only the secret address (no session, so outside /api and its CSRF check).

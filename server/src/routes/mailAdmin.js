@@ -26,22 +26,62 @@ function targetOrg(req) {
   return req.user.org_id;
 }
 
+/** Where people open Workspace (PUBLIC_URL's host), for the MTA-STS policy's address. */
+const webHost = () => { try { return new URL(process.env.PUBLIC_URL).hostname; } catch { return null; } };
+
+/** A domain's MTA-STS policy (the text senders fetch), or null when it's off. */
+export function mtaStsPolicy(domain) {
+  const d = q('SELECT mta_sts FROM domains WHERE name = ?').get(domain);
+  if (!d || !['testing', 'enforce'].includes(d.mta_sts)) return null;
+  return `version: STSv1\r\nmode: ${d.mta_sts}\r\nmx: ${MAIL_HOSTNAME || 'mail.example.com'}\r\nmax_age: ${d.mta_sts === 'enforce' ? 604800 : 86400}\r\n`;
+}
+
 /** The DNS records a hosted domain needs. */
 export function recordsFor(domain) {
   const host = MAIL_HOSTNAME || 'mail.example.com';
   const { dkim_public } = ensureDkim(domain) || {};
+  const sts = q('SELECT mta_sts, mta_sts_id FROM domains WHERE name = ?').get(domain);
+  const stsOn = sts && ['testing', 'enforce'].includes(sts.mta_sts);
   return [
     { type: 'MX', host: domain, value: `10 ${host}`, purpose: 'Delivers mail for this domain to your NAS' },
     { type: 'TXT', host: domain, value: 'v=spf1 mx ~all', purpose: 'SPF: says your mail server may send for this domain' },
     { type: 'TXT', host: `${DKIM_SELECTOR}._domainkey.${domain}`, value: `v=DKIM1; k=rsa; p=${dkim_public}`, purpose: 'DKIM: lets receivers verify your signature' },
     { type: 'TXT', host: `_dmarc.${domain}`, value: `v=DMARC1; p=quarantine; rua=mailto:postmaster@${domain}`, purpose: 'DMARC: tells receivers what to do with forged mail' },
+    // Encrypted delivery (MTA-STS): the policy is a file at mta-sts.<domain>, which this server answers.
+    ...(stsOn ? [
+      { type: 'CNAME', host: `mta-sts.${domain}`, value: webHost() || '(the address you open Workspace at)', purpose: 'MTA-STS: where senders fetch the policy (this Workspace; add the name to its HTTPS certificate)' },
+      { type: 'TXT', host: `_mta-sts.${domain}`, value: `v=STSv1; id=${sts.mta_sts_id}`, purpose: 'MTA-STS: says there is a policy, and when it last changed' },
+      { type: 'TXT', host: `_smtp._tls.${domain}`, value: `v=TLSRPTv1; rua=mailto:postmaster@${domain}`, purpose: 'TLS reports: senders tell postmaster@ when they couldn\'t deliver securely' },
+      { type: 'HTTPS', host: `https://mta-sts.${domain}/.well-known/mta-sts.txt`, value: `mode: ${sts.mta_sts}`, purpose: 'The policy file itself (checked, not a DNS record)' },
+    ] : []),
   ];
 }
 
 const txt = async (name) => (await resolver.resolveTxt(name)).map((parts) => parts.join(''));
 
+/** Fetch a policy file over HTTPS (tests swap this out). */
+let fetchPolicy = async (url) => {
+  const res = await fetch(url, { signal: AbortSignal.timeout(5000), redirect: 'error' });
+  if (!res.ok) throw Object.assign(new Error(`HTTP ${res.status}`), { code: `HTTP ${res.status}` });
+  return res.text();
+};
+export function setPolicyFetcher(f) { fetchPolicy = f; }
+
 async function checkRecord(rec) {
   try {
+    if (rec.type === 'HTTPS') {
+      const body = await fetchPolicy(rec.host);
+      const mode = /^mode:\s*(\w+)/m.exec(body)?.[1];
+      return { found: [body.trim().split(/\r?\n/).join(' · ')], ok: /^version:\s*STSv1/m.test(body) && `mode: ${mode}` === rec.value };
+    }
+    if (rec.type === 'CNAME') {
+      const want = rec.value.toLowerCase();
+      const cname = await resolver.resolveCname(rec.host).catch(() => []);
+      if (cname.some((c) => c.toLowerCase().replace(/\.$/, '') === want)) return { found: cname, ok: true };
+      // An A record to the same address as Workspace will do too.
+      const [mine, theirs] = await Promise.all([resolver.resolve4(want).catch(() => []), resolver.resolve4(rec.host).catch(() => [])]);
+      return { found: cname.length ? cname : theirs, ok: theirs.length > 0 && theirs.every((a) => mine.includes(a)) };
+    }
     if (rec.type === 'MX') {
       const mx = await resolver.resolveMx(rec.host);
       const found = mx.map((m) => `${m.priority} ${m.exchange}`);
@@ -57,6 +97,14 @@ async function checkRecord(rec) {
       const key = rec.value.split('p=')[1];
       const dkim = records.filter((r) => r.includes('p='));
       return { found: dkim.map((r) => (r.length > 80 ? `${r.slice(0, 77)}…` : r)), ok: dkim.some((r) => r.replace(/\s/g, '').includes(`p=${key}`)) };
+    }
+    if (rec.value.startsWith('v=STSv1')) {
+      const sts = records.filter((r) => /^v=STSv1/i.test(r));
+      return { found: sts, ok: sts.length === 1 && sts[0].replace(/\s/g, '').includes(rec.value.split(' ')[1]), note: sts.length === 1 && !sts[0].includes(rec.value.split(' ')[1]) ? 'Update the id: the policy changed' : undefined };
+    }
+    if (rec.value.startsWith('v=TLSRPTv1')) {
+      const rpt = records.filter((r) => /^v=TLSRPTv1/i.test(r));
+      return { found: rpt, ok: rpt.length === 1 };
     }
     const dmarc = records.filter((r) => r.toUpperCase().startsWith('V=DMARC1'));
     return { found: dmarc, ok: dmarc.length === 1 };
@@ -81,8 +129,8 @@ export default function mailAdminRoutes() {
 
   r.get('/domains', (req, res) => {
     const orgId = targetOrg(req);
-    res.json(q('SELECT name, catchall FROM domains WHERE org_id = ? ORDER BY created_at').all(orgId)
-      .map((d) => ({ name: d.name, catchall: d.catchall || null, records: recordsFor(d.name) })));
+    res.json(q('SELECT name, catchall, mta_sts FROM domains WHERE org_id = ? ORDER BY created_at').all(orgId)
+      .map((d) => ({ name: d.name, catchall: d.catchall || null, mta_sts: d.mta_sts || 'off', records: recordsFor(d.name) })));
   });
 
   // Catch-all: one mailbox of this company receives mail for any unknown address on the domain.
@@ -90,6 +138,14 @@ export default function mailAdminRoutes() {
     const orgId = targetOrg(req);
     const name = validDomain(req.params.name);
     if (!q('SELECT 1 FROM domains WHERE name = ? AND org_id = ?').get(name, orgId)) throw notFound('Domain not found');
+    // Encrypted delivery (MTA-STS): off, testing (senders report problems but still deliver) or enforce.
+    if (req.body.mta_sts !== undefined) {
+      const mode = String(req.body.mta_sts);
+      if (!['off', 'testing', 'enforce'].includes(mode)) throw bad('Encrypted delivery: off, testing or enforce');
+      q('UPDATE domains SET mta_sts = ?, mta_sts_id = ? WHERE name = ?').run(mode, mode === 'off' ? null : String(Date.now()), name);
+      audit(req, 'domain.update', { org: orgId, target: name, details: { mta_sts: mode } });
+      if (req.body.catchall === undefined) return res.json({ name, mta_sts: mode, records: recordsFor(name) });
+    }
     let target = req.body.catchall ? String(req.body.catchall).trim().toLowerCase() : null;
     if (target && !q('SELECT 1 FROM users WHERE username = ? AND org_id = ?').get(target, orgId)) {
       throw bad('The catch-all must be a mailbox in this company');

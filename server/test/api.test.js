@@ -7649,3 +7649,48 @@ test('sheets web import (IMPORTDATA / IMPORTHTML): signed in only; checked; priv
   assert.match(priv.body.error, /private network/);
   assert.match((await owner('GET', `/api/sheets-web?url=${encodeURIComponent('file:///etc/passwd')}`)).body.error, /Only http and https/);
 });
+
+test('encrypted delivery (MTA-STS): per domain; its records, its policy file, and the check', async () => {
+  const { setResolver, setPolicyFetcher } = await import('../src/routes/mailAdmin.js');
+  const http = await import('node:http');
+  const policyAt = (host) => new Promise((resolve, reject) => {
+    const u = new URL(base);
+    http.get({ host: u.hostname, port: u.port, path: '/.well-known/mta-sts.txt', headers: { host } }, (res) => { let b = ''; res.on('data', (c) => { b += c; }); res.on('end', () => resolve({ status: res.statusCode, body: b, type: res.headers['content-type'] })); }).on('error', reject);
+  });
+  const list = async () => (await owner('GET', '/api/mail-admin/domains')).body.find((d) => d.name === 'acme.com');
+  assert.equal((await list()).mta_sts, 'off');
+  assert.ok(!(await list()).records.some((r) => /mta-sts/.test(r.host)), 'no records while off');
+  assert.equal((await policyAt('mta-sts.acme.com')).status, 404);
+  assert.equal((await owner('PATCH', '/api/mail-admin/domains/acme.com', { mta_sts: 'always' })).status, 400);
+  assert.equal((await owner('PATCH', '/api/mail-admin/domains/acme.com', { mta_sts: 'testing' })).status, 200);
+  const d = await list();
+  const hosts = d.records.map((r) => `${r.type} ${r.host}`);
+  assert.deepEqual(hosts.slice(4), ['CNAME mta-sts.acme.com', 'TXT _mta-sts.acme.com', 'TXT _smtp._tls.acme.com', 'HTTPS https://mta-sts.acme.com/.well-known/mta-sts.txt']);
+  const id = /id=(\d+)/.exec(d.records.find((r) => r.host === '_mta-sts.acme.com').value)[1];
+  const p = await policyAt('mta-sts.acme.com');
+  assert.equal(p.status, 200);
+  assert.match(p.type, /text\/plain/);
+  assert.match(p.body, /^version: STSv1\r\nmode: testing\r\nmx: \S+\r\nmax_age: 86400\r\n$/);
+  assert.equal((await policyAt('mta-sts.not-ours.example')).status, 404, 'only for this server\'s domains');
+  assert.equal((await policyAt('acme.com')).status, 404, 'only at mta-sts.<domain>');
+  // The check: DNS records and the policy file over HTTPS.
+  setResolver({
+    resolveMx: async () => [], resolveCname: async (n) => (n === 'mta-sts.acme.com' ? ['workspace.acme.com'] : []), resolve4: async () => [],
+    resolveTxt: async (n) => ({ '_mta-sts.acme.com': [[`v=STSv1; id=${id}`]], '_smtp._tls.acme.com': [['v=TLSRPTv1; rua=mailto:postmaster@acme.com']] }[n] || []),
+  });
+  const before = process.env.PUBLIC_URL;
+  process.env.PUBLIC_URL = 'https://workspace.acme.com';
+  setPolicyFetcher(async (url) => { assert.equal(url, 'https://mta-sts.acme.com/.well-known/mta-sts.txt'); return (await policyAt('mta-sts.acme.com')).body; });
+  try {
+    const check = (await owner('GET', '/api/mail-admin/domains/acme.com/check')).body;
+    assert.deepEqual(check.results.slice(4).map((r) => [r.type, r.ok]), [['CNAME', true], ['TXT', true], ['TXT', true], ['HTTPS', true]]);
+    // Enforcing changes the id: the old record is reported as needing it.
+    assert.equal((await owner('PATCH', '/api/mail-admin/domains/acme.com', { mta_sts: 'enforce' })).status, 200);
+    assert.match((await policyAt('mta-sts.acme.com')).body, /mode: enforce\r\n[\s\S]*max_age: 604800/);
+    const again = (await owner('GET', '/api/mail-admin/domains/acme.com/check')).body;
+    assert.equal(again.results.find((r) => r.host === '_mta-sts.acme.com').note, 'Update the id: the policy changed');
+  } finally {
+    if (before === undefined) delete process.env.PUBLIC_URL; else process.env.PUBLIC_URL = before;
+    await owner('PATCH', '/api/mail-admin/domains/acme.com', { mta_sts: 'off' });
+  }
+});
