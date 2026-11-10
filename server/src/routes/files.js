@@ -823,9 +823,11 @@ export default function fileRoutes({ maxUploadBytes }) {
   });
 
   // Company templates, for New → From a template.
+  // Company templates (template = 1), and your own (template = 2, files you own), for New → From a template.
   r.get('/templates', (req, res) => {
-    res.json(q(`SELECT f.id, f.name, f.kind, f.description, u.name AS owner_name FROM files f JOIN users u ON u.id = f.owner_id
-                WHERE f.template = 1 AND f.trashed = 0 AND u.org_id = ? ORDER BY f.kind, f.name COLLATE NOCASE`).all(req.user.org_id));
+    res.json(q(`SELECT f.id, f.name, f.kind, f.description, u.name AS owner_name, (f.template = 2) AS mine FROM files f JOIN users u ON u.id = f.owner_id
+                WHERE f.trashed = 0 AND ((f.template = 1 AND u.org_id = ?) OR (f.template = 2 AND f.owner_id = ?))
+                ORDER BY f.template DESC, f.kind, f.name COLLATE NOCASE`).all(req.user.org_id, req.user.id).map((t) => ({ ...t, mine: !!t.mine })));
   });
 
   // ---- asking for access: someone with a link to a file they can't open asks its owner ----
@@ -927,10 +929,20 @@ export default function fileRoutes({ maxUploadBytes }) {
     audit(req, req.body.template ? 'file.template' : 'file.untemplate', { target: f.name });
     res.json(publicFile(loadFile(f.id, req.user)));
   });
-  // Start a new file from a company template (everyone in the company may, shared with them or not).
+  // One of your own templates (or not): a document, spreadsheet or presentation you own.
+  r.put('/:id/my-template', (req, res) => {
+    const f = loadFile(req.params.id, req.user);
+    if (f.owner_id !== req.user.id) throw forbidden('Only its owner can make it one of their templates');
+    if (!EDITABLE.includes(f.kind)) throw bad('Only documents, spreadsheets and presentations can be templates');
+    if (f.template === 1) throw bad('It’s already a company template');
+    q('UPDATE files SET template = ? WHERE id = ?').run(req.body.template ? 2 : 0, f.id);
+    res.json(publicFile(loadFile(f.id, req.user)));
+  });
+  // Start a new file from a company template (everyone in the company may, shared with them or not),
+  // or from one of your own.
   r.post('/templates/:id/use', (req, res) => {
-    const row = q('SELECT f.*, u.org_id FROM files f JOIN users u ON u.id = f.owner_id WHERE f.id = ? AND f.template = 1 AND f.trashed = 0').get(String(req.params.id));
-    if (!row || row.org_id !== req.user.org_id) throw notFound('Template not found');
+    const row = q('SELECT f.*, u.org_id FROM files f JOIN users u ON u.id = f.owner_id WHERE f.id = ? AND f.template IN (1, 2) AND f.trashed = 0').get(String(req.params.id));
+    if (!row || (row.template === 1 ? row.org_id !== req.user.org_id : row.owner_id !== req.user.id)) throw notFound('Template not found');
     const parentId = resolveParent(req.body?.parent_id, req.user);
     checkQuota(req.user.org_id, row.size || 0, req.user.id);
     const name = req.body?.name ? cleanName(req.body.name) : row.name;

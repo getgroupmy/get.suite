@@ -8616,3 +8616,28 @@ test('chat: starred conversations are each person’s own; star and unstar; not 
   assert.deepEqual((await a('POST', `/api/chat/channels/${dm}/star`, { starred: false })).body, { starred: false });
   assert.deepEqual(await starredOf(a), []);
 });
+
+test('my templates: your own documents to start from; only yours, only your files, and not over a company template', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['mytpa', 'Mt Ann'], ['mytpb', 'Mt Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'mytpa@acme.com'); await login(b, 'mytpb@acme.com');
+  const content = { type: 'doc', content: [{ type: 'heading', attrs: { level: 1 }, content: [{ type: 'text', text: 'Weekly report' }] }] };
+  const doc = (await a('POST', '/api/files/new', { kind: 'doc', name: 'Weekly report', content })).body;
+  const set = (await a('PUT', `/api/files/${doc.id}/my-template`, { template: true })).body;
+  assert.equal(set.template, 2);
+  const mine = (await a('GET', '/api/files/templates')).body.find((t) => t.id === doc.id);
+  assert.deepEqual([mine.name, mine.mine], ['Weekly report', true]);
+  assert.ok(!(await b('GET', '/api/files/templates')).body.some((t) => t.id === doc.id), 'not in Ben’s');
+  assert.equal((await b('POST', `/api/files/templates/${doc.id}/use`, {})).status, 404);
+  const made = (await a('POST', `/api/files/templates/${doc.id}/use`, {})).body;
+  assert.notEqual(made.id, doc.id);
+  assert.equal((await a('GET', `/api/files/${made.id}/content`)).body.content.content[0].content[0].text, 'Weekly report');
+  // Someone else's file can't become your template; nor can a folder.
+  await a('PUT', `/api/files/${doc.id}/shares`, { shares: [{ user_id: (await b('GET', '/api/auth/me')).body.user.id, role: 'editor' }] });
+  assert.equal((await b('PUT', `/api/files/${doc.id}/my-template`, { template: true })).status, 403);
+  const folder = (await a('POST', '/api/files/folder', { name: 'Stuff' })).body;
+  assert.equal((await a('PUT', `/api/files/${folder.id}/my-template`, { template: true })).status, 400);
+  // Off again.
+  assert.equal((await a('PUT', `/api/files/${doc.id}/my-template`, { template: false })).body.template, 0);
+  assert.ok(!(await a('GET', '/api/files/templates')).body.some((t) => t.id === doc.id));
+});

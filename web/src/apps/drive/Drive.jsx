@@ -277,6 +277,8 @@ export default function Drive() {
       { label: 'Details', icon: 'more', onClick: () => setDialog({ type: 'details', file: f }) },
       user.is_admin && ['doc', 'sheet', 'slides'].includes(f.kind) && { label: f.template ? 'Remove from company templates' : 'Make a company template', icon: 'doc',
         onClick: async () => { try { await put(`/files/${f.id}/template`, { template: !f.template }); toast(f.template ? 'No longer a company template' : 'Everyone in your company can now start from it (New → From a template)'); load(); } catch (e) { toast(e.message, 'error'); } } },
+      f.owner_id === user.id && ['doc', 'sheet', 'slides'].includes(f.kind) && f.template !== 1 && { label: f.template === 2 ? 'Remove from my templates' : 'Use as my template', icon: 'copy',
+        onClick: async () => { try { await put(`/files/${f.id}/my-template`, { template: f.template !== 2 }); toast(f.template === 2 ? 'Removed from your templates' : 'Added to your templates: New → From a template'); load(); } catch (e) { toast(e.message, 'error'); } } },
       { label: f.starred ? 'Remove star' : 'Add star', icon: f.starred ? 'star' : 'staroutline', onClick: act(() => put(`/files/${f.id}/star`, { starred: !f.starred }), f.starred ? 'Star removed' : 'Starred') },
       { label: 'Change notifications on/off', icon: 'bell', onClick: async () => {
         try { const now = (await get(`/files/${f.id}/watch`)).watching; await put(`/files/${f.id}/watch`, { on: !now }); toast(now ? `No more notifications about “${f.name}”` : `You’ll get a notification when someone else changes “${f.name}”`); } catch (e) { toast(e.message, 'error'); }
@@ -1108,7 +1110,7 @@ function AccessRequests({ list, onClose, onChanged }) {
   );
 }
 
-/** New from a template: the built-in ones, and your company's own. */
+/** New from a template: your own, your company's, and the built-in ones. */
 function TemplatesDialog({ onClose, onPick }) {
   const [company, setCompany] = useState(null);
   useEffect(() => { get('/files/templates').then(setCompany).catch(() => setCompany([])); }, []);
@@ -1122,9 +1124,13 @@ function TemplatesDialog({ onClose, onPick }) {
   return (
     <Modal wide title="New from a template" onClose={onClose} footer={<button className="btn" onClick={onClose}>Cancel</button>}>
       <div className="stack">
-        {company?.length > 0 && <>
+        {company?.some((t) => t.mine) && <>
+          <h3 className="template-head">My templates</h3>
+          <div className="template-grid" aria-label="My templates">{company.filter((t) => t.mine).map((t) => card({ ...t, owner_name: null, blurb: t.description || 'Yours' }, t.id))}</div>
+        </>}
+        {company?.some((t) => !t.mine) && <>
           <h3 className="template-head">Your company</h3>
-          <div className="template-grid">{company.map((t) => card(t, t.id))}</div>
+          <div className="template-grid">{company.filter((t) => !t.mine).map((t) => card(t, t.id))}</div>
         </>}
         <h3 className="template-head">Ready-made</h3>
         <div className="template-grid">{BUILT_IN.map((t) => card({ ...t, builtIn: true }, t.key))}</div>
