@@ -95,6 +95,17 @@ function Calendar({ acting = null, managed = [], onPick }) {
   const [editing, setEditing] = useState(null);
   // Your own calendars besides the main one; the hidden ones' events stay off the views.
   const [myCals, setMyCals] = useState([]);
+  // Your event templates, for "From a template" on the left.
+  const [templates, setTemplates] = useState([]);
+  const loadTemplates = useCallback(() => { if (acting) { setTemplates([]); return; } get('/events/templates').then(setTemplates).catch(() => {}); }, [acting]);
+  useEffect(() => { loadTemplates(); }, [loadTemplates]);
+  /** A new event from a template: its details, starting at the next full hour (or today, all day). */
+  const fromTemplate = (t) => {
+    const at = new Date(); at.setMinutes(0, 0, 0); at.setHours(at.getHours() + 1);
+    const start = t.all_day ? startOfDay(new Date()).getTime() : at.getTime();
+    setEditing({ title: t.title, location: t.location, description: t.description, color: t.color || COLORS[0], all_day: t.all_day, start, end: t.all_day ? start + DAY - 1 : start + t.minutes * 60e3,
+      guests: t.guests.map((email) => ({ email })), reminders: t.reminders, ...(t.calendar_id && { calendar_id: t.calendar_id }), fromTemplate: t.name });
+  };
   const loadCals = useCallback(() => { if (acting) { setMyCals([]); return; } get('/events/calendars').then(setMyCals).catch(() => {}); }, [acting]);
   useEffect(() => { loadCals(); }, [loadCals]);
   const hiddenKey = myCals.filter((c) => c.hidden).map((c) => c.id).join(',');
@@ -338,6 +349,8 @@ function Calendar({ acting = null, managed = [], onPick }) {
         {timeOff && <TimeOff onClose={() => { setTimeOff(false); refreshTimeOff(); loadHolidays(); }} onChanged={() => { load(); refreshTimeOff(); loadHolidays(); }} />}
         <button type="button" className="subnav-item" onClick={() => { const d = startOfDay(new Date()).getTime(); setEditing({ title: 'Out of office', kind: 'ooo', start: d, end: d + DAY - 1, all_day: 1, color: '#5f6368', location: '', description: '' }); }}><span aria-hidden="true" style={{ width: 24, textAlign: 'center' }}>🌴</span><span className="grow">Out of office…</span></button>
         <button type="button" className="subnav-item" onClick={() => { const t = new Date(); t.setMinutes(0, 0, 0); t.setHours(t.getHours() + 1); setEditing({ title: 'Focus time', kind: 'focus', start: t.getTime(), end: t.getTime() + 2 * 36e5, all_day: 0, color: '#7b61ff', location: '', description: '' }); }}><span aria-hidden="true" style={{ width: 24, textAlign: 'center' }}>🎯</span><span className="grow">Focus time…</span></button>
+        {templates.length > 0 && <Menu trigger={(p) => <button type="button" className="subnav-item" {...p}><span aria-hidden="true" style={{ width: 24, textAlign: 'center' }}>📋</span><span className="grow">From a template…</span></button>}
+          items={templates.map((t) => ({ label: t.name, onClick: () => fromTemplate(t) }))} />}
         <button type="button" className="subnav-item" onClick={() => setInsightsOpen(true)}><span aria-hidden="true" style={{ width: 24, textAlign: 'center' }}>📊</span><span className="grow">Time insights</span></button>
         <button type="button" className="subnav-item" onClick={() => setBookingOpen(true)}><Icon name="link" /><span className="grow">Booking pages</span></button>
         <button type="button" className="subnav-item" onClick={() => setHoursOpen(true)}><Icon name="clock" /><span className="grow">Working hours</span></button>
@@ -469,8 +482,8 @@ function Calendar({ acting = null, managed = [], onPick }) {
         onSubmit={async (where) => { await setLocation(otherFor, 'other', where.trim() || null); setOtherFor(null); }} />}
       {editing && (editing.role === 'feed' || (editing.role === 'shared' && !editing.can_edit) ? <FeedEventDialog event={editing} calendar={myCals.find((c) => c.id === editing.calendar_id)} onClose={() => setEditing(null)} /> : editing.role === 'guest'
         ? <InvitationDialog event={editing} onClose={() => setEditing(null)} onAnswered={() => { setEditing(null); load(); }} />
-        : <EventDialog key={editing.id ? `${editing.id}:${editing.start}` : `new:${editing.duplicateOf || ''}:${editing.start}`} event={editing} calendars={editing.role === 'shared' ? [] : myCals.filter((c) => !c.shared || c.can_edit)} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); loadCals(); }}
-          onDuplicate={(copy) => { setEditing(copy); toast('Duplicated: change what you need, then Save'); }} />)}
+        : <EventDialog key={editing.id ? `${editing.id}:${editing.start}` : `new:${editing.duplicateOf || editing.fromTemplate || ''}:${editing.start}`} event={editing} calendars={editing.role === 'shared' ? [] : myCals.filter((c) => !c.shared || c.can_edit)} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); loadCals(); }}
+          onDuplicate={(copy) => { setEditing(copy); toast('Duplicated: change what you need, then Save'); }} templates={templates} onTemplatesChanged={loadTemplates} />)}
       {pendingMove && (
         <ScopeDialog title="Move repeating event" confirm="Move" onClose={() => setPendingMove(null)}
           onConfirm={async (which) => { const m = pendingMove; setPendingMove(null); await commitMove(m.ev, m.start, m.end, which); }} />
@@ -1101,7 +1114,8 @@ function FindATime({ guests, directory, minutes, onPick }) {
   );
 }
 
-function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate }) {
+function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate, templates = [], onTemplatesChanged }) {
+  const [naming, setNaming] = useState(false); // saving this event as a template: asking its name
   const toast = useToast();
   const recurring = !!(event.id && event.rrule);
   const [f, setF] = useState({
@@ -1197,7 +1211,7 @@ function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate }) {
 
   const ruleNow = ruleFromForm(rep, read().start);
   return (
-    <Modal title={event.id ? 'Edit event' : event.duplicateOf !== undefined ? 'Copy of event' : 'New event'} onClose={onClose}>
+    <Modal title={event.id ? 'Edit event' : event.fromTemplate ? `New event from “${event.fromTemplate}”` : event.duplicateOf !== undefined ? 'Copy of event' : 'New event'} onClose={onClose}>
       <form className="stack" onSubmit={submit}>
         {event.ext_organizer && <p className="muted small" style={{ margin: 0 }} role="note">📨 An invitation from {event.ext_organizer.name || event.ext_organizer.email}, by email{event.ext_status ? ` · you answered ${{ yes: 'Yes', maybe: 'Maybe', no: 'No' }[event.ext_status]}` : ''}. Changes here are only on your calendar; to change your answer, use the invitation in Mail.</p>}
         <label className="field"><span>Title</span><input autoFocus required value={f.title} onChange={set('title')} /></label>
@@ -1348,6 +1362,10 @@ function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate }) {
             onDuplicate({ title: body.title, location: body.location, description: body.description, color: body.color, all_day: f.all_day ? 1 : 0, start, end,
               guests: body.guests.map((email) => ({ email })), reminders: body.reminders, duplicateOf: event.title, calendar_id: f.calendar_id });
           }}>Duplicate</button>}
+          {onTemplatesChanged && !f.ooo && !f.focus && <Menu trigger={(p) => <button type="button" className="btn" title="Keep this event's details to start others from" {...p}>📋 Template</button>} items={[
+            { label: 'Save as template…', onClick: () => setNaming(true) },
+            ...templates.map((t) => ({ label: `Delete template “${t.name}”`, danger: true, onClick: async () => { try { await del(`/events/templates/${t.id}`); onTemplatesChanged(); } catch (e) { setError(e.message); } } })),
+          ]} />}
           {event.task && <Link className="btn" to={`/tasks/${event.task.list_id}?task=${event.task.id}`} title={`The task this time is for: ${event.task.title}`}>{event.task.done ? '✅' : '☐'} Open task</Link>}
           {event.id && <CopyEventLink event={event} className="btn" />}
           {event.id && <a className="btn" href={`/api/events/${event.id}/ics`} download title="A calendar file of this event, for Outlook, Apple or Google Calendar, or to pass on">Download (.ics)</a>}
@@ -1356,6 +1374,13 @@ function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate }) {
           <button className="btn primary">Save</button>
         </div>
       </form>
+      {naming && <PromptModal title="Save as template" label="Template name" initial={f.title || ''} confirm="Save template"
+        message="Its title, length, place, notes, guests, reminders, colour and calendar, to start new events from (Calendar → From a template). The same name replaces that template."
+        onClose={() => setNaming(false)} onSubmit={async (name) => {
+          const { start, end, body } = read();
+          await post('/events/templates', { name, event: { ...body, minutes: f.all_day ? null : Math.round((end - start) / 60e3) } });
+          onTemplatesChanged();
+        }} />}
     </Modal>
   );
 }

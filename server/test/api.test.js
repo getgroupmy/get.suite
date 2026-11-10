@@ -8725,6 +8725,26 @@ test('drive: rename, merge and delete a label of your own', async () => {
   assert.equal((await b('GET', '/api/files/labels')).body.length, 1);
 });
 
+test('calendar: event templates, each person’s own', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['etpa', 'Etp Ann'], ['etpb', 'Etp Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'etpa@acme.com'); await login(b, 'etpb@acme.com');
+  const t = await a('POST', '/api/events/templates', { name: 'Client call', event: { title: 'Call with client', minutes: 30, location: 'Meet', description: 'Agenda', color: '#33b679', guests: [{ email: 'Kim@Example.com' }, 'kim@example.com', 'not-an-email'], reminders: [10, 'x'] } });
+  assert.equal(t.status, 201);
+  assert.deepEqual([t.body.title, t.body.minutes, t.body.guests, t.body.reminders, t.body.all_day], ['Call with client', 30, ['kim@example.com'], [10], 0]);
+  assert.deepEqual((await a('GET', '/api/events/templates')).body.map((x) => x.name), ['Client call']);
+  assert.deepEqual((await b('GET', '/api/events/templates')).body, [], 'Ben has his own');
+  // Same name: replaced, not doubled.
+  const again = await a('POST', '/api/events/templates', { name: 'client call', event: { title: 'Call', minutes: 45 } });
+  assert.equal(again.status, 200);
+  assert.deepEqual((await a('GET', '/api/events/templates')).body.map((x) => [x.name, x.minutes]), [['client call', 45]]);
+  assert.equal((await a('POST', '/api/events/templates', { name: 'Bad', event: { minutes: 2 } })).status, 400);
+  assert.equal((await a('POST', '/api/events/templates', { name: 'Day', event: { all_day: true } })).body.minutes, null);
+  assert.equal((await b('DELETE', `/api/events/templates/${t.body.id}`)).status, 404);
+  await a('DELETE', `/api/events/templates/${t.body.id}`);
+  assert.deepEqual((await a('GET', '/api/events/templates')).body.map((x) => x.name), ['Day']);
+});
+
 test('chat: mark everything read at once', async () => {
   const a = client(), b = client();
   for (const [local, name] of [['cmra', 'Cmr Ann'], ['cmrb', 'Cmr Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);

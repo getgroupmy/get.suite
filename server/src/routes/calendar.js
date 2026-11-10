@@ -439,8 +439,52 @@ function sharedEvents(userId, from, to) {
 }
 const ownsCalendar = (userId, calId) => !!q('SELECT 1 FROM user_calendars WHERE id = ? AND owner_id = ?').get(String(calId || ''), userId);
 
+// Event templates: each person's own starting points for events they make often ("Weekly 1:1", "Client call"),
+// keeping what such an event has (title, length, place, notes, guests, reminders, colour, calendar) but not when.
+q(`CREATE TABLE IF NOT EXISTS event_templates (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  data TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+)`).run();
+export const MAX_EVENT_TEMPLATES = 30;
+/** What a template keeps, cleaned: { title, minutes, all_day, location, description, color, guests, reminders, calendar_id }. */
+export function cleanTemplate(e) {
+  if (!e || typeof e !== 'object') throw bad('Nothing to keep');
+  const minutes = Number(e.minutes);
+  if (!e.all_day && !(Number.isInteger(minutes) && minutes >= 5 && minutes <= 24 * 60)) throw bad('A length from 5 minutes to a day');
+  const guests = [...new Set((Array.isArray(e.guests) ? e.guests : []).map((g) => String(g?.email ?? g ?? '').trim().toLowerCase()).filter((g) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(g)))].slice(0, 100);
+  const reminders = (Array.isArray(e.reminders) ? e.reminders : []).map(Number).filter((n) => Number.isInteger(n) && n >= 0 && n <= 40320).slice(0, 5);
+  return {
+    title: String(e.title ?? '').slice(0, 300), minutes: e.all_day ? null : minutes, all_day: e.all_day ? 1 : 0,
+    location: String(e.location ?? '').slice(0, 500), description: String(e.description ?? '').slice(0, 10000),
+    color: /^#[0-9a-f]{6}$/i.test(String(e.color || '')) ? e.color : null, guests, reminders, calendar_id: e.calendar_id ? String(e.calendar_id) : null,
+  };
+}
+
 export default function calendarRoutes() {
   const r = Router();
+
+  r.get('/templates', (req, res) => {
+    res.json(q('SELECT id, name, data FROM event_templates WHERE user_id = ? ORDER BY name COLLATE NOCASE').all(req.user.id).map((t) => ({ id: t.id, name: t.name, ...JSON.parse(t.data) })));
+  });
+  r.post('/templates', (req, res) => {
+    const name = str(req.body?.name, { required: true, name: 'Template name', max: 60 });
+    const data = cleanTemplate(req.body?.event);
+    if (q('SELECT COUNT(*) AS n FROM event_templates WHERE user_id = ?').get(req.user.id).n >= MAX_EVENT_TEMPLATES) throw bad(`At most ${MAX_EVENT_TEMPLATES} templates`);
+    // The same name again replaces that template.
+    const same = q('SELECT id FROM event_templates WHERE user_id = ? AND LOWER(name) = LOWER(?)').get(req.user.id, name);
+    const id = same?.id || uid();
+    if (same) q('UPDATE event_templates SET name = ?, data = ? WHERE id = ?').run(name, JSON.stringify(data), id);
+    else q('INSERT INTO event_templates (id, user_id, name, data, created_at) VALUES (?, ?, ?, ?, ?)').run(id, req.user.id, name, JSON.stringify(data), Date.now());
+    res.status(same ? 200 : 201).json({ id, name, ...data });
+  });
+  r.delete('/templates/:tid', (req, res) => {
+    const n = q('DELETE FROM event_templates WHERE id = ? AND user_id = ?').run(String(req.params.tid), req.user.id).changes;
+    if (!n) throw notFound('Template not found');
+    res.json({ ok: true });
+  });
 
   // A colleague's calendar they let you manage (x-calendar: their id): seeing, making, changing and
   // deleting their events, as them. Everything else stays your own. They're told what changed.
