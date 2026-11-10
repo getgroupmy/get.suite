@@ -170,7 +170,7 @@ export default function Tasks() {
         <button type="button" className="task-main" onClick={() => (selecting ? pick(t.id) : virtual ? navigate(`/tasks/${t.list_id}?task=${t.id}`) : show(t.id === openId ? null : t.id))}>
           <span className="task-title">{t.title}</span>
           <span className="task-meta">
-            {virtual && <span className="muted small">{t.list_name}</span>}
+            {virtual && <span className="muted small task-list-name">{t.list_color && <span className="list-dot" style={{ background: t.list_color }} aria-hidden="true" />}{t.list_emoji ? `${t.list_emoji} ` : ''}{t.list_name}</span>}
             {t.link_url && <span className="muted small task-link" title={t.link_label || 'Linked'}>{t.link_url.startsWith('/chat') ? '💬' : t.link_url.startsWith('/docs') ? '📄' : '✉'}</span>}
             {t.notes && <span className="muted small ellipsis task-notes">{t.notes.split('\n')[0]}</span>}
             {due && <span className={`pill due ${due.tone}`}>{due.text}</span>}
@@ -216,7 +216,7 @@ export default function Tasks() {
         <div className="subnav-title row">Lists<div className="grow" /><button type="button" className="icon-btn" aria-label="New list" onClick={() => setDialog('new')}><Icon name="plus" size={18} /></button></div>
         {lists.map((l) => (
           <button key={l.id} type="button" className={`subnav-item ${l.id === listId ? 'active' : ''}`} onClick={() => navigate(`/tasks/${l.id}`)}>
-            <Icon name={l.mine && !l.members.length ? 'check' : 'people'} /><span className="grow ellipsis">{l.name}</span>{l.open > 0 && <span className="count">{l.open}</span>}
+            {l.emoji ? <span className="list-emoji" aria-hidden="true">{l.emoji}</span> : <Icon name={l.mine && !l.members.length ? 'check' : 'people'} style={l.color ? { color: l.color } : undefined} />}<span className="grow ellipsis">{l.name}</span>{l.color && <span className="list-dot" style={{ background: l.color }} aria-hidden="true" />}{l.open > 0 && <span className="count">{l.open}</span>}
           </button>
         ))}
         {(tagList.length > 0 || tagView) && <div className="subnav-title">Tags</div>}
@@ -248,7 +248,7 @@ export default function Tasks() {
       )}
       <section className="tasks-main" hidden={!!found}>
         <div className="page-head">
-          <h1 className="grow ellipsis">{heading}</h1>
+          <h1 className="grow ellipsis">{list?.emoji && !virtual ? `${list.emoji} ` : ''}{heading}</h1>
           {list && !list.mine && <span className="muted small">Shared by {list.owner_name}</span>}
           {list?.mine && <button type="button" className="btn" onClick={() => setDialog('share')}><Icon name="share" size={18} /> {list.members.length ? `Shared with ${list.members.length}` : 'Share'}</button>}
           {list && (
@@ -277,7 +277,7 @@ export default function Tasks() {
           }} />
           {list && (
             <Menu trigger={(p) => <button type="button" className="icon-btn" aria-label="List actions" {...p}><Icon name="more" /></button>} items={[
-              ...(list.mine ? [{ label: 'Rename list', icon: 'edit', onClick: () => setDialog('rename') }] : []),
+              ...(list.mine ? [{ label: 'Rename list', icon: 'edit', onClick: () => setDialog('rename') }, { label: 'Colour and emoji…', icon: 'star', onClick: () => setDialog('look') }] : []),
               { label: 'Time report…', icon: 'clock', onClick: () => setDialog('time') },
               { label: 'Import from CSV…', icon: 'upload', onClick: () => importInput.current?.click() },
               { label: 'Download as CSV', icon: 'download', onClick: () => { window.location.href = `/api/tasks/lists/${list.id}/export.csv`; } },
@@ -395,6 +395,7 @@ export default function Tasks() {
       {dialog === 'rename' && list && <PromptModal title="Rename list" label="List name" initial={list.name} confirm="Rename" onClose={() => setDialog(null)}
         onSubmit={async (name) => { await patch(`/tasks/lists/${list.id}`, { name }); loadLists(); }} />}
       {dialog === 'time' && list && <TimeReport list={list} onClose={() => setDialog(null)} />}
+      {dialog === 'look' && list && <ListLook list={list} onClose={() => setDialog(null)} onSaved={() => { setDialog(null); loadLists(); }} />}
       {dialog === 'copy' && list && <CopyList list={list} onClose={() => setDialog(null)} onDone={async (r) => { setDialog(null); await loadLists(); navigate(`/tasks/${r.id}`); }} />}
       {dialog === 'share' && list && <ShareList list={list} me={user} onClose={() => setDialog(null)} onSaved={() => { setDialog(null); loadLists(); }} />}
       {dialog === 'delete' && list && (
@@ -675,6 +676,33 @@ function TimeReport({ list, onClose }) {
             <tfoot><tr><th scope="row" colSpan={2}>Total</th><td className="num"><strong>{formatMinutes(rep.total)}</strong></td></tr></tfoot>
           </table>
         ) : <p className="muted">No time recorded on this list in those dates.</p>)}
+      </div>
+    </Modal>
+  );
+}
+
+const LIST_COLORS = [['#d93025', 'Red'], ['#e8710a', 'Orange'], ['#f9ab00', 'Yellow'], ['#188038', 'Green'], ['#12b5cb', 'Teal'], ['#1a73e8', 'Blue'], ['#9334e6', 'Purple'], ['#e52592', 'Pink'], ['#5f6368', 'Grey']];
+const LIST_EMOJI = ['🚀', '🏠', '💼', '🛒', '📚', '🎯', '💡', '🧾', '✈️', '🎉', '🏃', '❤️'];
+/** A list's colour and emoji (everyone on the list sees them). */
+function ListLook({ list, onClose, onSaved }) {
+  const toast = useToast();
+  const [color, setColor] = useState(list.color || '');
+  const [emoji, setEmoji] = useState(list.emoji || '');
+  const save = async () => { try { await patch(`/tasks/lists/${list.id}`, { color: color || null, emoji }); toast('Saved'); onSaved(); } catch (e) { toast(e.message, 'error'); } };
+  return (
+    <Modal title={`Colour and emoji for “${list.name}”`} onClose={onClose} footer={<><button type="button" className="btn" onClick={onClose}>Cancel</button><button type="button" className="btn primary" onClick={save}>Save</button></>}>
+      <div className="stack">
+        <span className="small">Colour</span>
+        <div className="row wrap" role="radiogroup" aria-label="Colour" style={{ gap: 6 }}>
+          <button type="button" role="radio" aria-checked={!color} className={`swatch none ${!color ? 'on' : ''}`} aria-label="No colour" onClick={() => setColor('')}>∅</button>
+          {LIST_COLORS.map(([c, n]) => <button key={c} type="button" role="radio" aria-checked={color === c} aria-label={n} title={n} className={`swatch ${color === c ? 'on' : ''}`} style={{ background: c }} onClick={() => setColor(c)} />)}
+        </div>
+        <span className="small">Emoji</span>
+        <div className="row wrap" role="radiogroup" aria-label="Emoji" style={{ gap: 4 }}>
+          <button type="button" role="radio" aria-checked={!emoji} className={`emoji-pick ${!emoji ? 'on' : ''}`} aria-label="No emoji" onClick={() => setEmoji('')}>∅</button>
+          {LIST_EMOJI.map((e) => <button key={e} type="button" role="radio" aria-checked={emoji === e} aria-label={`Emoji ${e}`} className={`emoji-pick ${emoji === e ? 'on' : ''}`} onClick={() => setEmoji(e)}>{e}</button>)}
+          <input aria-label="Another emoji" placeholder="or type one" maxLength={8} value={LIST_EMOJI.includes(emoji) ? '' : emoji} onChange={(e) => setEmoji(e.target.value)} style={{ width: 110 }} />
+        </div>
       </div>
     </Modal>
   );

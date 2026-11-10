@@ -60,6 +60,16 @@ export const SORTS = ['mine', 'due', 'title', 'added', 'important'];
 const PLANNED = `t.done_at IS NULL AND t.due IS NOT NULL AND (l.owner_id = ? OR l.id IN (SELECT list_id FROM task_list_members WHERE user_id = ?))
                  AND (t.assignee_id IS NULL OR t.assignee_id = ?)`;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+// A list's colour and emoji: shown beside its name, and with its tasks in Planned, My Day and the Calendar.
+for (const col of ['color', 'emoji']) if (!q('PRAGMA table_info(task_lists)').all().some((c) => c.name === col)) q(`ALTER TABLE task_lists ADD COLUMN ${col} TEXT`).run();
+export const LIST_COLORS = ['#d93025', '#e8710a', '#f9ab00', '#188038', '#12b5cb', '#1a73e8', '#9334e6', '#e52592', '#5f6368'];
+/** An emoji for a list: a few characters with no letters or digits (or none). */
+export function listEmojiOf(v) {
+  const t = String(v ?? '').trim();
+  if (!t) return null;
+  if (t.length > 8 || /[\p{L}\p{N}\s]/u.test(t)) throw bad('Choose an emoji');
+  return t;
+}
 
 // My Day: tasks you pick to do today, from any of your lists. It's yours alone (others on the list don't
 // see it), and it starts empty each day: a pick is for the day it was made (the person's own date).
@@ -96,7 +106,7 @@ q(`CREATE TABLE IF NOT EXISTS task_comments (
 q('CREATE INDEX IF NOT EXISTS task_comments_task ON task_comments(task_id, created_at)').run();
 const MAX_COMMENTS = 500;
 
-const TASK = `SELECT t.*, u.name AS assignee_name, c.name AS created_by_name, l.name AS list_name,
+const TASK = `SELECT t.*, u.name AS assignee_name, c.name AS created_by_name, l.name AS list_name, l.color AS list_color, l.emoji AS list_emoji,
               (SELECT COUNT(*) FROM task_comments k WHERE k.task_id = t.id) AS comments
               FROM tasks t LEFT JOIN users u ON u.id = t.assignee_id LEFT JOIN users c ON c.id = t.created_by JOIN task_lists l ON l.id = t.list_id`;
 const shape = (t) => ({ ...t, done: !!t.done_at, important: !!t.important, started: !!t.started && !t.done_at, // started: "In progress" on the board
@@ -255,7 +265,7 @@ export default function taskRoutes() {
     const me = req.user.id;
     // Everyone starts with a list of their own.
     if (!q('SELECT 1 FROM task_lists WHERE owner_id = ?').get(me)) q('INSERT INTO task_lists (id, owner_id, name, created_at) VALUES (?, ?, ?, ?)').run(uid(), me, 'My tasks', now());
-    const lists = q(`SELECT l.id, l.name, l.owner_id, l.created_at, u.name AS owner_name,
+    const lists = q(`SELECT l.id, l.name, l.owner_id, l.created_at, l.color, l.emoji, u.name AS owner_name,
                        (SELECT COUNT(*) FROM tasks t WHERE t.list_id = l.id AND t.done_at IS NULL) AS open
                      FROM task_lists l JOIN users u ON u.id = l.owner_id
                      WHERE l.owner_id = ? OR l.id IN (SELECT list_id FROM task_list_members WHERE user_id = ?)
@@ -314,7 +324,10 @@ export default function taskRoutes() {
 
   r.patch('/lists/:id', (req, res) => {
     const list = loadList(req.params.id, req.user, { own: true });
-    q('UPDATE task_lists SET name = ? WHERE id = ?').run(str(req.body.name, { required: true, name: 'List name', max: 100 }), list.id);
+    const b = req.body || {};
+    if (b.name !== undefined) q('UPDATE task_lists SET name = ? WHERE id = ?').run(str(b.name, { required: true, name: 'List name', max: 100 }), list.id);
+    if (b.color !== undefined) { if (b.color && !LIST_COLORS.includes(b.color)) throw bad('Choose one of the colours'); q('UPDATE task_lists SET color = ? WHERE id = ?').run(b.color || null, list.id); }
+    if (b.emoji !== undefined) q('UPDATE task_lists SET emoji = ? WHERE id = ?').run(listEmojiOf(b.emoji), list.id);
     changed(list);
     res.json({ ok: true });
   });

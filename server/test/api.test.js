@@ -9293,3 +9293,28 @@ test('chat: leave a public channel (no unread from it) and join it again; not #g
   const dm = (await a('POST', '/api/chat/dm', { user_id: bid })).body.id;
   assert.equal((await b('POST', `/api/chat/channels/${dm}/leave`)).status, 400);
 });
+
+test('task lists: a colour and an emoji, shown with their tasks elsewhere too', async () => {
+  const { listEmojiOf } = await import('../src/routes/tasks.js');
+  assert.equal(listEmojiOf(' 🚀 '), '🚀');
+  assert.equal(listEmojiOf(''), null);
+  assert.throws(() => listEmojiOf('abc'), /emoji/);
+  const a = client(), b = client();
+  for (const [local, name] of [['lca', 'Lc Ann'], ['lcb', 'Lc Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'lca@acme.com');
+  const bid = (await login(b, 'lcb@acme.com')).id;
+  const list = (await a('POST', '/api/tasks/lists', { name: 'Lc launch' })).body.id;
+  await a('PUT', `/api/tasks/lists/${list}/members`, { user_ids: [bid] });
+  assert.equal((await a('PATCH', `/api/tasks/lists/${list}`, { color: '#1a73e8', emoji: '🚀' })).status, 200);
+  const seen = (await b('GET', '/api/tasks/lists')).body.lists.find((l) => l.id === list);
+  assert.deepEqual([seen.name, seen.color, seen.emoji], ['Lc launch', '#1a73e8', '🚀'], 'the name is kept; members see it');
+  await a('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Lc ship', due: '2026-11-10' });
+  const planned = (await a('GET', '/api/tasks/planned')).body.find((t) => t.title === 'Lc ship');
+  assert.deepEqual([planned.list_color, planned.list_emoji], ['#1a73e8', '🚀']);
+  assert.equal((await a('PATCH', `/api/tasks/lists/${list}`, { color: '#123456' })).status, 400, 'only the colours offered');
+  assert.equal((await a('PATCH', `/api/tasks/lists/${list}`, { emoji: 'x' })).status, 400);
+  assert.equal((await b('PATCH', `/api/tasks/lists/${list}`, { color: '#d93025' })).status, 404, 'the owner changes it');
+  await a('PATCH', `/api/tasks/lists/${list}`, { color: null, emoji: '' });
+  const off = (await a('GET', '/api/tasks/lists')).body.lists.find((l) => l.id === list);
+  assert.deepEqual([off.color, off.emoji], [null, null]);
+});

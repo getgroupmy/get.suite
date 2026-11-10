@@ -65,7 +65,7 @@ function BirthdayChip({ ev }) {
 function TaskChip({ ev, onDone }) {
   const navigate = useNavigate();
   return (
-    <div className="chip allday task-chip" title={`Task on ${ev.task.list_name}${ev.task.assignee_name ? ` · for ${ev.task.assignee_name}` : ''}`}>
+    <div className="chip allday task-chip" style={ev.task.list_color ? { borderLeft: `3px solid ${ev.task.list_color}` } : undefined} title={`Task on ${ev.task.list_emoji ? `${ev.task.list_emoji} ` : ''}${ev.task.list_name}${ev.task.assignee_name ? ` · for ${ev.task.assignee_name}` : ''}`}>
       <button type="button" className="task-tick" aria-label={`Mark done: ${ev.title}`} onClick={(e) => { e.stopPropagation(); onDone(ev.task); }}>☐</button>
       <button type="button" className="task-open" onClick={(e) => { e.stopPropagation(); navigate(`/tasks/${ev.task.list_id}?task=${ev.task.id}`); }}>{ev.task.due_time ? `${ev.task.due_time} ` : ''}{ev.title}</button>
     </div>

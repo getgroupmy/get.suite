@@ -2746,3 +2746,12 @@ input.fv-name { background: #202124; color: #fff; border: 1px solid #5f6368; bor
 .word-counter .goal-bar { display: block; height: 3px; margin-top: 3px; background: var(--border); border-radius: 2px; overflow: hidden; }
 .word-counter .goal-bar > span { display: block; height: 100%; background: var(--accent); }
 .word-counter.goal-done .goal-bar > span { background: #188038; }
+
+.list-emoji { width: 24px; text-align: center; font-size: 16px; }
+.list-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; flex: none; }
+.task-list-name { display: inline-flex; align-items: center; }
+.swatch { width: 26px; height: 26px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; padding: 0; }
+.swatch.on { border-color: var(--text); box-shadow: 0 0 0 2px var(--surface) inset; }
+.swatch.none { background: var(--surface-2); color: var(--muted); }
+.emoji-pick { width: 34px; height: 34px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); cursor: pointer; font-size: 18px; }
+.emoji-pick.on { border-color: var(--accent); background: var(--accent-soft); }
