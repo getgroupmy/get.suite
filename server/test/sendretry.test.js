@@ -12,6 +12,8 @@ test('sending right after the mail setup changed: refused while the mail server 
   assert.equal(send.calls(), 3);
   const auth = failing(1, () => Object.assign(new Error('Invalid login'), { code: 'EAUTH', responseCode: 535 }));
   assert.equal(await sendWithRetry(auth, { waits, changedAt: () => Date.now() }), 'sent', 'a brand-new account signing in too');
+  const unknown = failing(1, () => Object.assign(new Error('Can\'t send mail - all recipients were rejected: 550 5.1.1 <kim@acme.test>: Recipient address rejected: User unknown in virtual mailbox table'), { responseCode: 550 }));
+  assert.equal(await sendWithRetry(unknown, { waits, changedAt: () => Date.now() }), 'sent', 'to someone just added');
 });
 
 test('not retried: long after a change, other refusals, or once the waits run out', async () => {

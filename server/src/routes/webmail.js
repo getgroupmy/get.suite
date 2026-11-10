@@ -17,7 +17,7 @@ import { checkMessage, describeHits } from '../dlp.js';
 import { parseMaillog, readMaillog, deliveryOf } from '../mail/maillog.js';
 import { roleFor, mayTakeAway } from '../access.js';
 import { mailEnabled, scheduleMailConfig, MAIL_HOSTNAME } from '../mail/config.js';
-import { withClient, withFolder, smtpFor } from '../mail/imap.js';
+import { withClient, withFolder, smtpFor, sendWithRetry } from '../mail/imap.js';
 import { normalizeRules, cleanMessageId } from '../mail/sieve.js';
 import { sharedMailboxesFor, sharedMailboxFor, assignmentsOf, notesOf, noteCounts, membersOf as sharedMembers, delegatedMailboxesFor, delegatedMailboxFor, delegatesOf, MAX_DELEGATES } from '../mail/shared.js';
 import { followedFolders, setFollowed, MAX_FOLLOWED } from '../mail/notify.js';
@@ -1250,7 +1250,7 @@ export default function webmailRoutes() {
       `Confirmation code: ${code}`, '', `To allow it, they type this code in Workspace (Mail → Forwarding). It works for ${CODE_DAYS} days.`,
       'If you don’t know them, or don’t want their email, ignore this message: nothing will be forwarded.'].join('\n');
     try {
-      await smtpFor(req.user).sendMail({ from: { name: req.user.name, address: req.user.username }, to: address, subject: `Confirm forwarding of ${req.user.name}’s email`, text });
+      await sendWithRetry(() => smtpFor(req.user).sendMail({ from: { name: req.user.name, address: req.user.username }, to: address, subject: `Confirm forwarding of ${req.user.name}’s email`, text }));
     } catch (e) {
       console.error('[mail] forwarding code failed:', e.message);
       throw new HttpError(502, 'The confirmation code couldn’t be sent: try again in a moment');

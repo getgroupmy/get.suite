@@ -130,7 +130,8 @@ export function smtpFor(user) {
 // (a password-reset email for someone just added, a message from a new alias) is refused as
 // "not owned by user" or with a failed sign-in; it's tried again for a little while.
 export const SETTLE_MS = 20e3;
-const notKnownYet = (e) => (e?.responseCode === 553 && /not owned by user/i.test(String(e.response || e.message || ''))) || e?.code === 'EAUTH';
+const notKnownYet = (e) => (e?.responseCode === 553 && /not owned by user/i.test(String(e.response || e.message || ''))) || e?.code === 'EAUTH'
+  || /User unknown in virtual mailbox table/i.test(String(e?.response || e?.message || '')); // someone just added, as a recipient
 const pause = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** send(), tried again (after waits) while the refusal is one the mail setup catching up would fix. */
