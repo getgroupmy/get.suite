@@ -8934,3 +8934,47 @@ test('docs zoom and spell check: kept per person, only the sizes offered', async
   assert.deepEqual([sp.zoom, sp.sheet_zoom], [150, 75]);
   assert.equal((await a('PUT', '/api/doc-prefs', { sheet_zoom: 33 })).body.sheet_zoom, 100, 'only the sizes offered');
 });
+
+test('tasks My Day: your own picks for today, suggestions due today or overdue, a fresh start each day', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['mda', 'Md Ann'], ['mdb', 'Md Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'mda@acme.com');
+  const bid = (await login(b, 'mdb@acme.com')).id;
+  const list = (await a('POST', '/api/tasks/lists', { name: 'Md work' })).body.id;
+  await a('PUT', `/api/tasks/lists/${list}/members`, { user_ids: [bid] });
+  const add = async (title, extra = {}) => (await a('POST', `/api/tasks/lists/${list}/tasks`, { title, ...extra })).body;
+  const t1 = await add('Write report');
+  const t2 = await add('Pay invoice', { due: '2026-11-09' });
+  const t3 = await add('Book flights', { due: '2026-11-10' });
+  await add('Plan offsite', { due: '2026-12-01' });
+  const today = '2026-11-10';
+  const titles = async (who, d = today) => (await who('GET', `/api/tasks/myday?today=${d}`)).body.map((t) => `${t.title}${t.done ? ' ✓' : ''}`);
+  assert.deepEqual(await titles(a), []);
+  assert.deepEqual((await a('GET', `/api/tasks/myday/suggestions?today=${today}`)).body.map((t) => t.title), ['Pay invoice', 'Book flights'], 'overdue, then due today');
+  await a('POST', `/api/tasks/tasks/${t1.id}/myday`, { today });
+  await a('POST', `/api/tasks/tasks/${t2.id}/myday`, { today });
+  assert.deepEqual(await titles(a), ['Write report', 'Pay invoice'], 'in the order added');
+  assert.deepEqual((await a('GET', `/api/tasks/myday/suggestions?today=${today}`)).body.map((t) => t.title), ['Book flights'], 'picked ones aren’t suggested');
+  assert.equal((await a('GET', `/api/tasks/myday?today=${today}`)).body[0].list_name, 'Md work');
+  // Done ones stay, at the end, ticked.
+  await a('PATCH', `/api/tasks/tasks/${t1.id}`, { done: true });
+  assert.deepEqual(await titles(a), ['Pay invoice', 'Write report ✓']);
+  // Yours alone: Ben (on the list) has his own.
+  assert.deepEqual(await titles(b), []);
+  await b('POST', `/api/tasks/tasks/${t3.id}/myday`, { today });
+  assert.deepEqual(await titles(b), ['Book flights']);
+  assert.deepEqual(await titles(a), ['Pay invoice', 'Write report ✓']);
+  // Taken off.
+  await a('POST', `/api/tasks/tasks/${t2.id}/myday`, { today, on: false });
+  assert.deepEqual(await titles(a), ['Write report ✓']);
+  // Next day: empty again (and yesterday's picks are gone).
+  assert.deepEqual(await titles(a, '2026-11-11'), []);
+  assert.deepEqual(await titles(a), []);
+  // Only tasks you can see; leaving the list takes them out.
+  const c = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'mdc', domain: 'acme.com', name: 'Md Cat', password: 'password123' })).status, 201);
+  await login(c, 'mdc@acme.com');
+  assert.equal((await c('POST', `/api/tasks/tasks/${t3.id}/myday`, { today })).status, 404);
+  await a('PUT', `/api/tasks/lists/${list}/members`, { user_ids: [] });
+  assert.deepEqual(await titles(b), [], 'not on the list any more');
+});

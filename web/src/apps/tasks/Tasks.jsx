@@ -21,7 +21,8 @@ const waitingOn = (t, all) => (t.blocked_by?.length && !t.done ? (all || []).fil
 const ASSIGNED = 'assigned';
 const IMPORTANT = 'important'; // tasks marked ★ on any of your lists
 const PLANNED = 'planned'; // open tasks with a due date, from every list, grouped by when
-const VIRTUAL = { [ASSIGNED]: '/tasks/assigned', [IMPORTANT]: '/tasks/important', [PLANNED]: '/tasks/planned' };
+const MYDAY = 'myday'; // tasks you picked for today, from any list (yours alone; empty again each day)
+const VIRTUAL = { [ASSIGNED]: '/tasks/assigned', [IMPORTANT]: '/tasks/important', [PLANNED]: '/tasks/planned', [MYDAY]: '/tasks/myday' };
 
 export default function Tasks() {
   const { listId } = useParams();
@@ -76,10 +77,19 @@ export default function Tasks() {
   const addBox = useRef();
   const importInput = useRef();
 
+  // My Day: what's in it (for the count, and the ☀ in a task's details), and suggestions while it's shown.
+  const [myDay, setMyDay] = useState([]);
+  const [suggested, setSuggested] = useState([]);
+  const loadMyDay = useCallback(() => get(`/tasks/myday?today=${localToday()}`).then(setMyDay).catch(() => {}), []);
+  const toMyDay = async (t, on = true) => {
+    try { await post(`/tasks/tasks/${t.id}/myday`, { today: localToday(), on }); loadMyDay(); if (listId === MYDAY) loadTasks(); toast(on ? `“${t.title}” added to My Day` : 'Taken off My Day'); }
+    catch (e) { toast(e.message, 'error'); }
+  };
   const loadLists = useCallback(() => {
+    loadMyDay();
     get('/tasks/tags').then((r) => setTagList(r.tags)).catch(() => {});
     return get(`/tasks/lists?today=${localToday()}`).then((r) => { setLists(r.lists); setAssignedCount(r.assigned); setImportantCount(r.important || 0); setPlannedCount(r.planned || 0); }).catch((e) => toast(e.message, 'error'));
-  }, [toast]);
+  }, [toast, loadMyDay]);
   // Time spent per task on this list: { taskId: { minutes, running: [{ name }] } }.
   const [times, setTimes] = useState({});
   const loadTasks = useCallback(() => {
@@ -87,7 +97,8 @@ export default function Tasks() {
     if (!VIRTUAL[listId] && !listId.startsWith('tag:')) get(`/tasks/lists/${listId}/time`).then(setTimes).catch(() => setTimes({}));
     else setTimes({});
     if (listId.startsWith('tag:')) return get(`/tasks/tags?tag=${encodeURIComponent(listId.slice(4))}`).then((r) => setTasks(r.tasks)).catch((e) => toast(e.message, 'error'));
-    return get(VIRTUAL[listId] || `/tasks/lists/${listId}/tasks`).then(setTasks).catch((e) => { toast(e.message, 'error'); navigate('/tasks', { replace: true }); });
+    if (listId === MYDAY) get(`/tasks/myday/suggestions?today=${localToday()}`).then(setSuggested).catch(() => setSuggested([]));
+    return get(listId === MYDAY ? `/tasks/myday?today=${localToday()}` : VIRTUAL[listId] || `/tasks/lists/${listId}/tasks`).then(setTasks).catch((e) => { toast(e.message, 'error'); navigate('/tasks', { replace: true }); });
   }, [listId, toast, navigate]);
   useEffect(() => { loadLists(); }, [loadLists]);
   useEffect(() => { setTasks(null); loadTasks(); }, [loadTasks]);
@@ -182,7 +193,7 @@ export default function Tasks() {
   };
 
   if (lists === null) return null;
-  const heading = tagView ? `#${tagView}` : listId === ASSIGNED ? 'Assigned to me' : listId === IMPORTANT ? 'Important' : listId === PLANNED ? 'Planned' : list?.name;
+  const heading = tagView ? `#${tagView}` : listId === MYDAY ? 'My Day' : listId === ASSIGNED ? 'Assigned to me' : listId === IMPORTANT ? 'Important' : listId === PLANNED ? 'Planned' : list?.name;
   return (
     <div className="tasks-app">
       <aside className="subnav">
@@ -190,6 +201,9 @@ export default function Tasks() {
           <Icon name="search" size={18} />
           <input name="q" type="search" placeholder="Search tasks" aria-label="Search tasks" onChange={(e) => { if (!e.target.value) setFound(null); }} />
         </form>
+        <button type="button" className={`subnav-item ${listId === MYDAY ? 'active' : ''}`} onClick={() => navigate(`/tasks/${MYDAY}`)} title="Tasks you picked for today, from all your lists">
+          <span className="nav-sun" aria-hidden="true">☀</span><span className="grow">My Day</span>{myDay.filter((t) => !t.done).length > 0 && <span className="count">{myDay.filter((t) => !t.done).length}</span>}
+        </button>
         <button type="button" className={`subnav-item ${listId === ASSIGNED ? 'active' : ''}`} onClick={() => navigate(`/tasks/${ASSIGNED}`)}>
           <Icon name="person" /><span className="grow">Assigned to me</span>{assignedCount > 0 && <span className="count">{assignedCount}</span>}
         </button>
@@ -326,7 +340,7 @@ export default function Tasks() {
               update(t, t.done ? { done: false, started } : { started });
             }} />
         ) : open.length === 0 && done.length === 0 ? (
-          <Empty icon="check" title={tagView ? `Nothing open tagged #${tagView}` : listId === ASSIGNED ? 'Nothing assigned to you' : listId === IMPORTANT ? 'Nothing important' : listId === PLANNED ? 'Nothing planned' : 'No tasks yet'}>{listId === ASSIGNED ? 'Tasks people give you on shared lists show up here.' : listId === IMPORTANT ? 'Mark a task with ☆ and it shows up here, from every list.' : listId === PLANNED ? 'Tasks with a due date show up here, from every list, by when they’re due.' : 'Type a task above and press Enter.'}</Empty>
+          <Empty icon="check" title={tagView ? `Nothing open tagged #${tagView}` : listId === MYDAY ? 'Nothing picked for today yet' : listId === ASSIGNED ? 'Nothing assigned to you' : listId === IMPORTANT ? 'Nothing important' : listId === PLANNED ? 'Nothing planned' : 'No tasks yet'}>{listId === MYDAY ? 'Add tasks from any list with ☀ in their details, or pick from the suggestions below. My Day starts empty each morning.' : listId === ASSIGNED ? 'Tasks people give you on shared lists show up here.' : listId === IMPORTANT ? 'Mark a task with ☆ and it shows up here, from every list.' : listId === PLANNED ? 'Tasks with a due date show up here, from every list, by when they’re due.' : 'Type a task above and press Enter.'}</Empty>
         ) : listId === PLANNED ? (
           <div className="planned">
             {groupPlanned((tasks || []).filter((t) => !t.done), localToday()).map((g) => (
@@ -352,8 +366,27 @@ export default function Tasks() {
             )}
           </>
         )}
+        {listId === MYDAY && suggested.length > 0 && (
+          <section className="myday-suggest" aria-label="Suggestions for My Day">
+            <h3 className="planned-heading">Suggestions <span className="muted small">due today or overdue</span></h3>
+            <ul className="task-list">
+              {suggested.map((t) => {
+                const due = t.due ? dueLabel(t.due, new Date(), t.due_time) : null;
+                return (
+                  <li key={t.id} className="task">
+                    <button type="button" className="icon-btn" aria-label={`Add to My Day: ${t.title}`} title="Add to My Day" onClick={() => toMyDay(t)}><Icon name="plus" size={18} /></button>
+                    <button type="button" className="task-main" onClick={() => navigate(`/tasks/${t.list_id}?task=${t.id}`)}>
+                      <span className="task-title">{t.title}</span>
+                      <span className="task-meta"><span className="muted small">{t.list_name}</span>{due && <span className={`pill due ${due.tone}`}>{due.text}</span>}</span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        )}
       </section>
-      {current && list && <TaskDetails key={current.id} task={current} tasks={tasks} lists={lists} people={people} onChange={(c) => update(current, c)} onClose={() => show(null)}
+      {current && list && <TaskDetails key={current.id} task={current} inMyDay={myDay.some((x) => x.id === current.id)} onMyDay={(on) => toMyDay(current, on)} tasks={tasks} lists={lists} people={people} onChange={(c) => update(current, c)} onClose={() => show(null)}
         onReplaced={(next) => setTasks((all) => all && all.map((x) => (x.id === next.id ? next : x)))}
         onDelete={async () => { show(null); try { await del(`/tasks/tasks/${current.id}`); toast('Task deleted'); loadTasks(); } catch (e) { toast(e.message, 'error'); } }}
         onMove={async (to) => { show(null); if (await update(current, { list_id: to })) toast(`Moved to ${lists.find((l) => l.id === to)?.name}`); }} />}
@@ -595,7 +628,7 @@ function TimeReport({ list, onClose }) {
   );
 }
 
-function TaskDetails({ task, tasks, lists, people, onChange, onClose, onDelete, onMove, onReplaced }) {
+function TaskDetails({ task, tasks, lists, people, onChange, onClose, onDelete, onMove, onReplaced, inMyDay, onMyDay }) {
   const [title, setTitle] = useState(task.title);
   const [notes, setNotes] = useState(task.notes || '');
   useEffect(() => { setTitle(task.title); }, [task.title]);
@@ -614,6 +647,7 @@ function TaskDetails({ task, tasks, lists, people, onChange, onClose, onDelete, 
   return (
     <aside className="task-details" aria-label="Task details">
       <div className="row"><strong className="grow">Details</strong>
+        <button type="button" className={`icon-btn myday-btn ${inMyDay ? 'on' : ''}`} aria-pressed={!!inMyDay} aria-label={inMyDay ? 'Remove from My Day' : 'Add to My Day'} title={inMyDay ? 'In My Day (click to take it off)' : 'Add to My Day: your list for today'} onClick={() => onMyDay(!inMyDay)}>☀</button>
         <button type="button" className="icon-btn" aria-label="Copy link to task" title="Copy link to task (paste it in Chat, an email or a document)" onClick={copyLink}><Icon name="link" /></button>
         <button type="button" className="icon-btn" aria-label="Close details" onClick={onClose}><Icon name="close" /></button></div>
       <label className="field"><span>Task</span>

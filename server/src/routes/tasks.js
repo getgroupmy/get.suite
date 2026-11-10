@@ -60,6 +60,18 @@ const PLANNED = `t.done_at IS NULL AND t.due IS NOT NULL AND (l.owner_id = ? OR 
                  AND (t.assignee_id IS NULL OR t.assignee_id = ?)`;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
+// My Day: tasks you pick to do today, from any of your lists. It's yours alone (others on the list don't
+// see it), and it starts empty each day: a pick is for the day it was made (the person's own date).
+q(`CREATE TABLE IF NOT EXISTS task_myday (
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  day TEXT NOT NULL,
+  added_at INTEGER NOT NULL,
+  PRIMARY KEY (user_id, task_id)
+)`).run();
+const ON_MY_LISTS = '(l.owner_id = ? OR l.id IN (SELECT list_id FROM task_list_members WHERE user_id = ?))';
+export const MAX_MYDAY = 100;
+
 /** Everyone on a list: its owner and the people it's shared with. */
 const peopleOn = (list) => [list.owner_id, ...q('SELECT user_id FROM task_list_members WHERE list_id = ?').all(list.id).map((r) => r.user_id)];
 const changed = (list) => sendTo(new Set(peopleOn(list)), { type: 'tasks-changed', list_id: list.id });
@@ -469,6 +481,33 @@ export default function taskRoutes() {
   r.get('/planned', (req, res) => {
     const me = req.user.id;
     res.json(q(`${TASK} WHERE ${PLANNED} ORDER BY t.due, t.due_time IS NULL, t.due_time, t.position LIMIT 1000`).all(me, me, me).map(shape));
+  });
+
+  // My Day for the given day (?today=YYYY-MM-DD, the person's own date): what was picked, in the order it
+  // was added (done ones too, so they can be seen ticked off). Earlier days' picks are cleared.
+  r.get('/myday', (req, res) => {
+    const me = req.user.id, day = todayOf(req.query.today);
+    q('DELETE FROM task_myday WHERE user_id = ? AND day != ?').run(me, day);
+    res.json(q(`${TASK} JOIN task_myday m ON m.task_id = t.id AND m.user_id = ? AND m.day = ? WHERE ${ON_MY_LISTS}
+                ORDER BY t.done_at IS NOT NULL, m.added_at`).all(me, day, me, me).map((t) => ({ ...shape(t), my_day: true })));
+  });
+  // Suggestions for My Day: open tasks for you that are due today or overdue, and not picked yet.
+  r.get('/myday/suggestions', (req, res) => {
+    const me = req.user.id, day = todayOf(req.query.today);
+    res.json(q(`${TASK} WHERE ${PLANNED} AND t.due <= ? AND t.id NOT IN (SELECT task_id FROM task_myday WHERE user_id = ? AND day = ?)
+                ORDER BY t.due, t.due_time IS NULL, t.due_time, t.position LIMIT 20`).all(me, me, me, day, me, day).map(shape));
+  });
+  // Add a task to My Day ({ on: false } takes it off), for today.
+  r.post('/tasks/:id/myday', (req, res) => {
+    const { task } = taskFor(req);
+    const me = req.user.id, day = todayOf(req.body?.today);
+    if (req.body?.on === false) q('DELETE FROM task_myday WHERE user_id = ? AND task_id = ?').run(me, task.id);
+    else {
+      if (q('SELECT COUNT(*) AS n FROM task_myday WHERE user_id = ? AND day = ?').get(me, day).n >= MAX_MYDAY) throw bad(`At most ${MAX_MYDAY} tasks in My Day`);
+      q('INSERT INTO task_myday (user_id, task_id, day, added_at) VALUES (?, ?, ?, ?) ON CONFLICT(user_id, task_id) DO UPDATE SET day = excluded.day, added_at = excluded.added_at').run(me, task.id, day, now());
+    }
+    sendTo([me], { type: 'tasks-changed', list_id: task.list_id });
+    res.json({ on: req.body?.on !== false });
   });
 
   // Open tasks marked important on any of your lists: overdue and soonest first, those without a date last.

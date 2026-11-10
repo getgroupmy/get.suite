@@ -2705,3 +2705,8 @@ input.fv-name { background: #202124; color: #fff; border: 1px solid #5f6368; bor
 .sheet-zoom { margin-left: auto; order: 99; }
 .sheet-zoom select { font-size: 12px; padding: 2px 6px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); }
 @media print { .grid-zoom { zoom: 1 !important; } .sheet-zoom { display: none; } }
+
+.nav-sun { width: 24px; text-align: center; color: #f9ab00; }
+.myday-btn { font-size: 18px; filter: grayscale(1); opacity: .6; }
+.myday-btn.on { filter: none; opacity: 1; }
+.myday-suggest { margin-top: 20px; }
