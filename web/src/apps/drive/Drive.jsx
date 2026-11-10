@@ -3,7 +3,7 @@ import { NavLink, useLocation, useNavigate, useSearchParams } from 'react-router
 import { get, post, patch, del, put, uploadFile, uploadVersion, onLive, formatBytes, formatDate } from '../../api.js';
 import { BUILT_IN } from './templates.js';
 import Icon, { fileIcon } from '../../components/Icon.jsx';
-import { Menu, Modal, PromptModal, ConfirmModal, Empty, useToast, Avatar } from '../../components/ui.jsx';
+import { Menu, Modal, PromptModal, ConfirmModal, Empty, useToast, Avatar, useDataCheck } from '../../components/ui.jsx';
 import { useAuth } from '../../App.jsx';
 import { ApprovalsView, RequestApproval } from './Approvals.jsx';
 import { SignaturesView } from '../docs/Signatures.jsx';
@@ -495,6 +495,7 @@ function NoDownload({ file }) {
 
 export function ShareDialog({ file, onClose }) {
   const toast = useToast();
+  const [dataCheck, checkData] = useDataCheck();
   const { user } = useAuth();
   const [people, setPeople] = useState([]);
   const [shares, setShares] = useState(null);
@@ -542,7 +543,8 @@ export function ShareDialog({ file, onClose }) {
 
   async function save() {
     try {
-      await put(`/files/${file.id}/shares`, { shares: shares.map(({ user_id, role, expires_at }) => ({ user_id, role, expires_at: expires_at || null })) });
+      const done = await checkData((more) => put(`/files/${file.id}/shares`, { shares: shares.map(({ user_id, role, expires_at }) => ({ user_id, role, expires_at: expires_at || null })), ...more }));
+      if (!done) return;
       if (manages && fileGroups) await put(`/files/${file.id}/groups`, { groups: fileGroups.map(({ group_id, role }) => ({ group_id, role })) });
       toast('Sharing updated');
       onClose();
@@ -553,6 +555,7 @@ export function ShareDialog({ file, onClose }) {
 
   return (
     <Modal title={file.is_drive && !file.parent_id ? `Members of “${file.name}”` : `Share “${file.name}”`} onClose={onClose} footer={<><button className="btn" onClick={onClose}>Cancel</button><button className="btn primary" onClick={save} disabled={!shares}>Save</button></>}>
+      {dataCheck}
       {file.is_drive && !file.parent_id && <p className="muted small" style={{ marginTop: 0 }}>Everyone added sees everything in this shared drive. Editors can also add files, rename the drive and manage its members; what people add stays here when they leave the company.</p>}
       <form className="row" onSubmit={add}>
         <input className="grow" list="share-people" type="email" value={address} placeholder="Add people by email address"
@@ -632,6 +635,7 @@ export const linkUrl = (token) => `${window.location.origin}/s/${token}`;
 /** Links for people without an account: create (expiry, password), copy, remove. Changes apply at once. */
 function LinkSharing({ file }) {
   const toast = useToast();
+  const [dataCheck, checkData] = useDataCheck();
   const { user } = useAuth();
   const [links, setLinks] = useState(null);
   const [days, setDays] = useState('7');
@@ -647,7 +651,8 @@ function LinkSharing({ file }) {
   async function create() {
     setBusy(true);
     try {
-      const l = await post('/links', { file_id: file.id, expires_at: days ? Date.now() + Number(days) * 864e5 : null, ...(usePassword && { password }), ...(uploadOnly && { mode: 'upload' }) });
+      const l = await checkData((more) => post('/links', { file_id: file.id, expires_at: days ? Date.now() + Number(days) * 864e5 : null, ...(usePassword && { password }), ...(uploadOnly && { mode: 'upload' }), ...more }));
+      if (!l) { setBusy(false); return; }
       setLinks([...links, l]);
       setPassword(''); setUsePassword(false); setUploadOnly(false);
       await copy(l, l.mode === 'upload' ? 'File request created and copied' : 'Link created and copied');
@@ -666,6 +671,7 @@ function LinkSharing({ file }) {
   const what = file.kind === 'folder' ? 'this folder and everything in it' : 'this file';
   return (
     <section className="link-share" aria-label="Link sharing">
+      {dataCheck}
       <h3>Link sharing</h3>
       <p className="muted small">Anyone with a link can view and download {what}, without an account.{file.kind === 'folder' && ' A file request link instead lets people send files into it, without seeing what’s there.'}</p>
       <ul className="share-list">

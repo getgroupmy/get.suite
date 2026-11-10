@@ -7872,3 +7872,50 @@ test('data protection rules: admins add, try, change and delete them', async () 
   await owner('DELETE', `/api/dlp/rules/${words.id}`);
   assert.deepEqual((await owner('GET', '/api/dlp/rules')).body, []);
 });
+
+test('data protection rules for files: public links, publishing and sharing outside the company', async () => {
+  const { q } = await import('../src/db.js');
+  const eve = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'dlpeve', domain: 'acme.com', name: 'Dlp Eve', password: 'password123' })).status, 201);
+  await login(eve, 'dlpeve@acme.com');
+  const cards = (await owner('POST', '/api/dlp/rules', { name: 'Card numbers', detector: 'card', action: 'block' })).body;
+  const falcon = (await owner('POST', '/api/dlp/rules', { name: 'Falcon', detector: 'words', words: 'Project Falcon', action: 'warn' })).body;
+  try {
+    // An uploaded text file with a card number: no public link.
+    const up = (await eve('POST', '/api/files/upload?name=payments.txt', 'Customer card 4111 1111 1111 1111', { raw: true, headers: { 'content-type': 'text/plain' } })).body;
+    const link = await eve('POST', '/api/links', { file_id: up.id });
+    assert.equal(link.status, 400, JSON.stringify(link.body));
+    assert.match(link.body.error, /can’t be shared by link: it contains a credit card number/);
+    // Inside a folder too.
+    const folder = (await eve('POST', '/api/files/folder', { name: 'Billing' })).body;
+    await eve('PATCH', `/api/files/${up.id}`, { parent_id: folder.id });
+    const folderLink = await eve('POST', '/api/links', { file_id: folder.id });
+    assert.equal(folderLink.status, 400);
+    assert.match(folderLink.body.error, /in “payments.txt”/);
+    assert.equal((await eve('POST', '/api/links', { file_id: folder.id, mode: 'upload' })).status, 200, 'a file request shows nothing');
+    // A plain file is fine.
+    const plain = (await eve('POST', '/api/files/upload?name=menu.txt', 'Lunch menu', { raw: true, headers: { 'content-type': 'text/plain' } })).body;
+    assert.equal((await eve('POST', '/api/links', { file_id: plain.id })).status, 200);
+    // Publishing a doc that names Project Falcon: asked first, then published (and logged).
+    const doc = (await eve('POST', '/api/files/new', { kind: 'doc', name: 'Roadmap' })).body;
+    const cur = (await eve('GET', `/api/files/${doc.id}/content`)).body;
+    await eve('PUT', `/api/files/${doc.id}/content`, { version: cur.file.version, content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Project Falcon ships in May' }] }] } });
+    const ask = await eve('PUT', `/api/publish/${doc.id}`, { on: true });
+    assert.equal(ask.status, 409);
+    assert.equal(ask.body.dlp.warn[0].rule.name, 'Falcon');
+    assert.equal((await eve('GET', `/api/publish/${doc.id}`)).body.published, false);
+    const ok = await eve('PUT', `/api/publish/${doc.id}`, { on: true, dlpConfirmed: true });
+    assert.equal(ok.status, 200);
+    assert.equal(ok.body.published, true);
+    assert.ok(q("SELECT 1 FROM audit_log WHERE action = 'dlp.sent_anyway' AND target = 'Roadmap'").get());
+    // Sharing with a colleague is fine; with someone at another company it's asked about.
+    const colleague = q("SELECT id FROM users WHERE username = 'owner@acme.com'").get().id;
+    assert.equal((await eve('PUT', `/api/files/${doc.id}/shares`, { shares: [{ user_id: colleague, role: 'viewer' }] })).status, 200);
+    const out = await eve('PUT', `/api/files/${doc.id}/shares`, { shares: [{ user_id: colleague, role: 'viewer' }, { user_id: ginaId, role: 'viewer' }] });
+    assert.equal(out.status, 409);
+    assert.match(out.body.error, /words your company protects/);
+  } finally {
+    await owner('DELETE', `/api/dlp/rules/${cards.id}`);
+    await owner('DELETE', `/api/dlp/rules/${falcon.id}`);
+  }
+});

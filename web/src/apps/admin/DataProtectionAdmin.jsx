@@ -19,7 +19,7 @@ export default function DataProtectionAdmin() {
     <div className="stack" style={{ maxWidth: 900 }}>
       <div className="card stack">
         <div className="row"><h2 className="grow" style={{ margin: 0 }}>Data protection</h2><button type="button" className="btn primary" onClick={() => setEditing(EMPTY)}>Add rule</button></div>
-        <p className="muted small" style={{ margin: 0 }}>Rules look through email sent from Workspace (the subject and the message, mail merges too) before it goes. A rule that <strong>blocks</strong> stops the message and tells the sender why; one that <strong>warns</strong> asks the sender to confirm. Both are recorded in Activity. Card numbers and IBANs must have valid check digits, so order numbers and phone numbers don’t count. Mail sent from phone and computer mail apps isn’t checked.</p>
+        <p className="muted small" style={{ margin: 0 }}>Rules look through email sent from Workspace (the subject and the message, mail merges too) before it goes, and through files before they leave the company from Drive: a link for anyone, publishing to the web, or sharing with someone at another company (a folder: the files in it). Files are always checked as going outside. A rule that <strong>blocks</strong> stops the message and tells the sender why; one that <strong>warns</strong> asks the sender to confirm. Both are recorded in Activity. Card numbers and IBANs must have valid check digits, so order numbers and phone numbers don’t count. Mail sent from phone and computer mail apps isn’t checked.</p>
         {rules.length ? (
           <table className="table" aria-label="Data protection rules">
             <thead><tr><th>Rule</th><th>Looks for</th><th>When sent to</th><th>Then</th><th>On</th><th /></tr></thead>

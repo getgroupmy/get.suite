@@ -139,3 +139,54 @@ export function checkMessage(orgId, { subject = '', text = '', html = '', names 
 const WHAT = { card: 'a credit card number', iban: 'a bank account number (IBAN)', words: 'words your company protects', pattern: 'protected information' };
 /** One line for the sender: what the rules found. */
 export const describeHits = (hits) => hits.map((h) => `${WHAT[h.rule.detector]} (${h.rule.name}: ${h.found.join(', ')})`).join('; ');
+
+// ---- files: a public link, publishing to the web, or sharing with someone in another company
+const MAX_FILES = 200;
+/** A file, or the files inside a folder (and its folders), up to 200. */
+export function filesFor(given) {
+  const f = q('SELECT * FROM files WHERE id = ?').get(given.id) || given; // the whole row, whatever the caller had
+  if (f.kind !== 'folder') return [f];
+  const out = [], queue = [f.id];
+  while (queue.length && out.length < MAX_FILES) {
+    for (const c of q('SELECT * FROM files WHERE parent_id = ? AND trashed = 0').all(queue.shift())) {
+      if (c.kind === 'folder') queue.push(c.id); else out.push(c);
+      if (out.length >= MAX_FILES) break;
+    }
+  }
+  return out;
+}
+/** The rules files break when they leave the company: { block: [hits], warn: [hits] }, each hit with its file's name. */
+export async function checkFiles(orgId, files) {
+  const rules = rulesOf(orgId).filter((r) => r.enabled);
+  const res = { block: [], warn: [] };
+  if (!rules.length) return res;
+  const { textOf } = await import('./search.js');
+  for (const f of files) {
+    const text = `${f.name || ''}\n${await textOf(f)}`;
+    for (const r of rules) {
+      const found = findIn(r, text);
+      if (found.length) res[r.action].push({ rule: { id: r.id, name: r.name, detector: r.detector }, found, file: f.name });
+    }
+  }
+  return res;
+}
+/**
+ * For routes: stop a file leaving the company when a rule says so (400 to block; 409 with what was found to
+ * warn, until the request says dlpConfirmed). Logs blocks and confirmed warnings. True when it answered.
+ */
+export async function fileRulesStop(req, res, files, what, audit, asked = null) {
+  const hits = await checkFiles(req.user.org_id, files);
+  const name = asked || (files.length === 1 ? files[0].name : `${files.length} files`);
+  const where = (h) => `${describeHits([h])}${h.file !== name ? ` in “${h.file}”` : ''}`;
+  if (hits.block.length) {
+    audit(req, 'dlp.blocked', { target: name, details: { what, rules: [...new Set(hits.block.map((h) => h.rule.name))] } });
+    res.status(400).json({ error: `This can’t be ${what}: it contains ${hits.block.slice(0, 3).map(where).join('; ')}. Your company doesn’t allow that outside the company.`, dlp: { block: hits.block } });
+    return true;
+  }
+  if (hits.warn.length && req.body?.dlpConfirmed !== true) {
+    res.status(409).json({ error: `It contains ${hits.warn.slice(0, 3).map(where).join('; ')}.`, dlp: { warn: hits.warn } });
+    return true;
+  }
+  if (hits.warn.length) audit(req, 'dlp.sent_anyway', { target: name, details: { what, rules: [...new Set(hits.warn.map((h) => h.rule.name))] } });
+  return false;
+}

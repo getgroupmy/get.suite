@@ -1,4 +1,5 @@
 import { withoutSuggestions } from '../office/suggestions.js';
+import { filesFor, fileRulesStop } from '../dlp.js';
 import crypto from 'node:crypto';
 import { sync as syncShares, setFileGroups, groupsOf } from '../groups.js';
 import { MAX_SHARE_DAYS } from '../shareexpiry.js';
@@ -1442,10 +1443,14 @@ export default function fileRoutes({ maxUploadBytes }) {
   });
 
   // Replace the share list: [{ user_id, role }]
-  r.put('/:id/shares', (req, res) => {
+  r.put('/:id/shares', async (req, res) => {
     const f = loadManaged(req.params.id, req.user);
     const list = Array.isArray(req.body.shares) ? req.body.shares : null;
     if (!list) throw bad('shares must be an array');
+    // Data protection rules, when it newly reaches someone in another company.
+    const already = new Set(q('SELECT user_id FROM shares WHERE file_id = ?').all(f.id).map((x) => x.user_id));
+    const outsiders = list.filter((s) => !already.has(s.user_id) && q('SELECT org_id FROM users WHERE id = ?').get(String(s.user_id || ''))?.org_id !== req.user.org_id);
+    if (outsiders.length && await fileRulesStop(req, res, filesFor(f), 'shared outside the company', audit, f.name)) return;
     const before = audienceFor(f.id);
     const had = new Set(q('SELECT user_id FROM shares WHERE file_id = ? AND direct_role IS NOT NULL').all(f.id).map((x) => x.user_id));
     tx(() => {

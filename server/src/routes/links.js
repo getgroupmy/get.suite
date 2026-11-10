@@ -4,6 +4,7 @@
 // the file is trashed or deleted, the owner is disabled or loses the file, or the company turns
 // links off.
 import { Router } from 'express';
+import { filesFor, fileRulesStop } from '../dlp.js';
 import { audit } from '../audit.js';
 import crypto from 'node:crypto';
 import path from 'node:path';
@@ -58,7 +59,7 @@ export function linkRoutes() {
     res.json(q('SELECT * FROM share_links WHERE file_id = ? ORDER BY created_at').all(f.id).map(describeLink));
   });
 
-  r.post('/', (req, res) => {
+  r.post('/', async (req, res) => {
     const f = ownFile(req.body.file_id, req.user);
     if (!linksAllowed(req.user.org_id)) throw forbidden('Your company has turned off public links');
     if (!LINKABLE.includes(f.kind)) throw bad('Links work for uploaded files and folders');
@@ -71,6 +72,8 @@ export function linkRoutes() {
     }
     const mode = req.body.mode === 'upload' ? 'upload' : 'view';
     if (mode === 'upload' && f.kind !== 'folder') throw bad('File requests are for folders');
+    // Data protection rules: what the link would show anyone (a file request shows nothing).
+    if (mode === 'view' && await fileRulesStop(req, res, filesFor(f), 'shared by link', audit, f.name)) return;
     const password = req.body.password ? String(req.body.password) : '';
     if (password && password.length < 6) throw bad('Use a password of at least 6 characters');
     if (password.length > 200) throw bad('Password is too long');

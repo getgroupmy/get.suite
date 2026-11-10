@@ -191,3 +191,27 @@ export function ToastProvider({ children }) {
     </ToastCtx.Provider>
   );
 }
+
+/**
+ * A company data protection rule that warns (the server answers 409 with what it found): ask, and on
+ * "Share anyway" do it again with dlpConfirmed. run(call) calls call({}) (then call({ dlpConfirmed: true }))
+ * and gives its result, or undefined if they didn't go ahead. Put `modal` in the page.
+ */
+export function useDataCheck() {
+  const [ask, setAsk] = useState(null);
+  const run = async (call) => {
+    try { return await call({}); } catch (e) {
+      if (e.status !== 409 || !e.data?.dlp) throw e;
+      return new Promise((resolve, reject) => setAsk({ text: e.message, go: () => call({ dlpConfirmed: true }).then(resolve, reject), stop: () => resolve(undefined) }));
+    }
+  };
+  const close = (fn) => { const a = ask; setAsk(null); fn(a); };
+  const modal = ask && (
+    <Modal title="Check before sharing" onClose={() => close((a) => a.stop())}
+      footer={<><button type="button" className="btn" onClick={() => close((a) => a.stop())}>Don’t share</button><button type="button" className="btn primary" onClick={() => close((a) => a.go())}>Share anyway</button></>}>
+      <p style={{ margin: 0 }} role="alert">{ask.text}</p>
+      <p className="muted small">Your company asks you to check before this leaves the company. If you share it anyway, that’s recorded.</p>
+    </Modal>
+  );
+  return [modal, run];
+}

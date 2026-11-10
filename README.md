@@ -1046,13 +1046,14 @@ Once ports 465, 587 and 993 are open, bots will start guessing passwords within 
 
 ## Data protection (admins)
 
-**Admin → Data protection** sets rules for what may not leave the company by email, so card numbers, bank details or a confidential project's name aren't sent out by mistake.
+**Admin → Data protection** sets rules for what may not leave the company, by email or from Drive, so card numbers, bank details or a confidential project's name aren't sent or shared out by mistake.
 
 - **What a rule looks for:** **credit card numbers** or **bank account numbers (IBAN)** (only ones with valid check digits, so order numbers, dates and phone numbers don't trip them), **words or phrases** (whole words, any capitals: *Project Falcon, payroll*), or **a pattern of your own** (a regular expression, such as a national ID number's shape; patterns that would be slow to check are refused).
 - **When:** sent to **people outside the company** (the usual choice: colleagues can still email each other) or to **anyone**.
 - **Then:** **Warn** asks the sender to check (*Check before sending*, with what was found, the numbers shown only by their last four characters); they can **Edit message** or **Send anyway**. **Block** stops the message, says why, and leaves it open to change. Blocks and sends after a warning are recorded in **Activity**.
 - It looks at the subject and the message of email sent from Workspace: replies, forwards, scheduled and confidential messages and mail merges (with the values filled in). **Try** in a rule's window checks it on some text first. Rules can be switched off without deleting them.
-- Mail sent from phone and computer mail apps (IMAP/SMTP) and files' contents aren't checked.
+- **Files:** the same rules look through a file before it leaves the company from Drive: making a **link for anyone** (a folder: every file in it, up to 200), **Publish to the web**, or sharing with someone at **another company**. They read Docs, Sheets and Slides, Word, Excel and PowerPoint files and text files (the file's name too). A block says which file and what was found; a warning asks *Check before sharing* (**Don't share** / **Share anyway**, which is recorded). File requests (links that only take files in) aren't checked, as they show nothing.
+- Mail sent from phone and computer mail apps (IMAP/SMTP), pictures and PDFs aren't checked.
 
 ## Legal hold (admins)
 

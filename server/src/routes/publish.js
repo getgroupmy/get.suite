@@ -4,6 +4,7 @@
 // stops when the file goes to the trash or the owner's account is turned off. Speaker notes,
 // comments and suggestions that haven't been accepted aren't shown.
 import { Router } from 'express';
+import { filesFor, fileRulesStop } from '../dlp.js';
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { q, FILES_DIR } from '../db.js';
@@ -50,13 +51,14 @@ export function publishRoutes() {
     res.json({ ok: true });
   });
   r.get('/:fileId', (req, res) => res.json(out(own(req))));
-  r.put('/:fileId', (req, res) => {
+  r.put('/:fileId', async (req, res) => {
     const f = own(req);
     if (f.owner_id !== req.user.id) throw forbidden('Only the owner can publish it');
     if (req.body?.on) {
       const org = q('SELECT allow_links, allow_publish FROM orgs WHERE id = ?').get(f.org_id);
       if (!org?.allow_links) throw forbidden('Your company has turned off sharing with people who have no account');
       if (!org.allow_publish) throw forbidden('Your company has turned off publishing to the web');
+      if (!q('SELECT 1 FROM published_files WHERE file_id = ?').get(f.id) && await fileRulesStop(req, res, filesFor(f), 'published', audit, f.name)) return;
       if (!q('SELECT 1 FROM published_files WHERE file_id = ?').get(f.id)) {
         q('INSERT INTO published_files (file_id, token, created_by, created_at) VALUES (?, ?, ?, ?)').run(f.id, crypto.randomBytes(18).toString('base64url'), req.user.id, now());
         audit(req, 'file.publish', { target: f.name });

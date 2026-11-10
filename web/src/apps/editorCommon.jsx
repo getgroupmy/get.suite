@@ -3,7 +3,7 @@ import { viewOnly } from './drive/Drive.jsx';
 import { useNavigate } from 'react-router';
 import { get, put } from '../api.js';
 import Icon from '../components/Icon.jsx';
-import { Menu, Modal, useToast } from '../components/ui.jsx';
+import { Menu, Modal, useToast, useDataCheck } from '../components/ui.jsx';
 import { ApprovalBanner, RequestApproval } from './drive/Approvals.jsx';
 import { SignatureBanner, SendForSignature } from './docs/Signatures.jsx';
 import { useAuth } from '../App.jsx';
@@ -154,10 +154,12 @@ function PublishDialog({ file, onClose }) {
   const [state, setState] = useState(null);
   useEffect(() => { get(`/publish/${file.id}`).then(setState).catch((e) => toast(e.message, 'error')); }, [file.id, toast]);
   const url = state?.published ? `${window.location.origin}${state.path}` : '';
-  const turn = async (on) => { try { setState(await put(`/publish/${file.id}`, { on })); toast(on ? 'Published' : 'No longer published'); } catch (e) { toast(e.message, 'error'); } };
+  const [dataCheck, checkData] = useDataCheck();
+  const turn = async (on) => { try { const r = await checkData((more) => put(`/publish/${file.id}`, { on, ...more })); if (!r) return; setState(r); toast(on ? 'Published' : 'No longer published'); } catch (e) { toast(e.message, 'error'); } };
   const what = { doc: 'document', sheet: 'spreadsheet', slides: 'presentation' }[file.kind] || 'file';
   return (
     <Modal title="Publish to the web" onClose={onClose} footer={<button type="button" className="btn" onClick={onClose}>Close</button>}>
+      {dataCheck}
       {!state ? <p className="muted">Loading…</p> : state.published ? (
         <div className="stack">
           <p style={{ margin: 0 }}>This {what} is published. Anyone with the address can read it (no account needed), and it always shows the latest version. Comments, speaker notes and suggestions aren't shown.</p>

@@ -22,7 +22,7 @@ export default function Admin() {
   const [tab, setTab] = useState(() => new URLSearchParams(window.location.search).get('tab') || 'users'); // ?tab=activity (from a security alert)
   const [orgId, setOrgId] = useState(user.org_id); // which company the Users tab shows
   const mail = useMailStatus();
-  const tabs = [['users', 'Users'], ...(mail?.enabled ? [['email', 'Email'], ['dlp', 'Data protection']] : []), ['company', 'Company settings'], ['groups', 'Groups'], ['announcements', 'Announcements'], ['activity', 'Activity'], ['reports', 'Reports'], ['storage', 'Storage'], ['drives', 'Shared drives'], ['apps', 'Apps'], ...(user.is_super ? [['companies', 'All companies'], ['security', 'Security'], ['system', 'System']] : [])];
+  const tabs = [['users', 'Users'], ...(mail?.enabled ? [['email', 'Email']] : []), ['dlp', 'Data protection'], ['company', 'Company settings'], ['groups', 'Groups'], ['announcements', 'Announcements'], ['activity', 'Activity'], ['reports', 'Reports'], ['storage', 'Storage'], ['drives', 'Shared drives'], ['apps', 'Apps'], ...(user.is_super ? [['companies', 'All companies'], ['security', 'Security'], ['system', 'System']] : [])];
 
   return (
     <div className="page">
