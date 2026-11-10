@@ -2502,3 +2502,13 @@ img.custom-emoji { width: 1.35em; height: 1.35em; object-fit: contain; vertical-
 .pivot-filter { list-style: none; max-height: 180px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
 .pill.danger { background: color-mix(in srgb, var(--danger) 14%, transparent); color: var(--danger); font-weight: 500; }
 .pdf-order { margin: 0; padding-left: 22px; display: grid; gap: 4px; max-height: 320px; overflow: auto; }
+.pdf-sign { display: grid; gap: 10px; }
+.pdf-sign-tools .btn.on { background: var(--accent-bg, #e8f0fe); border-color: var(--accent, #1a73e8); }
+.pdf-sign-pages { display: grid; gap: 16px; justify-items: center; max-height: 68vh; overflow: auto; padding: 8px; background: var(--bg-alt, #f1f3f4); border-radius: 8px; }
+.pdf-sign-page { position: relative; background: #fff; box-shadow: 0 1px 4px rgba(0, 0, 0, .2); }
+.pdf-sign-page.placing { cursor: crosshair; }
+.pdf-sign-page canvas { display: block; }
+.pdf-sign-item { position: absolute; cursor: move; outline: 1px dashed var(--accent, #1a73e8); touch-action: none; }
+.pdf-sign-item img { width: 100%; height: 100%; display: block; pointer-events: none; user-select: none; }
+.pdf-sign-remove { position: absolute; top: -10px; right: -10px; width: 20px; height: 20px; border-radius: 50%; border: 0; background: var(--danger, #d93025); color: #fff; font-size: 13px; line-height: 20px; padding: 0; cursor: pointer; }
+.pdf-sign-num { position: absolute; bottom: -18px; left: 50%; transform: translateX(-50%); }

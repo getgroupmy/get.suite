@@ -89,7 +89,7 @@ function SignatureRecord({ s, onClose }) {
 }
 
 /** A box to draw a signature in (mouse, pen or finger). `onChange(dataUrl | null)`. */
-function SignaturePad({ onChange }) {
+export function SignaturePad({ onChange }) {
   const ref = useRef();
   const drawing = useRef(false);
   const [empty, setEmpty] = useState(true);

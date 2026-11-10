@@ -1,5 +1,5 @@
 import { withoutSuggestions } from '../office/suggestions.js';
-import { combine, extract, parsePages, pageCount, typeOf } from '../pdftools.js';
+import { combine, extract, parsePages, pageCount, typeOf, stamp } from '../pdftools.js';
 import { filesFor, fileRulesStop } from '../dlp.js';
 import crypto from 'node:crypto';
 import { sync as syncShares, setFileGroups, groupsOf } from '../groups.js';
@@ -722,6 +722,29 @@ export default function fileRoutes({ maxUploadBytes }) {
     const base = f.name.replace(/\.pdf$/i, '');
     const out = savePdf(req, Buffer.from(bytes), String(req.body.name || '').trim() || `${base} (pages ${String(req.body.pages).replace(/\s+/g, '')})`, placeFor(req, f));
     audit(req, 'pdf.extract', { target: out.name, details: { from: f.name, pages: want.pages.length } });
+    res.status(201).json(out);
+  });
+
+  // Fill & sign: { items: [{ page, x, y, w, h, png: 'data:image/png;base64,…' }], name? } → a signed copy.
+  r.post('/:id/pdf/sign', async (req, res) => {
+    const { f, type } = pdfPart(req.params.id, req.user);
+    if (type !== 'pdf') throw bad('That isn’t a PDF');
+    const list = Array.isArray(req.body?.items) ? req.body.items : [];
+    if (!list.length || list.length > 100) throw bad('Place between 1 and 100 things on the pages');
+    const frac = (v) => { const n = Number(v); if (!Number.isFinite(n) || n < -0.01 || n > 1.01) throw bad('Something is placed off the page'); return n; };
+    const items = list.map((it) => {
+      const m = /^data:image\/png;base64,([A-Za-z0-9+/=]+)$/.exec(String(it?.png || ''));
+      if (!m) throw bad('Each thing placed must be a PNG picture');
+      const png = Buffer.from(m[1], 'base64');
+      if (png.length > 3 * 1024 * 1024) throw bad('A signature picture is too big');
+      const w = frac(it.w), h = frac(it.h);
+      if (!(w > 0 && h > 0)) throw bad('Something placed has no size');
+      return { page: Math.trunc(Number(it.page)), x: frac(it.x), y: frac(it.y), w, h, png };
+    });
+    let bytes;
+    try { bytes = await stamp(fs.readFileSync(path.join(FILES_DIR, f.storage)), items); } catch (e) { throw bad(/no page/.test(e.message) ? e.message : `“${f.name}” couldn’t be signed (is it password-protected?)`); }
+    const out = savePdf(req, Buffer.from(bytes), String(req.body.name || '').trim() || `${f.name.replace(/\.pdf$/i, '')} (signed)`, placeFor(req, f));
+    audit(req, 'pdf.sign', { target: out.name, details: { from: f.name, items: items.length } });
     res.status(201).json(out);
   });
 

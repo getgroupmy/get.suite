@@ -70,3 +70,29 @@ export function typeOf(f) {
   if (m === 'image/jpeg' || /\.jpe?g$/.test(n)) return 'jpg';
   return null;
 }
+
+/**
+ * Stamp pictures onto pages (fill & sign): items [{ page (0-based), x, y, w, h (fractions of the page as seen,
+ * from its top left), png (bytes) }]. Pages turned by the PDF itself (/Rotate) are handled too.
+ */
+export async function stamp(bytes, items) {
+  const doc = await PDFDocument.load(bytes);
+  const pages = doc.getPages();
+  for (const it of items) {
+    const page = pages[it.page];
+    if (!page) throw new Error(`There is no page ${it.page + 1}`);
+    const img = await doc.embedPng(it.png);
+    const { width: W, height: H } = page.getSize(); // unrotated
+    const rot = ((page.getRotation().angle % 360) + 360) % 360;
+    const [dw, dh] = rot % 180 ? [H, W] : [W, H]; // the page as it's seen
+    const x = it.x * dw, y = it.y * dh, w = it.w * dw, h = it.h * dh; // seen from the top left
+    // Where the picture's bottom-left corner (as seen) lands in the page's own coordinates, and its turn.
+    let px, py;
+    if (rot === 0) { px = x; py = H - y - h; }
+    else if (rot === 90) { px = y + h; py = x; }
+    else if (rot === 180) { px = W - x; py = y + h; }
+    else { px = W - y - h; py = H - x; }
+    page.drawImage(img, { x: px, y: py, width: w, height: h, rotate: degrees(rot) });
+  }
+  return doc.save();
+}

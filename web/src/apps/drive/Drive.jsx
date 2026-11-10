@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
 import { NavLink, useLocation, useNavigate, useSearchParams } from 'react-router';
 import { get, post, patch, del, put, uploadFile, uploadVersion, onLive, formatBytes, formatDate } from '../../api.js';
+const PdfSignDialog = lazy(() => import('./PdfSign.jsx')); // pdf.js only when it's used
 import { BUILT_IN } from './templates.js';
 import Icon, { fileIcon } from '../../components/Icon.jsx';
 import { Menu, Modal, PromptModal, ConfirmModal, Empty, useToast, Avatar, useDataCheck } from '../../components/ui.jsx';
@@ -270,6 +271,7 @@ export default function Drive() {
       f.role === 'owner' && f.owner_id === user.id && { label: 'Transfer ownership…', icon: 'person', onClick: () => setDialog({ type: 'transfer', file: f }) },
       canEdit && { label: 'Rename', icon: 'edit', onClick: () => setDialog({ type: 'rename', file: f }) },
       canEdit && { label: 'Move to…', icon: 'move', onClick: () => setDialog({ type: 'move', files: [f] }) },
+      pdfPart(f) === 'pdf' && { label: 'Fill & sign…', icon: 'edit', onClick: () => setDialog({ type: 'pdf-sign', files: [f] }) },
       pdfPart(f) === 'pdf' && !viewOnly(f) && { label: 'Extract pages…', icon: 'pdf', onClick: () => setDialog({ type: 'pdf-extract', files: [f] }) },
       f.kind !== 'folder' && !viewOnly(f) && { label: 'Make a copy', icon: 'copy', onClick: act(() => post(`/files/${f.id}/copy`), 'Copy made') },
       { label: 'Add shortcut to Drive…', icon: 'link', onClick: () => setDialog({ type: 'shortcut', files: [f] }) },
@@ -461,6 +463,7 @@ export default function Drive() {
       {dialog?.type === 'approval' && <RequestApproval file={dialog.file} onClose={() => setDialog(null)} />}
       {dialog?.type === 'move' && <MoveDialog files={dialog.files} onClose={() => setDialog(null)} onMoved={() => { setChecked(new Set()); load(); }} />}
       {dialog?.type === 'pdf-combine' && <PdfCombineDialog files={dialog.files} onClose={() => setDialog(null)} onDone={() => { setDialog(null); setChecked(new Set()); load(); }} />}
+      {dialog?.type === 'pdf-sign' && <Suspense fallback={null}><PdfSignDialog file={dialog.files[0]} onClose={() => setDialog(null)} onDone={() => { setDialog(null); load(); }} /></Suspense>}
       {dialog?.type === 'pdf-extract' && <PdfExtractDialog file={dialog.files[0]} onClose={() => setDialog(null)} onDone={() => { setDialog(null); load(); }} />}
       {dialog?.type === 'shortcut' && <MoveDialog shortcut files={dialog.files} onClose={() => setDialog(null)} onMoved={() => load()} />}
       {dialog?.type === 'preview' && <Preview file={dialog.file} comment={dialog.comment} onClose={() => setDialog(null)} onOpenAs={() => { setDialog(null); openAs(dialog.file); }} />}

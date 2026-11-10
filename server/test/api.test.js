@@ -7951,3 +7951,23 @@ test('PDF tools: combine PDFs and pictures into one; extract pages; the original
   // Someone without access can't use it.
   assert.equal((await owner('POST', '/api/files/pdf/combine', { ids: [a.id] })).status, 404);
 });
+
+test('PDF fill & sign: pictures stamped on pages make a signed copy; bad input refused', async () => {
+  const { PDFDocument, PDFName } = await import('pdf-lib');
+  const d = await PDFDocument.create(); d.addPage([595, 842]); d.addPage([595, 842]);
+  const gus = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'pdfgus', domain: 'acme.com', name: 'Pdf Gus', password: 'password123' })).status, 201);
+  await login(gus, 'pdfgus@acme.com');
+  const f = (await gus('POST', '/api/files/upload?name=Lease.pdf', Buffer.from(await d.save()), { raw: true, headers: { 'content-type': 'application/octet-stream' } })).body;
+  const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAYAAAD0In+KAAAAEUlEQVR4nGP4z8DwHwQZGBgAOe4F+3cjr+0AAAAASUVORK5CYII=';
+  assert.equal((await gus('POST', `/api/files/${f.id}/pdf/sign`, { items: [] })).status, 400);
+  assert.equal((await gus('POST', `/api/files/${f.id}/pdf/sign`, { items: [{ page: 0, x: 0.1, y: 0.1, w: 0.2, h: 0.1, png: 'data:image/gif;base64,AAAA' }] })).status, 400);
+  assert.equal((await gus('POST', `/api/files/${f.id}/pdf/sign`, { items: [{ page: 0, x: 3, y: 0.1, w: 0.2, h: 0.1, png }] })).status, 400, 'off the page');
+  assert.match((await gus('POST', `/api/files/${f.id}/pdf/sign`, { items: [{ page: 4, x: 0.1, y: 0.1, w: 0.2, h: 0.1, png }] })).body.error, /no page 5/);
+  const r = await gus('POST', `/api/files/${f.id}/pdf/sign`, { items: [{ page: 1, x: 0.6, y: 0.8, w: 0.3, h: 0.06, png }, { page: 1, x: 0.1, y: 0.8, w: 0.2, h: 0.03, png }] });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.equal(r.body.name, 'Lease (signed).pdf');
+  const out = await PDFDocument.load((await gus('GET', `/api/files/${r.body.id}/raw`, undefined, { binary: true })).body);
+  assert.deepEqual(out.getPages().map((p) => p.node.Resources()?.lookup(PDFName.of('XObject'))?.keys().length || 0), [0, 2]);
+  assert.equal((await owner('POST', `/api/files/${f.id}/pdf/sign`, { items: [{ page: 0, x: 0, y: 0, w: 0.1, h: 0.1, png }] })).status, 404, 'not theirs');
+});

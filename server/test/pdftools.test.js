@@ -35,3 +35,21 @@ test('combine PDFs and pictures in order; extract and turn pages', async () => {
   assert.equal(typeOf({ name: 'x', mime: 'image/jpeg' }), 'jpg');
   assert.equal(typeOf({ name: 'notes.txt' }), null);
 });
+
+test('stamping pictures on pages: upright pages and turned ones', async () => {
+  const { stamp } = await import('../src/pdftools.js');
+  const d = await PDFDocument.create();
+  d.addPage([200, 400]);
+  const turned = d.addPage([200, 400]);
+  const { degrees } = await import('pdf-lib');
+  turned.setRotation(degrees(90));
+  const bytes = Buffer.from(await d.save());
+  const out = await PDFDocument.load(await stamp(bytes, [
+    { page: 0, x: 0.5, y: 0.9, w: 0.4, h: 0.05, png: PNG },
+    { page: 1, x: 0.1, y: 0.1, w: 0.2, h: 0.2, png: PNG },
+  ]));
+  assert.equal(out.getPageCount(), 2);
+  // Each page now draws a picture (an XObject in its resources).
+  for (const p of out.getPages()) assert.ok(String(p.node.Resources().lookup((await import('pdf-lib')).PDFName.of('XObject'))).includes('/Image') || p.node.Resources().get((await import('pdf-lib')).PDFName.of('XObject')));
+  await assert.rejects(stamp(bytes, [{ page: 5, x: 0, y: 0, w: 0.1, h: 0.1, png: PNG }]), /no page 6/);
+});
