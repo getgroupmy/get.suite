@@ -17,6 +17,7 @@ import ScanDialog from './ScanDialog.jsx';
 import SharedInDialog from './SharedInDialog.jsx';
 import { readShared } from '../../shareinbox.js';
 import { openUrl } from '../../components/DrivePicker.jsx';
+import { sortFiles, isPicture } from './drivesort.js';
 
 function useDriveRoute() {
   const { pathname } = useLocation();
@@ -59,9 +60,17 @@ export default function Drive() {
   const route = useDriveRoute();
   const navigate = useNavigate();
   const toast = useToast();
-  const { user } = useAuth();
+  const { user, setUser } = useAuth();
   const [files, setFiles] = useState(null);
   const [crumbs, setCrumbs] = useState([]);
+  // Sort and list/grid, kept for you on the server (the same on every computer).
+  const [look, setLook] = useState(() => user.drive_view || { sort: 'name', desc: false, layout: 'list' });
+  const changeLook = (change) => {
+    const next = { ...look, ...change };
+    setLook(next);
+    put('/users/me/drive-view', change).then((v) => setUser?.({ ...user, drive_view: v })).catch(() => {});
+  };
+  const sortBy = (sort) => changeLook(look.sort === sort ? { desc: !look.desc } : { sort, desc: sort !== 'name' }); // newest and biggest first, to start with
   const [folder, setFolder] = useState(null);
   const [usage, setUsage] = useState(null);
   const [dialog, setDialog] = useState(null);
@@ -294,6 +303,14 @@ export default function Drive() {
     ];
   }
 
+ // The list as chosen: Recent stays newest first, search results best match first, until you sort them.
+  const sortChosen = look.sort !== 'name' || look.desc;
+  const shown = files ? (['recent', 'search'].includes(route.view) && !sortChosen ? files : sortFiles(files, look)) : [];
+  const sortHead = (key, label, cls = '') => (
+    <th className={cls} aria-sort={look.sort === key ? (look.desc ? 'descending' : 'ascending') : 'none'}>
+      <button type="button" className="th-sort" onClick={() => sortBy(key)} title={`Sort by ${label.toLowerCase()}`}>{label}{look.sort === key && <span aria-hidden="true"> {look.desc ? '↓' : '↑'}</span>}</button>
+    </th>
+  );
   const title = route.view === 'search' ? (route.q ? `Search results for “${route.q}”` : 'Search') : TITLES[route.view];
   const setFilter = (k, v) => {
     const p = new URLSearchParams({ q: route.q });
@@ -361,6 +378,17 @@ export default function Drive() {
               <Icon name="people" /> Members
             </button>
           )}
+          {!['approvals', 'signatures'].includes(route.view) && (
+            <div className="drive-layout" role="group" aria-label="Show files as">
+              <button type="button" className={look.layout === 'list' ? 'on' : ''} aria-pressed={look.layout === 'list'} onClick={() => changeLook({ layout: 'list' })} title="List"><Icon name="menu" size={18} /><span className="sr-only">List</span></button>
+              <button type="button" className={look.layout === 'grid' ? 'on' : ''} aria-pressed={look.layout === 'grid'} onClick={() => changeLook({ layout: 'grid' })} title="Grid"><Icon name="apps" size={18} /><span className="sr-only">Grid</span></button>
+              {look.layout === 'grid' && <select aria-label="Sort by" value={`${look.sort}:${look.desc ? 'desc' : 'asc'}`} onChange={(e) => { const [sort, dir] = e.target.value.split(':'); changeLook({ sort, desc: dir === 'desc' }); }}>
+                <option value="name:asc">Name A → Z</option><option value="name:desc">Name Z → A</option>
+                <option value="modified:desc">Newest first</option><option value="modified:asc">Oldest first</option>
+                <option value="size:desc">Largest first</option><option value="size:asc">Smallest first</option>
+              </select>}
+            </div>
+          )}
         </div>
         {route.view === 'search' && (
           <div className="search-filters" role="group" aria-label="Filters">
@@ -398,13 +426,34 @@ export default function Drive() {
               : route.view === 'shared' ? <Empty icon="people" title="Nothing shared with you yet" />
               : route.view === 'drives' ? <Empty icon="people" title="No shared drives yet">A shared drive belongs to a team: everyone in it sees the same files, and what people add stays when they leave. Make one with New shared drive.</Empty>
                 : <Empty icon="upload" title="Drop files here">or use the New button to create a folder, document or spreadsheet</Empty>
+        ) : look.layout === 'grid' ? (
+          <ul className="file-grid" aria-label="Files">
+            {shown.map((f) => (
+              <li key={f.shortcut_id ? `s-${f.shortcut_id}` : f.id} className={`file-tile ${selected === (f.shortcut_id || f.id) || checked.has(f.id) ? 'selected' : ''} ${dropOn === f.id ? 'drop-on' : ''}`}
+                draggable={!f.shortcut_id && route.view !== 'trash' && (f.role === 'owner' || f.role === 'editor')}
+                onDragStart={(e) => { const ids = checked.has(f.id) ? [...checked] : [f.id]; e.dataTransfer.setData(DRAG_TYPE, JSON.stringify(ids)); e.dataTransfer.effectAllowed = 'move'; }}
+                {...(!f.shortcut_id && f.kind === 'folder' && route.view !== 'trash' && (f.role === 'editor' || f.role === 'owner') ? dropTarget(f.id) : {})}>
+                <button type="button" className="tile-face" aria-label={f.name} title={f.name}
+                  onClick={(e) => { if (!f.shortcut_id && (e.shiftKey || e.metaKey || e.ctrlKey)) toggleCheck(f.id); else setSelected(f.shortcut_id || f.id); }}
+                  onDoubleClick={() => { if (route.view === 'trash') return; if (f.broken) toast('You can no longer open what this shortcut points to', 'error'); else open(f); }}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && route.view !== 'trash') { e.preventDefault(); open(f); } }}>
+                  <span className="tile-thumb">{isPicture(f) && !f.broken ? <img src={`/api/files/${f.id}/raw`} alt="" loading="lazy" draggable={false} />
+                    : <Icon name={fileIcon(f)} size={48} className={`ft ft-${fileIcon(f)}`} style={f.color ? { color: f.color } : undefined} />}</span>
+                  <span className="tile-name"><Icon name={fileIcon(f)} size={16} className={`ft ft-${fileIcon(f)}`} style={f.color ? { color: f.color } : undefined} />{f.shortcut_id && <span aria-label="Shortcut">↪</span>}<span className="ellipsis">{f.name}</span></span>
+                  <span className="tile-meta muted small">{route.view === 'trash' ? goesIn(f.deletes_at) : formatDate(f.updated_at)}{f.kind !== 'folder' && f.size ? ` · ${formatBytes(f.size)}` : ''}</span>
+                </button>
+                {!f.shortcut_id && <input type="checkbox" className="tile-check" aria-label={`Select ${f.name}`} checked={checked.has(f.id)} onChange={() => toggleCheck(f.id)} />}
+                <Menu trigger={(p) => <button className="icon-btn tile-menu" aria-label={`Actions for ${f.name}`} {...p}><Icon name="more" /></button>} items={itemMenu(f)} />
+              </li>
+            ))}
+          </ul>
         ) : (
           <table className="files">
             <thead><tr><th className="check-col"><input type="checkbox" aria-label="Select all" checked={files.length > 0 && picked.length === files.length}
               ref={(el) => { if (el) el.indeterminate = picked.length > 0 && picked.length < files.length; }}
-              onChange={(e) => setChecked(e.target.checked ? new Set(files.filter((f) => !f.shortcut_id).map((f) => f.id)) : new Set())} /></th><th>Name</th><th className="hide-sm">Owner</th><th className="hide-sm">{route.view === 'trash' ? 'Deleted for good' : 'Modified'}</th><th className="hide-sm">Size</th><th aria-label="Actions" /></tr></thead>
+              onChange={(e) => setChecked(e.target.checked ? new Set(files.filter((f) => !f.shortcut_id).map((f) => f.id)) : new Set())} /></th>{sortHead('name', 'Name')}<th className="hide-sm">Owner</th>{route.view === 'trash' ? <th className="hide-sm">Deleted for good</th> : sortHead('modified', 'Modified', 'hide-sm')}{sortHead('size', 'Size', 'hide-sm')}<th aria-label="Actions" /></tr></thead>
             <tbody>
-              {files.map((f) => f.shortcut_id ? <ShortcutRow key={`s-${f.shortcut_id}`} f={f} me={user.id} selected={selected === f.shortcut_id} onSelect={() => setSelected(f.shortcut_id)}
+              {shown.map((f) => f.shortcut_id ? <ShortcutRow key={`s-${f.shortcut_id}`} f={f} me={user.id} selected={selected === f.shortcut_id} onSelect={() => setSelected(f.shortcut_id)}
                 onOpen={() => (f.broken ? toast('You can no longer open what this shortcut points to', 'error') : open(f))} menu={itemMenu(f)} /> : (
                 <tr key={f.id} className={`${selected === f.id || checked.has(f.id) ? 'selected' : ''} ${dropOn === f.id ? 'drop-on' : ''}`} tabIndex={0}
                   draggable={route.view !== 'trash' && (f.role === 'owner' || f.role === 'editor')}

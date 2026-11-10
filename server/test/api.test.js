@@ -8512,3 +8512,16 @@ test('calendar: events shown as free don’t block time; private events are only
   assert.deepEqual([changed.show_as, changed.private], [null, 0]);
   assert.equal((await fb(c)).length, 3, 'now busy too (with the doctor and the interview)');
 });
+
+test('drive view: how Drive lists files (sort, order, list or grid) is kept per person, the same on every computer', async () => {
+  const a = client(), a2 = client(), b = client();
+  for (const [local, name] of [['dva', 'Dv Ann'], ['dvb', 'Dv Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'dva@acme.com'); await login(a2, 'dva@acme.com'); await login(b, 'dvb@acme.com');
+  assert.deepEqual((await a('GET', '/api/auth/me')).body.user.drive_view, { sort: 'name', desc: false, layout: 'list' });
+  assert.deepEqual((await a('PUT', '/api/users/me/drive-view', { sort: 'size', desc: true })).body, { sort: 'size', desc: true, layout: 'list' });
+  assert.deepEqual((await a('PUT', '/api/users/me/drive-view', { layout: 'grid' })).body, { sort: 'size', desc: true, layout: 'grid' }, 'the rest kept');
+  assert.deepEqual((await a2('GET', '/api/auth/me')).body.user.drive_view, { sort: 'size', desc: true, layout: 'grid' }, 'on the other computer too');
+  assert.deepEqual((await b('GET', '/api/auth/me')).body.user.drive_view.sort, 'name', 'only yours');
+  assert.equal((await a('PUT', '/api/users/me/drive-view', { sort: 'colour' })).status, 400);
+  assert.equal((await a('PUT', '/api/users/me/drive-view', { layout: 'tiles' })).status, 400);
+});

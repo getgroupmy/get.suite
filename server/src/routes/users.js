@@ -12,7 +12,7 @@ import { orgMemberIds } from '../tenancy.js';
 import { q, tx } from '../db.js';
 import { str, bad, notFound, forbidden } from '../util.js';
 import { setHold, keepIfHeld } from '../hold.js';
-import { requireAdmin, validatePassword, hashPassword, newUserRow, sessionId, describeDevice, destroySession, tokenFromReq } from '../auth.js';
+import { requireAdmin, validatePassword, hashPassword, newUserRow, sessionId, describeDevice, destroySession, tokenFromReq, driveView } from '../auth.js';
 import { validAddress, canReach, blobsOwnedBy, removeBlobs, mailHomeOf, retireMailHome } from '../tenancy.js';
 import { uid } from '../util.js';
 import { planImport, readablePassword, usersCsv } from '../userimport.js';
@@ -199,6 +199,17 @@ export default function userRoutes() {
     if (format !== 'office' && format !== 'odf') throw bad('Choose Microsoft Office or OpenDocument');
     q('UPDATE users SET file_format = ? WHERE id = ?').run(format, req.user.id);
     res.json({ file_format: format });
+  });
+
+  // How Drive lists your files (sort, order, list or grid), the same on every computer: { sort?, desc?, layout? }.
+  r.put('/me/drive-view', (req, res) => {
+    const b = req.body || {};
+    if (b.sort !== undefined && !['name', 'modified', 'size'].includes(b.sort)) throw bad('Sort by name, modified or size');
+    if (b.layout !== undefined && !['list', 'grid'].includes(b.layout)) throw bad('Show a list or a grid');
+    const cur = driveView(q('SELECT drive_view FROM users WHERE id = ?').get(req.user.id)?.drive_view);
+    const next = driveView({ ...cur, ...(b.sort !== undefined && { sort: b.sort }), ...(b.desc !== undefined && { desc: !!b.desc }), ...(b.layout !== undefined && { layout: b.layout }) });
+    q('UPDATE users SET drive_view = ? WHERE id = ?').run(JSON.stringify(next), req.user.id);
+    res.json(next);
   });
 
   // Convert Office, OpenDocument and Markdown files you upload in Drive: { on: true | false }.
