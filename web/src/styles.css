@@ -1853,6 +1853,7 @@ button.usage:hover .muted { color: var(--text); }
 .home-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .home-list li { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .home-list li.past { opacity: .55; }
+.home-date-today { color: var(--accent-text); font-weight: 600; }
 .home-item { text-align: left; color: var(--text); text-decoration: none; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 a.home-item:hover, button.home-item:hover { text-decoration: underline; }
 .home-when { width: 64px; flex: none; font-size: 13px; color: var(--muted); }

@@ -15,6 +15,7 @@ const time = (ms) => new Date(ms).toLocaleTimeString([], { hour: 'numeric', minu
 
 import { placeText } from '../../components/workloc.js';
 import { greeting } from './greeting.js';
+import { upcoming, addDays } from './dates.js';
 
 /** "tomorrow", "Mon 16 Nov" for a YYYY-MM-DD. */
 function dayText(d) {
@@ -25,7 +26,7 @@ function dayText(d) {
 
 /** Home's cards, by key, as the Customize window names them. */
 export const CARD_NAMES = { events: "Today's events", tasks: 'Tasks for today', unread: 'Unread', approvals: 'Waiting for your approval', out: "Who's out",
-  signing: 'Waiting for your signature', apps: 'Company apps', recent: 'Recent files', notes: 'Pinned notes' };
+  signing: 'Waiting for your signature', apps: 'Company apps', recent: 'Recent files', notes: 'Pinned notes', dates: 'Birthdays and dates' };
 const DEFAULT_LAYOUT = { order: Object.keys(CARD_NAMES), hidden: [] };
 
 export default function Home() {
@@ -46,13 +47,14 @@ export default function Home() {
     const start = new Date(); start.setHours(0, 0, 0, 0);
     const from = start.getTime(), to = from + 864e5 - 1;
     const safe = (p, empty) => p.catch(() => empty);
-    const [events, due, channels, recent, notes, unread, approvals, where, signing, away, apps] = await Promise.all([
+    const [events, due, channels, recent, notes, unread, approvals, where, signing, away, apps, dates] = await Promise.all([
       safe(get(`/events?from=${from}&to=${to}`), []), safe(get(`/tasks/today?today=${localToday()}`), []),
       safe(get('/chat/channels'), { channels: [] }), safe(get('/files?view=recent'), []), safe(get('/notes'), []),
       mail?.enabled ? safe(get('/mail/unread'), null) : Promise.resolve(null), safe(get('/approvals'), { waiting: [] }),
       safe(get(`/location?from=${localToday()}&to=${localToday()}`), { days: {} }), safe(get('/signatures'), { waiting: [] }),
       safe(get(`/time-off/out?date=${localToday()}`), { out: [], holiday: null, waiting: 0 }),
       safe(get('/oauth/launcher'), []),
+      safe(get(`/contacts/birthdays?from=${localToday()}&to=${addDays(localToday(), 13)}`), []),
     ]);
     setData({
       events: expandAll(events, from, to).filter((e) => e.my_status !== 'no'),
@@ -66,6 +68,7 @@ export default function Home() {
       unread: unread?.unseen ?? null,
       away,
       apps,
+      dates: upcoming(dates, localToday()).slice(0, 6),
     });
   }, [mail?.enabled]);
   useEffect(() => { if (mail) load(); }, [load, mail]);
@@ -201,6 +204,20 @@ export default function Home() {
               </ul>
             )}
           </section>
+          {data.dates.length > 0 && (
+            <section className="card home-card" aria-label="Birthdays and dates" {...cardProps('dates')}>
+              <h2><Link to="/contacts"><span aria-hidden="true">🎂</span> Birthdays and dates</Link></h2>
+              <ul className="home-list home-dates">
+                {data.dates.map((b) => (
+                  <li key={b.key} className={b.today ? 'today' : ''}>
+                    <span className={`nowrap small ${b.today ? 'home-date-today' : 'muted'}`}>{b.when}</span>
+                    <span className="grow ellipsis"><strong>{b.name}</strong> <span className="muted small">{b.what}</span></span>
+                    {b.email && mail?.enabled && <button type="button" className="btn small" aria-label={`Email ${b.name}`} title={`Write to ${b.email}`} onClick={() => navigate(`/mail?compose=${encodeURIComponent(b.email)}`)}>✉ Email</button>}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
           {data.notes.length > 0 && (
             <section className="card home-card" aria-label="Pinned notes" {...cardProps('notes')}>
               <h2><Link to="/notes"><Icon name="note" size={18} /> Pinned notes</Link></h2>

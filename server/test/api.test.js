@@ -2549,7 +2549,7 @@ test('contacts: birthdays saved, checked, exported, and listed for a date range'
   const a = client();
   assert.equal((await owner('POST', '/api/users', { local: 'bday', domain: 'acme.com', name: 'Bday Ann', password: 'password123' })).status, 201);
   await login(a, 'bday@acme.com');
-  const ann = (await a('POST', '/api/contacts', { name: 'Ann Lee', birthday: '1990-05-17' })).body;
+  const ann = (await a('POST', '/api/contacts', { name: 'Ann Lee', email: 'ann@lee.example', birthday: '1990-05-17' })).body;
   assert.equal(ann.birthday, '1990-05-17');
   const bo = (await a('POST', '/api/contacts', { name: 'Bo Chan', birthday: '--05-02' })).body;
   assert.equal(bo.birthday, '--05-02');
@@ -2557,6 +2557,7 @@ test('contacts: birthdays saved, checked, exported, and listed for a date range'
   assert.equal((await a('POST', '/api/contacts', { name: 'Bad', birthday: '1990-02-30' })).status, 400);
   const may = (await a('GET', '/api/contacts/birthdays?from=2026-05-01&to=2026-05-31')).body;
   assert.deepEqual(may.map((b) => [b.name, b.date, b.age]), [['Bo Chan', '2026-05-02', null], ['Ann Lee', '2026-05-17', 36]]);
+  assert.deepEqual(may.map((b) => b.email), [null, 'ann@lee.example'], 'with their email, to send wishes from Home');
   assert.equal((await a('GET', '/api/contacts/birthdays?from=2026-01-01&to=2028-01-01')).status, 400, 'a year at most');
   assert.equal((await a('PATCH', `/api/contacts/${ann.id}`, { birthday: null })).body.birthday, null);
   assert.equal((await a('PATCH', `/api/contacts/${bo.id}`, { phone: '123' })).body.birthday, '--05-02', 'kept when not sent');
@@ -8532,6 +8533,7 @@ test('home layout: each person orders and hides Home’s cards; new cards appear
   await login(a, 'hla@acme.com');
   const { HOME_CARDS, homeLayout } = await import('../src/auth.js');
   assert.deepEqual((await a('GET', '/api/auth/me')).body.user.home_layout, { order: HOME_CARDS, hidden: [] });
+  assert.ok(HOME_CARDS.includes('dates'), 'birthdays and dates');
   const set = (await a('PUT', '/api/users/me/home-layout', { order: ['notes', 'events'], hidden: ['apps', 'out'] })).body;
   assert.deepEqual(set.order.slice(0, 3), ['notes', 'events', 'tasks'], 'the rest after, in their usual order');
   assert.equal(set.order.length, HOME_CARDS.length);

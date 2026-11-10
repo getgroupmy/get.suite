@@ -276,10 +276,11 @@ export default function contactRoutes() {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || to < from) throw bad('from and to are required');
     if (Date.parse(to) - Date.parse(from) > 400 * 864e5) throw bad('At most a year at a time');
     const out = [];
-    for (const c of q('SELECT id, name, birthday, dates FROM contacts WHERE owner_id = ? AND (birthday IS NOT NULL OR dates IS NOT NULL)').all(req.user.id)) {
-      for (const b of birthdaysBetween(c.birthday, from, to)) out.push({ contact_id: c.id, name: c.name, ...b });
+    for (const c of q('SELECT id, name, email, birthday, dates FROM contacts WHERE owner_id = ? AND (birthday IS NOT NULL OR dates IS NOT NULL)').all(req.user.id)) {
+      const who = { contact_id: c.id, name: c.name, email: c.email || null }; // the email, to send wishes from Home
+      for (const b of birthdaysBetween(c.birthday, from, to)) out.push({ ...who, ...b });
       // Their other dates too (an anniversary…): { label, years } instead of an age.
-      for (const d of datesBetween(c.dates, from, to, birthdaysBetween)) out.push({ contact_id: c.id, name: c.name, date: d.date, label: d.label, years: d.years });
+      for (const d of datesBetween(c.dates, from, to, birthdaysBetween)) out.push({ ...who, date: d.date, label: d.label, years: d.years });
     }
     res.json(out.sort((a, b) => a.date.localeCompare(b.date) || a.name.localeCompare(b.name)));
   });
