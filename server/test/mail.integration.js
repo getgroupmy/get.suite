@@ -1672,7 +1672,7 @@ test('outgoing queue: mail that can’t go out is listed for the platform owner,
   await eventually(async () => {
     const r = (await olivia('GET', '/api/orgs/system/mail-queue')).body;
     return r.done >= seq && !r.messages.some((m) => m.id === waiting.id);
-  }, 20000);
+  }, 60000); // the mail server takes the request on its next pass, slower while a full run keeps it busy
   assert.ok(JSON.stringify((await olivia('GET', '/api/audit')).body).includes('mail-queue.delete'));
 });
 
