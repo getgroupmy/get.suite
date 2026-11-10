@@ -19,7 +19,7 @@ import { roleFor, mayTakeAway } from '../access.js';
 import { insertFile } from './files.js';
 import { conversationText, conversationHtml } from '../chatexport.js';
 import { listEmoji, addEmoji, removeEmoji, emojiImage, customName, hasEmoji, MAX_EMOJI } from '../chatemoji.js';
-import { contactCard, addContactFrom } from './contacts.js';
+import { contactCard, colleagueCard, addContactFrom } from './contacts.js';
 
 // Where each person has read up to in each conversation (for unread counts), and emoji reactions.
 q(`CREATE TABLE IF NOT EXISTS channel_reads (
@@ -708,7 +708,8 @@ export default function chatRoutes() {
   // there sees a card and can add it to their own contacts.
   r.post('/channels/:id/contact', (req, res) => {
     const c = writable(req.params.id, req.user);
-    const contact = contactCard(req.body.contact_id, req.user);
+    // One of your contacts (or a company one), or a colleague's card ({ user_id }).
+    const contact = req.body.user_id ? colleagueCard(req.body.user_id, req.user) : contactCard(req.body.contact_id, req.user);
     const body = str(req.body.body, { max: 8000, name: 'Message' }) || '';
     res.status(201).json(deliver(c, req.user, { body, files: [], poll: null, parent: null, contact }));
   });

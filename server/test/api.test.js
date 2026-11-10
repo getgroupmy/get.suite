@@ -9069,3 +9069,26 @@ test('tasks: schedule time for a task on your calendar, with a link back and a w
   assert.equal((await a('POST', `/api/tasks/tasks/${t.id}/blocks`, { start: at, end: at + 9 * 36e5 })).status, 400, 'at most 8 hours');
   assert.equal((await c('POST', `/api/tasks/tasks/${t.id}/blocks`, { start: at, end: at + 36e5 })).status, 404, 'only people on the list');
 });
+
+test('chat: send a company contact (view only) or a colleague’s card', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['scda', 'Scd Ann'], ['scdb', 'Scd Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  const aid = (await login(a, 'scda@acme.com')).id;
+  const bid = (await login(b, 'scdb@acme.com')).id;
+  await a('PUT', '/api/users/me/profile', { job_title: 'Buyer', department: 'Purchasing', work_phone: '+60 3 5555' });
+  const shared = (await a('POST', '/api/contacts', { name: 'Supplier Sue', email: 'sue@supply.example', shared: true })).body;
+  const dm = (await b('POST', '/api/chat/dm', { user_id: aid })).body.id;
+  // Ben can only view the company contact, but can pass it on.
+  const m1 = await b('POST', `/api/chat/channels/${dm}/contact`, { contact_id: shared.id });
+  assert.equal(m1.status, 201); assert.equal(m1.body.contact.name, 'Supplier Sue');
+  // A colleague's card: their name, address, job title and work phone.
+  const m2 = (await a('POST', `/api/chat/channels/${dm}/contact`, { user_id: bid })).body;
+  assert.deepEqual({ name: m2.contact.name, email: m2.contact.email }, { name: 'Scd Ben', email: 'scdb@acme.com' });
+  const m3 = (await b('POST', `/api/chat/channels/${dm}/contact`, { user_id: aid })).body;
+  assert.equal(m3.contact.title, 'Buyer'); assert.equal(m3.contact.phone, '+60 3 5555'); assert.match(m3.contact.company, /Purchasing/);
+  // Someone at another company: no.
+  assert.equal((await a('POST', `/api/chat/channels/${dm}/contact`, { user_id: ginaId })).status, 404);
+  // Saved into Ben's contacts like any other.
+  assert.equal((await b('POST', `/api/chat/messages/${m3.id}/contact/save`)).body.existing, false);
+  assert.ok((await b('GET', '/api/contacts')).body.some((c) => c.email === 'scda@acme.com' && c.title === 'Buyer'));
+});

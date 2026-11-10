@@ -83,6 +83,18 @@ export function contactCard(id, user) {
   if (m.more_phones?.length) card.more_phones = m.more_phones;
   return card;
 }
+/** A colleague's card to pass on (someone at your company): name, address, job title, department as company, work phone. */
+export function colleagueCard(userId, user) {
+  const u = q("SELECT id, name, username, org_id, job_title, department, work_phone FROM users WHERE id = ? AND disabled = 0").get(String(userId || ''));
+  if (!u || u.org_id !== user.org_id) throw notFound('Colleague not found');
+  const org = q('SELECT name FROM orgs WHERE id = ?').get(u.org_id)?.name;
+  const card = { name: u.name || u.username, email: u.username };
+  if (u.job_title) card.title = u.job_title;
+  card.company = [org, u.department].filter(Boolean).join(' · ') || undefined;
+  if (!card.company) delete card.company;
+  if (u.work_phone) card.phone = u.work_phone;
+  return card;
+}
 /** Adds a passed-on contact to someone's own contacts (checked as if they'd typed it). An existing contact
  *  of theirs with the same email address is kept instead: { id, existing: true }. */
 export function addContactFrom(user, card) {

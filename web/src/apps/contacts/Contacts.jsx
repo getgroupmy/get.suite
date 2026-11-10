@@ -161,6 +161,7 @@ export default function Contacts() {
                   {c.more_phones?.map((m) => <div key={m.value} className="small"><a href={`tel:${m.value}`}>{m.value}</a> <span className="muted">{TYPE_LABELS[m.type]}</span></div>)}</td>
                 <td className="hide-sm muted">{own && (c.custom_fields?.length > 0 || c.dates?.length > 0) && <div className="small contact-extra">{[...(c.custom_fields || []).map((x) => `${x.label}: ${x.value}`), ...(c.dates || []).map((x) => `${x.label}: ${x.date.startsWith('--') ? x.date.slice(2) : x.date}`)].join(' · ')}</div>}{own ? [c.title, c.company].filter(Boolean).join(' · ') || '—' : [c.job_title, c.department].filter(Boolean).join(' · ') || user.org_name}{own && c.website && <> · <a href={c.website} target="_blank" rel="noopener noreferrer">{c.website.replace(/^https?:\/\//, '')}</a></>}</td>
                 <td className="actions">
+                  {own && tab !== 'mine' && !c.can_edit && <button className="icon-btn" aria-label={`Send ${c.name} in Chat`} title="Send in Chat: colleagues can add it to their contacts" onClick={() => setSending(c)}><Icon name="share" size={18} /></button>}
                   {own ? (tab === 'mine' || c.can_edit) && <>
                     {tab === 'mine' && <button className={`icon-btn star ${c.starred ? 'on' : ''}`} aria-pressed={!!c.starred} aria-label={c.starred ? `Unstar ${c.name}` : `Star ${c.name}`} title={c.starred ? 'Starred: first in your contacts and when writing mail' : 'Star: keep them first in your contacts and when writing mail'}
                       onClick={async () => { try { await patch(`/contacts/${c.id}`, { starred: !c.starred }); load(); } catch (e) { toast(e.message, 'error'); } }}>{c.starred ? '★' : '☆'}</button>}
@@ -169,7 +170,8 @@ export default function Contacts() {
                     <button className="icon-btn" aria-label={`Edit ${c.name}`} onClick={() => setEditing(c)}><Icon name="edit" size={18} /></button>
                     <button className="icon-btn" aria-label={`Delete ${c.name}`} onClick={() => setDeleting(c)}><Icon name="trash" size={18} /></button>
                   </> : c.id !== user.id && (
-                    <button className="icon-btn" aria-label={`Message ${c.name}`} onClick={() => message(c)}><Icon name="chat" size={18} /></button>
+                    <><button className="icon-btn" aria-label={`Message ${c.name}`} onClick={() => message(c)}><Icon name="chat" size={18} /></button>
+                    <button className="icon-btn" aria-label={`Send ${c.name}'s card in Chat`} title="Send their card in Chat: others can add them to their contacts" onClick={() => setSending({ ...c, colleague: true })}><Icon name="share" size={18} /></button></>
                   )}
                 </td>
               </tr>
@@ -537,7 +539,7 @@ function SendContact({ contact, onClose }) {
   async function submit(e) {
     e.preventDefault();
     try {
-      await post(`/chat/channels/${to}/contact`, { contact_id: contact.id, body: note });
+      await post(`/chat/channels/${to}/contact`, contact.colleague ? { user_id: contact.id, body: note } : { contact_id: contact.id, body: note });
       onClose();
       toast(`${contact.name} sent to ${name(convs.find((c) => c.id === to))}`, 'info', { action: { label: 'Open', onClick: () => navigate(`/chat/${to}`) } });
     } catch (err) { setError(err.message); }
@@ -545,7 +547,9 @@ function SendContact({ contact, onClose }) {
   return (
     <Modal title={`Send ${contact.name} in Chat`} onClose={onClose}>
       <form className="stack" onSubmit={submit}>
-        <p className="muted small" style={{ margin: 0 }}>Everyone in the conversation sees the name, email addresses, phone numbers, company, job title, address and website, and can add them to their own contacts. Notes and dates stay with you.</p>
+        <p className="muted small" style={{ margin: 0 }}>{contact.colleague
+          ? 'Everyone in the conversation sees their name, address, job title, department and work phone, and can add them to their own contacts.'
+          : 'Everyone in the conversation sees the name, email addresses, phone numbers, company, job title, address and website, and can add them to their own contacts. Notes and dates stay with you.'}</p>
         <label className="field"><span>To</span>
           <select value={to} onChange={(e) => setTo(e.target.value)} required disabled={!convs}>
             {(convs || []).map((c) => <option key={c.id} value={c.id}>{name(c)}</option>)}
