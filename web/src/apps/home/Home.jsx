@@ -2,9 +2,9 @@
 // worked on lately and your pinned notes, each linking to where it lives. It updates as things change.
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
-import { get, put, onLive, formatDate } from '../../api.js';
+import { get, put, patch, onLive, formatDate } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
-import { Avatar, Modal } from '../../components/ui.jsx';
+import { Avatar, Modal, useToast } from '../../components/ui.jsx';
 import { useAuth } from '../../App.jsx';
 import { useMailStatus } from '../../mailStatus.js';
 import { expandAll } from '../calendar/calmath.js';
@@ -24,7 +24,7 @@ function dayText(d) {
 }
 
 /** Home's cards, by key, as the Customize window names them. */
-export const CARD_NAMES = { events: "Today's events", tasks: 'Tasks due', unread: 'Unread', approvals: 'Waiting for your approval', out: "Who's out",
+export const CARD_NAMES = { events: "Today's events", tasks: 'Tasks for today', unread: 'Unread', approvals: 'Waiting for your approval', out: "Who's out",
   signing: 'Waiting for your signature', apps: 'Company apps', recent: 'Recent files', notes: 'Pinned notes' };
 const DEFAULT_LAYOUT = { order: Object.keys(CARD_NAMES), hidden: [] };
 
@@ -39,6 +39,7 @@ export default function Home() {
     try { const saved = await put('/users/me/home-layout', next.reset ? { reset: true } : { order: next.order, hidden: next.hidden }); setLayout(saved); setUser?.({ ...user, home_layout: saved }); } catch { /* kept here */ }
   };
   const navigate = useNavigate();
+  const toast = useToast();
   const mail = useMailStatus();
   const [data, setData] = useState(null);
   const load = useCallback(async () => {
@@ -46,7 +47,7 @@ export default function Home() {
     const from = start.getTime(), to = from + 864e5 - 1;
     const safe = (p, empty) => p.catch(() => empty);
     const [events, due, channels, recent, notes, unread, approvals, where, signing, away, apps] = await Promise.all([
-      safe(get(`/events?from=${from}&to=${to}`), []), safe(get(`/tasks/due?from=2000-01-01&to=${localToday()}`), []),
+      safe(get(`/events?from=${from}&to=${to}`), []), safe(get(`/tasks/today?today=${localToday()}`), []),
       safe(get('/chat/channels'), { channels: [] }), safe(get('/files?view=recent'), []), safe(get('/notes'), []),
       mail?.enabled ? safe(get('/mail/unread'), null) : Promise.resolve(null), safe(get('/approvals'), { waiting: [] }),
       safe(get(`/location?from=${localToday()}&to=${localToday()}`), { days: {} }), safe(get('/signatures'), { waiting: [] }),
@@ -68,6 +69,14 @@ export default function Home() {
     });
   }, [mail?.enabled]);
   useEffect(() => { if (mail) load(); }, [load, mail]);
+  // Ticking a task off right here (with Undo).
+  const tickOff = async (t) => {
+    setData((d) => ({ ...d, due: d.due.filter((x) => x.id !== t.id) }));
+    try {
+      await patch(`/tasks/tasks/${t.id}`, { done: true, today: localToday() });
+      toast(`“${t.title}” done`, 'info', { action: { label: 'Undo', onClick: () => patch(`/tasks/tasks/${t.id}`, { done: false }).then(load).catch(() => {}) } });
+    } catch (e) { toast(e.message, 'error'); load(); }
+  };
   useEffect(() => onLive((m) => {
     if (['events-changed', 'tasks-changed', 'message', 'chat-read', 'notes-changed', 'files-changed', 'mail-new', 'mail-unread', 'approvals-changed', 'signatures-changed', 'location-changed', 'live-connected'].includes(m.type) || m.type === 'notification') load();
   }), [load]);
@@ -103,13 +112,19 @@ export default function Home() {
               </ul>
             )}
           </section>
-          <section className="card home-card" aria-label="Tasks due" {...cardProps('tasks')}>
-            <h2><Link to="/tasks"><Icon name="check" size={18} /> Tasks due</Link></h2>
-            {!data.due.length ? <p className="muted small">Nothing due today. 🎉</p> : (
+          <section className="card home-card" aria-label="Tasks for today" {...cardProps('tasks')}>
+            <h2><Link to="/tasks/myday"><Icon name="check" size={18} /> Tasks for today</Link></h2>
+            {!data.due.length ? <p className="muted small">Nothing in My Day or due today. 🎉</p> : (
               <ul className="home-list">
                 {data.due.slice(0, 8).map((t) => {
-                  const d = dueLabel(t.due, new Date(), t.due_time);
-                  return <li key={t.id}><Link className="grow home-item" to={`/tasks/${t.list_id}?task=${t.id}`}>{t.title}</Link><span className={`pill due ${d.tone}`}>{d.text}</span></li>;
+                  const d = t.due ? dueLabel(t.due, new Date(), t.due_time) : null;
+                  return (
+                    <li key={t.id}>
+                      <input type="checkbox" aria-label={`Done: ${t.title}`} onChange={() => tickOff(t)} />
+                      <Link className="grow home-item" to={`/tasks/${t.list_id}?task=${t.id}`}>{t.my_day && <span className="home-sun" title="In My Day" aria-label="In My Day">☀ </span>}{t.title}</Link>
+                      {d && <span className={`pill due ${d.tone}`}>{d.text}</span>}
+                    </li>
+                  );
                 })}
                 {data.due.length > 8 && <li className="muted small">and {data.due.length - 8} more</li>}
               </ul>

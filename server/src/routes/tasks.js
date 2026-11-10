@@ -528,6 +528,18 @@ export default function taskRoutes() {
                 ORDER BY t.due, t.due_time IS NULL, t.due_time, t.position LIMIT 500`).all(from, to, me, me).map(shape));
   });
 
+  // Today, for Home: open tasks in your My Day first (marked my_day), then the ones for you that are due today
+  // or overdue and aren't in it (?today=YYYY-MM-DD, the person's own date).
+  r.get('/today', (req, res) => {
+    const me = req.user.id, day = todayOf(req.query.today);
+    const picked = q(`${TASK} JOIN task_myday m ON m.task_id = t.id AND m.user_id = ? AND m.day = ? WHERE t.done_at IS NULL AND ${ON_MY_LISTS}
+                      ORDER BY m.added_at`).all(me, day, me, me).map((t) => ({ ...shape(t), my_day: true }));
+    const ids = new Set(picked.map((t) => t.id));
+    const due = q(`${TASK} WHERE t.done_at IS NULL AND t.due <= ? AND (t.assignee_id = ? OR (t.assignee_id IS NULL AND l.owner_id = ?))
+                   ORDER BY t.due, t.due_time IS NULL, t.due_time, t.position LIMIT 500`).all(day, me, me).map(shape).filter((t) => !ids.has(t.id));
+    res.json([...picked, ...due]);
+  });
+
   r.post('/lists/:id/tasks', (req, res) => {
     const list = loadList(req.params.id, req.user);
     if (q('SELECT COUNT(*) AS n FROM tasks WHERE list_id = ?').get(list.id).n >= MAX_TASKS) throw bad('This list is full');
