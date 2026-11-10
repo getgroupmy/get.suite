@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { closeHistory } from '@tiptap/pm/history';
-import { DRAFT_KEY } from '../docs/emaildraftmsg.js';
+import { DRAFT_KEY } from '../docs/blocks.js';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 import { api, get, post, put, del, onLive, uploadFile, formatBytes, formatDate, setSharedMailbox, currentSharedMailbox, mailboxParam } from '../../api.js';
 import { desktopSupported, desktopOn, enableDesktop, disableDesktop } from '../../mailNotify.js';

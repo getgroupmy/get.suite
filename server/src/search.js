@@ -8,7 +8,7 @@ import mammoth from 'mammoth';
 import ExcelJS from 'exceljs';
 import { q, FILES_DIR } from './db.js';
 import { deckFromPowerPoint } from './office/powerpoint.js';
-import { chipText, dateText } from './office/chiptext.js';
+import { chipText, dateText, eventLines } from './office/chiptext.js';
 
 q("CREATE VIRTUAL TABLE IF NOT EXISTS file_text USING fts5(file_id UNINDEXED, body, tokenize='unicode61 remove_diacritics 2')").run();
 q('CREATE TABLE IF NOT EXISTS file_text_state (file_id TEXT PRIMARY KEY, version INTEGER NOT NULL)').run();
@@ -29,6 +29,7 @@ export function docText(doc) {
     if (n.type === 'dropchip') out.push(` ${chipText(n.attrs)} `);
     if (n.type === 'datechip') out.push(` ${dateText(n.attrs?.date)} ${n.attrs?.date || ''} `); // found by "9 Nov" or "2026-11-09"
     if (n.type === 'filechip') out.push(` ${n.attrs?.name || ''} `);
+    if (n.type === 'eventDraft') out.push(` ${eventLines(n.attrs).map(([, v]) => v).join(' ')}\n`);
     if (n.type === 'emailDraft') out.push(` ${n.attrs?.to || ''} ${n.attrs?.cc || ''} ${n.attrs?.subject || ''}\n`); // found by who it's to and its subject
     if (n.type === 'math') out.push(` ${n.attrs?.latex || ''} `);
     if (n.type === 'citation') out.push(` ${n.attrs?.author || ''} ${n.attrs?.title || ''} `);

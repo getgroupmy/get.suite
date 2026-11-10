@@ -3,7 +3,7 @@
 // highlight have no Markdown, so they're left out; pictures become their names.
 import { flattenTabs } from './doctabs.js';
 import { chartTable } from './sheetchart.js';
-import { chipText, dateText } from './chiptext.js';
+import { chipText, dateText, eventLines } from './chiptext.js';
 import { inText, reference, sourcesOf } from './cite.js';
 
 // ---- document → Markdown ----
@@ -74,6 +74,9 @@ function blocks(nodes = [], notes, indent = '') {
       const { title, rows } = chartTable(n.attrs);
       const esc = (x) => x.replace(/\|/g, '\\|');
       out.push([`**${title}**`, ...(rows.length ? ['', `| ${rows[0].map(esc).join(' | ')} |`, `|${' --- |'.repeat(rows[0].length)}`, ...rows.slice(1).map((r) => `| ${r.map(esc).join(' | ')} |`)] : [])].join('\n'));
+    }
+    else if (t === 'eventDraft') { // a meeting planned in the document: what, when, who, where, then its notes
+      out.push(eventLines(n.attrs).map(([k, v]) => `**${k}:** ${escapeText(v)}`).join('  \n'), ...blocks(n.content, notes, indent));
     }
     else if (t === 'emailDraft') { // an email written in the document: its fields, then its text
       const a = n.attrs || {};

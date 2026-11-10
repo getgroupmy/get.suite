@@ -11,6 +11,7 @@ import { PLACES, placeText, isoDay } from '../../components/workloc.js';
 import { useMailStatus } from '../../mailStatus.js';
 import { insights, hoursText } from './insights.js';
 import TimeOff, { waitingFor } from './TimeOff.jsx';
+import { EVENT_KEY } from '../docs/blocks.js';
 import { timeIn, zoneName, cityOf } from '../../components/zones.js';
 import { printRange, daysFromTo, scheduleOf, DAY, VIEWS, startOfDay, visibleDays, shift, title, onDay, layoutDay, expandAll, occurrenceIndex, describeRule, daysBetween, moveTimes, resizeEnd, shiftWeekdays, snapMinutes, moveStart, weekdayInMonth, eventsPerDay, isoWeek, daysShown, weekOrder } from './calmath.js';
 
@@ -110,6 +111,18 @@ function Calendar({ acting = null, managed = [], onPick }) {
     navigateTo(location.pathname, { replace: true, state: null });
     openFound(r);
   }, [location.state]); // eslint-disable-line react-hooks/exhaustive-deps
+  // An event drafted in a document (/calendar?new_doc=1; it waits in this browser's storage): open it to check and save.
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (!params.has('new_doc')) return;
+    let ev = null;
+    try { ev = JSON.parse(localStorage.getItem(EVENT_KEY) || 'null'); localStorage.removeItem(EVENT_KEY); } catch { /* storage off */ }
+    params.delete('new_doc');
+    navigateTo({ pathname: location.pathname, search: params.toString() ? `?${params}` : '' }, { replace: true });
+    if (!ev || !ev.start) return;
+    setAnchor(startOfDay(new Date(ev.start)));
+    setEditing({ color: COLORS[0], ...ev });
+  }, [location.search]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const ev = location.state?.newEvent;
     if (!ev) return;

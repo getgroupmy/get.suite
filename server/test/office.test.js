@@ -751,6 +751,21 @@ test('email drafts: fields then text in Word and Markdown; found by who it\'s to
   assert.doesNotMatch(xml, />Cc: </, 'no empty Cc');
 });
 
+test('event drafts: what, when, who and where, then the notes, in Word and Markdown and search', async () => {
+  const { markdownFromDoc } = await import('../src/office/markdown.js');
+  const { docText } = await import('../src/search.js');
+  const JSZip = (await import('jszip')).default;
+  const doc = { type: 'doc', content: [
+    { type: 'eventDraft', attrs: { title: 'Kickoff', date: '2026-11-12', start: '10:00', end: '11:00', guests: 'kim@acme.com', location: '' }, content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Agenda: scope.' }] }] },
+    { type: 'eventDraft', attrs: { title: '', date: '2026-12-01', start: '', end: '', guests: '', location: 'Lisbon' }, content: [{ type: 'paragraph' }] },
+  ] };
+  assert.equal(markdownFromDoc(doc).trim(), '**Event:** Kickoff  \n**When:** 12 Nov 2026, 10:00–11:00  \n**Guests:** kim@acme.com\n\nAgenda: scope.\n\n**Event:** Untitled  \n**When:** 1 Dec 2026, all day  \n**Where:** Lisbon');
+  assert.match(docText(doc), /Kickoff 12 Nov 2026, 10:00–11:00 kim@acme\.com/);
+  const xml = await (await JSZip.loadAsync(await wordFromDoc(doc, 'Plan'))).file('word/document.xml').async('string');
+  assert.match(xml, /When: <\/w:t>[\s\S]*?12 Nov 2026, 10:00–11:00[\s\S]*Agenda: scope\./);
+  assert.match(xml, /Lisbon/);
+});
+
 test('equations: an equation in Word, its LaTeX in search', async () => {
   const { docText } = await import('../src/search.js');
   const JSZip = (await import('jszip')).default;

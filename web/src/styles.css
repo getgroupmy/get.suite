@@ -2551,3 +2551,5 @@ img.custom-emoji { width: 1.35em; height: 1.35em; object-fit: contain; vertical-
 .doc-email-body { padding: 4px 12px; }
 p.doc-email-fields { margin: 0; }
 @media print { .doc-email-head .btn { display: none; } }
+.doc-event-when input { flex: 0 0 auto; width: auto; }
+.doc-event-when input[type="date"] { min-width: 140px; }

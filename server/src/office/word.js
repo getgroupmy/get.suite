@@ -8,7 +8,7 @@ import mammoth from 'mammoth';
 import { anchorsOf } from './anchors.js';
 import JSZip from 'jszip';
 import { chartTable } from './sheetchart.js';
-import { chipText, dateText } from './chiptext.js';
+import { chipText, dateText, eventLines } from './chiptext.js';
 import { inText, reference, sourcesOf } from './cite.js';
 import { imageSize } from 'image-size';
 import { generateJSON } from '@tiptap/html/server';
@@ -604,6 +604,11 @@ export async function wordFromDoc(doc, title = 'Document', { pictureData, page, 
           paras.push(new WordTable({ width: { size: 100, type: WidthType.PERCENTAGE }, columnWidths: rows[0].map(() => Math.floor(9000 / rows[0].length)),
             rows: rows.map((r, ri) => new WordRow({ tableHeader: ri === 0, children: r.map((t) => new WordCell({ ...(ri === 0 && { shading: { type: ShadingType.CLEAR, color: 'auto', fill: 'F1F3F4' } }), children: [new Paragraph({ children: [new TextRun({ text: t, bold: ri === 0 })] })] })) })) }));
         }
+        paras.push(new Paragraph(''));
+      }
+      else if (n.type === 'eventDraft') { // a meeting planned in the document: what, when, who, where, then its notes
+        for (const [k, v] of eventLines(n.attrs)) paras.push(new Paragraph({ children: [new TextRun({ text: `${k}: `, bold: true, color: '5F6368' }), new TextRun(v)] }));
+        walk(n.content, ctx);
         paras.push(new Paragraph(''));
       }
       else if (n.type === 'emailDraft') { // an email written in the document: its fields, then its text

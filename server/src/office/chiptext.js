@@ -8,3 +8,10 @@ export function dateText(iso) {
   return `${+m[3]} ${MONTHS[+m[2] - 1]} ${m[1]}`;
 }
 export const chipText = (a) => (Array.isArray(a?.options) && (a.options.find((o) => o?.label === a.value)?.label || a.options[0]?.label)) || '—';
+
+/** An event draft's fields as [label, text] lines (for Word, Markdown and search): Event, When, Guests, Where. */
+export function eventLines(a = {}) {
+  const day = /^\d{4}-\d{2}-\d{2}$/.test(a.date || '') ? dateText(a.date) : '';
+  const time = a.start ? `${a.start}${a.end ? `–${a.end}` : ''}` : day ? 'all day' : '';
+  return [['Event', a.title || 'Untitled'], ['When', [day, time].filter(Boolean).join(', ')], ['Guests', a.guests || ''], ['Where', a.location || '']].filter(([k, v]) => v || k === 'Event');
+}

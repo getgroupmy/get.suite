@@ -5,9 +5,9 @@ import { Node } from '@tiptap/core';
 import { DOMSerializer } from '@tiptap/pm/model';
 import { NodeViewWrapper, NodeViewContent, ReactNodeViewRenderer } from '@tiptap/react';
 
-import { draftMessage, DRAFT_KEY } from './emaildraftmsg.js';
+import { draftMessage, DRAFT_KEY } from './blocks.js';
 
-export { matchBlocks } from './emaildraftmsg.js';
+export { matchBlocks } from './blocks.js';
 
 function DraftView({ node, editor, getPos, updateAttributes }) {
   const a = node.attrs;
