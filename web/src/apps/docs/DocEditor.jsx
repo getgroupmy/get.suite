@@ -2,9 +2,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 import { useEditor, EditorContent, Mark } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
-import { TabbedDocument, DocTab, addTab } from './doctabsext.js';
+import { TabbedDocument, DocTab, addTab, openTab, tabIdOfHash } from './doctabsext.js';
 import { DocTabs, useTabs } from './DocTabs.jsx';
-import { htmlWithTabTitles } from './doctabs.js';
+import { htmlWithTabTitles, tabsOf } from './doctabs.js';
 import TextAlign from '@tiptap/extension-text-align';
 import Placeholder from '@tiptap/extension-placeholder';
 import Image from '@tiptap/extension-image';
@@ -396,7 +396,9 @@ function SharedDoc({ file, setFile }) {
       provider.off('sync', focusOnce);
       // Opened from a link to a heading: start there instead of at the top.
       const h = window.location.hash && headingForAnchor(headingsOf(editor.state.doc), window.location.hash);
-      if (h) goToHeading(editor, h); else if (!goToBookmark(editor, bookmarkIdOf(window.location.hash))) editor.commands.focus('start');
+      const tabId = tabIdOfHash(window.location.hash); // opened from a link to a tab
+      if (tabId && tabsOf(editor.getJSON()).some((t) => t.id === tabId)) openTab(editor, tabId);
+      else if (h) goToHeading(editor, h); else if (!goToBookmark(editor, bookmarkIdOf(window.location.hash))) editor.commands.focus('start');
     };
     if (provider.synced) focusOnce(true); else provider.on('sync', focusOnce);
     return () => provider.off('sync', focusOnce);
@@ -603,7 +605,7 @@ function SharedDoc({ file, setFile }) {
       {readOnly && <div className="banner">{file.locked_at ? 'Locked.' : file.role === 'commenter' ? 'You can comment, not edit.' : 'View only.'} {!file.locked_at && `Ask ${file.owner_name} for edit access.`}</div>}
       {finding && <FindBar key={finding.n} editor={editor} replacing={finding.replace} canEdit={!readOnly} onClose={() => { editor.view.focus(); setFinding(null); }} />} {/* focus back first, so it doesn't go with the bar */}
       <div className="doc-body">
-        {tabsShown && <DocTabs editor={editor} canEdit={!readOnly} onClose={() => setTabsPanel(false)} />}
+        {tabsShown && <DocTabs editor={editor} canEdit={!readOnly} fileId={file.id} onCopied={(m) => toast(m)} onClose={() => setTabsPanel(false)} />}
         {outline && <Outline editor={editor} fileId={file.id} onCopied={(m) => toast(m)} onClose={() => setOutline(false)} />}
         {liveCount && <WordCounter editor={editor} onOpen={() => setWordCount(true)} />}
         <div className="doc-scroll" onClick={(e) => e.target === e.currentTarget && editor.commands.focus('end')}>

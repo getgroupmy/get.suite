@@ -159,3 +159,13 @@ export function revealTabAt(editor, pos) {
   const t = tabAt(editor.state.doc, pos);
   if (t && t.id !== activeTab(editor.state)) editor.view.dispatch(editor.state.tr.setMeta(tabKey, t.id));
 }
+
+/** Where the open tab starts and ends ({ from, to }), or null in a document without tabs. */
+export function openTabRange(state) {
+  const id = activeTab(state);
+  const t = id && allTabs(state.doc).find((x) => x.id === id);
+  return t ? { from: t.pos, to: t.pos + t.node.nodeSize } : null;
+}
+
+/** The tab id in a link's #tab=… (or null). */
+export const tabIdOfHash = (hash) => /^#tab=([A-Za-z0-9_-]{1,40})$/.exec(String(hash || ''))?.[1] || null;

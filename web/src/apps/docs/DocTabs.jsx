@@ -24,9 +24,14 @@ export function useTabs(editor) {
   return now;
 }
 
-export function DocTabs({ editor, canEdit, onClose }) {
+export function DocTabs({ editor, canEdit, onClose, fileId, onCopied }) {
   const { tabs, active } = useTabs(editor);
   const [dialog, setDialog] = useState(null);
+  // A link that opens the document on this tab, for sending to someone.
+  const copyLink = async (t) => {
+    const url = `${window.location.origin}/docs/${fileId}#tab=${t.id}`;
+    try { await navigator.clipboard.writeText(url); onCopied?.(`Link to “${t.title}” copied`); } catch { window.prompt('Copy this link', url); }
+  };
   const list = tabs.length ? tabs : [{ id: null, title: 'Tab 1', index: 0 }]; // a document without tabs is one tab
   return (
     <nav className="doc-tabs" aria-label="Document tabs">
@@ -41,14 +46,15 @@ export function DocTabs({ editor, canEdit, onClose }) {
             <button type="button" className="doc-tab-name" aria-current={t.id === active || !t.id ? 'page' : undefined} onClick={() => t.id && openTab(editor, t.id)} title={t.title}>
               <span aria-hidden="true">▤</span> {t.title}
             </button>
-            {canEdit && t.id && (
+            {t.id && (fileId || canEdit) && (
               <Menu trigger={(p) => <button type="button" className="icon-btn doc-tab-more" aria-label={`Options for tab ${t.title}`} {...p}>⋮</button>} items={[
-                { label: 'Rename', icon: 'edit', onClick: () => setDialog({ type: 'rename', tab: t }) },
-                { label: 'Duplicate', onClick: () => duplicateTab(editor, t.id) },
-                i > 0 && { label: 'Move up', onClick: () => moveTab(editor, t.id, -1) },
-                i < list.length - 1 && { label: 'Move down', onClick: () => moveTab(editor, t.id, 1) },
-                list.length > 1 && '-',
-                list.length > 1 && { label: 'Delete', icon: 'trash', danger: true, onClick: () => setDialog({ type: 'delete', tab: t }) },
+                fileId && { label: 'Copy link to tab', icon: 'link', onClick: () => copyLink(t) },
+                canEdit && { label: 'Rename', icon: 'edit', onClick: () => setDialog({ type: 'rename', tab: t }) },
+                canEdit && { label: 'Duplicate', onClick: () => duplicateTab(editor, t.id) },
+                canEdit && i > 0 && { label: 'Move up', onClick: () => moveTab(editor, t.id, -1) },
+                canEdit && i < list.length - 1 && { label: 'Move down', onClick: () => moveTab(editor, t.id, 1) },
+                canEdit && list.length > 1 && '-',
+                canEdit && list.length > 1 && { label: 'Delete', icon: 'trash', danger: true, onClick: () => setDialog({ type: 'delete', tab: t }) },
               ].filter(Boolean)} />
             )}
           </li>

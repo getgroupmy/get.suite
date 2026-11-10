@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { TextSelection } from '@tiptap/pm/state';
 import { headingsOf, currentHeading, anchorsOf } from './outline.js';
+import { openTabRange } from './doctabsext.js';
 
 /** Put the cursor at the end of a heading and bring it to the top of the window. */
 export function goToHeading(editor, h) {
@@ -19,15 +20,18 @@ export function Outline({ editor, onClose, fileId, onCopied }) {
   const [, force] = useState(0);
   useEffect(() => {
     const again = () => force((n) => n + 1);
-    editor.on('update', again);
-    editor.on('selectionUpdate', again);
-    return () => { editor.off('update', again); editor.off('selectionUpdate', again); };
+    editor.on('transaction', again); // edits, the cursor moving, and another tab opening
+    return () => editor.off('transaction', again);
   }, [editor]);
-  const headings = headingsOf(editor.state.doc);
+  // In a document with tabs, the open tab's headings (their links stay those of the whole document).
+  const everyHeading = headingsOf(editor.state.doc);
+  const allAnchors = anchorsOf(everyHeading);
+  const range = openTabRange(editor.state);
+  const inTab = everyHeading.map((h, i) => [h, allAnchors[i]]).filter(([h]) => !range || (h.pos >= range.from && h.pos < range.to));
+  const headings = inTab.map(([h]) => h), anchors = inTab.map(([, a]) => a);
   const here = currentHeading(headings, editor.state.selection.from);
   const top = Math.min(...headings.map((h) => h.level));
   const go = (h) => goToHeading(editor, h);
-  const anchors = anchorsOf(headings);
   // A link straight to a heading, for sending to someone (it opens the document there).
   const copyLink = async (i) => {
     const url = `${window.location.origin}/docs/${fileId}#${anchors[i]}`;
@@ -37,7 +41,7 @@ export function Outline({ editor, onClose, fileId, onCopied }) {
     <nav className="doc-outline" aria-label="Outline">
       <div className="row"><strong className="grow">Outline</strong><button type="button" className="icon-btn" style={{ width: 28, height: 28 }} aria-label="Close outline" onClick={onClose}>×</button></div>
       {headings.length === 0
-        ? <p className="muted small">Headings you add to the document appear here.</p>
+        ? <p className="muted small">{range ? 'Headings you add to this tab appear here.' : 'Headings you add to the document appear here.'}</p>
         : (
           <ul>
             {headings.map((h, i) => (
