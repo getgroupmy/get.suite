@@ -2566,3 +2566,6 @@ p.doc-email-fields { margin: 0; }
 @media print { .doc-email-head .btn { display: none; } }
 .doc-event-when input { flex: 0 0 auto; width: auto; }
 .doc-event-when input[type="date"] { min-width: 140px; }
+.cell-history { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; max-height: 50vh; overflow: auto; }
+.cell-history li { display: grid; gap: 4px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+.cell-history li .btn { justify-self: start; }

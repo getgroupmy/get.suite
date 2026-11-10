@@ -326,6 +326,10 @@ Give alternating colours a name and they become a **table** formulas can use by 
 - **Edit note** and **Delete note** are in the same menu. Everyone editing sees notes at once; people who can only view see them but can't change them.
 - Notes stay with their cells when rows or columns are inserted, deleted or sorted, Search finds their words, and they're Excel's own notes in downloads and uploads (both ways, including notes on empty cells).
 
+## Cell edit history (Sheets)
+
+Right-click a cell → **Show edit history** lists how it has changed, newest first: each value it had, who wrote it and when, and what it was before (*Kim Park · 10 Nov, 08:59 · was 100*). **Use this value** on an earlier one puts it back (and **Undo** takes that back too). It's read from the spreadsheet's version history, which keeps one version per editing session (when someone else edits, or after a pause), so several changes by one person in one sitting show as the last of them. For people who can edit; formulas show as written.
+
 ## Conditional formatting (Sheets)
 
 - **Rules** in the toolbar colours cells by their value: greater or less than, between, equal or not equal to, text that contains, doesn't contain or starts with something, empty or not, or an error. Pick a colour (and bold) and the cells it applies to; the selection is filled in for you.

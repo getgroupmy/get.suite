@@ -31,6 +31,7 @@ import { officePreview, officeKind, MAX_PREVIEW } from '../office/preview.js';
 import { odtFromDoc, docFromOdt, ODT_MIME } from '../office/odt.js';
 import { odsFromSheet, sheetFromOds, ODS_MIME } from '../office/ods.js';
 import { odpFromDeck, deckFromOdp, ODP_MIME } from '../office/odp.js';
+import { cellHistory } from '../office/cellhistory.js';
 import { zipEntries, extractZip } from '../zipfiles.js';
 import { markdownFromDoc, docFromMarkdown } from '../office/markdown.js';
 import { parseCsv } from '../contactfiles.js';
@@ -1390,6 +1391,22 @@ export default function fileRoutes({ maxUploadBytes }) {
     if (!v) throw notFound('That version is no longer there');
     return v;
   };
+  // A spreadsheet cell's edit history (editors): ?sheet=<index>&name=<sheet name>&cell=B4 → [{ value, before, by, by_name, at }].
+  r.get('/:id/cell-history', (req, res) => {
+    const f = loadFile(req.params.id, req.user, 'editor');
+    if (f.kind !== 'sheet') throw bad('Only spreadsheets have cell history');
+    const cell = String(req.query.cell || '').toUpperCase();
+    if (!/^[A-Z]{1,3}\d{1,7}$/.test(cell)) throw bad('Which cell?');
+    saveNow(f.id);
+    const cur = q('SELECT content, updated_at, updated_by, owner_id FROM files WHERE id = ?').get(f.id);
+    const parse = (c) => { try { return JSON.parse(c || '{}'); } catch { return {}; } };
+    const states = [{ content: parse(cur.content), by: cur.updated_by || cur.owner_id, at: cur.updated_at },
+      ...q('SELECT content, saved_by, saved_at FROM file_versions WHERE file_id = ? AND content IS NOT NULL ORDER BY saved_at DESC, version DESC').all(f.id).map((v) => ({ content: parse(v.content), by: v.saved_by, at: v.saved_at }))];
+    const list = cellHistory(states, { index: Number(req.query.sheet) || 0, name: req.query.name ? String(req.query.name) : null, cell });
+    const names = new Map(q('SELECT id, name FROM users WHERE id IN (SELECT value FROM json_each(?))').all(JSON.stringify([...new Set(list.map((x) => x.by).filter(Boolean))])).map((u) => [u.id, u.name]));
+    res.json(list.map((x) => ({ ...x, by_name: names.get(x.by) || 'Someone' })));
+  });
+
   r.get('/:id/versions', (req, res) => {
     const f = loadFile(req.params.id, req.user);
     res.json(q(`SELECT v.id, v.version, v.name, v.saved_at, v.size, v.label, u.name AS saved_by_name FROM file_versions v LEFT JOIN users u ON u.id = v.saved_by

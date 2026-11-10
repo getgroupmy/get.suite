@@ -8275,3 +8275,31 @@ test('convert uploads: Office, OpenDocument and Markdown files uploaded in Drive
   assert.match(bad.convert_error, /couldn't be read as an Excel workbook/);
   assert.equal((await me('PUT', '/api/users/me/convert-uploads', { on: false })).body.convert_uploads, false);
 });
+
+test('cell edit history in a spreadsheet: who changed a cell, to what, from what (editors)', async () => {
+  const ed = client(), viewer = client();
+  for (const [c, local] of [[ed, 'histeditor'], [viewer, 'histviewer']]) {
+    assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name: local === 'histeditor' ? 'Hedy Editor' : 'Vic Viewer', password: 'password123' })).status, 201);
+    await login(c, `${local}@acme.com`);
+  }
+  const s = (await owner('POST', '/api/files/new', { kind: 'sheet', name: 'History book' })).body;
+  const dir = (await owner('GET', '/api/users/directory')).body;
+  const idOf = (u) => dir.find((x) => x.username === `${u}@acme.com`).id;
+  await owner('PUT', `/api/files/${s.id}/shares`, { shares: [{ user_id: idOf('histeditor'), role: 'editor' }, { user_id: idOf('histviewer'), role: 'viewer' }] });
+  const put = async (who, cells) => {
+    const c = (await who('GET', `/api/files/${s.id}/content`)).body;
+    assert.equal((await who('PUT', `/api/files/${s.id}/content`, { version: c.file.version, content: { sheets: [{ name: 'Q1', cells }] } })).status, 200);
+  };
+  await put(owner, { B4: '100' });
+  await put(ed, { B4: '120', A1: 'Total' });
+  await put(owner, { B4: '=SUM(B1:B3)', A1: 'Total' });
+  const h = await owner('GET', `/api/files/${s.id}/cell-history?sheet=0&name=Q1&cell=b4`);
+  assert.equal(h.status, 200, JSON.stringify(h.body));
+  assert.deepEqual(h.body.map((x) => [x.value, x.before, x.by_name]), [['=SUM(B1:B3)', '120', 'Olivia Owner'], ['120', '100', 'Hedy Editor'], ['100', '', 'Olivia Owner']]);
+  assert.ok(h.body.every((x) => typeof x.at === 'number'));
+  assert.deepEqual((await ed('GET', `/api/files/${s.id}/cell-history?sheet=0&cell=A1`)).body.map((x) => x.by_name), ['Hedy Editor'], 'editors can look');
+  assert.equal((await viewer('GET', `/api/files/${s.id}/cell-history?sheet=0&cell=A1`)).status, 403, 'not people who can only view');
+  assert.equal((await owner('GET', `/api/files/${s.id}/cell-history?sheet=0&cell=nope`)).status, 400);
+  const d = (await owner('POST', '/api/files/new', { kind: 'doc', name: 'Not a sheet' })).body;
+  assert.equal((await owner('GET', `/api/files/${d.id}/cell-history?cell=A1`)).status, 400);
+});

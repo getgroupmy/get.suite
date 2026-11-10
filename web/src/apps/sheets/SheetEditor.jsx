@@ -953,6 +953,7 @@ export default function SheetEditor() {
     ? [{ label: 'Edit note', icon: 'edit', onClick: () => editNote(selKey) }, { label: 'Delete note', icon: 'trash', onClick: () => saveNote(selKey, '') }]
     : [{ label: 'Insert note', icon: 'edit', onClick: () => editNote(selKey) }];
   noteItems.push({ label: 'Insert picture in cell…', icon: 'image', onClick: () => setDialog({ type: 'picture', key: selKey }) });
+  noteItems.push({ label: 'Show edit history', icon: 'clock', onClick: () => setDialog({ type: 'cellhistory', key: selKey }) });
   const pasteItems = PASTE_MODES.map(([mode, label]) => ({ label: `Paste special: ${label.toLowerCase()}`, onClick: () => pasteAs(mode), disabled: !clip.current }));
   const ctxItems = ctx?.kind === 'row' ? rowItems : ctx?.kind === 'col' ? [...colItems, '-', ...sortItems] : [...rowItems, '-', ...colItems, '-', ...pasteItems, '-', ...noteItems, '-', ...sortItems];
   /** Open the menu at the mouse, or (keyboard: the menu key, Shift+F10) at the selected cell. */
@@ -1299,6 +1300,8 @@ export default function SheetEditor() {
         <BandsDialog bands={bands} takenNames={[...(data?.sheets || []).flatMap((s, i) => (s.bands || []).filter((b) => b.name).map((b) => b.name)), ...Object.keys(names || {})]} defaultRange={rangeText(anchor ? range : sortTarget())} onClose={() => { setDialog(null); gridRef.current?.focus(); }}
           onSave={(next) => { writeSheet(() => ({ bands: next.length ? next : undefined })); setDialog(null); gridRef.current?.focus(); }} />
       )}
+      {dialog?.type === 'cellhistory' && <CellHistory fileId={file.id} sheet={active} name={sheetName(active)} cell={dialog.key}
+        onUse={(v) => { writeCells({ [dialog.key]: v }); toast(`${dialog.key} changed back`); }} onClose={() => { setDialog(null); gridRef.current?.focus(); }} />}
       {dialog?.type === 'case' && (
         <Modal title="Change case" onClose={() => { setDialog(null); gridRef.current?.focus(); }}>
           <p className="muted small" style={{ marginTop: 0 }}>For the text in {anchor ? 'the selected cells' : 'the table around the cell'}; formulas and numbers stay as they are.</p>
@@ -1556,5 +1559,35 @@ function GroupToggle({ group, onToggle }) {
     <button type="button" className="group-toggle" aria-expanded={!group.collapsed} disabled={!onToggle}
       aria-label={`${group.collapsed ? 'Expand' : 'Collapse'} ${what}`} title={`${group.collapsed ? 'Show' : 'Hide'} the ${n} grouped ${group.axis === 'row' ? 'rows' : 'columns'}`}
       onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onToggle?.(); }}>{group.collapsed ? '+' : '−'}</button>
+  );
+}
+
+/** A cell's edit history (from the spreadsheet's versions): each change, who made it and when; an earlier value can be put back. */
+function CellHistory({ fileId, sheet, name, cell, onUse, onClose }) {
+  const [list, setList] = useState(null);
+  const [error, setError] = useState(null);
+  useEffect(() => {
+    get(`/files/${fileId}/cell-history?sheet=${sheet}&name=${encodeURIComponent(name)}&cell=${cell}`).then(setList).catch((e) => setError(e.message));
+  }, [fileId, sheet, name, cell]);
+  const shown = (v) => (v === '' ? <em className="muted">empty</em> : <code>{v}</code>);
+  const when = (t) => new Date(t).toLocaleString([], { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  return (
+    <Modal title={`Edit history of ${cell}`} onClose={onClose} footer={<button type="button" className="btn" onClick={onClose}>Close</button>}>
+      {error && <p className="error" role="alert">{error}</p>}
+      {!list && !error && <p className="muted">Loading…</p>}
+      {list && !list.length && <p className="muted">Nothing has been written in {cell} yet.</p>}
+      {list?.length > 0 && (
+        <ol className="cell-history" aria-label={`Changes to ${cell}`}>
+          {list.map((x, i) => (
+            <li key={i}>
+              <div className="row wrap" style={{ gap: 6 }}>{shown(x.value)}{i === 0 && <span className="muted small">now</span>}</div>
+              <div className="muted small">{x.by_name} · {when(x.at)}{x.before !== '' ? <> · was {shown(x.before)}</> : null}</div>
+              {i > 0 && <button type="button" className="btn small" onClick={() => { onUse(x.value); onClose(); }}>Use this value</button>}
+            </li>
+          ))}
+        </ol>
+      )}
+      <p className="muted small">Changes are kept per editing session (as in Version history), so several edits by one person in one sitting show as the last of them.</p>
+    </Modal>
   );
 }
