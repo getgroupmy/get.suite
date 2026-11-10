@@ -52,3 +52,23 @@ export function taskLinksIn(text, host = typeof window !== 'undefined' ? window.
 
 /** The address of a task, to copy and paste in a message, an email or a document. */
 export const taskLink = (t, origin = typeof window !== 'undefined' ? window.location.origin : '') => `${origin}/tasks/${t.list_id}?task=${t.id}`;
+
+// Links to calendar events ("/calendar?event=<id>", with &at=<start> for one time of a repeating event),
+// relative or on this server: [{ id, at }], each once, at most three.
+const EVENT_RE = /(?:^|[\s(<"'])(?:https?:\/\/([^\s/<>"']+))?\/calendar\?event=([\w-]{6,})(?:&at=(\d{9,15}))?/g;
+
+export function eventLinksIn(text, host = typeof window !== 'undefined' ? window.location.host : '') {
+  const out = [];
+  for (const m of String(text || '').matchAll(EVENT_RE)) {
+    if (m[1] && m[1] !== host) continue;
+    const at = m[3] ? Number(m[3]) : null;
+    if (out.some((x) => x.id === m[2] && x.at === at)) continue;
+    out.push({ id: m[2], at });
+    if (out.length === 3) break;
+  }
+  return out;
+}
+
+/** The address of an event (for a repeating one, of this time of it). */
+export const eventLink = (e, origin = typeof window !== 'undefined' ? window.location.origin : '') =>
+  `${origin}/calendar?event=${e.id}${e.rrule ? `&at=${e.start}` : ''}`;

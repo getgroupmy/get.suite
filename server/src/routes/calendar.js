@@ -717,16 +717,40 @@ export default function calendarRoutes() {
   // attached to the event, and colleagues invited can edit it.
   // One event as a calendar file (.ics), for adding it to another calendar app or passing it on: for its
   // organiser, its guests, and people who can see its calendar (shared, or the owner's details).
+  // Who may open one event (its .ics, or a card for a link to it): its organiser, its guests, and people
+  // who can see its calendar (shared, or the owner's details). A private event only for those who could
+  // change it or are in it: someone who may only look at the calendar would learn what it is.
+  const mayOpenEvent = (row, me) => {
+    if (!row) return false;
+    const guest = !!q('SELECT 1 FROM event_guests WHERE event_id = ? AND user_id = ?').get(row.id, me);
+    const may = row.owner_id === me || guest
+      || (row.calendar_id && q('SELECT 1 FROM user_calendar_shares WHERE calendar_id = ? AND user_id = ?').get(row.calendar_id, me))
+      || (!row.calendar_id && seesDetails(row.owner_id, me));
+    if (!may) return false;
+    if (row.private && row.owner_id !== me && !guest
+      && !(row.calendar_id ? q('SELECT 1 FROM user_calendar_shares WHERE calendar_id = ? AND user_id = ? AND can_edit = 1').get(row.calendar_id, me) : canEditCalendar(row.owner_id, me))) return false;
+    return true;
+  };
+
+  // A link to an event, pasted in Chat: what, when, where, who organises it and your answer, for a card.
+  r.get('/:id/preview', (req, res) => {
+    const row = q('SELECT * FROM events WHERE id = ?').get(req.params.id);
+    const me = req.user.id;
+    if (!mayOpenEvent(row, me)) throw notFound();
+    const guests = guestsOf(row.id);
+    res.json({
+      id: row.id, title: row.title || '(No title)', start: row.start, end: row.end, all_day: !!row.all_day, tz: row.tz || null,
+      location: row.location || null, repeats: !!row.rrule,
+      organizer_name: q('SELECT name FROM users WHERE id = ?').get(row.owner_id)?.name || null, mine: row.owner_id === me,
+      my_status: guests.find((g) => g.id === me)?.status || null,
+      guests: guests.length + outsideOf(row.id).length, yes: guests.filter((g) => g.status === 'yes').length,
+    });
+  });
+
   r.get('/:id/ics', (req, res) => {
     const row = q('SELECT * FROM events WHERE id = ?').get(req.params.id);
     const me = req.user.id;
-    const may = row && (row.owner_id === me || q('SELECT 1 FROM event_guests WHERE event_id = ? AND user_id = ?').get(row.id, me)
-      || (row.calendar_id && q('SELECT 1 FROM user_calendar_shares WHERE calendar_id = ? AND user_id = ?').get(row.calendar_id, me))
-      || (!row.calendar_id && seesDetails(row.owner_id, me)));
-    if (!may) throw notFound();
-    // A private event, for someone who may only look at the calendar: no file (it would say what it is).
-    if (row.private && row.owner_id !== me && !q('SELECT 1 FROM event_guests WHERE event_id = ? AND user_id = ?').get(row.id, me)
-      && !(row.calendar_id ? q('SELECT 1 FROM user_calendar_shares WHERE calendar_id = ? AND user_id = ? AND can_edit = 1').get(row.calendar_id, me) : canEditCalendar(row.owner_id, me))) throw notFound();
+    if (!mayOpenEvent(row, me)) throw notFound();
     const e = outEvent(row);
     const overrides = e.rrule ? q('SELECT * FROM events WHERE recur_parent = ? ORDER BY recur_id').all(e.id).map((o) => ({ ...o, recurrenceId: o.recur_id })) : [];
     const organizer = q('SELECT name, username AS email FROM users WHERE id = ?').get(row.owner_id);

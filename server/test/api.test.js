@@ -8739,3 +8739,28 @@ test('task links: a card for people on the list, and nobody else', async () => {
   assert.equal((await c('GET', `/api/tasks/tasks/${t.id}/preview`)).status, 404);
   assert.equal((await c('GET', '/api/tasks/tasks/nope123/preview')).status, 404);
 });
+
+test('event links: a card for the organiser, guests and people who can see the calendar, and nobody else', async () => {
+  const a = client(), b = client(), c = client();
+  for (const [local, name] of [['elpa', 'El Ann'], ['elpb', 'El Ben'], ['elpc', 'El Cat']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'elpa@acme.com'); await login(b, 'elpb@acme.com'); await login(c, 'elpc@acme.com');
+  const t = Date.UTC(2026, 11, 3, 9);
+  const ev = (await a('POST', '/api/events', { title: 'Launch review', start: t, end: t + 36e5, location: 'Room 4', guests: ['elpb@acme.com'] })).body;
+  await b('POST', `/api/events/${ev.id}/rsvp`, { status: 'yes' });
+  const pa = await a('GET', `/api/events/${ev.id}/preview`);
+  assert.equal(pa.status, 200);
+  assert.deepEqual({ title: pa.body.title, start: pa.body.start, end: pa.body.end, location: pa.body.location, organizer: pa.body.organizer_name, mine: pa.body.mine, guests: pa.body.guests, yes: pa.body.yes, repeats: pa.body.repeats },
+    { title: 'Launch review', start: t, end: t + 36e5, location: 'Room 4', organizer: 'El Ann', mine: true, guests: 1, yes: 1, repeats: false });
+  const pb = (await b('GET', `/api/events/${ev.id}/preview`)).body;
+  assert.equal(pb.my_status, 'yes'); assert.equal(pb.mine, false);
+  // Not invited and can't see Ann's calendar: nothing.
+  assert.equal((await c('GET', `/api/events/${ev.id}/preview`)).status, 404);
+  assert.equal((await c('GET', '/api/events/nope123/preview')).status, 404);
+  // A private event: guests see it.
+  const priv = (await a('POST', '/api/events', { title: 'Dentist', start: t, end: t + 36e5, private: true, guests: ['elpb@acme.com'] })).body;
+  assert.equal((await b('GET', `/api/events/${priv.id}/preview`)).body.title, 'Dentist');
+  assert.equal((await c('GET', `/api/events/${priv.id}/preview`)).status, 404);
+  // The .ics follows the same rule.
+  assert.equal((await c('GET', `/api/events/${ev.id}/ics`)).status, 404);
+  assert.equal((await b('GET', `/api/events/${ev.id}/ics`)).status, 200);
+});

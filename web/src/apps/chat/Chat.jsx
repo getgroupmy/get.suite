@@ -3,7 +3,7 @@ import { previewKind, stepPreview } from '../../components/viewkind.js';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { blocks, hasMarkup } from './markup.js';
-import { fileLinksIn, messageLinksIn, messageLink, taskLinksIn } from './filelinks.js';
+import { fileLinksIn, messageLinksIn, messageLink, taskLinksIn, eventLinksIn } from './filelinks.js';
 import { dueLabel } from '../tasks/taskmath.js';
 import { statusLine, untilText } from '../../components/status.js';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
@@ -657,6 +657,7 @@ function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit
         {!editing && <FileCards text={m.body} />}
         {!editing && <MessageCards text={m.body} self={m.id} />}
         {!editing && <TaskCards text={m.body} />}
+        {!editing && <EventCards text={m.body} />}
         {!editing && m.preview && (
           <a className="link-preview" href={m.preview.url} target="_blank" rel="noopener noreferrer" aria-label={`Link: ${m.preview.title}`}>
             <span className="link-site small muted">{m.preview.site}</span>
@@ -960,6 +961,53 @@ function TaskCards({ text }) {
             <span className="msg-card-meta"><span aria-hidden="true">{x.done ? '✅' : '☐'}</span> <strong>{x.title}</strong>{x.important && <span aria-label="Important"> ★</span>}</span>
             <span className="muted small">{[status, x.list_name, x.assignee_name && `for ${x.assignee_name}`, x.steps && `☑ ${x.steps.done}/${x.steps.total}`, x.comments > 0 && `💬 ${x.comments}`].filter(Boolean).join(' · ')}
               {due && <> · <span className={due.tone === 'late' ? 'task-card-late' : ''}>Due {due.text}</span></>}</span>
+          </Link>
+        );
+      })}
+    </div>
+  );
+}
+
+// What each linked event is, fetched once per page (false: not in a calendar you can see, or deleted).
+const eventInfo = new Map();
+const eventOf = (id) => {
+  if (!eventInfo.has(id)) eventInfo.set(id, get(`/events/${id}/preview`).catch(() => false));
+  return eventInfo.get(id);
+};
+const ANSWER = { yes: 'You’re going', maybe: 'You said maybe', no: 'You said no', needs: 'You haven’t answered' };
+/** When an event is, for a card: "Thu, Dec 3, 9:00 – 10:00 AM", or the day(s) for an all-day one. */
+function eventWhen(start, end, allDay) {
+  const s = new Date(start), e = new Date(end);
+  const day = (d) => d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric', ...(d.getFullYear() !== new Date().getFullYear() && { year: 'numeric' }) });
+  const time = (d) => d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  if (allDay) { const last = new Date(end - 1); return last.toDateString() === s.toDateString() ? `${day(s)} · All day` : `${day(s)} – ${day(last)}`; }
+  return s.toDateString() === e.toDateString() ? `${day(s)}, ${time(s)} – ${time(e)}` : `${day(s)}, ${time(s)} – ${day(e)}, ${time(e)}`;
+}
+
+/** Links to calendar events in a message, shown as cards: what, when, where, and your answer. */
+function EventCards({ text }) {
+  const links = eventLinksIn(text);
+  const [info, setInfo] = useState({});
+  useEffect(() => {
+    let alive = true;
+    for (const l of links) eventOf(l.id).then((x) => { if (alive) setInfo((s) => ({ ...s, [l.id]: x })); });
+    return () => { alive = false; };
+  }, [text]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!links.length) return null;
+  return (
+    <div className="msg-cards">
+      {links.map((l) => {
+        const x = info[l.id];
+        const key = `${l.id}:${l.at || ''}`;
+        if (x === undefined) return null;
+        if (!x) return <div key={key} className="msg-card none" role="note"><Icon name="lock" size={18} /> <span className="muted small">An event you can’t see (it’s not in a calendar you can see, or it was deleted)</span></div>;
+        const start = l.at || x.start, end = start + (x.end - x.start);
+        const answer = x.mine ? 'You organise it' : ANSWER[x.my_status] || (x.organizer_name ? `Organised by ${x.organizer_name}` : '');
+        return (
+          <Link key={key} className="msg-card event-card" to={`/calendar?event=${x.id}${l.at ? `&at=${l.at}` : ''}`} aria-label={`Event: ${x.title}`}>
+            <span className="msg-card-meta"><Icon name="calendar" size={18} /> <strong>{x.title}</strong>{x.repeats && <span className="muted small" title="Repeats">↻</span>}</span>
+            <span className="small">{eventWhen(start, end, x.all_day)}{x.location ? ` · ${x.location}` : ''}</span>
+            <span className="muted small">{[answer, x.guests > 0 && `${x.guests} ${x.guests === 1 ? 'guest' : 'guests'}${x.yes ? `, ${x.yes} going` : ''}`].filter(Boolean).join(' · ')}</span>
           </Link>
         );
       })}

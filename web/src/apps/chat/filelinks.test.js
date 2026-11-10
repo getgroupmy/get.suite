@@ -32,3 +32,14 @@ test('task links: relative or on this server, each once, at most three', async (
   assert.equal(taskLink({ list_id: 'list123', id: 'task456' }, 'https://ws'), 'https://ws/tasks/list123?task=task456');
   assert.equal(taskLinksIn('/tasks/assigned?task=task456', 'h').length, 1, 'any list in the address; the task decides');
 });
+
+test('event links: with the time of a repeating one, on this server only', async () => {
+  const { eventLinksIn, eventLink } = await import('./filelinks.js');
+  assert.deepEqual(eventLinksIn('see https://ws.example/calendar?event=evt123456 ok', 'ws.example'), [{ id: 'evt123456', at: null }]);
+  assert.deepEqual(eventLinksIn('/calendar?event=evt123456&at=1764752400000 and /calendar?event=evt123456&at=1765357200000', 'h'),
+    [{ id: 'evt123456', at: 1764752400000 }, { id: 'evt123456', at: 1765357200000 }], 'two times of one event');
+  assert.deepEqual(eventLinksIn('https://other.example/calendar?event=evt123456', 'ws.example'), []);
+  assert.deepEqual(eventLinksIn('/calendar?timeoff=1 /calendar', 'h'), []);
+  assert.equal(eventLink({ id: 'e1', start: 5, rrule: null }, 'https://ws'), 'https://ws/calendar?event=e1');
+  assert.equal(eventLink({ id: 'e1', start: 1764752400000, rrule: { freq: 'weekly' } }, 'https://ws'), 'https://ws/calendar?event=e1&at=1764752400000');
+});

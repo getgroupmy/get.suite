@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { useAuth } from '../../App.jsx';
 import { get, post, put, patch, del, onLive, postText, setCalendarOwner } from '../../api.js';
 import { localToday } from '../tasks/taskmath.js';
+import { eventLink } from '../chat/filelinks.js';
 import Icon from '../../components/Icon.jsx';
 import DrivePicker, { openUrl } from '../../components/DrivePicker.jsx';
 import { Modal, useToast, Empty, Menu, PromptModal } from '../../components/ui.jsx';
@@ -112,6 +113,19 @@ function Calendar({ acting = null, managed = [], onPick }) {
     navigateTo(location.pathname, { replace: true, state: null });
     openFound(r);
   }, [location.state]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A link to an event (/calendar?event=<id>, &at=<start> for one time of a repeating one): open it.
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const id = params.get('event');
+    if (!id) return;
+    const at = Number(params.get('at')) || null;
+    params.delete('event'); params.delete('at');
+    navigateTo({ pathname: location.pathname, search: params.toString() ? `?${params}` : '' }, { replace: true });
+    get(`/events/${encodeURIComponent(id)}/preview`).then((p) => {
+      const start = at || p.start;
+      openFound({ id: p.id, start, end: start + (p.end - p.start) });
+    }).catch(() => toast('That event isn’t in a calendar you can see (or it was deleted)', 'error'));
+  }, [location.search]); // eslint-disable-line react-hooks/exhaustive-deps
   // An event drafted in a document (/calendar?new_doc=1; it waits in this browser's storage): open it to check and save.
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -749,6 +763,16 @@ function MeetLine({ code, onRemove }) {
   );
 }
 
+/** Copies the event's address (for a repeating one, of this time of it), to paste in Chat, an email or a document. */
+function CopyEventLink({ event, className }) {
+  const toast = useToast();
+  const copy = async () => {
+    const url = eventLink(event);
+    try { await navigator.clipboard.writeText(url); toast('Link to the event copied: people who can see it can open it'); } catch { toast(url); }
+  };
+  return <button type="button" className={className} onClick={copy} title="Copy link to event (paste it in Chat, an email or a document)">Copy link</button>;
+}
+
 function InvitationDialog({ event, onClose, onAnswered }) {
   const toast = useToast();
   const [reminders, setReminders] = useState(event.reminders || []);
@@ -770,7 +794,7 @@ function InvitationDialog({ event, onClose, onAnswered }) {
         <Attachments list={event.attachments} />
         <p style={{ margin: 0 }}><span className="muted">Organizer:</span> {event.organizer?.name} <span className="muted small">{event.organizer?.email}</span></p>
         <GuestList guests={event.guests} />
-        <p style={{ margin: 0 }}><a className="small" href={`/api/events/${event.id}/ics`} download>Download this event (.ics)</a> <span className="muted small">for another calendar app</span></p>
+        <p style={{ margin: 0 }}><a className="small" href={`/api/events/${event.id}/ics`} download>Download this event (.ics)</a> <span className="muted small">for another calendar app</span> · <CopyEventLink event={event} className="link-btn small" /></p>
         {event.rooms?.length > 0 && <p className="muted small">Room: {event.rooms.map((r) => `${r.name}${r.status === 'no' ? ' (declined: taken)' : ''}`).join(', ')}</p>}
         <RemindersField value={reminders} onChange={saveReminders} />
         {!event.rrule && <ProposeTime event={event} onDone={onAnswered} />}
@@ -1293,6 +1317,7 @@ function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate }) {
             onDuplicate({ title: body.title, location: body.location, description: body.description, color: body.color, all_day: f.all_day ? 1 : 0, start, end,
               guests: body.guests.map((email) => ({ email })), reminders: body.reminders, duplicateOf: event.title, calendar_id: f.calendar_id });
           }}>Duplicate</button>}
+          {event.id && <CopyEventLink event={event} className="btn" />}
           {event.id && <a className="btn" href={`/api/events/${event.id}/ics`} download title="A calendar file of this event, for Outlook, Apple or Google Calendar, or to pass on">Download (.ics)</a>}
           <div className="grow" />
           <button type="button" className="btn" onClick={onClose}>Cancel</button>
