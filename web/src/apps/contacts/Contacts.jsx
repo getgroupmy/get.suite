@@ -13,6 +13,7 @@ import { orgTree, chainOf } from '../../components/orgchart.js';
 import PersonCard from '../../components/PersonCard.jsx';
 import { photoBlob, photoUrl } from './photo.js';
 import QRCode from 'qrcode';
+import { sinceText } from '../home/dates.js';
 
 const FIELDS = [['name', 'Name'], ['email', 'Email'], ['phone', 'Phone'], ['company', 'Company'], ['title', 'Job title'], ['website', 'Website']];
 const TYPE_LABELS = { work: 'Work', home: 'Home', mobile: 'Mobile', other: 'Other' };
@@ -46,7 +47,7 @@ export default function Contacts() {
   const toast = useToast();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const [tab, setTab] = useState('mine');
+  const [tab, setTab] = useState(() => (new URLSearchParams(window.location.search).get('tab') === 'touch' ? 'touch' : 'mine')); // ?tab=touch from Home
   const [contacts, setContacts] = useState(null);
   const [directory, setDirectory] = useState([]);
   const [params] = useSearchParams();
@@ -327,12 +328,6 @@ function OtherContacts({ filter, onAdded }) {
 }
 
 const TOUCH = [['', 'No reminder'], [7, 'Every week'], [14, 'Every 2 weeks'], [30, 'Every month'], [60, 'Every 2 months'], [90, 'Every 3 months'], [180, 'Every 6 months'], [365, 'Every year']];
-/** "today", "3 days ago", "5 weeks ago", "never". */
-export function sinceText(at, now = Date.now()) {
-  if (!at) return 'never';
-  const d = Math.floor((now - at) / 864e5);
-  return d < 1 ? 'today' : d === 1 ? 'yesterday' : d < 14 ? `${d} days ago` : d < 60 ? `${Math.round(d / 7)} weeks ago` : `${Math.round(d / 30)} months ago`;
-}
 
 /** Who you're due to be in touch with (most overdue first): write to them, or mark that you've been in touch. */
 function KeepInTouch({ filter }) {

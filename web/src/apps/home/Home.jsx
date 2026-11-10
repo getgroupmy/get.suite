@@ -2,7 +2,7 @@
 // worked on lately and your pinned notes, each linking to where it lives. It updates as things change.
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
-import { get, put, patch, onLive, formatDate } from '../../api.js';
+import { get, post, put, patch, onLive, formatDate } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
 import { Avatar, Modal, useToast } from '../../components/ui.jsx';
 import { useAuth } from '../../App.jsx';
@@ -15,7 +15,7 @@ const time = (ms) => new Date(ms).toLocaleTimeString([], { hour: 'numeric', minu
 
 import { placeText } from '../../components/workloc.js';
 import { greeting } from './greeting.js';
-import { upcoming, addDays } from './dates.js';
+import { upcoming, addDays, sinceText } from './dates.js';
 
 /** "tomorrow", "Mon 16 Nov" for a YYYY-MM-DD. */
 function dayText(d) {
@@ -26,7 +26,7 @@ function dayText(d) {
 
 /** Home's cards, by key, as the Customize window names them. */
 export const CARD_NAMES = { events: "Today's events", tasks: 'Tasks for today', unread: 'Unread', approvals: 'Waiting for your approval', out: "Who's out",
-  signing: 'Waiting for your signature', apps: 'Company apps', recent: 'Recent files', notes: 'Pinned notes', dates: 'Birthdays and dates' };
+  signing: 'Waiting for your signature', apps: 'Company apps', recent: 'Recent files', notes: 'Pinned notes', dates: 'Birthdays and dates', touch: 'Keep in touch' };
 const DEFAULT_LAYOUT = { order: Object.keys(CARD_NAMES), hidden: [] };
 
 export default function Home() {
@@ -47,7 +47,7 @@ export default function Home() {
     const start = new Date(); start.setHours(0, 0, 0, 0);
     const from = start.getTime(), to = from + 864e5 - 1;
     const safe = (p, empty) => p.catch(() => empty);
-    const [events, due, channels, recent, notes, unread, approvals, where, signing, away, apps, dates] = await Promise.all([
+    const [events, due, channels, recent, notes, unread, approvals, where, signing, away, apps, dates, touch] = await Promise.all([
       safe(get(`/events?from=${from}&to=${to}`), []), safe(get(`/tasks/today?today=${localToday()}`), []),
       safe(get('/chat/channels'), { channels: [] }), safe(get('/files?view=recent'), []), safe(get('/notes'), []),
       mail?.enabled ? safe(get('/mail/unread'), null) : Promise.resolve(null), safe(get('/approvals'), { waiting: [] }),
@@ -55,6 +55,7 @@ export default function Home() {
       safe(get(`/time-off/out?date=${localToday()}`), { out: [], holiday: null, waiting: 0 }),
       safe(get('/oauth/launcher'), []),
       safe(get(`/contacts/birthdays?from=${localToday()}&to=${addDays(localToday(), 13)}`), []),
+      safe(get('/contacts/keep-in-touch'), []),
     ]);
     setData({
       events: expandAll(events, from, to).filter((e) => e.my_status !== 'no'),
@@ -69,6 +70,7 @@ export default function Home() {
       away,
       apps,
       dates: upcoming(dates, localToday()).slice(0, 6),
+      touch: touch.slice(0, 5), touchMore: Math.max(0, touch.length - 5),
     });
   }, [mail?.enabled]);
   useEffect(() => { if (mail) load(); }, [load, mail]);
@@ -216,6 +218,22 @@ export default function Home() {
                   </li>
                 ))}
               </ul>
+            </section>
+          )}
+          {data.touch.length > 0 && (
+            <section className="card home-card" aria-label="Keep in touch" {...cardProps('touch')}>
+              <h2><Link to="/contacts?tab=touch"><span aria-hidden="true">🤝</span> Keep in touch</Link></h2>
+              <ul className="home-list">
+                {data.touch.map((c) => (
+                  <li key={c.id}>
+                    <span className="grow ellipsis"><strong>{c.name}</strong> <span className="muted small">last in touch {sinceText(c.last_contact)}</span></span>
+                    {c.email && mail?.enabled && <button type="button" className="btn small" aria-label={`Email ${c.name}`} onClick={() => navigate(`/mail?compose=${encodeURIComponent(c.email)}`)}>✉ Email</button>}
+                    <button type="button" className="btn small" aria-label={`In touch with ${c.name}`} title="You've talked another way: start the clock again"
+                      onClick={async () => { try { await post(`/contacts/${c.id}/contacted`, {}); load(); } catch (e) { toast(e.message, 'error'); } }}>✓</button>
+                  </li>
+                ))}
+              </ul>
+              {data.touchMore > 0 && <Link className="small" to="/contacts?tab=touch">and {data.touchMore} more</Link>}
             </section>
           )}
           {data.notes.length > 0 && (

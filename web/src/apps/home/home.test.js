@@ -25,3 +25,14 @@ test('birthdays and dates card: when and what, soonest first', async () => {
   ], '2026-11-10');
   assert.deepEqual(list.map((x) => [x.name, x.when, x.today]), [['Ann', 'Today', true], ['Bo', 'Thursday', false]]);
 });
+
+test('keep in touch: how long since', async () => {
+  const { sinceText } = await import('./dates.js');
+  const now = Date.UTC(2026, 10, 10, 12);
+  assert.equal(sinceText(null, now), 'never');
+  assert.equal(sinceText(now - 3600e3, now), 'today');
+  assert.equal(sinceText(now - 864e5, now), 'yesterday');
+  assert.equal(sinceText(now - 5 * 864e5, now), '5 days ago');
+  assert.equal(sinceText(now - 35 * 864e5, now), '5 weeks ago');
+  assert.equal(sinceText(now - 120 * 864e5, now), '4 months ago');
+});

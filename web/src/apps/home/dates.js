@@ -28,3 +28,10 @@ export function upcoming(list, today) {
     .sort((a, b) => a.date.localeCompare(b.date) || a.name.localeCompare(b.name))
     .map((b) => ({ ...b, key: `${b.contact_id}:${b.date}:${b.label || ''}`, when: whenText(b.date, today), what: whatText(b), today: b.date === today }));
 }
+
+/** When you were last in touch: "today", "yesterday", "3 days ago", "5 weeks ago", "4 months ago", or "never". */
+export function sinceText(at, now = Date.now()) {
+  if (!at) return 'never';
+  const d = Math.floor((now - at) / 864e5);
+  return d < 1 ? 'today' : d === 1 ? 'yesterday' : d < 14 ? `${d} days ago` : d < 60 ? `${Math.round(d / 7)} weeks ago` : `${Math.round(d / 30)} months ago`;
+}

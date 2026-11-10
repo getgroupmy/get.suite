@@ -8577,6 +8577,7 @@ test('home layout: each person orders and hides Home’s cards; new cards appear
   const { HOME_CARDS, homeLayout } = await import('../src/auth.js');
   assert.deepEqual((await a('GET', '/api/auth/me')).body.user.home_layout, { order: HOME_CARDS, hidden: [] });
   assert.ok(HOME_CARDS.includes('dates'), 'birthdays and dates');
+  assert.ok(HOME_CARDS.includes('touch'), 'keep in touch');
   const set = (await a('PUT', '/api/users/me/home-layout', { order: ['notes', 'events'], hidden: ['apps', 'out'] })).body;
   assert.deepEqual(set.order.slice(0, 3), ['notes', 'events', 'tasks'], 'the rest after, in their usual order');
   assert.equal(set.order.length, HOME_CARDS.length);
