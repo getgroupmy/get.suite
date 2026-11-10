@@ -33,6 +33,7 @@ import { addToTasksWithToast, mailLink } from '../tasks/addtask.js';
 import { eventFromEmail } from '../calendar/fromemail.js';
 import { ASPECTS, FULL, fitAspect, moveRect, resizeRect, toPixels, rotatedSize, outputType, editedName } from './cropmath.js';
 
+const MAIL_DRAG = 'application/x-workspace-mail'; // messages being dragged: { folder, uids }
 const FOLDER_ICON = { '\\Inbox': 'inbox', '\\Drafts': 'doc', '\\Sent': 'send', '\\Archive': 'archive', '\\Junk': 'report', '\\Trash': 'trash' };
 const enc = encodeURIComponent;
 const SNOOZED = 'Snoozed';
@@ -241,6 +242,21 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Dropping dragged messages on a folder (moves them) or a label (puts it on them).
+  const [dropAt, setDropAt] = useState(null);
+  const dropProps = (key, onDrop) => ({
+    onDragOver: (e) => { if (!e.dataTransfer.types.includes(MAIL_DRAG)) return; e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dropAt !== key) setDropAt(key); },
+    onDragLeave: () => setDropAt((k) => (k === key ? null : k)),
+    onDrop: (e) => {
+      setDropAt(null);
+      let d = null;
+      try { d = JSON.parse(e.dataTransfer.getData(MAIL_DRAG)); } catch { return; }
+      if (!d?.uids?.length || d.folder !== folder) return;
+      e.preventDefault();
+      onDrop(d);
+    },
+  });
+
   async function act(path, body, msg) {
     try {
       const from = folder;
@@ -297,7 +313,8 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
           const followable = own || f.specialUse === '\\Archive'; // built-in Archive: notifications only, no rename/delete
           return (
             <div key={f.path} className="folder-row">
-              <button className={`subnav-item ${f.path === folder && !q && !labelId ? 'active' : ''}`} onClick={() => { setSearch({}); go(f.path); }}>
+              <button className={`subnav-item ${f.path === folder && !q && !labelId ? 'active' : ''} ${dropAt === f.path ? 'drop-here' : ''}`} onClick={() => { setSearch({}); go(f.path); }}
+                {...(f.path !== folder && f.specialUse !== '\\Drafts' && f.path !== SNOOZED ? dropProps(f.path, (d) => act('move', { uids: d.uids, to: f.path }, `${d.uids.length === 1 ? 'Moved' : `Moved ${d.uids.length} messages`} to ${f.name}`)) : {})}>
                 <Icon name={FOLDER_ICON[f.specialUse] || (f.path === SNOOZED ? 'clock' : 'folder')} /><span className="grow ellipsis">{f.name}</span>
                 {followable && followed.includes(f.path) && <Icon name="bell" size={14} className="followed" title="New-mail notifications on" />}
                 {f.unseen > 0 && f.specialUse !== '\\Trash' && f.specialUse !== '\\Sent' && <span className="count">{f.unseen}</span>}
@@ -335,7 +352,8 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
         <div className="subnav-title row">Labels<div className="grow" /><button type="button" className="icon-btn" aria-label="New label" onClick={() => setLabelDialog({})}><Icon name="plus" size={18} /></button></div>
         {labels.map((l) => (
           <div key={l.id} className="folder-row">
-            <button className={`subnav-item ${labelId === l.id ? 'active' : ''}`} onClick={() => setSearch({ label: l.id })}>
+            <button className={`subnav-item ${labelId === l.id ? 'active' : ''} ${dropAt === `label:${l.id}` ? 'drop-here' : ''}`} onClick={() => setSearch({ label: l.id })}
+              {...dropProps(`label:${l.id}`, (d) => act('labels', { uids: d.uids, add: [l.id] }, `Labelled ${l.name}`))}>
               <span className="label-dot" style={{ background: l.color }} /><span className="grow ellipsis">{l.name}</span>
             </button>
             <Menu align="left" trigger={(p) => <button className="icon-btn folder-menu" aria-label={`Options for label ${l.name}`} {...p}><Icon name="more" size={18} /></button>} items={[
@@ -429,7 +447,15 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
         ) : (
           <ul className="msg-list">
             {shown.map((m) => (
-              <li key={m.uid} className={`${m.seen ? '' : 'unread'} ${m.uid === openUid ? 'open' : ''}`}>
+              <li key={m.uid} className={`${m.seen ? '' : 'unread'} ${m.uid === openUid ? 'open' : ''}`} draggable={special !== '\\Drafts'}
+                onDragStart={(e) => {
+                  // Drag a message (or all the ticked ones, when it's one of them) onto a folder or a label.
+                  const uids = checked.has(m.uid) ? [...checked] : [m.uid];
+                  e.dataTransfer.setData(MAIL_DRAG, JSON.stringify({ folder, uids }));
+                  e.dataTransfer.setData('text/plain', uids.length === 1 ? (m.subject || '(no subject)') : `${uids.length} messages`);
+                  e.dataTransfer.effectAllowed = 'move';
+                }}
+                onDragEnd={() => setDropAt(null)}>
                 <input type="checkbox" aria-label={`Select ${m.subject || '(no subject)'}`} checked={checked.has(m.uid)}
                   onChange={(e) => { const n = new Set(checked); e.target.checked ? n.add(m.uid) : n.delete(m.uid); setChecked(n); }} />
                 <button className="msg-row" onClick={() => (special === '\\Drafts' ? openDraft(m.uid) : go(folder, m.uid))}>

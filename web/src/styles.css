@@ -2603,3 +2603,6 @@ input.fv-name { background: #202124; color: #fff; border: 1px solid #5f6368; bor
 .grid-wrap.fv-on .grid th { background: #5f6368; color: #fff; }
 .grid-wrap.fv-on td:has(> .filter-btn) { background: #e8eaed; }
 .fv-list { list-style: none; padding: 0; margin: 0 0 8px; display: grid; gap: 6px; }
+/* Mail: a folder or label that dragged messages would land on. */
+.subnav-item.drop-here { background: var(--accent-soft); outline: 2px dashed var(--accent); outline-offset: -2px; }
+.mail-list li[draggable="true"] { cursor: grab; }

@@ -510,7 +510,8 @@ test('folders: rename with subfolders updates filters; delete moves mail to Tras
   await olivia('PUT', '/api/mail/rules', { rules: [{ name: 'Acme', conditions: [{ field: 'subject', op: 'contains', value: 'acme-order' }], actions: { moveTo: 'Clients/Acme' } }] });
   await olivia('POST', '/api/mail/send', { to: 'olivia@acme.com', subject: 'Note to self', text: 'file me' });
   const note = await eventually(async () => (await inbox(olivia)).find((m) => m.subject === 'Note to self'));
-  await olivia('POST', '/api/mail/messages/move', { folder: 'INBOX', uids: [note.uid], to: 'Clients/Acme' });
+  const movedNote = (await olivia('POST', '/api/mail/messages/move', { folder: 'INBOX', uids: [note.uid], to: 'Clients/Acme' })).body;
+  assert.deepEqual([movedNote.moved.folder, movedNote.moved.uids.length], ['Clients/Acme', 1], 'where it went, for Undo (and dragging onto a folder)');
 
   // Phones only show subscribed folders.
   const phone = await imapLogin('olivia@acme.com', 'password123');
