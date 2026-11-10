@@ -23,7 +23,7 @@ import {
   THEMES, themeOf, masterOn, THEME_FONTS, CORNERS, cleanCustom, cleanMaster, LAYOUTS, numberShown, newId, moveBox, snapBox, angleTo, normAngle, alignItems, distributeItems, moveItems, pasteItems, resizeBox, addSlide, duplicateSlide, removeSlide, moveSlide, moveSlides, duplicateSlides, removeSlides,
   updateItem, addItem, removeItem, restack, pictureBox,
   TRANSITIONS, setSlide, stepSlide, firstShown, newTable, resizeTable, setCell,
-  ANIMATIONS, builds, animChange, stepPresent, nextPresent, ADVANCES, advanceLabel, slideChanges } from './slidemath.js';
+  ANIMATIONS, builds, animChange, stepPresent, nextPresent, ADVANCES, advanceLabel, slideChanges, groupMembers, sharedGroup, groupItems, ungroupItems } from './slidemath.js';
 import { cleanLink, linkTarget, linkLabel, slideTitle, dropLinksTo } from './slidelinks.js';
 import { PRINT_LAYOUTS, printPages, isPortrait } from './printlayout.js';
 import { slideFileName, zipStored } from './slideimages.js';
@@ -112,6 +112,9 @@ export default function SlidesEditor() {
   const slide = deck?.slides[slideIndex];
   const group = selected ? [selected, ...also].filter((gid) => slide?.items.some((it) => it.id === gid)) : [];
   const multi = group.length > 1;
+  const groupedAs = multi ? sharedGroup(slide, group) : null; // the chosen boxes are exactly one group
+  const groupChosen = () => { if (group.length < 2) return; change((d) => groupItems(d, slideIndex, group)); toast(`Grouped ${group.length} boxes`); };
+  const ungroupChosen = () => { change((d) => ungroupItems(d, slideIndex, group)); setAlso([]); toast('Ungrouped'); };
   const item = multi ? null : slide?.items.find((it) => it.id === selected) || null;
   const theme = themeOf(deck);
   // The latest deck (a slide may have just been added or removed in this same click).
@@ -149,6 +152,7 @@ export default function SlidesEditor() {
       else toast(chosen.length === 1 ? 'Copied 1 box' : `Copied ${chosen.length} boxes`);
       return;
     }
+    if (mod && e.altKey && key === 'g') { e.preventDefault(); if (e.shiftKey) { if (groupedAs || item?.group) ungroupChosen(); } else if (multi) groupChosen(); return; }
     if (mod && key === 'v' && boxClipboard) { e.preventDefault(); pasteBoxes(boxClipboard.items, boxClipboard.deckId); return; }
     if (multi) {
       const step = e.shiftKey ? 5 : 1;
@@ -435,7 +439,10 @@ export default function SlidesEditor() {
             <button type="button" className="tb" aria-label="Delete" title="Delete (Del)" onClick={() => { change((d) => removeItem(d, slideIndex, item.id)); setSelected(null); }}><Icon name="trash" size={18} /></button>
           </>}
           {multi && <>
-            <span className="muted small">{group.length} boxes</span>
+            <span className="muted small">{groupedAs ? `Group of ${group.length}` : `${group.length} boxes`}</span>
+            {groupedAs
+              ? <button type="button" className="tb labelled" aria-label="Ungroup" title="Ungroup (Ctrl+Alt+Shift+G)" onClick={ungroupChosen}>⧉ Ungroup</button>
+              : <button type="button" className="tb labelled" aria-label="Group" title="Group: move, copy and delete them as one (Ctrl+Alt+G)" onClick={groupChosen}>▣ Group</button>}
             {[['left', '⇤', 'Align left edges'], ['center', '⇹', 'Align centres (across)'], ['right', '⇥', 'Align right edges'], ['top', '⤒', 'Align top edges'], ['middle', '⇳', 'Align middles (down)'], ['bottom', '⤓', 'Align bottom edges']].map(([how, icon, label]) => (
               <button key={how} type="button" className="tb" aria-label={label} title={label} onClick={() => change((d) => alignItems(d, slideIndex, group, how))}>{icon}</button>
             ))}
@@ -525,10 +532,11 @@ export default function SlidesEditor() {
           <SlideView slide={slide} theme={theme} deckId={id} number={numberShown(deck, slideIndex) ? slideIndex + 1 : null} editable={!readOnly} selected={selected} group={group} editing={editing} peers={peers}
             onSelect={(itemId, shift) => {
               if (shift && selected && itemId !== selected) { setAlso((a) => (a.includes(itemId) ? a.filter((x) => x !== itemId) : [...a, itemId])); setEditing(null); return; }
-              setSelected(itemId); setAlso([]); if (itemId !== editing) setEditing(null);
+              // A box in a group chooses the whole group (double-click one to type in it on its own).
+              setSelected(itemId); setAlso(groupMembers(slide, itemId).filter((x) => x !== itemId)); if (itemId !== editing) setEditing(null);
             }}
             onMoveMany={(ids, dx, dy) => change((d) => moveItems(d, slideIndex, ids, dx, dy))}
-            onEdit={setEditing}
+            onEdit={(itemId) => { if (itemId) { setSelected(itemId); setAlso([]); } setEditing(itemId); }}
             onChange={(itemId, c) => change((d) => updateItem(d, slideIndex, itemId, c))} />
           <p className="muted small slide-count">Slide {slideIndex + 1} of {deck.slides.length}</p>
           {readOnly ? (slide.notes && <div className="slide-notes read"><span className="muted small">Speaker notes</span><p>{slide.notes}</p></div>) : (

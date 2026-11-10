@@ -225,3 +225,29 @@ test('themes: a presentation\'s own colours and font, and its master', async () 
   assert.equal(themeOf({ theme: 'custom', slides: [] }).name, 'Light', 'custom with no colours: the light theme');
   assert.equal(cleanMaster({ logo: '../x', footer: '   ' }), null);
 });
+
+import { groupItems, ungroupItems, groupMembers, sharedGroup, pasteItems, removeItem as removeOne } from './slidemath.js';
+test('groups: made, chosen together, taken apart; copies get a group of their own; one box left is no group', () => {
+  const box = (id, x) => ({ id, type: 'text', text: id, x, y: 10, w: 10, h: 10 });
+  let d = { slides: [{ id: 's', items: [box('a', 0), box('b', 20), box('c', 40)] }] };
+  d = groupItems(d, 0, ['a', 'b']);
+  const [a, b, c] = d.slides[0].items;
+  assert.ok(a.group && a.group === b.group && !c.group);
+  assert.deepEqual(groupMembers(d.slides[0], 'b'), ['a', 'b']);
+  assert.deepEqual(groupMembers(d.slides[0], 'c'), ['c']);
+  assert.equal(sharedGroup(d.slides[0], ['a', 'b']), a.group);
+  assert.equal(sharedGroup(d.slides[0], ['a', 'c']), null);
+  assert.equal(sharedGroup(d.slides[0], ['a']), null);
+  // Regrouping b with c leaves a on its own: no group for a.
+  const re = groupItems(d, 0, ['b', 'c']).slides[0].items;
+  assert.equal(re[0].group, undefined);
+  assert.ok(re[1].group && re[1].group === re[2].group && re[1].group !== a.group);
+  // Copies of the whole group: a new group; a copy of one member: no group.
+  const pasted = pasteItems(d, 0, [a, b]);
+  const copies = pasted.deck.slides[0].items.slice(3);
+  assert.ok(copies[0].group && copies[0].group === copies[1].group && copies[0].group !== a.group);
+  assert.equal(pasteItems(d, 0, [a]).deck.slides[0].items[3].group, undefined);
+  // Ungroup; deleting one of two ends the group.
+  assert.ok(ungroupItems(d, 0, ['a', 'b']).slides[0].items.every((it) => !it.group));
+  assert.equal(removeOne(d, 0, 'a').slides[0].items[0].group, undefined);
+});

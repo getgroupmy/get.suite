@@ -7,6 +7,22 @@ import JSZip from 'jszip';
 import { parseDocument } from 'htmlparser2';
 import { themeOfDeck } from './powerpoint.js';
 
+/** Boxes of the same group (two or more) wrapped in one <draw:g>, where the first of them was. */
+export function groupedXml(xml, pieces) {
+  const count = new Map();
+  for (const p of pieces) if (p.it.group && p.end > p.start) count.set(p.it.group, (count.get(p.it.group) || 0) + 1);
+  const done = new Set();
+  let out = '';
+  for (const p of pieces) {
+    const g = p.it.group;
+    if (!g || (count.get(g) || 0) < 2) { out += xml.slice(p.start, p.end); continue; }
+    if (done.has(g)) continue;
+    done.add(g);
+    out += `<draw:g>${pieces.filter((q) => q.it.group === g).map((q) => xml.slice(q.start, q.end)).join('')}</draw:g>`;
+  }
+  return out;
+}
+
 export const ODP_MIME = 'application/vnd.oasis.opendocument.presentation';
 const x = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const COLOR = /^#[0-9a-f]{6}$/i;
@@ -74,7 +90,10 @@ export async function odpFromDeck(deck, { pictureData, title = 'Presentation' } 
     if (bgPath) { const name = `bg${fillImages.length + 1}`; fillImages.push(`<draw:fill-image draw:name="${name}" xlink:href="${bgPath}" xlink:type="simple" xlink:show="embed" xlink:actuate="onLoad"/>`); dp = style('drawing-page', `<style:drawing-page-properties draw:fill="bitmap" draw:fill-image-name="${name}" style:repeat="stretch" presentation:visibility="${s.skip ? 'hidden' : 'visible'}"/>`); }
     else dp = style('drawing-page', `<style:drawing-page-properties draw:fill="solid" draw:fill-color="${color(s.bg, theme.bg)}" presentation:visibility="${s.skip ? 'hidden' : 'visible'}"/>`);
     let items = '';
+    const pieces = []; // each box's own XML, so grouped ones can be wrapped in a <draw:g>
     for (const it of s.items || []) {
+      if (pieces.length) pieces[pieces.length - 1].end = items.length;
+      pieces.push({ it, start: items.length });
       const href = linkOf(it, slides);
       if (it.type === 'text') {
         const gs = graphic(it, { fill: it.fill ? color(it.fill, theme.accent) : null, stroke: outline(it), valign: 'top' });
@@ -110,6 +129,8 @@ export async function odpFromDeck(deck, { pictureData, title = 'Presentation' } 
         items += `<draw:frame draw:style-name="${graphic(it, { fill: '#f1f3f4', valign: 'middle' })}" ${place(it)}><draw:text-box>${paras(`▶ ${it.name || 'Video'}`, textStyle({ size: 18, color: '#5f6368' }, '#5f6368', 18), paraStyle('center'))}</draw:text-box></draw:frame>`;
       }
     }
+    if (pieces.length) pieces[pieces.length - 1].end = items.length;
+    items = groupedXml(items, pieces);
     const notes = s.notes ? `<presentation:notes><draw:page-thumbnail presentation:class="page" svg:x="2cm" svg:y="2cm" svg:width="17cm" svg:height="9.56cm" draw:page-number="${si + 1}"/><draw:frame presentation:class="notes" presentation:placeholder="false" svg:x="2cm" svg:y="12.5cm" svg:width="17cm" svg:height="13cm"><draw:text-box>${String(s.notes).split('\n').map((l) => `<text:p>${x(l)}</text:p>`).join('')}</draw:text-box></draw:frame></presentation:notes>` : '';
     pages += `<draw:page draw:name="page${si + 1}" draw:style-name="${dp}" draw:master-page-name="Default">${items}${notes}</draw:page>`;
   }
@@ -227,7 +248,15 @@ export async function deckFromOdp(buffer, { savePicture } = {}) {
     if (d['presentation:visibility'] === 'hidden') slide.skip = true;
     const walk = async (nodes, link) => {
       for (const el of nodes) {
-        if (el.name === 'draw:a' || el.name === 'draw:g') { await walk(tags(el), el.name === 'draw:a' ? el.attribs['xlink:href'] : link); continue; }
+        if (el.name === 'draw:g') { // a group: its boxes keep a group id (the outermost group's; a group of one is just a box)
+          const from = slide.items.length;
+          await walk(tags(el), link);
+          const added = slide.items.slice(from);
+          const gid = fresh();
+          if (added.length > 1) for (const it of added) if (!it.group) it.group = gid;
+          continue;
+        }
+        if (el.name === 'draw:a') { await walk(tags(el), el.attribs['xlink:href']); continue; }
         if (el.attribs?.['presentation:placeholder'] === 'true' && !textOf(el).trim()) continue; // an empty placeholder (Impress marks some with text in them too)
         const g = look(el.attribs?.['draw:style-name'] || el.attribs?.['presentation:style-name'], 'g');
         const lk = link && /^(https?:|mailto:)/i.test(link) ? { link: { url: link } } : link?.startsWith('#') ? { link: { pageName: link.slice(1) } } : {};

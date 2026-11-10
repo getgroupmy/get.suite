@@ -1729,3 +1729,47 @@ test('Excel download: a named table keeps its name; structured references go as 
   const table = await zip.file('xl/tables/table1.xml').async('string');
   assert.match(table, /name="Sales" displayName="Sales"/);
 });
+
+test('PowerPoint: grouped boxes go out as a group and come back as one; a scaled group from PowerPoint lands where it shows', async () => {
+  const { treeChildren } = await import('../src/office/powerpoint.js');
+  const deck = { theme: 'light', slides: [{ id: 'a', items: [
+    { id: 'logo', type: 'shape', shape: 'ellipse', fill: 'accent', x: 10, y: 10, w: 10, h: 10, group: 'g1' },
+    { id: 'name', type: 'text', text: 'Acme', x: 22, y: 12, w: 20, h: 8, group: 'g1' },
+    { id: 'alone', type: 'text', text: 'Agenda', x: 50, y: 50, w: 30, h: 10, anim: 'fade', animAt: 1 },
+    { id: 'one', type: 'text', text: 'Lonely', x: 50, y: 80, w: 30, h: 10, group: 'g2' },
+  ] }] };
+  const buf = await powerPointFromDeck(deck);
+  const xml = await (await JSZip.loadAsync(buf)).file('ppt/slides/slide1.xml').async('string');
+  assert.equal((xml.match(/<p:grpSp>/g) || []).length, 1, 'one group (a group of one is just a box)');
+  const grp = /<p:grpSp>[\s\S]*?<\/p:grpSp>/.exec(xml)[0];
+  assert.match(grp, /Acme/);
+  assert.ok(!grp.includes('Agenda'));
+  assert.match(grp, /<a:off x="1219170" y="685800"\/><a:ext cx="3901342" cy="685800"\/><a:chOff x="1219170" y="685800"\/>/);
+  assert.match(xml, /<p:timing>/, 'animations still there');
+  const ids = [...xml.matchAll(/<p:cNvPr id="(\d+)"/g)].map((m) => m[1]);
+  assert.equal(new Set(ids).size, ids.length, 'every shape id once');
+  const back = await deckFromPowerPoint(buf, { savePicture: async () => 'x' });
+  const its = back.slides[0].items;
+  const g = its.filter((i) => i.group);
+  assert.equal(g.length, 2);
+  assert.equal(g[0].group, g[1].group);
+  const acme = its.find((i) => i.text === 'Acme');
+  assert.deepEqual([Math.round(acme.x), Math.round(acme.y), Math.round(acme.w)], [22, 12, 20], 'unchanged place');
+  assert.equal(its.find((i) => i.text === 'Agenda').anim, 'fade');
+  assert.equal(its.find((i) => i.text === 'Agenda').group, undefined);
+
+  // A group PowerPoint shrank to half size: its boxes' own numbers are in the group's space.
+  const W = 12192000, H = 6858000;
+  const sp = (n, x, y, cx, cy, t) => `<p:sp><p:nvSpPr><p:cNvPr id="${n}" name="T${n}"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="${x}" y="${y}"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr><p:txBody><a:bodyPr/><a:p><a:r><a:t>${t}</a:t></a:r></a:p></p:txBody></p:sp>`;
+  const scaled = `<p:grpSp><p:nvGrpSpPr><p:cNvPr id="9" name="Group 1"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x="${W / 2}" y="0"/><a:ext cx="${W / 4}" cy="${H / 4}"/><a:chOff x="0" y="0"/><a:chExt cx="${W / 2}" cy="${H / 2}"/></a:xfrm></p:grpSpPr>${sp(10, 0, 0, W / 4, H / 4, 'Left')}${sp(11, W / 4, H / 4, W / 4, H / 4, 'Right')}</p:grpSp>`;
+  const zip = await JSZip.loadAsync(buf);
+  zip.file('ppt/slides/slide1.xml', xml.replace(/<p:grpSp>[\s\S]*?<\/p:grpSp>/, scaled));
+  const fromPpt = await deckFromPowerPoint(await zip.generateAsync({ type: 'nodebuffer' }), { savePicture: async () => 'x' });
+  const right = fromPpt.slides[0].items.find((i) => i.text === 'Right');
+  const left = fromPpt.slides[0].items.find((i) => i.text === 'Left');
+  assert.deepEqual([right.x, right.y, right.w, right.h].map((v) => Math.round(v * 10) / 10), [62.5, 12.5, 12.5, 12.5]);
+  assert.deepEqual([left.x, left.y].map((v) => Math.round(v * 10) / 10), [50, 0]);
+  assert.equal(left.group, right.group);
+  // The tree's children, as the export sees them.
+  assert.deepEqual(treeChildren('<p:spTree><a/><b x="1"><c/></b><d></d></p:spTree>').length, 3);
+});

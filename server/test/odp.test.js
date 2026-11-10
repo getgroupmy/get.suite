@@ -84,3 +84,27 @@ test('.odp in: what Impress writes (a picture of a table beside it, notes marked
   ]);
   assert.equal(s.notes, 'Remember the date');
 });
+
+test('.odp: grouped boxes go out in one <draw:g> and come back grouped; a group of one is just a box', async () => {
+  const grouped = { theme: 'light', slides: [{ id: 'a', items: [
+    { id: 'a1', type: 'shape', shape: 'ellipse', x: 10, y: 10, w: 10, h: 10, fill: 'accent', group: 'g' },
+    { id: 'mid', type: 'text', x: 50, y: 50, w: 20, h: 10, text: 'Between' },
+    { id: 'a2', type: 'text', x: 22, y: 12, w: 20, h: 8, text: 'Acme', group: 'g' },
+    { id: 'solo', type: 'text', x: 50, y: 80, w: 20, h: 10, text: 'Solo', group: 'h' },
+  ] }] };
+  const buf = await odpFromDeck(grouped, { pictureData: async () => null });
+  const content = await (await JSZip.loadAsync(buf)).file('content.xml').async('string');
+  const g = /<draw:g>([\s\S]*?)<\/draw:g>/.exec(content);
+  assert.ok(g, 'a group');
+  assert.equal((content.match(/<draw:g>/g) || []).length, 1);
+  assert.match(g[1], /draw:custom-shape[\s\S]*Acme/);
+  assert.ok(!g[1].includes('Between') && !g[1].includes('Solo'));
+  assert.ok(content.indexOf('<draw:g>') < content.indexOf('Between'), 'where its first box was');
+  const back = await deckFromOdp(buf, { savePicture: async () => 'x' });
+  const its = back.slides[0].items;
+  const inG = its.filter((i) => i.group);
+  assert.equal(inG.length, 2);
+  assert.equal(inG[0].group, inG[1].group);
+  assert.equal(its.find((i) => i.text === 'Solo').group, undefined);
+  assert.deepEqual([Math.round(its.find((i) => i.text === 'Acme').x)], [22]);
+});

@@ -246,6 +246,67 @@ async function withShowSettings(buffer, deck, emitted = new Map()) {
   return zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
 }
 
+/** The top-level elements inside a slide's <p:spTree> (as [start, end] offsets into xml). */
+export function treeChildren(xml) {
+  const open = xml.indexOf('<p:spTree>');
+  const close = xml.lastIndexOf('</p:spTree>');
+  if (open < 0 || close < 0) return [];
+  const out = [];
+  let depth = 0, start = -1;
+  const re = /<(\/?)([\w:.-]+)(?:"[^"]*"|'[^']*'|[^'">])*?(\/?)>/g;
+  re.lastIndex = open + '<p:spTree>'.length;
+  for (let m; (m = re.exec(xml)) && m.index < close;) {
+    if (m[2].startsWith('?') || m[2].startsWith('!')) continue;
+    if (m[1]) { depth--; if (depth === 0) out.push([start, re.lastIndex]); continue; }
+    if (depth === 0) start = m.index;
+    if (m[3]) { if (depth === 0) out.push([start, re.lastIndex]); continue; }
+    depth++;
+  }
+  return out;
+}
+
+/**
+ * Grouped boxes become PowerPoint groups (<p:grpSp>), at the place of the group's first box, with the
+ * group's frame round them (child space = slide space, so the boxes stay where they are).
+ */
+async function withGroups(buffer, deck, emitted, { Win, Hin }) {
+  const slides = deck.slides || [];
+  if (!slides.some((s) => (s.items || []).some((it) => it.group))) return buffer;
+  const zip = await JSZip.loadAsync(buffer);
+  const EMU = 914400;
+  for (let i = 0; i < slides.length; i++) {
+    const shown = emitted.get(slides[i]) || [];
+    const groups = new Map();
+    shown.forEach((it, k) => { if (it.group) groups.set(it.group, [...(groups.get(it.group) || []), k]); });
+    const real = [...groups.values()].filter((ks) => ks.length > 1);
+    if (!real.length) continue;
+    const file = `ppt/slides/slide${i + 1}.xml`;
+    const xml = await zip.file(file)?.async('string');
+    if (!xml) continue;
+    // The slide's shapes in order (the tree's own header and the placeholders aside), as for animations.
+    const parts = treeChildren(xml).map(([a, b]) => ({ a, b, text: xml.slice(a, b) }))
+      .filter((p) => /^<p:(sp|pic|cxnSp|graphicFrame)\b/.test(p.text) && !/<p:cNvPr id="1"/.test(p.text) && !/name="[^"]*Placeholder/.test(p.text));
+    let nextId = Math.max(1, ...[...xml.matchAll(/<p:cNvPr id="(\d+)"/g)].map((m) => Number(m[1]))) + 1;
+    const replace = new Map(); // part → text to put there instead ('' takes it out)
+    real.forEach((ks, n) => {
+      const its = ks.map((k) => shown[k]);
+      const own = ks.map((k) => parts[k]).filter(Boolean);
+      if (own.length < 2) return;
+      const x1 = Math.min(...its.map((it) => it.x)), y1 = Math.min(...its.map((it) => it.y));
+      const x2 = Math.max(...its.map((it) => it.x + it.w)), y2 = Math.max(...its.map((it) => it.y + it.h));
+      const emu = (pct, size) => Math.round((pct / 100) * size * EMU);
+      const [x, y, cx, cy] = [emu(x1, Win), emu(y1, Hin), Math.max(1, emu(x2 - x1, Win)), Math.max(1, emu(y2 - y1, Hin))];
+      const xfrm = `<a:xfrm><a:off x="${x}" y="${y}"/><a:ext cx="${cx}" cy="${cy}"/><a:chOff x="${x}" y="${y}"/><a:chExt cx="${cx}" cy="${cy}"/></a:xfrm>`;
+      const grp = `<p:grpSp><p:nvGrpSpPr><p:cNvPr id="${nextId++}" name="Group ${n + 1}"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr>${xfrm}</p:grpSpPr>${own.map((p) => p.text).join('')}</p:grpSp>`;
+      own.forEach((p, k) => replace.set(p, k === 0 ? grp : ''));
+    });
+    let out = '', at = 0;
+    for (const p of [...replace.keys()].sort((a, b) => a.a - b.a)) { out += xml.slice(at, p.a) + replace.get(p); at = p.b; }
+    zip.file(file, out + xml.slice(at));
+  }
+  return zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
+}
+
 /**
  * A PowerPoint file as a Slides presentation. `savePicture(name, buffer, mime)` stores a picture
  * (in Drive) and returns its file id.
@@ -293,7 +354,24 @@ export async function deckFromPowerPoint(buffer, { savePicture }) {
     const linked = (el, item) => { const l = linkOfEl(el); if (l) item.link = l; return item; };
     const tree = deep(xml, P, 'spTree')[0];
     const spidOf = new Map(); // item → its shape id on the slide (for animations)
-    const pushFrom = (el, item) => { spidOf.set(item, attr(deep(el, P, 'cNvPr')[0], 'id')); items.push(item); };
+    // Grouped shapes (PowerPoint's grpSp, outermost ones): their boxes are in the group's own space,
+    // mapped onto the slide by its xfrm (off/ext ← chOff/chExt); in Slides they keep a group id.
+    const groupOf = new Map();
+    for (const g of kids(tree, P, 'grpSp')) {
+      const xf = deep(kid(g, P, 'grpSpPr'), A, 'xfrm')[0];
+      const n = (el, k) => Number(attr(kid(xf, A, el), k));
+      const [ox, oy, ex, ey, cx, cy, cw, ch] = [n('off', 'x'), n('off', 'y'), n('ext', 'cx'), n('ext', 'cy'), n('chOff', 'x'), n('chOff', 'y'), n('chExt', 'cx'), n('chExt', 'cy')];
+      const ok = [ox, oy, ex, ey, cx, cy, cw, ch].every(Number.isFinite) && cw > 0 && ch > 0;
+      const map = ok ? (b) => ({ x: ((ox + ((b.x / 100) * W - cx) * (ex / cw)) / W) * 100, y: ((oy + ((b.y / 100) * H - cy) * (ey / ch)) / H) * 100, w: (b.w * ex) / cw, h: (b.h * ey) / ch }) : (b) => b;
+      const gid = id();
+      for (const local of ['sp', 'pic', 'cxnSp', 'graphicFrame']) for (const el of deep(g, P, local)) groupOf.set(el, { gid, map });
+    }
+    const pushFrom = (el, item) => {
+      spidOf.set(item, attr(deep(el, P, 'cNvPr')[0], 'id'));
+      const g = groupOf.get(el);
+      if (g) Object.assign(item, g.map(item), { group: g.gid });
+      items.push(item);
+    };
     for (const el of deep(tree, P, 'sp').concat(deep(tree, P, 'cxnSp'), deep(tree, P, 'pic'))) { // shapes, connectors (lines, arrows), pictures
       const box = boxOf(el);
       if (!box) continue;
@@ -386,6 +464,10 @@ export async function deckFromPowerPoint(buffer, { savePicture }) {
         header: attr(kid(tbl, A, 'tblPr'), 'firstRow') === '1' || kids(kids(tbl, A, 'tr')[0], A, 'tc').every((tc) => deep(tc, A, 'rPr').some((r) => attr(r, 'b') === '1')), size: Math.max(8, Math.round((pt / 72) * 1000 / widthIn)),
         x: (Number(attr(off, 'x')) / W) * 100, y: (Number(attr(off, 'y')) / H) * 100, w: (Number(attr(ext, 'cx')) / W) * 100, h: (Number(attr(ext, 'cy')) / H) * 100 });
     }
+    // A group needs two or more boxes (the others in it may have been something Slides can't show).
+    const members = new Map();
+    for (const it of items) if (it.group) members.set(it.group, (members.get(it.group) || 0) + 1);
+    for (const it of items) if (it.group && members.get(it.group) < 2) delete it.group;
     // Animations: the entrance effects of the slide's click sequence, in order, as Slides' own.
     const effects = animationsOf(await zip.file(file)?.async('string') || '');
     effects.forEach((e, k) => {
@@ -581,5 +663,5 @@ export async function powerPointFromDeck(deck, { pictureData, title = 'Presentat
     }
     if (withMaster && master.footer) slide.addText(master.footer, { x: Win * (master.logo && master.corner === 'bl' ? 0.18 : 0.025), y: Hin - 0.55, w: Win * 0.6, h: 0.35, fontSize: 11, color: color('text', theme.text), fontFace: FONT, transparency: 30, valign: 'middle', margin: 0 });
   }
-  return withSlideComments(await withShowSettings(Buffer.from(await pptx.write({ outputType: 'nodebuffer' })), deck, emitted), deck, comments);
+  return withSlideComments(await withGroups(await withShowSettings(Buffer.from(await pptx.write({ outputType: 'nodebuffer' })), deck, emitted), deck, emitted, { Win, Hin }), deck, comments);
 }

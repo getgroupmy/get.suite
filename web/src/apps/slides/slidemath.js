@@ -147,7 +147,7 @@ export function addItem(deck, slideIndex, item) {
   return { ...deck, slides: deck.slides.map((s, i) => (i !== slideIndex ? s : { ...s, items: [...s.items, item] })) };
 }
 export function removeItem(deck, slideIndex, itemId) {
-  return { ...deck, slides: deck.slides.map((s, i) => (i !== slideIndex ? s : { ...s, items: s.items.filter((it) => it.id !== itemId) })) };
+  return { ...deck, slides: deck.slides.map((s, i) => (i !== slideIndex ? s : { ...s, items: dropLoneGroups(s.items.filter((it) => it.id !== itemId)) })) };
 }
 /** Bring to front (+1) or send to back (-1). */
 export function restack(deck, slideIndex, itemId, dir) {
@@ -364,6 +364,50 @@ export function pasteItems(deck, slideIndex, items) {
   const taken = (dx) => items.some((c) => there.some((o) => Math.abs(o.x - (c.x + dx)) < 0.01 && Math.abs(o.y - (c.y + dx)) < 0.01));
   let shift = 0;
   while (shift < 20 && taken(shift)) shift += 2;
-  const copies = items.map((c) => { const { anim, ...rest } = c; return clampBox({ ...JSON.parse(JSON.stringify(rest)), id: newId(), x: c.x + shift, y: c.y + shift }); });
+  const regroup = freshGroups(items);
+  const copies = items.map((c) => { const { anim, group, ...rest } = c; const g = regroup.get(group); return clampBox({ ...JSON.parse(JSON.stringify(rest)), id: newId(), x: c.x + shift, y: c.y + shift, ...(g && { group: g }) }); });
   return { deck: setSlide(deck, slideIndex, { items: [...there, ...copies] }), ids: copies.map((c) => c.id) };
+}
+
+// Groups: boxes with the same `group` are chosen, moved, copied and deleted together (a group has two or more).
+/** New group ids for copies: a group whose boxes (two or more) are all being copied becomes a new group of the copies. */
+function freshGroups(items) {
+  const count = new Map();
+  for (const it of items) if (it.group) count.set(it.group, (count.get(it.group) || 0) + 1);
+  return new Map([...count].filter(([, n]) => n > 1).map(([g]) => [g, newId()]));
+}
+/** The boxes on the slide that go with this one (its group, or just itself). */
+export function groupMembers(slide, itemId) {
+  const it = slide?.items.find((x) => x.id === itemId);
+  if (!it?.group) return [itemId];
+  const ids = slide.items.filter((x) => x.group === it.group).map((x) => x.id);
+  return ids.length > 1 ? ids : [itemId];
+}
+/** The group these boxes make up exactly, if they do (null otherwise). */
+export function sharedGroup(slide, ids) {
+  const its = (slide?.items || []).filter((x) => ids.includes(x.id));
+  const g = its[0]?.group;
+  if (!g || its.length < 2 || its.some((x) => x.group !== g)) return null;
+  return slide.items.filter((x) => x.group === g).length === its.length ? g : null;
+}
+/** Make the boxes one group (taking them out of any they were in; boxes left alone in an old group leave it too). */
+export function groupItems(deck, slideIndex, ids) {
+  const s = deck.slides[slideIndex];
+  if (ids.length < 2) return deck;
+  const g = newId();
+  let items = s.items.map((it) => (ids.includes(it.id) ? { ...it, group: g } : it));
+  items = dropLoneGroups(items);
+  return setSlide(deck, slideIndex, { items });
+}
+/** Take the boxes out of their groups. */
+export function ungroupItems(deck, slideIndex, ids) {
+  const s = deck.slides[slideIndex];
+  const items = s.items.map((it) => { if (!ids.includes(it.id) || !it.group) return it; const { group: _g, ...rest } = it; return rest; });
+  return setSlide(deck, slideIndex, { items: dropLoneGroups(items) });
+}
+/** A group with only one box left (the others deleted or taken out) is no group. */
+export function dropLoneGroups(items) {
+  const count = new Map();
+  for (const it of items) if (it.group) count.set(it.group, (count.get(it.group) || 0) + 1);
+  return items.map((it) => { if (!it.group || count.get(it.group) > 1) return it; const { group: _g, ...rest } = it; return rest; });
 }
