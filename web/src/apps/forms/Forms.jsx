@@ -177,7 +177,7 @@ function FormEditor({ id }) {
 }
 
 const GRADED = new Set(['short', 'choice', 'checkbox', 'dropdown']);
-/** A quiz question's right answer and points. */
+/** A quiz question's right answer, its points, and feedback for a right or a wrong answer. */
 function AnswerKey({ q, n, onChange }) {
   if (!GRADED.has(q.type)) return <p className="muted small" style={{ margin: 0 }}>Not marked (only short answers and choices are).</p>;
   const has = q.answer !== undefined && q.answer !== '' && !(Array.isArray(q.answer) && !q.answer.length);
@@ -194,6 +194,18 @@ function AnswerKey({ q, n, onChange }) {
           </select>
         )}
       {has && <label className="row small">Points <input type="number" min={0} max={100} aria-label={`Points for question ${n}`} value={q.points ?? 1} style={{ width: 64 }} onChange={(e) => onChange({ points: Number(e.target.value) })} /></label>}
+      {has && (
+        <details className="answer-feedback" open={!!(q.feedback?.right || q.feedback?.wrong)}>
+          <summary className="small">Answer feedback</summary>
+          <p className="muted small" style={{ margin: 0 }}>Shown after submitting, with the score (when people see their score).</p>
+          <label className="field"><span className="small">For a right answer</span>
+            <input aria-label={`Feedback for a right answer to question ${n}`} maxLength={500} placeholder="Well done! Paris has been the capital since 987." value={q.feedback?.right || ''}
+              onChange={(e) => onChange({ feedback: { ...(q.feedback || {}), right: e.target.value } })} /></label>
+          <label className="field"><span className="small">For a wrong answer</span>
+            <input aria-label={`Feedback for a wrong answer to question ${n}`} maxLength={500} placeholder="Have another look at chapter 2." value={q.feedback?.wrong || ''}
+              onChange={(e) => onChange({ feedback: { ...(q.feedback || {}), wrong: e.target.value } })} /></label>
+        </details>
+      )}
     </div>
   );
 }

@@ -90,7 +90,10 @@ export default function FormRespond({ token, onSignIn }) {
         {done.max > 0 && <p className="quiz-score" role="status">Your score: <strong>{done.score} / {done.max}</strong></p>}
         {done.right && (
           <ul className="quiz-review">
-            {form.questions.filter((q) => q.id in done.right).map((q) => <li key={q.id}>{done.right[q.id] ? '✓' : '✗'} {q.title || 'Untitled question'}</li>)}
+            {form.questions.filter((q) => q.id in done.right).map((q) => (
+              <li key={q.id}>{done.right[q.id] ? '✓' : '✗'} {q.title || 'Untitled question'}
+                {done.feedback?.[q.id] && <span className={`quiz-feedback ${done.right[q.id] ? 'right' : 'wrong'}`}>{done.feedback[q.id]}</span>}</li>
+            ))}
           </ul>
         )}
         {done.copy_to && <p className="small" style={{ margin: 0 }}>A copy of your answers is on its way to {done.copy_to}.</p>}

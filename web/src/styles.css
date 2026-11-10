@@ -2710,3 +2710,8 @@ input.fv-name { background: #202124; color: #fff; border: 1px solid #5f6368; bor
 .myday-btn { font-size: 18px; filter: grayscale(1); opacity: .6; }
 .myday-btn.on { filter: none; opacity: 1; }
 .myday-suggest { margin-top: 20px; }
+
+.answer-feedback { flex-basis: 100%; }
+.answer-feedback .field { margin-top: 4px; }
+.quiz-feedback { display: block; margin: 2px 0 6px 1.4em; font-size: .9em; color: var(--muted, #5f6368); white-space: pre-wrap; }
+.quiz-feedback.wrong { color: var(--danger); }

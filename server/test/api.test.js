@@ -3769,7 +3769,7 @@ test('forms: quizzes score answers and keep the key secret', async () => {
   assert.deepEqual(qs[1].answer, ['2', '3']);
   assert.equal(qs[2].answer, undefined);
   assert.equal(qs[3].answer, undefined);
-  assert.deepEqual(scoreOf(qs, { cap: 'paris', pr: ['3', '2'] }), { score: 3, max: 3, right: { cap: true, pr: true } });
+  assert.deepEqual(scoreOf(qs, { cap: 'paris', pr: ['3', '2'] }), { score: 3, max: 3, right: { cap: true, pr: true }, feedback: {} });
   assert.equal(scoreOf(qs, { cap: 'Lyon', pr: ['2'] }).score, 0);
 
   const o = client(); const v = client();
@@ -8997,4 +8997,34 @@ test('tasks for today (Home): My Day first, then due today or overdue, each once
   await a('PATCH', `/api/tasks/tasks/${plain.id}`, { done: true });
   assert.deepEqual((await a('GET', `/api/tasks/today?today=${today}`)).body.map((t) => t.title), ['Pay invoice', 'Book flights'], 'done ones go');
   assert.deepEqual((await a('GET', '/api/tasks/today?today=2026-11-11')).body.map((t) => t.title), ['Pay invoice', 'Book flights'], 'tomorrow: due ones only (My Day is new)');
+});
+
+test('forms quizzes: answer feedback, shown after submitting (never before), for right or wrong', async () => {
+  const { cleanQuestions, scoreOf } = await import('../src/routes/forms.js');
+  const qs = cleanQuestions([
+    { id: 'cap', type: 'short', title: 'Capital of France?', answer: 'Paris', points: 1, feedback: { right: ' Since 987. ', wrong: 'Have another look at chapter 2.' } },
+    { id: 'pick', type: 'choice', title: 'Pick B', options: ['A', 'B'], answer: 'B', feedback: { right: '', wrong: '' } },
+    { id: 'free', type: 'paragraph', title: 'Anything?', feedback: { right: 'x' } },
+  ]);
+  assert.deepEqual(qs[0].feedback, { right: 'Since 987.', wrong: 'Have another look at chapter 2.' });
+  assert.equal(qs[1].feedback, undefined, 'empty: none');
+  assert.equal(qs[2].feedback, undefined, 'only on marked questions');
+  assert.deepEqual(scoreOf(qs, { cap: 'paris', pick: 'A' }).feedback, { cap: 'Since 987.' });
+  assert.deepEqual(scoreOf(qs, { cap: 'Lyon', pick: 'B' }).feedback, { cap: 'Have another look at chapter 2.' });
+  const a = client(), b = client();
+  for (const [local, name] of [['qfa', 'Qf Ann'], ['qfb', 'Qf Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'qfa@acme.com'); await login(b, 'qfb@acme.com');
+  const made = (await a('POST', '/api/forms', { title: 'Geography quiz' })).body;
+  const f = (await a('PUT', `/api/forms/${made.id}`, { quiz: true, show_score: true, questions: [
+    { id: 'cap', type: 'short', title: 'Capital of France?', answer: 'Paris', feedback: { right: 'Since 987.', wrong: 'It’s Paris.' } }] })).body;
+  assert.equal(f.questions[0].feedback.wrong, 'It’s Paris.', 'kept for the owner');
+  const seen = (await b('GET', `/api/public/forms/${f.token}`)).body;
+  assert.equal(seen.questions[0].feedback, undefined, 'not sent before answering');
+  assert.equal(seen.questions[0].answer, undefined);
+  const sent = (await b('POST', `/api/public/forms/${f.token}`, { answers: { cap: 'Lyon' } })).body;
+  assert.deepEqual([sent.score, sent.feedback], [0, { cap: 'It’s Paris.' }]);
+  // Without "show people their score", no feedback either.
+  await a('PUT', `/api/forms/${made.id}`, { show_score: false });
+  const quiet = (await b('POST', `/api/public/forms/${f.token}`, { answers: { cap: 'Paris' } })).body;
+  assert.equal(quiet.feedback, undefined);
 });

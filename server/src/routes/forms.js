@@ -254,6 +254,12 @@ export function cleanQuestions(list) {
       } else if (type === 'short') out.answer = String(raw.answer).trim().slice(0, 500);
       else if (out.options.includes(String(raw.answer))) out.answer = String(raw.answer);
       if (out.answer !== undefined) out.points = Math.min(100, Math.max(0, Math.round(Number(raw.points ?? 1)) || 0));
+      // Answer feedback: a few words shown after submitting, for a right answer and for a wrong one.
+      if (out.answer !== undefined) {
+        const fb = {};
+        for (const k of ['right', 'wrong']) { const t = String(raw.feedback?.[k] ?? '').trim().slice(0, 500); if (t) fb[k] = t; }
+        if (Object.keys(fb).length) out.feedback = fb;
+      }
     }
     return out;
   });
@@ -278,10 +284,11 @@ export function cleanQuestions(list) {
 }
 
 const GRADED = new Set(['short', 'choice', 'checkbox', 'dropdown']);
-/** A quiz's score: { score, max, right: { questionId: true | false } } over the questions with an answer key. */
+/** A quiz's score: { score, max, right: { questionId: true | false }, feedback: { questionId: text } } over the questions
+ *  with an answer key (feedback: the question's words for a right or a wrong answer, where it has them). */
 export function scoreOf(questions, answers) {
   let score = 0, max = 0;
-  const right = {};
+  const right = {}, feedback = {};
   const norm = (v) => String(v ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
   for (const qu of questions) {
     if (qu.answer === undefined) continue;
@@ -291,12 +298,14 @@ export function scoreOf(questions, answers) {
       ? Array.isArray(a) && a.length === qu.answer.length && qu.answer.every((x) => a.includes(x))
       : qu.type === 'short' ? norm(a) !== '' && norm(a) === norm(qu.answer) : a === qu.answer;
     right[qu.id] = ok;
+    const fb = qu.feedback?.[ok ? 'right' : 'wrong'];
+    if (fb) feedback[qu.id] = fb;
     if (ok) score += qu.points ?? 1;
   }
-  return { score, max, right };
+  return { score, max, right, feedback };
 }
 /** The questions as people filling the form in see them: no answer key. */
-const withoutKey = (questions) => questions.map(({ answer, points, ...qu }) => qu);
+const withoutKey = (questions) => questions.map(({ answer, points, feedback, ...qu }) => qu);
 
 /** Check one person's answers against the questions; returns what's kept (only answered questions). */
 export function checkAnswers(questions, answers) {
@@ -925,7 +934,7 @@ export function publicFormRoutes() {
     const result = form.quiz && form.show_score ? scoreOf(form.questions, answers) : null;
     emailTeam(form, answers, { by: user?.id || null, who, email: form.audience === 'public' ? email : null, link: `${baseUrlOf(req)}/forms/${form.id}?tab=responses` });
     if (form.send_copy && email) sendCopy(form, email, answers, result, editKey ? `${baseUrlOf(req)}/f/${form.token}?edit=${editKey}` : null);
-    res.status(201).json({ ok: true, confirmation: form.confirmation || '', ...(editKey && { edit_key: editKey }), ...(form.send_copy && email && mailEnabled() && { copy_to: email }), ...(result && { score: result.score, max: result.max, right: result.right }) });
+    res.status(201).json({ ok: true, confirmation: form.confirmation || '', ...(editKey && { edit_key: editKey }), ...(form.send_copy && email && mailEnabled() && { copy_to: email }), ...(result && { score: result.score, max: result.max, right: result.right, feedback: result.feedback }) });
   });
 
   // Changing a response afterwards (when the form allows it), with its private key. File answers stay
@@ -960,7 +969,7 @@ export function publicFormRoutes() {
     sendTo(teamOf(form), { type: 'form-response', form_id: form.id });
     if (form.notify) bell(teamOf(form).filter((x) => x !== user?.id), { kind: 'form', title: `A response to “${form.title}” was changed`, body: form.audience === 'org' ? `By ${user.name}` : null, link: `/forms/${form.id}?tab=responses`, actor: user?.id || null });
     const result = form.quiz && form.show_score ? scoreOf(form.questions, answers) : null;
-    res.json({ ok: true, confirmation: form.confirmation || '', edit_key: resp.edit_key, ...(result && { score: result.score, max: result.max, right: result.right }) });
+    res.json({ ok: true, confirmation: form.confirmation || '', edit_key: resp.edit_key, ...(result && { score: result.score, max: result.max, right: result.right, feedback: result.feedback }) });
   });
   return r;
 }
