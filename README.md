@@ -248,6 +248,10 @@ Put a status, a review stage or a priority right in the text, like *Website: In 
 
 - **In Slides:** **Comment on this slide** comments on the slide you're on (a 💬 shows on its thumbnail). The comment stays with its slide when slides are moved, and clicking where a comment is takes you to its slide. **💬 Comments** opens the list, with replies, resolving and @mentions as in Docs and Sheets.
 - **On uploaded files** (PDFs, pictures, anything in Drive): in the file's preview, **Comments** opens the same panel beside it. **Comment on the file** comments on the whole file; on a picture, **Comment on a spot** and click where you mean, and a numbered pin marks it (click a pin for its comment). @mentions and notifications open Drive with that file's preview and comment.
+## Zoom (Sheets)
+
+The box at the bottom right of a spreadsheet, beside the sheet tabs, shows it smaller or bigger (50% to 200%): more rows and columns at once, or larger cells to read. It's kept with your account, so every spreadsheet opens at that size for you on any device (documents have their own zoom). The cells, charts and slicers grow and shrink together, and clicking, selecting, filling and dragging column and row edges work as usual. It's only how you see it: column widths, printing and downloads aren't affected, and people sharing the spreadsheet keep their own size.
+
 ## Printing (Sheets)
 
 - **Print or save as PDF** (⋮ menu) prints the sheet, or just the selected cells (chosen for you when several are selected), on A4 or Letter, portrait or landscape, with or without gridlines. Values print as they're shown (formatted numbers, dates and formula results), with bold, colours, fills, alignment, borders, merged cells and column widths. Hidden and filtered-out rows and columns are left out. Choose "Save as PDF" in the print dialog for a PDF.

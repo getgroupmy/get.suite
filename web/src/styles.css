@@ -2700,3 +2700,8 @@ input.fv-name { background: #202124; color: #fff; border: 1px solid #5f6368; bor
 .world-clock-list li .icon-btn { width: 22px; height: 22px; opacity: .5; }
 .world-clock-list li:hover .icon-btn { opacity: 1; }
 .world-clock-time { font-variant-numeric: tabular-nums; min-width: 64px; text-align: right; }
+
+.grid-zoom { position: relative; width: max-content; }
+.sheet-zoom { margin-left: auto; order: 99; }
+.sheet-zoom select { font-size: 12px; padding: 2px 6px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); }
+@media print { .grid-zoom { zoom: 1 !important; } .sheet-zoom { display: none; } }

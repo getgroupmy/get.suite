@@ -1,7 +1,7 @@
 import { pasteSpecial, PASTE_MODES } from './paste.js';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
-import { get, patch } from '../../api.js';
+import { get, patch, put } from '../../api.js';
 import DrivePicker from '../../components/DrivePicker.jsx';
 import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
@@ -82,6 +82,8 @@ function sheetSize(cells, spilled = []) {
   return { rows: Math.max(MIN_ROWS, rows + 20), cols: Math.max(MIN_COLS, cols + 5) };
 }
 
+const SHEET_ZOOMS = [50, 75, 90, 100, 110, 125, 150, 200];
+
 export default function SheetEditor() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -100,6 +102,13 @@ export default function SheetEditor() {
   const [nameBox, setNameBox] = useState(null); // what's being typed in the name box
   const dataRef = useRef(null);
   const gridRef = useRef();
+  // Zoom (kept with your account, for every spreadsheet): the grid, its charts and slicers drawn bigger or
+  // smaller. Screen distances (dragging, where things land) are divided by it to get the grid's own sizes.
+  const [zoom, setZoomState] = useState(100);
+  const zRef = useRef(1);
+  zRef.current = zoom / 100;
+  useEffect(() => { get('/doc-prefs').then((p) => setZoomState(p.sheet_zoom || 100)).catch(() => {}); }, []);
+  const setZoom = (z) => { setZoomState(z); put('/doc-prefs', { sheet_zoom: z }).catch(() => {}); };
   const clip = useRef(null);
   const [status, setStatus] = useState('connecting');
   const [others, setOthers] = useState([]);
@@ -383,12 +392,12 @@ export default function SheetEditor() {
   const startRowResize = (r) => (e) => {
     if (readOnly || e.button !== 0) return;
     e.preventDefault(); e.stopPropagation();
-    const y0 = e.clientY, h0 = rowH(r) || e.currentTarget.parentElement.getBoundingClientRect().height;
-    const move = (ev) => setResizingRow({ r, h: Math.max(MIN_H, Math.min(MAX_H, h0 + ev.clientY - y0)) });
+    const y0 = e.clientY, z = zRef.current, h0 = rowH(r) || e.currentTarget.parentElement.getBoundingClientRect().height / z;
+    const move = (ev) => setResizingRow({ r, h: Math.max(MIN_H, Math.min(MAX_H, h0 + (ev.clientY - y0) / z)) });
     const up = (ev) => {
       window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up);
       setResizingRow(null);
-      if (Math.abs(ev.clientY - y0) > 1) setRowHeight(r, r, h0 + ev.clientY - y0);
+      if (Math.abs(ev.clientY - y0) > 1) setRowHeight(r, r, h0 + (ev.clientY - y0) / z);
     };
     window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
   };
@@ -396,12 +405,12 @@ export default function SheetEditor() {
   const startResize = (c) => (e) => {
     if (readOnly || e.button !== 0) return;
     e.preventDefault(); e.stopPropagation();
-    const x0 = e.clientX, w0 = widthOf(c);
-    const move = (ev) => setResizing({ c, w: Math.max(MIN_W, Math.min(MAX_W, w0 + ev.clientX - x0)) });
+    const x0 = e.clientX, w0 = widthOf(c), z = zRef.current;
+    const move = (ev) => setResizing({ c, w: Math.max(MIN_W, Math.min(MAX_W, w0 + (ev.clientX - x0) / z)) });
     const up = (ev) => {
       window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up);
       setResizing(null);
-      if (Math.abs(ev.clientX - x0) > 1) setWidth(c, w0 + ev.clientX - x0);
+      if (Math.abs(ev.clientX - x0) > 1) setWidth(c, w0 + (ev.clientX - x0) / z);
     };
     window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
   };
@@ -439,7 +448,7 @@ export default function SheetEditor() {
     const wrap = gridRef.current;
     const td = wrap?.querySelector(`[data-k="${cellKey(Math.min(g.c2 + 1, cols - 1), g.r1)}"]`);
     let x = 160, y = 40;
-    if (td && wrap) { const a = td.getBoundingClientRect(), b = wrap.getBoundingClientRect(); x = a.left - b.left + wrap.scrollLeft + 12; y = a.top - b.top + wrap.scrollTop; }
+    if (td && wrap) { const a = td.getBoundingClientRect(), b = wrap.getBoundingClientRect(), z = zRef.current; x = (a.left - b.left + wrap.scrollLeft) / z + 12; y = (a.top - b.top + wrap.scrollTop) / z; }
     const cid = (crypto.randomUUID?.() || `${Date.now()}${Math.random()}`).replace(/[^\w]/g, '').slice(0, 20);
     setDialog({ type: 'chart', chart: { id: null, newId: cid, type: 'column', range: rangeText(g), title: '', x: Math.round(x), y: Math.round(y), w: 480, h: 300 } });
   }
@@ -638,7 +647,8 @@ export default function SheetEditor() {
     const td = !readOnly && !editing && wrap?.querySelector(`td[data-k="${cellKey(range.c2, range.r2)}"]`);
     if (!td) { if (handleAt) setHandleAt(null); return; }
     const w = wrap.getBoundingClientRect(), b = td.getBoundingClientRect();
-    const at = { left: b.right - w.left + wrap.scrollLeft - 4, top: b.bottom - w.top + wrap.scrollTop - 4 };
+    const z = zRef.current;
+    const at = { left: (b.right - w.left + wrap.scrollLeft) / z - 4, top: (b.bottom - w.top + wrap.scrollTop) / z - 4 };
     if (!handleAt || at.left !== handleAt.left || at.top !== handleAt.top) setHandleAt(at);
   });
   // Sum, average and count of what's selected (when it's more than one cell).
@@ -710,7 +720,7 @@ export default function SheetEditor() {
     const wrap = gridRef.current;
     const td = wrap?.querySelector(`[data-k="${cellKey(Math.min(g.c2 + 1, cols - 1), g.r1)}"]`);
     let x = 160, y = 40;
-    if (td && wrap) { const a = td.getBoundingClientRect(), b = wrap.getBoundingClientRect(); x = a.left - b.left + wrap.scrollLeft + 12; y = a.top - b.top + wrap.scrollTop; }
+    if (td && wrap) { const a = td.getBoundingClientRect(), b = wrap.getBoundingClientRect(), z = zRef.current; x = (a.left - b.left + wrap.scrollLeft) / z + 12; y = (a.top - b.top + wrap.scrollTop) / z; }
     const id = (crypto.randomUUID?.() || `${Date.now()}${Math.random()}`).replace(/[^\w]/g, '').slice(0, 20);
     writeSheet((s) => ({ slicers: { ...(s.slicers || {}), [id]: { range: rangeText(g), col, hidden: [], x: Math.round(x), y: Math.round(y) } } }));
     toast(`Slicer added for ${display(evaluate(`${col}${g.r1 + 1}`)) || `column ${col}`}: click it to choose what to show`);
@@ -1125,6 +1135,7 @@ export default function SheetEditor() {
       </div>
       <div className="sheet-body">
       <div className={`grid-wrap ${painter ? 'painting' : ''} ${fv && viewFilter ? 'fv-on' : ''}`} ref={gridRef} onContextMenu={(e) => { if (e.target === e.currentTarget) openMenu(e, 'cell'); }} tabIndex={0} onKeyDown={onGridKey} onCopy={onCopy} onCut={onCut} onPaste={onPaste}>
+        <div className="grid-zoom" style={zoom !== 100 ? { zoom: zoom / 100 } : undefined}>
         <table className="grid" role="grid" aria-label={sheet.name}>
           <thead>
             <tr><th className="corner" />{Array.from({ length: cols }, (_, c) => (
@@ -1238,11 +1249,16 @@ export default function SheetEditor() {
             );
           })}
         </div>
+        </div>
       </div>
       {panel && <CommentsPanel fileId={file.id} threads={threads} canEdit={canComment} active={thread} setActive={setThread} pending={pending}
         onShow={goToCell} labelOf={where} onClose={() => { setPending(null); setPanel(false); }} />}
       </div>
       <div className="sheet-tabs">
+        <label className="sheet-zoom" title="Zoom (kept for you, in every spreadsheet)"><span className="sr-only">Zoom</span>
+          <select aria-label="Zoom" value={zoom} onChange={(e) => setZoom(Number(e.target.value))}>
+            {SHEET_ZOOMS.map((z) => <option key={z} value={z}>{z}%</option>)}
+          </select></label>
         {stats && <div className="sel-stats small" role="status" aria-label="Selection">
           {stats.numbers > 0 ? <>Sum: <strong>{display(stats.sum)}</strong> · Average: <strong>{display(Math.round(stats.average * 1e6) / 1e6)}</strong> · Min: {display(stats.min)} · Max: {display(stats.max)} · </> : null}Count: <strong>{stats.count}</strong>
         </div>}

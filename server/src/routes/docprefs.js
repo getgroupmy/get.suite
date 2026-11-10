@@ -9,10 +9,10 @@ if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'doc_prefs')) q(
 
 export const MAX_SUBS = 100;
 export const ZOOMS = [50, 75, 90, 100, 110, 125, 150, 200];
-const DEFAULTS = { autocorrect: true, subs: [], zoom: 100, spellcheck: true };
+const DEFAULTS = { autocorrect: true, subs: [], zoom: 100, spellcheck: true, sheet_zoom: 100 };
 
 /** Preferences as stored: autocorrect on or off, up to 100 replacements { from, to } (from: 1–40 characters, no
- *  spaces), the zoom (one of ZOOMS, in %) and spell check on or off. */
+ *  spaces), the zoom (one of ZOOMS, in %) and spell check on or off; and the zoom for spreadsheets. */
 export function cleanPrefs(p) {
   const subs = [];
   const seen = new Set();
@@ -23,8 +23,8 @@ export function cleanPrefs(p) {
     subs.push({ from, to });
     if (subs.length >= MAX_SUBS) break;
   }
-  const zoom = ZOOMS.includes(Number(p?.zoom)) ? Number(p.zoom) : 100;
-  return { autocorrect: p?.autocorrect !== false, subs, zoom, spellcheck: p?.spellcheck !== false };
+  const zoomOf = (v) => (ZOOMS.includes(Number(v)) ? Number(v) : 100);
+  return { autocorrect: p?.autocorrect !== false, subs, zoom: zoomOf(p?.zoom), spellcheck: p?.spellcheck !== false, sheet_zoom: zoomOf(p?.sheet_zoom) };
 }
 
 export const prefsOf = (userId) => {
