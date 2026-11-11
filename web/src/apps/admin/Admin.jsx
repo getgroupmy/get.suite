@@ -650,7 +650,7 @@ function Rooms() {
             } catch (err) { toast(err.message, 'error'); }
           }} /></label>
         {rooms?.length > 0 && <a className="btn small" href="/api/rooms/export.csv" download>Export as CSV</a>}
-        <span className="muted small">Columns: Name, Seats, Where, Equipment (rooms with the same name are updated).</span>
+        <span className="muted small">Columns: Name, Seats, Where, Equipment, Admins only, Check-in (yes or no). Rooms with the same name are updated.</span>
       </div>
       {rooms?.length > 0 && <RoomUsage />}
     </div>

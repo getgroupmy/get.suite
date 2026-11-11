@@ -199,7 +199,10 @@ export function roomsFromCsv(text) {
   const rows = parseCsv(text, { keepEmpty: true });
   const head = (rows[0] || []).map((h) => h.trim().toLowerCase());
   const col = (...names) => head.findIndex((h) => names.includes(h));
-  const at = { name: col('name', 'room', 'room name'), capacity: col('seats', 'capacity', 'people'), location: col('where', 'location', 'floor'), features: col('equipment', 'features', 'facilities') };
+  const at = { name: col('name', 'room', 'room name'), capacity: col('seats', 'capacity', 'people'), location: col('where', 'location', 'floor'), features: col('equipment', 'features', 'facilities'),
+    admins_only: col('admins only'), check_in: col('check-in', 'check in', 'checkin') };
+  // Yes/no columns: yes, y, true, 1, x (or ✓) is yes; empty, no, false, 0 is no.
+  const yesNo = (v) => (/^(yes|y|true|1|x|✓)$/i.test(String(v ?? '').trim()) ? 1 : /^(|no|n|false|0)$/i.test(String(v ?? '').trim()) ? 0 : null);
   if (at.name < 0) return { rooms: [], problems: ['The first row needs a Name column'] };
   const rooms = [], problems = [];
   rows.slice(1).forEach((r, i) => {
@@ -215,7 +218,14 @@ export function roomsFromCsv(text) {
     const location = at.location >= 0 ? (r[at.location] || '').trim().slice(0, 100) || null : undefined;
     let features;
     try { features = at.features >= 0 ? cleanFeatures((r[at.features] || '').split(/[,;|]/)) : undefined; } catch (e) { problems.push(`Line ${line}: ${e.message}`); return; }
-    rooms.push({ name, capacity, location, features });
+    const flags = {};
+    for (const k of ['admins_only', 'check_in']) {
+      if (at[k] < 0) continue;
+      const v = yesNo(r[at[k]]);
+      if (v === null) { problems.push(`Line ${line}: ${k === 'admins_only' ? 'Admins only' : 'Check-in'} should be yes or no`); return; }
+      flags[k] = v;
+    }
+    rooms.push({ name, capacity, location, features, ...flags });
   });
   return { rooms, problems };
 }
@@ -347,12 +357,13 @@ export default function roomRoutes() {
       for (const v of rooms) {
         const cur = q('SELECT * FROM rooms WHERE org_id = ? AND lower(name) = lower(?)').get(req.user.org_id, v.name);
         if (cur) {
-          q('UPDATE rooms SET name = ?, capacity = ?, location = ?, features = ? WHERE id = ?').run(v.name, v.capacity === undefined ? cur.capacity : v.capacity,
-            v.location === undefined ? cur.location : v.location, v.features === undefined ? cur.features : JSON.stringify(v.features), cur.id);
+          q('UPDATE rooms SET name = ?, capacity = ?, location = ?, features = ?, admins_only = ?, check_in = ? WHERE id = ?').run(v.name, v.capacity === undefined ? cur.capacity : v.capacity,
+            v.location === undefined ? cur.location : v.location, v.features === undefined ? cur.features : JSON.stringify(v.features),
+            v.admins_only ?? cur.admins_only, v.check_in ?? cur.check_in, cur.id);
           updated++; continue;
         }
         if (q('SELECT COUNT(*) AS n FROM rooms WHERE org_id = ?').get(req.user.org_id).n >= 200) { problems.push(`${v.name}: at most 200 rooms`); continue; }
-        q('INSERT INTO rooms (id, org_id, name, capacity, location, features, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(uid(), req.user.org_id, v.name, v.capacity ?? null, v.location ?? null, JSON.stringify(v.features ?? []), now());
+        q('INSERT INTO rooms (id, org_id, name, capacity, location, features, admins_only, check_in, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(uid(), req.user.org_id, v.name, v.capacity ?? null, v.location ?? null, JSON.stringify(v.features ?? []), v.admins_only ?? 0, v.check_in ?? 0, now());
         added++;
       }
     });
@@ -361,7 +372,7 @@ export default function roomRoutes() {
   // Every room as a CSV file (the same columns import takes).
   r.get('/export.csv', (req, res) => {
     const rows = q(`${ROOM} WHERE org_id = ? ORDER BY name COLLATE NOCASE`).all(req.user.org_id).map(outRoom);
-    const csv = ['Name,Seats,Where,Equipment', ...rows.map((x) => [x.name, x.capacity ?? '', x.location ?? '', x.features.join(', ')].map(csvCell).join(','))].join('\r\n') + '\r\n';
+    const csv = ['Name,Seats,Where,Equipment,Admins only,Check-in', ...rows.map((x) => [x.name, x.capacity ?? '', x.location ?? '', x.features.join(', '), x.admins_only ? 'yes' : 'no', x.check_in ? 'yes' : 'no'].map(csvCell).join(','))].join('\r\n') + '\r\n';
     res.set({ 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="rooms.csv"' }).send(csv);
   });
   const admin = (req) => { if (!req.user.is_admin) throw forbidden('Only a company admin can change rooms'); };
