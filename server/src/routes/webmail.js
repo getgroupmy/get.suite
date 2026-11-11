@@ -1783,6 +1783,22 @@ export default function webmailRoutes() {
       : q('SELECT id, message_id, subject, recipients, due_at, told_at FROM mail_followups WHERE user_id = ? ORDER BY told_at IS NULL, due_at').all(req.user.id);
     res.json(rows.map((r) => ({ ...r, recipients: JSON.parse(r.recipients || '[]') })));
   });
+  // A reminder for a message already sent (from Sent): { message_id, subject, to: [addresses], days }, counted from now.
+  // It replaces one the message already has; the reply is looked for in your own mailbox, as for others.
+  r.post('/followups', (req, res) => {
+    const b = req.body || {};
+    const mid = String(b.message_id || '').trim();
+    if (!/^<[^<>\s]{3,500}>$/.test(mid)) throw bad('Not a message that was sent');
+    const days = Number(b.days);
+    if (!FOLLOW_UP_DAYS.includes(days)) throw bad('Choose when to be reminded');
+    const to = (Array.isArray(b.to) ? b.to : []).map((x) => String(x).trim().slice(0, 200)).filter(Boolean).slice(0, 50);
+    q('DELETE FROM mail_followups WHERE user_id = ? AND message_id = ?').run(req.user.id, mid);
+    const id = newId();
+    q('INSERT INTO mail_followups (id, user_id, message_id, subject, recipients, due_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(id, req.user.id, mid, String(b.subject || '').slice(0, 300), JSON.stringify(to), Date.now() + days * 864e5, Date.now());
+    sendTo([req.user.id], { type: 'mail-followups' });
+    res.status(201).json(q('SELECT id, message_id, subject, recipients, due_at, told_at FROM mail_followups WHERE id = ?').get(id));
+  });
   r.delete('/followups/:id', (req, res) => {
     const row = q('SELECT id FROM mail_followups WHERE id = ? AND user_id = ?').get(req.params.id, req.user.id);
     if (!row) throw notFound();

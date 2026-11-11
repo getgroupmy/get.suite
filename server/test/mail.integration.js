@@ -2295,3 +2295,20 @@ test('folder state: a tag that changes when another app reads, adds or removes m
     assert.notEqual(await tag(), t3, 'deleted on the phone');
   } finally { await c.logout().catch(() => {}); }
 });
+
+test('follow-ups set afterwards, on a message in Sent: counted from now, one per message', async () => {
+  const run = ` #${Date.now()}`;
+  assert.equal((await olivia('POST', '/api/mail/send', { to: 'gina@globex.com', subject: `Proposal${run}`, text: 'Attached' })).status, 200);
+  const sent = await eventually(async () => ((await olivia('GET', '/api/mail/messages?folder=Sent')).body.messages || []).find((x) => x.subject === `Proposal${run}`));
+  const full = (await olivia('GET', `/api/mail/messages/${sent.uid}?folder=Sent`)).body;
+  assert.equal((await olivia('POST', '/api/mail/followups', { message_id: 'nonsense', days: 3 })).status, 400);
+  assert.equal((await olivia('POST', '/api/mail/followups', { message_id: full.messageId, days: 5 })).status, 400, 'only the offered choices');
+  const f = (await olivia('POST', '/api/mail/followups', { message_id: full.messageId, subject: full.subject, to: full.to.map((a) => a.address), days: 2 })).body;
+  assert.ok(Math.abs(f.due_at - (Date.now() + 2 * 864e5)) < 60e3);
+  assert.deepEqual(JSON.parse(f.recipients), ['gina@globex.com']);
+  const again = (await olivia('POST', '/api/mail/followups', { message_id: full.messageId, subject: full.subject, to: ['gina@globex.com'], days: 7 })).body;
+  const mine = (await olivia('GET', `/api/mail/followups?message_id=${encodeURIComponent(full.messageId)}`)).body;
+  assert.deepEqual(mine.map((x) => x.id), [again.id], 'replaced, not added');
+  assert.equal((await gina('GET', `/api/mail/followups?message_id=${encodeURIComponent(full.messageId)}`)).body.length, 0, 'yours only');
+  await olivia('DELETE', `/api/mail/followups/${again.id}`);
+});

@@ -683,9 +683,18 @@ function InviteCard({ invite, uid, folder, onChange }) {
   );
 }
 
-function FollowUpBanner({ messageId }) {
+const FOLLOW_UP_CHOICES = [[1, 'in 1 day'], [2, 'in 2 days'], [3, 'in 3 days'], [7, 'in a week'], [14, 'in 2 weeks']];
+/** A message's follow-up reminder (with Cancel), or, on one you sent with none, a way to set one now. */
+function FollowUpBanner({ messageId, sent = null }) {
   const toast = useToast();
   const [f, setF] = useState(null);
+  const set = async (days) => {
+    if (!days) return;
+    try {
+      setF(await post('/mail/followups', { message_id: messageId, subject: sent.subject, to: sent.to.map((a) => a.address), days: Number(days) }));
+      toast('You’ll be reminded if nobody replies by then');
+    } catch (e) { toast(e.message, 'error'); }
+  };
   useEffect(() => {
     setF(null);
     if (!messageId) return undefined;
@@ -693,7 +702,17 @@ function FollowUpBanner({ messageId }) {
     get(`/mail/followups?message_id=${encodeURIComponent(messageId)}`).then((l) => { if (alive) setF(l[0] || null); }).catch(() => {});
     return () => { alive = false; };
   }, [messageId]);
-  if (!f) return null;
+  if (!f) {
+    if (!sent || !messageId) return null;
+    return (
+      <div className="row small followup-set">
+        <label className="row small">⏰ <select aria-label="Remind me if no reply" value="" onChange={(e) => set(e.target.value)}>
+          <option value="">Remind me if no reply…</option>
+          {FOLLOW_UP_CHOICES.map(([d, t]) => <option key={d} value={d}>No reply {t}</option>)}
+        </select></label>
+      </div>
+    );
+  }
   return (
     <div className="banner" role="region" aria-label="Follow-up">
       <span className="grow">⏰ You'll be reminded {new Date(f.due_at).toLocaleString([], { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })} if nobody has replied.</span>
@@ -847,7 +866,7 @@ function Reader({ shared = null, folder, uid, special, onClose, onRemoved, onOpe
         </div>
         <span className="muted small nowrap">{m.date ? new Date(m.date).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : ''}</span>
       </div>
-      <FollowUpBanner messageId={m.messageId} />
+      <FollowUpBanner messageId={m.messageId} sent={special === '\\Sent' && !shared ? m : null} />
       {m.invite && <InviteCard invite={m.invite} uid={uid} folder={folder} onChange={(invite) => setM({ ...m, invite })} />}
       {special === '\\Sent' && !shared && m.messageId && <DeliveryStatus messageId={m.messageId} />}
       {m.receipt && (
@@ -1495,7 +1514,7 @@ function Compose({ initial, shared = null, signatures = [], onClose, onSent, onD
           </select>}
           {!shared && <select className="small followup-pick" aria-label="Remind me if no reply" title="Get a notification if nobody has replied by then" value={followUp} onChange={(e) => setFollowUp(e.target.value)}>
             <option value="">No follow-up</option>
-            {[[1, 'in 1 day'], [2, 'in 2 days'], [3, 'in 3 days'], [7, 'in a week'], [14, 'in 2 weeks']].map(([d, t]) => <option key={d} value={d}>⏰ No reply {t}</option>)}
+            {FOLLOW_UP_CHOICES.map(([d, t]) => <option key={d} value={d}>⏰ No reply {t}</option>)}
           </select>}
           <Menu align="left" trigger={(p) => <button type="button" className="icon-btn" aria-label="Templates" title="Templates" {...p}><Icon name="doc" /></button>} items={[
             ...templates.map((t) => ({ label: t.name, onClick: () => applyTemplate(t) })),
