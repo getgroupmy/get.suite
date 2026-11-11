@@ -1,7 +1,8 @@
 // Meeting rooms (and other things to book, like a projector): a company's admins list them; people
 // add one to an event, and it's booked when it's free then (every time, for a repeating event, over
 // the next six months) or declined when something else has it.
-import { Router } from 'express';
+import express, { Router } from 'express';
+import { parseCsv } from '../contactfiles.js';
 import { q, tx } from '../db.js';
 import { uid, now, str, bad, notFound, forbidden, HttpError } from '../util.js';
 import { expand } from '../calmath.js';
@@ -189,6 +190,37 @@ export function askCheckIns(t = Date.now()) {
   return n;
 }
 
+/**
+ * Rooms from a spreadsheet saved as CSV: a header row with Name (needed), and any of Seats (or Capacity),
+ * Where (or Location) and Equipment (several, with commas). { rooms: [{ name, capacity, location, features }],
+ * problems: ['Line 4: …'] }.
+ */
+export function roomsFromCsv(text) {
+  const rows = parseCsv(text, { keepEmpty: true });
+  const head = (rows[0] || []).map((h) => h.trim().toLowerCase());
+  const col = (...names) => head.findIndex((h) => names.includes(h));
+  const at = { name: col('name', 'room', 'room name'), capacity: col('seats', 'capacity', 'people'), location: col('where', 'location', 'floor'), features: col('equipment', 'features', 'facilities') };
+  if (at.name < 0) return { rooms: [], problems: ['The first row needs a Name column'] };
+  const rooms = [], problems = [];
+  rows.slice(1).forEach((r, i) => {
+    if (!r.some((f) => f.trim())) return;
+    const line = i + 2;
+    const name = (r[at.name] || '').trim().replace(/\s+/g, ' ');
+    if (!name) { problems.push(`Line ${line}: no name`); return; }
+    if (name.length > 100) { problems.push(`Line ${line}: the name is too long`); return; }
+    // A column the file doesn't have is left out (undefined): an existing room keeps what it had.
+    const seats = at.capacity >= 0 ? (r[at.capacity] || '').trim() : undefined;
+    const capacity = seats === undefined ? undefined : seats === '' ? null : Number(seats);
+    if (capacity != null && (!Number.isInteger(capacity) || capacity < 1 || capacity > 10000)) { problems.push(`Line ${line}: seats should be a number of people`); return; }
+    const location = at.location >= 0 ? (r[at.location] || '').trim().slice(0, 100) || null : undefined;
+    let features;
+    try { features = at.features >= 0 ? cleanFeatures((r[at.features] || '').split(/[,;|]/)) : undefined; } catch (e) { problems.push(`Line ${line}: ${e.message}`); return; }
+    rooms.push({ name, capacity, location, features });
+  });
+  return { rooms, problems };
+}
+const csvCell = (v) => (/[",\n;]/.test(String(v ?? '')) ? `"${String(v).replace(/"/g, '""')}"` : String(v ?? ''));
+
 export const QUICK_MINUTES = [15, 30, 45, 60, 90, 120];
 
 export default function roomRoutes() {
@@ -304,6 +336,33 @@ export default function roomRoutes() {
     const to = Date.now(), from = to - days * 864e5;
     const list = q(`${ROOM} WHERE org_id = ?`).all(req.user.org_id).map(outRoom).map((room) => ({ id: room.id, name: room.name, capacity: room.capacity, ...roomUsage(room.id, from, to) }));
     res.json({ days, from, to, rooms: list.sort((x, y) => y.hours - x.hours || x.name.localeCompare(y.name)) });
+  });
+  // Admins: add or update rooms from a CSV file (a room with the same name, ignoring case, is updated).
+  r.post('/import', express.text({ type: () => true, limit: '2mb' }), (req, res) => {
+    if (!req.user.is_admin) throw forbidden('Only a company admin can change rooms');
+    const { rooms, problems } = roomsFromCsv(typeof req.body === 'string' ? req.body : '');
+    if (!rooms.length) throw bad(problems[0] || 'No rooms in that file');
+    let added = 0, updated = 0;
+    tx(() => {
+      for (const v of rooms) {
+        const cur = q('SELECT * FROM rooms WHERE org_id = ? AND lower(name) = lower(?)').get(req.user.org_id, v.name);
+        if (cur) {
+          q('UPDATE rooms SET name = ?, capacity = ?, location = ?, features = ? WHERE id = ?').run(v.name, v.capacity === undefined ? cur.capacity : v.capacity,
+            v.location === undefined ? cur.location : v.location, v.features === undefined ? cur.features : JSON.stringify(v.features), cur.id);
+          updated++; continue;
+        }
+        if (q('SELECT COUNT(*) AS n FROM rooms WHERE org_id = ?').get(req.user.org_id).n >= 200) { problems.push(`${v.name}: at most 200 rooms`); continue; }
+        q('INSERT INTO rooms (id, org_id, name, capacity, location, features, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(uid(), req.user.org_id, v.name, v.capacity ?? null, v.location ?? null, JSON.stringify(v.features ?? []), now());
+        added++;
+      }
+    });
+    res.json({ added, updated, problems });
+  });
+  // Every room as a CSV file (the same columns import takes).
+  r.get('/export.csv', (req, res) => {
+    const rows = q(`${ROOM} WHERE org_id = ? ORDER BY name COLLATE NOCASE`).all(req.user.org_id).map(outRoom);
+    const csv = ['Name,Seats,Where,Equipment', ...rows.map((x) => [x.name, x.capacity ?? '', x.location ?? '', x.features.join(', ')].map(csvCell).join(','))].join('\r\n') + '\r\n';
+    res.set({ 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="rooms.csv"' }).send(csv);
   });
   const admin = (req) => { if (!req.user.is_admin) throw forbidden('Only a company admin can change rooms'); };
   const read = (b, cur = {}) => ({

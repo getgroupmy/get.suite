@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { get, post, put, patch, del, formatBytes } from '../../api.js';
+import { get, post, put, patch, del, formatBytes, postText } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
 import { Avatar, ConfirmModal, Menu, Modal, PromptModal, useToast } from '../../components/ui.jsx';
 import { inactive, lastActiveText } from './lastactive.js';
@@ -638,6 +638,20 @@ function Rooms() {
         <input aria-label="Seats" type="number" min="1" placeholder="Seats" style={{ width: 90 }} value={capacity} onChange={(e) => setCapacity(e.target.value)} />
         <button className="btn" disabled={!name.trim()}>Add room</button>
       </form>
+      <div className="row wrap" style={{ gap: 8 }}>
+        <label className="btn small">Import from CSV…<input type="file" accept=".csv,text/csv" hidden aria-label="Rooms file to import"
+          onChange={async (e) => {
+            const f = e.target.files[0]; e.target.value = '';
+            if (!f) return;
+            try {
+              const r = await postText('/rooms/import', await f.text());
+              toast([`${r.added} added, ${r.updated} updated`, ...r.problems.slice(0, 3)].join(' · '), r.problems.length ? 'info' : undefined, { duration: r.problems.length ? 10000 : 4000 });
+              load();
+            } catch (err) { toast(err.message, 'error'); }
+          }} /></label>
+        {rooms?.length > 0 && <a className="btn small" href="/api/rooms/export.csv" download>Export as CSV</a>}
+        <span className="muted small">Columns: Name, Seats, Where, Equipment (rooms with the same name are updated).</span>
+      </div>
       {rooms?.length > 0 && <RoomUsage />}
     </div>
   );

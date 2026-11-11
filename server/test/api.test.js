@@ -2639,6 +2639,30 @@ test('rooms: some only admins can book', async () => {
   await owner('DELETE', `/api/rooms/${room.id}`);
 });
 
+test('rooms: import from a CSV file and export again', async () => {
+  const { roomsFromCsv } = await import('../src/routes/rooms.js');
+  assert.deepEqual(roomsFromCsv('Seats\n4').problems, ['The first row needs a Name column']);
+  const parsed = roomsFromCsv('Room name,Capacity,Location,Equipment\nZz Csv Atrium,40,Ground floor,"Video, Screen; video"\n,3,,\nZz Csv Pod,two,,\n\nZz Csv Booth,,,\n');
+  assert.deepEqual(parsed.rooms, [{ name: 'Zz Csv Atrium', capacity: 40, location: 'Ground floor', features: ['Video', 'Screen'] }, { name: 'Zz Csv Booth', capacity: null, location: null, features: [] }]);
+  assert.deepEqual(parsed.problems, ['Line 3: no name', 'Line 4: seats should be a number of people']);
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'rcsv', domain: 'acme.com', name: 'Ros Csv', password: 'password123' })).status, 201);
+  await login(a, 'rcsv@acme.com');
+  const csv = Buffer.from('Name,Seats,Where,Equipment\nZz Csv Atrium,40,Ground floor,"Video, Whiteboard"\nZz Csv Booth,1,,\n');
+  assert.equal((await a('POST', '/api/rooms/import', csv, { raw: true })).status, 403, 'admins only');
+  const first = (await owner('POST', '/api/rooms/import', csv, { raw: true })).body;
+  assert.deepEqual([first.added, first.updated], [2, 0]);
+  const again = (await owner('POST', '/api/rooms/import', Buffer.from('name,seats\nzz csv atrium,50\n'), { raw: true })).body;
+  assert.deepEqual([again.added, again.updated], [0, 1], 'same name (ignoring case): updated');
+  const atrium = (await owner('GET', '/api/rooms')).body.find((r) => r.name === 'zz csv atrium');
+  assert.deepEqual([atrium.capacity, atrium.location, atrium.features], [50, 'Ground floor', ['Video', 'Whiteboard']], 'columns the file hasn’t: kept');
+  const out = (await owner('GET', '/api/rooms/export.csv')).body;
+  assert.match(out, /^Name,Seats,Where,Equipment\r\n/);
+  assert.match(out, /Zz Csv Booth,1,,\r\n/);
+  assert.equal((await owner('POST', '/api/rooms/import', Buffer.from('nothing here'), { raw: true })).status, 400);
+  for (const r of (await owner('GET', '/api/rooms')).body.filter((x) => /^zz csv/i.test(x.name))) await owner('DELETE', `/api/rooms/${r.id}`);
+});
+
 test('rooms: only those with what the meeting needs', async () => {
   const mk = async (name, features) => (await owner('POST', '/api/rooms', { name, features })).body;
   const r1 = await mk('Zz Needs one', ['Video', 'Whiteboard']), r2 = await mk('Zz Needs two', ['video']), r3 = await mk('Zz Needs three', []);
