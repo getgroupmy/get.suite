@@ -9639,6 +9639,39 @@ test('tasks: fold a section away, each person their own', async () => {
   assert.equal((await outsider('PUT', `/api/tasks/sections/${sec.id}/folded`, { folded: true })).status, 404);
 });
 
+test('tasks: deleted tasks wait in the list’s trash and come back whole', async () => {
+  const a = client(), c = client();
+  for (const [local, name] of [['ttra', 'Ttr Ann'], ['ttrc', 'Ttr Cat']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'ttra@acme.com'); await login(c, 'ttrc@acme.com');
+  const list = (await a('POST', '/api/tasks/lists', { name: 'Trash test' })).body.id;
+  const t = (await a('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Book venue', notes: 'Ask about parking', due: '2026-12-01' })).body;
+  await a('POST', `/api/tasks/tasks/${t.id}/steps`, { title: 'Call them' });
+  await a('POST', `/api/tasks/tasks/${t.id}/comments`, { body: 'Prefer Friday' });
+  await a('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Other' });
+  const del = await a('DELETE', `/api/tasks/tasks/${t.id}`);
+  assert.equal(del.body.trash_days, 30);
+  assert.ok(!(await a('GET', `/api/tasks/lists/${list}/tasks`)).body.some((x) => x.id === t.id));
+  const trash = (await a('GET', `/api/tasks/lists/${list}/trash`)).body;
+  assert.deepEqual(trash.map((x) => [x.id, x.title, x.deleted_by_name]), [[t.id, 'Book venue', 'Ttr Ann']]);
+  assert.equal((await c('GET', `/api/tasks/lists/${list}/trash`)).status, 404, 'not Cat’s list');
+  assert.equal((await c('POST', `/api/tasks/trash/${t.id}/restore`)).status, 404);
+  const back = (await a('POST', `/api/tasks/trash/${t.id}/restore`)).body;
+  assert.deepEqual([back.id, back.title, back.notes, back.due, back.steps.map((x) => x.title)], [t.id, 'Book venue', 'Ask about parking', '2026-12-01', ['Call them']]);
+  assert.deepEqual((await a('GET', `/api/tasks/tasks/${t.id}/comments`)).body.map((x) => x.body), ['Prefer Friday'], 'its comments came back');
+  assert.deepEqual((await a('GET', `/api/tasks/lists/${list}/trash`)).body, []);
+  assert.equal((await a('POST', `/api/tasks/trash/${t.id}/restore`)).status, 404, 'once');
+  // Several at once, and clearing the completed ones, go to the trash too.
+  const o = (await a('GET', `/api/tasks/lists/${list}/tasks`)).body.find((x) => x.title === 'Other');
+  await a('PATCH', `/api/tasks/tasks/${o.id}`, { done: true });
+  await a('DELETE', `/api/tasks/lists/${list}/done`);
+  await a('POST', '/api/tasks/tasks/batch', { ids: [t.id], delete: true });
+  assert.deepEqual((await a('GET', `/api/tasks/lists/${list}/trash`)).body.map((x) => x.title).sort(), ['Book venue', 'Other']);
+  // Kept 30 days.
+  const { q } = await import('../src/db.js');
+  q('UPDATE task_trash SET deleted_at = ? WHERE id = ?').run(Date.now() - 31 * 864e5, o.id);
+  assert.deepEqual((await a('GET', `/api/tasks/lists/${list}/trash`)).body.map((x) => x.title), ['Book venue']);
+});
+
 test('tasks: an estimate of how long a task will take', async () => {
   const a = client();
   assert.equal((await owner('POST', '/api/users', { local: 'test1', domain: 'acme.com', name: 'Est Ann', password: 'password123' })).status, 201);

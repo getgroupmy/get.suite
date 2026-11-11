@@ -4,6 +4,7 @@
 import { excelFromTable, sendXlsx } from '../office/excel.js';
 import { addTimeRoutes } from '../tasktime.js';
 import { cleanRepeat, nextDue } from '../taskrepeat.js';
+import { trashTask, restoreTask, trashOfList, TASK_TRASH_DAYS } from '../tasktrash.js';
 import express, { Router } from 'express';
 import { tasksFromCsv } from '../taskimport.js';
 import { q, tx } from '../db.js';
@@ -526,7 +527,7 @@ export default function taskRoutes() {
     const { sec, list } = sectionFor(req);
     const withTasks = req.query.tasks === '1';
     tx(() => {
-      if (withTasks) { for (const t of q('SELECT id FROM tasks WHERE section_id = ?').all(sec.id)) { unblockFrom(list.id, t.id); q('DELETE FROM tasks WHERE id = ?').run(t.id); } }
+      if (withTasks) { for (const t of q('SELECT id FROM tasks WHERE section_id = ?').all(sec.id)) { unblockFrom(list.id, t.id); trashTask(t.id, req.user.id); } }
       else q('UPDATE tasks SET section_id = NULL WHERE section_id = ?').run(sec.id);
       q('DELETE FROM task_section_folded WHERE section_id = ?').run(sec.id);
       q('DELETE FROM task_sections WHERE id = ?').run(sec.id);
@@ -871,7 +872,7 @@ export default function taskRoutes() {
     if (ids.length > 500) throw bad('500 tasks at a time at most');
     if (req.body?.delete === true) {
       const found = ids.map((id) => { const t = q('SELECT * FROM tasks WHERE id = ?').get(id); if (!t) throw notFound('Task not found'); return { t, list: loadList(t.list_id, req.user) }; });
-      tx(() => { for (const { t, list } of found) { q('DELETE FROM tasks WHERE id = ?').run(t.id); unblockFrom(list.id, t.id); } });
+      tx(() => { for (const { t, list } of found) { trashTask(t.id, req.user.id); unblockFrom(list.id, t.id); } });
       for (const list of new Map(found.map(({ list }) => [list.id, list])).values()) changed(list);
       return res.json({ deleted: found.length });
     }
@@ -979,16 +980,28 @@ export default function taskRoutes() {
     const task = q('SELECT * FROM tasks WHERE id = ?').get(req.params.id);
     if (!task) throw notFound('Task not found');
     const list = loadList(task.list_id, req.user);
-    tx(() => { q('DELETE FROM tasks WHERE id = ?').run(task.id); unblockFrom(list.id, task.id); });
+    tx(() => { trashTask(task.id, req.user.id); unblockFrom(list.id, task.id); });
     changed(list);
-    res.json({ ok: true });
+    res.json({ ok: true, trash_days: TASK_TRASH_DAYS });
+  });
+  // A list's deleted tasks (kept TASK_TRASH_DAYS), and putting one back.
+  r.get('/lists/:id/trash', (req, res) => res.json(trashOfList(loadList(req.params.id, req.user).id)));
+  r.post('/trash/:id/restore', (req, res) => {
+    const t = q('SELECT list_id FROM task_trash WHERE id = ?').get(String(req.params.id));
+    if (!t) throw notFound('Not in the trash (or kept too long)');
+    const list = loadList(t.list_id, req.user);
+    if (q('SELECT COUNT(*) AS n FROM tasks WHERE list_id = ?').get(list.id).n >= MAX_TASKS) throw bad('This list is full');
+    const id = restoreTask(String(req.params.id));
+    changed(list);
+    res.json(shapeFor(req.user.id)(q(`${TASK} WHERE t.id = ?`).get(id)));
   });
 
   // Clear the completed tasks of a list.
   r.delete('/lists/:id/done', (req, res) => {
     const list = loadList(req.params.id, req.user);
-    for (const t of q('SELECT id FROM tasks WHERE list_id = ? AND done_at IS NOT NULL').all(list.id)) unblockFrom(list.id, t.id);
-    const n = q('DELETE FROM tasks WHERE list_id = ? AND done_at IS NOT NULL').run(list.id).changes;
+    const done = q('SELECT id FROM tasks WHERE list_id = ? AND done_at IS NOT NULL').all(list.id);
+    tx(() => { for (const t of done) { unblockFrom(list.id, t.id); trashTask(t.id, req.user.id); } });
+    const n = done.length;
     changed(list);
     res.json({ ok: true, deleted: n });
   });

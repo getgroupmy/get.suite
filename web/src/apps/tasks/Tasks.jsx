@@ -301,7 +301,8 @@ export default function Tasks() {
               { label: 'Download as Excel (.xlsx)', icon: 'download', onClick: () => { window.location.href = `/api/tasks/lists/${list.id}/export.xlsx`; } },
               { label: 'Print list', icon: 'print', onClick: () => printHtml(listPrintHtml(list.name, open, done)) },
               { label: 'Make a copy…', icon: 'copy', onClick: () => setDialog('copy') },
-              ...(done.length ? [{ label: `Delete completed tasks (${done.length})`, icon: 'check', onClick: async () => { await del(`/tasks/lists/${list.id}/done`); loadTasks(); } }] : []),
+              ...(done.length ? [{ label: `Delete completed tasks (${done.length})`, icon: 'check', onClick: async () => { await del(`/tasks/lists/${list.id}/done`); loadTasks(); toast('Completed tasks deleted: ⋮ → Deleted tasks… puts them back'); } }] : []),
+              { label: 'Deleted tasks…', icon: 'trash', onClick: () => setDialog('trash') },
               list.mine ? { label: 'Delete list', icon: 'trash', danger: true, onClick: () => setDialog('delete') } : { label: 'Leave list', icon: 'logout', onClick: () => setDialog('delete') },
             ]} />
           )}
@@ -441,7 +442,7 @@ export default function Tasks() {
       </section>
       {current && list && <TaskDetails key={current.id} task={current} sections={sections} inMyDay={myDay.some((x) => x.id === current.id)} onMyDay={(on) => toMyDay(current, on)} tasks={tasks} lists={lists} people={people} onChange={(c) => update(current, c)} onClose={() => show(null)}
         onReplaced={(next) => setTasks((all) => all && all.map((x) => (x.id === next.id ? next : x)))}
-        onDelete={async () => { show(null); try { await del(`/tasks/tasks/${current.id}`); toast('Task deleted'); loadTasks(); } catch (e) { toast(e.message, 'error'); } }}
+        onDelete={async () => { const gone = current; show(null); try { await del(`/tasks/tasks/${gone.id}`); toast('Task deleted', 'info', { action: { label: 'Undo', onClick: () => post(`/tasks/trash/${gone.id}/restore`).then(() => { loadTasks(); loadLists(); }).catch((e) => toast(e.message, 'error')) } }); loadTasks(); loadLists(); } catch (e) { toast(e.message, 'error'); } }}
         onMove={async (to) => { show(null); if (await update(current, { list_id: to })) toast(`Moved to ${lists.find((l) => l.id === to)?.name}`); }} />}
       {dialog === 'new' && <PromptModal title="New list" label="List name" confirm="Create" onClose={() => setDialog(null)}
         onSubmit={async (name) => { const r = await post('/tasks/lists', { name }); await loadLists(); navigate(`/tasks/${r.id}`); }} />}
@@ -462,6 +463,7 @@ export default function Tasks() {
         </ConfirmModal>;
       })()}
       {dialog === 'time' && list && <TimeReport list={list} onClose={() => setDialog(null)} />}
+      {dialog === 'trash' && list && <TaskTrash list={list} onClose={() => setDialog(null)} onRestored={() => { loadTasks(); loadLists(); }} />}
       {dialog === 'look' && list && <ListLook list={list} onClose={() => setDialog(null)} onSaved={() => { setDialog(null); loadLists(); }} />}
       {dialog === 'copy' && list && <CopyList list={list} onClose={() => setDialog(null)} onDone={async (r) => { setDialog(null); await loadLists(); navigate(`/tasks/${r.id}`); }} />}
       {dialog === 'share' && list && <ShareList list={list} me={user} onClose={() => setDialog(null)} onSaved={() => { setDialog(null); loadLists(); }} />}
@@ -1102,6 +1104,31 @@ function untilDefault(task) {
   const d = new Date(`${task.due || localToday()}T12:00:00Z`);
   d.setUTCMonth(d.getUTCMonth() + 3);
   return d.toISOString().slice(0, 10);
+}
+
+/** A list's deleted tasks (kept 30 days), newest first: Restore puts one back as it was, with its comments. */
+function TaskTrash({ list, onClose, onRestored }) {
+  const toast = useToast();
+  const [items, setItems] = useState(null);
+  const load = useCallback(() => get(`/tasks/lists/${list.id}/trash`).then(setItems).catch((e) => toast(e.message, 'error')), [list.id, toast]);
+  useEffect(() => { load(); }, [load]);
+  const restore = async (t) => { try { await post(`/tasks/trash/${t.id}/restore`); toast(`“${t.title}” is back`); onRestored(); load(); } catch (e) { toast(e.message, 'error'); } };
+  return (
+    <Modal title={`Deleted tasks · ${list.name}`} onClose={onClose} footer={<button type="button" className="btn" onClick={onClose}>Close</button>}>
+      {!items ? null : !items.length ? <p className="muted">Nothing deleted in the last 30 days.</p> : (
+        <ul className="task-trash" aria-label="Deleted tasks">
+          {items.map((t) => (
+            <li key={t.id} className="row">
+              <span className="grow"><span className="ellipsis">{t.title}</span>
+                <span className="muted small"> · deleted {new Date(t.deleted_at).toLocaleDateString([], { day: 'numeric', month: 'short' })}{t.deleted_by_name ? ` by ${t.deleted_by_name}` : ''}</span></span>
+              <button type="button" className="btn small" aria-label={`Restore ${t.title}`} onClick={() => restore(t)}>Restore</button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className="muted small">Deleted tasks stay here for 30 days, for everyone on the list.</p>
+    </Modal>
+  );
 }
 
 /** How a task repeats: the usual choices, or Custom… (every N days, weeks on chosen days, months or years). */

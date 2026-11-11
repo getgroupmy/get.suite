@@ -2793,3 +2793,5 @@ input.fv-name { background: #202124; color: #fff; border: 1px solid #5f6368; bor
 .rehearsal-table { width: 100%; border-collapse: collapse; }
 .rehearsal-table th { text-align: left; font-weight: normal; padding: 4px 8px 4px 0; border-bottom: 1px solid var(--border); }
 .rehearsal-table td { text-align: right; padding: 4px 0; border-bottom: 1px solid var(--border); font-variant-numeric: tabular-nums; }
+.task-trash { list-style: none; padding: 0; margin: 0; }
+.task-trash li { gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--border); }
