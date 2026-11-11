@@ -57,6 +57,13 @@ q(`CREATE TABLE IF NOT EXISTS room_checkins (
   PRIMARY KEY (room_id, event_id, start)
 )`).run();
 export const CHECK_IN_MINUTES = 10;
+// Who was asked to check in (once per occurrence), so the reminder isn't sent twice.
+q(`CREATE TABLE IF NOT EXISTS room_checkin_asks (
+  room_id TEXT NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+  event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+  start INTEGER NOT NULL,
+  PRIMARY KEY (room_id, event_id, start)
+)`).run();
 const releasedSet = (roomId) => new Set(q('SELECT event_id, start FROM room_checkins WHERE room_id = ? AND released = 1').all(roomId).map((r) => `${r.event_id}:${r.start}`));
 
 const WINDOW = 183 * 864e5;
@@ -157,6 +164,25 @@ export function releaseNoShows(t = Date.now()) {
       q('INSERT INTO room_checkins (room_id, event_id, start, released, at) VALUES (?, ?, ?, 1, ?)').run(room.id, b.event_id, b.start, t);
       notify([b.owner_id], { kind: 'invite', title: `${room.name} was released`, body: `Nobody checked in to “${b.title}” in its first ${CHECK_IN_MINUTES} minutes, so others can book the room now.`, link: '/calendar' });
       touch([b.owner_id]);
+      n++;
+    }
+  }
+  return n;
+}
+
+/**
+ * Rooms with check-in: when a meeting there starts, its organizer and the guests coming are asked (in
+ * the bell, once) to check in; the link opens Rooms now. Returns how many meetings were asked about.
+ */
+export function askCheckIns(t = Date.now()) {
+  let n = 0;
+  for (const room of q('SELECT id, name FROM rooms WHERE check_in = 1').all()) {
+    for (const b of bookingsOf(room.id, t, t + 1)) {
+      if (b.start > t || b.start <= t - CHECK_IN_MINUTES * 60000) continue; // only in its first minutes
+      if (q('SELECT 1 FROM room_checkins WHERE room_id = ? AND event_id = ? AND start = ?').get(room.id, b.event_id, b.start)) continue;
+      if (!q('INSERT OR IGNORE INTO room_checkin_asks (room_id, event_id, start) VALUES (?, ?, ?)').run(room.id, b.event_id, b.start).changes) continue;
+      const people = [b.owner_id, ...q("SELECT user_id FROM event_guests WHERE event_id = ? AND status IN ('yes', 'maybe')").all(b.event_id).map((g) => g.user_id)];
+      notify([...new Set(people)], { kind: 'invite', title: `Check in to ${room.name}`, body: `“${b.title}” has started. Someone check in within ${CHECK_IN_MINUTES} minutes of the start, or the room is released for others.`, link: '/calendar?rooms=now' });
       n++;
     }
   }

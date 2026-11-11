@@ -2562,12 +2562,26 @@ test('rooms: check in, or the room is released for others', async () => {
   assert.deepEqual([(await now(a, rb.id)).busy.checked_in, (await now(a, rb.id)).busy.release_at], [true, null]);
   assert.equal((await now(a, rc.id)).busy.release_at, null, 'no check-in for this room');
 
-  const { releaseNoShows } = await import('../src/routes/rooms.js');
+  const { releaseNoShows, askCheckIns } = await import('../src/routes/rooms.js');
+  // At the start, those in the meeting are asked to check in (once); not when someone already has.
+  const titles = async (c) => { const x = (await c('GET', '/api/notifications')).body; return (Array.isArray(x) ? x : x.items).map((n) => n.title); };
+  assert.equal(askCheckIns(Date.now()), 0, 'the no-show started 15 minutes ago: past asking; B is checked in; C has no check-in');
+  const busyC = (await a('GET', `/api/events?from=${t - 36e5}&to=${t + 36e5}`)).body.find((e) => e.title === 'No check-in needed');
+  await a('DELETE', `/api/events/${busyC.id}`);
+  await owner('PATCH', `/api/rooms/${rc.id}`, { check_in: true });
+  const starting = (await a('POST', '/api/events', { title: 'Starting now', start: Date.now() - 6e4, end: Date.now() + 30 * 6e4, rooms: [rc.id] })).body;
+  assert.equal(starting.rooms[0].status, 'yes');
+  assert.equal(askCheckIns(Date.now()), 1);
+  assert.equal(askCheckIns(Date.now()), 0, 'once');
+  const bellA = (await a('GET', '/api/notifications')).body;
+  assert.equal((Array.isArray(bellA) ? bellA : bellA.items).find((x) => x.title === 'Check in to Zz CI C').link, '/calendar?rooms=now', 'opens Rooms now');
+  assert.ok(!(await titles(b)).includes('Check in to Zz CI C'), 'only those in the meeting');
+  await a('POST', `/api/rooms/${rc.id}/check-in`);
   assert.equal(releaseNoShows(Date.now()), 1, 'only the no-show');
   assert.equal(releaseNoShows(Date.now()), 0, 'once');
   assert.equal(releaseNoShows(Date.now() + 10 * 6e4), 0, 'checked in: kept');
   assert.equal((await now(b, ra.id)).busy, null, 'free again');
-  assert.equal((await now(b, rc.id)).busy.title, 'No check-in needed');
+  assert.equal((await now(b, rc.id)).busy.title, 'Starting now', 'checked in: kept');
   const bell = (await a('GET', '/api/notifications')).body;
   assert.ok((Array.isArray(bell) ? bell : bell.items || bell.notifications).some((n) => n.title === 'Zz CI A was released'));
   assert.equal((await b('POST', `/api/rooms/${ra.id}/book-now`, { minutes: 15 })).status, 201, 'someone else can have it');

@@ -161,7 +161,8 @@ function Calendar({ acting = null, managed = [], onPick }) {
   const [showTasks, setShowTasksState] = useState(savedTasks);
   const [bookingOpen, setBookingOpen] = useState(false);
   const [hoursOpen, setHoursOpen] = useState(false);
-  const [roomsNow, setRoomsNow] = useState(false);
+  const [roomsNow, setRoomsNow] = useState(() => new URLSearchParams(window.location.search).get('rooms') === 'now'); // from a check-in reminder
+  useEffect(() => { if (new URLSearchParams(location.search).get('rooms') === 'now') setRoomsNow(true); }, [location.search]);
   const [prefsOpen, setPrefsOpen] = useState(false);
   const [sharingOpen, setSharingOpen] = useState(false);
   const [printOpen, setPrintOpen] = useState(false);
