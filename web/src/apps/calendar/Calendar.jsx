@@ -212,7 +212,12 @@ function Calendar({ acting = null, managed = [], onPick }) {
     try { const r = await put('/location/day', { date, place, label }); setLocations((l) => ({ ...l, [date]: r.place ? r : null })); }
     catch (e) { toast(e.message, 'error'); }
   };
-  const { user: me } = useAuth();
+  const { user: me, setUser } = useAuth();
+  const [showDeclined, setDeclinedState] = useState(me?.cal_prefs?.declined !== false); // invitations you said No to (faded), or hidden
+  const setShowDeclined = (on) => {
+    setDeclinedState(on); // at once; kept with your account
+    put('/users/me/calendar-prefs', { declined: on }).then((p) => setUser({ ...me, cal_prefs: p })).catch((e) => { setDeclinedState(!on); toast(e.message, 'error'); });
+  };
   const [people, setPeople] = useState([]);
   useEffect(() => { get('/users/directory').then(setPeople).catch(() => {}); }, []);
   const loadBusy = useCallback(() => {
@@ -239,11 +244,12 @@ function Calendar({ acting = null, managed = [], onPick }) {
     const to = days[days.length - 1].getTime() + DAY;
     // Repeating events come back once; each occurrence is worked out here, in local time.
     const hidden = new Set(hiddenKey ? hiddenKey.split(',') : []);
-    const shown = (list) => list.filter((e) => !((e.role === 'organizer' || e.role === 'shared') && e.calendar_id && hidden.has(e.calendar_id)));
+    const shown = (list) => list.filter((e) => !((e.role === 'organizer' || e.role === 'shared') && e.calendar_id && hidden.has(e.calendar_id))
+      && (showDeclined || !(e.role === 'guest' && e.my_status === 'no')));
     get(`/events?from=${from}&to=${to}`).then((list) => setEvents(expandAll(shown(list), from, to))).catch((e) => toast(e.message, 'error'));
     const now = Date.now();
     get(`/events?from=${now}&to=${now + 30 * DAY}`).then((list) => setUpcoming(expandAll(shown(list), now, now + 30 * DAY))).catch(() => {});
-  }, [days, toast, hiddenKey]);
+  }, [days, toast, hiddenKey, showDeclined]);
   useEffect(load, [load]);
   // Someone changed an event you organise or are invited to.
   useEffect(() => onLive((m) => { if (m.type === 'events-changed') { load(); loadCals(); } }), [load, loadCals]);
@@ -395,6 +401,7 @@ function Calendar({ acting = null, managed = [], onPick }) {
         <label className="check cal-show-tasks"><input type="checkbox" checked={showBirthdays} onChange={(e) => setShowBirthdays(e.target.checked)} /> Show contacts’ birthdays and dates</label>
         <label className="check cal-show-tasks"><input type="checkbox" checked={weekends} onChange={(e) => setWeekends(e.target.checked)} /> Show weekends</label>
         <label className="check cal-show-tasks"><input type="checkbox" checked={weekNums} onChange={(e) => setWeekNums(e.target.checked)} /> Show week numbers</label>
+        <label className="check cal-show-tasks" title="Invitations you said No to, shown faded"><input type="checkbox" checked={showDeclined} onChange={(e) => setShowDeclined(e.target.checked)} /> Show declined events</label>
         <label className="row small cal-show-tasks" style={{ gap: 6 }}>Week starts on
           <select value={weekStart} onChange={(e) => setWeekStart(Number(e.target.value))} aria-label="Week starts on">
             <option value={0}>Sunday</option><option value={1}>Monday</option><option value={6}>Saturday</option>

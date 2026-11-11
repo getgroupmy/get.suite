@@ -284,7 +284,9 @@ export default function userRoutes() {
 
   // Calendar settings: { length, speedy, reminders } (calprefs.js); { reset: true } goes back to the defaults.
   r.put('/me/calendar-prefs', (req, res) => {
-    const p = req.body?.reset ? null : cleanCalPrefs(req.body || {});
+    // Only what's given changes (the sidebar sets one switch; the settings dialog sends them all).
+    const cur = JSON.parse(q('SELECT cal_prefs FROM users WHERE id = ?').get(req.user.id)?.cal_prefs || 'null') || {};
+    const p = req.body?.reset ? null : cleanCalPrefs({ ...cur, ...(req.body || {}) });
     q('UPDATE users SET cal_prefs = ? WHERE id = ?').run(p ? JSON.stringify(p) : null, req.user.id);
     res.json(p || cleanCalPrefs(null));
   });
