@@ -2809,3 +2809,7 @@ input.fv-name { background: #202124; color: #fff; border: 1px solid #5f6368; bor
 .room-usage { margin-top: 8px; border-top: 1px solid var(--border, #e0e0e0); padding-top: 12px; }
 .usage-bar { display: inline-block; width: 60px; height: 8px; border-radius: 4px; background: var(--hover, #eef1f6); vertical-align: middle; overflow: hidden; }
 .usage-bar span { display: block; height: 100%; background: var(--accent, #1a73e8); }
+.meet-hand small { font-size: 12px; font-weight: 600; margin-left: 2px; color: #fff; background: rgba(0,0,0,.5); border-radius: 8px; padding: 0 5px; vertical-align: top; }
+.meet-hands { display: block !important; background: var(--hover, #eef1f6); border-radius: 8px; padding: 8px; }
+.meet-hands ol { margin: 6px 0 0; padding: 0; list-style: none; display: grid; gap: 4px; }
+.meet-hand-no { width: 20px; height: 20px; border-radius: 50%; background: #f9ab00; color: #202124; font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; }

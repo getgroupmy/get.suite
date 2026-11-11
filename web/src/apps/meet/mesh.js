@@ -4,8 +4,8 @@
 // each other. `onChange` is called whenever something visible changes.
 
 export class Mesh {
-  constructor({ code, room = 0, onBreakout, guestName = '', stream, iceServers = [], mic = true, cam = true, onChange, onChat, onReact, onClosed, onMuted, onPoll, onQuestion, onBoard, onLocked }) {
-    Object.assign(this, { code, room, onBreakout, guestName, stream, iceServers, onChange, onChat, onReact, onClosed, onMuted, onPoll, onQuestion, onBoard, onLocked });
+  constructor({ code, room = 0, onBreakout, guestName = '', stream, iceServers = [], mic = true, cam = true, onChange, onChat, onReact, onClosed, onMuted, onPoll, onQuestion, onBoard, onLocked, onLowered }) {
+    Object.assign(this, { code, room, onBreakout, guestName, stream, iceServers, onChange, onChat, onReact, onClosed, onMuted, onPoll, onQuestion, onBoard, onLocked, onLowered });
     this.polls = new Map(); // the meeting's polls, by id
     this.questions = new Map(); // Q&A, by id
     this.board = []; // the whiteboard's strokes, in order
@@ -38,6 +38,8 @@ export class Mesh {
 
   /** The host: mute someone (a peer id, or 'all' for everyone else), or remove someone. */
   mute(to) { this.send({ type: 'mute', to }); }
+  /** (Host) lower someone's raised hand, or everyone's ('all'). */
+  lower(to) { this.send({ type: 'lower', to }); }
   /** Q&A: ask, upvote (or take it back), mark answered (asker or host), take a question away. */
   ask(text) { this.send({ type: 'ask', text }); }
   upvote(id, on = true) { this.send({ type: 'upvote', id, on }); }
@@ -81,7 +83,7 @@ export class Mesh {
       const p = this.peers.get(m.id);
       if (p) { p.pc.close(); this.peers.delete(m.id); }
     } else if (m.type === 'state') {
-      if (m.id === this.id) return;
+      if (m.id === this.id) { this.state.hand = m.state.hand; this.state.hand_at = m.state.hand_at; this.onChange?.(); return; } // when your hand went up (the server says)
       const p = this.peers.get(m.id);
       if (p) p.state = m.state;
     } else if (m.type === 'signal') await this.signal(m.from, m.data);
@@ -97,6 +99,7 @@ export class Mesh {
     else if (m.type === 'wb-clear') { this.board = []; this.onBoard?.(m); }
     else if (m.type === 'poll') { const isNew = !this.polls.has(m.poll.id); this.polls.set(m.poll.id, m.poll); if (isNew) this.onPoll?.(m.poll); }
     else if (m.type === 'locked') { this.locked = !!m.on; this.onLocked?.(m); }
+    else if (m.type === 'lowered') { this.onLowered?.(m.by); }
     else if (m.type === 'muted') { this.setMic(false); this.onMuted?.(m.by); return; }
     else if (m.type === 'react') { this.onReact?.({ id: m.id === this.id ? 'me' : m.id, emoji: m.emoji }); return; }
     this.onChange?.();

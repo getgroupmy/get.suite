@@ -9,6 +9,7 @@ import { WebSocketServer } from 'ws';
 import { q } from './db.js';
 import { now, str, notFound, forbidden } from './util.js';
 import { makeBoard } from './meetboard.js';
+import { nextState } from './meethands.js';
 
 q(`CREATE TABLE IF NOT EXISTS meetings (
   code TEXT PRIMARY KEY,
@@ -95,9 +96,7 @@ export const peopleIn = (code) => [...(rooms.get(code)?.entries() ?? [])].map(([
 /** Everyone in a meeting, in the main room or a breakout room. */
 const everyoneIn = (code) => roomsOf(code).flatMap((k) => peopleIn(k));
 
-function cleanState(s = {}) {
-  return { mic: s.mic !== false, cam: s.cam !== false, hand: !!s.hand, screen: !!s.screen, rec: !!s.rec }; // rec: they're recording the meeting (everyone is shown)
-}
+const cleanState = (s = {}) => nextState({}, s);
 
 /** /api/public/meet/<code>: what a guest without an account sees before asking to join. */
 export function publicMeetRoutes() {
@@ -290,11 +289,20 @@ function enterRoom(ws, req, code, m, user) {
         const to = room.get(String(msg.to));
         if (to && to.ws.readyState === 1) to.ws.send(JSON.stringify({ type: 'signal', from: id, data: msg.data }));
       } else if (msg?.type === 'state') {
-        me.state = cleanState({ ...me.state, ...msg.state });
+        const { hand_at: _ignored, ...patch } = msg.state || {}; // when a hand went up is the server's to say
+        me.state = nextState(me.state, patch);
         toAll({ type: 'state', id, state: me.state });
       } else if (msg?.type === 'chat') {
         const text = String(msg.text ?? '').trim().slice(0, 2000);
         if (text) toAll({ type: 'chat', id, name: user.name, text, at: now() });
+      } else if (msg?.type === 'lower' && isHost) {
+        // The host lowers someone's hand (they've had their say), or everyone's.
+        for (const [pid, p] of room) {
+          if (!p.state.hand || (msg.to !== 'all' && pid !== String(msg.to))) continue;
+          p.state = nextState(p.state, { hand: false });
+          toAll({ type: 'state', id: pid, state: p.state });
+          if (pid !== id && p.ws.readyState === 1) p.ws.send(JSON.stringify({ type: 'lowered', by: user.name }));
+        }
       } else if ((msg?.type === 'mute' || msg?.type === 'remove') && isHost) {
         // The host (whoever started the meeting): mute someone (or everyone else), or remove someone.
         const targets = msg.to === 'all' && msg.type === 'mute' ? [...room.keys()].filter((pid) => pid !== id) : [String(msg.to)].filter((pid) => pid !== id && room.has(pid));

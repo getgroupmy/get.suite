@@ -160,6 +160,8 @@ async function openDevices() {
   return { stream: null, error: 'No camera or microphone could be used. You can still join, see and hear others, and chat.' };
 }
 
+const ordinal = (n) => `${n}${n % 100 >= 11 && n % 100 <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] || 'th'}`;
+
 function Video({ stream, muted, mirror, label }) {
   const ref = useRef();
   useEffect(() => { if (ref.current && ref.current.srcObject !== stream) ref.current.srcObject = stream || null; }, [stream]);
@@ -241,6 +243,7 @@ export default function MeetRoom({ guest = false, onSignIn }) {
       // Breakout rooms: off to another room (or back to the main one), keeping camera and microphone.
       onBreakout: ({ room: to, by }) => { toast(to ? `${by} moved you to Room ${to}` : `${by} brought everyone back to the main room`); goToRoom(to); },
       onMuted: (by) => { setMic(false); toast(`${by} muted you. Unmute when you want to speak.`); },
+      onLowered: (by) => toast(`${by} lowered your hand`),
     });
     mesh.current = m;
     m.connect();
@@ -287,6 +290,9 @@ export default function MeetRoom({ guest = false, onSignIn }) {
   // Everyone in the call (you first), who's shown big, and who's talking.
   const tiles = [{ id: 'me', me: true, name: `${user.name} (you)`, userId: user.id, state: m?.state || {}, stream: sharing ? m.screen : local?.stream },
     ...peers.map((p) => ({ id: p.id, name: p.user.name, userId: p.user.id, state: p.state, stream: p.stream, connecting: p.pc.connectionState !== 'connected' }))];
+  // Raised hands, first up first: everyone sees the same order.
+  const hands = tiles.filter((t) => t.state.hand).sort((a, b) => (a.state.hand_at || 0) - (b.state.hand_at || 0));
+  const handNo = (t) => hands.indexOf(t) + 1;
   const spot = spotlightOf(tiles, pinned); // who is shown big (pinned, or presenting)
   const speaking = useSpeaking(tiles);
   if (error) {
@@ -383,7 +389,7 @@ export default function MeetRoom({ guest = false, onSignIn }) {
                 {t.stream && <Video stream={t.stream} muted={t.me} mirror={t.me && !sharing} label={`Video of ${t.name}`} />}
                 {!videoOn && <div className="meet-avatar"><Avatar name={t.name} userId={t.userId} size={72} /></div>}
                 <span className="meet-name">{t.state.mic === false && <span aria-label="muted" title="Muted">🔇 </span>}{t.name}{t.state.screen ? ' · presenting' : ''}{t.connecting ? ' · connecting…' : ''}</span>
-                {t.state.hand && <span className="meet-hand" aria-label="Hand raised">✋</span>}
+                {t.state.hand && <span className="meet-hand" aria-label={`Hand raised, ${ordinal(handNo(t))}`} title={`Raised ${ordinal(handNo(t))}`}>✋<small>{handNo(t)}</small></span>}
                 <span className="meet-floats" aria-hidden="true">{floating.filter((f) => f.id === t.id).map((f) => <span key={f.key}>{f.emoji}</span>)}</span>
               </div>
             );
@@ -406,6 +412,12 @@ export default function MeetRoom({ guest = false, onSignIn }) {
                   <button type="button" className="btn small" aria-pressed={!!m.locked} onClick={() => m.lock(!m.locked)}>{m.locked ? '🔓 Unlock meeting' : '🔒 Lock meeting'}</button></li>}
                 {!m.host && m.locked && <li className="muted small">🔒 The host has locked the meeting: nobody new can join.</li>}
                 {m.host && tiles.length > 1 && <li className="row"><span className="grow muted small">You started this meeting.</span><button type="button" className="btn small" onClick={() => { m.mute('all'); toast('Everyone else is muted'); }}>Mute everyone</button></li>}
+                {hands.length > 0 && <li className="meet-hands" aria-label="Raised hands">
+                  <div className="row"><strong className="grow small">✋ Raised hands ({hands.length})</strong>
+                    {m.host && hands.length > 1 && <button type="button" className="btn small" onClick={() => m.lower('all')}>Lower all</button>}</div>
+                  <ol>{hands.map((t, i) => <li key={t.id} className="row"><span className="meet-hand-no" aria-hidden="true">{i + 1}</span><span className="grow">{t.name}</span>
+                    {m.host && <button type="button" className="btn small" aria-label={`Lower ${t.me ? 'your' : `${t.name}’s`} hand`} onClick={() => (t.me ? m.setState({ hand: false }) : m.lower(t.id))}>Lower</button>}</li>)}</ol>
+                </li>}
                 {tiles.map((t) => <li key={t.id} className="row"><Avatar name={t.name} userId={t.userId} size={28} /><span className="grow">{t.name}</span>{t.state.hand && '✋'}{t.state.mic === false && '🔇'}
                   {m.host && !t.me && <>
                     {t.state.mic !== false && <button type="button" className="icon-btn" aria-label={`Mute ${t.name}`} title="Mute" onClick={() => m.mute(t.id)}>🔇</button>}

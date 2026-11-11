@@ -3802,7 +3802,9 @@ test('meet: start a meeting, join its room, signals pass between people', async 
   assert.deepEqual(sig.data, { sdp: 'offer' });
   a.ws.send(JSON.stringify({ type: 'state', state: { mic: false, hand: true, bogus: 1 } }));
   const st = await b.next('state');
-  assert.deepEqual(st.state, { mic: false, cam: false, hand: true, screen: false, rec: false });
+  const { hand_at: handAt, ...rest } = st.state;
+  assert.deepEqual(rest, { mic: false, cam: false, hand: true, screen: false, rec: false });
+  assert.ok(Math.abs(handAt - Date.now()) < 5000, 'the server stamps when the hand went up');
   b.ws.send(JSON.stringify({ type: 'chat', text: '  hello  ' }));
   assert.equal((await a.next('chat')).text, 'hello');
   b.ws.send(JSON.stringify({ type: 'react', emoji: '💣' }));
