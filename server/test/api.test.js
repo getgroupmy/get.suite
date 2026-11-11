@@ -2462,6 +2462,29 @@ test('rooms: end your meeting early to give the room back, or run on when nobody
   for (const r of [room, other]) await owner('DELETE', `/api/rooms/${r.id}`);
 });
 
+test('status: your recent statuses, latest first, to set again in one click', async () => {
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'strec', domain: 'acme.com', name: 'Sta Rec', password: 'password123' })).status, 201);
+  await login(a, 'strec@acme.com');
+  assert.deepEqual((await a('GET', '/api/users/me/status')).body.recent, []);
+  const set = (emoji, text, clear) => a('PUT', '/api/users/me/status', { emoji, text, clear, until: null });
+  await set('🥪', 'Lunch', '1h');
+  await set('🎤', 'Presenting', '30m');
+  await set('🥪', 'Lunch', '30m');
+  await set('', 'Back at 3', 'bogus');
+  assert.deepEqual((await a('GET', '/api/users/me/status')).body.recent, [
+    { emoji: null, text: 'Back at 3', clear: '' }, { emoji: '🥪', text: 'Lunch', clear: '30m' }, { emoji: '🎤', text: 'Presenting', clear: '30m' },
+  ], 'each once, with how soon you had it cleared last time');
+  for (let i = 0; i < 5; i++) await set('📌', `Thing ${i}`, '');
+  const recent = (await a('GET', '/api/users/me/status')).body.recent;
+  assert.equal(recent.length, 5);
+  assert.equal(recent[0].text, 'Thing 4');
+  const after = (await a('POST', '/api/users/me/status/recent/forget', { emoji: '📌', text: 'Thing 4' })).body.recent;
+  assert.deepEqual(after.map((r) => r.text), ['Thing 3', 'Thing 2', 'Thing 1', 'Thing 0']);
+  await a('DELETE', '/api/users/me/status');
+  assert.equal((await a('GET', '/api/users/me/status')).body.recent.length, 4, 'clearing your status keeps them');
+});
+
 test('rooms: where each is and what is in it', async () => {
   const room = (await owner('POST', '/api/rooms', { name: 'Garden room', capacity: 6, location: ' 2nd floor, east ', features: ['Video', ' whiteboard ', 'video', '', 'Screen  share'] })).body;
   assert.deepEqual([room.location, room.features], ['2nd floor, east', ['Video', 'whiteboard', 'Screen share']], 'trimmed, each once');
@@ -2760,7 +2783,7 @@ test('status: set, seen by colleagues in the directory, checked, and cleared by 
   for (const [local, name] of [['sta', 'Stat Ann'], ['stb', 'Stat Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
   const aid = (await login(a, 'sta@acme.com')).id;
   await login(b, 'stb@acme.com');
-  assert.deepEqual((await a('GET', '/api/users/me/status')).body, { status: null });
+  assert.equal((await a('GET', '/api/users/me/status')).body.status, null);
   assert.equal((await a('PUT', '/api/users/me/status', {})).status, 400);
   assert.equal((await a('PUT', '/api/users/me/status', { text: 'x', until: Date.now() - 1000 })).status, 400);
   assert.equal((await a('PUT', '/api/users/me/status', { emoji: '<b>', text: 'x' })).status, 400);

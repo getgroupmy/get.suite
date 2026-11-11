@@ -1,6 +1,6 @@
 // Set your status: what colleagues see next to your name (in Chat and Contacts), cleared by itself.
 import { useEffect, useState } from 'react';
-import { get, put, del, onLive } from '../api.js';
+import { get, put, post, del, onLive } from '../api.js';
 import { Modal, useToast } from './ui.jsx';
 import EmojiPicker from './EmojiPicker.jsx';
 import { PRESETS, CLEAR_AFTER, untilFor, untilText, statusLine } from './status.js';
@@ -28,10 +28,15 @@ export function StatusDialog({ current, onClose, onSaved }) {
   const [emoji, setEmoji] = useState(current?.emoji || '💬');
   const [text, setText] = useState(current?.text || '');
   const [clear, setClear] = useState('today');
+  // The statuses you set lately (not the suggestions below, which are always there).
+  const [recent, setRecent] = useState([]);
+  useEffect(() => { get('/users/me/status').then((r) => setRecent(r.recent || [])).catch(() => {}); }, []);
+  const shownRecent = recent.filter((r) => !PRESETS.some(([em, words]) => em === r.emoji && words === r.text));
+  const forget = (r) => post('/users/me/status/recent/forget', { emoji: r.emoji || '', text: r.text || '' }).then((x) => setRecent(x.recent)).catch((e) => toast(e.message, 'error'));
   async function save(e) {
     e?.preventDefault();
     try {
-      const r = await put('/users/me/status', { emoji, text: text.trim(), until: untilFor(clear) });
+      const r = await put('/users/me/status', { emoji, text: text.trim(), until: untilFor(clear), clear });
       onSaved(r.status);
       toast(`Status set: ${statusLine(r.status)}${r.status.until ? ` ${untilText(r.status.until)}` : ''}`);
       onClose();
@@ -48,6 +53,15 @@ export function StatusDialog({ current, onClose, onSaved }) {
           <EmojiPicker className="btn small" label="Choose an emoji" onPick={setEmoji} />
           <input className="grow" autoFocus value={text} onChange={(e) => setText(e.target.value)} maxLength={100} placeholder="What’s your status?" aria-label="Status" />
         </div>
+        {shownRecent.length > 0 && <div className="status-presets" role="group" aria-label="Recent">
+          <span className="muted small status-presets-title">Recent</span>
+          {shownRecent.map((r) => (
+            <span key={`${r.emoji}|${r.text}`} className="status-recent">
+              <button type="button" className="btn small" onClick={() => { setEmoji(r.emoji || ''); setText(r.text || ''); setClear(r.clear); }}>{statusLine(r)}</button>
+              <button type="button" className="icon-btn" aria-label={`Forget ${statusLine(r)}`} title="Forget it" onClick={() => forget(r)}>×</button>
+            </span>
+          ))}
+        </div>}
         <div className="status-presets" role="group" aria-label="Suggestions">
           {PRESETS.map(([em, words, after]) => (
             <button key={words} type="button" className="btn small" onClick={() => { setEmoji(em); setText(words); setClear(after); }}>{em} {words}</button>

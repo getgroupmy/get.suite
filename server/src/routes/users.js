@@ -112,6 +112,28 @@ const photoFile = (id) => path.join(PHOTOS, `${id.replace(/[^\w-]/g, '')}.jpg`);
 const isPicture = (b) => b.length > 8 && ((b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) || b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) || (b.subarray(0, 4).toString() === 'RIFF' && b.subarray(8, 12).toString() === 'WEBP'));
 const MAX_PHOTO = 1024 * 1024;
 
+// The statuses you set lately (with how soon you had each cleared), to set again in one click.
+q(`CREATE TABLE IF NOT EXISTS status_recent (
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  emoji TEXT NOT NULL DEFAULT '',
+  text TEXT NOT NULL DEFAULT '',
+  clear TEXT NOT NULL DEFAULT '',
+  used_at INTEGER NOT NULL,
+  PRIMARY KEY (user_id, emoji, text)
+)`).run();
+export const MAX_RECENT_STATUSES = 5;
+export const STATUS_CLEARS = ['', '30m', '1h', '4h', 'today', 'week'];
+function rememberStatus(userId, emoji, text, clear) {
+  const c = STATUS_CLEARS.includes(clear) ? clear : '';
+  q(`INSERT INTO status_recent (user_id, emoji, text, clear, used_at) VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT (user_id, emoji, text) DO UPDATE SET clear = excluded.clear, used_at = excluded.used_at`)
+    .run(userId, emoji || '', text || '', c, Math.max(Date.now(), (q('SELECT MAX(used_at) AS t FROM status_recent WHERE user_id = ?').get(userId).t || 0) + 1));
+  q(`DELETE FROM status_recent WHERE user_id = ? AND rowid NOT IN (SELECT rowid FROM status_recent WHERE user_id = ? ORDER BY used_at DESC LIMIT ${MAX_RECENT_STATUSES})`).run(userId, userId);
+}
+/** Your recent statuses, latest first: [{ emoji, text, clear }]. */
+export const recentStatuses = (userId) => q('SELECT emoji, text, clear FROM status_recent WHERE user_id = ? ORDER BY used_at DESC').all(userId)
+  .map((r) => ({ emoji: r.emoji || null, text: r.text || null, clear: r.clear }));
+
 export default function userRoutes() {
   const r = Router();
 
@@ -355,7 +377,12 @@ export default function userRoutes() {
   });
 
   r.get('/me/status', (req, res) => {
-    res.json({ status: statusOf(q('SELECT status_emoji, status_text, status_until FROM users WHERE id = ?').get(req.user.id)) });
+    res.json({ status: statusOf(q('SELECT status_emoji, status_text, status_until FROM users WHERE id = ?').get(req.user.id)), recent: recentStatuses(req.user.id) });
+  });
+  // Forget one of your recent statuses.
+  r.post('/me/status/recent/forget', (req, res) => {
+    q('DELETE FROM status_recent WHERE user_id = ? AND emoji = ? AND text = ?').run(req.user.id, String(req.body.emoji || ''), String(req.body.text || ''));
+    res.json({ recent: recentStatuses(req.user.id) });
   });
   r.put('/me/status', (req, res) => {
     const text = str(req.body.text, { max: 100, name: 'Status' }) || null;
@@ -366,8 +393,9 @@ export default function userRoutes() {
     if (until !== null && (!Number.isFinite(until) || until <= Date.now())) throw bad('Pick a time in the future to clear it');
     if (until !== null && until > Date.now() + 366 * 864e5) throw bad('A status can last up to a year');
     q('UPDATE users SET status_emoji = ?, status_text = ?, status_until = ? WHERE id = ?').run(emoji, text, until, req.user.id);
+    rememberStatus(req.user.id, emoji, text, req.body.clear);
     statusChanged(req.user);
-    res.json({ status: statusOf({ status_emoji: emoji, status_text: text, status_until: until }) });
+    res.json({ status: statusOf({ status_emoji: emoji, status_text: text, status_until: until }), recent: recentStatuses(req.user.id) });
   });
   r.delete('/me/status', (req, res) => {
     q('UPDATE users SET status_emoji = NULL, status_text = NULL, status_until = NULL WHERE id = ?').run(req.user.id);

@@ -2803,3 +2803,6 @@ input.fv-name { background: #202124; color: #fff; border: 1px solid #5f6368; bor
 .rooms-now-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; background: #1e8e3e; }
 .rooms-now li.busy .rooms-now-dot { background: var(--danger, #d93025); }
 .rooms-now-name { font-weight: 500; }
+.status-presets-title { width: 100%; }
+.status-recent { display: inline-flex; align-items: center; }
+.status-recent .icon-btn { width: 24px; height: 24px; font-size: 14px; }
