@@ -1,9 +1,10 @@
 // A form's look: an accent colour (the top bar, buttons, ticked options), a tinted page behind it,
 // a font style, and a header picture across the top. Kept as JSON on the form; anything not
 // recognised is dropped, so the page people fill in only ever gets these known values.
+// Each dark enough for white text on it (4.5:1 or more, WCAG AA), since buttons on the form use it.
 export const FORM_COLORS = {
-  purple: '#673ab7', blue: '#3f51b5', sky: '#0288d1', teal: '#00897b', green: '#43a047',
-  orange: '#ef6c00', red: '#e53935', pink: '#d81b60', grey: '#607d8b',
+  purple: '#673ab7', blue: '#3f51b5', sky: '#0277bd', teal: '#00796b', green: '#2e7d32',
+  orange: '#c25400', red: '#d32f2f', pink: '#d81b60', grey: '#546e7a',
 };
 export const FORM_FONTS = ['basic', 'decorative', 'formal', 'playful'];
 export const FORM_BACKGROUNDS = ['plain', 'tinted'];

@@ -1,7 +1,7 @@
 // A form's look (as the server keeps it, server/src/formtheme.js): accent colour, tinted page, font, header picture.
 export const FORM_COLORS = [
-  ['purple', 'Purple', '#673ab7'], ['blue', 'Blue', '#3f51b5'], ['sky', 'Sky', '#0288d1'], ['teal', 'Teal', '#00897b'], ['green', 'Green', '#43a047'],
-  ['orange', 'Orange', '#ef6c00'], ['red', 'Red', '#e53935'], ['pink', 'Pink', '#d81b60'], ['grey', 'Grey', '#607d8b'],
+  ['purple', 'Purple', '#673ab7'], ['blue', 'Blue', '#3f51b5'], ['sky', 'Sky', '#0277bd'], ['teal', 'Teal', '#00796b'], ['green', 'Green', '#2e7d32'],
+  ['orange', 'Orange', '#c25400'], ['red', 'Red', '#d32f2f'], ['pink', 'Pink', '#d81b60'], ['grey', 'Grey', '#546e7a'],
 ];
 export const FORM_FONTS = [
   ['basic', 'Basic', 'inherit'],
@@ -17,7 +17,7 @@ export function themeStyle(theme) {
   const c = colorOf(theme);
   const font = FORM_FONTS.find(([k]) => k === theme?.font)?.[2];
   const style = {};
-  if (c) { style['--form-accent'] = c; style['--accent'] = c; }
+  if (c) { style['--form-accent'] = c; style['--accent'] = c; style['--on-accent'] = '#fff'; } // every theme colour carries white text
   if (font && font !== 'inherit') style['--form-font'] = font;
   if (theme?.background === 'tinted') style['--form-page'] = `color-mix(in srgb, ${c || 'var(--accent)'} 12%, var(--bg))`;
   return style;

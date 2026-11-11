@@ -74,7 +74,7 @@ function ActiveChart({ perDay, people }) {
         {' '}Days are in UTC.
       </p>
       {asTable ? (
-        <div className="active-chart-table"><table className="files report" aria-label="Active people per day">
+        <div className="active-chart-table" tabIndex={0} role="region" aria-label="Active people per day, as a table"><table className="files report" aria-label="Active people per day">
           <thead><tr><th>Day</th><th className="num">Active people</th></tr></thead>
           <tbody>{days.slice().reverse().map((d) => <tr key={d.day}><td>{dayLabel(d.day)}</td><td className="num">{counted(d) ? d.active : <span className="muted">not recorded</span>}</td></tr>)}</tbody>
         </table></div>
