@@ -2859,3 +2859,4 @@ select.meet-timer-btn option { color: #202124; }
 .unread-head { gap: 8px; align-items: center; padding: 0 10px; }
 .unreads ul { padding: 0; }
 .unread-head .link-btn { text-align: left; }
+.thread-result .muted .badge { margin-left: 6px; }

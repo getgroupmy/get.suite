@@ -320,6 +320,14 @@ export default function Chat() {
   useEffect(() => onLive((m) => { if ((m.type === 'message' && m.message.parent_id) || m.type === 'chat-read' || m.type === 'message-deleted' || m.type === 'chat-thread-follow') loadThreads(); }), [loadThreads]);
   useEffect(() => { setThreadsOpen(false); }, [channelId]);
   const unreadThreads = threads.filter((t) => t.unread > 0).length;
+  // Messages that mention you (newest first), with how many you haven't read yet.
+  const [mentions, setMentions] = useState([]);
+  const [mentionsOpen, setMentionsOpen] = useState(false);
+  const loadMentions = useCallback(() => get('/chat/mentions').then(setMentions).catch(() => {}), []);
+  useEffect(() => { loadMentions(); }, [loadMentions]);
+  useEffect(() => onLive((m) => { if (m.type === 'chat-mention' || m.type === 'chat-read' || m.type === 'message-deleted' || m.type === 'channels-changed') loadMentions(); }), [loadMentions]);
+  useEffect(() => { setMentionsOpen(false); }, [channelId]);
+  const unreadMentions = mentions.filter((m) => m.unread).length;
   // Everything unread, by conversation (loaded while it's open, and kept up to date there).
   const [unreads, setUnreads] = useState(null);
   const [unreadsOpen, setUnreadsOpen] = useState(false);
@@ -473,10 +481,11 @@ export default function Chat() {
           <Icon name="search" size={18} />
           <input name="q" type="search" placeholder="Search messages" aria-label="Search messages" onChange={(e) => { if (!e.target.value) setSearch(null); }} />
         </form>
-        <button type="button" className={`subnav-item ${savedOpen ? 'active' : ''}`} onClick={() => { setSearch(null); setThreadsOpen(false); setUnreadsOpen(false); setSavedOpen(true); }}><span className="hash" aria-hidden="true">🔖</span><span className="grow">Saved</span>{saved.length > 0 && <span className="count">{saved.length}</span>}</button>
-        <button type="button" className={`subnav-item ${unreadsOpen ? 'active' : ''}`} onClick={() => { setSearch(null); setSavedOpen(false); setThreadsOpen(false); setUnreadsOpen(true); }}><span className="hash" aria-hidden="true">📥</span><span className="grow">Unreads</span>{unreadTotal > 0 && <span className="badge" aria-label={`${unreadTotal} unread`}>{unreadTotal}</span>}</button>
+        <button type="button" className={`subnav-item ${savedOpen ? 'active' : ''}`} onClick={() => { setSearch(null); setMentionsOpen(false); setThreadsOpen(false); setUnreadsOpen(false); setSavedOpen(true); }}><span className="hash" aria-hidden="true">🔖</span><span className="grow">Saved</span>{saved.length > 0 && <span className="count">{saved.length}</span>}</button>
+        <button type="button" className={`subnav-item ${unreadsOpen ? 'active' : ''}`} onClick={() => { setSearch(null); setMentionsOpen(false); setSavedOpen(false); setThreadsOpen(false); setUnreadsOpen(true); }}><span className="hash" aria-hidden="true">📥</span><span className="grow">Unreads</span>{unreadTotal > 0 && <span className="badge" aria-label={`${unreadTotal} unread`}>{unreadTotal}</span>}</button>
+        <button type="button" className={`subnav-item ${mentionsOpen ? 'active' : ''}`} onClick={() => { setSearch(null); setSavedOpen(false); setThreadsOpen(false); setUnreadsOpen(false); setMentionsOpen(true); loadMentions(); }}><span className="hash" aria-hidden="true">@</span><span className="grow">Mentions</span>{unreadMentions > 0 && <span className="badge at" aria-label={`${unreadMentions} unread`}>{unreadMentions}</span>}</button>
         <button type="button" className="subnav-item chat-jump" onClick={() => setJumpOpen(true)} title="Jump to a conversation or person (Ctrl+K)"><span className="hash" aria-hidden="true">↪</span><span className="grow">Jump to…</span><kbd className="muted small">{/Mac|iP(hone|ad)/.test(navigator.platform) ? '⌘K' : 'Ctrl+K'}</kbd></button>
-        <button type="button" className={`subnav-item ${threadsOpen ? 'active' : ''}`} onClick={() => { setSearch(null); setSavedOpen(false); setUnreadsOpen(false); setThreadsOpen(true); loadThreads(); }}><span className="hash" aria-hidden="true">💬</span><span className="grow">Threads</span>{unreadThreads > 0 && <span className="badge" aria-label={`${unreadThreads} with new replies`}>{unreadThreads}</span>}</button>
+        <button type="button" className={`subnav-item ${threadsOpen ? 'active' : ''}`} onClick={() => { setSearch(null); setMentionsOpen(false); setSavedOpen(false); setUnreadsOpen(false); setThreadsOpen(true); loadThreads(); }}><span className="hash" aria-hidden="true">💬</span><span className="grow">Threads</span>{unreadThreads > 0 && <span className="badge" aria-label={`${unreadThreads} with new replies`}>{unreadThreads}</span>}</button>
         {Object.values(unread).some((n) => n > 0) && <button type="button" className="link-btn small chat-read-all" title="Mark every conversation as read"
           onClick={readAll}>✓ Mark all as read</button>}
         {starred.length > 0 && <>
@@ -541,12 +550,28 @@ export default function Chat() {
         </Modal>
       )}
       {jumpOpen && <JumpDialog items={jumpItems(channels, people, unread, user.id)} onClose={() => setJumpOpen(false)} onPick={async (it) => {
-        setJumpOpen(false); setSearch(null); setSavedOpen(false); setThreadsOpen(false); setUnreadsOpen(false);
+        setJumpOpen(false); setSearch(null); setSavedOpen(false); setThreadsOpen(false); setUnreadsOpen(false); setMentionsOpen(false);
         if (it.kind !== 'person') { navigate(`/chat/${it.id}`); return; }
         try { const c = await post('/chat/dm', { user_id: it.id }); await loadChannels(); navigate(`/chat/${c.id}`); } catch (e) { toast(e.message, 'error'); }
       }} />}
       <section className="chat-main">
-        {unreadsOpen && !search ? (
+        {mentionsOpen && !search ? (
+          <div className="chat-results">
+            <div className="chat-head"><h1 className="grow">Mentions</h1><button type="button" className="icon-btn" aria-label="Close mentions" onClick={() => setMentionsOpen(false)}><Icon name="close" /></button></div>
+            {!mentions.length ? <Empty icon="chat" title="No mentions yet">Messages that @mention you, a group you’re in or @channel show here, from every conversation.</Empty> : (
+              <ul aria-label="Mentions of you">
+                {mentions.map((m) => (
+                  <li key={m.id}>
+                    <button type="button" className={`chat-result thread-result ${m.unread ? 'unread' : ''}`} onClick={() => { setMentionsOpen(false); openResult({ id: m.id, channel_id: m.channel_id, parent_id: m.parent_id }); }}>
+                      <span className="muted small">{m.where}{m.private ? ' 🔒' : ''}{m.parent_id ? ' · in a thread' : ''} · {new Date(m.created_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}{m.unread && <span className="badge at" aria-label="Unread"> new</span>}</span>
+                      <span><strong>{m.user_name}</strong> {m.body}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        ) : unreadsOpen && !search ? (
           <div className="chat-results">
             <div className="chat-head"><h1 className="grow">Unreads</h1><button type="button" className="icon-btn" aria-label="Close unreads" onClick={() => setUnreadsOpen(false)}><Icon name="close" /></button></div>
             {unreads === null ? <p className="muted pad">Loading…</p> : !unreads.length ? <Empty icon="chat" title="You’re all caught up">New messages in your conversations, and replies in threads you’re in, show here until you read them.</Empty> : (

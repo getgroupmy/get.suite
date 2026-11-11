@@ -3508,6 +3508,42 @@ test('chat: everything unread, by conversation', async () => {
   assert.equal(big.messages.at(-1).body, 'more 11');
 });
 
+test('chat: messages that mention you', async () => {
+  const a = client(), b = client(), x = client();
+  for (const [local, name] of [['mna', 'Mention Ann'], ['mnb', 'Mention Ben'], ['mnx', 'Mention Xavi']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  const aid = (await login(a, 'mna@acme.com')).id;
+  const bid = (await login(b, 'mnb@acme.com')).id;
+  await login(x, 'mnx@acme.com');
+  const g = (await owner('POST', '/api/groups', { name: 'Mention Crew' })).body;
+  await owner('PUT', `/api/groups/${g.id}/members`, { user_ids: [aid] });
+  const ch = (await a('POST', '/api/chat/channels', { name: 'mention-test' })).body.id;
+  const dm = (await a('POST', '/api/chat/dm', { user_id: bid })).body.id;
+  const wait = () => new Promise((r) => setTimeout(r, 5));
+  const say = async (who, c, body, parent) => { const r = await who('POST', `/api/chat/channels/${c}/messages`, { body, parent_id: parent }); assert.equal(r.status, 201); await wait(); return r.body.id; };
+  const first = await say(b, ch, 'hey @mna@acme.com look');
+  await say(x, ch, 'nothing for ann');
+  await say(x, ch, 'over to @mention-crew');
+  await say(b, ch, 'everyone @channel');
+  await say(b, ch, 'in the thread @MNA@acme.com', first);
+  await say(b, dm, 'private ping @mna@acme.com');
+  await say(a, ch, 'mentioning myself @mna@acme.com');
+  const list = (await a('GET', '/api/chat/mentions')).body;
+  assert.deepEqual(list.map((m) => m.body), ['private ping @mna@acme.com', 'in the thread @MNA@acme.com', 'everyone @channel', 'over to @mention-crew', 'hey @mna@acme.com look'],
+    'direct, any case, in threads, @channel and groups; not her own, not others');
+  assert.equal(list[0].where, 'Mention Ben');
+  assert.equal(list[1].parent_id, first);
+  assert.equal(list[2].where, '#mention-test');
+  assert.equal(list[4].user_name, 'Mention Ben');
+  // she sent "mentioning myself" after the others, which read the channel for her
+  assert.equal(list[2].unread, false);
+  assert.equal(list[0].unread, true);
+  await a('POST', `/api/chat/channels/${dm}/read`);
+  assert.equal((await a('GET', '/api/chat/mentions')).body[0].unread, false);
+  assert.deepEqual((await x('GET', '/api/chat/mentions')).body.filter((m) => m.channel_id === ch).map((m) => m.body), ['everyone @channel'], 'Xavi only through @channel');
+  await a('POST', `/api/chat/channels/${ch}/leave`);
+  assert.deepEqual((await a('GET', '/api/chat/mentions')).body.map((m) => m.body), ['private ping @mna@acme.com'], 'not from a channel she left');
+});
+
 test('docs: download as Markdown; open a .md file as a document', async () => {
   const md = '# Minutes\n\nWe agreed on **three** things:\n\n- [x] budget\n- [ ] hiring\n\n| Who | What |\n| --- | --- |\n| Kim | slides |\n';
   const up = (await owner('POST', '/api/files/upload?name=minutes.md', Buffer.from(md), { raw: true })).body;
