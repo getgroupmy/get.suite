@@ -15,6 +15,7 @@ import { expand } from '../calmath.js';
 import { seesDetails, sharesOf, setShares } from '../calshare.js';
 import { notifyOutside, setOutside, touch, baseUrl, outEvent } from './calendar.js';
 import { mailEnabled } from '../mail/config.js';
+import { newCode } from '../meet.js';
 import { smtpFor } from '../mail/imap.js';
 
 q(`CREATE TABLE IF NOT EXISTS booking_pages (
@@ -49,6 +50,9 @@ if (!cols('booking_pages').includes('questions')) q("ALTER TABLE booking_pages A
 if (!cols('bookings').includes('reminded_at')) q('ALTER TABLE bookings ADD COLUMN reminded_at INTEGER').run();
 // Co-hosts (round robin): colleagues who also take bookings from the page ([user id]); each booking goes
 // to a host who is free then, the one with the fewest bookings from the page.
+// Where the booked meeting happens: '' (not said), 'video' (a Meet link made for each booking) or 'place' (where_text).
+if (!cols('booking_pages').includes('where_kind')) q("ALTER TABLE booking_pages ADD COLUMN where_kind TEXT NOT NULL DEFAULT ''").run();
+if (!cols('booking_pages').includes('where_text')) q('ALTER TABLE booking_pages ADD COLUMN where_text TEXT').run();
 if (!cols('booking_pages').includes('hosts')) q("ALTER TABLE booking_pages ADD COLUMN hosts TEXT NOT NULL DEFAULT '[]'").run();
 if (!cols('bookings').includes('link_base')) q('ALTER TABLE bookings ADD COLUMN link_base TEXT').run();
 
@@ -160,7 +164,10 @@ function readPage(b, current = {}) {
   const qs = pick('questions') ?? [];
   if (!Array.isArray(qs) || qs.length > 5) throw bad('At most 5 questions');
   const questions = qs.map((x) => ({ label: str(x?.label, { required: true, name: 'Question', max: 100 }), required: !!x?.required }));
-  return { title, description, duration, days, from_min: fromMin, to_min: toMin, tz, notice_hours: notice, days_ahead: ahead, enabled, buffer_min: buffer, max_per_day: maxPerDay, remind, questions, hosts };
+  const whereKind = pick('where_kind') ?? '';
+  if (!['', 'video', 'place'].includes(whereKind)) throw bad('Where: a video meeting, a place, or not said');
+  const whereText = whereKind === 'place' ? str(pick('where_text'), { required: true, name: 'The place', max: 200 }) : null;
+  return { title, description, duration, days, from_min: fromMin, to_min: toMin, tz, notice_hours: notice, days_ahead: ahead, enabled, buffer_min: buffer, max_per_day: maxPerDay, remind, questions, hosts, where_kind: whereKind, where_text: whereText };
 }
 const shapePage = (p, req) => ({ ...p, days: JSON.parse(p.days), questions: JSON.parse(p.questions || '[]'), hosts: JSON.parse(p.hosts || '[]'),
   host_names: hostsOf(p).slice(1).map((u) => u.name), enabled: !!p.enabled, remind: !!p.remind, url: `${baseUrl(req)}/b/${p.token}`,
@@ -185,7 +192,7 @@ export default function bookingRoutes() {
     q(`INSERT INTO booking_pages (id, user_id, token, title, description, duration, days, from_min, to_min, tz, notice_hours, days_ahead, enabled, created_at, buffer_min, max_per_day, remind)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, req.user.id, crypto.randomBytes(12).toString('base64url'), p.title, p.description, p.duration, JSON.stringify(p.days),
       p.from_min, p.to_min, p.tz, p.notice_hours, p.days_ahead, p.enabled, Date.now(), p.buffer_min, p.max_per_day, p.remind);
-    q('UPDATE booking_pages SET questions = ?, hosts = ? WHERE id = ?').run(JSON.stringify(p.questions), JSON.stringify(checkHosts(req.user, p.hosts)), id);
+    q('UPDATE booking_pages SET questions = ?, hosts = ?, where_kind = ?, where_text = ? WHERE id = ?').run(JSON.stringify(p.questions), JSON.stringify(checkHosts(req.user, p.hosts)), p.where_kind, p.where_text, id);
     res.status(201).json(shapePage(q('SELECT * FROM booking_pages WHERE id = ?').get(id), req));
   });
   const mine = (req) => {
@@ -196,7 +203,7 @@ export default function bookingRoutes() {
   r.patch('/:id', (req, res) => {
     const cur = mine(req);
     const p = readPage(req.body || {}, { ...cur, days: JSON.parse(cur.days), questions: JSON.parse(cur.questions || '[]'), hosts: JSON.parse(cur.hosts || '[]'), enabled: !!cur.enabled });
-    q('UPDATE booking_pages SET questions = ?, hosts = ? WHERE id = ?').run(JSON.stringify(p.questions), JSON.stringify(checkHosts(req.user, p.hosts)), cur.id);
+    q('UPDATE booking_pages SET questions = ?, hosts = ?, where_kind = ?, where_text = ? WHERE id = ?').run(JSON.stringify(p.questions), JSON.stringify(checkHosts(req.user, p.hosts)), p.where_kind, p.where_text, cur.id);
     q(`UPDATE booking_pages SET title = ?, description = ?, duration = ?, days = ?, from_min = ?, to_min = ?, tz = ?, notice_hours = ?, days_ahead = ?, enabled = ?, buffer_min = ?, max_per_day = ?, remind = ? WHERE id = ?`)
       .run(p.title, p.description, p.duration, JSON.stringify(p.days), p.from_min, p.to_min, p.tz, p.notice_hours, p.days_ahead, p.enabled, p.buffer_min, p.max_per_day, p.remind, cur.id);
     res.json(shapePage(q('SELECT * FROM booking_pages WHERE id = ?').get(cur.id), req));
@@ -314,7 +321,7 @@ export function publicBookingRoutes() {
 
   r.get('/:token', (req, res) => {
     const p = find(req.params.token);
-    res.json({ title: p.title, description: p.description, duration: p.duration, tz: p.tz, owner: { name: namesText(hostsOf(p).map((h) => h.name)) }, questions: JSON.parse(p.questions || '[]'), days: slotsOf(p) });
+    res.json({ title: p.title, description: p.description, duration: p.duration, tz: p.tz, owner: { name: namesText(hostsOf(p).map((h) => h.name)) }, questions: JSON.parse(p.questions || '[]'), where: p.where_kind === 'video' ? { kind: 'video' } : p.where_kind === 'place' ? { kind: 'place', text: p.where_text } : null, days: slotsOf(p) });
   });
 
   r.post('/:token', (req, res) => {
@@ -340,8 +347,14 @@ export function publicBookingRoutes() {
     const ct = crypto.randomBytes(18).toString('base64url');
     const cancelUrl = `${baseUrl(req)}/b/cancel/${ct}`;
     const description = [`Booked by ${name} <${email}> through “${p.title}”.`, answers.length && `\n${answers.join('\n')}`, note && `\n${note}`, `\nTo change or cancel this booking: ${cancelUrl}`].filter(Boolean).join('\n');
-    q(`INSERT INTO events (id, owner_id, title, description, location, start, end, all_day, color, rrule, exdates, repeat_until, tz)
-       VALUES (?, ?, ?, ?, NULL, ?, ?, 0, NULL, NULL, '[]', NULL, ?)`).run(id, owner.id, title, description, start, start + p.duration * 6e4, p.tz);
+    // A video meeting of its own (on the host's Meet), or the page's place.
+    let meetCode = null;
+    if (p.where_kind === 'video') {
+      do meetCode = newCode(); while (q('SELECT 1 FROM meetings WHERE code = ?').get(meetCode));
+      q('INSERT INTO meetings (code, org_id, created_by, title, created_at, last_used) VALUES (?, ?, ?, ?, ?, ?)').run(meetCode, owner.org_id, owner.id, title, Date.now(), Date.now());
+    }
+    q(`INSERT INTO events (id, owner_id, title, description, location, start, end, all_day, color, rrule, exdates, repeat_until, tz, meet_code)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, '[]', NULL, ?, ?)`).run(id, owner.id, title, description, p.where_kind === 'place' ? p.where_text : null, start, start + p.duration * 6e4, p.tz, meetCode);
     const { added } = setOutside(id, [email]);
     q("UPDATE event_outside_guests SET status = 'yes', answered_at = ? WHERE event_id = ?").run(Date.now(), id);
     q('INSERT INTO bookings (page_id, event_id, created_at, cancel_token, name, email, link_base) VALUES (?, ?, ?, ?, ?, ?, ?)').run(p.id, id, Date.now(), ct, name, email, baseUrl(req));
@@ -350,7 +363,8 @@ export function publicBookingRoutes() {
     touch([owner.id]);
     sendTo([owner.id], { type: 'booking-made', title, start, page: p.title, by: name });
     bell([owner.id], { kind: 'booking', title: `${name} booked “${p.title}”`, body: new Date(start).toLocaleString('en-GB', { timeZone: p.tz, weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) + ` (${p.tz})`, link: '/calendar', actor: name });
-    res.status(201).json({ ok: true, title: p.title, start, end: start + p.duration * 6e4, tz: p.tz, owner: { name: owner.name }, cancel_url: cancelUrl });
+    res.status(201).json({ ok: true, title: p.title, start, end: start + p.duration * 6e4, tz: p.tz, owner: { name: owner.name }, cancel_url: cancelUrl,
+      meet_url: meetCode ? `${baseUrl(req)}/meet/${meetCode}` : null, place: p.where_kind === 'place' ? p.where_text : null });
   });
   return r;
 }

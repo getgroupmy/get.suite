@@ -1559,6 +1559,34 @@ test('search filters: kind of file, whose it is, and when it changed', async () 
   void d; void s; void folder;
 });
 
+test('booking pages: where the meeting happens (its own video meeting, or a place)', async () => {
+  const a = client(), outsider = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'bwhere', domain: 'acme.com', name: 'Bo Where', password: 'password123' })).status, 201);
+  await login(a, 'bwhere@acme.com');
+  const base = { duration: 30, days: [0, 1, 2, 3, 4, 5, 6], from_min: 0, to_min: 1440, tz: 'UTC', notice_hours: 0, days_ahead: 2 };
+  assert.equal((await a('POST', '/api/bookings', { ...base, title: 'X', where_kind: 'phone' })).status, 400);
+  assert.equal((await a('POST', '/api/bookings', { ...base, title: 'X', where_kind: 'place' })).status, 400, 'a place needs saying');
+  const video = (await a('POST', '/api/bookings', { ...base, title: 'Video chat', where_kind: 'video' })).body;
+  const place = (await a('POST', '/api/bookings', { ...base, title: 'Site visit', where_kind: 'place', where_text: '12 Harbour St' })).body;
+  assert.deepEqual([video.where_kind, place.where_kind, place.where_text], ['video', 'place', '12 Harbour St']);
+  const tok = (pg) => pg.url.split('/b/')[1];
+  const pv = (await outsider('GET', `/api/public/book/${tok(video)}`)).body;
+  assert.deepEqual(pv.where, { kind: 'video' });
+  assert.deepEqual((await outsider('GET', `/api/public/book/${tok(place)}`)).body.where, { kind: 'place', text: '12 Harbour St' });
+  const slot = pv.days.flatMap((d) => d.slots)[0];
+  const bv = (await outsider('POST', `/api/public/book/${tok(video)}`, { start: slot, name: 'Vic Video', email: 'vic@example.org' })).body;
+  assert.match(bv.meet_url, /\/meet\/[a-z]{3}-[a-z]{4}-[a-z]{3}$/, 'a link of its own');
+  const ev = (await a('GET', `/api/events?from=${slot - 1}&to=${slot + 36e5}`)).body.find((e) => e.title === 'Video chat: Vic Video');
+  assert.equal(ev.meet_code, bv.meet_url.split('/meet/')[1]);
+  assert.equal((await a('GET', `/api/meet/${ev.meet_code}`)).status, 200, 'a meeting the host can start');
+  await a('PATCH', `/api/bookings/${place.id}`, { where_kind: 'place', where_text: '14 Harbour St' });
+  const slot2 = (await outsider('GET', `/api/public/book/${tok(place)}`)).body.days.flatMap((d) => d.slots).find((t) => t >= slot + 36e5);
+  const bp = (await outsider('POST', `/api/public/book/${tok(place)}`, { start: slot2, name: 'Pat Place', email: 'pat@example.org' })).body;
+  assert.deepEqual([bp.place, bp.meet_url], ['14 Harbour St', null]);
+  const ev2 = (await a('GET', `/api/events?from=${slot2 - 1}&to=${slot2 + 36e5}`)).body.find((e) => e.title === 'Site visit: Pat Place');
+  assert.deepEqual([ev2.location, ev2.meet_code], ['14 Harbour St', null]);
+});
+
 test('booking pages: free times around busy ones; booking puts it on the calendar; taken times refused', async () => {
   const a = client(), outsider = client();
   assert.equal((await owner('POST', '/api/users', { local: 'booker', domain: 'acme.com', name: 'Bea Booker', password: 'password123' })).status, 201);

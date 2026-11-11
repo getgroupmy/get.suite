@@ -130,6 +130,8 @@ export default function BookingPage({ token }) {
         <p><strong>{done.title}</strong> with {done.owner.name}</p>
         <p>{longDay(done.start)}, {time(done.start)} – {time(done.end)}{zone && <span className="muted small"> · your time ({zone})</span>}</p>
         <p className="muted small">An invitation is on its way to {form.email}; add it to your calendar from there.</p>
+        {done.meet_url && <p>📹 Join the video meeting at the time: <a href={done.meet_url}>{done.meet_url}</a> <span className="muted small">(it’s in the invitation too; no account needed)</span></p>}
+        {done.place && <p>📍 {done.place}</p>}
         {done.cancel_url && <p className="small">Can’t make it? <a href={done.cancel_url}>Change or cancel this booking</a> (the link is in the invitation too).</p>}
       </section>
     );
@@ -138,7 +140,7 @@ export default function BookingPage({ token }) {
       <section className="invite-card stack booking">
         <p className="muted small">Book time with {page.owner.name}</p>
         <h1>{page.title}</h1>
-        <p className="muted" style={{ margin: 0 }}>{page.duration} minutes{page.description ? ` · ${page.description}` : ''}</p>
+        <p className="muted" style={{ margin: 0 }}>{page.duration} minutes{page.where?.kind === 'video' ? ' · 📹 Video meeting' : page.where?.kind === 'place' ? ` · 📍 ${page.where.text}` : ''}{page.description ? ` · ${page.description}` : ''}</p>
         {!days.length ? <p>There are no free times in the next few weeks. Please get in touch with {page.owner.name} another way.</p> : !slot ? <>
           <div className="booking-days" role="tablist" aria-label="Days">
             {days.map(([k, list]) => (

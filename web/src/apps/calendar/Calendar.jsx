@@ -1901,6 +1901,11 @@ function BookingForm({ page, onSave, onCancel }) {
         <label className="field"><span>Bookings a day</span><select value={p.max_per_day ?? 0} onChange={(e) => set('max_per_day', Number(e.target.value))}>
           {[[0, 'No limit'], [1, 'At most 1'], [2, 'At most 2'], [3, 'At most 3'], [4, 'At most 4'], [5, 'At most 5'], [8, 'At most 8'], [10, 'At most 10']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
       </div>
+      <div className="row wrap">
+        <label className="field"><span>Where</span><select value={p.where_kind || ''} onChange={(e) => set('where_kind', e.target.value)}>
+          <option value="">Not said</option><option value="video">📹 A video meeting (a Meet link for each booking)</option><option value="place">📍 A place…</option></select></label>
+        {p.where_kind === 'place' && <label className="field grow"><span>The place</span><input value={p.where_text || ''} maxLength={200} placeholder="12 Harbour St, or a phone number" onChange={(e) => set('where_text', e.target.value)} /></label>}
+      </div>
       <CoHosts value={p.hosts || []} onChange={(v) => set('hosts', v)} />
       <label className="check"><input type="checkbox" checked={p.enabled} onChange={(e) => set('enabled', e.target.checked)} /> Taking bookings</label>
       <label className="check"><input type="checkbox" checked={p.remind !== false} onChange={(e) => set('remind', e.target.checked)} /> Email visitors a reminder the day before</label>
