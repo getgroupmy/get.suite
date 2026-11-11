@@ -2385,6 +2385,20 @@ test('drive search: files inside folders shared with you are found; not once the
   assert.equal(deep.name, 'Kiwi launch plan');
 });
 
+test('rooms: where each is and what is in it', async () => {
+  const room = (await owner('POST', '/api/rooms', { name: 'Garden room', capacity: 6, location: ' 2nd floor, east ', features: ['Video', ' whiteboard ', 'video', '', 'Screen  share'] })).body;
+  assert.deepEqual([room.location, room.features], ['2nd floor, east', ['Video', 'whiteboard', 'Screen share']], 'trimmed, each once');
+  const p = (await owner('PATCH', `/api/rooms/${room.id}`, { capacity: 8 })).body;
+  assert.deepEqual([p.capacity, p.location, p.features], [8, '2nd floor, east', ['Video', 'whiteboard', 'Screen share']], 'other fields kept');
+  assert.deepEqual((await owner('PATCH', `/api/rooms/${room.id}`, { location: '', features: ['Projector'] })).body.features, ['Projector']);
+  const got = (await owner('GET', '/api/rooms')).body.find((r) => r.id === room.id);
+  assert.deepEqual([got.location, got.features], [null, ['Projector']]);
+  assert.equal((await owner('PATCH', `/api/rooms/${room.id}`, { features: 'Video' })).status, 400);
+  assert.equal((await owner('PATCH', `/api/rooms/${room.id}`, { features: Array.from({ length: 11 }, (_, i) => `Thing ${i}`) })).status, 400);
+  assert.equal((await owner('PATCH', `/api/rooms/${room.id}`, { location: 'x'.repeat(101) })).status, 400);
+  await owner('DELETE', `/api/rooms/${room.id}`);
+});
+
 test('rooms: admins list them; an event books a free room, a clashing one is declined; repeats and moves are checked', async () => {
   const a = client(), b = client();
   for (const [local, name] of [['rma', 'Room Ann'], ['rmb', 'Room Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);

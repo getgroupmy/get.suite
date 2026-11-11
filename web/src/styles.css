@@ -1592,8 +1592,10 @@ img.avatar.photo { object-fit: cover; border-radius: 50%; display: inline-block;
 .share-company .company-avatar { width: 28px; height: 28px; background: var(--accent); }
 /* Admin: rooms */
 .room-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
-.room-list li { display: flex; gap: 8px; align-items: center; }
-.room-list li input:first-child { flex: 1; }
+.room-list li { display: grid; grid-template-columns: 1fr 90px auto; gap: 6px 8px; align-items: center; padding-bottom: 8px; border-bottom: 1px solid var(--border, #e0e0e0); }
+.room-list li:last-child { border-bottom: 0; }
+.room-list li .room-where { grid-column: 1; grid-row: 2; }
+.room-list li .room-kit { grid-column: 2 / 4; grid-row: 2; }
 .guest-chips li.room-taken { border-color: var(--danger, #d93025); color: var(--danger, #d93025); }
 /* Chat: cards for linked Workspace files */
 .file-cards { display: grid; gap: 6px; margin-top: 6px; max-width: 420px; }
@@ -2795,3 +2797,4 @@ input.fv-name { background: #202124; color: #fff; border: 1px solid #5f6368; bor
 .rehearsal-table td { text-align: right; padding: 4px 0; border-bottom: 1px solid var(--border); font-variant-numeric: tabular-nums; }
 .task-trash { list-style: none; padding: 0; margin: 0; }
 .task-trash li { gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--border); }
+.room-small { color: var(--warning, #b06000); margin-left: 6px; }

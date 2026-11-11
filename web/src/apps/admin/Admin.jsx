@@ -16,6 +16,7 @@ import SystemAdmin from './SystemAdmin.jsx';
 import DrivesAdmin from './DrivesAdmin.jsx';
 import AppsAdmin from './AppsAdmin.jsx';
 import { useMailStatus } from '../../mailStatus.js';
+import { readFeatures } from '../calendar/roomfit.js';
 
 export default function Admin() {
   const { user } = useAuth();
@@ -610,7 +611,7 @@ function Rooms() {
   return (
     <div className="card stack">
       <h2>Rooms</h2>
-      <p className="muted small" style={{ margin: 0 }}>Meeting rooms (or a projector, a company car…) people can book by adding them to an event. A room that's taken at that time declines.</p>
+      <p className="muted small" style={{ margin: 0 }}>Meeting rooms (or a projector, a company car…) people can book by adding them to an event. A room that's taken at that time declines. Say where each is and what's in it (video, a whiteboard…) to help people pick.</p>
       {rooms?.length > 0 && (
         <ul className="room-list" aria-label="Rooms">
           {rooms.map((r) => (
@@ -618,6 +619,10 @@ function Rooms() {
               <input aria-label={`Name of ${r.name}`} defaultValue={r.name} onBlur={(e) => { const v = e.target.value.trim(); if (v && v !== r.name) run(() => patch(`/rooms/${r.id}`, { name: v }), 'Room renamed')(); }} />
               <input aria-label={`People ${r.name} fits`} type="number" min="1" placeholder="Seats" defaultValue={r.capacity ?? ''} style={{ width: 90 }}
                 onBlur={(e) => { const v = e.target.value === '' ? null : Number(e.target.value); if (v !== (r.capacity ?? null)) run(() => patch(`/rooms/${r.id}`, { capacity: v }))(); }} />
+              <input aria-label={`Where ${r.name} is`} className="room-where" placeholder="Where (floor, building)" defaultValue={r.location ?? ''}
+                onBlur={(e) => { const v = e.target.value.trim(); if (v !== (r.location ?? '')) run(() => patch(`/rooms/${r.id}`, { location: v }))(); }} />
+              <input aria-label={`Equipment in ${r.name}`} className="room-kit" placeholder="Equipment, with commas" defaultValue={(r.features || []).join(', ')}
+                onBlur={(e) => { const v = readFeatures(e.target.value); e.target.value = v.join(', '); if (v.join('\n') !== (r.features || []).join('\n')) run(() => patch(`/rooms/${r.id}`, { features: v }))(); }} />
               <button type="button" className="icon-btn" aria-label={`Remove ${r.name}`} onClick={run(() => del(`/rooms/${r.id}`), `${r.name} removed`)}><Icon name="trash" size={18} /></button>
             </li>
           ))}

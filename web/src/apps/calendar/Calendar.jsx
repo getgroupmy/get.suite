@@ -17,6 +17,7 @@ import TimeOff, { waitingFor } from './TimeOff.jsx';
 import { EVENT_KEY } from '../docs/blocks.js';
 import { timeIn, zoneName, cityOf } from '../../components/zones.js';
 import { printRange, daysFromTo, scheduleOf, DAY, VIEWS, startOfDay, visibleDays, shift, title, onDay, layoutDay, expandAll, occurrenceIndex, describeRule, daysBetween, moveTimes, resizeEnd, shiftWeekdays, snapMinutes, moveStart, weekdayInMonth, eventsPerDay, isoWeek, daysShown, weekOrder } from './calmath.js';
+import { roomLine, sortRooms, tooSmall } from './roomfit.js';
 
 const OTHER_COLOURS = ['#e37400', '#8e24aa', '#0b8043', '#d93025', '#00796b', '#3949ab'];
 const COLORS = ['#1a73e8', '#0b8043', '#d50000', '#f4511e', '#8e24aa', '#616161'];
@@ -919,14 +920,15 @@ const ruleFromForm = (r, start) => {
 };
 
 /** Rooms for the event: the company's rooms, marked free or taken at the event's time. */
-function RoomPicker({ eventId, chosen, booked, onChange, when }) {
+function RoomPicker({ eventId, chosen, booked, onChange, when, people = 1 }) {
   const [rooms, setRooms] = useState(null);
   const [start, end] = when || [];
   useEffect(() => {
     get(`/rooms${start ? `?start=${start}&end=${end}${eventId ? `&event=${eventId}` : ''}` : ''}`).then(setRooms).catch(() => setRooms([]));
   }, [start, end, eventId]);
   if (!rooms?.length) return null;
-  const label = (r) => `${r.name}${r.capacity ? ` (${r.capacity})` : ''}`;
+  const label = roomLine;
+  const small = (r) => (tooSmall(r, people) ? ` — seats ${r.capacity}, ${people} coming` : '');
   return (
     <div className="field">
       <span>Room</span>
@@ -940,13 +942,14 @@ function RoomPicker({ eventId, chosen, booked, onChange, when }) {
             const taken = r.free === false;
             const state = taken ? 'Taken then' : was?.status === 'yes' ? 'Booked' : 'Free: booked when you save';
             return <li key={id} className={taken || was?.status === 'no' ? 'room-taken' : ''}>{label(r)} <span className="muted small">· {state}</span>
+              {tooSmall(r, people) && <span className="room-small small" title="More people are coming than it seats">⚠ Too small for {people}</span>}
               <button type="button" className="icon-btn" aria-label={`Remove ${r.name}`} onClick={() => onChange(chosen.filter((x) => x !== id))}>×</button></li>;
           })}
         </ul>
       )}
       <select value="" aria-label="Add a room" onChange={(e) => { if (e.target.value) onChange([...chosen, e.target.value]); }}>
         <option value="">+ Add a room…</option>
-        {rooms.filter((r) => !chosen.includes(r.id)).map((r) => <option key={r.id} value={r.id}>{label(r)}{r.free === false ? ' — taken then' : r.free ? ' — free' : ''}</option>)}
+        {sortRooms(rooms.filter((r) => !chosen.includes(r.id)), people).map((r) => <option key={r.id} value={r.id}>{label(r)}{r.free === false ? ' — taken then' : r.free ? ' — free' : ''}{small(r)}</option>)}
       </select>
     </div>
   );
@@ -1322,7 +1325,7 @@ function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate, tem
             {guests.some((g) => { const k = (event.guests || []).find((x) => x.email === g); return k ? k.external : !directory.some((d) => d.username === g); })
               && ' People outside Workspace get an email invitation for their own calendar (Outlook, Gmail, phone) and a link to answer; they also get changes and cancellations.'}</span>}
         </div>}
-        {!special && <RoomPicker eventId={event.id} chosen={roomIds} booked={event.rooms || []} onChange={setRoomIds} when={(() => { const r = read(); return r.end > r.start ? [r.start, r.end] : null; })()} />}
+        {!special && <RoomPicker eventId={event.id} people={guests.length + 1} chosen={roomIds} booked={event.rooms || []} onChange={setRoomIds} when={(() => { const r = read(); return r.end > r.start ? [r.start, r.end] : null; })()} />}
         <RemindersField value={reminders} onChange={setReminders} />
         {!special && <label className="field"><span>Location</span><input value={f.location} onChange={set('location')} /></label>}
         {!special && (meet ? <MeetLine code={meet} onRemove={() => setMeet(null)} />
