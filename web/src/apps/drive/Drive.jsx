@@ -17,6 +17,8 @@ import ScanDialog from './ScanDialog.jsx';
 import SharedInDialog from './SharedInDialog.jsx';
 import { readShared } from '../../shareinbox.js';
 import { openUrl } from '../../components/DrivePicker.jsx';
+import { DRAFT_KEY } from '../docs/blocks.js';
+import { useMailStatus } from '../../mailStatus.js';
 import { sortFiles, isPicture } from './drivesort.js';
 
 function useDriveRoute() {
@@ -96,6 +98,14 @@ export default function Drive() {
   const navigate = useNavigate();
   const toast = useToast();
   const { user, setUser } = useAuth();
+  const mail = useMailStatus();
+  /** Email as attachment: a new message in Mail with the file attached (a document asks first: as Word, PDF…, or a link). */
+  const emailFile = (f) => {
+    const rec = { id: f.id, name: f.name, size: f.size, mime: f.mime, kind: f.kind };
+    const draft = f.kind === 'file' ? { subject: f.name, files: [rec] } : { subject: f.name, convert: rec };
+    try { localStorage.setItem(DRAFT_KEY, JSON.stringify(draft)); } catch { toast('Your browser’s storage is off', 'error'); return; }
+    navigate('/mail?compose_doc=1');
+  };
   const [files, setFiles] = useState(null);
   const [crumbs, setCrumbs] = useState([]);
   // Sort and list/grid, kept for you on the server (the same on every computer).
@@ -316,6 +326,7 @@ export default function Drive() {
       officeAs(f) && { label: `Open as ${officeAs(f).what}`, icon: officeAs(f).icon, onClick: () => openAs(f) },
       f.kind === 'file' && !viewOnly(f) && { label: 'Download', icon: 'download', onClick: () => { location.href = `/api/files/${f.id}/raw?download`; } },
       f.kind === 'folder' && { label: 'Download as .zip', icon: 'download', onClick: () => zip([f.id]) },
+      mail?.enabled && f.kind !== 'folder' && !viewOnly(f) && { label: 'Email as attachment', icon: 'mail', onClick: () => emailFile(f) },
       { label: 'Details', icon: 'more', onClick: () => setDialog({ type: 'details', file: f }) },
       user.is_admin && ['doc', 'sheet', 'slides'].includes(f.kind) && { label: f.template ? 'Remove from company templates' : 'Make a company template', icon: 'doc',
         onClick: async () => { try { await put(`/files/${f.id}/template`, { template: !f.template }); toast(f.template ? 'No longer a company template' : 'Everyone in your company can now start from it (New → From a template)'); load(); } catch (e) { toast(e.message, 'error'); } } },

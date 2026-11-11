@@ -142,7 +142,8 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
     if (search.get('compose_doc') === null) return;
     let d = null;
     try { d = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null'); localStorage.removeItem(DRAFT_KEY); } catch { /* storage off */ }
-    if (d) setCompose(withSignature({ to: d.to || '', cc: d.cc || '', subject: d.subject || '', html: d.html || '' }, 'new'));
+    // files: Drive files to attach (from Drive's "Email as attachment"); convert: a document to attach as Word, Excel… (asked first).
+    if (d) setCompose(withSignature({ to: d.to || '', cc: d.cc || '', subject: d.subject || '', html: d.html || '', files: Array.isArray(d.files) ? d.files : [], convert: d.convert || null }, 'new'));
     const next = new URLSearchParams(search); next.delete('compose_doc'); setSearch(next, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search.get('compose_doc')]);
@@ -1216,7 +1217,7 @@ function Compose({ initial, shared = null, signatures = [], onClose, onSent, onD
     onClose();
   }
   const [picking, setPicking] = useState(false);
-  const [converting, setConverting] = useState(null); // a document, spreadsheet or presentation picked to attach: which kind of file?
+  const [converting, setConverting] = useState(initial.convert || null); // a document, spreadsheet or presentation picked to attach: which kind of file?
   const [templates, setTemplates] = useState([]);
   const [templateDialog, setTemplateDialog] = useState(null); // 'save' | 'manage'
   const loadTemplates = () => get('/mail/templates').then(setTemplates).catch(() => {});
