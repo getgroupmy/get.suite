@@ -4061,11 +4061,14 @@ test('chat: a video call shared in a conversation shows who is in it while it la
   await new Promise((r) => ws.on('open', r));
   await new Promise((r) => setTimeout(r, 100));
   assert.deepEqual((await call(Bq, 'GET', `/api/chat/channels/${dm}/calls`)).body, [{ code, people: ['Cal Ann'] }]);
+  assert.equal((await call(Bq, 'GET', '/api/chat/calls')).body[dm], 1, 'a 🎥 in the list');
   const C = await cookieFor('ccallc', 'Cal Cat');
   assert.equal((await call(C, 'GET', `/api/chat/channels/${dm}/calls`)).status, 404, 'not in the conversation');
+  assert.equal((await call(C, 'GET', '/api/chat/calls')).body[dm], undefined, 'not theirs to see');
   ws.close();
   await new Promise((r) => setTimeout(r, 150));
   assert.deepEqual((await call(Bq, 'GET', `/api/chat/channels/${dm}/calls`)).body, [], 'over');
+  assert.equal((await call(Bq, 'GET', '/api/chat/calls')).body[dm], undefined);
 });
 
 test('meet: a video meeting on a calendar event', async () => {

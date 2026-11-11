@@ -356,14 +356,25 @@ export default function Chat() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const canManage = (c) => c && !c.dm_key && (c.created_by === user.id || user.is_admin);
   const dms = channels.filter((c) => c.dm_key && (!c.closed || c.id === channelId)); // closed ones wait until someone writes
+  // Conversations with a call going on now (🎥 in the list): checked every 20 seconds, and after a meeting link is posted.
+  const [liveCalls, setLiveCalls] = useState({});
+  useEffect(() => {
+    const load = () => get('/chat/calls').then(setLiveCalls).catch(() => {});
+    load();
+    const t = setInterval(load, 20000);
+    const off = onLive((m) => { if (m.type === 'message' && /\/meet\//.test(m.message?.body || '')) setTimeout(load, 1500); });
+    return () => { clearInterval(t); off(); };
+  }, []);
+  const callMark = (c) => (liveCalls[c.id] ? <span className="chat-call-mark" aria-label={`In a call (${liveCalls[c.id]})`} title={`A call is going on here: ${liveCalls[c.id]} in it`}>🎥</span> : null);
   const channelRow = (c) => (
           <button key={c.id} className={`subnav-item ${c.id === channelId ? 'active' : ''} ${c.archived_at ? 'archived' : ''} ${c.muted ? 'muted' : ''}`} onClick={() => navigate(`/chat/${c.id}`)}>
-            <span className="hash" aria-label={c.private ? 'Private channel' : undefined}>{c.private ? '🔒' : '#'}</span><span className="grow ellipsis">{c.name}</span>{drafts[c.id] && c.id !== channelId && <span className="draft-mark" aria-label="Draft" title={`Draft: ${drafts[c.id].slice(0, 80)}`}>✏️</span>}{c.muted && <span className="muted-mark" aria-label="Muted" title="Muted">🔕</span>}{mentioned[c.id] && <span className="badge at" aria-label="You were mentioned">@</span>}{unread[c.id] > 0 && <span className={`badge ${c.muted ? 'quiet' : ''}`}>{unread[c.id]}</span>}
+            <span className="hash" aria-label={c.private ? 'Private channel' : undefined}>{c.private ? '🔒' : '#'}</span><span className="grow ellipsis">{c.name}</span>{callMark(c)}{drafts[c.id] && c.id !== channelId && <span className="draft-mark" aria-label="Draft" title={`Draft: ${drafts[c.id].slice(0, 80)}`}>✏️</span>}{c.muted && <span className="muted-mark" aria-label="Muted" title="Muted">🔕</span>}{mentioned[c.id] && <span className="badge at" aria-label="You were mentioned">@</span>}{unread[c.id] > 0 && <span className={`badge ${c.muted ? 'quiet' : ''}`}>{unread[c.id]}</span>}
           </button>
   );
   const dmRow = (c) => (
           <button key={c.id} className={`subnav-item ${c.id === channelId ? 'active' : ''} ${c.muted ? 'muted' : ''}`} onClick={() => navigate(`/chat/${c.id}`)}>
             <Avatar name={c.dm_name || user.name} size={20} userId={c.dm_user_id || user.id} /><span className="grow ellipsis">{c.dm_name || 'Notes to self'}{c.dm_org && <span className="muted small"> · {c.dm_org}</span>}{statusFor(c.dm_user_id) && <span className="dm-status" title={statusLine(statusFor(c.dm_user_id))}> {statusFor(c.dm_user_id).emoji || '💬'}</span>}{pausedFor(c.dm_user_id) && <span className="dm-status" aria-label="Notifications paused" title={`Notifications paused until ${whenText(pausedFor(c.dm_user_id))}`}> 🔕</span>}</span>{drafts[c.id] && c.id !== channelId && <span className="draft-mark" aria-label="Draft" title={`Draft: ${drafts[c.id].slice(0, 80)}`}>✏️</span>}{c.muted && <span className="muted-mark" aria-label="Muted" title="Muted">🔕</span>}{mentioned[c.id] && <span className="badge at" aria-label="You were mentioned">@</span>}{unread[c.id] > 0 && <span className={`badge ${c.muted ? 'quiet' : ''}`}>{unread[c.id]}</span>}
+            {callMark(c)}
           </button>
   );
   // Starred conversations (yours alone) sit above the others, in the order you starred them.

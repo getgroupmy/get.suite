@@ -669,6 +669,23 @@ export default function chatRoutes() {
     res.send(html ? conversationHtml(title, messages, opts) : conversationText(title, messages, opts));
   });
 
+  // Conversations of yours with a call going on now (a meeting link shared there in the last 12 hours that
+  // people are in): { channelId: number of people }, for a 🎥 in the list.
+  r.get('/calls', (req, res) => {
+    const out = {};
+    const seen = new Map(); // code → people now (each meeting looked at once)
+    for (const m of q("SELECT channel_id, body FROM messages WHERE created_at > ? AND body LIKE '%/meet/%' ORDER BY created_at DESC LIMIT 300").all(now() - 12 * 36e5)) {
+      if (out[m.channel_id]) continue;
+      let ok = false;
+      try { ok = !!loadChannel(m.channel_id, req.user); } catch { ok = false; }
+      if (!ok) continue;
+      for (const x of String(m.body).matchAll(/\/meet\/([a-z]{3}-[a-z]{4}-[a-z]{3})\b/g)) {
+        if (!seen.has(x[1])) seen.set(x[1], namesIn(x[1]).length);
+        if (seen.get(x[1])) { out[m.channel_id] = seen.get(x[1]); break; }
+      }
+    }
+    res.json(out);
+  });
   // Video calls going on now that were shared in this conversation (in the last 12 hours): [{ code, people }],
   // so it can show "In a call: Kim, Lee · Join" while they last.
   r.get('/channels/:id/calls', (req, res) => {
