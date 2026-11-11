@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import { get, post, patch, put, del, onLive } from '../../api.js';
-import { moveTo, moveBy } from './order.js';
+import { moveTo, moveBy, sortNotes, NOTE_SORTS } from './order.js';
 import { indent, moveItem, moveItemTo, tick as tickItem, untickAll, dropTicked } from './checklist.js';
 import { noteLink } from '../chat/filelinks.js';
 import Icon from '../../components/Icon.jsx';
@@ -55,13 +55,15 @@ export default function Notes() {
   const [labelEdit, setLabelEdit] = useState(null); // { rename: label } or { remove: label }
   const [deleting, setDeleting] = useState(null);
   const [view, setView] = useState('grid'); // grid of cards, or one column (list): your choice, on every device
+  const [sort, setSort] = useState('mine'); // your own order, last edited, newest or title
+  const chooseSort = async (next) => { setSort(next); try { await put('/notes/view', { sort: next }); } catch (e) { toast(e.message, 'error'); } };
   const switchView = async () => { const next = view === 'grid' ? 'list' : 'grid'; setView(next); try { await put('/notes/view', { view: next }); } catch (e) { toast(e.message, 'error'); } };
   const load = useCallback(() => {
     const qs = new URLSearchParams({ ...(where.trash && { trash: '1' }), ...(where.archived && { archived: '1' }), ...(where.reminders && { reminders: '1' }), ...(where.label && { label: where.label }), ...(search.trim() && { q: search.trim() }) });
     get(`/notes?${qs}`).then(setNotes).catch((e) => toast(e.message, 'error'));
     get('/notes/labels').then(setLabels).catch(() => {});
     get('/notes/label-colors').then(setLabelColors).catch(() => {});
-    get('/notes/view').then((r) => setView(r.view)).catch(() => {});
+    get('/notes/view').then((r) => { setView(r.view); setSort(r.sort || 'mine'); }).catch(() => {});
   }, [where, search, toast]);
   useEffect(() => { const t = setTimeout(load, search ? 250 : 0); return () => clearTimeout(t); }, [load, search]);
   useEffect(() => onLive((m) => { if (m.type === 'notes-changed' || m.type === 'live-connected') load(); }), [load]);
@@ -106,12 +108,12 @@ export default function Notes() {
   const [forever, setForever] = useState(null); // a note (or 'all') to delete for good
   const copy = async (n) => { try { await post(`/notes/${n.id}/copy`); toast('Copy made'); load(); } catch (e) { toast(e.message, 'error'); } };
 
-  const pinned = (notes || []).filter((n) => n.pinned);
-  const others = (notes || []).filter((n) => !n.pinned);
+  const pinned = sortNotes((notes || []).filter((n) => n.pinned), sort);
+  const others = sortNotes((notes || []).filter((n) => !n.pinned), sort);
   const current = notes?.find((n) => n.id === editing);
   // Your own order: drag a card onto another (within Pinned or Others), or ⋮ → Move earlier / later.
   // Not while searching or looking at a label or reminders, where only some cards show.
-  const sortable = !search && !where.label && !where.reminders && !where.trash;
+  const sortable = !search && !where.label && !where.reminders && !where.trash && sort === 'mine';
   const [dragging, setDragging] = useState(null);
   const reorder = async (group, next) => {
     const ids = group === 'pinned' ? [...next, ...others.map((n) => n.id)] : [...pinned.map((n) => n.id), ...next];
@@ -160,6 +162,9 @@ export default function Notes() {
       </aside>
       <section className="notes-main">
         <div className="row notes-top"><div className="notes-search"><Icon name="search" size={18} /><input type="search" aria-label="Search notes" placeholder="Search notes" value={search} onChange={(e) => setSearch(e.target.value)} /></div>
+          <select className="notes-sort" aria-label="Sort notes" value={sort} onChange={(e) => chooseSort(e.target.value)} title="The order of your notes (dragging them works in Your order)">
+            {NOTE_SORTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </select>
           <button type="button" className="icon-btn notes-view" aria-label={view === 'grid' ? 'List view' : 'Grid view'} title={view === 'grid' ? 'Show notes in one column' : 'Show notes as a grid'} onClick={switchView}>{view === 'grid' ? '☰' : '▦'}</button></div>
         {!where.archived && !where.reminders && !where.trash && <Composer label={where.label} onMade={load} />}
         {where.trash ? <>

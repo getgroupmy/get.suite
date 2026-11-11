@@ -9788,13 +9788,16 @@ test('notes: grid or list, each person’s own choice', async () => {
   const a = client(), b = client();
   for (const [local, name] of [['nvwa', 'Nvw Ann'], ['nvwb', 'Nvw Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
   await login(a, 'nvwa@acme.com'); await login(b, 'nvwb@acme.com');
-  assert.deepEqual((await a('GET', '/api/notes/view')).body, { view: 'grid' });
-  assert.deepEqual((await a('PUT', '/api/notes/view', { view: 'list' })).body, { view: 'list' });
-  assert.deepEqual((await a('GET', '/api/notes/view')).body, { view: 'list' });
-  assert.deepEqual((await b('GET', '/api/notes/view')).body, { view: 'grid' });
+  assert.deepEqual((await a('GET', '/api/notes/view')).body, { view: 'grid', sort: 'mine' });
+  assert.deepEqual((await a('PUT', '/api/notes/view', { view: 'list' })).body, { view: 'list', sort: 'mine' });
+  assert.deepEqual((await a('GET', '/api/notes/view')).body, { view: 'list', sort: 'mine' });
+  assert.deepEqual((await b('GET', '/api/notes/view')).body, { view: 'grid', sort: 'mine' });
   assert.equal((await a('PUT', '/api/notes/view', { view: 'tiles' })).status, 400);
+  // The order, on its own: the view stays.
+  assert.deepEqual((await a('PUT', '/api/notes/view', { sort: 'title' })).body, { view: 'list', sort: 'title' });
+  assert.equal((await a('PUT', '/api/notes/view', { sort: 'colour' })).status, 400);
   await a('PUT', '/api/notes/view', { view: 'grid' });
-  assert.deepEqual((await a('GET', '/api/notes/view')).body, { view: 'grid' });
+  assert.deepEqual((await a('GET', '/api/notes/view')).body, { view: 'grid', sort: 'title' });
 });
 
 test('notes: label colours, each person’s own', async () => {

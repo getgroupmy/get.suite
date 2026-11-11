@@ -140,6 +140,9 @@ q(`CREATE TABLE IF NOT EXISTS note_prefs (
   view TEXT NOT NULL DEFAULT 'grid'
 )`).run();
 export const NOTE_VIEWS = ['grid', 'list'];
+// And in what order: your own (dragged), last edited, newest, or by title.
+export const NOTE_SORTS = ['mine', 'edited', 'created', 'title'];
+if (!q('PRAGMA table_info(note_prefs)').all().some((c) => c.name === 'sort')) q("ALTER TABLE note_prefs ADD COLUMN sort TEXT NOT NULL DEFAULT 'mine'").run();
 
 // Trash: a deleted note waits here for its owner (restore it, or delete it for good) for TRASH_DAYS.
 if (!q('PRAGMA table_info(notes)').all().some((c) => c.name === 'trashed_at')) q('ALTER TABLE notes ADD COLUMN trashed_at INTEGER').run();
@@ -303,13 +306,18 @@ export default function noteRoutes() {
     res.json({ notes });
   });
 
-  r.get('/view', (req, res) => res.json({ view: q('SELECT view FROM note_prefs WHERE user_id = ?').get(req.user.id)?.view || 'grid' }));
+  const prefsOf = (userId) => { const p = q('SELECT view, sort FROM note_prefs WHERE user_id = ?').get(userId); return { view: p?.view || 'grid', sort: p?.sort || 'mine' }; };
+  r.get('/view', (req, res) => res.json(prefsOf(req.user.id)));
+  // { view } and/or { sort }; what isn't sent stays.
   r.put('/view', (req, res) => {
-    const view = String(req.body?.view || '');
+    const cur = prefsOf(req.user.id);
+    const view = req.body?.view === undefined ? cur.view : String(req.body.view);
+    const sort = req.body?.sort === undefined ? cur.sort : String(req.body.sort);
     if (!NOTE_VIEWS.includes(view)) throw bad('Grid or list');
-    q('INSERT INTO note_prefs (user_id, view) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET view = excluded.view').run(req.user.id, view);
+    if (!NOTE_SORTS.includes(sort)) throw bad('Your order, last edited, newest or title');
+    q('INSERT INTO note_prefs (user_id, view, sort) VALUES (?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET view = excluded.view, sort = excluded.sort').run(req.user.id, view, sort);
     sendTo([req.user.id], { type: 'notes-changed' });
-    res.json({ view });
+    res.json({ view, sort });
   });
 
   r.get('/labels', (req, res) => {

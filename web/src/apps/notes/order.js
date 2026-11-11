@@ -16,3 +16,14 @@ export function moveBy(ids, id, by) {
   const to = Math.max(0, Math.min(ids.length - 1, from + by));
   return to === from ? ids : moveTo(ids, id, ids[to]);
 }
+
+export const NOTE_SORTS = [['mine', 'Your order'], ['edited', 'Last edited'], ['created', 'Newest first'], ['title', 'Title']];
+/** Notes in the chosen order ('mine' leaves them as they are); a note without a title sorts by its text. */
+export function sortNotes(notes, sort) {
+  const list = [...notes];
+  const name = (n) => (n.title || n.body || (n.items || []).map((i) => i.text).join(' ') || '').trim().toLowerCase();
+  if (sort === 'edited') list.sort((a, b) => (b.updated_at || 0) - (a.updated_at || 0));
+  else if (sort === 'created') list.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+  else if (sort === 'title') list.sort((a, b) => name(a).localeCompare(name(b)));
+  return list;
+}
