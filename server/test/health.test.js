@@ -109,3 +109,23 @@ test('health: the mail server\'s address on spam blocklists', async () => {
   await checkAndNotify({ ...mailOn, now: now + 10 * 864e5, blocklists: async () => listed });
   assert.ok(q("SELECT title FROM notifications WHERE user_id = ? AND kind = 'system'").all(id).some((n) => n.title === 'Needs attention: Spam blocklists'));
 });
+
+test('health: mail DNS records and reverse DNS', async () => {
+  const { dnsCheck } = await import('../src/health.js');
+  const good = { domains: 2, problems: [], ptr: { ok: true, ips: ['198.51.100.7'], note: null } };
+  assert.deepEqual(dnsCheck(good), { status: 'ok', detail: '2 domains: records as they should be, and reverse DNS matches' });
+  const dmarcOnly = { domains: 1, problems: [{ domain: 'acme.com', records: ['DMARC'] }], ptr: { ok: true } };
+  assert.equal(dnsCheck(dmarcOnly).status, 'warn', 'DMARC missing: soon');
+  assert.match(dnsCheck(dmarcOnly).detail, /^acme\.com: DMARC not right\. Admin → Email → Check DNS/);
+  assert.equal(dnsCheck({ domains: 1, problems: [{ domain: 'acme.com', records: ['SPF', 'DMARC'] }], ptr: null }).status, 'bad', 'without SPF mail is refused');
+  const ptr = dnsCheck({ domains: 1, problems: [], ptr: { ok: false, note: 'Reverse DNS (PTR) of 198.51.100.7 isn’t mail.acme.com: ask your ISP to set it' } });
+  assert.equal(ptr.status, 'bad');
+  assert.match(ptr.detail, /Reverse DNS \(PTR\)/);
+  assert.equal(dnsCheck({ domains: 0, problems: [], ptr: null }), null, 'nothing to check');
+  assert.equal(dnsCheck(null), null);
+  const mailOn = { ...base, mail: true, statfs: disk(400, 1000), backupDir: backups(1), probe: async () => ({ ok: true, valid_to: now + 90 * 864e5, self_signed: false }), queue: () => null, blocklists: async () => null };
+  const h = byId(await collectHealth({ ...mailOn, mailDns: async () => dmarcOnly }));
+  assert.equal(h.maildns.label, 'Mail DNS records');
+  assert.equal(h.maildns.status, 'warn');
+  assert.equal(byId(await collectHealth({ ...mailOn, mailDns: async () => { throw new Error('x'); } })).maildns, undefined);
+});

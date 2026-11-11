@@ -8591,6 +8591,13 @@ test('encrypted delivery (MTA-STS): per domain; its records, its policy file, an
     assert.match((await policyAt('mta-sts.acme.com')).body, /mode: enforce\r\n[\s\S]*max_age: 604800/);
     const again = (await owner('GET', '/api/mail-admin/domains/acme.com/check')).body;
     assert.equal(again.results.find((r) => r.host === '_mta-sts.acme.com').note, 'Update the id: the policy changed');
+    // The hourly health check reads the same: acme.com has no MX, SPF, DKIM or DMARC in this DNS.
+    const { mailDnsHealth } = await import('../src/routes/mailAdmin.js');
+    const h = await mailDnsHealth({ fresh: true });
+    const acme = h.problems.find((x) => x.domain === 'acme.com');
+    assert.deepEqual(acme.records.slice(0, 4), ['MX', 'SPF', 'DKIM', 'DMARC']);
+    assert.ok(h.domains >= 1);
+    assert.equal((await mailDnsHealth()).problems, h.problems, 'kept a while');
   } finally {
     if (before === undefined) delete process.env.PUBLIC_URL; else process.env.PUBLIC_URL = before;
     await owner('PATCH', '/api/mail-admin/domains/acme.com', { mta_sts: 'off' });

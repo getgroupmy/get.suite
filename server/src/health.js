@@ -36,7 +36,7 @@ const dirSize = (dir) => { try { return fs.readdirSync(dir).reduce((n, f) => { t
  * passed in, so tests can try each case: statfs(dir) → { bsize, blocks, bavail }, the backups
  * folder, probe() → as probeMail, and now.
  */
-export async function collectHealth({ statfs = (d) => fs.statfsSync(d), dataDir = DATA_DIR, backupDir = BACKUP_DIR, mail = mailEnabled(), probe = probeMail, queue = readQueue, blocklists = defaultBlocklists, now = Date.now(), started = STARTED } = {}) {
+export async function collectHealth({ statfs = (d) => fs.statfsSync(d), dataDir = DATA_DIR, backupDir = BACKUP_DIR, mail = mailEnabled(), probe = probeMail, queue = readQueue, blocklists = defaultBlocklists, mailDns = defaultMailDns, now = Date.now(), started = STARTED } = {}) {
   const checks = [];
   const add = (id, label, status, detail) => checks.push({ id, label, status, detail });
 
@@ -75,6 +75,10 @@ export async function collectHealth({ statfs = (d) => fs.statfsSync(d), dataDir 
   const qc = mail ? queueCheck(queue(), now) : null;
   if (qc) add('queue', 'Outgoing mail', qc.status, qc.detail);
 
+  // Mail DNS: each domain's records (MX, SPF, DKIM, DMARC…) and the mail host's reverse DNS, as Admin → Email checks them.
+  const dc = dnsCheck(mail ? await mailDns().catch(() => null) : null);
+  if (dc) add('maildns', 'Mail DNS records', dc.status, dc.detail);
+
   // The mail server's address on spam blocklists (looked up every few hours): mail from a listed one is refused or goes to Junk.
   const bl = mail ? await blocklists().catch(() => null) : null;
   const blc = blocklistCheck(bl);
@@ -103,6 +107,17 @@ export function blocklistCheck(bl) {
     ? { status: 'bad', detail: `${listed.join(', ')}: mail from it may be refused or go to Junk. Admin → Email → Check blocklists has where to ask to be removed.` }
     : { status: 'ok', detail: `Not on any list that answered (${answered.map((r) => r.ip).join(', ')})` };
 }
+/** The health check for mail DNS results (as mailDnsHealth gives them), or null when there's nothing to check. */
+export function dnsCheck(d) {
+  if (!d || (!d.domains && !d.ptr)) return null;
+  const parts = d.problems.map((p) => `${p.domain}: ${p.records.join(', ')} not right`);
+  if (d.ptr && !d.ptr.ok) parts.push(d.ptr.note);
+  if (!parts.length) return { status: 'ok', detail: `${d.domains} domain${d.domains === 1 ? '' : 's'}: records as they should be${d.ptr ? ', and reverse DNS matches' : ''}` };
+  // Mail isn't delivered without MX, and is widely refused without SPF, DKIM or matching reverse DNS.
+  const serious = (d.ptr && !d.ptr.ok) || d.problems.some((p) => p.records.some((r) => ['MX', 'SPF', 'DKIM'].includes(r)));
+  return { status: serious ? 'bad' : 'warn', detail: `${parts.join('; ')}. Admin → Email → Check DNS shows what to set.` };
+}
+const defaultMailDns = async () => (await import('./routes/mailAdmin.js')).mailDnsHealth();
 const defaultBlocklists = async () => (await import('./routes/mailAdmin.js')).mailBlocklists();
 
 const told = new Map(); // check id → when the owners were last told about it

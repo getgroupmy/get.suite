@@ -38,6 +38,35 @@ export async function mailBlocklists({ fresh = false, now = Date.now() } = {}) {
   return value;
 }
 
+let lastDns = null; // { at, value }
+/**
+ * Every mail domain's records, and the mail host's reverse DNS, checked as Admin → Email checks them:
+ * { problems: [{ domain, records: ['SPF', 'DKIM', …] }], ptr: { ok, ips, note } | null, domains }.
+ * Cached for 6 hours (the health check runs hourly).
+ */
+export async function mailDnsHealth({ fresh = false, now = Date.now() } = {}) {
+  if (!fresh && lastDns && now - lastDns.at < 6 * 3600e3) return lastDns.value;
+  const domains = q('SELECT name FROM domains ORDER BY name').all().map((d) => d.name);
+  const problems = [];
+  for (const name of domains) {
+    const bad = [];
+    for (const rec of recordsFor(name)) if (!(await checkRecord(rec)).ok) bad.push(rec.type === 'MX' ? 'MX' : rec.purpose.split(':')[0]);
+    if (bad.length) problems.push({ domain: name, records: [...new Set(bad)] });
+  }
+  let ptr = null;
+  if (MAIL_HOSTNAME) {
+    try {
+      const ips = await resolver.resolve4(MAIL_HOSTNAME);
+      const names = await Promise.all(ips.map((ip) => resolver.reverse(ip).catch(() => [])));
+      const ok = names.every((n) => n.some((x) => x.toLowerCase().replace(/\.$/, '') === MAIL_HOSTNAME.toLowerCase()));
+      ptr = { ok, ips, note: ok ? null : `Reverse DNS (PTR) of ${ips.join(', ')} isn’t ${MAIL_HOSTNAME}: ask your ISP to set it` };
+    } catch (e) { ptr = { ok: false, ips: [], note: `No A record for ${MAIL_HOSTNAME} (${e.code || e.message})` }; }
+  }
+  const value = { domains: domains.length, problems, ptr };
+  lastDns = { at: now, value };
+  return value;
+}
+
 function targetOrg(req) {
   const id = req.query.org_id || req.body?.org_id;
   if (id && id !== req.user.org_id) {
