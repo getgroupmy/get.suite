@@ -677,9 +677,18 @@ export default function chatRoutes() {
     if (!/^[a-z]{3}-[a-z]{4}-[a-z]{3}$/.test(code) || !q('SELECT 1 FROM meetings WHERE code = ? AND org_id = ?').get(code, req.user.org_id)) throw bad('That video meeting does not exist');
     const others = membersOf(c).filter((id) => id !== req.user.id);
     if (!(c.dm_key || c.private) || others.length > 8) throw bad('Ringing is for direct messages and private channels of up to 9 people');
-    sendTo(others, { type: 'ring', from: req.user.name, code, channel_id: c.id, title: c.dm_key ? null : c.name });
+    sendTo(others, { type: 'ring', from: req.user.name, from_id: req.user.id, code, channel_id: c.id, title: c.dm_key ? null : c.name });
     notify(others, { kind: 'chat', title: `📞 ${req.user.name} is calling you${c.dm_key ? '' : ` in #${c.name}`}`, body: 'Tap to join the video call.', link: `/meet/${code}`, actor: req.user.name });
     res.json({ rang: others.length });
+  });
+  // Can't take the call: the caller is told (while they wait in the meeting), and a note goes in the conversation.
+  r.post('/channels/:id/ring/decline', (req, res) => {
+    const c = loadChannel(req.params.id, req.user);
+    const to = String(req.body?.to || '');
+    if (!membersOf(c).includes(to) || to === req.user.id) throw bad('Who rang you?');
+    sendTo([to], { type: 'ring-declined', by: req.user.name, code: String(req.body?.code || ''), channel_id: c.id });
+    const m = deliver(c, req.user, { body: '📵 Can’t talk right now: I’ll get back to you.', files: [], poll: null, parent: null });
+    res.json({ ok: true, message_id: m?.id ?? null });
   });
   // Conversations of yours with a call going on now (a meeting link shared there in the last 12 hours that
   // people are in): { channelId: number of people }, for a 🎥 in the list.

@@ -3,7 +3,7 @@
 // reactions, the meeting's chat and who's here.
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
-import { get } from '../../api.js';
+import { get, onLive } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
 import { Avatar, useToast } from '../../components/ui.jsx';
 import { useAuth } from '../../App.jsx';
@@ -172,6 +172,8 @@ export default function MeetRoom({ guest = false, onSignIn }) {
   const { code } = useParams();
   const navigate = useNavigate();
   const toast = useToast();
+  // Someone you rang can't talk (they pressed Can't talk): say so while you wait here.
+  useEffect(() => onLive((x) => { if (x.type === 'ring-declined' && x.code === code) toast(`${x.by} can’t talk right now`); }), [code, toast]);
   const mesh = useRef(null);
   const { user: account } = useAuth();
   // A guest (no account) gives their name in the lobby; everyone sees "Name (guest)".

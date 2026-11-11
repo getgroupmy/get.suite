@@ -4067,6 +4067,12 @@ test('chat: a video call shared in a conversation shows who is in it while it la
   assert.deepEqual((await call(A, 'POST', `/api/chat/channels/${dm}/ring`, { code })).body, { rang: 1 });
   const rung = (await call(Bq, 'GET', '/api/notifications')).body;
   assert.deepEqual((rung.items || rung).filter((n) => /is calling you/.test(n.title)).map((n) => [n.title, n.link]), [['📞 Cal Ann is calling you', `/meet/${code}`]]);
+  // Ben can't take it: Ann is told, and a note goes in the conversation.
+  assert.equal((await call(Bq, 'POST', `/api/chat/channels/${dm}/ring/decline`, { to: 'someone', code })).status, 400);
+  assert.equal((await call(Bq, 'POST', `/api/chat/channels/${dm}/ring/decline`, { to: A.id, code })).status, 200);
+  const last = (await call(A, 'GET', `/api/chat/channels/${dm}/messages`)).body;
+  const msgs = Array.isArray(last) ? last : last.messages;
+  assert.match(msgs[msgs.length - 1].body, /Can’t talk right now/);
   const general = (await call(A, 'GET', '/api/chat/channels')).body.channels.find((x) => x.name === 'general');
   if (general) assert.equal((await call(A, 'POST', `/api/chat/channels/${general.id}/ring`, { code })).status, 400, 'not a whole channel');
   // An event with that video meeting says who's in it now.

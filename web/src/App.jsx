@@ -246,7 +246,10 @@ function Shell() {
   // Someone is calling you (a video call started in a direct message or a small private channel).
   useEffect(() => onLive((m) => {
     if (m.type !== 'ring') return;
-    toast(`📞 ${m.from} is calling you${m.title ? ` in #${m.title}` : ''}`, 'info', { duration: 30000, action: { label: 'Join', onClick: () => window.open(`/meet/${m.code}`, '_blank', 'noopener') } });
+    toast(`📞 ${m.from} is calling you${m.title ? ` in #${m.title}` : ''}`, 'info', { duration: 30000, actions: [
+      { label: 'Join', onClick: () => window.open(`/meet/${m.code}`, '_blank', 'noopener') },
+      { label: 'Can’t talk', onClick: () => post(`/chat/channels/${m.channel_id}/ring/decline`, { to: m.from_id, code: m.code }).catch((e) => toast(e.message, 'error')) },
+    ] });
   }), [toast]);
   // Someone booked time with you through a booking page.
   useEffect(() => onLive((m) => {
