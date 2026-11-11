@@ -2312,3 +2312,27 @@ test('follow-ups set afterwards, on a message in Sent: counted from now, one per
   assert.equal((await gina('GET', `/api/mail/followups?message_id=${encodeURIComponent(full.messageId)}`)).body.length, 0, 'yours only');
   await olivia('DELETE', `/api/mail/followups/${again.id}`);
 });
+
+test('nudges: mail from people, 3 to 14 days old, not answered, for Home; Not now hides one', async () => {
+  const run = ` #${Date.now()}`;
+  const ago = (d) => new Date(Date.now() - d * 864e5);
+  const c = await eventually(() => imapLogin('olivia@acme.com', 'password123'), 20000);
+  const put = (subject, days, { from = 'Kim Park <kim@partner.example>', headers = '', flags = [] } = {}) =>
+    c.append('INBOX', `From: ${from}\r\nTo: olivia@acme.com\r\nSubject: ${subject}${run}\r\n${headers}Date: ${ago(days).toUTCString()}\r\n\r\nHi\r\n`, flags, ago(days));
+  try {
+    await put('Can you check the invoice?', 5);
+    await put('Already answered', 5, { flags: ['\\Answered'] });
+    await put('Too new', 1);
+    await put('Too old', 20);
+    await put('Weekly newsletter', 5, { headers: 'List-Unsubscribe: <mailto:u@news.example>\r\n' });
+    await put('Note to self', 5, { from: 'Olivia Owner <olivia@acme.com>' });
+  } finally { await c.logout().catch(() => {}); }
+  const mine = (n) => n.items.filter((x) => x.subject.endsWith(run)).map((x) => x.subject.slice(0, -run.length));
+  const n = (await olivia('GET', '/api/mail/nudges')).body;
+  assert.deepEqual(mine(n), ['Can you check the invoice?']);
+  const it = n.items.find((x) => x.subject === `Can you check the invoice?${run}`);
+  assert.equal(it.from.email, 'kim@partner.example');
+  assert.equal((await olivia('POST', `/api/mail/nudges/${it.uid}/dismiss`)).status, 200);
+  assert.deepEqual(mine((await olivia('GET', '/api/mail/nudges')).body), [], 'Not now');
+  assert.equal((await olivia('POST', '/api/mail/nudges/abc/dismiss')).status, 400);
+});
