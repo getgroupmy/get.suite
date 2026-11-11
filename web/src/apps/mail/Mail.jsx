@@ -111,6 +111,7 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
   const [confOpen, setConfOpen] = useState(false); // your confidential messages
   const [subsOpen, setSubsOpen] = useState(false); // newsletters and lists in the Inbox
   const [storageOpen, setStorageOpen] = useState(false); // how much room mail takes
+  const [emptying, setEmptying] = useState(null); // Trash or Junk, to empty now (asked first)
   const [scheduled, setScheduled] = useState([]);
   const refreshRef = useRef(null);
   const [scheduledOpen, setScheduledOpen] = useState(false);
@@ -456,6 +457,16 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
         {labelId && <p className="muted small mail-note">Labelled <LabelChip label={labels.find((l) => l.id === labelId)} /> in {current?.name} · <button className="link" onClick={() => setSearch({})}>show all</button></p>}
         {q && <p className="muted small mail-note">Results for “{q}” in {current?.name} · <button className="link" onClick={() => setSearch({})}>clear</button>
           {!shared && !searches.some((sv) => sv.folder === folder && sv.query === q) && <> · <button className="link" onClick={async () => { try { await post('/mail/searches', { folder, query: q }); toast('Search saved: it\'s in the sidebar'); loadSearches(); } catch (e) { toast(e.message, 'error'); } }}>Save this search</button></>}</p>}
+        {!shared && !q && (special === '\\Trash' || special === '\\Junk') && data?.messages?.length > 0 && (
+          <p className="muted small mail-note">{special === '\\Trash' ? 'Mail in Trash' : 'Mail in Junk'} still takes room in your mailbox until it's deleted for good. <button type="button" className="link" onClick={() => setEmptying(current)}>Empty {current.name} now</button></p>
+        )}
+        {emptying && (
+          <ConfirmModal title={`Empty ${emptying.name}?`} confirm={`Empty ${emptying.name}`} message={`Everything in ${emptying.name} is deleted for good. This can't be undone.`}
+            onClose={() => setEmptying(null)} onConfirm={async () => {
+              try { const r = await post('/mail/folders/empty', { folder: emptying.path }); toast(r.deleted ? `${r.deleted} message${r.deleted === 1 ? '' : 's'} deleted for good` : `${emptying.name} was already empty`); } catch (e) { toast(e.message, 'error'); }
+              setEmptying(null); refresh();
+            }} />
+        )}
         {tabbed && (
           <div className="tabs mail-inbox-tabs" role="tablist" aria-label="Inbox tabs">
             {[['primary', 'Primary', 'person'], ['updates', 'Updates', 'bell']].map(([k, label, icon]) => (
@@ -1002,6 +1013,10 @@ function MailStorage({ onClose, onOpen }) {
   const [s, setS] = useState(null);
   const load = useCallback(() => get('/mail/storage').then(setS).catch((e) => toast(e.message, 'error')), [toast]);
   useEffect(() => { load(); }, [load]);
+  const empty = async (f) => {
+    if (!window.confirm(`Delete everything in ${f.name} for good? This can't be undone.`)) return;
+    try { const r = await post('/mail/folders/empty', { folder: f.path }); toast(`${r.deleted} message${r.deleted === 1 ? '' : 's'} deleted for good: ${formatBytes(f.size)} freed`); load(); } catch (e) { toast(e.message, 'error'); }
+  };
   const remove = async (m) => {
     try { await post('/mail/messages/delete', { folder: m.folder, uids: [m.uid] }); toast(m.folder_special === '\\Trash' ? 'Deleted for good' : 'Moved to Trash: empty Trash to free the space'); load(); }
     catch (e) { toast(e.message, 'error'); }
@@ -1017,7 +1032,9 @@ function MailStorage({ onClose, onOpen }) {
           </div>
           <table className="files report" aria-label="Folders by size">
             <thead><tr><th>Folder</th><th className="num">Messages</th><th className="num">Size</th></tr></thead>
-            <tbody>{s.folders.map((f) => <tr key={f.path}><td>{f.name}</td><td className="num">{f.messages}</td><td className="num">{formatBytes(f.size)}</td></tr>)}</tbody>
+            <tbody>{s.folders.map((f) => <tr key={f.path}><td>{f.name}
+              {(f.special === '\\Trash' || f.special === '\\Junk') && f.messages > 0 && <> <button type="button" className="link-btn small" onClick={() => empty(f)}>Empty</button></>}</td>
+              <td className="num">{f.messages}</td><td className="num">{formatBytes(f.size)}</td></tr>)}</tbody>
           </table>
           <h3 style={{ margin: 0 }}>Largest messages</h3>
           {s.largest.length ? (

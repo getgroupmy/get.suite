@@ -2176,3 +2176,31 @@ test('mail storage: folder sizes, the total against the limit, and the largest m
   const after = (await olivia('GET', '/api/mail/storage')).body;
   assert.ok(after.largest.some((m) => m.subject === `Storage: holiday photos${run}` && m.folder !== 'INBOX'), 'now in Trash');
 });
+
+test('emptying Trash and Junk: everything in them deleted for good; no other folder', async () => {
+  const run = ` #${Date.now()}`;
+  const c = await eventually(() => imapLogin('olivia@acme.com', 'password123'), 20000);
+  try {
+    for (const [box, subject] of [['Trash', 'Old offer'], ['Trash', 'Old invoice'], ['Junk', 'You won']]) {
+      assert.ok(await c.append(box, `From: x@example.com\r\nTo: olivia@acme.com\r\nSubject: ${subject}${run}\r\n\r\nx\r\n`, []), `${subject} added`);
+    }
+  } finally { await c.logout().catch(() => {}); }
+  assert.equal((await olivia('POST', '/api/mail/folders/empty', { folder: 'INBOX' })).status, 400, 'not the inbox');
+  assert.equal((await olivia('POST', '/api/mail/folders/empty', { folder: 'Archive' })).status, 400);
+  const t = (await olivia('POST', '/api/mail/folders/empty', { folder: 'Trash' })).body;
+  assert.ok(t.deleted >= 2, JSON.stringify(t));
+  assert.equal((await olivia('GET', '/api/mail/messages?folder=Trash')).body.messages.length, 0);
+  assert.ok((await olivia('GET', '/api/mail/messages?folder=Junk')).body.messages.some((m) => m.subject === `You won${run}`), 'Junk untouched');
+  assert.ok((await olivia('POST', '/api/mail/folders/empty', { folder: 'Junk' })).body.deleted >= 1);
+  assert.deepEqual((await olivia('POST', '/api/mail/folders/empty', { folder: 'Trash' })).body, { deleted: 0 }, 'already empty');
+  // On legal hold: refused, and nothing goes.
+  const me = (await olivia('GET', '/api/auth/me')).body.user;
+  const { setHold } = await import('../src/hold.js');
+  setHold(me.id, true, { note: 'test' });
+  try {
+    const c2 = await imapLogin('olivia@acme.com', 'password123');
+    try { await c2.append('Trash', `From: x@example.com\r\nSubject: Kept${run}\r\n\r\nx\r\n`, []); } finally { await c2.logout().catch(() => {}); }
+    assert.equal((await olivia('POST', '/api/mail/folders/empty', { folder: 'Trash' })).status, 409);
+    assert.ok((await olivia('GET', '/api/mail/messages?folder=Trash')).body.messages.some((m) => m.subject === `Kept${run}`));
+  } finally { setHold(me.id, false); }
+});

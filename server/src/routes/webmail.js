@@ -1443,6 +1443,21 @@ export default function webmailRoutes() {
     res.json({ ok: true, moved });
   });
 
+  // Empty Trash or Junk now: everything in it deleted for good (other folders can't be emptied this way).
+  r.post('/folders/empty', async (req, res) => {
+    const folder = String(req.body?.folder || '');
+    const trash = await specialOf(req.user, '\\Trash');
+    const junk = await specialOf(req.user, '\\Junk');
+    if (!folder || (folder !== trash && folder !== junk)) throw bad('Only Trash and Junk can be emptied');
+    keepIfHeld(req.user.id, 'Mail');
+    const deleted = await withFolder(req.user, folder, async (c) => {
+      const n = c.mailbox?.exists || 0;
+      if (n) await c.messageDelete('1:*');
+      return n;
+    });
+    res.json({ deleted });
+  });
+
   // ---- drafts (stored in the IMAP Drafts folder, so phones and Outlook see them too) ----
   r.post('/drafts', async (req, res) => {
     const b = req.body;
