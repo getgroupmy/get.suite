@@ -179,6 +179,10 @@ const timers = new Map();
 // muted_entry: people come in with their microphone off; host_present: only the host shares a screen.
 const settings = new Map();
 const settingsOf = (code) => ({ muted_entry: false, host_present: false, ...settings.get(code) });
+// Co-hosts: people the meeting's organiser gave the host's controls to (for this meeting, while it
+// lasts). code → Set of user ids.
+const cohosts = new Map();
+const hostOf = (m, code, userId) => m.created_by === userId || !!cohosts.get(code)?.has(userId);
 // Who the host has put in the spotlight (shown big for everyone): room key → { id, by }.
 const spotlights = new Map();
 export const TIMER_SECONDS = { min: 10, max: 3 * 3600 };
@@ -260,24 +264,25 @@ function sendToRoom(p, n, by) { if (p.ws.readyState === 1) p.ws.send(JSON.string
 
 function enterRoom(ws, req, code, m, user) {
   {
-    const isHost = m.created_by === user.id;
+    const isOrganiser = m.created_by === user.id;
+    const isHost = () => hostOf(m, code, user.id); // the organiser, or a co-host they made
     // Which room: ?room=n, if breakout rooms are open and it's yours (the host may go into any); else the main room.
     const askedRoom = Number(new URL(req.url, 'http://x').searchParams.get('room') || 0);
     const b = breakouts.get(code);
-    const n = b && Number.isInteger(askedRoom) && askedRoom >= 1 && askedRoom <= b.count && !user.guest && (isHost || b.assign.get(user.id) === askedRoom) ? askedRoom : 0;
+    const n = b && Number.isInteger(askedRoom) && askedRoom >= 1 && askedRoom <= b.count && !user.guest && (isHost() || b.assign.get(user.id) === askedRoom) ? askedRoom : 0;
     const key = keyOf(code, n);
     let room = rooms.get(key);
     if (room && room.size >= MAX_PEOPLE) { ws.close(4001, 'This meeting is full'); return; }
     if (removed.get(code)?.has(user.id)) { ws.close(4003, 'The host removed you from this meeting'); return; }
-    if (locks.has(code) && !isHost && !locks.get(code).has(user.id)) { ws.close(4005, 'The host has locked this meeting: nobody new can join'); return; }
+    if (locks.has(code) && !isHost() && !locks.get(code).has(user.id)) { ws.close(4005, 'The host has locked this meeting: nobody new can join'); return; }
     if (!room) rooms.set(key, (room = new Map()));
     const id = crypto.randomBytes(8).toString('hex');
     const asked = new URL(req.url, 'http://x').searchParams; // how they come in: ?mic=0&cam=0
-    const mutedEntry = !isHost && settingsOf(code).muted_entry;
+    const mutedEntry = !isHost() && settingsOf(code).muted_entry;
     const me = { ws, user, state: cleanState({ mic: asked.get('mic') !== '0' && !mutedEntry, cam: asked.get('cam') !== '0' }) };
     const toOthers = (payload) => { const d = JSON.stringify(payload); for (const [pid, p] of room) if (pid !== id && p.ws.readyState === 1) p.ws.send(d); };
     const toAll = (payload) => { const d = JSON.stringify(payload); for (const p of room.values()) if (p.ws.readyState === 1) p.ws.send(d); };
-    ws.send(JSON.stringify({ type: 'welcome', id, peers: peopleIn(key), host: isHost, you: user.id, guest: !!user.guest, polls: (polls.get(key) || []).map((p) => pollOut(p, user.id)), questions: (questions.get(key) || []).map((x) => questionOut(x, user.id)),
+    ws.send(JSON.stringify({ type: 'welcome', id, peers: peopleIn(key), host: isHost(), organiser: isOrganiser, organiser_id: m.created_by, cohosts: [...(cohosts.get(code) || [])], you: user.id, guest: !!user.guest, polls: (polls.get(key) || []).map((p) => pollOut(p, user.id)), questions: (questions.get(key) || []).map((x) => questionOut(x, user.id)),
       board: boards.get(key)?.strokes || [],
       room: n, breakouts: b ? b.count : 0, locked: locks.has(code), timer: timers.get(key) || null, spotlight: spotlights.get(key) || null, settings: settingsOf(code), muted_on_entry: mutedEntry,
       admit: mayAdmit(m, user), knocking: mayAdmit(m, user) ? waitingList(code) : [] }));
@@ -286,7 +291,7 @@ function enterRoom(ws, req, code, m, user) {
     const pollToAll = (p) => { for (const q2 of room.values()) if (q2.ws.readyState === 1) q2.ws.send(JSON.stringify({ type: 'poll', poll: pollOut(p, q2.user.id) })); };
     room.set(id, me);
     toOthers({ type: 'joined', peer: describe(id, me) });
-    if (isHost) ws.send(JSON.stringify(breakoutSummary(code)));
+    if (isHost()) ws.send(JSON.stringify(breakoutSummary(code)));
     if (b) summaryToHosts(code, m);
     const t = now();
     q('UPDATE meetings SET last_used = ? WHERE code = ?').run(t, code);
@@ -301,13 +306,13 @@ function enterRoom(ws, req, code, m, user) {
         if (to && to.ws.readyState === 1) to.ws.send(JSON.stringify({ type: 'signal', from: id, data: msg.data }));
       } else if (msg?.type === 'state') {
         const { hand_at: _ignored, ...patch } = msg.state || {}; // when a hand went up is the server's to say
-        if (patch.screen && !isHost && settingsOf(code).host_present) { patch.screen = false; ws.send(JSON.stringify({ type: 'stop-present', reason: 'Only the host can present in this meeting' })); }
+        if (patch.screen && !isHost() && settingsOf(code).host_present) { patch.screen = false; ws.send(JSON.stringify({ type: 'stop-present', reason: 'Only the host can present in this meeting' })); }
         me.state = nextState(me.state, patch);
         toAll({ type: 'state', id, state: me.state });
       } else if (msg?.type === 'chat') {
         const text = String(msg.text ?? '').trim().slice(0, 2000);
         if (text) toAll({ type: 'chat', id, name: user.name, text, at: now() });
-      } else if (msg?.type === 'lower' && isHost) {
+      } else if (msg?.type === 'lower' && isHost()) {
         // The host lowers someone's hand (they've had their say), or everyone's.
         for (const [pid, p] of room) {
           if (!p.state.hand || (msg.to !== 'all' && pid !== String(msg.to))) continue;
@@ -315,9 +320,10 @@ function enterRoom(ws, req, code, m, user) {
           toAll({ type: 'state', id: pid, state: p.state });
           if (pid !== id && p.ws.readyState === 1) p.ws.send(JSON.stringify({ type: 'lowered', by: user.name }));
         }
-      } else if ((msg?.type === 'mute' || msg?.type === 'remove') && isHost) {
+      } else if ((msg?.type === 'mute' || msg?.type === 'remove') && isHost()) {
         // The host (whoever started the meeting): mute someone (or everyone else), or remove someone.
-        const targets = msg.to === 'all' && msg.type === 'mute' ? [...room.keys()].filter((pid) => pid !== id) : [String(msg.to)].filter((pid) => pid !== id && room.has(pid));
+        const targets = (msg.to === 'all' && msg.type === 'mute' ? [...room.keys()].filter((pid) => pid !== id) : [String(msg.to)].filter((pid) => pid !== id && room.has(pid)))
+          .filter((pid) => isOrganiser || room.get(pid).user.id !== m.created_by); // a co-host can't mute or remove the organiser
         for (const pid of targets) {
           const p = room.get(pid);
           if (msg.type === 'mute') { if (p.ws.readyState === 1) p.ws.send(JSON.stringify({ type: 'muted', by: user.name })); continue; }
@@ -341,10 +347,10 @@ function enterRoom(ws, req, code, m, user) {
           if (x.by === user.id || x.answered) return; // not your own, and not once answered
           if (msg.on === false) x.votes.delete(user.id); else x.votes.add(user.id);
         } else if (msg.type === 'answered') {
-          if (x.by !== user.id && !isHost) return; // the asker or the host
+          if (x.by !== user.id && !isHost()) return; // the asker or the host
           x.answered = msg.on !== false;
         } else {
-          if (x.by !== user.id && !isHost) return; // take a question away: the asker or the host
+          if (x.by !== user.id && !isHost()) return; // take a question away: the asker or the host
           questions.set(key, list.filter((y) => y !== x));
           toAll({ type: 'question-gone', id: x.id });
           return;
@@ -361,14 +367,29 @@ function enterRoom(ws, req, code, m, user) {
       } else if (msg?.type === 'poll-vote' || msg?.type === 'poll-close') {
         const p = (polls.get(key) || []).find((x) => x.id === String(msg.id));
         if (!p) return;
-        if (msg.type === 'poll-close') { if (p.by !== user.id && !isHost) return; p.closed = true; }
+        if (msg.type === 'poll-close') { if (p.by !== user.id && !isHost()) return; p.closed = true; }
         else {
           const i = Number(msg.option);
           if (p.closed || !Number.isInteger(i) || i < 0 || i >= p.options.length) return;
           p.votes.set(user.id, i); // one vote each; voting again changes it
         }
         pollToAll(p);
-      } else if (msg?.type === 'settings' && isHost) {
+      } else if (msg?.type === 'cohost' && isOrganiser) {
+        // The organiser makes someone a co-host (or takes it back): they get the host's controls.
+        const target = [...roomsOf(code)].flatMap((k) => [...(rooms.get(k)?.entries() ?? [])]).find(([pid]) => pid === String(msg.to))?.[1];
+        if (!target || target.user.guest || target.user.id === user.id) return;
+        if (!cohosts.has(code)) cohosts.set(code, new Set());
+        if (msg.on) cohosts.get(code).add(target.user.id); else cohosts.get(code).delete(target.user.id);
+        const list = JSON.stringify({ type: 'cohosts', ids: [...cohosts.get(code)] });
+        for (const k of roomsOf(code)) for (const p of rooms.get(k)?.values() ?? []) {
+          if (p.ws.readyState !== 1) continue;
+          p.ws.send(list);
+          if (p.user.id === target.user.id) {
+            p.ws.send(JSON.stringify({ type: 'host', host: !!msg.on, by: user.name }));
+            if (msg.on) p.ws.send(JSON.stringify(breakoutSummary(code)));
+          }
+        }
+      } else if (msg?.type === 'settings' && isHost()) {
         // The host changes the meeting's settings: everyone in every room is told. Turning on host-only
         // presenting stops anyone else who is presenting.
         const next = { ...settingsOf(code) };
@@ -378,22 +399,22 @@ function enterRoom(ws, req, code, m, user) {
         for (const k of roomsOf(code)) for (const p of rooms.get(k)?.values() ?? []) {
           if (p.ws.readyState !== 1) continue;
           p.ws.send(d);
-          if (next.host_present && p.state.screen && p.user.id !== m.created_by) p.ws.send(JSON.stringify({ type: 'stop-present', reason: `${user.name} made presenting host-only` }));
+          if (next.host_present && p.state.screen && !hostOf(m, code, p.user.id)) p.ws.send(JSON.stringify({ type: 'stop-present', reason: `${user.name} made presenting host-only` }));
         }
-      } else if (msg?.type === 'spotlight' && isHost) {
+      } else if (msg?.type === 'spotlight' && isHost()) {
         // The host shows someone big for everyone (a speaker, a demo), or stops (null).
         const who = msg.id == null ? null : String(msg.id);
         if (who && !room.has(who)) return;
         if (who) spotlights.set(key, { id: who, by: user.name }); else spotlights.delete(key);
         toAll({ type: 'spotlight', spotlight: spotlights.get(key) || null });
-      } else if (msg?.type === 'timer' && isHost) {
+      } else if (msg?.type === 'timer' && isHost()) {
         // The host starts a countdown (or stops it: 0 seconds).
         const secs = Math.round(Number(msg.seconds));
         if (secs === 0) timers.delete(key);
         else if (Number.isFinite(secs) && secs >= TIMER_SECONDS.min && secs <= TIMER_SECONDS.max) timers.set(key, { ends_at: now() + secs * 1000, seconds: secs, by: user.name });
         else return;
         toAll({ type: 'timer', timer: timers.get(key) || null });
-      } else if (msg?.type === 'lock' && isHost) {
+      } else if (msg?.type === 'lock' && isHost()) {
         // The host locks the meeting (or opens it again): everyone in every room is told; guests waiting are turned away.
         if (msg.on) {
           locks.set(code, new Set(everyoneIn(code).map((p) => p.user.id)));
@@ -416,7 +437,7 @@ function enterRoom(ws, req, code, m, user) {
           enterRoom(g.ws, g.req, code, m, { id: String(msg.id), name: `${g.name} (guest)`, email: null, guest: true, org_id: null });
         }
         knockToAdmitters(code, m);
-      } else if (msg?.type === 'breakout-open' && isHost) {
+      } else if (msg?.type === 'breakout-open' && isHost()) {
         // The host opens breakout rooms: { count, assign: { peerId: room } } for people in the main room
         // (guests stay in the main room). Everyone assigned is sent to theirs.
         const count = Number(msg.count);
@@ -431,7 +452,7 @@ function enterRoom(ws, req, code, m, user) {
         breakouts.set(code, { count, assign });
         for (const p of main.values()) if (assign.has(p.user.id)) sendToRoom(p, assign.get(p.user.id), user.name);
         summaryToHosts(code, m);
-      } else if (msg?.type === 'breakout-move' && isHost && breakouts.has(code)) {
+      } else if (msg?.type === 'breakout-move' && isHost() && breakouts.has(code)) {
         // Move one person (someone who came late, say) to a room, or back to the main room (0).
         const bo = breakouts.get(code);
         const p = findPeer(code, String(msg.to));
@@ -439,7 +460,7 @@ function enterRoom(ws, req, code, m, user) {
         if (!p || p.user.guest || p.user.id === user.id || !Number.isInteger(to) || to < 0 || to > bo.count) return;
         if (to) bo.assign.set(p.user.id, to); else bo.assign.delete(p.user.id);
         sendToRoom(p, to, user.name);
-      } else if (msg?.type === 'breakout-close' && isHost && breakouts.has(code)) {
+      } else if (msg?.type === 'breakout-close' && isHost() && breakouts.has(code)) {
         // Everyone comes back to the main room.
         const keys = roomsOf(code).slice(1);
         breakouts.delete(code);
@@ -467,7 +488,7 @@ function enterRoom(ws, req, code, m, user) {
       room.delete(id);
       if (spotlights.get(key)?.id === id) { spotlights.delete(key); const d = JSON.stringify({ type: 'spotlight', spotlight: null }); for (const p of room.values()) if (p.ws.readyState === 1) p.ws.send(d); }
       if (!room.size) { rooms.delete(key); polls.delete(key); questions.delete(key); boards.delete(key); timers.delete(key); spotlights.delete(key); } // polls last as long as the meeting (or the room)
-      if (roomsOf(code).every((k) => !rooms.get(k)?.size)) { locks.delete(code); settings.delete(code); } // everyone has gone: open again, settings back to usual
+      if (roomsOf(code).every((k) => !rooms.get(k)?.size)) { locks.delete(code); settings.delete(code); cohosts.delete(code); } // everyone has gone: open again, settings back to usual
       if (breakouts.has(code)) {
         if (roomsOf(code).every((k) => !rooms.get(k)?.size)) breakouts.delete(code); // everyone has gone
         else summaryToHosts(code, m);

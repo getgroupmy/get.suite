@@ -4,8 +4,8 @@
 // each other. `onChange` is called whenever something visible changes.
 
 export class Mesh {
-  constructor({ code, room = 0, onBreakout, guestName = '', stream, iceServers = [], mic = true, cam = true, onChange, onChat, onReact, onClosed, onMuted, onPoll, onQuestion, onBoard, onLocked, onLowered, onStopPresent }) {
-    Object.assign(this, { code, room, onBreakout, guestName, stream, iceServers, onChange, onChat, onReact, onClosed, onMuted, onPoll, onQuestion, onBoard, onLocked, onLowered, onStopPresent });
+  constructor({ code, room = 0, onBreakout, guestName = '', stream, iceServers = [], mic = true, cam = true, onChange, onChat, onReact, onClosed, onMuted, onPoll, onQuestion, onBoard, onLocked, onLowered, onStopPresent, onHost }) {
+    Object.assign(this, { code, room, onBreakout, guestName, stream, iceServers, onChange, onChat, onReact, onClosed, onMuted, onPoll, onQuestion, onBoard, onLocked, onLowered, onStopPresent, onHost });
     this.polls = new Map(); // the meeting's polls, by id
     this.questions = new Map(); // Q&A, by id
     this.board = []; // the whiteboard's strokes, in order
@@ -63,6 +63,8 @@ export class Mesh {
   /** (Host) show someone big for everyone, or stop (null). */
   setSpotlight(id) { this.send({ type: 'spotlight', id }); }
   /** (Host) the meeting's settings: { muted_entry, host_present }. */
+  /** (Organiser) give someone the host's controls, or take them back. */
+  setCohost(to, on) { this.send({ type: 'cohost', to, on: !!on }); }
   setSettings(patch) { this.settings = { ...this.settings, ...patch }; this.send({ type: 'settings', ...patch }); this.onChange?.(); }
   setTimer(seconds) { this.send({ type: 'timer', seconds }); }
   /** Let a waiting guest in, or not. */
@@ -72,6 +74,9 @@ export class Mesh {
   async handle(m) {
     if (m.type === 'welcome') {
       this.id = m.id;
+      this.organiserId = m.organiser_id;
+      this.organiser = !!m.organiser; // started it: may make co-hosts
+      this.cohosts = m.cohosts || []; // user ids
       this.host = !!m.host; // whoever started the meeting: may mute and remove people
       this.you = m.you; // your account id (a guest's own id)
       this.waiting = false;
@@ -111,6 +116,8 @@ export class Mesh {
     else if (m.type === 'timer') this.timer = m.timer;
     else if (m.type === 'spotlight') this.spotlight = m.spotlight;
     else if (m.type === 'settings') this.settings = m.settings;
+    else if (m.type === 'cohosts') this.cohosts = m.ids;
+    else if (m.type === 'host') { this.host = !!m.host; this.onHost?.(m); }
     else if (m.type === 'stop-present') { if (this.state.screen) this.stopScreen(); this.onStopPresent?.(m.reason); }
     else if (m.type === 'locked') { this.locked = !!m.on; this.onLocked?.(m); }
     else if (m.type === 'lowered') { this.onLowered?.(m.by); }

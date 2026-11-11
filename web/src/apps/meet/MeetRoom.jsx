@@ -244,6 +244,7 @@ export default function MeetRoom({ guest = false, onSignIn }) {
       onBreakout: ({ room: to, by }) => { toast(to ? `${by} moved you to Room ${to}` : `${by} brought everyone back to the main room`); goToRoom(to); },
       onMuted: (by) => { setMic(false); toast(by ? `${by} muted you. Unmute when you want to speak.` : 'You joined muted (the host asks everyone to). Unmute when you want to speak.'); },
       onStopPresent: (reason) => toast(reason),
+      onHost: (x) => toast(x.host ? `${x.by} made you a co-host: you have the host’s controls` : `${x.by} took back your co-host controls`),
       onLowered: (by) => toast(`${by} lowered your hand`),
     });
     mesh.current = m;
@@ -424,17 +425,20 @@ export default function MeetRoom({ guest = false, onSignIn }) {
                 {!m.host && m.locked && <li className="muted small">🔒 The host has locked the meeting: nobody new can join.</li>}
                 {m.host && <li className="meet-settings stack" aria-label="Meeting settings">
                   <label className="row small"><input type="checkbox" checked={!!m.settings?.muted_entry} onChange={(e) => m.setSettings({ muted_entry: e.target.checked })} /> Everyone joins muted</label>
-                  <label className="row small"><input type="checkbox" checked={!!m.settings?.host_present} onChange={(e) => m.setSettings({ host_present: e.target.checked })} /> Only I can present</label>
+                  <label className="row small"><input type="checkbox" checked={!!m.settings?.host_present} onChange={(e) => m.setSettings({ host_present: e.target.checked })} /> Only hosts can present</label>
                 </li>}
-                {m.host && tiles.length > 1 && <li className="row"><span className="grow muted small">You started this meeting.</span><button type="button" className="btn small" onClick={() => { m.mute('all'); toast('Everyone else is muted'); }}>Mute everyone</button></li>}
+                {m.host && tiles.length > 1 && <li className="row"><span className="grow muted small">{m.organiser ? 'You started this meeting.' : 'You’re a co-host.'}</span><button type="button" className="btn small" onClick={() => { m.mute('all'); toast('Everyone else is muted'); }}>Mute everyone</button></li>}
                 {hands.length > 0 && <li className="meet-hands" aria-label="Raised hands">
                   <div className="row"><strong className="grow small">✋ Raised hands ({hands.length})</strong>
                     {m.host && hands.length > 1 && <button type="button" className="btn small" onClick={() => m.lower('all')}>Lower all</button>}</div>
                   <ol>{hands.map((t, i) => <li key={t.id} className="row"><span className="meet-hand-no" aria-hidden="true">{i + 1}</span><span className="grow">{t.name}</span>
                     {m.host && <button type="button" className="btn small" aria-label={`Lower ${t.me ? 'your' : `${t.name}’s`} hand`} onClick={() => (t.me ? m.setState({ hand: false }) : m.lower(t.id))}>Lower</button>}</li>)}</ol>
                 </li>}
-                {tiles.map((t) => <li key={t.id} className="row"><Avatar name={t.name} userId={t.userId} size={28} /><span className="grow">{t.name}</span>{t.state.hand && '✋'}{t.state.mic === false && '🔇'}
-                  {m.host && !t.me && <>
+                {tiles.map((t) => <li key={t.id} className="row"><Avatar name={t.name} userId={t.userId} size={28} /><span className="grow">{t.name}{m.cohosts?.includes(t.userId) && <span className="meet-cohost">Co-host</span>}</span>
+                  {m.organiser && !t.me && !/\(guest\)$/.test(t.name) && (m.cohosts?.includes(t.userId)
+                    ? <button type="button" className="btn small" aria-label={`Remove ${t.name} as co-host`} onClick={() => m.setCohost(t.id, false)}>Remove co-host</button>
+                    : <button type="button" className="btn small" aria-label={`Make ${t.name} a co-host`} title="Give them the host’s controls for this meeting" onClick={() => m.setCohost(t.id, true)}>Make co-host</button>)}{t.state.hand && '✋'}{t.state.mic === false && '🔇'}
+                  {m.host && !t.me && (m.organiser || t.userId !== m.organiserId) && <>
                     {t.state.mic !== false && <button type="button" className="icon-btn" aria-label={`Mute ${t.name}`} title="Mute" onClick={() => m.mute(t.id)}>🔇</button>}
                     <button type="button" className="icon-btn" aria-label={`Remove ${t.name} from the meeting`} title="Remove from the meeting" onClick={() => { if (window.confirm(`Remove ${t.name} from the meeting? They won't be able to join again.`)) m.remove(t.id); }}><Icon name="close" size={16} /></button>
                   </>}</li>)}

@@ -3847,6 +3847,27 @@ test('meet: start a meeting, join its room, signals pass between people', async 
   assert.equal((await a.next('left')).id, wl.id);
   a.ws.send(JSON.stringify({ type: 'settings', muted_entry: false, host_present: false }));
   assert.deepEqual((await b.next('settings')).settings, { muted_entry: false, host_present: false });
+  // Co-hosts: the organiser gives Max the host's controls (only the organiser can).
+  for (const c of [a, b]) for (let k = c.inbox.length - 1; k >= 0; k--) if (c.inbox[k].type === 'timer') c.inbox.splice(k, 1); // from above
+  assert.deepEqual([wa.organiser, wb.organiser, wb.host], [true, false, false]);
+  b.ws.send(JSON.stringify({ type: 'cohost', to: wb.id, on: true }));
+  b.ws.send(JSON.stringify({ type: 'timer', seconds: 60 }));
+  a.ws.send(JSON.stringify({ type: 'cohost', to: wb.id, on: true }));
+  assert.deepEqual([(await b.next('host')).host, (await b.next('cohosts')).ids.length], [true, 1]);
+  assert.equal((await a.next('cohosts')).ids.length, 1);
+  b.ws.send(JSON.stringify({ type: 'timer', seconds: 120 }));
+  assert.equal((await a.next('timer')).timer.by, 'Max Meet', 'a co-host has the controls');
+  b.ws.send(JSON.stringify({ type: 'mute', to: wa.id }));
+  b.ws.send(JSON.stringify({ type: 'timer', seconds: 0 }));
+  await a.next('timer');
+  assert.equal(a.inbox.some((x) => x.type === 'muted'), false, 'but can’t mute the organiser');
+  a.ws.send(JSON.stringify({ type: 'cohost', to: wb.id, on: false }));
+  assert.equal((await b.next('host')).host, false);
+  await b.next('cohosts'); await a.next('cohosts'); await b.next('timer');
+  b.ws.send(JSON.stringify({ type: 'timer', seconds: 60 }));
+  a.ws.send(JSON.stringify({ type: 'timer', seconds: 0 }));
+  assert.equal((await a.next('timer')).timer, null, 'not a co-host any more');
+  await b.next('timer');
 
   // Another company can't get in.
   const outside = (await owner('POST', '/api/orgs', { name: 'Meetco', domain: 'meetco.com', admin_name: 'Mo', admin_local: 'mo', admin_password: 'password123' }));
