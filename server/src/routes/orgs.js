@@ -11,10 +11,11 @@ import { FILES_DIR } from '../db.js';
 import { uid } from '../util.js';
 import { audit } from '../audit.js';
 import { q, tx } from '../db.js';
-import { str, int, bad, notFound } from '../util.js';
+import { str, int, bad, notFound, HttpError } from '../util.js';
 import { requireAdmin, requireSuper } from '../auth.js';
 import { createOrg, addDomain, orgStorageUsed, blobsOwnedBy, removeBlobs } from '../tenancy.js';
 import { scheduleMailConfig } from '../mail/config.js';
+import { companyMail } from '../mail/storage.js';
 import { collectHealth } from '../health.js';
 import { roleFor, audienceFor, subtreeIds } from '../access.js';
 import { notify as bell } from '../notifications.js';
@@ -168,6 +169,14 @@ export default function orgRoutes() {
     q('UPDATE orgs SET logo = NULL, logo_mime = NULL WHERE id = ?').run(req.user.org_id);
     if (old) fs.rm(path.join(FILES_DIR, old), { force: true }, () => {});
     res.json(describe(q('SELECT * FROM orgs WHERE id = ?').get(req.user.org_id)));
+  });
+
+  // Mailboxes: how much each person's mail takes, against their mailbox size limit (from the mail server).
+  r.get('/current/mail-storage', requireAdmin, async (req, res) => {
+    const orgId = req.query.org_id && req.user.is_super ? String(req.query.org_id) : req.user.org_id;
+    if (!q('SELECT 1 FROM orgs WHERE id = ?').get(orgId)) throw notFound('Company not found');
+    if (!mailEnabled()) throw new HttpError(503, 'Email is not set up on this server');
+    res.json(await companyMail(orgId, { fresh: req.query.fresh === '1' }));
   });
 
   // Storage: the company's total (and quota), how much each person uses (files, earlier versions,

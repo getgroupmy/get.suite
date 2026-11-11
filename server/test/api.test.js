@@ -1924,6 +1924,9 @@ test('storage report: per person (files, versions, trash), largest files, admins
   assert.equal(top.owner_name, 'Hal Hoarder');
   assert.ok(r.largest.find((x) => x.id === t.id).trashed);
   assert.equal((await p('GET', '/api/orgs/current/storage')).status, 403);
+  // Mailboxes come from the mail server: not without one, and admins only.
+  assert.equal((await owner('GET', '/api/orgs/current/mail-storage')).status, 503);
+  assert.equal((await p('GET', '/api/orgs/current/mail-storage')).status, 403);
 });
 
 test('branding: colour and logo for the company, shown on its sign-in page by domain', async () => {

@@ -1,6 +1,7 @@
 // Admin → Storage: how full the company's storage is, who uses what (files, the earlier versions
 // kept of them, and the trash), and the largest files, to see where space goes.
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { useMailStatus } from '../../mailStatus.js';
 import { get, formatBytes } from '../../api.js';
 import { Avatar, useToast } from '../../components/ui.jsx';
 import { fileIcon } from '../../components/Icon.jsx';
@@ -63,6 +64,48 @@ export default function StorageAdmin({ orgId, orgPicker }) {
           </tbody>
         </table>
       </div>
+      <Mailboxes orgId={orgId} />
+    </div>
+  );
+}
+
+/** Each person's mailbox: its size and their mailbox size limit (from the mail server, so it loads on its own). */
+function Mailboxes({ orgId }) {
+  const toast = useToast();
+  const mail = useMailStatus();
+  const [m, setM] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const load = useCallback(async (fresh) => {
+    setBusy(true);
+    try { setM(await get(`/orgs/current/mail-storage?${new URLSearchParams({ ...(orgId && { org_id: orgId }), ...(fresh && { fresh: '1' }) })}`)); } catch (e) { toast(e.message, 'error'); }
+    setBusy(false);
+  }, [orgId, toast]);
+  useEffect(() => { if (mail?.enabled) load(false); }, [mail?.enabled, load]);
+  if (!mail?.enabled) return null;
+  return (
+    <div className="card stack" style={{ padding: 0 }} aria-labelledby="mailboxes-h">
+      <div className="row" style={{ margin: '14px 16px 0' }}>
+        <h3 id="mailboxes-h" className="grow" style={{ margin: 0 }}>Mailboxes</h3>
+        {m && <span className="muted small">{formatBytes(m.used)} in all · checked {new Date(m.checked_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>}
+        <button type="button" className="btn small" disabled={busy} onClick={() => load(true)}>{busy ? 'Checking…' : 'Check again'}</button>
+      </div>
+      {!m ? <p className="muted" style={{ margin: '0 16px 14px' }}>Asking the mail server…</p> : (
+        <table className="files storage-table">
+          <caption className="sr-only">Mailboxes by person</caption>
+          <thead><tr><th>Person</th><th className="num">Mail</th><th className="num">Limit</th><th className="hide-sm" aria-label="How full" /></tr></thead>
+          <tbody>
+            {m.people.map((p) => (
+              <tr key={p.id}>
+                <td className="name"><Avatar name={p.name} size={26} userId={p.id} /><span>{p.name}<span className="muted small"> {p.username}</span></span></td>
+                <td className="num">{p.used === null ? <span className="muted">{p.error}</span> : formatBytes(p.used)}</td>
+                <td className="num muted">{p.limit ? `${formatBytes(p.limit)} · ${p.percent}%` : 'None'}</td>
+                <td className="hide-sm" style={{ width: 160 }}>{p.limit ? <Bar value={p.used || 0} max={p.limit} warn={p.percent >= 90} /> : null}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      <p className="muted small" style={{ margin: '0 16px 14px' }}>Limits are set per person in Admin → Users → ⋮ → <strong>Mailbox size</strong>; people are told when theirs is nearly full, and can see what takes the room in Mail → Storage.</p>
     </div>
   );
 }

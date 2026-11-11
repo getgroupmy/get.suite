@@ -2231,3 +2231,23 @@ test('mailbox nearly full: a notification at 90%, another when full, each once',
   assert.equal((await titles()).length, 1, 'once');
   await olivia('PATCH', `/api/users/${made.body.id}`, { mail_quota_mb: 0 });
 });
+
+test('admin storage: each mailbox in the company with its size and limit, fullest first; admins only', async () => {
+  const run = ` #${Date.now()}`;
+  const c = await eventually(() => imapLogin('olivia@acme.com', 'password123'), 20000);
+  try { assert.ok(await c.append('INBOX', `From: x@example.com\r\nTo: olivia@acme.com\r\nSubject: Sized${run}\r\n\r\n${'y'.repeat(300 * 1024)}\r\n`, [])); } finally { await c.logout().catch(() => {}); }
+  await olivia('PATCH', `/api/users/${bobId}`, { mail_quota_mb: 50 });
+  const r = (await olivia('GET', '/api/orgs/current/mail-storage?fresh=1')).body;
+  const me = r.people.find((p) => p.username === 'olivia@acme.com');
+  assert.ok(me.used >= 300 * 1024, JSON.stringify(me));
+  assert.equal(me.limit, null);
+  const b = r.people.find((p) => p.username === 'bob@acme.com');
+  assert.equal(b.limit, 50 * 1024 * 1024);
+  assert.equal(r.people[0].username, 'bob@acme.com', 'those with a limit first, fullest first');
+  assert.ok(!r.people.some((p) => p.username.endsWith('@globex.com')), 'only this company');
+  assert.equal(r.used, r.people.reduce((n, p) => n + (p.used || 0), 0));
+  assert.equal((await bob('GET', '/api/orgs/current/mail-storage')).status, 403);
+  // Kept a while: a second look doesn't ask the mail server again.
+  assert.equal((await olivia('GET', '/api/orgs/current/mail-storage')).body.checked_at, r.checked_at);
+  await olivia('PATCH', `/api/users/${bobId}`, { mail_quota_mb: 0 });
+});

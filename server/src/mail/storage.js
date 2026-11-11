@@ -1,7 +1,7 @@
 // How much room someone's mail takes: each folder's size (STATUS SIZE), the total against their mailbox
 // size limit (if an admin set one), and the largest messages, to delete what isn't needed.
 import { q } from '../db.js';
-import { withClient } from './imap.js';
+import { withClient, ownConnection } from './imap.js';
 import { notify } from '../notifications.js';
 import { mailEnabled } from './config.js';
 
@@ -91,3 +91,36 @@ export async function checkFull(u) {
   return true;
 }
 export function scheduleFullChecks() { setInterval(() => checkMailboxesFull().catch((e) => console.error('[mail] full:', e.message)), 3600e3).unref(); }
+
+/** Someone's mail total on a connection of its own (for looking at many people at once; closed after). */
+async function usedOnOwn(user) {
+  const c = await ownConnection(user);
+  try {
+    let used = 0;
+    for (const b of (await c.list()).filter((x) => !x.flags?.has?.('\\Noselect'))) used += (await c.status(b.path, { size: true })).size || 0;
+    return used;
+  } finally { await c.logout().catch(() => {}); }
+}
+
+const companyCache = new Map(); // org id -> { at, value }
+const COMPANY_TTL = 10 * 60e3;
+/**
+ * Everyone's mailbox in a company: { people: [{ id, name, username, used, limit, percent, error? }], used, checked_at },
+ * fullest first (by share of their limit, then size). Looked up a few at a time, and kept for 10 minutes.
+ */
+export async function companyMail(orgId, { fresh = false, now = Date.now() } = {}) {
+  const hit = companyCache.get(orgId);
+  if (!fresh && hit && now - hit.at < COMPANY_TTL) return hit.value;
+  const users = q('SELECT id, name, username, mail_quota_mb FROM users WHERE org_id = ? AND disabled = 0 ORDER BY name').all(orgId);
+  const people = [];
+  for (let i = 0; i < users.length; i += 4) {
+    people.push(...await Promise.all(users.slice(i, i + 4).map(async (u) => {
+      try { return { id: u.id, name: u.name, username: u.username, ...usage(await usedOnOwn(u), u.mail_quota_mb || null) }; }
+      catch { return { id: u.id, name: u.name, username: u.username, ...usage(0, u.mail_quota_mb || null), used: null, error: 'Couldn’t be read' }; }
+    })));
+  }
+  people.sort((a, b) => (b.percent ?? -1) - (a.percent ?? -1) || (b.used ?? 0) - (a.used ?? 0));
+  const value = { people, used: people.reduce((n, p) => n + (p.used || 0), 0), checked_at: now };
+  companyCache.set(orgId, { at: now, value });
+  return value;
+}
