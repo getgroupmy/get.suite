@@ -3544,6 +3544,50 @@ test('chat: messages that mention you', async () => {
   assert.deepEqual((await a('GET', '/api/chat/mentions')).body.map((m) => m.body), ['private ping @mna@acme.com'], 'not from a channel she left');
 });
 
+test('contacts: undo changes back to an earlier time', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['uca', 'Undo Ann'], ['ucb', 'Undo Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'uca@acme.com'); await login(b, 'ucb@acme.com');
+  const wait = (ms = 15) => new Promise((r) => setTimeout(r, ms));
+  const kept = (await a('POST', '/api/contacts', { name: 'Kept Kate', email: 'kate@example.com', phone: '111' })).body.id;
+  const gone = (await a('POST', '/api/contacts', { name: 'Gone Gary', email: 'gary@example.com' })).body.id;
+  const purged = (await a('POST', '/api/contacts', { name: 'Purged Pam' })).body.id;
+  const bens = (await b('POST', '/api/contacts', { name: 'Ben Contact' })).body.id;
+  await wait();
+  const then = Date.now();
+  await wait();
+  // After "then": an edit, a delete, a delete for good, a new contact, and changes of Ben's.
+  assert.equal((await a('PATCH', `/api/contacts/${kept}`, { name: 'Kate Changed', phone: '999' })).status, 200);
+  await a('PATCH', `/api/contacts/${kept}`, { email: 'other@example.com' });
+  assert.equal((await a('DELETE', `/api/contacts/${gone}`)).status, 200);
+  await a('DELETE', `/api/contacts/${purged}`); await a('DELETE', `/api/contacts/trash/${purged}`);
+  const added = (await a('POST', '/api/contacts', { name: 'New Nick' })).body.id;
+  await b('PATCH', `/api/contacts/${bens}`, { name: 'Ben Changed' });
+  assert.equal((await a('GET', `/api/contacts/undo?since=${then}`)).body.changed, 4);
+  assert.equal((await a('GET', '/api/contacts/undo?since=0')).status, 400, 'only the last 30 days');
+  assert.equal((await a('POST', '/api/contacts/undo', { to: Date.now() + 60000 })).status, 400, 'not the future');
+  const r = await a('POST', '/api/contacts/undo', { to: then });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.changed, 4);
+  const list = (await a('GET', '/api/contacts')).body;
+  const byId = Object.fromEntries(list.map((c) => [c.id, c]));
+  assert.deepEqual(list.map((c) => c.name).sort(), ['Gone Gary', 'Kept Kate', 'Purged Pam']);
+  assert.equal(byId[kept].email, 'kate@example.com');
+  assert.equal(byId[kept].phone, '111');
+  assert.equal(byId[gone].email, 'gary@example.com', 'back from the trash');
+  assert.ok(byId[purged], 'back even after the trash was emptied');
+  const trash = (await a('GET', '/api/contacts/trash')).body.contacts;
+  assert.ok(trash.some((t) => t.id === added), 'the one made since then is in the trash, not gone');
+  assert.ok(!trash.some((t) => t.id === gone));
+  assert.equal((await b('GET', '/api/contacts')).body.find((c) => c.id === bens).name, 'Ben Changed', "Ben's contacts aren't touched");
+  // Undoing is itself a change that can be undone.
+  const mid = Date.now();
+  await wait();
+  await a('PATCH', `/api/contacts/${kept}`, { name: 'Again' });
+  await a('POST', '/api/contacts/undo', { to: mid });
+  assert.equal((await a('GET', '/api/contacts')).body.find((c) => c.id === kept).name, 'Kept Kate');
+});
+
 test('docs: download as Markdown; open a .md file as a document', async () => {
   const md = '# Minutes\n\nWe agreed on **three** things:\n\n- [x] budget\n- [ ] hiring\n\n| Who | What |\n| --- | --- |\n| Kim | slides |\n';
   const up = (await owner('POST', '/api/files/upload?name=minutes.md', Buffer.from(md), { raw: true })).body;

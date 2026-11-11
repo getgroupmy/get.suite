@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import WithPerson from '../../components/WithPerson.jsx';
 import { useNavigate, useSearchParams } from 'react-router';
 import { get, post, put, patch, del, postText, onLive } from '../../api.js';
@@ -8,6 +8,7 @@ import { useAuth } from '../../App.jsx';
 import AddressInput from '../../components/AddressInput.jsx';
 import { parseAddresses, formatAddress } from '../../components/addresses.js';
 import { placeText, isoDay, comingDays, PLACES } from '../../components/workloc.js';
+import { UNDO_CHOICES, UNDO_DAYS, undoTime, changedText } from './undochanges.js';
 import { statusLine } from '../../components/status.js';
 import { orgTree, chainOf } from '../../components/orgchart.js';
 import PersonCard from '../../components/PersonCard.jsx';
@@ -57,6 +58,7 @@ export default function Contacts() {
   const [editing, setEditing] = useState(null);
   const [deleting, setDeleting] = useState(null);
   const [merging, setMerging] = useState(false);
+  const [undoing, setUndoing] = useState(false);
   const [company, setCompany] = useState([]);
 
   const load = () => {
@@ -133,6 +135,7 @@ export default function Contacts() {
           { label: 'CSV: Gmail, spreadsheets', icon: 'download', onClick: () => { window.location.href = '/api/contacts/export?format=csv'; } },
         ]} />
         <button className="btn" onClick={() => setMerging(true)} title="Find contacts that are the same person and merge them">Merge duplicates</button>
+        <button className="btn" onClick={() => setUndoing(true)} title="Put your contacts back as they were at an earlier time"><Icon name="restore" size={18} /> Undo changes</button>
         <button className="btn primary" onClick={() => setEditing({})}><Icon name="plus" size={18} /> New contact</button>
       </div>
       <div className="row wrap">
@@ -219,6 +222,7 @@ export default function Contacts() {
       )}
       {card && <PersonCard userId={card} onClose={() => setCard(null)} />}
       {merging && <DuplicatesDialog onClose={() => setMerging(false)} onMerged={load} />}
+      {undoing && <UndoChangesDialog onClose={() => setUndoing(false)} onDone={() => { setUndoing(false); setTab('mine'); load(); }} />}
       {history && <Modal title={`With ${history.name}`} onClose={() => setHistory(null)} footer={<button type="button" className="btn" onClick={() => setHistory(null)}>Close</button>}><ContactLog contact={history} onChanged={load} /><WithPerson email={history.email} onOpen={() => setHistory(null)} /></Modal>}
       {qr && <ContactQr contact={qr} onClose={() => setQr(null)} />}
       {sending && <SendContact contact={sending} onClose={() => setSending(null)} />}
@@ -698,6 +702,50 @@ function SendContact({ contact, onClose }) {
         {error && <p className="error">{error}</p>}
         <div className="row end"><button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn primary" disabled={!to}>Send</button></div>
       </form>
+    </Modal>
+  );
+}
+
+// Undo changes: pick how far back; it says how many contacts that touches, then puts them back.
+function UndoChangesDialog({ onClose, onDone }) {
+  const toast = useToast();
+  const [key, setKey] = useState('10m');
+  const [custom, setCustom] = useState('');
+  const [changed, setChanged] = useState(null);
+  const [busy, setBusy] = useState(false);
+  // Worked out when the choice is made (not on every render, which would keep moving it).
+  const to = useMemo(() => undoTime(key, custom), [key, custom]);
+  useEffect(() => {
+    setChanged(null);
+    if (to === null) return;
+    const t = setTimeout(() => get(`/contacts/undo?since=${to}`).then((r) => setChanged(r.changed)).catch(() => {}), 150);
+    return () => clearTimeout(t);
+  }, [to]);
+  const pad = (n) => String(n).padStart(2, '0');
+  const local = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  async function undo() {
+    setBusy(true);
+    try {
+      const r = await post('/contacts/undo', { to });
+      toast(r.changed ? `Undid changes to ${r.changed} contact${r.changed === 1 ? '' : 's'}` : 'Nothing to undo');
+      onDone();
+    } catch (e) { toast(e.message, 'error'); setBusy(false); }
+  }
+  return (
+    <Modal title="Undo changes" onClose={onClose} footer={<>
+      <button className="btn" onClick={onClose}>Cancel</button>
+      <button className="btn primary" disabled={to === null || !changed || busy} onClick={undo}>Undo</button>
+    </>}>
+      <p>Put your contacts back as they were at an earlier time (up to {UNDO_DAYS} days ago). Contacts added since then go to the Trash; deleted ones come back.</p>
+      <fieldset className="stack" style={{ border: 0, padding: 0 }}>
+        <legend className="muted small">Go back to</legend>
+        {[...UNDO_CHOICES, { key: 'custom', label: 'A time of my own' }].map((c) => (
+          <label key={c.key} className="row" style={{ gap: 8 }}><input type="radio" name="undo-to" checked={key === c.key} onChange={() => setKey(c.key)} /> {c.label}</label>
+        ))}
+        {key === 'custom' && <input type="datetime-local" aria-label="Date and time to go back to" value={custom} onChange={(e) => setCustom(e.target.value)}
+          min={local(new Date(Date.now() - UNDO_DAYS * 864e5))} max={local(new Date())} />}
+      </fieldset>
+      <p className="muted" role="status">{to === null ? (key === 'custom' ? 'Pick a date and time in the last 30 days.' : '') : changed === null ? 'Checking…' : changedText(changed)}</p>
     </Modal>
   );
 }

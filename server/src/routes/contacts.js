@@ -14,6 +14,7 @@ import { photoOf, setPhoto, withPhoto, photoFromCard, MAX_PHOTO } from '../conta
 import { cleanMore, withMore, liftCardMore } from '../contactmore.js';
 import { cleanDates, cleanCustom, datesBetween } from '../contactfields.js';
 import { buildVcard } from '../vcard.js';
+import { watchContacts, undoContacts, changedSince, sweepContactHistory, HISTORY_DAYS } from '../contacthistory.js';
 
 // Keep in touch: how often (days) you mean to be in touch with someone, and when you last were (sending them
 // email counts, or Mark as contacted).
@@ -152,6 +153,22 @@ export function addContactFrom(user, card) {
 
 export default function contactRoutes() {
   const r = Router();
+  watchContacts(); // every module has added its columns by now
+
+  // Undo changes: put your contacts back as they were at a time in the last HISTORY_DAYS days.
+  // GET ?since= says how many have changed since then; POST { to } does it.
+  const undoTime = (v) => {
+    const t = Number(v);
+    if (!Number.isFinite(t) || t >= Date.now()) throw bad('Pick a time in the past');
+    if (t < Date.now() - HISTORY_DAYS * 86400000) throw bad(`Changes are kept for ${HISTORY_DAYS} days`);
+    return t;
+  };
+  r.get('/undo', (req, res) => { sweepContactHistory(); res.json({ changed: changedSince(req.user.id, undoTime(req.query.since)), days: HISTORY_DAYS }); });
+  r.post('/undo', (req, res) => {
+    const n = undoContacts(req.user.id, undoTime(req.body?.to));
+    if (n) sendTo([req.user.id], { type: 'contacts-changed' });
+    res.json({ changed: n });
+  });
 
   // Trash: deleted contacts, kept TRASH_DAYS days (contacttrash.js).
   r.get('/trash', (req, res) => { sweepContactTrash(); res.json({ days: TRASH_DAYS, contacts: trashOf(req.user.id) }); });
