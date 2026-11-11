@@ -2860,3 +2860,4 @@ select.meet-timer-btn option { color: #202124; }
 .unreads ul { padding: 0; }
 .unread-head .link-btn { text-align: left; }
 .thread-result .muted .badge { margin-left: 6px; }
+.keyword-hit { color: var(--accent); }

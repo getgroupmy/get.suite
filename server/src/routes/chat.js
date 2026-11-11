@@ -147,6 +147,7 @@ import { groupSlug } from '../groups.js';
 import { namesIn, userIdsIn, newCode, onCallEnded } from '../meet.js';
 import { baseUrl, focusUntil } from './calendar.js';
 import { quietUntil } from '../workhours.js';
+import { cleanKeywords, keywordIn } from '../chatkeywords.js';
 
 /**
  * Channels belong to one company (org_id set, dm_key NULL).
@@ -279,6 +280,7 @@ function deliver(c, user, { body, files, poll, parent, forwarded = null, contact
   const msg = one(id);
   sendTo(audience(c), { type: 'message', message: msg });
   const mentioned = notifyMentions(c, user, msg) || [];
+  notifyKeywords(c, user, msg, mentioned);
   if (c.dm_key) {
     const others = c.dm_key.split(':').filter((x) => x !== user.id);
     queueChatEmail(others, msg.id); // direct messages too
@@ -416,6 +418,34 @@ q(`CREATE TABLE IF NOT EXISTS chat_mentions (
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   PRIMARY KEY (user_id, message_id)
 )`).run();
+// keyword: set when it was one of their keyword alerts rather than a mention. users.chat_keywords: JSON list.
+if (!q('PRAGMA table_info(chat_mentions)').all().some((c) => c.name === 'keyword')) q('ALTER TABLE chat_mentions ADD COLUMN keyword TEXT').run();
+if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'chat_keywords')) q('ALTER TABLE users ADD COLUMN chat_keywords TEXT').run();
+const keywordsOf = (userId) => { try { return JSON.parse(q('SELECT chat_keywords FROM users WHERE id = ?').get(userId)?.chat_keywords || '[]'); } catch { return []; } };
+
+/**
+ * Keyword alerts: people in a channel (not a direct message: those reach you anyway) whose keywords are in
+ * the message, and who weren't mentioned, haven't muted or left it, are told as for a mention.
+ */
+function notifyKeywords(c, from, msg, mentioned) {
+  if (c.dm_key || !msg.body) return [];
+  const inIt = new Set(audience(c));
+  const skip = new Set([from.id, ...mentioned,
+    ...q('SELECT user_id FROM chat_mutes WHERE channel_id = ?').all(c.id).map((x) => x.user_id),
+    ...q('SELECT user_id FROM chat_left WHERE channel_id = ?').all(c.id).map((x) => x.user_id)]);
+  const told = [];
+  for (const u of q("SELECT id, chat_keywords FROM users WHERE chat_keywords IS NOT NULL AND chat_keywords != '[]' AND disabled = 0").all()) {
+    if (!inIt.has(u.id) || skip.has(u.id)) continue;
+    let words; try { words = JSON.parse(u.chat_keywords); } catch { continue; }
+    const word = keywordIn(msg.body, words);
+    if (!word) continue;
+    q('INSERT OR IGNORE INTO chat_mentions (message_id, user_id, keyword) VALUES (?, ?, ?)').run(msg.id, u.id, word);
+    notify([u.id], { kind: 'mention', title: `“${word}” in #${c.name}: ${from.name || from.username}`, body: String(msg.body).slice(0, 200), link: `/chat/${c.id}?msg=${msg.parent_id || msg.id}${msg.parent_id ? `&thread=${msg.parent_id}` : ''}`, actor: from.name });
+    sendTo([u.id], { type: 'chat-keyword', channel_id: c.id, message_id: msg.id, keyword: word });
+    told.push(u.id);
+  }
+  return told;
+}
 
 /** "@someone@example.com" in a message: a notice to each person mentioned who is in the conversation. */
 const MENTION_RE = /@([\w.+-]+@[\w.-]+\.[a-z]{2,})/gi;
@@ -1376,21 +1406,31 @@ export default function chatRoutes() {
     res.json([...groups.values()].sort((a, b) => a.muted - b.muted || b.last_at - a.last_at).map((g) => ({ ...g, messages: g.messages.reverse() })));
   });
 
+  // Your keyword alerts: { keywords: [...] }; PUT replaces them (a list, or words separated by commas).
+  r.get('/keywords', (req, res) => res.json({ keywords: keywordsOf(req.user.id) }));
+  r.put('/keywords', (req, res) => {
+    let words;
+    try { words = cleanKeywords(req.body?.keywords); } catch (e) { throw bad(e.message); }
+    q('UPDATE users SET chat_keywords = ? WHERE id = ?').run(words.length ? JSON.stringify(words) : null, req.user.id);
+    res.json({ keywords: words });
+  });
+
   // Messages that mention you, newest first (at most 50): by your address, through a group you're in or
   // @channel, in the conversations you can still see. Each with where it is and whether you've read it.
   r.get('/mentions', (req, res) => {
     const me = req.user.id;
     const rows = q(`SELECT m.id, m.channel_id, m.parent_id, m.user_id, m.bot, m.body, m.created_at, u.name AS user_name, c.name AS channel_name, c.dm_key, c.private,
                       (SELECT un.name FROM channel_members cm JOIN users un ON un.id = cm.user_id WHERE cm.channel_id = c.id AND cm.user_id != ? LIMIT 1) AS dm_name,
-                      m.created_at > COALESCE((SELECT read_at FROM channel_reads r WHERE r.channel_id = c.id AND r.user_id = ?), 0) AS unread
+                      m.created_at > COALESCE((SELECT read_at FROM channel_reads r WHERE r.channel_id = c.id AND r.user_id = ?), 0) AS unread,
+                      (SELECT cm.keyword FROM chat_mentions cm WHERE cm.message_id = m.id AND cm.user_id = ?) AS keyword
                     FROM messages m JOIN channels c ON c.id = m.channel_id LEFT JOIN users u ON u.id = m.user_id
                     WHERE (m.user_id IS NULL OR m.user_id != ?) AND m.deleted_at IS NULL
                       AND (EXISTS (SELECT 1 FROM chat_mentions cm WHERE cm.message_id = m.id AND cm.user_id = ?) OR INSTR(LOWER(m.body), LOWER(?)) > 0)
                       AND ((c.dm_key IS NULL AND c.private = 0 AND c.org_id = ? AND NOT EXISTS (SELECT 1 FROM chat_left lf WHERE lf.channel_id = c.id AND lf.user_id = ?))
                         OR EXISTS (SELECT 1 FROM channel_members cm WHERE cm.channel_id = c.id AND cm.user_id = ?))
-                    ORDER BY m.created_at DESC LIMIT 50`).all(me, me, me, me, `@${req.user.username}`, req.user.org_id, me, me);
+                    ORDER BY m.created_at DESC LIMIT 50`).all(me, me, me, me, me, `@${req.user.username}`, req.user.org_id, me, me);
     res.json(rows.map((r) => ({ id: r.id, channel_id: r.channel_id, parent_id: r.parent_id || null, user_id: r.user_id, user_name: r.user_name || r.bot || 'Deleted user',
-      body: r.body, created_at: r.created_at, unread: !!r.unread, where: r.dm_key ? (r.dm_name || 'Notes to self') : `#${r.channel_name}`, private: !!r.private })));
+      body: r.body, created_at: r.created_at, unread: !!r.unread, keyword: r.keyword || null, where: r.dm_key ? (r.dm_name || 'Notes to self') : `#${r.channel_name}`, private: !!r.private })));
   });
 
   // Your reminders, soonest first.

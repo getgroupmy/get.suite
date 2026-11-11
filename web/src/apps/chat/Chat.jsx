@@ -323,9 +323,10 @@ export default function Chat() {
   // Messages that mention you (newest first), with how many you haven't read yet.
   const [mentions, setMentions] = useState([]);
   const [mentionsOpen, setMentionsOpen] = useState(false);
+  const [keywordsOpen, setKeywordsOpen] = useState(false);
   const loadMentions = useCallback(() => get('/chat/mentions').then(setMentions).catch(() => {}), []);
   useEffect(() => { loadMentions(); }, [loadMentions]);
-  useEffect(() => onLive((m) => { if (m.type === 'chat-mention' || m.type === 'chat-read' || m.type === 'message-deleted' || m.type === 'channels-changed') loadMentions(); }), [loadMentions]);
+  useEffect(() => onLive((m) => { if (m.type === 'chat-mention' || m.type === 'chat-keyword' || m.type === 'chat-read' || m.type === 'message-deleted' || m.type === 'channels-changed') loadMentions(); }), [loadMentions]);
   useEffect(() => { setMentionsOpen(false); }, [channelId]);
   const unreadMentions = mentions.filter((m) => m.unread).length;
   // Everything unread, by conversation (loaded while it's open, and kept up to date there).
@@ -557,14 +558,18 @@ export default function Chat() {
       <section className="chat-main">
         {mentionsOpen && !search ? (
           <div className="chat-results">
-            <div className="chat-head"><h1 className="grow">Mentions</h1><button type="button" className="icon-btn" aria-label="Close mentions" onClick={() => setMentionsOpen(false)}><Icon name="close" /></button></div>
-            {!mentions.length ? <Empty icon="chat" title="No mentions yet">Messages that @mention you, a group you’re in or @channel show here, from every conversation.</Empty> : (
+            <div className="chat-head"><h1 className="grow">Mentions</h1>
+              <button type="button" className="btn small" title="Words that tell you when they come up in a channel, as a mention would" onClick={() => setKeywordsOpen(true)}>🔔 Keyword alerts…</button>
+              <button type="button" className="icon-btn" aria-label="Close mentions" onClick={() => setMentionsOpen(false)}><Icon name="close" /></button></div>
+            {keywordsOpen && <KeywordsDialog onClose={() => setKeywordsOpen(false)} />}
+            {!mentions.length ? <Empty icon="chat" title="No mentions yet">Messages that @mention you, a group you’re in or @channel show here, from every conversation, and those with your keyword alerts.</Empty> : (
               <ul aria-label="Mentions of you">
                 {mentions.map((m) => (
                   <li key={m.id}>
                     <button type="button" className={`chat-result thread-result ${m.unread ? 'unread' : ''}`} onClick={() => { setMentionsOpen(false); openResult({ id: m.id, channel_id: m.channel_id, parent_id: m.parent_id }); }}>
                       <span className="muted small">{m.where}{m.private ? ' 🔒' : ''}{m.parent_id ? ' · in a thread' : ''} · {new Date(m.created_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}{m.unread && <span className="badge at" aria-label="Unread"> new</span>}</span>
                       <span><strong>{m.user_name}</strong> {m.body}</span>
+                      {m.keyword && <span className="small keyword-hit">🔔 “{m.keyword}”</span>}
                     </button>
                   </li>
                 ))}
@@ -993,6 +998,33 @@ async function checkLinkAccess(channelId, body, toast, orgName) {
 }
 
 /** Forward a message: pick a conversation you can write in, add a note if you like. */
+// Keyword alerts: words (or short phrases) that tell you when they're said in a channel.
+function KeywordsDialog({ onClose }) {
+  const toast = useToast();
+  const [text, setText] = useState(null);
+  const [error, setError] = useState('');
+  useEffect(() => { get('/chat/keywords').then((r) => setText(r.keywords.join(', '))).catch((e) => setError(e.message)); }, []);
+  async function save(e) {
+    e.preventDefault();
+    try {
+      const r = await put('/chat/keywords', { keywords: text });
+      toast(r.keywords.length ? `You’ll be told about ${r.keywords.map((k) => `“${k}”`).join(', ')}` : 'Keyword alerts off');
+      onClose();
+    } catch (err) { setError(err.message); }
+  }
+  return (
+    <Modal title="Keyword alerts" onClose={onClose}>
+      <form className="stack" onSubmit={save}>
+        <p className="muted">When a message in a channel you’re in has one of these words, you’re told as if you’d been mentioned, and it shows under Mentions. Not in channels you’ve muted.</p>
+        <label className="field"><span>Words or short phrases, separated by commas</span>
+          <input autoFocus value={text ?? ''} disabled={text === null} placeholder="deploy, invoice, Project Falcon" onChange={(e) => { setText(e.target.value); setError(''); }} /></label>
+        {error && <p className="error">{error}</p>}
+        <div className="row end"><button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn primary" disabled={text === null}>Save</button></div>
+      </form>
+    </Modal>
+  );
+}
+
 // Ctrl+K: type part of a channel's or person's name, pick with ↑ ↓ and Enter (or a click).
 function JumpDialog({ items, onClose, onPick }) {
   const [q, setQ] = useState('');

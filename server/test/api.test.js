@@ -3588,6 +3588,42 @@ test('contacts: undo changes back to an earlier time', async () => {
   assert.equal((await a('GET', '/api/contacts')).body.find((c) => c.id === kept).name, 'Kept Kate');
 });
 
+test('chat: keyword alerts', async () => {
+  const a = client(), b = client(), x = client();
+  for (const [local, name] of [['kwa', 'Keyword Ann'], ['kwb', 'Keyword Ben'], ['kwx', 'Keyword Xavi']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'kwa@acme.com');
+  const bid = (await login(b, 'kwb@acme.com')).id;
+  await login(x, 'kwx@acme.com');
+  assert.deepEqual((await a('GET', '/api/chat/keywords')).body, { keywords: [] });
+  assert.equal((await a('PUT', '/api/chat/keywords', { keywords: 'x' })).status, 400);
+  assert.deepEqual((await a('PUT', '/api/chat/keywords', { keywords: 'Deploy, Project Falcon, deploy' })).body, { keywords: ['deploy', 'project falcon'] });
+  assert.deepEqual((await a('GET', '/api/chat/keywords')).body, { keywords: ['deploy', 'project falcon'] });
+  const ch = (await a('POST', '/api/chat/channels', { name: 'kw-test' })).body.id;
+  const muted = (await a('POST', '/api/chat/channels', { name: 'kw-muted' })).body.id;
+  await a('POST', `/api/chat/channels/${muted}/mute`, { muted: true });
+  const dm = (await a('POST', '/api/chat/dm', { user_id: bid })).body.id;
+  const before = (await a('GET', '/api/notifications')).body;
+  const count = (list) => (Array.isArray(list) ? list : list.items || list.notifications || []).filter((n) => /“deploy”|“project falcon”/.test(n.title)).length;
+  const wait = () => new Promise((r) => setTimeout(r, 5));
+  await x('POST', `/api/chat/channels/${ch}/messages`, { body: 'we deployed yesterday' }); await wait();
+  await x('POST', `/api/chat/channels/${ch}/messages`, { body: 'Ready to DEPLOY?' }); await wait();
+  await x('POST', `/api/chat/channels/${ch}/messages`, { body: 'project  falcon slipped' }); await wait();
+  await x('POST', `/api/chat/channels/${ch}/messages`, { body: 'deploy @kwa@acme.com' }); await wait(); // a mention: told once, as a mention
+  await x('POST', `/api/chat/channels/${muted}/messages`, { body: 'deploy in a muted one' }); await wait();
+  await b('POST', `/api/chat/channels/${dm}/messages`, { body: 'deploy in a direct message' }); await wait();
+  await a('POST', `/api/chat/channels/${ch}/messages`, { body: 'I said deploy myself' });
+  const list = (await a('GET', '/api/chat/mentions')).body;
+  assert.deepEqual(list.filter((m) => m.channel_id === ch).map((m) => [m.body, m.keyword]),
+    [['deploy @kwa@acme.com', null], ['project  falcon slipped', 'project falcon'], ['Ready to DEPLOY?', 'deploy']]);
+  assert.ok(!list.some((m) => m.channel_id === muted), 'not in a muted channel');
+  const after = (await a('GET', '/api/notifications')).body;
+  assert.equal(count(after) - count(before), 2, 'a notification for each keyword message');
+  assert.equal(count((await x('GET', '/api/notifications')).body), 0, 'only for whoever chose the words');
+  assert.deepEqual((await a('PUT', '/api/chat/keywords', { keywords: [] })).body, { keywords: [] });
+  await x('POST', `/api/chat/channels/${ch}/messages`, { body: 'deploy again' });
+  assert.ok(!(await a('GET', '/api/chat/mentions')).body.some((m) => m.body === 'deploy again'), 'none once they are cleared');
+});
+
 test('docs: download as Markdown; open a .md file as a document', async () => {
   const md = '# Minutes\n\nWe agreed on **three** things:\n\n- [x] budget\n- [ ] hiring\n\n| Who | What |\n| --- | --- |\n| Kim | slides |\n';
   const up = (await owner('POST', '/api/files/upload?name=minutes.md', Buffer.from(md), { raw: true })).body;
