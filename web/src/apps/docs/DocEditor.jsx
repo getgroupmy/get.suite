@@ -683,14 +683,16 @@ function SharedDoc({ file, setFile }) {
               const eq = e.target.closest?.('[data-math]'); if (eq && !readOnly) { const at = nodeAtDom(eq, 'math'); if (at != null) setMathEdit({ pos: at }); }
             }} />
             {chipMenu && <ChipMenu node={editor.state.doc.nodeAt(chipMenu.pos)} at={chipMenu} onClose={() => { setChipMenu(null); editor.view.focus(); }}
-              onPick={(value) => { setChip(chipMenu.pos, { value }); setChipMenu(null); const after = chipMenu.pos + 1; editor.chain().focus().setTextSelection(after + (editor.state.doc.textBetween(after, Math.min(after + 1, editor.state.doc.content.size)) === ' ' ? 1 : 0)).run(); }}
+              onPick={(value) => { setChip(chipMenu.pos, { value }); setChipMenu(null); const after = chipMenu.pos + 1; editor.view.focus(); editor.chain().setTextSelection(after + (editor.state.doc.textBetween(after, Math.min(after + 1, editor.state.doc.content.size)) === ' ' ? 1 : 0)).focus().run(); }}
               onEdit={() => { setChipEdit({ pos: chipMenu.pos }); setChipMenu(null); }} />}
             {dateMenu && <DateMenu node={editor.state.doc.nodeAt(dateMenu.pos)} at={dateMenu}
               onPick={(date) => setDate(dateMenu.pos, date)}
               onClose={() => {
                 const after = dateMenu.pos + 1, size = editor.state.doc.content.size; // after the chip and its space
                 setDateMenu(null);
-                editor.chain().focus().setTextSelection(Math.min(size, after + (editor.state.doc.textBetween(after, Math.min(after + 1, size)) === ' ' ? 1 : 0))).run();
+                // Focus now (TipTap's focus() waits a frame, and keys typed meanwhile would go to the Done button and be lost).
+                editor.view.focus();
+                editor.chain().setTextSelection(Math.min(size, after + (editor.state.doc.textBetween(after, Math.min(after + 1, size)) === ' ' ? 1 : 0))).focus().run();
               }} />}
             {mention && (
               <ul className="mention-list doc-mention-list" role="listbox" aria-label="People, dates and files" style={{ position: 'fixed', left: mention.left, top: mention.top }}>
