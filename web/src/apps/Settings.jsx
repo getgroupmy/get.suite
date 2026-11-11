@@ -58,6 +58,7 @@ export default function Settings() {
       <MailApps />
       <MailDelegates />
       <MailAdvance />
+      <CallRing />
       <Devices />
       <SignInApps />
       <WorkLocation />
@@ -335,6 +336,24 @@ function Profile() {
 }
 
 /** Mail: what opens after archiving, deleting, moving or snoozing the message you're reading. */
+/** Calls from Chat: pop up on screen with Join, or only reach the bell. */
+function CallRing() {
+  const toast = useToast();
+  const { user, setUser } = useAuth();
+  const [on, setOn] = useState(user.ring !== false);
+  const set = async (next) => {
+    setOn(next);
+    try { await put('/users/me/ring', { on: next }); setUser({ ...user, ring: next }); toast(next ? 'Calls pop up on screen' : 'Calls only reach your notifications'); } catch (e) { setOn(!next); toast(e.message, 'error'); }
+  };
+  return (
+    <section className="card stack" aria-labelledby="ring-h">
+      <h2 id="ring-h">Calls</h2>
+      <label className="check"><input type="checkbox" checked={on} onChange={(e) => set(e.target.checked)} /> Show calls on screen (📞 … is calling you, with Join and Can’t talk)</label>
+      <p className="muted small" style={{ margin: 0 }}>Turned off, a call still reaches your notifications (and your phone, if notifications are on there), so you can join or call back when it suits you.</p>
+    </section>
+  );
+}
+
 function MailAdvance() {
   const toast = useToast();
   const { user, setUser } = useAuth();

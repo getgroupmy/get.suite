@@ -291,6 +291,13 @@ export default function userRoutes() {
     res.json(p || cleanCalPrefs(null));
   });
 
+  // Calls: pop up on screen (📞 … is calling you, with Join) or not; either way they reach the bell.
+  r.put('/me/ring', (req, res) => {
+    const on = req.body?.on !== false;
+    q('UPDATE users SET ring_off = ? WHERE id = ?').run(on ? 0 : 1, req.user.id);
+    res.json({ ring: on });
+  });
+
   // Mail: what opens after you archive, delete, move or snooze the message you're reading:
   // { advance: 'newer' | 'older' | 'list' } (the next newer one, the next older one, or back to the list).
   r.put('/me/mail-advance', (req, res) => {

@@ -501,7 +501,9 @@ function unreachable(ids, t = Date.now()) {
 function ringOthers(c, user, code) {
   const others = membersOf(c).filter((id) => id !== user.id);
   chatCalls.set(code, { channelId: c.id, caller: user });
-    sendTo(others, { type: 'ring', from: user.name, from_id: user.id, code, channel_id: c.id, title: c.dm_key ? null : c.name });
+    // On screen for those who want calls to pop up; the bell (and phone) for everyone.
+    const popUp = others.filter((id) => !q('SELECT ring_off FROM users WHERE id = ?').get(id)?.ring_off);
+    sendTo(popUp, { type: 'ring', from: user.name, from_id: user.id, code, channel_id: c.id, title: c.dm_key ? null : c.name });
     notify(others, { kind: 'chat', title: `📞 ${user.name} is calling you${c.dm_key ? '' : ` in #${c.name}`}`, body: 'Tap to join the video call.', link: `/meet/${code}`, actor: user.name });
     // Nobody picks up (or says they can't talk) in time: a missed call, in the conversation and the bell.
     const caller = user, ringKey = `${c.id}|${code}`;

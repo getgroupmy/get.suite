@@ -4135,6 +4135,24 @@ test('chat: a video call shared in a conversation shows who is in it while it la
   const again = (await call(A, 'POST', '/api/chat/call', { user_id: D.id })).body;
   assert.deepEqual(again.unreachable, [{ name: 'Cal Dot', until }]);
   await call(D, 'PUT', '/api/users/me/pause', { until: null });
+  // Dot turns call pop-ups off: the next call reaches her bell, but nothing pops up on screen.
+  const live = new WS(`${base.replace('http', 'ws')}/ws`, { headers: { cookie: D.cookie } });
+  const seen = [];
+  live.on('message', (d) => { try { seen.push(JSON.parse(String(d))); } catch { /* not JSON */ } });
+  await new Promise((r) => live.on('open', r));
+  await call(A, 'POST', '/api/chat/call', { user_id: D.id });
+  await new Promise((r) => setTimeout(r, 200));
+  assert.equal(seen.filter((m) => m.type === 'ring').length, 1, 'rings by default');
+  assert.deepEqual((await call(D, 'PUT', '/api/users/me/ring', { on: false })).body, { ring: false });
+  assert.equal((await call(D, 'GET', '/api/auth/me')).body.user.ring, false);
+  const before = ((b) => (b.items || b).filter((n) => /is calling you/.test(n.title)).length)((await call(D, 'GET', '/api/notifications')).body);
+  await call(A, 'POST', '/api/chat/call', { user_id: D.id });
+  await new Promise((r) => setTimeout(r, 200));
+  assert.equal(seen.filter((m) => m.type === 'ring').length, 1, 'no pop-up this time');
+  const after = ((b) => (b.items || b).filter((n) => /is calling you/.test(n.title)).length)((await call(D, 'GET', '/api/notifications')).body);
+  assert.equal(after, before + 1, 'still in the bell');
+  live.close();
+  await call(D, 'PUT', '/api/users/me/ring', { on: true });
   const bellD = (await call(D, 'GET', '/api/notifications')).body;
   assert.ok((bellD.items || bellD).some((n) => n.title === '📞 Cal Ann is calling you' && n.link === `/meet/${placed.body.code}`));
   const general = (await call(A, 'GET', '/api/chat/channels')).body.channels.find((x) => x.name === 'general');
