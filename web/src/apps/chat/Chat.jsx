@@ -19,6 +19,7 @@ import { useMentions, MENTION_RE, GROUP_WORD_RE, knownGroupWords } from '../../c
 import { addToTasksWithToast, titleFromText } from '../tasks/addtask.js';
 import { isPaused } from '../../pause.js';
 import { noteTyping, typingIn, typingText } from './typing.js';
+import { newFromId, newCount } from './unread.js';
 
 /**
  * "Kim is typing…": tells the others while you type here (at most every 2.5 seconds; clearing the
@@ -69,6 +70,8 @@ export default function Chat() {
   const [online, setOnline] = useState([]);
   const [people, setPeople] = useState([]);
   const [messages, setMessages] = useState([]);
+  // The first message that was new when the conversation opened (the "New messages" line goes above it).
+  const [newFrom, setNewFrom] = useState(null);
   const [pins, setPins] = useState([]); // this conversation's pinned messages
   const [pinsOpen, setPinsOpen] = useState(false);
   const [text, setText] = useState('');
@@ -178,14 +181,30 @@ export default function Chat() {
 
   useEffect(() => {
     if (!channelId) return;
-    setMessages([]);
+    setMessages([]); setNewFrom(null);
     stick.current = true;
     setUnread((u) => ({ ...u, [channelId]: 0 }));
     setMentioned((x) => ({ ...x, [channelId]: false }));
     setEditingId(null); setFiles([]); setThreadId(null);
     if (jumpTo) stick.current = false;
-    get(`/chat/channels/${channelId}/messages${jumpTo ? `?around=${encodeURIComponent(jumpTo)}` : ''}`).then((list) => {
+    Promise.all([
+      get(`/chat/channels/${channelId}/messages${jumpTo ? `?around=${encodeURIComponent(jumpTo)}` : ''}`),
+      jumpTo ? null : get(`/chat/channels/${channelId}/read`).catch(() => null),
+    ]).then(([list, read]) => {
+      const from = read ? newFromId(list, read.read_at, user.id) : null;
+      if (from) stick.current = false;
+      setNewFrom(from);
       setMessages(list); markRead(channelId);
+      if (from) {
+        // Show where the new messages start (with a little of what came before), or the end if they all fit.
+        requestAnimationFrame(() => {
+          const el = scroller.current, line = el?.querySelector('.new-sep');
+          if (!el || !line) return;
+          const top = el.scrollTop + line.getBoundingClientRect().top - el.getBoundingClientRect().top - 24;
+          el.scrollTop = Math.min(top, el.scrollHeight - el.clientHeight);
+          stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+        });
+      }
       if (jumpTo) {
         if (jumpThread) setThreadId(jumpThread);
         requestAnimationFrame(() => {
@@ -196,7 +215,7 @@ export default function Chat() {
         });
       }
     }).catch((e) => toast(e.message, 'error'));
-  }, [channelId, jumpTo, jumpThread, toast]);
+  }, [channelId, jumpTo, jumpThread, toast, user.id]);
   const runSearch = async (q) => {
     if (!q.trim()) { setSearch(null); return; }
     try { setSearch({ q, results: await get(`/chat/search?q=${encodeURIComponent(q)}`) }); } catch (e) { toast(e.message, 'error'); }
@@ -564,7 +583,8 @@ export default function Chat() {
               return (
                 <div key={m.id}>
                   {newDay && <div className="day-sep"><span>{new Date(m.created_at).toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}</span></div>}
-                  <Message m={m} grouped={grouped && !newDay} user={user} reminder={reminders.get(m.id)} saved={savedIds.has(m.id)} onSave={(on) => setSave(m.id, on)} editing={editingId === m.id} editText={editText} setEditText={setEditText}
+                  {m.id === newFrom && <div className="new-sep" role="separator" aria-label="New messages"><span>New messages{newCount(messages, newFrom, user.id) > 1 ? ` · ${newCount(messages, newFrom, user.id)}` : ''}</span></div>}
+                  <Message m={m} grouped={grouped && !newDay && m.id !== newFrom} user={user} reminder={reminders.get(m.id)} saved={savedIds.has(m.id)} onSave={(on) => setSave(m.id, on)} editing={editingId === m.id} editText={editText} setEditText={setEditText}
                     onStartEdit={() => { setEditingId(m.id); setEditText(m.body); }} onSaveEdit={() => saveEdit(m)} onCancelEdit={() => setEditingId(null)}
                     onReact={(e) => react(m, e)} onThread={() => setThreadId(m.id)} onPin={current.archived_at ? null : () => pin(m, !m.pinned_at)} onForward={m.poll ? null : () => setForwarding(m)} onMarkUnread={async () => {
                       try { await post(`/chat/messages/${m.id}/unread`); navigate('/chat'); toast(`Marked unread from ${m.user_name || 'this message'}’s message`); } catch (e) { toast(e.message, 'error'); }

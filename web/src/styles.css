@@ -396,6 +396,9 @@ button:focus-visible, a:focus-visible, [tabindex]:focus-visible { outline: 2px s
 .day-sep { text-align: center; margin: 12px 0; position: relative; }
 .day-sep::before { content: ""; position: absolute; left: 20px; right: 20px; top: 50%; border-top: 1px solid var(--border); }
 .day-sep span { position: relative; background: var(--surface); padding: 0 12px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.new-sep { text-align: right; margin: 8px 0; position: relative; }
+.new-sep::before { content: ""; position: absolute; left: 20px; right: 20px; top: 50%; border-top: 1px solid var(--danger, #d93025); }
+.new-sep span { position: relative; background: var(--surface); padding: 0 8px; margin-right: 20px; font-size: 12px; font-weight: 600; color: var(--danger, #d93025); }
 .composer { display: flex; align-items: flex-end; gap: 8px; margin: 12px 20px 20px; padding: 6px 6px 6px 16px; border: 1px solid var(--border); border-radius: 24px; }
 .composer textarea { flex: 1; border: 0; resize: none; padding: 8px 0; max-height: 160px; background: none; }
 .composer textarea:focus-visible { outline: none; }

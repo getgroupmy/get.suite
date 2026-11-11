@@ -1099,6 +1099,13 @@ export default function chatRoutes() {
     res.json({ ok: true });
   });
 
+  // When you last read the conversation: { read_at } (null if never). Asked before opening it marks it read,
+  // so the conversation can show where the new messages start.
+  r.get('/channels/:id/read', (req, res) => {
+    const c = loadChannel(req.params.id, req.user);
+    res.json({ read_at: q('SELECT read_at FROM channel_reads WHERE channel_id = ? AND user_id = ?').get(c.id, req.user.id)?.read_at ?? null });
+  });
+
   // When the other person in a direct message last read it: { read_at } (null when unknown or turned off).
   r.get('/channels/:id/seen', (req, res) => {
     const c = loadChannel(req.params.id, req.user);

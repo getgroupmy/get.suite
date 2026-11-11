@@ -3372,10 +3372,16 @@ test('chat: mark unread from a message', async () => {
   const ids = [];
   for (const t of ['one', 'two', 'three']) { ids.push((await a('POST', `/api/chat/channels/${dm}/messages`, { body: t })).body.id); await new Promise((r) => setTimeout(r, 5)); }
   const unread = async () => (await b('GET', '/api/chat/channels')).body.channels.find((c) => c.id === dm).unread;
+  assert.equal((await b('GET', `/api/chat/channels/${dm}/read`)).body.read_at, null, 'never read yet');
   await b('POST', `/api/chat/channels/${dm}/read`);
   assert.equal(await unread(), 0);
+  const msgs = (await b('GET', `/api/chat/channels/${dm}/messages`)).body;
+  assert.ok((await b('GET', `/api/chat/channels/${dm}/read`)).body.read_at >= msgs.at(-1).created_at, 'read up to the last one');
   assert.equal((await b('POST', `/api/chat/messages/${ids[1]}/unread`)).status, 200);
   assert.equal(await unread(), 2, 'from "two" on');
+  const was = (await b('GET', `/api/chat/channels/${dm}/read`)).body.read_at;
+  assert.deepEqual(msgs.filter((m) => m.created_at > was).map((m) => m.body), ['two', 'three'], 'new messages start at "two"');
+  assert.equal((await x('GET', `/api/chat/channels/${dm}/read`)).status, 404, 'only for people in it');
   await b('POST', `/api/chat/channels/${dm}/read`);
   assert.equal(await unread(), 0);
   assert.equal((await x('POST', `/api/chat/messages/${ids[0]}/unread`)).status, 404, 'not for people outside it');
