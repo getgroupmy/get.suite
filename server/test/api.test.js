@@ -9593,6 +9593,14 @@ test('tasks: an estimate of how long a task will take', async () => {
   await a('PATCH', `/api/tasks/tasks/${t.id}`, { done: true, today: '2026-11-10' });
   const next = (await a('GET', `/api/tasks/lists/${list}/tasks`)).body.find((x) => !x.done && x.repeat);
   assert.equal(next.estimate, 90, 'the next time of a repeating task too');
+  // In the download and back in an import.
+  const csv = String((await a('GET', `/api/tasks/lists/${list}/export.csv`)).body).replace(/^\ufeff/, '').split('\r\n');
+  const head = csv[0].split(',');
+  assert.equal(head[4], 'Estimate (min)');
+  assert.ok(csv.slice(1).some((l) => l.split(',')[0] === 'Write report' && l.split(',')[4] === '90'));
+  const other = (await a('POST', '/api/tasks/lists', { name: 'Est 2' })).body.id;
+  await a('POST', `/api/tasks/lists/${other}/import`, 'Task,Estimate (min)\r\nPlan,45\r\nNo time,\r\nSilly,-3\r\n', { raw: true, headers: { 'content-type': 'text/csv' } });
+  assert.deepEqual((await a('GET', `/api/tasks/lists/${other}/tasks`)).body.map((x) => [x.title, x.estimate]), [['Plan', 45], ['No time', null], ['Silly', null]]);
   assert.equal((await a('PATCH', `/api/tasks/tasks/${next.id}`, { estimate: null })).body.estimate, null);
 });
 

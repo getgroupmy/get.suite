@@ -154,8 +154,11 @@ export function tasksTable(tasks) {
     t.steps.length ? `${t.steps.filter((x) => x.done).length}/${t.steps.length}` : '', t.steps.map((x) => `${x.done ? '[x]' : '[ ]'} ${x.title}`).join('\n'), t.notes || '',
     t.done_at ? new Date(t.done_at).toISOString().slice(0, 10) : '']);
   // A list with sections says which each task is in (after Task, so the file reads in its parts).
-  if (tasks.some((t) => t.section_name)) return [[head[0], 'Section', ...head.slice(1)], ...rows.map((r, i) => [r[0], tasks[i].section_name || '', ...r.slice(1)])];
-  return [head, ...rows];
+  let table = [head, ...rows];
+  // Estimates (minutes), when any task has one: after Time.
+  if (tasks.some((t) => t.estimate)) table = table.map((r, i) => [...r.slice(0, 4), i ? (tasks[i - 1].estimate || '') : 'Estimate (min)', ...r.slice(4)]);
+  if (tasks.some((t) => t.section_name)) table = table.map((r, i) => [r[0], i ? tasks[i - 1].section_name || '' : 'Section', ...r.slice(1)]);
+  return table;
 }
 export const tasksCsv = (tasks) => `\ufeff${tasksTable(tasks).map((r) => r.map(csvCell).join(',')).join('\r\n')}\r\n`;
 /** A task as one person sees it: each attachment says whether they can open it. */
@@ -566,6 +569,7 @@ export default function taskRoutes() {
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
           .run(tid, list.id, x.title, x.notes, x.due, x.due_time, x.start, ++at, x.important ? 1 : 0, x.tags.length ? JSON.stringify(x.tags) : null, steps, x.done ? t : null, x.done ? req.user.id : null, req.user.id, t, t);
         if (x.section) q('UPDATE tasks SET section_id = ? WHERE id = ?').run(secId(x.section), tid);
+        if (x.estimate) q('UPDATE tasks SET estimate = ? WHERE id = ?').run(x.estimate, tid);
       }
     });
     changed(list);

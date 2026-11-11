@@ -640,7 +640,7 @@ function TaskSchedule({ task }) {
   }, [form, startMs, task.id]);
   const open = () => {
     const next = new Date(); next.setMinutes(0, 0, 0); next.setHours(next.getHours() + 1);
-    setForm({ at: localInput(next.getTime()), minutes: 60 });
+    setForm({ at: localInput(next.getTime()), minutes: task.estimate || 60 }); // as long as it's estimated to take
   };
   const book = async (e) => {
     e.preventDefault();
@@ -662,7 +662,7 @@ function TaskSchedule({ task }) {
         <form className="row wrap" style={{ gap: 6 }} onSubmit={book}>
           <input type="datetime-local" aria-label="Starts" value={form.at} required onChange={(e) => setForm({ ...form, at: e.target.value })} />
           <select aria-label="For how long" value={form.minutes} onChange={(e) => setForm({ ...form, minutes: Number(e.target.value) })}>
-            {[15, 30, 45, 60, 90, 120, 180, 240].map((m) => <option key={m} value={m}>{m < 60 ? `${m} min` : `${m / 60} h`}</option>)}
+            {[...new Set([15, 30, 45, 60, 90, 120, 180, 240, form.minutes])].sort((a, b) => a - b).map((m) => <option key={m} value={m}>{formatMinutes(m)}</option>)}
           </select>
           <button className="btn small primary" disabled={!Number.isFinite(startMs)}>Book</button>
           <button type="button" className="btn small" onClick={() => setForm(null)}>Cancel</button>
