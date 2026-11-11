@@ -180,9 +180,12 @@ export default function Chat() {
   const pausedFor = (userId) => { const u = people.find((p) => p.id === userId)?.paused_until; return u && u > Date.now() ? u : null; };
 
   const current = channels.find((c) => c.id === channelId);
+  // Opening Chat shows the first conversation; that isn't "picking" one, so a list opened meanwhile (Saved, Unreads…) stays.
+  const autoPicked = useRef(null);
   useEffect(() => {
-    if (!channelId && channels.length) navigate(`/chat/${channels[0].id}`, { replace: true });
+    if (!channelId && channels.length) { autoPicked.current = channels[0].id; navigate(`/chat/${channels[0].id}`, { replace: true }); }
   }, [channelId, channels, navigate]);
+  const picked = () => { if (autoPicked.current && autoPicked.current === channelId) return false; autoPicked.current = null; return true; };
 
   useEffect(() => {
     if (!channelId) return;
@@ -311,7 +314,7 @@ export default function Chat() {
   const loadSaved = useCallback(() => get('/chat/saved').then(setSaved).catch(() => {}), []);
   useEffect(() => { loadSaved(); }, [loadSaved]);
   useEffect(() => onLive((m) => { if (m.type === 'chat-saved') loadSaved(); }), [loadSaved]);
-  useEffect(() => { setSavedOpen(false); }, [channelId]); // picking a conversation leaves the list
+  useEffect(() => { if (channelId && picked()) setSavedOpen(false); }, [channelId]); // eslint-disable-line react-hooks/exhaustive-deps -- picking a conversation leaves the list
   const savedIds = new Set(saved.map((x) => x.message_id));
   // Threads you're in, across conversations (latest reply first), kept up to date as replies come and you read.
   const [threads, setThreads] = useState([]);
@@ -319,7 +322,7 @@ export default function Chat() {
   const loadThreads = useCallback(() => get('/chat/threads').then(setThreads).catch(() => {}), []);
   useEffect(() => { loadThreads(); }, [loadThreads]);
   useEffect(() => onLive((m) => { if ((m.type === 'message' && m.message.parent_id) || m.type === 'chat-read' || m.type === 'message-deleted' || m.type === 'chat-thread-follow') loadThreads(); }), [loadThreads]);
-  useEffect(() => { setThreadsOpen(false); }, [channelId]);
+  useEffect(() => { if (channelId && picked()) setThreadsOpen(false); }, [channelId]); // eslint-disable-line react-hooks/exhaustive-deps
   const unreadThreads = threads.filter((t) => t.unread > 0).length;
   // Messages that mention you (newest first), with how many you haven't read yet.
   const [mentions, setMentions] = useState([]);
@@ -328,7 +331,7 @@ export default function Chat() {
   const loadMentions = useCallback(() => get('/chat/mentions').then(setMentions).catch(() => {}), []);
   useEffect(() => { loadMentions(); }, [loadMentions]);
   useEffect(() => onLive((m) => { if (m.type === 'chat-mention' || m.type === 'chat-keyword' || m.type === 'chat-read' || m.type === 'message-deleted' || m.type === 'channels-changed') loadMentions(); }), [loadMentions]);
-  useEffect(() => { setMentionsOpen(false); }, [channelId]);
+  useEffect(() => { if (channelId && picked()) setMentionsOpen(false); }, [channelId]); // eslint-disable-line react-hooks/exhaustive-deps
   const unreadMentions = mentions.filter((m) => m.unread).length;
   // Everything unread, by conversation (loaded while it's open, and kept up to date there).
   const [unreads, setUnreads] = useState(null);
@@ -336,7 +339,7 @@ export default function Chat() {
   const loadUnreads = useCallback(() => get('/chat/unreads').then(setUnreads).catch(() => {}), []);
   useEffect(() => { if (unreadsOpen) loadUnreads(); }, [unreadsOpen, loadUnreads]);
   useEffect(() => onLive((m) => { if (unreadsOpen && (m.type === 'message' || m.type === 'chat-read' || m.type === 'message-deleted' || m.type === 'chat-thread-follow')) loadUnreads(); }), [unreadsOpen, loadUnreads]);
-  useEffect(() => { setUnreadsOpen(false); }, [channelId]);
+  useEffect(() => { if (channelId && picked()) setUnreadsOpen(false); }, [channelId]); // eslint-disable-line react-hooks/exhaustive-deps
   const unreadTotal = channels.filter((c) => !c.muted && !c.left).reduce((n, c) => n + (unread[c.id] || 0), 0);
   const setSave = (id, on) => put(`/chat/messages/${id}/saved`, { saved: on }).then(() => { loadSaved(); toast(on ? 'Saved for later (🔖 Saved in the list)' : 'Removed from Saved'); }).catch((e) => toast(e.message, 'error'));
 
