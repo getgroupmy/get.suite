@@ -327,6 +327,8 @@ export default function Chat() {
       const m = await post('/meet', { title: current?.dm_key ? '' : current?.name || '' });
       const msg = await post(`/chat/channels/${channelId}/messages`, { body: `📹 Started a video meeting: ${location.origin}/meet/${m.code}`, files: [] });
       setMessages((list) => (list.some((x) => x.id === msg.id) ? list : [...list, msg]));
+      // In a direct message or a small private channel, ring the others too.
+      if ((current?.dm_key && current?.dm_user_id) || (current?.private && (current.member_count || 0) <= 9)) post(`/chat/channels/${channelId}/ring`, { code: m.code }).catch(() => {});
       window.open(`/meet/${m.code}`, '_blank', 'noopener');
     } catch (err) { toast(err.message, 'error'); }
   }

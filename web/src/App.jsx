@@ -243,6 +243,11 @@ function Shell() {
   const openCalendar = useCallback(() => navigate('/calendar'), [navigate]);
   useEventReminders(true, { toast, openCalendar });
   useTaskReminders({ toast, navigate });
+  // Someone is calling you (a video call started in a direct message or a small private channel).
+  useEffect(() => onLive((m) => {
+    if (m.type !== 'ring') return;
+    toast(`📞 ${m.from} is calling you${m.title ? ` in #${m.title}` : ''}`, 'info', { duration: 30000, action: { label: 'Join', onClick: () => window.open(`/meet/${m.code}`, '_blank', 'noopener') } });
+  }), [toast]);
   // Someone booked time with you through a booking page.
   useEffect(() => onLive((m) => {
     if (m.type !== 'booking-made') return;

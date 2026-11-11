@@ -4062,6 +4062,13 @@ test('chat: a video call shared in a conversation shows who is in it while it la
   await new Promise((r) => setTimeout(r, 100));
   assert.deepEqual((await call(Bq, 'GET', `/api/chat/channels/${dm}/calls`)).body, [{ code, people: ['Cal Ann'] }]);
   assert.equal((await call(Bq, 'GET', '/api/chat/calls')).body[dm], 1, 'a 🎥 in the list');
+  // Ringing the other person in a direct message: a bell (and phone) notification that opens the call.
+  assert.equal((await call(A, 'POST', `/api/chat/channels/${dm}/ring`, { code: 'abc-defg-hij' })).status, 400, 'a real meeting');
+  assert.deepEqual((await call(A, 'POST', `/api/chat/channels/${dm}/ring`, { code })).body, { rang: 1 });
+  const rung = (await call(Bq, 'GET', '/api/notifications')).body;
+  assert.deepEqual((rung.items || rung).filter((n) => /is calling you/.test(n.title)).map((n) => [n.title, n.link]), [['📞 Cal Ann is calling you', `/meet/${code}`]]);
+  const general = (await call(A, 'GET', '/api/chat/channels')).body.channels.find((x) => x.name === 'general');
+  if (general) assert.equal((await call(A, 'POST', `/api/chat/channels/${general.id}/ring`, { code })).status, 400, 'not a whole channel');
   // An event with that video meeting says who's in it now.
   const t = Date.now();
   const evId = (await call(A, 'POST', '/api/events', { title: 'Catch-up', start: t - 6e4, end: t + 30 * 6e4, meet_code: code, guests: ['ccallb@acme.com'] })).body.id;
