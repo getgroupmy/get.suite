@@ -4042,6 +4042,32 @@ test('meet: the host ends the meeting for everyone', async () => {
   again.ws.close();
 });
 
+test('chat: a video call shared in a conversation shows who is in it while it lasts', async () => {
+  const { default: WS } = await import('ws');
+  const cookieFor = async (local, name) => {
+    const made = await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' });
+    assert.equal(made.status, 201);
+    const r = await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ username: `${local}@acme.com`, password: 'password123' }) });
+    return { cookie: r.headers.get('set-cookie').split(';')[0], id: made.body.id };
+  };
+  const A = await cookieFor('ccalla', 'Cal Ann'), Bq = await cookieFor('ccallb', 'Cal Ben');
+  const call = (who, method, url, body) => fetch(base + url, { method, headers: { cookie: who.cookie, 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: body && JSON.stringify(body) }).then(async (r) => ({ status: r.status, body: await r.json() }));
+  const dm = (await call(A, 'POST', '/api/chat/dm', { user_id: Bq.id })).body.id;
+  assert.deepEqual((await call(Bq, 'GET', `/api/chat/channels/${dm}/calls`)).body, []);
+  const { code } = (await call(A, 'POST', '/api/meet', { title: '' })).body;
+  await call(A, 'POST', `/api/chat/channels/${dm}/messages`, { body: `📹 Started a video meeting: http://x/meet/${code}`, files: [] });
+  assert.deepEqual((await call(Bq, 'GET', `/api/chat/channels/${dm}/calls`)).body, [], 'nobody in it yet');
+  const ws = new WS(`${base.replace('http', 'ws')}/ws/meet/${code}`, { headers: { cookie: A.cookie } });
+  await new Promise((r) => ws.on('open', r));
+  await new Promise((r) => setTimeout(r, 100));
+  assert.deepEqual((await call(Bq, 'GET', `/api/chat/channels/${dm}/calls`)).body, [{ code, people: ['Cal Ann'] }]);
+  const C = await cookieFor('ccallc', 'Cal Cat');
+  assert.equal((await call(C, 'GET', `/api/chat/channels/${dm}/calls`)).status, 404, 'not in the conversation');
+  ws.close();
+  await new Promise((r) => setTimeout(r, 150));
+  assert.deepEqual((await call(Bq, 'GET', `/api/chat/channels/${dm}/calls`)).body, [], 'over');
+});
+
 test('meet: a video meeting on a calendar event', async () => {
   const org = client(); const guest = client();
   for (const [local, name] of [['mca', 'Cal Organizer'], ['mcb', 'Gus Guest']]) {

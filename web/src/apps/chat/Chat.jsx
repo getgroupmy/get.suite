@@ -489,6 +489,7 @@ export default function Chat() {
             )}
           </div>
         ) : !current ? <Empty icon="chat" title="Pick a conversation" /> : <>
+          <LiveCalls channelId={current.id} />
           <div className="chat-head">
             <div className="grow" style={{ minWidth: 0 }}>
               <h1>{current.private && !current.dm_key ? `🔒 ${current.name}` : title}</h1>
@@ -1319,6 +1320,31 @@ function CompanyEmojiDialog({ onClose }) {
         </ul>
       ) : <p className="muted">No company emoji yet.</p>}
     </Modal>
+  );
+}
+
+/** Video calls shared in this conversation that people are in now: "In a call: Kim, Lee · Join". */
+function LiveCalls({ channelId }) {
+  const [calls, setCalls] = useState([]);
+  useEffect(() => {
+    let alive = true;
+    const load = () => get(`/chat/channels/${channelId}/calls`).then((c) => { if (alive) setCalls(c); }).catch(() => {});
+    setCalls([]); load();
+    const t = setInterval(load, 15000);
+    const off = onLive((m) => { if (m.type === 'message' && m.message?.channel_id === channelId && /\/meet\//.test(m.message.body || '')) setTimeout(load, 1500); });
+    return () => { alive = false; clearInterval(t); off(); };
+  }, [channelId]);
+  if (!calls.length) return null;
+  return (
+    <div className="chat-live-calls" role="status" aria-label="Calls going on now">
+      {calls.map((c) => (
+        <div key={c.code} className="chat-live-call row">
+          <span className="chat-live-dot" aria-hidden="true" />
+          <span className="grow ellipsis">🎥 In a call: {c.people.slice(0, 4).join(', ')}{c.people.length > 4 ? ` and ${c.people.length - 4} more` : ''}</span>
+          <a className="btn small primary" href={`/meet/${c.code}`} target="_blank" rel="noreferrer">Join</a>
+        </div>
+      ))}
+    </div>
   );
 }
 

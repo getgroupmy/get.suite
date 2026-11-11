@@ -132,6 +132,7 @@ export function cleanPoll(p) {
 import { sendTo, onlineUserIds } from '../hub.js';
 import { canReach, orgMemberIds } from '../tenancy.js';
 import { groupSlug } from '../groups.js';
+import { namesIn } from '../meet.js';
 
 /**
  * Channels belong to one company (org_id set, dm_key NULL).
@@ -668,6 +669,16 @@ export default function chatRoutes() {
     res.send(html ? conversationHtml(title, messages, opts) : conversationText(title, messages, opts));
   });
 
+  // Video calls going on now that were shared in this conversation (in the last 12 hours): [{ code, people }],
+  // so it can show "In a call: Kim, Lee · Join" while they last.
+  r.get('/channels/:id/calls', (req, res) => {
+    const c = loadChannel(req.params.id, req.user);
+    const codes = new Set();
+    for (const m of q("SELECT body FROM messages WHERE channel_id = ? AND created_at > ? AND body LIKE '%/meet/%' ORDER BY created_at DESC LIMIT 50").all(c.id, now() - 12 * 36e5)) {
+      for (const x of String(m.body).matchAll(/\/meet\/([a-z]{3}-[a-z]{4}-[a-z]{3})\b/g)) codes.add(x[1]);
+    }
+    res.json([...codes].map((code) => ({ code, people: namesIn(code) })).filter((x) => x.people.length).slice(0, 3));
+  });
   r.get('/channels/:id/messages', (req, res) => {
     const c = loadChannel(req.params.id, req.user);
     // ?around=<message id>: the messages either side of one (to jump to a search result).

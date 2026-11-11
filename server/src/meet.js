@@ -95,6 +95,8 @@ const describe = (id, p) => ({ id, user: { id: p.user.id, name: p.user.name, ema
 export const peopleIn = (code) => [...(rooms.get(code)?.entries() ?? [])].map(([id, p]) => describe(id, p));
 /** Everyone in a meeting, in the main room or a breakout room. */
 const everyoneIn = (code) => roomsOf(code).flatMap((k) => peopleIn(k));
+/** Who's in a meeting now (every room): their names, for showing a live call elsewhere (Chat). */
+export const namesIn = (code) => everyoneIn(code).map((p) => p.user.name);
 
 const cleanState = (s = {}) => nextState({}, s);
 

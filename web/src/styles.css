@@ -2835,3 +2835,8 @@ select.meet-timer-btn option { color: #202124; }
 .where-day.on { border-color: var(--accent, #1a73e8); background: var(--accent-soft, #e8f0fe); }
 .home-office { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px 10px; } .home-office li { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .meet-btn.end-all { width: auto; padding: 0 16px; border-radius: 24px; background: transparent; border: 2px solid #ea4335; color: #ff8a80; font-weight: 600; }
+.chat-live-calls { display: grid; gap: 4px; padding: 6px 16px 0; }
+.chat-live-call { gap: 10px; padding: 6px 10px; border-radius: 10px; background: #e6f4ea; color: #137333; font-size: 14px; }
+.chat-live-dot { width: 8px; height: 8px; border-radius: 50%; background: #1e8e3e; animation: chat-live 1.6s ease-in-out infinite; flex: none; }
+@keyframes chat-live { 50% { opacity: .3; } }
+@media (prefers-color-scheme: dark) { .chat-live-call { background: #0d3a1e; color: #81c995; } }
