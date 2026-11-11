@@ -4090,6 +4090,16 @@ test('chat: a video call shared in a conversation shows who is in it while it la
     await new Promise((r) => setTimeout(r, 450));
     assert.equal((await missedOf()).length, before + 1, 'he said he couldn’t talk: not missed');
   } finally { ringTimeout.ms = was; }
+  // Call someone in one go (from their card): the DM (made if need be), a meeting posted there, and they're rung.
+  const D = await cookieFor('ccalld', 'Cal Dot');
+  assert.equal((await call(A, 'POST', '/api/chat/call', { user_id: A.id })).status, 400, 'not yourself');
+  const placed = await call(A, 'POST', '/api/chat/call', { user_id: D.id });
+  assert.equal(placed.status, 201);
+  assert.match(placed.body.code, /^[a-z]{3}-[a-z]{4}-[a-z]{3}$/);
+  const dmD = (await call(D, 'GET', `/api/chat/channels/${placed.body.channel_id}/messages`)).body;
+  assert.match((Array.isArray(dmD) ? dmD : dmD.messages).at(-1).body, new RegExp(`/meet/${placed.body.code}$`));
+  const bellD = (await call(D, 'GET', '/api/notifications')).body;
+  assert.ok((bellD.items || bellD).some((n) => n.title === '📞 Cal Ann is calling you' && n.link === `/meet/${placed.body.code}`));
   const general = (await call(A, 'GET', '/api/chat/channels')).body.channels.find((x) => x.name === 'general');
   if (general) assert.equal((await call(A, 'POST', `/api/chat/channels/${general.id}/ring`, { code })).status, 400, 'not a whole channel');
   // An event with that video meeting says who's in it now.

@@ -20,6 +20,10 @@ export default function PersonCard({ userId, onClose }) {
   const { user } = useAuth();
   useEffect(() => { setCard(null); get(`/users/${id}/card`).then(setCard).catch((e) => { toast(e.status === 404 ? 'Cards are for colleagues in your company' : e.message, 'error'); onClose(); }); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!card) return null;
+  // Call: a video call in your direct messages with them; they're rung, and the meeting opens for you.
+  const callThem = async () => {
+    try { const r = await post('/chat/call', { user_id: card.id }); onClose(); window.open(`/meet/${r.code}`, '_blank', 'noopener'); navigate(`/chat/${r.channel_id}`); } catch (e) { toast(e.message, 'error'); }
+  };
   const message = async () => { const { id: dm } = await post('/chat/dm', { user_id: card.id }); onClose(); navigate(`/chat/${dm}`); };
   const seeCalendar = () => {
     try {
@@ -51,6 +55,7 @@ export default function PersonCard({ userId, onClose }) {
         {card.id !== user.id && (
           <div className="row wrap">
             <button type="button" className="btn primary" onClick={message}><Icon name="chat" size={16} /> Message</button>
+            <button type="button" className="btn" onClick={callThem} title="A video call: they're rung, wherever they are in Workspace"><Icon name="video" size={16} /> Call</button>
             <button type="button" className="btn" onClick={() => { onClose(); navigate(`/mail?compose=${encodeURIComponent(card.email)}`); }}><Icon name="mail" size={16} /> Email</button>
             <button type="button" className="btn" onClick={seeCalendar}><Icon name="calendar" size={16} /> See their calendar</button>
           </div>

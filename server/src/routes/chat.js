@@ -132,7 +132,8 @@ export function cleanPoll(p) {
 import { sendTo, onlineUserIds } from '../hub.js';
 import { canReach, orgMemberIds } from '../tenancy.js';
 import { groupSlug } from '../groups.js';
-import { namesIn, userIdsIn } from '../meet.js';
+import { namesIn, userIdsIn, newCode } from '../meet.js';
+import { baseUrl } from './calendar.js';
 
 /**
  * Channels belong to one company (org_id set, dm_key NULL).
@@ -484,6 +485,44 @@ export function chatHookRoutes() {
 
 // Calls that are ringing: `${channel}|${meeting}` → who hasn't answered or declined yet.
 const ringing = new Map();
+/** Ring everyone else in a conversation for a video call: live, in the bell and on phones; missed if nobody picks up. */
+function ringOthers(c, user, code) {
+  const others = membersOf(c).filter((id) => id !== user.id);
+    sendTo(others, { type: 'ring', from: user.name, from_id: user.id, code, channel_id: c.id, title: c.dm_key ? null : c.name });
+    notify(others, { kind: 'chat', title: `📞 ${user.name} is calling you${c.dm_key ? '' : ` in #${c.name}`}`, body: 'Tap to join the video call.', link: `/meet/${code}`, actor: user.name });
+    // Nobody picks up (or says they can't talk) in time: a missed call, in the conversation and the bell.
+    const caller = user, ringKey = `${c.id}|${code}`;
+    ringing.set(ringKey, new Set(others));
+    setTimeout(() => {
+      const left = ringing.get(ringKey);
+      ringing.delete(ringKey);
+      if (!left) return;
+      const inCall = new Set(userIdsIn(code));
+      const missed = [...left].filter((id) => !inCall.has(id));
+      if (!missed.length || missed.length < left.size) return; // someone answered
+      try { deliver(loadChannel(c.id, caller), caller, { body: `📞 Missed call from ${caller.name}`, files: [], poll: null, parent: null }); } catch { /* the conversation is gone */ }
+      notify(missed, { kind: 'chat', title: `📞 Missed call from ${caller.name}`, body: 'Call them back from your conversation.', link: `/chat/${c.id}`, actor: caller.name });
+    }, ringTimeout.ms).unref?.();
+  return others.length;
+}
+/** Your direct messages with someone (made if need be, and opened again if you'd closed them): its id. */
+function dmWith(user, otherId) {
+  const other = q('SELECT id FROM users WHERE id = ? AND disabled = 0').get(otherId);
+  if (!other || !canReach(user, other.id)) throw bad('You cannot message that person');
+  const ids = [user.id, other.id].sort();
+  const key = ids.join(':');
+  let c = q('SELECT id FROM channels WHERE dm_key = ?').get(key);
+  if (!c) {
+    c = { id: uid() };
+    tx(() => {
+      q('INSERT INTO channels (id, name, dm_key, created_by, created_at) VALUES (?, ?, ?, ?, ?)').run(c.id, 'dm', key, user.id, now());
+      for (const u of new Set(ids)) q('INSERT INTO channel_members (channel_id, user_id) VALUES (?, ?)').run(c.id, u);
+    });
+    sendTo(new Set(ids), { type: 'channels-changed' });
+  }
+  q('DELETE FROM chat_closed WHERE user_id = ? AND channel_id = ?').run(user.id, c.id); // closed before: opening it brings it back
+  return c.id;
+}
 /** How long a call rings before it's missed (tests make it short). */
 export const ringTimeout = { ms: 35000 };
 
@@ -636,22 +675,19 @@ export default function chatRoutes() {
   });
 
   // Find or create a direct-message channel with another user (any company that allows it).
-  r.post('/dm', (req, res) => {
-    const other = q('SELECT id FROM users WHERE id = ? AND disabled = 0').get(req.body.user_id);
-    if (!other || !canReach(req.user, other.id)) throw bad('You cannot message that person');
-    const ids = [req.user.id, other.id].sort();
-    const key = ids.join(':');
-    let c = q('SELECT id FROM channels WHERE dm_key = ?').get(key);
-    if (!c) {
-      c = { id: uid() };
-      tx(() => {
-        q('INSERT INTO channels (id, name, dm_key, created_by, created_at) VALUES (?, ?, ?, ?, ?)').run(c.id, 'dm', key, req.user.id, now());
-        for (const u of new Set(ids)) q('INSERT INTO channel_members (channel_id, user_id) VALUES (?, ?)').run(c.id, u);
-      });
-      sendTo(new Set(ids), { type: 'channels-changed' });
-    }
-    q('DELETE FROM chat_closed WHERE user_id = ? AND channel_id = ?').run(req.user.id, c.id); // closed before: opening it brings it back
-    res.json({ id: c.id });
+  r.post('/dm', (req, res) => res.json({ id: dmWith(req.user, req.body.user_id) }));
+  // Call someone: your direct messages with them (made if need be), a new video meeting posted there, and
+  // they're rung. { channel_id, code } — open the meeting next.
+  r.post('/call', (req, res) => {
+    if (String(req.body.user_id) === req.user.id) throw bad('You can’t call yourself');
+    const id = dmWith(req.user, req.body.user_id);
+    let code;
+    do code = newCode(); while (q('SELECT 1 FROM meetings WHERE code = ?').get(code));
+    q('INSERT INTO meetings (code, org_id, created_by, title, created_at, last_used) VALUES (?, ?, ?, ?, ?, ?)').run(code, req.user.org_id, req.user.id, '', now(), now());
+    const c = loadChannel(id, req.user);
+    deliver(c, req.user, { body: `📹 Started a video meeting: ${baseUrl(req)}/meet/${code}`, files: [], poll: null, parent: null });
+    ringOthers(c, req.user, code);
+    res.status(201).json({ channel_id: id, code });
   });
 
   // The whole conversation to keep: plain text (?format=txt) or a page (html), in the reader's time zone (?tz=).
@@ -682,21 +718,7 @@ export default function chatRoutes() {
     if (!/^[a-z]{3}-[a-z]{4}-[a-z]{3}$/.test(code) || !q('SELECT 1 FROM meetings WHERE code = ? AND org_id = ?').get(code, req.user.org_id)) throw bad('That video meeting does not exist');
     const others = membersOf(c).filter((id) => id !== req.user.id);
     if (!(c.dm_key || c.private) || others.length > 8) throw bad('Ringing is for direct messages and private channels of up to 9 people');
-    sendTo(others, { type: 'ring', from: req.user.name, from_id: req.user.id, code, channel_id: c.id, title: c.dm_key ? null : c.name });
-    // Nobody picks up (or says they can't talk) in time: a missed call, in the conversation and the bell.
-    const caller = req.user, ringKey = `${c.id}|${code}`;
-    ringing.set(ringKey, new Set(others));
-    setTimeout(() => {
-      const left = ringing.get(ringKey);
-      ringing.delete(ringKey);
-      if (!left) return;
-      const inCall = new Set(userIdsIn(code));
-      const missed = [...left].filter((id) => !inCall.has(id));
-      if (!missed.length || missed.length < left.size) return; // someone answered
-      try { deliver(loadChannel(c.id, caller), caller, { body: `📞 Missed call from ${caller.name}`, files: [], poll: null, parent: null }); } catch { /* the conversation is gone */ }
-      notify(missed, { kind: 'chat', title: `📞 Missed call from ${caller.name}`, body: 'Call them back from your conversation.', link: `/chat/${c.id}`, actor: caller.name });
-    }, ringTimeout.ms).unref?.();
-    notify(others, { kind: 'chat', title: `📞 ${req.user.name} is calling you${c.dm_key ? '' : ` in #${c.name}`}`, body: 'Tap to join the video call.', link: `/meet/${code}`, actor: req.user.name });
+    ringOthers(c, req.user, code);
     res.json({ rang: others.length });
   });
   // Can't take the call: the caller is told (while they wait in the meeting), and a note goes in the conversation.
