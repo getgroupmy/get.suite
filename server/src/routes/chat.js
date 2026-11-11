@@ -542,6 +542,9 @@ onCallEnded((code, ms) => {
   const call = chatCalls.get(code);
   if (!call) return;
   chatCalls.delete(code);
+  // Only a call someone answered (the caller alone, waiting, was a missed call: that's said already).
+  const people = q('SELECT COUNT(DISTINCT COALESCE(user_id, name)) AS n FROM meeting_attendance WHERE code = ? AND joined_at >= ?').get(code, Date.now() - ms - 1000).n;
+  if (people < 2) return;
   try { deliver(loadChannel(call.channelId, call.caller), call.caller, { body: `📞 Call ended · ${callLength(ms)}`, files: [], poll: null, parent: null }); } catch { /* the conversation is gone */ }
 });
 /** "under a minute", "1 min", "12 min", "1 h 5 min". */

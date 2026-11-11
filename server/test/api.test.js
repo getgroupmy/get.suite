@@ -4121,9 +4121,20 @@ test('chat: a video call shared in a conversation shows who is in it while it la
   ws.close();
   await new Promise((r) => setTimeout(r, 150));
   assert.deepEqual((await call(Bq, 'GET', `/api/chat/channels/${dm}/calls`)).body, [], 'over');
-  // The call was rung from here: its end is logged in the conversation.
+  // Ann was alone in it (nobody answered): no "Call ended" (it was a missed call, if anything).
   const log = (await call(Bq, 'GET', `/api/chat/channels/${dm}/messages`)).body;
-  assert.ok((Array.isArray(log) ? log : log.messages).some((m) => m.body === '📞 Call ended · under a minute'));
+  assert.ok(!(Array.isArray(log) ? log : log.messages).some((m) => /Call ended/.test(m.body)));
+  // A call Ben answers: when both have left, its end is logged in the conversation.
+  const { code: code2 } = (await call(A, 'POST', '/api/meet', { title: '' })).body;
+  await call(A, 'POST', `/api/chat/channels/${dm}/ring`, { code: code2 });
+  const wa2 = new WS(`${base.replace('http', 'ws')}/ws/meet/${code2}`, { headers: { cookie: A.cookie } });
+  const wb2 = new WS(`${base.replace('http', 'ws')}/ws/meet/${code2}`, { headers: { cookie: Bq.cookie } });
+  await Promise.all([new Promise((r) => wa2.on('open', r)), new Promise((r) => wb2.on('open', r))]);
+  await new Promise((r) => setTimeout(r, 100));
+  wa2.close(); wb2.close();
+  await new Promise((r) => setTimeout(r, 200));
+  const log2 = (await call(Bq, 'GET', `/api/chat/channels/${dm}/messages`)).body;
+  assert.ok((Array.isArray(log2) ? log2 : log2.messages).some((m) => m.body === '📞 Call ended · under a minute'));
   const { callLength } = await import('../src/routes/chat.js');
   assert.deepEqual([callLength(20e3), callLength(60e3), callLength(12 * 60e3), callLength(65 * 60e3), callLength(120 * 60e3)], ['under a minute', '1 min', '12 min', '1 h 5 min', '2 h']);
   assert.equal((await call(Bq, 'GET', '/api/chat/calls')).body[dm], undefined);
