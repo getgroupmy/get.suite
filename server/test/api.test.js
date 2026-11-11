@@ -2421,6 +2421,47 @@ test('rooms: the board of what is free now, and booking a room on the spot', asy
   for (const r of [free, busy, soon]) await owner('DELETE', `/api/rooms/${r.id}`);
 });
 
+test('rooms: end your meeting early to give the room back, or run on when nobody has it after', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['rena', 'Ren A'], ['renb', 'Ren B']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'rena@acme.com');
+  const bid = (await login(b, 'renb@acme.com')).id;
+  const room = (await owner('POST', '/api/rooms', { name: 'Zz End room' })).body;
+  const other = (await owner('POST', '/api/rooms', { name: 'Zz Other room' })).body;
+  const t = Date.now();
+  const mine = (await a('POST', '/api/events', { title: 'Retro', start: t - 20 * 6e4, end: t + 10 * 6e4, rooms: [room.id], guests: ['renb@acme.com'] })).body;
+  await owner('POST', '/api/events', { title: 'Next one', start: t + 40 * 6e4, end: t + 90 * 6e4, rooms: [room.id] });
+  const of = async (c, id) => (await c('GET', '/api/rooms/now')).body.find((x) => x.id === id);
+  assert.equal((await of(a, room.id)).busy.mine, true);
+  assert.equal((await of(b, room.id)).busy.mine, false, 'a guest can’t end it');
+  assert.equal((await b('POST', `/api/rooms/${room.id}/end-now`)).status, 409);
+  assert.equal((await a('POST', `/api/rooms/${other.id}/end-now`)).status, 409, 'not in that room');
+
+  assert.equal((await a('POST', `/api/rooms/${room.id}/extend`, { minutes: 5 })).status, 400);
+  const ext = await a('POST', `/api/rooms/${room.id}/extend`, { minutes: 30 });
+  assert.equal(ext.status, 200);
+  assert.equal(ext.body.end, t + 40 * 6e4);
+  const ext2 = await a('POST', `/api/rooms/${room.id}/extend`, { minutes: 15 });
+  assert.equal(ext2.status, 409, 'booked after');
+  assert.match(ext2.body.error, /Next one/);
+
+  const ended = await a('POST', `/api/rooms/${room.id}/end-now`);
+  assert.equal(ended.status, 200);
+  assert.ok(ended.body.end <= Date.now() && ended.body.end > t - 6e4);
+  const ev = (await b('GET', `/api/events?from=${t - 36e5}&to=${t + 36e5}`)).body.find((e) => e.id === mine.id);
+  assert.equal(ev.end, ended.body.end, 'guests see it end');
+  const now = await of(a, room.id);
+  assert.equal(now.busy, null);
+  assert.equal(now.next.title, 'Next one');
+  assert.ok(bid);
+
+  const rep = (await a('POST', '/api/events', { title: 'Weekly', start: t - 5 * 6e4, end: t + 5 * 6e4, rrule: { freq: 'weekly' }, rooms: [other.id] })).body;
+  assert.equal((await of(a, other.id)).busy.mine, false, 'repeating: change it in the calendar');
+  assert.equal((await a('POST', `/api/rooms/${other.id}/end-now`)).status, 400);
+  await a('DELETE', `/api/events/${rep.id}`);
+  for (const r of [room, other]) await owner('DELETE', `/api/rooms/${r.id}`);
+});
+
 test('rooms: where each is and what is in it', async () => {
   const room = (await owner('POST', '/api/rooms', { name: 'Garden room', capacity: 6, location: ' 2nd floor, east ', features: ['Video', ' whiteboard ', 'video', '', 'Screen  share'] })).body;
   assert.deepEqual([room.location, room.features], ['2nd floor, east', ['Video', 'whiteboard', 'Screen share']], 'trimmed, each once');

@@ -1078,6 +1078,13 @@ function RoomsNow({ onClose }) {
       load();
     } catch (e) { toast(e.message, 'error'); load(); }
   };
+  const act = async (r, what) => {
+    try {
+      const ev = await post(`/rooms/${r.id}/${what}`, what === 'extend' ? { minutes: 15 } : {});
+      toast(what === 'extend' ? `${r.name}: yours until ${time(ev.end)}` : `${r.name} is free for others now`);
+    } catch (e) { toast(e.message, 'error'); }
+    load();
+  };
   const shown = (rooms || []).filter((r) => !onlyFree || !r.busy);
   return (
     <Modal title="Rooms now" onClose={onClose}>
@@ -1097,6 +1104,10 @@ function RoomsNow({ onClose }) {
                 <div className="muted small">{nowText(r, time)}</div>
               </div>
               {!r.busy && <button type="button" className="btn" onClick={() => book(r)}>Book now</button>}
+              {r.busy?.mine && <>
+                <button type="button" className="btn" title="Keep the room 15 minutes longer (if nobody has it then)" onClick={() => act(r, 'extend')}>+15 min</button>
+                <button type="button" className="btn" title="Finished early? End your meeting now and give the room back" onClick={() => act(r, 'end-now')}>End now</button>
+              </>}
             </li>
           ))}
         </ul>

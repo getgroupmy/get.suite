@@ -83,7 +83,7 @@ function bookingsOf(roomId, from, to) {
   const rows = q(`SELECT e.*, u.name AS organizer FROM events e JOIN event_rooms r ON r.event_id = e.id JOIN users u ON u.id = e.owner_id
                   WHERE r.room_id = ? AND r.status = 'yes' AND e.start < ?
                     AND (e.end > ? OR (e.rrule IS NOT NULL AND (e.repeat_until IS NULL OR e.repeat_until > ?)))`).all(roomId, to, from, from);
-  return rows.flatMap((row) => expand(outEvent(row), from, to).map((o) => ({ start: o.start, end: o.end, title: row.title, organizer: row.organizer })))
+  return rows.flatMap((row) => expand(outEvent(row), from, to).map((o) => ({ start: o.start, end: o.end, title: row.title, organizer: row.organizer, event_id: row.id, owner_id: row.owner_id, repeating: !!row.rrule })))
     .sort((x, y) => x.start - y.start);
 }
 
@@ -99,7 +99,7 @@ export function roomNow(roomId, t = Date.now()) {
   let until = on.end;
   for (const b of list) if (b.start <= until && b.end > until) until = b.end;
   const n = list.find((b) => b.start >= until);
-  return { busy: { title: on.title, organizer: on.organizer, until }, next: n ? { start: n.start, title: n.title } : null };
+  return { busy: { title: on.title, organizer: on.organizer, until }, next: n ? { start: n.start, title: n.title } : null, current: on };
 }
 export const QUICK_MINUTES = [15, 30, 45, 60, 90, 120];
 
@@ -127,7 +127,12 @@ export default function roomRoutes() {
   // The rooms board: every room, free or busy right now, and until when.
   r.get('/now', (req, res) => {
     const t = Date.now();
-    res.json(q(`${ROOM} WHERE org_id = ? ORDER BY name COLLATE NOCASE`).all(req.user.org_id).map(outRoom).map((room) => ({ ...room, ...roomNow(room.id, t) })));
+    res.json(q(`${ROOM} WHERE org_id = ? ORDER BY name COLLATE NOCASE`).all(req.user.org_id).map(outRoom).map((room) => {
+      const { busy, next, current } = roomNow(room.id, t);
+      // Yours (a one-off meeting you organise): you can end it now or run on.
+      const mine = !!current && current.owner_id === req.user.id && !current.repeating;
+      return { ...room, busy: busy && { ...busy, mine }, next };
+    }));
   });
   // Walk-up booking: the room from now for 15 minutes to 2 hours (less if it's booked sooner), as an
   // event of yours with the room in it.
@@ -150,6 +155,36 @@ export default function roomRoutes() {
     });
     touch([req.user.id]);
     res.status(201).json({ id, title, start, end, shortened: end < start + minutes * 60000 });
+  });
+  // Your meeting in the room right now (a one-off one you organise): end it now, giving the room
+  // back, or run on for longer when nobody has the room after it.
+  const myCurrent = (req) => {
+    const room = q('SELECT * FROM rooms WHERE id = ? AND org_id = ?').get(req.params.id, req.user.org_id);
+    if (!room) throw notFound();
+    const t = Date.now();
+    const cur = roomNow(room.id, t).current;
+    if (!cur || cur.owner_id !== req.user.id) throw new HttpError(409, `You don’t have ${room.name} right now`);
+    if (cur.repeating) throw bad('That’s a repeating meeting: change it in the calendar');
+    return { room, cur, t };
+  };
+  const moved = (eventId, end) => {
+    q('UPDATE events SET end = ? WHERE id = ?').run(end, eventId);
+    touch([q('SELECT owner_id FROM events WHERE id = ?').get(eventId).owner_id, ...q('SELECT user_id FROM event_guests WHERE event_id = ?').all(eventId).map((g) => g.user_id)]);
+    return { id: eventId, end };
+  };
+  r.post('/:id/end-now', (req, res) => {
+    const { cur, t } = myCurrent(req);
+    const minute = Math.floor(t / 60000) * 60000; // on the minute, unless it only just started
+    res.json(moved(cur.event_id, minute > cur.start ? minute : t));
+  });
+  r.post('/:id/extend', (req, res) => {
+    const { room, cur } = myCurrent(req);
+    const minutes = Number(req.body.minutes ?? 15);
+    if (![15, 30, 60].includes(minutes)) throw bad('Run on for 15, 30 or 60 minutes');
+    const end = cur.end + minutes * 60000;
+    const by = clash(room.id, cur.event_id, [{ start: cur.end, end }]);
+    if (by) throw new HttpError(409, `${room.name} is booked after you: ${by}`);
+    res.json(moved(cur.event_id, end));
   });
 
   const admin = (req) => { if (!req.user.is_admin) throw forbidden('Only a company admin can change rooms'); };
