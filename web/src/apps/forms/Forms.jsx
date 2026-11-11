@@ -11,6 +11,7 @@ import { useAuth } from '../../App.jsx';
 import QRCode from 'qrcode';
 import { TYPES, HAS_OPTIONS, GRIDS, MAX_RANKED, prefillParam, newId, retype, nextOption, summarize, percent } from './formmath.js';
 import { CHECKS, OPS, KIND_NAMES, cleanCheck } from './formcheck.js';
+import { FORM_COLORS, FORM_FONTS, themeStyle, withTheme } from './formtheme.js';
 
 export default function Forms() {
   const { id } = useParams();
@@ -96,6 +97,7 @@ function FormEditor({ id }) {
   const [status, setStatus] = useState('');
   const [confirm, setConfirm] = useState(false);
   const [prefill, setPrefill] = useState(false); // the "Get pre-filled link" window
+  const [theming, setTheming] = useState(false); // the Theme window
   const [sending, setSending] = useState(false); // the Send window: by email, or the link and its QR code
   const [embedOpen, setEmbedOpen] = useState(false);
   const [responses, setResponses] = useState(null);
@@ -155,6 +157,7 @@ function FormEditor({ id }) {
   return (
     <div className="page form-editor">
       {prefill && <PrefillModal form={form} onClose={() => setPrefill(false)} />}
+      {theming && <ThemeModal form={form} setting={setting} onClose={() => setTheming(false)} />}
       {sending && <SendForm form={form} link={linkOf(form.token)} setting={setting} onClose={() => setSending(false)} />}
       {embedOpen && (
         <Modal title="Embed in a website" onClose={() => setEmbedOpen(false)} footer={<button type="button" className="btn" onClick={() => setEmbedOpen(false)}>Close</button>}>
@@ -168,6 +171,7 @@ function FormEditor({ id }) {
         <span className="muted small nowrap" aria-live="polite">{status}</span>
         <button type="button" className="btn primary" onClick={async () => { await flush(); setSending(true); }}><Icon name="send" size={18} /> Send</button>
         <button type="button" className="btn" onClick={copyLink}><Icon name="link" size={18} /> Copy link</button>
+        <button type="button" className="btn" onClick={() => setTheming(true)}>🎨 Theme</button>
         <a className="btn" href={`/f/${form.token}`} target="_blank" rel="noreferrer">Preview</a>
         <Menu trigger={(p) => <button className="icon-btn" aria-label="More" {...p}><Icon name="more" /></button>} items={[
           { label: 'Get pre-filled link', icon: 'link', onClick: async () => { await flush(); setPrefill(true); } },
@@ -627,6 +631,67 @@ function SettingsTab({ form, setForm, setting, orgName, allowLinks }) {
         <p className="muted small" style={{ margin: 0 }}>A new link stops the old one working, if it went somewhere it shouldn't.</p>
       </div>
     </div>
+  );
+}
+
+/** The form's look: colour, page, font and a header picture, saved as they're picked (and shown in a small preview). */
+function ThemeModal({ form, setting, onClose }) {
+  const toast = useToast();
+  const input = useRef();
+  const [busy, setBusy] = useState(false);
+  const theme = form.theme;
+  const change = (patch) => setting({ theme: withTheme(theme, patch) });
+  const pick = async (file) => {
+    if (!file) return;
+    if (!/^image\/(png|jpeg|gif|webp)$/.test(file.type)) { toast('Choose a picture (PNG, JPEG, GIF or WebP)', 'error'); return; }
+    setBusy(true);
+    try { const up = await uploadFile(file, null); await change({ header: up.id, header_alt: file.name.replace(/\.[a-z0-9]+$/i, '') }); }
+    catch (e) { toast(e.message, 'error'); }
+    setBusy(false);
+  };
+  return (
+    <Modal title="Theme" onClose={onClose} footer={<>
+      {theme && <button type="button" className="btn" onClick={() => setting({ theme: null })}>Reset to plain</button>}
+      <button type="button" className="btn primary" onClick={onClose}>Done</button>
+    </>}>
+      <div className="stack">
+        <div className="stack-tight">
+          <span className="small" style={{ fontWeight: 600 }} id="ft-color">Colour</span>
+          <div className="form-theme-colors" role="radiogroup" aria-labelledby="ft-color">
+            <button type="button" role="radio" aria-checked={!theme?.color} className="form-theme-swatch none" aria-label="Default" title="Default" onClick={() => change({ color: null })}>{!theme?.color ? '✓' : ''}</button>
+            {FORM_COLORS.map(([k, label, hex]) => (
+              <button key={k} type="button" role="radio" aria-checked={theme?.color === k} className="form-theme-swatch" style={{ background: hex }} aria-label={label} title={label} onClick={() => change({ color: k })}>{theme?.color === k ? '✓' : ''}</button>
+            ))}
+          </div>
+        </div>
+        <fieldset className="stack-tight">
+          <legend className="small" style={{ fontWeight: 600 }}>Page</legend>
+          <label className="check"><input type="radio" name="ft-bg" checked={theme?.background !== 'tinted'} onChange={() => change({ background: null })} /> Plain</label>
+          <label className="check"><input type="radio" name="ft-bg" checked={theme?.background === 'tinted'} onChange={() => change({ background: 'tinted' })} /> Tinted with the colour</label>
+        </fieldset>
+        <label className="stack-tight"><span className="small" style={{ fontWeight: 600 }}>Font</span>
+          <select value={theme?.font || 'basic'} onChange={(e) => change({ font: e.target.value })}>
+            {FORM_FONTS.map(([k, label, stack]) => <option key={k} value={k} style={{ fontFamily: stack }}>{label}</option>)}
+          </select>
+        </label>
+        <div className="stack-tight">
+          <span className="small" style={{ fontWeight: 600 }}>Header picture</span>
+          <input ref={input} type="file" accept="image/png,image/jpeg,image/gif,image/webp" hidden aria-label="Header picture" onChange={(e) => { pick(e.target.files?.[0]); e.target.value = ''; }} />
+          {theme?.header ? <>
+            <img className="form-theme-header-edit" src={`/api/forms/${form.id}/pictures/${theme.header}`} alt={theme.header_alt || ''} />
+            <div className="row">
+              <button type="button" className="link-btn small" disabled={busy} onClick={() => input.current?.click()}>Change</button>
+              <button type="button" className="link-btn small" onClick={() => change({ header: null })}>Remove header picture</button>
+            </div>
+          </> : <div><button type="button" className="btn" disabled={busy} onClick={() => input.current?.click()}>{busy ? 'Adding…' : '🖼 Add a header picture'}</button></div>}
+          <span className="muted small">Shown across the top of the form; a wide picture (about 4:1) fits best.</span>
+        </div>
+        <div className="form-theme-preview-wrap" style={themeStyle(theme)} aria-label="Preview" role="group">
+          <div className="form-theme-preview"><strong>{form.title}</strong><div className="muted small">How the top of your form looks</div>
+            <button type="button" className="btn primary small" tabIndex={-1} style={{ marginTop: 8 }}>Submit</button></div>
+        </div>
+      </div>
+    </Modal>
   );
 }
 

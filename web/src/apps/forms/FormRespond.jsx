@@ -3,6 +3,7 @@
 import { checkProblem } from './formcheck.js';
 import { useEffect, useMemo, useState } from 'react';
 import { sectionsOf, nextPage, prefillFrom, shuffled } from './formmath.js';
+import { themeStyle } from './formtheme.js';
 
 async function call(method, url, body) {
   const res = await fetch(`/api/public/forms${url}`, {
@@ -137,9 +138,12 @@ export default function FormRespond({ token, onSignIn }) {
     );
   }
   return (
-    <div className={`link-page ${new URLSearchParams(window.location.search).has('embed') ? 'embedded' : ''}`}>
+    <div className={`link-page ${new URLSearchParams(window.location.search).has('embed') ? 'embedded' : ''}${form?.theme ? ' form-themed' : ''}`} style={themeStyle(form?.theme)}>
       <header className="link-head" hidden={new URLSearchParams(window.location.search).has('embed')}><div className="brand"><span className="brand-mark">W</span><span className="brand-text">{form?.org_name || 'Workspace'}</span></div></header>
-      <main className="link-main">{body}</main>
+      <main className="link-main">
+        {form?.theme?.header && <img className="form-theme-header" src={`/api/public/forms/${encodeURIComponent(token)}/pictures/${form.theme.header}`} alt={form.theme.header_alt || ''} />}
+        {body}
+      </main>
     </div>
   );
 }

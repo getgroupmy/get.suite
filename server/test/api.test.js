@@ -4732,6 +4732,36 @@ test('forms: pictures on questions, seen by everyone who can fill the form in', 
   assert.equal((await anon('GET', `/api/public/forms/${f.token}/pictures/${unused.id}`)).status, 200, 'now used by an option');
 });
 
+test('forms: a theme (colour, tinted page, font, header picture) shown to people filling it in, and kept on a copy', async () => {
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'fthm', domain: 'acme.com', name: 'Theo Theme', password: 'password123' })).status, 201);
+  await login(a, 'fthm@acme.com');
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  const banner = (await a('POST', '/api/files/upload?name=banner.png', png, { raw: true })).body;
+  const made = (await a('POST', '/api/forms', { title: 'Summer party' })).body;
+  assert.equal(made.theme, null, 'plain to start with');
+  assert.equal((await owner('GET', `/api/public/forms/${made.token}`)).body.theme, null);
+  // Unknown values are dropped; "basic" is the default font, so it isn't kept.
+  const f = (await a('PUT', `/api/forms/${made.id}`, { audience: 'public', theme: { color: 'teal', background: 'tinted', font: 'playful', header: banner.id, header_alt: ' Balloons ', css: 'x{}' } })).body;
+  assert.deepEqual(f.theme, { color: 'teal', font: 'playful', background: 'tinted', header: banner.id, header_alt: 'Balloons' });
+  assert.deepEqual((await a('PUT', `/api/forms/${made.id}`, { theme: { color: '#ff0000', font: 'basic', background: 'stripes', header: '../x' } })).body.theme, null, 'nothing known: back to plain');
+  await a('PUT', `/api/forms/${made.id}`, { theme: { color: 'orange', font: 'formal', header: banner.id } });
+  const anon = client();
+  const shown = (await anon('GET', `/api/public/forms/${made.token}`)).body;
+  assert.deepEqual(shown.theme, { color: 'orange', font: 'formal', header: banner.id });
+  const pic = await anon('GET', `/api/public/forms/${made.token}/pictures/${banner.id}`);
+  assert.equal(pic.status, 200, 'the header picture is served to people filling it in');
+  assert.match(pic.headers.get('content-type'), /^image\/png/);
+  // Other settings don't touch it; a copy keeps the look.
+  assert.equal((await a('PUT', `/api/forms/${made.id}`, { confirmation: 'See you there' })).body.theme.color, 'orange');
+  const copy = (await a('POST', `/api/forms/${made.id}/copy`)).body;
+  assert.deepEqual(copy.theme, { color: 'orange', font: 'formal', header: banner.id });
+  // Taking the picture off: no longer served.
+  await a('PUT', `/api/forms/${made.id}`, { theme: { color: 'orange' } });
+  await a('PUT', `/api/forms/${copy.id}`, { theme: null });
+  assert.equal((await anon('GET', `/api/public/forms/${made.token}/pictures/${banner.id}`)).status, 404);
+});
+
 test('docs writing preferences: autocorrect and your own replacements, per person', async () => {
   const { cleanPrefs } = await import('../src/routes/docprefs.js');
   assert.deepEqual(cleanPrefs({ autocorrect: 0, subs: [{ from: ' addr ', to: '12 High St' }, { from: 'two words', to: 'x' }, { from: 'addr', to: 'again' }, { from: 'empty', to: '' }] }),

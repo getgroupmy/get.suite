@@ -2063,8 +2063,8 @@ tr.shortcut-row.broken .name-text { color: var(--muted, #777); font-style: itali
 .doc-chart-bar { margin-top: 6px; gap: 8px; align-items: center; }
 @media print { .doc-chart-bar { display: none; } .doc-chart { border: none; break-inside: avoid; } }
 /* An invitation from another calendar, in an email. */
-.invite-card { display: flex; gap: 14px; align-items: flex-start; padding: 12px 14px; margin: 10px 0; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
-.invite-card.cancelled strong { text-decoration: line-through; }
+.mail-invite-card { display: flex; gap: 14px; align-items: flex-start; padding: 12px 14px; margin: 10px 0; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.mail-invite-card.cancelled strong { text-decoration: line-through; }
 .invite-date { display: flex; flex-direction: column; align-items: center; min-width: 52px; padding: 4px 0; border-radius: 6px; background: var(--accent-soft); color: var(--accent); }
 .invite-date span { font-size: 12px; text-transform: uppercase; }
 .invite-date strong { font-size: 22px; line-height: 1.1; }
@@ -2899,3 +2899,17 @@ select.meet-timer-btn option { color: #202124; }
 .blocklists li { gap: 12px; padding: 4px 0; border-bottom: 1px solid var(--border); }
 .blocklists .bl-listed { color: var(--danger); }
 .blocklists .bl-clear { color: var(--ok, #188038); }
+
+/* Form themes: an accent colour, a tinted page, a font and a header picture (Forms → 🎨 Theme). */
+.link-page.form-themed { background: var(--form-page, var(--bg)); }
+.form-themed .link-main .invite-card { font-family: var(--form-font, inherit); border-top: 10px solid var(--form-accent, var(--accent)); }
+.form-themed .link-main .invite-card input, .form-themed .link-main .invite-card textarea, .form-themed .link-main .invite-card select { accent-color: var(--form-accent, var(--accent)); }
+.form-theme-header { display: block; width: 100%; max-width: 640px; height: clamp(96px, 22vw, 180px); object-fit: cover; margin: 24px auto -12px; border-radius: 16px; }
+.form-theme-colors { display: flex; flex-wrap: wrap; gap: 8px; }
+.form-theme-swatch { width: 32px; height: 32px; border-radius: 50%; border: 2px solid var(--surface); box-shadow: 0 0 0 1px var(--border); cursor: pointer; padding: 0; display: grid; place-items: center; color: #fff; font-size: 16px; }
+.form-theme-swatch[aria-checked="true"] { box-shadow: 0 0 0 2px var(--text); }
+.form-theme-swatch.none { background: var(--surface); color: var(--muted); }
+.form-theme-preview { border: 1px solid var(--border); border-top: 8px solid var(--form-accent, var(--accent)); border-radius: 12px; padding: 12px 14px; background: var(--surface); font-family: var(--form-font, inherit); }
+.form-theme-preview-wrap { padding: 12px; border-radius: 12px; background: var(--form-page, var(--bg)); }
+.form-theme-header-edit { display: block; width: 100%; height: 90px; object-fit: cover; border-radius: 10px; }
+.link-page.form-themed .btn.primary, :root .link-page.form-themed .btn.primary { color: #fff; }

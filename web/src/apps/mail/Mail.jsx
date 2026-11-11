@@ -606,7 +606,7 @@ function InviteCard({ invite, uid, folder, onChange }) {
   const open = () => navigate('/calendar', { state: { openEvent: { id: invite.event_id, start: invite.start, end: invite.end } } });
   if (invite.method === 'REPLY') {
     return (
-      <section className="invite-card" aria-label="Answer to your invitation">
+      <section className="mail-invite-card" aria-label="Answer to your invitation">
         <div className="invite-date" aria-hidden="true"><span>{new Date(invite.start).toLocaleDateString([], { month: 'short' })}</span><strong>{new Date(invite.start).getDate()}</strong></div>
         <div className="grow stack" style={{ gap: 2 }}>
           <strong>{invite.who} {{ yes: 'accepted', maybe: 'said maybe to', no: 'declined' }[invite.answer]} “{invite.title}”</strong>
@@ -617,7 +617,7 @@ function InviteCard({ invite, uid, folder, onChange }) {
     );
   }
   return (
-    <section className={`invite-card ${cancelled ? 'cancelled' : ''}`} aria-label="Invitation">
+    <section className={`mail-invite-card ${cancelled ? 'cancelled' : ''}`} aria-label="Invitation">
       <div className="invite-date" aria-hidden="true"><span>{new Date(invite.start).toLocaleDateString([], { month: 'short' })}</span><strong>{new Date(invite.start).getDate()}</strong></div>
       <div className="grow stack" style={{ gap: 2 }}>
         <strong>{cancelled ? 'Cancelled: ' : ''}{invite.title}</strong>

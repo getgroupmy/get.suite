@@ -6,6 +6,7 @@ import { shownQuestions } from '../formpath.js';
 import { mailEnabled } from '../mail/config.js';
 import { smtpFor } from '../mail/imap.js';
 import { CHECKS, cleanCheck, checkProblem } from '../formcheck.js';
+import { cleanTheme, themeOf } from '../formtheme.js';
 import { templateList, templateById } from '../formtemplates.js';
 import { excelFromTable, sendXlsx } from '../office/excel.js';
 import { Router } from 'express';
@@ -384,7 +385,7 @@ const csvCell = (v) => {
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 };
 
-const parse = (f) => ({ ...f, questions: JSON.parse(f.questions || '[]'), accepting: !!f.accepting, one_per_person: !!f.one_per_person, notify: !!f.notify, quiz: !!f.quiz, show_score: !!f.show_score, allow_edit: !!f.allow_edit, collect_email: !!f.collect_email, send_copy: !!f.send_copy, auto_remind: !!f.auto_remind });
+const parse = (f) => ({ ...f, questions: JSON.parse(f.questions || '[]'), accepting: !!f.accepting, one_per_person: !!f.one_per_person, notify: !!f.notify, quiz: !!f.quiz, show_score: !!f.show_score, allow_edit: !!f.allow_edit, collect_email: !!f.collect_email, send_copy: !!f.send_copy, auto_remind: !!f.auto_remind, theme: themeOf(f) });
 const responsesOf = (formId) => q(`SELECT r.id, r.answers, r.created_at, r.updated_at, r.email, u.name AS user_name, u.username AS user_email
                                    FROM form_responses r LEFT JOIN users u ON u.id = r.user_id WHERE r.form_id = ? ORDER BY r.created_at`).all(formId)
   .map((r) => ({ id: r.id, created_at: r.created_at, ...(r.updated_at && { updated_at: r.updated_at }), ...(r.email && { email: r.email }), user: r.user_email ? { name: r.user_name, email: r.user_email } : null, answers: JSON.parse(r.answers) }));
@@ -451,6 +452,8 @@ const editorsOf = (formId) => q(`SELECT u.id, u.name, u.username AS email FROM f
 /** Everyone who works on the form: its owner and its editors. */
 export const teamOf = (f) => [f.owner_id, ...editorsOf(f.id).map((u) => u.id)];
 
+// theme: the form's look (formtheme.js), as JSON.
+if (!q('PRAGMA table_info(forms)').all().some((c) => c.name === 'theme')) q('ALTER TABLE forms ADD COLUMN theme TEXT').run();
 // Archived: put away by its owner, out of the forms list, and no longer taking answers (until brought back).
 if (!q('PRAGMA table_info(forms)').all().some((c) => c.name === 'archived_at')) q('ALTER TABLE forms ADD COLUMN archived_at INTEGER').run();
 
@@ -505,7 +508,7 @@ const PICTURE_TYPES = /^image\/(png|jpeg|gif|webp)$/;
  */
 function sendPicture(form, picId, res, ownerSeesNew = null) {
   const pic = String(picId);
-  const used = form.questions.some((qu) => qu.image === pic || Object.values(qu.option_images || {}).includes(pic));
+  const used = form.theme?.header === pic || form.questions.some((qu) => qu.image === pic || Object.values(qu.option_images || {}).includes(pic));
   const file = q("SELECT * FROM files WHERE id = ? AND kind = 'file' AND trashed = 0").get(pic);
   const team = teamOf(form);
   if (!file || !PICTURE_TYPES.test(file.mime || '') || !team.includes(file.owner_id) || !(used || (ownerSeesNew && file.owner_id === ownerSeesNew))) throw notFound('Picture not found');
@@ -591,6 +594,7 @@ export default function formRoutes() {
       close_at: 'close_at' in b ? (b.close_at == null || b.close_at === '' ? null : Number(b.close_at)) : f.close_at,
       open_at: 'open_at' in b ? (b.open_at == null || b.open_at === '' ? null : Number(b.open_at)) : f.open_at,
       auto_remind: 'auto_remind' in b ? !!b.auto_remind : !!f.auto_remind,
+      theme: 'theme' in b ? cleanTheme(b.theme) : f.theme,
       max_responses: 'max_responses' in b ? (b.max_responses == null || b.max_responses === '' ? null : Number(b.max_responses)) : f.max_responses,
     };
     if (next.close_at !== null && (!Number.isFinite(next.close_at) || next.close_at < 0)) throw bad('close_at must be a time');
@@ -602,10 +606,10 @@ export default function formRoutes() {
     if (next.audience === 'public' && f.audience !== 'public' && !req.user.allow_links) throw forbidden('Your company has turned off links for people outside it');
     q(`UPDATE forms SET title = ?, description = ?, questions = ?, audience = ?, accepting = ?, one_per_person = ?, confirmation = ?, notify = ?,
        close_at = ?, open_at = ?, max_responses = ?, quiz = ?, show_score = ?, allow_edit = ?, collect_email = ?, send_copy = ?, auto_remind = ?,
-       auto_reminded_at = CASE WHEN ? THEN NULL ELSE auto_reminded_at END, updated_at = ? WHERE id = ?`)
+       auto_reminded_at = CASE WHEN ? THEN NULL ELSE auto_reminded_at END, theme = ?, updated_at = ? WHERE id = ?`)
       .run(next.title, next.description, JSON.stringify(next.questions), next.audience, next.accepting ? 1 : 0, next.one_per_person ? 1 : 0, next.confirmation, next.notify ? 1 : 0,
         next.close_at, next.open_at, next.max_responses, next.quiz ? 1 : 0, next.show_score ? 1 : 0, next.allow_edit ? 1 : 0, next.collect_email ? 1 : 0, next.send_copy ? 1 : 0, next.auto_remind ? 1 : 0,
-        next.close_at !== f.close_at ? 1 : 0, now(), f.id); // a new closing date: the automatic reminder can go again
+        next.close_at !== f.close_at ? 1 : 0, next.theme ? JSON.stringify(next.theme) : null, now(), f.id); // a new closing date: the automatic reminder can go again
     changed(f, req.user.id);
     const out = ownForm(f.id, req.user);
     res.json({ ...out, responses: countOf(f.id), closed: closedReason(out) });
@@ -652,6 +656,7 @@ export default function formRoutes() {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)`)
       .run(id, req.user.org_id, req.user.id, crypto.randomBytes(12).toString('base64url'), `Copy of ${f.title}`.slice(0, 200), f.description, JSON.stringify(f.questions),
         f.audience === 'public' && !req.user.allow_links ? 'org' : f.audience, f.one_per_person ? 1 : 0, f.confirmation, f.notify ? 1 : 0, f.quiz ? 1 : 0, f.show_score ? 1 : 0, t, t);
+    if (f.theme) q('UPDATE forms SET theme = ? WHERE id = ?').run(JSON.stringify(f.theme), id); // the same look
     res.status(201).json(ownForm(id, req.user));
   });
 
@@ -874,7 +879,7 @@ export function publicFormRoutes() {
     const closed = closedReason(form);
     const left = placesLeft(form.id, form.questions);
     const team = !!user && teamOf(form).includes(user.id);
-    res.json({ ...(Object.keys(left).length && { left }), title: form.title, description: form.description, questions: withoutKey(form.questions), quiz: form.quiz, accepting: !closed, closed, closed_text: closed ? CLOSED_TEXT[closed] : null, ...(closed === 'notyet' && { opens_at: form.open_at }), audience: form.audience,
+    res.json({ ...(Object.keys(left).length && { left }), title: form.title, description: form.description, questions: withoutKey(form.questions), quiz: form.quiz, theme: form.theme, accepting: !closed, closed, closed_text: closed ? CLOSED_TEXT[closed] : null, ...(closed === 'notyet' && { opens_at: form.open_at }), audience: form.audience,
       one_per_person: form.audience === 'org' && form.one_per_person, answered, org_name: f.org_name, allow_edit: form.allow_edit, collect_email: form.audience === 'public' && form.collect_email, send_copy: form.send_copy && mailEnabled(), ...(mine && form.allow_edit && mine.edit_key && { my_edit_key: mine.edit_key }),
       you: form.audience === 'org' ? { name: user.name, email: user.email } : null, is_owner: team,
       // For a card when the link is pasted in Chat: whether you've sent a response, and (for its team) how many came.
