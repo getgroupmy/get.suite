@@ -28,3 +28,22 @@ export function listPrintHtml(name, open, done, { locale, printedOn = new Date()
   ${open.length ? `<ol>${open.map((t) => item(t, false)).join('')}</ol>` : '<p>Nothing to do.</p>'}
   ${done.length ? `<h2>Completed</h2><ol>${done.map((t) => item(t, true)).join('')}</ol>` : ''}</body></html>`;
 }
+
+/**
+ * A task list as a new email: the list's name as the subject, its open tasks as a checklist (with due
+ * dates, who they're for and steps), and, if asked, what's done; a link back to the list at the end.
+ */
+export function listEmail(name, open, done = [], { locale, link = '', withDone = false } = {}) {
+  const item = (t, isDone) => {
+    const meta = [dueText(t, locale) && `due ${esc(dueText(t, locale))}`, t.assignee_name && `for ${esc(t.assignee_name)}`].filter(Boolean).join(', ');
+    const steps = t.steps?.length ? `<ul style="list-style:none;padding-left:24px;margin:0">${t.steps.map((x) => `<li>${x.done ? '☑' : '☐'} ${esc(x.title)}</li>`).join('')}</ul>` : '';
+    return `<li>${isDone ? '☑' : '☐'} ${t.important ? '★ ' : ''}${isDone ? `<s>${esc(t.title)}</s>` : esc(t.title)}${meta ? ` <span style="color:#5f6368">(${meta})</span>` : ''}${steps}</li>`;
+  };
+  const ul = (ts, isDone) => `<ul style="list-style:none;padding:0">${ts.map((t) => item(t, isDone)).join('')}</ul>`;
+  const html = [
+    open.length ? ul(open, false) : '<p>Nothing left to do.</p>',
+    withDone && done.length ? `<p><strong>Done</strong></p>${ul(done, true)}` : '',
+    link ? `<p style="color:#5f6368;font-size:12px">The list in Tasks: <a href="${esc(link)}">${esc(link)}</a></p>` : '',
+  ].join('');
+  return { subject: name, html };
+}

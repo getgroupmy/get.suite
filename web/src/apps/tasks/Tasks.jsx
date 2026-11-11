@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { printHtml } from '../mail/mailprint.js';
-import { listPrintHtml } from './listprint.js';
+import { listPrintHtml, listEmail } from './listprint.js';
+import { DRAFT_KEY } from '../docs/blocks.js';
+import { useMailStatus } from '../../mailStatus.js';
 import { get, post, patch, put, del, onLive, uploadFile, postText } from '../../api.js';
 import DrivePicker, { openUrl } from '../../components/DrivePicker.jsx';
 import Icon from '../../components/Icon.jsx';
@@ -128,6 +130,13 @@ export default function Tasks() {
     try { await put(`/tasks/lists/${list.id}/sort`, { sort }); } catch (e) { toast(e.message, 'error'); loadLists(); }
   };
   const done = (tasks || []).filter((t) => t.done);
+  const mail = useMailStatus();
+  /** A new email in Mail with the list in it (handed over in this browser's storage, as Docs and Notes do). */
+  const emailList = (withDone) => {
+    try { localStorage.setItem(DRAFT_KEY, JSON.stringify(listEmail(list.name, open, done, { withDone, link: `${window.location.origin}/tasks/${list.id}` }))); }
+    catch { toast('Your browser’s storage is off', 'error'); return; }
+    navigate('/mail?compose_doc=1');
+  };
   const current = (tasks || []).find((t) => t.id === openId);
   const show = (id) => setParams(id ? { task: id } : {});
 
@@ -308,6 +317,7 @@ export default function Tasks() {
               { label: 'Download as CSV', icon: 'download', onClick: () => { window.location.href = `/api/tasks/lists/${list.id}/export.csv`; } },
               { label: 'Download as Excel (.xlsx)', icon: 'download', onClick: () => { window.location.href = `/api/tasks/lists/${list.id}/export.xlsx`; } },
               { label: 'Print list', icon: 'print', onClick: () => printHtml(listPrintHtml(list.name, open, done)) },
+              ...(mail?.enabled ? [{ label: 'Send by email', icon: 'mail', onClick: () => emailList(false) }, ...(done.length ? [{ label: 'Send by email, with completed', icon: 'mail', onClick: () => emailList(true) }] : [])] : []),
               { label: 'Make a copy…', icon: 'copy', onClick: () => setDialog('copy') },
               ...(done.length ? [{ label: `Delete completed tasks (${done.length})`, icon: 'check', onClick: async () => { await del(`/tasks/lists/${list.id}/done`); loadTasks(); toast('Completed tasks deleted: ⋮ → Deleted tasks… puts them back'); } }] : []),
               { label: 'Deleted tasks…', icon: 'trash', onClick: () => setDialog('trash') },
@@ -846,7 +856,7 @@ function TaskDetails({ task, tasks, lists, sections = [], people, onChange, onCl
       <TaskTime task={task} />
       <TaskSchedule task={task} />
       <label className="field"><span>Due</span>
-        <span className="row"><input type="date" value={task.due || ''} onChange={(e) => onChange({ due: e.target.value || null })} />
+        <span className="row"><input type="date" aria-label="Due date" value={task.due || ''} onChange={(e) => onChange({ due: e.target.value || null })} />
           {task.due && <input type="time" aria-label="Due time" title="Due time (optional)" value={task.due_time || ''} onChange={(e) => onChange({ due_time: e.target.value || null })} />}
           {task.due && <button type="button" className="link-btn small" onClick={() => onChange({ due: null })}>Clear</button>}</span>
       </label>
