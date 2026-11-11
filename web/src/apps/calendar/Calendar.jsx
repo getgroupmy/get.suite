@@ -772,6 +772,9 @@ function RemindersField({ value, onChange }) {
 // Invitations you haven't answered look tentative; declined ones are faded.
 const inviteClass = (ev) => (ev.kind === 'ooo' ? 'ooo' : ev.kind === 'focus' ? 'focus' : ev.role !== 'guest' ? '' : ev.my_status === 'no' ? 'declined' : ev.my_status === 'yes' ? '' : 'tentative');
 const ANSWER_LABELS = { yes: 'Yes', maybe: 'Maybe', no: 'No', needs: 'Not answered' };
+const JOIN_LABELS = { room: 'in the room', video: 'on video' }; // how a guest who's coming will be there
+/** "2 in the room, 1 on video" for the guests coming (yes or maybe), or ''. */
+const joinSummary = (guests) => Object.entries(JOIN_LABELS).map(([k, l]) => [guests.filter((g) => g.status !== 'no' && g.join_how === k).length, l]).filter(([n]) => n).map(([n, l]) => `${n} ${l}`).join(', ');
 const TZ = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { return 'UTC'; } })();
 const whenLabel = (ev) => {
   const d = new Date(ev.start).toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
@@ -829,7 +832,15 @@ function InvitationDialog({ event, onClose, onAnswered }) {
   };
   const [note, setNote] = useState(event.my_note || ''); // goes with the answer, for the organizer
   const answer = async (status) => {
-    try { await post(`/events/${event.id}/rsvp`, { status, note }); toast(`Answered ${ANSWER_LABELS[status]}${note.trim() ? ' with a note' : ''}`); onAnswered(); } catch (e) { toast(e.message, 'error'); }
+    try { await post(`/events/${event.id}/rsvp`, { status, note, how: status === 'no' ? null : how }); toast(`Answered ${ANSWER_LABELS[status]}${note.trim() ? ' with a note' : ''}`); onAnswered(); } catch (e) { toast(e.message, 'error'); }
+  };
+  const [how, setHow] = useState(event.my_join || null); // in the room or on video: sent with Yes or Maybe
+  const coming = event.my_status === 'yes' || event.my_status === 'maybe';
+  const joinBy = async (k) => {
+    const next = how === k ? null : k;
+    setHow(next);
+    if (!coming) return; // goes with your answer
+    try { await post(`/events/${event.id}/rsvp`, { status: event.my_status, how: next }); toast(next ? `You’ll be there ${JOIN_LABELS[next]}` : 'Cleared'); onAnswered(); } catch (e) { toast(e.message, 'error'); }
   };
   return (
     <Modal title={event.title} onClose={onClose}>
@@ -852,6 +863,12 @@ function InvitationDialog({ event, onClose, onAnswered }) {
               <button key={s} type="button" className={`btn ${event.my_status === s ? 'primary' : ''}`} aria-pressed={event.my_status === s} onClick={() => answer(s)}>{ANSWER_LABELS[s]}</button>
             ))}
           </div>
+          {event.my_status !== 'no' && (
+            <div className="row" role="group" aria-label="How you’ll be there">
+              <span className="muted small">How? (optional)</span>
+              {Object.entries(JOIN_LABELS).map(([k, l]) => <button key={k} type="button" className={`btn small ${how === k ? 'primary' : ''}`} aria-pressed={how === k} onClick={() => joinBy(k)}>{k === 'room' ? '🏢' : '💻'} {l[0].toUpperCase() + l.slice(1)}</button>)}
+            </div>
+          )}
           <input aria-label="Note for the organizer" placeholder="Add a note for the organizer (optional), e.g. “I'll join 10 minutes late”" maxLength={300} value={note} onChange={(e) => setNote(e.target.value)} />
         </div>
       </div>
@@ -891,9 +908,9 @@ function GuestList({ guests }) {
   const counts = ['yes', 'maybe', 'no', 'needs'].map((s) => [s, guests.filter((g) => g.status === s).length]).filter(([, n]) => n);
   return (
     <div className="stack" style={{ gap: 4 }}>
-      <span className="muted small">{guests.length} guest{guests.length === 1 ? '' : 's'}: {counts.map(([s, n]) => `${n} ${ANSWER_LABELS[s].toLowerCase()}`).join(', ')}</span>
+      <span className="muted small">{guests.length} guest{guests.length === 1 ? '' : 's'}: {counts.map(([s, n]) => `${n} ${ANSWER_LABELS[s].toLowerCase()}`).join(', ')}{joinSummary(guests) && ` (${joinSummary(guests)})`}</span>
       <ul className="guest-list" aria-label="Guests">
-        {guests.map((g) => <li key={g.email}><span className={`rsvp ${g.status}`} aria-hidden="true" />{g.name || g.email} <span className="muted small">{g.name ? `${g.email} · ` : ''}{g.external ? 'by email · ' : ''}{ANSWER_LABELS[g.status]}</span>{g.answer_note && <span className="small guest-note"> “{g.answer_note}”</span>}</li>)}
+        {guests.map((g) => <li key={g.email}><span className={`rsvp ${g.status}`} aria-hidden="true" />{g.name || g.email} <span className="muted small">{g.name ? `${g.email} · ` : ''}{g.external ? 'by email · ' : ''}{ANSWER_LABELS[g.status]}{g.status !== 'no' && g.join_how ? `, ${JOIN_LABELS[g.join_how]}` : ''}</span>{g.answer_note && <span className="small guest-note"> “{g.answer_note}”</span>}</li>)}
       </ul>
     </div>
   );
@@ -1349,7 +1366,7 @@ function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate, tem
           <label htmlFor="guest-input"><span>Guests</span></label>
           {event.guests?.length > 0 && (
             <span className="muted small" aria-live="polite">{event.guests.length} guest{event.guests.length === 1 ? '' : 's'}: {
-              ['yes', 'maybe', 'no', 'needs'].map((k) => [k, event.guests.filter((g) => g.status === k).length]).filter(([, n]) => n).map(([k, n]) => `${n} ${ANSWER_LABELS[k].toLowerCase()}`).join(', ')}</span>
+              ['yes', 'maybe', 'no', 'needs'].map((k) => [k, event.guests.filter((g) => g.status === k).length]).filter(([, n]) => n).map(([k, n]) => `${n} ${ANSWER_LABELS[k].toLowerCase()}`).join(', ')}{joinSummary(event.guests) && ` (${joinSummary(event.guests)})`}</span>
           )}
           {guests.length > 0 && (
             <ul className="guest-chips" aria-label="Invited guests">
@@ -1358,7 +1375,7 @@ function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate, tem
                 const outside = known ? known.external : !directory.some((d) => d.username === g);
                 return <li key={g} className={outside ? 'outside' : ''}>{directory.find((d) => d.username === g)?.name || known?.name || g}
                   {outside && <span className="muted small" title="Invited by email: they answer on a web page"> · by email</span>}
-                  {known && <span className="muted small"> · {ANSWER_LABELS[known.status]}</span>}
+                  {known && <span className="muted small"> · {ANSWER_LABELS[known.status]}{known.status !== 'no' && known.join_how ? `, ${JOIN_LABELS[known.join_how]}` : ''}</span>}
                   {known?.answer_note && <span className="small guest-note" title="Their note with the answer"> “{known.answer_note}”</span>}
                   <button type="button" className="icon-btn" aria-label={`Remove ${g}`} onClick={() => setGuests(guests.filter((x) => x !== g))}>×</button></li>;
               })}

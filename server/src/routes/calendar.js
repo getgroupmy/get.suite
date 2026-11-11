@@ -33,7 +33,8 @@ q(`CREATE TABLE IF NOT EXISTS event_guests (
 )`).run();
 q('CREATE INDEX IF NOT EXISTS event_guests_user ON event_guests(user_id)').run();
 // A guest's suggestion of another time (the organizer can take it); gone when the time changes.
-for (const [col, type] of [['proposed_start', 'INTEGER'], ['proposed_end', 'INTEGER'], ['proposal_note', 'TEXT'], ['answer_note', 'TEXT']]) {
+// join_how: how a guest who's coming will be there: in the room, or on video.
+for (const [col, type] of [['proposed_start', 'INTEGER'], ['proposed_end', 'INTEGER'], ['proposal_note', 'TEXT'], ['answer_note', 'TEXT'], ['join_how', 'TEXT']]) {
   if (!q('PRAGMA table_info(event_guests)').all().some((c) => c.name === col)) q(`ALTER TABLE event_guests ADD COLUMN ${col} ${type}`).run();
 }
 // A note with an answer ("Yes, but 10 minutes late"), for the organizer; people outside the server too.
@@ -193,7 +194,7 @@ const attachmentsFor = (ev, userId) => (ev.attachments || []).map((a) => ({ ...a
 // When a series ends, for the range query: its last possible end (null = never, or "after N times").
 const repeatUntil = (e) => (e.rrule ? (e.rrule.until !== undefined ? e.rrule.until + (e.end - e.start) : null) : null);
 
-const guestsOf = (eventId) => q(`SELECT u.id, u.username AS email, u.name, g.status, g.proposed_start, g.proposed_end, g.proposal_note, g.answer_note FROM event_guests g JOIN users u ON u.id = g.user_id
+const guestsOf = (eventId) => q(`SELECT u.id, u.username AS email, u.name, g.status, g.proposed_start, g.proposed_end, g.proposal_note, g.answer_note, g.join_how FROM event_guests g JOIN users u ON u.id = g.user_id
                                   WHERE g.event_id = ? ORDER BY u.name`).all(eventId);
 
 const EMAIL_RE = /^[^\s@<>"(),;:\\]+@[a-z0-9.-]+\.[a-z]{2,}$/i;
@@ -400,6 +401,7 @@ q(`CREATE TABLE IF NOT EXISTS event_trash (
   rows TEXT NOT NULL,        -- JSON: the event and its changed occurrences
   reminders TEXT NOT NULL    -- JSON: their reminders
 )`).run();
+export const JOIN_HOW = ['room', 'video'];
 export const EVENT_UNDO_MS = 864e5;
 /** Keep an event to put back with Undo, when it has nobody else in it. True when kept. */
 function keepForUndo(ev, userId) {
@@ -543,7 +545,7 @@ export default function calendarRoutes() {
     const to = int(req.query.to ?? 8.64e15, 'to');
     // Repeating events count from their first date; the browser expands them in local time.
     // Your own events and the ones you're invited to.
-    const rows = q(`SELECT e.*, g.status AS my_status, g.answer_note AS my_note, o.name AS organizer_name, o.username AS organizer_email
+    const rows = q(`SELECT e.*, g.status AS my_status, g.answer_note AS my_note, g.join_how AS my_join, o.name AS organizer_name, o.username AS organizer_email
                     FROM events e JOIN users o ON o.id = e.owner_id
                     LEFT JOIN event_guests g ON g.event_id = e.id AND g.user_id = ?
                     WHERE (e.owner_id = ? OR g.user_id IS NOT NULL) AND e.start < ?
@@ -552,11 +554,11 @@ export default function calendarRoutes() {
     const reminders = remindersFor(req.user.id, rows.map((row) => row.id));
     res.json([...rows.map((row) => {
       const mine = row.owner_id === req.user.id;
-      const { my_status, my_note, organizer_name, organizer_email, ...ev } = row;
+      const { my_status, my_note, my_join, organizer_name, organizer_email, ...ev } = row;
       const out = outEvent(ev);
       return { ...out, attachments: attachmentsFor(out, req.user.id), role: mine ? 'organizer' : 'guest', guests: allGuests(row.id), rooms: roomsOf(row.id), reminders: reminders.get(row.id) || [],
         ...(mine && row.task_id && { task: taskOfBlock(row.task_id, req.user.id) }),
-        ...(mine ? {} : { my_status, my_note: my_note || null, organizer: { name: organizer_name, email: organizer_email } }) };
+        ...(mine ? {} : { my_status, my_note: my_note || null, my_join: my_join || null, organizer: { name: organizer_name, email: organizer_email } }) };
     }), ...sharedEvents(req.user.id, from, to), ...(req.query.feeds === '0' ? [] : feedEvents(req.user.id, from, to))]);
   });
 
@@ -926,6 +928,10 @@ export default function calendarRoutes() {
     if (!ANSWERS.includes(status)) throw bad('Answer yes, maybe or no');
     const ev = q('SELECT owner_id, title FROM events WHERE id = ?').get(req.params.id);
     const note = req.body.note !== undefined ? answerNote(req.body.note) : undefined;
+    // How they'll be there (only when coming): 'room' or 'video'; left as it was when not given.
+    if (req.body.how !== undefined && req.body.how !== null && !JOIN_HOW.includes(req.body.how)) throw bad('Join in the room or on video');
+    if (status === 'no') q('UPDATE event_guests SET join_how = NULL WHERE event_id = ? AND user_id = ?').run(req.params.id, req.user.id);
+    else if (req.body.how !== undefined) q('UPDATE event_guests SET join_how = ? WHERE event_id = ? AND user_id = ?').run(req.body.how, req.params.id, req.user.id);
     const info = note !== undefined
       ? q('UPDATE event_guests SET status = ?, answer_note = ? WHERE event_id = ? AND user_id = ?').run(status, note, req.params.id, req.user.id)
       : q('UPDATE event_guests SET status = ? WHERE event_id = ? AND user_id = ?').run(status, req.params.id, req.user.id);

@@ -2510,6 +2510,26 @@ test('rooms: usage over the last days, for admins', async () => {
   for (const r of [busy, idle]) await owner('DELETE', `/api/rooms/${r.id}`);
 });
 
+test('calendar: guests say how they’ll be there, in the room or on video', async () => {
+  const a = client(), b = client(), c = client();
+  for (const [local, name] of [['jha', 'Jo Host'], ['jhb', 'Jo Room'], ['jhc', 'Jo Video']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'jha@acme.com'); await login(b, 'jhb@acme.com'); await login(c, 'jhc@acme.com');
+  const t = Date.now() + 864e5;
+  const ev = (await a('POST', '/api/events', { title: 'Planning', start: t, end: t + 36e5, guests: ['jhb@acme.com', 'jhc@acme.com'] })).body;
+  assert.equal((await b('POST', `/api/events/${ev.id}/rsvp`, { status: 'yes', how: 'rooftop' })).status, 400);
+  assert.equal((await b('POST', `/api/events/${ev.id}/rsvp`, { status: 'yes', how: 'room' })).status, 200);
+  assert.equal((await c('POST', `/api/events/${ev.id}/rsvp`, { status: 'maybe', how: 'video' })).status, 200);
+  const seen = async (cl) => (await cl('GET', `/api/events?from=${t - 1}&to=${t + 36e5}`)).body.find((e) => e.id === ev.id);
+  assert.deepEqual((await seen(a)).guests.map((g) => [g.name, g.status, g.join_how]), [['Jo Room', 'yes', 'room'], ['Jo Video', 'maybe', 'video']]);
+  assert.equal((await seen(b)).my_join, 'room');
+  await c('POST', `/api/events/${ev.id}/rsvp`, { status: 'yes' });
+  assert.equal((await seen(c)).my_join, 'video', 'kept when answering again without saying');
+  await c('POST', `/api/events/${ev.id}/rsvp`, { status: 'no' });
+  assert.equal((await seen(c)).my_join, null, 'not coming: no way of joining');
+  await b('POST', `/api/events/${ev.id}/rsvp`, { status: 'yes', how: null });
+  assert.equal((await seen(b)).my_join, null, 'cleared');
+});
+
 test('rooms: where each is and what is in it', async () => {
   const room = (await owner('POST', '/api/rooms', { name: 'Garden room', capacity: 6, location: ' 2nd floor, east ', features: ['Video', ' whiteboard ', 'video', '', 'Screen  share'] })).body;
   assert.deepEqual([room.location, room.features], ['2nd floor, east', ['Video', 'whiteboard', 'Screen share']], 'trimmed, each once');
