@@ -398,10 +398,13 @@ export default function Chat() {
           <div role="list" aria-label="Starred conversations">{starred.map((c) => <div role="listitem" key={c.id}>{c.dm_key ? dmRow(c) : channelRow(c)}</div>)}</div>
         </>}
         {sections.map((sec, k) => {
-          const items = channels.filter((c) => c.section_id === sec.id && inSection(c) && !c.starred);
+          const all = channels.filter((c) => c.section_id === sec.id && inSection(c) && !c.starred);
+          // Folded away: only what's unread (or open) still shows.
+          const items = sec.folded ? all.filter((c) => unread[c.id] > 0 || mentioned[c.id] || c.id === channelId) : all;
+          const fold = async () => { setSections((list) => list.map((x) => (x.id === sec.id ? { ...x, folded: !sec.folded } : x))); try { await patch(`/chat/sections/${sec.id}`, { folded: !sec.folded }); } catch (e) { toast(e.message, 'error'); loadChannels(); } };
           return (
             <div key={sec.id} className="chat-section">
-              <div className="subnav-title row"><span className="grow ellipsis">{sec.name}</span>
+              <div className="subnav-title row"><button type="button" className="link-btn grow ellipsis chat-section-fold" aria-expanded={!sec.folded} title={sec.folded ? 'Show all its conversations' : 'Fold it away (unread ones still show)'} onClick={fold}>{sec.folded ? '▸' : '▾'} {sec.name}</button>
                 <Menu align="right" trigger={(p) => <button type="button" className="icon-btn" aria-label={`Section actions: ${sec.name}`} {...p}><Icon name="more" size={16} /></button>} items={[
                   { label: 'Rename section…', onClick: () => setSectionEdit({ rename: sec }) },
                   ...(k > 0 ? [{ label: 'Move up', onClick: () => moveSection(k, -1) }] : []),
@@ -410,7 +413,8 @@ export default function Chat() {
                 ]} />
               </div>
               <div role="list" aria-label={`Section ${sec.name}`}>{items.map((c) => <div role="listitem" key={c.id}>{c.dm_key ? dmRow(c) : channelRow(c)}</div>)}
-                {!items.length && <p className="muted small chat-section-empty">Empty: put a conversation here from its Section menu at the top.</p>}</div>
+                {sec.folded && all.length > items.length && <button type="button" className="link-btn small chat-section-empty" onClick={fold}>{all.length - items.length} more</button>}
+                {!all.length && <p className="muted small chat-section-empty">Empty: put a conversation here from its Section menu at the top.</p>}</div>
             </div>
           );
         })}

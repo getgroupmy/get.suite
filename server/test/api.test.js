@@ -8844,6 +8844,11 @@ test('chat: sections of your own in the conversation list', async () => {
   // Rename and reorder.
   await a('PATCH', `/api/chat/sections/${other.id}`, { name: 'Work', position: 0 });
   assert.deepEqual((await a('GET', '/api/chat/sections')).body.map((s) => s.name), ['Work', 'Clients']);
+  // Fold one away (and open it again).
+  assert.equal((await a('PATCH', `/api/chat/sections/${other.id}`, { folded: true })).body.folded, true);
+  assert.deepEqual((await a('GET', '/api/chat/sections')).body.map((s) => [s.name, s.folded]), [['Work', true], ['Clients', false]]);
+  assert.equal((await a('PATCH', `/api/chat/sections/${other.id}`, { name: 'Work' })).body.folded, true, 'kept when not sent');
+  await a('PATCH', `/api/chat/sections/${other.id}`, { folded: false });
   assert.deepEqual((await b('GET', '/api/chat/sections')).body, []);
   assert.equal((await b('PATCH', `/api/chat/sections/${other.id}`, { name: 'Mine' })).status, 404);
   // Take one out; delete the section: the rest go back.

@@ -87,6 +87,7 @@ q(`CREATE TABLE IF NOT EXISTS chat_section_items (
   PRIMARY KEY (user_id, channel_id)
 )`).run();
 export const MAX_CHAT_SECTIONS = 20;
+if (!q('PRAGMA table_info(chat_sections)').all().some((c) => c.name === 'folded')) q('ALTER TABLE chat_sections ADD COLUMN folded INTEGER NOT NULL DEFAULT 0').run(); // folded away in the list
 q(`CREATE TABLE IF NOT EXISTS chat_mutes (
   channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -867,7 +868,7 @@ export default function chatRoutes() {
     return s0;
   };
   const sectionsChanged = (req) => sendTo([req.user.id], { type: 'channels-changed' });
-  r.get('/sections', (req, res) => res.json(q('SELECT id, name, position FROM chat_sections WHERE user_id = ? ORDER BY position').all(req.user.id)));
+  r.get('/sections', (req, res) => res.json(q('SELECT id, name, position, folded FROM chat_sections WHERE user_id = ? ORDER BY position').all(req.user.id).map((x) => ({ ...x, folded: !!x.folded }))));
   r.post('/sections', (req, res) => {
     const name = str(req.body?.name, { required: true, name: 'Section name', max: 60 });
     if (q('SELECT COUNT(*) AS n FROM chat_sections WHERE user_id = ?').get(req.user.id).n >= MAX_CHAT_SECTIONS) throw bad(`At most ${MAX_CHAT_SECTIONS} sections`);
@@ -883,9 +884,10 @@ export default function chatRoutes() {
     const name = req.body?.name !== undefined ? str(req.body.name, { required: true, name: 'Section name', max: 60 }) : sec.name;
     let position = sec.position;
     if (req.body?.position !== undefined) { position = Number(req.body.position); if (!Number.isFinite(position)) throw bad('Bad position'); }
-    q('UPDATE chat_sections SET name = ?, position = ? WHERE id = ?').run(name, position, sec.id);
+    const folded = req.body?.folded !== undefined ? (req.body.folded ? 1 : 0) : sec.folded;
+    q('UPDATE chat_sections SET name = ?, position = ?, folded = ? WHERE id = ?').run(name, position, folded, sec.id);
     sectionsChanged(req);
-    res.json({ id: sec.id, name, position });
+    res.json({ id: sec.id, name, position, folded: !!folded });
   });
   // Delete a section: its conversations go back to Channels and Direct messages.
   r.delete('/sections/:id', (req, res) => {
