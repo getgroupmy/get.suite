@@ -47,3 +47,9 @@ test('sorting a list', async () => {
   assert.equal(ids('added'), 'edbca');
   assert.equal(ids('important'), 'bacde');
 });
+
+test('sorting by priority: high first, none last, ties keep their order', async () => {
+  const { sortTasks } = await import('./taskmath.js');
+  const list = [{ id: 'a', priority: null }, { id: 'b', priority: 'low' }, { id: 'c', priority: 'high' }, { id: 'd', priority: 'medium' }, { id: 'e', priority: 'high' }];
+  assert.deepEqual(sortTasks(list, 'priority').map((t) => t.id), ['c', 'e', 'd', 'b', 'a']);
+});

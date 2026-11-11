@@ -78,3 +78,17 @@ test('quick add: custom repeats', async () => {
   assert.equal(repeatText('every:3:month'), 'Every 3 months');
   assert.equal(repeatText('monthly'), 'Monthly');
 });
+
+test('quick add: a priority', async () => {
+  const { parseQuickAdd } = await import('./quickadd.js');
+  const r = parseQuickAdd('Fix the roof !high tomorrow', { today: '2026-11-11' });
+  assert.equal(r.title, 'Fix the roof');
+  assert.equal(r.priority, 'high');
+  assert.equal(r.due, '2026-11-12');
+  assert.equal(parseQuickAdd('Sweep !low', { today: '2026-11-11' }).priority, 'low');
+  assert.equal(parseQuickAdd('Plan !p2', { today: '2026-11-11' }).priority, 'medium');
+  const both = parseQuickAdd('Call Kim ! !med', { today: '2026-11-11' });
+  assert.equal(both.important, true);
+  assert.equal(both.priority, 'medium');
+  assert.equal(parseQuickAdd('Wow!high', { today: '2026-11-11' }).priority, null, 'only as its own word');
+});

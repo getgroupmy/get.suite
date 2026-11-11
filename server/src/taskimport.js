@@ -17,6 +17,7 @@ const COLUMNS = {
   steps: ['steps', 'checklist', 'subtasks'],
   section: ['section', 'heading', 'group'],
   estimate: ['estimate (min)', 'estimate', 'minutes'],
+  priority: ['priority'],
 };
 
 const iso = (y, m, d) => {
@@ -67,6 +68,7 @@ export function tasksFromCsv(text) {
       title, notes: get(r, 'notes').slice(0, 10000) || null, due, due_time: due ? timeOf(get(r, 'time')) : null, start: dateOf(get(r, 'start')),
       section: get(r, 'section').replace(/\s+/g, ' ').slice(0, 100) || null,
       ...((() => { const m = Math.round(Number(get(r, 'estimate'))); return m >= 1 && m <= 6000 ? { estimate: m } : {}; })()),
+      ...((() => { const v = String(get(r, 'priority') || '').trim().toLowerCase(); const p = { high: 'high', h: 'high', 3: 'high', medium: 'medium', med: 'medium', m: 'medium', 2: 'medium', low: 'low', l: 'low', 1: 'low' }[v]; return p ? { priority: p } : {}; })()),
       tags: [...new Set(tags)], done: yes(status) || /^done|completed$/i.test(status) || !!dateOf(get(r, 'completed')), important: yes(get(r, 'important')), steps,
     });
   }

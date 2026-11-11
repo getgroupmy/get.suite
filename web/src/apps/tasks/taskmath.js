@@ -65,7 +65,10 @@ export function repeatText(r) {
   return c.days.length ? `${every} on ${c.days.map((d) => WEEKDAYS[d]).join(', ')}` : every;
 }
 
-export const SORTS = [['mine', 'My order'], ['due', 'Due date'], ['title', 'Title'], ['added', 'Recently added'], ['important', 'Starred first']];
+// Priority: high, medium, low (or none), with how each shows on a task.
+export const PRIORITY_RANK = { high: 3, medium: 2, low: 1 };
+export const PRIORITIES = [['high', 'High', '!!!'], ['medium', 'Medium', '!!'], ['low', 'Low', '!']];
+export const SORTS = [['mine', 'My order'], ['due', 'Due date'], ['title', 'Title'], ['added', 'Recently added'], ['important', 'Starred first'], ['priority', 'Priority']];
 /** Open tasks in the chosen order (they arrive in "my order"; ties keep it). */
 export function sortTasks(tasks, sort) {
   const at = new Map(tasks.map((t, i) => [t.id, i]));
@@ -75,5 +78,6 @@ export function sortTasks(tasks, sort) {
   else if (sort === 'title') list.sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: 'base', numeric: true }) || keep(a, b));
   else if (sort === 'added') list.sort((a, b) => b.created_at - a.created_at || keep(a, b));
   else if (sort === 'important') list.sort((a, b) => (!a.important) - (!b.important) || keep(a, b));
+  else if (sort === 'priority') list.sort((a, b) => (PRIORITY_RANK[b.priority] || 0) - (PRIORITY_RANK[a.priority] || 0) || keep(a, b)); // high first, none last
   return list;
 }

@@ -43,7 +43,7 @@ q(`CREATE TABLE IF NOT EXISTS tasks (
 )`).run();
 q('CREATE INDEX IF NOT EXISTS tasks_list ON tasks(list_id, position)').run();
 // Repeating tasks: how it repeats, and (once ticked off) the task that came next.
-for (const [col, type] of [['repeat', 'TEXT'], ['next_id', 'TEXT'], ['steps', 'TEXT'], ['important', 'INTEGER NOT NULL DEFAULT 0'], ['link_url', 'TEXT'], ['link_label', 'TEXT'], ['due_time', 'TEXT'], ['started', 'INTEGER NOT NULL DEFAULT 0'], ['done_by', 'TEXT'], ['attachments', 'TEXT'], ['blocked_by', 'TEXT'], ['tags', 'TEXT'], ['start', 'TEXT'], ['repeat_until', 'TEXT'], ['section_id', 'TEXT'], ['estimate', 'INTEGER']]) { // estimate: minutes you expect it to take; // section_id: a heading on its list the task sits under, or null; // repeat_until: the last day a repeating task may come due (YYYY-MM-DD), or null for always; // start: the day work begins (YYYY-MM-DD), for the timeline; // tags: JSON ["client", …]; // blocked_by: tasks on the same list this one waits on, JSON [ids]; // attachments: Drive files, JSON [{ id, name, kind, mime }]; // steps: a checklist, JSON [{ id, title, done }]
+for (const [col, type] of [['repeat', 'TEXT'], ['next_id', 'TEXT'], ['steps', 'TEXT'], ['important', 'INTEGER NOT NULL DEFAULT 0'], ['link_url', 'TEXT'], ['link_label', 'TEXT'], ['due_time', 'TEXT'], ['started', 'INTEGER NOT NULL DEFAULT 0'], ['done_by', 'TEXT'], ['attachments', 'TEXT'], ['blocked_by', 'TEXT'], ['tags', 'TEXT'], ['start', 'TEXT'], ['repeat_until', 'TEXT'], ['section_id', 'TEXT'], ['estimate', 'INTEGER'], ['priority', 'INTEGER']]) { // priority: 1 low, 2 medium, 3 high, or null; // estimate: minutes you expect it to take; // section_id: a heading on its list the task sits under, or null; // repeat_until: the last day a repeating task may come due (YYYY-MM-DD), or null for always; // start: the day work begins (YYYY-MM-DD), for the timeline; // tags: JSON ["client", …]; // blocked_by: tasks on the same list this one waits on, JSON [ids]; // attachments: Drive files, JSON [{ id, name, kind, mime }]; // steps: a checklist, JSON [{ id, title, done }]
   if (!q('PRAGMA table_info(tasks)').all().some((c) => c.name === col)) q(`ALTER TABLE tasks ADD COLUMN ${col} ${type}`).run();
 }
 q('CREATE INDEX IF NOT EXISTS tasks_assignee ON tasks(assignee_id, done_at)').run();
@@ -56,7 +56,7 @@ q(`CREATE TABLE IF NOT EXISTS task_list_views (
   sort TEXT NOT NULL,
   PRIMARY KEY (user_id, list_id)
 )`).run();
-export const SORTS = ['mine', 'due', 'title', 'added', 'important'];
+export const SORTS = ['mine', 'due', 'title', 'added', 'important', 'priority'];
 /** What Planned shows (with the person's id three times): open, dated, on their lists, and theirs or nobody's. */
 const PLANNED = `t.done_at IS NULL AND t.due IS NOT NULL AND (l.owner_id = ? OR l.id IN (SELECT list_id FROM task_list_members WHERE user_id = ?))
                  AND (t.assignee_id IS NULL OR t.assignee_id = ?)`;
@@ -134,7 +134,16 @@ const MAX_COMMENTS = 500;
 const TASK = `SELECT t.*, u.name AS assignee_name, c.name AS created_by_name, l.name AS list_name, l.color AS list_color, l.emoji AS list_emoji,
               (SELECT COUNT(*) FROM task_comments k WHERE k.task_id = t.id) AS comments
               FROM tasks t LEFT JOIN users u ON u.id = t.assignee_id LEFT JOIN users c ON c.id = t.created_by JOIN task_lists l ON l.id = t.list_id`;
-const shape = (t) => ({ ...t, done: !!t.done_at, important: !!t.important, started: !!t.started && !t.done_at, // started: "In progress" on the board
+// Priority: kept as a number (so lists sort by it), given out by name.
+export const PRIORITY = { low: 1, medium: 2, high: 3 };
+const priorityName = (n) => Object.keys(PRIORITY).find((k) => PRIORITY[k] === n) || null;
+/** A priority sent in ('high', 'medium', 'low', or null / '' for none) as its number. */
+export function priorityOf(v) {
+  if (v === null || v === undefined || v === '' || v === 'none') return null;
+  if (!(v in PRIORITY)) throw bad('Priority is high, medium, low or none');
+  return PRIORITY[v];
+}
+const shape = (t) => ({ ...t, priority: priorityName(t.priority), done: !!t.done_at, important: !!t.important, started: !!t.started && !t.done_at, // started: "In progress" on the board
   steps: t.steps ? JSON.parse(t.steps) : [], attachments: t.attachments ? JSON.parse(t.attachments) : [], blocked_by: t.blocked_by ? JSON.parse(t.blocked_by) : [], tags: t.tags ? JSON.parse(t.tags) : [] });
 /** Tags for a task: words (letters first), lower case, without #, no repeats, at most 10. Stored as JSON or null. */
 export function tagsOf(input) {
@@ -158,6 +167,8 @@ export function tasksTable(tasks) {
   let table = [head, ...rows];
   // Estimates (minutes), when any task has one: after Time.
   if (tasks.some((t) => t.estimate)) table = table.map((r, i) => [...r.slice(0, 4), i ? (tasks[i - 1].estimate || '') : 'Estimate (min)', ...r.slice(4)]);
+  // Priority, when any task has one: after Important.
+  if (tasks.some((t) => t.priority)) { const at = table[0].indexOf('Important') + 1; table = table.map((r, i) => [...r.slice(0, at), i ? (tasks[i - 1].priority ? tasks[i - 1].priority[0].toUpperCase() + tasks[i - 1].priority.slice(1) : '') : 'Priority', ...r.slice(at)]); }
   if (tasks.some((t) => t.section_name)) table = table.map((r, i) => [r[0], i ? tasks[i - 1].section_name || '' : 'Section', ...r.slice(1)]);
   return table;
 }
@@ -349,6 +360,7 @@ export default function taskRoutes() {
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
           .run(ids.get(x.id), id, x.title, x.notes, moved(x.due), start && x.due ? x.due_time : null, moved(x.start), x.position, x.repeat, moved(x.repeat_until), steps, x.important, x.link_url, x.link_label, x.attachments, blocked, x.tags, req.user.id, t, t);
         if (x.section_id && secs.has(x.section_id)) q('UPDATE tasks SET section_id = ? WHERE id = ?').run(secs.get(x.section_id), ids.get(x.id));
+        if (x.priority) q('UPDATE tasks SET priority = ? WHERE id = ?').run(x.priority, ids.get(x.id));
       }
     });
     sendTo([req.user.id], { type: 'tasks-changed', list_id: id });
@@ -426,7 +438,7 @@ export default function taskRoutes() {
     q(`INSERT INTO tasks (id, list_id, title, notes, due, due_time, start, assignee_id, position, repeat, repeat_until, steps, important, link_url, link_label, attachments, tags, created_by, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(id, list.id, task.title, task.notes, task.due, task.due_time, task.start, task.assignee_id, position, task.repeat, task.repeat_until, steps, task.important ? 1 : 0, task.link_url, task.link_label, task.attachments, task.tags, req.user.id, t, t);
-    q('UPDATE tasks SET section_id = ?, estimate = ? WHERE id = ?').run(task.section_id, task.estimate, id);
+    q('UPDATE tasks SET section_id = ?, estimate = ?, priority = ? WHERE id = ?').run(task.section_id, task.estimate, task.priority, id);
     changed(list);
     res.status(201).json(shape(q(`${TASK} WHERE t.id = ?`).get(id)));
   });
@@ -538,7 +550,7 @@ export default function taskRoutes() {
   r.put('/lists/:id/sort', (req, res) => {
     const list = loadList(req.params.id, req.user);
     const sort = String(req.body.sort || '');
-    if (!SORTS.includes(sort)) throw bad('Sort by your order, due date, title, date added or importance');
+    if (!SORTS.includes(sort)) throw bad('Sort by your order, due date, title, date added, importance or priority');
     if (sort === 'mine') q('DELETE FROM task_list_views WHERE user_id = ? AND list_id = ?').run(req.user.id, list.id);
     else q('INSERT INTO task_list_views (user_id, list_id, sort) VALUES (?, ?, ?) ON CONFLICT(user_id, list_id) DO UPDATE SET sort = excluded.sort').run(req.user.id, list.id, sort);
     sendTo([req.user.id], { type: 'tasks-changed', list_id: list.id });
@@ -571,6 +583,7 @@ export default function taskRoutes() {
           .run(tid, list.id, x.title, x.notes, x.due, x.due_time, x.start, ++at, x.important ? 1 : 0, x.tags.length ? JSON.stringify(x.tags) : null, steps, x.done ? t : null, x.done ? req.user.id : null, req.user.id, t, t);
         if (x.section) q('UPDATE tasks SET section_id = ? WHERE id = ?').run(secId(x.section), tid);
         if (x.estimate) q('UPDATE tasks SET estimate = ? WHERE id = ?').run(x.estimate, tid);
+        if (x.priority) q('UPDATE tasks SET priority = ? WHERE id = ?').run(PRIORITY[x.priority], tid);
       }
     });
     changed(list);
@@ -723,6 +736,7 @@ export default function taskRoutes() {
     q('INSERT INTO tasks (id, list_id, title, notes, due, due_time, assignee_id, position, repeat, important, link_url, link_label, tags, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
       .run(id, list.id, str(req.body.title, { required: true, name: 'Task', max: 500 }), str(req.body.notes, { max: 10000 }), due, dueTime, assigneeOf(req.body.assignee_id, list), position, repeat, req.body.important ? 1 : 0, link.url, link.label, tags, req.user.id, t, t);
     if (req.body.section_id) q('UPDATE tasks SET section_id = ? WHERE id = ?').run(sectionOn(list.id, req.body.section_id), id);
+    if (req.body.priority) q('UPDATE tasks SET priority = ? WHERE id = ?').run(priorityOf(req.body.priority), id);
     changed(list);
     const made = shape(q(`${TASK} WHERE t.id = ?`).get(id));
     notifyAssigned(made, req.user);
@@ -799,6 +813,7 @@ export default function taskRoutes() {
     if (b.done !== undefined) { set.done_at = b.done ? task.done_at || now() : null; set.done_by = b.done ? task.done_by || req.user.id : null; }
     if (b.repeat !== undefined) set.repeat = repeatOf(b.repeat);
     if (b.important !== undefined) set.important = b.important ? 1 : 0;
+    if (b.priority !== undefined) set.priority = priorityOf(b.priority);
     if (b.tags !== undefined) set.tags = tagsOf(b.tags);
     if (b.started !== undefined) set.started = b.started ? 1 : 0;
     if (b.estimate !== undefined) {
@@ -842,7 +857,7 @@ export default function taskRoutes() {
         q('INSERT INTO tasks (id, list_id, title, notes, due, due_time, start, assignee_id, position, repeat, repeat_until, steps, important, link_url, link_label, attachments, tags, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
           .run(id, after.list_id, after.title, after.notes, due, after.due_time, start, after.assignee_id, top, after.repeat, after.repeat_until, steps, after.important ? 1 : 0, after.link_url, after.link_label, after.attachments, after.tags, after.created_by, t, t);
         q('UPDATE tasks SET next_id = ? WHERE id = ?').run(id, task.id);
-        q('UPDATE tasks SET section_id = ?, estimate = ? WHERE id = ?').run(after.section_id, after.estimate, id);
+        q('UPDATE tasks SET section_id = ?, estimate = ?, priority = ? WHERE id = ?').run(after.section_id, after.estimate, after.priority, id);
         }
       }
       // Un-ticked (Undo): the next one goes again, unless someone has already worked on it.

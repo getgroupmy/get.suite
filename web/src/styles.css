@@ -2890,3 +2890,7 @@ select.meet-timer-btn option { color: #202124; }
 .page-colours .swatch.on { outline: 2px solid var(--accent); outline-offset: 2px; }
 .page-colours .swatch.custom { display: inline-grid; place-items: center; overflow: hidden; background: conic-gradient(red, yellow, lime, aqua, blue, magenta, red); }
 .page-colours .swatch.custom input { opacity: 0; width: 100%; height: 100%; cursor: pointer; border: 0; padding: 0; }
+.pill.priority.high { background: #fce8e6; color: #a50e0e; }
+.pill.priority.medium { background: #fef7e0; color: #8a5a00; }
+.pill.priority.low { background: #e8f0fe; color: #174ea6; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .pill.priority { filter: brightness(.85) saturate(1.2); } }

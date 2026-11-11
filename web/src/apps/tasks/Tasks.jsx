@@ -10,7 +10,7 @@ import Icon from '../../components/Icon.jsx';
 import { groupPlanned, groupCompleted } from './planned.js';
 import { Avatar, ConfirmModal, Empty, Menu, Modal, PromptModal, useToast } from '../../components/ui.jsx';
 import { useAuth } from '../../App.jsx';
-import { dueLabel, between, localToday, REPEATS, repeatText, readCustom, customRepeat, WEEKDAYS, SORTS, sortTasks } from './taskmath.js';
+import { dueLabel, between, localToday, REPEATS, repeatText, readCustom, customRepeat, WEEKDAYS, SORTS, sortTasks, PRIORITIES } from './taskmath.js';
 import { parseQuickAdd } from './quickadd.js';
 import { taskLink } from '../chat/filelinks.js';
 import { addDays, daysFrom, barOf, timelineRange, dragChange } from './timeline.js';
@@ -149,7 +149,7 @@ export default function Tasks() {
     e.preventDefault();
     const text = title.trim();
     if (!text || !list) return;
-    const body = quick?.found.length ? { title: quick.title, due: quick.due, due_time: quick.due_time, repeat: quick.repeat, important: quick.important, assignee_id: quick.assignee_id, tags: quick.tags } : { title: text };
+    const body = quick?.found.length ? { title: quick.title, due: quick.due, due_time: quick.due_time, repeat: quick.repeat, important: quick.important, ...(quick.priority && { priority: quick.priority }), assignee_id: quick.assignee_id, tags: quick.tags } : { title: text };
     setTitle(''); setAsTyped(false);
     try { await post(`/tasks/lists/${list.id}/tasks`, body); loadTasks(); loadLists(); }
     catch (err) { toast(err.message, 'error'); setTitle(text); }
@@ -193,6 +193,7 @@ export default function Tasks() {
             {t.link_url && <span className="muted small task-link" title={t.link_label || 'Linked'}>{t.link_url.startsWith('/chat') ? '💬' : t.link_url.startsWith('/docs') ? '📄' : '✉'}</span>}
             {t.notes && <span className="muted small ellipsis task-notes">{t.notes.split('\n')[0]}</span>}
             {due && <span className={`pill due ${due.tone}`}>{due.text}</span>}
+            {t.priority && !t.done && (() => { const [, name, mark] = PRIORITIES.find(([k]) => k === t.priority); return <span className={`pill priority ${t.priority}`} title={`${name} priority`} aria-label={`${name} priority`}>{mark} {name}</span>; })()}
             {t.started && !t.done && <span className="pill doing">In progress</span>}
             {waits.length > 0 && <span className="pill waiting" title={`Waiting on ${waits.map((x) => `“${x.title}”`).join(', ')}`}>⏳ Waiting on {waits.length === 1 ? waits[0].title : `${waits.length} tasks`}</span>}
             {t.steps?.length > 0 && <span className={`muted small task-steps ${t.steps.every((x) => x.done) ? 'all' : ''}`} title="Steps done">☑ {t.steps.filter((x) => x.done).length}/{t.steps.length}</span>}
@@ -328,6 +329,7 @@ export default function Tasks() {
               {quick.due && <span className="chip">📅 {dueLabel(quick.due, new Date(), quick.due_time).text}</span>}
               {quick.repeat && <span className="chip">⟳ {repeatText(quick.repeat)}</span>}
               {quick.important && <span className="chip">★ Important</span>}
+              {quick.priority && <span className="chip">{PRIORITIES.find(([k]) => k === quick.priority).slice(1).reverse().join(' ')} priority</span>}
               {quick.tags?.map((t) => <span key={t} className="chip">#{t}</span>)}
               {quick.assignee_id && <span className="chip">👤 {people.find((x) => x.id === quick.assignee_id)?.name}</span>}
             </>}
@@ -850,6 +852,12 @@ function TaskDetails({ task, tasks, lists, sections = [], people, onChange, onCl
         </label>
       )}
       <RepeatField task={task} onChange={onChange} />
+      <label className="field"><span>Priority</span>
+        <select value={task.priority || ''} onChange={(e) => onChange({ priority: e.target.value || null })}>
+          <option value="">None</option>
+          {PRIORITIES.map(([k, name, mark]) => <option key={k} value={k}>{mark} {name}</option>)}
+        </select>
+      </label>
       <label className="field"><span>Estimate</span>
         <select value={task.estimate || ''} onChange={(e) => onChange({ estimate: e.target.value ? Number(e.target.value) : null })}>
           <option value="">None</option>

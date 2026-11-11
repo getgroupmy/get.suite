@@ -60,7 +60,7 @@ const REPEAT_WORDS = [
  */
 export function parseQuickAdd(input, { today, people = [] } = {}) {
   let s = ` ${String(input || '')} `;
-  const out = { due: null, due_time: null, repeat: null, important: false, assignee_id: null, tags: [], found: [] };
+  const out = { due: null, due_time: null, repeat: null, important: false, priority: null, assignee_id: null, tags: [], found: [] };
   const take = (re, fn) => {
     const m = re.exec(s);
     if (!m) return false;
@@ -72,6 +72,8 @@ export function parseQuickAdd(input, { today, people = [] } = {}) {
 
   // Tags: "#client" (a word starting with a letter, so "issue #42" stays as it is).
   while (take(/\s#(\p{L}[\p{L}\p{N}_-]{0,29})(?=[\s,.]|$)/u, (m) => { const t = m[1].toLowerCase(); if (!out.tags.includes(t) && out.tags.length < 10) { out.tags.push(t); out.found.push({ kind: 'tag', text: `#${t}` }); } }));
+  // A priority: !high, !medium (or !med), !low (also !p1 to !p3, p1 the highest).
+  take(/\s!(high|medium|med|low|p[123])(?=[\s,.]|$)/i, (m) => { const v = { high: 'high', p1: 'high', medium: 'medium', med: 'medium', p2: 'medium', low: 'low', p3: 'low' }[m[1].toLowerCase()]; out.priority = v; out.found.push({ kind: 'priority', text: `${v[0].toUpperCase()}${v.slice(1)} priority` }); });
   take(/\s!(?:important)?(?=\s)/i, () => { out.important = true; out.found.push({ kind: 'important', text: 'Important' }); });
   const custom = customRepeatIn(s);
   if (custom) { s = `${s.slice(0, custom.match.index)} ${s.slice(custom.match.index + custom.match[0].length)}`; out.repeat = custom.repeat; }
@@ -130,6 +132,6 @@ export function parseQuickAdd(input, { today, people = [] } = {}) {
   if (out.repeat) out.found.push({ kind: 'repeat', text: out.repeat });
   out.title = s.replace(/\s+/g, ' ').replace(/\s+([,.])/g, '$1').replace(/^[\s,.-]+|[\s,-]+$/g, '').trim();
   // Nothing left to call it: keep the text as it was.
-  if (!out.title) return { title: String(input || '').trim(), due: null, due_time: null, repeat: null, important: false, assignee_id: null, tags: [], found: [] };
+  if (!out.title) return { title: String(input || '').trim(), due: null, due_time: null, repeat: null, important: false, priority: null, assignee_id: null, tags: [], found: [] };
   return out;
 }

@@ -10624,6 +10624,37 @@ test('tasks: an estimate of how long a task will take', async () => {
   assert.equal((await a('PATCH', `/api/tasks/tasks/${next.id}`, { estimate: null })).body.estimate, null);
 });
 
+test('tasks: priority (high, medium, low)', async () => {
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'prio1', domain: 'acme.com', name: 'Prio Ann', password: 'password123' })).status, 201);
+  await login(a, 'prio1@acme.com');
+  const list = (await a('POST', '/api/tasks/lists', { name: 'Prio' })).body.id;
+  const t = (await a('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Fix the roof', priority: 'high' })).body;
+  assert.equal(t.priority, 'high');
+  assert.equal((await a('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Bad', priority: 'urgent' })).status, 400);
+  const u = (await a('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Sweep the yard' })).body;
+  assert.equal(u.priority, null);
+  assert.equal((await a('PATCH', `/api/tasks/tasks/${u.id}`, { priority: 'low' })).body.priority, 'low');
+  assert.equal((await a('PATCH', `/api/tasks/tasks/${u.id}`, { priority: 3 })).status, 400, 'by name');
+  assert.equal((await a('POST', `/api/tasks/tasks/${t.id}/duplicate`)).body.priority, 'high', 'a copy keeps it');
+  await a('PATCH', `/api/tasks/tasks/${t.id}`, { due: '2026-11-10', repeat: 'daily' });
+  await a('PATCH', `/api/tasks/tasks/${t.id}`, { done: true, today: '2026-11-10' });
+  assert.equal((await a('GET', `/api/tasks/lists/${list}/tasks`)).body.find((x) => !x.done && x.repeat).priority, 'high', 'the next time too');
+  // The download has a Priority column after Important, and an import reads it back.
+  const csv = String((await a('GET', `/api/tasks/lists/${list}/export.csv`)).body).replace(/^\ufeff/, '').split('\r\n');
+  const head = csv[0].split(',');
+  const at = head.indexOf('Priority');
+  assert.equal(head[at - 1], 'Important');
+  assert.ok(csv.slice(1).some((l) => l.startsWith('Sweep the yard,') && l.split(',')[at] === 'Low'));
+  const other = (await a('POST', '/api/tasks/lists', { name: 'Prio 2' })).body.id;
+  await a('POST', `/api/tasks/lists/${other}/import`, 'Task,Priority\r\nA,High\r\nB,med\r\nC,\r\nD,someday\r\n', { raw: true, headers: { 'content-type': 'text/csv' } });
+  assert.deepEqual((await a('GET', `/api/tasks/lists/${other}/tasks`)).body.map((x) => [x.title, x.priority]), [['A', 'high'], ['B', 'medium'], ['C', null], ['D', null]]);
+  // A copy of the list keeps them.
+  const copy = (await a('POST', `/api/tasks/lists/${other}/copy`, { name: 'Prio copy' })).body.id;
+  assert.deepEqual((await a('GET', `/api/tasks/lists/${copy}/tasks`)).body.map((x) => x.priority).filter(Boolean).sort(), ['high', 'medium']);
+  assert.equal((await a('PATCH', `/api/tasks/tasks/${u.id}`, { priority: null })).body.priority, null);
+});
+
 test('tasks: a repeating task can stop repeating after a day', async () => {
   const a = client(), c = client();
   for (const [local, name] of [['truna', 'Until Ann'], ['trunc', 'Until Cat']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
