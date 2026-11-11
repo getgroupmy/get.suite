@@ -56,3 +56,12 @@ export function speakingNow(heard, at, hold = 700) {
   return new Set(Object.entries(heard).filter(([, t]) => at - t <= hold).map(([id]) => id));
 }
 export const SPEAKING_LEVEL = 0.04;
+
+/** The host's countdown, seen from now: { left: 'm:ss', up: time's up, soon: under 30 seconds left }. */
+export function countdown(timer, now = Date.now()) {
+  if (!timer) return null;
+  const ms = Math.max(0, timer.ends_at - now);
+  const s = Math.ceil(ms / 1000);
+  return { left: `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`, up: ms === 0, soon: ms > 0 && ms <= 30000 };
+}
+export const TIMER_CHOICES = [[60, '1 minute'], [120, '2 minutes'], [300, '5 minutes'], [600, '10 minutes'], [900, '15 minutes'], [1800, '30 minutes']];

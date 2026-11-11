@@ -172,6 +172,10 @@ const removed = new Map(); // code -> Set(user id)
 // A meeting the host has locked: nobody new comes in (guests can't ask), but those who were in it when it was
 // locked can come back (a dropped connection, a breakout room). code -> Set(user id). Open again when it empties.
 const locks = new Map();
+// A countdown the host starts (a timebox for an agenda item, a break): everyone in the room sees the
+// same one, newcomers too. Room key → { ends_at, seconds, by }.
+const timers = new Map();
+export const TIMER_SECONDS = { min: 10, max: 3 * 3600 };
 // Whether guests without an account may ask to join the company's meetings (Admin → Company settings).
 if (!q('PRAGMA table_info(orgs)').all().some((c) => c.name === 'meet_guests')) q('ALTER TABLE orgs ADD COLUMN meet_guests INTEGER NOT NULL DEFAULT 1').run();
 
@@ -268,7 +272,7 @@ function enterRoom(ws, req, code, m, user) {
     const toAll = (payload) => { const d = JSON.stringify(payload); for (const p of room.values()) if (p.ws.readyState === 1) p.ws.send(d); };
     ws.send(JSON.stringify({ type: 'welcome', id, peers: peopleIn(key), host: isHost, you: user.id, guest: !!user.guest, polls: (polls.get(key) || []).map((p) => pollOut(p, user.id)), questions: (questions.get(key) || []).map((x) => questionOut(x, user.id)),
       board: boards.get(key)?.strokes || [],
-      room: n, breakouts: b ? b.count : 0, locked: locks.has(code),
+      room: n, breakouts: b ? b.count : 0, locked: locks.has(code), timer: timers.get(key) || null,
       admit: mayAdmit(m, user), knocking: mayAdmit(m, user) ? waitingList(code) : [] }));
     // Everyone gets a poll's results with their own vote in it.
     const questionToAll = (x) => { for (const q2 of room.values()) if (q2.ws.readyState === 1) q2.ws.send(JSON.stringify({ type: 'question', question: questionOut(x, q2.user.id) })); };
@@ -356,6 +360,13 @@ function enterRoom(ws, req, code, m, user) {
           p.votes.set(user.id, i); // one vote each; voting again changes it
         }
         pollToAll(p);
+      } else if (msg?.type === 'timer' && isHost) {
+        // The host starts a countdown (or stops it: 0 seconds).
+        const secs = Math.round(Number(msg.seconds));
+        if (secs === 0) timers.delete(key);
+        else if (Number.isFinite(secs) && secs >= TIMER_SECONDS.min && secs <= TIMER_SECONDS.max) timers.set(key, { ends_at: now() + secs * 1000, seconds: secs, by: user.name });
+        else return;
+        toAll({ type: 'timer', timer: timers.get(key) || null });
       } else if (msg?.type === 'lock' && isHost) {
         // The host locks the meeting (or opens it again): everyone in every room is told; guests waiting are turned away.
         if (msg.on) {
@@ -428,7 +439,7 @@ function enterRoom(ws, req, code, m, user) {
     ws.on('close', () => {
       q('UPDATE meeting_attendance SET left_at = ? WHERE id = ? AND left_at IS NULL').run(now(), id);
       room.delete(id);
-      if (!room.size) { rooms.delete(key); polls.delete(key); questions.delete(key); boards.delete(key); } // polls last as long as the meeting (or the room)
+      if (!room.size) { rooms.delete(key); polls.delete(key); questions.delete(key); boards.delete(key); timers.delete(key); } // polls last as long as the meeting (or the room)
       if (roomsOf(code).every((k) => !rooms.get(k)?.size)) locks.delete(code); // everyone has gone: open again
       if (breakouts.has(code)) {
         if (roomsOf(code).every((k) => !rooms.get(k)?.size)) breakouts.delete(code); // everyone has gone

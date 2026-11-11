@@ -42,3 +42,11 @@ test('speaking: how loud, and who is talking (held briefly between words)', asyn
   assert.deepEqual([...speakingNow({ a: 1000, b: 200 }, 1500)], ['a']);
   assert.deepEqual([...speakingNow({ a: 1000 }, 1800)], [], 'quiet for long enough: no ring');
 });
+
+test('the host’s countdown', async () => {
+  const { countdown } = await import('./meetmath.js');
+  assert.equal(countdown(null), null);
+  assert.deepEqual(countdown({ ends_at: 100000 }, 100000 - 272500), { left: '4:33', up: false, soon: false });
+  assert.deepEqual(countdown({ ends_at: 100000 }, 100000 - 9000), { left: '0:09', up: false, soon: true });
+  assert.deepEqual(countdown({ ends_at: 100000 }, 100500), { left: '0:00', up: true, soon: false });
+});

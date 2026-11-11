@@ -3810,6 +3810,16 @@ test('meet: start a meeting, join its room, signals pass between people', async 
   b.ws.send(JSON.stringify({ type: 'react', emoji: '💣' }));
   b.ws.send(JSON.stringify({ type: 'react', emoji: '👍' }));
   assert.equal((await a.next('react')).emoji, '👍', 'only the offered reactions');
+  // The host's countdown: everyone sees the same one; only the host starts or stops it.
+  b.ws.send(JSON.stringify({ type: 'timer', seconds: 60 }));
+  a.ws.send(JSON.stringify({ type: 'timer', seconds: 5 }));
+  a.ws.send(JSON.stringify({ type: 'timer', seconds: 300 }));
+  const tb = (await b.next('timer')).timer;
+  assert.deepEqual([tb.seconds, tb.by], [300, 'Mia Meet'], 'not Max’s (not the host), not 5 seconds (too short)');
+  assert.ok(Math.abs(tb.ends_at - (Date.now() + 300e3)) < 5000);
+  assert.equal((await a.next('timer')).timer.seconds, 300);
+  a.ws.send(JSON.stringify({ type: 'timer', seconds: 0 }));
+  assert.equal((await b.next('timer')).timer, null, 'stopped');
 
   // Another company can't get in.
   const outside = (await owner('POST', '/api/orgs', { name: 'Meetco', domain: 'meetco.com', admin_name: 'Mo', admin_local: 'mo', admin_password: 'password123' }));

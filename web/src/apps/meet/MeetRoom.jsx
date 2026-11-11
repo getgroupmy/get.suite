@@ -9,7 +9,7 @@ import { Avatar, useToast } from '../../components/ui.jsx';
 import { useAuth } from '../../App.jsx';
 import MeetBoard from './MeetBoard.jsx';
 import { Mesh } from './mesh.js';
-import { columnsFor, whoIsHere, elapsed, spotlightOf, loudness, speakingNow, SPEAKING_LEVEL } from './meetmath.js';
+import { columnsFor, whoIsHere, elapsed, spotlightOf, loudness, speakingNow, SPEAKING_LEVEL, countdown, TIMER_CHOICES } from './meetmath.js';
 import { MeetingRecorder } from './recorder.js';
 import { noPhotos } from '../../components/photos.js';
 
@@ -293,6 +293,7 @@ export default function MeetRoom({ guest = false, onSignIn }) {
   // Raised hands, first up first: everyone sees the same order.
   const hands = tiles.filter((t) => t.state.hand).sort((a, b) => (a.state.hand_at || 0) - (b.state.hand_at || 0));
   const handNo = (t) => hands.indexOf(t) + 1;
+  const cd = countdown(m?.timer);
   const spot = spotlightOf(tiles, pinned); // who is shown big (pinned, or presenting)
   const speaking = useSpeaking(tiles);
   if (error) {
@@ -374,7 +375,11 @@ export default function MeetRoom({ guest = false, onSignIn }) {
           <button type="button" className="btn small" aria-label={`Don’t let ${g.name} in`} onClick={() => m.deny(g.id)}>Don’t let in</button></div>)}
       </div>}
       {m.room > 0 && !m.host && <div className="meet-room-banner" role="status">You’re in breakout Room {m.room}. The host will bring everyone back to the main room.</div>}
-      <header className="meet-top"><strong className="grow">{info?.title || code}{m.room ? ` · Room ${m.room}` : ''}</strong><span className="muted small" aria-label="Time in the meeting">{elapsed(Date.now() - startedAt)}</span></header>
+      <header className="meet-top"><strong className="grow">{info?.title || code}{m.room ? ` · Room ${m.room}` : ''}</strong>{cd && <span className={`meet-timer ${cd.up ? 'up' : cd.soon ? 'soon' : ''}`} role="timer" aria-label={cd.up ? 'Time’s up' : `Timer: ${cd.left} left`} title={`Timer started by ${m.timer.by}`}>⏱ {cd.up ? 'Time’s up' : cd.left}</span>}
+        {m.host && (cd ? <button type="button" className="btn small meet-timer-btn" onClick={() => m.setTimer(0)}>{cd.up ? 'Clear timer' : 'Stop timer'}</button>
+          : <select className="meet-timer-btn" aria-label="Start a timer for everyone" value="" onChange={(e) => { if (e.target.value) m.setTimer(Number(e.target.value)); }}>
+            <option value="">⏱ Timer…</option>{TIMER_CHOICES.map(([v, n]) => <option key={v} value={v}>{n}</option>)}</select>)}
+        <span className="muted small" aria-label="Time in the meeting">{elapsed(Date.now() - startedAt)}</span></header>
       <div className="meet-body">
         {board && <MeetBoard m={m} title={info?.title || code} canSave={!guest} onClose={() => setBoard(false)} />}
         <div ref={gridRef} className={`meet-grid ${board ? 'with-board' : ''} ${spot && !board ? 'spotlight' : ''}`} style={spot && !board ? { gridTemplateRows: `repeat(${Math.max(3, tiles.length - 1)}, minmax(0, 1fr))` } : { gridTemplateColumns: `repeat(${columnsFor(tiles.length)}, 1fr)` }} aria-label="People in the meeting">

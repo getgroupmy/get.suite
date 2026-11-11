@@ -2813,3 +2813,10 @@ input.fv-name { background: #202124; color: #fff; border: 1px solid #5f6368; bor
 .meet-hands { display: block !important; background: var(--hover, #eef1f6); border-radius: 8px; padding: 8px; }
 .meet-hands ol { margin: 6px 0 0; padding: 0; list-style: none; display: grid; gap: 4px; }
 .meet-hand-no { width: 20px; height: 20px; border-radius: 50%; background: #f9ab00; color: #202124; font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; }
+.meet-timer { font-variant-numeric: tabular-nums; font-weight: 600; padding: 2px 10px; border-radius: 12px; background: rgba(255,255,255,.12); margin-right: 8px; }
+.meet-timer.soon { background: #f9ab00; color: #202124; }
+.meet-timer.up { background: #d93025; color: #fff; animation: meet-timer-up 1s ease-in-out 3; }
+@keyframes meet-timer-up { 50% { transform: scale(1.12); } }
+.meet-timer-btn { margin-right: 10px; }
+select.meet-timer-btn { background: rgba(255,255,255,.12); color: inherit; border: 1px solid rgba(255,255,255,.25); border-radius: 8px; padding: 2px 6px; }
+select.meet-timer-btn option { color: #202124; }
