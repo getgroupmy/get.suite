@@ -2931,3 +2931,7 @@ select.meet-timer-btn option { color: #202124; }
 .form-import-list li { padding: 6px 10px; border-bottom: 1px solid var(--border); }
 .form-import-list li:last-child { border-bottom: 0; }
 .form-import-list .check { display: flex; gap: 8px; align-items: center; }
+.usage-bar.mail-usage { display: block; width: 100%; }
+.mail-storage-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: 8px; max-height: 340px; overflow: auto; }
+.mail-storage-list li { padding: 6px 10px; border-bottom: 1px solid var(--border); gap: 8px; }
+.mail-storage-list li:last-child { border-bottom: 0; }

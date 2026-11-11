@@ -110,6 +110,7 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
   const [importOpen, setImportOpen] = useState(false);
   const [confOpen, setConfOpen] = useState(false); // your confidential messages
   const [subsOpen, setSubsOpen] = useState(false); // newsletters and lists in the Inbox
+  const [storageOpen, setStorageOpen] = useState(false); // how much room mail takes
   const [scheduled, setScheduled] = useState([]);
   const refreshRef = useRef(null);
   const [scheduledOpen, setScheduledOpen] = useState(false);
@@ -399,6 +400,8 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
         {confOpen && <ConfidentialList onClose={() => setConfOpen(false)} />}
         {!shared && <button className="subnav-item" onClick={() => setSubsOpen(true)}><Icon name="markunread" /><span className="grow">Manage subscriptions</span></button>}
         {subsOpen && <Subscriptions onClose={() => { setSubsOpen(false); refresh(); }} />}
+        {!shared && <button className="subnav-item" onClick={() => setStorageOpen(true)}><Icon name="chart" /><span className="grow">Storage</span></button>}
+        {storageOpen && <MailStorage onClose={() => { setStorageOpen(false); refresh(); }} onOpen={(f, uid) => { setStorageOpen(false); go(f, uid); }} />}
         {desktopSupported() && (
           <button className="subnav-item" aria-pressed={desktop} onClick={async () => {
             if (desktop) { disableDesktop(); setDesktop(false); toast('Desktop notifications off'); return; }
@@ -993,6 +996,49 @@ function SenderContact({ from }) {
 
 /** Your confidential messages: who they went to, until when, how often they were opened; take one back. */
 /** Every newsletter and list in the Inbox (last 6 months) by sender, to leave in one click and clear out. */
+/** Mailbox storage: how much room mail takes (against the limit, if there is one), by folder, and the largest messages to delete. */
+function MailStorage({ onClose, onOpen }) {
+  const toast = useToast();
+  const [s, setS] = useState(null);
+  const load = useCallback(() => get('/mail/storage').then(setS).catch((e) => toast(e.message, 'error')), [toast]);
+  useEffect(() => { load(); }, [load]);
+  const remove = async (m) => {
+    try { await post('/mail/messages/delete', { folder: m.folder, uids: [m.uid] }); toast(m.folder_special === '\\Trash' ? 'Deleted for good' : 'Moved to Trash: empty Trash to free the space'); load(); }
+    catch (e) { toast(e.message, 'error'); }
+  };
+  return (
+    <Modal wide title="Mailbox storage" onClose={onClose} footer={<button type="button" className="btn" onClick={onClose}>Done</button>}>
+      {!s ? <p className="muted">Adding it up…</p> : (
+        <div className="stack">
+          <div className="stack-tight">
+            <p style={{ margin: 0 }}><strong>{formatBytes(s.used)}</strong>{s.limit ? ` of ${formatBytes(s.limit)} used (${s.percent}%)` : ' used'}</p>
+            {s.limit && <div className={`usage-bar mail-usage ${s.percent >= 90 ? 'warn' : ''}`} role="meter" aria-label="Mailbox used" aria-valuemin={0} aria-valuemax={100} aria-valuenow={s.percent}><div style={{ width: `${s.percent}%` }} /></div>}
+            {s.percent >= 90 && <p className="small" role="status" style={{ margin: 0, color: 'var(--danger)' }}>Your mailbox is nearly full: when it is, new mail is sent back to whoever wrote it.</p>}
+          </div>
+          <table className="files report" aria-label="Folders by size">
+            <thead><tr><th>Folder</th><th className="num">Messages</th><th className="num">Size</th></tr></thead>
+            <tbody>{s.folders.map((f) => <tr key={f.path}><td>{f.name}</td><td className="num">{f.messages}</td><td className="num">{formatBytes(f.size)}</td></tr>)}</tbody>
+          </table>
+          <h3 style={{ margin: 0 }}>Largest messages</h3>
+          {s.largest.length ? (
+            <ul className="mail-storage-list" aria-label="Largest messages">
+              {s.largest.map((m) => (
+                <li key={`${m.folder}/${m.uid}`} className="row">
+                  <span className="grow ellipsis"><strong>{m.subject || '(no subject)'}</strong> <span className="muted small">· {m.from?.name || m.from?.email || ''} · {m.folder_name}{m.date ? ` · ${formatDate(m.date)}` : ''}</span></span>
+                  <span className="small nowrap">{formatBytes(m.size)}</span>
+                  <button type="button" className="btn small" onClick={() => onOpen(m.folder, m.uid)}>Open</button>
+                  <button type="button" className="icon-btn" aria-label={`Delete ${m.subject || 'message'}`} title="Delete" onClick={() => remove(m)}><Icon name="trash" size={18} /></button>
+                </li>
+              ))}
+            </ul>
+          ) : <p className="muted" style={{ margin: 0 }}>No messages over {formatBytes(s.big_from)}.</p>}
+          <p className="muted small" style={{ margin: 0 }}>Deleted mail stays in Trash (and counts) until Trash is emptied. Attachments you want to keep can go to Drive first (the folder button beside them).</p>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
 function Subscriptions({ onClose }) {
   const toast = useToast();
   const [list, setList] = useState(null);

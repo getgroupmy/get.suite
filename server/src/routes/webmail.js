@@ -34,6 +34,7 @@ import { baseUrl as publicBase } from './calendar.js';
 import { parseMailQuery, allOf } from '../mail/searchquery.js';
 import { tabQuery, TABS, TO_PRIMARY, TO_UPDATES } from '../mail/tabs.js';
 import { tidyRoutes } from '../mail/tidy.js';
+import { mailStorage } from '../mail/storage.js';
 import { receiptRequest, buildReceipt } from '../mail/receipt.js';
 import { mimeFor } from '../util.js';
 import { previewMime, previewHeaders } from '../mail/preview.js';
@@ -357,6 +358,7 @@ export default function webmailRoutes() {
 
   r.use((req, res, next) => (mailEnabled() ? next() : next(new HttpError(503, 'Email is not set up on this server'))));
   tidyRoutes(r); // old Updates mail to Archive by itself
+  r.get('/storage', async (req, res) => res.json(await mailStorage(req.user))); // how much room mail takes, and the largest messages
   // Confidential mode: codes for outside recipients come by email from the sender.
   setCodeSender((to, { code, fromUser, subject }) => smtpFor(fromUser).sendMail({
     from: { name: fromUser.name, address: fromUser.username }, to,

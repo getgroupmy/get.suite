@@ -2123,9 +2123,10 @@ test('tidying: Updates mail older than the chosen days moves to Archive; starred
   assert.equal((await olivia('POST', '/api/mail/tidy/now')).status, 400, 'off: nothing to do');
   assert.equal((await olivia('PUT', '/api/mail/tidy', { days: 3 })).status, 400, 'only the offered choices');
   // Messages as they arrived at different times (APPEND with their own dates).
+  const run = ` #${Date.now()}`; // these messages' own, whatever earlier runs left in the mailbox
   const c = await eventually(() => imapLogin('olivia@acme.com', 'password123'), 20000); // the mailbox may still be on its way
   const old = new Date(Date.now() - 45 * 864e5);
-  const msg = (subject, headers = '') => `From: News <news@shop.example>\r\nTo: olivia@acme.com\r\nSubject: ${subject}\r\n${headers}Date: ${old.toUTCString()}\r\n\r\nHello\r\n`;
+  const msg = (subject, headers = '') => `From: News <news@shop.example>\r\nTo: olivia@acme.com\r\nSubject: ${subject}${run}\r\n${headers}Date: ${old.toUTCString()}\r\n\r\nHello\r\n`;
   try {
     await c.append('INBOX', msg('Tidy old newsletter', 'List-Unsubscribe: <mailto:u@shop.example>\r\n'), [], old);
     await c.append('INBOX', msg('Tidy old starred newsletter', 'List-Id: deals.shop.example\r\n'), ['\\Flagged'], old);
@@ -2134,14 +2135,44 @@ test('tidying: Updates mail older than the chosen days moves to Archive; starred
   } finally { await c.logout().catch(() => {}); }
   assert.deepEqual((await olivia('PUT', '/api/mail/tidy', { days: 30 })).body, { days: 30 });
   const r = (await olivia('POST', '/api/mail/tidy/now')).body;
-  assert.equal(r.moved, 1);
-  const inInbox = (await inbox(olivia)).map((m) => m.subject).filter((s) => s.startsWith('Tidy'));
+  assert.ok(r.moved >= 1, 'this run’s old newsletter (and any left by earlier runs)');
+  const inInbox = (await inbox(olivia)).map((m) => m.subject).filter((s) => s.endsWith(run)).map((s) => s.slice(0, -run.length));
   assert.deepEqual(inInbox.sort(), ['Tidy new newsletter', 'Tidy old letter from a person', 'Tidy old starred newsletter']);
   const archived = (await olivia('GET', '/api/mail/messages?folder=Archive')).body.messages.map((m) => m.subject);
-  assert.ok(archived.includes('Tidy old newsletter'));
+  assert.ok(archived.includes(`Tidy old newsletter${run}`));
   // The daily run does the same, once a day.
   const { runTidy } = await import('../src/mail/tidy.js');
   await runTidy();
   assert.equal(await runTidy(), 0, 'not twice the same day');
   assert.deepEqual((await olivia('PUT', '/api/mail/tidy', { days: null })).body, { days: null });
+});
+
+test('mail storage: folder sizes, the total against the limit, and the largest messages', async () => {
+  const run = ` #${Date.now()}`;
+  const c = await eventually(() => imapLogin('olivia@acme.com', 'password123'), 20000);
+  const big = (subject, kb) => `From: Kim <kim@acme.com>\r\nTo: olivia@acme.com\r\nSubject: ${subject}${run}\r\nContent-Type: text/plain\r\n\r\n${'x'.repeat(76).concat('\r\n').repeat(Math.ceil((kb * 1024) / 78))}`;
+  try {
+    for (const [subject, kb] of [['Storage: holiday photos', 900], ['Storage: scanned contract', 600]]) {
+      try { assert.ok(await c.append('INBOX', big(subject, kb), []), `${subject} added`); } catch (e) { throw new Error(`append ${subject}: ${e.responseText || e.message}`); }
+    }
+  } finally { await c.logout().catch(() => {}); }
+  const s = (await olivia('GET', '/api/mail/storage')).body;
+  const inboxRow = s.folders.find((f) => f.path === 'INBOX');
+  assert.ok(inboxRow.size >= 1500 * 1024, `inbox ${inboxRow.size}`);
+  assert.equal(s.used, s.folders.reduce((n, f) => n + f.size, 0));
+  const mine = s.largest.filter((m) => m.subject.endsWith(run));
+  assert.deepEqual(mine.map((m) => m.subject.slice(0, -run.length)), ['Storage: holiday photos', 'Storage: scanned contract'], 'biggest first');
+  assert.equal(mine[0].folder, 'INBOX');
+  assert.equal(mine[0].from.email, 'kim@acme.com');
+  // With a limit set by an admin: how full it is.
+  const me = (await olivia('GET', '/api/auth/me')).body.user;
+  assert.equal((await olivia('PATCH', `/api/users/${me.id}`, { mail_quota_mb: 100 })).status, 200);
+  const lim = (await olivia('GET', '/api/mail/storage')).body;
+  assert.equal(lim.limit, 100 * 1024 * 1024);
+  assert.equal(lim.percent, Math.min(100, Math.round((lim.used / lim.limit) * 100)));
+  await olivia('PATCH', `/api/users/${me.id}`, { mail_quota_mb: 0 });
+  // Deleting one from the list: it's gone from the largest (in Trash now, which still counts until emptied).
+  await olivia('POST', '/api/mail/messages/delete', { folder: 'INBOX', uids: [mine[0].uid] });
+  const after = (await olivia('GET', '/api/mail/storage')).body;
+  assert.ok(after.largest.some((m) => m.subject === `Storage: holiday photos${run}` && m.folder !== 'INBOX'), 'now in Trash');
 });
