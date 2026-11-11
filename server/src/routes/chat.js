@@ -105,6 +105,18 @@ q(`CREATE TABLE IF NOT EXISTS chat_mutes (
 for (const [col, type] of [['pinned_at', 'INTEGER'], ['pinned_by', 'TEXT'], ['deleted_at', 'INTEGER']]) {
   if (!q('PRAGMA table_info(messages)').all().some((c) => c.name === col)) q(`ALTER TABLE messages ADD COLUMN ${col} ${type}`).run();
 }
+// Following a thread: by default you're in a thread you started or replied to. Following one you're not in
+// (follow = 1) makes its replies count for you; unfollowing (follow = 0) stops them counting, whatever you wrote.
+q(`CREATE TABLE IF NOT EXISTS chat_thread_follow (
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+  follow INTEGER NOT NULL,
+  PRIMARY KEY (user_id, message_id)
+)`).run();
+/** SQL: is the user in the thread of message `p` (an SQL expression)? Binds the user twice (after any of p's own). */
+const IN_THREAD = (p) => `COALESCE((SELECT f.follow FROM chat_thread_follow f WHERE f.message_id = ${p} AND f.user_id = ?),
+  EXISTS (SELECT 1 FROM messages t WHERE (t.id = ${p} OR t.parent_id = ${p}) AND t.user_id = ?)) = 1`;
+const inThread = (userId, messageId) => !!q(`SELECT ${IN_THREAD('?')} AS yes`).get(messageId, userId, messageId, messageId, userId).yes;
 // Polls: a message can carry a question with options ({ question, options: [{ id, text }], multi, closed_at }); votes are kept per person.
 if (!q('PRAGMA table_info(messages)').all().some((c) => c.name === 'poll')) q('ALTER TABLE messages ADD COLUMN poll TEXT').run();
 q(`CREATE TABLE IF NOT EXISTS poll_votes (
@@ -577,15 +589,15 @@ export default function chatRoutes() {
                         WHERE cm.channel_id = c.id AND cm.user_id != ? AND u.org_id != ? LIMIT 1) AS dm_org,
                       (SELECT COUNT(*) FROM messages m WHERE m.channel_id = c.id AND (m.user_id IS NULL OR m.user_id != ?)
                         AND m.created_at > COALESCE((SELECT read_at FROM channel_reads r WHERE r.channel_id = c.id AND r.user_id = ?), 0)
-                        -- replies count only for people in that thread (who started it or replied)
-                        AND (m.parent_id IS NULL OR EXISTS (SELECT 1 FROM messages t WHERE (t.id = m.parent_id OR t.parent_id = m.parent_id) AND t.user_id = ?))) AS unread,
+                        -- replies count only for people in that thread (who started it or replied, or follow it)
+                        AND (m.parent_id IS NULL OR ${IN_THREAD('m.parent_id')})) AS unread,
                       (SELECT COUNT(*) FROM messages m WHERE m.channel_id = c.id AND (m.user_id IS NULL OR m.user_id != ?)
                         AND m.created_at > COALESCE((SELECT read_at FROM channel_reads r WHERE r.channel_id = c.id AND r.user_id = ?), 0)
                         AND INSTR(LOWER(m.body), LOWER(?)) > 0) AS mentions
                     FROM channels c
                     WHERE (c.dm_key IS NULL AND c.private = 0 AND c.org_id = ?)
                        OR EXISTS (SELECT 1 FROM channel_members cm WHERE cm.channel_id = c.id AND cm.user_id = ?)
-                    ORDER BY c.dm_key IS NOT NULL, c.archived_at IS NOT NULL, c.name`).all(me, me, me, me, me, me, req.user.org_id, me, me, me, me, me, `@${req.user.username}`, req.user.org_id, me);
+                    ORDER BY c.dm_key IS NOT NULL, c.archived_at IS NOT NULL, c.name`).all(me, me, me, me, me, me, req.user.org_id, me, me, me, me, me, me, `@${req.user.username}`, req.user.org_id, me);
     const inSection = new Map(q('SELECT channel_id, section_id FROM chat_section_items WHERE user_id = ?').all(me).map((x) => [x.channel_id, x.section_id]));
     const closed = new Map(q('SELECT channel_id, closed_at FROM chat_closed WHERE user_id = ?').all(me).map((x) => [x.channel_id, x.closed_at]));
     res.json({ channels: rows.map(({ has_left: hasLeft, ...c }) => ({ ...c, muted: !!c.muted, starred: !!c.starred_at, section_id: inSection.get(c.id) || null,
@@ -835,7 +847,7 @@ export default function chatRoutes() {
                       SUM(CASE WHEN (m.user_id IS NULL OR m.user_id != ?) AND m.created_at > COALESCE((SELECT read_at FROM channel_reads r WHERE r.channel_id = c.id AND r.user_id = ?), 0) THEN 1 ELSE 0 END) AS unread
                     FROM messages p JOIN messages m ON m.parent_id = p.id JOIN channels c ON c.id = p.channel_id LEFT JOIN users pu ON pu.id = p.user_id
                     WHERE p.parent_id IS NULL
-                      AND (p.user_id = ? OR EXISTS (SELECT 1 FROM messages t WHERE t.parent_id = p.id AND t.user_id = ?))
+                      AND ${IN_THREAD('p.id')}
                       AND ((c.dm_key IS NULL AND c.private = 0 AND c.org_id = ? AND NOT EXISTS (SELECT 1 FROM chat_left lf WHERE lf.channel_id = c.id AND lf.user_id = ?))
                         OR EXISTS (SELECT 1 FROM channel_members cm WHERE cm.channel_id = c.id AND cm.user_id = ?))
                     GROUP BY p.id ORDER BY last_at DESC LIMIT 50`).all(me, me, me, me, me, req.user.org_id, me, me);
@@ -878,7 +890,19 @@ export default function chatRoutes() {
     const m = q('SELECT * FROM messages WHERE id = ?').get(req.params.id);
     if (!m || m.parent_id) throw notFound('Message not found');
     loadChannel(m.channel_id, req.user);
-    res.json({ message: one(m.id), replies: shape(q(`${MSG} WHERE m.parent_id = ? ORDER BY m.created_at LIMIT 1000`).all(m.id)) });
+    res.json({ message: one(m.id), replies: shape(q(`${MSG} WHERE m.parent_id = ? ORDER BY m.created_at LIMIT 1000`).all(m.id)), following: inThread(req.user.id, m.id) });
+  });
+
+  // Follow a thread (its replies count as unread for you, and it's in your Threads) or unfollow it (they
+  // don't, even if you started it or replied; replying again doesn't change that). { follow: true|false }
+  r.put('/messages/:id/follow', (req, res) => {
+    const m = q('SELECT id, channel_id, parent_id FROM messages WHERE id = ?').get(req.params.id);
+    if (!m || m.parent_id) throw notFound('Message not found');
+    loadChannel(m.channel_id, req.user);
+    const follow = req.body?.follow === true || req.body?.follow === 1 ? 1 : 0;
+    q('INSERT INTO chat_thread_follow (user_id, message_id, follow) VALUES (?, ?, ?) ON CONFLICT(user_id, message_id) DO UPDATE SET follow = excluded.follow').run(req.user.id, m.id, follow);
+    sendTo([req.user.id], { type: 'chat-thread-follow', message_id: m.id, channel_id: m.channel_id, following: !!follow });
+    res.json({ following: !!follow });
   });
 
   // Forward a message you can see to another conversation you can write in, with a note of your own if you like.

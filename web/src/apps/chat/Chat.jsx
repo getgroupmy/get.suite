@@ -268,7 +268,7 @@ export default function Chat() {
     } else if (m.type === 'message-deleted') {
       setMessages((list) => list.filter((x) => x.id !== m.id));
       setThreadId((t) => (t === m.id ? null : t));
-    } else if (m.type === 'chat-unread') {
+    } else if (m.type === 'chat-unread' || m.type === 'chat-thread-follow') {
       loadChannels();
     } else if (m.type === 'channels-changed' || m.type === 'live-connected') {
       loadChannels();
@@ -315,7 +315,7 @@ export default function Chat() {
   const [threadsOpen, setThreadsOpen] = useState(false);
   const loadThreads = useCallback(() => get('/chat/threads').then(setThreads).catch(() => {}), []);
   useEffect(() => { loadThreads(); }, [loadThreads]);
-  useEffect(() => onLive((m) => { if ((m.type === 'message' && m.message.parent_id) || m.type === 'chat-read' || m.type === 'message-deleted') loadThreads(); }), [loadThreads]);
+  useEffect(() => onLive((m) => { if ((m.type === 'message' && m.message.parent_id) || m.type === 'chat-read' || m.type === 'message-deleted' || m.type === 'chat-thread-follow') loadThreads(); }), [loadThreads]);
   useEffect(() => { setThreadsOpen(false); }, [channelId]);
   const unreadThreads = threads.filter((t) => t.unread > 0).length;
   const setSave = (id, on) => put(`/chat/messages/${id}/saved`, { saved: on }).then(() => { loadSaved(); toast(on ? 'Saved for later (🔖 Saved in the list)' : 'Removed from Saved'); }).catch((e) => toast(e.message, 'error'));
@@ -688,6 +688,8 @@ function Thread({ id, channelId, user, onClose }) {
   const toast = useToast();
   const [parent, setParent] = useState(null);
   const [replies, setReplies] = useState([]);
+  // Whether its replies count for you (you started it, replied or followed it, and didn't unfollow it).
+  const [following, setFollowing] = useState(null);
   const [text, setText] = useState('');
   const [editingId, setEditingId] = useState(null);
   const [editText, setEditText] = useState('');
@@ -696,12 +698,17 @@ function Thread({ id, channelId, user, onClose }) {
   const mention = useMentions(box, text, setText, { groups: true });
   const typing = useTyping(channelId, id, user.id);
   useEffect(() => {
-    get(`/chat/messages/${id}/replies`).then((t) => { setParent(t.message); setReplies(t.replies); }).catch((e) => { toast(e.message, 'error'); onClose(); });
+    setFollowing(null);
+    get(`/chat/messages/${id}/replies`).then((t) => { setParent(t.message); setReplies(t.replies); setFollowing(t.following); }).catch((e) => { toast(e.message, 'error'); onClose(); });
     box.current?.focus();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
   useEffect(() => onLive((m) => {
-    if (m.type === 'message' && m.message.parent_id === id) setReplies((list) => (list.some((x) => x.id === m.message.id) ? list : [...list, m.message]));
+    if (m.type === 'message' && m.message.parent_id === id) {
+      setReplies((list) => (list.some((x) => x.id === m.message.id) ? list : [...list, m.message]));
+      // Your first reply puts you in the thread (unless you unfollowed it).
+      if (m.message.user_id === user.id) get(`/chat/messages/${id}/replies`).then((t) => setFollowing(t.following)).catch(() => {});
+    } else if (m.type === 'chat-thread-follow' && m.message_id === id) setFollowing(m.following);
     else if (m.type === 'message-updated') {
       if (m.message.id === id) setParent(m.message);
       else setReplies((list) => list.map((x) => (x.id === m.message.id ? m.message : x)));
@@ -736,7 +743,13 @@ function Thread({ id, channelId, user, onClose }) {
   );
   return (
     <aside className="thread-panel" aria-label="Thread">
-      <div className="row thread-head"><h2 className="grow">Thread</h2><button type="button" className="icon-btn" aria-label="Close thread" onClick={onClose}><Icon name="close" /></button></div>
+      <div className="row thread-head"><h2 className="grow">Thread</h2>
+        {following !== null && <button type="button" className={`btn small ${following ? '' : 'primary'}`} aria-pressed={following}
+          title={following ? 'Following: its replies count as unread for you and it’s in your Threads. Click to stop.' : 'Follow: its replies will count as unread for you and it’ll be in your Threads'}
+          onClick={async () => {
+            try { const r = await put(`/chat/messages/${id}/follow`, { follow: !following }); setFollowing(r.following); toast(r.following ? 'Following this thread' : 'Unfollowed: its replies won’t count as unread for you'); } catch (e) { toast(e.message, 'error'); }
+          }}>{following ? '✓ Following' : 'Follow'}</button>}
+        <button type="button" className="icon-btn" aria-label="Close thread" onClick={onClose}><Icon name="close" /></button></div>
       <div className="thread-body">
         {parent && item(parent, false)}
         {parent && <div className="thread-count muted small">{replies.length ? `${replies.length} ${replies.length === 1 ? 'reply' : 'replies'}` : 'No replies yet'}</div>}

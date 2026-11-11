@@ -3431,6 +3431,41 @@ test('chat: threads you are in, latest reply first', async () => {
   assert.ok(!(await a('GET', '/api/chat/threads')).body.some((t) => t.id === q1), 'left the channel');
 });
 
+test('chat: follow and unfollow a thread', async () => {
+  const a = client(), b = client(), x = client();
+  for (const [local, name] of [['fla', 'Follow Ann'], ['flb', 'Follow Ben'], ['flx', 'Follow Xavi']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'fla@acme.com'); await login(b, 'flb@acme.com'); await login(x, 'flx@acme.com');
+  const ch = (await a('POST', '/api/chat/channels', { name: 'follow-test' })).body.id;
+  const p = (await a('POST', `/api/chat/channels/${ch}/messages`, { body: 'busy thread' })).body.id;
+  for (const who of [a, b]) await who('POST', `/api/chat/channels/${ch}/read`);
+  const unread = async (who) => (await who('GET', '/api/chat/channels')).body.channels.find((c) => c.id === ch).unread;
+  const ids = async (who) => (await who('GET', '/api/chat/threads')).body.map((t) => t.id);
+  assert.equal((await a('GET', `/api/chat/messages/${p}/replies`)).body.following, true, 'she started it');
+  assert.equal((await b('GET', `/api/chat/messages/${p}/replies`)).body.following, false);
+  await x('POST', `/api/chat/channels/${ch}/messages`, { body: 'reply one', parent_id: p });
+  assert.equal(await unread(a), 1);
+  assert.equal(await unread(b), 0, 'Ben is not in it');
+  // Ben follows it without replying; Ann unfollows her own thread.
+  assert.deepEqual((await b('PUT', `/api/chat/messages/${p}/follow`, { follow: true })).body, { following: true });
+  assert.deepEqual((await a('PUT', `/api/chat/messages/${p}/follow`, { follow: false })).body, { following: false });
+  assert.equal(await unread(b), 1, 'following counts its replies');
+  assert.equal(await unread(a), 0, 'unfollowed: not even her own thread counts');
+  assert.deepEqual(await ids(b), [p]);
+  assert.deepEqual(await ids(a), [], 'and it leaves her Threads');
+  await a('POST', `/api/chat/channels/${ch}/messages`, { body: 'one last word', parent_id: p });
+  await x('POST', `/api/chat/channels/${ch}/messages`, { body: 'reply two', parent_id: p });
+  assert.equal(await unread(a), 0, 'replying again does not follow it again');
+  assert.equal((await a('GET', `/api/chat/messages/${p}/replies`)).body.following, false);
+  await a('PUT', `/api/chat/messages/${p}/follow`, { follow: true });
+  assert.equal(await unread(a), 1, 'followed again: the reply since she last read counts');
+  // Only the thread's message (not a reply), and only in a conversation you can see.
+  const reply = (await b('GET', `/api/chat/messages/${p}/replies`)).body.replies[0].id;
+  assert.equal((await b('PUT', `/api/chat/messages/${reply}/follow`, { follow: true })).status, 404);
+  const dm = (await a('POST', '/api/chat/dm', { user_id: (await b('GET', '/api/auth/me')).body.user.id })).body.id;
+  const secret = (await a('POST', `/api/chat/channels/${dm}/messages`, { body: 'just us' })).body.id;
+  assert.equal((await x('PUT', `/api/chat/messages/${secret}/follow`, { follow: true })).status, 404);
+});
+
 test('docs: download as Markdown; open a .md file as a document', async () => {
   const md = '# Minutes\n\nWe agreed on **three** things:\n\n- [x] budget\n- [ ] hiring\n\n| Who | What |\n| --- | --- |\n| Kim | slides |\n';
   const up = (await owner('POST', '/api/files/upload?name=minutes.md', Buffer.from(md), { raw: true })).body;
