@@ -112,6 +112,7 @@ export default function Home() {
                       <span className="home-when">{e.all_day ? 'All day' : time(e.start)}</span>
                       <button type="button" className="link-btn grow home-item" onClick={() => navigate('/calendar', { state: { openEvent: e } })}>{e.title}</button>
                       {nowOn && <span className="pill doing">Now</span>}
+                      {e.meet_live?.length > 0 && <span className="meet-live small" title={e.meet_live.join(', ')}><span className="chat-live-dot" aria-hidden="true" /> {e.meet_live.length} in it</span>}
                       {e.meet_code && <a className="btn small" href={`/meet/${e.meet_code}`} target="_blank" rel="noreferrer" aria-label={`Join ${e.title}`}>Join</a>}
                     </li>
                   );

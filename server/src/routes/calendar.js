@@ -1,4 +1,5 @@
 import { userById } from '../auth.js';
+import { namesIn } from '../meet.js';
 import { canEditCalendar, seesDetails } from '../calshare.js';
 import { audit } from '../audit.js';
 import { notify as bell } from '../notifications.js';
@@ -557,6 +558,7 @@ export default function calendarRoutes() {
       const { my_status, my_note, my_join, organizer_name, organizer_email, ...ev } = row;
       const out = outEvent(ev);
       return { ...out, attachments: attachmentsFor(out, req.user.id), role: mine ? 'organizer' : 'guest', guests: allGuests(row.id), rooms: roomsOf(row.id), reminders: reminders.get(row.id) || [],
+        ...(row.meet_code && { meet_live: namesIn(row.meet_code) }), // who's in its video meeting now
         ...(mine && row.task_id && { task: taskOfBlock(row.task_id, req.user.id) }),
         ...(mine ? {} : { my_status, my_note: my_note || null, my_join: my_join || null, organizer: { name: organizer_name, email: organizer_email } }) };
     }), ...sharedEvents(req.user.id, from, to), ...(req.query.feeds === '0' ? [] : feedEvents(req.user.id, from, to))]);

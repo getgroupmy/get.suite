@@ -1,4 +1,5 @@
 import WorldClock from './WorldClock.jsx';
+import { liveText } from '../meet/meetmath.js';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
 import { createPortal } from 'react-dom';
@@ -808,13 +809,13 @@ function Attachments({ list = [], onRemove }) {
 }
 
 /** The event's video meeting: Join (in a new tab, so the calendar stays open), its link, and Remove while editing. */
-function MeetLine({ code, onRemove }) {
+function MeetLine({ code, onRemove, live }) {
   const toast = useToast();
   const link = `${location.origin}/meet/${code}`;
   return (
     <div className="row wrap meet-line" role="group" aria-label="Video meeting">
       <a className="btn primary" href={`/meet/${code}`} target="_blank" rel="noreferrer"><Icon name="video" size={18} /> Join video meeting</a>
-      <span className="muted small grow">{code}</span>
+      <span className="muted small grow">{live?.length ? <span className="meet-live" title={live.join(', ')}><span className="chat-live-dot" aria-hidden="true" /> {liveText(live)}</span> : code}</span>
       <button type="button" className="link-btn small" onClick={async () => { try { await navigator.clipboard.writeText(link); toast('Meeting link copied'); } catch { toast(link); } }}>Copy link</button>
       {onRemove && <button type="button" className="link-btn small" onClick={onRemove}>Remove</button>}
     </div>
@@ -855,7 +856,7 @@ function InvitationDialog({ event, onClose, onAnswered }) {
       <div className="stack">
         <p style={{ margin: 0 }}>{whenLabel(event)}{event.rrule && <><br /><span className="muted small">{describeRule(event.rrule, event.seriesStart ?? event.start)}</span></>}</p>
         {event.location && <p style={{ margin: 0 }}><span className="muted">Where:</span> {event.location}</p>}
-        {event.meet_code && <MeetLine code={event.meet_code} />}
+        {event.meet_code && <MeetLine code={event.meet_code} live={event.meet_live} />}
         {event.description && <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{event.description}</p>}
         <Attachments list={event.attachments} />
         <p style={{ margin: 0 }}><span className="muted">Organizer:</span> {event.organizer?.name} <span className="muted small">{event.organizer?.email}</span></p>
@@ -1433,7 +1434,7 @@ function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate, tem
         {!special && <RoomPicker eventId={event.id} people={guests.length + 1} chosen={roomIds} booked={event.rooms || []} onChange={setRoomIds} when={(() => { const r = read(); return r.end > r.start ? [r.start, r.end] : null; })()} />}
         <RemindersField value={reminders} onChange={setReminders} />
         {!special && <label className="field"><span>Location</span><input value={f.location} onChange={set('location')} /></label>}
-        {!special && (meet ? <MeetLine code={meet} onRemove={() => setMeet(null)} />
+        {!special && (meet ? <MeetLine code={meet} live={meet === event.meet_code ? event.meet_live : null} onRemove={() => setMeet(null)} />
           : <div><button type="button" className="btn" onClick={addMeet}><Icon name="video" size={18} /> Add video meeting</button></div>)}
         <label className="field"><span>{f.ooo ? 'Message for people who invite you' : 'Description'}</span><textarea rows={3} value={f.description} onChange={set('description')} placeholder={f.ooo ? 'e.g. On holiday until Monday 9th; for anything urgent, ask Kim.' : undefined} /></label>
         {!special && (

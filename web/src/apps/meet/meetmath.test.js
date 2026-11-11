@@ -59,3 +59,11 @@ test('who is shown big: your pin, then the host’s spotlight, then whoever pres
   assert.equal(spotlightOf(tiles, null, 'gone'), 'a');
   assert.equal(spotlightOf(tiles, null, null), 'a');
 });
+
+test('who is in a meeting now, in words', async () => {
+  const { liveText } = await import('./meetmath.js');
+  assert.equal(liveText([]), '');
+  assert.equal(liveText(['Kim Park']), 'Kim Park is in it now');
+  assert.equal(liveText(['Kim', 'Lee']), 'Kim and Lee are in it now');
+  assert.equal(liveText(['Kim', 'Lee', 'Max']), 'Kim and 2 others are in it now');
+});

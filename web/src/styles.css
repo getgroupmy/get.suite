@@ -2841,3 +2841,4 @@ select.meet-timer-btn option { color: #202124; }
 @keyframes chat-live { 50% { opacity: .3; } }
 @media (prefers-color-scheme: dark) { .chat-live-call { background: #0d3a1e; color: #81c995; } }
 .chat-call-mark { font-size: 13px; animation: chat-live 1.6s ease-in-out infinite; }
+.meet-live { display: inline-flex; align-items: center; gap: 6px; color: #137333; white-space: nowrap; }

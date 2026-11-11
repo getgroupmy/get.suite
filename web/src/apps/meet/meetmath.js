@@ -66,3 +66,11 @@ export function countdown(timer, now = Date.now()) {
   return { left: `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`, up: ms === 0, soon: ms > 0 && ms <= 30000 };
 }
 export const TIMER_CHOICES = [[60, '1 minute'], [120, '2 minutes'], [300, '5 minutes'], [600, '10 minutes'], [900, '15 minutes'], [1800, '30 minutes']];
+
+/** Who's in a video meeting now, in words: "Kim Park is in it", "Kim and Lee are in it", "Kim and 2 others are in it". */
+export function liveText(names = []) {
+  if (!names.length) return '';
+  if (names.length === 1) return `${names[0]} is in it now`;
+  if (names.length === 2) return `${names[0]} and ${names[1]} are in it now`;
+  return `${names[0]} and ${names.length - 1} others are in it now`;
+}

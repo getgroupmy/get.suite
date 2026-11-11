@@ -4062,6 +4062,11 @@ test('chat: a video call shared in a conversation shows who is in it while it la
   await new Promise((r) => setTimeout(r, 100));
   assert.deepEqual((await call(Bq, 'GET', `/api/chat/channels/${dm}/calls`)).body, [{ code, people: ['Cal Ann'] }]);
   assert.equal((await call(Bq, 'GET', '/api/chat/calls')).body[dm], 1, 'a 🎥 in the list');
+  // An event with that video meeting says who's in it now.
+  const t = Date.now();
+  const evId = (await call(A, 'POST', '/api/events', { title: 'Catch-up', start: t - 6e4, end: t + 30 * 6e4, meet_code: code, guests: ['ccallb@acme.com'] })).body.id;
+  const seenEv = async (who) => (await call(who, 'GET', `/api/events?from=${t - 36e5}&to=${t + 36e5}`)).body.find((e) => e.id === evId);
+  assert.deepEqual((await seenEv(Bq)).meet_live, ['Cal Ann']);
   const C = await cookieFor('ccallc', 'Cal Cat');
   assert.equal((await call(C, 'GET', `/api/chat/channels/${dm}/calls`)).status, 404, 'not in the conversation');
   assert.equal((await call(C, 'GET', '/api/chat/calls')).body[dm], undefined, 'not theirs to see');
@@ -4069,6 +4074,7 @@ test('chat: a video call shared in a conversation shows who is in it while it la
   await new Promise((r) => setTimeout(r, 150));
   assert.deepEqual((await call(Bq, 'GET', `/api/chat/channels/${dm}/calls`)).body, [], 'over');
   assert.equal((await call(Bq, 'GET', '/api/chat/calls')).body[dm], undefined);
+  assert.deepEqual((await seenEv(A)).meet_live, [], 'nobody in it now');
 });
 
 test('meet: a video meeting on a calendar event', async () => {
