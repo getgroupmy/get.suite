@@ -1,7 +1,7 @@
 // The Word count window (⋮ menu or Ctrl+Shift+C), and the small counter shown while typing.
 import { useEffect, useState } from 'react';
 import { Modal } from '../../components/ui.jsx';
-import { countDoc, counterText, readingTime, goalProgress } from './wordcount.js';
+import { countText, textOfDoc, counterText, readingTime, speakingTime, countSentences, readability, goalProgress } from './wordcount.js';
 
 const KEY = 'nw-doc-wordcount';
 /** Whether the counter shows while typing (remembered in this browser). */
@@ -11,8 +11,9 @@ const remember = (on) => { try { localStorage.setItem(KEY, on ? '1' : '0'); } ca
 /** The counts for the editor now: { all, part } (part only when text is selected). */
 function countsOf(editor) {
   const { doc, selection } = editor.state;
-  const all = countDoc(doc);
-  return { all, part: selection.empty ? null : countDoc(doc, selection.from, selection.to) };
+  const counts = (text) => ({ ...countText(text), sentences: countSentences(text), ease: readability(text) });
+  const all = counts(textOfDoc(doc));
+  return { all, part: selection.empty ? null : counts(textOfDoc(doc, selection.from, selection.to)) };
 }
 
 /** Counts that follow the editor (worked out a moment after typing stops, so long documents stay quick). */
@@ -37,7 +38,10 @@ export function WordCountDialog({ editor, live, onLive, onClose, goal = null, on
     ['Characters', (c) => n(c.characters)],
     ['Characters excluding spaces', (c) => n(c.noSpaces)],
     ['Paragraphs', (c) => n(c.paragraphs)],
+    ['Sentences', (c) => n(c.sentences)],
     ['Reading time', (c) => (c.words ? readingTime(c.words) : '—')],
+    ['Speaking time', (c) => (c.words ? speakingTime(c.words) : '—')],
+    ['Readability', (c) => (c.ease ? <span title="Flesch reading ease (for English): 0 to 100, higher is easier. Shorter sentences and words make text easier.">{c.ease.label} ({c.ease.score})</span> : <span className="muted" title="Needs 30 words or more">—</span>)],
   ];
   return (
     <Modal title="Word count" onClose={onClose} footer={<button type="button" className="btn primary" onClick={onClose}>OK</button>}>

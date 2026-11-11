@@ -38,3 +38,19 @@ test('word count goal: progress and done', async () => {
   assert.deepEqual(goalProgress(1020, 1000), { text: '✓ 1,020 / 1,000 words', pct: 100, done: true });
   assert.equal(goalProgress(0, 500).pct, 0);
 });
+
+test('sentences, speaking time and readability', async () => {
+  const { countSentences, speakingTime, syllables, readability } = await import('./wordcount.js');
+  assert.equal(countSentences('Hi there. How are you? Fine!\nNew line'), 4);
+  assert.equal(countSentences('Version 2.5 is out. Get it.'), 2, 'a dot inside a number isn’t the end');
+  assert.equal(countSentences(''), 0);
+  assert.equal(speakingTime(130), '1 min');
+  assert.equal(speakingTime(13000), '1 h 40 min');
+  assert.deepEqual([syllables('cat'), syllables('table'), syllables('readability')], [1, 2, 5]);
+  assert.equal(readability('Too short to say.'), null);
+  const easy = 'The cat sat on the mat. It was a big cat. The dog ran to the cat. The cat ran up a tree. The dog sat down. It was a nice day. ';
+  assert.equal(readability(easy).label, 'Very easy');
+  const hard = 'Notwithstanding considerable organisational complexities, implementation methodologies necessitate comprehensive interdepartmental coordination, systematic documentation, and continuous evaluation of institutional performance indicators throughout successive operational periods, particularly regarding infrastructural modernisation initiatives and administrative harmonisation procedures across numerous international subsidiaries.';
+  const r = readability(hard);
+  assert.ok(r.score < 30 && r.label === 'Very difficult', JSON.stringify(r));
+});
