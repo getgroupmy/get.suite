@@ -3830,6 +3830,23 @@ test('meet: start a meeting, join its room, signals pass between people', async 
   a.ws.send(JSON.stringify({ type: 'spotlight', id: wb.id }));
   await a.next('spotlight'); await a.next('spotlight');
   assert.equal((await b.next('spotlight')).spotlight.id, wb.id);
+  // The host's settings: everyone joins muted; only the host presents.
+  assert.deepEqual(wb.settings, { muted_entry: false, host_present: false });
+  b.ws.send(JSON.stringify({ type: 'settings', muted_entry: true }));
+  a.ws.send(JSON.stringify({ type: 'settings', muted_entry: true, host_present: true, junk: 1 }));
+  const set1 = await b.next('settings');
+  assert.deepEqual([set1.settings, set1.by], [{ muted_entry: true, host_present: true }, 'Mia Meet']);
+  b.ws.send(JSON.stringify({ type: 'state', state: { screen: true } }));
+  assert.match((await b.next('stop-present')).reason, /Only the host can present/);
+  for (;;) { const st2 = await a.next('state'); if (st2.id === wb.id) { assert.equal(st2.state.screen, false); break; } }
+  const late = await open(cb);
+  const wl = await late.next('welcome');
+  assert.equal(wl.muted_on_entry, true);
+  assert.equal((await a.next('joined')).peer.state.mic, false, 'comes in muted');
+  late.ws.close();
+  assert.equal((await a.next('left')).id, wl.id);
+  a.ws.send(JSON.stringify({ type: 'settings', muted_entry: false, host_present: false }));
+  assert.deepEqual((await b.next('settings')).settings, { muted_entry: false, host_present: false });
 
   // Another company can't get in.
   const outside = (await owner('POST', '/api/orgs', { name: 'Meetco', domain: 'meetco.com', admin_name: 'Mo', admin_local: 'mo', admin_password: 'password123' }));

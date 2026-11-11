@@ -4,8 +4,8 @@
 // each other. `onChange` is called whenever something visible changes.
 
 export class Mesh {
-  constructor({ code, room = 0, onBreakout, guestName = '', stream, iceServers = [], mic = true, cam = true, onChange, onChat, onReact, onClosed, onMuted, onPoll, onQuestion, onBoard, onLocked, onLowered }) {
-    Object.assign(this, { code, room, onBreakout, guestName, stream, iceServers, onChange, onChat, onReact, onClosed, onMuted, onPoll, onQuestion, onBoard, onLocked, onLowered });
+  constructor({ code, room = 0, onBreakout, guestName = '', stream, iceServers = [], mic = true, cam = true, onChange, onChat, onReact, onClosed, onMuted, onPoll, onQuestion, onBoard, onLocked, onLowered, onStopPresent }) {
+    Object.assign(this, { code, room, onBreakout, guestName, stream, iceServers, onChange, onChat, onReact, onClosed, onMuted, onPoll, onQuestion, onBoard, onLocked, onLowered, onStopPresent });
     this.polls = new Map(); // the meeting's polls, by id
     this.questions = new Map(); // Q&A, by id
     this.board = []; // the whiteboard's strokes, in order
@@ -62,6 +62,8 @@ export class Mesh {
   /** (Host) start a countdown for everyone, or stop it (0). */
   /** (Host) show someone big for everyone, or stop (null). */
   setSpotlight(id) { this.send({ type: 'spotlight', id }); }
+  /** (Host) the meeting's settings: { muted_entry, host_present }. */
+  setSettings(patch) { this.settings = { ...this.settings, ...patch }; this.send({ type: 'settings', ...patch }); this.onChange?.(); }
   setTimer(seconds) { this.send({ type: 'timer', seconds }); }
   /** Let a waiting guest in, or not. */
   admit(id) { this.send({ type: 'admit', id }); }
@@ -75,6 +77,8 @@ export class Mesh {
       this.waiting = false;
       this.room = m.room || 0; // 0: the main room
       this.breakoutCount = m.breakouts || 0;
+      this.settings = m.settings || {}; // the host's: everyone joins muted, only the host presents
+      if (m.muted_on_entry) { this.setMic(false); this.onMuted?.(null); }
       this.spotlight = m.spotlight || null; // who the host shows big for everyone
       this.timer = m.timer || null; // the host's countdown, if one is running
       this.locked = !!m.locked; // the host has locked it: nobody new can join
@@ -106,6 +110,8 @@ export class Mesh {
     else if (m.type === 'poll') { const isNew = !this.polls.has(m.poll.id); this.polls.set(m.poll.id, m.poll); if (isNew) this.onPoll?.(m.poll); }
     else if (m.type === 'timer') this.timer = m.timer;
     else if (m.type === 'spotlight') this.spotlight = m.spotlight;
+    else if (m.type === 'settings') this.settings = m.settings;
+    else if (m.type === 'stop-present') { if (this.state.screen) this.stopScreen(); this.onStopPresent?.(m.reason); }
     else if (m.type === 'locked') { this.locked = !!m.on; this.onLocked?.(m); }
     else if (m.type === 'lowered') { this.onLowered?.(m.by); }
     else if (m.type === 'muted') { this.setMic(false); this.onMuted?.(m.by); return; }

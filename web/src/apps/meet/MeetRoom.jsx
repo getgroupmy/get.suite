@@ -242,7 +242,8 @@ export default function MeetRoom({ guest = false, onSignIn }) {
       onPoll: (p) => { if (panelRef.current !== 'polls') toast(`${p.by_name} asked: ${p.question}`); },
       // Breakout rooms: off to another room (or back to the main one), keeping camera and microphone.
       onBreakout: ({ room: to, by }) => { toast(to ? `${by} moved you to Room ${to}` : `${by} brought everyone back to the main room`); goToRoom(to); },
-      onMuted: (by) => { setMic(false); toast(`${by} muted you. Unmute when you want to speak.`); },
+      onMuted: (by) => { setMic(false); toast(by ? `${by} muted you. Unmute when you want to speak.` : 'You joined muted (the host asks everyone to). Unmute when you want to speak.'); },
+      onStopPresent: (reason) => toast(reason),
       onLowered: (by) => toast(`${by} lowered your hand`),
     });
     mesh.current = m;
@@ -421,6 +422,10 @@ export default function MeetRoom({ guest = false, onSignIn }) {
                 {m.host && <li className="row"><span className="grow muted small">{m.locked ? '🔒 Locked: nobody new can join. Those here can come back if they drop out.' : 'Lock the meeting to stop anyone new from joining.'}</span>
                   <button type="button" className="btn small" aria-pressed={!!m.locked} onClick={() => m.lock(!m.locked)}>{m.locked ? '🔓 Unlock meeting' : '🔒 Lock meeting'}</button></li>}
                 {!m.host && m.locked && <li className="muted small">🔒 The host has locked the meeting: nobody new can join.</li>}
+                {m.host && <li className="meet-settings stack" aria-label="Meeting settings">
+                  <label className="row small"><input type="checkbox" checked={!!m.settings?.muted_entry} onChange={(e) => m.setSettings({ muted_entry: e.target.checked })} /> Everyone joins muted</label>
+                  <label className="row small"><input type="checkbox" checked={!!m.settings?.host_present} onChange={(e) => m.setSettings({ host_present: e.target.checked })} /> Only I can present</label>
+                </li>}
                 {m.host && tiles.length > 1 && <li className="row"><span className="grow muted small">You started this meeting.</span><button type="button" className="btn small" onClick={() => { m.mute('all'); toast('Everyone else is muted'); }}>Mute everyone</button></li>}
                 {hands.length > 0 && <li className="meet-hands" aria-label="Raised hands">
                   <div className="row"><strong className="grow small">✋ Raised hands ({hands.length})</strong>
@@ -442,6 +447,7 @@ export default function MeetRoom({ guest = false, onSignIn }) {
         <button type="button" className={`meet-btn ${m.state.mic ? '' : 'off'}`} disabled={!hasAudio} aria-pressed={m.state.mic} aria-label={m.state.mic ? 'Turn off microphone' : 'Turn on microphone'} onClick={toggleMic}>{m.state.mic ? '🎙' : '🔇'}</button>
         <button type="button" className={`meet-btn ${m.state.cam ? '' : 'off'}`} disabled={!hasVideo} aria-pressed={m.state.cam} aria-label={m.state.cam ? 'Turn off camera' : 'Turn on camera'} onClick={toggleCam}>{m.state.cam ? '📷' : '🚫'}</button>
         {navigator.mediaDevices?.getDisplayMedia && <button type="button" className={`meet-btn ${sharing ? 'on' : ''}`} aria-pressed={!!sharing} aria-label={sharing ? 'Stop presenting' : 'Present your screen'}
+          disabled={!sharing && !m.host && !!m.settings?.host_present} title={!sharing && !m.host && m.settings?.host_present ? 'Only the host can present in this meeting' : undefined}
           onClick={() => (sharing ? m.stopScreen() : m.shareScreen().catch(() => {}))}>🖥</button>}
         <button type="button" className={`meet-btn ${m.state.hand ? 'on' : ''}`} aria-pressed={m.state.hand} aria-label={m.state.hand ? 'Lower hand' : 'Raise hand'} onClick={() => m.setState({ hand: !m.state.hand })}>✋</button>
         <span className="meet-reacts" role="group" aria-label="Send a reaction">{REACTIONS.map((e) => <button key={e} type="button" className="meet-react" aria-label={`React ${e}`} onClick={() => m.react(e)}>{e}</button>)}</span>

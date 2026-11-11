@@ -2822,3 +2822,4 @@ select.meet-timer-btn { background: rgba(255,255,255,.12); color: inherit; borde
 select.meet-timer-btn option { color: #202124; }
 .meet-spot-btn { right: 42px; }
 .meet-spot-tag { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); z-index: 2; background: #f9ab00; color: #202124; font-size: 12px; font-weight: 600; padding: 2px 10px; border-radius: 10px; }
+.meet-settings { display: grid !important; gap: 4px; padding: 6px 0; }
