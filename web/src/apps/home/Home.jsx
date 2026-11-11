@@ -26,7 +26,7 @@ function dayText(d) {
 
 /** Home's cards, by key, as the Customize window names them. */
 export const CARD_NAMES = { events: "Today's events", tasks: 'Tasks for today', unread: 'Unread', approvals: 'Waiting for your approval', out: "Who's out",
-  signing: 'Waiting for your signature', apps: 'Company apps', recent: 'Recent files', notes: 'Pinned notes', dates: 'Birthdays and dates', touch: 'Keep in touch' };
+  signing: 'Waiting for your signature', apps: 'Company apps', recent: 'Recent files', notes: 'Pinned notes', dates: 'Birthdays and dates', touch: 'Keep in touch', office: 'In the office today' };
 const DEFAULT_LAYOUT = { order: Object.keys(CARD_NAMES), hidden: [] };
 
 export default function Home() {
@@ -47,7 +47,7 @@ export default function Home() {
     const start = new Date(); start.setHours(0, 0, 0, 0);
     const from = start.getTime(), to = from + 864e5 - 1;
     const safe = (p, empty) => p.catch(() => empty);
-    const [events, due, channels, recent, notes, unread, approvals, where, signing, away, apps, dates, touch] = await Promise.all([
+    const [events, due, channels, recent, notes, unread, approvals, where, signing, away, apps, dates, touch, office] = await Promise.all([
       safe(get(`/events?from=${from}&to=${to}`), []), safe(get(`/tasks/today?today=${localToday()}`), []),
       safe(get('/chat/channels'), { channels: [] }), safe(get('/files?view=recent'), []), safe(get('/notes'), []),
       mail?.enabled ? safe(get('/mail/unread'), null) : Promise.resolve(null), safe(get('/approvals'), { waiting: [] }),
@@ -56,6 +56,7 @@ export default function Home() {
       safe(get('/oauth/launcher'), []),
       safe(get(`/contacts/birthdays?from=${localToday()}&to=${addDays(localToday(), 13)}`), []),
       safe(get('/contacts/keep-in-touch'), []),
+      safe(get(`/location/office?date=${localToday()}`), []),
     ]);
     setData({
       events: expandAll(events, from, to).filter((e) => e.my_status !== 'no'),
@@ -71,6 +72,7 @@ export default function Home() {
       apps,
       dates: upcoming(dates, localToday()).slice(0, 6),
       touch: touch.slice(0, 5), touchMore: Math.max(0, touch.length - 5),
+      office,
     });
   }, [mail?.enabled]);
   useEffect(() => { if (mail) load(); }, [load, mail]);
@@ -218,6 +220,16 @@ export default function Home() {
                   </li>
                 ))}
               </ul>
+            </section>
+          )}
+          {data.office.length > 0 && (
+            <section className="card home-card" aria-label="In the office today" {...cardProps('office')}>
+              <h2><Link to="/contacts?tab=dir"><span aria-hidden="true">🏢</span> In the office today</Link></h2>
+              <p className="muted small" style={{ margin: '0 0 8px' }}>{data.where?.place === 'office' ? `You’ll see ${data.office.length === 1 ? 'one colleague' : `${data.office.length} colleagues`} there.` : `${data.office.length === 1 ? 'One colleague is' : `${data.office.length} colleagues are`} in today.`}</p>
+              <ul className="home-office" aria-label="Colleagues in the office">
+                {data.office.slice(0, 12).map((u) => <li key={u.id} title={u.name}><Avatar name={u.name} userId={u.id} size={28} /><span className="ellipsis small">{u.name}</span></li>)}
+              </ul>
+              {data.office.length > 12 && <Link className="small" to="/contacts?tab=dir">and {data.office.length - 12} more</Link>}
             </section>
           )}
           {data.touch.length > 0 && (

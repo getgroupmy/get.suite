@@ -91,6 +91,14 @@ export default function locationRoutes() {
     }
     res.json(out);
   });
+  // Who's in the office on a day (not you): [{ id, name }], A to Z, for Home's "In the office" card.
+  r.get('/office', (req, res) => {
+    const date = String(req.query.date || '');
+    if (!DAY_RE.test(date)) throw bad('date must be YYYY-MM-DD');
+    const names = new Map(q('SELECT id, name FROM users WHERE org_id = ? AND disabled = 0').all(req.user.org_id).map((u) => [u.id, u.name]));
+    res.json(colleagues(req.user.org_id).filter((u) => u.id !== req.user.id && placeOn(u.id, date, u.week)?.place === 'office')
+      .map((u) => ({ id: u.id, name: names.get(u.id) })).sort((a, b) => a.name.localeCompare(b.name)));
+  });
   // How many colleagues are where, day by day (at most 14 days): { date: { office, home, other } },
   // to plan office days ("who's in on Thursday?").
   r.get('/summary', (req, res) => {

@@ -4498,6 +4498,12 @@ test('working location: usual week, a day different, and colleagues', async () =
   assert.ok(after['2026-11-09'].office >= 2, 'Wendy and Walt');
   assert.equal(Object.keys((await b('GET', '/api/location/summary?from=2026-11-01&to=2026-12-31')).body).length, 14, 'two weeks at most');
   assert.equal((await b('GET', '/api/location/summary?from=2026-11-13&to=2026-11-09')).status, 400);
+  // Who's in the office on a day: names, not yourself.
+  const inOn = async (c, d) => (await c('GET', `/api/location/office?date=${d}`)).body.map((u) => u.name);
+  assert.ok((await inOn(b, '2026-11-11')).includes('Wendy Where') === false, 'Wendy is at home on Wednesdays');
+  assert.ok((await inOn(a, '2026-11-11')).includes('Walt Watcher'));
+  assert.ok(!(await inOn(b, '2026-11-11')).includes('Walt Watcher'), 'not yourself');
+  assert.equal((await b('GET', '/api/location/office?date=today')).status, 400);
 });
 
 test('focus time: declines new invitations and pauses notifications while it lasts', async () => {
@@ -8915,6 +8921,7 @@ test('home layout: each person orders and hides Home’s cards; new cards appear
   assert.deepEqual((await a('GET', '/api/auth/me')).body.user.home_layout, { order: HOME_CARDS, hidden: [] });
   assert.ok(HOME_CARDS.includes('dates'), 'birthdays and dates');
   assert.ok(HOME_CARDS.includes('touch'), 'keep in touch');
+  assert.ok(HOME_CARDS.includes('office'), 'in the office today');
   const set = (await a('PUT', '/api/users/me/home-layout', { order: ['notes', 'events'], hidden: ['apps', 'out'] })).body;
   assert.deepEqual(set.order.slice(0, 3), ['notes', 'events', 'tasks'], 'the rest after, in their usual order');
   assert.equal(set.order.length, HOME_CARDS.length);
