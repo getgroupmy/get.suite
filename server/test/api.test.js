@@ -1357,11 +1357,13 @@ test('chat threads: replies beside a message, counted on it; unread only for peo
   assert.equal(made.status, 201);
   await login(g, 'tia@threadco.com');
   assert.equal((await g('GET', `/api/chat/messages/${top.id}/replies`)).status, 404);
-  // Deleting a reply updates the count; deleting the message takes its thread with it.
+  // Deleting a reply updates the count; deleting the message keeps its thread (as "This message was deleted").
   await a('DELETE', `/api/chat/messages/${r2.id}`);
   assert.equal((await c('GET', `/api/chat/channels/${ch}/messages`)).body[0].reply_count, 1);
   await a('DELETE', `/api/chat/messages/${top.id}`);
-  assert.equal((await c('GET', `/api/chat/messages/${top.id}/replies`)).status, 404);
+  const kept = (await c('GET', `/api/chat/messages/${top.id}/replies`)).body;
+  assert.ok(kept.message.deleted_at);
+  assert.equal(kept.replies.length, 1);
   assert.equal(await unread(b), 0);
 });
 
@@ -8871,6 +8873,35 @@ test('calendar: event templates, each person’s own', async () => {
   assert.equal((await b('DELETE', `/api/events/templates/${t.body.id}`)).status, 404);
   await a('DELETE', `/api/events/templates/${t.body.id}`);
   assert.deepEqual((await a('GET', '/api/events/templates')).body.map((x) => x.name), ['Day']);
+});
+
+test('chat: deleting a message with replies keeps its thread ("This message was deleted")', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['cdta', 'Cdt Ann'], ['cdtb', 'Cdt Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'cdta@acme.com'); await login(b, 'cdtb@acme.com');
+  const ch = (await a('POST', '/api/chat/channels', { name: 'cdt-room' })).body.id;
+  const m = (await a('POST', `/api/chat/channels/${ch}/messages`, { body: 'Who has the keys?' })).body;
+  const r1 = (await b('POST', `/api/chat/channels/${ch}/messages`, { body: 'I do', parent_id: m.id })).body;
+  await b('POST', `/api/chat/messages/${m.id}/reactions`, { emoji: '👍' });
+  const del = await a('DELETE', `/api/chat/messages/${m.id}`);
+  assert.deepEqual(del.body, { ok: true, kept: true });
+  const list = (await b('GET', `/api/chat/channels/${ch}/messages`)).body;
+  const kept = (list.messages || list).find((x) => x.id === m.id);
+  assert.ok(kept.deleted_at);
+  assert.equal(kept.body, '');
+  assert.deepEqual(kept.reactions || [], []);
+  const thread = (await b('GET', `/api/chat/messages/${m.id}/replies`)).body;
+  assert.equal((thread.replies || thread).length, 1, 'the reply stays');
+  assert.equal((await a('PATCH', `/api/chat/messages/${m.id}`, { body: 'Back' })).status, 400, 'can’t be edited');
+  assert.equal((await b('POST', `/api/chat/messages/${m.id}/reactions`, { emoji: '😂' })).status, 400);
+  assert.equal((await a('DELETE', `/api/chat/messages/${m.id}`)).status, 404, 'already deleted');
+  // The last reply going takes the deleted message with it.
+  await b('DELETE', `/api/chat/messages/${r1.id}`);
+  const after = (await b('GET', `/api/chat/channels/${ch}/messages`)).body;
+  assert.ok(!(after.messages || after).some((x) => x.id === m.id));
+  // Without replies, a message simply goes.
+  const lone = (await a('POST', `/api/chat/channels/${ch}/messages`, { body: 'Typo' })).body;
+  assert.deepEqual((await a('DELETE', `/api/chat/messages/${lone.id}`)).body, { ok: true });
 });
 
 test('chat: close a direct message; it comes back when someone writes', async () => {

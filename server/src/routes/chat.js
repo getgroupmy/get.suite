@@ -101,7 +101,8 @@ q(`CREATE TABLE IF NOT EXISTS chat_mutes (
   PRIMARY KEY (channel_id, user_id)
 )`).run();
 // Pinned messages: kept at hand for everyone in the conversation.
-for (const [col, type] of [['pinned_at', 'INTEGER'], ['pinned_by', 'TEXT']]) {
+// deleted_at: a message deleted while its thread has replies stays as "This message was deleted", so the replies keep their place.
+for (const [col, type] of [['pinned_at', 'INTEGER'], ['pinned_by', 'TEXT'], ['deleted_at', 'INTEGER']]) {
   if (!q('PRAGMA table_info(messages)').all().some((c) => c.name === col)) q(`ALTER TABLE messages ADD COLUMN ${col} ${type}`).run();
 }
 // Polls: a message can carry a question with options ({ question, options: [{ id, text }], multi, closed_at }); votes are kept per person.
@@ -189,7 +190,7 @@ function dmOpen(c, user) {
 
 // Each message with its thread: how many replies, when the last came, and who replied (first few).
 if (!q('PRAGMA table_info(messages)').all().some((c) => c.name === 'preview')) q('ALTER TABLE messages ADD COLUMN preview TEXT').run(); // a link's title and description (linkpreview.js)
-const MSG = `SELECT m.id, m.channel_id, m.user_id, m.bot, m.body, m.created_at, m.edited_at, m.files, m.parent_id, m.pinned_at, m.poll, m.forwarded, m.preview, m.contact, u.name AS user_name, (SELECT pu.name FROM users pu WHERE pu.id = m.pinned_by) AS pinned_by_name,
+const MSG = `SELECT m.id, m.channel_id, m.user_id, m.bot, m.body, m.created_at, m.edited_at, m.deleted_at, m.files, m.parent_id, m.pinned_at, m.poll, m.forwarded, m.preview, m.contact, u.name AS user_name, (SELECT pu.name FROM users pu WHERE pu.id = m.pinned_by) AS pinned_by_name,
                (SELECT COUNT(*) FROM messages t WHERE t.parent_id = m.id) AS reply_count,
                (SELECT MAX(t.created_at) FROM messages t WHERE t.parent_id = m.id) AS last_reply_at,
                (SELECT json_group_array(name) FROM (SELECT DISTINCT tu.name FROM messages t JOIN users tu ON tu.id = t.user_id
@@ -1026,6 +1027,7 @@ export default function chatRoutes() {
     const c = loadChannel(m.channel_id, req.user);
     if (m.user_id !== req.user.id) throw notFound();
     readOnly(c);
+    if (m.deleted_at) throw bad('This message was deleted');
     if (m.poll) throw bad("A poll can't be edited");
     const body = str(req.body.body, { required: !m.files, name: 'Message', max: 8000 }) || '';
     q('UPDATE messages SET body = ?, edited_at = ?, preview = NULL WHERE id = ?').run(body, now(), m.id);
@@ -1062,6 +1064,7 @@ export default function chatRoutes() {
     if (!m) throw notFound();
     const c = loadChannel(m.channel_id, req.user);
     readOnly(c);
+    if (m.deleted_at) throw bad('This message was deleted');
     const emoji = String(req.body.emoji || '').trim();
     const own = customName(emoji); // a company emoji, :name:
     if (!emoji || (own ? !hasEmoji(req.user.org_id, own) : emoji.length > 16 || /[\s<>]/.test(emoji))) throw bad('Choose an emoji');
@@ -1232,11 +1235,27 @@ export default function chatRoutes() {
     const c = loadChannel(m.channel_id, req.user);
     const moderator = req.user.is_admin && !c.dm_key; // company admins moderate their own channels
     if (m.user_id !== req.user.id && !moderator) throw notFound();
+    if (m.deleted_at) throw notFound();
     keepIfHeld(m.user_id, 'This message');
-    for (const r of q('SELECT DISTINCT user_id FROM messages WHERE parent_id = ?').all(m.id)) keepIfHeld(r.user_id, 'Its thread');
-    q('DELETE FROM messages WHERE id = ? OR parent_id = ?').run(m.id, m.id); // a thread goes with its message
+    // With replies in its thread, the message stays as "This message was deleted" and the replies stay with it.
+    if (!m.parent_id && q('SELECT 1 FROM messages WHERE parent_id = ?').get(m.id)) {
+      tx(() => {
+        q('UPDATE messages SET body = \'\', files = NULL, poll = NULL, preview = NULL, contact = NULL, forwarded = NULL, pinned_at = NULL, pinned_by = NULL, deleted_at = ? WHERE id = ?').run(now(), m.id);
+        q('DELETE FROM message_reactions WHERE message_id = ?').run(m.id);
+      });
+      sendTo(audience(c), { type: 'message-updated', message: one(m.id) });
+      return res.json({ ok: true, kept: true });
+    }
+    q('DELETE FROM messages WHERE id = ?').run(m.id);
     sendTo(audience(c), { type: 'message-deleted', id: m.id, channel_id: m.channel_id, parent_id: m.parent_id });
-    if (m.parent_id) { const p = one(m.parent_id); if (p) sendTo(audience(c), { type: 'message-updated', message: p }); }
+    if (m.parent_id) {
+      const p = q('SELECT * FROM messages WHERE id = ?').get(m.parent_id);
+      // The last reply to a deleted message gone: nothing is left to keep it for.
+      if (p?.deleted_at && !q('SELECT 1 FROM messages WHERE parent_id = ?').get(p.id)) {
+        q('DELETE FROM messages WHERE id = ?').run(p.id);
+        sendTo(audience(c), { type: 'message-deleted', id: p.id, channel_id: p.channel_id, parent_id: null });
+      } else if (p) sendTo(audience(c), { type: 'message-updated', message: one(p.id) });
+    }
     res.json({ ok: true });
   });
 

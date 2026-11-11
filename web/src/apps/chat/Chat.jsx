@@ -721,7 +721,8 @@ function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit
               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSaveEdit(); } else if (e.key === 'Escape') { e.preventDefault(); onCancelEdit(); } }} />
             <span className="muted small">Enter to save · Esc to cancel</span>
           </form>
-        ) : m.poll ? <Poll m={m} user={user} />
+        ) : m.deleted_at ? <div className="msg-text msg-deleted muted"><em>This message was deleted.</em></div>
+          : m.poll ? <Poll m={m} user={user} />
           : m.body && <div className="msg-text"><Formatted text={m.body} me={user.username} />{m.edited_at && <span className="muted small edited" title={`Edited ${new Date(m.edited_at).toLocaleString()}`}> (edited)</span>}<MeetJoin body={m.body} /></div>}
         {m.forwarded && (
           <blockquote className="msg-forwarded" aria-label={`Forwarded message from ${m.forwarded.name}`}>
@@ -762,7 +763,7 @@ function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit
           </button>
         )}
       </div>
-      <div className="msg-actions">
+      {!m.deleted_at && <div className="msg-actions">
         {['👍', '❤️', '😂'].map((e) => <button key={e} type="button" className="icon-btn" aria-label={`React with ${e}`} onClick={() => onReact(e)}>{e}</button>)}
         <ChatEmojiPicker className="icon-btn" label="Add a reaction" onPick={(e) => onReact(e)} />
         {onThread && <button type="button" className="icon-btn" aria-label="Reply in thread" title="Reply in thread" onClick={onThread}><Icon name="reply" size={16} /></button>}
@@ -778,7 +779,7 @@ function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit
         {(m.user_id === user.id || user.is_admin) && (
           <button className="icon-btn" aria-label="Delete message" onClick={onDelete}><Icon name="trash" size={16} /></button>
         )}
-      </div>
+      </div>}
     </div>
   );
 }
