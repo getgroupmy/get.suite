@@ -11,3 +11,6 @@ export function newCount(messages, fromId, meId) {
   const i = messages.findIndex((m) => m.id === fromId);
   return i < 0 ? 0 : messages.slice(i).filter((m) => m.user_id !== meId).length;
 }
+
+// The button that appears when messages arrive below what you're reading.
+export const belowText = (n) => `↓ ${n} new message${n === 1 ? '' : 's'}`;

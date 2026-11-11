@@ -27,3 +27,9 @@ test('never opened: no line above the very first message, but one further down',
   assert.equal(newFromId(list.slice(1), null, 'me'), 'c');
   assert.equal(newFromId(list, 0, 'me'), 'a', 'read before (time 0) still shows it');
 });
+
+test('the button for messages below what you are reading', async () => {
+  const { belowText } = await import('./unread.js');
+  assert.equal(belowText(1), '↓ 1 new message');
+  assert.equal(belowText(4), '↓ 4 new messages');
+});

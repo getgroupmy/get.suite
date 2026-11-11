@@ -19,7 +19,7 @@ import { useMentions, MENTION_RE, GROUP_WORD_RE, knownGroupWords } from '../../c
 import { addToTasksWithToast, titleFromText } from '../tasks/addtask.js';
 import { isPaused } from '../../pause.js';
 import { noteTyping, typingIn, typingText } from './typing.js';
-import { newFromId, newCount } from './unread.js';
+import { newFromId, newCount, belowText } from './unread.js';
 
 /**
  * "Kim is typing…": tells the others while you type here (at most every 2.5 seconds; clearing the
@@ -72,6 +72,8 @@ export default function Chat() {
   const [messages, setMessages] = useState([]);
   // The first message that was new when the conversation opened (the "New messages" line goes above it).
   const [newFrom, setNewFrom] = useState(null);
+  // Messages from others that arrived while you were scrolled up reading earlier ones.
+  const [below, setBelow] = useState(0);
   const [pins, setPins] = useState([]); // this conversation's pinned messages
   const [pinsOpen, setPinsOpen] = useState(false);
   const [text, setText] = useState('');
@@ -181,7 +183,7 @@ export default function Chat() {
 
   useEffect(() => {
     if (!channelId) return;
-    setMessages([]); setNewFrom(null);
+    setMessages([]); setNewFrom(null); setBelow(0);
     stick.current = true;
     setUnread((u) => ({ ...u, [channelId]: 0 }));
     setMentioned((x) => ({ ...x, [channelId]: false }));
@@ -246,7 +248,10 @@ export default function Chat() {
       if (m.message.channel_id !== channelId && m.message.user_id !== user.id) loadChannels();
       else if (m.message.user_id !== user.id) markRead(channelId);
     } else if (m.type === 'message') {
-      if (m.message.channel_id === channelId) { setMessages((list) => (list.some((x) => x.id === m.message.id) ? list : [...list, m.message])); if (m.message.user_id !== user.id) markRead(channelId); }
+      if (m.message.channel_id === channelId) {
+        setMessages((list) => (list.some((x) => x.id === m.message.id) ? list : [...list, m.message]));
+        if (m.message.user_id !== user.id) { markRead(channelId); if (!stick.current) setBelow((n) => n + 1); }
+      }
       else if (m.message.user_id !== user.id) setUnread((u) => ({ ...u, [m.message.channel_id]: (u[m.message.channel_id] || 0) + 1 }));
     } else if (m.type === 'message-updated') {
       setMessages((list) => list.map((x) => (x.id === m.message.id ? m.message : x)));
@@ -270,10 +275,12 @@ export default function Chat() {
     }
   }), [channelId, threadId]);
 
+  const channelShown = channels.some((c) => c.id === channelId);
   useLayoutEffect(() => {
     const el = scroller.current;
     if (el && stick.current) el.scrollTop = el.scrollHeight;
-  }, [messages]);
+    // (also once the conversation itself shows: opened from its address, its messages can come first)
+  }, [messages, channelShown]);
 
   // Files to send with the next message: uploaded to your "Chat files" folder in Drive.
   const [files, setFiles] = useState([]);
@@ -573,7 +580,7 @@ export default function Chat() {
             ]} />
             {!current.dm_key && <button type="button" className="icon-btn" aria-label="Channel settings" title="Channel settings" onClick={() => setSettingsOpen(true)}><Icon name="settings" /></button>}
           </div>
-          <div className="messages" ref={scroller} onScroll={(e) => { const el = e.currentTarget; stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40; }}>
+          <div className="messages" ref={scroller} onScroll={(e) => { const el = e.currentTarget; stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40; if (stick.current) setBelow(0); }}>
             {messages.length === 0 && <Empty icon="chat" title="No messages yet">Say hello 👋</Empty>}
             {messages.map((m, i) => {
               const prev = messages[i - 1];
@@ -593,6 +600,7 @@ export default function Chat() {
                 </div>
               );
             })}
+            {below > 0 && <div className="new-below"><button type="button" className="btn small primary" onClick={() => { const el = scroller.current; if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' }); setBelow(0); }}>{belowText(below)}</button></div>}
           </div>
           {(files.length > 0 || uploading > 0) && (
             <ul className="pending-files" aria-label="Files to send">
