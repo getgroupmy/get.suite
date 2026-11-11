@@ -300,7 +300,7 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
   const shown = !data ? null : !shared || show === 'all' ? data.messages
     : data.messages.filter((m) => (show === 'mine' ? m.assignee?.id === user.id && !m.done : !m.done));
   return (
-    <div className={`mail ${openUid ? 'reading' : ''}`}>
+    <div className={`mail ${openUid ? 'reading' : ''} pane-${user?.mail_pane || 'right'}`}>
       <aside className="subnav">
         {sharedList.length > 0 && (
           <label className="field mailbox-pick"><span className="small muted">Mailbox</span>

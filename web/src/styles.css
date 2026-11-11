@@ -2861,3 +2861,15 @@ select.meet-timer-btn option { color: #202124; }
 .unread-head .link-btn { text-align: left; }
 .thread-result .muted .badge { margin-left: 6px; }
 .keyword-hit { color: var(--accent); }
+/* Mail's reading pane (Settings → Mail): below the list, or none (the list or the open message takes the width). Phones keep their own layout. */
+@media (min-width: 701px) {
+  .mail.pane-off .mail-list { width: auto; flex: 1; border-right: 0; border-radius: var(--radius) var(--radius) 0 0; margin-right: 16px; }
+  .mail.pane-off .mail-reader { display: none; }
+  .mail.pane-off.reading .mail-list { display: none; }
+  .mail.pane-off.reading .mail-reader { display: block; border-radius: var(--radius) var(--radius) 0 0; }
+  .mail.pane-off .mail-reader .icon-btn.mobile-only { display: inline-grid; }
+  .mail.pane-below { display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-rows: minmax(0, 2fr) minmax(0, 3fr); }
+  .mail.pane-below > .subnav { grid-row: 1 / span 2; }
+  .mail.pane-below .mail-list { width: auto; border-right: 0; border-bottom: 1px solid var(--border); border-radius: var(--radius) var(--radius) 0 0; margin-right: 16px; }
+  .mail.pane-below .mail-reader { border-radius: 0; }
+}

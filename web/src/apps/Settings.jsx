@@ -57,6 +57,7 @@ export default function Settings() {
       <TwoStep />
       <MailApps />
       <MailDelegates />
+      <MailPane />
       <MailAdvance />
       <CallRing />
       <Devices />
@@ -350,6 +351,28 @@ function CallRing() {
       <h2 id="ring-h">Calls</h2>
       <label className="check"><input type="checkbox" checked={on} onChange={(e) => set(e.target.checked)} /> Show calls on screen (📞 … is calling you, with Join and Can’t talk)</label>
       <p className="muted small" style={{ margin: 0 }}>Turned off, a call still reaches your notifications (and your phone, if notifications are on there), so you can join or call back when it suits you.</p>
+    </section>
+  );
+}
+
+function MailPane() {
+  const toast = useToast();
+  const { user, setUser } = useAuth();
+  const [now, setNow] = useState(user.mail_pane || 'right');
+  const set = async (pane) => {
+    const was = now;
+    setNow(pane);
+    try { await put('/users/me/mail-pane', { pane }); setUser({ ...user, mail_pane: pane }); toast('Saved'); } catch (e) { setNow(was); toast(e.message, 'error'); }
+  };
+  return (
+    <section className="card stack" aria-labelledby="mpane-h">
+      <h2 id="mpane-h">Mail reading pane</h2>
+      <p className="muted small" style={{ margin: 0 }}>Where an email you open shows in Mail (on a computer; phones show one at a time).</p>
+      <div className="stack" role="radiogroup" aria-labelledby="mpane-h">
+        <label className="check"><input type="radio" name="mail-pane" checked={now === 'right'} onChange={() => set('right')} /> Right of the list</label>
+        <label className="check"><input type="radio" name="mail-pane" checked={now === 'below'} onChange={() => set('below')} /> Below the list</label>
+        <label className="check"><input type="radio" name="mail-pane" checked={now === 'off'} onChange={() => set('off')} /> No split: the list fills the page, and an email opens in its place (← back to the list)</label>
+      </div>
     </section>
   );
 }

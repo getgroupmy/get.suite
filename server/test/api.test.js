@@ -10328,6 +10328,21 @@ test('mail: what opens after archiving the open message (newer, older, or back t
   assert.equal((await a('GET', '/api/auth/me')).body.user.mail_advance, 'list');
 });
 
+test('mail: where the reading pane goes (beside the list, below it, or none), per person', async () => {
+  const a = client(), b = client();
+  for (const local of ['mpa', 'mpb']) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name: local, password: 'password123' })).status, 201);
+  await login(a, 'mpa@acme.com'); await login(b, 'mpb@acme.com');
+  assert.equal((await a('GET', '/api/auth/me')).body.user.mail_pane, 'right', 'beside the list by default');
+  assert.deepEqual((await a('PUT', '/api/users/me/mail-pane', { pane: 'below' })).body, { pane: 'below' });
+  assert.equal((await a('GET', '/api/auth/me')).body.user.mail_pane, 'below');
+  assert.deepEqual((await a('PUT', '/api/users/me/mail-pane', { pane: 'off' })).body, { pane: 'off' });
+  assert.equal((await a('GET', '/api/auth/me')).body.user.mail_pane, 'off');
+  assert.equal((await b('GET', '/api/auth/me')).body.user.mail_pane, 'right', "someone else's is their own");
+  assert.equal((await a('PUT', '/api/users/me/mail-pane', { pane: 'left' })).status, 400);
+  await a('PUT', '/api/users/me/mail-pane', { pane: 'right' });
+  assert.equal((await a('GET', '/api/auth/me')).body.user.mail_pane, 'right');
+});
+
 test('calendar settings: default length, speedy meetings and default reminders, per person', async () => {
   const { cleanCalPrefs, newEventMinutes } = await import('../src/calprefs.js');
   assert.deepEqual(cleanCalPrefs(null), { length: 60, speedy: false, reminders: [10], declined: true });

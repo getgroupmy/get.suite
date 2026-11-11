@@ -307,6 +307,15 @@ export default function userRoutes() {
     res.json({ advance: a });
   });
 
+  // Mail's reading pane: { pane: 'right' | 'below' | 'off' } (beside the list, under it, or none: a message
+  // you open takes the whole width, with a way back to the list).
+  r.put('/me/mail-pane', (req, res) => {
+    const p = req.body?.pane;
+    if (!['right', 'below', 'off'].includes(p)) throw bad('Choose right, below or off');
+    q('UPDATE users SET mail_pane = ? WHERE id = ?').run(p === 'right' ? null : p, req.user.id);
+    res.json({ pane: p });
+  });
+
   // Convert Office, OpenDocument and Markdown files you upload in Drive: { on: true | false }.
   r.put('/me/convert-uploads', (req, res) => {
     const on = !!req.body?.on;
