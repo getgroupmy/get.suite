@@ -346,6 +346,11 @@ export default function Tasks() {
               <input type="date" aria-label="Due date for the selected tasks" disabled={!picked.size} onChange={(e) => e.target.value && batch({ change: { due: e.target.value } }, (n) => `${nTasks(n)} due ${dueLabel(e.target.value, new Date()).text}`)} />
             </label>
             <button type="button" className="btn small" disabled={!picked.size} onClick={() => batch({ change: { due: null } }, (n) => `${nTasks(n)}: no due date`)}>No date</button>
+            <select className="small" aria-label="Priority for the selected tasks" disabled={!picked.size} value="" onChange={(e) => { const v = e.target.value; if (v) batch({ change: { priority: v === 'none' ? null : v } }, (n) => `${nTasks(n)}: ${v === 'none' ? 'no priority' : `${v} priority`}`); }}>
+              <option value="">Priority…</option>
+              {PRIORITIES.map(([k, name, mark]) => <option key={k} value={k}>{mark} {name}</option>)}
+              <option value="none">None</option>
+            </select>
             <button type="button" className="btn small" disabled={!picked.size} onClick={() => batch({ change: { important: true } }, (n) => `${nTasks(n)} marked important`)}>★ Important</button>
             {!virtual && sections.length > 0 && <select aria-label="Put the selected tasks in a section" value="" disabled={!picked.size} onChange={(e) => { const v = e.target.value; if (v) batch({ change: { section_id: v === '__none__' ? null : v } }, (n) => (v === '__none__' ? `${nTasks(n)}: no section` : `${nTasks(n)} put in ${sections.find((x) => x.id === v)?.name}`)); }}>
               <option value="">Section…</option>
@@ -618,6 +623,7 @@ function Board({ open, done, openId, onOpen, onMove }) {
                       <span className="task-title">{t.important ? '★ ' : ''}{t.title}</span>
                       <span className="task-meta">
                         {due && <span className={`pill due ${due.tone}`}>{due.text}</span>}
+                        {t.priority && !t.done && (() => { const [, name, mark] = PRIORITIES.find(([k]) => k === t.priority); return <span className={`pill priority ${t.priority}`} aria-label={`${name} priority`}>{mark} {name}</span>; })()}
                         {waitingOn(t, all).length > 0 && <span className="pill waiting">⏳ Waiting</span>}
                         {t.steps?.length > 0 && <span className="muted small">☑ {t.steps.filter((x) => x.done).length}/{t.steps.length}</span>}
                         {t.comments > 0 && <span className="muted small">💬 {t.comments}</span>}

@@ -1182,7 +1182,8 @@ button.rule-sample.on { outline: 2px solid var(--accent); outline-offset: 1px; }
 /* Tasks */
 .tasks-app .count { font-size: 12px; font-weight: 700; color: var(--muted); }
 .tasks-main { display: flex; flex-direction: column; gap: 8px; max-width: none; }
-.tasks-main .page-head { display: flex; align-items: center; gap: 8px; }
+.tasks-main .page-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.tasks-main .page-head h1 { min-width: min(12em, 100%); } /* the list's name stays readable: the buttons wrap below it instead */
 .tasks-main .page-head h1 { margin: 0; font-size: 22px; }
 .task-add { display: flex; align-items: center; gap: 10px; padding: 8px 14px; border: 1px solid var(--border); border-radius: 10px; color: var(--accent-text); }
 .task-add:focus-within { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }

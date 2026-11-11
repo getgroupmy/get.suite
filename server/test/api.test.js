@@ -10653,6 +10653,11 @@ test('tasks: priority (high, medium, low)', async () => {
   const copy = (await a('POST', `/api/tasks/lists/${other}/copy`, { name: 'Prio copy' })).body.id;
   assert.deepEqual((await a('GET', `/api/tasks/lists/${copy}/tasks`)).body.map((x) => x.priority).filter(Boolean).sort(), ['high', 'medium']);
   assert.equal((await a('PATCH', `/api/tasks/tasks/${u.id}`, { priority: null })).body.priority, null);
+  // Several at once.
+  const ids = (await a('GET', `/api/tasks/lists/${other}/tasks`)).body.map((x) => x.id);
+  assert.deepEqual((await a('POST', '/api/tasks/tasks/batch', { ids, change: { priority: 'low' } })).body.tasks.map((x) => x.priority), ['low', 'low', 'low', 'low']);
+  assert.equal((await a('POST', '/api/tasks/tasks/batch', { ids, change: { priority: 'huge' } })).status, 400);
+  assert.deepEqual((await a('POST', '/api/tasks/tasks/batch', { ids, change: { priority: null } })).body.tasks.map((x) => x.priority), [null, null, null, null]);
 });
 
 test('tasks: a repeating task can stop repeating after a day', async () => {

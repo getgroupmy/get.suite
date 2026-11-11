@@ -889,7 +889,7 @@ export default function taskRoutes() {
 
   // Several tasks at once: tick off (or bring back), a due date (or none), important or not, another list,
   // someone to do them, or delete them. Every task is checked first; if one can't be changed, none is.
-  const BATCH_KEYS = ['section_id', 'done', 'due', 'important', 'list_id', 'assignee_id'];
+  const BATCH_KEYS = ['section_id', 'done', 'due', 'important', 'priority', 'list_id', 'assignee_id'];
   r.post('/tasks/batch', (req, res) => {
     const ids = [...new Set((Array.isArray(req.body?.ids) ? req.body.ids : []).map(String))];
     if (!ids.length) throw bad('Choose some tasks');
