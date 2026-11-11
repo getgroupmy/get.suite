@@ -4085,6 +4085,7 @@ test('chat: a video call shared in a conversation shows who is in it while it la
     const after = (await call(A, 'GET', `/api/chat/channels/${dm}/messages`)).body;
     const list = Array.isArray(after) ? after : after.messages;
     assert.equal(list[list.length - 1].body, '📞 Missed call from Cal Ann');
+    assert.equal(list[list.length - 1].user_id, A.id, 'from the caller, so it can be called back');
     await call(A, 'POST', `/api/chat/channels/${dm}/ring`, { code });
     await call(Bq, 'POST', `/api/chat/channels/${dm}/ring/decline`, { to: A.id, code });
     await new Promise((r) => setTimeout(r, 450));

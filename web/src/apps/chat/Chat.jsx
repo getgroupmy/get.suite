@@ -737,7 +737,7 @@ function Message({ m, grouped, user, editing, editText, setEditText, onStartEdit
           </form>
         ) : m.deleted_at ? <div className="msg-text msg-deleted muted"><em>This message was deleted.</em></div>
           : m.poll ? <Poll m={m} user={user} />
-          : m.body && <div className="msg-text"><Formatted text={m.body} me={user.username} />{m.edited_at && <span className="muted small edited" title={`Edited ${new Date(m.edited_at).toLocaleString()}`}> (edited)</span>}<MeetJoin body={m.body} /></div>}
+          : m.body && <div className="msg-text"><Formatted text={m.body} me={user.username} />{m.edited_at && <span className="muted small edited" title={`Edited ${new Date(m.edited_at).toLocaleString()}`}> (edited)</span>}<MeetJoin body={m.body} />{/^📞 Missed call from /.test(m.body) && m.user_id && m.user_id !== user.id && <CallBack userId={m.user_id} />}</div>}
         {m.forwarded && (
           <blockquote className="msg-forwarded" aria-label={`Forwarded message from ${m.forwarded.name}`}>
             <div className="muted small">↪ Forwarded · <strong>{m.forwarded.name}</strong>{m.forwarded.where ? ` in #${m.forwarded.where}` : ''} · {new Date(m.forwarded.at).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</div>
@@ -1363,6 +1363,21 @@ function LiveCalls({ channelId }) {
 
 /** A message with a meeting link gets a Join button (opens in a new tab, so the chat stays open). */
 const MEET_RE = /\/meet\/([a-z]{3}-[a-z]{4}-[a-z]{3})\b/;
+/** On a missed call from someone: call them back (a new call in your direct messages, and they're rung). */
+function CallBack({ userId }) {
+  const toast = useToast();
+  const navigate = useNavigate();
+  const back = async () => {
+    try {
+      const r = await post('/chat/call', { user_id: userId });
+      window.open(`/meet/${r.code}`, '_blank', 'noopener');
+      navigate(`/chat/${r.channel_id}`);
+      if (r.unreachable?.length) toast(unreachableText(r.unreachable), 'info', { duration: 10000 });
+    } catch (e) { toast(e.message, 'error'); }
+  };
+  return <div><button type="button" className="btn small meet-join" onClick={back}><Icon name="video" size={16} /> Call back</button></div>;
+}
+
 function MeetJoin({ body }) {
   const code = String(body || '').match(MEET_RE)?.[1];
   if (!code) return null;
