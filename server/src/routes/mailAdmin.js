@@ -9,6 +9,7 @@ import { isSharedAddress, membersOf as sharedMembers } from '../mail/shared.js';
 import { mailEnabled, MAIL_HOSTNAME, ensureDkim, DKIM_SELECTOR, scheduleMailConfig } from '../mail/config.js';
 import { readReports } from '../mail/reports.js';
 import { parseMaillog, readMaillog, messagesFor } from '../mail/maillog.js';
+import { checkBlocklists } from '../mail/blocklists.js';
 
 const EMAIL_RE = /^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i;
 const LOCAL_RE = /^[a-z0-9](?:[a-z0-9._+-]{0,62}[a-z0-9])?$/;
@@ -202,6 +203,16 @@ export default function mailAdminRoutes() {
     } catch (e) {
       res.json({ host, ips: [], ptr: [], ok: false, note: `No A record for ${host} (${e.code || e.message})` });
     }
+  });
+
+  // Platform owner: is the mail host's address on a spam blocklist? (Spamhaus, SpamCop, Barracuda…)
+  r.get('/blocklists', requireSuper, async (req, res) => {
+    const host = MAIL_HOSTNAME;
+    if (!host) return res.json({ host: null, results: [], note: 'MAIL_HOSTNAME is not set' });
+    let ips;
+    try { ips = await resolver.resolve4(host); } catch (e) { return res.json({ host, results: [], note: `No A record for ${host} (${e.code || e.message})` }); }
+    const results = await checkBlocklists(ips, (name) => resolver.resolve4(name));
+    res.json({ host, checked_at: Date.now(), results, ...(!results.length && { note: `${ips.join(', ')} isn’t a public address: blocklists only list public ones` }) });
   });
 
   // ---- aliases (shared addresses / distribution lists / forwards) ----

@@ -2895,3 +2895,7 @@ select.meet-timer-btn option { color: #202124; }
 .pill.priority.medium { background: #fef7e0; color: #8a5a00; }
 .pill.priority.low { background: #e8f0fe; color: #174ea6; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .pill.priority { filter: brightness(.85) saturate(1.2); } }
+.blocklists { list-style: none; margin: 0; padding: 0; }
+.blocklists li { gap: 12px; padding: 4px 0; border-bottom: 1px solid var(--border); }
+.blocklists .bl-listed { color: var(--danger); }
+.blocklists .bl-clear { color: var(--ok, #188038); }

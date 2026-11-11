@@ -17,6 +17,7 @@ export default function EmailAdmin({ orgId, orgPicker }) {
     <div className="stack">
       {orgPicker}
       {user.is_super && <HostCheck />}
+      {user.is_super && <Blocklists />}
       <Domains qs={qs} />
       <MailReports qs={qs} />
       <EmailLog qs={qs} />
@@ -40,6 +41,36 @@ function HostCheck() {
           {r.ok ? '✓ ' : '✗ '}{r.host}{r.ips?.length ? ` → ${r.ips.join(', ')}` : ''}{r.ptr?.length ? ` · PTR ${r.ptr.join(', ')}` : ''}{r.note ? ` · ${r.note}` : ''}
         </p>
       )}
+    </div>
+  );
+}
+
+/** Is the mail server's address on a spam blocklist? (When it is, mail from it is refused or goes to Junk.) */
+function Blocklists() {
+  const [r, setR] = useState(null);
+  const run = () => { setR('loading'); get('/mail-admin/blocklists').then(setR).catch((e) => setR({ note: e.message, results: [] })); };
+  const mark = { listed: '✗ Listed', clear: '✓ Not listed', unknown: '? Couldn’t check' };
+  return (
+    <div className="card stack" aria-labelledby="blocklists-h">
+      <div className="row"><h2 id="blocklists-h" className="grow">Spam blocklists</h2><button className="btn small" onClick={run}>Check blocklists</button></div>
+      <p className="muted small" style={{ margin: 0 }}>Mail from an address on a blocklist (after a hacked account sent spam, or an address someone used before you) is refused or goes to Junk at many companies. This looks up the mail server’s address on the main lists.</p>
+      {r === 'loading' && <p className="muted">Checking…</p>}
+      {r && r !== 'loading' && r.note && <p className="muted" style={{ margin: 0 }}>{r.note}</p>}
+      {r && r !== 'loading' && r.results?.map((x) => (
+        <section key={x.ip} className="stack" aria-label={`Blocklists for ${x.ip}`}>
+          <p className={x.listed ? 'error' : 'ok'} style={{ margin: 0 }}><strong>{x.ip}</strong>: {x.listed ? `on ${x.listed} list${x.listed === 1 ? '' : 's'}: ask each to take it off (after fixing why, such as a hacked password)` : 'not on any list that answered'}</p>
+          <ul className="blocklists">
+            {x.lists.map((l) => (
+              <li key={l.zone} className={`row bl-${l.status}`}>
+                <span className="grow">{l.name}</span>
+                <span title={l.note || l.codes.join(', ')}>{mark[l.status]}{l.status === 'listed' && l.codes.length ? ` (${l.codes.join(', ')})` : ''}</span>
+                {l.status === 'listed' && <a href={l.remove} target="_blank" rel="noreferrer">Ask to be removed</a>}
+              </li>
+            ))}
+          </ul>
+          {x.lists.some((l) => l.status === 'unknown' && l.note) && <p className="muted small" style={{ margin: 0 }}>{[...new Set(x.lists.filter((l) => l.status === 'unknown' && l.note).map((l) => `${l.name}: ${l.note}`))].join(' · ')}</p>}
+        </section>
+      ))}
     </div>
   );
 }

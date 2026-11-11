@@ -3671,6 +3671,17 @@ test('contacts: birthday and date reminders, on the morning or the day before', 
   assert.equal((await bell(a)).length, 2, 'off: no more');
 });
 
+test('admin: the blocklist check is for the platform owner, and says when there is no mail host', async () => {
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'blk1', domain: 'acme.com', name: 'Blk', password: 'password123' })).status, 201);
+  await login(a, 'blk1@acme.com');
+  assert.equal((await a('GET', '/api/mail-admin/blocklists')).status, 403);
+  const r = await owner('GET', '/api/mail-admin/blocklists');
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.body.results, []);
+  assert.match(r.body.note, /MAIL_HOSTNAME/);
+});
+
 test('docs: download as Markdown; open a .md file as a document', async () => {
   const md = '# Minutes\n\nWe agreed on **three** things:\n\n- [x] budget\n- [ ] hiring\n\n| Who | What |\n| --- | --- |\n| Kim | slides |\n';
   const up = (await owner('POST', '/api/files/upload?name=minutes.md', Buffer.from(md), { raw: true })).body;
