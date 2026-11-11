@@ -6483,6 +6483,12 @@ test('meet guests: ask to join by link, wait, let in or turned away by the compa
   const wait = (ms = 250) => new Promise((r) => setTimeout(r, ms));
   const guest = (name) => open(`${wsUrl}/ws/meet-guest/${code}?name=${encodeURIComponent(name)}`, {}, 'waiting');
   await assert.rejects(guest('   '), /refused: 404/, 'a name is needed');
+  // Nobody there to let them in: whoever started the meeting is told.
+  const bellOf = async () => { const b = (await kay('GET', '/api/notifications')).body; return (b.items || b).filter((n) => /is waiting to join/.test(n.title)); };
+  const early = await guest('Early Ed'); await wait();
+  const told = await bellOf();
+  assert.deepEqual(told.map((n) => [n.title, n.link]), [['Early Ed is waiting to join “Client call”', `/meet/${code}`]]);
+  early.close(); await wait();
   const host = await open(`${wsUrl}/ws/meet/${code}`, { cookie });
   const g1 = await guest('Gus <b>Guest</b>');
   const g2 = await guest('Gia Guest');
@@ -6490,6 +6496,7 @@ test('meet guests: ask to join by link, wait, let in or turned away by the compa
     await wait();
     const knock = [...host.msgs].reverse().find((m) => m.type === 'knock');
     assert.deepEqual(knock.guests.map((g) => g.name), ['Gus bGuest/b', 'Gia Guest']);
+    assert.equal((await bellOf()).length, 1, 'someone is there to let them in: no bell');
     const [gus, gia] = knock.guests;
     // Before being let in, a guest can't do anything in the meeting.
     g1.send(JSON.stringify({ type: 'chat', text: 'hello?' })); await wait();

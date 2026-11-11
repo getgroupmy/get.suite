@@ -10,6 +10,7 @@ import { q } from './db.js';
 import { now, str, notFound, forbidden } from './util.js';
 import { makeBoard } from './meetboard.js';
 import { nextState } from './meethands.js';
+import { notify } from './notifications.js';
 
 q(`CREATE TABLE IF NOT EXISTS meetings (
   code TEXT PRIMARY KEY,
@@ -234,6 +235,10 @@ export function handleGuestUpgrade(req, socket, head) {
     line.set(gid, { ws, name, req });
     ws.send(JSON.stringify({ type: 'waiting', title: m.title }));
     knockToAdmitters(code, m);
+    // Nobody in the meeting can let them in (a booking-page call, say): tell whoever started it.
+    if (m.created_by && !roomsOf(code).some((k) => [...(rooms.get(k)?.values() ?? [])].some((p) => mayAdmit(m, p.user)))) {
+      notify([m.created_by], { kind: 'invite', title: `${name} is waiting to join “${m.title || code}”`, body: 'They’re waiting for someone from the company to let them in.', link: `/meet/${code}` });
+    }
     ws.on('close', () => {
       if (line.get(gid)?.ws !== ws) return; // already let in (or turned away)
       line.delete(gid);
