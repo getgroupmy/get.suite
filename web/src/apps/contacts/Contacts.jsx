@@ -59,6 +59,16 @@ export default function Contacts() {
   const [deleting, setDeleting] = useState(null);
   const [merging, setMerging] = useState(false);
   const [undoing, setUndoing] = useState(false);
+  // Birthday and date reminders: off, on the morning, or the day before (in this browser's time zone).
+  const [remind, setRemind] = useState(null);
+  useEffect(() => { get('/contacts/reminders').then((r) => setRemind(r.when)).catch(() => {}); }, []);
+  const setReminders = async (when) => {
+    try {
+      const r = await put('/contacts/reminders', { when, tz: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' });
+      setRemind(r.when);
+      toast(when === 'off' ? 'Birthday reminders off' : when === 'day' ? 'You’ll be reminded on the morning of birthdays and dates' : 'You’ll be reminded the day before birthdays and dates');
+    } catch (e) { toast(e.message, 'error'); }
+  };
   const [company, setCompany] = useState([]);
 
   const load = () => {
@@ -135,6 +145,9 @@ export default function Contacts() {
           { label: 'CSV: Gmail, spreadsheets', icon: 'download', onClick: () => { window.location.href = '/api/contacts/export?format=csv'; } },
         ]} />
         <button className="btn" onClick={() => setMerging(true)} title="Find contacts that are the same person and merge them">Merge duplicates</button>
+        {remind && <Menu trigger={(p) => <button className="btn" title="Birthday and date reminders" {...p}>🎂 Reminders{remind !== 'off' ? ' · on' : ''}</button>} items={[
+          ['off', 'No reminders'], ['day', 'On the morning (from 9:00)'], ['before', 'The day before'],
+        ].map(([k, label]) => ({ label: `${remind === k ? '✓ ' : ''}${label}`, onClick: () => setReminders(k) }))} />}
         <button className="btn" onClick={() => setUndoing(true)} title="Put your contacts back as they were at an earlier time"><Icon name="restore" size={18} /> Undo changes</button>
         <button className="btn primary" onClick={() => setEditing({})}><Icon name="plus" size={18} /> New contact</button>
       </div>

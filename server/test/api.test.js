@@ -3635,6 +3635,42 @@ test('chat: keyword alerts', async () => {
   assert.ok(!(await a('GET', '/api/chat/mentions')).body.some((m) => m.body === 'deploy again'), 'none once they are cleared');
 });
 
+test('contacts: birthday and date reminders, on the morning or the day before', async () => {
+  const { sendDateReminders, datesOn, reminderText } = await import('../src/contactreminders.js');
+  const a = client(), b = client();
+  for (const local of ['bra', 'brb']) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name: local, password: 'password123' })).status, 201);
+  await login(a, 'bra@acme.com'); await login(b, 'brb@acme.com');
+  await a('POST', '/api/contacts', { name: 'Ada Lovelace', birthday: '1990-12-10' });
+  await a('POST', '/api/contacts', { name: 'Bo Chan', birthday: '--12-10' });
+  await a('POST', '/api/contacts', { name: 'Cy Ray', dates: [{ label: 'Wedding anniversary', date: '2015-12-10' }] });
+  await a('POST', '/api/contacts', { name: 'Di Other', birthday: '1980-12-11' });
+  await b('POST', '/api/contacts', { name: 'Ben\'s friend', birthday: '1990-12-10' });
+  const aid = (await a('GET', '/api/auth/me')).body.user.id;
+  assert.deepEqual(datesOn(aid, '2026-12-10').map((x) => [x.name, x.what, x.years]), [['Ada Lovelace', 'birthday', 36], ['Bo Chan', 'birthday', null], ['Cy Ray', 'Wedding anniversary', 11]]);
+  assert.deepEqual(reminderText(datesOn(aid, '2026-12-10'), 'day').title, '🎂 Today: Ada Lovelace’s birthday (36) and 2 more');
+  assert.equal(reminderText([{ name: 'Di', what: 'birthday', years: null }], 'before').title, '🎂 Tomorrow: Di’s birthday');
+  // Off at first; on the day, in her time zone.
+  assert.deepEqual((await a('GET', '/api/contacts/reminders')).body, { when: 'off', tz: null });
+  assert.equal((await a('PUT', '/api/contacts/reminders', { when: 'weekly' })).status, 400);
+  assert.equal((await a('PUT', '/api/contacts/reminders', { when: 'day', tz: 'Mars/Olympus' })).status, 400);
+  assert.deepEqual((await a('PUT', '/api/contacts/reminders', { when: 'day', tz: 'Asia/Tokyo' })).body, { when: 'day', tz: 'Asia/Tokyo' });
+  const bell = async (who) => (await who('GET', '/api/notifications')).body.items.filter((n) => n.kind === 'dates').map((n) => n.title);
+  sendDateReminders(Date.parse('2026-12-09T23:30:00Z')); // 8:30 on the 10th in Tokyo: not yet
+  assert.deepEqual(await bell(a), []);
+  sendDateReminders(Date.parse('2026-12-10T00:30:00Z')); // 9:30 in Tokyo
+  assert.deepEqual(await bell(a), ['🎂 Today: Ada Lovelace’s birthday (36) and 2 more']);
+  sendDateReminders(Date.parse('2026-12-10T03:00:00Z')); // later the same day: once only
+  assert.equal((await bell(a)).length, 1);
+  assert.deepEqual(await bell(b), [], 'nothing for Ben, who has them off');
+  // The day before; another time zone.
+  await a('PUT', '/api/contacts/reminders', { when: 'before', tz: 'Europe/London' });
+  sendDateReminders(Date.parse('2026-12-10T09:15:00Z'));
+  assert.ok((await bell(a)).includes('🎂 Tomorrow: Di Other’s birthday (46)'), 'a new choice counts from today');
+  assert.deepEqual((await a('PUT', '/api/contacts/reminders', { when: 'off' })).body, { when: 'off', tz: 'Europe/London' });
+  sendDateReminders(Date.parse('2026-12-12T09:15:00Z'));
+  assert.equal((await bell(a)).length, 2, 'off: no more');
+});
+
 test('docs: download as Markdown; open a .md file as a document', async () => {
   const md = '# Minutes\n\nWe agreed on **three** things:\n\n- [x] budget\n- [ ] hiring\n\n| Who | What |\n| --- | --- |\n| Kim | slides |\n';
   const up = (await owner('POST', '/api/files/upload?name=minutes.md', Buffer.from(md), { raw: true })).body;

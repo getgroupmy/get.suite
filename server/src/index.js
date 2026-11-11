@@ -1,4 +1,5 @@
 import { sendDueFormReminders } from './routes/forms.js';
+import { sendDateReminders } from './contactreminders.js';
 import http from 'node:http';
 import { createApp } from './app.js';
 import { attachHub } from './hub.js';
@@ -46,6 +47,7 @@ if (restored) {
     body: `As asked by ${restored.by?.name || 'a platform owner'}. The database as it was is kept as ${restored.kept}.`, link: '/admin?tab=system', actor: null });
 }
 setInterval(() => purgeAuthLog(), 3600e3).unref();
+setInterval(() => { try { sendDateReminders(); } catch (e) { console.error('[contacts] dates:', e.message); } }, 10 * 60e3).unref(); // birthday and date reminders, each morning
 setInterval(() => { try { notifyDueTouches(); } catch (e) { console.error('[contacts] keep in touch:', e.message); } }, 3600e3).unref(); // contacts due to be in touch with
 setInterval(() => { try { askCheckIns(); releaseNoShows(); } catch (e) { console.error('[rooms] check-in:', e.message); } }, 60e3).unref(); // rooms nobody checked in to go back
 setInterval(() => purgeAudit(), 6 * 3600e3).unref(); // activity older than AUDIT_DAYS

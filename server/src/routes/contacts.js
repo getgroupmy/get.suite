@@ -14,6 +14,8 @@ import { photoOf, setPhoto, withPhoto, photoFromCard, MAX_PHOTO } from '../conta
 import { cleanMore, withMore, liftCardMore } from '../contactmore.js';
 import { cleanDates, cleanCustom, datesBetween } from '../contactfields.js';
 import { buildVcard } from '../vcard.js';
+import { REMIND } from '../contactreminders.js';
+import { zoneOrUtc } from '../ics.js';
 import { watchContacts, undoContacts, changedSince, sweepContactHistory, HISTORY_DAYS } from '../contacthistory.js';
 
 // Keep in touch: how often (days) you mean to be in touch with someone, and when you last were (sending them
@@ -329,6 +331,19 @@ export default function contactRoutes() {
   });
 
   // Your contacts' birthdays between two dates (YYYY-MM-DD, at most a year and a bit apart), for the calendar.
+  // Birthday and date reminders: { when: 'off' | 'day' | 'before', tz } (tz: your time zone, for the morning).
+  r.get('/reminders', (req, res) => { const p = q('SELECT remind, remind_tz FROM contact_prefs WHERE user_id = ?').get(req.user.id); res.json({ when: p?.remind || 'off', tz: p?.remind_tz || null }); });
+  r.put('/reminders', (req, res) => {
+    const when = String(req.body?.when || '');
+    if (when !== 'off' && !REMIND.includes(when)) throw bad('Remind on the day, the day before, or not at all');
+    const asked = req.body?.tz ? String(req.body.tz).slice(0, 64) : null;
+    const tz = asked ? zoneOrUtc(asked) : null; // as the server names it (old names are fine)
+    if (asked && tz === 'UTC' && !/^(utc|etc\/utc|gmt|etc\/gmt)$/i.test(asked)) throw bad('Unknown time zone');
+    q(`INSERT INTO contact_prefs (user_id, remind, remind_tz) VALUES (?, ?, ?)
+       ON CONFLICT(user_id) DO UPDATE SET remind = excluded.remind, remind_tz = COALESCE(excluded.remind_tz, contact_prefs.remind_tz),
+         remind_last = CASE WHEN contact_prefs.remind IS excluded.remind THEN contact_prefs.remind_last ELSE NULL END`).run(req.user.id, when === 'off' ? null : when, tz); // a new choice counts from today
+    res.json({ when, tz: q('SELECT remind_tz FROM contact_prefs WHERE user_id = ?').get(req.user.id)?.remind_tz || null });
+  });
   r.get('/view', (req, res) => res.json({ sort: q('SELECT sort FROM contact_prefs WHERE user_id = ?').get(req.user.id)?.sort || 'first' }));
   r.put('/view', (req, res) => {
     const sort = String(req.body?.sort || '');
