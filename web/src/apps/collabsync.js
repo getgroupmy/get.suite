@@ -99,7 +99,7 @@ export function applySheetJson(doc, next) {
 
 // ---- presentations: slide order, and each slide's boxes by id, so different boxes (or slides)
 // changed at once both stay; the same box keeps the later change.
-const SLIDE_KEYS = ['bg', 'bgImage', 'notes', 'transition', 'skip', 'advance']; // bgImage: a picture behind the slide; advance: seconds before moving on by itself
+const SLIDE_KEYS = ['bg', 'bgGrad', 'bgImage', 'notes', 'transition', 'skip', 'advance']; // bgGrad: "#rrggbb angle", a fade into that colour; bgImage: a picture behind the slide; advance: seconds before moving on by itself
 const DECK_KEYS = ['numbers', 'loop', 'custom', 'master']; // slide numbers (true or 'skip-first'); start again after the last slide; its own theme { bg, text, accent, font }; a logo and footer on every slide
 function slideMap(slide) {
   const m = new Y.Map();

@@ -32,6 +32,7 @@ import { slideFileName, zipStored } from './slideimages.js';
 const SIZES = [12, 14, 16, 18, 20, 24, 28, 32, 36, 40, 44, 54, 64, 72, 96];
 const TEXT_COLORS = [['', 'Theme text'], ['accent', 'Theme accent'], ['#202124', 'Black'], ['#ffffff', 'White'], ['#c5221f', 'Red'], ['#e37400', 'Orange'], ['#188038', 'Green'], ['#1a73e8', 'Blue'], ['#8430ce', 'Purple']];
 const FILLS = [['accent', 'Theme accent'], ['text', 'Theme text'], ['#e8f0fe', 'Light blue'], ['#e6f4ea', 'Light green'], ['#fef7e0', 'Light yellow'], ['#fce8e6', 'Light red'], ['#1a73e8', 'Blue'], ['#188038', 'Green'], ['#c5221f', 'Red'], ['#202124', 'Black'], ['#ffffff', 'White']];
+import { GRAD_COLORS, GRAD_ANGLES, gradOf, gradValue, gradCss } from './slidegrad.js';
 const BACKGROUNDS = [['', 'Theme background'], ['#ffffff', 'White'], ['#f1f3f4', 'Light grey'], ['#e8f0fe', 'Light blue'], ['#fef7e0', 'Light yellow'], ['#202124', 'Black'], ['#0b57d0', 'Blue']];
 const HANDLES = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
 const PEOPLE_COLORS = ['#1a73e8', '#d93025', '#188038', '#e37400', '#8430ce', '#00796b', '#c2185b', '#5f6368'];
@@ -483,6 +484,20 @@ export default function SlidesEditor() {
               {BACKGROUNDS.map(([v, n]) => <option key={n} value={v}>{n}</option>)}
             </select>
           )}
+          {!item && !multi && (() => {
+            // A gradient: from the background colour into another, in a direction.
+            const g = gradOf(slide.bgGrad);
+            const setGrad = (v) => change((d) => ({ ...d, slides: d.slides.map((s, i) => (i === slideIndex ? { ...s, bgGrad: v || undefined } : s)) }));
+            return <>
+              <select className="tb-select" aria-label="Background gradient" title="Fade the background into another colour" value={g?.to || ''} onChange={(e) => setGrad(e.target.value ? gradValue(e.target.value, g?.angle ?? 180) : null)}>
+                <option value="">No gradient</option>
+                {GRAD_COLORS.map(([v, n]) => <option key={v} value={v}>Gradient to {n.toLowerCase()}</option>)}
+              </select>
+              {g && <select className="tb-select" aria-label="Gradient direction" value={g.angle} onChange={(e) => setGrad(gradValue(g.to, Number(e.target.value)))}>
+                {GRAD_ANGLES.map(([a, n]) => <option key={a} value={a}>{n}</option>)}
+              </select>}
+            </>;
+          })()}
           {!item && !multi && (slide.bgImage
             ? <button type="button" className="tb" onClick={() => setBackground(null)}>Remove background picture</button>
             : <button type="button" className="tb" title="A picture behind everything on this slide, filling it" onClick={() => backgroundInput.current.click()}>Background picture</button>)}
@@ -835,7 +850,7 @@ export function SlideView({ slide, theme, deckId, editable, selected, group = []
   }
 
   return (
-    <div ref={ref} className={`slide ${editable ? 'editable' : ''} ${slide.bgImage ? 'has-bg-picture' : ''}`} style={{ background: slide.bgImage ? `url("${pictureBase || `/api/files/${deckId}`}/pictures/${slide.bgImage}") center / cover no-repeat, ${slide.bg || theme.bg}` : slide.bg || theme.bg, color: theme.text, ...(theme.font && { fontFamily: `"${theme.font}", sans-serif` }) }} role={editable ? 'group' : undefined} aria-label={editable ? 'Slide' : undefined}>
+    <div ref={ref} className={`slide ${editable ? 'editable' : ''} ${slide.bgImage ? 'has-bg-picture' : ''}`} style={{ background: slide.bgImage ? `url("${pictureBase || `/api/files/${deckId}`}/pictures/${slide.bgImage}") center / cover no-repeat, ${gradCss(slide.bg || theme.bg, slide.bgGrad)}` : gradCss(slide.bg || theme.bg, slide.bgGrad), color: theme.text, ...(theme.font && { fontFamily: `"${theme.font}", sans-serif` }) }} role={editable ? 'group' : undefined} aria-label={editable ? 'Slide' : undefined}>
       {slide.items.map((it) => {
         const box = live?.id === it.id ? live.box : live?.group?.includes(it.id) ? { ...it, x: it.x + live.dx, y: it.y + live.dy } : it;
         const pos = { left: `${box.x}%`, top: `${box.y}%`, width: `${box.w}%`, height: `${box.h}%`, ...(box.rot ? { transform: `rotate(${box.rot}deg)` } : {}) };

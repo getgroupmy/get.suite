@@ -1065,6 +1065,28 @@ test('PowerPoint: a picture behind a slide goes out and comes back; a colour sta
   assert.equal(back.slides[2].bgImage, undefined, 'a picture that can\'t be read leaves the slide\'s colour');
 });
 
+test('PowerPoint: a gradient background goes out as PowerPoint\'s own and comes back', async () => {
+  const deck = { theme: 'light', slides: [
+    { id: 'a', bg: '#ffffff', bgGrad: '#0b57d0 180', items: [{ id: 't', type: 'text', text: 'Fade', x: 10, y: 10, w: 80, h: 20 }] },
+    { id: 'b', bgGrad: '#188038 90', items: [] }, // from the theme's background
+    { id: 'c', bg: '#c4eed0', items: [] },
+  ] };
+  const buf = await powerPointFromDeck(deck, { pictureData: async () => null });
+  const zip = await JSZip.loadAsync(buf);
+  const x1 = await zip.file('ppt/slides/slide1.xml').async('string');
+  assert.match(x1, /<p:bg><p:bgPr><a:gradFill rotWithShape="1"><a:gsLst><a:gs pos="0"><a:srgbClr val="FFFFFF"\/><\/a:gs><a:gs pos="100000"><a:srgbClr val="0B57D0"\/><\/a:gs><\/a:gsLst><a:lin ang="5400000"/, 'top to bottom is 90° in PowerPoint');
+  assert.equal((x1.match(/<p:bg>/g) || []).length, 1);
+  assert.match(await zip.file('ppt/slides/slide2.xml').async('string'), /<a:lin ang="0"/, 'left to right');
+  assert.doesNotMatch(await zip.file('ppt/slides/slide3.xml').async('string'), /gradFill/);
+  const back = await deckFromPowerPoint(buf, { savePicture: async () => 'x' });
+  assert.equal(back.slides[0].bg, '#ffffff');
+  assert.equal(back.slides[0].bgGrad, '#0b57d0 180');
+  assert.equal(back.slides[0].items[0].text, 'Fade');
+  assert.equal(back.slides[1].bgGrad, '#188038 90');
+  assert.equal(back.slides[2].bg, '#c4eed0');
+  assert.equal(back.slides[2].bgGrad, undefined);
+});
+
 test('PowerPoint: text in a shape goes out in the shape and comes back in it', async () => {
   const deck = { theme: 'light', slides: [{ id: 'a', items: [
     { id: 's1', type: 'shape', shape: 'round', fill: '#188038', text: 'Step 1\nPlan', size: 24, bold: true, x: 10, y: 20, w: 30, h: 20 },

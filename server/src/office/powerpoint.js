@@ -209,6 +209,29 @@ export async function withSlideComments(buffer, deck, threads) {
   return zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
 }
 
+/**
+ * Gradient backgrounds (bgGrad: "#rrggbb angle", CSS's angle): PowerPoint's own, from the slide's colour into
+ * that one. The library writes a plain colour; this swaps it for the gradient in each such slide.
+ */
+async function withGradients(buffer, deck, theme) {
+  const slides = deck.slides || [];
+  const want = slides.map((s) => { const m = /^#([0-9a-f]{6}) (\d{1,3})$/i.exec(s.bgGrad || ''); return m && !s.bgImage ? { to: m[1].toUpperCase(), angle: Number(m[2]) % 360, from: s.bg } : null; });
+  if (!want.some(Boolean)) return buffer;
+  const zip = await JSZip.loadAsync(buffer);
+  const hex = (v) => (v === 'accent' ? theme.accent : v === 'text' ? theme.text : v || theme.bg).replace('#', '').toUpperCase();
+  for (let i = 0; i < slides.length; i++) {
+    const g = want[i];
+    if (!g) continue;
+    const file = `ppt/slides/slide${i + 1}.xml`;
+    const xml = await zip.file(file)?.async('string');
+    if (!xml) continue;
+    const ang = (((g.angle - 90) % 360) + 360) % 360 * 60000;
+    const bg = `<p:bg><p:bgPr><a:gradFill rotWithShape="1"><a:gsLst><a:gs pos="0"><a:srgbClr val="${hex(g.from)}"/></a:gs><a:gs pos="100000"><a:srgbClr val="${g.to}"/></a:gs></a:gsLst><a:lin ang="${ang}" scaled="0"/></a:gradFill><a:effectLst/></p:bgPr></p:bg>`;
+    zip.file(file, /<p:bg>[\s\S]*?<\/p:bg>/.test(xml) ? xml.replace(/<p:bg>[\s\S]*?<\/p:bg>/, bg) : xml.replace(/<p:cSld([^>]*)>/, `<p:cSld$1>${bg}`));
+  }
+  return zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
+}
+
 async function withShowSettings(buffer, deck, emitted = new Map()) {
   const slides = deck.slides || [];
   if (!deck.loop && !slides.some((s) => s.transition || s.advance || (s.items || []).some((it) => it.anim))) return buffer;
@@ -475,7 +498,18 @@ export async function deckFromPowerPoint(buffer, { savePicture }) {
       if (item) Object.assign(item, { anim: e.anim, animAt: k + 1 });
     });
     const bgEl = deep(xml, P, 'bg')[0];
-    const bg = colorIn(bgEl);
+    let bg = colorIn(bgEl);
+    // A gradient background: its first colour is the slide's, fading into its last (Slides keeps two).
+    let bgGrad = null;
+    const grad = bgEl && deep(bgEl, A, 'gradFill')[0];
+    if (grad) {
+      const stops = deep(grad, A, 'gs').map((g) => ({ pos: Number(attr(g, 'pos')) || 0, color: colorIn(g) })).filter((g) => g.color).sort((a, b) => a.pos - b.pos);
+      if (stops.length >= 2) {
+        const ang = Number(attr(deep(grad, A, 'lin')[0], 'ang')) || 0; // 60000ths of a degree, 0 = left to right
+        bg = stops[0].color;
+        bgGrad = `${stops.at(-1).color} ${Math.round((ang / 60000 + 90) % 360)}`; // CSS's angle: 90 = left to right
+      }
+    }
     // A picture behind the slide (a background fill with a picture).
     let bgImage = null;
     const bgEmbed = bgEl && rattr(deep(bgEl, A, 'blip')[0], 'embed');
@@ -499,7 +533,7 @@ export async function deckFromPowerPoint(buffer, { savePicture }) {
     slideFiles.push(file);
     const slideId = id();
     for (const c of await slideCommentsOf(zip, file, authors)) comments.push({ slideId, ...c });
-    slides.push({ id: slideId, items, ...(bg && { bg }), ...(bgImage && { bgImage }), ...(notes && { notes }), ...(transition && { transition }), ...(advance && { advance }), ...(skip && { skip: true }) });
+    slides.push({ id: slideId, items, ...(bg && { bg }), ...(bgGrad && { bgGrad }), ...(bgImage && { bgImage }), ...(notes && { notes }), ...(transition && { transition }), ...(advance && { advance }), ...(skip && { skip: true }) });
   }
   // Links to another slide: from its file to its id (a slide that didn't come in drops the link).
   for (const sl of slides) for (const it of sl.items) {
@@ -670,5 +704,5 @@ export async function powerPointFromDeck(deck, { pictureData, title = 'Presentat
     }
     if (withMaster && master.footer) slide.addText(master.footer, { x: Win * (master.logo && master.corner === 'bl' ? 0.18 : 0.025), y: Hin - 0.55, w: Win * 0.6, h: 0.35, fontSize: 11, color: color('text', theme.text), fontFace: FONT, transparency: 30, valign: 'middle', margin: 0 });
   }
-  return withSlideComments(await withGroups(await withShowSettings(Buffer.from(await pptx.write({ outputType: 'nodebuffer' })), deck, emitted), deck, emitted, { Win, Hin }), deck, comments);
+  return withGradients(await withSlideComments(await withGroups(await withShowSettings(Buffer.from(await pptx.write({ outputType: 'nodebuffer' })), deck, emitted), deck, emitted, { Win, Hin }), deck, comments), deck, theme);
 }
