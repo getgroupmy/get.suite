@@ -9960,6 +9960,23 @@ test('notes: download one as Markdown', async () => {
   assert.equal((await b('GET', `/api/notes/${list.id}/export.md`)).status, 404);
 });
 
+test('notes: import Markdown and text files (what Download (.md) writes comes back the same)', async () => {
+  const { noteFromMarkdown } = await import('../src/routes/notes.js');
+  const n = noteFromMarkdown('# Packing\n\n- [x] Passport\n- [ ] Chargers\n  - [ ] Phone\n\n#Trip-plans\n', 'x.md');
+  assert.deepEqual([n.title, n.items.map((i) => [i.text, i.done, !!i.indent]), n.labels], ['Packing', [['Passport', true, false], ['Chargers', false, false], ['Phone', false, true]], ['Trip plans']]);
+  const plain = noteFromMarkdown('Call the plumber\nBefore Friday', 'Plumber.txt');
+  assert.deepEqual([plain.title, plain.body, plain.items], ['Plumber', 'Call the plumber\nBefore Friday', null], 'the file name as title');
+  assert.equal(noteFromMarkdown('# Mixed\n- [ ] one\nsome text').items, null, 'not all items: kept as text');
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'nima', domain: 'acme.com', name: 'Nim Ann', password: 'password123' })).status, 201);
+  await login(a, 'nima@acme.com');
+  const r = await a('POST', '/api/notes/import', { files: [{ name: 'First.md', text: '# First\nHello' }, { name: 'Empty.txt', text: '  \n' }, { name: 'Second.md', text: '- [ ] Buy milk' }] });
+  assert.deepEqual(r.body, { added: 2, skipped: 1 });
+  const notes = (await a('GET', '/api/notes')).body;
+  assert.deepEqual((Array.isArray(notes) ? notes : notes.notes).map((x) => x.title).slice(0, 2), ['First', 'Second'], 'in the files’ order');
+  assert.equal((await a('POST', '/api/notes/import', { files: [] })).status, 400);
+});
+
 test('notes: label colours, each person’s own', async () => {
   const a = client(), b = client();
   for (const [local, name] of [['nlca', 'Nlc Ann'], ['nlcb', 'Nlc Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);

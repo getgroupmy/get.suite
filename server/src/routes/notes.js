@@ -109,6 +109,31 @@ export function noteMarkdown(n) {
   if (n.labels?.length) lines.push('', n.labels.map((l) => `#${l.replace(/\s+/g, '-')}`).join(' '));
   return `${lines.join('\n').trim()}\n`;
 }
+/**
+ * A note from a Markdown or text file (as Download (.md) writes them, and as other notes apps export):
+ * a first "# heading" is the title (else the file's name), a last line of only #tags gives labels, and
+ * when every other line is a "- [ ]" / "- [x]" item the note is a checklist (indented items are sub-items).
+ */
+export function noteFromMarkdown(text, fileName = '') {
+  const lines = String(text || '').replace(/\r\n?/g, '\n').replace(/^\ufeff/, '').split('\n');
+  let title = '';
+  while (lines.length && !lines[0].trim()) lines.shift();
+  if (/^#\s+\S/.test(lines[0] || '')) title = lines.shift().replace(/^#\s+/, '').trim();
+  else title = String(fileName).replace(/\.(md|markdown|txt)$/i, '').trim();
+  while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
+  let labels = [];
+  const last = (lines[lines.length - 1] || '').trim();
+  if (/^(#[\p{L}\p{N}_-]+\s*)+$/u.test(last)) { labels = last.split(/\s+/).map((t) => t.slice(1).replace(/-/g, ' ')); lines.pop(); }
+  while (lines.length && !lines[0].trim()) lines.shift();
+  while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
+  const task = /^(\s*)[-*]\s+\[([ xX])\]\s?(.*)$/;
+  const filled = lines.filter((l) => l.trim());
+  if (filled.length && filled.every((l) => task.test(l))) {
+    const items = filled.map((l, i) => { const [, ind, mark, t] = task.exec(l); return { text: t.trim(), done: mark !== ' ', ...(ind.length >= 2 && i > 0 && { indent: 1 }) }; });
+    return { title: title.slice(0, 300), body: '', items: cleanItems(items), labels: cleanLabels(labels) };
+  }
+  return { title: title.slice(0, 300), body: lines.join('\n').slice(0, 20000), items: null, labels: cleanLabels(labels) };
+}
 /** Checklist → text (Hide tick boxes): a line per item, ticked ones as "✓ …", sub-items indented. */
 export const itemsToText = (items) => (items || []).map((i) => `${i.indent ? '  ' : ''}${i.done ? '✓ ' : ''}${i.text}`).join('\n');
 
@@ -335,6 +360,30 @@ export default function noteRoutes() {
       for (const l of JSON.parse(n.labels || '[]')) all.add(l);
     }
     res.json([...all].sort((a, b) => a.localeCompare(b)));
+  });
+
+  // Import notes from Markdown or text files: { files: [{ name, text }] } (up to 100, 200 KB each). Empty ones are skipped.
+  r.post('/import', (req, res) => {
+    const files = Array.isArray(req.body?.files) ? req.body.files : [];
+    if (!files.length) throw bad('Choose some .md or .txt files');
+    if (files.length > 100) throw bad('Up to 100 files at a time');
+    const have = q('SELECT COUNT(*) AS n FROM notes WHERE owner_id = ?').get(req.user.id).n;
+    const notes = files.map((f) => {
+      if (String(f?.text ?? '').length > 200000) throw bad(`“${f?.name || 'A file'}” is too big for a note`);
+      return String(f?.text ?? '').trim() ? noteFromMarkdown(f.text, f?.name) : null; // a blank file isn't a note
+    }).filter((n) => n && (n.title.trim() || n.body.trim() || (n.items || []).length));
+    if (have + notes.length > MAX_NOTES) throw bad(`You can have up to ${MAX_NOTES} notes`);
+    const t = now();
+    let top = topFor(req.user.id);
+    tx(() => {
+      for (const n of [...notes].reverse()) { // the first file ends up first
+        q(`INSERT INTO notes (id, owner_id, title, body, items, color, pinned, labels, position, created_at, updated_at, updated_by) VALUES (?, ?, ?, ?, ?, NULL, 0, ?, ?, ?, ?, ?)`)
+          .run(uid(), req.user.id, n.title, n.body, n.items ? JSON.stringify(n.items) : null, JSON.stringify(n.labels), top, t, t, req.user.id);
+        top += 1;
+      }
+    });
+    sendTo([req.user.id], { type: 'notes-changed' });
+    res.status(201).json({ added: notes.length, skipped: files.length - notes.length });
   });
 
   r.post('/', (req, res) => {
