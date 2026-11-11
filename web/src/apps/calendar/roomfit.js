@@ -29,3 +29,12 @@ export const readFeatures = (text) => {
   for (const v of String(text).split(',').map((x) => x.trim().replace(/\s+/g, ' ')).filter(Boolean)) if (!out.some((o) => o.toLowerCase() === v.toLowerCase())) out.push(v);
   return out;
 };
+
+/**
+ * How a room is doing right now, for the rooms board: "Free until 3:20 PM", "Free for the next 12
+ * hours", or "In use until 3:50 PM: Standup (Olivia Owner)". `time` formats a time of day.
+ */
+export function nowText(room, time) {
+  if (room.busy) return `In use until ${time(room.busy.until)}: ${room.busy.title}${room.busy.organizer ? ` (${room.busy.organizer})` : ''}`;
+  return room.next ? `Free until ${time(room.next.start)}` : 'Free for the next 12 hours';
+}

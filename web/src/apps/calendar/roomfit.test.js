@@ -26,3 +26,11 @@ test('equipment typed with commas', () => {
   assert.deepEqual(readFeatures(' Video, whiteboard ,video,, Screen   share '), ['Video', 'whiteboard', 'Screen share']);
   assert.deepEqual(readFeatures(''), []);
 });
+
+test('how a room is doing right now', async () => {
+  const { nowText } = await import('./roomfit.js');
+  const time = (t) => `T${t}`;
+  assert.equal(nowText({ busy: null, next: null }, time), 'Free for the next 12 hours');
+  assert.equal(nowText({ busy: null, next: { start: 5, title: 'X' } }, time), 'Free until T5');
+  assert.equal(nowText({ busy: { title: 'Standup', organizer: 'Olivia', until: 9 }, next: null }, time), 'In use until T9: Standup (Olivia)');
+});

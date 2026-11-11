@@ -17,7 +17,7 @@ import TimeOff, { waitingFor } from './TimeOff.jsx';
 import { EVENT_KEY } from '../docs/blocks.js';
 import { timeIn, zoneName, cityOf } from '../../components/zones.js';
 import { printRange, daysFromTo, scheduleOf, DAY, VIEWS, startOfDay, visibleDays, shift, title, onDay, layoutDay, expandAll, occurrenceIndex, describeRule, daysBetween, moveTimes, resizeEnd, shiftWeekdays, snapMinutes, moveStart, weekdayInMonth, eventsPerDay, isoWeek, daysShown, weekOrder } from './calmath.js';
-import { roomLine, sortRooms, tooSmall } from './roomfit.js';
+import { roomLine, sortRooms, tooSmall, nowText } from './roomfit.js';
 
 const OTHER_COLOURS = ['#e37400', '#8e24aa', '#0b8043', '#d93025', '#00796b', '#3949ab'];
 const COLORS = ['#1a73e8', '#0b8043', '#d50000', '#f4511e', '#8e24aa', '#616161'];
@@ -161,6 +161,7 @@ function Calendar({ acting = null, managed = [], onPick }) {
   const [showTasks, setShowTasksState] = useState(savedTasks);
   const [bookingOpen, setBookingOpen] = useState(false);
   const [hoursOpen, setHoursOpen] = useState(false);
+  const [roomsNow, setRoomsNow] = useState(false);
   const [prefsOpen, setPrefsOpen] = useState(false);
   const [sharingOpen, setSharingOpen] = useState(false);
   const [printOpen, setPrintOpen] = useState(false);
@@ -355,6 +356,7 @@ function Calendar({ acting = null, managed = [], onPick }) {
         <button type="button" className="subnav-item" onClick={() => setInsightsOpen(true)}><span aria-hidden="true" style={{ width: 24, textAlign: 'center' }}>📊</span><span className="grow">Time insights</span></button>
         <button type="button" className="subnav-item" onClick={() => setBookingOpen(true)}><Icon name="link" /><span className="grow">Booking pages</span></button>
         <button type="button" className="subnav-item" onClick={() => setHoursOpen(true)}><Icon name="clock" /><span className="grow">Working hours</span></button>
+        {roomList.length > 0 && <button type="button" className="subnav-item" onClick={() => setRoomsNow(true)} title="Which rooms are free right now; book one on the spot"><span aria-hidden="true" style={{ width: 24, textAlign: 'center' }}>🚪</span><span className="grow">Rooms now</span></button>}
         <button type="button" className="subnav-item" onClick={() => setPrefsOpen(true)}><Icon name="settings" /><span className="grow">Calendar settings</span></button>
         <button type="button" className="subnav-item" onClick={() => setSharingOpen(true)}><Icon name="share" /><span className="grow">Share my calendar</span></button>
         <button type="button" className="subnav-item" onClick={() => setPrintOpen(true)}><Icon name="print" /><span className="grow">Print or save as PDF</span></button>
@@ -475,6 +477,7 @@ function Calendar({ acting = null, managed = [], onPick }) {
       </section>
       {bookingOpen && <BookingPagesDialog onClose={() => setBookingOpen(false)} />}
       {hoursOpen && <WorkHoursDialog onClose={() => setHoursOpen(false)} />}
+      {roomsNow && <RoomsNow onClose={() => setRoomsNow(false)} />}
       {prefsOpen && <CalPrefsDialog onClose={() => setPrefsOpen(false)} />}
       {printOpen && <PrintAgenda weekStart={weekStart} onClose={() => setPrintOpen(false)} />}
       {sharingOpen && <ShareCalendarDialog people={people.filter((p) => p.id !== me.id)} onClose={() => setSharingOpen(false)} />}
@@ -1054,6 +1057,51 @@ function ShareCalendarDialog({ people, onClose }) {
         <p className="muted small" style={{ margin: 0 }}>With <strong>Can make and change events</strong> (an assistant), they can also open your calendar (Calendar at the top of the sidebar) and add, change and delete events on it, as you; you're told each time.</p>
         {shares.from.length > 0 && <p className="muted small" style={{ margin: 0 }}>Sharing theirs with you: {shares.from.map((u) => `${u.name}${u.can_edit ? ' (you can manage it)' : ''}`).join(', ')}. Add them under <strong>Other calendars</strong> to see their events.</p>}
       </div>
+    </Modal>
+  );
+}
+
+/** The rooms board: every room, free or in use right now, and until when; book a free one on the spot. */
+function RoomsNow({ onClose }) {
+  const toast = useToast();
+  const [rooms, setRooms] = useState(null);
+  const [minutes, setMinutes] = useState(30);
+  const [onlyFree, setOnlyFree] = useState(false);
+  const load = useCallback(() => get('/rooms/now').then(setRooms).catch((e) => { toast(e.message, 'error'); setRooms([]); }), [toast]);
+  useEffect(() => { load(); const t = setInterval(load, 30000); return () => clearInterval(t); }, [load]);
+  useEffect(() => onLive((m) => { if (m.type === 'events-changed') load(); }), [load]);
+  const time = (t) => new Date(t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const book = async (r) => {
+    try {
+      const ev = await post(`/rooms/${r.id}/book-now`, { minutes, tz: TZ });
+      toast(`${r.name} is yours until ${time(ev.end)}${ev.shortened ? ' (it’s booked after that)' : ''}`);
+      load();
+    } catch (e) { toast(e.message, 'error'); load(); }
+  };
+  const shown = (rooms || []).filter((r) => !onlyFree || !r.busy);
+  return (
+    <Modal title="Rooms now" onClose={onClose}>
+      <div className="row" style={{ gap: 12, flexWrap: 'wrap' }}>
+        <label className="row" style={{ gap: 6 }}>Book for <select aria-label="Book for" value={minutes} onChange={(e) => setMinutes(Number(e.target.value))}>
+          {[15, 30, 45, 60, 90, 120].map((m) => <option key={m} value={m}>{m < 60 ? `${m} min` : `${m / 60} h`.replace('1.5 h', '1½ h')}</option>)}
+        </select></label>
+        <label className="row" style={{ gap: 6 }}><input type="checkbox" checked={onlyFree} onChange={(e) => setOnlyFree(e.target.checked)} /> Only free rooms</label>
+      </div>
+      {rooms === null ? <p className="muted">Loading…</p> : !shown.length ? <p className="muted">{onlyFree ? 'Every room is in use right now.' : 'No rooms yet.'}</p> : (
+        <ul className="rooms-now" aria-label="Rooms">
+          {shown.map((r) => (
+            <li key={r.id} className={r.busy ? 'busy' : 'free'} aria-label={r.name}>
+              <span className="rooms-now-dot" aria-hidden="true" />
+              <div className="grow">
+                <div className="rooms-now-name">{roomLine(r)}</div>
+                <div className="muted small">{nowText(r, time)}</div>
+              </div>
+              {!r.busy && <button type="button" className="btn" onClick={() => book(r)}>Book now</button>}
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className="muted small" style={{ margin: 0 }}>Booking now puts a meeting in your calendar with the room in it, from now (cut short if someone has the room after that). Change or delete it like any event.</p>
     </Modal>
   );
 }

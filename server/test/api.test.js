@@ -2385,6 +2385,42 @@ test('drive search: files inside folders shared with you are found; not once the
   assert.equal(deep.name, 'Kiwi launch plan');
 });
 
+test('rooms: the board of what is free now, and booking a room on the spot', async () => {
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'rnow', domain: 'acme.com', name: 'Rina Now', password: 'password123' })).status, 201);
+  await login(a, 'rnow@acme.com');
+  const free = (await owner('POST', '/api/rooms', { name: 'Zz Free room' })).body;
+  const busy = (await owner('POST', '/api/rooms', { name: 'Zz Busy room' })).body;
+  const soon = (await owner('POST', '/api/rooms', { name: 'Zz Soon room' })).body;
+  const t = Date.now();
+  const ev1 = (await owner('POST', '/api/events', { title: 'Standup', start: t - 10 * 6e4, end: t + 20 * 6e4, rooms: [busy.id] })).body;
+  await owner('POST', '/api/events', { title: 'Right after', start: t + 20 * 6e4, end: t + 50 * 6e4, rooms: [busy.id] });
+  await owner('POST', '/api/events', { title: 'Interview', start: t + 20 * 6e4, end: t + 80 * 6e4, rooms: [soon.id] });
+  assert.equal(ev1.rooms?.[0]?.status, 'yes');
+  const board = (await a('GET', '/api/rooms/now')).body;
+  const of = (id) => board.find((x) => x.id === id);
+  assert.deepEqual([of(free.id).busy, of(free.id).next], [null, null]);
+  assert.equal(of(busy.id).busy.title, 'Standup');
+  assert.equal(of(busy.id).busy.until, t + 50 * 6e4, 'back-to-back bookings count as one stretch');
+  assert.equal(of(soon.id).busy, null);
+  assert.deepEqual(of(soon.id).next, { start: t + 20 * 6e4, title: 'Interview' });
+
+  assert.equal((await a('POST', `/api/rooms/${busy.id}/book-now`, {})).status, 409, 'in use');
+  assert.equal((await a('POST', `/api/rooms/${free.id}/book-now`, { minutes: 7 })).status, 400);
+  const quick = await a('POST', `/api/rooms/${soon.id}/book-now`, { minutes: 60 });
+  assert.equal(quick.status, 201);
+  assert.equal(quick.body.shortened, true, 'cut short at the next booking');
+  assert.equal(quick.body.end, t + 20 * 6e4);
+  assert.equal(quick.body.title, 'Meeting in Zz Soon room');
+  const mine = (await a('GET', `/api/events?from=${t - 36e5}&to=${t + 36e5}`)).body.find((e) => e.id === quick.body.id);
+  assert.deepEqual(mine.rooms.map((r) => [r.name, r.status]), [['Zz Soon room', 'yes']]);
+  assert.equal((await a('GET', '/api/rooms/now')).body.find((x) => x.id === soon.id).busy.title, 'Meeting in Zz Soon room');
+  const b2 = await a('POST', `/api/rooms/${free.id}/book-now`, { minutes: 15, title: 'Quick sync' });
+  assert.equal(b2.body.end - b2.body.start, 15 * 6e4);
+  assert.equal(b2.body.title, 'Quick sync');
+  for (const r of [free, busy, soon]) await owner('DELETE', `/api/rooms/${r.id}`);
+});
+
 test('rooms: where each is and what is in it', async () => {
   const room = (await owner('POST', '/api/rooms', { name: 'Garden room', capacity: 6, location: ' 2nd floor, east ', features: ['Video', ' whiteboard ', 'video', '', 'Screen  share'] })).body;
   assert.deepEqual([room.location, room.features], ['2nd floor, east', ['Video', 'whiteboard', 'Screen share']], 'trimmed, each once');

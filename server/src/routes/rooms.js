@@ -3,9 +3,9 @@
 // the next six months) or declined when something else has it.
 import { Router } from 'express';
 import { q, tx } from '../db.js';
-import { uid, now, str, bad, notFound, forbidden } from '../util.js';
+import { uid, now, str, bad, notFound, forbidden, HttpError } from '../util.js';
 import { expand } from '../calmath.js';
-import { outEvent } from './calendar.js';
+import { outEvent, touch } from './calendar.js';
 
 q(`CREATE TABLE IF NOT EXISTS rooms (
   id TEXT PRIMARY KEY,
@@ -78,6 +78,31 @@ export function setRooms(user, eventRow, ids) {
   return roomsOf(ev.id);
 }
 
+/** A room's bookings that overlap from–to (repeats expanded): [{ start, end, title, organizer }], soonest first. */
+function bookingsOf(roomId, from, to) {
+  const rows = q(`SELECT e.*, u.name AS organizer FROM events e JOIN event_rooms r ON r.event_id = e.id JOIN users u ON u.id = e.owner_id
+                  WHERE r.room_id = ? AND r.status = 'yes' AND e.start < ?
+                    AND (e.end > ? OR (e.rrule IS NOT NULL AND (e.repeat_until IS NULL OR e.repeat_until > ?)))`).all(roomId, to, from, from);
+  return rows.flatMap((row) => expand(outEvent(row), from, to).map((o) => ({ start: o.start, end: o.end, title: row.title, organizer: row.organizer })))
+    .sort((x, y) => x.start - y.start);
+}
+
+const LOOK_AHEAD = 12 * 36e5;
+/**
+ * Is the room free right now? { busy: { title, organizer, until } | null, next: { start, title } | null }:
+ * what's on in it now (until when, counting back-to-back bookings), and the next booking in 12 hours.
+ */
+export function roomNow(roomId, t = Date.now()) {
+  const list = bookingsOf(roomId, t, t + LOOK_AHEAD);
+  const on = list.find((b) => b.start <= t && b.end > t);
+  if (!on) { const n = list.find((b) => b.start > t); return { busy: null, next: n ? { start: n.start, title: n.title } : null }; }
+  let until = on.end;
+  for (const b of list) if (b.start <= until && b.end > until) until = b.end;
+  const n = list.find((b) => b.start >= until);
+  return { busy: { title: on.title, organizer: on.organizer, until }, next: n ? { start: n.start, title: n.title } : null };
+}
+export const QUICK_MINUTES = [15, 30, 45, 60, 90, 120];
+
 export default function roomRoutes() {
   const r = Router();
   // Your company's rooms; with ?start&end (an event's time), whether each is free then.
@@ -97,11 +122,34 @@ export default function roomRoutes() {
     if (!room) throw notFound();
     const from = Number(req.query.from), to = Number(req.query.to);
     if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from || to - from > 31 * 864e5) throw bad('Give from and to, at most 31 days apart');
-    const rows = q(`SELECT e.*, u.name AS organizer FROM events e JOIN event_rooms r ON r.event_id = e.id JOIN users u ON u.id = e.owner_id
-                    WHERE r.room_id = ? AND r.status = 'yes' AND e.start < ?
-                      AND (e.end > ? OR (e.rrule IS NOT NULL AND (e.repeat_until IS NULL OR e.repeat_until > ?)))`).all(room.id, to, from, from);
-    res.json(rows.flatMap((row) => expand(outEvent(row), from, to).map((o) => ({ start: o.start, end: o.end, title: row.title, organizer: row.organizer })))
-      .sort((x, y) => x.start - y.start));
+    res.json(bookingsOf(room.id, from, to));
+  });
+  // The rooms board: every room, free or busy right now, and until when.
+  r.get('/now', (req, res) => {
+    const t = Date.now();
+    res.json(q(`${ROOM} WHERE org_id = ? ORDER BY name COLLATE NOCASE`).all(req.user.org_id).map(outRoom).map((room) => ({ ...room, ...roomNow(room.id, t) })));
+  });
+  // Walk-up booking: the room from now for 15 minutes to 2 hours (less if it's booked sooner), as an
+  // event of yours with the room in it.
+  r.post('/:id/book-now', (req, res) => {
+    const room = q('SELECT * FROM rooms WHERE id = ? AND org_id = ?').get(req.params.id, req.user.org_id);
+    if (!room) throw notFound();
+    const minutes = Number(req.body.minutes ?? 30);
+    if (!QUICK_MINUTES.includes(minutes)) throw bad(`Book it for ${QUICK_MINUTES.join(', ')} minutes`);
+    const start = Math.floor(Date.now() / 60000) * 60000;
+    const state = roomNow(room.id, start);
+    if (state.busy) throw new HttpError(409, `${room.name} is in use right now (${state.busy.title})`);
+    const end = Math.min(start + minutes * 60000, state.next?.start ?? Infinity);
+    if (end - start < 10 * 60000) throw new HttpError(409, `${room.name} is booked in a few minutes`);
+    const title = str(req.body.title, { name: 'Title', max: 200 }) || `Meeting in ${room.name}`;
+    const id = uid();
+    tx(() => {
+      q(`INSERT INTO events (id, owner_id, title, description, start, end, all_day, exdates, tz) VALUES (?, ?, ?, '', ?, ?, 0, '[]', ?)`)
+        .run(id, req.user.id, title, start, end, String(req.body.tz || 'UTC').slice(0, 64));
+      q("INSERT INTO event_rooms (event_id, room_id, status) VALUES (?, ?, 'yes')").run(id, room.id);
+    });
+    touch([req.user.id]);
+    res.status(201).json({ id, title, start, end, shortened: end < start + minutes * 60000 });
   });
 
   const admin = (req) => { if (!req.user.is_admin) throw forbidden('Only a company admin can change rooms'); };
