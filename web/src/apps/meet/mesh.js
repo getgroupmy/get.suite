@@ -109,6 +109,7 @@ export class Mesh {
     else if (m.type === 'breakouts') { this.breakouts = m; this.breakoutCount = m.count; }
     else if (m.type === 'breakout') { this.onBreakout?.(m); return; }
     else if (m.type === 'waiting' || m.type === 'admitted') { /* redraw */ }
+    else if (m.type === 'host-told') this.hostTold = m.name; // nobody was there: the host has been told
     else if (m.type === 'question') { const isNew = !this.questions.has(m.question.id); this.questions.set(m.question.id, m.question); if (isNew) this.onQuestion?.(m.question); }
     else if (m.type === 'question-gone') this.questions.delete(m.id);
     else if (m.type === 'wb-stroke') { this.board = [...this.board, m.stroke]; this.onBoard?.(m); }

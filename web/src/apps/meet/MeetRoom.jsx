@@ -357,6 +357,7 @@ export default function MeetRoom({ guest = false, onSignIn }) {
       <div className="meet-page meet-center">
         <div className="meet-card stack" role="status"><h1>Asking to join…</h1>
           <p className="muted" style={{ margin: 0 }}>You’ll join {info?.title ? `“${info.title}”` : 'the meeting'} as soon as someone in it lets you in.</p>
+          {m.hostTold && <p style={{ margin: 0 }}>Nobody’s in the meeting yet: <strong>{m.hostTold}</strong> has been told you’re here.</p>}
           <div><button type="button" className="btn" onClick={leave}>Cancel</button></div></div>
       </div>
     );

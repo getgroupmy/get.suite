@@ -6488,7 +6488,12 @@ test('meet guests: ask to join by link, wait, let in or turned away by the compa
   const early = await guest('Early Ed'); await wait();
   const told = await bellOf();
   assert.deepEqual(told.map((n) => [n.title, n.link]), [['Early Ed is waiting to join “Client call”', `/meet/${code}`]]);
+  assert.equal(early.msgs.find((x) => x.type === 'host-told')?.name, 'Kay Keep', 'the guest is told the host knows');
   early.close(); await wait();
+  const again = await guest('early ed'); await wait();
+  assert.equal((await bellOf()).length, 1, 'knocking again soon: no second bell');
+  assert.ok(again.msgs.some((x) => x.type === 'host-told'));
+  again.close(); await wait();
   const host = await open(`${wsUrl}/ws/meet/${code}`, { cookie });
   const g1 = await guest('Gus <b>Guest</b>');
   const g2 = await guest('Gia Guest');

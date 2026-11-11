@@ -221,6 +221,7 @@ export function handleMeetUpgrade(req, socket, head, user) {
  * someone from the meeting's company lets them in (then they're in the meeting as "Name (guest)") or
  * says no (closed). Works only while the company lets guests ask to join.
  */
+const toldHost = new Map(); // `${code}|${guest name}` → when its host was last told
 export function handleGuestUpgrade(req, socket, head) {
   const code = decodeURIComponent(req.url.split('?')[0].split('/')[3] || '');
   const m = validCode(code) && q('SELECT * FROM meetings WHERE code = ?').get(code);
@@ -237,7 +238,15 @@ export function handleGuestUpgrade(req, socket, head) {
     knockToAdmitters(code, m);
     // Nobody in the meeting can let them in (a booking-page call, say): tell whoever started it.
     if (m.created_by && !roomsOf(code).some((k) => [...(rooms.get(k)?.values() ?? [])].some((p) => mayAdmit(m, p.user)))) {
-      notify([m.created_by], { kind: 'invite', title: `${name} is waiting to join “${m.title || code}”`, body: 'They’re waiting for someone from the company to let them in.', link: `/meet/${code}` });
+      // Once per guest name and meeting every 10 minutes (knocking again, or a dropped connection, doesn't ring again).
+      const key = `${code}|${name.toLowerCase()}`;
+      if ((toldHost.get(key) || 0) < Date.now() - 10 * 60e3) {
+        toldHost.set(key, Date.now());
+        notify([m.created_by], { kind: 'invite', title: `${name} is waiting to join “${m.title || code}”`, body: 'They’re waiting for someone from the company to let them in.', link: `/meet/${code}` });
+        for (const [k, t] of toldHost) if (t < Date.now() - 36e5) toldHost.delete(k);
+      }
+      const host = q('SELECT name FROM users WHERE id = ?').get(m.created_by)?.name;
+      if (host) ws.send(JSON.stringify({ type: 'host-told', name: host }));
     }
     ws.on('close', () => {
       if (line.get(gid)?.ws !== ws) return; // already let in (or turned away)
