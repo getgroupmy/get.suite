@@ -177,7 +177,7 @@ export default function Contacts() {
                   {own ? (tab === 'mine' || c.can_edit) && <>
                     {tab === 'mine' && <button className={`icon-btn star ${c.starred ? 'on' : ''}`} aria-pressed={!!c.starred} aria-label={c.starred ? `Unstar ${c.name}` : `Star ${c.name}`} title={c.starred ? 'Starred: first in your contacts and when writing mail' : 'Star: keep them first in your contacts and when writing mail'}
                       onClick={async () => { try { await patch(`/contacts/${c.id}`, { starred: !c.starred }); load(); } catch (e) { toast(e.message, 'error'); } }}>{c.starred ? '★' : '☆'}</button>}
-                    {c.email && <button className="icon-btn" aria-label={`History with ${c.name}`} title="Emails and meetings with them" onClick={() => setHistory(c)}><Icon name="clock" size={18} /></button>}
+                    <button className="icon-btn" aria-label={`History with ${c.name}`} title="Your log of calls and meetings, and emails and meetings with them" onClick={() => setHistory(c)}><Icon name="clock" size={18} /></button>
                     <button className="icon-btn contact-qr" aria-label={`QR code for ${c.name}`} title="QR code: scan it with a phone's camera to add the contact, or download it as a vCard" onClick={() => setQr(c)}>▦</button>
                     <button className="icon-btn" aria-label={`Send ${c.name} in Chat`} title="Send in Chat: colleagues can add it to their contacts" onClick={() => setSending(c)}><Icon name="share" size={18} /></button>
                     <button className="icon-btn" aria-label={`Edit ${c.name}`} onClick={() => setEditing(c)}><Icon name="edit" size={18} /></button>
@@ -194,7 +194,7 @@ export default function Contacts() {
       )}
       {card && <PersonCard userId={card} onClose={() => setCard(null)} />}
       {merging && <DuplicatesDialog onClose={() => setMerging(false)} onMerged={load} />}
-      {history && <Modal title={`With ${history.name}`} onClose={() => setHistory(null)} footer={<button type="button" className="btn" onClick={() => setHistory(null)}>Close</button>}><WithPerson email={history.email} onOpen={() => setHistory(null)} /></Modal>}
+      {history && <Modal title={`With ${history.name}`} onClose={() => setHistory(null)} footer={<button type="button" className="btn" onClick={() => setHistory(null)}>Close</button>}><ContactLog contact={history} onChanged={load} /><WithPerson email={history.email} onOpen={() => setHistory(null)} /></Modal>}
       {qr && <ContactQr contact={qr} onClose={() => setQr(null)} />}
       {sending && <SendContact contact={sending} onClose={() => setSending(null)} />}
       {editing && <ContactDialog contact={editing} orgName={user.org_name} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />}
@@ -335,6 +335,43 @@ function OtherContacts({ filter, onAdded }) {
 }
 
 const TOUCH = [['', 'No reminder'], [7, 'Every week'], [14, 'Every 2 weeks'], [30, 'Every month'], [60, 'Every 2 months'], [90, 'Every 3 months'], [180, 'Every 6 months'], [365, 'Every year']];
+
+const LOG_KINDS = [['call', '📞 Call'], ['meeting', '🤝 Meeting'], ['note', '📝 Note']];
+/** Your log with a contact: calls, meetings and notes, newest first. A call or meeting counts for Keep in touch. */
+function ContactLog({ contact, onChanged }) {
+  const toast = useToast();
+  const [entries, setEntries] = useState(null);
+  const [kind, setKind] = useState('call');
+  const [text, setText] = useState('');
+  const [when, setWhen] = useState(''); // YYYY-MM-DD, empty for now
+  const load = () => get(`/contacts/${contact.id}/log`).then(setEntries).catch((e) => toast(e.message, 'error'));
+  useEffect(() => { load(); }, [contact.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const add = async (e) => {
+    e.preventDefault();
+    if (!text.trim()) return;
+    try {
+      await post(`/contacts/${contact.id}/log`, { kind, text, ...(when && { at: new Date(`${when}T12:00:00`).getTime() }) });
+      setText(''); setWhen(''); load(); if (kind !== 'note') onChanged?.();
+    } catch (err) { toast(err.message, 'error'); }
+  };
+  return (
+    <section className="contact-log stack-tight" aria-label="Log">
+      <h3 className="small">Log</h3>
+      <form className="row wrap" style={{ gap: 6 }} onSubmit={add}>
+        <input aria-label="What happened" placeholder="Talked about the renewal…" value={text} maxLength={2000} onChange={(e) => setText(e.target.value)} style={{ flex: '1 1 100%' }} />
+        <select aria-label="Kind" value={kind} onChange={(e) => setKind(e.target.value)}>{LOG_KINDS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
+        <input type="date" aria-label="When (today if empty)" value={when} max={new Date().toISOString().slice(0, 10)} onChange={(e) => setWhen(e.target.value)} />
+        <button className="btn small" disabled={!text.trim()}>Add</button>
+      </form>
+      {entries && !entries.length && <p className="muted small">Nothing logged yet. Calls and meetings you log count for Keep in touch.</p>}
+      {entries?.length > 0 && <ul className="with-list">{entries.map((x) => (
+        <li key={x.id}><span aria-hidden="true">{LOG_KINDS.find(([v]) => v === x.kind)?.[1].split(' ')[0]}</span>
+          <span className="grow">{x.text}</span><span className="muted small nowrap">{new Date(x.at).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+          <button type="button" className="icon-btn" aria-label={`Remove: ${x.text}`} onClick={async () => { try { await del(`/contacts/${contact.id}/log/${x.id}`); load(); } catch (e) { toast(e.message, 'error'); } }}><Icon name="close" size={14} /></button></li>
+      ))}</ul>}
+    </section>
+  );
+}
 
 /** Who you're due to be in touch with (most overdue first): write to them, or mark that you've been in touch. */
 function KeepInTouch({ filter }) {

@@ -19,6 +19,16 @@ import { buildVcard } from '../vcard.js';
 // email counts, or Mark as contacted).
 for (const [col, type] of [['touch_days', 'INTEGER'], ['last_contact', 'INTEGER']]) if (!q('PRAGMA table_info(contacts)').all().some((c) => c.name === col)) q(`ALTER TABLE contacts ADD COLUMN ${col} ${type}`).run();
 export const TOUCH_DAYS = [7, 14, 30, 60, 90, 180, 365];
+// A log of your calls and meetings with a contact ("Called about the renewal"): yours, newest first.
+q(`CREATE TABLE IF NOT EXISTS contact_log (
+  id TEXT PRIMARY KEY,
+  contact_id TEXT NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,               -- call | meeting | note
+  text TEXT NOT NULL,
+  at INTEGER NOT NULL
+)`).run();
+export const LOG_KINDS = ['call', 'meeting', 'note'];
 // How each person sorts their contacts (starred ones first either way).
 export const CONTACT_SORTS = ['first', 'last', 'company', 'added'];
 q(`CREATE TABLE IF NOT EXISTS contact_prefs (
@@ -316,6 +326,30 @@ export default function contactRoutes() {
     res.json(q('SELECT id, name, email, phone, touch_days, last_contact FROM contacts WHERE owner_id = ? AND touch_days IS NOT NULL').all(req.user.id)
       .map((c) => ({ ...c, due_at: touchDue(c) })).filter((c) => c.due_at <= at).sort((a, b) => a.due_at - b.due_at || a.name.localeCompare(b.name)));
   });
+  // The log: GET lists it; POST { kind, text, at? } adds an entry (a call or meeting counts as being in touch); DELETE removes one.
+  const ownContact = (req) => { const c = editable(req); if (c.owner_id !== req.user.id) throw notFound(); return c; };
+  r.get('/:id/log', (req, res) => {
+    const c = ownContact(req);
+    res.json(q('SELECT id, kind, text, at FROM contact_log WHERE contact_id = ? AND user_id = ? ORDER BY at DESC LIMIT 500').all(c.id, req.user.id));
+  });
+  r.post('/:id/log', (req, res) => {
+    const c = ownContact(req);
+    const kind = LOG_KINDS.includes(req.body?.kind) ? req.body.kind : 'note';
+    const text = str(req.body?.text, { required: true, name: 'What happened', max: 2000 });
+    const at = req.body?.at === undefined ? Date.now() : Number(req.body.at);
+    if (!Number.isFinite(at) || at > Date.now() + 864e5 || at < Date.UTC(1970, 0, 2)) throw bad('Choose when it was');
+    if (q('SELECT COUNT(*) AS n FROM contact_log WHERE contact_id = ?').get(c.id).n >= 1000) throw bad('This contact’s log is full');
+    const id = uid();
+    q('INSERT INTO contact_log (id, contact_id, user_id, kind, text, at) VALUES (?, ?, ?, ?, ?, ?)').run(id, c.id, req.user.id, kind, text, at);
+    if (kind !== 'note') q('UPDATE contacts SET last_contact = MAX(COALESCE(last_contact, 0), ?) WHERE id = ?').run(Math.min(at, Date.now()), c.id); // Keep in touch
+    res.status(201).json({ id, kind, text, at });
+  });
+  r.delete('/:id/log/:entry', (req, res) => {
+    const c = ownContact(req);
+    if (!q('DELETE FROM contact_log WHERE id = ? AND contact_id = ? AND user_id = ?').run(String(req.params.entry), c.id, req.user.id).changes) throw notFound();
+    res.json({ ok: true });
+  });
+
   // Mark that you've been in touch (a call, a meeting): the clock starts again.
   r.post('/:id/contacted', (req, res) => {
     const c = editable(req);

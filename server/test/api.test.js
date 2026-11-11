@@ -8776,6 +8776,30 @@ test('slides: rehearsals — time on each slide, your last few kept', async () =
   assert.equal(list[0].total_ms, 1005, 'newest first');
 });
 
+test('contacts: a log of calls and meetings with a contact', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['clga', 'Clg Ann'], ['clgb', 'Clg Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'clga@acme.com'); await login(b, 'clgb@acme.com');
+  const c = (await a('POST', '/api/contacts', { name: 'Rita Moreno' })).body;
+  assert.deepEqual((await a('GET', `/api/contacts/${c.id}/log`)).body, []);
+  const yesterday = Date.now() - 864e5;
+  const note = (await a('POST', `/api/contacts/${c.id}/log`, { kind: 'note', text: 'Prefers mornings' })).body;
+  assert.equal(note.kind, 'note');
+  let after = (await a('GET', '/api/contacts')).body.find((x) => x.id === c.id);
+  assert.equal(after.last_contact, null, 'a note isn’t being in touch');
+  const call = (await a('POST', `/api/contacts/${c.id}/log`, { kind: 'call', text: 'Talked about the renewal', at: yesterday })).body;
+  assert.equal(call.at, yesterday);
+  after = (await a('GET', '/api/contacts')).body.find((x) => x.id === c.id);
+  assert.equal(after.last_contact, yesterday, 'a call counts for Keep in touch');
+  assert.deepEqual((await a('GET', `/api/contacts/${c.id}/log`)).body.map((x) => x.text), ['Prefers mornings', 'Talked about the renewal'], 'newest first');
+  assert.equal((await a('POST', `/api/contacts/${c.id}/log`, { kind: 'call', text: '' })).status, 400);
+  assert.equal((await a('POST', `/api/contacts/${c.id}/log`, { text: 'Later', at: Date.now() + 5 * 864e5 })).status, 400, 'not in the future');
+  assert.equal((await b('GET', `/api/contacts/${c.id}/log`)).status, 404);
+  assert.equal((await b('POST', `/api/contacts/${c.id}/log`, { text: 'x' })).status, 404);
+  await a('DELETE', `/api/contacts/${c.id}/log/${note.id}`);
+  assert.deepEqual((await a('GET', `/api/contacts/${c.id}/log`)).body.map((x) => x.id), [call.id]);
+});
+
 test('contacts: each person sorts their own way', async () => {
   const a = client(), b = client();
   for (const [local, name] of [['csra', 'Csr Ann'], ['csrb', 'Csr Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
