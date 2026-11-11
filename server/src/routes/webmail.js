@@ -289,6 +289,8 @@ export function startScheduledSending() {
 }
 const MAX_SEND_BYTES = 25 * 1024 * 1024;
 const LINK_DAYS = 30; // large files sent as links: how long the links last
+/** A folder's STATUS as one string that changes whenever anything in it does. */
+export const folderTag = (st) => [st.messages ?? 0, st.uidNext ?? 0, st.unseen ?? 0, String(st.highestModseq ?? 0)].join(':');
 const ORDER = ['\\Inbox', '\\Drafts', '\\Sent', '\\Archive', '\\Junk', '\\Trash'];
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -812,6 +814,18 @@ export default function webmailRoutes() {
       .map((b) => ({ path: b.path, name: b.path === 'INBOX' ? 'Inbox' : b.path.split(b.delimiter || '/').join(' / '), specialUse: b.path === 'INBOX' ? '\\Inbox' : b.specialUse || null,
         messages: b.status?.messages ?? 0, unseen: b.status?.unseen ?? 0 }))
       .sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name)));
+  });
+
+  // A folder's state, to notice changes made elsewhere (a phone, Outlook, a filter): a tag that changes when
+  // messages come, go, or are read, flagged or moved. Mail asks every so often while it's open.
+  r.get('/folder-state', async (req, res) => {
+    const folder = String(req.query.folder || 'INBOX');
+    const st = await withClient(req.user, async (c) => {
+      if (c.mailbox && c.mailbox.path === folder) await c.noop(); // the open folder answers from its last sync otherwise
+      try { return await c.status(folder, { messages: true, uidNext: true, unseen: true, highestModseq: true }); }
+      catch (e) { if (!(await c.list()).some((b) => b.path === folder)) throw notFound('Folder not found'); throw e; }
+    });
+    res.json({ tag: folderTag(st), messages: st.messages ?? 0, unseen: st.unseen ?? 0 });
   });
 
   r.get('/messages', async (req, res) => {

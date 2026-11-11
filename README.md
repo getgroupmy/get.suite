@@ -989,6 +989,7 @@ Your business fixed IP is what makes this work. Do these once:
   - The plain-text version shows `[image: name]` in their place.
   - Pictures count towards the 25 MB message limit.
   - Replies and forwards carry the original's pictures too (see below).
+- **Changes made elsewhere:** what you do on your phone or in Outlook (reading, starring, filing or deleting mail) shows in Workspace within about 10 seconds while Mail is open: the open folder's state is checked every 10 seconds (a quick question to the mail server) and the list reloads only when something changed, straight away when you come back to the tab. New mail shows at once.
 - **New-mail notifications:** while Workspace is open in any tab, new mail in your Inbox shows up within a second or two.
   - A pop-up names the sender and subject.
   - The **Mail** icon shows the unread count, and the browser tab title starts with it, e.g. `(3) Workspace`.

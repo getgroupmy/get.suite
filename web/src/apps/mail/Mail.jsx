@@ -218,10 +218,28 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
   const [desktop, setDesktop] = useState(desktopOn());
   // Poll for new mail; retry quickly while the mailbox is unavailable (e.g. just created).
   const failing = !!error && !data;
+  // Changes made elsewhere (a phone, Outlook, a filter): every 10 seconds while the page is shown, ask for the open
+  // folder's state (cheap) and reload only when it changed; a full reload every 5 minutes besides, and on coming back.
+  const stateTag = useRef(null);
+  useEffect(() => { stateTag.current = null; }, [folder]);
   useEffect(() => {
-    const t = setInterval(() => { if (!document.hidden) { loadFolders(); loadList(); } }, failing ? 4000 : 30000);
-    return () => clearInterval(t);
-  }, [loadFolders, loadList, failing]);
+    if (failing) { const t = setInterval(() => { if (!document.hidden) { loadFolders(); loadList(); } }, 4000); return () => clearInterval(t); }
+    let last = Date.now();
+    const check = async (force) => {
+      if (document.hidden) return;
+      if (force || Date.now() - last > 300e3 || shared) { last = Date.now(); loadFolders(); loadList(); return; }
+      try {
+        const { tag } = await get(`/mail/folder-state?folder=${enc(folder)}`);
+        if (stateTag.current !== null && tag !== stateTag.current) { last = Date.now(); loadFolders(); loadList(); }
+        stateTag.current = tag;
+      } catch { /* the next check tries again */ }
+    };
+    const t = setInterval(() => check(false), shared ? 30000 : 10000);
+    const back = () => { if (!document.hidden) check(false); };
+    document.addEventListener('visibilitychange', back);
+    check(false); // learn the state now
+    return () => { clearInterval(t); document.removeEventListener('visibilitychange', back); };
+  }, [loadFolders, loadList, failing, folder, shared]);
 
   const current = folders.find((f) => f.path === folder);
   const special = current?.specialUse;

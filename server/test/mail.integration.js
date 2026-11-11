@@ -2251,3 +2251,28 @@ test('admin storage: each mailbox in the company with its size and limit, fulles
   assert.equal((await olivia('GET', '/api/orgs/current/mail-storage')).body.checked_at, r.checked_at);
   await olivia('PATCH', `/api/users/${bobId}`, { mail_quota_mb: 0 });
 });
+
+test('folder state: a tag that changes when another app reads, adds or removes mail in the folder', async () => {
+  const run = ` #${Date.now()}`;
+  const tag = async () => (await olivia('GET', '/api/mail/folder-state?folder=INBOX')).body.tag;
+  assert.equal((await olivia('GET', '/api/mail/folder-state?folder=Nowhere')).status, 404);
+  await inbox(olivia); // the app has the Inbox open, as when someone is looking at it
+  const t0 = await tag();
+  assert.equal(await tag(), t0, 'the same while nothing changes');
+  const c = await eventually(() => imapLogin('olivia@acme.com', 'password123'), 20000);
+  try {
+    await c.append('INBOX', `From: x@example.com\r\nTo: olivia@acme.com\r\nSubject: From the phone${run}\r\n\r\nx\r\n`, []);
+    const t1 = await tag();
+    assert.notEqual(t1, t0, 'a new message');
+    await c.mailboxOpen('INBOX');
+    const uid = (await c.search({ subject: `From the phone${run}` }, { uid: true }))[0];
+    await c.messageFlagsAdd(String(uid), ['\\Seen'], { uid: true });
+    const t2 = await tag();
+    assert.notEqual(t2, t1, 'read on the phone');
+    await c.messageFlagsAdd(String(uid), ['\\Flagged'], { uid: true });
+    const t3 = await tag();
+    assert.notEqual(t3, t2, 'starred on the phone');
+    await c.messageDelete(String(uid), { uid: true });
+    assert.notEqual(await tag(), t3, 'deleted on the phone');
+  } finally { await c.logout().catch(() => {}); }
+});
