@@ -24,6 +24,11 @@ function FormList() {
   const toast = useToast();
   const [forms, setForms] = useState(null);
   useEffect(() => { get('/forms').then(setForms).catch((e) => toast(e.message, 'error')); }, [toast]);
+  const [find, setFind] = useState('');
+  const [show, setShow] = useState('all'); // all | open | closed | shared | archived
+  const shown = (forms || []).filter((f) => (show === 'archived' ? f.archived_at : !f.archived_at)
+    && (show !== 'open' || !f.closed) && (show !== 'closed' || f.closed) && (show !== 'shared' || f.owner_name)
+    && (!find.trim() || f.title.toLowerCase().includes(find.trim().toLowerCase())));
   const [templates, setTemplates] = useState([]);
   useEffect(() => { get('/forms/templates').then(setTemplates).catch(() => {}); }, []);
   const create = async (template) => {
@@ -49,21 +54,31 @@ function FormList() {
       {forms === null ? <p className="muted">Loading…</p> : !forms.length ? (
         <Empty icon="form" title="No forms yet">Make a sign-up sheet, a survey or a quick poll, share its link and see the answers come in.</Empty>
       ) : (
+        <>
+        <div className="row form-list-tools" style={{ gap: 8 }}>
+          <input type="search" className="grow" aria-label="Search your forms" placeholder="Search your forms" value={find} onChange={(e) => setFind(e.target.value)} />
+          <select aria-label="Show" value={show} onChange={(e) => setShow(e.target.value)}>
+            <option value="all">All forms</option><option value="open">Taking responses</option><option value="closed">Closed</option>
+            <option value="shared">Shared with me</option><option value="archived">Archived ({forms.filter((f) => f.archived_at).length})</option>
+          </select>
+        </div>
+        {!shown.length && <p className="muted">{show === 'archived' ? 'Nothing archived. A form’s ⋮ → Archive puts it here.' : 'No forms match.'}</p>}
         <ul className="form-list" aria-label="Your forms">
-          {forms.map((f) => (
+          {shown.map((f) => (
             <li key={f.id}>
               <button type="button" className="form-row" onClick={() => navigate(`/forms/${f.id}`)}>
                 <Icon name="form" />
                 <span className="grow"><span className="form-row-title">{f.title}</span>
                   <span className="muted small">{f.responses === 1 ? '1 response' : `${f.responses} responses`}{f.last_response ? ` · last ${formatDate(f.last_response)}` : ''}</span></span>
                 {f.owner_name && <span className="tag">Shared by {f.owner_name}</span>}
-                {f.closed && <span className="tag">{f.closed === 'full' ? 'Full' : f.closed === 'notyet' ? 'Opens later' : 'Closed'}</span>}
+                {f.closed && <span className="tag">{f.closed === 'full' ? 'Full' : f.closed === 'notyet' ? 'Opens later' : f.closed === 'archived' ? 'Archived' : 'Closed'}</span>}
                 {f.audience === 'public' && <span className="tag">Anyone with the link</span>}
                 <span className="muted small nowrap">Edited {formatDate(f.updated_at)}</span>
               </button>
             </li>
           ))}
         </ul>
+        </>
       )}
     </div>
   );
@@ -158,6 +173,9 @@ function FormEditor({ id }) {
           { label: 'Get pre-filled link', icon: 'link', onClick: async () => { await flush(); setPrefill(true); } },
           { label: 'Embed in a website', icon: 'link', onClick: () => setEmbedOpen(true) },
           { label: 'Make a copy', icon: 'copy', onClick: copyForm },
+          form.role === 'owner' && { label: form.archived_at ? 'Bring back from the archive' : 'Archive', icon: 'archive', onClick: async () => {
+            try { await flush(); const r = await put(`/forms/${id}/archived`, { archived: !form.archived_at }); setForm((x) => ({ ...x, archived_at: r.archived_at, closed: r.closed })); toast(r.archived_at ? 'Archived: out of your forms list, and it no longer takes responses' : 'Back from the archive'); } catch (e) { toast(e.message, 'error'); }
+          } },
           form.role === 'owner' ? { label: 'Delete form', icon: 'trash', onClick: () => setConfirm(true) }
             : { label: 'Leave this form', icon: 'logout', onClick: async () => { await flush(); await del(`/forms/${id}/editors/${user.id}`); navigate('/forms'); } },
         ]} />

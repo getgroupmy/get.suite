@@ -3545,6 +3545,29 @@ test('forms: build one, share the link, collect and read responses', async () =>
   assert.equal((await outsider('GET', `/api/public/forms/${fresh.token}`)).status, 404);
 });
 
+test('forms: archive a form (owner only): out of the way and closed, until brought back', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['farca', 'Farc Ann'], ['farcb', 'Farc Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'farca@acme.com');
+  const bid = (await login(b, 'farcb@acme.com')).id;
+  const f = (await a('POST', '/api/forms', { title: 'Old survey' })).body;
+  await a('PUT', `/api/forms/${f.id}`, { questions: [{ id: 'q1', type: 'short', title: 'Name' }] });
+  await a('POST', `/api/forms/${f.id}/editors`, { user_id: bid }).catch(() => {});
+  assert.equal((await b('PUT', `/api/forms/${f.id}/archived`, { archived: true })).status, (await b('GET', `/api/forms/${f.id}`)).status === 200 ? 403 : 404, 'not the owner');
+  const r = (await a('PUT', `/api/forms/${f.id}/archived`, { archived: true })).body;
+  assert.ok(r.archived_at);
+  assert.equal(r.closed, 'archived');
+  const row = (await a('GET', '/api/forms')).body.find((x) => x.id === f.id);
+  assert.equal(row.closed, 'archived');
+  assert.ok(row.archived_at, 'the list says so (the page puts it under Archived)');
+  const pub = (await b('GET', `/api/public/forms/${f.token}`)).body;
+  assert.equal(pub.accepting, false);
+  assert.equal(pub.closed_text, 'This form is no longer accepting responses');
+  assert.equal((await b('POST', `/api/public/forms/${f.token}`, { answers: { q1: 'Ben' } })).status >= 400, true, 'no answers taken');
+  await a('PUT', `/api/forms/${f.id}/archived`, { archived: false });
+  assert.equal((await b('GET', `/api/public/forms/${f.token}`)).body.accepting, true, 'back: open again');
+});
+
 test('forms: editors, closing date and response limit', async () => {
   const own = client(); const ed = client(); const visitor = client();
   for (const [local, name] of [['fea', 'Fay Owner'], ['feb', 'Eddie Editor']]) {

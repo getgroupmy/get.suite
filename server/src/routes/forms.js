@@ -451,8 +451,12 @@ const editorsOf = (formId) => q(`SELECT u.id, u.name, u.username AS email FROM f
 /** Everyone who works on the form: its owner and its editors. */
 export const teamOf = (f) => [f.owner_id, ...editorsOf(f.id).map((u) => u.id)];
 
+// Archived: put away by its owner, out of the forms list, and no longer taking answers (until brought back).
+if (!q('PRAGMA table_info(forms)').all().some((c) => c.name === 'archived_at')) q('ALTER TABLE forms ADD COLUMN archived_at INTEGER').run();
+
 /** Why a form isn't taking answers right now, or null when it is. */
 export function closedReason(f, t = Date.now(), count = null) {
+  if (f.archived_at) return 'archived';
   if (!f.accepting) return 'closed';
   if (f.open_at && f.open_at > t) return 'notyet'; // opens by itself later
   if (f.close_at && f.close_at <= t) return 'ended';
@@ -481,7 +485,7 @@ function checkPlaces(formId, questions, answers, exceptResponseId = null, before
   }
 }
 
-const CLOSED_TEXT = { notyet: 'This form isn\'t open yet', closed: 'This form is no longer accepting responses', ended: 'This form closed', full: 'This form has all the responses it needs' };
+const CLOSED_TEXT = { archived: 'This form is no longer accepting responses', notyet: 'This form isn\'t open yet', closed: 'This form is no longer accepting responses', ended: 'This form closed', full: 'This form has all the responses it needs' };
 
 /** A form you own or edit (ownerOnly: you must own it). */
 function ownForm(id, user, { ownerOnly = false } = {}) {
@@ -515,7 +519,7 @@ const summaryRow = (f, me) => {
   const responses = countOf(f.id);
   return { id: f.id, title: f.title, token: f.token, audience: f.audience, accepting: !!f.accepting, closed: closedReason(f, Date.now(), responses),
     created_at: f.created_at, updated_at: f.updated_at, responses, last_response: q('SELECT MAX(created_at) AS t FROM form_responses WHERE form_id = ?').get(f.id).t,
-    owner_name: f.owner_id === me ? null : f.owner_name };
+    owner_name: f.owner_id === me ? null : f.owner_name, ...(f.archived_at && { archived_at: f.archived_at }) };
 };
 
 export default function formRoutes() {
@@ -659,6 +663,13 @@ export default function formRoutes() {
     res.json(ownForm(f.id, req.user));
   });
 
+  // Archive a form ({ archived: true }) or bring it back ({ archived: false }): its owner only.
+  r.put('/:id/archived', (req, res) => {
+    const f = ownForm(req.params.id, req.user, { ownerOnly: true });
+    const at = req.body?.archived ? (f.archived_at || now()) : null;
+    q('UPDATE forms SET archived_at = ? WHERE id = ?').run(at, f.id);
+    res.json({ archived_at: at, closed: closedReason({ ...f, archived_at: at }) });
+  });
   r.delete('/:id', (req, res) => {
     const f = ownForm(req.params.id, req.user, { ownerOnly: true });
     const team = teamOf(f);
