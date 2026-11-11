@@ -10290,6 +10290,10 @@ test('tasks: what you ticked off in the last 30 days, from every list', async ()
   const { q } = await import('../src/db.js');
   q('UPDATE tasks SET done_at = ? WHERE id = ?').run(Date.now() - 31 * 864e5, t1.id);
   assert.deepEqual((await a('GET', '/api/tasks/completed')).body.map((t) => t.title), ['Water plants'], '30 days back');
+  q('UPDATE tasks SET done_at = ? WHERE id = ?').run(Date.now() - 10 * 864e5, t2.id);
+  assert.deepEqual((await a('GET', '/api/tasks/completed?days=7')).body.map((t) => t.title), [], 'the last week only');
+  assert.deepEqual((await a('GET', '/api/tasks/completed?days=30')).body.map((t) => t.title), ['Water plants']);
+  assert.equal((await a('GET', '/api/tasks/completed?days=3')).status, 400);
 });
 
 test('tasks: an estimate of how long a task will take', async () => {

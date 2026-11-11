@@ -50,6 +50,9 @@ export default function Tasks() {
     try { setFound({ q: qs, list: await get(`/tasks/search?q=${encodeURIComponent(qs)}`) }); } catch (e) { toast(e.message, 'error'); }
   };
   const [showDone, setShowDone] = useState(false);
+  // The Completed view: the last 7 or 30 days (kept on this device).
+  const [doneDays, setDoneDaysState] = useState(() => { try { return localStorage.getItem('nw.tasksDoneDays') === '7' ? 7 : 30; } catch { return 30; } });
+  const setDoneDays = (d) => { setDoneDaysState(d); try { localStorage.setItem('nw.tasksDoneDays', String(d)); } catch { /* private window */ } };
   const [selecting, setSelecting] = useState(false); // choosing several tasks to change at once
   const [picked, setPicked] = useState(() => new Set());
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -102,8 +105,8 @@ export default function Tasks() {
     else { setTimes({}); setSections([]); }
     if (listId.startsWith('tag:')) return get(`/tasks/tags?tag=${encodeURIComponent(listId.slice(4))}`).then((r) => setTasks(r.tasks)).catch((e) => toast(e.message, 'error'));
     if (listId === MYDAY) get(`/tasks/myday/suggestions?today=${localToday()}`).then(setSuggested).catch(() => setSuggested([]));
-    return get(listId === MYDAY ? `/tasks/myday?today=${localToday()}` : VIRTUAL[listId] || `/tasks/lists/${listId}/tasks`).then(setTasks).catch((e) => { toast(e.message, 'error'); navigate('/tasks', { replace: true }); });
-  }, [listId, toast, navigate]);
+    return get(listId === MYDAY ? `/tasks/myday?today=${localToday()}` : listId === COMPLETED ? `/tasks/completed?days=${doneDays}` : VIRTUAL[listId] || `/tasks/lists/${listId}/tasks`).then(setTasks).catch((e) => { toast(e.message, 'error'); navigate('/tasks', { replace: true }); });
+  }, [listId, toast, navigate, doneDays]);
   useEffect(() => { loadLists(); }, [loadLists]);
   useEffect(() => { setTasks(null); loadTasks(); }, [loadTasks]);
   useEffect(() => onLive((m) => {
@@ -367,9 +370,10 @@ export default function Tasks() {
               update(t, t.done ? { done: false, started } : { started });
             }} />
         ) : listId === COMPLETED ? (
-          !done.length ? <Empty icon="check" title="Nothing completed lately">Tasks you tick off, on any list, show up here for 30 days.</Empty> : (
+          !done.length ? <Empty icon="check" title="Nothing completed lately">Tasks you tick off, on any list, show up here for 30 days.{doneDays === 7 && <> <button type="button" className="link-btn" onClick={() => setDoneDays(30)}>Show the last 30 days</button></>}</Empty> : (
             <div className="planned completed-days">
-              <p className="muted small">{done.length} {done.length === 1 ? 'task' : 'tasks'} done in the last 30 days</p>
+              <div className="row"><p className="muted small grow" style={{ margin: 0 }}>{done.length} {done.length === 1 ? 'task' : 'tasks'} done in the last {doneDays} days</p>
+                <select aria-label="Completed in" value={doneDays} onChange={(e) => setDoneDays(Number(e.target.value))}><option value={7}>Last 7 days</option><option value={30}>Last 30 days</option></select></div>
               {groupCompleted(done).map((g) => (
                 <section key={g.key} className="planned-group" aria-label={g.label}>
                   <h3 className="planned-heading">{g.label} <span className="muted small">{g.tasks.length}</span></h3>

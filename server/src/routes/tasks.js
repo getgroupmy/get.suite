@@ -673,7 +673,9 @@ export default function taskRoutes() {
   // What you ticked off in the last 30 days, on any of your lists: newest first (for a weekly look back).
   r.get('/completed', (req, res) => {
     const me = req.user.id;
-    const since = Date.now() - 30 * 864e5;
+    const days = req.query.days === undefined ? 30 : Number(req.query.days); // 7 for the week, or 30
+    if (![7, 30].includes(days)) throw bad('Look back 7 or 30 days');
+    const since = Date.now() - days * 864e5;
     res.json(q(`${TASK} WHERE t.done_at >= ? AND t.done_by = ? AND (l.owner_id = ? OR l.id IN (SELECT list_id FROM task_list_members WHERE user_id = ?))
                 ORDER BY t.done_at DESC LIMIT 500`).all(since, me, me, me).map(shape));
   });
