@@ -11,3 +11,17 @@ export function notePrintHtml(n) {
     .labels { color: #5f6368; font-size: 12px; margin-top: 16px; }
   </style></head><body>${n.title ? `<h1>${esc(n.title)}</h1>` : ''}${body}${items}${labels}</body></html>`;
 }
+
+/**
+ * A note as a new email: its title as the subject (or the first words of its text), and its text or
+ * checklist (☑ / ☐, sub-items indented) as the message, with a link back to the note.
+ */
+export function noteEmail(n, link = '') {
+  const first = (n.body || n.items?.[0]?.text || '').trim().split('\n')[0];
+  const subject = (n.title || '').trim() || (first.length > 60 ? `${first.slice(0, 57)}…` : first) || 'Note';
+  const items = n.items?.length
+    ? `<ul style="list-style:none;padding:0">${n.items.map((i) => `<li${i.indent ? ' style="padding-left:24px"' : ''}>${i.done ? '☑' : '☐'} ${i.done ? `<s>${esc(i.text)}</s>` : esc(i.text)}</li>`).join('')}</ul>` : '';
+  const body = !n.items && n.body ? `<p>${esc(n.body).replace(/\n/g, '<br>')}</p>` : '';
+  const back = link ? `<p style="color:#5f6368;font-size:12px">From my notes: <a href="${esc(link)}">${esc(link)}</a></p>` : '';
+  return { subject, html: `${body}${items}${back}` };
+}

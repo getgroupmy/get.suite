@@ -7,7 +7,9 @@ import { moveTo, moveBy, sortNotes, NOTE_SORTS } from './order.js';
 import { indent, moveItem, moveItemTo, tick as tickItem, untickAll, dropTicked } from './checklist.js';
 import { noteLink } from '../chat/filelinks.js';
 import { printHtml } from '../mail/mailprint.js';
-import { notePrintHtml } from './noteprint.js';
+import { notePrintHtml, noteEmail } from './noteprint.js';
+import { DRAFT_KEY } from '../docs/blocks.js';
+import { useMailStatus } from '../../mailStatus.js';
 import Icon from '../../components/Icon.jsx';
 import { Avatar, Empty, Menu, Modal, PromptModal, ConfirmModal, useToast } from '../../components/ui.jsx';
 import { quickTimes, reminderText } from './remind.js';
@@ -353,6 +355,8 @@ function PickTime({ note, onPick, onClose }) {
 }
 
 function NoteCard({ labelColors = {}, note: n, drag = {}, dragging, picked, picking, onPick, onMove, first, last, onOpen, onChange, onArchive, onLabel, onShare, onCopy, onDelete, onRemind, onToDoc, onToTasks, onHistory }) {
+  const mail = useMailStatus();
+  const navigate = useNavigate();
   const toast = useToast();
   const items = n.items || [];
   const open = items.filter((i) => !i.done);
@@ -405,6 +409,11 @@ function NoteCard({ labelColors = {}, note: n, drag = {}, dragging, picked, pick
           { label: 'Make a copy', icon: 'copy', onClick: onCopy },
           { label: 'Download (.md)', icon: 'download', onClick: () => { window.location.href = `/api/notes/${n.id}/export.md`; } },
           { label: 'Print', icon: 'print', onClick: () => printHtml(notePrintHtml(n)) },
+          mail?.enabled && { label: 'Send by email', icon: 'mail', onClick: () => {
+            // A new email in Mail with the note in it (handed over in this browser's storage, as Docs does).
+            try { localStorage.setItem(DRAFT_KEY, JSON.stringify(noteEmail(n, noteLink(n)))); } catch { toast('Your browser’s storage is off', 'error'); return; }
+            navigate('/mail?compose_doc=1');
+          } },
           { label: 'Version history', icon: 'clock', onClick: onHistory },
           { label: 'Copy to a document', icon: 'doc', onClick: onToDoc },
           { label: n.items?.length ? 'Copy unticked items to Tasks' : 'Copy to Tasks', icon: 'check', onClick: onToTasks },
