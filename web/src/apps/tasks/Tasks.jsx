@@ -847,7 +847,7 @@ function TaskDetails({ task, tasks, lists, sections = [], people, onChange, onCl
       <TaskSchedule task={task} />
       <label className="field"><span>Due</span>
         <span className="row"><input type="date" value={task.due || ''} onChange={(e) => onChange({ due: e.target.value || null })} />
-          {task.due && <input type="time" aria-label="Time" title="Due time (optional)" value={task.due_time || ''} onChange={(e) => onChange({ due_time: e.target.value || null })} />}
+          {task.due && <input type="time" aria-label="Due time" title="Due time (optional)" value={task.due_time || ''} onChange={(e) => onChange({ due_time: e.target.value || null })} />}
           {task.due && <button type="button" className="link-btn small" onClick={() => onChange({ due: null })}>Clear</button>}</span>
       </label>
       {task.due && (
