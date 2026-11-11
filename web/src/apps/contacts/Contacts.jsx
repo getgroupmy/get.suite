@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import WithPerson from '../../components/WithPerson.jsx';
 import { useNavigate, useSearchParams } from 'react-router';
-import { get, post, patch, del, postText, onLive } from '../../api.js';
+import { get, post, put, patch, del, postText, onLive } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
 import { Avatar, ConfirmModal, Empty, Menu, Modal, useToast } from '../../components/ui.jsx';
 import { useAuth } from '../../App.jsx';
@@ -14,6 +14,7 @@ import PersonCard from '../../components/PersonCard.jsx';
 import { photoBlob, photoUrl } from './photo.js';
 import QRCode from 'qrcode';
 import { sinceText } from '../home/dates.js';
+import { sortContacts, CONTACT_SORTS } from './sortcontacts.js';
 
 const FIELDS = [['name', 'Name'], ['email', 'Email'], ['phone', 'Phone'], ['company', 'Company'], ['title', 'Job title'], ['website', 'Website']];
 const TYPE_LABELS = { work: 'Work', home: 'Home', mobile: 'Mobile', other: 'Other' };
@@ -82,7 +83,11 @@ export default function Contacts() {
   useEffect(() => { get(`/location/people?date=${isoDay(new Date())}`).then(setWhereToday).catch(() => {}); }, []);
 
   const match = (c) => !filter || Object.values(c).some((v) => typeof v === 'string' && v.toLowerCase().includes(filter.toLowerCase()));
-  const list = (tab === 'mine' ? (contacts || []) : tab === 'company' ? company : directory).filter(match);
+  const [sort, setSort] = useState('first'); // your own way of sorting your contacts
+  useEffect(() => { get('/contacts/view').then((r) => setSort(r.sort)).catch(() => {}); }, []);
+  const chooseSort = async (next) => { setSort(next); try { await put('/contacts/view', { sort: next }); } catch (e) { toast(e.message, 'error'); } };
+  const filtered = (tab === 'mine' ? (contacts || []) : tab === 'company' ? company : directory).filter(match);
+  const list = tab === 'mine' ? sortContacts(filtered, sort) : filtered;
   const own = tab === 'mine' || tab === 'company'; // address-book rows, not NAS users
   // Several of your contacts at once: email them, add them to a group, star them, or delete them.
   const [picked, setPicked] = useState(() => new Set());
@@ -133,6 +138,7 @@ export default function Contacts() {
           <button role="tab" aria-selected={tab === 'trash'} className={tab === 'trash' ? 'on' : ''} onClick={() => setTab('trash')}>Trash</button>
         </div>
         <input className="filter" placeholder="Filter" aria-label="Filter contacts" value={filter} onChange={(e) => setFilter(e.target.value)} />
+        {tab === 'mine' && <select aria-label="Sort contacts" value={sort} onChange={(e) => chooseSort(e.target.value)}>{CONTACT_SORTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>}
         {tab === 'dir' && <button type="button" className={`btn small ${chart ? 'primary' : ''}`} aria-pressed={chart} onClick={() => setChart(!chart)}>Org chart</button>}
       </div>
       {tab === 'dir' && chart ? <OrgChart people={directory} filter={filter} onMessage={message} me={user.id} onOpen={setCard} /> : tab === 'groups' ? <Groups filter={filter} /> : tab === 'touch' ? <KeepInTouch filter={filter} /> : tab === 'trash' ? <ContactsTrash filter={filter} onRestored={load} /> : tab === 'other' ? <OtherContacts filter={filter} onAdded={load} /> : tab === 'mine' && contacts?.length === 0 ? <Empty icon="person" title="No contacts yet">Add people you work with outside your NAS users.</Empty>

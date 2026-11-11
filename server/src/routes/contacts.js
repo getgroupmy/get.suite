@@ -19,6 +19,12 @@ import { buildVcard } from '../vcard.js';
 // email counts, or Mark as contacted).
 for (const [col, type] of [['touch_days', 'INTEGER'], ['last_contact', 'INTEGER']]) if (!q('PRAGMA table_info(contacts)').all().some((c) => c.name === col)) q(`ALTER TABLE contacts ADD COLUMN ${col} ${type}`).run();
 export const TOUCH_DAYS = [7, 14, 30, 60, 90, 180, 365];
+// How each person sorts their contacts (starred ones first either way).
+export const CONTACT_SORTS = ['first', 'last', 'company', 'added'];
+q(`CREATE TABLE IF NOT EXISTS contact_prefs (
+  user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  sort TEXT NOT NULL DEFAULT 'first'
+)`).run();
 /** When you're due to be in touch again (ms), or null for no reminder. Never in touch: due now. */
 export const touchDue = (c) => (c.touch_days ? (c.last_contact || 0) + c.touch_days * 864e5 : null);
 if (!q('PRAGMA table_info(contacts)').all().some((c) => c.name === 'touch_notified')) q('ALTER TABLE contacts ADD COLUMN touch_notified INTEGER').run();
@@ -296,6 +302,14 @@ export default function contactRoutes() {
   });
 
   // Your contacts' birthdays between two dates (YYYY-MM-DD, at most a year and a bit apart), for the calendar.
+  r.get('/view', (req, res) => res.json({ sort: q('SELECT sort FROM contact_prefs WHERE user_id = ?').get(req.user.id)?.sort || 'first' }));
+  r.put('/view', (req, res) => {
+    const sort = String(req.body?.sort || '');
+    if (!CONTACT_SORTS.includes(sort)) throw bad('First name, last name, company or recently added');
+    q('INSERT INTO contact_prefs (user_id, sort) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET sort = excluded.sort').run(req.user.id, sort);
+    res.json({ sort });
+  });
+
   // Who you're due to be in touch with: most overdue first, with when you last were.
   r.get('/keep-in-touch', (req, res) => {
     const at = Date.now();

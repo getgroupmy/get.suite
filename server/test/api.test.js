@@ -8751,6 +8751,17 @@ test('slides: rehearsals — time on each slide, your last few kept', async () =
   assert.equal(list[0].total_ms, 1005, 'newest first');
 });
 
+test('contacts: each person sorts their own way', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['csra', 'Csr Ann'], ['csrb', 'Csr Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'csra@acme.com'); await login(b, 'csrb@acme.com');
+  assert.deepEqual((await a('GET', '/api/contacts/view')).body, { sort: 'first' });
+  assert.deepEqual((await a('PUT', '/api/contacts/view', { sort: 'last' })).body, { sort: 'last' });
+  assert.deepEqual((await a('GET', '/api/contacts/view')).body, { sort: 'last' });
+  assert.deepEqual((await b('GET', '/api/contacts/view')).body, { sort: 'first' });
+  assert.equal((await a('PUT', '/api/contacts/view', { sort: 'age' })).status, 400);
+});
+
 test('contacts: keep in touch — how often, who is due, and writing to them counts', async () => {
   const a = client(), b = client();
   for (const [local, name] of [['kita', 'Kit Ann'], ['kitb', 'Kit Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
