@@ -44,7 +44,11 @@ export const SHORTCUTS = {
   calendar: { title: 'Calendar', keys: [
     ['← / →', 'Previous or next week or day'], ['Escape', 'Cancel a drag'],
   ] },
-  chat: { title: 'Chat', keys: [['Enter', 'Send'], ['Shift+Enter', 'New line']] },
+  chat: { title: 'Chat', keys: [
+    ['Enter', 'Send'], ['Shift+Enter', 'New line'], ['↑ (in an empty message box)', 'Change your last message'],
+    [`${alt}+↑ / ${alt}+↓`, 'Previous or next conversation'], [`${alt}+Shift+↑ / ${alt}+Shift+↓`, 'Previous or next unread conversation'],
+    ['Shift+Escape', 'Mark all conversations as read'],
+  ] },
   all: { title: 'Everywhere', keys: [[`${mod}+/`, 'This list (or ? outside a text field)'], ['Escape', 'Close a dialog or menu']] },
 };
 

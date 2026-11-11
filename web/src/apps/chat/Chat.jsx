@@ -20,6 +20,7 @@ import { addToTasksWithToast, titleFromText } from '../tasks/addtask.js';
 import { isPaused } from '../../pause.js';
 import { noteTyping, typingIn, typingText } from './typing.js';
 import { newFromId, newCount, belowText } from './unread.js';
+import { nextConversation, lastEditable } from './keys.js';
 
 /**
  * "Kim is typing…": tells the others while you type here (at most every 2.5 seconds; clearing the
@@ -402,13 +403,35 @@ export default function Chat() {
     return () => { clearInterval(t); off(); };
   }, []);
   const callMark = (c) => (liveCalls[c.id] ? <span className="chat-call-mark" aria-label={`In a call (${liveCalls[c.id]})`} title={`A call is going on here: ${liveCalls[c.id]} in it`}>🎥</span> : null);
+  const readAll = async () => { try { const r = await post('/chat/read-all', {}); await loadChannels(); toast(`Marked ${r.conversations} conversation${r.conversations === 1 ? '' : 's'} as read`); } catch (e) { toast(e.message, 'error'); } };
+  // Keyboard: Alt+↑/↓ the conversation above or below in the list, with Shift the next unread one;
+  // Shift+Esc marks everything read. They work from the message box too.
+  const keyState = useRef({});
+  keyState.current = { channelId, unread, mentioned, readAll, navigate };
+  useEffect(() => {
+    const onKey = (e) => {
+      const { channelId: cur, unread: u, mentioned: at, readAll: all, navigate: go } = keyState.current;
+      if (e.altKey && !e.ctrlKey && !e.metaKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+        const ids = [...document.querySelectorAll('.subnav [data-cid]')].map((el) => el.dataset.cid);
+        const next = nextConversation(ids, cur, e.key === 'ArrowDown' ? 1 : -1, e.shiftKey ? (id) => u[id] > 0 || !!at[id] : null);
+        e.preventDefault();
+        if (next) go(`/chat/${next}`);
+        else if (e.shiftKey) toast('Nothing else is unread');
+      } else if (e.key === 'Escape' && e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey && Object.values(u).some((n) => n > 0)) {
+        e.preventDefault();
+        all();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [toast]);
   const channelRow = (c) => (
-          <button key={c.id} className={`subnav-item ${c.id === channelId ? 'active' : ''} ${c.archived_at ? 'archived' : ''} ${c.muted ? 'muted' : ''}`} onClick={() => navigate(`/chat/${c.id}`)}>
+          <button key={c.id} data-cid={c.id} className={`subnav-item ${c.id === channelId ? 'active' : ''} ${c.archived_at ? 'archived' : ''} ${c.muted ? 'muted' : ''}`} onClick={() => navigate(`/chat/${c.id}`)}>
             <span className="hash" aria-label={c.private ? 'Private channel' : undefined}>{c.private ? '🔒' : '#'}</span><span className="grow ellipsis">{c.name}</span>{callMark(c)}{drafts[c.id] && c.id !== channelId && <span className="draft-mark" aria-label="Draft" title={`Draft: ${drafts[c.id].slice(0, 80)}`}>✏️</span>}{c.muted && <span className="muted-mark" aria-label="Muted" title="Muted">🔕</span>}{mentioned[c.id] && <span className="badge at" aria-label="You were mentioned">@</span>}{unread[c.id] > 0 && <span className={`badge ${c.muted ? 'quiet' : ''}`}>{unread[c.id]}</span>}
           </button>
   );
   const dmRow = (c) => (
-          <button key={c.id} className={`subnav-item ${c.id === channelId ? 'active' : ''} ${c.muted ? 'muted' : ''}`} onClick={() => navigate(`/chat/${c.id}`)}>
+          <button key={c.id} data-cid={c.id} className={`subnav-item ${c.id === channelId ? 'active' : ''} ${c.muted ? 'muted' : ''}`} onClick={() => navigate(`/chat/${c.id}`)}>
             <Avatar name={c.dm_name || user.name} size={20} userId={c.dm_user_id || user.id} /><span className="grow ellipsis">{c.dm_name || 'Notes to self'}{c.dm_org && <span className="muted small"> · {c.dm_org}</span>}{statusFor(c.dm_user_id) && <span className="dm-status" title={statusLine(statusFor(c.dm_user_id))}> {statusFor(c.dm_user_id).emoji || '💬'}</span>}{pausedFor(c.dm_user_id) && <span className="dm-status" aria-label="Notifications paused" title={`Notifications paused until ${whenText(pausedFor(c.dm_user_id))}`}> 🔕</span>}</span>{drafts[c.id] && c.id !== channelId && <span className="draft-mark" aria-label="Draft" title={`Draft: ${drafts[c.id].slice(0, 80)}`}>✏️</span>}{c.muted && <span className="muted-mark" aria-label="Muted" title="Muted">🔕</span>}{mentioned[c.id] && <span className="badge at" aria-label="You were mentioned">@</span>}{unread[c.id] > 0 && <span className={`badge ${c.muted ? 'quiet' : ''}`}>{unread[c.id]}</span>}
             {callMark(c)}
           </button>
@@ -440,7 +463,7 @@ export default function Chat() {
         <button type="button" className={`subnav-item ${savedOpen ? 'active' : ''}`} onClick={() => { setSearch(null); setThreadsOpen(false); setSavedOpen(true); }}><span className="hash" aria-hidden="true">🔖</span><span className="grow">Saved</span>{saved.length > 0 && <span className="count">{saved.length}</span>}</button>
         <button type="button" className={`subnav-item ${threadsOpen ? 'active' : ''}`} onClick={() => { setSearch(null); setSavedOpen(false); setThreadsOpen(true); loadThreads(); }}><span className="hash" aria-hidden="true">💬</span><span className="grow">Threads</span>{unreadThreads > 0 && <span className="badge" aria-label={`${unreadThreads} with new replies`}>{unreadThreads}</span>}</button>
         {Object.values(unread).some((n) => n > 0) && <button type="button" className="link-btn small chat-read-all" title="Mark every conversation as read"
-          onClick={async () => { try { const r = await post('/chat/read-all', {}); await loadChannels(); toast(`Marked ${r.conversations} conversation${r.conversations === 1 ? '' : 's'} as read`); } catch (e) { toast(e.message, 'error'); } }}>✓ Mark all as read</button>}
+          onClick={readAll}>✓ Mark all as read</button>}
         {starred.length > 0 && <>
           <div className="subnav-title">Starred</div>
           <div role="list" aria-label="Starred conversations">{starred.map((c) => <div role="listitem" key={c.id}>{c.dm_key ? dmRow(c) : channelRow(c)}</div>)}</div>
@@ -649,7 +672,15 @@ export default function Chat() {
             <input ref={fileInput} type="file" multiple hidden aria-label="Files to attach" onChange={(e) => { attach([...e.target.files]); e.target.value = ''; }} />
             <textarea ref={box} rows={1} value={text} placeholder={`Message ${title}`} aria-label="Message" title="*bold*  _italic_  ~strike~  `code`  ```code block```  > quote" onChange={(e) => { setText(e.target.value); keepDraft(e.target.value); mention.track(e.target.value, e.target.selectionStart); typing.onType(e.target.value); }}
               onPaste={(e) => { const pasted = [...(e.clipboardData?.files || [])]; if (pasted.length) { e.preventDefault(); attach(pasted); } }}
-              onKeyDown={(e) => { if (mention.keyDown(e)) return; if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) send(e); }} />
+              onKeyDown={(e) => {
+                if (mention.keyDown(e)) return;
+                if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) send(e);
+                else if (e.key === 'ArrowUp' && !text && !e.altKey && !e.shiftKey && !e.ctrlKey && !e.metaKey && !current?.archived_at) {
+                  // ↑ in an empty box changes your last message
+                  const m = lastEditable(messages, user.id);
+                  if (m) { e.preventDefault(); setEditingId(m.id); setEditText(m.body); }
+                }
+              }} />
             {mention.list}
             <Menu align="right" trigger={(p) => <button type="button" className="icon-btn" aria-label="Schedule message" title="Send later" disabled={(!text.trim() && !files.length) || uploading > 0} {...p}><Icon name="clock" /></button>}
               items={[...laterChoices().map(([label, at]) => ({ label: `${label} · ${whenText(at)}`, onClick: () => scheduleAt(at) })), '-', { label: 'Pick date and time…', icon: 'calendar', onClick: () => setPickingTime(true) }]} />
