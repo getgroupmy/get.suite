@@ -2943,3 +2943,4 @@ select.meet-timer-btn option { color: #202124; }
 .chat-bookmark a:hover { text-decoration: underline; }
 .chat-bookmark-x { border: 0; background: none; color: var(--muted); cursor: pointer; padding: 0 8px 0 4px; font-size: 15px; line-height: 1; }
 .chat-bookmark-x:hover { color: var(--text); }
+.followup-late { color: var(--danger); font-weight: 600; }

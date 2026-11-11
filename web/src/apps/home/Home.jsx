@@ -2,7 +2,7 @@
 // worked on lately and your pinned notes, each linking to where it lives. It updates as things change.
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
-import { get, post, put, patch, onLive, formatDate } from '../../api.js';
+import { get, post, put, patch, del, onLive, formatDate } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
 import { Avatar, Modal, useToast } from '../../components/ui.jsx';
 import { useAuth } from '../../App.jsx';
@@ -26,7 +26,7 @@ function dayText(d) {
 
 /** Home's cards, by key, as the Customize window names them. */
 export const CARD_NAMES = { events: "Today's events", tasks: 'Tasks for today', unread: 'Unread', approvals: 'Waiting for your approval', out: "Who's out",
-  signing: 'Waiting for your signature', apps: 'Company apps', recent: 'Recent files', notes: 'Pinned notes', dates: 'Birthdays and dates', touch: 'Keep in touch', office: 'In the office today' };
+  signing: 'Waiting for your signature', apps: 'Company apps', recent: 'Recent files', notes: 'Pinned notes', dates: 'Birthdays and dates', touch: 'Keep in touch', office: 'In the office today', followups: 'Waiting for a reply' };
 const DEFAULT_LAYOUT = { order: Object.keys(CARD_NAMES), hidden: [] };
 
 export default function Home() {
@@ -47,7 +47,7 @@ export default function Home() {
     const start = new Date(); start.setHours(0, 0, 0, 0);
     const from = start.getTime(), to = from + 864e5 - 1;
     const safe = (p, empty) => p.catch(() => empty);
-    const [events, due, channels, recent, notes, unread, approvals, where, signing, away, apps, dates, touch, office] = await Promise.all([
+    const [events, due, channels, recent, notes, unread, approvals, where, signing, away, apps, dates, touch, office, followups] = await Promise.all([
       safe(get(`/events?from=${from}&to=${to}`), []), safe(get(`/tasks/today?today=${localToday()}`), []),
       safe(get('/chat/channels'), { channels: [] }), safe(get('/files?view=recent'), []), safe(get('/notes'), []),
       mail?.enabled ? safe(get('/mail/unread'), null) : Promise.resolve(null), safe(get('/approvals'), { waiting: [] }),
@@ -57,6 +57,7 @@ export default function Home() {
       safe(get(`/contacts/birthdays?from=${localToday()}&to=${addDays(localToday(), 13)}`), []),
       safe(get('/contacts/keep-in-touch'), []),
       safe(get(`/location/office?date=${localToday()}`), []),
+      mail?.enabled ? safe(get('/mail/followups'), []) : Promise.resolve([]),
     ]);
     setData({
       events: expandAll(events, from, to).filter((e) => e.my_status !== 'no'),
@@ -73,6 +74,7 @@ export default function Home() {
       dates: upcoming(dates, localToday()).slice(0, 6),
       touch: touch.slice(0, 5), touchMore: Math.max(0, touch.length - 5),
       office,
+      followups: followups.slice(0, 6), followupsMore: Math.max(0, followups.length - 6),
     });
   }, [mail?.enabled]);
   useEffect(() => { if (mail) load(); }, [load, mail]);
@@ -85,7 +87,7 @@ export default function Home() {
     } catch (e) { toast(e.message, 'error'); load(); }
   };
   useEffect(() => onLive((m) => {
-    if (['events-changed', 'tasks-changed', 'message', 'chat-read', 'notes-changed', 'files-changed', 'mail-new', 'mail-unread', 'approvals-changed', 'signatures-changed', 'location-changed', 'live-connected'].includes(m.type) || m.type === 'notification') load();
+    if (['mail-followups', 'events-changed', 'tasks-changed', 'message', 'chat-read', 'notes-changed', 'files-changed', 'mail-new', 'mail-unread', 'approvals-changed', 'signatures-changed', 'location-changed', 'live-connected'].includes(m.type) || m.type === 'notification') load();
   }), [load]);
   useEffect(() => { document.title = 'Home'; return () => { document.title = 'Workspace'; }; }, []);
 
@@ -247,6 +249,24 @@ export default function Home() {
                 ))}
               </ul>
               {data.touchMore > 0 && <Link className="small" to="/contacts?tab=touch">and {data.touchMore} more</Link>}
+            </section>
+          )}
+          {data.followups.length > 0 && (
+            <section className="card home-card" aria-label="Waiting for a reply" {...cardProps('followups')}>
+              <h2><Link to="/mail/Sent"><span aria-hidden="true">⏳</span> Waiting for a reply</Link></h2>
+              <ul className="home-list">
+                {data.followups.map((f) => (
+                  <li key={f.id}>
+                    <span className="grow" style={{ minWidth: 0 }}>
+                      <span className="ellipsis" style={{ display: 'block' }}><Link to={`/mail?open=${encodeURIComponent(f.message_id)}`}><strong>{f.subject || '(no subject)'}</strong></Link></span>
+                      <span className="muted small ellipsis" style={{ display: 'block' }}>{f.told_at ? <span className="followup-late">No reply yet</span> : `Reminder ${formatDate(f.due_at)}`} · to {f.recipients.slice(0, 2).join(', ')}{f.recipients.length > 2 ? ` +${f.recipients.length - 2}` : ''}</span>
+                    </span>
+                    <button type="button" className="btn small" aria-label={`${f.told_at ? 'Done with' : 'Stop waiting for'} ${f.subject || 'this email'}`} title={f.told_at ? 'Sorted: take it off the list' : 'Cancel the reminder'}
+                      onClick={async () => { try { await del(`/mail/followups/${f.id}`); load(); } catch (e) { toast(e.message, 'error'); } }}>{f.told_at ? '✓ Done' : 'Cancel'}</button>
+                  </li>
+                ))}
+              </ul>
+              {data.followupsMore > 0 && <span className="muted small">and {data.followupsMore} more</span>}
             </section>
           )}
           {data.notes.length > 0 && (

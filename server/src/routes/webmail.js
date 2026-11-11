@@ -196,6 +196,12 @@ q(`CREATE TABLE IF NOT EXISTS mail_followups (
   due_at INTEGER NOT NULL,
   created_at INTEGER NOT NULL
 )`).run();
+// told_at: the reminder went out (no reply by then); the row stays, as "no reply yet" on Home, until a reply comes,
+// it's marked done, or 30 days pass. checked_at: when it was last looked at for a reply since.
+for (const [col, type] of [['told_at', 'INTEGER'], ['checked_at', 'INTEGER']]) {
+  if (!q('PRAGMA table_info(mail_followups)').all().some((c) => c.name === col)) q(`ALTER TABLE mail_followups ADD COLUMN ${col} ${type}`).run();
+}
+const KEEP_TOLD_MS = 30 * 864e5;
 const FOLLOW_UP_DAYS = [1, 2, 3, 7, 14];
 /** The Message-ID header of a built message. */
 export function messageIdOf(raw) {
@@ -236,13 +242,23 @@ export async function checkFollowUps(at = Date.now()) {
   following = true;
   let told = 0;
   try {
-    for (const row of q('SELECT * FROM mail_followups WHERE due_at <= ? ORDER BY due_at LIMIT 50').all(at)) {
+    q('DELETE FROM mail_followups WHERE told_at IS NOT NULL AND told_at < ?').run(at - KEEP_TOLD_MS);
+    // Ones already told about: has a reply come since? (each at most hourly)
+    for (const row of q('SELECT * FROM mail_followups WHERE told_at IS NOT NULL AND COALESCE(checked_at, told_at) < ? ORDER BY checked_at LIMIT 50').all(at - 3600e3)) {
+      const user = q('SELECT * FROM users WHERE id = ? AND disabled = 0').get(row.user_id);
+      if (!user) continue;
+      try {
+        if (await hasReply(user, row.message_id)) { q('DELETE FROM mail_followups WHERE id = ?').run(row.id); sendTo([user.id], { type: 'mail-followups' }); }
+        else q('UPDATE mail_followups SET checked_at = ? WHERE id = ?').run(at, row.id);
+      } catch (e) { console.error('[mail] follow-up:', e.message); }
+    }
+    for (const row of q('SELECT * FROM mail_followups WHERE due_at <= ? AND told_at IS NULL ORDER BY due_at LIMIT 50').all(at)) {
       const user = q('SELECT * FROM users WHERE id = ? AND disabled = 0').get(row.user_id);
       if (!user) continue;
       let replied;
       try { replied = await hasReply(user, row.message_id); } catch (e) { console.error('[mail] follow-up:', e.message); continue; }
-      q('DELETE FROM mail_followups WHERE id = ?').run(row.id);
-      if (replied) continue;
+      if (replied) { q('DELETE FROM mail_followups WHERE id = ?').run(row.id); sendTo([user.id], { type: 'mail-followups' }); continue; }
+      q('UPDATE mail_followups SET told_at = ?, checked_at = ? WHERE id = ?').run(at, at, row.id); // kept: "no reply yet" on Home
       const to = JSON.parse(row.recipients || '[]');
       const days = Math.max(1, Math.round((row.due_at - row.created_at) / 864e5));
       notifyBell([user.id], { kind: 'followup', title: `No reply yet: “${row.subject || '(no subject)'}”`, body: `Sent to ${to.slice(0, 3).join(', ')}${to.length > 3 ? ` and ${to.length - 3} more` : ''} ${days} day${days === 1 ? '' : 's'} ago`, link: `/mail?open=${encodeURIComponent(row.message_id)}`, actor: null });
@@ -1759,10 +1775,12 @@ export default function webmailRoutes() {
     res.json({ sent: sent.length, failed });
   });
 
-  // Follow-up reminders: ?message_id= for one message's, or all that are waiting; DELETE cancels one.
+  // Follow-up reminders: ?message_id= for one message's (still to come), or all: those with no reply yet, then those
+  // still to come. DELETE cancels one (or marks a "no reply yet" one done).
   r.get('/followups', (req, res) => {
-    const rows = req.query.message_id ? q('SELECT id, message_id, subject, recipients, due_at FROM mail_followups WHERE user_id = ? AND message_id = ?').all(req.user.id, String(req.query.message_id))
-      : q('SELECT id, message_id, subject, recipients, due_at FROM mail_followups WHERE user_id = ? ORDER BY due_at').all(req.user.id);
+    // told_at: the reminder has gone out (no reply by then); those come first.
+    const rows = req.query.message_id ? q('SELECT id, message_id, subject, recipients, due_at, told_at FROM mail_followups WHERE user_id = ? AND message_id = ? AND told_at IS NULL').all(req.user.id, String(req.query.message_id))
+      : q('SELECT id, message_id, subject, recipients, due_at, told_at FROM mail_followups WHERE user_id = ? ORDER BY told_at IS NULL, due_at').all(req.user.id);
     res.json(rows.map((r) => ({ ...r, recipients: JSON.parse(r.recipients || '[]') })));
   });
   r.delete('/followups/:id', (req, res) => {

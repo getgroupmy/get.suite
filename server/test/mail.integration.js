@@ -1317,7 +1317,26 @@ test('follow-ups: a reminder when nobody replied; none when someone did; cancell
   const n = list.find((x) => /^No reply yet/.test(x.title));
   assert.match(n.link, /^\/mail\?open=%3C/);
   assert.match(n.body, /Sent to Gina Globex|Sent to gina@globex.com/);
-  assert.equal((await olivia('GET', '/api/mail/followups')).body.length, 0, 'done with');
+  // Kept as "no reply yet" (for Home), not told twice; a reply that comes later takes it away.
+  const kept = (await olivia('GET', '/api/mail/followups')).body;
+  assert.deepEqual(kept.map((f) => [f.subject, !!f.told_at]), [['Any news on the quote?', true]]);
+  assert.equal(await checkFollowUps(), 0, 'told once');
+  const q1 = await eventually(async () => (await inbox(gina)).find((x) => x.subject === 'Any news on the quote?'));
+  const f1 = (await gina('GET', `/api/mail/messages/${q1.uid}?folder=INBOX`)).body;
+  await gina('POST', '/api/mail/send', { to: 'olivia@acme.com', subject: 'Re: Any news on the quote?', text: 'Tomorrow', inReplyTo: f1.messageId, references: f1.references });
+  await eventually(async () => (await inbox(olivia)).some((x) => x.subject === 'Re: Any news on the quote?'));
+  q('UPDATE mail_followups SET checked_at = ?').run(Date.now() - 2 * 3600e3);
+  await checkFollowUps();
+  assert.equal((await olivia('GET', '/api/mail/followups')).body.length, 0, 'answered at last');
+  // Marking one done takes it off; ones older than 30 days go by themselves.
+  const r2 = await olivia('POST', '/api/mail/send', { to: 'gina@globex.com', subject: 'Still there?', text: 'x', followUp: 1 });
+  assert.equal(r2.status, 200);
+  q('UPDATE mail_followups SET due_at = ?').run(Date.now() - 1000);
+  assert.equal(await checkFollowUps(), 1);
+  const [still] = (await olivia('GET', '/api/mail/followups')).body;
+  assert.ok(still.told_at);
+  assert.equal((await olivia('DELETE', `/api/mail/followups/${still.id}`)).status, 200);
+  assert.equal((await olivia('GET', '/api/mail/followups')).body.length, 0);
 });
 
 test('forms: people get a copy of their answers by email, from the form\'s owner', async () => {
