@@ -9749,6 +9749,29 @@ test('tasks: deleted tasks wait in the list’s trash and come back whole', asyn
   assert.deepEqual((await a('GET', `/api/tasks/lists/${list}/trash`)).body.map((x) => x.title), ['Book venue']);
 });
 
+test('tasks: what you ticked off in the last 30 days, from every list', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['tcpa', 'Tcp Ann'], ['tcpb', 'Tcp Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'tcpa@acme.com');
+  const bid = (await login(b, 'tcpb@acme.com')).id;
+  const l1 = (await a('POST', '/api/tasks/lists', { name: 'Work' })).body.id;
+  const l2 = (await a('POST', '/api/tasks/lists', { name: 'Home' })).body.id;
+  await a('PUT', `/api/tasks/lists/${l1}/members`, { user_ids: [bid] });
+  const t1 = (await a('POST', `/api/tasks/lists/${l1}/tasks`, { title: 'Send report' })).body;
+  const t2 = (await a('POST', `/api/tasks/lists/${l2}/tasks`, { title: 'Water plants' })).body;
+  const t3 = (await a('POST', `/api/tasks/lists/${l1}/tasks`, { title: 'Ben did this' })).body;
+  await a('POST', `/api/tasks/lists/${l2}/tasks`, { title: 'Still open' });
+  await a('PATCH', `/api/tasks/tasks/${t1.id}`, { done: true });
+  await new Promise((r) => setTimeout(r, 5));
+  await a('PATCH', `/api/tasks/tasks/${t2.id}`, { done: true });
+  await b('PATCH', `/api/tasks/tasks/${t3.id}`, { done: true });
+  assert.deepEqual((await a('GET', '/api/tasks/completed')).body.map((t) => [t.title, t.list_name]), [['Water plants', 'Home'], ['Send report', 'Work']], 'newest first; only what you ticked off');
+  assert.deepEqual((await b('GET', '/api/tasks/completed')).body.map((t) => t.title), ['Ben did this']);
+  const { q } = await import('../src/db.js');
+  q('UPDATE tasks SET done_at = ? WHERE id = ?').run(Date.now() - 31 * 864e5, t1.id);
+  assert.deepEqual((await a('GET', '/api/tasks/completed')).body.map((t) => t.title), ['Water plants'], '30 days back');
+});
+
 test('tasks: an estimate of how long a task will take', async () => {
   const a = client();
   assert.equal((await owner('POST', '/api/users', { local: 'test1', domain: 'acme.com', name: 'Est Ann', password: 'password123' })).status, 201);

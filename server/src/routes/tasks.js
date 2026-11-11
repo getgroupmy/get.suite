@@ -670,6 +670,13 @@ export default function taskRoutes() {
   });
 
   // Open tasks marked important on any of your lists: overdue and soonest first, those without a date last.
+  // What you ticked off in the last 30 days, on any of your lists: newest first (for a weekly look back).
+  r.get('/completed', (req, res) => {
+    const me = req.user.id;
+    const since = Date.now() - 30 * 864e5;
+    res.json(q(`${TASK} WHERE t.done_at >= ? AND t.done_by = ? AND (l.owner_id = ? OR l.id IN (SELECT list_id FROM task_list_members WHERE user_id = ?))
+                ORDER BY t.done_at DESC LIMIT 500`).all(since, me, me, me).map(shape));
+  });
   r.get('/important', (req, res) => {
     const me = req.user.id;
     res.json(q(`${TASK} WHERE t.important = 1 AND t.done_at IS NULL AND (l.owner_id = ? OR l.id IN (SELECT list_id FROM task_list_members WHERE user_id = ?))

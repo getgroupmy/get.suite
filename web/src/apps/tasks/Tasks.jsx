@@ -7,7 +7,7 @@ import { listPrintHtml } from './listprint.js';
 import { get, post, patch, put, del, onLive, uploadFile, postText } from '../../api.js';
 import DrivePicker, { openUrl } from '../../components/DrivePicker.jsx';
 import Icon from '../../components/Icon.jsx';
-import { groupPlanned } from './planned.js';
+import { groupPlanned, groupCompleted } from './planned.js';
 import { Avatar, ConfirmModal, Empty, Menu, Modal, PromptModal, useToast } from '../../components/ui.jsx';
 import { useAuth } from '../../App.jsx';
 import { dueLabel, between, localToday, REPEATS, repeatText, readCustom, customRepeat, WEEKDAYS, SORTS, sortTasks } from './taskmath.js';
@@ -22,7 +22,8 @@ const ASSIGNED = 'assigned';
 const IMPORTANT = 'important'; // tasks marked ★ on any of your lists
 const PLANNED = 'planned'; // open tasks with a due date, from every list, grouped by when
 const MYDAY = 'myday'; // tasks you picked for today, from any list (yours alone; empty again each day)
-const VIRTUAL = { [ASSIGNED]: '/tasks/assigned', [IMPORTANT]: '/tasks/important', [PLANNED]: '/tasks/planned', [MYDAY]: '/tasks/myday' };
+const COMPLETED = 'completed'; // what you ticked off in the last 30 days, from every list, by day
+const VIRTUAL = { [ASSIGNED]: '/tasks/assigned', [IMPORTANT]: '/tasks/important', [PLANNED]: '/tasks/planned', [MYDAY]: '/tasks/myday', [COMPLETED]: '/tasks/completed' };
 
 export default function Tasks() {
   const { listId } = useParams();
@@ -209,7 +210,7 @@ export default function Tasks() {
   };
 
   if (lists === null) return null;
-  const heading = tagView ? `#${tagView}` : listId === MYDAY ? 'My Day' : listId === ASSIGNED ? 'Assigned to me' : listId === IMPORTANT ? 'Important' : listId === PLANNED ? 'Planned' : list?.name;
+  const heading = tagView ? `#${tagView}` : listId === MYDAY ? 'My Day' : listId === ASSIGNED ? 'Assigned to me' : listId === IMPORTANT ? 'Important' : listId === PLANNED ? 'Planned' : listId === COMPLETED ? 'Completed' : list?.name;
   return (
     <div className="tasks-app">
       <aside className="subnav">
@@ -228,6 +229,9 @@ export default function Tasks() {
         </button>
         <button type="button" className={`subnav-item ${listId === PLANNED ? 'active' : ''}`} onClick={() => navigate(`/tasks/${PLANNED}`)} title="Tasks with a due date, from all your lists">
           <Icon name="calendar" /><span className="grow">Planned</span>{plannedCount > 0 && <span className="count" title="Due today or overdue">{plannedCount}</span>}
+        </button>
+        <button type="button" className={`subnav-item ${listId === COMPLETED ? 'active' : ''}`} onClick={() => navigate(`/tasks/${COMPLETED}`)} title="What you ticked off in the last 30 days, from all your lists">
+          <Icon name="check" /><span className="grow">Completed</span>
         </button>
         <div className="subnav-title row">Lists<div className="grow" /><button type="button" className="icon-btn" aria-label="New list" onClick={() => setDialog('new')}><Icon name="plus" size={18} /></button></div>
         {lists.map((l) => (
@@ -362,6 +366,18 @@ export default function Tasks() {
               if (!t.done && !!t.started === started) return;
               update(t, t.done ? { done: false, started } : { started });
             }} />
+        ) : listId === COMPLETED ? (
+          !done.length ? <Empty icon="check" title="Nothing completed lately">Tasks you tick off, on any list, show up here for 30 days.</Empty> : (
+            <div className="planned completed-days">
+              <p className="muted small">{done.length} {done.length === 1 ? 'task' : 'tasks'} done in the last 30 days</p>
+              {groupCompleted(done).map((g) => (
+                <section key={g.key} className="planned-group" aria-label={g.label}>
+                  <h3 className="planned-heading">{g.label} <span className="muted small">{g.tasks.length}</span></h3>
+                  <ul className="task-list">{g.tasks.map(row)}</ul>
+                </section>
+              ))}
+            </div>
+          )
         ) : open.length === 0 && done.length === 0 ? (
           <Empty icon="check" title={tagView ? `Nothing open tagged #${tagView}` : listId === MYDAY ? 'Nothing picked for today yet' : listId === ASSIGNED ? 'Nothing assigned to you' : listId === IMPORTANT ? 'Nothing important' : listId === PLANNED ? 'Nothing planned' : 'No tasks yet'}>{listId === MYDAY ? 'Add tasks from any list with ☀ in their details, or pick from the suggestions below. My Day starts empty each morning.' : listId === ASSIGNED ? 'Tasks people give you on shared lists show up here.' : listId === IMPORTANT ? 'Mark a task with ☆ and it shows up here, from every list.' : listId === PLANNED ? 'Tasks with a due date show up here, from every list, by when they’re due.' : 'Type a task above and press Enter.'}</Empty>
         ) : listId === PLANNED ? (

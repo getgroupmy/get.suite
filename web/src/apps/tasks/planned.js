@@ -20,3 +20,24 @@ export function groupPlanned(tasks, today) {
   for (const t of tasks) { const g = planGroup(t.due, today); if (g) by.get(g).push(t); }
   return PLAN_GROUPS.map(([key, label]) => ({ key, label, tasks: by.get(key) })).filter((g) => g.tasks.length);
 }
+
+const localYmd = (ms) => { const d = new Date(ms); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+
+/**
+ * The Completed view: tasks you ticked off, in groups by the day you did (newest first), labelled
+ * Today, Yesterday or the date: [{ key: 'YYYY-MM-DD', label, tasks }].
+ */
+export function groupCompleted(tasks, now = Date.now()) {
+  const today = localYmd(now), yesterday = addDays(today, -1);
+  const groups = new Map();
+  for (const t of [...tasks].filter((x) => x.done_at).sort((a, b) => b.done_at - a.done_at)) {
+    const key = localYmd(t.done_at);
+    if (!groups.has(key)) {
+      const label = key === today ? 'Today' : key === yesterday ? 'Yesterday'
+        : new Date(`${key}T12:00:00`).toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', ...(key.slice(0, 4) !== today.slice(0, 4) ? { year: 'numeric' } : {}) });
+      groups.set(key, { key, label, tasks: [] });
+    }
+    groups.get(key).tasks.push(t);
+  }
+  return [...groups.values()];
+}
