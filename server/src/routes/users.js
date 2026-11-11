@@ -316,6 +316,16 @@ export default function userRoutes() {
     res.json({ pane: p });
   });
 
+  // How wide Mail's list is beside the reading pane (dragging the line between them): { width } in pixels,
+  // 260 to 800, or null for the usual.
+  r.put('/me/mail-list-width', (req, res) => {
+    const w = req.body?.width;
+    if (w !== null && !(Number.isFinite(w) && w >= 260 && w <= 800)) throw bad('The list can be 260 to 800 pixels wide');
+    const width = w === null ? null : Math.round(w);
+    q('UPDATE users SET mail_list_width = ? WHERE id = ?').run(width, req.user.id);
+    res.json({ width });
+  });
+
   // Convert Office, OpenDocument and Markdown files you upload in Drive: { on: true | false }.
   r.put('/me/convert-uploads', (req, res) => {
     const on = !!req.body?.on;

@@ -10341,6 +10341,14 @@ test('mail: where the reading pane goes (beside the list, below it, or none), pe
   assert.equal((await a('PUT', '/api/users/me/mail-pane', { pane: 'left' })).status, 400);
   await a('PUT', '/api/users/me/mail-pane', { pane: 'right' });
   assert.equal((await a('GET', '/api/auth/me')).body.user.mail_pane, 'right');
+  // The list's width beside it (dragged), or the usual.
+  assert.equal((await a('GET', '/api/auth/me')).body.user.mail_list_width, null);
+  assert.deepEqual((await a('PUT', '/api/users/me/mail-list-width', { width: 512.6 })).body, { width: 513 });
+  assert.equal((await a('GET', '/api/auth/me')).body.user.mail_list_width, 513);
+  for (const width of [100, 2000, '400', undefined]) assert.equal((await a('PUT', '/api/users/me/mail-list-width', { width })).status, 400, String(width));
+  assert.equal((await b('GET', '/api/auth/me')).body.user.mail_list_width, null);
+  await a('PUT', '/api/users/me/mail-list-width', { width: null });
+  assert.equal((await a('GET', '/api/auth/me')).body.user.mail_list_width, null);
 });
 
 test('calendar settings: default length, speedy meetings and default reminders, per person', async () => {

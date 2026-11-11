@@ -117,7 +117,25 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
   useEffect(() => { loadScheduled(); return onLive((m) => { if (m.type === 'mail-scheduled') { loadScheduled(); loadFolders(); } if (m.type === 'mail-snoozed' || m.type === 'mail-assigned' || m.type === 'mail-notes') refreshRef.current?.(); }); },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [loadScheduled]);
-  const { user } = useAuth();
+  const { user, setUser } = useAuth();
+  // The list's width beside the reading pane: drag the line between them (or arrow keys on it); double-click for the usual.
+  const [listWidth, setListWidth] = useState(user?.mail_list_width || null);
+  const listRef = useRef(null);
+  const saveListWidth = (width) => {
+    setListWidth(width);
+    put('/users/me/mail-list-width', { width }).then(() => setUser({ ...user, mail_list_width: width })).catch((e) => toast(e.message, 'error'));
+  };
+  const clampWidth = (w) => Math.max(260, Math.min(800, Math.round(w)));
+  const dragDivider = (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const left = listRef.current.getBoundingClientRect().left;
+    let w = listWidth;
+    const move = (ev) => { w = clampWidth(ev.clientX - left); setListWidth(w); };
+    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); if (w) saveListWidth(w); };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
   useEffect(() => { get('/mail/signatures').then(setSignatures).catch(() => {}); }, []);
   // Opened with an email drafted in a document (/mail?compose_doc=1; the message waits in this browser's storage).
   useEffect(() => {
@@ -391,7 +409,7 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
         </>}
       </aside>
 
-      <section className="mail-list">
+      <section className="mail-list" ref={listRef} style={listWidth && (user?.mail_pane || 'right') === 'right' ? { width: listWidth } : undefined}>
         <div className="mail-toolbar">
           <form className="mail-search" role="search" onSubmit={(e) => { e.preventDefault(); const v = new FormData(e.currentTarget).get('q').trim(); setSearch(v ? { q: v } : {}); }}>
             <Icon name="search" size={18} />
@@ -485,6 +503,17 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
         )}
       </section>
 
+      {(user?.mail_pane || 'right') === 'right' && (
+        <div className="mail-divider" role="separator" aria-orientation="vertical" aria-label="Width of the message list" tabIndex={0}
+          aria-valuemin={260} aria-valuemax={800} aria-valuenow={listWidth || Math.round(listRef.current?.getBoundingClientRect().width || 380)}
+          title="Drag to make the list wider or narrower (double-click for the usual width)"
+          onPointerDown={dragDivider} onDoubleClick={() => saveListWidth(null)}
+          onKeyDown={(e) => {
+            if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+            e.preventDefault();
+            saveListWidth(clampWidth((listWidth || listRef.current.getBoundingClientRect().width) + (e.key === 'ArrowRight' ? 20 : -20)));
+          }} />
+      )}
       <section className="mail-reader">
         {openUid ? (
           <Reader key={`${folder}:${openUid}`} shared={shared} folder={folder} uid={openUid} special={special} onSnoozeCustom={(uids) => setSnoozing(uids)} labels={labels} onNewLabel={() => setLabelDialog({})}

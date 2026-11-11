@@ -2873,3 +2873,7 @@ select.meet-timer-btn option { color: #202124; }
   .mail.pane-below .mail-list { width: auto; border-right: 0; border-bottom: 1px solid var(--border); border-radius: var(--radius) var(--radius) 0 0; margin-right: 16px; }
   .mail.pane-below .mail-reader { border-radius: 0; }
 }
+.mail-divider { flex: none; width: 6px; margin-left: -3px; margin-right: -3px; cursor: col-resize; position: relative; z-index: 1; touch-action: none; }
+.mail-divider:hover, .mail-divider:focus-visible { background: var(--accent); opacity: .5; outline: none; }
+@media (max-width: 700px) { .mail-divider { display: none; } }
+@media (min-width: 701px) { .mail.pane-right .mail-list { max-width: 55%; } }
