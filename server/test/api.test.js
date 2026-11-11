@@ -4069,6 +4069,16 @@ test('announcements: for one group only, and starting later', async () => {
   assert.ok(announceStarted() >= 1, 'open tabs are told when it starts');
   assert.equal(announceStarted(), 0, 'only once');
   assert.ok((await b('GET', '/api/announcements')).body.some((x) => x.id === later.id), 'started');
+  // By email too: needs this server's email (off in these tests); the message itself.
+  assert.equal((await owner('POST', '/api/announcements', { text: 'x', email: true })).status, 400, 'no email here');
+  const { announcementMail, audienceOf } = await import('../src/routes/announcements.js');
+  assert.deepEqual(audienceOf({ org_id: forGroup.org_id, group_id: g.id }), ['anng1@acme.com']);
+  assert.ok(audienceOf({ org_id: forGroup.org_id, group_id: null }).includes('anng2@acme.com'));
+  const m = announcementMail({ text: 'Office closed Friday', link: '/calendar', tone: 'warn', base: 'https://ws.example.com/' }, { author: 'Olivia Owner', org: 'Acme' });
+  assert.equal(m.subject, 'Important: Office closed Friday');
+  assert.equal(m.text, 'Office closed Friday\n\nhttps://ws.example.com/calendar\n\n— Olivia Owner, to everyone at Acme. It\'s also shown at the top of Workspace.');
+  assert.match(announcementMail({ text: 'y'.repeat(100), tone: 'info' }, { group: 'Night shift' }).subject, /^Announcement: y{67}…$/);
+  assert.match(announcementMail({ text: 'z', link: 'https://x.test/a' }, { group: 'Night shift' }).text, /https:\/\/x\.test\/a[\s\S]*to the Night shift group/);
   for (const x of [forGroup, later, past]) await owner('DELETE', `/api/announcements/${x.id}`);
 });
 

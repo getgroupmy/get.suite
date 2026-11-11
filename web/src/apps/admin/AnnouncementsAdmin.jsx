@@ -6,10 +6,10 @@ import { useToast } from '../../components/ui.jsx';
 
 const ENDS = [['', 'When I take it down'], ['1', 'After 1 day'], ['7', 'After 1 week'], ['30', 'After 30 days']];
 
-export default function AnnouncementsAdmin() {
+export default function AnnouncementsAdmin({ mail = false }) {
   const toast = useToast();
   const [list, setList] = useState(null);
-  const blank = { text: '', link: '', tone: 'info', ends: '', start: '', group: '' };
+  const blank = { text: '', link: '', tone: 'info', ends: '', start: '', group: '', email: false };
   const [f, setF] = useState(blank);
   const [groups, setGroups] = useState([]);
   const load = () => get('/announcements/all').then(setList).catch((e) => toast(e.message, 'error'));
@@ -21,11 +21,12 @@ export default function AnnouncementsAdmin() {
     try {
       const startsAt = f.start ? new Date(f.start).getTime() : null;
       const group = groups.find((g) => g.id === f.group);
-      await post('/announcements', { text: f.text, link: f.link || null, tone: f.tone, starts_at: startsAt, group_id: f.group || null,
+      await post('/announcements', { text: f.text, link: f.link || null, tone: f.tone, starts_at: startsAt, group_id: f.group || null, email: f.email,
         until: f.ends ? (startsAt || Date.now()) + Number(f.ends) * 864e5 : null });
       setF(blank);
       const who = group ? `everyone in ${group.name}` : 'everyone in the company';
-      toast(startsAt && startsAt > Date.now() ? `Announcement scheduled: ${who} sees it from ${when(startsAt)}` : `Announcement posted: ${who} sees it now`);
+      const mailed = f.email ? (startsAt && startsAt > Date.now() ? ', and gets it by email then' : ', and by email') : '';
+      toast(startsAt && startsAt > Date.now() ? `Announcement scheduled: ${who} sees it from ${when(startsAt)}${mailed}` : `Announcement posted: ${who} sees it now${mailed}`);
       load();
     } catch (err) { toast(err.message, 'error'); }
   };
@@ -50,6 +51,7 @@ export default function AnnouncementsAdmin() {
           {f.start && <button type="button" className="link-btn small" style={{ alignSelf: 'flex-end', marginBottom: 10 }} onClick={() => setF({ ...f, start: '' })}>Start now instead</button>}
         </div>
         {!f.start && <p className="muted small" style={{ margin: 0 }}>Leave <em>Starts</em> empty to show it straight away.</p>}
+        {mail && <label className="check"><input type="checkbox" checked={f.email} onChange={(e) => setF({ ...f, email: e.target.checked })} /> Also email it to them (from you{f.start ? ', when it starts' : ''})</label>}
         <div className="row end"><button className="btn primary">{f.start ? 'Schedule' : 'Post'}</button></div>
       </form>
       <h2 style={{ margin: 0 }}>Showing now</h2>
@@ -76,7 +78,8 @@ function AnnouncementList({ list, label, empty, onRemove }) {
           <span className="grow">{a.tone === 'warn' ? '⚠️ ' : '📣 '}{a.text} <span className="muted small">
             · {a.author_name || 'someone'} · {a.group_name ? `for ${a.group_name} (${a.group_size})` : 'for everyone'}
             {a.starts_at > Date.now() ? ` · from ${when(a.starts_at)}` : ''} · {a.until ? `until ${new Date(a.until).toLocaleDateString()}` : 'until taken down'}
-            {!(a.starts_at > Date.now()) && ` · dismissed by ${a.dismissed}`}</span></span>
+            {!(a.starts_at > Date.now()) && ` · dismissed by ${a.dismissed}`}
+            {a.email ? (a.emailed_at ? ` · ✉ emailed to ${a.emailed_to ?? 0}` : ' · ✉ will be emailed') : ''}</span></span>
           <button type="button" className="btn small" onClick={() => onRemove(a)}>{a.starts_at > Date.now() ? 'Cancel' : 'Take down'}</button>
         </li>
       ))}

@@ -1152,6 +1152,7 @@ Once ports 465, 587 and 993 are open, bots will start guessing passwords within 
 
 - **For one group:** **Who sees it** picks one of the company's groups (Admin → Groups) instead of everyone: only its members see the notice (*Night shift: new rota*). The list says who it's for and how many people that is.
 - **Starting later:** **Starts** sets a day and time to show it from (within a year), such as the evening before a maintenance window, and the button becomes **Schedule**. Until then it waits under **Scheduled** (with **Cancel**), and nobody sees it; when the time comes it appears for everyone with Workspace open, without reloading, and moves to **Showing now**. *Ends* counts from the start.
+- **By email too:** with this server's email on, **Also email it to them** sends the announcement as an email from you to the people it's for (everyone, or the group's members), as well as showing it in Workspace: the subject starts *Announcement:* (or *Important:*), with the link and who it went to. A scheduled one is emailed when it starts. Recipients are hidden from each other (Bcc), and a copy comes to you. The list shows *✉ emailed to 12*; if the mail server couldn't take it at all, it tries again a minute later.
 
 ## Data protection (admins)
 

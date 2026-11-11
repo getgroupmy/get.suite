@@ -38,7 +38,7 @@ export default function Admin() {
       {tab === 'company' && <CompanySettings />}
       {tab === 'dlp' && <DataProtectionAdmin />}
       {tab === 'groups' && <GroupsAdmin />}
-      {tab === 'announcements' && <AnnouncementsAdmin />}
+      {tab === 'announcements' && <AnnouncementsAdmin mail={!!mail?.enabled} />}
       {tab === 'activity' && <ActivityAdmin orgId={orgId} orgPicker={user.is_super ? <OrgPicker orgId={orgId} setOrgId={setOrgId} /> : null} />}
       {tab === 'reports' && <ReportsAdmin orgId={user.is_super && orgId !== user.org_id ? orgId : null} orgPicker={user.is_super ? <OrgPicker orgId={orgId} setOrgId={setOrgId} /> : null} />}
       {tab === 'storage' && <StorageAdmin orgId={user.is_super ? orgId : null} orgPicker={user.is_super ? <OrgPicker orgId={orgId} setOrgId={setOrgId} /> : null} />}
