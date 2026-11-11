@@ -10,6 +10,9 @@ test('inbox tabs: what makes a message an update', () => {
   assert.equal(tabOf({ precedence: 'junk' }), 'primary');
   assert.equal(tabOf({ 'auto-submitted': 'auto-generated; type=receipt' }), 'updates');
   assert.equal(tabOf({ 'auto-submitted': 'no' }), 'primary');
+  // An out-of-office answer to you: a person's, though vacation replies say Precedence: bulk.
+  assert.equal(tabOf({ precedence: 'bulk', 'auto-submitted': 'auto-replied (vacation)' }), 'primary');
+  assert.equal(tabOf({ precedence: 'bulk', 'auto-submitted': 'auto-replied', 'list-id': 'x' }), 'updates', 'a mailing list is still one');
   assert.equal(tabOf({ 'list-id': 'x' }, [TO_PRIMARY]), 'primary', 'moved by hand');
   assert.equal(tabOf({}, new Set([TO_UPDATES.toLowerCase()])), 'updates');
   // The searches: Updates is the bulk headers (not moved to Primary) or moved there; Primary is the rest.

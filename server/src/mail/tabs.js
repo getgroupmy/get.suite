@@ -8,12 +8,17 @@ export const TO_PRIMARY = '$NwPrimary';
 export const TO_UPDATES = '$NwUpdates';
 export const TABS = ['primary', 'updates'];
 
-/** Mail sent in bulk or by a machine: a mailing list, an unsubscribe link, bulk precedence, or an automatic message. */
+/**
+ * Mail sent in bulk or by a machine: a mailing list, an unsubscribe link, bulk precedence, or an automatic message.
+ * An automatic *reply* to you (an out-of-office answer: Auto-Submitted: auto-replied) is a person's, so bulk
+ * precedence, which vacation replies carry, doesn't make it an update.
+ */
+const NOT_AUTO_REPLY = { not: { header: { 'auto-submitted': 'auto-replied' } } };
 const BULK = { or: [
   { header: { 'list-id': true } },
   { header: { 'list-unsubscribe': true } },
-  { header: { precedence: 'bulk' } },
-  { header: { precedence: 'list' } },
+  allOf([{ header: { precedence: 'bulk' } }, NOT_AUTO_REPLY]),
+  allOf([{ header: { precedence: 'list' } }, NOT_AUTO_REPLY]),
   { header: { 'auto-submitted': 'auto-generated' } },
 ] };
 
@@ -30,6 +35,7 @@ export function tabOf(headers, flags = []) {
   const f = new Set([...flags].map((x) => String(x).toLowerCase()));
   if (f.has(TO_UPDATES.toLowerCase())) return 'updates';
   if (f.has(TO_PRIMARY.toLowerCase())) return 'primary';
-  const bulk = has('list-id') || has('list-unsubscribe') || /^(bulk|list)$/.test(get('precedence').trim()) || get('auto-submitted').startsWith('auto-generated');
+  const autoReply = get('auto-submitted').startsWith('auto-replied');
+  const bulk = has('list-id') || has('list-unsubscribe') || (/^(bulk|list)$/.test(get('precedence').trim()) && !autoReply) || get('auto-submitted').startsWith('auto-generated');
   return bulk ? 'updates' : 'primary';
 }
