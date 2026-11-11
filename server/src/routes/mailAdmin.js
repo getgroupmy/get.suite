@@ -19,6 +19,25 @@ if (process.env.MAIL_DNS_SERVERS) resolver.setServers(process.env.MAIL_DNS_SERVE
 /** Tests swap in a fake resolver. */
 export function setResolver(r) { resolver = r; }
 
+let lastBlocklists = null; // { at, value }: lookups are kept a while, so the hourly health check doesn't ask every hour
+/** The mail host's addresses on the spam blocklists: { host, checked_at, results, note }. Cached for 6 hours unless fresh. */
+export async function mailBlocklists({ fresh = false, now = Date.now() } = {}) {
+  if (!fresh && lastBlocklists && now - lastBlocklists.at < 6 * 3600e3) return lastBlocklists.value;
+  const host = MAIL_HOSTNAME;
+  let value;
+  if (!host) value = { host: null, results: [], note: 'MAIL_HOSTNAME is not set' };
+  else {
+    let ips = null;
+    try { ips = await resolver.resolve4(host); } catch (e) { value = { host, results: [], note: `No A record for ${host} (${e.code || e.message})` }; }
+    if (ips) {
+      const results = await checkBlocklists(ips, (name) => resolver.resolve4(name));
+      value = { host, checked_at: now, results, ...(!results.length && { note: `${ips.join(', ')} isn’t a public address: blocklists only list public ones` }) };
+    }
+  }
+  lastBlocklists = { at: now, value };
+  return value;
+}
+
 function targetOrg(req) {
   const id = req.query.org_id || req.body?.org_id;
   if (id && id !== req.user.org_id) {
@@ -206,14 +225,7 @@ export default function mailAdminRoutes() {
   });
 
   // Platform owner: is the mail host's address on a spam blocklist? (Spamhaus, SpamCop, Barracuda…)
-  r.get('/blocklists', requireSuper, async (req, res) => {
-    const host = MAIL_HOSTNAME;
-    if (!host) return res.json({ host: null, results: [], note: 'MAIL_HOSTNAME is not set' });
-    let ips;
-    try { ips = await resolver.resolve4(host); } catch (e) { return res.json({ host, results: [], note: `No A record for ${host} (${e.code || e.message})` }); }
-    const results = await checkBlocklists(ips, (name) => resolver.resolve4(name));
-    res.json({ host, checked_at: Date.now(), results, ...(!results.length && { note: `${ips.join(', ')} isn’t a public address: blocklists only list public ones` }) });
-  });
+  r.get('/blocklists', requireSuper, async (req, res) => res.json(await mailBlocklists({ fresh: true })));
 
   // ---- aliases (shared addresses / distribution lists / forwards) ----
   r.get('/aliases', (req, res) => {

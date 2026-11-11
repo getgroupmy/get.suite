@@ -36,7 +36,7 @@ const dirSize = (dir) => { try { return fs.readdirSync(dir).reduce((n, f) => { t
  * passed in, so tests can try each case: statfs(dir) → { bsize, blocks, bavail }, the backups
  * folder, probe() → as probeMail, and now.
  */
-export async function collectHealth({ statfs = (d) => fs.statfsSync(d), dataDir = DATA_DIR, backupDir = BACKUP_DIR, mail = mailEnabled(), probe = probeMail, queue = readQueue, now = Date.now(), started = STARTED } = {}) {
+export async function collectHealth({ statfs = (d) => fs.statfsSync(d), dataDir = DATA_DIR, backupDir = BACKUP_DIR, mail = mailEnabled(), probe = probeMail, queue = readQueue, blocklists = defaultBlocklists, now = Date.now(), started = STARTED } = {}) {
   const checks = [];
   const add = (id, label, status, detail) => checks.push({ id, label, status, detail });
 
@@ -75,6 +75,11 @@ export async function collectHealth({ statfs = (d) => fs.statfsSync(d), dataDir 
   const qc = mail ? queueCheck(queue(), now) : null;
   if (qc) add('queue', 'Outgoing mail', qc.status, qc.detail);
 
+  // The mail server's address on spam blocklists (looked up every few hours): mail from a listed one is refused or goes to Junk.
+  const bl = mail ? await blocklists().catch(() => null) : null;
+  const blc = blocklistCheck(bl);
+  if (blc) add('blocklists', 'Spam blocklists', blc.status, blc.detail);
+
   const dbFile = path.join(dataDir, 'workspace.db');
   const size = (f) => { try { return fs.statSync(f).size; } catch { return 0; } };
   const facts = {
@@ -88,6 +93,17 @@ export async function collectHealth({ statfs = (d) => fs.statfsSync(d), dataDir 
   const worst = checks.some((c) => c.status === 'bad') ? 'bad' : checks.some((c) => c.status === 'warn') ? 'warn' : 'ok';
   return { status: worst, checked_at: now, checks, facts };
 }
+
+/** The health check for blocklist results (as mailBlocklists gives them), or null when there's nothing to say. */
+export function blocklistCheck(bl) {
+  const answered = (bl?.results || []).filter((r) => r.lists.some((l) => l.status !== 'unknown'));
+  if (!answered.length) return null; // no public address, or no list answered: nothing to go on
+  const listed = answered.flatMap((r) => r.lists.filter((l) => l.status === 'listed').map((l) => `${r.ip} on ${l.name}`));
+  return listed.length
+    ? { status: 'bad', detail: `${listed.join(', ')}: mail from it may be refused or go to Junk. Admin → Email → Check blocklists has where to ask to be removed.` }
+    : { status: 'ok', detail: `Not on any list that answered (${answered.map((r) => r.ip).join(', ')})` };
+}
+const defaultBlocklists = async () => (await import('./routes/mailAdmin.js')).mailBlocklists();
 
 const told = new Map(); // check id → when the owners were last told about it
 /** Check, and tell the platform owners about problems (each at most once a day). */

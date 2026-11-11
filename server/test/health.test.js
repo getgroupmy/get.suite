@@ -82,3 +82,30 @@ test('health: platform owners are told about problems once a day each, again if 
   await checkAndNotify({ ...bad, now: now + 3 * 3600e3 }); // back again
   assert.equal(count(), 2);
 });
+
+test('health: the mail server\'s address on spam blocklists', async () => {
+  const { blocklistCheck } = await import('../src/health.js');
+  const list = (status, name = 'SpamCop') => ({ name, status, codes: status === 'listed' ? ['127.0.0.2'] : [] });
+  const clear = { results: [{ ip: '198.51.100.7', lists: [list('clear'), list('unknown', 'Spamhaus ZEN')] }] };
+  const listed = { results: [{ ip: '198.51.100.7', lists: [list('listed'), list('clear', 'Barracuda')] }] };
+  assert.deepEqual(blocklistCheck(clear), { status: 'ok', detail: 'Not on any list that answered (198.51.100.7)' });
+  assert.equal(blocklistCheck(listed).status, 'bad');
+  assert.match(blocklistCheck(listed).detail, /^198\.51\.100\.7 on SpamCop: mail from it may be refused/);
+  assert.equal(blocklistCheck({ results: [{ ip: '198.51.100.7', lists: [list('unknown')] }] }), null, 'no list answered: nothing to go on');
+  assert.equal(blocklistCheck({ results: [] }), null, 'no public address');
+  assert.equal(blocklistCheck(null), null);
+  // In the health checks, with mail on (the rest of the mail checks stubbed).
+  const mailOn = { ...base, mail: true, statfs: disk(400, 1000), backupDir: backups(1), probe: async () => ({ ok: true, valid_to: now + 90 * 864e5, self_signed: false }), queue: () => null };
+  const h = byId(await collectHealth({ ...mailOn, blocklists: async () => listed }));
+  assert.equal(h.blocklists.status, 'bad');
+  assert.equal(h.blocklists.label, 'Spam blocklists');
+  assert.equal(byId(await collectHealth({ ...mailOn, blocklists: async () => clear })).blocklists.status, 'ok');
+  assert.equal(byId(await collectHealth({ ...mailOn, blocklists: async () => { throw new Error('dns down'); } })).blocklists, undefined, 'a failed lookup says nothing');
+  assert.equal(byId(await collectHealth({ ...base, statfs: disk(400, 1000), backupDir: backups(1), blocklists: async () => listed })).blocklists, undefined, 'not without mail');
+  // The platform owners hear about a listing.
+  const id = `hbl${Date.now()}`;
+  q("INSERT INTO orgs (id, name, created_at) VALUES ('horg', 'H Org', 0) ON CONFLICT DO NOTHING").run();
+  q("INSERT INTO users (id, org_id, username, name, password_hash, is_super, created_at) VALUES (?, 'horg', ?, 'Bea Super', 'x', 1, 0)").run(id, `${id}@h.test`);
+  await checkAndNotify({ ...mailOn, now: now + 10 * 864e5, blocklists: async () => listed });
+  assert.ok(q("SELECT title FROM notifications WHERE user_id = ? AND kind = 'system'").all(id).some((n) => n.title === 'Needs attention: Spam blocklists'));
+});
