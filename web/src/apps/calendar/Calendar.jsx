@@ -1196,7 +1196,11 @@ function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate, tem
     onSaved();
   }
   async function remove(which) {
-    if (!recurring || which === 'all' || (which === 'following' && event.occurrence === event.seriesStart)) await del(`/events/${event.id}?tz=${encodeURIComponent(TZ)}`);
+    if (!recurring || which === 'all' || (which === 'following' && event.occurrence === event.seriesStart)) {
+      const r = await del(`/events/${event.id}?tz=${encodeURIComponent(TZ)}`);
+      // An event with nobody else in it can come back.
+      if (r?.undo) toast(`“${event.title || 'Event'}” deleted`, 'info', { action: { label: 'Undo', onClick: () => post(`/events/trash/${event.id}/restore`).then(() => onSaved()).catch((e) => toast(e.message, 'error')) } });
+    }
     else if (which === 'this') await patch(`/events/${event.id}`, { exdates: [...(event.exdates || []), event.occurrence] });
     else await patch(`/events/${event.id}`, { rrule: { ...Object.fromEntries(Object.entries(event.rrule).filter(([k]) => k !== 'count')), until: event.occurrence - 1 } });
     onSaved();

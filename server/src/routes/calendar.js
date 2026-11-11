@@ -391,6 +391,32 @@ export function focusUntil(userId, t = Date.now()) {
 }
 
 /** Delete one of your events (a series with its changed occurrences); its guests are told it's cancelled. */
+// Deleted events of your own with nobody else in them (no guests, no rooms) wait a day, so Undo can bring
+// them back as they were (with changed occurrences and your reminders). Events with guests are cancelled for them.
+q(`CREATE TABLE IF NOT EXISTS event_trash (
+  id TEXT PRIMARY KEY,
+  owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  deleted_at INTEGER NOT NULL,
+  rows TEXT NOT NULL,        -- JSON: the event and its changed occurrences
+  reminders TEXT NOT NULL    -- JSON: their reminders
+)`).run();
+export const EVENT_UNDO_MS = 864e5;
+/** Keep an event to put back with Undo, when it has nobody else in it. True when kept. */
+function keepForUndo(ev, userId) {
+  if (ev.owner_id !== userId) return false;
+  if (q('SELECT 1 FROM event_guests WHERE event_id = ?').get(ev.id) || q('SELECT 1 FROM event_outside_guests WHERE event_id = ?').get(ev.id) || q('SELECT 1 FROM event_rooms WHERE event_id = ?').get(ev.id)) return false;
+  const rows = [ev, ...q('SELECT * FROM events WHERE recur_parent = ? AND owner_id = ?').all(ev.id, userId)];
+  const reminders = q(`SELECT * FROM event_reminders WHERE event_id IN (SELECT value FROM json_each(?))`).all(JSON.stringify(rows.map((r) => r.id)));
+  q('DELETE FROM event_trash WHERE deleted_at < ?').run(Date.now() - EVENT_UNDO_MS);
+  q('INSERT OR REPLACE INTO event_trash (id, owner_id, deleted_at, rows, reminders) VALUES (?, ?, ?, ?, ?)').run(ev.id, userId, Date.now(), JSON.stringify(rows), JSON.stringify(reminders));
+  return true;
+}
+const insertRow = (table, row) => {
+  const cols = new Set(q(`PRAGMA table_info(${table})`).all().map((c) => c.name));
+  const keys = Object.keys(row).filter((k) => cols.has(k));
+  q(`INSERT INTO ${table} (${keys.join(', ')}) VALUES (${keys.map(() => '?').join(', ')})`).run(...keys.map((k) => row[k]));
+};
+
 function removeEvent(req, ev) {
   const guests = guestsOf(ev.id);
   const outside = outsideOf(ev.id);
@@ -852,9 +878,22 @@ export default function calendarRoutes() {
     if (!ev) { const other = q('SELECT * FROM events WHERE id = ?').get(req.params.id); if (other?.calendar_id && actAsSharer(req, other.calendar_id)) ev = other; }
     if (!ev) throw notFound();
     const people = peopleOf(ev.calendar_id);
+    const undo = keepForUndo(ev, req.user.id);
     removeEvent(req, ev);
     touch(people);
-    res.json({ ok: true });
+    res.json({ ok: true, undo });
+  });
+  // Undo a delete (within a day): the event comes back as it was.
+  r.post('/trash/:id/restore', (req, res) => {
+    const t = q('SELECT * FROM event_trash WHERE id = ? AND owner_id = ? AND deleted_at >= ?').get(String(req.params.id), req.user.id, Date.now() - EVENT_UNDO_MS);
+    if (!t) throw notFound('Too late to undo');
+    tx(() => {
+      for (const row of JSON.parse(t.rows)) if (!q('SELECT 1 FROM events WHERE id = ?').get(row.id)) insertRow('events', row);
+      for (const r0 of JSON.parse(t.reminders)) q('INSERT OR IGNORE INTO event_reminders (event_id, user_id, minutes) VALUES (?, ?, ?)').run(r0.event_id, r0.user_id, r0.minutes);
+      q('DELETE FROM event_trash WHERE id = ?').run(t.id);
+    });
+    touch([req.user.id, ...peopleOf(JSON.parse(t.rows)[0].calendar_id)]);
+    res.json({ ok: true, id: t.id });
   });
 
   // A guest suggests another time (answering maybe or no as well), or takes their suggestion back

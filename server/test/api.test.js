@@ -8831,6 +8831,28 @@ test('contacts: keep in touch — how often, who is due, and writing to them cou
   assert.equal((await b('POST', `/api/contacts/${rita.id}/contacted`, {})).status, 404);
 });
 
+test('calendar: undo deleting an event of your own (not one with guests)', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['ceua', 'Ceu Ann'], ['ceub', 'Ceu Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'ceua@acme.com'); await login(b, 'ceub@acme.com');
+  const start = Date.UTC(2026, 11, 3, 9);
+  const ev = (await a('POST', '/api/events', { title: 'Dentist', location: 'High St', start, end: start + 36e5, reminders: [30] })).body;
+  const del = await a('DELETE', `/api/events/${ev.id}`);
+  assert.deepEqual(del.body, { ok: true, undo: true });
+  const listed = async () => (await a('GET', `/api/events?from=${start - 864e5}&to=${start + 864e5}`)).body.filter((e) => e.id === ev.id);
+  assert.equal((await listed()).length, 0);
+  assert.equal((await b('POST', `/api/events/trash/${ev.id}/restore`)).status, 404, 'not Ben’s');
+  assert.deepEqual((await a('POST', `/api/events/trash/${ev.id}/restore`)).body, { ok: true, id: ev.id });
+  const back = await listed();
+  assert.deepEqual([back[0].title, back[0].location, back[0].start], ['Dentist', 'High St', start]);
+  assert.deepEqual(back[0].reminders, [30], 'reminders too');
+  assert.equal((await a('POST', `/api/events/trash/${ev.id}/restore`)).status, 404, 'once');
+  // With a guest: cancelled for them, no undo.
+  const withGuest = (await a('POST', '/api/events', { title: 'Meeting', start, end: start + 36e5, guests: ['ceub@acme.com'] })).body;
+  assert.deepEqual((await a('DELETE', `/api/events/${withGuest.id}`)).body, { ok: true, undo: false });
+  assert.equal((await a('POST', `/api/events/trash/${withGuest.id}/restore`)).status, 404);
+});
+
 test('calendar: event templates, each person’s own', async () => {
   const a = client(), b = client();
   for (const [local, name] of [['etpa', 'Etp Ann'], ['etpb', 'Etp Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
