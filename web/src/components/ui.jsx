@@ -185,7 +185,7 @@ export function ToastProvider({ children }) {
       <div className="toasts" role="status" aria-live="polite">
         {toasts.map((t) => (
           <div key={t.id} className={`toast ${t.kind}`}>
-            {t.text}
+            <span className="toast-text">{t.text}</span>
             {t.actions.map((a) => <button key={a.label} type="button" className="toast-action" onClick={() => { t.close(); a.onClick(); }}>{a.label}</button>)}
           </div>
         ))}
