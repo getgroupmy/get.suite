@@ -9579,6 +9579,23 @@ test('tasks: fold a section away, each person their own', async () => {
   assert.equal((await outsider('PUT', `/api/tasks/sections/${sec.id}/folded`, { folded: true })).status, 404);
 });
 
+test('tasks: an estimate of how long a task will take', async () => {
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'test1', domain: 'acme.com', name: 'Est Ann', password: 'password123' })).status, 201);
+  await login(a, 'test1@acme.com');
+  const list = (await a('POST', '/api/tasks/lists', { name: 'Est' })).body.id;
+  const t = (await a('POST', `/api/tasks/lists/${list}/tasks`, { title: 'Write report' })).body;
+  assert.equal(t.estimate, null);
+  assert.equal((await a('PATCH', `/api/tasks/tasks/${t.id}`, { estimate: 90 })).body.estimate, 90);
+  for (const bad of [0, 1.5, 7000, 'soon']) assert.equal((await a('PATCH', `/api/tasks/tasks/${t.id}`, { estimate: bad })).status, 400, String(bad));
+  assert.equal((await a('POST', `/api/tasks/tasks/${t.id}/duplicate`)).body.estimate, 90, 'a copy keeps it');
+  await a('PATCH', `/api/tasks/tasks/${t.id}`, { due: '2026-11-10', repeat: 'daily' });
+  await a('PATCH', `/api/tasks/tasks/${t.id}`, { done: true, today: '2026-11-10' });
+  const next = (await a('GET', `/api/tasks/lists/${list}/tasks`)).body.find((x) => !x.done && x.repeat);
+  assert.equal(next.estimate, 90, 'the next time of a repeating task too');
+  assert.equal((await a('PATCH', `/api/tasks/tasks/${next.id}`, { estimate: null })).body.estimate, null);
+});
+
 test('tasks: a repeating task can stop repeating after a day', async () => {
   const a = client(), c = client();
   for (const [local, name] of [['truna', 'Until Ann'], ['trunc', 'Until Cat']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);

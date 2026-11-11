@@ -42,7 +42,7 @@ q(`CREATE TABLE IF NOT EXISTS tasks (
 )`).run();
 q('CREATE INDEX IF NOT EXISTS tasks_list ON tasks(list_id, position)').run();
 // Repeating tasks: how it repeats, and (once ticked off) the task that came next.
-for (const [col, type] of [['repeat', 'TEXT'], ['next_id', 'TEXT'], ['steps', 'TEXT'], ['important', 'INTEGER NOT NULL DEFAULT 0'], ['link_url', 'TEXT'], ['link_label', 'TEXT'], ['due_time', 'TEXT'], ['started', 'INTEGER NOT NULL DEFAULT 0'], ['done_by', 'TEXT'], ['attachments', 'TEXT'], ['blocked_by', 'TEXT'], ['tags', 'TEXT'], ['start', 'TEXT'], ['repeat_until', 'TEXT'], ['section_id', 'TEXT']]) { // section_id: a heading on its list the task sits under, or null; // repeat_until: the last day a repeating task may come due (YYYY-MM-DD), or null for always; // start: the day work begins (YYYY-MM-DD), for the timeline; // tags: JSON ["client", …]; // blocked_by: tasks on the same list this one waits on, JSON [ids]; // attachments: Drive files, JSON [{ id, name, kind, mime }]; // steps: a checklist, JSON [{ id, title, done }]
+for (const [col, type] of [['repeat', 'TEXT'], ['next_id', 'TEXT'], ['steps', 'TEXT'], ['important', 'INTEGER NOT NULL DEFAULT 0'], ['link_url', 'TEXT'], ['link_label', 'TEXT'], ['due_time', 'TEXT'], ['started', 'INTEGER NOT NULL DEFAULT 0'], ['done_by', 'TEXT'], ['attachments', 'TEXT'], ['blocked_by', 'TEXT'], ['tags', 'TEXT'], ['start', 'TEXT'], ['repeat_until', 'TEXT'], ['section_id', 'TEXT'], ['estimate', 'INTEGER']]) { // estimate: minutes you expect it to take; // section_id: a heading on its list the task sits under, or null; // repeat_until: the last day a repeating task may come due (YYYY-MM-DD), or null for always; // start: the day work begins (YYYY-MM-DD), for the timeline; // tags: JSON ["client", …]; // blocked_by: tasks on the same list this one waits on, JSON [ids]; // attachments: Drive files, JSON [{ id, name, kind, mime }]; // steps: a checklist, JSON [{ id, title, done }]
   if (!q('PRAGMA table_info(tasks)').all().some((c) => c.name === col)) q(`ALTER TABLE tasks ADD COLUMN ${col} ${type}`).run();
 }
 q('CREATE INDEX IF NOT EXISTS tasks_assignee ON tasks(assignee_id, done_at)').run();
@@ -422,7 +422,7 @@ export default function taskRoutes() {
     q(`INSERT INTO tasks (id, list_id, title, notes, due, due_time, start, assignee_id, position, repeat, repeat_until, steps, important, link_url, link_label, attachments, tags, created_by, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(id, list.id, task.title, task.notes, task.due, task.due_time, task.start, task.assignee_id, position, task.repeat, task.repeat_until, steps, task.important ? 1 : 0, task.link_url, task.link_label, task.attachments, task.tags, req.user.id, t, t);
-    if (task.section_id) q('UPDATE tasks SET section_id = ? WHERE id = ?').run(task.section_id, id);
+    q('UPDATE tasks SET section_id = ?, estimate = ? WHERE id = ?').run(task.section_id, task.estimate, id);
     changed(list);
     res.status(201).json(shape(q(`${TASK} WHERE t.id = ?`).get(id)));
   });
@@ -787,6 +787,11 @@ export default function taskRoutes() {
     if (b.important !== undefined) set.important = b.important ? 1 : 0;
     if (b.tags !== undefined) set.tags = tagsOf(b.tags);
     if (b.started !== undefined) set.started = b.started ? 1 : 0;
+    if (b.estimate !== undefined) {
+      const m = b.estimate === null || b.estimate === '' ? null : Number(b.estimate);
+      if (m !== null && !(Number.isInteger(m) && m >= 1 && m <= 100 * 60)) throw bad('An estimate is a whole number of minutes, up to 100 hours');
+      set.estimate = m;
+    }
     if (b.done === false && b.started === undefined) set.started = 0; // brought back: to do again
     if (b.link !== undefined) { const l = linkOf(b.link); set.link_url = l.url; set.link_label = l.label; } // null takes it off
     if (b.repeat_until !== undefined) {
@@ -823,7 +828,7 @@ export default function taskRoutes() {
         q('INSERT INTO tasks (id, list_id, title, notes, due, due_time, start, assignee_id, position, repeat, repeat_until, steps, important, link_url, link_label, attachments, tags, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
           .run(id, after.list_id, after.title, after.notes, due, after.due_time, start, after.assignee_id, top, after.repeat, after.repeat_until, steps, after.important ? 1 : 0, after.link_url, after.link_label, after.attachments, after.tags, after.created_by, t, t);
         q('UPDATE tasks SET next_id = ? WHERE id = ?').run(id, task.id);
-        if (after.section_id) q('UPDATE tasks SET section_id = ? WHERE id = ?').run(after.section_id, id);
+        q('UPDATE tasks SET section_id = ?, estimate = ? WHERE id = ?').run(after.section_id, after.estimate, id);
         }
       }
       // Un-ticked (Undo): the next one goes again, unless someone has already worked on it.

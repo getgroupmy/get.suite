@@ -194,7 +194,8 @@ export default function Tasks() {
             {t.steps?.length > 0 && <span className={`muted small task-steps ${t.steps.every((x) => x.done) ? 'all' : ''}`} title="Steps done">☑ {t.steps.filter((x) => x.done).length}/{t.steps.length}</span>}
             {t.attachments?.length > 0 && <span className="muted small task-files" title={`${t.attachments.length} file${t.attachments.length === 1 ? '' : 's'}`}>📎 {t.attachments.length}</span>}
             {times[t.id]?.running.length > 0 && <span className="pill timing" title={`Timer running: ${times[t.id].running.map((x) => x.name).join(', ')}`}>● {times[t.id].running.map((x) => x.name.split(' ')[0]).join(', ')}</span>}
-            {times[t.id]?.minutes > 0 && <span className="muted small task-time" title="Time spent">⏱ {formatMinutes(times[t.id].minutes)}</span>}
+            {times[t.id]?.minutes > 0 && <span className="muted small task-time" title="Time spent">⏱ {formatMinutes(times[t.id].minutes)}{t.estimate ? ` of ~${formatMinutes(t.estimate)}` : ''}</span>}
+            {t.estimate > 0 && !(times[t.id]?.minutes > 0) && !t.done && <span className="muted small task-estimate" title="Estimate">~{formatMinutes(t.estimate)}</span>}
             {t.comments > 0 && <span className="muted small task-comments" title={`${t.comments} comment${t.comments === 1 ? '' : 's'}`}>💬 {t.comments}</span>}
             {t.tags?.map((tag) => <span key={tag} className="pill tag">#{tag}</span>)}
             {t.repeat && !t.done && <span className="muted small task-repeat" title={`Repeats: ${repeatText(t.repeat).toLowerCase()}${t.repeat_until ? `, until ${t.repeat_until}` : ''}`}>⟳ {repeatText(t.repeat)}</span>}
@@ -263,7 +264,8 @@ export default function Tasks() {
       )}
       <section className="tasks-main" hidden={!!found}>
         <div className="page-head">
-          <h1 className="grow ellipsis">{list?.emoji && !virtual ? `${list.emoji} ` : ''}{heading}</h1>
+          <h1 className="grow ellipsis">{list?.emoji && !virtual ? `${list.emoji} ` : ''}{heading}
+            {open.some((t) => t.estimate) && <span className="muted small task-estimate-total" title="Estimates of the open tasks here, added up"> ~{formatMinutes(open.reduce((n, t) => n + (t.estimate || 0), 0))} to do</span>}</h1>
           {list && !list.mine && <span className="muted small">Shared by {list.owner_name}</span>}
           {list?.mine && <button type="button" className="btn" onClick={() => setDialog('share')}><Icon name="share" size={18} /> {list.members.length ? `Shared with ${list.members.length}` : 'Share'}</button>}
           {list && (
@@ -826,6 +828,12 @@ function TaskDetails({ task, tasks, lists, sections = [], people, onChange, onCl
         </label>
       )}
       <RepeatField task={task} onChange={onChange} />
+      <label className="field"><span>Estimate</span>
+        <select value={task.estimate || ''} onChange={(e) => onChange({ estimate: e.target.value ? Number(e.target.value) : null })}>
+          <option value="">None</option>
+          {[...new Set([15, 30, 45, 60, 90, 120, 180, 240, 360, 480, ...(task.estimate ? [task.estimate] : [])])].sort((a, b) => a - b).map((m) => <option key={m} value={m}>{formatMinutes(m)}</option>)}
+        </select>
+      </label>
       {people.length > 1 && (
         <label className="field"><span>Assigned to</span>
           <select value={task.assignee_id || ''} onChange={(e) => onChange({ assignee_id: e.target.value || null })}>
