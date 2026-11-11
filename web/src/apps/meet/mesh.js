@@ -65,6 +65,8 @@ export class Mesh {
   /** (Host) the meeting's settings: { muted_entry, host_present }. */
   /** (Organiser) give someone the host's controls, or take them back. */
   setCohost(to, on) { this.send({ type: 'cohost', to, on: !!on }); }
+  /** (Host) end the meeting for everyone. */
+  endForAll() { this.send({ type: 'end' }); }
   setSettings(patch) { this.settings = { ...this.settings, ...patch }; this.send({ type: 'settings', ...patch }); this.onChange?.(); }
   setTimer(seconds) { this.send({ type: 'timer', seconds }); }
   /** Let a waiting guest in, or not. */

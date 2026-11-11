@@ -2834,3 +2834,4 @@ select.meet-timer-btn option { color: #202124; }
 .where-day { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 72px; padding: 6px 10px; border: 1px solid var(--border, #dadce0); border-radius: 10px; background: var(--surface, #fff); cursor: pointer; color: inherit; }
 .where-day.on { border-color: var(--accent, #1a73e8); background: var(--accent-soft, #e8f0fe); }
 .home-office { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px 10px; } .home-office li { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.meet-btn.end-all { width: auto; padding: 0 16px; border-radius: 24px; background: transparent; border: 2px solid #ea4335; color: #ff8a80; font-weight: 600; }

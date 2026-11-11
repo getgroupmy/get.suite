@@ -374,6 +374,12 @@ function enterRoom(ws, req, code, m, user) {
           p.votes.set(user.id, i); // one vote each; voting again changes it
         }
         pollToAll(p);
+      } else if (msg?.type === 'end' && isHost()) {
+        // The host ends the meeting for everyone: every room (breakouts too) and anyone waiting to be let in.
+        const why = `${user.name} ended the meeting`;
+        for (const g of waiting.get(code)?.values() ?? []) { try { g.ws.close(4006, why); } catch { /* gone */ } }
+        waiting.delete(code);
+        for (const k of roomsOf(code)) for (const p of [...(rooms.get(k)?.values() ?? [])]) { try { p.ws.close(4006, why); } catch { /* gone */ } }
       } else if (msg?.type === 'cohost' && isOrganiser) {
         // The organiser makes someone a co-host (or takes it back): they get the host's controls.
         const target = [...roomsOf(code)].flatMap((k) => [...(rooms.get(k)?.entries() ?? [])]).find(([pid]) => pid === String(msg.to))?.[1];

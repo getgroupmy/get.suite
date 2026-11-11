@@ -231,7 +231,7 @@ export default function MeetRoom({ guest = false, onSignIn }) {
         setFloating((list) => [...list, { ...r, key }]);
         setTimeout(() => setFloating((list) => list.filter((x) => x.key !== key)), 3000);
       },
-      onClosed: (reason) => { toast(reason, 'error'); setLeftWhy(reason); setPhase('left'); },
+      onClosed: (reason) => { toast(reason, /ended the meeting/.test(reason) ? undefined : 'error'); setLeftWhy(reason); setPhase('left'); },
       onLocked: (l) => toast(l.on ? `${l.by === user?.name ? 'You' : l.by} locked the meeting: nobody new can join` : `${l.by === user?.name ? 'You' : l.by} opened the meeting again`),
       // The whiteboard: someone else drew while it's closed here; the first time, say who.
       onBoard: (msg) => {
@@ -311,7 +311,7 @@ export default function MeetRoom({ guest = false, onSignIn }) {
   if (phase === 'left') {
     return (
       <div className="meet-page meet-center">
-        <div className="meet-card stack"><h1>{/removed you/.test(leftWhy) ? 'You were removed from the meeting' : /let you in/.test(leftWhy) ? 'You weren’t let in' : /locked/.test(leftWhy) ? 'The meeting is locked' : 'You left the meeting'}</h1>
+        <div className="meet-card stack"><h1>{/ended the meeting/.test(leftWhy) ? 'The meeting has ended' : /removed you/.test(leftWhy) ? 'You were removed from the meeting' : /let you in/.test(leftWhy) ? 'You weren’t let in' : /locked/.test(leftWhy) ? 'The meeting is locked' : 'You left the meeting'}</h1>
           {leftWhy && <p className="muted" role="status" style={{ margin: 0 }}>{leftWhy}</p>}
           <div className="row">{!/removed you/.test(leftWhy) && <button type="button" className="btn primary" onClick={() => { setLeftWhy(''); setLocal(null); setPhase('lobby'); openDevices().then(setLocal); }}>Rejoin</button>}
             {!guest && <button type="button" className="btn" onClick={() => navigate('/meet')}>Back to Meet</button>}</div></div>
@@ -463,6 +463,8 @@ export default function MeetRoom({ guest = false, onSignIn }) {
         {!guest && <button type="button" className={`meet-btn ${m.state.rec ? 'on rec' : ''}`} disabled={saving} aria-pressed={!!m.state.rec} aria-label={saving ? 'Saving the recording' : m.state.rec ? 'Stop recording' : 'Record the meeting'} title={m.state.rec ? 'Stop and save it to your Drive' : 'Record the meeting (saved to your Drive)'} onClick={m.state.rec ? stopRecording : startRecording}>{saving ? '…' : '⏺'}</button>}
         <button type="button" className="meet-btn" aria-label="Copy meeting link" onClick={() => copyLink(code, toast)}>🔗</button>
         <button type="button" className="meet-btn leave" aria-label="Leave the meeting" onClick={leave}>Leave</button>
+        {m.host && <button type="button" className="meet-btn end-all" aria-label="End the meeting for everyone" title="End the meeting for everyone"
+          onClick={() => { if (window.confirm('End the meeting for everyone? Everyone in it (breakout rooms too) leaves.')) m.endForAll(); }}>End for all</button>}
       </footer>
     </div>
   );

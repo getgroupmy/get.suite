@@ -3986,6 +3986,34 @@ test('meet: start a meeting, join its room, signals pass between people', async 
   assert.equal(mine[0].code, code, 'recent meetings include ones you joined');
 });
 
+test('meet: the host ends the meeting for everyone', async () => {
+  const { default: WS } = await import('ws');
+  const cookieFor = async (local, name) => {
+    assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+    const r = await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ username: `${local}@acme.com`, password: 'password123' }) });
+    return r.headers.get('set-cookie').split(';')[0];
+  };
+  const ca = await cookieFor('mena', 'Mena Host'), cb = await cookieFor('menb', 'Menb Guest');
+  const code = (await (await fetch(`${base}/api/meet`, { method: 'POST', headers: { cookie: ca, 'x-requested-with': 'nas-workspace', 'content-type': 'application/json' }, body: JSON.stringify({ title: 'Wrap-up' }) })).json()).code;
+  const open = (cookie) => new Promise((resolve, reject) => {
+    const ws = new WS(`${base.replace('http', 'ws')}/ws/meet/${code}`, { headers: { cookie } });
+    const closed = new Promise((r) => ws.on('close', (c, why) => r([c, String(why)])));
+    ws.on('open', () => resolve({ ws, closed }));
+    ws.on('error', reject);
+  });
+  const a = await open(ca), b = await open(cb);
+  await new Promise((r) => setTimeout(r, 100));
+  b.ws.send(JSON.stringify({ type: 'end' }));
+  await new Promise((r) => setTimeout(r, 150));
+  assert.equal(b.ws.readyState, 1, 'only the host can end it');
+  a.ws.send(JSON.stringify({ type: 'end' }));
+  assert.deepEqual(await b.closed, [4006, 'Mena Host ended the meeting']);
+  assert.deepEqual(await a.closed, [4006, 'Mena Host ended the meeting']);
+  const again = await open(cb);
+  assert.equal(again.ws.readyState, 1, 'the code still works: it can start again');
+  again.ws.close();
+});
+
 test('meet: a video meeting on a calendar event', async () => {
   const org = client(); const guest = client();
   for (const [local, name] of [['mca', 'Cal Organizer'], ['mcb', 'Gus Guest']]) {
