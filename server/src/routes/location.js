@@ -75,18 +75,34 @@ export default function locationRoutes() {
     sendTo([req.user.id], { type: 'location-changed' });
     res.json({ date, ...(placeOn(req.user.id, date) || { place: null }) });
   });
+  const colleagues = (orgId) => q('SELECT id, workloc_week FROM users WHERE org_id = ? AND disabled = 0').all(orgId).map((u) => {
+    let week = {};
+    try { week = JSON.parse(u.workloc_week || '{}'); } catch { /* none */ }
+    return { id: u.id, week };
+  });
   // Where colleagues are on a day: { userId: { place, label } } (those who've said).
   r.get('/people', (req, res) => {
     const date = String(req.query.date || '');
     if (!DAY_RE.test(date)) throw bad('date must be YYYY-MM-DD');
     const out = {};
-    for (const u of q('SELECT id, workloc_week FROM users WHERE org_id = ? AND disabled = 0').all(req.user.org_id)) {
-      let week = {};
-      try { week = JSON.parse(u.workloc_week || '{}'); } catch { /* none */ }
-      const p = placeOn(u.id, date, week);
+    for (const u of colleagues(req.user.org_id)) {
+      const p = placeOn(u.id, date, u.week);
       if (p) out[u.id] = { place: p.place, label: p.label };
     }
     res.json(out);
+  });
+  // How many colleagues are where, day by day (at most 14 days): { date: { office, home, other } },
+  // to plan office days ("who's in on Thursday?").
+  r.get('/summary', (req, res) => {
+    const from = String(req.query.from || ''), to = String(req.query.to || '');
+    if (!DAY_RE.test(from) || !DAY_RE.test(to) || to < from) throw bad('from and to must be dates');
+    const days = daysBetween(from, to).slice(0, 14);
+    const people = colleagues(req.user.org_id);
+    res.json(Object.fromEntries(days.map((d) => {
+      const n = { office: 0, home: 0, other: 0 };
+      for (const u of people) { const p = placeOn(u.id, d, u.week); if (p && n[p.place] !== undefined) n[p.place]++; }
+      return [d, n];
+    })));
   });
   return r;
 }

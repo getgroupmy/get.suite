@@ -7,7 +7,7 @@ import { Avatar, ConfirmModal, Empty, Menu, Modal, useToast } from '../../compon
 import { useAuth } from '../../App.jsx';
 import AddressInput from '../../components/AddressInput.jsx';
 import { parseAddresses, formatAddress } from '../../components/addresses.js';
-import { placeText, isoDay } from '../../components/workloc.js';
+import { placeText, isoDay, comingDays, PLACES } from '../../components/workloc.js';
 import { statusLine } from '../../components/status.js';
 import { orgTree, chainOf } from '../../components/orgchart.js';
 import PersonCard from '../../components/PersonCard.jsx';
@@ -78,15 +78,23 @@ export default function Contacts() {
   useEffect(() => onLive((m) => { if (m.type === 'directory-changed') get('/users/directory').then(setDirectory).catch(() => {}); }), []);
   const [chart, setChart] = useState(false); // Directory as an org chart
   const [card, setCard] = useState(null); // a colleague's card (their id)
-  // Where colleagues are working today (those who've said).
+  // Where colleagues are working on a day (today, or one of the next working days), and how many are
+  // where each day: to plan office days.
+  const days = comingDays(5);
+  const [whereDay, setWhereDay] = useState(isoDay(new Date()));
   const [whereToday, setWhereToday] = useState({});
-  useEffect(() => { get(`/location/people?date=${isoDay(new Date())}`).then(setWhereToday).catch(() => {}); }, []);
+  const [whereFilter, setWhereFilter] = useState(''); // '' | office | home | other | none
+  const [daySums, setDaySums] = useState({});
+  useEffect(() => { get(`/location/people?date=${whereDay}`).then(setWhereToday).catch(() => {}); }, [whereDay]);
+  useEffect(() => { if (tab === 'dir') get(`/location/summary?from=${isoDay(days[0])}&to=${isoDay(days[days.length - 1])}`).then(setDaySums).catch(() => {}); }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
+  const dayName = (iso) => (iso === isoDay(new Date()) ? 'today' : `on ${new Date(`${iso}T12:00`).toLocaleDateString([], { weekday: 'long' })}`);
+  const whereOk = (c) => tab !== 'dir' || !whereFilter || (whereFilter === 'none' ? !whereToday[c.id] : whereToday[c.id]?.place === whereFilter);
 
   const match = (c) => !filter || Object.values(c).some((v) => typeof v === 'string' && v.toLowerCase().includes(filter.toLowerCase()));
   const [sort, setSort] = useState('first'); // your own way of sorting your contacts
   useEffect(() => { get('/contacts/view').then((r) => setSort(r.sort)).catch(() => {}); }, []);
   const chooseSort = async (next) => { setSort(next); try { await put('/contacts/view', { sort: next }); } catch (e) { toast(e.message, 'error'); } };
-  const filtered = (tab === 'mine' ? (contacts || []) : tab === 'company' ? company : directory).filter(match);
+  const filtered = (tab === 'mine' ? (contacts || []) : tab === 'company' ? company : directory).filter(match).filter(whereOk);
   const list = tab === 'mine' ? sortContacts(filtered, sort) : filtered;
   const own = tab === 'mine' || tab === 'company'; // address-book rows, not NAS users
   // Several of your contacts at once: email them, add them to a group, star them, or delete them.
@@ -141,6 +149,23 @@ export default function Contacts() {
         {tab === 'mine' && <select aria-label="Sort contacts" value={sort} onChange={(e) => chooseSort(e.target.value)}>{CONTACT_SORTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>}
         {tab === 'dir' && <button type="button" className={`btn small ${chart ? 'primary' : ''}`} aria-pressed={chart} onClick={() => setChart(!chart)}>Org chart</button>}
       </div>
+      {tab === 'dir' && !chart && (
+        <div className="row wrap where-days">
+          <div className="where-strip" role="group" aria-label="Who's where">
+            {days.map((d) => { const iso = isoDay(d); const n = daySums[iso]; return (
+              <button key={iso} type="button" className={`where-day ${whereDay === iso ? 'on' : ''}`} aria-pressed={whereDay === iso} onClick={() => setWhereDay(iso)}
+                title={n ? `${n.office} in the office, ${n.home} at home, ${n.other} elsewhere` : undefined}>
+                <strong>{iso === isoDay(new Date()) ? 'Today' : d.toLocaleDateString([], { weekday: 'short', day: 'numeric' })}</strong>
+                <span className="small">🏢 {n?.office ?? '–'}</span>
+              </button>); })}
+          </div>
+          <select aria-label="Where they are" value={whereFilter} onChange={(e) => setWhereFilter(e.target.value)}>
+            <option value="">Everyone</option>
+            {PLACES.map(([k, icon, label]) => <option key={k} value={k}>{icon} {k === 'office' ? 'In the office' : k === 'home' ? 'At home' : label}</option>)}
+            <option value="none">Not said</option>
+          </select>
+        </div>
+      )}
       {tab === 'dir' && chart ? <OrgChart people={directory} filter={filter} onMessage={message} me={user.id} onOpen={setCard} /> : tab === 'groups' ? <Groups filter={filter} /> : tab === 'touch' ? <KeepInTouch filter={filter} /> : tab === 'trash' ? <ContactsTrash filter={filter} onRestored={load} /> : tab === 'other' ? <OtherContacts filter={filter} onAdded={load} /> : tab === 'mine' && contacts?.length === 0 ? <Empty icon="person" title="No contacts yet">Add people you work with outside your NAS users.</Empty>
         : tab === 'company' && company.length === 0 ? <Empty icon="person" title="No company contacts yet">Contacts shared with everyone at {user.org_name} appear here. Tick “Share with everyone at {user.org_name}” on a contact to add it.</Empty> : (
         <table className="files">
@@ -165,7 +190,7 @@ export default function Contacts() {
             {list.map((c) => (
               <tr key={c.id} className={picked.has(c.id) ? 'picked' : ''}>
                 {selecting && <td className="pick-col"><input type="checkbox" aria-label={`Select ${c.name}`} checked={picked.has(c.id)} onChange={() => pickOne(c.id)} /></td>}
-                <td className="name"><Avatar name={c.name} size={28} userId={tab === 'dir' ? c.id : undefined} email={c.email || c.username} src={tab !== 'dir' ? photoUrl(c) : undefined} /><span>{tab === 'dir' ? <button type="button" className="link-btn person-name" onClick={() => setCard(c.id)}>{c.name}</button> : c.name}{c.shared && tab === 'mine' ? <span className="muted"> · Shared with company</span> : null}{tab === 'company' && <span className="muted"> · Added by {c.owner_id === user.id ? 'you' : c.owner_name}</span>}{c.status && <span className="person-status" aria-label={`Status: ${statusLine(c.status)}`}> · {statusLine(c.status)}</span>}{tab === 'dir' && whereToday[c.id] && <span className="muted person-where" title="Working location today"> · {placeText(whereToday[c.id])} today</span>}</span></td>
+                <td className="name"><Avatar name={c.name} size={28} userId={tab === 'dir' ? c.id : undefined} email={c.email || c.username} src={tab !== 'dir' ? photoUrl(c) : undefined} /><span>{tab === 'dir' ? <button type="button" className="link-btn person-name" onClick={() => setCard(c.id)}>{c.name}</button> : c.name}{c.shared && tab === 'mine' ? <span className="muted"> · Shared with company</span> : null}{tab === 'company' && <span className="muted"> · Added by {c.owner_id === user.id ? 'you' : c.owner_name}</span>}{c.status && <span className="person-status" aria-label={`Status: ${statusLine(c.status)}`}> · {statusLine(c.status)}</span>}{tab === 'dir' && whereToday[c.id] && <span className="muted person-where" title="Working location"> · {placeText(whereToday[c.id])} {dayName(whereDay)}</span>}</span></td>
                 <td className="hide-sm">{(c.email || c.username) ? <a href={`mailto:${c.email || c.username}`}>{c.email || c.username}</a> : <span className="muted">—</span>}
                   {c.more_emails?.map((m) => <div key={m.value} className="small"><a href={`mailto:${m.value}`}>{m.value}</a> <span className="muted">{TYPE_LABELS[m.type]}</span></div>)}</td>
                 <td className="hide-sm">{(c.phone || c.work_phone) ? <a href={`tel:${c.phone || c.work_phone}`}>{c.phone || c.work_phone}</a> : <span className="muted">—</span>}

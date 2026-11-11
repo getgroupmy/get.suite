@@ -4486,6 +4486,18 @@ test('working location: usual week, a day different, and colleagues', async () =
   await a('PUT', '/api/location/day', { date: '2026-11-09', place: null });
   assert.equal((await a('GET', '/api/location?from=2026-11-09&to=2026-11-09')).body.days['2026-11-09'].place, 'office', 'back to the usual');
   assert.equal((await a('PUT', '/api/location/day', { date: 'monday', place: 'home' })).status, 400);
+  // The week at a glance: how many are where each day (Walt joins Wendy in the office on Monday).
+  const sum = async () => (await b('GET', '/api/location/summary?from=2026-11-09&to=2026-11-13')).body;
+  const before = await sum();
+  assert.deepEqual(Object.keys(before), ['2026-11-09', '2026-11-10', '2026-11-11', '2026-11-12', '2026-11-13']);
+  await b('PUT', '/api/location/week', { week: { 1: 'office', 3: 'office' } });
+  await b('PUT', '/api/location/day', { date: '2026-11-10', place: 'home' });
+  const after = await sum();
+  const diff = (d, k) => after[d][k] - before[d][k];
+  assert.deepEqual([diff('2026-11-09', 'office'), diff('2026-11-10', 'home'), diff('2026-11-11', 'office'), diff('2026-11-12', 'office')], [1, 1, 1, 0]);
+  assert.ok(after['2026-11-09'].office >= 2, 'Wendy and Walt');
+  assert.equal(Object.keys((await b('GET', '/api/location/summary?from=2026-11-01&to=2026-12-31')).body).length, 14, 'two weeks at most');
+  assert.equal((await b('GET', '/api/location/summary?from=2026-11-13&to=2026-11-09')).status, 400);
 });
 
 test('focus time: declines new invitations and pauses notifications while it lasts', async () => {

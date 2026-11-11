@@ -2829,3 +2829,7 @@ select.meet-timer-btn option { color: #202124; }
 .room-checkin { color: var(--warning, #b06000); }
 .rooms-now li { flex-wrap: wrap; } .rooms-now li > .grow { min-width: 200px; }
 .usage-noshow { color: var(--warning, #b06000); font-weight: 600; }
+.where-days { gap: 12px; margin: 4px 0 8px; align-items: center; }
+.where-strip { display: flex; gap: 6px; flex-wrap: wrap; }
+.where-day { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 72px; padding: 6px 10px; border: 1px solid var(--border, #dadce0); border-radius: 10px; background: var(--surface, #fff); cursor: pointer; color: inherit; }
+.where-day.on { border-color: var(--accent, #1a73e8); background: var(--accent-soft, #e8f0fe); }
