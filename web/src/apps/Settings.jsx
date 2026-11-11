@@ -8,6 +8,7 @@ import { Avatar, ConfirmModal, useToast } from '../components/ui.jsx';
 import Icon from '../components/Icon.jsx';
 import { allZones, zoneName, cityOf } from '../components/zones.js';
 import { getTheme, setTheme } from '../theme.js';
+import { useMailStatus } from '../mailStatus.js';
 
 export default function Settings() {
   const { user, setUser } = useAuth();
@@ -59,6 +60,7 @@ export default function Settings() {
       <MailDelegates />
       <MailPane />
       <MailAdvance />
+      <MailTidy />
       <CallRing />
       <Devices />
       <SignInApps />
@@ -404,6 +406,40 @@ function MailAdvance() {
         <label className="check"><input type="radio" name="mail-advance" checked={now === 'list'} onChange={() => set('list')} /> Go back to the list</label>
         <label className="check"><input type="radio" name="mail-advance" checked={now === 'newer'} onChange={() => set('newer')} /> Open the next newer message</label>
         <label className="check"><input type="radio" name="mail-advance" checked={now === 'older'} onChange={() => set('older')} /> Open the next older message</label>
+      </div>
+    </section>
+  );
+}
+
+const TIDY = [[null, 'Never'], [7, 'After a week'], [14, 'After 2 weeks'], [30, 'After 30 days'], [60, 'After 60 days'], [90, 'After 90 days']];
+/** Tidy the inbox: mail in Updates older than so many days goes to Archive by itself (starred mail stays). */
+function MailTidy() {
+  const toast = useToast();
+  const mail = useMailStatus();
+  const [days, setDays] = useState(undefined);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { if (mail?.enabled) get('/mail/tidy').then((r) => setDays(r.days)).catch(() => {}); }, [mail?.enabled]);
+  if (!mail?.enabled || days === undefined) return null;
+  const set = async (v) => {
+    const was = days;
+    setDays(v);
+    try { await put('/mail/tidy', { days: v }); toast(v ? 'Saved: old updates go to Archive each day' : 'Saved: updates stay in your inbox'); } catch (e) { setDays(was); toast(e.message, 'error'); }
+  };
+  const now = async () => {
+    setBusy(true);
+    try { const r = await post('/mail/tidy/now'); toast(r.moved ? `${r.moved} message${r.moved === 1 ? '' : 's'} moved to Archive` : 'Nothing to tidy'); } catch (e) { toast(e.message, 'error'); }
+    setBusy(false);
+  };
+  return (
+    <section className="card stack" aria-labelledby="mtidy-h">
+      <h2 id="mtidy-h">Tidy the inbox</h2>
+      <p className="muted small" style={{ margin: 0 }}>Newsletters, notifications and receipts in the <strong>Updates</strong> tab move to <strong>Archive</strong> by themselves once they're this old, every day. Starred ones stay, and nothing is deleted.</p>
+      <div className="row wrap">
+        <label className="field"><span>Archive updates</span>
+          <select value={days ?? ''} onChange={(e) => set(e.target.value ? Number(e.target.value) : null)}>
+            {TIDY.map(([v, l]) => <option key={l} value={v ?? ''}>{l}</option>)}
+          </select></label>
+        {days && <button type="button" className="btn" style={{ alignSelf: 'flex-end' }} disabled={busy} onClick={now}>{busy ? 'Tidying…' : 'Tidy now'}</button>}
       </div>
     </section>
   );

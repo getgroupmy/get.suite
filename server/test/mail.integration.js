@@ -2117,3 +2117,31 @@ test('forwarding: the address confirms with a code; then all mail goes there too
   const actions = (log.entries || log).map((e) => e.action);
   assert.ok(actions.includes('mail.forwarding_on') && actions.includes('mail.forwarding_requested'), actions.join(','));
 });
+
+test('tidying: Updates mail older than the chosen days moves to Archive; starred, recent and Primary mail stay', async () => {
+  assert.deepEqual((await olivia('GET', '/api/mail/tidy')).body, { days: null });
+  assert.equal((await olivia('POST', '/api/mail/tidy/now')).status, 400, 'off: nothing to do');
+  assert.equal((await olivia('PUT', '/api/mail/tidy', { days: 3 })).status, 400, 'only the offered choices');
+  // Messages as they arrived at different times (APPEND with their own dates).
+  const c = await eventually(() => imapLogin('olivia@acme.com', 'password123'), 20000); // the mailbox may still be on its way
+  const old = new Date(Date.now() - 45 * 864e5);
+  const msg = (subject, headers = '') => `From: News <news@shop.example>\r\nTo: olivia@acme.com\r\nSubject: ${subject}\r\n${headers}Date: ${old.toUTCString()}\r\n\r\nHello\r\n`;
+  try {
+    await c.append('INBOX', msg('Tidy old newsletter', 'List-Unsubscribe: <mailto:u@shop.example>\r\n'), [], old);
+    await c.append('INBOX', msg('Tidy old starred newsletter', 'List-Id: deals.shop.example\r\n'), ['\\Flagged'], old);
+    await c.append('INBOX', msg('Tidy new newsletter', 'List-Id: deals.shop.example\r\n'), [], new Date());
+    await c.append('INBOX', msg('Tidy old letter from a person'), [], old);
+  } finally { await c.logout().catch(() => {}); }
+  assert.deepEqual((await olivia('PUT', '/api/mail/tidy', { days: 30 })).body, { days: 30 });
+  const r = (await olivia('POST', '/api/mail/tidy/now')).body;
+  assert.equal(r.moved, 1);
+  const inInbox = (await inbox(olivia)).map((m) => m.subject).filter((s) => s.startsWith('Tidy'));
+  assert.deepEqual(inInbox.sort(), ['Tidy new newsletter', 'Tidy old letter from a person', 'Tidy old starred newsletter']);
+  const archived = (await olivia('GET', '/api/mail/messages?folder=Archive')).body.messages.map((m) => m.subject);
+  assert.ok(archived.includes('Tidy old newsletter'));
+  // The daily run does the same, once a day.
+  const { runTidy } = await import('../src/mail/tidy.js');
+  await runTidy();
+  assert.equal(await runTidy(), 0, 'not twice the same day');
+  assert.deepEqual((await olivia('PUT', '/api/mail/tidy', { days: null })).body, { days: null });
+});

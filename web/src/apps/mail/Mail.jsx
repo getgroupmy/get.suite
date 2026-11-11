@@ -114,7 +114,7 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
   const refreshRef = useRef(null);
   const [scheduledOpen, setScheduledOpen] = useState(false);
   const loadScheduled = useCallback(() => get('/mail/scheduled').then(setScheduled).catch(() => {}), []);
-  useEffect(() => { loadScheduled(); return onLive((m) => { if (m.type === 'mail-scheduled') { loadScheduled(); loadFolders(); } if (m.type === 'mail-snoozed' || m.type === 'mail-assigned' || m.type === 'mail-notes') refreshRef.current?.(); }); },
+  useEffect(() => { loadScheduled(); return onLive((m) => { if (m.type === 'mail-scheduled') { loadScheduled(); loadFolders(); } if (m.type === 'mail-snoozed' || m.type === 'mail-assigned' || m.type === 'mail-notes' || m.type === 'mail-tidied') refreshRef.current?.(); }); },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [loadScheduled]);
   const { user, setUser } = useAuth();
