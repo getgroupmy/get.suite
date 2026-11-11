@@ -310,6 +310,14 @@ export default function Chat() {
   useEffect(() => onLive((m) => { if (m.type === 'chat-saved') loadSaved(); }), [loadSaved]);
   useEffect(() => { setSavedOpen(false); }, [channelId]); // picking a conversation leaves the list
   const savedIds = new Set(saved.map((x) => x.message_id));
+  // Threads you're in, across conversations (latest reply first), kept up to date as replies come and you read.
+  const [threads, setThreads] = useState([]);
+  const [threadsOpen, setThreadsOpen] = useState(false);
+  const loadThreads = useCallback(() => get('/chat/threads').then(setThreads).catch(() => {}), []);
+  useEffect(() => { loadThreads(); }, [loadThreads]);
+  useEffect(() => onLive((m) => { if ((m.type === 'message' && m.message.parent_id) || m.type === 'chat-read' || m.type === 'message-deleted') loadThreads(); }), [loadThreads]);
+  useEffect(() => { setThreadsOpen(false); }, [channelId]);
+  const unreadThreads = threads.filter((t) => t.unread > 0).length;
   const setSave = (id, on) => put(`/chat/messages/${id}/saved`, { saved: on }).then(() => { loadSaved(); toast(on ? 'Saved for later (🔖 Saved in the list)' : 'Removed from Saved'); }).catch((e) => toast(e.message, 'error'));
 
   // Messages you've scheduled here, soonest first (live: they go when sent).
@@ -429,7 +437,8 @@ export default function Chat() {
           <Icon name="search" size={18} />
           <input name="q" type="search" placeholder="Search messages" aria-label="Search messages" onChange={(e) => { if (!e.target.value) setSearch(null); }} />
         </form>
-        <button type="button" className={`subnav-item ${savedOpen ? 'active' : ''}`} onClick={() => { setSearch(null); setSavedOpen(true); }}><span className="hash" aria-hidden="true">🔖</span><span className="grow">Saved</span>{saved.length > 0 && <span className="count">{saved.length}</span>}</button>
+        <button type="button" className={`subnav-item ${savedOpen ? 'active' : ''}`} onClick={() => { setSearch(null); setThreadsOpen(false); setSavedOpen(true); }}><span className="hash" aria-hidden="true">🔖</span><span className="grow">Saved</span>{saved.length > 0 && <span className="count">{saved.length}</span>}</button>
+        <button type="button" className={`subnav-item ${threadsOpen ? 'active' : ''}`} onClick={() => { setSearch(null); setSavedOpen(false); setThreadsOpen(true); loadThreads(); }}><span className="hash" aria-hidden="true">💬</span><span className="grow">Threads</span>{unreadThreads > 0 && <span className="badge" aria-label={`${unreadThreads} with new replies`}>{unreadThreads}</span>}</button>
         {Object.values(unread).some((n) => n > 0) && <button type="button" className="link-btn small chat-read-all" title="Mark every conversation as read"
           onClick={async () => { try { const r = await post('/chat/read-all', {}); await loadChannels(); toast(`Marked ${r.conversations} conversation${r.conversations === 1 ? '' : 's'} as read`); } catch (e) { toast(e.message, 'error'); } }}>✓ Mark all as read</button>}
         {starred.length > 0 && <>
@@ -494,7 +503,24 @@ export default function Chat() {
         </Modal>
       )}
       <section className="chat-main">
-        {savedOpen && !search ? (
+        {threadsOpen && !search ? (
+          <div className="chat-results">
+            <div className="chat-head"><h1 className="grow">Threads</h1><button type="button" className="icon-btn" aria-label="Close threads" onClick={() => setThreadsOpen(false)}><Icon name="close" /></button></div>
+            {!threads.length ? <Empty icon="chat" title="No threads yet">Threads you start or reply to show here, latest reply first, from every conversation.</Empty> : (
+              <ul aria-label="Your threads">
+                {threads.map((t) => (
+                  <li key={t.id}>
+                    <button type="button" className={`chat-result thread-result ${t.unread ? 'unread' : ''}`} onClick={() => { setThreadsOpen(false); openResult({ id: t.id, channel_id: t.channel_id, parent_id: t.id }); }}>
+                      <span className="muted small">{t.where}{t.private ? ' 🔒' : ''} · {t.replies} repl{t.replies === 1 ? 'y' : 'ies'} · {whenText(t.last_at)}</span>
+                      <span><strong>{t.user_name}</strong> {t.deleted ? <em className="muted">This message was deleted.</em> : t.body}</span>
+                      <span className="small thread-last"><strong>{t.last.user_id === user.id ? 'You' : t.last.user_name}:</strong> {t.last.body}{t.unread > 0 && <span className="badge" aria-label={`${t.unread} new`}>{t.unread} new</span>}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        ) : savedOpen && !search ? (
           <div className="chat-results">
             <div className="chat-head"><h1 className="grow">Saved</h1><button type="button" className="icon-btn" aria-label="Close saved" onClick={() => setSavedOpen(false)}><Icon name="close" /></button></div>
             {!saved.length ? <Empty icon="chat" title="Nothing saved yet">Hover over a message and choose 🔖 to keep it here for later. Only you see what you save.</Empty> : (

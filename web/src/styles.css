@@ -1398,6 +1398,9 @@ button.rule-sample.on { outline: 2px solid var(--accent); outline-offset: 1px; }
 .chat-results ul { list-style: none; margin: 0; padding: 8px 12px; overflow: auto; }
 .chat-result { display: flex; flex-direction: column; gap: 2px; width: 100%; padding: 10px; border: 0; border-radius: 8px; background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
 .chat-result:hover { background: var(--hover); }
+.thread-result.unread > span:nth-child(2) { font-weight: 600; }
+.thread-last { color: var(--muted); display: flex; gap: 6px; align-items: baseline; }
+.thread-last .badge { margin-left: auto; }
 .chat-result mark, .msg.found mark { background: var(--warn-bg); color: inherit; border-radius: 2px; }
 .msg.found { background: var(--warn-bg); transition: background 1s; }
 /* Docs: table of contents block */

@@ -823,6 +823,36 @@ export default function chatRoutes() {
     res.json(rows.map((r) => ({ ...r, where: r.dm_key ? (r.dm_name || 'Notes to self') : `#${r.channel_name}`, private: !!r.private, dm_key: undefined, dm_name: undefined })));
   });
 
+  // Threads you're in (you started the message or replied), in the conversations you can still see,
+  // latest reply first: the message, where it is, how many replies, the last one and how many of them
+  // are new to you (from others since you last read that conversation).
+  r.get('/threads', (req, res) => {
+    const me = req.user.id;
+    const rows = q(`SELECT p.id, p.channel_id, p.user_id, p.body, p.deleted_at, p.created_at, pu.name AS user_name, p.bot,
+                      c.name AS channel_name, c.dm_key, c.private,
+                      (SELECT un.name FROM channel_members cm JOIN users un ON un.id = cm.user_id WHERE cm.channel_id = c.id AND cm.user_id != ? LIMIT 1) AS dm_name,
+                      COUNT(m.id) AS replies, MAX(m.created_at) AS last_at,
+                      SUM(CASE WHEN (m.user_id IS NULL OR m.user_id != ?) AND m.created_at > COALESCE((SELECT read_at FROM channel_reads r WHERE r.channel_id = c.id AND r.user_id = ?), 0) THEN 1 ELSE 0 END) AS unread
+                    FROM messages p JOIN messages m ON m.parent_id = p.id JOIN channels c ON c.id = p.channel_id LEFT JOIN users pu ON pu.id = p.user_id
+                    WHERE p.parent_id IS NULL
+                      AND (p.user_id = ? OR EXISTS (SELECT 1 FROM messages t WHERE t.parent_id = p.id AND t.user_id = ?))
+                      AND ((c.dm_key IS NULL AND c.private = 0 AND c.org_id = ? AND NOT EXISTS (SELECT 1 FROM chat_left lf WHERE lf.channel_id = c.id AND lf.user_id = ?))
+                        OR EXISTS (SELECT 1 FROM channel_members cm WHERE cm.channel_id = c.id AND cm.user_id = ?))
+                    GROUP BY p.id ORDER BY last_at DESC LIMIT 50`).all(me, me, me, me, me, req.user.org_id, me, me);
+    const lastOf = (id) => q('SELECT m.body, m.files, m.user_id, u.name AS user_name, m.bot FROM messages m LEFT JOIN users u ON u.id = m.user_id WHERE m.parent_id = ? ORDER BY m.created_at DESC LIMIT 1').get(id);
+    const text = (m) => m.body || (m.files && JSON.parse(m.files).length ? `📎 ${JSON.parse(m.files).map((f) => f.name).join(', ')}` : '');
+    const cut = (t) => (t.length > 200 ? `${t.slice(0, 200)}…` : t);
+    res.json(rows.map((r) => {
+      const last = lastOf(r.id);
+      return {
+        id: r.id, channel_id: r.channel_id, where: r.dm_key ? (r.dm_name || 'Notes to self') : `#${r.channel_name}`, private: !!r.private, dm: !!r.dm_key,
+        user_id: r.user_id, user_name: r.user_name || r.bot || 'Deleted user', body: r.deleted_at ? null : cut(r.body || ''), deleted: !!r.deleted_at, created_at: r.created_at,
+        replies: r.replies, last_at: r.last_at, unread: r.unread,
+        last: { user_id: last.user_id, user_name: last.user_name || last.bot || 'Deleted user', body: cut(text(last)) },
+      };
+    }));
+  });
+
   // A link to a message, pasted in a conversation: who wrote it, where, when and the start of it, for a
   // quoted card. Only for people who can read that conversation (anyone else gets 404, as for the link).
   // As when forwarding, a public channel's name is shown; a direct message or private channel says so instead.

@@ -3387,6 +3387,50 @@ test('chat: mark unread from a message', async () => {
   assert.equal((await x('POST', `/api/chat/messages/${ids[0]}/unread`)).status, 404, 'not for people outside it');
 });
 
+test('chat: threads you are in, latest reply first', async () => {
+  const a = client(), b = client(), x = client();
+  for (const [local, name] of [['tha', 'Thread Ann'], ['thb', 'Thread Ben'], ['thx', 'Thread Xavi']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'tha@acme.com');
+  const bid = (await login(b, 'thb@acme.com')).id;
+  await login(x, 'thx@acme.com');
+  const dm = (await a('POST', '/api/chat/dm', { user_id: bid })).body.id;
+  const p1 = (await a('POST', `/api/chat/channels/${dm}/messages`, { body: 'plan for friday' })).body.id;
+  const p2 = (await b('POST', `/api/chat/channels/${dm}/messages`, { body: 'lunch?' })).body.id;
+  const p3 = (await b('POST', `/api/chat/channels/${dm}/messages`, { body: 'nobody answers this' })).body.id;
+  const reply = async (who, parent, body) => { const r = await who('POST', `/api/chat/channels/${dm}/messages`, { body, parent_id: parent }); assert.equal(r.status, 201); await new Promise((res) => setTimeout(res, 5)); };
+  await reply(b, p1, 'sounds good');
+  await a('POST', `/api/chat/channels/${dm}/read`);
+  await reply(a, p2, 'yes please');
+  await reply(b, p2, 'noon then');
+  await reply(b, p1, 'one more thing');
+  const list = (await a('GET', '/api/chat/threads')).body;
+  assert.deepEqual(list.map((t) => t.id), [p1, p2], 'latest reply first; a message without replies is no thread');
+  assert.equal(list[0].body, 'plan for friday');
+  assert.equal(list[0].where, 'Thread Ben');
+  assert.equal(list[0].replies, 2);
+  assert.equal(list[0].unread, 1, 'one reply since Ann read it');
+  assert.deepEqual(list[0].last, { user_id: bid, user_name: 'Thread Ben', body: 'one more thing' });
+  assert.equal(list[1].user_name, 'Thread Ben', 'started by Ben, Ann replied');
+  assert.equal(list[1].unread, 1, 'her own reply is not new to her');
+  assert.ok(!list.some((t) => t.id === p3));
+  await a('POST', `/api/chat/channels/${dm}/read`);
+  assert.deepEqual((await a('GET', '/api/chat/threads')).body.map((t) => t.unread), [0, 0]);
+  assert.deepEqual((await x('GET', '/api/chat/threads')).body, [], 'nothing for someone outside it');
+  // A public channel: only threads you're in, and none once you've left it.
+  const ch = (await a('POST', '/api/chat/channels', { name: 'thread-test' })).body.id;
+  const q1 = (await x('POST', `/api/chat/channels/${ch}/messages`, { body: 'xavi asks' })).body.id;
+  const q2 = (await x('POST', `/api/chat/channels/${ch}/messages`, { body: 'xavi alone' })).body.id;
+  assert.equal((await a('POST', `/api/chat/channels/${ch}/messages`, { body: 'ann answers', parent_id: q1 })).status, 201);
+  assert.equal((await x('POST', `/api/chat/channels/${ch}/messages`, { body: 'talking to myself', parent_id: q2 })).status, 201);
+  const mine = (await a('GET', '/api/chat/threads')).body;
+  assert.equal(mine[0].id, q1);
+  assert.equal(mine[0].where, '#thread-test');
+  assert.ok(!mine.some((t) => t.id === q2), 'not a thread Ann is in');
+  assert.deepEqual((await x('GET', '/api/chat/threads')).body.map((t) => t.id), [q2, q1]);
+  assert.equal((await a('POST', `/api/chat/channels/${ch}/leave`)).status, 200);
+  assert.ok(!(await a('GET', '/api/chat/threads')).body.some((t) => t.id === q1), 'left the channel');
+});
+
 test('docs: download as Markdown; open a .md file as a document', async () => {
   const md = '# Minutes\n\nWe agreed on **three** things:\n\n- [x] budget\n- [ ] hiring\n\n| Who | What |\n| --- | --- |\n| Kim | slides |\n';
   const up = (await owner('POST', '/api/files/upload?name=minutes.md', Buffer.from(md), { raw: true })).body;
