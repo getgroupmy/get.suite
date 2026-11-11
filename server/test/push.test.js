@@ -138,6 +138,14 @@ test('push: calendar reminders reach devices when they come due, repeating ones 
   assert.equal(await sendDueReminderPushes(now + 60e3, { skipOnline: false }), 0, 'once each');
   // Tomorrow, the stand-up again.
   assert.equal(await sendDueReminderPushes(now + 864e5, { skipOnline: false }), 1);
+  // An event with a video meeting: the reminder says so and opens the meeting.
+  ev('call', Date.parse('2026-11-12T12:00:00Z'), { title: 'Client call' });
+  q("UPDATE events SET meet_code = 'abc-defg-hij' WHERE id = 'call'").run();
+  q("INSERT INTO event_reminders (event_id, user_id, minutes) VALUES ('call', 'pu', 5)").run();
+  got = [];
+  assert.equal(await sendDueReminderPushes(Date.parse('2026-11-12T11:55:00Z'), { skipOnline: false }), 1);
+  const call = read(got[0]);
+  assert.deepEqual([call.body, call.link], ['In 5 minutes · Video meeting: tap to join', '/meet/abc-defg-hij']);
 });
 
 test('push: tasks — the morning note from 9:00 in the phone’s time zone, and a timed task when it’s due', async () => {

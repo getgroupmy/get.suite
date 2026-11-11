@@ -35,7 +35,9 @@ export async function sendDueReminderPushes(now = Date.now(), { skipOnline = tru
           if (at > now || at <= now - LATE) continue;
           const key = `${userId}:${row.id}@${occ.start}:${m}`;
           if (!q('INSERT OR IGNORE INTO push_reminders_sent (key, sent_at) VALUES (?, ?)').run(key, now).changes) continue;
-          await pushTo(userId, { title: row.title || '(No title)', body: [when(m), row.location].filter(Boolean).join(' · '), link: '/calendar', tag: `event-${row.id}`, private: { title: 'Calendar reminder', body: when(m) } }, { now });
+          // With a video meeting: say so, and tapping it opens the meeting rather than the calendar.
+          await pushTo(userId, { title: row.title || '(No title)', body: [when(m), row.location, row.meet_code && 'Video meeting: tap to join'].filter(Boolean).join(' · '),
+            link: row.meet_code ? `/meet/${row.meet_code}` : '/calendar', tag: `event-${row.id}`, private: { title: 'Calendar reminder', body: when(m) } }, { now });
           sent++;
         }
       }
