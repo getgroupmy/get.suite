@@ -87,6 +87,13 @@ q(`CREATE TABLE IF NOT EXISTS chat_section_items (
   PRIMARY KEY (user_id, channel_id)
 )`).run();
 export const MAX_CHAT_SECTIONS = 20;
+// Direct messages you've closed: off your list until someone writes in them again (yours alone).
+q(`CREATE TABLE IF NOT EXISTS chat_closed (
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+  closed_at INTEGER NOT NULL,
+  PRIMARY KEY (user_id, channel_id)
+)`).run();
 if (!q('PRAGMA table_info(chat_sections)').all().some((c) => c.name === 'folded')) q('ALTER TABLE chat_sections ADD COLUMN folded INTEGER NOT NULL DEFAULT 0').run(); // folded away in the list
 q(`CREATE TABLE IF NOT EXISTS chat_mutes (
   channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
@@ -502,7 +509,9 @@ export default function chatRoutes() {
                        OR EXISTS (SELECT 1 FROM channel_members cm WHERE cm.channel_id = c.id AND cm.user_id = ?)
                     ORDER BY c.dm_key IS NOT NULL, c.archived_at IS NOT NULL, c.name`).all(me, me, me, me, me, me, req.user.org_id, me, me, me, me, me, `@${req.user.username}`, req.user.org_id, me);
     const inSection = new Map(q('SELECT channel_id, section_id FROM chat_section_items WHERE user_id = ?').all(me).map((x) => [x.channel_id, x.section_id]));
-    res.json({ channels: rows.map(({ has_left: hasLeft, ...c }) => ({ ...c, muted: !!c.muted, starred: !!c.starred_at, section_id: inSection.get(c.id) || null, posters: postersOf(c), can_post: mayPost(c, req.user, null),
+    const closed = new Map(q('SELECT channel_id, closed_at FROM chat_closed WHERE user_id = ?').all(me).map((x) => [x.channel_id, x.closed_at]));
+    res.json({ channels: rows.map(({ has_left: hasLeft, ...c }) => ({ ...c, muted: !!c.muted, starred: !!c.starred_at, section_id: inSection.get(c.id) || null,
+      ...(closed.has(c.id) && !(c.last_at > closed.get(c.id)) && { closed: true }), /* closed, nothing new since */ posters: postersOf(c), can_post: mayPost(c, req.user, null),
       ...(hasLeft && { left: true, unread: 0, mentions: 0 }) })), online: onlineUserIds() });
   });
 
@@ -634,6 +643,7 @@ export default function chatRoutes() {
       });
       sendTo(new Set(ids), { type: 'channels-changed' });
     }
+    q('DELETE FROM chat_closed WHERE user_id = ? AND channel_id = ?').run(req.user.id, c.id); // closed before: opening it brings it back
     res.json({ id: c.id });
   });
 
@@ -905,6 +915,16 @@ export default function chatRoutes() {
     else q('DELETE FROM chat_section_items WHERE user_id = ? AND channel_id = ?').run(req.user.id, c.id);
     sectionsChanged(req);
     res.json({ section_id: to });
+  });
+
+  // Close a direct message ({ closed: false } opens it again): it leaves your list until someone writes in it.
+  r.post('/channels/:id/close', (req, res) => {
+    const c = loadChannel(req.params.id, req.user);
+    if (!c.dm_key) throw bad('Only direct messages can be closed (channels can be left)');
+    if (req.body?.closed === false) q('DELETE FROM chat_closed WHERE user_id = ? AND channel_id = ?').run(req.user.id, c.id);
+    else q('INSERT INTO chat_closed (user_id, channel_id, closed_at) VALUES (?, ?, ?) ON CONFLICT(user_id, channel_id) DO UPDATE SET closed_at = excluded.closed_at').run(req.user.id, c.id, now());
+    sendTo([req.user.id], { type: 'channels-changed' });
+    res.json({ closed: req.body?.closed !== false });
   });
 
   r.post('/channels/:id/star', (req, res) => {

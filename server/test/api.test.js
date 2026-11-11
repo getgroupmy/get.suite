@@ -8851,6 +8851,32 @@ test('calendar: event templates, each person’s own', async () => {
   assert.deepEqual((await a('GET', '/api/events/templates')).body.map((x) => x.name), ['Day']);
 });
 
+test('chat: close a direct message; it comes back when someone writes', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['ccla', 'Ccl Ann'], ['cclb', 'Ccl Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  const aid = (await login(a, 'ccla@acme.com')).id;
+  await login(b, 'cclb@acme.com');
+  const dm = (await b('POST', '/api/chat/dm', { user_id: aid })).body.id;
+  await b('POST', `/api/chat/channels/${dm}/messages`, { body: 'Hi' });
+  const closedFor = async (cl) => !!(await cl('GET', '/api/chat/channels')).body.channels.find((c) => c.id === dm).closed;
+  const general = (await a('GET', '/api/chat/channels')).body.channels.find((c) => c.name === 'general').id;
+  assert.equal((await a('POST', `/api/chat/channels/${general}/close`, {})).status, 400, 'channels are left, not closed');
+  await new Promise((r) => setTimeout(r, 5));
+  assert.deepEqual((await a('POST', `/api/chat/channels/${dm}/close`, {})).body, { closed: true });
+  assert.equal(await closedFor(a), true);
+  assert.equal(await closedFor(b), false, 'Ben’s list is his own');
+  await new Promise((r) => setTimeout(r, 5));
+  await b('POST', `/api/chat/channels/${dm}/messages`, { body: 'Are you there?' });
+  assert.equal(await closedFor(a), false, 'a new message brings it back');
+  await a('POST', `/api/chat/channels/${dm}/close`, {});
+  await a('POST', `/api/chat/channels/${dm}/close`, { closed: false });
+  assert.equal(await closedFor(a), false, 'opened again');
+  await a('POST', `/api/chat/channels/${dm}/close`, {});
+  const bid = (await b('GET', '/api/auth/me')).body.user.id;
+  assert.equal((await a('POST', '/api/chat/dm', { user_id: bid })).body.id, dm);
+  assert.equal(await closedFor(a), false, 'messaging them again opens it');
+});
+
 test('chat: mark everything read at once', async () => {
   const a = client(), b = client();
   for (const [local, name] of [['cmra', 'Cmr Ann'], ['cmrb', 'Cmr Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);

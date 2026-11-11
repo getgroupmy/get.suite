@@ -355,7 +355,7 @@ export default function Chat() {
   const [showArchived, setShowArchived] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const canManage = (c) => c && !c.dm_key && (c.created_by === user.id || user.is_admin);
-  const dms = channels.filter((c) => c.dm_key);
+  const dms = channels.filter((c) => c.dm_key && (!c.closed || c.id === channelId)); // closed ones wait until someone writes
   const channelRow = (c) => (
           <button key={c.id} className={`subnav-item ${c.id === channelId ? 'active' : ''} ${c.archived_at ? 'archived' : ''} ${c.muted ? 'muted' : ''}`} onClick={() => navigate(`/chat/${c.id}`)}>
             <span className="hash" aria-label={c.private ? 'Private channel' : undefined}>{c.private ? '🔒' : '#'}</span><span className="grow ellipsis">{c.name}</span>{drafts[c.id] && c.id !== channelId && <span className="draft-mark" aria-label="Draft" title={`Draft: ${drafts[c.id].slice(0, 80)}`}>✏️</span>}{c.muted && <span className="muted-mark" aria-label="Muted" title="Muted">🔕</span>}{mentioned[c.id] && <span className="badge at" aria-label="You were mentioned">@</span>}{unread[c.id] > 0 && <span className={`badge ${c.muted ? 'quiet' : ''}`}>{unread[c.id]}</span>}
@@ -367,9 +367,9 @@ export default function Chat() {
           </button>
   );
   // Starred conversations (yours alone) sit above the others, in the order you starred them.
-  const starred = channels.filter((c) => c.starred && !c.archived_at).sort((x, y) => (x.starred_at || 0) - (y.starred_at || 0));
+  const starred = channels.filter((c) => c.starred && !c.archived_at && !(c.closed && c.id !== channelId)).sort((x, y) => (x.starred_at || 0) - (y.starred_at || 0));
   // Your sections: their conversations (not starred, archived or left ones), between Starred and Channels.
-  const inSection = (c) => !!c.section_id && sections.some((x) => x.id === c.section_id) && !c.archived_at && !c.left;
+  const inSection = (c) => !!c.section_id && sections.some((x) => x.id === c.section_id) && !c.archived_at && !c.left && !(c.closed && c.id !== channelId);
   const moveSection = async (k, d) => {
     const o = sections[k + d]; if (!o) return;
     const after = sections[k + d + d];
@@ -504,6 +504,8 @@ export default function Chat() {
               {sections.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
               <option value="__new__">New section…</option>
             </select>}
+            {current.dm_key && <button type="button" className="btn small" title="Take it off your list until someone writes in it again"
+              onClick={async () => { try { await post(`/chat/channels/${current.id}/close`, {}); await loadChannels(); navigate('/chat'); toast('Closed: it comes back when someone writes, or when you message them'); } catch (e) { toast(e.message, 'error'); } }}>Close</button>}
             <button type="button" className={`btn small chat-star ${current.starred ? 'on' : ''}`} aria-pressed={!!current.starred} aria-label={current.starred ? 'Unstar conversation' : 'Star conversation'}
               title={current.starred ? 'Starred: kept at the top of your list. Click to unstar.' : 'Star: keep it at the top of your list'}
               onClick={async () => { try { await post(`/chat/channels/${current.id}/star`, { starred: !current.starred }); await loadChannels(); toast(current.starred ? 'Unstarred' : 'Starred: it’s at the top of your list'); } catch (e) { toast(e.message, 'error'); } }}>{current.starred ? '★' : '☆'}</button>
