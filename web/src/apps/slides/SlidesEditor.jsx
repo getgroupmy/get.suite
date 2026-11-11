@@ -56,6 +56,8 @@ export default function SlidesEditor() {
   useEffect(() => { if (!selected) setAlso([]); }, [selected]);
   const [editing, setEditing] = useState(null);   // item id whose text is being typed
   const [presenting, setPresenting] = useState(null); // slide index, or null
+  const [rehearsing, setRehearsing] = useState(false); // presenting to time each slide
+  const [rehearsal, setRehearsal] = useState(null); // the times just taken: [{ i, ms }]
   const [dialog, setDialog] = useState(null);
   const [finding, setFinding] = useState(null); // the find bar: { replace, n }
   const [snapping, setSnapping] = useState(null); // slides being turned into pictures: { indexes, all }
@@ -329,6 +331,7 @@ export default function SlidesEditor() {
         )}
         menu={[
           { label: 'Present', icon: 'slides', onClick: () => setPresenting(slideIndex) },
+          { label: 'Rehearse (time each slide)', icon: 'clock', onClick: () => { setRehearsing(true); setPresenting(firstShown(deck, 0)); } },
           { label: 'Find and replace', icon: 'search', onClick: () => setFinding((f) => ({ replace: !readOnly, n: (f?.n || 0) + 1 })) },
           { label: 'Version history', icon: 'clock', onClick: () => setDialog('history') },
           ...(!readOnly ? [{ label: 'Import slides…', icon: 'upload', onClick: () => setDialog({ type: 'import-file' }) }] : []),
@@ -588,7 +591,8 @@ export default function SlidesEditor() {
         window.addEventListener('afterprint', done);
         setTimeout(() => { window.print(); setTimeout(done, 1000); }, 60); // once the pages are laid out
       }} />}
-      {presenting !== null && <Presenter deck={deck} theme={theme} deckId={id} start={presenting} onClose={(i) => { setPresenting(null); goTo(i); }} />}
+      {presenting !== null && <Presenter deck={deck} theme={theme} deckId={id} start={presenting} rehearse={rehearsing} onClose={(i, timed) => { setPresenting(null); setRehearsing(false); goTo(i); if (timed) setRehearsal(timed); }} />}
+      {rehearsal && <RehearsalSummary deck={deck} deckId={id} timed={rehearsal} onClose={() => setRehearsal(null)} />}
       {dialog === 'share' && <ShareDialog file={file} onClose={() => setDialog(null)} />}
       {dialog?.type === 'theme' && <ThemeDialog deck={deck} deckId={id} slide={slide} parentId={file.parent_id || null}
         onSave={({ custom, master }) => { change((d) => { const { master: _, ...rest } = d; return { ...rest, ...(custom && { theme: 'custom', custom }), ...(master && { master }) }; }); setDialog(null); }}
@@ -1008,7 +1012,15 @@ function openPresenterView(deckId, i) {
   window.open(`/slides/${deckId}/presenter?slide=${i}`, `presenter-${deckId}`, 'popup,width=1100,height=720');
 }
 
-function Presenter({ deck, theme, deckId, start, onClose }) {
+function Presenter({ deck, theme, deckId, start, onClose: done, rehearse = false }) {
+  // Rehearsing: time on each slide (going back adds to it), told to whoever opened us when it ends.
+  const timed = useRef([]);
+  const since = useRef(Date.now());
+  const [tick, setTick] = useState(0);
+  const onClose = (n) => {
+    if (rehearse) { timed.current.push({ i: iRef.current, ms: Date.now() - since.current }); done(n, timed.current); }
+    else done(n);
+  };
   // Where we are: slide i, with its first b animated boxes in.
   const [at, setAt] = useState(() => ({ i: firstShown(deck, start), b: 0 }));
   const i = at.i;
@@ -1060,13 +1072,21 @@ function Presenter({ deck, theme, deckId, start, onClose }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const iRef = useRef(i);
+  // A new slide: the one before gets its time.
+  useEffect(() => {
+    if (!rehearse) return;
+    const prev = iRef.prev;
+    if (prev !== undefined && prev !== i) { timed.current.push({ i: prev, ms: Date.now() - since.current }); since.current = Date.now(); }
+    iRef.prev = i;
+  }, [i]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!rehearse) return undefined; const t = setInterval(() => setTick((x) => x + 1), 1000); return () => clearInterval(t); }, [rehearse]);
   iRef.current = i;
   const onKey = (e) => {
     if (['ArrowRight', 'ArrowDown', 'PageDown', ' ', 'Enter'].includes(e.key)) { e.preventDefault(); step(1); }
     else if (['ArrowLeft', 'ArrowUp', 'PageUp', 'Backspace'].includes(e.key)) { e.preventDefault(); step(-1); }
     else if (e.key === 'Home') setI(firstShown(deck, 0));
     else if (e.key === 'End') setI(deck.slides[last].skip ? stepSlide(deck, last, -1) : last);
-    else if (e.key === 'Escape') { e.preventDefault(); onClose(i); }
+    else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); onClose(i); } // not on to a window opened by ending (the rehearsal summary)
     else if (e.key === 'n' || e.key === 'N') setNotes((v) => !v); // notes on this screen, for a single display
     else if (e.key === 'l' || e.key === 'L') setLaser((v) => (v ? null : { x: -100, y: -100 })); // a laser pointer that follows the mouse
     else if (e.key === 'p' || e.key === 'P') setPaused((v) => !v); // stop (and restart) slides moving on by themselves
@@ -1096,7 +1116,44 @@ function Presenter({ deck, theme, deckId, start, onClose }) {
         <button type="button" aria-label="End presentation" onClick={() => onClose(i)}>✕</button>
       </div>
       {qa && <QaPanel code={qa} onHide={() => setQa(null)} onEnded={() => setTimeout(() => setQa(null), 1500)} />}
+      {rehearse && (() => {
+        const total = timed.current.reduce((n, x) => n + x.ms, 0) + (Date.now() - since.current);
+        return <div className="rehearse-timer" role="timer" aria-label="Rehearsal timer" data-tick={tick} onClick={(e) => e.stopPropagation()}>
+          <span title="On this slide">{clock(Date.now() - since.current)}</span> <span className="muted">· total {clock(total)}</span></div>;
+      })()}
     </div>
+  );
+}
+
+/** "0:42", "12:05", "1:02:09". */
+export const clock = (ms) => { const t = Math.max(0, Math.round(ms / 1000)); const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), sec = t % 60; return `${h ? `${h}:${String(m).padStart(2, '0')}` : m}:${String(sec).padStart(2, '0')}`; };
+
+/** After a rehearsal: how long each slide took, the total, and how it compares with your last one. Kept for this deck. */
+function RehearsalSummary({ deck, deckId, timed, onClose }) {
+  const toast = useToast();
+  const [saved, setSaved] = useState(null);
+  const [earlier, setEarlier] = useState([]);
+  useEffect(() => {
+    (async () => {
+      try {
+        const before = await get(`/slide-qa/rehearsals/${deckId}`);
+        setEarlier(before);
+        setSaved(await post(`/slide-qa/rehearsals/${deckId}`, { slides: timed.filter((x) => x.ms >= 300) }));
+      } catch (e) { toast(e.message, 'error'); }
+    })();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const titleOf = (i) => { const t = deck.slides[i]?.items?.find((x) => x.text)?.text; return t ? String(t).replace(/<[^>]+>/g, ' ').trim().slice(0, 60) : `Slide ${i + 1}`; };
+  const last = earlier[0];
+  return (
+    <Modal title="Rehearsal" onClose={onClose} footer={<button type="button" className="btn primary" onClick={onClose}>Done</button>}>
+      {!saved ? <p className="muted">…</p> : <>
+        <p style={{ marginTop: 0 }}><strong aria-label="Total time">{clock(saved.total_ms)}</strong> in all{last && <span className="muted"> · last time {clock(last.total_ms)} ({Math.abs(saved.total_ms - last.total_ms) < 1000 ? 'the same' : saved.total_ms < last.total_ms ? `${clock(last.total_ms - saved.total_ms)} quicker` : `${clock(saved.total_ms - last.total_ms)} longer`})</span>}</p>
+        <table className="rehearsal-table" aria-label="Time on each slide">
+          <tbody>{saved.slides.map((x) => <tr key={x.i}><th scope="row">{x.i + 1}. {titleOf(x.i)}</th><td>{clock(x.ms)}</td></tr>)}</tbody>
+        </table>
+        <p className="muted small">Kept for this presentation (your last {5}), so you can compare next time.</p>
+      </>}
+    </Modal>
   );
 }
 

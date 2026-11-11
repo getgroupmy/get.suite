@@ -8733,6 +8733,24 @@ test('drive: rename, merge and delete a label of your own', async () => {
   assert.equal((await b('GET', '/api/files/labels')).body.length, 1);
 });
 
+test('slides: rehearsals — time on each slide, your last few kept', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['srha', 'Srh Ann'], ['srhb', 'Srh Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'srha@acme.com'); await login(b, 'srhb@acme.com');
+  const deck = (await a('POST', '/api/files/new', { kind: 'slides', name: 'Pitch' })).body;
+  const doc = (await a('POST', '/api/files/new', { kind: 'doc', name: 'Not a deck' })).body;
+  const r = await a('POST', `/api/slide-qa/rehearsals/${deck.id}`, { slides: [{ i: 0, ms: 30000 }, { i: 1, ms: 45000 }, { i: 0, ms: 5000 }, { i: 'x', ms: 1 }, { i: 2, ms: -3 }] });
+  assert.equal(r.status, 201);
+  assert.deepEqual([r.body.total_ms, r.body.slides], [80000, [{ i: 0, ms: 35000 }, { i: 1, ms: 45000 }]], 'going back adds up; nonsense left out');
+  assert.equal((await a('POST', `/api/slide-qa/rehearsals/${deck.id}`, { slides: [] })).status, 400);
+  assert.equal((await a('POST', `/api/slide-qa/rehearsals/${doc.id}`, { slides: [{ i: 0, ms: 1000 }] })).status, 404);
+  assert.equal((await b('POST', `/api/slide-qa/rehearsals/${deck.id}`, { slides: [{ i: 0, ms: 1000 }] })).status, 404, 'not shared with Ben');
+  for (let k = 0; k < 6; k++) await a('POST', `/api/slide-qa/rehearsals/${deck.id}`, { slides: [{ i: 0, ms: 1000 + k }] });
+  const list = (await a('GET', `/api/slide-qa/rehearsals/${deck.id}`)).body;
+  assert.equal(list.length, 5, 'the last five');
+  assert.equal(list[0].total_ms, 1005, 'newest first');
+});
+
 test('contacts: keep in touch — how often, who is due, and writing to them counts', async () => {
   const a = client(), b = client();
   for (const [local, name] of [['kita', 'Kit Ann'], ['kitb', 'Kit Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);

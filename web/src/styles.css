@@ -2787,3 +2787,8 @@ input.fv-name { background: #202124; color: #fff; border: 1px solid #5f6368; bor
 .drive-label-row:hover .drive-label-menu, .drive-label-menu:focus-visible, .drive-label-menu[aria-expanded="true"] { opacity: .7; }
 .note-label-dot { display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin: 0 6px; }
 .note-chip.coloured { background: color-mix(in srgb, var(--lc) 18%, transparent); border-color: var(--lc); color: inherit; }
+.rehearse-timer { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,.65); color: #fff; padding: 4px 14px; border-radius: 16px; font-variant-numeric: tabular-nums; font-size: 15px; z-index: 5; }
+.rehearse-timer .muted { color: #ddd; }
+.rehearsal-table { width: 100%; border-collapse: collapse; }
+.rehearsal-table th { text-align: left; font-weight: normal; padding: 4px 8px 4px 0; border-bottom: 1px solid var(--border); }
+.rehearsal-table td { text-align: right; padding: 4px 0; border-bottom: 1px solid var(--border); font-variant-numeric: tabular-nums; }

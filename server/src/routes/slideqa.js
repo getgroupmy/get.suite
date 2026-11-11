@@ -79,8 +79,40 @@ function view(s, user) {
   };
 }
 
+// Rehearsals: run through a presentation timing each slide; each person keeps their last few for a deck.
+q(`CREATE TABLE IF NOT EXISTS slide_rehearsals (
+  id TEXT PRIMARY KEY,
+  file_id TEXT NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  at INTEGER NOT NULL,
+  total_ms INTEGER NOT NULL,
+  slides TEXT NOT NULL
+)`).run();
+export const KEEP_REHEARSALS = 5;
+const rehearsalOut = (x) => ({ id: x.id, at: x.at, total_ms: x.total_ms, slides: JSON.parse(x.slides) });
+
 export default function slideQaRoutes() {
   const r = Router();
+
+  // Your rehearsals of a deck, newest first.
+  r.get('/rehearsals/:fileId', (req, res) => {
+    const f = deckFor(req.params.fileId, req.user);
+    res.json(q('SELECT * FROM slide_rehearsals WHERE file_id = ? AND user_id = ? ORDER BY at DESC').all(f.id, req.user.id).map(rehearsalOut));
+  });
+  // Keep one: { slides: [{ i, ms }] } (time on each slide shown). Only the last few are kept.
+  r.post('/rehearsals/:fileId', (req, res) => {
+    const f = deckFor(req.params.fileId, req.user);
+    const list = (Array.isArray(req.body?.slides) ? req.body.slides : []).map((x) => ({ i: Number(x?.i), ms: Math.round(Number(x?.ms)) }))
+      .filter((x) => Number.isInteger(x.i) && x.i >= 0 && x.i < 1000 && Number.isFinite(x.ms) && x.ms > 0 && x.ms < 24 * 36e5);
+    if (!list.length) throw bad('Nothing was timed');
+    const byI = new Map();
+    for (const x of list) byI.set(x.i, (byI.get(x.i) || 0) + x.ms); // back to a slide: its times add up
+    const slides = [...byI].map(([i, ms]) => ({ i, ms })).sort((a, b) => a.i - b.i);
+    const row = { id: uid(), file_id: f.id, user_id: req.user.id, at: now(), total_ms: slides.reduce((n, x) => n + x.ms, 0), slides: JSON.stringify(slides) };
+    q('INSERT INTO slide_rehearsals (id, file_id, user_id, at, total_ms, slides) VALUES (?, ?, ?, ?, ?, ?)').run(row.id, row.file_id, row.user_id, row.at, row.total_ms, row.slides);
+    q(`DELETE FROM slide_rehearsals WHERE file_id = ? AND user_id = ? AND id NOT IN (SELECT id FROM slide_rehearsals WHERE file_id = ? AND user_id = ? ORDER BY at DESC LIMIT ${KEEP_REHEARSALS})`).run(f.id, req.user.id, f.id, req.user.id);
+    res.status(201).json(rehearsalOut(row));
+  });
 
   // For the presenter: the session running for a presentation (or none), and starting or ending one.
   r.get('/decks/:fileId', (req, res) => {
