@@ -98,6 +98,8 @@ export const peopleIn = (code) => [...(rooms.get(code)?.entries() ?? [])].map(([
 const everyoneIn = (code) => roomsOf(code).flatMap((k) => peopleIn(k));
 /** Who's in a meeting now (every room): their names, for showing a live call elsewhere (Chat). */
 export const namesIn = (code) => everyoneIn(code).map((p) => p.user.name);
+/** The ids of the signed-in people in a meeting now (every room). */
+export const userIdsIn = (code) => everyoneIn(code).map((p) => p.user.id);
 
 const cleanState = (s = {}) => nextState({}, s);
 

@@ -132,7 +132,7 @@ export function cleanPoll(p) {
 import { sendTo, onlineUserIds } from '../hub.js';
 import { canReach, orgMemberIds } from '../tenancy.js';
 import { groupSlug } from '../groups.js';
-import { namesIn } from '../meet.js';
+import { namesIn, userIdsIn } from '../meet.js';
 
 /**
  * Channels belong to one company (org_id set, dm_key NULL).
@@ -482,6 +482,11 @@ export function chatHookRoutes() {
   return r;
 }
 
+// Calls that are ringing: `${channel}|${meeting}` → who hasn't answered or declined yet.
+const ringing = new Map();
+/** How long a call rings before it's missed (tests make it short). */
+export const ringTimeout = { ms: 35000 };
+
 export default function chatRoutes() {
   const r = Router();
 
@@ -678,6 +683,19 @@ export default function chatRoutes() {
     const others = membersOf(c).filter((id) => id !== req.user.id);
     if (!(c.dm_key || c.private) || others.length > 8) throw bad('Ringing is for direct messages and private channels of up to 9 people');
     sendTo(others, { type: 'ring', from: req.user.name, from_id: req.user.id, code, channel_id: c.id, title: c.dm_key ? null : c.name });
+    // Nobody picks up (or says they can't talk) in time: a missed call, in the conversation and the bell.
+    const caller = req.user, ringKey = `${c.id}|${code}`;
+    ringing.set(ringKey, new Set(others));
+    setTimeout(() => {
+      const left = ringing.get(ringKey);
+      ringing.delete(ringKey);
+      if (!left) return;
+      const inCall = new Set(userIdsIn(code));
+      const missed = [...left].filter((id) => !inCall.has(id));
+      if (!missed.length || missed.length < left.size) return; // someone answered
+      try { deliver(loadChannel(c.id, caller), caller, { body: `📞 Missed call from ${caller.name}`, files: [], poll: null, parent: null }); } catch { /* the conversation is gone */ }
+      notify(missed, { kind: 'chat', title: `📞 Missed call from ${caller.name}`, body: 'Call them back from your conversation.', link: `/chat/${c.id}`, actor: caller.name });
+    }, ringTimeout.ms).unref?.();
     notify(others, { kind: 'chat', title: `📞 ${req.user.name} is calling you${c.dm_key ? '' : ` in #${c.name}`}`, body: 'Tap to join the video call.', link: `/meet/${code}`, actor: req.user.name });
     res.json({ rang: others.length });
   });
@@ -687,6 +705,8 @@ export default function chatRoutes() {
     const to = String(req.body?.to || '');
     if (!membersOf(c).includes(to) || to === req.user.id) throw bad('Who rang you?');
     sendTo([to], { type: 'ring-declined', by: req.user.name, code: String(req.body?.code || ''), channel_id: c.id });
+    const waiting = ringing.get(`${c.id}|${String(req.body?.code || '')}`);
+    if (waiting) { waiting.delete(req.user.id); if (!waiting.size) ringing.delete(`${c.id}|${String(req.body?.code || '')}`); } // answered, in a way
     const m = deliver(c, req.user, { body: '📵 Can’t talk right now: I’ll get back to you.', files: [], poll: null, parent: null });
     res.json({ ok: true, message_id: m?.id ?? null });
   });

@@ -4073,6 +4073,23 @@ test('chat: a video call shared in a conversation shows who is in it while it la
   const last = (await call(A, 'GET', `/api/chat/channels/${dm}/messages`)).body;
   const msgs = Array.isArray(last) ? last : last.messages;
   assert.match(msgs[msgs.length - 1].body, /Can’t talk right now/);
+  // Nobody answers in time: a missed call, in the conversation and Ben's bell; not when he says he can't talk.
+  const { ringTimeout } = await import('../src/routes/chat.js');
+  const was = ringTimeout.ms; ringTimeout.ms = 200;
+  try {
+    const missedOf = async () => { const b = (await call(Bq, 'GET', '/api/notifications')).body; return (b.items || b).filter((n) => n.title === '📞 Missed call from Cal Ann'); };
+    const before = (await missedOf()).length;
+    await call(A, 'POST', `/api/chat/channels/${dm}/ring`, { code });
+    await new Promise((r) => setTimeout(r, 450));
+    assert.equal((await missedOf()).length, before + 1);
+    const after = (await call(A, 'GET', `/api/chat/channels/${dm}/messages`)).body;
+    const list = Array.isArray(after) ? after : after.messages;
+    assert.equal(list[list.length - 1].body, '📞 Missed call from Cal Ann');
+    await call(A, 'POST', `/api/chat/channels/${dm}/ring`, { code });
+    await call(Bq, 'POST', `/api/chat/channels/${dm}/ring/decline`, { to: A.id, code });
+    await new Promise((r) => setTimeout(r, 450));
+    assert.equal((await missedOf()).length, before + 1, 'he said he couldn’t talk: not missed');
+  } finally { ringTimeout.ms = was; }
   const general = (await call(A, 'GET', '/api/chat/channels')).body.channels.find((x) => x.name === 'general');
   if (general) assert.equal((await call(A, 'POST', `/api/chat/channels/${general.id}/ring`, { code })).status, 400, 'not a whole channel');
   // An event with that video meeting says who's in it now.
