@@ -9946,6 +9946,20 @@ test('notes: grid or list, each person’s own choice', async () => {
   assert.deepEqual((await a('GET', '/api/notes/view')).body, { view: 'grid', sort: 'title' });
 });
 
+test('notes: download one as Markdown', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['nmda', 'Nmd Ann'], ['nmdb', 'Nmd Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'nmda@acme.com'); await login(b, 'nmdb@acme.com');
+  const list = (await a('POST', '/api/notes', { title: 'Packing', items: [{ text: 'Passport', done: true }, { text: 'Chargers' }, { text: 'Phone', indent: 1 }], labels: ['Trip plans'] })).body;
+  const r = await a('GET', `/api/notes/${list.id}/export.md`);
+  assert.match(r.headers.get('content-type'), /text\/markdown/);
+  assert.match(r.headers.get('content-disposition'), /Packing\.md/);
+  assert.equal(r.body, '# Packing\n\n- [x] Passport\n- [ ] Chargers\n  - [ ] Phone\n\n#Trip-plans\n');
+  const text = (await a('POST', '/api/notes', { body: 'Call the plumber\nBefore Friday' })).body;
+  assert.equal((await a('GET', `/api/notes/${text.id}/export.md`)).body, 'Call the plumber\nBefore Friday\n');
+  assert.equal((await b('GET', `/api/notes/${list.id}/export.md`)).status, 404);
+});
+
 test('notes: label colours, each person’s own', async () => {
   const a = client(), b = client();
   for (const [local, name] of [['nlca', 'Nlc Ann'], ['nlcb', 'Nlc Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);

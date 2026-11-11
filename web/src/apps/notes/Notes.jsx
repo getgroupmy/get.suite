@@ -6,6 +6,8 @@ import { get, post, patch, put, del, onLive } from '../../api.js';
 import { moveTo, moveBy, sortNotes, NOTE_SORTS } from './order.js';
 import { indent, moveItem, moveItemTo, tick as tickItem, untickAll, dropTicked } from './checklist.js';
 import { noteLink } from '../chat/filelinks.js';
+import { printHtml } from '../mail/mailprint.js';
+import { notePrintHtml } from './noteprint.js';
 import Icon from '../../components/Icon.jsx';
 import { Avatar, Empty, Menu, Modal, PromptModal, ConfirmModal, useToast } from '../../components/ui.jsx';
 import { quickTimes, reminderText } from './remind.js';
@@ -390,6 +392,8 @@ function NoteCard({ labelColors = {}, note: n, drag = {}, dragging, picked, pick
           { label: n.items ? 'Hide tick boxes' : 'Show tick boxes', icon: 'check', onClick: async () => { try { await post(`/notes/${n.id}/convert`, { to: n.items ? 'text' : 'checklist' }); } catch (e) { toast(e.message, 'error'); } } },
           { label: 'Copy link', icon: 'link', onClick: async () => { const url = noteLink(n); try { await navigator.clipboard.writeText(url); toast('Link to the note copied: people it’s shared with can open it'); } catch { toast(url); } } },
           { label: 'Make a copy', icon: 'copy', onClick: onCopy },
+          { label: 'Download (.md)', icon: 'download', onClick: () => { window.location.href = `/api/notes/${n.id}/export.md`; } },
+          { label: 'Print', icon: 'print', onClick: () => printHtml(notePrintHtml(n)) },
           { label: 'Version history', icon: 'clock', onClick: onHistory },
           { label: 'Copy to a document', icon: 'doc', onClick: onToDoc },
           { label: n.items?.length ? 'Copy unticked items to Tasks' : 'Copy to Tasks', icon: 'check', onClick: onToTasks },

@@ -100,6 +100,15 @@ export function textToItems(body) {
   }
   return out;
 }
+/** A note as Markdown: its title as a heading, then its text, or its checklist as "- [x]" lines (sub-items indented), then labels. */
+export function noteMarkdown(n) {
+  const lines = [];
+  if (n.title) lines.push(`# ${n.title}`, '');
+  if (n.items) for (const it of n.items) lines.push(`${it.indent ? '  ' : ''}- [${it.done ? 'x' : ' '}] ${it.text}`);
+  else if (n.body) lines.push(n.body);
+  if (n.labels?.length) lines.push('', n.labels.map((l) => `#${l.replace(/\s+/g, '-')}`).join(' '));
+  return `${lines.join('\n').trim()}\n`;
+}
 /** Checklist → text (Hide tick boxes): a line per item, ticked ones as "✓ …", sub-items indented. */
 export const itemsToText = (items) => (items || []).map((i) => `${i.indent ? '  ' : ''}${i.done ? '✓ ' : ''}${i.text}`).join('\n');
 
@@ -392,6 +401,15 @@ export default function noteRoutes() {
   // Version history: newest first, with who saved each; restoring one keeps the current text first.
   // A link to a note, pasted in Chat: what it says (the start of it, or the first items of a checklist), for a
   // card. Only for its owner and the people it's shared with; a note in the trash counts as gone.
+  // One note as a Markdown file (works in any text editor, Obsidian, GitHub…).
+  r.get('/:id/export.md', (req, res) => {
+    const n = load(req.params.id, req.user);
+    const note = { title: n.title, body: n.body, items: n.items ? JSON.parse(n.items) : null, labels: JSON.parse(n.labels || '[]') };
+    const name = (n.title || 'Note').replace(/[\\/:*?"<>|]+/g, ' ').trim().slice(0, 80) || 'Note';
+    res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="note.md"; filename*=UTF-8''${encodeURIComponent(name)}.md`);
+    res.send(noteMarkdown(note));
+  });
   r.get('/:id/preview', (req, res) => {
     const n = load(req.params.id, req.user);
     if (n.trashed_at) throw notFound('Note not found');
