@@ -4121,6 +4121,11 @@ test('chat: a video call shared in a conversation shows who is in it while it la
   ws.close();
   await new Promise((r) => setTimeout(r, 150));
   assert.deepEqual((await call(Bq, 'GET', `/api/chat/channels/${dm}/calls`)).body, [], 'over');
+  // The call was rung from here: its end is logged in the conversation.
+  const log = (await call(Bq, 'GET', `/api/chat/channels/${dm}/messages`)).body;
+  assert.ok((Array.isArray(log) ? log : log.messages).some((m) => m.body === '📞 Call ended · under a minute'));
+  const { callLength } = await import('../src/routes/chat.js');
+  assert.deepEqual([callLength(20e3), callLength(60e3), callLength(12 * 60e3), callLength(65 * 60e3), callLength(120 * 60e3)], ['under a minute', '1 min', '12 min', '1 h 5 min', '2 h']);
   assert.equal((await call(Bq, 'GET', '/api/chat/calls')).body[dm], undefined);
   assert.deepEqual((await seenEv(A)).meet_live, [], 'nobody in it now');
 });

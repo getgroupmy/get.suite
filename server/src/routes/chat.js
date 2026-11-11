@@ -132,7 +132,7 @@ export function cleanPoll(p) {
 import { sendTo, onlineUserIds } from '../hub.js';
 import { canReach, orgMemberIds } from '../tenancy.js';
 import { groupSlug } from '../groups.js';
-import { namesIn, userIdsIn, newCode } from '../meet.js';
+import { namesIn, userIdsIn, newCode, onCallEnded } from '../meet.js';
 import { baseUrl, focusUntil } from './calendar.js';
 import { quietUntil } from '../workhours.js';
 
@@ -500,6 +500,7 @@ function unreachable(ids, t = Date.now()) {
 /** Ring everyone else in a conversation for a video call: live, in the bell and on phones; missed if nobody picks up. */
 function ringOthers(c, user, code) {
   const others = membersOf(c).filter((id) => id !== user.id);
+  chatCalls.set(code, { channelId: c.id, caller: user });
     sendTo(others, { type: 'ring', from: user.name, from_id: user.id, code, channel_id: c.id, title: c.dm_key ? null : c.name });
     notify(others, { kind: 'chat', title: `📞 ${user.name} is calling you${c.dm_key ? '' : ` in #${c.name}`}`, body: 'Tap to join the video call.', link: `/meet/${code}`, actor: user.name });
     // Nobody picks up (or says they can't talk) in time: a missed call, in the conversation and the bell.
@@ -534,6 +535,20 @@ function dmWith(user, otherId) {
   }
   q('DELETE FROM chat_closed WHERE user_id = ? AND channel_id = ?').run(user.id, c.id); // closed before: opening it brings it back
   return c.id;
+}
+// Calls rung from a conversation: meeting code → { channelId, caller }, so its end is logged there.
+const chatCalls = new Map();
+onCallEnded((code, ms) => {
+  const call = chatCalls.get(code);
+  if (!call) return;
+  chatCalls.delete(code);
+  try { deliver(loadChannel(call.channelId, call.caller), call.caller, { body: `📞 Call ended · ${callLength(ms)}`, files: [], poll: null, parent: null }); } catch { /* the conversation is gone */ }
+});
+/** "under a minute", "1 min", "12 min", "1 h 5 min". */
+export function callLength(ms) {
+  const m = Math.round(ms / 60000);
+  if (m < 1) return 'under a minute';
+  return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ''}`;
 }
 /** How long a call rings before it's missed (tests make it short). */
 export const ringTimeout = { ms: 35000 };

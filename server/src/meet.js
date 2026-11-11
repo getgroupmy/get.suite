@@ -223,6 +223,17 @@ export function handleMeetUpgrade(req, socket, head, user) {
  * someone from the meeting's company lets them in (then they're in the meeting as "Name (guest)") or
  * says no (closed). Works only while the company lets guests ask to join.
  */
+// When each meeting's people first came in (cleared when the last one leaves), and who wants to know a call
+// has ended (Chat logs "Call ended · 12 min" in the conversation it started from).
+const callStart = new Map();
+const endListeners = [];
+/** fn(code, ms): called when the last person leaves a meeting, with how long it lasted. */
+export const onCallEnded = (fn) => endListeners.push(fn);
+function ended(code) {
+  const start = callStart.get(code);
+  callStart.delete(code);
+  if (start) for (const fn of endListeners) { try { fn(code, Date.now() - start); } catch (e) { console.error('[meet] call ended:', e.message); } }
+}
 const toldHost = new Map(); // `${code}|${guest name}` → when its host was last told
 export function handleGuestUpgrade(req, socket, head) {
   const code = decodeURIComponent(req.url.split('?')[0].split('/')[3] || '');
@@ -294,6 +305,7 @@ function enterRoom(ws, req, code, m, user) {
     if (removed.get(code)?.has(user.id)) { ws.close(4003, 'The host removed you from this meeting'); return; }
     if (locks.has(code) && !isHost() && !locks.get(code).has(user.id)) { ws.close(4005, 'The host has locked this meeting: nobody new can join'); return; }
     if (!room) rooms.set(key, (room = new Map()));
+    if (!callStart.has(code)) callStart.set(code, Date.now()); // the first one in: the call has begun
     const id = crypto.randomBytes(8).toString('hex');
     const asked = new URL(req.url, 'http://x').searchParams; // how they come in: ?mic=0&cam=0
     const mutedEntry = !isHost() && settingsOf(code).muted_entry;
@@ -512,7 +524,7 @@ function enterRoom(ws, req, code, m, user) {
       room.delete(id);
       if (spotlights.get(key)?.id === id) { spotlights.delete(key); const d = JSON.stringify({ type: 'spotlight', spotlight: null }); for (const p of room.values()) if (p.ws.readyState === 1) p.ws.send(d); }
       if (!room.size) { rooms.delete(key); polls.delete(key); questions.delete(key); boards.delete(key); timers.delete(key); spotlights.delete(key); } // polls last as long as the meeting (or the room)
-      if (roomsOf(code).every((k) => !rooms.get(k)?.size)) { locks.delete(code); settings.delete(code); cohosts.delete(code); } // everyone has gone: open again, settings back to usual
+      if (roomsOf(code).every((k) => !rooms.get(k)?.size)) { locks.delete(code); settings.delete(code); cohosts.delete(code); ended(code); } // everyone has gone: open again, settings back to usual
       if (breakouts.has(code)) {
         if (roomsOf(code).every((k) => !rooms.get(k)?.size)) breakouts.delete(code); // everyone has gone
         else summaryToHosts(code, m);
