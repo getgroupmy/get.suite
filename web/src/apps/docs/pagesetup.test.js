@@ -43,3 +43,21 @@ test('columns: 2 or 3 as asked, otherwise 1', async () => {
   assert.equal(columnsOf({ columns: 3 }), 3);
   for (const s of [null, {}, { columns: 1 }, { columns: 4 }, { columns: '2' }, { columns: 2.5 }]) assert.equal(columnsOf(s), 1);
 });
+
+test('page colour: on the paper with readable text, and on printed pages', async () => {
+  const { pageColorOf, inkFor, paperStyle, printCss } = await import('./pagesetup.js');
+  assert.equal(pageColorOf({ pageColor: '#FFF2CC' }), '#fff2cc');
+  assert.equal(pageColorOf({ pageColor: '#ffffff' }), null, 'white is none');
+  assert.equal(pageColorOf({ pageColor: 'red' }), null);
+  assert.equal(pageColorOf(null), null);
+  assert.equal(inkFor('#fff2cc'), '#202124');
+  assert.equal(inkFor('#0b2545'), '#e8eaed');
+  const st = paperStyle({ pageColor: '#0b2545' });
+  assert.equal(st.backgroundColor, '#0b2545');
+  assert.equal(st.color, '#e8eaed');
+  assert.equal(paperStyle({ pageColor: '#e8f0fe', pageless: true }).backgroundColor, '#e8f0fe');
+  assert.equal(paperStyle({}).backgroundColor, undefined);
+  assert.match(printCss({ pageColor: '#fff2cc' }), /background-color: #fff2cc !important/);
+  assert.doesNotMatch(printCss({}), /background-color/);
+  assert.match(printCss({ pageColor: '#fff2cc', watermark: 'DRAFT' }), /\.paper \{ background-image: none !important; \}/, 'the watermark keeps the colour');
+});

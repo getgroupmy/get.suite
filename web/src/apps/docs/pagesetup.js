@@ -18,14 +18,26 @@ export function pageMm(setup) {
   return s.orientation === 'landscape' ? [h, w] : [w, h];
 }
 
-/** The paper on screen: its width, height and margins in pixels, and the watermark on every page's length of it. */
+/** The page colour (#rrggbb), or null for white. */
+export const pageColorOf = (setup) => (/^#[0-9a-f]{6}$/i.test(setup?.pageColor || '') && setup.pageColor.toLowerCase() !== '#ffffff' ? setup.pageColor.toLowerCase() : null);
+/** Text that reads on a colour: dark on light colours, light on dark ones. */
+export function inkFor(color) {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(color.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.18 ? '#202124' : '#e8eaed';
+}
+/** Page colours to pick from: light ones that keep text easy to read, and a couple of dark ones. */
+export const PAGE_COLORS = [['#ffffff', 'White'], ['#fff8e1', 'Cream'], ['#fff2cc', 'Light yellow'], ['#fce8e6', 'Light red'], ['#e6f4ea', 'Light green'], ['#e8f0fe', 'Light blue'], ['#f3e8fd', 'Light purple'], ['#f1f3f4', 'Light grey'], ['#202124', 'Charcoal'], ['#0b2545', 'Navy']];
+
+/** The paper on screen: its width, height and margins in pixels, the page colour, and the watermark on every page's length of it. */
 export function paperStyle(setup) {
-  if (setup?.pageless) return { maxWidth: 'none', minHeight: 0, padding: '40px clamp(16px, 6vw, 96px)' }; // one long sheet across the window
+  const color = pageColorOf(setup);
+  const tint = color ? { backgroundColor: color, color: inkFor(color) } : {};
+  if (setup?.pageless) return { maxWidth: 'none', minHeight: 0, padding: '40px clamp(16px, 6vw, 96px)', ...tint }; // one long sheet across the window
   const [w, h] = pageMm(setup);
   const m = (MARGINS[full(setup).margin] || MARGINS.normal)[0];
   const mark = full(setup).watermark;
   return {
-    maxWidth: Math.round(w * PX_PER_MM), minHeight: Math.round(h * PX_PER_MM), padding: `${Math.round(m * PX_PER_MM)}px`,
+    maxWidth: Math.round(w * PX_PER_MM), minHeight: Math.round(h * PX_PER_MM), padding: `${Math.round(m * PX_PER_MM)}px`, ...tint,
     ...(mark && { backgroundImage: `url("${watermarkSvg(mark, w, h)}")`, backgroundSize: `100% ${Math.round(h * PX_PER_MM)}px`, backgroundRepeat: 'repeat-y' }),
   };
 }
@@ -48,6 +60,9 @@ export function printCss(setup) {
   const box = (content) => `content: ${content}; font: 9pt system-ui, sans-serif; color: #666;`;
   const footer = [s.footer && cssText(s.footer), s.numbers && `${s.footer ? '"   " ' : ''}counter(page) " of " counter(pages)`].filter(Boolean).join(' ');
   // The watermark: one fixed picture, which the browser repeats on every printed page.
-  const mark = s.watermark ? ` .paper { background: none !important; } .print-watermark { display: block !important; position: fixed; inset: 0; z-index: 0; pointer-events: none; background: url("${watermarkSvg(s.watermark, w - 2 * m, h - 2 * m)}") center / 100% 100% no-repeat; -webkit-print-color-adjust: exact; print-color-adjust: exact; }` : '';
-  return `@media print { @page { size: ${w}mm ${h}mm; margin: ${m}mm;${s.header ? ` @top-center { ${box(cssText(s.header))} }` : ''}${footer ? ` @bottom-center { ${box(footer)} }` : ''} }${mark} }`;
+  const mark = s.watermark ? ` .paper { background-image: none !important; } .print-watermark { display: block !important; position: fixed; inset: 0; z-index: 0; pointer-events: none; background: url("${watermarkSvg(s.watermark, w - 2 * m, h - 2 * m)}") center / 100% 100% no-repeat; -webkit-print-color-adjust: exact; print-color-adjust: exact; }` : '';
+  // The page colour: on every printed page (the browser's "background graphics" don't need to be on for it).
+  const color = pageColorOf(s);
+  const tint = color ? ` html, body, .paper { background-color: ${color} !important; color: ${inkFor(color)} !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }` : '';
+  return `@media print { @page { size: ${w}mm ${h}mm; margin: ${m}mm;${s.header ? ` @top-center { ${box(cssText(s.header))} }` : ''}${footer ? ` @bottom-center { ${box(footer)} }` : ''} }${mark}${tint} }`;
 }

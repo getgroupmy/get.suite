@@ -19,7 +19,7 @@ import { get, post, patch, put, uploadFile, onLive } from '../../api.js';
 import DrivePicker, { openUrl } from '../../components/DrivePicker.jsx';
 import { useAuth } from '../../App.jsx';
 import { useToast, Avatar, Menu, Modal, withDataCheck } from '../../components/ui.jsx';
-import { PAPER, MARGINS, DEFAULT_SETUP, WATERMARKS, paperStyle, printCss, columnsOf } from './pagesetup.js';
+import { PAPER, MARGINS, DEFAULT_SETUP, WATERMARKS, paperStyle, printCss, columnsOf, PAGE_COLORS, pageColorOf } from './pagesetup.js';
 import { ShareDialog } from '../drive/Drive.jsx';
 import { EditorHeader } from '../editorCommon.jsx';
 import { CommentsPanel, useComments } from '../comments.jsx';
@@ -1179,6 +1179,16 @@ function PageSetupDialog({ setup, onClose, onSave }) {
           <input value={s.watermark || ''} maxLength={40} list="watermark-choices" onChange={set('watermark')} placeholder="None, or e.g. DRAFT or CONFIDENTIAL" />
           <datalist id="watermark-choices">{WATERMARKS.map((w) => <option key={w} value={w} />)}</datalist>
         </label>
+        <div className="field"><span id="page-colour-h">Page colour</span>
+          <div className="row wrap page-colours" role="radiogroup" aria-labelledby="page-colour-h">
+            {PAGE_COLORS.map(([c, name]) => {
+              const on = (pageColorOf(s) || '#ffffff') === c;
+              return <button key={c} type="button" role="radio" aria-checked={on} aria-label={name} title={name} className={`swatch ${on ? 'on' : ''}`} style={{ background: c }} onClick={() => setS({ ...s, pageColor: c === '#ffffff' ? null : c })} />;
+            })}
+            <label className="swatch custom" title="Another colour"><span className="sr-only">Another page colour</span>
+              <input type="color" value={pageColorOf(s) || '#ffffff'} onChange={(e) => setS({ ...s, pageColor: e.target.value === '#ffffff' ? null : e.target.value })} /></label>
+          </div>
+        </div>
         <p className="muted small" style={{ margin: 0 }}>Used when printing or saving as PDF, and in the Word download. Everyone editing sees the same.</p>
       </div>
     </Modal>

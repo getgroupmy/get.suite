@@ -445,6 +445,9 @@ export async function pageOfWord(buffer) {
       const noFields = part.replace(/<w:fldSimple\b[\s\S]*?<\/w:fldSimple>/g, '').replace(/<w:fldChar w:fldCharType="separate"\/>[\s\S]*?<w:fldChar w:fldCharType="end"\/>/g, '');
       return unx([...noFields.matchAll(/<w:t(?:\s[^>]*)?>([^<]*)<\/w:t>/g)].map((m) => m[1]).join('')).replace(/\s+/g, ' ').trim().slice(0, 200);
     };
+    // The page colour: <w:background w:color="RRGGBB"/> (white or "auto" is none).
+    const bg = /<w:background\b[^>]*\bw:color="([0-9A-Fa-f]{6})"/.exec(xml || '')?.[1];
+    if (bg && bg.toLowerCase() !== 'ffffff') out.pageColor = `#${bg.toLowerCase()}`;
     const header = partOf('header'), footer = partOf('footer');
     const hx = header && (await zip.file(header)?.async('string'));
     const fx = footer && (await zip.file(footer)?.async('string'));
@@ -660,6 +663,7 @@ export async function wordFromDoc(doc, title = 'Document', { pictureData, page, 
     })) } }),
     numbering: { config: [{ reference: 'numbers', levels: [0, 1, 2, 3].map((level) => ({ level, format: LevelFormat.DECIMAL, text: `%${level + 1}.`, alignment: AlignmentType.START, style: { paragraph: { indent: { left: 720 * (level + 1), hanging: 360 } } } })) }] },
     sections: [{ ...sectionSetup(page), children: paras.length ? paras : [new Paragraph('')] }],
+    ...(page?.pageColor && { background: { color: page.pageColor.slice(1).toUpperCase() } }), // the page colour (Word shows it on screen; printing it is a print setting there)
   });
   const buf = await Packer.toBuffer(file);
   return page?.watermark ? withWatermark(buf, page.watermark) : buf;

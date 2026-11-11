@@ -1770,6 +1770,17 @@ test('page setup: kept with a document, checked, and only for documents', async 
   const up = (await owner('POST', '/api/files/upload?name=Draft%20contract.docx', docx.body, { raw: true })).body;
   const opened = (await owner('POST', `/api/files/${up.id}/open-as`)).body;
   assert.equal((await owner('GET', `/api/files/${opened.id}`)).body.page_setup.watermark, 'DRAFT');
+  // A page colour: on the page setup (white is none), in the Word download, and back when it's opened again.
+  for (const bad of ['red', '#12345', '#gggggg']) assert.equal((await owner('PATCH', `/api/files/${d.id}`, { page_setup: { pageColor: bad } })).status, 400, bad);
+  assert.equal((await owner('PATCH', `/api/files/${d.id}`, { page_setup: { pageColor: '#FFFFFF' } })).body.page_setup.pageColor, undefined, 'white is no colour');
+  assert.equal((await owner('PATCH', `/api/files/${d.id}`, { page_setup: { pageColor: '#FFF2CC' } })).body.page_setup.pageColor, '#fff2cc');
+  const coloured = await owner('GET', `/api/files/${d.id}/export`, undefined, { binary: true });
+  const JSZip = (await import('jszip')).default;
+  assert.match(await (await JSZip.loadAsync(coloured.body)).file('word/document.xml').async('string'), /<w:background w:color="FFF2CC"/);
+  const upc = (await owner('POST', '/api/files/upload?name=Coloured.docx', coloured.body, { raw: true })).body;
+  const openedc = (await owner('POST', `/api/files/${upc.id}/open-as`)).body;
+  assert.equal((await owner('GET', `/api/files/${openedc.id}`)).body.page_setup.pageColor, '#fff2cc');
+  await owner('PATCH', `/api/files/${d.id}`, { page_setup: { pageColor: null } });
   // The whole page setup goes to Word and comes back when the file is opened again.
   const full = { size: 'letter', orientation: 'landscape', margin: 'wide', header: 'Acme Ltd', footer: 'Private', numbers: true, watermark: '' };
   await owner('PATCH', `/api/files/${d.id}`, { page_setup: full });
