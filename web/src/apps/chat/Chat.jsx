@@ -21,6 +21,7 @@ import { isPaused } from '../../pause.js';
 import { noteTyping, typingIn, typingText } from './typing.js';
 import { newFromId, newCount, belowText } from './unread.js';
 import { nextConversation, lastEditable } from './keys.js';
+import { jumpChoices, jumpItems } from './switcher.js';
 
 /**
  * "Kim is typing…": tells the others while you type here (at most every 2.5 seconds; clearing the
@@ -406,12 +407,16 @@ export default function Chat() {
   const readAll = async () => { try { const r = await post('/chat/read-all', {}); await loadChannels(); toast(`Marked ${r.conversations} conversation${r.conversations === 1 ? '' : 's'} as read`); } catch (e) { toast(e.message, 'error'); } };
   // Keyboard: Alt+↑/↓ the conversation above or below in the list, with Shift the next unread one;
   // Shift+Esc marks everything read. They work from the message box too.
+  const [jumpOpen, setJumpOpen] = useState(false);
   const keyState = useRef({});
   keyState.current = { channelId, unread, mentioned, readAll, navigate };
   useEffect(() => {
     const onKey = (e) => {
       const { channelId: cur, unread: u, mentioned: at, readAll: all, navigate: go } = keyState.current;
-      if (e.altKey && !e.ctrlKey && !e.metaKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setJumpOpen(true);
+      } else if (e.altKey && !e.ctrlKey && !e.metaKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
         const ids = [...document.querySelectorAll('.subnav [data-cid]')].map((el) => el.dataset.cid);
         const next = nextConversation(ids, cur, e.key === 'ArrowDown' ? 1 : -1, e.shiftKey ? (id) => u[id] > 0 || !!at[id] : null);
         e.preventDefault();
@@ -461,6 +466,7 @@ export default function Chat() {
           <input name="q" type="search" placeholder="Search messages" aria-label="Search messages" onChange={(e) => { if (!e.target.value) setSearch(null); }} />
         </form>
         <button type="button" className={`subnav-item ${savedOpen ? 'active' : ''}`} onClick={() => { setSearch(null); setThreadsOpen(false); setSavedOpen(true); }}><span className="hash" aria-hidden="true">🔖</span><span className="grow">Saved</span>{saved.length > 0 && <span className="count">{saved.length}</span>}</button>
+        <button type="button" className="subnav-item chat-jump" onClick={() => setJumpOpen(true)} title="Jump to a conversation or person (Ctrl+K)"><span className="hash" aria-hidden="true">↪</span><span className="grow">Jump to…</span><kbd className="muted small">{/Mac|iP(hone|ad)/.test(navigator.platform) ? '⌘K' : 'Ctrl+K'}</kbd></button>
         <button type="button" className={`subnav-item ${threadsOpen ? 'active' : ''}`} onClick={() => { setSearch(null); setSavedOpen(false); setThreadsOpen(true); loadThreads(); }}><span className="hash" aria-hidden="true">💬</span><span className="grow">Threads</span>{unreadThreads > 0 && <span className="badge" aria-label={`${unreadThreads} with new replies`}>{unreadThreads}</span>}</button>
         {Object.values(unread).some((n) => n > 0) && <button type="button" className="link-btn small chat-read-all" title="Mark every conversation as read"
           onClick={readAll}>✓ Mark all as read</button>}
@@ -525,6 +531,11 @@ export default function Chat() {
           </ul>
         </Modal>
       )}
+      {jumpOpen && <JumpDialog items={jumpItems(channels, people, unread, user.id)} onClose={() => setJumpOpen(false)} onPick={async (it) => {
+        setJumpOpen(false); setSearch(null); setSavedOpen(false); setThreadsOpen(false);
+        if (it.kind !== 'person') { navigate(`/chat/${it.id}`); return; }
+        try { const c = await post('/chat/dm', { user_id: it.id }); await loadChannels(); navigate(`/chat/${c.id}`); } catch (e) { toast(e.message, 'error'); }
+      }} />}
       <section className="chat-main">
         {threadsOpen && !search ? (
           <div className="chat-results">
@@ -919,6 +930,42 @@ async function checkLinkAccess(channelId, body, toast, orgName) {
 }
 
 /** Forward a message: pick a conversation you can write in, add a note if you like. */
+// Ctrl+K: type part of a channel's or person's name, pick with ↑ ↓ and Enter (or a click).
+function JumpDialog({ items, onClose, onPick }) {
+  const [q, setQ] = useState('');
+  const [at, setAt] = useState(0);
+  const choices = jumpChoices(items, q);
+  const pick = (it) => it && onPick(it);
+  return (
+    <Modal title="Jump to" onClose={onClose}>
+      <div className="stack jump-dialog">
+        <input autoFocus type="search" aria-label="Jump to a conversation or person" placeholder="A channel or a person’s name" value={q}
+          role="combobox" aria-expanded="true" aria-controls="jump-choices" aria-activedescendant={choices[at] ? `jump-${at}` : undefined}
+          onChange={(e) => { setQ(e.target.value); setAt(0); }}
+          onKeyDown={(e) => {
+            if (e.key === 'ArrowDown') { e.preventDefault(); setAt((i) => Math.min(i + 1, choices.length - 1)); }
+            else if (e.key === 'ArrowUp') { e.preventDefault(); setAt((i) => Math.max(i - 1, 0)); }
+            else if (e.key === 'Enter') { e.preventDefault(); pick(choices[at]); }
+          }} />
+        {!choices.length ? <p className="muted">{q.trim() ? `Nothing called “${q.trim()}”` : 'No conversations yet'}</p> : (
+          <ul id="jump-choices" role="listbox" aria-label="Choices" className="jump-list">
+            {choices.map((it, i) => (
+              <li key={`${it.kind}:${it.id}`} id={`jump-${i}`} role="option" aria-selected={i === at} className={`jump-item ${i === at ? 'active' : ''}`}
+                onMouseEnter={() => setAt(i)} onMouseDown={(e) => { e.preventDefault(); pick(it); }}>
+                <span aria-hidden="true">{it.kind === 'channel' ? (it.private ? '🔒' : '#') : '👤'}</span>
+                <span className="grow ellipsis">{it.kind === 'channel' ? it.label.slice(1) : it.label}{it.archived && <span className="muted small"> · archived</span>}
+                  {it.kind === 'person' && <span className="muted small"> · {it.sub ? `${it.sub} · ` : ''}start a direct message</span>}</span>
+                {it.unread > 0 && <span className="badge">{it.unread}</span>}
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className="muted small">↑ ↓ to choose · Enter to open · Esc to close</p>
+      </div>
+    </Modal>
+  );
+}
+
 function ForwardDialog({ message, channels, currentId, onClose, onSent }) {
   const toast = useToast();
   const open = channels.filter((c) => !c.archived_at);

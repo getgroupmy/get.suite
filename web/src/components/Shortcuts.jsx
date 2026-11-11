@@ -45,7 +45,7 @@ export const SHORTCUTS = {
     ['← / →', 'Previous or next week or day'], ['Escape', 'Cancel a drag'],
   ] },
   chat: { title: 'Chat', keys: [
-    ['Enter', 'Send'], ['Shift+Enter', 'New line'], ['↑ (in an empty message box)', 'Change your last message'],
+    [`${mod}+K`, 'Jump to a conversation or person'], ['Enter', 'Send'], ['Shift+Enter', 'New line'], ['↑ (in an empty message box)', 'Change your last message'],
     [`${alt}+↑ / ${alt}+↓`, 'Previous or next conversation'], [`${alt}+Shift+↑ / ${alt}+Shift+↓`, 'Previous or next unread conversation'],
     ['Shift+Escape', 'Mark all conversations as read'],
   ] },

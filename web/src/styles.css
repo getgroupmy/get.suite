@@ -2850,3 +2850,7 @@ select.meet-timer-btn option { color: #202124; }
 @media (prefers-color-scheme: dark) { .chat-live-call { background: #0d3a1e; color: #81c995; } }
 .chat-call-mark { font-size: 13px; animation: chat-live 1.6s ease-in-out infinite; }
 .meet-live { display: inline-flex; align-items: center; gap: 6px; color: #137333; white-space: nowrap; }
+.jump-list { list-style: none; margin: 0; padding: 0; max-height: 50vh; overflow: auto; }
+.jump-item { display: flex; gap: 8px; align-items: center; padding: 8px 10px; border-radius: 8px; cursor: pointer; }
+.jump-item.active { background: var(--hover); }
+.chat-jump kbd { font-family: inherit; }
