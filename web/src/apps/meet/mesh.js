@@ -60,6 +60,8 @@ export class Mesh {
   /** The host: lock the meeting so nobody new can join (those in it can come back), or open it again. */
   lock(on) { this.send({ type: 'lock', on: !!on }); }
   /** (Host) start a countdown for everyone, or stop it (0). */
+  /** (Host) show someone big for everyone, or stop (null). */
+  setSpotlight(id) { this.send({ type: 'spotlight', id }); }
   setTimer(seconds) { this.send({ type: 'timer', seconds }); }
   /** Let a waiting guest in, or not. */
   admit(id) { this.send({ type: 'admit', id }); }
@@ -73,6 +75,7 @@ export class Mesh {
       this.waiting = false;
       this.room = m.room || 0; // 0: the main room
       this.breakoutCount = m.breakouts || 0;
+      this.spotlight = m.spotlight || null; // who the host shows big for everyone
       this.timer = m.timer || null; // the host's countdown, if one is running
       this.locked = !!m.locked; // the host has locked it: nobody new can join
       this.mayAdmit = !!m.admit; // people from the meeting's company let guests in
@@ -102,6 +105,7 @@ export class Mesh {
     else if (m.type === 'wb-clear') { this.board = []; this.onBoard?.(m); }
     else if (m.type === 'poll') { const isNew = !this.polls.has(m.poll.id); this.polls.set(m.poll.id, m.poll); if (isNew) this.onPoll?.(m.poll); }
     else if (m.type === 'timer') this.timer = m.timer;
+    else if (m.type === 'spotlight') this.spotlight = m.spotlight;
     else if (m.type === 'locked') { this.locked = !!m.on; this.onLocked?.(m); }
     else if (m.type === 'lowered') { this.onLowered?.(m.by); }
     else if (m.type === 'muted') { this.setMic(false); this.onMuted?.(m.by); return; }

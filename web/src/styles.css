@@ -2820,3 +2820,5 @@ input.fv-name { background: #202124; color: #fff; border: 1px solid #5f6368; bor
 .meet-timer-btn { margin-right: 10px; }
 select.meet-timer-btn { background: rgba(255,255,255,.12); color: inherit; border: 1px solid rgba(255,255,255,.25); border-radius: 8px; padding: 2px 6px; }
 select.meet-timer-btn option { color: #202124; }
+.meet-spot-btn { right: 42px; }
+.meet-spot-tag { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); z-index: 2; background: #f9ab00; color: #202124; font-size: 12px; font-weight: 600; padding: 2px 10px; border-radius: 10px; }

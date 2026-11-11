@@ -3820,6 +3820,16 @@ test('meet: start a meeting, join its room, signals pass between people', async 
   assert.equal((await a.next('timer')).timer.seconds, 300);
   a.ws.send(JSON.stringify({ type: 'timer', seconds: 0 }));
   assert.equal((await b.next('timer')).timer, null, 'stopped');
+  // The host's spotlight: someone shown big for everyone; only the host sets it; it goes when they leave.
+  b.ws.send(JSON.stringify({ type: 'spotlight', id: wa.id }));
+  a.ws.send(JSON.stringify({ type: 'spotlight', id: 'nobody-here' }));
+  a.ws.send(JSON.stringify({ type: 'spotlight', id: wb.id }));
+  assert.deepEqual((await b.next('spotlight')).spotlight, { id: wb.id, by: 'Mia Meet' });
+  a.ws.send(JSON.stringify({ type: 'spotlight', id: null }));
+  assert.equal((await b.next('spotlight')).spotlight, null);
+  a.ws.send(JSON.stringify({ type: 'spotlight', id: wb.id }));
+  await a.next('spotlight'); await a.next('spotlight');
+  assert.equal((await b.next('spotlight')).spotlight.id, wb.id);
 
   // Another company can't get in.
   const outside = (await owner('POST', '/api/orgs', { name: 'Meetco', domain: 'meetco.com', admin_name: 'Mo', admin_local: 'mo', admin_password: 'password123' }));

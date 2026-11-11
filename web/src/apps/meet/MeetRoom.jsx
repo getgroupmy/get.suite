@@ -294,7 +294,8 @@ export default function MeetRoom({ guest = false, onSignIn }) {
   const hands = tiles.filter((t) => t.state.hand).sort((a, b) => (a.state.hand_at || 0) - (b.state.hand_at || 0));
   const handNo = (t) => hands.indexOf(t) + 1;
   const cd = countdown(m?.timer);
-  const spot = spotlightOf(tiles, pinned); // who is shown big (pinned, or presenting)
+  const hostSpot = m?.spotlight ? (m.spotlight.id === m.id ? 'me' : m.spotlight.id) : null;
+  const spot = spotlightOf(tiles, pinned, hostSpot); // who is shown big (pinned, or presenting)
   const speaking = useSpeaking(tiles);
   if (error) {
     return (
@@ -391,6 +392,10 @@ export default function MeetRoom({ guest = false, onSignIn }) {
                 {tiles.length > 1 && <button type="button" className={`meet-pin ${pinned === t.id ? 'on' : ''}`} aria-pressed={pinned === t.id}
                   aria-label={pinned === t.id ? `Unpin ${t.me ? 'yourself' : t.name}` : `Pin ${t.me ? 'yourself' : t.name}`} title={pinned === t.id ? 'Unpin' : 'Pin: show big (only for you)'}
                   onClick={() => setPinned(pinned === t.id ? null : t.id)}>📌</button>}
+                {m.host && tiles.length > 1 && <button type="button" className={`meet-pin meet-spot-btn ${hostSpot === t.id ? 'on' : ''}`} aria-pressed={hostSpot === t.id}
+                  aria-label={hostSpot === t.id ? 'Stop the spotlight' : `Spotlight ${t.me ? 'yourself' : t.name} for everyone`} title={hostSpot === t.id ? 'Stop the spotlight' : 'Spotlight: show big for everyone'}
+                  onClick={() => m.setSpotlight(hostSpot === t.id ? null : (t.me ? m.id : t.id))}>🔦</button>}
+                {hostSpot === t.id && <span className="meet-spot-tag">Spotlight</span>}
                 {t.stream && <Video stream={t.stream} muted={t.me} mirror={t.me && !sharing} label={`Video of ${t.name}`} />}
                 {!videoOn && <div className="meet-avatar"><Avatar name={t.name} userId={t.userId} size={72} /></div>}
                 <span className="meet-name">{t.state.mic === false && <span aria-label="muted" title="Muted">🔇 </span>}{t.name}{t.state.screen ? ' · presenting' : ''}{t.connecting ? ' · connecting…' : ''}</span>

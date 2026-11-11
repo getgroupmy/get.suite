@@ -34,9 +34,10 @@ export function elapsed(ms) {
  * their screen (yours aside: you know what you share), else nobody (everyone in a grid). With one
  * person there's no one to spotlight.
  */
-export function spotlightOf(tiles, pinned) {
+export function spotlightOf(tiles, pinned, hostSpot = null) {
   if (tiles.length < 2) return null;
-  if (pinned && tiles.some((t) => t.id === pinned)) return pinned;
+  if (pinned && tiles.some((t) => t.id === pinned)) return pinned; // your own pin wins
+  if (hostSpot && tiles.some((t) => t.id === hostSpot)) return hostSpot; // then the host's spotlight
   return tiles.find((t) => !t.me && t.state?.screen)?.id || null;
 }
 

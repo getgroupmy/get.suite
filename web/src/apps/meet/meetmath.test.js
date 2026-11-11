@@ -50,3 +50,12 @@ test('the host’s countdown', async () => {
   assert.deepEqual(countdown({ ends_at: 100000 }, 100000 - 9000), { left: '0:09', up: false, soon: true });
   assert.deepEqual(countdown({ ends_at: 100000 }, 100500), { left: '0:00', up: true, soon: false });
 });
+
+test('who is shown big: your pin, then the host’s spotlight, then whoever presents', async () => {
+  const { spotlightOf } = await import('./meetmath.js');
+  const tiles = [{ id: 'me', me: true, state: {} }, { id: 'a', state: { screen: true } }, { id: 'b', state: {} }];
+  assert.equal(spotlightOf(tiles, null, 'b'), 'b');
+  assert.equal(spotlightOf(tiles, 'me', 'b'), 'me');
+  assert.equal(spotlightOf(tiles, null, 'gone'), 'a');
+  assert.equal(spotlightOf(tiles, null, null), 'a');
+});
