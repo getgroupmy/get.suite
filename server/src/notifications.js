@@ -24,7 +24,7 @@ export const KINDS = [
   ['mention', 'Mentions in Chat and in documents'], ['comment', 'Mentions in comments on files'], ['task', 'Tasks given to you, and comments on tasks'],
   ['invite', 'Calendar invitations, answers and proposed times'], ['share', 'Files shared with you and access requests'],
   ['edit', 'Changes to files you follow'], ['chat', 'Chat reminders and scheduled messages'], ['booking', 'Booking page appointments'], ['timeoff', 'Time off requests and answers'],
-  ['form', 'Responses to your forms'], ['note', 'Note reminders'], ['touch', 'Contacts you’re due to keep in touch with'], ['dates', 'Contacts’ birthdays and dates'], ['followup', 'Emails that got no reply'], ['assign', 'Shared mailbox emails given to you'], ['security', 'Security alerts (admins)'], ['system', 'Server health (platform owner)'], ['signin', 'Sign-ins to your account from a new device'],
+  ['form', 'Responses to your forms'], ['note', 'Note reminders'], ['touch', 'Contacts you’re due to keep in touch with'], ['dates', 'Contacts’ birthdays and dates'], ['followup', 'Emails that got no reply'], ['mailfull', 'Your mailbox filling up'], ['assign', 'Shared mailbox emails given to you'], ['security', 'Security alerts (admins)'], ['system', 'Server health (platform owner)'], ['signin', 'Sign-ins to your account from a new device'],
   ['mail', 'New email (on devices with notifications on)'], ['dm', 'Direct messages in Chat (on devices with notifications on)'],
 ];
 if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'notify_off')) q('ALTER TABLE users ADD COLUMN notify_off TEXT').run();

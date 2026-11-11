@@ -10,6 +10,7 @@ import { scheduleBackups } from './backup.js';
 import { scheduleHealthChecks } from './health.js';
 import { scheduleAnnouncementStarts } from './routes/announcements.js';
 import { scheduleTidy } from './mail/tidy.js';
+import { scheduleFullChecks } from './mail/storage.js';
 import { mailEnabled } from './mail/config.js';
 import { startPolicyServer } from './security/policyServer.js';
 import { startMailNotifications } from './mail/notify.js';
@@ -40,6 +41,7 @@ attachHub(server);
 
 // Housekeeping: purge expired sessions hourly; snapshot the database daily.
 setInterval(() => q('DELETE FROM sessions WHERE expires_at < ?').run(Date.now()), 3600e3).unref();
+scheduleFullChecks(); // Mail: tell people when their mailbox is nearly full
 scheduleTidy(); // Mail: old Updates to Archive, daily, for those who want it
 scheduleAnnouncementStarts(); // a scheduled announcement shows up in open Workspace tabs when it starts
 scheduleHealthChecks(); // the platform owners hear about problems (disk, snapshots, mail, certificate)

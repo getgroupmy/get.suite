@@ -1,4 +1,5 @@
 import { cleanCalPrefs, colorRulesOf } from '../calprefs.js';
+import { checkFull } from '../mail/storage.js';
 import { activePerDay } from '../activedays.js';
 import { syncCompanyGroupAliases } from '../groups.js';
 import { mailEnabled } from '../mail/config.js';
@@ -673,6 +674,8 @@ export default function userRoutes() {
       const mb = Math.trunc(Number(mail_quota_mb));
       if (!Number.isFinite(mb) || mb < 0) throw bad('Mailbox size must be 0 (unlimited) or more');
       q('UPDATE users SET mail_quota_mb = ? WHERE id = ?').run(mb, u.id);
+      // A new limit can leave them nearly full: tell them now, not at the next hourly check.
+      if (mb > 0) checkFull(q('SELECT * FROM users WHERE id = ?').get(u.id)).catch((e) => console.error('[mail] full:', e.message));
     }
     scheduleMailConfig();
     const changed = Object.fromEntries(Object.entries({ name, is_admin, disabled, mail_quota_mb, drive_quota_mb, reset_two_factor, ...profile, manager_id: req.body.manager_id, password: password !== undefined ? 'reset' : undefined,

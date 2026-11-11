@@ -149,6 +149,13 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
     const next = new URLSearchParams(search); next.delete('compose_doc'); setSearch(next, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search.get('compose_doc')]);
+  // Opened to see what takes the room (/mail?storage=1, from the "mailbox nearly full" notification).
+  useEffect(() => {
+    if (search.get('storage') === null) return;
+    setStorageOpen(true);
+    const next = new URLSearchParams(search); next.delete('storage'); setSearch(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search.get('storage')]);
   // Opened to write to someone (/mail?compose=addresses, e.g. from a contact group).
   useEffect(() => {
     const to = search.get('compose');

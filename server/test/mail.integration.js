@@ -2204,3 +2204,30 @@ test('emptying Trash and Junk: everything in them deleted for good; no other fol
     assert.ok((await olivia('GET', '/api/mail/messages?folder=Trash')).body.messages.some((m) => m.subject === `Kept${run}`));
   } finally { setHold(me.id, false); }
 });
+
+test('mailbox nearly full: a notification at 90%, another when full, each once', async () => {
+  const run = ` #${Date.now()}`;
+  const local = `fill${Date.now() % 100000}`;
+  const made = await olivia('POST', '/api/users', { local, domain: 'acme.com', name: 'Fay Full', password: 'password123' });
+  assert.equal(made.status, 201, JSON.stringify(made.body));
+  const fay = client();
+  assert.equal((await fay('POST', '/api/auth/login', { username: `${local}@acme.com`, password: 'password123' })).status, 200);
+  const c = await eventually(() => imapLogin(`${local}@acme.com`, 'password123'), 30000); // the new mailbox
+  try {
+    const body = 'x'.repeat(76).concat('\r\n').repeat(Math.ceil((950 * 1024) / 78));
+    assert.ok(await c.append('INBOX', `From: x@example.com\r\nTo: ${local}@acme.com\r\nSubject: Big${run}\r\n\r\n${body}`, []));
+  } finally { await c.logout().catch(() => {}); }
+  const { checkMailboxesFull } = await import('../src/mail/storage.js');
+  const titles = async () => { const b = (await fay('GET', '/api/notifications')).body; return b.items.filter((x) => x.kind === 'mailfull').map((x) => x.title); };
+  assert.deepEqual(await titles(), []);
+  await checkMailboxesFull();
+  assert.deepEqual(await titles(), [], 'no limit: nothing to say');
+  await olivia('PATCH', `/api/users/${made.body.id}`, { mail_quota_mb: 1 }); // 950 KB of 1 MB: over 90%, told straight away
+  const t1 = await eventually(async () => { const l = await titles(); return l.length ? l : null; }, 15000);
+  await checkMailboxesFull();
+  assert.equal(t1.length, 1);
+  assert.match(t1[0], /^Your mailbox is 9\d% full$/);
+  await checkMailboxesFull();
+  assert.equal((await titles()).length, 1, 'once');
+  await olivia('PATCH', `/api/users/${made.body.id}`, { mail_quota_mb: 0 });
+});
