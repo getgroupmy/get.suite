@@ -15,7 +15,8 @@ import { PLACES, placeText, isoDay } from '../../components/workloc.js';
 import { useMailStatus } from '../../mailStatus.js';
 import { insights, hoursText } from './insights.js';
 import TimeOff, { waitingFor } from './TimeOff.jsx';
-import { EVENT_KEY } from '../docs/blocks.js';
+import { EVENT_KEY, DRAFT_KEY } from '../docs/blocks.js';
+import { eventEmail } from './eventemail.js';
 import { timeIn, zoneName, cityOf } from '../../components/zones.js';
 import { printRange, daysFromTo, scheduleOf, DAY, VIEWS, startOfDay, visibleDays, shift, title, onDay, layoutDay, expandAll, occurrenceIndex, describeRule, daysBetween, moveTimes, resizeEnd, shiftWeekdays, snapMinutes, moveStart, weekdayInMonth, eventsPerDay, isoWeek, daysShown, weekOrder } from './calmath.js';
 import { roomLine, sortRooms, tooSmall, nowText, hasAll } from './roomfit.js';
@@ -854,6 +855,21 @@ function MeetLine({ code, onRemove, live }) {
 }
 
 /** Copies the event's address (for a repeating one, of this time of it), to paste in Chat, an email or a document. */
+/** ✉ Email guests: a new email in Mail to everyone on the event (but you), about it. Only with this server's email on. */
+function EmailGuests({ event, className, guestView = false }) {
+  const { user } = useAuth();
+  const mail = useMailStatus();
+  const navigate = useNavigate();
+  const toast = useToast();
+  const m = eventEmail(event, user.username, { when: whenLabel(event), link: eventLink(event), skipDeclined: guestView });
+  if (!mail?.enabled || !m.to) return null;
+  const open = () => {
+    try { localStorage.setItem(DRAFT_KEY, JSON.stringify(m)); } catch { toast('Your browser’s storage is off', 'error'); return; }
+    navigate('/mail?compose_doc=1');
+  };
+  return <button type="button" className={className} onClick={open} title={guestView ? 'Write to the organizer and the other guests' : 'Write to everyone invited'}>✉ Email guests</button>;
+}
+
 function CopyEventLink({ event, className }) {
   const toast = useToast();
   const copy = async () => {
@@ -892,6 +908,7 @@ function InvitationDialog({ event, onClose, onAnswered }) {
         <Attachments list={event.attachments} />
         <p style={{ margin: 0 }}><span className="muted">Organizer:</span> {event.organizer?.name} <span className="muted small">{event.organizer?.email}</span></p>
         <GuestList guests={event.guests} />
+        <div><EmailGuests event={event} className="btn small" guestView /></div>
         <p style={{ margin: 0 }}><a className="small" href={`/api/events/${event.id}/ics`} download>Download this event (.ics)</a> <span className="muted small">for another calendar app</span> · <CopyEventLink event={event} className="link-btn small" /></p>
         {event.rooms?.length > 0 && <p className="muted small">Room: {event.rooms.map((r) => `${r.name}${r.status === 'no' ? (r.admins_only ? ' (declined: admins only)' : ' (declined: taken)') : ''}`).join(', ')}</p>}
         <RemindersField value={reminders} onChange={saveReminders} />
@@ -1511,6 +1528,7 @@ function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate, tem
             ...templates.map((t) => ({ label: `Delete template “${t.name}”`, danger: true, onClick: async () => { try { await del(`/events/templates/${t.id}`); onTemplatesChanged(); } catch (e) { setError(e.message); } } })),
           ]} />}
           {event.task && <Link className="btn" to={`/tasks/${event.task.list_id}?task=${event.task.id}`} title={`The task this time is for: ${event.task.title}`}>{event.task.done ? '✅' : '☐'} Open task</Link>}
+          {event.id && <EmailGuests event={event} className="btn" />}
           {event.id && <CopyEventLink event={event} className="btn" />}
           {event.id && <a className="btn" href={`/api/events/${event.id}/ics`} download title="A calendar file of this event, for Outlook, Apple or Google Calendar, or to pass on">Download (.ics)</a>}
           <div className="grow" />
