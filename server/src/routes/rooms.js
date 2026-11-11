@@ -101,6 +101,23 @@ export function roomNow(roomId, t = Date.now()) {
   const n = list.find((b) => b.start >= until);
   return { busy: { title: on.title, organizer: on.organizer, until }, next: n ? { start: n.start, title: n.title } : null, current: on };
 }
+/**
+ * How much a room was used from–to: bookings, hours booked (overlaps counted once), the share of
+ * working time (weekdays, 8 hours each) it was booked, and who booked it most.
+ */
+export function roomUsage(roomId, from, to) {
+  const list = bookingsOf(roomId, from, to).map((b) => ({ ...b, start: Math.max(b.start, from), end: Math.min(b.end, to) })).filter((b) => b.end > b.start);
+  let booked = 0, until = -Infinity;
+  for (const b of list) { const s = Math.max(b.start, until); if (b.end > s) booked += b.end - s; until = Math.max(until, b.end); }
+  let weekdays = 0;
+  for (let d = new Date(from); d.getTime() < to; d = new Date(d.getTime() + 864e5)) if (d.getUTCDay() % 6 !== 0) weekdays++;
+  const by = new Map();
+  for (const b of list) by.set(b.organizer, (by.get(b.organizer) || 0) + 1);
+  const top = [...by].sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0])).slice(0, 3).map(([name, n]) => ({ name, bookings: n }));
+  return { bookings: list.length, hours: Math.round(booked / 36e4) / 10, share: weekdays ? Math.min(100, Math.round((booked / (weekdays * 8 * 36e5)) * 100)) : 0, top };
+}
+export const USAGE_DAYS = [7, 30, 90];
+
 export const QUICK_MINUTES = [15, 30, 45, 60, 90, 120];
 
 export default function roomRoutes() {
@@ -187,6 +204,15 @@ export default function roomRoutes() {
     res.json(moved(cur.event_id, end));
   });
 
+  // Admins: how much each room was used over the last 7, 30 or 90 days, busiest first.
+  r.get('/usage', (req, res) => {
+    if (!req.user.is_admin) throw forbidden('Only a company admin can see room usage');
+    const days = Number(req.query.days || 30);
+    if (!USAGE_DAYS.includes(days)) throw bad('Look back 7, 30 or 90 days');
+    const to = Date.now(), from = to - days * 864e5;
+    const list = q(`${ROOM} WHERE org_id = ?`).all(req.user.org_id).map(outRoom).map((room) => ({ id: room.id, name: room.name, capacity: room.capacity, ...roomUsage(room.id, from, to) }));
+    res.json({ days, from, to, rooms: list.sort((x, y) => y.hours - x.hours || x.name.localeCompare(y.name)) });
+  });
   const admin = (req) => { if (!req.user.is_admin) throw forbidden('Only a company admin can change rooms'); };
   const read = (b, cur = {}) => ({
     name: str(b.name ?? cur.name, { required: true, name: 'Name', max: 100 }),

@@ -2485,6 +2485,31 @@ test('status: your recent statuses, latest first, to set again in one click', as
   assert.equal((await a('GET', '/api/users/me/status')).body.recent.length, 4, 'clearing your status keeps them');
 });
 
+test('rooms: usage over the last days, for admins', async () => {
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'rusg', domain: 'acme.com', name: 'Rue Sage', password: 'password123' })).status, 201);
+  await login(a, 'rusg@acme.com');
+  const busy = (await owner('POST', '/api/rooms', { name: 'Zz Usage busy' })).body;
+  const idle = (await owner('POST', '/api/rooms', { name: 'Zz Usage idle' })).body;
+  const t = Date.now() - 3 * 864e5;
+  await owner('POST', '/api/events', { title: 'One', start: t, end: t + 3 * 36e5, rooms: [busy.id] });
+  await a('POST', '/api/events', { title: 'Overlap', start: t + 2 * 36e5, end: t + 4 * 36e5, rooms: [busy.id] }); // declined: taken
+  await a('POST', '/api/events', { title: 'Later', start: t + 864e5, end: t + 864e5 + 36e5, rooms: [busy.id] });
+  await a('POST', '/api/events', { title: 'Old', start: Date.now() - 20 * 864e5, end: Date.now() - 20 * 864e5 + 36e5, rooms: [busy.id] });
+  assert.equal((await a('GET', '/api/rooms/usage')).status, 403, 'admins only');
+  assert.equal((await owner('GET', '/api/rooms/usage?days=12')).status, 400);
+  const week = (await owner('GET', '/api/rooms/usage?days=7')).body;
+  const of = (r, id) => r.rooms.find((x) => x.id === id);
+  assert.deepEqual([of(week, busy.id).bookings, of(week, busy.id).hours, of(week, busy.id).share], [2, 4, 10], 'the declined one doesn’t count; 4 h of 5 × 8 h');
+  assert.deepEqual(of(week, busy.id).top, [{ name: 'Olivia Owner', bookings: 1 }, { name: 'Rue Sage', bookings: 1 }]);
+  assert.deepEqual([of(week, idle.id).bookings, of(week, idle.id).hours, of(week, idle.id).share], [0, 0, 0]);
+  assert.ok(week.rooms.indexOf(of(week, busy.id)) < week.rooms.indexOf(of(week, idle.id)), 'busiest first');
+  const month = (await owner('GET', '/api/rooms/usage?days=30')).body;
+  assert.deepEqual([of(month, busy.id).bookings, of(month, busy.id).hours], [3, 5]);
+  assert.deepEqual(of(month, busy.id).top[0], { name: 'Rue Sage', bookings: 2 });
+  for (const r of [busy, idle]) await owner('DELETE', `/api/rooms/${r.id}`);
+});
+
 test('rooms: where each is and what is in it', async () => {
   const room = (await owner('POST', '/api/rooms', { name: 'Garden room', capacity: 6, location: ' 2nd floor, east ', features: ['Video', ' whiteboard ', 'video', '', 'Screen  share'] })).body;
   assert.deepEqual([room.location, room.features], ['2nd floor, east', ['Video', 'whiteboard', 'Screen share']], 'trimmed, each once');

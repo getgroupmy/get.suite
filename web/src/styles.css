@@ -2806,3 +2806,6 @@ input.fv-name { background: #202124; color: #fff; border: 1px solid #5f6368; bor
 .status-presets-title { width: 100%; }
 .status-recent { display: inline-flex; align-items: center; }
 .status-recent .icon-btn { width: 24px; height: 24px; font-size: 14px; }
+.room-usage { margin-top: 8px; border-top: 1px solid var(--border, #e0e0e0); padding-top: 12px; }
+.usage-bar { display: inline-block; width: 60px; height: 8px; border-radius: 4px; background: var(--hover, #eef1f6); vertical-align: middle; overflow: hidden; }
+.usage-bar span { display: block; height: 100%; background: var(--accent, #1a73e8); }

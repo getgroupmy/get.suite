@@ -633,6 +633,35 @@ function Rooms() {
         <input aria-label="Seats" type="number" min="1" placeholder="Seats" style={{ width: 90 }} value={capacity} onChange={(e) => setCapacity(e.target.value)} />
         <button className="btn" disabled={!name.trim()}>Add room</button>
       </form>
+      {rooms?.length > 0 && <RoomUsage />}
+    </div>
+  );
+}
+
+/** How much each room was booked lately: to see which sit empty and which are always taken. */
+function RoomUsage() {
+  const [days, setDays] = useState(30);
+  const [data, setData] = useState(null);
+  useEffect(() => { setData(null); get(`/rooms/usage?days=${days}`).then(setData).catch(() => setData({ rooms: [] })); }, [days]);
+  return (
+    <div className="stack room-usage">
+      <div className="row"><h3 className="grow" style={{ margin: 0 }}>Usage</h3>
+        <select aria-label="Usage over" value={days} onChange={(e) => setDays(Number(e.target.value))}>
+          <option value={7}>Last 7 days</option><option value={30}>Last 30 days</option><option value={90}>Last 90 days</option>
+        </select></div>
+      {!data ? <p className="muted small">Loading…</p> : (
+        <table className="data-table" aria-label="Room usage">
+          <thead><tr><th>Room</th><th>Bookings</th><th>Hours</th><th>Of working time</th><th>Booked most by</th></tr></thead>
+          <tbody>{data.rooms.map((r) => (
+            <tr key={r.id}>
+              <td>{r.name}</td><td>{r.bookings}</td><td>{r.hours}</td>
+              <td><span className="usage-bar" aria-hidden="true"><span style={{ width: `${r.share}%` }} /></span> {r.share}%</td>
+              <td className="muted small">{r.top.map((p) => `${p.name} (${p.bookings})`).join(', ') || '—'}</td>
+            </tr>
+          ))}</tbody>
+        </table>
+      )}
+      <p className="muted small" style={{ margin: 0 }}>Working time is weekdays, 8 hours a day. A room that's rarely booked could become something else; one that's always taken may mean you need another like it.</p>
     </div>
   );
 }
