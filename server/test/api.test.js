@@ -6281,6 +6281,11 @@ test('admin: usage report for the company, with a CSV', async () => {
   assert.deepEqual([me.files_created, me.chat_messages, me.meetings, me.tasks_done], [1, 2, 1, 1]);
   assert.ok(r.active >= 2);
   assert.ok(!r.people.some((p) => p.email.endsWith('@acme.com')), 'only this company');
+  // Active people per day: every day of the period, today counting Kay and Rae (signed in today).
+  assert.equal(r.per_day.days.length, 8, 'seven days back and today');
+  assert.equal(r.per_day.days.at(-1).day, new Date().toISOString().slice(0, 10));
+  assert.ok(r.per_day.days.at(-1).active >= 2);
+  assert.equal(r.per_day.since, r.per_day.days.at(-1).day, 'recorded from today on');
   const csv = await kay('GET', '/api/users/report?format=csv');
   assert.match(csv.body, /Name,Email,Last active \(UTC\),Files created,Files edited,Chat messages,Meetings organised,Tasks done,Suspended/);
   assert.match(csv.body, /Rae Report,rpt@keepco\.com,[^,]+,1,0,2,1,1,/);

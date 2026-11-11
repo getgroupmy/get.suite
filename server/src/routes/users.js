@@ -1,4 +1,5 @@
 import { cleanCalPrefs, colorRulesOf } from '../calprefs.js';
+import { activePerDay } from '../activedays.js';
 import { syncCompanyGroupAliases } from '../groups.js';
 import { mailEnabled } from '../mail/config.js';
 import { digestFor, sendDigest } from '../digest.js';
@@ -559,7 +560,7 @@ export default function userRoutes() {
       res.setHeader('Content-Disposition', `attachment; filename="usage-${days}-days.csv"`);
       return res.send(`\ufeff${lines.map((l) => l.map(cell).join(',')).join('\r\n')}\r\n`);
     }
-    res.json({ days, from, to, active, people: rows });
+    res.json({ days, from, to, active, people: rows, per_day: activePerDay(orgId, from, to) });
   });
 
   // Someone's signed-in devices (web sessions), for an admin: see them and sign one or all out.

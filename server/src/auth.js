@@ -8,6 +8,7 @@ import { scheduleMailConfig } from './mail/config.js';
 import { freshMailHome } from './tenancy.js';
 import { networkAllowed, NETWORK_REFUSED } from './netrules.js';
 import { bearerOf, tokenRow, tokenRefusal } from './apitokens.js';
+import { markActive } from './activedays.js';
 
 // Where Workspace opens for each person: 'drive' (the default) or 'home'.
 if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'start_page')) q('ALTER TABLE users ADD COLUMN start_page TEXT').run();
@@ -75,6 +76,7 @@ export function createSession(userId, { userAgent = '', ip = '' } = {}) {
   q('INSERT INTO sessions (token, user_id, expires_at, created_at, last_seen, user_agent, ip) VALUES (?, ?, ?, ?, ?, ?, ?)')
     .run(token, userId, now() + SESSION_DAYS * 864e5, now(), now(), String(userAgent).slice(0, 400), String(ip).slice(0, 64));
   q('UPDATE users SET last_active = ? WHERE id = ?').run(now(), userId);
+  markActive(userId);
   return token;
 }
 
@@ -127,6 +129,7 @@ export function userFromToken(token, { idleMs = null } = {}) {
   if (!row.last_seen || now() - row.last_seen > 5 * 60e3) {
     q('UPDATE sessions SET last_seen = ? WHERE token = ?').run(now(), token);
     q('UPDATE users SET last_active = ? WHERE id = ?').run(now(), row.id);
+    markActive(row.id);
   }
   // Sliding expiry: refresh when less than half the lifetime remains.
   if (row.expires_at - now() < (SESSION_DAYS / 2) * 864e5) {

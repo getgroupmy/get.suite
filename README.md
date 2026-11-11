@@ -1131,6 +1131,8 @@ Once ports 465, 587 and 993 are open, bots will start guessing passwords within 
 
 **Admin → Reports** shows how the company has used Workspace over the last 7, 30 or 90 days: how many people were active, and for each person when they were last active, files created (new, uploaded or copied), files edited, chat messages sent, meetings organised (events with guests that took place) and tasks completed (counted for whoever ticked them off), with totals. Click a column heading to sort by it; **Download CSV** saves the table. Handy for seeing who hasn't started using Workspace yet.
 
+**Active people per day** above the table charts how many people used Workspace each day of the period (signed in, used it in the browser, or synced a phone or mail app), with the average and the busiest day. Point at a day for its count, or **Show as table** for the numbers. Days are in UTC; days from before this report began recording (after updating to this version) are marked and left out of the average.
+
 ## Storage (admins)
 
 **Admin → Storage** shows how much of the company's storage is used (and its limit, if the platform owner set one), how much each person uses, split into their files, the earlier versions kept of them, and their trash, biggest users first, and the 25 largest files with their owners (including what's in the trash). Earlier versions and the trash count towards the limit: people can empty their trash in Drive, and delete versions from a file's version history.

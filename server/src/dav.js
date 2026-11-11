@@ -28,6 +28,7 @@ import { MAIL_HOSTNAME } from './mail/config.js';
 import { sendTo } from './hub.js';
 import { notify as bell } from './notifications.js';
 import { peopleOf } from './mycalendars.js';
+import { markActive } from './activedays.js';
 
 const NS = 'xmlns:d="DAV:" xmlns:cal="urn:ietf:params:xml:ns:caldav" xmlns:card="urn:ietf:params:xml:ns:carddav" xmlns:cs="http://calendarserver.org/ns/" xmlns:ic="http://apple.com/ns/ical/"';
 const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -53,7 +54,7 @@ export function authenticate(req) {
     return null;
   }
   // A phone or Outlook syncing counts as using the account (at most every 5 minutes).
-  q('UPDATE users SET last_active = ? WHERE id = ? AND (last_active IS NULL OR last_active < ?)').run(now(), u.id, now() - 5 * 60e3);
+  if (q('UPDATE users SET last_active = ? WHERE id = ? AND (last_active IS NULL OR last_active < ?)').run(now(), u.id, now() - 5 * 60e3).changes) markActive(u.id);
   return u;
 }
 
