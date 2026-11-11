@@ -98,6 +98,7 @@ function FormEditor({ id }) {
   const [confirm, setConfirm] = useState(false);
   const [prefill, setPrefill] = useState(false); // the "Get pre-filled link" window
   const [theming, setTheming] = useState(false); // the Theme window
+  const [importing, setImporting] = useState(false); // the Import questions window
   const [sending, setSending] = useState(false); // the Send window: by email, or the link and its QR code
   const [embedOpen, setEmbedOpen] = useState(false);
   const [responses, setResponses] = useState(null);
@@ -158,6 +159,7 @@ function FormEditor({ id }) {
     <div className="page form-editor">
       {prefill && <PrefillModal form={form} onClose={() => setPrefill(false)} />}
       {theming && <ThemeModal form={form} setting={setting} onClose={() => setTheming(false)} />}
+      {importing && <ImportQuestions form={form} onClose={() => setImporting(false)} onDone={(f) => { setForm(f); setImporting(false); setTab('questions'); }} />}
       {sending && <SendForm form={form} link={linkOf(form.token)} setting={setting} onClose={() => setSending(false)} />}
       {embedOpen && (
         <Modal title="Embed in a website" onClose={() => setEmbedOpen(false)} footer={<button type="button" className="btn" onClick={() => setEmbedOpen(false)}>Close</button>}>
@@ -176,6 +178,7 @@ function FormEditor({ id }) {
         <Menu trigger={(p) => <button className="icon-btn" aria-label="More" {...p}><Icon name="more" /></button>} items={[
           { label: 'Get pre-filled link', icon: 'link', onClick: async () => { await flush(); setPrefill(true); } },
           { label: 'Embed in a website', icon: 'link', onClick: () => setEmbedOpen(true) },
+          { label: 'Import questions…', icon: 'upload', onClick: async () => { await flush(); setImporting(true); } },
           { label: 'Make a copy', icon: 'copy', onClick: copyForm },
           form.role === 'owner' && { label: form.archived_at ? 'Bring back from the archive' : 'Archive', icon: 'archive', onClick: async () => {
             try { await flush(); const r = await put(`/forms/${id}/archived`, { archived: !form.archived_at }); setForm((x) => ({ ...x, archived_at: r.archived_at, closed: r.closed })); toast(r.archived_at ? 'Archived: out of your forms list, and it no longer takes responses' : 'Back from the archive'); } catch (e) { toast(e.message, 'error'); }
@@ -631,6 +634,60 @@ function SettingsTab({ form, setForm, setting, orgName, allowLinks }) {
         <p className="muted small" style={{ margin: 0 }}>A new link stops the old one working, if it went somewhere it shouldn't.</p>
       </div>
     </div>
+  );
+}
+
+const TYPE_NAMES = Object.fromEntries(TYPES.map(([k, label]) => [k, label]));
+/** Import questions: pick another of your forms, tick the questions to bring, and they're added at the end. */
+function ImportQuestions({ form, onClose, onDone }) {
+  const toast = useToast();
+  const [forms, setForms] = useState(null);
+  const [from, setFrom] = useState('');
+  const [src, setSrc] = useState(null);
+  const [picked, setPicked] = useState(new Set());
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { get('/forms').then((l) => setForms(l.filter((f) => f.id !== form.id && !f.archived_at))).catch((e) => toast(e.message, 'error')); }, [form.id, toast]);
+  useEffect(() => {
+    setSrc(null);
+    if (!from) return;
+    get(`/forms/${from}`).then((f) => { setSrc(f); setPicked(new Set(f.questions.map((q) => q.id))); }).catch((e) => toast(e.message, 'error'));
+  }, [from, toast]);
+  const go = async () => {
+    setBusy(true);
+    try {
+      const r = await post(`/forms/${form.id}/import`, { from, ids: [...picked] });
+      toast(`${r.imported} question${r.imported === 1 ? '' : 's'} added at the end${r.pictures_left_off ? ` (${r.pictures_left_off} picture${r.pictures_left_off === 1 ? '' : 's'} left off: they belong to someone not on this form)` : ''}`);
+      onDone(r);
+    } catch (e) { toast(e.message, 'error'); setBusy(false); }
+  };
+  const all = src && picked.size === src.questions.length;
+  return (
+    <Modal title="Import questions" onClose={onClose} footer={<>
+      <button type="button" className="btn" onClick={onClose}>Cancel</button>
+      <button type="button" className="btn primary" disabled={!picked.size || !src || busy} onClick={go}>{busy ? 'Importing…' : `Import ${picked.size || ''}`.trim()}</button>
+    </>}>
+      <div className="stack">
+        <label className="field"><span>From the form</span>
+          <select value={from} onChange={(e) => setFrom(e.target.value)} disabled={!forms}>
+            <option value="">{forms ? (forms.length ? 'Choose a form…' : 'You have no other forms') : 'Loading…'}</option>
+            {forms?.map((f) => <option key={f.id} value={f.id}>{f.title}{f.owner_name ? ` (${f.owner_name})` : ''}</option>)}
+          </select></label>
+        {from && !src && <p className="muted">Loading…</p>}
+        {src && (src.questions.length ? <>
+          <label className="check"><input type="checkbox" checked={all} onChange={() => setPicked(all ? new Set() : new Set(src.questions.map((q) => q.id)))} /> All {src.questions.length}</label>
+          <ul className="form-import-list" aria-label="Questions to import">
+            {src.questions.map((q) => (
+              <li key={q.id}><label className="check">
+                <input type="checkbox" checked={picked.has(q.id)} onChange={() => setPicked((p) => { const n = new Set(p); if (n.has(q.id)) n.delete(q.id); else n.add(q.id); return n; })} />
+                <span className="grow">{q.title || (q.type === 'section' ? 'Untitled section' : 'Untitled question')}</span>
+                <span className="muted small">{q.type === 'section' ? 'Section' : TYPE_NAMES[q.type] || q.type}</span>
+              </label></li>
+            ))}
+          </ul>
+          <p className="muted small" style={{ margin: 0 }}>They're copied to the end of this form; the other form doesn't change.</p>
+        </> : <p className="muted">That form has no questions.</p>)}
+      </div>
+    </Modal>
   );
 }
 

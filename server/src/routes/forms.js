@@ -648,6 +648,39 @@ export default function formRoutes() {
     res.json({ sent: waiting.length - failed.length, failed, invites: invitesOf(form) });
   });
 
+  // Import questions from another form you own or edit: copied to the end with new ids. Jumps to
+  // sections stay when those sections come too; pictures stay when this form's team can show them
+  // (they belong to its owner or an editor), and are left off otherwise.
+  r.post('/:id/import', (req, res) => {
+    const f = ownForm(req.params.id, req.user);
+    const from = ownForm(String(req.body?.from || ''), req.user);
+    if (from.id === f.id) throw bad('Pick another form');
+    const want = Array.isArray(req.body?.ids) ? new Set(req.body.ids.map(String)) : null;
+    const picked = from.questions.filter((qu) => !want || want.has(qu.id));
+    if (!picked.length) throw bad('Pick at least one question');
+    if (f.questions.length + picked.length > MAX_QUESTIONS) throw bad(`A form can have up to ${MAX_QUESTIONS} questions`);
+    const taken = new Set(f.questions.map((qu) => qu.id));
+    const ids = new Map();
+    for (const qu of picked) { let id; do id = crypto.randomBytes(5).toString('base64url').replace(/[^A-Za-z0-9]/g, 'x'); while (taken.has(id)); taken.add(id); ids.set(qu.id, id); }
+    const team = new Set(teamOf(f));
+    const pictureOk = (pic) => !!q("SELECT 1 FROM files WHERE id = ? AND kind = 'file' AND trashed = 0").get(pic) && team.has(q('SELECT owner_id FROM files WHERE id = ?').get(pic).owner_id);
+    let picturesLeft = 0;
+    const copied = picked.map((qu) => {
+      const c = structuredClone(qu);
+      c.id = ids.get(qu.id);
+      if (c.goto) { for (const [o, to] of Object.entries(c.goto)) { if (to !== 'submit') { if (ids.has(to)) c.goto[o] = ids.get(to); else delete c.goto[o]; } } }
+      if (c.after && c.after !== 'submit') { if (ids.has(c.after)) c.after = ids.get(c.after); else delete c.after; }
+      if (c.image && !pictureOk(c.image)) { delete c.image; delete c.image_alt; picturesLeft++; }
+      if (c.option_images) for (const [o, pic] of Object.entries(c.option_images)) if (!pictureOk(pic)) { delete c.option_images[o]; picturesLeft++; }
+      return c;
+    });
+    const questions = cleanQuestions([...f.questions, ...copied]);
+    q('UPDATE forms SET questions = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(questions), now(), f.id);
+    changed(f, req.user.id);
+    const out = ownForm(f.id, req.user);
+    res.json({ ...out, responses: countOf(f.id), closed: closedReason(out), imported: copied.length, pictures_left_off: picturesLeft });
+  });
+
   r.post('/:id/copy', (req, res) => {
     const f = ownForm(req.params.id, req.user);
     const id = uid();

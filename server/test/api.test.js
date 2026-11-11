@@ -4772,6 +4772,49 @@ test('forms: pictures on questions, seen by everyone who can fill the form in', 
   assert.equal((await anon('GET', `/api/public/forms/${f.token}/pictures/${unused.id}`)).status, 200, 'now used by an option');
 });
 
+test('forms: import questions from another form (new ids, section jumps kept with their sections, pictures only when they can show)', async () => {
+  const a = client(); const b = client();
+  for (const local of ['fimpa', 'fimpb']) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name: local, password: 'password123' })).status, 201);
+  await login(a, 'fimpa@acme.com'); await login(b, 'fimpb@acme.com');
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  const mine = (await a('POST', '/api/files/upload?name=mine.png', png, { raw: true })).body;
+  const theirs = (await b('POST', '/api/files/upload?name=theirs.png', png, { raw: true })).body;
+  // B's form, shared with A as an editor, with a picture of B's and one of A's.
+  const src = (await b('POST', '/api/forms', { title: 'Old survey' })).body;
+  await b('POST', `/api/forms/${src.id}/editors`, { email: 'fimpa@acme.com' });
+  const s1 = (await b('PUT', `/api/forms/${src.id}`, { questions: [
+    { id: 'name', type: 'short', title: 'Your name', required: true, image: theirs.id },
+    { id: 'diet', type: 'choice', title: 'Diet', options: ['Veg', 'Any'], goto: { Veg: 'sec2', Any: 'submit' }, option_images: { Veg: mine.id } },
+    { id: 'sec2', type: 'section', title: 'Veg details', after: 'submit' },
+    { id: 'kind', type: 'dropdown', title: 'Which?', options: ['Vegan', 'Vegetarian'] },
+  ] })).body;
+  assert.equal(s1.questions.length, 4);
+  const target = (await a('POST', '/api/forms', { title: 'New survey', questions: [{ id: 'q1', type: 'short', title: 'First' }] })).body;
+  assert.equal((await a('POST', `/api/forms/${target.id}/import`, { from: target.id })).status, 400, 'not from itself');
+  assert.equal((await a('POST', `/api/forms/${target.id}/import`, { from: 'nope' })).status, 404);
+  assert.equal((await a('POST', `/api/forms/${target.id}/import`, { from: src.id, ids: ['zzz'] })).status, 400, 'nothing picked');
+  // Only the choice question: its jump to a section that didn't come along is dropped ("submit" stays).
+  const one = (await a('POST', `/api/forms/${target.id}/import`, { from: src.id, ids: ['diet'] })).body;
+  assert.equal(one.imported, 1);
+  const diet = one.questions.at(-1);
+  assert.notEqual(diet.id, 'diet', 'a new id');
+  assert.deepEqual(diet.goto, { Any: 'submit' });
+  assert.deepEqual(diet.option_images, { Veg: mine.id }, 'A\'s own picture can show on A\'s form');
+  // All of them: the jump now points at the copied section; B's picture is left off.
+  const all = (await a('POST', `/api/forms/${target.id}/import`, { from: src.id })).body;
+  assert.equal(all.imported, 4);
+  assert.equal(all.pictures_left_off, 1);
+  assert.equal(all.questions.length, 6);
+  const [, , name, diet2, sec, kind] = all.questions;
+  assert.equal(name.title, 'Your name'); assert.equal(name.required, true); assert.equal(name.image, undefined);
+  assert.equal(diet2.goto.Veg, sec.id);
+  assert.equal(sec.after, 'submit');
+  assert.equal(kind.title, 'Which?');
+  assert.equal(new Set(all.questions.map((x) => x.id)).size, 6, 'ids all different');
+  assert.equal((await b('GET', `/api/forms/${src.id}`)).body.questions.length, 4, 'the other form is untouched');
+  assert.equal((await b('POST', `/api/forms/${target.id}/import`, { from: src.id })).status, 404, 'only into a form you work on');
+});
+
 test('forms: a theme (colour, tinted page, font, header picture) shown to people filling it in, and kept on a copy', async () => {
   const a = client();
   assert.equal((await owner('POST', '/api/users', { local: 'fthm', domain: 'acme.com', name: 'Theo Theme', password: 'password123' })).status, 201);
