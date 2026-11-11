@@ -8,6 +8,7 @@ import { audit } from './audit.js';
 import { notify } from './notifications.js';
 import { scheduleBackups } from './backup.js';
 import { scheduleHealthChecks } from './health.js';
+import { scheduleAnnouncementStarts } from './routes/announcements.js';
 import { mailEnabled } from './mail/config.js';
 import { startPolicyServer } from './security/policyServer.js';
 import { startMailNotifications } from './mail/notify.js';
@@ -38,6 +39,7 @@ attachHub(server);
 
 // Housekeeping: purge expired sessions hourly; snapshot the database daily.
 setInterval(() => q('DELETE FROM sessions WHERE expires_at < ?').run(Date.now()), 3600e3).unref();
+scheduleAnnouncementStarts(); // a scheduled announcement shows up in open Workspace tabs when it starts
 scheduleHealthChecks(); // the platform owners hear about problems (disk, snapshots, mail, certificate)
 scheduleBackups();
 // Just put a snapshot back (Admin → System): say so in the activity log and to the platform owners.

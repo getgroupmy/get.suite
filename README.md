@@ -1148,6 +1148,9 @@ Once ports 465, 587 and 993 are open, bots will start guessing passwords within 
 
 **Admin → Announcements** puts a short notice at the top of every page for everyone in the company: an office closure, a maintenance window, a new policy. Give it the text (up to 300 characters), an optional link (a page in the suite like `/drive`, or an `https://` address), a style (**Info** or **Warning**, which is amber) and, if you like, an end date after which it disappears by itself. It shows up straight away for everyone signed in. Each person can dismiss it with the × and it stays gone for them. **Showing now** lists what's up, with how many people have dismissed each one, and **Take down** removes one for everyone. Posting and taking down are recorded in the activity log.
 
+- **For one group:** **Who sees it** picks one of the company's groups (Admin → Groups) instead of everyone: only its members see the notice (*Night shift: new rota*). The list says who it's for and how many people that is.
+- **Starting later:** **Starts** sets a day and time to show it from (within a year), such as the evening before a maintenance window, and the button becomes **Schedule**. Until then it waits under **Scheduled** (with **Cancel**), and nobody sees it; when the time comes it appears for everyone with Workspace open, without reloading, and moves to **Showing now**. *Ends* counts from the start.
+
 ## Data protection (admins)
 
 **Admin → Data protection** sets rules for what may not leave the company, by email or from Drive, so card numbers, bank details or a confidential project's name aren't sent or shared out by mistake.

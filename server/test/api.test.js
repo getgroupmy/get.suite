@@ -4042,6 +4042,36 @@ test('announcements: an admin posts one; everyone sees it until they dismiss it 
   void old;
 });
 
+test('announcements: for one group only, and starting later', async () => {
+  const a = client(); const b = client();
+  for (const local of ['anng1', 'anng2']) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name: local, password: 'password123' })).status, 201);
+  const aid = (await login(a, 'anng1@acme.com')).id;
+  await login(b, 'anng2@acme.com');
+  const g = (await owner('POST', '/api/groups', { name: 'Night shift' })).body;
+  await owner('PUT', `/api/groups/${g.id}/members`, { user_ids: [aid] });
+  assert.equal((await owner('POST', '/api/announcements', { text: 'x', group_id: 'nope' })).status, 400, 'a group of this company');
+  const forGroup = (await owner('POST', '/api/announcements', { text: 'Night shift: new rota', group_id: g.id })).body;
+  assert.ok((await a('GET', '/api/announcements')).body.some((x) => x.id === forGroup.id), 'members see it');
+  assert.ok(!(await b('GET', '/api/announcements')).body.some((x) => x.id === forGroup.id), 'others don\'t');
+  const row = (await owner('GET', '/api/announcements/all')).body.find((x) => x.id === forGroup.id);
+  assert.equal(row.group_name, 'Night shift');
+  assert.equal(row.group_size, 1);
+  // Starting later: nobody sees it until then; the admin list has it, with when.
+  assert.equal((await owner('POST', '/api/announcements', { text: 'x', starts_at: Date.now() + 864e5, until: Date.now() + 3600e3 })).status, 400, 'ends after it starts');
+  const later = (await owner('POST', '/api/announcements', { text: 'Maintenance tonight', starts_at: Date.now() + 400 })).body;
+  assert.ok(later.starts_at > Date.now());
+  assert.ok(!(await b('GET', '/api/announcements')).body.some((x) => x.id === later.id), 'not yet');
+  assert.ok((await owner('GET', '/api/announcements/all')).body.some((x) => x.id === later.id && x.starts_at), 'admins see what\'s coming');
+  const past = (await owner('POST', '/api/announcements', { text: 'Already', starts_at: Date.now() - 1000 })).body;
+  assert.equal(past.starts_at, null, 'a start in the past is straight away');
+  await new Promise((r) => setTimeout(r, 450));
+  const { announceStarted } = await import('../src/routes/announcements.js');
+  assert.ok(announceStarted() >= 1, 'open tabs are told when it starts');
+  assert.equal(announceStarted(), 0, 'only once');
+  assert.ok((await b('GET', '/api/announcements')).body.some((x) => x.id === later.id), 'started');
+  for (const x of [forGroup, later, past]) await owner('DELETE', `/api/announcements/${x.id}`);
+});
+
 test('forms: questions are tidied and answers checked', async () => {
   const { cleanQuestions, checkAnswers, responseTable } = await import('../src/routes/forms.js');
   const qs = cleanQuestions([
