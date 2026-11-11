@@ -2877,3 +2877,11 @@ select.meet-timer-btn option { color: #202124; }
 .mail-divider:hover, .mail-divider:focus-visible { background: var(--accent); opacity: .5; outline: none; }
 @media (max-width: 700px) { .mail-divider { display: none; } }
 @media (min-width: 701px) { .mail.pane-right .mail-list { max-width: 55%; } }
+/* Mail's list: sender pictures and compact rows (Settings → Mail reading pane) */
+.msg-list .msg-pic { flex: none; padding-top: 10px; padding-left: 4px; }
+.msg-list.compact li input { margin-top: 8px; }
+.msg-list.compact .msg-pic { padding-top: 5px; }
+.msg-list.compact .msg-row { padding-top: 5px; padding-bottom: 5px; grid-template-columns: minmax(0, 30%) minmax(0, 1fr) auto; align-items: baseline; }
+.msg-list.compact .msg-subject { grid-column: 2; grid-row: 1; }
+.msg-list.compact .msg-date { grid-column: 3; grid-row: 1; }
+.msg-list.compact .msg-assign { grid-column: 1 / -1; }

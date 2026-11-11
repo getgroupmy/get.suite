@@ -10349,6 +10349,14 @@ test('mail: where the reading pane goes (beside the list, below it, or none), pe
   assert.equal((await b('GET', '/api/auth/me')).body.user.mail_list_width, null);
   await a('PUT', '/api/users/me/mail-list-width', { width: null });
   assert.equal((await a('GET', '/api/auth/me')).body.user.mail_list_width, null);
+  // The list itself: sender pictures and compact rows, each kept when the other changes.
+  assert.deepEqual((await a('GET', '/api/auth/me')).body.user.mail_list, { pictures: false, compact: false });
+  assert.deepEqual((await a('PUT', '/api/users/me/mail-list', { pictures: true })).body, { pictures: true, compact: false });
+  assert.deepEqual((await a('PUT', '/api/users/me/mail-list', { compact: true })).body, { pictures: true, compact: true });
+  assert.deepEqual((await a('GET', '/api/auth/me')).body.user.mail_list, { pictures: true, compact: true });
+  assert.equal((await a('PUT', '/api/users/me/mail-list', { compact: 'yes' })).status, 400);
+  assert.deepEqual((await b('GET', '/api/auth/me')).body.user.mail_list, { pictures: false, compact: false });
+  assert.deepEqual((await a('PUT', '/api/users/me/mail-list', { pictures: false })).body, { pictures: false, compact: true });
 });
 
 test('calendar settings: default length, speedy meetings and default reminders, per person', async () => {

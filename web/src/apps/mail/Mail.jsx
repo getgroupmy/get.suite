@@ -470,7 +470,7 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
         {!data ? <p className="muted mail-note">Loading…</p> : shown.length === 0 ? (
           <Empty icon={q ? 'search' : 'inbox'} title={q ? 'No messages found' : tabbed && tab === 'updates' ? 'No updates: newsletters and notifications go here' : `${current?.name || 'Folder'} is empty`} />
         ) : (
-          <ul className="msg-list">
+          <ul className={`msg-list ${user?.mail_list?.compact ? 'compact' : ''} ${user?.mail_list?.pictures ? 'pictures' : ''}`}>
             {shown.map((m) => (
               <li key={m.uid} className={`${m.seen ? '' : 'unread'} ${m.uid === openUid ? 'open' : ''}`} draggable={special !== '\\Drafts'}
                 onDragStart={(e) => {
@@ -483,6 +483,11 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
                 onDragEnd={() => setDropAt(null)}>
                 <input type="checkbox" aria-label={`Select ${m.subject || '(no subject)'}`} checked={checked.has(m.uid)}
                   onChange={(e) => { const n = new Set(checked); e.target.checked ? n.add(m.uid) : n.delete(m.uid); setChecked(n); }} />
+                {user?.mail_list?.pictures && (() => {
+                  // The sender (or, in Sent and Drafts, the first person it's to): a colleague's photo, else initials.
+                  const p = special === '\\Sent' || special === '\\Drafts' ? m.to?.[0] : m.from;
+                  return <span className="msg-pic"><Avatar name={p?.name || p?.address || '?'} email={p?.address} size={user.mail_list.compact ? 24 : 32} /></span>;
+                })()}
                 <button className="msg-row" onClick={() => (special === '\\Drafts' ? openDraft(m.uid) : go(folder, m.uid))}>
                   <span className="msg-from ellipsis">{special === '\\Sent' || special === '\\Drafts' ? `To: ${m.to.map(who).join(', ')}` : who(m.from)}</span>
                   <span className="msg-date">{m.flagged && <span className="star" aria-label="Starred">★</span>}{m.attachment && <Icon name="attach" size={14} />} {m.snoozedUntil ? <span className="snoozed-until" title={`Comes back ${whenText(m.snoozedUntil)}`}><Icon name="clock" size={14} /> {formatDate(m.snoozedUntil)}</span> : m.date ? formatDate(m.date) : ''}</span>

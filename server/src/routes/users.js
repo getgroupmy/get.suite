@@ -326,6 +326,20 @@ export default function userRoutes() {
     res.json({ width });
   });
 
+  // How Mail's message list looks: { pictures, compact } (each optional: what's left out stays as it was).
+  // Sender pictures (a colleague's photo, or initials) beside each message; compact rows fit more on the screen.
+  r.put('/me/mail-list', (req, res) => {
+    let now; try { now = JSON.parse(q('SELECT mail_list FROM users WHERE id = ?').get(req.user.id)?.mail_list || '{}'); } catch { now = {}; }
+    const next = { pictures: !!now.pictures, compact: !!now.compact };
+    for (const k of ['pictures', 'compact']) {
+      if (req.body?.[k] === undefined) continue;
+      if (typeof req.body[k] !== 'boolean') throw bad(`${k} must be true or false`);
+      next[k] = req.body[k];
+    }
+    q('UPDATE users SET mail_list = ? WHERE id = ?').run(JSON.stringify(next), req.user.id);
+    res.json(next);
+  });
+
   // Convert Office, OpenDocument and Markdown files you upload in Drive: { on: true | false }.
   r.put('/me/convert-uploads', (req, res) => {
     const on = !!req.body?.on;

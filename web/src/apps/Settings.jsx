@@ -359,6 +359,7 @@ function MailPane() {
   const toast = useToast();
   const { user, setUser } = useAuth();
   const [now, setNow] = useState(user.mail_pane || 'right');
+  const [list, setList] = useState(user.mail_list || { pictures: false, compact: false });
   const set = async (pane) => {
     const was = now;
     setNow(pane);
@@ -366,12 +367,21 @@ function MailPane() {
   };
   return (
     <section className="card stack" aria-labelledby="mpane-h">
-      <h2 id="mpane-h">Mail reading pane</h2>
+      <h2 id="mpane-h">Mail list and reading pane</h2>
       <p className="muted small" style={{ margin: 0 }}>Where an email you open shows in Mail (on a computer; phones show one at a time).</p>
       <div className="stack" role="radiogroup" aria-labelledby="mpane-h">
         <label className="check"><input type="radio" name="mail-pane" checked={now === 'right'} onChange={() => set('right')} /> Right of the list</label>
         <label className="check"><input type="radio" name="mail-pane" checked={now === 'below'} onChange={() => set('below')} /> Below the list</label>
         <label className="check"><input type="radio" name="mail-pane" checked={now === 'off'} onChange={() => set('off')} /> No split: the list fills the page, and an email opens in its place (← back to the list)</label>
+      </div>
+      <div className="stack">
+        {[['pictures', 'Show sender pictures in the list (a colleague’s photo, or initials)'], ['compact', 'Compact list: one line per email, more on the screen']].map(([k, label]) => (
+          <label key={k} className="check"><input type="checkbox" checked={!!list[k]} onChange={async (e) => {
+            const on = e.target.checked, was = list;
+            setList({ ...list, [k]: on }); // at once; put back if saving fails
+            try { const r = await put('/users/me/mail-list', { [k]: on }); setUser({ ...user, mail_list: r }); toast('Saved'); } catch (err) { setList(was); toast(err.message, 'error'); }
+          }} /> {label}</label>
+        ))}
       </div>
     </section>
   );
