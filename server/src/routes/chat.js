@@ -133,7 +133,8 @@ import { sendTo, onlineUserIds } from '../hub.js';
 import { canReach, orgMemberIds } from '../tenancy.js';
 import { groupSlug } from '../groups.js';
 import { namesIn, userIdsIn, newCode } from '../meet.js';
-import { baseUrl } from './calendar.js';
+import { baseUrl, focusUntil } from './calendar.js';
+import { quietUntil } from '../workhours.js';
 
 /**
  * Channels belong to one company (org_id set, dm_key NULL).
@@ -485,6 +486,17 @@ export function chatHookRoutes() {
 
 // Calls that are ringing: `${channel}|${meeting}` → who hasn't answered or declined yet.
 const ringing = new Map();
+/**
+ * Those of the people rung who won't hear it (notifications paused, quiet hours, focus time): [{ name, until }],
+ * so the caller knows not to wait.
+ */
+function unreachable(ids, t = Date.now()) {
+  return ids.map((id) => {
+    const u = q('SELECT name, paused_until FROM users WHERE id = ?').get(id);
+    const until = Math.max(u?.paused_until > t ? u.paused_until : 0, quietUntil(id, t) || 0, focusUntil(id, t) || 0);
+    return until ? { name: u.name, until } : null;
+  }).filter(Boolean);
+}
 /** Ring everyone else in a conversation for a video call: live, in the bell and on phones; missed if nobody picks up. */
 function ringOthers(c, user, code) {
   const others = membersOf(c).filter((id) => id !== user.id);
@@ -687,7 +699,7 @@ export default function chatRoutes() {
     const c = loadChannel(id, req.user);
     deliver(c, req.user, { body: `📹 Started a video meeting: ${baseUrl(req)}/meet/${code}`, files: [], poll: null, parent: null });
     ringOthers(c, req.user, code);
-    res.status(201).json({ channel_id: id, code });
+    res.status(201).json({ channel_id: id, code, unreachable: unreachable(membersOf(c).filter((x) => x !== req.user.id)) });
   });
 
   // The whole conversation to keep: plain text (?format=txt) or a page (html), in the reader's time zone (?tz=).
@@ -719,7 +731,7 @@ export default function chatRoutes() {
     const others = membersOf(c).filter((id) => id !== req.user.id);
     if (!(c.dm_key || c.private) || others.length > 8) throw bad('Ringing is for direct messages and private channels of up to 9 people');
     ringOthers(c, req.user, code);
-    res.json({ rang: others.length });
+    res.json({ rang: others.length, unreachable: unreachable(others) });
   });
   // Can't take the call: the caller is told (while they wait in the meeting), and a note goes in the conversation.
   r.post('/channels/:id/ring/decline', (req, res) => {

@@ -4064,7 +4064,7 @@ test('chat: a video call shared in a conversation shows who is in it while it la
   assert.equal((await call(Bq, 'GET', '/api/chat/calls')).body[dm], 1, 'a 🎥 in the list');
   // Ringing the other person in a direct message: a bell (and phone) notification that opens the call.
   assert.equal((await call(A, 'POST', `/api/chat/channels/${dm}/ring`, { code: 'abc-defg-hij' })).status, 400, 'a real meeting');
-  assert.deepEqual((await call(A, 'POST', `/api/chat/channels/${dm}/ring`, { code })).body, { rang: 1 });
+  assert.deepEqual((await call(A, 'POST', `/api/chat/channels/${dm}/ring`, { code })).body, { rang: 1, unreachable: [] });
   const rung = (await call(Bq, 'GET', '/api/notifications')).body;
   assert.deepEqual((rung.items || rung).filter((n) => /is calling you/.test(n.title)).map((n) => [n.title, n.link]), [['📞 Cal Ann is calling you', `/meet/${code}`]]);
   // Ben can't take it: Ann is told, and a note goes in the conversation.
@@ -4098,6 +4098,13 @@ test('chat: a video call shared in a conversation shows who is in it while it la
   assert.match(placed.body.code, /^[a-z]{3}-[a-z]{4}-[a-z]{3}$/);
   const dmD = (await call(D, 'GET', `/api/chat/channels/${placed.body.channel_id}/messages`)).body;
   assert.match((Array.isArray(dmD) ? dmD : dmD.messages).at(-1).body, new RegExp(`/meet/${placed.body.code}$`));
+  assert.deepEqual(placed.body.unreachable, []);
+  // Dot pauses notifications: calling her says she may not see it, and until when.
+  const until = Date.now() + 36e5;
+  assert.equal((await call(D, 'PUT', '/api/users/me/pause', { until })).status, 200);
+  const again = (await call(A, 'POST', '/api/chat/call', { user_id: D.id })).body;
+  assert.deepEqual(again.unreachable, [{ name: 'Cal Dot', until }]);
+  await call(D, 'PUT', '/api/users/me/pause', { until: null });
   const bellD = (await call(D, 'GET', '/api/notifications')).body;
   assert.ok((bellD.items || bellD).some((n) => n.title === '📞 Cal Ann is calling you' && n.link === `/meet/${placed.body.code}`));
   const general = (await call(A, 'GET', '/api/chat/channels')).body.channels.find((x) => x.name === 'general');

@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import { blocks, hasMarkup } from './markup.js';
 import { fileLinksIn, messageLinksIn, messageLink, taskLinksIn, eventLinksIn, noteLinksIn, formLinksIn } from './filelinks.js';
 import { dueLabel } from '../tasks/taskmath.js';
-import { statusLine, untilText } from '../../components/status.js';
+import { statusLine, untilText, unreachableText } from '../../components/status.js';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { get, post, put, patch, del, onLive, uploadFile, formatBytes } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
@@ -328,7 +328,7 @@ export default function Chat() {
       const msg = await post(`/chat/channels/${channelId}/messages`, { body: `📹 Started a video meeting: ${location.origin}/meet/${m.code}`, files: [] });
       setMessages((list) => (list.some((x) => x.id === msg.id) ? list : [...list, msg]));
       // In a direct message or a small private channel, ring the others too.
-      if ((current?.dm_key && current?.dm_user_id) || (current?.private && (current.member_count || 0) <= 9)) post(`/chat/channels/${channelId}/ring`, { code: m.code }).catch(() => {});
+      if ((current?.dm_key && current?.dm_user_id) || (current?.private && (current.member_count || 0) <= 9)) post(`/chat/channels/${channelId}/ring`, { code: m.code }).then((r) => { if (r.unreachable?.length) toast(unreachableText(r.unreachable), 'info', { duration: 10000 }); }).catch(() => {});
       window.open(`/meet/${m.code}`, '_blank', 'noopener');
     } catch (err) { toast(err.message, 'error'); }
   }

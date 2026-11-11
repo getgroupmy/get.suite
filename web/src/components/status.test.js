@@ -28,3 +28,9 @@ test('a status from the calendar says until when', () => {
   const line = statusLine({ emoji: '📅', text: 'In a meeting', until: new Date(2026, 10, 9, 15, 0).getTime(), auto: true }, now);
   assert.match(line, /^📅 In a meeting until (3:00\s?PM|15:00)$/i);
 });
+
+test('who won’t hear a call', async () => {
+  const { unreachableText } = await import('./status.js');
+  assert.equal(unreachableText([]), '');
+  assert.match(unreachableText([{ name: 'Kim', until: new Date(2026, 10, 11, 16, 30).getTime() }]), /^Kim has notifications off until 4:30\s?PM: they may not see your call$/);
+});

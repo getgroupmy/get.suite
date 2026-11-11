@@ -7,7 +7,7 @@ import { Avatar, Modal, useToast } from './ui.jsx';
 import { useAuth } from '../App.jsx';
 import WithPerson from './WithPerson.jsx';
 import Icon from './Icon.jsx';
-import { statusLine } from './status.js';
+import { statusLine, unreachableText } from './status.js';
 import { placeText } from './workloc.js';
 
 const localTime = (tz) => new Date().toLocaleTimeString([], { timeZone: tz, hour: 'numeric', minute: '2-digit' });
@@ -22,7 +22,11 @@ export default function PersonCard({ userId, onClose }) {
   if (!card) return null;
   // Call: a video call in your direct messages with them; they're rung, and the meeting opens for you.
   const callThem = async () => {
-    try { const r = await post('/chat/call', { user_id: card.id }); onClose(); window.open(`/meet/${r.code}`, '_blank', 'noopener'); navigate(`/chat/${r.channel_id}`); } catch (e) { toast(e.message, 'error'); }
+    try {
+      const r = await post('/chat/call', { user_id: card.id });
+      onClose(); window.open(`/meet/${r.code}`, '_blank', 'noopener'); navigate(`/chat/${r.channel_id}`);
+      if (r.unreachable?.length) toast(unreachableText(r.unreachable), 'info', { duration: 10000 });
+    } catch (e) { toast(e.message, 'error'); }
   };
   const message = async () => { const { id: dm } = await post('/chat/dm', { user_id: card.id }); onClose(); navigate(`/chat/${dm}`); };
   const seeCalendar = () => {

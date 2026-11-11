@@ -37,3 +37,6 @@ export const statusLine = (s, now = new Date()) => {
   const words = [s.emoji, s.text].filter(Boolean).join(' ');
   return s.auto && s.until ? `${words} ${untilText(s.until, now)}` : words; // from the calendar: "📅 In a meeting until 15:00"
 };
+
+/** "Kim has notifications off until 4:30 PM: they may not see your call" for each person rung who won't hear it. */
+export const unreachableText = (list = []) => list.map((u) => `${u.name} has notifications off until ${new Date(u.until).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}: they may not see your call`).join('. ');
