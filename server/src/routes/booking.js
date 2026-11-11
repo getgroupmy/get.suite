@@ -364,7 +364,7 @@ export function publicBookingRoutes() {
     sendTo([owner.id], { type: 'booking-made', title, start, page: p.title, by: name });
     bell([owner.id], { kind: 'booking', title: `${name} booked “${p.title}”`, body: new Date(start).toLocaleString('en-GB', { timeZone: p.tz, weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) + ` (${p.tz})`, link: '/calendar', actor: name });
     res.status(201).json({ ok: true, title: p.title, start, end: start + p.duration * 6e4, tz: p.tz, owner: { name: owner.name }, cancel_url: cancelUrl,
-      meet_url: meetCode ? `${baseUrl(req)}/meet/${meetCode}` : null, place: p.where_kind === 'place' ? p.where_text : null });
+      meet_url: meetCode ? `${baseUrl(req)}/meet/${meetCode}?name=${encodeURIComponent(name)}` : null, /* their name filled in when they join */ place: p.where_kind === 'place' ? p.where_text : null });
   });
   return r;
 }

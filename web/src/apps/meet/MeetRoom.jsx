@@ -175,7 +175,8 @@ export default function MeetRoom({ guest = false, onSignIn }) {
   const mesh = useRef(null);
   const { user: account } = useAuth();
   // A guest (no account) gives their name in the lobby; everyone sees "Name (guest)".
-  const [guestName, setGuestName] = useState(() => { try { return localStorage.getItem('nw-guest-name') || ''; } catch { return ''; } });
+  // A guest's name: from the link (?name=, as in a booking confirmation), or the one they used last time.
+  const [guestName, setGuestName] = useState(() => { const fromLink = new URLSearchParams(window.location.search).get('name'); if (fromLink) return fromLink.slice(0, 60); try { return localStorage.getItem('nw-guest-name') || ''; } catch { return ''; } });
   if (guest) noPhotos();
   const user = guest ? { id: mesh.current?.you || 'guest', name: guestName.trim() || 'Guest' } : account;
   const [info, setInfo] = useState(null);

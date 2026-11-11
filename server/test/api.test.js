@@ -1575,9 +1575,9 @@ test('booking pages: where the meeting happens (its own video meeting, or a plac
   assert.deepEqual((await outsider('GET', `/api/public/book/${tok(place)}`)).body.where, { kind: 'place', text: '12 Harbour St' });
   const slot = pv.days.flatMap((d) => d.slots)[0];
   const bv = (await outsider('POST', `/api/public/book/${tok(video)}`, { start: slot, name: 'Vic Video', email: 'vic@example.org' })).body;
-  assert.match(bv.meet_url, /\/meet\/[a-z]{3}-[a-z]{4}-[a-z]{3}$/, 'a link of its own');
+  assert.match(bv.meet_url, /\/meet\/[a-z]{3}-[a-z]{4}-[a-z]{3}\?name=Vic%20Video$/, 'a link of its own, with their name');
   const ev = (await a('GET', `/api/events?from=${slot - 1}&to=${slot + 36e5}`)).body.find((e) => e.title === 'Video chat: Vic Video');
-  assert.equal(ev.meet_code, bv.meet_url.split('/meet/')[1]);
+  assert.equal(ev.meet_code, bv.meet_url.split('/meet/')[1].split('?')[0]);
   assert.equal((await a('GET', `/api/meet/${ev.meet_code}`)).status, 200, 'a meeting the host can start');
   await a('PATCH', `/api/bookings/${place.id}`, { where_kind: 'place', where_text: '14 Harbour St' });
   const slot2 = (await outsider('GET', `/api/public/book/${tok(place)}`)).body.days.flatMap((d) => d.slots).find((t) => t >= slot + 36e5);
