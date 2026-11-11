@@ -1,4 +1,4 @@
-import { cleanCalPrefs } from '../calprefs.js';
+import { cleanCalPrefs, colorRulesOf } from '../calprefs.js';
 import { syncCompanyGroupAliases } from '../groups.js';
 import { mailEnabled } from '../mail/config.js';
 import { digestFor, sendDigest } from '../digest.js';
@@ -286,6 +286,7 @@ export default function userRoutes() {
   r.put('/me/calendar-prefs', (req, res) => {
     // Only what's given changes (the sidebar sets one switch; the settings dialog sends them all).
     const cur = JSON.parse(q('SELECT cal_prefs FROM users WHERE id = ?').get(req.user.id)?.cal_prefs || 'null') || {};
+    if (req.body?.colorRules !== undefined) { try { colorRulesOf(req.body.colorRules, { strict: true }); } catch (e) { throw bad(e.message); } }
     const p = req.body?.reset ? null : cleanCalPrefs({ ...cur, ...(req.body || {}) });
     q('UPDATE users SET cal_prefs = ? WHERE id = ?').run(p ? JSON.stringify(p) : null, req.user.id);
     res.json(p || cleanCalPrefs(null));

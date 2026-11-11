@@ -21,6 +21,7 @@ import { printRange, daysFromTo, scheduleOf, DAY, VIEWS, startOfDay, visibleDays
 import { roomLine, sortRooms, tooSmall, nowText, hasAll } from './roomfit.js';
 
 const OTHER_COLOURS = ['#e37400', '#8e24aa', '#0b8043', '#d93025', '#00796b', '#3949ab'];
+import { setColorRules, eventColor } from './colorrules.js';
 const COLORS = ['#1a73e8', '#0b8043', '#d50000', '#f4511e', '#8e24aa', '#616161'];
 const HOUR_PX = 48; // height of one hour in the week/day grid
 const pad = (n) => String(n).padStart(2, '0');
@@ -215,6 +216,7 @@ function Calendar({ acting = null, managed = [], onPick }) {
     catch (e) { toast(e.message, 'error'); }
   };
   const { user: me, setUser } = useAuth();
+  setColorRules(me?.cal_prefs?.colorRules); // colours by title, for drawing events (before they're drawn)
   const [showDeclined, setDeclinedState] = useState(me?.cal_prefs?.declined !== false); // invitations you said No to (faded), or hidden
   const setShowDeclined = (on) => {
     setDeclinedState(on); // at once; kept with your account
@@ -434,7 +436,7 @@ function Calendar({ acting = null, managed = [], onPick }) {
         {upcoming.length === 0 && <p className="muted small">Nothing scheduled</p>}
         {upcoming.map((e) => (
           <button key={e.key || e.id} className="upcoming" onClick={() => setEditing(e)}>
-            <span className="dot" style={{ background: e.color || COLORS[0] }} />
+            <span className="dot" style={{ background: eventColor(e) }} />
             <span>
               <strong>{e.title}</strong>
               <span className="muted small">{new Date(e.start).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}{!e.all_day && ` · ${fmtTime(e.start)}`}</span>
@@ -465,7 +467,7 @@ function Calendar({ acting = null, managed = [], onPick }) {
                   {weekNums && k % (weekends ? 7 : 5) === 0 && <span className="weeknum muted" title={`Week ${isoWeek(d)}`}>W{isoWeek(d)}</span>}
                   <button type="button" className="daynum" aria-label={`Open ${d.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}`} onClick={() => openDay(d)}>{d.getDate()}</button>
                   {list.slice(0, 3).map((ev) => (ev.task ? <TaskChip key={ev.key} ev={ev} onDone={taskDone} /> : ev.birthday ? <BirthdayChip key={ev.key} ev={ev} /> : ev.holiday ? <HolidayChip key={ev.key} ev={ev} /> : (
-                    <button key={ev.key || ev.id} className={`chip ${ev.all_day ? 'allday' : ''} ${inviteClass(ev)} ${ev.dragging ? 'dragging' : ''}`} style={{ '--c': ev.color || COLORS[0] }}
+                    <button key={ev.key || ev.id} className={`chip ${ev.all_day ? 'allday' : ''} ${inviteClass(ev)} ${ev.dragging ? 'dragging' : ''}`} style={{ '--c': eventColor(ev) }}
                       onPointerDown={drag.dayHandler(ev, d)} onClick={drag.click(() => setEditing(ev))}>
                       {!ev.all_day && <span className="t">{fmtTime(ev.start)}</span>} {ev.title}{ev.rrule && <span className="rep" aria-label="(repeats)" title="Repeats"> ↻</span>}{ev.private ? <span className="rep" aria-label="(private)" title="Private: people who see your calendar see only “Busy”"> 🔒</span> : null}
                     </button>
@@ -553,7 +555,7 @@ function Schedule({ days, events, today, onOpen, onTaskDone, onDay: openDay }) {
             {items.map((ev) => (
               <li key={ev.key || `${ev.id}:${ev.start}`}>
                 {ev.task ? <TaskChip ev={ev} onDone={onTaskDone} /> : ev.birthday ? <BirthdayChip ev={ev} /> : ev.holiday ? <HolidayChip ev={ev} /> : (
-                  <button type="button" className={`schedule-item ${inviteClass(ev)}`} style={{ '--c': ev.color || COLORS[0] }} onClick={() => onOpen(ev)}>
+                  <button type="button" className={`schedule-item ${inviteClass(ev)}`} style={{ '--c': eventColor(ev) }} onClick={() => onOpen(ev)}>
                     <span className="dot" aria-hidden="true" />
                     <span className="when">{ev.all_day ? 'All day' : `${fmtTime(ev.start)} – ${fmtTime(ev.end)}`}</span>
                     <span className="what">{ev.title}{ev.rrule && <span className="rep" aria-label="(repeats)" title="Repeats"> ↻</span>}{ev.private ? <span className="rep" aria-label="(private)" title="Private: people who see your calendar see only “Busy”"> 🔒</span> : null}{ev.location && <span className="muted small"> · {ev.location}</span>}</span>
@@ -675,7 +677,7 @@ function TimeGrid({ days, events, busy = [], today, onOpen, onNew, onDay: openDa
         {days.map((d) => (
           <div key={d.getTime()} className="tg-allday-cell" data-day={d.getTime()}>
             {onDay(events, d).filter((ev) => ev.all_day).map((ev) => (ev.task ? <TaskChip key={ev.key} ev={ev} onDone={onTaskDone} /> : ev.birthday ? <BirthdayChip key={ev.key} ev={ev} /> : ev.holiday ? <HolidayChip key={ev.key} ev={ev} /> : (
-              <button key={ev.key || ev.id} className={`chip allday ${inviteClass(ev)} ${ev.dragging ? 'dragging' : ''}`} style={{ '--c': ev.color || COLORS[0] }}
+              <button key={ev.key || ev.id} className={`chip allday ${inviteClass(ev)} ${ev.dragging ? 'dragging' : ''}`} style={{ '--c': eventColor(ev) }}
                 onPointerDown={drag.dayHandler(ev, d)} onClick={drag.click(() => onOpen(ev))}>{ev.title}{ev.rrule && <span aria-label="(repeats)"> ↻</span>}</button>
             )))}
           </div>
@@ -704,7 +706,7 @@ function TimeGrid({ days, events, busy = [], today, onOpen, onNew, onDay: openDa
               })}
               {layoutDay(events, d).map(({ ev, top, height, col, cols: n }) => (
                 <button key={ev.key || ev.id} className={`tg-event ${inviteClass(ev)} ${ev.dragging ? 'dragging' : ''} ${ev.role !== 'guest' ? 'movable' : ''}`} title={`${ev.title} · ${fmtTime(ev.start)} – ${fmtTime(ev.end)}${ev.rrule ? ' · repeats' : ''}`}
-                  style={{ '--c': ev.color || COLORS[0], top: (top / 60) * HOUR_PX, height: (height / 60) * HOUR_PX - 2, left: `calc(${(col / n) * 100}% + 2px)`, width: `calc(${100 / n}% - 4px)` }}
+                  style={{ '--c': eventColor(ev), top: (top / 60) * HOUR_PX, height: (height / 60) * HOUR_PX - 2, left: `calc(${(col / n) * 100}% + 2px)`, width: `calc(${100 / n}% - 4px)` }}
                   onPointerDown={drag.timeHandler(ev, d, 'move')} onClick={drag.click(() => onOpen(ev))}>
                   <strong>{ev.title}{ev.rrule && <span aria-label="(repeats)"> ↻</span>}</strong>
                   {height >= 40 && <span>{fmtTime(ev.start)} – {fmtTime(ev.end)}</span>}
@@ -750,8 +752,37 @@ function CalPrefsDialog({ onClose }) {
         <p className="muted small" style={{ margin: 0 }}>Meetings of 30 minutes end 5 minutes early, and those of an hour or more 10 minutes early, leaving a gap before the next one. New events now last {mins === p.length ? lengthLabel(mins) : `${mins} minutes`}.</p>
         <span className="small"><strong>Reminders</strong> on a new event (you can still change them on each one):</span>
         <RemindersField value={p.reminders} onChange={(reminders) => setP({ ...p, reminders })} />
+        <ColorRulesField value={p.colorRules || []} onChange={(colorRules) => setP({ ...p, colorRules })} />
       </div>
     </Modal>
+  );
+}
+
+/** Colours by title: a word or phrase and a colour, for events that have no colour of their own. */
+function ColorRulesField({ value, onChange }) {
+  const [word, setWord] = useState('');
+  const [color, setColor] = useState(COLORS[4]);
+  const add = () => { const w = word.trim(); if (!w || value.length >= 20) return; onChange([...value.filter((r) => r.word.toLowerCase() !== w.toLowerCase()), { word: w, color }]); setWord(''); };
+  return (
+    <div className="field color-rules" role="group" aria-label="Colours by title">
+      <span><strong>Colours by title</strong>: events with no colour of their own whose title has the word show in its colour (only for you).</span>
+      {value.map((r, i) => (
+        <div key={r.word} className="row" style={{ gap: 8 }}>
+          <span className="dot" style={{ background: r.color }} aria-hidden="true" />
+          <span className="grow">“{r.word}”</span>
+          <button type="button" className="icon-btn" aria-label={`Remove the rule for “${r.word}”`} onClick={() => onChange(value.filter((_, j) => j !== i))}><Icon name="close" size={16} /></button>
+        </div>
+      ))}
+      {value.length < 20 && (
+        <div className="row" style={{ gap: 8 }}>
+          <input aria-label="Word in the title" placeholder="e.g. 1:1, Lunch, Interview" value={word} maxLength={40} onChange={(e) => setWord(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } }} />
+          <select aria-label="Colour for it" value={color} onChange={(e) => setColor(e.target.value)}>
+            {[['#0b8043', 'Green'], ['#d50000', 'Red'], ['#f4511e', 'Orange'], ['#8e24aa', 'Purple'], ['#616161', 'Grey'], ['#039be5', 'Light blue'], ['#f6bf26', 'Yellow'], ['#e67c73', 'Pink']].map(([c, n]) => <option key={c} value={c}>{n}</option>)}
+          </select>
+          <button type="button" className="btn small" disabled={!word.trim()} onClick={add}>Add</button>
+        </div>
+      )}
+    </div>
   );
 }
 
