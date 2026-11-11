@@ -656,17 +656,18 @@ function RoomUsage() {
         </select></div>
       {!data ? <p className="muted small">Loading…</p> : (
         <table className="data-table" aria-label="Room usage">
-          <thead><tr><th>Room</th><th>Bookings</th><th>Hours</th><th>Of working time</th><th>Booked most by</th></tr></thead>
+          <thead><tr><th>Room</th><th>Bookings</th><th>Hours</th><th>Of working time</th><th title="Booked, but nobody checked in, so the room was released (rooms with check-in)">No-shows</th><th>Booked most by</th></tr></thead>
           <tbody>{data.rooms.map((r) => (
             <tr key={r.id}>
               <td>{r.name}</td><td>{r.bookings}</td><td>{r.hours}</td>
               <td><span className="usage-bar" aria-hidden="true"><span style={{ width: `${r.share}%` }} /></span> {r.share}%</td>
+              <td className={r.no_shows ? 'usage-noshow' : 'muted'}>{r.no_shows || '—'}</td>
               <td className="muted small">{r.top.map((p) => `${p.name} (${p.bookings})`).join(', ') || '—'}</td>
             </tr>
           ))}</tbody>
         </table>
       )}
-      <p className="muted small" style={{ margin: 0 }}>Working time is weekdays, 8 hours a day. A room that's rarely booked could become something else; one that's always taken may mean you need another like it.</p>
+      <p className="muted small" style={{ margin: 0 }}>Working time is weekdays, 8 hours a day. No-shows are bookings released because nobody checked in (rooms with ✅ Check-in). A room that's rarely booked could become something else; one that's always taken may mean you need another like it.</p>
     </div>
   );
 }

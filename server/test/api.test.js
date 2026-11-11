@@ -2571,6 +2571,8 @@ test('rooms: check in, or the room is released for others', async () => {
   const bell = (await a('GET', '/api/notifications')).body;
   assert.ok((Array.isArray(bell) ? bell : bell.items || bell.notifications).some((n) => n.title === 'Zz CI A was released'));
   assert.equal((await b('POST', `/api/rooms/${ra.id}/book-now`, { minutes: 15 })).status, 201, 'someone else can have it');
+  const usage = (await owner('GET', '/api/rooms/usage?days=7')).body.rooms;
+  assert.deepEqual([usage.find((x) => x.id === ra.id).no_shows, usage.find((x) => x.id === rb.id).no_shows], [1, 0], 'the usage report counts no-shows');
   for (const r of [ra, rb, rc]) await owner('DELETE', `/api/rooms/${r.id}`);
 });
 

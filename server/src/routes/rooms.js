@@ -138,7 +138,9 @@ export function roomUsage(roomId, from, to) {
   const by = new Map();
   for (const b of list) by.set(b.organizer, (by.get(b.organizer) || 0) + 1);
   const top = [...by].sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0])).slice(0, 3).map(([name, n]) => ({ name, bookings: n }));
-  return { bookings: list.length, hours: Math.round(booked / 36e4) / 10, share: weekdays ? Math.min(100, Math.round((booked / (weekdays * 8 * 36e5)) * 100)) : 0, top };
+  // Bookings released because nobody checked in (rooms with check-in): booked, then not used.
+  const noShows = q('SELECT COUNT(*) AS n FROM room_checkins WHERE room_id = ? AND released = 1 AND start >= ? AND start < ?').get(roomId, from, to).n;
+  return { no_shows: noShows, bookings: list.length, hours: Math.round(booked / 36e4) / 10, share: weekdays ? Math.min(100, Math.round((booked / (weekdays * 8 * 36e5)) * 100)) : 0, top };
 }
 export const USAGE_DAYS = [7, 30, 90];
 

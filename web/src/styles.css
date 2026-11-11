@@ -2828,3 +2828,4 @@ select.meet-timer-btn option { color: #202124; }
 .room-list li .room-admins { white-space: nowrap; }
 .room-checkin { color: var(--warning, #b06000); }
 .rooms-now li { flex-wrap: wrap; } .rooms-now li > .grow { min-width: 200px; }
+.usage-noshow { color: var(--warning, #b06000); font-weight: 600; }
