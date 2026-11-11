@@ -9,6 +9,7 @@ import { statusLine, untilText, unreachableText } from '../../components/status.
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { get, post, put, patch, del, onLive, uploadFile, formatBytes } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
+import Bookmarks from './Bookmarks.jsx';
 import PersonCard from '../../components/PersonCard.jsx';
 import EmojiPicker from '../../components/EmojiPicker.jsx';
 import { useCompanyEmoji, imageUrl, splitEmoji, customName, reloadEmoji } from './companyemoji.js';
@@ -708,6 +709,7 @@ export default function Chat() {
             ]} />
             {!current.dm_key && <button type="button" className="icon-btn" aria-label="Channel settings" title="Channel settings" onClick={() => setSettingsOpen(true)}><Icon name="settings" /></button>}
           </div>
+          <Bookmarks key={current.id} channel={current} />
           <div className="messages" ref={scroller} onScroll={(e) => { const el = e.currentTarget; stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40; if (stick.current) setBelow(0); }}>
             {messages.length === 0 && <Empty icon="chat" title="No messages yet">Say hello 👋</Empty>}
             {messages.map((m, i) => {

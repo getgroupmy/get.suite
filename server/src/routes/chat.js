@@ -148,6 +148,7 @@ import { namesIn, userIdsIn, newCode, onCallEnded } from '../meet.js';
 import { baseUrl, focusUntil } from './calendar.js';
 import { quietUntil } from '../workhours.js';
 import { cleanKeywords, keywordIn } from '../chatkeywords.js';
+import { cleanBookmark, bookmarksOf, MAX_BOOKMARKS } from '../chatbookmarks.js';
 
 /**
  * Channels belong to one company (org_id set, dm_key NULL).
@@ -1456,6 +1457,26 @@ export default function chatRoutes() {
     sendTo(audience(c), { type: 'message-updated', message: msg });
     sendTo(audience(c), { type: 'pins-changed', channel_id: c.id });
     res.json(msg);
+  });
+
+  // Bookmarks: links at the top of a conversation, for everyone in it.
+  r.get('/channels/:id/bookmarks', (req, res) => res.json(bookmarksOf(loadChannel(req.params.id, req.user).id)));
+  r.post('/channels/:id/bookmarks', (req, res) => {
+    const c = loadChannel(req.params.id, req.user);
+    readOnly(c);
+    const b = cleanBookmark(req.body);
+    if (b.error) throw bad(b.error);
+    if (q('SELECT COUNT(*) AS n FROM chat_bookmarks WHERE channel_id = ?').get(c.id).n >= MAX_BOOKMARKS) throw bad(`At most ${MAX_BOOKMARKS} bookmarks; remove one first`);
+    q('INSERT INTO chat_bookmarks (id, channel_id, title, url, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(uid(), c.id, b.title, b.url, req.user.id, now());
+    sendTo(audience(c), { type: 'bookmarks-changed', channel_id: c.id });
+    res.status(201).json(bookmarksOf(c.id));
+  });
+  r.delete('/channels/:id/bookmarks/:bid', (req, res) => {
+    const c = loadChannel(req.params.id, req.user);
+    readOnly(c);
+    if (!q('DELETE FROM chat_bookmarks WHERE id = ? AND channel_id = ?').run(String(req.params.bid), c.id).changes) throw notFound();
+    sendTo(audience(c), { type: 'bookmarks-changed', channel_id: c.id });
+    res.json(bookmarksOf(c.id));
   });
 
   // A conversation's pinned messages, most recently pinned first.

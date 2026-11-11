@@ -4848,6 +4848,29 @@ test('forms: a theme (colour, tinted page, font, header picture) shown to people
   assert.equal((await anon('GET', `/api/public/forms/${made.token}/pictures/${banner.id}`)).status, 404);
 });
 
+test('chat bookmarks: links at the top of a conversation, for those in it', async () => {
+  const a = client(), b = client(), x = client();
+  for (const [local, name] of [['bma', 'Bm Ann'], ['bmb', 'Bm Ben'], ['bmx', 'Bm Xavi']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'bma@acme.com');
+  const bid = (await login(b, 'bmb@acme.com')).id;
+  await login(x, 'bmx@acme.com');
+  const ch = (await a('POST', '/api/chat/channels', { name: 'bm-private', private: true, members: [bid] })).body.id;
+  assert.deepEqual((await a('GET', `/api/chat/channels/${ch}/bookmarks`)).body, []);
+  assert.equal((await a('POST', `/api/chat/channels/${ch}/bookmarks`, { title: 'x', url: 'javascript:alert(1)' })).status, 400);
+  const one = (await a('POST', `/api/chat/channels/${ch}/bookmarks`, { title: 'Q3 plan', url: '/docs/abc' })).body;
+  assert.deepEqual(one.map((m) => [m.title, m.url, m.added_by]), [['Q3 plan', '/docs/abc', 'Bm Ann']]);
+  const two = (await b('POST', `/api/chat/channels/${ch}/bookmarks`, { url: 'https://example.com/handbook' })).body;
+  assert.deepEqual(two.map((m) => m.title), ['Q3 plan', 'example.com/handbook'], 'oldest first; a title from the link');
+  assert.equal((await x('GET', `/api/chat/channels/${ch}/bookmarks`)).status, 404, 'not in the conversation');
+  assert.equal((await x('POST', `/api/chat/channels/${ch}/bookmarks`, { url: '/drive' })).status, 404);
+  assert.equal((await x('DELETE', `/api/chat/channels/${ch}/bookmarks/${two[0].id}`)).status, 404);
+  const left = (await b('DELETE', `/api/chat/channels/${ch}/bookmarks/${two[0].id}`)).body;
+  assert.deepEqual(left.map((m) => m.title), ['example.com/handbook'], 'anyone in it can take one away');
+  assert.equal((await b('DELETE', `/api/chat/channels/${ch}/bookmarks/${two[0].id}`)).status, 404, 'already gone');
+  for (let i = 0; i < 19; i++) await a('POST', `/api/chat/channels/${ch}/bookmarks`, { url: `/docs/d${i}` });
+  assert.equal((await a('POST', `/api/chat/channels/${ch}/bookmarks`, { url: '/docs/one-too-many' })).status, 400, 'at most 20');
+});
+
 test('docs writing preferences: autocorrect and your own replacements, per person', async () => {
   const { cleanPrefs } = await import('../src/routes/docprefs.js');
   assert.deepEqual(cleanPrefs({ autocorrect: 0, subs: [{ from: ' addr ', to: '12 High St' }, { from: 'two words', to: 'x' }, { from: 'addr', to: 'again' }, { from: 'empty', to: '' }] }),
