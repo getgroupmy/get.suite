@@ -6,6 +6,7 @@ import { q, tx } from '../db.js';
 import { uid, now, str, bad, notFound, forbidden, HttpError } from '../util.js';
 import { expand } from '../calmath.js';
 import { outEvent, touch } from './calendar.js';
+import { notify } from '../notifications.js';
 
 q(`CREATE TABLE IF NOT EXISTS rooms (
   id TEXT PRIMARY KEY,
@@ -22,7 +23,7 @@ q(`CREATE TABLE IF NOT EXISTS event_rooms (
 )`).run();
 // Where a room is (building, floor) and what's in it (video, a whiteboard…), to pick the right one.
 // admins_only: only the company's admins can book it (a boardroom, the company car); others are declined.
-for (const [col, type] of [['location', 'TEXT'], ['features', "TEXT NOT NULL DEFAULT '[]'"], ['admins_only', 'INTEGER NOT NULL DEFAULT 0']]) {
+for (const [col, type] of [['location', 'TEXT'], ['features', "TEXT NOT NULL DEFAULT '[]'"], ['admins_only', 'INTEGER NOT NULL DEFAULT 0'], ['check_in', 'INTEGER NOT NULL DEFAULT 0']]) {
   if (!q('PRAGMA table_info(rooms)').all().some((c) => c.name === col)) q(`ALTER TABLE rooms ADD COLUMN ${col} ${type}`).run();
 }
 export const MAX_FEATURES = 10;
@@ -37,13 +38,26 @@ export function cleanFeatures(list) {
   if (out.length > MAX_FEATURES) throw bad(`At most ${MAX_FEATURES} things in a room`);
   return out;
 }
-const ROOM = 'SELECT id, name, capacity, location, features, admins_only FROM rooms';
-const outRoom = (r) => r && { ...r, features: JSON.parse(r.features || '[]'), admins_only: !!r.admins_only };
+const ROOM = 'SELECT id, name, capacity, location, features, admins_only, check_in FROM rooms';
+const outRoom = (r) => r && { ...r, features: JSON.parse(r.features || '[]'), admins_only: !!r.admins_only, check_in: !!r.check_in };
 /** May this person book the room? */
 const mayBook = (room, user) => !room.admins_only || !!user.is_admin;
 /** ?needs=Video,Whiteboard: rooms that have all of these (ignoring case). */
 const needsOf = (req) => String(req.query.needs || '').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean).slice(0, MAX_FEATURES);
 const hasAll = (room, needs) => needs.every((n) => room.features.some((f) => f.toLowerCase() === n));
+
+// Check-in (rooms with check_in): someone from the meeting checks in during its first minutes, or the
+// room is released for that time (one occurrence of a repeating meeting at a time) and others can book it.
+q(`CREATE TABLE IF NOT EXISTS room_checkins (
+  room_id TEXT NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+  event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+  start INTEGER NOT NULL,           -- the occurrence
+  released INTEGER NOT NULL DEFAULT 0,  -- 0: checked in; 1: nobody did, the room went back
+  at INTEGER NOT NULL,
+  PRIMARY KEY (room_id, event_id, start)
+)`).run();
+export const CHECK_IN_MINUTES = 10;
+const releasedSet = (roomId) => new Set(q('SELECT event_id, start FROM room_checkins WHERE room_id = ? AND released = 1').all(roomId).map((r) => `${r.event_id}:${r.start}`));
 
 const WINDOW = 183 * 864e5;
 /** The times an event takes up (repeating ones over the next six months). */
@@ -56,8 +70,9 @@ function clash(roomId, eventId, times) {
   const others = q(`SELECT e.* FROM events e JOIN event_rooms r ON r.event_id = e.id
                     WHERE r.room_id = ? AND r.status = 'yes' AND e.id != ? AND e.start < ?
                       AND (e.end > ? OR (e.rrule IS NOT NULL AND (e.repeat_until IS NULL OR e.repeat_until > ?)))`).all(roomId, eventId, to, from, from);
+  const gone = releasedSet(roomId);
   for (const o of others) {
-    const busy = timesOf(outEvent(o), from - 864e5).filter((b) => b.start < to && b.end > from);
+    const busy = timesOf(outEvent(o), from - 864e5).filter((b) => b.start < to && b.end > from && !gone.has(`${o.id}:${b.start}`));
     if (busy.some((b) => times.some((t) => b.start < t.end && b.end > t.start))) return o.title;
   }
   return null;
@@ -89,7 +104,8 @@ function bookingsOf(roomId, from, to) {
   const rows = q(`SELECT e.*, u.name AS organizer FROM events e JOIN event_rooms r ON r.event_id = e.id JOIN users u ON u.id = e.owner_id
                   WHERE r.room_id = ? AND r.status = 'yes' AND e.start < ?
                     AND (e.end > ? OR (e.rrule IS NOT NULL AND (e.repeat_until IS NULL OR e.repeat_until > ?)))`).all(roomId, to, from, from);
-  return rows.flatMap((row) => expand(outEvent(row), from, to).map((o) => ({ start: o.start, end: o.end, title: row.title, organizer: row.organizer, event_id: row.id, owner_id: row.owner_id, repeating: !!row.rrule })))
+  const gone = releasedSet(roomId);
+  return rows.flatMap((row) => expand(outEvent(row), from, to).filter((o) => !gone.has(`${row.id}:${o.start}`)).map((o) => ({ start: o.start, end: o.end, title: row.title, organizer: row.organizer, event_id: row.id, owner_id: row.owner_id, repeating: !!row.rrule })))
     .sort((x, y) => x.start - y.start);
 }
 
@@ -105,7 +121,9 @@ export function roomNow(roomId, t = Date.now()) {
   let until = on.end;
   for (const b of list) if (b.start <= until && b.end > until) until = b.end;
   const n = list.find((b) => b.start >= until);
-  return { busy: { title: on.title, organizer: on.organizer, until }, next: n ? { start: n.start, title: n.title } : null, current: on };
+  const done = q('SELECT 1 FROM room_checkins WHERE room_id = ? AND event_id = ? AND start = ?').get(roomId, on.event_id, on.start);
+  const needs = !!q('SELECT check_in FROM rooms WHERE id = ?').get(roomId)?.check_in;
+  return { busy: { title: on.title, organizer: on.organizer, until, checked_in: !!done, release_at: needs && !done ? on.start + CHECK_IN_MINUTES * 60000 : null }, next: n ? { start: n.start, title: n.title } : null, current: on };
 }
 /**
  * How much a room was used from–to: bookings, hours booked (overlaps counted once), the share of
@@ -123,6 +141,25 @@ export function roomUsage(roomId, from, to) {
   return { bookings: list.length, hours: Math.round(booked / 36e4) / 10, share: weekdays ? Math.min(100, Math.round((booked / (weekdays * 8 * 36e5)) * 100)) : 0, top };
 }
 export const USAGE_DAYS = [7, 30, 90];
+
+/**
+ * Rooms with check-in: meetings that started CHECK_IN_MINUTES ago (or more, within the hour) with
+ * nobody checked in lose the room for that time; the organizer is told. Returns how many were released.
+ */
+export function releaseNoShows(t = Date.now()) {
+  let n = 0;
+  for (const room of q('SELECT id, name FROM rooms WHERE check_in = 1').all()) {
+    for (const b of bookingsOf(room.id, t - 36e5, t)) {
+      if (b.start > t - CHECK_IN_MINUTES * 60000 || b.start < t - 36e5 || b.end <= t) continue;
+      if (q('SELECT 1 FROM room_checkins WHERE room_id = ? AND event_id = ? AND start = ?').get(room.id, b.event_id, b.start)) continue;
+      q('INSERT INTO room_checkins (room_id, event_id, start, released, at) VALUES (?, ?, ?, 1, ?)').run(room.id, b.event_id, b.start, t);
+      notify([b.owner_id], { kind: 'invite', title: `${room.name} was released`, body: `Nobody checked in to “${b.title}” in its first ${CHECK_IN_MINUTES} minutes, so others can book the room now.`, link: '/calendar' });
+      touch([b.owner_id]);
+      n++;
+    }
+  }
+  return n;
+}
 
 export const QUICK_MINUTES = [15, 30, 45, 60, 90, 120];
 
@@ -200,6 +237,17 @@ export default function roomRoutes() {
     if (cur.repeating) throw bad('That’s a repeating meeting: change it in the calendar');
     return { room, cur, t };
   };
+  // Check in to the meeting in the room now: its organizer or a guest (in the room, so it's kept).
+  r.post('/:id/check-in', (req, res) => {
+    const room = q('SELECT * FROM rooms WHERE id = ? AND org_id = ?').get(req.params.id, req.user.org_id);
+    if (!room) throw notFound();
+    const t = Date.now();
+    const cur = roomNow(room.id, t).current;
+    const inIt = cur && (cur.owner_id === req.user.id || q("SELECT 1 FROM event_guests WHERE event_id = ? AND user_id = ? AND status != 'no'").get(cur.event_id, req.user.id));
+    if (!inIt) throw new HttpError(409, `You’re not in the meeting in ${room.name} right now`);
+    q('INSERT OR IGNORE INTO room_checkins (room_id, event_id, start, released, at) VALUES (?, ?, ?, 0, ?)').run(room.id, cur.event_id, cur.start, t);
+    res.json({ ok: true, title: cur.title });
+  });
   const moved = (eventId, end) => {
     q('UPDATE events SET end = ? WHERE id = ?').run(end, eventId);
     touch([q('SELECT owner_id FROM events WHERE id = ?').get(eventId).owner_id, ...q('SELECT user_id FROM event_guests WHERE event_id = ?').all(eventId).map((g) => g.user_id)]);
@@ -234,6 +282,7 @@ export default function roomRoutes() {
     name: str(b.name ?? cur.name, { required: true, name: 'Name', max: 100 }),
     location: b.location === undefined ? cur.location ?? null : str(b.location, { name: 'Where it is', max: 100 }) || null,
     features: b.features === undefined ? JSON.parse(cur.features || '[]') : cleanFeatures(b.features),
+    check_in: b.check_in === undefined ? cur.check_in ? 1 : 0 : b.check_in ? 1 : 0,
     admins_only: b.admins_only === undefined ? cur.admins_only ? 1 : 0 : b.admins_only ? 1 : 0,
     capacity: b.capacity === undefined ? cur.capacity ?? null : b.capacity === null || b.capacity === '' ? null : (() => { const n = Number(b.capacity); if (!Number.isInteger(n) || n < 1 || n > 10000) throw bad('Capacity: a number of people'); return n; })(),
   });
@@ -242,7 +291,7 @@ export default function roomRoutes() {
     const v = read(req.body);
     if (q('SELECT COUNT(*) AS n FROM rooms WHERE org_id = ?').get(req.user.org_id).n >= 200) throw bad('At most 200 rooms');
     const id = uid();
-    q('INSERT INTO rooms (id, org_id, name, capacity, location, features, admins_only, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(id, req.user.org_id, v.name, v.capacity, v.location, JSON.stringify(v.features), v.admins_only, now());
+    q('INSERT INTO rooms (id, org_id, name, capacity, location, features, admins_only, check_in, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(id, req.user.org_id, v.name, v.capacity, v.location, JSON.stringify(v.features), v.admins_only, v.check_in, now());
     res.status(201).json(outRoom(q(`${ROOM} WHERE id = ?`).get(id)));
   });
   const own = (req) => { const room = q('SELECT * FROM rooms WHERE id = ? AND org_id = ?').get(req.params.id, req.user.org_id); if (!room) throw notFound(); return room; };
@@ -250,7 +299,7 @@ export default function roomRoutes() {
     admin(req);
     const room = own(req);
     const v = read(req.body, room);
-    q('UPDATE rooms SET name = ?, capacity = ?, location = ?, features = ?, admins_only = ? WHERE id = ?').run(v.name, v.capacity, v.location, JSON.stringify(v.features), v.admins_only, room.id);
+    q('UPDATE rooms SET name = ?, capacity = ?, location = ?, features = ?, admins_only = ?, check_in = ? WHERE id = ?').run(v.name, v.capacity, v.location, JSON.stringify(v.features), v.admins_only, v.check_in, room.id);
     res.json(outRoom(q(`${ROOM} WHERE id = ?`).get(room.id)));
   });
   r.delete('/:id', (req, res) => {

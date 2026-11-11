@@ -623,6 +623,9 @@ function Rooms() {
                 onBlur={(e) => { const v = e.target.value.trim(); if (v !== (r.location ?? '')) run(() => patch(`/rooms/${r.id}`, { location: v }))(); }} />
               <input aria-label={`Equipment in ${r.name}`} className="room-kit" placeholder="Equipment, with commas" defaultValue={(r.features || []).join(', ')}
                 onBlur={(e) => { const v = readFeatures(e.target.value); e.target.value = v.join(', '); if (v.join('\n') !== (r.features || []).join('\n')) run(() => patch(`/rooms/${r.id}`, { features: v }))(); }} />
+              <label className="check small room-admins" title="Someone from the meeting checks in within 10 minutes of the start (in Rooms now), or the room is released for others">
+                <input type="checkbox" aria-label={`Release ${r.name} if nobody checks in`} defaultChecked={!!r.check_in}
+                  onChange={(e) => { const el = e.target, on = el.checked; patch(`/rooms/${r.id}`, { check_in: on }).then(() => toast(on ? `${r.name}: check-in needed` : `${r.name}: no check-in`)).catch((err) => { el.checked = !on; toast(err.message, 'error'); }); }} /> ✅ Check-in</label>
               <label className="check small room-admins" title="Only admins can book it; others are declined"><input type="checkbox" aria-label={`Only admins can book ${r.name}`} defaultChecked={!!r.admins_only}
                 onChange={(e) => { const el = e.target, on = el.checked; patch(`/rooms/${r.id}`, { admins_only: on }).then(() => toast(on ? `${r.name}: admins only` : `${r.name}: anyone can book`)).catch((err) => { el.checked = !on; toast(err.message, 'error'); }); }} /> 🔒 Admins only</label>
               <button type="button" className="icon-btn" aria-label={`Remove ${r.name}`} onClick={run(() => del(`/rooms/${r.id}`), `${r.name} removed`)}><Icon name="trash" size={18} /></button>

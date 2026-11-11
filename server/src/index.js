@@ -22,6 +22,7 @@ import { purgeAudit } from './audit.js';
 import { emptyOldTrash } from './routes/files.js';
 import { purgeOldChat } from './routes/chat.js';
 import { notifyDueTouches } from './routes/contacts.js';
+import { releaseNoShows } from './routes/rooms.js';
 import { refreshDueFeeds } from './calfeeds.js';
 import { sendDueDigests } from './digest.js';
 import { sendBookingReminders } from './routes/booking.js';
@@ -46,6 +47,7 @@ if (restored) {
 }
 setInterval(() => purgeAuthLog(), 3600e3).unref();
 setInterval(() => { try { notifyDueTouches(); } catch (e) { console.error('[contacts] keep in touch:', e.message); } }, 3600e3).unref(); // contacts due to be in touch with
+setInterval(() => { try { releaseNoShows(); } catch (e) { console.error('[rooms] check-in:', e.message); } }, 60e3).unref(); // rooms nobody checked in to go back
 setInterval(() => purgeAudit(), 6 * 3600e3).unref(); // activity older than AUDIT_DAYS
 setInterval(() => emptyOldTrash(), 3600e3).unref(); // Drive: trash older than each company keeps it
 setTimeout(() => emptyOldTrash(), 60e3).unref();

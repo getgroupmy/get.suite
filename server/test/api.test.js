@@ -2544,6 +2544,36 @@ test('rooms: where each is and what is in it', async () => {
   await owner('DELETE', `/api/rooms/${room.id}`);
 });
 
+test('rooms: check in, or the room is released for others', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['rcia', 'Cia Ann'], ['rcib', 'Cib Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'rcia@acme.com'); await login(b, 'rcib@acme.com');
+  const mk = async (name, check_in) => (await owner('POST', '/api/rooms', { name, check_in })).body;
+  const ra = await mk('Zz CI A', true), rb = await mk('Zz CI B', true), rc = await mk('Zz CI C', false);
+  assert.equal(ra.check_in, true);
+  const t = Date.now();
+  await a('POST', '/api/events', { title: 'No show', start: t - 15 * 6e4, end: t + 45 * 6e4, rooms: [ra.id] });
+  await owner('POST', '/api/events', { title: 'Here', start: t - 5 * 6e4, end: t + 55 * 6e4, rooms: [rb.id], guests: ['rcia@acme.com'] });
+  await a('POST', '/api/events', { title: 'No check-in needed', start: t - 15 * 6e4, end: t + 45 * 6e4, rooms: [rc.id] });
+  const now = async (c, id) => (await c('GET', '/api/rooms/now')).body.find((x) => x.id === id);
+  assert.equal((await now(a, rb.id)).busy.release_at, t - 5 * 6e4 + 10 * 6e4, 'released unless someone checks in by then');
+  assert.equal((await b('POST', `/api/rooms/${rb.id}/check-in`)).status, 409, 'not in that meeting');
+  assert.equal((await a('POST', `/api/rooms/${rb.id}/check-in`)).status, 200, 'a guest checks in');
+  assert.deepEqual([(await now(a, rb.id)).busy.checked_in, (await now(a, rb.id)).busy.release_at], [true, null]);
+  assert.equal((await now(a, rc.id)).busy.release_at, null, 'no check-in for this room');
+
+  const { releaseNoShows } = await import('../src/routes/rooms.js');
+  assert.equal(releaseNoShows(Date.now()), 1, 'only the no-show');
+  assert.equal(releaseNoShows(Date.now()), 0, 'once');
+  assert.equal(releaseNoShows(Date.now() + 10 * 6e4), 0, 'checked in: kept');
+  assert.equal((await now(b, ra.id)).busy, null, 'free again');
+  assert.equal((await now(b, rc.id)).busy.title, 'No check-in needed');
+  const bell = (await a('GET', '/api/notifications')).body;
+  assert.ok((Array.isArray(bell) ? bell : bell.items || bell.notifications).some((n) => n.title === 'Zz CI A was released'));
+  assert.equal((await b('POST', `/api/rooms/${ra.id}/book-now`, { minutes: 15 })).status, 201, 'someone else can have it');
+  for (const r of [ra, rb, rc]) await owner('DELETE', `/api/rooms/${r.id}`);
+});
+
 test('rooms: some only admins can book', async () => {
   const a = client();
   assert.equal((await owner('POST', '/api/users', { local: 'radm', domain: 'acme.com', name: 'Ray Adm', password: 'password123' })).status, 201);

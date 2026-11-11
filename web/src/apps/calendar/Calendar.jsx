@@ -1121,7 +1121,7 @@ function RoomsNow({ onClose }) {
   const act = async (r, what) => {
     try {
       const ev = await post(`/rooms/${r.id}/${what}`, what === 'extend' ? { minutes: 15 } : {});
-      toast(what === 'extend' ? `${r.name}: yours until ${time(ev.end)}` : `${r.name} is free for others now`);
+      toast(what === 'extend' ? `${r.name}: yours until ${time(ev.end)}` : what === 'check-in' ? `Checked in to ${r.name}` : `${r.name} is free for others now`);
     } catch (e) { toast(e.message, 'error'); }
     load();
   };
@@ -1143,9 +1143,12 @@ function RoomsNow({ onClose }) {
               <div className="grow">
                 <div className="rooms-now-name">{roomLine(r)}</div>
                 <div className="muted small">{nowText(r, time)}</div>
+                {r.busy?.release_at && <div className="small room-checkin">⏳ Check in by {time(r.busy.release_at)} or it’s released</div>}
+                {r.busy?.checked_in && <div className="small muted">✓ Checked in</div>}
               </div>
               {!r.busy && r.can_book !== false && <button type="button" className="btn" onClick={() => book(r)}>Book now</button>}
               {!r.busy && r.can_book === false && <span className="muted small" title="Only admins can book it">🔒 Admins only</span>}
+              {r.busy?.release_at && <button type="button" className="btn" title={`Someone from the meeting checks in by ${time(r.busy.release_at)}, or the room goes back for others`} onClick={() => act(r, 'check-in')}>Check in</button>}
               {r.busy?.mine && <>
                 <button type="button" className="btn" title="Keep the room 15 minutes longer (if nobody has it then)" onClick={() => act(r, 'extend')}>+15 min</button>
                 <button type="button" className="btn" title="Finished early? End your meeting now and give the room back" onClick={() => act(r, 'end-now')}>End now</button>
