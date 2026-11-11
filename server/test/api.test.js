@@ -2544,6 +2544,27 @@ test('rooms: where each is and what is in it', async () => {
   await owner('DELETE', `/api/rooms/${room.id}`);
 });
 
+test('rooms: some only admins can book', async () => {
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'radm', domain: 'acme.com', name: 'Ray Adm', password: 'password123' })).status, 201);
+  await login(a, 'radm@acme.com');
+  const room = (await owner('POST', '/api/rooms', { name: 'Zz Exec room', admins_only: true })).body;
+  assert.equal(room.admins_only, true);
+  const t = Date.now() + 2 * 864e5;
+  assert.equal((await a('GET', '/api/rooms')).body.find((r) => r.id === room.id).can_book, false);
+  assert.equal((await owner('GET', '/api/rooms')).body.find((r) => r.id === room.id).can_book, true);
+  const mine = (await a('POST', '/api/events', { title: 'Mine', start: t, end: t + 36e5, rooms: [room.id] })).body;
+  assert.deepEqual(mine.rooms.map((r) => [r.status, r.admins_only]), [['no', true]], 'declined: admins only');
+  const boss = (await owner('POST', '/api/events', { title: 'Board', start: t + 2 * 36e5, end: t + 3 * 36e5, rooms: [room.id] })).body;
+  assert.equal(boss.rooms[0].status, 'yes');
+  assert.equal((await a('POST', `/api/rooms/${room.id}/book-now`, {})).status, 403);
+  assert.equal((await a('PATCH', `/api/rooms/${room.id}`, { admins_only: false })).status, 403, 'only admins change rooms');
+  assert.equal((await owner('PATCH', `/api/rooms/${room.id}`, { capacity: 6 })).body.admins_only, true, 'kept');
+  assert.equal((await owner('PATCH', `/api/rooms/${room.id}`, { admins_only: false })).body.admins_only, false);
+  assert.equal((await a('PATCH', `/api/events/${mine.id}`, { rooms: [room.id] })).body.rooms[0].status, 'yes', 'open to everyone now');
+  await owner('DELETE', `/api/rooms/${room.id}`);
+});
+
 test('rooms: only those with what the meeting needs', async () => {
   const mk = async (name, features) => (await owner('POST', '/api/rooms', { name, features })).body;
   const r1 = await mk('Zz Needs one', ['Video', 'Whiteboard']), r2 = await mk('Zz Needs two', ['video']), r3 = await mk('Zz Needs three', []);

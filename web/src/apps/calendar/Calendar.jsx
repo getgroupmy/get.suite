@@ -860,7 +860,7 @@ function InvitationDialog({ event, onClose, onAnswered }) {
         <p style={{ margin: 0 }}><span className="muted">Organizer:</span> {event.organizer?.name} <span className="muted small">{event.organizer?.email}</span></p>
         <GuestList guests={event.guests} />
         <p style={{ margin: 0 }}><a className="small" href={`/api/events/${event.id}/ics`} download>Download this event (.ics)</a> <span className="muted small">for another calendar app</span> · <CopyEventLink event={event} className="link-btn small" /></p>
-        {event.rooms?.length > 0 && <p className="muted small">Room: {event.rooms.map((r) => `${r.name}${r.status === 'no' ? ' (declined: taken)' : ''}`).join(', ')}</p>}
+        {event.rooms?.length > 0 && <p className="muted small">Room: {event.rooms.map((r) => `${r.name}${r.status === 'no' ? (r.admins_only ? ' (declined: admins only)' : ' (declined: taken)') : ''}`).join(', ')}</p>}
         <RemindersField value={reminders} onChange={saveReminders} />
         {!event.rrule && <ProposeTime event={event} onDone={onAnswered} />}
         <div className="stack" style={{ gap: 6 }}>
@@ -981,8 +981,8 @@ function RoomPicker({ eventId, chosen, booked, onChange, when, people = 1 }) {
             const was = booked.find((x) => x.id === id);
             // (This event's own booking doesn't count against it.)
             const taken = r.free === false;
-            const state = taken ? 'Taken then' : was?.status === 'yes' ? 'Booked' : 'Free: booked when you save';
-            return <li key={id} className={taken || was?.status === 'no' ? 'room-taken' : ''}>{label(r)} <span className="muted small">· {state}</span>
+            const state = r.can_book === false && was?.status !== 'yes' ? 'Only admins can book it' : taken ? 'Taken then' : was?.status === 'yes' ? 'Booked' : 'Free: booked when you save';
+            return <li key={id} className={taken || was?.status === 'no' || (r.can_book === false && was?.status !== 'yes') ? 'room-taken' : ''}>{label(r)} <span className="muted small">· {state}</span>
               {tooSmall(r, people) && <span className="room-small small" title="More people are coming than it seats">⚠ Too small for {people}</span>}
               <button type="button" className="icon-btn" aria-label={`Remove ${r.name}`} onClick={() => onChange(chosen.filter((x) => x !== id))}>×</button></li>;
           })}
@@ -991,7 +991,7 @@ function RoomPicker({ eventId, chosen, booked, onChange, when, people = 1 }) {
       <NeedsPicker value={needs} onChange={setNeeds} />
       <select value="" aria-label="Add a room" onChange={(e) => { if (e.target.value) onChange([...chosen, e.target.value]); }}>
         <option value="">{needs.length && !rooms.some((r) => !chosen.includes(r.id) && hasAll(r, needs)) ? `No room has ${needs.join(' and ')}` : '+ Add a room…'}</option>
-        {sortRooms(rooms.filter((r) => !chosen.includes(r.id) && hasAll(r, needs)), people).map((r) => <option key={r.id} value={r.id}>{label(r)}{r.free === false ? ' — taken then' : r.free ? ' — free' : ''}{small(r)}</option>)}
+        {sortRooms(rooms.filter((r) => !chosen.includes(r.id) && hasAll(r, needs)), people).map((r) => <option key={r.id} value={r.id} disabled={r.can_book === false}>{r.can_book === false ? '🔒 ' : ''}{label(r)}{r.can_book === false ? ' — admins only' : r.free === false ? ' — taken then' : r.free ? ' — free' : ''}{small(r)}</option>)}
       </select>
     </div>
   );
@@ -1144,7 +1144,8 @@ function RoomsNow({ onClose }) {
                 <div className="rooms-now-name">{roomLine(r)}</div>
                 <div className="muted small">{nowText(r, time)}</div>
               </div>
-              {!r.busy && <button type="button" className="btn" onClick={() => book(r)}>Book now</button>}
+              {!r.busy && r.can_book !== false && <button type="button" className="btn" onClick={() => book(r)}>Book now</button>}
+              {!r.busy && r.can_book === false && <span className="muted small" title="Only admins can book it">🔒 Admins only</span>}
               {r.busy?.mine && <>
                 <button type="button" className="btn" title="Keep the room 15 minutes longer (if nobody has it then)" onClick={() => act(r, 'extend')}>+15 min</button>
                 <button type="button" className="btn" title="Finished early? End your meeting now and give the room back" onClick={() => act(r, 'end-now')}>End now</button>

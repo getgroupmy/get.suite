@@ -21,7 +21,8 @@ q(`CREATE TABLE IF NOT EXISTS event_rooms (
   PRIMARY KEY (event_id, room_id)
 )`).run();
 // Where a room is (building, floor) and what's in it (video, a whiteboard…), to pick the right one.
-for (const [col, type] of [['location', 'TEXT'], ['features', "TEXT NOT NULL DEFAULT '[]'"]]) {
+// admins_only: only the company's admins can book it (a boardroom, the company car); others are declined.
+for (const [col, type] of [['location', 'TEXT'], ['features', "TEXT NOT NULL DEFAULT '[]'"], ['admins_only', 'INTEGER NOT NULL DEFAULT 0']]) {
   if (!q('PRAGMA table_info(rooms)').all().some((c) => c.name === col)) q(`ALTER TABLE rooms ADD COLUMN ${col} ${type}`).run();
 }
 export const MAX_FEATURES = 10;
@@ -36,8 +37,10 @@ export function cleanFeatures(list) {
   if (out.length > MAX_FEATURES) throw bad(`At most ${MAX_FEATURES} things in a room`);
   return out;
 }
-const ROOM = 'SELECT id, name, capacity, location, features FROM rooms';
-const outRoom = (r) => r && { ...r, features: JSON.parse(r.features || '[]') };
+const ROOM = 'SELECT id, name, capacity, location, features, admins_only FROM rooms';
+const outRoom = (r) => r && { ...r, features: JSON.parse(r.features || '[]'), admins_only: !!r.admins_only };
+/** May this person book the room? */
+const mayBook = (room, user) => !room.admins_only || !!user.is_admin;
 /** ?needs=Video,Whiteboard: rooms that have all of these (ignoring case). */
 const needsOf = (req) => String(req.query.needs || '').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean).slice(0, MAX_FEATURES);
 const hasAll = (room, needs) => needs.every((n) => room.features.some((f) => f.toLowerCase() === n));
@@ -61,7 +64,7 @@ function clash(roomId, eventId, times) {
 }
 
 /** An event's rooms: [{ id, name, status }]. */
-export const roomsOf = (eventId) => q(`SELECT r.id, r.name, er.status FROM event_rooms er JOIN rooms r ON r.id = er.room_id WHERE er.event_id = ? ORDER BY r.name`).all(eventId);
+export const roomsOf = (eventId) => q(`SELECT r.id, r.name, er.status, r.admins_only FROM event_rooms er JOIN rooms r ON r.id = er.room_id WHERE er.event_id = ? ORDER BY r.name`).all(eventId).map((r) => ({ ...r, admins_only: !!r.admins_only }));
 
 /**
  * Set an event's rooms (ids from the organizer's company). Each is booked if free at all the event's
@@ -76,7 +79,7 @@ export function setRooms(user, eventRow, ids) {
   const times = timesOf(ev, Math.max(ev.start, Date.now() - 864e5));
   tx(() => {
     q('DELETE FROM event_rooms WHERE event_id = ?').run(ev.id);
-    for (const r of rooms) q('INSERT INTO event_rooms (event_id, room_id, status) VALUES (?, ?, ?)').run(ev.id, r.id, clash(r.id, ev.id, times) ? 'no' : 'yes');
+    for (const r of rooms) q('INSERT INTO event_rooms (event_id, room_id, status) VALUES (?, ?, ?)').run(ev.id, r.id, !mayBook(r, user) || clash(r.id, ev.id, times) ? 'no' : 'yes');
   });
   return roomsOf(ev.id);
 }
@@ -140,6 +143,7 @@ export default function roomRoutes() {
       const except = String(req.query.event || '');
       for (const room of list) { const by = clash(room.id, except, [{ start, end }]); room.free = !by; }
     }
+    for (const room of list) room.can_book = mayBook(room, req.user);
     res.json(list);
   });
   // A room's bookings between two times (at most 31 days): when, what and who booked it (rooms are
@@ -159,7 +163,7 @@ export default function roomRoutes() {
       const { busy, next, current } = roomNow(room.id, t);
       // Yours (a one-off meeting you organise): you can end it now or run on.
       const mine = !!current && current.owner_id === req.user.id && !current.repeating;
-      return { ...room, busy: busy && { ...busy, mine }, next };
+      return { ...room, busy: busy && { ...busy, mine }, next, can_book: mayBook(room, req.user) };
     }));
   });
   // Walk-up booking: the room from now for 15 minutes to 2 hours (less if it's booked sooner), as an
@@ -167,6 +171,7 @@ export default function roomRoutes() {
   r.post('/:id/book-now', (req, res) => {
     const room = q('SELECT * FROM rooms WHERE id = ? AND org_id = ?').get(req.params.id, req.user.org_id);
     if (!room) throw notFound();
+    if (!mayBook(room, req.user)) throw forbidden(`Only admins can book ${room.name}`);
     const minutes = Number(req.body.minutes ?? 30);
     if (!QUICK_MINUTES.includes(minutes)) throw bad(`Book it for ${QUICK_MINUTES.join(', ')} minutes`);
     const start = Math.floor(Date.now() / 60000) * 60000;
@@ -229,6 +234,7 @@ export default function roomRoutes() {
     name: str(b.name ?? cur.name, { required: true, name: 'Name', max: 100 }),
     location: b.location === undefined ? cur.location ?? null : str(b.location, { name: 'Where it is', max: 100 }) || null,
     features: b.features === undefined ? JSON.parse(cur.features || '[]') : cleanFeatures(b.features),
+    admins_only: b.admins_only === undefined ? cur.admins_only ? 1 : 0 : b.admins_only ? 1 : 0,
     capacity: b.capacity === undefined ? cur.capacity ?? null : b.capacity === null || b.capacity === '' ? null : (() => { const n = Number(b.capacity); if (!Number.isInteger(n) || n < 1 || n > 10000) throw bad('Capacity: a number of people'); return n; })(),
   });
   r.post('/', (req, res) => {
@@ -236,7 +242,7 @@ export default function roomRoutes() {
     const v = read(req.body);
     if (q('SELECT COUNT(*) AS n FROM rooms WHERE org_id = ?').get(req.user.org_id).n >= 200) throw bad('At most 200 rooms');
     const id = uid();
-    q('INSERT INTO rooms (id, org_id, name, capacity, location, features, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(id, req.user.org_id, v.name, v.capacity, v.location, JSON.stringify(v.features), now());
+    q('INSERT INTO rooms (id, org_id, name, capacity, location, features, admins_only, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(id, req.user.org_id, v.name, v.capacity, v.location, JSON.stringify(v.features), v.admins_only, now());
     res.status(201).json(outRoom(q(`${ROOM} WHERE id = ?`).get(id)));
   });
   const own = (req) => { const room = q('SELECT * FROM rooms WHERE id = ? AND org_id = ?').get(req.params.id, req.user.org_id); if (!room) throw notFound(); return room; };
@@ -244,7 +250,7 @@ export default function roomRoutes() {
     admin(req);
     const room = own(req);
     const v = read(req.body, room);
-    q('UPDATE rooms SET name = ?, capacity = ?, location = ?, features = ? WHERE id = ?').run(v.name, v.capacity, v.location, JSON.stringify(v.features), room.id);
+    q('UPDATE rooms SET name = ?, capacity = ?, location = ?, features = ?, admins_only = ? WHERE id = ?').run(v.name, v.capacity, v.location, JSON.stringify(v.features), v.admins_only, room.id);
     res.json(outRoom(q(`${ROOM} WHERE id = ?`).get(room.id)));
   });
   r.delete('/:id', (req, res) => {
