@@ -38,3 +38,6 @@ export function nowText(room, time) {
   if (room.busy) return `In use until ${time(room.busy.until)}: ${room.busy.title}${room.busy.organizer ? ` (${room.busy.organizer})` : ''}`;
   return room.next ? `Free until ${time(room.next.start)}` : 'Free for the next 12 hours';
 }
+
+/** Does the room have everything the meeting needs (ignoring case)? */
+export const hasAll = (room, needs) => needs.every((n) => (room.features || []).some((f) => f.toLowerCase() === n.toLowerCase()));

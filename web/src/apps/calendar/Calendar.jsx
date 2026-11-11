@@ -17,7 +17,7 @@ import TimeOff, { waitingFor } from './TimeOff.jsx';
 import { EVENT_KEY } from '../docs/blocks.js';
 import { timeIn, zoneName, cityOf } from '../../components/zones.js';
 import { printRange, daysFromTo, scheduleOf, DAY, VIEWS, startOfDay, visibleDays, shift, title, onDay, layoutDay, expandAll, occurrenceIndex, describeRule, daysBetween, moveTimes, resizeEnd, shiftWeekdays, snapMinutes, moveStart, weekdayInMonth, eventsPerDay, isoWeek, daysShown, weekOrder } from './calmath.js';
-import { roomLine, sortRooms, tooSmall, nowText } from './roomfit.js';
+import { roomLine, sortRooms, tooSmall, nowText, hasAll } from './roomfit.js';
 
 const OTHER_COLOURS = ['#e37400', '#8e24aa', '#0b8043', '#d93025', '#00796b', '#3949ab'];
 const COLORS = ['#1a73e8', '#0b8043', '#d50000', '#f4511e', '#8e24aa', '#616161'];
@@ -946,9 +946,23 @@ const ruleFromForm = (r, start) => {
   return out;
 };
 
+/** What a meeting needs from its room: a toggle for each thing some room has (Video, Whiteboard…). */
+function NeedsPicker({ value, onChange }) {
+  const [all, setAll] = useState([]);
+  useEffect(() => { get('/rooms/features').then(setAll).catch(() => {}); }, []);
+  if (!all.length) return null;
+  return (
+    <div className="row wrap room-needs" role="group" aria-label="Room needs">
+      <span className="muted small">Needs:</span>
+      {all.map((f) => { const on = value.includes(f); return <button key={f} type="button" className={`btn small ${on ? 'primary' : ''}`} aria-pressed={on} onClick={() => onChange(on ? value.filter((x) => x !== f) : [...value, f])}>{f}</button>; })}
+    </div>
+  );
+}
+
 /** Rooms for the event: the company's rooms, marked free or taken at the event's time. */
 function RoomPicker({ eventId, chosen, booked, onChange, when, people = 1 }) {
   const [rooms, setRooms] = useState(null);
+  const [needs, setNeeds] = useState([]);
   const [start, end] = when || [];
   useEffect(() => {
     get(`/rooms${start ? `?start=${start}&end=${end}${eventId ? `&event=${eventId}` : ''}` : ''}`).then(setRooms).catch(() => setRooms([]));
@@ -974,9 +988,10 @@ function RoomPicker({ eventId, chosen, booked, onChange, when, people = 1 }) {
           })}
         </ul>
       )}
+      <NeedsPicker value={needs} onChange={setNeeds} />
       <select value="" aria-label="Add a room" onChange={(e) => { if (e.target.value) onChange([...chosen, e.target.value]); }}>
-        <option value="">+ Add a room…</option>
-        {sortRooms(rooms.filter((r) => !chosen.includes(r.id)), people).map((r) => <option key={r.id} value={r.id}>{label(r)}{r.free === false ? ' — taken then' : r.free ? ' — free' : ''}{small(r)}</option>)}
+        <option value="">{needs.length && !rooms.some((r) => !chosen.includes(r.id) && hasAll(r, needs)) ? `No room has ${needs.join(' and ')}` : '+ Add a room…'}</option>
+        {sortRooms(rooms.filter((r) => !chosen.includes(r.id) && hasAll(r, needs)), people).map((r) => <option key={r.id} value={r.id}>{label(r)}{r.free === false ? ' — taken then' : r.free ? ' — free' : ''}{small(r)}</option>)}
       </select>
     </div>
   );
@@ -1091,7 +1106,8 @@ function RoomsNow({ onClose }) {
   const [rooms, setRooms] = useState(null);
   const [minutes, setMinutes] = useState(30);
   const [onlyFree, setOnlyFree] = useState(false);
-  const load = useCallback(() => get('/rooms/now').then(setRooms).catch((e) => { toast(e.message, 'error'); setRooms([]); }), [toast]);
+  const [needs, setNeeds] = useState([]);
+  const load = useCallback(() => get(`/rooms/now${needs.length ? `?needs=${encodeURIComponent(needs.join(','))}` : ''}`).then(setRooms).catch((e) => { toast(e.message, 'error'); setRooms([]); }), [toast, needs]);
   useEffect(() => { load(); const t = setInterval(load, 30000); return () => clearInterval(t); }, [load]);
   useEffect(() => onLive((m) => { if (m.type === 'events-changed') load(); }), [load]);
   const time = (t) => new Date(t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
@@ -1118,7 +1134,8 @@ function RoomsNow({ onClose }) {
         </select></label>
         <label className="row" style={{ gap: 6 }}><input type="checkbox" checked={onlyFree} onChange={(e) => setOnlyFree(e.target.checked)} /> Only free rooms</label>
       </div>
-      {rooms === null ? <p className="muted">Loading…</p> : !shown.length ? <p className="muted">{onlyFree ? 'Every room is in use right now.' : 'No rooms yet.'}</p> : (
+      <NeedsPicker value={needs} onChange={setNeeds} />
+      {rooms === null ? <p className="muted">Loading…</p> : !shown.length ? <p className="muted">{needs.length ? `No room has ${needs.join(' and ')}${onlyFree ? ' and is free' : ''}.` : onlyFree ? 'Every room is in use right now.' : 'No rooms yet.'}</p> : (
         <ul className="rooms-now" aria-label="Rooms">
           {shown.map((r) => (
             <li key={r.id} className={r.busy ? 'busy' : 'free'} aria-label={r.name}>

@@ -38,6 +38,9 @@ export function cleanFeatures(list) {
 }
 const ROOM = 'SELECT id, name, capacity, location, features FROM rooms';
 const outRoom = (r) => r && { ...r, features: JSON.parse(r.features || '[]') };
+/** ?needs=Video,Whiteboard: rooms that have all of these (ignoring case). */
+const needsOf = (req) => String(req.query.needs || '').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean).slice(0, MAX_FEATURES);
+const hasAll = (room, needs) => needs.every((n) => room.features.some((f) => f.toLowerCase() === n));
 
 const WINDOW = 183 * 864e5;
 /** The times an event takes up (repeating ones over the next six months). */
@@ -122,9 +125,16 @@ export const QUICK_MINUTES = [15, 30, 45, 60, 90, 120];
 
 export default function roomRoutes() {
   const r = Router();
-  // Your company's rooms; with ?start&end (an event's time), whether each is free then.
+  // Everything that's in some room of the company (to choose what a meeting needs), A to Z, each once.
+  r.get('/features', (req, res) => {
+    const seen = new Map();
+    for (const room of q('SELECT features FROM rooms WHERE org_id = ?').all(req.user.org_id)) for (const f of JSON.parse(room.features || '[]')) if (!seen.has(f.toLowerCase())) seen.set(f.toLowerCase(), f);
+    res.json([...seen.values()].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' })));
+  });
+  // Your company's rooms (with ?needs=, only those with all of it); with ?start&end (an event's time), whether each is free then.
   r.get('/', (req, res) => {
-    const list = q(`${ROOM} WHERE org_id = ? ORDER BY name COLLATE NOCASE`).all(req.user.org_id).map(outRoom);
+    const needs = needsOf(req);
+    const list = q(`${ROOM} WHERE org_id = ? ORDER BY name COLLATE NOCASE`).all(req.user.org_id).map(outRoom).filter((room) => hasAll(room, needs));
     const start = Number(req.query.start), end = Number(req.query.end);
     if (Number.isFinite(start) && Number.isFinite(end) && end > start) {
       const except = String(req.query.event || '');
@@ -144,7 +154,8 @@ export default function roomRoutes() {
   // The rooms board: every room, free or busy right now, and until when.
   r.get('/now', (req, res) => {
     const t = Date.now();
-    res.json(q(`${ROOM} WHERE org_id = ? ORDER BY name COLLATE NOCASE`).all(req.user.org_id).map(outRoom).map((room) => {
+    const needs = needsOf(req);
+    res.json(q(`${ROOM} WHERE org_id = ? ORDER BY name COLLATE NOCASE`).all(req.user.org_id).map(outRoom).filter((room) => hasAll(room, needs)).map((room) => {
       const { busy, next, current } = roomNow(room.id, t);
       // Yours (a one-off meeting you organise): you can end it now or run on.
       const mine = !!current && current.owner_id === req.user.id && !current.repeating;

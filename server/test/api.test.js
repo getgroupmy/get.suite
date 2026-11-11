@@ -2544,6 +2544,20 @@ test('rooms: where each is and what is in it', async () => {
   await owner('DELETE', `/api/rooms/${room.id}`);
 });
 
+test('rooms: only those with what the meeting needs', async () => {
+  const mk = async (name, features) => (await owner('POST', '/api/rooms', { name, features })).body;
+  const r1 = await mk('Zz Needs one', ['Video', 'Whiteboard']), r2 = await mk('Zz Needs two', ['video']), r3 = await mk('Zz Needs three', []);
+  const feats = (await owner('GET', '/api/rooms/features')).body;
+  assert.ok(feats.includes('Video') && feats.includes('Whiteboard'));
+  assert.equal(feats.filter((f) => f.toLowerCase() === 'video').length, 1, 'each once, whatever the case');
+  const names = (r) => r.body.map((x) => x.name).filter((n) => n.startsWith('Zz Needs'));
+  assert.deepEqual(names(await owner('GET', '/api/rooms?needs=VIDEO')), ['Zz Needs one', 'Zz Needs two']);
+  assert.deepEqual(names(await owner('GET', '/api/rooms?needs=video,whiteboard')), ['Zz Needs one']);
+  assert.deepEqual(names(await owner('GET', '/api/rooms/now?needs=Whiteboard')), ['Zz Needs one']);
+  assert.equal(names(await owner('GET', '/api/rooms')).length, 3);
+  for (const r of [r1, r2, r3]) await owner('DELETE', `/api/rooms/${r.id}`);
+});
+
 test('rooms: admins list them; an event books a free room, a clashing one is declined; repeats and moves are checked', async () => {
   const a = client(), b = client();
   for (const [local, name] of [['rma', 'Room Ann'], ['rmb', 'Room Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);

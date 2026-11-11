@@ -34,3 +34,12 @@ test('how a room is doing right now', async () => {
   assert.equal(nowText({ busy: null, next: { start: 5, title: 'X' } }, time), 'Free until T5');
   assert.equal(nowText({ busy: { title: 'Standup', organizer: 'Olivia', until: 9 }, next: null }, time), 'In use until T9: Standup (Olivia)');
 });
+
+test('rooms with what the meeting needs', async () => {
+  const { hasAll } = await import('./roomfit.js');
+  const room = { features: ['Video', 'Whiteboard'] };
+  assert.equal(hasAll(room, []), true);
+  assert.equal(hasAll(room, ['video']), true);
+  assert.equal(hasAll(room, ['Video', 'Projector']), false);
+  assert.equal(hasAll({}, ['Video']), false);
+});
