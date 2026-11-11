@@ -320,6 +320,14 @@ export default function Chat() {
   useEffect(() => onLive((m) => { if ((m.type === 'message' && m.message.parent_id) || m.type === 'chat-read' || m.type === 'message-deleted' || m.type === 'chat-thread-follow') loadThreads(); }), [loadThreads]);
   useEffect(() => { setThreadsOpen(false); }, [channelId]);
   const unreadThreads = threads.filter((t) => t.unread > 0).length;
+  // Everything unread, by conversation (loaded while it's open, and kept up to date there).
+  const [unreads, setUnreads] = useState(null);
+  const [unreadsOpen, setUnreadsOpen] = useState(false);
+  const loadUnreads = useCallback(() => get('/chat/unreads').then(setUnreads).catch(() => {}), []);
+  useEffect(() => { if (unreadsOpen) loadUnreads(); }, [unreadsOpen, loadUnreads]);
+  useEffect(() => onLive((m) => { if (unreadsOpen && (m.type === 'message' || m.type === 'chat-read' || m.type === 'message-deleted' || m.type === 'chat-thread-follow')) loadUnreads(); }), [unreadsOpen, loadUnreads]);
+  useEffect(() => { setUnreadsOpen(false); }, [channelId]);
+  const unreadTotal = channels.filter((c) => !c.muted && !c.left).reduce((n, c) => n + (unread[c.id] || 0), 0);
   const setSave = (id, on) => put(`/chat/messages/${id}/saved`, { saved: on }).then(() => { loadSaved(); toast(on ? 'Saved for later (🔖 Saved in the list)' : 'Removed from Saved'); }).catch((e) => toast(e.message, 'error'));
 
   // Messages you've scheduled here, soonest first (live: they go when sent).
@@ -465,9 +473,10 @@ export default function Chat() {
           <Icon name="search" size={18} />
           <input name="q" type="search" placeholder="Search messages" aria-label="Search messages" onChange={(e) => { if (!e.target.value) setSearch(null); }} />
         </form>
-        <button type="button" className={`subnav-item ${savedOpen ? 'active' : ''}`} onClick={() => { setSearch(null); setThreadsOpen(false); setSavedOpen(true); }}><span className="hash" aria-hidden="true">🔖</span><span className="grow">Saved</span>{saved.length > 0 && <span className="count">{saved.length}</span>}</button>
+        <button type="button" className={`subnav-item ${savedOpen ? 'active' : ''}`} onClick={() => { setSearch(null); setThreadsOpen(false); setUnreadsOpen(false); setSavedOpen(true); }}><span className="hash" aria-hidden="true">🔖</span><span className="grow">Saved</span>{saved.length > 0 && <span className="count">{saved.length}</span>}</button>
+        <button type="button" className={`subnav-item ${unreadsOpen ? 'active' : ''}`} onClick={() => { setSearch(null); setSavedOpen(false); setThreadsOpen(false); setUnreadsOpen(true); }}><span className="hash" aria-hidden="true">📥</span><span className="grow">Unreads</span>{unreadTotal > 0 && <span className="badge" aria-label={`${unreadTotal} unread`}>{unreadTotal}</span>}</button>
         <button type="button" className="subnav-item chat-jump" onClick={() => setJumpOpen(true)} title="Jump to a conversation or person (Ctrl+K)"><span className="hash" aria-hidden="true">↪</span><span className="grow">Jump to…</span><kbd className="muted small">{/Mac|iP(hone|ad)/.test(navigator.platform) ? '⌘K' : 'Ctrl+K'}</kbd></button>
-        <button type="button" className={`subnav-item ${threadsOpen ? 'active' : ''}`} onClick={() => { setSearch(null); setSavedOpen(false); setThreadsOpen(true); loadThreads(); }}><span className="hash" aria-hidden="true">💬</span><span className="grow">Threads</span>{unreadThreads > 0 && <span className="badge" aria-label={`${unreadThreads} with new replies`}>{unreadThreads}</span>}</button>
+        <button type="button" className={`subnav-item ${threadsOpen ? 'active' : ''}`} onClick={() => { setSearch(null); setSavedOpen(false); setUnreadsOpen(false); setThreadsOpen(true); loadThreads(); }}><span className="hash" aria-hidden="true">💬</span><span className="grow">Threads</span>{unreadThreads > 0 && <span className="badge" aria-label={`${unreadThreads} with new replies`}>{unreadThreads}</span>}</button>
         {Object.values(unread).some((n) => n > 0) && <button type="button" className="link-btn small chat-read-all" title="Mark every conversation as read"
           onClick={readAll}>✓ Mark all as read</button>}
         {starred.length > 0 && <>
@@ -532,12 +541,41 @@ export default function Chat() {
         </Modal>
       )}
       {jumpOpen && <JumpDialog items={jumpItems(channels, people, unread, user.id)} onClose={() => setJumpOpen(false)} onPick={async (it) => {
-        setJumpOpen(false); setSearch(null); setSavedOpen(false); setThreadsOpen(false);
+        setJumpOpen(false); setSearch(null); setSavedOpen(false); setThreadsOpen(false); setUnreadsOpen(false);
         if (it.kind !== 'person') { navigate(`/chat/${it.id}`); return; }
         try { const c = await post('/chat/dm', { user_id: it.id }); await loadChannels(); navigate(`/chat/${c.id}`); } catch (e) { toast(e.message, 'error'); }
       }} />}
       <section className="chat-main">
-        {threadsOpen && !search ? (
+        {unreadsOpen && !search ? (
+          <div className="chat-results">
+            <div className="chat-head"><h1 className="grow">Unreads</h1><button type="button" className="icon-btn" aria-label="Close unreads" onClick={() => setUnreadsOpen(false)}><Icon name="close" /></button></div>
+            {unreads === null ? <p className="muted pad">Loading…</p> : !unreads.length ? <Empty icon="chat" title="You’re all caught up">New messages in your conversations, and replies in threads you’re in, show here until you read them.</Empty> : (
+              <div className="unreads">
+                {unreads.map((g) => (
+                  <section key={g.channel_id} className="unread-group" aria-label={g.where}>
+                    <div className="row unread-head">
+                      <button type="button" className="link-btn grow ellipsis" onClick={() => { setUnreadsOpen(false); navigate(`/chat/${g.channel_id}`); }}>
+                        <strong>{g.where}</strong>{g.private && !g.dm ? ' 🔒' : ''}{g.muted ? ' 🔕' : ''}</button>
+                      <span className="muted small">{g.count} new</span>
+                      <button type="button" className="btn small" onClick={async () => { try { await post(`/chat/channels/${g.channel_id}/read`); setUnreads((list) => list.filter((x) => x.channel_id !== g.channel_id)); loadChannels(); } catch (e) { toast(e.message, 'error'); } }}>Mark read</button>
+                    </div>
+                    {g.count > g.messages.length && <p className="muted small">{g.count - g.messages.length} earlier not shown</p>}
+                    <ul aria-label={`Unread in ${g.where}`}>
+                      {g.messages.map((m) => (
+                        <li key={m.id}>
+                          <button type="button" className="chat-result" onClick={() => { setUnreadsOpen(false); openResult({ id: m.id, channel_id: g.channel_id, parent_id: m.parent_id }); }}>
+                            <span className="muted small">{m.user_name} · {new Date(m.created_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}{m.parent_id ? ' · in a thread' : ''}</span>
+                            <span>{m.body}</span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : threadsOpen && !search ? (
           <div className="chat-results">
             <div className="chat-head"><h1 className="grow">Threads</h1><button type="button" className="icon-btn" aria-label="Close threads" onClick={() => setThreadsOpen(false)}><Icon name="close" /></button></div>
             {!threads.length ? <Empty icon="chat" title="No threads yet">Threads you start or reply to show here, latest reply first, from every conversation.</Empty> : (

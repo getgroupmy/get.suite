@@ -1335,6 +1335,39 @@ export default function chatRoutes() {
       .map(({ dm_key, files, ...x }) => ({ ...x, dm: !!dm_key, files: files ? JSON.parse(files).length : 0 })));
   });
 
+  // Everything unread, by conversation: the conversations you can see (not ones you left) with messages from
+  // others since you last read them (thread replies only in threads you're in), latest conversation first,
+  // muted ones last. Each has its count and its last 10 unread messages, oldest first.
+  r.get('/unreads', (req, res) => {
+    const me = req.user.id;
+    const rows = q(`SELECT m.id, m.channel_id, m.parent_id, m.user_id, m.bot, m.body, m.files, m.created_at, u.name AS user_name,
+                      c.name AS channel_name, c.dm_key, c.private,
+                      (SELECT un.name FROM channel_members cm JOIN users un ON un.id = cm.user_id WHERE cm.channel_id = c.id AND cm.user_id != ? LIMIT 1) AS dm_name,
+                      EXISTS (SELECT 1 FROM chat_mutes mu WHERE mu.channel_id = c.id AND mu.user_id = ?) AS muted
+                    FROM messages m JOIN channels c ON c.id = m.channel_id LEFT JOIN users u ON u.id = m.user_id
+                    WHERE (m.user_id IS NULL OR m.user_id != ?) AND m.deleted_at IS NULL
+                      AND m.created_at > COALESCE((SELECT read_at FROM channel_reads r WHERE r.channel_id = c.id AND r.user_id = ?), 0)
+                      AND (m.parent_id IS NULL OR ${IN_THREAD('m.parent_id')})
+                      AND ((c.dm_key IS NULL AND c.private = 0 AND c.org_id = ? AND NOT EXISTS (SELECT 1 FROM chat_left lf WHERE lf.channel_id = c.id AND lf.user_id = ?))
+                        OR EXISTS (SELECT 1 FROM channel_members cm WHERE cm.channel_id = c.id AND cm.user_id = ?))
+                    ORDER BY m.created_at DESC LIMIT 2000`).all(me, me, me, me, me, me, req.user.org_id, me, me);
+    const groups = new Map();
+    for (const m of rows) {
+      let g = groups.get(m.channel_id);
+      if (!g) {
+        g = { channel_id: m.channel_id, where: m.dm_key ? (m.dm_name || 'Notes to self') : `#${m.channel_name}`, dm: !!m.dm_key, private: !!m.private, muted: !!m.muted, count: 0, last_at: m.created_at, messages: [] };
+        groups.set(m.channel_id, g);
+      }
+      g.count++;
+      if (g.messages.length < 10) {
+        const files = m.files ? JSON.parse(m.files) : [];
+        g.messages.push({ id: m.id, parent_id: m.parent_id || null, user_id: m.user_id, user_name: m.user_name || m.bot || 'Deleted user', created_at: m.created_at,
+          body: m.body || (files.length ? `📎 ${files.map((f) => f.name).join(', ')}` : '') });
+      }
+    }
+    res.json([...groups.values()].sort((a, b) => a.muted - b.muted || b.last_at - a.last_at).map((g) => ({ ...g, messages: g.messages.reverse() })));
+  });
+
   // Your reminders, soonest first.
   r.get('/reminders', (req, res) => {
     res.json(q(`SELECT r.message_id, r.at, m.body, m.channel_id, m.parent_id, u.name AS author, c.name AS channel, c.dm_key

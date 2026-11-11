@@ -3466,6 +3466,48 @@ test('chat: follow and unfollow a thread', async () => {
   assert.equal((await x('PUT', `/api/chat/messages/${secret}/follow`, { follow: true })).status, 404);
 });
 
+test('chat: everything unread, by conversation', async () => {
+  const a = client(), b = client(), x = client();
+  for (const [local, name] of [['ura', 'Unreads Ann'], ['urb', 'Unreads Ben'], ['urx', 'Unreads Xavi']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'ura@acme.com');
+  const bid = (await login(b, 'urb@acme.com')).id;
+  await login(x, 'urx@acme.com');
+  const ch = (await a('POST', '/api/chat/channels', { name: 'unreads-test' })).body.id;
+  const quiet = (await a('POST', '/api/chat/channels', { name: 'unreads-quiet' })).body.id;
+  const dm = (await a('POST', '/api/chat/dm', { user_id: bid })).body.id;
+  const mine = (await a('POST', `/api/chat/channels/${ch}/messages`, { body: 'my question' })).body.id;
+  const other = (await x('POST', `/api/chat/channels/${ch}/messages`, { body: 'xavi thread' })).body.id;
+  // Ann has read everything so far, and leaves no general channel unread.
+  for (const c of (await a('GET', '/api/chat/channels')).body.channels) await a('POST', `/api/chat/channels/${c.id}/read`);
+  await a('POST', `/api/chat/channels/${quiet}/mute`, { muted: true });
+  const wait = () => new Promise((r) => setTimeout(r, 5));
+  await a('POST', `/api/chat/channels/${ch}/messages`, { body: 'her own' }); await wait(); // (sending reads it)
+  await x('POST', `/api/chat/channels/${quiet}/messages`, { body: 'muted chatter' }); await wait();
+  await x('POST', `/api/chat/channels/${ch}/messages`, { body: 'one' }); await wait();
+  await x('POST', `/api/chat/channels/${ch}/messages`, { body: 'answer for ann', parent_id: mine }); await wait();
+  await b('POST', `/api/chat/channels/${ch}/messages`, { body: 'not her thread', parent_id: other }); await wait();
+  await b('POST', `/api/chat/channels/${dm}/messages`, { body: 'hello ann' });
+  const list = (await a('GET', '/api/chat/unreads')).body.filter((g) => [ch, quiet, dm].includes(g.channel_id));
+  assert.deepEqual(list.map((g) => g.where), ['Unreads Ben', '#unreads-test', '#unreads-quiet'], 'latest first, muted last');
+  const g = list[1];
+  assert.equal(g.count, 2);
+  assert.deepEqual(g.messages.map((m) => m.body), ['one', 'answer for ann'], 'oldest first; replies only in her threads');
+  assert.equal(g.messages[1].parent_id, mine);
+  assert.equal(g.messages[0].user_name, 'Unreads Xavi');
+  assert.equal(list[2].muted, true);
+  assert.equal(list[0].dm, true);
+  // Reading a conversation takes it off; nothing for someone outside the direct message.
+  await a('POST', `/api/chat/channels/${dm}/read`);
+  assert.ok(!(await a('GET', '/api/chat/unreads')).body.some((x2) => x2.channel_id === dm));
+  assert.ok(!(await x('GET', '/api/chat/unreads')).body.some((x2) => x2.channel_id === dm));
+  // At most 10 messages shown, but all counted.
+  for (let i = 0; i < 12; i++) await x('POST', `/api/chat/channels/${ch}/messages`, { body: `more ${i}` });
+  const big = (await a('GET', '/api/chat/unreads')).body.find((x2) => x2.channel_id === ch);
+  assert.equal(big.count, 14);
+  assert.equal(big.messages.length, 10);
+  assert.equal(big.messages.at(-1).body, 'more 11');
+});
+
 test('docs: download as Markdown; open a .md file as a document', async () => {
   const md = '# Minutes\n\nWe agreed on **three** things:\n\n- [x] budget\n- [ ] hiring\n\n| Who | What |\n| --- | --- |\n| Kim | slides |\n';
   const up = (await owner('POST', '/api/files/upload?name=minutes.md', Buffer.from(md), { raw: true })).body;

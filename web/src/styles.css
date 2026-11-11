@@ -2854,3 +2854,8 @@ select.meet-timer-btn option { color: #202124; }
 .jump-item { display: flex; gap: 8px; align-items: center; padding: 8px 10px; border-radius: 8px; cursor: pointer; }
 .jump-item.active { background: var(--hover); }
 .chat-jump kbd { font-family: inherit; }
+.unreads { overflow: auto; padding: 8px 12px; }
+.unread-group { border-bottom: 1px solid var(--border); padding: 8px 0; }
+.unread-head { gap: 8px; align-items: center; padding: 0 10px; }
+.unreads ul { padding: 0; }
+.unread-head .link-btn { text-align: left; }
