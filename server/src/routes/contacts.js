@@ -17,7 +17,7 @@ import { buildVcard } from '../vcard.js';
 import { REMIND } from '../contactreminders.js';
 import { zoneOrUtc } from '../ics.js';
 import { watchContacts, undoContacts, changedSince, sweepContactHistory, HISTORY_DAYS } from '../contacthistory.js';
-import { frequentOf, forgetSent } from '../mail/includes.js';
+import { frequentOf, forgetSent, sentTimes } from '../mail/includes.js';
 
 // Keep in touch: how often (days) you mean to be in touch with someone, and when you last were (sending them
 // email counts, or Mark as contacted).
@@ -280,7 +280,7 @@ export default function contactRoutes() {
     mine.push(...extra);
     const others = matchOther(req.user.id, like);
     const people = q(`SELECT id, name, username AS email FROM users WHERE org_id = ? AND disabled = 0 AND id != ?
-                      AND (LOWER(name) LIKE ? ESCAPE '\\' OR username LIKE ? ESCAPE '\\') ORDER BY name COLLATE NOCASE LIMIT 8`).all(req.user.org_id, req.user.id, like, like);
+                      AND (LOWER(name) LIKE ? ESCAPE '\\' OR username LIKE ? ESCAPE '\\') ORDER BY name COLLATE NOCASE LIMIT 25`).all(req.user.org_id, req.user.id, like, like);
     const seen = new Set();
     const out = [];
     const starredMine = mine.filter((p) => p.starred), restMine = mine.filter((p) => !p.starred);
@@ -292,7 +292,12 @@ export default function contactRoutes() {
         out.push({ name: p.name || '', email, kind });
       }
     }
-    res.json([...groups, ...out].slice(0, 8));
+    // Who you write to most comes first (after your starred contacts), the rest as they were.
+    const times = sentTimes(req.user, out.map((p) => p.email));
+    const starredSet = new Set(starredMine.map((p) => p.email.toLowerCase()));
+    const ranked = out.map((p, i) => ({ p, i, star: starredSet.has(p.email) ? 1 : 0, n: times.get(p.email) || 0 }))
+      .sort((a, b) => b.star - a.star || b.n - a.n || a.i - b.i).map((x) => x.p);
+    res.json([...groups, ...ranked].slice(0, 8));
   });
 
   // Import a .vcf (one or many cards) or a CSV export (Gmail, Outlook, or Name/Email columns).

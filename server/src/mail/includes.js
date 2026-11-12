@@ -111,3 +111,13 @@ export function forgetSent(user, email = null) {
   q('DELETE FROM mail_together WHERE owner_id = ? AND (a = ? OR b = ?)').run(user.id, e, e);
   return n;
 }
+
+/** How many times you've emailed each of these addresses: Map(email → times), for ranking suggestions. */
+export function sentTimes(user, emails) {
+  const out = new Map();
+  for (const e of new Set((emails || []).map(clean))) {
+    const t = q('SELECT times FROM mail_sent_to WHERE owner_id = ? AND email = ?').get(user.id, e)?.times;
+    if (t) out.set(e, t);
+  }
+  return out;
+}

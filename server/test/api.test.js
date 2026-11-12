@@ -11196,3 +11196,21 @@ test('Home: a People card (who you email most) can be moved and hidden like the 
   assert.deepEqual(homeLayout(JSON.stringify({ order: ['people', 'events'], hidden: ['people'] })).order.slice(0, 2), ['people', 'events']);
   assert.deepEqual(homeLayout(JSON.stringify({ order: [], hidden: ['people'] })).hidden, ['people']);
 });
+
+test('address suggestions: people you email most come first (after starred contacts)', async () => {
+  const { recordTogether } = await import('../src/mail/includes.js');
+  const u = client();
+  for (const [local, name] of [['quokkame', 'Quokka Me'], ['quokkaalpha', 'Quokka Alpha'], ['quokkazulu', 'Quokka Zulu']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(u, 'quokkame@acme.com');
+  const me = (await u('GET', '/api/auth/me')).body.user;
+  await u('POST', '/api/contacts', { name: 'Quokka Mid', email: 'quokkamid@client.example' });
+  const names = async () => (await u('GET', '/api/contacts/suggest?q=quokka')).body.map((x) => x.name);
+  assert.deepEqual(await names(), ['Quokka Alpha', 'Quokka Zulu', 'Quokka Mid'], 'as before: colleagues, then contacts');
+  const who = { id: me.id, username: 'quokkame@acme.com', org_id: me.org_id };
+  for (let i = 0; i < 3; i++) recordTogether(who, [{ address: 'quokkamid@client.example' }]);
+  recordTogether(who, [{ address: 'quokkazulu@acme.com' }]);
+  assert.deepEqual(await names(), ['Quokka Mid', 'Quokka Zulu', 'Quokka Alpha'], 'most emailed first');
+  const star = (await u('POST', '/api/contacts', { name: 'Quokka Star', email: 'quokkastar@client.example' })).body;
+  assert.equal((await u('PATCH', `/api/contacts/${star.id}`, { starred: true })).status, 200);
+  assert.deepEqual((await names()).slice(0, 2), ['Quokka Star', 'Quokka Mid'], 'starred still first');
+});
