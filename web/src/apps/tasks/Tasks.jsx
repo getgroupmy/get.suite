@@ -33,6 +33,7 @@ export default function Tasks() {
   const openId = params.get('task');
   const navigate = useNavigate();
   const toast = useToast();
+  const googleRef = useRef(null); // Import from Google Tasks…
   const { user } = useAuth();
   const [lists, setLists] = useState(null);
   const [assignedCount, setAssignedCount] = useState(0);
@@ -258,6 +259,19 @@ export default function Tasks() {
             <span className="nav-star" aria-hidden="true">#</span><span className="grow ellipsis">{t.name}</span><span className="count">{t.count}</span>
           </button>
         ))}
+        <button type="button" className="subnav-item" title="Tasks.json from the Tasks folder of a Google Takeout download: each list comes in as a new list" onClick={() => googleRef.current?.click()}><Icon name="upload" /><span className="grow">Import from Google Tasks…</span></button>
+        <input ref={googleRef} type="file" accept=".json,application/json" hidden aria-label="Google Tasks file" onChange={async (e) => {
+          const f = e.target.files[0]; e.target.value = '';
+          if (!f) return;
+          try {
+            let data; try { data = JSON.parse(await f.text()); } catch { throw new Error('That isn’t a Google Tasks export (Tasks.json from Google Takeout)'); }
+            const r = await post('/tasks/import/google', { data });
+            await loadLists();
+            const n = r.lists.reduce((sum, l) => sum + l.tasks, 0);
+            toast(`Imported ${r.lists.length} list${r.lists.length === 1 ? '' : 's'} with ${n} task${n === 1 ? '' : 's'} from Google Tasks`);
+            navigate(`/tasks/${r.lists[0].id}`);
+          } catch (err) { toast(err.message, 'error'); }
+        }} />
       </aside>
       {found && (
         <section className="tasks-main">

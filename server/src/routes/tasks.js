@@ -1,6 +1,7 @@
 // Tasks: to-do lists, your own or shared with colleagues. Each task has a title, notes, a due date,
 // someone it's assigned to (a person on the list), and a place in the list you can drag it to.
 // Everyone on a list sees changes as they're made.
+import { listsFromGoogleTasks } from '../googletasks.js';
 import { excelFromTable, sendXlsx } from '../office/excel.js';
 import { addTimeRoutes } from '../tasktime.js';
 import { cleanRepeat, nextDue } from '../taskrepeat.js';
@@ -558,6 +559,32 @@ export default function taskRoutes() {
   });
 
   // Tasks from a spreadsheet (CSV) added to the end of the list, in the file's order; done ones as done.
+  // Import from Google Tasks (Tasks.json from Google Takeout): each of its lists becomes a new list here, with its
+  // tasks (open ones in order, done ones ticked off), their notes and due dates, and subtasks as steps.
+  r.post('/import/google', express.json({ limit: '20mb' }), (req, res) => {
+    const found = listsFromGoogleTasks(req.body?.data);
+    if (found.error) throw bad(found.error);
+    const lists = found.lists.filter((l) => l.tasks.length);
+    if (!lists.length) throw bad('There are no tasks in that file');
+    if (q('SELECT COUNT(*) AS n FROM task_lists WHERE owner_id = ?').get(req.user.id).n + lists.length > MAX_LISTS) throw bad('Too many lists');
+    if (lists.some((l) => l.tasks.length > MAX_TASKS)) throw bad(`A list can hold ${MAX_TASKS} tasks`);
+    const t = now(), made = [];
+    tx(() => {
+      for (const l of lists) {
+        const id = uid();
+        q('INSERT INTO task_lists (id, owner_id, name, created_at) VALUES (?, ?, ?, ?)').run(id, req.user.id, l.name, t);
+        l.tasks.forEach((x, i) => {
+          const steps = x.steps.length ? JSON.stringify(x.steps.map((st) => ({ id: uid(), title: st.title, done: st.done }))) : null;
+          q(`INSERT INTO tasks (id, list_id, title, notes, due, position, steps, done_at, done_by, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+            .run(uid(), id, x.title, x.notes, x.due, i, steps, x.done_at, x.done_at ? req.user.id : null, req.user.id, t, t);
+        });
+        made.push({ id, name: l.name, tasks: l.tasks.length });
+      }
+    });
+    sendTo([req.user.id], { type: 'tasks-changed' });
+    res.status(201).json({ lists: made });
+  });
+
   r.post('/lists/:id/import', express.text({ type: () => true, limit: '5mb' }), (req, res) => {
     const list = loadList(req.params.id, req.user);
     const found = tasksFromCsv(req.body);

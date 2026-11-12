@@ -12162,3 +12162,39 @@ test('notes: import from Google Keep (Takeout .json): text and checklists, colou
   assert.ok(live.some((n) => n.title === 'From Markdown'), 'Markdown files alongside');
   assert.equal((await a('POST', '/api/notes/import', { files: [{ name: 'bad.json', text: '{nope' }] })).status, 400);
 });
+
+test('tasks: import from Google Tasks (Takeout Tasks.json): lists, order, notes, due dates, done ones, subtasks as steps', async () => {
+  const { listsFromGoogleTasks } = await import('../src/googletasks.js');
+  const data = { kind: 'tasks#taskLists', items: [
+    { kind: 'tasks#taskList', title: 'Errands', items: [
+      { id: 'b', title: 'Post office', position: '00000000000000000001', status: 'needsAction', due: '2026-12-01T00:00:00.000Z' },
+      { id: 'a', title: 'Buy paint', position: '00000000000000000000', status: 'needsAction', notes: 'White, matt' },
+      { id: 'a1', title: 'Brushes', parent: 'a', position: '00000000000000000000', status: 'completed' },
+      { id: 'a2', title: 'Tape', parent: 'a', position: '00000000000000000001', status: 'needsAction' },
+      { id: 'c', title: 'Return books', status: 'completed', completed: '2026-10-05T10:00:00.000Z', position: '00000000000000000002' },
+      { id: 'd', title: 'Gone', deleted: true },
+    ] },
+    { kind: 'tasks#taskList', title: 'Empty list', items: [] },
+  ] };
+  const found = listsFromGoogleTasks(data);
+  assert.deepEqual(found.lists[0].tasks.map((t) => t.title), ['Buy paint', 'Post office', 'Return books'], 'in their order; deleted left out');
+  assert.deepEqual(found.lists[0].tasks[0].steps, [{ title: 'Brushes', done: true }, { title: 'Tape', done: false }]);
+  assert.equal(found.lists[0].tasks[1].due, '2026-12-01');
+  assert.equal(found.lists[0].tasks[2].done_at, Date.parse('2026-10-05T10:00:00.000Z'));
+  assert.ok(listsFromGoogleTasks({ hello: 1 }).error);
+
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'gtsk', domain: 'acme.com', name: 'Gt Ann', password: 'password123' })).status, 201);
+  await login(a, 'gtsk@acme.com');
+  const r = await a('POST', '/api/tasks/import/google', { data });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.deepEqual(r.body.lists.map((l) => [l.name, l.tasks]), [['Errands', 3]], 'empty lists aren’t made');
+  const tasks = (await a('GET', `/api/tasks/lists/${r.body.lists[0].id}/tasks`)).body;
+  const list = Array.isArray(tasks) ? tasks : tasks.tasks;
+  const paint = list.find((t) => t.title === 'Buy paint');
+  assert.equal(paint.notes, 'White, matt');
+  assert.deepEqual(paint.steps.map((s) => [s.title, s.done]), [['Brushes', true], ['Tape', false]]);
+  assert.ok(list.find((t) => t.title === 'Return books').done);
+  assert.equal((await a('POST', '/api/tasks/import/google', { data: { items: [] } })).status, 400);
+  assert.equal((await a('POST', '/api/tasks/import/google', { data: 'nope' })).status, 400);
+});
