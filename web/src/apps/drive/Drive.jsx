@@ -171,12 +171,33 @@ export default function Drive() {
     setChecked(new Set());
     load();
   }
+  // Undo for moving and trashing: put each back (its folder, or out of the trash).
+  const undoMove = (prev) => async () => {
+    for (const { id, parent_id } of prev) { try { await patch(`/files/${id}`, { parent_id }); } catch (e) { toast(e.message, 'error'); } }
+    toast('Moved back'); load();
+  };
+  async function trashWithUndo(list) {
+    const done = [];
+    for (const f of list) { try { await patch(`/files/${f.id}`, { trashed: true }); done.push(f); } catch (e) { toast(`${f.name}: ${e.message}`, 'error'); } }
+    if (done.length) {
+      toast(done.length === 1 ? 'Moved to trash' : `Moved ${done.length} to trash`, 'info', { action: { label: 'Undo', onClick: async () => {
+        for (const f of done) { try { await patch(`/files/${f.id}`, { trashed: false }); } catch (e) { toast(e.message, 'error'); } }
+        toast(done.length === 1 ? 'Restored' : `Restored ${done.length}`); load();
+      } } });
+    }
+    setChecked(new Set());
+    load();
+  }
   // Drag files onto a folder (in the list or the path above it) to move them there.
   const [dropOn, setDropOn] = useState(null);
   async function moveInto(ids, folderId) {
-    let ok = 0;
-    for (const id of ids) { if (id === folderId) continue; try { await patch(`/files/${id}`, { parent_id: folderId }); ok++; } catch (e) { toast(e.message, 'error'); } }
-    if (ok) toast(`Moved ${ok} item${ok === 1 ? '' : 's'}`);
+    const moved = [];
+    for (const id of ids) {
+      if (id === folderId) continue;
+      const before = (files || []).find((f) => f.id === id)?.parent_id ?? null;
+      try { await patch(`/files/${id}`, { parent_id: folderId }); moved.push({ id, parent_id: before }); } catch (e) { toast(e.message, 'error'); }
+    }
+    if (moved.length) toast(`Moved ${moved.length} item${moved.length === 1 ? '' : 's'}`, 'info', { action: { label: 'Undo', onClick: undoMove(moved) } });
     setChecked(new Set());
     load();
   }
@@ -355,7 +376,7 @@ export default function Drive() {
       f.kind !== 'folder' && { label: 'Version history', icon: 'clock', onClick: () => setDialog({ type: 'versions', file: f }) },
       f.kind !== 'folder' && canEdit && { label: 'Request approval…', icon: 'check', onClick: () => setDialog({ type: 'approval', file: f }) },
       canEdit && '-',
-      canEdit && { label: 'Move to trash', icon: 'trash', danger: true, onClick: act(() => patch(`/files/${f.id}`, { trashed: true }), 'Moved to trash') },
+      canEdit && { label: 'Move to trash', icon: 'trash', danger: true, onClick: () => trashWithUndo([f]) },
     ];
   }
 
@@ -480,7 +501,7 @@ export default function Drive() {
               {picked.every((f) => f.role === 'owner' || f.role === 'editor') && <>
                 <button className="btn small" onClick={() => setDialog({ type: 'move', files: picked })}><Icon name="move" size={16} /> Move</button>
                 {picked.length > 1 && <button className="btn small" onClick={() => setDialog({ type: 'rename-many', files: picked })}><Icon name="edit" size={16} /> Rename</button>}
-                <button className="btn small danger" onClick={() => bulk((f) => patch(`/files/${f.id}`, { trashed: true }), (n) => `Moved ${n} to trash`)}><Icon name="trash" size={16} /> Trash</button>
+                <button className="btn small danger" onClick={() => trashWithUndo(picked)}><Icon name="trash" size={16} /> Trash</button>
               </>}
             </>}
             <div className="grow" />
@@ -587,7 +608,7 @@ export default function Drive() {
       )}
       {dialog?.type === 'share' && <ShareDialog file={dialog.file} onClose={() => setDialog(null)} />}
       {dialog?.type === 'approval' && <RequestApproval file={dialog.file} onClose={() => setDialog(null)} />}
-      {dialog?.type === 'move' && <MoveDialog files={dialog.files} onClose={() => setDialog(null)} onMoved={() => { setChecked(new Set()); load(); }} />}
+      {dialog?.type === 'move' && <MoveDialog files={dialog.files} onClose={() => setDialog(null)} onMoved={(moved) => { setChecked(new Set()); load(); if (moved?.length) toast(moved.length === 1 ? 'Moved' : `Moved ${moved.length} items`, 'info', { action: { label: 'Undo', onClick: undoMove(moved) } }); }} />}
       {dialog?.type === 'pdf-combine' && <PdfCombineDialog files={dialog.files} onClose={() => setDialog(null)} onDone={() => { setDialog(null); setChecked(new Set()); load(); }} />}
       {dialog?.type === 'pdf-sign' && <Suspense fallback={null}><PdfSignDialog file={dialog.files[0]} onClose={() => setDialog(null)} onDone={() => { setDialog(null); load(); }} /></Suspense>}
       {dialog?.type === 'pdf-organize' && <Suspense fallback={null}><PdfOrganizeDialog file={dialog.files[0]} canEdit={['owner', 'editor'].includes(dialog.files[0].role) && !dialog.files[0].locked_at} onClose={() => setDialog(null)} onDone={() => { setDialog(null); load(); }} /></Suspense>}
@@ -947,10 +968,9 @@ function MoveDialog({ files, onClose, onMoved, shortcut = false }) {
       try { const r = await post(`/files/${files[0].id}/shortcut`, { parent_id: cur }); toast(r.existing ? 'There’s already a shortcut to it there' : 'Shortcut added'); onMoved(); onClose(); } catch (e) { toast(e.message, 'error'); }
       return;
     }
-    let ok = 0;
-    for (const f of files) { try { await patch(`/files/${f.id}`, { parent_id: cur }); ok++; } catch (e) { toast(`${f.name}: ${e.message}`, 'error'); } }
-    if (ok) toast(ok === 1 ? 'Moved' : `Moved ${ok} items`);
-    onMoved(); onClose();
+    const moved = []; // where each was, for Undo
+    for (const f of files) { try { await patch(`/files/${f.id}`, { parent_id: cur }); moved.push({ id: f.id, parent_id: f.parent_id ?? null }); } catch (e) { toast(`${f.name}: ${e.message}`, 'error'); } }
+    onMoved(moved); onClose();
   }
 
   return (

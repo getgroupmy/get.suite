@@ -11407,3 +11407,25 @@ test('rename several, undone: the names before are put back as they were', async
   assert.equal((await b('POST', '/api/files/rename-many', { names: { [x]: 'Hijack' } })).body[0].error, 'You can’t rename this one');
   assert.equal((await a('POST', '/api/files/rename-many', { names: {} })).status, 400);
 });
+
+test('Drive undo: what moving and trashing are undone with (back to the folder or My Drive, out of the trash)', async () => {
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'undodrv', domain: 'acme.com', name: 'Undo Drive', password: 'password123' })).status, 201);
+  await login(a, 'undodrv@acme.com');
+  const src = (await a('POST', '/api/files/folder', { name: 'From' })).body.id;
+  const dst = (await a('POST', '/api/files/folder', { name: 'To' })).body.id;
+  const inFolder = (await a('POST', '/api/files/new', { kind: 'doc', name: 'In a folder', parent_id: src })).body.id;
+  const atRoot = (await a('POST', '/api/files/new', { kind: 'doc', name: 'At the top' })).body.id;
+  const before = { [inFolder]: (await a('GET', `/api/files/${inFolder}`)).body.parent_id, [atRoot]: (await a('GET', `/api/files/${atRoot}`)).body.parent_id };
+  assert.equal(before[inFolder], src);
+  assert.equal(before[atRoot], null, 'the list says where each one was');
+  for (const id of [inFolder, atRoot]) assert.equal((await a('PATCH', `/api/files/${id}`, { parent_id: dst })).status, 200);
+  for (const id of [inFolder, atRoot]) assert.equal((await a('PATCH', `/api/files/${id}`, { parent_id: before[id] })).status, 200, 'moved back');
+  assert.equal((await a('GET', `/api/files/${inFolder}`)).body.parent_id, src);
+  assert.equal((await a('GET', `/api/files/${atRoot}`)).body.parent_id, null);
+  await a('PATCH', `/api/files/${atRoot}`, { trashed: true });
+  assert.equal((await a('GET', `/api/files/${atRoot}`)).body.trashed, 1);
+  await a('PATCH', `/api/files/${atRoot}`, { trashed: false });
+  assert.ok(!(await a('GET', `/api/files/${atRoot}`)).body.trashed, 'out of the trash');
+  assert.ok((await a('GET', `/api/files?view=mine${''}`)).body.some((f) => f.id === atRoot && 'parent_id' in f), 'the list gives parent_id for Undo');
+});
