@@ -16,7 +16,7 @@ import { useCompanyEmoji, imageUrl, splitEmoji, customName, reloadEmoji } from '
 import { Avatar, ConfirmModal, Empty, Menu, Modal, PromptModal, useToast, withDataCheck } from '../../components/ui.jsx';
 import { whenText, laterChoices, ScheduleDialog } from '../../components/schedule.jsx';
 import { useAuth } from '../../App.jsx';
-import { useMentions, MENTION_RE, GROUP_WORD_RE, knownGroupWords } from '../../components/mentions.jsx';
+import { useMentions, MENTION_RE, GROUP_WORD_RE, knownGroupWords, MentionedAway } from '../../components/mentions.jsx';
 import { addToTasksWithToast, titleFromText } from '../tasks/addtask.js';
 import { isPaused } from '../../pause.js';
 import { noteTyping, typingIn, typingText } from './typing.js';
@@ -376,16 +376,6 @@ export default function Chat() {
     const t = setInterval(check, 5 * 60e3);
     return () => clearInterval(t);
   }, [channelId, current?.dm_user_id]);
-  // Colleagues @mentioned in what you're writing who are away or outside their working hours.
-  const [mentionedAway, setMentionedAway] = useState([]);
-  useEffect(() => {
-    const emails = [...new Set([...String(text).matchAll(MENTION_RE)].map((m) => m[1].slice(1).toLowerCase()))];
-    const ids = emails.map((e) => people.find((p) => (p.username || p.email || '').toLowerCase() === e)?.id).filter((id) => id && id !== user.id && id !== current?.dm_user_id);
-    if (!ids.length) { setMentionedAway([]); return undefined; }
-    let live = true;
-    const t = setTimeout(() => get(`/users/availability?ids=${ids.join(',')}`).then((r) => { if (live) setMentionedAway(r); }).catch(() => {}), 500);
-    return () => { live = false; clearTimeout(t); };
-  }, [text, people, user.id, current?.dm_user_id]);
   async function scheduleAt(at) {
     const body = text.trim();
     if ((!body && !files.length) || uploading) return;
@@ -778,14 +768,7 @@ export default function Chat() {
             </ul>
           )}
           {typing.line}
-          {mentionedAway.length > 0 && !current.archived_at && (
-            <p className="chat-late small" role="status" aria-label="Mentioned people who are away">
-              {mentionedAway.map((x, i) => (
-                <span key={x.id}>{i > 0 && ' · '}<span aria-hidden="true">{x.away ? '🌴' : '🌙'}</span> <strong>{x.name}</strong>
-                  {x.away ? ` is away${x.away.until ? ` until ${new Date(`${x.away.until}T12:00:00Z`).toLocaleDateString([], { day: 'numeric', month: 'short' })}` : ''}` : `: it's ${x.after.local} for them, outside their working hours`}</span>
-              ))}
-            </p>
-          )}
+          {!current.archived_at && <MentionedAway text={text} skip={[user.id, current?.dm_user_id]} />}
           {awayDm && !current.archived_at && (
             <p className="chat-late small" role="status">
               <span aria-hidden="true">🌴</span> <strong>{awayDm.name}</strong> is away{awayDm.until ? ` until ${new Date(`${awayDm.until}T12:00:00Z`).toLocaleDateString([], { day: 'numeric', month: 'short' })}` : ''}{awayDm.subject && <span className="muted"> (“{awayDm.subject}”)</span>}.

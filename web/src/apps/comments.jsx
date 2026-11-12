@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { get, post, patch, del, onLive, formatDate } from '../api.js';
 import { Avatar, useToast } from '../components/ui.jsx';
 import Icon from '../components/Icon.jsx';
-import { useMentions } from '../components/mentions.jsx';
+import { useMentions, MentionedAway } from '../components/mentions.jsx';
 import { useAuth } from '../App.jsx';
 
 /** Comments of a file, kept up to date live. */
@@ -20,6 +20,7 @@ export function useComments(fileId) {
 /** A text box for a comment; "@" plus a few letters suggests people to mention. */
 function MentionBox({ value, onChange, onSubmit, placeholder, autoFocus, label }) {
   const ref = useRef();
+  const { user } = useAuth();
   const mention = useMentions(ref, value, onChange);
   return (
     <div className="mention-box">
@@ -30,6 +31,7 @@ function MentionBox({ value, onChange, onSubmit, placeholder, autoFocus, label }
           if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); onSubmit(); }
         }} />
       {mention.list}
+      <MentionedAway text={value} skip={[user?.id]} className="small muted mention-away" />
     </div>
   );
 }

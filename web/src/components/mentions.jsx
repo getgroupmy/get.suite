@@ -62,3 +62,33 @@ export function useMentions(ref, value, onChange, { groups = false } = {}) {
   );
   return { track, keyDown, list, close: () => setAt(null) };
 }
+
+/**
+ * A line under a text box naming colleagues @mentioned in `text` who are away (vacation reply on) or outside
+ * their working hours now, as you write. `skip`: ids not to name (yourself, the other person in a DM).
+ */
+export function MentionedAway({ text, skip = [], className = 'chat-late small' }) {
+  const [list, setList] = useState([]);
+  const [dir, setDir] = useState([]);
+  useEffect(() => { let live = true; people().then((p) => live && setDir(p)); return () => { live = false; }; }, []);
+  const skipKey = skip.filter(Boolean).join(',');
+  useEffect(() => {
+    const emails = [...new Set([...String(text || '').matchAll(MENTION_RE)].map((m) => m[1].slice(1).toLowerCase()))];
+    const skipped = new Set(skipKey.split(','));
+    const ids = emails.map((e) => dir.find((p) => (p.username || '').toLowerCase() === e)?.id).filter((id) => id && !skipped.has(id));
+    if (!ids.length) { setList([]); return undefined; }
+    let live = true;
+    const t = setTimeout(() => get(`/users/availability?ids=${ids.join(',')}`).then((r) => { if (live) setList(r); }).catch(() => {}), 500);
+    return () => { live = false; clearTimeout(t); };
+  }, [text, dir, skipKey]);
+  if (!list.length) return null;
+  const day = (ymd) => new Date(`${ymd}T12:00:00Z`).toLocaleDateString([], { day: 'numeric', month: 'short' });
+  return (
+    <p className={className} role="status" aria-label="Mentioned people who are away">
+      {list.map((x, i) => (
+        <span key={x.id}>{i > 0 && ' · '}<span aria-hidden="true">{x.away ? '🌴' : '🌙'}</span> <strong>{x.name}</strong>
+          {x.away ? ` is away${x.away.until ? ` until ${day(x.away.until)}` : ''}` : `: it's ${x.after.local} for them, outside their working hours`}</span>
+      ))}
+    </p>
+  );
+}

@@ -2973,3 +2973,6 @@ select.meet-timer-btn option { color: #202124; }
 
 /* Calendar event window: guests busy or outside their working hours at the chosen time */
 .guest-check { list-style: none; margin: 0; padding: 6px 10px; border-radius: 8px; background: var(--warn-bg); display: grid; gap: 2px; }
+
+/* Comments: mentioned people who are away */
+.mention-away { margin: 4px 0 0; }
