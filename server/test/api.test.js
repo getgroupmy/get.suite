@@ -12259,3 +12259,38 @@ test('chat: admins import a Slack export: channels, messages with their dates, t
   assert.deepEqual(some.body.channels.map((c) => c.name), ['pick-b']);
   assert.equal((await owner('POST', '/api/chat/import/slack?channels=nope', twoBody, { raw: true, headers: { 'content-type': 'application/zip' } })).status, 400);
 });
+
+test('tasks: import a Trello board: its lists as sections, cards as tasks with checklists, labels, due dates', async () => {
+  const board = {
+    name: 'Website relaunch',
+    lists: [{ id: 'L2', name: 'Doing', pos: 2 }, { id: 'L1', name: 'To do', pos: 1 }, { id: 'L3', name: 'Old', pos: 3, closed: true }],
+    cards: [
+      { name: 'Write copy', desc: 'Home and About pages', idList: 'L1', pos: 2, due: '2026-12-10T12:00:00.000Z', labels: [{ name: 'Content', color: 'green' }], idChecklists: ['C1'] },
+      { name: 'Pick fonts', idList: 'L1', pos: 1, labels: [{ name: '', color: 'red' }] },
+      { name: 'Set up hosting', idList: 'L2', pos: 1, dueComplete: true },
+      { name: 'Archived card', idList: 'L1', pos: 3, closed: true },
+      { name: 'In a closed list', idList: 'L3', pos: 1 },
+    ],
+    checklists: [{ id: 'C1', name: 'Pages', checkItems: [{ name: 'About', state: 'incomplete', pos: 2 }, { name: 'Home', state: 'complete', pos: 1 }] }],
+  };
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'trel', domain: 'acme.com', name: 'Tre Ann', password: 'password123' })).status, 201);
+  await login(a, 'trel@acme.com');
+  const r = await a('POST', '/api/tasks/import/trello', { data: board });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.deepEqual([r.body.name, r.body.sections, r.body.tasks], ['Website relaunch', 2, 3]);
+  const got = (await a('GET', `/api/tasks/lists/${r.body.id}/tasks`)).body;
+  const tasks = Array.isArray(got) ? got : got.tasks;
+  const copy = tasks.find((t) => t.title === 'Write copy');
+  assert.equal(copy.notes, 'Home and About pages');
+  assert.equal(copy.due, '2026-12-10');
+  assert.deepEqual(copy.steps.map((s) => [s.title, s.done]), [['Home', true], ['About', false]]);
+  assert.deepEqual(copy.tags, ['content']);
+  assert.deepEqual(tasks.find((t) => t.title === 'Pick fonts').tags, ['red'], 'a label with no name: its colour');
+  assert.ok(tasks.find((t) => t.title === 'Set up hosting').done);
+  assert.ok(!tasks.some((t) => /Archived|closed list/.test(t.title)));
+  const { q } = await import('../src/db.js');
+  assert.deepEqual(q('SELECT name FROM task_sections WHERE list_id = ? ORDER BY position').all(r.body.id).map((x) => x.name), ['To do', 'Doing']);
+  assert.equal(q('SELECT s.name FROM tasks t JOIN task_sections s ON s.id = t.section_id WHERE t.title = ?').get('Pick fonts').name, 'To do');
+  assert.equal((await a('POST', '/api/tasks/import/trello', { data: { hello: 1 } })).status, 400);
+});

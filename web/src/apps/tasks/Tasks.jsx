@@ -34,6 +34,7 @@ export default function Tasks() {
   const navigate = useNavigate();
   const toast = useToast();
   const googleRef = useRef(null); // Import from Google Tasks…
+  const trelloRef = useRef(null); // Import a Trello board…
   const { user } = useAuth();
   const [lists, setLists] = useState(null);
   const [assignedCount, setAssignedCount] = useState(0);
@@ -270,6 +271,18 @@ export default function Tasks() {
             const n = r.lists.reduce((sum, l) => sum + l.tasks, 0);
             toast(`Imported ${r.lists.length} list${r.lists.length === 1 ? '' : 's'} with ${n} task${n === 1 ? '' : 's'} from Google Tasks`);
             navigate(`/tasks/${r.lists[0].id}`);
+          } catch (err) { toast(err.message, 'error'); }
+        }} />
+        <button type="button" className="subnav-item" title="A Trello board's JSON (in Trello: board menu → Print, export and share → Export as JSON): it comes in as a list, its lists as sections" onClick={() => trelloRef.current?.click()}><Icon name="upload" /><span className="grow">Import a Trello board…</span></button>
+        <input ref={trelloRef} type="file" accept=".json,application/json" hidden aria-label="Trello board file" onChange={async (e) => {
+          const f = e.target.files[0]; e.target.value = '';
+          if (!f) return;
+          try {
+            let data; try { data = JSON.parse(await f.text()); } catch { throw new Error('That isn’t a Trello board export (its JSON)'); }
+            const r = await post('/tasks/import/trello', { data });
+            await loadLists();
+            toast(`Imported “${r.name}”: ${r.tasks} task${r.tasks === 1 ? '' : 's'} in ${r.sections} section${r.sections === 1 ? '' : 's'}`);
+            navigate(`/tasks/${r.id}`);
           } catch (err) { toast(err.message, 'error'); }
         }} />
       </aside>

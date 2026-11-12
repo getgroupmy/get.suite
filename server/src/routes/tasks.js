@@ -2,6 +2,7 @@
 // someone it's assigned to (a person on the list), and a place in the list you can drag it to.
 // Everyone on a list sees changes as they're made.
 import { listsFromGoogleTasks } from '../googletasks.js';
+import { boardFromTrello } from '../trello.js';
 import { excelFromTable, sendXlsx } from '../office/excel.js';
 import { addTimeRoutes } from '../tasktime.js';
 import { cleanRepeat, nextDue } from '../taskrepeat.js';
@@ -583,6 +584,34 @@ export default function taskRoutes() {
     });
     sendTo([req.user.id], { type: 'tasks-changed' });
     res.status(201).json({ lists: made });
+  });
+
+  // Import a Trello board (its JSON export) as a new list: Trello's lists become sections, cards tasks (with their
+  // descriptions, due dates, checklists as steps and labels as tags); archived cards and lists are left out.
+  r.post('/import/trello', express.json({ limit: '50mb' }), (req, res) => {
+    const board = boardFromTrello(req.body?.data);
+    if (board.error) throw bad(board.error);
+    const count = board.sections.reduce((n, s) => n + s.tasks.length, 0);
+    if (!count) throw bad('There are no cards on that board');
+    if (count > MAX_TASKS) throw bad(`A list can hold ${MAX_TASKS} tasks`);
+    if (q('SELECT COUNT(*) AS n FROM task_lists WHERE owner_id = ?').get(req.user.id).n >= MAX_LISTS) throw bad('Too many lists');
+    const sections = board.sections.filter((s) => s.tasks.length).slice(0, MAX_SECTIONS);
+    const t = now(), id = uid();
+    let pos = 0;
+    tx(() => {
+      q('INSERT INTO task_lists (id, owner_id, name, created_at) VALUES (?, ?, ?, ?)').run(id, req.user.id, board.name, t);
+      sections.forEach((sec, si) => {
+        const sid = uid();
+        q('INSERT INTO task_sections (id, list_id, name, position, created_at) VALUES (?, ?, ?, ?, ?)').run(sid, id, sec.name, si + 1, t);
+        for (const x of sec.tasks) {
+          const steps = x.steps.length ? JSON.stringify(x.steps.map((st) => ({ id: uid(), title: st.title, done: st.done }))) : null;
+          q(`INSERT INTO tasks (id, list_id, title, notes, due, position, steps, tags, section_id, done_at, done_by, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+            .run(uid(), id, x.title, x.notes, x.due, pos++, steps, x.tags.length ? JSON.stringify(x.tags) : null, sid, x.done ? t : null, x.done ? req.user.id : null, req.user.id, t, t);
+        }
+      });
+    });
+    sendTo([req.user.id], { type: 'tasks-changed', list_id: id });
+    res.status(201).json({ id, name: board.name, sections: sections.length, tasks: count });
   });
 
   r.post('/lists/:id/import', express.text({ type: () => true, limit: '5mb' }), (req, res) => {
