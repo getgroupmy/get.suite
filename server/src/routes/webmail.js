@@ -1720,6 +1720,10 @@ export default function webmailRoutes() {
         res.status(409).json({ error: `This message goes outside ${company}: ${outside.map((o) => o.email).join(', ')}. Send it anyway?`, outside });
         return;
       }
+    } else if (askOutside(req.user.org_id)) {
+      // Confirmed: kept in the activity log once it's sent or scheduled (who, the subject, and where outside it went).
+      const outside = outsideRecipients(req.user, recipients);
+      if (outside.length) res.once('finish', () => res.statusCode < 300 && audit(req, 'mail.sent_outside', { target: String(b.subject || '').slice(0, 120) || '(no subject)', details: { outside: outside.map((o) => o.email).slice(0, 50), new: outside.filter((o) => o.new).length, ...(b.sendAt != null && { scheduled: true }) } }));
     }
     if (b.confidential && b.sendAt != null) throw bad('Confidential messages are sent straight away');
     // Later: the message is built now (attachments as they are now) and sent when it's due.

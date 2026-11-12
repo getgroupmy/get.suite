@@ -2410,5 +2410,11 @@ test('ask before going outside: a message to another company waits for the sende
     assert.equal((await olivia('POST', '/api/mail/send', { to: 'bob@acme.com', subject: `In ${run}`, text: 'x' })).status, 200, 'inside: no question');
     assert.equal((await olivia('POST', '/api/mail/send', { to: 'bob@acme.com', cc: 'gina@globex.com', subject: `Out ${run}`, text: 'x', outsideConfirmed: true })).status, 200);
     assert.equal((await gina('POST', '/api/mail/send', { to: 'bob@acme.com', subject: `From Globex ${run}`, text: 'x' })).status, 200, 'only Acme asks');
+    // In the activity log: the confirmed one (not the held one, nor the one inside).
+    const log = (await olivia('GET', '/api/audit?limit=50')).body;
+    const rows = (Array.isArray(log) ? log : log.entries || log.rows || []).filter((e) => e.action === 'mail.sent_outside' && String(e.target).includes(run));
+    assert.equal(rows.length, 1, JSON.stringify(log).slice(0, 300));
+    assert.equal(rows[0].target, `Out ${run}`);
+    assert.deepEqual((typeof rows[0].details === 'string' ? JSON.parse(rows[0].details) : rows[0].details).outside, ['gina@globex.com']);
   } finally { await olivia('PATCH', '/api/orgs/current', { ask_outside: false }); }
 });
