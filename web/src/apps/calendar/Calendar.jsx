@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
 import { createPortal } from 'react-dom';
 import { useAuth } from '../../App.jsx';
-import { get, post, put, patch, del, onLive, postText, setCalendarOwner } from '../../api.js';
+import { get, post, put, patch, del, onLive, refreshOn, postText, setCalendarOwner } from '../../api.js';
 import { localToday } from '../tasks/taskmath.js';
 import { eventLink } from '../chat/filelinks.js';
 import { LENGTHS, DEFAULT_CAL_PREFS, newEventMinutes, lengthLabel } from './calprefs.js';
@@ -211,7 +211,7 @@ function Calendar({ acting = null, managed = [], onPick }) {
     get(`/location?from=${isoDay(days[0])}&to=${isoDay(days[days.length - 1])}`).then((r) => setLocations(r.days)).catch(() => {});
   }, [view, days]);
   useEffect(() => { loadLocations(); }, [loadLocations]);
-  useEffect(() => onLive((m) => { if (m.type === 'location-changed') loadLocations(); }), [loadLocations]);
+  useEffect(() => onLive((m) => { if (refreshOn(m, 'location-changed')) loadLocations(); }), [loadLocations]);
   const setLocation = async (date, place, label = null) => {
     try { const r = await put('/location/day', { date, place, label }); setLocations((l) => ({ ...l, [date]: r.place ? r : null })); }
     catch (e) { toast(e.message, 'error'); }
@@ -240,7 +240,7 @@ function Calendar({ acting = null, managed = [], onPick }) {
   const [roomList, setRoomList] = useState([]);
   useEffect(() => { get('/rooms').then(setRoomList).catch(() => {}); }, []);
   useEffect(loadBusy, [loadBusy]);
-  useEffect(() => onLive((m) => { if (m.type === 'calendar-shares') loadBusy(); }), [loadBusy]); // someone shared theirs with you (or stopped)
+  useEffect(() => onLive((m) => { if (refreshOn(m, 'calendar-shares')) loadBusy(); }), [loadBusy]); // someone shared theirs with you (or stopped)
   useEffect(() => { const t = setInterval(loadBusy, 60e3); return () => clearInterval(t); }, [loadBusy]);
   // The upcoming list (next 30 days) doesn't depend on the period on screen.
   const [upcomingList, setUpcoming] = useState([]);
@@ -257,7 +257,7 @@ function Calendar({ acting = null, managed = [], onPick }) {
   }, [days, toast, hiddenKey, showDeclined]);
   useEffect(load, [load]);
   // Someone changed an event you organise or are invited to.
-  useEffect(() => onLive((m) => { if (m.type === 'events-changed') { load(); loadCals(); } }), [load, loadCals]);
+  useEffect(() => onLive((m) => { if (refreshOn(m, 'events-changed')) { load(); loadCals(); } }), [load, loadCals]);
   const loadTasks = useCallback(() => {
     if (!showTasks) { setTasks([]); return; }
     const last = new Date(days[days.length - 1]);
@@ -274,7 +274,7 @@ function Calendar({ acting = null, managed = [], onPick }) {
     get(`/time-off/holidays?from=${toDateInput(days[0].getTime())}&to=${toDateInput(last.getTime())}`).then(setHolidays).catch(() => setHolidays([]));
   }, [days]);
   useEffect(() => { loadHolidays(); }, [loadHolidays]);
-  useEffect(() => onLive((m) => { if (m.type === 'tasks-changed') loadTasks(); }), [loadTasks]);
+  useEffect(() => onLive((m) => { if (refreshOn(m, 'tasks-changed')) loadTasks(); }), [loadTasks]);
   const taskDone = async (t) => {
     setTasks((list) => list.filter((x) => x.id !== t.id));
     try {
@@ -1159,7 +1159,7 @@ function RoomsNow({ onClose }) {
   const [needs, setNeeds] = useState([]);
   const load = useCallback(() => get(`/rooms/now${needs.length ? `?needs=${encodeURIComponent(needs.join(','))}` : ''}`).then(setRooms).catch((e) => { toast(e.message, 'error'); setRooms([]); }), [toast, needs]);
   useEffect(() => { load(); const t = setInterval(load, 30000); return () => clearInterval(t); }, [load]);
-  useEffect(() => onLive((m) => { if (m.type === 'events-changed') load(); }), [load]);
+  useEffect(() => onLive((m) => { if (refreshOn(m, 'events-changed')) load(); }), [load]);
   const time = (t) => new Date(t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
   const book = async (r) => {
     try {

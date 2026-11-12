@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import WithPerson from '../../components/WithPerson.jsx';
 import { useNavigate, useSearchParams } from 'react-router';
-import { get, post, put, patch, del, postText, onLive } from '../../api.js';
+import { get, post, put, patch, del, postText, onLive, refreshOn } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
 import { Avatar, ConfirmModal, Empty, Menu, Modal, useToast } from '../../components/ui.jsx';
 import { useAuth } from '../../App.jsx';
@@ -87,7 +87,7 @@ export default function Contacts() {
     } catch (e) { toast(e.message, 'error'); }
   };
   useEffect(() => { load(); get('/users/directory').then(setDirectory); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => onLive((m) => { if (m.type === 'directory-changed') get('/users/directory').then(setDirectory).catch(() => {}); }), []);
+  useEffect(() => onLive((m) => { if (refreshOn(m, 'directory-changed')) get('/users/directory').then(setDirectory).catch(() => {}); }), []);
   const [chart, setChart] = useState(false); // Directory as an org chart
   const [card, setCard] = useState(null); // a colleague's card (their id)
   // Where colleagues are working on a day (today, or one of the next working days), and how many are

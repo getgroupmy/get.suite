@@ -108,6 +108,9 @@ function emit(msg) { for (const fn of listeners) fn(msg); }
 export function startLive() { if (!wanted) { wanted = true; connect(); } }
 export function stopLive() { wanted = false; socket?.close(); }
 export function onLive(fn) { listeners.add(fn); return () => listeners.delete(fn); }
+/** Whether a live event means "load this again": one of these types, or the connection coming (back) up,
+ *  after which anything that changed while it was down has to be fetched. */
+export const refreshOn = (m, ...types) => m.type === 'live-connected' || types.includes(m.type);
 
 // ---------- formatting helpers ----------
 export function formatBytes(n) {

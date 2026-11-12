@@ -110,6 +110,7 @@ function FormEditor({ id }) {
   // A colleague changed the form: take their version unless you have changes waiting to be saved.
   const reloadForm = useCallback(() => get(`/forms/${id}`).then((f) => { if (!pending.current) setForm(f); }).catch(() => {}), [id]);
   useEffect(() => onLive((m) => {
+    if (m.type === 'live-connected') { loadResponses(); reloadForm(); return; } // back online: what came in meanwhile
     if (m.form_id !== id) return;
     if (m.type === 'form-response') { loadResponses(); reloadForm(); }
     if (m.type === 'form-changed') {
