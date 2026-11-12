@@ -2,6 +2,7 @@
 // folders; documents, spreadsheets and presentations as Word, Excel and PowerPoint, or OpenDocument), your calendar
 // (.ics), contacts (.vcf), tasks (CSV), notes (Markdown) and email (an .mbox file per folder). Mounted at /api/takeout.
 import { notesZipEntries } from './notes.js';
+import { allListsCsv } from './tasks.js';
 import { conversationFor } from './chat.js';
 import { userSieve } from '../mail/sieve.js';
 import { formsForExport } from './forms.js';
@@ -32,15 +33,6 @@ const MAX_BYTES = 10 * 1024 ** 3; // stored files; beyond this, download Drive i
 const safe = (name) => String(name).replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').trim().slice(0, 150) || 'untitled';
 const csvCell = (v) => { let s = String(v ?? ''); if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`; return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
 
-/** Tasks as CSV rows (list, title, notes, due, time, done, for). */
-export function tasksCsv(userId) {
-  const rows = q(`SELECT l.name AS list, t.title, t.notes, t.due, t.due_time, t.done_at, u.name AS assignee, t.important
-                  FROM tasks t JOIN task_lists l ON l.id = t.list_id LEFT JOIN users u ON u.id = t.assignee_id
-                  WHERE l.owner_id = ? ORDER BY l.created_at, t.done_at IS NOT NULL, t.position`).all(userId);
-  const head = ['List', 'Task', 'Notes', 'Due', 'Time', 'Done', 'For', 'Important'];
-  return [head, ...rows.map((r) => [r.list, r.title, r.notes || '', r.due || '', r.due_time || '', r.done_at ? new Date(r.done_at).toISOString().slice(0, 10) : '', r.assignee || '', r.important ? 'yes' : ''])]
-    .map((row) => row.map(csvCell).join(',')).join('\r\n');
-}
 
 /** Where a comment is: the quoted text, a cell, a slide. */
 function whereOf(anchor) {
@@ -200,7 +192,7 @@ export default function takeoutRoutes() {
     const evTemplates = eventTemplatesJson(me);
     if (evTemplates) zip.file('Calendar templates.json', evTemplates);
     zip.file('Contacts.vcf', contactsToVcf(q('SELECT * FROM contacts WHERE owner_id = ? ORDER BY name COLLATE NOCASE').all(me).map(withPhoto)));
-    zip.file('Tasks.csv', `﻿${tasksCsv(me)}\r\n`);
+    zip.file('Tasks.csv', `﻿${allListsCsv(me)}\r\n`); // every column a list's download has, so Import lists from CSV… restores them
     zip.file('Notes.md', `# Notes\n\n${notesMarkdown(me)}`);
     // Each note on its own too, with its pictures, as Notes' Download (.zip) gives them (and Import notes… takes back).
     for (const e of await notesZipEntries(q('SELECT * FROM notes WHERE owner_id = ? AND trashed_at IS NULL ORDER BY archived, pinned DESC, position DESC').all(me))) {

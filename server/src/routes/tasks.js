@@ -175,6 +175,23 @@ export function tasksTable(tasks) {
   return table;
 }
 export const tasksCsv = (tasks) => `\ufeff${tasksTable(tasks).map((r) => r.map(csvCell).join(',')).join('\r\n')}\r\n`;
+/** Tasks with their section's name; open ones in the list's order section by section (none first), then done ones. */
+function withSectionNames(listId, rows) {
+  const secs = sectionsOf(listId);
+  if (!secs.length) return rows;
+  const at = new Map(secs.map((x, i) => [x.id, i]));
+  const named = rows.map((t) => ({ ...t, section_name: secs[at.get(t.section_id)]?.name || '' }));
+  const rank = (t) => (t.done ? 1e6 : at.has(t.section_id) ? at.get(t.section_id) + 1 : 0);
+  return named.map((t, i) => [t, i]).sort((a, b) => rank(a[0]) - rank(b[0]) || a[1] - b[1]).map(([t]) => t);
+}
+
+/** All of someone's own lists as one table for a spreadsheet: a List column, then the columns a list's download has. */
+export function allListsTable(userId) {
+  const tasks = q('SELECT id FROM task_lists WHERE owner_id = ? ORDER BY created_at').all(userId).flatMap((l) =>
+    withSectionNames(l.id, q(`${TASK} WHERE t.list_id = ? ORDER BY t.done_at IS NOT NULL, CASE WHEN t.done_at IS NULL THEN t.position END, t.done_at DESC`).all(l.id).map(shape)));
+  return tasksTable(tasks).map((r, i) => [i ? tasks[i - 1].list_name : 'List', ...r]);
+}
+export const allListsCsv = (userId) => allListsTable(userId).map((r) => r.map(csvCell).join(',')).join('\r\n');
 /** A task as one person sees it: each attachment says whether they can open it. */
 const shapeFor = (userId) => (t) => { const out = shape(t); out.attachments = out.attachments.map((a) => ({ ...a, can_open: !!roleFor(a.id, userId) })); return out; };
 
@@ -678,15 +695,6 @@ export default function taskRoutes() {
     res.json({ added: found.tasks.length, done: found.tasks.filter((x) => x.done).length, skipped: found.skipped });
   });
 
-  /** Tasks with their section's name; open ones in the list's order section by section (none first), then done ones. */
-  function withSectionNames(listId, rows) {
-    const secs = sectionsOf(listId);
-    if (!secs.length) return rows;
-    const at = new Map(secs.map((x, i) => [x.id, i]));
-    const named = rows.map((t) => ({ ...t, section_name: secs[at.get(t.section_id)]?.name || '' }));
-    const rank = (t) => (t.done ? 1e6 : at.has(t.section_id) ? at.get(t.section_id) + 1 : 0);
-    return named.map((t, i) => [t, i]).sort((a, b) => rank(a[0]) - rank(b[0]) || a[1] - b[1]).map(([t]) => t);
-  }
   // The whole list as a spreadsheet (CSV, opens in Excel or Sheets): open tasks in order, then done ones.
   r.get('/lists/:id/export.xlsx', async (req, res) => {
     const list = loadList(req.params.id, req.user);
