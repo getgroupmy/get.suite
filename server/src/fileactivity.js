@@ -14,6 +14,9 @@ q(`CREATE TABLE IF NOT EXISTS file_activity (
 )`).run();
 q('CREATE INDEX IF NOT EXISTS file_activity_file ON file_activity(file_id, id)').run();
 
+// When each person last looked at Drive → Activity: what came after is new for them.
+if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'activity_seen_at')) q('ALTER TABLE users ADD COLUMN activity_seen_at INTEGER').run();
+
 const EDIT_RUN_MS = 60 * 60e3;
 const KEEP = 200;
 

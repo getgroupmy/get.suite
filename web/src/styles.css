@@ -2992,3 +2992,4 @@ select.meet-timer-btn option { color: #202124; }
 
 .digest-parts { border: 0; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 4px 16px; }
 .digest-parts legend { padding: 0; margin-bottom: 4px; }
+.drive-activity .file-activity li.new { border-left: 3px solid var(--accent); padding-left: 8px; }

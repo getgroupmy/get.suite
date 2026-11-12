@@ -229,6 +229,13 @@ export default function Drive() {
   }), [load, files]);
   // People asking for access to your files (a notification links here with ?requests=1).
   const [requests, setRequests] = useState([]);
+  // Drive → Activity: how many entries are new since you last looked, counted beside it.
+  const [activityNew, setActivityNew] = useState(0);
+  useEffect(() => {
+    const count = () => get('/files/activity/seen').then((r) => setActivityNew(r.new)).catch(() => {});
+    count();
+    return onLive((m) => { if (['files-changed', 'content-changed', 'activity-seen', 'live-connected'].includes(m.type)) count(); });
+  }, []);
   // Approvals waiting for you, counted beside Approvals.
   const [waitingCount, setWaitingCount] = useState(0);
   useEffect(() => {
@@ -438,7 +445,7 @@ export default function Drive() {
         <NavLink to="/drive/starred" className="subnav-item"><Icon name="staroutline" />Starred</NavLink>
         <NavLink to="/drive/approvals" className="subnav-item"><Icon name="check" /><span className="grow">Approvals</span>{waitingCount > 0 && <span className="count" aria-label={`${waitingCount} waiting for you`}>{waitingCount}</span>}</NavLink>
         <NavLink to="/drive/signatures" className="subnav-item"><span aria-hidden="true" style={{ width: 24, textAlign: 'center' }}>✍️</span><span className="grow">Signatures</span>{signCount > 0 && <span className="count" aria-label={`${signCount} waiting for your signature`}>{signCount}</span>}</NavLink>
-        <NavLink to="/drive/activity" className="subnav-item"><Icon name="restore" />Activity</NavLink>
+        <NavLink to="/drive/activity" className="subnav-item"><Icon name="restore" /><span className="grow">Activity</span>{activityNew > 0 && route.view !== 'activity' && <span className="count" aria-label={`${activityNew} new`}>{activityNew > 99 ? '99+' : activityNew}</span>}</NavLink>
         <NavLink to="/drive/trash" className="subnav-item"><Icon name="trash" />Trash</NavLink>
         {myLabels.length > 0 && <div className="subnav-title">Labels</div>}
         {myLabels.map((l) => (
@@ -1478,6 +1485,10 @@ function ActivityLine({ a, onOpen }) {
 const ACTIVITY_KINDS = [['', 'Any change'], ['new', 'Made or added'], ['edit', 'Edited'], ['share', 'Shared'], ['move', 'Moved, renamed or trashed'], ['other', 'Locked or approvals']];
 function RecentActivity() {
   const [list, setList] = useState(null);
+  // What's new is what came after you last looked before opening this; opening it counts as looking.
+  const [since, setSince] = useState(undefined);
+  useEffect(() => { get('/files/activity/seen').then((r) => { setSince(r.seen_at || 0); post('/files/activity/seen').catch(() => {}); }).catch(() => setSince(0)); }, []);
+  useEffect(() => { if (since !== undefined && list) post('/files/activity/seen').catch(() => {}); }, [list]); // eslint-disable-line react-hooks/exhaustive-deps -- seeing more while it's open counts too
   const [more, setMore] = useState(false);
   const [by, setBy] = useState('');
   const [kind, setKind] = useState('');
@@ -1515,7 +1526,7 @@ function RecentActivity() {
         <section key={d.day} aria-label={d.day}>
           <h3 className="small muted">{d.day}</h3>
           <ul className="file-activity">
-            {d.items.map((a) => <li key={a.id}><span><ActivityLine a={a} /></span> <span className="muted small">{new Date(a.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span></li>)}
+            {d.items.map((a) => <li key={a.id} className={since !== undefined && a.at > since ? 'new' : undefined}>{since !== undefined && a.at > since && <span className="comment-new-tag">New</span>} <span><ActivityLine a={a} /></span> <span className="muted small">{new Date(a.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span></li>)}
           </ul>
         </section>
       ))}

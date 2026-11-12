@@ -11906,3 +11906,22 @@ test('morning summary: contacts’ birthdays and dates today', async () => {
   await a('PUT', '/api/users/me/digest/parts', { off: ['dates'] });
   assert.doesNotMatch(digestFor(u.id).text, /Birthdays and dates/);
 });
+
+test('Drive → Activity: how many entries are new since you last looked', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['asna', 'Asn Ann'], ['asnb', 'Asn Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  const aid = (await login(a, 'asna@acme.com')).id;
+  await login(b, 'asnb@acme.com');
+  const f = (await b('POST', '/api/files/new', { kind: 'doc', name: 'Asn doc' })).body.id;
+  await b('PUT', `/api/files/${f}/shares`, { shares: [{ user_id: aid, role: 'editor' }] });
+  const first = (await a('GET', '/api/files/activity/seen')).body;
+  assert.equal(first.seen_at, null);
+  assert.ok(first.new >= 2, 'never looked: everything lately');
+  const marked = (await a('POST', '/api/files/activity/seen')).body.seen_at;
+  assert.deepEqual((await a('GET', '/api/files/activity/seen')).body, { new: 0, seen_at: marked });
+  await new Promise((r) => setTimeout(r, 5));
+  await b('PATCH', `/api/files/${f}`, { name: 'Asn doc 2' });
+  assert.equal((await a('GET', '/api/files/activity/seen')).body.new, 1);
+  await a('PATCH', `/api/files/${f}`, { name: 'Asn doc 3' });
+  assert.equal((await a('GET', '/api/files/activity/seen')).body.new, 1, 'her own changes don’t count');
+});

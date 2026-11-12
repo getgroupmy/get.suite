@@ -1788,6 +1788,19 @@ export default function fileRoutes({ maxUploadBytes }) {
     res.json({ ...c, minutes: readingMinutes(c.words) });
   });
 
+  // Drive → Activity: how many entries are new since you last looked ({ new, seen_at }), and marking that you have.
+  r.get('/activity/seen', (req, res) => {
+    const seen = q('SELECT activity_seen_at FROM users WHERE id = ?').get(req.user.id).activity_seen_at || 0;
+    const fresh = recentActivityFor(req.user.id, (id) => roleFor(id, req.user.id), { limit: 100 }).filter((a) => a.at > seen).length;
+    res.json({ new: fresh, seen_at: seen || null });
+  });
+  r.post('/activity/seen', (req, res) => {
+    const t = Date.now();
+    q('UPDATE users SET activity_seen_at = ? WHERE id = ?').run(t, req.user.id);
+    sendTo([req.user.id], { type: 'activity-seen' });
+    res.json({ seen_at: t });
+  });
+
   // Drive → Activity: what others did lately (30 days) to files you can open, newest first; ?before=<id> pages back,
   // ?by=<user id> only what one person did, ?kind=new|edit|share|move|other only those kinds.
   r.get('/activity/recent', (req, res) => {
