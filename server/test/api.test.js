@@ -11214,3 +11214,23 @@ test('address suggestions: people you email most come first (after starred conta
   assert.equal((await u('PATCH', `/api/contacts/${star.id}`, { starred: true })).status, 200);
   assert.deepEqual((await names()).slice(0, 2), ['Quokka Star', 'Quokka Mid'], 'starred still first');
 });
+
+test('chat after hours: a direct message with a colleague whose day is over says so; channels and colleagues without hours do not', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['aftera', 'After Ann'], ['afterb', 'After Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'aftera@acme.com');
+  const bid = (await login(b, 'afterb@acme.com')).id;
+  const dm = (await a('POST', '/api/chat/dm', { user_id: bid })).body.id;
+  assert.deepEqual((await a('GET', `/api/chat/channels/${dm}/after-hours`)).body, [], 'no hours of their own');
+  const today = new Date().getUTCDay();
+  await b('PUT', '/api/users/me/work-hours', { hours: { days: [0, 1, 2, 3, 4, 5, 6].filter((d) => d !== today), start: 0, end: 1440, tz: 'UTC' } });
+  const r = (await a('GET', `/api/chat/channels/${dm}/after-hours`)).body;
+  assert.equal(r.length, 1);
+  assert.equal(r[0].name, 'After Ben');
+  const tomorrow = new Date(); tomorrow.setUTCHours(24, 0, 0, 0);
+  assert.equal(r[0].next, tomorrow.getTime());
+  assert.deepEqual((await b('GET', `/api/chat/channels/${dm}/after-hours`)).body, [], 'Ann has no hours set');
+  const ch = (await a('POST', '/api/chat/channels', { name: 'after-hours-room' })).body.id;
+  assert.deepEqual((await a('GET', `/api/chat/channels/${ch}/after-hours`)).body, [], 'only direct messages');
+  assert.equal((await client()('GET', `/api/chat/channels/${dm}/after-hours`)).status, 401);
+});

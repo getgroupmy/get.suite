@@ -350,6 +350,17 @@ export default function Chat() {
   const loadScheduled = useCallback(() => { if (channelId) get(`/chat/scheduled?channel=${channelId}`).then(setScheduled).catch(() => {}); }, [channelId]);
   useEffect(() => { setScheduled([]); loadScheduled(); }, [loadScheduled]);
   useEffect(() => onLive((m) => { if (m.type === 'chat-scheduled' && m.channel_id === channelId) loadScheduled(); }), [channelId, loadScheduled]);
+  // A direct message with a colleague whose working day is over (by the hours they've set): say so, and offer
+  // to schedule what you write for when it starts. Checked when the conversation opens, and every 5 minutes.
+  const [lateDm, setLateDm] = useState(null);
+  useEffect(() => {
+    setLateDm(null);
+    if (!channelId || !current?.dm_user_id) return undefined;
+    const check = () => get(`/chat/channels/${channelId}/after-hours`).then((r) => setLateDm(r[0] || null)).catch(() => {});
+    check();
+    const t = setInterval(check, 5 * 60e3);
+    return () => clearInterval(t);
+  }, [channelId, current?.dm_user_id]);
   async function scheduleAt(at) {
     const body = text.trim();
     if ((!body && !files.length) || uploading) return;
@@ -742,6 +753,14 @@ export default function Chat() {
             </ul>
           )}
           {typing.line}
+          {lateDm && !current.archived_at && (
+            <p className="chat-late small" role="status">
+              <span aria-hidden="true">🌙</span> It's {lateDm.local} for <strong>{lateDm.name}</strong>, outside their working hours.{' '}
+              <button type="button" className="link-btn" disabled={(!text.trim() && !files.length) || uploading > 0}
+                title={text.trim() || files.length ? '' : 'Write your message first'} onClick={() => scheduleAt(lateDm.next)}>
+                Send when their day starts ({whenText(lateDm.next)})</button>
+            </p>
+          )}
           {!current.archived_at && current.can_post === false ? (
             <div className="banner archived-banner" role="note">📣 Only {(current.posters || []).map((id) => people.find((p) => p.id === id)?.name).filter(Boolean).join(', ') || 'some people'} (and admins) start conversations here. Reply in a thread to join in.</div>
           ) : current.archived_at ? (
