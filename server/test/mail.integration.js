@@ -1590,6 +1590,11 @@ test('shared mailbox: its members read it and answer as it; nobody signs in to i
   // Reading and answering as it.
   const full = (await bob('GET', `/api/mail/messages/${got.uid}?folder=INBOX&mailbox=${mb}`)).body;
   assert.equal(full.subject, 'My order is late');
+  // Downloading its messages as a .zip works there too (a link, so ?mailbox=).
+  const z = await bob('GET', `/api/mail/messages-eml.zip?folder=INBOX&uids=${got.uid}&mailbox=${mb}`, undefined, { binary: true });
+  assert.equal(z.status, 200);
+  const JSZip = (await import('jszip')).default;
+  assert.ok(Object.keys((await JSZip.loadAsync(z.body)).files)[0].endsWith('My order is late.eml'));
   assert.equal((await bob('POST', '/api/mail/send', { from: 'helper@acme.com', to: 'olivia@acme.com', subject: 'x', text: 'x' }, as)).status, 400, 'only as the mailbox');
   assert.equal((await bob('POST', '/api/mail/send', { from: 'support@acme.com', to: 'olivia@acme.com', subject: 'x', text: 'x', sendAt: Date.now() + 864e5 }, as)).status, 400, 'no scheduling');
   const sent = await bob('POST', '/api/mail/send', { from: 'support@acme.com', to: 'olivia@acme.com', subject: 'Re: My order is late', text: 'It ships today.', inReplyTo: full.messageId, replyTo: { folder: 'INBOX', uid: got.uid } }, as);
