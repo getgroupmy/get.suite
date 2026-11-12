@@ -11764,3 +11764,28 @@ test('Drive → Activity narrowed to one person or one kind of change', async ()
   assert.deepEqual((await get(`kind=new&by=${bid}`)).map((x) => x.file.name), ['Flt room']);
   assert.equal((await a('GET', '/api/files/activity/recent?kind=nope')).status, 400);
 });
+
+test('morning summary: what others changed in Drive since yesterday, by file, only files you can open', async () => {
+  const { digestFor, driveChanges } = await import('../src/digest.js');
+  const a = client(), b = client(), c = client();
+  for (const [local, name] of [['dgda', 'Dig Ann'], ['dgdb', 'Dig Ben'], ['dgdc', 'Dig Cy']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  const aid = (await login(a, 'dgda@acme.com')).id;
+  const bid = (await login(b, 'dgdb@acme.com')).id;
+  await login(c, 'dgdc@acme.com');
+  const room = (await b('POST', '/api/files/folder', { name: 'Dig room' })).body.id;
+  await b('PUT', `/api/files/${room}/shares`, { shares: [{ user_id: aid, role: 'editor' }] });
+  const doc = (await b('POST', '/api/files/new', { kind: 'doc', name: 'Dig plan', parent_id: room })).body.id;
+  await b('PATCH', `/api/files/${doc}`, { name: 'Dig plan 2' });
+  await c('POST', '/api/files/new', { kind: 'doc', name: 'Dig secret' });
+  await a('POST', '/api/files/new', { kind: 'doc', name: 'Dig mine' });
+  const changes = driveChanges(aid).filter((f) => f.name.startsWith('Dig'));
+  assert.deepEqual(changes, [{ name: 'Dig plan 2', what: 'renamed by Dig; made by Dig' }, { name: 'Dig room', what: 'shared by Dig; made by Dig' }]);
+  const d = digestFor(aid);
+  assert.match(d.text, /Changed in Drive since yesterday \(\d+ files?\):/);
+  assert.match(d.text, /“Dig plan 2”: renamed by Dig; made by Dig/);
+  assert.doesNotMatch(d.text, /Dig secret|Dig mine/);
+  assert.ok(d.drive >= 2);
+  // Nothing from a day ago or more.
+  assert.equal(driveChanges(aid, Date.now() + 2 * 864e5).length, 0);
+  assert.deepEqual(driveChanges(bid).filter((f) => f.name.startsWith('Dig')), [], 'Ben did it all himself');
+});

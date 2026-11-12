@@ -1,5 +1,6 @@
 // The morning summary: an email each day at the hour someone chooses (in their time zone) with
-// today's events, the tasks due today or overdue, and how many chat messages are waiting. Sent from
+// today's events, the tasks due today or overdue, how many chat messages are waiting, and what others
+// changed in Drive (files they can open) in the last day. Sent from
 // their own mailbox to itself, so it needs this server's email to be on.
 import { q } from './db.js';
 import { expand } from './calmath.js';
@@ -7,6 +8,8 @@ import { zonedToUtc, zoneOrUtc } from './ics.js';
 import { outEvent } from './routes/calendar.js';
 import { mailEnabled } from './mail/config.js';
 import { smtpFor } from './mail/imap.js';
+import { recentActivityFor } from './fileactivity.js';
+import { roleFor } from './access.js';
 
 for (const [col, type] of [['digest_hour', 'INTEGER'], ['digest_tz', 'TEXT'], ['digest_last', 'TEXT']]) {
   if (!q('PRAGMA table_info(users)').all().some((c) => c.name === col)) q(`ALTER TABLE users ADD COLUMN ${col} ${type}`).run();
@@ -47,8 +50,31 @@ export function digestFor(userId, t = Date.now()) {
   for (const k of tasks) lines.push(`  ${k.due < date ? `Overdue (${k.due})` : k.due_time ? `Today ${k.due_time}` : 'Today'}  ${k.title}  [${k.list}]`);
   lines.push('');
   if (unread) lines.push(`${unread} unread chat message${unread === 1 ? '' : 's'}.`, '');
+  const drive = driveChanges(userId, t);
+  if (drive.length) {
+    lines.push(`Changed in Drive since yesterday (${drive.length} file${drive.length === 1 ? '' : 's'}):`);
+    for (const f of drive.slice(0, 8)) lines.push(`  “${f.name}”: ${f.what}`);
+    if (drive.length > 8) lines.push(`  and ${drive.length - 8} more (Drive → Activity)`);
+    lines.push('');
+  }
   lines.push('You get this because you turned on the morning summary in Workspace → Settings.');
-  return { date, subject: `Your day: ${dayName}`, text: lines.join('\n'), events: events.length, tasks: tasks.length, unread };
+  return { date, subject: `Your day: ${dayName}`, text: lines.join('\n'), events: events.length, tasks: tasks.length, unread, drive: drive.length };
+}
+
+const VERB = { create: 'made', upload: 'uploaded', copy: 'copied', request: 'sent in', edit: 'edited', version: 'restored', rename: 'renamed', move: 'moved',
+  trash: 'trashed', restore: 'restored', share: 'shared', transfer: 'given', lock: 'locked', unlock: 'unlocked', approval: 'approval' };
+/** Files others changed in the last 24 hours that this person can open: [{ name, what: "edited by Kim, Len; renamed by Kim" }], most recent first. */
+export function driveChanges(userId, t = Date.now()) {
+  const since = t - 864e5;
+  const acts = recentActivityFor(userId, (id) => roleFor(id, userId), { limit: 300, days: 2 }).filter((a) => a.at >= since && a.at <= t);
+  const files = new Map();
+  for (const a of acts) {
+    if (!files.has(a.file.id)) files.set(a.file.id, { name: a.file.name, verbs: new Map() });
+    const verbs = files.get(a.file.id).verbs, v = VERB[a.action] || a.action;
+    if (!verbs.has(v)) verbs.set(v, new Set());
+    verbs.get(v).add((a.user_name || 'Someone').split(' ')[0]);
+  }
+  return [...files.values()].map((f) => ({ name: f.name, what: [...f.verbs].map(([v, who]) => `${v} by ${[...who].join(', ')}`).join('; ') }));
 }
 
 /** Send someone their summary now (from their own mailbox to itself). */

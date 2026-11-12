@@ -234,7 +234,7 @@ function MorningSummary() {
             {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{String(h).padStart(2, '0')}:00</option>)}
           </select> <span className="muted">({tz})</span></label>
         )}
-        <p className="muted small" style={{ margin: 0 }}>Today's events, tasks due or overdue, and how many chat messages are waiting, from your own mailbox to your inbox.</p>
+        <p className="muted small" style={{ margin: 0 }}>Today's events, tasks due or overdue, how many chat messages are waiting, and what others changed in Drive since yesterday, from your own mailbox to your inbox.</p>
       </>}
       <div className="row">
         <button type="button" className="btn small" onClick={async () => { try { const r = await post('/users/me/digest/send', { preview: !d.mail }); setPreview(r.text); if (r.sent) toast('Sent to your inbox'); } catch (e) { toast(e.message, 'error'); } }}>{d.mail ? 'Send me one now' : 'Show what it would say'}</button>
