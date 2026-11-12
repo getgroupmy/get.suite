@@ -2441,3 +2441,13 @@ test('after hours: a colleague who doesn’t work today shows with their local t
   } finally { await bob('PUT', '/api/users/me/work-hours', { hours: null }); }
   assert.deepEqual((await olivia('GET', '/api/mail/after-hours?to=bob@acme.com')).body, [], 'without hours of their own');
 });
+
+test('away: writing to a colleague whose vacation reply is on says so, until when', async () => {
+  const end = new Date(Date.now() + 5 * 864e5).toISOString().slice(0, 10);
+  assert.equal((await bob('PUT', '/api/mail/vacation', { enabled: true, subject: 'Back next week', body: 'On holiday.', end_date: end })).status, 200);
+  try {
+    const r = (await olivia('GET', '/api/mail/away?to=bob@acme.com,gina@globex.com')).body;
+    assert.deepEqual(r, [{ email: 'bob@acme.com', name: 'Bob Builder', until: end, subject: 'Back next week' }], 'not someone at another company');
+  } finally { await bob('PUT', '/api/mail/vacation', { enabled: false, body: 'x' }); }
+  assert.deepEqual((await olivia('GET', '/api/mail/away?to=bob@acme.com')).body, []);
+});

@@ -1395,11 +1395,16 @@ function Compose({ initial, shared = null, signatures = [], onClose, onSent, onD
   }, [f.to, f.cc, f.bcc]);
   // Colleagues outside the working hours they've set: their local time, and Send later for when their day starts.
   const [late, setLate] = useState([]);
+  const [away, setAway] = useState([]); // colleagues whose vacation reply is on today
   useEffect(() => {
     const emails = [f.to, f.cc, f.bcc].flatMap((t) => parseAddresses(t).list.map((a) => a.email));
-    if (!emails.length) { setLate([]); return undefined; }
+    if (!emails.length) { setLate([]); setAway([]); return undefined; }
     let live = true;
-    const t = setTimeout(() => get(`/mail/after-hours?to=${encodeURIComponent(emails.join(','))}`).then((r) => { if (live) setLate(r); }).catch(() => {}), 500);
+    const to = encodeURIComponent(emails.join(','));
+    const t = setTimeout(() => {
+      get(`/mail/after-hours?to=${to}`).then((r) => { if (live) setLate(r); }).catch(() => {});
+      get(`/mail/away?to=${to}`).then((r) => { if (live) setAway(r); }).catch(() => {});
+    }, 500);
     return () => { live = false; clearTimeout(t); };
   }, [f.to, f.cc, f.bcc]);
   // The company asks before mail goes outside it (Admin → Company settings): confirmed once per set of recipients.
@@ -1556,6 +1561,14 @@ function Compose({ initial, shared = null, signatures = [], onClose, onSent, onD
             <span aria-hidden="true">⚠</span>
             <span>{outside.outside.length === 1 ? 'Going outside' : `${outside.outside.length} recipients outside`} {outside.company || 'the company'}: {outside.outside.map((o, i) => (
               <span key={o.email}>{i > 0 && ', '}<strong>{o.email}</strong>{o.new && <span className="outside-new"> (new)</span>}</span>
+            ))}</span>
+          </p>
+        )}
+        {away.length > 0 && (
+          <p className="compose-away small" role="status">
+            <span aria-hidden="true">🌴</span>
+            <span>{away.map((a, i) => (
+              <span key={a.email}>{i > 0 && ' · '}<strong>{a.name}</strong> is away{a.until ? ` until ${new Date(`${a.until}T12:00:00Z`).toLocaleDateString([], { day: 'numeric', month: 'short' })}` : ''}{a.subject && <span className="muted"> (“{a.subject}”)</span>}</span>
             ))}</span>
           </p>
         )}

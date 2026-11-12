@@ -32,3 +32,23 @@ test('after hours: over the weekend their next start is Monday; a quarter hour b
   assert.equal(new Date(r[0].next).toISOString(), '2026-11-16T09:00:00.000Z');
   assert.deepEqual(afterHours(me, ['lon@a.example'], Date.parse('2026-11-16T08:50:00Z')), [], 'starting in 10 minutes');
 });
+
+test('away: colleagues whose vacation reply is on today, until when; not before it starts or after it ends', async () => {
+  const { awayRecipients } = await import('../src/mail/afterhours.js');
+  const set = (id, enabled, start, end, subject = 'Out of office') => q(`INSERT INTO vacations (user_id, enabled, subject, body, start_date, end_date, updated_at) VALUES (?, ?, ?, '', ?, ?, 0)
+    ON CONFLICT(user_id) DO UPDATE SET enabled = excluded.enabled, start_date = excluded.start_date, end_date = excluded.end_date, subject = excluded.subject`).run(id, enabled, subject, start, end);
+  const now = Date.parse('2026-11-12T10:00:00Z');
+  set('tok', 1, '2026-11-10', '2026-11-20', 'On holiday');
+  set('lon', 1, null, null);
+  set('nohours', 0, null, null);
+  set('other', 1, null, null);
+  const r = awayRecipients(me, ['tok@a.example', 'LON@a.example', 'nohours@a.example', 'other@a.example', 'me@a.example'], now);
+  assert.deepEqual(r, [
+    { email: 'tok@a.example', name: 'Kim Tokyo', until: '2026-11-20', subject: 'On holiday' },
+    { email: 'lon@a.example', name: 'Lee London', until: null, subject: 'Out of office' },
+  ], 'switched off and other companies left out');
+  set('tok', 1, '2026-11-13', '2026-11-20');
+  assert.deepEqual(awayRecipients(me, ['tok@a.example'], now), [], 'not started yet');
+  set('tok', 1, '2026-11-01', '2026-11-11');
+  assert.deepEqual(awayRecipients(me, ['tok@a.example'], now), [], 'over');
+});

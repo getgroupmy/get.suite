@@ -2965,8 +2965,8 @@ select.meet-timer-btn option { color: #202124; }
 .outside-list { margin: 0; padding-left: 20px; word-break: break-all; }
 
 /* Mail compose: colleagues outside their working hours */
-.compose-late { display: flex; align-items: flex-start; gap: 6px; margin: 4px 0 2px 72px; padding: 6px 10px; border-radius: 8px; background: var(--accent-soft); color: var(--text); }
-@media (max-width: 600px) { .compose-late { margin-left: 0; } }
+.compose-late, .compose-away { display: flex; align-items: flex-start; gap: 6px; margin: 4px 0 2px 72px; padding: 6px 10px; border-radius: 8px; background: var(--accent-soft); color: var(--text); }
+@media (max-width: 600px) { .compose-late, .compose-away { margin-left: 0; } }
 
 /* Chat: a direct message with a colleague outside their working hours */
 .chat-late { margin: 0 12px 6px; padding: 6px 10px; border-radius: 8px; background: var(--accent-soft); color: var(--text); }

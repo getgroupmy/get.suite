@@ -39,9 +39,26 @@ export function afterHoursOfIds(user, ids, now = Date.now()) {
   return out;
 }
 
+const toList = (v) => String(v || '').split(',').map((s) => s.trim()).filter(Boolean).slice(0, 100);
 export function afterHoursRoutes(r) {
-  r.get('/after-hours', (req, res) => {
-    const list = String(req.query.to || '').split(',').map((s) => s.trim()).filter(Boolean).slice(0, 100);
-    res.json(afterHours(req.user, list));
-  });
+  r.get('/after-hours', (req, res) => res.json(afterHours(req.user, toList(req.query.to))));
+  // Colleagues on the message who are away (their vacation reply is on today).
+  r.get('/away', (req, res) => res.json(awayRecipients(req.user, toList(req.query.to))));
+}
+
+/**
+ * Colleagues on a message whose vacation reply is on today (Mail → Vacation reply): [{ email, name, until, subject }],
+ * `until` the last day (YYYY-MM-DD) or null when it has no end. Dates as the mail server keeps them (UTC).
+ */
+export function awayRecipients(user, emails, now = Date.now()) {
+  const today = new Date(now).toISOString().slice(0, 10);
+  const out = [];
+  for (const e of new Set((emails || []).map(clean))) {
+    if (!e || e === clean(user.username)) continue;
+    const row = q(`SELECT u.name, v.subject, v.start_date, v.end_date FROM users u JOIN vacations v ON v.user_id = u.id
+                   WHERE LOWER(u.username) = ? AND u.org_id = ? AND u.disabled = 0 AND v.enabled = 1`).get(e, user.org_id);
+    if (!row || (row.start_date && row.start_date > today) || (row.end_date && row.end_date < today)) continue;
+    out.push({ email: e, name: row.name, until: row.end_date || null, subject: String(row.subject || '').slice(0, 120) });
+  }
+  return out;
 }
