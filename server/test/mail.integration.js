@@ -2388,3 +2388,10 @@ test('include: after sending to Bob and Gina together, writing to Bob suggests G
   assert.deepEqual((await olivia('GET', '/api/mail/includes?to=bob@acme.com&not=gina@globex.com')).body, []);
   assert.deepEqual((await bob('GET', '/api/mail/includes?to=olivia@acme.com')).body.filter((x) => x.email === 'gina@globex.com'), [], 'Olivia’s, not Bob’s');
 });
+
+test('outside the company: recipients not on its domains, with the ones never written to marked new', async () => {
+  const r = (await olivia('GET', `/api/mail/external?to=${encodeURIComponent('bob@acme.com,gina@globex.com,someone-new@globex.com')}`)).body;
+  assert.equal(r.company, 'Acme');
+  assert.deepEqual(r.outside, [{ email: 'gina@globex.com', new: false }, { email: 'someone-new@globex.com', new: true }], 'Gina was written to before');
+  assert.deepEqual((await gina('GET', '/api/mail/external?to=bob@acme.com')).body.outside, [{ email: 'bob@acme.com', new: false }], 'from Globex, Acme is outside');
+});

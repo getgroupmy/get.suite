@@ -36,6 +36,7 @@ import { tabQuery, TABS, TO_PRIMARY, TO_UPDATES } from '../mail/tabs.js';
 import { tidyRoutes } from '../mail/tidy.js';
 import { attachPrefRoutes } from '../mail/attachprefs.js';
 import { includeRoutes } from '../mail/includes.js';
+import { externalRoutes } from '../mail/external.js';
 import { mailStorage } from '../mail/storage.js';
 import { nudgeRoutes, nudgeQuery, nudgesOn } from '../mail/nudges.js';
 import { receiptRequest, buildReceipt } from '../mail/receipt.js';
@@ -381,6 +382,7 @@ export default function webmailRoutes() {
   tidyRoutes(r); // old Updates mail to Archive by itself
   attachPrefRoutes(r); // the forgotten-attachment reminder: on or off, and your own words
   includeRoutes(r); // "Include Kim?": people you usually write to together with those on a message
+  externalRoutes(r); // which recipients are outside the company (and new to you)
   nudgeRoutes(r, (u) => identities(u).map((i) => i.address)); // mail from people you haven't answered, for Home
   r.get('/storage', async (req, res) => res.json(await mailStorage(req.user))); // how much room mail takes, and the largest messages
   // Confidential mode: codes for outside recipients come by email from the sender.

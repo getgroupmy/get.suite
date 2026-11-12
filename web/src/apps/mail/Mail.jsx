@@ -1383,6 +1383,15 @@ function Compose({ initial, shared = null, signatures = [], onClose, onSent, onD
       .then((r) => { if (live) setIncludes(r); }).catch(() => {}), 500);
     return () => { live = false; clearTimeout(t); };
   }, [f.to, f.cc, f.bcc, waved, shared]);
+  // Recipients outside the company (and new ones: never written to, not in your contacts): a notice, not a stop.
+  const [outside, setOutside] = useState(null); // { company, outside: [{ email, new }] }
+  useEffect(() => {
+    const emails = [f.to, f.cc, f.bcc].flatMap((t) => parseAddresses(t).list.map((a) => a.email));
+    if (!emails.length) { setOutside(null); return undefined; }
+    let live = true;
+    const t = setTimeout(() => get(`/mail/external?to=${encodeURIComponent(emails.join(','))}`).then((r) => { if (live) setOutside(r); }).catch(() => {}), 500);
+    return () => { live = false; clearTimeout(t); };
+  }, [f.to, f.cc, f.bcc]);
   const include = (p) => {
     const who = p.name ? `${/[,;<>"]/.test(p.name) ? `"${p.name.replace(/"/g, '')}"` : p.name} <${p.email}>` : p.email;
     setF((x) => ({ ...x, to: x.to.trim() ? `${x.to.trim().replace(/[,;]\s*$/, '')}, ${who}` : who }));
@@ -1515,6 +1524,14 @@ function Compose({ initial, shared = null, signatures = [], onClose, onSent, onD
           <label className="compose-line"><span>Cc</span><AddressInput label="Cc" type="text" inputMode="email" value={f.cc} onChange={(v) => setF((x) => ({ ...x, cc: v }))} /></label>
           <label className="compose-line"><span>Bcc</span><AddressInput label="Bcc" type="text" inputMode="email" value={f.bcc} onChange={(v) => setF((x) => ({ ...x, bcc: v }))} /></label>
         </>}
+        {outside?.outside?.length > 0 && (
+          <p className="compose-outside small" role="status">
+            <span aria-hidden="true">⚠</span>
+            <span>{outside.outside.length === 1 ? 'Going outside' : `${outside.outside.length} recipients outside`} {outside.company || 'the company'}: {outside.outside.map((o, i) => (
+              <span key={o.email}>{i > 0 && ', '}<strong>{o.email}</strong>{o.new && <span className="outside-new"> (new)</span>}</span>
+            ))}</span>
+          </p>
+        )}
         {includes.length > 0 && (
           <div className="compose-includes row wrap small" role="group" aria-label="People you usually include">
             <span className="muted">Include</span>

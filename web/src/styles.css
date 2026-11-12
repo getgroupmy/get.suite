@@ -2956,3 +2956,9 @@ select.meet-timer-btn option { color: #202124; }
 .include-chip { display: inline-flex; align-items: center; gap: 2px; padding: 0 2px 0 10px; border-radius: 999px; background: var(--hover, rgba(0,0,0,.06)); }
 .include-chip .icon-btn { width: 24px; height: 24px; }
 @media (max-width: 600px) { .compose-includes { padding-left: 0; } }
+
+/* Mail compose: recipients outside the company */
+.compose-outside { display: flex; align-items: flex-start; gap: 6px; margin: 4px 0 2px 72px; padding: 6px 10px; border-radius: 8px; background: var(--warn-bg); color: var(--text); }
+.compose-outside strong { font-weight: 600; word-break: break-all; }
+.compose-outside .outside-new { color: var(--danger); font-weight: 600; }
+@media (max-width: 600px) { .compose-outside { margin-left: 0; } }
