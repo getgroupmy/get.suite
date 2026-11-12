@@ -12011,3 +12011,32 @@ test('comment search uses a word index: words and their beginnings, accents igno
   const { q } = await import('../src/db.js');
   assert.equal(q('SELECT COUNT(*) AS n FROM comment_text WHERE comment_id = ?').get(c.id).n, 0, 'its words go with it');
 });
+
+test('download your data: Comments.csv with the comments you wrote and those on your files', async () => {
+  const JSZip = (await import('jszip')).default;
+  const a = client(), b = client(), c = client();
+  for (const [local, name] of [['tkca', 'Tkc Ann'], ['tkcb', 'Tkc Ben'], ['tkcc', 'Tkc Cy']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  const aid = (await login(a, 'tkca@acme.com')).id;
+  const bid = (await login(b, 'tkcb@acme.com')).id;
+  await login(c, 'tkcc@acme.com');
+  const mine = (await a('POST', '/api/files/new', { kind: 'doc', name: 'Ann plan' })).body.id;
+  await a('PUT', `/api/files/${mine}/shares`, { shares: [{ user_id: bid, role: 'editor' }] });
+  const t = (await b('POST', `/api/comments/${mine}`, { body: 'Ben says, "check this"', anchor: { quote: 'the budget' } })).body.comment;
+  await a('POST', `/api/comments/${mine}`, { body: '=SUM(1) is not a formula', thread_id: t.id });
+  await a('PATCH', `/api/comments/${mine}/${t.id}`, { resolved: true });
+  const bens = (await b('POST', '/api/files/new', { kind: 'sheet', name: 'Ben sheet' })).body.id;
+  await b('PUT', `/api/files/${bens}/shares`, { shares: [{ user_id: aid, role: 'editor' }] });
+  await a('POST', `/api/comments/${bens}`, { body: 'Ann on a cell', anchor: { sheet: 0, cell: 'B2' } });
+  await b('POST', `/api/comments/${bens}`, { body: 'Ben on his own sheet', anchor: { sheet: 0, cell: 'C3' } });
+  const cys = (await c('POST', '/api/files/new', { kind: 'doc', name: 'Cy doc' })).body.id;
+  await c('POST', `/api/comments/${cys}`, { body: 'Nothing to do with Ann', anchor: { quote: 'z' } });
+  const zip = await JSZip.loadAsync((await a('GET', '/api/takeout', undefined, { binary: true })).body);
+  const csv = await zip.file('Comments.csv').async('string');
+  const lines = csv.replace(/^\ufeff/, '').trim().split('\r\n');
+  assert.equal(lines[0], 'File,Where,By,Written,Comment,Reply,Resolved');
+  assert.match(lines[1], /^Ann plan,“the budget”,Tkc Ben,\d{4}-\d\d-\d\d \d\d:\d\d,"Ben says, ""check this""",,yes$/);
+  assert.match(lines[2], /^Ann plan,“the budget”,Tkc Ann,[^,]+,'=SUM\(1\) is not a formula,yes,yes$/, 'replies say where their thread is; formulas defused');
+  assert.match(lines[3], /^Ben sheet,B2,Tkc Ann,/, 'hers on someone else’s file');
+  assert.equal(lines.length, 4, 'not Ben’s on his own sheet, nor Cy’s');
+  assert.match(await zip.file('README.txt').async('string'), /Comments\.csv/);
+});

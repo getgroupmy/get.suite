@@ -37,6 +37,27 @@ export function tasksCsv(userId) {
     .map((row) => row.map(csvCell).join(',')).join('\r\n');
 }
 
+/** Where a comment is: the quoted text, a cell, a slide. */
+function whereOf(anchor) {
+  let a = null; try { a = anchor ? JSON.parse(anchor) : null; } catch { a = null; }
+  if (!a) return '';
+  if (a.quote) return `“${String(a.quote).slice(0, 80)}”`;
+  if (a.cell) return `${a.sheet ? `Sheet ${Number(a.sheet) + 1} ` : ''}${a.cell}`;
+  if (a.slide !== undefined && a.slide !== null) return `Slide ${typeof a.slide === 'number' ? a.slide + 1 : a.slide}`;
+  return '';
+}
+/** Comments as CSV rows: the ones you wrote anywhere, and every one on files you own (file, where, by, when, what, reply or not, resolved). */
+export function commentsCsv(userId) {
+  const rows = q(`SELECT f.name AS file, c.anchor, root.anchor AS root_anchor, u.name AS author, c.created_at, c.edited_at, c.body, c.thread_id, root.resolved
+                  FROM file_comments c JOIN files f ON f.id = c.file_id JOIN file_comments root ON root.id = COALESCE(c.thread_id, c.id)
+                  LEFT JOIN users u ON u.id = c.author_id
+                  WHERE c.author_id = ? OR f.owner_id = ?
+                  ORDER BY f.name COLLATE NOCASE, root.created_at, c.created_at`).all(userId, userId);
+  const head = ['File', 'Where', 'By', 'Written', 'Comment', 'Reply', 'Resolved'];
+  return [head, ...rows.map((r) => [r.file, whereOf(r.thread_id ? r.root_anchor : r.anchor), r.author || '', new Date(r.edited_at || r.created_at).toISOString().replace('T', ' ').slice(0, 16), r.body, r.thread_id ? 'yes' : '', r.resolved ? 'yes' : ''])]
+    .map((row) => row.map(csvCell).join(',')).join('\r\n');
+}
+
 /** Your notes as one Markdown file. */
 export function notesMarkdown(userId) {
   const notes = q('SELECT * FROM notes WHERE owner_id = ? ORDER BY archived, pinned DESC, position DESC').all(userId);
@@ -127,12 +148,14 @@ export default function takeoutRoutes() {
     zip.file('Contacts.vcf', contactsToVcf(q('SELECT * FROM contacts WHERE owner_id = ? ORDER BY name COLLATE NOCASE').all(me).map(withPhoto)));
     zip.file('Tasks.csv', `﻿${tasksCsv(me)}\r\n`);
     zip.file('Notes.md', `# Notes\n\n${notesMarkdown(me)}`);
+    zip.file('Comments.csv', `\ufeff${commentsCsv(me)}\r\n`);
     zip.file('README.txt', [`Your Workspace data, ${new Date().toISOString().slice(0, 10)}`, '',
       `Drive/        your files and folders (${odf ? 'documents, spreadsheets and presentations as OpenDocument: .odt, .ods, .odp, for LibreOffice and others' : 'documents as Word, spreadsheets as Excel, presentations as PowerPoint'})`,
       'Calendar.ics  your events, for Outlook, Google Calendar or Apple Calendar',
       'Contacts.vcf  your contacts, for phones, Outlook, Gmail or Apple Contacts',
       'Tasks.csv     your task lists, for a spreadsheet',
-      'Notes.md      your notes', mailNote].join('\r\n'));
+      'Notes.md      your notes',
+      'Comments.csv  comments you wrote, and those on your files, for a spreadsheet', mailNote].join('\r\n'));
     audit(req, 'data.export', { target: who.username });
     const name = `Workspace data${who.id === req.user.id ? '' : ` ${who.username}`} ${new Date().toISOString().slice(0, 10)}.zip`;
     res.setHeader('Content-Type', 'application/zip');
