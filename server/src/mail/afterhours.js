@@ -63,8 +63,8 @@ export function fullRecipients(user, emails) {
   return out;
 }
 
-/** Whether someone's vacation reply is on today: { until, subject } or null. */
-function awayToday(userId, now = Date.now()) {
+/** Whether someone's vacation reply is on the day of `now` (UTC): { until, subject } or null. */
+export function awayToday(userId, now = Date.now()) {
   const today = new Date(now).toISOString().slice(0, 10);
   const v = q('SELECT subject, start_date, end_date FROM vacations WHERE user_id = ? AND enabled = 1').get(userId);
   if (!v || (v.start_date && v.start_date > today) || (v.end_date && v.end_date < today)) return null;

@@ -17,6 +17,7 @@ import { notifyOutside, setOutside, touch, baseUrl, outEvent } from './calendar.
 import { mailEnabled } from '../mail/config.js';
 import { newCode } from '../meet.js';
 import { smtpFor } from '../mail/imap.js';
+import { awayToday } from '../mail/afterhours.js';
 
 q(`CREATE TABLE IF NOT EXISTS booking_pages (
   id TEXT PRIMARY KEY,
@@ -458,9 +459,10 @@ export function freeBusyRoutes() {
       const h = hoursOf(u.id);
       const outside = h.own && !withinHours(start, end, h);
       const busy = busyOf(u.id, start, end).some((b) => b.start < end && b.end > start);
-      if (!outside && !busy) continue;
+      const away = awayToday(u.id, start); // their vacation reply (Mail) is on that day
+      if (!outside && !busy && !away) continue;
       const t = (ms) => new Intl.DateTimeFormat('en-GB', { timeZone: h.tz, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(ms));
-      out.push({ id: u.id, name: u.name, outside, busy, ...(h.own && { local: `${t(start)}–${t(end)}`, tz: h.tz }) });
+      out.push({ id: u.id, name: u.name, outside, busy, ...(away && { away: { until: away.until } }), ...(h.own && { local: `${t(start)}–${t(end)}`, tz: h.tz }) });
     }
     res.json(out);
   });

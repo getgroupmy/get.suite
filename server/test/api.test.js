@@ -11283,3 +11283,15 @@ test('chat away: a direct message with a colleague whose vacation reply is on sa
   q('UPDATE vacations SET enabled = 0 WHERE user_id = ?').run(bid);
   assert.deepEqual((await a('GET', `/api/chat/channels/${dm}/away`)).body, []);
 });
+
+test('event check: an invited colleague whose vacation reply covers the day shows as away, until when', async () => {
+  const { q } = await import('../src/db.js');
+  const a = client(), b = client();
+  for (const [local, name] of [['evawa', 'Event Ann'], ['evawb', 'Event Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'evawa@acme.com');
+  const bid = (await login(b, 'evawb@acme.com')).id;
+  q(`INSERT INTO vacations (user_id, enabled, subject, body, start_date, end_date, updated_at) VALUES (?, 1, 'Away', 'x', '2031-03-03', '2031-03-07', 0)`).run(bid);
+  const at = (iso) => a('GET', `/api/freebusy/check?users=${bid}&start=${Date.parse(iso)}&end=${Date.parse(iso) + 36e5}`);
+  assert.deepEqual((await at('2031-03-05T10:00:00Z')).body.map((x) => [x.name, x.away]), [['Event Ben', { until: '2031-03-07' }]]);
+  assert.deepEqual((await at('2031-03-10T10:00:00Z')).body, [], 'back by then');
+});

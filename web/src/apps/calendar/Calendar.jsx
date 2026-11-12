@@ -1260,8 +1260,9 @@ function GuestCheck({ guests, directory, start, end }) {
   return (
     <ul className="guest-check small" aria-label="Guests at this time">
       {list.map((g) => (
-        <li key={g.id}><span aria-hidden="true">{g.outside ? '🌙' : '📅'}</span> <strong>{g.name}</strong>{' '}
-          {[g.outside && `${g.local} for them, outside their working hours`, g.busy && 'busy then'].filter(Boolean).join(', and ')}</li>
+        <li key={g.id}><span aria-hidden="true">{g.away ? '🌴' : g.outside ? '🌙' : '📅'}</span> <strong>{g.name}</strong>{' '}
+          {[g.away && `away${g.away.until ? ` until ${new Date(`${g.away.until}T12:00:00Z`).toLocaleDateString([], { day: 'numeric', month: 'short' })}` : ''} (vacation reply on)`,
+            g.outside && `${g.local} for them, outside their working hours`, g.busy && 'busy then'].filter(Boolean).join(', and ')}</li>
       ))}
     </ul>
   );
