@@ -16,7 +16,7 @@ import { buildIcs, zoneOrUtc } from '../ics.js';
 import { remindersFor, remindersOf, setReminders } from '../reminders.js';
 import { setRooms, roomsOf } from './rooms.js';
 import express from 'express';
-import { importCalendar, exportCalendar } from '../calimport.js';
+import { importCalendar, exportCalendar, exportCalendarCsv } from '../calimport.js';
 import { roleFor, audienceFor } from '../access.js';
 import { recordActivity } from '../fileactivity.js';
 import { meetingFor } from '../meet.js';
@@ -729,6 +729,13 @@ export default function calendarRoutes() {
     // ?calendar=<id> (or main) downloads just that one.
     const which = req.query.calendar === 'main' ? { id: null, name: req.user.name } : req.query.calendar ? ownCalendar(req.user.id, req.query.calendar) : undefined;
     const file = which ? `${String(which.name).replace(/[^\p{L}\p{N} ._-]+/gu, '').trim() || 'calendar'}.ics` : 'calendar.ics';
+    if (req.query.format === 'csv') {
+      // The same events as a spreadsheet (?tz= for the times), in the layout Outlook and Google Calendar use.
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      const name = file.replace(/\.ics$/, '.csv');
+      res.setHeader('Content-Disposition', `attachment; filename="calendar.csv"; filename*=UTF-8''${encodeURIComponent(name)}`);
+      return res.send(exportCalendarCsv(req.user.id, which, zoneOrUtc(String(req.query.tz || 'UTC'))));
+    }
     res.setHeader('Content-Disposition', `attachment; filename="calendar.ics"; filename*=UTF-8''${encodeURIComponent(file)}`);
     res.send(exportCalendar(req.user.id, which));
   });

@@ -12399,3 +12399,32 @@ test('calendar: import a calendar exported as CSV (Outlook / Google layout), in 
   const bad = await a('POST', '/api/events/import', 'Name,Email\r\nAnn,ann@x.com\r\n', { raw: true, headers: { 'content-type': 'text/csv' } });
   assert.equal(bad.status, 400);
 });
+
+test('calendar: export as CSV in your time zone (formula-like text kept as text), per calendar, and it imports back', async () => {
+  const a = client();
+  const made = await owner('POST', '/api/users', { local: 'calcsvexp', domain: 'acme.com', name: 'Cal Exp', password: 'password123' });
+  assert.equal(made.status, 201, JSON.stringify(made.body));
+  await login(a, 'calcsvexp@acme.com');
+  const t0 = Date.UTC(2026, 11, 3, 8, 30);
+  assert.equal((await a('POST', '/api/events', { title: '=Budget, review', start: t0, end: t0 + 90 * 60000, location: 'Room "4"', description: 'line one\nline two', tz: 'Europe/Berlin' })).status, 201);
+  const d0 = Date.UTC(2026, 11, 9, 23); // midnight in Berlin, as the calendar stores an all-day event
+  assert.equal((await a('POST', '/api/events', { title: 'Offsite', start: d0, end: d0 + 2 * 864e5 - 1, all_day: true, tz: 'Europe/Berlin' })).status, 201);
+  const r = await a('GET', '/api/events/export?format=csv&tz=Europe/Berlin', undefined, { raw: true });
+  assert.equal(r.status, 200);
+  const text = typeof r.body === 'string' ? r.body : String(r.body);
+  const lines = text.replace(/^﻿/, '').trim().split('\r\n');
+  assert.equal(lines[0], 'Subject,Start Date,Start Time,End Date,End Time,All day event,Description,Location,Repeats');
+  assert.ok(lines.includes(`"'=Budget, review",12/3/2026,9:30 AM,12/3/2026,11:00 AM,False,"line one\nline two","Room ""4""",`) || text.includes(`"'=Budget, review",12/3/2026,9:30 AM,12/3/2026,11:00 AM,False`), text);
+  assert.ok(text.includes('Offsite,12/10/2026,,12/11/2026,,True'), text);
+  const b = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'calcsvexp2', domain: 'acme.com', name: 'Cal Exp Two', password: 'password123' })).status, 201);
+  await login(b, 'calcsvexp2@acme.com');
+  const back = await b('POST', '/api/events/import?tz=Europe/Berlin', text, { raw: true, headers: { 'content-type': 'text/csv' } });
+  assert.deepEqual(back.body, { added: 2, skipped: 0, failed: 0 });
+  const { q } = await import('../src/db.js');
+  const got = q("SELECT e.* FROM events e JOIN users u ON u.id = e.owner_id WHERE u.email = 'calcsvexp2@acme.com' ORDER BY start").all();
+  assert.equal(got[0].start, t0, 'same moment after the round trip');
+  assert.equal(got[0].title, "'=Budget, review", 'the guard quote stays: text, never a formula');
+  assert.equal(got[1].all_day, 1);
+  assert.equal(Math.round((got[1].end - got[1].start) / 864e5), 2);
+});

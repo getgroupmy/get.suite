@@ -392,9 +392,10 @@ function Calendar({ acting = null, managed = [], onPick }) {
         <button type="button" className="subnav-item" onClick={() => setPrefsOpen(true)}><Icon name="settings" /><span className="grow">Calendar settings</span></button>
         <button type="button" className="subnav-item" onClick={() => setSharingOpen(true)}><Icon name="share" /><span className="grow">Share my calendar</span></button>
         <button type="button" className="subnav-item" onClick={() => setPrintOpen(true)}><Icon name="print" /><span className="grow">Print or save as PDF</span></button>
-        <button type="button" className="subnav-item" onClick={() => importInput.current.click()}><Icon name="upload" /><span className="grow">Import (.ics)</span></button>
+        <button type="button" className="subnav-item" onClick={() => importInput.current.click()}><Icon name="upload" /><span className="grow">Import (.ics or .csv)</span></button>
         <input ref={importInput} type="file" accept=".ics,.csv,text/calendar,text/csv" hidden aria-label="Calendar file to import" onChange={(e) => { importIcs(e.target.files[0]); e.target.value = ''; }} />
         <a className="subnav-item" href="/api/events/export" download><Icon name="download" /><span className="grow">Export (.ics)</span></a>
+        <a className="subnav-item" href={`/api/events/export?format=csv&tz=${encodeURIComponent(TZ)}`} download><Icon name="download" /><span className="grow">Export as CSV</span></a>
         </>}
         {!acting && <MyCalendars calendars={myCals} me={me} people={people.filter((p) => p.id !== me.id)} onChanged={() => { loadCals(); load(); }} onImport={importIcs}
           onToggle={(c, hidden) => { setMyCals((l) => l.map((x) => (x.id === c.id ? { ...x, hidden } : x))); patch(`/events/calendars/${c.id}`, { hidden }).catch((e) => { toast(e.message, 'error'); loadCals(); }); }} />}
@@ -1676,6 +1677,7 @@ function MyCalendars({ calendars: all, me, people = [], onChanged, onImport, onT
               { label: 'Share…', icon: 'share', onClick: () => setSharing(c) },
               { label: 'Import into it (.ics)…', icon: 'upload', onClick: () => { importFor.current = c.id; fileInput.current.click(); } },
               { label: 'Download (.ics)', icon: 'download', onClick: () => { const a = document.createElement('a'); a.href = `/api/events/export?calendar=${c.id}`; a.download = `${c.name}.ics`; a.click(); } },
+              { label: 'Download as CSV', icon: 'download', onClick: () => { const a = document.createElement('a'); a.href = `/api/events/export?calendar=${c.id}&format=csv&tz=${encodeURIComponent(TZ)}`; a.download = `${c.name}.csv`; a.click(); } },
               { label: 'Delete…', icon: 'trash', danger: true, onClick: () => setDeleting(c) },
             ]} />
           </li>

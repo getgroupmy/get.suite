@@ -155,3 +155,26 @@ export function icsFromCsv(text, zone = 'UTC') {
   out.push('END:VCALENDAR');
   return { ics: out.join('\r\n') };
 }
+
+/** Your events as a CSV spreadsheet in the same layout (Excel, Outlook, Google Calendar's import, or back here): one row per event, times in `zone`. */
+export function exportCalendarCsv(userId, only, zone = 'UTC') {
+  const events = only === undefined
+    ? q('SELECT * FROM events WHERE owner_id = ? AND recur_parent IS NULL ORDER BY start').all(userId)
+    : q('SELECT * FROM events WHERE owner_id = ? AND recur_parent IS NULL AND calendar_id IS ? ORDER BY start').all(userId, only.id);
+  const parts = (ms, tz) => Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: tz, year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })
+    .formatToParts(new Date(ms)).map((p) => [p.type, p.value]));
+  const day = (p) => `${p.month}/${p.day}/${p.year}`;
+  const time = (p) => `${p.hour}:${p.minute} ${p.dayPeriod}`;
+  const cell = (v) => { const s = String(v ?? ''); const safe = /^[=+\-@\t\r]/.test(s) ? `'${s}` : s; return /[",\r\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe; };
+  const freq = { DAILY: 'Daily', WEEKLY: 'Weekly', MONTHLY: 'Monthly', YEARLY: 'Yearly' };
+  const rows = [['Subject', 'Start Date', 'Start Time', 'End Date', 'End Time', 'All day event', 'Description', 'Location', 'Repeats']];
+  for (const e of events) {
+    const tz = e.all_day ? zoneOrUtc(e.tz) : zone;
+    const s = parts(e.start, tz), en = parts(e.all_day ? e.end - 1 : e.end, tz);
+    let rule = null;
+    try { rule = e.rrule ? JSON.parse(e.rrule) : null; } catch { rule = null; }
+    rows.push([e.title, day(s), e.all_day ? '' : time(s), day(en), e.all_day ? '' : time(en), e.all_day ? 'True' : 'False', e.description || '', e.location || '',
+      rule ? freq[String(rule.freq || '').toUpperCase()] || 'Yes' : '']);
+  }
+  return `﻿${rows.map((r) => r.map(cell).join(',')).join('\r\n')}\r\n`;
+}
