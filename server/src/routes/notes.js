@@ -497,6 +497,23 @@ export default function noteRoutes() {
   // A link to a note, pasted in Chat: what it says (the start of it, or the first items of a checklist), for a
   // card. Only for its owner and the people it's shared with; a note in the trash counts as gone.
   // One note as a Markdown file (works in any text editor, Obsidian, GitHub…).
+  // Several notes as one .zip of Markdown files (?ids=a,b,c), named by title ("Shopping.md", a second one "Shopping (2).md").
+  r.get('/export.zip', async (req, res) => {
+    const ids = [...new Set(String(req.query.ids || '').split(',').map((x) => x.trim()).filter(Boolean))];
+    if (!ids.length) throw bad('No notes selected');
+    if (ids.length > 2000) throw bad('Up to 2,000 notes at a time');
+    const notes = ids.map((id) => load(id, req.user)).filter((n) => !n.trashed_at);
+    if (!notes.length) throw notFound('Note not found');
+    if (req.query.check === '1') return res.json({ notes: notes.length });
+    const { attachmentsZip, safeName } = await import('../mail/attzip.js');
+    const buf = await attachmentsZip(notes.map((n) => ({
+      filename: `${safeName(n.title, 'Note').slice(0, 80)}.md`,
+      content: Buffer.from(noteMarkdown({ title: n.title, body: n.body, items: n.items ? JSON.parse(n.items) : null, labels: JSON.parse(n.labels || '[]') })),
+    })));
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="notes.zip"; filename*=UTF-8''${encodeURIComponent(`Notes (${notes.length}).zip`)}`);
+    res.end(buf);
+  });
   r.get('/:id/export.md', (req, res) => {
     const n = load(req.params.id, req.user);
     const note = { title: n.title, body: n.body, items: n.items ? JSON.parse(n.items) : null, labels: JSON.parse(n.labels || '[]') };

@@ -12478,3 +12478,26 @@ test('notes: import HTML files (Apple Notes, OneNote, Keep’s .html): title, te
   assert.equal(keep[0].body, 'json copy');
   assert.equal(notes.find((n) => n.title === 'Untitled').body, 'Just a line', 'no title: the file name');
 });
+
+test('notes: several as one .zip of Markdown files, named by title (repeats numbered); only notes you can open', async () => {
+  const JSZip = (await import('jszip')).default;
+  const a = client(), b = client();
+  for (const [c, local] of [[a, 'notezip'], [b, 'notezip2']]) {
+    const made = await owner('POST', '/api/users', { local, domain: 'acme.com', name: local, password: 'password123' });
+    assert.equal(made.status, 201, JSON.stringify(made.body));
+    await login(c, `${local}@acme.com`);
+  }
+  const mk = async (body) => (await a('POST', '/api/notes', body)).body.id;
+  const one = await mk({ title: 'Shopping', body: 'Milk' });
+  const two = await mk({ title: 'Shopping', items: [{ text: 'Eggs', done: true }] });
+  const three = await mk({ title: 'Ideas/plans', body: 'Lighthouse novel' });
+  const r = await a('GET', `/api/notes/export.zip?ids=${[one, two, three].join(',')}`, undefined, { binary: true });
+  assert.equal(r.status, 200);
+  const zip = await JSZip.loadAsync(r.body);
+  assert.deepEqual(Object.keys(zip.files), ['Shopping.md', 'Shopping (2).md', 'Ideas plans.md']);
+  assert.match(await zip.file('Shopping (2).md').async('string'), /- \[x\] Eggs/);
+  assert.match(await zip.file('Shopping.md').async('string'), /Milk/);
+  assert.deepEqual((await a('GET', `/api/notes/export.zip?ids=${one}&check=1`)).body, { notes: 1 });
+  assert.equal((await b('GET', `/api/notes/export.zip?ids=${one}`)).status, 404, 'not someone else’s');
+  assert.equal((await a('GET', '/api/notes/export.zip?ids=')).status, 400);
+});

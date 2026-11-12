@@ -215,6 +215,11 @@ export default function Notes() {
                 <option value="+new">New label…</option>
               </select>
               <button type="button" className="btn small" onClick={() => many({ change: { archived: !where.archived } }, (r) => `${nNotes(r.notes.length)} ${where.archived ? 'back in Notes' : 'archived'}`)}><Icon name="archive" size={16} /> {where.archived ? 'Unarchive' : 'Archive'}</button>
+              <button type="button" className="btn small" title="Each note as a Markdown (.md) file, in one .zip" onClick={async () => {
+                const url = `/notes/export.zip?ids=${[...picked].map(encodeURIComponent).join(',')}`;
+                try { await get(`${url}&check=1`); } catch (e) { toast(e.message, 'error'); return; }
+                const l = document.createElement('a'); l.href = `/api${url}`; l.download = ''; document.body.appendChild(l); l.click(); l.remove();
+              }}><Icon name="download" size={16} /> Download (.zip)</button>
               <button type="button" className="btn small danger" onClick={() => many({ trash: true }, (r) => [r.trashed && `${nNotes(r.trashed)} moved to the trash`, r.left && `left ${nNotes(r.left)} shared with you`].filter(Boolean).join('; '))}><Icon name="trash" size={16} /> Delete</button>
               <button type="button" className="link-btn small" onClick={() => setPicked(new Set())}>Clear</button>
             </div>
