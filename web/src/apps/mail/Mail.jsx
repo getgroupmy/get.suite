@@ -33,6 +33,7 @@ import { fileLinksIn } from '../chat/filelinks.js';
 import { addToTasksWithToast, mailLink } from '../tasks/addtask.js';
 import { eventFromEmail } from '../calendar/fromemail.js';
 import { ASPECTS, FULL, fitAspect, moveRect, resizeRect, toPixels, rotatedSize, outputType, editedName } from './cropmath.js';
+import { mentionsAttachment } from './attachcheck.js';
 
 const MAIL_DRAG = 'application/x-workspace-mail'; // messages being dragged: { folder, uids }
 const FOLDER_ICON = { '\\Inbox': 'inbox', '\\Drafts': 'doc', '\\Sent': 'send', '\\Archive': 'archive', '\\Junk': 'report', '\\Trash': 'trash' };
@@ -1369,6 +1370,7 @@ function Compose({ initial, shared = null, signatures = [], onClose, onSent, onD
   // Undo send: the window steps aside for a few seconds before the message really goes.
   const [waiting, setWaiting] = useState(false);
   const [accessGaps, setAccessGaps] = useState(null); // linked files some recipients can't open
+  const [forgot, setForgot] = useState(null); // { word, next }: it says "attached" but nothing is
   // A company data protection rule that warns: what it found, and whether the sender said to send anyway.
   const [dlpWarn, setDlpWarn] = useState(null); // { text, at }
   const dlpOk = useRef(false);
@@ -1391,6 +1393,18 @@ function Compose({ initial, shared = null, signatures = [], onClose, onSent, onD
     // Only this form's own submit sends. Dialogs opened from the message (e.g. the link dialog) are
     // rendered elsewhere in the page, but React still passes their events up to here.
     if (e.target !== e.currentTarget) return;
+    if (forgotAttachment(() => checkLinksAndSend())) return;
+    checkLinksAndSend();
+  }
+  /** Says it's attached but nothing is (no file, no forwarded attachment, no Drive link): ask first, then `next`. */
+  const forgotAttachment = (next) => {
+    if (files.length || fwd?.asEml || fwd?.attachments?.length || fileLinksIn(`${f.text} ${f.html}`).length) return false;
+    const word = mentionsAttachment({ html: f.html, text: f.text, subject: f.subject });
+    if (!word) return false;
+    setForgot({ word, next });
+    return true;
+  };
+  async function checkLinksAndSend() {
     // Links to Drive files that colleagues it goes to can't open: ask first.
     const links = fileLinksIn(`${f.text} ${f.html}`).map((l) => l.id);
     const emails = [f.to, f.cc, f.bcc].flatMap((t) => parseAddresses(t).list.map((a) => a.email));
@@ -1439,7 +1453,8 @@ function Compose({ initial, shared = null, signatures = [], onClose, onSent, onD
   }
 
   /** Send at a chosen time: the server keeps it and sends it then. */
-  async function sendLater(at) {
+  async function sendLater(at, checked = false) {
+    if (!checked && forgotAttachment(() => sendLater(at, true))) return;
     setBusy(true);
     await stopAutosave();
     try {
@@ -1572,6 +1587,17 @@ function Compose({ initial, shared = null, signatures = [], onClose, onSent, onD
           <div className="row end">
             <button type="button" className="btn" onClick={() => setDlpWarn(null)}>Edit message</button>
             <button type="button" className="btn primary" onClick={() => { const at = dlpWarn.at; dlpOk.current = true; setDlpWarn(null); if (at) sendLater(at); else reallySend(); }}>Send anyway</button>
+          </div>
+        </div>
+      </Modal>
+    )}
+    {forgot && (
+      <Modal title="Did you mean to attach something?" onClose={() => setForgot(null)}>
+        <div className="stack">
+          <p>Your message says “{forgot.word}”, but nothing is attached.</p>
+          <div className="row end">
+            <button type="button" className="btn" onClick={() => { const { next } = forgot; setForgot(null); next(); }}>Send anyway</button>
+            <button type="button" className="btn primary" autoFocus onClick={() => { setForgot(null); fileInput.current?.click(); }}>Attach a file</button>
           </div>
         </div>
       </Modal>
