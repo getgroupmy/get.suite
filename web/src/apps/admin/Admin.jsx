@@ -24,6 +24,15 @@ function SlackImport() {
   const ref = useRef(null);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(null);
+  const [check, setCheck] = useState(null); // { file, preview }: what it would bring in, to confirm
+  const send = (file, preview) => fetch(`/api/chat/import/slack${preview ? '?preview=1' : ''}`, { method: 'POST', headers: { 'x-requested-with': 'nas-workspace', 'content-type': 'application/zip' }, body: file })
+    .then(async (res) => { const r = await res.json().catch(() => ({})); if (!res.ok) throw new Error(r.error || 'The import didn’t work'); return r; });
+  const look = async (file) => {
+    if (!file) return;
+    setBusy(true); setDone(null);
+    try { setCheck({ file, preview: await send(file, true) }); } catch (e) { toast(e.message, 'error'); }
+    setBusy(false);
+  };
   const run = async (file) => {
     if (!file) return;
     setBusy(true); setDone(null);
@@ -40,7 +49,17 @@ function SlackImport() {
     <div className="stack" style={{ gap: 6 }}>
       <h3 className="small" style={{ margin: '8px 0 0' }}>Moving from Slack</h3>
       <p className="muted small" style={{ margin: 0 }}>In Slack: <em>Workspace settings → Import/export data → Export</em>, then download the .zip and pick it here. Its public channels come in with their messages, threads, reactions and dates; people are matched to yours by email, and anyone who isn't here keeps their Slack name. The history isn't marked unread.</p>
-      <input ref={ref} type="file" accept=".zip,application/zip" hidden aria-label="Slack export" onChange={(e) => { run(e.target.files[0]); e.target.value = ''; }} />
+      <input ref={ref} type="file" accept=".zip,application/zip" hidden aria-label="Slack export" onChange={(e) => { look(e.target.files[0]); e.target.value = ''; }} />
+      {check && (
+        <ConfirmModal title="Import from Slack?" danger={false} confirm={`Import ${check.preview.messages} messages`} onClose={() => setCheck(null)}
+          message={`${check.preview.channels.length} channel${check.preview.channels.length === 1 ? '' : 's'} with ${check.preview.messages} message${check.preview.messages === 1 ? '' : 's'}; ${check.preview.people_matched} of ${check.preview.people_matched + check.preview.not_here.length} people who wrote in them are here (matched by email).`}
+          onConfirm={async () => { const f = check.file; setCheck(null); await run(f); }}>
+          <ul className="small" style={{ maxHeight: 200, overflow: 'auto', margin: '0 0 8px' }}>
+            {check.preview.channels.map((c) => <li key={c.name}>#{c.name}{c.renamed ? ` → #${c.name} (Slack), as the name is taken` : ''}: {c.messages} message{c.messages === 1 ? '' : 's'}{c.archived ? ' (archived)' : ''}</li>)}
+          </ul>
+          {check.preview.not_here.length > 0 && <p className="muted small" style={{ marginTop: 0 }}>Not here, so their messages keep their Slack name: {check.preview.not_here.join(', ')}.</p>}
+        </ConfirmModal>
+      )}
       <div><button type="button" className="btn" disabled={busy} onClick={() => ref.current?.click()}><Icon name="upload" size={18} /> {busy ? 'Importing…' : 'Import from Slack…'}</button></div>
       {done && <p className="small" role="status" style={{ margin: 0 }}>{done.channels.map((c) => `#${c.name}`).join(', ')}: {done.messages} messages. {done.people_matched} of {done.people_matched + done.people_not_here} people matched by email.{done.reactions ? ` ${done.reactions} reaction${done.reactions === 1 ? '' : 's'}.` : ''}{done.reactions_left_out ? ` ${done.reactions_left_out} left out (custom emoji, or by people who aren’t here).` : ''}</p>}
     </div>

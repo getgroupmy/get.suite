@@ -811,6 +811,19 @@ export default function chatRoutes() {
     const org = req.user.org_id;
     const byEmail = new Map(q('SELECT id, username FROM users WHERE org_id = ? AND disabled = 0').all(org).map((u) => [u.username.toLowerCase(), u.id]));
     const who = (slackId) => { const email = found.users.get(slackId)?.email; return (email && byEmail.get(email)) || null; };
+    // ?preview=1: what it would bring in, nothing written (so the admin can check before going ahead).
+    if (req.query.preview) {
+      const chans = found.channels.filter((c) => c.messages.length || !c.archived);
+      const people = new Map();
+      for (const c of chans) for (const m of c.messages) if (m.user && !people.has(m.user)) people.set(m.user, who(m.user));
+      const taken = (n) => !!q('SELECT 1 FROM channels WHERE org_id = ? AND dm_key IS NULL AND lower(name) = lower(?)').get(org, n);
+      return res.json({
+        channels: chans.map((c) => ({ name: c.name, messages: c.messages.length, archived: c.archived, renamed: taken(c.name) })),
+        messages: chans.reduce((n, c) => n + c.messages.length, 0),
+        people_matched: [...people.values()].filter(Boolean).length,
+        not_here: [...people].filter(([, id]) => !id).map(([sid]) => found.users.get(sid)?.name || sid).slice(0, 50),
+      });
+    }
     const matched = new Set(), unmatched = new Set();
     let messages = 0, reactions = 0, reactionsLeft = 0;
     const made = [];
@@ -828,8 +841,8 @@ export default function chatRoutes() {
           const mid = uid(), at = Math.round(Number(m.ts) * 1000), user = who(m.user);
           (user ? matched : unmatched).add(m.user || m.name);
           ids.set(m.ts, mid);
-          q('INSERT INTO messages (id, channel_id, user_id, bot, body, created_at, parent_id) VALUES (?, ?, ?, ?, ?, ?, ?)')
-            .run(mid, id, user, user ? null : m.name, m.text.slice(0, 40000), at, m.thread_ts ? ids.get(m.thread_ts) || null : null);
+          q('INSERT INTO messages (id, channel_id, user_id, bot, body, created_at, parent_id, edited_at, pinned_at, pinned_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+            .run(mid, id, user, user ? null : m.name, m.text.slice(0, 40000), at, m.thread_ts ? ids.get(m.thread_ts) || null : null, m.edited ? at : null, m.pinned ? at : null, m.pinned ? req.user.id : null);
           messages++;
           // Reactions from people who are here, with emoji we know.
           for (const re of m.reactions || []) {

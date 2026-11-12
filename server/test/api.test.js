@@ -12202,6 +12202,7 @@ test('tasks: import from Google Tasks (Takeout Tasks.json): lists, order, notes,
 test('chat: admins import a Slack export: channels, messages with their dates, threads, people matched by email', async () => {
   const JSZip = (await import('jszip')).default;
   const { slackText } = await import('../src/slackimport.js');
+  const { q: q0 } = await import('../src/db.js');
   assert.equal(slackText('Hi <@U1> see <#C2|launch>, <https://x.com|the plan> &amp; <!channel>', new Map([['U1', { name: 'Sia Lee' }]])), 'Hi @Sia Lee see #launch, the plan (https://x.com) & @channel');
   const s = client();
   const sid = (await owner('POST', '/api/users', { local: 'sialee', domain: 'acme.com', name: 'Sia Lee', password: 'password123' })).body.id;
@@ -12215,9 +12216,13 @@ test('chat: admins import a Slack export: channels, messages with their dates, t
     { type: 'message', subtype: 'channel_join', user: 'U2', text: '<@U2> has joined', ts: '1709280001.0' },
     { type: 'message', user: 'U2', text: 'Ready, <@U1>', ts: '1709280060.000200', thread_ts: '1709280000.000100' },
   ]));
-  root.file('slack-launch/2024-03-02.json', JSON.stringify([{ type: 'message', user: 'U1', text: 'Day two', ts: '1709366400.0', files: [{ name: 'plan.pdf' }] }]));
+  root.file('slack-launch/2024-03-02.json', JSON.stringify([{ type: 'message', user: 'U1', text: 'Day two', ts: '1709366400.0', files: [{ name: 'plan.pdf' }], pinned_to: ['C1'], edited: { ts: '1709366500.0' } }]));
   const body = await zip.generateAsync({ type: 'nodebuffer' });
   assert.equal((await s('POST', '/api/chat/import/slack', body, { raw: true, headers: { 'content-type': 'application/zip' } })).status, 403, 'admins only');
+  const pre = await owner('POST', '/api/chat/import/slack?preview=1', body, { raw: true, headers: { 'content-type': 'application/zip' } });
+  assert.equal(pre.status, 200, JSON.stringify(pre.body));
+  assert.deepEqual(pre.body, { channels: [{ name: 'slack-launch', messages: 3, archived: false, renamed: false }], messages: 3, people_matched: 1, not_here: ['Old Contractor'] });
+  assert.equal(q0('SELECT COUNT(*) AS n FROM channels WHERE name = ?').get('slack-launch').n, 0, 'a preview writes nothing');
   const r = await owner('POST', '/api/chat/import/slack', body, { raw: true, headers: { 'content-type': 'application/zip' } });
   assert.equal(r.status, 201, JSON.stringify(r.body));
   assert.deepEqual(r.body.channels.map((c) => [c.name, c.messages]), [['slack-launch', 3]], 'empty archived channels skipped');
@@ -12232,6 +12237,8 @@ test('chat: admins import a Slack export: channels, messages with their dates, t
   assert.ok(list.some((m) => m.body === 'Day two\n📎 plan.pdf'));
   const { q } = await import('../src/db.js');
   const reply = q('SELECT * FROM messages WHERE channel_id = ? AND parent_id IS NOT NULL').get(ch);
+  const day2 = q("SELECT * FROM messages WHERE channel_id = ? AND body LIKE 'Day two%'").get(ch);
+  assert.ok(day2.pinned_at && day2.edited_at, 'pinned and edited in Slack: here too');
   assert.equal(reply.body, 'Ready, @Sia Lee');
   assert.equal(reply.bot, 'Old Contractor', 'not here: their Slack name');
   assert.equal(reply.parent_id, kick.id, 'a thread reply');

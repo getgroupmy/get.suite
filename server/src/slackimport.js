@@ -52,7 +52,8 @@ export function readSlackExport(files) {
         const text = slackText(m.text, users) + (Array.isArray(m.files) && m.files.length ? `${m.text ? '\n' : ''}${m.files.map((f) => `📎 ${f.name || f.title || 'a file'}`).join('\n')}` : '');
         if (!text.trim()) continue;
         messages.push({ ts: String(m.ts), user: m.user || null, name: m.user_profile?.real_name || users.get(m.user)?.name || m.username || 'Slack', text, thread_ts: m.thread_ts && m.thread_ts !== m.ts ? String(m.thread_ts) : null,
-          reactions: (Array.isArray(m.reactions) ? m.reactions : []).map((r) => ({ name: String(r?.name || ''), users: Array.isArray(r?.users) ? r.users.map(String) : [] })) });
+          reactions: (Array.isArray(m.reactions) ? m.reactions : []).map((r) => ({ name: String(r?.name || ''), users: Array.isArray(r?.users) ? r.users.map(String) : [] })),
+          pinned: Array.isArray(m.pinned_to) && m.pinned_to.length > 0, edited: !!m.edited });
       }
     }
     messages.sort((a, b) => Number(a.ts) - Number(b.ts));
