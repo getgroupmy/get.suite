@@ -12625,3 +12625,29 @@ test('notes: a downloaded .zip with pictures imports back whole: text, label and
   assert.equal(pic.status, 200);
   assert.ok(pic.body.equals(png));
 });
+
+test('notes: Google Keep’s Takeout .zip brings each note’s photos (its “attachments”), even a photo-only note', async () => {
+  const JSZip = (await import('jszip')).default;
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+  const a = client();
+  const made = await owner('POST', '/api/users', { local: 'keeppics', domain: 'acme.com', name: 'Keep Pics', password: 'password123' });
+  assert.equal(made.status, 201, JSON.stringify(made.body));
+  await login(a, 'keeppics@acme.com');
+  const zip = new JSZip();
+  const keep = (o) => JSON.stringify({ isTrashed: false, isArchived: false, isPinned: false, color: 'DEFAULT', textContent: '', title: '', ...o });
+  zip.file('Takeout/Keep/Whiteboard.json', keep({ title: 'Whiteboard', textContent: 'From the meeting', attachments: [{ filePath: '1a2b.jpeg', mimetype: 'image/jpeg' }, { filePath: 'missing.png', mimetype: 'image/png' }] }));
+  zip.file('Takeout/Keep/1a2b.jpg', png); // Keep says .jpeg, the file is .jpg
+  zip.file('Takeout/Keep/2024-05-01T10_00_00.json', keep({ attachments: [{ filePath: 'c3d4.png', mimetype: 'image/png' }] }));
+  zip.file('Takeout/Keep/c3d4.png', png);
+  zip.file('Takeout/Keep/Gone.json', keep({ title: 'Gone', isTrashed: true, attachments: [{ filePath: 'c3d4.png', mimetype: 'image/png' }] }));
+  const r = await a('POST', '/api/notes/import', { files: [{ name: 'takeout.zip', base64: (await zip.generateAsync({ type: 'nodebuffer' })).toString('base64') }] });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.equal(r.body.added, 2, 'the trashed one left out');
+  const notes = (await a('GET', '/api/notes')).body;
+  const wb = notes.find((n) => n.title === 'Whiteboard');
+  assert.equal(wb.pictures.length, 1, 'the missing one skipped');
+  const photoOnly = notes.find((n) => n.title === '' && n.pictures.length === 1);
+  assert.ok(photoOnly, JSON.stringify(notes.map((n) => [n.title, n.pictures.length])));
+  const pic = await a('GET', `/api/notes/${wb.id}/pictures/${wb.pictures[0].id || wb.pictures[0]}`, undefined, { binary: true });
+  assert.equal(pic.headers.get('content-type'), 'image/jpeg');
+});

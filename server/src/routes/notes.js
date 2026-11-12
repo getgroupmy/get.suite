@@ -81,11 +81,11 @@ const KEEP_COLORS = { RED: '#faafa8', ORANGE: '#f39f76', YELLOW: '#fff8b8', GREE
  * { title, body, items, color, pinned, archived, labels, created_at, updated_at }, or null for one in Keep's trash
  * or with nothing in it.
  */
-export function keepNote(k) {
+export function keepNote(k, { hasPictures = false } = {}) {
   if (!k || typeof k !== 'object' || k.isTrashed) return null;
   const items = Array.isArray(k.listContent) ? k.listContent.map((x) => ({ text: String(x?.text ?? ''), done: !!x?.isChecked })) : null;
   const title = String(k.title ?? '').slice(0, 300), body = String(k.textContent ?? '').slice(0, 20000);
-  if (!title.trim() && !body.trim() && !(items || []).some((i) => i.text.trim())) return null;
+  if (!title.trim() && !body.trim() && !(items || []).some((i) => i.text.trim()) && !hasPictures) return null; // a photo-only note is still a note
   const usec = (v) => (Number(v) > 0 ? Math.round(Number(v) / 1000) : null);
   return {
     title, body: items ? '' : body, items, color: KEEP_COLORS[String(k.color || '').toUpperCase()] || null,
@@ -405,6 +405,21 @@ export default function noteRoutes() {
       for (const x of inside) {
         const text = await x.async('string');
         const pictures = [];
+        if (/\.json$/i.test(x.name)) {
+          // Google Keep: a note's photos are listed under "attachments", beside its .json in the Takeout (".jpeg" said, ".jpg" there, sometimes).
+          let k = null; try { k = JSON.parse(text); } catch { /* not Keep's; the import says so */ }
+          const dir = x.name.includes('/') ? x.name.slice(0, x.name.lastIndexOf('/') + 1) : '';
+          for (const a of Array.isArray(k?.attachments) ? k.attachments : []) {
+            const fp = String(a?.filePath || '');
+            const mime = String(a?.mimetype || '').toLowerCase().replace('image/jpg', 'image/jpeg');
+            if (!fp || fp.includes('..') || !Object.values(MIME).includes(mime) || pictures.length >= MAX_PICTURES) continue;
+            const alt = fp.replace(/\.jpe?g$/i, (e) => (e.toLowerCase() === '.jpg' ? '.jpeg' : '.jpg'));
+            const entry = zip.file(dir + fp) || zip.file(dir + alt);
+            if (!entry) continue;
+            const data = await entry.async('nodebuffer');
+            if (data.length <= MAX_PICTURE_BYTES) pictures.push({ line: null, mime, data });
+          }
+        }
         if (/\.(md|markdown)$/i.test(x.name)) {
           const dir = x.name.includes('/') ? x.name.slice(0, x.name.lastIndexOf('/') + 1) : '';
           for (const m of text.matchAll(/^!\[[^\]]*\]\(<?([^)>\s]+)>?\)\s*$/gm)) {
@@ -416,7 +431,7 @@ export default function noteRoutes() {
             if (data.length <= MAX_PICTURE_BYTES) pictures.push({ line: m[0], mime, data });
           }
         }
-        files.push({ name: x.name.split('/').pop(), text: pictures.reduce((t2, p2) => t2.replace(p2.line, ''), text).replace(/\n{3,}$/, '\n'), pictures });
+        files.push({ name: x.name.split('/').pop(), text: pictures.reduce((t2, p2) => (p2.line ? t2.replace(p2.line, '') : t2), text).replace(/\n{3,}$/, '\n'), pictures });
       }
     }
     if (!files.length) throw bad('Choose some .md, .txt, .html, Evernote .enex or Google Keep .json files');
@@ -441,12 +456,12 @@ export default function noteRoutes() {
       }
       if (/\.json$/i.test(String(f?.name || ''))) {
         let k = null; try { k = JSON.parse(f.text); } catch { throw bad(`“${f.name}” isn't a Google Keep note`); }
-        const n = keepNote(k);
-        return [n && { ...n, items: n.items ? cleanItems(n.items) : null, labels: cleanLabels(n.labels) }];
+        const n = keepNote(k, { hasPictures: !!f.pictures?.length });
+        return [n && { ...n, items: n.items ? cleanItems(n.items) : null, labels: cleanLabels(n.labels), pictures: f.pictures || [] }];
       }
       return [String(f?.text ?? '').trim() || f?.pictures?.length ? { ...noteFromMarkdown(f.text, f?.name), pictures: f.pictures || [] } : null]; // a blank file isn't a note
     });
-    const notes = all.filter((n) => n && (n.title.trim() || n.body.trim() || (n.items || []).length));
+    const notes = all.filter((n) => n && (n.title.trim() || n.body.trim() || (n.items || []).length || n.pictures?.length));
     if (have + notes.length > MAX_NOTES) throw bad(`You can have up to ${MAX_NOTES} notes`);
     const t = now();
     let top = topFor(req.user.id);
