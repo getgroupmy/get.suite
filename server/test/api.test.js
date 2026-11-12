@@ -11491,3 +11491,21 @@ test('copying a folder copies what is in it, sub-folders and uploads included, l
   assert.equal((await b('GET', `/api/files?view=mine&parent=${top}`)).body.length, 3);
   assert.equal((await a('POST', '/api/files/nope/copy', {})).status, 404);
 });
+
+test('Copy to: copies put in another folder keep their names (numbered if taken); next to the original they are "Copy of"', async () => {
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'cpto', domain: 'acme.com', name: 'Copy To', password: 'password123' })).status, 201);
+  await login(a, 'cpto@acme.com');
+  const from = (await a('POST', '/api/files/folder', { name: 'Drafts box' })).body.id;
+  const to = (await a('POST', '/api/files/folder', { name: 'Final box' })).body.id;
+  const doc = (await a('POST', '/api/files/new', { kind: 'doc', name: 'Report', parent_id: from })).body.id;
+  const sub = (await a('POST', '/api/files/folder', { name: 'Figures', parent_id: from })).body.id;
+  const r = await a('POST', '/api/files/copy-many', { ids: [doc, sub], parent_id: to });
+  assert.equal(r.status, 201);
+  assert.deepEqual(r.body.map((x) => [x.copy.name, x.copy.parent_id]), [['Report', to], ['Figures', to]]);
+  const again = (await a('POST', `/api/files/${doc}/copy`, { parent_id: to })).body;
+  assert.equal(again.name, 'Report (1)', 'taken: numbered');
+  assert.equal((await a('POST', `/api/files/${doc}/copy`, { parent_id: from })).body.name, 'Copy of Report', 'the same folder: Copy of');
+  assert.equal((await a('POST', `/api/files/${doc}/copy`, { parent_id: null })).body.name, 'Report', 'to My Drive');
+  assert.equal((await a('GET', `/api/files?view=mine&parent=${from}`)).body.length, 3, 'the originals stay');
+});

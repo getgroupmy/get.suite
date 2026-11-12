@@ -1121,7 +1121,8 @@ export default function fileRoutes({ maxUploadBytes }) {
       for (const c of children) put(c, id, c.row.name);
       return id;
     };
-    const id = tx(() => put(tree, parentId, `Copy of ${row.name}`));
+    // Next to the original it's "Copy of …"; put somewhere else it keeps its name (a number is added if taken).
+    const id = tx(() => put(tree, parentId, (parentId ?? null) === (row.parent_id ?? null) ? `Copy of ${row.name}` : row.name));
     if (parentId) notify(parentId, { type: 'files-changed', parent_id: parentId });
     return { ...loadFile(id, user), ...(row.kind === 'folder' && { copied: count, skipped }) };
   }

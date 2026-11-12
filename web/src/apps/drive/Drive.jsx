@@ -189,9 +189,9 @@ export default function Drive() {
     load();
   }
   // Copies of several at once (next to each; a folder with what is in it); Undo moves the copies to the trash.
-  async function copyMany(list) {
+  async function copyMany(list, parentId) {
     try {
-      const out = await post('/files/copy-many', { ids: list.map((f) => f.id) });
+      const out = await post('/files/copy-many', { ids: list.map((f) => f.id), ...(parentId !== undefined && { parent_id: parentId }) });
       for (const x of out.filter((y) => y.error)) toast(`${list.find((f) => f.id === x.id)?.name}: ${x.error}`, 'error');
       const copies = out.filter((x) => x.copy).map((x) => x.copy);
       for (const c of copies.filter((x) => x.skipped)) toast(`${c.name}: ${c.skipped} item${c.skipped === 1 ? ' was' : 's were'} left out because you can’t copy ${c.skipped === 1 ? 'it' : 'them'}`, 'error');
@@ -385,6 +385,7 @@ export default function Drive() {
       pdfPart(f) === 'pdf' && { label: 'Organise pages…', icon: 'pdf', onClick: () => setDialog({ type: 'pdf-organize', files: [f] }) },
       pdfPart(f) === 'pdf' && !viewOnly(f) && { label: 'Extract pages…', icon: 'pdf', onClick: () => setDialog({ type: 'pdf-extract', files: [f] }) },
       !f.is_drive && !viewOnly(f) && { label: 'Make a copy', icon: 'copy', onClick: () => copyMany([f]) },
+      !f.is_drive && !viewOnly(f) && { label: 'Copy to…', icon: 'copy', onClick: () => setDialog({ type: 'copyto', files: [f] }) },
       { label: 'Add shortcut to Drive…', icon: 'link', onClick: () => setDialog({ type: 'shortcut', files: [f] }) },
       f.kind !== 'folder' && '-',
       f.kind !== 'folder' && canEdit && !f.locked_at && { label: 'Lock (stop changes)', icon: 'lock', onClick: act(() => put(`/files/${f.id}/lock`, { locked: true }), 'Locked: nobody can change it until it’s unlocked') },
@@ -516,6 +517,7 @@ export default function Drive() {
               <button className="btn small" onClick={() => setDialog({ type: 'bulk-label', files: picked })}><span aria-hidden="true">🏷</span> Label…</button>
               {picked.every(pdfPart) && <button className="btn small" onClick={() => setDialog({ type: 'pdf-combine', files: picked })}><Icon name="pdf" size={16} /> Combine into PDF</button>}
               {picked.length > 1 && picked.every((f) => !f.is_drive) && <button className="btn small" onClick={() => copyMany(picked)}><Icon name="copy" size={16} /> Make a copy</button>}
+              {picked.length > 1 && picked.every((f) => !f.is_drive) && <button className="btn small" onClick={() => setDialog({ type: 'copyto', files: picked })}><Icon name="copy" size={16} /> Copy to</button>}
               {picked.every((f) => f.role === 'owner' || f.role === 'editor') && <>
                 <button className="btn small" onClick={() => setDialog({ type: 'move', files: picked })}><Icon name="move" size={16} /> Move</button>
                 {picked.length > 1 && <button className="btn small" onClick={() => setDialog({ type: 'rename-many', files: picked })}><Icon name="edit" size={16} /> Rename</button>}
@@ -632,6 +634,7 @@ export default function Drive() {
       {dialog?.type === 'pdf-organize' && <Suspense fallback={null}><PdfOrganizeDialog file={dialog.files[0]} canEdit={['owner', 'editor'].includes(dialog.files[0].role) && !dialog.files[0].locked_at} onClose={() => setDialog(null)} onDone={() => { setDialog(null); load(); }} /></Suspense>}
       {dialog?.type === 'pdf-send-sign' && <SendForSignature file={dialog.files[0]} onClose={(sent) => { setDialog(null); if (sent) load(); }} />}
       {dialog?.type === 'pdf-extract' && <PdfExtractDialog file={dialog.files[0]} onClose={() => setDialog(null)} onDone={() => { setDialog(null); load(); }} />}
+      {dialog?.type === 'copyto' && <MoveDialog copy files={dialog.files} onClose={() => setDialog(null)} onCopy={(to) => copyMany(dialog.files, to)} />}
       {dialog?.type === 'shortcut' && <MoveDialog shortcut files={dialog.files} onClose={() => setDialog(null)} onMoved={() => load()} />}
       {dialog?.type === 'preview' && <Preview file={dialog.file} comment={dialog.comment} onClose={() => setDialog(null)} onOpenAs={() => { setDialog(null); openAs(dialog.file); }} />}
       {requestsOpen && <AccessRequests list={requests} onClose={() => setRequestsOpen(false)} onChanged={() => { loadRequests(); load(); }} />}
@@ -969,7 +972,7 @@ function LinkSharing({ file }) {
 }
 
 /** Move files into a folder, or (shortcut) add a shortcut to one there. */
-function MoveDialog({ files, onClose, onMoved, shortcut = false }) {
+function MoveDialog({ files, onClose, onMoved, onCopy, shortcut = false, copy = false }) {
   const toast = useToast();
   const [cur, setCur] = useState(null); // null = My Drive root
   const [path, setPath] = useState([]);
@@ -982,6 +985,7 @@ function MoveDialog({ files, onClose, onMoved, shortcut = false }) {
   }, [cur]);
 
   async function move() {
+    if (copy) { onClose(); onCopy(cur); return; }
     if (shortcut) {
       try { const r = await post(`/files/${files[0].id}/shortcut`, { parent_id: cur }); toast(r.existing ? 'There’s already a shortcut to it there' : 'Shortcut added'); onMoved(); onClose(); } catch (e) { toast(e.message, 'error'); }
       return;
@@ -992,8 +996,9 @@ function MoveDialog({ files, onClose, onMoved, shortcut = false }) {
   }
 
   return (
-    <Modal title={shortcut ? `Add a shortcut to “${files[0].name}”` : files.length === 1 ? `Move “${files[0].name}”` : `Move ${files.length} items`} onClose={onClose}
-      footer={<><button className="btn" onClick={onClose}>Cancel</button><button className="btn primary" onClick={move}>{shortcut ? 'Add shortcut here' : 'Move here'}</button></>}>
+    <Modal title={copy ? (files.length === 1 ? `Copy “${files[0].name}” to…` : `Copy ${files.length} items to…`) : shortcut ? `Add a shortcut to “${files[0].name}”` : files.length === 1 ? `Move “${files[0].name}”` : `Move ${files.length} items`} onClose={onClose}
+      footer={<><button className="btn" onClick={onClose}>Cancel</button><button className="btn primary" onClick={move}>{copy ? 'Copy here' : shortcut ? 'Add shortcut here' : 'Move here'}</button></>}>
+      {copy && <p className="muted small" style={{ marginTop: 0 }}>The original stays where it is. A copy keeps its name, unless it goes in the same folder (then it’s “Copy of …”).</p>}
       {shortcut && <p className="muted small" style={{ marginTop: 0 }}>It stays where it is; the shortcut opens it from this folder too. People still need access to it to open it.</p>}
       <nav className="crumbs small">
         <button className="crumb" onClick={() => setCur(null)}>My Drive</button>
