@@ -1666,7 +1666,7 @@ function Compose({ initial, shared = null, signatures = [], onClose, onSent, onD
             ...templates.map((t) => ({ label: t.name, onClick: () => applyTemplate(t) })),
             ...(templates.length ? ['-'] : []),
             { label: 'Save as template…', icon: 'plus', onClick: () => setTemplateDialog('save') },
-            ...(templates.length ? [{ label: 'Manage templates…', icon: 'settings', onClick: () => setTemplateDialog('manage') }] : []),
+            { label: templates.length ? 'Manage templates…' : 'Import templates…', icon: 'settings', onClick: () => setTemplateDialog('manage') },
           ]} />
           <input ref={fileInput} type="file" multiple hidden aria-label="Attachment files" onChange={(e) => { upload([...e.target.files]); e.target.value = ''; }} />
           <div className="grow" />
@@ -2884,8 +2884,30 @@ function ScheduledDialog({ list, onClose, onChanged }) {
 function TemplatesDialog({ templates, onClose, onChanged }) {
   const toast = useToast();
   const [editing, setEditing] = useState(null);
+  const fileRef = useRef(null);
+  // Moving templates between servers: Export gives templates.json, Import reads one back.
+  const exportAll = () => {
+    const url = URL.createObjectURL(new Blob([`${JSON.stringify(templates.map(({ name, subject, html }) => ({ name, subject, html })), null, 2)}\n`], { type: 'application/json' }));
+    const a = document.createElement('a'); a.href = url; a.download = 'templates.json'; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+  const importFile = async (file) => {
+    if (!file) return;
+    try {
+      const data = JSON.parse(await file.text());
+      const r = await post('/mail/templates/import', { templates: Array.isArray(data) ? data : data?.templates });
+      onChanged();
+      toast(r.added ? `Added ${r.added} template${r.added === 1 ? '' : 's'}${r.skipped ? ` (${r.skipped} already here)` : ''}` : 'Those templates are all here already');
+    } catch (e) { toast(e instanceof SyntaxError ? 'That isn’t a templates file (templates.json)' : e.message, 'error'); }
+  };
   return (
-    <Modal title="Templates" onClose={onClose} footer={<button type="button" className="btn" onClick={onClose}>Close</button>}>
+    <Modal title="Templates" onClose={onClose} footer={<>
+      <input ref={fileRef} type="file" accept=".json,application/json" hidden aria-label="Import templates" onChange={(e) => { importFile(e.target.files[0]); e.target.value = ''; }} />
+      <button type="button" className="btn" onClick={() => fileRef.current?.click()}><Icon name="upload" size={18} /> Import…</button>
+      <button type="button" className="btn" disabled={!templates.length} onClick={exportAll}><Icon name="download" size={18} /> Export</button>
+      <button type="button" className="btn" onClick={onClose}>Close</button>
+    </>}>
+      {!templates.length && <p className="muted">No templates yet. Write a message and choose <strong>Save as template…</strong>, or <strong>Import…</strong> a templates.json exported from Workspace.</p>}
       <ul className="rule-list">
         {templates.map((t) => (
           <li key={t.id}>

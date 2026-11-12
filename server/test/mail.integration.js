@@ -2526,3 +2526,16 @@ test('filters: importing the filters.json from Download your data adds the ones 
   assert.match(sieve, /fileinto[^;]*"News"/);
   await olivia('PUT', '/api/mail/rules', { rules: before });
 });
+
+test('templates: importing ones exported from Templates adds new ones, skips ones already here, numbers a clashing name', async () => {
+  const mk = (name, html, subject = '') => ({ name, subject, html });
+  await olivia('POST', '/api/mail/templates', mk('Imp hello', '<p>Hello</p>', 'Hi'));
+  const r = await olivia('POST', '/api/mail/templates/import', { templates: [mk('Imp hello', '<p>Hello</p>', 'Hi'), mk('Imp hello', '<p>Different</p>'), mk('Imp bye', '<p>Bye</p>')] });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual(r.body, { added: 2, skipped: 1 });
+  const names = (await olivia('GET', '/api/mail/templates')).body.map((t) => t.name).filter((n) => n.startsWith('Imp'));
+  assert.deepEqual(names.sort(), ['Imp bye', 'Imp hello', 'Imp hello (2)']);
+  assert.equal((await olivia('POST', '/api/mail/templates/import', { templates: [] })).status, 400);
+  assert.equal((await olivia('POST', '/api/mail/templates/import', { templates: [{ subject: 'no name' }] })).status, 400);
+  for (const t of (await olivia('GET', '/api/mail/templates')).body.filter((x) => x.name.startsWith('Imp'))) await olivia('DELETE', `/api/mail/templates/${t.id}`);
+});

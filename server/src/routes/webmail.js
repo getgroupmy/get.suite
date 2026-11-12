@@ -9,7 +9,7 @@ import path from 'node:path';
 import { simpleParser } from 'mailparser';
 import MailComposer from 'nodemailer/lib/mail-composer/index.js';
 import addressparser from 'nodemailer/lib/addressparser/index.js';
-import { q, FILES_DIR, DATA_DIR } from '../db.js';
+import { q, tx, FILES_DIR, DATA_DIR } from '../db.js';
 import { sendTo } from '../hub.js';
 import { str, bad, notFound, HttpError, uid as newId, now } from '../util.js';
 import { keepIfHeld } from '../hold.js';
@@ -782,6 +782,27 @@ export default function webmailRoutes() {
     if (html.length > 100000) throw bad('The template is too long');
     return { name, subject, html };
   };
+  // Import templates (as Templates → Export gives them: [{ name, subject, html }]). One that's already here (same name,
+  // subject and text) is skipped; one whose name is taken by a different template gets a number: { added, skipped }.
+  r.post('/templates/import', (req, res) => {
+    const list = Array.isArray(req.body?.templates) ? req.body.templates.slice(0, 200) : [];
+    if (!list.length) throw bad('There are no templates in that file');
+    const incoming = list.map((t) => readTemplate(t || {}));
+    let added = 0, skipped = 0;
+    tx(() => {
+      for (const t of incoming) {
+        const same = q('SELECT 1 FROM mail_templates WHERE user_id = ? AND name = ? COLLATE NOCASE AND COALESCE(subject, \'\') = ? AND html = ?').get(req.user.id, t.name, t.subject || '', t.html);
+        if (same) { skipped++; continue; }
+        if (q('SELECT COUNT(*) AS n FROM mail_templates WHERE user_id = ?').get(req.user.id).n >= 200) throw bad('Too many templates');
+        let name = t.name, n = 1;
+        while (q('SELECT 1 FROM mail_templates WHERE user_id = ? AND name = ? COLLATE NOCASE').get(req.user.id, name)) name = `${t.name.slice(0, 94)} (${++n})`;
+        q('INSERT INTO mail_templates (id, user_id, name, subject, html, updated_at) VALUES (?, ?, ?, ?, ?, ?)').run(newId(), req.user.id, name, t.subject, t.html, now());
+        added++;
+      }
+    });
+    res.json({ added, skipped });
+  });
+
   r.post('/templates', (req, res) => {
     const t = readTemplate(req.body || {});
     if (q('SELECT COUNT(*) AS n FROM mail_templates WHERE user_id = ?').get(req.user.id).n >= 200) throw bad('Too many templates');
