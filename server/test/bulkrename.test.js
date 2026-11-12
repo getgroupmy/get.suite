@@ -13,3 +13,13 @@ test('rename several: find and replace (any case unless asked), before and after
   assert.equal(renamed('Plan', 'doc', { find: 'plan', replace: '$&$1' }), '$&$1', 'no replacement patterns');
   assert.equal(renamed('Plan', 'doc', {}), 'Plan');
 });
+
+test('rename several: a new name for all (extensions kept), numbered in order, padded to the same width', async () => {
+  const { byName } = await import('../src/bulkrename.js');
+  assert.equal(renamed('IMG_2041.JPG', 'file', { base: 'Holiday', number: 3, digits: 2 }), 'Holiday 03.JPG');
+  assert.equal(renamed('Notes', 'doc', { base: 'Minutes', number: 12, digits: 2 }), 'Minutes 12');
+  assert.equal(renamed('scan.pdf', 'file', { number: 1 }), 'scan 1.pdf', 'numbered without a new name');
+  assert.equal(renamed('scan.pdf', 'file', { base: 'Page-', number: 1 }), 'Page- 1.pdf', 'a space unless the name ends with one');
+  assert.equal(renamed('scan.pdf', 'file', { base: 'Page ', number: 1 }), 'Page 1.pdf');
+  assert.deepEqual([{ name: 'img10' }, { name: 'img2' }, { name: 'Img1' }].sort(byName).map((x) => x.name), ['Img1', 'img2', 'img10']);
+});

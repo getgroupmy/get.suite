@@ -39,7 +39,7 @@ import { zipEntries, extractZip } from '../zipfiles.js';
 import { markdownFromDoc, docFromMarkdown } from '../office/markdown.js';
 import { parseCsv } from '../contactfiles.js';
 import { brokenProtections } from '../sheetprotect.js';
-import { renamed } from '../bulkrename.js';
+import { renamed, byName } from '../bulkrename.js';
 
 // Office files that open as Docs, Sheets and Slides (and download back in the same format).
 const OFFICE = {
@@ -1268,23 +1268,29 @@ export default function fileRoutes({ maxUploadBytes }) {
     res.json(publicFile(after));
   });
 
-  // Rename several at once: { ids, find, replace, match_case, prefix, suffix, preview }. Each is checked on its own
+  // Rename several at once: { ids, find, replace, match_case, prefix, suffix, base, number, start, preview }. Each is checked on its own
   // (you need to be able to edit it); with preview nothing changes. [{ id, from, to }] or [{ id, from, error }].
   r.post('/rename-many', (req, res) => {
     const ids = [...new Set(Array.isArray(req.body?.ids) ? req.body.ids.map(String) : [])];
     if (!ids.length) throw bad('Choose what to rename');
     if (ids.length > 500) throw bad('At most 500 at a time');
     const rule = { find: String(req.body.find || '').slice(0, 255), replace: String(req.body.replace || '').slice(0, 255), matchCase: !!req.body.match_case,
-      prefix: String(req.body.prefix || '').slice(0, 100), suffix: String(req.body.suffix || '').slice(0, 100) };
-    if (!rule.find && !rule.prefix && !rule.suffix) throw bad('Say what to change: text to find, or text to add before or after');
+      prefix: String(req.body.prefix || '').slice(0, 100), suffix: String(req.body.suffix || '').slice(0, 100), base: String(req.body.base || '').trim().slice(0, 200) };
+    const numbered = !!req.body.number;
+    const start = numbered ? Number(req.body.start ?? 1) : null;
+    if (numbered && (!Number.isInteger(start) || start < 0 || start > 1e6)) throw bad('Start numbering at a whole number');
+    if (!rule.find && !rule.prefix && !rule.suffix && !rule.base && !numbered) throw bad('Say what to change: text to find, a new name, numbers, or text to add before or after');
+    // Numbered in name order (img2 before img10), as many digits as the last number needs (01 … 12).
+    const order = numbered ? ids.map((id) => ({ id, name: q('SELECT name FROM files WHERE id = ?').get(id)?.name || '' })).sort(byName).map((x) => x.id) : ids;
+    const digits = numbered ? String(start + ids.length - 1).length : 1;
     const out = [];
     const touched = new Set();
     tx(() => {
-      for (const id of ids) {
+      for (const [i, id] of order.entries()) {
         let f;
         try { f = loadFile(id, req.user, 'editor'); } catch { out.push({ id, from: null, error: 'You can’t rename this one' }); continue; }
         if (f.is_drive) { out.push({ id, from: f.name, error: 'Shared drives are renamed one at a time' }); continue; }
-        const want = renamed(f.name, f.kind, rule);
+        const want = renamed(f.name, f.kind, { ...rule, ...(numbered && { number: start + i, digits }) });
         if (want === f.name) { out.push({ id, from: f.name, to: f.name, same: true }); continue; }
         let n;
         try { n = cleanName(want); } catch (e) { out.push({ id, from: f.name, error: e.message }); continue; }

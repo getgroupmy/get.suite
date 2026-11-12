@@ -11374,3 +11374,20 @@ test('rename several Drive files at once: preview first, then each renamed (only
   assert.equal((await a('POST', '/api/files/rename-many', { ids: [d2], find: 'budget', replace: 'a/b' })).body[0].error, 'Name contains invalid characters');
   void bid;
 });
+
+test('rename several: one new name for all, numbered in name order with the same number of digits', async () => {
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'rnmn', domain: 'acme.com', name: 'Ren Num', password: 'password123' })).status, 201);
+  await login(a, 'rnmn@acme.com');
+  const folder = (await a('POST', '/api/files/folder', { name: 'Trip' })).body.id;
+  const ids = [];
+  for (const n of ['img10', 'img2', 'img1', 'img3', 'img4', 'img5', 'img6', 'img7', 'img8', 'img9']) ids.push((await a('POST', '/api/files/new', { kind: 'doc', name: n, parent_id: folder })).body.id);
+  const out = (await a('POST', '/api/files/rename-many', { ids, base: 'Holiday', number: true })).body;
+  const byOld = Object.fromEntries(out.map((x) => [x.from, x.to]));
+  assert.equal(byOld.img1, 'Holiday 01');
+  assert.equal(byOld.img2, 'Holiday 02');
+  assert.equal(byOld.img10, 'Holiday 10', 'img10 after img9');
+  // Now "Holiday 10" and "Holiday 02": numbered from 7 in name order, added to the names as they are.
+  assert.deepEqual((await a('POST', '/api/files/rename-many', { ids: ids.slice(0, 2), number: true, start: 7, preview: true })).body.map((x) => x.to), ['Holiday 02 7', 'Holiday 10 8']);
+  assert.equal((await a('POST', '/api/files/rename-many', { ids, number: true, start: -1 })).status, 400);
+});

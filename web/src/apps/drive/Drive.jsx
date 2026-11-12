@@ -1496,11 +1496,11 @@ function MatchText({ text }) {
 /** Rename several at once: find and replace in the names, text before and after, with a preview of every new name. */
 function RenameMany({ files, onClose, onDone }) {
   const toast = useToast();
-  const [r, setR] = useState({ find: '', replace: '', match_case: false, prefix: '', suffix: '' });
+  const [r, setR] = useState({ find: '', replace: '', match_case: false, prefix: '', suffix: '', base: '', number: false, start: 1 });
   const [preview, setPreview] = useState(null);
   const [busy, setBusy] = useState(false);
   const ids = files.map((f) => f.id);
-  const any = r.find || r.prefix || r.suffix;
+  const any = r.find || r.prefix || r.suffix || r.base.trim() || r.number;
   useEffect(() => {
     if (!any) { setPreview(null); return undefined; }
     let live = true;
@@ -1527,7 +1527,12 @@ function RenameMany({ files, onClose, onDone }) {
           <label className="field grow"><span>Add before</span><input value={r.prefix} onChange={set('prefix')} placeholder="2026 " /></label>
           <label className="field grow"><span>Add after</span><input value={r.suffix} onChange={set('suffix')} placeholder=" (final)" /></label>
         </div>
-        <p className="muted small" style={{ margin: 0 }}>Text added after goes before a file's extension (report.pdf → report (final).pdf). A name that's taken in the same folder gets a number.</p>
+        <div className="row wrap" style={{ gap: 12, alignItems: 'flex-end' }}>
+          <label className="field grow"><span>New name for all (optional)</span><input value={r.base} onChange={set('base')} placeholder="Holiday" /></label>
+          <label className="check"><input type="checkbox" checked={r.number} onChange={set('number')} /> Number them</label>
+          {r.number && <label className="field" style={{ width: 110, flex: 'none' }}><span>Start at</span><input type="number" min="0" value={r.start} onChange={(e) => setR({ ...r, start: Number(e.target.value) || 0 })} /></label>}
+        </div>
+        <p className="muted small" style={{ margin: 0 }}>Text added after, and numbers, go before a file's extension (report.pdf → report (final).pdf). Numbers follow the names' order (img2 before img10), with the same number of digits. A name that's taken in the same folder gets a number.</p>
         <table className="files rename-preview" aria-label="New names">
           <thead><tr><th>Now</th><th>Becomes</th></tr></thead>
           <tbody>
