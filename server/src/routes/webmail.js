@@ -3,7 +3,7 @@ import { notify as notifyBell } from '../notifications.js';
 import { audit } from '../audit.js';
 import crypto from 'node:crypto';
 import { fillTemplate, mergeHtml, unknownPlaceholders } from '../mail/merge.js';
-import { Router } from 'express';
+import express, { Router } from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
 import { simpleParser } from 'mailparser';
@@ -1486,6 +1486,29 @@ export default function webmailRoutes() {
     const result = await withFolder(req.user, folder, (c) => c.messageMove(uids, target, { uid: true }));
     forgetSnoozes(req.user, folder, uids);
     res.json({ ok: true, moved: movedTo(target, result) });
+  });
+
+  // A saved email (.eml, from another mail program or a download here) put into a folder as it is: its own date,
+  // read unless it says otherwise. One already in the folder (the same Message-ID) is skipped.
+  r.post('/messages/upload', express.raw({ type: () => true, limit: '30mb' }), async (req, res) => {
+    const folder = str(req.query.folder || 'INBOX', { name: 'folder' });
+    const buf = Buffer.isBuffer(req.body) ? req.body : Buffer.from(String(req.body || ''));
+    const head = buf.subarray(0, 64 * 1024).toString('latin1').split(/\r?\n\r?\n/)[0];
+    const lines = head.split(/\r?\n/).filter((l) => !/^[ \t]/.test(l));
+    if (!buf.length || !/\r?\n\r?\n/.test(buf.subarray(0, 64 * 1024).toString('latin1')) || !lines.every((l) => /^[!-9;-~]+:/.test(l) || /^From /.test(l))
+      || !/^(from|subject|date|message-id):/im.test(head)) throw bad('That isn’t an email file (.eml)');
+    const source = Buffer.from(buf.toString('latin1').replace(/^From [^\r\n]*\r?\n/, '').replace(/\r?\n/g, '\r\n'), 'latin1');
+    const messageId = /^Message-ID:[ \t]*(<[^>\r\n]+>)/im.exec(head)?.[1] || null;
+    const dateHead = /^Date:[ \t]*(.+)$/im.exec(head)?.[1];
+    const date = dateHead && !Number.isNaN(Date.parse(dateHead)) ? new Date(Date.parse(dateHead)) : undefined;
+    const added = await withFolder(req.user, folder, async (c) => {
+      if (messageId && (await c.search({ header: { 'message-id': messageId } }, { uid: true })).length) return false;
+      const status = /^Status:[ \t]*(.*)$/im.exec(head)?.[1];
+      const flags = status !== undefined && !status.includes('R') ? [] : ['\\Seen'];
+      await c.append(folder, source, flags, date);
+      return true;
+    });
+    res.status(added ? 201 : 200).json({ added: added ? 1 : 0, skipped: added ? 0 : 1 });
   });
 
   // Snooze until a time: into the Snoozed folder (made if needed), back to the Inbox when due.

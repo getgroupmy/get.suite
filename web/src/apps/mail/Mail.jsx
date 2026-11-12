@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { closeHistory } from '@tiptap/pm/history';
 import { DRAFT_KEY } from '../docs/blocks.js';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
-import { api, get, post, put, del, onLive, refreshOn, uploadFile, formatBytes, formatDate, setSharedMailbox, currentSharedMailbox, mailboxParam } from '../../api.js';
+import { api, get, post, put, del, postBlob, onLive, refreshOn, uploadFile, formatBytes, formatDate, setSharedMailbox, currentSharedMailbox, mailboxParam } from '../../api.js';
 import { desktopSupported, desktopOn, enableDesktop, disableDesktop } from '../../mailNotify.js';
 import Icon from '../../components/Icon.jsx';
 import EmojiPicker from '../../components/EmojiPicker.jsx';
@@ -115,6 +115,21 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
   const [emptying, setEmptying] = useState(null); // Trash or Junk, to empty now (asked first)
   const [scheduled, setScheduled] = useState([]);
   const refreshRef = useRef(null);
+  const emlInput = useRef(null);
+  const emlFolder = useRef('INBOX');
+  // Saved emails (.eml) put into a folder, one at a time; the same one twice is skipped.
+  const uploadEml = async (files, target) => {
+    let added = 0, skipped = 0;
+    const bad = [];
+    for (const f of files) {
+      try { const r = await postBlob(`/mail/messages/upload?folder=${encodeURIComponent(target)}`, f, 'message/rfc822'); added += r.added; skipped += r.skipped; }
+      catch (e) { bad.push(`${f.name}: ${e.message}`); }
+    }
+    const name = folders.find((x) => x.path === target)?.name || target;
+    if (added || skipped) toast(`${added} ${added === 1 ? 'email' : 'emails'} added to ${name}${skipped ? `, ${skipped} already there` : ''}`);
+    if (bad.length) toast(bad.slice(0, 3).join(' · '), 'error');
+    loadFolders(); if (target === folder) refreshRef.current?.();
+  };
   const [scheduledOpen, setScheduledOpen] = useState(false);
   const loadScheduled = useCallback(() => get('/mail/scheduled').then(setScheduled).catch(() => {}), []);
   useEffect(() => { loadScheduled(); return onLive((m) => { if (refreshOn(m, 'mail-scheduled')) { loadScheduled(); loadFolders(); } if (m.type === 'mail-snoozed' || m.type === 'mail-assigned' || m.type === 'mail-notes' || m.type === 'mail-tidied') refreshRef.current?.(); }); },
@@ -382,9 +397,10 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
                 {f.unseen > 0 && f.specialUse !== '\\Trash' && f.specialUse !== '\\Sent' && <span className="count">{f.unseen}</span>}
                 {f.specialUse === '\\Drafts' && f.messages > 0 && <span className="count muted">{f.messages}</span>}
               </button>
-              {followable && (
+              {(followable || (!shared && f.specialUse !== '\\Drafts' && f.path !== SNOOZED)) && (
                 <Menu align="left" trigger={(p) => <button className="icon-btn folder-menu" aria-label={`Options for ${f.name}`} {...p}><Icon name="more" size={18} /></button>} items={[
-                  { label: followed.includes(f.path) ? 'Stop notifications' : 'Notify me about new mail', icon: 'bell', onClick: () => toggleFollow(f) },
+                  ...(followable ? [{ label: followed.includes(f.path) ? 'Stop notifications' : 'Notify me about new mail', icon: 'bell', onClick: () => toggleFollow(f) }] : []),
+                  ...(!shared && f.specialUse !== '\\Drafts' && f.path !== SNOOZED ? [{ label: 'Upload emails (.eml)…', icon: 'upload', onClick: () => { emlFolder.current = f.path; emlInput.current?.click(); } }] : []),
                   ...(own ? [
                     { label: 'Rename', icon: 'edit', onClick: () => setFolderDialog({ type: 'rename', folder: f }) },
                     { label: 'Delete', icon: 'trash', danger: true, onClick: () => setFolderDialog({ type: 'delete', folder: f }) },
@@ -398,6 +414,7 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
           <button className="subnav-item" onClick={() => setScheduledOpen(true)}><Icon name="clock" /><span className="grow">Scheduled</span>
             <span className={`count ${scheduled.some((m) => m.status === 'failed') ? 'error' : 'muted'}`}>{scheduled.length}</span></button>
         )}
+        <input ref={emlInput} type="file" accept=".eml,message/rfc822" multiple hidden aria-label="Emails to upload" onChange={(e) => { const fs = [...e.target.files]; e.target.value = ''; if (fs.length) uploadEml(fs, emlFolder.current); }} />
         <button className="subnav-item new-folder" onClick={() => setNewFolder(true)}><Icon name="plus" /><span className="grow">New folder</span></button>
         {!shared && searches.length > 0 && <>
           <div className="subnav-title">Searches</div>

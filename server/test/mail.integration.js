@@ -2539,3 +2539,23 @@ test('templates: importing ones exported from Templates adds new ones, skips one
   assert.equal((await olivia('POST', '/api/mail/templates/import', { templates: [{ subject: 'no name' }] })).status, 400);
   for (const t of (await olivia('GET', '/api/mail/templates')).body.filter((x) => x.name.startsWith('Imp'))) await olivia('DELETE', `/api/mail/templates/${t.id}`);
 });
+
+test('upload .eml files into a folder: their own date, read or not as the file says; the same one twice is skipped; not an email refused', async () => {
+  const tag = `Eml ${Date.now()}`;
+  const eml = (n, extra = '') => `From: Old Friend <friend@example.org>\nTo: olivia@acme.com\nSubject: ${tag} ${n}\nDate: Tue, 03 Mar 2015 10:00:00 +0000\nMessage-ID: <${tag.replace(/\s/g, '')}-${n}@example.org>\n${extra}MIME-Version: 1.0\nContent-Type: text/plain; charset=utf-8\n\nSaved long ago (${n}).\n`;
+  const up = (text, folder = 'INBOX') => olivia('POST', `/api/mail/messages/upload?folder=${encodeURIComponent(folder)}`, text, { raw: true, headers: { 'content-type': 'message/rfc822' } });
+  const a = await up(eml('one'));
+  assert.equal(a.status, 201, JSON.stringify(a.body));
+  assert.deepEqual(a.body, { added: 1, skipped: 0 });
+  assert.deepEqual((await up(eml('two', 'Status: O\n'))).body, { added: 1, skipped: 0 });
+  assert.deepEqual((await up(eml('one'))).body, { added: 0, skipped: 1 }, 'the same Message-ID again');
+  assert.equal((await up('just some words, not an email')).status, 400);
+  assert.equal((await up(eml('three'), 'No such folder')).status, 404);
+  const list = (await olivia('GET', '/api/mail/messages?folder=INBOX')).body.messages.filter((m) => m.subject.startsWith(tag));
+  const one = list.find((m) => m.subject === `${tag} one`), two = list.find((m) => m.subject === `${tag} two`);
+  assert.ok(one && two, JSON.stringify(list.map((m) => m.subject)));
+  assert.equal(new Date(one.date).getUTCFullYear(), 2015, 'its own date');
+  assert.deepEqual([one.seen, two.seen], [true, false], 'Status: O means not read yet');
+  const body = (await olivia('GET', `/api/mail/messages/${one.uid}?folder=INBOX`)).body;
+  assert.match(body.text, /Saved long ago \(one\)\./);
+});

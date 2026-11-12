@@ -58,6 +58,14 @@ export async function postText(url, text) {
   return data;
 }
 
+/** POST a file's bytes as they are (an .eml keeps its own encoding). */
+export async function postBlob(url, blob, type = 'application/octet-stream') {
+  const res = await fetch(`/api${url}`, { method: 'POST', credentials: 'same-origin', headers: { ...HEADERS, 'content-type': type }, body: blob });
+  const data = (res.headers.get('content-type') || '').includes('json') ? await res.json() : null;
+  if (!res.ok) throw new ApiError(res.status, data?.error || `Request failed (${res.status})`, data);
+  return data;
+}
+
 /** Upload one file with progress. Resolves to the created file record. */
 /** Upload a file to Drive. `convert`: Drive's own uploads, which become documents etc. for people who chose that in Settings. */
 export function uploadFile(file, parentId, onProgress, { convert = false } = {}) {
