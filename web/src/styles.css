@@ -935,6 +935,7 @@ textarea.slide-text.editing { resize: none; border: 0; padding: 0; margin: 0; ba
 .comment-thread { border: 1px solid var(--border); border-radius: 8px; padding: 10px; cursor: pointer; background: var(--surface); }
 .comment-thread.active { border-color: var(--accent); box-shadow: var(--shadow); cursor: default; }
 .comment-thread.resolved { opacity: .7; }
+.comment-mark { display: inline-flex; align-items: center; gap: 2px; margin-left: 6px; padding: 0 6px; border-radius: 10px; background: var(--accent-soft); color: var(--accent-text); font-size: 11px; font-weight: 600; line-height: 18px; vertical-align: middle; }
 .comments-new-count { margin-left: 6px; padding: 0 6px; border-radius: 10px; background: var(--danger); color: #fff; font-size: 11px; font-weight: 600; line-height: 18px; }
 .comment-new-tag { flex: none; padding: 0 6px; border-radius: 10px; background: var(--accent); color: #fff; font-size: 11px; font-weight: 600; line-height: 18px; }
 .comment-thread.new { border-left: 3px solid var(--accent); }

@@ -43,6 +43,16 @@ q(`CREATE TABLE IF NOT EXISTS file_comment_seen (
   seen_at INTEGER NOT NULL,
   PRIMARY KEY (user_id, file_id)
 )`).run();
+/** For a list of files: fileId → how many open threads have something from someone else since this person last looked. */
+export function newCommentCounts(userId, fileIds) {
+  if (!fileIds.length) return new Map();
+  return new Map(q(`SELECT c.file_id AS id, COUNT(DISTINCT COALESCE(c.thread_id, c.id)) AS n
+      FROM file_comments c JOIN file_comments root ON root.id = COALESCE(c.thread_id, c.id)
+      LEFT JOIN file_comment_seen s ON s.user_id = ? AND s.file_id = c.file_id
+      WHERE c.file_id IN (SELECT value FROM json_each(?)) AND root.resolved = 0 AND COALESCE(c.author_id, '') <> ?
+        AND (s.seen_at IS NULL OR COALESCE(c.edited_at, c.created_at) > s.seen_at)
+      GROUP BY c.file_id`).all(userId, JSON.stringify(fileIds), userId).map((r) => [r.id, r.n]));
+}
 export const MAX_REACTION_KINDS = 20; // different emoji on one comment
 
 const KINDS = ['doc', 'sheet', 'slides', 'file'];

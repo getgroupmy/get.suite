@@ -21,6 +21,7 @@ import { suggestedFor } from '../suggested.js';
 import JSZip from 'jszip';
 import { uid, now, str, bad, forbidden, notFound, HttpError, mimeFor, isInlineSafe } from '../util.js';
 import { keepIfHeld, onHold } from '../hold.js';
+import { newCommentCounts } from './comments.js';
 import { roleFor, atLeast, audienceFor, subtreeIds, mayTakeAway } from '../access.js';
 import { sendTo } from '../hub.js';
 import { canReach, checkQuota, orgStorageUsed, userStorageUsed } from '../tenancy.js';
@@ -579,9 +580,10 @@ export default function fileRoutes({ maxUploadBytes }) {
     // Your stars on what's listed.
     const starred = new Set(q('SELECT file_id FROM file_stars WHERE user_id = ? AND file_id IN (SELECT value FROM json_each(?))').all(me, JSON.stringify(rows.map((f) => f.id))).map((x) => x.file_id));
     const sizes = folderSizes(rows.filter((f) => f.kind === 'folder').map((f) => f.id), view === 'trash');
+    const fresh = view === 'trash' ? new Map() : newCommentCounts(me, rows.filter((f) => f.kind !== 'folder').map((f) => f.id));
     const labels = new Map();
     for (const x of q('SELECT file_id, label FROM file_labels WHERE user_id = ? AND file_id IN (SELECT value FROM json_each(?)) ORDER BY label COLLATE NOCASE').all(me, JSON.stringify(rows.map((f) => f.id)))) labels.set(x.file_id, [...(labels.get(x.file_id) || []), x.label]);
-    res.json(rows.map((f) => ({ ...f, ...(starred.has(f.id) && { starred: true }), ...(labels.has(f.id) && { labels: labels.get(f.id) }), ...(sizes.has(f.id) && sizes.get(f.id)) })));
+    res.json(rows.map((f) => ({ ...f, ...(starred.has(f.id) && { starred: true }), ...(labels.has(f.id) && { labels: labels.get(f.id) }), ...(sizes.has(f.id) && sizes.get(f.id)), ...(fresh.get(f.id) && { new_comments: fresh.get(f.id) }) })));
   });
 
   // Your labels, with how many of your files (that you can still open, not in the trash) have each.

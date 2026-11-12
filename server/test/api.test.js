@@ -11646,3 +11646,27 @@ test('comments seen: when you last looked at a file’s comments is kept per per
   const later = (await a('POST', `/api/comments/${doc.id}`, { body: 'New one', anchor: { quote: 'n' } })).body.comment;
   assert.ok(later.created_at >= marked);
 });
+
+test('Drive lists say how many comment threads are new for you on each file', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['cdna', 'Dn Ann'], ['cdnb', 'Dn Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'cdna@acme.com');
+  const bid = (await login(b, 'cdnb@acme.com')).id;
+  const folder = (await a('POST', '/api/files/folder', { name: 'Dn folder' })).body.id;
+  const d1 = (await a('POST', '/api/files/new', { kind: 'doc', name: 'Dn one', parent_id: folder })).body.id;
+  const d2 = (await a('POST', '/api/files/new', { kind: 'sheet', name: 'Dn two', parent_id: folder })).body.id;
+  await a('PUT', `/api/files/${folder}/shares`, { shares: [{ user_id: bid, role: 'editor' }] });
+  const t1 = (await a('POST', `/api/comments/${d1}`, { body: 'One', anchor: { quote: 'a' } })).body.comment;
+  await a('POST', `/api/comments/${d1}`, { body: 'Two', anchor: { quote: 'b' } });
+  await b('POST', `/api/comments/${d2}`, { body: 'Ben’s own', anchor: { sheet: 0, cell: 'A1' } });
+  const list = async (who) => Object.fromEntries((await who('GET', `/api/files?view=mine&parent=${folder}`)).body.map((f) => [f.name, f.new_comments]));
+  assert.deepEqual(await list(b), { 'Dn one': 2, 'Dn two': undefined }, 'his own don’t count');
+  assert.deepEqual(await list(a), { 'Dn one': undefined, 'Dn two': 1 });
+  await b('POST', `/api/comments/${d1}/seen`);
+  assert.equal((await list(b))['Dn one'], undefined, 'looked');
+  await new Promise((r) => setTimeout(r, 5));
+  await a('POST', `/api/comments/${d1}`, { body: 'Reply', thread_id: t1.id });
+  assert.equal((await list(b))['Dn one'], 1, 'a reply since');
+  await a('PATCH', `/api/comments/${d1}/${t1.id}`, { resolved: true });
+  assert.equal((await list(b))['Dn one'], undefined, 'resolved threads don’t count');
+});

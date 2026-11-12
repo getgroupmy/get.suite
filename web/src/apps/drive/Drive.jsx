@@ -225,7 +225,8 @@ export default function Drive() {
   });
   useEffect(() => onLive((m) => {
     if (m.type === 'files-changed' || m.type === 'content-changed' || m.type === 'live-connected') load();
-  }), [load]);
+    else if (m.type === 'comments-changed' && files?.some((f) => f.id === m.id)) load(); // its 💬 new count
+  }), [load, files]);
   // People asking for access to your files (a notification links here with ?requests=1).
   const [requests, setRequests] = useState([]);
   // Approvals waiting for you, counted beside Approvals.
@@ -550,7 +551,7 @@ export default function Drive() {
                   <span className="tile-thumb">{isPicture(f) && !f.broken ? <img src={`/api/files/${f.id}/raw`} alt="" loading="lazy" draggable={false} />
                     : <Icon name={fileIcon(f)} size={48} className={`ft ft-${fileIcon(f)}`} style={f.color ? { color: f.color } : undefined} />}</span>
                   <span className="tile-name"><Icon name={fileIcon(f)} size={16} className={`ft ft-${fileIcon(f)}`} style={f.color ? { color: f.color } : undefined} />{f.shortcut_id && <span aria-label="Shortcut">↪</span>}<span className="ellipsis">{f.name}</span></span>
-                  <span className="tile-meta muted small">{route.view === 'trash' ? goesIn(f.deletes_at) : formatDate(f.updated_at)}{f.kind !== 'folder' && f.size ? ` · ${formatBytes(f.size)}` : ''}{f.kind === 'folder' && f.folder_files !== undefined ? ` · ${f.folder_files ? `${f.folder_files} file${f.folder_files === 1 ? '' : 's'}, ${formatBytes(f.folder_size)}` : 'empty'}` : ''}</span>
+                  <NewComments f={f} /><span className="tile-meta muted small">{route.view === 'trash' ? goesIn(f.deletes_at) : formatDate(f.updated_at)}{f.kind !== 'folder' && f.size ? ` · ${formatBytes(f.size)}` : ''}{f.kind === 'folder' && f.folder_files !== undefined ? ` · ${f.folder_files ? `${f.folder_files} file${f.folder_files === 1 ? '' : 's'}, ${formatBytes(f.folder_size)}` : 'empty'}` : ''}</span>
                 </button>
                 {!f.shortcut_id && <input type="checkbox" className="tile-check" aria-label={`Select ${f.name}`} checked={checked.has(f.id)} onChange={() => toggleCheck(f.id)} />}
                 <Menu trigger={(p) => <button className="icon-btn tile-menu" aria-label={`Actions for ${f.name}`} {...p}><Icon name="more" /></button>} items={itemMenu(f)} />
@@ -572,7 +573,7 @@ export default function Drive() {
                   onClick={(e) => { if (e.shiftKey || e.metaKey || e.ctrlKey) toggleCheck(f.id); else setSelected(f.id); }} onDoubleClick={() => route.view !== 'trash' && open(f)}
                   onKeyDown={(e) => { if (e.key === 'Enter' && route.view !== 'trash') open(f); if (e.key === ' ' && e.target === e.currentTarget) { e.preventDefault(); toggleCheck(f.id); } }}>
                   <td className="check-col" onClick={(e) => e.stopPropagation()}><input type="checkbox" aria-label={`Select ${f.name}`} checked={checked.has(f.id)} onChange={() => toggleCheck(f.id)} /></td>
-                  <td className="name"><Icon name={fileIcon(f)} className={`ft ft-${fileIcon(f)}`} style={f.color ? { color: f.color } : undefined} /><span className="name-text">{f.name}{f.match && <MatchText text={f.match} />}{f.drive_name && <span className="muted small"> · in {f.drive_name}</span>}{f.labels?.map((l) => <span key={l} className={`file-label ${labelColor(l) ? 'coloured' : ''}`} style={labelColor(l) ? { '--lc': labelColor(l) } : undefined}>{l}</span>)}</span>{f.starred && <Icon name="star" size={14} className="star-mark" title="Starred" />}{f.locked_at && <span className="lock-mark" title={`Locked by ${f.locked_by_name}`} aria-label="Locked"><Icon name="lock" size={14} /></span>}</td>
+                  <td className="name"><Icon name={fileIcon(f)} className={`ft ft-${fileIcon(f)}`} style={f.color ? { color: f.color } : undefined} /><span className="name-text">{f.name}{f.match && <MatchText text={f.match} />}{f.drive_name && <span className="muted small"> · in {f.drive_name}</span>}{f.labels?.map((l) => <span key={l} className={`file-label ${labelColor(l) ? 'coloured' : ''}`} style={labelColor(l) ? { '--lc': labelColor(l) } : undefined}>{l}</span>)}</span>{f.starred && <Icon name="star" size={14} className="star-mark" title="Starred" />}{f.locked_at && <span className="lock-mark" title={`Locked by ${f.locked_by_name}`} aria-label="Locked"><Icon name="lock" size={14} /></span>}<NewComments f={f} /></td>
                   <td className="hide-sm muted">{f.owner_id === user.id ? 'me' : f.owner_name}</td>
                   <td className="hide-sm muted">{route.view === 'trash' ? (f.kept ? <span title="Your company is keeping it (a legal hold)">Kept</span> : goesIn(f.deletes_at)) : formatDate(f.updated_at)}</td>
                   <td className="hide-sm muted">{f.kind === 'folder' ? (f.folder_size === undefined ? '—' : <span title={`${f.folder_files} file${f.folder_files === 1 ? '' : 's'} inside`}>{f.folder_files ? formatBytes(f.folder_size) : 'Empty'}</span>) : formatBytes(f.size)}</td>
@@ -1011,6 +1012,12 @@ function MoveDialog({ files, onClose, onMoved, onCopy, shortcut = false, copy = 
     </Modal>
   );
 }
+
+/** 💬 2 on a file with comment threads that are new for you since you last looked at its comments. */
+const NewComments = ({ f }) => (f.new_comments > 0 ? (
+  <span className="comment-mark" title={`${f.new_comments} comment thread${f.new_comments === 1 ? '' : 's'} new for you`} aria-label={`${f.new_comments} new comment${f.new_comments === 1 ? '' : 's'}`}>
+    <Icon name="chat" size={13} /> {f.new_comments}
+  </span>) : null);
 
 /** A shortcut in the list: what it points to, marked with an arrow; it can be opened but not moved or picked. */
 function ShortcutRow({ f, me, selected, onSelect, onOpen, menu }) {
