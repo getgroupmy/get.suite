@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { get, put, post, del } from '../../api.js';
 import Icon from '../../components/Icon.jsx';
 import { Modal, useToast } from '../../components/ui.jsx';
@@ -24,6 +24,7 @@ export function describeRule(r) {
 export function FiltersDialog({ onClose, folders, onFoldersChanged, startWith }) {
   const toast = useToast();
   const [rules, setRules] = useState(null);
+  const fileRef = useRef(null);
   const [editing, setEditing] = useState(startWith ? { index: -1, rule: startWith } : null);
   useEffect(() => { get('/mail/rules').then(setRules).catch((e) => toast(e.message, 'error')); }, [toast]);
 
@@ -32,6 +33,21 @@ export function FiltersDialog({ onClose, folders, onFoldersChanged, startWith })
     catch (e) { toast(e.message, 'error'); return false; }
   }
   const move = (i, d) => { const n = [...rules]; [n[i], n[i + d]] = [n[i + d], n[i]]; save(n); };
+  // Moving filters between servers: Export gives filters.json (as Download your data does), Import reads one back.
+  const exportRules = () => {
+    const url = URL.createObjectURL(new Blob([`${JSON.stringify(rules, null, 2)}\n`], { type: 'application/json' }));
+    const a = document.createElement('a'); a.href = url; a.download = 'filters.json'; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+  const importRules = async (file) => {
+    if (!file) return;
+    try {
+      const data = JSON.parse(await file.text());
+      const r = await post('/mail/rules/import', { rules: Array.isArray(data) ? data : data?.rules });
+      setRules(r.rules);
+      toast(r.added ? `Added ${r.added} filter${r.added === 1 ? '' : 's'}${r.skipped ? ` (${r.skipped} already there)` : ''}` : 'Those filters are all here already');
+    } catch (e) { toast(e instanceof SyntaxError ? 'That isn’t a filters file (filters.json)' : e.message, 'error'); }
+  };
 
   if (editing && rules) {
     return (
@@ -45,7 +61,12 @@ export function FiltersDialog({ onClose, folders, onFoldersChanged, startWith })
   }
 
   return (
-    <Modal wide title="Filters" onClose={onClose} footer={<button className="btn primary" onClick={() => setEditing({ index: -1, rule: null })}><Icon name="plus" size={18} /> New filter</button>}>
+    <Modal wide title="Filters" onClose={onClose} footer={<>
+      <input ref={fileRef} type="file" accept=".json,application/json" hidden aria-label="Import filters" onChange={(e) => { importRules(e.target.files[0]); e.target.value = ''; }} />
+      <button className="btn" onClick={() => fileRef.current?.click()}><Icon name="upload" size={18} /> Import…</button>
+      <button className="btn" disabled={!rules?.length} onClick={exportRules}><Icon name="download" size={18} /> Export</button>
+      <button className="btn primary" onClick={() => setEditing({ index: -1, rule: null })}><Icon name="plus" size={18} /> New filter</button>
+    </>}>
       <p className="muted small" style={{ marginTop: 0 }}>Filters run on the mail server as messages arrive, so they also apply to mail read on your phone. They run in this order.</p>
       <InboxTabs />
       <PlusFolders />

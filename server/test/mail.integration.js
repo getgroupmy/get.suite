@@ -2510,3 +2510,19 @@ test('vacation reply: also Out of office in the calendar for the same days; move
   assert.equal((await bob('PUT', '/api/mail/vacation', { enabled: false, body: 'x' })).body.calendar, false);
   assert.deepEqual(await find(), [], 'gone with the reply');
 });
+
+test('filters: importing the filters.json from Download your data adds the ones not already there', async () => {
+  const before = (await olivia('GET', '/api/mail/rules')).body;
+  const mine = { name: 'Newsletters', enabled: true, match: 'any', conditions: [{ field: 'from', op: 'contains', value: 'news@' }], actions: { moveTo: 'News', markRead: true, star: false, forwardTo: null, delete: false, stop: true } };
+  const r = await olivia('POST', '/api/mail/rules/import', { rules: [mine, ...before.slice(0, 1)] });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual([r.body.added, r.body.skipped], [1, before.length ? 1 : 0], 'ones already there are skipped');
+  assert.equal(r.body.rules.at(-1).name, 'Newsletters', 'added at the end');
+  assert.deepEqual((await olivia('POST', '/api/mail/rules/import', { rules: [mine] })).body.added, 0, 'twice: nothing more');
+  assert.equal((await olivia('POST', '/api/mail/rules/import', { rules: [] })).status, 400);
+  assert.equal((await olivia('POST', '/api/mail/rules/import', { rules: [{ name: 'Bad', conditions: [], actions: {} }] })).status, 400, 'checked like any filter');
+  // The Sieve script on the mail server has it.
+  const sieve = await eventually(async () => { const t = fs.readFileSync(path.join(process.env.MAIL_CONFIG_DIR, 'sieve', 'olivia@acme.com.sieve'), 'utf8'); return t.includes('news@') && t; });
+  assert.match(sieve, /fileinto[^;]*"News"/);
+  await olivia('PUT', '/api/mail/rules', { rules: before });
+});

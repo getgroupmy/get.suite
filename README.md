@@ -976,6 +976,7 @@ Your business fixed IP is what makes this work. Do these once:
   - Type in a cell, and use Tab / Shift+Tab to move between cells.
   - Inside a table, the toolbar offers **+ Row / − Row / + Column / − Column / Delete table**. Tables can't be put inside other tables.
 - **Filters** (Mail → Filters, or **Filter messages like this** on any message): rules run by the mail server as mail arrives, so they apply to phones too. They run in order, and can be reordered and switched on or off.
+- **Moving filters:** **Export** in the Filters window saves them as *filters.json* (Download your data has the same file, and a Sieve script); **Import…** reads one back on this or another Workspace server, adding only the filters not already there, at the end of the list.
   - Conditions: From, To or Cc, or Subject *contains*, *doesn't contain* or *is exactly* a value, matching all or any of them.
   - Actions: move to a folder (created if needed, e.g. `Clients/Acme`), mark as read, star, forward a copy, or delete.
   - A matching filter stops later ones unless you untick "Don't apply later filters".

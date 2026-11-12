@@ -571,6 +571,25 @@ export default function webmailRoutes() {
     res.json(row ? JSON.parse(row.rules) : []);
   });
 
+  // Import filters (as Download your data gives them, Mail settings/filters.json): { rules }. Each one not already
+  // there (same conditions and actions) is added at the end: { added, skipped, rules }.
+  r.post('/rules/import', (req, res) => {
+    const incoming = normalizeRules(Array.isArray(req.body?.rules) ? req.body.rules : []);
+    if (!incoming.length) throw bad('There are no filters in that file');
+    const current = JSON.parse(q('SELECT rules FROM mail_rules WHERE user_id = ?').get(req.user.id)?.rules || '[]');
+    const key = (x) => JSON.stringify([x.match, x.conditions, x.actions]);
+    const have = new Set(current.map(key));
+    const added = incoming.filter((x) => !have.has(key(x)) && have.add(key(x)));
+    const outside = added.find((x) => x.actions.forwardTo && !forwardingAllowed(req.user.org_id, x.actions.forwardTo));
+    if (outside) throw new HttpError(403, `${outside.name}: your company only allows forwarding to its own addresses`);
+    const rules = normalizeRules([...current, ...added]);
+    q(`INSERT INTO mail_rules (user_id, rules, updated_at) VALUES (?, ?, ?)
+       ON CONFLICT(user_id) DO UPDATE SET rules = excluded.rules, updated_at = excluded.updated_at`)
+      .run(req.user.id, JSON.stringify(rules), Date.now());
+    if (added.length) scheduleMailConfig();
+    res.json({ added: added.length, skipped: incoming.length - added.length, rules });
+  });
+
   r.put('/rules', (req, res) => {
     const rules = normalizeRules(req.body.rules);
     // A company that keeps mail inside: no new copies to outside addresses (ones already there are left
