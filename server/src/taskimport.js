@@ -72,7 +72,7 @@ export function tasksFromCsv(text) {
       ...((() => { const m = Math.round(Number(get(r, 'estimate'))); return m >= 1 && m <= 6000 ? { estimate: m } : {}; })()),
       ...((() => { const v = String(get(r, 'priority') || '').trim().toLowerCase(); const p = { high: 'high', h: 'high', 3: 'high', medium: 'medium', med: 'medium', m: 'medium', 2: 'medium', low: 'low', l: 'low', 1: 'low' }[v]; return p ? { priority: p } : {}; })()),
       ...(get(r, 'parent') && { parent: get(r, 'parent').slice(0, 500) }),
-      tags: [...new Set(tags)], done: yes(status) || /^done|completed$/i.test(status) || !!dateOf(get(r, 'completed')), important: yes(get(r, 'important')), steps,
+      tags: [...new Set(tags)], done: yes(status) || /^done|completed$/i.test(status) || !!dateOf(get(r, 'completed')) || (/^\d/.test(status) && !!dateOf(status)), important: yes(get(r, 'important')), steps, // a date in Done: when it was done
     });
   }
   if (!tasks.length) return { error: 'No tasks found: the Task column is empty' };
@@ -120,4 +120,22 @@ function fromTodoist(rows, head) {
   if (!tasks.length) return { error: 'No tasks found in that Todoist file' };
   if (tasks.length > MAX_TASK_IMPORT) return { error: `At most ${MAX_TASK_IMPORT} tasks can be brought in at once` };
   return { tasks, skipped };
+}
+
+/** A CSV with a List column (Download your data's Tasks.csv, or any sheet): [{ name, text }] one CSV per list, in order of appearance; null if there's no List column. */
+export function splitByList(text) {
+  const rows = parseCsv(text);
+  if (rows.length < 2) return null;
+  const head = rows[0].map((h) => h.trim().toLowerCase());
+  const at = ['list', 'list name', 'tasklist', 'project'].map((n) => head.indexOf(n)).find((i) => i >= 0) ?? -1;
+  if (at < 0) return null;
+  const cell = (v) => { const x = String(v ?? ''); return /[",\r\n]/.test(x) ? `"${x.replace(/"/g, '""')}"` : x; };
+  const line = (r) => r.map(cell).join(',');
+  const groups = new Map();
+  for (const r of rows.slice(1)) {
+    const name = String(r[at] ?? '').trim().slice(0, 100) || 'Tasks';
+    if (!groups.has(name.toLowerCase())) groups.set(name.toLowerCase(), { name, rows: [] });
+    groups.get(name.toLowerCase()).rows.push(r);
+  }
+  return [...groups.values()].map((g) => ({ name: g.name, text: [line(rows[0]), ...g.rows.map(line)].join('\r\n') }));
 }

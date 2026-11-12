@@ -8,7 +8,7 @@ import { addTimeRoutes } from '../tasktime.js';
 import { cleanRepeat, nextDue } from '../taskrepeat.js';
 import { trashTask, restoreTask, trashOfList, TASK_TRASH_DAYS } from '../tasktrash.js';
 import express, { Router } from 'express';
-import { tasksFromCsv } from '../taskimport.js';
+import { splitByList, tasksFromCsv } from '../taskimport.js';
 import { q, tx } from '../db.js';
 import { uid, now, str, bad, notFound } from '../util.js';
 import { sendTo } from '../hub.js';
@@ -614,12 +614,8 @@ export default function taskRoutes() {
     res.status(201).json({ id, name: board.name, sections: sections.length, tasks: count });
   });
 
-  r.post('/lists/:id/import', express.text({ type: () => true, limit: '5mb' }), (req, res) => {
-    const list = loadList(req.params.id, req.user);
-    const found = tasksFromCsv(req.body);
-    if (found.error) throw bad(found.error);
-    const have = q('SELECT COUNT(*) AS n FROM tasks WHERE list_id = ?').get(list.id).n;
-    if (have + found.tasks.length > MAX_TASKS) throw bad(`This list can hold ${MAX_TASKS} tasks; there's room for ${Math.max(0, MAX_TASKS - have)} more`);
+  /** Adds the tasks read from a CSV (tasksFromCsv) to the end of a list, making the sections it names. Call inside tx(). */
+  function addCsvTasks(list, found, user) {
     let at = q('SELECT MAX(position) AS p FROM tasks WHERE list_id = ?').get(list.id).p ?? -1;
     const t = now();
     // Sections named in the file: the list's own (whatever the capitals), or new ones at the end.
@@ -627,21 +623,57 @@ export default function taskRoutes() {
     const wanted = [...new Set(found.tasks.map((x) => x.section).filter(Boolean))];
     const fresh = wanted.filter((n) => !secs.some((x) => x.name.toLowerCase() === n.toLowerCase()));
     if (secs.length + fresh.length > MAX_SECTIONS) throw bad(`A list can have ${MAX_SECTIONS} sections`);
+    let pos = secs.length ? Math.max(...secs.map((x) => x.position)) : 0;
+    for (const n of fresh) { const sid = uid(); q('INSERT INTO task_sections (id, list_id, name, position, created_at) VALUES (?, ?, ?, ?, ?)').run(sid, list.id, n, ++pos, t); secs.push({ id: sid, name: n }); }
+    const secId = (n) => (n ? secs.find((x) => x.name.toLowerCase() === n.toLowerCase())?.id || null : null);
+    for (const x of found.tasks) {
+      const steps = x.steps.length ? JSON.stringify(x.steps.map((st) => ({ id: uid(), title: st.title, done: st.done }))) : null;
+      const tid = uid();
+      q(`INSERT INTO tasks (id, list_id, title, notes, due, due_time, start, position, important, tags, steps, done_at, done_by, created_by, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(tid, list.id, x.title, x.notes, x.due, x.due_time, x.start, ++at, x.important ? 1 : 0, x.tags.length ? JSON.stringify(x.tags) : null, steps, x.done ? t : null, x.done ? user.id : null, user.id, t, t);
+      if (x.section) q('UPDATE tasks SET section_id = ? WHERE id = ?').run(secId(x.section), tid);
+      if (x.estimate) q('UPDATE tasks SET estimate = ? WHERE id = ?').run(x.estimate, tid);
+      if (x.priority) q('UPDATE tasks SET priority = ? WHERE id = ?').run(PRIORITY[x.priority], tid);
+    }
+  }
+
+  // Lists from one spreadsheet with a List column (Download your data's Tasks.csv, or one made by hand): a new list for each,
+  // named as in the file ("Home (2)" if you have a Home already), with its tasks read as Import from CSV reads them.
+  r.post('/import/csv', express.text({ type: () => true, limit: '10mb' }), (req, res) => {
+    const parts = splitByList(req.body);
+    if (!parts) throw bad('The file needs a List column saying which list each task is on (to add tasks to one list, use its ⋮ → Import from CSV…)');
+    const found = parts.map((p) => ({ name: p.name, ...tasksFromCsv(p.text) })).filter((p) => !p.error && p.tasks.length);
+    if (!found.length) throw bad('There are no tasks in that file');
+    if (q('SELECT COUNT(*) AS n FROM task_lists WHERE owner_id = ?').get(req.user.id).n + found.length > MAX_LISTS) throw bad('Too many lists');
+    if (found.some((p) => p.tasks.length > MAX_TASKS)) throw bad(`A list can hold ${MAX_TASKS} tasks`);
+    const names = new Set(q('SELECT LOWER(name) AS n FROM task_lists WHERE owner_id = ?').all(req.user.id).map((x) => x.n));
+    const t = now(), made = [];
     tx(() => {
-      let pos = secs.length ? Math.max(...secs.map((x) => x.position)) : 0;
-      for (const n of fresh) { const sid = uid(); q('INSERT INTO task_sections (id, list_id, name, position, created_at) VALUES (?, ?, ?, ?, ?)').run(sid, list.id, n, ++pos, t); secs.push({ id: sid, name: n }); }
-      const secId = (n) => (n ? secs.find((x) => x.name.toLowerCase() === n.toLowerCase())?.id || null : null);
-      for (const x of found.tasks) {
-        const steps = x.steps.length ? JSON.stringify(x.steps.map((st) => ({ id: uid(), title: st.title, done: st.done }))) : null;
-        const tid = uid();
-        q(`INSERT INTO tasks (id, list_id, title, notes, due, due_time, start, position, important, tags, steps, done_at, done_by, created_by, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-          .run(tid, list.id, x.title, x.notes, x.due, x.due_time, x.start, ++at, x.important ? 1 : 0, x.tags.length ? JSON.stringify(x.tags) : null, steps, x.done ? t : null, x.done ? req.user.id : null, req.user.id, t, t);
-        if (x.section) q('UPDATE tasks SET section_id = ? WHERE id = ?').run(secId(x.section), tid);
-        if (x.estimate) q('UPDATE tasks SET estimate = ? WHERE id = ?').run(x.estimate, tid);
-        if (x.priority) q('UPDATE tasks SET priority = ? WHERE id = ?').run(PRIORITY[x.priority], tid);
+      for (const p of found) {
+        let name = p.name;
+        for (let k = 2; names.has(name.toLowerCase()); k++) name = `${p.name} (${k})`;
+        names.add(name.toLowerCase());
+        const id = uid();
+        q('INSERT INTO task_lists (id, owner_id, name, created_at) VALUES (?, ?, ?, ?)').run(id, req.user.id, name, t);
+        addCsvTasks({ id }, p, req.user);
+        made.push({ id, name, tasks: p.tasks.length });
       }
     });
+    sendTo([req.user.id], { type: 'tasks-changed' });
+    res.status(201).json({ lists: made });
+  });
+
+  r.post('/lists/:id/import', express.text({ type: () => true, limit: '5mb' }), (req, res) => {
+    const list = loadList(req.params.id, req.user);
+    const found = tasksFromCsv(req.body);
+    if (found.error) throw bad(found.error);
+    const have = q('SELECT COUNT(*) AS n FROM tasks WHERE list_id = ?').get(list.id).n;
+    if (have + found.tasks.length > MAX_TASKS) throw bad(`This list can hold ${MAX_TASKS} tasks; there's room for ${Math.max(0, MAX_TASKS - have)} more`);
+    const secs0 = sectionsOf(list.id);
+    const fresh0 = [...new Set(found.tasks.map((x) => x.section).filter(Boolean))].filter((n) => !secs0.some((x) => x.name.toLowerCase() === n.toLowerCase()));
+    if (secs0.length + fresh0.length > MAX_SECTIONS) throw bad(`A list can have ${MAX_SECTIONS} sections`);
+    tx(() => addCsvTasks(list, found, req.user));
     changed(list);
     res.json({ added: found.tasks.length, done: found.tasks.filter((x) => x.done).length, skipped: found.skipped });
   });

@@ -34,6 +34,7 @@ export default function Tasks() {
   const navigate = useNavigate();
   const toast = useToast();
   const googleRef = useRef(null); // Import from Google Tasks…
+  const csvListsRef = useRef(null); // Import lists from CSV…
   const trelloRef = useRef(null); // Import a Trello board…
   const { user } = useAuth();
   const [lists, setLists] = useState(null);
@@ -283,6 +284,18 @@ export default function Tasks() {
             await loadLists();
             toast(`Imported “${r.name}”: ${r.tasks} task${r.tasks === 1 ? '' : 's'} in ${r.sections} section${r.sections === 1 ? '' : 's'}`);
             navigate(`/tasks/${r.id}`);
+          } catch (err) { toast(err.message, 'error'); }
+        }} />
+        <button type="button" className="subnav-item" title="A spreadsheet (CSV) with a List column, such as Tasks.csv from Settings → Download your data: each list comes in as a new list" onClick={() => csvListsRef.current?.click()}><Icon name="upload" /><span className="grow">Import lists from CSV…</span></button>
+        <input ref={csvListsRef} type="file" accept=".csv,text/csv" hidden aria-label="Task lists spreadsheet" onChange={async (e) => {
+          const f = e.target.files[0]; e.target.value = '';
+          if (!f) return;
+          try {
+            const r = await postText('/tasks/import/csv', await f.text());
+            await loadLists();
+            const n = r.lists.reduce((sum, l) => sum + l.tasks, 0);
+            toast(`Imported ${r.lists.length} list${r.lists.length === 1 ? '' : 's'} with ${n} task${n === 1 ? '' : 's'}`);
+            navigate(`/tasks/${r.lists[0].id}`);
           } catch (err) { toast(err.message, 'error'); }
         }} />
       </aside>

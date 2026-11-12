@@ -12749,3 +12749,31 @@ test('notes: a whole Download your data .zip imports only its notes (with pictur
   assert.equal(notes.find((n) => n.title === 'Trip').pictures.length, 1);
   assert.deepEqual(notes.find((n) => n.title === 'Groceries').items.map((i) => i.text), ['Milk']);
 });
+
+test('tasks: lists from one CSV with a List column (Download your data’s Tasks.csv): a new list each, done dates kept as done', async () => {
+  const a = client(), b = client();
+  for (const [c, local] of [[a, 'tcsvl1'], [b, 'tcsvl2']]) {
+    const made = await owner('POST', '/api/users', { local, domain: 'acme.com', name: local, password: 'password123' });
+    assert.equal(made.status, 201, JSON.stringify(made.body));
+    await login(c, `${local}@acme.com`);
+  }
+  const home = (await a('POST', '/api/tasks/lists', { name: 'Home' })).body.id;
+  const work = (await a('POST', '/api/tasks/lists', { name: 'Work' })).body.id;
+  await a('POST', `/api/tasks/lists/${home}/tasks`, { title: 'Paint fence', due: '2026-12-01', important: true });
+  const done = (await a('POST', `/api/tasks/lists/${home}/tasks`, { title: 'Fix tap' })).body.id;
+  assert.equal((await a('PATCH', `/api/tasks/tasks/${done}`, { done: true })).status, 200);
+  await a('POST', `/api/tasks/lists/${work}/tasks`, { title: 'Send report', notes: 'To Sam, by Friday' });
+  const JSZip = (await import('jszip')).default;
+  const csv = await (await JSZip.loadAsync((await a('GET', '/api/takeout', undefined, { binary: true })).body)).file('Tasks.csv').async('string');
+  await b('POST', '/api/tasks/lists', { name: 'Home' }); // b already has a Home
+  const r = await b('POST', '/api/tasks/import/csv', csv, { raw: true, headers: { 'content-type': 'text/csv' } });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.deepEqual(r.body.lists.map((l) => [l.name, l.tasks]).sort(), [['Home (2)', 2], ['Work', 1]]);
+  const homeTasks = (await b('GET', `/api/tasks/lists/${r.body.lists.find((l) => l.name === 'Home (2)').id}/tasks`)).body;
+  const paint = homeTasks.find((t) => t.title === 'Paint fence');
+  assert.equal(paint.due, '2026-12-01');
+  assert.ok(paint.important);
+  assert.ok(homeTasks.find((t) => t.title === 'Fix tap').done_at, 'its Done date means done');
+  assert.equal((await b('GET', `/api/tasks/lists/${r.body.lists.find((l) => l.name === 'Work').id}/tasks`)).body[0].notes, 'To Sam, by Friday');
+  assert.equal((await b('POST', '/api/tasks/import/csv', 'Task\r\nOne\r\n', { raw: true, headers: { 'content-type': 'text/csv' } })).status, 400, 'no List column');
+});
