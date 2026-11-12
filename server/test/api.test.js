@@ -11778,7 +11778,7 @@ test('morning summary: what others changed in Drive since yesterday, by file, on
   await b('PATCH', `/api/files/${doc}`, { name: 'Dig plan 2' });
   await c('POST', '/api/files/new', { kind: 'doc', name: 'Dig secret' });
   await a('POST', '/api/files/new', { kind: 'doc', name: 'Dig mine' });
-  const changes = driveChanges(aid).filter((f) => f.name.startsWith('Dig'));
+  const changes = driveChanges(aid).filter((f) => f.name.startsWith('Dig')).map(({ name, what }) => ({ name, what }));
   assert.deepEqual(changes, [{ name: 'Dig plan 2', what: 'renamed by Dig; made by Dig' }, { name: 'Dig room', what: 'shared by Dig; made by Dig' }]);
   const d = digestFor(aid);
   assert.match(d.text, /Changed in Drive since yesterday \(\d+ files?\):/);
@@ -11854,4 +11854,23 @@ test('morning summary: none on a day of approved time off (whole days only)', as
   add('dgto-2', '2030-03-11', '2030-03-11', 'pending');
   add('dgto-3', '2030-03-12', '2030-03-12', 'approved', 'pm');
   assert.deepEqual(['2030-03-03', '2030-03-04', '2030-03-08', '2030-03-09', '2030-03-11', '2030-03-12'].map((d) => offAllDay(u.id, d)), [false, true, true, false, false, false]);
+});
+
+test('morning summary: links to open each thing, when the server knows its address', async () => {
+  const { digestFor } = await import('../src/digest.js');
+  const a = client(), b = client();
+  for (const [local, name] of [['dgla', 'Dgl Ann'], ['dglb', 'Dgl Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  const aid = (await login(a, 'dgla@acme.com')).id;
+  await login(b, 'dglb@acme.com');
+  const doc = (await b('POST', '/api/files/new', { kind: 'doc', name: 'Dgl doc' })).body.id;
+  await b('PUT', `/api/files/${doc}/shares`, { shares: [{ user_id: aid, role: 'editor' }] });
+  const c = (await b('POST', `/api/comments/${doc}`, { body: 'Look @dgla@acme.com', anchor: { quote: 'x' } })).body.comment;
+  const d = digestFor(aid, Date.now(), 'https://ws.example.com/');
+  assert.match(d.text, /Open Workspace: https:\/\/ws\.example\.com\/home/);
+  assert.match(d.text, /“Dgl doc”: Dgl Ben: Look @dgla@acme\.com\n\s+https:\/\/ws\.example\.com\/docs\/[\w-]+\?comment=/);
+  assert.ok(d.text.includes(`https://ws.example.com/docs/${doc}?comment=${c.id}`));
+  assert.match(d.text, new RegExp(`“Dgl doc”: [^\\n]*by Dgl\\n\\s+https://ws\\.example\\.com/docs/${doc}\\n`), 'the changed file');
+  assert.doesNotMatch(digestFor(aid, Date.now(), '').text, /https?:\/\//, 'no address, no links');
+  // "Send me one now" (here a preview: no email) links to where it was asked from.
+  assert.match((await a('POST', '/api/users/me/digest/send', { preview: true })).body.text, /Open Workspace: http:\/\/127\.0\.0\.1:\d+\/home|Open Workspace: http/);
 });

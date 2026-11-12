@@ -22,7 +22,7 @@ import { planImport, readablePassword, usersCsv } from '../userimport.js';
 import { sendTo } from '../hub.js';
 import { hoursOf, setHours, readHours, hoursText, withinHours, quietUntil } from '../workhours.js';
 import { insertFile, uniqueName, keepDriveFiles } from './files.js';
-import { focusUntil, calendarStatus } from './calendar.js';
+import { focusUntil, calendarStatus, baseUrl } from './calendar.js';
 import { placeOn } from './location.js';
 import { awayOfIds, afterHoursOfIds } from '../mail/afterhours.js';
 
@@ -443,8 +443,9 @@ export default function userRoutes() {
     res.json({ hour });
   });
   r.post('/me/digest/send', async (req, res) => {
-    if (req.body?.preview || !mailEnabled()) return res.json({ sent: false, ...digestFor(req.user.id) });
-    res.json({ sent: true, ...(await sendDigest(req.user.id)) });
+    const base = baseUrl(req); // links in it go to where this was asked from, unless PUBLIC_URL says otherwise
+    if (req.body?.preview || !mailEnabled()) return res.json({ sent: false, ...digestFor(req.user.id, Date.now(), base) });
+    res.json({ sent: true, ...(await sendDigest(req.user.id, Date.now(), base)) });
   });
 
   // Quiet hours: pause notifications outside your working hours (set in Calendar → Working hours).

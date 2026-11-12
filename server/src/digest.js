@@ -35,7 +35,9 @@ export function localNow(t, tz) {
 }
 
 /** What goes in someone's summary for the local day containing t. */
-export function digestFor(userId, t = Date.now()) {
+export function digestFor(userId, t = Date.now(), base = process.env.PUBLIC_URL || '') {
+  base = String(base || '').replace(/\/+$/, '');
+  const link = (path) => (base ? `\n      ${base}${path}` : '');
   const user = q('SELECT id, username, name, org_id, digest_tz FROM users WHERE id = ?').get(userId);
   const tz = zoneOrUtc(user.digest_tz || 'UTC');
   const { date } = localNow(t, tz);
@@ -56,24 +58,24 @@ export function digestFor(userId, t = Date.now()) {
   const time = (ms) => new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit' }).format(new Date(ms));
   const dayName = new Intl.DateTimeFormat('en-GB', { timeZone: tz, weekday: 'long', day: 'numeric', month: 'long' }).format(new Date(from + 12 * 36e5));
   const off = new Set(digestOff(userId));
-  const lines = [`Good morning, ${user.name.split(' ')[0]}. Here's ${dayName}.`, ''];
+  const lines = [`Good morning, ${user.name.split(' ')[0]}. Here's ${dayName}.`, ...(base ? [`Open Workspace: ${base}/home`] : []), ''];
   if (!off.has('events')) {
-    lines.push(events.length ? `Today (${events.length} event${events.length === 1 ? '' : 's'}):` : 'No events today.');
+    lines.push(events.length ? `Today (${events.length} event${events.length === 1 ? '' : 's'}):${link('/calendar')}` : 'No events today.');
     for (const e of events) lines.push(`  ${e.all_day ? 'All day' : `${time(e.start)}–${time(e.end)}`}  ${e.title}${e.location ? ` (${e.location})` : ''}${e.my_status === 'needs' ? ' — not answered yet' : ''}`);
     lines.push('');
   }
   if (!off.has('tasks')) {
-    lines.push(tasks.length ? `Tasks due (${tasks.length}):` : 'No tasks due.');
+    lines.push(tasks.length ? `Tasks due (${tasks.length}):${link('/tasks/myday')}` : 'No tasks due.');
     for (const k of tasks) lines.push(`  ${k.due < date ? `Overdue (${k.due})` : k.due_time ? `Today ${k.due_time}` : 'Today'}  ${k.title}  [${k.list}]`);
     lines.push('');
   }
-  if (unread && !off.has('chat')) lines.push(`${unread} unread chat message${unread === 1 ? '' : 's'}.`, '');
+  if (unread && !off.has('chat')) lines.push(`${unread} unread chat message${unread === 1 ? '' : 's'}.${link('/chat')}`, '');
   const comments = off.has('comments') ? [] : commentsFor(user);
   if (comments.length) {
     lines.push(`Comments for you (${comments.length}):`);
     for (const c of comments.slice(0, 6)) {
       const text = c.body.replace(/\s+/g, ' ');
-      lines.push(`  “${c.file.name}”: ${c.author_name || 'Someone'}${c.assigned ? ' assigned you' : ''}: ${text.length > 80 ? `${text.slice(0, 80)}…` : text}`);
+      lines.push(`  “${c.file.name}”: ${c.author_name || 'Someone'}${c.assigned ? ' assigned you' : ''}: ${text.length > 80 ? `${text.slice(0, 80)}…` : text}${link(c.link)}`);
     }
     if (comments.length > 6) lines.push(`  and ${comments.length - 6} more (Home → Comments for you)`);
     lines.push('');
@@ -81,14 +83,15 @@ export function digestFor(userId, t = Date.now()) {
   const drive = off.has('drive') ? [] : driveChanges(userId, t);
   if (drive.length) {
     lines.push(`Changed in Drive since yesterday (${drive.length} file${drive.length === 1 ? '' : 's'}):`);
-    for (const f of drive.slice(0, 8)) lines.push(`  “${f.name}”: ${f.what}`);
-    if (drive.length > 8) lines.push(`  and ${drive.length - 8} more (Drive → Activity)`);
+    for (const f of drive.slice(0, 8)) lines.push(`  “${f.name}”: ${f.what}${link(f.path)}`);
+    if (drive.length > 8) lines.push(`  and ${drive.length - 8} more (Drive → Activity)${link('/drive/activity')}`);
     lines.push('');
   }
   lines.push('You get this because you turned on the morning summary in Workspace → Settings.');
   return { date, subject: `Your day: ${dayName}`, text: lines.join('\n'), events: events.length, tasks: tasks.length, unread, drive: drive.length, comments: comments.length };
 }
 
+const PATH = { doc: (id) => `/docs/${id}`, sheet: (id) => `/sheets/${id}`, slides: (id) => `/slides/${id}`, folder: (id) => `/drive/folder/${id}` };
 const VERB = { create: 'made', upload: 'uploaded', copy: 'copied', request: 'sent in', edit: 'edited', version: 'restored', rename: 'renamed', move: 'moved',
   trash: 'trashed', restore: 'restored', share: 'shared', transfer: 'given', lock: 'locked', unlock: 'unlocked', approval: 'approval' };
 /** Files others changed in the last 24 hours that this person can open: [{ name, what: "edited by Kim, Len; renamed by Kim" }], most recent first. */
@@ -97,18 +100,18 @@ export function driveChanges(userId, t = Date.now()) {
   const acts = recentActivityFor(userId, (id) => roleFor(id, userId), { limit: 300, days: 2 }).filter((a) => a.at >= since && a.at <= t);
   const files = new Map();
   for (const a of acts) {
-    if (!files.has(a.file.id)) files.set(a.file.id, { name: a.file.name, verbs: new Map() });
+    if (!files.has(a.file.id)) files.set(a.file.id, { name: a.file.name, path: PATH[a.file.kind]?.(a.file.id) || `/drive?preview=${a.file.id}`, verbs: new Map() });
     const verbs = files.get(a.file.id).verbs, v = VERB[a.action] || a.action;
     if (!verbs.has(v)) verbs.set(v, new Set());
     verbs.get(v).add((a.user_name || 'Someone').split(' ')[0]);
   }
-  return [...files.values()].map((f) => ({ name: f.name, what: [...f.verbs].map(([v, who]) => `${v} by ${[...who].join(', ')}`).join('; ') }));
+  return [...files.values()].map((f) => ({ name: f.name, path: f.path, what: [...f.verbs].map(([v, who]) => `${v} by ${[...who].join(', ')}`).join('; ') }));
 }
 
 /** Send someone their summary now (from their own mailbox to itself). */
-export async function sendDigest(userId, t = Date.now()) {
+export async function sendDigest(userId, t = Date.now(), base = process.env.PUBLIC_URL || '') {
   const user = q('SELECT id, username, name FROM users WHERE id = ?').get(userId);
-  const d = digestFor(userId, t);
+  const d = digestFor(userId, t, base);
   await smtpFor(user).sendMail({ from: { name: 'Workspace', address: user.username }, to: user.username, subject: d.subject, text: d.text });
   return d;
 }
