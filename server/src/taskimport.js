@@ -12,10 +12,11 @@ const COLUMNS = {
   start: ['start', 'start date'],
   tags: ['tags', 'tag', 'labels', 'label'],
   status: ['status', 'state', 'done', 'completed?'],
-  completed: ['completed', 'completed on', 'done on', 'completion date'],
+  completed: ['completed', 'completed on', 'completed at', 'done on', 'completion date'],
   important: ['important', 'priority', 'starred', 'star'],
   steps: ['steps', 'checklist', 'subtasks'],
-  section: ['section', 'heading', 'group'],
+  section: ['section', 'section/column', 'heading', 'group'],
+  parent: ['parent task', 'parent'],
   estimate: ['estimate (min)', 'estimate', 'minutes'],
   priority: ['priority'],
 };
@@ -70,12 +71,27 @@ export function tasksFromCsv(text) {
       section: get(r, 'section').replace(/\s+/g, ' ').slice(0, 100) || null,
       ...((() => { const m = Math.round(Number(get(r, 'estimate'))); return m >= 1 && m <= 6000 ? { estimate: m } : {}; })()),
       ...((() => { const v = String(get(r, 'priority') || '').trim().toLowerCase(); const p = { high: 'high', h: 'high', 3: 'high', medium: 'medium', med: 'medium', m: 'medium', 2: 'medium', low: 'low', l: 'low', 1: 'low' }[v]; return p ? { priority: p } : {}; })()),
+      ...(get(r, 'parent') && { parent: get(r, 'parent').slice(0, 500) }),
       tags: [...new Set(tags)], done: yes(status) || /^done|completed$/i.test(status) || !!dateOf(get(r, 'completed')), important: yes(get(r, 'important')), steps,
     });
   }
   if (!tasks.length) return { error: 'No tasks found: the Task column is empty' };
   if (tasks.length > MAX_TASK_IMPORT) return { error: `At most ${MAX_TASK_IMPORT} tasks can be brought in at once` };
-  return { tasks, skipped };
+  return { tasks: foldSubtasks(tasks), skipped };
+}
+
+/** Asana (and others) list subtasks as rows of their own with a Parent task column: they become the parent's steps. */
+function foldSubtasks(tasks) {
+  const byTitle = new Map();
+  for (const t of tasks) if (!t.parent && !byTitle.has(t.title.toLowerCase())) byTitle.set(t.title.toLowerCase(), t);
+  const out = [];
+  for (const t of tasks) {
+    const p = t.parent && byTitle.get(t.parent.toLowerCase());
+    delete t.parent;
+    if (p && p !== t && p.steps.length < 100) p.steps.push({ title: t.title, done: t.done });
+    else out.push(t);
+  }
+  return out;
 }
 
 /**

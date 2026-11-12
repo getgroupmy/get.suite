@@ -12345,3 +12345,29 @@ test('tasks: Todoist’s CSV export imports into a list: sections, subtasks as s
   const { q } = await import('../src/db.js');
   assert.deepEqual(q('SELECT name FROM task_sections WHERE list_id = ? ORDER BY position').all(list).map((x) => x.name), ['Planning', 'Later']);
 });
+
+test('tasks: Asana’s CSV export imports into a list: sections, subtasks as steps, completed, tags', async () => {
+  const a = client();
+  const made = await owner('POST', '/api/users', { local: 'asnaimp', domain: 'acme.com', name: 'Asa Na', password: 'password123' });
+  assert.equal(made.status, 201, JSON.stringify(made.body));
+  await login(a, 'asnaimp@acme.com');
+  const list = (await a('POST', '/api/tasks/lists', { name: 'From Asana' })).body.id;
+  const csv = 'Task ID,Created At,Completed At,Last Modified,Name,Section/Column,Assignee,Assignee Email,Start Date,Due Date,Tags,Notes,Projects,Parent task\r\n'
+    + '1,2026-11-01,,2026-11-02,Launch site,Doing,,,2026-11-10,2026-12-05,"web,launch",Go live,Site,\r\n'
+    + '2,2026-11-01,2026-11-03,2026-11-03,Buy domain,Doing,,,,,,,Site,Launch site\r\n'
+    + '3,2026-11-01,,2026-11-02,Write copy,Doing,,,,,,,Site,Launch site\r\n'
+    + '4,2026-11-01,2026-11-04,2026-11-04,Pick colours,Done,,,,,,,Site,\r\n';
+  const r = await a('POST', `/api/tasks/lists/${list}/import`, csv, { raw: true, headers: { 'content-type': 'text/csv' } });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.added, 2, 'subtasks fold into their parent');
+  const got = (await a('GET', `/api/tasks/lists/${list}/tasks`)).body;
+  const tasks = Array.isArray(got) ? got : got.tasks;
+  const site = tasks.find((t) => t.title === 'Launch site');
+  assert.equal(site.due, '2026-12-05');
+  assert.equal(site.notes, 'Go live');
+  assert.deepEqual(site.tags.sort(), ['launch', 'web']);
+  assert.deepEqual(site.steps.map((s) => [s.title, !!s.done]), [['Buy domain', true], ['Write copy', false]]);
+  assert.ok(tasks.find((t) => t.title === 'Pick colours').done, 'Completed At marks it done');
+  const { q } = await import('../src/db.js');
+  assert.deepEqual(q('SELECT name FROM task_sections WHERE list_id = ? ORDER BY position').all(list).map((x) => x.name), ['Doing', 'Done']);
+});
