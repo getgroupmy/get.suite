@@ -1,13 +1,14 @@
 // Download your data: everything you own in one .zip, in formats other programs open. Drive (with its
 // folders; documents, spreadsheets and presentations as Word, Excel and PowerPoint, or OpenDocument), your calendar
 // (.ics), contacts (.vcf), tasks (CSV), notes (Markdown) and email (an .mbox file per folder). Mounted at /api/takeout.
-import { notesZipEntries } from './notes.js';
-import { allListsCsv } from './tasks.js';
+import { notesZipEntries, importNotes } from './notes.js';
+import { importContacts } from './contacts.js';
+import { allListsCsv, importTaskLists } from './tasks.js';
 import { conversationFor } from './chat.js';
 import { userSieve } from '../mail/sieve.js';
 import { formsForExport } from './forms.js';
 import { conversationText } from '../chatexport.js';
-import { Router } from 'express';
+import express, { Router } from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -17,8 +18,9 @@ import JSZip from 'jszip';
 import { q, FILES_DIR } from '../db.js';
 import { bad } from '../util.js';
 import { audit } from '../audit.js';
+import { sendTo } from '../hub.js';
 import { forbidden, notFound } from '../util.js';
-import { exportCalendar } from '../calimport.js';
+import { exportCalendar, importCalendar } from '../calimport.js';
 import { contactsToVcf } from '../contactfiles.js';
 import { withPhoto } from '../contactphotos.js';
 import { wordFromDoc } from '../office/word.js';
@@ -115,6 +117,31 @@ export function notesMarkdown(userId) {
 export default function takeoutRoutes() {
   const r = Router();
   // What's in it, before downloading.
+  // Bring a Download your data .zip back in (moving to another server, or after a mistake): its calendar, contacts, task lists
+  // and notes are added to yours, skipping what's already here (events by their UID, contacts by address; lists come in as new ones).
+  // Drive files and email have their own ways in (upload a folder; Mail → Import mail from its .mbox files).
+  r.post('/restore', express.raw({ type: () => true, limit: '200mb' }), async (req, res) => {
+    const buf = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+    let zip;
+    try { zip = await JSZip.loadAsync(buf); } catch { throw bad('That isn’t a .zip file'); }
+    if (!/Your Workspace data/.test(await zip.file('README.txt')?.async('string') || '')) throw bad('That isn’t a Download your data .zip from Workspace');
+    const user = req.user, out = {};
+    const text = async (name) => zip.file(name)?.async('string');
+    const ics = await text('Calendar.ics');
+    if (ics) { const r2 = importCalendar(user.id, ics, String(req.query.tz || 'UTC')); out.calendar = r2.error ? { added: 0, skipped: 0 } : { added: r2.added, skipped: r2.skipped }; }
+    const vcf = await text('Contacts.vcf');
+    if (vcf && /BEGIN:VCARD/i.test(vcf)) out.contacts = importContacts(user, vcf);
+    const csv = await text('Tasks.csv');
+    if (csv) {
+      try { const r2 = importTaskLists(user, csv); out.tasks = { lists: r2.lists.length, tasks: r2.lists.reduce((n, l) => n + l.tasks, 0) }; }
+      catch (e) { if (e.status !== 400) throw e; out.tasks = { lists: 0, tasks: 0 }; } // no tasks in it
+    }
+    if (Object.keys(zip.files).some((n) => n.startsWith('Notes/') && n.endsWith('.md'))) out.notes = await importNotes(user, { files: [{ name: 'data.zip', base64: buf.toString('base64') }] });
+    sendTo([user.id], { type: 'events-changed' });
+    audit(req, 'takeout.restore', { details: out });
+    res.json(out);
+  });
+
   r.get('/summary', async (req, res) => {
     const who = whose(req);
     const me = who.id;

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { loadPause } from '../pause.js';
 import QRCode from 'qrcode';
-import { api, get, patch, post, put, del, putBlob, formatBytes } from '../api.js';
+import { api, get, patch, post, put, del, putBlob, postBlob, formatBytes } from '../api.js';
 import { reloadPhotos, usePhoto } from '../components/photos.js';
 import { useAuth } from '../App.jsx';
 import { Avatar, ConfirmModal, useToast } from '../components/ui.jsx';
@@ -643,6 +643,9 @@ function WorkLocation() {
 
 /** Download your data: one .zip with everything you own, in formats other programs open. */
 function YourData() {
+  const toast = useToast();
+  const restoreRef = useRef(null);
+  const [restoring, setRestoring] = useState(false);
   const [sum, setSum] = useState(null);
   useEffect(() => { get('/takeout/summary').then(setSum).catch(() => {}); }, []);
   const n = (x, one, many) => `${x} ${x === 1 ? one : many}`;
@@ -651,7 +654,24 @@ function YourData() {
       <h2 id="yourdata-h">Download your data</h2>
       <p className="muted small" style={{ margin: 0 }}>One .zip with everything you own: your Drive with its folders (documents as Word, spreadsheets as Excel, presentations as PowerPoint), your calendar (.ics), contacts (.vcf), tasks (a spreadsheet), notes, comments (a spreadsheet), your chat conversations (as text), your forms with their responses, and your email (an .mbox file for each folder, which Thunderbird, Apple Mail and most mail programs open) with your filters, signatures and vacation reply.</p>
       {sum && <p className="small" style={{ margin: 0 }}>{n(sum.files, 'file', 'files')} ({formatBytes(sum.bytes)} of uploads) · {n(sum.events, 'event', 'events')} · {n(sum.contacts, 'contact', 'contacts')} · {n(sum.tasks, 'task', 'tasks')} · {n(sum.notes, 'note', 'notes')}{sum.comments != null && <> · {n(sum.comments, 'comment', 'comments')}</>}{sum.conversations != null && <> · {n(sum.conversations, 'conversation', 'conversations')}</>}{sum.forms != null && <> · {n(sum.forms, 'form', 'forms')}</>}{sum.mail != null && <> · {n(sum.mail, 'email', 'emails')}</>}</p>}
-      <div><a className="btn" href="/api/takeout" download><Icon name="download" size={18} /> Download your data (.zip)</a></div>
+      <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+        <a className="btn" href="/api/takeout" download><Icon name="download" size={18} /> Download your data (.zip)</a>
+        <button type="button" className="btn" disabled={restoring} title="A .zip from Download your data (here or on another Workspace server): its calendar, contacts, task lists and notes are added to yours" onClick={() => restoreRef.current?.click()}>
+          <Icon name="upload" size={18} /> {restoring ? 'Bringing it in…' : 'Bring in your data…'}</button>
+        <input ref={restoreRef} type="file" accept=".zip,application/zip" hidden aria-label="Your data to bring in" onChange={async (e) => {
+          const f = e.target.files[0]; e.target.value = '';
+          if (!f) return;
+          setRestoring(true);
+          try {
+            const r = await postBlob(`/takeout/restore?tz=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone)}`, f, 'application/zip');
+            const parts = [r.calendar && n(r.calendar.added, 'event', 'events'), r.contacts && n(r.contacts.added, 'contact', 'contacts'),
+              r.tasks && `${n(r.tasks.lists, 'task list', 'task lists')} (${n(r.tasks.tasks, 'task', 'tasks')})`, r.notes && n(r.notes.added, 'note', 'notes')].filter(Boolean);
+            toast(`Brought in ${parts.join(', ') || 'nothing new'}`);
+            get('/takeout/summary').then(setSum).catch(() => {});
+          } catch (err) { toast(err.message, 'error'); } finally { setRestoring(false); }
+        }} />
+      </div>
+      <p className="muted small" style={{ margin: 0 }}><strong>Bring in your data…</strong> takes such a .zip back (from here or another Workspace server): its calendar, contacts, task lists and notes are added to yours; events and contacts you already have are skipped. Drive files and email come in their own ways: upload the Drive folder in Drive, and the .mbox files with Mail → Import mail.</p>
     </section>
   );
 }

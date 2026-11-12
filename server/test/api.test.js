@@ -12788,3 +12788,40 @@ test('tasks: lists from one CSV with a List column (Download your data’s Tasks
   assert.equal(q('SELECT name FROM task_sections WHERE id = ?').get(p2.section_id)?.name, 'This week', 'its section too');
   assert.equal((await b('POST', '/api/tasks/import/csv', 'Task\r\nOne\r\n', { raw: true, headers: { 'content-type': 'text/csv' } })).status, 400, 'no List column');
 });
+
+test('takeout: bring a Download your data .zip back in: calendar, contacts, task lists and notes; again adds no events or contacts twice', async () => {
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+  const a = client(), b = client();
+  for (const [c, local] of [[a, 'rest1'], [b, 'rest2']]) {
+    const made = await owner('POST', '/api/users', { local, domain: 'acme.com', name: local, password: 'password123' });
+    assert.equal(made.status, 201, JSON.stringify(made.body));
+    await login(c, `${local}@acme.com`);
+  }
+  const t0 = Date.UTC(2026, 11, 3, 9);
+  assert.equal((await a('POST', '/api/events', { title: 'Dentist', start: t0, end: t0 + 36e5 })).status, 201);
+  assert.equal((await a('POST', '/api/contacts', { name: 'Ada Lovelace', email: 'ada@example.com' })).status, 201);
+  const l = (await a('POST', '/api/tasks/lists', { name: 'Errands' })).body.id;
+  await a('POST', `/api/tasks/lists/${l}/tasks`, { title: 'Post parcel' });
+  const n = (await a('POST', '/api/notes', { title: 'Trip', body: 'Beach day' })).body.id;
+  await a('POST', `/api/notes/${n}/pictures`, png, { raw: true, headers: { 'content-type': 'image/png' } });
+  const zip = (await a('GET', '/api/takeout', undefined, { binary: true })).body;
+  const up = () => b('POST', '/api/takeout/restore?tz=UTC', zip, { raw: true, headers: { 'content-type': 'application/zip' } });
+  const r = await up();
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual(r.body.calendar, { added: 1, skipped: 0 });
+  assert.deepEqual(r.body.contacts, { added: 1, skipped: 0 });
+  assert.deepEqual(r.body.tasks, { lists: 1, tasks: 1 });
+  assert.equal(r.body.notes.added, 1);
+  const { q } = await import('../src/db.js');
+  const bid = q("SELECT id FROM users WHERE email = 'rest2@acme.com'").get().id;
+  assert.equal(q('SELECT title FROM events WHERE owner_id = ?').get(bid).title, 'Dentist');
+  assert.equal(q('SELECT start FROM events WHERE owner_id = ?').get(bid).start, t0);
+  assert.equal((await b('GET', '/api/notes')).body.find((x) => x.title === 'Trip').pictures.length, 1);
+  const again = (await up()).body;
+  assert.deepEqual([again.calendar.added, again.contacts.added], [0, 0], 'events and contacts aren’t doubled');
+  assert.equal((await b('POST', '/api/takeout/restore', Buffer.from('not a zip'), { raw: true, headers: { 'content-type': 'application/zip' } })).status, 400);
+  const JSZip = (await import('jszip')).default;
+  const other = new JSZip(); other.file('README.txt', 'something else');
+  assert.equal((await b('POST', '/api/takeout/restore', await other.generateAsync({ type: 'nodebuffer' }), { raw: true, headers: { 'content-type': 'application/zip' } })).status, 400);
+  assert.ok(q("SELECT 1 FROM audit_log WHERE action = 'takeout.restore' AND actor_id = ?").get(bid), 'recorded in the activity log');
+});

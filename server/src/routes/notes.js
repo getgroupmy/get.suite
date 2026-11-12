@@ -295,6 +295,124 @@ export function startNotesScheduler() {
   setInterval(() => { try { purgeTrashedNotes(); } catch (e) { console.error('[notes] trash:', e.message); } }, 36e5).unref();
 }
 
+/** Notes from files ({ files: [{ name, text } or { name, base64 } for a .zip] }): { added, skipped } */
+export async function importNotes(user, body) {
+  // A .zip (sent as base64: a downloaded .zip of notes, or Google Keep's Takeout) is opened here: the note files in it,
+  // in any folder, are imported as if chosen one by one.
+  const files = [];
+  for (const f of Array.isArray(body?.files) ? body.files : []) {
+    if (!/\.zip$/i.test(String(f?.name || '')) || typeof f?.base64 !== 'string') { files.push(f); continue; }
+    let zip;
+    try { zip = await (await import('jszip')).default.loadAsync(Buffer.from(f.base64, 'base64')); } catch { throw bad(`“${f.name}” can’t be opened`); }
+    let inside = Object.values(zip.files).filter((x) => !x.dir && /\.(md|markdown|txt|json|enex|html?)$/i.test(x.name) && !/(^|\/)(__MACOSX|\.)/.test(x.name)
+      && !/(^|\/)archive_browser\.html$/i.test(x.name) && !/(^|\/)Keep\/Labels\.txt$/i.test(x.name)); // Google Takeout's own index and Keep's label list
+    // A whole Download your data .zip: only its Notes/ folder (not its chat, forms, README or the one-file Notes.md).
+    const takeout = /Your Workspace data/.test(await zip.file('README.txt')?.async('string') || '') && inside.some((x) => x.name.startsWith('Notes/'));
+    if (takeout) inside = inside.filter((x) => x.name.startsWith('Notes/'));
+    if (!inside.length) throw bad(`There are no notes in “${f.name}”`);
+    if (inside.length > 5000) throw bad(`“${f.name}” has more than 5,000 files`);
+    // Pictures a Markdown note shows from the same .zip ("![](Trip files/picture-1.jpg)", as Download (.zip) writes) come with it.
+    const MIME = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp' };
+    for (const x of inside) {
+      const text = await x.async('string');
+      const pictures = [];
+      if (/\.json$/i.test(x.name)) {
+        // Google Keep: a note's photos are listed under "attachments", beside its .json in the Takeout (".jpeg" said, ".jpg" there, sometimes).
+        let k = null; try { k = JSON.parse(text); } catch { /* not Keep's; the import says so */ }
+        const dir = x.name.includes('/') ? x.name.slice(0, x.name.lastIndexOf('/') + 1) : '';
+        for (const a of Array.isArray(k?.attachments) ? k.attachments : []) {
+          const fp = String(a?.filePath || '');
+          const mime = String(a?.mimetype || '').toLowerCase().replace('image/jpg', 'image/jpeg');
+          if (!fp || fp.includes('..') || !Object.values(MIME).includes(mime) || pictures.length >= MAX_PICTURES) continue;
+          const alt = fp.replace(/\.jpe?g$/i, (e) => (e.toLowerCase() === '.jpg' ? '.jpeg' : '.jpg'));
+          const entry = zip.file(dir + fp) || zip.file(dir + alt);
+          if (!entry) continue;
+          const data = await entry.async('nodebuffer');
+          if (data.length <= MAX_PICTURE_BYTES) pictures.push({ line: null, mime, data });
+        }
+      }
+      if (/\.html?$/i.test(x.name)) {
+        // An HTML note's <img src="…"> pointing at a picture in the same .zip.
+        const dir = x.name.includes('/') ? x.name.slice(0, x.name.lastIndexOf('/') + 1) : '';
+        for (const m of text.matchAll(/<img\b[^>]*\bsrc\s*=\s*["']([^"']+)["']/gi)) {
+          const src = m[1];
+          if (/^(data|https?):/i.test(src) || src.includes('..') || pictures.some((p) => p.src === src)) continue;
+          let rel; try { rel = decodeURI(src); } catch { continue; }
+          const entry = zip.file(dir + rel) || zip.file(rel);
+          const mime = MIME[String(rel.split('.').pop()).toLowerCase()];
+          if (!entry || !mime || pictures.length >= MAX_PICTURES) continue;
+          const data = await entry.async('nodebuffer');
+          if (data.length <= MAX_PICTURE_BYTES) pictures.push({ line: null, src, mime, data });
+        }
+      }
+      if (/\.(md|markdown)$/i.test(x.name)) {
+        const dir = x.name.includes('/') ? x.name.slice(0, x.name.lastIndexOf('/') + 1) : '';
+        for (const m of text.matchAll(/^!\[[^\]]*\]\(<?([^)>\s]+)>?\)\s*$/gm)) {
+          let rel; try { rel = decodeURI(m[1]); } catch { continue; }
+          const entry = zip.file(dir + rel) || zip.file(rel);
+          const mime = MIME[String(rel.split('.').pop()).toLowerCase()];
+          if (!entry || !mime || pictures.length >= MAX_PICTURES) continue;
+          const data = await entry.async('nodebuffer');
+          if (data.length <= MAX_PICTURE_BYTES) pictures.push({ line: m[0], mime, data });
+        }
+      }
+      files.push({ name: x.name.split('/').pop(), text: pictures.reduce((t2, p2) => (p2.line ? t2.replace(p2.line, '') : t2), text).replace(/\n{3,}$/, '\n'), pictures });
+    }
+  }
+  if (!files.length) throw bad('Choose some .md, .txt, .html, Evernote .enex or Google Keep .json files');
+  if (files.length > 2000) throw bad('Up to 2,000 files at a time');
+  const have = q('SELECT COUNT(*) AS n FROM notes WHERE owner_id = ?').get(user.id).n;
+  const keepJson = new Set(files.filter((f) => /\.json$/i.test(String(f?.name || ''))).map((f) => String(f.name).replace(/\.json$/i, '').toLowerCase()));
+  const all = files.flatMap((f) => {
+    // Evernote (.enex): many notes in one file.
+    if (/\.enex$/i.test(String(f?.name || ''))) {
+      if (String(f?.text ?? '').length > 20e6) throw bad(`“${f.name}” is too big: export fewer notes at a time`);
+      const found = notesFromEnex(f.text);
+      if (found.error) throw bad(`“${f.name}”: ${found.error}`);
+      return found.notes.map((n) => ({ ...n, items: n.items ? cleanItems(n.items) : null, labels: cleanLabels(n.labels) }));
+    }
+    if (String(f?.text ?? '').length > 200000 && !/\.html?$/i.test(String(f?.name || ''))) throw bad(`“${f?.name || 'A file'}” is too big for a note`);
+    if (/\.html?$/i.test(String(f?.name || ''))) {
+      // Google Keep's Takeout has an .html beside each .json: when both came, the .json (with colour, labels…) is used.
+      if (keepJson.has(String(f.name).replace(/\.html?$/i, '').toLowerCase())) return [];
+      if (String(f?.text ?? '').length > 20e6) throw bad(`“${f.name}” is too big for a note`);
+      const n = noteFromHtml(f.text, f.name, { files: new Map((f.pictures || []).map((p) => [p.src, p])) });
+      return [{ ...n, items: n.items ? cleanItems(n.items) : null, labels: cleanLabels(n.labels) }];
+    }
+    if (/\.json$/i.test(String(f?.name || ''))) {
+      let k = null; try { k = JSON.parse(f.text); } catch { throw bad(`“${f.name}” isn't a Google Keep note`); }
+      const n = keepNote(k, { hasPictures: !!f.pictures?.length });
+      return [n && { ...n, items: n.items ? cleanItems(n.items) : null, labels: cleanLabels(n.labels), pictures: f.pictures || [] }];
+    }
+    return [String(f?.text ?? '').trim() || f?.pictures?.length ? { ...noteFromMarkdown(f.text, f?.name), pictures: f.pictures || [] } : null]; // a blank file isn't a note
+  });
+  const notes = all.filter((n) => n && (n.title.trim() || n.body.trim() || (n.items || []).length || n.pictures?.length));
+  if (have + notes.length > MAX_NOTES) throw bad(`You can have up to ${MAX_NOTES} notes`);
+  const t = now();
+  let top = topFor(user.id);
+  const picBytes = notes.reduce((sum, n) => sum + (n.pictures || []).reduce((x, p) => x + p.data.length, 0), 0);
+  if (picBytes) checkQuota(user.org_id, picBytes, user.id);
+  const written = [], pics = [];
+  try { tx(() => {
+    for (const n of [...notes].reverse()) { // the first file ends up first
+      const noteId = uid();
+      for (const p of n.pictures || []) {
+        const storage = uid();
+        fs.writeFileSync(path.join(FILES_DIR, storage), p.data);
+        written.push(storage);
+        pics.push([uid(), noteId, storage, p.mime, p.data.length]);
+      }
+      q(`INSERT INTO notes (id, owner_id, title, body, items, color, pinned, archived, labels, position, created_at, updated_at, updated_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(noteId, user.id, n.title, n.body, n.items ? JSON.stringify(n.items) : null, n.color || null, n.pinned ? 1 : 0, n.archived ? 1 : 0, JSON.stringify(n.labels),
+          top, n.created_at || t, n.updated_at || n.created_at || t, user.id);
+      top += 1;
+    }
+    for (const p of pics) q('INSERT INTO note_pictures (id, note_id, storage, mime, size, added_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(...p, user.id, t);
+  }); } catch (e) { for (const f of written) fs.rmSync(path.join(FILES_DIR, f), { force: true }); throw e; }
+  sendTo([user.id], { type: 'notes-changed' });
+  return { added: notes.length, skipped: all.length - notes.length }; // empty ones, and ones in Keep's trash
+}
+
 export default function noteRoutes() {
   const r = Router();
 
@@ -410,120 +528,7 @@ export default function noteRoutes() {
   // keeping colour, pin, archive and dates): { files: [{ name, text }] } (up to 2,000, 200 KB each). Empty ones, and
   // ones in Keep's trash, are skipped.
   r.post('/import', async (req, res) => {
-    // A .zip (sent as base64: a downloaded .zip of notes, or Google Keep's Takeout) is opened here: the note files in it,
-    // in any folder, are imported as if chosen one by one.
-    const files = [];
-    for (const f of Array.isArray(req.body?.files) ? req.body.files : []) {
-      if (!/\.zip$/i.test(String(f?.name || '')) || typeof f?.base64 !== 'string') { files.push(f); continue; }
-      let zip;
-      try { zip = await (await import('jszip')).default.loadAsync(Buffer.from(f.base64, 'base64')); } catch { throw bad(`“${f.name}” can’t be opened`); }
-      let inside = Object.values(zip.files).filter((x) => !x.dir && /\.(md|markdown|txt|json|enex|html?)$/i.test(x.name) && !/(^|\/)(__MACOSX|\.)/.test(x.name)
-        && !/(^|\/)archive_browser\.html$/i.test(x.name) && !/(^|\/)Keep\/Labels\.txt$/i.test(x.name)); // Google Takeout's own index and Keep's label list
-      // A whole Download your data .zip: only its Notes/ folder (not its chat, forms, README or the one-file Notes.md).
-      const takeout = /Your Workspace data/.test(await zip.file('README.txt')?.async('string') || '') && inside.some((x) => x.name.startsWith('Notes/'));
-      if (takeout) inside = inside.filter((x) => x.name.startsWith('Notes/'));
-      if (!inside.length) throw bad(`There are no notes in “${f.name}”`);
-      if (inside.length > 5000) throw bad(`“${f.name}” has more than 5,000 files`);
-      // Pictures a Markdown note shows from the same .zip ("![](Trip files/picture-1.jpg)", as Download (.zip) writes) come with it.
-      const MIME = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp' };
-      for (const x of inside) {
-        const text = await x.async('string');
-        const pictures = [];
-        if (/\.json$/i.test(x.name)) {
-          // Google Keep: a note's photos are listed under "attachments", beside its .json in the Takeout (".jpeg" said, ".jpg" there, sometimes).
-          let k = null; try { k = JSON.parse(text); } catch { /* not Keep's; the import says so */ }
-          const dir = x.name.includes('/') ? x.name.slice(0, x.name.lastIndexOf('/') + 1) : '';
-          for (const a of Array.isArray(k?.attachments) ? k.attachments : []) {
-            const fp = String(a?.filePath || '');
-            const mime = String(a?.mimetype || '').toLowerCase().replace('image/jpg', 'image/jpeg');
-            if (!fp || fp.includes('..') || !Object.values(MIME).includes(mime) || pictures.length >= MAX_PICTURES) continue;
-            const alt = fp.replace(/\.jpe?g$/i, (e) => (e.toLowerCase() === '.jpg' ? '.jpeg' : '.jpg'));
-            const entry = zip.file(dir + fp) || zip.file(dir + alt);
-            if (!entry) continue;
-            const data = await entry.async('nodebuffer');
-            if (data.length <= MAX_PICTURE_BYTES) pictures.push({ line: null, mime, data });
-          }
-        }
-        if (/\.html?$/i.test(x.name)) {
-          // An HTML note's <img src="…"> pointing at a picture in the same .zip.
-          const dir = x.name.includes('/') ? x.name.slice(0, x.name.lastIndexOf('/') + 1) : '';
-          for (const m of text.matchAll(/<img\b[^>]*\bsrc\s*=\s*["']([^"']+)["']/gi)) {
-            const src = m[1];
-            if (/^(data|https?):/i.test(src) || src.includes('..') || pictures.some((p) => p.src === src)) continue;
-            let rel; try { rel = decodeURI(src); } catch { continue; }
-            const entry = zip.file(dir + rel) || zip.file(rel);
-            const mime = MIME[String(rel.split('.').pop()).toLowerCase()];
-            if (!entry || !mime || pictures.length >= MAX_PICTURES) continue;
-            const data = await entry.async('nodebuffer');
-            if (data.length <= MAX_PICTURE_BYTES) pictures.push({ line: null, src, mime, data });
-          }
-        }
-        if (/\.(md|markdown)$/i.test(x.name)) {
-          const dir = x.name.includes('/') ? x.name.slice(0, x.name.lastIndexOf('/') + 1) : '';
-          for (const m of text.matchAll(/^!\[[^\]]*\]\(<?([^)>\s]+)>?\)\s*$/gm)) {
-            let rel; try { rel = decodeURI(m[1]); } catch { continue; }
-            const entry = zip.file(dir + rel) || zip.file(rel);
-            const mime = MIME[String(rel.split('.').pop()).toLowerCase()];
-            if (!entry || !mime || pictures.length >= MAX_PICTURES) continue;
-            const data = await entry.async('nodebuffer');
-            if (data.length <= MAX_PICTURE_BYTES) pictures.push({ line: m[0], mime, data });
-          }
-        }
-        files.push({ name: x.name.split('/').pop(), text: pictures.reduce((t2, p2) => (p2.line ? t2.replace(p2.line, '') : t2), text).replace(/\n{3,}$/, '\n'), pictures });
-      }
-    }
-    if (!files.length) throw bad('Choose some .md, .txt, .html, Evernote .enex or Google Keep .json files');
-    if (files.length > 2000) throw bad('Up to 2,000 files at a time');
-    const have = q('SELECT COUNT(*) AS n FROM notes WHERE owner_id = ?').get(req.user.id).n;
-    const keepJson = new Set(files.filter((f) => /\.json$/i.test(String(f?.name || ''))).map((f) => String(f.name).replace(/\.json$/i, '').toLowerCase()));
-    const all = files.flatMap((f) => {
-      // Evernote (.enex): many notes in one file.
-      if (/\.enex$/i.test(String(f?.name || ''))) {
-        if (String(f?.text ?? '').length > 20e6) throw bad(`“${f.name}” is too big: export fewer notes at a time`);
-        const found = notesFromEnex(f.text);
-        if (found.error) throw bad(`“${f.name}”: ${found.error}`);
-        return found.notes.map((n) => ({ ...n, items: n.items ? cleanItems(n.items) : null, labels: cleanLabels(n.labels) }));
-      }
-      if (String(f?.text ?? '').length > 200000 && !/\.html?$/i.test(String(f?.name || ''))) throw bad(`“${f?.name || 'A file'}” is too big for a note`);
-      if (/\.html?$/i.test(String(f?.name || ''))) {
-        // Google Keep's Takeout has an .html beside each .json: when both came, the .json (with colour, labels…) is used.
-        if (keepJson.has(String(f.name).replace(/\.html?$/i, '').toLowerCase())) return [];
-        if (String(f?.text ?? '').length > 20e6) throw bad(`“${f.name}” is too big for a note`);
-        const n = noteFromHtml(f.text, f.name, { files: new Map((f.pictures || []).map((p) => [p.src, p])) });
-        return [{ ...n, items: n.items ? cleanItems(n.items) : null, labels: cleanLabels(n.labels) }];
-      }
-      if (/\.json$/i.test(String(f?.name || ''))) {
-        let k = null; try { k = JSON.parse(f.text); } catch { throw bad(`“${f.name}” isn't a Google Keep note`); }
-        const n = keepNote(k, { hasPictures: !!f.pictures?.length });
-        return [n && { ...n, items: n.items ? cleanItems(n.items) : null, labels: cleanLabels(n.labels), pictures: f.pictures || [] }];
-      }
-      return [String(f?.text ?? '').trim() || f?.pictures?.length ? { ...noteFromMarkdown(f.text, f?.name), pictures: f.pictures || [] } : null]; // a blank file isn't a note
-    });
-    const notes = all.filter((n) => n && (n.title.trim() || n.body.trim() || (n.items || []).length || n.pictures?.length));
-    if (have + notes.length > MAX_NOTES) throw bad(`You can have up to ${MAX_NOTES} notes`);
-    const t = now();
-    let top = topFor(req.user.id);
-    const picBytes = notes.reduce((sum, n) => sum + (n.pictures || []).reduce((x, p) => x + p.data.length, 0), 0);
-    if (picBytes) checkQuota(req.user.org_id, picBytes, req.user.id);
-    const written = [], pics = [];
-    try { tx(() => {
-      for (const n of [...notes].reverse()) { // the first file ends up first
-        const noteId = uid();
-        for (const p of n.pictures || []) {
-          const storage = uid();
-          fs.writeFileSync(path.join(FILES_DIR, storage), p.data);
-          written.push(storage);
-          pics.push([uid(), noteId, storage, p.mime, p.data.length]);
-        }
-        q(`INSERT INTO notes (id, owner_id, title, body, items, color, pinned, archived, labels, position, created_at, updated_at, updated_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-          .run(noteId, req.user.id, n.title, n.body, n.items ? JSON.stringify(n.items) : null, n.color || null, n.pinned ? 1 : 0, n.archived ? 1 : 0, JSON.stringify(n.labels),
-            top, n.created_at || t, n.updated_at || n.created_at || t, req.user.id);
-        top += 1;
-      }
-      for (const p of pics) q('INSERT INTO note_pictures (id, note_id, storage, mime, size, added_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(...p, req.user.id, t);
-    }); } catch (e) { for (const f of written) fs.rmSync(path.join(FILES_DIR, f), { force: true }); throw e; }
-    sendTo([req.user.id], { type: 'notes-changed' });
-    res.status(201).json({ added: notes.length, skipped: all.length - notes.length }); // empty ones, and ones in Keep's trash
+    res.status(201).json(await importNotes(req.user, req.body));
   });
 
   r.post('/', (req, res) => {

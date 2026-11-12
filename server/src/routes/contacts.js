@@ -154,6 +154,37 @@ export function addContactFrom(user, card) {
   return { id, existing: false };
 }
 
+/** Contacts from a vCard or CSV file's text: those not already there are added. { added, skipped } */
+export function importContacts(user, body) {
+  const found = contactsFromFile(body);
+  if (found.error) throw bad(found.error);
+  if (found.contacts.length > MAX_IMPORT) throw bad(`At most ${MAX_IMPORT} contacts can be imported at once`);
+  const have = q('SELECT LOWER(email) AS email, vcard_uid, LOWER(name) AS name, phone FROM contacts WHERE owner_id = ?').all(user.id);
+  const emails = new Set(have.map((c) => c.email).filter(Boolean));
+  const uids = new Set(have.map((c) => c.vcard_uid).filter(Boolean));
+  const namePhone = new Set(have.map((c) => `${c.name}|${c.phone || ''}`));
+  let added = 0, skipped = 0;
+  const t = now();
+  for (const c of found.contacts) {
+    const email = c.email ? c.email.toLowerCase() : null;
+    const key = `${String(c.name).toLowerCase()}|${c.phone || ''}`;
+    if ((email && emails.has(email)) || (c.uid && uids.has(c.uid)) || (!email && namePhone.has(key))) { skipped++; continue; } // already there
+    const cut = (v, n) => (v ? String(v).slice(0, n) : null);
+    const newId = uid();
+    q(`INSERT INTO contacts (id, owner_id, name, email, phone, company, title, address, website, notes, birthday, created_at, vcard_uid, vcard_extra, more_emails, more_phones) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(newId, user.id, String(c.name).slice(0, 200), email, cut(c.phone, 50), cut(c.company, 200), cut(c.title, 200), cut(c.address, 500), cut(c.website, 300),
+        cut(c.notes, 5000), c.birthday || null, t, c.uid || null, c.vcard_extra || null,
+        c.more_emails?.length ? JSON.stringify(c.more_emails) : null, c.more_phones?.length ? JSON.stringify(c.more_phones) : null);
+    if (c.dates?.length || c.custom_fields?.length) q('UPDATE contacts SET dates = ?, custom_fields = ? WHERE id = ?').run(c.dates?.length ? JSON.stringify(c.dates) : null, c.custom_fields?.length ? JSON.stringify(c.custom_fields) : null, newId);
+    if (c.photo) photoFromCard(newId, c);
+    if (email) emails.add(email);
+    if (c.uid) uids.add(c.uid);
+    namePhone.add(key);
+    added++;
+  }
+  return { added, skipped };
+}
+
 export default function contactRoutes() {
   const r = Router();
   watchContacts(); // every module has added its columns by now
@@ -302,33 +333,7 @@ export default function contactRoutes() {
 
   // Import a .vcf (one or many cards) or a CSV export (Gmail, Outlook, or Name/Email columns).
   r.post('/import', express.text({ type: () => true, limit: '20mb' }), (req, res) => {
-    const found = contactsFromFile(req.body);
-    if (found.error) throw bad(found.error);
-    if (found.contacts.length > MAX_IMPORT) throw bad(`At most ${MAX_IMPORT} contacts can be imported at once`);
-    const have = q('SELECT LOWER(email) AS email, vcard_uid, LOWER(name) AS name, phone FROM contacts WHERE owner_id = ?').all(req.user.id);
-    const emails = new Set(have.map((c) => c.email).filter(Boolean));
-    const uids = new Set(have.map((c) => c.vcard_uid).filter(Boolean));
-    const namePhone = new Set(have.map((c) => `${c.name}|${c.phone || ''}`));
-    let added = 0, skipped = 0;
-    const t = now();
-    for (const c of found.contacts) {
-      const email = c.email ? c.email.toLowerCase() : null;
-      const key = `${String(c.name).toLowerCase()}|${c.phone || ''}`;
-      if ((email && emails.has(email)) || (c.uid && uids.has(c.uid)) || (!email && namePhone.has(key))) { skipped++; continue; } // already there
-      const cut = (v, n) => (v ? String(v).slice(0, n) : null);
-      const newId = uid();
-      q(`INSERT INTO contacts (id, owner_id, name, email, phone, company, title, address, website, notes, birthday, created_at, vcard_uid, vcard_extra, more_emails, more_phones) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-        .run(newId, req.user.id, String(c.name).slice(0, 200), email, cut(c.phone, 50), cut(c.company, 200), cut(c.title, 200), cut(c.address, 500), cut(c.website, 300),
-          cut(c.notes, 5000), c.birthday || null, t, c.uid || null, c.vcard_extra || null,
-          c.more_emails?.length ? JSON.stringify(c.more_emails) : null, c.more_phones?.length ? JSON.stringify(c.more_phones) : null);
-      if (c.dates?.length || c.custom_fields?.length) q('UPDATE contacts SET dates = ?, custom_fields = ? WHERE id = ?').run(c.dates?.length ? JSON.stringify(c.dates) : null, c.custom_fields?.length ? JSON.stringify(c.custom_fields) : null, newId);
-      if (c.photo) photoFromCard(newId, c);
-      if (email) emails.add(email);
-      if (c.uid) uids.add(c.uid);
-      namePhone.add(key);
-      added++;
-    }
-    res.json({ added, skipped });
+    res.json(importContacts(req.user, req.body));
   });
 
   // Is this address one of your contacts, or a colleague? (For "Add to contacts" on a message.)
