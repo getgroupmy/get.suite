@@ -170,6 +170,16 @@ export default function userRoutes() {
   // whether it's working time for them now, and where they're working today.
   // Whether a colleague can be reached now: away (their vacation reply is on today), and/or outside the working
   // hours they've set (their local time, when they start again). { away, after } (null when not).
+  // Several at once (?ids=a,b,c, up to 50): [{ id, name, away, after }] for those away or outside their hours.
+  r.get('/availability', (req, res) => {
+    const ids = [...new Set(String(req.query.ids || '').split(',').filter(Boolean))].slice(0, 50);
+    const away = new Map(awayOfIds(req.user, ids).map((x) => [x.id, x]));
+    const after = new Map(afterHoursOfIds(req.user, ids).map((x) => [x.id, x]));
+    res.json(ids.filter((id) => away.has(id) || after.has(id)).map((id) => {
+      const a = away.get(id), h = after.get(id);
+      return { id, name: (a || h).name, away: a ? { until: a.until, subject: a.subject } : null, after: h ? { local: h.local, tz: h.tz, next: h.next } : null };
+    }));
+  });
   r.get('/:id/availability', (req, res) => {
     const u = q('SELECT id, org_id FROM users WHERE id = ? AND disabled = 0').get(req.params.id);
     if (!u || u.org_id !== req.user.org_id) throw notFound();

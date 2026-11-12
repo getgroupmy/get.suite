@@ -11336,3 +11336,17 @@ test('availability: a colleague away (vacation reply on) and outside their worki
   assert.equal((await g('GET', `/api/users/${bid}/availability`)).status, 404, 'another company');
   q('UPDATE vacations SET enabled = 0 WHERE user_id = ?').run(bid);
 });
+
+test('availability of several: only those away or outside their hours, colleagues only', async () => {
+  const { q } = await import('../src/db.js');
+  const a = client(), b = client(), c = client();
+  for (const [local, name] of [['avsa', 'Avs Ann'], ['avsb', 'Avs Ben'], ['avsc', 'Avs Cy']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'avsa@acme.com');
+  const bid = (await login(b, 'avsb@acme.com')).id;
+  const cid = (await login(c, 'avsc@acme.com')).id;
+  q(`INSERT INTO vacations (user_id, enabled, subject, body, start_date, end_date, updated_at) VALUES (?, 1, 'Off', 'x', NULL, '2099-01-01', 0)`).run(bid);
+  const r = (await a('GET', `/api/users/availability?ids=${bid},${cid},nobody,${bid}`)).body;
+  assert.deepEqual(r, [{ id: bid, name: 'Avs Ben', away: { until: '2099-01-01', subject: 'Off' }, after: null }], 'Cy is around; unknown ids left out; once each');
+  assert.deepEqual((await a('GET', '/api/users/availability')).body, []);
+  q('UPDATE vacations SET enabled = 0 WHERE user_id = ?').run(bid);
+});
