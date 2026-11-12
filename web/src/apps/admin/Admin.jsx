@@ -552,6 +552,14 @@ function CompanySettings() {
         </label>
         <p className="muted small" style={{ margin: 0 }}>Turned off, Mail → Forwarding and filters only send copies to your company's own domains, and forwarding already set up to anywhere else stops at once (it starts again if you turn this back on). Every forwarding address has to confirm with a code first, and turning forwarding on or off is in the activity log.</p>
       </div>
+      <div className="card stack" aria-labelledby="askout-h">
+        <h2 id="askout-h">Mail going outside the company</h2>
+        <label className="check">
+          <input type="checkbox" checked={!!org.ask_outside} onChange={(e) => save({ ask_outside: e.target.checked }, e.target.checked ? 'Mail now asks before a message goes outside the company' : 'Mail no longer asks before sending outside')} />
+          Ask before sending a message to anyone outside the company
+        </label>
+        <p className="muted small" style={{ margin: 0 }}>Everyone sees who's outside as they write. With this on, <strong>Send</strong> (and <strong>Send later</strong>) also asks <em>Send outside …?</em> with those addresses, and the message only goes once they say so. Mail between colleagues goes as usual.</p>
+      </div>
       <div className="card stack" aria-labelledby="sess-h">
         <h2 id="sess-h">Sign-in sessions</h2>
         <label className="field" style={{ maxWidth: 320 }}><span>Sign out after no activity for</span>

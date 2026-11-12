@@ -2395,3 +2395,20 @@ test('outside the company: recipients not on its domains, with the ones never wr
   assert.deepEqual(r.outside, [{ email: 'gina@globex.com', new: false }, { email: 'someone-new@globex.com', new: true }], 'Gina was written to before');
   assert.deepEqual((await gina('GET', '/api/mail/external?to=bob@acme.com')).body.outside, [{ email: 'bob@acme.com', new: false }], 'from Globex, Acme is outside');
 });
+
+test('ask before going outside: a message to another company waits for the sender to confirm; inside ones go', async () => {
+  await olivia('PATCH', '/api/orgs/current', { ask_outside: true });
+  try {
+    assert.equal((await olivia('GET', '/api/mail/external?to=gina@globex.com')).body.ask, true);
+    const run = Date.now().toString(36);
+    const r = await olivia('POST', '/api/mail/send', { to: 'bob@acme.com', cc: 'gina@globex.com', subject: `Out ${run}`, text: 'x' });
+    assert.equal(r.status, 409);
+    assert.deepEqual(r.body.outside, [{ email: 'gina@globex.com', new: false }]);
+    assert.match(r.body.error, /goes outside Acme: gina@globex\.com/);
+    const later = await olivia('POST', '/api/mail/send', { to: 'gina@globex.com', subject: `Out later ${run}`, text: 'x', sendAt: Date.now() + 3600e3 });
+    assert.equal(later.status, 409, 'scheduling asks too');
+    assert.equal((await olivia('POST', '/api/mail/send', { to: 'bob@acme.com', subject: `In ${run}`, text: 'x' })).status, 200, 'inside: no question');
+    assert.equal((await olivia('POST', '/api/mail/send', { to: 'bob@acme.com', cc: 'gina@globex.com', subject: `Out ${run}`, text: 'x', outsideConfirmed: true })).status, 200);
+    assert.equal((await gina('POST', '/api/mail/send', { to: 'bob@acme.com', subject: `From Globex ${run}`, text: 'x' })).status, 200, 'only Acme asks');
+  } finally { await olivia('PATCH', '/api/orgs/current', { ask_outside: false }); }
+});

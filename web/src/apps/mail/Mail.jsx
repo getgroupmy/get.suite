@@ -1392,6 +1392,21 @@ function Compose({ initial, shared = null, signatures = [], onClose, onSent, onD
     const t = setTimeout(() => get(`/mail/external?to=${encodeURIComponent(emails.join(','))}`).then((r) => { if (live) setOutside(r); }).catch(() => {}), 500);
     return () => { live = false; clearTimeout(t); };
   }, [f.to, f.cc, f.bcc]);
+  // The company asks before mail goes outside it (Admin → Company settings): confirmed once per set of recipients.
+  const outsideOk = useRef(false);
+  const [outsideAsk, setOutsideAsk] = useState(null); // { list: [{ email, new }], next }
+  useEffect(() => { outsideOk.current = false; }, [f.to, f.cc, f.bcc]);
+  const askOutsideFirst = (next) => {
+    if (outsideOk.current || !outside?.ask || !outside.outside?.length) return false;
+    setOutsideAsk({ list: outside.outside, next });
+    return true;
+  };
+  const outsideStop = (err, at = null) => {
+    if (err.status !== 409 || !err.data?.outside) return false;
+    reopen();
+    setOutsideAsk({ list: err.data.outside, next: () => (at ? sendLater(at, true) : reallySend()) });
+    return true;
+  };
   const include = (p) => {
     const who = p.name ? `${/[,;<>"]/.test(p.name) ? `"${p.name.replace(/"/g, '')}"` : p.name} <${p.email}>` : p.email;
     setF((x) => ({ ...x, to: x.to.trim() ? `${x.to.trim().replace(/[,;]\s*$/, '')}, ${who}` : who }));
@@ -1406,7 +1421,7 @@ function Compose({ initial, shared = null, signatures = [], onClose, onSent, onD
   const pendingSend = useRef(null); // the send to do when the wait is over (or the page is left)
   useEffect(() => () => { pendingSend.current?.(); }, []); // leaving now sends straight away
   const [scheduling, setScheduling] = useState(false);
-  const payload = () => ({ ...f, html: f.text.trim() ? emailHtml(f.html) : '', attachments: files.map((x) => x.id), linkAttachments: files.filter((x) => x.asLink).map((x) => x.id), draftUid: draftUid.current, forwardOf: fwd, receipt, ...(followUp && { followUp: Number(followUp) }), ...(confidential && { confidential: { days: Number(confidential) } }) });
+  const payload = () => ({ ...f, html: f.text.trim() ? emailHtml(f.html) : '', attachments: files.map((x) => x.id), linkAttachments: files.filter((x) => x.asLink).map((x) => x.id), draftUid: draftUid.current, forwardOf: fwd, receipt, ...(outsideOk.current && { outsideConfirmed: true }), ...(followUp && { followUp: Number(followUp) }), ...(confidential && { confidential: { days: Number(confidential) } }) });
   const stopAutosave = async () => {
     closed.current = true;          // no more autosaves
     clearTimeout(timer.current);
@@ -1421,8 +1436,9 @@ function Compose({ initial, shared = null, signatures = [], onClose, onSent, onD
     // Only this form's own submit sends. Dialogs opened from the message (e.g. the link dialog) are
     // rendered elsewhere in the page, but React still passes their events up to here.
     if (e.target !== e.currentTarget) return;
-    if (forgotAttachment(() => checkLinksAndSend())) return;
-    checkLinksAndSend();
+    const go = () => { if (!askOutsideFirst(checkLinksAndSend)) checkLinksAndSend(); };
+    if (forgotAttachment(go)) return;
+    go();
   }
   /** Says it's attached but nothing is (no file, no forwarded attachment, no Drive link): ask first, then `next`. */
   const forgotAttachment = (next) => {
@@ -1472,7 +1488,7 @@ function Compose({ initial, shared = null, signatures = [], onClose, onSent, onD
           : false;
         toast(`Sent to ${r.recipients} recipient${r.recipients === 1 ? '' : 's'}${archived ? ' and archived' : ''}`);
         onSent();
-      } catch (err) { if (!dlpStop(err)) { toast(err.message, 'error'); reopen(); } }
+      } catch (err) { if (!dlpStop(err) && !outsideStop(err)) { toast(err.message, 'error'); reopen(); } }
     };
     pendingSend.current = go;
     setWaiting(true);
@@ -1482,14 +1498,15 @@ function Compose({ initial, shared = null, signatures = [], onClose, onSent, onD
 
   /** Send at a chosen time: the server keeps it and sends it then. */
   async function sendLater(at, checked = false) {
-    if (!checked && forgotAttachment(() => sendLater(at, true))) return;
+    if (!checked && forgotAttachment(() => { if (!askOutsideFirst(() => sendLater(at, true))) sendLater(at, true); })) return;
+    if (!checked && askOutsideFirst(() => sendLater(at, true))) return;
     setBusy(true);
     await stopAutosave();
     try {
       const r = await post('/mail/send', { ...payload(), sendAt: at, ...(dlpOk.current && { dlpConfirmed: true }) });
       toast(`Will be sent ${whenText(at)}`, 'info', { action: { label: 'Undo', onClick: () => del(`/mail/scheduled/${r.scheduled.id}`).then(() => { toast('Not sent: it’s back in Drafts'); onDraftsChanged?.(); }).catch((err) => toast(err.message, 'error')) } });
       onSent();
-    } catch (err) { if (!dlpStop(err, at)) { toast(err.message, 'error'); reopen(); } }
+    } catch (err) { if (!dlpStop(err, at) && !outsideStop(err, at)) { toast(err.message, 'error'); reopen(); } }
   }
 
   async function upload(list) {
@@ -1635,6 +1652,18 @@ function Compose({ initial, shared = null, signatures = [], onClose, onSent, onD
           <div className="row end">
             <button type="button" className="btn" onClick={() => setDlpWarn(null)}>Edit message</button>
             <button type="button" className="btn primary" onClick={() => { const at = dlpWarn.at; dlpOk.current = true; setDlpWarn(null); if (at) sendLater(at); else reallySend(); }}>Send anyway</button>
+          </div>
+        </div>
+      </Modal>
+    )}
+    {outsideAsk && (
+      <Modal title={`Send outside ${outside?.company || 'the company'}?`} onClose={() => setOutsideAsk(null)}>
+        <div className="stack">
+          <p>This message goes to {outsideAsk.list.length === 1 ? 'someone' : `${outsideAsk.list.length} people`} outside {outside?.company || 'the company'}:</p>
+          <ul className="outside-list">{outsideAsk.list.map((o) => <li key={o.email}><strong>{o.email}</strong>{o.new && <span className="outside-new"> (new: you haven't written to them before)</span>}</li>)}</ul>
+          <div className="row end">
+            <button type="button" className="btn" autoFocus onClick={() => setOutsideAsk(null)}>Go back</button>
+            <button type="button" className="btn primary" onClick={() => { const { next } = outsideAsk; outsideOk.current = true; setOutsideAsk(null); next(); }}>Send</button>
           </div>
         </div>
       </Modal>

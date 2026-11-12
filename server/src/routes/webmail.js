@@ -36,7 +36,7 @@ import { tabQuery, TABS, TO_PRIMARY, TO_UPDATES } from '../mail/tabs.js';
 import { tidyRoutes } from '../mail/tidy.js';
 import { attachPrefRoutes } from '../mail/attachprefs.js';
 import { includeRoutes } from '../mail/includes.js';
-import { externalRoutes } from '../mail/external.js';
+import { externalRoutes, askOutside, outsideRecipients } from '../mail/external.js';
 import { mailStorage } from '../mail/storage.js';
 import { nudgeRoutes, nudgeQuery, nudgesOn } from '../mail/nudges.js';
 import { receiptRequest, buildReceipt } from '../mail/receipt.js';
@@ -1712,6 +1712,15 @@ export default function webmailRoutes() {
     const b = req.body;
     const recipients = ['to', 'cc', 'bcc'].flatMap((k) => { try { return parseRecipients(b[k], k).map((a) => a.address); } catch { return []; } });
     if (dataRulesStop(req, res, { recipients, subject: b.subject, text: b.text, html: b.html, confirmed: b.dlpConfirmed === true })) return;
+    // The company asks before mail goes outside it: not sent until the sender says so (outsideConfirmed).
+    if (askOutside(req.user.org_id) && b.outsideConfirmed !== true) {
+      const outside = outsideRecipients(req.user, recipients);
+      if (outside.length) {
+        const company = q('SELECT name FROM orgs WHERE id = ?').get(req.user.org_id)?.name || 'the company';
+        res.status(409).json({ error: `This message goes outside ${company}: ${outside.map((o) => o.email).join(', ')}. Send it anyway?`, outside });
+        return;
+      }
+    }
     if (b.confidential && b.sendAt != null) throw bad('Confidential messages are sent straight away');
     // Later: the message is built now (attachments as they are now) and sent when it's due.
     if (b.sendAt !== undefined && b.sendAt !== null) {

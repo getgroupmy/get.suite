@@ -11157,3 +11157,14 @@ test('conversation search: channels by name or topic you can see, direct message
   assert.ok(!(await owner('GET', '/api/chat/conversations/search?q=pelican')).body.some((c) => c.id === dm), 'not someone else’s direct message');
   assert.ok(aid);
 });
+
+test('company setting: ask before mail goes outside the company (admins only)', async () => {
+  assert.equal((await owner('GET', '/api/orgs/current')).body.ask_outside, false, 'off to begin with');
+  assert.equal((await owner('PATCH', '/api/orgs/current', { ask_outside: true })).body.ask_outside, true);
+  assert.equal((await owner('GET', '/api/orgs/current')).body.ask_outside, true);
+  const u = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'askout', domain: 'acme.com', name: 'Ask Out', password: 'password123' })).status, 201);
+  await login(u, 'askout@acme.com');
+  assert.equal((await u('PATCH', '/api/orgs/current', { ask_outside: false })).status, 403);
+  assert.equal((await owner('PATCH', '/api/orgs/current', { ask_outside: false })).body.ask_outside, false);
+});

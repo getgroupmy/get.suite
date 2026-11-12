@@ -25,6 +25,7 @@ import { checkBlobs, removeUnused } from '../blobcheck.js';
 import { DATA_DIR } from '../db.js';
 import { readQueue, requestQueueAction, MAIL_STATUS_DIR } from '../mail/queue.js';
 import { mailEnabled } from '../mail/config.js';
+import '../mail/external.js'; // orgs.ask_outside
 
 const domainsOf = (orgId) => q('SELECT name FROM domains WHERE org_id = ? ORDER BY created_at').all(orgId).map((d) => d.name);
 
@@ -41,6 +42,7 @@ function describe(org) {
     view_history: org.view_history === undefined ? true : !!org.view_history,
     push_private: !!org.push_private,
     allow_forwarding: org.allow_forwarding === undefined ? true : !!org.allow_forwarding,
+    ask_outside: !!org.ask_outside,
     // People who still have to set up two-step verification (when it's required).
     without_2fa: q(`SELECT COUNT(*) AS n FROM users u WHERE u.org_id = ? AND u.disabled = 0
                     AND NOT EXISTS (SELECT 1 FROM two_factor t WHERE t.user_id = u.id AND t.enabled = 1)`).get(org.id).n,
@@ -63,6 +65,7 @@ function updateOrg(orgId, body, { asSuper, user }) {
     q('UPDATE orgs SET allow_forwarding = ? WHERE id = ?').run(body.allow_forwarding ? 1 : 0, orgId);
     scheduleMailConfig(); // forwarding (and filters' copies) to outside addresses stops, or starts again
   }
+  if (body.ask_outside !== undefined) q('UPDATE orgs SET ask_outside = ? WHERE id = ?').run(body.ask_outside ? 1 : 0, orgId);
   if (body.push_private !== undefined) q('UPDATE orgs SET push_private = ? WHERE id = ?').run(body.push_private ? 1 : 0, orgId);
   if (body.require_2fa !== undefined) {
     // Requiring it without having it yourself would lock you out of these settings at once.
