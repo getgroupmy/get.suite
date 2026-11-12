@@ -10,6 +10,7 @@
   --accent-soft: #d3e3fd;
   --accent-text: #0b57d0;
   --on-accent: #fff; /* text on an accent-coloured background */
+  --on-danger: #fff;
   --danger: #c5221f;
   --warn-bg: #fef7e0;
   --ok: #188038;
@@ -47,6 +48,7 @@
     --accent-soft: #2f3f5c;
     --accent-text: #a8c7fa;
     --on-accent: #062e6f;
+    --on-danger: #3c0a08;
     --danger: #f28b82;
     --warn-bg: #4a3f1c;
     --ok: #81c995;
@@ -71,6 +73,7 @@
     --accent-soft: #2f3f5c;
     --accent-text: #a8c7fa;
     --on-accent: #062e6f;
+    --on-danger: #3c0a08;
     --danger: #f28b82;
     --warn-bg: #4a3f1c;
     --ok: #81c995;
@@ -219,6 +222,7 @@ button:focus-visible, a:focus-visible, [tabindex]:focus-visible { outline: 2px s
 .files tbody tr { cursor: default; outline: none; }
 .files tbody tr:hover { background: var(--surface-2); }
 .files tbody tr.selected, .files tbody tr:focus-visible { background: var(--accent-soft); }
+.files tbody tr.selected .muted, .files tbody tr:focus-visible .muted { color: var(--text); } /* grey on the selection's tint is too faint */
 .files tr.dim { opacity: .55; }
 .files .name { font-weight: 500; white-space: nowrap; max-width: 0; width: 50%; overflow: hidden; text-overflow: ellipsis; }
 .files .name > .icon, .files .name > .avatar { display: inline-grid; vertical-align: middle; margin-right: 14px; }
@@ -936,8 +940,8 @@ textarea.slide-text.editing { resize: none; border: 0; padding: 0; margin: 0; ba
 .comment-thread.active { border-color: var(--accent); box-shadow: var(--shadow); cursor: default; }
 .comment-thread.resolved { opacity: .7; }
 .comment-mark { display: inline-flex; align-items: center; gap: 2px; margin-left: 6px; padding: 0 6px; border-radius: 10px; background: var(--accent-soft); color: var(--accent-text); font-size: 11px; font-weight: 600; line-height: 18px; vertical-align: middle; }
-.comments-new-count { margin-left: 6px; padding: 0 6px; border-radius: 10px; background: var(--danger); color: #fff; font-size: 11px; font-weight: 600; line-height: 18px; }
-.comment-new-tag { flex: none; padding: 0 6px; border-radius: 10px; background: var(--accent); color: #fff; font-size: 11px; font-weight: 600; line-height: 18px; }
+.comments-new-count { margin-left: 6px; padding: 0 6px; border-radius: 10px; background: var(--danger); color: var(--on-danger); font-size: 11px; font-weight: 600; line-height: 18px; }
+.comment-new-tag { flex: none; padding: 0 6px; border-radius: 10px; background: var(--accent); color: var(--on-accent); font-size: 11px; font-weight: 600; line-height: 18px; }
 .comment-thread.new { border-left: 3px solid var(--accent); }
 .comment-top { gap: 4px; align-items: center; margin-bottom: 6px; }
 .comment-top .comment-where { margin-bottom: 0; min-width: 0; }
