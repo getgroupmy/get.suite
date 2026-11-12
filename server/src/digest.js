@@ -1,6 +1,6 @@
 // The morning summary: an email each day at the hour someone chooses (in their time zone) with
 // today's events, the tasks due today or overdue, how many chat messages are waiting, and what others
-// changed in Drive (files they can open) in the last day. Sent from
+// changed in Drive (files they can open) in the last day, and open comments that @mention them or are assigned to them. Sent from
 // their own mailbox to itself, so it needs this server's email to be on.
 import { q } from './db.js';
 import { expand } from './calmath.js';
@@ -10,6 +10,7 @@ import { mailEnabled } from './mail/config.js';
 import { smtpFor } from './mail/imap.js';
 import { recentActivityFor } from './fileactivity.js';
 import { roleFor } from './access.js';
+import { commentsFor } from './routes/comments.js';
 
 for (const [col, type] of [['digest_hour', 'INTEGER'], ['digest_tz', 'TEXT'], ['digest_last', 'TEXT']]) {
   if (!q('PRAGMA table_info(users)').all().some((c) => c.name === col)) q(`ALTER TABLE users ADD COLUMN ${col} ${type}`).run();
@@ -50,6 +51,16 @@ export function digestFor(userId, t = Date.now()) {
   for (const k of tasks) lines.push(`  ${k.due < date ? `Overdue (${k.due})` : k.due_time ? `Today ${k.due_time}` : 'Today'}  ${k.title}  [${k.list}]`);
   lines.push('');
   if (unread) lines.push(`${unread} unread chat message${unread === 1 ? '' : 's'}.`, '');
+  const comments = commentsFor(user);
+  if (comments.length) {
+    lines.push(`Comments for you (${comments.length}):`);
+    for (const c of comments.slice(0, 6)) {
+      const text = c.body.replace(/\s+/g, ' ');
+      lines.push(`  “${c.file.name}”: ${c.author_name || 'Someone'}${c.assigned ? ' assigned you' : ''}: ${text.length > 80 ? `${text.slice(0, 80)}…` : text}`);
+    }
+    if (comments.length > 6) lines.push(`  and ${comments.length - 6} more (Home → Comments for you)`);
+    lines.push('');
+  }
   const drive = driveChanges(userId, t);
   if (drive.length) {
     lines.push(`Changed in Drive since yesterday (${drive.length} file${drive.length === 1 ? '' : 's'}):`);
@@ -58,7 +69,7 @@ export function digestFor(userId, t = Date.now()) {
     lines.push('');
   }
   lines.push('You get this because you turned on the morning summary in Workspace → Settings.');
-  return { date, subject: `Your day: ${dayName}`, text: lines.join('\n'), events: events.length, tasks: tasks.length, unread, drive: drive.length };
+  return { date, subject: `Your day: ${dayName}`, text: lines.join('\n'), events: events.length, tasks: tasks.length, unread, drive: drive.length, comments: comments.length };
 }
 
 const VERB = { create: 'made', upload: 'uploaded', copy: 'copied', request: 'sent in', edit: 'edited', version: 'restored', rename: 'renamed', move: 'moved',

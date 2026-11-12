@@ -11789,3 +11789,24 @@ test('morning summary: what others changed in Drive since yesterday, by file, on
   assert.equal(driveChanges(aid, Date.now() + 2 * 864e5).length, 0);
   assert.deepEqual(driveChanges(bid).filter((f) => f.name.startsWith('Dig')), [], 'Ben did it all himself');
 });
+
+test('morning summary: open comments that @mention you or are assigned to you', async () => {
+  const { digestFor } = await import('../src/digest.js');
+  const a = client(), b = client();
+  for (const [local, name] of [['dgca', 'Dgc Ann'], ['dgcb', 'Dgc Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  const aid = (await login(a, 'dgca@acme.com')).id;
+  await login(b, 'dgcb@acme.com');
+  const doc = (await b('POST', '/api/files/new', { kind: 'doc', name: 'Dgc brief' })).body.id;
+  await b('PUT', `/api/files/${doc}/shares`, { shares: [{ user_id: aid, role: 'editor' }] });
+  await b('POST', `/api/comments/${doc}`, { body: 'Can you check the numbers @dgca@acme.com', anchor: { quote: 'x' } });
+  const assigned = (await b('POST', `/api/comments/${doc}`, { body: 'Write the intro', anchor: { quote: 'y' }, assign: aid })).body.comment;
+  let d = digestFor(aid);
+  assert.equal(d.comments, 2);
+  assert.match(d.text, /Comments for you \(2\):/);
+  assert.match(d.text, /“Dgc brief”: Dgc Ben assigned you: Write the intro/);
+  assert.match(d.text, /“Dgc brief”: Dgc Ben: Can you check the numbers @dgca@acme.com/);
+  await b('PATCH', `/api/comments/${doc}/${assigned.id}`, { resolved: true });
+  d = digestFor(aid);
+  assert.equal(d.comments, 1, 'resolved ones go');
+  assert.doesNotMatch(digestFor((await b('GET', '/api/auth/me')).body.user.id).text, /Comments for you/, 'Ben: none');
+});
