@@ -610,6 +610,20 @@ export function callLength(ms) {
 /** How long a call rings before it's missed (tests make it short). */
 export const ringTimeout = { ms: 35000 };
 
+/** A whole conversation someone can read, to keep: { title, messages } (each with its thread's replies), for chatexport.js. */
+export function conversationFor(channelId, user) {
+  const c = loadChannel(channelId, user);
+  const rows = shape(q(`${MSG} WHERE m.channel_id = ? ORDER BY m.created_at`).all(c.id));
+  const kept = (m) => ({ who: m.user_name || m.bot || 'Someone', at: m.created_at, body: m.body || '', edited: !!m.edited_at,
+    files: (m.files || []).map((f) => f.name).filter(Boolean), poll: m.poll });
+  const replies = new Map();
+  for (const m of rows) if (m.parent_id) { if (!replies.has(m.parent_id)) replies.set(m.parent_id, []); replies.get(m.parent_id).push(kept(m)); }
+  const messages = rows.filter((m) => !m.parent_id).map((m) => ({ ...kept(m), replies: replies.get(m.id) || [] }));
+  const other = dmOther(c, user.id);
+  const title = c.dm_key ? `Conversation with ${other ? q('SELECT name FROM users WHERE id = ?').get(other)?.name || 'someone' : 'yourself'}` : `#${c.name}`;
+  return { title, messages };
+}
+
 export default function chatRoutes() {
   const r = Router();
 
@@ -776,15 +790,7 @@ export default function chatRoutes() {
 
   // The whole conversation to keep: plain text (?format=txt) or a page (html), in the reader's time zone (?tz=).
   r.get('/channels/:id/export', (req, res) => {
-    const c = loadChannel(req.params.id, req.user);
-    const rows = shape(q(`${MSG} WHERE m.channel_id = ? ORDER BY m.created_at`).all(c.id));
-    const kept = (m) => ({ who: m.user_name || m.bot || 'Someone', at: m.created_at, body: m.body || '', edited: !!m.edited_at,
-      files: (m.files || []).map((f) => f.name).filter(Boolean), poll: m.poll });
-    const replies = new Map();
-    for (const m of rows) if (m.parent_id) { if (!replies.has(m.parent_id)) replies.set(m.parent_id, []); replies.get(m.parent_id).push(kept(m)); }
-    const messages = rows.filter((m) => !m.parent_id).map((m) => ({ ...kept(m), replies: replies.get(m.id) || [] }));
-    const other = dmOther(c, req.user.id);
-    const title = c.dm_key ? `Conversation with ${other ? q('SELECT name FROM users WHERE id = ?').get(other)?.name || 'someone' : 'yourself'}` : `#${c.name}`;
+    const { title, messages } = conversationFor(req.params.id, req.user);
     const html = req.query.format !== 'txt';
     const file = `${title.replace(/^#/, '').replace(/[^\p{L}\p{N} _-]+/gu, '').trim().slice(0, 80) || 'Conversation'}.${html ? 'html' : 'txt'}`;
     res.setHeader('Content-Type', html ? 'text/html; charset=utf-8' : 'text/plain; charset=utf-8');

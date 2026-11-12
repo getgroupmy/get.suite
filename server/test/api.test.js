@@ -12040,3 +12040,25 @@ test('download your data: Comments.csv with the comments you wrote and those on 
   assert.equal(lines.length, 4, 'not Ben’s on his own sheet, nor Cy’s');
   assert.match(await zip.file('README.txt').async('string'), /Comments\.csv/);
 });
+
+test('download your data: Chat/ has each conversation you are in, as text', async () => {
+  const JSZip = (await import('jszip')).default;
+  const a = client(), b = client(), c = client();
+  for (const [local, name] of [['tkha', 'Tkh Ann'], ['tkhb', 'Tkh Ben'], ['tkhc', 'Tkh Cy']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'tkha@acme.com');
+  const bid = (await login(b, 'tkhb@acme.com')).id;
+  const cid = (await login(c, 'tkhc@acme.com')).id;
+  const dm = (await a('POST', '/api/chat/dm', { user_id: bid })).body.id;
+  await a('POST', `/api/chat/channels/${dm}/messages`, { body: 'Lunch at noon?' });
+  await b('POST', `/api/chat/channels/${dm}/messages`, { body: 'Yes please' });
+  const other = (await b('POST', '/api/chat/dm', { user_id: cid })).body.id;
+  await b('POST', `/api/chat/channels/${other}/messages`, { body: 'Secret between Ben and Cy' });
+  const zip = await JSZip.loadAsync((await a('GET', '/api/takeout', undefined, { binary: true })).body);
+  const chats = Object.keys(zip.files).filter((n) => n.startsWith('Chat/') && !zip.files[n].dir);
+  const mine = await zip.file('Chat/Conversation with Tkh Ben.txt')?.async('string');
+  assert.ok(mine, `in ${chats.join(', ')}`);
+  assert.match(mine, /Tkh Ann[^\n]*\n?[^\n]*Lunch at noon\?/);
+  assert.match(mine, /Yes please/);
+  for (const n of chats) assert.doesNotMatch(await zip.file(n).async('string'), /Secret between Ben and Cy/, 'not others’ conversations');
+  assert.match(await zip.file('README.txt').async('string'), /Chat\//);
+});

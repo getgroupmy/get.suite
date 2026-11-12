@@ -1,6 +1,8 @@
 // Download your data: everything you own in one .zip, in formats other programs open. Drive (with its
 // folders; documents, spreadsheets and presentations as Word, Excel and PowerPoint, or OpenDocument), your calendar
 // (.ics), contacts (.vcf), tasks (CSV), notes (Markdown) and email (an .mbox file per folder). Mounted at /api/takeout.
+import { conversationFor } from './chat.js';
+import { conversationText } from '../chatexport.js';
 import { Router } from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -149,13 +151,31 @@ export default function takeoutRoutes() {
     zip.file('Tasks.csv', `﻿${tasksCsv(me)}\r\n`);
     zip.file('Notes.md', `# Notes\n\n${notesMarkdown(me)}`);
     zip.file('Comments.csv', `\ufeff${commentsCsv(me)}\r\n`);
+    // Chat: each conversation you're in (direct messages, private channels, channels you've joined or written in), as text.
+    const seenNames = new Set();
+    const reader = q('SELECT * FROM users WHERE id = ?').get(me);
+    // (Public channels keep no list of members: those you've written in, and haven't left, count.)
+    const convs = q(`SELECT id FROM channels c WHERE (EXISTS (SELECT 1 FROM channel_members cm WHERE cm.channel_id = c.id AND cm.user_id = ?)
+                       OR (c.dm_key IS NULL AND c.private = 0 AND EXISTS (SELECT 1 FROM messages m WHERE m.channel_id = c.id AND m.user_id = ?)
+                           AND NOT EXISTS (SELECT 1 FROM chat_left l WHERE l.channel_id = c.id AND l.user_id = ?)))
+                     AND EXISTS (SELECT 1 FROM messages m WHERE m.channel_id = c.id AND m.deleted_at IS NULL) ORDER BY c.created_at`).all(me, me, me);
+    for (const { id } of convs) {
+      try {
+        const { title, messages } = conversationFor(id, reader);
+        let base = safe(title.replace(/^#/, '')), n = 1;
+        while (seenNames.has(base.toLowerCase())) base = `${safe(title.replace(/^#/, ''))} (${++n})`;
+        seenNames.add(base.toLowerCase());
+        zip.file(`Chat/${base}.txt`, conversationText(title, messages, { tz: String(req.query.tz || 'UTC') }));
+      } catch { /* one it can no longer read */ }
+    }
     zip.file('README.txt', [`Your Workspace data, ${new Date().toISOString().slice(0, 10)}`, '',
       `Drive/        your files and folders (${odf ? 'documents, spreadsheets and presentations as OpenDocument: .odt, .ods, .odp, for LibreOffice and others' : 'documents as Word, spreadsheets as Excel, presentations as PowerPoint'})`,
       'Calendar.ics  your events, for Outlook, Google Calendar or Apple Calendar',
       'Contacts.vcf  your contacts, for phones, Outlook, Gmail or Apple Contacts',
       'Tasks.csv     your task lists, for a spreadsheet',
       'Notes.md      your notes',
-      'Comments.csv  comments you wrote, and those on your files, for a spreadsheet', mailNote].join('\r\n'));
+      'Comments.csv  comments you wrote, and those on your files, for a spreadsheet',
+      'Chat/         each conversation you are in, as text', mailNote].join('\r\n'));
     audit(req, 'data.export', { target: who.username });
     const name = `Workspace data${who.id === req.user.id ? '' : ` ${who.username}`} ${new Date().toISOString().slice(0, 10)}.zip`;
     res.setHeader('Content-Type', 'application/zip');
