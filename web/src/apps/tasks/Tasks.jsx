@@ -888,6 +888,7 @@ function TaskDetails({ task, tasks, lists, sections = [], people, onChange, onCl
           </select>
         </label>
       )}
+      {task.assignee_id && <Availability userId={task.assignee_id} name={task.assignee_name} />}
       {sections.length > 0 && (
         <label className="field"><span>Section</span>
           <select value={task.section_id || ''} onChange={(e) => onChange({ section_id: e.target.value || null })}>
@@ -1226,5 +1227,27 @@ function RepeatField({ task, onChange }) {
         </div>
       )}
     </div>
+  );
+}
+
+/** Whether the person a task is for is away (vacation reply on) or outside their working hours right now. */
+function Availability({ userId, name }) {
+  const { user } = useAuth();
+  const [a, setA] = useState(null);
+  useEffect(() => {
+    setA(null);
+    if (!userId || userId === user?.id) return undefined;
+    let live = true;
+    get(`/users/${userId}/availability`).then((r) => { if (live) setA(r); }).catch(() => {});
+    return () => { live = false; };
+  }, [userId, user?.id]);
+  if (!a || (!a.away && !a.after)) return null;
+  const day = (ymd) => new Date(`${ymd}T12:00:00Z`).toLocaleDateString([], { day: 'numeric', month: 'short' });
+  const first = (name || '').split(' ')[0] || 'They';
+  return (
+    <p className="task-availability small muted" role="status">
+      {a.away && <span><span aria-hidden="true">🌴</span> {first} is away{a.away.until ? ` until ${day(a.away.until)}` : ''}. </span>}
+      {a.after && <span><span aria-hidden="true">🌙</span> It's {a.after.local} for {first}, outside their working hours.</span>}
+    </p>
   );
 }

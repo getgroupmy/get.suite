@@ -11315,3 +11315,24 @@ test('status from a vacation reply: away until its last day, when the calendar s
   assert.equal((await statusOfA()).text, 'Lunch');
   q('UPDATE vacations SET enabled = 0 WHERE user_id = ?').run(aid);
 });
+
+test('availability: a colleague away (vacation reply on) and outside their working hours; not other companies', async () => {
+  const { q } = await import('../src/db.js');
+  const a = client(), b = client();
+  for (const [local, name] of [['avla', 'Avail Ann'], ['avlb', 'Avail Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'avla@acme.com');
+  const bid = (await login(b, 'avlb@acme.com')).id;
+  assert.deepEqual((await a('GET', `/api/users/${bid}/availability`)).body, { away: null, after: null });
+  const today = new Date().getUTCDay();
+  await b('PUT', '/api/users/me/work-hours', { hours: { days: [0, 1, 2, 3, 4, 5, 6].filter((d) => d !== today), start: 0, end: 1440, tz: 'UTC' } });
+  q(`INSERT INTO vacations (user_id, enabled, subject, body, start_date, end_date, updated_at) VALUES (?, 1, 'Off', 'x', NULL, NULL, 0)`).run(bid);
+  const r = (await a('GET', `/api/users/${bid}/availability`)).body;
+  assert.deepEqual(r.away, { until: null, subject: 'Off' });
+  const tomorrow = new Date(); tomorrow.setUTCHours(24, 0, 0, 0);
+  assert.equal(r.after.next, tomorrow.getTime());
+  assert.ok((await owner('POST', '/api/orgs', { name: 'Avail Co', domain: 'availco.example', admin_name: 'Ava Co', admin_local: 'ava', admin_password: 'password123' })).body.id);
+  const g = client();
+  await login(g, 'ava@availco.example');
+  assert.equal((await g('GET', `/api/users/${bid}/availability`)).status, 404, 'another company');
+  q('UPDATE vacations SET enabled = 0 WHERE user_id = ?').run(bid);
+});

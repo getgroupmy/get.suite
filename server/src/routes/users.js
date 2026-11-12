@@ -24,6 +24,7 @@ import { hoursOf, setHours, readHours, hoursText, withinHours, quietUntil } from
 import { insertFile, uniqueName, keepDriveFiles } from './files.js';
 import { focusUntil, calendarStatus } from './calendar.js';
 import { placeOn } from './location.js';
+import { awayOfIds, afterHoursOfIds } from '../mail/afterhours.js';
 
 // Who's who: a job title, department and work phone for each person, and who they report to (set by
 // an admin). The Directory shows them, with an org chart.
@@ -167,6 +168,16 @@ export default function userRoutes() {
   });
   // A colleague's card: who they are, who they report to and who reports to them, how to reach them,
   // whether it's working time for them now, and where they're working today.
+  // Whether a colleague can be reached now: away (their vacation reply is on today), and/or outside the working
+  // hours they've set (their local time, when they start again). { away, after } (null when not).
+  r.get('/:id/availability', (req, res) => {
+    const u = q('SELECT id, org_id FROM users WHERE id = ? AND disabled = 0').get(req.params.id);
+    if (!u || u.org_id !== req.user.org_id) throw notFound();
+    const [away] = awayOfIds(req.user, [u.id]);
+    const [after] = afterHoursOfIds(req.user, [u.id]);
+    res.json({ away: away ? { until: away.until, subject: away.subject } : null, after: after ? { local: after.local, tz: after.tz, next: after.next } : null });
+  });
+
   r.get('/:id/card', (req, res) => {
     const u = q(`SELECT id, username, name, job_title, department, work_phone, manager_id, status_emoji, status_text, status_until, paused_until, org_id, photo_v
                  FROM users WHERE id = ? AND disabled = 0`).get(String(req.params.id));
