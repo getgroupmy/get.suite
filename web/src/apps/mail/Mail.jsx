@@ -515,6 +515,7 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
               Move to {tab === 'primary' ? 'Updates' : 'Primary'}</button>}
             <SnoozeMenu small onPick={(at) => act('snooze', { uids: sel, until: at }, `Snoozed until ${whenText(at)}`)} onCustom={() => setSnoozing(sel)} />
             {folder === SNOOZED && <button className="btn small" onClick={() => act('unsnooze', { uids: sel }, 'Back in the Inbox')}>Unsnooze</button>}
+            <a className="btn small" href={`/api/mail/messages-eml.zip?folder=${enc(folder)}&uids=${sel.join(',')}${mailboxParam()}`} download title="Each message as an .eml file, in one .zip">Download (.zip)</a>
             <button className="btn small danger" onClick={() => act('delete', { uids: sel }, special === '\\Trash' ? 'Deleted forever' : 'Moved to Trash')}>Delete</button>
           </div>
         )}

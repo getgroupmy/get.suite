@@ -2559,3 +2559,27 @@ test('upload .eml files into a folder: their own date, read or not as the file s
   const body = (await olivia('GET', `/api/mail/messages/${one.uid}?folder=INBOX`)).body;
   assert.match(body.text, /Saved long ago \(one\)\./);
 });
+
+test('download several messages as one .zip of .eml files, dated and named by subject; they upload back', async () => {
+  const JSZip = (await import('jszip')).default;
+  const tag = `Zip ${Date.now()}`;
+  const eml = (n, day) => `From: A <a@example.org>\r\nTo: olivia@acme.com\r\nSubject: ${tag} ${n}\r\nDate: ${day} +0000\r\nMessage-ID: <${tag.replace(/\s/g, '')}-${n}@example.org>\r\n\r\nBody ${n}\r\n`;
+  await olivia('POST', '/api/mail/folders', { name: 'Zipped' });
+  for (const [n, d] of [['one', 'Tue, 03 Mar 2015 10:00:00'], ['two/half', 'Wed, 04 Mar 2015 10:00:00']]) {
+    assert.equal((await olivia('POST', '/api/mail/messages/upload?folder=Zipped', eml(n, d), { raw: true, headers: { 'content-type': 'message/rfc822' } })).status, 201);
+  }
+  const list = (await olivia('GET', '/api/mail/messages?folder=Zipped')).body.messages;
+  const uids = list.map((m) => m.uid);
+  const r = await olivia('GET', `/api/mail/messages-eml.zip?folder=Zipped&uids=${uids.join(',')}`, undefined, { binary: true });
+  assert.equal(r.status, 200);
+  const zip = await JSZip.loadAsync(r.body);
+  const names = Object.keys(zip.files).sort();
+  assert.deepEqual(names, [`2015-03-03 ${tag} one.eml`, `2015-03-04 ${tag} two half.eml`], 'a / in a subject isn’t a folder');
+  const text = await zip.file(names[0]).async('string');
+  assert.match(text, /Body one/);
+  assert.equal((await olivia('GET', '/api/mail/messages-eml.zip?folder=Zipped&uids=')).status, 400);
+  assert.equal((await olivia('GET', '/api/mail/messages-eml.zip?folder=Zipped&uids=999999')).status, 404);
+  assert.equal((await gina('GET', `/api/mail/messages-eml.zip?folder=Zipped&uids=${uids.join(',')}`)).status, 404, 'only your own folders');
+  // Back in: the same messages are skipped.
+  assert.deepEqual((await olivia('POST', '/api/mail/messages/upload?folder=Zipped', text, { raw: true, headers: { 'content-type': 'message/rfc822' } })).body, { added: 0, skipped: 1 });
+});

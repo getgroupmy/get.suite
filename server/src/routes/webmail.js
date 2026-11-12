@@ -1214,6 +1214,31 @@ export default function webmailRoutes() {
     const msg = await rawMessage(req);
     res.json({ ...originalSummary(msg.source), size: msg.source.length });
   });
+  // Several messages as one .zip of .eml files ("2026-11-03 Quarterly numbers.eml"), for keeping or for another mail program.
+  r.get('/messages-eml.zip', async (req, res) => {
+    const uids = uidList(String(req.query.uids || '').split(','));
+    if (uids.length > 500) throw bad('Up to 500 messages at a time');
+    const folder = String(req.query.folder || 'INBOX');
+    const found = await withFolder(req.user, folder, async (client) => {
+      const out = [];
+      let size = 0;
+      for await (const m of client.fetch(uids.join(','), { source: true, envelope: true, internalDate: true }, { uid: true })) {
+        size += m.source?.length || 0;
+        if (size > 200 * 1024 * 1024) throw bad('Those messages come to more than 200 MB: choose fewer');
+        out.push(m);
+      }
+      return out;
+    });
+    if (!found.length) throw notFound('Message not found');
+    found.sort((x, y) => uids.indexOf(x.uid) - uids.indexOf(y.uid));
+    const day = (m) => { const d = m.envelope?.date || m.internalDate; return d ? new Date(d).toISOString().slice(0, 10) : ''; };
+    const buf = await attachmentsZip(found.map((m) => ({ filename: `${[day(m), safeName(m.envelope?.subject, 'message').slice(0, 100)].filter(Boolean).join(' ')}.eml`, content: m.source })));
+    const name = `${safeName(folder.split(/[./]/).pop(), 'Mail')} (${found.length} ${found.length === 1 ? 'message' : 'messages'}).zip`;
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="messages.zip"; filename*=UTF-8''${encodeURIComponent(name)}`);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.end(buf);
+  });
   r.get('/messages/:uid/eml', async (req, res) => {
     const msg = await rawMessage(req);
     const name = `${String(msg.envelope?.subject || 'message').replace(/[\\/:*?"<>|\r\n\u0000-\u001f]+/g, ' ').trim().slice(0, 80) || 'message'}.eml`;
