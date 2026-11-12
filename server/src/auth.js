@@ -18,6 +18,7 @@ if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'must_change_pas
 if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'second_tz')) q('ALTER TABLE users ADD COLUMN second_tz TEXT').run();
 if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'cal_prefs')) q('ALTER TABLE users ADD COLUMN cal_prefs TEXT').run(); // JSON: Calendar settings (calprefs.js)
 if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'ring_off')) q('ALTER TABLE users ADD COLUMN ring_off INTEGER NOT NULL DEFAULT 0').run(); // calls don't pop up (they still reach the bell)
+if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'keys_off')) q('ALTER TABLE users ADD COLUMN keys_off INTEGER NOT NULL DEFAULT 0').run(); // single-key shortcuts (C, J/K, G then M, ?) turned off
 if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'mail_advance')) q('ALTER TABLE users ADD COLUMN mail_advance TEXT').run(); // after archiving or deleting the open message: 'newer', 'older' or null (back to the list)
 if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'mail_pane')) q('ALTER TABLE users ADD COLUMN mail_pane TEXT').run(); // Mail's reading pane: 'below', 'off', or null (beside the list)
 if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'mail_list_width')) q('ALTER TABLE users ADD COLUMN mail_list_width INTEGER').run(); // Mail's list beside the reading pane, in pixels (null: the usual)
@@ -112,7 +113,7 @@ export const idleOf = (req) => { const v = Number(req.get?.('x-user-idle')); ret
  */
 export function userFromToken(token, { idleMs = null } = {}) {
   if (!token) return null;
-  const row = q(`SELECT u.id, u.username, u.name, u.is_admin, u.is_super, u.disabled, u.org_id, u.start_page, u.second_tz, u.world_clocks, u.mail_advance, u.mail_pane, u.mail_list_width, u.mail_list, u.ring_off, u.cal_prefs, u.file_format, u.drive_view, u.home_layout, u.convert_uploads, u.must_change_password, u.recovery_email, COALESCE(u.password_set_at, u.created_at) AS password_set_at, o.pw_max_days,
+  const row = q(`SELECT u.id, u.username, u.name, u.is_admin, u.is_super, u.disabled, u.org_id, u.start_page, u.second_tz, u.world_clocks, u.mail_advance, u.mail_pane, u.mail_list_width, u.mail_list, u.ring_off, u.keys_off, u.cal_prefs, u.file_format, u.drive_view, u.home_layout, u.convert_uploads, u.must_change_password, u.recovery_email, COALESCE(u.password_set_at, u.created_at) AS password_set_at, o.pw_max_days,
                         o.name AS org_name, o.allow_external, o.allow_links, o.require_2fa, o.accent AS org_accent, o.logo AS org_logo, s.expires_at, s.last_seen, s.created_at AS session_at, o.session_idle_min, o.session_max_hours,
                         (SELECT enabled FROM two_factor t WHERE t.user_id = u.id) AS tf_enabled
                  FROM sessions s JOIN users u ON u.id = s.user_id JOIN orgs o ON o.id = u.org_id
@@ -138,7 +139,7 @@ export function userFromToken(token, { idleMs = null } = {}) {
   return userOf(row);
 }
 
-const USER_COLUMNS = `u.id, u.username, u.name, u.is_admin, u.is_super, u.disabled, u.org_id, u.start_page, u.second_tz, u.world_clocks, u.mail_advance, u.mail_pane, u.mail_list_width, u.mail_list, u.ring_off, u.cal_prefs, u.file_format, u.drive_view, u.home_layout, u.convert_uploads, u.must_change_password, u.recovery_email, COALESCE(u.password_set_at, u.created_at) AS password_set_at, o.pw_max_days,
+const USER_COLUMNS = `u.id, u.username, u.name, u.is_admin, u.is_super, u.disabled, u.org_id, u.start_page, u.second_tz, u.world_clocks, u.mail_advance, u.mail_pane, u.mail_list_width, u.mail_list, u.ring_off, u.keys_off, u.cal_prefs, u.file_format, u.drive_view, u.home_layout, u.convert_uploads, u.must_change_password, u.recovery_email, COALESCE(u.password_set_at, u.created_at) AS password_set_at, o.pw_max_days,
   o.name AS org_name, o.allow_external, o.allow_links, o.require_2fa, o.accent AS org_accent, o.logo AS org_logo, o.session_idle_min, (SELECT enabled FROM two_factor t WHERE t.user_id = u.id) AS tf_enabled`;
 
 /** The person an API token acts for (see apitokens.js), as requireAuth gives it, with req.apiToken set. */
@@ -177,6 +178,7 @@ function userOf(row) {
     mail_list_width: row.mail_list_width || null,
     mail_list: (() => { try { const v = JSON.parse(row.mail_list || '{}'); return { pictures: !!v.pictures, compact: !!v.compact }; } catch { return { pictures: false, compact: false }; } })(),
     ring: !row.ring_off, // calls pop up on screen with Join
+    keys: !row.keys_off, // single-key keyboard shortcuts (WCAG 2.1.4: they can be turned off)
     cal_prefs: cleanCalPrefs((() => { try { return JSON.parse(row.cal_prefs || 'null'); } catch { return null; } })()),
     file_format: row.file_format === 'odf' ? 'odf' : 'office',
     drive_view: driveView(row.drive_view),

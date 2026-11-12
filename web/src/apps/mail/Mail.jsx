@@ -262,11 +262,12 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
   // Keyboard shortcuts (see mailkeys.js); the open message's buttons do the work, so they behave the same.
   const keyState = useRef();
   const [picking, setPicking] = useState(null); // V / L: { kind: 'move' | 'label', uids }
-  keyState.current = { data, openUid, special, folder, compose, go, checked, labels, shared, setPicking, openDraft: (uid) => openDraft(uid), newMessage: () => setCompose(withSignature({}, 'new')) };
+  keyState.current = { keysOn: user?.keys !== false, data, openUid, special, folder, compose, go, checked, labels, shared, setPicking, openDraft: (uid) => openDraft(uid), newMessage: () => setCompose(withSignature({}, 'new')) };
   useEffect(() => {
     const onKey = (e) => {
-      const action = mailKey(e);
       const st = keyState.current;
+      if (!st.keysOn) return; // Settings → Keyboard shortcuts
+      const action = mailKey(e);
       if (!action || st.compose || document.querySelector('.modal-backdrop, [role=menu], [role=dialog]')) return;
       const reader = document.querySelector('.mail-reader');
       const button = (match) => [...(reader?.querySelectorAll('button') || [])].find(match);

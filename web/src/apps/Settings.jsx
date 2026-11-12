@@ -64,6 +64,7 @@ export default function Settings() {
       <MailNudges />
       <MailAttachCheck />
       <CallRing />
+      <KeyboardKeys />
       <Devices />
       <SignInApps />
       <WorkLocation />
@@ -355,6 +356,24 @@ function CallRing() {
       <h2 id="ring-h">Calls</h2>
       <label className="check"><input type="checkbox" checked={on} onChange={(e) => set(e.target.checked)} /> Show calls on screen (📞 … is calling you, with Join and Can’t talk)</label>
       <p className="muted small" style={{ margin: 0 }}>Turned off, a call still reaches your notifications (and your phone, if notifications are on there), so you can join or call back when it suits you.</p>
+    </section>
+  );
+}
+
+/** Single-key shortcuts (C, J/K, G then M, ?): on or off, for people who'd rather not have keys do things (or use speech input). */
+function KeyboardKeys() {
+  const toast = useToast();
+  const { user, setUser } = useAuth();
+  const [on, setOn] = useState(user.keys !== false);
+  const set = async (next) => {
+    setOn(next);
+    try { await put('/users/me/keys', { on: next }); setUser({ ...user, keys: next }); toast(next ? 'Single-key shortcuts are on' : 'Single-key shortcuts are off'); } catch (e) { setOn(!next); toast(e.message, 'error'); }
+  };
+  return (
+    <section className="card stack" aria-labelledby="keys-h">
+      <h2 id="keys-h">Keyboard shortcuts</h2>
+      <label className="check"><input type="checkbox" checked={on} onChange={(e) => set(e.target.checked)} /> Single-key shortcuts (<kbd>C</kbd> to write in Mail, <kbd>G</kbd> then <kbd>M</kbd> to go to Mail, <kbd>?</kbd> for the list…)</label>
+      <p className="muted small" style={{ margin: 0 }}>Turn them off if keys you press by accident (or speech input) set things off. Shortcuts with Ctrl or ⌘ (such as Ctrl+/ for the list) keep working.</p>
     </section>
   );
 }

@@ -1,8 +1,10 @@
 // Ctrl+/ (⌘/ on a Mac), or "?" where it isn't something you'd type, lists the keyboard shortcuts,
 // the current app's first.
-import { useEffect, useState } from 'react';
-import { useLocation } from 'react-router';
+import { useEffect, useRef, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router';
 import { Modal } from './ui.jsx';
+import { useAuth } from '../App.jsx';
+import { GO_TO, goReader, notAShortcut } from './goto.js';
 
 const MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 const mod = MAC ? '⌘' : 'Ctrl';
@@ -49,7 +51,8 @@ export const SHORTCUTS = {
     [`${alt}+↑ / ${alt}+↓`, 'Previous or next conversation'], [`${alt}+Shift+↑ / ${alt}+Shift+↓`, 'Previous or next unread conversation'],
     ['Shift+Escape', 'Mark all conversations as read'],
   ] },
-  all: { title: 'Everywhere', keys: [[`${mod}+/`, 'This list (or ? outside a text field)'], ['Escape', 'Close a dialog or menu']] },
+  all: { title: 'Everywhere', keys: [[`${mod}+/`, 'This list (or ? outside a text field)'], ['Escape', 'Close a dialog or menu'],
+    ...GO_TO.map(([k, , name]) => [`G then ${k.toUpperCase()}`, `Go to ${name}`])] },
 };
 
 const appOf = (path) => (/^\/docs\//.test(path) ? 'docs' : /^\/sheets\//.test(path) ? 'sheets' : /^\/slides\//.test(path) ? 'slides'
@@ -57,12 +60,30 @@ const appOf = (path) => (/^\/docs\//.test(path) ? 'docs' : /^\/sheets\//.test(pa
 
 export function ShortcutsHelp() {
   const { pathname } = useLocation();
+  const navigate = useNavigate();
+  const { user } = useAuth() || {};
+  const keysOn = user?.keys !== false; // Settings → Keyboard shortcuts
   const [open, setOpen] = useState(false);
+  // G then a letter: go to an app. Read before the apps' own keys (capture), so G then C isn't also Mail's C.
+  const read = useRef(goReader());
+  useEffect(() => {
+    if (!keysOn) return undefined;
+    const onKey = (e) => {
+      if (notAShortcut(e) || document.querySelector('.modal-backdrop, [role=menu]')) return;
+      const r = read.current(e.key, Date.now());
+      if (!r) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      if (r.to) navigate(r.to);
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [keysOn, navigate]);
   useEffect(() => {
     const onKey = (e) => {
       const combo = (e.ctrlKey || e.metaKey) && !e.altKey && (e.key === '/' || e.code === 'Slash');
       const question = e.key === '?' && !e.ctrlKey && !e.metaKey && !e.altKey;
-      if (!combo && !question) return;
+      if (!combo && !(question && keysOn)) return;
       const t = e.target;
       // "?" is typed in text fields and spreadsheet cells; Ctrl+/ works there too.
       if (question && t.closest?.('input, textarea, select, [contenteditable="true"], .grid-wrap')) return;
@@ -72,7 +93,7 @@ export function ShortcutsHelp() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  }, [keysOn]);
   if (!open) return null;
   const here = appOf(pathname);
   const order = [here, ...Object.keys(SHORTCUTS).filter((k) => k !== here && k !== 'all'), 'all'].filter(Boolean);

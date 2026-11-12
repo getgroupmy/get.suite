@@ -301,6 +301,13 @@ export default function userRoutes() {
     res.json({ ring: on });
   });
 
+  // Single-key shortcuts (C to write, J/K, G then M, ? for the list): on or off. Shortcuts with Ctrl or ⌘ stay.
+  r.put('/me/keys', (req, res) => {
+    const on = req.body?.on !== false;
+    q('UPDATE users SET keys_off = ? WHERE id = ?').run(on ? 0 : 1, req.user.id);
+    res.json({ keys: on });
+  });
+
   // Mail: what opens after you archive, delete, move or snooze the message you're reading:
   // { advance: 'newer' | 'older' | 'list' } (the next newer one, the next older one, or back to the list).
   r.put('/me/mail-advance', (req, res) => {

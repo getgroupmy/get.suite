@@ -11168,3 +11168,15 @@ test('company setting: ask before mail goes outside the company (admins only)', 
   assert.equal((await u('PATCH', '/api/orgs/current', { ask_outside: false })).status, 403);
   assert.equal((await owner('PATCH', '/api/orgs/current', { ask_outside: false })).body.ask_outside, false);
 });
+
+test('single-key shortcuts: on to begin with; each person can turn them off', async () => {
+  const u = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'keysoff', domain: 'acme.com', name: 'Keys Off', password: 'password123' })).status, 201);
+  await login(u, 'keysoff@acme.com');
+  assert.equal((await u('GET', '/api/auth/me')).body.user.keys, true);
+  assert.deepEqual((await u('PUT', '/api/users/me/keys', { on: false })).body, { keys: false });
+  assert.equal((await u('GET', '/api/auth/me')).body.user.keys, false);
+  assert.equal((await owner('GET', '/api/auth/me')).body.user.keys, true, 'only theirs');
+  assert.deepEqual((await u('PUT', '/api/users/me/keys', { on: true })).body, { keys: true });
+  assert.equal((await u('GET', '/api/auth/me')).body.user.keys, true);
+});
