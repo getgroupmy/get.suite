@@ -402,8 +402,10 @@ function Frequent({ filter, onAdded }) {
             <td className="hide-sm">{c.email}</td>
             <td className="hide-sm muted">{c.times === 1 ? 'once' : `${c.times} times`}, last {new Date(c.last_at).toLocaleDateString()}</td>
             <td className="actions">
-              <button className="btn small" onClick={() => navigate(`/mail?compose=${encodeURIComponent(formatAddress({ name: c.name, email: c.email }))}`)}><Icon name="mail" size={16} /> Email</button>
-              {!c.contact_id && !c.colleague_id && <button className="btn small" onClick={() => add(c)}>Add to contacts</button>}
+              <div className="row end" style={{ gap: 6, alignItems: 'center' }}>
+                <button className="btn small" onClick={() => navigate(`/mail?compose=${encodeURIComponent(formatAddress({ name: c.name, email: c.email }))}`)}><Icon name="mail" size={16} /> Email</button>
+                {!c.contact_id && !c.colleague_id && <button className="btn small" onClick={() => add(c)}>Add to contacts</button>}
+              </div>
             </td>
           </tr>
         ))}
