@@ -12086,3 +12086,25 @@ test('download your data: Forms/ has each of your forms, its questions and respo
   assert.match(csv, /Sushi,'=fresh/, 'answers defused');
   assert.equal((await a('GET', '/api/takeout/summary')).body.forms, 1);
 });
+
+test('download your data: Mail settings/ with filters as Sieve, signatures and the vacation reply', async () => {
+  const JSZip = (await import('jszip')).default;
+  const { q } = await import('../src/db.js');
+  const a = client();
+  const u = (await owner('POST', '/api/users', { local: 'tkma', domain: 'acme.com', name: 'Tkm Ann', password: 'password123' })).body;
+  await login(a, 'tkma@acme.com');
+  let zip = await JSZip.loadAsync((await a('GET', '/api/takeout', undefined, { binary: true })).body);
+  assert.ok(!Object.keys(zip.files).some((n) => n.startsWith('Mail settings/')), 'nothing set, nothing there');
+  const rules = [{ id: 'r1', name: 'Invoices', enabled: true, match: 'all', conditions: [{ field: 'subject', op: 'contains', value: 'invoice' }], actions: { moveTo: 'Bills', markRead: false, star: false, forwardTo: null, delete: false, stop: true } }];
+  q('INSERT INTO mail_rules (user_id, rules, updated_at) VALUES (?, ?, ?)').run(u.id, JSON.stringify(rules), Date.now());
+  q("INSERT INTO mail_signatures (user_id, html, updated_at) VALUES (?, '<p>Ann, Acme</p>', ?)").run(u.id, Date.now());
+  q("INSERT INTO vacations (user_id, enabled, subject, body, start_date, end_date, updated_at) VALUES (?, 1, 'Away', 'Back Monday', '2030-01-01', '2030-01-05', ?)").run(u.id, Date.now());
+  zip = await JSZip.loadAsync((await a('GET', '/api/takeout', undefined, { binary: true })).body);
+  const sieve = await zip.file('Mail settings/filters.sieve').async('string');
+  assert.match(sieve, /require/);
+  assert.match(sieve, /invoice/);
+  assert.match(sieve, /Bills/);
+  assert.deepEqual(JSON.parse(await zip.file('Mail settings/filters.json').async('string'))[0].name, 'Invoices');
+  assert.equal(await zip.file('Mail settings/signature.html').async('string'), '<p>Ann, Acme</p>');
+  assert.match(await zip.file('Mail settings/vacation reply.txt').async('string'), /^Subject: Away\r\nOn: yes, from 2030-01-01 until 2030-01-05\r\n\r\nBack Monday/);
+});

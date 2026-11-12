@@ -2,6 +2,7 @@
 // folders; documents, spreadsheets and presentations as Word, Excel and PowerPoint, or OpenDocument), your calendar
 // (.ics), contacts (.vcf), tasks (CSV), notes (Markdown) and email (an .mbox file per folder). Mounted at /api/takeout.
 import { conversationFor } from './chat.js';
+import { userSieve } from '../mail/sieve.js';
 import { formsForExport } from './forms.js';
 import { conversationText } from '../chatexport.js';
 import { Router } from 'express';
@@ -70,6 +71,23 @@ export function conversationsOf(userId) {
               OR (c.dm_key IS NULL AND c.private = 0 AND EXISTS (SELECT 1 FROM messages m WHERE m.channel_id = c.id AND m.user_id = ?)
                   AND NOT EXISTS (SELECT 1 FROM chat_left l WHERE l.channel_id = c.id AND l.user_id = ?)))
             AND EXISTS (SELECT 1 FROM messages m WHERE m.channel_id = c.id AND m.deleted_at IS NULL) ORDER BY c.created_at`).all(userId, userId, userId);
+}
+
+/** Mail settings worth keeping when moving elsewhere: [[path, content]] — filters (Sieve, which most mail servers
+ *  take, and the rules as JSON), signatures (HTML) and the vacation reply (text). Nothing for what isn't set. */
+export function mailSettingsFiles(userId, username) {
+  const out = [];
+  const rules = (() => { try { return JSON.parse(q('SELECT rules FROM mail_rules WHERE user_id = ?').get(userId)?.rules || '[]'); } catch { return []; } })();
+  if (rules.length) {
+    out.push(['Mail settings/filters.sieve', userSieve({ username, rules }) || '']);
+    out.push(['Mail settings/filters.json', `${JSON.stringify(rules, null, 2)}\n`]);
+  }
+  const sig = q("SELECT html FROM mail_signatures WHERE user_id = ? AND html != ''").get(userId);
+  if (sig) out.push(['Mail settings/signature.html', sig.html]);
+  for (const s of q("SELECT address, html FROM identity_signatures WHERE user_id = ? AND html != '' ORDER BY address").all(userId)) out.push([`Mail settings/signature ${safe(s.address)}.html`, s.html]);
+  const v = q("SELECT subject, body, start_date, end_date, enabled FROM vacations WHERE user_id = ? AND (subject != '' OR body != '')").get(userId);
+  if (v) out.push(['Mail settings/vacation reply.txt', [`Subject: ${v.subject}`, `On: ${v.enabled ? 'yes' : 'no'}${v.start_date ? `, from ${v.start_date}` : ''}${v.end_date ? ` until ${v.end_date}` : ''}`, '', v.body].join('\r\n')]);
+  return out;
 }
 
 /** Your notes as one Markdown file. */
@@ -169,6 +187,7 @@ export default function takeoutRoutes() {
     // Chat: each conversation you're in (direct messages, private channels, channels you've joined or written in), as text.
     const seenNames = new Set();
     const reader = q('SELECT * FROM users WHERE id = ?').get(me);
+    for (const [where, content] of mailSettingsFiles(me, who.username)) zip.file(where, content);
     // Forms: each of yours, its questions and its responses.
     const formNames = new Set();
     for (const f of formsForExport(me)) {
@@ -196,7 +215,8 @@ export default function takeoutRoutes() {
       'Notes.md      your notes',
       'Comments.csv  comments you wrote, and those on your files, for a spreadsheet',
       'Chat/         each conversation you are in, as text',
-      'Forms/        each of your forms: its questions, and its responses for a spreadsheet', mailNote].join('\r\n'));
+      'Forms/        each of your forms: its questions, and its responses for a spreadsheet',
+      'Mail settings/ your filters (as Sieve, which most mail servers take), signatures and vacation reply', mailNote].join('\r\n'));
     audit(req, 'data.export', { target: who.username });
     const name = `Workspace data${who.id === req.user.id ? '' : ` ${who.username}`} ${new Date().toISOString().slice(0, 10)}.zip`;
     res.setHeader('Content-Type', 'application/zip');
