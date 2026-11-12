@@ -28,6 +28,18 @@ q('CREATE INDEX IF NOT EXISTS file_comments_file ON file_comments(file_id, creat
 // Assigned comments: a thread given to someone becomes a task on their list (linked back), ticked off when it's resolved.
 for (const c of ['assignee_id TEXT', 'task_id TEXT']) if (!q('PRAGMA table_info(file_comments)').all().some((x) => x.name === c.split(' ')[0])) q(`ALTER TABLE file_comments ADD COLUMN ${c}`).run();
 
+// Who each comment @mentions, so "comments for you" is a lookup, not a read of every comment's words.
+// Filled in lazily: a comment written (or edited, or imported from Word, Excel, PowerPoint) has mentions_indexed = 0
+// until the next lookup reads it.
+q(`CREATE TABLE IF NOT EXISTS file_comment_mentions (
+  comment_id TEXT NOT NULL REFERENCES file_comments(id) ON DELETE CASCADE,
+  username TEXT NOT NULL,
+  PRIMARY KEY (comment_id, username)
+)`).run();
+q('CREATE INDEX IF NOT EXISTS file_comment_mentions_user ON file_comment_mentions(username)').run();
+if (!q('PRAGMA table_info(file_comments)').all().some((x) => x.name === 'mentions_indexed')) q('ALTER TABLE file_comments ADD COLUMN mentions_indexed INTEGER NOT NULL DEFAULT 0').run();
+q('CREATE INDEX IF NOT EXISTS file_comments_unindexed ON file_comments(mentions_indexed) WHERE mentions_indexed = 0').run();
+
 // Emoji reactions on comments (👍 instead of a "Thanks!" reply): one of each emoji per person.
 q(`CREATE TABLE IF NOT EXISTS file_comment_reactions (
   comment_id TEXT NOT NULL REFERENCES file_comments(id) ON DELETE CASCADE,
@@ -159,13 +171,30 @@ function mention(user, file, body, commentId, already = new Set()) {
 }
 
 /** Open comment threads for someone across files they can open: assigned to them, or where someone else @mentioned them. Newest first. */
+/** Note who the comments written or changed since the last time @mention. */
+export function indexMentions() {
+  const rows = q('SELECT id, body FROM file_comments WHERE mentions_indexed = 0 LIMIT 5000').all();
+  if (!rows.length) return 0;
+  tx(() => {
+    for (const r of rows) {
+      q('DELETE FROM file_comment_mentions WHERE comment_id = ?').run(r.id);
+      for (const name of new Set([...String(r.body).matchAll(MENTION_RE)].map((m) => m[1].toLowerCase()))) q('INSERT OR IGNORE INTO file_comment_mentions (comment_id, username) VALUES (?, ?)').run(r.id, name);
+      q('UPDATE file_comments SET mentions_indexed = 1 WHERE id = ?').run(r.id);
+    }
+  });
+  return rows.length;
+}
+
 export function commentsFor(me) {
+  indexMentions();
   const rows = q(`SELECT c.id, c.thread_id, c.file_id, c.body, c.author_id, c.created_at, c.edited_at, u.name AS author_name, root.assignee_id
                   FROM file_comments c JOIN file_comments root ON root.id = COALESCE(c.thread_id, c.id)
                   JOIN files f ON f.id = c.file_id LEFT JOIN users u ON u.id = c.author_id
                   WHERE root.resolved = 0 AND f.trashed = 0
-                    AND ((c.thread_id IS NULL AND root.assignee_id = ?) OR (COALESCE(c.author_id, '') <> ? AND instr(lower(c.body), '@' || ?) > 0))
-                  ORDER BY COALESCE(c.edited_at, c.created_at) DESC LIMIT 500`).all(me.id, me.id, me.username.toLowerCase());
+                    AND c.id IN (SELECT id FROM file_comments WHERE thread_id IS NULL AND assignee_id = ?
+                                 UNION SELECT comment_id FROM file_comment_mentions WHERE username = ?)
+                    AND (c.id IN (SELECT id FROM file_comments WHERE thread_id IS NULL AND assignee_id = ?) OR COALESCE(c.author_id, '') <> ?)
+                  ORDER BY COALESCE(c.edited_at, c.created_at) DESC LIMIT 500`).all(me.id, me.username.toLowerCase(), me.id, me.id);
   const out = new Map();
   for (const c of rows) {
     const thread = c.thread_id || c.id;
@@ -238,7 +267,7 @@ export default function commentRoutes() {
       if (c.author_id !== req.user.id) throw forbidden('Only the author can change a comment');
       const body = str(req.body.body, { required: true, name: 'Comment', max: 4000 });
       if (body !== c.body) {
-        q('UPDATE file_comments SET body = ?, edited_at = ? WHERE id = ?').run(body, now(), c.id);
+        q('UPDATE file_comments SET body = ?, edited_at = ?, mentions_indexed = 0 WHERE id = ?').run(body, now(), c.id);
         // People @mentioned for the first time in the edit are told; those mentioned before aren't told again.
         told = mention(req.user, f, body, c.thread_id || c.id, new Set([...c.body.matchAll(MENTION_RE)].map((m) => m[1].toLowerCase())));
       }

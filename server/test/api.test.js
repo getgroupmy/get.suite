@@ -11944,3 +11944,27 @@ test('Drive activity: only what came after a time, when asked (what the new coun
   assert.deepEqual(later.map((x) => x.action), ['rename']);
   assert.equal(recentActivityFor(aid, () => true, { after: Date.now() + 1000 }).length, 0);
 });
+
+test('comments for you come from an index of who each comment mentions, kept up to date on edits and imports', async () => {
+  const { indexMentions } = await import('../src/routes/comments.js');
+  const { q } = await import('../src/db.js');
+  const a = client(), b = client();
+  for (const [local, name] of [['cmxa', 'Cmx Ann'], ['cmxb', 'Cmx Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  const aid = (await login(a, 'cmxa@acme.com')).id;
+  const bid = (await login(b, 'cmxb@acme.com')).id;
+  const doc = (await b('POST', '/api/files/new', { kind: 'doc', name: 'Cmx doc' })).body.id;
+  await b('PUT', `/api/files/${doc}/shares`, { shares: [{ user_id: aid, role: 'editor' }] });
+  const c = (await b('POST', `/api/comments/${doc}`, { body: 'No mention yet', anchor: { quote: 'x' } })).body.comment;
+  assert.equal((await a('GET', '/api/comments/for-me')).body.length, 0);
+  await b('PATCH', `/api/comments/${doc}/${c.id}`, { body: 'Now @CMXA@acme.com is in it' });
+  assert.deepEqual((await a('GET', '/api/comments/for-me')).body.map((x) => x.thread_id), [c.id], 'an edit is picked up');
+  assert.deepEqual(q('SELECT username FROM file_comment_mentions WHERE comment_id = ?').all(c.id).map((r) => r.username), ['cmxa@acme.com']);
+  await b('PATCH', `/api/comments/${doc}/${c.id}`, { body: 'Taken out again' });
+  assert.equal((await a('GET', '/api/comments/for-me')).body.length, 0, 'and so is taking it out');
+  // A comment that came in another way (an imported Word file's): found on the next lookup.
+  q("INSERT INTO file_comments (id, file_id, thread_id, author_id, body, anchor, created_at) VALUES ('cmx-imported', ?, NULL, ?, 'From Word: @cmxa@acme.com', NULL, ?)").run(doc, bid, Date.now());
+  assert.deepEqual((await a('GET', '/api/comments/for-me')).body.map((x) => x.thread_id), ['cmx-imported']);
+  assert.equal(indexMentions(), 0, 'nothing left to read');
+  await b('DELETE', `/api/comments/${doc}/cmx-imported`);
+  assert.equal(q("SELECT COUNT(*) AS n FROM file_comment_mentions WHERE comment_id = 'cmx-imported'").get().n, 0, 'gone with the comment');
+});
