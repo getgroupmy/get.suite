@@ -11842,3 +11842,16 @@ test('morning summary: weekdays only (Saturday and Sunday by the local date)', a
   assert.deepEqual((await a('PUT', '/api/users/me/digest/days', { weekdays: true })).body, { weekdays: true });
   assert.equal((await a('GET', '/api/users/me/digest')).body.weekdays, true);
 });
+
+test('morning summary: none on a day of approved time off (whole days only)', async () => {
+  const { offAllDay } = await import('../src/digest.js');
+  const { q } = await import('../src/db.js');
+  const a = client();
+  const u = (await owner('POST', '/api/users', { local: 'dgto', domain: 'acme.com', name: 'Dgt Ann', password: 'password123' })).body;
+  await login(a, 'dgto@acme.com');
+  const add = (id, from, to, status, half = null) => q('INSERT INTO time_off (id, user_id, start_date, end_date, tz, kind, status, half, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(id, u.id, from, to, 'UTC', 'vacation', status, half, Date.now());
+  add('dgto-1', '2030-03-04', '2030-03-08', 'approved');
+  add('dgto-2', '2030-03-11', '2030-03-11', 'pending');
+  add('dgto-3', '2030-03-12', '2030-03-12', 'approved', 'pm');
+  assert.deepEqual(['2030-03-03', '2030-03-04', '2030-03-08', '2030-03-09', '2030-03-11', '2030-03-12'].map((d) => offAllDay(u.id, d)), [false, true, true, false, false, false]);
+});

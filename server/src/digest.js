@@ -114,6 +114,12 @@ export async function sendDigest(userId, t = Date.now()) {
 }
 
 /** Is a local date ("2026-11-14") a Saturday or Sunday? */
+/** Is someone on approved time off the whole of a local date (a half day doesn't count)? */
+export function offAllDay(userId, date) {
+  try {
+    return !!q(`SELECT 1 FROM time_off WHERE user_id = ? AND status = 'approved' AND half IS NULL AND start_date <= ? AND end_date >= ?`).get(userId, date, date);
+  } catch { return false; } // no time-off table yet
+}
 export const isWeekend = (date) => [0, 6].includes(new Date(`${date}T12:00:00Z`).getUTCDay());
 
 let running = false;
@@ -127,6 +133,7 @@ export async function sendDueDigests(t = Date.now()) {
       const { date, hour } = localNow(t, zoneOrUtc(u.digest_tz || 'UTC'));
       if (hour < u.digest_hour || u.digest_last === date) continue;
       if (u.digest_weekdays && isWeekend(date)) continue; // Monday to Friday only
+      if (offAllDay(u.id, date)) continue; // on holiday: no summary
       q('UPDATE users SET digest_last = ? WHERE id = ?').run(date, u.id); // once a day, even if sending fails
       try { await sendDigest(u.id, t); n++; } catch (e) { console.error('[digest]', e.message); }
     }

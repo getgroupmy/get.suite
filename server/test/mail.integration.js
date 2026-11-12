@@ -1379,6 +1379,13 @@ test('morning summary: weekdays only skips Saturday and Sunday', async () => {
   assert.equal(await sendDueDigests(mon), 1, 'on the Monday');
   await olivia('PUT', '/api/users/me/digest/days', { weekdays: false });
   assert.equal(await sendDueDigests(Date.UTC(2031, 0, 11, 9)), 1, 'every day again: Saturday too');
+  // On approved time off for the whole day: none; a half day still gets one.
+  const { q } = await import('../src/db.js');
+  const me = (await olivia('GET', '/api/auth/me')).body.user;
+  q("INSERT INTO time_off (id, user_id, start_date, end_date, tz, kind, status, created_at) VALUES ('to-dg-1', ?, '2031-01-13', '2031-01-14', 'UTC', 'vacation', 'approved', ?)").run(me.id, Date.now());
+  q("INSERT INTO time_off (id, user_id, start_date, end_date, tz, kind, status, half, created_at) VALUES ('to-dg-2', ?, '2031-01-15', '2031-01-15', 'UTC', 'vacation', 'approved', 'am', ?)").run(me.id, Date.now());
+  assert.equal(await sendDueDigests(Date.UTC(2031, 0, 13, 9)), 0, 'on holiday');
+  assert.equal(await sendDueDigests(Date.UTC(2031, 0, 15, 9)), 1, 'a half day: yes');
   await olivia('PUT', '/api/users/me/digest', { hour: null, tz: 'UTC' });
 });
 
