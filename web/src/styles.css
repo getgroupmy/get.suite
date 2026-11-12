@@ -2970,3 +2970,6 @@ select.meet-timer-btn option { color: #202124; }
 
 /* Chat: a direct message with a colleague outside their working hours */
 .chat-late { margin: 0 12px 6px; padding: 6px 10px; border-radius: 8px; background: var(--accent-soft); color: var(--text); }
+
+/* Calendar event window: guests busy or outside their working hours at the chosen time */
+.guest-check { list-style: none; margin: 0; padding: 6px 10px; border-radius: 8px; background: var(--warn-bg); display: grid; gap: 2px; }

@@ -445,5 +445,24 @@ export function freeBusyRoutes() {
     const own = people.map((id, i) => (hours[i].own ? { name: q('SELECT name FROM users WHERE id = ?').get(id)?.name, hours: hoursText(hours[i]), tz: hours[i].tz } : null)).filter(Boolean);
     res.json({ people: people.length, slots: out, hours: own });
   });
+
+  // For an event being planned (?users=id,id&start=ms&end=ms): the colleagues invited who are busy then, or for
+  // whom it's outside the working hours they've set, with the time it would be for them ("23:00–00:00").
+  r.get('/check', (req, res) => {
+    const start = Number(req.query.start), end = Number(req.query.end);
+    if (!Number.isFinite(start) || !(end > start) || end - start > 14 * DAY) throw bad('A start and an end');
+    const out = [];
+    for (const id of [...new Set(String(req.query.users || '').split(',').filter(Boolean))].slice(0, 50)) {
+      const u = q('SELECT id, name, org_id FROM users WHERE id = ? AND disabled = 0').get(id);
+      if (!u || u.org_id !== req.user.org_id || u.id === req.user.id) continue;
+      const h = hoursOf(u.id);
+      const outside = h.own && !withinHours(start, end, h);
+      const busy = busyOf(u.id, start, end).some((b) => b.start < end && b.end > start);
+      if (!outside && !busy) continue;
+      const t = (ms) => new Intl.DateTimeFormat('en-GB', { timeZone: h.tz, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(ms));
+      out.push({ id: u.id, name: u.name, outside, busy, ...(h.own && { local: `${t(start)}–${t(end)}`, tz: h.tz }) });
+    }
+    res.json(out);
+  });
   return r;
 }

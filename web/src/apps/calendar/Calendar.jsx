@@ -1246,6 +1246,27 @@ function WorkHoursDialog({ onClose }) {
   );
 }
 
+/** For the time chosen: invited colleagues who are busy then, or for whom it's outside the working hours they set. */
+function GuestCheck({ guests, directory, start, end }) {
+  const [list, setList] = useState([]);
+  const ids = guests.map((g) => directory.find((d) => d.username === g)?.id).filter(Boolean).join(',');
+  useEffect(() => {
+    if (!ids || !(end > start)) { setList([]); return undefined; }
+    let live = true;
+    const t = setTimeout(() => get(`/freebusy/check?users=${ids}&start=${start}&end=${end}`).then((r) => { if (live) setList(r); }).catch(() => {}), 400);
+    return () => { live = false; clearTimeout(t); };
+  }, [ids, start, end]);
+  if (!list.length) return null;
+  return (
+    <ul className="guest-check small" aria-label="Guests at this time">
+      {list.map((g) => (
+        <li key={g.id}><span aria-hidden="true">{g.outside ? '🌙' : '📅'}</span> <strong>{g.name}</strong>{' '}
+          {[g.outside && `${g.local} for them, outside their working hours`, g.busy && 'busy then'].filter(Boolean).join(', and ')}</li>
+      ))}
+    </ul>
+  );
+}
+
 function FindATime({ guests, directory, minutes, onPick }) {
   const [slots, setSlots] = useState(null);
   const [hours, setHours] = useState([]); // people whose own working hours were kept to
@@ -1399,6 +1420,7 @@ function EventDialog({ event, calendars = [], onClose, onSaved, onDuplicate, tem
           <label className="field"><span>Ends</span><input type="date" required value={f.endDate} onChange={set('endDate')} /></label>
           {!f.all_day && <label className="field"><span>&nbsp;</span><input type="time" required value={f.endTime} onChange={set('endTime')} aria-label="End time" /></label>}
         </div>
+        {!special && !f.all_day && (() => { const { start, end } = read(); return <GuestCheck guests={guests} directory={directory} start={start} end={end} />; })()}
         {!special && <FindATime guests={guests} directory={directory} minutes={(() => { const { start, end } = read(); return f.all_day || !(end > start) ? 60 : Math.min(480, Math.max(15, Math.round((end - start) / 6e4))); })()}
           onPick={(s, e) => setF({ ...f, all_day: false, startDate: toDateInput(s), startTime: toTimeInput(s), endDate: toDateInput(e), endTime: toTimeInput(e) })} />}
         <div className="repeat-box stack">

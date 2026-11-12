@@ -11234,3 +11234,23 @@ test('chat after hours: a direct message with a colleague whose day is over says
   assert.deepEqual((await a('GET', `/api/chat/channels/${ch}/after-hours`)).body, [], 'only direct messages');
   assert.equal((await client()('GET', `/api/chat/channels/${dm}/after-hours`)).status, 401);
 });
+
+test('event check: invited colleagues who are busy then, or for whom it is outside the hours they set', async () => {
+  const a = client(), b = client(), c = client();
+  for (const [local, name] of [['chka', 'Check Ann'], ['chkb', 'Check Ben'], ['chkc', 'Check Cy']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'chka@acme.com');
+  const bid = (await login(b, 'chkb@acme.com')).id;
+  const cid = (await login(c, 'chkc@acme.com')).id;
+  const day = Date.UTC(2031, 0, 6); // a Monday
+  await b('PUT', '/api/users/me/work-hours', { hours: { days: [1, 2, 3, 4, 5], start: 9 * 60, end: 17 * 60, tz: 'Asia/Tokyo' } });
+  await c('POST', '/api/events', { title: 'Dentist', start: day + 15 * 36e5, end: day + 16 * 36e5 });
+  const at = (s, e) => a('GET', `/api/freebusy/check?users=${bid},${cid}&start=${s}&end=${e}`);
+  // 15:00–16:00 UTC: midnight in Tokyo for Ben; Cy is at the dentist.
+  const r = (await at(day + 15 * 36e5, day + 16 * 36e5)).body;
+  assert.deepEqual(r.map((x) => [x.name, x.outside, x.busy]), [['Check Ben', true, false], ['Check Cy', false, true]]);
+  assert.equal(r[0].local, '00:00–01:00');
+  assert.ok(!JSON.stringify(r).includes('Dentist'), 'no details');
+  // 01:00–02:00 UTC: 10–11 in Tokyo; Cy has no hours of their own (so not "outside"), and is free.
+  assert.deepEqual((await at(day + 1 * 36e5, day + 2 * 36e5)).body, []);
+  assert.equal((await at(day, day)).status, 400);
+});
