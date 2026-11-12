@@ -161,6 +161,14 @@ export default function timeOffRoutes() {
     const out = q(`SELECT t.user_id, t.end_date, t.half, u.name FROM time_off t JOIN users u ON u.id = t.user_id
                    WHERE u.org_id = ? AND u.disabled = 0 AND t.status = 'approved' AND t.start_date <= ? AND t.end_date >= ? AND t.user_id != ? ORDER BY u.name`)
       .all(req.user.org_id, date, date, req.user.id).map((x) => ({ user_id: x.user_id, name: x.name, until: x.end_date, half: x.half || null, back: x.half ? null : nextWorkday(x.end_date) }));
+    // Also those with their Mail vacation reply on that day (and no time off already listed), so nobody away is missed.
+    const listed = new Set(out.map((x) => x.user_id));
+    for (const v of q(`SELECT v.user_id, v.end_date, u.name FROM vacations v JOIN users u ON u.id = v.user_id
+                       WHERE u.org_id = ? AND u.disabled = 0 AND v.enabled = 1 AND v.user_id != ?
+                         AND (v.start_date IS NULL OR v.start_date <= ?) AND (v.end_date IS NULL OR v.end_date >= ?)`).all(req.user.org_id, req.user.id, date, date)) {
+      if (!listed.has(v.user_id)) out.push({ user_id: v.user_id, name: v.name, until: v.end_date || null, half: null, back: v.end_date ? nextWorkday(v.end_date) : null, vacation_reply: true });
+    }
+    out.sort((a, b) => a.name.localeCompare(b.name));
     const holiday = q('SELECT id, date, name FROM company_holidays WHERE org_id = ? AND date >= ? ORDER BY date LIMIT 1').get(req.user.org_id, date) || null;
     const waiting = q(`SELECT t.* FROM time_off t JOIN users u ON u.id = t.user_id WHERE u.org_id = ? AND t.status = 'pending' AND t.user_id != ?`).all(req.user.org_id, req.user.id)
       .filter((t) => mayDecide(req.user, t)).length;

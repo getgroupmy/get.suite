@@ -174,7 +174,7 @@ export default function Home() {
                 {data.away.waiting > 0 && <li><Link className="grow home-item" to="/calendar?timeoff=1"><strong>{data.away.waiting} time-off request{data.away.waiting === 1 ? '' : 's'} waiting for your answer</strong></Link></li>}
                 {data.away.out.map((p) => (
                   <li key={p.user_id}><Avatar name={p.name} userId={p.user_id} size={20} /><span className="grow home-item">{p.name}</span>
-                    <span className="muted small nowrap">{p.half ? `${p.half === 'am' ? 'morning' : 'afternoon'} off` : p.back ? `back ${dayText(p.back)}` : `out until ${dayText(p.until)}`}</span></li>
+                    <span className="muted small nowrap" title={p.vacation_reply ? 'Their vacation reply is on' : undefined}>{p.half ? `${p.half === 'am' ? 'morning' : 'afternoon'} off` : p.back ? `back ${dayText(p.back)}` : p.until ? `out until ${dayText(p.until)}` : 'away'}</span></li>
                 ))}
                 {data.away.out.length === 0 && data.away.waiting === 0 && <li className="muted small">Everyone's in today.</li>}
                 {data.away.holiday && <li className="small">🏳 {data.away.holiday.date === localToday() ? 'Today' : dayText(data.away.holiday.date)}: {data.away.holiday.name}</li>}

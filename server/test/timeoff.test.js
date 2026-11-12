@@ -226,3 +226,20 @@ test('the time off report: the year\'s approved time off as CSV, for admins', as
   // Across New Year: only that year's days.
   assert.ok(all.split('\r\n').some((l) => l.includes('2027-12-30,2028-01-04,all day,2,')));
 });
+
+test('who\'s out: also colleagues with their Mail vacation reply on that day (time off listed once)', async () => {
+  const { q } = await import('../src/db.js');
+  const boss = client(), tom = client();
+  await boss('POST', '/api/auth/login', { username: 'bea@acme.com', password: 'password123' });
+  await tom('POST', '/api/auth/login', { username: 'tom@acme.com', password: 'password123' });
+  const id = (u) => q('SELECT id FROM users WHERE username = ?').get(u).id;
+  const set = (u, start, end) => q(`INSERT INTO vacations (user_id, enabled, subject, body, start_date, end_date, updated_at) VALUES (?, 1, 'x', 'x', ?, ?, 0)
+    ON CONFLICT(user_id) DO UPDATE SET enabled = 1, start_date = excluded.start_date, end_date = excluded.end_date`).run(id(u), start, end);
+  set('mia@acme.com', '2027-10-04', '2027-10-07'); // Mon – Thu: back Fri 8
+  set('tom@acme.com', null, null); // Tom is on approved time off then too: listed once, from his time off
+  const seen = (await boss('GET', '/api/time-off/out?date=2027-10-07')).body.out;
+  assert.deepEqual(seen.map((x) => [x.name, x.until, x.back, !!x.vacation_reply]), [['Mia Manager', '2027-10-07', '2027-10-08', true], ['Tom Team', '2027-10-08', '2027-10-12', false]]);
+  assert.deepEqual((await boss('GET', '/api/time-off/out?date=2027-10-08')).body.out.map((x) => x.name), ['Tom Team'], 'Mia back');
+  assert.deepEqual((await boss('GET', '/api/time-off/out?date=2027-10-13')).body.out.map((x) => [x.name, x.until]), [['Tom Team', null]], 'no end date');
+  q('UPDATE vacations SET enabled = 0').run();
+});
