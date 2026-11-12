@@ -26,7 +26,7 @@ function dayText(d) {
 
 /** Home's cards, by key, as the Customize window names them. */
 export const CARD_NAMES = { events: "Today's events", tasks: 'Tasks for today', unread: 'Unread', approvals: 'Waiting for your approval', out: "Who's out",
-  signing: 'Waiting for your signature', apps: 'Company apps', recent: 'Recent files', notes: 'Pinned notes', dates: 'Birthdays and dates', touch: 'Keep in touch', office: 'In the office today', followups: 'Waiting for a reply', nudges: 'Not answered yet', people: 'People you email most' };
+  signing: 'Waiting for your signature', apps: 'Company apps', recent: 'Recent files', notes: 'Pinned notes', dates: 'Birthdays and dates', touch: 'Keep in touch', office: 'In the office today', followups: 'Waiting for a reply', nudges: 'Not answered yet', people: 'People you email most', comments: 'Comments for you' };
 const DEFAULT_LAYOUT = { order: Object.keys(CARD_NAMES), hidden: [] };
 
 export default function Home() {
@@ -47,7 +47,7 @@ export default function Home() {
     const start = new Date(); start.setHours(0, 0, 0, 0);
     const from = start.getTime(), to = from + 864e5 - 1;
     const safe = (p, empty) => p.catch(() => empty);
-    const [events, due, channels, recent, notes, unread, approvals, where, signing, away, apps, dates, touch, office, followups, nudges, people] = await Promise.all([
+    const [events, due, channels, recent, notes, unread, approvals, where, signing, away, apps, dates, touch, office, followups, nudges, people, comments] = await Promise.all([
       safe(get(`/events?from=${from}&to=${to}`), []), safe(get(`/tasks/today?today=${localToday()}`), []),
       safe(get('/chat/channels'), { channels: [] }), safe(get('/files?view=recent'), []), safe(get('/notes'), []),
       mail?.enabled ? safe(get('/mail/unread'), null) : Promise.resolve(null), safe(get('/approvals'), { waiting: [] }),
@@ -60,6 +60,7 @@ export default function Home() {
       mail?.enabled ? safe(get('/mail/followups'), []) : Promise.resolve([]),
       mail?.enabled ? safe(get('/mail/nudges'), { items: [], total: 0 }) : Promise.resolve({ items: [], total: 0 }),
       mail?.enabled ? safe(get('/contacts/frequent'), []) : Promise.resolve([]),
+      safe(get('/comments/for-me'), []),
     ]);
     setData({
       events: expandAll(events, from, to).filter((e) => e.my_status !== 'no'),
@@ -79,6 +80,7 @@ export default function Home() {
       followups: followups.slice(0, 6), followupsMore: Math.max(0, followups.length - 6),
       nudges: nudges.items, nudgesMore: Math.max(0, nudges.total - nudges.items.length),
       people: people.slice(0, 5),
+      comments: comments.slice(0, 6), commentsMore: Math.max(0, comments.length - 6),
     });
   }, [mail?.enabled]);
   useEffect(() => { if (mail) load(); }, [load, mail]);
@@ -91,7 +93,7 @@ export default function Home() {
     } catch (e) { toast(e.message, 'error'); load(); }
   };
   useEffect(() => onLive((m) => {
-    if (['mail-followups', 'events-changed', 'tasks-changed', 'message', 'chat-read', 'notes-changed', 'files-changed', 'mail-new', 'mail-unread', 'approvals-changed', 'signatures-changed', 'location-changed', 'live-connected'].includes(m.type) || m.type === 'notification') load();
+    if (['mail-followups', 'events-changed', 'tasks-changed', 'message', 'chat-read', 'notes-changed', 'files-changed', 'mail-new', 'mail-unread', 'approvals-changed', 'signatures-changed', 'location-changed', 'comments-changed', 'live-connected'].includes(m.type) || m.type === 'notification') load();
   }), [load]);
   useEffect(() => { document.title = 'Home'; return () => { document.title = 'Workspace'; }; }, []);
 
@@ -164,6 +166,19 @@ export default function Home() {
                     <Link className="grow home-item" to={FILE_LINK[a.file.kind]?.(a.file) || '/drive/approvals'}>{a.file.name}</Link>
                     <span className="muted small nowrap">{a.requested_by?.name}{a.due ? ` · by ${a.due}` : ''}</span></li>
                 ))}
+              </ul>
+            </section>
+          )}
+          {data.comments.length > 0 && (
+            <section className="card home-card" aria-label="Comments for you" {...cardProps('comments')}>
+              <h2><Icon name="chat" size={18} /> Comments for you</h2>
+              <ul className="home-list">
+                {data.comments.map((c) => (
+                  <li key={c.thread_id}><Icon name={{ doc: 'doc', sheet: 'sheet', slides: 'slides' }[c.file.kind] || 'file'} size={16} />
+                    <Link className="grow home-item" to={c.link} title={c.body}><strong>{c.file.name}</strong> <span className="muted">· {c.author_name || 'Someone'}{c.assigned ? ' assigned you' : ''}: {c.body.length > 80 ? `${c.body.slice(0, 80)}…` : c.body}</span></Link>
+                    <span className="muted small nowrap">{formatDate(c.at)}</span></li>
+                ))}
+                {data.commentsMore > 0 && <li className="muted small">and {data.commentsMore} more</li>}
               </ul>
             </section>
           )}

@@ -11534,3 +11534,54 @@ test('editing a comment: only its author, marked edited, and people newly @menti
   assert.equal(same.body.notified, undefined, 'no change, nobody told');
   assert.equal((await a('PATCH', `/api/comments/${doc.id}/${id}`, { body: '  ' })).status, 400);
 });
+
+test('comments for you across files: assigned threads and @mentions by others, open ones on files you can still open', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['cfya', 'Fy Ann'], ['cfyb', 'Fy Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'cfya@acme.com');
+  const bid = (await login(b, 'cfyb@acme.com')).id;
+  const mk = async (name) => { const f = (await a('POST', '/api/files/new', { kind: 'doc', name })).body; await a('PUT', `/api/files/${f.id}/shares`, { shares: [{ user_id: bid, role: 'editor' }] }); return f; };
+  const d1 = await mk('Fy one'), d2 = await mk('Fy two'), d3 = await mk('Fy three');
+  const mention = (await a('POST', `/api/comments/${d1.id}`, { body: 'Ben? @cfyb@acme.com', anchor: { quote: 'x' } })).body.comment;
+  const assigned = (await a('POST', `/api/comments/${d2.id}`, { body: 'Do this @cfyb@acme.com', anchor: { quote: 'y' }, assign: bid })).body.comment;
+  await a('POST', `/api/comments/${d2.id}`, { body: 'Nothing for Ben', anchor: { quote: 'z' } });
+  await a('POST', `/api/comments/${d3.id}`, { body: 'Look @cfyb@acme.com.au', anchor: { quote: 'w' } });
+  // A reply mentioning him in a thread that didn't.
+  const plain = (await a('POST', `/api/comments/${d3.id}`, { body: 'General', anchor: { quote: 'v' } })).body.comment;
+  await a('POST', `/api/comments/${d3.id}`, { body: 'and @CFYB@acme.com', thread_id: plain.id });
+  // His own mention of himself doesn't count.
+  await b('POST', `/api/comments/${d3.id}`, { body: 'note @cfyb@acme.com', anchor: { quote: 'u' } });
+
+  let mine = (await b('GET', '/api/comments/for-me')).body;
+  assert.deepEqual(mine.map((x) => x.thread_id).sort(), [mention.id, assigned.id, plain.id].sort());
+  const as = mine.find((x) => x.thread_id === assigned.id);
+  assert.equal(as.assigned, true);
+  assert.equal(as.file.name, 'Fy two');
+  assert.equal(as.link, `/docs/${d2.id}?comment=${assigned.id}`);
+  assert.equal(mine[0].thread_id, plain.id, 'newest first');
+  assert.equal(mine[0].body, 'and @CFYB@acme.com', 'the comment that mentions him');
+  assert.equal((await a('GET', '/api/comments/for-me')).body.length, 0, 'Ann: nothing');
+
+  // Resolved, trashed or unshared: gone.
+  await a('PATCH', `/api/comments/${d1.id}/${mention.id}`, { resolved: true });
+  await a('PATCH', `/api/files/${d3.id}`, { trashed: true });
+  await a('PUT', `/api/files/${d2.id}/shares`, { shares: [] });
+  mine = (await b('GET', '/api/comments/for-me')).body;
+  assert.deepEqual(mine, []);
+  // Home can show it as a card.
+  assert.ok((await b('PUT', '/api/users/me/home-layout', { order: ['comments'], hidden: [] })).body.order.includes('comments'));
+});
+
+test('deleting a comment: its author or the file owner, not another editor', async () => {
+  const a = client(), b = client();
+  for (const [local, name] of [['cdla', 'Del Ann'], ['cdlb', 'Del Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'cdla@acme.com');
+  const bid = (await login(b, 'cdlb@acme.com')).id;
+  const d = (await a('POST', '/api/files/new', { kind: 'doc', name: 'Del doc' })).body;
+  await a('PUT', `/api/files/${d.id}/shares`, { shares: [{ user_id: bid, role: 'editor' }] });
+  const c = (await a('POST', `/api/comments/${d.id}`, { body: 'Ann’s', anchor: { quote: 'x' } })).body.comment;
+  const r = (await b('POST', `/api/comments/${d.id}`, { body: 'Ben’s reply', thread_id: c.id })).body.comment;
+  assert.equal((await b('DELETE', `/api/comments/${d.id}/${c.id}`)).status, 403);
+  assert.equal((await b('DELETE', `/api/comments/${d.id}/${r.id}`)).status, 200, 'his own');
+  assert.equal((await a('DELETE', `/api/comments/${d.id}/${c.id}`)).status, 200);
+});

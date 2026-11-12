@@ -739,7 +739,7 @@ function SharedDoc({ file, setFile }) {
             </ul>
           </aside>
         )}
-        {panel && <CommentsPanel fileId={file.id} threads={threads} canEdit={canComment} active={active} setActive={setActive} pending={pending}
+        {panel && <CommentsPanel fileId={file.id} fileRole={file.role} threads={threads} canEdit={canComment} active={active} setActive={setActive} pending={pending}
           onShow={showThread} labelOf={(t) => `“${(t.anchor?.quote || '').slice(0, 60)}”`} onDeleted={(t) => removeMark(t.id)}
           onClose={() => { if (pending) pending.onCancel(); setPanel(false); }} />}
       </div>

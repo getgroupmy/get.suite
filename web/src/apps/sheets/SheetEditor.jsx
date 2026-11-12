@@ -1264,7 +1264,7 @@ export default function SheetEditor() {
         </div>
         </div>
       </div>
-      {panel && <CommentsPanel fileId={file.id} threads={threads} canEdit={canComment} active={thread} setActive={setThread} pending={pending}
+      {panel && <CommentsPanel fileId={file.id} fileRole={file.role} threads={threads} canEdit={canComment} active={thread} setActive={setThread} pending={pending}
         onShow={goToCell} labelOf={where} onClose={() => { setPending(null); setPanel(false); }} />}
       </div>
       <div className="sheet-tabs">

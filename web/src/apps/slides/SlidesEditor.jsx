@@ -589,7 +589,7 @@ export default function SlidesEditor() {
             </label>
           )}
         </div>
-        {panel && <CommentsPanel fileId={file.id} threads={threads} canEdit={canComment} active={thread} setActive={setThread} pending={pending}
+        {panel && <CommentsPanel fileId={file.id} fileRole={file.role} threads={threads} canEdit={canComment} active={thread} setActive={setThread} pending={pending}
           onShow={showThread} labelOf={slideLabel} onClose={() => { setPending(null); setPanel(false); }} />}
       </div>
 

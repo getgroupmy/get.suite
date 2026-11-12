@@ -128,6 +128,31 @@ function mention(user, file, body, commentId, already = new Set()) {
 export default function commentRoutes() {
   const r = Router();
 
+  // Open comment threads for you, across every file you can open: ones assigned to you, and ones where someone
+  // else @mentioned you. Newest first: [{ thread_id, file: { id, name, kind }, body, author_name, at, assigned, link }].
+  r.get('/for-me', (req, res) => {
+    const me = req.user;
+    const rows = q(`SELECT c.id, c.thread_id, c.file_id, c.body, c.author_id, c.created_at, c.edited_at, u.name AS author_name, root.assignee_id
+                    FROM file_comments c JOIN file_comments root ON root.id = COALESCE(c.thread_id, c.id)
+                    JOIN files f ON f.id = c.file_id LEFT JOIN users u ON u.id = c.author_id
+                    WHERE root.resolved = 0 AND f.trashed = 0
+                      AND ((c.thread_id IS NULL AND root.assignee_id = ?) OR (COALESCE(c.author_id, '') <> ? AND instr(lower(c.body), '@' || ?) > 0))
+                    ORDER BY COALESCE(c.edited_at, c.created_at) DESC LIMIT 500`).all(me.id, me.id, me.username.toLowerCase());
+    const out = new Map();
+    for (const c of rows) {
+      const thread = c.thread_id || c.id;
+      if (out.has(thread)) continue;
+      // A real mention of this exact address (not "@ann@acme.com.au"), unless the thread is assigned to you.
+      const assigned = c.assignee_id === me.id;
+      if (!assigned && ![...c.body.matchAll(MENTION_RE)].some((m) => m[1].toLowerCase() === me.username.toLowerCase())) continue;
+      if (!roleFor(c.file_id, me.id)) continue;
+      const file = q('SELECT id, name, kind FROM files WHERE id = ?').get(c.file_id);
+      out.set(thread, { thread_id: thread, file, body: c.body, author_name: c.author_name, at: c.edited_at || c.created_at, assigned, link: linkTo(file, thread) });
+      if (out.size >= 50) break;
+    }
+    res.json([...out.values()]);
+  });
+
   r.get('/:fileId', (req, res) => { const f = loadFile(req.params.fileId, req.user); res.json(listOf(f.id)); });
 
   // A new thread (with an anchor) or a reply (with thread_id).

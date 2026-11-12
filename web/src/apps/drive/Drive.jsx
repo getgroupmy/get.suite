@@ -1098,7 +1098,7 @@ function Preview({ file, onClose, onOpenAs, comment = null }) {
                 {isPicture && <button type="button" className={`btn small ${pinning ? 'primary' : ''}`} aria-pressed={pinning} onClick={() => setPinning(!pinning)}>{pinning ? 'Click a spot on the picture…' : 'Comment on a spot'}</button>}
               </div>
             )}
-            <CommentsPanel fileId={file.id} threads={threads} canEdit={canEdit} active={active} setActive={setActive} pending={pending}
+            <CommentsPanel fileId={file.id} fileRole={file.role} threads={threads} canEdit={canEdit} active={active} setActive={setActive} pending={pending}
               onShow={(t) => setActive(t.id)} labelOf={labelOf} onClose={() => { setPending(null); setPanel(false); }} />
           </div>
         )}

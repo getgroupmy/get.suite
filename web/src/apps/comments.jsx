@@ -66,7 +66,7 @@ const Body = ({ text }) => <p className="comment-body">{text.split(/(@[\w.+-]+@[
  * The panel. `pending` is a new comment being started ({ anchor, label, onCreated(id), onCancel }).
  * `onShow(thread)` jumps to where a thread is anchored; `labelOf(thread)` says where that is.
  */
-export function CommentsPanel({ fileId, threads, canEdit, active, setActive, pending, onShow, labelOf, onDeleted, onClose }) {
+export function CommentsPanel({ fileId, fileRole, threads, canEdit, active, setActive, pending, onShow, labelOf, onDeleted, onClose }) {
   const toast = useToast();
   const { user } = useAuth();
   const [editing, setEditing] = useState(null); // { id, text }: your own comment being changed
@@ -145,7 +145,7 @@ export function CommentsPanel({ fileId, threads, canEdit, active, setActive, pen
               <div key={c.id} className="comment">
                 <div className="row comment-meta"><Avatar name={c.author_name || '?'} size={24} /><strong className="grow">{c.author_name || 'Someone'}</strong><span className="muted small">{formatDate(c.created_at)}{c.edited_at ? ' · edited' : ''}</span>
                   {canEdit && c.author_id === user?.id && editing?.id !== c.id && <button type="button" className="icon-btn" aria-label={`Edit comment by ${c.author_name}`} title="Edit" onClick={(e) => { e.stopPropagation(); setActive(t.id); setEditing({ id: c.id, text: c.body }); }}><Icon name="edit" size={16} /></button>}
-                  {canEdit && <button type="button" className="icon-btn" aria-label={`Delete comment by ${c.author_name}`} onClick={async (e) => { e.stopPropagation(); await del(`/comments/${fileId}/${c.id}`); if (c.id === t.id) onDeleted?.(t); }}><Icon name="trash" size={16} /></button>}</div>
+                  {canEdit && (c.author_id === user?.id || fileRole === 'owner') && <button type="button" className="icon-btn" aria-label={`Delete comment by ${c.author_name}`} onClick={async (e) => { e.stopPropagation(); try { await del(`/comments/${fileId}/${c.id}`); if (c.id === t.id) onDeleted?.(t); } catch (err) { toast(err.message, 'error'); } }}><Icon name="trash" size={16} /></button>}</div>
                 {editing?.id === c.id
                   ? <div className="stack comment-edit" onClick={(e) => e.stopPropagation()}>
                     <MentionBox value={editing.text} onChange={(v) => setEditing({ ...editing, text: v })} label="Edit comment" autoFocus onSubmit={saveEdit} />
