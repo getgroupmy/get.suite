@@ -11189,3 +11189,10 @@ test('forget who you write to: the route answers for yourself only', async () =>
   assert.deepEqual((await u('DELETE', '/api/contacts/frequent?email=x@y.example')).body, { forgotten: 0 });
   assert.deepEqual((await u('DELETE', '/api/contacts/frequent')).body, { forgotten: 0 });
 });
+
+test('Home: a People card (who you email most) can be moved and hidden like the others', async () => {
+  const { HOME_CARDS, homeLayout } = await import('../src/auth.js');
+  assert.ok(HOME_CARDS.includes('people'));
+  assert.deepEqual(homeLayout(JSON.stringify({ order: ['people', 'events'], hidden: ['people'] })).order.slice(0, 2), ['people', 'events']);
+  assert.deepEqual(homeLayout(JSON.stringify({ order: [], hidden: ['people'] })).hidden, ['people']);
+});

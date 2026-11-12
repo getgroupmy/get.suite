@@ -26,7 +26,7 @@ function dayText(d) {
 
 /** Home's cards, by key, as the Customize window names them. */
 export const CARD_NAMES = { events: "Today's events", tasks: 'Tasks for today', unread: 'Unread', approvals: 'Waiting for your approval', out: "Who's out",
-  signing: 'Waiting for your signature', apps: 'Company apps', recent: 'Recent files', notes: 'Pinned notes', dates: 'Birthdays and dates', touch: 'Keep in touch', office: 'In the office today', followups: 'Waiting for a reply', nudges: 'Not answered yet' };
+  signing: 'Waiting for your signature', apps: 'Company apps', recent: 'Recent files', notes: 'Pinned notes', dates: 'Birthdays and dates', touch: 'Keep in touch', office: 'In the office today', followups: 'Waiting for a reply', nudges: 'Not answered yet', people: 'People you email most' };
 const DEFAULT_LAYOUT = { order: Object.keys(CARD_NAMES), hidden: [] };
 
 export default function Home() {
@@ -47,7 +47,7 @@ export default function Home() {
     const start = new Date(); start.setHours(0, 0, 0, 0);
     const from = start.getTime(), to = from + 864e5 - 1;
     const safe = (p, empty) => p.catch(() => empty);
-    const [events, due, channels, recent, notes, unread, approvals, where, signing, away, apps, dates, touch, office, followups, nudges] = await Promise.all([
+    const [events, due, channels, recent, notes, unread, approvals, where, signing, away, apps, dates, touch, office, followups, nudges, people] = await Promise.all([
       safe(get(`/events?from=${from}&to=${to}`), []), safe(get(`/tasks/today?today=${localToday()}`), []),
       safe(get('/chat/channels'), { channels: [] }), safe(get('/files?view=recent'), []), safe(get('/notes'), []),
       mail?.enabled ? safe(get('/mail/unread'), null) : Promise.resolve(null), safe(get('/approvals'), { waiting: [] }),
@@ -59,6 +59,7 @@ export default function Home() {
       safe(get(`/location/office?date=${localToday()}`), []),
       mail?.enabled ? safe(get('/mail/followups'), []) : Promise.resolve([]),
       mail?.enabled ? safe(get('/mail/nudges'), { items: [], total: 0 }) : Promise.resolve({ items: [], total: 0 }),
+      mail?.enabled ? safe(get('/contacts/frequent'), []) : Promise.resolve([]),
     ]);
     setData({
       events: expandAll(events, from, to).filter((e) => e.my_status !== 'no'),
@@ -77,6 +78,7 @@ export default function Home() {
       office,
       followups: followups.slice(0, 6), followupsMore: Math.max(0, followups.length - 6),
       nudges: nudges.items, nudgesMore: Math.max(0, nudges.total - nudges.items.length),
+      people: people.slice(0, 5),
     });
   }, [mail?.enabled]);
   useEffect(() => { if (mail) load(); }, [load, mail]);
@@ -251,6 +253,19 @@ export default function Home() {
                 ))}
               </ul>
               {data.touchMore > 0 && <Link className="small" to="/contacts?tab=touch">and {data.touchMore} more</Link>}
+            </section>
+          )}
+          {data.people.length > 0 && (
+            <section className="card home-card" aria-label="People you email most" {...cardProps('people')}>
+              <h2><Link to="/contacts?tab=frequent"><span aria-hidden="true">👥</span> People you email most</Link></h2>
+              <ul className="home-list">
+                {data.people.map((p) => (
+                  <li key={p.email}>
+                    <span className="grow ellipsis"><strong>{p.name || p.email}</strong> <span className="muted small">{p.times === 1 ? 'once' : `${p.times} times`}, last {sinceText(p.last_at)}</span></span>
+                    <button type="button" className="btn small" aria-label={`Email ${p.name || p.email}`} onClick={() => navigate(`/mail?compose=${encodeURIComponent(p.email)}`)}>✉ Email</button>
+                  </li>
+                ))}
+              </ul>
             </section>
           )}
           {data.nudges.length > 0 && (

@@ -49,11 +49,11 @@ export default function Contacts() {
   const toast = useToast();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const [tab, setTab] = useState(() => (['touch', 'dir'].includes(new URLSearchParams(window.location.search).get('tab')) ? new URLSearchParams(window.location.search).get('tab') : 'mine')); // ?tab=touch or ?tab=dir from Home
+  const [tab, setTab] = useState(() => (['touch', 'dir', 'frequent'].includes(new URLSearchParams(window.location.search).get('tab')) ? new URLSearchParams(window.location.search).get('tab') : 'mine')); // ?tab=touch or ?tab=dir from Home
   const [contacts, setContacts] = useState(null);
   const [directory, setDirectory] = useState([]);
   const [params] = useSearchParams();
-  useEffect(() => { if (['touch', 'dir'].includes(params.get('tab'))) setTab(params.get('tab')); }, [params]); // from the bell or Home, even when already here
+  useEffect(() => { if (['touch', 'dir', 'frequent'].includes(params.get('tab'))) setTab(params.get('tab')); }, [params]); // from the bell or Home, even when already here
   const [filter, setFilter] = useState(params.get('q') || ''); // ?q= from a birthday on the calendar
   const [editing, setEditing] = useState(null);
   const [deleting, setDeleting] = useState(null);
