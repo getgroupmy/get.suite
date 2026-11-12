@@ -234,7 +234,9 @@ export default function Drive() {
   useEffect(() => {
     const count = () => get('/files/activity/seen').then((r) => setActivityNew(r.new)).catch(() => {});
     count();
-    return onLive((m) => { if (['files-changed', 'content-changed', 'activity-seen', 'live-connected'].includes(m.type)) count(); });
+    let timer = null; // a burst of changes (a folder uploaded) asks once, a moment later
+    const off = onLive((m) => { if (['files-changed', 'content-changed', 'activity-seen', 'live-connected'].includes(m.type)) { clearTimeout(timer); timer = setTimeout(count, 1500); } });
+    return () => { off(); clearTimeout(timer); };
   }, []);
   // Approvals waiting for you, counted beside Approvals.
   const [waitingCount, setWaitingCount] = useState(0);

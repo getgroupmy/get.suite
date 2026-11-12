@@ -1791,7 +1791,7 @@ export default function fileRoutes({ maxUploadBytes }) {
   // Drive → Activity: how many entries are new since you last looked ({ new, seen_at }), and marking that you have.
   r.get('/activity/seen', (req, res) => {
     const seen = q('SELECT activity_seen_at FROM users WHERE id = ?').get(req.user.id).activity_seen_at || 0;
-    const fresh = recentActivityFor(req.user.id, (id) => roleFor(id, req.user.id), { limit: 100 }).filter((a) => a.at > seen).length;
+    const fresh = recentActivityFor(req.user.id, (id) => roleFor(id, req.user.id), { limit: 100, after: seen }).length;
     res.json({ new: fresh, seen_at: seen || null });
   });
   r.post('/activity/seen', (req, res) => {

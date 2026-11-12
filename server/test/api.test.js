@@ -11925,3 +11925,22 @@ test('Drive → Activity: how many entries are new since you last looked', async
   await a('PATCH', `/api/files/${f}`, { name: 'Asn doc 3' });
   assert.equal((await a('GET', '/api/files/activity/seen')).body.new, 1, 'her own changes don’t count');
 });
+
+test('Drive activity: only what came after a time, when asked (what the new count uses)', async () => {
+  const { recentActivityFor } = await import('../src/fileactivity.js');
+  const a = client(), b = client();
+  for (const [local, name] of [['aafa', 'Aft Ann'], ['aafb', 'Aft Ben']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  const aid = (await login(a, 'aafa@acme.com')).id;
+  await login(b, 'aafb@acme.com');
+  const f = (await b('POST', '/api/files/new', { kind: 'doc', name: 'Aft doc' })).body.id;
+  await b('PUT', `/api/files/${f}/shares`, { shares: [{ user_id: aid, role: 'editor' }] });
+  await new Promise((r) => setTimeout(r, 5));
+  const mark = Date.now();
+  await new Promise((r) => setTimeout(r, 5));
+  await b('PATCH', `/api/files/${f}`, { name: 'Aft doc 2' });
+  const all = recentActivityFor(aid, () => true).filter((x) => x.file.id === f);
+  const later = recentActivityFor(aid, () => true, { after: mark }).filter((x) => x.file.id === f);
+  assert.ok(all.length >= 3);
+  assert.deepEqual(later.map((x) => x.action), ['rename']);
+  assert.equal(recentActivityFor(aid, () => true, { after: Date.now() + 1000 }).length, 0);
+});

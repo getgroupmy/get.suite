@@ -13,6 +13,7 @@ q(`CREATE TABLE IF NOT EXISTS file_activity (
   at INTEGER NOT NULL
 )`).run();
 q('CREATE INDEX IF NOT EXISTS file_activity_file ON file_activity(file_id, id)').run();
+q('CREATE INDEX IF NOT EXISTS file_activity_at ON file_activity(at)').run(); // Drive → Activity looks back by time
 
 // When each person last looked at Drive → Activity: what came after is new for them.
 if (!q('PRAGMA table_info(users)').all().some((c) => c.name === 'activity_seen_at')) q('ALTER TABLE users ADD COLUMN activity_seen_at INTEGER').run();
@@ -65,16 +66,16 @@ export const ACTIVITY_KINDS = {
   move: ['move', 'rename', 'trash', 'restore'], other: ['lock', 'unlock', 'approval'],
 };
 
-export function recentActivityFor(userId, can, { limit = 100, before = null, days = 30, by = null, kind = null } = {}) {
+export function recentActivityFor(userId, can, { limit = 100, before = null, days = 30, by = null, kind = null, after = 0 } = {}) {
   const actions = kind ? ACTIVITY_KINDS[kind] : null;
   const out = [];
   let cursor = before ?? Number.MAX_SAFE_INTEGER;
-  const since = Date.now() - days * 864e5;
+  const since = Math.max(Date.now() - days * 864e5, after + 1); // `after`: only what came later (cheap when it's recent)
   const seen = new Map(); // fileId → can open
   for (let round = 0; round < 20 && out.length < limit; round++) {
     const rows = q(`SELECT a.id, a.action, a.at, a.details, a.file_id, f.name AS file_name, f.kind AS file_kind, u.name AS user_name
                     FROM file_activity a JOIN files f ON f.id = a.file_id LEFT JOIN users u ON u.id = a.user_id
-                    WHERE a.id < ? AND a.at >= ? AND COALESCE(a.user_id, '') <> ? AND f.trashed = 0
+                    WHERE a.id < ? AND a.id >= COALESCE((SELECT MIN(id) FROM file_activity WHERE at >= ?), 9e18) AND COALESCE(a.user_id, '') <> ? AND f.trashed = 0
                       AND (? IS NULL OR a.user_id = ?) AND (? IS NULL OR a.action IN (SELECT value FROM json_each(?)))
                     ORDER BY a.id DESC LIMIT 500`).all(cursor, since, userId, by, by, actions && 1, actions ? JSON.stringify(actions) : '[]');
     if (!rows.length) break;
