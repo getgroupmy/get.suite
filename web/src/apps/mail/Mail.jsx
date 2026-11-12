@@ -116,6 +116,11 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
   const [scheduled, setScheduled] = useState([]);
   const refreshRef = useRef(null);
   const emlInput = useRef(null);
+  // A .zip download, checked first so a refusal (empty, too big) is said here instead of saved as a file.
+  const downloadZip = async (url) => {
+    try { await get(`${url}&check=1`); } catch (e) { toast(e.message, 'error'); return; }
+    const l = document.createElement('a'); l.href = `/api${url}`; l.download = ''; document.body.appendChild(l); l.click(); l.remove();
+  };
   const emlFolder = useRef('INBOX');
   // Saved emails (.eml) put into a folder, one at a time; the same one twice is skipped.
   const uploadEml = async (files, target) => {
@@ -419,7 +424,7 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
                 <Menu align="left" trigger={(p) => <button className="icon-btn folder-menu" aria-label={`Options for ${f.name}`} {...p}><Icon name="more" size={18} /></button>} items={[
                   ...(followable ? [{ label: followed.includes(f.path) ? 'Stop notifications' : 'Notify me about new mail', icon: 'bell', onClick: () => toggleFollow(f) }] : []),
                   ...(!shared && f.specialUse !== '\\Drafts' && f.path !== SNOOZED ? [{ label: 'Upload emails (.eml or .zip)…', icon: 'upload', onClick: () => { emlFolder.current = f.path; emlInput.current?.click(); } }] : []),
-                  ...(!shared && f.specialUse !== '\\Drafts' && f.path !== SNOOZED && f.messages > 0 ? [{ label: 'Download folder (.zip)', icon: 'download', onClick: () => { const l = document.createElement('a'); l.href = `/api/mail/messages-eml.zip?folder=${encodeURIComponent(f.path)}&all=1`; l.download = ''; l.click(); } }] : []),
+                  ...(!shared && f.specialUse !== '\\Drafts' && f.path !== SNOOZED && f.messages > 0 ? [{ label: 'Download folder (.zip)', icon: 'download', onClick: () => downloadZip(`/mail/messages-eml.zip?folder=${encodeURIComponent(f.path)}&all=1`) }] : []),
                   ...(own ? [
                     { label: 'Rename', icon: 'edit', onClick: () => setFolderDialog({ type: 'rename', folder: f }) },
                     { label: 'Delete', icon: 'trash', danger: true, onClick: () => setFolderDialog({ type: 'delete', folder: f }) },
@@ -521,7 +526,7 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
               Move to {tab === 'primary' ? 'Updates' : 'Primary'}</button>}
             <SnoozeMenu small onPick={(at) => act('snooze', { uids: sel, until: at }, `Snoozed until ${whenText(at)}`)} onCustom={() => setSnoozing(sel)} />
             {folder === SNOOZED && <button className="btn small" onClick={() => act('unsnooze', { uids: sel }, 'Back in the Inbox')}>Unsnooze</button>}
-            <a className="btn small" href={`/api/mail/messages-eml.zip?folder=${enc(folder)}&uids=${sel.join(',')}${mailboxParam()}`} download title="Each message as an .eml file, in one .zip">Download (.zip)</a>
+            <button type="button" className="btn small" title="Each message as an .eml file, in one .zip" onClick={() => downloadZip(`/mail/messages-eml.zip?folder=${enc(folder)}&uids=${sel.join(',')}${mailboxParam()}`)}>Download (.zip)</button>
             <button className="btn small danger" onClick={() => act('delete', { uids: sel }, special === '\\Trash' ? 'Deleted forever' : 'Moved to Trash')}>Delete</button>
           </div>
         )}

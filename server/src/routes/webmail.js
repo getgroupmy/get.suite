@@ -1238,6 +1238,20 @@ export default function webmailRoutes() {
     if (!all && uids.length > 500) throw bad('Up to 500 messages at a time');
     const folder = String(req.query.folder || 'INBOX');
     const cap = all ? 500 : 200;
+    // ?check=1: only whether it can be downloaded, { messages, size }, so the page can say why not instead of saving an error.
+    if (req.query.check === '1') {
+      const info = await withFolder(req.user, folder, async (client) => {
+        const n = client.mailbox?.exists || 0;
+        if (all && n > 2000) throw bad('That folder has more than 2,000 messages: select the ones to download, or use Settings → Download your data');
+        if (!n) return { messages: 0, size: 0 };
+        let size = 0, messages = 0;
+        for await (const m of client.fetch(all ? '1:*' : uids.join(','), { size: true }, { uid: true })) { size += m.size || 0; messages++; }
+        return { messages, size };
+      });
+      if (!info.messages) throw all ? bad('That folder is empty') : notFound('Message not found');
+      if (info.size > cap * 1024 * 1024) throw bad(`Those messages come to more than ${cap} MB: ${all ? 'select some of them to download' : 'choose fewer'}`);
+      return res.json(info);
+    }
     const found = await withFolder(req.user, folder, async (client) => {
       if (all && (client.mailbox?.exists || 0) > 2000) throw bad('That folder has more than 2,000 messages: select the ones to download, or use Settings → Download your data');
       if (all && !client.mailbox?.exists) return [];

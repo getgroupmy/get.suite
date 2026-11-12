@@ -2626,6 +2626,11 @@ test('download a whole folder as a .zip of .eml files (?all=1); an empty one say
   const names = Object.keys((await JSZip.loadAsync(r.body)).files);
   assert.deepEqual(names, [`2015-03-03 ${tag} one.eml`, `2015-03-03 ${tag} two.eml`, `2015-03-03 ${tag} three.eml`], 'oldest first');
   await olivia('POST', '/api/mail/folders', { name: 'Nothing here' });
+  const check = await olivia('GET', '/api/mail/messages-eml.zip?folder=Whole%20folder&all=1&check=1');
+  assert.equal(check.status, 200);
+  assert.equal(check.body.messages, 3);
+  assert.ok(check.body.size > 100);
+  assert.equal((await olivia('GET', '/api/mail/messages-eml.zip?folder=Nothing%20here&all=1&check=1')).status, 400, 'checked first: the page says why');
   const empty = await olivia('GET', '/api/mail/messages-eml.zip?folder=Nothing%20here&all=1');
   assert.equal(empty.status, 400);
   assert.match(empty.body.error, /empty/);
