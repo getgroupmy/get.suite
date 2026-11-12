@@ -26,3 +26,11 @@ test('the subject counts too, but not a reply or forward of someone else’s', (
   assert.equal(mentionsAttachment({ html: '', text: 'see attachment', subject: 'Fwd: hi' }), 'attachment');
   assert.equal(mentionsAttachment({ html: '<p>Hi</p>', subject: 'Re: lunch' }), null);
 });
+
+test('words of your own count too, as whole words in any case', () => {
+  assert.equal(mentionsAttachment({ html: '<p>Siehe Anlage.</p>', words: ['anlage'] }), 'Anlage');
+  assert.equal(mentionsAttachment({ html: '<p>The Spec  Sheet is here</p>', words: ['spec sheet'] }), 'Spec  Sheet');
+  assert.equal(mentionsAttachment({ html: '<p>Anlagenbau, see axb</p>', words: ['anlage', 'a.b'] }), null, 'not part of a word; a dot is just a dot');
+  assert.equal(mentionsAttachment({ html: '<p>see a.b</p>', words: ['a.b'] }), 'a.b');
+  assert.equal(mentionsAttachment({ html: '<p>Siehe Anlage.</p>' }), null, 'not without them');
+});

@@ -23,12 +23,14 @@ export function ownText(html) {
     .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&#39;|&apos;/g, "'").replace(/&quot;/g, '"');
 }
 
-/** The words that say something is attached (as written), or null. Plain text is used when there's no HTML. */
-export function mentionsAttachment({ html = '', text = '', subject = '' } = {}) {
+/** The words that say something is attached (as written), or null. Plain text is used when there's no HTML. `words` are
+ * the person's own (Settings → Mail), matched as whole words in any case. */
+export function mentionsAttachment({ html = '', text = '', subject = '', words = [] } = {}) {
+  const own = words.filter(Boolean).map((w) => new RegExp(`(?<![\\p{L}\\p{N}])${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+')}(?![\\p{L}\\p{N}])`, 'iu'));
   const body = html ? ownText(html) : String(text).split('\n').filter((l) => !/^\s*>/.test(l)).join('\n');
   const ownSubject = /^\s*(re|fwd?|aw|wg)\s*:/i.test(subject) ? '' : String(subject); // a reply's subject was someone else's
   for (const where of [body, ownSubject]) {
-    for (const re of SAYS) {
+    for (const re of [...SAYS, ...own]) {
       const m = where.match(re);
       if (m) return m[0].trim();
     }

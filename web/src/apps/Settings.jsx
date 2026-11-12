@@ -62,6 +62,7 @@ export default function Settings() {
       <MailAdvance />
       <MailTidy />
       <MailNudges />
+      <MailAttachCheck />
       <CallRing />
       <Devices />
       <SignInApps />
@@ -425,6 +426,31 @@ function MailNudges() {
       <h2 id="mnudge-h">Nudges</h2>
       <label className="check"><input type="checkbox" checked={on} onChange={(e) => set(e.target.checked)} /> Suggest emails to reply to and to follow up on</label>
       <p className="muted small" style={{ margin: 0 }}>Mail from people you haven't answered in a few days says <em>Received 5 days ago. Reply?</em> in the Inbox (and shows on Home); mail you sent that nobody has answered says <em>Sent 4 days ago. Follow up?</em> in Sent.</p>
+    </section>
+  );
+}
+
+/** The forgotten-attachment reminder in Compose: on or off, and words of your own that mean a file comes with it. */
+function MailAttachCheck() {
+  const toast = useToast();
+  const mail = useMailStatus();
+  const [v, setV] = useState(undefined);
+  const [words, setWords] = useState('');
+  useEffect(() => { if (mail?.enabled) get('/mail/attach-check').then((r) => { setV(r); setWords(r.words.join(', ')); }).catch(() => {}); }, [mail?.enabled]);
+  if (!mail?.enabled || v === undefined) return null;
+  const save = async (body, msg) => {
+    try { const r = await put('/mail/attach-check', body); setV(r); setWords(r.words.join(', ')); toast(msg); } catch (e) { toast(e.message, 'error'); }
+  };
+  return (
+    <section className="card stack" aria-labelledby="mattach-h">
+      <h2 id="mattach-h">Forgotten attachments</h2>
+      <label className="check"><input type="checkbox" checked={v.on} onChange={(e) => save({ on: e.target.checked }, 'Saved')} /> Ask before sending when a message says something is attached but nothing is</label>
+      <p className="muted small" style={{ margin: 0 }}>It looks for words such as <em>attached</em>, <em>see attachment</em>, <em>enclosed</em> or <em>PFA</em> in what you wrote (not in what you're replying to). Add words of your own below, such as another language's.</p>
+      <form className="row wrap" onSubmit={(e) => { e.preventDefault(); save({ words }, 'Your words are saved'); }}>
+        <label className="field grow"><span>Your own words</span>
+          <input value={words} onChange={(e) => setWords(e.target.value)} placeholder="Anlage, spec sheet" disabled={!v.on} /></label>
+        <button className="btn" disabled={!v.on || words === v.words.join(', ')}>Save words</button>
+      </form>
     </section>
   );
 }

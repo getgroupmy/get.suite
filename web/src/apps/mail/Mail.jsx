@@ -1371,6 +1371,8 @@ function Compose({ initial, shared = null, signatures = [], onClose, onSent, onD
   const [waiting, setWaiting] = useState(false);
   const [accessGaps, setAccessGaps] = useState(null); // linked files some recipients can't open
   const [forgot, setForgot] = useState(null); // { word, next }: it says "attached" but nothing is
+  const [attachPrefs, setAttachPrefs] = useState({ on: true, words: [] }); // Settings → Mail → Forgotten attachments
+  useEffect(() => { get('/mail/attach-check').then(setAttachPrefs).catch(() => {}); }, []);
   // A company data protection rule that warns: what it found, and whether the sender said to send anyway.
   const [dlpWarn, setDlpWarn] = useState(null); // { text, at }
   const dlpOk = useRef(false);
@@ -1398,8 +1400,8 @@ function Compose({ initial, shared = null, signatures = [], onClose, onSent, onD
   }
   /** Says it's attached but nothing is (no file, no forwarded attachment, no Drive link): ask first, then `next`. */
   const forgotAttachment = (next) => {
-    if (files.length || fwd?.asEml || fwd?.attachments?.length || fileLinksIn(`${f.text} ${f.html}`).length) return false;
-    const word = mentionsAttachment({ html: f.html, text: f.text, subject: f.subject });
+    if (!attachPrefs.on || files.length || fwd?.asEml || fwd?.attachments?.length || fileLinksIn(`${f.text} ${f.html}`).length) return false;
+    const word = mentionsAttachment({ html: f.html, text: f.text, subject: f.subject, words: attachPrefs.words });
     if (!word) return false;
     setForgot({ word, next });
     return true;

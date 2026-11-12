@@ -2367,3 +2367,13 @@ test('nudges in Sent: mail you sent 3 to 14 days ago with no reply; Not now; tur
   assert.ok(!((await olivia('GET', '/api/mail/messages?folder=INBOX')).body.messages || []).some((m) => m.nudge));
   assert.deepEqual((await olivia('PUT', '/api/mail/nudges/settings', { on: true })).body, { on: true });
 });
+
+test('forgotten-attachment reminder: on to begin with; off, and words of your own, kept per person', async () => {
+  assert.deepEqual((await olivia('GET', '/api/mail/attach-check')).body, { on: true, words: [] });
+  assert.deepEqual((await olivia('PUT', '/api/mail/attach-check', { words: 'Anlage\nspec sheet, anlage' })).body, { on: true, words: ['anlage', 'spec sheet'] });
+  assert.deepEqual((await olivia('PUT', '/api/mail/attach-check', { on: false })).body, { on: false, words: ['anlage', 'spec sheet'] }, 'words kept');
+  assert.deepEqual((await olivia('GET', '/api/mail/attach-check')).body, { on: false, words: ['anlage', 'spec sheet'] });
+  assert.deepEqual((await bob('GET', '/api/mail/attach-check')).body, { on: true, words: [] }, 'not someone else’s');
+  assert.equal((await olivia('PUT', '/api/mail/attach-check', { words: ['x'] })).status, 400);
+  assert.deepEqual((await olivia('PUT', '/api/mail/attach-check', { on: true, words: [] })).body, { on: true, words: [] });
+});
