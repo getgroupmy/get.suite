@@ -39,10 +39,10 @@ function SlackImport() {
   return (
     <div className="stack" style={{ gap: 6 }}>
       <h3 className="small" style={{ margin: '8px 0 0' }}>Moving from Slack</h3>
-      <p className="muted small" style={{ margin: 0 }}>In Slack: <em>Workspace settings → Import/export data → Export</em>, then download the .zip and pick it here. Its public channels come in with their messages, threads and dates; people are matched to yours by email, and anyone who isn't here keeps their Slack name. The history isn't marked unread.</p>
+      <p className="muted small" style={{ margin: 0 }}>In Slack: <em>Workspace settings → Import/export data → Export</em>, then download the .zip and pick it here. Its public channels come in with their messages, threads, reactions and dates; people are matched to yours by email, and anyone who isn't here keeps their Slack name. The history isn't marked unread.</p>
       <input ref={ref} type="file" accept=".zip,application/zip" hidden aria-label="Slack export" onChange={(e) => { run(e.target.files[0]); e.target.value = ''; }} />
       <div><button type="button" className="btn" disabled={busy} onClick={() => ref.current?.click()}><Icon name="upload" size={18} /> {busy ? 'Importing…' : 'Import from Slack…'}</button></div>
-      {done && <p className="small" role="status" style={{ margin: 0 }}>{done.channels.map((c) => `#${c.name}`).join(', ')}: {done.messages} messages. {done.people_matched} of {done.people_matched + done.people_not_here} people matched by email.</p>}
+      {done && <p className="small" role="status" style={{ margin: 0 }}>{done.channels.map((c) => `#${c.name}`).join(', ')}: {done.messages} messages. {done.people_matched} of {done.people_matched + done.people_not_here} people matched by email.{done.reactions ? ` ${done.reactions} reaction${done.reactions === 1 ? '' : 's'}.` : ''}{done.reactions_left_out ? ` ${done.reactions_left_out} left out (custom emoji, or by people who aren’t here).` : ''}</p>}
     </div>
   );
 }

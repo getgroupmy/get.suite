@@ -4,6 +4,21 @@
 
 const decode = (s) => s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
 
+// Slack's names for the emoji people react with most (custom emoji can't come over: they're the workspace's own pictures).
+const SLACK_EMOJI = {
+  '+1': '👍', thumbsup: '👍', '-1': '👎', thumbsdown: '👎', heart: '❤️', joy: '😂', laughing: '😆', smile: '😄', grin: '😁', smiley: '😃',
+  slightly_smiling_face: '🙂', wink: '😉', blush: '😊', heart_eyes: '😍', sweat_smile: '😅', rolling_on_the_floor_laughing: '🤣', thinking_face: '🤔',
+  eyes: '👀', tada: '🎉', partying_face: '🥳', clap: '👏', raised_hands: '🙌', pray: '🙏', ok_hand: '👌', wave: '👋', muscle: '💪', point_up: '☝️',
+  fire: '🔥', rocket: '🚀', '100': '💯', star: '⭐', star2: '🌟', sparkles: '✨', white_check_mark: '✅', heavy_check_mark: '✔️', ballot_box_with_check: '☑️',
+  x: '❌', warning: '⚠️', exclamation: '❗', question: '❓', bulb: '💡', memo: '📝', pushpin: '📌', calendar: '📅', coffee: '☕', beers: '🍻', cake: '🍰',
+  sob: '😭', cry: '😢', disappointed: '😞', confused: '😕', scream: '😱', open_mouth: '😮', astonished: '😲', rage: '😡', angry: '😠', sunglasses: '😎',
+  upside_down_face: '🙃', face_palm: '🤦', facepalm: '🤦', shrug: '🤷', hugging_face: '🤗', hugs: '🤗', handshake: '🤝', saluting_face: '🫡',
+  heart_hands: '🫶', raised_hand: '✋', v: '✌️', crossed_fingers: '🤞', see_no_evil: '🙈', hourglass: '⌛', zap: '⚡', boom: '💥', trophy: '🏆',
+  green_heart: '💚', blue_heart: '💙', yellow_heart: '💛', purple_heart: '💜', orange_heart: '🧡', white_heart: '🤍', black_heart: '🖤',
+};
+/** A Slack reaction name ("+1", "thumbsup::skin-tone-3") as an emoji, or null when it's one we don't know (or a custom one). */
+export const slackEmoji = (name) => SLACK_EMOJI[String(name || '').replace(/::skin-tone-\d$/, '')] || null;
+
 /** Slack's markup as plain text: <@U123> → @Name, <#C1|general> → #general, <https://x|label> → label (https://x). */
 export function slackText(text, users = new Map()) {
   return decode(String(text || '').replace(/<([^<>]+)>/g, (m, inner) => {
@@ -36,7 +51,8 @@ export function readSlackExport(files) {
         if (!m || m.type !== 'message' || SKIP.has(m.subtype) || !m.ts) continue;
         const text = slackText(m.text, users) + (Array.isArray(m.files) && m.files.length ? `${m.text ? '\n' : ''}${m.files.map((f) => `📎 ${f.name || f.title || 'a file'}`).join('\n')}` : '');
         if (!text.trim()) continue;
-        messages.push({ ts: String(m.ts), user: m.user || null, name: m.user_profile?.real_name || users.get(m.user)?.name || m.username || 'Slack', text, thread_ts: m.thread_ts && m.thread_ts !== m.ts ? String(m.thread_ts) : null });
+        messages.push({ ts: String(m.ts), user: m.user || null, name: m.user_profile?.real_name || users.get(m.user)?.name || m.username || 'Slack', text, thread_ts: m.thread_ts && m.thread_ts !== m.ts ? String(m.thread_ts) : null,
+          reactions: (Array.isArray(m.reactions) ? m.reactions : []).map((r) => ({ name: String(r?.name || ''), users: Array.isArray(r?.users) ? r.users.map(String) : [] })) });
       }
     }
     messages.sort((a, b) => Number(a.ts) - Number(b.ts));

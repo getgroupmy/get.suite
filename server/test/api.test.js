@@ -12211,7 +12211,7 @@ test('chat: admins import a Slack export: channels, messages with their dates, t
   root.file('users.json', JSON.stringify([{ id: 'U1', profile: { real_name: 'Sia Lee', email: 'SiaLee@acme.com' } }, { id: 'U2', profile: { real_name: 'Old Contractor', email: 'old@elsewhere.com' } }]));
   root.file('channels.json', JSON.stringify([{ name: 'slack-launch', topic: { value: 'Launch plans' } }, { name: 'slack-old', is_archived: true }]));
   root.file('slack-launch/2024-03-01.json', JSON.stringify([
-    { type: 'message', user: 'U1', text: 'Kick-off at 10', ts: '1709280000.000100' },
+    { type: 'message', user: 'U1', text: 'Kick-off at 10', ts: '1709280000.000100', reactions: [{ name: '+1', users: ['U1', 'U2'] }, { name: 'tada::skin-tone-2', users: ['U1'] }, { name: 'our-custom-logo', users: ['U1'] }] },
     { type: 'message', subtype: 'channel_join', user: 'U2', text: '<@U2> has joined', ts: '1709280001.0' },
     { type: 'message', user: 'U2', text: 'Ready, <@U1>', ts: '1709280060.000200', thread_ts: '1709280000.000100' },
   ]));
@@ -12235,6 +12235,8 @@ test('chat: admins import a Slack export: channels, messages with their dates, t
   assert.equal(reply.body, 'Ready, @Sia Lee');
   assert.equal(reply.bot, 'Old Contractor', 'not here: their Slack name');
   assert.equal(reply.parent_id, kick.id, 'a thread reply');
+  assert.deepEqual([r.body.reactions, r.body.reactions_left_out], [2, 2], 'Sia’s 👍 and 🎉; the contractor’s 👍 and the custom emoji left out');
+  assert.deepEqual(kick.reactions.map((x) => [x.emoji, x.users.map((u) => u.id)]).sort(), [['👍', [sid]], ['🎉', [sid]]].sort());
   const mine = (await s('GET', '/api/chat/channels')).body.channels.find((c) => c.id === ch);
   assert.equal(mine.unread, 0, 'the history isn’t all unread');
   // Again: the name is taken now.

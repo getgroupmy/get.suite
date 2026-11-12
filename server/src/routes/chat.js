@@ -11,7 +11,7 @@ import { queueChatEmail } from '../chatmail.js';
 import express, { Router } from 'express';
 import JSZip from 'jszip';
 import { audit } from '../audit.js';
-import { readSlackExport } from '../slackimport.js';
+import { readSlackExport, slackEmoji } from '../slackimport.js';
 import crypto from 'node:crypto';
 import path from 'node:path';
 import fs from 'node:fs';
@@ -812,7 +812,7 @@ export default function chatRoutes() {
     const byEmail = new Map(q('SELECT id, username FROM users WHERE org_id = ? AND disabled = 0').all(org).map((u) => [u.username.toLowerCase(), u.id]));
     const who = (slackId) => { const email = found.users.get(slackId)?.email; return (email && byEmail.get(email)) || null; };
     const matched = new Set(), unmatched = new Set();
-    let messages = 0;
+    let messages = 0, reactions = 0, reactionsLeft = 0;
     const made = [];
     tx(() => {
       for (const c of found.channels) {
@@ -831,6 +831,15 @@ export default function chatRoutes() {
           q('INSERT INTO messages (id, channel_id, user_id, bot, body, created_at, parent_id) VALUES (?, ?, ?, ?, ?, ?, ?)')
             .run(mid, id, user, user ? null : m.name, m.text.slice(0, 40000), at, m.thread_ts ? ids.get(m.thread_ts) || null : null);
           messages++;
+          // Reactions from people who are here, with emoji we know.
+          for (const re of m.reactions || []) {
+            const emoji = slackEmoji(re.name);
+            for (const su of re.users) {
+              const ru = who(su);
+              if (!emoji || !ru) { reactionsLeft++; continue; }
+              reactions += q('INSERT OR IGNORE INTO message_reactions (message_id, user_id, emoji, created_at) VALUES (?, ?, ?, ?)').run(mid, ru, emoji, at).changes;
+            }
+          }
         }
         for (const u of q('SELECT id FROM users WHERE org_id = ?').all(org)) q('INSERT INTO channel_reads (channel_id, user_id, read_at) VALUES (?, ?, ?) ON CONFLICT(channel_id, user_id) DO UPDATE SET read_at = excluded.read_at').run(id, u.id, now());
         made.push({ id, name, messages: c.messages.length });
@@ -838,7 +847,7 @@ export default function chatRoutes() {
     });
     sendTo(q('SELECT id FROM users WHERE org_id = ?').all(org).map((u) => u.id), { type: 'channels-changed' });
     audit(req, 'chat.import', { details: { from: 'Slack', channels: made.length, messages } });
-    res.status(201).json({ channels: made, messages, people_matched: matched.size, people_not_here: unmatched.size });
+    res.status(201).json({ channels: made, messages, reactions, reactions_left_out: reactionsLeft, people_matched: matched.size, people_not_here: unmatched.size });
   });
 
   // The whole conversation to keep: plain text (?format=txt) or a page (html), in the reader's time zone (?tz=).
