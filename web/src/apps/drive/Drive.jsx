@@ -9,7 +9,7 @@ import { Menu, Modal, PromptModal, ConfirmModal, Empty, useToast, Avatar, useDat
 import { useAuth } from '../../App.jsx';
 import { ApprovalsView, RequestApproval } from './Approvals.jsx';
 import { SignaturesView, SendForSignature } from '../docs/Signatures.jsx';
-import { CommentsPanel, useComments } from '../comments.jsx';
+import { CommentsPanel, useComments, NewCount } from '../comments.jsx';
 import OfficePreview from '../OfficePreview.jsx';
 import ZipContents from '../ZipContents.jsx';
 import EmlContents from '../EmlContents.jsx';
@@ -1038,7 +1038,7 @@ function Preview({ file, onClose, onOpenAs, comment = null }) {
   const src = `/api/files/${file.id}/raw`;
   const m = file.mime || '';
   // Comments: on the whole file, or (pictures) on a spot, shown as a numbered pin.
-  const { threads } = useComments(file.id);
+  const { threads, fresh, seenAt, markSeen } = useComments(file.id);
   const [panel, setPanel] = useState(!!comment);
   const [active, setActive] = useState(comment);
   const [pending, setPending] = useState(null);
@@ -1083,7 +1083,7 @@ function Preview({ file, onClose, onOpenAs, comment = null }) {
   else body = <Empty icon="file" title="No preview available">Download the file to open it on your device.</Empty>;
   return (
     <Modal wide title={file.name} onClose={onClose} footer={<>
-      <button type="button" className={`btn ${panel ? 'primary' : ''}`} aria-pressed={panel} onClick={() => setPanel(!panel)}><Icon name="chat" size={18} /> Comments{threads.filter((t) => !t.resolved).length ? ` (${threads.filter((t) => !t.resolved).length})` : ''}</button>
+      <button type="button" className={`btn ${panel ? 'primary' : ''}`} aria-pressed={panel} onClick={() => setPanel(!panel)}><Icon name="chat" size={18} /> Comments{threads.filter((t) => !t.resolved).length ? ` (${threads.filter((t) => !t.resolved).length})` : ''}<NewCount n={fresh.length} /></button>
       {isZip && !viewOnly(file) && <button type="button" className="btn primary" disabled={unpacking} title="Unpack it into a folder of the same name next to it" onClick={extract}><Icon name="folder" size={18} /> {unpacking ? 'Unpacking…' : 'Extract here'}</button>}
       {officeAs(file) && <button type="button" className="btn primary" title="Workspace makes an editable copy next to it; the original stays as it is" onClick={onOpenAs}><Icon name={officeAs(file).icon} size={18} /> Open as {officeAs(file).what}</button>}
       {viewOnly(file) ? <span className="muted small">View only: downloading is turned off</span> : <a className={`btn ${officeAs(file) || isZip ? '' : 'primary'}`} href={`${src}?download`}><Icon name="download" size={18} /> Download</a>}
@@ -1098,7 +1098,7 @@ function Preview({ file, onClose, onOpenAs, comment = null }) {
                 {isPicture && <button type="button" className={`btn small ${pinning ? 'primary' : ''}`} aria-pressed={pinning} onClick={() => setPinning(!pinning)}>{pinning ? 'Click a spot on the picture…' : 'Comment on a spot'}</button>}
               </div>
             )}
-            <CommentsPanel fileId={file.id} fileRole={file.role} threads={threads} canEdit={canEdit} active={active} setActive={setActive} pending={pending}
+            <CommentsPanel fileId={file.id} fileRole={file.role} seenAt={seenAt} onSeen={markSeen} threads={threads} canEdit={canEdit} active={active} setActive={setActive} pending={pending}
               onShow={(t) => setActive(t.id)} labelOf={labelOf} onClose={() => { setPending(null); setPanel(false); }} />
           </div>
         )}

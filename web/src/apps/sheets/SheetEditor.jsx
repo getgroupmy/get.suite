@@ -11,7 +11,7 @@ import { useToast, PromptModal, ConfirmModal, Menu, Avatar, ContextMenu, Modal }
 import Icon from '../../components/Icon.jsx';
 import { ShareDialog } from '../drive/Drive.jsx';
 import { EditorHeader } from '../editorCommon.jsx';
-import { CommentsPanel, useComments } from '../comments.jsx';
+import { CommentsPanel, useComments, NewCount } from '../comments.jsx';
 import { ChartCard, ChartDialog } from './SheetCharts.jsx';
 import { dataRegion, rangeText, parseRange } from './charts.js';
 import { applyStructure, adjustKey, sortRange, looksLikeHeader, adjustOtherSheets, renameSheetRefs, renameSource } from './structure.js';
@@ -116,7 +116,7 @@ export default function SheetEditor() {
   const canComment = !!file && file.role !== 'viewer'; // commenters too, and on locked files
   // Comments on cells.
   const [params] = useSearchParams();
-  const { threads } = useComments(file?.id);
+  const { threads, fresh, seenAt, markSeen } = useComments(file?.id);
   const [panel, setPanel] = useState(!!params.get('comment'));
   const [thread, setThread] = useState(params.get('comment'));
   const [pending, setPending] = useState(null);
@@ -1066,7 +1066,7 @@ export default function SheetEditor() {
         extra={<>
           {readOnly && canComment && <button type="button" className="btn small" onClick={startComment}>Comment on {anchor ? 'this cell' : selKey}</button>}
           <button type="button" className={`btn small ${panel ? 'primary' : ''}`} aria-pressed={panel} onClick={() => { if (panel && pending) setPending(null); setPanel(!panel); }} title="Comments">
-            <Icon name="chat" size={16} /> {openThreads.length || ''}<span className="sr-only">Comments</span>
+            <Icon name="chat" size={16} /> {openThreads.length || ''}<span className="sr-only">Comments</span><NewCount n={fresh.length} />
           </button>
           {people.length > 0 && (
           <div className="coeditors" aria-label={`Also here: ${people.map((p) => p.name).join(', ')}`}>
@@ -1264,7 +1264,7 @@ export default function SheetEditor() {
         </div>
         </div>
       </div>
-      {panel && <CommentsPanel fileId={file.id} fileRole={file.role} threads={threads} canEdit={canComment} active={thread} setActive={setThread} pending={pending}
+      {panel && <CommentsPanel fileId={file.id} fileRole={file.role} seenAt={seenAt} onSeen={markSeen} threads={threads} canEdit={canComment} active={thread} setActive={setThread} pending={pending}
         onShow={goToCell} labelOf={where} onClose={() => { setPending(null); setPanel(false); }} />}
       </div>
       <div className="sheet-tabs">

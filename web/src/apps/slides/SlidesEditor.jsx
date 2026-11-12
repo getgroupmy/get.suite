@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { SlideFind } from './SlideFind.jsx';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
-import { CommentsPanel, useComments } from '../comments.jsx';
+import { CommentsPanel, useComments, NewCount } from '../comments.jsx';
 import { get, patch, post, uploadFile } from '../../api.js';
 import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
@@ -65,7 +65,7 @@ export default function SlidesEditor() {
   const [printing, setPrinting] = useState(null); // the print dialog (true), then what's printed: { layout, skipHidden }
   // Comments, each on a slide (by its id, so it follows the slide when slides move).
   const [params] = useSearchParams();
-  const { threads } = useComments(file?.id);
+  const { threads, fresh, seenAt, markSeen } = useComments(file?.id);
   const [panel, setPanel] = useState(!!params.get('comment'));
   const [thread, setThread] = useState(params.get('comment'));
   const [pending, setPending] = useState(null);
@@ -503,14 +503,14 @@ export default function SlidesEditor() {
             : <button type="button" className="tb" title="A picture behind everything on this slide, filling it" onClick={() => backgroundInput.current.click()}>Background picture</button>)}
           <input ref={backgroundInput} type="file" accept="image/png,image/jpeg,image/gif" hidden onChange={(e) => { setBackgroundPicture(e.target.files[0]); e.target.value = ''; }} />
           <div className="grow" />
-          <button type="button" className={`btn small ${panel ? 'primary' : ''}`} aria-pressed={panel} title="Comments" onClick={() => { if (panel && pending) setPending(null); setPanel(!panel); }}>💬 Comments{openThreads ? ` (${openThreads})` : ''}</button>
+          <button type="button" className={`btn small ${panel ? 'primary' : ''}`} aria-pressed={panel} title="Comments" onClick={() => { if (panel && pending) setPending(null); setPanel(!panel); }}>💬 Comments{openThreads ? ` (${openThreads})` : ''}<NewCount n={fresh.length} /></button>
           <button type="button" className="btn small" onClick={commentOnSlide}>Comment on this slide</button>
           <button type="button" className={`btn small ${grid ? 'primary' : ''}`} aria-pressed={grid} title="See all the slides at once, and drag them into order" onClick={() => { setGrid(!grid); setPicked(new Set([slideIndex])); }}>⊞ Grid view</button>
           <button type="button" className="btn small primary" onClick={() => setPresenting(slideIndex)}><Icon name="slides" size={16} /> Present</button>
           <button type="button" className="btn small" title="Present, with your notes, the next slide and a timer in a second window" onClick={() => { openPresenterView(id, slideIndex); setPresenting(slideIndex); }}>Presenter view</button>
         </div>
       )}
-      {readOnly && <div className="slides-toolbar"><div className="grow" /><button type="button" className={`btn small ${panel ? 'primary' : ''}`} aria-pressed={panel} title="Comments" onClick={() => { if (panel && pending) setPending(null); setPanel(!panel); }}>💬 Comments{openThreads ? ` (${openThreads})` : ''}</button>
+      {readOnly && <div className="slides-toolbar"><div className="grow" /><button type="button" className={`btn small ${panel ? 'primary' : ''}`} aria-pressed={panel} title="Comments" onClick={() => { if (panel && pending) setPending(null); setPanel(!panel); }}>💬 Comments{openThreads ? ` (${openThreads})` : ''}<NewCount n={fresh.length} /></button>
         {canComment && <button type="button" className="btn small" onClick={commentOnSlide}>Comment on this slide</button>}
           <button type="button" className={`btn small ${grid ? 'primary' : ''}`} aria-pressed={grid} title="See all the slides at once, and drag them into order" onClick={() => { setGrid(!grid); setPicked(new Set([slideIndex])); }}>⊞ Grid view</button>
           <button type="button" className="btn small primary" onClick={() => setPresenting(slideIndex)}><Icon name="slides" size={16} /> Present</button>
@@ -589,7 +589,7 @@ export default function SlidesEditor() {
             </label>
           )}
         </div>
-        {panel && <CommentsPanel fileId={file.id} fileRole={file.role} threads={threads} canEdit={canComment} active={thread} setActive={setThread} pending={pending}
+        {panel && <CommentsPanel fileId={file.id} fileRole={file.role} seenAt={seenAt} onSeen={markSeen} threads={threads} canEdit={canComment} active={thread} setActive={setThread} pending={pending}
           onShow={showThread} labelOf={slideLabel} onClose={() => { setPending(null); setPanel(false); }} />}
       </div>
 

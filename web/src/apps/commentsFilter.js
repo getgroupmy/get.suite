@@ -13,3 +13,8 @@ export function commentLink(origin, pathname, fileId, commentId) {
   const at = pathname.startsWith('/drive') ? `/drive?preview=${fileId}&comment=${commentId}` : `${pathname}?comment=${commentId}`;
   return origin + at;
 }
+
+/** Threads with a comment from someone else (written or changed) after `since` (null: ever). */
+export function newSince(threads, since, me) {
+  return threads.filter((t) => [t, ...(t.replies || [])].some((c) => c.author_id !== me && (since == null || (c.edited_at || c.created_at) > since)));
+}

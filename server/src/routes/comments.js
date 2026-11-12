@@ -36,6 +36,13 @@ q(`CREATE TABLE IF NOT EXISTS file_comment_reactions (
   created_at INTEGER NOT NULL,
   PRIMARY KEY (comment_id, user_id, emoji)
 )`).run();
+// When each person last looked at a file's comments: what came after is marked new for them.
+q(`CREATE TABLE IF NOT EXISTS file_comment_seen (
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  file_id TEXT NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+  seen_at INTEGER NOT NULL,
+  PRIMARY KEY (user_id, file_id)
+)`).run();
 export const MAX_REACTION_KINDS = 20; // different emoji on one comment
 
 const KINDS = ['doc', 'sheet', 'slides', 'file'];
@@ -167,6 +174,18 @@ export default function commentRoutes() {
       if (out.size >= 50) break;
     }
     res.json([...out.values()]);
+  });
+
+  // When you last looked at this file's comments ({ seen_at }, null if never), and marking that you have now.
+  r.get('/:fileId/seen', (req, res) => {
+    const f = loadFile(req.params.fileId, req.user);
+    res.json({ seen_at: q('SELECT seen_at FROM file_comment_seen WHERE user_id = ? AND file_id = ?').get(req.user.id, f.id)?.seen_at ?? null });
+  });
+  r.post('/:fileId/seen', (req, res) => {
+    const f = loadFile(req.params.fileId, req.user);
+    const t = now();
+    q('INSERT INTO file_comment_seen (user_id, file_id, seen_at) VALUES (?, ?, ?) ON CONFLICT (user_id, file_id) DO UPDATE SET seen_at = excluded.seen_at').run(req.user.id, f.id, t);
+    res.json({ seen_at: t });
   });
 
   r.get('/:fileId', (req, res) => { const f = loadFile(req.params.fileId, req.user); res.json(listOf(f.id)); });

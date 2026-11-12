@@ -11626,3 +11626,23 @@ test('comment notifications: the owner hears of new comments, a thread’s peopl
   assert.equal((await bell(b)).length, 1, 'Ben can’t open it any more');
   assert.equal((await bell(c)).length, 0, 'Cy turned these off');
 });
+
+test('comments seen: when you last looked at a file’s comments is kept per person, and only for those who can open it', async () => {
+  const a = client(), b = client(), c = client();
+  for (const [local, name] of [['csna', 'Seen Ann'], ['csnb', 'Seen Ben'], ['csnc', 'Seen Cy']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'csna@acme.com');
+  const bid = (await login(b, 'csnb@acme.com')).id;
+  await login(c, 'csnc@acme.com');
+  const doc = (await a('POST', '/api/files/new', { kind: 'doc', name: 'Seen doc' })).body;
+  await a('PUT', `/api/files/${doc.id}/shares`, { shares: [{ user_id: bid, role: 'viewer' }] });
+  assert.deepEqual((await b('GET', `/api/comments/${doc.id}/seen`)).body, { seen_at: null }, 'never looked');
+  const before = Date.now();
+  const marked = (await b('POST', `/api/comments/${doc.id}/seen`)).body.seen_at;
+  assert.ok(marked >= before);
+  assert.equal((await b('GET', `/api/comments/${doc.id}/seen`)).body.seen_at, marked, 'viewers too');
+  assert.equal((await a('GET', `/api/comments/${doc.id}/seen`)).body.seen_at, null, 'each person their own');
+  assert.equal((await c('POST', `/api/comments/${doc.id}/seen`)).status, 404, 'not without access');
+  // A comment made after is newer than when Ben looked.
+  const later = (await a('POST', `/api/comments/${doc.id}`, { body: 'New one', anchor: { quote: 'n' } })).body.comment;
+  assert.ok(later.created_at >= marked);
+});

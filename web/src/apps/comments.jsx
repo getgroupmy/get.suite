@@ -6,17 +6,30 @@ import { Avatar, useToast } from '../components/ui.jsx';
 import Icon from '../components/Icon.jsx';
 import { useMentions, MentionedAway } from '../components/mentions.jsx';
 import { useAuth } from '../App.jsx';
-import { forYou, commentLink } from './commentsFilter.js';
+import { forYou, commentLink, newSince } from './commentsFilter.js';
 
-/** Comments of a file, kept up to date live. */
+/**
+ * Comments of a file, kept up to date live. `fresh`: the open threads with something from someone else since
+ * you last looked (`seenAt`; never looked: all of theirs); `markSeen()` says you've looked now.
+ */
 export function useComments(fileId) {
+  const { user } = useAuth();
   const [list, setList] = useState([]);
+  const [seenAt, setSeenAt] = useState(undefined); // undefined while loading, null if never looked
   const load = useCallback(() => { if (fileId) get(`/comments/${fileId}`).then(setList).catch(() => {}); }, [fileId]);
   useEffect(load, [load]);
+  useEffect(() => { if (fileId) get(`/comments/${fileId}/seen`).then((r) => setSeenAt(r.seen_at)).catch(() => setSeenAt(null)); }, [fileId]);
   useEffect(() => onLive((m) => { if (m.type === 'live-connected' || (m.type === 'comments-changed' && m.id === fileId)) load(); }), [fileId, load]);
   const threads = list.filter((c) => !c.thread_id).map((root) => ({ ...root, replies: list.filter((c) => c.thread_id === root.id) }));
-  return { threads, reload: load };
+  const markSeen = useCallback(() => { if (fileId) post(`/comments/${fileId}/seen`).then((r) => setSeenAt(r.seen_at)).catch(() => {}); }, [fileId]);
+  const fresh = seenAt === undefined ? [] : newSince(threads, seenAt, user?.id).filter((t) => !t.resolved);
+  return { threads, reload: load, fresh, seenAt, markSeen };
 }
+
+/** "2 new" on a Comments button. */
+export const NewCount = ({ n }) => (n ? <span className="comments-new-count">{n} new</span> : null);
+
+
 
 /** A text box for a comment; "@" plus a few letters suggests people to mention. */
 function MentionBox({ value, onChange, onSubmit, placeholder, autoFocus, label }) {
@@ -66,7 +79,7 @@ const Body = ({ text }) => <p className="comment-body">{text.split(/(@[\w.+-]+@[
  * The panel. `pending` is a new comment being started ({ anchor, label, onCreated(id), onCancel }).
  * `onShow(thread)` jumps to where a thread is anchored; `labelOf(thread)` says where that is.
  */
-export function CommentsPanel({ fileId, fileRole, threads, canEdit, active, setActive, pending, onShow, labelOf, onDeleted, onClose }) {
+export function CommentsPanel({ fileId, fileRole, threads, seenAt, onSeen, canEdit, active, setActive, pending, onShow, labelOf, onDeleted, onClose }) {
   const toast = useToast();
   const { user } = useAuth();
   const [editing, setEditing] = useState(null); // { id, text }: your own comment being changed
@@ -95,6 +108,13 @@ export function CommentsPanel({ fileId, fileRole, threads, canEdit, active, setA
     return r.comment;
   };
   const [onlyMine, setOnlyMine] = useState(false);
+  // What's new is what came after you last looked before opening the panel; it stays marked while it's open,
+  // and having it open counts as looking (again whenever more comes in).
+  const [since, setSince] = useState(seenAt);
+  useEffect(() => { if (since === undefined && seenAt !== undefined) setSince(seenAt); }, [seenAt, since]);
+  const isNew = new Set(since === undefined ? [] : newSince(threads, since, user?.id).map((t) => t.id));
+  const latest = threads.reduce((m, t) => Math.max(m, ...[t, ...t.replies].map((c) => c.edited_at || c.created_at)), 0);
+  useEffect(() => { if (since !== undefined) onSeen?.(); }, [since !== undefined, latest]); // eslint-disable-line react-hooks/exhaustive-deps
   const mine = forYou(threads, user);
   const shown = (onlyMine ? mine : threads).filter((t) => showResolved || !t.resolved || t.id === active);
   const copyLink = async (t) => {
@@ -136,8 +156,9 @@ export function CommentsPanel({ fileId, fileRole, threads, canEdit, active, setA
       {!pending && shown.length === 0 && <p className="muted small">{onlyMine ? 'Nothing for you here: no open comment @mentions you or is assigned to you.' : threads.length ? 'No open comments.' : canEdit ? 'Select something and press Comment to start a conversation.' : 'No comments yet.'}</p>}
       <ol className="comment-threads">
         {shown.map((t) => (
-          <li key={t.id} className={`comment-thread ${t.id === active ? 'active' : ''} ${t.resolved ? 'resolved' : ''}`} onClick={() => { setActive(t.id); onShow(t); }}>
+          <li key={t.id} className={`comment-thread ${t.id === active ? 'active' : ''} ${t.resolved ? 'resolved' : ''} ${isNew.has(t.id) ? 'new' : ''}`} onClick={() => { setActive(t.id); onShow(t); }}>
             <div className="row comment-top">
+              {isNew.has(t.id) && <span className="comment-new-tag">New</span>}
               <button type="button" className="link-btn small comment-where grow" onClick={(e) => { e.stopPropagation(); setActive(t.id); onShow(t); }}>{labelOf(t)}</button>
               <button type="button" className="icon-btn" aria-label="Copy link to comment" title="Copy link to comment" onClick={(e) => { e.stopPropagation(); copyLink(t); }}><Icon name="link" size={16} /></button>
             </div>

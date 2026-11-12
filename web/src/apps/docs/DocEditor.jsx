@@ -22,7 +22,7 @@ import { useToast, Avatar, Menu, Modal, withDataCheck } from '../../components/u
 import { PAPER, MARGINS, DEFAULT_SETUP, WATERMARKS, paperStyle, printCss, columnsOf, PAGE_COLORS, pageColorOf } from './pagesetup.js';
 import { ShareDialog } from '../drive/Drive.jsx';
 import { EditorHeader } from '../editorCommon.jsx';
-import { CommentsPanel, useComments } from '../comments.jsx';
+import { CommentsPanel, useComments, NewCount } from '../comments.jsx';
 import AltTextDialog from '../../components/AltTextDialog.jsx';
 import DrawPad from '../../components/DrawPad.jsx';
 import Icon from '../../components/Icon.jsx';
@@ -469,7 +469,7 @@ function SharedDoc({ file, setFile }) {
 
   // ---- comments ----
   const [params] = useSearchParams();
-  const { threads } = useComments(file.id);
+  const { threads, fresh, seenAt, markSeen } = useComments(file.id);
   const [panel, setPanel] = useState(!!params.get('comment'));
 
   // ---- suggesting mode ----
@@ -620,7 +620,7 @@ function SharedDoc({ file, setFile }) {
           )}
           {readOnly && canComment && <button type="button" className="btn small" onMouseDown={(e) => e.preventDefault()} onClick={startComment} title="Select some text first">Comment</button>}
           <button type="button" className={`btn small ${panel ? 'primary' : ''}`} aria-pressed={panel} onClick={() => setPanel(!panel)} title="Comments">
-            <Icon name="chat" size={16} /> {open.length || ''}<span className="sr-only">Comments</span>
+            <Icon name="chat" size={16} /> {open.length || ''}<span className="sr-only">Comments</span><NewCount n={fresh.length} />
           </button>
           {people.length > 0 && (
           <div className="coeditors" aria-label={`Also here: ${people.map((p) => p.name).join(', ')}`}>
@@ -739,7 +739,7 @@ function SharedDoc({ file, setFile }) {
             </ul>
           </aside>
         )}
-        {panel && <CommentsPanel fileId={file.id} fileRole={file.role} threads={threads} canEdit={canComment} active={active} setActive={setActive} pending={pending}
+        {panel && <CommentsPanel fileId={file.id} fileRole={file.role} seenAt={seenAt} onSeen={markSeen} threads={threads} canEdit={canComment} active={active} setActive={setActive} pending={pending}
           onShow={showThread} labelOf={(t) => `“${(t.anchor?.quote || '').slice(0, 60)}”`} onDeleted={(t) => removeMark(t.id)}
           onClose={() => { if (pending) pending.onCancel(); setPanel(false); }} />}
       </div>
