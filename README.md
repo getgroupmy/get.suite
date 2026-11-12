@@ -1044,7 +1044,7 @@ Your business fixed IP is what makes this work. Do these once:
   - Pictures count towards the 25 MB limit. When replying to a picture-heavy newsletter, delete the quoted pictures you don't need.
   - If the original is deleted before you send, you're told its pictures can't be included.
 - **Forwarding with attachments:** forwarding a message brings its attachments along as chips you can remove one by one. They're attached straight from the original message when you send, so nothing is downloaded and re-uploaded. Forward drafts remember them too. If the original has been deleted by the time you send, you're told the attachments can't be included.
-- **Vacation reply** (Mail → Vacation reply): an automatic answer with an optional first and last day. It's built on the mail server's standard Sieve "vacation" feature:
+- **Vacation reply** (Mail → Vacation reply): an automatic answer with an optional first and last day. It's built on the mail server's standard Sieve "vacation" feature: **Also mark me Out of office in my calendar for these days** (once there's a last day) adds an all-day Out of office event for the same days, in your time zone, so invitations for that time are declined for you as well; it moves when you change the days and goes when you turn the reply off. (The other way round, an Out of office event can turn on the reply.)
   - Each sender gets at most one reply per day.
   - Mailing lists, newsletters, spam and other automatic messages never get one.
   - It also answers mail sent to aliases the user belongs to.
