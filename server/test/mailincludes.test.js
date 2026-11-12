@@ -48,3 +48,21 @@ test('include: big mailings do not pair everyone; at most three suggestions', ()
   for (let i = 0; i < 3; i++) recordTogether(me, to('p@x.example', 'q1@x.example', 'q2@x.example', 'q3@x.example', 'q4@x.example'));
   assert.equal(suggestIncludes(me, ['p@x.example']).length, 3);
 });
+
+test('frequently contacted: most emailed first, then latest; contacts and colleagues named; older than the window left out', async () => {
+  const { frequentOf } = await import('../src/mail/includes.js');
+  const me = { ...person('inc5'), org_id: 'iorg' };
+  person('freqcol');
+  q("INSERT INTO contacts (id, owner_id, name, email, created_at) VALUES ('fc1', 'inc5', 'Sam Client', 'sam@client.example', 0)").run();
+  const day = 864e5, now = Date.now();
+  for (let i = 0; i < 3; i++) recordTogether(me, [{ address: 'sam@client.example' }], now - day);
+  for (let i = 0; i < 3; i++) recordTogether(me, [{ address: 'freqcol@acme.com' }], now - 2 * day);
+  recordTogether(me, [{ address: 'pat@partner.example', name: 'Pat P' }], now);
+  for (let i = 0; i < 9; i++) recordTogether(me, [{ address: 'old@x.example' }], now - 400 * day);
+  const f = frequentOf(me, { now });
+  assert.deepEqual(f.map((x) => [x.email, x.times]), [['sam@client.example', 3], ['freqcol@acme.com', 3], ['pat@partner.example', 1]]);
+  assert.equal(f[0].name, 'Sam Client'); assert.equal(f[0].contact_id, 'fc1');
+  assert.equal(f[1].name, 'freqcol'); assert.equal(f[1].colleague_id, 'freqcol');
+  assert.equal(f[2].name, 'Pat P'); assert.equal(f[2].contact_id, null);
+  assert.deepEqual(frequentOf({ ...person('inc6'), org_id: 'iorg' }), []);
+});

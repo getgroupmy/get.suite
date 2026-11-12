@@ -82,3 +82,18 @@ export function includeRoutes(r) {
     res.json(suggestIncludes(req.user, list(req.query.to), { not: list(req.query.not) }));
   });
 }
+
+/**
+ * Frequently contacted: the people you've emailed most from Workspace in the last `days` (most first,
+ * then latest), each with whether they're in your contacts or a colleague, for Contacts → Frequent.
+ */
+export function frequentOf(user, { days = 180, limit = 20, now = Date.now() } = {}) {
+  const rows = q(`SELECT email, name, times, last_at FROM mail_sent_to WHERE owner_id = ? AND last_at >= ?
+                  ORDER BY times DESC, last_at DESC LIMIT ?`).all(user.id, now - days * 864e5, limit);
+  return rows.map((r) => {
+    const contact = q('SELECT id, name FROM contacts WHERE owner_id = ? AND LOWER(email) = ?').get(user.id, r.email);
+    const colleague = contact ? null : q('SELECT id, name FROM users WHERE LOWER(username) = ? AND org_id = ? AND disabled = 0').get(r.email, user.org_id);
+    return { email: r.email, name: contact?.name || colleague?.name || r.name || null, times: r.times, last_at: r.last_at,
+      contact_id: contact?.id || null, colleague_id: colleague?.id || null };
+  });
+}

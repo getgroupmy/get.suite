@@ -2418,3 +2418,12 @@ test('ask before going outside: a message to another company waits for the sende
     assert.deepEqual((typeof rows[0].details === 'string' ? JSON.parse(rows[0].details) : rows[0].details).outside, ['gina@globex.com']);
   } finally { await olivia('PATCH', '/api/orgs/current', { ask_outside: false }); }
 });
+
+test('frequently contacted: people Olivia has emailed from Workspace, colleagues named', async () => {
+  const f = (await olivia('GET', '/api/contacts/frequent')).body;
+  const b = f.find((x) => x.email === 'bob@acme.com');
+  assert.ok(b && b.times >= 1 && b.colleague_id === bobId, JSON.stringify(f).slice(0, 300));
+  assert.equal(b.name, 'Bob Builder');
+  assert.ok(f.some((x) => x.email === 'gina@globex.com'));
+  assert.ok(!(await bob('GET', '/api/contacts/frequent')).body.some((x) => x.email === 'bob@acme.com'), 'each their own');
+});

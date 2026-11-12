@@ -157,6 +157,7 @@ export default function Contacts() {
           <button role="tab" aria-selected={tab === 'dir'} className={tab === 'dir' ? 'on' : ''} onClick={() => setTab('dir')}>Directory</button>
           <button role="tab" aria-selected={tab === 'company'} className={tab === 'company' ? 'on' : ''} onClick={() => setTab('company')}>Company</button>
           <button role="tab" aria-selected={tab === 'other'} className={tab === 'other' ? 'on' : ''} onClick={() => setTab('other')}>Other contacts</button>
+          <button role="tab" aria-selected={tab === 'frequent'} className={tab === 'frequent' ? 'on' : ''} onClick={() => setTab('frequent')}>Frequent</button>
           <button role="tab" aria-selected={tab === 'touch'} className={tab === 'touch' ? 'on' : ''} onClick={() => setTab('touch')}>Keep in touch</button>
           <button role="tab" aria-selected={tab === 'groups'} className={tab === 'groups' ? 'on' : ''} onClick={() => setTab('groups')}>Groups</button>
           <button role="tab" aria-selected={tab === 'trash'} className={tab === 'trash' ? 'on' : ''} onClick={() => setTab('trash')}>Trash</button>
@@ -182,7 +183,7 @@ export default function Contacts() {
           </select>
         </div>
       )}
-      {tab === 'dir' && chart ? <OrgChart people={directory} filter={filter} onMessage={message} me={user.id} onOpen={setCard} /> : tab === 'groups' ? <Groups filter={filter} /> : tab === 'touch' ? <KeepInTouch filter={filter} /> : tab === 'trash' ? <ContactsTrash filter={filter} onRestored={load} /> : tab === 'other' ? <OtherContacts filter={filter} onAdded={load} /> : tab === 'mine' && contacts?.length === 0 ? <Empty icon="person" title="No contacts yet">Add people you work with outside your NAS users.</Empty>
+      {tab === 'dir' && chart ? <OrgChart people={directory} filter={filter} onMessage={message} me={user.id} onOpen={setCard} /> : tab === 'groups' ? <Groups filter={filter} /> : tab === 'touch' ? <KeepInTouch filter={filter} /> : tab === 'trash' ? <ContactsTrash filter={filter} onRestored={load} /> : tab === 'other' ? <OtherContacts filter={filter} onAdded={load} /> : tab === 'frequent' ? <Frequent filter={filter} onAdded={load} /> : tab === 'mine' && contacts?.length === 0 ? <Empty icon="person" title="No contacts yet">Add people you work with outside your NAS users.</Empty>
         : tab === 'company' && company.length === 0 ? <Empty icon="person" title="No company contacts yet">Contacts shared with everyone at {user.org_name} appear here. Tick “Share with everyone at {user.org_name}” on a contact to add it.</Empty> : (
         <table className="files">
           {selecting && picked.size > 0 && (
@@ -368,6 +369,41 @@ function OtherContacts({ filter, onAdded }) {
             <td className="actions">
               <button className="btn small" onClick={() => add(c)}>Add to contacts</button>
               <button className="icon-btn" aria-label={`Forget ${c.email}`} title="Remove from Other contacts" onClick={() => forget(c)}><Icon name="close" size={18} /></button>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+/** Frequently contacted: who you've emailed most from Workspace lately, to write to again in a click. */
+function Frequent({ filter, onAdded }) {
+  const toast = useToast();
+  const navigate = useNavigate();
+  const [list, setList] = useState(null);
+  const load = () => get('/contacts/frequent').then(setList).catch((e) => toast(e.message, 'error'));
+  useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!list) return null;
+  if (!list.length) return <Empty icon="person" title="Nobody yet">The people you email most from Workspace show up here, most often first.</Empty>;
+  const f = filter.toLowerCase();
+  const shown = list.filter((c) => !f || c.email.includes(f) || (c.name || '').toLowerCase().includes(f));
+  const add = async (c) => {
+    try { await post('/contacts', { name: c.name || c.email.split('@')[0], email: c.email }); toast(`${c.name || c.email} added to your contacts`); load(); onAdded(); } catch (e) { toast(e.message, 'error'); }
+  };
+  return (
+    <table className="files" aria-label="Frequently contacted">
+      <thead><tr><th>Name</th><th className="hide-sm">Email</th><th className="hide-sm">Emailed</th><th aria-label="Actions" /></tr></thead>
+      <tbody>
+        {shown.map((c) => (
+          <tr key={c.email}>
+            <td className="name"><Avatar name={c.name || c.email} size={28} email={c.email} /><span>{c.name || c.email}</span>
+              {c.colleague_id && <span className="muted small"> · colleague</span>}</td>
+            <td className="hide-sm">{c.email}</td>
+            <td className="hide-sm muted">{c.times === 1 ? 'once' : `${c.times} times`}, last {new Date(c.last_at).toLocaleDateString()}</td>
+            <td className="actions">
+              <button className="btn small" onClick={() => navigate(`/mail?compose=${encodeURIComponent(formatAddress({ name: c.name, email: c.email }))}`)}><Icon name="mail" size={16} /> Email</button>
+              {!c.contact_id && !c.colleague_id && <button className="btn small" onClick={() => add(c)}>Add to contacts</button>}
             </td>
           </tr>
         ))}
