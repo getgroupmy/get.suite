@@ -52,3 +52,11 @@ test('away: colleagues whose vacation reply is on today, until when; not before 
   set('tok', 1, '2026-11-01', '2026-11-11');
   assert.deepEqual(awayRecipients(me, ['tok@a.example'], now), [], 'over');
 });
+
+test('full: colleagues whose mailbox the hourly check found full; not nearly full, not without a limit', async () => {
+  const { fullRecipients } = await import('../src/mail/afterhours.js');
+  q("UPDATE users SET mail_quota_mb = 100, mail_full_told = 100 WHERE id IN ('tok', 'other')").run();
+  q("UPDATE users SET mail_quota_mb = 100, mail_full_told = 90 WHERE id = 'lon'").run();
+  q("UPDATE users SET mail_quota_mb = 0, mail_full_told = 100 WHERE id = 'nohours'").run();
+  assert.deepEqual(fullRecipients(me, ['TOK@a.example', 'lon@a.example', 'nohours@a.example', 'other@a.example']), [{ email: 'tok@a.example', name: 'Kim Tokyo' }]);
+});

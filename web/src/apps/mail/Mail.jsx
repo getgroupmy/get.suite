@@ -1396,14 +1396,17 @@ function Compose({ initial, shared = null, signatures = [], onClose, onSent, onD
   // Colleagues outside the working hours they've set: their local time, and Send later for when their day starts.
   const [late, setLate] = useState([]);
   const [away, setAway] = useState([]); // colleagues whose vacation reply is on today
+  const [full, setFull] = useState([]); // colleagues whose mailbox is full (mail comes back)
+  const audience = new Set([f.to, f.cc, f.bcc].flatMap((t) => parseAddresses(t).list.map((a) => a.email))).size;
   useEffect(() => {
     const emails = [f.to, f.cc, f.bcc].flatMap((t) => parseAddresses(t).list.map((a) => a.email));
-    if (!emails.length) { setLate([]); setAway([]); return undefined; }
+    if (!emails.length) { setLate([]); setAway([]); setFull([]); return undefined; }
     let live = true;
     const to = encodeURIComponent(emails.join(','));
     const t = setTimeout(() => {
       get(`/mail/after-hours?to=${to}`).then((r) => { if (live) setLate(r); }).catch(() => {});
       get(`/mail/away?to=${to}`).then((r) => { if (live) setAway(r); }).catch(() => {});
+      get(`/mail/full?to=${to}`).then((r) => { if (live) setFull(r); }).catch(() => {});
     }, 500);
     return () => { live = false; clearTimeout(t); };
   }, [f.to, f.cc, f.bcc]);
@@ -1563,6 +1566,15 @@ function Compose({ initial, shared = null, signatures = [], onClose, onSent, onD
               <span key={o.email}>{i > 0 && ', '}<strong>{o.email}</strong>{o.new && <span className="outside-new"> (new)</span>}</span>
             ))}</span>
           </p>
+        )}
+        {full.length > 0 && (
+          <p className="compose-outside small" role="status">
+            <span aria-hidden="true">⚠</span>
+            <span>{full.map((x) => x.name).join(', ')}{full.length === 1 ? '’s mailbox is' : '’s mailboxes are'} full: your message will come back {full.length === 1 ? 'from them' : 'from those'} until they make room.</span>
+          </p>
+        )}
+        {audience >= 25 && (
+          <p className="compose-away small" role="status"><span aria-hidden="true">👥</span><span>This goes to <strong>{audience} people</strong>.</span></p>
         )}
         {away.length > 0 && (
           <p className="compose-away small" role="status">

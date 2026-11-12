@@ -2451,3 +2451,17 @@ test('away: writing to a colleague whose vacation reply is on says so, until whe
   } finally { await bob('PUT', '/api/mail/vacation', { enabled: false, body: 'x' }); }
   assert.deepEqual((await olivia('GET', '/api/mail/away?to=bob@acme.com')).body, []);
 });
+
+test('full mailbox: writing to a colleague whose mailbox the hourly check found full says so', async () => {
+  const { q } = await import('../src/db.js');
+  assert.equal((await olivia('PATCH', `/api/users/${bobId}`, { mail_quota_mb: 50 })).status, 200);
+  q('UPDATE users SET mail_full_told = 100 WHERE id = ?').run(bobId);
+  try {
+    assert.deepEqual((await olivia('GET', '/api/mail/full?to=bob@acme.com,gina@globex.com')).body, [{ email: 'bob@acme.com', name: 'Bob Builder' }]);
+    q('UPDATE users SET mail_full_told = 90 WHERE id = ?').run(bobId);
+    assert.deepEqual((await olivia('GET', '/api/mail/full?to=bob@acme.com')).body, [], 'nearly full is not full');
+  } finally {
+    q('UPDATE users SET mail_full_told = NULL WHERE id = ?').run(bobId);
+    await olivia('PATCH', `/api/users/${bobId}`, { mail_quota_mb: 0 });
+  }
+});

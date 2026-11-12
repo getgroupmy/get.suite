@@ -2,6 +2,7 @@
 // Working hours), with their local time and when their day starts again, so Compose can offer to send then.
 import { q } from '../db.js';
 import { hoursOf, nextWorkStart } from '../workhours.js';
+import './storage.js'; // users.mail_full_told
 
 const clean = (e) => String(e || '').trim().toLowerCase();
 const timeIn = (t, tz) => new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(t));
@@ -44,6 +45,22 @@ export function afterHoursRoutes(r) {
   r.get('/after-hours', (req, res) => res.json(afterHours(req.user, toList(req.query.to))));
   // Colleagues on the message who are away (their vacation reply is on today).
   r.get('/away', (req, res) => res.json(awayRecipients(req.user, toList(req.query.to))));
+  // Colleagues on the message whose mailbox is full (new mail is sent back to the sender).
+  r.get('/full', (req, res) => res.json(fullRecipients(req.user, toList(req.query.to))));
+}
+
+/**
+ * Colleagues whose mailbox is full, as the hourly check last found (users.mail_full_told = 100; see
+ * mail/storage.js): mail to them comes back. [{ email, name }].
+ */
+export function fullRecipients(user, emails) {
+  const out = [];
+  for (const e of new Set((emails || []).map(clean))) {
+    if (!e || e === clean(user.username)) continue;
+    const row = q('SELECT name FROM users WHERE LOWER(username) = ? AND org_id = ? AND disabled = 0 AND mail_quota_mb > 0 AND mail_full_told >= 100').get(e, user.org_id);
+    if (row) out.push({ email: e, name: row.name });
+  }
+  return out;
 }
 
 /**
