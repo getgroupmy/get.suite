@@ -1,7 +1,7 @@
 // "Pause notifications" (do not disturb): until a time, no pop-up notes or desktop notifications
 // for new mail, mentions, reminders or tasks. Everything still lands in the bell and the apps.
 import { useEffect, useState } from 'react';
-import { get, put, onLive } from './api.js';
+import { get, put, onLive, refreshOn } from './api.js';
 
 let until = null;
 let quiet = false; // the pause is quiet hours (outside working hours), turned off in Settings rather than resumed
@@ -29,7 +29,7 @@ export function usePause(userId) {
     listeners.add(f);
     loadPause();
     // Focus time on the calendar pauses too: check again when events change, and every few minutes.
-    const off = onLive((m) => { if ((m.type === 'status-changed' && m.user_id === userId) || m.type === 'events-changed') loadPause(); });
+    const off = onLive((m) => { if ((m.type === 'status-changed' && m.user_id === userId) || refreshOn(m, 'events-changed')) loadPause(); });
     const recheck = setInterval(loadPause, 5 * 60e3);
     const tick = setInterval(() => { if (until && until <= Date.now()) set(null); }, 30e3);
     return () => { listeners.delete(f); off(); clearInterval(tick); clearInterval(recheck); };

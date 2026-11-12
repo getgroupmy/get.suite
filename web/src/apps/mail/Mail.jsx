@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { closeHistory } from '@tiptap/pm/history';
 import { DRAFT_KEY } from '../docs/blocks.js';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
-import { api, get, post, put, del, onLive, uploadFile, formatBytes, formatDate, setSharedMailbox, currentSharedMailbox, mailboxParam } from '../../api.js';
+import { api, get, post, put, del, onLive, refreshOn, uploadFile, formatBytes, formatDate, setSharedMailbox, currentSharedMailbox, mailboxParam } from '../../api.js';
 import { desktopSupported, desktopOn, enableDesktop, disableDesktop } from '../../mailNotify.js';
 import Icon from '../../components/Icon.jsx';
 import EmojiPicker from '../../components/EmojiPicker.jsx';
@@ -117,7 +117,7 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
   const refreshRef = useRef(null);
   const [scheduledOpen, setScheduledOpen] = useState(false);
   const loadScheduled = useCallback(() => get('/mail/scheduled').then(setScheduled).catch(() => {}), []);
-  useEffect(() => { loadScheduled(); return onLive((m) => { if (m.type === 'mail-scheduled') { loadScheduled(); loadFolders(); } if (m.type === 'mail-snoozed' || m.type === 'mail-assigned' || m.type === 'mail-notes' || m.type === 'mail-tidied') refreshRef.current?.(); }); },
+  useEffect(() => { loadScheduled(); return onLive((m) => { if (refreshOn(m, 'mail-scheduled')) { loadScheduled(); loadFolders(); } if (m.type === 'mail-snoozed' || m.type === 'mail-assigned' || m.type === 'mail-notes' || m.type === 'mail-tidied') refreshRef.current?.(); }); },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [loadScheduled]);
   const { user, setUser } = useAuth();
@@ -2938,7 +2938,7 @@ function InternalNotes({ messageId, onChanged }) {
   const [text, setText] = useState('');
   const load = useCallback(() => get(`/mail/notes?message_id=${encodeURIComponent(messageId)}`).then(setNotes).catch(() => {}), [messageId]);
   useEffect(() => { load(); }, [load]);
-  useEffect(() => onLive((e) => { if (e.type === 'mail-notes' && e.message_id === messageId) load(); }), [load, messageId]);
+  useEffect(() => onLive((e) => { if (e.type === 'live-connected' || (e.type === 'mail-notes' && e.message_id === messageId)) load(); }), [load, messageId]);
   const add = async (e) => {
     e.preventDefault();
     if (!text.trim()) return;

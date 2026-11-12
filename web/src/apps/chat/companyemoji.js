@@ -1,7 +1,7 @@
 // Company emoji (Chat): the company's own small pictures, written :name: in messages and used as
 // reactions. One list for the whole app, loaded once and again when anyone adds or removes one.
 import { useEffect, useState } from 'react';
-import { get, onLive } from '../../api.js';
+import { get, onLive, refreshOn } from '../../api.js';
 
 export const imageUrl = (name) => `/api/chat/emoji/${encodeURIComponent(name)}/image`;
 /** ":ship-it:" → "ship-it", or null when it isn't written as a company emoji. */
@@ -38,7 +38,7 @@ export function useCompanyEmoji() {
   useEffect(() => {
     subscribers.add(setNow);
     if (!list && !loading) reloadEmoji();
-    if (!watching) { watching = true; onLive((m) => { if (m.type === 'chat-emoji-changed') reloadEmoji(); }); }
+    if (!watching) { watching = true; onLive((m) => { if (refreshOn(m, 'chat-emoji-changed')) reloadEmoji(); }); }
     return () => { subscribers.delete(setNow); };
   }, []);
   return now;

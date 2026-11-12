@@ -13,7 +13,7 @@ export default function Bookmarks({ channel }) {
   const [f, setF] = useState({ title: '', url: '' });
   const load = useCallback(() => get(`/chat/channels/${channel.id}/bookmarks`).then(setList).catch(() => setList([])), [channel.id]);
   useEffect(() => { load(); }, [load]);
-  useEffect(() => onLive((m) => { if (m.type === 'bookmarks-changed' && m.channel_id === channel.id) load(); }), [channel.id, load]);
+  useEffect(() => onLive((m) => { if (m.type === 'live-connected' || (m.type === 'bookmarks-changed' && m.channel_id === channel.id)) load(); }), [channel.id, load]);
   const can = !channel.archived_at && !channel.left;
   const add = async (e) => {
     e.preventDefault();

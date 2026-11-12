@@ -3,7 +3,7 @@
 // sits at the top of a document, spreadsheet or presentation.
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
-import { get, post, onLive, formatDate } from '../../api.js';
+import { get, post, onLive, refreshOn, formatDate } from '../../api.js';
 import Icon, { fileIcon } from '../../components/Icon.jsx';
 import { Avatar, Empty, Modal, useToast } from '../../components/ui.jsx';
 import { useAuth } from '../../App.jsx';
@@ -80,7 +80,7 @@ export function ApprovalBanner({ fileId }) {
   const [open, setOpen] = useState(false);
   const load = useCallback(() => get(`/approvals/file/${fileId}`).then((r) => setA(r.current)).catch(() => {}), [fileId]);
   useEffect(() => { load(); }, [load]);
-  useEffect(() => onLive((m) => { if (m.type === 'approvals-changed' && m.file_id === fileId) load(); }), [fileId, load]);
+  useEffect(() => onLive((m) => { if (m.type === 'live-connected' || (m.type === 'approvals-changed' && m.file_id === fileId)) load(); }), [fileId, load]);
   if (!a) return null;
   const me = a.reviewers.find((r) => r.id === user.id);
   const myTurn = a.status === 'pending' && me && !me.decision;
@@ -108,7 +108,7 @@ export function ApprovalsView() {
   const [data, setData] = useState(null);
   const load = useCallback(() => get('/approvals').then(setData).catch(() => setData({ waiting: [], requested: [] })), []);
   useEffect(() => { load(); }, [load]);
-  useEffect(() => onLive((m) => { if (m.type === 'approvals-changed') load(); }), [load]);
+  useEffect(() => onLive((m) => { if (refreshOn(m, 'approvals-changed')) load(); }), [load]);
   if (!data) return null;
   const row = (a, mine) => (
     <li key={a.id} className="card approval-row" aria-label={`Approval: ${a.file.name}`}>

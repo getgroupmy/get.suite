@@ -2,7 +2,7 @@
 // after that) a note of the tasks due today and overdue; and a note when someone gives you a task.
 // Shown in one tab only, with a desktop notification too when those are on and the tab is hidden.
 import { useEffect } from 'react';
-import { get, onLive } from './api.js';
+import { get, onLive, refreshOn } from './api.js';
 import { desktopOn } from './mailNotify.js';
 import { claim } from './eventReminders.js';
 import { dueAt } from './apps/tasks/taskmath.js';
@@ -85,7 +85,7 @@ export function useTaskReminders({ toast, navigate }) {
     };
     planTimed();
     const hourly = setInterval(planTimed, 36e5);
-    const offChanged = onLive((m) => { if (m.type === 'tasks-changed') planTimed(); });
+    const offChanged = onLive((m) => { if (refreshOn(m, 'tasks-changed')) planTimed(); });
     const wake = () => { if (!document.hidden) { plan(); planTimed(); } }; // timers stop while a laptop sleeps
     document.addEventListener('visibilitychange', wake);
     const off = onLive((m) => {

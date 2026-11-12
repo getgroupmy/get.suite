@@ -11,7 +11,7 @@ export function useMyStatus(userId) {
   useEffect(() => {
     const load = () => get('/users/me/status').then((r) => setStatus(r.status)).catch(() => {});
     load();
-    const off = onLive((m) => { if (m.type === 'status-changed' && m.user_id === userId) load(); });
+    const off = onLive((m) => { if (m.type === 'live-connected' || (m.type === 'status-changed' && m.user_id === userId)) load(); });
     // It clears by itself: look again when it's due.
     return off;
   }, [userId]);

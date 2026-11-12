@@ -12,7 +12,7 @@ export function useComments(fileId) {
   const [list, setList] = useState([]);
   const load = useCallback(() => { if (fileId) get(`/comments/${fileId}`).then(setList).catch(() => {}); }, [fileId]);
   useEffect(load, [load]);
-  useEffect(() => onLive((m) => { if (m.type === 'comments-changed' && m.id === fileId) load(); }), [fileId, load]);
+  useEffect(() => onLive((m) => { if (m.type === 'live-connected' || (m.type === 'comments-changed' && m.id === fileId)) load(); }), [fileId, load]);
   const threads = list.filter((c) => !c.thread_id).map((root) => ({ ...root, replies: list.filter((c) => c.thread_id === root.id) }));
   return { threads, reload: load };
 }
