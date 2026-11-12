@@ -2427,3 +2427,17 @@ test('frequently contacted: people Olivia has emailed from Workspace, colleagues
   assert.ok(f.some((x) => x.email === 'gina@globex.com'));
   assert.ok(!(await bob('GET', '/api/contacts/frequent')).body.some((x) => x.email === 'bob@acme.com'), 'each their own');
 });
+
+test('after hours: a colleague who doesn’t work today shows with their local time and when they start', async () => {
+  const today = new Date().getUTCDay();
+  const days = [0, 1, 2, 3, 4, 5, 6].filter((d) => d !== today);
+  assert.equal((await bob('PUT', '/api/users/me/work-hours', { hours: { days, start: 0, end: 1440, tz: 'UTC' } })).status, 200);
+  try {
+    const r = (await olivia('GET', '/api/mail/after-hours?to=bob@acme.com,gina@globex.com')).body;
+    assert.deepEqual(r.map((x) => x.email), ['bob@acme.com'], 'not people at another company');
+    const tomorrow = new Date(); tomorrow.setUTCHours(24, 0, 0, 0);
+    assert.equal(r[0].next, tomorrow.getTime());
+    assert.match(r[0].local, /^\d\d:\d\d$/);
+  } finally { await bob('PUT', '/api/users/me/work-hours', { hours: null }); }
+  assert.deepEqual((await olivia('GET', '/api/mail/after-hours?to=bob@acme.com')).body, [], 'without hours of their own');
+});

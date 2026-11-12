@@ -1393,6 +1393,15 @@ function Compose({ initial, shared = null, signatures = [], onClose, onSent, onD
     const t = setTimeout(() => get(`/mail/external?to=${encodeURIComponent(emails.join(','))}`).then((r) => { if (live) setOutside(r); }).catch(() => {}), 500);
     return () => { live = false; clearTimeout(t); };
   }, [f.to, f.cc, f.bcc]);
+  // Colleagues outside the working hours they've set: their local time, and Send later for when their day starts.
+  const [late, setLate] = useState([]);
+  useEffect(() => {
+    const emails = [f.to, f.cc, f.bcc].flatMap((t) => parseAddresses(t).list.map((a) => a.email));
+    if (!emails.length) { setLate([]); return undefined; }
+    let live = true;
+    const t = setTimeout(() => get(`/mail/after-hours?to=${encodeURIComponent(emails.join(','))}`).then((r) => { if (live) setLate(r); }).catch(() => {}), 500);
+    return () => { live = false; clearTimeout(t); };
+  }, [f.to, f.cc, f.bcc]);
   // The company asks before mail goes outside it (Admin → Company settings): confirmed once per set of recipients.
   const outsideOk = useRef(false);
   const [outsideAsk, setOutsideAsk] = useState(null); // { list: [{ email, new }], next }
@@ -1550,6 +1559,17 @@ function Compose({ initial, shared = null, signatures = [], onClose, onSent, onD
             ))}</span>
           </p>
         )}
+        {late.length > 0 && (() => {
+          const at = Math.max(...late.map((x) => x.next));
+          return (
+            <p className="compose-late small" role="status">
+              <span aria-hidden="true">🌙</span>
+              <span>{late.length === 1 ? <>It's {late[0].local} for <strong>{late[0].name}</strong>, outside their working hours.</>
+                : <>Outside their working hours: {late.map((x, i) => <span key={x.email}>{i > 0 && ', '}<strong>{x.name}</strong> ({x.local})</span>)}.</>}
+                {' '}<button type="button" className="link-btn" disabled={busy} onClick={() => sendLater(at)}>Send when {late.length === 1 ? 'their' : 'everyone\'s'} day starts ({whenText(at)})</button></span>
+            </p>
+          );
+        })()}
         {includes.length > 0 && (
           <div className="compose-includes row wrap small" role="group" aria-label="People you usually include">
             <span className="muted">Include</span>
