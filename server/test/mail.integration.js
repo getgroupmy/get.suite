@@ -2339,3 +2339,31 @@ test('nudges: mail from people, 3 to 14 days old, not answered, for Home; Not no
   assert.deepEqual(mine((await olivia('GET', '/api/mail/nudges')).body), [], 'Not now');
   assert.equal((await olivia('POST', '/api/mail/nudges/abc/dismiss')).status, 400);
 });
+
+test('nudges in Sent: mail you sent 3 to 14 days ago with no reply; Not now; turning nudges off', async () => {
+  const run = `${Date.now()}`;
+  const ago = (d) => new Date(Date.now() - d * 864e5);
+  const c = await eventually(() => imapLogin('olivia@acme.com', 'password123'), 20000);
+  const sent = (subject, days) => c.append('Sent', `From: Olivia Owner <olivia@acme.com>\r\nTo: Kim <kim@partner.example>\r\nSubject: ${subject} #${run}\r\nMessage-ID: <${subject.replace(/\W/g, '')}.${run}@acme.com>\r\nDate: ${ago(days).toUTCString()}\r\n\r\nx\r\n`, ['\\Seen'], ago(days));
+  try {
+    await sent('Proposal', 5);
+    await sent('Answered one', 5);
+    await sent('Just now', 1);
+    await c.append('INBOX', `From: Kim <kim@partner.example>\r\nTo: olivia@acme.com\r\nSubject: Re: Answered one #${run}\r\nIn-Reply-To: <Answeredone.${run}@acme.com>\r\nDate: ${ago(2).toUTCString()}\r\n\r\nGot it\r\n`, [], ago(2));
+  } finally { await c.logout().catch(() => {}); }
+  const sentList = (await olivia('GET', '/api/mail/messages?folder=Sent')).body.messages;
+  const subj = (uid) => sentList.find((m) => m.uid === uid)?.subject;
+  const ours = (uids) => uids.map(subj).filter((s) => s?.endsWith(`#${run}`)).map((s) => s.replace(` #${run}`, ''));
+  const r = (await olivia('GET', '/api/mail/nudges/sent?fresh=1')).body;
+  assert.deepEqual(ours(r.uids), ['Proposal'], 'not the answered one, not one sent today');
+  const prop = r.uids.find((u) => subj(u) === `Proposal #${run}`);
+  assert.equal((await olivia('POST', `/api/mail/nudges/${prop}/dismiss?folder=Sent`)).status, 200);
+  assert.deepEqual(ours((await olivia('GET', '/api/mail/nudges/sent')).body.uids), [], 'Not now');
+  // Off: none anywhere, until on again.
+  assert.deepEqual((await olivia('GET', '/api/mail/nudges/settings')).body, { on: true });
+  assert.deepEqual((await olivia('PUT', '/api/mail/nudges/settings', { on: false })).body, { on: false });
+  assert.deepEqual((await olivia('GET', '/api/mail/nudges')).body, { items: [], total: 0 });
+  assert.deepEqual((await olivia('GET', '/api/mail/nudges/sent')).body, { uids: [] });
+  assert.ok(!((await olivia('GET', '/api/mail/messages?folder=INBOX')).body.messages || []).some((m) => m.nudge));
+  assert.deepEqual((await olivia('PUT', '/api/mail/nudges/settings', { on: true })).body, { on: true });
+});

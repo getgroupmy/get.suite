@@ -243,6 +243,13 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
 
   const current = folders.find((f) => f.path === folder);
   const special = current?.specialUse;
+  // Sent mail nobody has answered in 3 to 14 days ("Sent 4 days ago. Follow up?"), asked for when Sent is open.
+  const [sentNudge, setSentNudge] = useState(new Set());
+  useEffect(() => {
+    setSentNudge(new Set());
+    if (special !== '\\Sent' || shared) return;
+    get('/mail/nudges/sent').then((r) => setSentNudge(new Set(r.uids))).catch(() => {});
+  }, [special, shared, folder]);
   const refresh = () => { loadFolders(); loadList(); loadSearches(); };
   refreshRef.current = refresh;
   const [snoozing, setSnoozing] = useState(null); // uids waiting for a picked time
@@ -534,6 +541,7 @@ function Mail({ shared = null, sharedList = [], onPickMailbox }) {
                   <span className="msg-subject ellipsis">{(m.labels || []).map((id) => labels.find((l) => l.id === id)).filter(Boolean).map((l) => <LabelChip key={l.id} label={l} />)}{m.answered && '↩ '}{m.subject || '(no subject)'}</span>
                   {shared && (m.assignee || m.done) && <span className="msg-assign small">{m.done ? <span className="pill done">✓ Done</span> : null}{m.assignee && <span className="pill" title={`Given to ${m.assignee.name}`}>→ {m.assignee.id === user.id ? 'You' : m.assignee.name}</span>}</span>}
                   {m.nudge && <span className="msg-nudge small">Received {Math.max(3, Math.floor((Date.now() - m.date) / 864e5))} days ago. Reply?</span>}
+                  {sentNudge.has(m.uid) && special === '\\Sent' && <span className="msg-nudge small">Sent {Math.max(3, Math.floor((Date.now() - m.date) / 864e5))} days ago. Follow up?</span>}
                   {shared && m.notes > 0 && <span className="msg-assign small"><span className="pill" title={`${m.notes} internal note${m.notes === 1 ? '' : 's'}`}>💬 {m.notes}</span></span>}
                 </button>
               </li>

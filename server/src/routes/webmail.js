@@ -35,7 +35,7 @@ import { parseMailQuery, allOf } from '../mail/searchquery.js';
 import { tabQuery, TABS, TO_PRIMARY, TO_UPDATES } from '../mail/tabs.js';
 import { tidyRoutes } from '../mail/tidy.js';
 import { mailStorage } from '../mail/storage.js';
-import { nudgeRoutes, nudgeQuery } from '../mail/nudges.js';
+import { nudgeRoutes, nudgeQuery, nudgesOn } from '../mail/nudges.js';
 import { receiptRequest, buildReceipt } from '../mail/receipt.js';
 import { mimeFor } from '../util.js';
 import { previewMime, previewHeaders } from '../mail/preview.js';
@@ -897,7 +897,7 @@ export default function webmailRoutes() {
       }
       messages.sort((a, b) => b.uid - a.uid);
       // Nudges: in your own Inbox, mail from people you haven't answered in 3 to 14 days ("Received 5 days ago. Reply?").
-      if (folder === 'INBOX' && messages.length && !req.user.shared_mailbox && !req.user.delegate) {
+      if (folder === 'INBOX' && messages.length && !req.user.shared_mailbox && !req.user.delegate && nudgesOn(req.user)) {
         const nudged = new Set((await client.search(nudgeQuery(), { uid: true })) || []);
         const own = new Set(identities(req.user).map((i) => i.address.toLowerCase()));
         for (const m of messages) if (nudged.has(m.uid) && m.from?.address && !own.has(m.from.address.toLowerCase())) m.nudge = true;

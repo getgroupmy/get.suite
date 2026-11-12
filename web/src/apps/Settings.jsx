@@ -61,6 +61,7 @@ export default function Settings() {
       <MailPane />
       <MailAdvance />
       <MailTidy />
+      <MailNudges />
       <CallRing />
       <Devices />
       <SignInApps />
@@ -407,6 +408,23 @@ function MailAdvance() {
         <label className="check"><input type="radio" name="mail-advance" checked={now === 'newer'} onChange={() => set('newer')} /> Open the next newer message</label>
         <label className="check"><input type="radio" name="mail-advance" checked={now === 'older'} onChange={() => set('older')} /> Open the next older message</label>
       </div>
+    </section>
+  );
+}
+
+/** Nudges: "Received 5 days ago. Reply?" in the Inbox, "Sent 4 days ago. Follow up?" in Sent, and Home's Not answered yet. */
+function MailNudges() {
+  const toast = useToast();
+  const mail = useMailStatus();
+  const [on, setOn] = useState(undefined);
+  useEffect(() => { if (mail?.enabled) get('/mail/nudges/settings').then((r) => setOn(r.on)).catch(() => {}); }, [mail?.enabled]);
+  if (!mail?.enabled || on === undefined) return null;
+  const set = async (v) => { setOn(v); try { await put('/mail/nudges/settings', { on: v }); toast('Saved'); } catch (e) { setOn(!v); toast(e.message, 'error'); } };
+  return (
+    <section className="card stack" aria-labelledby="mnudge-h">
+      <h2 id="mnudge-h">Nudges</h2>
+      <label className="check"><input type="checkbox" checked={on} onChange={(e) => set(e.target.checked)} /> Suggest emails to reply to and to follow up on</label>
+      <p className="muted small" style={{ margin: 0 }}>Mail from people you haven't answered in a few days says <em>Received 5 days ago. Reply?</em> in the Inbox (and shows on Home); mail you sent that nobody has answered says <em>Sent 4 days ago. Follow up?</em> in Sent.</p>
     </section>
   );
 }
