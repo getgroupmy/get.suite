@@ -74,7 +74,7 @@ export function conversationsOf(userId) {
 }
 
 /** Mail settings worth keeping when moving elsewhere: [[path, content]] — filters (Sieve, which most mail servers
- *  take, and the rules as JSON), signatures (HTML) and the vacation reply (text). Nothing for what isn't set. */
+ *  take, and the rules as JSON), signatures and templates (HTML) and the vacation reply (text). Nothing for what isn't set. */
 export function mailSettingsFiles(userId, username) {
   const out = [];
   const rules = (() => { try { return JSON.parse(q('SELECT rules FROM mail_rules WHERE user_id = ?').get(userId)?.rules || '[]'); } catch { return []; } })();
@@ -86,8 +86,24 @@ export function mailSettingsFiles(userId, username) {
   if (sig) out.push(['Mail settings/signature.html', sig.html]);
   for (const s of q("SELECT address, html FROM identity_signatures WHERE user_id = ? AND html != '' ORDER BY address").all(userId)) out.push([`Mail settings/signature ${safe(s.address)}.html`, s.html]);
   const v = q("SELECT subject, body, start_date, end_date, enabled FROM vacations WHERE user_id = ? AND (subject != '' OR body != '')").get(userId);
+  // Templates (canned replies): one HTML page each, its subject as the page's title.
+  const esc = (t) => String(t || '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+  const names = new Set();
+  for (const t of (() => { try { return q('SELECT name, subject, html FROM mail_templates WHERE user_id = ? ORDER BY name COLLATE NOCASE').all(userId); } catch { return []; } })()) {
+    let base = safe(t.name), n = 1;
+    while (names.has(base.toLowerCase())) base = `${safe(t.name)} (${++n})`;
+    names.add(base.toLowerCase());
+    out.push([`Mail settings/templates/${base}.html`, `<!doctype html><meta charset="utf-8"><title>${esc(t.subject || t.name)}</title>\n${t.html}\n`]);
+  }
   if (v) out.push(['Mail settings/vacation reply.txt', [`Subject: ${v.subject}`, `On: ${v.enabled ? 'yes' : 'no'}${v.start_date ? `, from ${v.start_date}` : ''}${v.end_date ? ` until ${v.end_date}` : ''}`, '', v.body].join('\r\n')]);
   return out;
+}
+
+/** Your event templates (Calendar → Template), as JSON, or null when there are none. */
+export function eventTemplatesJson(userId) {
+  let rows = [];
+  try { rows = q('SELECT name, data FROM event_templates WHERE user_id = ? ORDER BY name COLLATE NOCASE').all(userId); } catch { rows = []; }
+  return rows.length ? `${JSON.stringify(rows.map((r) => ({ name: r.name, ...JSON.parse(r.data) })), null, 2)}\n` : null;
 }
 
 /** Your notes as one Markdown file. */
@@ -180,6 +196,8 @@ export default function takeoutRoutes() {
       }
     }
     zip.file('Calendar.ics', exportCalendar(me));
+    const evTemplates = eventTemplatesJson(me);
+    if (evTemplates) zip.file('Calendar templates.json', evTemplates);
     zip.file('Contacts.vcf', contactsToVcf(q('SELECT * FROM contacts WHERE owner_id = ? ORDER BY name COLLATE NOCASE').all(me).map(withPhoto)));
     zip.file('Tasks.csv', `﻿${tasksCsv(me)}\r\n`);
     zip.file('Notes.md', `# Notes\n\n${notesMarkdown(me)}`);
@@ -216,7 +234,8 @@ export default function takeoutRoutes() {
       'Comments.csv  comments you wrote, and those on your files, for a spreadsheet',
       'Chat/         each conversation you are in, as text',
       'Forms/        each of your forms: its questions, and its responses for a spreadsheet',
-      'Mail settings/ your filters (as Sieve, which most mail servers take), signatures and vacation reply', mailNote].join('\r\n'));
+      'Mail settings/ your filters (as Sieve, which most mail servers take), signatures, templates and vacation reply',
+      'Calendar templates.json  your event templates, if you have any', mailNote].join('\r\n'));
     audit(req, 'data.export', { target: who.username });
     const name = `Workspace data${who.id === req.user.id ? '' : ` ${who.username}`} ${new Date().toISOString().slice(0, 10)}.zip`;
     res.setHeader('Content-Type', 'application/zip');

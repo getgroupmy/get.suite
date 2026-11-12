@@ -12107,4 +12107,10 @@ test('download your data: Mail settings/ with filters as Sieve, signatures and t
   assert.deepEqual(JSON.parse(await zip.file('Mail settings/filters.json').async('string'))[0].name, 'Invoices');
   assert.equal(await zip.file('Mail settings/signature.html').async('string'), '<p>Ann, Acme</p>');
   assert.match(await zip.file('Mail settings/vacation reply.txt').async('string'), /^Subject: Away\r\nOn: yes, from 2030-01-01 until 2030-01-05\r\n\r\nBack Monday/);
+  // Templates: mail ones as HTML pages, event ones as JSON.
+  q("INSERT INTO mail_templates (id, user_id, name, subject, html, updated_at) VALUES ('mt1', ?, 'Thanks', 'Thank you & welcome', '<p>Thanks!</p>', ?)").run(u.id, Date.now());
+  q("INSERT INTO event_templates (id, user_id, name, data, created_at) VALUES ('et1', ?, '1:1', ?, ?)").run(u.id, JSON.stringify({ title: 'One to one', minutes: 30 }), Date.now());
+  zip = await JSZip.loadAsync((await a('GET', '/api/takeout', undefined, { binary: true })).body);
+  assert.equal(await zip.file('Mail settings/templates/Thanks.html').async('string'), '<!doctype html><meta charset="utf-8"><title>Thank you &amp; welcome</title>\n<p>Thanks!</p>\n');
+  assert.deepEqual(JSON.parse(await zip.file('Calendar templates.json').async('string')), [{ name: '1:1', title: 'One to one', minutes: 30 }]);
 });
