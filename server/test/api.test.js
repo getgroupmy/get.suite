@@ -11695,3 +11695,26 @@ test('a folder’s activity covers what happens inside it, saying which item; a 
   const docActs = (await b('GET', `/api/files/${doc}/activity`)).body;
   assert.ok(docActs.length >= 2 && docActs.every((x) => !('file' in x)));
 });
+
+test('activity comes 100 at a time, newest first; ?before= gives the older ones', async () => {
+  const a = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'fapg', domain: 'acme.com', name: 'Page Ann', password: 'password123' })).status, 201);
+  await login(a, 'fapg@acme.com');
+  const folder = (await a('POST', '/api/files/folder', { name: 'Busy folder' })).body.id;
+  const d = (await a('POST', '/api/files/new', { kind: 'doc', name: 'n0', parent_id: folder })).body.id;
+  for (let i = 1; i <= 120; i++) await a('PATCH', `/api/files/${d}`, { name: `n${i}` });
+  const first = (await a('GET', `/api/files/${folder}/activity`)).body;
+  assert.equal(first.length, 100);
+  assert.equal(first[0].details.to, 'n120');
+  assert.ok(first.every((x, i) => i === 0 || x.id < first[i - 1].id), 'newest first, with ids');
+  const older = (await a('GET', `/api/files/${folder}/activity?before=${first.at(-1).id}`)).body;
+  assert.equal(older.length, 120 + 2 - 100, 'the rest: renames, the doc made, the folder made');
+  assert.ok(older.every((x) => x.id < first.at(-1).id));
+  assert.equal(older.at(-1).action, 'create');
+  assert.equal(older.at(-1).file, undefined, 'the folder itself');
+  // A file pages the same way.
+  const fileFirst = (await a('GET', `/api/files/${d}/activity`)).body;
+  assert.equal(fileFirst.length, 100);
+  assert.equal((await a('GET', `/api/files/${d}/activity?before=${fileFirst.at(-1).id}`)).body.length, 21);
+  assert.equal((await a('GET', `/api/files/${d}/activity?before=nonsense`)).body.length, 100, 'ignored');
+});

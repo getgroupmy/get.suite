@@ -1198,7 +1198,7 @@ function DetailsDialog({ file, onClose, onChanged }) {
             onBlur={() => { if (desc.trim() !== (f.description || '')) save({ description: desc }, 'Description saved'); }} />
         </label>
         {canEdit && f.kind !== 'folder' && <Viewers fileId={f.id} />}
-        <Activity fileId={f.id} />
+        <Activity fileId={f.id} onOpen={onClose} />
         {f.kind === 'folder' && canEdit && (
           <div className="stack" style={{ gap: 6 }}>
             <span className="muted small">Folder colour</span>
@@ -1429,8 +1429,7 @@ function TransferDialog({ file, onClose, onDone }) {
 }
 
 /** One line of a file's activity, e.g. "Kim Park renamed it from Plan to Plan 2027" (in a folder's: "renamed “Plan”…"). */
-function activityText(a) {
-  const it = a.file ? `“${a.file.name}”` : 'it'; // in a folder's activity: which item inside it
+function activityText(a, it = a.file ? `“${a.file.name}”` : 'it') { // in a folder's activity: which item inside it
   const who = a.user_name || (a.action === 'request' ? a.details?.from || 'Someone' : 'Someone');
   const d = a.details || {};
   switch (a.action) {
@@ -1462,22 +1461,40 @@ function DocLength({ fileId }) {
   return `${c.words.toLocaleString('en-GB')} ${c.words === 1 ? 'word' : 'words'}${c.minutes ? ` · ${c.minutes} min read` : ''}`;
 }
 
-/** What happened to a file, or in a folder (to it and what's inside), newest first (a few, then all). */
-function Activity({ fileId }) {
+const ITEM_LINK = { doc: (id) => `/docs/${id}`, sheet: (id) => `/sheets/${id}`, slides: (id) => `/slides/${id}`, folder: (id) => `/drive/folder/${id}` };
+const ITEM = '\u0001'; // stands for the item's name while a line is put together
+
+/** What happened to a file, or in a folder (to it and what's inside, each item's name opening it), newest first. */
+function Activity({ fileId, onOpen }) {
+  const navigate = useNavigate();
   const [list, setList] = useState(null);
   const [all, setAll] = useState(false);
-  useEffect(() => { get(`/files/${fileId}/activity`).then(setList).catch(() => setList([])); }, [fileId]);
+  const [more, setMore] = useState(false); // a full page came back, so there may be older ones
+  useEffect(() => { get(`/files/${fileId}/activity`).then((l) => { setList(l); setMore(l.length >= 100); }).catch(() => setList([])); }, [fileId]);
+  const older = async () => {
+    const l = await get(`/files/${fileId}/activity?before=${list.at(-1).id}`).catch(() => []);
+    setList([...list, ...l]); setMore(l.length >= 100);
+  };
   if (!list?.length) return null;
   const shown = all ? list : list.slice(0, 5);
+  const line = (a) => {
+    if (!a.file) return activityText(a);
+    const [before, after] = activityText(a, ITEM).split(ITEM);
+    return <>{before}<button type="button" className="link-btn" title={`Open ${a.file.name}`}
+      onClick={() => { onOpen?.(); navigate(ITEM_LINK[a.file.kind]?.(a.file.id) || `/drive?preview=${a.file.id}`); }}>“{a.file.name}”</button>{after}</>;
+  };
   return (
     <div className="stack" style={{ gap: 4 }}>
       <span className="muted small">Activity</span>
       <ul className="file-activity" aria-label="Activity">
-        {shown.map((a, i) => (
-          <li key={i}><span>{activityText(a)}</span> <span className="muted small" title={new Date(a.at).toLocaleString()}>{new Date(a.at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</span></li>
+        {shown.map((a) => (
+          <li key={a.id}><span>{line(a)}</span> <span className="muted small" title={new Date(a.at).toLocaleString()}>{new Date(a.at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</span></li>
         ))}
       </ul>
-      {list.length > 5 && <button type="button" className="link-btn small" style={{ alignSelf: 'start' }} onClick={() => setAll(!all)}>{all ? 'Show less' : `Show all ${list.length}`}</button>}
+      <div className="row" style={{ gap: 12 }}>
+        {list.length > 5 && <button type="button" className="link-btn small" onClick={() => setAll(!all)}>{all ? 'Show less' : `Show all ${list.length}`}</button>}
+        {all && more && <button type="button" className="link-btn small" onClick={older}>Show older</button>}
+      </div>
     </div>
   );
 }

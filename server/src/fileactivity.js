@@ -38,16 +38,16 @@ export function recordActivity(fileId, userId, action, details = null, at = Date
  * What happened in a folder: its own activity and that of everything inside it (at any depth, the trash
  * included), newest first, each saying which item it was about when it isn't the folder itself.
  */
-export function folderActivityOf(folderId, ids, limit = 100) {
-  return q(`SELECT a.action, a.at, a.details, a.file_id, f.name AS file_name, f.kind AS file_kind, u.name AS user_name
+export function folderActivityOf(folderId, ids, limit = 100, before = null) {
+  return q(`SELECT a.id, a.action, a.at, a.details, a.file_id, f.name AS file_name, f.kind AS file_kind, u.name AS user_name
             FROM file_activity a JOIN files f ON f.id = a.file_id LEFT JOIN users u ON u.id = a.user_id
-            WHERE a.file_id IN (SELECT value FROM json_each(?)) ORDER BY a.id DESC LIMIT ?`).all(JSON.stringify(ids), limit)
+            WHERE a.file_id IN (SELECT value FROM json_each(?)) AND a.id < ? ORDER BY a.id DESC LIMIT ?`).all(JSON.stringify(ids), before ?? Number.MAX_SAFE_INTEGER, limit)
     .map(({ file_id: id, file_name: name, file_kind: kind, ...a }) => ({ ...a, details: a.details ? JSON.parse(a.details) : null,
       ...(id !== folderId && { file: { id, name, kind } }) }));
 }
 
-export function activityOf(fileId, limit = 100) {
-  return q(`SELECT a.action, a.at, a.details, u.name AS user_name FROM file_activity a LEFT JOIN users u ON u.id = a.user_id
-            WHERE a.file_id = ? ORDER BY a.id DESC LIMIT ?`).all(fileId, limit)
+export function activityOf(fileId, limit = 100, before = null) {
+  return q(`SELECT a.id, a.action, a.at, a.details, u.name AS user_name FROM file_activity a LEFT JOIN users u ON u.id = a.user_id
+            WHERE a.file_id = ? AND a.id < ? ORDER BY a.id DESC LIMIT ?`).all(fileId, before ?? Number.MAX_SAFE_INTEGER, limit)
     .map((a) => ({ ...a, details: a.details ? JSON.parse(a.details) : null }));
 }

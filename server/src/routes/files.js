@@ -1791,8 +1791,9 @@ export default function fileRoutes({ maxUploadBytes }) {
   // What happened to it, newest first (anyone who can open it sees this).
   r.get('/:id/activity', (req, res) => {
     const f = loadFile(req.params.id, req.user);
-    // A folder's covers what's in it too (up to 5,000 items deep).
-    res.json(f.kind === 'folder' ? folderActivityOf(f.id, subtreeIds(f.id).slice(0, 5000)) : activityOf(f.id));
+    // A folder's covers what's in it too (up to 5,000 items deep). 100 at a time: ?before=<id> for older ones.
+    const before = /^\d+$/.test(String(req.query.before || '')) ? Number(req.query.before) : null;
+    res.json(f.kind === 'folder' ? folderActivityOf(f.id, subtreeIds(f.id).slice(0, 5000), 100, before) : activityOf(f.id, 100, before));
   });
 
   r.get('/:id/shares', (req, res) => {
