@@ -42,7 +42,8 @@ const COLUMNS = {
   company: ['organization 1 - name', 'organization name', 'company', 'organization', 'organisation'],
   notes: ['notes', 'note', 'comments'],
   birthday: ['birthday', 'birth date', 'date of birth', 'birthdate'],
-  title: ['organization 1 - title', 'job title', 'title'],
+  title: ['organization 1 - title', 'job title', 'title', 'position'],
+  connected: ['connected on'],
   address: ['address 1 - formatted', 'address', 'business address', 'home address', 'street'],
   website: ['website 1 - value', 'web page', 'website', 'url'],
 };
@@ -76,7 +77,11 @@ function moreColumns(names) {
 
 /** Contacts from a CSV export. The first row must name the columns. */
 export function contactsFromCsv(text) {
-  const [head, ...rows] = parseCsv(text);
+  const all0 = parseCsv(text);
+  // LinkedIn's Connections.csv starts with a few lines of notes before the column names: find the header row.
+  const known = new Set(['name', 'full name', 'first name', 'given name', 'last name', 'family name', 'email', 'email address', 'e-mail address', 'e-mail 1 - value']);
+  const hi = Math.max(0, all0.slice(0, 10).findIndex((r) => r.some((c) => known.has(String(c).trim().toLowerCase()))));
+  const [head, ...rows] = all0.slice(hi);
   if (!head) return [];
   const names = head.map((h) => h.trim().toLowerCase());
   const col = (k) => { for (const n of COLUMNS[k]) { const i = names.indexOf(n); if (i >= 0) return i; } return -1; };
@@ -101,7 +106,7 @@ export function contactsFromCsv(text) {
     const pairs = (prefix) => names.flatMap((n, i) => { const m = new RegExp(`^${prefix} (\\d+) - value$`).exec(n); if (!m) return []; const t = names.indexOf(`${prefix} ${m[1]} - type`); return [{ label: t >= 0 ? String(r[t] ?? '') : '', value: String(r[i] ?? '').trim() }]; }).filter((x) => x.value);
     const dates = cleanDates(pairs('event').map((x) => ({ label: x.label, date: x.value })));
     const custom = cleanCustom(pairs('custom field'));
-    return { dates, custom_fields: custom, name, email, phone, company: v(r, 'company') || null, notes: v(r, 'notes') || null, birthday: birthdayOf(v(r, 'birthday')), title: v(r, 'title') || null, address: v(r, 'address') || null, website: v(r, 'website') || null,
+    return { dates, custom_fields: custom, name, email, phone, company: v(r, 'company') || null, notes: v(r, 'notes') || (v(r, 'connected') ? `Connected on LinkedIn ${v(r, 'connected')}` : null), birthday: birthdayOf(v(r, 'birthday')), title: v(r, 'title') || null, address: v(r, 'address') || null, website: v(r, 'website') || null,
       more_emails: cleanMore(all.emails, 'emails', { main: email }), more_phones: cleanMore(all.phones.slice(1), 'phones', { main: phone }) };
   }).filter((c) => c.name);
 }

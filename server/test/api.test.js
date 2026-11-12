@@ -12428,3 +12428,26 @@ test('calendar: export as CSV in your time zone (formula-like text kept as text)
   assert.equal(got[1].all_day, 1);
   assert.equal(Math.round((got[1].end - got[1].start) / 864e5), 2);
 });
+
+test('contacts: LinkedIn’s Connections.csv imports (notes lines before the header skipped; position, profile, connected on)', async () => {
+  const c = client();
+  const made = await owner('POST', '/api/users', { local: 'lnkdimp', domain: 'acme.com', name: 'Lin Ked', password: 'password123' });
+  assert.equal(made.status, 201, JSON.stringify(made.body));
+  await login(c, 'lnkdimp@acme.com');
+  const csv = 'Notes:\r\n"When exporting your connection data, you may notice that some of the email addresses are missing. You will only see email addresses for connections who have allowed their connections to see or download their email address using this setting https://www.linkedin.com/psettings/privacy/email. You can learn more here https://www.linkedin.com/help/linkedin/answer/261"\r\n\r\n'
+    + 'First Name,Last Name,URL,Email Address,Company,Position,Connected On\r\n'
+    + 'Nora,Diaz,https://www.linkedin.com/in/noradiaz,nora@example.com,Globex,Head of Sales,03 Nov 2026\r\n'
+    + 'Omar,Haddad,https://www.linkedin.com/in/omarh,,Initech,Engineer,12 Oct 2025\r\n';
+  const r = await c('POST', '/api/contacts/import', csv, { raw: true, headers: { 'content-type': 'text/csv' } });
+  assert.deepEqual(r.body, { added: 2, skipped: 0 });
+  const list = (await c('GET', '/api/contacts')).body;
+  const arr = Array.isArray(list) ? list : list.contacts;
+  const nora = arr.find((x) => x.name === 'Nora Diaz');
+  assert.equal(nora.email, 'nora@example.com');
+  assert.equal(nora.company, 'Globex');
+  assert.equal(nora.title, 'Head of Sales');
+  assert.equal(nora.website, 'https://www.linkedin.com/in/noradiaz');
+  assert.equal(nora.notes, 'Connected on LinkedIn 03 Nov 2026');
+  assert.ok(arr.find((x) => x.name === 'Omar Haddad'), 'no address: kept by name');
+  assert.deepEqual((await c('POST', '/api/contacts/import', csv, { raw: true, headers: { 'content-type': 'text/csv' } })).body, { added: 0, skipped: 2 });
+});
