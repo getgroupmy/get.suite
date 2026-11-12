@@ -1,6 +1,7 @@
 // "Other contacts": people you've emailed who aren't in your contacts, remembered as you send, so
 // they're suggested next time. Colleagues on the server and your own contacts aren't kept here.
 import { q } from './db.js';
+import { recordTogether } from './mail/includes.js';
 
 q(`CREATE TABLE IF NOT EXISTS other_contacts (
   owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -14,6 +15,7 @@ const MAX_PER_PERSON = 2000;
 
 /** Remember who was written to: [{ name, address }]. */
 export function recordSent(user, addresses, at = Date.now()) {
+  recordTogether(user, addresses, at); // who you write to together, for "Include Kim?"
   for (const a of addresses) {
     const email = String(a?.address || '').trim().toLowerCase();
     if (!email || email.length > 254 || email === String(user.username).toLowerCase()) continue;

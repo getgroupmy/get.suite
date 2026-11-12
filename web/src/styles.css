@@ -2950,3 +2950,9 @@ select.meet-timer-btn option { color: #202124; }
 :root[data-theme="dark"] .msg-nudge { color: #fdd663; }
 .msg-list li { position: relative; }
 .msg-nudge-x { position: absolute; right: 14px; bottom: 8px; }
+
+/* Mail compose: "Include Kim?" suggestions under the address lines */
+.compose-includes { gap: 6px; align-items: center; padding: 2px 0 4px 72px; }
+.include-chip { display: inline-flex; align-items: center; gap: 2px; padding: 0 2px 0 10px; border-radius: 999px; background: var(--hover, rgba(0,0,0,.06)); }
+.include-chip .icon-btn { width: 24px; height: 24px; }
+@media (max-width: 600px) { .compose-includes { padding-left: 0; } }

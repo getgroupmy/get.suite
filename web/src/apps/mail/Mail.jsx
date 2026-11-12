@@ -1371,6 +1371,23 @@ function Compose({ initial, shared = null, signatures = [], onClose, onSent, onD
   const [waiting, setWaiting] = useState(false);
   const [accessGaps, setAccessGaps] = useState(null); // linked files some recipients can't open
   const [forgot, setForgot] = useState(null); // { word, next }: it says "attached" but nothing is
+  // "Include Kim?": people you usually write to together with those on the message (not for shared mailboxes).
+  const [includes, setIncludes] = useState([]);
+  const [waved, setWaved] = useState([]); // suggestions waved away for this message
+  useEffect(() => {
+    if (shared) return undefined;
+    const emails = [f.to, f.cc, f.bcc].flatMap((t) => parseAddresses(t).list.map((a) => a.email));
+    if (!emails.length) { setIncludes([]); return undefined; }
+    let live = true;
+    const t = setTimeout(() => get(`/mail/includes?to=${encodeURIComponent(emails.join(','))}&not=${encodeURIComponent(waved.join(','))}`)
+      .then((r) => { if (live) setIncludes(r); }).catch(() => {}), 500);
+    return () => { live = false; clearTimeout(t); };
+  }, [f.to, f.cc, f.bcc, waved, shared]);
+  const include = (p) => {
+    const who = p.name ? `${/[,;<>"]/.test(p.name) ? `"${p.name.replace(/"/g, '')}"` : p.name} <${p.email}>` : p.email;
+    setF((x) => ({ ...x, to: x.to.trim() ? `${x.to.trim().replace(/[,;]\s*$/, '')}, ${who}` : who }));
+    setIncludes((list) => list.filter((y) => y.email !== p.email));
+  };
   const [attachPrefs, setAttachPrefs] = useState({ on: true, words: [] }); // Settings → Mail → Forgotten attachments
   useEffect(() => { get('/mail/attach-check').then(setAttachPrefs).catch(() => {}); }, []);
   // A company data protection rule that warns: what it found, and whether the sender said to send anyway.
@@ -1498,6 +1515,18 @@ function Compose({ initial, shared = null, signatures = [], onClose, onSent, onD
           <label className="compose-line"><span>Cc</span><AddressInput label="Cc" type="text" inputMode="email" value={f.cc} onChange={(v) => setF((x) => ({ ...x, cc: v }))} /></label>
           <label className="compose-line"><span>Bcc</span><AddressInput label="Bcc" type="text" inputMode="email" value={f.bcc} onChange={(v) => setF((x) => ({ ...x, bcc: v }))} /></label>
         </>}
+        {includes.length > 0 && (
+          <div className="compose-includes row wrap small" role="group" aria-label="People you usually include">
+            <span className="muted">Include</span>
+            {includes.map((p) => (
+              <span key={p.email} className="include-chip">
+                <button type="button" className="link-btn" title={p.email} onClick={() => include(p)}>{p.name || p.email}</button>
+                <button type="button" className="icon-btn" aria-label={`Don’t suggest ${p.name || p.email}`} onClick={() => setWaved((w) => [...w, p.email])}><Icon name="close" size={14} /></button>
+              </span>
+            ))}
+            <span className="muted">?</span>
+          </div>
+        )}
         <label className="compose-line"><span>Subject</span><input aria-label="Subject" value={f.subject} onChange={set('subject')} /></label>
         <RichBody initialHtml={initial.html || textToHtml(initial.text || '')} autoFocus={!!initial.to} onReady={(ed) => { editorRef.current = ed; }}
           onChange={(html, text, initialReport) => { if (initialReport) skipNext.current = true; setF((cur) => ({ ...cur, html, text })); }} />

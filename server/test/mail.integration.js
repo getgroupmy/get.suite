@@ -2377,3 +2377,14 @@ test('forgotten-attachment reminder: on to begin with; off, and words of your ow
   assert.equal((await olivia('PUT', '/api/mail/attach-check', { words: ['x'] })).status, 400);
   assert.deepEqual((await olivia('PUT', '/api/mail/attach-check', { on: true, words: [] })).body, { on: true, words: [] });
 });
+
+test('include: after sending to Bob and Gina together, writing to Bob suggests Gina', async () => {
+  const run = Date.now().toString(36);
+  for (let i = 0; i < 2; i++) {
+    assert.equal((await olivia('POST', '/api/mail/send', { to: 'Bob <bob@acme.com>', cc: 'Gina Globex <gina@globex.com>', subject: `Weekly ${run} ${i}`, text: 'x' })).status, 200);
+  }
+  const s = (await olivia('GET', '/api/mail/includes?to=bob@acme.com')).body;
+  assert.deepEqual(s.map((x) => [x.email, x.name]), [['gina@globex.com', 'Gina Globex']]);
+  assert.deepEqual((await olivia('GET', '/api/mail/includes?to=bob@acme.com&not=gina@globex.com')).body, []);
+  assert.deepEqual((await bob('GET', '/api/mail/includes?to=olivia@acme.com')).body.filter((x) => x.email === 'gina@globex.com'), [], 'Olivia’s, not Bob’s');
+});
