@@ -398,6 +398,8 @@ export default function Tasks() {
               <option value="">Move to…</option>
               {(lists || []).filter((l) => l.id !== listId).map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
             </select>
+            <button type="button" className="btn small" disabled={!picked.size} title="Just these tasks as a spreadsheet (CSV), in the same columns as a list's download"
+              onClick={() => { window.location.href = `/api/tasks/export.csv?ids=${[...picked].join(',')}`; }}><Icon name="download" size={16} /> Download (CSV)</button>
             <button type="button" className="btn small danger" disabled={!picked.size} onClick={() => setConfirmDelete(true)}><Icon name="trash" size={16} /> Delete</button>
           </div>
         )}

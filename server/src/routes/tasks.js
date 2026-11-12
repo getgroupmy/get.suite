@@ -662,6 +662,22 @@ export default function taskRoutes() {
     sendXlsx(res, `${list.name || 'Tasks'}.xlsx`, await excelFromTable(list.name || 'Tasks', tasksTable(rows)));
   });
 
+  // Just the tasks ticked in a list or view (?ids=a,b, possibly from several lists), as a spreadsheet in the same columns.
+  r.get('/export.csv', (req, res) => {
+    const ids = [...new Set(String(req.query.ids || '').split(',').map((x) => x.trim()).filter(Boolean))];
+    if (!ids.length) throw bad('No tasks selected');
+    if (ids.length > 2000) throw bad('Up to 2,000 tasks at a time');
+    const rows = ids.map((id) => {
+      const t = q(`${TASK} WHERE t.id = ?`).get(id);
+      if (!t) throw notFound('Task not found');
+      loadList(t.list_id, req.user); // one you can see
+      return withSectionNames(t.list_id, [shape(t)])[0];
+    });
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(`Tasks (${rows.length}).csv`)}`);
+    res.send(tasksCsv(rows));
+  });
+
   r.get('/lists/:id/export.csv', (req, res) => {
     const list = loadList(req.params.id, req.user);
     const rows = withSectionNames(list.id, q(`${TASK} WHERE t.list_id = ? ORDER BY t.done_at IS NOT NULL, CASE WHEN t.done_at IS NULL THEN t.position END, t.done_at DESC`).all(list.id).map(shape));

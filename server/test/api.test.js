@@ -12555,3 +12555,28 @@ test('contacts: export only the ticked ones (?ids=), as vCard or CSV; someone el
   assert.equal((await b('GET', `/api/contacts/export?ids=${ids[0]}`)).status, 404, 'not someone else’s');
   assert.equal((await a('GET', '/api/contacts/export')).body.match(/BEGIN:VCARD/g).length, 3, 'without ids: all of them');
 });
+
+test('tasks: just the selected tasks as CSV (?ids=, across lists, in the order given); someone else’s refused', async () => {
+  const a = client(), b = client();
+  for (const [c, local] of [[a, 'tsel'], [b, 'tsel2']]) {
+    const made = await owner('POST', '/api/users', { local, domain: 'acme.com', name: local, password: 'password123' });
+    assert.equal(made.status, 201, JSON.stringify(made.body));
+    await login(c, `${local}@acme.com`);
+  }
+  const l1 = (await a('POST', '/api/tasks/lists', { name: 'Home' })).body.id;
+  const l2 = (await a('POST', '/api/tasks/lists', { name: 'Work' })).body.id;
+  const add = async (list, title, extra = {}) => { const r = await a('POST', `/api/tasks/lists/${list}/tasks`, { title, ...extra }); assert.equal(r.status, 201, JSON.stringify(r.body)); return r.body.id; };
+  const paint = await add(l1, 'Paint fence', { due: '2026-12-01' });
+  await add(l1, 'Mow lawn');
+  const report = await add(l2, 'Send report, "final"');
+  const r = await a('GET', `/api/tasks/export.csv?ids=${report},${paint}`);
+  assert.equal(r.status, 200);
+  assert.match(decodeURIComponent(r.headers.get('content-disposition')), /Tasks \(2\)\.csv/);
+  const lines = r.body.replace(/^﻿/, '').trim().split(/\r?\n/);
+  assert.equal(lines.length, 3);
+  assert.match(lines[1], /^"Send report, ""final"""/);
+  assert.match(lines[2], /^Paint fence,.*2026-12-01/);
+  assert.doesNotMatch(r.body, /Mow lawn/);
+  assert.equal((await b('GET', `/api/tasks/export.csv?ids=${paint}`)).status, 404, 'not someone else’s');
+  assert.equal((await a('GET', '/api/tasks/export.csv?ids=')).status, 400);
+});
