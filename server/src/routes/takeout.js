@@ -21,6 +21,8 @@ import { audit } from '../audit.js';
 import { sendTo } from '../hub.js';
 import { forbidden, notFound } from '../util.js';
 import { exportCalendar, importCalendar } from '../calimport.js';
+import { importMailRules, importMailTemplates } from './webmail.js';
+import { importEventTemplates } from './calendar.js';
 import { contactsToVcf } from '../contactfiles.js';
 import { withPhoto } from '../contactphotos.js';
 import { wordFromDoc } from '../office/word.js';
@@ -136,6 +138,23 @@ export default function takeoutRoutes() {
       try { const r2 = importTaskLists(user, csv); out.tasks = { lists: r2.lists.length, tasks: r2.lists.reduce((n, l) => n + l.tasks, 0) }; }
       catch (e) { if (e.status !== 400) throw e; out.tasks = { lists: 0, tasks: 0 }; } // no tasks in it
     }
+    // Settings that travel with you: mail filters, email templates and event templates (each skipped if already here).
+    const tryImport = (fn) => { try { return fn(); } catch (e) { if (e.status === 400 || e.status === 403) return { added: 0, skipped: 0, error: e.message }; throw e; } };
+    const json = async (name) => { const t = await text(name); if (!t) return null; try { return JSON.parse(t); } catch { return null; } };
+    const rules = await json('Mail settings/filters.json');
+    if (Array.isArray(rules) && rules.length) { const r2 = tryImport(() => importMailRules(user, { rules })); out.filters = { added: r2.added, skipped: r2.skipped, ...(r2.error && { error: r2.error }) }; }
+    const unesc = (t) => t.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&');
+    const templates = [];
+    for (const f of Object.values(zip.files).filter((x) => !x.dir && /^Mail settings\/templates\/[^/]+\.html$/.test(x.name))) {
+      const page = await f.async('string');
+      const m = /^<!doctype html><meta charset="utf-8"><title>([^<]*)<\/title>\n([\s\S]*?)\n?$/i.exec(page);
+      const name = f.name.split('/').pop().replace(/\.html$/, '');
+      const title = m ? unesc(m[1]) : '';
+      templates.push({ name, subject: title === name ? '' : title, html: m ? m[2] : page }); // the title is the subject, or the name when it had none
+    }
+    if (templates.length) out.templates = tryImport(() => importMailTemplates(user, { templates }));
+    const evTemplates = await json('Calendar templates.json');
+    if (Array.isArray(evTemplates) && evTemplates.length) out.event_templates = tryImport(() => importEventTemplates(user, { templates: evTemplates }));
     if (Object.keys(zip.files).some((n) => n.startsWith('Notes/') && n.endsWith('.md'))) out.notes = await importNotes(user, { files: [{ name: 'data.zip', base64: buf.toString('base64') }] });
     sendTo([user.id], { type: 'events-changed' });
     audit(req, 'takeout.restore', { details: out });

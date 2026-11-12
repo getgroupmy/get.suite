@@ -388,6 +388,52 @@ function uidList(v) {
   return arr;
 }
 
+/** Mail filters from filters.json ({ rules }): the ones not already there are added. { added, skipped, rules } */
+export function importMailRules(user, body) {
+  const incoming = normalizeRules(Array.isArray(body?.rules) ? body.rules : []);
+  if (!incoming.length) throw bad('There are no filters in that file');
+  const current = JSON.parse(q('SELECT rules FROM mail_rules WHERE user_id = ?').get(user.id)?.rules || '[]');
+  const key = (x) => JSON.stringify([x.match, x.conditions, x.actions]);
+  const have = new Set(current.map(key));
+  const added = incoming.filter((x) => !have.has(key(x)) && have.add(key(x)));
+  const outside = added.find((x) => x.actions.forwardTo && !forwardingAllowed(user.org_id, x.actions.forwardTo));
+  if (outside) throw new HttpError(403, `${outside.name}: your company only allows forwarding to its own addresses`);
+  const rules = normalizeRules([...current, ...added]);
+  q(`INSERT INTO mail_rules (user_id, rules, updated_at) VALUES (?, ?, ?)
+     ON CONFLICT(user_id) DO UPDATE SET rules = excluded.rules, updated_at = excluded.updated_at`)
+    .run(user.id, JSON.stringify(rules), Date.now());
+  if (added.length) scheduleMailConfig();
+  return { added: added.length, skipped: incoming.length - added.length, rules };
+}
+
+const readTemplate = (b, cur = {}) => {
+  const name = str(b.name ?? cur.name, { required: true, name: 'Template name', max: 100 });
+  const subject = str(b.subject ?? cur.subject ?? '', { max: 300, name: 'Subject' }) || '';
+  const html = typeof (b.html ?? cur.html) === 'string' ? (b.html ?? cur.html) : '';
+  if (html.length > 100000) throw bad('The template is too long');
+  return { name, subject, html };
+};
+
+/** Email templates ({ templates: [{ name, subject, html }] }): new ones added, same ones skipped. { added, skipped } */
+export function importMailTemplates(user, body) {
+  const list = Array.isArray(body?.templates) ? body.templates.slice(0, 200) : [];
+  if (!list.length) throw bad('There are no templates in that file');
+  const incoming = list.map((t) => readTemplate(t || {}));
+  let added = 0, skipped = 0;
+  tx(() => {
+    for (const t of incoming) {
+      const same = q('SELECT 1 FROM mail_templates WHERE user_id = ? AND name = ? COLLATE NOCASE AND COALESCE(subject, \'\') = ? AND html = ?').get(user.id, t.name, t.subject || '', t.html);
+      if (same) { skipped++; continue; }
+      if (q('SELECT COUNT(*) AS n FROM mail_templates WHERE user_id = ?').get(user.id).n >= 200) throw bad('Too many templates');
+      let name = t.name, n = 1;
+      while (q('SELECT 1 FROM mail_templates WHERE user_id = ? AND name = ? COLLATE NOCASE').get(user.id, name)) name = `${t.name.slice(0, 94)} (${++n})`;
+      q('INSERT INTO mail_templates (id, user_id, name, subject, html, updated_at) VALUES (?, ?, ?, ?, ?, ?)').run(newId(), user.id, name, t.subject, t.html, now());
+      added++;
+    }
+  });
+  return { added, skipped };
+}
+
 export default function webmailRoutes() {
   const r = Router();
 
@@ -590,20 +636,7 @@ export default function webmailRoutes() {
   // Import filters (as Download your data gives them, Mail settings/filters.json): { rules }. Each one not already
   // there (same conditions and actions) is added at the end: { added, skipped, rules }.
   r.post('/rules/import', (req, res) => {
-    const incoming = normalizeRules(Array.isArray(req.body?.rules) ? req.body.rules : []);
-    if (!incoming.length) throw bad('There are no filters in that file');
-    const current = JSON.parse(q('SELECT rules FROM mail_rules WHERE user_id = ?').get(req.user.id)?.rules || '[]');
-    const key = (x) => JSON.stringify([x.match, x.conditions, x.actions]);
-    const have = new Set(current.map(key));
-    const added = incoming.filter((x) => !have.has(key(x)) && have.add(key(x)));
-    const outside = added.find((x) => x.actions.forwardTo && !forwardingAllowed(req.user.org_id, x.actions.forwardTo));
-    if (outside) throw new HttpError(403, `${outside.name}: your company only allows forwarding to its own addresses`);
-    const rules = normalizeRules([...current, ...added]);
-    q(`INSERT INTO mail_rules (user_id, rules, updated_at) VALUES (?, ?, ?)
-       ON CONFLICT(user_id) DO UPDATE SET rules = excluded.rules, updated_at = excluded.updated_at`)
-      .run(req.user.id, JSON.stringify(rules), Date.now());
-    if (added.length) scheduleMailConfig();
-    res.json({ added: added.length, skipped: incoming.length - added.length, rules });
+    res.json(importMailRules(req.user, req.body));
   });
 
   r.put('/rules', (req, res) => {
@@ -791,32 +824,10 @@ export default function webmailRoutes() {
 
   // ---- templates: saved messages (subject and body) to start a message or a reply from ----
   r.get('/templates', (req, res) => res.json(q('SELECT id, name, subject, html, updated_at FROM mail_templates WHERE user_id = ? ORDER BY name COLLATE NOCASE').all(req.user.id)));
-  const readTemplate = (b, cur = {}) => {
-    const name = str(b.name ?? cur.name, { required: true, name: 'Template name', max: 100 });
-    const subject = str(b.subject ?? cur.subject ?? '', { max: 300, name: 'Subject' }) || '';
-    const html = typeof (b.html ?? cur.html) === 'string' ? (b.html ?? cur.html) : '';
-    if (html.length > 100000) throw bad('The template is too long');
-    return { name, subject, html };
-  };
   // Import templates (as Templates → Export gives them: [{ name, subject, html }]). One that's already here (same name,
   // subject and text) is skipped; one whose name is taken by a different template gets a number: { added, skipped }.
   r.post('/templates/import', (req, res) => {
-    const list = Array.isArray(req.body?.templates) ? req.body.templates.slice(0, 200) : [];
-    if (!list.length) throw bad('There are no templates in that file');
-    const incoming = list.map((t) => readTemplate(t || {}));
-    let added = 0, skipped = 0;
-    tx(() => {
-      for (const t of incoming) {
-        const same = q('SELECT 1 FROM mail_templates WHERE user_id = ? AND name = ? COLLATE NOCASE AND COALESCE(subject, \'\') = ? AND html = ?').get(req.user.id, t.name, t.subject || '', t.html);
-        if (same) { skipped++; continue; }
-        if (q('SELECT COUNT(*) AS n FROM mail_templates WHERE user_id = ?').get(req.user.id).n >= 200) throw bad('Too many templates');
-        let name = t.name, n = 1;
-        while (q('SELECT 1 FROM mail_templates WHERE user_id = ? AND name = ? COLLATE NOCASE').get(req.user.id, name)) name = `${t.name.slice(0, 94)} (${++n})`;
-        q('INSERT INTO mail_templates (id, user_id, name, subject, html, updated_at) VALUES (?, ?, ?, ?, ?, ?)').run(newId(), req.user.id, name, t.subject, t.html, now());
-        added++;
-      }
-    });
-    res.json({ added, skipped });
+    res.json(importMailTemplates(req.user, req.body));
   });
 
   r.post('/templates', (req, res) => {

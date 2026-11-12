@@ -665,13 +665,14 @@ function YourData() {
           try {
             const r = await postBlob(`/takeout/restore?tz=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone)}`, f, 'application/zip');
             const parts = [r.calendar && n(r.calendar.added, 'event', 'events'), r.contacts && n(r.contacts.added, 'contact', 'contacts'),
-              r.tasks && `${n(r.tasks.lists, 'task list', 'task lists')} (${n(r.tasks.tasks, 'task', 'tasks')})`, r.notes && n(r.notes.added, 'note', 'notes')].filter(Boolean);
+              r.tasks && `${n(r.tasks.lists, 'task list', 'task lists')} (${n(r.tasks.tasks, 'task', 'tasks')})`, r.notes && n(r.notes.added, 'note', 'notes'),
+              r.filters && n(r.filters.added, 'mail filter', 'mail filters'), r.templates && n(r.templates.added, 'email template', 'email templates'), r.event_templates && n(r.event_templates.added, 'event template', 'event templates')].filter(Boolean);
             toast(`Brought in ${parts.join(', ') || 'nothing new'}`);
             get('/takeout/summary').then(setSum).catch(() => {});
           } catch (err) { toast(err.message, 'error'); } finally { setRestoring(false); }
         }} />
       </div>
-      <p className="muted small" style={{ margin: 0 }}><strong>Bring in your data…</strong> takes such a .zip back (from here or another Workspace server): its calendar, contacts, task lists and notes are added to yours; events and contacts you already have are skipped. Drive files and email come in their own ways: upload the Drive folder in Drive, and the .mbox files with Mail → Import mail.</p>
+      <p className="muted small" style={{ margin: 0 }}><strong>Bring in your data…</strong> takes such a .zip back (from here or another Workspace server): its calendar, contacts, task lists and notes, and your mail filters, email templates and event templates, are added to yours; events, contacts and settings you already have are skipped. Drive files and email come in their own ways: upload the Drive folder in Drive, and the .mbox files with Mail → Import mail.</p>
     </section>
   );
 }

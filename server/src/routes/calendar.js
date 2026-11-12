@@ -500,6 +500,30 @@ export function cleanTemplate(e) {
   };
 }
 
+/** Event templates ({ templates }, as Calendar templates.json has them): new ones added. { added, skipped } */
+export function importEventTemplates(user, body) {
+  const list = Array.isArray(body?.templates) ? body.templates.slice(0, MAX_EVENT_TEMPLATES) : [];
+  if (!list.length) throw bad('There are no templates in that file');
+  const incoming = list.map((t) => {
+    const name = str(t?.name, { required: true, name: 'Template name', max: 60 });
+    const data = cleanTemplate(t);
+    if (data.calendar_id && !q('SELECT 1 FROM user_calendars WHERE id = ? AND owner_id = ?').get(data.calendar_id, user.id)) data.calendar_id = null;
+    return { name, data };
+  });
+  let added = 0, skipped = 0;
+  tx(() => {
+    for (const t of incoming) {
+      if (q('SELECT 1 FROM event_templates WHERE user_id = ? AND LOWER(name) = LOWER(?) AND data = ?').get(user.id, t.name, JSON.stringify(t.data))) { skipped++; continue; }
+      if (q('SELECT COUNT(*) AS n FROM event_templates WHERE user_id = ?').get(user.id).n >= MAX_EVENT_TEMPLATES) throw bad(`At most ${MAX_EVENT_TEMPLATES} templates`);
+      let name = t.name, n = 1;
+      while (q('SELECT 1 FROM event_templates WHERE user_id = ? AND LOWER(name) = LOWER(?)').get(user.id, name)) name = `${t.name.slice(0, 54)} (${++n})`;
+      q('INSERT INTO event_templates (id, user_id, name, data, created_at) VALUES (?, ?, ?, ?, ?)').run(uid(), user.id, name, JSON.stringify(t.data), Date.now());
+      added++;
+    }
+  });
+  return { added, skipped };
+}
+
 export default function calendarRoutes() {
   const r = Router();
 
@@ -521,26 +545,7 @@ export default function calendarRoutes() {
   // One already here as it is is skipped; a name taken by a different one gets a number. A calendar that isn't one
   // of yours here is left out (the template goes on your main calendar): { added, skipped }.
   r.post('/templates/import', (req, res) => {
-    const list = Array.isArray(req.body?.templates) ? req.body.templates.slice(0, MAX_EVENT_TEMPLATES) : [];
-    if (!list.length) throw bad('There are no templates in that file');
-    const incoming = list.map((t) => {
-      const name = str(t?.name, { required: true, name: 'Template name', max: 60 });
-      const data = cleanTemplate(t);
-      if (data.calendar_id && !q('SELECT 1 FROM user_calendars WHERE id = ? AND owner_id = ?').get(data.calendar_id, req.user.id)) data.calendar_id = null;
-      return { name, data };
-    });
-    let added = 0, skipped = 0;
-    tx(() => {
-      for (const t of incoming) {
-        if (q('SELECT 1 FROM event_templates WHERE user_id = ? AND LOWER(name) = LOWER(?) AND data = ?').get(req.user.id, t.name, JSON.stringify(t.data))) { skipped++; continue; }
-        if (q('SELECT COUNT(*) AS n FROM event_templates WHERE user_id = ?').get(req.user.id).n >= MAX_EVENT_TEMPLATES) throw bad(`At most ${MAX_EVENT_TEMPLATES} templates`);
-        let name = t.name, n = 1;
-        while (q('SELECT 1 FROM event_templates WHERE user_id = ? AND LOWER(name) = LOWER(?)').get(req.user.id, name)) name = `${t.name.slice(0, 54)} (${++n})`;
-        q('INSERT INTO event_templates (id, user_id, name, data, created_at) VALUES (?, ?, ?, ?, ?)').run(uid(), req.user.id, name, JSON.stringify(t.data), Date.now());
-        added++;
-      }
-    });
-    res.json({ added, skipped });
+    res.json(importEventTemplates(req.user, req.body));
   });
   r.delete('/templates/:tid', (req, res) => {
     const n = q('DELETE FROM event_templates WHERE id = ? AND user_id = ?').run(String(req.params.tid), req.user.id).changes;
