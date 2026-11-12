@@ -434,6 +434,29 @@ export function importMailTemplates(user, body) {
   return { added, skipped };
 }
 
+/**
+ * Signatures brought back in ([{ address, html }], address null for the main one): each goes to that sending address if
+ * it's one of yours, otherwise to your main address (moving to another domain); one you already have isn't replaced.
+ */
+export function importSignatures(user, sigs) {
+  if (companySignature(user.org_id).mode === 'always') return { added: 0, skipped: sigs.length, error: 'Your company uses one signature for everyone, so yours wasn’t brought in' };
+  const mine = identities(user).map((i) => i.address);
+  const main = mine.includes(String(user.username || '').toLowerCase()) ? String(user.username).toLowerCase() : mine[0];
+  const has = (address) => !!q("SELECT 1 FROM identity_signatures WHERE user_id = ? AND address = ? AND html != ''").get(user.id, address)
+    || (address === main && !!q("SELECT 1 FROM mail_signatures WHERE user_id = ? AND html != ''").get(user.id));
+  let added = 0, skipped = 0;
+  // Ones for an address you have first, so a moved one doesn't take the main address's place.
+  for (const s of [...sigs].sort((x, y) => (mine.includes(y.address) ? 1 : 0) - (mine.includes(x.address) ? 1 : 0))) {
+    const html = String(s.html || '').slice(0, 20000);
+    const to = mine.includes(s.address) ? s.address : main;
+    if (!html.trim() || !to || has(to)) { skipped++; continue; }
+    q(`INSERT INTO identity_signatures (user_id, address, html, on_new, on_reply, updated_at) VALUES (?, ?, ?, 1, 1, ?)
+       ON CONFLICT(user_id, address) DO UPDATE SET html = excluded.html, updated_at = excluded.updated_at`).run(user.id, to, html, Date.now());
+    added++;
+  }
+  return { added, skipped };
+}
+
 export default function webmailRoutes() {
   const r = Router();
 

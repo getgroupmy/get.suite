@@ -21,7 +21,7 @@ import { audit } from '../audit.js';
 import { sendTo } from '../hub.js';
 import { forbidden, notFound } from '../util.js';
 import { exportCalendar, importCalendar } from '../calimport.js';
-import { importMailRules, importMailTemplates } from './webmail.js';
+import { importMailRules, importMailTemplates, importSignatures } from './webmail.js';
 import { importEventTemplates } from './calendar.js';
 import { contactsToVcf } from '../contactfiles.js';
 import { withPhoto } from '../contactphotos.js';
@@ -153,6 +153,12 @@ export default function takeoutRoutes() {
       templates.push({ name, subject: title === name ? '' : title, html: m ? m[2] : page }); // the title is the subject, or the name when it had none
     }
     if (templates.length) out.templates = tryImport(() => importMailTemplates(user, { templates }));
+    const sigs = [];
+    for (const f of Object.values(zip.files).filter((x) => !x.dir && /^Mail settings\/signature( [^/]+)?\.html$/.test(x.name))) {
+      const m = /^Mail settings\/signature(?: ([^/]+))?\.html$/.exec(f.name);
+      sigs.push({ address: m[1] ? m[1].toLowerCase() : null, html: await f.async('string') });
+    }
+    if (sigs.length) out.signatures = importSignatures(user, sigs);
     const evTemplates = await json('Calendar templates.json');
     if (Array.isArray(evTemplates) && evTemplates.length) out.event_templates = tryImport(() => importEventTemplates(user, { templates: evTemplates }));
     if (Object.keys(zip.files).some((n) => n.startsWith('Notes/') && n.endsWith('.md'))) out.notes = await importNotes(user, { files: [{ name: 'data.zip', base64: buf.toString('base64') }] });
