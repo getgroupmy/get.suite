@@ -8,7 +8,7 @@ import { sendTo } from './hub.js';
 q(`CREATE TABLE IF NOT EXISTS notifications (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  kind TEXT NOT NULL,                 -- mention | comment | task | invite | share | booking
+  kind TEXT NOT NULL,                 -- mention | comment | reply | task | invite | share | booking
   title TEXT NOT NULL,
   body TEXT,
   link TEXT,                          -- where in Workspace it leads
@@ -21,7 +21,7 @@ q('CREATE INDEX IF NOT EXISTS notifications_user ON notifications(user_id, creat
 const KEEP = 200;
 // Kinds someone can turn off (each person's choice; all on to begin with).
 export const KINDS = [
-  ['mention', 'Mentions in Chat and in documents'], ['comment', 'Mentions in comments on files'], ['task', 'Tasks given to you, and comments on tasks'],
+  ['mention', 'Mentions in Chat and in documents'], ['comment', 'Mentions in comments on files'], ['reply', 'Replies in comment threads you’re in, and new comments on your files'], ['task', 'Tasks given to you, and comments on tasks'],
   ['invite', 'Calendar invitations, answers and proposed times'], ['share', 'Files shared with you and access requests'],
   ['edit', 'Changes to files you follow'], ['chat', 'Chat reminders and scheduled messages'], ['booking', 'Booking page appointments'], ['timeoff', 'Time off requests and answers'],
   ['form', 'Responses to your forms'], ['note', 'Note reminders'], ['touch', 'Contacts you’re due to keep in touch with'], ['dates', 'Contacts’ birthdays and dates'], ['followup', 'Emails that got no reply'], ['mailfull', 'Your mailbox filling up'], ['assign', 'Shared mailbox emails given to you'], ['security', 'Security alerts (admins)'], ['system', 'Server health (platform owner)'], ['signin', 'Sign-ins to your account from a new device'],

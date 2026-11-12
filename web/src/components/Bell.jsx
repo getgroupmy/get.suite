@@ -7,7 +7,7 @@ import Icon from './Icon.jsx';
 import { setBadgePart } from '../appbadge.js';
 import { Modal, useToast } from './ui.jsx';
 
-const ICONS = { mention: 'chat', comment: 'chat', task: 'check', invite: 'calendar', share: 'share', booking: 'calendar', edit: 'edit', chat: 'chat', form: 'form' };
+const ICONS = { mention: 'chat', comment: 'chat', reply: 'reply', task: 'check', invite: 'calendar', share: 'share', booking: 'calendar', edit: 'edit', chat: 'chat', form: 'form' };
 
 /** "just now", "5 min", "3 h", "yesterday", "2 Nov". */
 export function ago(ms, now = Date.now()) {

@@ -110,6 +110,22 @@ function taskDone(taskId, done) {
   if (list) sendTo([list.owner_id], { type: 'tasks-changed', list_id: t.list_id });
 }
 
+/**
+ * Those following a conversation hear about it in the bell: a reply goes to everyone in its thread (who started
+ * it, who replied, who it's assigned to), a new thread to the file's owner. Not to whoever wrote it, nor to
+ * people just told because they're @mentioned, nor to anyone who can no longer open the file.
+ */
+function tellFollowers(user, file, body, threadId, isReply, skipNames) {
+  const ids = isReply
+    ? q(`SELECT author_id AS id FROM file_comments WHERE id = ? OR thread_id = ? UNION SELECT assignee_id FROM file_comments WHERE id = ?`).all(threadId, threadId, threadId).map((r) => r.id)
+    : [q('SELECT owner_id FROM files WHERE id = ?').get(file.id)?.owner_id];
+  const who = [...new Set(ids)].filter((id) => id && id !== user.id && roleFor(file.id, id)
+    && !skipNames.includes(q('SELECT username FROM users WHERE id = ?').get(id)?.username));
+  if (!who.length) return;
+  notify(who, { kind: 'reply', title: isReply ? `${user.name || user.username} replied to a comment on “${file.name}”` : `${user.name || user.username} commented on “${file.name}”`,
+    body, link: linkTo(file, threadId), actor: user.name });
+}
+
 /** Mentioned people: notify those who can open the file; say who can't. `already`: mentioned before (an edit), not told again. */
 function mention(user, file, body, commentId, already = new Set()) {
   const notified = [], noAccess = [];
@@ -177,6 +193,7 @@ export default function commentRoutes() {
       .run(id, f.id, threadId, req.user.id, body, anchor ? JSON.stringify(anchor) : null, now());
     if (assignee) assign(req.user, f, id, body, assignee);
     const mentions = mention(req.user, f, body, threadId || id);
+    tellFollowers(req.user, f, body, threadId || id, !!threadId, [...[...body.matchAll(MENTION_RE)].map((m) => m[1].toLowerCase()), ...(assignee ? [assignee.username] : [])]);
     changed(f.id);
     res.status(201).json({ comment: listOf(f.id).find((c) => c.id === id), ...mentions });
   });

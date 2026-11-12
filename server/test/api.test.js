@@ -11585,3 +11585,44 @@ test('deleting a comment: its author or the file owner, not another editor', asy
   assert.equal((await b('DELETE', `/api/comments/${d.id}/${r.id}`)).status, 200, 'his own');
   assert.equal((await a('DELETE', `/api/comments/${d.id}/${c.id}`)).status, 200);
 });
+
+test('comment notifications: the owner hears of new comments, a thread’s people of replies; not twice, not the writer, not without access, and it can be turned off', async () => {
+  const a = client(), b = client(), c = client(), d = client();
+  for (const [local, name] of [['crpa', 'Rep Ann'], ['crpb', 'Rep Ben'], ['crpc', 'Rep Cy'], ['crpd', 'Rep Di']]) assert.equal((await owner('POST', '/api/users', { local, domain: 'acme.com', name, password: 'password123' })).status, 201);
+  await login(a, 'crpa@acme.com');
+  const bid = (await login(b, 'crpb@acme.com')).id;
+  const cid = (await login(c, 'crpc@acme.com')).id;
+  const did = (await login(d, 'crpd@acme.com')).id;
+  const doc = (await a('POST', '/api/files/new', { kind: 'doc', name: 'Reply doc' })).body;
+  await a('PUT', `/api/files/${doc.id}/shares`, { shares: [bid, cid, did].map((user_id) => ({ user_id, role: 'editor' })) });
+  const bell = async (who) => (await who('GET', '/api/notifications')).body.items.filter((n) => n.kind === 'reply');
+
+  // Ben starts a thread: Ann (the owner) hears of it.
+  const root = (await b('POST', `/api/comments/${doc.id}`, { body: 'Is this right?', anchor: { quote: 'x' } })).body.comment;
+  let ann = await bell(a);
+  assert.equal(ann.length, 1);
+  assert.equal(ann[0].title, 'Rep Ben commented on “Reply doc”');
+  assert.equal(ann[0].link, `/docs/${doc.id}?comment=${root.id}`);
+  assert.equal((await bell(b)).length, 0, 'not the writer');
+  // Ann's own comment on her file: nobody.
+  await a('POST', `/api/comments/${doc.id}`, { body: 'Mine', anchor: { quote: 'y' } });
+  assert.equal((await bell(a)).length, 1);
+
+  // Cy replies: Ben (who started it) hears; Ann isn't in the thread.
+  await c('POST', `/api/comments/${doc.id}`, { body: 'I think so', thread_id: root.id });
+  const ben = await bell(b);
+  assert.equal(ben.length, 1);
+  assert.equal(ben[0].title, 'Rep Cy replied to a comment on “Reply doc”');
+  assert.equal(ben[0].body, 'I think so');
+  assert.equal((await bell(a)).length, 1);
+  // Ben replies mentioning Cy: Cy gets the mention, not also a reply notification.
+  await b('POST', `/api/comments/${doc.id}`, { body: 'Thanks @crpc@acme.com', thread_id: root.id });
+  assert.equal((await bell(c)).length, 0);
+  assert.ok((await c('GET', '/api/notifications')).body.items.some((n) => n.kind === 'comment'));
+  // Di replies: Ben and Cy hear. Cy turned replies off; Ben lost access.
+  assert.equal((await c('PUT', '/api/notifications/settings', { off: ['reply'] })).status < 300, true);
+  await a('PUT', `/api/files/${doc.id}/shares`, { shares: [cid, did].map((user_id) => ({ user_id, role: 'editor' })) });
+  await d('POST', `/api/comments/${doc.id}`, { body: 'Agreed', thread_id: root.id });
+  assert.equal((await bell(b)).length, 1, 'Ben can’t open it any more');
+  assert.equal((await bell(c)).length, 0, 'Cy turned these off');
+});
