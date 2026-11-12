@@ -66,3 +66,20 @@ test('frequently contacted: most emailed first, then latest; contacts and collea
   assert.equal(f[2].name, 'Pat P'); assert.equal(f[2].contact_id, null);
   assert.deepEqual(frequentOf({ ...person('inc6'), org_id: 'iorg' }), []);
 });
+
+test('forgetting: one person goes from Frequent and from suggestions; then everyone', async () => {
+  const { frequentOf, forgetSent } = await import('../src/mail/includes.js');
+  const me = { ...person('inc7'), org_id: 'iorg' };
+  for (let i = 0; i < 3; i++) recordTogether(me, [{ address: 'a@f.example' }, { address: 'b@f.example' }, { address: 'c@f.example' }]);
+  assert.deepEqual(suggestIncludes(me, ['a@f.example']).map((s) => s.email), ['b@f.example', 'c@f.example']);
+  assert.equal(forgetSent(me, 'B@f.example'), 1);
+  assert.deepEqual(frequentOf(me).map((x) => x.email).sort(), ['a@f.example', 'c@f.example']);
+  assert.deepEqual(suggestIncludes(me, ['a@f.example']).map((s) => s.email), ['c@f.example'], 'no longer paired');
+  assert.equal(forgetSent(me, 'nobody@f.example'), 0);
+  const other = { ...person('inc8'), org_id: 'iorg' };
+  recordTogether(other, [{ address: 'a@f.example' }]);
+  assert.equal(forgetSent(me), 2);
+  assert.deepEqual(frequentOf(me), []);
+  assert.deepEqual(suggestIncludes(me, ['a@f.example']), []);
+  assert.equal(frequentOf(other).length, 1, 'only theirs');
+});

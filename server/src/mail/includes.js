@@ -97,3 +97,17 @@ export function frequentOf(user, { days = 180, limit = 20, now = Date.now() } = 
       contact_id: contact?.id || null, colleague_id: colleague?.id || null };
   });
 }
+
+/** Forget one person (and every pairing with them), or everyone when `email` is empty. Gives how many people were forgotten. */
+export function forgetSent(user, email = null) {
+  if (!email) {
+    const n = q('SELECT COUNT(*) AS n FROM mail_sent_to WHERE owner_id = ?').get(user.id).n;
+    q('DELETE FROM mail_sent_to WHERE owner_id = ?').run(user.id);
+    q('DELETE FROM mail_together WHERE owner_id = ?').run(user.id);
+    return n;
+  }
+  const e = clean(email);
+  const n = q('DELETE FROM mail_sent_to WHERE owner_id = ? AND email = ?').run(user.id, e).changes;
+  q('DELETE FROM mail_together WHERE owner_id = ? AND (a = ? OR b = ?)').run(user.id, e, e);
+  return n;
+}

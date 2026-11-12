@@ -17,7 +17,7 @@ import { buildVcard } from '../vcard.js';
 import { REMIND } from '../contactreminders.js';
 import { zoneOrUtc } from '../ics.js';
 import { watchContacts, undoContacts, changedSince, sweepContactHistory, HISTORY_DAYS } from '../contacthistory.js';
-import { frequentOf } from '../mail/includes.js';
+import { frequentOf, forgetSent } from '../mail/includes.js';
 
 // Keep in touch: how often (days) you mean to be in touch with someone, and when you last were (sending them
 // email counts, or Mark as contacted).
@@ -253,6 +253,8 @@ export default function contactRoutes() {
   r.get('/other', (req, res) => res.json(otherContactsOf(req.user.id)));
   // Frequently contacted: who you email most (from Workspace, the last six months).
   r.get('/frequent', (req, res) => res.json(frequentOf(req.user)));
+  // Forget who you write to: one person (?email=) or everyone. Also what "Include …?" in Mail suggests.
+  r.delete('/frequent', (req, res) => res.json({ forgotten: forgetSent(req.user, req.query.email ? String(req.query.email) : null) }));
   r.delete('/other/:email', (req, res) => {
     if (!forgetOther(req.user.id, req.params.email)) throw notFound();
     res.json({ ok: true });

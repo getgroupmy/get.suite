@@ -11180,3 +11180,12 @@ test('single-key shortcuts: on to begin with; each person can turn them off', as
   assert.deepEqual((await u('PUT', '/api/users/me/keys', { on: true })).body, { keys: true });
   assert.equal((await u('GET', '/api/auth/me')).body.user.keys, true);
 });
+
+test('forget who you write to: the route answers for yourself only', async () => {
+  const u = client();
+  assert.equal((await owner('POST', '/api/users', { local: 'forgetme', domain: 'acme.com', name: 'Forget Me', password: 'password123' })).status, 201);
+  await login(u, 'forgetme@acme.com');
+  assert.deepEqual((await u('GET', '/api/contacts/frequent')).body, []);
+  assert.deepEqual((await u('DELETE', '/api/contacts/frequent?email=x@y.example')).body, { forgotten: 0 });
+  assert.deepEqual((await u('DELETE', '/api/contacts/frequent')).body, { forgotten: 0 });
+});

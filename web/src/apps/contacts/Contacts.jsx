@@ -391,7 +391,18 @@ function Frequent({ filter, onAdded }) {
   const add = async (c) => {
     try { await post('/contacts', { name: c.name || c.email.split('@')[0], email: c.email }); toast(`${c.name || c.email} added to your contacts`); load(); onAdded(); } catch (e) { toast(e.message, 'error'); }
   };
+  // Forgetting also stops Mail suggesting them (Include …?) until you write to them again.
+  const forget = async (c) => { try { await del(`/contacts/frequent?email=${encodeURIComponent(c.email)}`); toast(`${c.name || c.email} forgotten`); load(); } catch (e) { toast(e.message, 'error'); } };
+  const forgetAll = async () => {
+    if (!window.confirm('Forget everyone you\'ve emailed? This list empties, and Mail stops suggesting people to include until it learns again from what you send.')) return;
+    try { await del('/contacts/frequent'); toast('Forgotten'); load(); } catch (e) { toast(e.message, 'error'); }
+  };
   return (
+    <>
+    <div className="row" style={{ justifyContent: 'space-between', marginBottom: 6 }}>
+      <p className="muted small" style={{ margin: 0 }}>From what you've sent in Workspace in the last six months; Mail also uses it to suggest who to include.</p>
+      <button className="btn small" onClick={forgetAll}>Clear all</button>
+    </div>
     <table className="files" aria-label="Frequently contacted">
       <thead><tr><th>Name</th><th className="hide-sm">Email</th><th className="hide-sm">Emailed</th><th aria-label="Actions" /></tr></thead>
       <tbody>
@@ -405,12 +416,14 @@ function Frequent({ filter, onAdded }) {
               <div className="row end" style={{ gap: 6, alignItems: 'center' }}>
                 <button className="btn small" onClick={() => navigate(`/mail?compose=${encodeURIComponent(formatAddress({ name: c.name, email: c.email }))}`)}><Icon name="mail" size={16} /> Email</button>
                 {!c.contact_id && !c.colleague_id && <button className="btn small" onClick={() => add(c)}>Add to contacts</button>}
+                <button className="icon-btn" aria-label={`Forget ${c.name || c.email}`} title="Forget: leave them out of Frequent and Mail's suggestions" onClick={() => forget(c)}><Icon name="close" size={18} /></button>
               </div>
             </td>
           </tr>
         ))}
       </tbody>
     </table>
+    </>
   );
 }
 
