@@ -11223,11 +11223,11 @@ test('chat after hours: a direct message with a colleague whose day is over says
   const dm = (await a('POST', '/api/chat/dm', { user_id: bid })).body.id;
   assert.deepEqual((await a('GET', `/api/chat/channels/${dm}/after-hours`)).body, [], 'no hours of their own');
   const today = new Date().getUTCDay();
-  await b('PUT', '/api/users/me/work-hours', { hours: { days: [0, 1, 2, 3, 4, 5, 6].filter((d) => d !== today), start: 0, end: 1440, tz: 'UTC' } });
+  await b('PUT', '/api/users/me/work-hours', { hours: { days: [0, 1, 2, 3, 4, 5, 6].filter((d) => d !== today && d !== (today + 1) % 7), start: 0, end: 1440, tz: 'UTC' } });
   const r = (await a('GET', `/api/chat/channels/${dm}/after-hours`)).body;
   assert.equal(r.length, 1);
   assert.equal(r[0].name, 'After Ben');
-  const tomorrow = new Date(); tomorrow.setUTCHours(24, 0, 0, 0);
+  const tomorrow = new Date(); tomorrow.setUTCHours(48, 0, 0, 0); // the day after tomorrow (today and tomorrow are off)
   assert.equal(r[0].next, tomorrow.getTime());
   assert.deepEqual((await b('GET', `/api/chat/channels/${dm}/after-hours`)).body, [], 'Ann has no hours set');
   const ch = (await a('POST', '/api/chat/channels', { name: 'after-hours-room' })).body.id;
@@ -11324,11 +11324,11 @@ test('availability: a colleague away (vacation reply on) and outside their worki
   const bid = (await login(b, 'avlb@acme.com')).id;
   assert.deepEqual((await a('GET', `/api/users/${bid}/availability`)).body, { away: null, after: null });
   const today = new Date().getUTCDay();
-  await b('PUT', '/api/users/me/work-hours', { hours: { days: [0, 1, 2, 3, 4, 5, 6].filter((d) => d !== today), start: 0, end: 1440, tz: 'UTC' } });
+  await b('PUT', '/api/users/me/work-hours', { hours: { days: [0, 1, 2, 3, 4, 5, 6].filter((d) => d !== today && d !== (today + 1) % 7), start: 0, end: 1440, tz: 'UTC' } });
   q(`INSERT INTO vacations (user_id, enabled, subject, body, start_date, end_date, updated_at) VALUES (?, 1, 'Off', 'x', NULL, NULL, 0)`).run(bid);
   const r = (await a('GET', `/api/users/${bid}/availability`)).body;
   assert.deepEqual(r.away, { until: null, subject: 'Off' });
-  const tomorrow = new Date(); tomorrow.setUTCHours(24, 0, 0, 0);
+  const tomorrow = new Date(); tomorrow.setUTCHours(48, 0, 0, 0); // the day after tomorrow (today and tomorrow are off)
   assert.equal(r.after.next, tomorrow.getTime());
   assert.ok((await owner('POST', '/api/orgs', { name: 'Avail Co', domain: 'availco.example', admin_name: 'Ava Co', admin_local: 'ava', admin_password: 'password123' })).body.id);
   const g = client();
@@ -12855,4 +12855,25 @@ test('takeout: bringing data back in also brings mail filters, email templates a
   assert.equal(JSON.parse(q('SELECT rules FROM mail_rules WHERE user_id = ?').get(bid).rules)[0].name, 'Receipts');
   const again = (await up()).body;
   assert.deepEqual([again.filters.added, again.templates.added, again.event_templates.added], [0, 0, 0], 'nothing twice');
+});
+
+test('takeout: bringing data back in sets your signature when you have none (to your address here); never replaces one', async () => {
+  const a = client(), b = client(), c = client();
+  for (const [x, local] of [[a, 'sigr1'], [b, 'sigr2'], [c, 'sigr3']]) {
+    const made = await owner('POST', '/api/users', { local, domain: 'acme.com', name: local, password: 'password123' });
+    assert.equal(made.status, 201, JSON.stringify(made.body));
+    await login(x, `${local}@acme.com`);
+  }
+  const { q } = await import('../src/db.js');
+  const id = (e) => q('SELECT id FROM users WHERE email = ?').get(e).id;
+  q('INSERT INTO identity_signatures (user_id, address, html, on_new, on_reply, updated_at) VALUES (?, ?, ?, 1, 1, ?)').run(id('sigr1@acme.com'), 'sigr1@acme.com', '<p>— Sig One, Acme</p>', Date.now());
+  const zip = (await a('GET', '/api/takeout', undefined, { binary: true })).body;
+  const up = (who) => who('POST', '/api/takeout/restore?tz=UTC', zip, { raw: true, headers: { 'content-type': 'application/zip' } });
+  const r = (await up(b)).body;
+  assert.deepEqual(r.signatures, { added: 1, skipped: 0 });
+  assert.equal(q('SELECT html FROM identity_signatures WHERE user_id = ? AND address = ?').get(id('sigr2@acme.com'), 'sigr2@acme.com')?.html, '<p>— Sig One, Acme</p>', 'on the address you have here');
+  assert.deepEqual((await up(b)).body.signatures, { added: 0, skipped: 1 }, 'not twice');
+  q('INSERT INTO identity_signatures (user_id, address, html, on_new, on_reply, updated_at) VALUES (?, ?, ?, 1, 1, ?)').run(id('sigr3@acme.com'), 'sigr3@acme.com', '<p>Mine</p>', Date.now());
+  assert.deepEqual((await up(c)).body.signatures, { added: 0, skipped: 1 });
+  assert.equal(q('SELECT html FROM identity_signatures WHERE user_id = ?').get(id('sigr3@acme.com')).html, '<p>Mine</p>', 'yours stays');
 });
