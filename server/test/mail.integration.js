@@ -2465,3 +2465,21 @@ test('full mailbox: writing to a colleague whose mailbox the hourly check found 
     await olivia('PATCH', `/api/users/${bobId}`, { mail_quota_mb: 0 });
   }
 });
+
+test('vacation reply: also Out of office in the calendar for the same days; moved with it, gone when it is off', async () => {
+  const v = (await bob('PUT', '/api/mail/vacation', { enabled: true, subject: 'Out of office', body: 'Away.', start_date: '2031-07-07', end_date: '2031-07-11', calendar: true, tz: 'Europe/Berlin' })).body;
+  assert.equal(v.calendar, true);
+  const find = async () => (await bob('GET', `/api/events?from=${Date.parse('2031-07-01')}&to=${Date.parse('2031-07-31')}`)).body.filter((e) => e.kind === 'ooo');
+  let ev = await find();
+  assert.equal(ev.length, 1);
+  assert.equal(ev[0].all_day, 1);
+  assert.equal(ev[0].start, Date.parse('2031-07-06T22:00:00Z'), 'midnight in Berlin');
+  assert.equal(ev[0].end, Date.parse('2031-07-11T22:00:00Z') - 1, 'to the end of the last day');
+  assert.equal((await bob('PUT', '/api/mail/vacation', { enabled: true, subject: 'Out of office', body: 'Away.', start_date: '2031-07-14', end_date: '2031-07-15', tz: 'Europe/Berlin' })).body.calendar, true, 'kept on');
+  ev = await find();
+  assert.equal(ev.length, 1, 'moved, not a second one');
+  assert.equal(ev[0].start, Date.parse('2031-07-13T22:00:00Z'));
+  assert.equal((await bob('PUT', '/api/mail/vacation', { enabled: true, body: 'x', calendar: true })).status, 400, 'needs a last day');
+  assert.equal((await bob('PUT', '/api/mail/vacation', { enabled: false, body: 'x' })).body.calendar, false);
+  assert.deepEqual(await find(), [], 'gone with the reply');
+});

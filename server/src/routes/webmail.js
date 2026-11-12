@@ -54,6 +54,7 @@ import { calendarPartOf, readInvite, replyIcs, eventForInvite, saveInvite, readR
 import { recordReply } from '../mail/invitereply.js';
 import { setVacation } from '../mail/vacation.js';
 import { touch as eventsChanged } from './calendar.js';
+import { syncAwayEvent } from '../mail/vacation.js';
 
 // Saved searches (Mail sidebar → Searches).
 q(`CREATE TABLE IF NOT EXISTS mail_searches (
@@ -553,6 +554,14 @@ export default function webmailRoutes() {
     const body = typeof b.body === 'string' ? b.body.slice(0, 5000) : '';
     if (b.enabled && !body.trim()) throw bad('Write the message people should receive');
     setVacation(req.user.id, { enabled: !!b.enabled, subject, body, start_date: start, end_date: end });
+    // Also (or no longer) Out of office in the calendar, for the same days. Kept in step while it's there.
+    const hadEvent = !!q('SELECT ooo_event_id FROM vacations WHERE user_id = ?').get(req.user.id)?.ooo_event_id;
+    const wantEvent = b.calendar === undefined ? hadEvent : !!b.calendar;
+    if (wantEvent && b.enabled && !end) throw bad('Choose a last day to mark it in your calendar');
+    if (wantEvent || hadEvent) {
+      syncAwayEvent(req.user.id, { on: wantEvent && !!b.enabled, start_date: start, end_date: end, title: subject === 'Out of office' ? 'Out of office' : subject.replace(/^Out of office:\s*/i, '') || 'Out of office', tz: b.tz || 'UTC' });
+      eventsChanged([req.user.id]);
+    }
     res.json(vacationOf(req.user.id));
   });
 
@@ -1926,6 +1935,9 @@ function vacationOf(userId) {
   // "active" = replying right now; "scheduled" = on, but the first day is still ahead.
   out.active = out.enabled && (!out.end_date || out.end_date >= today) && (!out.start_date || out.start_date <= today);
   out.scheduled = out.enabled && !!out.start_date && out.start_date > today;
+  // Out of office in the calendar for the same days (while that event is still there).
+  const ev = q("SELECT e.id FROM vacations v JOIN events e ON e.id = v.ooo_event_id AND e.kind = 'ooo' WHERE v.user_id = ?").get(userId);
+  out.calendar = !!ev;
   return out;
 }
 

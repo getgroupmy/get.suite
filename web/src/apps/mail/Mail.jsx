@@ -1756,7 +1756,7 @@ function VacationDialog({ onClose, onSaved }) {
       <form className="stack" onSubmit={async (e) => {
         e.preventDefault();
         if (e.target !== e.currentTarget) return; // a dialog opened from inside (see Compose's send)
-        try { const r = await put('/mail/vacation', v); toast(r.enabled ? 'Vacation reply saved' : 'Vacation reply off'); onSaved(r); }
+        try { const r = await put('/mail/vacation', { ...v, tz: Intl.DateTimeFormat().resolvedOptions().timeZone }); toast(r.enabled ? (r.calendar ? 'Vacation reply saved, and you’re Out of office in your calendar' : 'Vacation reply saved') : 'Vacation reply off'); onSaved(r); }
         catch (err) { setError(err.message); }
       }}>
         <label className="check"><input type="checkbox" checked={v.enabled} onChange={set('enabled')} /> Send an automatic reply while I'm away</label>
@@ -1764,6 +1764,8 @@ function VacationDialog({ onClose, onSaved }) {
           <label className="field"><span>First day (optional)</span><input type="date" value={v.start_date} onChange={set('start_date')} /></label>
           <label className="field"><span>Last day (optional)</span><input type="date" value={v.end_date} min={v.start_date || undefined} onChange={set('end_date')} /></label>
         </div>
+        <label className="check"><input type="checkbox" checked={!!v.calendar} onChange={set('calendar')} disabled={!v.end_date} /> Also mark me Out of office in my calendar for these days</label>
+        {!v.end_date && <p className="muted small" style={{ margin: 0 }}>Choose a last day to mark it in your calendar too (invitations for that time are then declined for you).</p>}
         <label className="field"><span>Subject</span><input value={v.subject} onChange={set('subject')} maxLength={200} /></label>
         <label className="field"><span>Message</span><textarea rows={6} value={v.body} onChange={set('body')} required={v.enabled}
           placeholder="I'm out of the office until Monday and will reply when I'm back." /></label>
